@@ -15,6 +15,7 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import { gardenSkyToday, gardenSolarElevationAt, gardenSolarHourAngle } from "../systems/sky-almanac";
 import {
   GARDEN_CRAG_CROWN_Y,
+  GARDEN_CHASEKI_ANCHORS,
   GARDEN_QUAY_STAIR_HEAD,
   GARDEN_QUAY_STAIR_LANDING,
   islandTerrainHeight,
@@ -64,12 +65,6 @@ const STAIR_PACE = 0.45;
 /** How long he stands at each lantern he lights. */
 const LIGHTING_PAUSE_SECONDS = 3.2;
 
-/** Island-root-local chaseki pose (garden-island `createObservatoryPavilion`). */
-const CHASEKI = { x: 4.4, z: 2.35, yaw: 0.22 } as const;
-const chasekiLocal = (lx: number, lz: number) => ({
-  x: CHASEKI.x + lx * Math.cos(CHASEKI.yaw) + lz * Math.sin(CHASEKI.yaw),
-  z: CHASEKI.z - lx * Math.sin(CHASEKI.yaw) + lz * Math.cos(CHASEKI.yaw),
-});
 
 interface WalkPoint { x: number; y: number; z: number }
 interface WalkStep {
@@ -80,6 +75,8 @@ interface WalkStep {
   to: WalkPoint;
   /** Standing still (lighting a lantern) rather than walking. */
   pause: boolean;
+  /** Sample the headland continuously on gravel, not a chord over its shoulders. */
+  terrain?: boolean;
 }
 
 export interface GardenKeeperWalk {
@@ -94,12 +91,13 @@ export interface GardenKeeperWalk {
 /** The authored walk, island-root-local, timed from the path's own lengths. */
 export function gardenKeeperWalk(): GardenKeeperWalk {
   const onGround = (x: number, z: number): WalkPoint => ({ x, y: islandTerrainHeight(x, z), z });
-  // Just off the hut's stone base, before its door.
-  const door = chasekiLocal(0, 1.35);
-  const underEave = chasekiLocal(1.35, 1.65);
+  const anchors = GARDEN_CHASEKI_ANCHORS;
   const path = [
-    onGround(door.x, door.z),
-    onGround(underEave.x, underEave.z),
+    anchors.door,
+    anchors.deck,
+    anchors.threshold,
+    onGround(anchors.approach.x, anchors.approach.z),
+    onGround(anchors.underEave.x, anchors.underEave.z),
     onGround(7.8, 0.9),
     onGround(10.8, 0.2),
     onGround(12.6, -2.2),
@@ -110,23 +108,25 @@ export function gardenKeeperWalk(): GardenKeeperWalk {
   const steps: WalkStep[] = [];
   let clock = GARDEN_KEEPER_FADE_SECONDS;
   steps.push({ end: clock, from: path[0]!, pause: true, start: 0, to: path[0]! });
-  const walk = (from: WalkPoint, to: WalkPoint, pace: number) => {
+  const walk = (from: WalkPoint, to: WalkPoint, pace: number, terrain = false) => {
     const span = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) / pace;
-    steps.push({ end: clock + span, from, pause: false, start: clock, to });
+    steps.push({ end: clock + span, from, pause: false, start: clock, to, terrain });
     clock += span;
   };
   const pause = (at: WalkPoint) => {
     steps.push({ end: clock + LIGHTING_PAUSE_SECONDS, from: at, pause: true, start: clock, to: at });
     clock += LIGHTING_PAUSE_SECONDS;
   };
-  walk(path[0]!, path[1]!, PATH_PACE);
+  for (let index = 1; index <= 4; index += 1) {
+    walk(path[index - 1]!, path[index]!, PATH_PACE, index === 4);
+  }
   const chasekiLitSeconds = clock;
-  pause(path[1]!);
-  for (let index = 2; index <= 5; index += 1) walk(path[index - 1]!, path[index]!, PATH_PACE);
+  pause(path[4]!);
+  for (let index = 5; index <= 8; index += 1) walk(path[index - 1]!, path[index]!, PATH_PACE, true);
   const landingLitSeconds = clock;
-  pause(path[5]!);
-  walk(path[5]!, path[6]!, PATH_PACE);
-  walk(path[6]!, head, STAIR_PACE);
+  pause(path[8]!);
+  walk(path[8]!, path[9]!, PATH_PACE, true);
+  walk(path[9]!, head, STAIR_PACE);
   return { chasekiLitSeconds, gateSeconds: clock, landingLitSeconds, steps };
 }
 
@@ -264,6 +264,7 @@ export function createGardenKeeper(options: { register?: boolean } = {}): Garden
       step.from.y + (step.to.y - step.from.y) * t,
       step.from.z + (step.to.z - step.from.z) * t,
     );
+    if (step.terrain) figure.position.y = islandTerrainHeight(figure.position.x, figure.position.z);
     if (!step.pause) figure.rotation.y = Math.atan2(step.to.x - step.from.x, step.to.z - step.from.z);
   };
 

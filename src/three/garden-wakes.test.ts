@@ -3,6 +3,8 @@ import {
   InstancedMesh,
   MaxEquation,
   Mesh,
+  Vector4,
+  WebGLRenderTarget,
   type Scene,
   type ShaderMaterial,
 } from "three";
@@ -40,11 +42,94 @@ function rendererStub(onRender?: (scene: Scene, autoClear: boolean) => void) {
     getClearAlpha: vi.fn(() => 1),
     getClearColor: vi.fn((color: Color) => color.setRGB(0, 0, 0)),
     getRenderTarget: vi.fn(() => null),
+    getActiveCubeFace: vi.fn(() => 0),
+    getActiveMipmapLevel: vi.fn(() => 0),
     render: vi.fn((scene: Scene) => onRender?.(scene, autoClear)),
     setClearColor: vi.fn(),
     setRenderTarget: vi.fn(),
   };
 }
+
+describe("wake offscreen renderer ownership", () => {
+  it.each(["clear", "feedback", "stamp", "static-contact"] as const)(
+    "restores target, face, mip, viewport and scissor after %s succeeds or throws",
+    (pass) => {
+      for (const fails of [false, true]) {
+        const previousTarget = new WebGLRenderTarget(80, 90);
+        previousTarget.viewport.set(5, 9, 41, 47);
+        previousTarget.scissor.set(7, 13, 29, 31);
+        previousTarget.scissorTest = true;
+        let target: WebGLRenderTarget | null = previousTarget;
+        let face = 2;
+        let mip = 3;
+        const viewport = previousTarget.viewport.clone();
+        const scissor = previousTarget.scissor.clone();
+        let scissorTest = true;
+        const color = new Color("#123456");
+        let alpha = 0.7;
+        const renderer = rendererStub();
+        renderer.autoClear = false;
+        renderer.getRenderTarget.mockImplementation(() => target as never);
+        renderer.getActiveCubeFace.mockImplementation(() => face);
+        renderer.getActiveMipmapLevel.mockImplementation(() => mip);
+        renderer.getClearColor.mockImplementation((out) => out.copy(color));
+        renderer.getClearAlpha.mockImplementation(() => alpha);
+        renderer.setClearColor.mockImplementation((next: Color | number, nextAlpha: number) => {
+          color.set(next);
+          alpha = nextAlpha;
+        });
+        // Three's setRenderTarget owns the active viewport/scissor restoration.
+        renderer.setRenderTarget.mockImplementation((next: WebGLRenderTarget, nextFace = 0, nextMip = 0) => {
+          target = next;
+          face = nextFace;
+          mip = nextMip;
+          viewport.copy(next.viewport);
+          scissor.copy(next.scissor);
+          scissorTest = next.scissorTest;
+        });
+        const wakes = createGardenWakes(renderer as never);
+        wakes.update({ ...FRAME, reducedMotion: pass === "static-contact" });
+        if (pass === "clear") {
+          wakes.stamp(47.6, 38.9, 1, 0, 0.9, 1);
+          wakes.update(FRAME);
+        } else if (pass === "static-contact") {
+          wakes.stampContact(47.6, 38.9, 1, 0, 3, 1, 1);
+        } else {
+          wakes.stamp(47.6, 38.9, 1, 0, 0.9, 1);
+        }
+        renderer.render.mockClear();
+        if (fails) {
+          const fail = () => { throw new Error("offscreen failed"); };
+          if (pass === "clear") renderer.clear.mockImplementationOnce(fail);
+          else if (pass === "stamp") renderer.render.mockImplementationOnce(() => {}).mockImplementationOnce(fail);
+          else renderer.render.mockImplementationOnce(fail);
+        }
+        const paint = () => {
+          if (pass === "clear") wakes.reset();
+          else if (pass === "static-contact") wakes.renderStaticContact();
+          else wakes.update(FRAME);
+        };
+        if (fails) expect(paint).toThrow("offscreen failed");
+        else paint();
+        expect(target).toBe(previousTarget);
+        expect(face).toBe(2);
+        expect(mip).toBe(3);
+        expect(viewport).toEqual(new Vector4(5, 9, 41, 47));
+        expect(scissor).toEqual(new Vector4(7, 13, 29, 31));
+        expect(scissorTest).toBe(true);
+        expect(renderer.autoClear).toBe(false);
+        expect(color.getHexString()).toBe("123456");
+        expect(alpha).toBe(0.7);
+        if (fails && pass === "static-contact") {
+          paint();
+          expect(renderer.render).toHaveBeenCalledTimes(2);
+        }
+        wakes.dispose();
+        previousTarget.dispose();
+      }
+    },
+  );
+});
 
 describe("planWakeWindow", () => {
   it("covers the view with margin, clamped to the texel budget", () => {
@@ -111,6 +196,54 @@ describe("garden wakes stamps", () => {
       wakes.stamp(47.6, 38.9, 1, 0, 1, 1);
     }
     expect(wakes.stampCount).toBe(WAKE_MAX_STAMPS);
+    wakes.dispose();
+  });
+
+  it("separates current contact B from mover history R/G and preserves ordered raw intensity", () => {
+    let stamp: InstancedMesh | undefined;
+    const renderer = rendererStub((scene) => {
+      stamp = scene.children.find((child) => child instanceof InstancedMesh) as InstancedMesh;
+    });
+    const wakes = createGardenWakes(renderer as never);
+    wakes.update(FRAME);
+    wakes.stampContact(47.6, 38.9, 1, 0, 3, 1, 1);
+    for (const strength of [0.1, 0.3, 0.6, 1]) {
+      wakes.stamp(47.6, 38.9, 1, 0, strength, 3, 1, strength);
+    }
+    wakes.update(FRAME);
+    const params = stamp!.geometry.getAttribute("aParam");
+    expect(params.getX(0)).toBe(-1);
+    expect(params.getW(0)).toBe(0);
+    const shader = (stamp!.material as ShaderMaterial).fragmentShader;
+    const contactBranch = shader.slice(shader.indexOf("if (vParam.x < 0.0)"), shader.indexOf("float strength"));
+    expect(contactBranch).toContain("gl_FragColor = vec4(0.0, 0.0,");
+    expect(contactBranch).toContain("return;");
+    expect(shader).toContain("gl_FragColor = vec4(foam, lane * vParam.w, 0.0, 0.0)");
+    for (let index = 1; index <= 4; index += 1) {
+      expect(params.getX(index)).toBeCloseTo([0.1, 0.3, 0.6, 1][index - 1]!);
+      expect(params.getW(index)).toBe(params.getX(index));
+      if (index > 1) expect(params.getX(index)).toBeGreaterThan(params.getX(index - 1));
+    }
+    expect(shader).toContain("(bow + churn + arm) * strength");
+    expect(shader).toContain("(0.6 + 0.4 * strength)");
+    wakes.dispose();
+  });
+
+  it("keeps the contact bed continuous and limits texel-filtered arms without adding targets", () => {
+    let shader = "";
+    const wakes = createGardenWakes(rendererStub((scene) => {
+      const stamp = scene.children.find((child) => child instanceof InstancedMesh) as InstancedMesh;
+      shader = (stamp.material as ShaderMaterial).fragmentShader;
+    }) as never);
+    wakes.update(FRAME);
+    wakes.stampContact(47.6, 38.9, 1, 0, 3, 1, 1);
+    wakes.update(FRAME);
+    expect(shader).toContain("1.0 - min(edge, 0.45), 1.0 + edge * 0.25");
+    expect(shader).toContain("(0.075 / armWidth)");
+    expect(shader).toContain("float fromStem = halfLength - along");
+    for (const { texture } of wakes.getTextureManifest()) {
+      expect(texture.image).toMatchObject({ width: 512, height: 512 });
+    }
     wakes.dispose();
   });
 });
@@ -267,6 +400,25 @@ describe("garden wakes passes", () => {
     wakes.stampContact(47.6, 38.9, 1, 0, 3, 1, 1);
     wakes.renderStaticContact();
     expect(renderer.render).toHaveBeenCalledTimes(2);
+    wakes.dispose();
+  });
+
+  it("rejects historical stamps during reduced contact rendering and clears removed hulls", () => {
+    const renderer = rendererStub();
+    const wakes = createGardenWakes(renderer as never);
+    wakes.update({ ...FRAME, reducedMotion: true });
+    wakes.stamp(47.6, 38.9, 1, 0, 1, 3, 1, 1);
+    expect(wakes.stampCount).toBe(0);
+    wakes.stampContact(47.6, 38.9, 1, 0, 3, 1, 1);
+    wakes.renderStaticContact();
+    renderer.clear.mockClear();
+    wakes.update({ ...FRAME, reducedMotion: true });
+    wakes.renderStaticContact();
+    expect(renderer.clear).toHaveBeenCalledTimes(2);
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+    wakes.update({ ...FRAME, reducedMotion: true });
+    wakes.renderStaticContact();
+    expect(renderer.clear).toHaveBeenCalledTimes(2);
     wakes.dispose();
   });
 

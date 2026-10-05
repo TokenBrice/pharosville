@@ -7,7 +7,7 @@ import { defaultCamera, groundPointUnder, SELECTION_SHIP_ANCHOR, withoutRest } f
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { cameraAtRest, cameraView, screenToIso, tileToIso, TILE_SCALE, worldToScreen, type IsoCamera } from "../systems/projection";
-import { GARDEN_POSTCARDS } from "../systems/postcards";
+import { GARDEN_POSTCARDS, postcardCamera } from "../systems/postcards";
 import {
   observeTourPoseFromCamera,
   observeTourPoseToCamera,
@@ -77,7 +77,7 @@ describe("wheel camera helpers", () => {
 });
 
 describe("camera intent helpers", () => {
-  it("wanders through the postcard book on request and returns to the seat on any other input", () => {
+  it("walks next/previous, holds through chrome input, and returns inspection locally; Home alone returns to the seat", () => {
     const viewport = { x: 1200, y: 640 };
     const { result } = renderHook(() => {
       const canvas = useCanvasResizeAndCamera(makeCanvasInput());
@@ -88,58 +88,130 @@ describe("camera intent helpers", () => {
     const settle = (from: number) => {
       let landed = false;
       act(() => {
-        for (let frame = 0; frame < 600 && !landed; frame += 1) {
-          landed = !result.current.stepCamera(from + frame * 16.67, new Map()).cameraIntentActive;
-        }
+        for (let frame = 0; frame < 600 && !landed; frame += 1) landed = !result.current.stepCamera(from + frame * 16.67, new Map()).cameraIntentActive;
       });
-      return landed;
+      expect(landed).toBe(true);
     };
-    act(() => {
-      result.current.canvasSizeRef.current = viewport;
-      result.current.setCamera(rest);
-    });
-    // Nothing tours by itself (K44): minutes of frames leave the seat untouched.
+    act(() => { result.current.setCamera(rest); });
     act(() => { for (let t = 1_000; t < 600_000; t += 60_000) result.current.stepCamera(t, new Map()); });
     expect(result.current.cameraRef.current).toEqual(rest);
-
-    let card: ReturnType<typeof result.current.wander> = null;
-    act(() => {
-      result.current.canvasSizeRef.current = viewport;
-      card = result.current.wander();
-    });
-    expect(card).toMatchObject({ index: 0, title: GARDEN_POSTCARDS[0]!.title });
-    expect(settle(10_000)).toBe(true);
+    act(() => { result.current.strollNext(); });
+    settle(10_000);
     const first = result.current.cameraRef.current!;
     expect(first.shot?.view.eye).toEqual(GARDEN_POSTCARDS[0]!.eye);
     expect(first.rest).toBeUndefined();
-    // It holds: later frames do not move it.
-    act(() => { result.current.stepCamera(200_000, new Map()); });
-    expect(result.current.cameraRef.current).toEqual(first);
-
+    const chrome = document.createElement("button");
     act(() => {
-      result.current.canvasSizeRef.current = viewport;
-      card = result.current.wander();
+      chrome.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab" }));
+      result.current.stepCamera(200_000, new Map());
     });
-    expect(card).toMatchObject({ index: 1 });
-    expect(settle(300_000)).toBe(true);
-    expect(result.current.cameraRef.current!.shot?.view.eye).toEqual(GARDEN_POSTCARDS[1]!.eye);
-
-    // Any other input glides home and is not also acted on.
-    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" })); });
-    expect(result.current.wanderIndex).toBeNull();
-    expect(settle(400_000)).toBe(true);
+    expect(result.current.cameraRef.current).toEqual(first);
+    expect(result.current.strollIndex).toBe(0);
+    act(() => { result.current.strollNext(); });
+    settle(300_000);
+    expect(result.current.strollIndex).toBe(1);
+    act(() => { result.current.strollPrevious(); });
+    settle(400_000);
+    expect(result.current.cameraRef.current!.shot?.view.eye).toEqual(first.shot!.view.eye);
+    const local = result.current.cameraRef.current!;
+    let saved: IsoCamera | null = null;
+    act(() => {
+      saved = result.current.focusSelection(SHIP_SUBJECT);
+    });
+    expect(saved).toEqual(local);
+    settle(500_000);
+    act(() => { result.current.returnFromSelection(saved!); });
+    settle(600_000);
+    expect(result.current.cameraRef.current).toEqual(local);
+    expect(result.current.strollIndex).toBe(0);
+    act(() => { result.current.handleResetView(); });
+    settle(700_000);
     expect(result.current.cameraRef.current).toEqual(rest);
+    expect(result.current.strollIndex).toBeNull();
   });
 
-  it("cuts straight to a postcard under reduced motion", () => {
+  it("cuts straight to stations and keeps their context under reduced motion", () => {
     const viewport = { x: 1600, y: 1000 };
-    const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput({ reducedMotion: true })));
+    const { result } = renderHook(() => {
+      const canvas = useCanvasResizeAndCamera(makeCanvasInput({ reducedMotion: true }));
+      useLayoutEffect(() => { canvas.canvasSizeRef.current = viewport; });
+      return canvas;
+    });
     act(() => {
-      result.current.canvasSizeRef.current = viewport;
       result.current.setCamera(defaultCamera({ width: viewport.x, height: viewport.y, map: world.map }));
-      result.current.wander();
+      result.current.strollNext();
     });
     expect(result.current.cameraRef.current!.shot?.view.eye).toEqual(GARDEN_POSTCARDS[0]!.eye);
+    expect(result.current.strollIndex).toBe(0);
+    act(() => { result.current.strollPrevious(); });
+    expect(result.current.strollIndex).toBe(5);
+    expect(result.current.stepCamera(1_000, new Map()).cameraIntentActive).toBe(false);
+  });
+
+  it("interrupts a station path at the displayed pose without landing on its destination", () => {
+    const viewport = { x: 1200, y: 640 };
+    const { result } = renderHook(() => {
+      const canvas = useCanvasResizeAndCamera(makeCanvasInput());
+      useLayoutEffect(() => { canvas.canvasSizeRef.current = viewport; });
+      return canvas;
+    });
+    act(() => {
+      result.current.setCamera(defaultCamera({ width: viewport.x, height: viewport.y, map: world.map }));
+      result.current.strollNext();
+      result.current.stepCamera(1_000, new Map());
+      result.current.stepCamera(2_000, new Map());
+    });
+    const displayed = result.current.cameraRef.current!;
+    expect(displayed.shot!.view.eye).not.toEqual(GARDEN_POSTCARDS[0]!.eye);
+    act(() => {
+      result.current.cancelCameraIntent();
+      result.current.stepCamera(10_000, new Map());
+    });
+    expect(result.current.cameraRef.current).toEqual(displayed);
+    expect(result.current.strollIndex).toBe(0);
+  });
+
+  it("re-solves station composition on resize without moving its local eye", () => {
+    const before = { x: 1200, y: 640 }, after = { x: 720, y: 900 };
+    for (const station of GARDEN_POSTCARDS) {
+      const camera = postcardCamera(station, { offsetX: 0, offsetY: 0, zoom: 1 }, before);
+      const resized = resizeCamera(camera, after, world.map);
+      expect(resized.shot!.view.eye).toEqual(camera.shot!.view.eye);
+      const screen = worldToScreen(station.subject, resized, after);
+      expect(screen.x / after.x).toBeCloseTo(station.anchor.x, 6);
+      expect(screen.y / after.y).toBeCloseTo(station.anchor.y, 6);
+    }
+  });
+
+  it("Escape closes inspection to the saved local pose instead of returning Home", () => {
+    const viewport = { x: 1200, y: 640 };
+    let selected = false;
+    let saved: IsoCamera | null = null;
+    const close = vi.fn();
+    const { result } = renderHook(() => {
+      const canvas = useCanvasResizeAndCamera(makeCanvasInput({ reducedMotion: true, hasSelection: () => selected, onClearSelection: close }));
+      useLayoutEffect(() => { canvas.canvasSizeRef.current = viewport; });
+      return canvas;
+    });
+    close.mockImplementation(() => {
+      selected = false;
+      result.current.returnFromSelection(saved!);
+    });
+    act(() => {
+      result.current.setCamera(defaultCamera({ width: viewport.x, height: viewport.y, map: world.map }));
+      result.current.strollNext();
+      result.current.handleToolbarPan({ x: 1, y: 0 });
+      saved = result.current.focusSelection(SHIP_SUBJECT);
+      selected = true;
+    });
+    act(() => {
+      result.current.handleKeyDown({ key: "Escape", target: document.createElement("main") } as unknown as ReactKeyboardEvent<HTMLElement>);
+    });
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(result.current.cameraRef.current).toEqual(saved);
+    expect(result.current.strollIndex).toBe(0);
+    expect(cameraAtRest(result.current.cameraRef.current)).toBe(false);
   });
 
   it("places a voyage ship on the selection anchor, mirrored when it heads left", () => {
@@ -156,25 +228,16 @@ describe("camera intent helpers", () => {
     }
   });
 
-  it("holds the completed arrival destination through subsequent camera frames", () => {
+  it("shows the complete rest immediately and holds it without an intro clock", () => {
     const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
     const viewport = { x: 1200, y: 640 };
     const destination = defaultCamera({ width: viewport.x, height: viewport.y, map: world.map });
-    const onComplete = vi.fn();
     act(() => {
       result.current.canvasSizeRef.current = viewport;
       result.current.setCamera(destination);
-      result.current.startArrival(onComplete);
-      result.current.stepCamera(1_000, new Map());
     });
-    // K17: the arrival opens under the rest ShotSpec, the eye 3 u lower in thick air.
-    const opening = result.current.cameraRef.current!;
-    expect(opening.rest).toEqual(destination.rest);
-    expect(opening.shot?.view.eye.y).toBeCloseTo(destination.rest!.view.eye.y - 3, 9);
-    act(() => { result.current.stepCamera(10_001, new Map()); });
     expect(result.current.cameraRef.current).toEqual(destination);
-    expect(onComplete).toHaveBeenCalledTimes(1);
-    for (const time of [10_017, 10_033, 11_000, 15_000]) {
+    for (const time of [0, 16, 200, 1_000, 9_000]) {
       act(() => {
         const frame = result.current.stepCamera(time, new Map());
         expect(frame.camera).toEqual(destination);
@@ -182,26 +245,31 @@ describe("camera intent helpers", () => {
         expect(frame.cameraIntentActive).toBe(false);
       });
     }
-    expect(onComplete).toHaveBeenCalledTimes(1);
   });
 
-  it("lands a resized arrival on the new viewport's rest ShotSpec", () => {
+  it("re-solves the immediate rest at a resized viewport without an intro offset", () => {
+    const before = { x: 1200, y: 640 };
+    const after = { x: 720, y: 900 };
+    const rest = defaultCamera({ width: before.x, height: before.y, map: world.map });
+    const resized = resizeCamera(rest, after, world.map);
+    expect(resized).toEqual(defaultCamera({ width: after.x, height: after.y, map: world.map }));
+    expect(resized.shot).toBeUndefined();
+  });
+
+  it("accepts immediate camera input without a later intro reclaiming it", () => {
     const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
-    const onComplete = vi.fn();
+    const viewport = { x: 1200, y: 640 };
+    const rest = defaultCamera({ width: viewport.x, height: viewport.y, map: world.map });
     act(() => {
-      result.current.canvasSizeRef.current = { x: 1200, y: 640 };
-      result.current.setCamera(defaultCamera({ width: 1200, height: 640, map: world.map }));
-      result.current.startArrival(onComplete);
-      expect(result.current.stepCamera(1_000, new Map()).airVeil).toBeCloseTo(1.8, 9);
+      result.current.canvasSizeRef.current = viewport;
+      result.current.setCamera(rest);
+      result.current.handleToolbarPan({ x: 40, y: 0 });
+      for (let frame = 0; frame < 600; frame += 1) result.current.stepCamera(frame * 16.67, new Map());
     });
-    // A tall window mid-rise re-solves the seat (the tall eye), and the rise ends on it.
-    act(() => {
-      result.current.canvasSizeRef.current = { x: 720, y: 900 };
-      result.current.stepCamera(5_000, new Map());
-      result.current.stepCamera(10_001, new Map());
-    });
-    expect(result.current.cameraRef.current).toEqual(defaultCamera({ width: 720, height: 900, map: world.map }));
-    expect(onComplete).toHaveBeenCalledTimes(1);
+    const moved = result.current.cameraRef.current;
+    expect(moved).not.toEqual(rest);
+    act(() => { result.current.stepCamera(15_000, new Map()); });
+    expect(result.current.cameraRef.current).toEqual(moved);
   });
 
   it("damps camera intent toward the target without overshooting", () => {
@@ -233,25 +301,22 @@ describe("camera intent helpers", () => {
     expect(camera).toEqual(target);
   });
 
-  it("glides a selection on an eased clock: held, no first-frame jump, panel at 70 %, exact landing", () => {
-    const onReveal = vi.fn();
+  it("glides a selection on an eased clock: held, no first-frame jump, exact landing independent of DOM disclosure", () => {
     const viewport = { x: 800, y: 600 };
     const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
     act(() => {
       result.current.canvasSizeRef.current = viewport;
       result.current.setCamera(defaultCamera({ height: viewport.y, map: world.map, width: viewport.x }));
-      result.current.focusSelection(SHIP_SUBJECT, onReveal);
+      result.current.focusSelection(SHIP_SUBJECT);
     });
     const eyes: { t: number; x: number; y: number; z: number }[] = [];
     let landedAt: number | null = null;
-    let revealedAt: number | null = null;
     act(() => {
       for (let frame = 0; frame <= 240 && landedAt === null; frame += 1) {
         const t = frame * 1000 / 60;
         const step = result.current.stepCamera(1_000 + t, new Map());
         const eye = cameraView(step.camera!, viewport, { breath: false }).eye;
         eyes.push({ t, ...eye });
-        if (revealedAt === null && onReveal.mock.calls.length > 0) revealedAt = t;
         if (!step.cameraIntentActive) landedAt = t;
       }
     });
@@ -272,11 +337,6 @@ describe("camera intent helpers", () => {
     // Eases in and out: no frame at either end moves more than 1 % of the path.
     expect(moving[0]!.step / path).toBeLessThan(0.01);
     expect(moving[moving.length - 1]!.step / path).toBeLessThan(0.01);
-    // The panel opens at 70 % of the glide, not after it.
-    expect(onReveal).toHaveBeenCalledTimes(1);
-    const revealShare = (revealedAt! - moving[0]!.t) / (landedAt! - moving[0]!.t);
-    expect(revealShare).toBeGreaterThan(0.6);
-    expect(revealShare).toBeLessThan(0.8);
   });
 
   it("marks manual camera modes as follow-cancelling", () => {
@@ -351,7 +411,6 @@ describe("camera intent helpers", () => {
   });
 
   it("preserves a selection glide queued during the selection commit", () => {
-    const onReveal = vi.fn();
     const ship = world.ships[0]!;
     const input = makeCanvasInput();
     const { result, rerender } = renderHook(({ selected }: { selected: boolean }) => {
@@ -361,7 +420,7 @@ describe("camera intent helpers", () => {
       useLayoutEffect(() => {
         // Supply the measured viewport after render refreshes the size ref.
         canvasSizeRef.current = { x: 800, y: 600 };
-        if (selected) focusSelection(SHIP_SUBJECT, onReveal);
+        if (selected) focusSelection(SHIP_SUBJECT);
       }, [selected, focusSelection, canvasSizeRef]);
       return camera;
     }, { initialProps: { selected: false } });
@@ -375,24 +434,21 @@ describe("camera intent helpers", () => {
       result.current.stepCamera(1_400, new Map());
     });
     expect(result.current.cameraRef.current).not.toEqual(start);
-    expect(onReveal).not.toHaveBeenCalled();
     act(() => {
       for (let frame = 1; frame < 600; frame += 1) result.current.stepCamera(1_400 + frame * 16.67, new Map());
     });
-    expect(onReveal).toHaveBeenCalledTimes(1);
+    expect(result.current.cameraRef.current?.shot?.presence).toBe(1);
   });
 
-  it("cuts straight to the composed shot under reduced motion and opens the panel", () => {
-    const onReveal = vi.fn();
+  it("cuts straight to the composed shot under reduced motion", () => {
     const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput({ reducedMotion: true })));
     const viewport = { x: 800, y: 600 };
     const start = defaultCamera({ height: viewport.y, map: world.map, width: viewport.x });
     act(() => {
       result.current.canvasSizeRef.current = viewport;
       result.current.setCamera(start);
-      result.current.focusSelection(SHIP_SUBJECT, onReveal);
+      result.current.focusSelection(SHIP_SUBJECT);
     });
-    expect(onReveal).toHaveBeenCalledTimes(1);
     const camera = result.current.cameraRef.current!;
     expect(camera.shot?.presence).toBe(1);
     const subject = camera.shot!.subject!;
@@ -409,7 +465,7 @@ describe("camera intent helpers", () => {
     act(() => {
       result.current.canvasSizeRef.current = viewport;
       result.current.setCamera(rest);
-      returnTo = result.current.focusSelection(SHIP_SUBJECT, vi.fn());
+      returnTo = result.current.focusSelection(SHIP_SUBJECT);
       for (let frame = 0; frame < 240; frame += 1) result.current.stepCamera(1_000 + frame * 16.67, new Map());
     });
     expect(cameraAtRest(result.current.cameraRef.current)).toBe(false);
@@ -734,7 +790,7 @@ describe("world keyboard shortcuts", () => {
 
   it("clears the selection on Escape from the world itself", () => {
     const onClearSelection = vi.fn();
-    const result = renderWithCamera(makeCanvasInput({ onClearSelection }));
+    const result = renderWithCamera(makeCanvasInput({ onClearSelection, hasSelection: () => true }));
 
     act(() => {
       result.current.handleKeyDown(keyEvent("Escape", document.createElement("main")));

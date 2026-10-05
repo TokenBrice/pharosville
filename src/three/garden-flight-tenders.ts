@@ -162,7 +162,7 @@ export interface GardenFlightTenders {
    * per titan per frame, from the renderer, after the ship loop has written the
    * hull's transform from the shared motion sample.
    */
-  place(index: number, worldX: number, worldZ: number): void;
+  place(index: number, worldX: number, worldZ: number, visible?: boolean): void;
   /** Restamp every boat against the anchors, then one buffer upload. */
   flush(input: { detail: number; reducedMotion: boolean; timeSeconds: number }): void;
 }
@@ -176,9 +176,9 @@ export interface GardenFlightTenders {
  */
 export function flightTenderTitans<T extends { ship: { id: string; marketCapUsd: number } }>(
   ships: readonly T[],
-  issuance: { flightToQuality: boolean } | null | undefined,
+  issuance: { flightToQuality: boolean | null } | null | undefined,
 ): T[] {
-  if (!issuance?.flightToQuality) return [];
+  if (issuance?.flightToQuality !== true) return [];
   return [...ships]
     .sort((left, right) => (right.ship.marketCapUsd ?? 0) - (left.ship.marketCapUsd ?? 0)
       || left.ship.id.localeCompare(right.ship.id))
@@ -376,12 +376,14 @@ export function createGardenFlightTenders(
   // Anchors, written by the renderer each frame from the live hull transforms.
   // Preallocated so the frame path allocates nothing.
   const anchors = new Float32Array(specs.length * 2);
+  const visible = new Uint8Array(specs.length).fill(1);
   const dummy = new Object3D();
 
-  const place = (index: number, worldX: number, worldZ: number): void => {
+  const place = (index: number, worldX: number, worldZ: number, shown = true): void => {
     if (index < 0 || index >= specs.length) return;
     anchors[index * 2] = worldX;
     anchors[index * 2 + 1] = worldZ;
+    visible[index] = shown ? 1 : 0;
   };
 
   const flush = (
@@ -396,8 +398,10 @@ export function createGardenFlightTenders(
     const seconds = reducedMotion ? 0 : Math.max(0, timeSeconds);
     // Indexed rather than `for...of instances.entries()`: an iterator pair per
     // frame is the one allocation this path could still make.
+    let slot = 0;
     for (let index = 0; index < instances.length; index += 1) {
       const boat = instances[index]!;
+      if (!visible[boat.anchor]) continue;
       const onStation = boat.stand <= stationShare;
       const cycle = seconds / boat.period + boat.phase;
       const station = reducedMotion
@@ -421,8 +425,10 @@ export function createGardenFlightTenders(
       // is the gate the hull wakes already use, for the same reason.
       dummy.scale.setScalar(boat.size * shed);
       dummy.updateMatrix();
-      mesh.setMatrixAt(index, dummy.matrix);
+      mesh.setMatrixAt(slot++, dummy.matrix);
     }
+    mesh.count = slot;
+    mesh.visible = slot > 0;
     mesh.instanceMatrix.needsUpdate = true;
   };
 

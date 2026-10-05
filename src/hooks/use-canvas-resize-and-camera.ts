@@ -46,6 +46,7 @@ import {
   type MapLike,
   type IsoCamera,
   type ScreenPoint,
+  type WorldPoint,
 } from "../systems/projection";
 import type {
   PharosVilleWorld as PharosVilleWorldModel,
@@ -53,15 +54,16 @@ import type {
 } from "../systems/world-types";
 import { sameCamera, samePoint } from "../lib/camera-equality";
 import { isDialogEventTarget } from "./keyboard-event-target";
-import { sampleGardenArrival } from "../systems/garden-arrival";
-import { GARDEN_POSTCARDS, postcardCamera } from "../systems/postcards";
+import { GARDEN_POSTCARDS, postcardCamera, strollWaypoints } from "../systems/postcards";
 import {
   FOLLOW_INITIAL_DELTA_SECONDS,
   FOLLOW_MAX_DELTA_SECONDS,
   LIGHTHOUSE_LOOK_UP_SECONDS,
   REST_HAND_OFF_SECONDS,
-  SELECTION_GLIDE_HOLD_SECONDS,
-  SELECTION_PANEL_REVEAL_PROGRESS,
+  panStationCamera,
+  zoomStationCamera,
+  wheelZoomScaleFromDelta,
+  strollPathClear,
   SELECTION_RETURN_GLIDE_SCALE,
   advanceCameraIntent,
   cameraModeCancelsFollow,
@@ -77,21 +79,11 @@ import {
 import { firstPointer, pinchSnapshot } from "./pointer-gesture";
 import { useLatestRef } from "./use-latest-ref";
 
-/**
- * X6 Wander: while a postcard shows, these inputs return the view to the rest
- * seat instead of acting (K44: the idle state is the rest shot). Tab still
- * moves focus, and the Wander control itself moves on to the next card.
- */
-const WANDER_RETURN_EVENTS = ["pointerdown", "wheel", "keydown"] as const;
-/** Postcard glides: 2.4 s plus a second per 80 u of eye travel, at most 5 s. */
-const WANDER_GLIDE_MIN_SECONDS = 2.4;
-const WANDER_GLIDE_MAX_SECONDS = 5;
-const WANDER_GLIDE_UNITS_PER_SECOND = 80;
-/** Mid-glide lift: a fifth of the eye's travel, at most 36 u (above the crag, under the crown). */
-const WANDER_ARC_SHARE = 0.2;
-const WANDER_ARC_MAX = 36;
-/** The Wander shortcut (keyboard parity with the "wander" word). */
-export const WANDER_KEY = "w";
+/** An explicit station command travels on the route, never on an idle timer. */
+const STROLL_GLIDE_MIN_SECONDS = 2.4;
+const STROLL_GLIDE_MAX_SECONDS = 5;
+const STROLL_GLIDE_UNITS_PER_SECOND = 80;
+export const STROLL_KEY = "w";
 
 export {
   advanceCameraIntent,
@@ -132,8 +124,6 @@ export interface CameraStepResult {
   camera: IsoCamera | null;
   cameraChanged: boolean;
   cameraIntentActive: boolean;
-  /** K17 arrival air-veil multiplier for this frame; absent means the hour's own air (1). */
-  airVeil?: number;
 }
 
 export interface UseCanvasResizeAndCameraResult {
@@ -160,15 +150,9 @@ export interface UseCanvasResizeAndCameraResult {
   handleToolbarZoomOut: () => void;
   maximumRequestedDprRef: MutableRefObject<number>;
   moveCameraTo: (camera: IsoCamera) => void;
-  /**
-   * W1.7: glide to the subject's composed shot (a look-up for the lighthouse).
-   * `onReveal` fires at 70 % of the glide — at once under reduced motion or
-   * when there is nothing to move. Returns the camera the return glides back to.
-   */
-  focusSelection: (subject: CameraSelectionSubject, onReveal: () => void) => IsoCamera | null;
+  /** Frame a selection, saving the displayed station-local pose for its return. */
+  focusSelection: (subject: CameraSelectionSubject) => IsoCamera | null;
   returnFromSelection: (camera: IsoCamera) => void;
-  startArrival: (onComplete: () => void) => void;
-  skipArrival: () => void;
   setCamera: Dispatch<SetStateAction<IsoCamera | null>>;
   /**
    * Observe 2.0 (Phase 4): hand the camera to the cinematic tour. The hook
@@ -180,16 +164,9 @@ export interface UseCanvasResizeAndCameraResult {
     keyframes: readonly ObserveTourKeyframe[],
     onBeatChange?: (beatIndex: number | null) => void,
   ) => void;
-  /**
-   * X6: glide to the next postcard (the first from anywhere else) and hold
-   * there. Returns the card shown, or null when the canvas is not measured.
-   * Any other input — or `endWander` — glides back to the rest seat.
-   */
-  wander: () => { index: number; title: string } | null;
-  /** X6: leave the postcard for the rest seat (no-op when not wandering). */
-  endWander: () => void;
-  /** X6: the postcard the view holds (or is gliding to), else null. */
-  wanderIndex: number | null;
+  strollNext: () => { index: number; title: string } | null;
+  strollPrevious: () => { index: number; title: string } | null;
+  strollIndex: number | null;
   stopObserveTour: (options?: { easeBack?: boolean }) => void;
   stepCamera: (now: number, shipMotionSamples: ReadonlyMap<string, ShipMotionSample>) => CameraStepResult;
 }
@@ -227,24 +204,6 @@ export function voyageCamera(
 }
 
 /**
- * A ship under way is composed where it will be when the glide lands (hold +
- * the glide its unled shot would take), so it arrives on its third instead of
- * sliding off it during the move. Moored ships and docks are unchanged.
- */
-function leadSelectionSubject(subject: SelectionShotSubject, start: IsoCamera, viewport: ScreenPoint): SelectionShotSubject {
-  if (subject.kind !== "ship" || !subject.heading) return subject;
-  const heading = subject.heading;
-  if (!(Math.hypot(heading.x, heading.y) > 0)) return subject;
-  const unled = selectionShot(subject, viewport).camera;
-  const leadSeconds = SELECTION_GLIDE_HOLD_SECONDS + selectionGlideSeconds(glidePathPixels(
-    cameraView(start, viewport, { breath: false }),
-    cameraView(unled, viewport, { breath: false }),
-    viewport,
-  ));
-  return { ...subject, tile: { x: subject.tile.x + heading.x * leadSeconds, y: subject.tile.y + heading.y * leadSeconds } };
-}
-
-/**
  * The rest ShotSpec solved for `viewport`, or a clamped rig. A resize or a
  * selection return that catches a hand-off mid-ease lands on whichever end it
  * is nearer. (An interruption instead holds the blend exactly.) A composed
@@ -263,6 +222,8 @@ export function settleCamera(camera: IsoCamera, viewport: ScreenPoint, map: MapL
  * the new viewport (the tall window has its own seat eye).
  */
 export function resizeCamera(camera: IsoCamera, viewport: ScreenPoint, map: MapLike): IsoCamera {
+  const card = GARDEN_POSTCARDS.find((station) => camera.shot?.subject?.world === station.subject);
+  if (card && camera.shot) return postcardCamera({ ...card, eye: camera.shot.view.eye }, withoutRest(camera), viewport);
   return settleCamera(camera, viewport, map);
 }
 
@@ -292,10 +253,11 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   } = input;
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // X6: the postcard shown (or being glided to); state so the chrome and the
-  // input guard follow it.
-  const [wanderIndex, setWanderIndex] = useState<number | null>(null);
-  const wanderIndexRef = useRef<number | null>(null);
+  const [strollIndex, setStrollIndex] = useState<number | null>(null);
+  const strollIndexRef = useRef<number | null>(null);
+  const stationPoseRef = useRef<IsoCamera | null>(null);
+  const captureGlideRef = useRef<ShotGlide | null>(null);
+  const selectionFromStationRef = useRef(false);
   const dragRef = useRef<{ last: ScreenPoint; moved: boolean; pointerId: number } | null>(null);
   const activePointersRef = useRef<Map<number, ScreenPoint>>(new Map());
   const pinchRef = useRef<{ distance: number; midpoint: ScreenPoint; moved: boolean; pointerIds: [number, number] } | null>(null);
@@ -309,7 +271,6 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const maximumRequestedDprRef = useRef(1);
   const surfaceBudgetRef = useRef<ReturnType<typeof resolveRenderSurfaceBudget> | null>(null);
   const followChaseDetailIdRef = useRef<string | null>(null);
-  const selectionRevealRef = useRef<(() => void) | null>(null);
   // W1.7: the selection/return glide in flight (sampled on the RAF clock), the
   // last selection glide's length (the return walks at least that long), and
   // the composed shot a ship follow translates with its subject.
@@ -340,12 +301,6 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     isoY: 0,
     zoom: 1,
   });
-  // K17: the arrival keeps only its clock; each frame re-solves the rest
-  // ShotSpec for the current viewport, so a resize mid-rise lands on the new one.
-  const arrivalRef = useRef<{
-    onComplete: () => void;
-    startMs: number | null;
-  } | null>(null);
 
   const [camera, setCameraState] = useState<IsoCamera | null>(null);
   const [canvasSize, setCanvasSize] = useState<ScreenPoint>({ x: 0, y: 0 });
@@ -365,8 +320,12 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   }, []);
 
   const commitCameraState = useCallback((next: IsoCamera | null) => {
+    const previousDisplay = displayCameraRef.current;
     displayCameraRef.current = next;
     cameraRef.current = next;
+    // Avoid a same-state render bailout: render-time mirrors can otherwise
+    // overwrite event-time refs without running the matching layout effects.
+    if (sameCamera(previousDisplay, next)) return;
     setCameraState((previous) => {
       if (previous === null || next === null) return previous === next ? previous : next;
       return sameCamera(previous, next) ? previous : next;
@@ -380,15 +339,9 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     requestWorldFrame();
   }, [commitCameraState, requestWorldFrame]);
 
-  /** Opens the selection's detail panel (W1.7: at 70 % of the glide). Idempotent. */
-  const revealSelection = useCallback(() => {
-    const onReveal = selectionRevealRef.current;
-    selectionRevealRef.current = null;
-    onReveal?.();
-  }, []);
 
   // An interruption holds the whole displayed pose — offsets, zoom and any
-  // part-eased rest blend. Only arrival, reset and selection-return ease the
+  // part-eased rest blend. Only reset and selection-return ease the
   // rest; the next gesture hands off from wherever the blend was held.
   const freezeDisplayedCamera = useCallback(() => {
     const displayedCamera = displayCameraRef.current ?? cameraRef.current;
@@ -407,21 +360,15 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     // the observe tour outright — the visitor took the camera back, so there
     // is no glide-back, just the tour releasing its hold.
     observeTourRef.current = null;
-    // …and leaves a postcard where it stands (the command decides where next).
-    if (wanderIndexRef.current !== null) {
-      wanderIndexRef.current = null;
-      setWanderIndex(null);
-    }
     freezeDisplayedCamera();
   }, [freezeDisplayedCamera]);
 
   const cancelCameraIntent = useCallback(() => {
     stopFollowChase();
-    revealSelection();
-  }, [revealSelection, stopFollowChase]);
+  }, [stopFollowChase]);
 
   const currentCameraBase = useCallback(() => (
-    cameraIntentRef.current.targetCamera ?? displayCameraRef.current ?? cameraRef.current
+    displayCameraRef.current ?? cameraRef.current ?? cameraIntentRef.current.targetCamera
   ), [cameraRef]);
 
   // `followTile` centres on `viewport / 2`, so framing against a zero viewport
@@ -439,8 +386,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     return { x: Math.max(1, Math.floor(rect.width)), y: Math.max(1, Math.floor(rect.height)) };
   }, [canvasSizeRef]);
 
-  // A tour glides back to where it started: the rest seat when it left from
-  // rest (K44: the idle state is the rest ShotSpec), else the visitor's framing.
+  // An explicitly requested Observe sequence returns to its starting framing.
   const tourReturnCamera = useCallback((tour: { returnPose: ReturnType<typeof observeTourPoseFromCamera>; returnToRest: boolean }) => {
     const viewport = framingViewport();
     return tour.returnToRest
@@ -485,19 +431,6 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     queueCameraTarget(targetCamera, "external");
   }, [queueCameraTarget]);
 
-  const finishArrival = useCallback(() => {
-    const arrival = arrivalRef.current;
-    if (!arrival) return;
-    arrivalRef.current = null;
-    const viewport = framingViewport();
-    const shown = displayCameraRef.current ?? cameraRef.current;
-    if (viewport.x > 0 && viewport.y > 0) {
-      applyCameraImmediately(defaultCamera({ height: viewport.y, map: world.map, width: viewport.x }));
-    } else if (shown) {
-      applyCameraImmediately({ ...shown, shot: undefined });
-    }
-    arrival.onComplete();
-  }, [applyCameraImmediately, cameraRef, framingViewport, world.map]);
 
   /**
    * W1.7: glide from the shown view onto `target` on the smootherstep clock.
@@ -510,13 +443,12 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     seconds?: number;
     scale?: number;
     minimumSeconds?: number;
-    arcHeight?: number;
+    waypoints?: readonly WorldPoint[];
   } = {}): number => {
     const display = displayCameraRef.current ?? cameraRef.current;
     const viewport = framingViewport();
     if (!display || reducedMotion || viewport.x <= 0 || viewport.y <= 0 || sameCamera(display, target)) {
       applyCameraImmediately(target);
-      revealSelection();
       return 0;
     }
     const seconds = options.seconds ?? Math.max(
@@ -528,145 +460,115 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       )),
     ) * (options.scale ?? 1);
     shotGlideRef.current = {
-      glide: createShotGlide({ arcHeight: options.arcHeight ?? 0, durationSeconds: seconds, from: display, to: target, viewport }),
+      glide: createShotGlide({ ...(options.waypoints ? { waypoints: options.waypoints } : {}), durationSeconds: seconds, from: display, to: target, viewport }),
       startMs: null,
     };
     cameraIntentRef.current = { lastFrameTime: null, mode, targetCamera: target };
     requestWorldFrame();
     return seconds;
-  }, [applyCameraImmediately, cameraRef, framingViewport, reducedMotion, requestWorldFrame, revealSelection]);
+  }, [applyCameraImmediately, cameraRef, framingViewport, reducedMotion, requestWorldFrame]);
 
-  const focusSelection = useCallback((subject: CameraSelectionSubject, onReveal: () => void): IsoCamera | null => {
+  const focusSelection = useCallback((subject: CameraSelectionSubject): IsoCamera | null => {
     stopFollowChase();
-    // The visitor acted: an arrival still holding the seat lands now.
-    finishArrival();
     const start = displayCameraRef.current ?? cameraRef.current;
     const viewport = framingViewport();
-    if (!start || viewport.x <= 0 || viewport.y <= 0) {
-      onReveal();
-      return start;
+    if (!start || viewport.x <= 0 || viewport.y <= 0) return start;
+    if (strollIndexRef.current !== null && !selectionFromStationRef.current) {
+      stationPoseRef.current = start;
+      selectionFromStationRef.current = true;
     }
-    selectionRevealRef.current = onReveal;
     const target = subject.kind === "lighthouse"
       ? lighthouseLookUpCamera(start, viewport)
-      : selectionShot(leadSelectionSubject(subject, start, viewport), viewport).camera;
-    if (!target) {
-      revealSelection();
-      return start;
-    }
-    selectionGlideSecondsRef.current = startShotGlide(
-      target,
-      "selection",
-      subject.kind === "lighthouse" ? { seconds: LIGHTHOUSE_LOOK_UP_SECONDS } : {},
-    );
+      : selectionShot(subject, viewport, {
+        currentCamera: start,
+        pathClear: (view) => strollPathClear(cameraView(start, viewport, { breath: false }), view),
+      }).camera;
+    if (!target) return start;
+    selectionGlideSecondsRef.current = startShotGlide(target, "selection", subject.kind === "lighthouse" ? { seconds: LIGHTHOUSE_LOOK_UP_SECONDS } : {});
     return start;
-  }, [cameraRef, finishArrival, framingViewport, revealSelection, startShotGlide, stopFollowChase]);
+  }, [cameraRef, framingViewport, startShotGlide, stopFollowChase]);
 
-  /**
-   * X6: a glide between the seat and a postcard (or two postcards) travels
-   * far, so it runs longer than a selection glide and arcs over the island
-   * and rim instead of cutting through them.
-   */
-  const startWanderGlide = useCallback((target: IsoCamera, mode: "selection" | "selection-return") => {
-    const display = displayCameraRef.current ?? cameraRef.current;
-    const viewport = framingViewport();
-    const from = display && viewport.x > 0 && viewport.y > 0 ? cameraView(display, viewport, { breath: false }).eye : null;
-    const to = viewport.x > 0 && viewport.y > 0 ? cameraView(target, viewport, { breath: false }).eye : null;
-    const travel = from && to ? Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) : 0;
-    startShotGlide(target, mode, {
-      arcHeight: Math.min(WANDER_ARC_MAX, travel * WANDER_ARC_SHARE),
-      seconds: Math.min(WANDER_GLIDE_MAX_SECONDS, Math.max(WANDER_GLIDE_MIN_SECONDS, WANDER_GLIDE_MIN_SECONDS + travel / WANDER_GLIDE_UNITS_PER_SECOND)),
-    });
-  }, [cameraRef, framingViewport, startShotGlide]);
-
-  const wander = useCallback((): { index: number; title: string } | null => {
+  const navigateStation = useCallback((direction: -1 | 1): { index: number; title: string } | null => {
     const viewport = framingViewport();
     if (viewport.x <= 0 || viewport.y <= 0 || !(displayCameraRef.current ?? cameraRef.current)) return null;
-    const current = wanderIndexRef.current;
-    // Ends any follow, tour or glide; the card is the next command.
+    const current = strollIndexRef.current;
+    const index = current === null ? (direction === 1 ? 0 : GARDEN_POSTCARDS.length - 1) : (current + direction + GARDEN_POSTCARDS.length) % GARDEN_POSTCARDS.length;
     stopFollowChase();
-    finishArrival();
-    const index = current === null ? 0 : (current + 1) % GARDEN_POSTCARDS.length;
     const card = GARDEN_POSTCARDS[index]!;
-    const rest = defaultCamera({ height: viewport.y, map: world.map, width: viewport.x });
-    startWanderGlide(postcardCamera(card, withoutRest(rest), viewport), "selection");
-    wanderIndexRef.current = index;
-    setWanderIndex(index);
+    const target = postcardCamera(card, { offsetX: 0, offsetY: 0, zoom: 1 }, viewport);
+    const displayed = displayCameraRef.current ?? cameraRef.current!;
+    const travel = Math.hypot(target.shot!.view.eye.x - cameraView(displayed, viewport, { breath: false }).eye.x, target.shot!.view.eye.z - cameraView(displayed, viewport, { breath: false }).eye.z);
+    startShotGlide(target, "selection", {
+      waypoints: strollWaypoints(current, index),
+      seconds: Math.min(STROLL_GLIDE_MAX_SECONDS, STROLL_GLIDE_MIN_SECONDS + travel / STROLL_GLIDE_UNITS_PER_SECOND),
+    });
+    strollIndexRef.current = index;
+    setStrollIndex(index);
+    stationPoseRef.current = target;
+    selectionFromStationRef.current = false;
     return { index, title: card.title };
-  }, [cameraRef, finishArrival, framingViewport, startWanderGlide, stopFollowChase, world.map]);
+  }, [cameraRef, framingViewport, startShotGlide, stopFollowChase]);
 
-  const endWander = useCallback(() => {
-    if (wanderIndexRef.current === null) return;
-    wanderIndexRef.current = null;
-    setWanderIndex(null);
-    const viewport = framingViewport();
-    if (viewport.x <= 0 || viewport.y <= 0) return;
-    startWanderGlide(defaultCamera({ height: viewport.y, map: world.map, width: viewport.x }), "selection-return");
-  }, [framingViewport, startWanderGlide, world.map]);
+  const strollNext = useCallback(() => navigateStation(1), [navigateStation]);
+  const strollPrevious = useCallback(() => navigateStation(-1), [navigateStation]);
 
-  // X6 / K44: while a postcard shows, any input returns the view to the seat.
-  // Gestures on the world are consumed (a wheel must not also zoom a rig the
-  // view is leaving); clicks and keys on the chrome still do their own work.
+  // DEV-only synchronous capture controls share the exact production route.
   useEffect(() => {
-    if (wanderIndex === null) return;
-    const onInput = (event: Event) => {
-      const target = event.target;
-      if (target instanceof Element && target.closest("[data-wander-control]")) return;
-      if (event instanceof KeyboardEvent) {
-        if (event.key === "Tab" || event.key === "Shift" || event.key === "Control" || event.key === "Alt" || event.key === "Meta") return;
-        if (event.key.toLowerCase() === WANDER_KEY && !event.altKey && !event.ctrlKey && !event.metaKey) return;
-      }
-      endWander();
-      const onWorld = target === canvasRef.current || (event instanceof KeyboardEvent && !isInteractiveEventTarget(target));
-      if (onWorld) event.stopPropagation();
+    if (!import.meta.env.DEV) return;
+    const host = window as typeof window & { __pharosVilleStroll?: { station: (id: string) => boolean; pathProgress: (progress: number) => boolean } };
+    const api = {
+      station: (id: string): boolean => {
+        const index = GARDEN_POSTCARDS.findIndex((card) => card.id === id);
+        const viewport = framingViewport();
+        if (index < 0 || viewport.x <= 0 || viewport.y <= 0) return false;
+        const previous = (index + GARDEN_POSTCARDS.length - 1) % GARDEN_POSTCARDS.length;
+        const from = postcardCamera(GARDEN_POSTCARDS[previous]!, { offsetX: 0, offsetY: 0, zoom: 1 }, viewport);
+        const to = postcardCamera(GARDEN_POSTCARDS[index]!, { offsetX: 0, offsetY: 0, zoom: 1 }, viewport);
+        captureGlideRef.current = createShotGlide({ from, to, viewport, waypoints: strollWaypoints(previous, index), durationSeconds: 4, holdSeconds: 0 });
+        strollIndexRef.current = index;
+        setStrollIndex(index);
+        stationPoseRef.current = to;
+        selectionFromStationRef.current = false;
+        applyCameraImmediately(to);
+        return true;
+      },
+      pathProgress: (progress: number): boolean => {
+        const glide = captureGlideRef.current;
+        if (!glide || !Number.isFinite(progress) || progress < 0 || progress > 1) return false;
+        applyCameraImmediately(sampleShotGlide(glide, progress * glide.durationSeconds).camera);
+        return true;
+      },
     };
-    for (const eventName of WANDER_RETURN_EVENTS) window.addEventListener(eventName, onInput, { capture: true });
-    return () => {
-      for (const eventName of WANDER_RETURN_EVENTS) window.removeEventListener(eventName, onInput, { capture: true });
-    };
-  }, [endWander, wanderIndex]);
+    host.__pharosVilleStroll = api;
+    return () => { if (host.__pharosVilleStroll === api) delete host.__pharosVilleStroll; };
+  }, [applyCameraImmediately, framingViewport]);
+
+  const applyLocalGesture = useCallback((next: IsoCamera) => {
+    stopFollowChase();
+    stationPoseRef.current = next;
+    applyCameraImmediately(next);
+  }, [applyCameraImmediately, stopFollowChase]);
 
   const returnFromSelection = useCallback((targetCamera: IsoCamera) => {
     // The chase ends with the selection; drop it here, without freezing, so
     // the selection-change effect finds nothing left to stop and keeps this glide.
     followChaseDetailIdRef.current = null;
     followShotRef.current = null;
-    // A selection made at (or leaving) the rest returns to the rest ShotSpec.
     const viewport = framingViewport();
-    const target = cameraAtRest(targetCamera) && viewport.x > 0 && viewport.y > 0
-      ? settleCamera(targetCamera, viewport, world.map)
-      : targetCamera;
+    const local = stationPoseRef.current ?? targetCamera;
+    const target = strollIndexRef.current !== null
+      ? local
+      : cameraAtRest(targetCamera) && viewport.x > 0 && viewport.y > 0
+        ? settleCamera(targetCamera, viewport, world.map)
+        : targetCamera;
     startShotGlide(target, "selection-return", {
       minimumSeconds: selectionGlideSecondsRef.current,
       scale: SELECTION_RETURN_GLIDE_SCALE,
     });
     selectionGlideSecondsRef.current = 0;
+    selectionFromStationRef.current = false;
   }, [framingViewport, startShotGlide, world.map]);
 
-  const startArrival = useCallback((onComplete: () => void) => {
-    const viewport = framingViewport();
-    // A selection made before the ceremony began keeps its shot (W1.7).
-    const shown = displayCameraRef.current ?? cameraRef.current;
-    if (viewport.x <= 0 || viewport.y <= 0 || shotGlideRef.current || shown?.shot) {
-      onComplete();
-      return;
-    }
-    const target = defaultCamera({ height: viewport.y, map: world.map, width: viewport.x });
-    if (reducedMotion) {
-      applyCameraImmediately(target);
-      onComplete();
-      return;
-    }
-    const from = sampleGardenArrival(target, 0).camera;
-    cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: from };
-    commitCameraState(from);
-    arrivalRef.current = { onComplete, startMs: null };
-    requestWorldFrame();
-  }, [applyCameraImmediately, cameraRef, commitCameraState, framingViewport, reducedMotion, requestWorldFrame, world.map]);
-
-  const skipArrival = useCallback(() => {
-    finishArrival();
-  }, [finishArrival]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -704,21 +606,16 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       // A same-size notification (the observer's first callback) must not cut a glide short.
       if (glide && samePoint(canvasSizeRef.current, nextCanvasSize)) return;
       setCanvasSize((previous) => samePoint(previous, nextCanvasSize) ? previous : nextCanvasSize);
-      // A real resize lands a glide on its target, then re-settles that.
-      const previousCamera = glide?.glide.to ?? displayCameraRef.current ?? cameraRef.current ?? currentCameraBase();
-      // X6: a postcard is re-solved so its subject keeps its anchor at the new aspect.
-      const wandering = wanderIndexRef.current;
-      const nextCamera = wandering !== null
-        ? postcardCamera(
-          GARDEN_POSTCARDS[wandering]!,
-          withoutRest(defaultCamera({ width: cssWidth, height: cssHeight, map: world.map })),
-          nextCanvasSize,
-        )
-        : previousCamera
-          ? resizeCamera(previousCamera, nextCanvasSize, world.map)
-          : defaultCamera({ width: cssWidth, height: cssHeight, map: world.map });
+      // Interrupt at the displayed pose, never teleport to an unseen destination.
+      const previousCamera = displayCameraRef.current ?? cameraRef.current ?? currentCameraBase();
+      const station = strollIndexRef.current;
+      const nextCamera = previousCamera
+        ? resizeCamera(previousCamera, nextCanvasSize, world.map)
+        : defaultCamera({ width: cssWidth, height: cssHeight, map: world.map });
+      if (stationPoseRef.current && station !== null) {
+        stationPoseRef.current = resizeCamera(stationPoseRef.current, nextCanvasSize, world.map);
+      }
       applyCameraImmediately(nextCamera);
-      if (glide) revealSelection();
       if (followChaseDetailIdRef.current) requestWorldFrame();
     };
 
@@ -726,7 +623,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [applyCameraImmediately, cameraRef, canvasSizeRef, currentCameraBase, requestWorldFrame, revealSelection, world.map]);
+  }, [applyCameraImmediately, cameraRef, canvasSizeRef, currentCameraBase, requestWorldFrame, world.map]);
 
   const canvasPoint = useCallback((event: Pick<MouseEvent, "clientX" | "clientY">) => {
     const canvas = canvasRef.current;
@@ -766,6 +663,8 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     canvasRectRef.current = event.currentTarget.getBoundingClientRect();
     const point = canvasPoint(event);
+    // A grab interrupts travel at the displayed pose, not its destination.
+    stopFollowChase();
     activePointersRef.current.set(event.pointerId, point);
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -782,7 +681,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     }
     pinchRef.current = null;
     dragRef.current = { last: point, moved: false, pointerId: event.pointerId };
-  }, [canvasPoint]);
+  }, [canvasPoint, stopFollowChase]);
 
   const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     const point = canvasPoint(event);
@@ -813,14 +712,14 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
           // new one while the spread zooms. N1: same viewport-derived zoom
           // floor as the wheel and toolbar paths, so pinch cannot pull back
           // past the world either.
-          const next = zoomCameraOnGround(
-            previous,
-            previousPinch.midpoint,
-            previous.zoom * scale,
-            { map: world.map, viewport: canvasSizeRef.current },
-            pinch.midpoint,
-          );
-          queueCameraTarget(next, "pinch");
+          const station = strollIndexRef.current;
+          if (station !== null && !hasSelection()) {
+            const card = GARDEN_POSTCARDS[station]!;
+            const zoomed = zoomStationCamera(previous, previousPinch.midpoint, scale, canvasSizeRef.current, card);
+            applyLocalGesture(panStationCamera(zoomed, previousPinch.midpoint, pinch.midpoint, canvasSizeRef.current, card));
+          } else {
+            queueCameraTarget(zoomCameraOnGround(previous, previousPinch.midpoint, previous.zoom * scale, { map: world.map, viewport: canvasSizeRef.current }, pinch.midpoint), "pinch");
+          }
         }
       }
       pinchRef.current = { ...pinch, moved };
@@ -834,8 +733,12 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
         const previous = currentCameraBase();
         if (previous) {
           // W1.1 ground-plane drag: the water under the pointer stays under it.
-          const next = panCameraOnGround(previous, drag.last, point, { map: world.map, viewport: canvasSizeRef.current });
-          queueCameraTarget(next, "drag");
+          const station = strollIndexRef.current;
+          if (station !== null && !hasSelection()) {
+            applyLocalGesture(panStationCamera(previous, drag.last, point, canvasSizeRef.current, GARDEN_POSTCARDS[station]!));
+          } else {
+            queueCameraTarget(panCameraOnGround(previous, drag.last, point, { map: world.map, viewport: canvasSizeRef.current }), "drag");
+          }
         }
       }
       drag.last = point;
@@ -846,7 +749,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     // canvasSizeRef + pendingHoverPointRef omitted: ref identity never
     // changes (HOOKS F4).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvasPoint, currentCameraBase, queueCameraTarget, scheduleHoverUpdate, world.map]);
+  }, [applyLocalGesture, canvasPoint, currentCameraBase, hasSelection, queueCameraTarget, scheduleHoverUpdate, world.map]);
 
   const handlePointerLeave = useCallback(() => {
     if (hoverFrameRef.current) {
@@ -925,6 +828,11 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       const previous = currentCameraBase();
       if (!previous) return;
       event.preventDefault();
+      const station = strollIndexRef.current;
+      if (station !== null && !hasSelection()) {
+        applyLocalGesture(zoomStationCamera(previous, canvasPoint(event), wheelZoomScaleFromDelta(event.deltaY, event.deltaMode, canvasSizeRef.current.y), canvasSizeRef.current, GARDEN_POSTCARDS[station]!));
+        return;
+      }
       const next = zoomCameraByWheelDelta({
         camera: previous,
         deltaMode: event.deltaMode,
@@ -937,32 +845,48 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     };
     canvas.addEventListener("wheel", onWheel, { passive: false });
     return () => canvas.removeEventListener("wheel", onWheel);
-  }, [canvasPoint, canvasSizeRef, currentCameraBase, queueCameraTarget, world.map]);
+  }, [applyLocalGesture, canvasPoint, canvasSizeRef, currentCameraBase, hasSelection, queueCameraTarget, world.map]);
 
   const handleToolbarPan = useCallback((delta: ScreenPoint) => {
     const previous = currentCameraBase();
     if (!previous) return;
-    queueCameraTarget(panFromCentre(previous, delta, canvasSizeRef.current, world.map), "toolbar");
-  }, [canvasSizeRef, currentCameraBase, queueCameraTarget, world.map]);
+    const station = strollIndexRef.current;
+    const viewport = canvasSizeRef.current;
+    const centre = { x: viewport.x / 2, y: viewport.y / 2 };
+    if (station !== null && !hasSelection()) applyLocalGesture(panStationCamera(previous, centre, { x: centre.x + delta.x, y: centre.y + delta.y }, viewport, GARDEN_POSTCARDS[station]!));
+    else queueCameraTarget(panFromCentre(previous, delta, viewport, world.map), "toolbar");
+  }, [applyLocalGesture, canvasSizeRef, currentCameraBase, hasSelection, queueCameraTarget, world.map]);
 
   const handleResetView = useCallback(() => {
     const viewport = canvasSizeRef.current;
     if (viewport.x <= 0 || viewport.y <= 0) return;
+    stopFollowChase();
+    const origin = strollIndexRef.current;
+    strollIndexRef.current = null;
+    setStrollIndex(null);
+    stationPoseRef.current = null;
+    selectionFromStationRef.current = false;
     const next = defaultCamera({ height: viewport.y, map: world.map, width: viewport.x });
-    queueCameraTarget(next, "reset");
-  }, [canvasSizeRef, queueCameraTarget, world.map]);
+    startShotGlide(next, "selection-return", { waypoints: strollWaypoints(origin, null), seconds: STROLL_GLIDE_MAX_SECONDS });
+  }, [canvasSizeRef, startShotGlide, stopFollowChase, world.map]);
 
   const handleToolbarZoomIn = useCallback(() => {
     const previous = currentCameraBase();
     if (!previous) return;
-    queueCameraTarget(zoomIn(previous, canvasSizeRef.current, world.map), "toolbar");
-  }, [canvasSizeRef, currentCameraBase, queueCameraTarget, world.map]);
+    const station = strollIndexRef.current;
+    const viewport = canvasSizeRef.current;
+    if (station !== null && !hasSelection()) applyLocalGesture(zoomStationCamera(previous, { x: viewport.x / 2, y: viewport.y / 2 }, 1.1, viewport, GARDEN_POSTCARDS[station]!));
+    else queueCameraTarget(zoomIn(previous, viewport, world.map), "toolbar");
+  }, [applyLocalGesture, canvasSizeRef, currentCameraBase, hasSelection, queueCameraTarget, world.map]);
 
   const handleToolbarZoomOut = useCallback(() => {
     const previous = currentCameraBase();
     if (!previous) return;
-    queueCameraTarget(zoomOut(previous, canvasSizeRef.current, world.map), "toolbar");
-  }, [canvasSizeRef, currentCameraBase, queueCameraTarget, world.map]);
+    const station = strollIndexRef.current;
+    const viewport = canvasSizeRef.current;
+    if (station !== null && !hasSelection()) applyLocalGesture(zoomStationCamera(previous, { x: viewport.x / 2, y: viewport.y / 2 }, 1 / 1.1, viewport, GARDEN_POSTCARDS[station]!));
+    else queueCameraTarget(zoomOut(previous, viewport, world.map), "toolbar");
+  }, [applyLocalGesture, canvasSizeRef, currentCameraBase, hasSelection, queueCameraTarget, world.map]);
 
   const stepCamera = useCallback((now: number, shipMotionSamples: ReadonlyMap<string, ShipMotionSample>): CameraStepResult => {
     const displayCamera = displayCameraRef.current ?? cameraRef.current;
@@ -971,26 +895,6 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       return { camera: null, cameraChanged: false, cameraIntentActive: false };
     }
 
-    const arrival = arrivalRef.current;
-    if (arrival && !reducedMotion) {
-      if (arrival.startMs === null) arrival.startMs = now;
-      const viewport = framingViewport();
-      // With no measured viewport, the rest is the shown camera minus the arrival's own shot.
-      const rest = viewport.x > 0 && viewport.y > 0
-        ? defaultCamera({ height: viewport.y, map: world.map, width: viewport.x })
-        : { ...displayCamera, shot: undefined };
-      const sampled = sampleGardenArrival(rest, now - arrival.startMs);
-      const cameraChanged = !sameCamera(displayCamera, sampled.camera);
-      commitCameraState(sampled.camera);
-      if (sampled.done) {
-        arrivalRef.current = null;
-        // Hand the destination back to ordinary camera intent; retaining the
-        // intro target would pull the next frame back out of the landing view.
-        cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: sampled.camera };
-        arrival.onComplete();
-      }
-      return { airVeil: sampled.airVeil, camera: sampled.camera, cameraChanged, cameraIntentActive: !sampled.done };
-    }
 
     // Observe 2.0: the tour owns the camera while it runs. Sampling is a pure
     // function of the elapsed clock — no damping, no state to drift.
@@ -1040,23 +944,19 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       }
       cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera };
       if (sameCamera(displayCamera, targetCamera)) {
-        revealSelection();
         return { camera: displayCamera, cameraChanged: false, cameraIntentActive: false };
       }
       commitCameraState(targetCamera);
-      revealSelection();
       return { camera: targetCamera, cameraChanged: true, cameraIntentActive: false };
     }
 
-    // W1.7: a selection or return glide owns the camera until it lands; the
-    // panel opens at 70 % of it. Pure function of the elapsed clock.
+    // Selection/return glides sample the shared clock; DOM facts are already visible.
     const glideState = shotGlideRef.current;
     if (glideState) {
       if (glideState.startMs === null) glideState.startMs = now;
       const sampled = sampleShotGlide(glideState.glide, (now - glideState.startMs) / 1000);
       const cameraChanged = !sameCamera(displayCamera, sampled.camera);
       commitCameraState(sampled.camera);
-      if (sampled.progress >= SELECTION_PANEL_REVEAL_PROGRESS) revealSelection();
       if (!sampled.done) return { camera: sampled.camera, cameraChanged, cameraIntentActive: true };
       shotGlideRef.current = null;
       cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: sampled.camera };
@@ -1087,7 +987,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
           mode: "follow-selected",
           // Follow inherits the selection's composition: a composed shot
           // translates with the ship; a rig keeps the ship on the same anchor.
-          targetCamera: (followShotRef.current && followShotCamera(followShotRef.current, sampledTile, viewport))
+          targetCamera: (followShotRef.current && followShotCamera(followShotRef.current, sampledTile, viewport, world.map))
             ?? voyageCamera(displayCamera, sampledTile, viewport, world.map, sample?.velocity),
         };
         if (sample?.state === "moored" || sample?.state === "idle") {
@@ -1125,7 +1025,6 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
         mode: "idle",
         targetCamera: advanced.camera,
       };
-      revealSelection();
       return { camera: advanced.camera, cameraChanged, cameraIntentActive: false };
     }
 
@@ -1134,7 +1033,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       lastFrameTime: now,
     };
     return { camera: advanced.camera, cameraChanged, cameraIntentActive: true };
-  }, [cameraRef, canvasSizeRef, commitCameraState, framingViewport, revealSelection, queueCameraTarget, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, tourReturnCamera, world.map]);
+  }, [cameraRef, canvasSizeRef, commitCameraState, queueCameraTarget, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, tourReturnCamera, world.map]);
 
   const handleFollowSelected = useCallback(() => {
     if (!selectedEntity) return;
@@ -1148,7 +1047,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     const shotReference = selectedEntity.kind === "ship" && start.shot?.subject && start.shot.presence >= 1 ? start : null;
     followShotRef.current = shotReference;
     const target = selectedEntity.kind === "ship"
-      ? (shotReference && followShotCamera(shotReference, sampledTile, viewport))
+      ? (shotReference && followShotCamera(shotReference, sampledTile, viewport, world.map))
         ?? voyageCamera(start, sampledTile, viewport, world.map, shipMotionSamplesRef.current.get(selectedEntity.id)?.velocity)
       : followTile({ camera: start, map: world.map, tile: sampledTile, viewport });
     if (reducedMotion) {
@@ -1236,10 +1135,9 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     stopFollowChase();
     if (targetCamera) {
       applyCameraImmediately(targetCamera);
-      revealSelection();
       return;
     }
-  }, [applyCameraImmediately, reducedMotion, revealSelection, stopFollowChase]);
+  }, [applyCameraImmediately, reducedMotion, stopFollowChase]);
 
   useEffect(() => () => {
     stopFollowChase();
@@ -1250,8 +1148,12 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     if (!activeCamera) return;
     if (event.key === "Escape") {
       if (isDialogEventTarget(event.target)) return;
-      onClearSelection();
-      stopFollowChase();
+      if (hasSelection()) {
+        stopFollowChase();
+        onClearSelection();
+      } else {
+        stopFollowChase();
+      }
       return;
     }
     if (event.key === "+" || event.key === "=") {
@@ -1276,9 +1178,9 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
         ArrowRight: { x: -step, y: 0 },
         ArrowUp: { x: 0, y: step },
       };
-      queueCameraTarget(panFromCentre(activeCamera, deltas[event.key], canvasSizeRef.current, world.map), "keyboard");
+      handleToolbarPan(deltas[event.key]!);
     }
-  }, [canvasSizeRef, currentCameraBase, handleToolbarZoomIn, handleToolbarZoomOut, onClearSelection, queueCameraTarget, stopFollowChase, world.map]);
+  }, [currentCameraBase, handleToolbarPan, handleToolbarZoomIn, handleToolbarZoomOut, hasSelection, onClearSelection, stopFollowChase]);
 
   return {
     adaptiveDprStateRef,
@@ -1307,14 +1209,12 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     moveCameraTo,
     returnFromSelection,
     setCamera,
-    skipArrival,
-    startArrival,
     startObserveTour,
     stopObserveTour,
     stepCamera,
-    endWander,
-    wander,
-    wanderIndex,
+    strollNext,
+    strollPrevious,
+    strollIndex,
   };
 }
 

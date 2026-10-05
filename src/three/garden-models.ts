@@ -109,7 +109,7 @@ export interface GardenModelMetadata {
   };
 }
 
-const LIGHTHOUSE_SHA256 = "f57ccc4f936e03d155fc8df2df1d049e65f7e7c3b70ed041ec8d770f23b97f78";
+const LIGHTHOUSE_SHA256 = "68c6da645a69dd6c8b90f0ceb2a05ca4fc49450d30fd02241b66dfd44fc7cf26";
 const lighthouseUrl = `/pharosville/models/garden-lighthouse-shell.glb?v=${LIGHTHOUSE_SHA256.slice(0, 12)}`;
 
 const HERO_TETHER_SHA256 = "d8b66430e8c05b5d66d6c83f443697691141d74fa3f2027b29139b6bc12245ef";
@@ -199,7 +199,7 @@ export const GARDEN_MODEL_MANIFEST = {
     id: "garden-lighthouse-shell",
     label: "Garden Observatory lighthouse shell",
     artifact: {
-      bytes: 194_112,
+      bytes: 194_108,
       compression: "meshopt",
       gltfVersion: 2,
       sha256: LIGHTHOUSE_SHA256,

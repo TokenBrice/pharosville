@@ -229,9 +229,9 @@ describe("createGardenOverviewLod", () => {
   it.each([
     [0, 0, 0],
     [0, 1, 1],
-  ])("keeps an arriving badge finite from parent scale (%i, %i, %i)", (x, y, z) => {
+  ])("keeps an arriving local prop finite from parent scale (%i, %i, %i)", (x, y, z) => {
     const { prop: badge, root: ship } = propTree();
-    badge.name = "ship-overview-detail";
+    badge.name = "lighthouse-shore-props";
     badge.scale.set(1, 2, 1);
     badge.rotation.z = 0.3;
     ship.position.set(12, -0.16, 8);

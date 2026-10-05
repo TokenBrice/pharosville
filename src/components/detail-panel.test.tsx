@@ -21,6 +21,8 @@ import { AccessibilityLedger } from "./accessibility-ledger";
 import { resetHeldShipPlacements } from "../systems/pharosville-world/stages/ship-placement";
 import { withRiskTransitionFact } from "../systems/detail-model";
 import { SCENARIOS, quayAllocationInput, quietNormalInput, T } from "../__fixtures__/data-contract-scenarios";
+import { fixtureStability } from "../__fixtures__/pharosville-world";
+import { nodeSourceEvidenceLabel } from "../systems/source-evidence";
 
 afterEach(() => {
   for (const details of document.querySelectorAll<HTMLDetailsElement>('[data-testid="pharosville-detail-record"]')) {
@@ -210,7 +212,7 @@ describe("DetailPanel rendered analytical record", () => {
     expect(market).toContain(`Snapshot generated at: ${new Date(world.generatedAt!).toISOString()}`);
     expect(recordRow(record, "Harbor light").textContent).toContain(state === "stale" ? "cooler and slower" : "steady");
     expect(recordRow(record, "Harbor light").textContent).toContain("Appearance eases over ~2 observations");
-    expect(recordRow(record, "Harbor light").textContent).toContain("Beam warmth:");
+    expect(recordRow(record, "Harbor light").textContent).toContain("Beam character:");
     expect(record.querySelectorAll("dt").length).toBeLessThanOrEqual(12);
   });
 
@@ -276,6 +278,36 @@ describe("DetailPanel rendered analytical record", () => {
     const area = world.areas.find((entry) => entry.band === "CALM")!;
     const record = await openRecord(world.detailIndex[area.detailId]!);
     expect(recordRow(record, "Water surface").textContent).toContain("Glass");
+  });
+
+  it("shares exact UTC closes, gaps, version edges and held provenance with the ledger inside the record disclosure", async () => {
+    const at = Date.UTC(2026, 7, 13);
+    const inputs = makePharosVilleWorldInput({
+      stability: { ...fixtureStability, history: [
+        { date: at - 4 * 86_400_000, score: 83.25, band: "STEADY", methodologyVersion: "v1" },
+        { date: at - 3 * 86_400_000, score: 42.5, band: "FRACTURE", methodologyVersion: "v2" },
+        { date: at, score: 90, band: "BEDROCK", methodologyVersion: "v2" },
+      ] },
+      freshness: makeSourceStatuses({ stability: { state: "stale", observedAt: at - 86_400_000, publishedAt: at - 86_400_000, reason: "held" } }),
+    });
+    const world = buildPharosVilleWorld(inputs);
+    const disclosure = await openRecord(world.detailIndex[world.lighthouse.detailId]!);
+    const tableSection = disclosure.querySelector('[data-testid="garden-month-record-table"]')!;
+    const table = tableSection.querySelector("table")!;
+    expect(table.closest("details")).toBe(disclosure);
+    expect(table.querySelectorAll("tbody tr")).toHaveLength(30);
+    expect(table.querySelectorAll('th[scope="col"]')).toHaveLength(6);
+    expect(table.textContent).toContain("83.25");
+    expect(table.textContent).toContain("42.5");
+    expect(table.textContent).toContain("FRACTURE");
+    expect(table.textContent).toContain("v2");
+    expect(table.textContent).toContain("Gap — no supplied close");
+    expect(table.textContent).toContain("Methodology edge — not joined");
+    expect(tableSection.textContent).toContain(nodeSourceEvidenceLabel({ stability: world.freshness.stability }));
+    expect(tableSection.querySelector('time[datetime="2026-08-13T00:00:00.000Z"]')).not.toBeNull();
+    const ledger = render(<AccessibilityLedger world={world} />);
+    expect(ledger.container.querySelector('[data-testid="garden-month-record-table"]')!.outerHTML).toBe(tableSection.outerHTML);
+    expect(disclosure.querySelectorAll('svg[data-testid="garden-month-record-chart"]')).toHaveLength(0);
   });
 
   it("retains month history and fallen-coin identity", async () => {
@@ -413,18 +445,53 @@ describe("DetailPanel woodblock record", () => {
     expect(ledgerDom.querySelector("#ledger-ship-usds-sky")?.textContent).toContain("DEWS 8/100");
   });
 
-  it("defers focus until a hidden selection becomes visible", () => {
+  it("discloses and focuses a selection immediately, then restores focus on close", () => {
     const opener = document.createElement("button");
     document.body.append(opener);
     opener.focus();
     const detail = { id: "ship:test", title: "Test", kind: "SHIP", summary: "", facts: [], links: [] } as DetailModel;
-    const view = render(<DetailPanel onClose={() => undefined} detail={detail} visible={false} />);
-    expect(document.activeElement).toBe(opener);
-    view.rerender(<DetailPanel onClose={() => undefined} detail={detail} visible />);
+    const view = render(<DetailPanel onClose={() => undefined} detail={detail} />);
     expect(document.activeElement).toBe(screen.getByRole("heading", { level: 2, name: "Test" }));
-    view.rerender(<DetailPanel onClose={() => undefined} detail={detail} visible={false} />);
+    expect(screen.getByRole("complementary").hidden).toBe(false);
+    view.unmount();
     expect(document.activeElement).toBe(opener);
     opener.remove();
+  });
+  it("measures the actual sheet and expanded record and disconnects its observer", async () => {
+    const onPanelRectChange = vi.fn();
+    const disconnect = vi.fn();
+    let notify = () => {};
+    const originalObserver = globalThis.ResizeObserver;
+    class PanelObserver {
+      constructor(callback: ResizeObserverCallback) {
+        notify = () => callback([], this as unknown as ResizeObserver);
+      }
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = disconnect;
+    }
+    vi.stubGlobal("ResizeObserver", PanelObserver);
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(24, 24, 384, 300));
+    try {
+      const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+      const detail = world.detailIndex[world.ships[0]!.detailId]!;
+      const view = render(<DetailPanel detail={detail} onPanelRectChange={onPanelRectChange} />);
+      expect(onPanelRectChange).toHaveBeenLastCalledWith(expect.objectContaining({ width: 384, height: 300 }));
+      rect.mockReturnValue(new DOMRect(24, 24, 384, 500));
+      const record = screen.getByTestId("pharosville-detail-record") as HTMLDetailsElement;
+      record.open = true;
+      fireEvent(record, new Event("toggle", { bubbles: true }));
+      await waitFor(() => expect(onPanelRectChange).toHaveBeenLastCalledWith(expect.objectContaining({ height: 500 })));
+      rect.mockReturnValue(new DOMRect(28, 24, 340, 500));
+      notify();
+      expect(onPanelRectChange).toHaveBeenLastCalledWith(expect.objectContaining({ left: 28, width: 340 }));
+      view.unmount();
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      rect.mockRestore();
+      vi.stubGlobal("ResizeObserver", originalObserver);
+    }
   });
   it("uses non-modal landmark semantics and focuses the title, then restores focus", () => {
     const opener = document.createElement("button");

@@ -62,7 +62,7 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
         summary: "Opens a search field, top left. Type a ticker or name, use the arrow keys to move through matches, and press Enter to select one and centre the view on it.",
         inputs: [
           { kind: "keyboard", label: "/", tokens: ["/"] },
-          { kind: "toolbar", label: "find" },
+          { kind: "toolbar", label: "Find" },
         ],
       },
       {
@@ -74,7 +74,7 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
       {
         id: "clear-selection",
         label: "Clear selected detail",
-        summary: "Closes the current detail panel and returns focus to the world shell when available.",
+        summary: "Closes inspection back to its saved station-local camera pose and returns focus to the world shell when available. It does not return to the seat; Home does.",
         inputs: [
           { kind: "keyboard", label: "Escape", tokens: ["Escape"] },
           { kind: "panel", label: "Close details button" },
@@ -108,19 +108,18 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
         ],
       },
       {
-        id: "reset-view",
-        label: "Recenter the view",
-        summary: "Returns the camera to the resting harbor view. The circular-arrow glyph sits in the row behind explore, bottom right.",
-        inputs: [{ kind: "toolbar", label: "Reset view control" }],
+        id: "home",
+        label: "Home",
+        summary: "Closes inspection and returns the camera to the seated garden composition. Previous and Next remain station navigation; unrelated chrome input does not return Home.",
+        inputs: [{ kind: "toolbar", label: "Home" }],
       },
       {
         id: "reveal-world-controls",
-        label: "Reveal the world controls",
-        summary: "One word, explore, rests bottom right beside its / key. It unfolds a row of words — find, legend, ledger, stay — and three hairline glyphs: reset, observe and light. The row also comes up after any camera input, on hover, and whenever one of its controls takes keyboard focus.",
+        label: "Expand the world controls",
+        summary: "Find /, Explore and Read key are separate actions at the garden edge. Activate Explore to reveal the secondary controls: legend, ledger, stay, stroll, Home, observe, light and sound. Activate Explore again to collapse the row; camera input never opens it.",
         inputs: [
-          { kind: "toolbar", label: "explore" },
-          { kind: "keyboard", label: "Tab to a control", tokens: ["Tab"] },
-          { kind: "mouse", label: "Hover the bottom-right controls" },
+          { kind: "toolbar", label: "Explore" },
+          { kind: "keyboard", label: "Focus Explore and activate", tokens: ["Tab", "Enter", "Space"] },
         ],
       },
     ],
@@ -161,11 +160,11 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
         ],
       },
       {
-        id: "wander",
-        label: "Wander",
-        summary: "Glides to one of six places inside the harbour — a deck in the north basin, the mole, the crane islet, the tea-house, the crag stair, the inlet mouth — and holds the view there. Press again for the next place; any other key, click or scroll glides back to the resting view.",
+        id: "stroll",
+        label: "Stroll",
+        summary: "Visit six inspectable stations along the shore, tea-house veranda and precinct stair. Previous and Next visit adjacent stations; wheel and drag explore locally. Closing inspection or pressing Escape returns to where you stood. Home returns to the seat. Idle never advances the route.",
         inputs: [
-          { kind: "toolbar", label: "wander" },
+          { kind: "toolbar", label: "Stroll · Previous · Next · Home" },
           { kind: "keyboard", label: "W", tokens: ["W"] },
         ],
       },

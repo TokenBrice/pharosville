@@ -9,6 +9,7 @@ import {
   DoubleSide,
   Group,
   IcosahedronGeometry,
+  MathUtils,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -42,6 +43,7 @@ import {
 } from "./garden-lanterns";
 import { gardenModelAnchor } from "./garden-models";
 import type { GardenLightPose } from "./garden-sun";
+import { GARDEN_ATMOSPHERE } from "./garden-atmosphere";
 
 // L1 silhouette contract (Epic Pharos 2026-09-05; W1.9 keep trade): shell and
 // GLB share a 12.4-wide stepped stylobate, battered square (2.5→14.5, half
@@ -477,6 +479,13 @@ const STAIR_EMBER_VERTEX_PARS = /* glsl */ `
 export function applyLighthouseStairEmbers(material: MeshStandardMaterial): void {
   if (material.userData.lighthouseStairEmbers) return;
   material.userData.lighthouseStairEmbers = true;
+  // These are recessed lamp openings, not polished glazing: retain the warm
+  // authored emissive, but do not reflect a white solar/PMREM highlight into
+  // the opening. Their fill follows the same output curve as the masonry.
+  material.toneMapped = true;
+  material.roughness = 1;
+  material.metalness = 0;
+  material.envMapIntensity = 0;
   const previous = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {
     previous.call(material, shader, renderer);
@@ -588,6 +597,7 @@ export const LIGHTHOUSE_RIM_UNIFORMS = {
   // The live key light (sun by day, moon after dark), written every frame by
   // updateLighthouseRimLight so the rim sits on the side the light is on.
   uLighthouseRimSunDir: { value: new Vector3(0, 1, 0) },
+  uLighthouseLowSun: { value: 0 },
 };
 const RIM_NIGHT_COLOR = palette(P.moonlight).lerp(palette(P.fog_blue), 0.4);
 const RIM_DUSK_COLOR = DAY_CYCLE_SKY_PRESETS.dusk.horizon.clone();
@@ -597,6 +607,7 @@ const RIM_FRAGMENT_PARS = /* glsl */ `
   uniform vec3 uLighthouseRimColor;
   uniform float uLighthouseRimStrength;
   uniform vec3 uLighthouseRimSunDir;
+  uniform float uLighthouseLowSun;
 `;
 const RIM_FRAGMENT_CHUNK = /* glsl */ `
   {
@@ -633,6 +644,7 @@ export function applyLighthouseRimLight(root: Object3D): void {
         shader.uniforms.uLighthouseRimColor = LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimColor;
         shader.uniforms.uLighthouseRimStrength = LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimStrength;
         shader.uniforms.uLighthouseRimSunDir = LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimSunDir;
+        shader.uniforms.uLighthouseLowSun = LIGHTHOUSE_RIM_UNIFORMS.uLighthouseLowSun;
         shader.fragmentShader = shader.fragmentShader
           .replace(
             "#include <common>",
@@ -641,14 +653,26 @@ export function applyLighthouseRimLight(root: Object3D): void {
           .replace(
             "#include <emissivemap_fragment>",
             `#include <emissivemap_fragment>\n${RIM_FRAGMENT_CHUNK}`,
-          );
+          )
+          .replace("#include <lights_fragment_end>", /* glsl */ `
+#include <lights_fragment_end>
+// Point-key GGX on the gilt's flat facets otherwise outshines the finite sun
+// and clips to white. Bound only low-sun reflection, preserving its warm hue;
+// diffuse masonry, lamp emission, and accepted noon/night remain untouched.
+if (uLighthouseLowSun > 0.0) {
+  vec3 gardenSolarSpecular = reflectedLight.directSpecular + reflectedLight.indirectSpecular;
+  float gardenSpecularPeak = max(gardenSolarSpecular.r, max(gardenSolarSpecular.g, gardenSolarSpecular.b));
+  float gardenSolarSpecularScale = uLighthouseLowSun > 0.0 ? min(1.0, mix(${GARDEN_ATMOSPHERE.radiance.toFixed(1)}, ${GARDEN_ATMOSPHERE.sunDiscRadiance}, uLighthouseLowSun) / max(gardenSpecularPeak, 1e-8)) : 1.0;
+  reflectedLight.directSpecular *= gardenSolarSpecularScale;
+  reflectedLight.indirectSpecular *= gardenSolarSpecularScale;
+}`);
       };
       // Distinguish rim-only from cloud+rim programs: the default cache key
       // is onBeforeCompile's source, identical for every chained closure, so
       // fold in the chained-from hook's source length (the cloud hook's
       // closure differs from the default empty method).
       material.customProgramCacheKey = () => (
-        `${previousHookSource.length}|lighthouse-rim`
+        `${previousHookSource.length}|lighthouse-rim-solar-reflection`
       );
     }
   });
@@ -674,6 +698,8 @@ export function updateLighthouseRimLight(phase: DayCyclePhase, keyLight: GardenL
   // dusk 0.22, night 0.28. The whole curve moved together — the old dusk and
   // night lifts were proportionally right, just built on too low a base.
   LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimStrength.value = 0.16 + phase.dusk * 0.06 + phase.night * 0.12;
+  LIGHTHOUSE_RIM_UNIFORMS.uLighthouseLowSun.value = (1 - phase.night)
+    * (1 - MathUtils.smoothstep(keyLight.direction.y, 0.08, 0.45));
 }
 
 /**
@@ -851,8 +877,9 @@ export function createLighthouse(): {
     // for the interior glow finds the windows in the fallback shell and the
     // loaded model alike (same contract as the "bronze-gilt" statue gleam).
     name: LIGHTHOUSE_WINDOW_MATERIAL_NAME,
-    roughness: 0.38,
-    toneMapped: false,
+    roughness: 1,
+    envMapIntensity: 0,
+    toneMapped: true,
   });
   applyLighthouseStairEmbers(windowMaterial);
   // Two arched window rows on all four battered faces, emissive-only (the

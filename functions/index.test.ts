@@ -235,7 +235,9 @@ describe("PharosVille social card route", () => {
       // Text-only: the one static card image serves every variant.
       expect(metaContent(html, 'meta[property="og:image"]'))
         .toBe("https://pharosville.pharos.watch/og-card.png");
-      expect(metaContent(html, 'meta[property="og:image:alt"]')).toContain("lighthouse beacon");
+      expect(metaContent(html, 'meta[property="og:image:alt"]')).toBe(
+        "PharosVille — a living stablecoin garden with the Pharos beyond moss, stone and anchored sails. Illustration, not live readings.",
+      );
       expect(metaContent(html, 'meta[name="twitter:image"]'))
         .toBe("https://pharosville.pharos.watch/og-card.png");
     });

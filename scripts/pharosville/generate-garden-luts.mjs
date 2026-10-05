@@ -33,9 +33,9 @@
  * One immutable texture owns all clock looks.
  * never crosses a slice or band boundary, so linear filtering is safe.
  *
- * DOMAIN: the LUT is applied POST-AgX, on the sRGB-ENCODED display signal (see
- * the GardenLut effect in `src/three/garden-post.ts`). Encoded space is where a
- * 32-step axis has its resolution in the right places and where a 1/255 dither
+ * DOMAIN: the LUT is applied POST-Khronos Neutral tone mapping, on the
+ * sRGB-ENCODED display signal (see the GardenLut effect in `src/three/garden-post.ts`).
+ * Encoded space is where a 32-step axis has its resolution in the right places and where a 1/255 dither
  * is exactly one output code, so both halves of the plan agree on one domain.
  *
  * Usage:

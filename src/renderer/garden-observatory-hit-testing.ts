@@ -10,18 +10,11 @@ import {
   gardenDockDisplayTile,
   gardenIslandDisplayTile,
   gardenSemanticView,
-  gardenShipSelectionRadius,
   gardenTileToScreen,
   resolveGardenEntityDisplayTile,
   selectGardenObservatorySlice,
 } from "../systems/garden-observatory-slice";
-import { placeGardenFleet } from "../systems/garden-fleet-placement";
-import {
-  gardenFleetDisplayPresence,
-  gardenFleetThinningShips,
-  gardenFleetThinningZoom,
-  type GardenFleetThinningShip,
-} from "../systems/garden-fleet-thinning";
+import { createGardenFleetFootprint, writeGardenFleetFootprint } from "../systems/garden-fleet-footprint";
 import {
   HARBOR_NOBORI_FACING_YAW,
   NOBORI_CLOTH_ASPECT,
@@ -73,7 +66,7 @@ export interface GardenStationLabelFrame {
   zoom: number;
 }
 
-const fleetThinningShipsByWorld = new WeakMap<PharosVilleWorld, GardenFleetThinningShip[]>();
+const fleetHitFootprint = createGardenFleetFootprint();
 
 export function createGardenObservatoryHitTargetSnapshot(input: {
   camera: IsoCamera;
@@ -91,19 +84,6 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     ? { x: input.viewport.width, y: input.viewport.height }
     : { x: 1600, y: 1000 };
   const slice = selectGardenObservatorySlice(input.world, selectedDetailId);
-  const thinningShips = fleetThinningShipsForWorld(input.world);
-  const selectedShipId = selectedDetailId
-    ? slice.ships.find(({ ship }) => ship.detailId === selectedDetailId)?.ship.id ?? null
-    : null;
-  const hoveredShipId = hoveredDetailId
-    ? slice.ships.find(({ ship }) => ship.detailId === hoveredDetailId)?.ship.id ?? null
-    : null;
-  const displayPresence = gardenFleetDisplayPresence({
-    hoveredShipId,
-    selectedShipId,
-    ships: thinningShips,
-    zoom: gardenFleetThinningZoom(input.camera, projectionViewport),
-  });
   const targets: HitTarget[] = [];
 
   const islandTile = gardenIslandDisplayTile(input.world.lighthouse.tile);
@@ -283,6 +263,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     }, input.viewport, selectedDetailId, hoveredDetailId);
   }
 
+  const footprint = fleetHitFootprint;
   for (const placement of slice.ships) {
     const ship = placement.ship;
     const tile = resolveGardenEntityDisplayTile({
@@ -291,11 +272,15 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
     })!;
     const anchor = gardenTileToScreen(tile, GARDEN_SHIP_ROOT_Y, input.camera, projectionViewport);
-    const diameter = Math.max(
-      44,
-      projectedWorldSize(tile, GARDEN_SHIP_ROOT_Y,
-        gardenShipSelectionRadius(ship) * 2, 0, input.camera, projectionViewport).width,
-    );
+    const sample = input.shipMotionSamples?.get(ship.id);
+    const heading = sample?.heading;
+    const yaw = heading ? -Math.atan2(heading.y, heading.x) : 0;
+    writeGardenFleetFootprint(footprint, ship, tile, yaw, input.camera, projectionViewport, sample?.sailTrimRad);
+    // Physical cloth/hull bounds, padded only to the existing minimum pick tolerance.
+    const width = Math.max(44, footprint.maxX - footprint.minX + 8);
+    const height = Math.max(42, footprint.maxY - footprint.minY + 8);
+    const centreX = footprint.hull.count ? (footprint.minX + footprint.maxX) / 2 : anchor.x;
+    const centreY = footprint.hull.count ? (footprint.minY + footprint.maxY) / 2 : anchor.y;
     addVisibleTarget(targets, {
       anchor,
       detailId: ship.detailId,
@@ -303,18 +288,17 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       kind: ship.kind,
       label: ship.label,
       priority: 10_000 + anchor.y,
-      rect: rectAboveAnchor(anchor, diameter * 1.1, Math.max(42, diameter * 1.25), diameter * 0.3),
-    }, input.viewport, selectedDetailId, hoveredDetailId);
+      rect: { x: centreX - width / 2, y: centreY - height / 2, width, height },
+    // All hulls stay in keyboard order even beyond the crop; only pointer coverage is clipped.
+    }, null, selectedDetailId, hoveredDetailId);
   }
 
-  // Keyboard traversal and detail lookup retain the complete target list.
-  // Only the pointer index follows display thinning, so invisible water never
-  // remains clickable while accessibility can still reach every ship.
+  // Every eligible hull retains pointer and keyboard reachability. The shared
+  // far representation, not fleet zoom thinning, owns visual simplification.
   // Perspective can send geometry at the eye plane arbitrarily far away.
   // Bound pointer coverage without changing detail or keyboard geometry.
   const pointerTargets: HitTarget[] = [];
   for (const target of targets) {
-    if ((displayPresence.get(target.id) ?? 1) < 0.5) continue;
     const { rect } = target;
     if (!Number.isFinite(rect.x) || !Number.isFinite(rect.y)
       || !Number.isFinite(rect.width) || !Number.isFinite(rect.height)
@@ -380,21 +364,6 @@ export function createGardenStationLabelFrame(input: {
   };
 }
 
-function fleetThinningShipsForWorld(world: PharosVilleWorld): GardenFleetThinningShip[] {
-  const cached = fleetThinningShipsByWorld.get(world);
-  if (cached) return cached;
-  const slice = selectGardenObservatorySlice(world, null);
-  const placement = placeGardenFleet(
-    slice.ships.map(({ ship }) => ship),
-    world.lighthouse.tile,
-  );
-  const ships = gardenFleetThinningShips(
-    slice.ships.map(({ ship }) => ship),
-    placement.mooringByShipId,
-  );
-  fleetThinningShipsByWorld.set(world, ships);
-  return ships;
-}
 
 function projectedWorldSize(
   tile: TilePoint,

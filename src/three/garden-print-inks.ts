@@ -15,6 +15,9 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import type { DayCycleBeatName, DayCycleBeats } from "../systems/day-cycle-beats";
 import { chainGardenMaterialPatch, gardenDayDrift } from "./garden-aerial";
 import { gardenSunPose, type GardenLightPose } from "./garden-sun";
+import { getGardenSurfaceExemption } from "./garden-surfaces";
+import { applyGardenIrradiance } from "./garden-irradiance";
+import { GARDEN_ATMOSPHERE } from "./garden-atmosphere";
 
 /**
  * The print's two lighting plates (Hour-Print W2.11, W2.12; printmaker-1 at
@@ -29,6 +32,8 @@ import { gardenSunPose, type GardenLightPose } from "./garden-sun";
  * "no extra energy" contract are untouched — and only its hue moves. The
  * direct (key) term is never inked, which is why this is not a grade: sunlit
  * faces keep the key's colour and shadows take the complement.
+ * At low sun both ink targets filter the material's existing diffuse colour
+ * instead of replacing it with a single pigment; normalization retains energy.
  *
  * **First light, last light.** Around sunrise and sunset the direct term is
  * height-gated by a warm line that descends from the crown at dawn and climbs
@@ -122,6 +127,7 @@ const FIRST_LIGHT_GLOW_FILL = 0.75;
 export const gardenPrintInkUniforms = {
   uGardenAiInk: { value: new Color(1, 1, 1) },
   uGardenAiAmount: { value: 0 },
+  uGardenInkLocalColour: { value: 0 },
   /**
    * x: warm line (world y), y: gate strength, z: glow floor (world y),
    * w: share of the crown's fill that takes the alpenglow.
@@ -164,6 +170,7 @@ export function updateGardenPrintInks(hour: number, beats: DayCycleBeats): void 
     amount += beat.amount * weight;
   }
   lumaNormalised(ink);
+  gardenPrintInkUniforms.uGardenInkLocalColour.value = beats.dawn + beats.golden;
   // X9 (light-6): morning shade takes a little more of the cool ink, the
   // afternoon shade a little less, inside the day beat only.
   gardenPrintInkUniforms.uGardenAiAmount.value = Math.max(
@@ -194,6 +201,7 @@ const INK_FRAGMENT_PARS = /* glsl */ `
 varying float vGardenInkWorldY;
 uniform vec3 uGardenAiInk;
 uniform float uGardenAiAmount;
+uniform float uGardenInkLocalColour;
 uniform vec4 uGardenFirstLight;
 uniform vec3 uGardenFirstLightShade;
 uniform vec3 uGardenFirstLightGlow;
@@ -207,6 +215,27 @@ vec3 gardenFirstLightTint() {
     gardenFirstLightAbove(uGardenFirstLight.x)
   );
   return mix(vec3(1.0), gardenTint, uGardenFirstLight.y);
+}
+vec3 gardenInkTarget(vec3 localColour, vec3 ink, float localLuma) {
+  vec3 plate = localLuma * ink;
+  if (uGardenInkLocalColour <= 0.0) return plate;
+  // Differential irradiance can be signed. Normalizing its cancelled luma
+  // amplified a tiny diffuse term into thousand-unit HDR bloom at low sun.
+  // Project onto physical radiance, then normalize chromaticity at unit peak:
+  // its luminance is at least 0.0722, independently of the signal's scale.
+  const float gardenInkRadianceCeiling = ${GARDEN_ATMOSPHERE.radiance.toFixed(1)};
+  float energy = clamp(localLuma, 0.0, gardenInkRadianceCeiling);
+  vec3 physicalInk = clamp(ink, vec3(0.0), vec3(gardenInkRadianceCeiling));
+  // Bound operands before multiplication, and replace the legacy plate before
+  // mixing: even finite input components can overflow their product in GLSL.
+  plate = clamp(energy * physicalInk, vec3(0.0), vec3(gardenInkRadianceCeiling));
+  vec3 filtered = clamp(localColour, vec3(0.0), vec3(gardenInkRadianceCeiling)) * physicalInk;
+  float filteredPeak = max(filtered.r, max(filtered.g, filtered.b));
+  if (filteredPeak <= 0.0) return plate;
+  filtered /= filteredPeak;
+  float filteredLuma = dot(filtered, vec3(0.2126, 0.7152, 0.0722));
+  filtered = clamp(filtered * (energy / filteredLuma), vec3(0.0), vec3(gardenInkRadianceCeiling));
+  return clamp(mix(plate, filtered, clamp(uGardenInkLocalColour, 0.0, 1.0)), vec3(0.0), vec3(gardenInkRadianceCeiling));
 }
 `;
 const DIRECTIONAL_LIGHT_INFO = "getDirectionalLightInfo( directionalLight, directLight );";
@@ -244,9 +273,10 @@ function injectGardenPrintInks(shader: GardenInkShader): void {
     .replace("#include <lights_fragment_end>", `#include <lights_fragment_end>
   {
     float gardenAiLuma = dot(reflectedLight.indirectDiffuse, vec3(0.2126, 0.7152, 0.0722));
+    vec3 gardenLocalDiffuse = reflectedLight.indirectDiffuse;
     reflectedLight.indirectDiffuse = mix(
       reflectedLight.indirectDiffuse,
-      gardenAiLuma * uGardenAiInk,
+      gardenInkTarget(gardenLocalDiffuse, uGardenAiInk, gardenAiLuma),
       clamp(uGardenAiAmount * (${mask}), 0.0, 1.0)
     );
     // The crown catches first light whichever face we see: part of its fill
@@ -255,7 +285,7 @@ function injectGardenPrintInks(shader: GardenInkShader): void {
       * gardenFirstLightAbove(uGardenFirstLight.x) * gardenFirstLightAbove(uGardenFirstLight.z);
     reflectedLight.indirectDiffuse = mix(
       reflectedLight.indirectDiffuse,
-      gardenAiLuma * uGardenFirstLightGlow,
+      gardenInkTarget(gardenLocalDiffuse, uGardenFirstLightGlow, gardenAiLuma),
       gardenCrownLit
     );
   }`);
@@ -280,6 +310,8 @@ function isInkableMaterial(material: Material): material is GardenInkMaterial {
 
 export function isGardenPrintInkExempt(object: Object3D, material: Material): boolean {
   if (!isInkableMaterial(material)) return true;
+  const surfaceExemption = getGardenSurfaceExemption(material);
+  if (surfaceExemption && surfaceExemption !== "foliage") return true;
   if (material.userData.gardenSailAtlas === true) return true;
   if (material.userData.gardenPrintInkExempt === true) return true;
   if (!material.toneMapped) return true;
@@ -293,8 +325,12 @@ export function isGardenPrintInkExempt(object: Object3D, material: Material): bo
 
 /** C3: re-inks one lit material through the shared patch chain. Idempotent. */
 export function applyGardenPrintInks(material: Material): void {
+  const surfaceExemption = getGardenSurfaceExemption(material);
+  if (surfaceExemption && surfaceExemption !== "foliage") return;
+  applyGardenIrradiance(material);
   chainGardenMaterialPatch(material, {
     key: "garden-print-inks-v1",
+    stage: "printInk",
     compile: (shader) => injectGardenPrintInks(shader),
   });
 }

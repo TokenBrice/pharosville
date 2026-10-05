@@ -16,7 +16,6 @@ import {
 import {
   DAY_CYCLE_HEIGHT_FOG_PRESETS,
   DAY_CYCLE_LIGHT_PRESETS,
-  DAY_CYCLE_MOONLESS_KEY,
   DAY_CYCLE_SKY_PRESETS,
   GARDEN_SAIL_EMISSIVE,
   dayCycleBeats,
@@ -25,7 +24,8 @@ import {
 } from "./garden-day-cycle";
 import { GARDEN_BLOOM_PRACTICAL_THRESHOLD } from "./garden-post";
 import { HARBOR_PALETTE } from "../systems/palette";
-import { gardenSkyDayFromParts, gardenSkyToday, gardenSolarElevationAt } from "../systems/sky-almanac";
+import { gardenSkyDayFromParts, gardenSkyToday, gardenSolarElevationAt, pinGardenSkyDay } from "../systems/sky-almanac";
+import { gardenMoonPose } from "./garden-sun";
 import { gardenHeightFogFactor } from "./garden-height-fog";
 import type { ThreeWorldRendererFrame } from "../renderer/world-renderer-backend";
 
@@ -88,22 +88,32 @@ describe("five-beat light score", () => {
     expect(dayCycleBeats(17, on(12, 15, 0, true)).day).toBe(1);
   });
 
-  it("keeps the night rig a moon rim over restrained fill", () => {
-    const scene = {
-      ambientLight: new AmbientLight(),
-      hemisphereLight: new HemisphereLight(),
-      directionalLight: new DirectionalLight(),
-      content: null,
-    };
-    const frame = { wallClockHour: 23 } as ThreeWorldRendererFrame;
-    updateDayCycle(scene, frame, dayCyclePhase(23));
+  it("keeps diffuse night readable independently of the true lunar rim", () => {
+    const savedDay = gardenSkyToday();
+    const { scene, at } = dayCycleRig();
     const night = DAY_CYCLE_LIGHT_PRESETS.night;
-    expect(scene.ambientLight.intensity).toBeLessThanOrEqual(0.06);
-    expect(scene.hemisphereLight.intensity).toBeLessThanOrEqual(0.1);
-    // Moon down or new, the rim falls to the moonless share; never above full.
-    expect(scene.directionalLight.intensity).toBeGreaterThanOrEqual(night.dirIntensity * DAY_CYCLE_MOONLESS_KEY - 1e-9);
-    expect(scene.directionalLight.intensity).toBeLessThanOrEqual(night.dirIntensity + 1e-9);
-    expect(scene.directionalLight.color.b).toBeGreaterThan(scene.directionalLight.color.r);
+    try {
+      const keyByDate: number[] = [];
+      for (const [month, day] of [[9, 26], [10, 10]]) {
+        pinGardenSkyDay(gardenSkyDayFromParts({
+          year: 2026, month: month!, day: day!, utcOffsetHours: 1, dstHours: 0,
+          latitude: { latitudeRad: 35 * Math.PI / 180, southern: false },
+        }));
+        at(22);
+        expect(dayCycleBeats(22).night).toBe(1);
+        expect(scene.ambientLight.intensity).toBe(night.ambientIntensity);
+        expect(scene.hemisphereLight.intensity).toBe(night.hemiIntensity);
+        expect(scene.directionalLight.intensity).toBeCloseTo(
+          night.dirIntensity * (gardenMoonPose(22).moonLight ?? 0), 12,
+        );
+        expect(scene.directionalLight.color.b).toBeGreaterThan(scene.directionalLight.color.r);
+        keyByDate.push(scene.directionalLight.intensity);
+      }
+      expect(keyByDate[0]).toBeGreaterThan(0.1);
+      expect(keyByDate[1]).toBe(0);
+    } finally {
+      pinGardenSkyDay(savedDay);
+    }
   });
 
   it("blends light colours and intensity linearly without accumulating prior frames", () => {
@@ -195,13 +205,26 @@ describe("day-cycle presets (C1 contract)", () => {
     expect(DAY_CYCLE_HEIGHT_FOG_PRESETS.dusk.density).toBeLessThan(0.0005);
   });
 
-  it("keeps moon fill and sail backlight below the night hierarchy", () => {
+  it("keeps cool diffuse continuous into night without lifting sail emission", () => {
     const night = DAY_CYCLE_LIGHT_PRESETS.night;
-    expect(night.ambientIntensity).toBeLessThanOrEqual(0.06);
-    expect(night.hemiIntensity).toBeLessThanOrEqual(0.1);
-    expect(night.dirIntensity).toBeGreaterThan(
-      night.ambientIntensity + night.hemiIntensity,
-    );
+    expect(night.ambientIntensity + night.hemiIntensity).toBeGreaterThan(night.dirIntensity);
+    expect(night.ambient.b).toBeGreaterThan(night.ambient.r);
+    expect(night.hemiSky.b).toBeGreaterThan(night.hemiSky.r);
+    expect(night.hemiGround.r + night.hemiGround.g + night.hemiGround.b).toBeGreaterThan(0);
+    const { scene, at } = dayCycleRig();
+    let previous: number[] | null = null;
+    for (let hour = 19; hour <= 22; hour += 1 / 600) {
+      at(hour);
+      const diffuse = [
+        scene.ambientLight.intensity, scene.hemisphereLight.intensity,
+        ...scene.ambientLight.color.toArray(), ...scene.hemisphereLight.color.toArray(),
+        ...scene.hemisphereLight.groundColor.toArray(),
+      ];
+      if (previous) diffuse.forEach((value, index) => {
+        expect(Math.abs(value - previous![index]!)).toBeLessThan(0.01);
+      });
+      previous = diffuse;
+    }
     expect(GARDEN_SAIL_EMISSIVE.night).toBeGreaterThanOrEqual(0.09);
     expect(GARDEN_SAIL_EMISSIVE.night).toBeLessThanOrEqual(0.1);
     expect(GARDEN_SAIL_EMISSIVE.night).toBeLessThan(GARDEN_SAIL_EMISSIVE.dusk);

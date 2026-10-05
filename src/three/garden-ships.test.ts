@@ -12,12 +12,19 @@ import {
   MeshStandardMaterial,
   Object3D,
   Quaternion,
+  ShaderChunk,
+  ShaderLib,
+  Texture,
 } from "three";
 import { describe, expect, it, vi } from "vitest";
+import { GARDEN_SURFACE_ROLE_ATTRIBUTE, GARDEN_SURFACE_WEIGHT_ATTRIBUTE } from "./garden-surfaces";
+import { prepareGardenArchitectureTree } from "./garden-precinct";
+import { applyGardenPrintInksToTree } from "./garden-print-inks";
 import {
   GARDEN_HULL_SILHOUETTES,
   type GardenHullSilhouette,
 } from "../systems/garden-observatory-slice";
+import { GARDEN_FLEET_HULL_FORMS, GARDEN_FLEET_FAMILY_ENVELOPES, GARDEN_FLEET_RAIL_Y } from "../systems/garden-fleet-footprint";
 import { gardenShipWaterBeamTiles, gardenShipWaterMarginTiles } from "../systems/garden-water-exclusion";
 import { SHIP_HULL_FORM_SPAN } from "../systems/world-types";
 import type { ShipHull, ShipNode, ShipSizeTier } from "../systems/world-types";
@@ -31,6 +38,9 @@ import {
   createShip,
   gardenShipSternLantern,
   gardenShipVisualScale,
+  gardenShipSailResting,
+  gardenShipSailFurl,
+  updateGardenHeroSailCloth,
   GARDEN_HULL_FAMILY_PAINT,
   GARDEN_SHIP_VISUAL_SCALE_MAX,
   GARDEN_SHIP_VISUAL_SCALE_MIN,
@@ -42,16 +52,20 @@ import {
   updateShipPennants,
   type ShipVisual,
 } from "./garden-ships";
-import { gardenFleetAttention } from "./garden-fleet-batch";
+import { gardenFleetAttention, gardenFleetUnpackSailAttention, patchSailAtlasMaterial, setFleetWeather,
+  type FleetHeroSailState } from "./garden-fleet-batch";
 import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import {
   createGardenModelLibrary,
+  GARDEN_HERO_MODEL_IDS,
   GARDEN_MODEL_MANIFEST,
   type GardenModelAnchorId,
   type GardenModelId,
   type Vector3Tuple,
 } from "./garden-models";
 import { type GardenShipGeometryCache } from "./garden-util";
+import { gardenFleetCueVisible } from "./renderer-ship-frame";
+import { buildVisualCueRegistry } from "../systems/visual-cue-registry";
 
 function makeCache(): GardenShipGeometryCache {
   return {
@@ -74,6 +88,35 @@ function build(node: ShipNode): ShipVisual {
   return createShip(node, { x: 0, y: 0 }, true, makeCache());
 }
 
+function expandShaderChunks(source: string): string {
+  return source.replace(/#include <(\w+)>/g, (_, name: string) => {
+    const chunk = ShaderChunk[name as keyof typeof ShaderChunk];
+    if (chunk === undefined) throw new Error(`Unknown three.js shader chunk: ${name}`);
+    return expandShaderChunks(chunk);
+  });
+}
+
+function expectHeroFragmentDeclarationOrder(fragmentShader: string, variant: string): void {
+  const standard = expandShaderChunks(ShaderLib.standard.fragmentShader);
+  const standardMain = standard.slice(standard.indexOf("void main()"));
+  const composed = expandShaderChunks(fragmentShader);
+  const composedMain = composed.slice(composed.indexOf("void main()"));
+  // Derive three-owned locals from the installed shader, rather than maintaining
+  // a list that could miss a new authored write or a dependency chunk change.
+  const declaration = /\b(?:bool|int|uint|float|[biu]?vec[234]|mat[234]|[A-Z]\w*)\s+([A-Za-z_]\w*)\s*(?=[=;,])/g;
+  const locals = new Set(Array.from(standardMain.matchAll(declaration), (match) => match[1]!));
+  expect(locals.has("metalnessFactor"), variant).toBe(true);
+  for (const local of locals) {
+    const declarationPattern = new RegExp(`\\b(?:bool|int|uint|float|[biu]?vec[234]|mat[234]|[A-Z]\\w*)\\s+${local}\\s*(?=[=;,])`);
+    const declarationIndex = composedMain.search(declarationPattern);
+    const writes = new RegExp(`\\b${local}(?:\\.[A-Za-z_]\\w*)*\\s*[+*/-]?=(?!=)`, "g");
+    for (const write of composedMain.matchAll(writes)) {
+      expect(declarationIndex, `${variant}: ${local} declaration`).toBeGreaterThanOrEqual(0);
+      expect(write.index, `${variant}: ${local} write`).toBeGreaterThan(declarationIndex);
+    }
+  }
+}
+
 describe("createShip vertex shading", () => {
   it("bakes a vertex-color attribute on the hull and enables vertexColors", () => {
     const visual = build(ship("s1", "treasury-galleon", "major"));
@@ -89,12 +132,16 @@ describe("createShip vertex shading", () => {
       return mesh.geometry.getAttribute("color") && vertexColors;
     });
     expect(shaded).toBeDefined();
-    // The dark keel shares the geometry but keeps its flat iron color.
-    const keel = meshes.find((mesh) => {
-      const material = mesh.material as { vertexColors?: boolean };
-      return mesh.geometry.getAttribute("color") && !material.vertexColors;
-    });
-    expect(keel).toBeDefined();
+    // Wet-dark wood belongs to one shell, not a second full-volume keel.
+    const hull = shaded!;
+    expect(meshes.filter((mesh) => mesh.geometry === hull.geometry)).toHaveLength(1);
+    const p = hull.geometry.getAttribute("position"), c = hull.geometry.getAttribute("color");
+    let low = 1, high = 0;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getY(i) < -0.4) low = Math.min(low, c.getX(i));
+      if (p.getY(i) > GARDEN_FLEET_RAIL_Y) high = Math.max(high, c.getX(i));
+    }
+    expect(high).toBeGreaterThan(low);
   });
 
 });
@@ -168,6 +215,52 @@ describe("hero hull assignment", () => {
     expect(shader.fragmentShader).toContain("vHeroAtlasUv");
     atlas.dispose();
   });
+
+  it("rests anchored cloth separately from furl masks and leaves underway wind authoritative", () => {
+    for (const state of ["idle", "moored", "risk-drift", "sailing", "departing", "arriving"]) {
+      expect(gardenShipSailResting(state)).toBe(["idle", "moored", "risk-drift"].includes(state));
+      for (const id of ["usdt-tether", "usdc-circle", "small", "other"]) {
+        expect(gardenShipSailFurl(id, state) & 1).toBe(0);
+      }
+    }
+  });
+
+  it("shares batch cloth math and frozen wind with the hero without shrinking its identity sail", () => {
+    const visual = build(ship("usdt-tether", "treasury-galleon", "titan"));
+    const sail = visual.identitySail!;
+    const scale = sail.scale.clone();
+    const state = sail.userData.gardenCloth as FleetHeroSailState;
+    visual.root.position.set(13, 0, -7);
+    updateGardenHeroSailCloth(visual, true);
+    expect(gardenFleetUnpackSailAttention(state.uHeroClothAttention.value).resting).toBe(true);
+    expect(state.uHeroClothPosition.value).toEqual({ x: 13, y: -7 });
+    expect(sail.scale).toEqual(scale);
+
+    const heroShader = {
+      uniforms: {} as Record<string, { value: unknown }>,
+      vertexShader: "#include <common>\n#include <begin_vertex>\n#include <uv_vertex>",
+      fragmentShader: "#include <common>\n#include <map_fragment>",
+    };
+    const batchShader = { ...heroShader, uniforms: {} as Record<string, { value: unknown }> };
+    visual.identitySailMaterial!.onBeforeCompile(heroShader as never, null as never);
+    const batch = new MeshStandardMaterial();
+    patchSailAtlasMaterial(batch);
+    batch.onBeforeCompile(batchShader as never, null as never);
+    for (const fragment of ["float restFill", "float restFlutter", "float sagShape", "sailDrop * 0.28"]) {
+      expect(heroShader.vertexShader).toContain(fragment);
+      expect(batchShader.vertexShader).toContain(fragment);
+    }
+    expect(heroShader.uniforms.uWindTime).toBe(batchShader.uniforms.uWindTime);
+    setFleetWeather(null);
+    expect(heroShader.uniforms.uWindTime!.value).toBe(0);
+    expect(heroShader.uniforms.uHeroClothAttention).toBe(state.uHeroClothAttention);
+    updateGardenHeroSailCloth(visual, false, 1);
+    expect(gardenFleetUnpackSailAttention(state.uHeroClothAttention.value)).toEqual({
+      attention: 0, luff: 1, resting: false,
+    });
+    expect(sail.scale).toEqual(scale);
+    batch.dispose();
+  });
 });
 
 function heroFixture(id: GardenModelId): Group {
@@ -190,6 +283,72 @@ function heroFixture(id: GardenModelId): Group {
 }
 
 describe("attachGardenHeroModel", () => {
+  it("preserves shared compatible maps and UVs and splits only incompatible map buckets", () => {
+    for (const incompatible of [false, true]) {
+      const visual = build(ship("usdt-tether", "treasury-galleon", "titan"));
+      const model = heroFixture(visual.heroModelId!);
+      const wood = model.getObjectByName("wood-hull") as Mesh<BoxGeometry, MeshStandardMaterial>;
+      const spar = model.getObjectByName("spar-hull") as Mesh<BoxGeometry, MeshStandardMaterial>;
+      const sharedMap = new Texture(), otherMap = new Texture(), sharedNormal = new Texture();
+      wood.material.map = sharedMap; spar.material.map = incompatible ? otherMap : sharedMap;
+      wood.material.normalMap = sharedNormal; spar.material.normalMap = sharedNormal;
+      const authoredUv = Array.from(wood.geometry.getAttribute("uv").array);
+      const sourceIndex = wood.geometry.index!;
+      attachGardenHeroModel(visual, model);
+      const merged = model.getObjectByName("hero-merged-solid") as Mesh<BufferGeometry, MeshStandardMaterial>;
+      expect(merged.material.map).toBe(sharedMap);
+      expect(merged.material.normalMap).toBe(sharedNormal);
+      expect(merged.material.userData.gardenSurface.role).toBe("timber");
+      const uv = merged.geometry.getAttribute("uv");
+      for (let index = 0; index < sourceIndex.count; index++) {
+        expect(uv.getX(index)).toBe(authoredUv[sourceIndex.getX(index) * 2]);
+        expect(uv.getY(index)).toBe(authoredUv[sourceIndex.getX(index) * 2 + 1]);
+      }
+      expect(merged.geometry.getAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE).count).toBe(merged.geometry.getAttribute("position").count);
+      expect(merged.geometry.getAttribute(GARDEN_SURFACE_WEIGHT_ATTRIBUTE).getX(0)).toBe(1);
+      const second = model.getObjectByName("hero-merged-solid-1") as Mesh<BufferGeometry, MeshStandardMaterial> | undefined;
+      expect(!!second).toBe(incompatible);
+      if (second) expect(second.material.map).toBe(otherMap);
+      model.traverse((object) => {
+        if (!(object instanceof Mesh)) return;
+        object.geometry.dispose();
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        for (const material of materials) material.dispose();
+      });
+      sharedMap.dispose(); otherMap.dispose(); sharedNormal.dispose();
+    }
+  });
+  it("retains a dormant hero scene graph and shares its dissolve with the identity sail", () => {
+    const visual = build(ship("usdt-tether", "treasury-galleon", "titan"));
+    const model = heroFixture(visual.heroModelId!);
+    attachGardenHeroModel(visual, model);
+    const merged = model.getObjectByName("hero-merged-solid") as Mesh;
+    for (const material of [merged.material as MeshStandardMaterial, visual.identitySailMaterial!]) {
+      const shader = { uniforms: {}, vertexShader: "#include <common>", fragmentShader: "#include <common>\n#include <opaque_fragment>" };
+      material.onBeforeCompile(shader as never, null as never);
+      expect(shader.uniforms).toHaveProperty("vFleetHidden", visual.lodHidden);
+      expect(shader.fragmentShader).toContain("if (fleetDither < vFleetHidden) discard");
+    }
+    const identityPose = visual.identitySail!.position.clone();
+    visual.lodHidden.value = 1;
+    visual.root.visible = false;
+    expect(visual.root.children).toContain(model);
+    visual.lodHidden.value = 0;
+    visual.root.visible = true;
+    expect(visual.identitySail!.position).toEqual(identityPose);
+    expect(visual.heroHideable.every((part) => !part.visible)).toBe(true);
+  });
+
+  it("uses registry presentation tiers rather than leader status for secondary fleet cues", () => {
+    const cues = buildVisualCueRegistry();
+    for (const id of ["cue.ship.nav-signal", "cue.ship.yield-signal", "cue.ship.safety-watch",
+      "cue.ship.cross-bearing-buoy", "cue.ship.issuance-work", "cue.fleet.flight-to-quality"]) {
+      expect(gardenFleetCueVisible(cues, id, false)).toBe(false);
+      expect(gardenFleetCueVisible(cues, id, true)).toBe(true);
+    }
+    expect(gardenFleetCueVisible(cues, "cue.ship.identity", false)).toBe(true);
+    expect(gardenFleetCueVisible(cues, "not-registered", true)).toBe(false);
+  });
   it("keeps the real Tether GLB's normalized timber colors through the rendered merge", async () => {
     const visual = build(ship("usdt-tether", "treasury-galleon", "titan"));
     const asset = GARDEN_MODEL_MANIFEST[visual.heroModelId!].artifact.url.split("?")[0];
@@ -290,6 +449,58 @@ describe("attachGardenHeroModel", () => {
     expect(model.children.filter((child) => child instanceof Mesh)).toHaveLength(1);
   });
 
+  it.each(GARDEN_HERO_MODEL_IDS)("declares three.js locals before composed hero writes: %s", async (id) => {
+    const visual = build(ship("usdt-tether", "treasury-galleon", "titan"));
+    visual.heroModelId = id;
+    const atlas = new CanvasTexture();
+    assignGardenHeroSailAtlas(visual, atlas, 17);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const asset = String(url).split("?")[0];
+      return new Response(new Uint8Array(readFileSync(`public${asset}`)));
+    }));
+    try {
+      const model = await createGardenModelLibrary().load(id);
+      attachGardenHeroModel(visual, model);
+      prepareGardenArchitectureTree(model);
+      applyGardenPrintInksToTree(visual.root);
+      const materials = new Set<MeshStandardMaterial>([visual.identitySailMaterial!]);
+      model.traverse((object) => {
+        if (!(object instanceof Mesh)) return;
+        for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+          if (material instanceof MeshStandardMaterial) materials.add(material);
+        }
+      });
+      expect(materials.size).toBeGreaterThan(1);
+      for (const material of materials) {
+        const shader = {
+          uniforms: {},
+          vertexShader: ShaderLib.standard.vertexShader,
+          fragmentShader: ShaderLib.standard.fragmentShader,
+        };
+        material.onBeforeCompile(shader as never, null as never);
+        const variant = `${id}/${material.name || "identity-sail"}`;
+        expectHeroFragmentDeclarationOrder(shader.fragmentShader, variant);
+        if (shader.fragmentShader.includes("varying vec2 vHeroSurface;")) {
+          const declaration = shader.fragmentShader.indexOf("#include <metalnessmap_fragment>");
+          const reset = shader.fragmentShader.indexOf("metalnessFactor = 1.0;");
+          const response = shader.fragmentShader.indexOf("metalnessFactor *= vHeroSurface.y;");
+          const mappedResponse = shader.fragmentShader.indexOf("metalnessFactor *= texelMetalness.b;");
+          expect(reset, variant).toBeGreaterThan(declaration);
+          expect(response, variant).toBeGreaterThan(reset);
+          expect(mappedResponse, variant).toBeGreaterThan(response);
+        }
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      atlas.dispose();
+      visual.root.traverse((object) => {
+        if (!(object instanceof Mesh)) return;
+        object.geometry.dispose();
+        for (const material of Array.isArray(object.material) ? object.material : [object.material]) material.dispose();
+      });
+    }
+  });
+
   it("carries restrained wabi value and age patina onto hero wood, never sails", () => {
     const node = ship("usdt-tether", "treasury-galleon", "titan");
     node.visual.hullForm = {
@@ -385,6 +596,23 @@ describe("createFleetLanterns", () => {
     expect(lanterns.rig.geometry.drawRange.count).toBe((6 + 6) * 2);
   });
 
+  it("admits fine rig independently without kindling an unattended lamp", () => {
+    const ships = [batchedAt("large-footprint", "treasury-galleon", 0)];
+    const lanterns = createFleetLanterns(ships, makeCache());
+    const frame = {
+      cameraQuaternion: new Quaternion(), eye: { x: 0, y: 0, z: 40 },
+      pixelsPerUnitAtUnitDistance: 1200, presence: () => 0,
+      rigPresence: () => 1, reducedMotion: true, timeSeconds: 0,
+    };
+    updateFleetLanterns(lanterns, frame);
+    expect(lanterns.cores.count).toBe(0);
+    expect(lanterns.glow.count).toBe(0);
+    expect(lanterns.rig.geometry.drawRange.count).toBeGreaterThan(0);
+    frame.rigPresence = () => 0;
+    updateFleetLanterns(lanterns, frame);
+    expect(lanterns.rig.geometry.drawRange.count).toBe(0);
+  });
+
   it("writes rope alpha as projected coverage and drops sub-pixel rigs", () => {
     const ships = [batchedAt("s", "treasury-galleon", 0)];
     const lanterns = createFleetLanterns(ships, makeCache());
@@ -470,8 +698,9 @@ describe("S1 curved sheer hull", () => {
     createShip(ship("s1", "treasury-galleon", "major"), { x: 0, y: 0 }, true, cache);
     const hull = cache.geometries.get("hull.bezaisen")!;
     hull.computeBoundingBox();
-    // The old flat extrusion topped out at y ≈ 0.34; sheer lifts the ends past it.
-    expect(hull.boundingBox!.max.y).toBeGreaterThan(0.5);
+    // The lifted ends do not raise the flat keel or counterfeit peg trim.
+    expect(hull.boundingBox!.max.y).toBeGreaterThan(GARDEN_FLEET_RAIL_Y + 0.5);
+    expect(hull.boundingBox!.min.y).toBeCloseTo(-0.5);
     const position = hull.getAttribute("position");
     let deckBeam = 0;
     let waterlineBeam = 0;
@@ -479,9 +708,29 @@ describe("S1 curved sheer hull", () => {
       const y = position.getY(index);
       const halfBeam = Math.abs(position.getZ(index));
       if (y > 0.2) deckBeam = Math.max(deckBeam, halfBeam);
-      if (y < -0.4) waterlineBeam = Math.max(waterlineBeam, halfBeam);
+      if (Math.abs(y + 0.18) < 1e-5) waterlineBeam = Math.max(waterlineBeam, halfBeam);
     }
     expect(deckBeam).toBeLessThan(waterlineBeam);
+  });
+
+  it("leaves the working deck recessed inside a thin catching annulus", () => {
+    const cache = makeCache();
+    createShip(ship("carrier", "treasury-galleon", "major"), { x: 0, y: 0 }, true, cache);
+    const rim = cache.geometries.get("deck.bezaisen.rim")!.getAttribute("position");
+    const normals = cache.geometries.get("hull.bezaisen")!.getAttribute("normal");
+    // No upward-facing top cap hides the lowered working deck.
+    for (let i = 0; i < normals.count; i++) expect(normals.getY(i)).toBeLessThan(0.9);
+    const rail: number[] = [], well: number[] = [];
+    for (let i = 0; i < rim.count; i++) {
+      if (Math.abs(rim.getX(i)) > 1.7) continue;
+      const y = rim.getY(i);
+      if (y > GARDEN_FLEET_RAIL_Y) rail.push(y);
+      else well.push(y);
+    }
+    expect(rail.length).toBeGreaterThan(0);
+    expect(well.length).toBeGreaterThan(0);
+    expect(Math.min(...rail) - Math.min(...well)).toBeGreaterThan(0.15);
+    for (const geometry of cache.geometries.values()) geometry.dispose();
   });
 });
 
@@ -501,6 +750,7 @@ describe("W5.3 batched silhouette form", () => {
       expect(gardenShipWaterBeamTiles(1, silhouette), silhouette).toBeGreaterThanOrEqual(requiredBeamTiles);
       source.hull.dispose();
       source.sails.dispose();
+      source.far.dispose();
     }
   });
 
@@ -537,6 +787,60 @@ describe("W5.3 batched silhouette form", () => {
     expect(unique.size).toBeGreaterThan(4);
   });
 
+  it("shares rail anchors with far hulls within bounded family resources", () => {
+    const classes = {
+      bezaisen: "treasury-galleon", kobaya: "crypto-caravel", twinhull: "dao-schooner",
+      takasebune: "yield-barque", junk: "algo-junk", scow: "commodity-peg-hoy",
+    } as const satisfies Record<GardenHullSilhouette, ShipHull>;
+    for (const family of GARDEN_HULL_SILHOUETTES) {
+      const cache = makeCache();
+      createShip(ship(`shape-${family}`, classes[family], "major"), { x: 0, y: 0 }, true, cache);
+      const near = cache.geometries.get(`hull.${family}`)!.getAttribute("position");
+      const source = createFleetBatchGeometry(family);
+      const far = source.far.getAttribute("position"), cloth = source.far.getAttribute("aAtlasSail");
+      for (let i = 0; i < near.count; i++) {
+        if (near.getY(i) < GARDEN_FLEET_RAIL_Y) continue;
+        let matched = false;
+        for (let j = 0; j < far.count && !matched; j++) {
+          matched = cloth.getX(j) === 0 && Math.hypot(near.getX(i) - far.getX(j),
+            near.getY(i) - far.getY(j), near.getZ(i) - far.getZ(j)) < 1e-5;
+        }
+        expect(matched, `${family} rail anchor`).toBe(true);
+      }
+      const shell = cache.geometries.get(`hull.${family}`)!;
+      shell.computeBoundingBox();
+      expect(shell.boundingBox!.max.y, family).toBeLessThanOrEqual(GARDEN_FLEET_FAMILY_ENVELOPES[family].hullHeight);
+      expect(far.count / 3, family).toBeLessThanOrEqual(40);
+      expect((source.hull.getAttribute("position").count + source.sails.getAttribute("position").count) / 3, family).toBeLessThanOrEqual(700);
+      source.hull.dispose(); source.sails.dispose(); source.far.dispose();
+      for (const geometry of cache.geometries.values()) geometry.dispose();
+    }
+  });
+
+  it("preserves the fine bow, compact stern-up belly, cargo banks and squat scow", () => {
+    const aspect = (family: GardenHullSilhouette) => {
+      const outline = GARDEN_FLEET_HULL_FORMS[family].outline;
+      const xs = outline.map(([x]) => x), zs = outline.map(([, z]) => z);
+      return (Math.max(...xs) - Math.min(...xs)) / (Math.max(...zs) - Math.min(...zs));
+    };
+    expect(aspect("kobaya")).toBeGreaterThan(aspect("bezaisen") * 2);
+    expect(aspect("junk")).toBeLessThan(aspect("bezaisen"));
+    expect(aspect("scow")).toBeLessThan(1.5);
+    expect(GARDEN_FLEET_HULL_FORMS.junk.sternLift).toBeGreaterThan(GARDEN_FLEET_HULL_FORMS.junk.bowLift);
+    const twin = createFleetBatchGeometry("twinhull");
+    const p = twin.far.getAttribute("position"), sail = twin.far.getAttribute("aAtlasSail");
+    for (let i = 0; i < p.count; i++) if (sail.getX(i) === 0) expect(Math.abs(p.getZ(i))).toBeGreaterThan(0.5);
+    const barge = createFleetBatchGeometry("takasebune");
+    const cargo = barge.hull.getAttribute("position");
+    for (const sign of [-1, 1]) {
+      let coveredBank = false;
+      for (let i = 0; i < cargo.count; i++) if (cargo.getX(i) * sign > 1.5 && cargo.getY(i) > 1) coveredBank = true;
+      expect(coveredBank).toBe(true);
+    }
+    for (const source of [twin, barge]) {
+      source.hull.dispose(); source.sails.dispose(); source.far.dispose();
+    }
+  });
 });
 
 describe("W4.F1 square sails hang on a yard", () => {
@@ -580,7 +884,7 @@ describe("W4.F1 square sails hang on a yard", () => {
 describe("S3 sparse rigging", () => {
   it("adds forestay, backstay, two shrouds and per-sail halyards in one batched LineSegments", () => {
     const visual = build(ship("s3", "treasury-galleon", "major"));
-    const rigging = visual.root.children.find(
+    const rigging = visual.fineDetail.children.find(
       (child): child is LineSegments => child instanceof LineSegments,
     )!;
     // One bezaisen mast × 4 standing-rigging lines, plus the one halyard that
@@ -590,7 +894,7 @@ describe("S3 sparse rigging", () => {
     expect(rigging.geometry.getAttribute("position").count).toBe((standing + halyards) * 2);
     // The whole rig must stay one draw call however many lines it carries.
     expect(
-      visual.root.children.filter((child) => child instanceof LineSegments),
+      visual.fineDetail.children.filter((child) => child instanceof LineSegments),
     ).toHaveLength(1);
   });
 });

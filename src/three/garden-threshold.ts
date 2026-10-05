@@ -2,13 +2,10 @@ import {
   BufferAttribute,
   BufferGeometry,
   Box3,
-  CatmullRomCurve3,
   Color,
   ConeGeometry,
   CylinderGeometry,
   Group,
-  IcosahedronGeometry,
-  InstancedBufferAttribute,
   InstancedMesh,
   LatheGeometry,
   Matrix4,
@@ -30,11 +27,23 @@ import {
 import type { WeatherPlan } from "../systems/weather";
 import {
   patchGardenFloraNight,
-  patchGardenInstancedWindSway,
-  updateGardenInstancedWindSway,
+  patchGardenRootedWindSway,
+  updateGardenRootedWindSway,
 } from "./garden-flora";
 import { patchGardenToroKindling } from "./garden-lanterns";
-import { createNiwakiPine, type NiwakiBranchSpec, type NiwakiPine } from "./garden-niwaki";
+import {
+  createAuthoredKuromatsuGeometry,
+  type AuthoredKuromatsuOptions, type KuromatsuLimb,
+} from "./garden-niwaki";
+import type { SetStoneForm } from "./garden-set-stones";
+import type { GardenSurfaceAtlasOwner } from "./garden-surface-atlas";
+import {
+  applyGardenSurface,
+  GARDEN_SURFACE_ROLE_ATTRIBUTE,
+  GARDEN_SURFACE_ROLE_CODES,
+  GARDEN_SURFACE_WEIGHT_ATTRIBUTE,
+  type GardenSurfaceDetailSource,
+} from "./garden-surfaces";
 import { disposeThreeObjectTree, stableUnit } from "./garden-util";
 
 /**
@@ -43,12 +52,12 @@ import { disposeThreeObjectTree, stableUnit } from "./garden-util";
  * From the south-shore seat the bottom quarter of the frame used to look past
  * the plate edge at open ocean (≈35 / 42 / 27 / 12 % at 1600×1000 / 1200×640 /
  * 900×720 / 720×900). The threshold is the land you sit on: the engawa's
- * cedar deck edge across the bottom band, a dark moss bank falling away to a
- * brow that lands on the south rim beyond, a rooted kuromatsu at the lower
- * left whose lowest pad crosses the upper-left edge above eye height (seen
- * from below), a small stone tōrō past the deck edge, and — off frame — the
- * eave and tea-house behind the seat and a cedar grove behind-right of it
- * that keep the threshold in shade from 10:00 to sunset.
+ * cedar deck edge across the bottom band, two unequal moss shelves flanking
+ * an oblique recessed interval, a buried stone triad hiding the approach,
+ * and an open branching pine across the upper-left corner. A small stone
+ * tōrō stands past the deck edge. The offscreen eave, tea-house and small
+ * cedar grove hold shade at the front corner; sun reaches the middle-near
+ * garden through the visible pine's broken edge shade.
  *
  * Authored in the seat frame: x = right, y = world height, −z = forward, the
  * origin on the water plane under the landscape rest eye; the geometry is
@@ -127,15 +136,16 @@ function browRow(bearing: number): number {
  * and pitch; past bearing 0.62 (outside every rest frame, both eyes) it runs
  * out to the grove's promontory.
  */
-function browAt(bearing: number): { forward: number; height: number } {
+function browAt(bearing: number): { forward: number; height: number; undulation: number } {
   const below = Math.atan((2 * browRow(bearing) - 1) * TAN_HALF_VFOV) + REST_SEAT_PITCH_RAD;
   const framed = REST_SEAT_EYE_HEIGHT - BROW_FORWARD * Math.tan(below);
   const out = Math.min(1, Math.max(0, (bearing - 0.62) / 0.13));
+  const undulation = (Math.sin(bearing * 19 + 0.6) * 0.17 + Math.sin(bearing * 47 + 2.1) * 0.1) * (1 - out);
   return {
     forward: BROW_FORWARD + (PROMONTORY_FORWARD - BROW_FORWARD) * out,
     // A soft, irregular brow: two slow undulations, ≤ ±0.3 u (≤ ±0.02 of the frame).
-    height: framed + (PROMONTORY_HEIGHT - framed) * out
-      + (Math.sin(bearing * 19 + 0.6) * 0.17 + Math.sin(bearing * 47 + 2.1) * 0.1) * (1 - out),
+    height: framed + (PROMONTORY_HEIGHT - framed) * out + undulation,
+    undulation,
   };
 }
 
@@ -147,83 +157,162 @@ function browAt(bearing: number): { forward: number; height: number } {
  */
 const TALL_SHOULDER = { forward: 8.6, right: 9.3, rise: 0.8, radiusForward: 3, radiusRight: 2.6 } as const;
 
+// A metric, horizontal reservation inside the gravel. Its trace is owned by
+// S3; this module supplies only the substrate and root-local attachment plane.
+const GRAVEL_INSET = { forward: 18.6, right: 1.9, width: 2.2, depth: 1.6 } as const;
+
+function gravelInsetMask(forward: number, right: number): number {
+  const gap = Math.max(0, Math.abs(forward - GRAVEL_INSET.forward) - GRAVEL_INSET.depth / 2,
+    Math.abs(right - GRAVEL_INSET.right) - GRAVEL_INSET.width / 2);
+  const t = Math.max(0, 1 - gap / 0.45);
+  return t * t * (3 - 2 * t);
+}
+
+/** Two low shelves and the interval between them share one physical seat-space mask. */
+function recessMask(forward: number, right: number): number {
+  const along = softBankMask(((forward - 19) / 10) ** 2);
+  const centre = 1.8 - (forward - 14) * 0.46;
+  const width = Math.max(0.85, 1.45 - Math.max(0, forward - 18) * 0.06);
+  return along * shelfMask(((right - centre) / width) ** 2);
+}
+
+function interiorMask(forward: number, right: number, browForward: number): number {
+  const near = Math.min(1, Math.max(0, (forward - 9) / 4));
+  const far = Math.min(1, Math.max(0, (browForward - forward) / 4));
+  return near * near * (3 - 2 * near) * far * far * (3 - 2 * far)
+    * shelfMask((right / 17) ** 2);
+}
+
+
 /**
- * Threshold ground height in the seat frame. Level under the veranda; past
- * the deck edge the bank falls steeply, then eases (concave) onto the brow so
- * the brow, not the near slope, is the silhouette; past the brow it rolls
- * over and drops out of sight to the water.
+ * The retained bank envelope protects the brow, deck and hull clearance.
+ * Broad shelf sections replace the interior swells; the shallow interval
+ * dies out before the brow, and the tall-seat shoulder is unchanged.
  */
-function thresholdHeight(forward: number, right: number): number {
+function thresholdBaseHeight(forward: number, right: number): number {
   if (forward <= BANK_START) return PLATEAU;
   const brow = browAt(right / forward);
+  // Extreme rest breath grazed this whole left-brow band. A 120-mm crest
+  // across forward 29–31 / right −7.5…−4.5 leaves over 50 mm of margin
+  // at the measured wide-gate ray, then tapers smoothly outside the band.
+  // Benches, triad, record plane and the broader bank stay unchanged.
+  const browLip = 0.12
+    * shelfMask((Math.max(0, Math.abs(forward - BROW_FORWARD) - 1) / 1.5) ** 2)
+    * shelfMask((Math.max(0, Math.abs(right + 6) - 1.5) / 1.5) ** 2);
   if (forward <= brow.forward) {
     const t = (forward - BANK_START) / (brow.forward - BANK_START);
-    // Low swells across the bank, pinned to zero at the deck and the brow.
-    const swell = Math.sin(forward * 0.33 + right * 0.19) * 0.18 * 4 * t * (1 - t);
+    const envelope = (1 - t) * (1 - t);
+    const leftShelf = shelfMask(((forward - 19) / 9) ** 2 + ((right + 5) / 8) ** 2);
+    const rightShelf = shelfMask(((forward - 16) / 7) ** 2 + ((right - 5.5) / 5) ** 2);
+    const interior = interiorMask(forward, right, brow.forward);
     const shoulder = Math.max(0, 1
       - ((forward - TALL_SHOULDER.forward) / TALL_SHOULDER.radiusForward) ** 2
       - ((right - TALL_SHOULDER.right) / TALL_SHOULDER.radiusRight) ** 2);
-    return brow.height + (PLATEAU - brow.height) * (1 - t) * (1 - t) + swell
-      + TALL_SHOULDER.rise * shoulder * shoulder * (3 - 2 * shoulder);
+    // Irregularity belongs only to the retained silhouette, not to every
+    // cross-bank section where noon's side-on key would print parallel bands.
+    const browBase = brow.height - brow.undulation;
+    const edge = Math.max(0, 1 - (brow.forward - forward) / 1.8);
+    const baseline = browBase + (PLATEAU - browBase) * envelope
+      + brow.undulation * edge * edge * (3 - 2 * edge);
+    const recess = recessMask(forward, right);
+    // The guard only bounds the distant silhouette. Inside it, world-space
+    // benches must be shallower than the sight rays: a ray-aligned terrace
+    // collapses to a thin screen band and sends atlas footprints to infinity.
+    const guardRow = browRow(right / forward) + 0.035 + 0.03 * leftShelf * (1 - recess);
+    const guard = REST_SEAT_EYE_HEIGHT - forward
+      * Math.tan(Math.atan((2 * guardRow - 1) * TAN_HALF_VFOV) + REST_SEAT_PITCH_RAD);
+    const terrace = Math.min(guard, 10.6 - (forward - 18) * 0.08
+      + 0.18 * leftShelf + 0.1 * rightShelf) - 0.24 * recess;
+    // A physical rounded crest closes the shelf-to-brow dip under rest
+    // breathing. It ends at the retained brow and starts beyond the triad,
+    // leaving the near sampling benches and stone contacts unchanged.
+    const crestAlong = Math.max(0, Math.min(1, (forward - 24) / 3, (brow.forward - forward) / 3));
+    const crest = crestAlong * crestAlong * (3 - 2 * crestAlong)
+      * shelfMask(((right + 5) / 6) ** 2);
+    return baseline + (terrace - baseline) * interior
+      + 0.5 * crest + browLip + TALL_SHOULDER.rise * shoulder * shoulder * (3 - 2 * shoulder);
   }
   const beyond = forward - brow.forward;
-  return Math.max(-1.5, brow.height - 0.35 * beyond * beyond);
+  return Math.max(-1.5, brow.height - 0.35 * beyond * beyond) + browLip;
 }
 
-// Deep moss and earth hold the shaded foreground. The local middle-distance
-// value plane borrows these same dyes without lifting the deck edge or grove.
-const MOSS_COOL = new Color(HARBOR_PALETTE.aurora_green)
-  .lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.35)
-  .multiplyScalar(0.15);
-const MOSS_OLIVE = new Color(HARBOR_PALETTE.aurora_green)
-  .lerp(new Color(HARBOR_PALETTE.stone_mid), 0.45)
-  .multiplyScalar(0.14);
-const EARTH_SHADE = new Color(HARBOR_PALETTE.stone_dark).multiplyScalar(0.62);
-/** Muted olive-earth in the blue garden shade; separate from the inlet's hue. */
-const BANK_MOSS_PLANE = MOSS_OLIVE.clone().lerp(EARTH_SHADE, 0.85);
-BANK_MOSS_PLANE.r *= 1.5;
-BANK_MOSS_PLANE.g *= 1.05;
-BANK_MOSS_PLANE.b *= 0.15;
-const SET_STONE = new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.fog_blue), 0.2).multiplyScalar(0.5);
-const CEDAR_NEEDLE = new Color(HARBOR_PALETTE.aurora_green).lerp(new Color(HARBOR_PALETTE.timber_dark), 0.55).multiplyScalar(0.42);
-const CEDAR_BARK = new Color(HARBOR_PALETTE.timber_dark).multiplyScalar(0.7);
-/** Weathered cedar: silver-brown boards, darker seams and sill. */
-const DECK_BOARD = new Color(HARBOR_PALETTE.stone_mid)
-  .lerp(new Color(HARBOR_PALETTE.timber_dark), 0.4)
-  .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.1);
+// Anchor the record plane at its centre, not at the lowest distant corner:
+// the latter excavated a hidden pocket and swallowed a step on the approach.
+const GRAVEL_INSET_HEIGHT = thresholdBaseHeight(GRAVEL_INSET.forward, GRAVEL_INSET.right) - 0.012;
+
+function thresholdHeight(forward: number, right: number): number {
+  const base = thresholdBaseHeight(forward, right);
+  return base + (GRAVEL_INSET_HEIGHT - base) * gravelInsetMask(forward, right);
+}
+
+export interface GardenThresholdGroundSample {
+  height: number;
+  moss: number;
+  gravel: number;
+  earth: number;
+  inset: number;
+}
+
+/** Construction/station sampling only; callers reuse their output object. */
+export function writeGardenThresholdGround(forward: number, right: number, out: GardenThresholdGroundSample): void {
+  const browForward = forward > BANK_START ? browAt(right / forward).forward : BANK_START;
+  out.height = thresholdHeight(forward, right);
+  out.inset = gravelInsetMask(forward, right);
+  out.earth = Math.min(1, Math.max(0, (forward - browForward - 0.5) / 2));
+  const gravel = Math.max(out.inset, recessMask(forward, right) * interiorMask(forward, right, browForward));
+  out.gravel = gravel * (1 - out.earth);
+  out.moss = (1 - out.earth) * (1 - gravel);
+}
+
+// Warm olive/earth pigments retain their land identity under the shared cool
+// shade ink; atlas detail supplies fibres/mineral grains, not a bright lawn.
+const MOSS_OLIVE = new Color().setRGB(0.034, 0.05, 0.028);
+const STONE_MOSS = MOSS_OLIVE.clone().multiplyScalar(0.64);
+const EARTH_SHADE = new Color().setRGB(0.055, 0.038, 0.023);
+const GRAVEL = new Color().setRGB(0.13, 0.12, 0.10);
+const SET_STONE = new Color().setRGB(0.065, 0.065, 0.06);
+const STONE_CONTACT = new Color().setRGB(0.018, 0.02, 0.009);
+const STONE_CROWN = new Color().setRGB(0.145, 0.14, 0.125);
+const STEP_WORN = new Color().setRGB(0.16, 0.15, 0.135);
+const CEDAR_NEEDLE = new Color().setRGB(0.025, 0.033, 0.009);
+const CEDAR_BARK = new Color().setRGB(0.037, 0.03, 0.022);
+const DECK_BOARD = new Color().setRGB(0.15, 0.12, 0.075);
 const DECK_EDGE = DECK_BOARD.clone().multiplyScalar(0.8);
 const DECK_SEAM = DECK_BOARD.clone().multiplyScalar(0.35);
-const EAVE = new Color(HARBOR_PALETTE.stone_dark).multiplyScalar(0.5);
-const TORO_STONE = new Color(HARBOR_PALETTE.stone_mid)
-  .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.15)
-  .lerp(MOSS_OLIVE, 0.2)
-  .multiplyScalar(0.72);
-const TORO_HOLLOW = new Color(HARBOR_PALETTE.stone_dark).multiplyScalar(0.32);
+const EAVE = new Color().setRGB(0.065, 0.065, 0.065);
+const TORO_STONE = new Color().setRGB(0.05, 0.047, 0.035);
+const TORO_HOLLOW = EARTH_SHADE.clone().multiplyScalar(0.32);
 const LANTERN_EMBER = new Color(HARBOR_PALETTE.lantern_warm);
-/** Local night attenuation: keep the bank/deck boundary below the night sky. */
 const THRESHOLD_NIGHT_FLOOR = 0.5;
-/** Threshold kuromatsu dyes: a deep cool pine green far below the rim pine, never a new hue. */
-const THRESHOLD_NEEDLE = new Color(HARBOR_PALETTE.aurora_green)
-  .lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.4)
-  .multiplyScalar(0.16);
-const THRESHOLD_BARK = new Color(HARBOR_PALETTE.stone_dark)
-  .lerp(new Color(HARBOR_PALETTE.timber_dark), 0.35).multiplyScalar(0.85);
+const THRESHOLD_NEEDLE = CEDAR_NEEDLE;
+const THRESHOLD_BARK = CEDAR_BARK;
 
 // Land grid: rows tighten toward the seat so the near bank stays smooth on
 // screen; columns are finest across the framed arc.
 function landRows(): number[] {
   const rows = [-16, -11, -7, -4, -1.5, 1, 3];
   for (let forward = 3; forward < 52;) {
-    forward += 0.4 + forward * 0.055;
+    forward += 0.3 + forward * 0.035;
     rows.push(forward);
   }
+  if (!rows.includes(BROW_FORWARD)) rows.push(BROW_FORWARD);
+  const near = GRAVEL_INSET.forward - GRAVEL_INSET.depth / 2;
+  const far = GRAVEL_INSET.forward + GRAVEL_INSET.depth / 2;
+  if (!rows.includes(near)) rows.push(near);
+  if (!rows.includes(far)) rows.push(far);
+  rows.sort((a, b) => a - b);
   return rows;
 }
 function landColumns(): number[] {
   const columns: number[] = [];
   for (let right = -40; right < -24; right += 4) columns.push(right);
-  for (let right = -24; right < 28; right += 1.4) columns.push(right);
+  for (let right = -24; right < 28; right += 0.75) columns.push(right);
   for (let right = 28; right <= 48; right += 4) columns.push(right);
+  const left = GRAVEL_INSET.right - GRAVEL_INSET.width / 2;
+  const right = GRAVEL_INSET.right + GRAVEL_INSET.width / 2;
+  if (!columns.includes(left)) columns.push(left);
+  if (!columns.includes(right)) columns.push(right);
+  columns.sort((a, b) => a - b);
   return columns;
 }
 
@@ -232,40 +321,22 @@ function softBankMask(distanceSquared: number): number {
   return t * t * (3 - 2 * t);
 }
 
-function landColor(forward: number, right: number, height: number): Color {
-  // Slow moss variation remains underneath three broad, seat-authored planes.
-  const broad = Math.sin(forward * 0.29 + Math.sin(right * 0.17) * 2.2) * Math.cos(right * 0.23 - forward * 0.11);
-  const fine = Math.sin(forward * 1.13 + right * 0.71) * Math.sin(right * 1.37 - forward * 0.53);
-  const brow = forward > BANK_START ? browAt(right / forward).forward : BANK_START;
-  const edge = softBankMask(1 - Math.min(1, Math.max(0, (forward - BANK_START) / 3)))
-    * softBankMask(1 - Math.min(1, Math.max(0, (brow - forward) / 6)))
-    * softBankMask(1 - Math.min(1, Math.max(0, (18 - right) / 6)));
-  const shoulder = softBankMask(
-    ((forward - TALL_SHOULDER.forward) / (TALL_SHOULDER.radiusForward + 2)) ** 2
-    + ((right - TALL_SHOULDER.right) / (TALL_SHOULDER.radiusRight + 2)) ** 2,
+/** A broad, nearly level shelf with a narrow rounded shoulder, not a swell. */
+function shelfMask(distanceSquared: number): number {
+  const t = Math.min(1, Math.max(0, (1 - distanceSquared) / 0.42));
+  return t * t * (3 - 2 * t);
+}
+
+function groundColor(sample: GardenThresholdGroundSample, forward: number, right: number, out: Color): Color {
+  const shoulder = 1 - 0.24 * 4 * sample.gravel * (1 - sample.gravel);
+  const moss = sample.moss * shoulder * (sample.moss === 0 ? 1
+    : 0.88 + 0.16 * Math.sin(forward * 0.64 + Math.cos(right * 0.31) * 0.75)
+      * Math.cos(right * 0.44 - forward * 0.12));
+  return out.setRGB(
+    MOSS_OLIVE.r * moss + GRAVEL.r * sample.gravel + EARTH_SHADE.r * sample.earth,
+    MOSS_OLIVE.g * moss + GRAVEL.g * sample.gravel + EARTH_SHADE.g * sample.earth,
+    MOSS_OLIVE.b * moss + GRAVEL.b * sample.gravel + EARTH_SHADE.b * sample.earth,
   );
-  const interior = edge * (1 - shoulder);
-  const mix = Math.min(1, Math.max(0, 0.5 + broad * 0.45 + fine * (0.2 - interior * 0.15)));
-  const color = MOSS_COOL.clone().lerp(MOSS_OLIVE, mix).multiplyScalar(0.86 + fine * (0.14 - interior * 0.1));
-  const field = softBankMask(((forward - 24) / 14) ** 2 + ((right - 1.5) / 12) ** 2) * interior
-    * softBankMask(1 - Math.min(1, Math.max(0, (right + 4) / 4)))
-    * softBankMask(1 - Math.min(1, Math.max(0, (forward - 19) / 4)));
-  const recess = softBankMask(((forward - 19) / 2.5) ** 2 + ((right - 0.5 + (forward - 19) * 0.2) / 10) ** 2) * interior;
-  const steps = softBankMask(((forward - 8.8) / 5.5) ** 2 + ((right - 2.6) / 4.8) ** 2) * interior;
-  const plane = field * (1 - recess * 0.75);
-  const value = 52 + broad * 12;
-  color.setRGB(
-    color.r + (BANK_MOSS_PLANE.r * value - color.r) * plane,
-    color.g + (BANK_MOSS_PLANE.g * value - color.g) * plane,
-    color.b + (BANK_MOSS_PLANE.b * value - color.b) * plane,
-  );
-  color.lerp(EARTH_SHADE, recess * 0.75);
-  color.lerp(MOSS_OLIVE, steps * 0.65).multiplyScalar(1 + steps * 0.6);
-  // The fall past the brow shows dark earth.
-  const past = forward - (forward > BANK_START ? browAt(right / forward).forward : Number.POSITIVE_INFINITY);
-  if (past > 0.5) color.lerp(EARTH_SHADE, Math.min(1, (past - 0.5) / 2));
-  if (height < PLATEAU - 0.05 && forward < BANK_START + 1) color.lerp(EARTH_SHADE, 0.3);
-  return color;
 }
 
 interface CedarSpec {
@@ -275,24 +346,13 @@ interface CedarSpec {
 }
 
 /**
- * Behind-right of the seat: a sugi grove whose crowns shade the bank and the
- * pine from the side-lit noon through the low sunset key. Every crown stays
- * outside every rest frame (≥ 31° off the 1200×640 edge ray).
+ * A small grove behind the veranda shades its front corner, not the entire
+ * near garden. The middle shelves and approach receive the noon key directly;
+ * the visible pine supplies the broken shade at their edges.
  */
 const CEDARS: readonly CedarSpec[] = [
-  { forward: -16, right: 28, top: 40 },
-  { forward: -14, right: 18, top: 38 },
-  { forward: -6, right: 31, top: 42 },
-  { forward: -8, right: 22, top: 40 },
-  { forward: -2, right: 25.5, top: 43 },
-  { forward: 4, right: 23, top: 41 },
-  { forward: 10, right: 27, top: 44 },
-  { forward: 16, right: 25, top: 42 },
-  { forward: 22, right: 29, top: 44 },
-  { forward: 28, right: 27.5, top: 42 },
-  { forward: 34, right: 31, top: 44 },
-  { forward: 40, right: 30.5, top: 43 },
-  { forward: 46, right: 33, top: 44 },
+  { forward: -16, right: 28, top: 24 },
+  { forward: -14, right: 18, top: 24 },
 ];
 
 function dye(geometry: BufferGeometry, color: Color): BufferGeometry {
@@ -303,19 +363,26 @@ function dye(geometry: BufferGeometry, color: Color): BufferGeometry {
   return geometry;
 }
 
-function buildLand(): BufferGeometry {
+function buildLand(): { geometry: BufferGeometry; heightAt(forward: number, right: number): number } {
   const rows = landRows();
   const columns = landColumns();
-  const positions = new Float32Array(rows.length * columns.length * 3);
-  const colors = new Float32Array(rows.length * columns.length * 3);
+  const count = rows.length * columns.length;
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const weights = new Float32Array(count * 3);
+  const sample: GardenThresholdGroundSample = { height: 0, moss: 0, gravel: 0, earth: 0, inset: 0 };
+  const color = new Color();
   rows.forEach((forward, i) => {
     columns.forEach((right, j) => {
       const index = i * columns.length + j;
-      const height = thresholdHeight(forward, right);
+      writeGardenThresholdGround(forward, right, sample);
       positions[index * 3] = right;
-      positions[index * 3 + 1] = height;
+      positions[index * 3 + 1] = sample.height;
       positions[index * 3 + 2] = -forward;
-      landColor(forward, right, height).toArray(colors, index * 3);
+      groundColor(sample, forward, right, color).toArray(colors, index * 3);
+      weights[index * 3] = sample.moss;
+      weights[index * 3 + 1] = sample.gravel;
+      weights[index * 3 + 2] = sample.earth;
     });
   });
   const indices: number[] = [];
@@ -326,12 +393,69 @@ function buildLand(): BufferGeometry {
       indices.push(a, a + 1, b, a + 1, b + 1, b);
     }
   }
+  const grid = new BufferGeometry();
+  grid.setAttribute("position", new BufferAttribute(positions, 3));
+  grid.setIndex(indices);
+  grid.computeVertexNormals();
+  const normal = grid.getAttribute("normal");
+  const vertexPool = new Map<number, number>();
+  const split = { positions: [] as number[], normals: [] as number[], colors: [] as number[],
+    roles: [] as number[], weights: [] as number[], uv: [] as number[], indices: [] as number[] };
+  for (let face = 0; face < indices.length; face += 3) {
+    const a = indices[face]!;
+    const b = indices[face + 1]!;
+    const c = indices[face + 2]!;
+    writeGardenThresholdGround(-(positions[a * 3 + 2]! + positions[b * 3 + 2]! + positions[c * 3 + 2]!) / 3,
+      (positions[a * 3]! + positions[b * 3]! + positions[c * 3]!) / 3, sample);
+    const role = sample.gravel > 0.5 ? GARDEN_SURFACE_ROLE_CODES.gravel
+      : sample.earth > 0.5 ? GARDEN_SURFACE_ROLE_CODES.earth : GARDEN_SURFACE_ROLE_CODES.moss;
+    const channel = role === GARDEN_SURFACE_ROLE_CODES.gravel ? 1 : role === GARDEN_SURFACE_ROLE_CODES.earth ? 2 : 0;
+    for (let corner = 0; corner < 3; corner += 1) {
+      const vertex = indices[face + corner]!;
+      const key = vertex * 4 + role;
+      let next = vertexPool.get(key);
+      if (next === undefined) {
+        next = split.roles.length;
+        vertexPool.set(key, next);
+        const offset = vertex * 3;
+        split.positions.push(positions[offset]!, positions[offset + 1]!, positions[offset + 2]!);
+        split.normals.push(normal.getX(vertex), normal.getY(vertex), normal.getZ(vertex));
+        split.colors.push(colors[offset]!, colors[offset + 1]!, colors[offset + 2]!);
+        split.roles.push(role);
+        split.weights.push(weights[offset + channel]!);
+        split.uv.push(positions[offset]!, positions[offset + 2]!);
+      }
+      split.indices.push(next);
+    }
+  }
   const geometry = new BufferGeometry();
-  geometry.setAttribute("position", new BufferAttribute(positions, 3));
-  geometry.setAttribute("color", new BufferAttribute(colors, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  const pieces: BufferGeometry[] = [geometry];
+  geometry.setAttribute("position", new BufferAttribute(new Float32Array(split.positions), 3));
+  geometry.setAttribute("normal", new BufferAttribute(new Float32Array(split.normals), 3));
+  geometry.setAttribute("color", new BufferAttribute(new Float32Array(split.colors), 3));
+  geometry.setAttribute("uv", new BufferAttribute(new Float32Array(split.uv), 2));
+  geometry.setAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE, new BufferAttribute(new Float32Array(split.roles), 1));
+  geometry.setAttribute(GARDEN_SURFACE_WEIGHT_ATTRIBUTE, new BufferAttribute(new Float32Array(split.weights), 1));
+  geometry.setIndex(split.indices);
+  grid.dispose();
+  return { geometry, heightAt(forward, right) {
+    let row = 1;
+    let column = 1;
+    while (row < rows.length - 1 && rows[row]! < forward) row += 1;
+    while (column < columns.length - 1 && columns[column]! < right) column += 1;
+    const x = Math.min(1, Math.max(0, (right - columns[column - 1]!) / (columns[column]! - columns[column - 1]!)));
+    const y = Math.min(1, Math.max(0, (forward - rows[row - 1]!) / (rows[row]! - rows[row - 1]!)));
+    const a = (row - 1) * columns.length + column - 1;
+    const h00 = positions[a * 3 + 1]!;
+    const h10 = positions[(a + 1) * 3 + 1]!;
+    const h01 = positions[(a + columns.length) * 3 + 1]!;
+    const h11 = positions[(a + columns.length + 1) * 3 + 1]!;
+    return x + y <= 1 ? h00 + (h10 - h00) * x + (h01 - h00) * y
+      : h11 + (h01 - h11) * (1 - x) + (h10 - h11) * (1 - y);
+  } };
+}
+
+function buildShadeCasters(): BufferGeometry {
+  const pieces: BufferGeometry[] = [];
   for (const [index, cedar] of CEDARS.entries()) {
     const ground = thresholdHeight(cedar.forward, cedar.right);
     const height = cedar.top - ground;
@@ -339,7 +463,7 @@ function buildLand(): BufferGeometry {
     const trunk = dye(new CylinderGeometry(0.32, 0.55, crownBase - ground + 1, 7, 1, true), CEDAR_BARK);
     trunk.translate(cedar.right, (crownBase + ground + 1) / 2 - 0.5, -cedar.forward);
     pieces.push(trunk);
-    const radius = 3.8 + stableUnit(`threshold.cedar.${index}`) * 1.2;
+    const radius = 1.6 + stableUnit(`threshold.cedar.${index}`) * 0.6;
     const profile = [
       new Vector2(0.01, 0), new Vector2(radius * 0.72, 0.02), new Vector2(radius, 0.12),
       new Vector2(radius * 0.86, 0.36), new Vector2(radius * 0.6, 0.62), new Vector2(radius * 0.3, 0.86), new Vector2(0.01, 1),
@@ -348,7 +472,6 @@ function buildLand(): BufferGeometry {
     crown.translate(cedar.right, crownBase, -cedar.forward);
     pieces.push(crown);
   }
-  for (const [index, stone] of SET_STONES.entries()) pieces.push(setStone(index, stone));
   const merged = mergeGeometries(pieces, false)!;
   pieces.forEach((piece) => piece.dispose());
   return merged;
@@ -357,52 +480,116 @@ function buildLand(): BufferGeometry {
 interface StoneSpec {
   forward: number;
   right: number;
-  /** Half-extents: across, height, along. */
-  size: readonly [number, number, number];
+  form: Exclude<SetStoneForm, "arching">;
+  scale: readonly [number, number, number];
   yaw: number;
 }
 
-/**
- * Set stones (a triad by the tōrō, two on the bank) and a run of flat
- * stepping stones from the deck edge down the moss. All sit low on the bank,
- * below the brow's silhouette.
- */
+// The unequal triad belongs to the larger left shelf. The reclining stone
+// occludes the far steps: the approach continues behind it, not to a dead end.
 const SET_STONES: readonly StoneSpec[] = [
-  { forward: 11.1, right: -3.8, size: [0.55, 0.38, 0.45], yaw: 0.4 },
-  { forward: 10, right: -4.4, size: [0.32, 0.22, 0.28], yaw: 1.2 },
-  { forward: 11.6, right: -1.6, size: [0.26, 0.16, 0.22], yaw: 2.1 },
-  { forward: 16, right: 5.2, size: [0.8, 0.42, 0.55], yaw: 0.9 },
-  { forward: 19.5, right: -7.5, size: [0.9, 0.36, 0.6], yaw: 2.6 },
-  { forward: 5.4, right: 2.8, size: [0.34, 0.07, 0.26], yaw: 0.2 },
-  { forward: 6.5, right: 2.2, size: [0.3, 0.07, 0.24], yaw: 0.9 },
-  { forward: 7.7, right: 2.9, size: [0.32, 0.07, 0.25], yaw: 1.7 },
-  { forward: 9, right: 2.3, size: [0.3, 0.07, 0.23], yaw: 0.5 },
-  { forward: 10.4, right: 2.9, size: [0.31, 0.07, 0.24], yaw: 2.4 },
+  { forward: 22, right: -3.9, form: "reclining", scale: [1.6, 2.25, 1.3], yaw: 0.1 },
+  { forward: 24, right: -6.8, form: "tall", scale: [0.8, 1.35, 0.75], yaw: 0.5 },
+  { forward: 21.2, right: -6.3, form: "low", scale: [1.05, 0.85, 0.95], yaw: 1.1 },
+  { forward: 17, right: 1, form: "flat", scale: [0.65, 1.2, 0.7], yaw: 0.1 },
+  { forward: 19, right: 0.2, form: "flat", scale: [0.7, 1.2, 0.65], yaw: 0.3 },
+  { forward: 21, right: -0.7, form: "flat", scale: [0.75, 1.2, 0.7], yaw: -0.2 },
+  { forward: 22.5, right: -1.45, form: "flat", scale: [0.65, 1.2, 0.7], yaw: 0.3 },
+  { forward: 24.7, right: -4.45, form: "flat", scale: [0.65, 1.2, 0.7], yaw: 0.2 },
 ];
 
-function setStone(index: number, stone: StoneSpec): BufferGeometry {
-  const raw = new IcosahedronGeometry(1, 1);
-  raw.deleteAttribute("normal");
-  raw.deleteAttribute("uv");
-  const geometry = mergeVertices(raw);
-  raw.dispose();
-  const position = geometry.getAttribute("position") as BufferAttribute;
-  const colors = new Float32Array(position.count * 3);
-  const color = new Color();
+function setStone(index: number, stone: StoneSpec, ground: number): BufferGeometry {
+  const shell = new SphereGeometry(0.5, 14, 10);
+  shell.deleteAttribute("normal");
+  shell.deleteAttribute("uv");
+  const geometry = mergeVertices(shell);
+  shell.dispose();
+  const position = geometry.getAttribute("position");
+  const proportions = stone.form === "tall" ? [0.82, 1.7, 0.72]
+    : stone.form === "reclining" ? [1.7, 0.72, 0.85]
+      : stone.form === "flat" ? [1.55, 0.5, 1.2] : [1.05, 0.95, 0.9];
+  const phase = stableUnit(`threshold.stone.${index}.weathering`) * Math.PI * 2;
   for (let vertex = 0; vertex < position.count; vertex += 1) {
-    const lump = 1 + (stableUnit(`threshold.stone.${index}.${vertex}`) - 0.5) * 0.18;
-    const y = Math.max(-0.35, position.getY(vertex));
-    position.setXYZ(vertex, position.getX(vertex) * lump, y, position.getZ(vertex) * lump);
-    // Moss creeps over the crown of each stone; the flanks stay grey.
-    color.copy(SET_STONE).lerp(MOSS_COOL, Math.max(0, y - 0.35) * 0.9);
-    color.toArray(colors, vertex * 3);
+    const x = position.getX(vertex), y = position.getY(vertex), z = position.getZ(vertex);
+    const weathering = 1 + 0.09 * Math.sin(x * 7 + phase) * Math.cos(z * 6 - phase)
+      + 0.025 * Math.sin(y * 13 + phase);
+    const shoulder = 1 - 0.18 * Math.max(0, y * 2);
+    // One gently tilted bedding plane; the weathered ellipsoid supplies broad
+    // feet and rounded shoulders instead of a box's straight extruded walls.
+    const bedding = 0.28 + x * 0.045 - z * 0.035;
+    position.setXYZ(vertex, x * weathering * shoulder * proportions[0]!,
+      Math.min(y * weathering, bedding) * proportions[1]!,
+      z * weathering * shoulder * proportions[2]!);
   }
-  geometry.setAttribute("color", new BufferAttribute(colors, 3));
-  geometry.scale(stone.size[0], stone.size[1], stone.size[2]);
-  geometry.rotateY(stone.yaw);
-  geometry.translate(stone.right, thresholdHeight(stone.forward, stone.right) + stone.size[1] * 0.2, -stone.forward);
   geometry.computeVertexNormals();
+  dye(geometry, SET_STONE);
+  geometry.scale(...stone.scale);
+  geometry.rotateY(stone.yaw);
+  geometry.computeBoundingBox();
+  const bounds = geometry.boundingBox!;
+  // Seat 48% of the actual weathered bounds below the rendered local terrain.
+  const burial = bounds.min.y + (bounds.max.y - bounds.min.y) * 0.48;
+  const colors = geometry.getAttribute("color") as BufferAttribute;
+  const normal = geometry.getAttribute("normal");
+  const color = new Color();
+  const height = bounds.max.y - bounds.min.y;
+  const roles = new Float32Array(position.count).fill(GARDEN_SURFACE_ROLE_CODES.stone);
+  const detail = new Float32Array(position.count);
+  const uv = new Float32Array(position.count * 2);
+  for (let vertex = 0; vertex < position.count; vertex += 1) {
+    const aboveContact = (position.getY(vertex) - burial) / height;
+    const lift = Math.min(1, Math.max(0, aboveContact / 0.22));
+    color.copy(STONE_CONTACT).lerp(SET_STONE, lift);
+    const up = Math.max(0, normal.getY(vertex));
+    if (stone.form === "flat") color.lerp(STEP_WORN, up * lift);
+    else {
+      color.lerp(STONE_CROWN, up * 0.85 * lift);
+      if (stone.form === "reclining") {
+        const cap = Math.max(0, Math.sin(position.getX(vertex) * 2 + 0.8) * Math.cos(position.getZ(vertex) * 2));
+        color.lerp(STONE_MOSS, up * cap * 0.48 * lift);
+      }
+    }
+    color.toArray(colors.array, vertex * 3);
+    detail[vertex] = lift * (1 - up * 0.24);
+    uv[vertex * 2] = position.getX(vertex);
+    uv[vertex * 2 + 1] = position.getZ(vertex);
+  }
+  geometry.setAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE, new BufferAttribute(roles, 1));
+  geometry.setAttribute(GARDEN_SURFACE_WEIGHT_ATTRIBUTE, new BufferAttribute(detail, 1));
+  geometry.setAttribute("uv", new BufferAttribute(uv, 2));
+  geometry.translate(stone.right, ground - burial, -stone.forward);
   return geometry;
+}
+
+export interface GardenThresholdStoneSite {
+  readonly form: SetStoneForm;
+  /** Root-local, world-aligned geometric bounds; these are not record IDs. */
+  readonly bounds: Box3;
+  readonly contactHeight: number;
+  readonly firstTriangle: number;
+  readonly triangleCount: number;
+  readonly surfacePoint: Vector3;
+}
+
+function buildStones(toWorldAxes: Matrix4, heightAt: (forward: number, right: number) => number): { geometry: BufferGeometry; sites: GardenThresholdStoneSite[] } {
+  const pieces: BufferGeometry[] = [];
+  const sites: GardenThresholdStoneSite[] = [];
+  let firstTriangle = 0;
+  for (const [index, stone] of SET_STONES.entries()) {
+    const contactHeight = heightAt(stone.forward, stone.right);
+    const geometry = setStone(index, stone, contactHeight).applyMatrix4(toWorldAxes);
+    geometry.computeBoundingBox();
+    const triangleCount = geometry.index!.count / 3;
+    const bounds = geometry.boundingBox!.clone();
+    sites.push({ form: stone.form, bounds, contactHeight,
+      firstTriangle, triangleCount,
+      surfacePoint: new Vector3(stone.right, bounds.max.y, -stone.forward).applyMatrix4(toWorldAxes) });
+    firstTriangle += triangleCount;
+    pieces.push(geometry);
+  }
+  const geometry = mergeGeometries(pieces, false)!;
+  pieces.forEach((piece) => piece.dispose());
+  return { geometry, sites };
 }
 
 interface BoxBuilder {
@@ -465,22 +652,24 @@ function buildEngawa(): { chamberCentre: Vector3; geometry: BufferGeometry } {
   }
   // The front edge beam (engawa-gamachi): the one line across the bottom band.
   seatBox(builder, [edge - 0.3, edge], [DECK_LEFT - 0.1, DECK_RIGHT + 0.1], [PLATEAU - 0.25, top + 0.02], DECK_EDGE);
+  seatBox(builder, [edge - 0.1, edge + 0.045], [DECK_LEFT - 0.1, DECK_RIGHT + 0.1],
+    [PLATEAU - 0.31, PLATEAU - 0.25], DECK_SEAM);
   // Posts, eave and the tea-house body behind the seat: off frame above,
-  // beside and behind every rest view. Their shadow holds the boards dark from
-  // late morning, and the body throws the bank into shade once the low
-  // evening key comes from behind the viewer.
+  // beside and behind every rest view. The shallow eave holds the front
+  // corner in shade without blacking out the middle-near garden at noon.
   for (const right of [DECK_LEFT + 0.3, 6, DECK_RIGHT - 0.3]) {
     for (const forward of [DECK_BACK + 0.3, edge - 0.55]) {
       if (right === 6 && forward > 0) continue;
       seatBox(builder, [forward - 0.18, forward + 0.18], [right - 0.18, right + 0.18], [top, 18.5], DECK_EDGE);
     }
   }
-  const eaveFront = 6.4;
+  const eaveFront = 1;
   const houseBack = -12;
   seatBox(builder, [houseBack, DECK_BACK], [DECK_LEFT - 1, DECK_RIGHT + 9], [PLATEAU - 0.2, 18.4], EAVE);
   seatBox(builder, [houseBack - 0.8, DECK_BACK], [DECK_RIGHT + 4.5, DECK_RIGHT + 9.5], [18.4, 18.9], EAVE);
-  seatBox(builder, [houseBack - 0.8, eaveFront], [DECK_LEFT - 2, DECK_RIGHT + 4.5], [18.4, 18.9], EAVE);
-  seatBox(builder, [houseBack - 0.5, eaveFront - 3], [DECK_LEFT - 1.5, DECK_RIGHT + 4], [18.9, 20.4], EAVE);
+  seatBox(builder, [houseBack - 0.8, eaveFront], [DECK_LEFT - 2, DECK_RIGHT + 0.5], [18.4, 18.9], EAVE);
+  seatBox(builder, [houseBack - 0.5, DECK_BACK - 1], [DECK_LEFT - 1.5, DECK_RIGHT], [18.9, 20.4], EAVE);
+  const woodVertexCount = builder.positions.length / 3;
 
   // A small oki-dōrō on the bank: hexagonal foot, post, platform, a closed
   // stone fire chamber with one small window toward the seat, a hexagonal
@@ -520,87 +709,41 @@ function buildEngawa(): { chamberCentre: Vector3; geometry: BufferGeometry } {
   boxes.setAttribute("color", new BufferAttribute(new Float32Array(builder.colors), 3));
   boxes.setIndex(builder.indices);
   parts.unshift(boxes);
+  for (const part of parts) {
+    const position = part.getAttribute("position");
+    const normal = part.getAttribute("normal");
+    const roles = new Float32Array(position.count).fill(GARDEN_SURFACE_ROLE_CODES.stone);
+    const weights = new Float32Array(position.count);
+    const uv = new Float32Array(position.count * 2);
+    if (part === boxes) {
+      for (let vertex = 0; vertex < woodVertexCount; vertex += 1) {
+        roles[vertex] = GARDEN_SURFACE_ROLE_CODES.timber;
+        weights[vertex] = 1;
+        const top = Math.abs(normal.getY(vertex)) > 0.5;
+        const front = Math.abs(normal.getZ(vertex)) > 0.5;
+        uv[vertex * 2] = front ? position.getX(vertex) : -position.getZ(vertex);
+        uv[vertex * 2 + 1] = top ? position.getX(vertex) : position.getY(vertex);
+      }
+    }
+    // The tōrō keeps zero surface weight: its chamber emission, stone pigment
+    // and authored normals are not modified by the timber atlas finish.
+    part.setAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE, new BufferAttribute(roles, 1));
+    part.setAttribute(GARDEN_SURFACE_WEIGHT_ATTRIBUTE, new BufferAttribute(weights, 1));
+    part.setAttribute("uv", new BufferAttribute(uv, 2));
+  }
   const geometry = mergeGeometries(parts, false)!;
   parts.forEach((part) => part.dispose());
   geometry.computeBoundingSphere();
   return { chamberCentre: new Vector3(tr, ground + (TORO_CORE.top + TORO_CORE.bottom) / 2, -tf), geometry };
 }
 
-/** A limb pad authored where it must land in a rest frame. */
-interface ScreenPad {
-  /** Frame position of the pad centre (0..1, y down). */
-  u: number;
-  v: number;
-  /** Horizontal distance ahead of the eye, world units. */
-  depth: number;
-  /** Pad half-width, world units. */
-  size: number;
-}
-
-/**
- * The sashi-eda for a rest frame, solved from where its pads must appear:
- * each pad centre is placed on its frame target at its depth, seen from the
- * seat eye `eyeRight` (seat-frame right offset) at the frame's aspect; the arm
- * leaves the trunk at `at` and runs to the outermost pad, and every pad sits
- * on a short twig off it. So the pads' screen composition — three separate
- * flat pads with sky between them — is authored directly, like the brow.
- */
-function screenLimb(
-  root: { forward: number; right: number },
-  trunk: ReadonlyArray<readonly [number, number, number]>,
-  at: number,
-  eyeRight: number,
-  aspect: number,
-  targets: readonly ScreenPad[],
-): NiwakiBranchSpec {
-  const curve = new CatmullRomCurve3(trunk.map(([x, y, z]) => new Vector3(x, y, z)), false, "centripetal");
-  const local = curve.getPointAt(at);
-  const rootY = thresholdHeight(root.forward, root.right) - 0.1;
-  const start = { right: root.right + local.x, y: rootY + local.y, forward: root.forward - local.z };
-  const cosP = Math.cos(REST_SEAT_PITCH_RAD);
-  const sinP = Math.sin(REST_SEAT_PITCH_RAD);
-  const pads = targets.map((target) => {
-    const ndcY = 1 - 2 * target.v;
-    const dy = target.depth * (ndcY * TAN_HALF_VFOV * cosP - sinP) / (cosP + ndcY * TAN_HALF_VFOV * sinP);
-    const viewDepth = -dy * sinP + target.depth * cosP;
-    return {
-      right: eyeRight + (2 * target.u - 1) * TAN_HALF_VFOV * aspect * viewDepth,
-      y: REST_SEAT_EYE_HEIGHT + dy,
-      forward: target.depth,
-      size: target.size,
-    };
-  });
-  // Pine-local axes: +x = seat right, +z = seat backward.
-  const outer = pads.reduce((far, pad) => (pad.forward > far.forward ? pad : far));
-  const azimuth = Math.atan2(-(outer.forward - start.forward), outer.right - start.right);
-  const heading = { x: Math.cos(azimuth), z: Math.sin(azimuth) };
-  const placements = pads.map((pad) => {
-    const dx = pad.right - start.right;
-    const dz = -(pad.forward - start.forward);
-    return {
-      forward: dx * heading.x + dz * heading.z,
-      side: -dx * heading.z + dz * heading.x,
-      up: pad.y - start.y,
-      size: pad.size,
-    };
-  });
-  const tip = placements.reduce((far, pad) => (pad.forward > far.forward ? pad : far));
-  return {
-    at,
-    azimuth,
-    reach: tip.forward,
-    rise: tip.up - tip.size * 0.3,
-    padSize: tip.size,
-    padsAt: placements,
-  };
-}
 
 /**
  * The hero kuromatsu, rooted just past the deck's front-left corner. Its
  * plated trunk rises out of the lower-left corner and sweeps away left over
  * the bank (leaving the frame below the lowest navigable water), then climbs
  * out of view; its one long low limb (sashi-eda) runs back in above eye
- * height and carries three separate flat pads across the upper-left edge,
+ * height and carries separate porous sprays across the upper-left edge,
  * seen from below. Trunk nodes are root-local (+x = seat right, −z = seat
  * forward); the upper tiers turn left and back, out of every rest frame.
  */
@@ -608,44 +751,63 @@ const HERO_ROOT = { forward: 5.8, right: -2 } as const;
 const HERO_TRUNK: ReadonlyArray<readonly [number, number, number]> = [
   [0, 0, 0], [-0.9, 0.45, -0.3], [-2.1, 1, -0.9], [-3.3, 2.2, -1.6], [-4, 4.6, -2.6], [-4.2, 7.4, -3.4], [-4, 9.2, -3.8],
 ];
-/** 1600×1000 targets: one pad crossing the left edge, two stepping out along the limb. */
-const HERO_LIMB_PADS: readonly ScreenPad[] = [
-  { u: -0.03, v: 0.105, depth: 13.5, size: 0.95 },
-  { u: 0.045, v: 0.205, depth: 12, size: 0.58 },
-  { u: 0.12, v: 0.15, depth: 14, size: 0.5 },
-];
-const HERO_BRANCHES: readonly NiwakiBranchSpec[] = [
-  { ...screenLimb(HERO_ROOT, HERO_TRUNK, 0.443, 0, 1.6, HERO_LIMB_PADS), detail: 2 },
-  // Upper tiers: out of every frame, they only cast shade on the bank.
-  { at: 0.66, azimuth: 2.7, reach: 2.4, rise: 0.4, padSize: 1.5, detail: 0 },
-  { at: 0.8, azimuth: 1.7, reach: 2, rise: 0.35, padSize: 1.3, detail: 0 },
-  { at: 0.9, azimuth: 3.3, reach: 1.6, rise: 0.3, padSize: 1.1, detail: 0 },
-  { at: 1, azimuth: 2.2, reach: 0.4, rise: 0.15, padSize: 0.9, detail: 0 },
+const NEAR_NEEDLES = { needles: 96, length: 0.34, spread: 1.1 } as const;
+const UPPER_NEEDLES = { needles: 64, length: 0.3, spread: 1.05 } as const;
+const HERO_LIMBS: readonly KuromatsuLimb[] = [
+  // One long primary, three unequal secondary forks, then individual twigs.
+  { parent: 0, at: 0.443, order: "primary", points: [[-3.8, 2.8, -4.6], [-3.1, 3, -7], [-2.1, 3.95, -8.2]], radii: [0.18, 0.028] },
+  { parent: 1, at: 0.5, order: "secondary", points: [[-4.2, 3.4, -6.8], [-4, 4.1, -7.7]], radii: [0.045, 0.014] },
+  { parent: 2, at: 0.55, order: "twig", points: [[-4.45, 4.3, -7.5], [-4.55, 4.4, -7.8]], radii: [0.012, 0.004], spray: NEAR_NEEDLES },
+  { parent: 2, at: 0.8, order: "twig", points: [[-3.75, 4.35, -8.05]], radii: [0.01, 0.003], spray: NEAR_NEEDLES },
+  { parent: 2, at: 1, order: "twig", points: [[-4.12, 4.2, -8.15]], radii: [0.009, 0.003], spray: NEAR_NEEDLES },
+  { parent: 1, at: 0.72, order: "secondary", points: [[-2.7, 3.1, -6.6], [-2.3, 3.25, -6.2]], radii: [0.035, 0.011] },
+  { parent: 6, at: 0.6, order: "twig", points: [[-2.6, 3.45, -5.95]], radii: [0.01, 0.003], spray: NEAR_NEEDLES },
+  { parent: 6, at: 0.82, order: "twig", points: [[-1.95, 3.4, -6.45]], radii: [0.009, 0.003], spray: NEAR_NEEDLES },
+  { parent: 6, at: 1, order: "twig", points: [[-2.35, 3.65, -6.55]], radii: [0.008, 0.0025], spray: NEAR_NEEDLES },
+  { parent: 1, at: 0.94, order: "secondary", points: [[-2.05, 4.03, -8.15], [-2.15, 4.17, -8.4]], radii: [0.028, 0.01] },
+  { parent: 10, at: 0.5, order: "twig", points: [[-1.82, 4.35, -8.2]], radii: [0.009, 0.0025], spray: NEAR_NEEDLES },
+  { parent: 10, at: 0.8, order: "twig", points: [[-2.5, 4.28, -8.55]], radii: [0.008, 0.0025], spray: NEAR_NEEDLES },
+  { parent: 10, at: 1, order: "twig", points: [[-2.05, 4.5, -8.75]], radii: [0.007, 0.002], spray: NEAR_NEEDLES },
+  // Upper arms stay outside the seated picture but retain porous corner shade.
+  { parent: 0, at: 0.7, order: "primary", points: [[-5.2, 5.1, -4], [-6.1, 5.5, -4.2]], radii: [0.09, 0.02] },
+  { parent: 14, at: 0.8, order: "secondary", points: [[-6.4, 5.8, -4.5]], radii: [0.025, 0.007] },
+  { parent: 15, at: 0.9, order: "twig", points: [[-6.5, 6.05, -4.9]], radii: [0.006, 0.002], spray: UPPER_NEEDLES },
+  { parent: 0, at: 0.86, order: "primary", points: [[-3.5, 7, -4.7], [-3, 7.4, -5.8]], radii: [0.08, 0.018] },
+  { parent: 17, at: 0.8, order: "twig", points: [[-2.7, 7.8, -6]], radii: [0.009, 0.003], spray: UPPER_NEEDLES },
+  { parent: 0, at: 0.97, order: "primary", points: [[-4.6, 9.05, -4.5]], radii: [0.05, 0.013] },
+  { parent: 19, at: 0.9, order: "twig", points: [[-4.8, 9.5, -4.8]], radii: [0.004, 0.0015], spray: UPPER_NEEDLES },
 ];
 /**
  * The companion pine for the tall 720×900 seat (10.95 u to the right on the
  * same deck). It stands in the wedge between the landscape frames' right edge
- * and the tall frame's left edge, so only its sashi-eda's pads enter the tall
+ * and the tall frame's left edge, so only its sashi-eda's sprays enter the tall
  * frame at the upper left; no landscape frame sees any of it.
  */
-const TALL_EYE_RIGHT = 10.95;
 const COMPANION_ROOT = { forward: 5.1, right: 6.4 } as const;
 const COMPANION_TRUNK: ReadonlyArray<readonly [number, number, number]> = [
   [0, 0, 0], [0.25, 1.6, 0.2], [0.12, 3.4, 0.45], [0.45, 5.2, 0.6], [0.35, 7, 0.8],
 ];
-const COMPANION_LIMB_PADS: readonly ScreenPad[] = [
-  { u: -0.03, v: 0.13, depth: 12, size: 0.7 },
-  { u: 0.1, v: 0.22, depth: 11, size: 0.45 },
-  { u: 0.21, v: 0.15, depth: 13, size: 0.36 },
+const COMPANION_NEEDLES = { needles: 88, length: 0.26, spread: 1.1 } as const;
+const COMPANION_LIMBS: readonly KuromatsuLimb[] = [
+  { parent: 0, at: 0.372, order: "primary", points: [[0.55, 2.7, -1], [1.9, 2.85, -5], [2.8, 3.55, -7.8]], radii: [0.13, 0.018] },
+  { parent: 1, at: 0.55, order: "secondary", points: [[1.4, 3.35, -6], [1.72, 3.8, -6.9]], radii: [0.03, 0.01] },
+  { parent: 2, at: 0.55, order: "twig", points: [[1.38, 3.95, -6.6]], radii: [0.008, 0.0025], spray: COMPANION_NEEDLES },
+  { parent: 2, at: 0.8, order: "twig", points: [[1.94, 4.05, -7.1]], radii: [0.007, 0.002], spray: COMPANION_NEEDLES },
+  { parent: 2, at: 1, order: "twig", points: [[1.65, 3.95, -7.25]], radii: [0.006, 0.002], spray: COMPANION_NEEDLES },
+  { parent: 1, at: 0.75, order: "secondary", points: [[2.25, 2.95, -5.8], [2.55, 3.05, -5.9]], radii: [0.024, 0.008] },
+  { parent: 6, at: 0.55, order: "twig", points: [[2.2, 3.2, -5.65]], radii: [0.007, 0.002], spray: COMPANION_NEEDLES },
+  { parent: 6, at: 0.8, order: "twig", points: [[2.85, 3.3, -6.1]], radii: [0.006, 0.002], spray: COMPANION_NEEDLES },
+  { parent: 6, at: 1, order: "twig", points: [[2.45, 3.45, -6.25]], radii: [0.005, 0.0015], spray: COMPANION_NEEDLES },
+  { parent: 1, at: 0.95, order: "secondary", points: [[2.7, 3.75, -7.8], [2.85, 3.85, -8.1]], radii: [0.018, 0.006] },
+  { parent: 10, at: 0.6, order: "twig", points: [[2.55, 4.05, -7.95]], radii: [0.005, 0.0015], spray: COMPANION_NEEDLES },
+  { parent: 10, at: 0.85, order: "twig", points: [[3.1, 4, -8.2]], radii: [0.0045, 0.0015], spray: COMPANION_NEEDLES },
+  { parent: 10, at: 1, order: "twig", points: [[2.8, 4.2, -8.4]], radii: [0.004, 0.001], spray: COMPANION_NEEDLES },
+  { parent: 0, at: 0.7, order: "primary", points: [[-0.6, 4.8, 0.9], [-1.2, 5.1, 1.1]], radii: [0.075, 0.012] },
+  { parent: 14, at: 0.85, order: "twig", points: [[-1.5, 5.4, 1.3]], radii: [0.008, 0.002], spray: UPPER_NEEDLES },
+  { parent: 0, at: 0.88, order: "primary", points: [[1.1, 6.4, 1.7]], radii: [0.05, 0.009] },
+  { parent: 16, at: 0.85, order: "twig", points: [[1.3, 6.75, 2]], radii: [0.005, 0.0015], spray: UPPER_NEEDLES },
 ];
-const COMPANION_BRANCHES: readonly NiwakiBranchSpec[] = [
-  { ...screenLimb(COMPANION_ROOT, COMPANION_TRUNK, 0.372, TALL_EYE_RIGHT, 0.8, COMPANION_LIMB_PADS), detail: 2 },
-  { at: 0.558, azimuth: 1.9, reach: 1.6, rise: 0.3, padSize: 0.95, detail: 0 },
-  { at: 0.716, azimuth: 0.6, reach: 1.5, rise: 0.3, padSize: 0.85, detail: 0 },
-  { at: 0.858, azimuth: 1.2, reach: 1.2, rise: 0.25, padSize: 0.7, detail: 0 },
-  { at: 1, azimuth: 0.4, reach: 0.3, rise: 0.1, padSize: 0.55, detail: 0 },
-];
-/** Pines sway by their height above this base (the veranda ground). */
+/** Shared instance offset; flex is baked relative to each tree's own root. */
 const PINE_BASE = PLATEAU;
 
 export interface GardenThreshold {
@@ -654,145 +816,28 @@ export interface GardenThreshold {
   triangleCount: number;
   /** World-space bounds of every threshold caster and receiver (rest placement). */
   shadowBounds: Box3;
-  /** Hero sashi-eda pad centres in world space at rest, innermost first. */
-  heroLimbPadCentres: readonly Vector3[];
+  readonly stoneSites: readonly GardenThresholdStoneSite[];
+  /** Cached world-space roots at rest, hero then companion; stable across breath. */
+  readonly pineRestRoots: readonly [Vector3, Vector3];
+  /** Root-local metric reservation; attach S3's record to root to follow breath. */
+  readonly gravelInset: { centre: Vector3; right: Vector3; forward: Vector3; normal: Vector3; width: number; depth: number; pigment: Color };
   /**
    * Follow the breathed eye: pass live eye − rest eye for the current aspect
    * class. The threshold is where the viewer sits, so it moves with the eye
-   * and the corner holds through breath and the arrival rise.
+   * and the corner holds through rest breath and the camera hand-off.
    */
   setEyeOffset(x: number, y: number, z: number): void;
-  updateWind(weather: WeatherPlan, reducedMotion: boolean): void;
+  updateWind(weather: WeatherPlan, reducedMotion: boolean, rootGust0: number, rootGust1: number): void;
   dispose(): void;
 }
 
-interface ThresholdPadOutline {
-  cuts: readonly { angle: number; halfWidth: number; depth: number }[];
-  /** Fraction of the original crown height above its unchanged underside. */
-  crownHeight: number;
-  /** Pad-local phase of the soft upper-crown undulation. */
-  crownPhase: number;
+function plantKuromatsu(position: Vector3, options: AuthoredKuromatsuOptions): BufferGeometry {
+  return createAuthoredKuromatsuGeometry(options)
+    .translate(position.x, position.y - PINE_BASE, position.z);
 }
 
-/** Build-time contours only; pad ownership keeps bark and the hidden crown untouched. */
-export function shapeThresholdLimbPads(
-  pine: NiwakiPine,
-  azimuth: number,
-  outlines: readonly ThresholdPadOutline[],
-): void {
-  const cos = Math.cos(azimuth);
-  const sin = Math.sin(azimuth);
-  const selected = pine.pads.map((pad, owner) => ({ pad, owner }))
-    .filter(({ pad }) => pad.branch === 0)
-    .sort((a, b) => (a.pad.center.x - b.pad.center.x) * cos + (a.pad.center.z - b.pad.center.z) * sin);
-  if (selected.length !== 3 || outlines.length !== 3) throw new Error("Threshold limbs require three pads and outlines");
-  const profiles = new Map(selected.map(({ pad, owner }, i) => [owner, { pad, outline: outlines[i]! }]));
-  const position = pine.geometry.getAttribute("position") as BufferAttribute;
-  const normal = pine.geometry.getAttribute("normal") as BufferAttribute;
-  const index = pine.geometry.index!;
-  let count = 0;
-  for (const owner of pine.padOfVertex) if (profiles.has(owner)) count += 1;
-  const oldNormals = new Float32Array(count * 3);
-  let saved = 0;
-  for (let vertex = 0; vertex < position.count; vertex += 1) {
-    const profile = profiles.get(pine.padOfVertex[vertex]!);
-    if (!profile) continue;
-    const { pad, outline } = profile;
-    const dx = position.getX(vertex) - pad.center.x;
-    const dz = position.getZ(vertex) - pad.center.z;
-    const x = cos * dx + sin * dz;
-    const z = -sin * dx + cos * dz;
-    const angle = Math.atan2(z / pad.halfSize.z, x / pad.halfSize.x);
-    let cut = 0;
-    for (const notch of outline.cuts) {
-      const distance = Math.abs(Math.atan2(Math.sin(angle - notch.angle), Math.cos(angle - notch.angle)));
-      const t = Math.max(0, 1 - distance / notch.halfWidth);
-      cut += notch.depth * t * t * (3 - 2 * t);
-    }
-    const scale = 1 - Math.min(0.54, Math.max(0, cut));
-    if (scale !== 1) {
-      position.setX(vertex, pad.center.x + (cos * x - sin * z) * scale);
-      position.setZ(vertex, pad.center.z + (sin * x + cos * z) * scale);
-    }
-    const base = pad.center.y - pad.halfSize.y;
-    const height = position.getY(vertex) - base;
-    if (height > 1e-6 && outline.crownHeight < 1) {
-      const ripple = Math.sin(x / pad.halfSize.x * 2.1 + z / pad.halfSize.z * 1.3 + outline.crownPhase);
-      const crown = outline.crownHeight + (1 - outline.crownHeight) * 0.1 * ripple;
-      position.setY(vertex, base + height * crown);
-    }
-    oldNormals[saved++] = normal.getX(vertex);
-    oldNormals[saved++] = normal.getY(vertex);
-    oldNormals[saved++] = normal.getZ(vertex);
-    normal.setXYZ(vertex, 0, 0, 0);
-  }
-  const a = new Vector3();
-  const b = new Vector3();
-  const c = new Vector3();
-  for (let face = 0; face < index.count; face += 3) {
-    const ia = index.getX(face);
-    const ib = index.getX(face + 1);
-    const ic = index.getX(face + 2);
-    const owner = pine.padOfVertex[ia]!;
-    if (!profiles.has(owner) && !profiles.has(pine.padOfVertex[ib]!) && !profiles.has(pine.padOfVertex[ic]!)) continue;
-    if (pine.padOfVertex[ib] !== owner || pine.padOfVertex[ic] !== owner) throw new Error("Threshold pad triangle crosses owners");
-    a.fromBufferAttribute(position, ia);
-    b.fromBufferAttribute(position, ib);
-    c.fromBufferAttribute(position, ic);
-    c.sub(b).cross(a.sub(b));
-    for (let corner = 0; corner < 3; corner += 1) {
-      const vertex = index.getX(face + corner);
-      normal.setXYZ(vertex, normal.getX(vertex) + c.x, normal.getY(vertex) + c.y, normal.getZ(vertex) + c.z);
-    }
-  }
-  saved = 0;
-  for (let vertex = 0; vertex < position.count; vertex += 1) {
-    if (!profiles.has(pine.padOfVertex[vertex]!)) continue;
-    a.fromBufferAttribute(normal, vertex);
-    if (a.lengthSq() > 0) a.normalize();
-    else a.fromArray(oldNormals, saved);
-    normal.setXYZ(vertex, a.x, a.y, a.z);
-    saved += 3;
-  }
-  position.needsUpdate = true;
-  normal.needsUpdate = true;
-  pine.geometry.computeBoundingBox();
-  pine.geometry.computeBoundingSphere();
-}
 
-// Innermost to outermost along each arm, deliberately independent of height order.
-const HERO_OUTLINES: readonly ThresholdPadOutline[] = [
-  { crownHeight: 0.6, crownPhase: 0.2, cuts: [{ angle: -0.45, halfWidth: 1.15, depth: 0.45 }, { angle: 1.1, halfWidth: 0.9, depth: 0.38 }] },
-  { crownHeight: 0.6, crownPhase: 1.7, cuts: [{ angle: 0.35, halfWidth: 1.3, depth: 0.5 }, { angle: -2.6, halfWidth: 0.65, depth: 0.2 }] },
-  { crownHeight: 0.6, crownPhase: -0.9, cuts: [{ angle: -1.65, halfWidth: 1.1, depth: 0.4 }, { angle: 0.2, halfWidth: 0.8, depth: 0.25 }] },
-];
-const COMPANION_OUTLINES: readonly ThresholdPadOutline[] = [
-  { crownHeight: 0.62, crownPhase: 0.5, cuts: [{ angle: -0.3, halfWidth: 1.1, depth: 0.38 }, { angle: 1.05, halfWidth: 0.85, depth: 0.3 }] },
-  { crownHeight: 0.62, crownPhase: 1.9, cuts: [{ angle: 0.45, halfWidth: 1.2, depth: 0.4 }, { angle: -2.4, halfWidth: 0.7, depth: 0.18 }] },
-  { crownHeight: 0.62, crownPhase: -0.7, cuts: [{ angle: -1.8, halfWidth: 1.05, depth: 0.35 }, { angle: 0.35, halfWidth: 0.8, depth: 0.22 }] },
-];
-
-function plantPine(
-  seed: string,
-  root: { forward: number; right: number },
-  trunk: ReadonlyArray<readonly [number, number, number]>,
-  branches: readonly NiwakiBranchSpec[],
-  height: number,
-  trunkRadius: number,
-  outlines: readonly ThresholdPadOutline[],
-): { geometry: BufferGeometry; limbPads: Vector3[] } {
-  const pine = createNiwakiPine({ seed, height, trunk, trunkRadius, branches, bark: THRESHOLD_BARK, needle: THRESHOLD_NEEDLE });
-  shapeThresholdLimbPads(pine, branches[0]!.azimuth, outlines);
-  const offset = new Vector3(root.right, thresholdHeight(root.forward, root.right) - 0.1 - PINE_BASE, -root.forward);
-  pine.geometry.translate(offset.x, offset.y, offset.z);
-  const limbPads = pine.pads
-    .filter((pad) => pad.branch === 0)
-    .map((pad) => pad.center.clone().add(offset))
-    .sort((a, b) => b.z - a.z);
-  return { geometry: pine.geometry, limbPads };
-}
-
-export function createGardenThreshold(): GardenThreshold {
+export function createGardenThreshold(surfaceAtlas?: GardenSurfaceAtlasOwner): GardenThreshold {
   const root = new Group();
   root.name = GARDEN_THRESHOLD_NAME;
   const seat = seatToWorld(0, 0, 0);
@@ -800,11 +845,47 @@ export function createGardenThreshold(): GardenThreshold {
   // Geometry is authored in the seat frame and turned to world axes once, so
   // the pines' instance matrix stays world-aligned for the shared wind patch.
   const toWorldAxes = new Matrix4().makeRotationY(REST_SEAT_YAW_RAD);
+  const surfaceLease = surfaceAtlas?.lease();
+  // The shared lease still owns every uniform and texture. Only this seat's
+  // material recipe changes: mineral grains are small, relief is shallow and
+  // atlas pigments do not turn the olive substrate into a saturated lawn.
+  const thresholdDetail: GardenSurfaceDetailSource | undefined = surfaceLease ? {
+    key: `${surfaceLease.detailSource.key}:threshold-grain-v1`,
+    uniforms: surfaceLease.detailSource.uniforms,
+    glsl: /* glsl */`
+#define gardenSampleSurface gardenSampleThresholdSurface
+${surfaceLease.detailSource.glsl}
+#undef gardenSampleSurface
+GardenSurfaceDetail gardenSampleSurface(vec3 p, vec3 n, vec2 uv, float role, float metresPerRepeat) {
+  bool mineral = role > 1.5 && role < 3.5;
+  GardenSurfaceDetail detail = gardenSampleThresholdSurface(p, n, uv, role, mineral ? 0.45 : metresPerRepeat);
+  detail.normalOffset *= mineral ? 0.1 : 0.3;
+  float value = dot(detail.albedo, vec3(0.2126, 0.7152, 0.0722));
+  detail.albedo = mix(vec3(value), detail.albedo, 0.25);
+  return detail;
+}`,
+  } : undefined;
 
-  const landMaterial = new MeshStandardMaterial({ flatShading: false, roughness: 0.98, vertexColors: true });
+  const landMaterial = new MeshStandardMaterial({ flatShading: false, roughness: 1, vertexColors: true, envMapIntensity: 0 });
   patchGardenFloraNight(landMaterial, { nightFloor: THRESHOLD_NIGHT_FLOOR });
-  const land = new Mesh(buildLand().applyMatrix4(toWorldAxes), landMaterial);
+  applyGardenSurface(landMaterial, { role: "moss", mapping: "worldXZ", metresPerRepeat: 2.6,
+    detailStrength: 0.78, vertexRoles: true, vertexWeights: true, ...(thresholdDetail ? { detailSource: thresholdDetail } : {}) });
+  const landParts = buildLand();
+  const land = new Mesh(landParts.geometry.applyMatrix4(toWorldAxes), landMaterial);
   land.name = GARDEN_THRESHOLD_LAND_NAME;
+
+  const casterMaterial = new MeshStandardMaterial({ flatShading: false, roughness: 0.98, vertexColors: true });
+  patchGardenFloraNight(casterMaterial, { nightFloor: THRESHOLD_NIGHT_FLOOR });
+  const casters = new Mesh(buildShadeCasters().applyMatrix4(toWorldAxes), casterMaterial);
+  casters.name = "garden-threshold-shade-casters";
+
+  const stoneParts = buildStones(toWorldAxes, landParts.heightAt);
+  const stoneMaterial = new MeshStandardMaterial({ flatShading: false, roughness: 0.9, vertexColors: true, envMapIntensity: 0.3 });
+  patchGardenFloraNight(stoneMaterial, { nightFloor: THRESHOLD_NIGHT_FLOOR });
+  applyGardenSurface(stoneMaterial, { role: "stone", mapping: "triplanar", metresPerRepeat: 2.2,
+    detailStrength: 0.55, vertexRoles: true, vertexWeights: true, ...(thresholdDetail ? { detailSource: thresholdDetail } : {}) });
+  const stones = new Mesh(stoneParts.geometry, stoneMaterial);
+  stones.name = "garden-threshold-set-stones";
 
   const engawaParts = buildEngawa();
   const engawaMaterial = new MeshStandardMaterial({ flatShading: false, roughness: 0.72, vertexColors: true, envMapIntensity: 0.3 });
@@ -814,28 +895,36 @@ export function createGardenThreshold(): GardenThreshold {
   const core = engawaParts.chamberCentre.applyMatrix4(toWorldAxes);
   const halfCore = new Vector3(TORO_CORE.radius + 0.002, (TORO_CORE.top - TORO_CORE.bottom) / 2, TORO_CORE.radius + 0.002);
   patchGardenToroKindling(engawaMaterial, new Box3(core.clone().sub(halfCore), core.clone().add(halfCore)), LANTERN_EMBER);
+  applyGardenSurface(engawaMaterial, { role: "timber", mapping: "uv", metresPerRepeat: 0.8,
+    detailStrength: 0.65, vertexRoles: true, vertexWeights: true, ...(thresholdDetail ? { detailSource: thresholdDetail } : {}) });
   const engawa = new Mesh(engawaParts.geometry.applyMatrix4(toWorldAxes), engawaMaterial);
   engawa.name = GARDEN_THRESHOLD_ENGAWA_NAME;
 
-  const hero = plantPine("threshold.hero", HERO_ROOT, HERO_TRUNK, HERO_BRANCHES, 9.6, 0.36, HERO_OUTLINES);
-  const companion = plantPine("threshold.companion", COMPANION_ROOT, COMPANION_TRUNK, COMPANION_BRANCHES, 7, 0.24, COMPANION_OUTLINES);
-  const pineGeometry = mergeGeometries([hero.geometry, companion.geometry], false)!;
-  hero.geometry.dispose();
-  companion.geometry.dispose();
+  const heroRoot = new Vector3(HERO_ROOT.right, thresholdHeight(HERO_ROOT.forward, HERO_ROOT.right) - 0.1, -HERO_ROOT.forward);
+  const companionRoot = new Vector3(COMPANION_ROOT.right, thresholdHeight(COMPANION_ROOT.forward, COMPANION_ROOT.right) - 0.1, -COMPANION_ROOT.forward);
+  const hero = plantKuromatsu(heroRoot, { seed: "threshold.hero", rootIndex: 0, trunk: HERO_TRUNK,
+    radii: [0.36, 0.055], limbs: HERO_LIMBS, bark: THRESHOLD_BARK, needle: THRESHOLD_NEEDLE });
+  const companion = plantKuromatsu(companionRoot, { seed: "threshold.companion", rootIndex: 1, trunk: COMPANION_TRUNK,
+    radii: [0.24, 0.035], limbs: COMPANION_LIMBS, bark: THRESHOLD_BARK, needle: THRESHOLD_NEEDLE });
+  const pineGeometry = mergeGeometries([hero, companion], false)!;
+  hero.dispose();
+  companion.dispose();
   pineGeometry.applyMatrix4(toWorldAxes);
+  const pineRestRoots = [
+    heroRoot.applyMatrix4(toWorldAxes).add(root.position),
+    companionRoot.applyMatrix4(toWorldAxes).add(root.position),
+  ] as const;
   const pineMaterial = new MeshStandardMaterial({ flatShading: false, roughness: 0.96, vertexColors: true });
   patchGardenFloraNight(pineMaterial, { nightFloor: THRESHOLD_NIGHT_FLOOR });
-  patchGardenInstancedWindSway(pineMaterial, 9.6, 0.02);
+  patchGardenRootedWindSway(pineMaterial);
   // One instance: both trees share the draw and the world-aligned wind.
   const pines = new InstancedMesh(pineGeometry, pineMaterial, 1);
   pines.name = GARDEN_THRESHOLD_PINES_NAME;
   const pineMatrix = new Matrix4().makeTranslation(0, PINE_BASE, 0);
   pines.setMatrixAt(0, pineMatrix);
   pines.instanceMatrix.needsUpdate = true;
-  // Near the eye a full rim-pine sway would swing tens of pixels: a third.
-  pineGeometry.setAttribute("aGardenSway", new InstancedBufferAttribute(new Float32Array([0.34]), 1));
 
-  const drawables = [land, engawa, pines];
+  const drawables = [land, stones, casters, engawa, pines];
   for (const mesh of drawables) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -851,8 +940,6 @@ export function createGardenThreshold(): GardenThreshold {
     if (mesh === pines) box.applyMatrix4(pineMatrix);
     shadowBounds.union(box.applyMatrix4(mesh.matrixWorld));
   }
-  const padToWorld = root.matrixWorld.clone().multiply(pineMatrix).multiply(toWorldAxes);
-  const heroLimbPadCentres = hero.limbPads.map((pad) => pad.applyMatrix4(padToWorld));
 
   let disposed = false;
   return {
@@ -860,12 +947,22 @@ export function createGardenThreshold(): GardenThreshold {
     drawCallCount: drawables.length,
     triangleCount: drawables.reduce((sum, mesh) => sum + mesh.geometry.index!.count / 3, 0),
     shadowBounds,
-    heroLimbPadCentres,
+    stoneSites: stoneParts.sites,
+    pineRestRoots,
+    gravelInset: {
+      centre: new Vector3(GRAVEL_INSET.right, GRAVEL_INSET_HEIGHT, -GRAVEL_INSET.forward).applyMatrix4(toWorldAxes),
+      right: new Vector3(1, 0, 0).applyMatrix4(toWorldAxes),
+      forward: new Vector3(0, 0, -1).applyMatrix4(toWorldAxes),
+      normal: new Vector3(0, 1, 0),
+      width: GRAVEL_INSET.width,
+      depth: GRAVEL_INSET.depth,
+      pigment: GRAVEL.clone(),
+    },
     setEyeOffset(x, y, z) {
       root.position.set(seat.x + x, seat.y + y, seat.z + z);
     },
-    updateWind(weather, reducedMotion) {
-      updateGardenInstancedWindSway(pineMaterial, weather, reducedMotion);
+    updateWind(weather, reducedMotion, rootGust0, rootGust1) {
+      updateGardenRootedWindSway(pineMaterial, weather, reducedMotion, rootGust0, rootGust1);
     },
     dispose() {
       if (disposed) return;
@@ -873,6 +970,7 @@ export function createGardenThreshold(): GardenThreshold {
       root.removeFromParent();
       disposeThreeObjectTree(root);
       root.clear();
+      surfaceLease?.release();
     },
   };
 }

@@ -2,7 +2,7 @@
 import { PHAROSVILLE_API_ENDPOINT_KEYS } from "@shared/types/pharosville-endpoint-keys";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
 import { HarborLabelChips, updateHarborLabelChipLayout } from "./components/harbor-label-chips";
@@ -16,7 +16,7 @@ import { isDebugChromeEnabled, recordDebugDirectorAdmission } from "./lib/pharos
 import { useShipLogoAssets } from "./hooks/use-ship-logo-assets";
 import { useChangelogDialog } from "./hooks/use-changelog-dialog";
 import { useLegendDialog } from "./hooks/use-legend-dialog";
-import { useCanvasResizeAndCamera, WANDER_KEY, type CameraSelectionSubject } from "./hooks/use-canvas-resize-and-camera";
+import { useCanvasResizeAndCamera, STROLL_KEY, type CameraSelectionSubject } from "./hooks/use-canvas-resize-and-camera";
 import { useHarborLog } from "./hooks/use-harbor-log";
 import { useGardenAlmanac } from "./hooks/use-garden-almanac";
 import { gardenScoreMotionGifts } from "./systems/garden-score";
@@ -29,7 +29,6 @@ import { useChromeAir } from "./hooks/use-chrome-air";
 import { useLatestRef } from "./hooks/use-latest-ref";
 import { useLiveTitle } from "./hooks/use-live-title";
 import { useMomentUrl } from "./hooks/use-moment-url";
-import { useRecentWorldInput } from "./hooks/use-recent-world-input";
 import { useVisitSnapshot } from "./hooks/use-visit-snapshot";
 import { useVisitorLine } from "./hooks/use-visitor-line";
 import { useStayCaptionSurfacing, useStayMode } from "./hooks/use-stay-mode";
@@ -44,8 +43,9 @@ import {
 import { useWorldUrlState } from "./hooks/use-world-url-state";
 import { createGardenObservatoryHitTargetSnapshot } from "./renderer/garden-observatory-hit-testing";
 import type { HitTarget, HitTargetSnapshot } from "./renderer/hit-testing";
-import { clampCameraToMap } from "./systems/camera";
+import { clampCameraToMap, type SelectionPanelRect } from "./systems/camera";
 import {
+  gardenRepresentativeRestHeading,
   gardenShipSelectionRadius,
   resolveGardenEntityDisplayTile,
   selectGardenObservatorySlice,
@@ -68,13 +68,14 @@ import { playGardenSoundBeat } from "./hooks/use-garden-sound";
 import { registerRitual } from "./systems/garden-director";
 import { buildObserveSequence, type ObserveBeatKind } from "./systems/observe-sequence";
 import type { ObserveTourKeyframe } from "./systems/observe-tour";
+import { GARDEN_POSTCARDS } from "./systems/postcards";
 import { buildQuickFindCandidates } from "./systems/quick-find-match";
 import { recentFleetTrendSummary } from "./systems/sea-state";
 import { CAMERA_BREATH_IDENTITY, tileToIso, type CameraBreath, type IsoCamera, type ScreenPoint } from "./systems/projection";
 import type { WorldSelectableEntity } from "./systems/world-types";
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
-import { GARDEN_ARRIVAL_CROSSFADE_MS } from "./systems/garden-arrival";
+import { ArrivalShell } from "./components/arrival-shell";
 
 const LazyChangelogPanel = lazy(() => (
   import("./components/changelog-panel").then((module) => ({ default: module.ChangelogPanel }))
@@ -82,6 +83,10 @@ const LazyChangelogPanel = lazy(() => (
 
 const LazyLegendPanel = lazy(() => (
   import("./components/legend-panel").then((module) => ({ default: module.LegendPanel }))
+));
+
+const LazyReadingKey = lazy(() => (
+  import("./components/legend-panel").then((module) => ({ default: module.ReadingKey }))
 ));
 
 const LazyHarborLedgerPanel = lazy(() => (
@@ -112,10 +117,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const reducedMotion = osReducedMotion || still;
   const [motionPreferenceResolved, setMotionPreferenceResolved] = useState(false);
   const shellRef = useRef<HTMLElement | null>(null);
-  // Holds the faint world controls; `useRecentWorldInput` flags it after any
-  // camera input so they surface for a beat without a re-render.
-  const chromeRef = useRef<HTMLDivElement | null>(null);
-  useRecentWorldInput(chromeRef);
   const requestWorldFrameRef = useRef<() => void>(() => {});
   const requestWorldFrame = useCallback(() => {
     requestWorldFrameRef.current();
@@ -147,9 +148,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     setHoveredDetailId,
     setKeyboardFocusedDetailId,
   } = selection;
-  const [panelReadyDetailId, setPanelReadyDetailId] = useState<string | null>(() => (
-    worldUrlState.initialState.followSelectedDetailId ? null : selectedDetailId
-  ));
+  const [detailPanelRect, setDetailPanelRect] = useState<SelectionPanelRect | null>(null);
   const changelog = useChangelogDialog({ setAnnouncement });
   const legend = useLegendDialog({ setAnnouncement });
   const [quickFindOpen, setQuickFindOpen] = useState(false);
@@ -433,28 +432,32 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     returnFromSelection: returnCanvasFromSelection,
   } = canvas;
 
+  const measureDetailPanel = useCallback((rect: DOMRectReadOnly) => {
+    const canvasRect = canvasElementRef.current?.getBoundingClientRect();
+    if (!canvasRect || rect.width <= 0 || rect.height <= 0) return;
+    const next = { left: rect.left - canvasRect.left, top: rect.top - canvasRect.top,
+      right: rect.right - canvasRect.left, bottom: rect.bottom - canvasRect.top };
+    setDetailPanelRect((previous) => previous && previous.left === next.left && previous.top === next.top
+      && previous.right === next.right && previous.bottom === next.bottom ? previous : next);
+  }, [canvasElementRef]);
   const selectionReturnCameraRef = useRef<IsoCamera | null>(null);
-  const lastCameraSelectionRef = useRef<string | null>(selectedDetailId);
+  const lastCameraSelectionRef = useRef<string | null>(null);
+  const lastSelectionPanelRectRef = useRef<SelectionPanelRect | null>(null);
   const focusSelectedCamera = useCallback((detailId: string, entity: WorldSelectableEntity) => {
-    const markPanelReady = () => setPanelReadyDetailId(detailId);
     const slice = selectGardenObservatorySlice(world, detailId);
     const shipMotionSamples = shipMotionSamplesRef.current;
     const displayTile = resolveGardenEntityDisplayTile({ entity, shipMotionSamples, slice });
     const framed = entity.kind === "ship" || entity.kind === "dock" || entity.kind === "grave" || entity.kind === "lighthouse";
     if (!displayTile || !framed) {
-      queueMicrotask(markPanelReady);
       return;
     }
     // Older renderer test doubles predate the W4.6 seam. They still exercise
     // selection correctly through the established focusTile command.
     if (typeof focusCanvasSelection !== "function") {
       if (entity.kind !== "lighthouse") focusCanvasTile(displayTile);
-      queueMicrotask(markPanelReady);
       return;
     }
-    // W1.7: every selection is a composed shot — a ship on the lower-left
-    // third with lead space along its heading, a dock on (0.40, 0.55), the
-    // lighthouse a slow look-up. Keyboard and deep-link selections land here too.
+    // Facts are already disclosed; the camera only improves the viewing condition.
     // The rest of the fleet, where it is drawn now: the shot's probe keeps the
     // subject from hiding behind another hull.
     const obstacles = entity.kind === "lighthouse" ? [] : world.ships.flatMap((ship) => {
@@ -467,30 +470,35 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         heading: shipMotionSamples.get(entity.id)?.velocity ?? null,
         kind: "ship",
         obstacles,
+        panelRect: detailPanelRect,
+        ship: entity,
+        headingRad: shipMotionSamples.get(entity.id)?.heading
+          ? -Math.atan2(shipMotionSamples.get(entity.id)!.heading!.y, shipMotionSamples.get(entity.id)!.heading!.x)
+          : -(gardenRepresentativeRestHeading(world, entity.id) ?? 0),
         selectionRadius: gardenShipSelectionRadius(entity),
         tile: displayTile,
       }
       : entity.kind === "dock"
-        ? { dock: entity, kind: "dock", obstacles }
+        ? { dock: entity, kind: "dock", obstacles, panelRect: detailPanelRect }
         : entity.kind === "grave"
-          ? { kind: "grave", obstacles, tile: displayTile }
+          ? { kind: "grave", obstacles, panelRect: detailPanelRect, tile: displayTile }
           : { kind: "lighthouse" };
-    const returnCamera = focusCanvasSelection(subject, markPanelReady);
+    const returnCamera = focusCanvasSelection(subject);
     if (!selectionReturnCameraRef.current && returnCamera) {
       selectionReturnCameraRef.current = returnCamera;
     }
-  }, [focusCanvasSelection, focusCanvasTile, shipMotionSamplesRef, world]);
+  }, [detailPanelRect, focusCanvasSelection, focusCanvasTile, shipMotionSamplesRef, world]);
 
-  // Selecting a ship, harbor or the lighthouse is itself the camera command.
-  // The layout effect hides the panel before the browser paints the selection
-  // commit; its callback reveals the panel at 70 % of the glide (W1.7), so it
-  // opens as the shot settles rather than after a creeping tail.
+  // Camera motion never controls DOM disclosure. Recompose only on a selection
+  // or measured panel-rectangle change, including the expanded record.
+  const selectionCameraReady = canvas.camera !== null && canvas.canvasSize.x > 0 && canvas.canvasSize.y > 0;
   useLayoutEffect(() => {
+    if (selectedDetailId && !selectionCameraReady) return;
     const previous = lastCameraSelectionRef.current;
-    if (previous === selectedDetailId) return;
+    if (previous === selectedDetailId && lastSelectionPanelRectRef.current === detailPanelRect) return;
+    lastSelectionPanelRectRef.current = detailPanelRect;
     lastCameraSelectionRef.current = selectedDetailId;
     if (!selectedDetailId || !selectedEntity) {
-      queueMicrotask(() => setPanelReadyDetailId(null));
       const returnCamera = selectionReturnCameraRef.current;
       selectionReturnCameraRef.current = null;
       if (returnCamera && typeof returnCanvasFromSelection === "function") {
@@ -499,7 +507,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       return;
     }
     focusSelectedCamera(selectedDetailId, selectedEntity);
-  }, [focusSelectedCamera, returnCanvasFromSelection, selectedDetailId, selectedEntity]);
+  }, [detailPanelRect, focusSelectedCamera, returnCanvasFromSelection, selectedDetailId, selectedEntity, selectionCameraReady]);
 
   const restoredUrlCameraRef = useRef(false);
   const canvasWidth = canvas.canvasSize.x;
@@ -775,25 +783,30 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     handleCanvasResetView();
   }, [changelog, clearSelection, handleCanvasResetView, legend]);
   const { enterStay, stay } = useStayMode({ onEnter: enterStayScene, setAnnouncement, shellRef });
-  // X6 / K44: the idle state is the rest shot; the postcard book is an action.
-  // "Wander" (the word, or W) glides to the next card and holds; any other
-  // input glides home. A selection closes without its own return glide.
-  const wanderCanvas = canvas.wander;
-  const handleWander = useCallback(() => {
+  // Explicit stroll navigation preserves the station's inspection context.
+  const navigateStroll = useCallback((direction: -1 | 1) => {
     if (stay) return;
     if (selectedDetailIdRef.current !== null) {
       selectionReturnCameraRef.current = null;
       clearSelection();
     }
     setObserveIndex(null);
-    const card = wanderCanvas();
-    if (card) setAnnouncement(`Wandering: ${card.title}. Press any key to return to the harbour view.`);
+    const station = direction === 1 ? canvas.strollNext() : canvas.strollPrevious();
+    if (station) setAnnouncement(`Stroll: ${station.title}. Previous and Next visit adjacent stations. Home returns to the seat; Escape closes inspection here.`);
     // selectedDetailIdRef omitted: ref identity never changes (HOOKS F4).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearSelection, setAnnouncement, stay, wanderCanvas]);
+  }, [canvas.strollNext, canvas.strollPrevious, clearSelection, setAnnouncement, stay]);
+  const handleStrollNext = useCallback(() => navigateStroll(1), [navigateStroll]);
+  const handleStrollPrevious = useCallback(() => navigateStroll(-1), [navigateStroll]);
+  const handleHome = useCallback(() => {
+    selectionReturnCameraRef.current = null;
+    clearSelection();
+    setObserveIndex(null);
+    handleCanvasResetView();
+  }, [clearSelection, handleCanvasResetView]);
   // W7: sound is opt-in; nothing is created or fetched until the Sound switch.
   // X8: idle in Stay, the mix takes its listening pose.
-  const gardenSound = useGardenSound({ stay });
+  const gardenSound = useGardenSound({ stay, reducedMotion });
   useEffect(() => {
     if (!observingTour || observeSequence.length === 0) return;
     // Observe 2.0 (Phase 4): resolve every beat's display tile up front and
@@ -967,12 +980,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     world,
   });
 
-  const detailDockStyle = selectedDetailAnchor
-    ? ({
-        "--pv-detail-x": `${selectedDetailAnchor.x}px`,
-        "--pv-detail-y": `${selectedDetailAnchor.y}px`,
-      } as CSSProperties)
-    : undefined;
   const frameRateLabel = formatFrameRateLabel(frameRateFps, reducedMotion);
   // W0.4: a live frame-rate number is developer telemetry, and a permanent one
   // is the loudest piece of tech-demo chrome left in a product whose whole
@@ -1016,23 +1023,29 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectDetail(detailId, null);
   }, [selectDetail]);
 
+  const handleReadingPreview = useCallback((detailId: string | null) => {
+    setKeyboardFocusedDetailId(detailId);
+    setHoveredDetailId(detailId);
+    requestPaint();
+  }, [requestPaint, setHoveredDetailId, setKeyboardFocusedDetailId]);
+
   // Quick find: "where is my coin?" is the first thing a visitor wants, and
-  // tabbing through the whole fleet is not an answer. `/` is the field's only
-  // entry point, so it must not steal the key from anything that takes typing.
+  // tabbing through the whole fleet is not an answer. `/` also opens the Find
+  // action, but must not steal the key from anything that takes typing.
   const quickFindCandidates = useMemo(() => buildQuickFindCandidates(world), [world]);
   const referencePanelOpen = changelog.changelogOpen || legend.legendOpen || harborLedgerOpen;
-  // X6: W wanders, under the same guards as `/`.
+  // W requests the next stroll station; idle never advances.
   useEffect(() => {
     if (rendererFailed || quickFindOpen || referencePanelOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== WANDER_KEY || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.key.toLowerCase() !== STROLL_KEY || event.altKey || event.ctrlKey || event.metaKey) return;
       if (isTextEntryTarget(event.target)) return;
       event.preventDefault();
-      handleWander();
+      handleStrollNext();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [handleWander, quickFindOpen, referencePanelOpen, rendererFailed]);
+  }, [handleStrollNext, quickFindOpen, referencePanelOpen, rendererFailed]);
 
   useEffect(() => {
     if (rendererFailed || quickFindOpen || referencePanelOpen) return;
@@ -1112,64 +1125,16 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clearSelection]);
 
-  // The harbor before its data is an empty sea: island, water and sky, no
-  // fleet. Showing it meant the first thing a visitor saw was a world with
-  // nothing in it, and then every ship arriving in the same frame. The runtime
-  // still mounts immediately — the renderer and its shaders warm up underneath
-  // — but the sea stays behind the charting veil until there is a harbor to
-  // show, so arrival reads as arrival instead of a pop.
+  // The first complete frame already has the accepted rest (or explicit URL)
+  // pose and ordinary hour air. No introduction owns or intercepts input.
   const worldIsCharting = world.routeMode === "loading";
-  const [arrivalStage, setArrivalStage] = useState<"waiting" | "arriving" | "crossfade" | "complete">("waiting");
-  const arrivalStartedRef = useRef(false);
-  const startCanvasArrival = canvas.startArrival;
-  const skipCanvasArrival = canvas.skipArrival;
-  useEffect(() => {
-    if (worldIsCharting) {
-      arrivalStartedRef.current = false;
-      // Renderer/data lifecycle is the external state this choreography mirrors.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setArrivalStage("waiting");
-      return undefined;
-    }
-    if (!rendererWarmupReady || arrivalStartedRef.current || !motionPreferenceResolved) return undefined;
-    arrivalStartedRef.current = true;
-    // A cold-load selection resolves only after data arrives. Preserve the URL's
-    // intent even while its entity is absent from the initial loading world.
-    if (worldUrlState.initialState.camera || worldUrlState.initialState.hasExplicitSelection) {
-      setArrivalStage("complete");
-      return undefined;
-    }
-    if (reducedMotion) {
-      setArrivalStage("crossfade");
-      const id = window.setTimeout(() => {
-        startCanvasArrival(() => setArrivalStage("complete"));
-      }, GARDEN_ARRIVAL_CROSSFADE_MS);
-      return () => window.clearTimeout(id);
-    }
-    setArrivalStage("arriving");
-    startCanvasArrival(() => setArrivalStage("complete"));
-    return undefined;
-  }, [motionPreferenceResolved, reducedMotion, rendererWarmupReady, startCanvasArrival, worldIsCharting, worldUrlState.initialState.camera, worldUrlState.initialState.hasExplicitSelection]);
-
-  useEffect(() => {
-    if (arrivalStage !== "arriving") return undefined;
-    const skip = () => {
-      skipCanvasArrival();
-      setArrivalStage("complete");
-    };
-    const events = ["pointerdown", "wheel", "keydown", "touchstart"] as const;
-    for (const eventName of events) window.addEventListener(eventName, skip, { capture: true, passive: true });
-    return () => {
-      for (const eventName of events) window.removeEventListener(eventName, skip, { capture: true });
-    };
-  }, [arrivalStage, skipCanvasArrival]);
-
-  const chartingVeilMounted = !rendererFailed && (worldIsCharting || arrivalStage !== "complete");
-  // W6.8 / W6.10: the now-line's visitor voice once the arrival settles —
-  // the return sentence, or the three first-visit teachings.
-  const visitorLine = useVisitorLine({
-    ready: arrivalStage === "complete" && !worldIsCharting,
-    reducedMotion,
+  const worldReady = !worldIsCharting && rendererWarmupReady && motionPreferenceResolved;
+  const chartingVeilMounted = !rendererFailed && !worldReady;
+  // First-visit teaching opens with the ready world, independently of arrival
+  // and caption warnings. Return summaries keep their post-arrival 20 s voice.
+  const { visitorLine, teachingOpen, dismissTeaching } = useVisitorLine({
+    ready: threeExperienceReady && worldReady,
+    returnReady: worldReady,
     returnSummary: visitSnapshot.summary,
   });
   const stayCaptionLive = useStayCaptionSurfacing({
@@ -1189,6 +1154,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       className="pharosville-desktop pharosville-shell"
       data-stay={stay ? "true" : undefined}
       data-testid="pharosville-world"
+      data-world-ready={worldReady && !rendererFailed ? "true" : "false"}
       aria-describedby="pharosville-world-instructions"
       onKeyDown={rendererFailed ? handleFallbackKeyDown : handleWorldKeyDown}
       tabIndex={0}
@@ -1218,16 +1184,15 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         <WorldStaticOverview world={world} onSelectDetail={handleSelectStaticDetail} />
       )}
       {chartingVeilMounted && !rendererFailed && (
-        <div
-          className="pharosville-loading pharosville-loading--veil"
-          data-testid="pharosville-charting-veil"
-          data-arrival={worldIsCharting ? "waiting" : arrivalStage}
-          data-charting={worldIsCharting ? "true" : "false"}
-          role="status"
-          aria-busy={worldIsCharting}
-          aria-live="polite"
-        >
-          Charting market winds…
+        <div data-testid="pharosville-charting-veil" data-charting={worldIsCharting ? "true" : "false"} aria-busy="true">
+          <ArrivalShell
+            veil
+            stage={worldIsCharting
+              ? "Fetching the market record."
+              : !rendererWarmupReady
+                ? "Preparing the renderer and shaders."
+                : "Resolving your motion preference."}
+          />
         </div>
       )}
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
@@ -1278,22 +1243,17 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         {selectedDetail && (
           <div
             className={selectedDetailAnchor ? `pharosville-detail-dock pharosville-detail-dock--anchored pharosville-detail-dock--${selectedDetailAnchor.side}` : "pharosville-detail-dock"}
-            data-camera-rest={panelReadyDetailId === selectedDetailId ? "true" : "false"}
-            hidden={panelReadyDetailId !== selectedDetailId}
-            inert={panelReadyDetailId !== selectedDetailId}
-            style={detailDockStyle}
           >
-            <DetailPanel visible={panelReadyDetailId === selectedDetailId} detail={selectedDetail} onClose={clearSelection} onSelectDetail={selectDetail} setAnnouncement={setAnnouncement} />
+            <DetailPanel detail={selectedDetail} onPanelRectChange={measureDetailPanel} onClose={clearSelection} onSelectDetail={selectDetail} setAnnouncement={setAnnouncement} />
           </div>
         )}
       </div>
       {!rendererFailed && (
         <div
           className="pharosville-world-chrome"
-          ref={chromeRef}
           data-caption-live={stayCaptionLive ? "true" : "false"}
-          data-recent-input="false"
         >
+          <div className="pharosville-edge-grid">
           <div className="pharosville-stay-fade">
             <NowCaption
               arrivalAnnotation={arrivalAnnotationText}
@@ -1307,14 +1267,20 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
               reducedMotion={reducedMotion}
             />
           </div>
+          <div className="pharosville-edge-actions">
+          <Suspense fallback={null}>
+            <LazyReadingKey world={world} onSelectDetail={handleSelectStaticDetail} onPreviewDetail={handleReadingPreview}
+              teachingOpen={teachingOpen} onDismissTeaching={dismissTeaching} />
+          </Suspense>
           <WorldControls
             onStay={enterStay}
-            onWander={handleWander}
-            wandering={canvas.wanderIndex !== null}
+            onStrollNext={handleStrollNext}
+            onStrollPrevious={handleStrollPrevious}
+            strollTitle={canvas.strollIndex === null ? null : GARDEN_POSTCARDS[canvas.strollIndex]!.title}
             onOpenFind={openQuickFind}
             onOpenLegend={openLegendExclusive}
             onOpenLedger={openHarborLedgerExclusive}
-            onResetView={handleCanvasResetView}
+            onResetView={handleHome}
             nightMode={timeControls.nightMode}
             onToggleNightMode={timeControls.toggleNightMode}
             hour={timeControls.wallClockHour}
@@ -1331,6 +1297,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           >
             <SoundControl {...gardenSound} />
           </WorldControls>
+          </div>
+          </div>
           {debugChrome && <DebugChrome frameRateLabel={frameRateLabel} />}
         </div>
       )}
@@ -1463,14 +1431,6 @@ function formatGeneratedAtForAnnouncement(generatedAt: number | null): string | 
   return `at ${new Date(generatedAt).toISOString()}`;
 }
 
-/** Shared loading state for both the lazy desktop runtime and world shell. */
-export function PharosVilleLoading({ message = "Charting market winds…" }: { message?: string }) {
-  return (
-    <div className="pharosville-loading pharosville-desktop" role="status" aria-busy="true" aria-live="polite">
-      {message}
-    </div>
-  );
-}
 
 const integerFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 

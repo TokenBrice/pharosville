@@ -5,8 +5,11 @@ import {
   GARDEN_HERON_ARRIVAL_SECONDS,
   GARDEN_HERON_DEPARTURE_SECONDS,
   GARDEN_HERON_STAND_FROM_HOUR,
+  GARDEN_HERON_STATION,
   gardenHeronWingbeat,
 } from "./garden-heron";
+import { GARDEN_POND_CENTER, islandTerrainHeight } from "./garden-island";
+import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 
 const DAY = 20_000 * 86_400;
 const at = (hour: number) => ({ clockSeconds: DAY + hour * 3600, hour });
@@ -25,6 +28,19 @@ describe("W5.2 the heron", () => {
       expect(geometry.getAttribute(name)?.count).toBe(geometry.getAttribute("position").count);
     }
     geometry.dispose();
+  });
+
+  it("holds the tea-side near-shore station above water and outside the headland", () => {
+    expect(Math.abs(GARDEN_HERON_STATION.x - GARDEN_POND_CENTER.x)).toBeLessThan(3);
+    expect(GARDEN_HERON_STATION.z).toBeGreaterThan(GARDEN_POND_CENTER.z);
+    expect(GARDEN_HERON_STATION.y).toBeGreaterThan(GARDEN_WATER_Y);
+    expect(islandTerrainHeight(GARDEN_HERON_STATION.x, GARDEN_HERON_STATION.z)).toBeLessThan(GARDEN_HERON_STATION.y);
+    const heron = createGardenHeron();
+    heron.update(frame(12, true));
+    expect(heron.mesh.parent!.position.toArray()).toEqual([
+      GARDEN_HERON_STATION.x, GARDEN_HERON_STATION.y, GARDEN_HERON_STATION.z,
+    ]);
+    heron.dispose();
   });
 
   it("arrives in the morning, stands, departs at golden, and is absent by night", () => {
@@ -73,8 +89,10 @@ describe("W5.2 the heron", () => {
     heron.update(frame(12, true));
     expect(heron.state()).toBe("standing");
     const position = heron.mesh.parent!.position.clone();
+    const rotation = heron.mesh.parent!.quaternion.clone();
     heron.update(frame(13, true));
     expect(heron.mesh.parent!.position.toArray()).toEqual(position.toArray());
+    expect(heron.mesh.parent!.quaternion.toArray()).toEqual(rotation.toArray());
     heron.update(frame(23, true));
     expect(heron.root.visible).toBe(false);
     heron.dispose();

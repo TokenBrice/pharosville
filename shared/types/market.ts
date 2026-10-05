@@ -14,9 +14,9 @@ const ChainCirculatingSchema = z.record(
   z.string(),
   z.object({
     current: z.number(),
-    circulatingPrevDay: z.number(),
-    circulatingPrevWeek: z.number(),
-    circulatingPrevMonth: z.number(),
+    circulatingPrevDay: z.number().finite().nullish(),
+    circulatingPrevWeek: z.number().finite().nullish(),
+    circulatingPrevMonth: z.number().finite().nullish(),
   }),
 );
 
@@ -378,7 +378,7 @@ export const PegSummaryCoinSchema = z.object({
   consensusSources: z.array(z.string()).optional(),
   agreeSources: z.array(z.string()).optional(),
   primaryTrust: DepegPrimaryTrustSchema.optional(),
-  pegPct: z.number(),
+  pegPct: z.number().finite().nullable(),
   severityScore: z.number(),
   spreadPenalty: z.number(),
   eventCount: z.number(),

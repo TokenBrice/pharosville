@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   CHROME_AIR_SCRIM_CORE,
@@ -107,5 +109,50 @@ describe("chrome air tokens (W6.5)", () => {
       }
     }
     expect(switches).toEqual(["night→dawn: indigo→washi", "golden→blue: washi→indigo"]);
+  });
+
+  it("switches paper and all ink roles atomically at both polarity boundaries", () => {
+    for (const [from, to] of [["night", "dawn"], ["golden", "blue"]] as const) {
+      for (const t of [0.4999, 0.5, 0.5001]) {
+        const beats = score(from, to, t);
+        const tokens = chromeAirTokens(beats);
+        expect(tokens["--pv-paper-ink"]).toBe(chromePaperSheet(beats) === "washi" ? "#1a1612" : "#e8eef0");
+        for (const [role, token, surface] of ROLES) {
+          expect(contrast(rgb(tokens[token]), surface(tokens)), `${from}→${to} ${t}: ${role}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
+
+  it("retains AA paper roles under the sheet's maximum five-percent fibre overlay", () => {
+    for (const [from, to] of ADJACENT) {
+      for (let step = 0; step <= STEPS; step += 1) {
+        const tokens = chromeAirTokens(score(from, to, step / STEPS));
+        const paper = rgb(tokens["--pv-paper"]);
+        for (const fibre of [[0, 0, 0], [255, 255, 255]] as const) {
+          const composite = paper.map((channel, index) => channel * 0.95 + fibre[index]! * 0.05) as Rgb;
+          for (const token of ["--pv-paper-ink", "--pv-text-quiet", "--pv-link"] as const) {
+            expect(contrast(rgb(tokens[token]), composite), `${from}→${to} ${step}%: ${token}`).toBeGreaterThanOrEqual(4.5);
+          }
+        }
+      }
+    }
+  });
+
+  it("uses one settled entrance, reduced-motion override and non-interpolated sheet CSS", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/pharosville.css"), "utf8");
+    expect(css.match(/@keyframes pv-panel-enter\b/g)).toHaveLength(1);
+    expect(css.match(/animation: pv-panel-enter\b/g)).toHaveLength(1);
+    expect(css).toContain("animation: pv-panel-enter 200ms");
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.pharosville-reading-key__sheet \{ animation: none; \}/);
+    const sheet = css.match(/\.pv-paper,\s*\.pharosville-detail-panel \{([^}]+)\}/)![1]!;
+    expect(sheet).toContain("transition: none");
+    expect(sheet).not.toContain("inset");
+    const caption = css.match(/\.pharosville-now-caption \{([^}]+)\}/)![1]!;
+    expect(caption).not.toMatch(/mask|ellipsis|nowrap|overflow:\s*hidden/);
+    expect(css).toContain("repeat(auto-fit, minmax(min(100%, 38rem), 1fr))");
+    for (const selector of [".pharosville-changelog-panel", ".pharosville-quick-find__input", ".pharosville-ledger"]) {
+      expect(css.match(new RegExp(`${selector.replaceAll(".", "\\.")} \\{([^}]+)\\}`))![1]).toContain("var(--pv-paper-ink)");
+    }
   });
 });

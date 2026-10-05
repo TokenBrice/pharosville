@@ -13,9 +13,14 @@ import {
   resolveGardenEnvironmentStormBand,
   shouldBakeGardenEnvironment,
   writeGardenEnvironmentProbeSH,
+  resolveGardenEnvironmentRadianceBand,
 } from "./garden-environment";
 
 const DAY_INTENSITY = gardenEnvironmentIntensityForBeats(dayCycleBeats(12));
+const RADIANCE = {
+  date: 2461318, clarity: 1, cloudCover: 0.05, sunDir: new Vector3(0.4, 0.6, -0.5).normalize(),
+  moonDir: new Vector3(0.6, 0.3, -0.4).normalize(), moonIllumination: 0.6,
+};
 
 /**
  * The bake itself needs a live WebGL2 context, so what is testable here is the
@@ -24,37 +29,73 @@ const DAY_INTENSITY = gardenEnvironmentIntensityForBeats(dayCycleBeats(12));
  * the renderer honours it.
  */
 describe("gardenEnvironmentPhaseKey", () => {
-  it("holds one key across the long flat middle of day and of night", () => {
-    // The sky does not move between 11:00 and 14:00, and neither should the
-    // probe: this is the case that would otherwise bake on every frame of a
-    // visitor's whole afternoon.
-    const noon = gardenEnvironmentPhaseKey(dayCyclePhase(12));
-    expect(gardenEnvironmentPhaseKey(dayCyclePhase(11))).toBe(noon);
-    expect(gardenEnvironmentPhaseKey(dayCyclePhase(14))).toBe(noon);
+  it("tracks midday solar direction/date and displayed accepted clarity, even during a flat phase", () => {
+    const phase = dayCyclePhase(12);
+    const noon = gardenEnvironmentPhaseKey(phase, 0, RADIANCE);
+    expect(gardenEnvironmentPhaseKey(phase, 0, { ...RADIANCE, sunDir: new Vector3(-0.4, 0.6, -0.5).normalize() })).not.toBe(noon);
+    expect(gardenEnvironmentPhaseKey(phase, 0, { ...RADIANCE, date: RADIANCE.date + 1 })).not.toBe(noon);
+    expect(gardenEnvironmentPhaseKey(phase, 0, { ...RADIANCE, clarity: -1 })).not.toBe(noon);
+    expect(gardenEnvironmentPhaseKey(phase, 0, { ...RADIANCE, sunDir: RADIANCE.sunDir.clone().addScalar(0.0001) })).toBe(noon);
+  });
 
-    const midnight = gardenEnvironmentPhaseKey(dayCyclePhase(0));
-    expect(gardenEnvironmentPhaseKey(dayCyclePhase(1.5))).toBe(midnight);
-    expect(gardenEnvironmentPhaseKey(dayCyclePhase(23))).toBe(midnight);
+  it("distinguishes closed low cloud from overcast even when signed aerosol clarity is equally saturated", () => {
+    for (const hour of [0, 12]) {
+      const phase = dayCyclePhase(hour);
+      const crisis = { ...RADIANCE, clarity: -1, cloudCover: 0.74 };
+      const meltdown = { ...RADIANCE, clarity: -1, cloudCover: 0.9 };
+      expect(gardenEnvironmentPhaseKey(phase, 0, crisis)).not.toBe(gardenEnvironmentPhaseKey(phase, 0, meltdown));
+      expect(gardenEnvironmentPhaseKey(phase, 0, { ...crisis, cloudCover: 0.7401 })).toBe(gardenEnvironmentPhaseKey(phase, 0, crisis));
+    }
+  });
+
+  it("resolves the first sparse ready cirrus field from a pre-asset probe", () => {
+    const empty = { ...RADIANCE, cloudCover: 0 };
+    const readyBand = resolveGardenEnvironmentRadianceBand(0, 0.05, 20);
+    expect(readyBand).toBe(1);
+    expect(gardenEnvironmentPhaseKey(dayCyclePhase(12), 0, empty)).not.toBe(
+      gardenEnvironmentPhaseKey(dayCyclePhase(12), 0, { ...RADIANCE, cloudCover: readyBand / 20 }),
+    );
+    expect(resolveGardenEnvironmentRadianceBand(readyBand, 0.0501, 20)).toBe(readyBand);
+  });
+
+  it("keys night lunar lighting, without baking for the invisible solar bearing", () => {
+    const night = dayCyclePhase(0);
+    const key = gardenEnvironmentPhaseKey(night, 0, RADIANCE);
+    expect(gardenEnvironmentPhaseKey(night, 0, { ...RADIANCE, moonIllumination: 0 })).not.toBe(key);
+    expect(gardenEnvironmentPhaseKey(night, 0, { ...RADIANCE, moonDir: new Vector3(-0.6, 0.3, -0.4).normalize() })).not.toBe(key);
+    expect(gardenEnvironmentPhaseKey(night, 0, { ...RADIANCE, sunDir: new Vector3(1, 0, 0) })).toBe(key);
+  });
+
+  it("hysteretically holds direction/clarity/lunar bins at rounding edges but accepts material changes", () => {
+    let band = resolveGardenEnvironmentRadianceBand(null, 0.49, 10);
+    expect(band).toBe(5);
+    for (const value of [0.549, 0.551, 0.549, 0.551]) {
+      band = resolveGardenEnvironmentRadianceBand(band, value, 10);
+      expect(band).toBe(5);
+    }
+    expect(resolveGardenEnvironmentRadianceBand(band, 0.57, 10)).toBe(6);
+    expect(resolveGardenEnvironmentRadianceBand(6, 0.53, 10)).toBe(5);
+    expect(resolveGardenEnvironmentRadianceBand(null, Number.NaN, 12)).toBe(0);
   });
 
   it("separates the three states the environment exists to tell apart", () => {
     const keys = [dayCyclePhase(12), dayCyclePhase(18), dayCyclePhase(23)]
-      .map(gardenEnvironmentPhaseKey);
+      .map((phase) => gardenEnvironmentPhaseKey(phase, 0, RADIANCE));
     expect(new Set(keys).size).toBe(3);
   });
 
-  it("bounds the bake keys when the time control sweeps the whole day", () => {
+  it("bounds phase quantization when the control sweeps a day with fixed radiance inputs", () => {
     const keys = new Set<string>();
     for (let hour = 0; hour < 24; hour += 0.01) {
-      keys.add(gardenEnvironmentPhaseKey(dayCyclePhase(hour)));
+      keys.add(gardenEnvironmentPhaseKey(dayCyclePhase(hour), 0, RADIANCE));
     }
-    expect(keys.size).toBeLessThanOrEqual(41);
+    expect(keys.size).toBeLessThanOrEqual(48);
   });
 
   it("rebakes through the evening ramp, so the ember horizon reaches the metal", () => {
     const keys = new Set<string>();
     for (let hour = 16.5; hour <= 21.25; hour += 0.1) {
-      keys.add(gardenEnvironmentPhaseKey(dayCyclePhase(hour)));
+      keys.add(gardenEnvironmentPhaseKey(dayCyclePhase(hour), 0, RADIANCE));
     }
     // The steepest part of the cycle. One key here would mean the dusk sky
     // never reached the bronze it is supposed to light.
@@ -62,9 +103,9 @@ describe("gardenEnvironmentPhaseKey", () => {
   });
 
   it("clamps rather than throwing on an out-of-range phase", () => {
-    expect(gardenEnvironmentPhaseKey({ daylight: 2, dusk: -1, night: 0 })).toBe("10:0:0");
+    expect(gardenEnvironmentPhaseKey({ daylight: 2, dusk: -1, night: 0 }, 0, RADIANCE)).toMatch(/^10:0:0:/);
     // The storm term (Phase 2) joins the key, coarsely quantised and clamped.
-    expect(gardenEnvironmentPhaseKey({ daylight: 2, dusk: -1, night: 0 }, 7)).toBe("10:0:4");
+    expect(gardenEnvironmentPhaseKey({ daylight: 2, dusk: -1, night: 0 }, 7, RADIANCE)).toMatch(/^10:0:4:/);
   });
 
   it("scales reflection strength with the five illumination beats", () => {
@@ -79,6 +120,18 @@ describe("gardenEnvironmentPhaseKey", () => {
     // A crossfade blends the two beats' strengths, never overshooting either.
     expect(gardenEnvironmentIntensityForBeats({ dawn: 0.5, day: 0.5, golden: 0, blue: 0, night: 0 }))
       .toBeCloseTo((gardenEnvironmentIntensityForBeats(beat("dawn")) + ranked[0]!) / 2);
+  });
+
+  it("keeps the moon-independent night environment continuous with blue-hour diffuse", () => {
+    const blue = gardenEnvironmentIntensityForBeats({ dawn: 0, day: 0, golden: 0, blue: 1, night: 0 });
+    const night = gardenEnvironmentIntensityForBeats({ dawn: 0, day: 0, golden: 0, blue: 0, night: 1 });
+    expect(night).toBeGreaterThan(0);
+    expect(night).toBeLessThan(blue);
+    for (const weight of [0, 0.25, 0.5, 0.75, 1]) {
+      expect(gardenEnvironmentIntensityForBeats({
+        dawn: 0, day: 0, golden: 0, blue: 1 - weight, night: weight,
+      })).toBeCloseTo(blue * (1 - weight) + night * weight, 12);
+    }
   });
 
   it("does not rebake across a steady storm's breathing boundary", () => {

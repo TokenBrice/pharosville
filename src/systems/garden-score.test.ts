@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createGardenDirector, registerRitual, requestGardenBeat, type GardenRitualKind } from "./garden-director";
 import {
   cancelGardenRituals,
@@ -53,7 +53,14 @@ describe("garden day score (W5.1)", () => {
       const rings = score.filter((entry) => entry.kind === "fish-rings");
       if (rings.length > 0) ringDays += 1;
       // The midday water stands still.
-      for (const ring of rings) expect(Math.abs(ring.startSec / 3600 - day.solarNoonHour)).toBeGreaterThanOrEqual(2 - 1e-6);
+      for (const ring of rings) {
+        expect(ring.windowSec).toBe(1);
+        const endSec = ring.startSec + ring.windowSec + ring.holdSec;
+        const calmFrom = (day.solarNoonHour - 2) * 3600;
+        const calmTo = (day.solarNoonHour + 2) * 3600;
+        expect(endSec <= calmFrom || ring.startSec >= calmTo, ring.id).toBe(true);
+        expect(endSec, ring.id).toBeLessThanOrEqual((day.sunsetHour - 10 / 60) * 3600);
+      }
     }
     // Geese in the migration kō only (autumn into late winter), never in high summer.
     expect(skeinMonths.has(10)).toBe(true);
@@ -93,6 +100,117 @@ describe("garden day score (W5.1)", () => {
     for (const gift of gifts.filter((entry) => entry.requestId === kindling.id)) {
       expect(gift.startSeconds < start + kindling.windowSec + kindling.holdSec + 480 && start < gift.endSeconds + 480).toBe(true);
     }
+  });
+});
+
+describe("generated fish-ring admission", () => {
+  const cleanups: (() => void)[] = [];
+  const t0 = 10_000_000;
+
+  afterEach(() => {
+    cancelGardenRituals();
+    for (const cleanup of cleanups.splice(0)) cleanup();
+    setGardenDayScore([]);
+  });
+
+  function fixture(withHandler = true, exactExpiryHour = false) {
+    const score = gardenDayScore({ seed: PINNED.seed, date: PINNED.date, latitude: NORTH, day: PINNED.day });
+    const generated = score.find((entry) => entry.kind === "fish-rings")!;
+    expect(generated).toBeDefined();
+    expect(generated.windowSec).toBe(1);
+    // Isolate the driver's exact half-open boundary at an exactly representable
+    // hour; other tests use the generated ring's natural clock placement.
+    const ring = exactExpiryHour ? { ...generated, startSec: 3600 - generated.windowSec } : generated;
+    const started: number[] = [];
+    const heard: string[] = [];
+    const register = () => cleanups.push(registerRitual("fish-rings", {
+      start: (t) => started.push(t), update: () => true, cancel() {},
+    }));
+    if (withHandler) register();
+    cleanups.push(subscribeGardenRituals((event) => heard.push(`${event.id}:${event.forced}`)));
+    setGardenDayScore([ring]);
+    const director = createGardenDirector("natural-fish-rings");
+    const tick = (clockOffset: number, directorOffset = clockOffset) => tickGardenScore({
+      director, directorSeconds: t0 + directorOffset,
+      clockHour: (ring.startSec + clockOffset) / 3600, reducedMotion: false,
+    });
+    return { ring, director, tick, started, heard, register };
+  }
+
+  it("does not admit a generated ring before its window", () => {
+    const { director, tick, started, heard } = fixture();
+    tick(-1);
+    expect(started).toEqual([]);
+    expect(heard).toEqual([]);
+    expect(director.log).toEqual([]);
+  });
+
+  it("naturally admits once inside the generated window without replay on repeat or rebuild", () => {
+    const { ring, director, tick, started, heard } = fixture();
+    tick(-1);
+    tick(0.25);
+    expect(started).toEqual([t0 + 0.25]);
+    expect(heard).toEqual([`${ring.id}:false`]);
+    expect(director.log).toHaveLength(1);
+    expect(director.log[0]?.subject).toBe(ring.id);
+    expect(director.log[0]?.durationSeconds).toBe(ring.holdSec);
+    tick(0.25);
+    tick(0.75);
+    setGardenDayScore([{ ...ring }]);
+    // Keep the score clock in-window after the runtime beat/back-off has ended.
+    tick(0.5, 1000);
+    expect(started).toEqual([t0 + 0.25]);
+    expect(heard).toEqual([`${ring.id}:false`]);
+    expect(director.log).toHaveLength(1);
+  });
+
+  it("drops at exact expiry and preserves the dropped id across a same-day rebuild", () => {
+    const { ring, director, tick, started, heard } = fixture(true, true);
+    tick(ring.windowSec);
+    setGardenDayScore([{ ...ring }]);
+    tick(0.5, 1.5);
+    expect(started).toEqual([]);
+    expect(heard).toEqual([]);
+    expect(director.log).toEqual([]);
+  });
+
+  it("never logs or admits a missing handler, including after expiry and late registration", () => {
+    const { ring, director, tick, started, heard, register } = fixture(false);
+    tick(0.25);
+    expect(director.log).toEqual([]);
+    expect(heard).toEqual([]);
+    tick(ring.windowSec + 1);
+    register();
+    tick(0.5, 3);
+    expect(started).toEqual([]);
+    expect(heard).toEqual([]);
+    expect(director.log).toEqual([]);
+  });
+
+  it("drops a busy offer instead of retrying when the frame becomes quiet", () => {
+    const { ring, director, tick, started, heard } = fixture();
+    expect(requestGardenBeat(director, {
+      kind: "market", foreground: true, durationSeconds: 0.2, priority: 100,
+    }, t0)).not.toBeNull();
+    tick(0.1);
+    tick(0.5);
+    setGardenDayScore([{ ...ring }]);
+    tick(0.75, 1000);
+    expect(started).toEqual([]);
+    expect(heard).toEqual([]);
+    expect(director.log.map((beat) => beat.kind)).toEqual(["market"]);
+  });
+
+  it("does not catch up a generated ring crossed while hidden", () => {
+    const { ring, director, tick, started, heard } = fixture();
+    tick(-1);
+    // No score ticks while hidden: resume two hours after this offer.
+    tick(7200);
+    setGardenDayScore([{ ...ring }]);
+    tick(0.5, 7201);
+    expect(started).toEqual([]);
+    expect(heard).toEqual([]);
+    expect(director.log).toEqual([]);
   });
 });
 

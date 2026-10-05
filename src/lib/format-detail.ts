@@ -128,7 +128,7 @@ export type DetailFactKey =
   | "marketStability"
   | "snapshot"
   | "harborLight"
-  | "beamWarmth"
+  | "beamCharacter"
   | "farShore"
   | "skyCover"
   | "gardenRecord"
@@ -234,7 +234,7 @@ const DETAIL_FACT_LABELS = {
   "source observations": "sourceEvidence",
   "snapshot as of": "snapshot",
   "harbor light": "harborLight",
-  "beam warmth cue": "beamWarmth",
+  "beam character": "beamCharacter",
   "far shore": "farShore",
   "sky cover": "skyCover",
   "garden record, 30d": "gardenRecord",
@@ -469,7 +469,7 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
     key: "harborLight", label: "Harbor light",
     value: [
       `Observed status: ${harborLight}`,
-      lookup.get("beamWarmth") ? `Beam warmth: ${lookup.get("beamWarmth")}` : null,
+      lookup.get("beamCharacter") ? `Beam character: ${lookup.get("beamCharacter")}` : null,
       "Appearance eases over ~2 observations",
     ].filter(Boolean).join("\n"),
   });

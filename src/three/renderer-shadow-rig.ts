@@ -7,14 +7,16 @@
  * Extracted from `world-renderer.ts` (Hour-Print W0.24). The contract is
  * unchanged: casters are static (island, lighthouse, shore stations, sea
  * edges), so `shadow.autoUpdate` stays false and the map is redrawn only when
- * the rig re-steers (camera pose past half a world unit / half a degree, aspect
- * change, or sun bearing past `SHADOW_RESTEER_RADIANS`), when the map size
+ * the rig re-steers (unbreathed visitor pose past half a world unit / half a
+ * degree, aspect change, or sun bearing past `SHADOW_RESTEER_RADIANS`), when the map size
  * changes with the sea-quality tier, or when a caller sets `shadowNeedsRender`
  * (content rebuild, GLB swap, context restore). Ships never cast into it.
  *
- * Per frame the renderer calls `captureGardenShadowView` right after the
- * camera matrices are final, then `updateGardenShadows` after the scene
- * update. All fit scratch is module state; the hot path allocates nothing.
+ * Per frame the renderer calls `captureGardenShadowView` with its unbreathed
+ * shadow-view camera after that camera's matrices are final, then
+ * `updateGardenShadows` with the same pose after the scene update. K16 idle
+ * breath still moves the color/picking camera, never this static-map key.
+ * All fit scratch is module state; the hot path allocates nothing.
  */
 import {
   type Box3,
@@ -296,6 +298,7 @@ export function updateGardenShadows(
   frame: Pick<ThreeWorldRendererFrame, "renderScheduler" | "wallClockHour">,
   phase: DayCyclePhase,
   thresholdBounds: Box3 | null,
+  onTraceEvent?: (kind: string, value?: number, detail?: string) => void,
 ): number {
   const light = rig.directionalLight;
   const pose = gardenKeyLightPose(frame.wallClockHour, phase, scratchKeyPose);
@@ -376,6 +379,7 @@ export function updateGardenShadows(
     rig.shadowFitHasThreshold = thresholdBounds !== null;
     rig.shadowLightDirection.copy(direction);
     rig.shadowNeedsRender = true;
+    onTraceEvent?.("shadow-invalidate", (viewChanged ? 1 : 0) | (sunChanged ? 2 : 0), "view/sun-bitmask");
   }
 
   // W6.2 (Grand Scale Revamp): shadows survive down to `recovery`.
@@ -431,12 +435,14 @@ export function updateGardenShadows(
     // Force a reallocation at the new size (three only builds the map when null).
     light.shadow.map?.dispose();
     light.shadow.map = null;
+    onTraceEvent?.("shadow-map-resize", size);
     rig.shadowNeedsRender = true;
   }
   if (rig.shadowActiveSize !== size) rig.shadowNeedsRender = true;
   rig.shadowActiveSize = size;
   if (rig.shadowNeedsRender) {
     light.shadow.needsUpdate = true;
+    onTraceEvent?.("shadow-refresh-request", size);
     rig.shadowNeedsRender = false;
   }
   return size;

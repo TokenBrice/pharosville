@@ -74,7 +74,16 @@ export const GARDEN_WATER_SKY_RADIANCE = Object.freeze({
   blue: 0.8,
   night: 0.45,
 });
-export const GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN = 18;
+/** One pond envelope for every body; surface signatures are independent of optics. */
+export const GARDEN_WATER_OPTICS = Object.freeze({
+  normalTileWorldUnits: 40,
+  fineTileWorldUnits: 17,
+  fineSlopeGain: 0.15,
+  maximumTextureCycles: 12,
+  gerstnerSlopeGain: 0.6,
+  derivativeVarianceGain: 0.35,
+  maximumRoughness: 0.4,
+});
 export const GARDEN_WATER_CREST_FOAM = Object.freeze({
   /** `-J + bias` is positive only where the horizontal wave field folds. */
   jacobianBias: 1,
@@ -83,18 +92,29 @@ export const GARDEN_WATER_CREST_FOAM = Object.freeze({
   noiseGate: 0.56,
   maxMix: 0.055,
 });
-/**
- * W3.7: the shore breathes once — one lap line on a ~10 s breath.
- * Shore-field units: one unit is 24 tiles from any coast.
- */
-export const GARDEN_WATER_SHORE_FOAM = Object.freeze({
-  breathSeconds: 10.5,
-  breathAmplitude: 0.008,
-  lineCentre: 0.012,
-  lineCore: 0.003,
-  lineFeather: 0.012,
-  maxMix: 0.18,
+/** Sparse physical lap on exposed authored reaches; never a universal collar. */
+export const GARDEN_WATER_SHORE_LAP = Object.freeze({
+  periodSeconds: 10.5,
+  travel: 0.004,
+  centre: 0.01,
+  core: 0.002,
+  feather: 0.006,
+  exposureStart: 0.65,
+  exposureEnd: 0.9,
+  noiseStart: 0.76,
+  maxMix: 0.055,
 });
+
+/** Shared derivative-filtered physical contact, independent of weekly supply tide. */
+export function gardenShoreContactGlsl(
+  above: string,
+  contact: Readonly<{ submergedAbove: number; dryAbove: number }>,
+): string {
+  return `float shoreAbove = ${above};
+  float shoreAa = max(0.005, fwidth(shoreAbove));
+  float shoreDamp = 1.0 - smoothstep(${contact.dryAbove} - shoreAa, ${contact.dryAbove} + shoreAa, shoreAbove);
+  float shoreSubmerged = 1.0 - smoothstep(${contact.submergedAbove} - shoreAa, ${contact.submergedAbove} + shoreAa, shoreAbove);`;
+}
 /**
  * K4: the moon road's gain over moonlight at full illumination, before the
  * slat duty (~40 %) and the half-vector lobe. Measured on the real GPU at
@@ -109,6 +129,21 @@ export const GARDEN_WATER_MOON_ROAD_GAIN = 0.15;
  * preview's `--night-water` probe), not derived from authored gains.
  */
 export const GARDEN_WATER_LANE_CLAMP = 0.75;
+
+export const GARDEN_WATER_BEACON_CLAMP = 1.3;
+export const GARDEN_WATER_SUN_GLITTER_GAIN = 0.9;
+/**
+ * Conservative unit-luminance open-night term × support occupancy proxy.
+ * These are acceptance bounds, not captured measurements; matched full/new
+ * moon support occupancy is recorded with the packet's real-GPU evidence.
+ * Passive Fresnel/hero/risk/foam/ripple mixtures are not additive emission.
+ */
+export const GARDEN_WATER_NIGHT_EMISSION = Object.freeze({
+  sunGlitter: Object.freeze({ gain: GARDEN_WATER_SUN_GLITTER_GAIN, occupancy: 0 }),
+  moonRoad: Object.freeze({ gain: GARDEN_WATER_MOON_ROAD_GAIN, occupancy: 0.04 }),
+  beacon: Object.freeze({ gain: GARDEN_WATER_BEACON_CLAMP, occupancy: 0.002 }),
+  lanes: Object.freeze({ gain: GARDEN_WATER_LANE_CLAMP, occupancy: 0.009 }),
+});
 
 /**
  * (a) Zone soft-tint uniform path — consumed by Lane Z's data.

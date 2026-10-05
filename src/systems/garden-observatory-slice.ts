@@ -42,6 +42,9 @@ export const GARDEN_ISLAND_TILE_OFFSET = { x: 12, y: 8 } as const;
 // while BEACON_Y (30.2 → 24.2) and HEIGHT (38 → 32) shrank by the same six:
 // the world beacon and crown heights below are unchanged.
 export const GARDEN_LIGHTHOUSE_ROOT_OFFSET = { x: -7, y: 8.55, z: -1.25 } as const;
+/** Root-local hydraulic mouth and foreground pine, shared by geometry and sound. */
+export const GARDEN_BASIN_ROOT_OFFSET = { x: 3.8, z: 6.75 } as const;
+export const GARDEN_PINE_SOUND_ROOT_OFFSET = { x: -4.8, z: 8.3 } as const;
 // Epic Pharos 2026-09-05 (D1): the broad battered square tier, octagonal
 // drum, columned lantern and Zeus Soter crown stand 32 units above the crag
 // court. BEACON_Y is the brazier centre inside the lantern (flame and beam
@@ -649,11 +652,10 @@ function gardenObservatoryBaseSlice(world: PharosVilleWorld): GardenObservatoryB
   if (cached) return cached;
   const representatives = selectRepresentativeShips(world.ships, gardenOverviewShipLimit());
   const representativeDetailIds = new Set(representatives.map((ship) => ship.detailId));
-  // W3 (finding F4): the authored per-zone rings were sized for ~20 ships and
-  // saturated at fleet scale. Placement is now blue-noise scatter across the
-  // painted terrain region each risk band owns, so the fleet fills its own
-  // waters instead of piling onto the island.
+  // Shared projected shoreline masses preserve every eligible identity and its
+  // legal berth band. No renderer-only offsets or risk reassignment.
   const placement = placeGardenFleet(representatives, world.lighthouse.tile);
+  representativeHeadingsByWorld.set(world, placement.restingHeadingByShipId);
   const slice = {
     areas: selectGardenObservatoryAreas(world.areas),
     docks: selectGardenDocks(world.docks),
@@ -672,7 +674,7 @@ function gardenObservatoryBaseSlice(world: PharosVilleWorld): GardenObservatoryB
 }
 
 /**
- * The displayed home berth of a representative ship (its blue-noise fleet
+ * The displayed home berth of a representative ship (its shared projected
  * placement), or null for a transient. Motion planning anchors a docked
  * representative's route here (W5.5), so its voyages start and end where the
  * hull is drawn and no display offset has to be faded out under way.
@@ -693,6 +695,14 @@ export function gardenRepresentativeBerth(world: PharosVilleWorld, shipId: strin
 }
 
 const representativeBerthsByWorld = new WeakMap<PharosVilleWorld, Map<string, ScreenPoint>>();
+const representativeHeadingsByWorld = new WeakMap<PharosVilleWorld, ReadonlyMap<string, number>>();
+
+/** Accepted home heading in tile-plane radians, shared with route planning.
+ * Underway/dock-tangent headings remain motion-owned. */
+export function gardenRepresentativeRestHeading(world: PharosVilleWorld, shipId: string): number | null {
+  gardenObservatoryBaseSlice(world);
+  return representativeHeadingsByWorld.get(world)?.get(shipId) ?? null;
+}
 
 function compareRepresentativeShips(left: ShipNode, right: ShipNode): number {
   return riskRank(right.riskZone) - riskRank(left.riskZone)

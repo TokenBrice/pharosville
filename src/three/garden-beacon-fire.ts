@@ -489,12 +489,14 @@ export function createSmokePlume(
         ).r;
         float erode = smoothstep(vAge * 0.85, vAge * 0.85 + 0.3, n);
         float alpha = mask * erode * uOpacity * vGate;
-        if (alpha < 0.004) discard;
+        // Resolve the quad derivative while every helper lane is alive;
+        // alpha-based discard must not seed undefined HDR colour into bloom.
         float bandWidth = max(fwidth(n) * 0.75, 0.01);
         float band = smoothstep(0.42 - bandWidth, 0.42 + bandWidth, n);
         vec3 dayColor = mix(uDayDark, uDayLight, band);
         vec3 color = mix(uNight, dayColor, uDayMix);
         color += uBacklight * (1.0 - band) * (1.0 - uDayMix) * 0.3;
+        if (alpha < 0.004) discard;
         gl_FragColor = vec4(color, alpha);
       }
     `,

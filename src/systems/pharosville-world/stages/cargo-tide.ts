@@ -109,14 +109,15 @@ const FLAT_NET_FLOW_USD = 1;
 const MATERIAL_UNATTRIBUTED_SHARE = 0.01;
 
 function coinHasActivity(coin: MintBurnFlowsResponse["coins"][number]): boolean {
-  return coin.has24hActivity ?? (coin.mintVolume24hUsd + coin.burnVolume24hUsd > 0);
+  return coin.netFlow24hUsd === null || coin.valuation?.window24h.completeness === "partial"
+    || (coin.has24hActivity ?? (coin.mintVolume24hUsd + coin.burnVolume24hUsd > 0));
 }
 
 interface TideAccumulator {
   burnVolumeUsd: number;
   coinCount: number;
   mintVolumeUsd: number;
-  netFlowUsd: number;
+  netFlowUsd: number | null;
 }
 
 function emptyAccumulator(): TideAccumulator {
@@ -148,20 +149,20 @@ function settleTide(
   unattributed: UnattributedIssuance,
 ): DockCargoTide {
   const gross = totals.mintVolumeUsd + totals.burnVolumeUsd;
-  const netFlowUsd = Math.abs(totals.netFlowUsd) < FLAT_NET_FLOW_USD ? 0 : totals.netFlowUsd;
+  const netFlowUsd = totals.netFlowUsd === null ? null : Math.abs(totals.netFlowUsd) < FLAT_NET_FLOW_USD ? 0 : totals.netFlowUsd;
   return {
     burnVolumeUsd: totals.burnVolumeUsd,
     coinCount: totals.coinCount,
-    direction: getNetFlowDirection24h({ has24hActivity: gross > 0, netFlow24hUsd: netFlowUsd }),
+    direction: netFlowUsd === null ? null : getNetFlowDirection24h({ has24hActivity: gross > 0, netFlow24hUsd: netFlowUsd }),
     mintVolumeUsd: totals.mintVolumeUsd,
     netFlowUsd: totals.netFlowUsd,
-    pressureScore: getLiteralMintingPressureScore({
+    pressureScore: netFlowUsd === null ? null : getLiteralMintingPressureScore({
       burnVolume24hUsd: totals.burnVolumeUsd,
       mintVolume24hUsd: totals.mintVolumeUsd,
     }),
     reason: "tracked",
     tracked: true,
-    completeWindow: evidence.coverage.state === "complete" && evidence.coverage.windowHours === 24,
+    completeWindow: netFlowUsd !== null && evidence.coverage.state === "complete" && evidence.coverage.windowHours === 24,
     evidence,
     unattributed,
   };
@@ -175,25 +176,27 @@ function buildFleetIssuance(
   let mintVolumeUsd = 0;
   let netFlowUsd = 0;
   let activeCoins = 0;
+  let netKnown = true;
   for (const coin of mintBurn.coins) {
     if (!coinHasActivity(coin)) continue;
     activeCoins += 1;
     burnVolumeUsd += coin.burnVolume24hUsd;
     mintVolumeUsd += coin.mintVolume24hUsd;
-    netFlowUsd += coin.netFlow24hUsd;
+    if (coin.netFlow24hUsd === null || coin.valuation?.window24h.completeness === "partial") netKnown = false;
+    else netFlowUsd += coin.netFlow24hUsd;
   }
   return {
     activeCoins,
     band: mintBurn.gauge.band,
     burnVolumeUsd,
-    direction: getNetFlowDirection24h({
+    direction: !netKnown ? null : getNetFlowDirection24h({
       has24hActivity: mintVolumeUsd + burnVolumeUsd > 0,
       netFlow24hUsd: netFlowUsd,
     }),
     flightIntensity: mintBurn.gauge.flightIntensity,
     flightToQuality: mintBurn.gauge.flightToQuality,
     mintVolumeUsd,
-    netFlowUsd,
+    netFlowUsd: netKnown ? netFlowUsd : null,
     scopeChainIds: [...(mintBurn.scope?.chainIds ?? [])],
     scopeLabel: mintBurn.scope?.label ?? null,
     score: mintBurn.gauge.score,
@@ -209,7 +212,8 @@ export function buildCargoTideStage(
   status: PharosVilleSourceStatus,
 ): CargoTideStage {
   const completeWindow = mintBurn?.windowHours === 24 && mintBurn.coins.length > 0
-    && mintBurn.coins.every((coin) => coin.coverage?.status === "full" && coin.coverage.has24hWindow && !coin.coverage.isPartial);
+    && mintBurn.coins.every((coin) => coin.coverage?.status === "full" && coin.coverage.has24hWindow && !coin.coverage.isPartial
+      && coin.valuation?.window24h.completeness === "complete");
   const evidence = rowSourceEvidence("mintBurn", {
     ...status, publishedAt: observationEpochMs(mintBurn?.updatedAt) ?? status.publishedAt,
   }, {
@@ -286,7 +290,8 @@ export function buildCargoTideStage(
       totals.burnVolumeUsd += coin.burnVolume24hUsd * weight;
       totals.coinCount += 1;
       totals.mintVolumeUsd += coin.mintVolume24hUsd * weight;
-      totals.netFlowUsd += coin.netFlow24hUsd * weight;
+      if (coin.netFlow24hUsd === null || coin.valuation?.window24h.completeness === "partial") totals.netFlowUsd = null;
+      else if (totals.netFlowUsd !== null) totals.netFlowUsd += coin.netFlow24hUsd * weight;
     }
   }
 

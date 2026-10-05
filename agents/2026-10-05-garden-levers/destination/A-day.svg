@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1260" viewBox="0 0 1600 1260" role="img" aria-labelledby="title desc">
+  <title id="title">A — Moss-side observatory: daylight destination over baseline</title>
+  <desc id="desc">Annotations over the 1600 by 1000 daylight baseline. Replace the smooth lower bank and upper-left disc pine; preserve the right-of-centre tower and open inlet. Three unequal fleet envelopes and two water intervals are geometric intent. Dashed material notes are aspirations, not rendered work.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#ffd176"/></marker>
+    <style>text{font-family:system-ui,sans-serif;fill:#f6f7fb;font-size:22px}.g{stroke:#ffd176;stroke-width:3;fill:#ffd176;fill-opacity:.07}.keep{stroke:#9bf1c6;stroke-width:3;fill:none}.material{stroke:#88dcff;stroke-width:3;stroke-dasharray:9 7;fill:none}.leader{stroke:#ffd176;stroke-width:3;fill:none;marker-end:url(#arrow)}.label{fill:#121b29;fill-opacity:.94}.small{font-size:19px}</style>
+  </defs>
+  <rect width="1600" height="1260" fill="#121b29"/>
+  <text x="28" y="37" font-size="29">A / Day — elected destination, not a candidate render</text>
+  <text x="28" y="75" class="small">Gold: geometric intent   ·   Mint: preserve/clearance   ·   Cyan dashed: aspirational material/light</text>
+  <image href="../../../outputs/holistic/day.png" x="0" y="100" width="1600" height="1000"/>
+  <path class="g" d="M0 810L225 823L450 800L700 827L960 870L1260 896L1600 970L1600 1100L0 1100Z"/>
+  <path class="g" d="M0 195L70 205L280 236L305 341L220 394L0 412Z"/>
+  <path class="g" d="M225 932L275 890L355 913L381 965L340 1001L240 986Z M385 953L460 908L565 938L590 995L505 1014L399 989Z M195 1005L230 977L302 1003L325 1030L242 1040Z"/>
+  <path class="g" d="M545 1010L620 946L840 936L1030 1004L980 1050L655 1053Z"/>
+  <path class="g" d="M830 975L755 932L660 914L590 948" fill-opacity="0"/>
+  <rect class="keep" x="917" y="230" width="185" height="370" rx="12"/>
+  <path class="keep" d="M690 817L682 752L739 692L844 678L881 718L897 780L1003 826L905 844Z"/>
+  <path class="g" d="M70 670L278 590L520 627L685 770L603 805L297 806L88 753Z"/>
+  <path class="g" d="M375 602L531 591L730 610L851 650L802 690L615 676L425 649Z"/>
+  <path class="g" d="M1265 653L1460 636L1580 681L1600 837L1450 881L1288 829Z"/>
+  <path class="keep" d="M675 714L689 671M1188 680L1278 662" stroke-width="9"/>
+  <path class="material" d="M348 950L400 904L479 917M669 1012L814 982L946 1015"/>
+  <rect class="label" x="330" y="145" width="490" height="86" rx="5"/>
+  <text x="346" y="178">G1 Replace discs with porous branches</text><text x="346" y="210" class="small">Near framing; keep sky gaps and crown air</text>
+  <path class="leader" d="M330 205L252 257"/>
+  <rect class="label" x="1110" y="145" width="453" height="83" rx="5"/>
+  <text x="1126" y="177">K1 Preserve tower right-of-centre</text><text x="1126" y="208" class="small">Singular hero; do not enlarge garden salience</text>
+  <path class="leader" d="M1110 212L1033 282"/>
+  <rect class="label" x="25" y="452" width="505" height="76" rx="5"/>
+  <text x="41" y="484">G2 Three unequal projected fleet masses</text><text x="41" y="514" class="small">Near-left / rear-left / receding right; legal waters</text>
+  <path class="leader" d="M425 528L515 638"/>
+  <text x="738" y="757" class="small" fill="#9bf1c6">K2 Inlet</text>
+  <text x="296" y="972" class="small">G3 Triad</text><text x="700" y="1030" class="small">G4 Recess</text>
+  <text x="28" y="1137">G3 Replace bottom 25–30% bank: moss shelves + buried unequal triad + disappearing approach.</text>
+  <text x="28" y="1175">G4 Bound gravel record; crop engawa sill below hull rows. K2 Preserve continuous inlet and two fleet gaps.</text>
+  <text x="28" y="1213">M1 Aspirational: damp stone contacts, soft moss, matte gravel, worked timber; neutral noon, no micro-noise.</text>
+  <text x="28" y="1247" class="small">Baseline underlay: outputs/holistic/day.png · Outlines are composition intent, not measured clearance or shipped materials.</text>
+</svg>

@@ -22,10 +22,10 @@ import { stableUnit } from "./garden-util";
  * undersides ×0.40–0.55 against lit crowns in vertex colour — not facets: the
  * whole tree is smooth-shaded, so it wants a `flatShading: false` material.
  *
- * One generator for every tree in the garden (W4.G1): the threshold and
- * island heroes, and — at the "rim" LOD — the rim, islet and deciduous
- * species of `garden-flora`. The geometry is local to the root (origin at
- * the trunk base, +y up), so it can be instanced or merged.
+ * The inexpensive pad kit serves the island heroes and, at "rim" LOD, rim,
+ * islet and deciduous species in garden-flora. The near threshold instead
+ * uses the authored trunk/limb/twig builder below. Both geometries are local
+ * to their own root (+y up), so planting can instance or merge them.
  */
 
 /** Pads darken to this fraction of the needle colour on their flat undersides. */
@@ -220,6 +220,151 @@ function barkTube(
   geometry.setAttribute("normal", new BufferAttribute(normals, 3));
   geometry.setAttribute("color", new BufferAttribute(colors, 3));
   geometry.setIndex(indices);
+  return geometry;
+}
+
+export const GARDEN_KUROMATSU_FLEX_ATTRIBUTE = "aGardenFlex";
+export const GARDEN_KUROMATSU_ROOT_INDEX_ATTRIBUTE = "aGardenRootIndex";
+
+export interface KuromatsuLimb {
+  /** Earlier curve index: zero is the trunk; limb n is curve n + 1. */
+  parent: number;
+  at: number;
+  order: "primary" | "secondary" | "twig";
+  /** Root-local control points after the implicit, attached first point. */
+  points: readonly (readonly [number, number, number])[];
+  radii: readonly [number, number];
+  /** Dense closed needles in a low irregular lens above the terminal twig. */
+  spray?: { needles: number; length: number; spread: number };
+}
+
+export interface AuthoredKuromatsuOptions {
+  seed: string;
+  rootIndex: 0 | 1;
+  trunk: readonly (readonly [number, number, number])[];
+  radii: readonly [number, number];
+  limbs: readonly KuromatsuLimb[];
+  bark: Color;
+  needle: Color;
+}
+
+function kuromatsuFlex(geometry: BufferGeometry, rootIndex: 0 | 1, from: Vector3, to: Vector3, radial: number): void {
+  const count = geometry.getAttribute("position").count;
+  const flex = new Float32Array(count * 3);
+  const rings = count / (radial + 1) - 1;
+  for (let vertex = 0; vertex < count; vertex += 1) {
+    const t = Math.floor(vertex / (radial + 1)) / rings;
+    flex[vertex * 3] = from.x + (to.x - from.x) * t;
+    flex[vertex * 3 + 1] = from.y + (to.y - from.y) * t;
+    flex[vertex * 3 + 2] = from.z + (to.z - from.z) * t;
+  }
+  geometry.setAttribute(GARDEN_KUROMATSU_FLEX_ATTRIBUTE, new BufferAttribute(flex, 3));
+  geometry.setAttribute(GARDEN_KUROMATSU_ROOT_INDEX_ATTRIBUTE, new BufferAttribute(new Float32Array(count).fill(rootIndex), 1));
+}
+
+/** Overlapping short opaque needles form a soft lens, not a radial frond. */
+function kuromatsuSpray(
+  curve: CatmullRomCurve3, spray: NonNullable<KuromatsuLimb["spray"]>,
+  needle: Color, seed: string, rootIndex: 0 | 1, toFlex: Vector3,
+): BufferGeometry {
+  const positions = new Float32Array(spray.needles * 18);
+  const colors = new Float32Array(positions.length);
+  const flex = new Float32Array(positions.length);
+  const indices: number[] = [];
+  const along = curve.getTangentAt(1);
+  along.y = 0;
+  if (along.lengthSq() < 1e-8) along.set(1, 0, 0);
+  else along.normalize();
+  const across = new Vector3(along.z, 0, -along.x);
+  const centre = curve.getPointAt(1).add(new Vector3(0, spray.length * 0.18, 0));
+  const base = new Vector3(), direction = new Vector3(), side = new Vector3(), up = new Vector3(), point = new Vector3();
+  const radius = spray.length * spray.spread;
+  const phase = stableUnit(`${seed}.lens`) * Math.PI * 2;
+  const rings = Math.ceil(spray.needles / 3);
+  for (let n = 0; n < spray.needles; n += 1) {
+    const irregular = stableUnit(`${seed}.needle.${n}`);
+    const r = Math.sqrt((Math.floor(n / 3) + 0.5) / rings);
+    const angle = n * 2.399963229728653 + phase;
+    const edge = 1 + 0.12 * Math.sin(angle * 3 + phase) + 0.06 * Math.sin(angle * 7);
+    base.copy(centre).addScaledVector(along, Math.cos(angle) * r * radius * edge)
+      .addScaledVector(across, Math.sin(angle) * r * radius * 0.58 * edge);
+    base.y += spray.length * (0.12 * (1 - r * r) + (n % 3 - 1) * 0.08);
+    // Dense interleaved layers cover the cluster body. Only their short tips
+    // roughen its edge; the larger sky gaps belong between attached clusters.
+    direction.copy(along).multiplyScalar(Math.cos(angle))
+      .addScaledVector(across, Math.sin(angle));
+    direction.y = 0.25 + irregular * 0.3;
+    direction.normalize();
+    side.set(direction.z, 0, -direction.x).normalize();
+    up.crossVectors(direction, side).normalize();
+    const length = spray.length * (0.22 + irregular * 0.08);
+    const width = length * 0.45;
+    const start = n * 6;
+    for (let corner = 0; corner < 6; corner += 1) {
+      point.copy(base);
+      if (corner === 4) point.addScaledVector(direction, length * 0.65);
+      else if (corner === 5) point.addScaledVector(direction, -length * 0.35);
+      else {
+        const radial = corner * Math.PI / 2;
+        point.addScaledVector(side, Math.cos(radial) * width).addScaledVector(up, Math.sin(radial) * width);
+      }
+      point.toArray(positions, (start + corner) * 3);
+      const value = (corner === 4 ? 0.92 : corner === 5 ? 0.58 : 0.72) * (0.88 + irregular * 0.12);
+      colors[(start + corner) * 3] = needle.r * value;
+      colors[(start + corner) * 3 + 1] = needle.g * value;
+      colors[(start + corner) * 3 + 2] = needle.b * value;
+      flex[(start + corner) * 3] = toFlex.x;
+      flex[(start + corner) * 3 + 1] = toFlex.y;
+      flex[(start + corner) * 3 + 2] = corner === 4 ? 1 : toFlex.z;
+    }
+    for (let radial = 0; radial < 4; radial += 1) {
+      const next = (radial + 1) % 4;
+      indices.push(start + radial, start + next, start + 4,
+        start + next, start + radial, start + 5);
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new BufferAttribute(colors, 3));
+  geometry.setAttribute(GARDEN_KUROMATSU_FLEX_ATTRIBUTE, new BufferAttribute(flex, 3));
+  geometry.setAttribute(GARDEN_KUROMATSU_ROOT_INDEX_ATTRIBUTE,
+    new BufferAttribute(new Float32Array(spray.needles * 6).fill(rootIndex), 1));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** Near-seat graph only: distant trees retain the inexpensive niwaki pad kit. */
+export function createAuthoredKuromatsuGeometry(options: AuthoredKuromatsuOptions): BufferGeometry {
+  const curves = [new CatmullRomCurve3(options.trunk.map(([x, y, z]) => new Vector3(x, y, z)), false, "centripetal")];
+  const starts = [new Vector3()];
+  const ends = [new Vector3(1, 0, 0)];
+  const trunk = barkTube(curves[0]!, options.radii, 24, 10, options.bark, `${options.seed}.trunk`);
+  kuromatsuFlex(trunk, options.rootIndex, starts[0]!, ends[0]!, 10);
+  const pieces = [trunk];
+  for (const [index, limb] of options.limbs.entries()) {
+    const parent = curves[limb.parent]!;
+    const start = parent.getPointAt(limb.at);
+    const curve = new CatmullRomCurve3([start, ...limb.points.map(([x, y, z]) => new Vector3(x, y, z))], false, "centripetal");
+    const from = starts[limb.parent]!.clone().lerp(ends[limb.parent]!, limb.at);
+    const to = from.clone();
+    if (limb.order === "twig") to.z = 0.8;
+    else to.y = 1;
+    const radial = limb.order === "primary" ? 7 : 5;
+    const segments = limb.order === "primary" ? 10 : 5;
+    const bark = barkTube(curve, limb.radii, segments, radial, options.bark, `${options.seed}.limb.${index}`);
+    kuromatsuFlex(bark, options.rootIndex, from, to, radial);
+    pieces.push(bark);
+    if (limb.spray) pieces.push(kuromatsuSpray(curve, limb.spray, options.needle,
+      `${options.seed}.spray.${index}`, options.rootIndex, to));
+    curves.push(curve);
+    starts.push(from);
+    ends.push(to);
+  }
+  const geometry = mergeGeometries(pieces, false)!;
+  pieces.forEach((piece) => piece.dispose());
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
   return geometry;
 }
 

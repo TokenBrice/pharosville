@@ -8,7 +8,7 @@ import {
   MOTION_UNDERWAY_MIN_TILES_PER_SECOND,
   OPEN_WATER_PATROL_WAYPOINTS,
 } from "./motion-config";
-import { buildCachedShipWaterRoute, nearestMapWaterTile, reverseWaterPath, waterPathFromPoints } from "./motion-water";
+import { buildCachedShipWaterRoute, nearestMapWaterTile, reverseWaterPath, routeHullMargin, waterPathFromPoints } from "./motion-water";
 import { clamp, pathKey, positiveModulo } from "./motion-utils";
 import {
   STABLECOIN_SQUADS,
@@ -35,7 +35,8 @@ import {
   type GardenScoreGift,
 } from "./garden-attention-scheduler";
 import { GARDEN_EMPTY_INLET, gardenInletDistance, isGardenInletCoreTile } from "./garden-inlet";
-import { gardenRepresentativeBerth } from "./garden-observatory-slice";
+import { GARDEN_SILHOUETTE_FOR_HULL, gardenRepresentativeBerth, gardenRepresentativeRestHeading, gardenShipVisualScale } from "./garden-observatory-slice";
+import { gardenShipWaterMarginTiles, isGardenShipWater, nearestGardenShipWater } from "./garden-water-exclusion";
 
 /** One slow berth sway at the quays: a ten-minute cycle, in radians. */
 const BERTH_SWAY_PERIOD_SECONDS = 600;
@@ -333,7 +334,7 @@ export function buildBaseMotionPlan(
     ));
     if (!flagship) continue;
     flagshipShipBySquad.set(squad.id, flagship);
-    flagshipRouteBySquad.set(squad.id, buildShipMotionRoute(flagship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(flagship.id) ?? 1, gardenRepresentativeBerth(world, flagship.id)));
+    flagshipRouteBySquad.set(squad.id, buildShipMotionRoute(flagship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(flagship.id) ?? 1, gardenRepresentativeBerth(world, flagship.id), gardenRepresentativeRestHeading(world, flagship.id)));
   }
 
   const shipRoutes = new Map<string, ShipMotionRoute>();
@@ -353,7 +354,7 @@ export function buildBaseMotionPlan(
         continue;
       }
     }
-    shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(ship.id) ?? 1, gardenRepresentativeBerth(world, ship.id)));
+    shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(ship.id) ?? 1, gardenRepresentativeBerth(world, ship.id), gardenRepresentativeRestHeading(world, ship.id)));
   }
 
   const seed = attention.seed ?? GARDEN_ATTENTION_DEFAULT_SEED;
@@ -446,6 +447,7 @@ function assignInletCrossingTokens(input: {
           bucket: input.bucket,
           preferDirect: true,
           inletCrossing: true,
+          hullMarginTiles: shipRouteHullMargin(ship),
         }, input.waterRouteCache);
         const fitsVoyage = lengthInsideCadenceEnvelope(
           candidate.totalLength,
@@ -542,6 +544,7 @@ export function forceInletCrossing(
       bucket: route.routeEpoch ?? 0,
       preferDirect: true,
       inletCrossing: true,
+      hullMarginTiles: shipRouteHullMargin(ship),
     }, waterRouteCache);
     if (!path.points.some((point) => isGardenInletCoreTile(point.x, point.y))) continue;
     const crossingSeconds = clamp(
@@ -611,12 +614,19 @@ function buildShipMotionRoute(
   bucket = 0,
   speedScalar = 1,
   anchorage: { x: number; y: number } | null = null,
+  restingHeadingRad: number | null = null,
 ): ShipMotionRoute {
-  // W5.5: a docked representative anchors at the berth it is drawn at, so
-  // its voyages start and end there; others anchor at their data tile.
-  const riskTile = nearestWaterTile(anchorage && ship.dockVisits.length > 0
-    ? { x: Math.round(anchorage.x), y: Math.round(anchorage.y) }
-    : ship.riskTile);
+  const hullMarginTiles = shipRouteHullMargin(ship);
+  // W5.5: a docked representative anchors at the berth it is drawn at, so its
+  // voyages start and end there; others anchor at their data tile. The data
+  // grid alone would relocate a legal berth onto water the rendered garden
+  // covers with rock, where the hull's rode crosses the shore as it swings.
+  const berth = anchorage && ship.dockVisits.length > 0
+    ? { x: Math.round(anchorage.x), y: Math.round(anchorage.y) } : null;
+  const riskTile = berth
+    ? (isGardenShipWater(berth, hullMarginTiles) ? berth
+      : nearestGardenShipWater(berth, hullMarginTiles, `anchorage.${ship.id}`))
+    : nearestWaterTile(ship.riskTile);
   const dockStops: ShipDockMotionStop[] = ship.dockVisits.map((visit) => ({
     id: visit.dockId,
     kind: "dock" as const,
@@ -642,6 +652,7 @@ function buildShipMotionRoute(
   const cadenceUnit = stableUnit(`${cadenceIdentity}.leg-cadence`);
   const identityLegDurationSeconds = shipLegDurationSeconds(cadenceUnit, speedScalar);
   const cadenceGeometry = cadenceLegDurationForGeometry({
+    hullMarginTiles,
     ship,
     riskTile,
     dockStops,
@@ -667,6 +678,7 @@ function buildShipMotionRoute(
       riskTile,
       map,
       waterRouteCache,
+      hullMarginTiles,
       bucket,
       voyageDurationSeconds,
       underwaySpeedTilesPerSecond,
@@ -683,6 +695,7 @@ function buildShipMotionRoute(
     riskStop,
     riskTile,
     shipId: ship.id,
+    restingHeadingRad,
     zone: ship.riskZone,
   });
 
@@ -708,6 +721,7 @@ function buildShipMotionRoute(
       zone: ship.riskZone,
       shipId: ship.id,
       bucket,
+      hullMarginTiles,
       legDurationSeconds: voyageDurationSeconds,
       paceTilesPerSecond: underwaySpeedTilesPerSecond,
     }, waterRouteCache);
@@ -738,6 +752,7 @@ function buildShipMotionRoute(
     dockStops,
     riskStop,
     zone: ship.riskZone,
+    ...(restingHeadingRad === null ? {} : { restingHeadingRad }),
     dockStopSchedule,
     homeDockId,
     openWaterPatrol,
@@ -885,6 +900,7 @@ function motionRouteKey(input: {
   riskStop: ShipMotionRouteStop | null;
   riskTile: { x: number; y: number };
   shipId: string;
+  restingHeadingRad: number | null;
   zone: ShipMotionRoute["zone"];
 }): string {
   const stops = input.dockStops
@@ -914,6 +930,7 @@ function motionRouteKey(input: {
     `stops=${stops}`,
     `riskStop=${riskStop}`,
     `patrol=${patrol}`,
+    `rest=${input.restingHeadingRad === null ? "-" : input.restingHeadingRad.toFixed(6)}`,
   ].join(";");
 }
 
@@ -1030,6 +1047,7 @@ function shipLegDurationSeconds(identityUnit: number, speedScalar: number): numb
 function cadenceLegDurationForGeometry(input: {
   ship: ShipNode;
   riskTile: { x: number; y: number };
+  hullMarginTiles: number;
   dockStops: readonly ShipDockMotionStop[];
   map: PharosVilleMap;
   waterRouteCache: ShipWaterRouteCache;
@@ -1049,6 +1067,7 @@ function cadenceLegDurationForGeometry(input: {
       shipId: input.ship.id,
       bucket: input.bucket,
       preferDirect: true,
+      hullMarginTiles: input.hullMarginTiles,
     }, input.waterRouteCache);
     minimumSeconds = Math.max(
       minimumSeconds,
@@ -1150,6 +1169,7 @@ function buildOpenWaterPatrol(
   riskTile: { x: number; y: number },
   map: PharosVilleMap,
   waterRouteCache: ShipWaterRouteCache,
+  hullMarginTiles: number,
   bucket = 0,
   legDurationSeconds = MOTION_LEG_MAX_SECONDS,
   paceTilesPerSecond = MOTION_UNDERWAY_MIN_TILES_PER_SECOND,
@@ -1170,6 +1190,7 @@ function buildOpenWaterPatrol(
       zone: ship.riskZone,
       shipId: ship.id,
       bucket,
+      hullMarginTiles,
       legDurationSeconds,
       paceTilesPerSecond,
       allowEndpointTruncation: true,
@@ -1194,6 +1215,12 @@ function buildOpenWaterPatrol(
   };
 }
 
+function shipRouteHullMargin(ship: ShipNode): number {
+  return routeHullMargin(gardenShipWaterMarginTiles(
+    gardenShipVisualScale(ship.visual.scale || 1), GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+  ));
+}
+
 interface CadenceWaterRouteInput {
   from: { x: number; y: number };
   to: { x: number; y: number };
@@ -1201,6 +1228,7 @@ interface CadenceWaterRouteInput {
   zone: ShipNode["riskZone"];
   shipId: string;
   bucket: number;
+  hullMarginTiles: number;
   legDurationSeconds: number;
   paceTilesPerSecond: number;
   allowEndpointTruncation?: boolean;
@@ -1234,7 +1262,7 @@ function cadenceCandidateTiles(map: PharosVilleMap, zone: ShipNode["riskZone"]):
 }
 
 function tryBuildCadenceWaterRoute(input: CadenceWaterRouteInput, cache: ShipWaterRouteCache): ShipWaterPath | null {
-  const cadenceKey = `cadence:${input.zone}:${input.shipId}:${input.legDurationSeconds.toFixed(6)}:${input.paceTilesPerSecond.toFixed(6)}:${input.allowEndpointTruncation ? "truncate" : "fixed"}:${pathKey(input.from, input.to)}`;
+  const cadenceKey = `cadence:${input.zone}:${input.shipId}:hull-${input.hullMarginTiles}:${input.legDurationSeconds.toFixed(6)}:${input.paceTilesPerSecond.toFixed(6)}:${input.allowEndpointTruncation ? "truncate" : "fixed"}:${pathKey(input.from, input.to)}`;
   const cachedCadence = cache.get(cadenceKey);
   if (cachedCadence) return cachedCadence;
   const direct = buildCachedShipWaterRoute({ ...input, preferDirect: true }, cache);
@@ -1253,7 +1281,7 @@ function tryBuildCadenceWaterRoute(input: CadenceWaterRouteInput, cache: ShipWat
   // W1.6: a lengthening mark inside the ma would pull the leg into the approach.
   const outsideInlet = (tile: { x: number; y: number }) => gardenInletDistance(tile.x, tile.y) > GARDEN_EMPTY_INLET.halfWidth;
   for (const authored of OPEN_WATER_PATROL_WAYPOINTS[input.zone]) {
-    const waypoint = nearestMapWaterTile(authored, input.map);
+    const waypoint = nearestMapWaterTile(authored, input.map, input.hullMarginTiles);
     if ((waypoint.x === input.from.x && waypoint.y === input.from.y)
       || (waypoint.x === input.to.x && waypoint.y === input.to.y)
       || !outsideInlet(waypoint)) continue;
@@ -1285,7 +1313,7 @@ function tryBuildCadenceWaterRoute(input: CadenceWaterRouteInput, cache: ShipWat
     if (candidates.length > 4) candidates.pop();
   }
   for (const candidate of candidates) {
-    const waypoint = nearestMapWaterTile(candidate.tile, input.map);
+    const waypoint = nearestMapWaterTile(candidate.tile, input.map, input.hullMarginTiles);
     const first = buildCachedShipWaterRoute({ ...input, to: waypoint }, cache);
     const second = buildCachedShipWaterRoute({ ...input, from: waypoint }, cache);
     if (first.totalLength <= 0 || second.totalLength <= 0) continue;

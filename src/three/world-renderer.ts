@@ -1,4 +1,5 @@
 import { emptyTextureStorageEstimate, textureOwnerCensus } from "./texture-owner-census";
+import { GARDEN_APPEARANCE_DEFAULTS, parseGardenAppearance, type GardenLookdevRenderer } from "./garden-appearance";
 import {
   AgXToneMapping,
   AmbientLight,
@@ -58,11 +59,6 @@ import {
   selectGardenObservatorySlice,
   selectGardenTransientShip,
 } from "../systems/garden-observatory-slice";
-import {
-  gardenFleetThinningShips,
-  type GardenFleetThinningShip,
-} from "../systems/garden-fleet-thinning";
-import { placeGardenFleet } from "../systems/garden-fleet-placement";
 import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
 import {
   gardenShipWaterMarginTiles,
@@ -75,7 +71,8 @@ import {
   CAMERA_FAR,
   TILE_SCALE,
 } from "../systems/projection";
-import { setGardenAerialPlateHaze, setGardenAerialVeil } from "./garden-aerial";
+import { setGardenAerialPlateHaze } from "./garden-aerial";
+import { createGardenSurfaceAtlasOwner, type GardenSurfaceAtlasOwner } from "./garden-surface-atlas";
 import {
   advanceEpistemicHaze,
   deriveEpistemicHaze,
@@ -89,13 +86,16 @@ import { createGardenAlmanacDressing, type GardenAlmanacDressing } from "./garde
 import { createGardenKeeper, type GardenKeeper } from "./garden-keeper";
 import {
   createDrawOwnerRecorder,
+  createGardenSpikeTrace,
   shouldRequestDrawCensus,
   type DrawOwnerCensus,
   type DrawRecorderTarget,
+  type GardenSpikeTrace,
 } from "./garden-draw-census";
 import {
   GARDEN_BREATH_PHASE,
   gardenBreathAt,
+  gardenGustAtWorldPosition,
   writeWeatherPlan,
   type WeatherPlan,
 } from "../systems/weather";
@@ -146,6 +146,7 @@ import { createGardenWater, type GardenWater } from "./garden-water";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 import { dayCycleBeats, dayCycleExposure, dayCyclePhase, updateDayCycle, type DayCyclePhase } from "./garden-day-cycle";
 import { applyGardenPrintInksToTree, updateGardenPrintInks } from "./garden-print-inks";
+import { updateGardenIrradiance } from "./garden-irradiance";
 import { setGardenFloraNightValue } from "./garden-flora";
 import { createGardenSky, type GardenSky } from "./garden-sky";
 import {
@@ -176,6 +177,7 @@ import {
   createGardenHarborBatch,
   type GardenHarborBatch,
 } from "./garden-harbor-batch";
+import { prepareGardenArchitectureTree } from "./garden-precinct";
 import {
   cargoTideSpecs,
   createGardenCargoTide,
@@ -208,6 +210,7 @@ import {
 } from "../systems/world-layout";
 import {
   createTerracedIsland,
+  GARDEN_BASIN_WATER_Y,
   GARDEN_CRAG_HEADLAND_NAME,
   createWaterAccents,
   gardenIslandLanternMaterial,
@@ -215,7 +218,7 @@ import {
   updateGardenNiwakiWind,
   type GardenPondReflection,
 } from "./garden-island";
-import { applyGardenMonthRecord } from "./garden-month-record";
+import { createGardenMonthTrace, type GardenMonthTrace } from "./garden-month-record";
 import {
   applyLighthouseRimLight,
   attachGardenLighthouseModel,
@@ -489,6 +492,11 @@ function sceneTextureManifest(scene: GardenScene): readonly TextureOwnerManifest
     ...(scene.laneRegistry.getTextureManifest?.() ?? []),
     ...(scene.environment.getTextureManifest?.() ?? []),
   ];
+  if (scene.surfaceAtlas.textures) {
+    for (const [name, texture] of Object.entries(scene.surfaceAtlas.textures)) {
+      entries.push({ owner: `garden-surfaces.${name}`, texture });
+    }
+  }
   const shadowMap = scene.directionalLight.shadow.map;
   if (shadowMap) {
     entries.push({ owner: "garden-shadows.color", texture: shadowMap.texture });
@@ -501,7 +509,7 @@ function sceneTextureManifest(scene: GardenScene): readonly TextureOwnerManifest
 
 export function createThreeWorldRenderer(
   input: CreateThreeWorldRendererInput,
-): ThreeWorldRenderer {
+): ThreeWorldRenderer & GardenLookdevRenderer {
   const renderer = new WebGLRenderer({
     alpha: false,
     antialias: false,
@@ -519,9 +527,45 @@ export function createThreeWorldRenderer(
   // so the composer's passes do not clobber the scene's counts.
   renderer.info.autoReset = false;
   const uploadScheduler = createTextureUploadScheduler(renderer);
+  // Opt-in DEV diagnosis: production neither installs hooks nor allocates the ring.
+  const spikeTraceWindow = import.meta.env.DEV && typeof window !== "undefined"
+    ? window as typeof window & { __pharosVilleSpikeTrace?: GardenSpikeTrace }
+    : null;
+  const spikeTrace = spikeTraceWindow
+    && new URLSearchParams(spikeTraceWindow.location.search).get("spikeTrace") === "1"
+    ? createGardenSpikeTrace(renderer as unknown as DrawRecorderTarget & {
+      info: DrawRecorderTarget["info"] & { reset(): void };
+      initTexture(texture: Texture): void;
+    }, spikeTraceWindow.__pharosVilleSpikeTrace?.snapshot())
+    : null;
+  // Installation is observable before any render/owner sample. The same handle
+  // also travels through ordinary debug telemetry once a real frame completes.
+  if (spikeTraceWindow && spikeTrace) spikeTraceWindow.__pharosVilleSpikeTrace = spikeTrace;
+  spikeTrace?.beginFrame(0, 0);
+  spikeTrace?.setPass("environment");
   const { canvas, onAssetReady, onContextFailure } = input;
   const modelLibrary = createGardenModelLibrary();
+  let disposed = false;
+  // Desktop renderer boundary only; construction owns no maps or requests.
+  // Build contexts pass this owner explicitly to consumers that elect detail.
+  const surfaceAtlas = createGardenSurfaceAtlasOwner(() => {
+    if (disposed) return;
+    const textures = surfaceAtlas.textures;
+    if (!textures) return;
+    for (const [name, texture] of Object.entries(textures)) {
+      uploadScheduler.schedule({
+        isOwnerValid: () => !disposed && surfaceAtlas.textures === textures,
+        key: `garden-surfaces.${texture.uuid}`,
+        onOwnerDrained: () => { if (!disposed) onAssetReady?.(); },
+        owner: surfaceAtlas,
+        ownerName: `garden-surfaces.${name}`,
+        texture,
+      });
+    }
+  });
   const camera = new PerspectiveCamera(CAMERA_FOV_DEG, 1, CAMERA_NEAR, CAMERA_FAR);
+  // Static-shadow validity follows the visitor's pose, not its idle K16 orbit.
+  const shadowViewCamera = new PerspectiveCamera(CAMERA_FOV_DEG, 1, CAMERA_NEAR, CAMERA_FAR);
   // The renderer is built before the scene now: W6.5's sky probe bakes THROUGH
   // the renderer, so the scene cannot be assembled without one. Nothing in
   // `createGardenScene` reads renderer state, so the swap is order-only.
@@ -529,7 +573,10 @@ export function createThreeWorldRenderer(
     renderer,
     uploadScheduler,
     input.calendarDate ?? worldCalendarDate(),
+    surfaceAtlas,
   );
+  spikeTrace?.setScene(scene.root, scene.directionalLight.shadow.camera);
+  spikeTrace?.finishFrame(renderer.info.render.calls, renderer.info.render.triangles, 0);
   // W5.1: the dark-moon meteor is the day score's "meteor" ritual.
   const unregisterMeteor = registerRitual("meteor", scene.almanacDressing.ritual);
   const visitorRitual = scene.seasonalDressing.ritual;
@@ -539,9 +586,10 @@ export function createThreeWorldRenderer(
   // @types/three still narrows the r185 runtime's null scene/group arguments;
   // the recorder's structural target matches the implementation's actual calls.
   const drawRecorder = createDrawOwnerRecorder(renderer as unknown as DrawRecorderTarget, scene.root);
-  let drawCensusRequested = false;
+  let drawCensusRequested = spikeTrace !== null;
   const handleAssetReady = () => {
     drawCensusRequested = true;
+    spikeTrace?.event("asset-ready");
     onAssetReady?.();
   };
   const detailPolicy = createRendererDetailPolicy();
@@ -562,7 +610,6 @@ export function createThreeWorldRenderer(
   const reflectionLightTarget = new Vector3();
   Object.assign(scene.water.mesh.material.uniforms, heroReflectionPass.uniforms);
 
-  let disposed = false;
   let lastDpr = 0;
   let lastHeight = 0;
   let lastWidth = 0;
@@ -586,6 +633,7 @@ export function createThreeWorldRenderer(
   };
   let lastDrawOwnerCensus: DrawOwnerCensus | null = null;
   let frameCounter = 0;
+  let shadowRefreshCount = 0;
   let aoTierWeight: number | null = null;
   let aoWeightClockSeconds = 0;
   // Wave 1's wider landing composition no longer needs close-range screen-space
@@ -634,6 +682,7 @@ export function createThreeWorldRenderer(
     lastWidth = 0;
     lastHeight = 0;
     scene.shadowNeedsRender = true;
+    spikeTrace?.event("context-restored");
     heroReflectionPass.invalidate();
     onAssetReady?.();
   };
@@ -652,9 +701,11 @@ export function createThreeWorldRenderer(
       }
       scene.lighthouseModel = model;
       attachGardenLighthouseModel(model, scene.content);
+      spikeTrace?.event("model-attach", 0, "lighthouse");
       model.traverse(enableHeroReflectionLayer);
       heroReflectionPass.invalidate();
       reflectionLightBuild = -1;
+      prepareGardenArchitectureTree(model, scene.fleetBatches.surfaceLease?.detailSource);
       applyGardenPrintInksToTree(model);
       drawCensusRequested = true;
       scheduleModelTextureUploads({
@@ -663,6 +714,7 @@ export function createThreeWorldRenderer(
         onReady: () => {
           // The GLB shell replaces the procedural one — refresh the shadow map.
           scene.shadowNeedsRender = true;
+          spikeTrace?.event("shadow-invalidate", 0, "lighthouse-upload");
           drawCensusRequested = true;
           heroReflectionPass.invalidate();
           onAssetReady?.();
@@ -690,6 +742,8 @@ export function createThreeWorldRenderer(
         .then((model) => {
           if (disposed || scene.content !== content || part.epoch !== epoch) return;
           attachGardenHeroModel(visual, model);
+          spikeTrace?.event("model-attach", epoch, visual.heroModelId ?? "hero");
+          prepareGardenArchitectureTree(model, scene.fleetBatches.surfaceLease?.detailSource);
           applyGardenPrintInksToTree(model);
           drawCensusRequested = true;
           scheduleModelTextureUploads({
@@ -713,7 +767,7 @@ export function createThreeWorldRenderer(
     }
   };
 
-  return {
+  const backend: ThreeWorldRenderer & GardenLookdevRenderer = {
     getSeaSignScale() {
       const scale = scene.content?.seaSigns.scale ?? 0;
       return Number.isFinite(scale) && scale > 0 ? scale : null;
@@ -732,12 +786,20 @@ export function createThreeWorldRenderer(
     dispose() {
       if (disposed) return;
       disposed = true;
+      if (import.meta.env.DEV) backend.gardenLookdev?.onDispose?.();
       unregisterMeteor();
       unregisterVisitor?.();
       unregisterLetsGo();
       scene.content?.unregisterStoneGardenRitual?.();
       cancelGardenRituals();
       uploadScheduler.dispose();
+      // Terrain owns its leased finish and removes its subtree before the
+      // generic walk, including on a final renderer teardown.
+      scene.content?.disposeIsland?.();
+      if (scene.content) delete scene.content.disposeIsland;
+      scene.content?.threshold?.dispose();
+      scene.content?.rim?.dispose();
+      surfaceAtlas.release();
       clearTimeout(contextRestoreTimeoutId);
       canvas.removeEventListener("webglcontextlost", handleContextLost);
       canvas.removeEventListener("webglcontextrestored", handleContextRestored);
@@ -780,6 +842,10 @@ export function createThreeWorldRenderer(
       modelLibrary.clear();
       renderer.renderLists.dispose();
       renderer.dispose();
+      spikeTrace?.dispose();
+      // Keep the last real trace exportable after an error-boundary unmount.
+      // A successor constructor re-publishes its own handle and imports these
+      // bounded windows; disposing an old renderer never clears its successor.
     },
     render(frame) {
       if (disposed) throw new Error("Cannot render a disposed Three.js world renderer.");
@@ -788,10 +854,14 @@ export function createThreeWorldRenderer(
       // rather than a collapse, and wait for `webglcontextrestored`.
       if (contextLost) return lastMetrics;
       frameCounter += 1;
+      if (import.meta.env.DEV) backend.gardenLookdev?.onFrameStart?.();
+      spikeTrace?.beginFrame(frameCounter, frame.timeSeconds);
+      spikeTrace?.event("uploads-flush-begin");
       // requestIdleCallback is the normal upload lane. This bounded fallback
       // runs at the between-frame boundary so a continuously animated tab (or
       // a browser without rIC) cannot starve pending work until first draw.
       uploadScheduler.flushBetweenFrames();
+      spikeTrace?.event("uploads-flush-end");
       // Every camera-keyed detail decision, resolved once for this frame
       // (renderer-semantic-view.ts); everything below reads the record.
       resolveRendererDetailPolicy(frame, detailPolicy);
@@ -813,13 +883,15 @@ export function createThreeWorldRenderer(
         for (const name of WORLD_CONTENT_PART_ORDER) {
           rebuildWorldContentPart(scene, content, name, frame.world, keys, uploadScheduler);
           contentPartRebuildCount += 1;
+          spikeTrace?.event("part-rebuild", content.parts[name].epoch, name);
         }
         content.shipsPoseKey = keys.shipsPose;
         content.shipsFirstBuiltSeconds = frame.timeSeconds;
-        refreshContentIndexes(content, null);
+        refreshContentIndexes(scene, content, null);
         syncSceneToContent(scene, frame.world);
         scene.world = frame.world;
         contentReplacementCount += 1;
+        spikeTrace?.event("content-replacement", contentReplacementCount);
         loadHeroesForShips(content);
       } else {
         const content = scene.content;
@@ -838,6 +910,7 @@ export function createThreeWorldRenderer(
             newlyQueued += 1;
           }
           if (newlyQueued > 0) contentReplacementCount += 1;
+          if (newlyQueued > 0) spikeTrace?.event("content-replacement", contentReplacementCount);
           if (content.rebuildQueue.has("ships")) {
             const snapStructuralShips = snapShipRefresh
               || structuralShipRefreshIsMass(content, frame.world);
@@ -868,6 +941,7 @@ export function createThreeWorldRenderer(
           // transition layer is deliberately not serialized; a reload may
           // snap to current truth rather than resume an old journey.
           adoptFreshWorldData(content, frame.world);
+          content.monthRecord.update(frame.world.lighthouse.gardenMonthRecord);
           registerLightLanes(
             scene.laneRegistry,
             frame.world,
@@ -911,6 +985,7 @@ export function createThreeWorldRenderer(
               frame.reducedMotion,
             );
             contentPartRebuildCount += 1;
+            spikeTrace?.event("part-rebuild", content.parts[name].epoch, name);
             budget -= 1;
             rebuilt += 1;
             if (name === "ships") {
@@ -928,7 +1003,7 @@ export function createThreeWorldRenderer(
           // flag (rather than `rebuilt > 0`) covers the frame that empties the
           // queue purely by skipping reverted parts.
           if (content.indexesStale && content.rebuildQueue.size === 0) {
-            refreshContentIndexes(content, {
+            refreshContentIndexes(scene, content, {
               reducedMotion: frame.reducedMotion,
               zoom: detailPolicy.overviewLodZoom,
             });
@@ -985,17 +1060,26 @@ export function createThreeWorldRenderer(
         frame.timeSeconds,
         frame.reducedMotion,
       );
-      // Grade the dome for THIS phase before the probe reads it. The probe
-      // renders `sky.domeMaterial` itself and caches the result under the phase
-      // key, but the full sky update does not run until `updateSceneForFrame`
-      // below — so without this the first bake of a session rendered the NIGHT
-      // colours the uniforms are constructed with, stored them under a daytime
-      // key, and lit every metal surface in the world with a night probe for as
-      // long as that key held. At midday the key never moves again.
-      scene.sky.applyPhase(phase, frame.wallClockHour);
+      // Stage displayed accepted clarity, transport, moon and cloud radiance
+      // together before the episodic probe reads the shared dome.
+      scene.sky.update(phase, {
+        reducedMotion: frame.reducedMotion,
+        wallClockHour: frame.wallClockHour,
+        targetX: cameraViewTarget.x,
+        targetY: cameraViewTarget.y,
+        targetZ: cameraViewTarget.z,
+        cameraPosition: camera.position,
+        timeSeconds: frame.timeSeconds,
+        billboards: ["full", "balanced"].includes(seaQualityTier(frame.renderScheduler)),
+        wind: scene.weather.wind,
+        epistemicBanks: scene.epistemicBanks,
+        viewAspect: camera.aspect,
+      });
       // A PMREM bake is episodic rather than recurring frame work. Measure it
       // in its own reset window so it remains visible without contaminating
       // either the scene subtotal or the recurring total.
+      spikeTrace?.setPass("environment");
+      spikeTrace?.event("environment-update-begin", scene.environment.bakeCount);
       renderer.info.reset();
       const environmentBakeCountBefore = scene.environment.bakeCount;
       const environmentDeltaSeconds = MathUtils.clamp(
@@ -1018,15 +1102,17 @@ export function createThreeWorldRenderer(
         reducedMotion: frame.reducedMotion,
       });
       const environmentBakeCountChange = scene.environment.bakeCount - environmentBakeCountBefore;
+      spikeTrace?.event("environment-update-end", scene.environment.bakeCount);
       const environmentBakeCalls = environmentBakeCountChange > 0
         ? renderer.info.render.calls
         : 0;
       renderer.info.reset();
+      spikeTrace?.setPass("wakes");
       // Phase 3 (item 2): advance the wake field BEFORE the counters reset,
       // but record its feedback/stamp passes as recurring offscreen work.
       // Stamps consumed here were collected by LAST frame's ship loop (one
       // frame of latency is invisible against an 8-second decay).
-      updateCamera(camera, frame);
+      updateCamera(camera, frame, shadowViewCamera);
       {
         const wakeCenterTile = cameraViewTarget;
         scene.wakes.update({
@@ -1050,6 +1136,7 @@ export function createThreeWorldRenderer(
       // Manual reset here, with autoReset off at construction, accumulates
       // every pass of the frame into one honest total.
       renderer.info.reset();
+      spikeTrace?.setPass("update");
       if (shouldRequestDrawCensus({
         debug: debugDrawCensus,
         framesSinceSample: frameCounter - (lastDrawOwnerCensus?.sampledAtFrame ?? 0),
@@ -1080,6 +1167,8 @@ export function createThreeWorldRenderer(
 
       if (scene.content) syncShipSailTextures(scene.content, frame);
       updateSceneForFrame(scene, camera, frame, phase, detailPolicy, shipFrame);
+      if (import.meta.env.DEV) backend.gardenLookdev?.onBeforeFrame?.();
+      updateGardenIrradiance(scene.ambientLight, scene.hemisphereLight, frame.world.lighthouse.tile);
       // W5: under reduced motion the hulls' contact footprints are drawn into
       // the (otherwise empty) wake field after this frame's ship loop, so the
       // water reads them this frame. Offscreen work, counted as such.
@@ -1095,8 +1184,10 @@ export function createThreeWorldRenderer(
       if (SESSION_TIER_QUALITY[tier] > SESSION_TIER_QUALITY[sessionTierReached]) {
         sessionTierReached = tier;
       }
-      const shadowMapSize = updateGardenShadows(scene, camera, frame, phase, visibleGardenThresholdShadowBounds(scene.content));
-      // The composer owns the frame's COLOR — AgX tone mapping lives in the
+      const shadowMapSize = updateGardenShadows(
+        scene, shadowViewCamera, frame, phase, visibleGardenThresholdShadowBounds(scene.content), spikeTrace?.event,
+      );
+      // The composer owns the frame's COLOR — Khronos Neutral tone mapping lives in the
       // fused grade/tone-map pass, and the day-cycle grade and vignette exist
       // nowhere else — so shedding it is not a quality step down, it is a
       // different picture. Crossing the `constrained` boundary swung the
@@ -1114,7 +1205,7 @@ export function createThreeWorldRenderer(
       // mip pyramid is the one pass worth the pop.
       post.setBloomEnabled(tier !== "constrained");
       // N8AO is a local grounding fidelity. The invariant is the semantic
-      // palette, hue, AgX curve, grade, and vignette; bounded local AO/bloom
+      // palette, hue, Khronos Neutral curve, grade, and vignette; bounded local AO/bloom
       // luminance changes are allowed. Ease its weight across load tiers so
       // full/balanced -> recovery never flashes, and only disable the pass once
       // the post owner receives an exact zero.
@@ -1224,23 +1315,34 @@ export function createThreeWorldRenderer(
         }
         if (appearanceChanged) {
           heroReflectionPass.invalidate();
+          spikeTrace?.event("reflection-invalidate");
           previousReflectionAppearance.set(reflectionAppearance);
           previousReflectionLightValues.set(reflectionLightValues);
           reflectionAppearanceValid = true;
         }
+        spikeTrace?.setPass("reflection");
+        spikeTrace?.event("reflection-begin");
         heroReflectionPass.render(
           scene.root, camera, scene.content.parts.island.root,
           scene.content.lighthouseRoot, frame.reducedMotion,
         );
+        spikeTrace?.event("reflection-end");
       }
       // garden-post's GPU timer has no public wrap hook for the reflection pass.
       // Carry the real frame delta into the post chain so its 180 ms hero
       // fades stay 180 ms at the idle 30 fps duty cycle as well as when awake.
+      spikeTrace?.setPass("post");
+      spikeTrace?.event("post-begin");
+      const shadowRefreshPending = scene.directionalLight.castShadow && scene.directionalLight.shadow.needsUpdate;
       post.render(aoDeltaSeconds);
+      spikeTrace?.event("post-end");
+      const shadowRefreshed = shadowRefreshPending && !scene.directionalLight.shadow.needsUpdate;
+      if (shadowRefreshed) shadowRefreshCount += 1;
 
       const sampled = drawRecorder.finish(frameCounter);
       if (sampled) {
         lastDrawOwnerCensus = sampled;
+        if (spikeTrace) sampled.spikeTrace = spikeTrace;
         if (sampled.attributedCalls !== sampled.rendererCalls) {
           console.warn("[pharosville] draw census did not reconcile", sampled.attributedCalls, sampled.rendererCalls);
         }
@@ -1251,6 +1353,10 @@ export function createThreeWorldRenderer(
       const programCount = renderer.info.programs?.length ?? 0;
       const geometryCount = renderer.info.memory.geometries;
       const textureCount = renderer.info.memory.textures;
+      spikeTrace?.event("program-count", programCount);
+      spikeTrace?.event("geometry-count", geometryCount);
+      spikeTrace?.event("texture-count", textureCount);
+      spikeTrace?.finishFrame(sceneCalls + recurringOffscreenCalls, renderInfo.triangles, contentReplacementCount);
       if (
         renderer.domElement.width !== lastCensusWidth
         || renderer.domElement.height !== lastCensusHeight
@@ -1281,6 +1387,8 @@ export function createThreeWorldRenderer(
         environmentBakeCalls,
         environmentBakeCount: scene.environment.bakeCount,
         environmentBakeCountChange,
+        shadowRefreshed,
+        shadowRefreshCount,
         // C4 evidence: live water-system state via contract C2 (cloud-shadow
         // sampler, ripple-ring emitter). zoneRadii is live data from the
         // zone field.
@@ -1321,9 +1429,46 @@ export function createThreeWorldRenderer(
         textureUploads: uploadScheduler.metrics(),
         visibleShipCount: content?.visibleShipCount ?? 0,
       };
+      if (import.meta.env.DEV) backend.gardenLookdev?.onAfterFrame?.();
       return lastMetrics;
     },
   };
+  if (import.meta.env.DEV) {
+    let appearance = GARDEN_APPEARANCE_DEFAULTS;
+    backend.gardenLookdev = {
+      queue(value) {
+        if (disposed) throw new Error("Cannot author a disposed garden renderer.");
+        appearance = parseGardenAppearance(value);
+        drawCensusRequested = true;
+        heroReflectionPass.invalidate();
+        onAssetReady?.();
+      },
+      current: () => appearance,
+      root: () => scene.root,
+      lights: () => ({ key: scene.directionalLight, ambient: scene.ambientLight, hemisphere: scene.hemisphereLight }),
+      owners: () => [
+        ...scene.root.children.filter((root) => root !== scene.content?.root && root.name)
+          .map((root) => ({ name: root.name, root, epoch: 0, dirty: false })),
+        ...WORLD_CONTENT_PART_ORDER.flatMap((name) => {
+          const part = scene.content?.parts[name];
+          return part ? [{ name, root: part.root, epoch: part.epoch, dirty: scene.content!.rebuildQueue.has(name) }] : [];
+        }),
+      ],
+      census: () => lastDrawOwnerCensus,
+      requestCensus() { drawCensusRequested = true; onAssetReady?.(); },
+      rebuild(name) {
+        if (disposed) throw new Error("Cannot rebuild a disposed garden renderer.");
+        if (!WORLD_CONTENT_PART_ORDER.includes(name as WorldContentPartName) || !scene.content) throw new Error("Unknown garden content owner.");
+        const partName = name as WorldContentPartName;
+        scene.content.parts[partName].appliedKey = null;
+        scene.content.rebuildQueue.add(partName);
+        drawCensusRequested = true;
+        heroReflectionPass.invalidate();
+        onAssetReady?.();
+      },
+    };
+  }
+  return backend;
 }
 
 /** Zeroed metrics for frames that never reached the GPU (context lost). */
@@ -1353,6 +1498,7 @@ function emptyWorldRendererMetrics(): ThreeWorldRendererMetrics {
 
 export interface GardenScene extends GardenShadowRig {
   almanacDressing: GardenAlmanacDressing;
+  surfaceAtlas: GardenSurfaceAtlasOwner;
   /** W5.4 (K20, O19): the evening keeper and the `kindling` ritual; seated at the island root. */
   keeper: GardenKeeper;
   /** W5.2: the one heron and her two rituals (heron-arrives / heron-departs); seated at the island root. */
@@ -1498,6 +1644,8 @@ interface GardenContent {
    */
   tidalFlat: GardenTidalFlat;
   decoration: Group;
+  /** Owns the island subtree and its atlas lease across part rebuilds. */
+  disposeIsland?: () => void;
   docks: DockVisual[];
   /** World-wide quay bucket, prop and flag batches; dock roots are anchors only. */
   harborBatch: GardenHarborBatch | null;
@@ -1518,10 +1666,6 @@ interface GardenContent {
   fleetLanterns: FleetLanterns;
   fleetSailMaterial: MeshStandardMaterial | null;
   sailAtlas: GardenSailAtlas;
-  /** Placement hierarchy consumed by the reversible wide-frame thinning pass. */
-  fleetThinningShips: GardenFleetThinningShip[];
-  /** Last frame's display presence, shared by hull-adjacent instance updates. */
-  fleetDisplayPresenceByShipId: Map<string, number>;
   harborLanternMaterial: MeshStandardMaterial;
   fireflies: GardenFireflies;
   gullFlock: GardenGullFlock;
@@ -1536,6 +1680,8 @@ interface GardenContent {
   rim: GardenRimMesh;
   /** W1.5: the seat-C threshold (bank, engawa edge, rooted pine) shown only at rest. */
   threshold: GardenThreshold;
+  /** Dated PSI content updates without replacing the island or threshold. */
+  monthRecord: GardenMonthTrace;
   /** Wave 7: one opaque rim-to-Calm cascade, sharing the persistent wake field. */
   waterfall: GardenWaterfall;
   pigeonnier: GardenPigeonnierLandmark;
@@ -1707,6 +1853,7 @@ function createGardenScene(
   renderer: WebGLRenderer,
   uploadScheduler: TextureUploadScheduler,
   calendarDate: Date,
+  surfaceAtlas: GardenSurfaceAtlasOwner,
 ): GardenScene {
   const season = seasonFromDate(calendarDate);
   const root = new Scene();
@@ -1723,7 +1870,7 @@ function createGardenScene(
 
   // A single oversized surface plus same-color fog/background keeps the sea
   // full-bleed under pan and zoom without visible plane or sky seams.
-  const water = createGardenWater(WATER_LEVEL);
+  const water = createGardenWater(WATER_LEVEL, surfaceAtlas);
   root.add(water.mesh);
   // Queue the big static fields before the first frame. The between-frame
   // fallback drains both before scene drawing even when rIC has not fired.
@@ -1805,12 +1952,15 @@ function createGardenScene(
     capacity: GARDEN_FLEET_BATCH_CAPACITY,
     geometryFor: (silhouette) => createFleetBatchGeometry(silhouette),
     pennantGeometry: createPennantGeometry(),
+    surfaceAtlas,
     sailTexture: sailAtlas.texture,
     silhouettes: GARDEN_HULL_SILHOUETTES,
   });
+  prepareGardenArchitectureTree(root, fleetBatches.surfaceLease?.detailSource);
 
   return {
     almanacDressing,
+    surfaceAtlas,
     keeper,
     heron,
     skein,
@@ -1984,8 +2134,6 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     entityCues: new Map<string, EntityCue>(),
     fleetBatches: scene.fleetBatches,
     fleetSailMaterial: scene.fleetBatches.materials[1] ?? null,
-    fleetDisplayPresenceByShipId: new Map<string, number>(),
-    fleetThinningShips: [],
     lampStatusMix: 0,
     lampStatusTargetMix: 0,
     pendingLampStatusTargetMix: null,
@@ -2060,11 +2208,11 @@ function rebuildWorldContentPart(
       buildZonesPart(content, world);
       break;
     case "rim":
-      buildRimPart(scene, content);
+      buildRimPart(scene, content, world);
       scene.shadowNeedsRender = true;
       break;
     case "seaEdges":
-      buildSeaEdgesPart(content);
+      buildSeaEdgesPart(scene, content);
       scene.shadowNeedsRender = true;
       break;
     case "docks":
@@ -2175,6 +2323,21 @@ function disposeWorldContentPart(
   if (name === "island") {
     // The GLB shell survives the island rebuild — detach before the walk.
     scene.lighthouseModel?.removeFromParent();
+    content.disposeIsland?.();
+    delete content.disposeIsland;
+  }
+  if (name === "landmarks") {
+    content.unregisterStoneGardenRitual?.();
+    delete content.unregisterStoneGardenRitual;
+    // The part's tree walk below owns these graphics. Do not also invoke the
+    // standalone garden disposer when the replacement is constructed.
+    delete content.stoneGarden;
+  }
+  if (name === "rim") {
+    // Custom owners detach and dispose their trees and atlas leases. The
+    // generic part walk below only owns the remaining waterfall graphics.
+    content.threshold?.dispose();
+    content.rim?.dispose();
   }
   if (name === "zones" && content.seaSigns) {
     content.seaSigns.dispose();
@@ -2229,12 +2392,14 @@ function mergeContentCues(content: GardenContent): void {
  * when the rebuild queue empties rather than once per amortized part.
  */
 function refreshContentIndexes(
+  scene: GardenScene,
   content: GardenContent,
   view: { reducedMotion: boolean; zoom: number } | null,
 ): void {
   mergeContentCues(content);
   content.objectCount = countDrawableObjects(content.root);
   // W2.11: every rebuilt part is re-inked once here (idempotent per material).
+  prepareGardenArchitectureTree(content.root, scene.fleetBatches.surfaceLease?.detailSource);
   applyGardenPrintInksToTree(content.root);
   // The scan must see AUTHORED transforms. Surviving parts may be mid-shed at
   // overview framing, so snap the outgoing policy back to full detail first,
@@ -2668,6 +2833,7 @@ function reconcileTransientSelection(
   content.ships.push(visual);
   content.transientRoot.add(visual.root);
   content.entityCues.set(ship.detailId, cue);
+  prepareGardenArchitectureTree(visual.root, scene.fleetBatches.surfaceLease?.detailSource);
   applyGardenPrintInksToTree(visual.root);
   content.objectCount = countDrawableObjects(content.root);
 }
@@ -2877,8 +3043,8 @@ function buildIslandPart(
   // C2(c): Lane W's shared cloud-shadow sampler, forwarded to the island
   // factory (I3) so light weather sweeps the land coherently with the sea.
   const cloudShadows: GardenCloudShadowSource = scene.water.cloudShadows;
-  const island = createTerracedIsland(world, cloudShadows, scene.calendarDate);
-  applyGardenMonthRecord(island.root, world.lighthouse.gardenMonthRecord);
+  const island = createTerracedIsland(world, cloudShadows, scene.calendarDate, scene.surfaceAtlas);
+  content.disposeIsland = island.dispose;
   scene.seasonalDressing.setLetsGoTree(island.letsGoTree);
   part.root.add(island.root);
   scene.keeper.root.position.copy(island.root.position);
@@ -2896,9 +3062,6 @@ function buildIslandPart(
       || object.name.startsWith("island-planted-shelf-")
       // W3.2 (water-2 f): the rock foot meets its own inverted foot.
       || object.name === GARDEN_CRAG_HEADLAND_NAME
-      || (object instanceof Mesh && object.parent === island.root
-        && object.name === "" && object.material instanceof MeshStandardMaterial
-        && object.material.vertexColors && object.material.roughnessMap !== null)
     ) object.traverse(enableHeroReflectionLayer);
   });
   part.cues.set(world.lighthouse.detailId, {
@@ -2975,8 +3138,6 @@ function buildIslandPart(
 function buildLandmarksPart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.landmarks;
   const stoneGarden = createGardenStoneGarden(world.graves);
-  content.stoneGarden?.dispose();
-  content.unregisterStoneGardenRitual?.();
   content.stoneGarden = stoneGarden;
   content.unregisterStoneGardenRitual = registerRitual("anniversary-lantern", stoneGarden.ritual);
   const pigeonnier = createGardenPigeonnier(world.pigeonnier);
@@ -3046,15 +3207,17 @@ function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
  * vegetation pass took it to nine — rim land, pines, broadleaves, understory,
  * the two foreground silhouette masses and the path furniture.)
  */
-function buildRimPart(scene: GardenScene, content: GardenContent): void {
-  const rim = createGardenRimMesh(scene.calendarDate);
+function buildRimPart(scene: GardenScene, content: GardenContent, world: PharosVilleWorld): void {
+  const rim = createGardenRimMesh(scene.calendarDate, scene.surfaceAtlas);
   content.parts.rim.root.add(rim.root);
   content.rim = rim;
   // W1.5: the threshold is the ground under the rest seat. It rides in the rim
   // part so part disposal frees it, and follows the breathed eye per frame.
-  const threshold = createGardenThreshold();
+  const threshold = createGardenThreshold(scene.surfaceAtlas);
   content.parts.rim.root.add(threshold.root);
   content.threshold = threshold;
+  content.monthRecord = createGardenMonthTrace(threshold);
+  content.monthRecord.update(world.lighthouse.gardenMonthRecord);
   // The night-beat materials (rim and threshold flora dimming, the threshold
   // tōrō's kindling) are born at 0; re-push the current beat on the next frame.
   scene.floraNightValue = -1;
@@ -3067,9 +3230,9 @@ function buildRimPart(scene: GardenScene, content: GardenContent): void {
 }
 
 /** Static decorative geography, built and disposed beside the zone field. */
-function buildSeaEdgesPart(content: GardenContent): void {
+function buildSeaEdgesPart(scene: GardenScene, content: GardenContent): void {
   const part = content.parts.seaEdges;
-  const seaEdges = createGardenSeaEdges();
+  const seaEdges = createGardenSeaEdges(scene.surfaceAtlas);
   part.root.add(seaEdges.root);
   // Every form is static and lit. The part owns no emissive/source materials,
   // so every surface may participate in the cached directional shadow map.
@@ -3084,7 +3247,7 @@ function buildDocksPart(scene: GardenScene, content: GardenContent, world: Pharo
   const recipes = world.docks.map((dock) => (
     authorDock(dock, gardenDockDisplayTile(dock.tile), islandTile)
   ));
-  const batch = createGardenHarborBatch(recipes);
+  const batch = createGardenHarborBatch(recipes, scene.surfaceAtlas);
   part.root.add(batch.root);
   for (const dock of batch.docks) {
     part.root.add(dock.root);
@@ -3181,10 +3344,6 @@ function buildShipsPart(
   // The base slice only: the transient outsider is reconciled separately
   // (reconcileTransientSelection) so selection never rebuilds the fleet.
   const slice = selectGardenObservatorySlice(world, null);
-  const fleetPlacement = placeGardenFleet(
-    slice.ships.map(({ ship }) => ship),
-    world.lighthouse.tile,
-  );
   const shipGeometryCache: GardenShipGeometryCache = {
     geometries: new Map(),
     wakeFillMaterial: new MeshBasicMaterial({
@@ -3305,10 +3464,6 @@ function buildShipsPart(
   // contributor, or when the coin it named is not in the rendered fleet — the
   // sweep then keeps the even turn it has always had.
   content.beamDwellBearing = computeBeamDwellBearing(world, slice);
-  content.fleetThinningShips = gardenFleetThinningShips(
-    slice.ships.map(({ ship }) => ship),
-    fleetPlacement.mooringByShipId,
-  );
   content.crossBearingBuoyShips = buoyShips;
   content.crossBearingBuoys = crossBearingBuoys;
   content.fleetLanterns = fleetLanterns;
@@ -3502,21 +3657,6 @@ function updateSceneForFrame(
   // without world content cannot leave a gap for the next one to jump across.
   const beamElapsedSeconds = Math.max(0, frame.timeSeconds - scene.beamClockSeconds);
   scene.beamClockSeconds = frame.timeSeconds;
-  scene.sky.update(phase, {
-    reducedMotion: frame.reducedMotion,
-    wallClockHour: frame.wallClockHour,
-    targetX: cameraViewTarget.x,
-    targetY: cameraViewTarget.y,
-    targetZ: cameraViewTarget.z,
-    cameraPosition: camera.position,
-    timeSeconds: frame.timeSeconds,
-    // Phase 2 billboard atmosphere (mist banks + cumulus): full/balanced only,
-    // resolved through the sea tier (S1) so a camera drag never blinks them.
-    billboards: ["full", "balanced"].includes(seaQualityTier(frame.renderScheduler)),
-    wind: weather.wind,
-    epistemicBanks: scene.epistemicBanks,
-    viewAspect: camera.aspect,
-  });
   // W5.1: the day score's driver — runs, admits and reserves the rituals once
   // per frame, before their owners draw.
   tickGardenScore({
@@ -3813,6 +3953,7 @@ function updateSceneForFrame(
     scratchPosition.z,
     beamBearing,
     WATER_LEVEL,
+    GARDEN_BASIN_WATER_Y,
   );
   // The water road and its terminal pool take this exact post-dwell bearing on
   // every frame. One angle therefore owns cone, fallback and landing; reduced
@@ -3937,13 +4078,15 @@ function updateScalarTransitions(
 // View geometry is derived only here, from the shared projection contract:
 // the W1.0 pose (rig, rest ShotSpec or their hand-off blend) with the K16
 // breath the frame's camera state carries — the same view hit-testing reads.
-function updateCamera(camera: PerspectiveCamera, frame: ThreeWorldRendererFrame): void {
+function updateCamera(
+  camera: PerspectiveCamera,
+  frame: ThreeWorldRendererFrame,
+  shadowViewCamera: PerspectiveCamera,
+): void {
   const viewport = { x: frame.width, y: frame.height };
   const view = cameraView(frame.camera, viewport);
   // W3.10: the whole-map chart's plate edge dissolves in the Sky lane's haze.
   setGardenAerialPlateHaze(cameraPlateHaze(frame.camera, viewport));
-  // K17: the arrival's air veil thins with the eye's rise (1 outside the arrival).
-  setGardenAerialVeil(frame.airVeil ?? 1);
   camera.aspect = frame.width / Math.max(1, frame.height);
   camera.fov = view.vFovDeg;
   camera.position.set(view.eye.x, view.eye.y, view.eye.z);
@@ -3953,7 +4096,36 @@ function updateCamera(camera: PerspectiveCamera, frame: ThreeWorldRendererFrame)
     * Math.tan(view.vFovDeg * Math.PI / 360);
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();
-  captureGardenShadowView(camera);
+  // Invert only the K16 orbit on the already resolved shared view. This keeps
+  // rig/rest/shot blends identical to projection.ts without allocating a second
+  // cameraView record each frame. Its target and projection are unchanged.
+  shadowViewCamera.aspect = camera.aspect;
+  shadowViewCamera.fov = camera.fov;
+  shadowViewCamera.near = camera.near;
+  shadowViewCamera.far = camera.far;
+  shadowViewCamera.projectionMatrix.copy(camera.projectionMatrix);
+  shadowViewCamera.projectionMatrixInverse.copy(camera.projectionMatrixInverse);
+  const breath = frame.camera.breath;
+  if (breath && (breath.dolly !== 1 || breath.pitch !== 0 || breath.yaw !== 0)) {
+    const dx = view.eye.x - view.target.x;
+    const dy = view.eye.y - view.target.y;
+    const dz = view.eye.z - view.target.z;
+    const distance = Math.hypot(dx, dy, dz) / breath.dolly;
+    const pitch = Math.atan2(dy, Math.hypot(dx, dz)) - breath.pitch;
+    const yaw = Math.atan2(dx, dz) - breath.yaw;
+    const horizontal = distance * Math.cos(pitch);
+    shadowViewCamera.position.set(
+      view.target.x + horizontal * Math.sin(yaw),
+      view.target.y + distance * Math.sin(pitch),
+      view.target.z + horizontal * Math.cos(yaw),
+    );
+    shadowViewCamera.lookAt(view.target.x, view.target.y, view.target.z);
+  } else {
+    shadowViewCamera.position.copy(camera.position);
+    shadowViewCamera.quaternion.copy(camera.quaternion);
+  }
+  shadowViewCamera.updateMatrixWorld();
+  captureGardenShadowView(shadowViewCamera);
 }
 
 /** Live eye − unbreathed rest eye: the threshold's breath + hand-off offset. */
@@ -3988,7 +4160,12 @@ function updateGardenThreshold(
     camera.position.z - rest.view.eye.z,
   );
   threshold.setEyeOffset(gardenThresholdEyeOffset.x, gardenThresholdEyeOffset.y, gardenThresholdEyeOffset.z);
-  threshold.updateWind(weather, frame.reducedMotion);
+  // Rest roots deliberately ignore the eye's breath: the front crosses the
+  // garden once, not whichever vertex/eye offset happens to be drawn.
+  const roots = threshold.pineRestRoots;
+  const heroGust = gardenGustAtWorldPosition(frame.timeSeconds, roots[0].x, roots[0].z, weather, frame.reducedMotion);
+  const companionGust = gardenGustAtWorldPosition(frame.timeSeconds, roots[1].x, roots[1].z, weather, frame.reducedMotion);
+  threshold.updateWind(weather, frame.reducedMotion, heroGust, companionGust);
 }
 
 /** The shown threshold's caster/receiver bounds at its current placement, else null. */

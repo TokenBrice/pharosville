@@ -1,6 +1,6 @@
-import { Color } from "three";
 import { describe, expect, it } from "vitest";
 import {
+  RISK_SURFACE_SIGNATURES,
   SEA_REGION_CHARACTER,
   SEA_REGION_DISTANCE_FULL_SCALE_TILES,
   SEA_REGION_ID,
@@ -10,6 +10,7 @@ import {
   seaRegionAtTile,
 } from "./garden-sea-regions";
 import { PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, terrainKindAt } from "./world-layout";
+import { RISK_WATER_AREAS, WRECK_SHOAL_AREA } from "./risk-water-areas";
 
 describe("sea region field", () => {
   it("mirrors the terrain field the simulation obeys, tile for tile", () => {
@@ -109,19 +110,21 @@ describe("sea region field", () => {
     // rim, so it saturates rather than reading zero.
   });
 
-  it("escalates water character monotonically with risk", () => {
-    // D6 / K7: colour is never the only encoding. Roughness must climb and
-    // reflectivity must fall as the band worsens, so the sea state — glass to
-    // leaden — is legible without reading hue.
+  it("orders static signature coverage and passive value without forcing agitation", () => {
     const bands = ["calm", "watch", "alert", "warning", "danger"] as const;
+    expect(bands.map((body) => RISK_SURFACE_SIGNATURES[body].coverageCap))
+      .toEqual([0, 0.03, 0.05, 0.07, 0.1]);
     for (let index = 1; index < bands.length; index += 1) {
-      const previous = SEA_REGION_CHARACTER[bands[index - 1]!];
-      const current = SEA_REGION_CHARACTER[bands[index]!];
-      expect(current.swell).toBeGreaterThan(previous.swell);
-      expect(current.chop).toBeGreaterThan(previous.chop);
-      expect(current.foam).toBeGreaterThan(previous.foam);
-      expect(current.reflectivity).toBeLessThan(previous.reflectivity);
-      expect(current.probeRoughness).toBeGreaterThan(previous.probeRoughness);
+      const previous = RISK_SURFACE_SIGNATURES[bands[index - 1]!];
+      const current = RISK_SURFACE_SIGNATURES[bands[index]!];
+      expect(current.value).toBeGreaterThan(previous.value);
+      // The fully unresolved pair integrates core and shoulder analytically.
+      const mean = (signature: typeof current) => signature.coverageCap
+        * (signature.length[0] + signature.length[1]) / (6 * signature.length[1]);
+      if (index > 1) {
+        expect(mean(current)).toBeGreaterThan(mean(previous));
+        expect(mean(current) * current.value).toBeGreaterThan(mean(previous) * previous.value);
+      }
     }
   });
 
@@ -140,50 +143,63 @@ describe("sea region field", () => {
       // K7: surface state is primary; the dye never paints a plate.
       expect(character.tintStrength).toBeGreaterThanOrEqual(0.15);
       expect(character.tintStrength).toBeLessThanOrEqual(0.3);
-      expect(character.probeRoughness).toBeGreaterThan(0);
-      expect(character.probeRoughness).toBeLessThan(1);
+      expect(character.probeRoughness).toBeGreaterThanOrEqual(0.06);
+      expect(character.probeRoughness).toBeLessThanOrEqual(0.22);
       expect(Number.isFinite(character.flowBearing)).toBe(true);
       expect(character.flowHold).toBeGreaterThanOrEqual(0);
       expect(character.flowHold).toBeLessThanOrEqual(1);
-      expect(character.crossedNormal).toBeGreaterThanOrEqual(0);
-      expect(character.crossedNormal).toBeLessThanOrEqual(1);
+      expect(character.swell).toBeLessThanOrEqual(0.4);
+      expect(character.chop).toBeLessThanOrEqual(1);
+      expect(character.normalDetail).toBeLessThanOrEqual(0.6);
+      expect(character).not.toHaveProperty("crossedNormal");
     }
-    expect(SEA_REGION_CHARACTER.calm.normalDetail).toBeLessThan(0.15);
-    expect(SEA_REGION_CHARACTER.danger.normalDetail).toBeGreaterThan(1);
     expect(SEA_REGION_CHARACTER.warning.shallowShelf).toBeGreaterThan(0.8);
     expect(SEA_REGION_CHARACTER.wreck.swell).toBeLessThan(SEA_REGION_CHARACTER.calm.swell);
     expect(SEA_REGION_CHARACTER.ledger.swell).toBeLessThan(SEA_REGION_CHARACTER.watch.swell);
   });
 
-  it("keeps every named body pair distinct in hue or physical character", () => {
-    // Hue is only one axis: Alert grey-green and Wreck silt may approach one
-    // another chromatically, but their current, foam and boundary behavior
-    // must stay unmistakably different. This combined distance catches a
-    // future pass that collapses either colour OR physical character.
-    const bodies = ["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"] as const;
-    const hsl = { h: 0, s: 0, l: 0 };
-    const vector = (body: typeof bodies[number]) => {
-      const character = SEA_REGION_CHARACTER[body];
-      new Color(character.tint).getHSL(hsl);
-      return [
-        hsl.h,
-        character.swell / 2.1,
-        character.chop / 2.5,
-        character.reflectivity / 1.65,
-        character.probeRoughness / 0.55,
-        character.shallowShelf,
-        character.boundaryFoam / 0.24,
-        character.boundaryBank / 0.22,
-      ];
-    };
-    for (let left = 0; left < bodies.length; left += 1) {
-      for (let right = left + 1; right < bodies.length; right += 1) {
-        const a = vector(bodies[left]!);
-        const b = vector(bodies[right]!);
-        const hue = Math.min(Math.abs(a[0]! - b[0]!), 1 - Math.abs(a[0]! - b[0]!)) * 2;
-        const distance = Math.hypot(hue, ...a.slice(1).map((value, index) => value - b[index + 1]!));
-        expect(distance, `${bodies[left]} / ${bodies[right]}`).toBeGreaterThan(0.4);
+  it("keeps every named body pair statically distinct without hue or motion", () => {
+    const entries = Object.entries(RISK_SURFACE_SIGNATURES);
+    const grammar = (signature: (typeof entries)[number][1]) => JSON.stringify([
+      signature.kind, signature.pitch, signature.length, signature.grouping,
+      signature.gap, signature.bearing, signature.coverageCap, signature.value,
+    ]);
+    for (let left = 0; left < entries.length; left += 1) {
+      for (let right = left + 1; right < entries.length; right += 1) {
+        expect(grammar(entries[left]![1]), `${entries[left]![0]} / ${entries[right]![0]}`)
+          .not.toBe(grammar(entries[right]![1]));
       }
+    }
+  });
+
+  it("holds the authored five-band grammar and non-ordinal Ledger and Wreck", () => {
+    expect(RISK_SURFACE_SIGNATURES.calm.kind).toBe("mirror");
+    for (const [body, pitch, length, grouping, gap] of [
+      ["watch", 12, [18, 30], 1, 0],
+      ["alert", 10, [8, 14], 2, 3],
+      ["warning", 8, [3, 6], 3, 2],
+      ["danger", 6, [3, 5], 4, 1.5],
+    ] as const) {
+      expect(RISK_SURFACE_SIGNATURES[body]).toMatchObject({ pitch, length, grouping, gap });
+    }
+    expect(RISK_SURFACE_SIGNATURES.warning.bearing).toBeCloseTo(
+      SEA_REGION_CHARACTER.warning.flowBearing + Math.PI / 9,
+    );
+    expect(RISK_SURFACE_SIGNATURES.ledger).toMatchObject({ bearing: 0, grouping: 1, pitch: 24 });
+    expect(RISK_SURFACE_SIGNATURES.wreck).toMatchObject({ kind: "silt", grouping: 0 });
+  });
+
+  it("shares canonical human names and freezes every signature including length ranges", () => {
+    const placements = {
+      calm: "safe-harbor", watch: "breakwater-edge", alert: "harbor-mouth-watch",
+      warning: "outer-rough-water", danger: "storm-shelf", ledger: "ledger-mooring",
+    } as const;
+    expect(Object.isFrozen(RISK_SURFACE_SIGNATURES)).toBe(true);
+    for (const [body, signature] of Object.entries(RISK_SURFACE_SIGNATURES)) {
+      expect(Object.isFrozen(signature)).toBe(true);
+      expect(Object.isFrozen(signature.length)).toBe(true);
+      expect(signature.label).toBe(body === "wreck" ? WRECK_SHOAL_AREA.label
+        : RISK_WATER_AREAS[placements[body as keyof typeof placements]].label);
     }
   });
 

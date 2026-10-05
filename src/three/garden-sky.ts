@@ -20,10 +20,8 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import {
   CAMERA_FAR,
   CAMERA_FOV_DEG,
-  TILE_SCALE,
 } from "../systems/projection";
 import {
-  GARDEN_ISLAND_TILE_OFFSET,
   GARDEN_WATER_Y,
 } from "../systems/garden-observatory-slice";
 import type { GardenSeason } from "../systems/season";
@@ -38,7 +36,8 @@ import {
 } from "../systems/psi-sky";
 import { debugSkyBand } from "../lib/pharosville-debug";
 import { acquireGardenNoisePack } from "./garden-noise-pack";
-import { GARDEN_AIR, updateGardenAerial } from "./garden-aerial";
+import { GARDEN_AIR, GARDEN_AERIAL_GLSL_PARS, gardenAerialUniforms, updateGardenAerial } from "./garden-aerial";
+import { GARDEN_ATMOSPHERE, writeGardenAtmosphereCoefficients, writeGardenAtmosphereSky } from "./garden-atmosphere";
 import type { EpistemicFogBank } from "../systems/epistemic-haze";
 import {
   dayCycleBeats,
@@ -71,23 +70,16 @@ import {
 // has no side.
 export const GARDEN_SKY_BEATS = {
   dawn: { zenith: new Color(0x777d99), solar: new Color(0xe0bca6), anti: new Color(0xaaa7c2) },
-  // Print-gate tune: noon air is MIDDLE-value blue (horizon L* ≈ 71 / 54 in,
-  // was 95 / 84), so the side-lit limestone stands brighter than its air; the
-  // zenith is lifted (L* 55 → 65) so the top row keeps its cerulean.
-  day: { zenith: new Color(0x70a3d4), solar: new Color(0x9cb1ca), anti: new Color(0x6a82a8) },
   // Golden faces away from the sun at the rest seat (the key is behind the
   // viewer's right shoulder), so the frame's sky is the anti side: a cool
   // violet-BLUE (hue ≈ 235°, was a 260° lavender) that the warm lit planes
   // read against. The warmth stays on the solar horizon and the lit stone.
   golden: { zenith: new Color(0x6e70a2), solar: new Color(0xf0a45c), anti: new Color(0x8f95bf) },
   blue: { zenith: new Color(0x202c59), solar: new Color(0xb98a6e), anti: new Color(0x58648a) },
-  // W1.8 (sky-6): authored to land AFTER the night chain (grade, Neutral tone
-  // map at 1.12, night LUT) on frame-top zenith #0e1530 (L* ≈ 7.5, under the
-  // 0.76 deep bokashi band) and horizon #1b2440 (L* ≈ 15): a luminous indigo
-  // horizon the ridges, masts and tower read against as ink. The inputs look
-  // grey because the tone map's toe subtracts the smallest channel; the old
-  // #050918 / #11182c rendered at L* 0.9 / 3.4 — black paper.
-  night: { zenith: new Color(0x35394c), solar: new Color(0x393e50), anti: new Color(0x393e50) },
+  // Readable night uses the same restrained indigo dome for the visible sky
+  // and PMREM. The target is L* 7–15 after the unchanged night chain;
+  // surface readability comes from cool diffuse/ground fill, not brighter air.
+  night: { zenith: new Color(0x34394e), solar: new Color(0x393e50), anti: new Color(0x393e50) },
 };
 /**
  * Between sunset and nautical dusk (and mirrored at dawn) the anti-solar sky
@@ -99,6 +91,8 @@ export const GARDEN_SKY_BELT = {
   earthShadow: new Color(0x3e4666),
 };
 const SKY_BEAT_NAMES = ["dawn", "day", "golden", "blue", "night"] as const;
+const skyColorDirection = new Vector3();
+const skyColorRadiance = new Color();
 
 /** "horizon" is the side-less mean of the solar and anti-solar horizons. */
 export function blendGardenSkyColor(
@@ -108,6 +102,7 @@ export function blendGardenSkyColor(
 ): Color {
   target.setRGB(0, 0, 0);
   for (const beat of SKY_BEAT_NAMES) {
+    if (beat === "day") continue; // Daylight has no authored pigment authority.
     const colors = GARDEN_SKY_BEATS[beat];
     const weight = beats[beat];
     if (channel === "horizon") {
@@ -119,6 +114,22 @@ export function blendGardenSkyColor(
       target.r += color.r * weight;
       target.g += color.g * weight;
       target.b += color.b * weight;
+    }
+  }
+  // Water's reflection fallback is a CPU consumer of the same daytime sky.
+  if (beats.day > 0) {
+    if (channel === "zenith") skyColorDirection.set(0, 1, 0);
+    else {
+      skyColorDirection.set(GARDEN_AIR.sunDir.x, 0, GARDEN_AIR.sunDir.z);
+      skyColorDirection.divideScalar(Math.max(skyColorDirection.length(), 1e-4));
+      if (channel === "anti") skyColorDirection.negate();
+    }
+    writeGardenAtmosphereSky(skyColorRadiance, skyColorDirection, GARDEN_AIR.sunDir, GARDEN_AIR.rayleigh, GARDEN_AIR.mie);
+    target.add(skyColorRadiance.multiplyScalar(beats.day * (channel === "horizon" ? 0.5 : 1)));
+    if (channel === "horizon") {
+      skyColorDirection.negate();
+      writeGardenAtmosphereSky(skyColorRadiance, skyColorDirection, GARDEN_AIR.sunDir, GARDEN_AIR.rayleigh, GARDEN_AIR.mie);
+      target.add(skyColorRadiance.multiplyScalar(beats.day * 0.5));
     }
   }
   return target;
@@ -185,48 +196,8 @@ const MILKY_WAY_NORMAL = (() => {
 })();
 /** Linear peak of the band: a few L* at most, far under the beacon and the moon. */
 const MILKY_WAY_PEAK = 0.0045;
-// The fog ladder is authored from world landmarks, then measured from the
-// current perspective eye. Rest framing is solved per viewport, so neither end
-// may be derived from an assumed zoom.
-const FOG_ISLAND_MARGIN = 12;
-const FOG_ISLAND_X = (60 + GARDEN_ISLAND_TILE_OFFSET.x - 12) * TILE_SCALE;
-const FOG_ISLAND_Z = (70 + GARDEN_ISLAND_TILE_OFFSET.y - 12) * TILE_SCALE;
-const FOG_FAR_EDGE = 70 * TILE_SCALE;
 const FOG_NEAR = 200;
 const FOG_FAR = 400;
-// The nearer far-plate edge lands at ~35 % fog (the sky test's ≥30 % floor)
-// rather than 100 %, so far quays and headlands keep a silhouette. The seat-C
-// rest eye stands off the south-east corner looking north-west, so the west
-// edge is ~40 u nearer than the north one; fitting the nearer edge keeps both
-// in haze, and the farther one reads deeper, as aerial perspective should.
-const FOG_FAR_BEYOND_EDGE = 1.26;
-
-/**
- * The air ladder, fitted to the eye: `near` is where the island's far rim reads
- * and `far` is the plate edge's place on the ladder. garden-aerial fits its
- * extinction to these two distances; the keyline and the fleet's chroma
- * restraint read them too. K39: clear air is earned — positive signed clarity
- * pushes the ladder out, negative clarity pulls it in.
- */
-function fogRangeAtViewHeight(
-  fog: Fog,
-  eye: { x: number; y: number; z: number },
-  signedClarity: number,
-): void {
-  const islandDistance = Math.hypot(
-    eye.x - FOG_ISLAND_X,
-    eye.y - GARDEN_WATER_Y,
-    eye.z - FOG_ISLAND_Z,
-  );
-  const farEdgeDistance = Math.min(
-    Math.hypot(eye.x, eye.y - GARDEN_WATER_Y, eye.z - FOG_FAR_EDGE),
-    Math.hypot(eye.x - FOG_FAR_EDGE, eye.y - GARDEN_WATER_Y, eye.z),
-  );
-  const clear = Math.max(signedClarity, 0);
-  const veiled = Math.max(-signedClarity, 0);
-  fog.near = (islandDistance + FOG_ISLAND_MARGIN) * (1 + clear * 0.15 - veiled * 0.2);
-  fog.far = farEdgeDistance * FOG_FAR_BEYOND_EDGE * (1 + clear * 0.15 - veiled * 0.16);
-}
 
 // --- Wave 1: bokashi bands on the visible sky seam --------------------------
 //
@@ -385,18 +356,12 @@ const CLOUD_AXIS_B = new Vector2(-CLOUD_AXIS_A.y, CLOUD_AXIS_A.x);
 const CLOUD_LIFT = 0.05;
 /** Noise-pack uv per cloud-space unit, [along, across]. */
 const CLOUD_LOW_SCALE = [0.064, 0.08] as const;
-/** Long and thin: at the rest view a clear sky shows at most two or three strokes. */
+/** Sparse cirrus starts long/thin; fair groups and veil reauthor this sampling. */
 const CLOUD_HIGH_SCALE = [0.008, 0.05] as const;
-/**
- * High-stroke threshold on the fbm channel by cover, measured over the rest
- * view's sky window: BEDROCK ≈ 0.3 % of the sky (one or two strokes), STEADY
- * ≈ 0.5 %, TREMOR and up ≈ 1.5 % plus the veil.
- */
-const CLOUD_HIGH_THRESHOLD = { clear: 0.655, frayed: 0.58 } as const;
-/** The drift wraps on a common period of both layers' tiles, so it never jumps. */
-const CLOUD_WRAP = [62.5, 25] as const;
-/** Drift, cloud-space units per second per unit of wind speed. */
-const CLOUD_DRIFT = 0.07;
+/** Shared noise UV wraps by a full tile, even while morphology is easing. */
+const CLOUD_WRAP = [1, 1] as const;
+/** Noise UV per second per unit of wind speed. */
+const CLOUD_DRIFT = 0.0035;
 /**
  * Noise-pack calibration: the fraction of the field above a threshold of
  * `0.75·G + 0.35·(1 − B)` is ≈ cover when threshold = 0.80 − 0.47·cover
@@ -450,26 +415,8 @@ export interface GardenSky {
   setClarity: (clarity: number, reading?: boolean) => void;
   /** The displayed signed clarity (−1…+1) the air and the far ridges draw. */
   readonly signedClarity: number;
-  /**
-   * The phase-only half of `update`: the dome uniforms and the fog colour, which
-   * are graded from the day-cycle blend and from nothing else.
-   *
-   * It is separate because `garden-environment` bakes its PMREM probe from THIS
-   * material, and it has to bake EARLY in the frame — before the renderer resets
-   * its per-frame `renderer.info` counters, or the bake's six-face cube render
-   * would spike the frame's draw-call total against the 700 budget. `update`
-   * runs much later, inside the scene pass. So the renderer grades the dome for
-   * the frame's phase first, then bakes, then updates.
-   *
-   * Without that split the first bake of a session rendered the colours the
-   * uniforms are CONSTRUCTED with — the night preset — and cached them under
-   * whatever key the current hour produced. At midday the key never moves again,
-   * so every metal surface in the world stayed lit by a night probe for the
-   * whole flat middle of the day.
-   *
-   * Idempotent, and `update` calls it, so grading once or twice a frame is the
-   * same picture.
-   */
+  /** Idempotent illumination/transport writer used by update and CPU tests.
+   * The renderer stages the complete update (including clouds) before PMREM. */
   applyPhase: (phase: DayCyclePhase, wallClockHour: number) => void;
   dispose: () => void;
   /**
@@ -497,13 +444,13 @@ function createDome(): {
 } {
   const glslVec3 = (v: Vector3): string => `vec3(${v.x.toFixed(6)}, ${v.y.toFixed(6)}, ${v.z.toFixed(6)})`;
   const material = new ShaderMaterial({
-    depthTest: false,
+    depthTest: true,
     depthWrite: false,
     fog: false,
     side: BackSide,
     uniforms: {
-      uAirAnti: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
-      uAirSun: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
+      ...gardenAerialUniforms,
+      uAtmosphereDate: { value: 0 },
       uAntiHorizon: { value: GARDEN_SKY_BEATS.night.anti.clone() },
       uBeltColor: { value: GARDEN_SKY_BELT.rose.clone() },
       uBeltStrength: { value: 0 },
@@ -511,8 +458,6 @@ function createDome(): {
       uCelestialFrame: { value: new Matrix3() },
       uEarthShadowColor: { value: GARDEN_SKY_BELT.earthShadow.clone() },
       uGlow: { value: 0 },
-      uHazeColor: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
-      uHazeStrength: { value: 0 },
       uMilkyWay: { value: 0 },
       uMilkyWayColor: { value: STAR_COLOR.clone() },
       uMoonColor: { value: MOON_DISC_BASE.clone() },
@@ -531,8 +476,8 @@ function createDome(): {
       uNoisePack: { value: null },
       uCloudReady: { value: 0 },
       uCloudCover: { value: 0 },
-      uCloudHighThreshold: { value: CLOUD_HIGH_THRESHOLD.clear },
-      uCloudHighAlpha: { value: 0.3 },
+      uCloudHighThreshold: { value: CLOUD_THRESHOLD[0] - CLOUD_THRESHOLD[1] * 0.05 },
+      uCloudHighAlpha: { value: 0.65 },
       uCloudLitCool: { value: new Color() },
       uCloudCrownDir: { value: new Vector3(0, 1, 0) },
       uCloudCrownRadius: { value: 0 },
@@ -557,8 +502,6 @@ function createDome(): {
       }
     `,
     fragmentShader: /* glsl */ `
-      uniform vec3 uAirAnti;
-      uniform vec3 uAirSun;
       uniform vec3 uAntiHorizon;
       uniform vec3 uBeltColor;
       uniform float uBeltStrength;
@@ -566,8 +509,6 @@ function createDome(): {
       uniform mat3 uCelestialFrame;
       uniform vec3 uEarthShadowColor;
       uniform float uGlow;
-      uniform vec3 uHazeColor;
-      uniform float uHazeStrength;
       uniform float uMilkyWay;
       uniform vec3 uMilkyWayColor;
       uniform vec3 uMoonColor;
@@ -601,6 +542,7 @@ function createDome(): {
       uniform float uCloudRays;
       uniform float uCloudRaysTime;
       varying vec3 vRay;
+      ${GARDEN_AERIAL_GLSL_PARS}
       ${gardenBokashiBandGlsl()}
       float gardenSkyHash(vec3 p) {
         p = fract(p * 0.3183099 + 0.1);
@@ -659,26 +601,13 @@ function createDome(): {
         color = mix(color, uBeltColor, smoothstep(0.045, 0.07, dir.y) * (1.0 - smoothstep(0.1, 0.16, dir.y)) * antiSide);
 
         float mu = dot(dir, uSunDir);
-        float up = max(dir.y, 0.0);
-        float visibleHemisphere = 1.0 - step(0.0, dir.y);
-        float visibleSeam = 1.0 - smoothstep(0.035, 0.38, skyHeight);
-        float airMass = mix(exp(-up * 3.0), visibleSeam, visibleHemisphere);
-        float rayPhase = 0.75 * (1.0 + mu * mu);
-        float rayleigh = mix(0.82, 1.12, (1.0 - airMass) * rayPhase * 0.5);
-        color *= mix(1.0, rayleigh, uScattering);
-        float luma = dot(color, vec3(0.299, 0.587, 0.114));
-        color = mix(vec3(luma), color, 1.0 + uScattering * 0.3 * (1.0 - airMass));
-        color = mix(color, horizon, uScattering * airMass * airMass * 0.3);
+        vec3 daylightSky = gardenAtmosphereSky(dir, uSunDir,
+          uGardenAir.rayleigh, uGardenAir.mie, uGardenAir.radiance);
+        color = mix(color, daylightSky, uScattering);
         float corona = pow(max(mu, 0.0), 220.0);
         float disc = smoothstep(0.99955, 0.99985, mu);
         color += uSunColor * (corona * 0.5 + disc) * uSunIntensity;
 
-        float hazeBand = mix(
-          (1.0 - smoothstep(-0.02, 0.24, dir.y)),
-          visibleSeam,
-          visibleHemisphere
-        );
-        color = mix(color, uHazeColor, hazeBand * uHazeStrength);
 
         // W2.7 (O20): the Milky Way on moonless clear nights, turning with the stars.
         if (uMilkyWay > 0.0) {
@@ -725,13 +654,11 @@ function createDome(): {
           color *= 1.0 - 0.1 * uCloudDeck;
           vec2 axisA = vec2(${CLOUD_AXIS_A.x.toFixed(6)}, ${CLOUD_AXIS_A.y.toFixed(6)});
           vec2 axisB = vec2(${CLOUD_AXIS_B.x.toFixed(6)}, ${CLOUD_AXIS_B.y.toFixed(6)});
-          vec2 cp = vec2(dot(dir.xz, axisA), dot(dir.xz, axisB)) / (dir.y + ${CLOUD_LIFT.toFixed(3)}) + uCloudOffset;
+          vec2 cp = vec2(dot(dir.xz, axisA), dot(dir.xz, axisB)) / (dir.y + ${CLOUD_LIFT.toFixed(3)});
           float lowAir = 1.0 - smoothstep(0.0, 0.1, dir.y);
-          // No cloud crosses behind the lantern: the crown keeps its own sky.
-          // Under a heavy deck the clearing only thins the cloud, so it never
-          // reads as a spotlit hole.
+          // Thin the crown quietly, never cut a spotlight hole in a closed sky.
           float crownClear = uCloudCrownRadius > 0.0
-            ? 1.0 - (1.0 - 0.5 * uCloudDeck)
+            ? 1.0 - (0.35 - 0.23 * uCloudDeck)
               * (1.0 - smoothstep(uCloudCrownRadius, uCloudCrownRadius * 1.8, acos(clamp(dot(dir, uCloudCrownDir), -1.0, 1.0))))
             : 1.0;
           // The lit colour is warm only low on the sun's side; elsewhere the
@@ -739,28 +666,34 @@ function createDome(): {
           float warmSide = mix(0.25, 1.0, sunSide) * (1.0 - 0.7 * smoothstep(0.05, 0.25, dir.y));
           vec3 litHere = mix(uCloudLitCool, uCloudLit, warmSide);
 
-          // High layer: two or three long thin strokes on a clear day, a thin
-          // veil across the upper sky as stability frays. Kept off the
-          // horizon, where the layer's foreshortening would stack them.
-          float sHigh = texture2D(uNoisePack, cp * vec2(${CLOUD_HIGH_SCALE[0]}, ${CLOUD_HIGH_SCALE[1]}) + vec2(0.37, 0.61)).g;
-          float dHigh = smoothstep(uCloudHighThreshold, uCloudHighThreshold + 0.06, sHigh) * uCloudHighAlpha
-            + uCloudVeil * 0.32 * smoothstep(0.25, 0.7, sHigh);
-          dHigh *= smoothstep(0.04, 0.12, dir.y);
+          // Cirrus → separated stroke groups → broad translucent high veil.
+          vec2 highScale = mix(vec2(${CLOUD_HIGH_SCALE[0]}, ${CLOUD_HIGH_SCALE[1]}), vec2(0.024, 0.07), smoothstep(0.05, 0.15, uCloudCover));
+          highScale = mix(highScale, vec2(0.026, 0.028), uCloudVeil);
+          vec4 nHigh = texture2D(uNoisePack, cp * highScale + uCloudOffset + vec2(0.37, 0.61));
+          float sHigh = nHigh.g * 0.75 + (1.0 - nHigh.b) * 0.35;
+          float dHigh = smoothstep(uCloudHighThreshold, uCloudHighThreshold + mix(0.028, 0.055, uCloudVeil), sHigh) * uCloudHighAlpha;
+          dHigh *= smoothstep(mix(0.04, 0.012, uCloudVeil), mix(0.08, 0.045, uCloudVeil), dir.y)
+            * (1.0 - smoothstep(0.3, 0.45, uCloudCover));
           color = mix(color, mix(uCloudShade, litHere, 0.7), dHigh * crownClear);
 
           // Low layer: printed shapes with a crisp edge.
+          if (uCloudCover > 0.3) {
           vec2 lightXZ = vec2(dot(uCloudLightDir.xz, axisA), dot(uCloudLightDir.xz, axisB));
           float lightFlat = length(lightXZ);
           // Tops lit when the light is high, undersides (screen-down, +B) when it is low.
           vec2 lightStep = (lightXZ / max(lightFlat, 1e-4)) * vec2(0.012, 0.0)
             + vec2(0.0, mix(0.02, -0.02, smoothstep(0.08, 0.6, uCloudLightDir.y)));
-          vec2 uvLow = cp * vec2(${CLOUD_LOW_SCALE[0]}, ${CLOUD_LOW_SCALE[1]});
+          float ceiling = smoothstep(0.78, 0.9, uCloudCover);
+          vec2 lowScale = mix(mix(vec2(${CLOUD_LOW_SCALE[0]}, ${CLOUD_LOW_SCALE[1]}), vec2(0.035, 0.09), uCloudDeck), vec2(0.1), ceiling);
+          vec2 uvLow = cp * lowScale + uCloudOffset;
           vec4 nLow = texture2D(uNoisePack, uvLow);
           vec4 nLit = texture2D(uNoisePack, uvLow + lightStep);
-          float sLow = nLow.g * 0.75 + (1.0 - nLow.b) * 0.35;
-          float sLit = nLit.g * 0.75 + (1.0 - nLit.b) * 0.35;
-          float thrLow = ${CLOUD_THRESHOLD[0]} - ${CLOUD_THRESHOLD[1]} * uCloudCover;
-          float dLow = smoothstep(thrLow, thrLow + 0.045, sLow) * step(0.001, uCloudCover);
+          // Broken bodies → closed banks → fine-grained overcast ceiling.
+          vec2 weights = mix(vec2(0.75, 0.35), vec2(0.9, 0.2), ceiling);
+          float sLow = dot(vec2(nLow.g, 1.0 - nLow.b), weights);
+          float sLit = dot(vec2(nLit.g, 1.0 - nLit.b), weights);
+          float thrLow = ${CLOUD_THRESHOLD[0]} - ${CLOUD_THRESHOLD[1]} * uCloudCover + 0.035 * ceiling;
+          float dLow = smoothstep(thrLow, thrLow + 0.045, sLow) * smoothstep(0.3, 0.45, uCloudCover);
           float lit = clamp((sLow - sLit) * 7.0 + 0.5, 0.0, 1.0);
           // Woodblock: three flat tones, blended 30 % with the soft ramp.
           lit = mix(lit, floor(lit * 2.999) * 0.5, 0.3);
@@ -770,7 +703,7 @@ function createDome(): {
           float nearMoon = 1.0 - smoothstep(0.06, 0.21, acos(clamp(dot(dir, uMoonDir), -1.0, 1.0)));
           cloudColor += uMoonColor * edge * nearMoon * uCloudRim;
           cloudColor = mix(cloudColor, horizon, lowAir * 0.45);
-          color = mix(color, cloudColor, dLow * mix(0.84, 0.95, uCloudDeck) * smoothstep(0.008, 0.05, dir.y) * crownClear);
+          color = mix(color, cloudColor, dLow * mix(0.84, 0.95, uCloudDeck) * smoothstep(0.008, 0.025, dir.y) * crownClear);
           float horizonFade = smoothstep(0.004, 0.035, dir.y);
 
           // X4: at low sun under a broken deck, ladders of light through the
@@ -786,6 +719,7 @@ function createDome(): {
               * (1.0 - smoothstep(0.03, 0.2, dir.y)) * (0.4 + 0.6 * max(sunAlign, 0.0));
             color += uCloudLit * ray * uCloudRays * ${CLOUD_RAYS_GAIN.toFixed(3)} * horizonFade;
           }
+          }
         }
 
         // The sea below the horizon and the seam draw the air the world fades
@@ -793,10 +727,13 @@ function createDome(): {
         // 2–3 px darker line where sky meets sea. Only near the rest/near-rig
         // pitch: pulled out to the chart the horizon is a curve high in the
         // frame, and a line there reads as a scratch.
-        float ichimonjiGain = 0.06 * smoothstep(0.11, 0.18, uSkyVisibleHeight);
-        float ichimonji = 1.0 - ichimonjiGain * (1.0 - smoothstep(0.0, 0.0035, abs(dir.y + 0.0015)));
-        vec3 air = mix(uAirAnti, uAirSun, sunSide) * ichimonji;
-        color = mix(air, color, smoothstep(0.0, 0.12, skyHeight));
+        if (uScattering < 1.0) {
+          float ichimonjiGain = 0.06 * smoothstep(0.11, 0.18, uSkyVisibleHeight) * (1.0 - uScattering);
+          float ichimonji = 1.0 - ichimonjiGain * (1.0 - smoothstep(0.0, 0.0035, abs(dir.y + 0.0015)));
+          vec3 air = gardenAirlightBase(dir) * ichimonji;
+          vec3 composed = mix(air, color, smoothstep(0.0, 0.12, skyHeight));
+          color = mix(composed, color, uScattering);
+        }
         gl_FragColor = vec4(color, 1.0);
       }
     `,
@@ -933,15 +870,9 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     billboards.localMist.mesh,
   );
 
-  // scene.fog keeps the USE_FOG define and the fitted air ladder (near/far);
-  // garden-aerial owns the colour law. Its colour is the view-averaged horizon,
-  // shared with the dome's haze band and the stale-bank billboards.
+  // Fog enables the built-in material hook and retains fleet/chroma metadata.
+  // Its CPU colour is the shared transport horizon, also used by stale banks.
   const fog = new Fog(DAY_CYCLE_SKY_PRESETS.night.fog.clone(), FOG_NEAR, FOG_FAR);
-  dome.material.uniforms.uHazeColor.value = fog.color;
-  // The dome's lower hemisphere and seam draw the SAME air the world fades to.
-  if (dome.material.uniforms.uAirSun) dome.material.uniforms.uAirSun.value = GARDEN_AIR.airSun;
-  if (dome.material.uniforms.uAirAnti) dome.material.uniforms.uAirAnti.value = GARDEN_AIR.airAnti;
-  const airSunPose = { direction: new Vector3(0, 1, 0), elevation: Math.PI / 2 };
 
   // Scratch objects for the per-frame billboard writes — the frame path must
   // not allocate, so the uniforms hold these instances and `update` mutates
@@ -949,10 +880,14 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   const sunColor = dome.material.uniforms.uSunColor.value as Color;
   const sunDir = dome.material.uniforms.uSunDir.value as Vector3;
   const scratchSunPose = { direction: new Vector3(0, 1, 0), elevation: Math.PI / 2 };
+  const atmosphereDirection = new Vector3();
+  const atmosphereColor = new Color();
   const mistColor = new Color();
   const winterFog = new Color(HARBOR_PALETTE.fog_blue);
   const scratchCloudMoon = new Color();
   const scratchCloudNight = new Color();
+  const cloudDiffuse = new Color();
+  const cloudDirect = new Color();
   const solarHorizon = dome.material.uniforms.uSolarHorizon.value as Color;
   const antiHorizon = dome.material.uniforms.uAntiHorizon.value as Color;
   const moonDir = dome.material.uniforms.uMoonDir.value as Vector3;
@@ -983,6 +918,11 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     const { daylight, dusk } = phase;
     skyDay = gardenSkyToday();
     const beats = dayCycleBeats(wallClockHour, skyDay);
+    dome.material.uniforms.uAtmosphereDate.value = Math.floor(skyDay.julianDayAtLocalMidnight);
+    gardenSunPose(wallClockHour, scratchSunPose);
+    sunDir.copy(scratchSunPose.direction);
+    GARDEN_AIR.sunDir.copy(sunDir);
+    writeGardenAtmosphereCoefficients(GARDEN_AIR.rayleigh, GARDEN_AIR.mie, displayedClarity);
     const zenith = dome.material.uniforms.uZenith.value as Color;
     blendGardenSkyColor(zenith, beats, "zenith");
     blendGardenSkyColor(solarHorizon, beats, "solar");
@@ -1021,28 +961,13 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     stars.points.quaternion.setFromAxisAngle(CELESTIAL_POLE, turn);
     celestialRotation.makeRotationFromQuaternion(stars.points.quaternion);
     celestialFrame.setFromMatrix4(celestialRotation).transpose();
-    // The environment probe bakes from this material between here and
-    // `update`. It must not hold a moon: the water's drawn road (K4) is the
-    // only moon reflection, and a baked disc would smear a second one across
-    // every glossy surface. `update` draws the moon and the Milky Way again
-    // for the frame itself.
+    // applyPhase alone has no displayed celestial frame; update restores it.
+    // The baker temporarily suppresses discs only while rendering the probe.
     dome.material.uniforms.uMoonVisible.value = 0;
     dome.material.uniforms.uMoonDay.value = 0;
     dome.material.uniforms.uMilkyWay.value = 0;
 
-    // Phase 2 (2c): the scattering field's drivers — the sun's direction from
-    // the day cycle, the scattering strength (fading to zero at night), the
-    // disc's HDR intensity (just over the bloom knee), and
-    // the haze band's strength. The sun tint follows the light rig, the same
-    // colour the water glitter uses. All of it is phase-derived, so the PMREM
-    // bake right after this call sees the same sky the frame will grade.
-    // The dome's sun is THE sun (garden-sun.ts), not a separate opinion about
-    // it. Previously this slid a fixed azimuth up and down three authored
-    // elevation constants, so the glow could never tell morning from evening —
-    // the two hours share phase weights and differ only in bearing, which is
-    // exactly what the old formula threw away.
-    gardenSunPose(wallClockHour, scratchSunPose);
-    sunDir.copy(scratchSunPose.direction);
+    // One solar arc drives sky transport, direct light and water glitter.
     sunColor.setRGB(0, 0, 0);
     for (const beat of SKY_BEAT_NAMES) {
       const color = DAY_CYCLE_LIGHT_PRESETS[beat].dirColor;
@@ -1051,14 +976,28 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       sunColor.b += color.b * beats[beat];
     }
     dome.material.uniforms.uScattering.value = Math.min(1, daylight + dusk * 0.7);
-    dome.material.uniforms.uSunIntensity.value = daylight * 1.55 + dusk * 1.3;
-    // W1.8/W2.5 (sky-2, data-poetry-1): the clear-sky floor is 0.12, and the
-    // signed clarity moves it both ways — good markets thin it, bad ones thicken it.
-    dome.material.uniforms.uHazeStrength.value = Math.min(
-      0.8,
-      0.12 - Math.max(displayedClarity, 0) * 0.06 + Math.max(-displayedClarity, 0) * 0.3,
-    );
+    dome.material.uniforms.uSunIntensity.value = daylight * GARDEN_ATMOSPHERE.sunDiscRadiance + dusk * 1.3;
     dome.material.uniforms.uBokashiAmount.value = gardenBokashiAmount(phase);
+    updateGardenAerial({
+      phase, solarHorizon, antiHorizon, sunDir,
+      seaLevel: GARDEN_WATER_Y, clarity: displayedClarity,
+      skyVisibleHeight: dome.material.uniforms.uSkyVisibleHeight.value as number,
+    });
+    // Authored twilight stays an unscattered basis: the fragment mixes the
+    // analytic sky once, rather than spreading the forward solar lobe twice.
+    // Noon retains its analytic CPU uniforms for the probe and other consumers.
+    const analytic = beats.day;
+    atmosphereDirection.set(sunDir.x, 0, sunDir.z);
+    atmosphereDirection.divideScalar(Math.max(atmosphereDirection.length(), 1e-4));
+    writeGardenAtmosphereSky(atmosphereColor, atmosphereDirection, sunDir, GARDEN_AIR.rayleigh, GARDEN_AIR.mie);
+    solarHorizon.lerp(atmosphereColor, analytic);
+    atmosphereDirection.negate();
+    writeGardenAtmosphereSky(atmosphereColor, atmosphereDirection, sunDir, GARDEN_AIR.rayleigh, GARDEN_AIR.mie);
+    antiHorizon.lerp(atmosphereColor, analytic);
+    atmosphereDirection.set(0, 1, 0);
+    writeGardenAtmosphereSky(atmosphereColor, atmosphereDirection, sunDir, GARDEN_AIR.rayleigh, GARDEN_AIR.mie);
+    zenith.lerp(atmosphereColor, analytic);
+    fog.color.copy(solarHorizon).lerp(antiHorizon, 0.5);
   };
 
   return {
@@ -1097,7 +1036,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
         eyeHeight,
         frame.cameraPosition.z - frame.targetZ,
       );
-      const pitch = Math.asin(eyeHeight / distance);
+      const pitch = Math.asin(MathUtils.clamp(eyeHeight / Math.max(distance, 1e-4), -1, 1));
       // Spend the gradient ladder between the sea horizon and the top row,
       // never over less than 6° of sky (the whole-map step, critic D12).
       dome.material.uniforms.uSkyVisibleHeight.value = gardenSkyVisibleHeight(pitch);
@@ -1117,42 +1056,20 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       );
       cloudCover = advanceSkyClarityFade(coverFade, skyCloudCover(skyClarity), Math.max(0, frame.timeSeconds), snap);
       const cover = cloudCover;
-      // X3/X4 cover ladder, matched to the words: a clear or fair sky is high
-      // strokes only; a high veil (TREMOR) adds the veil, still no low bodies;
-      // low bands start above it and close to a broken deck (FRACTURE), low
-      // cloud (CRISIS) and overcast (MELTDOWN).
-      const lowCover = cover <= 0.3 ? 0 : 1 - Math.max(0, 1 - (cover - 0.3) / 0.62) ** 1.6;
-      cloudVeil = MathUtils.smoothstep(cover, 0.2, 0.45);
-      const deck = MathUtils.smoothstep(cover, 0.4, 0.75);
-      dome.material.uniforms.uCloudCover.value = lowCover;
-      dome.material.uniforms.uCloudHighThreshold.value = CLOUD_HIGH_THRESHOLD.clear
-        - (CLOUD_HIGH_THRESHOLD.clear - CLOUD_HIGH_THRESHOLD.frayed) * MathUtils.smoothstep(cover, 0.05, 0.3);
+      // Six continuous morphologies share the accepted/eased cover control.
+      cloudVeil = MathUtils.smoothstep(cover, 0.15, 0.3)
+        * (1 - MathUtils.smoothstep(cover, 0.3, 0.45));
+      const deck = MathUtils.smoothstep(cover, 0.3, 0.75);
+      dome.material.uniforms.uCloudCover.value = cover;
+      dome.material.uniforms.uCloudHighThreshold.value = CLOUD_THRESHOLD[0]
+        - CLOUD_THRESHOLD[1] * Math.min(cover, 0.3);
+      dome.material.uniforms.uCloudHighAlpha.value = 0.65 - 0.27 * cloudVeil;
       dome.material.uniforms.uCloudVeil.value = cloudVeil;
       dome.material.uniforms.uCloudDeck.value = deck;
-      fogRangeAtViewHeight(fog, frame.cameraPosition, displayedClarity);
+      // Metadata ladder for fleet/chroma consumers only, not an eye-fitted wash.
+      fog.near = FOG_NEAR * (1 + displayedClarity * 0.15);
+      fog.far = FOG_FAR * (1 + displayedClarity * 0.15);
       applyPhase(phase, frame.wallClockHour);
-      gardenSunPose(frame.wallClockHour, airSunPose);
-      const uniforms = dome.material.uniforms;
-      updateGardenAerial({
-        phase,
-        beats: dayCycleBeats(frame.wallClockHour),
-        solarHorizon: (uniforms.uSolarHorizon?.value as Color | undefined) ?? fog.color,
-        antiHorizon: (uniforms.uAntiHorizon?.value as Color | undefined) ?? fog.color,
-        sunDir: airSunPose.direction,
-        solarElevation: airSunPose.elevation,
-        hour: frame.wallClockHour,
-        eye: frame.cameraPosition,
-        near: fog.near,
-        far: fog.far,
-        seaLevel: GARDEN_WATER_Y,
-        clarity: displayedClarity,
-        skyVisibleHeight: dome.material.uniforms.uSkyVisibleHeight.value as number,
-      });
-      // X4: under a broken deck the air loses a little light — value, not milk.
-      const deckShade = 1 - 0.1 * deck;
-      GARDEN_AIR.airSun.multiplyScalar(deckShade);
-      GARDEN_AIR.airAnti.multiplyScalar(deckShade);
-      GARDEN_AIR.airlight.multiplyScalar(deckShade);
       const { daylight, dusk, night } = phase;
 
       // W2.6 (sky-5): the real moon, drawn in the dome at the displayed pose
@@ -1213,6 +1130,29 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       desaturate(cloudLitCool, 1).lerp(antiHorizon, 0.35);
       cloudShade.copy(antiHorizon).lerp(zenithNow, 0.35).multiplyScalar(0.8 * (1 - 0.22 * deck));
       desaturate(cloudShade, 0.25);
+      // A sight ray at the solar horizon is the forward Mie lobe, not the
+      // irradiance received by every cloud. Integrate a cosine-weighted sky
+      // hemisphere instead (four azimuths at its equal-area midpoint).
+      // Keep the accepted high-sun and lunar paths exactly as authored.
+      const cloudTransport = (1 - night) * (1 - MathUtils.smoothstep(sunDir.y, 0.08, 0.45));
+      if (cloudTransport > 0) {
+        cloudDiffuse.setRGB(0, 0, 0);
+        for (let sample = 0; sample < 4; sample++) {
+          atmosphereDirection.set(
+            sample === 0 ? Math.SQRT1_2 : sample === 1 ? -Math.SQRT1_2 : 0,
+            Math.SQRT1_2,
+            sample === 2 ? Math.SQRT1_2 : sample === 3 ? -Math.SQRT1_2 : 0,
+          );
+          writeGardenAtmosphereSky(atmosphereColor, atmosphereDirection, sunDir, GARDEN_AIR.rayleigh, GARDEN_AIR.mie);
+          cloudDiffuse.add(atmosphereColor.multiplyScalar(0.25));
+        }
+        cloudDiffuse.multiply(CLOUD_WHITE);
+        cloudDirect.copy(sunColor).multiply(CLOUD_WHITE)
+          .multiplyScalar(Math.max(0, sunDir.y) * (dome.material.uniforms.uSunIntensity.value as number));
+        cloudLit.lerp(atmosphereColor.copy(cloudDiffuse).add(cloudDirect), cloudTransport);
+        cloudLitCool.lerp(cloudDiffuse, cloudTransport);
+        cloudShade.lerp(atmosphereColor.copy(cloudDiffuse).multiplyScalar(0.8 * (1 - 0.22 * deck)), cloudTransport);
+      }
       scratchCloudNight.copy(solarHorizon).lerp(zenithNow, 0.5).multiplyScalar(1.12);
       cloudLit.lerp(scratchCloudNight, night);
       cloudLitCool.lerp(scratchCloudNight, night);
@@ -1228,7 +1168,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
         );
         const crownDistance = cloudCrownDir.length();
         cloudCrownDir.divideScalar(Math.max(crownDistance, 1e-3));
-        dome.material.uniforms.uCloudCrownRadius.value = Math.max(1.2 * DEG, Math.atan(CLOUD_CROWN_CLEAR_UNITS / crownDistance));
+        dome.material.uniforms.uCloudCrownRadius.value = Math.max(1.2 * DEG, Math.atan(CLOUD_CROWN_CLEAR_UNITS / Math.max(crownDistance, 1e-3)));
       }
       dome.material.uniforms.uCloudRays.value = deck
         * MathUtils.smoothstep(trueSolarElevation, -0.03, 0.03)

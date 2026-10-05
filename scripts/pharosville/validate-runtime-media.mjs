@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { inflateSync } from "node:zlib";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { extname, join, normalize, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -122,6 +124,87 @@ function findPngProblems(bytes) {
   return problems;
 }
 
+/** Compiler-emitted RGBA8 mip strips, never browser/GPU mips. */
+export function findGardenSurfaceStripProblems(bytes, map) {
+  const problems = findMediaFileProblems(map.output, bytes);
+  if (problems.length) return problems;
+  if (map.cell !== 128 || map.cells !== 8 || map.gutter !== 2 ||
+      map.colorSpace !== (map.name === "albedo" ? "srgb" : "linear") ||
+      map.width !== 2047 || map.height !== 1024 || map.levels?.length !== 11 ||
+      map.levels.some((level, i) => level.width !== Math.max(1, 1024 >> i) || level.height !== level.width)) {
+    return ["surface atlas descriptor disagrees with the authored cell/mip contract"];
+  }
+  if (bytes.readUInt32BE(16) !== map.width || bytes.readUInt32BE(20) !== map.height ||
+      bytes[24] !== 8 || bytes[25] !== 6 || bytes[26] !== 0 || bytes[27] !== 0 || bytes[28] !== 0) {
+    return ["surface mip strip must be a non-interlaced 2047x1024 RGBA8 PNG"];
+  }
+  const chunks = [];
+  for (let offset = 8; offset < bytes.length;) {
+    const length = bytes.readUInt32BE(offset);
+    const type = bytes.toString("ascii", offset + 4, offset + 8);
+    let crc = 0xffffffff;
+    for (const byte of bytes.subarray(offset + 4, offset + 8 + length)) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+    if (((crc ^ 0xffffffff) >>> 0) !== bytes.readUInt32BE(offset + 8 + length)) return [`surface PNG ${type} CRC mismatch`];
+    if (type === "IDAT") chunks.push(bytes.subarray(offset + 8, offset + 8 + length));
+    offset += length + 12;
+    if (type === "IEND") {
+      if (offset !== bytes.length) return ["surface PNG has trailing bytes"];
+      break;
+    }
+  }
+  let pixels;
+  const stride = map.width * 4 + 1;
+  try { pixels = inflateSync(Buffer.concat(chunks), { maxOutputLength: stride * map.height }); }
+  catch { return ["surface mip strip pixels cannot inflate"]; }
+  if (pixels.length !== stride * map.height) return ["surface mip strip pixel count mismatch"];
+  for (let y = 0; y < map.height; y++) {
+    const filter = pixels[y * stride];
+    if (filter !== (y === 0 ? 0 : 2)) return ["surface mip strip must use the compiler's PNG Up filter"];
+    if (filter === 2) {
+      for (let x = 1; x < stride; x++) {
+        const i = y * stride + x;
+        pixels[i] = (pixels[i] + pixels[i - stride]) & 255;
+      }
+    }
+    let x = 0;
+    for (const level of map.levels) {
+      for (let lx = 0; lx < level.width; lx++) {
+        const start = y * stride + 1 + (x + lx) * 4;
+        if (y < level.height) {
+          if (pixels[start + 3] !== 255) return ["surface mip pixels must be opaque"];
+        } else if (pixels[start] !== 0 || pixels[start + 1] !== 0 || pixels[start + 2] !== 0 || pixels[start + 3] !== 0) {
+          return ["surface mip strip unused rows must be transparent zero"];
+        }
+      }
+      x += level.width;
+    }
+  }
+  // Normal textureGrad relies on periodic gutters only at levels 0/1.
+  // Coarser diffuse/ORM mips instead clamp bilinear taps inside their role cell.
+  for (let mip = 0, stripX = 0; mip < 2; stripX += 1024 >> mip, mip++) {
+    const cell = 128 >> mip, gutter = 2 >> mip, core = cell - 2 * gutter;
+    for (let row = 0; row < 8; row++) for (let role = 0; role < 8; role++) {
+      for (let edge = 0; edge < gutter; edge++) for (let t = 0; t < cell; t++) {
+        const at = (x, y) => y * stride + 1 + x * 4;
+        const x = stripX + role * cell, y = row * cell;
+        for (const [a, b] of [
+          [at(x + edge, y + t), at(x + core + edge, y + t)],
+          [at(x + cell - gutter + edge, y + t), at(x + gutter + edge, y + t)],
+          [at(x + t, y + edge), at(x + t, y + core + edge)],
+          [at(x + t, y + cell - gutter + edge), at(x + t, y + gutter + edge)],
+        ]) if (!pixels.subarray(a, a + 4).equals(pixels.subarray(b, b + 4))) return [`surface mip ${mip} periodic gutter mismatch`];
+      }
+    }
+  }
+  if (map.bytes !== bytes.length || map.sha256 !== createHash("sha256").update(bytes).digest("hex")) {
+    return ["surface mip strip bytes/SHA disagree with garden-assets.json"];
+  }
+  return [];
+}
+
 function findJpegProblems(bytes) {
   let offset = 2;
   let scanOffset = -1;
@@ -240,6 +323,7 @@ function findSvgProblems(bytes) {
 function main() {
   validateStablecoinLogos();
   validateThreeMedia();
+  validateGardenSurfaceAtlas();
   validateNoRetiredRuntimeReferences();
 
   if (errors.length > 0) {
@@ -294,6 +378,7 @@ function validateThreeMedia() {
     // same-origin public assets like any other and are held to the same
     // existence and decode contract.
     "src/three/garden-noise-pack.ts",
+    "src/three/garden-surface-atlas.ts",
     "src/three/garden-post.ts",
     "src/three/garden-water.ts",
   ]) {
@@ -308,6 +393,31 @@ function validateThreeMedia() {
 
   if (referencedThreeMedia.size === 0) {
     errors.push("No Three model or texture media references were found.");
+  }
+}
+
+function validateGardenSurfaceAtlas() {
+  const manifest = JSON.parse(readFileSync(resolve(repoRoot, "assets/pharosville/garden-assets.json"), "utf8"));
+  const atlases = manifest.assets.filter((entry) => entry.kind === "atlas");
+  if (atlases.length !== 1 || atlases[0].id !== "garden-surface-atlas" ||
+      atlases[0].generator !== "scripts/pharosville/generate-garden-surface-atlas.mjs" ||
+      !Number.isSafeInteger(atlases[0].seed) || atlases[0].maps?.length !== 3 ||
+      new Set(atlases[0].maps.map((map) => map.name)).size !== 3) {
+    errors.push("One checked three-map garden surface atlas registration is required.");
+    return;
+  }
+  const source = readFileSync(resolve(repoRoot, "src/three/garden-surface-atlas.ts"), "utf8");
+  for (const map of atlases[0].maps) {
+    if (!["albedo", "normal", "orm"].includes(map.name) ||
+        map.output !== `public/pharosville/textures/garden-surface-${map.name}.png`) {
+      errors.push("Surface atlas maps must use the checked same-origin PNG paths.");
+      continue;
+    }
+    const path = resolve(repoRoot, map.output);
+    if (!existsSync(path)) { errors.push(`Surface atlas is missing: ${map.output}`); continue; }
+    for (const problem of findGardenSurfaceStripProblems(readFileSync(path), map)) errors.push(`${map.output}: ${problem}`);
+    const expectedUrl = `${map.output.slice("public".length)}?v=${map.sha256?.slice(0, 12)}`;
+    if (!source.includes(expectedUrl)) errors.push(`${map.output}: runtime URL must pin the recorded content hash.`);
   }
 }
 

@@ -1,125 +1,148 @@
 import { describe, expect, it } from "vitest";
-import { Color, MeshStandardMaterial, Vector3 } from "three";
+import { Color, MeshBasicMaterial, MeshStandardMaterial, ShaderChunk, ShaderLib, Vector3 } from "three";
 import {
-  chainGardenMaterialPatch,
-  GARDEN_AIR,
-  GARDEN_AIR_FAR_TRANSMITTANCE,
-  GARDEN_DAWN_BAND_DENSITY,
-  gardenAerialTransmittance,
-  gardenDawnBandWeight,
-  updateGardenAerial,
+  chainGardenMaterialPatch, GARDEN_AIR, GARDEN_AERIAL_GLSL_PARS,
+  gardenAerialTransmittance, updateGardenAerial,
 } from "./garden-aerial";
-import { dayCycleBeats, dayCyclePhase, DAY_CYCLE_HEIGHT_FOG_PRESETS } from "./garden-day-cycle";
-import { gardenHeightFogFactor } from "./garden-height-fog";
+import { dayCyclePhase } from "./garden-day-cycle";
 import { gardenSkyToday } from "../systems/sky-almanac";
+import { FRAGMENT_SHADER as WATER_FRAGMENT_SHADER } from "./garden-water";
+import { writeGardenAtmosphereSky } from "./garden-atmosphere";
 
-const DEG = Math.PI / 180;
 const SEA = -1.45;
-
-// Solar noon of the pinned sky day: the X9 day drift is zero there.
 const NOON = gardenSkyToday().solarNoonHour;
 
-function fit(eye: { x: number; y: number; z: number }, near: number, far: number, clarity = 0, hour = NOON) {
+function fit(clarity = 1) {
   updateGardenAerial({
-    phase: dayCyclePhase(hour),
-    beats: dayCycleBeats(hour),
-    solarHorizon: new Color(0.8, 0.8, 0.8),
-    antiHorizon: new Color(0.7, 0.7, 0.8),
+    phase: dayCyclePhase(NOON),
+    solarHorizon: new Color(0.8, 0.8, 0.8), antiHorizon: new Color(0.7, 0.7, 0.8),
     sunDir: new Vector3(0.3, 0.8, -0.5).normalize(),
-    solarElevation: 50 * DEG,
-    hour,
-    eye,
-    near,
-    far,
-    seaLevel: SEA,
-    clarity,
-    skyVisibleHeight: 0.23,
+    seaLevel: SEA, clarity, skyVisibleHeight: 0.23,
   });
-  return { ...GARDEN_AIR };
+  return { ...GARDEN_AIR, rayleigh: GARDEN_AIR.rayleigh.clone(), mie: GARDEN_AIR.mie.clone() };
 }
 
-describe("one air (W2.3)", () => {
-  it("reaches the same far transmittance at the seat and at the whole-map height, so the plate dissolves at both", () => {
-    for (const eyeHeight of [15.23, 180]) {
-      const eye = { x: 0, y: eyeHeight, z: 0 };
-      const state = fit(eye, 190, 280);
-      // The ladder's far end, on the sea, from this eye.
-      const farDistance = Math.sqrt(280 ** 2 - (eyeHeight - SEA) ** 2);
-      const atFar = gardenAerialTransmittance(state, eye, { x: farDistance, y: SEA, z: 0 });
-      expect(atFar).toBeCloseTo(GARDEN_AIR_FAR_TRANSMITTANCE, 2);
-      // The sea annulus rim (480 u) is almost all air.
-      const rim = Math.sqrt(Math.max(0, 480 ** 2 - (eyeHeight - SEA) ** 2));
-      expect(gardenAerialTransmittance(state, eye, { x: rim, y: SEA, z: 0 })).toBeLessThan(0.1);
+describe("one analytic air", () => {
+  it("keeps the unscattered twilight basis separate so shaders do not blend analytic solar air twice", () => {
+    const solarHorizon = new Color(0.7, 0.4, 0.2);
+    const antiHorizon = new Color(0.2, 0.3, 0.5);
+    const sunDir = new Vector3(Math.sqrt(1 - 0.03 ** 2), 0.03, 0);
+    updateGardenAerial({
+      phase: { daylight: 0.5, dusk: 0.5, night: 0 },
+      solarHorizon, antiHorizon, sunDir,
+      seaLevel: SEA, clarity: 0, skyVisibleHeight: 0.23,
+    });
+    const basis = solarHorizon.clone().multiplyScalar(1.1);
+    expect(GARDEN_AIR.twilightSun.toArray()).toEqual(basis.toArray());
+    expect(GARDEN_AIR.twilightAnti.toArray()).toEqual(antiHorizon.clone().multiplyScalar(1.1).toArray());
+    const analytic = writeGardenAtmosphereSky(new Color(), new Vector3(1, 0, 0), sunDir, GARDEN_AIR.rayleigh, GARDEN_AIR.mie);
+    expect(GARDEN_AIR.airSun.toArray()).toEqual(basis.lerp(analytic, GARDEN_AIR.daylight).toArray());
+    expect(GARDEN_AERIAL_GLSL_PARS).toContain("mix(uGardenAir.twilightAnti, uGardenAir.twilightSun");
+    expect(GARDEN_AERIAL_GLSL_PARS).not.toContain("mix(uGardenAir.airAnti, uGardenAir.airSun");
+  });
+
+  it("keeps authored clear-noon near/mid distances legible, with recession in borrowed hills", () => {
+    for (const height of [15.23, 180]) {
+      const eye = { x: 0, y: height, z: 0 };
+      const state = fit();
+      expect(gardenAerialTransmittance(state, eye, { x: 140, y: SEA, z: 0 })).toBeGreaterThanOrEqual(0.9);
+      expect(gardenAerialTransmittance(state, eye, { x: 300, y: SEA, z: 0 })).toBeGreaterThanOrEqual(0.8);
+      const mid = gardenAerialTransmittance(state, eye, { x: 300, y: SEA, z: 0 });
+      const hills = gardenAerialTransmittance(state, eye, { x: 2000, y: SEA, z: 0 });
+      // Overview air is thinner at height: pin concentrated hill recession,
+      // not an eye-independent far transmittance (the retired fitted law).
+      expect(1 - hills).toBeGreaterThan(2 * (1 - mid));
     }
   });
 
-  it("keeps the near field clear and lets a crown stand clearer than its foot", () => {
+  it("integrates height and distance smoothly without a near cutoff or object quantization", () => {
     const eye = { x: 0, y: 15.23, z: 0 };
-    const state = fit(eye, 190, 280);
-    expect(gardenAerialTransmittance(state, eye, { x: 140, y: SEA, z: 0 })).toBe(1);
+    const state = fit();
     const foot = gardenAerialTransmittance(state, eye, { x: 230, y: 8, z: 0 });
     const crown = gardenAerialTransmittance(state, eye, { x: 230, y: 40, z: 0 });
     expect(crown).toBeGreaterThan(foot);
-  });
-
-  it("earns clear air: positive clarity thins it, negative clarity thickens it", () => {
-    const eye = { x: 0, y: 15.23, z: 0 };
-    const point = { x: 260, y: SEA, z: 0 };
-    const clear = gardenAerialTransmittance(fit(eye, 190, 280, 1), eye, point);
-    const neutral = gardenAerialTransmittance(fit(eye, 190, 280, 0), eye, point);
-    const veiled = gardenAerialTransmittance(fit(eye, 190, 280, -1), eye, point);
-    expect(clear).toBeGreaterThan(neutral);
-    expect(neutral).toBeGreaterThan(veiled);
-  });
-});
-
-describe("time inside the day beat (X9)", () => {
-  it("makes the morning air clearer and cooler than the afternoon's, and noon the authored air", () => {
-    const eye = { x: 0, y: 15.23, z: 0 };
-    const point = { x: 260, y: SEA, z: 0 };
-    const read = (hour: number) => {
-      const state = fit(eye, 190, 280, 0, hour);
-      return { T: gardenAerialTransmittance(state, eye, point), blueShare: state.airlight.b / state.airlight.r };
-    };
-    const noon = read(NOON);
-    const morning = read(9.5);
-    const afternoon = read(15.5);
-    expect(morning.T).toBeGreaterThan(noon.T);
-    expect(afternoon.T).toBeLessThan(noon.T);
-    expect(morning.blueShare).toBeGreaterThan(noon.blueShare);
-    expect(afternoon.blueShare).toBeLessThan(noon.blueShare);
-  });
-});
-
-describe("K6 dawn band", () => {
-  it("is a morning band keyed to the sun only: never by day, never in the evening", () => {
-    expect(gardenDawnBandWeight(2 * DEG, 6.5)).toBe(1);
-    expect(gardenDawnBandWeight(30 * DEG, 9)).toBe(0);
-    expect(gardenDawnBandWeight(2 * DEG, 18.5)).toBe(0);
-    expect(gardenDawnBandWeight(-12 * DEG, 5)).toBe(0);
-  });
-
-  // Print-gate entry (K6): with a stale Peg summary at dawn, the stale bank over
-  // the risk waters must stay separable from the uniform dawn band. The bank is
-  // checked at its THINNEST (day density, the noise floor 0.72) against the band
-  // at its peak, over the distances the risk waters span from the seat.
-  it("leaves a stale fog bank at least 1.5× stronger than the dawn band over the risk waters", () => {
-    const eye = { x: 0, y: 15.23, z: 0 };
-    const base = { density: 0, start: 150, falloff: 0.035, seaLevel: SEA, dawnHeight: 2.5, veil: 1 };
-    for (const distance of [120, 160, 200, 250, 300]) {
-      const point = { x: distance, y: SEA, z: 0 };
-      const clear = gardenAerialTransmittance({ ...base, dawnBand: 0 }, eye, point);
-      const band = gardenAerialTransmittance({ ...base, dawnBand: GARDEN_DAWN_BAND_DENSITY }, eye, point);
-      const dawnOpacity = 1 - band / clear;
-      const staleOpacity = 0.72 * Math.min(0.34, gardenHeightFogFactor({
-        density: DAY_CYCLE_HEIGHT_FOG_PRESETS.day.density * 4,
-        distance: Math.hypot(distance, eye.y - SEA),
-        heightFalloff: DAY_CYCLE_HEIGHT_FOG_PRESETS.day.heightFalloff,
-        seaLevel: SEA,
-        worldY: SEA,
-      }));
-      expect(staleOpacity).toBeGreaterThanOrEqual(dawnOpacity * 1.5);
+    let previous = 1;
+    for (let distance = 1; distance < 1000; distance += 1) {
+      const t = gardenAerialTransmittance(state, eye, { x: distance, y: SEA, z: 0 });
+      expect(t).toBeLessThan(previous);
+      expect(previous - t).toBeLessThan(0.01);
+      previous = t;
     }
+    expect(GARDEN_AERIAL_GLSL_PARS).not.toMatch(/floor\(s\)|float stepped|airInk|dawnBand/);
+  });
+
+  it("decreases visibility monotonically with worsening displayed accepted PSI", () => {
+    const eye = { x: 0, y: 15.23, z: 0 };
+    const point = { x: 260, y: SEA, z: 0 };
+    let previous = 1;
+    for (const clarity of [1, 0.75, 0.5, 0.25, 0, -0.25, -0.5, -0.75, -1]) {
+      const t = gardenAerialTransmittance(fit(clarity), eye, point);
+      expect(t).toBeLessThan(previous);
+      previous = t;
+    }
+  });
+
+  it("composites linear air exactly once before each built-in's single output transform", () => {
+    for (const [name, shader] of Object.entries(ShaderLib)) {
+      if (!("fogColor" in shader.uniforms)) {
+        // Includes depth/distance passes: no atmosphere or output patch there.
+        expect(shader.uniforms, name).not.toHaveProperty("uGardenAir");
+        expect(shader.fragmentShader, name).not.toContain("gardenAerial");
+        continue;
+      }
+      const source = shader.fragmentShader;
+      for (const marker of ["fog_fragment", "tonemapping_fragment", "colorspace_fragment"]) {
+        expect(source.split(`#include <${marker}>`).length - 1, `${name}: ${marker}`).toBe(1);
+      }
+      expect(source.indexOf("#include <fog_fragment>"), name).toBeLessThan(source.indexOf("#include <tonemapping_fragment>"));
+      expect(source.indexOf("#include <tonemapping_fragment>"), name).toBeLessThan(source.indexOf("#include <colorspace_fragment>"));
+    }
+    // The relocation is conditional fog, not a pigment/emission/material patch.
+    expect(ShaderChunk.fog_fragment).toContain("#ifdef USE_FOG");
+    const identity = new MeshBasicMaterial({ color: "#3a5e5a", fog: false });
+    const practical = new MeshStandardMaterial({ emissive: "#d49a3e", emissiveIntensity: 0.38, fog: false });
+    expect(identity.color.getHexString()).toBe("3a5e5a");
+    expect(identity.fog).toBe(false);
+    expect(practical.emissive.getHexString()).toBe("d49a3e");
+    expect(practical.emissiveIntensity).toBe(0.38);
+    expect(practical.fog).toBe(false);
+    identity.dispose();
+    practical.dispose();
+  });
+
+  it("keeps the water and annulus aerial composite before the single output conversion", () => {
+    const air = WATER_FRAGMENT_SHADER.indexOf("gl_FragColor.rgb = gardenAerial(");
+    const horizon = WATER_FRAGMENT_SHADER.indexOf("gardenAirlight(normalize(vWorldPosition - cameraPosition))", air);
+    const tone = WATER_FRAGMENT_SHADER.indexOf("#include <tonemapping_fragment>");
+    const output = WATER_FRAGMENT_SHADER.indexOf("#include <colorspace_fragment>");
+    expect(air).toBeGreaterThan(0);
+    expect(horizon).toBeGreaterThan(0);
+    expect(air).toBeLessThan(horizon);
+    expect(horizon).toBeLessThan(tone);
+    // Both meshes use the same world-distance airlight composite; no annulus gate.
+    expect(WATER_FRAGMENT_SHADER.slice(air, tone)).not.toContain("uAnnulus");
+    expect(tone).toBeLessThan(output);
+    expect(WATER_FRAGMENT_SHADER.split("#include <tonemapping_fragment>").length - 1).toBe(1);
+    expect(WATER_FRAGMENT_SHADER.split("#include <colorspace_fragment>").length - 1).toBe(1);
+  });
+
+  it("caps only the overview edge veil for explicitly flagged decorative terrain", () => {
+    const block = GARDEN_AERIAL_GLSL_PARS.match(/#ifdef GARDEN_AIR_DECORATIVE_TERRAIN([\s\S]*?)#endif/)![1]!;
+    expect(block).toContain("kasumi = min(kasumi, 0.08)");
+    expect(block).not.toMatch(/\bT\b|rayleigh|mie|gardenAerialTransmittance/);
+    expect(GARDEN_AERIAL_GLSL_PARS.indexOf(block)).toBeGreaterThan(GARDEN_AERIAL_GLSL_PARS.indexOf("if (uGardenAir.plateHaze > 0.0)"));
+    expect(GARDEN_AERIAL_GLSL_PARS).toContain("color * T + air * (1.0 - T)");
+  });
+
+  it("excludes continuous water only from the rectangular overview veil", () => {
+    const start = GARDEN_AERIAL_GLSL_PARS.indexOf("#ifndef GARDEN_AIR_CONTINUOUS_WATER");
+    const end = GARDEN_AERIAL_GLSL_PARS.indexOf("\n  #endif", start);
+    const block = GARDEN_AERIAL_GLSL_PARS.slice(start, end);
+    expect(block).toContain("if (uGardenAir.plateHaze > 0.0)");
+    expect(block).toContain("gardenAirPlateSigned(worldPos.xz)");
+    expect(block).not.toMatch(/gardenAerialTransmittance|beaconAir|gardenIchimonji/);
+    expect(start).toBeGreaterThan(GARDEN_AERIAL_GLSL_PARS.indexOf("color * T + air * (1.0 - T)"));
+    expect(GARDEN_AERIAL_GLSL_PARS.indexOf("return result;", end)).toBeGreaterThan(end);
   });
 });
 
@@ -138,5 +161,42 @@ describe("shared material-patch chain (K5)", () => {
     chainGardenMaterialPatch(clone, { key: "a", compile: () => order.push("clone-a") });
     clone.onBeforeCompile({} as never, null as never);
     expect(order).toContain("clone-a");
+  });
+
+  it("orders the surface and reserved indirect slots before ink and air, preserving lazy base keys", () => {
+    const material = new MeshStandardMaterial();
+    const order: string[] = [];
+    let baseKey = "fleet-v1";
+    material.customProgramCacheKey = () => baseKey;
+    material.onBeforeCompile = () => order.push("existing-deformation");
+    chainGardenMaterialPatch(material, { key: "air", stage: "aerial", compile: () => order.push("air") });
+    chainGardenMaterialPatch(material, { key: "ink", stage: "printInk", compile: () => order.push("ink") });
+    chainGardenMaterialPatch(material, { key: "surface:stone:worldXZ", slot: "surface", stage: "surface", compile: () => order.push("stone") });
+    chainGardenMaterialPatch(material, { key: "indirect", stage: "indirect", compile: () => order.push("indirect") });
+    chainGardenMaterialPatch(material, { key: "wind", compile: () => order.push("wind") });
+    material.onBeforeCompile({} as never, null as never);
+    expect(order).toEqual(["existing-deformation", "wind", "stone", "indirect", "ink", "air"]);
+    expect(material.customProgramCacheKey()).toBe("fleet-v1|wind|surface:stone:worldXZ|indirect|ink|air");
+    baseKey = "fleet-v2";
+    expect(material.customProgramCacheKey()).toBe("fleet-v2|wind|surface:stone:worldXZ|indirect|ink|air");
+    chainGardenMaterialPatch(material, { key: "surface:timber:uv", slot: "surface", stage: "surface", compile: () => order.push("timber") });
+    order.length = 0;
+    material.onBeforeCompile({} as never, null as never);
+    expect(order).toEqual(["existing-deformation", "wind", "timber", "indirect", "ink", "air"]);
+    expect(material.customProgramCacheKey()).toBe("fleet-v2|wind|surface:timber:uv|indirect|ink|air");
+  });
+
+  it("retains three's default deformation cache identity before installing the shared wrapper", () => {
+    const first = new MeshStandardMaterial();
+    const second = new MeshStandardMaterial();
+    first.onBeforeCompile = (shader) => { shader.vertexShader += "\n// deformation-a"; };
+    second.onBeforeCompile = (shader) => { shader.vertexShader += "\n// deformation-b"; };
+    const firstBase = first.customProgramCacheKey();
+    const secondBase = second.customProgramCacheKey();
+    chainGardenMaterialPatch(first, { key: "surface", stage: "surface", compile: () => undefined });
+    chainGardenMaterialPatch(second, { key: "surface", stage: "surface", compile: () => undefined });
+    expect(first.customProgramCacheKey()).toBe(`${firstBase}|surface`);
+    expect(second.customProgramCacheKey()).toBe(`${secondBase}|surface`);
+    expect(first.customProgramCacheKey()).not.toBe(second.customProgramCacheKey());
   });
 });

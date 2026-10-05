@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { gardenSkyDayFromParts, pinGardenSkyDay } from "../systems/sky-almanac";
 import { gardenRitualHandler } from "../systems/garden-director";
 import { createGardenKeeper, gardenKeeperWalk, GARDEN_KEEPER_KINDLE_WINDOW, type GardenKeeper } from "./garden-keeper";
+import { GARDEN_CHASEKI_ANCHORS, islandTerrainHeight } from "./garden-island";
 import {
   GARDEN_KINDLE_ORDER,
   gardenLanternKindleFactor,
@@ -67,14 +68,24 @@ describe("the evening keeper (W5.4, K20)", () => {
     const walk = gardenKeeperWalk();
     keeper.handler.start(0);
     let previous = 0;
-    run(keeper, 0, walk.gateSeconds + 3, () => {
+    run(keeper, 0, walk.gateSeconds + 3, (t) => {
       const opacity = keeper.figure.material.opacity;
       expect(Math.abs(opacity - previous)).toBeLessThanOrEqual(1 / 60 / 1.5 + 1e-9);
       previous = opacity;
+      const step = walk.steps.find((candidate) => t <= candidate.end);
+      if (step?.terrain && t < walk.gateSeconds) {
+        expect(keeper.figure.position.y).toBeCloseTo(islandTerrainHeight(keeper.figure.position.x, keeper.figure.position.z), 6);
+      }
     });
     const first = walk.steps[0]!.from;
     const last = walk.steps.at(-1)!.to;
-    expect(Math.hypot(first.x - 4.7, first.z - 3.65)).toBeLessThan(0.3);
+    expect(first).toEqual(GARDEN_CHASEKI_ANCHORS.door);
+    expect(walk.steps.some((step) => step.to === GARDEN_CHASEKI_ANCHORS.threshold)).toBe(true);
+    walk.steps.forEach((step, index) => {
+      if (index === 0) return;
+      expect(step.start).toBe(walk.steps[index - 1]!.end);
+      expect(step.from).toEqual(walk.steps[index - 1]!.to);
+    });
     expect(last.y).toBeGreaterThan(8);
     expect(keeper.figure.visible).toBe(false);
     // A small figure: ≤ 300 triangles in one draw.

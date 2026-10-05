@@ -19,13 +19,16 @@ export function buildShipIssuance(
   status: PharosVilleSourceStatus,
 ): ShipIssuance | undefined {
   if (!coin) return undefined;
-  const net = finiteQuantity(coin.netFlow24hUsd);
+  const valuation = coin.valuation;
+  const windowValuation = valuation?.window24h.completeness ?? "unknown";
+  const net = windowValuation === "partial" ? null : finiteQuantity(coin.netFlow24hUsd);
   const mint = finiteQuantity(coin.mintVolume24hUsd);
   const burn = finiteQuantity(coin.burnVolume24hUsd);
   const gross = mint === null || burn === null ? null : mint + burn;
   const windowHours = finiteQuantity(envelope.windowHours);
   const coverage = coin.coverage ?? null;
-  const completeWindow = windowHours === 24 && coverage?.status === "full" && coverage.has24hWindow && !coverage.isPartial;
+  const completeWindow = windowHours === 24 && coverage?.status === "full" && coverage.has24hWindow && !coverage.isPartial
+    && windowValuation === "complete";
   const direction = net === null ? null : net > 0 ? "minting" : net < 0 ? "redeeming" : "flat";
   const activity = net === null || gross === null ? null
     : net > 0 ? "minting" : net < 0 ? "redeeming"
@@ -37,11 +40,13 @@ export function buildShipIssuance(
     observedAt: null,
     methodologyVersion: status.methodologyVersion,
     coverage: {
-      state: completeWindow ? "complete" : coverage ? "partial" : "unknown",
+      state: completeWindow ? "complete" : !coverage || coverage.status === "unknown" ? "unknown" : "partial",
       ...(windowHours !== null ? { windowHours } : {}),
       ...(envelope.scope?.label ? { scopeLabel: envelope.scope.label } : {}),
     },
-    reason: completeWindow ? null : coverage ? `Partial history (${coverage.status}); complete 24h window unavailable` : "Window coverage unknown",
+    reason: windowValuation === "partial" ? "Partial USD valuation; signed net unavailable, gross is a known-valuation lower bound"
+      : completeWindow ? null : coverage?.status === "unknown" || !coverage ? "Window coverage unknown"
+      : `Partial history (${coverage.status}) or unknown USD valuation; complete 24h window unavailable`,
   });
   const event = coin.largestEvent24h;
   return {
@@ -49,7 +54,7 @@ export function buildShipIssuance(
     mintVolumeUsd: mint, burnVolumeUsd: burn, grossVolumeUsd: gross, netFlow24hUsd: net,
     mintCount: finiteQuantity(coin.mintCount24h), burnCount: finiteQuantity(coin.burnCount24h),
     intensity: finiteQuantity(coin.flowIntensity), intensitySemantics: envelope.gauge.intensitySemantics ?? null,
-    windowHours, coverage, completeWindow, evidence,
+    windowHours, coverage, valuation, completeWindow, evidence,
     work: { eligible: false, supplyShare: null, fleetGrossShare: null, overviewRank: null },
     largestEvent24h: event && Number.isFinite(event.amountUsd) && Number.isFinite(event.timestamp)
       ? { amountUsd: event.amountUsd, direction: event.direction, timestamp: event.timestamp } : null,
@@ -116,6 +121,10 @@ function signedCompactUsd(value: number | null): string {
   return `${sign}${formatCompactUsd(Math.abs(value))}`;
 }
 
+function grossQuantityLabel(value: number | null, complete: boolean): string {
+  if (value === null) return "unavailable";
+  return `${complete ? "" : "≥ "}${formatCompactUsd(value)}${complete ? "" : " (known-valuation lower bound)"}`;
+}
 export function shipIssuanceDetailLabel(ship: Pick<ShipNode, "issuance">): string {
   const issuance = ship.issuance;
   if (!issuance) return "Unavailable — no per-coin mint/redeem row; illustrative, not a transaction";
@@ -132,7 +141,7 @@ export function shipIssuanceDetailLabel(ship: Pick<ShipNode, "issuance">): strin
   const event = issuance.largestEvent24h;
   return [
     state,
-    `mint ${formatCompactUsd(issuance.mintVolumeUsd)} (${issuance.mintCount ?? "unknown"} events), burn ${formatCompactUsd(issuance.burnVolumeUsd)} (${issuance.burnCount ?? "unknown"} events), gross ${formatCompactUsd(issuance.grossVolumeUsd)}, net ${signedCompactUsd(issuance.netFlow24hUsd)}`,
+    `mint ${grossQuantityLabel(issuance.mintVolumeUsd, issuance.valuation?.window24h.mintCompleteness === "complete")} (${issuance.mintCount ?? "unknown"} events), burn ${grossQuantityLabel(issuance.burnVolumeUsd, issuance.valuation?.window24h.burnCompleteness === "complete")} (${issuance.burnCount ?? "unknown"} events), gross ${grossQuantityLabel(issuance.grossVolumeUsd, issuance.valuation?.window24h.completeness === "complete")}, net ${signedCompactUsd(issuance.netFlow24hUsd)}${issuance.valuation?.window24h.completeness === "complete" ? "" : " (valuation partial or unknown)"}`,
     window,
     cargo,
     `Illustrative work (declared policy): ${!issuanceHasCurrentWindow(issuance) ? "qualified evidence; no moving work" : issuance.work.eligible ? "eligible" : issuance.work.supplyShare === null && issuance.work.fleetGrossShare === null ? "unmeasured materiality; static cargo" : "below policy; static cargo"}; own supply share ${issuance.work.supplyShare === null ? "unmeasured" : `${(issuance.work.supplyShare * 100).toFixed(3)}%`}; covered fleet gross share ${issuance.work.fleetGrossShare === null ? "unmeasured" : `${(issuance.work.fleetGrossShare * 100).toFixed(3)}%`}; ${issuance.work.overviewRank === null ? "no overview work slot" : `overview slot ${issuance.work.overviewRank}/${ISSUANCE_OVERVIEW_WORK_LIMIT}`}`,

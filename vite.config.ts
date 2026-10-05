@@ -1,6 +1,10 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync, realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import type { OutputBundle, OutputChunk } from "rollup";
 import { onRequest as pharosVilleApiProxy } from "./functions/api/[[path]]";
 import { loadWorktreeSharedPharosEnv } from "./scripts/pharosville/local-api-env.mjs";
@@ -50,6 +54,56 @@ function localPharosVilleApiProxy(env: { PHAROS_API_BASE?: string; PHAROS_API_KE
           res.statusCode = 500;
           res.setHeader("content-type", "application/json");
           res.end(JSON.stringify({ error: "Local PharosVille API proxy failed" }));
+        }
+      });
+    },
+  };
+}
+
+/** Identity comes from the serving process, never a preview CLI label or another checkout. */
+function localCheckoutIdentity(): Plugin {
+  return {
+    name: "local-pharosville-checkout-identity",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url?.split("?")[0] !== "/__pharosville/checkout") { next(); return; }
+        res.setHeader("content-type", "application/json");
+        res.setHeader("cache-control", "no-store");
+        if (req.method !== "GET") { res.statusCode = 405; res.end(); return; }
+        try {
+          const servingRoot = realpathSync(root);
+          const git = (args: string[]) => execFileSync("git", args, { cwd: servingRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+          const allowed = (path: string) => !path.split("/").some((part) => part.startsWith(".env"));
+          const entries = git(["status", "--porcelain", "-z"]).split("\0");
+          const dirtyPaths: string[] = [];
+          for (let index = 0; index < entries.length; index++) {
+            const entry = entries[index];
+            if (!entry) continue;
+            const path = entry.slice(3);
+            if (allowed(path)) dirtyPaths.push(path);
+            if (/[RC]/.test(entry.slice(0, 2))) {
+              const previous = entries[++index];
+              if (previous && allowed(previous)) dirtyPaths.push(previous);
+            }
+          }
+          const sources = git(["ls-files", "--cached", "--others", "--exclude-standard", "-z"]).split("\0")
+            .filter((path) => path && allowed(path) && (/^(src|shared|public|functions)\//.test(path)
+              || ["index.html", "vite.config.ts", "package.json", "package-lock.json"].includes(path))).sort();
+          const digest = createHash("sha256");
+          for (const path of sources) {
+            try {
+              const bytes = readFileSync(resolve(servingRoot, path));
+              digest.update(`${path}\0${bytes.byteLength}\0`); digest.update(bytes);
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+              digest.update(`${path}\0missing\0`);
+            }
+          }
+          res.end(JSON.stringify({ root: servingRoot, commit: git(["rev-parse", "HEAD"]).trim(),
+            dirtyPaths: [...new Set(dirtyPaths)].sort(), sourceHash: digest.digest("hex") }));
+        } catch {
+          res.statusCode = 503; res.end(JSON.stringify({ error: "Serving checkout identity unavailable." }));
         }
       });
     },
@@ -119,6 +173,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [
+      localCheckoutIdentity(),
       localPharosVilleApiProxy({
         PHAROS_API_BASE: env.PHAROS_API_BASE ?? "https://api.pharos.watch",
         ...(env.PHAROS_API_KEY !== undefined ? { PHAROS_API_KEY: env.PHAROS_API_KEY } : {}),

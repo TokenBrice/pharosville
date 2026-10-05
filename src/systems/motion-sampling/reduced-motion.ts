@@ -29,8 +29,10 @@ export function reducedMotionSampleInto(
   out.currentDockId = null;
   out.currentRouteStopId = null;
   out.currentRouteStopKind = null;
-  out.heading.x = 0;
-  out.heading.y = 0;
+  // The still tableau poses every hull at its accepted resting heading, the
+  // authored lobe axis of its composed berth. A zero heading pinned the whole
+  // fleet due east and made the first live frame yaw every hull at once.
+  writeRestingHeadingInto(route, out.heading);
   writeZeroVelocityInto(out);
   writeMapVisibilityAlphaInto(out, 1);
   out.wakeIntensity = 0;
@@ -63,8 +65,26 @@ function reducedMotionRouteFrame(route: ShipMotionRoute): ReducedMotionRouteFram
   // Stillness uses the authored risk anchorages, not every ship's primary
   // dock at once. Chain ties stay in its record; the full fleet keeps its
   // canonical, water-safe display composition with no simulation warm-up.
+  const heading = { x: 0, y: 0 };
+  writeRestingHeadingInto(route, heading);
   return {
     tile: route.riskStop?.kind === "ledger" ? route.riskStop.mooringTile : route.riskTile,
-    heading: route.riskStop?.dockTangent ?? { x: 0, y: 0 },
+    heading,
   };
+}
+
+/** Accepted resting heading, then the ledger buoy's own axis, then east. */
+function writeRestingHeadingInto(
+  route: ShipMotionRoute | undefined,
+  heading: { x: number; y: number },
+): void {
+  const resting = route?.restingHeadingRad;
+  if (resting !== undefined) {
+    heading.x = Math.cos(resting);
+    heading.y = Math.sin(resting);
+    return;
+  }
+  const tangent = route?.riskStop?.dockTangent;
+  heading.x = tangent?.x ?? 1;
+  heading.y = tangent?.y ?? 0;
 }

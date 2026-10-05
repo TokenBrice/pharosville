@@ -18,6 +18,7 @@ import { MIN_HULL_GAP, resetGardenFleetPlacementCache } from "./garden-fleet-pla
 import {
   GARDEN_SHIP_ROOT_Y,
   GARDEN_SILHOUETTE_FOR_HULL,
+  gardenRepresentativeRestHeading,
   gardenShipVisualScale,
   resolveGardenShipDisplayTile,
   selectGardenObservatorySlice,
@@ -63,6 +64,50 @@ describe("motion", () => {
     freshness: makeSourceStatuses(),
   });
   const densePlanFixture = buildBaseMotionPlan(denseWorldFixture);
+
+  it("carries the accepted resting heading into route metadata, identity and the still tableau", () => {
+    const world = denseWorldFixture;
+    const plan = densePlanFixture;
+    let checked = 0;
+    for (const ship of world.ships) {
+      const route = plan.shipRoutes.get(ship.id)!;
+      const accepted = route.restingHeadingRad;
+      if (accepted === undefined) continue;
+      // Route metadata carries the authored lobe axis with its bounded
+      // deterministic variation, and the identity key moves with it, so a
+      // recomposed berth invalidates the route rather than keeping a stale pose.
+      expect(route.routeKey, ship.id).toContain(`rest=${accepted.toFixed(6)}`);
+      // Reduced motion poses the hull at that heading instead of due east.
+      const still = resolveShipMotionSample({ plan, reducedMotion: true, ship, timeSeconds: 0 });
+      expect(Math.hypot(still.heading.x, still.heading.y), ship.id).toBeCloseTo(1, 10);
+      expect(still.heading.x, ship.id).toBeCloseTo(Math.cos(accepted), 10);
+      expect(still.heading.y, ship.id).toBeCloseTo(Math.sin(accepted), 10);
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(50);
+    const representative = world.ships.find((ship) => gardenRepresentativeRestHeading(world, ship.id) !== null)!;
+    expect(plan.shipRoutes.get(representative.id)!.restingHeadingRad)
+      .toBeCloseTo(gardenRepresentativeRestHeading(world, representative.id)!, 10);
+  });
+
+  it("keeps a quay dwell on its dock axis and underway headings authoritative", () => {
+    const world = denseWorldFixture;
+    const plan = densePlanFixture;
+    let dwells = 0;
+    for (const ship of world.ships) {
+      const route = plan.shipRoutes.get(ship.id)!;
+      const stop = route.dockStops.find((entry) => entry.dockTangent);
+      if (!stop) continue;
+      const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: 12 - route.phaseSeconds });
+      if (sample.state !== "moored" || sample.currentDockId !== stop.dockId) continue;
+      const tangent = stop.dockTangent!;
+      const apart = Math.acos(Math.max(-1, Math.min(1, sample.heading.x * tangent.x + sample.heading.y * tangent.y)));
+      // The quay keeps its own axis: the resting heading never overrides it.
+      expect(apart * 180 / Math.PI, ship.id).toBeLessThan(4);
+      dwells += 1;
+    }
+    expect(dwells).toBeGreaterThan(10);
+  });
 
   it("keeps dockless patrols meaningful across every risk water zone", () => {
     const cases: Array<{ expectedTerrains: string[]; minDistance: number; zone: ShipWaterZone; world: PharosVilleWorld }> = [
@@ -2871,26 +2916,20 @@ describe("motion", () => {
   // A4: seam-detection test pattern — D1 (wake smoothing) and D2 (ledger-roaming
   // blend window) have landed; this test is now active.
   it("resolveShipMotionSample has no tile or heading seams across a full cycle (D1/D2 pending)", () => {
-    // Use a ship with a dock visit so it goes through the full sail→arrive→moor
-    // →depart cycle that exercises the known seams.
-    // Use the shared dense world — pick the first ship that has dock visits
-    // so the cycle includes the full sail→arrive→moor→depart transitions.
-    const sampleWorld = buildPharosVilleWorld({
-      stablecoins: denseFixtureStablecoins,
-      chains: denseFixtureChains,
-      stability: fixtureStability,
-      pegSummary: denseFixturePegSummary,
-      stress: denseFixtureStress,
-      safetyGrades: denseFixtureSafetyGrades,
-      cemeteryEntries: [],
-      freshness: makeSourceStatuses(),
-    });
+    // Reuse the immutable dense fixture and its already-planned routes. This
+    // invariant concerns sampling, not another full fleet/path warm-up.
+    const sampleWorld = denseWorldFixture;
     const ship = sampleWorld.ships.find((s) => s.dockVisits.length > 0) ?? sampleWorld.ships[0]!;
-    const plan = buildMotionPlan(sampleWorld, ship.detailId);
+    const plan = buildMotionPlan(sampleWorld, ship.detailId, densePlanFixture);
     const route = plan.shipRoutes.get(ship.id)!;
     // Walk one full cycle in 1/60s steps (60fps).
     const STEPS = Math.ceil(route.cycleSeconds * 60);
     let prevSample: { tile: { x: number; y: number }; heading: { x: number; y: number }; state: string } | null = null;
+    // Keep every original 60fps sample, including interior hairpins and phase
+    // seams. Checking the maxima is equivalent to asserting each pair, without
+    // constructing thousands of matchers and JSON diagnostics on the pass path.
+    let maxTileDelta = 0;
+    let maxHeadingDeltaDeg = 0;
     for (let i = 0; i < STEPS; i += 1) {
       const t = (route.cycleSeconds * i) / STEPS - route.phaseSeconds;
       const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: t });
@@ -2898,7 +2937,10 @@ describe("motion", () => {
         const tileDelta = Math.hypot(sample.tile.x - prevSample.tile.x, sample.tile.y - prevSample.tile.y);
         // Includes phase boundaries and interior hairpins: the lane's local
         // chord must not flip its lateral offset when a segment turns back.
-        expect(tileDelta, `${ship.id} at ${t.toFixed(3)}s: ${prevSample.state} ${JSON.stringify(prevSample.tile)} -> ${sample.state} ${JSON.stringify(sample.tile)}`).toBeLessThan(0.22);
+        maxTileDelta = Math.max(maxTileDelta, tileDelta);
+        if (!(tileDelta < 0.22)) {
+          expect(tileDelta, `${ship.id} at ${t.toFixed(3)}s: ${prevSample.state} ${JSON.stringify(prevSample.tile)} -> ${sample.state} ${JSON.stringify(sample.tile)}`).toBeLessThan(0.22);
+        }
         // Skip heading check for moored/risk-drift states — intentional orbit
         // and drift-circle heading rotation; not a transit seam.
         if (prevSample.state !== "moored" && sample.state !== "moored"
@@ -2906,11 +2948,16 @@ describe("motion", () => {
           const dot = Math.max(-1, Math.min(1, prevSample.heading.x * sample.heading.x + prevSample.heading.y * sample.heading.y));
           const headingDeltaRad = Math.acos(dot);
           const headingDeltaDeg = headingDeltaRad * (180 / Math.PI);
-          expect(headingDeltaDeg).toBeLessThan(23);
+          maxHeadingDeltaDeg = Math.max(maxHeadingDeltaDeg, headingDeltaDeg);
+          if (!(headingDeltaDeg < 23)) {
+            expect(headingDeltaDeg, `${ship.id} at ${t.toFixed(3)}s`).toBeLessThan(23);
+          }
         }
       }
       prevSample = { tile: { x: sample.tile.x, y: sample.tile.y }, heading: { x: sample.heading.x, y: sample.heading.y }, state: sample.state };
     }
+    expect(maxTileDelta, ship.id).toBeLessThan(0.22);
+    expect(maxHeadingDeltaDeg, ship.id).toBeLessThan(23);
   });
 });
 

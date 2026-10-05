@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "purpose": "Real-GPU reading-key exemplars, not live data or screenshot acceptance evidence.",
+  "instructions": [
+    "Run each non-pending slot's capture command serially through outputs/cap.sh. --clip affects the burst crop only: the file consumed below is the -burst-00.png, never the full-frame PNG. Re-capture every supplied file; old files at these paths do not certify the corrected rectangles.",
+    "These rectangles are derived from the current production projection and canonical field, not verified GPU crops. Before publishing, inspect each new burst crop against RISK_SURFACE_SIGNATURES and its derivation. Confirm identifiable mirror/pair/triple/silt, with no hull, pier, sign, shoreline or seam; otherwise set file to null and supply an explicit pending reason. Do not publish a misidentified crop.",
+    "Watch, Danger, Ledger and Wreck remain explicitly pending in mixed-capacity at this overview. Alternative-fixture completionPath entries are analysis, not supplied crops or passed GPU gates; do not promote them without capturing and inspecting those signatures. The operator's real-GPU Wreck review rejected the datum-field candidate because rendered bank, roof and dock cover it.",
+    "Only STEADY and CRISIS lighthouse states have official readings in the requested fixtures. Other PSI image slots remain absent until a matching official fixture is supplied. sky=BAND changes cloud/air appearance only, not official PSI or beacon state.",
+    "After S4-P5 lands, run the cloud command and change its file from null to outputs/g/reading/cloud-burst-00.png, removing pending only after visual review. Re-run all affected shader/silhouette captures after appearance changes.",
+    "Then run node scripts/pharosville/generate-reading-atlas.mjs --manifest agents/2026-10-05-garden-levers/destination/reading-atlas-crops.json. It publishes public/garden-reading-atlas.webp and src/systems/reading-atlas.json; pending slots have no exemplar or source, and stay text-only in the key.",
+    "Review key-day/key-night at 1200x640 and 900x720, in reduced motion and grayscale, then run the S3 blinded reading protocol. This manifest does not claim those gates passed."
+  ],
+  "derivation": {
+    "date": "2026-10-05",
+    "status": "Read-only Node projection analysis plus operator-reported real-GPU review: lighthouse, Calm, Alert and Warning accepted; Wreck rejected as bank/roof/dock; first sail crops rejected as multi-hull context. Tight identity-sail recrops await operator review. No captures or checks run by this implementation agent.",
+    "sources": [
+      "src/systems/projection.ts: cameraPoseFromIso, cameraView, worldToScreen, screenToGround",
+      "src/systems/camera.ts: clampCameraToMap, defaultCamera, followTile",
+      "src/systems/garden-observatory-slice.ts: GARDEN_WATER_Y, gardenTowerWorldAnchors, selectGardenObservatorySlice, resolveGardenShipDisplayTile, gardenRepresentativeRestHeading",
+      "src/systems/sea-bodies.ts: seaBodyAtTile, seaBodyForArea",
+      "src/systems/world-layout.ts: terrainKindAt; src/systems/garden-sea-regions.ts: buildSeaRegionField, RISK_SURFACE_SIGNATURES",
+      "src/systems/garden-fleet-footprint.ts: writeGardenFleetFootprint; src/systems/dock-layout.ts: stationFootprintRect",
+      "src/three/garden-sea-sign-siting.ts: seaSignSteles; src/three/garden-water.ts: GARDEN_RISK_SURFACE_GLSL, uRegionTransform",
+      "src/__fixtures__/data-contract-scenarios.ts: denseMixedCapacityInput, denseQuietArtInput, quietNormalInput; src/systems/pharosville-world.ts: buildPharosVilleWorld"
+    ],
+    "overview": {
+      "fixture": "mixed-capacity",
+      "viewport": [1600, 1000],
+      "hash": "#t=12.25&cam=0,0,0.28",
+      "clampedCamera": { "offsetX": 736, "offsetY": 148.64, "zoom": 0.28 },
+      "pose": { "pitchDegrees": 38, "yawDegrees": 45, "verticalFovDegrees": 32, "targetTile": [85.5714285714, 71.2857142857], "distanceWorldUnits": 389.2203620358 },
+      "screenBandBounds": {
+        "calm": [376, 228, 880, 636],
+        "watch": [612, 536, 1032, 880],
+        "alert": [904, 364, 1164, 648],
+        "warning": [1032, 428, 1308, 540],
+        "danger": [1044, 448, 1340, 624],
+        "ledger": [560, 180, 984, 348],
+        "wreck": [204, 404, 424, 560]
+      },
+      "boundsMeaning": "Approximate [minX,minY,maxX,maxY] on a 4 CSS-pixel grid, not rectangles to crop",
+      "method": [
+        "Build the fixture world and selectGardenObservatorySlice(world,null). Clamp the URL rig through clampCameraToMap using the actual 140x140 map and 1600x1000 viewport; cam offsets are iso-pose pixels, not tile coordinates. Reduced motion removes breath and hull animation.",
+        "Build the renderer's 512x512 sea-region field. For each screen pixel, screenToGround(pixel,camera,viewport,-1.45) intersects the datum. Sample R at floor(tile/140*512), matching the categorical renderer field; G*6.5 and B*24 recover boundary and shore distances. Water-local coordinates for the signature are (tileX*sqrt(2),-tileY*sqrt(2)), not (X,+Z).",
+        "Resolve each representative's reduced-motion tile with resolveGardenShipDisplayTile using sample={tile:ship.riskTile,state:'idle'}. Project writeGardenFleetFootprint at headingRad=-gardenRepresentativeRestHeading(world,id); exclude its hull/sail union bounding rectangle plus 7 CSS pixels. This is a conservative geometry envelope, not a rendered-pixel occlusion proof.",
+        "Project each displayed dock's stationFootprintRect corners over world Y [-1.25,18], with 5 CSS pixels of padding; this deliberately covers piers, massing and nobori. Exclude all seaSignSteles at world Y 4 with a conservative screen rectangle of +/-25 X and +/-20 Y. Shore distance >=4 tiles excludes coastline; field purity excludes land and region seams.",
+        "Search 4px-grid rectangles, descending widths [160,144,128,112,96,80,64,48], height rounded to a 1.6 aspect. Prefer high boundary/shore-distance centres. Inset the final Calm and Warning edges beyond subpixel obstacle bounds. Per-pixel field purity is recorded per slot; field/geometry classification is not GPU acceptance.",
+        "For stroke slots, apply the static gardenRiskSurface cell/rotation/jitter/group equations to the inverse-projected water coordinates. Use 1px ray differences for footprint; identify a complete pair/triple/quartet rather than a blank cell. JS double-precision gardenHash is only a location sanity check: GLSL floating-point hashes, wave displacement, optical light, contact and actual GPU legibility must be reviewed in the new captures."
+      ]
+    },
+    "lighthouse": {
+      "method": "Use defaultCamera({width:1600,height:1000,map}) with rest presence 1, not the bare rig. gardenTowerWorldAnchors(LIGHTHOUSE_TILE) includes gardenIslandDisplayTile's (12,8) tile offset and root (-7,8.55,-1.25). Project foot, beacon and crown with worldToScreen. Both fixtures share this geometry; quiet-dense supplies official STEADY/82, mixed-capacity CRISIS/25.",
+      "worldAxisXZ": [94.8233764909, 109.0586578651],
+      "projectedAnchors": { "foot": [992.33318421, 494.2282439912], "beacon": [993.6717458364, 226.9435881107], "crown": [994.1071624004, 139.9993905534] },
+      "reason": "Old y=150 excluded the sceptre crown at y=140. New y=100 includes crown and lantern with margin; x=900..1100 and y=100..525 include the tower's body and foot."
+    },
+    "sails": {
+      "method": "Build denseQuietArtInput and selectGardenObservatorySlice(world,null); find each named representative without selecting it. Resolve reduced-motion display tiles and selection-independent rest headings. Use USDT's reference tile (49,97) and camera (1676.921606,-961.6,0.8). For each other hull delta=(dx,dy) from that tile, translate camera offsets by (-16*0.8*(dx-dy),-8*0.8*(dx+dy)); clamp the resulting camera as production does. This translates the full camera view with the hull, not just its screen X: all three retain exactly the same eye-to-root distance and root screen position. No sel parameter: it paints a world-space selection label over the cloth. Project writeGardenFleetFootprint's identitySail and hull/sail envelopes for the unselected slice. Use the same [804,466,64,72] crop for all three: it contains all three cloth envelopes and hull/sail unions, centred on the common hull X, with little contextual margin. Equal dimensions give equal atlas resize scale, unlike the rejected individually sized tight crops.",
+      "comparison": { "zoom": 0.8, "eyeToHullRootWorldUnits": 221.8556638587, "hullRootViewDepth": 221.7930886412, "hullRootScreen": [836.0009241910, 520.4899124007], "commonClip": [804, 466, 64, 72], "selection": "None; sel omitted", "pose": "Reduced-motion tiles and accepted headings are unchanged by selection; all named hulls are already representatives." },
+      "note": "Read-only projection confirms all three cloth envelopes lie inside the common crop; actual GPU cloth/occlusion review remains required. Authored hull families and compressed/capped supply scale are unchanged; do not exaggerate differences by resizing each exemplar separately."
+    }
+  },
+  "slots": [
+    {
+      "id": "water.calm", "file": "outputs/g/reading/water-calm-burst-00.png", "clip": [512, 533, 64, 39],
+      "capture": "outputs/cap.sh outputs/g/reading/water-calm --fixture mixed-capacity --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=0,0,0.28' --reduced --clean --burst 1 --clip 512,533,64,39",
+      "derivation": { "regionId": 1, "centreTileApprox": [66.09, 107.18], "signature": "Mirror; intentionally no analytical strokes", "fieldPurity": 1, "placement": "Open southwest interior; top inset past the expanded USDe envelope ending at y=532.825. Not the old dock/shore window." }
+    },
+    {
+      "id": "water.watch", "file": null,
+      "pending": "Mixed-capacity overview has Watch water, but conservative hull/sign/shore exclusions leave no clear >=48x32 exemplar. Only 32x24 scraps survive; one ribbon fragment does not honestly illustrate the long bending single-ribbon signature.",
+      "derivation": { "regionId": 2, "largestCandidateClip": [764, 708, 32, 24], "centreTileApprox": [117.25, 106.84], "signature": { "pitch": 12, "length": [18, 30], "grouping": 1, "bearing": 1.41 } },
+      "completionPath": { "fixture": "quiet-dense", "hash": "#t=12.25&cam=0,0,0.28", "candidateClip": [688, 656, 160, 100], "reason": "Its CALM stress moves risk hulls out of Watch; the same projection/exclusion search admits a 160x100 window. CPU signature math locates four ribbon cells. Capture and inspect before promoting; not published evidence.", "capture": "outputs/cap.sh outputs/g/reading/water-watch-candidate --fixture quiet-dense --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=0,0,0.28' --reduced --clean --burst 1 --clip 688,656,160,100" }
+    },
+    {
+      "id": "water.alert", "file": "outputs/g/reading/water-alert-burst-00.png", "clip": [952, 500, 48, 32],
+      "capture": "outputs/cap.sh outputs/g/reading/water-alert --fixture mixed-capacity --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=0,0,0.28' --reduced --clean --burst 1 --clip 952,500,48,32",
+      "derivation": { "regionId": 3, "centreTileApprox": [107.0599480481, 53.7095965996], "fieldPurity": 1, "minimumBoundaryTiles": 1.6314, "minimumShoreTiles": 22.1176, "excludedEnvelopePixels": 0, "signature": "CPU cell (-3,-16) contains both strokes of a pair; pitch 10, length 8..14, gap 3, bearing -1.48. No categorical region seam crosses the clip." }
+    },
+    {
+      "id": "water.warning", "file": "outputs/g/reading/water-warning-burst-00.png", "clip": [1088, 452, 48, 30],
+      "capture": "outputs/cap.sh outputs/g/reading/water-warning --fixture mixed-capacity --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=0,0,0.28' --reduced --clean --burst 1 --clip 1088,452,48,30",
+      "derivation": { "regionId": 4, "centreTileApprox": [114.54, 28.51], "fieldPurity": 1, "signature": "CPU cell (4,-20) contains all three strokes; pitch 8, length 3..6, gap 2, bearing -1.3+pi/9. Bottom inset to y=482, above the expanded Warning sign envelope beginning y=482.876." }
+    },
+    {
+      "id": "water.danger", "file": null,
+      "pending": "Mixed-capacity overview leaves no clear >=48x32 Danger exemplar under the conservative exclusions. 32x24 scraps near (132,31) contain only partial quartet cells in the static signature calculation, not a complete readable group of four.",
+      "derivation": { "regionId": 5, "largestCandidateClip": [1176, 512, 32, 24], "centreTileApprox": [132.1975003667, 31.4062727299], "signature": { "pitch": 6, "length": [3, 5], "grouping": 4, "gap": 1.5, "bearing": -0.78 } },
+      "completionPath": { "fixture": "quiet-normal", "hash": "#t=12.25&cam=0,0,0.28", "candidateClip": [1168, 508, 64, 40], "reason": "The supported sparse fixture clears a 64x40 Danger window. CPU cells contain dark marks but not all four members of one cell in this particular rectangle; centre on a complete quartet and/or use a closer authored camera before promoting. This is a feasible water-location lead, not a legibility claim.", "capture": "outputs/cap.sh outputs/g/reading/water-danger-candidate --fixture quiet-normal --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=0,0,0.28' --reduced --clean --burst 1 --clip 1168,508,64,40" }
+    },
+    {
+      "id": "water.ledger", "file": null,
+      "pending": "Mixed-capacity overview's Ledger shelf is crowded by NAV hull envelopes. No clear >=48x32 window survives; the 32x16 remnant at [784,236] contains no stroke in the static codebook calculation. Publishing it would label plain water as a widely spaced horizontal single.",
+      "derivation": { "regionId": 6, "largestCandidateClip": [784, 236, 32, 16], "centreTileApprox": [27.1514764152, 12.8657621295], "signature": { "pitch": 24, "length": [18, 30], "grouping": 1, "bearing": 0 } },
+      "completionPath": { "fixture": "quiet-normal", "hash": "#t=12.25&cam=0,0,0.28", "candidateClip": [712, 192, 64, 40], "reason": "quiet-dense retains the NAV fleet, so it does not solve Ledger crowding. The supported sparse quiet-normal fixture admits this 64x40 interior window; CPU cell (0,-1) contains a single horizontal stroke. Capture and inspect contrast/haze and spacing before promoting.", "capture": "outputs/cap.sh outputs/g/reading/water-ledger-candidate --fixture quiet-normal --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=0,0,0.28' --reduced --clean --burst 1 --clip 712,192,64,40" }
+    },
+    {
+      "id": "water.wreck", "file": null,
+      "pending": "Operator real-GPU review rejected [356,456,48,32]: predominantly green grassy bank, tiled roof and dock with only a water sliver, not legible held silt. No isolated Wreck-water crop has been GPU-identified at this camera; keep this slot text-only rather than publish the datum classifier's false visible-water claim.",
+      "derivation": { "regionId": 8, "rejectedClip": [356, 456, 48, 32], "inverseDatumCentreTile": [31.2815259937, 113.2922758227], "datumFieldPurity": 1, "limitation": "The canonical R channel identifies the water datum under the ray, not the first visible elevated land/roof/dock surface. The former zero conservative-envelope count was contradicted by the real-GPU review and is not visible-water evidence.", "signature": "Held silt: world-anchored FBM, coverage cap .04, value .18; non-ordinal lifecycle water." },
+      "completionPath": { "reason": "Find an isolated held-silt patch with the full rendered land/architecture projection included, then have the operator capture and inspect it. Neither the old rectangle nor the sparse-fixture datum candidates are verified alternatives; do not promote solely from field classification." }
+    },
+    { "id": "lighthouse.BEDROCK", "file": null, "pending": "No matching official PSI state in mixed-capacity or quiet-dense" },
+    { "id": "lighthouse.STEADY", "file": "outputs/g/reading/lighthouse-steady-burst-00.png", "clip": [900, 100, 200, 425], "derivation": "Shared projected foot/beacon/crown anchors in derivation.lighthouse; quiet-dense supplies official STEADY/82.", "capture": "outputs/cap.sh outputs/g/reading/lighthouse-steady --fixture quiet-dense --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25' --reduced --clean --burst 1 --clip 900,100,200,425" },
+    { "id": "lighthouse.TREMOR", "file": null, "pending": "No matching official PSI state in mixed-capacity or quiet-dense" },
+    { "id": "lighthouse.FRACTURE", "file": null, "pending": "No matching official PSI state in mixed-capacity or quiet-dense" },
+    { "id": "lighthouse.CRISIS", "file": "outputs/g/reading/lighthouse-crisis-burst-00.png", "clip": [900, 100, 200, 425], "derivation": "Shared projected foot/beacon/crown anchors in derivation.lighthouse; mixed-capacity supplies official CRISIS/25.", "capture": "outputs/cap.sh outputs/g/reading/lighthouse-crisis --fixture mixed-capacity --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25' --reduced --clean --burst 1 --clip 900,100,200,425" },
+    { "id": "lighthouse.MELTDOWN", "file": null, "pending": "No matching official PSI state in mixed-capacity or quiet-dense" },
+    {
+      "id": "sail.1", "detailId": "ship.usdt-tether", "file": "outputs/g/reading/sail-1-burst-00.png", "clip": [804, 466, 64, 72],
+      "capture": "outputs/cap.sh outputs/g/reading/sail-1 --fixture quiet-dense --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=1676.921606,-961.6,0.8' --reduced --clean --burst 1 --clip 804,466,64,72",
+      "derivation": { "displayTile": [49, 97], "headingRad": -0.6275608201, "projectedIdentityBounds": [812.2902, 469.1579, 860.7718, 510.2300], "projectedHullSailBounds": [806.3237, 469.1579, 866.5636, 530.1040], "framing": "Unselected hull; shared equal-distance camera and 64x72 crop from derivation.sails.", "rank": 1 }
+    },
+    {
+      "id": "sail.2", "detailId": "ship.usde-ethena", "file": "outputs/g/reading/sail-2-burst-00.png", "clip": [804, 466, 64, 72],
+      "capture": "outputs/cap.sh outputs/g/reading/sail-2 --fixture quiet-dense --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=1472.121606,-884.8,0.8' --reduced --clean --burst 1 --clip 804,466,64,72",
+      "derivation": { "displayTile": [51, 83], "headingRad": -0.8691837804, "projectedIdentityBounds": [832.5079, 478.2753, 848.1444, 520.4490], "projectedHullSailBounds": [821.7774, 478.2753, 851.3739, 533.1622], "framing": "Unselected hull; shared equal-distance camera and 64x72 crop. Camera Y translated with the hull rather than independently clamped followTile framing.", "rank": 2 }
+    },
+    {
+      "id": "sail.3", "detailId": "ship.satusd-river", "file": "outputs/g/reading/sail-3-burst-00.png", "clip": [804, 466, 64, 72],
+      "capture": "outputs/cap.sh outputs/g/reading/sail-3 --fixture quiet-dense --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=1369.721606,-808,0.8' --reduced --clean --burst 1 --clip 804,466,64,72",
+      "derivation": { "displayTile": [49, 73], "headingRad": -1.2250494962, "projectedIdentityBounds": [816.6881, 475.6897, 831.3237, 518.9301], "projectedHullSailBounds": [813.5755, 475.6897, 857.6903, 528.8474], "framing": "Unselected hull; shared equal-distance camera and 64x72 crop. Camera Y translated with the hull rather than independently clamped followTile framing.", "rank": 3 }
+    },
+    { "id": "cloud", "file": null, "pending": "Regenerate after S4-P5 cloud states land", "clip": [420, 45, 400, 250], "capture": "outputs/cap.sh outputs/g/reading/cloud --fixture quiet-dense --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&sky=MELTDOWN' --reduced --clean --burst 1 --clip 420,45,400,250" }
+  ]
+}

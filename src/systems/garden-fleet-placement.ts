@@ -1,884 +1,680 @@
-import {
-  PHAROSVILLE_MAP_HEIGHT,
-  PHAROSVILLE_MAP_WIDTH,
-  terrainKindAt,
-} from "./world-layout";
-import {
-  gardenShipWaterMarginTiles,
-  isGardenShipWater,
-} from "./garden-water-exclusion";
-import {
-  GARDEN_SHIP_ROOT_Y,
-  GARDEN_SILHOUETTE_FOR_HULL,
-  gardenShipVisualScale,
-} from "./garden-observatory-slice";
+import { PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, terrainKindAt } from "./world-layout";
+import { gardenShipHullReachWorld, gardenShipWaterMarginTiles, isGardenShipWater } from "./garden-water-exclusion";
+import { GARDEN_SHIP_ROOT_Y, GARDEN_SILHOUETTE_FOR_HULL, gardenShipVisualScale } from "./garden-observatory-slice";
 import { defaultCamera } from "./camera";
-import { screenToGround } from "./projection";
+import { TILE_SCALE, screenToGround, type ScreenPoint } from "./projection";
 import { GARDEN_EMPTY_INLET, gardenInletDistance } from "./garden-inlet";
+import { stableFnv1aHash } from "./stable-random";
+import { GARDEN_FLEET_FAMILY_ENVELOPES, createGardenFleetFootprint, gardenFleetPolygonOverlap, gardenFleetRestViews, publishGardenFleetProtectedIntervals, writeGardenFleetFootprint, writeGardenFleetFootprintCrop, type GardenFleetFootprint, type GardenFleetRestView } from "./garden-fleet-footprint";
 import type { ShipNode, ShipWaterZone, TerrainKind } from "./world-types";
+import { shipRestSailBraceRad } from "./ship-visuals";
+import { restSeatEyeForAspect, REST_SEAT_YAW_RAD, REST_SEAT_PITCH_RAD, REST_SEAT_VFOV_DEG } from "./rest-seat";
 
-/**
- * Region-scoped ANCHORAGE placement for the whole fleet.
- *
- * Ships are scattered across the painted terrain region their risk band owns —
- * the SAME field `terrainKindAt` gives the simulation (finding F6), so a ship
- * is always drawn inside the region it is labelled with. That part is
- * unchanged, and is not negotiable.
- *
- * What changed is the SHAPE of the scatter, and why.
- *
- * W3 placed the fleet with best-candidate sampling (Mitchell), which yields
- * blue noise: evenly spread, never a grid, never clumped. That was the right
- * answer to the problem it was solving — the authored per-zone rings had
- * saturated at 187 ships and piled overflow hulls on top of each other (plan
- * finding F4) — and blue noise fixed the piling completely.
- *
- * But blue noise is, by construction, the MOST UNIFORM way to scatter points
- * that isn't a lattice. Its entire purpose is to suppress clumping and leave no
- * gaps. At ~20 ships that reads as a well-spaced harbour. At 185 across the
- * whole sea it reads as a carpet: every part of the frame equally busy, no
- * negative space, no focal hierarchy, and a monument competing with sixty hulls
- * of identical visual weight. The renderer was not the problem; the point set
- * was.
- *
- * So the fleet now moors in ANCHORAGES. Each band seeds a small ODD number of
- * moorings, spread widely across its own water and deliberately UNEQUAL in
- * size — one dominant harbour, then progressively quieter ones, down to a berth
- * or two riding alone. Ships fill their anchorage from the middle outward,
- * still refusing to come within the hull gap of a neighbour.
- *
- * The result is the same ship count, the same regions, the same honesty about
- * where a ship belongs — and a composition with somewhere to rest. That is the
- * governing aesthetic doing real work rather than decorating a paragraph:
- *
- * - *ma* — the emptiness between moorings is the composition, not a gap in it.
- *   Blue noise cannot produce emptiness; it is designed to prevent it.
- * - *fukinsei* — odd counts and unequal weights, so nothing pairs off or
- *   mirrors.
- * - *shibumi* — restraint comes from the eye having a few things to look at
- *   instead of a hundred and eighty-five.
- *
- * Cold placement is deterministic. Refreshes reserve retained hulls first,
- * then solve arrivals and changed bands against those accepted berths.
- */
-
-/** Painted terrain kind that each risk band's ships live on. */
+/** Three visual masses share the real risk field. They never classify a coin.
+ * Retained berths reserve water first; supply leaders take legal front edges;
+ * stable-ID pools fill the shoreline splines and sparse satellites. */
 const TERRAIN_FOR_ZONE: Record<ShipWaterZone, TerrainKind> = {
-  alert: "alert-water",
-  calm: "calm-water",
-  danger: "storm-water",
-  ledger: "ledger-water",
-  warning: "warning-water",
-  watch: "watch-water",
+  alert: "alert-water", calm: "calm-water", danger: "storm-water",
+  ledger: "ledger-water", warning: "warning-water", watch: "watch-water",
 };
-
-/**
- * R11: the minimum gap between two hulls, as a multiple of the larger hull's
- * water margin.
- *
- * The complaint was a "solid raft of overlapping hulls" in the crowded
- * north-east bands. The fix is NOT to spill ships into open water — a ship
- * drawn outside the region it is labelled with is the same dishonesty R10 just
- * removed from the labels. Instead a candidate is REJECTED outright if it
- * lands within this gap of an already-placed ship, so the band uses all of its
- * own water before it doubles up anywhere.
- *
- * The gap is measured against the LARGER of the two hulls. Checking only the
- * arriving hull's margin let a small boat berth inside a galleon's swing, and
- * under reduced motion — where every hull sits on its berth at once, with no
- * sea-room pass to part them — that read as sails through sails.
- */
 export const MIN_HULL_GAP = 1.35;
-
-/**
- * Candidate points considered per ship, per pass.
- *
- * Raised from 16 with R11's hard hull-gap rejection, and again for anchorage
- * placement: sampling inside a mooring that is filling up means most draws are
- * rejected, and a ship that exhausts its draws falls through to the region-wide
- * pass — which is the uniform scatter this file exists to avoid. Placement runs
- * once per world, not per frame, so a deeper draw costs nothing that matters.
- */
 const CANDIDATES_PER_SHIP = 256;
-
-/**
- * W3.2: the composition invariant ("a framed asymmetric composition with
- * useful open water") survives the scale-up as a density field rather than a
- * small ship count.
- *
- * Two rules shape it: keep a clear sightline to the lighthouse so the monument
- * is never crowded out, and thin the fleet toward the map edges so the frame
- * reads as composed rather than tiled.
- */
+const MEAN_NEAREST_FLOOR_TILES = 3.5;
+const RECOVERY_CANDIDATES_PER_SHIP = 192;
+const CLEARANCE_SHORTLIST = 24;
+/** Keep a protected interval off the hulls that frame it, in width fractions. */
+const INTERVAL_EDGE_MARGIN = 0.004;
+/** Readable protected width, as a fraction of viewport width. */
+const INTERVAL_MIN_WIDTH = 0.03;
 const LIGHTHOUSE_CLEARANCE_TILES = 9;
+/** Capacity candidates confirmed against the reserved intervals, per arrival. */
+const FALLBACK_SHORTLIST = 24;
 const EDGE_FALLOFF_TILES = 6;
 
-/**
- * The bottom-right chrome (the Explore control) covers about
- * 180×120 CSS px of a 1600×1000 frame. A hull berthed under it is a ship the
- * visitor cannot see or click at rest, and under reduced motion it never
- * leaves: three cut-off hulls piled beneath the chip in the reduced tableau.
- *
- * The rect is projected once through the authored rest camera onto the hull
- * plane, giving a world-space keep-out that placement honours like any other
- * obstacle. It follows the rest seat automatically if the seat is re-authored.
- */
-const REST_CHROME_VIEWPORT = { x: 1600, y: 1000 } as const;
-const REST_CHROME_RECT = { width: 180, height: 120 } as const;
+/** Quadratic shoreline axes: unequal widths, never per-band seed counts. */
+export const GARDEN_FLEET_LOBES = [
+  { id: "near-left", weight: 0.56, width: 20, a: { x: 20, y: 73 }, b: { x: 32, y: 113 }, c: { x: 63, y: 114 } },
+  { id: "rear-left", weight: 0.25, width: 12, a: { x: 16, y: 44 }, b: { x: 24, y: 17 }, c: { x: 69, y: 24 } },
+  { id: "right", weight: 0.15, width: 16, a: { x: 106, y: 112 }, b: { x: 99, y: 67 }, c: { x: 127, y: 28 } },
+] as const;
+const SPLINE_SAMPLES = GARDEN_FLEET_LOBES.map((axis) => Array.from({ length: 25 }, (_, step) => {
+  const t = step / 24; const u = 1 - t;
+  return {
+    x: u * u * axis.a.x + 2 * u * t * axis.b.x + t * t * axis.c.x,
+    y: u * u * axis.a.y + 2 * u * t * axis.b.y + t * t * axis.c.y,
+    heading: Math.atan2(u * (axis.b.y - axis.a.y) + t * (axis.c.y - axis.b.y), u * (axis.b.x - axis.a.x) + t * (axis.c.x - axis.b.x)),
+  };
+}));
+const SATELLITES = [{ x: 25, y: 19 }, { x: 79, y: 27 }, { x: 112, y: 121 }] as const;
 
-let restChromeKeepoutCache: readonly { x: number; y: number }[] | null = null;
+export interface GardenFleetMooringPlacement {
+  dominantMooring: boolean;
+  /** Global visual mass, not a risk category. Adjacent legal bands may share it. */
+  mooringId: string;
+  rankWithinMooring: number;
+  mooringSize: number;
+  riskBand: ShipWaterZone;
+}
+export type GardenFleetPlacementPath = "primary" | "relaxed" | "overflow" | "capacity-overflow";
+export interface GardenFleetPlacement {
+  tileByShipId: Map<string, ScreenPoint>;
+  mooringByShipId: Map<string, GardenFleetMooringPlacement>;
+  /** Accepted tile-plane heading; renderer rotation.y is its negative. */
+  restingHeadingByShipId: Map<string, number>;
+  /** Accepted solve tier, retained with the berth for diagnostic provenance. */
+  placementPathByShipId: Map<string, GardenFleetPlacementPath>;
+}
+interface Berth {
+  tile: ScreenPoint;
+  margin: number;
+  mooring: GardenFleetMooringPlacement;
+  restingHeadingRad: number;
+  placementPath: GardenFleetPlacementPath;
+}
+interface Candidate extends ScreenPoint {
+  lobe: number;
+  heading: number;
+  distance: readonly number[];
+}
+interface Placed extends Berth {
+  footprints: GardenFleetFootprint[];
+  leader: boolean;
+  leaderLoss: number[];
+  nearestSq: number;
+}
+interface HullIndex {
+  cells: Map<number, Placed[]>;
+  maxMargin: number;
+  nearestSq: Float64Array;
+}
+const HULL_CELL = 8;
+const HULL_STRIDE = 4096;
 
-/** Ground quad (tiles) under the bottom-right chrome at the rest camera. */
-function restChromeKeepoutPolygon(): readonly { x: number; y: number }[] {
+/** Exact nearest distances are updated once per admitted hull across the finite
+ * tile pool. Candidate scans are O(1), including exhausted narrow waters. */
+function clearsPreferredGap(index: HullIndex, tile: ScreenPoint, margin: number): boolean {
+  const nearestSq = index.nearestSq[tile.y * PHAROSVILLE_MAP_WIDTH + tile.x]!;
+  if (nearestSq < (margin * MIN_HULL_GAP) ** 2) return false;
+  if (nearestSq >= (Math.max(margin, index.maxMargin) * MIN_HULL_GAP) ** 2) return true;
+  const cx = Math.floor(tile.x / HULL_CELL); const cy = Math.floor(tile.y / HULL_CELL);
+  const radius = Math.ceil(Math.max(margin, index.maxMargin) * MIN_HULL_GAP / HULL_CELL);
+  for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
+    const cell = index.cells.get((cy + dy) * HULL_STRIDE + cx + dx);
+    if (!cell) continue;
+    for (const other of cell) {
+      const x = tile.x - other.tile.x; const y = tile.y - other.tile.y;
+      if (x * x + y * y < (Math.max(margin, other.margin) * MIN_HULL_GAP) ** 2) return false;
+    }
+  }
+  return true;
+}
+let regionCache: Map<TerrainKind, Candidate[]> | null = null;
+let berthCache: { lighthouseX: number; lighthouseY: number; byShipId: Map<string, Berth> } | null = null;
+let restChromeKeepoutCache: readonly ScreenPoint[] | null = null;
+
+function restChromeKeepoutPolygon(): readonly ScreenPoint[] {
   if (restChromeKeepoutCache) return restChromeKeepoutCache;
-  const viewport = REST_CHROME_VIEWPORT;
-  const camera = defaultCamera({
-    height: viewport.y,
-    map: { height: PHAROSVILLE_MAP_HEIGHT, width: PHAROSVILLE_MAP_WIDTH },
-    width: viewport.x,
-  });
-  const left = viewport.x - REST_CHROME_RECT.width;
-  const top = viewport.y - REST_CHROME_RECT.height;
-  restChromeKeepoutCache = [
-    { x: left, y: top },
-    { x: viewport.x, y: top },
-    { x: viewport.x, y: viewport.y },
-    { x: left, y: viewport.y },
-  ].map((corner) => screenToGround(corner, camera, viewport, GARDEN_SHIP_ROOT_Y));
+  const viewport = { x: 1600, y: 1000 };
+  const camera = defaultCamera({ height: viewport.y, width: viewport.x, map: { height: PHAROSVILLE_MAP_HEIGHT, width: PHAROSVILLE_MAP_WIDTH } });
+  restChromeKeepoutCache = [{ x: 1420, y: 880 }, { x: 1600, y: 880 }, { x: 1600, y: 1000 }, { x: 1420, y: 1000 }]
+    .map((corner) => screenToGround(corner, camera, viewport, GARDEN_SHIP_ROOT_Y));
   return restChromeKeepoutCache;
 }
-
-/** 0 inside the chrome keep-out, else the tile distance to its edge. */
 function restChromeKeepoutDistance(x: number, y: number): number {
   const polygon = restChromeKeepoutPolygon();
   let inside = false;
-  let nearest = Number.POSITIVE_INFINITY;
-  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index, index += 1) {
-    const a = polygon[index]!;
-    const b = polygon[previous]!;
+  let nearest = Infinity;
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
+    const a = polygon[index]!; const b = polygon[previous]!;
     if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) inside = !inside;
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
+    const dx = b.x - a.x; const dy = b.y - a.y;
     const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / (dx * dx + dy * dy)));
     nearest = Math.min(nearest, Math.hypot(x - a.x - t * dx, y - a.y - t * dy));
   }
   return inside ? 0 : nearest;
 }
-
-/**
- * How many moorings a band seeds, by how many ships it has to berth.
- *
- * Always ODD. A Japanese garden groups in threes, fives and sevens because even
- * counts invite the eye to pair them off and read symmetry; odd counts stay
- * unresolved and keep the composition asymmetric (*fukinsei*). The ceiling of
- * seven matters as much as the floor: enough moorings to fill the sea and the
- * anchorages start touching, which is blue noise again with extra steps.
- */
-function anchorageCount(shipCount: number): number {
-  if (shipCount <= 4) return 1;
-  if (shipCount <= 12) return 3;
-  if (shipCount <= 32) return 5;
-  return 7;
+function densityWeight(x: number, y: number, lighthouseTile: ScreenPoint): number {
+  if (gardenInletDistance(x, y) <= GARDEN_EMPTY_INLET.halfWidth || restChromeKeepoutDistance(x, y) <= 0
+    || Math.hypot(x - lighthouseTile.x, y - lighthouseTile.y) < LIGHTHOUSE_CLEARANCE_TILES) return 0;
+  const edge = Math.min(x, y, PHAROSVILLE_MAP_WIDTH - 1 - x, PHAROSVILLE_MAP_HEIGHT - 1 - y);
+  return Math.max(0, Math.min(1, edge / EDGE_FALLOFF_TILES));
 }
-
-/**
- * Relative berth share per mooring, largest first.
- *
- * Deliberately unequal. Equal anchorages are just a coarser uniform field — the
- * carpet at a different frequency — and they read as administrative rather than
- * grown. A steep falloff gives the band one harbour that obviously matters, a
- * couple of secondary roadsteads, and a lonely berth or two, which is a
- * hierarchy the eye can enter.
- */
-function anchorageWeight(index: number, count: number): number {
-  return (count - index) ** 1.6;
+function isBerthWater(tile: ScreenPoint, margin: number): boolean {
+  return gardenInletDistance(tile.x, tile.y) > GARDEN_EMPTY_INLET.halfWidth + margin
+    && restChromeKeepoutDistance(tile.x, tile.y) > margin && isGardenShipWater(tile, margin, true);
 }
-
-/**
- * Radius of a mooring holding `berths` ships, in tiles.
- *
- * DERIVED from the hull gap, not authored. The first version of this used a
- * magic constant and was quietly far too small: at a 4.03-tile gap a 28-berth
- * anchorage needs radius 11.2 even under perfect hexagonal packing, and the
- * constant produced 10.1 — so nearly every ship failed its anchorage samples,
- * fell through to the region-wide pass, and the fleet scattered exactly as
- * uniformly as before. The clustering was in the code and not in the picture.
- *
- * Random rejection sampling cannot reach hexagonal density; it saturates around
- * 55% of it, so the area each ship really needs is `gap² · 0.866 / 0.55`, and
- * the radius follows from that. `RANDOM_PACKING_AREA` is that factor.
- */
-function anchorageRadius(berths: number, hullGap: number): number {
-  const perShipArea = hullGap * hullGap * RANDOM_PACKING_AREA;
-  return Math.max(hullGap * 1.1, Math.sqrt((berths * perShipArea) / Math.PI));
-}
-
-/** `0.866 / 0.55` — hexagonal cell area over what random packing achieves. */
-const RANDOM_PACKING_AREA = 1.575;
-
-/**
- * How far apart two moorings must sit, as a multiple of their combined radii.
- *
- * This is what actually creates the open water, and it has to be expressed
- * against the radii rather than as a flat distance: a fixed separation that
- * looks generous next to a two-berth mooring lets two thirty-berth harbours
- * overlap into one blob, which is the carpet again at a coarser grain.
- */
-const ANCHORAGE_SEPARATION_FACTOR = 1.25;
-
-/** Sample depth when seeding a mooring. */
-const ANCHORAGE_CANDIDATES = 96;
-
-export interface GardenFleetMooringPlacement {
-  /** True for the band's largest, first-authored anchorage. */
-  dominantMooring: boolean;
-  /** Stable within-band mooring identifier using its authored seed index. */
-  mooringId: string;
-  /** Zero-based order from the mooring's centre outward. */
-  rankWithinMooring: number;
-  /** Number of berths assigned to this mooring. */
-  mooringSize: number;
-  riskBand: ShipWaterZone;
-}
-
-export interface GardenFleetPlacement {
-  /** Absolute display tile per ship id. */
-  tileByShipId: Map<string, { x: number; y: number }>;
-  /** Display-only hierarchy retained from the authored anchorage allocation. */
-  mooringByShipId: Map<string, GardenFleetMooringPlacement>;
-}
-
-interface RegionTiles {
-  tiles: { x: number; y: number }[];
-}
-
-let regionCache: Map<TerrainKind, RegionTiles> | null = null;
-
-interface RetainedBerth {
-  tile: { x: number; y: number };
-  margin: number;
-  mooring: GardenFleetMooringPlacement;
-}
-
-// Accepted berths are reservations, not candidates to rerank on every refresh.
-// Keep only the current fleet; departures release their water for newcomers.
-let berthCache: {
-  lighthouseX: number;
-  lighthouseY: number;
-  byShipId: Map<string, RetainedBerth>;
-} | null = null;
-
-/**
- * All navigable tiles of each painted water region, computed once.
- *
- * Obstacle-free at a nominal margin only — the per-ship hull margin is applied
- * at selection time, since it scales with the hull.
- */
-function regionTiles(): Map<TerrainKind, RegionTiles> {
+function regionTiles(): Map<TerrainKind, Candidate[]> {
   if (regionCache) return regionCache;
-  const byKind = new Map<TerrainKind, RegionTiles>();
-  for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
-    for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
-      const kind = terrainKindAt(x, y);
-      const region = byKind.get(kind) ?? { tiles: [] };
-      region.tiles.push({ x, y });
-      byKind.set(kind, region);
+  const regions = new Map<TerrainKind, Candidate[]>();
+  for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y++) for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x++) {
+    const distance: number[] = [];
+    let lobe = 0;
+    let heading = 0;
+    for (let index = 0; index < GARDEN_FLEET_LOBES.length; index++) {
+      const axis = GARDEN_FLEET_LOBES[index]!;
+      let nearest = Infinity;
+      let tangent = 0;
+      // Fixed spline tessellation is independent of fleet size and data order.
+      for (const sample of SPLINE_SAMPLES[index]!) {
+        const dx = x - sample.x; const dy = y - sample.y;
+        const d = (dx * dx + dy * dy) / (axis.width * axis.width);
+        if (d < nearest) {
+          nearest = d;
+          tangent = sample.heading;
+        }
+      }
+      const reach = Math.sqrt(nearest);
+      distance.push(reach);
+      if (reach < (distance[lobe] ?? Infinity)) { lobe = index; heading = tangent; }
+      if (index === 0) heading = tangent;
     }
+    const kind = terrainKindAt(x, y);
+    const pool = regions.get(kind) ?? [];
+    pool.push({ x, y, lobe, heading, distance });
+    regions.set(kind, pool);
   }
-  regionCache = byKind;
-  return byKind;
+  regionCache = regions;
+  return regions;
 }
-
-/** Test-only: clears terrain and accepted berth reservations. */
+/** Test-only: clear accepted berths, terrain pools and the accepted intervals. */
 export function resetGardenFleetPlacementCache(): void {
   regionCache = null;
   berthCache = null;
+  publishGardenFleetProtectedIntervals(null);
+}
+
+/** Only envelopes in front can hide a sail; summed intersection is a safe
+ * upper bound on union loss, so overlapping occluders never undercount it. */
+function sailLoss(sail: GardenFleetFootprint, occluder: GardenFleetFootprint, scratch: GardenFleetFootprint): number {
+  if (occluder.viewDepth >= sail.viewDepth || !sail.identitySail.area) return 0;
+  return (gardenFleetPolygonOverlap(sail.identitySail, occluder.hull, scratch)
+    + gardenFleetPolygonOverlap(sail.identitySail, occluder.sails, scratch)) / sail.identitySail.area;
+}
+
+function fleetEnvelopeOverlap(a: GardenFleetFootprint, b: GardenFleetFootprint, scratch: GardenFleetFootprint): number {
+  if (a.maxX <= b.minX || b.maxX <= a.minX || a.maxY <= b.minY || b.maxY <= a.minY) return 0;
+  return gardenFleetPolygonOverlap(a.hull, b.hull, scratch) + gardenFleetPolygonOverlap(a.sails, b.sails, scratch)
+    + gardenFleetPolygonOverlap(a.hull, b.sails, scratch) + gardenFleetPolygonOverlap(a.sails, b.hull, scratch);
+}
+function projectBerth(ship: ShipNode, tile: ScreenPoint, heading: number, footprints: GardenFleetFootprint[]): void {
+  const views = gardenFleetRestViews();
+  writeGardenFleetFootprint(footprints[0]!, ship, tile, -heading, views[0]!.camera, views[0]!.viewport);
+  writeGardenFleetFootprint(footprints[3]!, ship, tile, -heading, views[3]!.camera, views[3]!.viewport);
+  for (let eye = 1; eye < 3; eye++) {
+    writeGardenFleetFootprintCrop(footprints[eye]!, footprints[0]!, views[0]!.viewport, views[eye]!.viewport);
+  }
 }
 
 /**
- * Density weight for a candidate tile: how much this spot wants a ship.
- *
- * Zero means "never place here". The empty inlet (`garden-inlet.ts`) is
- * authored water, not spare capacity: every pass excludes it, the relaxed
- * one included. The lighthouse clearance keeps the monument's approach open;
- * the edge falloff thins the outer frame so the composition stays asymmetric
- * instead of filling to the borders.
+ * One fleet solve per arrival. A single protected interval is RESERVED before
+ * it — the authored column, identical for every call — and every admission
+ * tier treats it as hard. The second interval is DESCRIPTIVE: measured from
+ * the accepted picture's remaining free columns and published with its true
+ * width, never reserved. The reservation deliberately carries no state between
+ * calls: a berth, and so a voyage length and its place on the lattice, must
+ * depend only on the roster and the harbour, never on what was solved before.
  */
-function densityWeight(
-  x: number,
-  y: number,
-  lighthouseTile: { x: number; y: number },
-): number {
-  if (gardenInletDistance(x, y) <= GARDEN_EMPTY_INLET.halfWidth) return 0;
-  if (restChromeKeepoutDistance(x, y) <= 0) return 0;
-  const lighthouseDistance = Math.hypot(x - lighthouseTile.x, y - lighthouseTile.y);
-  if (lighthouseDistance < LIGHTHOUSE_CLEARANCE_TILES) return 0;
-
-  const edgeDistance = Math.min(
-    x,
-    y,
-    PHAROSVILLE_MAP_WIDTH - 1 - x,
-    PHAROSVILLE_MAP_HEIGHT - 1 - y,
-  );
-  if (edgeDistance <= 0) return 0;
-  return Math.min(1, edgeDistance / EDGE_FALLOFF_TILES);
-}
-
-interface PlacedHull {
-  x: number;
-  y: number;
-  margin: number;
+export function placeGardenFleet(ships: readonly ShipNode[], lighthouseTile: ScreenPoint): GardenFleetPlacement {
+  const views = gardenFleetRestViews();
+  publishGardenFleetProtectedIntervals(null);
+  const reserved = views.map((view) => view.intervals.slice(0, 1));
+  publishGardenFleetProtectedIntervals(reserved);
+  const solved = solveFleet(ships, lighthouseTile);
+  publishGardenFleetProtectedIntervals(measureIntervals(solved.placed, views, reserved));
+  return solved.placement;
 }
 
 /**
- * Placed hulls, bucketed by a coarse grid so a candidate meets its closest
- * neighbours first. Only the ORDER of the clearance sweep uses it: minima do
- * not depend on order, so every result equals the plain sweep over `list`.
+ * The reserved interval, clipped to the water the committed picture actually
+ * left open, plus the widest remaining free column as a measured report. Views
+ * 1 and 2 are crops of view 0's projection, so their columns are its affine
+ * image rather than three separate decisions.
  */
-interface PlacedHullIndex {
-  cells: Map<number, PlacedHull[]>;
-  list: PlacedHull[];
+function measureIntervals(
+  placed: readonly Placed[], views: readonly GardenFleetRestView[],
+  reserved: readonly (readonly (readonly [number, number])[])[],
+): readonly (readonly (readonly [number, number])[])[] {
+  const referenceAspect = views[0]!.viewport.x / views[0]!.viewport.y;
+  // A crop sees less of the reference frame, so a column near its edge is cut
+  // in half by the narrowest gate. Choose only from the band every landscape
+  // crop still shows whole, and the reserved interval reads in all of them.
+  let visible = 0.5;
+  for (const view of views) {
+    if (view.viewport.x < view.viewport.y) continue;
+    visible = Math.min(visible, 0.5 * (view.viewport.x / view.viewport.y) / referenceAspect);
+  }
+  const bounds: [number, number] = [0.5 - visible + INTERVAL_EDGE_MARGIN, 0.5 + visible - INTERVAL_EDGE_MARGIN];
+  const reference = columnIntervals(placed, views[0]!, 0, reserved[0]?.[0] ?? null, bounds);
+  return views.map((view, eye) => {
+    if (eye === 0) return reference;
+    if (view.viewport.x < view.viewport.y) return columnIntervals(placed, view, eye, reserved[eye]?.[0] ?? null, [0, 1]);
+    const aspect = view.viewport.x / view.viewport.y;
+    return reference.map(([left, right]) => [
+      Math.max(0, 0.5 + (left - 0.5) * referenceAspect / aspect),
+      Math.min(1, 0.5 + (right - 0.5) * referenceAspect / aspect),
+    ] as [number, number]);
+  });
 }
 
-const HULL_GRID_CELL_TILES = 8;
-/** Row stride of the packed cell key; far wider than the map in cells. */
-const HULL_GRID_KEY_STRIDE = 4096;
-
-function addPlacedHull(index: PlacedHullIndex, hull: PlacedHull): void {
-  index.list.push(hull);
-  const key = Math.floor(hull.y / HULL_GRID_CELL_TILES) * HULL_GRID_KEY_STRIDE
-    + Math.floor(hull.x / HULL_GRID_CELL_TILES);
-  const cell = index.cells.get(key);
-  if (cell) cell.push(hull);
-  else index.cells.set(key, [hull]);
+function columnIntervals(
+  placed: readonly Placed[], view: GardenFleetRestView, eye: number,
+  reserved: readonly [number, number] | null, bounds: readonly [number, number],
+): readonly (readonly [number, number])[] {
+  const spans: Array<[number, number]> = [];
+  for (const berth of placed) {
+    const footprint = berth.footprints[eye]!;
+    for (const polygon of [footprint.hull, footprint.sails]) {
+      if (!polygon.clippedArea) continue;
+      spans.push([polygon.minX / view.viewport.x, polygon.maxX / view.viewport.x]);
+    }
+  }
+  if (spans.length < 2) return [];
+  spans.sort((a, b) => a[0] - b[0]);
+  const gaps: Array<[number, number]> = [];
+  let covered = spans[0]![1];
+  for (const [start, end] of spans) {
+    if (start - covered > 2 * INTERVAL_EDGE_MARGIN) {
+      gaps.push([covered + INTERVAL_EDGE_MARGIN, start - INTERVAL_EDGE_MARGIN]);
+    }
+    covered = Math.max(covered, end);
+  }
+  const first = spans[0]![0];
+  if (first > 2 * INTERVAL_EDGE_MARGIN) gaps.push([INTERVAL_EDGE_MARGIN, first - INTERVAL_EDGE_MARGIN]);
+  if (covered < 1 - 2 * INTERVAL_EDGE_MARGIN) gaps.push([covered + INTERVAL_EDGE_MARGIN, 1 - INTERVAL_EDGE_MARGIN]);
+  const inBounds = gaps
+    .map(([left, right]) => [Math.max(left, bounds[0]), Math.min(right, bounds[1])] as [number, number])
+    .filter(([left, right]) => right - left > 0);
+  const byWidth = inBounds.toSorted((a, b) => (b[1] - b[0]) - (a[1] - a[0]));
+  // The reservation keeps its column while the picture still leaves it open;
+  // a crowded refresh re-cuts it from the quietest water instead.
+  let primary = byWidth[0];
+  if (reserved) {
+    for (const [start, end] of inBounds) {
+      const overlap: [number, number] = [Math.max(reserved[0], start), Math.min(reserved[1], end)];
+      if (overlap[1] - overlap[0] >= INTERVAL_MIN_WIDTH) { primary = overlap; break; }
+    }
+  }
+  if (!primary) return [];
+  const secondary = byWidth.find((gap) => gap !== primary && (gap[1] <= primary![0] || gap[0] >= primary![1]));
+  return secondary ? [primary, secondary].toSorted((a, b) => a[0] - b[0]) : [primary];
 }
 
-/** Written by `measureHullClearance`; read immediately by its caller. */
-let clearanceNearest = Number.POSITIVE_INFINITY;
-let clearanceSeparation = Number.POSITIVE_INFINITY;
-
-/**
- * Nearest placed hull and minimum gap ratio (distance over the larger of the
- * two margins) from `(x, y)`. The sweep stops as soon as the candidate can
- * neither beat `relaxedScore` (by `nearest · weight`) nor become a berth
- * (gap ratio under `MIN_HULL_GAP`, or `nearest ≤ nearestFloor`): both minima
- * only fall, so an early stop decides exactly as the full sweep would, and
- * the partial values it leaves are never used for a choice.
- */
-function measureHullClearance(
-  index: PlacedHullIndex,
-  x: number,
-  y: number,
-  margin: number,
-  weight: number,
-  relaxedScore: number,
-  nearestFloor: number,
-): void {
-  let nearest = Number.POSITIVE_INFINITY;
-  let separation = Number.POSITIVE_INFINITY;
-  const cellX = Math.floor(x / HULL_GRID_CELL_TILES);
-  const cellY = Math.floor(y / HULL_GRID_CELL_TILES);
-  for (let dy = -1; dy <= 1; dy += 1) {
-    for (let dx = -1; dx <= 1; dx += 1) {
-      const cell = index.cells.get((cellY + dy) * HULL_GRID_KEY_STRIDE + cellX + dx);
-      if (!cell) continue;
-      for (const other of cell) {
-        const distance = Math.hypot(x - other.x, y - other.y);
-        if (distance < nearest) nearest = distance;
-        const ratio = distance / Math.max(margin, other.margin);
-        if (ratio < separation) separation = ratio;
+function solveFleet(ships: readonly ShipNode[], lighthouseTile: ScreenPoint): { placement: GardenFleetPlacement; placed: readonly Placed[] } {
+  const regions = regionTiles();
+  const views = gardenFleetRestViews();
+  const tileByShipId = new Map<string, ScreenPoint>();
+  const mooringByShipId = new Map<string, GardenFleetMooringPlacement>();
+  const restingHeadingByShipId = new Map<string, number>();
+  const placementPathByShipId = new Map<string, GardenFleetPlacementPath>();
+  const nextBerths = new Map<string, Berth>();
+  const placed: Placed[] = [];
+  const scratch = views.map(() => createGardenFleetFootprint());
+  const hullIndex: HullIndex = { cells: new Map(), maxMargin: 0,
+    nearestSq: new Float64Array(PHAROSVILLE_MAP_WIDTH * PHAROSVILLE_MAP_HEIGHT).fill(Infinity) };
+  const areaByEye = views.map(() => 0);
+  const overlapByEye = views.map(() => 0);
+  const ordered = ships.toSorted((a, b) => (b.marketCapUsd || 0) - (a.marketCapUsd || 0) || a.id.localeCompare(b.id));
+  const leaders = new Set(ordered.slice(0, 3).map((ship) => ship.id));
+  // Rank leaders by supply even when compressed scales saturate to the same size.
+  ordered.splice(3, ordered.length, ...ordered.slice(3).sort((a, b) => b.visual.scale - a.visual.scale || a.id.localeCompare(b.id)));
+  const marginFor = (ship: ShipNode): number => gardenShipWaterMarginTiles(gardenShipVisualScale(ship.visual.scale || 1), GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull]);
+  const accept = (ship: ShipNode, berth: Berth): void => {
+    const footprints = views.map(() => createGardenFleetFootprint());
+    projectBerth(ship, berth.tile, berth.restingHeadingRad, footprints);
+    const leader = leaders.has(ship.id);
+    const leaderLoss = views.map(() => 0);
+    for (let eye = 0; eye < views.length; eye++) {
+      const footprint = footprints[eye]!;
+      areaByEye[eye] = areaByEye[eye]! + footprint.hull.area + footprint.sails.area;
+      for (const other of placed) {
+        const occupied = other.footprints[eye]!;
+        const overlap = fleetEnvelopeOverlap(footprint, occupied, scratch[eye]!);
+        if (!overlap) continue;
+        overlapByEye[eye] = overlapByEye[eye]! + overlap;
+        if (other.leader) other.leaderLoss[eye] = other.leaderLoss[eye]! + sailLoss(occupied, footprint, scratch[eye]!);
+        if (leader) leaderLoss[eye] = leaderLoss[eye]! + sailLoss(footprint, occupied, scratch[eye]!);
       }
     }
-  }
-  if (!(nearest * weight <= relaxedScore && (separation < MIN_HULL_GAP || nearest <= nearestFloor))) {
-    for (const other of index.list) {
-      const distance = Math.hypot(x - other.x, y - other.y);
-      if (distance < nearest) nearest = distance;
-      const ratio = distance / Math.max(margin, other.margin);
-      if (ratio < separation) separation = ratio;
-      if (nearest * weight <= relaxedScore && (separation < MIN_HULL_GAP || nearest <= nearestFloor)) break;
+    const nearestSq = hullIndex.nearestSq[berth.tile.y * PHAROSVILLE_MAP_WIDTH + berth.tile.x]!;
+    for (const other of placed) {
+      const dx = berth.tile.x - other.tile.x; const dy = berth.tile.y - other.tile.y;
+      other.nearestSq = Math.min(other.nearestSq, dx * dx + dy * dy);
+    }
+    const accepted: Placed = { ...berth, footprints, leader, leaderLoss, nearestSq };
+    placed.push(accepted);
+    const key = Math.floor(berth.tile.y / HULL_CELL) * HULL_STRIDE + Math.floor(berth.tile.x / HULL_CELL);
+    const cell = hullIndex.cells.get(key) ?? [];
+    cell.push(accepted); hullIndex.cells.set(key, cell);
+    hullIndex.maxMargin = Math.max(hullIndex.maxMargin, berth.margin);
+    for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y++) {
+      const dy = y - berth.tile.y;
+      for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x++) {
+        const dx = x - berth.tile.x;
+        const index = y * PHAROSVILLE_MAP_WIDTH + x;
+        const distanceSq = dx * dx + dy * dy;
+        if (distanceSq < hullIndex.nearestSq[index]!) hullIndex.nearestSq[index] = distanceSq;
+      }
+    }
+    tileByShipId.set(ship.id, berth.tile);
+    mooringByShipId.set(ship.id, berth.mooring);
+    restingHeadingByShipId.set(ship.id, berth.restingHeadingRad);
+    placementPathByShipId.set(ship.id, berth.placementPath);
+    nextBerths.set(ship.id, berth);
+  };
+  // Reservations precede all arrivals; never re-rank retained IDs for prettier composition.
+  if (berthCache?.lighthouseX === lighthouseTile.x && berthCache.lighthouseY === lighthouseTile.y) {
+    for (const ship of ordered) {
+      const previous = berthCache.byShipId.get(ship.id);
+      if (previous && previous.mooring.riskBand === ship.riskZone && previous.margin === marginFor(ship)) accept(ship, previous);
     }
   }
-  clearanceNearest = nearest;
-  clearanceSeparation = separation;
-}
-
-/**
- * Water a hull may rest on for its whole stay.
- *
- * Dock aprons and moles count as obstacles here: a hull resting at home is
- * displayed with them as obstacles, and a berth that ignored them was shoved
- * to the nearest clear water at draw time — blind to its neighbours, which is
- * how settled hulls ended up stacked. The inlet and the chrome keep-out are
- * widened by the hull so no part of it enters either.
- */
-function isBerthWater(tile: { x: number; y: number }, margin: number): boolean {
-  return gardenInletDistance(tile.x, tile.y) > GARDEN_EMPTY_INLET.halfWidth + margin
-    && restChromeKeepoutDistance(tile.x, tile.y) > margin
-    && isGardenShipWater(tile, margin, true);
-}
-
-interface Anchorage {
-  berths: number;
-  index: number;
-  radius: number;
-  x: number;
-  y: number;
-}
-
-/**
- * Seeds a band's moorings: odd count, widely separated, unequal in size.
- *
- * Best-candidate over the band's own tiles, which is blue noise — and blue
- * noise is exactly right HERE, one level up. The anchorages want to be spread
- * as evenly as the water allows; it is the ships within them that must not be.
- */
-function seedAnchorages(
-  zone: ShipWaterZone,
-  tiles: readonly { x: number; y: number }[],
-  shipCount: number,
-  hullGap: number,
-  lighthouseTile: { x: number; y: number },
-): Anchorage[] {
-  const count = Math.min(anchorageCount(shipCount), Math.max(1, Math.floor(shipCount)));
-  const weights = Array.from({ length: count }, (_, index) => anchorageWeight(index, count));
-  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
-
-  // Berths and radii BEFORE positions: a mooring's separation requirement
-  // depends on how big it is, so it cannot be seeded until its size is known.
-  let assigned = 0;
-  const planned = weights.map((weight, index) => {
-    const berths = index === count - 1
-      ? shipCount - assigned
-      : Math.max(1, Math.round(shipCount * (weight / totalWeight)));
-    assigned += berths;
-    return { berths: Math.max(0, berths), radius: anchorageRadius(Math.max(0, berths), hullGap) };
-  });
-
-  const anchorages: Anchorage[] = [];
-  const orphaned: number[] = [];
-  for (const [index, plan] of planned.entries()) {
-    if (plan.berths <= 0) continue;
-    const seeded = seedOneAnchorage(zone, tiles, index, plan.radius, anchorages, lighthouseTile);
-    if (!seeded) {
-      // No water left that can hold this mooring at a respectful distance.
-      // Its berths go to the anchorages that did fit rather than being lost.
-      orphaned.push(plan.berths);
-      continue;
+  const legalPools = new Map<string, Candidate[]>();
+  for (const ship of ordered) {
+    if (nextBerths.has(ship.id)) continue;
+    const margin = marginFor(ship);
+    const candidates = regions.get(TERRAIN_FOR_ZONE[ship.riskZone]) ?? [];
+    let remaining = stableUnit(`${ship.id}.mass`);
+    let preferred: number = GARDEN_FLEET_LOBES.length;
+    for (let index = 0; index < GARDEN_FLEET_LOBES.length; index++) {
+      if (remaining < GARDEN_FLEET_LOBES[index]!.weight) { preferred = index; break; }
+      remaining -= GARDEN_FLEET_LOBES[index]!.weight;
     }
-    anchorages.push({
-      berths: plan.berths,
-      index,
-      radius: plan.radius,
-      x: seeded.x,
-      y: seeded.y,
+    const satellite = Math.floor(stableUnit(`${ship.id}.satellite`) * SATELLITES.length);
+    const key = `${ship.riskZone}.${margin}.${preferred}.${preferred === 3 ? satellite : 0}`;
+    let pool = legalPools.get(key);
+    const compositionDistance = (tile: Candidate): number => preferred < 3 ? tile.distance[preferred]!
+      : Math.hypot(tile.x - SATELLITES[satellite]!.x, tile.y - SATELLITES[satellite]!.y) / 6;
+    if (!pool) {
+      // Every lobe's pool is explicitly clipped to the actual band's legal water.
+      pool = candidates.filter((tile) => densityWeight(tile.x, tile.y, lighthouseTile) > 0 && isBerthWater(tile, margin))
+        .sort((a, b) => compositionDistance(a) - compositionDistance(b) || a.y - b.y || a.x - b.x);
+      legalPools.set(key, pool);
+    }
+    const selection: {
+      tile: Candidate | null; rank: readonly number[] | null;
+      relaxed: Candidate | null; nearest: number; relaxedPreservesMean: boolean;
+    } = { tile: null, rank: null, relaxed: null, nearest: -Infinity, relaxedPreservesMean: false };
+    const leader = leaders.has(ship.id);
+    const offset = Math.floor(stableUnit(`${ship.id}.pool`) * Math.max(1, pool.length));
+    const headingVariation = (stableUnit(`${ship.id}.heading`) - 0.5) * 0.16;
+    const intervalClear = intervalGuard(ship);
+    let nearestSum = 0;
+    for (const other of placed) nearestSum += Math.sqrt(other.nearestSq);
+    let primaryProjections = 0;
+    const evaluate = (tile: Candidate, widerSearch = false): void => {
+      const nearest = Math.sqrt(hullIndex.nearestSq[tile.y * PHAROSVILLE_MAP_WIDTH + tile.x]!);
+      const preservesMean = preservesMeanNearest(placed, tile, nearest, nearestSum);
+      if ((preservesMean && !selection.relaxedPreservesMean)
+        || preservesMean === selection.relaxedPreservesMean && nearest > selection.nearest) {
+        selection.relaxed = tile; selection.nearest = nearest; selection.relaxedPreservesMean = preservesMean;
+      }
+      // The coarse hull gap is legality, not composition: no tier relaxes it,
+      // and neither land, apron, risk-field nor inlet clearance relaxes here.
+      if (nearest < MIN_HULL_GAP || !clearsPreferredGap(hullIndex, tile, margin)) return;
+      if (!preservesMean) return;
+      if (!widerSearch && primaryProjections++ >= CANDIDATES_PER_SHIP) return;
+      const heading = tile.heading + headingVariation;
+      projectBerth(ship, tile, heading, scratch);
+      let overlap = 0;
+      let intervals = 0;
+      let leaderViolation = 0;
+      let clipping = 0;
+      let depth = Infinity;
+      for (let eye = 0; eye < views.length; eye++) {
+        const footprint = scratch[eye]!;
+        const view = views[eye]!;
+        let eyeOverlap = 0;
+        let ownLoss = 0;
+        for (const other of placed) {
+          const occupied = other.footprints[eye]!;
+          const contribution = fleetEnvelopeOverlap(footprint, occupied, footprint);
+          if (!contribution) continue;
+          eyeOverlap += contribution;
+          if (leader) ownLoss += sailLoss(footprint, occupied, footprint);
+          if (other.leader) leaderViolation = Math.max(leaderViolation, other.leaderLoss[eye]! + sailLoss(occupied, footprint, footprint) - 0.095);
+        }
+        if (leader) leaderViolation = Math.max(leaderViolation, ownLoss - 0.095);
+        const area = footprint.hull.area + footprint.sails.area;
+        // One objective for every pass: worst-eye overlap share of the whole
+        // fleet picture, so candidates stay comparable as the search widens.
+        overlap = Math.max(overlap, (overlapByEye[eye]! + eyeOverlap) / Math.max(1, areaByEye[eye]! + area));
+        for (const [left, right] of view.intervals) for (const envelope of [footprint.hull, footprint.sails]) {
+          if (envelope.maxY < 0 || envelope.minY > view.viewport.y) continue;
+          intervals += Math.max(0, Math.min(envelope.maxX, right * view.viewport.x) - Math.max(envelope.minX, left * view.viewport.x)) / view.viewport.x;
+        }
+        if (leader && footprint.identitySail.area) clipping = Math.max(clipping, 1 - footprint.identitySail.clippedArea / footprint.identitySail.area);
+        depth = Math.min(depth, footprint.viewDepth);
+      }
+      // Hull/inlet safety was decided before projection. Interval protection
+      // and the leader-sail envelope are admission requirements in every tier,
+      // never traded against overlap; exhaust the pool before overflow.
+      if (leaderViolation > 0 || intervals > 0) return;
+      const rank = [overlap, Math.max(0, leaderViolation), leader ? clipping : 0,
+        leader ? depth / 250 : compositionDistance(tile), leader ? compositionDistance(tile) : -nearest];
+      let better = !selection.rank;
+      if (selection.rank) for (let i = 0; i < rank.length; i++) {
+        if (rank[i] === selection.rank[i]) continue;
+        better = rank[i]! < selection.rank[i]!; break;
+      }
+      if (better) { selection.tile = tile; selection.rank = rank; }
+    };
+    // Stable-ID spread through the near half of the pool plus region-wide samples.
+    // Front-edge candidates are independent of identity/supply scale saturation.
+    for (let attempt = 0; attempt < Math.min(CANDIDATES_PER_SHIP, pool.length); attempt++) {
+      const reach = attempt < 128 ? Math.min(pool.length, Math.max(128, Math.floor(pool.length * 0.45))) : pool.length;
+      const index = attempt < 32 ? attempt : (offset + attempt * 137) % reach;
+      evaluate(pool[index]!);
+    }
+    if (!selection.tile) {
+      // Bounded, stable-ID coverage of the entire legal pool, same objective.
+      for (let attempt = 0; attempt < Math.min(RECOVERY_CANDIDATES_PER_SHIP, pool.length); attempt++) {
+        const index = attempt < 32 ? attempt : (offset + attempt * 137) % pool.length;
+        evaluate(pool[index]!, true);
+      }
+    }
+    // Projection budgets never truncate the legal clearance solve: the cached
+    // distance field shortlists the farthest legal water — the conservative
+    // analytic bound only orders it — and the real projector then confirms
+    // interval protection and the leader envelope before anything is accepted.
+    let clearance: Candidate | null = null;
+    if (!selection.tile) {
+      const shortlist: Candidate[] = [];
+      const guarded = new Set<Candidate>();
+      const order = (tile: Candidate): number => nearestOf(hullIndex, tile) + (guarded.has(tile) ? 1e4 : 0);
+      for (const tile of pool) {
+        const nearest = Math.sqrt(hullIndex.nearestSq[tile.y * PHAROSVILLE_MAP_WIDTH + tile.x]!);
+        if (nearest < MIN_HULL_GAP || !clearsPreferredGap(hullIndex, tile, margin)) continue;
+        const preservesMean = preservesMeanNearest(placed, tile, nearest, nearestSum);
+        if ((preservesMean && !selection.relaxedPreservesMean)
+          || preservesMean === selection.relaxedPreservesMean && nearest > selection.nearest) {
+          selection.relaxed = tile; selection.nearest = nearest; selection.relaxedPreservesMean = preservesMean;
+        }
+        if (!preservesMean) continue;
+        if (intervalClear(tile, tile.heading + headingVariation)) guarded.add(tile);
+        const score = order(tile);
+        let rank = shortlist.length;
+        while (rank > 0 && order(shortlist[rank - 1]!) < score) rank--;
+        if (rank >= CLEARANCE_SHORTLIST) continue;
+        shortlist.splice(rank, 0, tile);
+        if (shortlist.length > CLEARANCE_SHORTLIST) shortlist.pop();
+      }
+      for (const tile of shortlist) {
+        if (!protectsIntervals(ship, tile, tile.heading + headingVariation, views, scratch, placed, leader)) continue;
+        clearance = tile; break;
+      }
+    }
+    // Legal water that protects the view outranks a wider gap that does not:
+    // only genuine exhaustion of the band may cross a protected interval.
+    const protects = (tile: ScreenPoint, heading: number): boolean =>
+      protectsIntervals(ship, tile, heading, views, scratch, placed, leader);
+    let accepted = selection.tile ?? clearance;
+    if (!accepted && selection.relaxed && selection.relaxedPreservesMean
+      && selection.nearest >= MIN_HULL_GAP && clearsPreferredGap(hullIndex, selection.relaxed, margin)
+      && protects(selection.relaxed, selection.relaxed.heading + headingVariation)) accepted = selection.relaxed;
+    const resolved = accepted ?? fallbackBerth(candidates, margin, hullIndex, lighthouseTile, ship.tile, placed, nearestSum,
+      (tile) => protects(tile, headingVariation));
+    const nearest = Math.sqrt(hullIndex.nearestSq[resolved.y * PHAROSVILLE_MAP_WIDTH + resolved.x] ?? Infinity);
+    const capacityOverflow = !clearsPreferredGap(hullIndex, resolved, margin)
+      || !preservesMeanNearest(placed, resolved, nearest, nearestSum);
+    const lobe = accepted?.lobe ?? 0;
+    const mooring: GardenFleetMooringPlacement = {
+      dominantMooring: lobe === 0 && preferred !== 3,
+      mooringId: preferred === 3 ? `satellite-${satellite}` : GARDEN_FLEET_LOBES[lobe]!.id,
+      mooringSize: 0, rankWithinMooring: 0, riskBand: ship.riskZone,
+    };
+    accept(ship, {
+      tile: { x: resolved.x, y: resolved.y }, margin, mooring,
+      restingHeadingRad: (accepted?.heading ?? 0) + headingVariation,
+      placementPath: capacityOverflow ? "capacity-overflow"
+        : selection.tile ? "primary" : clearance ? "relaxed" : "overflow",
     });
   }
-
-  const orphanTotal = orphaned.reduce((sum, berths) => sum + berths, 0);
-  if (orphanTotal > 0 && anchorages.length > 0) {
-    const host = anchorages[0]!;
-    host.berths += orphanTotal;
-    host.radius = anchorageRadius(host.berths, hullGap);
+  const members = new Map<string, string[]>();
+  for (const ship of ordered) {
+    const mooring = mooringByShipId.get(ship.id)!;
+    const ids = members.get(mooring.mooringId) ?? [];
+    ids.push(ship.id); members.set(mooring.mooringId, ids);
   }
-  return anchorages;
-}
-
-/** Finds water for one mooring, backing off its separation before giving up. */
-function seedOneAnchorage(
-  zone: ShipWaterZone,
-  tiles: readonly { x: number; y: number }[],
-  index: number,
-  radius: number,
-  placed: readonly Anchorage[],
-  lighthouseTile: { x: number; y: number },
-): { x: number; y: number } | null {
-  for (const relaxation of ANCHORAGE_SEPARATION_RELAXATIONS) {
-    let best: { x: number; y: number } | null = null;
-    let bestScore = -1;
-    for (let attempt = 0; attempt < ANCHORAGE_CANDIDATES; attempt += 1) {
-      const pick = tiles[
-        Math.floor(stableUnit(`${zone}.anchor.${index}.${attempt}`) * tiles.length)
-      ];
-      if (!pick) continue;
-      const weight = densityWeight(pick.x, pick.y, lighthouseTile);
-      if (weight <= 0) continue;
-      if (!isGardenShipWater(pick, 2)) continue;
-
-      let nearest = Number.POSITIVE_INFINITY;
-      let clears = true;
-      for (const other of placed) {
-        const distance = Math.hypot(pick.x - other.x, pick.y - other.y);
-        if (distance < nearest) nearest = distance;
-        const required = (radius + other.radius) * ANCHORAGE_SEPARATION_FACTOR * relaxation;
-        if (distance < required) clears = false;
-      }
-      if (!clears) continue;
-      // The first mooring has no neighbour, so density alone decides where the
-      // band's main harbour wants to be.
-      const score = (nearest === Number.POSITIVE_INFINITY ? 64 : nearest) * weight;
-      if (score > bestScore) {
-        bestScore = score;
-        best = pick;
-      }
-    }
-    if (best) return best;
-  }
-  return null;
-}
-
-/**
- * Separation is a preference, not a law.
- *
- * A band whose water is a narrow ribbon cannot hold seven well-spaced moorings,
- * and refusing to seed them at all would send its whole fleet through the
- * region-wide fallback — back to the uniform scatter. Backing the requirement
- * off in two steps keeps the clustering in tight water while still preferring
- * generous spacing wherever the sea allows it.
- */
-const ANCHORAGE_SEPARATION_RELAXATIONS = [1, 0.72, 0.5] as const;
-
-/**
- * Scatters the fleet across its regions, mooring by mooring.
- *
- * Retained ids with unchanged bands and hull margins reserve their accepted
- * water before any new candidates are considered. Departures release berths.
- * New ships choose their mooring by an id+band hash, reject illegal or crowded
- * candidates, and take the innermost survivor. Only an exhausted ship scans
- * the remaining legal region; previously accepted ships are never re-solved.
- */
-export function placeGardenFleet(
-  ships: readonly ShipNode[],
-  lighthouseTile: { x: number; y: number },
-): GardenFleetPlacement {
-  const regions = regionTiles();
-  const tileByShipId = new Map<string, { x: number; y: number }>();
-  const mooringByShipId = new Map<string, GardenFleetMooringPlacement>();
-
-  const byZone = new Map<ShipWaterZone, ShipNode[]>();
-  for (const ship of ships) {
-    const group = byZone.get(ship.riskZone) ?? [];
-    group.push(ship);
-    byZone.set(ship.riskZone, group);
-  }
-
-  // Hull separation is shared across risk-band borders, not reset per band.
-  const placed: PlacedHullIndex = { cells: new Map(), list: [] };
-  const retained = new Map<string, RetainedBerth>();
-  const nextBerths = new Map<string, RetainedBerth>();
-  if (berthCache?.lighthouseX === lighthouseTile.x && berthCache.lighthouseY === lighthouseTile.y) {
-    for (const ship of ships) {
-      const previous = berthCache.byShipId.get(ship.id);
-      const margin = gardenShipWaterMarginTiles(
-        gardenShipVisualScale(ship.visual.scale || 1),
-        GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
-      );
-      if (!previous || previous.mooring.riskBand !== ship.riskZone || previous.margin !== margin) continue;
-      retained.set(ship.id, previous);
-      addPlacedHull(placed, { x: previous.tile.x, y: previous.tile.y, margin: previous.margin });
-    }
-  }
-  for (const [zone, group] of [...byZone].sort(([left], [right]) => left.localeCompare(right))) {
-    // Largest hulls berth first: their gap is the widest, and a big hull left
-    // to last finds only gaps sized for small ones. Ids break ties stably.
-    const marginById = new Map(group.map((ship) => [ship.id, gardenShipWaterMarginTiles(
-      gardenShipVisualScale(ship.visual.scale || 1),
-      GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
-    )]));
-    const ordered = group.toSorted((left, right) => (
-      marginById.get(right.id)! - marginById.get(left.id)! || left.id.localeCompare(right.id)
-    ));
-    const region = regions.get(TERRAIN_FOR_ZONE[zone]);
-    const candidates = region?.tiles ?? [];
-    if (candidates.length === 0) {
-      // A band with no painted water of its own (possible when a band is
-      // empty in the data) falls back to one deterministic dominant mooring.
-      for (const [rankWithinMooring, ship] of ordered.entries()) {
-        tileByShipId.set(ship.id, { ...ship.tile });
-        mooringByShipId.set(ship.id, {
-          dominantMooring: true,
-          mooringId: `${zone}.0`,
-          mooringSize: ordered.length,
-          rankWithinMooring,
-          riskBand: zone,
-        });
-      }
-      continue;
-    }
-
-    const terrain = TERRAIN_FOR_ZONE[zone];
-    // Moorings are sized against the band's typical hull, since that is what
-    // sets how much water each berth actually consumes.
-    const meanHullGap = (ordered.reduce(
-      (sum, entry) => sum + gardenShipWaterMarginTiles(
-        gardenShipVisualScale(entry.visual.scale || 1),
-        GARDEN_SILHOUETTE_FOR_HULL[entry.visual.hull],
-      ),
-      0,
-    ) / Math.max(1, ordered.length)) * MIN_HULL_GAP;
-    const anchorages = seedAnchorages(zone, candidates, ordered.length, meanHullGap, lighthouseTile);
-    const nextRankByAnchorage = new Map<Anchorage, number>();
-    // Legal berth water of this band per hull margin, for the exhaustive scan
-    // below. Legality does not depend on the placed hulls, and every exhausted
-    // ship of the same hull re-tests the same tiles, so it is computed once.
-    const legalTilesByMargin = new Map<number, { x: number; y: number }[]>();
-
-    for (const [shipIndex, ship] of ordered.entries()) {
-      const margin = gardenShipWaterMarginTiles(
-        gardenShipVisualScale(ship.visual.scale || 1),
-        GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
-      );
-      const previous = retained.get(ship.id);
-      const anchorage = previous
-        ? anchorages.find((entry) => `${zone}.${entry.index}` === previous.mooring.mooringId) ?? null
-        : anchorageForShip(anchorages, ship.id, zone);
-      const rankWithinMooring = anchorage
-        ? nextRankByAnchorage.get(anchorage) ?? 0
-        : shipIndex;
-      if (anchorage) nextRankByAnchorage.set(anchorage, rankWithinMooring + 1);
-      mooringByShipId.set(ship.id, {
-        dominantMooring: anchorage ? anchorage === anchorages[0] : true,
-        mooringId: `${zone}.${anchorage?.index ?? 0}`,
-        mooringSize: anchorage?.berths ?? ordered.length,
-        rankWithinMooring,
-        riskBand: zone,
-      });
-      if (previous) {
-        tileByShipId.set(ship.id, previous.tile);
-        mooringByShipId.set(ship.id, { ...previous.mooring, rankWithinMooring });
-        nextBerths.set(ship.id, previous);
-        continue;
-      }
-
-      // Two passes, run in ORDER and short-circuited — never interleaved.
-      //
-      // The anchorage pass ranks candidates by how close they are to the
-      // mooring's heart (small is good); the region pass ranks them by how far
-      // they are from any neighbour (so it negates, and large separation scores
-      // small). Those two rankings are not comparable, and scoring them in one
-      // loop against a shared best silently handed every berth to the region
-      // pass, because a negated separation is always below a positive radius.
-      // The clustering was all present in the code and entirely absent from the
-      // picture. The region pass now only runs for a ship the anchorage could
-      // not berth at all.
-      //
-      // What neither pass does is fall back to the ship's authored tile: that
-      // belongs to the world model, sits in whatever water the data put it in,
-      // and is shared by every ship in the fixtures — so it both stacks hulls
-      // and drops them in the wrong band.
-      let relaxedBest: { x: number; y: number } | null = null;
-      let relaxedScore = Number.NEGATIVE_INFINITY;
-      let berth: { x: number; y: number } | null = null;
-
-      const passes = anchorage ? (["anchorage", "region"] as const) : (["region"] as const);
-      for (const pass of passes) {
-        let best: { x: number; y: number } | null = null;
-        let bestRank = Number.POSITIVE_INFINITY;
-
-        for (let attempt = 0; attempt < CANDIDATES_PER_SHIP; attempt += 1) {
-          const tile = pass === "anchorage" && anchorage
-            ? sampleWithinAnchorage(anchorage, ship.id, attempt)
-            : sampleAcrossRegion(candidates, ship.id, attempt);
-          if (!tile) continue;
-          const weight = densityWeight(tile.x, tile.y, lighthouseTile);
-          if (weight <= 0) continue;
-          // Sampling a DISC rather than the region's own tile list means a
-          // candidate can drift over the band's boundary, so the region check
-          // that used to be structural has to be explicit. Without it a mooring
-          // near an edge would quietly leak ships into the neighbouring body
-          // and break the one thing this file is not allowed to break.
-          if (terrainKindAt(Math.round(tile.x), Math.round(tile.y)) !== terrain) continue;
-          if (!isBerthWater(tile, margin)) continue;
-
-          // The berth test needs rank < bestRank: by distance from the
-          // mooring's heart (fixed per tile) or, in the region pass, by
-          // separation (`-nearest`), i.e. `nearest > -bestRank`.
-          const anchorageRank = pass === "anchorage" && anchorage
-            ? Math.hypot(tile.x - anchorage.x, tile.y - anchorage.y)
-            : Number.NaN;
-          const nearestFloor = Number.isNaN(anchorageRank)
-            ? -bestRank
-            : anchorageRank >= bestRank ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
-          measureHullClearance(placed, tile.x, tile.y, margin, weight, relaxedScore, nearestFloor);
-          const nearest = clearanceNearest;
-          const separation = clearanceSeparation;
-          if (nearest * weight > relaxedScore) {
-            relaxedScore = nearest * weight;
-            relaxedBest = tile;
-          }
-          // R11: a hard floor on hull separation. This is what stops an
-          // anchorage becoming the raft that blue noise was brought in to
-          // prevent.
-          if (separation < MIN_HULL_GAP) continue;
-
-          // Filling inward-out is what makes a cluster read as a harbour with a
-          // middle, rather than as a disc of scattered points.
-          const rank = Number.isNaN(anchorageRank) ? -nearest : anchorageRank;
-          if (rank < bestRank) {
-            bestRank = rank;
-            best = tile;
-          }
-        }
-
-        if (best) {
-          berth = best;
-          break;
-        }
-      }
-
-      // Random draws may exhaust a narrow anchorage; scan its legal water
-      // rather than returning to an authored tile inside the empty channel.
-      // Any tile that still clears the hull gap wins; only a band with no such
-      // water left falls back to the most open spot it has.
-      if (!berth) {
-        let legalTiles = legalTilesByMargin.get(margin);
-        if (!legalTiles) {
-          legalTiles = candidates.filter((tile) => (
-            densityWeight(tile.x, tile.y, lighthouseTile) > 0 && isBerthWater(tile, margin)
-          ));
-          legalTilesByMargin.set(margin, legalTiles);
-        }
-        let scanNearest = -1;
-        for (const tile of legalTiles) {
-          measureHullClearance(placed, tile.x, tile.y, margin, 1, relaxedScore, scanNearest);
-          const nearest = clearanceNearest;
-          const separation = clearanceSeparation;
-          if (separation >= MIN_HULL_GAP && nearest > scanNearest) {
-            berth = tile;
-            scanNearest = nearest;
-          }
-          if (nearest > relaxedScore) {
-            relaxedBest = tile;
-            relaxedScore = nearest;
-          }
-        }
-      }
-      // Tier 1 is `relaxedBest`: apron-clear water, gap relaxed.
-      const resolved = berth ?? relaxedBest ?? fallbackBerth(candidates, margin, placed.list, lighthouseTile, ship.tile);
-      addPlacedHull(placed, { x: resolved.x, y: resolved.y, margin });
-      tileByShipId.set(ship.id, resolved);
-      nextBerths.set(ship.id, { tile: resolved, margin, mooring: mooringByShipId.get(ship.id)! });
-    }
-  }
-
-  // Metadata follows occupancy, including retained moorings whose planned
-  // capacity changed. It must not claim ranks or sizes from a previous roster.
-  const membersByMooring = new Map<string, string[]>();
-  for (const [id, mooring] of mooringByShipId) {
-    const members = membersByMooring.get(mooring.mooringId) ?? [];
-    members.push(id);
-    membersByMooring.set(mooring.mooringId, members);
-  }
-  for (const members of membersByMooring.values()) {
-    for (const [rankWithinMooring, id] of members.entries()) {
-      const mooring = { ...mooringByShipId.get(id)!, mooringSize: members.length, rankWithinMooring };
-      mooringByShipId.set(id, mooring);
-      const berth = nextBerths.get(id);
-      if (berth) nextBerths.set(id, { ...berth, mooring });
-    }
+  for (const ids of members.values()) for (const [rankWithinMooring, id] of ids.entries()) {
+    const mooring = { ...mooringByShipId.get(id)!, mooringSize: ids.length, rankWithinMooring };
+    mooringByShipId.set(id, mooring);
+    nextBerths.get(id)!.mooring = mooring;
   }
   berthCache = { lighthouseX: lighthouseTile.x, lighthouseY: lighthouseTile.y, byShipId: nextBerths };
-
-  return { mooringByShipId, tileByShipId };
+  return { placement: { mooringByShipId, tileByShipId, restingHeadingByShipId, placementPathByShipId }, placed };
 }
 
-/**
- * Last resorts for a band with no apron-clear water left, so a world always
- * renders rather than failing placement.
- *
- * Tier 2 is the earlier rule: navigable water outside the inlet, dock aprons
- * allowed (the display then eases the hull off the apron). Tier 3 is the
- * least-bad navigable tile of the band: outside the inlet if any is, else the
- * one farthest from it. Only a band with no navigable tile at all keeps the
- * ship's data tile. Each tier prefers the spot farthest from placed hulls.
- */
-function fallbackBerth(
-  candidates: readonly { x: number; y: number }[],
-  margin: number,
-  placed: readonly PlacedHull[],
-  lighthouseTile: { x: number; y: number },
-  dataTile: { x: number; y: number },
-): { x: number; y: number } {
-  let navigable: { x: number; y: number } | null = null;
-  let navigableScore = Number.NEGATIVE_INFINITY;
-  let previousRule: { x: number; y: number } | null = null;
-  let previousRuleNearest = Number.NEGATIVE_INFINITY;
+/** Every tier here admits only water that leaves the reserved intervals empty:
+ * cheap legality ranks a bounded shortlist, the projector confirms it, and a
+ * crossing is reached only when the whole band is genuinely exhausted. */
+function fallbackBerth(candidates: readonly ScreenPoint[], margin: number, index: HullIndex, lighthouseTile: ScreenPoint, dataTile: ScreenPoint, placed: readonly Placed[], nearestSum: number, protects: (tile: ScreenPoint) => boolean): ScreenPoint {
+  const shortlist: Array<{ tile: ScreenPoint; rank: number }> = [];
+  let crossing: ScreenPoint | null = null;
+  let crossingRank = -Infinity;
   for (const tile of candidates) {
-    if (!isGardenShipWater(tile, 0)) continue;
-    let nearest = Number.POSITIVE_INFINITY;
-    for (const other of placed) nearest = Math.min(nearest, Math.hypot(tile.x - other.x, tile.y - other.y));
+    // The monument's sightline outranks capacity: never crowd it, even here.
+    if (!isGardenShipWater(tile, 0) || densityWeight(tile.x, tile.y, lighthouseTile) <= 0) continue;
+    const nearest = Math.sqrt(index.nearestSq[tile.y * PHAROSVILLE_MAP_WIDTH + tile.x]!);
     const inlet = gardenInletDistance(tile.x, tile.y);
-    if (densityWeight(tile.x, tile.y, lighthouseTile) > 0
-      && inlet > GARDEN_EMPTY_INLET.halfWidth + margin
-      && isGardenShipWater(tile, margin)
-      && nearest > previousRuleNearest) {
-      previousRule = tile;
-      previousRuleNearest = nearest;
-    }
-    // Outside the inlet ranks above inside it; then open water, then distance
-    // from the inlet.
-    const score = inlet > GARDEN_EMPTY_INLET.halfWidth
-      ? PHAROSVILLE_MAP_WIDTH + PHAROSVILLE_MAP_HEIGHT + Math.min(nearest, PHAROSVILLE_MAP_WIDTH)
-      : inlet;
-    if (score > navigableScore) {
-      navigable = tile;
-      navigableScore = score;
-    }
+    const outsideInlet = inlet > GARDEN_EMPTY_INLET.halfWidth;
+    const apronClear = inlet > GARDEN_EMPTY_INLET.halfWidth + margin && isGardenShipWater(tile, margin);
+    const gapClear = clearsPreferredGap(index, tile, margin);
+    const preservesMean = nearest >= MIN_HULL_GAP && outsideInlet
+      && preservesMeanNearest(placed, tile, nearest, nearestSum);
+    // Legality first, then readable spacing: apron and inlet clearance, the
+    // pairwise hull gap, the fleet mean, and only then a wider neighbour gap.
+    const rank = (apronClear ? 1e6 : 0) + (gapClear ? 1e5 : 0) + (preservesMean ? 1e4 : 0)
+      + (outsideInlet ? 1e3 : 0) + Math.min(nearest, 999);
+    if (rank > crossingRank) { crossing = tile; crossingRank = rank; }
+    let position = shortlist.length;
+    while (position > 0 && shortlist[position - 1]!.rank < rank) position--;
+    if (position >= FALLBACK_SHORTLIST) continue;
+    shortlist.splice(position, 0, { tile, rank });
+    if (shortlist.length > FALLBACK_SHORTLIST) shortlist.pop();
   }
-  return previousRule ?? navigable ?? { x: dataTile.x, y: dataTile.y };
+  for (const entry of shortlist) {
+    if (protects(entry.tile)) return entry.tile;
+  }
+  return crossing ?? { x: dataTile.x, y: dataTile.y };
 }
 
-/** Choose a mooring by identity, never by a ship's ordinal in the roster. */
-function anchorageForShip(anchorages: readonly Anchorage[], shipId: string, zone: ShipWaterZone): Anchorage | null {
-  const berths = anchorages.reduce((sum, anchorage) => sum + anchorage.berths, 0);
-  let remaining = stableUnit(`${zone}.${shipId}.mooring`) * berths;
-  for (const anchorage of anchorages) {
-    if (remaining < anchorage.berths) return anchorage;
-    remaining -= anchorage.berths;
+/** Existing gate is fleet mean, not a 3.5-tile restriction on every pair.
+ * Include reduced distances of old neighbours, not just the arrival's gap. */
+function preservesMeanNearest(placed: readonly Placed[], tile: ScreenPoint, nearest: number, previousSum: number): boolean {
+  if (placed.length <= 1) return nearest > MEAN_NEAREST_FLOOR_TILES;
+  let slack = previousSum + nearest - MEAN_NEAREST_FLOOR_TILES * (placed.length + 1);
+  if (slack <= 0) return false;
+  for (const other of placed) {
+    const dx = tile.x - other.tile.x; const dy = tile.y - other.tile.y;
+    const distanceSq = dx * dx + dy * dy;
+    if (distanceSq < other.nearestSq) slack -= Math.sqrt(other.nearestSq) - Math.sqrt(distanceSq);
+    if (slack <= 0) return false;
   }
-  return anchorages.at(-1) ?? null;
+  return true;
 }
 
-/**
- * A point inside a mooring, biased toward its middle.
- *
- * `sqrt(u)` would sample the disc uniformly by area; the gentler exponent
- * deliberately over-weights the centre so anchorages have a dense heart and a
- * thinning edge, the way moored boats actually gather. The half-tile of extra
- * jitter keeps the result off any lattice the trigonometry might imply.
- */
-function sampleWithinAnchorage(
-  anchorage: Anchorage,
-  shipId: string,
-  attempt: number,
-): { x: number; y: number } {
-  const angle = stableUnit(`${shipId}.theta.${attempt}`) * Math.PI * 2;
-  const radius = anchorage.radius * stableUnit(`${shipId}.rad.${attempt}`) ** 0.68;
-  return {
-    x: anchorage.x + Math.cos(angle) * radius + stableUnit(`${shipId}.jx.${attempt}`) - 0.5,
-    y: anchorage.y + Math.sin(angle) * radius + stableUnit(`${shipId}.jy.${attempt}`) - 0.5,
+function nearestOf(index: HullIndex, tile: ScreenPoint): number {
+  return Math.sqrt(index.nearestSq[tile.y * PHAROSVILLE_MAP_WIDTH + tile.x]!);
+}
+
+/** The projected proof the shortlist's analytic bound only approximates: no
+ * protected interval is crossed and no leading identity sail is overrun. */
+function protectsIntervals(
+  ship: ShipNode, tile: ScreenPoint, heading: number, views: readonly GardenFleetRestView[],
+  scratch: GardenFleetFootprint[], placed: readonly Placed[], leader: boolean,
+): boolean {
+  projectBerth(ship, tile, heading, scratch);
+  for (let eye = 0; eye < views.length; eye++) {
+    const footprint = scratch[eye]!;
+    const view = views[eye]!;
+    for (const [left, right] of view.intervals) for (const envelope of [footprint.hull, footprint.sails]) {
+      if (envelope.maxY < 0 || envelope.minY > view.viewport.y) continue;
+      if (Math.min(envelope.maxX, right * view.viewport.x) > Math.max(envelope.minX, left * view.viewport.x)) return false;
+    }
+    let ownLoss = 0;
+    for (const other of placed) {
+      const occupied = other.footprints[eye]!;
+      if (!fleetEnvelopeOverlap(footprint, occupied, footprint)) continue;
+      if (leader) ownLoss += sailLoss(footprint, occupied, footprint);
+      if (other.leader && other.leaderLoss[eye]! + sailLoss(occupied, footprint, footprint) > 0.095) return false;
+    }
+    if (leader && ownLoss > 0.095) return false;
+  }
+  return true;
+}
+
+/** Bound every hull/cloth vertex in a world-space box once per arrival.
+ * Perspective bounds conservatively reject interval crossings without running
+ * the polygon projector during the unbounded clearance-only tile scan. */
+function intervalGuard(ship: ShipNode): (tile: ScreenPoint, heading: number) => boolean {
+  const family = GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull];
+  const descriptor = GARDEN_FLEET_FAMILY_ENVELOPES[family];
+  const reach = gardenShipHullReachWorld(1, family, null);
+  let x = reach.x; let z = reach.z;
+  let top = descriptor.hullHeight + 0.2;
+  for (const sail of descriptor.sails) {
+    const square = sail.kind === "square";
+    const angle = square ? shipRestSailBraceRad(ship.id) : (sail.reverse ? -0.05 : 0.05);
+    const c = Math.abs(Math.cos(angle)); const s = Math.abs(Math.sin(angle));
+    const along = square ? sail.width / 2 : sail.width + 0.06;
+    const thick = 0.24 + sail.width * (square ? 0.2 : 0.14) + (square ? 0 : 0.03);
+    x = Math.max(x, Math.abs(sail.x) + c * (square ? thick : along) + s * (square ? along : thick));
+    z = Math.max(z, Math.abs(sail.z) + s * (square ? thick : along) + c * (square ? along : thick));
+    top = Math.max(top, sail.y + (sail.height + 0.5) / 2);
+  }
+  const scale = gardenShipVisualScale(ship.visual.scale);
+  const form = ship.visual.hullForm;
+  x *= scale * (form?.length ?? 1); z *= scale * (form?.beam ?? 1);
+  const height = (top + 0.35) * scale * (form?.height ?? 1);
+  const rootY = GARDEN_SHIP_ROOT_Y + (form?.waterline ?? 0) * scale;
+  const centerY = rootY + (top - 0.35) * scale * (form?.height ?? 1) / 2;
+  const cy = Math.cos(REST_SEAT_YAW_RAD); const sy = Math.sin(REST_SEAT_YAW_RAD);
+  const cp = Math.cos(REST_SEAT_PITCH_RAD); const sp = Math.sin(REST_SEAT_PITCH_RAD);
+  const fov = 1 / (2 * Math.tan(REST_SEAT_VFOV_DEG * Math.PI / 360));
+  const views = gardenFleetRestViews();
+  return (tile, heading) => {
+    const c = Math.abs(Math.cos(heading)); const s = Math.abs(Math.sin(heading));
+    const worldX = c * x + s * z; const worldZ = s * x + c * z;
+    const horizontal = cy * worldX + sy * worldZ;
+    const depthRadius = cp * (sy * worldX + cy * worldZ) + sp * height / 2;
+    for (const view of views) {
+      const aspect = view.viewport.x / view.viewport.y;
+      const eye = restSeatEyeForAspect(aspect).world;
+      const dx = tile.x * TILE_SCALE - eye.x; const dz = tile.y * TILE_SCALE - eye.z;
+      const depth = -cp * (sy * dx + cy * dz) - sp * (centerY - eye.y);
+      const near = depth - depthRadius; const far = depth + depthRadius;
+      if (near <= 0) return false;
+      const left = cy * dx - sy * dz - horizontal;
+      const right = cy * dx - sy * dz + horizontal;
+      const minX = 0.5 + left / (left < 0 ? near : far) * fov / aspect;
+      const maxX = 0.5 + right / (right > 0 ? near : far) * fov / aspect;
+      for (const [a, b] of view.intervals) if (minX < b && maxX > a) return false;
+    }
+    return true;
   };
 }
 
-/** Fallback for a band that could not seed a single mooring: the old scatter. */
-function sampleAcrossRegion(
-  tiles: readonly { x: number; y: number }[],
-  shipId: string,
-  attempt: number,
-): { x: number; y: number } | null {
-  const pick = tiles[Math.floor(stableUnit(`${shipId}.place.${attempt}`) * tiles.length)];
-  if (!pick) return null;
-  return {
-    x: pick.x + stableUnit(`${shipId}.jx.${attempt}`) - 0.5,
-    y: pick.y + stableUnit(`${shipId}.jy.${attempt}`) - 0.5,
-  };
-}
-
+/** Stable-ID pool hash; neighbouring IDs must not all choose the same lobe. */
 function stableUnit(value: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0) / 0xffffffff;
+  return stableFnv1aHash(value) / 0x100000000;
 }

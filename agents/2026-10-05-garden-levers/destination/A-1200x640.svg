@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="920" viewBox="0 0 1200 920" role="img" aria-labelledby="title desc">
+  <title id="title">A — Moss-side observatory: 1200 by 640 gate annotations</title>
+  <desc id="desc">Wide-gate baseline with the pine discs fully visible, broad smooth lower bank, right-of-centre tower, central inlet and a bottom caption. Replace lower bank and pine; keep the path and bounded gravel inset above chrome. Three unequal projected fleet masses retain two water intervals. Surface labels are aspirations.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#ffd176"/></marker>
+    <style>text{font-family:system-ui,sans-serif;fill:#f6f7fb;font-size:18px}.g{stroke:#ffd176;stroke-width:2.5;fill:#ffd176;fill-opacity:.06}.keep{stroke:#9bf1c6;stroke-width:2.5;fill:none}.material{stroke:#88dcff;stroke-width:2.5;stroke-dasharray:8 6;fill:none}.leader{stroke:#ffd176;stroke-width:2.5;fill:none;marker-end:url(#arrow)}.label{fill:#121b29;fill-opacity:.94}.small{font-size:16px}</style>
+  </defs>
+  <rect width="1200" height="920" fill="#121b29"/>
+  <text x="24" y="35" font-size="25">A / 1200×640 — wide gate; path stays above chrome</text>
+  <text x="24" y="72" class="small">Gold: geometric intent   ·   Mint: preserve/clearance   ·   Cyan dashed: aspirational materials</text>
+  <image href="../../../outputs/holistic/day-1200x640.png" x="0" y="100" width="1200" height="640"/>
+  <path class="g" d="M0 538L150 562L390 551L610 589L820 615L1030 647L1200 679L1200 740L0 740Z"/>
+  <path class="g" d="M0 151L120 153L251 187L267 253L198 303L0 299Z"/>
+  <path class="g" d="M183 641L219 606L282 612L300 654L258 679L192 671Z M309 648L344 618L415 635L429 678L365 685L320 670Z M157 678L187 660L236 678L226 691L173 692Z"/>
+  <path class="g" d="M501 645L548 614L695 622L780 653L744 680L527 678Z"/>
+  <path class="g" d="M620 613L562 583L481 598L432 640" fill-opacity="0"/>
+  <rect class="keep" x="676" y="184" width="117" height="243" rx="8"/>
+  <path class="keep" d="M541 555L530 525L586 483L640 478L667 511L680 558L729 575L620 572Z"/>
+  <path class="g" d="M81 449L230 427L390 461L533 529L485 554L268 543L112 512Z M277 424L407 419L521 433L621 461L588 482L427 472L310 451Z M968 447L1103 445L1199 481L1199 589L1080 613L985 563Z"/>
+  <path class="keep" d="M531 506L534 480M899 475L961 461" stroke-width="7"/>
+  <rect class="keep" x="16" y="684" width="1168" height="52"/>
+  <path class="material" d="M220 635L271 637L279 662M556 653L698 649M46 719L507 719"/>
+  <rect class="label" x="310" y="152" width="340" height="63" rx="4"/>
+  <text x="322" y="177">G1 Replace disc pine; porous branches</text><text x="322" y="201" class="small">Do not consume sky or tower air</text>
+  <path class="leader" d="M310 197L226 233"/>
+  <rect class="label" x="816" y="155" width="358" height="63" rx="4"/>
+  <text x="828" y="180">K1 Preserve right-of-centre tower</text><text x="828" y="204" class="small">Crown air + inlet / reflection lane</text>
+  <path class="leader" d="M816 210L762 250"/>
+  <rect class="label" x="34" y="335" width="465" height="62" rx="4"/>
+  <text x="46" y="360">G2 Leading left / rear crescent / receding right</text><text x="46" y="384" class="small">Unequal masses; two quiet-water gaps; no hidden IDs</text>
+  <path class="leader" d="M423 397L449 457"/>
+  <text x="551" y="539" class="small">K2 Inlet</text><text x="562" y="672" class="small">G3 Inset</text>
+  <text x="40" y="707" class="small">K3 Caption/action strip: no path or dated-record reading here</text>
+  <text x="24" y="778">G3 Replace bottom 25–30% smooth bank with moss shelves, buried triad and recessed gravel.</text>
+  <text x="24" y="813">Approach disappears behind stone above K3; crop engawa sill below hulls, not over the inlet.</text>
+  <text x="24" y="848">M1 Aspirational: soft moss / damp mineral stone / matte gravel / directional weathered timber.</text>
+  <text x="24" y="883">Gate geometry is reprojected, not pixel-pinned. Surface finish and clearance require candidate evidence.</text>
+  <text x="24" y="910" class="small">Baseline underlay: outputs/holistic/day-1200x640.png · Existing warning/status text is evidence, not target chrome.</text>
+</svg>

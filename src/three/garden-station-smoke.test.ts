@@ -82,7 +82,7 @@ function meshOf(smoke: GardenStationSmoke) {
     geometry: {
       getAttribute: (name: string) => { getX: (index: number) => number };
     };
-    material: { uniforms: Record<string, { value: unknown }> };
+    material: { fragmentShader: string; uniforms: Record<string, { value: unknown }> };
   };
 }
 
@@ -163,6 +163,19 @@ describe("stationSmokeSpecs", () => {
 });
 
 describe("createGardenStationSmoke", () => {
+  it("resolves colour derivatives before its alpha discard", () => {
+    const batch = batchFor(HEARTH_TYPES);
+    const smoke = createGardenStationSmoke(stationSmokeSpecs(batch.docks), noise());
+    const fragment = meshOf(smoke).material.fragmentShader;
+    const derivative = fragment.indexOf("fwidth(n)");
+    const discard = fragment.indexOf("discard;");
+    expect(derivative).toBeGreaterThanOrEqual(0);
+    expect(discard).toBeGreaterThan(derivative);
+    expect(fragment.indexOf("texture2D(")).toBeLessThan(discard);
+    smoke.dispose();
+    batch.dispose();
+  });
+
   it("builds at most 24 instances across the three chimneys", () => {
     const batch = batchFor([...HEARTH_TYPES, ...OTHER_TYPES]);
     const specs = stationSmokeSpecs(batch.docks);

@@ -35,13 +35,9 @@
  * PASS, FAIL, and SKIP (exit 78) when this machine cannot render a real frame.
  * Never collapse SKIP into PASS.
  *
- * The headline number is the TAIL, not the average. Calm is a P95 property: one
- * 100ms frame a minute is felt where 2ms on the mean is not, so the animated
- * assert arm sweeps the pacing window repeatedly (--tail-seconds) and gates the
- * WORST window's p95. p99, the worst single frame and the long-task counts are
- * reported beside it as observability — a lone spike on a busy machine is real
- * information but a bad reason to block a push, whereas a whole bad second
- * shows up in p95 and does block one.
+ * Animated assertions gate clean resting windows, never refresh-contaminated
+ * pacing/GPU rings. Refresh frames and all resource peaks remain recorded;
+ * p99, worst frame and long tasks remain observability, not new relaxed caps.
  *
  * Usage:
  *   node scripts/pharosville/preview.mjs
@@ -60,6 +56,7 @@
  *   node scripts/pharosville/preview.mjs --assert --max-p95=20 --max-gpu-ms=12 --tail-seconds 30   # --max-gpu-ms refused on ANGLE Metal
  *   node scripts/pharosville/preview.mjs --texture-census    # attribute live texture owners
  *   node scripts/pharosville/preview.mjs --draw-census      # attribute live draw owners
+ *   node scripts/pharosville/preview.mjs --spike-trace --seconds 600 --json # DEV exact-frame triangle diagnosis
  *   node scripts/pharosville/preview.mjs --light-cycle --json # native time control phase/resource audit
  *   node scripts/pharosville/preview.mjs --blur-audit       # temporary 16px canvas attention audit
  *   node scripts/pharosville/preview.mjs --fixture dense --overlap --json
@@ -94,12 +91,15 @@
  *   --stats [--watch-seconds S]  __pharosVilleDebug.motionStats + directorLog (sampled over S seconds)
  *   --metrics                  HUD-free picture metrics + <out>-notan.png
  *   --temporal                 mean frame-to-frame |ΔL*| of the bottom third over a 1.5 s burst
- *   --value-plan [noon|dusk|night]  ninths vs the bible table: MAE and Pearson r (column from t= hour)
+ *   --value-plan [noon|dusk|night]  ninth diagnostics; noon/dusk MAE and Pearson r (column from t= hour)
  *   --night-water              mean L* over the projected inlet water polygon
+ *   --light-rois <json>         aspect-specific CSS polygons: median contrasts and non-recess L*6 coverage
+ *   --station <id>            visit an authored stroll station before settling
+ *   --path-progress <0..1>    pin that station route at an exact sample
  */
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -108,13 +108,15 @@ import {
   PREVIEW_FIXTURES, installPreviewFixture, installFlowingDate, analyzeTargetOverlap,
   previewClockDescriptor, createAttentionWatch, snapshotAttentionWatch, summarizeAttentionWatch,
 } from "./preview-fixture.mjs";
-import { buildCaptureManifest } from "./preview-manifest.mjs";
+import { appearanceDocumentIdentity, buildCaptureManifest, fetchServedCheckoutIdentity, hashFixturePayloads, phaseForHour } from "./preview-manifest.mjs";
 import { analyzeArtifactFlashFrames } from "./artifact-flash-metric.mjs";
+import { parseExperienceFlags, installExperienceObserver, captureColdFilmstrip, readExperienceTiming, applyExperienceState, applyStrollCapture, installFrameEvidenceObserver, isSteadyFrameWindow, dominantPassReading } from "./preview-experience.mjs";
 import {
   bottomThirdHighFrequency,
   brightShare,
   decodeFrame,
   frameMeanLstar,
+  measureLightRois,
   meanAbsoluteError,
   ninths,
   pearson,
@@ -156,6 +158,11 @@ const SYSTEM_CHROME = SYSTEM_CHROME_BY_PLATFORM[process.platform] ?? SYSTEM_CHRO
 const SKIP_EXIT_CODE = 78;
 
 const args = parseArgs(process.argv.slice(2));
+const experience = parseExperienceFlags(args);
+if (experience.shell && (args.assert || args.appearance || args["served-checkout"] || args.clean || args["ship-limit"])) {
+  throw new Error("--capture-shell is DOM evidence, not GPU/appearance/capacity evidence.");
+}
+if (experience.offsets.length && args["ship-limit"]) throw new Error("--cold-filmstrip requires one cold navigation; run --ship-limit separately.");
 if (args["artifact-check"] && args.reduced) {
   throw new Error("--artifact-check needs normal motion; --reduced is intentionally static.");
 }
@@ -200,8 +207,14 @@ const valuePlanColumn = typeof args["value-plan"] === "string" ? args["value-pla
 if (valuePlanColumn && !VALUE_PLAN_COLUMNS.includes(valuePlanColumn)) {
   throw new Error(`--value-plan takes no value or one of ${VALUE_PLAN_COLUMNS.join(", ")}, got "${valuePlanColumn}"`);
 }
+const lightRoiPath = args["light-rois"];
+if (lightRoiPath !== undefined && typeof lightRoiPath !== "string") {
+  throw new Error("--light-rois needs a JSON file of CSS-pixel polygons");
+}
+const lightRois = lightRoiPath ? JSON.parse(await readFile(resolve(lightRoiPath), "utf8")) : null;
 const picture = {
   metrics: Boolean(args.metrics),
+  lightRois: Boolean(lightRois),
   nightWater: Boolean(args["night-water"]),
   temporal: Boolean(args.temporal),
   valuePlan: Boolean(args["value-plan"]),
@@ -227,6 +240,20 @@ const limits = {
   requiredTier: typeof args["require-tier"] === "string" ? args["require-tier"] : forcedTier ?? "full",
 };
 const url = args.url ?? "http://localhost:5173";
+const scriptCheckoutAtStart = readCheckoutIdentity();
+if (args.appearance !== undefined && typeof args.appearance !== "string") throw new Error("--appearance needs a local JSON file.");
+const appearanceDocument = args.appearance === undefined ? null : JSON.parse(await readFile(resolve(args.appearance), "utf8"));
+const requestedAppearance = appearanceDocument === null ? null : appearanceDocumentIdentity(appearanceDocument);
+if (args["served-checkout"] !== undefined && typeof args["served-checkout"] !== "string") throw new Error("--served-checkout needs the expected serving-tree path.");
+const expectedServedRoot = args["served-checkout"] ? await realpath(resolve(args["served-checkout"])) : null;
+const strictServedIdentity = Boolean(requestedAppearance || expectedServedRoot);
+const readServedIdentity = async () => {
+  try { return await fetchServedCheckoutIdentity(url); }
+  catch (error) { if (strictServedIdentity) throw error; return null; }
+};
+const servedCheckoutBefore = await readServedIdentity();
+if ((requestedAppearance || expectedServedRoot) && !servedCheckoutBefore) throw new Error("Appearance/look comparison requires the DEV server's genuine served-checkout identity.");
+if (expectedServedRoot && servedCheckoutBefore?.root !== expectedServedRoot) throw new Error("Wrong served checkout; refusing to capture another server's tree.");
 const requestedShipLimit = args["ship-limit"] === undefined ? null : Number(args["ship-limit"]);
 if (requestedShipLimit !== null && (!fixture || typeof args["ship-limit"] !== "string" || !Number.isInteger(requestedShipLimit))) {
   throw new Error("--ship-limit requires --fixture and an integer N");
@@ -356,12 +383,23 @@ try {
     // `sampleCount` stays 0 and fps reads as 0. Pass --reduced to measure the
     // static path deliberately.
     reducedMotion: args.reduced ? "reduce" : "no-preference",
+    javaScriptEnabled: experience.shell !== "no-js",
   });
+  await page.addInitScript(installExperienceObserver);
+  const worldRequests = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (/^\/api\/|^\/(?:logos|chains)\/|\.glb$|\/(?:pharosville-desktop-data|pharosville-world|world-renderer)(?:[./-]|$)/.test(path)) worldRequests.push(request.url());
+  });
+  if (experience.shell === "module-failure") {
+    await page.route(/\/src\/main\.tsx(?:\?|$)|\/assets\/index-[^/]+\.js(?:\?|$)/, (route) => route.abort("failed"));
+  }
+  if (experience.shell === "renderer-failure") {
+    await page.route(/\/src\/three\/world-renderer\.ts(?:\?|$)|\/assets\/world-renderer-[^/]+\.js(?:\?|$)/, (route) => route.abort("failed"));
+  }
 
-  // A fresh profile is a first visit: the now-line would speak the three
-  // first-visit teachings for ~21 s after arrival and cover the ordinary
-  // caption in every preview. Seed them as read; pass --first-visit to see
-  // them deliberately.
+  // First-visit teaching is a separate reading key, never a caption timer.
+  // Seed returning visitors as taught unless --first-visit is requested.
   if (!args["first-visit"]) {
     await page.addInitScript(() => {
       try {
@@ -373,8 +411,27 @@ try {
   }
 
   const fixtureIdentity = fixture ? await installPreviewFixture(page, fixture, { dateMode: fixtureDateMode }) : null;
+  if (appearanceDocument) await page.addInitScript((appearance) => {
+    window.__pharosVilleTestAppearance = appearance;
+  }, appearanceDocument);
+  // Live arms retain the exact JSON responses used by their world, not a label claiming equivalence.
+  const livePayloads = {};
+  const liveResponseReads = new Set();
+  const livePayloadFailures = new Set();
+  if (!fixture) page.on("response", (response) => {
+    const endpoint = new URL(response.url());
+    const path = endpoint.pathname + endpoint.search;
+    if (!endpoint.pathname.startsWith("/api/")) return;
+    const read = response.json().then((payload) => {
+      if (response.ok()) livePayloads[path] = payload;
+      else livePayloadFailures.add(path);
+    }).catch(() => { livePayloadFailures.add(path); });
+    liveResponseReads.add(read);
+    void read.finally(() => liveResponseReads.delete(read));
+  });
   if (shipLimit !== null) await page.addInitScript((limit) => { window.__pharosVilleTestShipLimit = limit; }, shipLimit);
   if (forcedTier) await page.addInitScript((tier) => { window.__pharosVilleTestSchedulerTier = tier; }, forcedTier);
+  if (!experience.shell && !args.reduced) await page.addInitScript(installFrameEvidenceObserver);
   if (refreshMode) await installRefreshProbe(page);
   if (knockout) await page.addInitScript((passes) => { window.__pharosVilleKnockout = passes; }, knockout);
   // Fixtures own their observer; --clock changes only d=, independently of their Date mode.
@@ -390,6 +447,8 @@ try {
     const text = msg.text();
     if (/Shader Error|VALIDATE_STATUS|program not valid|Fragment shader is not compiled|Vertex shader is not compiled|render failed|An error occurred in|The above error occurred|Uncaught/.test(text)) {
       shaderErrors.push(text.split("\n")[0].slice(0, 300));
+      // Full program info logs on demand: the first line alone cannot name the failing link.
+      if (process.env.PHAROSVILLE_PREVIEW_FULL_SHADER_LOG === "1") console.error(`[page console]\n${text.slice(0, 20000)}`);
     }
   });
   page.on("pageerror", (err) => {
@@ -439,7 +498,7 @@ try {
   // `debug=1` publishes window.__pharosVilleDebug, which is where the scheduler
   // tier and the GPU counters live.
   const separator = url.includes("?") ? "&" : "?";
-  const target = `${url}${separator}debug=1${stillCamera ? "&still=1" : ""}${hash}`;
+  const target = `${url}${separator}debug=1${stillCamera ? "&still=1" : ""}${args["spike-trace"] ? "&spikeTrace=1" : ""}${hash}`;
   // Prove ordinary admission before selecting an outsider, which adds one hull.
   const initialTarget = new URL(target);
   if (shipLimit !== null) {
@@ -448,7 +507,40 @@ try {
     initialTarget.hash = params.toString();
     initialTarget.searchParams.delete("sel");
   }
-  await page.goto(initialTarget.href, { waitUntil: "domcontentloaded" });
+  await mkdir(resolve(outputPath, ".."), { recursive: true });
+  const navigationStartedMs = performance.now();
+  await page.goto(initialTarget.href, { waitUntil: "commit" });
+  const responseCommitActualMs = performance.now() - navigationStartedMs;
+  // The application has JS disabled in this arm; the external capture harness
+  // may still observe DOM mutations without admitting any application scripts.
+  if (experience.shell === "no-js") await page.evaluate(installExperienceObserver);
+  const coldFilmstrip = await captureColdFilmstrip(page, experience.offsets, outputPath, writeFile);
+  if (experience.shell) {
+    await page.waitForLoadState("domcontentloaded");
+    if (experience.shell === "blocked") {
+      await page.locator(".pharosville-narrow").waitFor({ state: "visible", timeout: 10_000 });
+      if (await page.getByTestId("pharosville-world").count()) throw new Error("--capture-shell blocked needs a below-gate device or viewport.");
+      // Observe long enough to catch an accidental delayed runtime import.
+      await page.waitForTimeout(500);
+      if (worldRequests.length) throw new Error(`Blocked shell requested world resources: ${worldRequests.join(", ")}`);
+    } else if (experience.shell === "renderer-failure") {
+      await page.getByTestId("pharosville-renderer-fallback").waitFor({ state: "visible", timeout: 45_000 });
+    } else {
+      await page.locator(".pv-arrival-shell h1, .pv-arrival-shell h2").waitFor({ state: "visible", timeout: 10_000 });
+      await page.getByRole("link", { name: "Open Pharos analytics", exact: true }).waitFor({ state: "visible" });
+    }
+    await page.screenshot({ path: outputPath });
+    const timing = await readExperienceTiming(page);
+    const jsonPath = resolve(outputDirectory, typeof args.json === "string" ? args.json : `${relative(outputDirectory, outputPath).replace(/\.png$/i, "")}-shell.json`);
+    await mkdir(resolve(jsonPath, ".."), { recursive: true });
+    await writeFile(jsonPath, `${JSON.stringify({
+      target: initialTarget.href, shell: experience.shell, viewport: { width, height },
+      metrics: null, gpuMeasured: false, worldRequests,
+      experience: { ...timing, responseCommitActualMs, coldFilmstrip },
+      outputs: { screenshot: outputPath, json: jsonPath },
+    }, null, 2)}\n`);
+    console.log(`shell      ${experience.shell} · DOM only · ${outputPath} · ${jsonPath}`);
+  } else {
 
   const canvas = page.getByTestId("pharosville-canvas");
   await canvas.waitFor({ state: "visible", timeout: 45_000 });
@@ -458,6 +550,28 @@ try {
     undefined,
     { timeout: 45_000 },
   );
+  if (args["spike-trace"]) {
+    // Constructor installation is independent of the first sampled owner
+    // census/debug publish. Readiness errors must not masquerade as PROD.
+    const startup = await page.evaluate(() => ({
+      url: location.href,
+      requested: new URLSearchParams(location.search).get("spikeTrace"),
+      rendererStatus: document.querySelector('[data-testid="pharosville-canvas"]')?.getAttribute("data-renderer-status"),
+      installed: typeof window.__pharosVilleSpikeTrace?.snapshot === "function",
+    }));
+    if (!startup.installed) {
+      throw new Error(`--spike-trace was not installed during renderer construction; DEV is required. ${JSON.stringify(startup)}${shaderErrors.length ? ` · page errors: ${shaderErrors.join("; ")}` : ""}`);
+    }
+  }
+  if (requestedAppearance) {
+    await page.waitForFunction((expected) => {
+      const appearance = window.__pharosVilleLookdev?.snapshot();
+      return appearance?.schemaVersion === expected.schemaVersion && appearance?.preset === expected.preset
+        && appearance?.checksum === expected.checksum && appearance?.appliedChecksum === expected.checksum;
+    }, requestedAppearance, { timeout: 45_000 }).catch(() => {
+      throw new Error("--appearance requires the DEV lookdev API, the current schema and a fully applied matching checksum.");
+    });
+  }
   let shipLimitVerification = null;
   if (shipLimit !== null) {
     await page.waitForFunction((limit) => {
@@ -505,6 +619,7 @@ try {
     if (((await readMetrics(page)).shipsVisible ?? 0) > 0) break;
     await page.waitForTimeout(500);
   }
+  await applyStrollCapture(page, experience);
   await page.waitForTimeout(seconds * 1000);
 
   let metrics;
@@ -527,17 +642,10 @@ try {
     console.error("warning: no fleet on screen — the world had not populated, so the frame below is not the world.");
   }
 
-  // The tail sweep. It reads a ring that is entirely steady-state by now, and
-  // it reads it repeatedly: the reported metrics are the MEDIAN-p90 window (so
-  // one background spike on a busy machine cannot block a push, while a genuine
-  // regression — which shows in every window — still does), and the tail
-  // summary is the WORST window of the sweep (so a bad second cannot hide
-  // behind eleven good ones).
-  //
-  // Windows overlap, unlike the three widely-spaced reads this replaced. That
-  // is the point: a gap between reads is a stretch of frames nothing measured.
-  // A spike survives in the ring for ~120 frames, i.e. about two polls, so it
-  // still cannot swing a median taken over a dozen of them.
+  // Observe every existing debug publication, then sweep the existing pacing
+  // rings. Only windows wholly beyond refresh enter the resting gate. The
+  // backwards-compatible top-level sweep still records ALL windows.
+  if (!args.reduced) await page.evaluate(() => window.__previewFrameEvidence?.begin());
   // Both readers observe this one settled scene, not two successive sessions.
   const [sweep, watchedStats] = await Promise.all([
     !args.reduced && tailSeconds > 0 ? sweepFrameTail(page, tailSeconds * 1000) : null,
@@ -545,6 +653,35 @@ try {
   ]);
   tailSweep = sweep;
   if (tailSweep?.reads.length > 0) metrics = medianByP90(tailSweep.reads);
+  const steadyReads = tailSweep ? tailSweep.reads.filter(isSteadyFrameWindow) : isSteadyFrameWindow(metrics) ? [metrics] : [];
+  const steadyMetrics = steadyReads.length ? medianByP90(steadyReads) : null;
+  const gpuRead = steadyReads.filter((read) => read.frameEvidence?.gpuFrameClean
+    && read.gpuTimings?.supported && !read.gpuTimings.disjoint && Number.isFinite(read.gpuTimings.frameP95Ms))
+    .reduce((worst, read) => !worst || read.gpuTimings.frameP95Ms > worst.gpuTimings.frameP95Ms ? read : worst, null);
+  const latestSteadyRead = steadyReads.at(-1);
+  const performanceEvidence = args.reduced ? null : {
+    steadyState: {
+      ...summarizeFrameTail(steadyReads, tailSweep?.spanMs ?? 0),
+      representative: steadyMetrics,
+      gpuTimings: gpuRead?.gpuTimings ?? null,
+      dominantPass: dominantPassReading(latestSteadyRead?.gpuTimings, renderer, latestSteadyRead?.frameEvidence?.gpuCleanPasses ?? []),
+    },
+    refreshWindows: summarizeFrameTail(tailSweep?.reads.filter((read) => !isSteadyFrameWindow(read)) ?? [], tailSweep?.spanMs ?? 0),
+    frames: await page.evaluate(() => window.__previewFrameEvidence?.snapshot() ?? null),
+    classification: "explicit shadow/upload/content/environment/warmup/tier work; clean pacing ring only",
+  };
+  if (performanceEvidence) {
+    performanceEvidence.steadyState.continuous &&= !tailSweep || steadyReads.length === tailSweep.reads.length;
+    performanceEvidence.steadyState.continuous &&= (performanceEvidence.frames?.coverageBreaks ?? 0) === 0;
+    const associated = performanceEvidence.frames?.causes.filter((cause) => cause.frames > 0).sort((a, b) => b.associatedCpuMs - a.associatedCpuMs) ?? [];
+    performanceEvidence.refreshWorkAttribution = {
+      dominant: associated[0]?.name ?? null,
+      causes: associated,
+      basis: "CPU render time associated with explicit work; coincident causes overlap, not isolated pass cost",
+    };
+  }
+  if (tailSweep) tailSweep.steadyState = performanceEvidence.steadyState;
+  metrics = { ...metrics, performanceEvidence };
   const watch = watchedStats?.watch;
   const measurementOverlap = tailSweep && watch && !watch.error ? {
     startMs: Math.max(tailSweep.startedAtMs, watch.startedAtMs),
@@ -562,6 +699,24 @@ try {
   await applyRequestedUiState(page);
   await mkdir(outputDirectory, { recursive: true });
   if (typeof args.ritual === "string") await forceRitualBeforeCapture(page, args.ritual, numberFlag("ritual-wait", 0));
+  await Promise.all(liveResponseReads);
+  const appearanceAtShot = await page.evaluate(() => {
+    const api = window.__pharosVilleLookdev;
+    return api ? { ...api.snapshot(), exported: JSON.parse(api.export()) } : null;
+  });
+  if (requestedAppearance) {
+    const exported = appearanceAtShot && appearanceDocumentIdentity(appearanceAtShot.exported);
+    if (!exported || exported.checksum !== requestedAppearance.checksum
+      || appearanceAtShot.appliedChecksum !== exported.checksum || appearanceAtShot.inspectorActive !== false) {
+      throw new Error("Appearance changed, was not applied, or inspector is active; refusing the capture.");
+    }
+  }
+  const currentServedCheckout = servedCheckoutBefore ? await readServedIdentity() : null;
+  let samplingIncomplete = Boolean(servedCheckoutBefore && !currentServedCheckout);
+  const servedCheckoutAtShot = currentServedCheckout ?? (servedCheckoutBefore ? { ...servedCheckoutBefore, identitySample: "before capture" } : null);
+  let changedDuringCapture = Boolean(servedCheckoutBefore && currentServedCheckout && (currentServedCheckout.root !== servedCheckoutBefore.root
+    || currentServedCheckout.commit !== servedCheckoutBefore.commit || currentServedCheckout.sourceHash !== servedCheckoutBefore.sourceHash));
+  if ((changedDuringCapture || samplingIncomplete) && strictServedIdentity) throw new Error("Serving checkout changed or became unknown during preview; refusing mixed-source look-comparison evidence.");
   if (args.clean) {
     // K17 hour stills: the world alone, no HUD, chrome, chips or nameplates.
     await page.addStyleTag({ content: ".pharosville-overlay { visibility: hidden !important; }" });
@@ -570,6 +725,22 @@ try {
     await page.screenshot({ path: outputPath });
   }
   const captureIdentity = await readCaptureIdentity(page);
+  if (servedCheckoutAtShot) {
+    const afterShot = await readServedIdentity();
+    samplingIncomplete ||= !afterShot;
+    changedDuringCapture ||= Boolean(afterShot && (afterShot.root !== servedCheckoutAtShot.root || afterShot.commit !== servedCheckoutAtShot.commit || afterShot.sourceHash !== servedCheckoutAtShot.sourceHash));
+    if ((changedDuringCapture || samplingIncomplete) && strictServedIdentity) throw new Error("Serving source changed or became unknown across the look-comparison screenshot.");
+    servedCheckoutAtShot.changedDuringCapture = changedDuringCapture;
+    servedCheckoutAtShot.samplingIncomplete = samplingIncomplete;
+  }
+  if (changedDuringCapture || samplingIncomplete) {
+    if (servedCheckoutAtShot) servedCheckoutAtShot.initialSourceHash = servedCheckoutBefore?.sourceHash ?? null;
+    console.warn("warning Serving checkout changed or its identity became unavailable during capture; ordinary preview records this metadata without refusing the frame.");
+  }
+  const capturedFixtureIdentity = fixtureIdentity ?? (Object.keys(livePayloads).length ? {
+    name: "live", sourceEpochMs: null, payloadHash: hashFixturePayloads(livePayloads, null),
+    observedPaths: Object.keys(livePayloads).sort(), complete: livePayloadFailures.size === 0, failedPaths: [...livePayloadFailures].sort(),
+  } : null);
   const observer = { ...clockDescriptor,
     observerOriginMs: fixtureIdentity?.observerOriginMs ?? clockDescriptor.observerOriginMs,
     timeZone: captureIdentity.timeZone,
@@ -689,7 +860,7 @@ try {
 
   // Last, deliberately: the probe mutates the payload, so everything above —
   // including the screenshot — describes the world as the API actually serves it.
-  if (refreshMode) await reportRefreshCost(page);
+  if (refreshMode) instruments.refresh = await reportRefreshCost(page);
   if (args["pan-zoom"]) {
     const bounds = await canvas.boundingBox();
     if (!bounds) throw new Error("Canvas unavailable for --pan-zoom");
@@ -759,18 +930,53 @@ try {
     console.log("light      transition snapshots check resources/shaders; steady-state timing gate above is unchanged");
   }
 
+  // Export once from the live renderer, not from a median/tail sample: windows
+  // persist in-page even after the exact spike frame leaves ordinary telemetry.
+  const spikeTrace = args["spike-trace"]
+    ? await page.evaluate(() => window.__pharosVilleSpikeTrace?.snapshot())
+    : null;
+  if (args["spike-trace"]) {
+    if (!spikeTrace) throw new Error("--spike-trace lost its DEV census handle before export.");
+    const frames = spikeTrace.captures.reduce((sum, capture) => sum + capture.frames.length, 0);
+    const incomplete = spikeTrace.captures.filter((capture) => !capture.complete).length;
+    console.log(`spike      ${spikeTrace.captures.length} crossings >${spikeTrace.threshold} · ${frames} persisted frames · peak ${spikeTrace.peakTriangles} tris · ${incomplete} incomplete windows · ${spikeTrace.droppedTriggers} dropped crossings`);
+  }
+
+  if ((requestedAppearance || expectedServedRoot) && servedCheckoutAtShot) {
+    const afterInstruments = await fetchServedCheckoutIdentity(url);
+    if (afterInstruments?.root !== servedCheckoutAtShot.root || afterInstruments?.commit !== servedCheckoutAtShot.commit
+      || afterInstruments?.sourceHash !== servedCheckoutAtShot.sourceHash) throw new Error("Serving source changed while collecting look-comparison instruments.");
+  }
+
+  const experienceTiming = { ...await readExperienceTiming(page), responseCommitActualMs, coldFilmstrip };
+  if (coldFilmstrip.length) {
+    const timingPath = outputPath.replace(/\.png$/i, "") + "-cold.json";
+    await writeFile(timingPath, `${JSON.stringify({ target: initialTarget.href, ...experienceTiming }, null, 2)}\n`);
+    console.log(`arrival    ${coldFilmstrip.length} navigation-relative frames · ${timingPath}`);
+  }
   if (args.json) {
     const jsonPath = resolve(outputDirectory, typeof args.json === "string" ? args.json : "preview.json");
     const capture = {
       ...buildCaptureManifest({
-        ...readCheckoutIdentity(), ...captureIdentity,
+        ...scriptCheckoutAtStart, ...captureIdentity,
+        scriptCheckout: scriptCheckoutAtStart,
+        servedCheckout: servedCheckoutAtShot,
+        appearance: appearanceAtShot ? {
+          schemaVersion: appearanceAtShot.schemaVersion, preset: appearanceAtShot.preset,
+          checksum: appearanceAtShot.checksum, appliedChecksum: appearanceAtShot.appliedChecksum,
+        } : null,
+        inspectorActive: appearanceAtShot?.inspectorActive ?? null, stillCamera, renderer,
+        screenshotPhase: { stage: "main", hour: captureIdentity.hour, sky: phaseForHour(captureIdentity.hour, captureIdentity.date) },
         viewport: { width, height }, deviceScaleFactor: Number(args.dpr ?? 1),
-        headed: Boolean(args.headed), reduced: Boolean(args.reduced), hash, vendor, browserVersion,
-        fixture: fixtureIdentity, outputs: { screenshot: outputPath, json: jsonPath },
+        headed: Boolean(args.headed), reduced: Boolean(args.reduced), clean: Boolean(args.clean), hash, vendor, browserVersion,
+        fixture: capturedFixtureIdentity, outputs: { screenshot: outputPath, json: jsonPath },
       }),
       observer,
       shipLimit: shipLimit === null ? null : { requested: requestedShipLimit, effective: shipLimit, ...shipLimitVerification },
       screenshotTiming: statsWatchSeconds > 0 ? "after stats watch" : "after settle and any tail sweep",
+      experienceState: experience.state,
+      stroll: { station: experience.station, pathProgress: experience.pathProgress },
+      experience: experienceTiming,
     };
     await writeFile(
       resolve(outputDirectory, typeof args.json === "string" ? args.json : "preview.json"),
@@ -778,17 +984,20 @@ try {
         metrics,
         capture,
         tailSweep,
+        spikeTrace,
         measurementOverlap,
         renderer,
         timerQuerySupported,
         target,
         fixture,
         forcedTier,
-        instrumentConfig: { clock, observer, knockout, stillCamera, uncapped },
+        instrumentConfig: { clock, observer, knockout, stillCamera, uncapped, spikeTrace: Boolean(args["spike-trace"]) },
+        performanceEvidence,
         instruments,
       }, null, 2)}\n`,
     );
     console.log(`manifest ${jsonPath}`);
+  }
   }
 } finally {
   await browser.close();
@@ -813,6 +1022,7 @@ async function sweepFrameTail(page, spanMs) {
   const startedAtMs = performance.now();
   // Read immediately, so even a very short span yields one window.
   const reads = [await readMetrics(page)];
+  // Initial-window classification sees refresh history from before this sweep.
   while (performance.now() - startedAtMs < spanMs) {
     await page.waitForTimeout(Math.min(TAIL_POLL_INTERVAL_MS, Math.max(0, spanMs - (performance.now() - startedAtMs))));
     reads.push(await readMetrics(page));
@@ -893,6 +1103,21 @@ function printFrameTail(metrics, renderer) {
   console.log(`longtask   ${metrics.longtaskCount ?? 0} in the rolling window`
     + ` · longest ${round(metrics.longtaskMaxMs ?? 0)}ms`
     + " — a GC pause or a rebuild lands here before it reaches the frame");
+  const evidence = metrics.performanceEvidence;
+  if (evidence) {
+    const rest = evidence.steadyState;
+    const resources = (total) => `${total?.calls ?? 0} calls · ${total?.triangles ?? 0} tris · ${total?.geometries ?? 0} geometries · ${total?.textures ?? 0} textures (peaks)`;
+    console.log(`rest       ${rest.measured ? `p50 ${round(rest.representative.p50)}ms · p90 ${round(rest.representative.p90)}ms · worst clean-window p95 ${round(rest.p95)}ms · ${rest.windows} windows` : "not measured — no complete refresh-free pacing window"}`);
+    console.log(`           ${resources(evidence.frames?.steady)}`);
+    console.log(`           refresh-free GPU frame p95 ${rest.gpuTimings ? round(rest.gpuTimings.frameP95Ms) + "ms" : "not measured (rolling results not flushed)"}`);
+    console.log(`dominant   ${rest.dominantPass.name ?? "not measured"} · ${round(rest.dominantPass.p95Ms)}ms · ${rest.dominantPass.basis}`);
+    const refresh = evidence.frames?.refresh;
+    const associated = evidence.refreshWorkAttribution.causes;
+    console.log(`refresh    ${refresh?.frames ?? 0} explicit work frames · CPU render mean ${round(refresh?.frames ? refresh.cpuTotalMs / refresh.frames : null)}ms · max ${round(refresh?.cpuMaxMs ?? null)}ms`);
+    console.log(`           ${resources(refresh)} · contaminated-window p95 ${evidence.refreshWindows.measured ? round(evidence.refreshWindows.p95) : "not measured"}ms`);
+    console.log(`           work attribution: ${associated.map((cause) => `${cause.name} ${cause.frames} frames`).join(" · ") || "none observed"}; largest associated CPU span: ${associated[0]?.name ?? "none"} (coincident causes overlap; not isolated pass cost)`);
+    if (evidence.frames?.unclassified.frames) console.log(`unmeasured ${evidence.frames.unclassified.frames} unclassified frames · ${resources(evidence.frames.unclassified)}`);
+  }
   if (!tailSweep) return;
   if (!tailSweep.measured) {
     console.log(`sweep      ${tailSweep.windows} windows over ${round(tailSweep.spanMs / 1000)}s,`
@@ -917,13 +1142,7 @@ function medianByP90(reads) {
 }
 
 async function applyRequestedUiState(page) {
-  if (args["quick-find"]) {
-    await page.keyboard.press("/");
-    await page.getByTestId("pharosville-quick-find").waitFor({
-      state: "visible",
-      timeout: 5_000,
-    });
-  }
+  await applyExperienceState(page, experience.state);
   if (args["hover-first"]) {
     const point = await page.evaluate(() => {
       const canvas = document.querySelector('[data-testid="pharosville-canvas"]');
@@ -1098,12 +1317,33 @@ async function measureOneRefresh(page, recorder) {
   await page.evaluate(() => { window.__previewLongtasks.length = 0; });
 
   if (recorder) await recorder.start();
+  await page.evaluate(() => window.__previewFrameEvidence?.begin());
   refreshState.openGate();
   refreshState.gate = null;
   await page.waitForTimeout(REFRESH_WINDOW_MS);
 
   const durations = await page.evaluate(() => window.__previewLongtasks.slice());
-  return { captured: recorder ? await recorder.stop() : null, durations };
+  const resources = await page.evaluate(() => {
+    const evidence = window.__previewFrameEvidence?.snapshot();
+    if (!evidence) return null;
+    const pick = (total) => ({ frames: total.frames, calls: total.calls, triangles: total.triangles, geometries: total.geometries, textures: total.textures });
+    return {
+      steady: pick(evidence.steady), refresh: pick(evidence.refresh), unclassified: pick(evidence.unclassified),
+      complete: evidence.reporting && evidence.coverageBreaks === 0,
+      causes: evidence.causes.map(({ name, frames }) => ({ name, frames })),
+    };
+  });
+  if (assertMode && resources) {
+    for (const total of [resources.steady, resources.refresh, resources.unclassified]) {
+      for (const [field, limit] of [["calls", limits.maxDrawCalls], ["triangles", limits.maxTriangles], ["geometries", limits.maxGeometries], ["textures", limits.maxTextures]]) {
+        if (total[field] > limit) {
+          console.error(`FAIL: provoked refresh ${field} peak ${total[field]} exceeds unchanged ${limit} cap`);
+          process.exitCode = 1;
+        }
+      }
+    }
+  }
+  return { captured: recorder ? await recorder.stop() : null, durations, resources };
 }
 
 /** V8 sampling profiler: which JS stage asked for the time. */
@@ -1286,13 +1526,15 @@ async function reportRefreshCost(page) {
 
   // Round one warms the swap path itself (first-time program links, first
   // disposal), so it is provoked and discarded rather than reported.
-  const warmup = summarizeRefresh((await measureOneRefresh(page, null)).durations);
+  const warmupRound = await measureOneRefresh(page, null);
+  const warmup = summarizeRefresh(warmupRound.durations);
   console.log(`  warm-up  ${round(warmup.busyMs)}ms busy · longest ${round(warmup.longestMs)}ms (discarded)`);
 
   const rounds = [];
   for (let index = 0; index < REFRESH_TIMED_ROUNDS; index += 1) {
-    const summary = summarizeRefresh((await measureOneRefresh(page, null)).durations);
-    rounds.push(summary);
+    const measured = await measureOneRefresh(page, null);
+    const summary = summarizeRefresh(measured.durations);
+    rounds.push({ ...summary, resources: measured.resources });
     console.log(`  round ${index + 1}  ${round(summary.busyMs)}ms busy in ${summary.count} long tasks`
       + ` · longest ${round(summary.longestMs)}ms · blocking ${round(summary.blockingMs)}ms`);
   }
@@ -1333,6 +1575,14 @@ async function reportRefreshCost(page) {
     (key) => before.contentParts?.[key] !== after.contentParts?.[key],
   );
   console.log(`  content  ${changedContentParts.length > 0 ? changedContentParts.join(", ") : "renderer-equivalent"}`);
+  return {
+    mode: refreshMode, windowMs: REFRESH_WINDOW_MS, before, after, changedContentParts,
+    warmup: { ...warmup, resources: warmupRound.resources, timingExcluded: true },
+    rounds, profiled: { ...profiledSummary, resources: profiled.resources, overheadIncluded: true },
+    profileStages: summarizeProfile(profiled.captured, cutoffMs),
+    traced: { ...trace, resources: traced.resources, overheadIncluded: true },
+    timingBasis: "longtasks/V8/Blink refresh probe; page.clock-owned CPU frame intervals are not resting timing evidence",
+  };
 }
 
 /**
@@ -1358,51 +1608,53 @@ function evaluateAssertions(metrics, shaderErrors = []) {
     return;
   }
 
-  // The calm metric's own "did not measure" case. A bundle older than W4.4
-  // publishes no p95 at all, and a sweep whose windows disagree about that has
-  // not measured the tail either. Scoring that green would be exactly the
-  // collapse this gate refuses: PASS means "measured, and it held".
-  const tailMeasured = tailSweep
-    ? tailSweep.measured
-    : typeof metrics.p95 === "number";
-  if (!args.reduced && !tailMeasured) {
-    console.log("\nSKIP: this page publishes no P95 frame time, so the calm metric was not measured."
-      + " Nothing is being claimed about the tail.");
-    process.exitCode = SKIP_EXIT_CODE;
-    return;
-  }
-  if (limits.maxGpuMs !== null) {
-    const gpu = metrics.gpuTimings;
-    const gpuMeasured = gpu?.supported === true
-      && !gpu.disjoint
-      && typeof gpu.frameP95Ms === "number";
-    if (!gpuMeasured) {
-      console.log("\nSKIP: GPU was not measured, so nothing is being claimed about the GPU timing budget.");
-      process.exitCode = SKIP_EXIT_CODE;
-      return;
-    }
-  }
-
   const failures = [];
+  // Refreshes do not earn larger resource caps. Every observed frame is checked.
+  const frameTotals = metrics.performanceEvidence?.frames;
+  for (const [field, limit] of [["calls", limits.maxDrawCalls], ["triangles", limits.maxTriangles], ["geometries", limits.maxGeometries], ["textures", limits.maxTextures]]) {
+    const peak = Math.max(metrics[field] ?? Infinity, frameTotals?.steady?.[field] ?? 0, frameTotals?.refresh?.[field] ?? 0, frameTotals?.unclassified?.[field] ?? 0);
+    if (peak > limit) failures.push(`${field} observed peak ${peak} exceeds ${limit} (including refresh frames)`);
+  }
   if (shaderErrors.length > 0) {
     failures.push(`${shaderErrors.length} shader/program error(s) in the page console — a rejected material is skipped silently at draw time, so the frame is missing something the counters cannot see:\n    ${shaderErrors.slice(0, 5).join("\n    ")}`);
   }
   if (metrics.tier !== limits.requiredTier) {
     failures.push(`scheduler tier is ${metrics.tier}, expected ${limits.requiredTier}`);
   }
-  if (!args.reduced && (metrics.p90 ?? Infinity) > limits.maxP90Ms) {
-    failures.push(`p90 frame time ${round(metrics.p90)}ms exceeds ${limits.maxP90Ms}ms`);
+  // The calm metric's own "did not measure" case. A bundle older than W4.4
+  // publishes no p95 at all, and a sweep whose windows disagree about that has
+  // not measured the tail either. Scoring that green would be exactly the
+  // collapse this gate refuses: PASS means "measured, and it held".
+  const resting = metrics.performanceEvidence?.steadyState;
+  const restingMetrics = resting?.representative;
+  const tailMeasured = resting?.measured === true && (metrics.performanceEvidence?.frames?.coverageBreaks ?? 0) === 0;
+  if (!args.reduced && !tailMeasured) {
+    if (failures.length) console.error(`\nFAIL: ${failures.join("; ")}; resting timing remains unmeasured.`);
+    else console.log("\nSKIP: no complete resting steady-state P95 window was measured (refresh history, visibility or telemetry incomplete).");
+    process.exitCode = failures.length ? 1 : SKIP_EXIT_CODE;
+    return;
   }
-  // The tail. A P95 breach is a FAIL, not a warning: one frame in twenty over
-  // the ceiling is a second the eye reads as a stutter, and the plan's thesis
-  // is that one such second a minute costs more calm than 2ms of average cost.
-  // The worst window of the sweep is the figure, because the question is
-  // whether ANY second was like that, not whether the typical one was.
+  if (limits.maxGpuMs !== null) {
+    const gpu = args.reduced ? metrics.gpuTimings : resting?.gpuTimings;
+    const gpuMeasured = gpu?.supported === true
+      && !gpu.disjoint
+      && typeof gpu.frameP95Ms === "number";
+    if (!gpuMeasured) {
+      if (failures.length) console.error(`\nFAIL: ${failures.join("; ")}; resting GPU timing remains unmeasured.`);
+      else console.log("\nSKIP: refresh-free GPU ring was not measured, so nothing is being claimed about the GPU timing budget.");
+      process.exitCode = failures.length ? 1 : SKIP_EXIT_CODE;
+      return;
+    }
+  }
+
+  if (!args.reduced && (restingMetrics?.p90 ?? Infinity) > limits.maxP90Ms) {
+    failures.push(`resting p90 frame time ${round(restingMetrics?.p90)}ms exceeds ${limits.maxP90Ms}ms`);
+  }
+  // Keep the worst-window calm gate, but do not confuse documented refresh
+  // work with the resting scene. All excluded windows remain in the manifest.
   if (!args.reduced) {
-    const p95 = tailSweep ? tailSweep.p95 : metrics.p95;
-    const scope = tailSweep
-      ? `worst of ${tailSweep.windows} windows over ${round(tailSweep.spanMs / 1000)}s`
-      : "single window";
+    const p95 = resting.p95;
+    const scope = `worst of ${resting.windows} clean resting windows`;
     if ((p95 ?? Infinity) > limits.maxP95Ms) {
       failures.push(`p95 frame time ${round(p95)}ms exceeds ${limits.maxP95Ms}ms (${scope})`);
     }
@@ -1413,8 +1665,9 @@ function evaluateAssertions(metrics, shaderErrors = []) {
         + ` < ${TAIL_POLL_INTERVAL_MS}ms poll); frames between reads were not measured.`);
     }
   }
-  if (limits.maxGpuMs !== null && metrics.gpuTimings.frameP95Ms > limits.maxGpuMs) {
-    failures.push(`gpu p95 ${round(metrics.gpuTimings.frameP95Ms)} ms exceeds ${limits.maxGpuMs} ms`);
+  const gateGpu = args.reduced ? metrics.gpuTimings : resting?.gpuTimings;
+  if (limits.maxGpuMs !== null && gateGpu.frameP95Ms > limits.maxGpuMs) {
+    failures.push(`resting gpu p95 ${round(gateGpu.frameP95Ms)} ms exceeds ${limits.maxGpuMs} ms`);
   }
   if ((metrics.calls ?? Infinity) > limits.maxDrawCalls) {
     failures.push(`${metrics.calls} draw calls exceed ${limits.maxDrawCalls}`);
@@ -1436,10 +1689,9 @@ function evaluateAssertions(metrics, shaderErrors = []) {
   if (failures.length === 0) {
     const timing = args.reduced
       ? "settled deterministic static frame"
-      : `p90 ${round(metrics.p90)}ms (max ${limits.maxP90Ms}),`
-        + ` p95 ${round(tailSweep ? tailSweep.p95 : metrics.p95)}ms (max ${limits.maxP95Ms}`
-        + `${tailSweep ? `, worst of ${tailSweep.windows} windows` : ", single window"}),`
-        + ` worst frame ${round(tailSweep ? tailSweep.maxFrameMs : metrics.maxFrameMs)}ms`;
+      : `resting p90 ${round(restingMetrics.p90)}ms (max ${limits.maxP90Ms}),`
+        + ` resting p95 ${round(resting.p95)}ms (max ${limits.maxP95Ms}, worst of ${resting.windows} clean windows),`
+        + ` resting worst frame ${round(resting.maxFrameMs)}ms`;
     console.log(`\nPASS: tier ${metrics.tier}, ${timing},`
       + ` ${metrics.calls} calls, ${metrics.triangles} triangles,`
       + ` ${metrics.geometries} geometries, ${metrics.textures} textures.`);
@@ -1740,20 +1992,41 @@ async function runPictureMetrics(page, canvas, metrics) {
       fail("value plan: no t= hour in the hash and the page published no wallClockHour; pass --value-plan noon|dusk|night");
     } else {
       const target = plan[column];
-      const correlation = pearson(result.ninths, target);
+      const correlation = target ? pearson(result.ninths, target) : null;
       result.valuePlan = {
         column,
-        mae: meanAbsoluteError(result.ninths, target),
+        diagnosticOnly: target === null,
+        mae: target ? meanAbsoluteError(result.ninths, target) : null,
         pearsonR: correlation,
         source,
         target,
       };
-      console.log(`value plan ${column} column (${source}): MAE ${result.valuePlan.mae.toFixed(1)} L*`
-        + ` · Pearson r ${correlation === null ? "n/a" : correlation.toFixed(2)}`);
-      ["top", "mid", "bot"].forEach((row, index) => {
-        console.log(`           ${row} ${target.slice(index * 3, index * 3 + 3).map(cell).join("")}   (bible, docs/pharosville/VISUAL_INVARIANTS.md)`);
-      });
+      if (target) {
+        console.log(`value plan ${column} column (${source}): MAE ${result.valuePlan.mae.toFixed(1)} L*`
+          + ` · Pearson r ${correlation === null ? "n/a" : correlation.toFixed(2)}`);
+        ["top", "mid", "bot"].forEach((row, index) => {
+          console.log(`           ${row} ${target.slice(index * 3, index * 3 + 3).map(cell).join("")}   (bible, docs/pharosville/VISUAL_INVARIANTS.md)`);
+        });
+      } else {
+        console.log(`value plan ${column} (${source}): ninths diagnostic only; readability uses --light-rois`);
+      }
     }
+  }
+
+  if (picture.lightRois) {
+    result.lightRois = {
+      sourcePath: lightRoiPath,
+      ...measureLightRois(frame, lightRois, { cssWidth: box.width, cssHeight: box.height }),
+    };
+    for (const pair of result.lightRois.boundaryPairs) {
+      console.log(`light ROI  ${pair.name}: median contrast ${pair.contrast?.toFixed(2) ?? "unavailable"} L* (floor 4)`);
+    }
+    for (const pair of result.lightRois.materialPairs) {
+      console.log(`light ROI  ${pair.a}–${pair.b}: median contrast ${pair.contrast?.toFixed(2) ?? "unavailable"} L* (floor 3)`);
+    }
+    const approach = result.lightRois.approach;
+    console.log(`light ROI  non-recess approach: ${percent(approach.coverageAtOrAbove ?? 0)} at or above L*6 (floor 90%)`);
+    if (!result.lightRois.pass) fail("light ROI readability floors not met; see copied polygons and region statistics in JSON");
   }
 
   if (picture.nightWater) {
@@ -2182,8 +2455,11 @@ function readMetrics(page) {
   return page.evaluate(() => {
     const debug = window.__pharosVilleDebug;
     const m = debug?.renderMetrics;
+    const census = m?.drawOwnerCensus;
+    const frameEvidence = window.__previewFrameEvidence?.snapshot() ?? null;
     return {
       observedAtMs: performance.now(),
+      frameEvidence,
       visibilityState: document.visibilityState,
       documentHasFocus: document.hasFocus(),
       longtaskSupported: typeof PerformanceObserver !== "undefined" && PerformanceObserver.supportedEntryTypes?.includes("longtask"),
@@ -2221,7 +2497,14 @@ function readMetrics(page) {
       shipsVisible: m?.visibleShipCount ?? null,
       offscreenCalls: m?.gpu?.offscreenCalls ?? null,
       sceneCalls: m?.gpu?.sceneCalls ?? null,
-      drawOwnerCensus: m?.drawOwnerCensus ?? null,
+      // The trace handle contains functions and renderer references. Ordinary
+      // polling reads only the existing serializable census, never a snapshot.
+      drawOwnerCensus: census ? {
+        owners: census.owners,
+        attributedCalls: census.attributedCalls,
+        rendererCalls: census.rendererCalls,
+        sampledAtFrame: census.sampledAtFrame,
+      } : null,
       textureOwnerCensus: m?.textureOwnerCensus ?? null,
       textureUploads: m?.textureUploads ?? null,
       tier: m?.schedulerTier ?? null,
@@ -2311,9 +2594,9 @@ function readCheckoutIdentity() {
       dirtyPaths.push(entries[i].slice(3));
       if (/[RC]/.test(entries[i].slice(0, 2))) dirtyPaths.push(entries[++i]);
     }
-    return { commit, dirtyPaths };
+    return { root: cwd, commit, dirtyPaths: dirtyPaths.filter((path) => typeof path === "string" && !path.split("/").some((part) => part.startsWith(".env"))) };
   } catch {
-    return { commit: null, dirtyPaths: null };
+    return { root: fileURLToPath(new URL("../..", import.meta.url)), commit: null, dirtyPaths: null };
   }
 }
 
@@ -2333,8 +2616,9 @@ async function readCaptureIdentity(page) {
       reducedMotion: debug?.reducedMotion ?? matchMedia("(prefers-reduced-motion: reduce)").matches,
       worldGeneratedAtMs: debug?.worldGeneratedAtMs ?? null,
       admittedShipDetailIds: typeof debug?.admittedShipDetailIds === "function" ? debug.admittedShipDetailIds() : null,
-      canvasSize: canvas && box ? { width: canvas.width, height: canvas.height, cssWidth: box.width, cssHeight: box.height } : null,
+      canvasSize: canvas && box ? { width: canvas.width, height: canvas.height, cssWidth: box.width, cssHeight: box.height, backingPixels: canvas.width * canvas.height } : null,
       hour: debug?.wallClockHour ?? null,
+      camera: debug?.camera ?? null,
       date: date.getTime(),
     };
   });

@@ -93,6 +93,14 @@ export interface ShipMotionRoute {
   underwaySpeedTilesPerSecond: number;
   phaseSeconds: number;
   riskTile: { x: number; y: number };
+  /**
+   * Accepted resting heading in tile-plane radians: the authored lobe axis of
+   * the ship's composed berth, with its bounded deterministic variation. It
+   * poses canonical and still berths, never an underway hull — voyages own
+   * their heading and the anchorage rest still lies to the settled wind.
+   * Absent on legacy/test routes, which keep the legacy pose.
+   */
+  restingHeadingRad?: number;
   dockStops: ShipDockMotionStop[];
   riskStop: ShipMotionRouteStop | null;
   zone: ShipWaterZone;

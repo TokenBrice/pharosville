@@ -1,34 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-/** Set once the first-visit teachings have been read or skipped; never cleared. */
+/** Existing visitors keep the same key and "1" value; never re-teach them. */
 export const ORIENTATION_STORAGE_KEY = "pharosville.orientation.seen";
-/** W6.8: the three coarse readings the bible names, one line at a time. */
-export const FIRST_VISIT_LINES = [
-  "Each sail is a stablecoin.",
-  "The water beneath it is its peg risk.",
-  "The lighthouse keeps the whole fleet's stability — press / to find a ship.",
-] as const;
-export const FIRST_VISIT_LINE_MS = 7_000;
-/** W6.10: how long the return-visit sentence holds the now-line. */
 export const RETURN_VISIT_LINE_MS = 20_000;
 
-const SKIP_EVENTS = ["pointerdown", "wheel", "keydown", "touchstart"] as const;
-
-type VisitorLineStage =
-  | { kind: "waiting" }
-  | { kind: "return" }
-  | { kind: "teaching"; index: number }
-  | { kind: "done" };
+let sessionOrientationSeen = false;
 
 function orientationSeen(): boolean {
   try {
-    return window.localStorage.getItem(ORIENTATION_STORAGE_KEY) !== null;
+    return window.localStorage.getItem(ORIENTATION_STORAGE_KEY) !== null || sessionOrientationSeen;
   } catch {
-    // Without storage the lines could not be kept from repeating on every
-    // visit, so they are not spoken at all.
-    return true;
+    return sessionOrientationSeen;
   }
 }
 
@@ -36,60 +20,49 @@ function markOrientationSeen(): void {
   try {
     window.localStorage.setItem(ORIENTATION_STORAGE_KEY, "1");
   } catch {
-    // Storage refused: nothing to remember, nothing to repeat.
+    // The explicit dismissal still lasts for this session when storage is denied.
+    sessionOrientationSeen = true;
   }
 }
 
-/**
- * The now-line's visitor voice, after the arrival settles: a returning
- * visitor hears the one-sentence "since you were here" for 20 s; a first
- * visitor hears three teachings, 7 s each, skipped by any input and never
- * repeated. Under reduced motion the teachings are one sentence held until
- * the first input. Returns the line to show, or null when the voice is quiet.
- */
+/** Teaching belongs to the reading key; only the return summary is caption copy. */
 export function useVisitorLine(input: {
   ready: boolean;
-  reducedMotion: boolean;
+  returnReady?: boolean;
   returnSummary: string | null;
-}): string | null {
-  const { ready, reducedMotion, returnSummary } = input;
-  const [stage, setStage] = useState<VisitorLineStage>({ kind: "waiting" });
+}) {
+  const { ready, returnReady = ready, returnSummary } = input;
+  const [teachingOpen, setTeachingOpen] = useState<boolean | null>(null);
+  const [returnStage, setReturnStage] = useState<"waiting" | "open" | "done">("waiting");
 
   useEffect(() => {
-    if (!ready || stage.kind !== "waiting") return;
-    // Arrival completion is the external event this voice waits for.
+    if (!ready || teachingOpen !== null) return;
+    // Ready world publication is the external event this presentation mirrors.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setStage(returnSummary
-      ? { kind: "return" }
-      : orientationSeen() ? { kind: "done" } : { kind: "teaching", index: 0 });
-  }, [ready, returnSummary, stage.kind]);
+    setTeachingOpen(!orientationSeen());
+  }, [ready, teachingOpen]);
 
   useEffect(() => {
-    if (stage.kind === "return") {
-      const timer = window.setTimeout(() => {
-        setStage(orientationSeen() ? { kind: "done" } : { kind: "teaching", index: 0 });
-      }, RETURN_VISIT_LINE_MS);
-      return () => window.clearTimeout(timer);
-    }
-    if (stage.kind !== "teaching") return undefined;
-    const finish = () => {
-      markOrientationSeen();
-      setStage({ kind: "done" });
-    };
-    for (const eventName of SKIP_EVENTS) window.addEventListener(eventName, finish, { capture: true, passive: true });
-    const timer = reducedMotion
-      ? 0
-      : window.setTimeout(() => {
-        if (stage.index + 1 < FIRST_VISIT_LINES.length) setStage({ kind: "teaching", index: stage.index + 1 });
-        else finish();
-      }, FIRST_VISIT_LINE_MS);
-    return () => {
-      window.clearTimeout(timer);
-      for (const eventName of SKIP_EVENTS) window.removeEventListener(eventName, finish, { capture: true });
-    };
-  }, [reducedMotion, stage]);
+    if (!returnReady || returnStage !== "waiting") return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setReturnStage(returnSummary ? "open" : "done");
+  }, [returnReady, returnStage, returnSummary]);
 
-  if (stage.kind === "return") return returnSummary;
-  if (stage.kind !== "teaching") return null;
-  return reducedMotion ? FIRST_VISIT_LINES.join(" ") : FIRST_VISIT_LINES[stage.index] ?? null;
+  useEffect(() => {
+    if (returnStage !== "open") return;
+    const timer = window.setTimeout(() => setReturnStage("done"), RETURN_VISIT_LINE_MS);
+    return () => window.clearTimeout(timer);
+  }, [returnStage]);
+
+  const dismissTeaching = useCallback(() => {
+    if (!ready || !teachingOpen) return;
+    markOrientationSeen();
+    setTeachingOpen(false);
+  }, [ready, teachingOpen]);
+
+  return {
+    visitorLine: returnReady && returnStage === "open" ? returnSummary : null,
+    teachingOpen: ready && teachingOpen === true,
+    dismissTeaching,
+  };
 }

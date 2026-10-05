@@ -96,14 +96,15 @@ export function farShoreLabel(band: string | null | undefined, unavailable = fal
 }
 
 /**
- * X3 (sky-4): clouds aloft follow market stability. Cover is the fraction of
- * the visible sky the painted cloud field takes, by band: BEDROCK a clean sky
- * with two or three high strokes, STEADY fair, TREMOR a high veil, FRACTURE a
- * broken deck, CRISIS low cloud, MELTDOWN overcast. Cover is data, never a
- * forecast and never illumination: the wall clock still lights the clouds.
+ * Six canonical controls, never a forecast or a seventh unavailable sky:
+ * BEDROCK sparse cirrus (3–7%), STEADY separated fair strokes (10–20%),
+ * TREMOR high veil without low bodies (25–40%), FRACTURE broken low deck
+ * (45–60%), CRISIS nearly closed low cloud (68–80%), MELTDOWN textured
+ * overcast ceiling (85–95%). These are authored visible-occupancy targets;
+ * the wall clock and shared atmosphere light the same noise field.
  */
 export const SKY_CLOUD_COVER: Readonly<Record<string, number>> = {
-  BEDROCK: 0.05, STEADY: 0.15, TREMOR: 0.3, FRACTURE: 0.5, CRISIS: 0.72, MELTDOWN: 0.88,
+  BEDROCK: 0.05, STEADY: 0.15, TREMOR: 0.3, FRACTURE: 0.52, CRISIS: 0.74, MELTDOWN: 0.9,
 };
 
 /** The same cover in words (the now-line and the lighthouse Sky cover row). */

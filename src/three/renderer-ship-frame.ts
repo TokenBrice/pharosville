@@ -7,9 +7,9 @@
  * Extracted from `world-renderer.ts` (Hour-Print W0.24) as one seam the fleet
  * owners can edit without touching the renderer shell. `updateSceneForFrame`
  * calls `updateGardenShipFrame` once per frame, after the dock pass and before
- * the lane registry is re-packed; nothing in it reads the camera zoom directly
- * — every camera-keyed decision arrives through the `RendererDetailPolicy`
- * (`renderer-semantic-view.ts`).
+ * the lane registry is re-packed. Semantic scene detail arrives through
+ * `RendererDetailPolicy` (`renderer-semantic-view.ts`); fleet family/rig
+ * detail consumes each final displayed pose's projected CSS footprint.
  *
  * Hot path rules: the loop is indexed (no iterator pairs), every per-hull
  * record below is module scratch, and each touched instance buffer is flushed
@@ -34,7 +34,8 @@ import {
   GARDEN_WATER_Y as WATER_LEVEL,
   resolveGardenShipDisplayTile,
 } from "../systems/garden-observatory-slice";
-import type { GardenFleetThinningShip } from "../systems/garden-fleet-thinning";
+import { createGardenFleetFootprint, writeGardenFleetFootprint } from "../systems/garden-fleet-footprint";
+import type { VisualCue } from "../systems/world-types";
 import {
   GARDEN_SAIL_DIP_MIN_SCALE,
   gardenArrivalBeatEnvelopeInto,
@@ -64,6 +65,8 @@ import type { GardenCrossBearingBuoys } from "./garden-cross-bearing-buoys";
 import {
   gardenShipMastheadOffset,
   gardenShipSailFurl,
+  gardenShipSailResting,
+  updateGardenHeroSailCloth,
   syncShipRippleRings,
   updateFleetLanterns,
   updateShipPennants,
@@ -75,6 +78,7 @@ import {
   beginFleetFrame,
   endFleetFrame,
   gardenFleetShipHeroWeight,
+  gardenFleetShipRigWeight,
   setFleetAerialPerspective,
   setFleetWeather,
   writeFleetInstance,
@@ -92,12 +96,7 @@ import {
   type GardenShipTransitionSample,
   type GardenShipTransitionSpec,
 } from "./renderer-transitions";
-import {
-  gardenFineDetailVisible,
-  gardenWakeDetailVisible,
-  resolveGardenFleetDisplayPresence,
-  type RendererDetailPolicy,
-} from "./renderer-semantic-view";
+import type { RendererDetailPolicy } from "./renderer-semantic-view";
 
 /**
  * Peak chroma the fleet loses at the far end of the haze ramp.
@@ -124,6 +123,21 @@ const scratchShadowQuaternion = new Quaternion();
 const SHADOW_UP = new Vector3(0, 1, 0);
 const scratchWakePose = { headingY: 0, hullScale: 1, x: 0, y: 0, z: 0 };
 const scratchArrivalBeat: GardenArrivalBeatEnvelope = { furl: 0, bowWave: 0, nameplate: false };
+const fleetFootprint = createGardenFleetFootprint();
+const fleetViewport = { x: 0, y: 0 };
+
+/** Registry authority: inspection-only overlays never leak into the rest cast. */
+export function gardenFleetCueVisible(cues: readonly VisualCue[], id: string, inspected: boolean): boolean {
+  for (const cue of cues) {
+    if (cue.id !== id) continue;
+    return cue.presentationTier === "keep-rest" || (cue.presentationTier === "inspection-only" && inspected);
+  }
+  return false;
+}
+
+function fleetInspected(visual: ShipVisual, frame: ThreeWorldRendererFrame): boolean {
+  return visual.ship.detailId === frame.selectedDetailId || visual.ship.detailId === frame.hoveredDetailId;
+}
 const scratchSwellPose: GardenHullSwellPose = { heave: 0, pitch: 0, rollToPort: 0 };
 const transitionFrameSample: GardenShipTransitionSample = {
   complete: false,
@@ -152,9 +166,7 @@ export interface GardenShipFrameContent {
   crossBearingBuoys: GardenCrossBearingBuoys;
   departingShips: ShipVisual[];
   fleetBatches: FleetBatches;
-  fleetDisplayPresenceByShipId: Map<string, number>;
   fleetLanterns: FleetLanterns;
-  fleetThinningShips: GardenFleetThinningShip[];
   flightTenderShips: ShipVisual[];
   flightTenders: GardenFlightTenders;
   issuanceWorksetShips: ShipVisual[];
@@ -181,7 +193,7 @@ export interface GardenShipFrameContent {
 export interface GardenShipFrameInput {
   /** Clock the shared breath curves read: 0 under reduced motion. */
   breathTime: number;
-  /** `constrained` scheduler tier: sheds wakes and arrival bow flourishes. */
+  /** `constrained` scheduler tier: quiets the local wake fallback. */
   constrained: boolean;
   /**
    * Seconds since the previous frame on the scene's beam clock, unclamped.
@@ -315,11 +327,13 @@ export function updateGardenShipFrame(
     zoom: detailPolicy.fleetClothZoom,
   });
   removeCompletedDepartures(scene, content, frame.timeSeconds);
+  fleetViewport.x = frame.width;
+  fleetViewport.y = frame.height;
   beginFleetFrame(content.fleetBatches, {
     camera: frame.camera,
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
-    viewport: { x: frame.width, y: frame.height },
+    viewport: fleetViewport,
   });
   const sailTexture = content.sailAtlas.texture;
   const logoGeneration = frame.logos.getLogoGenerationKey();
@@ -351,12 +365,6 @@ export function updateGardenShipFrame(
     });
   }
 
-  content.fleetDisplayPresenceByShipId = resolveGardenFleetDisplayPresence(
-    content.ships,
-    content.fleetThinningShips,
-    frame,
-    detailPolicy,
-  );
   const readableArrivalBeatDetailIds = selectGardenArrivalBeatShipDetailIds(
     content.ships,
     frame.shipMotionSamples,
@@ -379,9 +387,6 @@ export function updateGardenShipFrame(
     const visual = departing
       ? content.departingShips[index - content.ships.length]!
       : content.ships[index]!;
-    const displayPresence = departing
-      ? 1
-      : content.fleetDisplayPresenceByShipId.get(visual.ship.id) ?? 1;
     const sample = departing ? undefined : frame.shipMotionSamples.get(visual.ship.id);
     gardenArrivalBeatEnvelopeInto(sample, frame.reducedMotion, scratchArrivalBeat);
     const beatSailScale = 1 - scratchArrivalBeat.furl * (1 - GARDEN_SAIL_DIP_MIN_SCALE);
@@ -426,12 +431,11 @@ export function updateGardenShipFrame(
         }
       }
     }
-    visual.root.visible = displayPresence > 0;
-    if (displayPresence >= 0.5) visibleShipCount += 1;
+    visual.root.visible = true;
+    visibleShipCount += 1;
     visual.root.scale.setScalar(
       gardenShipVisualScale(visual.ship.visual.scale || 1)
-        * transitionVisibility
-        * displayPresence,
+        * transitionVisibility,
     );
     setTilePosition(visual.root, tile, GARDEN_SHIP_ROOT_Y);
 
@@ -480,34 +484,19 @@ export function updateGardenShipFrame(
     visual.sampleState = transition
       ? (departing ? "departing" : transition.kind === "arrival" ? "arriving" : "sailing")
       : (sample?.state ?? "idle");
-    // Lay a warm reflection lane on the sea under each ship's lantern(s).
-    scene.laneRegistry.set({
-      color: HARBOR_PALETTE.lantern_glow,
-      id: `ship-lantern.${visual.ship.id}`,
-      // W4.F3: at night the far fleet is embers — only the hero band's lamps.
-      intensity: visual.laneIntensity * displayPresence
-        * gardenFleetShipHeroWeight(content.fleetBatches, visual.ship.id),
-      kind: "lantern",
-      worldX: visual.root.position.x,
-      worldZ: visual.root.position.z,
-    });
-    const wakeBreath = gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.wakes);
-    const wakeIntensityBase = transition && !frame.reducedMotion
+    writeGardenFleetFootprint(fleetFootprint, visual.ship, tile, yaw, frame.camera, fleetViewport,
+      sample?.sailTrimRad ?? visual.sailRestBraceRad, visual.root.scale.x, visual.root.position.y);
+    // Keep the sampler's zone/speed/change strength, with no breathing gain.
+    const wakeIntensity = transition && !frame.reducedMotion
       ? Math.max(sample?.wakeIntensity ?? 0, 0.68 * transitionVisibility)
       : (sample?.wakeIntensity ?? 0);
-    const wakeIntensity = wakeIntensityBase * (0.94 + wakeBreath * 0.12);
-    const showShipDetail = gardenFineDetailVisible(detailPolicy, visual.ship.detailId, frame);
-    // Wakes remain a fleet-motion cue in overview/explore. In analyze, where a
-    // selection already owns the hierarchy, retain only the focused hull's
-    // wake so unrelated foam cannot compete with its ring, route, or panel.
-    const wakeVisible = displayPresence > 0
-      && !frame.reducedMotion
-      && !constrained
-      && wakeIntensity > 0.08
-      && gardenWakeDetailVisible(detailPolicy, overviewDetail, showShipDetail);
-    const wakeScaleX = (0.7 + Math.min(1.5, wakeIntensity) * 0.85)
-      * overviewDetail
-      * displayPresence;
+    const makingWay = !!heading && (!!transition || sample?.state === "sailing"
+      || sample?.state === "arriving" || sample?.state === "departing");
+    // Low tiers keep every mover, irrespective of selection. Pixel coverage
+    // filters the existing local quads instead of equal-bright distant roads.
+    const wakeResolution = MathUtils.smoothstep(Math.sqrt(Math.max(0, fleetFootprint.hull.clippedArea)), 0, 8);
+    const wakeVisible = !frame.reducedMotion && makingWay && wakeIntensity > 0 && wakeResolution > 0;
+    const wakeScaleX = Math.min(1, Math.max(0, wakeIntensity)) * wakeResolution * (constrained ? 0.65 : 0.8);
     scratchWakePose.x = visual.root.position.x;
     scratchWakePose.y = visual.root.position.y;
     scratchWakePose.z = visual.root.position.z;
@@ -529,9 +518,9 @@ export function updateGardenShipFrame(
     // K8 wake field (W3.8/W3.9). The pose is final for this frame; the field
     // consumes these at the top of next frame. Every hull in the window
     // writes its waterline footprint (B); a hull making way adds bow/stern
-    // foam (R) and lays its glassy lane (G) at the wake's intensity, which
-    // carries the risk zone and 24 h change as lane length.
-    const hullSizeScale = transitionVisibility * displayPresence;
+    // foam (R) and soft historical slick (G) at the raw analytical intensity.
+    // Stationary/moored hulls write only the current waterline bed (B).
+    const hullSizeScale = transitionVisibility;
     const wakeHalfLength = hullReach.x * 0.9 * hullSizeScale;
     const wakeHalfBeam = hullReach.z * hullSizeScale;
     if (stampContactField && hullSizeScale > 0.05) {
@@ -545,8 +534,8 @@ export function updateGardenShipFrame(
         wakeHalfBeam,
         1,
       );
-      if (stampWakeField && heading && wakeIntensity * displayPresence > 0.12) {
-        const wakeStrength = Math.min(1, wakeIntensity * displayPresence);
+      if (stampWakeField && makingWay && heading && wakeIntensity > 0) {
+        const wakeStrength = Math.min(1, wakeIntensity);
         scene.wakes.stamp(
           visual.root.position.x,
           visual.root.position.z,
@@ -564,26 +553,10 @@ export function updateGardenShipFrame(
       && stampWakeField
       && readableArrivalBeat
       && scratchArrivalBeat.bowWave > 0
-      && displayPresence > 0
       && overviewDetail > 0
     ) {
-      const stampStrength = scratchArrivalBeat.bowWave * displayPresence;
-      if (sample?.segment?.kind === "dock-dwell") {
-        // Three positions push one bow flourish ahead of the stem in the
-        // existing field (foam only); no particles, geometry, draw, or clock.
-        for (let stampIndex = 1; stampIndex <= 3; stampIndex += 1) {
-          const bowOffset = wakeHalfLength * stampIndex * 0.16;
-          scene.wakes.stamp(
-            visual.root.position.x + heading.x * bowOffset,
-            visual.root.position.z + heading.y * bowOffset,
-            heading.x,
-            heading.y,
-            stampStrength * (1 - stampIndex * 0.12),
-            wakeHalfLength,
-            wakeHalfBeam,
-          );
-        }
-      } else if (sample?.segment?.kind === "departure-transit") {
+      const stampStrength = scratchArrivalBeat.bowWave;
+      if (sample?.segment?.kind === "departure-transit") {
         const sternOffset = wakeHalfLength * 0.35;
         scene.wakes.stamp(
           visual.root.position.x - heading.x * sternOffset,
@@ -596,6 +569,8 @@ export function updateGardenShipFrame(
         );
       }
     }
+    const sailResting = frame.reducedMotion || gardenShipSailResting(visual.sampleState);
+    updateGardenHeroSailCloth(visual, sailResting, sample?.luff);
     if (visual.identitySail) {
       const previousScale = typeof visual.identitySail.userData.arrivalBeatScale === "number"
         ? visual.identitySail.userData.arrivalBeatScale
@@ -608,7 +583,12 @@ export function updateGardenShipFrame(
         visual.identitySail.rotation.y = sample?.sailTrimRad ?? visual.sailRestBraceRad;
       }
     }
-    visual.fineDetail.visible = showShipDetail;
+    const inspected = fleetInspected(visual, frame);
+    const signalCue = visual.ship.visual.overlay === "nav" ? "cue.ship.nav-signal"
+      : visual.ship.visual.overlay === "yield" ? "cue.ship.yield-signal" : "cue.ship.safety-watch";
+    if (visual.secondarySignals) {
+      visual.secondarySignals.visible = gardenFleetCueVisible(frame.world.visualCues, signalCue, inspected);
+    }
 
     // R8 grounding: the shadow is THIS ship's shadow — the hull's rendered
     // x/z footprint (family reach table × rendered scale × hull-form span),
@@ -616,9 +596,9 @@ export function updateGardenShipFrame(
     // waterline rather than the topsides. G2/W3.3: it was a selection-radius
     // guess before, so every family threw the same elongated blob.
     scratchShadowScale.set(
-      Math.max(0.9, hullReach.x * 1.12) * displayPresence,
-      displayPresence,
-      Math.max(0.6, hullReach.z * 1.35) * displayPresence,
+      Math.max(0.9, hullReach.x * 1.12),
+      1,
+      Math.max(0.6, hullReach.z * 1.35),
     );
     scratchShadowQuaternion.setFromAxisAngle(
       SHADOW_UP,
@@ -634,12 +614,13 @@ export function updateGardenShipFrame(
     scratchMatrix.compose(scratchShadowPosition, scratchShadowQuaternion, scratchShadowScale);
     content.shipShadows.setMatrixAt(index, scratchMatrix);
 
-    // The ship's transform is final for this frame — hand it to the batch.
-    // Hero ships skip this: they carry their own meshes under `root`.
-    if (visual.batched) {
-      writeFleetInstance(content.fleetBatches, {
+    // Every hull, including dormant GLB heroes, uses the same projection policy.
+    const fullShare = writeFleetInstance(content.fleetBatches, {
         atlasCell: visual.atlasCell,
-        leader: visual.ship.visual.sizeTier === "titan" || visual.ship.visual.sizeTier === "unique",
+        bespoke: !visual.batched,
+        inspected,
+        supplyUsd: visual.ship.marketCapUsd ?? 0,
+        sailHeightCssPx: fleetFootprint.sailHeightCssPx,
         shipId: visual.ship.id,
         headingAngle: visual.root.rotation.y,
         heel: visual.root.rotation.z,
@@ -652,6 +633,7 @@ export function updateGardenShipFrame(
         mastheadOffset: gardenShipMastheadOffset(visual.silhouette),
         sailFurl: gardenShipSailFurl(visual.ship.id, visual.sampleState),
         sailScale: beatSailScale,
+        sailResting,
         // Contract F-A: the brace and luff from apparent wind; the hashed
         // rest brace when the sampler leaves them out (reduced motion).
         sailBraceRad: sample?.sailTrimRad ?? visual.sailRestBraceRad,
@@ -662,10 +644,29 @@ export function updateGardenShipFrame(
         y: visual.root.position.y,
         z: visual.root.position.z,
       });
+    if (!visual.batched) {
+      visual.lodHidden.value = 1 - fullShare;
+      visual.root.visible = fullShare > 0;
     }
   }
   content.wakeBatch.commit();
   endFleetFrame(content.fleetBatches);
+  // Resolve lamps only after the current supply-ranked cast has been composed.
+  for (let index = 0; index < renderedShipCount; index += 1) {
+    const visual = index < content.ships.length ? content.ships[index]!
+      : content.departingShips[index - content.ships.length]!;
+    const rigWeight = gardenFleetShipRigWeight(content.fleetBatches, visual.ship.id);
+    visual.fineDetail.visible = rigWeight > 0;
+    if (visual.fineRig) visual.fineRig.material.opacity = 0.62 * rigWeight;
+    scene.laneRegistry.set({
+      color: HARBOR_PALETTE.lantern_glow,
+      id: `ship-lantern.${visual.ship.id}`,
+      intensity: visual.laneIntensity * gardenFleetShipHeroWeight(content.fleetBatches, visual.ship.id),
+      kind: "lantern",
+      worldX: visual.root.position.x,
+      worldZ: visual.root.position.z,
+    });
+  }
   // W4.1: the shadow buffer holds a spare slot for the transient outsider;
   // clamp the live count so slots beyond the fleet are never drawn.
   content.shipShadows.count = renderedShipCount;
@@ -680,7 +681,8 @@ export function updateGardenShipFrame(
   // own, and it stops moving exactly when the ship it is moored to does.
   for (let index = 0; index < content.crossBearingBuoyShips.length; index += 1) {
     const visual = content.crossBearingBuoyShips[index]!;
-    content.crossBearingBuoys.place(index, visual.root.position.x, visual.root.position.z);
+    content.crossBearingBuoys.place(index, visual.root.position.x, visual.root.position.z,
+      gardenFleetCueVisible(frame.world.visualCues, "cue.ship.cross-bearing-buoy", fleetInspected(visual, frame)));
   }
   content.crossBearingBuoys.flush();
 
@@ -693,7 +695,8 @@ export function updateGardenShipFrame(
   // Nothing runs when the gauge reported no flight: the list is empty.
   for (let index = 0; index < content.flightTenderShips.length; index += 1) {
     const visual = content.flightTenderShips[index]!;
-    content.flightTenders.place(index, visual.root.position.x, visual.root.position.z);
+    content.flightTenders.place(index, visual.root.position.x, visual.root.position.z,
+      gardenFleetCueVisible(frame.world.visualCues, "cue.fleet.flight-to-quality", fleetInspected(visual, frame)));
   }
   content.flightTenders.flush({
     detail: overviewDetail,
@@ -708,6 +711,7 @@ export function updateGardenShipFrame(
       GARDEN_SHIP_ROOT_Y,
       visual.root.position.z,
       visual.root.rotation.y,
+      gardenFleetCueVisible(frame.world.visualCues, "cue.ship.issuance-work", fleetInspected(visual, frame)),
     );
   }
   content.issuanceWorksets.flush({
@@ -740,10 +744,8 @@ export function updateGardenShipFrame(
     reducedMotion: frame.reducedMotion,
     tier: seaQualityTier(frame.renderScheduler),
   });
-  // W4.F7/F8: the stern chōchin and the standing rig follow the hero band
-  // (at night the far fleet is embers, by day it is ink — neither carries a
-  // lamp or a stay) and each hull's display presence. The rig's alpha is its
-  // projected coverage, so it needs the drawing-buffer scale.
+  // Stern chōchin follow the supply cast; standing rig follows its independent
+  // projected-size/inspection weight. Coverage alpha still needs buffer scale.
   lanternFrameContent = content;
   const fovY = (camera as PerspectiveCamera).isPerspectiveCamera
     ? MathUtils.degToRad((camera as PerspectiveCamera).fov)
@@ -767,14 +769,19 @@ let lanternFrameContent: GardenShipFrameContent | null = null;
 function fleetLanternPresence(visual: ShipVisual): number {
   const content = lanternFrameContent!;
   // The lamp kindles and dims with the hero band's eased weight (W5: no pop).
-  return gardenFleetShipHeroWeight(content.fleetBatches, visual.ship.id)
-    * (content.fleetDisplayPresenceByShipId.get(visual.ship.id) ?? 1);
+  return gardenFleetShipHeroWeight(content.fleetBatches, visual.ship.id);
+}
+
+function fleetRigPresence(visual: ShipVisual): number {
+  const content = lanternFrameContent!;
+  return gardenFleetShipRigWeight(content.fleetBatches, visual.ship.id);
 }
 
 /** One record for the renderer's lifetime; refreshed in place each frame. */
 const lanternFrame: FleetLanternFrame = {
   cameraQuaternion: new Quaternion(),
   presence: fleetLanternPresence,
+  rigPresence: fleetRigPresence,
   reducedMotion: false,
   timeSeconds: 0,
 };

@@ -27,13 +27,35 @@ const assetPathFor = (id: keyof typeof GARDEN_MODEL_MANIFEST): string => resolve
   `public${GARDEN_MODEL_MANIFEST[id].artifact.url.split("?")[0]}`,
 );
 
+
+interface CompiledModelCensus {
+  id: string;
+  kind: "model";
+  output: { sha256: string; bytes: number };
+  census: {
+    primitives: number;
+    triangles: number;
+    vertices: number;
+    materials: number;
+    maps: number;
+    bytes: number;
+    bounds: { min: number[]; max: number[] };
+    anchors: Record<string, { position: number[] }>;
+    extensions: string[];
+  };
+  validation: Record<string, { errors: number }>;
+}
+
+const compiledManifest = JSON.parse(readFileSync(
+  resolve(process.cwd(), "assets/pharosville/garden-assets.json"), "utf8",
+)) as { assets: CompiledModelCensus[] };
 describe.each(Object.keys(GARDEN_MODEL_MANIFEST) as (keyof typeof GARDEN_MODEL_MANIFEST)[])(
   "garden model manifest: %s",
   (id) => {
     const entry = GARDEN_MODEL_MANIFEST[id];
     const assetPath = assetPathFor(id);
 
-    it("matches the raw GLB header, budget, hash, and inventory", () => {
+    it("matches the raw GLB header, budgets, hash, and decoded census", async () => {
       const bytes = readFileSync(assetPath);
       const json = readGlbJson(bytes);
 
@@ -46,10 +68,57 @@ describe.each(Object.keys(GARDEN_MODEL_MANIFEST) as (keyof typeof GARDEN_MODEL_M
       );
       expect(validateGardenModelMetadata(entry)).toEqual([]);
       expect(json.asset.version).toBe("2.0");
-      expect(json.meshes).toHaveLength(entry.geometry.drawCalls);
-      expect(json.materials).toHaveLength(entry.geometry.materials);
-      expect(json.textures).toBeUndefined();
-      expect(json.images).toBeUndefined();
+      const compiled = compiledManifest.assets.find((asset) => asset.id === id && asset.kind === "model");
+      if (compiled === undefined) throw new Error(`${id} compiled census missing.`);
+      expect(compiled.output).toMatchObject({ sha256: entry.artifact.sha256, bytes: bytes.byteLength });
+      expect(Object.values(compiled.validation).every((phase) => phase.errors === 0)).toBe(true);
+
+      const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
+        .parseAsync(new Uint8Array(bytes).buffer, "");
+      let primitives = 0;
+      let triangles = 0;
+      let vertices = 0;
+      const materials = new Set<object>();
+      const maps = new Set<object>();
+      gltf.scene.traverse((object) => {
+        if (!(object instanceof Mesh)) return;
+        const geometry = object.geometry;
+        const indices = geometry.index?.count ?? geometry.getAttribute("position").count;
+        expect(indices % 3).toBe(0);
+        triangles += indices / 3;
+        vertices += geometry.getAttribute("position").count;
+        primitives += Array.isArray(object.material) ? geometry.groups.length : 1;
+        for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+          materials.add(material);
+          for (const value of Object.values(material)) {
+            if (value && typeof value === "object" && "isTexture" in value && value.isTexture) maps.add(value);
+          }
+        }
+        // Shipped accessors retain source extrema; bounded Meshopt rounding can
+        // shift them. The census is based on actual decoded positions.
+        geometry.computeBoundingBox();
+        geometry.dispose();
+      });
+      expect({ primitives, triangles, vertices, materials: materials.size, maps: maps.size })
+        .toEqual({
+          primitives: entry.geometry.drawCalls, triangles: entry.geometry.triangles,
+          vertices: entry.geometry.vertices, materials: entry.geometry.materials, maps: entry.geometry.textures,
+        });
+      expect(compiled.census).toMatchObject({
+        primitives, triangles, vertices, materials: materials.size, maps: maps.size, bytes: bytes.byteLength,
+      });
+      expect(primitives).toBeLessThanOrEqual(entry.budgets.maxDrawCalls);
+      expect(triangles).toBeLessThanOrEqual(entry.budgets.maxTriangles);
+      expect(vertices).toBeLessThanOrEqual(entry.budgets.maxVertices);
+      expect(materials.size).toBeLessThanOrEqual(entry.budgets.maxMaterials);
+      expect(maps.size).toBeLessThanOrEqual(entry.budgets.maxTextures);
+      const bounds = new Box3().setFromObject(gltf.scene);
+      expect(compiled.census.bounds).toEqual({ min: bounds.min.toArray(), max: bounds.max.toArray() });
+      expect(compiled.census.extensions).toContain("EXT_meshopt_compression");
+      for (const anchor of Object.values(entry.anchors)) {
+        expect(compiled.census.anchors[anchor.node]?.position).toEqual(anchor.position);
+      }
+      for (const material of materials) (material as MeshBasicMaterial).dispose();
     });
 
     it("records every integration anchor as a named GLB node", () => {
@@ -190,9 +259,7 @@ describe("createGardenModelLibrary", () => {
 
 interface GlbJson {
   asset: { version: string };
-  images?: unknown[];
   materials?: unknown[];
-  meshes?: unknown[];
   nodes?: { name?: string }[];
   textures?: unknown[];
 }

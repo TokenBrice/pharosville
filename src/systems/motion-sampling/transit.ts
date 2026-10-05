@@ -12,6 +12,7 @@ import { type SeaState } from "../sea-state";
 import type { ShipMotionRoute, ShipMotionSample, ShipMotionState, ShipWaterPath } from "../motion-types";
 import type { ShipWaterZone } from "../world-types";
 import { isWaterTileKind, tileKindAt } from "../world-layout";
+import { ANCHOR_SETTLE_SECONDS, anchorLyingAngleRad } from "./anchor-ride";
 import {
   clampAroundPointInto,
   clampMotionTileInto,
@@ -211,12 +212,22 @@ export function transitSampleInto(input: {
   }
   // Lane bulge and berth blending are presentation offsets around the
   // authoritative A* chain. On a narrow channel they can cross the rounded
-  // shoreline even when the path itself is safe; fall back to the raw path
-  // point for that frame instead of ever rendering a hull on land.
+  // shoreline even when the path itself is safe. Dropping the whole offset for
+  // that frame snapped the hull by its full width, so shrink the offset to the
+  // largest safe fraction instead: the pose stays continuous along the leg.
   if (!isWaterTileKind(tileKindAt(out.tile.x, out.tile.y))) {
-    out.tile.x = waterPathTileScratch.x;
-    out.tile.y = waterPathTileScratch.y;
-    clampToNearestTerrainWaterInto(out.tile);
+    const offsetX = out.tile.x - waterPathTileScratch.x;
+    const offsetY = out.tile.y - waterPathTileScratch.y;
+    let safe = 0;
+    let unsafe = 1;
+    for (let step = 0; step < 8; step += 1) {
+      const middle = (safe + unsafe) / 2;
+      if (isWaterTileKind(tileKindAt(waterPathTileScratch.x + offsetX * middle, waterPathTileScratch.y + offsetY * middle))) safe = middle;
+      else unsafe = middle;
+    }
+    out.tile.x = waterPathTileScratch.x + offsetX * safe;
+    out.tile.y = waterPathTileScratch.y + offsetY * safe;
+    if (!isWaterTileKind(tileKindAt(out.tile.x, out.tile.y))) clampToNearestTerrainWaterInto(out.tile);
   }
   out.shipId = input.route.shipId;
   out.state = input.sampleState ?? input.state;
@@ -270,10 +281,30 @@ export function transitSampleInto(input: {
     alignmentTangent,
     alignmentT,
   );
+  const voyageSeconds = input.transitSeconds && input.transitSeconds > 0 ? input.transitSeconds : input.route.legDurationSeconds;
+  // The end of a leg that reaches the anchorage, and the start of one that
+  // leaves it, ease onto the heading the hull lies to there. The rest itself
+  // is just wind and sheer, so neither side pins the other and a rest-window
+  // boundary cannot swap the reference the pose is built from.
+  const anchorSeconds = input.state === "departing" && !input.toMooringStop
+    ? (1 - linearProgress) * voyageSeconds
+    : input.state === "arriving" && !input.fromMooringStop ? linearProgress * voyageSeconds : null;
+  if (anchorSeconds !== null) {
+    const weight = 1 - smoothstepRange(0, ANCHOR_SETTLE_SECONDS, anchorSeconds);
+    if (weight > 0) {
+      const angle = anchorLyingAngleRad(input.route, input.route.zone, input.timeSeconds, input.route.riskTile);
+      anchorHeadingScratch.x = Math.cos(angle);
+      anchorHeadingScratch.y = Math.sin(angle);
+      normalizeHeadingInto(
+        out.heading.x + (anchorHeadingScratch.x - out.heading.x) * weight,
+        out.heading.y + (anchorHeadingScratch.y - out.heading.y) * weight,
+        out.heading,
+      );
+    }
+  }
   writeVelocityInto(out, out.heading.x * speed, out.heading.y * speed);
   // Sails come to the wind over the first seconds of a voyage and are handed
   // back over its last: clock-pure, so cloth and heel ease without memory.
-  const voyageSeconds = input.transitSeconds && input.transitSeconds > 0 ? input.transitSeconds : input.route.legDurationSeconds;
   out.sailSet = smoothstepRange(0, SAIL_SET_EASE_SECONDS, linearProgress * voyageSeconds)
     * smoothstepRange(0, SAIL_SET_EASE_SECONDS, (1 - linearProgress) * voyageSeconds);
 }
@@ -320,11 +351,11 @@ function transitAlignmentTangent(input: {
     }
     return input.toMooringStop.dockTangent;
   }
-
   return input.state === "departing" && input.fromMooringStop?.dockTangent
     ? input.fromMooringStop.dockTangent
     : null;
 }
+const anchorHeadingScratch: { x: number; y: number } = { x: 0, y: 0 };
 
 function transitSpeedTilesPerSecond(
   path: ShipWaterPath | undefined,

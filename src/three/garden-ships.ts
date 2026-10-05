@@ -9,7 +9,6 @@ import {
   DoubleSide,
   DynamicDrawUsage,
   Euler,
-  ExtrudeGeometry,
   Float32BufferAttribute,
   Group,
   InstancedMesh,
@@ -39,6 +38,7 @@ import {
   gardenShipVisualScale,
   type GardenHullSilhouette,
 } from "../systems/garden-observatory-slice";
+import { GARDEN_FLEET_HULL_FORMS, GARDEN_FLEET_HULL_ENDS, GARDEN_FLEET_RAIL_Y, GARDEN_FLEET_DEMI_HULL_Z } from "../systems/garden-fleet-footprint";
 import { HARBOR_PALETTE, hexToOklch, oklchToHex } from "../systems/palette";
 import { shipRestSailBraceRad } from "../systems/ship-visuals";
 import type { ShipNode } from "../systems/world-types";
@@ -62,7 +62,12 @@ import {
   markAtlasSail,
   mergeTintedParts,
   setFleetAttention,
+  patchFleetHeroDissolve,
+  patchFleetHeroSailMaterial,
+  gardenFleetPackSailAttention,
+  FLEET_SAIL_REST_LUFF,
   type FleetBatchGeometrySource,
+  type FleetHeroSailState,
 } from "./garden-fleet-batch";
 import {
   cachedShipGeometry,
@@ -71,6 +76,7 @@ import {
   stableUnit,
   type GardenShipGeometryCache,
 } from "./garden-util";
+import { applyGardenSurface, normalizeGardenSurfaceGeometry, GARDEN_SURFACE_WEIGHT_ATTRIBUTE } from "./garden-surfaces";
 
 const scratchMatrix = new Matrix4();
 const scratchPosition = new Vector3();
@@ -102,19 +108,22 @@ export {
 } from "../systems/garden-observatory-slice";
 
 export interface ShipVisual {
-  /** Sail-atlas cell (D3). 0 = the shared plain canvas. Batched ships only. */
+  /** Shared atlas cell used by near identity and the family far representation. */
   atlasCell: number;
   /** W7.3 service-age finish, retained for late hero-GLB attachment. */
   agePatina: number;
   /**
-   * W1: true when this ship is drawn from the shared `FleetBatches` instances
-   * rather than its own meshes. Batched ships carry no hull/sail/pennant mesh;
-   * `root` is a transform carrier with no drawable children.
+   * True when the full family representation uses shared instances. Bespoke
+   * ships retain a dormant scene graph and use those same batches when far.
    */
   batched: boolean;
   bobPhase: number;
   displayOffset: { x: number; y: number };
   fineDetail: Group;
+  fineRig: LineSegments<BufferGeometry, LineBasicMaterial> | null;
+  /** Secondary analytical mast cues, independently inspection-gated. */
+  secondarySignals: Group | null;
+  lodHidden: { value: number };
   /** Family timber + issuer whisper, written to the hull batch's instanceColor (W1/D1, warm-village C2). */
   hullColor: Color;
   /** Issuer paint written to the hull batch's `aTrim` — the sheer strake (W1/D2). */
@@ -414,16 +423,14 @@ const GARDEN_SHIP_STERN_LANTERNS: Record<
   { pole: number; x: number; z: number }
 > = {
   // Tall enough to hang the lamp aft of the yagura roof.
-  bezaisen: { pole: 1.2, x: -3.2, z: 0 },
-  kobaya: { pole: 0.8, x: -4.05, z: 0 },
+  bezaisen: { pole: 1.2, x: -3.08, z: 0 },
+  kobaya: { pole: 0.8, x: -3.96, z: 0 },
   // On the starboard demi-hull: there is no deck on the centreline aft.
   twinhull: { pole: 0.8, x: -4.25, z: 1.02 },
-  takasebune: { pole: 0.8, x: -5.7, z: 0 },
-  junk: { pole: 0.85, x: -2.92, z: 0 },
-  scow: { pole: 0.75, x: -2.38, z: 0 },
+  takasebune: { pole: 0.8, x: -5.55, z: 0 },
+  junk: { pole: 0.85, x: -2.78, z: 0 },
+  scow: { pole: 0.75, x: -2.2, z: 0 },
 };
-/** The stern rail the pole steps on: rim plate 0.47 + its end sheer 0.34. */
-const STERN_POLE_FOOT_Y = 0.8;
 const STERN_POLE_LEAN = 0.12;
 const STERN_LANTERN_ARM = 0.18;
 /** Arm end to lamp centre. */
@@ -437,11 +444,12 @@ export function gardenShipSternLantern(silhouette: GardenHullSilhouette): {
   lamp: Vector3;
 } {
   const plan = GARDEN_SHIP_STERN_LANTERNS[silhouette];
-  const head = new Vector3(plan.x - STERN_POLE_LEAN, STERN_POLE_FOOT_Y + plan.pole, plan.z);
+  const [, railY] = hullSectionPoint(silhouette, plan.x, 0, 1);
+  const head = new Vector3(plan.x - STERN_POLE_LEAN, railY + plan.pole, plan.z);
   const arm = new Vector3(head.x - STERN_LANTERN_ARM, head.y, plan.z);
   return {
     arm,
-    foot: new Vector3(plan.x, STERN_POLE_FOOT_Y, plan.z),
+    foot: new Vector3(plan.x, railY, plan.z),
     head,
     lamp: new Vector3(arm.x, arm.y - STERN_LANTERN_DROP, plan.z),
   };
@@ -526,6 +534,9 @@ export function createBatchedShip(
     bobPhase: stableUnit(ship.id) * Math.PI * 2,
     displayOffset,
     fineDetail,
+    fineRig: null,
+    secondarySignals: null,
+    lodHidden: { value: 0 },
     heroHideable: [],
     heroHullTint: new Color("#ffffff"),
     heroModelId: null,
@@ -685,6 +696,20 @@ export function gardenShipSailFurl(shipId: string, sampleState: string): number 
   return 2 ** (FURL_COURSE_FIRST + Math.floor(roll * 11) % (FURL_UPPER_FIRST - FURL_COURSE_FIRST));
 }
 
+/** Slack is independent of furling: anchored, docked and unsampled hulls rest. */
+export function gardenShipSailResting(sampleState: string): boolean {
+  return sampleState === "idle" || sampleState === "moored" || sampleState === "risk-drift";
+}
+
+/** Writes the hero's existing uniforms; no per-frame allocations or new clock. */
+export function updateGardenHeroSailCloth(visual: ShipVisual, resting: boolean, luff = FLEET_SAIL_REST_LUFF): void {
+  const state = visual.identitySail?.userData.gardenCloth as FleetHeroSailState | undefined;
+  if (!state) return;
+  state.uHeroClothAttention.value = gardenFleetPackSailAttention(0, luff, resting);
+  state.uHeroClothPosition.value.x = visual.root.position.x;
+  state.uHeroClothPosition.value.y = visual.root.position.z;
+}
+
 /** First index in the course band, and in the upper-sail band. See below. */
 const FURL_COURSE_FIRST = 1;
 const FURL_UPPER_FIRST = 3;
@@ -829,15 +854,6 @@ export function createShip(
     new Color(safeCssColor(ship.visual.livery?.accent, GARDEN_COLORS.roof)),
     0.78,
   );
-  const keelMaterial = new MeshStandardMaterial({
-    color: ship.riskZone === "danger"
-      ? "#553833"
-      : ship.riskZone === "warning"
-        ? "#665143"
-        : HARBOR_PALETTE.iron_dark,
-    flatShading: true,
-    roughness: 0.9,
-  });
   // Baked vertex colors carry the 3-tone wood read (warm-dark waterline →
   // neutral flank → warm gunwale) and fake AO; they multiply the per-ship
   // livery material color, so hull hue stays per-ship. The old flat emissive
@@ -868,44 +884,40 @@ export function createShip(
     `hull.${silhouette}`,
     () => createHullGeometry(silhouette),
   );
-  // The keel is the dark underbody — it keeps the flat iron color (no vertex
-  // colors) so the waterline shadow reads as a distinct band beneath the hull.
-  const keel = new Mesh(hullGeometry, keelMaterial);
-  keel.position.y = -0.16;
-  keel.scale.set(1.015, 0.82, 1.015);
-  root.add(keel);
-  heroHideable.push(keel);
   const hull = new Mesh(hullGeometry, hullMaterial);
-  hull.position.y = 0.05;
   root.add(hull);
   heroHideable.push(hull);
   const gunwale = new Mesh(
     cachedShipGeometry(
       cache,
       `deck.${silhouette}.rim`,
-      () => createDeckGeometry(silhouette, 0.91, 0.34, "rim"),
+      () => createDeckGeometry(silhouette, "rim"),
     ),
     gunwaleMaterial,
   );
-  gunwale.position.y = 0.47;
   root.add(gunwale);
   heroHideable.push(gunwale);
   const deck = new Mesh(
     cachedShipGeometry(
       cache,
       `deck.${silhouette}.inner.sheer`,
-      () => createDeckGeometry(silhouette, 0.86, 0.3, "inner"),
+      () => createFamilyDeckGeometry(silhouette),
     ),
     deckMaterial,
   );
-  deck.position.y = 0.5;
-  fineDetail.add(deck);
+  root.add(deck);
   heroHideable.push(deck);
 
   const mastMaterial = new MeshStandardMaterial({
     color: HARBOR_PALETTE.timber_dark,
     roughness: 0.92,
   });
+  gunwaleMaterial.userData.gardenSurfaceExemption = "issuerTrim";
+  for (const material of [hullMaterial, deckMaterial, mastMaterial]) {
+    applyGardenSurface(material, {
+      role: "timber", mapping: "uv", metresPerRepeat: 2.4, detailStrength: 0.28,
+    });
+  }
   // S4: plain sails read as warm cream/ochre canvas with only a whisper of the
   // livery sail hue left in; the logo identity sail keeps the full livery
   // field via its canvas texture.
@@ -992,6 +1004,7 @@ export function createShip(
         if (square) sail.scale.setScalar(IDENTITY_SQUARE_SAIL_SCALE);
         else sail.scale.set(1.22, 1.22, 1);
         identitySailMesh = sail;
+        sail.userData.gardenCloth = patchFleetHeroSailMaterial(identitySailMaterial, sailPlan.height * 0.5);
       } else {
         heroHideable.push(sail);
       }
@@ -1029,29 +1042,25 @@ export function createShip(
     cabin.position.set(cabinDimensions.x, 0.52 + cabinDimensions.height / 2, 0);
     root.add(cabin);
     heroHideable.push(cabin);
-    const cabinRoof = new Mesh(
-      cachedShipGeometry(
-        cache,
-        `cabin.${silhouette}.roof`,
-        () => new BoxGeometry(cabinDimensions.width * 1.12, 0.12, cabinDimensions.z * 1.16),
-      ),
-      mastMaterial,
-    );
-    cabinRoof.position.set(
-      cabinDimensions.x,
-      0.58 + cabinDimensions.height,
-      0,
-    );
-    fineDetail.add(cabinRoof);
-    heroHideable.push(cabinRoof);
+    if (silhouette !== "bezaisen") {
+      const cabinRoof = new Mesh(
+        cachedShipGeometry(
+          cache,
+          `cabin.${silhouette}.roof`,
+          () => new BoxGeometry(cabinDimensions.width * 1.12, 0.12, cabinDimensions.z * 1.16),
+        ),
+        mastMaterial,
+      );
+      cabinRoof.position.set(cabinDimensions.x, 0.58 + cabinDimensions.height, 0);
+      fineDetail.add(cabinRoof);
+      heroHideable.push(cabinRoof);
+    }
   }
 
   const tallestMast = rig.reduce((tallest, entry) => (
     entry.height > tallest.height ? entry : tallest
   ));
-  // Rigging (and junk sail battens) batch into one cached LineSegments per
-  // silhouette. Titans and heritage hulls keep it on the root so it survives at
-  // overview zoom; standard ships gate it to fine detail to hold draw calls flat.
+  // Bespoke fallback stays use the same footprint/inspection fade as shared rig.
   const rigging = new LineSegments(
     cachedShipGeometry(
       cache,
@@ -1067,7 +1076,7 @@ export function createShip(
       transparent: true,
     }),
   );
-  (tier === "standard" ? fineDetail : root).add(rigging);
+  fineDetail.add(rigging);
   heroHideable.push(rigging);
   const flag = new Mesh(
     cachedShipGeometry(cache, "pennant", createPennantGeometry),
@@ -1084,12 +1093,10 @@ export function createShip(
   fineDetail.add(flag);
   heroHideable.push(flag);
 
-  // The overlay signal is a ~0.5-unit badge pinned to the
-  // rig — legible from default framing in, three pixels of noise from whole-map
-  // framing out. They hang off their own group so `garden-overview-lod` can
-  // shed both with one gate per hull rather than four.
+  // Secondary analytical signals have registry-owned inspection visibility,
+  // independent of the family silhouette and foreground supply cast.
   const overviewDetail = new Group();
-  overviewDetail.name = "ship-overview-detail";
+  overviewDetail.name = "ship-secondary-signals";
   root.add(overviewDetail);
 
   if (ship.visual.overlay !== "none") {
@@ -1142,7 +1149,7 @@ export function createShip(
     new Color(safeCssColor(ship.visual.livery?.primary, "#ffffff")),
     0.3,
   ).multiplyScalar(shipWoodSurfaceScale(ship));
-  return {
+  const visual: ShipVisual = {
     agePatina: MathUtils.clamp(ship.visual.hullForm?.agePatina ?? 0, 0, 1),
     atlasCell: 0,
     batched: false,
@@ -1151,6 +1158,9 @@ export function createShip(
     bobPhase: stableUnit(ship.id) * Math.PI * 2,
     displayOffset,
     fineDetail,
+    fineRig: rigging,
+    secondarySignals: overviewDetail,
+    lodHidden: { value: 0 },
     heroHideable,
     heroHullTint,
     heroModelId,
@@ -1177,6 +1187,16 @@ export function createShip(
     tier,
     wakeSlot: -1,
   };
+  patchGardenShipDissolve(visual, root);
+  return visual;
+}
+
+function patchGardenShipDissolve(visual: ShipVisual, root: Object3D): void {
+  root.traverse((part) => {
+    if (!(part instanceof Mesh) && !(part instanceof LineSegments)) return;
+    const materials = Array.isArray(part.material) ? part.material : [part.material];
+    for (const material of materials) patchFleetHeroDissolve(material, visual.lodHidden);
+  });
 }
 
 /**
@@ -1200,6 +1220,7 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
   const masthead = gardenModelAnchor(model, heroId, "masthead").position.clone();
   const sternLantern = gardenModelAnchor(model, heroId, "lantern-stern").position.clone();
   mergeGardenHeroStatics(visual, model);
+  patchGardenShipDissolve(visual, model);
   model.name = `hero-${heroId}`;
   // The GLB arrives after `createShip` has already trimmed the procedural
   // children, so it takes the same offset here or the hero rides level while
@@ -1250,6 +1271,7 @@ export function assignGardenHeroSailAtlas(
   texture: CanvasTexture | null,
   cell: number,
 ): void {
+  visual.atlasCell = cell;
   const material = visual.identitySailMaterial;
   if (!material || !texture || cell <= 0) return;
   const previousCompile = material.onBeforeCompile;
@@ -1300,16 +1322,19 @@ export function assignGardenHeroSailAtlas(
 function mergeGardenHeroStatics(visual: ShipVisual, model: Group): void {
   model.updateMatrixWorld(true);
   const inverseRoot = model.matrixWorld.clone().invert();
-  const solidParts: BufferGeometry[] = [];
-  const sailParts: BufferGeometry[] = [];
+  const buckets = new Map<string, { parts: BufferGeometry[]; source: MeshStandardMaterial; canvas: boolean }>();
+  const mergedObjects: Mesh[] = [];
 
   model.traverse((object) => {
-    if (!(object instanceof Mesh) || Array.isArray(object.material)) return;
+    if (!(object instanceof Mesh) || Array.isArray(object.material) || !(object.material instanceof MeshStandardMaterial)) return;
     const source = object.geometry.clone();
     const geometry = source.index ? source.toNonIndexed() : source;
     if (geometry !== source) source.dispose();
     geometry.applyMatrix4(inverseRoot.clone().multiply(object.matrixWorld));
-    if (!geometry.getAttribute("normal")) geometry.computeVertexNormals();
+    normalizeGardenSurfaceGeometry(geometry, "timber");
+    for (const channel of ["uv1", "uv2", "uv3"]) {
+      if (!geometry.getAttribute(channel)) geometry.setAttribute(channel, geometry.getAttribute("uv").clone());
+    }
     geometry.computeBoundingBox();
     const position = geometry.getAttribute("position");
     const sourceColor = geometry.getAttribute("color");
@@ -1345,22 +1370,35 @@ function mergeGardenHeroStatics(visual: ShipVisual, model: Group): void {
     geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
     geometry.setAttribute("aHeroGlow", new Float32BufferAttribute(glow, 1));
     geometry.setAttribute("aHeroSurface", new Uint8BufferAttribute(surface, 2, true));
-    if (object.name === "sail-hull") sailParts.push(geometry);
-    else solidParts.push(geometry);
+    const weight = geometry.getAttribute(GARDEN_SURFACE_WEIGHT_ATTRIBUTE);
+    if (!/^(wood|spar)-hull$/.test(object.name)) {
+      for (let index = 0; index < position.count; index++) weight.setX(index, 0);
+    }
+    const canvas = object.name === "sail-hull";
+    const key = heroMaterialMergeKey(material, canvas, !!geometry.getAttribute("tangent"));
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { parts: [], source: material, canvas };
+      buckets.set(key, bucket);
+    }
+    bucket.parts.push(geometry);
+    mergedObjects.push(object);
   });
 
-  model.clear();
-  const build = (parts: BufferGeometry[], name: string, canvas: boolean): void => {
+  for (const object of mergedObjects) object.removeFromParent();
+  const build = (parts: BufferGeometry[], name: string, canvas: boolean, source: MeshStandardMaterial): void => {
     if (parts.length === 0) return;
-    const geometry = mergeGeometries(parts, false)!;
-    const material = new MeshStandardMaterial({
-      color: "#ffffff",
-      flatShading: !canvas,
-      roughness: canvas ? 0.8 : 1,
-      metalness: canvas ? 0 : 1,
-      side: DoubleSide,
-      vertexColors: true,
-    });
+    const geometry = mergeGeometries(parts, false);
+    for (const part of parts) part.dispose();
+    if (!geometry) throw new Error("garden-ships: incompatible hero material geometry");
+    const material = source.clone();
+    material.color.set("#ffffff");
+    material.flatShading = !canvas;
+    material.roughness = canvas ? source.roughness : 1;
+    material.metalness = canvas ? source.metalness : 1;
+    material.vertexColors = true;
+    // Source maps remain library-owned; cloned materials never dispose them.
+    if (canvas) material.userData.gardenSurfaceExemption = "cloth";
     if (!canvas) {
       const previousCompile = material.onBeforeCompile;
       material.onBeforeCompile = (shader, renderer) => {
@@ -1371,13 +1409,24 @@ function mergeGardenHeroStatics(visual: ShipVisual, model: Group): void {
         shader.fragmentShader = shader.fragmentShader
           .replace("#include <common>", "#include <common>\nvarying float vHeroGlow; varying vec2 vHeroSurface;")
           .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor *= vHeroSurface.x;")
-          .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor *= vHeroSurface.y;")
+          // The chunk declares metalnessFactor; restore the per-vertex base only
+          // afterwards, retaining its map sample without another texture fetch.
+          .replace("#include <metalnessmap_fragment>", `#include <metalnessmap_fragment>
+metalnessFactor = 1.0;
+metalnessFactor *= vHeroSurface.y;
+#ifdef USE_METALNESSMAP
+metalnessFactor *= texelMetalness.b;
+#endif`)
           .replace(
             "#include <emissivemap_fragment>",
             "#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.72, 0.35) * vHeroGlow * 1.4;",
           );
       };
-      material.customProgramCacheKey = () => "garden-hero-merged-solid-v2";
+      material.customProgramCacheKey = () => "garden-hero-merged-solid-v3";
+      applyGardenSurface(material, {
+        role: "timber", mapping: "uv", metresPerRepeat: 2.4,
+        detailStrength: 0.28, vertexWeights: true,
+      });
     }
     const mesh = new Mesh(geometry, material);
     mesh.name = name;
@@ -1385,8 +1434,27 @@ function mergeGardenHeroStatics(visual: ShipVisual, model: Group): void {
     mesh.receiveShadow = true;
     model.add(mesh);
   };
-  build(solidParts, "hero-merged-solid", false);
-  build(sailParts, "hero-merged-canvas", true);
+  let solidIndex = 0, canvasIndex = 0;
+  for (const { parts, source, canvas } of buckets.values()) {
+    const index = canvas ? canvasIndex++ : solidIndex++;
+    build(parts, `hero-merged-${canvas ? "canvas" : "solid"}${index === 0 ? "" : `-${index}`}`, canvas, source);
+  }
+}
+
+function heroMaterialMergeKey(material: MeshStandardMaterial, canvas: boolean, tangent: boolean): string {
+  const maps = [
+    material.map, material.normalMap, material.roughnessMap, material.metalnessMap,
+    material.aoMap, material.bumpMap, material.displacementMap, material.alphaMap,
+    material.emissiveMap, material.lightMap, material.envMap,
+  ].map((map) => map?.uuid ?? "").join(",");
+  return [
+    canvas, tangent, maps, material.side, material.transparent, material.opacity,
+    material.alphaTest, material.depthWrite, material.depthTest, material.blending,
+    material.normalMapType, material.normalScale.x, material.normalScale.y,
+    material.bumpScale, material.displacementScale, material.displacementBias,
+    material.aoMapIntensity, material.lightMapIntensity, material.envMapIntensity,
+    material.toneMapped, material.customProgramCacheKey(),
+  ].join("|");
 }
 
 /**
@@ -1753,6 +1821,8 @@ export interface FleetLanternFrame {
    * out), fractions shrink the lamp and fade the rig. Absent = every ship at 1.
    */
   presence?: (visual: ShipVisual) => number;
+  /** Fine standing rig has its own ≥48 CSS-pixel/inspection admission. */
+  rigPresence?: (visual: ShipVisual) => number;
   reducedMotion: boolean;
   selectedDetailId?: string | null;
   timeSeconds: number;
@@ -1825,7 +1895,8 @@ export function updateFleetLanterns(lanterns: FleetLanterns, frame: FleetLantern
     const entry = lanterns.entries[index]!;
     const visual = entry.visual;
     const presence = frame.presence ? frame.presence(visual) : 1;
-    if (!(presence > 0)) continue;
+    const rigPresence = frame.rigPresence ? frame.rigPresence(visual) : presence;
+    if (!(presence > 0) && !(rigPresence > 0)) continue;
     const root = visual.root;
     // Same rotation order as the batch's instance matrix (heading, pitch, heel).
     lanternRootEuler.set(root.rotation.x, root.rotation.y, root.rotation.z, "YXZ");
@@ -1846,35 +1917,37 @@ export function updateFleetLanterns(lanterns: FleetLanterns, frame: FleetLantern
       ? MathUtils.smoothstep(FLEET_RIG_POLE_WIDTH * pixelsPerLocal, 0.35, 0.8)
       : 1;
     const lampPresence = presence * Math.max(kindled, poleVisible);
+    if (lampPresence > 0) {
 
-    const swing = frame.reducedMotion
-      ? 0
-      : Math.sin(frame.timeSeconds * 0.9 + entry.swayPhase) * LANTERN_SWAY;
-    const lamp = visual.sternLantern;
-    fleetLocalToShip(visual, lamp.x + swing, lamp.y, lamp.z, lanternPosition)
-      .applyMatrix4(lanternRootMatrix);
-    const bodyScale = shipScale * lampPresence;
-    lanternScale.set(
-      LANTERN_BODY_WIDTH * bodyScale,
-      LANTERN_BODY_HEIGHT * bodyScale,
-      LANTERN_BODY_WIDTH * bodyScale,
-    );
-    lanternMatrix.compose(lanternPosition, lanternPlumb, lanternScale);
-    lanterns.cores.setMatrixAt(slot, lanternMatrix);
-    lanternScale.setScalar(LANTERN_GLOW_SIZE * lampPresence);
-    lanternMatrix.compose(lanternPosition, frame.cameraQuaternion, lanternScale);
-    lanterns.glow.setMatrixAt(slot, lanternMatrix);
+      const swing = frame.reducedMotion
+        ? 0
+        : Math.sin(frame.timeSeconds * 0.9 + entry.swayPhase) * LANTERN_SWAY;
+      const lamp = visual.sternLantern;
+      fleetLocalToShip(visual, lamp.x + swing, lamp.y, lamp.z, lanternPosition)
+        .applyMatrix4(lanternRootMatrix);
+      const bodyScale = shipScale * lampPresence;
+      lanternScale.set(
+        LANTERN_BODY_WIDTH * bodyScale,
+        LANTERN_BODY_HEIGHT * bodyScale,
+        LANTERN_BODY_WIDTH * bodyScale,
+      );
+      lanternMatrix.compose(lanternPosition, lanternPlumb, lanternScale);
+      lanterns.cores.setMatrixAt(slot, lanternMatrix);
+      lanternScale.setScalar(LANTERN_GLOW_SIZE * lampPresence);
+      lanternMatrix.compose(lanternPosition, frame.cameraQuaternion, lanternScale);
+      lanterns.glow.setMatrixAt(slot, lanternMatrix);
 
-    const warmth = shipLanternWarmth(lanterns.attention, visual.ship.detailId);
-    // Instance colour is the per-lantern emissive gain: no extra mesh or pass,
-    // and the same envelope warms both the kindled paper and painted halo.
-    lanternCoreWarmth.setRGB(1 + warmth * 0.62, 1 + warmth * 0.28, 1 + warmth * 0.06);
-    lanternGlowWarmth.setRGB(1 + warmth * 0.32, 1 + warmth * 0.16, 1 + warmth * 0.04);
-    lanterns.cores.setColorAt(slot, lanternCoreWarmth);
-    lanterns.glow.setColorAt(slot, lanternGlowWarmth);
-    if (lampPresence > 0) slot += 1;
+      const warmth = shipLanternWarmth(lanterns.attention, visual.ship.detailId);
+      // Instance colour is the per-lantern emissive gain: no extra mesh or pass,
+      // and the same envelope warms both the kindled paper and painted halo.
+      lanternCoreWarmth.setRGB(1 + warmth * 0.62, 1 + warmth * 0.28, 1 + warmth * 0.06);
+      lanternGlowWarmth.setRGB(1 + warmth * 0.32, 1 + warmth * 0.16, 1 + warmth * 0.04);
+      lanterns.cores.setColorAt(slot, lanternCoreWarmth);
+      lanterns.glow.setColorAt(slot, lanternGlowWarmth);
+      slot += 1;
+    }
 
-    if (!lines) continue;
+    if (!lines || !(rigPresence > 0)) continue;
     const count = lines.widths.length;
     if (segment + count > rigCapacity) continue;
     if (!(fleetRigAlpha(FLEET_RIG_POLE_WIDTH * pixelsPerLocal) > 0)) continue;
@@ -1894,7 +1967,7 @@ export function updateFleetLanterns(lanterns: FleetLanterns, frame: FleetLantern
         rigPositions[target + end * 3 + 1] = lanternPosition.y;
         rigPositions[target + end * 3 + 2] = lanternPosition.z;
       }
-      const alpha = fleetRigAlpha(lines.widths[line]! * pixelsPerLocal) * presence;
+      const alpha = fleetRigAlpha(lines.widths[line]! * pixelsPerLocal) * rigPresence;
       rigColors[(segment + line) * 8 + 3] = alpha;
       rigColors[(segment + line) * 8 + 7] = alpha;
     }
@@ -2031,34 +2104,17 @@ export function createFleetBatchGeometry(
   }[] = [];
   const transform = () => new Matrix4();
 
-  // Keel: dark underbody, slightly wider and squashed, sunk below the hull.
+  // One open shell, one catching rail and one recessed working deck.
+  // Waterline darkness is baked into the shell, not a duplicated full keel.
+  parts.push({ geometry: hullGeometry });
   parts.push({
-    geometry: hullGeometry,
-    tint: FLEET_BATCH_TINTS.keel,
-    transform: transform().makeScale(1.015, 0.82, 1.015).setPosition(0, -0.16, 0),
-  });
-  // Hull proper: untinted, so instanceColor delivers the livery unmodified.
-  parts.push({
-    geometry: hullGeometry,
-    transform: transform().setPosition(0, 0.05, 0),
-  });
-  // W1/D2: the gunwale ring IS the sheer strake — it already follows the sheer
-  // curve exactly and faces the camera, so it takes the issuer's paint while
-  // every other part takes the ship's timber.
-  //
-  // The inner deck plate below sits at 0.86 (was 0.79) so what is left proud of
-  // it is a RAIL, not a deck. At 0.79 the painted annulus covered most of the
-  // deck well and a small hull read as a plastic tray with a coloured tub in it.
-  parts.push({
-    geometry: createDeckGeometry(silhouette, 0.91, 0.34, "rim"),
+    geometry: createDeckGeometry(silhouette, "rim"),
     strake: true,
     tint: FLEET_BATCH_TINTS.gunwale,
-    transform: transform().setPosition(0, 0.47, 0),
   });
   parts.push({
-    geometry: createDeckGeometry(silhouette, 0.86, 0.3, "inner"),
+    geometry: createDeckGeometry(silhouette, "inner"),
     tint: FLEET_BATCH_TINTS.deck,
-    transform: transform().setPosition(0, 0.5, 0),
   });
 
   const mastGeometry = new CylinderGeometry(0.055, 0.08, 1, 6);
@@ -2099,7 +2155,7 @@ export function createFleetBatchGeometry(
 
   // W2.4: deck furniture. `DECK_Y` is the inner deck plate; props sit on it.
   const props = GARDEN_SHIP_DECK_PROPS[silhouette];
-  const DECK_Y = 0.52;
+  const DECK_Y = GARDEN_FLEET_HULL_FORMS[silhouette].deckY;
   for (const x of props.hatches ?? []) {
     parts.push({
       geometry: new BoxGeometry(0.44, 0.1, 0.4),
@@ -2258,19 +2314,6 @@ export function createFleetBatchGeometry(
  * material paints this in airlight inks (`garden-fleet-batch.ts`), so the
  * geometry carries only position, normal, uv, color and the cloth selector.
  */
-const FAR_HULL_OUTLINES: Record<GardenHullSilhouette, readonly (readonly [number, number])[]> = {
-  bezaisen: [[-3.4, -1], [-3.4, 1], [0, 1.28], [2.6, 0.84], [3.4, 0], [2.6, -0.84], [0, -1.28]],
-  kobaya: [[-4.28, -0.38], [-4.28, 0.38], [-0.8, 0.65], [3.45, 0.48], [5.32, 0], [3.45, -0.48], [-0.8, -0.65]],
-  twinhull: [[-4.5, 0], [-2.7, 0.44], [1.65, 0.46], [4.5, 0], [1.65, -0.46], [-2.7, -0.44]],
-  takasebune: [[-5.92, 0], [-4.2, 1.4], [4.3, 1.4], [5.95, 0], [4.3, -1.4], [-4.2, -1.4]],
-  junk: [[-3.12, -0.95], [-3.12, 0.95], [0.35, 1.3], [2.95, 0.72], [3.38, 0], [2.95, -0.72], [0.35, -1.3]],
-  scow: [[-2.58, 0], [-2.12, 1.55], [0.2, 2], [2.58, 0], [0.2, -2], [-2.12, -1.55]],
-};
-/** Rail height: a touch above the near hull's, so the sliver survives at a dozen pixels. */
-const FAR_HULL_RAIL_Y = 0.52;
-const FAR_HULL_KEEL_Y = -0.3;
-/** Keel half-beam as a share of the rail's: the V-section. */
-const FAR_HULL_KEEL_PINCH = 0.18;
 /** Every far sail's foot reaches down to the rail: no floating cloth. */
 const FAR_SAIL_FOOT_MAX_Y = 0.95;
 /** Square sails braced ~52° off the keel line. */
@@ -2298,8 +2341,8 @@ function farSailOutline(
       return [[0, top], [direction * width, foot + height * 0.11], [0, foot]];
     case "junk":
       return [
-        [0, top], [direction * width * 0.72, top - height * 0.16], [direction * width, foot + height * 0.5],
-        [direction * width * 0.86, foot + height * 0.125], [0, foot],
+        [0, top], [direction * width * 0.58, top - height * 0.16], [direction * width, foot + height * 0.42],
+        [direction * width * 0.94, foot + height * 0.125], [0, foot],
       ];
     case "fore-aft":
       // A lug: the yard peaks up away from the mast.
@@ -2311,11 +2354,11 @@ function farSailOutline(
 }
 
 function createFarFleetGeometry(silhouette: GardenHullSilhouette): BufferGeometry {
-  const outline = FAR_HULL_OUTLINES[silhouette];
+  const outline = GARDEN_FLEET_HULL_FORMS[silhouette].outline;
   const count = outline.length;
   const hullPositions: number[] = [];
-  const rail = outline.map(([x, z]) => [x, FAR_HULL_RAIL_Y, z] as const);
-  const keel = outline.map(([x, z]) => [x * 0.94, FAR_HULL_KEEL_Y, z * FAR_HULL_KEEL_PINCH] as const);
+  const rail = outline.map(([x, z]) => hullSectionPoint(silhouette, x, z, 1));
+  const keel = outline.map(([x, z]) => [x * 0.94, -0.5, z * 0.18] as const);
   for (let index = 0; index < count; index += 1) {
     const next = (index + 1) % count;
     hullPositions.push(...rail[index]!, ...keel[index]!, ...rail[next]!);
@@ -2328,8 +2371,7 @@ function createFarFleetGeometry(silhouette: GardenHullSilhouette): BufferGeometr
   }
   const demiHull = new BufferGeometry();
   demiHull.setAttribute("position", new Float32BufferAttribute(hullPositions, 3));
-  shapeHullVerticalForm(demiHull, silhouette);
-  const hulls = (silhouette === "twinhull" ? [-1.02, 1.02] : [0]).map((z) => demiHull.clone().translate(0, 0, z));
+  const hulls = (silhouette === "twinhull" ? [-GARDEN_FLEET_DEMI_HULL_Z, GARDEN_FLEET_DEMI_HULL_Z] : [0]).map((z) => demiHull.clone().translate(0, 0, z));
   demiHull.dispose();
 
   const rig = GARDEN_SHIP_RIGS[silhouette];
@@ -2564,7 +2606,7 @@ function mergeAtlasSails(
 function createHullGeometry(silhouette: GardenHullSilhouette): BufferGeometry {
   if (silhouette !== "twinhull") return createSingleHullGeometry(silhouette);
 
-  const demiHulls = [-1.02, 1.02].map((z) => {
+  const demiHulls = [-GARDEN_FLEET_DEMI_HULL_Z, GARDEN_FLEET_DEMI_HULL_Z].map((z) => {
     const geometry = createSingleHullGeometry(silhouette);
     geometry.translate(0, 0, z);
     return geometry;
@@ -2575,27 +2617,54 @@ function createHullGeometry(silhouette: GardenHullSilhouette): BufferGeometry {
   return merged;
 }
 
-function createSingleHullGeometry(silhouette: GardenHullSilhouette): ExtrudeGeometry {
-  const shape = createHullShape(silhouette, 1);
-  const geometry = new ExtrudeGeometry(shape, {
-    bevelEnabled: true,
-    bevelSegments: 1,
-    bevelSize: 0.13,
-    bevelThickness: 0.12,
-    depth: 0.72,
-    // W5.3: 4 vertical steps, not 1. `depth` becomes the vertical axis after
-    // the rotateX below, so this is the only source of vertices between keel
-    // and gunwale. At 1 step the sheer and tumblehome in shapeHullVerticalForm
-    // could only interpolate linearly across the bevel rings, and there was
-    // nowhere to hang planking. The cost is paid once per silhouette (four
-    // cached geometries), not per ship.
-    steps: 4,
-  });
-  geometry.rotateX(-Math.PI / 2);
-  geometry.translate(0, -0.5, 0);
-  shapeHullVerticalForm(geometry, silhouette);
+function createSingleHullGeometry(silhouette: GardenHullSilhouette): BufferGeometry {
+  const outline = GARDEN_FLEET_HULL_FORMS[silhouette].outline;
+  const positions: number[] = [];
+  for (let row = 0; row < 2; row++) for (let i = 0; i < outline.length; i++) {
+    const next = (i + 1) % outline.length;
+    const [x, z] = outline[i]!;
+    const [nx, nz] = outline[next]!;
+    const a = hullSectionPoint(silhouette, x, z, row / 2);
+    const b = hullSectionPoint(silhouette, x, z, (row + 1) / 2);
+    const c = hullSectionPoint(silhouette, nx, nz, row / 2);
+    const d = hullSectionPoint(silhouette, nx, nz, (row + 1) / 2);
+    positions.push(...b, ...a, ...d, ...d, ...a, ...c);
+  }
+  // No top cap: the lowered deck is the only surface inside the gunwale.
+  for (let i = 1; i < outline.length - 1; i++) {
+    for (const j of [0, i + 1, i]) {
+      const [x, z] = outline[j]!;
+      positions.push(...hullSectionPoint(silhouette, x, z, 0));
+    }
+  }
+  const geometry = hullBufferGeometry(positions);
   bakeHullVertexColors(geometry);
   return geometry;
+}
+
+function hullBufferGeometry(positions: number[]): BufferGeometry {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  const uv = new Float32Array(positions.length / 3 * 2);
+  for (let i = 0; i < positions.length / 3; i++) {
+    uv[i * 2] = positions[i * 3]!;
+    uv[i * 2 + 1] = positions[i * 3 + 2]!;
+  }
+  geometry.setAttribute("uv", new Float32BufferAttribute(uv, 2));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** Keel stays flat; the chine defines the waterline; only topsides lift. */
+function hullSectionPoint(silhouette: GardenHullSilhouette, x: number, z: number, t: number): readonly [number, number, number] {
+  const form = GARDEN_FLEET_HULL_FORMS[silhouette];
+  const ends = GARDEN_FLEET_HULL_ENDS[silhouette];
+  const bow = Math.max(0, x / ends.bow);
+  const stern = Math.max(0, -x / ends.stern);
+  const lift = form.bowLift * bow * bow + form.sternLift * stern * stern;
+  const beam = t === 0 ? 0.76 : t === 0.5 ? 1 : 0.94;
+  const y = t === 0 ? -0.5 : t === 0.5 ? -0.18 : GARDEN_FLEET_RAIL_Y + lift;
+  return [x + t * (form.bowRake * bow * bow - form.sternRake * stern * stern), y, z * beam];
 }
 
 /**
@@ -2604,12 +2673,8 @@ function createSingleHullGeometry(silhouette: GardenHullSilhouette): ExtrudeGeom
  * lifts through a neutral flank to a warm gunwale highlight; the very keel is
  * pinched darker for fake AO. Values multiply the per-ship livery color.
  *
- * W5.3 adds planking on top: `PLANK_STRAKES` horizontal bands across the
- * topsides, each seam pinched darker. This is what makes the batched fleet
- * read as built rather than extruded, and it costs nothing at runtime — the
- * banding rides the vertex color the hull already carried. It needs the
- * subdivided hull from `createHullGeometry`; at 1 extrude step there were not
- * enough vertical vertices to resolve a single plank.
+ * Shallow plank variation rides the existing vertex colour; the timber surface
+ * hook supplies metric grain after the fleet's deformation shader patches.
  */
 const PLANK_STRAKES = 7;
 
@@ -2646,213 +2711,53 @@ function bakeHullVertexColors(geometry: BufferGeometry): void {
   geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
 }
 
-/** Athwartships deck crown, in ship-local units at the rail. */
-const DECK_CAMBER = 0.07;
-
-/**
- * Deck/gunwale plate: adds a curved sheer (rises fore and aft, bow highest),
- * an athwartships camber, and a radial vertex-color AO (bright catching rail
- * edge, darker planked center).
- */
-function createDeckGeometry(
-  silhouette: GardenHullSilhouette,
-  scale: number,
-  sheer: number,
-  kind: "rim" | "inner",
-): BufferGeometry {
-  if (silhouette !== "twinhull") {
-    return createSingleDeckGeometry(silhouette, scale, sheer, kind);
+/** Thin top annulus and inboard wall, never a second solid deck plate. */
+function createDeckGeometry(silhouette: GardenHullSilhouette, kind: "rim" | "inner"): BufferGeometry {
+  const form = GARDEN_FLEET_HULL_FORMS[silhouette];
+  const outline = form.outline;
+  const positions: number[] = [];
+  const edge = (i: number, inner: boolean, floor: boolean): readonly [number, number, number] => {
+    const [x, z] = outline[i]!;
+    const [rx, ry, rz] = hullSectionPoint(silhouette, x, z, 1);
+    return [rx * (inner ? 0.96 : 1), floor ? form.deckY + (ry - GARDEN_FLEET_RAIL_Y) * 0.25 : ry,
+      rz * (inner ? 0.88 : 1)];
+  };
+  if (kind === "rim") {
+    for (let i = 0; i < outline.length; i++) {
+      const next = (i + 1) % outline.length;
+      const a = edge(i, false, false), b = edge(next, false, false);
+      const c = edge(i, true, false), d = edge(next, true, false);
+      const e = edge(i, true, true), f = edge(next, true, true);
+      positions.push(...a, ...b, ...c, ...b, ...d, ...c, ...c, ...d, ...e, ...d, ...f, ...e);
+    }
+  } else {
+    for (let i = 1; i < outline.length - 1; i++) positions.push(...edge(0, true, true), ...edge(i, true, true), ...edge(i + 1, true, true));
   }
-  const demiDecks = [-1.02, 1.02].map((z) => {
-    const geometry = createSingleDeckGeometry(silhouette, scale, sheer, kind);
-    geometry.translate(0, 0, z);
-    return geometry;
-  });
+  const geometry = hullBufferGeometry(positions);
+  const color = new Float32Array(positions.length);
+  for (let i = 0; i < positions.length / 3; i++) {
+    const value = kind === "rim" ? (positions[i * 3 + 1]! > form.deckY + 0.16 ? 1 : 0.62) : 0.7;
+    color[i * 3] = value; color[i * 3 + 1] = value * 0.96; color[i * 3 + 2] = value * 0.88;
+  }
+  geometry.setAttribute("color", new Float32BufferAttribute(color, 3));
+  if (silhouette !== "twinhull") return geometry;
+  const demiDecks = [-GARDEN_FLEET_DEMI_HULL_Z, GARDEN_FLEET_DEMI_HULL_Z].map((z) => geometry.clone().translate(0, 0, z));
+  geometry.dispose();
   const merged = mergeGeometries(demiDecks, false);
-  for (const geometry of demiDecks) geometry.dispose();
+  for (const deck of demiDecks) deck.dispose();
   if (!merged) throw new Error("garden-ships: twin-deck merge failed");
   return merged;
 }
 
-function createSingleDeckGeometry(
-  silhouette: GardenHullSilhouette,
-  scale: number,
-  sheer: number,
-  kind: "rim" | "inner",
-): ShapeGeometry {
-  const geometry = new ShapeGeometry(createHullShape(silhouette, scale));
-  geometry.rotateX(-Math.PI / 2);
-  const position = geometry.getAttribute("position");
-  geometry.computeBoundingBox();
-  const box = geometry.boundingBox!;
-  const maxX = Math.max(Math.abs(box.min.x), Math.abs(box.max.x), 0.001);
-  const maxZ = Math.max(Math.abs(box.min.z), Math.abs(box.max.z), 0.001);
-  const colors = new Float32Array(position.count * 3);
-  const edge = kind === "rim" ? new Color(1, 0.98, 0.92) : new Color(0.92, 0.88, 0.82);
-  const center = kind === "rim" ? new Color(0.82, 0.76, 0.66) : new Color(0.6, 0.55, 0.48);
-  const scratch = new Color();
-  for (let index = 0; index < position.count; index += 1) {
-    const nx = position.getX(index) / maxX;
-    const nz = position.getZ(index) / maxZ;
-    // Sheer: parabolic rise toward both ends, bow (+x) lifted a touch more.
-    // Camber (W5.3): the deck crowns athwartships so water runs to the rails.
-    // A ShapeGeometry only has outline vertices — there is no centreline row
-    // to raise — so the crown is expressed by dropping the rails instead,
-    // which produces the same silhouette from the isometric camera.
-    const camber = DECK_CAMBER * nz * nz;
-    position.setY(index, sheer * nx * nx * (nx > 0 ? 1.12 : 1) - camber);
-    const radial = Math.min(1, Math.hypot(nx, nz));
-    scratch.copy(center).lerp(edge, radial);
-    colors[index * 3] = scratch.r;
-    colors[index * 3 + 1] = scratch.g;
-    colors[index * 3 + 2] = scratch.b;
-  }
-  position.needsUpdate = true;
-  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
-  geometry.computeVertexNormals();
-  return geometry;
-}
-
 function createHullShape(silhouette: GardenHullSilhouette, scale: number): Shape {
-  // S1: 13–15-point plan outlines (was a 5-point polygon). The extra points
-  // buy a rounded/counter stern, a gentle beam curve, and a flared bow entry
-  // per family; the vertical form (sheer, tumblehome, rake) is displaced in
-  // createHullGeometry via GARDEN_HULL_FORM. Points run stern → starboard →
-  // bow → port, x along the keel (bow at +x), y = half-beam.
-  const points: Record<GardenHullSilhouette, ReadonlyArray<readonly [number, number]>> = {
-    // Bezaisen (W4.F6, fleet-craft-6): the long, low coastal trader. Half-beam
-    // 2.0 -> 1.28 (plan L/B 1.73 -> 2.65), a fine entry and a narrower transom,
-    // on the same 14 points (no triangle cost). The overall reach stays inside
-    // the 3.7 clearance table, so no berth moves; the stem post is a family
-    // part (`addFamilySilhouetteParts`).
-    bezaisen: [
-      [-3.25, -1], [-3.4, 0], [-3.25, 1],
-      [-1.8, 1.24], [0, 1.28], [1.6, 1.18], [2.6, 0.84], [3.12, 0.42], [3.4, 0],
-      [3.12, -0.42], [2.6, -0.84], [1.6, -1.18], [0, -1.28], [-1.8, -1.24],
-    ],
-    // Kobaya: intentionally needle-thin, with a long fine run into the stem.
-    kobaya: [
-      [-4.15, -0.38], [-4.28, -0.18], [-4.28, 0.18], [-4.15, 0.38],
-      [-2.7, 0.58], [-0.8, 0.65], [1.4, 0.62], [3.45, 0.48], [4.72, 0.24], [5.32, 0],
-      [4.72, -0.24], [3.45, -0.48], [1.4, -0.62], [-0.8, -0.65], [-2.7, -0.58],
-    ],
-    // Twin-hull: this is one narrow demi-hull; createHullGeometry places a
-    // mirrored pair far enough apart that the water slot remains unmistakable.
-    twinhull: [
-      [-4.35, -0.32], [-4.5, 0], [-4.35, 0.32], [-2.7, 0.44], [-0.6, 0.46],
-      [1.65, 0.43], [3.55, 0.3], [4.5, 0], [3.55, -0.3], [1.65, -0.43],
-      [-0.6, -0.46], [-2.7, -0.44],
-    ],
-    // Takasebune: an extremely long, parallel-sided river barge.
-    takasebune: [
-      [-5.78, -1.05], [-5.92, 0], [-5.78, 1.05], [-4.2, 1.35], [-1.5, 1.4],
-      [1.5, 1.4], [4.3, 1.3], [5.55, 0.9], [5.95, 0], [5.55, -0.9],
-      [4.3, -1.3], [1.5, -1.4], [-1.5, -1.4], [-4.2, -1.35],
-    ],
-    // Junk: short, bluff and transom-ended beneath its tall fan.
-    junk: [
-      [-3.02, -0.95], [-3.12, -0.48], [-3.12, 0], [-3.12, 0.48], [-3.02, 0.95],
-      [-1.5, 1.28], [0.35, 1.3], [1.85, 1.16], [2.95, 0.72], [3.38, 0],
-      [2.95, -0.72], [1.85, -1.16], [0.35, -1.3], [-1.5, -1.28],
-    ],
-    // Scow: round-ended, very beamy and visually deep.
-    scow: [
-      [-2.12, -1.55], [-2.48, -1], [-2.58, 0], [-2.48, 1], [-2.12, 1.55],
-      [-1.1, 1.92], [0.2, 2], [1.4, 1.88], [2.3, 1.42], [2.58, 0],
-      [2.3, -1.42], [1.4, -1.88], [0.2, -2], [-1.1, -1.92],
-    ],
-  };
   const shape = new Shape();
-  const [first, ...rest] = points[silhouette];
+  const [first, ...rest] = GARDEN_FLEET_HULL_FORMS[silhouette].outline;
   shape.moveTo(first![0] * scale, first![1] * scale);
   for (const [x, y] of rest) shape.lineTo(x * scale, y * scale);
   shape.closePath();
   return shape;
 }
 
-// S1 vertical form per family: sheer is the deck-line rise toward the ends
-// (bow lifts more than the stern), tumblehome narrows the deck versus the
-// waterline, bowFlare widens the bow topsides, bowRake leans the stem forward.
-const GARDEN_HULL_FORM: Record<
-  GardenHullSilhouette,
-  {
-    bowFlare: number;
-    bowRake: number;
-    sheerBow: number;
-    sheerStern: number;
-    sternRake: number;
-    tumblehome: number;
-  }
-> = {
-  // sternRake (W5.3) leans the sternpost aft as the topsides rise, the mirror
-  // of bowRake. Without it every hull ended in a vertical transom regardless of
-  // family; the kobaya needs a slight overhang, while the junk's near-vertical
-  // transom is a deliberate contrast rather than the
-  // only option available.
-  // W4.F6: the bow sweeps up into the stem post (sheerBow 0.18 -> 0.42) and the
-  // stern rises under the yagura (0.38 -> 0.44); bowRake stays low so the stem
-  // head keeps inside the 3.7 reach.
-  bezaisen: {
-    bowFlare: 0.06, bowRake: 0.06, sheerBow: 0.42, sheerStern: 0.44, sternRake: 0.04, tumblehome: 0.08,
-  },
-  kobaya: {
-    bowFlare: 0.08, bowRake: 0.32, sheerBow: 0.16, sheerStern: 0.08, sternRake: 0.14, tumblehome: 0.08,
-  },
-  twinhull: {
-    bowFlare: 0.05, bowRake: 0.18, sheerBow: 0.14, sheerStern: 0.08, sternRake: 0.12, tumblehome: 0.05,
-  },
-  takasebune: {
-    bowFlare: 0.02, bowRake: 0.03, sheerBow: 0.07, sheerStern: 0.05, sternRake: 0.02, tumblehome: 0.02,
-  },
-  junk: {
-    bowFlare: 0.05, bowRake: 0.06, sheerBow: 0.18, sheerStern: 0.26, sternRake: 0.05, tumblehome: 0.06,
-  },
-  scow: {
-    bowFlare: 0.1, bowRake: 0.02, sheerBow: 0.08, sheerStern: 0.1, sternRake: 0.02, tumblehome: -0.12,
-  },
-};
-
-/**
- * Displaces the extruded hull into the family's vertical form (S1): a curved
- * sheer (ends rise, bow most), slight tumblehome, and a flared/raked bow.
- * Runs on the cached geometry before the vertex-color bake so the waterline
- * AO follows the displaced hull. Flat shading derives normals in-shader, so
- * no normal recompute is needed.
- */
-function shapeHullVerticalForm(
-  geometry: BufferGeometry,
-  silhouette: GardenHullSilhouette,
-): void {
-  const form = GARDEN_HULL_FORM[silhouette];
-  const position = geometry.getAttribute("position");
-  geometry.computeBoundingBox();
-  const box = geometry.boundingBox!;
-  const minY = box.min.y;
-  const spanY = Math.max(0.001, box.max.y - box.min.y);
-  const bowX = Math.max(0.001, box.max.x);
-  const sternX = Math.max(0.001, Math.abs(box.min.x));
-  for (let index = 0; index < position.count; index += 1) {
-    const x = position.getX(index);
-    // t: 0 at the keel, 1 at the deck edge.
-    const t = MathUtils.clamp((position.getY(index) - minY) / spanY, 0, 1);
-    // Sheer: parabolic rise toward both ends, bow higher than the stern.
-    const bowT = Math.max(0, x / bowX);
-    const sternT = Math.max(0, -x / sternX);
-    const y = position.getY(index)
-      + form.sheerBow * bowT * bowT
-      + form.sheerStern * sternT * sternT;
-    // Tumblehome: topsides lean inboard as they rise.
-    let z = position.getZ(index) * (1 - form.tumblehome * t);
-    // Bow flare + rake: topsides near the stem widen and lean forward.
-    const stemT = MathUtils.smoothstep(bowT, 0.35, 1);
-    z *= 1 + form.bowFlare * t * stemT;
-    // Stern rake: the counter overhangs aft as the topsides rise.
-    const postT = MathUtils.smoothstep(sternT, 0.35, 1);
-    const rakedX = x + form.bowRake * t * stemT - form.sternRake * t * postT;
-    position.setXYZ(index, rakedX, y, z);
-  }
-  position.needsUpdate = true;
-}
 
 /**
  * Sail cloth tessellation. Every baked vertex-color band (2026-09-07 T1.9) has
@@ -2922,9 +2827,9 @@ function createSailClothGeometry(plan: GardenSailPlan): BufferGeometry {
     ? [[halfHeight, 0], [-halfHeight * 0.78, direction * plan.width], [-halfHeight, 0]]
     : [
       [halfHeight, 0],
-      [halfHeight * 0.68, direction * plan.width * 0.72],
-      [0, direction * plan.width],
-      [-halfHeight * 0.75, direction * plan.width * 0.86],
+      [halfHeight * 0.68, direction * plan.width * 0.58],
+      [-halfHeight * 0.16, direction * plan.width],
+      [-halfHeight * 0.75, direction * plan.width * 0.94],
       [-halfHeight, 0],
     ];
   const edgeXAt = (y: number): number => {
@@ -3250,4 +3155,20 @@ export function createShipShadows(count: number): InstancedMesh<CircleGeometry, 
   );
   shadows.renderOrder = 1;
   return shadows;
+}
+
+/** Macro deck structures share the recessed deck draw in procedural fallbacks. */
+function createFamilyDeckGeometry(silhouette: GardenHullSilhouette): BufferGeometry {
+  const parts: ShipPart[] = [{ geometry: createDeckGeometry(silhouette, "inner"), tint: FLEET_BATCH_TINTS.deck }];
+  addFamilySilhouetteParts(parts, silhouette);
+  if (silhouette === "kobaya") for (const x of GARDEN_SHIP_DECK_PROPS.kobaya.hatches ?? []) {
+    parts.push({
+      geometry: new BoxGeometry(0.44, 0.1, 0.4),
+      tint: FLEET_BATCH_TINTS.mast,
+      transform: new Matrix4().setPosition(x, GARDEN_FLEET_HULL_FORMS.kobaya.deckY + 0.05, 0),
+    });
+  }
+  const geometry = mergeTintedParts(parts);
+  for (const part of parts) part.geometry.dispose();
+  return geometry;
 }

@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest";
 import { seasonalPhenology } from "../systems/garden-calendar";
 import { hexToOklch } from "../systems/palette";
 import type { PharosVilleWorld } from "../systems/world-types";
-import { createSpeciesBatch, createSpeciesGeometry, deciduousLeafColor, GARDEN_LETS_GO_PAD_BAND, patchGardenFloraNight, setGardenFloraNightValue } from "./garden-flora";
+import { gardenGustAtWorldPosition, GARDEN_GUST_ATTACK_SECONDS, GARDEN_GUST_WORLD_SPEED, type WeatherPlan } from "../systems/weather";
+import { createSpeciesBatch, createSpeciesGeometry, deciduousLeafColor, GARDEN_LETS_GO_PAD_BAND, patchGardenFloraNight, patchGardenRootedWindSway, setGardenFloraNightValue, updateGardenRootedWindSway } from "./garden-flora";
 import { createGardenIslets } from "./garden-islets";
 import { createTerracedIsland } from "./garden-island";
 import { createGardenRimMesh } from "./garden-rim-mesh";
+import { applyGardenSurface } from "./garden-surfaces";
+import { applyGardenPrintInksToTree } from "./garden-print-inks";
 
 const NORTH = { latitudeRad: (35 * Math.PI) / 180, southern: false };
 const world = { lighthouse: { tile: { x: 40, y: 40 }, detailId: "lighthouse" } } as unknown as PharosVilleWorld;
@@ -39,6 +42,22 @@ function compileFloraNight(material: MeshStandardMaterial) {
 }
 
 describe("local garden night floors", () => {
+  it("retains foliage, snow and wind patches when architecture preparation encounters planting", () => {
+    const mesh = createSpeciesBatch("pine", [], { date: new Date("2026-01-05T12:00:00Z") });
+    const material = mesh.material;
+    const key = material.customProgramCacheKey();
+    applyGardenSurface(material, { role: "gravel", mapping: "worldXZ", metresPerRepeat: 1, detailStrength: 1 });
+    expect(material.userData.gardenSurfaceExemption).toBe("foliage");
+    expect(material.userData.gardenSurface).toBeUndefined();
+    expect(material.customProgramCacheKey()).toBe(key);
+    applyGardenPrintInksToTree(mesh);
+    const shader = compileFloraNight(material);
+    expect(shader.uniforms).toHaveProperty("uGardenSnow");
+    expect(shader.uniforms).toHaveProperty("uGardenWindDirection");
+    expect(shader.fragmentShader).not.toContain("gardenSampleSurface");
+    expect(material.customProgramCacheKey()).toContain("garden-print-inks");
+    mesh.geometry.dispose(); material.dispose(); mesh.dispose();
+  });
   it("preserves the default program identity through night and dawn", () => {
     const material = new MeshStandardMaterial();
     const originalKey = material.customProgramCacheKey();
@@ -240,5 +259,74 @@ describe("garden species", () => {
     // pays for the niwaki grammar everywhere.
     expect(rim.triangleCount + islets.triangleCount + niwaki).toBeLessThanOrEqual(141_394);
     rim.dispose(); islets.dispose();
+  });
+});
+
+describe("rooted living foliage", () => {
+  const weather: WeatherPlan = { wind: { x: 1, y: 0, speed: 1, gust: 1 }, breath: 0.5, stormLevel: 0, lightning: 0 };
+
+  it("selects the baked root and ordered trunk/branch/tip flex while retaining the night shader", () => {
+    const material = new MeshStandardMaterial();
+    patchGardenFloraNight(material, { nightFloor: 0.2 });
+    patchGardenRootedWindSway(material);
+    const shader = compileFloraNight(material);
+    expect(shader.uniforms).toHaveProperty("uNightValue");
+    expect(shader.vertexShader).toContain("attribute vec3 aGardenFlex;");
+    expect(shader.vertexShader).toContain("step(0.5, aGardenRootIndex)");
+    expect(shader.vertexShader).toContain("dot(clamp(aGardenFlex, 0.0, 1.0), vec3(0.2, 0.45, 0.35))");
+    expect(shader.vertexShader).not.toContain("aGardenSway");
+    expect(shader.vertexShader).not.toContain("position.y /");
+    expect(shader.vertexShader).not.toContain("sin(");
+    expect(material.customProgramCacheKey()).toContain("garden-rooted-wind-sway-v1");
+    material.dispose();
+  });
+
+  it("carries the same front downwind through two root uniforms and increasing flex, not a global gust", () => {
+    const material = new MeshStandardMaterial();
+    patchGardenRootedWindSway(material);
+    const shader = compileFloraNight(material);
+    const atRoot = GARDEN_GUST_ATTACK_SECONDS;
+    const downwindX = GARDEN_GUST_WORLD_SPEED * 6;
+    const gust0 = gardenGustAtWorldPosition(atRoot, 0, 0, weather);
+    const gust1 = gardenGustAtWorldPosition(atRoot, downwindX, 0, weather);
+    updateGardenRootedWindSway(material, weather, false, gust0, gust1);
+    expect(shader.uniforms.uGardenRootGust0!.value).toBe(gust0);
+    expect(shader.uniforms.uGardenRootGust1!.value).toBe(gust1);
+    expect(gust0).toBeGreaterThan(gust1);
+    expect(shader.uniforms.uGardenWindDirection!.value).toEqual({ x: 1, y: 0 });
+    const strength = Number(shader.uniforms.uGardenWindStrength!.value);
+    const responses = [0, 0.2, 0.2 + 0.45, 1].map((flex) => strength * (1 + gust0 * 1.4) * flex * 0.34);
+    expect(responses[0]).toBe(0);
+    expect(responses[1]).toBeGreaterThan(responses[0]!);
+    expect(responses[2]).toBeGreaterThan(responses[1]!);
+    expect(responses[3]).toBeGreaterThan(responses[2]!);
+    const later = atRoot + 6;
+    updateGardenRootedWindSway(material, weather, false,
+      gardenGustAtWorldPosition(later, 0, 0, weather),
+      gardenGustAtWorldPosition(later, downwindX, 0, weather));
+    expect(shader.uniforms.uGardenRootGust1!.value).toBeCloseTo(gust0, 8);
+    expect(shader.uniforms.uGardenRootGust1!.value).toBeGreaterThan(shader.uniforms.uGardenRootGust0!.value);
+    // Changing the origin-level gust cannot bypass either supplied root sample.
+    const heldStrength = shader.uniforms.uGardenWindStrength!.value;
+    updateGardenRootedWindSway(material, { ...weather, wind: { ...weather.wind, gust: 0 } }, false, gust0, gust1);
+    expect(shader.uniforms.uGardenWindStrength!.value).toBe(heldStrength);
+    material.dispose();
+  });
+
+  it("fixes the complete reduced pose and rejects non-finite scalar gusts without recompiling", () => {
+    const material = new MeshStandardMaterial();
+    patchGardenRootedWindSway(material);
+    const shader = compileFloraNight(material);
+    const version = material.version;
+    updateGardenRootedWindSway(material, weather, false, Number.NaN, Number.POSITIVE_INFINITY);
+    expect(shader.uniforms.uGardenRootGust0!.value).toBe(0);
+    expect(shader.uniforms.uGardenRootGust1!.value).toBe(0);
+    updateGardenRootedWindSway(material, weather, false, 1, 0.5);
+    updateGardenRootedWindSway(material, weather, true, 1, 0.5);
+    expect(shader.uniforms.uGardenWindStrength!.value).toBe(0);
+    expect(shader.uniforms.uGardenRootGust0!.value).toBe(0);
+    expect(shader.uniforms.uGardenRootGust1!.value).toBe(0);
+    expect(material.version).toBe(version);
+    material.dispose();
   });
 });

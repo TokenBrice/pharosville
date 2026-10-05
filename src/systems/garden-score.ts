@@ -124,6 +124,8 @@ const SKEIN_DAY_SHARE = 0.35;
 const FISH_RING_SLOT_SECONDS = 1_200;
 const FISH_RING_MIN_GAP_SECONDS = 900;
 const FISH_RING_SHARE = 0.5;
+/** Natural rings admit on [start, start + 1 s); missed or busy offers never queue. */
+const FISH_RING_ADMISSION_WINDOW_SECONDS = 1;
 const FISH_RING_HOLD_SECONDS = 8;
 const FISH_RING_NOON_CALM_HOURS = 2;
 /** Kinds that are their own §5.0 generator rather than one of the day's ≤ 6 gifts. */
@@ -441,19 +443,21 @@ export function gardenDayScore(input: GardenDayScoreInput): GardenScoreEntry[] {
 function placeFishRings(seed: string, day: GardenSkyDay, score: GardenScoreEntry[]): void {
   if (!Number.isFinite(day.sunriseHour) || !Number.isFinite(day.sunsetHour)) return;
   const from = (day.sunriseHour + 0.5) * HOUR_SECONDS;
-  const to = (day.sunsetHour - 10 / 60) * HOUR_SECONDS - FISH_RING_HOLD_SECONDS;
+  const spanSeconds = FISH_RING_ADMISSION_WINDOW_SECONDS + FISH_RING_HOLD_SECONDS;
+  const to = (day.sunsetHour - 10 / 60) * HOUR_SECONDS - spanSeconds;
   const calmFrom = (day.solarNoonHour - FISH_RING_NOON_CALM_HOURS) * HOUR_SECONDS;
   const calmTo = (day.solarNoonHour + FISH_RING_NOON_CALM_HOURS) * HOUR_SECONDS;
   for (let slot = 0; from + slot * FISH_RING_SLOT_SECONDS < to; slot += 1) {
     const key = `${seed}:score:fish-rings:${slot}`;
     if (stableUnit(`${key}:offer`) >= FISH_RING_SHARE) continue;
     const startSec = Math.round(from + slot * FISH_RING_SLOT_SECONDS + stableUnit(key) * 300);
-    if (startSec > to || (startSec + FISH_RING_HOLD_SECONDS > calmFrom && startSec < calmTo)) continue;
+    const endSec = startSec + spanSeconds;
+    if (startSec > to || (endSec > calmFrom && startSec < calmTo)) continue;
     const entry: GardenScoreEntry = {
       id: `fish-rings:${seed}:${slot}`,
       kind: "fish-rings",
       startSec,
-      windowSec: 0,
+      windowSec: FISH_RING_ADMISSION_WINDOW_SECONDS,
       holdSec: FISH_RING_HOLD_SECONDS,
       foreground: false,
     };
@@ -461,7 +465,7 @@ function placeFishRings(seed: string, day: GardenSkyDay, score: GardenScoreEntry
     const at = score.findIndex((other) => other.startSec > startSec);
     const index = at < 0 ? score.length : at;
     score.splice(index, 0, entry);
-    const lastWindow = Math.min(DAY_SECONDS - HOUR_SECONDS, startSec + FISH_RING_HOLD_SECONDS);
+    const lastWindow = Math.min(DAY_SECONDS - HOUR_SECONDS, endSec);
     if (firstQuietBreach(score, Math.max(0, startSec - HOUR_SECONDS), lastWindow) !== null) score.splice(index, 1);
   }
 }
@@ -654,7 +658,10 @@ export function tickGardenScore(input: GardenScoreTickInput): void {
   let next: GardenScoreEntry | null = null;
   for (const entry of driver.score) {
     if (entry.kind === "crossing" || entry.companionOf !== undefined || driver.played.has(entry.id)) continue;
-    if (clockSec >= entry.startSec + entry.windowSec) continue;
+    if (clockSec >= entry.startSec + entry.windowSec) {
+      if (entry.kind === "fish-rings") driver.played.add(entry.id);
+      continue;
+    }
     // Nothing would draw it, so nothing is logged: a kind plays only once its
     // owner has registered (the moonrise alone is drawn continuously by the sky).
     if (entry.kind !== "moonrise" && !gardenRitualHandler(entry.kind)) continue;
@@ -671,6 +678,8 @@ export function tickGardenScore(input: GardenScoreTickInput): void {
         priority: 30,
         subject: entry.id,
       }, t);
+      // A ring is a passing offer, not a retry when the frame becomes quiet.
+      if (entry.kind === "fish-rings") driver.played.add(entry.id);
       if (beat) {
         driver.played.add(entry.id);
         beginRitual(entry.id, entry.kind, t, false);

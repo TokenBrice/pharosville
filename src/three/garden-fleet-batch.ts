@@ -13,6 +13,7 @@ import {
   Quaternion,
   Vector3,
   type BufferGeometry,
+  type Material,
   type Texture,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -31,6 +32,8 @@ import { DAY_CYCLE_LIGHT_PRESETS, dayCycleBeats } from "./garden-day-cycle";
 import { gardenSunPose } from "./garden-sun";
 import type { GardenShipGeometryCache } from "./garden-util";
 import { cachedShipGeometry } from "./garden-util";
+import { applyGardenSurface, normalizeGardenSurfaceGeometry, GARDEN_SURFACE_ROLE_ATTRIBUTE, GARDEN_SURFACE_WEIGHT_ATTRIBUTE } from "./garden-surfaces";
+import type { GardenSurfaceAtlasLease, GardenSurfaceAtlasOwner } from "./garden-surface-atlas";
 
 /**
  * W1 (Grand Scale Revamp, decision D2): the fleet is drawn as a small fixed
@@ -110,6 +113,7 @@ export interface FleetBatches {
   materials: MeshStandardMaterial[];
   pennant: FleetBatchPart;
   root: Group;
+  surfaceLease?: GardenSurfaceAtlasLease;
 }
 
 const scratchMatrix = new Matrix4();
@@ -302,8 +306,8 @@ export function gardenFleetSailRestraint(input: {
 
 /**
  * Distance presence is eased per instance before reaching either cue. The
- * hero band (leaders, the nearest boats and any attended ship) keeps the full
- * mark at every distance; `hero` is the band's eased weight (0..1), so a ship
+ * foreground cast (three supply leaders and any attended ship) keeps the full
+ * mark; `hero` is that cast's eased weight (0..1), so a ship
  * joining or leaving it grows or loses its mark over the LOD fade.
  */
 export function gardenFleetMarkPresence(distancePresence: number, hero = 0): number {
@@ -314,29 +318,11 @@ export function gardenFleetMarkPresence(distancePresence: number, hero = 0): num
 /** W4.F3: the middle ground keeps the hull and a quiet mark. */
 const MARK_MIN_PRESENCE = 0.3;
 const DISTANCE_HYSTERESIS_SECONDS = 0.35;
-/**
- * Eye-space distance in scene units; the dead band is 0.5 units wide. At the
- * rest shot the island sits ~120 u from the eye, so 150 keeps every hull in
- * the inlet and the mid-ground clusters rigged (they are 30-60 px there) and
- * swaps only the far-shore fleet, where a hull is a dozen pixels.
- */
-export const FLEET_HULL_LOD_DISTANCE = 150;
-const FLEET_HULL_LOD_HALF_HYSTERESIS = 0.25;
-
-/**
- * W4.F3 / K32: the hero band — the ships that keep full rig, mon and issuer
- * hue at every beat and distance. It is the leaders (titan and heritage tiers,
- * named by the caller), any hovered or selected ship, and the nearest boats by
- * eye distance. Rank hysteresis keeps a ship drifting across the boundary from
- * flickering: it joins inside the nearest 16 and leaves only past the 20th.
- * Everyone else past `FLEET_HULL_LOD_DISTANCE` is an ink silhouette.
- *
- * The band's eased weight and the LOD dissolve ride the existing
- * `aSailAttention.y` (the sail program is at its 16-attribute cap), see
- * `gardenFleetPackSailDistance`.
- */
-export const FLEET_HERO_BAND_NEAREST = 16;
-const FLEET_HERO_BAND_RANK_HYSTERESIS = 4;
+/** Identity-sail CSS height, independent of DPR, world distance and rank. */
+export const FLEET_FULL_ADMIT_CSS_PX = 28;
+export const FLEET_FULL_DEPART_CSS_PX = 22;
+export const FLEET_FINE_RIG_CSS_PX = 48;
+export const FLEET_FOREGROUND_LEADERS = 3;
 /**
  * W5 polish: a ship crossing the ink ↔ full-model boundary (or joining and
  * leaving the hero band) dissolves over this long instead of popping. While
@@ -391,6 +377,22 @@ const FLEET_LOD_DITHER = `
     if (fleetDither < vFleetHidden) discard;
   }`;
 
+/** Bespoke heroes use the same complementary screen-door as the family batch. */
+export function patchFleetHeroDissolve(material: Material, hidden: { value: number }): void {
+  if (material.userData.gardenFleetDissolve) return;
+  material.userData.gardenFleetDissolve = true;
+  const compile = material.onBeforeCompile;
+  const key = material.customProgramCacheKey.bind(material);
+  material.onBeforeCompile = (shader, renderer) => {
+    compile(shader, renderer);
+    shader.uniforms.vFleetHidden = hidden;
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float vFleetHidden;")
+      .replace("#include <opaque_fragment>", `${FLEET_LOD_DITHER}\n#include <opaque_fragment>`);
+  };
+  material.customProgramCacheKey = () => `${key()}|fleet-hero-dissolve-v1`;
+}
+
 /**
  * Contract F-A (FleetMotion → FleetCloth): the square-sail brace and the luff
  * reach the sail program with no new attribute (16/16).
@@ -417,17 +419,18 @@ export function gardenFleetUnpackSailCell(packed: number): { braceRad: number; c
 }
 
 /**
- * The luff (0..1, 1/31 steps) rides the integer part of `aSailAttention.x`
- * and the eased attention its fraction: `luffStep + attention·0.99`.
+ * Luff (0..1, 1/31 steps) and rest share the integer part of `aSailAttention.x`;
+ * attention keeps its fraction: `luffStep + 32·resting + attention·0.99`.
  */
-export function gardenFleetPackSailAttention(attention: number, luff: number): number {
-  return Math.round(MathUtils.clamp(luff, 0, 1) * 31) + MathUtils.clamp(attention, 0, 1) * 0.99;
+export function gardenFleetPackSailAttention(attention: number, luff: number, resting = false): number {
+  return Math.round(MathUtils.clamp(luff, 0, 1) * 31) + (resting ? 32 : 0)
+    + MathUtils.clamp(attention, 0, 1) * 0.99;
 }
 
 /** GLSL mirror of `gardenFleetPackSailAttention`. */
-export function gardenFleetUnpackSailAttention(packed: number): { attention: number; luff: number } {
+export function gardenFleetUnpackSailAttention(packed: number): { attention: number; luff: number; resting: boolean } {
   const step = Math.floor(packed);
-  return { attention: Math.min(1, (packed - step) / 0.99), luff: step / 31 };
+  return { attention: Math.min(1, (packed - step) / 0.99), luff: (step % 32) / 31, resting: step >= 32 };
 }
 
 /** A sail at rest is slack, not taut: contract F-A's rest luff. */
@@ -734,14 +737,12 @@ function applySurfaceMasks(
 const MERGED_ATTRIBUTES = new Set([
   "position", "normal", "uv", "color", "aStrakeMask", "aVariationPivot",
   "aPartMasks",
+  GARDEN_SURFACE_ROLE_ATTRIBUTE, GARDEN_SURFACE_WEIGHT_ATTRIBUTE,
 ]);
 
 function normalizeAttributes(geometry: BufferGeometry): void {
-  if (!geometry.getAttribute("normal")) geometry.computeVertexNormals();
+  normalizeGardenSurfaceGeometry(geometry, "timber");
   const position = geometry.getAttribute("position");
-  if (!geometry.getAttribute("uv")) {
-    geometry.setAttribute("uv", new Float32BufferAttribute(new Float32Array(position.count * 2), 2));
-  }
   if (!geometry.getAttribute("aStrakeMask")) {
     geometry.setAttribute("aStrakeMask", new Float32BufferAttribute(new Float32Array(position.count), 1));
   }
@@ -841,7 +842,8 @@ const SAIL_BRACE_NORMAL = `
   float gSailSquare = step(0.01, color.b);
   float gSailBrace = ((fract(aAtlasCell) - 0.001) / 0.998 - 0.5)
     * ${(2 * FLEET_SAIL_BRACE_LIMIT).toFixed(1)} * gSailSquare;
-  float gSailLuff = floor(aSailAttention.x) / 31.0;
+  float gSailLuff = mod(floor(aSailAttention.x), 32.0) / 31.0;
+  float gSailRest = step(32.0, floor(aSailAttention.x));
   float gSailBraceCos = cos(gSailBrace);
   float gSailBraceSin = sin(gSailBrace);
   objectNormal.xz = vec2(
@@ -852,23 +854,13 @@ const SAIL_BRACE_NORMAL = `
 /**
  * Sail-local motion, then the brace.
  *
- * W8.3 (headroom-5): the belly breathes on the GPU with no per-frame JS —
- * `sin(πu)·sin(πv)·(0.12 + 0.05·gust)` along the cloth's belly axis (forward
- * for square sails, athwartships for the fore-and-aft rigs), phased per ship
- * by the gust front and a hash of its position. A luffing sail (F-A `luff`)
- * slackens and, past 0.35, shivers along its cloth. Spars (vertex green 0)
- * ride the brace and the dip but never billow. Reduced motion pins
- * `uWindTime` at 0, which leaves one static belly.
+ * Underway belly and flutter retain the apparent-wind pose. Rest keeps the
+ * identity cloth set, but cuts dynamic fill to 20%, flutter to 8% and hangs
+ * the free foot in a downward catenary (at most 0.336 local units).
+ * Spars never sag. Reduced motion pins `uWindTime` at 0 for one complete pose.
  */
-const SAIL_LOCAL_DEFORM = `
-{
-  float sailScale = 1.0 - fract(aSailFurl) / 0.99;
-  transformed.y = aSailHead.y - (aSailHead.y - transformed.y) * sailScale;
-  float furlBits = floor(floor(aSailFurl) / exp2(aSailIndex));
-  float furled = furlBits - 2.0 * floor(furlBits * 0.5);
-  float setSail = 1.0 - furled;
-  float sailDrop = clamp(aSailHead.y - transformed.y, 0.0, 1.2);
-  float gustDelay = dot(instanceMatrix[3].xz, uWindDir) / ${GARDEN_GUST_WORLD_SPEED.toFixed(1)};
+const SAIL_CLOTH_DEFORM = `
+  float gustDelay = dot(fleetPosition, uWindDir) / ${GARDEN_GUST_WORLD_SPEED.toFixed(1)};
   float gustClock = max(0.0, uWindTime - gustDelay);
   float gustPhase = mod(gustClock, ${GARDEN_GUST_CYCLE_SECONDS.toFixed(1)});
   float gustEnvelope = 0.0;
@@ -887,19 +879,35 @@ const SAIL_LOCAL_DEFORM = `
   );
   vec3 bellyAxis = vec3(gSailSquare, 0.0, 1.0 - gSailSquare);
   float clothOnly = color.g;
-  float bellyPhase = fract(sin(dot(instanceMatrix[3].xz, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+  float bellyPhase = fract(sin(dot(fleetPosition, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
   float bellyShape = sin(3.14159265 * uv.x) * sin(3.14159265 * uv.y) * clothOnly;
   float bellyFill = (0.12 + 0.05 * gustEnvelope) * (1.0 - 0.5 * gSailLuff)
     * (0.9 + 0.1 * sin(uWindTime * 0.5 + bellyPhase));
   float luffFlutter = sin(uWindTime * 6.5 + uv.x * 8.0 + uv.y * 3.0 + bellyPhase)
     * smoothstep(0.35, 1.0, gSailLuff) * 0.06 * sin(3.14159265 * uv.y) * clothOnly;
-  float flutterPhase = uWindTime * (1.2 + localFlutter * 1.6) + aSailIndex * 1.7 + bellyPhase;
+  float flutterPhase = uWindTime * (1.2 + localFlutter * 1.6) + sailIndex * 1.7 + bellyPhase;
   float ripple = sin(flutterPhase)
     * sailDrop
     * (0.012 + localFlutter * 0.045)
     * (0.92 + uWindBreath * 0.16)
     * clothOnly;
-  transformed += bellyAxis * (bellyShape * bellyFill + luffFlutter + ripple) * setSail;
+  float restFill = mix(1.0, 0.2, gSailRest);
+  float restFlutter = mix(1.0, 0.08, gSailRest);
+  transformed += bellyAxis * (bellyShape * bellyFill * restFill + (luffFlutter + ripple) * restFlutter) * setSail;
+  float sagShape = sin(3.14159265 * clamp(uv.x, 0.0, 1.0)) * pow(1.0 - clamp(uv.y, 0.0, 1.0), 2.0);
+  transformed.y -= sagShape * sailDrop * 0.28 * clothOnly * gSailRest * setSail;`;
+
+const SAIL_LOCAL_DEFORM = `
+{
+  float sailScale = 1.0 - fract(aSailFurl) / 0.99;
+  transformed.y = aSailHead.y - (aSailHead.y - transformed.y) * sailScale;
+  float furlBits = floor(floor(aSailFurl) / exp2(aSailIndex));
+  float furled = furlBits - 2.0 * floor(furlBits * 0.5);
+  float setSail = 1.0 - furled;
+  float sailDrop = clamp(aSailHead.y - transformed.y, 0.0, 1.2);
+  float sailIndex = aSailIndex;
+  vec2 fleetPosition = instanceMatrix[3].xz;
+  ${SAIL_CLOTH_DEFORM}
   transformed.y = mix(transformed.y, aSailHead.y - 0.05, furled);
   transformed -= bellyAxis * dot(transformed - aSailHead, bellyAxis) * furled * 0.8;
   vec2 braceArm = transformed.xz - aSailHead.xz;
@@ -908,6 +916,47 @@ const SAIL_LOCAL_DEFORM = `
     -braceArm.x * gSailBraceSin + braceArm.y * gSailBraceCos
   );
 }`;
+
+export interface FleetHeroSailState {
+  uHeroClothAttention: { value: number };
+  uHeroClothPosition: { value: { x: number; y: number } };
+  uHeroClothHead: { value: number };
+}
+
+/** Bespoke identity cloth shares the batch deformation, clock and packed state. */
+export function patchFleetHeroSailMaterial(material: MeshStandardMaterial, headY: number): FleetHeroSailState {
+  material.vertexColors = true;
+  const state: FleetHeroSailState = {
+    uHeroClothAttention: { value: gardenFleetPackSailAttention(0, FLEET_SAIL_REST_LUFF, true) },
+    uHeroClothPosition: { value: { x: 0, y: 0 } },
+    uHeroClothHead: { value: headY },
+  };
+  const compile = material.onBeforeCompile;
+  const key = material.customProgramCacheKey.bind(material);
+  material.onBeforeCompile = (shader, renderer) => {
+    compile(shader, renderer);
+    Object.assign(shader.uniforms, fleetWindUniforms, state);
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", `#include <common>
+        uniform float uWindTime, uWindSpeed, uWindBreath;
+        uniform vec2 uWindDir;
+        uniform float uHeroClothAttention, uHeroClothHead;
+        uniform vec2 uHeroClothPosition;`)
+      .replace("#include <begin_vertex>", `#include <begin_vertex>
+        {
+          float gSailSquare = step(0.01, color.b);
+          float gSailLuff = mod(floor(uHeroClothAttention), 32.0) / 31.0;
+          float gSailRest = step(32.0, floor(uHeroClothAttention));
+          float sailDrop = clamp(uHeroClothHead - transformed.y, 0.0, 1.2);
+          float setSail = 1.0;
+          float sailIndex = 0.0;
+          vec2 fleetPosition = uHeroClothPosition;
+          ${SAIL_CLOTH_DEFORM}
+        }`);
+  };
+  material.customProgramCacheKey = () => `${key()}|fleet-hero-slack-cloth-v1`;
+  return state;
+}
 
 export interface FleetSailDeformInput {
   /** Square-sail brace about the mast, radians from athwartships (F-A). */
@@ -922,6 +971,8 @@ export interface FleetSailDeformInput {
   instanceZ: number;
   /** F-A luff, 0..1; `FLEET_SAIL_REST_LUFF` when omitted. */
   luff?: number;
+  /** Same resting bit carried by the packed sail-attention channel. */
+  resting?: boolean;
   /** The yard: dip/furl centre in y, brace pivot (the mast) in x/z. */
   sailHead: { x: number; y: number; z: number };
   sailIndex: number;
@@ -929,8 +980,10 @@ export interface FleetSailDeformInput {
   square?: boolean;
   uv: { x: number; y: number };
   vertex: { x: number; y: number; z: number };
-  /** The gust envelope, 0..1 (the shader's `gustEnvelope`/`localFlutter`). */
+  /** Gust envelope, 0..1; optional localFlutter is the sustained-wind envelope. */
   windFlutter: number;
+  localFlutter?: number;
+  windBreath?: number;
   windTime: number;
 }
 
@@ -946,6 +999,7 @@ export function deformFleetSailVertex(input: FleetSailDeformInput): {
   const furled = furlBits - 2 * Math.floor(furlBits * 0.5);
   const setSail = 1 - furled;
   const gust = MathUtils.clamp(input.windFlutter, 0, 1);
+  const flutter = MathUtils.clamp(input.localFlutter ?? gust, 0, 1);
   const time = Math.max(0, input.windTime);
   const sailScale = input.sailScale === undefined
     ? 1 - (input.furlMask - furlMask) / 0.99
@@ -963,11 +1017,14 @@ export function deformFleetSailVertex(input: FleetSailDeformInput): {
   const bellyFill = (0.12 + 0.05 * gust) * (1 - 0.5 * luff) * (0.9 + 0.1 * Math.sin(time * 0.5 + phase));
   const luffFlutter = Math.sin(time * 6.5 + u * 8 + v * 3 + phase)
     * MathUtils.smoothstep(luff, 0.35, 1) * 0.06 * Math.sin(Math.PI * v) * cloth;
-  const ripple = Math.sin(time * (1.2 + gust * 1.6) + input.sailIndex * 1.7 + phase)
-    * sailDrop * (0.012 + gust * 0.045) * cloth;
-  const push = (bellyShape * bellyFill + luffFlutter + ripple) * setSail;
+  const ripple = Math.sin(time * (1.2 + flutter * 1.6) + input.sailIndex * 1.7 + phase)
+    * sailDrop * (0.012 + flutter * 0.045) * (0.92 + (input.windBreath ?? 0.5) * 0.16) * cloth;
+  const push = (bellyShape * bellyFill * (input.resting ? 0.2 : 1)
+    + (luffFlutter + ripple) * (input.resting ? 0.08 : 1)) * setSail;
+  const sagShape = Math.sin(Math.PI * MathUtils.clamp(u, 0, 1)) * (1 - MathUtils.clamp(v, 0, 1)) ** 2;
+  const sag = input.resting ? sagShape * sailDrop * 0.28 * cloth * setSail : 0;
   let x = input.vertex.x + square * push;
-  let y = scaledY * setSail + (head.y - 0.05) * furled;
+  let y = (scaledY - sag) * setSail + (head.y - 0.05) * furled;
   let z = input.vertex.z + (1 - square) * push;
   if (square) x -= (x - head.x) * furled * 0.8;
   else z -= (z - head.z) * furled * 0.8;
@@ -1259,9 +1316,11 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           gSailMarkCover = markCover;
 
           float sailPanels = floor(vColor.b * 16.0 + 0.5);
+          float panelU = vClothUv.x * sailPanels;
+          // Helper lanes must resolve the footprint before cloth/spar branches;
+          // a collapsed footprint must not create equal smoothstep edges.
+          float panelPitch = max(fwidth(panelU), 1e-4);
           if (sailPanels > 0.5) {
-            float panelU = vClothUv.x * sailPanels;
-            float panelPitch = fwidth(panelU);
             float seamDistance = min(fract(panelU), 1.0 - fract(panelU));
             float seam = 1.0 - smoothstep(
               ${SAIL_PANEL_SEAM_WIDTH}, ${SAIL_PANEL_SEAM_WIDTH} + panelPitch * 1.5, seamDistance
@@ -1304,13 +1363,17 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
       // cloth. A tangent frame built from the shading normal itself (the sails
       // carry no tangents, and generating them would cost a buffer per
       // silhouette for a sub-pixel effect) tilts the normal along warp and weft.
-      // The cross with world up is safe here because sails stand near-vertical,
-      // and the epsilon guards the degenerate case rather than relying on that.
+      // Choose the fallback by length rather than adding epsilon to a vector:
+      // the addition can cancel a real cross product exactly.
       .replace(
         "#include <normal_fragment_begin>",
         `#include <normal_fragment_begin>
         {
-          vec3 clothTangent = normalize(cross(normal, vec3(0.0, 1.0, 0.0)) + vec3(1e-4, 0.0, 0.0));
+          vec3 clothTangent = cross(normal, vec3(0.0, 1.0, 0.0));
+          float clothTangentLengthSq = dot(clothTangent, clothTangent);
+          clothTangent = clothTangentLengthSq > 1e-8
+            ? clothTangent * inversesqrt(max(clothTangentLengthSq, 1e-8))
+            : vec3(1.0, 0.0, 0.0);
           vec3 clothBitangent = cross(normal, clothTangent);
           normal = normalize(
             normal
@@ -1347,10 +1410,12 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         }
         #include <opaque_fragment>`,
       )
-      .replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>\n${FLEET_LOD_DITHER}`);
+      // Screen-door discard comes after texture gradients and cloth lighting,
+      // matching hero dissolve; discarded helper lanes cannot seed NaN bloom.
+      .replace("#include <opaque_fragment>", `${FLEET_LOD_DITHER}\n#include <opaque_fragment>`);
   };
   material.customProgramCacheKey = () =>
-    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-aerial-framing-panels-weave-shoji-hero-band-brace-belly-lod-dissolve";
+    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-aerial-framing-panels-weave-shoji-hero-band-brace-belly-lod-dissolve-slack-finite-aa";
 }
 
 function createInstancedPart(
@@ -1462,12 +1527,14 @@ export function createFleetBatches(input: {
   capacity: number;
   geometryFor: (silhouette: GardenHullSilhouette) => FleetBatchGeometrySource;
   pennantGeometry: BufferGeometry;
+  surfaceAtlas?: GardenSurfaceAtlasOwner;
   sailTexture: Texture | null;
   silhouettes: readonly GardenHullSilhouette[];
 }): FleetBatches {
   const root = new Group();
   root.name = "fleet-batches";
   const materials: MeshStandardMaterial[] = [];
+  const surfaceLease = input.surfaceAtlas?.lease();
 
   const hullMaterial = new MeshStandardMaterial({
     color: "#ffffff",
@@ -1476,6 +1543,10 @@ export function createFleetBatches(input: {
     vertexColors: true,
   });
   patchFleetHullFormMaterial(hullMaterial);
+  applyGardenSurface(hullMaterial, {
+    role: "timber", mapping: "uv", metresPerRepeat: 2.4, detailStrength: 0.28,
+    ...(surfaceLease ? { detailSource: surfaceLease.detailSource } : {}),
+  });
   materials.push(hullMaterial);
 
   const sailMaterial = new MeshStandardMaterial({
@@ -1539,7 +1610,7 @@ export function createFleetBatches(input: {
         #include <opaque_fragment>`,
       );
   };
-  farMaterial.customProgramCacheKey = () => "garden-fleet-far-ink-silhouette-lod-dissolve";
+  farMaterial.customProgramCacheKey = () => "garden-fleet-far-ink-silhouette-lod-dissolve-finite-aa";
   materials.push(farMaterial);
 
   const pennantMaterial = new MeshStandardMaterial({
@@ -1576,7 +1647,7 @@ export function createFleetBatches(input: {
   pennant.mesh.name = "fleet-pennants";
   root.add(pennant.mesh);
 
-  return { capacity: input.capacity, bySilhouette, materials, pennant, root };
+  return { capacity: input.capacity, bySilhouette, materials, pennant, root, ...(surfaceLease ? { surfaceLease } : {}) };
 }
 
 /** One ship's per-frame pose, written into every batch it participates in. */
@@ -1588,11 +1659,14 @@ export interface FleetInstancePose {
    * `setFleetAttention`'s envelopes via this ship's atlas cell.
    */
   attention?: number;
-  /**
-   * W4.F3 / K32: a leader (titan or heritage tier). Leaders are always in the
-   * hero band: full rig, mon and issuer hue at every beat and distance.
-   */
-  leader?: boolean;
+  /** Current circulating supply; never the heritage/size-tier registry. */
+  supplyUsd?: number;
+  /** P1 projection at the shared displayed tile, heading and sail brace. */
+  sailHeightCssPx?: number;
+  /** Selection, keyboard focus or direct inspection restores detail immediately. */
+  inspected?: boolean;
+  /** Own scene graph supplies the full representation; batch supplies only far. */
+  bespoke?: boolean;
   hullColor: Color;
   /** F1: the ship's cloth dye — its issuer's dominant brand colour. */
   sailColor: Color;
@@ -1625,6 +1699,8 @@ export interface FleetInstancePose {
   sailBraceRad?: number | undefined;
   /** F-A: how much the cloth is luffing, 0..1. Omitted = `FLEET_SAIL_REST_LUFF`. */
   sailLuff?: number | undefined;
+  /** Moored/anchored cloth hangs without furling its identity course. */
+  sailResting?: boolean;
   /** W2.3/W4: bitmask of sails furled onto their yards, bit i = sail i. */
   sailFurl: number;
   /** Vertical sail scale about the yard; 1 at rest, 0.6 at a transient beat's minimum. */
@@ -1648,14 +1724,15 @@ interface FleetDistanceShip {
   distance: number;
   /** The LOD the ship is heading to: the ink silhouette past the threshold. */
   far: boolean;
-  /** In the hero band: never an ink silhouette, full mark and dye. */
-  hero: boolean;
-  /** The band's eased weight, 0..1, for the mark, dye and lamps. */
+  /** The foreground cast's eased weight, 0..1, for mark, dye and lamps. */
   heroWeight: number;
+  /** Fine standing rig is separate from the three-member foreground cast. */
+  rigWeight: number;
+  supply: number;
+  height: number;
+  inspected: boolean;
   /** The full model's eased share, 0 (all ink) … 1 (all full model). */
   full: number;
-  /** Leader or attended this frame: in the band regardless of rank. */
-  pinned: boolean;
   presence: number | null;
   /** The full model's sail part and slot this frame, or null when not drawn. */
   sails: FleetBatchPart | null;
@@ -1673,6 +1750,7 @@ interface FleetDistanceState {
   /** How far a dissolve moves this frame (share of the whole fade). */
   fadeStep: number;
   distances: number[];
+  leaders: FleetDistanceShip[];
   ships: Map<string, FleetDistanceShip>;
 }
 
@@ -1705,10 +1783,11 @@ export function beginFleetFrame(batches: FleetBatches, frame?: FleetDistanceFram
       previous.fadeStep = frame.reducedMotion || elapsed <= 0 ? 1 : elapsed / FLEET_LOD_FADE_SECONDS;
       previous.time = frame.timeSeconds;
       previous.distances.length = 0;
+      previous.leaders.length = 0;
       for (const ship of previous.ships.values()) ship.seen = false;
     } else {
       fleetDistanceStates.set(batches, {
-        eye, time: frame.timeSeconds, blend: 1, fadeStep: 1, distances: [], ships: new Map(),
+        eye, time: frame.timeSeconds, blend: 1, fadeStep: 1, distances: [], leaders: [], ships: new Map(),
       });
     }
   } else {
@@ -1730,36 +1809,32 @@ export function beginFleetFrame(batches: FleetBatches, frame?: FleetDistanceFram
 export function writeFleetInstance(
   batches: FleetBatches,
   pose: FleetInstancePose,
-): void {
+): number {
   const batch = batches.bySilhouette.get(pose.silhouette);
-  if (!batch) return;
+  if (!batch) return 0;
   const distanceState = fleetDistanceStates.get(batches);
   // W3.7: the pose may name attention outright (tests, and any future caller
   // that already holds the ship's hover/selection state); otherwise it is
   // resolved from the module's eased envelopes by atlas cell.
   const attention = pose.attention ?? gardenFleetAttention(pose.atlasCell);
-  // Leaders and the attended ship join the hero band at once (hovering or
-  // selecting a far silhouette brings back its rig); rank joins at frame end.
-  const pinned = pose.leader === true || attention > 0;
-  let hero = pinned;
-  let far: boolean;
-  let distance: number;
+  const inspected = pose.inspected === true || attention > 0;
   let full = 1;
   let ship: FleetDistanceShip | undefined;
   if (distanceState) {
     const eye = distanceState.eye;
-    distance = Math.hypot(pose.x - eye.x, pose.y - eye.y, pose.z - eye.z);
+    const distance = Math.hypot(pose.x - eye.x, pose.y - eye.y, pose.z - eye.z);
+    const height = Number.isFinite(pose.sailHeightCssPx) ? Math.max(0, pose.sailHeightCssPx!) : 0;
+    const supply = Number.isFinite(pose.supplyUsd) ? Math.max(0, pose.supplyUsd!) : 0;
     ship = distanceState.ships.get(pose.shipId);
-    hero ||= ship?.hero ?? false;
-    const threshold = FLEET_HULL_LOD_DISTANCE + (ship
-      ? ship.far ? -FLEET_HULL_LOD_HALF_HYSTERESIS : FLEET_HULL_LOD_HALF_HYSTERESIS
-      : 0);
-    far = !hero && distance > threshold;
-    // A ship new to the fleet starts in its LOD; a known one dissolves toward it.
-    full = ship ? approach(ship.full, far ? 0 : 1, distanceState.fadeStep) : (far ? 0 : 1);
+    const threshold = ship && !ship.far ? FLEET_FULL_DEPART_CSS_PX : FLEET_FULL_ADMIT_CSS_PX;
+    const far = !inspected && height < threshold;
+    // Inspection answers in this frame; ordinary changes keep the 0.9 s dissolve.
+    full = inspected ? 1 : ship ? approach(ship.full, far ? 0 : 1, distanceState.fadeStep) : (far ? 0 : 1);
+    const rig = inspected || height >= FLEET_FINE_RIG_CSS_PX;
     if (!ship) {
       ship = {
-        distance, far, full, hero, heroWeight: hero ? 1 : 0, pinned, presence: null,
+        distance, far, full, heroWeight: inspected ? 1 : 0, rigWeight: rig ? 1 : 0,
+        supply, height, inspected, presence: null,
         ink: null, inkSlot: -1, sails: null, sailSlot: -1, seen: true,
       };
       distanceState.ships.set(pose.shipId, ship);
@@ -1767,15 +1842,28 @@ export function writeFleetInstance(
       ship.distance = distance;
       ship.far = far;
       ship.full = full;
-      ship.hero = hero;
-      ship.pinned = pinned;
+      ship.supply = supply;
+      ship.height = height;
+      ship.inspected = inspected;
+      ship.rigWeight = inspected ? 1 : approach(ship.rigWeight, rig ? 1 : 0, distanceState.fadeStep);
       ship.seen = true;
     }
     ship.ink = null;
     ship.sails = null;
-    // A thinned-out hull (scale 0) is not on screen: it neither sets the
-    // distance thirds nor takes a hero-band rank from a visible boat.
-    if (pose.scale > 0) distanceState.distances.push(distance);
+    if (pose.scale > 0) {
+      distanceState.distances.push(distance);
+      // Stable write order breaks equal-supply ties without allocating a sort.
+      if (!inspected && height >= FLEET_FULL_ADMIT_CSS_PX && supply > 0) {
+        const leaders = distanceState.leaders;
+        let rank = 0;
+        while (rank < leaders.length && leaders[rank]!.supply >= supply) rank += 1;
+        if (rank < FLEET_FOREGROUND_LEADERS) {
+          const last = Math.min(leaders.length, FLEET_FOREGROUND_LEADERS - 1);
+          for (let slot = last; slot > rank; slot -= 1) leaders[slot] = leaders[slot - 1]!;
+          leaders[rank] = ship;
+        }
+      }
+    }
   }
 
   scratchPosition.set(pose.x, pose.y, pose.z);
@@ -1789,13 +1877,13 @@ export function writeFleetInstance(
 
   // The full model and the ink take complementary shares of the dissolve.
   const shown = fleetFadeEase(full);
-  if (full > 0 && batch.hull.mesh.count < batches.capacity) {
+  if (!pose.bespoke && full > 0 && batch.hull.mesh.count < batches.capacity) {
     const slot = writeFleetLod(batch.hull, batch.sails, pose, attention, 1 - shown, false);
     if (ship) {
       ship.sails = batch.sails;
       ship.sailSlot = slot;
     } else {
-      batch.sails.sailAttention!.setY(slot, gardenFleetPackSailDistance(0, hero ? 1 : 0));
+      batch.sails.sailAttention!.setY(slot, gardenFleetPackSailDistance(0, inspected ? 1 : 0));
     }
     // The pennant is a sliver: it goes with the full model's larger share.
     if (full >= 0.5) writeFleetPennant(batches, pose);
@@ -1807,6 +1895,7 @@ export function writeFleetInstance(
       ship.inkSlot = slot;
     }
   }
+  return shown;
 }
 
 /**
@@ -1870,7 +1959,7 @@ function writeFleetLod(
   if (sails.sailAttention) {
     sails.sailAttention.setX(
       slot,
-      gardenFleetPackSailAttention(attention, pose.sailLuff ?? FLEET_SAIL_REST_LUFF),
+      gardenFleetPackSailAttention(attention, pose.sailLuff ?? FLEET_SAIL_REST_LUFF, pose.sailResting),
     );
     // endFleetFrame writes y with the eased presence, hero weight and dissolve.
     sails.sailAttention.setY(slot, gardenFleetPackSailDistance(0, 0, hidden));
@@ -1924,20 +2013,13 @@ export function endFleetFrame(batches: FleetBatches): void {
     distances.sort((left, right) => left - right);
     const near = distances[Math.max(0, Math.ceil(distances.length / 3) - 1)] ?? 0;
     const far = distances[Math.min(distances.length - 1, Math.floor(distances.length * 2 / 3))] ?? near;
-    // The same sorted distances rank the hero band: no second pass.
-    const lastRank = distances.length - 1;
-    const heroJoin = distances[Math.min(lastRank, FLEET_HERO_BAND_NEAREST - 1)] ?? 0;
-    const heroLeave = distances[
-      Math.min(lastRank, FLEET_HERO_BAND_NEAREST + FLEET_HERO_BAND_RANK_HYSTERESIS - 1)
-    ] ?? 0;
     for (const [id, ship] of distanceState.ships) {
       if (!ship.seen) {
         distanceState.ships.delete(id);
         continue;
       }
-      ship.hero = ship.pinned || ship.distance <= (ship.hero ? heroLeave : heroJoin);
-      // The attended ship's mark comes back at once; the rank band eases.
-      ship.heroWeight = ship.pinned ? 1 : approach(ship.heroWeight, ship.hero ? 1 : 0, distanceState.fadeStep);
+      const hero = ship.inspected || distanceState.leaders.includes(ship);
+      ship.heroWeight = ship.inspected ? 1 : approach(ship.heroWeight, hero ? 1 : 0, distanceState.fadeStep);
       const target = far > near ? MathUtils.clamp((ship.distance - near) / (far - near), 0, 1) : 0;
       const previous = ship.presence ?? target;
       ship.presence = previous + (target - previous) * distanceState.blend;
@@ -1961,16 +2043,15 @@ export function endFleetFrame(batches: FleetBatches): void {
   flushPart(batches.pennant);
 }
 
-/**
- * W4.F3: the hero band's eased weight (0..1) for the lights that follow it —
- * at night the far fleet is embers, only heroes keep their stern lanterns,
- * and a ship joining or leaving the band kindles or dims over the LOD fade.
- * A ship the batch does not rank — a GLB hero hull, a transient, or any ship
- * when no distance frame is running — counts as a hero.
- */
+/** Foreground cast weight; dormant bespoke heroes obey the same policy. */
 export function gardenFleetShipHeroWeight(batches: FleetBatches, shipId: string): number {
   const ship = fleetDistanceStates.get(batches)?.ships.get(shipId);
-  return ship ? fleetFadeEase(ship.heroWeight) : 1;
+  return ship ? fleetFadeEase(ship.heroWeight) : fleetDistanceStates.has(batches) ? 0 : 1;
+}
+
+export function gardenFleetShipRigWeight(batches: FleetBatches, shipId: string): number {
+  const ship = fleetDistanceStates.get(batches)?.ships.get(shipId);
+  return ship ? fleetFadeEase(ship.rigWeight) : fleetDistanceStates.has(batches) ? 0 : 1;
 }
 
 function flushPart(part: FleetBatchPart): void {
@@ -2004,6 +2085,7 @@ export function fleetDrawCallCount(batches: FleetBatches): number {
 }
 
 export function disposeFleetBatches(batches: FleetBatches): void {
+  batches.surfaceLease?.release();
   for (const batch of batches.bySilhouette.values()) {
     batch.hull.mesh.geometry.dispose();
     batch.hull.mesh.dispose();

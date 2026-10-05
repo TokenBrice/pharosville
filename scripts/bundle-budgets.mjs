@@ -123,8 +123,18 @@ export const aggregateBudgets = {
   // measured+8% (886 -> 963 KiB) per the precedent above; the renderer chunk
   // (173 of 454 KiB gzip) is still enforced independently and the frame-time
   // gate is NOT relaxed.
+  // 2026-10-05 Garden Observatory (plan agents/2026-10-05-garden-levers):
+  // the authored seat garden and kuromatsu, the shared surface grammar and
+  // atlas, analytic daylight transport with zonal irradiance, the static water
+  // codebook and pond optics, projected fleet composition with footprint LOD,
+  // the four-sided coast, the architecture kit, the reading key and dated PSI
+  // record, and the repaired issuance contract measured 3,040.5 KiB raw /
+  // 974.4 KiB gzip. The operator authorised an EARNED rebaseline capped at
+  // 1,024 KiB (decision D12/Budget in the plan's §4): each packet reported its
+  // own delta and funded what it could by deletion, no packet raised a cap
+  // itself, and the renderer chunk plus the frame-time gate are unchanged.
   maxJsRawBytes: 3_200 * 1024,
-  maxJsGzipBytes: 963 * 1024,
+  maxJsGzipBytes: 1_024 * 1024,
 };
 
 export const forbiddenBundleChunks = [

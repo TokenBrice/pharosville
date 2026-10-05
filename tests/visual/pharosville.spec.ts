@@ -64,7 +64,7 @@ test(...visualLane("static", "the world is nonblank, resize-safe, and honors red
 
   const closeDetails = page.getByRole("button", { name: "Close details" });
   if (await closeDetails.isVisible()) await closeDetails.click();
-  await page.getByRole("button", { name: "Reset view" }).click();
+  await page.getByRole("button", { name: "Home", exact: true }).click();
 
   const canvasCapture = await canvas.screenshot();
   expect(canvasCapture.byteLength).toBeGreaterThan(10_000);
@@ -122,7 +122,10 @@ test(...visualLane("dom", "blocked viewports request neither world data nor the 
   await installWallClockOverride(page, 12);
   await page.goto("/");
 
-  await expect(page.getByText("PharosVille needs a wider harbor.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "PharosVille", exact: true, level: 1 })).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "PharosVille", exact: true, level: 2 })).toBeVisible();
+  await expect(page.getByText(/For the interactive garden, open a larger screen:/)).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Pharos analytics" })).toBeVisible();
   await expect(page.getByTestId("pharosville-canvas")).toHaveCount(0);
   expect(deniedRequests).toEqual([]);
 });
@@ -179,20 +182,27 @@ test(...visualLane("dom", "browser chrome keeps minimum targets and stable scene
       return result;
     };
     const alpha = (color: string): number => {
-      const match = color.match(/rgba?\([^,]+,[^,]+,[^,]+(?:,\s*([\d.]+))?\)/);
-      return match?.[1] ? Number.parseFloat(match[1]) : 1;
+      const channels = color.match(/^(?:rgba?|color)\((.*)\)$/)?.[1];
+      if (!channels) throw new Error(`Unsupported computed background color: ${color}`);
+      const explicitAlpha = channels.includes("/")
+        ? channels.split("/")[1]?.trim()
+        : channels.split(",")[3]?.trim();
+      return explicitAlpha === undefined
+        ? 1
+        : Number.parseFloat(explicitAlpha) / (explicitAlpha.endsWith("%") ? 100 : 1);
     };
     // Probed by class, not by instance: the caption is scene chrome and this
     // lane also runs without WebGL, where no caption is mounted. What the
     // assertions below check is the CSS contract, which the probe carries.
     const caption = probe("pharosville-now-caption", "div");
-    const quickField = probe("pharosville-quick-find__field", "div");
+    // The opaque Find sheet owns the scrim; its input field is transparent.
+    const quickFind = probe("pharosville-quick-find pv-paper", "div");
     return {
       detailClose: probe("pharosville-detail-panel__close"),
       detailCopy: probe("pharosville-detail-panel__copy"),
       caption: { fontSize: caption.fontSize },
       glyph: probe("pv-glyph-button"),
-      quickFieldScrimAlpha: alpha(quickField.backgroundColor),
+      quickFindScrimAlpha: alpha(quickFind.backgroundColor),
       quickResult: probe("pharosville-quick-find__result", "li"),
     };
   });
@@ -201,7 +211,7 @@ test(...visualLane("dom", "browser chrome keeps minimum targets and stable scene
   expect(contract.detailCopy.minHeight).toBeGreaterThanOrEqual(24);
   expect(contract.quickResult.minHeight).toBeGreaterThanOrEqual(36);
   expect(contract.caption.fontSize).toBeGreaterThanOrEqual(13);
-  expect(contract.quickFieldScrimAlpha).toBeGreaterThanOrEqual(0.9);
+  expect(contract.quickFindScrimAlpha).toBeGreaterThanOrEqual(0.9);
   expect(contract.glyph.opacity).toBeGreaterThanOrEqual(0.7);
 });
 
@@ -253,9 +263,11 @@ test.describe("touch chrome", () => {
 });
 
 test(...visualLane("accessibility", "a shared ship link selects and frames that ship with usable Escape behavior"), async ({ page }) => {
-  // The fleet search is retired (interface revamp DU2). A shared `#sel=` link
-  // is now how a non-representative ship is reached, framed and dismissed.
-  const outsiderDetailId = "ship.satusd-river";
+  // Shared links disclose the selected record immediately; camera framing
+  // must not gate keyboard access to its facts.
+  const outsider = denseFixtureStablecoins.peggedAssets.find((asset) => asset.id === "satusd-river");
+  if (!outsider) throw new Error("Dense fixture must include the shared-link ship.");
+  const outsiderDetailId = `ship.${outsider.id}`;
   await mockDensePharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mockScreenSize(page, 1920, 1080);
@@ -266,20 +278,37 @@ test(...visualLane("accessibility", "a shared ship link selects and frames that 
 
   await expect.poll(async () => (await readVisualDebug(page)).selectedDetailId)
     .toBe(outsiderDetailId);
-  await expect(page.getByTestId("pharosville-detail-panel")).toContainText("River Stablecoin");
+  const detailPanel = page.getByTestId("pharosville-detail-panel");
+  await expect(detailPanel).toContainText(outsider.name);
+  await expect(detailPanel.getByRole("heading", { level: 2 })).toBeFocused();
+  await expect(page.getByTestId("pharosville-detail-reading")).toBeVisible();
+  await expect(page.getByTestId("pharosville-detail-record")).not.toHaveAttribute("open", "");
   // Camera framing of a deep-linked outsider is asserted by the interaction
   // lane below; this case owns the DOM contract — selection, panel, Escape.
 
-  // Recentring leaves the selection intact, and Escape closes the panel.
-  await page.getByRole("button", { name: "Explore harbor controls" }).click();
-  await expect(page.getByTestId("pharosville-world-controls")).toHaveAttribute("data-expanded", "true");
-  await page.getByRole("button", { name: "Reset view" }).click();
-  await expect(page.getByTestId("pharosville-detail-panel")).toBeVisible();
-
+  // Escape closes inspection and returns keyboard focus to the world.
   await page.getByRole("button", { name: "Close details" }).focus();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("pharosville-detail-panel")).toHaveCount(0);
   await expect(page.getByTestId("pharosville-world")).toBeFocused();
+
+  // Home is a different action: it clears a live selection and resets the seat.
+  await page.getByRole("button", { name: "Find a ship or harbor", exact: true }).click();
+  await page.getByRole("combobox").fill(outsider.name);
+  await page.getByRole("option").filter({ hasText: outsider.name }).click();
+  await expect(detailPanel).toBeVisible();
+  await page.getByRole("button", { name: "Explore harbor controls" }).click();
+  await expect(page.getByTestId("pharosville-world-controls")).toHaveAttribute("data-expanded", "true");
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await expect(detailPanel).toHaveCount(0);
+  await expect.poll(async () => {
+    const debug = await readVisualDebug(page);
+    return {
+      restPresence: restFraming(debug.camera).restPresence,
+      selectedDetailId: debug.selectedDetailId,
+      shot: restFraming(debug.camera).shot,
+    };
+  }).toEqual({ restPresence: 1, selectedDetailId: null, shot: false });
 });
 
 test(...visualLane("interaction", "an over-capacity outsider uses one transient hull without rebuilding fleet resources"), async ({ page }) => {
@@ -403,7 +432,7 @@ test(...visualLane("interaction", "an over-capacity outsider uses one transient 
   }
 });
 
-test(...visualLane("interaction", "deep links reach an off-screen ship and preserve complete dock geography"), async ({ page }) => {
+test(...visualLane("interaction", "deep links reach an initially unframed ship and preserve complete dock geography"), async ({ page }) => {
   // Three complete renderer navigations exercise landing, ship deep-link, and
   // dock deep-link state. Cold shader compilation can legitimately exceed the
   // suite's one-minute default before the final navigation becomes observable.
@@ -418,8 +447,8 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
 
   const closeDetails = page.getByRole("button", { name: "Close details" });
   if (await closeDetails.isVisible()) await closeDetails.click();
-  // This case owns viewport-culling and framing, independently of the
-  // localhost-only over-capacity admission case above.
+  // Keyboard targets include every admitted hull, even beyond the crop.
+  // Determine initial framing from projected rectangles, not membership.
   let previousShipCount = -1;
   await expect.poll(async () => {
     const count = (await shipTargetIds(page)).length;
@@ -427,21 +456,21 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
     previousShipCount = count;
     return settled;
   }).toBe(true);
-  const onScreenDetailIds = new Set(await shipTargetIds(page));
   const firstPhaseCamera = restFraming((await readVisualDebug(page)).camera);
   expect(firstPhaseCamera.restPresence).toBe(1);
-  // Every hull now resolves onto the water plate and moored hulls sit at
-  // their stations, so the old `index % 5` stride no longer lands on an
-  // off-screen ship. The candidate is pinned rather than "first culled":
-  // this contract also centre-clicks the framed target, and a hull moored
-  // among its station's neighbours has an overlapping target (clicking
-  // susde-ethena selects the hull beside it). usdd-tron-dao-reserve holds no
-  // berth, is culled at this framing, and sits alone once framed.
-  const outsider = denseFixtureStablecoins.peggedAssets.find((asset) => asset.id === "usdd-tron-dao-reserve");
-  expect(outsider).toBeDefined();
-  if (!outsider) throw new Error("Dense fixture must include an off-screen ship.");
-  expect(onScreenDetailIds.has(`ship.${outsider.id}`)).toBe(false);
+  const initialTargets = (await readVisualDebug(page)).targets ?? [];
+  const viewport = page.viewportSize()!;
+  const unframedTargets = initialTargets.filter((target) => target.kind === "ship"
+    && !rectInsideViewport(target.rect, viewport));
+  // Prefer the isolated storm-shelf hull when it is still outside the crop;
+  // otherwise use the fixture's deterministic order, not a placement pin.
+  const outsider = denseFixtureStablecoins.peggedAssets.find((asset) => asset.id === "usdd-tron-dao-reserve"
+    && unframedTargets.some((target) => target.detailId === `ship.${asset.id}`))
+    ?? denseFixtureStablecoins.peggedAssets.find((asset) =>
+      unframedTargets.some((target) => target.detailId === `ship.${asset.id}`));
+  if (!outsider) throw new Error("Dense fixture must include an initially unframed ship.");
   const outsiderDetailId = `ship.${outsider.id}`;
+  expect(await selectedTargetWithinViewport(page, outsiderDetailId)).toBe(false);
 
   await page.goto("about:blank");
   await page.goto(`/?debug=1#sel=${outsiderDetailId}`);
@@ -466,8 +495,9 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
   // asserting the title still holds focus afterwards was asserting that the
   // click did not land.
   await expect(detailPanel.getByRole("heading", { level: 2 })).toBeFocused();
-  // Density now waits inside the record disclosure (interface revamp DU5);
-  // open it explicitly rather than relying on collapsed text matching.
+  // Useful readings are visible before disclosing the longer record.
+  await expect(page.getByTestId("pharosville-detail-reading")).toBeVisible();
+  await expect.poll(async () => selectedTargetClearOfPanel(page, outsiderDetailId)).toBe(true);
   await page.getByTestId("pharosville-detail-record").getByText("Read the record").click();
   await expect(detailPanel).toContainText("Currently");
   await expect(detailPanel).toContainText("Home dock");
@@ -482,15 +512,13 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
   // Follow-selected lost its button (interface revamp DU1): a `#sel=` deep
   // link frames the ship on arrival, which is the path that remains.
   //
-  // FRAMED, not centred. The camera clamps to the map, so a ship near an edge —
-  // and the storm shelf is a corner — cannot be brought to the middle however
-  // hard the deep link tries. Measured 348px from centre in a 1440x1000
-  // viewport, which is correct behaviour, not drift. What the contract actually
-  // owes is a ship you can see and click, so assert that: fully on screen.
-  await expect.poll(async () => selectedTargetWithinViewport(page, outsiderDetailId)).toBe(true);
+  // A scored tableau owes a fully visible, clickable hull clear of the actual
+  // expanded sheet, not a fixed screen third or an assumed sheet width.
+  await expect.poll(async () => selectedTargetClearOfPanel(page, outsiderDetailId)).toBe(true);
   const followedDebug = await readVisualDebug(page);
   expect(followedDebug.cameraWithinBounds).toBe(true);
   expect(followedDebug.selectedDetailId).toBe(outsiderDetailId);
+  expect(followedDebug.camera?.shot?.presence).toBe(1);
 
   const outsiderTarget = followedDebug.targets?.find(
     ({ detailId }) => detailId === outsiderDetailId,
@@ -512,16 +540,15 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
   await expect(detailPanel).toHaveCount(0);
   await expect(page.getByTestId("pharosville-world")).toBeFocused();
 
-  // Reset view restores the exact framing the first phase measured — the rest
-  // ShotSpec on the same hand-off rig — so the off-screen ship goes back off
-  // screen. The camera is compared directly: the on-screen ship SET is not a
-  // proxy for it, because the first navigation builds the fleet from a cold
-  // world cache and the later ones from the cached world, and idle hulls do
-  // not land on identical water across those two paths (a few swap places at
-  // the frame edge even though the camera is identical).
-  await page.getByRole("button", { name: "Reset view" }).click();
+  // Home restores the exact rest ShotSpec and hand-off rig measured at arrival.
+  // Raw target membership is not a visibility signal: off-crop hulls remain
+  // keyboard reachable in the complete fleet.
+  if (await page.getByTestId("pharosville-world-controls").getAttribute("data-expanded") !== "true") {
+    await page.getByRole("button", { name: "Explore harbor controls" }).click();
+  }
+  await page.getByRole("button", { name: "Home", exact: true }).click();
   await expect.poll(async () => restFraming((await readVisualDebug(page)).camera)).toEqual(firstPhaseCamera);
-  expect(await shipTargetIds(page)).not.toContain(outsiderDetailId);
+  await expect.poll(async () => selectedTargetWithinViewport(page, outsiderDetailId)).toBe(false);
 
   const renderedDetailIds = new Set(
     (await readVisualDebug(page)).targets?.map(({ detailId }) => detailId),
@@ -709,15 +736,30 @@ async function shipTargetIds(page: Page): Promise<string[]> {
   return debug.targets?.filter(({ kind }) => kind === "ship").map(({ detailId }) => detailId) ?? [];
 }
 
-async function selectedTargetWithinViewport(
-  page: Page,
-  detailId: string,
-): Promise<boolean> {
-  const debug = await readVisualDebug(page);
-  const target = debug.targets?.find((entry) => entry.detailId === detailId);
-  if (!target) return false;
-  const { height, width, x, y } = target.rect;
-  return x >= 0 && y >= 0 && x + width <= 1440 && y + height <= 1000;
+function rectInsideViewport(
+  rect: { height: number; width: number; x: number; y: number },
+  viewport: { height: number; width: number },
+): boolean {
+  const { height, width, x, y } = rect;
+  return [height, width, x, y].every(Number.isFinite) && width > 0 && height > 0
+    && x >= 0 && y >= 0 && x + width <= viewport.width && y + height <= viewport.height;
+}
+
+async function selectedTargetWithinViewport(page: Page, detailId: string): Promise<boolean> {
+  const target = (await readVisualDebug(page)).targets?.find((entry) => entry.detailId === detailId);
+  const canvas = await page.getByTestId("pharosville-canvas").boundingBox();
+  return Boolean(target && canvas && rectInsideViewport(target.rect, canvas));
+}
+
+async function selectedTargetClearOfPanel(page: Page, detailId: string): Promise<boolean> {
+  const target = (await readVisualDebug(page)).targets?.find((entry) => entry.detailId === detailId);
+  const canvas = await page.getByTestId("pharosville-canvas").boundingBox();
+  const panel = await page.getByTestId("pharosville-detail-panel").boundingBox();
+  if (!target || !canvas || !panel || !rectInsideViewport(target.rect, canvas)) return false;
+  const left = canvas.x + target.rect.x;
+  const top = canvas.y + target.rect.y;
+  return left + target.rect.width <= panel.x || left >= panel.x + panel.width
+    || top + target.rect.height <= panel.y || top >= panel.y + panel.height;
 }
 
 test(...visualLane("interaction", "native reference dialogs preserve focus and light controls choose stillness"), async ({ page }) => {
@@ -729,12 +771,14 @@ test(...visualLane("interaction", "native reference dialogs preserve focus and l
   await page.goto("/?debug=1#t=12");
   await waitForRuntimeDebug(page, false);
 
-  const find = page.getByRole("button", { name: "find", exact: true });
+  const find = page.getByRole("button", { name: "Find a ship or harbor", exact: true });
   const explore = page.getByRole("button", { name: "Explore harbor controls" });
   const skip = page.getByRole("button", { name: "Skip map to controls" });
   await page.keyboard.press("Tab");
   await expect(skip).toBeFocused();
   await page.keyboard.press("Enter");
+  await expect(find).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(explore).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(explore).toHaveAttribute("aria-expanded", "true");
@@ -742,6 +786,7 @@ test(...visualLane("interaction", "native reference dialogs preserve focus and l
   await find.click();
   await expect(page.getByRole("combobox")).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(find).toBeFocused();
 
   const legendTrigger = page.getByRole("button", { name: "legend", exact: true });
   await legendTrigger.click();
@@ -796,7 +841,7 @@ test(...visualLane("interaction", "native reference dialogs preserve focus and l
   await expect(page.getByLabel("Still", { exact: true })).toBeDisabled();
 });
 
-test(...visualLane("interaction", "a cold reduced-motion selection link frames its ship before exposing details"), async ({ page }) => {
+test(...visualLane("interaction", "a cold reduced-motion selection link composes a readable ship beside immediate details"), async ({ page }) => {
   await mockPharosVilleData(page);
   await mockScreenSize(page, 1920, 1080);
   await page.setViewportSize({ width: 1600, height: 1000 });
@@ -805,16 +850,19 @@ test(...visualLane("interaction", "a cold reduced-motion selection link frames i
   await waitForRuntimeDebug(page, true);
   await expect(page.getByTestId("pharosville-detail-panel")).toBeVisible();
   await expect(page.getByTestId("pharosville-detail-panel").getByRole("heading", { level: 2 })).toBeFocused();
+  await expect(page.getByTestId("pharosville-detail-reading")).toBeVisible();
   await expect.poll(async () => {
     const debug = await readVisualDebug(page);
-    const target = debug.targets?.find((entry) => entry.detailId === "ship.usdt-tether");
-    if (!target) return false;
-    // W1.7 shot contract: reduced motion cuts straight to the composed shot, the
-    // hull on the lower-left third (mirrored to the right third when it heads left).
-    const anchor = target.anchor ?? { x: target.rect.x + target.rect.width / 2, y: target.rect.y + target.rect.height };
-    const x = anchor.x / 1600;
-    const y = anchor.y / 1000;
-    const onThird = (x >= 0.25 && x <= 0.47) || (x >= 0.53 && x <= 0.75);
-    return onThird && y >= 0.52 && y <= 0.72;
-  }).toBe(true);
+    return {
+      cameraWithinBounds: debug.cameraWithinBounds,
+      clearOfPanel: await selectedTargetClearOfPanel(page, "ship.usdt-tether"),
+      selectedDetailId: debug.selectedDetailId,
+      shotPresence: debug.camera?.shot?.presence,
+    };
+  }).toEqual({
+    cameraWithinBounds: true,
+    clearOfPanel: true,
+    selectedDetailId: "ship.usdt-tether",
+    shotPresence: 1,
+  });
 });

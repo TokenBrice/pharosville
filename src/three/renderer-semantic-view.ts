@@ -1,10 +1,10 @@
 /**
- * Renderer detail policy: every camera-keyed level-of-detail decision the
- * Three.js world makes, resolved in ONE place.
+ * Renderer semantic detail policy: shared camera-keyed scene detail.
+ * Fleet family/rig admission separately consumes its physical CSS footprint.
  *
  * Extracted from `world-renderer.ts` (Hour-Print W0.24). Before this seam the
  * semantic view (overview / explore / analyze), the overview-LOD ease, the
- * fleet-thinning zoom, the sea-sign and cloth-weave zoom, the zone-buoy and
+ * sea-sign and cloth-weave zoom, zone-buoy and
  * fine-detail toggles, and the AO framing ramp each read `frame.camera.zoom`
  * at their own call site. Now `resolveRendererDetailPolicy` is the only
  * function here that reads the camera; the renderer resolves it once per
@@ -16,7 +16,7 @@
  * screen scale, which equals the rig zoom, so the whole-map pull-out keeps its
  * thresholds exactly). An explicit `rest` state — the rest ShotSpec showing,
  * at rest or mid hand-off — holds explore-level truth carriers (zone buoys,
- * fine detail), full props and zero fleet thinning at every viewport.
+ * fine detail) and full props at every viewport.
  *
  * The helpers below apply the record: they own the stateful parts (the
  * overview-LOD ease, the zone-buoy field) and the hover/selection exceptions,
@@ -30,32 +30,21 @@ import {
   gardenSemanticView,
   type GardenSemanticView,
 } from "../systems/garden-observatory-slice";
-import {
-  gardenFleetDisplayPresence,
-  gardenFleetThinningZoom,
-  type GardenFleetThinningShip,
-} from "../systems/garden-fleet-thinning";
 import { cameraAtRest, cameraDetailZoom, cameraPixelZoom } from "../systems/projection";
 import { GARDEN_BREATH_PHASE, gardenBreathAt } from "../systems/weather";
 import { OVERVIEW_LOD_FULL_ZOOM, type GardenOverviewLod } from "./garden-overview-lod";
-import type { ShipVisual } from "./garden-ships";
 import { updateZoneBuoys, type ZoneField, type ZoneVisual } from "./garden-zones";
 
 export interface RendererDetailPolicy {
-  /** The rest ShotSpec is showing (at rest or mid hand-off): explore-level truth, no thinning. */
+  /** The rest ShotSpec is showing (at rest or mid hand-off): explore-level truth. */
   rest: boolean;
   /** `gardenSemanticView(detailZoom, selection)`: overview, explore or analyze. */
   semanticView: GardenSemanticView;
   /**
-   * Explore framing reveals every ship's and dock's fine-detail group; other
-   * views show it only on the hovered or selected entity.
+   * Explore framing reveals dock detail; other views show it only for the
+   * hovered or selected entity. Fleet rig and mover wakes are physical gates.
    */
   showWorldDetail: boolean;
-  /**
-   * Local wake quads: the whole fleet, or (analyze, where a selection owns the
-   * hierarchy) only a hull whose fine detail is showing.
-   */
-  wakes: "fleet" | "inspected";
   /**
    * Zone boundary buoys: hidden at overview, every body in explore, only the
    * hovered/selected body in analyze.
@@ -63,8 +52,6 @@ export interface RendererDetailPolicy {
   zoneBuoys: "hidden" | "all" | "focused";
   /** Screen-scale zoom the overview-LOD ease targets (props shed between 0.62 and 0.44). */
   overviewLodZoom: number;
-  /** Screen-scale zoom the reversible wide-frame fleet thinning reads. */
-  fleetThinningZoom: number;
   /** Screen-scale zoom the fleet's cloth-weave ramp reads (`setFleetAerialPerspective`). */
   fleetClothZoom: number;
   /** Screen-scale zoom the sea-sign scale track compensates for. */
@@ -88,10 +75,8 @@ export function createRendererDetailPolicy(): RendererDetailPolicy {
     rest: false,
     semanticView: "overview",
     showWorldDetail: false,
-    wakes: "fleet",
     zoneBuoys: "hidden",
     overviewLodZoom: 1,
-    fleetThinningZoom: 1,
     fleetClothZoom: 1,
     seaSignZoom: 1,
     aoFramingTarget: 1,
@@ -114,12 +99,10 @@ export function resolveRendererDetailPolicy(
   out.rest = rest;
   out.semanticView = semanticView;
   out.showWorldDetail = semanticView === "explore";
-  out.wakes = semanticView === "analyze" ? "inspected" : "fleet";
   out.zoneBuoys = semanticView === "explore"
     ? "all"
     : semanticView === "analyze" ? "focused" : "hidden";
   out.overviewLodZoom = rest ? Math.max(pixelZoom, OVERVIEW_LOD_FULL_ZOOM) : pixelZoom;
-  out.fleetThinningZoom = gardenFleetThinningZoom(frame.camera, viewport);
   out.fleetClothZoom = pixelZoom;
   out.seaSignZoom = pixelZoom;
   out.aoFramingTarget = MathUtils.smoothstep(detailZoom, 0.66, 0.9);
@@ -137,19 +120,6 @@ export function gardenFineDetailVisible(
     || detailId === frame.selectedDetailId;
 }
 
-/**
- * The detail half of a hull's wake gate. Wakes remain a fleet-motion cue in
- * overview/explore; in analyze only the focused hull keeps its wake, so
- * unrelated foam cannot compete with its ring, route, or panel.
- */
-export function gardenWakeDetailVisible(
-  policy: RendererDetailPolicy,
-  overviewDetail: number,
-  fineDetailVisible: boolean,
-): boolean {
-  return overviewDetail > 0
-    && (policy.wakes === "fleet" || fineDetailVisible);
-}
 
 // Reused argument record: `GardenOverviewLod.update` destructures on entry.
 const scratchOverviewLodFrame = { deltaSeconds: 0, reducedMotion: false, zoom: 1 };
@@ -174,29 +144,6 @@ export function advanceGardenOverviewDetail(
   return overviewLod.detail;
 }
 
-/**
- * Per-hull display presence for the reversible wide-frame thinning. The
- * hovered and selected hulls are exempt, so resolve their ship ids first.
- */
-export function resolveGardenFleetDisplayPresence(
-  ships: readonly ShipVisual[],
-  thinningShips: readonly GardenFleetThinningShip[],
-  frame: InspectionFrame,
-  policy: RendererDetailPolicy,
-): Map<string, number> {
-  const selectedShipId = frame.selectedDetailId
-    ? ships.find(({ ship }) => ship.detailId === frame.selectedDetailId)?.ship.id ?? null
-    : null;
-  const hoveredShipId = frame.hoveredDetailId
-    ? ships.find(({ ship }) => ship.detailId === frame.hoveredDetailId)?.ship.id ?? null
-    : null;
-  return gardenFleetDisplayPresence({
-    hoveredShipId,
-    selectedShipId,
-    ships: thinningShips,
-    zoom: policy.fleetThinningZoom,
-  });
-}
 
 /**
  * Boundary buoys are inspectable landmarks, not ambient scenery: hide them at

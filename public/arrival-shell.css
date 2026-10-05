@@ -1,0 +1,44 @@
+/* First-byte identity uses only stylesheet classes and the clock's beat attribute. */
+:root {
+  --pv-veil-top: #4986bb;
+  --pv-veil-mid: #516e8f;
+  --pv-veil-bottom: #0c2329;
+  background: #12313d;
+}
+:root[data-pv-veil-beat="dawn"] { --pv-veil-top: #787081; --pv-veil-mid: #947e78; --pv-veil-bottom: #0b0a08; }
+:root[data-pv-veil-beat="golden"] { --pv-veil-top: #4b4c7f; --pv-veil-mid: #5f5d7c; --pv-veil-bottom: #04030f; }
+:root[data-pv-veil-beat="blue"] { --pv-veil-top: #151d4b; --pv-veil-mid: #1a274b; --pv-veil-bottom: #010206; }
+:root[data-pv-veil-beat="night"] { --pv-veil-top: #141b34; --pv-veil-mid: #151e39; --pv-veil-bottom: #000205; }
+html, body { margin: 0; min-height: 100%; }
+.pv-arrival-shell {
+  box-sizing: border-box;
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  padding: 32px;
+  color: #eef0ec;
+  background: linear-gradient(var(--pv-veil-top), var(--pv-veil-mid) 42%, var(--pv-veil-bottom) 80%);
+  font: 1rem/1.5 system-ui, sans-serif;
+}
+.pv-arrival-shell__content {
+  width: min(100%, 620px);
+  margin: auto;
+  padding: 24px;
+  background: #16222f;
+}
+.pv-arrival-shell h1,
+.pv-arrival-shell h2 { margin: 0; font: 600 2.125rem/1.1 "EB Garamond", Georgia, serif; }
+.pv-arrival-shell__promise { margin: 8px 0 24px; font: 1.25rem/1.4 "EB Garamond", Georgia, serif; }
+.pv-arrival-shell__guide { margin: 24px 0; }
+.pv-arrival-shell__guide > div { margin: 12px 0; }
+.pv-arrival-shell dt { font-weight: 600; }
+.pv-arrival-shell dd { margin: 0; }
+.pv-arrival-shell__stage { border-top: 1px solid #64717c; padding-top: 16px; }
+.pv-arrival-shell nav { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+.pv-arrival-shell a { display: inline-flex; align-items: center; min-height: 44px; color: #eef0ec; text-underline-offset: 4px; }
+.pv-arrival-shell a:focus-visible { outline: 2px solid #eef0ec; outline-offset: 4px; }
+.pv-arrival-shell--veil { position: absolute; inset: 0; z-index: 5; }
+@media (max-width: 640px) {
+  .pv-arrival-shell { padding: 16px; }
+  .pv-arrival-shell__content { padding: 20px; }
+}

@@ -18,7 +18,7 @@ const optionId = (index: number): string => `pharosville-quick-find-option-${ind
 
 /**
  * Typeahead over the fleet and the harbours. Mounted only while open, so
- * focus lands on the field on mount and returns to the world shell on close.
+ * focus lands on the field on mount and returns to its opener on close.
  * Keys it handles stop propagating: the world shell's own Escape and arrow
  * handlers sit on the same subtree.
  */
@@ -28,9 +28,12 @@ export function QuickFind({ candidates, onClose, onSelect }: QuickFindProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     inputRef.current?.focus({ preventScroll: true });
     return () => {
-      document.querySelector<HTMLElement>('[data-testid="pharosville-world"]')?.focus({ preventScroll: true });
+      const target = opener?.isConnected && opener !== document.body
+        ? opener : document.querySelector<HTMLElement>('[data-testid="pharosville-world"]');
+      target?.focus({ preventScroll: true });
     };
   }, []);
 
@@ -69,7 +72,7 @@ export function QuickFind({ candidates, onClose, onSelect }: QuickFindProps) {
 
   return (
     <div
-      className="pharosville-quick-find"
+      className="pharosville-quick-find pv-paper"
       data-testid="pharosville-quick-find"
       onKeyDown={handleKeyDown}
     >

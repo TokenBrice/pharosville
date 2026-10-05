@@ -1,11 +1,11 @@
 /**
  * Lazy chunk entry (`pharosville-audio-*.js`). Nothing here loads until the
- * visitor switches Sound on (or a `?debug=1&audio=record:N` harness run), and
+ * visitor switches Sound on (including a `?debug=1&audio=record:N` audition), and
  * the AudioContext it drives was already created inside that click.
  *
  * Lifecycle: consent fade from silence; hidden tab → fade to silence in 0.6 s
  * and suspend; visible → resume and rise, dropping (never replaying) whatever
- * was missed; off → fade and close, so the audio thread returns to zero.
+ * was missed; off or Still → silence and close, so the audio thread returns to zero.
  *
  * X8 listening pose: while the harbour is left open in Stay and nothing has
  * been touched for a few seconds, the mix leans in — the near bed a step back,
@@ -29,7 +29,7 @@ export interface GardenAudioHandle {
   close: () => void;
 }
 
-/** Past this age the render clock is treated as paused and the bed runs on the audio clock. */
+/** Past this age the render clock holds; audio never invents a second garden clock. */
 const SNAPSHOT_FRESH_MS = 500;
 
 export function startGardenAudio(
@@ -54,8 +54,6 @@ export function startGardenAudio(
     // Five time constants land within 1 % (−43 dB) of the target.
     fade.setTargetAtTime(value, now, seconds / 5);
   };
-  // Render seconds minus context seconds: re-anchored while frames arrive, held while they don't.
-  let renderOffset = Number.NaN;
   let hiddenTimer = 0;
   let closed = false;
   let stay = false;
@@ -68,13 +66,13 @@ export function startGardenAudio(
   for (const name of inputEvents) window.addEventListener(name, onInput, { capture: true, passive: true });
 
   const tick = () => {
-    if (closed || ctx.state !== "running") return;
+    if (closed || ctx.state !== "running" || document.visibilityState === "hidden" || snapshot.reducedMotion) return;
     const now = ctx.currentTime;
-    const age = performance.now() - snapshot.wallMs;
-    if (snapshot.frames > 0 && age < SNAPSHOT_FRESH_MS) renderOffset = snapshot.timeSeconds + age / 1000 - now;
-    else if (!Number.isFinite(renderOffset)) renderOffset = snapshot.timeSeconds - now;
+    const age = Math.max(0, performance.now() - snapshot.wallMs);
+    const fresh = snapshot.frames > 0 && age < SNAPSHOT_FRESH_MS;
     const at = now + AUDIO_LOOKAHEAD_SECONDS;
-    engine.tick(at, at + renderOffset, Math.floor(Date.now() / 60000), snapshot.directorSeconds + age / 1000);
+    const advance = fresh ? age / 1000 + AUDIO_LOOKAHEAD_SECONDS : 0;
+    engine.tick(at, snapshot.timeSeconds + advance, Math.floor(Date.now() / 60000), snapshot.directorSeconds + advance);
     const lean = stay && performance.now() - lastInputMs >= AUDIO_MASTER.listen.idleSeconds * 1000;
     if (lean !== listening) {
       listening = lean;
@@ -104,7 +102,7 @@ export function startGardenAudio(
   };
   document.addEventListener("visibilitychange", onVisibility);
   const unmountMixer = options.debug
-    ? mountAudioDebugMixer(overrides, (seconds) => void runAudioRecord(snapshot, seconds, overrides))
+    ? mountAudioDebugMixer(overrides, (seconds) => void runAudioRecord(snapshot, seconds, overrides, false, () => !closed))
     : null;
 
   return {
@@ -116,7 +114,7 @@ export function startGardenAudio(
       lastInputMs = performance.now();
     },
     playBeat(beat, pan = 0) {
-      if (closed || ctx.state !== "running") return;
+      if (closed || ctx.state !== "running" || document.visibilityState === "hidden" || snapshot.reducedMotion) return;
       engine.playBeat(beat, ctx.currentTime + 0.05, pan);
     },
     close() {
@@ -128,8 +126,9 @@ export function startGardenAudio(
       for (const name of inputEvents) window.removeEventListener(name, onInput, { capture: true });
       unmountMixer?.();
       if (ctx.state === "closed") return;
-      fadeTo(0, AUDIO_MASTER.stopFadeSeconds);
-      window.setTimeout(() => void ctx.close(), AUDIO_MASTER.stopFadeSeconds * 1000 + 50);
+      fade.cancelScheduledValues(ctx.currentTime);
+      fade.setValueAtTime(0, ctx.currentTime);
+      void ctx.close();
     },
   };
 }
@@ -141,14 +140,19 @@ export function startGardenAudio(
 export async function runAudioRecord(
   snapshot: Readonly<AudioSceneSnapshot>,
   seconds: number,
-  overrides: Parameters<typeof recordGardenAudio>[2] = null,
-  listening = false,
-): Promise<AudioRecordReport> {
+  overrides: Parameters<typeof recordGardenAudio>[2],
+  listening: boolean,
+  isConsented: () => boolean,
+): Promise<AudioRecordReport | null> {
   const deadline = performance.now() + 60_000;
+  if (!isConsented() || snapshot.reducedMotion) return null;
   while (snapshot.frames < 30 && performance.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 250));
+    if (!isConsented() || snapshot.reducedMotion) return null;
   }
+  if (!isConsented() || snapshot.reducedMotion) return null;
   const { report, wav } = await recordGardenAudio(snapshot, seconds, overrides, listening);
+  if (!isConsented() || snapshot.reducedMotion) return null;
   deliverAudioRecord(report, wav);
   (window as { __pharosVilleAudioRecord?: AudioRecordReport }).__pharosVilleAudioRecord = report;
   return report;

@@ -43,16 +43,21 @@ import { type DayCyclePhase } from "./garden-day-cycle";
  * toward the camera behind its caster. The bearing is now the seat's right
  * vector `(cos yaw, 0, -sin yaw)`, i.e. azimuth `-yaw` (−31° at the 31° rest
  * yaw), so at noon the key is pure side light: from the landscape seat the
- * tower's +X face takes the key at 46° (N·L 0.70), the broad +Z face sits in
- * shade at 115° (N·L −0.42) and the drum's seaward face grazes at 79°.
+ * tower's +X face takes the key, the broad +Z face sits in shade and the drum's
+ * seaward face grazes it. Their incidence changes with the seasonal apex.
  * With the ±57° arc this gives dawn ~33° right of forward (soft contre-jour,
  * just outside the frame edge), 17:36 at 132° (behind the viewer's right
  * shoulder) and sunset at 147°. If the rest yaw moves, the light moves with
  * it; the tests pin that relation, not a number.
  */
 const NOON_BEARING = -REST_SEAT_YAW_RAD;
-/** Lower apex keeps noon shadows legible without changing their bearing. */
-const NOON_ELEVATION = 0.62;
+/** Almanac reference at equinox and the nominal 35° latitude. */
+const EQUINOX_SOLAR_APEX = Math.PI / 2 - MathUtils.degToRad(35);
+
+/** Composed seasonal form light, not an astronomical-location claim. */
+export function gardenSolarApexForDay(day: GardenSkyDay): number {
+  return MathUtils.clamp(0.62 + 0.4 * (day.apexElevationRad - EQUINOX_SOLAR_APEX), 0.42, 0.85);
+}
 
 /**
  * Half the azimuth swept between sunrise and sunset, in radians (~57°).
@@ -124,21 +129,20 @@ export function gardenSunPose(hour: number, target = emptyPose(), day = gardenSk
 }
 
 /**
- * W2.14 (sky-7): the sun follows the date. Its elevation is the true solar
- * elevation from the almanac, scaled so the day's apex is NOON_ELEVATION: the
- * sun rises, sets and crosses every beat edge at the real minute, while noon
- * shadows keep the length the garden was modelled for in every season. The
- * azimuth keeps the compressed ±57° arc, spread over the real sunrise→sunset.
+ * The true almanac curve keeps sunrise, sunset and beat timing. Only displayed
+ * elevation is scaled to a composed seasonal apex, so winter casts longer
+ * shadows without abandoning the authored seat-right form light. This is not
+ * an astronomical-location claim. Azimuth retains the compressed ±57° arc.
  */
 function sunAngles(hour: number, day: GardenSkyDay): { azimuth: number; elevation: number } {
   const noonDelta = gardenSolarHourAngle(day, hour);
-  const progress = 0.5 + noonDelta / (day.sunsetHour - day.sunriseHour);
+  const progress = 0.5 + noonDelta / Math.max(1e-6, day.sunsetHour - day.sunriseHour);
   // Clamped only for the AZIMUTH: past the horizon the bearing stops mattering
   // and letting it run would swing the below-horizon glow to absurd headings.
   const azimuthProgress = MathUtils.clamp(progress, -0.15, 1.15);
   return {
     azimuth: NOON_BEARING + (azimuthProgress - 0.5) * 2 * ARC_SWEEP,
-    elevation: gardenSolarElevationAt(day, hour) * (NOON_ELEVATION / day.apexElevationRad),
+    elevation: gardenSolarElevationAt(day, hour) * (gardenSolarApexForDay(day) / Math.max(1e-6, day.apexElevationRad)),
   };
 }
 
@@ -222,5 +226,4 @@ function emptyPose(): GardenLightPose {
   return { direction: new Vector3(0, 1, 0), elevation: Math.PI / 2, moonLight: 0 };
 }
 
-export const GARDEN_SUN_NOON_ELEVATION = NOON_ELEVATION;
 export const GARDEN_KEY_MIN_ELEVATION = MIN_KEY_ELEVATION;

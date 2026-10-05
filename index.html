@@ -15,17 +15,18 @@
     <link rel="preload" href="/fonts/eb-garamond-400-italic-latin.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/eb-garamond-600-latin.woff2" as="font" type="font/woff2" crossorigin />
     <meta name="theme-color" content="#12313d" />
+    <link rel="stylesheet" href="/arrival-shell.css" />
     <script>
-      // K17: the page opens on the hour's own sky-to-sea gradient before any module loads. A copy of
-      // dayCycleBeats (day-cycle-beats.ts, sky-almanac.ts): nominal 35°, hemisphere from the zone, solar
-      // noon at 12 standard time. garden-arrival.test.ts pins the copy and its CSP hash (public/_headers).
+      // First paint uses clock-selected stylesheet classes, never inline styles.
+      // garden-arrival.test.ts pins the clock copy and exact CSP script hash.
       (function () {
         try {
           var q = new URLSearchParams(location.search.slice(1) + "&" + location.hash.replace(/^#\??/, ""));
-          var now = new Date(), r = Math.PI / 180, t = parseFloat(q.get("t") || "");
-          var pin = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && /^(\d{4})-(\d\d)-(\d\d)$/.exec(q.get("d") || "");
+          var local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+          var now = new Date(), r = Math.PI / 180, t = local ? parseFloat(q.get("t") || "") : NaN;
+          var pin = local && /^(\d{4})-(\d\d)-(\d\d)$/.exec(q.get("d") || "");
           var Y = pin ? +pin[1] : now.getFullYear(), M = pin ? pin[2] - 1 : now.getMonth(), D = pin ? +pin[3] : now.getDate();
-          var h = t >= 0 ? Math.min(24, t) : q.get("n") === "1" ? 22 : now.getHours() + now.getMinutes() / 60;
+          var h = t >= 0 ? Math.min(24, t) : local && q.get("n") === "1" ? 22 : now.getHours() + now.getMinutes() / 60;
           var jan = new Date(Y, 0, 1).getTimezoneOffset(), jul = new Date(Y, 6, 1).getTimezoneOffset();
           var zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
           var south = (jan !== jul && jan < jul) || /^(Antarctica\/|Australia\/|America\/(Argentina\/|Asuncion|Bahia|Buenos_Aires|Campo_Grande|Cuiaba|La_Paz|Lima|Montevideo|Punta_Arenas|Recife|Santiago|Sao_Paulo)|Africa\/(Johannesburg|Maputo|Harare|Lusaka|Windhoek|Gaborone|Maseru|Mbabane|Luanda|Lubumbashi|Blantyre|Dar_es_Salaam)|Asia\/Jakarta|Indian\/(Antananarivo|Mauritius|Reunion)|Pacific\/(Apia|Auckland|Chatham|Fiji|Noumea|Port_Moresby|Tahiti|Tongatapu))/.test(zone);
@@ -39,20 +40,11 @@
             ? e >= 8 ? [0, 1 - s(16, 8), s(16, 8), 0, 0] : e >= 4 ? [0, 0, 1, 0, 0]
               : e >= -4 ? [0, 0, 1 - s(4, -4), s(4, -4), 0] : [0, 0, 0, 1 - s(-4, -12), s(-4, -12)]
             : e < -2 ? [s(-12, -2), 0, 0, 0, 1 - s(-12, -2)] : e < 6 ? [1, 0, 0, 0, 0] : [1 - s(6, 16), s(6, 16), 0, 0, 0];
-          // Top, horizon and threshold means of the clean rest still at each beat (public/pharosville/stills).
-          var C = [[0x787081, 0x947e78, 0x0b0a08], [0x4986bb, 0x516e8f, 0x0c2329], [0x4b4c7f, 0x5f5d7c, 0x04030f],
-            [0x151d4b, 0x1a274b, 0x010206], [0x141b34, 0x151e39, 0x000205]];
-          var root = document.documentElement, stops = [], beat = 0;
-          for (var k = 0; k < 3; k += 1) {
-            var rgb = [16, 8, 0].map(function (bit) { return Math.round(w.reduce(function (sum, wi, i) { return sum + wi * ((C[i][k] >> bit) & 255); }, 0)); });
-            stops.push("rgb(" + rgb.join(",") + ")");
-            root.style.setProperty(["--pv-veil-top", "--pv-veil-mid", "--pv-veil-bottom"][k], stops[k]);
-          }
+          var beat = 0;
           for (var i = 1; i < 5; i += 1) if (w[i] > w[beat]) beat = i;
-          root.setAttribute("data-pv-veil-beat", ["dawn", "day", "golden", "blue", "night"][beat]);
-          root.style.background = stops[2] + " linear-gradient(" + stops[0] + "," + stops[1] + " 42%," + stops[2] + " 80%) fixed";
+          document.documentElement.setAttribute("data-pv-veil-beat", ["dawn", "day", "golden", "blue", "night"][beat]);
         } catch (error) {
-          document.documentElement.style.background = "#12313d";
+          document.documentElement.setAttribute("data-pv-veil-beat", "day");
         }
       })();
     </script>
@@ -65,16 +57,34 @@
     <meta property="og:image" content="https://pharosville.pharos.watch/og-card.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="PharosVille — a lighthouse beacon over the stablecoin seas." />
+    <meta property="og:image:alt" content="PharosVille — a living stablecoin garden with the Pharos beyond moss, stone and anchored sails. Illustration, not live readings." />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="PharosVille — A Living Stablecoin Garden" />
     <meta name="twitter:description" content="Watch live Pharos stablecoin markets unfold in a calm, living digital garden: ships are stablecoins, water is peg risk." />
     <meta name="twitter:image" content="https://pharosville.pharos.watch/og-card.png" />
-    <meta name="twitter:image:alt" content="PharosVille — a lighthouse beacon over the stablecoin seas." />
+    <meta name="twitter:image:alt" content="PharosVille — a living stablecoin garden with the Pharos beyond moss, stone and anchored sails. Illustration, not live readings." />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <section class="pv-arrival-shell" aria-label="PharosVille welcome">
+        <div class="pv-arrival-shell__content">
+          <h1>PharosVille</h1>
+          <p class="pv-arrival-shell__promise">A living stablecoin garden</p>
+          <p>Watch the market, then inspect the evidence.</p>
+          <dl class="pv-arrival-shell__guide">
+            <div><dt>Lighthouse</dt><dd>The official Pharos Stability Index describes the market as a whole.</dd></div>
+            <div><dt>Water</dt><dd>Surface signatures distinguish categorical peg risk; missing evidence is not calm.</dd></div>
+            <div><dt>Sails</dt><dd>One ship is one stablecoin. Size uses a compressed supply scale, not proportional market cap.</dd></div>
+          </dl>
+          <p class="pv-arrival-shell__stage" role="status">Waiting for the application module.</p>
+          <nav aria-label="Pharos analytics">
+            <a href="https://pharos.watch/">Open Pharos analytics</a>
+            <a href="https://pharos.watch/stability-index/">Stability Index</a>
+          </nav>
+        </div>
+      </section>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

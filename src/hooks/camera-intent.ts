@@ -1,4 +1,5 @@
-import { withoutRest, zoomCameraOnGround } from "../systems/camera";
+import { groundPointUnder, shotObstacleHeight, withoutRest, zoomCameraOnGround } from "../systems/camera";
+import { strollGroundHeight, strollShelterHeight, type GardenPostcard } from "../systems/postcards";
 import {
   cameraRestBlend,
   cameraView,
@@ -22,11 +23,10 @@ export const FOLLOW_CAMERA_DAMPING = 4;
  * W1.7 selection glides (camera-3, ambient-journey-4): time-based quintic
  * smootherstep, not exponential damping, so the view eases into motion as
  * well as out of it. A 120 ms hold lets the click register first; the return
- * walks the same curve 1.25× slower; the panel opens at 70 % of the glide.
+ * walks the same curve 1.25× slower. DOM details disclose immediately.
  */
 export const SELECTION_GLIDE_HOLD_SECONDS = 0.12;
 export const SELECTION_RETURN_GLIDE_SCALE = 1.25;
-export const SELECTION_PANEL_REVEAL_PROGRESS = 0.7;
 /** Lighthouse selection is a slow look-up, not a travel. */
 export const LIGHTHOUSE_LOOK_UP_SECONDS = 3;
 const SELECTION_GLIDE_MIN_SECONDS = 1.4;
@@ -231,12 +231,10 @@ export interface ShotGlide {
    */
   restPresence: readonly [number, number];
   restEyeOffset: readonly [WorldPoint, WorldPoint];
-  /**
-   * X6: how far the eye (and its look-at) rises at mid-glide, world units, so
-   * a long travel between postcards clears the island and rim rather than
-   * cutting through them. 0 for the short selection glides.
-   */
-  arcHeight: number;
+  /** Explicit, clearance-solved eye/look-at nodes and cumulative travel. */
+  path: readonly CameraView[];
+  distances: readonly number[];
+  pathLength: number;
 }
 
 function restEyeOffset(camera: IsoCamera, shownEye: WorldPoint): WorldPoint | null {
@@ -251,13 +249,19 @@ export function createShotGlide(input: {
   viewport: ScreenPoint;
   durationSeconds: number;
   holdSeconds?: number;
-  arcHeight?: number;
+  waypoints?: readonly WorldPoint[];
 }): ShotGlide {
   const from = cameraView(input.from, input.viewport, { breath: false });
   const toView = cameraView(input.to, input.viewport, { breath: false });
   const zero = { x: 0, y: 0, z: 0 };
   const fromOffset = restEyeOffset(input.from, from.eye);
   const toOffset = restEyeOffset(input.to, toView.eye);
+  const path = clearancePath(from, toView, input.waypoints);
+  const distances = [0];
+  for (let i = 1; i < path.length; i += 1) {
+    const a = path[i - 1]!.eye, b = path[i]!.eye;
+    distances.push(distances[i - 1]! + Math.max(0.001, Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)));
+  }
   return {
     from,
     to: input.to,
@@ -266,7 +270,9 @@ export function createShotGlide(input: {
     durationSeconds: Math.max(1e-3, input.durationSeconds),
     restPresence: [input.from.rest?.presence ?? 0, input.to.rest?.presence ?? 0],
     restEyeOffset: [fromOffset ?? toOffset ?? zero, toOffset ?? fromOffset ?? zero],
-    arcHeight: Math.max(0, input.arcHeight ?? 0),
+    path,
+    distances,
+    pathLength: distances[distances.length - 1]!,
   };
 }
 
@@ -281,12 +287,11 @@ export function sampleShotGlide(glide: ShotGlide, elapsedSeconds: number): { cam
   const progress = Math.min(1, Math.max(0, (elapsedSeconds - glide.holdSeconds) / glide.durationSeconds));
   if (progress >= 1) return { camera: glide.to, progress, done: true };
   const eased = cameraRestBlend(progress);
-  const view = lerpCameraView(glide.from, glide.toView, eased);
-  if (glide.arcHeight > 0) {
-    const lift = glide.arcHeight * 4 * eased * (1 - eased);
-    view.eye.y += lift;
-    view.target.y += lift;
-  }
+  const distance = eased * glide.pathLength;
+  let segment = 1;
+  while (segment < glide.distances.length - 1 && glide.distances[segment]! < distance) segment += 1;
+  const local = (distance - glide.distances[segment - 1]!) / (glide.distances[segment]! - glide.distances[segment - 1]!);
+  const view = lerpCameraView(glide.path[segment - 1]!, glide.path[segment]!, cameraRestBlend(local));
   const camera: IsoCamera = {
     offsetX: glide.to.offsetX,
     offsetY: glide.to.offsetY,
@@ -310,6 +315,95 @@ export function sampleShotGlide(glide: ShotGlide, elapsedSeconds: number): { cam
     };
   }
   return { camera, progress, done: false };
+}
+
+export const STROLL_CLEARANCE_STEP = 0.5;
+
+/** World height required by water, the exact terrain, and station massing. */
+export function strollEyeFloor(x: number, z: number): number {
+  const ground = strollGroundHeight(x, z);
+  const obstacle = shotObstacleHeight(x, z);
+  const shelter = strollShelterHeight(x, z);
+  return Math.max(-1.45 + 1.7, ground === null ? -Infinity : ground + 0.8, obstacle === null ? -Infinity : obstacle + 0.8, shelter === null ? -Infinity : shelter + 0.8);
+}
+
+/**
+ * Solve once per command, never per frame. Authored corridors avoid the
+ * headland; a blocked span gets a local rise/traverse/descent, not a universal
+ * flyover arc. Sampling includes endpoints at at most half-unit increments.
+ */
+export function clearancePath(from: Readonly<CameraView>, to: Readonly<CameraView>, waypoints: readonly WorldPoint[] = []): CameraView[] {
+  const nodes: CameraView[] = [{ eye: { ...from.eye }, target: { ...from.target }, vFovDeg: from.vFovDeg }];
+  const authored = [...waypoints, to.eye];
+  for (let i = 0; i < authored.length; i += 1) {
+    const a = nodes[nodes.length - 1]!;
+    const eye = authored[i]!;
+    const t = (i + 1) / authored.length;
+    const b = lerpCameraView(from, to, t);
+    b.eye = { ...eye };
+    if (i < authored.length - 1) {
+      const lift = Math.max(0, strollEyeFloor(b.eye.x, b.eye.z) + 0.1 - b.eye.y);
+      b.eye.y += lift;
+      b.target.y += lift;
+    }
+    let ceiling = Math.max(a.eye.y, b.eye.y);
+    let blocked = false;
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.eye.x - a.eye.x, b.eye.y - a.eye.y, b.eye.z - a.eye.z) / (STROLL_CLEARANCE_STEP / 2)));
+    for (let step = 0; step <= steps; step += 1) {
+      const share = step / steps;
+      const floor = strollEyeFloor(a.eye.x + (b.eye.x - a.eye.x) * share, a.eye.z + (b.eye.z - a.eye.z) * share);
+      ceiling = Math.max(ceiling, floor + 0.1);
+      if (a.eye.y + (b.eye.y - a.eye.y) * share < floor) blocked = true;
+    }
+    if (blocked) {
+      nodes.push({ ...a, eye: { ...a.eye, y: ceiling }, target: { ...a.target, y: a.target.y + ceiling - a.eye.y } });
+      nodes.push({ ...b, eye: { ...b.eye, y: ceiling }, target: { ...b.target, y: b.target.y + ceiling - b.eye.y } });
+    }
+    nodes.push(b);
+  }
+  return nodes;
+}
+
+/** Endpoint feasibility plus sampled clearance of the same command-time route. */
+export function strollPathClear(from: Readonly<CameraView>, to: Readonly<CameraView>): boolean {
+  if (![from.eye, to.eye].every((eye) => Number.isFinite(eye.x + eye.y + eye.z) && eye.y >= strollEyeFloor(eye.x, eye.z))) return false;
+  const path = clearancePath(from, to);
+  for (let i = 1; i < path.length; i += 1) {
+    const a = path[i - 1]!.eye, b = path[i]!.eye;
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) / STROLL_CLEARANCE_STEP));
+    for (let j = 0; j <= steps; j += 1) {
+      const t = j / steps;
+      if (a.y + (b.y - a.y) * t < strollEyeFloor(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t)) return false;
+    }
+  }
+  return true;
+}
+
+/** Local hand-off retains the displayed lens/yaw, translating the grabbed water point exactly. */
+export function panStationCamera(camera: IsoCamera, from: ScreenPoint, to: ScreenPoint, viewport: ScreenPoint, station: GardenPostcard): IsoCamera {
+  const grabbed = groundPointUnder(camera, from, viewport), destination = groundPointUnder(camera, to, viewport);
+  if (!grabbed || !destination) return camera;
+  const view = cameraView(camera, viewport, { breath: false });
+  const bounds = station.localBounds;
+  const dx = Math.max(bounds.minX - view.eye.x, Math.min(bounds.maxX - view.eye.x, grabbed.x - destination.x));
+  const dz = Math.max(bounds.minZ - view.eye.z, Math.min(bounds.maxZ - view.eye.z, grabbed.z - destination.z));
+  const eye = { x: view.eye.x + dx, y: view.eye.y, z: view.eye.z + dz };
+  if (eye.y < strollEyeFloor(eye.x, eye.z)) return camera;
+  return { ...withoutRest(camera), shot: { presence: 1, view: { ...view, eye, target: { x: view.target.x + dx, y: view.target.y, z: view.target.z + dz } } } };
+}
+
+/** Dolly along the cursor ray; no rig snap and no yaw/orbit freedom. */
+export function zoomStationCamera(camera: IsoCamera, point: ScreenPoint, scale: number, viewport: ScreenPoint, station: GardenPostcard): IsoCamera {
+  const grabbed = groundPointUnder(camera, point, viewport);
+  if (!grabbed) return camera;
+  const view = cameraView(camera, viewport, { breath: false });
+  const bounds = station.localBounds;
+  const zoom = Math.max(bounds.minDolly, Math.min(bounds.maxDolly, camera.zoom * scale));
+  const ratio = camera.zoom / zoom;
+  const transform = (p: WorldPoint): WorldPoint => ({ x: grabbed.x + (p.x - grabbed.x) * ratio, y: grabbed.y + (p.y - grabbed.y) * ratio, z: grabbed.z + (p.z - grabbed.z) * ratio });
+  const eye = transform(view.eye);
+  if (eye.x < bounds.minX || eye.x > bounds.maxX || eye.z < bounds.minZ || eye.z > bounds.maxZ || eye.y < strollEyeFloor(eye.x, eye.z)) return camera;
+  return { offsetX: camera.offsetX, offsetY: camera.offsetY, zoom, shot: { presence: 1, view: { ...view, eye, target: transform(view.target) } } };
 }
 
 export function cameraModeCancelsFollow(mode: CameraIntentMode): boolean {

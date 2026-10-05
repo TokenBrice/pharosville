@@ -23,6 +23,30 @@ Success means a visitor can first read the market's broad condition at a glance,
 then understand why it looks that way, and finally inspect the underlying facts
 without treating scenery or motion as financial truth.
 
+## Garden Observatory outcome rubric (2026-10-05)
+
+Direction A — Moss-side observatory — uses refined stylized PBR to make the
+viewing garden recognizable before the harbour, while keeping the Pharos,
+risk waters and supply leaders readable. Judge outcomes separately on a 1–5
+scale; visual richness never substitutes for analytical truth:
+
+- **Garden recognition:** an unprompted visitor recognizes an inhabited
+  Japanese viewing garden through spatial structure, not a catalogue of props.
+- **Relaxation:** the whole-frame hierarchy and quiet intervals remain pleasant
+  during a ten-minute watch, at real day and night hours.
+- **Market reading:** after a five-second aggregate/risk/leader reading, teaching
+  through the key supports the correct interpretation and inspection of the
+  exact dated record.
+
+Acceptance requires operator preference, garden recognition and relaxation
+≥4, market reading ≥3 after teaching, and zero confident false analytical
+claims. Review randomized full frames before explanation, then blur/notan and
+crops; record prefer/reject/undecided with reasons. MAE is diagnostic deviation
+evidence only, never aesthetic approval. Models do not substitute for the
+operator. Taste checkpoints are destination and CP-Final only; the
+orchestrator archives autonomous destination review for final operator review.
+The reading test and hardware evidence remain pending until actually gathered.
+
 ## Brand Personality
 
 Contemplative, precise, and poetic. The experience should feel smooth and

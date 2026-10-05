@@ -31,9 +31,8 @@ import type { TextureOwnerManifestEntry } from "../renderer/render-types";
  *
  * - **R foam**: bow cushion, stern churn and short hull-scaled Kelvin arms of
  *   every hull making way. Fades in ~3 s, exactly zero by 12 s.
- * - **G slick**: the glassy lane a moving hull leaves behind, laid at the
- *   stamp's intensity (which carries the risk zone and the 24 h change, so a
- *   stronger wake is a longer lane). Fades over ~30 s, exactly zero by 60 s.
+ * - **G slick**: soft historical water displaced by an actual mover, laid at
+ *   its raw zone/speed/change intensity. Fades over ~30 s, zero by 60 s.
  * - **B contact**: every visible hull's waterline footprint, THIS frame only —
  *   the feedback pass zeroes it, the stamp pass rewrites it.
  * - A: unused, held at zero.
@@ -62,8 +61,8 @@ import type { TextureOwnerManifestEntry } from "../renderer/render-types";
  * - Texture count unchanged: the same two targets, now HalfFloat.
  * - Deterministic: content derives from the fleet's poses and fixed decay
  *   laws; the frame delta is clamped so a backgrounded tab cannot jump the
- *   field. Reduced motion resets the field to one empty time-zero composition,
- *   so a fresh static load and a runtime preference change are identical.
+ *   field. Reduced motion clears R/G to canonical time zero and redraws B
+ *   only when the hull footprints or camera window change.
  * - Tier invariance of intent: below `balanced` the target freezes while the
  *   water fades it out, then clears once it is no longer visible.
  * - No per-frame allocation: stamp attributes are preallocated buffers;
@@ -270,8 +269,8 @@ export interface GardenWakes {
    * Reduced motion (W5): the field carries no wakes, but hulls still sit in
    * the water. After this frame's ship loop has stamped contact, draw those
    * footprints alone into the (cleared) field so the water reads them in the
-   * same frame — a static contact smear, nothing decays or moves. No-op
-   * outside reduced motion or with no contact stamps.
+   * same frame — hull-bedded static contact, never historical trails.
+   * No-op outside reduced motion.
    */
   renderStaticContact: () => void;
 }
@@ -359,10 +358,12 @@ const STAMP_FRAGMENT = /* glsl */ `
     float halfBeam = vParam.z;
     float along = vLocal.x;
     float across = vLocal.y;
+    // Evaluate the stamp footprint before the contact-only branch.
+    float edge = max(0.04, uTexelWorld / max(halfBeam, 0.2));
     if (vParam.x < 0.0) {
-      // B: the hull's waterline footprint, soft-edged.
-      float r = length(vec2(along / halfLength, across / halfBeam));
-      gl_FragColor = vec4(0.0, 0.0, (1.0 - smoothstep(0.55, 1.05, r)) * -vParam.x, 0.0);
+      // B: a continuous full-core waterline bed, not a trail or a reflection.
+      float r = length(vec2(along / max(halfLength, 0.3), across / max(halfBeam, 0.2)));
+      gl_FragColor = vec4(0.0, 0.0, (1.0 - smoothstep(1.0 - min(edge, 0.45), 1.0 + edge * 0.25, r)) * -vParam.x, 0.0);
       return;
     }
     float strength = vParam.x;
@@ -376,17 +377,16 @@ const STAMP_FRAGMENT = /* glsl */ `
       * smoothstep(-0.35 * halfLength, 0.0, astern)
       * exp(-max(astern, 0.0) / (0.55 * halfLength)) * 0.8;
     // ...and short Kelvin arms (19.5 degrees) held to about one hull length.
-    // The arm width follows the texel so the lines rasterise, never sparkle.
+    // Filter the narrow arms to the field texel without inflating their energy.
     float fromStem = halfLength - along;
-    float armDelta = (abs(across) - 0.354 * fromStem) / max(0.25, 0.9 * uTexelWorld);
+    float armWidth = max(0.25, 0.9 * uTexelWorld);
+    float armDelta = (abs(across) - 0.354 * fromStem) / armWidth;
     float arm = exp(-armDelta * armDelta)
       * smoothstep(0.6 * halfLength, 1.2 * halfLength, fromStem)
-      * (1.0 - smoothstep(1.6 * halfLength, 2.4 * halfLength, fromStem)) * 0.3;
+      * (1.0 - smoothstep(1.6 * halfLength, 2.4 * halfLength, fromStem)) * (0.075 / armWidth);
     float foam = clamp((bow + churn + arm) * strength, 0.0, 1.0);
-    // G: a glassy lane of no taper under and astern of the hull; the union of
-    // consecutive frames' lanes is the path the hull sailed.
-    // A wide soft shoulder (plus a texel of slack) so the lane never reads
-    // as a hard-edged road once the water thresholds it.
+    // G is historical: overlapping soft stamps trace only the path sailed.
+    // No hard threshold or selected-only writer turns that path into a road.
     float laneHalfWidth = 1.1 * halfBeam * (0.6 + 0.4 * strength);
     float lane = (1.0 - smoothstep(0.2 * laneHalfWidth, 1.3 * laneHalfWidth + uTexelWorld, abs(across)))
       * smoothstep(-2.4 * halfLength, -1.6 * halfLength, along)
@@ -508,15 +508,20 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
 
   const clearTargets = () => {
     const previousTarget = renderer.getRenderTarget();
+    const previousFace = renderer.getActiveCubeFace();
+    const previousMip = renderer.getActiveMipmapLevel();
     renderer.getClearColor(clearColorScratch);
     const previousAlpha = renderer.getClearAlpha();
-    renderer.setClearColor(0x000000, 0);
-    renderer.setRenderTarget(front);
-    renderer.clear(true, false, false);
-    renderer.setRenderTarget(back);
-    renderer.clear(true, false, false);
-    renderer.setRenderTarget(previousTarget);
-    renderer.setClearColor(clearColorScratch, previousAlpha);
+    try {
+      renderer.setClearColor(0x000000, 0);
+      renderer.setRenderTarget(front);
+      renderer.clear(true, false, false);
+      renderer.setRenderTarget(back);
+      renderer.clear(true, false, false);
+    } finally {
+      renderer.setClearColor(clearColorScratch, previousAlpha);
+      renderer.setRenderTarget(previousTarget, previousFace, previousMip);
+    }
     targetsAreClear = true;
   };
 
@@ -610,6 +615,7 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
       staticContactCount = -1;
     },
     stamp(worldX, worldZ, headingX, headingY, foam, halfLength, halfBeam, slick = 0) {
+      if (wasReducedMotion) return;
       const strength = MathUtils.clamp(foam, 0, 1);
       const lane = MathUtils.clamp(slick, 0, 1);
       if (strength <= 0 && lane <= 0) return;
@@ -705,23 +711,28 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
       paramAttribute.needsUpdate = true;
 
       const previousTarget = renderer.getRenderTarget();
+      const previousFace = renderer.getActiveCubeFace();
+      const previousMip = renderer.getActiveMipmapLevel();
       const previousAutoClear = renderer.autoClear;
-      renderer.setRenderTarget(back);
-      feedbackQuad.visible = true;
-      stampMesh.visible = false;
-      renderer.autoClear = true;
-      renderer.render(offscreenScene, offscreenCamera);
-      // The stamp pass max-blends into the feedback result without clearing it.
-      if (stampCount > 0) {
-        feedbackQuad.visible = false;
-        stampMesh.visible = true;
-        renderer.autoClear = false;
+      try {
+        renderer.setRenderTarget(back);
+        feedbackQuad.visible = true;
+        stampMesh.visible = false;
+        renderer.autoClear = true;
         renderer.render(offscreenScene, offscreenCamera);
+        // The stamp pass max-blends into the feedback result without clearing it.
+        if (stampCount > 0) {
+          feedbackQuad.visible = false;
+          stampMesh.visible = true;
+          renderer.autoClear = false;
+          renderer.render(offscreenScene, offscreenCamera);
+        }
+      } finally {
+        feedbackQuad.visible = true;
+        stampMesh.visible = false;
+        renderer.autoClear = previousAutoClear;
+        renderer.setRenderTarget(previousTarget, previousFace, previousMip);
       }
-      feedbackQuad.visible = true;
-      stampMesh.visible = false;
-      renderer.autoClear = previousAutoClear;
-      renderer.setRenderTarget(previousTarget);
       const swap = front;
       front = back;
       back = swap;
@@ -764,12 +775,16 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
         staticContactData[d + 6] = paramData[index * 4 + 2]!;
         staticContactData[d + 7] = paramData[index * 4 + 3]!;
       }
-      staticContactCount = stampCount;
+      // Commit validity only after clearing and drawing both succeed.
+      staticContactCount = -1;
       staticContactWindow.centerX = window_.centerX;
       staticContactWindow.centerY = window_.centerY;
       staticContactWindow.halfSize = window_.halfSize;
       if (!targetsAreClear) clearTargets();
-      if (stampCount === 0) return;
+      if (stampCount === 0) {
+        staticContactCount = 0;
+        return;
+      }
       const stamps = stampMaterial.uniforms;
       stamps.uCenter.value.x = window_.centerX;
       stamps.uCenter.value.y = window_.centerY;
@@ -780,17 +795,23 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
       dirAttribute.needsUpdate = true;
       paramAttribute.needsUpdate = true;
       const previousTarget = renderer.getRenderTarget();
+      const previousFace = renderer.getActiveCubeFace();
+      const previousMip = renderer.getActiveMipmapLevel();
       const previousAutoClear = renderer.autoClear;
-      renderer.setRenderTarget(front);
-      feedbackQuad.visible = false;
-      stampMesh.visible = true;
-      renderer.autoClear = false;
-      renderer.render(offscreenScene, offscreenCamera);
-      feedbackQuad.visible = true;
-      stampMesh.visible = false;
-      renderer.autoClear = previousAutoClear;
-      renderer.setRenderTarget(previousTarget);
-      targetsAreClear = false;
+      try {
+        renderer.setRenderTarget(front);
+        feedbackQuad.visible = false;
+        stampMesh.visible = true;
+        renderer.autoClear = false;
+        targetsAreClear = false;
+        renderer.render(offscreenScene, offscreenCamera);
+      } finally {
+        feedbackQuad.visible = true;
+        stampMesh.visible = false;
+        renderer.autoClear = previousAutoClear;
+        renderer.setRenderTarget(previousTarget, previousFace, previousMip);
+      }
+      staticContactCount = stampCount;
       stampCount = 0;
       wakeStampCount = 0;
     },

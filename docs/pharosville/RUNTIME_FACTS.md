@@ -39,7 +39,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 | Model | URL | Bytes | Geometry | SHA-256 |
 | --- | --- | --- | --- | --- |
-| `garden-lighthouse-shell` | `/pharosville/models/garden-lighthouse-shell.glb` | 190 KiB | 8 draws / 30,436 tris / 19,901 verts / 0 textures | `f57ccc4f936e03d155fc8df2df1d049e65f7e7c3b70ed041ec8d770f23b97f78` |
+| `garden-lighthouse-shell` | `/pharosville/models/garden-lighthouse-shell.glb` | 190 KiB | 8 draws / 30,436 tris / 19,901 verts / 0 textures | `68c6da645a69dd6c8b90f0ceb2a05ca4fc49450d30fd02241b66dfd44fc7cf26` |
 | `garden-hero-tether` | `/pharosville/models/garden-hero-tether.glb` | 20 KiB | 4 draws / 930 tris / 842 verts / 0 textures | `d8b66430e8c05b5d66d6c83f443697691141d74fa3f2027b29139b6bc12245ef` |
 | `garden-hero-circle` | `/pharosville/models/garden-hero-circle.glb` | 28 KiB | 5 draws / 1,258 tris / 1,392 verts / 0 textures | `2e5e50cdd5e1fb137abb2f6715ba0970ae8ae536313d6b23d3034e8577ed5851` |
 | `garden-hero-maker` | `/pharosville/models/garden-hero-maker.glb` | 31 KiB | 5 draws / 1,764 tris / 1,451 verts / 0 textures | `4998bb3c019e629cbecab19946ae28b83aedbc087310f9f570a9a5388956f20f` |
@@ -58,7 +58,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - world lazy chunk: raw <= 440 KiB, gzip <= 145 KiB
 - Three.js renderer chunk: raw <= 1,600 KiB, gzip <= 454 KiB
 - entry CSS: raw <= 44 KiB, gzip <= 8 KiB
-- Total JS: raw <= 3,200 KiB, gzip <= 963 KiB
+- Total JS: raw <= 3,200 KiB, gzip <= 1,024 KiB
 
 ## Squads
 

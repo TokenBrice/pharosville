@@ -5,13 +5,23 @@ const SignedFlowIntensitySchema = z.number().min(-100).max(100);
 const PressureShiftStateSchema = z.enum(PRESSURE_SHIFT_STATE_VALUES);
 const NetFlowDirection24hSchema = z.enum(NET_FLOW_DIRECTION_24H_VALUES);
 
+const ValuationCompletenessSchema = z.enum(["complete", "partial", "unknown"]);
+const MintBurnValuationSchema = z.object({
+  completeness: ValuationCompletenessSchema,
+  mintCompleteness: ValuationCompletenessSchema,
+  burnCompleteness: ValuationCompletenessSchema,
+  unpricedMintEventCount: z.number().int().nonnegative(),
+  unpricedBurnEventCount: z.number().int().nonnegative(),
+});
+export type MintBurnValuation = z.infer<typeof MintBurnValuationSchema>;
+
 const MintBurnGaugeSchema = z.object({
   score: SignedFlowIntensitySchema.nullable(),
   band: z.string().nullable(),
   intensitySemantics: z.enum(["midpoint-v1", "signed-v2"]).optional(),
-  flightToQuality: z.boolean(),
-  flightIntensity: z.number().finite(),
-  classificationSource: z.enum(["report-card-cache", "unavailable"]).optional(),
+  flightToQuality: z.boolean().nullable(),
+  flightIntensity: z.number().finite().nullable(),
+  classificationSource: z.enum(["safety-score-v9-publication", "report-card-cache", "unavailable"]).optional(),
   trackedCoins: z.number().int().nonnegative(),
   trackedMcapUsd: z.number().finite().nonnegative(),
 });
@@ -38,6 +48,7 @@ const MintBurnCoverageStatusSchema = z.enum([
   "lagging",
   "bootstrapping",
   "disabled",
+  "unknown",
 ]);
 export type MintBurnCoverageStatus = z.infer<typeof MintBurnCoverageStatusSchema>;
 
@@ -63,12 +74,13 @@ const MintBurnCoinFlowSchema = z.object({
   flowIntensity: SignedFlowIntensitySchema.nullable().optional(),
   pressureShiftScore: SignedFlowIntensitySchema.nullable().optional(),
   pressureShiftState: PressureShiftStateSchema.optional(),
-  netFlowDirection24h: NetFlowDirection24hSchema.optional(),
+  netFlowDirection24h: NetFlowDirection24hSchema.nullable().optional(),
   has24hActivity: z.boolean().optional(),
   baselineDailyNetUsd: z.number().nullable().optional(),
   baselineDailyAbsUsd: z.number().nullable().optional(),
   baselineDataDays: z.number().nullable().optional(),
-  netFlow24hUsd: z.number().finite(),
+  /** Partial valuation withholds the signed net; gross volumes remain lower bounds. */
+  netFlow24hUsd: z.number().finite().nullable(),
   mintVolume24hUsd: z.number().finite().nonnegative(),
   burnVolume24hUsd: z.number().finite().nonnegative(),
   mintCount24h: z.number().int().nonnegative(),
@@ -85,14 +97,30 @@ const MintBurnCoinFlowSchema = z.object({
     })
     .nullable(),
   coverage: MintBurnCoinCoverageSchema.optional(),
+  valuation: z.object({
+    window24h: MintBurnValuationSchema,
+    baseline: ValuationCompletenessSchema,
+    netFlow7d: ValuationCompletenessSchema,
+    netFlow30d: ValuationCompletenessSchema,
+    netFlow90d: ValuationCompletenessSchema,
+  }).optional(),
+}).superRefine((coin, ctx) => {
+  if (coin.netFlow24hUsd === null && coin.valuation?.window24h.completeness !== "partial") {
+    ctx.addIssue({ code: "custom", path: ["netFlow24hUsd"], message: "Null net requires partial valuation evidence" });
+  }
 });
 export type MintBurnCoinFlow = z.infer<typeof MintBurnCoinFlowSchema>;
 
 const MintBurnHourlyBucketSchema = z.object({
   hourTs: z.number().int().nonnegative(),
-  netFlowUsd: z.number().finite(),
+  netFlowUsd: z.number().finite().nullable(),
   mintVolumeUsd: z.number().finite().nonnegative(),
   burnVolumeUsd: z.number().finite().nonnegative(),
+  valuation: ValuationCompletenessSchema.optional(),
+}).superRefine((hour, ctx) => {
+  if (hour.netFlowUsd === null && hour.valuation !== "partial") {
+    ctx.addIssue({ code: "custom", path: ["netFlowUsd"], message: "Null net requires partial valuation evidence" });
+  }
 });
 export type MintBurnHourlyBucket = z.infer<typeof MintBurnHourlyBucketSchema>;
 

@@ -1,11 +1,41 @@
 import { describe, expect, it } from "vitest";
-import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
+import { fixtureStability, makePharosVilleWorldInput, makeSourceStatuses } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import type { PharosVilleWorld } from "./world-types";
-import { worldRenderContentSignature } from "./world-render-content-signature";
+import { worldRenderContentPartHashes, worldRenderContentSignature } from "./world-render-content-signature";
+import { buildGardenMonthRecord } from "./garden-month-record";
 import { SCENARIOS } from "../__fixtures__/data-contract-scenarios";
 
 describe("worldRenderContentSignature", () => {
+  it("isolates changed daily scores, gaps and methodology from the structural lighthouse/island key", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const history = [
+      { date: Date.UTC(2026, 7, 12), score: 70, band: "STEADY", methodologyVersion: "v1" },
+      { date: Date.UTC(2026, 7, 13), score: 80, band: "STEADY", methodologyVersion: "v1" },
+    ];
+    const daily = buildGardenMonthRecord({ ...fixtureStability, history });
+    const withRecord = (gardenMonthRecord: NonNullable<PharosVilleWorld["lighthouse"]["gardenMonthRecord"]>) => ({
+      ...world, lighthouse: { ...world.lighthouse, gardenMonthRecord },
+    });
+    const baseline = withRecord(daily);
+    const baselineHashes = worldRenderContentPartHashes(baseline);
+    for (const changedHistory of [
+      [history[0]!, { ...history[1]!, score: 81 }],
+      [history[0]!, { ...history[1]!, methodologyVersion: "v2" }],
+      [history[1]!],
+      [history[0]!, { ...history[1]!, date: history[1]!.date + 3_600_000 }],
+    ]) {
+      const changed = withRecord(buildGardenMonthRecord({ ...fixtureStability, history: changedHistory }));
+      const hashes = worldRenderContentPartHashes(changed);
+      expect(worldRenderContentSignature(changed)).not.toBe(worldRenderContentSignature(baseline));
+      expect(Object.keys(hashes).filter((key) => hashes[key] !== baselineHashes[key])).toEqual(["gardenMonthRecord"]);
+    }
+    const held = withRecord({ ...daily, evidence: makeSourceStatuses({ stability: { state: "stale", reason: "held" } }).stability });
+    expect(worldRenderContentSignature(held)).toBe(worldRenderContentSignature(baseline));
+    const seconds = withRecord(buildGardenMonthRecord({ ...fixtureStability, history: history.map((point) => ({ ...point, date: point.date / 1000 })) }));
+    expect(worldRenderContentSignature(seconds)).toBe(worldRenderContentSignature(baseline));
+  });
+
   it("ignores refresh metadata and detail-only records", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const refreshed: PharosVilleWorld = {

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { MintBurnFlowsResponse } from "@shared/types/mint-burn";
 import type { DockNode, ShipNode } from "../../world-types";
 import { buildCargoTideStage } from "./cargo-tide";
-import { makeSourceStatuses } from "../../../__fixtures__/pharosville-world";
+import { fixtureCompleteFlowValuation, makeSourceStatuses } from "../../../__fixtures__/pharosville-world";
+import { issuanceContractDrift } from "../../../__fixtures__/issuance-contract-drift";
+import { cargoTideCrateCount } from "./cargo-tide";
 import { FULL_COVERAGE, quayAllocationInput, SCENARIOS } from "../../../__fixtures__/data-contract-scenarios";
 import { buildPharosVilleWorld } from "../../pharosville-world";
 
@@ -57,6 +59,7 @@ function coin(
     netFlow90dUsd: 0,
     largestEvent24h: null,
     coverage: { ...FULL_COVERAGE },
+    valuation: structuredClone(fixtureCompleteFlowValuation),
   };
 }
 
@@ -85,12 +88,26 @@ const tideOf = (docks: DockNode[], chainId: string) =>
   docks.find((entry) => entry.chainId === chainId)!.cargoTide!;
 
 describe("buildCargoTideStage", () => {
+  it("preserves unknown nets across fleet totals and share allocation", () => {
+    const flows = structuredClone(issuanceContractDrift);
+    const stage = buildCargoTideStage([dock("ethereum")],
+      [ship("synthetic-issuance", [["ethereum", 1]])], flows, makeSourceStatuses().mintBurn);
+    expect(stage.fleetIssuance).toMatchObject({ netFlowUsd: null, direction: null, mintVolumeUsd: 2, burnVolumeUsd: 1, flightToQuality: null, flightIntensity: null });
+    const tide = tideOf(stage.docks, "ethereum");
+    expect(tide).toMatchObject({ netFlowUsd: null, direction: null, pressureScore: null, completeWindow: false });
+    expect(cargoTideCrateCount(tide)).toBe(0);
+    flows.coins.push(coin("known", -5, 1, 6));
+    const mixed = buildCargoTideStage([dock("ethereum")],
+      [ship("synthetic-issuance", [["ethereum", 1]]), ship("known", [["ethereum", 1]])], flows, makeSourceStatuses().mintBurn);
+    expect(mixed.fleetIssuance!.netFlowUsd).toBeNull();
+    expect(tideOf(mixed.docks, "ethereum").netFlowUsd).toBeNull();
+  });
   it("suppresses partial illustrations while retaining exact allocated totals", () => {
     const world = buildPharosVilleWorld(structuredClone(SCENARIOS.partialFlow));
     const tide = world.docks.find((entry) => entry.chainId === "ethereum")!.cargoTide!;
     expect(tide.completeWindow).toBe(false);
     expect(world.docks.reduce((sum, dock) => sum + dock.cargoTide!.mintVolumeUsd, 0)).toBeCloseTo(100_000_000);
-    expect(world.docks.reduce((sum, dock) => sum + dock.cargoTide!.netFlowUsd, 0)).toBeCloseTo(100_000_000);
+    expect(world.docks.reduce((sum, dock) => sum + dock.cargoTide!.netFlowUsd!, 0)).toBeCloseTo(100_000_000);
     expect(tide.evidence.coverage.state).toBe("partial");
   });
   it("names the direction from the sign of the allocated net flow", () => {
@@ -125,7 +142,7 @@ describe("buildCargoTideStage", () => {
     const arbitrum = tideOf(stage.docks, "arbitrum");
     expect(ethereum.netFlowUsd).toBeCloseTo(6_000_000);
     expect(arbitrum.netFlowUsd).toBeCloseTo(2_000_000);
-    expect(ethereum.netFlowUsd + arbitrum.netFlowUsd).toBeCloseTo(8_000_000);
+    expect(ethereum.netFlowUsd! + arbitrum.netFlowUsd!).toBeCloseTo(8_000_000);
   });
 
   it("renormalises over the tracked scope so out-of-scope supply does not swallow flow", () => {

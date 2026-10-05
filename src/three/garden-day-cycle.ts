@@ -182,24 +182,18 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCycleBeatName, DayCycleLightPres
     hemiSky: paletteColor(P.sky_horizon),
   },
   night: {
-    ambient: paletteColor(P.sky_night).lerp(paletteColor(P.fog_blue), 0.3),
-    ambientIntensity: 0.06,
-    // W2.8 (light-3): the moon now stands in the frame, so its key is a back
-    // rim — a thin silver edge on the moon side of every silhouette — scaled
-    // by the real moon's presence and phase in `updateDayCycle`.
+    // Moon-independent diffuse: reflected cool sky and stone/ground bounce
+    // reveal surface mass, while local occlusion keeps cracks and eaves dark.
+    ambient: paletteColor(P.moonlight).lerp(paletteColor(P.fog_blue), 0.45),
+    ambientIntensity: 0.28,
+    // Only the actual lunar presence × illumination drives this silver rim.
     dirColor: paletteColor(P.moonlight).lerp(paletteColor(P.fog_blue), 0.5),
     dirIntensity: 0.4,
-    hemiGround: paletteColor(P.deep_sea_2).lerp(paletteColor(P.timber_dark), 0.46),
-    hemiIntensity: 0.1,
-    hemiSky: paletteColor(P.sky_night).lerp(paletteColor(P.fog_blue), 0.25),
+    hemiGround: paletteColor(P.stone_mid).lerp(paletteColor(P.deep_sea_2), 0.35),
+    hemiIntensity: 0.64,
+    hemiSky: paletteColor(P.moonlight).lerp(paletteColor(P.fog_blue), 0.5),
   },
 };
-
-/**
- * W2.8: on a moonless night (or with the moon down) the key falls to this
- * share of the full-moon rim, so the beacon is the only direct light.
- */
-export const DAY_CYCLE_MOONLESS_KEY = 0.25;
 
 /**
  * X9 (light-6): time inside the day beat, scaled by `gardenDayDrift` (−1
@@ -369,6 +363,8 @@ interface DayCycleScene {
   hemisphereLight: HemisphereLight;
 }
 
+// Keep the full analytic fill for identities/practicals. Prepared PBR surfaces
+// replace a metered share locally; world-renderer stages it after DEV overrides.
 export function updateDayCycle(
   scene: DayCycleScene,
   frame: ThreeWorldRendererFrame,
@@ -383,11 +379,9 @@ export function updateDayCycle(
   scene.hemisphereLight.intensity = 0;
   scene.ambientLight.intensity = 0;
   scene.directionalLight.intensity = 0;
-  // W2.8: the night key is the real moon's rim; moon down or new, it falls to
-  // the moonless share and the beacon is the only direct light.
+  // No permanent night key: moon down or new means no directional lunar rim.
   const moonKey = beats.night > 0
-    ? DAY_CYCLE_MOONLESS_KEY
-      + (1 - DAY_CYCLE_MOONLESS_KEY) * (gardenMoonPose(frame.wallClockHour, scratchMoonPose).moonLight ?? 0)
+    ? (gardenMoonPose(frame.wallClockHour, scratchMoonPose).moonLight ?? 0)
     : 1;
   for (const name of LIGHT_BEAT_NAMES) {
     const weight = beats[name];

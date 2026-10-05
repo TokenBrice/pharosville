@@ -7,7 +7,6 @@ import { routeSamplingRuntime } from "./route-runtime";
 import { transitSampleInto } from "./transit";
 import { riskWaterSampleInto } from "./risk-water";
 import { riskDriftSampleInto } from "./risk-drift";
-import { ANCHOR_SETTLE_SECONDS } from "./anchor-ride";
 
 export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: number, out: ShipMotionSample): void {
   if (!route.openWaterPatrol) {
@@ -29,9 +28,7 @@ export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: n
   let cursor = elapsedSeconds;
 
   if (cursor < riskSeconds) {
-    // The previous cycle's homecoming leg matters only while the hull settles.
-    const entryPath = cursor < ANCHOR_SETTLE_SECONDS ? openWaterPatrolLegForCycle(route, cycleIndex - 1).inbound : undefined;
-    riskWaterSampleInto(route, timeSeconds, cursor / Math.max(1, riskSeconds), riskSeconds, out, entryPath, leg.outbound);
+    riskWaterSampleInto(route, timeSeconds, cursor / Math.max(1, riskSeconds), riskSeconds, out);
     return;
   }
   cursor -= riskSeconds;
@@ -114,16 +111,5 @@ function openWaterWaypointRestSampleInto(
   out: ShipMotionSample,
 ): void {
   const routePathKey = routePathIdentityKey(route, "waypoint", pathKey(leg.waypoint, leg.waypoint));
-  riskDriftSampleInto(
-    route,
-    timeSeconds,
-    progress,
-    riskWindowSeconds,
-    out,
-    leg.waypoint,
-    routePathKey,
-    false,
-    leg.outbound,
-    leg.inbound,
-  );
+  riskDriftSampleInto(route, timeSeconds, progress, riskWindowSeconds, out, leg.waypoint, routePathKey, false);
 }

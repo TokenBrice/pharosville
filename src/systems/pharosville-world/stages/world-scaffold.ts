@@ -180,7 +180,7 @@ function buildLighthouse(
     lastFleetDepegAt: lastFleetDepegAt(pegSummary),
     signalMast: buildSignalMast(pegSummary, stablecoins),
     highWaterMark: buildHighWaterMark(stability),
-    gardenMonthRecord: buildGardenMonthRecord(stability),
+    gardenMonthRecord: buildGardenMonthRecord(stability, source),
     longRecord: buildLongRecord(stability, deaths),
     ...(beamDwell ? { beamDwell } : {}),
   };

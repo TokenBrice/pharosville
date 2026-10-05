@@ -26,6 +26,27 @@ function matrices(ship: ShipVisual, yaw: number): Matrix4[] {
 }
 
 describe("categorical issuance cargo", () => {
+  it("compacts worksets to the inspected ship without changing categorical pose", () => {
+    const cargo = createGardenShipIssuanceWorksets(shipIssuanceWorksetSpecs([visual("largeMint"), visual("largeRedemption")]));
+    cargo.place(0, -40, 1, 0, 0, false);
+    cargo.place(1, 60, 1, 0, 0, true);
+    const frame = { detail: 1, overview: false, reducedMotion: true, timeSeconds: 0 };
+    cargo.flush(frame);
+    const mesh = cargo.root.children[0] as InstancedMesh;
+    expect(mesh.count).toBe(2);
+    const matrix = new Matrix4();
+    mesh.getMatrixAt(0, matrix);
+    expect(new Vector3().setFromMatrixPosition(matrix).x).toBeGreaterThan(55);
+    cargo.place(1, 60, 1, 0, 0, false);
+    cargo.flush(frame);
+    expect(mesh.count).toBe(0);
+    expect(mesh.visible).toBe(false);
+    cargo.place(0, -40, 1, 0, 0, true);
+    cargo.flush(frame);
+    expect(mesh.count).toBe(2);
+    expect(mesh.visible).toBe(true);
+    cargo.dispose();
+  });
   it.each([0, Math.PI / 2])("balanced gross has opposing static cargo while inactivity has none: yaw %s", (yaw) => {
     const balanced = matrices(visual("largeBalancedGross"), yaw).map((matrix) => new Vector3().setFromMatrixPosition(matrix));
     expect(balanced).toHaveLength(2);

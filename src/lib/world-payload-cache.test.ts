@@ -2,6 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiMeta } from "@shared/types/api-meta";
+import { issuanceContractDrift } from "@/__fixtures__/issuance-contract-drift";
+import { fixtureStablecoins, fixturePegSummary } from "@/__fixtures__/pharosville-world";
 import {
   clearPersistedPayload,
   deriveRestoredMeta,
@@ -282,6 +284,33 @@ describe("persistPayloadWhenIdle", () => {
     await vi.waitFor(() => expect(storage.entries.has(CHAINS_KEY)).toBe(true), PERSIST_WAIT);
     const restored = readPersistedPayload("chains", CHAINS_MAX_AGE_SEC, NOW);
     expect(restored?.data).toEqual(VALID_CHAINS_PAYLOAD);
+  });
+
+  it("persists and restores repaired issuance as held evidence without zeroing unknown nets", async () => {
+    const held: ApiMeta = { updatedAt: Math.floor(NOW / 1000) - 60, ageSeconds: 60, status: "degraded", warning: "producer-held", dependencies: { valuation: { status: "unavailable", updatedAt: null } } };
+    persistPayloadWhenIdle("mintBurn", issuanceContractDrift, held, NOW);
+    await vi.waitFor(() => expect(storage.entries.has(INTERNALS.storageKey("mintBurn"))).toBe(true), PERSIST_WAIT);
+    const restored = readPersistedPayload<typeof issuanceContractDrift>("mintBurn", 900, NOW);
+    expect(restored?.data).toEqual(issuanceContractDrift);
+    expect(restored?.meta.status).toBe("degraded");
+    expect(restored?.meta.warning).toContain("110");
+    expect(restored?.meta.dependencies).toEqual(held.dependencies);
+    expect(restored?.data.coins[0]!.netFlow24hUsd).toBeNull();
+    persistPayloadWhenIdle("mintBurn", { ...issuanceContractDrift, coins: [{ ...issuanceContractDrift.coins[0], burnVolume24hUsd: -1 }] }, held, NOW + INTERNALS.PERSIST_MIN_INTERVAL_MS);
+    await vi.dynamicImportSettled();
+    expect(readPersistedPayload("mintBurn", 900, NOW)?.data).toEqual(issuanceContractDrift);
+  });
+
+  it("persists reference-price and missing per-chain history fields without fabricating observations", async () => {
+    const stablecoins = { ...fixtureStablecoins, peggedAssets: [{ ...fixtureStablecoins.peggedAssets[0],
+      priceObservedAtMode: "nominal_reference", chainCirculating: { Ethereum: { current: 1, circulatingPrevDay: null, circulatingPrevWeek: null } },
+    }] };
+    const pegSummary = { ...fixturePegSummary, coins: [{ ...fixturePegSummary.coins[0], priceObservedAtMode: "nominal_reference", pegPct: null }] };
+    for (const [key, payload] of [["stablecoins", stablecoins], ["pegSummary", pegSummary]] as const) {
+      persistPayloadWhenIdle(key, payload, null, NOW);
+      await vi.waitFor(() => expect(storage.entries.has(INTERNALS.storageKey(key))).toBe(true), PERSIST_WAIT);
+      expect(readPersistedPayload(key, 900, NOW)?.data).toEqual(payload);
+    }
   });
 
   it("never lets a payload that fails contract validation into the store", async () => {

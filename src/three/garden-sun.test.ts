@@ -1,17 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { REST_SEAT_YAW_RAD } from "../systems/rest-seat";
-import { gardenMoonStateAt, gardenSkyDayFromParts, gardenSkyToday, gardenSkyViewAspect } from "../systems/sky-almanac";
+import { gardenMoonStateAt, gardenSkyDayFromParts, gardenSkyToday, gardenSkyViewAspect, type GardenSkyDay } from "../systems/sky-almanac";
 import { dayCyclePhase } from "./garden-day-cycle";
 import {
   GARDEN_KEY_MIN_ELEVATION,
-  GARDEN_SUN_NOON_ELEVATION,
   gardenKeyLightPose,
   gardenMoonPose,
+  gardenSolarApexForDay,
   gardenSunPose,
 } from "./garden-sun";
 
 /** The suite's pinned sky day (test-setup): 26 Sep, 35° N, solar noon 13:00. */
 const today = gardenSkyToday();
+
+function seasonalDay(month: number, southern = false): GardenSkyDay {
+  return gardenSkyDayFromParts({
+    year: 2026, month, day: 21, utcOffsetHours: 1, dstHours: 0,
+    latitude: { latitudeRad: (southern ? -35 : 35) * Math.PI / 180, southern },
+  });
+}
 
 function bearingOf(pose: { direction: { x: number; z: number } }): number {
   return Math.atan2(pose.direction.z, pose.direction.x);
@@ -33,22 +40,52 @@ describe("gardenSunPose", () => {
     const noon = seatRelative(gardenSunPose(today.solarNoonHour));
     expect(noon.right).toBeCloseTo(1, 6);
     expect(noon.forward).toBeCloseTo(0, 6);
-    expect(gardenSunPose(today.solarNoonHour).elevation).toBeCloseTo(GARDEN_SUN_NOON_ELEVATION, 6);
+    expect(gardenSunPose(today.solarNoonHour).elevation).toBeCloseTo(gardenSolarApexForDay(today), 6);
   });
 
-  it("keeps the noon apex in every season while sunrise and sunset follow the date", () => {
-    for (const [month, dayOfMonth] of [[6, 21], [12, 21]] as const) {
-      const day = gardenSkyDayFromParts({
-        year: 2026,
-        month,
-        day: dayOfMonth,
-        utcOffsetHours: 1,
-        dstHours: 0,
-        latitude: { latitudeRad: (35 * Math.PI) / 180, southern: false },
-      });
-      expect(gardenSunPose(day.solarNoonHour, undefined, day).elevation).toBeCloseTo(GARDEN_SUN_NOON_ELEVATION, 6);
-      expect(gardenSunPose(day.sunsetHour, undefined, day).elevation).toBeCloseTo(0, 6);
+  it("composes a bounded seasonal apex around the nominal equinox", () => {
+    const reference = Math.PI / 2 - 35 * Math.PI / 180;
+    expect(gardenSolarApexForDay({ ...today, apexElevationRad: reference })).toBeCloseTo(0.62, 12);
+    expect(gardenSolarApexForDay({ ...today, apexElevationRad: 0 })).toBe(0.42);
+    expect(gardenSolarApexForDay({ ...today, apexElevationRad: Math.PI / 2 })).toBe(0.85);
+  });
+
+  it("follows seasonal apex and horizon crossings in both hemispheres without changing bearing", () => {
+    for (const southern of [false, true]) {
+      for (const month of [1, 3, 6, 9, 12]) {
+        const day = seasonalDay(month, southern);
+        const apex = gardenSolarApexForDay(day);
+        expect(apex).toBeGreaterThanOrEqual(0.42);
+        expect(apex).toBeLessThanOrEqual(0.85);
+        const noon = gardenSunPose(day.solarNoonHour, undefined, day);
+        expect(noon.elevation).toBeCloseTo(apex, 9);
+        expect(bearingOf(noon)).toBeCloseTo(-REST_SEAT_YAW_RAD, 9);
+        const rise = gardenSunPose(day.sunriseHour, undefined, day);
+        const set = gardenSunPose(day.sunsetHour, undefined, day);
+        expect(rise.elevation).toBeCloseTo(0, 6);
+        expect(set.elevation).toBeCloseTo(0, 6);
+        expect(bearingOf(rise)).toBeCloseTo(-REST_SEAT_YAW_RAD - 1, 9);
+        expect(bearingOf(set)).toBeCloseTo(-REST_SEAT_YAW_RAD + 1, 9);
+        expect(noon.direction.length()).toBeCloseTo(1, 9);
+        expect(rise.direction.length()).toBeCloseTo(1, 9);
+        expect(set.direction.length()).toBeCloseTo(1, 9);
+      }
     }
+  });
+
+  it("reverses seasons in the southern hemisphere and lengthens winter caster shadows at least 1.5 times", () => {
+    for (const southern of [false, true]) {
+      const summer = seasonalDay(southern ? 12 : 6, southern);
+      const winter = seasonalDay(southern ? 6 : 12, southern);
+      const summerApex = gardenSolarApexForDay(summer);
+      const winterApex = gardenSolarApexForDay(winter);
+      expect(summerApex).toBeGreaterThan(winterApex);
+      const summerShadow = Math.cos(summerApex) / Math.max(Math.sin(summerApex), 1e-6);
+      const winterShadow = Math.cos(winterApex) / Math.max(Math.sin(winterApex), 1e-6);
+      expect(winterShadow).toBeGreaterThanOrEqual(1.5 * summerShadow);
+    }
+    expect(gardenSolarApexForDay(seasonalDay(6))).toBeGreaterThan(gardenSolarApexForDay(seasonalDay(6, true)));
+    expect(gardenSolarApexForDay(seasonalDay(12))).toBeLessThan(gardenSolarApexForDay(seasonalDay(12, true)));
   });
 
   it("rises front-right of the seat and sets behind the viewer's right shoulder", () => {

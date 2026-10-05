@@ -9,6 +9,7 @@ import {
   GARDEN_WATERFALL_PLUNGE_WIDTH_WORLD,
   GARDEN_WATERFALL_POINTS,
 } from "./garden-waterfall";
+import { GARDEN_AIR, gardenAerialUniforms } from "./garden-aerial";
 
 describe("garden waterfall", () => {
   it("ties the deep rim lobe to Calm Anchorage in one opaque dithered draw", () => {
@@ -31,6 +32,21 @@ describe("garden waterfall", () => {
     expect(GARDEN_WATERFALL_CASCADE_WIDTH_WORLD).toBeGreaterThanOrEqual(2.9);
     expect(GARDEN_WATERFALL_CASCADE_WIDTH_WORLD).toBeLessThanOrEqual(3.1);
     expect(GARDEN_WATERFALL_PLUNGE_WIDTH_WORLD).toBeGreaterThan(3.8);
+  });
+
+  it("binds the same live analytic air as the garden instead of an unbacked zero struct", () => {
+    const waterfall = createGardenWaterfall();
+    const material = waterfall.mesh.material;
+    expect(material.fog).toBe(true);
+    expect(material.uniforms.uGardenAir).toBe(gardenAerialUniforms.uGardenAir);
+    expect(material.uniforms.uGardenAir.value).toBe(GARDEN_AIR);
+    expect(material.fragmentShader).toContain("#include <fog_pars_fragment>");
+    expect(material.fragmentShader.indexOf("#include <fog_fragment>"))
+      .toBeGreaterThan(material.fragmentShader.indexOf("gl_FragColor = vec4(color, 1.0)"));
+    waterfall.update({ night: 1, reducedMotion: true, timeSeconds: 99 }, { stamp: vi.fn() } as never);
+    expect(material.uniforms.uGardenAir.value).toBe(GARDEN_AIR);
+    waterfall.mesh.geometry.dispose();
+    material.dispose();
   });
 
   it("scrolls from the route clock and stamps the existing wake field without moving in reduced motion", () => {

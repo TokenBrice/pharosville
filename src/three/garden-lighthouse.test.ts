@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Box3, BoxGeometry, BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Object3D, ShaderMaterial, Vector3 } from "three";
+import { Box3, BoxGeometry, BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Object3D, ShaderMaterial, Vector3, type WebGLProgramParametersWithUniforms, type WebGLRenderer } from "three";
 import {
   GARDEN_LIGHTHOUSE_BEACON_Y,
   GARDEN_LIGHTHOUSE_HEIGHT,
@@ -20,6 +20,7 @@ import {
   LIGHTHOUSE_RIM_UNIFORMS,
   LIGHTHOUSE_WINDOW_MATERIAL_NAME,
   attachGardenLighthouseModel,
+  applyLighthouseRimLight,
   collectLighthouseGlowMaterials,
   createLanternSwell,
   createLighthouse,
@@ -31,6 +32,7 @@ import { dayCyclePhase } from "./garden-day-cycle";
 import { GARDEN_MODEL_MANIFEST } from "./garden-models";
 import { gardenKeyLightPose } from "./garden-sun";
 import { disposeThreeObjectTree } from "./garden-util";
+import { GARDEN_ATMOSPHERE } from "./garden-atmosphere";
 
 describe("garden lighthouse beam ownership", () => {
   it("keeps the fallback silhouette aligned with the monumental GLB envelope", () => {
@@ -157,6 +159,43 @@ describe("T1.7 rim light (2026-09-07)", () => {
     // Still an accent, never a light: it is added straight to emissive.
     expect(strengthAt(dayCyclePhase(1))).toBeLessThan(0.35);
   });
+
+  it("keeps low-sun GGX glints within the finite solar source without changing noon/night reflection", () => {
+    const material = new MeshStandardMaterial({ metalness: 0.6, roughness: 0.22 });
+    const mesh = new Mesh(new BoxGeometry(), material);
+    applyLighthouseRimLight(mesh);
+    const shader = {
+      uniforms: {}, vertexShader: "",
+      fragmentShader: "#include <common>\n#include <emissivemap_fragment>\n#include <lights_fragment_end>",
+    } as WebGLProgramParametersWithUniforms;
+    material.onBeforeCompile(shader, {} as WebGLRenderer);
+    expect(shader.uniforms.uLighthouseLowSun).toBe(LIGHTHOUSE_RIM_UNIFORMS.uLighthouseLowSun);
+    const expression = shader.fragmentShader.match(/float gardenSolarSpecularScale = ([^;]+);/)![1]!;
+    const scale = new Function("gardenSpecularPeak", "uLighthouseLowSun", `
+      const {min, max} = Math;
+      const mix = (a, b, t) => a + (b - a) * t;
+      return ${expression};
+    `) as (peak: number, lowSun: number) => number;
+    for (const peak of [0, 0.1, 1, 20, 500, 1e20]) {
+      for (const lowSun of [0.001, 0.1, 0.5, 1]) {
+        const ceiling = GARDEN_ATMOSPHERE.radiance
+          + (GARDEN_ATMOSPHERE.sunDiscRadiance - GARDEN_ATMOSPHERE.radiance) * lowSun;
+        expect(Number.isFinite(scale(peak, lowSun))).toBe(true);
+        expect(peak * scale(peak, lowSun)).toBeLessThanOrEqual(ceiling + 1e-12);
+      }
+      expect(scale(peak, 0)).toBe(1);
+    }
+    for (const hour of [7, 18.5, 12.25, 22]) {
+      const phase = dayCyclePhase(hour);
+      updateLighthouseRimLight(phase, gardenKeyLightPose(hour, phase));
+      if (hour === 7 || hour === 18.5) expect(LIGHTHOUSE_RIM_UNIFORMS.uLighthouseLowSun.value).toBeGreaterThan(0);
+      else expect(LIGHTHOUSE_RIM_UNIFORMS.uLighthouseLowSun.value).toBe(0);
+    }
+    expect(material.roughness).toBe(0.22);
+    expect(material.metalness).toBe(0.6);
+    mesh.geometry.dispose();
+    material.dispose();
+  });
 });
 
 describe("T0.2 tower apertures (2026-09-07)", () => {
@@ -171,9 +210,13 @@ describe("T0.2 tower apertures (2026-09-07)", () => {
     expect(collected.length).toBeGreaterThan(0);
     for (const material of collected) {
       expect(material.name).toBe(LIGHTHOUSE_WINDOW_MATERIAL_NAME);
-      // Emissive-only apertures, and outside the tone mapper — the day-cycle
-      // curve peaks at 1.53 so they stay gold rather than clipping to white.
-      expect(material.toneMapped).toBe(false);
+      // Warm recessed lamps follow the common tone mapper, without white
+      // exterior speculars masquerading as a lit opening.
+      expect(material.toneMapped).toBe(true);
+      expect(material.emissive.getHex()).toBe(new Color(HARBOR_PALETTE.lantern_warm).getHex());
+      expect(material.roughness).toBe(1);
+      expect(material.metalness).toBe(0);
+      expect(material.envMapIntensity).toBe(0);
     }
     // The shell shares ONE aperture material across both window rows and the
     // drum windows — and the shell merges by material group — so lighting
@@ -226,6 +269,11 @@ describe("W0.7 night beacon discipline", () => {
     });
     const libraryStone = new MeshStandardMaterial({ emissiveIntensity: 0.045, name: "weathered-limestone" });
     const libraryGilt = new MeshStandardMaterial({ metalness: 0.85, name: "bronze-gilt" });
+    const libraryWindow = new MeshStandardMaterial({
+      color: HARBOR_PALETTE.iron_dark, emissive: "#ffbe6e",
+      emissiveIntensity: 0, name: LIGHTHOUSE_WINDOW_MATERIAL_NAME,
+      roughness: 0.62, toneMapped: false,
+    });
     const model = new Group();
     for (const name of ["anchor-beacon", "anchor-beam"]) {
       const anchor = new Object3D();
@@ -235,8 +283,10 @@ describe("W0.7 night beacon discipline", () => {
     }
     const stoneMesh = new Mesh(new BoxGeometry(), libraryStone);
     const giltMesh = new Mesh(new BoxGeometry(), libraryGilt);
-    model.add(stoneMesh, giltMesh);
+    const windowMesh = new Mesh(new BoxGeometry(), libraryWindow);
+    model.add(stoneMesh, giltMesh, windowMesh);
     const statueGleamMaterials: MeshStandardMaterial[] = [];
+    const lighthouseWindowMaterials: MeshStandardMaterial[] = [];
     attachGardenLighthouseModel(model, {
       beacon: lighthouse.beacon,
       beaconHalo: lighthouse.beaconHalo,
@@ -245,6 +295,7 @@ describe("W0.7 night beacon discipline", () => {
       lighthouseRoot: lighthouse.root,
       lighthouseShell: lighthouse.shell,
       statueGleamMaterials,
+      lighthouseWindowMaterials,
     });
     const stone = stoneMesh.material as MeshStandardMaterial;
     const gilt = giltMesh.material as MeshStandardMaterial;
@@ -255,7 +306,20 @@ describe("W0.7 night beacon discipline", () => {
     expect([...shellStoneBounce]).toEqual([stone.emissiveIntensity]);
     expect([...shellGiltMetalness]).toEqual([gilt.metalness]);
     expect(statueGleamMaterials).toEqual([gilt]);
+    const window = windowMesh.material as MeshStandardMaterial;
+    expect(window).not.toBe(libraryWindow);
+    expect(libraryWindow.toneMapped).toBe(false);
+    expect(libraryWindow.roughness).toBe(0.62);
+    expect(libraryWindow.envMapIntensity).toBe(1);
+    expect(window.toneMapped).toBe(true);
+    expect(window.roughness).toBe(1);
+    expect(window.metalness).toBe(0);
+    expect(window.envMapIntensity).toBe(0);
+    expect(window.emissive.getHex()).toBe(libraryWindow.emissive.getHex());
+    expect(window.emissiveIntensity).toBe(libraryWindow.emissiveIntensity);
+    expect(lighthouseWindowMaterials).toEqual([window]);
     disposeThreeObjectTree(lighthouse.root);
+    libraryWindow.dispose();
   });
 });
 

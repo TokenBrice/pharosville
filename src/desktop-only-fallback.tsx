@@ -1,27 +1,33 @@
+import type { ReactNode } from "react";
 import { FALLBACK_LINKS } from "./fallback-links";
 
-export function DesktopOnlyFallback() {
+export function SmallScreenWelcome({ windowCanFit, illustration }: { windowCanFit: boolean; illustration?: ReactNode }) {
   return (
     <section className="pharosville-narrow" aria-labelledby="pharosville-narrow-title">
       <div className="pharosville-narrow__inner">
-        <div className="pharosville-narrow__beacon" aria-hidden="true" />
-        <p className="pharosville-narrow__kicker">Desktop map</p>
-        <h2 id="pharosville-narrow-title">PharosVille needs a wider harbor.</h2>
-        <p>
-          PharosVille is a live chart of the stablecoin seas: every ship is a
-          stablecoin, the water it sails in is that coin&apos;s peg risk, and the
-          lighthouse beam carries the fleet-wide Peg Stability Index. Charting
-          that needs room, so open this page at 900×720 or, for a wider laptop
-          window, 1200×640 — or read the same signals as tables below.
-        </p>
+        <h2 id="pharosville-narrow-title">PharosVille</h2>
+        <p className="pharosville-narrow__promise">A living stablecoin garden</p>
+        {illustration}
+        <p>Welcome to the garden. Read its language here, then inspect the latest evidence on Pharos.</p>
+        <dl className="pharosville-narrow__guide">
+          <div><dt>Lighthouse</dt><dd>The official Pharos Stability Index describes the market as a whole.</dd></div>
+          <div><dt>Water</dt><dd>Surface signatures distinguish categorical peg risk; missing evidence is not calm.</dd></div>
+          <div><dt>Sails</dt><dd>One ship is one stablecoin. Size uses a compressed supply scale, not proportional market cap.</dd></div>
+        </dl>
         <nav className="pharosville-narrow__links" aria-label="Pharos analytics">
           {FALLBACK_LINKS.map((link) => (
-            <a key={link.href} href={link.href}>
-              {link.label}
-            </a>
+            <a key={link.href} href={link.href}>{link.label}</a>
           ))}
         </nav>
+        <p className="pharosville-narrow__size">
+          {windowCanFit ? "Your device can show the interactive garden. Give this window more room: " : "For the interactive garden, open a larger screen: "}
+          900×720 or 1200×640, with either dimension first. These links open Pharos analytics; no live readings are embedded here.
+        </p>
       </div>
     </section>
   );
+}
+
+export function DesktopOnlyFallback(props: { illustration?: ReactNode }) {
+  return <SmallScreenWelcome {...props} windowCanFit={false} />;
 }

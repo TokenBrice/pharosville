@@ -3,6 +3,7 @@ import {
   Color,
   DoubleSide,
   InstancedBufferAttribute,
+  Float32BufferAttribute,
   InstancedMesh,
   Matrix4,
   Mesh,
@@ -19,6 +20,7 @@ import { gardenChainFlagAtlas, resetGardenChainFlagAtlas } from "./garden-chain-
 import { countDrawableObjects } from "./garden-util";
 import { dockFixture, DISPLAY_TILES, ISLAND_TILE } from "./__fixtures__/harbor";
 import { EVM_BAY_STATION_SLOTS, OUTER_HARBOR_STATION_SLOTS, PIGEONNIER_STATION_SLOT } from "../systems/world-layout";
+import { GARDEN_SURFACE_ROLE_ATTRIBUTE, GARDEN_SURFACE_ROLE_CODES, GARDEN_SURFACE_WEIGHT_ATTRIBUTE } from "./garden-surfaces";
 
 const CHAINS = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
 // The nine-dock set pairs each chain with its slot archetype (aptos stands
@@ -91,6 +93,27 @@ function batchOfAllStationTypes() {
 }
 
 describe("createGardenHarborBatch", () => {
+  it("keeps authored kit UVs and roles compatible with untagged architecture in existing buckets", () => {
+    const recipe = authorDock(dockFixture("surface-kit", 6), DISPLAY_TILES[0]!, ISLAND_TILE);
+    const first = recipe.parts.find((part) => part.bucket === "timber")!;
+    const count = first.geometry.getAttribute("position").count;
+    first.geometry.setAttribute("uv", new Float32BufferAttribute(new Float32Array(count * 2).fill(7), 2));
+    first.geometry.setAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE, new Float32BufferAttribute(new Float32Array(count).fill(GARDEN_SURFACE_ROLE_CODES.plaster), 1));
+    const batch = createGardenHarborBatch([recipe]);
+    const timber = batch.bucketMeshes.timber!;
+    expect(timber.geometry.getAttribute("uv").getX(0)).toBe(7);
+    expect(timber.geometry.getAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE).getX(0)).toBe(GARDEN_SURFACE_ROLE_CODES.plaster);
+    for (const [bucket, role] of [["timber", "timber"], ["stone", "stone"], ["wall", "plaster"], ["roof", "roofTile"]] as const) {
+      const mesh = batch.bucketMeshes[bucket];
+      if (!mesh) continue;
+      const material = Array.isArray(mesh.material) ? mesh.material[0]! : mesh.material;
+      expect(material.userData.gardenSurface.role).toBe(role);
+      expect(mesh.geometry.getAttribute(GARDEN_SURFACE_WEIGHT_ATTRIBUTE).count).toBe(mesh.geometry.getAttribute("position").count);
+    }
+    expect((Array.isArray(batch.flags.material) ? batch.flags.material[0]! : batch.flags.material).userData.gardenSurface).toBeUndefined();
+    expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(20);
+    batch.dispose();
+  });
   it("pins the complete 9-type harbor ring to its 15 shared drawables", () => {
     const batch = batchOfNine();
     const drawableNames = namedDrawables(batch.root);

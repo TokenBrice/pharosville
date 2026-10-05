@@ -10,6 +10,7 @@ import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { GardenWakes } from "./garden-wakes";
 import { TILE_SCALE } from "./garden-util";
+import { gardenAerialUniforms } from "./garden-aerial";
 
 /** The broad random silver arcs this single authored water event replaces. */
 export const GARDEN_WATERFALL_DISPLACEMENT = "water-silver-accents";
@@ -109,6 +110,7 @@ function waterfallMaterial(): ShaderMaterial {
     side: DoubleSide,
     transparent: false,
     uniforms: {
+      ...gardenAerialUniforms,
       uBase: { value: new Color(HARBOR_PALETTE.shallow_teal_lit).multiplyScalar(0.72) },
       uFoam: { value: new Color(HARBOR_PALETTE.foam_white) },
       uNight: { value: 0 },
