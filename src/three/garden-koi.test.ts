@@ -33,6 +33,11 @@ describe("garden koi", () => {
     expect(koi.mesh.matrixWorldAutoUpdate).toBe(true);
   });
 
+  it("keeps Fresnel pow in its nonnegative domain after unit-dot rounding", () => {
+    const koi = createGardenKoi();
+    expect(koi.mesh.material.vertexShader).toContain("pow(max(1.0 - facing, 0.0), 5.0)");
+  });
+
   it("composes distinct near-bank itineraries rather than synchronized mirror loops", () => {
     const poses = Array.from({ length: GARDEN_KOI_COUNT }, (_, index) => sampleGardenKoi(index, 0));
     expect(new Set(poses.map(({ x, z }) => `${x},${z}`)).size).toBe(GARDEN_KOI_COUNT);

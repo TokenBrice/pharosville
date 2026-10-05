@@ -783,9 +783,13 @@ export const FRAGMENT_SHADER = /* glsl */ `
     return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
   }
 
-  float aaStep(float edge, float value) {
-    float width = max(fwidth(value), 1e-4);
+  float aaStep(float edge, float value, float footprint) {
+    float width = max(footprint, 1e-4);
     return smoothstep(edge - width, edge + width, value);
+  }
+
+  float aaStep(float edge, float value) {
+    return aaStep(edge, value, fwidth(value));
   }
 
   float maxComponent(vec3 v) {
@@ -1289,6 +1293,12 @@ ${gardenHeightFogGlsl()}
       shotRipple = clamp(shotRipple * uRippleStrength, 0.0, 1.0);
       waterColor = mix(waterColor, uHighlightColor, shotRipple * (0.32 + uDaylight * 0.14));
     }
+    // Capture helper-lane gradients before any spatial light-lane exits.
+    // A zero-intensity lane still propagates NaN if its AA derivatives are UB.
+    vec2 laneWaterDx = dFdx(vWaterPosition);
+    vec2 laneWaterDy = dFdy(vWaterPosition);
+    vec2 laneNormalDx = dFdx(surfaceNormal.xy);
+    vec2 laneNormalDy = dFdy(surfaceNormal.xy);
     if (uAnnulus < 0.5) {
     vec2 beamDirection = vec2(cos(uBeaconAngle), sin(uBeaconAngle));
     vec2 fromBeacon = vWaterPosition - uBeaconPosition;
@@ -1327,6 +1337,11 @@ ${gardenHeightFogGlsl()}
         uWindSpeed * 0.28
       ));
       vec2 reflectionPerp = vec2(-reflectionDir.y, reflectionDir.x);
+      vec2 laneAlongGradient = vec2(dot(laneWaterDx, reflectionDir), dot(laneWaterDy, reflectionDir))
+        + vec2(laneNormalDx.x, laneNormalDy.x) * (0.7 + uTempo * 0.9);
+      float laneAlongFootprint = abs(laneAlongGradient.x) + abs(laneAlongGradient.y);
+      vec2 lanePhaseGradient = vec2(dot(laneNormalDx, vec2(0.38, 0.22)),
+        dot(laneNormalDy, vec2(0.38, 0.22)));
       float tremble = surfaceNormal.x * (0.7 + uTempo * 0.9);
       vec3 laneAccum = vec3(0.0);
       for (int i = 0; i < ${GARDEN_WATER_MAX_LIGHT_LANES}; i += 1) {
@@ -1376,13 +1391,19 @@ ${gardenHeightFogGlsl()}
           + surfaceNormal.x * 0.38
           + surfaceNormal.y * 0.22
         );
-        float broken = aaStep(0.16, segmentPhase)
-          * (1.0 - aaStep(0.78, segmentPhase));
+        // Differentiate the continuous phase, not fract's wrap discontinuity.
+        // Explicit gradients remain defined after route/distance culling.
+        vec2 strokeGradient = clamp((vec2(along) + laneAlongGradient) / strokeLength,
+          0.0, 1.0) - vec2(strokeT);
+        vec2 segmentGradient = strokeGradient * segmentCount + lanePhaseGradient;
+        float segmentFootprint = abs(segmentGradient.x) + abs(segmentGradient.y);
+        float broken = aaStep(0.16, segmentPhase, segmentFootprint)
+          * (1.0 - aaStep(0.78, segmentPhase, segmentFootprint));
         float verticalStroke = exp(
           -(across * across) / mix(0.24, 0.72, sourceHeight)
         )
-          * aaStep(-0.45, along)
-          * (1.0 - aaStep(strokeLength, along))
+          * aaStep(-0.45, along, laneAlongFootprint)
+          * (1.0 - aaStep(strokeLength, along, laneAlongFootprint))
           * (1.0 - strokeT * 0.7)
           * broken;
         laneAccum += body.rgb * intensity * verticalStroke * 0.72;

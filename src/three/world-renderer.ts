@@ -527,12 +527,6 @@ export function createThreeWorldRenderer(
   // so the composer's passes do not clobber the scene's counts.
   renderer.info.autoReset = false;
   const uploadScheduler = createTextureUploadScheduler(renderer);
-  const hiddenOwnerPattern = import.meta.env.DEV && import.meta.env.VITE_PV_HIDE_OWNERS
-    ? new RegExp(import.meta.env.VITE_PV_HIDE_OWNERS)
-    : null;
-  const hideDiagnosticOwner = (object: Object3D) => {
-    if (hiddenOwnerPattern?.test(object.name)) object.visible = false;
-  };
   // Opt-in DEV diagnosis: production neither installs hooks nor allocates the ring.
   const spikeTraceWindow = import.meta.env.DEV && typeof window !== "undefined"
     ? window as typeof window & { __pharosVilleSpikeTrace?: GardenSpikeTrace }
@@ -1174,7 +1168,6 @@ export function createThreeWorldRenderer(
       if (scene.content) syncShipSailTextures(scene.content, frame);
       updateSceneForFrame(scene, camera, frame, phase, detailPolicy, shipFrame);
       if (import.meta.env.DEV) backend.gardenLookdev?.onBeforeFrame?.();
-      if (hiddenOwnerPattern) scene.root.traverse(hideDiagnosticOwner);
       updateGardenIrradiance(scene.ambientLight, scene.hemisphereLight, frame.world.lighthouse.tile);
       // W5: under reduced motion the hulls' contact footprints are drawn into
       // the (otherwise empty) wake field after this frame's ship loop, so the

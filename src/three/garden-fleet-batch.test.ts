@@ -751,6 +751,34 @@ describe("fleet batches", () => {
     );
   });
 
+  it("resolves near and far sail derivatives before panel branches and LOD discard", () => {
+    const batches = buildBatches(1);
+    const batch = batches.bySilhouette.get("bezaisen")!;
+    for (const part of [batch.sails, batch.far]) {
+      const material = part.mesh.material as MeshStandardMaterial;
+      const shader = {
+        fragmentShader: ShaderLib.standard.fragmentShader,
+        vertexShader: ShaderLib.standard.vertexShader,
+        uniforms: {} as Record<string, unknown>,
+      };
+      material.onBeforeCompile(shader as never, null as never);
+      const source = shader.fragmentShader;
+      const panelGradient = source.indexOf("float panelPitch = max(fwidth(panelU), 1e-4);");
+      const panelBranch = source.indexOf("if (sailPanels > 0.5)");
+      const discard = source.indexOf("if (fleetDither < vFleetHidden) discard;");
+      expect(panelGradient).toBeGreaterThan(0);
+      expect(panelBranch).toBeGreaterThan(panelGradient);
+      expect(discard).toBeGreaterThan(source.indexOf("#include <normal_fragment_maps>"));
+      for (const derivative of source.matchAll(/\bfwidth\s*\(/g)) {
+        expect(derivative.index).toBeLessThan(discard);
+      }
+      expect(source).toContain("clothTangentLengthSq > 1e-8");
+      expect(source).toContain("inversesqrt(max(clothTangentLengthSq, 1e-8))");
+      expect(source).not.toContain("normalize(cross(normal, vec3(0.0, 1.0, 0.0)) +");
+    }
+    disposeFleetBatches(batches);
+  });
+
   it("reuses buffers across frames instead of reallocating", () => {
     const batches = buildBatches(64);
     const bezaisen = batches.bySilhouette.get("bezaisen")!;

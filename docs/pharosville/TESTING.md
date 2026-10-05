@@ -246,6 +246,26 @@ review; and `--out <path>` records the frame under `outputs/`. Use the real-GPU
 preview for appearance and timing, then inspect the image and the census
 reconciliation together.
 
+**Bloom finite-input contract.**
+
+The bloom luminance prefilter rejects NaN/Inf component bit patterns and clamps
+signed HDR to ±1024 before computing luminance or writing its first pyramid
+level. This is defence in depth against a producer fault spreading through all
+blur mips, not proof that the original animated shader fault is fixed. The
+integer ES 3.0 classification avoids fast-math eliding a floating-point NaN
+self-comparison; authored finite HDR below the ceiling, source-proximity alpha
+and the low-sun finest-mip route remain unchanged.
+
+Smoke colour derivatives resolve before alpha discard, and koi Fresnel floors
+its `pow` base at zero to prevent unit-dot rounding from crossing the GLSL
+function's nonnegative domain. Unit assertions pin both source repairs and
+guard ordering in the composed bloom luminance fragment. The temporary DEV
+owner-hiding diagnostic used during this investigation has been removed.
+
+The operator's GPU acceptance recorded zero black regions in 36 control frames
+and confirmed the rectangles were gone in the live app. This verifies the
+combined repair, not which original shader was the sole producer.
+
 **Exact-frame triangle spike diagnosis (DEV only).**
 
 The recorded long-session peaks were **566,611 / 574,545 triangles**, or

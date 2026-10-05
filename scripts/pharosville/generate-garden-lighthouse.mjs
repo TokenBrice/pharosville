@@ -251,8 +251,9 @@ function createLighthouse() {
       emissiveIntensity: 0,
       flatShading: true,
       name: "lighthouse-window-glow",
-      roughness: 0.62,
-      toneMapped: false,
+      roughness: 1,
+      envMapIntensity: 0,
+      toneMapped: true,
     })],
     // pharos-1: a thin glass skin around the open lantern replaces the opaque
     // glow drum, so the flame reads through the columns. The runtime swaps

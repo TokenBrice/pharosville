@@ -216,6 +216,20 @@ class GardenBloomEffect extends BloomEffect {
     source.uniforms.gardenBloomDepth = new Uniform(null);
     source.defines.GARDEN_BLOOM_DEPTH_PACKING = BasicDepthPacking;
     source.fragmentShader = /* glsl */ `
+// Defence in depth: one NaN/Inf or runaway HDR texel otherwise contaminates
+// every blur mip and blacks out its whole kernel support. Classify IEEE-754
+// exponent bits with ES 3.0 integer operations: unlike x != x, fast-math
+// cannot assume this NaN/Inf test away. The symmetric 1024 ceiling leaves
+// authored signed HDR untouched, with headroom below half-float overflow.
+highp vec4 gardenBloomSafeHDR(highp vec4 texel) {
+  highp uvec4 exponent = floatBitsToUint(texel) & uvec4(0x7f800000u);
+  return vec4(
+    exponent.r == 0x7f800000u ? 0.0 : clamp(texel.r, -1024.0, 1024.0),
+    exponent.g == 0x7f800000u ? 0.0 : clamp(texel.g, -1024.0, 1024.0),
+    exponent.b == 0x7f800000u ? 0.0 : clamp(texel.b, -1024.0, 1024.0),
+    exponent.a == 0x7f800000u ? 0.0 : clamp(texel.a, -1024.0, 1024.0)
+  );
+}
 uniform float gardenLowSun;
 uniform sampler2D gardenBloomDepth;
 #include <packing>
@@ -227,7 +241,10 @@ float gardenBloomSourceDepth(vec2 uv) {
   return sampleDepth.r;
 #endif
 }
-` + source.fragmentShader.replace("gl_FragColor=texel*mask;", /* glsl */ `
+` + source.fragmentShader.replace(
+      "texture2D(inputBuffer,vUv)",
+      "gardenBloomSafeHDR(texture2D(inputBuffer,vUv))",
+    ).replace("gl_FragColor=texel*mask;", /* glsl */ `
 gl_FragColor = texel * mask;
 if (gardenLowSun > 0.0) {
   float sourceWeight = dot(texel.rgb, vec3(0.2126, 0.7152, 0.0722)) * mask;

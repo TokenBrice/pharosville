@@ -22,6 +22,7 @@ import {
   type DepthPackingStrategies,
 } from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as Postprocessing from "postprocessing";
 import { dayCycleBeats, dayCyclePhase } from "./garden-day-cycle";
 import {
   createGardenPost,
@@ -147,7 +148,8 @@ vi.mock("n8ao", () => {
   return { N8AOPostPass: FakeN8AOPostPass };
 });
 
-vi.mock("postprocessing", () => {
+vi.mock("postprocessing", async (importOriginal) => {
+  const { LuminanceMaterial } = await importOriginal<typeof Postprocessing>();
   const BlendFunction = { ADD: "ADD", SRC: "SRC" };
   const EffectAttribute = { CONVOLUTION: 2, DEPTH: 1 };
   const ToneMappingMode = { AGX: "AGX", NEUTRAL: "NEUTRAL" };
@@ -203,7 +205,7 @@ vi.mock("postprocessing", () => {
       this.luminanceMaterial = {
         smoothing: bloomOptions.luminanceSmoothing,
         threshold: bloomOptions.luminanceThreshold,
-        fragmentShader: "void main(){gl_FragColor=texel*mask;}",
+        fragmentShader: new LuminanceMaterial(true).fragmentShader,
         needsUpdate: false,
         uniforms: {},
         defines: {},
@@ -855,6 +857,26 @@ describe("garden post-processing contracts", () => {
     }
   });
 
+  it("rejects non-finite HDR components before luminance and the first bloom pyramid write", () => {
+    makePost();
+    // Compose against the installed dependency's actual luminance fragment:
+    // an upstream sampling/layout change must not silently bypass the guard.
+    const fragment = latest<FakeBloom>(postHarness.blooms).luminanceMaterial.fragmentShader;
+    expect(fragment).toContain("floatBitsToUint(texel) & uvec4(0x7f800000u)");
+    for (const channel of ["r", "g", "b", "a"]) {
+      expect(fragment).toContain(
+        `exponent.${channel} == 0x7f800000u ? 0.0 : clamp(texel.${channel}, -1024.0, 1024.0)`,
+      );
+    }
+    const guardedSample = fragment.indexOf("texel=gardenBloomSafeHDR(texture2D(inputBuffer,vUv))");
+    const luminance = fragment.indexOf("float l=luminance(texel.rgb)");
+    const pyramidWrite = fragment.indexOf("gl_FragColor = texel * mask;");
+    expect(guardedSample).toBeGreaterThanOrEqual(0);
+    expect(luminance).toBeGreaterThan(guardedSample);
+    expect(pyramidWrite).toBeGreaterThan(luminance);
+    expect(fragment.indexOf("sourceWeight = dot(texel.rgb")).toBeGreaterThan(pyramidWrite);
+  });
+
   it("blocks low-sun bloom from farther sources and uses only the finest halo without changing noon/night", () => {
     const { post } = makePost();
     const bloom = latest<FakeBloom>(postHarness.blooms);
@@ -872,7 +894,7 @@ describe("garden post-processing contracts", () => {
     expect(bloom.luminanceMaterial.needsUpdate).toBe(false);
     expect(bloom.fragmentShader).toContain("receiverProximity = 1.0 - readDepth(uv)");
     expect(bloom.fragmentShader).toContain("sourceProximity = bloom.a / max(weight, 1e-8)");
-    const visibilityBody = bloom.fragmentShader.match(/float gardenBloomVisibility\([^)]*\) \{([\s\S]*?)\n  \}/)![1]!;
+    const visibilityBody = bloom.fragmentShader.match(/float gardenBloomVisibility\([^)]*\) \{([\s\S]*?)\n {2}\}/)![1]!;
     const visibility = new Function("sourceProximity", "receiverProximity", "pixelDepthSpan", `
       const max = Math.max;
       const smoothstep = (a, b, x) => {

@@ -773,6 +773,29 @@ describe("createGardenWater", () => {
     expect("step(0.35, value)").toMatch(hardThresholds[1]!);
   });
 
+  it("keeps lane AA gradients defined across spatial culling and zero-intensity daylight lanes", () => {
+    const fieldGate = FRAGMENT_SHADER.indexOf("vec2 fieldDelta = vWaterPosition - uLaneField.xy;");
+    expect(fieldGate).toBeGreaterThan(0);
+    for (const gradient of [
+      "vec2 laneWaterDx = dFdx(vWaterPosition);",
+      "vec2 laneWaterDy = dFdy(vWaterPosition);",
+      "vec2 laneNormalDx = dFdx(surfaceNormal.xy);",
+      "vec2 laneNormalDy = dFdy(surfaceNormal.xy);",
+    ]) {
+      const position = FRAGMENT_SHADER.indexOf(gradient);
+      expect(position).toBeGreaterThan(0);
+      expect(position).toBeLessThan(fieldGate);
+    }
+    const culledLanes = FRAGMENT_SHADER.slice(fieldGate, FRAGMENT_SHADER.indexOf("float plateAlpha"));
+    expect(culledLanes).toContain("if (distSq > 900.0) continue;");
+    expect(culledLanes).not.toMatch(/\b(?:dFdx|dFdy|fwidth)\s*\(/);
+    const thresholds = [...culledLanes.matchAll(/\baaStep\(([^)]*)\)/g)];
+    expect(thresholds).toHaveLength(4);
+    for (const threshold of thresholds) expect(threshold[1]!.split(",")).toHaveLength(3);
+    expect(culledLanes).toContain("segmentCount + lanePhaseGradient");
+    expect(culledLanes).toContain("laneAccum += body.rgb * intensity * verticalStroke * 0.72;");
+  });
+
   it("freezes reduced motion and lowers decorative detail by quality tier", () => {
     const water = createGardenWater(0);
 

@@ -1316,9 +1316,11 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           gSailMarkCover = markCover;
 
           float sailPanels = floor(vColor.b * 16.0 + 0.5);
+          float panelU = vClothUv.x * sailPanels;
+          // Helper lanes must resolve the footprint before cloth/spar branches;
+          // a collapsed footprint must not create equal smoothstep edges.
+          float panelPitch = max(fwidth(panelU), 1e-4);
           if (sailPanels > 0.5) {
-            float panelU = vClothUv.x * sailPanels;
-            float panelPitch = fwidth(panelU);
             float seamDistance = min(fract(panelU), 1.0 - fract(panelU));
             float seam = 1.0 - smoothstep(
               ${SAIL_PANEL_SEAM_WIDTH}, ${SAIL_PANEL_SEAM_WIDTH} + panelPitch * 1.5, seamDistance
@@ -1361,13 +1363,17 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
       // cloth. A tangent frame built from the shading normal itself (the sails
       // carry no tangents, and generating them would cost a buffer per
       // silhouette for a sub-pixel effect) tilts the normal along warp and weft.
-      // The cross with world up is safe here because sails stand near-vertical,
-      // and the epsilon guards the degenerate case rather than relying on that.
+      // Choose the fallback by length rather than adding epsilon to a vector:
+      // the addition can cancel a real cross product exactly.
       .replace(
         "#include <normal_fragment_begin>",
         `#include <normal_fragment_begin>
         {
-          vec3 clothTangent = normalize(cross(normal, vec3(0.0, 1.0, 0.0)) + vec3(1e-4, 0.0, 0.0));
+          vec3 clothTangent = cross(normal, vec3(0.0, 1.0, 0.0));
+          float clothTangentLengthSq = dot(clothTangent, clothTangent);
+          clothTangent = clothTangentLengthSq > 1e-8
+            ? clothTangent * inversesqrt(max(clothTangentLengthSq, 1e-8))
+            : vec3(1.0, 0.0, 0.0);
           vec3 clothBitangent = cross(normal, clothTangent);
           normal = normalize(
             normal
@@ -1404,10 +1410,12 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         }
         #include <opaque_fragment>`,
       )
-      .replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>\n${FLEET_LOD_DITHER}`);
+      // Screen-door discard comes after texture gradients and cloth lighting,
+      // matching hero dissolve; discarded helper lanes cannot seed NaN bloom.
+      .replace("#include <opaque_fragment>", `${FLEET_LOD_DITHER}\n#include <opaque_fragment>`);
   };
   material.customProgramCacheKey = () =>
-    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-aerial-framing-panels-weave-shoji-hero-band-brace-belly-lod-dissolve-slack";
+    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-aerial-framing-panels-weave-shoji-hero-band-brace-belly-lod-dissolve-slack-finite-aa";
 }
 
 function createInstancedPart(
@@ -1602,7 +1610,7 @@ export function createFleetBatches(input: {
         #include <opaque_fragment>`,
       );
   };
-  farMaterial.customProgramCacheKey = () => "garden-fleet-far-ink-silhouette-lod-dissolve";
+  farMaterial.customProgramCacheKey = () => "garden-fleet-far-ink-silhouette-lod-dissolve-finite-aa";
   materials.push(farMaterial);
 
   const pennantMaterial = new MeshStandardMaterial({

@@ -263,6 +263,14 @@ solid silhouettes occlude farther glare. Only the finest halo contributes at
 full low-sun beats; noon/night retain their original broad practical-light
 pyramid, exposure, grade and tone mapping. Sun glare must never erase the Pharos,
 its island or the fleet.
+At low sun, point-key GGX and environment reflection on the tower's gilt share
+the finite solar-disc radiance ceiling, scaled together to preserve their warm
+colour rather than clip flat ornaments into white patches. Diffuse, emissive,
+metal roughness and accepted noon/night reflection retain their authored values.
+Tower stair openings retain their authored warm emissive and kindling curve,
+but are rough, non-metallic recessed interiors with no environment specular.
+They share the masonry's output transform: lamplight is a warm fill with a
+tight halo, not a clipped white reflective rectangle.
 
 Shelter is local, not a new global darkness or an AO layer: engawa, stone court
 and waterside use continuous world-space L1 bounce, replacing a bounded share

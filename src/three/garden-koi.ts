@@ -219,7 +219,9 @@ function createKoiMaterial(): ShaderMaterial {
         // Fresnel against the pond's (world-up) surface: grazing views see sky.
         vec3 surfaceNormal = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
         float facing = abs(dot(normalize(-mvPosition.xyz), surfaceNormal));
-        float fresnel = 0.02 + 0.98 * pow(1.0 - facing, 5.0);
+        // Unit-vector dot products can round above one: pow requires a
+        // nonnegative base even for this mathematically integral exponent.
+        float fresnel = 0.02 + 0.98 * pow(max(1.0 - facing, 0.0), 5.0);
         vClarity = aFishDepthFade * (1.0 - 0.65 * fresnel);
         gl_Position = projectionMatrix * mvPosition;
       }
