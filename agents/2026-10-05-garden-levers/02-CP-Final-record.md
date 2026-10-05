@@ -7,11 +7,22 @@ Destination gate: `agents/2026-10-05-garden-levers/destination/CP-Destination-or
 
 ## Verdict
 
-The programme is complete and green. `npm run validate` and
-`env -u CI npm run validate:release` both exit 0 — typecheck, lint, 2,574
-unit and contract tests, the guard scripts, the production build, the bundle
-budgets, and the built artifact's DOM and accessibility contract in Chromium
-and Firefox.
+Every implementation packet is delivered and the tree is green: `npm run
+validate` and `env -u CI npm run validate:release` both exit 0 — typecheck,
+lint, 2,574 unit and contract tests, the guard scripts, the production build,
+the bundle budgets, and the built artifact's DOM and accessibility contract in
+Chromium and Firefox.
+
+**This is not a release certification.** `01-execution-overrides.md:88` makes
+the single versioned release conditional on CP-Final *and* the reading gate
+*and* M5 evidence. Two of those three are unmet and cannot be met here: the
+twelve-person blinded reading test needs people, and M5 Pro calibration needs
+hardware that is not attached to this machine. A green `validate:release` does
+not substitute for either, and nothing in this record waives them. The
+versioned release is therefore **blocked pending operator action**, and the
+`CHANGELOG.md` section deliberately remains `## Unreleased - Garden
+Observatory` so `scripts/pharosville/release-contract.mjs` cannot mistake this
+work for a declared version.
 
 ## What shipped
 
