@@ -7,6 +7,7 @@ import { LegendPanel, ReadingKey } from "./legend-panel";
 import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { deriveReadingKey } from "../systems/reading-key";
+import atlasManifest from "../systems/reading-atlas.json";
 
 afterEach(() => {
   cleanup();
@@ -206,6 +207,24 @@ describe("nonmodal ReadingKey", () => {
     expect(container.querySelector("[data-placeholder]")).toBeNull();
     // The initial import manifest is genuinely unpublished, not a fake tile.
     if (!container.querySelector("[data-exemplar-id]")) expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("keeps a pending water slot text-only even when other atlas crops are published", () => {
+    const cells: Record<string, { x: number; y: number; width: number; height: number }> = atlasManifest.exemplars;
+    const previous = cells["water.warning"];
+    delete cells["water.warning"];
+    try {
+      const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+      const { container } = render(<ReadingKey world={world} open onSelectDetail={() => undefined} />);
+      const entry = container.querySelector('[data-reading-id="water.warning"]');
+      expect(entry?.textContent).toContain("Warning Shoals");
+      expect(entry?.textContent).toContain("Short oblique groups of three");
+      expect(entry?.querySelector("img")).toBeNull();
+      expect(entry?.querySelector("[data-exemplar-id]")).toBeNull();
+      expect(entry?.querySelector("[data-placeholder]")).toBeNull();
+    } finally {
+      if (previous) cells["water.warning"] = previous;
+    }
   });
 
   it("dismisses controlled future teaching explicitly while keeping the opener available", () => {

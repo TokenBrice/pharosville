@@ -1,0 +1,309 @@
+{
+  "edition": "garden-observatory",
+  "revision": "9c0bcb6caded62c61ab5a125c2dce09a234d7d9e9b999af86a4bdeae9ba6689b",
+  "outputs": [
+    {
+      "path": "pharosville/stills/garden-dawn.avif",
+      "width": 1200,
+      "height": 750,
+      "bytes": 37191,
+      "quality": 72,
+      "sha256": "be92cb662695c9a7fc3af5bc87a5a26cdd267138227b265e80a5f40ef4e1920a"
+    },
+    {
+      "path": "pharosville/stills/garden-dawn.jpg",
+      "width": 1200,
+      "height": 750,
+      "bytes": 51062,
+      "quality": 72,
+      "sha256": "5c9e2b30fa0281608b25d37b691ad49c882b6204e52b2181a6c1aace458e28c1"
+    },
+    {
+      "path": "pharosville/stills/garden-dawn-portrait.avif",
+      "width": 720,
+      "height": 900,
+      "bytes": 25102,
+      "quality": 72,
+      "sha256": "e2464e45c626573c0a262a662f7519b64202fb09830906c2db643388370e3849"
+    },
+    {
+      "path": "pharosville/stills/garden-dawn-portrait.jpg",
+      "width": 720,
+      "height": 900,
+      "bytes": 33323,
+      "quality": 72,
+      "sha256": "b80afcb5e1a57cb00d4f3afd859d3d93bb8eb498f4a266a8f3b27587e8fb03bc"
+    },
+    {
+      "path": "pharosville/stills/garden-day.avif",
+      "width": 1200,
+      "height": 750,
+      "bytes": 55601,
+      "quality": 72,
+      "sha256": "e74d5c70084ed87e3c238cabb4b4e0d4647b720f7b9bba910e33073fee072051"
+    },
+    {
+      "path": "pharosville/stills/garden-day.jpg",
+      "width": 1200,
+      "height": 750,
+      "bytes": 76661,
+      "quality": 72,
+      "sha256": "548ab2b65366a1cf89361b2885dc65bcf5e9b9cef96300560f8b40ddcfb8de37"
+    },
+    {
+      "path": "pharosville/stills/garden-day-portrait.avif",
+      "width": 720,
+      "height": 900,
+      "bytes": 36970,
+      "quality": 72,
+      "sha256": "5df3dc8970dc6fd0e8147a9fe6e40e871e6eb76a82ab185335447bf2694d20b2"
+    },
+    {
+      "path": "pharosville/stills/garden-day-portrait.jpg",
+      "width": 720,
+      "height": 900,
+      "bytes": 49310,
+      "quality": 72,
+      "sha256": "e14782e33a6efb976ae647c82a769f035778d12c709f83d1bee4938661357348"
+    },
+    {
+      "path": "pharosville/stills/garden-golden.avif",
+      "width": 1200,
+      "height": 750,
+      "bytes": 33721,
+      "quality": 72,
+      "sha256": "1ddc8922171c8dec8071285f002f45c1556210416f6829166c19d7de1a726a32"
+    },
+    {
+      "path": "pharosville/stills/garden-golden.jpg",
+      "width": 1200,
+      "height": 750,
+      "bytes": 43879,
+      "quality": 72,
+      "sha256": "f1c2dc3568c39e1e030bb815acee9f6eda125d73a387c34e1b9d87dc4ed531de"
+    },
+    {
+      "path": "pharosville/stills/garden-golden-portrait.avif",
+      "width": 720,
+      "height": 900,
+      "bytes": 24070,
+      "quality": 72,
+      "sha256": "00491fbb4b779a7ba299c5fee33af4f8c72356cba4dd7ed35ce899b91cbed434"
+    },
+    {
+      "path": "pharosville/stills/garden-golden-portrait.jpg",
+      "width": 720,
+      "height": 900,
+      "bytes": 30760,
+      "quality": 72,
+      "sha256": "c916b0cd9786c6388b038e167152b5a9dd6b2a39356451205322f6a9abd85d96"
+    },
+    {
+      "path": "pharosville/stills/garden-blue.avif",
+      "width": 1200,
+      "height": 750,
+      "bytes": 31610,
+      "quality": 72,
+      "sha256": "906bfadf961d0bbe7d9c401aed217c67db857611fd6faa9e37ca677ad12b2867"
+    },
+    {
+      "path": "pharosville/stills/garden-blue.jpg",
+      "width": 1200,
+      "height": 750,
+      "bytes": 42346,
+      "quality": 72,
+      "sha256": "94610f33877216d6f2b1ab2574f1e91447c0f3d5d0dd2cc6a75f09d11f883047"
+    },
+    {
+      "path": "pharosville/stills/garden-blue-portrait.avif",
+      "width": 720,
+      "height": 900,
+      "bytes": 20110,
+      "quality": 72,
+      "sha256": "2d8e64b83619fe1770ad7762cbf2430b19bc4e5c39f2c41e3bac96e243d72488"
+    },
+    {
+      "path": "pharosville/stills/garden-blue-portrait.jpg",
+      "width": 720,
+      "height": 900,
+      "bytes": 25340,
+      "quality": 72,
+      "sha256": "7a2e0b58b18445feb7daade9b308a6b9596be97b4f5396eb2cec66637c73f853"
+    },
+    {
+      "path": "pharosville/stills/garden-night.avif",
+      "width": 1200,
+      "height": 750,
+      "bytes": 27083,
+      "quality": 72,
+      "sha256": "32830f577b8db8c26354dcf22969daf0852debc1483e55bcecd12a7af3fd2fe3"
+    },
+    {
+      "path": "pharosville/stills/garden-night.jpg",
+      "width": 1200,
+      "height": 750,
+      "bytes": 37477,
+      "quality": 72,
+      "sha256": "0675dadb82686b27facab225da8c1b73f0d6a011b1e12bd7168dc503f1516c05"
+    },
+    {
+      "path": "pharosville/stills/garden-night-portrait.avif",
+      "width": 720,
+      "height": 900,
+      "bytes": 16901,
+      "quality": 72,
+      "sha256": "5b761d6231b7df93d77353d4bfa56ee1293767c849024e93ee34a10f5128b9a4"
+    },
+    {
+      "path": "pharosville/stills/garden-night-portrait.jpg",
+      "width": 720,
+      "height": 900,
+      "bytes": 21766,
+      "quality": 72,
+      "sha256": "c98cc93608666508173c725fa991dca6ab1782860f79fd84105bffae6501a70b"
+    },
+    {
+      "path": "og-card.png",
+      "width": 1200,
+      "height": 630,
+      "bytes": 742385,
+      "sha256": "db89f7c787312ac8d8d3463a6dda616a8db5d81d019bcb50173aa06c62372c46"
+    }
+  ],
+  "sources": [
+    {
+      "file": "outputs/s8/social/dawn-landscape.png",
+      "metrics": "outputs/s8/social/dawn-landscape.json",
+      "capture": "outputs/cap.sh s8/social/dawn-landscape --fixture quiet-dense --clock 2026-10-05 --hash '#t=7' --clean --reduced --width 1600 --height 1000",
+      "rect": [
+        0,
+        0,
+        1600,
+        1000
+      ],
+      "sha256": "bd1736f650539a63d128548738b5e399263d6d0e159eac5c6bca356066b48dac"
+    },
+    {
+      "file": "outputs/s8/social/dawn-portrait.png",
+      "metrics": "outputs/s8/social/dawn-portrait.json",
+      "capture": "outputs/cap.sh s8/social/dawn-portrait --fixture quiet-dense --clock 2026-10-05 --hash '#t=7' --clean --reduced --width 900 --height 1125",
+      "rect": [
+        0,
+        0,
+        900,
+        1125
+      ],
+      "sha256": "5a848e30c0bbf73baea390d07ca68c731ad9676a823901ecf10a838fed317852"
+    },
+    {
+      "file": "outputs/s8/social/day-landscape.png",
+      "metrics": "outputs/s8/social/day-landscape.json",
+      "capture": "outputs/cap.sh s8/social/day-landscape --fixture quiet-dense --clock 2026-10-05 --hash '#t=12.25' --clean --reduced --width 1600 --height 1000",
+      "rect": [
+        0,
+        0,
+        1600,
+        1000
+      ],
+      "sha256": "e9a17d6108f9a05b75f0cc7f36a0b527836919bd59c7c6a416b77c1fd50cb901"
+    },
+    {
+      "file": "outputs/s8/social/day-portrait.png",
+      "metrics": "outputs/s8/social/day-portrait.json",
+      "capture": "outputs/cap.sh s8/social/day-portrait --fixture quiet-dense --clock 2026-10-05 --hash '#t=12.25' --clean --reduced --width 900 --height 1125",
+      "rect": [
+        0,
+        0,
+        900,
+        1125
+      ],
+      "sha256": "3358d2d0589fa36d5618b98fe34067503dc6236be95320a12cd50fbd395a34d4"
+    },
+    {
+      "file": "outputs/s8/social/golden-landscape.png",
+      "metrics": "outputs/s8/social/golden-landscape.json",
+      "capture": "outputs/cap.sh s8/social/golden-landscape --fixture quiet-dense --clock 2026-10-05 --hash '#t=18.5' --clean --reduced --width 1600 --height 1000",
+      "rect": [
+        0,
+        0,
+        1600,
+        1000
+      ],
+      "sha256": "685ebb7d4639d921a32bd778e28f982d742593afeb2d64e94240820c02d6d974"
+    },
+    {
+      "file": "outputs/s8/social/golden-portrait.png",
+      "metrics": "outputs/s8/social/golden-portrait.json",
+      "capture": "outputs/cap.sh s8/social/golden-portrait --fixture quiet-dense --clock 2026-10-05 --hash '#t=18.5' --clean --reduced --width 900 --height 1125",
+      "rect": [
+        0,
+        0,
+        900,
+        1125
+      ],
+      "sha256": "bcda09e72ff38ce0c0349d2050a02d5287ecc15e0b921e6cf5c89dd05ab36002"
+    },
+    {
+      "file": "outputs/s8/social/blue-landscape.png",
+      "metrics": "outputs/s8/social/blue-landscape.json",
+      "capture": "outputs/cap.sh s8/social/blue-landscape --fixture quiet-dense --clock 2026-10-05 --hash '#t=19.2' --clean --reduced --width 1600 --height 1000",
+      "rect": [
+        0,
+        0,
+        1600,
+        1000
+      ],
+      "sha256": "dd6a4184801eeb9b91f03bada2ab6813dfa703395a3d9480f8f764e5a23dc196"
+    },
+    {
+      "file": "outputs/s8/social/blue-portrait.png",
+      "metrics": "outputs/s8/social/blue-portrait.json",
+      "capture": "outputs/cap.sh s8/social/blue-portrait --fixture quiet-dense --clock 2026-10-05 --hash '#t=19.2' --clean --reduced --width 900 --height 1125",
+      "rect": [
+        0,
+        0,
+        900,
+        1125
+      ],
+      "sha256": "dd458b3789ed49b9ef1c834426fd425d40369afc9f03c82ed4257eaf7cfb4549"
+    },
+    {
+      "file": "outputs/s8/social/night-landscape.png",
+      "metrics": "outputs/s8/social/night-landscape.json",
+      "capture": "outputs/cap.sh s8/social/night-landscape --fixture quiet-dense --clock 2026-10-05 --hash '#t=22' --clean --reduced --width 1600 --height 1000",
+      "rect": [
+        0,
+        0,
+        1600,
+        1000
+      ],
+      "sha256": "692da5095ada4f2fce68a0099b4a4e32388ea34c6c3ad0b87bf7d8a66f90472d"
+    },
+    {
+      "file": "outputs/s8/social/night-portrait.png",
+      "metrics": "outputs/s8/social/night-portrait.json",
+      "capture": "outputs/cap.sh s8/social/night-portrait --fixture quiet-dense --clock 2026-10-05 --hash '#t=22' --clean --reduced --width 900 --height 1125",
+      "rect": [
+        0,
+        0,
+        900,
+        1125
+      ],
+      "sha256": "8bb5dc12cbcb5a3faca87607967623901f04be8a767d855d74a82ee2fe1e1bb0"
+    },
+    {
+      "file": "outputs/s8/social/day-landscape.png",
+      "metrics": "outputs/s8/social/day-landscape.json",
+      "capture": "outputs/cap.sh s8/social/day-landscape --fixture quiet-dense --clock 2026-10-05 --hash '#t=12.25' --clean --reduced --width 1600 --height 1000",
+      "rect": [
+        0,
+        110,
+        1600,
+        840
+      ],
+      "sha256": "e9a17d6108f9a05b75f0cc7f36a0b527836919bd59c7c6a416b77c1fd50cb901"
+    }
+  ],
+  "font": "public/fonts/eb-garamond-400-latin.woff2",
+  "fontSha256": "912929dba0faab5e151849ea5e988adba3080ad6d2bcc4dbff27aa427896498d"
+}

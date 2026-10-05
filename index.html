@@ -22,10 +22,11 @@
       (function () {
         try {
           var q = new URLSearchParams(location.search.slice(1) + "&" + location.hash.replace(/^#\??/, ""));
-          var now = new Date(), r = Math.PI / 180, t = parseFloat(q.get("t") || "");
-          var pin = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && /^(\d{4})-(\d\d)-(\d\d)$/.exec(q.get("d") || "");
+          var local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+          var now = new Date(), r = Math.PI / 180, t = local ? parseFloat(q.get("t") || "") : NaN;
+          var pin = local && /^(\d{4})-(\d\d)-(\d\d)$/.exec(q.get("d") || "");
           var Y = pin ? +pin[1] : now.getFullYear(), M = pin ? pin[2] - 1 : now.getMonth(), D = pin ? +pin[3] : now.getDate();
-          var h = t >= 0 ? Math.min(24, t) : q.get("n") === "1" ? 22 : now.getHours() + now.getMinutes() / 60;
+          var h = t >= 0 ? Math.min(24, t) : local && q.get("n") === "1" ? 22 : now.getHours() + now.getMinutes() / 60;
           var jan = new Date(Y, 0, 1).getTimezoneOffset(), jul = new Date(Y, 6, 1).getTimezoneOffset();
           var zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
           var south = (jan !== jul && jan < jul) || /^(Antarctica\/|Australia\/|America\/(Argentina\/|Asuncion|Bahia|Buenos_Aires|Campo_Grande|Cuiaba|La_Paz|Lima|Montevideo|Punta_Arenas|Recife|Santiago|Sao_Paulo)|Africa\/(Johannesburg|Maputo|Harare|Lusaka|Windhoek|Gaborone|Maseru|Mbabane|Luanda|Lubumbashi|Blantyre|Dar_es_Salaam)|Asia\/Jakarta|Indian\/(Antananarivo|Mauritius|Reunion)|Pacific\/(Apia|Auckland|Chatham|Fiji|Noumea|Port_Moresby|Tahiti|Tongatapu))/.test(zone);

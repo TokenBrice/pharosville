@@ -1,6 +1,123 @@
 {
-  "image": null,
-  "width": 0,
-  "height": 0,
-  "exemplars": {}
+  "image": "/garden-reading-atlas.webp",
+  "width": 1030,
+  "height": 322,
+  "exemplars": {
+    "water.calm": {
+      "x": 0,
+      "y": 0,
+      "width": 256,
+      "height": 160
+    },
+    "water.alert": {
+      "x": 258,
+      "y": 0,
+      "width": 256,
+      "height": 160
+    },
+    "water.warning": {
+      "x": 516,
+      "y": 0,
+      "width": 256,
+      "height": 160
+    },
+    "lighthouse.STEADY": {
+      "x": 774,
+      "y": 0,
+      "width": 256,
+      "height": 160
+    },
+    "lighthouse.CRISIS": {
+      "x": 0,
+      "y": 162,
+      "width": 256,
+      "height": 160
+    },
+    "sail.1": {
+      "x": 258,
+      "y": 162,
+      "width": 256,
+      "height": 160,
+      "detailId": "ship.usdt-tether"
+    },
+    "sail.2": {
+      "x": 516,
+      "y": 162,
+      "width": 256,
+      "height": 160,
+      "detailId": "ship.usde-ethena"
+    },
+    "sail.3": {
+      "x": 774,
+      "y": 162,
+      "width": 256,
+      "height": 160,
+      "detailId": "ship.satusd-river"
+    }
+  },
+  "sources": {
+    "water.calm": {
+      "file": "outputs/g/reading/water-calm-burst-00.png",
+      "sha256": "c357b85513368afd31a0b36c8a97d4eebfc81f5bd80d742203125ee82d728826",
+      "capture": "outputs/cap.sh outputs/g/reading/water-calm --fixture mixed-capacity --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=0,0,0.28' --reduced --clean --burst 1 --clip 512,533,64,39"
+    },
+    "water.alert": {
+      "file": "outputs/g/reading/water-alert-burst-00.png",
+      "sha256": "782f17855e8c562bfec97d84411c91a384c82bb3eb773328873c34328265be8e",
+      "capture": "outputs/cap.sh outputs/g/reading/water-alert --fixture mixed-capacity --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=0,0,0.28' --reduced --clean --burst 1 --clip 952,500,48,32"
+    },
+    "water.warning": {
+      "file": "outputs/g/reading/water-warning-burst-00.png",
+      "sha256": "f7f8c5efd6fafe6305351751a31ac1ef40ee8b1163485e098c5c832f8ece4d07",
+      "capture": "outputs/cap.sh outputs/g/reading/water-warning --fixture mixed-capacity --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=0,0,0.28' --reduced --clean --burst 1 --clip 1088,452,48,30"
+    },
+    "lighthouse.STEADY": {
+      "file": "outputs/g/reading/lighthouse-steady-burst-00.png",
+      "sha256": "6980c642a67869d5650649fb174101d0eb7d9707bf6a58b700ecc65633edda67",
+      "capture": "outputs/cap.sh outputs/g/reading/lighthouse-steady --fixture quiet-dense --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25' --reduced --clean --burst 1 --clip 900,100,200,425"
+    },
+    "lighthouse.CRISIS": {
+      "file": "outputs/g/reading/lighthouse-crisis-burst-00.png",
+      "sha256": "de75864612786337fe6f10f02568885af753377252bcdd81ee172f93515c4885",
+      "capture": "outputs/cap.sh outputs/g/reading/lighthouse-crisis --fixture mixed-capacity --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25' --reduced --clean --burst 1 --clip 900,100,200,425"
+    },
+    "sail.1": {
+      "file": "outputs/g/reading/sail-1-burst-00.png",
+      "sha256": "086e0d83eb374fcc003351e9e8f0c274cfda7fb36899e40c43be0e75a44494c1",
+      "capture": "outputs/cap.sh outputs/g/reading/sail-1 --fixture quiet-dense --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=1676.921606,-961.6,0.8' --reduced --clean --burst 1 --clip 804,466,64,72"
+    },
+    "sail.2": {
+      "file": "outputs/g/reading/sail-2-burst-00.png",
+      "sha256": "b9809f1fa7dab58f38a3838078a4b21f96dcba2490c8797ba9142346ac517224",
+      "capture": "outputs/cap.sh outputs/g/reading/sail-2 --fixture quiet-dense --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=1472.121606,-884.8,0.8' --reduced --clean --burst 1 --clip 804,466,64,72"
+    },
+    "sail.3": {
+      "file": "outputs/g/reading/sail-3-burst-00.png",
+      "sha256": "212d7c358badf8c891d7e97363b745be236c1ef68186cf767821f0a807c1b270",
+      "capture": "outputs/cap.sh outputs/g/reading/sail-3 --fixture quiet-dense --clock 2026-10-05 --width 1600 --height 1000 --hash '#t=12.25&cam=1369.721606,-808,0.8' --reduced --clean --burst 1 --clip 804,466,64,72"
+    }
+  },
+  "sha256": "c441af608241d1bbbe2ededa4ea356164f59354c8f1e79db941163a9e5150772",
+  "pending": [
+    "water.watch",
+    "water.danger",
+    "water.ledger",
+    "water.wreck",
+    "lighthouse.BEDROCK",
+    "lighthouse.TREMOR",
+    "lighthouse.FRACTURE",
+    "lighthouse.MELTDOWN",
+    "cloud"
+  ],
+  "pendingReasons": {
+    "water.watch": "Mixed-capacity overview has Watch water, but conservative hull/sign/shore exclusions leave no clear >=48x32 exemplar. Only 32x24 scraps survive; one ribbon fragment does not honestly illustrate the long bending single-ribbon signature.",
+    "water.danger": "Mixed-capacity overview leaves no clear >=48x32 Danger exemplar under the conservative exclusions. 32x24 scraps near (132,31) contain only partial quartet cells in the static signature calculation, not a complete readable group of four.",
+    "water.ledger": "Mixed-capacity overview's Ledger shelf is crowded by NAV hull envelopes. No clear >=48x32 window survives; the 32x16 remnant at [784,236] contains no stroke in the static codebook calculation. Publishing it would label plain water as a widely spaced horizontal single.",
+    "water.wreck": "Operator real-GPU review rejected [356,456,48,32]: predominantly green grassy bank, tiled roof and dock with only a water sliver, not legible held silt. No isolated Wreck-water crop has been GPU-identified at this camera; keep this slot text-only rather than publish the datum classifier's false visible-water claim.",
+    "lighthouse.BEDROCK": "No matching official PSI state in mixed-capacity or quiet-dense",
+    "lighthouse.TREMOR": "No matching official PSI state in mixed-capacity or quiet-dense",
+    "lighthouse.FRACTURE": "No matching official PSI state in mixed-capacity or quiet-dense",
+    "lighthouse.MELTDOWN": "No matching official PSI state in mixed-capacity or quiet-dense",
+    "cloud": "Regenerate after S4-P5 cloud states land"
+  }
 }

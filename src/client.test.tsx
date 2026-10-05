@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PharosVilleClient, stillForLocalHour } from "./client";
 import { ArrivalShell } from "./components/arrival-shell";
+import { DesktopOnlyFallback } from "./desktop-only-fallback";
 
 const desktopModuleLoaded = vi.hoisted(() => vi.fn());
 const publication = { edition: "garden-observatory", revision: "a".repeat(64) };
@@ -166,6 +167,20 @@ describe("first-byte and React arrival shell", () => {
     expect(shell.querySelector("#root img, #root canvas")).toBeNull();
     expect(shell.querySelector("#root")?.textContent).not.toMatch(/PSI \d|loading \d|% complete/i);
     expect(shell.querySelector('link[href="/arrival-shell.css"]')).not.toBeNull();
+  });
+
+  it("keeps the no-JS, loading and small-screen guide descriptions identical", () => {
+    const html = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
+    const shell = new DOMParser().parseFromString(html, "text/html");
+    const descriptions = (root: ParentNode, selector: string) =>
+      [...root.querySelectorAll(selector)].map((node) => node.textContent);
+    const noJsCopy = descriptions(shell, "#root .pv-arrival-shell__guide dd");
+    const arrival = render(<ArrivalShell stage="Loading the world data module." />);
+    const smallScreen = render(<DesktopOnlyFallback />);
+
+    expect(noJsCopy).toHaveLength(3);
+    expect(descriptions(arrival.container, ".pv-arrival-shell__guide dd")).toEqual(noJsCopy);
+    expect(descriptions(smallScreen.container, ".pharosville-narrow__guide dd")).toEqual(noJsCopy);
   });
 
   it("replaces the same meaningful shell with the observed loading stage, never anonymous progress", () => {

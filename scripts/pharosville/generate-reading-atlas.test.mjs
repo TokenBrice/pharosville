@@ -17,7 +17,7 @@ test("composes reproducible crops and omits absent conditional cloud/PSI slots",
     const manifest = join(directory, "input.json");
     await writeFile(manifest, JSON.stringify({ version: 1, slots: [
       ...required.map((id) => ({ id, file: crop, ...(id.startsWith("sail.") ? { detailId: `ship.test-${id}` } : {}) })),
-      { id: "cloud", file: null },
+      { id: "cloud", file: null, pending: "No official cloud crop supplied" },
     ] }));
     const first = await generateReadingAtlas({ manifest, out: join(directory, "first.webp"), outputManifest: join(directory, "first.json") });
     const second = await generateReadingAtlas({ manifest, out: join(directory, "second.webp"), outputManifest: join(directory, "second.json") });
@@ -40,6 +40,42 @@ test("refuses missing mandatory crops and duplicate exemplar ids", async () => {
     await assert.rejects(generateReadingAtlas({ manifest }), /Missing required real-GPU crop: water.calm/);
     await writeFile(manifest, JSON.stringify({ version: 1, slots: [{ id: "cloud", file: null }, { id: "cloud", file: null }] }));
     await assert.rejects(generateReadingAtlas({ manifest }), /Unknown or duplicate exemplar: cloud/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("publishes explicit pending water without an exemplar or source", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pharosville-reading-atlas-"));
+  try {
+    const crop = join(directory, "unit-crop.png");
+    await sharp({ create: { width: 32, height: 20, channels: 3, background: "#557788" } }).png().toFile(crop);
+    const manifest = join(directory, "input.json");
+    const reason = "No clear Warning Shoals water at this fixture camera";
+    const slots = required.map((id) => id === "water.warning"
+      ? { id, file: null, pending: reason }
+      : { id, file: crop });
+    await writeFile(manifest, JSON.stringify({ version: 1, slots }));
+    const outputManifest = join(directory, "atlas.json");
+    const published = await generateReadingAtlas({ manifest, out: join(directory, "atlas.webp"), outputManifest });
+    assert.ok(published.pending.includes("water.warning"));
+    assert.equal(published.pendingReasons["water.warning"], reason);
+    assert.equal(Object.hasOwn(published.exemplars, "water.warning"), false);
+    assert.equal(Object.hasOwn(published.sources, "water.warning"), false);
+    assert.deepEqual(JSON.parse(await readFile(outputManifest, "utf8")), published);
+
+    for (const invalid of [
+      { id: "water.warning", file: null },
+      { id: "water.warning", file: null, pending: " " },
+      { id: "water.warning", file: crop, pending: reason },
+    ]) {
+      await writeFile(manifest, JSON.stringify({ version: 1, slots: slots.map((slot) => slot.id === invalid.id ? invalid : slot) }));
+      await assert.rejects(generateReadingAtlas({ manifest }), /water.warning requires either a real-GPU crop or an explicit pending reason, not both/);
+    }
+    await writeFile(manifest, JSON.stringify({ version: 1, slots: slots.map((slot) => slot.id === "sail.1"
+      ? { id: slot.id, file: null, pending: "Not captured" }
+      : slot) }));
+    await assert.rejects(generateReadingAtlas({ manifest }), /Missing required real-GPU crop: sail.1/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

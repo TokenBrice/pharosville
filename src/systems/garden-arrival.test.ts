@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { dayCycleBeats, type DayCycleBeatName } from "./day-cycle-beats";
 import { sampleGardenArrivalCeremonyPose } from "./garden-arrival";
 import { gardenSkyDay, gardenSkyLatitudeForZone } from "./sky-almanac";
@@ -9,13 +9,13 @@ const INDEX_HTML = readFileSync(new URL("../../index.html", import.meta.url), "u
 const VEIL_SCRIPT = /<script>([\s\S]*?)<\/script>/.exec(INDEX_HTML)![1]!;
 
 /** Runs the inline veil script against a stub page; returns the beat it painted. */
-function inlineVeilBeat(hash: string, timeZone: string): string | null {
+function inlineVeilBeat(hash: string, timeZone: string, options: { hostname?: string; search?: string } = {}): string | null {
   const attributes = new Map<string, string>();
   const root = {
     setAttribute: (name: string, value: string) => attributes.set(name, value),
   };
   const intl = { DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone }) }) };
-  const location = { hash, hostname: "localhost", search: "" };
+  const location = { hash, hostname: options.hostname ?? "localhost", search: options.search ?? "" };
   new Function("location", "document", "Intl", VEIL_SCRIPT)(location, { documentElement: root }, intl);
   return attributes.get("data-pv-veil-beat") ?? null;
 }
@@ -70,8 +70,28 @@ describe("inline hour veil (index.html, K17)", () => {
     }
   });
 
+  it.each([
+    ["localhost", "night"],
+    ["127.0.0.1", "night"],
+    ["pharosville.pharos.watch", "day"],
+    ["localhost.example.com", "day"],
+  ])("restricts query and hash time/night pins on %s to the localhost clock gate", (hostname, expected) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 8, 26, 12));
+    try {
+      expect(inlineVeilBeat("", "Europe/Paris", { hostname })).toBe("day");
+      for (const pin of ["t=22", "n=1"]) {
+        expect(inlineVeilBeat(`#${pin}`, "Europe/Paris", { hostname })).toBe(expected);
+        expect(inlineVeilBeat("", "Europe/Paris", { hostname, search: `?${pin}` })).toBe(expected);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("is allowed by the document CSP (public/_headers carries its hash)", () => {
     const hash = createHash("sha256").update(VEIL_SCRIPT, "utf8").digest("base64");
+    expect(hash).toBe("0hEr4TXvzJFsGiEhp4oxW03pt03dBoPdFJfflV++rLs=");
     const headers = readFileSync(new URL("../../public/_headers", import.meta.url), "utf8");
     expect(headers).toContain(`'sha256-${hash}'`);
     expect(headers).not.toContain("'unsafe-inline'");

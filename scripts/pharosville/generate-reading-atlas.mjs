@@ -22,7 +22,19 @@ export async function generateReadingAtlas({ manifest = DEFAULT_MANIFEST, out = 
     if (!IDS.includes(slot.id) || byId.has(slot.id)) throw new Error(`Unknown or duplicate exemplar: ${slot.id}`);
     byId.set(slot.id, slot);
   }
-  for (const id of REQUIRED) if (!byId.get(id)?.file) throw new Error(`Missing required real-GPU crop: ${id}`);
+  for (const slot of byId.values()) {
+    const hasCrop = typeof slot.file === "string" && slot.file.length > 0;
+    const hasReason = typeof slot.pending === "string" && slot.pending.trim().length > 0;
+    if (hasCrop === hasReason || (slot.file != null && !hasCrop)) {
+      throw new Error(`${slot.id} requires either a real-GPU crop or an explicit pending reason, not both`);
+    }
+  }
+  for (const id of REQUIRED) {
+    const slot = byId.get(id);
+    if (!slot || (!slot.file && (!id.startsWith("water.") || !slot.pending))) {
+      throw new Error(`Missing required real-GPU crop: ${id}`);
+    }
+  }
   const cellWidth = 256, cellHeight = 160, gutter = 2, columns = 4;
   const composites = [], exemplars = {}, sources = {};
   for (const id of IDS) {
@@ -44,7 +56,8 @@ export async function generateReadingAtlas({ manifest = DEFAULT_MANIFEST, out = 
   const image = await sharp({ create: { width, height, channels: 3, background: "#151030" } })
     .composite(composites).webp({ lossless: true, effort: 6 }).toBuffer();
   const published = { image: "/garden-reading-atlas.webp", width, height, exemplars, sources,
-    sha256: createHash("sha256").update(image).digest("hex"), pending: IDS.filter((id) => !exemplars[id]) };
+    sha256: createHash("sha256").update(image).digest("hex"), pending: IDS.filter((id) => !exemplars[id]),
+    pendingReasons: Object.fromEntries([...byId.values()].filter((slot) => !slot.file).map((slot) => [slot.id, slot.pending])) };
   const imagePath = resolve(ROOT, out), manifestPath = resolve(ROOT, outputManifest);
   await mkdir(dirname(imagePath), { recursive: true });
   await mkdir(dirname(manifestPath), { recursive: true });
