@@ -2,6 +2,12 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## Unreleased - Garden Observatory
+
+Work in progress on `feat/garden-observatory`; see `agents/2026-10-05-garden-levers/00-implementation-plan.md`. Renamed and mirrored into the in-app changelog only by the release PR.
+
+- Removed two unreferenced island/islet renderer snapshots left over from v0.17.0.
+
 ## v0.20.1 - 2026-10-03 - Steady Lamp
 
 The harbour light now settles when a feed keeps failing, so the lamp agrees with the record instead of staying steady through an outage.
