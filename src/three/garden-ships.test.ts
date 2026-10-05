@@ -12,10 +12,14 @@ import {
   MeshStandardMaterial,
   Object3D,
   Quaternion,
+  ShaderChunk,
+  ShaderLib,
   Texture,
 } from "three";
 import { describe, expect, it, vi } from "vitest";
 import { GARDEN_SURFACE_ROLE_ATTRIBUTE, GARDEN_SURFACE_WEIGHT_ATTRIBUTE } from "./garden-surfaces";
+import { prepareGardenArchitectureTree } from "./garden-precinct";
+import { applyGardenPrintInksToTree } from "./garden-print-inks";
 import {
   GARDEN_HULL_SILHOUETTES,
   type GardenHullSilhouette,
@@ -53,6 +57,7 @@ import { gardenFleetAttention, gardenFleetUnpackSailAttention, patchSailAtlasMat
 import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import {
   createGardenModelLibrary,
+  GARDEN_HERO_MODEL_IDS,
   GARDEN_MODEL_MANIFEST,
   type GardenModelAnchorId,
   type GardenModelId,
@@ -81,6 +86,35 @@ function ship(id: string, hull: ShipHull, sizeTier: ShipSizeTier, scale = 1): Sh
 
 function build(node: ShipNode): ShipVisual {
   return createShip(node, { x: 0, y: 0 }, true, makeCache());
+}
+
+function expandShaderChunks(source: string): string {
+  return source.replace(/#include <(\w+)>/g, (_, name: string) => {
+    const chunk = ShaderChunk[name as keyof typeof ShaderChunk];
+    if (chunk === undefined) throw new Error(`Unknown three.js shader chunk: ${name}`);
+    return expandShaderChunks(chunk);
+  });
+}
+
+function expectHeroFragmentDeclarationOrder(fragmentShader: string, variant: string): void {
+  const standard = expandShaderChunks(ShaderLib.standard.fragmentShader);
+  const standardMain = standard.slice(standard.indexOf("void main()"));
+  const composed = expandShaderChunks(fragmentShader);
+  const composedMain = composed.slice(composed.indexOf("void main()"));
+  // Derive three-owned locals from the installed shader, rather than maintaining
+  // a list that could miss a new authored write or a dependency chunk change.
+  const declaration = /\b(?:bool|int|uint|float|[biu]?vec[234]|mat[234]|[A-Z]\w*)\s+([A-Za-z_]\w*)\s*(?=[=;,])/g;
+  const locals = new Set(Array.from(standardMain.matchAll(declaration), (match) => match[1]!));
+  expect(locals.has("metalnessFactor"), variant).toBe(true);
+  for (const local of locals) {
+    const declarationPattern = new RegExp(`\\b(?:bool|int|uint|float|[biu]?vec[234]|mat[234]|[A-Z]\\w*)\\s+${local}\\s*(?=[=;,])`);
+    const declarationIndex = composedMain.search(declarationPattern);
+    const writes = new RegExp(`\\b${local}(?:\\.[A-Za-z_]\\w*)*\\s*[+*/-]?=(?!=)`, "g");
+    for (const write of composedMain.matchAll(writes)) {
+      expect(declarationIndex, `${variant}: ${local} declaration`).toBeGreaterThanOrEqual(0);
+      expect(write.index, `${variant}: ${local} write`).toBeGreaterThan(declarationIndex);
+    }
+  }
 }
 
 describe("createShip vertex shading", () => {
@@ -413,6 +447,58 @@ describe("attachGardenHeroModel", () => {
     expect(shader.fragmentShader).toContain("roughnessFactor *= vHeroSurface.x");
     expect(shader.fragmentShader).toContain("metalnessFactor *= vHeroSurface.y");
     expect(model.children.filter((child) => child instanceof Mesh)).toHaveLength(1);
+  });
+
+  it.each(GARDEN_HERO_MODEL_IDS)("declares three.js locals before composed hero writes: %s", async (id) => {
+    const visual = build(ship("usdt-tether", "treasury-galleon", "titan"));
+    visual.heroModelId = id;
+    const atlas = new CanvasTexture();
+    assignGardenHeroSailAtlas(visual, atlas, 17);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const asset = String(url).split("?")[0];
+      return new Response(new Uint8Array(readFileSync(`public${asset}`)));
+    }));
+    try {
+      const model = await createGardenModelLibrary().load(id);
+      attachGardenHeroModel(visual, model);
+      prepareGardenArchitectureTree(model);
+      applyGardenPrintInksToTree(visual.root);
+      const materials = new Set<MeshStandardMaterial>([visual.identitySailMaterial!]);
+      model.traverse((object) => {
+        if (!(object instanceof Mesh)) return;
+        for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+          if (material instanceof MeshStandardMaterial) materials.add(material);
+        }
+      });
+      expect(materials.size).toBeGreaterThan(1);
+      for (const material of materials) {
+        const shader = {
+          uniforms: {},
+          vertexShader: ShaderLib.standard.vertexShader,
+          fragmentShader: ShaderLib.standard.fragmentShader,
+        };
+        material.onBeforeCompile(shader as never, null as never);
+        const variant = `${id}/${material.name || "identity-sail"}`;
+        expectHeroFragmentDeclarationOrder(shader.fragmentShader, variant);
+        if (shader.fragmentShader.includes("varying vec2 vHeroSurface;")) {
+          const declaration = shader.fragmentShader.indexOf("#include <metalnessmap_fragment>");
+          const reset = shader.fragmentShader.indexOf("metalnessFactor = 1.0;");
+          const response = shader.fragmentShader.indexOf("metalnessFactor *= vHeroSurface.y;");
+          const mappedResponse = shader.fragmentShader.indexOf("metalnessFactor *= texelMetalness.b;");
+          expect(reset, variant).toBeGreaterThan(declaration);
+          expect(response, variant).toBeGreaterThan(reset);
+          expect(mappedResponse, variant).toBeGreaterThan(response);
+        }
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      atlas.dispose();
+      visual.root.traverse((object) => {
+        if (!(object instanceof Mesh)) return;
+        object.geometry.dispose();
+        for (const material of Array.isArray(object.material) ? object.material : [object.material]) material.dispose();
+      });
+    }
   });
 
   it("carries restrained wabi value and age patina onto hero wood, never sails", () => {

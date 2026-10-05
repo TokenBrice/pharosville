@@ -91,8 +91,9 @@ export function writeGardenAtmosphereSky(out: Color, dir: Vector3, sun: Vector3,
   // Preserve spectral ratios and the accepted high-sun calibration.
   const peak = Math.max(out.r, out.g, out.b);
   const low = 1 - t * t * (3 - 2 * t);
-  const ceiling = Math.min(radiance, GARDEN_ATMOSPHERE.sunDiscRadiance);
-  if (peak > ceiling && low > 0) out.multiplyScalar(1 - low + low * ceiling / peak);
+  const ceiling = Math.min(radiance, GARDEN_ATMOSPHERE.sunDiscRadiance)
+    + (radiance - Math.min(radiance, GARDEN_ATMOSPHERE.sunDiscRadiance)) * (1 - low);
+  if (peak > ceiling && low > 0) out.multiplyScalar(ceiling / peak);
   return out;
 }
 
@@ -142,8 +143,8 @@ vec3 gardenAtmosphereSky(vec3 dir, vec3 sun, vec3 r, vec3 m, float radiance) {
   vec3 sky = radiance * (r * gardenAtmosphereRayleighPhase(mu) + m * gardenAtmosphereMiePhase(mu)) / max(r + m, vec3(1e-8)) * integral;
   float peak = max(sky.r, max(sky.g, sky.b));
   float low = 1.0 - smoothstep(0.08, 0.45, sun.y);
-  float ceiling = min(radiance, ${GARDEN_ATMOSPHERE.sunDiscRadiance});
-  if (peak > ceiling && low > 0.0) sky *= 1.0 - low + low * ceiling / peak;
+  float ceiling = mix(radiance, min(radiance, ${GARDEN_ATMOSPHERE.sunDiscRadiance}), low);
+  if (peak > ceiling && low > 0.0) sky *= ceiling / peak;
   return sky;
 }
 #endif

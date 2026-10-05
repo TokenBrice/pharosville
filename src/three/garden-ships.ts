@@ -1409,13 +1409,20 @@ function mergeGardenHeroStatics(visual: ShipVisual, model: Group): void {
         shader.fragmentShader = shader.fragmentShader
           .replace("#include <common>", "#include <common>\nvarying float vHeroGlow; varying vec2 vHeroSurface;")
           .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor *= vHeroSurface.x;")
-          .replace("#include <metalnessmap_fragment>", "metalnessFactor = 1.0;\n#include <metalnessmap_fragment>\nmetalnessFactor *= vHeroSurface.y;")
+          // The chunk declares metalnessFactor; restore the per-vertex base only
+          // afterwards, retaining its map sample without another texture fetch.
+          .replace("#include <metalnessmap_fragment>", `#include <metalnessmap_fragment>
+metalnessFactor = 1.0;
+metalnessFactor *= vHeroSurface.y;
+#ifdef USE_METALNESSMAP
+metalnessFactor *= texelMetalness.b;
+#endif`)
           .replace(
             "#include <emissivemap_fragment>",
             "#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.72, 0.35) * vHeroGlow * 1.4;",
           );
       };
-      material.customProgramCacheKey = () => "garden-hero-merged-solid-v2";
+      material.customProgramCacheKey = () => "garden-hero-merged-solid-v3";
       applyGardenSurface(material, {
         role: "timber", mapping: "uv", metresPerRepeat: 2.4,
         detailStrength: 0.28, vertexWeights: true,

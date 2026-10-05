@@ -63,10 +63,74 @@ describe("ai-zuri shade plate", () => {
     } as WebGLProgramParametersWithUniforms;
     material.onBeforeCompile(shader, {} as WebGLRenderer);
     expect(shader.uniforms.uGardenInkLocalColour).toBe(gardenPrintInkUniforms.uGardenInkLocalColour);
-    expect(shader.fragmentShader).toContain("vec3 filtered = localColour * ink;");
-    expect(shader.fragmentShader).toContain("localLuma / max(filteredLuma, 1e-8)");
+    expect(shader.fragmentShader).toContain("vec3 filtered = clamp(localColour, vec3(0.0), vec3(gardenInkRadianceCeiling)) * physicalInk;");
+    expect(shader.fragmentShader).toContain("filtered /= filteredPeak;");
+    expect(shader.fragmentShader).toContain("energy / filteredLuma");
+    expect(shader.fragmentShader).not.toContain("localLuma / max(filteredLuma, 1e-8)");
     expect(shader.fragmentShader).toContain("if (uGardenInkLocalColour <= 0.0) return plate;");
     expect(shader.fragmentShader).toContain("gardenInkTarget(gardenLocalDiffuse, uGardenFirstLightGlow, gardenAiLuma)");
+    material.dispose();
+  });
+
+  it("bounds signed, near-cancelled and extreme finite remaps before float32 multiplication", () => {
+    const material = new MeshStandardMaterial();
+    applyGardenPrintInks(material);
+    const shader = {
+      uniforms: {}, vertexShader: "#include <common>\n#include <project_vertex>",
+      fragmentShader: "#include <common>\n#include <lights_fragment_begin>\n#include <lights_fragment_end>",
+    } as WebGLProgramParametersWithUniforms;
+    material.onBeforeCompile(shader, {} as WebGLRenderer);
+    const source = shader.fragmentShader;
+    const ceiling = Number(source.match(/const float gardenInkRadianceCeiling = ([^;]+);/)![1]);
+    const energyExpression = source.match(/float energy = ([^;]+);/)![1]!;
+    const energyFor = new Function("localLuma", "gardenInkRadianceCeiling", `
+      const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+      return ${energyExpression};
+    `) as (luma: number, ceiling: number) => number;
+    const physicalInkStatement = "vec3 physicalInk = clamp(ink, vec3(0.0), vec3(gardenInkRadianceCeiling));";
+    const physicalPlateStatement = "plate = clamp(energy * physicalInk, vec3(0.0), vec3(gardenInkRadianceCeiling));";
+    const filteredStatement = "vec3 filtered = clamp(localColour, vec3(0.0), vec3(gardenInkRadianceCeiling)) * physicalInk;";
+    const legacyReturn = source.indexOf("if (uGardenInkLocalColour <= 0.0) return plate;");
+    expect(legacyReturn).toBeLessThan(source.indexOf(physicalInkStatement));
+    expect(source.indexOf(physicalInkStatement)).toBeLessThan(source.indexOf(physicalPlateStatement));
+    expect(source.indexOf(physicalPlateStatement)).toBeLessThan(source.indexOf(filteredStatement));
+    expect(source.indexOf(filteredStatement)).toBeLessThan(source.indexOf("filtered /= filteredPeak;"));
+    expect(source.indexOf(physicalPlateStatement)).toBeLessThan(source.indexOf("return clamp(mix(plate, filtered,"));
+    const weights = [0.2126, 0.7152, 0.0722];
+    // Float32 twin of the source-pinned vector operations above: demonstrate
+    // that the pre-product bounds hold even when the old product overflows.
+    const remap = (local: number[], ink: number[], localLuma: number, amount: number): number[] => {
+      const energy = Math.fround(energyFor(localLuma, ceiling));
+      const physicalInk = ink.map((value) => Math.fround(Math.max(0, Math.min(ceiling, value))));
+      const plate = physicalInk.map((value) => Math.fround(Math.min(ceiling, Math.fround(energy * value))));
+      const filtered = local.map((value, index) => Math.fround(Math.fround(Math.max(0, Math.min(ceiling, value))) * physicalInk[index]!));
+      const peak = Math.max(...filtered);
+      if (peak === 0) return plate;
+      const normalized = filtered.map((value) => Math.fround(value / peak));
+      const normalizedLuma = Math.fround(normalized.reduce((sum, value, index) => sum + value * weights[index]!, 0));
+      expect(normalizedLuma).toBeGreaterThanOrEqual(Math.fround(0.0722));
+      const physical = normalized.map((value) => Math.fround(Math.min(ceiling, Math.fround(value * Math.fround(energy / normalizedLuma)))));
+      return physical.map((value, index) => Math.fround(plate[index]! * (1 - amount) + value * amount));
+    };
+    expect(Number.isFinite(Math.fround(1e38))).toBe(true);
+    expect(Math.fround(Math.fround(1e38) * Math.fround(1e38))).toBe(Infinity);
+    for (const local of [[0, 0, 0], [-1, -2, -3], [1, -0.2126 / 0.7152, 0], [1e-30, -1e-30, 0], [1e38, -1e38, 1e38]]) {
+      const localLuma = local.reduce((sum, value, index) => sum + value * weights[index]!, 0);
+      for (const ink of [[1.7, 0.8, 0.4], [1e38, -1e38, 1e38]]) {
+        for (const amount of [0.001, 0.5, 1]) {
+          for (const value of remap(local, ink, localLuma, amount)) {
+            expect(Number.isFinite(value) && value >= 0 && value <= ceiling).toBe(true);
+          }
+        }
+      }
+    }
+    const local = [0.2, 0.3, 0.4], ink = [1.7, 0.8, 0.4];
+    const localLuma = local.reduce((sum, value, index) => sum + value * weights[index]!, 0);
+    const filtered = local.map((value, index) => value * ink[index]!);
+    const filteredLuma = filtered.reduce((sum, value, index) => sum + value * weights[index]!, 0);
+    remap(local, ink, localLuma, 1).forEach((value, index) => {
+      expect(value).toBeCloseTo(filtered[index]! * localLuma / filteredLuma, 6);
+    });
     material.dispose();
   });
 

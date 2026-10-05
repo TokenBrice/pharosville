@@ -662,7 +662,7 @@ export function applyLighthouseRimLight(root: Object3D): void {
 if (uLighthouseLowSun > 0.0) {
   vec3 gardenSolarSpecular = reflectedLight.directSpecular + reflectedLight.indirectSpecular;
   float gardenSpecularPeak = max(gardenSolarSpecular.r, max(gardenSolarSpecular.g, gardenSolarSpecular.b));
-  float gardenSolarSpecularScale = mix(1.0, min(1.0, ${GARDEN_ATMOSPHERE.sunDiscRadiance} / max(gardenSpecularPeak, 1e-8)), uLighthouseLowSun);
+  float gardenSolarSpecularScale = uLighthouseLowSun > 0.0 ? min(1.0, mix(${GARDEN_ATMOSPHERE.radiance.toFixed(1)}, ${GARDEN_ATMOSPHERE.sunDiscRadiance}, uLighthouseLowSun) / max(gardenSpecularPeak, 1e-8)) : 1.0;
   reflectedLight.directSpecular *= gardenSolarSpecularScale;
   reflectedLight.indirectSpecular *= gardenSolarSpecularScale;
 }`);

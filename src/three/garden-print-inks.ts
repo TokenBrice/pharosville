@@ -17,6 +17,7 @@ import { chainGardenMaterialPatch, gardenDayDrift } from "./garden-aerial";
 import { gardenSunPose, type GardenLightPose } from "./garden-sun";
 import { getGardenSurfaceExemption } from "./garden-surfaces";
 import { applyGardenIrradiance } from "./garden-irradiance";
+import { GARDEN_ATMOSPHERE } from "./garden-atmosphere";
 
 /**
  * The print's two lighting plates (Hour-Print W2.11, W2.12; printmaker-1 at
@@ -218,10 +219,23 @@ vec3 gardenFirstLightTint() {
 vec3 gardenInkTarget(vec3 localColour, vec3 ink, float localLuma) {
   vec3 plate = localLuma * ink;
   if (uGardenInkLocalColour <= 0.0) return plate;
-  vec3 filtered = localColour * ink;
+  // Differential irradiance can be signed. Normalizing its cancelled luma
+  // amplified a tiny diffuse term into thousand-unit HDR bloom at low sun.
+  // Project onto physical radiance, then normalize chromaticity at unit peak:
+  // its luminance is at least 0.0722, independently of the signal's scale.
+  const float gardenInkRadianceCeiling = ${GARDEN_ATMOSPHERE.radiance.toFixed(1)};
+  float energy = clamp(localLuma, 0.0, gardenInkRadianceCeiling);
+  vec3 physicalInk = clamp(ink, vec3(0.0), vec3(gardenInkRadianceCeiling));
+  // Bound operands before multiplication, and replace the legacy plate before
+  // mixing: even finite input components can overflow their product in GLSL.
+  plate = clamp(energy * physicalInk, vec3(0.0), vec3(gardenInkRadianceCeiling));
+  vec3 filtered = clamp(localColour, vec3(0.0), vec3(gardenInkRadianceCeiling)) * physicalInk;
+  float filteredPeak = max(filtered.r, max(filtered.g, filtered.b));
+  if (filteredPeak <= 0.0) return plate;
+  filtered /= filteredPeak;
   float filteredLuma = dot(filtered, vec3(0.2126, 0.7152, 0.0722));
-  filtered *= localLuma / max(filteredLuma, 1e-8);
-  return mix(plate, filtered, uGardenInkLocalColour);
+  filtered = clamp(filtered * (energy / filteredLuma), vec3(0.0), vec3(gardenInkRadianceCeiling));
+  return clamp(mix(plate, filtered, clamp(uGardenInkLocalColour, 0.0, 1.0)), vec3(0.0), vec3(gardenInkRadianceCeiling));
 }
 `;
 const DIRECTIONAL_LIGHT_INFO = "getDirectionalLightInfo( directionalLight, directLight );";

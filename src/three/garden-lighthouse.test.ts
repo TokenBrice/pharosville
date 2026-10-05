@@ -176,9 +176,13 @@ describe("T1.7 rim light (2026-09-07)", () => {
       const mix = (a, b, t) => a + (b - a) * t;
       return ${expression};
     `) as (peak: number, lowSun: number) => number;
-    for (const peak of [0, 0.1, 1, 20, 500]) {
-      expect(Number.isFinite(scale(peak, 1))).toBe(true);
-      expect(peak * scale(peak, 1)).toBeLessThanOrEqual(GARDEN_ATMOSPHERE.sunDiscRadiance + 1e-12);
+    for (const peak of [0, 0.1, 1, 20, 500, 1e20]) {
+      for (const lowSun of [0.001, 0.1, 0.5, 1]) {
+        const ceiling = GARDEN_ATMOSPHERE.radiance
+          + (GARDEN_ATMOSPHERE.sunDiscRadiance - GARDEN_ATMOSPHERE.radiance) * lowSun;
+        expect(Number.isFinite(scale(peak, lowSun))).toBe(true);
+        expect(peak * scale(peak, lowSun)).toBeLessThanOrEqual(ceiling + 1e-12);
+      }
       expect(scale(peak, 0)).toBe(1);
     }
     for (const hour of [7, 18.5, 12.25, 22]) {

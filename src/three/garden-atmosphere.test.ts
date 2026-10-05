@@ -103,7 +103,19 @@ describe("shared analytic daylight transport", () => {
       const high = writeGardenAtmosphereSky(new Color(), sun, sun, r, m);
       expect(Math.max(high.r, high.g, high.b)).toBeGreaterThan(GARDEN_ATMOSPHERE.radiance);
     }
-    expect(GARDEN_ATMOSPHERE_GLSL).toContain("sky *= 1.0 - low + low * ceiling / peak");
+    for (const sunY of [0.081, 0.1, 0.2, 0.3, 0.449]) {
+      const sun = new Vector3(Math.sqrt(1 - sunY ** 2), sunY, 0);
+      const t = (sunY - 0.08) / 0.37;
+      const low = 1 - t * t * (3 - 2 * t);
+      const ceiling = GARDEN_ATMOSPHERE.radiance
+        + (GARDEN_ATMOSPHERE.sunDiscRadiance - GARDEN_ATMOSPHERE.radiance) * low;
+      for (const clarity of [-1, 0, 1]) {
+        writeGardenAtmosphereCoefficients(r, m, clarity);
+        const actual = writeGardenAtmosphereSky(new Color(), sun, sun, r, m);
+        expect(Math.max(actual.r, actual.g, actual.b)).toBeLessThanOrEqual(ceiling + 1e-12);
+      }
+    }
+    expect(GARDEN_ATMOSPHERE_GLSL).toContain("sky *= ceiling / peak");
   });
 
   it("keeps Rayleigh and sharpened forward aerosol phases energy normalized", () => {
