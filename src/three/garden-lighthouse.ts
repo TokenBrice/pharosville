@@ -171,8 +171,8 @@ export function attachGardenLighthouseModel(
 }
 
 /**
- * The material-name contract shared by the procedural shell, the generated GLB
- * (`scripts/pharosville/generate-garden-lighthouse.mjs`) and the precinct
+ * The material-name contract shared by the procedural shell, the Blender-authored
+ * tower (`assets/pharosville/blender/pharos-tower.blend`) and the precinct
  * gatehouse: any lit aperture in the world carries this name, and the runtime
  * finds it by name alone. Same technique as "bronze-gilt" for the statue.
  */
@@ -740,12 +740,9 @@ export function updateLighthouseLampStatus(
  * The three box steps of the grand square terrace, as `[width, height, centreY]`
  * in lighthouse-local units. The terrace runs from local y=0 to y=2.5.
  *
- * Worth knowing: the loaded GLB shell replaces this procedural tower, and its
- * generator (`scripts/pharosville/generate-garden-lighthouse.mjs`, the
- * `terraceSteps` table) cuts the identical three steps — half-widths 6.2 / 5.7
- * / 5.2 over y 0-0.85 / 0.85-1.7 / 1.7-2.5. Verified, not enforced: nothing
- * links the two tables, so if the GLB's terrace is ever re-cut this moves with
- * it.
+ * Worth knowing: this procedural tower is now only the load-failure fallback.
+ * The loaded Blender observatory (`assets/pharosville/blender/pharos-tower.blend`)
+ * has its own podium and does not share these steps.
  */
 const LIGHTHOUSE_TERRACE_STEPS = [
   [12.4, 0.85, 0.425],

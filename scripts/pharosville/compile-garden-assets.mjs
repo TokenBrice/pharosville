@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -9,7 +10,7 @@ import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.j
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
   buildGlb, splitGlb, MESHOPT_OPTIONS, measureMeshoptDeviation,
-  setGlbCompilationObserver,
+  setGlbCompilationObserver, compressGlbWithMeshopt,
 } from "./glb-meshopt.mjs";
 import { pngChunk, validatePublishedRgbaStrip } from "./png-rgba.mjs";
 
@@ -19,9 +20,18 @@ const manifestPath = resolve(root, "assets/pharosville/garden-assets.json");
 const extension = "EXT_meshopt_compression";
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 export const MODEL_GENERATORS = [
-  "scripts/pharosville/generate-garden-lighthouse.mjs",
   "scripts/pharosville/generate-garden-heroes.mjs",
 ];
+/**
+ * Hand-editable Blender sources. `--write-manifest` exports them with Blender;
+ * `--check` never launches Blender and instead verifies the recorded source
+ * and output hashes, so CI needs neither Blender nor the third-party kit.
+ */
+export const BLENDER_MODELS = [
+  { id: "garden-lighthouse-shell", source: "assets/pharosville/blender/pharos-tower.blend",
+    textures: "assets/pharosville/blender/textures/pharos-tower" },
+];
+const BLENDER_EXPORTER = "scripts/pharosville/blender/export-glb.py";
 // These are reviewed validator limitations, not ignored geometry warnings.
 // The reconstructed, decoded GLB is validated separately with no meshopt extension.
 const REVIEWED_WARNINGS = { UNSUPPORTED_EXTENSION: true };
@@ -101,7 +111,21 @@ export async function decodeGardenGlb(bytes) {
 export async function censusGardenGlb(bytes) {
   const { json } = splitGlb(bytes);
   const decoded = await decodeGardenGlb(bytes);
-  const gltf = await new GLTFLoader().parseAsync(new Uint8Array(decoded).buffer, "");
+  // Node cannot decode embedded images; parse geometry with texture references
+  // removed and count the maps from the material definitions instead.
+  const textureRefs = new Set();
+  const parsed = splitGlb(decoded);
+  for (const material of parsed.json.materials ?? []) {
+    const visit = (node) => {
+      for (const [key, value] of Object.entries(node ?? {})) {
+        if (key.endsWith("Texture") && Number.isInteger(value?.index)) { textureRefs.add(value.index); delete node[key]; }
+        else if (value && typeof value === "object") visit(value);
+      }
+    };
+    visit(material);
+  }
+  for (const key of ["images", "textures", "samplers"]) delete parsed.json[key];
+  const gltf = await new GLTFLoader().parseAsync(new Uint8Array(buildGlb(parsed.json, parsed.bin)).buffer, "");
   const materials = new Set();
   const maps = new Set();
   const anchors = {};
@@ -131,7 +155,7 @@ export async function censusGardenGlb(bytes) {
   });
   const bounds = new Box3().setFromObject(gltf.scene);
   const result = {
-    primitives, triangles, vertices, materials: materials.size, maps: maps.size,
+    primitives, triangles, vertices, materials: materials.size, maps: maps.size + textureRefs.size,
     images: json.images?.length ?? 0,
     bounds: { min: bounds.min.toArray(), max: bounds.max.toArray() },
     anchors, extensions: [...(json.extensionsUsed ?? [])].sort(),
@@ -278,6 +302,52 @@ async function compileModels() {
   return assets;
 }
 
+async function blenderSourceRecords(model) {
+  const textures = (await readdir(resolve(root, model.textures))).sort()
+    .map((name) => `${model.textures}/${name}`);
+  return sourceRecords([model.source, BLENDER_EXPORTER, ...textures]);
+}
+
+async function compileBlenderModels(registration, writeManifest) {
+  const assets = [];
+  for (const model of BLENDER_MODELS) {
+    const sources = await blenderSourceRecords(model);
+    const outputPath = `public/pharosville/models/${model.id}.glb`;
+    let raw = null;
+    let compressed;
+    if (writeManifest) {
+      // One thread: Blender's threaded tangent generation is not byte-stable.
+      const rawPath = resolve(root, `.cache/pharosville-raw/${model.id}.glb`);
+      await mkdir(dirname(rawPath), { recursive: true });
+      execFileSync("blender", ["-b", "--factory-startup", "-noaudio", "-t", "1", resolve(root, model.source),
+        "--python", resolve(root, BLENDER_EXPORTER), "--", rawPath], { stdio: ["ignore", "ignore", "inherit"] });
+      raw = await readFile(rawPath);
+      compressed = await compressGlbWithMeshopt(raw);
+      await writeFile(resolve(root, outputPath), compressed);
+    } else {
+      const recorded = registration.assets.find((asset) => asset.id === model.id);
+      if (JSON.stringify(recorded?.sources) !== JSON.stringify(sources)) {
+        throw new Error(`${model.id}: Blender source changed; run compile:garden-assets with Blender.`);
+      }
+      compressed = await readFile(resolve(root, outputPath));
+      if (sha256(compressed) !== recorded.output.sha256) throw new Error(`${model.id}: published GLB changed.`);
+    }
+    const recorded = registration.assets.find((asset) => asset.id === model.id);
+    assets.push({ id: model.id, kind: "model", source: model.source, sources,
+      author: "TokenBrice / project-authored", license: "MIT", units: "metres",
+      blender: writeManifest ? execFileSync("blender", ["--version"], { encoding: "utf8" }).split("\n")[0] : recorded.blender,
+      options: { meshopt: MESHOPT_OPTIONS },
+      output: { path: outputPath, sha256: sha256(compressed), bytes: compressed.length },
+      sourceGlbSha256: raw ? sha256(raw) : recorded.sourceGlbSha256,
+      positionDeviation: raw ? await measureMeshoptDeviation(raw, compressed) : recorded.positionDeviation,
+      validation: { source: raw ? await validateGlb(raw, "source") : recorded.validation.source,
+        compressed: await validateGlb(compressed, "compressed"),
+        decoded: await validateGlb(await decodeGardenGlb(compressed), "decoded") },
+      census: await censusGardenGlb(compressed) });
+  }
+  return assets;
+}
+
 export async function compileGardenAssets({ writeManifest = false } = {}) {
   const registration = JSON.parse(await readFile(manifestPath, "utf8"));
   if (registration.schemaVersion !== 1) throw new Error("Unsupported asset manifest schema.");
@@ -286,10 +356,10 @@ export async function compileGardenAssets({ writeManifest = false } = {}) {
       new Set(registration.assets.map((asset) => asset.id)).size !== registration.assets.length) {
     throw new Error("Invalid or duplicate registered assets.");
   }
-  const assets = await compileModels();
+  const assets = [...await compileModels(), ...await compileBlenderModels(registration, writeManifest)];
   const registeredModels = registration.assets.filter((asset) => asset.kind === "model");
-  if (registeredModels.length !== assets.length || registeredModels.some((entry) =>
-    !assets.some((asset) => asset.id === entry.id && asset.generator === entry.generator))) {
+  if (registeredModels.length !== assets.length || (!writeManifest && registeredModels.some((entry) =>
+    !assets.some((asset) => asset.id === entry.id && asset.generator === entry.generator && asset.source === entry.source)))) {
     throw new Error("Model registrations disagree with the checked generators.");
   }
   for (const entry of registration.assets.filter((asset) => asset.kind === "atlas")) {

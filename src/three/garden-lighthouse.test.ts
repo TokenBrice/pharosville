@@ -1,3 +1,4 @@
+import compiledGardenAssets from "../../assets/pharosville/garden-assets.json";
 import { describe, expect, it } from "vitest";
 import { Box3, BoxGeometry, BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Object3D, ShaderMaterial, Vector3, type WebGLProgramParametersWithUniforms, type WebGLRenderer } from "three";
 import {
@@ -334,7 +335,13 @@ describe("W1.9 keep traded for the crag", () => {
     expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + shell.max.y).toBeCloseTo(GARDEN_TOWER_CROWN_WORLD_Y, 5);
     expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + lighthouse.beacon.position.y).toBeCloseTo(GARDEN_TOWER_BEACON_WORLD_Y, 9);
     const glb = GARDEN_MODEL_MANIFEST["garden-lighthouse-shell"];
-    expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + glb.dimensions.y).toBeCloseTo(GARDEN_TOWER_CROWN_WORLD_Y, 5);
+    // The authored observatory's armillary tops out just under the declared
+    // crown (its foundations sink below the court), so framing stays valid.
+    const compiled = compiledGardenAssets.assets.find((asset) => asset.id === glb.id) as
+      { census: { bounds: { max: number[] } } };
+    const top = compiled.census.bounds.max[1]!;
+    expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + top).toBeLessThanOrEqual(GARDEN_TOWER_CROWN_WORLD_Y);
+    expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + top).toBeGreaterThan(GARDEN_TOWER_CROWN_WORLD_Y - 1.5);
     expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + glb.anchors.beacon.position[1]).toBeCloseTo(GARDEN_TOWER_BEACON_WORLD_Y, 9);
     disposeThreeObjectTree(lighthouse.root);
   });

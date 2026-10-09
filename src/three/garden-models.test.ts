@@ -5,9 +5,11 @@ import {
   Box3,
   BoxGeometry,
   Group,
+  InterleavedBufferAttribute,
   Mesh,
   MeshBasicMaterial,
   Object3D,
+  Texture,
   Vector3,
 } from "three";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
@@ -49,6 +51,10 @@ interface CompiledModelCensus {
 const compiledManifest = JSON.parse(readFileSync(
   resolve(process.cwd(), "assets/pharosville/garden-assets.json"), "utf8",
 )) as { assets: CompiledModelCensus[] };
+/** The reference loader, with empty stand-in textures: Node cannot decode images. */
+const referenceLoader = (): GLTFLoader => new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
+  .register(() => ({ name: "node-texture-stand-in", loadTexture: async () => new Texture() }));
+
 describe.each(Object.keys(GARDEN_MODEL_MANIFEST) as (keyof typeof GARDEN_MODEL_MANIFEST)[])(
   "garden model manifest: %s",
   (id) => {
@@ -73,8 +79,7 @@ describe.each(Object.keys(GARDEN_MODEL_MANIFEST) as (keyof typeof GARDEN_MODEL_M
       expect(compiled.output).toMatchObject({ sha256: entry.artifact.sha256, bytes: bytes.byteLength });
       expect(Object.values(compiled.validation).every((phase) => phase.errors === 0)).toBe(true);
 
-      const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
-        .parseAsync(new Uint8Array(bytes).buffer, "");
+      const gltf = await referenceLoader().parseAsync(new Uint8Array(bytes).buffer, "");
       let primitives = 0;
       let triangles = 0;
       let vertices = 0;
@@ -116,7 +121,9 @@ describe.each(Object.keys(GARDEN_MODEL_MANIFEST) as (keyof typeof GARDEN_MODEL_M
       expect(compiled.census.bounds).toEqual({ min: bounds.min.toArray(), max: bounds.max.toArray() });
       expect(compiled.census.extensions).toContain("EXT_meshopt_compression");
       for (const anchor of Object.values(entry.anchors)) {
-        expect(compiled.census.anchors[anchor.node]?.position).toEqual(anchor.position);
+        // Blender authors float32 transforms: 24.2 is stored as 24.2000008.
+        const position = compiled.census.anchors[anchor.node]?.position ?? [];
+        anchor.position.forEach((value, axis) => expect(position[axis]).toBeCloseTo(value, 5));
       }
       for (const material of materials) (material as MeshBasicMaterial).dispose();
     });
@@ -140,9 +147,7 @@ describe.each(Object.keys(GARDEN_MODEL_MANIFEST) as (keyof typeof GARDEN_MODEL_M
     it("loads at the recorded scale with anchors at their manifest positions", async () => {
       const bytes = readFileSync(assetPath);
       const arrayBuffer = new Uint8Array(bytes).buffer;
-      const gltf = await new GLTFLoader()
-        .setMeshoptDecoder(MeshoptDecoder)
-        .parseAsync(arrayBuffer, "");
+      const gltf = await referenceLoader().parseAsync(arrayBuffer, "");
       const model = gltf.scene.getObjectByName(entry.id);
       if (model === undefined) throw new Error(`${entry.id} root node missing.`);
 
@@ -155,28 +160,37 @@ describe.each(Object.keys(GARDEN_MODEL_MANIFEST) as (keyof typeof GARDEN_MODEL_M
       // The lighthouse sits on the ground (base at y=0); the hero hulls hang
       // their waterline at y=0, so they read symmetric across z instead.
       if (id === "garden-lighthouse-shell") {
-        expect(bounds.min.y).toBeCloseTo(0, 5);
+        // The base anchor is the court; the observatory's foundations sink
+        // below it into the crag.
+        expect(bounds.min.y).toBeLessThanOrEqual(0);
       } else {
         expect(bounds.min.z + bounds.max.z).toBeCloseTo(0, 3);
       }
       for (const [anchorId, anchor] of Object.entries(entry.anchors)) {
-        expect(gardenModelAnchor(
+        const position = gardenModelAnchor(
           model,
           entry.id,
           anchorId as keyof typeof entry.anchors,
-        ).position.toArray()).toEqual(anchor.position);
+        ).position.toArray();
+        // Blender authors float32 transforms: 24.2 is stored as 24.2000008.
+        anchor.position.forEach((value, axis) => expect(position[axis]).toBeCloseTo(value, 5));
       }
     });
   },
 );
 
 describe("createGardenModelLibrary", () => {
-  it("decodes the checked-in static GLB subset without the general runtime loader", async () => {
+  it("loads every checked-in GLB through the reference loader with tightly packed attributes", async () => {
     const request = vi.fn(async (input: string | URL | Request) => {
       const pathname = new URL(String(input), "https://pharosville.test").pathname;
       return new Response(new Uint8Array(readFileSync(resolve(process.cwd(), `public${pathname}`))));
     });
-    vi.stubGlobal("fetch", request);
+    // The production loader decodes embedded maps with the browser's image
+    // APIs; under Node, blob reads and bitmaps are inert stand-ins.
+    vi.stubGlobal("fetch", (input: string | URL | Request) =>
+      String(input).startsWith("blob:") ? Promise.resolve(new Response(new Blob())) : request(input));
+    vi.stubGlobal("self", globalThis);
+    vi.stubGlobal("createImageBitmap", async () => ({ width: 1, height: 1, close() {} }));
     const library = createGardenModelLibrary();
 
     for (const id of Object.keys(GARDEN_MODEL_MANIFEST) as (keyof typeof GARDEN_MODEL_MANIFEST)[]) {
@@ -185,8 +199,7 @@ describe("createGardenModelLibrary", () => {
       expect(size.x).toBeCloseTo(GARDEN_MODEL_MANIFEST[id].dimensions.x, 2);
       expect(size.y).toBeCloseTo(GARDEN_MODEL_MANIFEST[id].dimensions.y, 2);
       expect(size.z).toBeCloseTo(GARDEN_MODEL_MANIFEST[id].dimensions.z, 2);
-      const reference = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
-        .parseAsync(new Uint8Array(readFileSync(assetPathFor(id))).buffer, "");
+      const reference = await referenceLoader().parseAsync(new Uint8Array(readFileSync(assetPathFor(id))).buffer, "");
       model.traverse((object) => {
         if (!(object instanceof Mesh)) return;
         const expected = reference.scene.getObjectByName(object.name) as Mesh;
@@ -195,6 +208,7 @@ describe("createGardenModelLibrary", () => {
         for (const name of Object.keys(object.geometry.attributes)) {
           const actual = object.geometry.getAttribute(name);
           const source = expected.geometry.getAttribute(name);
+          expect(actual, `${id}/${object.name}/${name}`).not.toBeInstanceOf(InterleavedBufferAttribute);
           expect(actual.count).toBe(source.count);
           expect(actual.itemSize).toBe(source.itemSize);
           expect(actual.normalized).toBe(source.normalized);

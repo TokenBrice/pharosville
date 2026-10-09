@@ -106,14 +106,36 @@ for procedural heroes and lighthouse/precinct stone; each harbour batch owns
 and releases its separate lease on teardown. Foliage remains exempt from
 surface detail while retaining foliage, snow, wind and illumination-ink patches.
 
-Change a model only through its deterministic generator:
+Change a hero hull only through its deterministic generator:
 
 ```bash
-node scripts/pharosville/generate-garden-lighthouse.mjs
 node scripts/pharosville/generate-garden-heroes.mjs
 npm run compile:garden-assets
 npm run check:garden-models
 ```
+
+### Blender-authored models
+
+The observatory tower (`garden-lighthouse-shell`) is authored by hand in
+`assets/pharosville/blender/pharos-tower.blend`, with its editable maps beside it
+in `assets/pharosville/blender/textures/pharos-tower/`. The `.blend` is the source
+of truth: edit it in Blender and save. No script regenerates it.
+`scripts/pharosville/blender/export-glb.py` opens it read-only and exports the
+objects in its `Export` collection, with embedded JPEG maps and tangents.
+
+```bash
+npm run compile:garden-assets   # needs Blender 5.2; exports, compresses, publishes
+npm run check:garden-models     # never launches Blender
+```
+
+`compile:garden-assets` runs the export, meshopt-compresses the result with the
+same compressor as the generated hulls, validates source, compressed and decoded
+GLBs, and records the `.blend`, texture and exporter hashes. `check:garden-models`
+only compares those recorded source hashes and the published output hash, so a
+saved `.blend` without a fresh compile fails the check. The runtime material
+contract is by name: `weathered-limestone`, `bronze-gilt` and
+`lighthouse-window-glow`. The root node is named after the model ID, and it
+carries the quarter-turn that cancels the runtime tower yaw.
 
 Do not hand-edit a checked GLB. Preserve model origin, scale, anchors, pick
 proxy, asset metadata, and fallback together.

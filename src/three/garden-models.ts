@@ -1,14 +1,12 @@
 import {
   BufferAttribute,
   BufferGeometry,
-  Color,
-  DoubleSide,
   Group,
-  Matrix4,
+  InterleavedBufferAttribute,
   Mesh,
-  MeshStandardMaterial,
   Object3D,
 } from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 
 /**
@@ -98,10 +96,10 @@ export interface GardenModelMetadata {
     readonly maxVertices: number;
   };
   readonly provenance: {
-    readonly createdBy: "agent-authored";
+    readonly createdBy: "agent-authored" | "project-authored";
     readonly generator: string;
-    readonly method: "deterministic-procedural";
-    readonly sourceAsset: null;
+    readonly method: "deterministic-procedural" | "blender-authored";
+    readonly sourceAsset: string | null;
   };
   readonly license: {
     readonly notice: string;
@@ -109,7 +107,7 @@ export interface GardenModelMetadata {
   };
 }
 
-const LIGHTHOUSE_SHA256 = "68c6da645a69dd6c8b90f0ceb2a05ca4fc49450d30fd02241b66dfd44fc7cf26";
+const LIGHTHOUSE_SHA256 = "7e96fa0f8844c7febad341bf887cec91b3655571fce54f517a7f1d12e3ebb97c";
 const lighthouseUrl = `/pharosville/models/garden-lighthouse-shell.glb?v=${LIGHTHOUSE_SHA256.slice(0, 12)}`;
 
 const HERO_TETHER_SHA256 = "d8b66430e8c05b5d66d6c83f443697691141d74fa3f2027b29139b6bc12245ef";
@@ -197,18 +195,18 @@ function heroModelMetadata(config: {
 export const GARDEN_MODEL_MANIFEST = {
   "garden-lighthouse-shell": {
     id: "garden-lighthouse-shell",
-    label: "Garden Observatory lighthouse shell",
+    label: "PharosVille observatory tower",
     artifact: {
-      bytes: 194_108,
+      bytes: 4_699_284,
       compression: "meshopt",
       gltfVersion: 2,
       sha256: LIGHTHOUSE_SHA256,
       url: lighthouseUrl,
     },
     dimensions: {
-      x: 12.43,
-      y: 32,
-      z: 12.43,
+      x: 16.984,
+      y: 36.89,
+      z: 21.13,
     },
     scale: {
       modelUnitsPerWorldUnit: 1,
@@ -249,37 +247,34 @@ export const GARDEN_MODEL_MANIFEST = {
     },
     pickProxy: {
       center: [0, 16, 0],
-      height: 32,
-      radius: 6.6,
+      height: 37,
+      radius: 10.6,
       shape: "cylinder",
     },
     geometry: {
-      drawCalls: 8,
-      materials: 8,
-      textures: 0,
-      triangles: 30_436,
-      vertices: 19_901,
+      drawCalls: 5,
+      materials: 5,
+      textures: 9,
+      triangles: 87_200,
+      vertices: 170_294,
     },
     budgets: {
-      // Monumental Pharos on the crag (W1.9): a 32-unit tower whose crown
-      // and beacon keep their world heights because the root rose six units
-      // onto the headland. Two window registers, pilastered octagon, an
-      // eight-column lantern with a glass skin around the open fire (pharos-1)
-      // and a weathering bake (pharos-5/7) in the UBYTE vertex colour; no
-      // textures. Eight material-merged draws. Measured 194,112 bytes /
-      // 30,436 triangles / 19,901 vertices.
-      maxBytes: 280 * 1024,
-      maxDrawCalls: 8,
-      maxMaterials: 8,
-      maxTextures: 0,
-      maxTriangles: 45_000,
-      maxVertices: 30_000,
+      // Blender-authored observatory (assets/pharosville/blender/pharos-tower.blend):
+      // limestone, foundation, bronze armillary, aperture and door materials with
+      // nine texture slots over five embedded 1024² images. Foundations reach
+      // 5.85 below the root into the crag.
+      maxBytes: 4_800 * 1024,
+      maxDrawCalls: 6,
+      maxMaterials: 6,
+      maxTextures: 10,
+      maxTriangles: 90_000,
+      maxVertices: 175_000,
     },
     provenance: {
-      createdBy: "agent-authored",
-      generator: "scripts/pharosville/generate-garden-lighthouse.mjs",
-      method: "deterministic-procedural",
-      sourceAsset: null,
+      createdBy: "project-authored",
+      generator: "scripts/pharosville/blender/export-glb.py",
+      method: "blender-authored",
+      sourceAsset: "assets/pharosville/blender/pharos-tower.blend",
     },
     license: {
       notice: "Copyright (c) 2026 TokenBrice",
@@ -516,172 +511,45 @@ export interface GardenModelLibrary {
   load(id: GardenModelId): Promise<Group>;
 }
 
-interface GardenGlb {
-  accessors: Array<{
-    bufferView: number;
-    byteOffset?: number;
-    componentType: 5121 | 5122 | 5123 | 5126;
-    count: number;
-    normalized?: boolean;
-    type: "SCALAR" | "VEC3" | "VEC4";
-  }>;
-  bufferViews: Array<{
-    byteLength: number;
-    byteOffset?: number;
-    byteStride?: number;
-    extensions: {
-      EXT_meshopt_compression: {
-        byteLength: number;
-        byteOffset: number;
-        byteStride: number;
-        count: number;
-        filter?: string;
-        mode: string;
-      };
-    };
-  }>;
-  materials: Array<{
-    doubleSided?: boolean;
-    emissiveFactor?: [number, number, number];
-    extensions?: { KHR_materials_emissive_strength?: { emissiveStrength: number } };
-    name?: string;
-    pbrMetallicRoughness?: {
-      baseColorFactor?: [number, number, number, number];
-      metallicFactor?: number;
-      roughnessFactor?: number;
-    };
-  }>;
-  meshes: Array<{ primitives: Array<{
-    attributes: { COLOR_0?: number; NORMAL?: number; POSITION: number };
-    indices: number;
-    material: number;
-  }> }>;
-  nodes: Array<{ children?: number[]; matrix?: number[]; mesh?: number; name?: string }>;
-  scene: number;
-  scenes: Array<{ nodes: number[] }>;
-}
-
 /**
- * The checked-in garden models deliberately use a tiny GLB subset. Keeping
- * that contract here avoids shipping the general loader's texture, skin,
- * animation, camera, extension and parser machinery for textureless static
- * geometry. Asset tests still parse every GLB with Three's reference loader.
+ * Fetches a same-origin GLB and parses it with Three's reference loader.
+ * Blender-authored assets carry embedded PBR maps; generated hulls are
+ * textureless. Both leave here with tightly packed attributes, because the
+ * hero merger and the fleet batches index vertex arrays directly.
  */
 function createGardenGlbLoader(): GardenModelSourceLoader {
-  const itemSizes = { SCALAR: 1, VEC3: 3, VEC4: 4 } as const;
   return {
     async loadAsync(url) {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Garden model request failed (${response.status}): ${url}`);
       const bytes = await response.arrayBuffer();
-      const data = new DataView(bytes);
-      if (data.getUint32(0, true) !== 0x46546c67 || data.getUint32(4, true) !== 2) {
-        throw new Error(`Garden model is not a GLB 2.0 asset: ${url}`);
-      }
-      const jsonLength = data.getUint32(12, true);
-      const json = JSON.parse(new TextDecoder().decode(
-        new Uint8Array(bytes, 20, jsonLength),
-      ).trim()) as GardenGlb;
-      const binOffset = 28 + jsonLength;
-      const bin = new Uint8Array(bytes, binOffset, data.getUint32(20 + jsonLength, true));
-      await MeshoptDecoder.ready;
-      const views = json.bufferViews.map((view) => {
-        const extension = view.extensions.EXT_meshopt_compression;
-        const decoded = new Uint8Array(view.byteLength);
-        MeshoptDecoder.decodeGltfBuffer(
-          decoded,
-          extension.count,
-          extension.byteStride,
-          bin.subarray(extension.byteOffset, extension.byteOffset + extension.byteLength),
-          extension.mode,
-          extension.filter,
-        );
-        return decoded;
-      });
-      const attribute = (index: number): BufferAttribute => {
-        const accessor = json.accessors[index]!;
-        let view = views[accessor.bufferView]!;
-        let offset = accessor.byteOffset ?? 0;
-        const length = accessor.count * itemSizes[accessor.type];
-        const componentBytes = accessor.componentType === 5126 ? 4 : accessor.componentType === 5121 ? 1 : 2;
-        const itemBytes = itemSizes[accessor.type] * componentBytes;
-        const stride = json.bufferViews[accessor.bufferView]!.byteStride ?? itemBytes;
-        if (stride !== itemBytes) {
-          // glTF pads RGB8/XYZ16 records to four-byte alignment. Keep their
-          // integer normalization, but remove per-vertex padding before Three
-          // or the hero merger treats this as a tightly packed attribute.
-          const packed = new Uint8Array(accessor.count * itemBytes);
-          for (let vertex = 0; vertex < accessor.count; vertex += 1) {
-            const start = offset + vertex * stride;
-            packed.set(view.subarray(start, start + itemBytes), vertex * itemBytes);
+      const { scene } = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).parseAsync(bytes, "");
+      scene.traverse((object) => {
+        if (!(object instanceof Mesh)) return;
+        const geometry = object.geometry as BufferGeometry;
+        for (const name of Object.keys(geometry.attributes)) {
+          const attribute = geometry.getAttribute(name);
+          if (attribute instanceof InterleavedBufferAttribute) {
+            geometry.setAttribute(name, deinterleaveAttribute(attribute));
           }
-          view = packed;
-          offset = 0;
         }
-        const array = accessor.componentType === 5126
-          ? new Float32Array(view.buffer, offset, length)
-          : accessor.componentType === 5123
-            ? new Uint16Array(view.buffer, offset, length)
-            : accessor.componentType === 5122
-              ? new Int16Array(view.buffer, offset, length)
-              : new Uint8Array(view.buffer, offset, length);
-        return new BufferAttribute(array, itemSizes[accessor.type], accessor.normalized ?? false);
-      };
-      const material = (index: number, vertexColors: boolean, flatShading: boolean): MeshStandardMaterial => {
-        const source = json.materials[index]!;
-        const pbr = source.pbrMetallicRoughness;
-        const result = new MeshStandardMaterial({
-          color: new Color().fromArray(pbr?.baseColorFactor ?? [1, 1, 1, 1]),
-          emissive: new Color().fromArray(source.emissiveFactor ?? [0, 0, 0]),
-          emissiveIntensity: source.extensions?.KHR_materials_emissive_strength?.emissiveStrength ?? 1,
-          metalness: pbr?.metallicFactor ?? 1,
-          roughness: pbr?.roughnessFactor ?? 1,
-          ...(source.doubleSided ? { side: DoubleSide } : {}),
-          flatShading,
-          vertexColors,
-        });
-        result.name = source.name ?? "";
-        return result;
-      };
-      const objects = json.nodes.map((node) => {
-        if (node.mesh === undefined) return new Group();
-        const primitives = json.meshes[node.mesh]!.primitives;
-        const meshes = primitives.map((primitive) => {
-          const geometry = new BufferGeometry();
-          geometry.setAttribute("position", attribute(primitive.attributes.POSITION));
-          if (primitive.attributes.NORMAL !== undefined) {
-            geometry.setAttribute("normal", attribute(primitive.attributes.NORMAL));
-          }
-          if (primitive.attributes.COLOR_0 !== undefined) {
-            geometry.setAttribute("color", attribute(primitive.attributes.COLOR_0));
-          }
-          geometry.setIndex(attribute(primitive.indices));
-          geometry.computeBoundingSphere();
-          return new Mesh(
-            geometry,
-            material(
-              primitive.material,
-              primitive.attributes.COLOR_0 !== undefined,
-              primitive.attributes.NORMAL === undefined,
-            ),
-          );
-        });
-        if (meshes.length === 1) return meshes[0]!;
-        const group = new Group();
-        group.add(...meshes);
-        return group;
       });
-      json.nodes.forEach((node, index) => {
-        const object = objects[index]!;
-        object.name = node.name ?? "";
-        if (node.matrix !== undefined) object.applyMatrix4(new Matrix4().fromArray(node.matrix));
-        if (node.children !== undefined) object.add(...node.children.map((child) => objects[child]!));
-      });
-      const scene = new Group();
-      scene.add(...json.scenes[json.scene]!.nodes.map((index) => objects[index]!));
       return { scene };
     },
   };
+}
+
+function deinterleaveAttribute(attribute: InterleavedBufferAttribute): BufferAttribute {
+  // Copy stored values, not getComponent(): that denormalizes integer data.
+  const { array: source, stride } = attribute.data;
+  const ArrayType = source.constructor as new (length: number) => BufferAttribute["array"];
+  const array = new ArrayType(attribute.count * attribute.itemSize);
+  for (let vertex = 0; vertex < attribute.count; vertex += 1) {
+    for (let axis = 0; axis < attribute.itemSize; axis += 1) {
+      array[vertex * attribute.itemSize + axis] = source[vertex * stride + attribute.offset + axis]!;
+    }
+  }
+  return new BufferAttribute(array, attribute.itemSize, attribute.normalized);
 }
 
 /**

@@ -22,6 +22,7 @@ const CHUNK_BIN = 0x004e4942;
 const ARRAY_BUFFER = 34962;
 const ELEMENT_ARRAY_BUFFER = 34963;
 const COMPONENT_BYTES = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
+const ITEM_SIZES = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
 const EXTENSION = "EXT_meshopt_compression";
 
 /**
@@ -65,6 +66,17 @@ export async function compressGlbWithMeshopt(bytes) {
   const { json, bin } = splitGlb(bytes);
   const views = json.bufferViews ?? [];
   const indexComponentBytes = indexComponentBytesByView(json);
+  // Blender writes one tightly packed vertex view per accessor, without a
+  // byteStride. Infer it from the accessor so the codec sees the same layout.
+  for (const accessor of json.accessors ?? []) {
+    const view = views[accessor.bufferView];
+    if (view?.target !== ARRAY_BUFFER || view.byteStride !== undefined) continue;
+    const stride = COMPONENT_BYTES[accessor.componentType] * ITEM_SIZES[accessor.type];
+    if (stride % 4 !== 0 || view.byteLength !== accessor.count * stride) {
+      throw new Error("Packed vertex view needs one aligned accessor.");
+    }
+    view.byteStride = stride;
+  }
 
   const blocks = [];
   let compressedOffset = 0;
