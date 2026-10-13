@@ -8,7 +8,7 @@ export interface ChainCirculatingPoint {
 }
 
 export type RawChainCirculating = Record<string, {
-  current?: number;
+  current?: number | null;
   circulatingPrevDay?: number | null | undefined;
   circulatingPrevWeek?: number | null | undefined;
   circulatingPrevMonth?: number | null | undefined;

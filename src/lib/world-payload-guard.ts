@@ -34,7 +34,7 @@ export function isRenderableWorldPayload(key: PharosVilleApiEndpointKey, data: u
         && nullableFinite(asset.price) && numbers(asset.circulating) && strings(asset.chains)
         && ["circulatingPrevDay", "circulatingPrevWeek", "circulatingPrevMonth"].every((k) => asset[k] == null || numbers(asset[k]))
         && record(asset.chainCirculating) && Object.values(asset.chainCirculating).every((chain) => record(chain)
-          && finite(chain.current) && ["circulatingPrevDay", "circulatingPrevWeek", "circulatingPrevMonth"].every((k) => chain[k] == null || finite(chain[k]))));
+          && nullableFinite(chain.current) && ["circulatingPrevDay", "circulatingPrevWeek", "circulatingPrevMonth"].every((k) => chain[k] == null || finite(chain[k]))));
     case "chains":
       return fields(data, ["globalTotalUsd", "updatedAt"])
         && rows(data.chains, (chain) => fields(chain, ["id", "name"], (v) => typeof v === "string")

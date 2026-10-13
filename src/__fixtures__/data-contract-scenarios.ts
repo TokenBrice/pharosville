@@ -48,13 +48,13 @@ function flow(row: MintBurnCoinFlow, mint: number, burn: number): MintBurnCoinFl
 export function reconcileSyntheticStocks(input: PharosVilleInputs): PharosVilleInputs {
   if (!input.stablecoins || !input.chains) return input;
   const assets = input.stablecoins.peggedAssets.map((asset) => ({ ...asset,
-    chains: Object.entries(asset.chainCirculating).filter(([, point]) => point.current > 0)
+    chains: Object.entries(asset.chainCirculating).filter(([, point]) => (point.current ?? 0) > 0)
       .map(([rawId]) => CHAIN_META[resolveChainId(rawId) ?? rawId]?.name ?? rawId),
   }));
   const globalTotalUsd = assets.reduce((total, asset) => total + getCirculatingRaw(asset), 0);
   const holdings = new Map<string, Array<{ id: string; symbol: string; supplyUsd: number }>>();
   for (const asset of assets) for (const [rawId, point] of Object.entries(asset.chainCirculating)) {
-    if (point.current <= 0) continue;
+    if (point.current == null || point.current <= 0) continue;
     const chainId = resolveChainId(rawId) ?? rawId;
     const rows = holdings.get(chainId) ?? [];
     rows.push({ id: asset.id, symbol: asset.symbol, supplyUsd: point.current });
@@ -217,14 +217,14 @@ export function denseQuietArtInput(): PharosVilleInputs {
   const base = quietNormalInput();
   const assets = denseFixtureStablecoins.peggedAssets.map((asset) => {
     const circulating = getCirculatingRaw(asset);
-    const attributed = Object.values(asset.chainCirculating).reduce((sum, point) => sum + point.current, 0);
+    const attributed = Object.values(asset.chainCirculating).reduce((sum, point) => sum + (point.current ?? 0), 0);
     // Seven original dense rows overallocate 102%. Normalize only those synthetic rows,
     // retaining the same chain proportions/IDs and the original ship stock/size.
     const factor = attributed > circulating && attributed > 0 ? circulating / attributed : 1;
     return { ...asset,
       circulatingPrevDay: { ...asset.circulating }, circulatingPrevWeek: { ...asset.circulating }, circulatingPrevMonth: { ...asset.circulating },
       chainCirculating: Object.fromEntries(Object.entries(asset.chainCirculating).map(([id, point]) => {
-        const current = point.current * factor;
+        const current = (point.current ?? 0) * factor;
         return [id, { current, circulatingPrevDay: current, circulatingPrevWeek: current, circulatingPrevMonth: current }];
       })),
     };
@@ -361,10 +361,10 @@ export function validateSyntheticBookkeeping(): void {
     const idSet = new Set(stocks.map((asset) => asset.id));
     for (const grade of input.safetyGrades?.grades ?? []) if (!idSet.has(grade.id)) throw new Error(`${name}: unrelated grade row`);
     for (const asset of stocks) {
-      const held = Object.values(asset.chainCirculating).reduce((sum, point) => sum + point.current, 0);
+      const held = Object.values(asset.chainCirculating).reduce((sum, point) => sum + (point.current ?? 0), 0);
       const circulating = getCirculatingRaw(asset);
       if (held > circulating + Math.max(1e-6, circulating * 1e-12)) throw new Error(`${name}: per-coin held stock exceeds circulating`);
-      const expected = Object.entries(asset.chainCirculating).filter(([, point]) => point.current > 0)
+      const expected = Object.entries(asset.chainCirculating).filter(([, point]) => (point.current ?? 0) > 0)
         .map(([id]) => CHAIN_META[resolveChainId(id) ?? id]?.name ?? id).toSorted();
       if (JSON.stringify(expected) !== JSON.stringify([...asset.chains].toSorted())) throw new Error(`${name}: chain list mismatch`);
     }
