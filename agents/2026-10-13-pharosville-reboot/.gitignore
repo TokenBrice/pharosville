@@ -1,0 +1,12 @@
+# Heavy or data-bearing scratch stays local; commit scripts, layout contracts and JPG stills.
+*.png
+*.exr
+*.npz
+*.blend1
+work/
+rounds/
+tex/
+p1/greybox/occupancy.json
+p1/greybox/scene.json
+p1/style-a/glb/
+p1/style-b/glb/

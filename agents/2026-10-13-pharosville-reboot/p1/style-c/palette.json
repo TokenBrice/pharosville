@@ -1,0 +1,716 @@
+{
+ "style": "C - Northern Light",
+ "colour_space": "sRGB hex; shaders convert to linear",
+ "rule": "Saturated hue only for brand sails/covers/flags and status lights; environment stays warm stone / cold teal / slate.",
+ "vertex_colour_contract": {
+  "attribute": "Col (glTF COLOR_0)",
+  "rgb": "albedo per face (+/-4% jitter)",
+  "alpha": "pattern id / 16, decode floor(a*16+0.5)",
+  "patterns": {
+   "plain": 0,
+   "boards": 1,
+   "ashlar": 2,
+   "planks_x": 3,
+   "cobble": 4,
+   "rock": 5,
+   "grass": 6,
+   "tiles": 7,
+   "leaf": 8,
+   "strakes": 9,
+   "render": 10,
+   "planks_y": 11,
+   "metal": 12,
+   "slate": 13
+  },
+  "window_material": "Col.r = lit factor (0 = dark room), Col.g = warmth"
+ },
+ "colours": {
+  "sea": {
+   "sea_abyss": {
+    "hex": "#11364D",
+    "role": "deep cold sea, far"
+   },
+   "sea_deep": {
+    "hex": "#143F55",
+    "role": "deep sea in the bay"
+   },
+   "sea_mid": {
+    "hex": "#194C5E",
+    "role": "mid depth"
+   },
+   "sea_shallow": {
+    "hex": "#21615F",
+    "role": "shelf over rock"
+   },
+   "sea_shoal": {
+    "hex": "#4F8A80",
+    "role": "contact shallows"
+   },
+   "foam": {
+    "hex": "#F6F7F2",
+    "role": "crisp shore foam / wakes"
+   }
+  },
+  "land": {
+   "rock": {
+    "hex": "#7F848A",
+    "role": "granite, lit"
+   },
+   "rock_dark": {
+    "hex": "#5C6168",
+    "role": "granite, cleft"
+   },
+   "rock_light": {
+    "hex": "#A5A7A5",
+    "role": "granite, weathered top"
+   },
+   "rock_wet": {
+    "hex": "#3A3F45",
+    "role": "tide band"
+   },
+   "lichen": {
+    "hex": "#C2A85A",
+    "role": "lichen spots on rock tops"
+   },
+   "grass": {
+    "hex": "#748F45",
+    "role": "meadow"
+   },
+   "grass_light": {
+    "hex": "#99AF56",
+    "role": "sunlit meadow patch"
+   },
+   "grass_dark": {
+    "hex": "#58723A",
+    "role": "meadow shade/edge"
+   },
+   "heather": {
+    "hex": "#7D5E74",
+    "role": "heather clumps"
+   },
+   "earth": {
+    "hex": "#8B7558",
+    "role": "footpaths"
+   },
+   "gravel": {
+    "hex": "#B9B09C",
+    "role": "gravel lanes"
+   },
+   "cobble": {
+    "hex": "#8F8A82",
+    "role": "quay paving"
+   },
+   "quay": {
+    "hex": "#A8A398",
+    "role": "dressed quay stone"
+   },
+   "quay_dark": {
+    "hex": "#7A756C",
+    "role": "quay wall courses"
+   },
+   "stone_white": {
+    "hex": "#E4E0D6",
+    "role": "limewashed stone"
+   }
+  },
+  "timber": {
+   "tar": {
+    "hex": "#2A2522",
+    "role": "tarred timber"
+   },
+   "timber": {
+    "hex": "#A57B52",
+    "role": "fresh timber"
+   },
+   "timber_grey": {
+    "hex": "#8A8278",
+    "role": "weathered pier timber"
+   },
+   "timber_dark": {
+    "hex": "#5A4636",
+    "role": "piles, frames"
+   }
+  },
+  "facades": {
+   "wall_white": {
+    "hex": "#F0ECE3",
+    "role": "whitewash"
+   },
+   "wall_falu": {
+    "hex": "#963326",
+    "role": "falu red"
+   },
+   "wall_ochre": {
+    "hex": "#DCA548",
+    "role": "ochre"
+   },
+   "wall_blue": {
+    "hex": "#9DB8CB",
+    "role": "pale blue"
+   },
+   "wall_mint": {
+    "hex": "#ABCBB3",
+    "role": "mint"
+   },
+   "wall_mustard": {
+    "hex": "#E6BE5E",
+    "role": "mustard"
+   },
+   "wall_salmon": {
+    "hex": "#E0977A",
+    "role": "salmon"
+   },
+   "wall_sage": {
+    "hex": "#87998A",
+    "role": "sage grey"
+   },
+   "trim": {
+    "hex": "#F7F4ED",
+    "role": "window/corner trim"
+   },
+   "door_green": {
+    "hex": "#2F5A4A",
+    "role": "door"
+   },
+   "door_blue": {
+    "hex": "#2E4B6B",
+    "role": "door"
+   },
+   "door_red": {
+    "hex": "#7A2A22",
+    "role": "door"
+   }
+  },
+  "roofs": {
+   "roof_red": {
+    "hex": "#A6492F",
+    "role": "tile red"
+   },
+   "roof_ochre": {
+    "hex": "#C17A3A",
+    "role": "tile ochre"
+   },
+   "roof_slate": {
+    "hex": "#3E464F",
+    "role": "slate"
+   },
+   "roof_tar": {
+    "hex": "#2C2D31",
+    "role": "tarred board roof"
+   },
+   "turf": {
+    "hex": "#6F8A3E",
+    "role": "turf roof"
+   }
+  },
+  "lighthouse": {
+   "granite": {
+    "hex": "#9C9C97",
+    "role": "tower stone"
+   },
+   "granite_light": {
+    "hex": "#BDBAB2",
+    "role": "dressed quoins/bands"
+   },
+   "iron": {
+    "hex": "#1F2327",
+    "role": "gallery iron, lantern frame"
+   },
+   "brass": {
+    "hex": "#C2923F",
+    "role": "dome finial, lens frame"
+   },
+   "lens": {
+    "hex": "#E8F3EE",
+    "role": "fresnel lens glass"
+   }
+  },
+  "hulls_and_sails": {
+   "hull_black": {
+    "hex": "#1E2327",
+    "role": "tarred/painted black hull"
+   },
+   "hull_white": {
+    "hex": "#EEEBE3",
+    "role": "white topsides"
+   },
+   "hull_green": {
+    "hex": "#2D5B49",
+    "role": "green topsides"
+   },
+   "hull_blue": {
+    "hex": "#25486A",
+    "role": "navy topsides"
+   },
+   "hull_red": {
+    "hex": "#8E2F24",
+    "role": "red topsides"
+   },
+   "hull_stain": {
+    "hex": "#4A3022",
+    "role": "dark stained oak (gold brig)"
+   },
+   "gilt": {
+    "hex": "#D9A93E",
+    "role": "gilded trim"
+   },
+   "antifoul": {
+    "hex": "#7B2E25",
+    "role": "bottom paint"
+   },
+   "deck": {
+    "hex": "#C4A272",
+    "role": "scrubbed deck"
+   },
+   "canvas": {
+    "hex": "#F2ECDF",
+    "role": "usd sail canvas"
+   },
+   "tanbark": {
+    "hex": "#8C4A2C",
+    "role": "eur botter sail"
+   },
+   "lug_ochre": {
+    "hex": "#C88E3C",
+    "role": "fiat lugger sail"
+   },
+   "rope": {
+    "hex": "#CDBB92",
+    "role": "manila rope"
+   }
+  },
+  "vegetation": {
+   "spruce": {
+    "hex": "#2F4A33",
+    "role": "spruce"
+   },
+   "spruce_light": {
+    "hex": "#456744",
+    "role": "spruce lit tips"
+   },
+   "birch_leaf": {
+    "hex": "#9DB253",
+    "role": "birch crown"
+   },
+   "birch_leaf2": {
+    "hex": "#C2C25E",
+    "role": "birch crown, yellowing"
+   },
+   "birch_bark": {
+    "hex": "#E9E6DC",
+    "role": "birch trunk"
+   },
+   "rowan_berry": {
+    "hex": "#C7432C",
+    "role": "rowan berries, flowers"
+   },
+   "flower_y": {
+    "hex": "#EDCB4F",
+    "role": "flowers"
+   },
+   "flower_w": {
+    "hex": "#F4F1E8",
+    "role": "flowers"
+   },
+   "flower_p": {
+    "hex": "#C46D94",
+    "role": "flowers"
+   }
+  },
+  "brand_status_only": {
+   "brand_usdt": {
+    "hex": "#26A17B",
+    "role": "USDT-like flagship"
+   },
+   "brand_usdc": {
+    "hex": "#2775CA",
+    "role": "USDC-like"
+   },
+   "brand_dai": {
+    "hex": "#E9A93B",
+    "role": "DAI-like"
+   },
+   "brand_eur": {
+    "hex": "#2B4FA3",
+    "role": "EUR coin"
+   },
+   "brand_gold": {
+    "hex": "#D7AE45",
+    "role": "gold coin"
+   },
+   "brand_red": {
+    "hex": "#C2453A",
+    "role": "misc usd coin"
+   },
+   "brand_violet": {
+    "hex": "#6E5BB8",
+    "role": "misc usd coin"
+   }
+  },
+  "light": {
+   "sodium": {
+    "hex": "#FFAE57",
+    "role": "windows, pier lamps"
+   },
+   "lantern": {
+    "hex": "#FFE0A8",
+    "role": "lighthouse lamp + beam"
+   },
+   "riding": {
+    "hex": "#FFF2D6",
+    "role": "masthead riding light"
+   },
+   "moon": {
+    "hex": "#E3EBFF",
+    "role": "moon"
+   }
+  }
+ },
+ "time_of_day": {
+  "golden": {
+   "sun": [
+    288,
+    9,
+    5.6,
+    "#FFA257"
+   ],
+   "fill": [
+    110,
+    35,
+    0.3,
+    "#7F98D6"
+   ],
+   "world": [
+    [
+     0,
+     "#C9A89A"
+    ],
+    [
+     0.3,
+     "#8C9AC0"
+    ],
+    [
+     1,
+     "#5470A6"
+    ]
+   ],
+   "world_k": 0.6,
+   "sky": [
+    [
+     0,
+     "#D2B2A6"
+    ],
+    [
+     0.025,
+     "#FFE6BC"
+    ],
+    [
+     0.07,
+     "#FFCB94"
+    ],
+    [
+     0.22,
+     "#EBA88E"
+    ],
+    [
+     0.45,
+     "#B98F9E"
+    ],
+    [
+     0.75,
+     "#7C82B0"
+    ],
+    [
+     1,
+     "#55689C"
+    ]
+   ],
+   "glow": [
+    "#FFD39A",
+    1.0
+   ],
+   "disc": 0.0,
+   "stars": 0.0,
+   "haze": "#D2B2A6",
+   "haze_max": 0.9,
+   "foam": "#FFF6EA",
+   "mount_top": "#7F7F9E",
+   "mount_bot": "#C7AFA8",
+   "mount_lit": "#C9A089",
+   "mount_lit_k": 0.6,
+   "snow": 0.0,
+   "cloud_light": "#FFDCB0",
+   "cloud_mid": "#E8A493",
+   "cloud_shade": "#77719C",
+   "cloud_rim": "#FFAA62",
+   "rim_k": 1.0,
+   "cloud_e": 1.0,
+   "lamp": 4.0,
+   "win": 1.2,
+   "lens": 10.0,
+   "beam": 0.0,
+   "ride": 2.0,
+   "pillar": 0.0,
+   "lamp_w": 25.0,
+   "lh_w": 300.0,
+   "winl": 0.0,
+   "beacon": 4.0,
+   "sea_e": 0.8,
+   "sheen_k": 0.55,
+   "sheen_col": "#FFB27A",
+   "stratus_k": 0.55,
+   "stratus_col": "#FFC8A0",
+   "exposure": 0.25,
+   "foam_e": 0.5,
+   "glare": [
+    0.22,
+    1.3
+   ],
+   "cb": [
+    [
+     0.99,
+     1.0,
+     1.04
+    ],
+    [
+     1.0,
+     1.0,
+     1.0
+    ],
+    [
+     1.05,
+     1.0,
+     0.94
+    ]
+   ],
+   "mist": [
+    "#C7AFA8"
+   ]
+  },
+  "noon": {
+   "sun": [
+    160,
+    58,
+    4.3,
+    "#FFF4E4"
+   ],
+   "fill": [
+    30,
+    40,
+    0.4,
+    "#A9C4EE"
+   ],
+   "world": [
+    [
+     0,
+     "#C3D3DC"
+    ],
+    [
+     0.3,
+     "#8AAED2"
+    ],
+    [
+     1,
+     "#4C7FBE"
+    ]
+   ],
+   "world_k": 0.62,
+   "sky": [
+    [
+     0,
+     "#BCD3DF"
+    ],
+    [
+     0.03,
+     "#E8F1F4"
+    ],
+    [
+     0.15,
+     "#C8DFEE"
+    ],
+    [
+     0.5,
+     "#93BEE2"
+    ],
+    [
+     1,
+     "#5A8FCC"
+    ]
+   ],
+   "glow": [
+    "#FFFFFF",
+    0.25
+   ],
+   "disc": 0.0,
+   "stars": 0.0,
+   "haze": "#BCD3DF",
+   "haze_max": 0.7,
+   "foam": "#FFFFFF",
+   "mount_top": "#8FA8C2",
+   "mount_bot": "#C7DCE6",
+   "mount_lit": "#B9C9D8",
+   "mount_lit_k": 0.5,
+   "snow": 1.0,
+   "cloud_light": "#FFFFFF",
+   "cloud_mid": "#E3EAF3",
+   "cloud_shade": "#A2B3CC",
+   "cloud_rim": "#FFFFFF",
+   "rim_k": 0.4,
+   "cloud_e": 1.0,
+   "lamp": 0.4,
+   "win": 0.0,
+   "lens": 5.0,
+   "beam": 0.0,
+   "ride": 0.0,
+   "pillar": 0.0,
+   "lamp_w": 0.0,
+   "lh_w": 0.0,
+   "winl": 0.0,
+   "beacon": 0.6,
+   "stratus_k": 0.35,
+   "stratus_col": "#FFFFFF",
+   "exposure": 0.0,
+   "foam_e": 0.4,
+   "glare": [
+    0.1,
+    2.0
+   ],
+   "cb": [
+    [
+     1.0,
+     1.0,
+     1.01
+    ],
+    [
+     1.0,
+     1.0,
+     1.0
+    ],
+    [
+     1.0,
+     1.0,
+     1.0
+    ]
+   ],
+   "mist": [
+    "#C7DCE6"
+   ]
+  },
+  "night": {
+   "sun": [
+    50,
+    26,
+    1.25,
+    "#A9BCFF"
+   ],
+   "fill": [
+    230,
+    40,
+    0.2,
+    "#5A6FB0"
+   ],
+   "world": [
+    [
+     0,
+     "#2C3F6E"
+    ],
+    [
+     0.35,
+     "#1C2B55"
+    ],
+    [
+     1,
+     "#0B1330"
+    ]
+   ],
+   "world_k": 1.25,
+   "sky": [
+    [
+     0,
+     "#1E2C50"
+    ],
+    [
+     0.03,
+     "#3A4E80"
+    ],
+    [
+     0.12,
+     "#26385F"
+    ],
+    [
+     0.45,
+     "#131D3F"
+    ],
+    [
+     1,
+     "#080D22"
+    ]
+   ],
+   "glow": [
+    "#6C82C0",
+    0.55
+   ],
+   "disc": 1.0,
+   "stars": 1.0,
+   "haze": "#1E2C50",
+   "haze_max": 0.7,
+   "foam": "#B9C8E6",
+   "mount_top": "#1A2443",
+   "mount_bot": "#24345C",
+   "mount_lit": "#3A4C78",
+   "mount_lit_k": 0.4,
+   "snow": 0.5,
+   "cloud_light": "#7C8DB6",
+   "cloud_mid": "#3A4878",
+   "cloud_shade": "#1C2548",
+   "cloud_rim": "#D3DEFF",
+   "rim_k": 1.0,
+   "cloud_e": 1.0,
+   "lamp": 40.0,
+   "win": 6.0,
+   "lens": 80.0,
+   "beam": 0.7,
+   "ride": 70.0,
+   "pillar": 1.8,
+   "lamp_w": 170.0,
+   "lh_w": 6000.0,
+   "winl": 240.0,
+   "beacon": 40.0,
+   "sea_e": 0.5,
+   "exposure": 0.3,
+   "foam_e": 0.14,
+   "mist_k": 0.006,
+   "spot_w": 320000.0,
+   "sheen_k": 0.25,
+   "sheen_col": "#8FA6E0",
+   "stratus_k": 0.35,
+   "stratus_col": "#5E6F9E",
+   "disc_s": -46.0,
+   "disc_z": 23.0,
+   "glare": [
+    0.7,
+    0.7
+   ],
+   "cb": [
+    [
+     0.98,
+     0.99,
+     1.05
+    ],
+    [
+     0.98,
+     1.0,
+     1.03
+    ],
+    [
+     1.03,
+     1.0,
+     0.98
+    ]
+   ],
+   "mist": [
+    "#1E2C50"
+   ]
+  }
+ }
+}

@@ -1,0 +1,357 @@
+{
+  "style": "A - Lantern Miniature",
+  "notes": "sRGB hex. Builders convert to linear. Environment stays in honey-stone / sage / teal / slate; saturated hue is reserved for brand sails, covers and lamps.",
+  "colors": {
+    "stone_honey": {
+      "hex": "#E2C08A",
+      "role": "town walls, quay blocks, retaining walls (warm limestone)"
+    },
+    "stone_honey_lt": {
+      "hex": "#EED6A8",
+      "role": "cap stones, quoins, window sills, stair treads"
+    },
+    "stone_honey_dk": {
+      "hex": "#BE9C6A",
+      "role": "plinth course, wall bases, mortar shadow"
+    },
+    "stone_grey": {
+      "hex": "#C3BDB2",
+      "role": "lighthouse masonry (the grey-stone Pharos)"
+    },
+    "stone_grey_lt": {
+      "hex": "#DDD7CC",
+      "role": "lighthouse string courses, corbels, door surround"
+    },
+    "stone_grey_dk": {
+      "hex": "#948E86",
+      "role": "lighthouse plinth, mole armour"
+    },
+    "cobble": {
+      "hex": "#D2BA92",
+      "role": "quay deck and lanes (cobble pattern)"
+    },
+    "plaster_cream": {
+      "hex": "#F5E8CB",
+      "role": "house render"
+    },
+    "plaster_peach": {
+      "hex": "#F2C9A3",
+      "role": "house render"
+    },
+    "plaster_rose": {
+      "hex": "#EFB3A3",
+      "role": "house render"
+    },
+    "plaster_sage": {
+      "hex": "#CCDBA8",
+      "role": "house render"
+    },
+    "plaster_white": {
+      "hex": "#F8F3EA",
+      "role": "house render, keeper's cottage"
+    },
+    "plaster_sky": {
+      "hex": "#B8D7D9",
+      "role": "house render"
+    },
+    "roof_terracotta": {
+      "hex": "#D2683D",
+      "role": "roof tiles"
+    },
+    "roof_terra_dk": {
+      "hex": "#A84C2E",
+      "role": "ridge tiles, roof shadow side"
+    },
+    "roof_slate": {
+      "hex": "#66748F",
+      "role": "slate roofs"
+    },
+    "roof_slate_dk": {
+      "hex": "#4A5670",
+      "role": "slate ridge"
+    },
+    "timber": {
+      "hex": "#8C6344",
+      "role": "doors, beams, barrels"
+    },
+    "timber_dk": {
+      "hex": "#5E4430",
+      "role": "piles, masts, frames"
+    },
+    "plank": {
+      "hex": "#B59069",
+      "role": "pier deck planks (warm)"
+    },
+    "plank_grey": {
+      "hex": "#A9A091",
+      "role": "pier deck planks (weathered)"
+    },
+    "pile": {
+      "hex": "#5A4636",
+      "role": "pier piles above the waterline"
+    },
+    "weed": {
+      "hex": "#3F4F35",
+      "role": "wet / weed band at the waterline"
+    },
+    "grass": {
+      "hex": "#8CBF5C",
+      "role": "turf"
+    },
+    "grass_lt": {
+      "hex": "#B5D271",
+      "role": "sunlit turf patches"
+    },
+    "grass_dk": {
+      "hex": "#64994A",
+      "role": "shaded turf, clover"
+    },
+    "leaf": {
+      "hex": "#5E9A4C",
+      "role": "tree canopies"
+    },
+    "leaf_lt": {
+      "hex": "#93C35F",
+      "role": "canopy tips"
+    },
+    "leaf_dk": {
+      "hex": "#3F6E3E",
+      "role": "hedges, cypress, ivy"
+    },
+    "leaf_olive": {
+      "hex": "#8E9E58",
+      "role": "olive / tamarisk canopies"
+    },
+    "bark": {
+      "hex": "#6E523C",
+      "role": "trunks"
+    },
+    "rock": {
+      "hex": "#A8987F",
+      "role": "headland rock"
+    },
+    "rock_lt": {
+      "hex": "#C9B898",
+      "role": "sunlit rock tops"
+    },
+    "rock_dk": {
+      "hex": "#796D60",
+      "role": "rock crevices"
+    },
+    "sand": {
+      "hex": "#E6D2A6",
+      "role": "slipway beach"
+    },
+    "iron": {
+      "hex": "#2F3439",
+      "role": "bollards, railings, lamp posts"
+    },
+    "brass": {
+      "hex": "#C99A4B",
+      "role": "lantern dome, fittings (only metallic)"
+    },
+    "gilt": {
+      "hex": "#E0B652",
+      "role": "gold-brig trim"
+    },
+    "frame_white": {
+      "hex": "#F3EEE3",
+      "role": "window frames"
+    },
+    "shutter_sage": {
+      "hex": "#7FA085",
+      "role": "shutters, doors"
+    },
+    "shutter_teal": {
+      "hex": "#3F8189",
+      "role": "shutters, doors"
+    },
+    "shutter_blue": {
+      "hex": "#557BA3",
+      "role": "shutters, doors"
+    },
+    "shutter_red": {
+      "hex": "#A9473B",
+      "role": "shutters, doors"
+    },
+    "flower_red": {
+      "hex": "#DE5747",
+      "role": "geraniums"
+    },
+    "flower_pink": {
+      "hex": "#EE9DB5",
+      "role": "flowers"
+    },
+    "flower_yellow": {
+      "hex": "#F4CD4F",
+      "role": "flowers"
+    },
+    "flower_white": {
+      "hex": "#F7F2E8",
+      "role": "flowers"
+    },
+    "flower_violet": {
+      "hex": "#9F80CC",
+      "role": "lavender"
+    },
+    "hull_white": {
+      "hex": "#ECE5D5",
+      "role": "usd hull topsides"
+    },
+    "hull_navy": {
+      "hex": "#2E4767",
+      "role": "usd hulls"
+    },
+    "hull_green": {
+      "hex": "#2F6B58",
+      "role": "usd hulls"
+    },
+    "hull_red": {
+      "hex": "#A6463A",
+      "role": "sloop hulls"
+    },
+    "hull_black": {
+      "hex": "#2C2B2E",
+      "role": "flagship hull"
+    },
+    "hull_tar": {
+      "hex": "#3B2D26",
+      "role": "gold brig hull (dark stained)"
+    },
+    "hull_eur": {
+      "hex": "#3F5A4A",
+      "role": "botter hull (dark green tarred)"
+    },
+    "antifoul": {
+      "hex": "#8E3E2F",
+      "role": "below the waterline"
+    },
+    "deck": {
+      "hex": "#C9A170",
+      "role": "decks"
+    },
+    "canvas": {
+      "hex": "#F2E9D3",
+      "role": "usd sails"
+    },
+    "canvas_tanbark": {
+      "hex": "#A5502F",
+      "role": "eur sails (tan-bark)"
+    },
+    "canvas_ochre": {
+      "hex": "#D49B48",
+      "role": "fiat lug sails"
+    },
+    "sea_shallow": {
+      "hex": "#93DCC9",
+      "role": "shore shallows"
+    },
+    "sea_mid": {
+      "hex": "#45A8B0",
+      "role": "harbour water"
+    },
+    "sea_deep": {
+      "hex": "#1F6C8C",
+      "role": "deep water"
+    },
+    "sea_far": {
+      "hex": "#3C78A0",
+      "role": "far sea under the horizon"
+    },
+    "foam": {
+      "hex": "#F8F4EA",
+      "role": "foam, wakes"
+    },
+    "sun_golden": {
+      "hex": "#FFC889",
+      "role": "golden-hour key light"
+    },
+    "sun_noon": {
+      "hex": "#FFF3DE",
+      "role": "noon key light"
+    },
+    "amb_lavender": {
+      "hex": "#9A93D6",
+      "role": "shadow / sky ambient (golden)"
+    },
+    "moon": {
+      "hex": "#9DB6FF",
+      "role": "moonlight"
+    },
+    "lamp_gold": {
+      "hex": "#FFC062",
+      "role": "lamps, lantern"
+    },
+    "window_warm": {
+      "hex": "#FFAE52",
+      "role": "lit windows"
+    },
+    "brand_usdt": {
+      "hex": "#26A17B",
+      "role": "USDT-like flagship cover / emblem"
+    },
+    "brand_usdc": {
+      "hex": "#2775CA",
+      "role": "USDC-like emblem"
+    },
+    "brand_eurc": {
+      "hex": "#3355C4",
+      "role": "EUR coin emblem"
+    },
+    "brand_gold": {
+      "hex": "#D4A93A",
+      "role": "gold coin emblem"
+    },
+    "brand_dai": {
+      "hex": "#F2B034",
+      "role": "DAI-like emblem"
+    },
+    "brand_pyusd": {
+      "hex": "#0B4F9C",
+      "role": "PYUSD-like emblem"
+    },
+    "brand_usde": {
+      "hex": "#2B2B2B",
+      "role": "USDe-like emblem"
+    },
+    "plaster_ochre": {
+      "hex": "#EDC879",
+      "role": "house render (Mediterranean ochre)"
+    }
+  },
+  "states": {
+    "golden": {
+      "sun": "sun_golden",
+      "sun_elev_deg": 17,
+      "ambient": "amb_lavender",
+      "sky": [
+        "#F6C58F",
+        "#EDB7A2",
+        "#B9AFD0",
+        "#7F9FD0"
+      ]
+    },
+    "noon": {
+      "sun": "sun_noon",
+      "sun_elev_deg": 58,
+      "ambient": "#A9C2E8",
+      "sky": [
+        "#E9F1F2",
+        "#B9D9EC",
+        "#7DB4E3",
+        "#4D8FD6"
+      ]
+    },
+    "night": {
+      "sun": "moon",
+      "sun_elev_deg": 32,
+      "ambient": "#3D4C86",
+      "sky": [
+        "#34507D",
+        "#22355F",
+        "#152246",
+        "#0B1330"
+      ]
+    }
+  }
+}
