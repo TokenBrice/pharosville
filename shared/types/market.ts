@@ -13,7 +13,7 @@ const PegBucketsSchema = z.record(z.string(), z.number());
 const ChainCirculatingSchema = z.record(
   z.string(),
   z.object({
-    current: z.number(),
+    current: z.number().nullable(),
     circulatingPrevDay: z.number().finite().nullish(),
     circulatingPrevWeek: z.number().finite().nullish(),
     circulatingPrevMonth: z.number().finite().nullish(),

@@ -3,6 +3,7 @@ import { fixtureChains, fixtureMintBurn, fixturePegSummary, fixtureSafetyGrades,
 import { isRenderableWorldPayload } from "./world-payload-guard";
 import { issuanceContractDrift } from "@/__fixtures__/issuance-contract-drift";
 import { MintBurnFlowsResponseSchema } from "@shared/types/mint-burn";
+import { StablecoinListResponseSchema } from "@shared/types/market";
 import { canonicalizeChainCirculating } from "@shared/lib/chain-circulating";
 
 const payloads = { chains: fixtureChains, mintBurn: fixtureMintBurn, pegSummary: fixturePegSummary, safetyGrades: fixtureSafetyGrades, stability: fixtureStability, stablecoins: fixtureStablecoins, stress: fixtureStress } as const;
@@ -33,6 +34,19 @@ describe("render-critical payload guards", () => {
     const parsed = MintBurnFlowsResponseSchema.safeParse(issuanceContractDrift);
     expect(parsed.success).toBe(true);
     if (parsed.success) expect(parsed.data.coins[0]!.netFlow24hUsd).toBeNull();
+  });
+
+  it("accepts a chain whose current holding is unknown and leaves it unrendered", () => {
+    const asset = { ...fixtureStablecoins.peggedAssets[0], chainCirculating: {
+      ...fixtureStablecoins.peggedAssets[0]!.chainCirculating,
+      Solana: { current: null, circulatingPrevDay: 5_722_031, circulatingPrevWeek: 13_774_339, circulatingPrevMonth: 7_760_256 },
+    } };
+    const payload = { ...fixtureStablecoins, peggedAssets: [asset] };
+    expect(isRenderableWorldPayload("stablecoins", payload)).toBe(true);
+    expect(StablecoinListResponseSchema.safeParse(payload).success).toBe(true);
+    expect(canonicalizeChainCirculating(asset.chainCirculating).get("solana")?.current).toBe(0);
+    const nonFinite = { ...asset, chainCirculating: { Solana: { current: Number.NaN } } };
+    expect(isRenderableWorldPayload("stablecoins", { ...fixtureStablecoins, peggedAssets: [nonFinite] })).toBe(false);
   });
 
   it("preserves unknown canonical chain history when aliases merge into a known current holding", () => {
