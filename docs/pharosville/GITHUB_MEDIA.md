@@ -41,7 +41,7 @@ for scratch captures before promoting anything into docs.
 ## Provenance Rules
 
 The key art comes from the Harbour reboot's real-GPU renders
-(`agents/2026-10-13-pharosville-reboot/p2/island-v3/key-heart-golden.png`).
+(`agents/2026-10-13-pharosville-reboot/p2/island-v3/key-heart-golden.jpg`).
 The poster and the OG card are offline crops and encodes of it (ImageMagick,
 cwebp, avifenc, pngquant); never bake numerical readings, token names or chain
 names into promotional art, and keep the alt text saying "Illustration, not
