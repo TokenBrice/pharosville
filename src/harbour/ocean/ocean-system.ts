@@ -11,6 +11,7 @@ import { WakeField, type WakeService } from "./wake";
 import { SEA_STATES, waveHeight } from "./waves";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { buildZoneMask, type SeaZoneLike } from "./zone-mask";
+import { loadSdfImage } from "./sdf-image";
 import { getHarbourMaterials } from "../world/materials";
 
 /**
@@ -61,30 +62,14 @@ function oceanGeometry(bounds: Bounds4): THREE.BufferGeometry {
   return g;
 }
 
-async function loadSdf(url: string): Promise<{ tex: THREE.Texture; coast: Uint8Array; size: number } | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("image")) return null;
-    const bmp = await createImageBitmap(await res.blob(), { colorSpaceConversion: "none", premultiplyAlpha: "none" });
-    const cv = new OffscreenCanvas(bmp.width, bmp.height);
-    const c2 = cv.getContext("2d");
-    if (!c2) return null;
-    c2.drawImage(bmp, 0, 0);
-    const px = c2.getImageData(0, 0, bmp.width, bmp.height).data;
-    // the PNG's top row is z = maxZ (three's flipY convention); runtime rows run from minZ
-    const w = bmp.width, h = bmp.height, row = w * 4;
-    const data = new Uint8Array(w * h * 4);
-    for (let j = 0; j < h; j++) data.set(px.subarray((h - 1 - j) * row, (h - j) * row), j * row);
-    // the channels are data (lossless WebP, alpha 1): no colour-space conversion, no premultiplication
-    const tex = new THREE.DataTexture(data, w, h, THREE.RGBAFormat);
-    tex.colorSpace = THREE.NoColorSpace;
-    tex.premultiplyAlpha = false;
-    const coast = new Uint8Array(w * h);
-    for (let i = 0; i < coast.length; i++) coast[i] = data[i * 4];
-    return { tex, coast, size: w };
-  } catch {
-    return null;
-  }
+async function loadSdf(ctx: EngineContext, url: string): Promise<{ tex: THREE.Texture; coast: Uint8Array; size: number } | null> {
+  const img = await loadSdfImage(ctx, url);
+  if (!img) return null;
+  // the channels are data (lossless WebP, alpha 1): no colour-space conversion, no premultiplication
+  const tex = new THREE.DataTexture(img.data, img.width, img.height, THREE.RGBAFormat);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.premultiplyAlpha = false;
+  return { tex, coast: img.coast, size: img.width };
 }
 
 export class OceanSystem implements WorldSystem {
@@ -116,7 +101,7 @@ export class OceanSystem implements WorldSystem {
     this.fx = acquireFxTextures(ctx);
 
     // sea SDF: the baked PNG when it exists, else generated now from the layout (same encoding)
-    const loaded = await loadSdf(layout.sea?.sdf ?? "/harbour/sea-sdf.webp");
+    const loaded = await loadSdf(ctx, layout.sea?.sdf ?? "/harbour/sea-sdf.webp");
     if (loaded) {
       this.sdfTex = loaded.tex; this.coastR = loaded.coast; this.sdfSize = loaded.size;
     } else {

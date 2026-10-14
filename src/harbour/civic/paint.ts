@@ -110,7 +110,7 @@ export function paintGradeBoard(ctx: CanvasRenderingContext2D, s: BoardSlot, tal
 export const DEWS_WORD = ["CALM", "WATCH", "ALERT", "WARNING", "DANGER"] as const;
 const DEWS_CHALK = ["#F4F1E8", "#F2D35A", "#F2A23A", "#F27A3A", "#FF5A48"];
 
-/** The storm-signal office's weather board: a slate chalked with the stress band and what the storm mast is flying. */
+/** The storm-signal station's weather board: a slate chalked with the stress band and what its mast is flying. */
 export function paintWeatherBoard(ctx: CanvasRenderingContext2D, s: BoardSlot, level: number | null): void {
   ctx.fillStyle = "#23292B";
   ctx.fillRect(s.x, s.y, s.w, s.h);
@@ -125,7 +125,10 @@ export function paintWeatherBoard(ctx: CanvasRenderingContext2D, s: BoardSlot, l
   spaced(ctx, word, s.x + s.w / 2, s.y + s.h * 0.55, s.h * 0.03);
   ctx.fillStyle = "#C9C5BB";
   ctx.font = `italic ${Math.round(s.h * 0.12)}px ${SERIF}`;
-  const sub = level == null ? "no reading · nothing hoisted" : level === 0 ? "no signal on the mast" : `${level} ${level === 1 ? "cone" : "cones"} on the mast${level >= 4 ? " · red pennant" : ""}`;
+  // the shapes from the top (readings/storm-cones.ts SHAPES): cone, cone, drum, drum
+  const cones = Math.min(2, level ?? 0), drums = Math.max(0, Math.min(2, (level ?? 0) - 2));
+  const shapes = `${cones} ${cones === 1 ? "cone" : "cones"}${drums ? ` · ${drums} ${drums === 1 ? "drum" : "drums"}` : ""}`;
+  const sub = level == null ? "no reading · nothing hoisted" : level === 0 ? "no signal on the mast" : `${shapes}${level >= 4 ? " · red pennant" : " on the mast"}`;
   ctx.fillText(sub, s.x + s.w / 2, s.y + s.h * 0.84);
 }
 

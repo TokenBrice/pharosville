@@ -5750,7 +5750,7 @@
     "size_class": "great",
     "loa_m": 26.0,
     "sits": "sand",
-    "tris": 1832,
+    "tris": 2164,
     "tris_epitaph": 157,
     "budget": 2500,
     "nodes": [
@@ -5810,11 +5810,11 @@
        -0.0
       ],
       "material": "hb_opaque",
-      "tris": 88,
+      "tris": 420,
       "anim": "tattered canvas, two-sided: optional flutter (sway grows with depth below its top edge; gentle, wind-driven)"
      }
     ],
-    "kb": 49.1
+    "kb": 54.3
    },
    {
     "id": "wreck_schooner_sunk",

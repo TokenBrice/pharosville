@@ -491,10 +491,27 @@ function representativeLeg(L: SimLayout, from: string, to: string): { travel: nu
   return v;
 }
 
-/** Build every harbour-to-harbour representative leg now (e.g. at boot, before data lands). */
-export function warmLegTimes(L: SimLayout): void {
-  const wheres = [...L.pools.keys()];
-  for (const a of wheres) for (const b of wheres) if (a !== b) representativeLeg(L, a, b);
+/** Build every harbour-to-harbour representative leg now, on this thread (boot uses sim/warm-legs instead). */
+export function warmLegTimes(L: SimLayout): void { legTimes(L); }
+
+export type RepLeg = { travel: number; manoeuvre: number } | null;
+
+/**
+ * The harbour-to-harbour representative legs as plain data, built now: share w of n (round-robin), so n
+ * workers can each warm their own copy of the layout off the main thread (seedLegTimes adopts them).
+ */
+export function legTimes(L: SimLayout, w = 0, n = 1): Array<[string, RepLeg]> {
+  const wheres = [...L.pools.keys()], out: Array<[string, RepLeg]> = [];
+  let k = 0;
+  for (const a of wheres) for (const b of wheres) if (a !== b && k++ % n === w) out.push([a + ">" + b, representativeLeg(L, a, b)]);
+  return out;
+}
+
+/** Adopt leg times built on an identical layout elsewhere (a worker); keys already built here are kept. */
+export function seedLegTimes(L: SimLayout, entries: ReadonlyArray<[string, RepLeg]>): void {
+  let reps = REP_LEGS.get(L);
+  if (!reps) REP_LEGS.set(L, (reps = new Map()));
+  for (const [k, v] of entries) if (!reps.has(k)) reps.set(k, v);
 }
 
 /** Segment index containing boat-local time u (binary search). */

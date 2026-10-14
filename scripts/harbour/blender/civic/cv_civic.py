@@ -286,29 +286,13 @@ def build_chartroom(coll=None):
                                    round((tb + td * 6.8).z, 2), round(-(tb + td * 6.8).y, 2)]))
 
 
-# =================================================================== STORM STATION  14 x 14  (signal mast, cone yard)
-def signal_shape(mb, kind, c, s=1.0):
-    """A storm signal: black canvas over hoops. 'up' / 'down' cone (apex up / down) or a 'drum' (cylinder)."""
-    x, y, z = c
-    R, H = 1.25 * s, 2.3 * s
-    if kind == 'drum':
-        r, h = 1.0 * s, 2.0 * s
-        cyl(mb, (x, y), r, r, z - h / 2, z + h / 2, PAL['cone'], 0, 12, top=True, bottom=True)
-        for zz in (z - h / 2, z, z + h / 2):    # the hoops show as pale bands
-            cyl(mb, (x, y), r + 0.04, r + 0.04, zz - 0.07, zz + 0.07, PAL['timber_grey'], 0, 12, top=False)
-    elif kind == 'up':
-        cyl(mb, (x, y), R, 0.0, z - H / 2, z + H / 2, PAL['cone'], 0, 12, top=False, bottom=True)
-        cyl(mb, (x, y), R + 0.04, R + 0.04, z - H / 2 - 0.07, z - H / 2 + 0.07, PAL['timber_grey'], 0, 12, top=False)
-    else:
-        cyl(mb, (x, y), 0.0, R, z - H / 2, z + H / 2, PAL['cone'], 0, 12, top=True)
-        cyl(mb, (x, y), R + 0.04, R + 0.04, z + H / 2 - 0.07, z + H / 2 + 0.07, PAL['timber_grey'], 0, 12, top=False)
-
-
+# =================================================================== STORM STATION  14 x 14  (signal mast, weather board)
 def build_stormstation(coll=None):
-    """The storm-signal OFFICE. The signal itself flies on the island's storm mast on the breakwater root, 20 m away
-    (readings/storm-cones.ts hoists one shape per DEWS step there): one mast, one owner. The office keeps the watch:
-    the anemometer, the weather board chalked with the band (the runtime paints anchor weather_board) and the signal
-    locker with the spare shapes, cones and drums, racked by the door."""
+    """The storm-signal STATION: the one home of the DEWS signal. Its own signal mast at the front-left corner (clear of
+    the Harbourmaster's tower from the heart camera) carries a yard across the view; readings/storm-cones.ts hoists one
+    shape per DEWS step on the left yardarm's halyard (anchor signal: slot centres top -> down, the masthead for the
+    Danger pennant). The office keeps the watch: the anemometer, the weather board chalked with the band (anchor
+    weather_board) and the signal locker (rope and crates; the shapes themselves are all on the mast)."""
     root = empty('stormstation', coll=coll)
     K = Kit(44)
     op = K.op
@@ -339,12 +323,12 @@ def build_stormstation(coll=None):
              PAL['oak'], 0)
     box2(op, WB_X - WB_W / 2 - 0.18, WB_Y + 0.0, WB_Z - WB_H / 2 - 0.18, WB_X + WB_W / 2 + 0.18, WB_Y + 0.16, WB_Z + WB_H / 2 + 0.18, PAL['timber_dark'], 0)
     box2(op, WB_X - WB_W / 2 - 0.35, WB_Y - 0.35, WB_Z + WB_H / 2 + 0.18, WB_X + WB_W / 2 + 0.35, WB_Y + 0.4, WB_Z + WB_H / 2 + 0.45, PAL['roof_red'], 0)
-    # the signal locker: the shapes racked by the office (black canvas cones and drums)
+    # the signal locker: rope coils and crates (every shape is on the mast: no spare cones to read as a second signal)
     box2(op, 2.2, 0.8, P, 6.6, 6.2, P + 0.5, PAL['timber'], PT['boards'])
-    for k, kind in enumerate(('up', 'drum', 'down')):
-        signal_shape(op, kind, (4.4, 1.9 + k * 1.8, P + 0.5 + 0.62), 0.5)
-    for k, kind in enumerate(('drum', 'up')):
-        signal_shape(op, kind, (4.4, 2.8 + k * 1.8, P + 0.5 + 1.25 + 0.62), 0.5)
+    for (cx, cy, cs) in ((3.4, 2.0, 0.9), (5.3, 2.3, 0.8), (3.6, 4.6, 0.75), (5.4, 5.0, 0.95)):
+        box2(op, cx - cs / 2, cy - cs / 2, P + 0.5, cx + cs / 2, cy + cs / 2, P + 0.5 + cs, PAL['timber_fresh'], PT['boards'])
+    for (cx, cy) in ((4.4, 3.4), (2.9, 5.6)):
+        cyl(op, (cx, cy), 0.55, 0.55, P + 0.5, P + 0.8, PAL['rope'], 0, 10, top=True)
     for y in (0.9, 6.1):
         beam(op, (2.3, y, P + 0.5), (2.3, y, P + 3.1), 0.16, 0.16, PAL['oak'])
         beam(op, (6.5, y, P + 0.5), (6.5, y, P + 3.1), 0.16, 0.16, PAL['oak'])
@@ -352,9 +336,26 @@ def build_stormstation(coll=None):
     # lamps: the door and the weather board
     box2(K.em, -2.6 - 0.25, HY0 - 0.6, P + 2.8, -2.6 + 0.25, HY0 - 0.1, P + 3.4, PAL['iron'], 0)
     box2(K.em, WB_X - 0.25, WB_Y - 0.75, WB_Z + WB_H / 2 + 0.5, WB_X + 0.25, WB_Y - 0.25, WB_Z + WB_H / 2 + 0.9, PAL['iron'], 0)
+    # the signal mast: granite foot, white pole, a black yard across the heart view (camera right = (1, 1)), stays
+    MX, MY, MH, YZ = -5.6, -5.6, P + 29.0, P + 23.5
+    box2(op, MX - 0.9, MY - 0.9, P, MX + 0.9, MY + 0.9, P + 0.8, PAL['granite_light'], PT['ashlar'])
+    cyl(op, (MX, MY), 0.34, 0.14, P + 0.8, MH, PAL['wall_white'], 0, 8)
+    sphere(op, (MX, MY, MH + 0.15), 0.28, PAL['gilt'], 6, 3)
+    ux, uy = 1 / math.sqrt(2), 1 / math.sqrt(2)
+    YA = 3.0
+    beam(op, (MX - ux * YA, MY - uy * YA, YZ), (MX + ux * YA, MY + uy * YA, YZ), 0.22, 0.22, PAL['tar'])
+    for s_ in (-1, 1):                                                   # yard lifts and the shrouds to the foot block
+        beam(op, (MX, MY, YZ + 3.2), (MX + s_ * ux * YA, MY + s_ * uy * YA, YZ), 0.035, 0.035, PAL['tar'])
+    for (dx, dy) in ((1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)):
+        beam(op, (MX, MY, YZ - 0.3), (MX + dx * 0.85, MY + dy * 0.85, P + 0.8), 0.03, 0.03, PAL['tar'])
+    HX, HY = MX - ux * (YA - 0.25), MY - uy * (YA - 0.25)                # the signal halyard at the left yardarm
+    beam(op, (HX, HY, YZ), (HX, HY, P + 0.9), 0.03, 0.03, PAL['tar'])
+    box2(op, HX - 0.3, HY - 0.3, P, HX + 0.3, HY + 0.3, P + 0.9, PAL['granite_light'], PT['ashlar'])   # the cleat post
     K.emit(root, 'stormstation_body', coll)
     gl = lambda v: [round(v[0], 2), round(v[2], 2), round(-v[1], 2)]
-    return root, dict(anchors=dict(weather_board=dict(centre=gl((WB_X, WB_Y - 0.02, WB_Z)), normal=[0, 0, 1], size=[WB_W, WB_H])))
+    slots = [gl((HX, HY, YZ - 2.3 - k * 3.5)) for k in range(4)]
+    return root, dict(anchors=dict(weather_board=dict(centre=gl((WB_X, WB_Y - 0.02, WB_Z)), normal=[0, 0, 1], size=[WB_W, WB_H]),
+                                   signal=dict(slots=slots, foot=gl((HX, HY, P + 1.8)), masthead=gl((MX, MY, MH - 0.6)))))
 
 
 # =================================================================== HARBOURMASTER  20 x 16  (tower office with a balcony)
@@ -411,23 +412,17 @@ def build_harbourmaster(coll=None):
     pyramid_roof(op, (TX0 + TX1) / 2, (TY0 + TY1) / 2, (TX1 - TX0) / 2, lz1 + 0.35, 3.0, PAL['copper'], 0, ov=0.5)
     fx, fy = (TX0 + TX1) / 2, (TY0 + TY1) / 2
     # the movers hoist: a signal yard across the tower (front to back, so both hoists read side by side from the camera);
-    # the runtime flies the day's top gaining harbour's crest over a green cone (apex up) at the front yardarm and the
-    # top losing harbour's crest over a red cone (apex down) at the back one (anchors mover_up / mover_down)
+    # the runtime flies the day's top gaining harbour's crest (green hoist stripe) at the front yardarm and the top losing
+    # harbour's (red stripe) at the back one (anchors mover_up / mover_down). No cones here: the storm station owns them.
     cyl(op, (fx, fy), 0.16, 0.08, lz1 + 3.0, lz1 + 11.0, PAL['trim'], 0, 6)
     sphere(op, (fx, fy, lz1 + 11.1), 0.2, PAL['gilt'], 6, 3)
     YDZ, YA = lz1 + 8.4, 4.6
     beam(op, (fx, fy - YA - 0.2, YDZ), (fx, fy + YA + 0.2, YDZ), 0.14, 0.14, PAL['trim'])
     movers = {}
-    for key, s_, col, kind in (('mover_up', -1, PAL['flag_green'], 'up'), ('mover_down', 1, PAL['flag_red'], 'down')):
+    for key, s_ in (('mover_up', -1), ('mover_down', 1)):
         hy = fy + s_ * YA
         beam(op, (fx, fy, lz1 + 10.6), (fx, hy, YDZ), 0.035, 0.035, PAL['tar'])                          # yard lift
         beam(op, (fx, hy, YDZ), (fx, hy, YDZ - 6.2), 0.03, 0.03, PAL['tar'])                               # halyard
-        cz = YDZ - 4.9
-        R, H = 0.8, 1.5
-        if kind == 'up':
-            cyl(op, (fx, hy), R, 0.0, cz - H / 2, cz + H / 2, col, 0, 10, top=False, bottom=True)
-        else:
-            cyl(op, (fx, hy), 0.0, R, cz - H / 2, cz + H / 2, col, 0, 10, top=True)
         movers[key] = [round(fx, 2), round(YDZ - 0.25, 2), round(-hy, 2)]
     # telescope on the balcony
     rod(op, (TX0 - 0.5, TY0 - 0.6, tz1 + 1.4), (TX0 + 0.9, TY0 - 1.3, tz1 + 1.9), 0.14, PAL['brass'], 6, cap=True)

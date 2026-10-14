@@ -281,12 +281,15 @@ void main() {
   float rsp = max(dot(reflect(vd, Nsp), uGlintDir), 0.0);
   // crisp: fewer, smaller, brighter facets inside a tighter column with a smooth bright core; far off the
   // facets fall below a pixel, so their energy moves into the smooth sheen instead of sparkling confetti
-  float tw = smoothstep(0.8, 0.97, r2.a * 0.6 + r1.a * 0.4 + 0.22 * sin(t * 2.3 + nC.a * 30.0));
+  // the twinkle breathes slowly (a fast flicker reads as noise, not water)
+  float tw = smoothstep(0.8, 0.97, r2.a * 0.6 + r1.a * 0.4 + 0.22 * sin(t * 1.3 + nC.a * 30.0));
   float env = pow(rsE, mix(70.0, 120.0, uNight));
   float core = pow(rsE, 260.0);
   float overcast = 1.0 - 0.9 * smoothstep(0.35, 0.8, uWeatherSea.x);
+  // the facets are capped (no blown-out pixels) and gentler under the moon
+  float sparks = min(pow(rs, 300.0) * 3.6 + pow(rsp, 1100.0) * 8.0, 2.4) * mix(1.0, 0.6, uNight);
   vec3 glint = uGlintCol * (env * (0.1 + 0.1 * far01) + core * 0.16 + pow(rsE, 30.0) * 0.01
-    + (pow(rs, 300.0) * 3.6 + pow(rsp, 1100.0) * 8.0) * tw * (0.03 + 0.97 * env) * (1.0 - 0.55 * far01));
+    + sparks * tw * (0.03 + 0.97 * env) * (1.0 - 0.55 * far01));
   // crest glints everywhere by day (facets catching a broad virtual light)
   vec3 Hs = normalize(normalize(uGlintDir + vec3(0.0, 0.6, 0.0)) + V);
   float facet = pow(max(dot(Nsp, Hs), 0.0), 1400.0) * smoothstep(0.5, 0.8, nB.a) * (1.0 - far01 * 0.85);
@@ -328,9 +331,12 @@ void main() {
       float foot = exp(-pow(lat / w, 2.0) * 1.6) * smoothstep(0.0, 40.0, along) * exp(-along / (uBeamShape.x * 0.55));
       beam += uBeamCol * foot * (0.05 + bspec * 7.0 * sparkMask) * (k == 0 ? 1.0 : uBeamBack);
     }
-    // the lantern's own reflection column toward the camera (flashes by day when a beam faces the camera)
+    // the fire's own reflection: a soft column under the lantern (through the calm envelope normal) with a few
+    // capped ripple twinkles inside it, not a wide spray of sparks across the basin; it swells on the mirror's flash
+    float lrE = max(dot(reflect(vd, Nenv), Lb), 0.0);
     float lr = max(dot(R, Lb), 0.0);
-    beam += uBeamCol * (pow(lr, 900.0) * 6.0 * sparkMask + pow(lr, 120.0) * 0.4) * (0.25 + uBeamShape.w);
+    float lTw = min(pow(lr, 900.0) * 3.0 * sparkMask, 1.0) * smoothstep(0.05, 0.7, pow(lrE, 70.0));
+    beam += uBeamCol * (lTw * 0.85 + pow(lrE, 260.0) * 0.17 + pow(lr, 160.0) * 0.06) * (0.25 + 0.6 * min(uBeamShape.w, 2.5));
   }
 
   // ---------------------------------------------------------------- foam

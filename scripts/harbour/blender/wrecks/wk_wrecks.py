@@ -169,9 +169,10 @@ def great_hulk(coll=None):
         q = Ms @ p
         sag_line(mb, q, q + Vector((-0.6, -2.5, -q.z + 0.05)), 0.3, 0.04, n=2, floor=0.05)
     YA, YB = Mb @ ya, Mb @ yb
-    # the course, torn, hanging off the yard
-    top = [YA.lerp(YB, k / 6) + Vector((0, 0, -0.15)) for k in range(7)]
-    rag(rg, top, 7.5, 4, rng, PAL['canvas_old'], holes=0.2, billow=(1.4, 0.8), ragged=0.6)
+    # the course, torn, hanging off the yard: soft draped canvas, split twice, its foot frayed in tongues (P8: was a
+    # coarse flat-shaded sheet with a deep billow that read as faceted folded card)
+    top = [YA.lerp(YB, k / 12) + Vector((0, 0, -0.15)) for k in range(13)]
+    cloth(rg, top, 6.8, 9, rng, mix(PAL['canvas_old'], PAL['bleach'], 0.35), billow=(0.7, 0.4), folds=0.3, ragged=0.5, holes=0.04, tears=(4, 9))
     hang_line(mb, YB, YB.z, 0.035, rng)
     hang_line(mb, YA, YA.z - 0.0, 0.035, rng, lie=2.0)
     sag_line(mb, mt, YA, 0.5, 0.04, n=2)

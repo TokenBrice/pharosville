@@ -27,6 +27,12 @@ export class Engine {
   private readonly ready = new Set<WorldSystem>();
   private readonly later: WorldSystem[] = [];
   private disposed = false;
+  /** abort(): init stops before the next system (a mount torn down mid-boot, e.g. React's dev double-mount). */
+  private aborted = false;
+  /** Systems whose init has started (dispose tears down only these). */
+  private readonly begun = new Set<WorldSystem>();
+  /** init() has finished: systems added from now on init themselves. */
+  private booted = false;
   private readonly clock = { last: 0, elapsed: 0 };
   private raf = 0;
   private running = false;
@@ -79,8 +85,15 @@ export class Engine {
     window.__harbour = this;
   }
 
-  /** Register a system; order of registration is update order. */
-  add(system: WorldSystem): this { this.systems.push(system); return this; }
+  /** Register a system; order of registration is update order. One added after boot (the UI's frame hook) runs once its init settles. */
+  add(system: WorldSystem): this {
+    this.systems.push(system);
+    if (this.booted) {
+      this.begun.add(system);
+      void Promise.resolve(system.init(this.ctx)).then(() => { if (!this.disposed) this.ready.add(system); }, (e: unknown) => console.error(`[harbour] ${system.name} init failed`, e));
+    }
+    return this;
+  }
 
   /**
    * Boot: every system's init in registration order, except the DEFERRED ones, which init right after the
@@ -93,12 +106,15 @@ export class Engine {
     this.stats.boot = boot;
     const defer = new URLSearchParams(location.search).get("defer") !== "0";
     for (const s of this.systems) {
+      if (this.aborted) return;
       if (defer && DEFERRED.has(s.name)) { this.later.push(s); continue; }
       const t = performance.now();
+      this.begun.add(s);
       await s.init(this.ctx);
       boot[s.name] = Math.round(performance.now() - t);
       this.ready.add(s);
     }
+    if (this.aborted) return;
     this.post.seal();
     this.resize();
     const t = performance.now(), r = this.ctx.renderer;
@@ -106,7 +122,11 @@ export class Engine {
     if (r.extensions.has("KHR_parallel_shader_compile")) await r.compileAsync(this.ctx.scene, this.ctx.camera);
     else r.compile(this.ctx.scene, this.ctx.camera);
     boot.compile = Math.round(performance.now() - t);
+    this.booted = true;
   }
+
+  /** Stop booting: init() returns before the next system's init (the caller then disposes). */
+  abort(): void { this.aborted = true; }
 
   /** The deferred systems, one after another in registration order, once the first frame is out. */
   private async initLater(): Promise<void> {
@@ -114,6 +134,7 @@ export class Engine {
     for (const s of this.later) {
       if (this.disposed) return;
       const t = performance.now();
+      this.begun.add(s);
       try { await s.init(this.ctx); } catch (e) { console.error(`[harbour] ${s.name} init failed`, e); continue; }
       boot[s.name] = Math.round(performance.now() - t);
       if (this.disposed) { s.dispose(this.ctx); return; }
@@ -153,9 +174,16 @@ export class Engine {
     ctx.uniforms.uCameraPos.value.copy(ctx.camera.position);
     ctx.renderer.info.reset();
     this.governor.begin();
-    for (const s of this.systems) if (this.ready.has(s)) s.update(frame, ctx);
+    const prof = this.firstFrameMs === null ? this.stats.boot : undefined;
+    for (const s of this.systems) if (this.ready.has(s)) {
+      const ts = prof ? performance.now() : 0;
+      s.update(frame, ctx);
+      if (prof) prof[`u:${s.name}`] = Math.round(performance.now() - ts);
+    }
     this.post.update(delta, ctx.timeOfDay, ctx.rig);
+    const tr = prof ? performance.now() : 0;
     ctx.composer.render(delta);
+    if (prof) prof["u:render"] = Math.round(performance.now() - tr);
     this.governor.end(delta);
     if (this.firstFrameMs === null) {
       this.firstFrameMs = performance.now() - this.startMs;
@@ -207,7 +235,7 @@ export class Engine {
     removeEventListener("resize", this.onResize);
     document.removeEventListener("visibilitychange", this.onVisibility);
     // a deferred system still initialising disposes itself when its init settles (initLater)
-    for (const s of [...this.systems].reverse()) if (this.ready.has(s) || !this.later.includes(s)) s.dispose(this.ctx);
+    for (const s of [...this.systems].reverse()) if (this.ready.has(s) || (this.begun.has(s) && !this.later.includes(s))) s.dispose(this.ctx);
     this.post.dispose();
     this.ctx.composer.dispose();
     this.ctx.renderer.dispose();

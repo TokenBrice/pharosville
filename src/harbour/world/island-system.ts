@@ -5,6 +5,7 @@ import { aoHeightTexture, renderGround } from "./ground";
 import { getLightsStore } from "../lights/lights-service";
 import { getHarbourMaterials } from "./materials";
 import { SunRig } from "./sun";
+import { mergeStaticMeshes } from "../engine/static-merge";
 
 export const ISLAND_URL = "/harbour/island.glb";
 
@@ -43,6 +44,10 @@ export class IslandSystem implements WorldSystem {
       this.root = s.group;
     }
     this.root.name = this.root.name || "harbour-island";
+    // the island's four chunks never move: one draw per material (main pass and shadow pass) instead of four
+    const chunks: THREE.Mesh[] = [];
+    this.root.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.name.startsWith("island_")) chunks.push(o as THREE.Mesh); });
+    mergeStaticMeshes(chunks, this.root, "island");
     // shadow-caster budget: the far backdrop hills (shakkei) lie outside the fitted shadow box anyway
     this.root.traverse((o) => { if (o.name === "shakkei") o.castShadow = false; });
     ctx.scene.add(this.root);

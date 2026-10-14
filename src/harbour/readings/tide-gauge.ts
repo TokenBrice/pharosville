@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeStaticMeshes } from "../engine/static-merge";
 import { TIDE_FULL_SCALE_PCT, tideLevelForPct } from "./bind";
 
 /**
@@ -57,12 +58,16 @@ export class TideGauge {
     const datum = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.05, 0.05).translate(0, DATUM_Y, FACE_Z + 0.03), dark);
     this.group.add(datum);
     const pinGeo = new THREE.BoxGeometry(0.18, 0.04, 0.05);
+    const pins: THREE.Mesh[] = [];
     for (const pct of TICKS_PCT) for (const sgn of [1, -1]) {
       const pin = new THREE.Mesh(pinGeo, this.brass);
       pin.position.set(0.41, DATUM_Y + sgn * tideLevelForPct(pct) * SPAN, FACE_Z - 0.06);
       pin.scale.x = pct === TIDE_FULL_SCALE_PCT ? 1.5 : pct === 1 ? 1.15 : 0.8;
       this.group.add(pin);
+      pins.push(pin);
     }
+    // the pins never move: one draw
+    mergeStaticMeshes(pins, this.group, "tide-pins");
   }
 
   /** level −1..1 (compressed), known = a current reading exists. */

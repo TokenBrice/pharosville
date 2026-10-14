@@ -20,31 +20,20 @@ import type { HarbourModel } from "../model/types";
 import { HarbourSim, PH_APPROACHING, PH_DOCKED, PH_MOORED } from "./sim";
 import type { CoastGrid } from "./obstacles";
 import { SimDebugMarkers } from "./debug-markers";
+import { warmLegsOffThread } from "./warm-legs";
+import { loadSdfImage } from "../ocean/sdf-image";
 import { ensureMotionService } from "../ui/services";
 
 /** Re-evaluate freshness this often even without new payloads (a silent feed must turn stale). */
 const TRUTH_RECHECK_MS = 30_000;
 
 /** The sea SDF's coast channel (R), rows from minZ, or null (the sim then uses the layout's coast outline). */
-async function loadCoast(layout: HarbourLayout): Promise<CoastGrid | null> {
+async function loadCoast(ctx: EngineContext, layout: HarbourLayout): Promise<CoastGrid | null> {
   const url = layout.sea?.sdf, bounds = layout.sea?.bounds as [number, number, number, number] | undefined;
   if (!url || !bounds) return null;
-  try {
-    const res = await fetch(url);
-    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("image")) return null;
-    const bmp = await createImageBitmap(await res.blob(), { colorSpaceConversion: "none", premultiplyAlpha: "none" });
-    const cv = new OffscreenCanvas(bmp.width, bmp.height);
-    const c2 = cv.getContext("2d");
-    if (!c2 || bmp.width !== bmp.height) return null;
-    c2.drawImage(bmp, 0, 0);
-    const px = c2.getImageData(0, 0, bmp.width, bmp.height).data;
-    const n = bmp.width, data = new Uint8Array(n * n);
-    // the PNG's top row is z = maxZ
-    for (let j = 0; j < n; j++) { const src = (n - 1 - j) * n * 4; for (let i = 0; i < n; i++) data[j * n + i] = px[src + i * 4]; }
-    return { data, size: n, bounds };
-  } catch {
-    return null;
-  }
+  const img = await loadSdfImage(ctx, url);
+  if (!img || img.width !== img.height) return null;
+  return { data: img.coast, size: img.width, bounds };
 }
 
 export class DataSystem implements WorldSystem {
@@ -68,6 +57,7 @@ export class DataSystem implements WorldSystem {
   private heldAt: number | null = null;
   private motionLag = 0;
   private unsubMotion: (() => void) | null = null;
+  private stopWarm: (() => void) | null = null;
 
   async init(ctx: EngineContext): Promise<void> {
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
@@ -93,7 +83,9 @@ export class DataSystem implements WorldSystem {
     hold(motion.reduced);
     this.unsubMotion = motion.subscribe(hold);
     // the island's real coastline, from the baked sea SDF (the same bytes for every viewer)
-    const coast = await loadCoast(layout);
+    const coast = await loadCoast(ctx, layout);
+    // the first real plan's leg times, built by workers meanwhile (the sim adopts them as they land)
+    this.stopWarm = warmLegsOffThread(layout, coast, (entries) => this.sim?.seedLegTimes(entries));
     const now = this.simNow(Date.now());
     // AWAITING DATA: an empty, unavailable model until the first payloads land — never a fixture fleet
     const empty = buildHarbourModel({}, now, { pieredChains: layout.piers.map((p) => p.chain) });
@@ -163,6 +155,7 @@ export class DataSystem implements WorldSystem {
 
   dispose(ctx: EngineContext): void {
     this.feed?.stop();
+    this.stopWarm?.(); this.stopWarm = null;
     this.unsubMotion?.(); this.unsubMotion = null;
     this.markers?.dispose();
     this.feed = null;

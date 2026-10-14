@@ -216,8 +216,8 @@ def hf_face(q):
                 col = tuple(SAND[i] * 0.55 + SHINGLE[i] * 0.45 for i in range(3))
             elif 9.0 < dc < 36.0 and pn < 0.32:                     # damp hollows
                 col = tuple(v * 0.9 for v in SAND)
-            elif 22.0 < dc < 26.0:                                  # the wrack line: damp, weed-stained sand
-                col = lin('#A79A78')
+            elif 22.0 < dc < 26.0:                                  # the wrack line: damp sand, a whisper (P8: per vertex on
+                col = tuple(SAND[i] * 0.72 + lin('#A79A78')[i] * 0.28 for i in range(3))   # 5 m facets a full tone read as dark seams)
             elif dc > 38.0 and nn > 0.55:                           # dune grass creeping down between the hummocks
                 col = lin('#A9A779')
         else:

@@ -56,6 +56,13 @@ const sameCoin = (c, r) => norm(c.symbol) === norm(r.symbol) && (() => {
   const [x, y] = [norm(c.name), norm(r.name)].sort((p, q) => p.length - q.length);
   return x === y || (x.length >= 4 && y.includes(x));
 })();
+const deadRows = (Array.isArray(dead) ? dead : []).filter((r) => r && typeof r.logo === "string");
+/** A cemetery coin's logo, copied to the top level as `<id>-<file>`. */
+function deadHit(d, id) {
+  const rel = d.logo.startsWith("/") ? d.logo : `/logos/cemetery/${d.logo}`;
+  if (!IMAGE.test(rel)) return null;
+  return { from: join(SOURCE, "public", rel), logo: rel.startsWith("/logos/cemetery/") ? `/logos/${id}-${rel.split("/").pop()}` : rel };
+}
 const topLevel = (p) => typeof p === "string" && p.startsWith("/logos/") && !p.slice("/logos/".length).includes("/") && IMAGE.test(p);
 
 /** { from (source file), logo (this repo's /logos/ path) } for a payload coin, or null. */
@@ -83,13 +90,28 @@ function sourceLogo(c) {
     return norm(head) === sym && issuer.length >= 3 && named.includes(issuer);
   });
   if (slugHit) return topLevel(own[slugHit]) ? { from: join(ROOT, "public", own[slugHit]), logo: own[slugHit] } : hit(src[slugHit]);
-  const d = (Array.isArray(dead) ? dead : []).find((r) => r && typeof r.logo === "string" && sameCoin(c, r));
-  if (d) {
-    const rel = d.logo.startsWith("/") ? d.logo : `/logos/cemetery/${d.logo}`;
-    if (!IMAGE.test(rel)) return null;
-    return { from: join(SOURCE, "public", rel), logo: `/logos/${id}-${rel.split("/").pop()}` };
-  }
-  return null;
+  const d = deadRows.find((r) => sameCoin(c, r));
+  if (d) return deadHit(d, id);
+  return byName(c);
+}
+
+/**
+ * Matching by identity and name (P7 polish): the coin's llama id or gecko id on a registry/cemetery row, then the exact
+ * same name ("Legacy BOLD"), then, for a coin whose name is only its symbol ("XAI"), the one row with that symbol.
+ * A row that carries a different llama id or gecko id is another coin and never matches.
+ */
+function byName(c) {
+  const rows = [
+    ...(Array.isArray(registry) ? registry : []).filter((r) => r && topLevel(src[r.id])).map((r) => ({ r, hit: () => ({ from: join(SOURCE, "public", src[r.id]), logo: src[r.id] }) })),
+    ...deadRows.map((r) => ({ r, hit: () => deadHit(r, c.id) })),
+  ].filter(({ r }) => (r.llamaId == null || String(r.llamaId) === c.id) && (!r.geckoId || !c.geckoId || r.geckoId === c.geckoId));
+  const pick = (test) => rows.find(({ r }) => test(r))?.hit() ?? null;
+  const name = norm(c.name), sym = norm(c.symbol);
+  const sameSymbol = rows.filter(({ r }) => norm(r.symbol) === sym);
+  return pick((r) => r.llamaId != null)
+    ?? (c.geckoId ? pick((r) => r.geckoId === c.geckoId) : null)
+    ?? (name.length >= 4 ? pick((r) => norm(r.name) === name) : null)
+    ?? (name === sym && sameSymbol.length === 1 ? sameSymbol[0].hit() : null);
 }
 
 const merged = { ...own };

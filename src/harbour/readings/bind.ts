@@ -7,9 +7,9 @@
  *   PSI band   → the Pharos rhythm (PSI_SWEEP_DURATION), 3-step lamp colour, unlit when unknown
  *   PSI score  → beam reach + brightness, continuous (91 and 97 must look different)
  *   off-peg    → sea state, 4 declared steps of the supply-weighted share
- *   DEWS       → cloud cover + wind (no random weather) and the storm mast: one cone per step of the
- *                SAME supply-weighted band (0 Calm … 4 Danger) plus a red pennant at Danger, so the mast
- *                and the sky always tell one story; the individual ALERT+ coins live in the panel
+ *   DEWS       → cloud cover + wind (no random weather) and the Storm-signal Station's mast: one shape per
+ *                step of the SAME supply-weighted band (0 Calm … 4 Danger: cone, cone, drum, drum) plus a red
+ *                pennant at Danger, so the mast and the sky always tell one story; the ALERT+ coins live in the panel
  *   7d supply  → the tide gauge, signed-sqrt against TIDE_FULL_SCALE_PCT
  *   mint/burn  → the Mint and the Burn (src/harbour/civic, D19; the tide board is gone)
  *   freshness  → sea fog, ONLY when /api/stablecoins is stale or unavailable
@@ -23,7 +23,7 @@ import { PSI_SWEEP_DURATION } from "@shared/lib/psi-colors";
 export const TIDE_FULL_SCALE_PCT = 2;
 /** Below this the week is slack water: the gauge rests on its datum (producer rounding, not a tide). */
 export const TIDE_SLACK_PCT = 0.01;
-/** Storm cones on the mast: one per DEWS step above Calm (Danger = 4, plus the pennant). */
+/** Storm signal shapes on the station mast: one per DEWS step above Calm (Danger = 4, plus the pennant). */
 export const MAX_CONES = 4;
 /** Score that maps to zero / full beam reach. Reach is (score - lo)/(hi - lo), eased to spread the top. */
 export const REACH_SCORE_LO = 30;

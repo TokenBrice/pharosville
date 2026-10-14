@@ -3,30 +3,36 @@ import type { LightsService } from "../lights/lights-service";
 import { MAX_CONES } from "./bind";
 
 /**
- * THE STORM-SIGNAL MAST: the supply-weighted DEWS band, the same reading as the weather over the bay:
- * no cone at Calm, one at Watch, two at Alert, three at Warning, four at Danger plus a red pennant
- * streaming from the masthead. Cones hang on the mast's north halyard (island.glb empties
- * storm_mast_cone_n0..3, top → down; apex up, the traditional north cone), run up one after another
- * (top slot first), come down in reverse, and swing a little in the DEWS wind; the pennant follows the
- * last cone up and flies harder in a stronger wind. Reduced motion: placed at once, no swing, no flutter.
+ * THE STORM SIGNAL, flown by the Storm-signal Station (its own mast; the one home of the DEWS shapes): the
+ * supply-weighted DEWS band, the same reading as the weather over the bay. Black canvas shapes on the halyard at the
+ * station mast's left yardarm, top → down: nothing at Calm, a cone at Watch, two cones at Alert, two cones and a drum
+ * at Warning, two cones and two drums at Danger plus a red pennant streaming from the masthead. Shapes run up one after
+ * another (top slot first), come down in reverse and swing a little in the DEWS wind; each carries a red lantern at
+ * night. Reduced motion: placed at once, no swing, no flutter.
  */
-const CONE_R = 0.95, CONE_H = 1.9;
+type Shape = "cone" | "drum";
+/** The signal from the top: the first `level` shapes are hoisted. */
+const SHAPES: readonly Shape[] = ["cone", "cone", "drum", "drum"];
+const CONE_R = 1.5, CONE_H = 2.9;
+const DRUM_R = 1.12, DRUM_H = 2.4;
 const HOIST_SEC = 2.4;
-const FOOT_Y = 1.2;      // stowed at the foot of the halyard (mast-local)
-const LANTERN_R = 0.24;  // the night signal: a red lantern on each hoisted cone
+const LANTERN_R = 0.34;  // the night signal: a red lantern on each hoisted shape
 const LANTERN_HEX = "#FF4430";
-const LANTERN_OUT = 0.85;  // m from the cone axis toward the viewer
-const PENNANT_Y = 23.9;    // masthead (mast-local), just under the truck
-const PENNANT_L = 7.0, PENNANT_H = 1.9, PENNANT_SEG = 14;
+const PENNANT_L = 7.5, PENNANT_H = 2.0, PENNANT_SEG = 14;
 
-function coneGeometry(): THREE.BufferGeometry {
-  const g = new THREE.ConeGeometry(CONE_R, CONE_H, 24, 1, false);
-  // tarred canvas: near-black, a touch warm, kit pattern 0 (plain) in COLOR_0.a
+/** Where the station's rig puts the signal (plot frame, metres): halyard slot centres top first, the stowed foot, the masthead. */
+export interface SignalRig { slots: ReadonlyArray<readonly [number, number, number]>; foot: readonly [number, number, number]; masthead: readonly [number, number, number] }
+
+function shapeGeometry(kind: Shape): THREE.BufferGeometry {
+  const g = kind === "cone" ? new THREE.ConeGeometry(CONE_R, CONE_H, 24, 1, false) : new THREE.CylinderGeometry(DRUM_R, DRUM_R, DRUM_H, 24, 1, false);
+  const h = kind === "cone" ? CONE_H : DRUM_H;
+  // tarred canvas: near-black, a touch warm, kit pattern 0 (plain) in COLOR_0.a; a drum's top hoop catches the light
   const n = g.attributes.position.count;
   const col = new Float32Array(n * 4);
   for (let i = 0; i < n; i++) {
     const y = g.attributes.position.getY(i);
-    const k = 0.016 + 0.01 * (y / CONE_H + 0.5);
+    const ny = g.attributes.normal.getY(i);
+    const k = kind === "drum" && ny > 0.9 ? 0.07 : 0.016 + 0.01 * (y / h + 0.5);
     col.set([k * 1.05, k, k * 0.92, 0], i * 4);
   }
   g.setAttribute("color", new THREE.BufferAttribute(col, 4));
@@ -50,35 +56,44 @@ function pennantGeometry(): THREE.BufferGeometry {
 export class StormCones {
   private readonly cones: THREE.Mesh[] = [];
   private readonly slotY: number[] = [];
+  /** Per shape: the lantern's distance from the axis toward the viewer (just proud of the canvas at mid-height). */
+  private readonly lampOut: number[] = [];
   private readonly p = new Float32Array(MAX_CONES);
   private count = 0;
-  private readonly geometry = coneGeometry();
+  private readonly footY: number;
+  private readonly mastheadY: number;
+  private readonly geometries = new Map<Shape, THREE.BufferGeometry>();
   private readonly lanternGeo = new THREE.SphereGeometry(LANTERN_R, 12, 8);
   private readonly lamps: THREE.Mesh[] = [];
   private readonly lightIds: number[] = [];
   private readonly tmp = new THREE.Vector3();
   private pennantUp = false;
   private pennantP = 0;
-  private readonly pennant: THREE.Mesh | null = null;
+  private readonly pennant: THREE.Mesh;
   private readonly pennantMat = new THREE.MeshStandardMaterial({ color: new THREE.Color("#C8231B"), roughness: 0.75, side: THREE.DoubleSide });
   private readonly qTmp = new THREE.Quaternion();
   private readonly qPar = new THREE.Quaternion();
   private readonly eTmp = new THREE.Euler();
 
   /**
-   * `slots` = the north-halyard empties, top first. `lantern` = an emissive (× uLamp) material.
+   * `parent` = the station plot root (the rig's frame). `lantern` = an emissive (× uLamp) material.
    * `downwind` = heading the wind blows toward (layout convention: along (sin h, cos h)).
    */
-  constructor(slots: THREE.Object3D[], material: THREE.Material, lantern: THREE.Material, private readonly lights?: LightsService,
-    private readonly downwind = 2.14) {
-    slots.slice(0, MAX_CONES).forEach((slot, i) => {
-      const m = new THREE.Mesh(this.geometry, material);
-      m.name = `storm_cone_${i}`;
+  constructor(private readonly parent: THREE.Object3D, rig: SignalRig, material: THREE.Material, lantern: THREE.Material,
+    private readonly lights?: LightsService, private readonly downwind = 2.14) {
+    this.footY = rig.foot[1];
+    this.mastheadY = rig.masthead[1];
+    rig.slots.slice(0, MAX_CONES).forEach((slot, i) => {
+      const kind = SHAPES[i] ?? "cone";
+      let geo = this.geometries.get(kind);
+      if (!geo) this.geometries.set(kind, geo = shapeGeometry(kind));
+      const m = new THREE.Mesh(geo, material);
+      m.name = `storm_signal_${i}`;
       m.castShadow = true;
       m.receiveShadow = true;
       m.visible = false;
-      slot.parent!.add(m);
-      m.position.set(slot.position.x, FOOT_Y, slot.position.z);
+      parent.add(m);
+      m.position.set(slot[0], this.footY, slot[2]);
       const lamp = new THREE.Mesh(this.lanternGeo, lantern);
       m.add(lamp);
       this.lamps.push(lamp);
@@ -87,20 +102,18 @@ export class StormCones {
         lights.setOn(id, false);
         this.lightIds.push(id);
       }
-      this.slotY.push(slot.position.y);
+      this.slotY.push(slot[1]);
+      this.lampOut.push((kind === "cone" ? CONE_R * 0.5 : DRUM_R) + 0.2);
       this.cones.push(m);
     });
-    const mast = slots[0]?.parent;
-    if (mast) {
-      const p = new THREE.Mesh(pennantGeometry(), this.pennantMat);
-      p.name = "storm_pennant";
-      p.castShadow = true;
-      p.frustumCulled = false;
-      p.visible = false;
-      p.position.set(0, FOOT_Y, 0);
-      mast.add(p);
-      this.pennant = p;
-    }
+    const p = new THREE.Mesh(pennantGeometry(), this.pennantMat);
+    p.name = "storm_pennant";
+    p.castShadow = true;
+    p.frustumCulled = false;
+    p.visible = false;
+    p.position.set(rig.masthead[0], this.footY, rig.masthead[2]);
+    parent.add(p);
+    this.pennant = p;
   }
 
   setCount(n: number | null, pennant = false): void {
@@ -126,7 +139,7 @@ export class StormCones {
       m.visible = p > 0.002;
       if (!m.visible) continue;
       const e = p * p * (3 - 2 * p);
-      m.position.y = FOOT_Y + (this.slotY[i] - FOOT_Y) * e;
+      m.position.y = this.footY + (this.slotY[i] - this.footY) * e;
       // a hoisted cone swings on its halyard; harder in a stronger (DEWS) wind
       const sw = reduced ? 0 : (0.03 + 0.09 * wind) * e;
       m.rotation.set(Math.sin(time * 1.3 + i * 1.7) * sw, 0, Math.sin(time * 0.9 + i * 2.3) * sw * 0.7);
@@ -140,7 +153,8 @@ export class StormCones {
         cone.updateMatrixWorld(true);
         const w = cone.getWorldPosition(this.tmp);
         const dx = camera.x - w.x, dz = camera.z - w.z, d = Math.hypot(dx, dz) || 1;
-        w.set(w.x + (dx / d) * LANTERN_OUT, w.y - 0.15, w.z + (dz / d) * LANTERN_OUT);
+        const out = this.lampOut[i];
+        w.set(w.x + (dx / d) * out, w.y - 0.15, w.z + (dz / d) * out);
         if (this.lights) this.lights.setPosition(this.lightIds[i], w);
         this.lamps[i].position.copy(cone.worldToLocal(w));
       }
@@ -150,7 +164,6 @@ export class StormCones {
 
   private updatePennant(dt: number, time: number, wind: number, reduced: boolean, camera: THREE.Vector3): void {
     const pen = this.pennant;
-    if (!pen) return;
     const n = this.cones.length;
     // hoisted after the last cone is up; lowered first
     const ready = n === 0 || this.p[n - 1] > 0.6;
@@ -160,9 +173,9 @@ export class StormCones {
     pen.visible = p > 0.002;
     if (!pen.visible) return;
     const e = p * p * (3 - 2 * p);
-    pen.position.y = FOOT_Y + (PENNANT_Y - FOOT_Y) * e;
+    pen.position.y = this.footY + (this.mastheadY - this.footY) * e;
     // stream downwind, turned a little toward the viewer so the cloth shows a face (as the house flags)
-    const mast = pen.parent!;
+    const mast = this.parent;
     mast.updateMatrixWorld();
     const w = pen.getWorldPosition(this.tmp);
     const toCam = Math.atan2(camera.x - w.x, camera.z - w.z);
@@ -190,12 +203,12 @@ export class StormCones {
   }
 
   dispose(): void {
-    this.pennant?.removeFromParent();
-    this.pennant?.geometry.dispose();
+    this.pennant.removeFromParent();
+    this.pennant.geometry.dispose();
     this.pennantMat.dispose();
     for (const m of this.cones) m.removeFromParent();
     if (this.lights) for (const id of this.lightIds) this.lights.remove(id);
-    this.geometry.dispose();
+    for (const g of this.geometries.values()) g.dispose();
     this.lanternGeo.dispose();
   }
 }

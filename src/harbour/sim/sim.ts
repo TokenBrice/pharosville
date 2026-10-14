@@ -16,7 +16,7 @@ import { clearance, hullClearance, type CoastGrid } from "./obstacles";
 import { buildOutingPath } from "./outings";
 import { buildLegPath, legControlPoints } from "./routes";
 import { buildPath, evalLeg, hullMargin, IO_LANE, IO_LOA, IO_SEP, IO_T, legTiming, LEG_APPROACH, LEG_CAST_OFF, LEG_HOLD, LEG_HOLD_END, LEG_TURN, newLegTiming, type LegTiming, type PathRec } from "./path";
-import { boatLocalTime, buildPlan, warmLegTimes, CYCLE_S, findSegment, MANOEUVRE_S, SEG_DOCK, SPEED, type BoatPlan, type Plan } from "./plan";
+import { boatLocalTime, buildPlan, seedLegTimes, CYCLE_S, findSegment, MANOEUVRE_S, SEG_DOCK, SPEED, type BoatPlan, type Plan, type RepLeg } from "./plan";
 
 export const PHASES = ["docked", "casting-off", "sailing", "approaching", "moored", "anchored"] as const;
 export type Phase = (typeof PHASES)[number];
@@ -82,6 +82,8 @@ const MOORED_SHEER = 0.45;
 const SEP_GAP = 1.2;
 /** The shove eases in over this many metres before the gap is reached (no sudden sidesteps). */
 const SEP_RAMP = 6;
+/** Extra tie-break toward each side for hulls dead level in one lane at one pace (twins off one plan). */
+const TWIN_TIE = 1.0;
 /** Mooring yaw periods (s): each divides the 6 h cycle, so the whole harbour still repeats exactly. */
 const YAW_PERIODS = [40, 45, 48, 50, 54, 60, 72, 75, 80, 90, 96, 100, 108, 120, 135, 144, 150];
 
@@ -220,11 +222,16 @@ export class HarbourSim {
     this.layout = buildSimLayout(layout, coast);
     this.baseSlots = this.layout.slots.length;
     this.wind.fromRad = this.layout.windFrom;
-    // no data yet (boot): spend the wait building leg times, so the first real plan is quick
-    if (!model.hasFleet) warmLegTimes(this.layout);
     this.pose = { count: 0, ids: [], position: new Float32Array(0), heading: new Float32Array(0), heel: new Float32Array(0), sailState: new Float32Array(0), speed: new Float32Array(0), phase: new Uint8Array(0), slot: new Int32Array(0), event: new Uint8Array(0), lines: new Float32Array(0), outing: new Uint8Array(0) };
     this.install(model, nowMs, true);
   }
+
+  /**
+   * Representative leg times warmed off the main thread while the data is awaited (sim/warm-legs: workers
+   * on the same layout and coast), so the first real plan is quick. A leg not seeded in time is simply
+   * built when the plan needs it (the same value).
+   */
+  seedLegTimes(entries: ReadonlyArray<[string, RepLeg]>): void { seedLegTimes(this.layout, entries); }
 
   indexOf(id: string): number { return this.index.get(id) ?? -1; }
   slotOf(i: number): Slot | null { const s = this.pose.slot[i]; return s >= 0 ? this.layout.slots[s] ?? null : null; }
@@ -912,8 +919,11 @@ export class HarbourSim {
             // (a still hull: decisively off the side she is on, never half a shove)
             let sgn = Math.tanh(lat0 / 0.5 + (i < j ? 0.3 : -0.3));
             // running together, the faster hull passes to port of the slower (a side that holds while the
-            // paths converge or cross at a shallow angle; the lane order only breaks a tie)
-            const sPar = Math.tanh((p.speed[j] - p.speed[i]) / 0.2 + lat0 / 3 + (i < j ? 0.2 : -0.2));
+            // paths converge or cross at a shallow angle; the lane order only breaks a tie). Twins (off one
+            // plan: the same lane line at the same pace) break it decisively, or they run on stacked.
+            const dv = p.speed[j] - p.speed[i];
+            const tie = 0.2 + TWIN_TIE * Math.max(0, 1 - Math.abs(lat0) / 1.5) * Math.max(0, 1 - Math.abs(dv) / 0.3);
+            const sPar = Math.tanh(dv / 0.2 + lat0 / 3 + (i < j ? tie : -tie));
             const cosd = fx * gx + fz * gz;
             // bigger hull, right of way: the yield share by size (squared, so a skiff gives nearly all of it)
             const li = r.loa * r.loa, lj = rj.loa * rj.loa;
@@ -927,6 +937,10 @@ export class HarbourSim {
               // the overtaking hull (the other ahead) keeps clear; a big one overtaking a small one, the small also steps aside
               const ahead = -(dx * fx + dz * fz) > 0 ? 1 : 0;
               w = wPar * Math.max(0.15 + 0.85 * ahead, sizeW) + (1 - wPar) * sizeW;
+              // both give way, so each shoves against the other's shove and the pair settles short of clear
+              // water (two equal hulls: ~2/3 of the way): share the whole of it instead
+              const wj = wPar * Math.max(0.15 + 0.85 * (1 - ahead), 1 - sizeW) + (1 - wPar) * (1 - sizeW);
+              w /= Math.min(1, w + wj - w * wj);
             }
             push += sgn * pen * w;
           }

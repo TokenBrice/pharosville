@@ -76,6 +76,7 @@ export function HarbourApp() {
 
     return () => {
       cancelled = true;
+      engine?.abort(); // a mount torn down mid-boot (React's dev double-mount) stops booting at once
       cancelAnimationFrame(raf);
       clearTimeout(shellTimer);
       resetPosterState();

@@ -337,6 +337,53 @@ def rag(mb, top, drop, nv, rng, col=None, holes=0.18, billow=(0.0, 0.0), ragged=
     mb.backface(s0, dark=0.85)
 
 
+def cloth(mb, top, drop, nv, rng, col=None, billow=(0.0, 0.0), folds=0.0, ragged=0.5, holes=0.05, tears=()):
+    """Soft tattered canvas hanging from the polyline `top`: smooth-shaded, fine enough to drape (vertical folds that
+    deepen toward the foot, a billow, a foot that frays in long tongues), torn through at the `tears` columns (the two
+    edges hang free from row 2 down). Two-sided (backface)."""
+    s0 = len(mb.f)
+    nu = len(top) - 1
+    ph = rng.uniform(0, 6.28)
+    bdir = Vector((billow[0], billow[1], 0.0))
+    fdir = bdir.normalized() if bdir.length > 1e-6 else Vector((1, 0, 0))
+    cols = []
+    for j, a in enumerate(top):
+        a = Vector(a)
+        e = j / nu
+        tongue = 0.5 + 0.5 * math.sin(j * 1.9 + ph) * math.cos(j * 0.7 + 2.0 * ph)      # long tongues and short bites
+        L = drop * (1 - ragged * (0.25 + 0.75 * tongue) * (0.6 + 0.8 * rng.random()))
+        if j in (0, nu):
+            L = drop * (0.45 + 0.25 * rng.random())                                    # the clews torn back
+        fold = folds * math.sin(j * 1.15 + ph) * (0.7 + 0.3 * math.sin(j * 0.5))           # broad folds, several columns each
+        col_ = []
+        for i in range(nv + 1):
+            t = i / nv
+            bl = math.sin(math.pi * min(1.0, t * 1.1)) * (1 - abs(e - 0.5) * 1.3)
+            p = a + bdir * bl + fdir * (fold * t * t) + Vector((0, 0, -L * t))
+            p.z = max(p.z, 0.04)
+            col_.append(p)
+        cols.append(col_)
+    vid = [[mb.vert(p) for p in c_] for c_ in cols]
+    torn = {j: [mb.vert(p) for p in cols[j]] for j in tears if 0 < j < nu}    # a free second edge at each tear
+    for j, tv in torn.items():                                   # the tear opens toward the foot: its two edges part
+        along_ = (Vector(top[j + 1]) - Vector(top[j - 1])).normalized()
+        for i in range(2, nv + 1):
+            dx = along_ * (0.4 * (i - 2) / max(1, nv - 2))
+            for vi, sg in ((vid[j][i], -1.0), (tv[i], 1.0)):
+                mb.v[vi] = mb.v[vi] + dx * sg
+                mb.vf[vi] = mb.v[vi].copy()
+    c = col or PAL['canvas_old']
+    for j in range(nu):
+        for i in range(nv):
+            if i > 1 and rng.random() < holes:
+                continue
+            Lc = torn[j] if (j in torn and i >= 2) else vid[j]
+            Rc = vid[j + 1]
+            mb.face((Lc[i], Rc[i], Rc[i + 1], Lc[i + 1]), c, 0, smooth=True, jitter=0.0)
+    tag(mb, s0, wk=0.12, salt=False)      # weathering is per face normal: kept light, or the folds read as a patchwork
+    mb.backface(s0, dark=0.85)
+
+
 def rust_streak(mb, p, n, length, w=0.07):
     """A rust run down a plank face from a fitting at p (surface normal n): a tapering decal quad, lifted 2 cm."""
     n = Vector(n).normalized()

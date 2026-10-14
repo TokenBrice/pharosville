@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeStaticMeshes } from "../engine/static-merge";
 import type { CivicPlot, CrestAtlas } from "./types";
 
 /**
@@ -66,6 +67,7 @@ export class OfficeDresser {
       else if (n === "flag_pole_top" || n.startsWith("flag_pole_top_") || n.startsWith("flag_pole_top.")) tops.push(o);
     });
     const chainAt = (o: THREE.Object3D) => { o.getWorldPosition(this.v); return nearestChain(this.plots, this.v.x, this.v.z); };
+    const dressed: THREE.Mesh[] = [];
     for (const o of panels) {
       const chain = chainAt(o), c = chain ? this.atlas.chains[chain] : undefined;
       if (!c) continue;
@@ -91,6 +93,7 @@ export class OfficeDresser {
         g.computeBoundingSphere();
         m.geometry = g;
         m.material = this.panelMat;
+        dressed.push(m);
       }
       this.done.add(chain!);
     }
@@ -113,8 +116,11 @@ export class OfficeDresser {
           });
           m.material = Array.isArray(m.material) ? mats : mats[0];
         }
+        dressed.push(m);
       }
     }
+    // dressed crests and awnings never move again: one draw per material for all the offices (and one shadow draw)
+    mergeStaticMeshes(dressed, scene, "offices");
     for (const o of tops) {
       const chain = chainAt(o);
       if (!chain || !this.atlas.chains[chain]) continue;

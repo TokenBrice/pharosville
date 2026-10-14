@@ -118,6 +118,8 @@ interface BoatRec {
   /** Rig struck this frame (far away, furled): no masthead flag or light. `mastK` orders who strikes first. */
   struck: boolean;
   mastK: number;
+  /** A titan (titans.ts): flies an outsized house flag when her sails are furled, so the majors read at a glance. */
+  titan: boolean;
   /** Picking sphere (world). */
   cx: number; cy: number; cz: number; r: number; top: number;
 }
@@ -359,7 +361,7 @@ export class FleetSystem implements WorldSystem {
         swing: prev?.swing ?? 0, heel: prev?.heel ?? 0, hi: 0, px: prev?.px ?? 0, pz: prev?.pz ?? 0, vx: 0, vz: 0, seen: !!prev?.seen,
         phi: hash01(boat.id + "#bob") * Math.PI * 2,
         slot: this.atlas ? this.atlas.slotFor({ id: boat.id, symbol: boat.symbol, brandColor: boat.brandColor }) : -1,
-        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, struck: false, mastK: titan ? 2 : hash01(boat.id + "#mast"), cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
+        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, struck: false, mastK: titan ? 2 : hash01(boat.id + "#mast"), titan: !!titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
       };
       this.writePaint(rec.inst, wrecked || titan ? null : boat.id, variant.family);
       this.boats.push(rec);
@@ -692,7 +694,8 @@ export class FleetSystem implements WorldSystem {
       const distress = ph === PH_ANCHORED && sim?.slotOf(i)?.kind === "shoals";
       if (this.flags && !moving && !b.wrecked && !b.struck && b.visible && b.dist < tier.flagRange && (distress || (b.loa >= 12.5 && b.slot >= 0 && ph !== PH_ANCHORED))) {
         this.v.copy(b.variant.masthead).applyMatrix4(this.m4);
-        this.flags.add(this.v.x, this.v.y + 0.35, this.v.z, Math.min(3.8, Math.max(1.4, b.loa * (b.loa < 15 ? 0.11 : 0.13))), downwind, Math.atan2(cam.position.x - x, cam.position.z - z), distress ? -3 : b.slot, b.phi * 3);
+        const size = b.titan ? Math.max(5.6, b.loa * 0.2) : Math.min(3.8, Math.max(1.4, b.loa * (b.loa < 15 ? 0.11 : 0.13)));
+        this.flags.add(this.v.x, this.v.y + 0.35, this.v.z, size, downwind, Math.atan2(cam.position.x - x, cam.position.z - z), distress ? -3 : b.slot, b.phi * 3);
       }
 
       // night: under way, masthead + red/green sidelights (+ the stern light); anchored, an anchor light;
@@ -720,10 +723,12 @@ export class FleetSystem implements WorldSystem {
         }
       }
 
-      // wake: moving hulls trail a Kelvin wake; moored hulls stamp contact darkening (tiny velocity carries the heading)
-      const spd = Math.hypot(b.vx, b.vz);
+      // wake: moving hulls trail a Kelvin wake; moored hulls stamp contact darkening (tiny velocity carries the heading).
+      // Only way along the hull's own axis makes a wake: warping sideways onto a quay (the titans) left a hull-wide
+      // U of trail foam stamped across the hull.
+      const fwd = b.vx * fx + b.vz * fz;
       if (wake && !b.wrecked) {
-        if (moving && spd > 0.15) { wake.stamp(x, z, b.vx, b.vz, hb, 1, b.loa * 0.5); st.moving++; }
+        if (moving && Math.abs(fwd) > 0.15) { wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5); st.moving++; }
         else if (ph === PH_ANCHORED) {
           // aground: surf breaks and churns round the hull, pulsing with the swell
           const surge = 0.5 + 0.5 * Math.sin(time * 1.4 + b.phi);

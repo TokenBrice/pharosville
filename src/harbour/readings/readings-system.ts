@@ -10,11 +10,11 @@ import type { LightsService } from "../lights/lights-service";
 import type { LighthouseService } from "../world/lighthouse-system";
 import { getHarbourMaterials } from "../world/materials";
 import {
-  applyDevOverrides, deriveTargets, DEV_OVERRIDE_KEYS, MAX_CONES, TIDE_FULL_SCALE_PCT,
+  applyDevOverrides, deriveTargets, DEV_OVERRIDE_KEYS, TIDE_FULL_SCALE_PCT,
   type AlertCoin, type LampStep, type LandmarkId, type LandmarkReading, type TideReading, type WorldTargets,
 } from "./bind";
 import { StaleFog } from "./fog";
-import { StormCones } from "./storm-cones";
+import { StormCones, type SignalRig } from "./storm-cones";
 import { TideGauge } from "./tide-gauge";
 
 /**
@@ -38,7 +38,7 @@ export interface ReadingsService {
   /** Mint/burn flows: the 24 h net and the chains the data covers (the Mint and the Burn show it, D19). */
   readonly flows: Readonly<{ net24hUsd: number | null; scope: string[]; available: boolean; stale: boolean }>;
   readonly psi: Readonly<WorldTargets["psi"]>;
-  /** Cones on the storm mast = the supply-weighted DEWS level (0 Calm … 4 Danger); null = no reading. */
+  /** Shapes on the storm station's mast = the supply-weighted DEWS level (0 Calm … 4 Danger); null = no reading. */
   readonly cones: number | null;
   /** The weather band the mast and the sky both show (null = no stress reading). */
   readonly stormBand: NonNullable<WorldTargets["weather"]>["band"] | null;
@@ -90,6 +90,7 @@ export class ReadingsSystem implements WorldSystem {
   private readonly tmpC = new THREE.Color();
   private gauge: TideGauge | null = null;
   private cones: StormCones | null = null;
+  private signalMissing = false;
   private landmarksBound = false;
   private bindTries = 0;
   private heldFor: boolean | null = null;
@@ -127,27 +128,34 @@ export class ReadingsSystem implements WorldSystem {
   private bindLandmarks(ctx: EngineContext): void {
     if (this.landmarksBound || this.bindTries++ > 600) return;
     const scene = ctx.scene;
-    // P6 (D19): the tide board is gone (the Mint and the Burn show the flows); the storm mast marks "the island is in"
-    if (!scene.getObjectByName("storm_mast")) return;
-    const north: THREE.Object3D[] = [];
+    // the island's named nodes mark "the island is in" (the tide board is gone, P6 D19; the old storm mast may go too)
+    const oldMast = scene.getObjectByName("storm_mast");
+    if (!oldMast && !scene.getObjectByName("tide_gauge")) return;
+    // the storm signal has ONE home, the Storm-signal Station's own mast (bindSignal): the island's old mast goes
+    oldMast?.removeFromParent();
     let levelNode: THREE.Object3D | null = null;
-    scene.traverse((o) => {
-      const m = /^storm_mast_cone_n(\d)/.exec(o.name);
-      if (m) north[Number(m[1])] = o;
-      if (/^tide_gauge_level/.test(o.name)) levelNode = o;
-    });
+    scene.traverse((o) => { if (/^tide_gauge_level/.test(o.name)) levelNode = o; });
     this.landmarksBound = true;
     this.bindLens(ctx);
-    const slots = north.filter(Boolean);
-    if (slots.length) {
-      const mats = getHarbourMaterials(ctx);
-      // moored bows point into the wind (layout.wind): the pennant streams the other way
-      const bow = (ctx.services.get("layout") as { wind?: { bowHeadingRad?: number } } | undefined)?.wind?.bowHeadingRad ?? -1.0;
-      this.cones = new StormCones(slots.slice(0, MAX_CONES), mats.kit(), mats.emissive("#FF3A26", "#3A1712"),
-        ctx.services.get("lights") as LightsService | undefined, bow + Math.PI);
-      this.cones.setCount(this.targets?.cones ?? null, this.targets?.pennant ?? false);
-    }
     if (levelNode) this.gauge = new TideGauge(levelNode);
+  }
+
+  /** The station's signal rig (civic plot 'stormstation', manifest anchor 'signal'): hoist the DEWS shapes there. */
+  private bindSignal(ctx: EngineContext): void {
+    if (this.cones || this.signalMissing) return;
+    const civic = ctx.services.get("civic") as { plots?: ReadonlyMap<string, { kind: string; root: THREE.Object3D; anchors?: Record<string, unknown> }> } | undefined;
+    if (!civic?.plots) return;
+    let plot: { root: THREE.Object3D; anchors?: Record<string, unknown> } | undefined;
+    for (const p of civic.plots.values()) if (p.kind === "stormstation") plot = p;
+    if (!plot) return;
+    const rig = plot.anchors?.signal as SignalRig | undefined;
+    if (!rig?.slots?.length) { this.signalMissing = true; return; }
+    const mats = getHarbourMaterials(ctx);
+    // moored bows point into the wind (layout.wind): the pennant streams the other way
+    const bow = (ctx.services.get("layout") as { wind?: { bowHeadingRad?: number } } | undefined)?.wind?.bowHeadingRad ?? -1.0;
+    this.cones = new StormCones(plot.root, rig, mats.kit(), mats.emissive("#FF3A26", "#3A1712"),
+      ctx.services.get("lights") as LightsService | undefined, bow + Math.PI);
+    this.cones.setCount(this.targets?.cones ?? null, this.targets?.pennant ?? false);
   }
 
   private bindLens(ctx: EngineContext): void {
@@ -191,6 +199,7 @@ export class ReadingsSystem implements WorldSystem {
     const model = ctx.services.get("model") as HarbourModel | undefined;
     if (model && model !== this.model) { this.model = model; this.retarget(ctx, model); }
     this.bindLandmarks(ctx);
+    this.bindSignal(ctx);
     const t = this.targets;
     if (!t) return;
     const U = ctx.uniforms;
@@ -286,7 +295,7 @@ export class ReadingsSystem implements WorldSystem {
     const fogE = this.fogS * this.fogS * (3 - 2 * this.fogS);
     this.fog?.update(fogE, U.uHaze.value, U.uHorizon.value, U.uNight.value);
 
-    // ---- 5–6. landmarks: the storm cones, the tide gauge
+    // ---- 5–6. landmarks: the storm signal (the station's mast), the tide gauge
     const glow = U.uWindowGlow.value;
     this.cones?.update(dt, frame.elapsed, this.windS, reduced, ctx.camera.position);
     this.gauge?.update(dt, t.tide.level, t.tide.pct != null, t.landmarks["tide-gauge"].state === "stale", glow, reduced);

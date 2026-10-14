@@ -27,11 +27,12 @@ import { paintCrestFlag, paintFrieze, paintGradeBoard, paintRegisterFlag, paintW
  *   the Burn   fire, embers, coins down the chute, plume ∝ burn volume; the darker plume when the net is negative
  *   the Yard   the registry's pre-launch coins as hulls by construction stage (src/harbour/data/prelaunch.json)
  * and tells the data stories of the other utility buildings without a hover (boards.ts / paint.ts, one draw):
- *   the Storm-signal Office    the band chalked on its weather board, spare cones and drums in its locker. The signal
- *                              itself has ONE owner: the island's storm mast beside it (readings/storm-cones.ts)
+ *   the Storm-signal Station   the one home of the DEWS signal: its own mast (manifest anchor 'signal', exposed on the
+ *                              plot entry) where readings/storm-cones.ts hoists the cones and drums; the band chalked
+ *                              on its weather board
+ *   the Harbourmaster          the movers hoist: the day's top gaining harbour's crest (green hoist stripe) and the top
  *   the Registry               "REGISTER OF SHIPPING" on its frieze, its house flag, the grade board (shields A–F, counts)
- *   the Harbourmaster          the movers hoist: the day's top gaining harbour's crest over a green cone, the top
- *                              losing harbour's over a red one (24 h chain supply change, /api/chains)
+ *                              losing harbour's (red stripe), no cones (24 h chain supply change, /api/chains)
  * Stale / no flow reading: the fires bank to embers and the chimneys go quiet (the readings fog carries the rest).
  * Scope of the flows: Ethereum · Base · Arbitrum.
  *
@@ -59,8 +60,8 @@ export interface CivicService {
   /** The UI's yard book (ui/yard.ts reads coins + hullPosition). */
   readonly yard: { coins: unknown[]; hullPosition(id: string): readonly [number, number, number] | null };
   readonly pickables: readonly CivicPickable[];
-  /** Loaded plot roots by plot id (e.g. the identity layer dresses crest_panel / flag_pole_top). */
-  readonly plots: ReadonlyMap<string, { kind: string; root: THREE.Object3D; nodes: ReadonlyMap<string, THREE.Object3D> }>;
+  /** Loaded plot roots by plot id (e.g. the identity layer dresses crest_panel / flag_pole_top; readings hoists the storm signal on anchors.signal). */
+  readonly plots: ReadonlyMap<string, { kind: string; root: THREE.Object3D; nodes: ReadonlyMap<string, THREE.Object3D>; anchors?: Record<string, unknown> }>;
 }
 
 /** Civic kind → the id the UI already uses for that place (ui/places.ts CIVIC_PANEL_ID). */
@@ -100,7 +101,7 @@ export class CivicSystem implements WorldSystem {
   private registryFlag: { slot: BoardSlot; hoist: THREE.Vector3; size: [number, number] } | null = null;
   private burnLee: [number, number] | null = null;
   private lightIds: number[] = [];
-  private readonly plotMap = new Map<string, { kind: string; root: THREE.Object3D; nodes: ReadonlyMap<string, THREE.Object3D> }>();
+  private readonly plotMap = new Map<string, { kind: string; root: THREE.Object3D; nodes: ReadonlyMap<string, THREE.Object3D>; anchors?: Record<string, unknown> }>();
   private disposed = false;
 
   async init(ctx: EngineContext): Promise<void> {
@@ -147,7 +148,7 @@ export class CivicSystem implements WorldSystem {
     this.plots = loaded.filter((p): p is LoadedPlot => p != null);
     for (const p of this.plots) {
       this.group.add(p.root);
-      this.plotMap.set(p.plot.id, { kind: p.plot.kind, root: p.root, nodes: p.nodes });
+      this.plotMap.set(p.plot.id, { kind: p.plot.kind, root: p.root, nodes: p.nodes, anchors: p.spec.anchors ?? {} });
     }
     const noise = this.fx.noise;
     const lights = getLightsStore(ctx);
@@ -301,7 +302,7 @@ export class CivicSystem implements WorldSystem {
     this.burn?.update(dt, levels.burn, this.flows.dominance, banked, moving, windTo, wind, u, ctx.camera, vh, this.burnLee);
     this.yard?.update(dt, moving, u.uNight.value, { to: windTo, k: wind }, ctx.camera, vh);
 
-    // the storm-signal office's weather board: the DEWS band the island mast is flying (no reading: none)
+    // the storm-signal station's weather board: the DEWS band its mast is flying (no reading: none)
     const level = readings?.cones ?? null;
     if (`${level}` !== this.signalKey && this.boards && this.weather) {
       this.signalKey = `${level}`;

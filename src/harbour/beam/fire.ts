@@ -232,10 +232,11 @@ void main() {
   vec2 n1 = texture2D(uNoise, vW.xz * 0.011 + vec2(uT * 0.004, uT * 0.007)).rg - 0.5;
   vec2 n2 = texture2D(uNoise, vW.xz * 0.043 - vec2(uT * 0.011, -uT * 0.006)).ba - 0.5;
   vec3 N = normalize(vec3((n1.x + n2.x * 0.7) * 0.42, 1.0, (n1.y + n2.y * 0.7) * 0.42));
-  vec3 R = reflect(V, N);
+  vec3 Ne = normalize(vec3(n1.x * 0.14, 1.0, n1.y * 0.14));   // calm envelope: a reflection column, not a spray
   vec3 L = normalize(uLantern - vW);
-  float lr = max(dot(R, L), 0.0);
-  float glit = pow(lr, 320.0) * 4.0 + pow(lr, 70.0) * 0.16;
+  float lr = max(dot(reflect(V, N), L), 0.0);
+  float le = max(dot(reflect(V, Ne), L), 0.0);
+  float glit = min(pow(lr, 320.0) * 4.0, 1.3) * smoothstep(0.02, 0.6, pow(le, 50.0)) + pow(le, 200.0) * 0.14 + pow(lr, 70.0) * 0.035;
   // fade out at the quad's rim
   vec2 d = (vW.xz - uLantern.xz) / 520.0;
   float rim = 1.0 - smoothstep(0.6, 1.0, length(d));

@@ -1416,24 +1416,39 @@ def _wreck_layout():
         fp = kit_foot(kit, c, bow, k, 0.4)
         taken.append(fp)
         WRECK_PROPS.append((kit, c, bow, k, round(_T.height(*c), 2) if z is None else z))
-    # the memorial arc first (it is the cove's spine): 20 posts above the wrack line, the bell in the middle, pennants at the ends
-    _arc_d = 34.0
-    fs = [0.17 + (0.83 - 0.17) * i / 20 for i in range(21)]
-    for i, f in enumerate(fs):
-        c, n = wk_pt(f, _arc_d + 2.2 * math.sin(math.pi * (f - 0.17) / 0.66))
+    # the memorial arc first (it is the cove's spine): 20 posts above the wrack line, the bell in the middle, pennants at the ends.
+    # A true circular arc (its ends 28 m up the beach, its middle 37 m: ~9 m sagitta over ~100 m), centred on the sea, so it
+    # embraces the cove and every post turns to its common focus; not an offset of the strand (which reads as a straight row)
+    _arc_e, _arc_m, _f0, _f1 = 28.0, 37.0, 0.17, 0.83
+    _A, _ = wk_pt(_f0, _arc_e); _B, _ = wk_pt(_f1, _arc_e); _Mp, _ = wk_pt(0.5 * (_f0 + _f1), _arc_m)
+    _ax, _ay = _A; _bx, _by = _B; _mx, _my = _Mp
+    _dd = 2.0 * (_ax * (_by - _my) + _bx * (_my - _ay) + _mx * (_ay - _by))
+    _O = (((_ax ** 2 + _ay ** 2) * (_by - _my) + (_bx ** 2 + _by ** 2) * (_my - _ay) + (_mx ** 2 + _my ** 2) * (_ay - _by)) / _dd,
+          ((_ax ** 2 + _ay ** 2) * (_mx - _bx) + (_bx ** 2 + _by ** 2) * (_ax - _mx) + (_mx ** 2 + _my ** 2) * (_bx - _ax)) / _dd)
+    _R = math.hypot(_ax - _O[0], _ay - _O[1])
+    _a0, _am = math.atan2(_ay - _O[1], _ax - _O[0]), math.atan2(_my - _O[1], _mx - _O[0])
+    _sw = (_am - _a0 + math.pi) % (2 * math.pi) - math.pi            # the signed half sweep (A -> the middle)
+
+    def arc_pt(i, extra=0.0):
+        a = _a0 + 2.0 * _sw * i / 20
+        n = (math.cos(a), math.sin(a))                                   # inland: away from the arc's seaward centre
+        return add(_O, mul(n, _R + extra)), n
+    for i in range(21):
+        c, n = arc_pt(i)
         fr = wk_front(n, 0.0, 0.35); bow = (-fr[1], fr[0])
         if i == 10:                                           # the bell (memorial) in the middle of the arc, a step up the dune
-            c2, n2 = wk_pt(f, _arc_d + 5.5)
+            c2, _n2 = arc_pt(i, 5.5)
             WRECK_PROPS.append(('wreck_cove_bell', c2, bow, 1.6, round(_T.height(*c2), 2)))
             taken.append(kit_foot('wreck_cove_bell', c2, bow, 1.6, 1.0))
             continue
         WRECK_MEMORIAL.append((c, bow, round(_T.height(*c), 2)))
         taken.append(kit_foot('wreck_cove_epitaph', c, bow, 2.2, 0.8))
-    for f in (0.125, 0.875):
-        c, n = wk_pt(f, _arc_d + 1.0)
+    for i in (-1.0, 21.0):                                    # pennants a step past each end, on the same arc
+        c, n = arc_pt(i, 0.6)
         fr = wk_front(n, 0.0, 0.35); bow = (-fr[1], fr[0])
         WRECK_PROPS.append(('wreck_cove_pennants', c, bow, 1.3, round(_T.height(*c), 2)))
         taken.append(kit_foot('wreck_cove_pennants', c, bow, 1.3, 0.6))
+    print('memorial arc R', round(_R, 1), 'd', [round(_T.dcoast(*arc_pt(i)[0]), 1) for i in range(0, 21, 4)])
     # the heroes at the tide line
     near(1, 'wreck_great_hulk', 0.42, 7.0, 1.0, 0.05, sea=0.8)
     near(2, 'wreck_great_hulk', 0.72, 8.0, 1.0, -0.45, sea=0.8)
@@ -1461,7 +1476,7 @@ def _wreck_layout():
     prop('wreck_cove_lobster_pots', 0.648, 44.5, 1.0, 0.5)
     prop('wreck_cove_driftwood', 0.582, 45.0, 1.0, -0.4)
     prop('wreck_cove_anchor', 0.445, 41.5, 1.3, 0.25)
-    for f, d in ((0.2, 28.5), (0.57, 29.0), (0.885, 28.0)):
+    for f, d in ((0.2, 25.5), (0.57, 25.0), (0.885, 25.5)):           # caught in the wrack line, below the memorial
         prop('wreck_cove_flotsam', f, d, 1.0, rng.uniform(-0.6, 0.6))
     for f, d in ((0.985, 1.0), (0.955, -1.5), (0.025, 0.5)):
         prop('wreck_cove_tidepool', f, d, 1.0, rng.uniform(-0.8, 0.8), z=0.05)

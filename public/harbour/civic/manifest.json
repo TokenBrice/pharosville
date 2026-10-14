@@ -1677,7 +1677,7 @@
     14,
     14
    ],
-   "tris": 961,
+   "tris": 813,
    "budget": 6000,
    "nodes": [
     {
@@ -1688,7 +1688,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 931
+     "tris": 783
     },
     {
      "name": "stormstation_body_lamps",
@@ -1727,9 +1727,43 @@
       7.2,
       2.7
      ]
+    },
+    "signal": {
+     "slots": [
+      [
+       -7.54,
+       21.7,
+       7.54
+      ],
+      [
+       -7.54,
+       18.2,
+       7.54
+      ],
+      [
+       -7.54,
+       14.7,
+       7.54
+      ],
+      [
+       -7.54,
+       11.2,
+       7.54
+      ]
+     ],
+     "foot": [
+      -7.54,
+      2.3,
+      7.54
+     ],
+     "masthead": [
+      -5.6,
+      28.9,
+      5.6
+     ]
     }
    },
-   "kb": 20.6
+   "kb": 18.9
   },
   "harbourmaster": {
    "file": "harbourmaster.glb",
@@ -1737,7 +1771,7 @@
     20,
     16
    ],
-   "tris": 2276,
+   "tris": 2220,
    "budget": 6000,
    "nodes": [
     {
@@ -1748,7 +1782,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 2188
+     "tris": 2132
     },
     {
      "name": "harbourmaster_body_lamps",
@@ -1805,7 +1839,7 @@
      ]
     }
    },
-   "kb": 38.2
+   "kb": 37.4
   },
   "keeperslog": {
    "file": "keeperslog.glb",

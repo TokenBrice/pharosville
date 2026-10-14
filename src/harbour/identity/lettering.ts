@@ -9,7 +9,7 @@ import type { ChartFont } from "./types";
  * CHART LETTERING ON THE WATER (D18): every sea-zone name set as nautical-chart typography printed on the
  * sea itself. One draw: SDF glyphs + hairline rules, riding the ocean's own Gerstner swell (same clock,
  * same coast damping), softly wavering, never cut by the frame edge (a name it would cut fades out whole), occluded by hulls (depth-tested, no depth write), faded by zoom per
- * class and by the coast, dark ink by day and a faint luminous silver at night.
+ * class, by the coast, at grazing view angles and far off, dark ink by day and a faint silver at night.
  */
 const VERT = /* glsl */ `
 uniform float uTime;
@@ -50,6 +50,12 @@ void main() {
   // a name the frame edge would cut is not printed at all: the whole name fades as any corner nears the edge
   float edge = max(max(edgeOf(aBoxA.xy), edgeOf(aBoxA.zw)), max(edgeOf(aBoxB.xy), edgeOf(aBoxB.zw)));
   vA *= 1.0 - smoothstep(0.95, 1.01, edge);
+  // seen at a grazing angle the print foreshortens into smears, and far off it only clutters the horizon:
+  // the whole name (judged at its centre, so it fades evenly) steps back as the view flattens and recedes
+  vec2 ctr = (aBoxA.xy + aBoxA.zw + aBoxB.xy + aBoxB.zw) * 0.25;
+  vec3 toCam = cameraPosition - vec3(ctr.x, uSeaLevel, ctr.y);
+  float sinEl = toCam.y / max(length(toCam), 1.0);
+  vA *= smoothstep(0.24, 0.42, sinEl) * (1.0 - 0.5 * smoothstep(950.0, 1500.0, length(toCam.xz)));
   vRule = aSlot < -0.5 ? 1.0 : 0.0;
   vUv = uv;
   vWorld = p;
@@ -93,10 +99,10 @@ void main() {
   a *= 1.0 - smoothstep(1500.0, 2300.0, length(vWorld.xz - uCameraPos.xz));
   // printed ink, unevenly taken by the water
   float grain = 0.88 + 0.12 * sin(vWorld.x * 0.9 + sin(vWorld.z * 0.7) * 2.0);
-  float dens = mix(0.86, 0.2, uNight) * grain;
+  float dens = mix(0.86, 0.13, uNight) * grain;
   vec3 ink = mix(uInkDay, uInkNight, uNight);
   // night: a faint silvery shimmer as if moonlit
-  ink *= 1.0 + uNight * 0.18 * sin(uTime * 0.8 + vWorld.x * 0.05 + vWorld.z * 0.04);
+  ink *= 1.0 + uNight * 0.1 * sin(uTime * 0.8 + vWorld.x * 0.05 + vWorld.z * 0.04);
   // two passes over the same quads: every halo first, then every letter, so no wash lands on a neighbour's ink
 #ifdef HALO_PASS
   if (vRule > 0.5) discard;
@@ -182,7 +188,7 @@ export class ChartLettering {
         uNight: u.uNight,
         uCameraPos: u.uCameraPos,
         uInkDay: { value: new THREE.Color("#0B2233") },
-        uInkNight: { value: new THREE.Color("#A9BBD3") },
+        uInkNight: { value: new THREE.Color("#93A7C2") },
         uHaloCol: { value: new THREE.Color("#CFE3DF") },
         uHalo: { value: 0.12 },
       },

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeStaticMeshes } from "../engine/static-merge";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
@@ -124,6 +125,10 @@ export class LighthouseSystem implements WorldSystem {
         mesh.castShadow = false;
       }
     });
+
+    // the tower and its crowning statue never move (the mirror does): one draw, one shadow draw
+    const still = ["tower", "statue"].map(node).filter((o): o is THREE.Mesh => !!(o as THREE.Mesh | undefined)?.isMesh);
+    if (still.length === 2 && still[0].parent === still[1].parent && still[0].parent) mergeStaticMeshes(still, still[0].parent, "pharos");
 
     this.fx = acquireFxTextures(ctx);
     this.fire = new PharosFire(at("fire_emitter", 87.5), at("smoke_emitter", 96), this.lantern, this.fx.noise, this.light, layout?.seaLevel ?? 0);

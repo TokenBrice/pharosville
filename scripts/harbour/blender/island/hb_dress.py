@@ -897,32 +897,67 @@ wrock, wweed, wpeb, wgrass = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
 for (x, y, r) in _WK.get('rocks', []):                       # boulders: low granite lumps, half sunk in the sand
     zr = H(x, y) if point_in_poly(x, y, COAST) else -0.4
     merge(wrock, bm_ico(r, (x, y, zr - r * 0.35), 1, (1.0, 0.85, 0.62), seed=int(x * 7 + y * 13) % 97, amp=0.22))
-# the wrack line: a thin, broken ribbon of dark weed wandering along the high-tide mark (two strands in places), the odd
-# bleached stick caught in it
-for _band, _dd, _keep in ((0, 24.0, 0.86), (1, 21.5, 0.35)):
-    _s = 1.5; _prev = None
+# the wrack line: a broken, wandering line of small flat weed clumps along the high-tide mark (two lines in places), the
+# odd bleached stick caught in it. P8: clumps, not a ribbon, on a smooth line, and never over a terrain vertex (the ground
+# is 5 m facets with baked AO: a covered vertex goes black across all its facets and reads as a dark jagged seam)
+from mathutils import kdtree as _kdtree
+_hfv = HF.data.vertices
+_hkd = _kdtree.KDTree(len(_hfv))
+for _v in _hfv:
+    _hkd.insert((_v.co.x, _v.co.y, 0.0), _v.index)
+_hkd.balance()
+
+
+def _bare(x, y, r):
+    """No terrain vertex under a flat piece of radius r at (x, y)."""
+    return _hkd.find((x, y, 0.0))[2] > r + 0.35
+
+
+def _clump(bm_, x, y, r, seed):
+    """A flat, ragged weed clump draped on the sand (a fan of 7 triangles, each rim vertex on the ground)."""
+    rg_ = random.Random(seed)
+    c0 = bm_.verts.new((x, y, H(x, y) + 0.035))
+    a0 = rg_.uniform(0, 6.28); sq = rg_.uniform(0.55, 0.9)
+    rim = []
+    for k in range(7):
+        a = a0 + 2 * math.pi * k / 7
+        rr = r * rg_.uniform(0.7, 1.15)
+        px, py = x + math.cos(a) * rr, y + math.sin(a) * rr * sq
+        rim.append(bm_.verts.new((px, py, H(px, py) + 0.025)))
+    for k in range(7):
+        bm_.faces.new((c0, rim[k], rim[(k + 1) % 7]))
+
+
+for _band, _dd, _keep in ((0, 24.0, 0.8), (1, 21.5, 0.32)):
+    _s = 1.5
     while _s < _Ls - 1.5:
         p, t = along(_strand, _s)
         t = Vector(t); nl = Vector((-t.y, t.x))
-        d_ = _dd + 2.0 * math.sin(_s * 0.06 + _band) + 0.9 * math.sin(_s * 0.21 + 2.0 * _band) + _wrng.uniform(-0.25, 0.25)
-        q = Vector(p) + nl * d_
-        if _prev is not None and _wrng.random() < _keep:
-            w_ = _wrng.uniform(0.22, 0.55) * (1.0 if _band == 0 else 0.7)
-            za, zb = H(_prev.x, _prev.y) + 0.03, H(q.x, q.y) + 0.03
-            merge(wweed, nl_kit.beam((_prev.x, _prev.y, za), (q.x, q.y, zb), w_, 0.05))
-            if _wrng.random() < 0.08:
-                a2 = t.copy(); a2.rotate(Matrix.Rotation(_wrng.uniform(-1.2, 1.2), 2)); L2 = _wrng.uniform(1.2, 2.8)
-                merge(wpeb, nl_kit.beam((q.x - a2.x * L2 / 2, q.y - a2.y * L2 / 2, zb + 0.06), (q.x + a2.x * L2 / 2, q.y + a2.y * L2 / 2, zb + 0.1), 0.13, 0.13))
-        _prev = q
-        _s += _wrng.uniform(0.9, 1.6)
+        d_ = _dd + 2.0 * math.sin(_s * 0.06 + _band) + 0.9 * math.sin(_s * 0.21 + 2.0 * _band)
+        gap = math.sin(_s * 0.11 + 1.7 * _band) + 0.6 * math.sin(_s * 0.37 + _band)     # runs of weed, runs of bare sand
+        if gap > -0.55 and _wrng.random() < _keep:
+            for _k in range(1 if _wrng.random() < 0.6 else 2):
+                q = Vector(p) + nl * (d_ + _wrng.uniform(-0.35, 0.35)) + t * _wrng.uniform(-0.4, 0.4)
+                r_ = _wrng.uniform(0.16, 0.38) * (1.0 if _band == 0 else 0.75)
+                if point_in_poly(q.x, q.y, COAST) and _bare(q.x, q.y, r_ * 1.15):
+                    _clump(wweed, q.x, q.y, r_, int(_s * 31) + _k)
+            if _wrng.random() < 0.06:
+                a2 = t.copy(); a2.rotate(Matrix.Rotation(_wrng.uniform(-1.2, 1.2), 2)); L2 = _wrng.uniform(1.2, 2.4)
+                q = Vector(p) + nl * d_
+                e0, e1 = q - a2 * (L2 / 2), q + a2 * (L2 / 2)
+                if all(_bare(e.x, e.y, 0.1) for e in (e0, q, e1)):
+                    zb = H(q.x, q.y)
+                    merge(wpeb, nl_kit.beam((e0.x, e0.y, zb + 0.06), (e1.x, e1.y, zb + 0.1), 0.13, 0.13))
+        _s += _wrng.uniform(0.8, 1.5)
 _s = 1.0
 while _s < _Ls - 1.0:                                        # shingle at the waterline: banks of grey pebbles
     p, t = along(_strand, _s)
     t = Vector(t); nl = Vector((-t.y, t.x))
     for _k in range(3):
         q = Vector(p) + nl * _wrng.uniform(-0.6, 3.2) + t * _wrng.uniform(-1.2, 1.2)
-        if point_in_poly(q.x, q.y, COAST):
-            merge(wpeb, bm_ico(_wrng.uniform(0.16, 0.34), (q.x, q.y, H(q.x, q.y) + 0.02), 1, (1.0, 0.8, 0.45), seed=_k, amp=0.2))
+        r_ = _wrng.uniform(0.16, 0.34)
+        if point_in_poly(q.x, q.y, COAST) and _bare(q.x, q.y, r_):
+            merge(wpeb, bm_ico(r_, (q.x, q.y, H(q.x, q.y) + 0.02), 1, (1.0, 0.8, 0.45), seed=_k, amp=0.2))
     _s += _wrng.uniform(1.4, 2.6)
 _s = 1.5
 while _s < _Ls - 1.5:                                        # marram grass in tussocks on the dunes behind the memorial
@@ -944,9 +979,11 @@ for _k in range(30):                                         # bleached driftwoo
     if not point_in_poly(q.x, q.y, COAST):
         continue
     a2 = t.copy(); a2.rotate(Matrix.Rotation(_wrng.uniform(-3.1, 3.1), 2)); L2 = _wrng.uniform(1.6, 4.2); zq = H(q.x, q.y)
+    if not all(_bare(e.x, e.y, 0.15) for e in (q - a2 * (L2 / 2), q - a2 * (L2 / 4), q, q + a2 * (L2 / 4), q + a2 * (L2 / 2))):
+        continue
     merge(wpeb, nl_kit.beam((q.x - a2.x * L2 / 2, q.y - a2.y * L2 / 2, zq + 0.1), (q.x + a2.x * L2 / 2, q.y + a2.y * L2 / 2, zq + 0.16), 0.22, 0.2))
 obj('wreck_cove_boulders', wrock, face=lambda q: ((PAL['rock_light'] if q.normal.z > 0.5 else PAL['rock']), PT['rock']), family='wreck', jitter=0.08)
-obj('wreck_cove_wrack', wweed, face=lambda q: ((lin('#6A6446') if q.index % 3 else lin('#7A6A4C')), PT['plain']), family='wreck', jitter=0.1)
+obj('wreck_cove_wrack', wweed, face=lambda q: ((lin('#8A7F5C') if q.index % 3 else lin('#7C7452')), PT['plain']), family='wreck', jitter=0.08)
 obj('wreck_cove_shingle', wpeb, face=lambda q: ((lin('#9A968C') if q.normal.z > 0.3 else lin('#6F6C66')), PT['plain']), family='wreck', jitter=0.15)
 obj('wreck_cove_marram', wgrass, face=lambda q: ((lin('#B7B583') if q.index % 2 else lin('#97A06A')), PT['plain']), family='wreck', jitter=0.1)
 
