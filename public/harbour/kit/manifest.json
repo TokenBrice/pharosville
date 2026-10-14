@@ -1,0 +1,4628 @@
+{
+ "version": 1,
+ "style": "C Northern Light",
+ "generator": "scripts/harbour/blender/hulls/export.py",
+ "axes": "glTF: +x bow, +y up, +z starboard, origin midships on the waterline (sea level y = 0); metres",
+ "materials": {
+  "hb_opaque": "COLOR_0.rgb = albedo, COLOR_0.a = pattern id / 16 (style C table). Optional float attribute _BRAND (per corner): 1 = replace rgb with the instance brand colour (boot-top stripe, pennants, ship's-boat bottom). COLOR_0 holds a fallback red there.",
+  "hb_sail": "Double-sided. COLOR_0.rgb = cloth colour. TEXCOORD_0 = sail space (u luff->leech, v foot->head; seams/tabling). TEXCOORD_1 = emblem space: the emblem square is exactly [0,1]^2 (outside = plain cloth). It reads correctly on the FRONT face (fore-and-aft sails: starboard face; square sails: forward face); flip u on back faces For mirrored nodes (port tack, det < 0) the rule generalises to: if (gl_FrontFacing == isMirrored) uv1.x = 1.0 - uv1.x. Only sail_main has emblem UVs inside [0,1].",
+  "hb_cover": "COLOR_0.rgb = shade (near white, darker underneath); final colour = instance brand colour * COLOR_0.rgb."
+ },
+ "morphs": {
+  "furl": "Every mesh with a morph target named \"furl\": weight 0 = sail set / spar aloft / cover collapsed inside the boom, 1 = sail furled (flaked on the boom, rolled on the yard or the stay) / gaff+yard lowered / brand cover on. Drive all of them from one per-boat value. Default weight 0."
+ },
+ "pose": {
+  "set_shape": "Set sails are modelled for wind from STARBOARD: camber to port (-z), jib clew slightly to port.",
+  "starboard_tack": "wind from starboard: boom and boom_2 rotation.y = -swing (boom out to port), sail_jib rotates -0.6*swing about its stay_axis, _heel.rotation.x = -heel (heel to port).",
+  "port_tack": "wind from port: scale.z = -1 on every node listed in mirror_nodes (mirrors camber and yard bracing about the centreline), boom and boom_2 rotation.y = +swing, jib +0.6*swing about its stay_axis, _heel.rotation.x = +heel. LOD: scale.z = -1 on the whole lod root.",
+  "mirror_nodes": [
+   "boom",
+   "boom_2",
+   "yards",
+   "sail_extra",
+   "sail_jib",
+   "sail_main (only when its parent is _heel, i.e. the ship)"
+  ],
+  "ranges": "swing 0.25..0.9 rad (close-hauled..running), heel 0.08..0.2 rad. Docked: furl 1, swing 0, heel 0. Square sails (sail_main on the ship, sail_extra) do not swing: yards are braced 30 deg in the model.",
+  "groups": "boom (boom_spar, gaff, sail_main|sail_spanker, sail_cover) and boom_2 (boom_2_spar, gaff_2, sail_2, sail_cover_2) are empty pivots at the gooseneck; rotate/mirror the pivot, never the children."
+ },
+ "anchors": "bow_cleat / stern_cleat: mooring-line ends; masthead_light: riding light; wake_origin: stern on the waterline (not heeled); mooring_buoy.ring: buoy line end; dinghy.bow_cleat: painter.",
+ "lod": "<id>_lod.glb: single mesh \"lod\" (hb_opaque, _BRAND boot + cover strip, morph furl collapses the sails), <= 150 tris.",
+ "hulls": [
+  {
+   "id": "usd_cat_skiff",
+   "file": "hull_usd_cat_skiff.glb",
+   "hull_sections": 6,
+   "family": "usd",
+   "rig": "cat",
+   "loa_m": 5.0,
+   "beam_m": 2.3,
+   "freeboard_m": 0.6,
+   "tris": 430,
+   "budget": 450,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -0.068,
+     2.661,
+     -0.0
+    ],
+    "size_m": 2.436,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "usd_cat_skiff",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      1.548,
+      1.143,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 46,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 24,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      2.036,
+      0.724,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 48
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 2,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 244,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 22
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      1.625,
+      6.828,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 18
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -2.158,
+      0.649,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "usd_cat_skiff",
+     "origin": [
+      -2.5,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "skiff",
+   "lod": "hull_usd_cat_skiff_lod.glb",
+   "kb": 28.1
+  },
+  {
+   "id": "usd_sloop_boat",
+   "file": "hull_usd_sloop_boat.glb",
+   "hull_sections": 8,
+   "family": "usd",
+   "rig": "sloop",
+   "loa_m": 7.5,
+   "beam_m": 2.55,
+   "freeboard_m": 0.79,
+   "tris": 561,
+   "budget": 700,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -0.775,
+     3.571,
+     -0.0
+    ],
+    "size_m": 2.762,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "usd_sloop_boat",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      0.976,
+      1.578,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 46,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 24,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      3.083,
+      0.997,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 58
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 26,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 302,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 40
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      1.087,
+      10.682,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 24
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      5.55,
+      1.251,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 15,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.474,
+      0.8805,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -3.221,
+      0.89,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "usd_sloop_boat",
+     "origin": [
+      -3.75,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "boat",
+   "lod": "hull_usd_sloop_boat_lod.glb",
+   "kb": 34.4
+  },
+  {
+   "id": "usd_sloop_small",
+   "file": "hull_usd_sloop_small.glb",
+   "hull_sections": 9,
+   "family": "usd",
+   "rig": "sloop",
+   "loa_m": 10.0,
+   "beam_m": 3.4,
+   "freeboard_m": 1.05,
+   "tris": 613,
+   "budget": 700,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -1.033,
+     4.657,
+     -0.0
+    ],
+    "size_m": 3.684,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "usd_sloop_small",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      1.301,
+      1.964,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 32,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      4.11,
+      1.33,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 58
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 26,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 336,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 40
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      1.45,
+      14.159,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 24
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      7.4,
+      1.668,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 15,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.474,
+      0.8805,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -4.295,
+      1.186,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "usd_sloop_small",
+     "origin": [
+      -5.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "small",
+   "lod": "hull_usd_sloop_small_lod.glb",
+   "kb": 35.3
+  },
+  {
+   "id": "usd_cutter_medium",
+   "file": "hull_usd_cutter_medium.glb",
+   "hull_sections": 9,
+   "family": "usd",
+   "rig": "cutter",
+   "loa_m": 13.0,
+   "beam_m": 3.9,
+   "freeboard_m": 1.3,
+   "tris": 662,
+   "budget": 900,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -2.44,
+     5.807,
+     -0.0
+    ],
+    "size_m": 5.622,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "usd_cutter_medium",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      1.139,
+      2.314,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 38,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      5.403,
+      1.646,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 58
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 26,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 336,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 50
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      1.332,
+      18.998,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 42
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      10.92,
+      2.21,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 30,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.5064,
+      0.8623,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -5.551,
+      1.468,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "usd_cutter_medium",
+     "origin": [
+      -6.5,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "medium",
+   "lod": "hull_usd_cutter_medium_lod.glb",
+   "kb": 36.6
+  },
+  {
+   "id": "usd_schooner_large",
+   "file": "hull_usd_schooner_large.glb",
+   "hull_sections": 11,
+   "family": "usd",
+   "rig": "schooner",
+   "loa_m": 18.0,
+   "beam_m": 4.86,
+   "freeboard_m": 1.71,
+   "tris": 901,
+   "budget": 1400,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -5.249,
+     5.382,
+     -0.0
+    ],
+    "size_m": 4.897,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "usd_schooner_large",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      -2.157,
+      2.328,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 38,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "boom_2",
+     "parent": "_heel",
+     "origin": [
+      2.703,
+      2.303,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_2_spar",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff_2",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_2",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 24,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover_2",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      7.34,
+      2.14,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 68
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 28,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 404,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 82
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      -1.89,
+      21.675,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 72
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      13.86,
+      2.875,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 21,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.6442,
+      0.7648,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -7.763,
+      1.932,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "usd_schooner_large",
+     "origin": [
+      -9.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "large",
+   "lod": "hull_usd_schooner_large_lod.glb",
+   "kb": 48.6
+  },
+  {
+   "id": "usd_ship_flagship",
+   "file": "hull_usd_ship_flagship.glb",
+   "hull_sections": 13,
+   "family": "usd",
+   "rig": "ship",
+   "loa_m": 30.0,
+   "beam_m": 7.05,
+   "freeboard_m": 3.15,
+   "tris": 1477,
+   "budget": 2500,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     1.345,
+     13.905,
+     2.482
+    ],
+    "size_m": 5.716,
+    "reads_from": "ahead"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "usd_ship_flagship",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      -8.403,
+      6.023,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_spanker",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 18,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      12.178,
+      3.896,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 196,
+     "brand_attr": true
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 30,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 630,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 168
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      -0.525,
+      34.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 102
+    },
+    {
+     "name": "sail_extra",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 84,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      24.0,
+      5.958,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 21,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.7349,
+      0.6782,
+      -0.0
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 18,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -12.968,
+      3.66,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "yards",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 128
+    },
+    {
+     "name": "wake_origin",
+     "parent": "usd_ship_flagship",
+     "origin": [
+      -15.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "flagship",
+   "lod": "hull_usd_ship_flagship_lod.glb",
+   "kb": 61.1
+  },
+  {
+   "id": "eur_botter_boat",
+   "file": "hull_eur_botter_boat.glb",
+   "hull_sections": 8,
+   "family": "eur",
+   "rig": "botter",
+   "loa_m": 7.5,
+   "beam_m": 2.77,
+   "freeboard_m": 0.82,
+   "tris": 579,
+   "budget": 700,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -0.579,
+     3.035,
+     -0.0
+    ],
+    "size_m": 2.357,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "eur_botter_boat",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      0.976,
+      1.599,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 46,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 24,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      3.038,
+      1.405,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 344,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 30
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      1.472,
+      8.568,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 18
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      3.45,
+      1.609,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 15,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.3834,
+      0.9236,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -3.246,
+      1.092,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "eur_botter_boat",
+     "origin": [
+      -3.75,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "boat",
+   "lod": "hull_eur_botter_boat_lod.glb",
+   "kb": 34.4
+  },
+  {
+   "id": "eur_botter_small",
+   "file": "hull_eur_botter_small.glb",
+   "hull_sections": 9,
+   "family": "eur",
+   "rig": "botter",
+   "loa_m": 10.0,
+   "beam_m": 3.7,
+   "freeboard_m": 1.1,
+   "tris": 631,
+   "budget": 700,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -0.771,
+     3.951,
+     -0.0
+    ],
+    "size_m": 3.146,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "eur_botter_small",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      1.301,
+      2.006,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 32,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      4.05,
+      1.873,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 378,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 30
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      1.963,
+      11.341,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 18
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      4.6,
+      2.145,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 15,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.3834,
+      0.9236,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -4.328,
+      1.456,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "eur_botter_small",
+     "origin": [
+      -5.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "small",
+   "lod": "hull_eur_botter_small_lod.glb",
+   "kb": 35.4
+  },
+  {
+   "id": "eur_botter_medium",
+   "file": "hull_eur_botter_medium.glb",
+   "hull_sections": 9,
+   "family": "eur",
+   "rig": "botter",
+   "loa_m": 13.0,
+   "beam_m": 4.81,
+   "freeboard_m": 1.43,
+   "tris": 631,
+   "budget": 900,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -1.003,
+     5.051,
+     -0.0
+    ],
+    "size_m": 4.092,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "eur_botter_medium",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      1.692,
+      2.494,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 32,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      5.265,
+      2.435,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 378,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 30
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      2.552,
+      14.668,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 18
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      5.98,
+      2.789,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 15,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.3834,
+      0.9236,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -5.626,
+      1.893,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "eur_botter_medium",
+     "origin": [
+      -6.5,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "medium",
+   "lod": "hull_eur_botter_medium_lod.glb",
+   "kb": 35.4
+  },
+  {
+   "id": "eur_botter_large",
+   "file": "hull_eur_botter_large.glb",
+   "hull_sections": 11,
+   "family": "eur",
+   "rig": "botter",
+   "loa_m": 18.0,
+   "beam_m": 6.66,
+   "freeboard_m": 1.98,
+   "tris": 699,
+   "budget": 1400,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -1.388,
+     6.884,
+     -0.0
+    ],
+    "size_m": 5.668,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "eur_botter_large",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      2.343,
+      3.307,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 32,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      7.29,
+      3.371,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 446,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 30
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      3.533,
+      20.214,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 18
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      8.28,
+      3.861,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 15,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.3834,
+      0.9236,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -7.79,
+      2.622,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "eur_botter_large",
+     "origin": [
+      -9.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "large",
+   "lod": "hull_eur_botter_large_lod.glb",
+   "kb": 36.9
+  },
+  {
+   "id": "gold_brig_medium",
+   "file": "hull_gold_brig_medium.glb",
+   "hull_sections": 9,
+   "family": "gold",
+   "rig": "brig",
+   "loa_m": 13.0,
+   "beam_m": 4.03,
+   "freeboard_m": 1.24,
+   "tris": 871,
+   "budget": 900,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -4.023,
+     4.194,
+     -0.0
+    ],
+    "size_m": 3.18,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "gold_brig_medium",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      -1.851,
+      1.987,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 24,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      5.304,
+      1.546,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 70
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 40,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 356,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 118
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      -1.658,
+      15.291,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 48
+    },
+    {
+     "name": "sail_extra",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 48,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      10.4,
+      2.435,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 21,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.7488,
+      0.6628,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -5.605,
+      1.475,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "yards",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 64
+    },
+    {
+     "name": "wake_origin",
+     "parent": "gold_brig_medium",
+     "origin": [
+      -6.5,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "medium",
+   "lod": "hull_gold_brig_medium_lod.glb",
+   "kb": 45.1
+  },
+  {
+   "id": "gold_brig_large",
+   "file": "hull_gold_brig_large.glb",
+   "hull_sections": 11,
+   "family": "gold",
+   "rig": "brig",
+   "loa_m": 18.0,
+   "beam_m": 5.58,
+   "freeboard_m": 1.71,
+   "tris": 977,
+   "budget": 1400,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -5.57,
+     5.807,
+     -0.0
+    ],
+    "size_m": 4.403,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "gold_brig_large",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      -2.562,
+      2.751,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 24,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      7.344,
+      2.14,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 80
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 40,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 424,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 118
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      -2.295,
+      21.077,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 48
+    },
+    {
+     "name": "sail_extra",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 60,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      14.4,
+      3.371,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 21,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.7488,
+      0.6628,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -7.76,
+      2.042,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "yards",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 80
+    },
+    {
+     "name": "wake_origin",
+     "parent": "gold_brig_large",
+     "origin": [
+      -9.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "large",
+   "lod": "hull_gold_brig_large_lod.glb",
+   "kb": 47.3
+  },
+  {
+   "id": "fiat_lugger_boat",
+   "file": "hull_fiat_lugger_boat.glb",
+   "hull_sections": 8,
+   "family": "fiat",
+   "rig": "lugger",
+   "loa_m": 7.5,
+   "beam_m": 2.48,
+   "freeboard_m": 0.82,
+   "tris": 674,
+   "budget": 700,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     0.275,
+     3.866,
+     -0.0
+    ],
+    "size_m": 2.639,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "fiat_lugger_boat",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      1.756,
+      1.391,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 46,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 24,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "boom_2",
+     "parent": "_heel",
+     "origin": [
+      -2.294,
+      1.427,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_2_spar",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff_2",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_2",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 18,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover_2",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 46,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      3.083,
+      1.02,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 302,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 70
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      1.397,
+      7.865,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 30
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      5.4,
+      1.171,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.5954,
+      0.8035,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -3.221,
+      0.932,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "fiat_lugger_boat",
+     "origin": [
+      -3.75,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "boat",
+   "lod": "hull_fiat_lugger_boat_lod.glb",
+   "kb": 44.2
+  },
+  {
+   "id": "fiat_lugger_small",
+   "file": "hull_fiat_lugger_small.glb",
+   "hull_sections": 7,
+   "family": "fiat",
+   "rig": "lugger",
+   "loa_m": 10.0,
+   "beam_m": 3.3,
+   "freeboard_m": 1.1,
+   "tris": 668,
+   "budget": 700,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     0.367,
+     5.087,
+     -0.0
+    ],
+    "size_m": 3.529,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "fiat_lugger_small",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      2.342,
+      1.738,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 32,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "boom_2",
+     "parent": "_heel",
+     "origin": [
+      -3.059,
+      1.769,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_2_spar",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff_2",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_2",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 18,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover_2",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      4.11,
+      1.36,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 268,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 70
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      1.862,
+      10.403,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 30
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      7.2,
+      1.562,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.5954,
+      0.8035,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -4.295,
+      1.243,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "fiat_lugger_small",
+     "origin": [
+      -5.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "small",
+   "lod": "hull_fiat_lugger_small_lod.glb",
+   "kb": 43.6
+  },
+  {
+   "id": "fiat_lugger_medium",
+   "file": "hull_fiat_lugger_medium.glb",
+   "hull_sections": 9,
+   "family": "fiat",
+   "rig": "lugger",
+   "loa_m": 13.0,
+   "beam_m": 4.29,
+   "freeboard_m": 1.43,
+   "tris": 736,
+   "budget": 900,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     0.477,
+     6.552,
+     -0.0
+    ],
+    "size_m": 4.596,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "fiat_lugger_medium",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      3.044,
+      2.155,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 32,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "boom_2",
+     "parent": "_heel",
+     "origin": [
+      -3.976,
+      2.18,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_2_spar",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff_2",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_2",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 18,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover_2",
+     "parent": "boom_2",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      5.343,
+      1.768,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 38,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 336,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 70
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      2.421,
+      13.449,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 30
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      9.36,
+      2.031,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.5954,
+      0.8035,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -5.583,
+      1.615,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "fiat_lugger_medium",
+     "origin": [
+      -6.5,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "medium",
+   "lod": "hull_fiat_lugger_medium_lod.glb",
+   "kb": 45.2
+  },
+  {
+   "id": "other_work_skiff",
+   "file": "hull_other_work_skiff.glb",
+   "hull_sections": 5,
+   "family": "other",
+   "rig": "work",
+   "loa_m": 5.0,
+   "beam_m": 2.05,
+   "freeboard_m": 0.62,
+   "tris": 417,
+   "budget": 450,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -0.529,
+     2.477,
+     -0.0
+    ],
+    "size_m": 1.813,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "other_work_skiff",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      0.724,
+      1.268,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 46,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 24,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      2.041,
+      0.764,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 58
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 2,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 200,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 22
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      0.8,
+      5.983,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 24
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      2.4,
+      0.812,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 15,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.3868,
+      0.9222,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -2.155,
+      0.686,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "other_work_skiff",
+     "origin": [
+      -2.5,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "skiff",
+   "lod": "hull_other_work_skiff_lod.glb",
+   "kb": 30.9
+  },
+  {
+   "id": "other_work_boat",
+   "file": "hull_other_work_boat.glb",
+   "hull_sections": 8,
+   "family": "other",
+   "rig": "work",
+   "loa_m": 7.5,
+   "beam_m": 3.07,
+   "freeboard_m": 0.94,
+   "tris": 535,
+   "budget": 700,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -0.79,
+     3.565,
+     -0.0
+    ],
+    "size_m": 2.744,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "other_work_boat",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      1.089,
+      1.691,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 46,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 24,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      3.061,
+      1.146,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 58
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 302,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 30
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      1.2,
+      8.845,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 24
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      3.6,
+      1.219,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 15,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.3868,
+      0.9222,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -3.233,
+      1.029,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "other_work_boat",
+     "origin": [
+      -3.75,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "boat",
+   "lod": "hull_other_work_boat_lod.glb",
+   "kb": 33.7
+  },
+  {
+   "id": "other_work_small",
+   "file": "hull_other_work_small.glb",
+   "hull_sections": 9,
+   "family": "other",
+   "rig": "work",
+   "loa_m": 10.0,
+   "beam_m": 4.1,
+   "freeboard_m": 1.25,
+   "tris": 587,
+   "budget": 700,
+   "emblem": {
+    "node": "sail_main",
+    "uv": "TEXCOORD_1",
+    "rect": [
+     0,
+     0,
+     1,
+     1
+    ],
+    "centre_m": [
+     -1.052,
+     4.306,
+     -0.0
+    ],
+    "size_m": 3.726,
+    "reads_from": "starboard"
+   },
+   "nodes": [
+    {
+     "name": "_heel",
+     "parent": "other_work_small",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom",
+     "parent": "_heel",
+     "origin": [
+      1.452,
+      2.115,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "boom_spar",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 16
+    },
+    {
+     "name": "gaff",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_cover",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 56,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "sail_main",
+     "parent": "boom",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 32,
+     "morphs": [
+      "furl"
+     ]
+    },
+    {
+     "name": "bow_cleat",
+     "parent": "_heel",
+     "origin": [
+      4.082,
+      1.527,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "deck",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 58
+    },
+    {
+     "name": "flag",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 10,
+     "brand_attr": true
+    },
+    {
+     "name": "hull",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 336,
+     "brand_attr": true
+    },
+    {
+     "name": "mast",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 30
+    },
+    {
+     "name": "masthead_light",
+     "parent": "_heel",
+     "origin": [
+      1.6,
+      11.71,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "rigging",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 24
+    },
+    {
+     "name": "sail_jib",
+     "parent": "_heel",
+     "origin": [
+      4.8,
+      1.625,
+      -0.0
+     ],
+     "material": "hb_sail",
+     "tris": 15,
+     "morphs": [
+      "furl"
+     ],
+     "stay_axis": [
+      -0.3868,
+      0.9222,
+      -0.0
+     ]
+    },
+    {
+     "name": "stern_cleat",
+     "parent": "_heel",
+     "origin": [
+      -4.31,
+      1.372,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "wake_origin",
+     "parent": "other_work_small",
+     "origin": [
+      -5.0,
+      0.0,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "class": "small",
+   "lod": "hull_other_work_small_lod.glb",
+   "kb": 34.6
+  }
+ ],
+ "lods": [
+  {
+   "id": "usd_cat_skiff",
+   "file": "hull_usd_cat_skiff_lod.glb",
+   "tris": 93,
+   "budget": 150,
+   "kb": 5.4
+  },
+  {
+   "id": "usd_sloop_boat",
+   "file": "hull_usd_sloop_boat_lod.glb",
+   "tris": 95,
+   "budget": 150,
+   "kb": 5.5
+  },
+  {
+   "id": "usd_sloop_small",
+   "file": "hull_usd_sloop_small_lod.glb",
+   "tris": 95,
+   "budget": 150,
+   "kb": 5.4
+  },
+  {
+   "id": "usd_cutter_medium",
+   "file": "hull_usd_cutter_medium_lod.glb",
+   "tris": 95,
+   "budget": 150,
+   "kb": 5.5
+  },
+  {
+   "id": "usd_schooner_large",
+   "file": "hull_usd_schooner_large_lod.glb",
+   "tris": 105,
+   "budget": 150,
+   "kb": 5.7
+  },
+  {
+   "id": "usd_ship_flagship",
+   "file": "hull_usd_ship_flagship_lod.glb",
+   "tris": 119,
+   "budget": 150,
+   "kb": 6.1
+  },
+  {
+   "id": "eur_botter_boat",
+   "file": "hull_eur_botter_boat_lod.glb",
+   "tris": 95,
+   "budget": 150,
+   "kb": 5.5
+  },
+  {
+   "id": "eur_botter_small",
+   "file": "hull_eur_botter_small_lod.glb",
+   "tris": 95,
+   "budget": 150,
+   "kb": 5.5
+  },
+  {
+   "id": "eur_botter_medium",
+   "file": "hull_eur_botter_medium_lod.glb",
+   "tris": 95,
+   "budget": 150,
+   "kb": 5.5
+  },
+  {
+   "id": "eur_botter_large",
+   "file": "hull_eur_botter_large_lod.glb",
+   "tris": 95,
+   "budget": 150,
+   "kb": 5.5
+  },
+  {
+   "id": "gold_brig_medium",
+   "file": "hull_gold_brig_medium_lod.glb",
+   "tris": 109,
+   "budget": 150,
+   "kb": 5.9
+  },
+  {
+   "id": "gold_brig_large",
+   "file": "hull_gold_brig_large_lod.glb",
+   "tris": 109,
+   "budget": 150,
+   "kb": 5.9
+  },
+  {
+   "id": "fiat_lugger_boat",
+   "file": "hull_fiat_lugger_boat_lod.glb",
+   "tris": 103,
+   "budget": 150,
+   "kb": 5.7
+  },
+  {
+   "id": "fiat_lugger_small",
+   "file": "hull_fiat_lugger_small_lod.glb",
+   "tris": 103,
+   "budget": 150,
+   "kb": 5.7
+  },
+  {
+   "id": "fiat_lugger_medium",
+   "file": "hull_fiat_lugger_medium_lod.glb",
+   "tris": 103,
+   "budget": 150,
+   "kb": 5.7
+  },
+  {
+   "id": "other_work_skiff",
+   "file": "hull_other_work_skiff_lod.glb",
+   "tris": 95,
+   "budget": 150,
+   "kb": 5.5
+  },
+  {
+   "id": "other_work_boat",
+   "file": "hull_other_work_boat_lod.glb",
+   "tris": 95,
+   "budget": 150,
+   "kb": 5.5
+  },
+  {
+   "id": "other_work_small",
+   "file": "hull_other_work_small_lod.glb",
+   "tris": 95,
+   "budget": 150,
+   "kb": 5.5
+  }
+ ],
+ "props": [
+  {
+   "id": "wreck_a",
+   "file": "wreck_a.glb",
+   "family": "wreck",
+   "tris": 712,
+   "pose": "beached on her side, bow up",
+   "loa_m": 15.0,
+   "nodes": [
+    {
+     "name": "hull",
+     "parent": "wreck_a",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 712
+    }
+   ],
+   "kb": 17.5
+  },
+  {
+   "id": "wreck_b",
+   "file": "wreck_b.glb",
+   "family": "wreck",
+   "tris": 670,
+   "pose": "sunk by the stern",
+   "loa_m": 17.0,
+   "nodes": [
+    {
+     "name": "hull",
+     "parent": "wreck_b",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 670
+    }
+   ],
+   "kb": 16.9
+  },
+  {
+   "id": "wreck_c",
+   "file": "wreck_c.glb",
+   "family": "wreck",
+   "tris": 720,
+   "pose": "old ribs, deck awash",
+   "loa_m": 12.0,
+   "nodes": [
+    {
+     "name": "hull",
+     "parent": "wreck_c",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 720
+    }
+   ],
+   "kb": 16.8
+  },
+  {
+   "id": "mooring_buoy",
+   "file": "mooring_buoy.glb",
+   "family": "prop",
+   "tris": 124,
+   "nodes": [
+    {
+     "name": "buoy",
+     "parent": "mooring_buoy",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 124
+    },
+    {
+     "name": "ring",
+     "parent": "mooring_buoy",
+     "origin": [
+      0.0,
+      0.92,
+      -0.0
+     ],
+     "empty": true
+    }
+   ],
+   "kb": 5.3
+  },
+  {
+   "id": "dinghy",
+   "file": "dinghy.glb",
+   "family": "prop",
+   "tris": 468,
+   "loa_m": 3.4,
+   "nodes": [
+    {
+     "name": "bow_cleat",
+     "parent": "dinghy",
+     "origin": [
+      1.506,
+      0.603,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "hull",
+     "parent": "dinghy",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 468,
+     "brand_attr": true
+    }
+   ],
+   "kb": 11.5
+  }
+ ]
+}

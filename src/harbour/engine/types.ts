@@ -52,4 +52,8 @@ export interface HarbourStats {
   hour: number;
   systems: string[];
   firstFrameMs: number | null;
+  /** Render pixel ratio chosen by the quality governor. */
+  dpr?: number;
+  /** Last measured GPU frame time (EXT_disjoint_timer_query_webgl2), if available. */
+  gpuMs?: number | null;
 }

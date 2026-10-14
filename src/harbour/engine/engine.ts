@@ -1,6 +1,8 @@
 import * as THREE from "three";
-import { BloomEffect, EffectComposer, EffectPass, RenderPass, SMAAEffect, SMAAPreset, ToneMappingEffect, ToneMappingMode } from "postprocessing";
+import { BloomEffect, EffectComposer, ToneMappingEffect } from "postprocessing";
 import { AssetStore } from "./assets";
+import { QualityGovernor } from "./governor";
+import { PostChain } from "./post";
 import { CameraRig } from "./camera-rig";
 import { TimeOfDay } from "./time-of-day";
 import { createWorldUniforms } from "./uniforms";
@@ -22,6 +24,8 @@ export class Engine {
   private readonly startMs = performance.now();
   readonly bloom: BloomEffect;
   readonly toneMapping: ToneMappingEffect;
+  readonly post: PostChain;
+  readonly governor: QualityGovernor;
   private readonly onResize = () => this.resize();
   private readonly onVisibility = () => { if (document.hidden) this.stop(); else this.start(); };
 
@@ -31,7 +35,7 @@ export class Engine {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping; // tone mapping happens in post
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap; // r186: soft PCF = PCFShadowMap + shadow.radius (Vogel disk)
     renderer.info.autoReset = false;
     container.appendChild(renderer.domElement);
 
@@ -39,13 +43,18 @@ export class Engine {
     const camera = new THREE.PerspectiveCamera(25, 1, 5, 9000);
     const rig = new CameraRig(camera);
     const composer = new EffectComposer(renderer, { frameBufferType: THREE.HalfFloatType });
-    composer.addPass(new RenderPass(scene, camera));
-    this.bloom = new BloomEffect({ intensity: 1.1, luminanceThreshold: 0.85, luminanceSmoothing: 0.25, mipmapBlur: true, radius: 0.7 });
-    this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
-    composer.addPass(new EffectPass(camera, this.bloom, this.toneMapping));
-    composer.addPass(new EffectPass(camera, new SMAAEffect({ preset: SMAAPreset.HIGH })));
+    this.post = new PostChain(renderer, composer, scene, camera);
+    this.bloom = this.post.bloom;
+    this.toneMapping = this.post.toneMapping;
+    this.governor = new QualityGovernor(renderer.getContext() as WebGL2RenderingContext, (dpr) => {
+      renderer.setPixelRatio(dpr);
+      this.resize();
+    });
+    renderer.setPixelRatio(this.governor.dpr);
+    // the layout system tunes the tilt-shift range from its presets
 
     this.ctx = { renderer, scene, camera, rig, composer, uniforms: createWorldUniforms(), timeOfDay: new TimeOfDay(), assets: new AssetStore(), services: new Map() };
+    this.ctx.services.set("post", this.post);
     this.attachInput();
     addEventListener("resize", this.onResize);
     document.addEventListener("visibilitychange", this.onVisibility);
@@ -86,8 +95,11 @@ export class Engine {
     ctx.rig.update(delta);
     ctx.uniforms.uCameraPos.value.copy(ctx.camera.position);
     ctx.renderer.info.reset();
+    this.governor.begin();
     for (const s of this.systems) s.update(frame, ctx);
+    this.post.update(delta, ctx.timeOfDay, ctx.rig);
     ctx.composer.render(delta);
+    this.governor.end(delta);
     if (this.firstFrameMs === null) this.firstFrameMs = performance.now() - this.startMs;
     window.__harbourStats = {
       backend: "webgl2",
@@ -98,6 +110,8 @@ export class Engine {
       hour: Number(ctx.timeOfDay.hour.toFixed(2)),
       systems: this.systems.map((s) => s.name),
       firstFrameMs: this.firstFrameMs === null ? null : Math.round(this.firstFrameMs),
+      dpr: this.governor.dpr,
+      gpuMs: this.governor.gpuMs === null ? null : Number(this.governor.gpuMs.toFixed(2)),
     };
   }
 
@@ -131,6 +145,7 @@ export class Engine {
     removeEventListener("resize", this.onResize);
     document.removeEventListener("visibilitychange", this.onVisibility);
     for (const s of [...this.systems].reverse()) s.dispose(this.ctx);
+    this.post.dispose();
     this.ctx.composer.dispose();
     this.ctx.renderer.dispose();
     this.ctx.renderer.domElement.remove();

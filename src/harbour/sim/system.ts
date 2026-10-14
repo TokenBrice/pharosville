@@ -1,0 +1,117 @@
+/**
+ * DataSystem: feed → model → sim. Registers the 'model' (HarbourModel) and 'sim' (HarbourSim)
+ * services and advances the sim once per frame, before the fleet reads `sim.pose`.
+ *
+ * Dev only (never in production builds): `?sim=1` logs the under-way count every 10 s;
+ * `?simspeed=N` runs the sim clock N×; `?simdebug=1` draws plain hull markers from the poses.
+ */
+import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import type { HarbourLayout } from "../layout/types";
+import { HarbourFeed } from "../data/fetch";
+import { buildHarbourModel } from "../model/build";
+import { allTruth } from "../model/truth";
+import type { HarbourModel } from "../model/types";
+import { HarbourSim, PH_APPROACHING, PH_DOCKED, PH_MOORED } from "./sim";
+import { SimDebugMarkers } from "./debug-markers";
+
+/** Re-evaluate freshness this often even without new payloads (a silent feed must turn stale). */
+const TRUTH_RECHECK_MS = 30_000;
+
+export class DataSystem implements WorldSystem {
+  readonly name = "data";
+  private feed: HarbourFeed | null = null;
+  private sim: HarbourSim | null = null;
+  private layout: HarbourLayout | null = null;
+  private dirty = false;
+  private truthSig = "";
+  private lastBuild = 0;
+  private logEvery = 0;
+  private lastLog = 0;
+  private arrivals = 0;
+  private prevPhase: Uint8Array = new Uint8Array(0);
+  private speed = 1;
+  private markers: SimDebugMarkers | null = null;
+  private t0 = 0;
+
+  init(ctx: EngineContext): void {
+    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    if (!layout) { console.warn("[harbour] data: no layout service; the fleet stays empty"); return; }
+    this.layout = layout;
+    const q = new URLSearchParams(location.search);
+    if (import.meta.env.DEV) {
+      if (q.get("sim") === "1") this.logEvery = 10_000;
+      const s = Number(q.get("simspeed"));
+      if (Number.isFinite(s) && s > 0) this.speed = s;
+      if (q.get("simdebug") === "1") this.markers = new SimDebugMarkers(ctx.scene);
+    }
+    this.t0 = Date.now();
+    const now = this.simNow(this.t0);
+    // AWAITING DATA: an empty, unavailable model until the first payloads land — never a fixture fleet
+    const empty = buildHarbourModel({}, now, { pieredChains: layout.piers.map((p) => p.chain) });
+    this.sim = new HarbourSim(empty, layout, now);
+    ctx.services.set("model", empty);
+    ctx.services.set("sim", this.sim);
+    this.feed = new HarbourFeed();
+    this.feed.subscribe(() => { this.dirty = true; });
+    ctx.services.set("feed", this.feed);
+    void this.feed.start();
+  }
+
+  private simNow(nowMs: number): number {
+    return this.speed === 1 ? nowMs : this.t0 + (nowMs - this.t0) * this.speed;
+  }
+
+  private rebuild(ctx: EngineContext, now: number): HarbourModel | null {
+    if (!this.feed || !this.sim || !this.layout) return null;
+    const model = buildHarbourModel(this.feed.payloads, now, { pieredChains: this.layout.piers.map((p) => p.chain) });
+    this.sim.setModel(model, now);
+    ctx.services.set("model", model);
+    return model;
+  }
+
+  update(frame: FrameState, ctx: EngineContext): void {
+    const sim = this.sim;
+    if (!sim) return;
+    const now = this.simNow(frame.nowMs);
+    if (!this.dirty && frame.nowMs - this.lastBuild > TRUTH_RECHECK_MS && this.feed) {
+      // a silent feed must still age into stale: re-check freshness (cheap), rebuild only on a change
+      this.lastBuild = frame.nowMs;
+      const sig = Object.values(allTruth(this.feed.payloads, now)).map((t) => t.state).join();
+      if (sig !== this.truthSig) this.dirty = true;
+    }
+    if (this.dirty) {
+      this.dirty = false;
+      this.lastBuild = frame.nowMs;
+      const model = this.rebuild(ctx, now);
+      if (model) this.truthSig = Object.values(model.truth).map((t) => t.state).join();
+    }
+    const pose = sim.poseAt(now);
+    this.markers?.update(sim);
+    if (this.logEvery) {
+      if (this.prevPhase.length !== pose.count) this.prevPhase = new Uint8Array(pose.count);
+      for (let i = 0; i < pose.count; i++) {
+        const ph = pose.phase[i];
+        if (this.prevPhase[i] === PH_APPROACHING && (ph === PH_DOCKED || ph === PH_MOORED)) this.arrivals++;
+        this.prevPhase[i] = ph;
+      }
+      if (frame.nowMs - this.lastLog >= this.logEvery) {
+        const dt = (frame.nowMs - this.lastLog) / 60_000;
+        if (this.lastLog) {
+          const s = sim.stats;
+          console.info(`[harbour sim] under way ${s.underWay} · docked ${s.docked} · moored ${s.moored} · anchored ${s.anchored} · voyages ${s.voyages} · dockings/min ${(this.arrivals / (dt * this.speed)).toFixed(1)} · boats ${pose.count}${sim.frozen ? " · STALE (holding)" : ""}`);
+        }
+        this.arrivals = 0;
+        this.lastLog = frame.nowMs;
+      }
+    }
+  }
+
+  dispose(ctx: EngineContext): void {
+    this.feed?.stop();
+    this.markers?.dispose();
+    this.feed = null;
+    this.sim = null;
+    ctx.services.delete("sim");
+    ctx.services.delete("model");
+  }
+}
