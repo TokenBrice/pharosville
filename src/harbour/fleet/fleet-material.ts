@@ -11,12 +11,14 @@ import type { WorldUniforms } from "../engine/uniforms";
  *              the CPU struck the rig (see STRUCK))
  *   texel 1 = (brand r, g, b linear, emblem slot or -1; -2 = a v1 hulk; ≤ -9 = a wreck kit v2 piece, -10 - n = nameboard n)
  *   (wreck kit v2 pieces: texel 0.x = their lantern lit 0..1; kinds 3 = epitaph board, 4 = lantern glass)
- * and the static livery in `uFleetPaint` (4 RGBA32F texels per instance, written once at install, decorative):
+ * and the static livery in `uFleetPaint` (5 RGBA32F texels per instance, written once at install):
  *   texel 0 = (topside rgb, name board 0|1) · 1 = (stripe / trim rgb, painted 0|1) · 2 = (deck rgb, -) ·
- *   3 = (coachroof rgb, painted 0|1). The kit's aPaint region picks which one a corner wears.
+ *   3 = (coachroof rgb, painted 0|1) · 4 = (sail dye rgb, mode 0 canvas | 1 dyed | 2 canvas + brand bands; livery.sailDye).
+ *   The kit's aPaint region picks which one a corner wears; sails wear texel 4 by their sail-plan role (aMeta.z).
  * The vertex shader poses the rig (furl morph, mirror, boom/boom_2 about the gooseneck, jib about its
  * stay); the fragment tints _BRAND corners and covers, prints the emblem from the atlas onto sail_main
- * (manifest flip rule) and adds cloth seams, sail translucency and the hover rim.
+ * (manifest flip rule; sail-plan.ts re-measures the emblem square: a bigger roundel, and one on the second sail),
+ * dyes the sail cloth in the brand colour, and adds cloth seams, sail translucency and the hover rim.
  */
 export interface FleetUniforms {
   uFleetData: THREE.IUniform<THREE.DataTexture>;
@@ -71,9 +73,10 @@ varying vec4 vPaintA;       // livery rgb, mode (0 keep · 1 paint · 2 topsides
 varying vec4 vPaintB;       // trim rgb, topside height t
 varying vec3 vPaintC;       // x / half loa, name board, far (0 near … 1 a few px: spars recede, margins widen)
 varying vec4 vFleetBrand;   // rgb, slot
-varying vec4 vFleetMisc;    // highlight, flip (mirrored node now), kind, brand mask
+varying vec4 vFleetMisc;    // highlight, flip (mirrored node now), kind, brand mask | sail role
 varying vec4 vFleetUV;      // sail uv, emblem uv
 varying vec3 vFleetRig;     // furl, node, flag
+varying vec4 vSailDye;      // sails: dye rgb, mode (uFleetPaint texel 4)
 vec4 hbFleetTexel(int idx, int k) {
   int size = textureSize(uFleetData, 0).x;
   int j = idx * 2 + k;
@@ -87,7 +90,7 @@ mat3 hbRotAxis(vec3 a, float ang) {
 }
 vec4 hbPaintTexel(int idx, int k) {
   int size = textureSize(uFleetPaint, 0).x;
-  int j = idx * 4 + k;
+  int j = idx * 5 + k;
   return texelFetch(uFleetPaint, ivec2(j % size, j / size), 0);
 }
 // the instance's livery for this corner's kit region (decorative: hash-picked per coin, never data)
@@ -150,6 +153,7 @@ void hbFleetPose(vec3 p, vec3 n) {
   hbFleetLivery(idx, hbFleetFar(a.w).x);
   hbFleetP = p; hbFleetN = n;
   vFleetBrand = b;
+  vSailDye = aMeta.x > 0.5 && aMeta.x < 1.5 ? hbPaintTexel(idx, 4) : vec4(0.0);
   vFleetMisc = vec4(a.z, flip, aMeta.x, aMeta.z);
   vFleetUV = vec4(aSailUV, aEmbUV);
   vFleetRig = vec3(furl, node, aMeta.w);
@@ -205,6 +209,7 @@ varying vec4 vFleetBrand;
 varying vec4 vFleetMisc;
 varying vec4 vFleetUV;
 varying vec3 vFleetRig;
+varying vec4 vSailDye;
 varying vec4 vPaintA;
 varying vec4 vPaintB;
 varying vec3 vPaintC;
@@ -270,6 +275,14 @@ void hbFleetColor(inout vec3 c) {
   float tabling = max(1.0 - smoothstep(0.015, 0.03, min(su.x, 1.0 - su.x)), 1.0 - smoothstep(0.02, 0.035, su.y));
   float fine = 1.0 - smoothstep(0.02, 0.08, fwidth(su.y));
   vec2 sx2 = dFdx(su), sy2 = dFdy(su);
+  vec2 sw = fwidth(su) + 1e-4;
+  float er = length(e - 0.5), era = fwidth(er) + 1e-5;
+  // the roundel is clamped to the sail outline with a small margin (1.5% of its size, ≥ 1 px): px to the luff,
+  // leech, foot and head along the sail-space gradients
+  vec2 sg = vec2(length(vec2(sx2.x, sy2.x)), length(vec2(sx2.y, sy2.y))) + 1e-6;
+  float edgePx = min(min(su.x, 1.0 - su.x) / sg.x, min(su.y, 1.0 - su.y) / sg.y);
+  float inPx = max(1.0, 0.015 / era);
+  float clampR = smoothstep(inPx, inPx + 1.0, edgePx);
   // hulks (v1): salt-bleached, tar-stained timber, never a clean grey (v2 wrecks carry their weathering baked)
   if (vFleetBrand.a < -1.5 && vFleetBrand.a > -2.5) c *= vec3(0.66, 0.58, 0.49);
   if (kind > 3.5) { c = vec3(0.042, 0.04, 0.034); return; }   // lantern glass (its glow is added after lighting)
@@ -294,11 +307,38 @@ void hbFleetColor(inout vec3 c) {
     float ties = (1.0 - smoothstep(0.025, 0.05, abs(fract(su.x * 7.0) - 0.5))) * smoothstep(0.3, 0.6, su.y);
     c *= mix(dyed, vec3(0.8, 0.76, 0.66), band * 0.65) * (1.0 - ties * 0.22);
   } else if (kind > 0.5) {
+    vec4 dye = vSailDye;
+    if (dye.w > 0.5) {
+      // Brand-dyed canvas by sail-plan role (aMeta.z): the body dyed · headsails a light tint with a brand band at
+      // foot and leech · upper sails lighter · a titan's head band a deeper shade. A near-white brand (mode 2)
+      // keeps the canvas and bands it. The family cloth (cream, tanbark …) shows through a little.
+      float role = vFleetMisc.w;
+      vec3 cloth = c, pig = dye.rgb, body = mix(pig, cloth, 0.1);
+      float edge = max(smoothstep(0.93 - sw.x, 0.93 + sw.x, su.x), 1.0 - smoothstep(0.07 - sw.y, 0.07 + sw.y, su.y));
+      vec3 base;
+      if (dye.w > 1.5) base = role > 2.5 ? pig : mix(cloth, pig, edge);
+      else if (role > 2.5) base = pig * 0.5;
+      else if (role > 1.5) base = mix(cloth, body, 0.65);
+      else if (role > 0.5) base = mix(mix(cloth, body, 0.32), pig, edge);
+      else base = body;
+      // uneven dye take-up and a sun-faded head: canvas, not plastic
+      float mott = sin(su.x * 13.0 + sin(su.y * 9.0) * 1.6) * sin(su.y * 21.0 - su.x * 4.0);
+      base *= 0.97 + 0.05 * mott;
+      c = mix(base, base * 1.1 + 0.015, smoothstep(0.5, 1.0, su.y) * 0.5);
+    }
     c *= 1.0 - (seams * 0.07 + tabling * 0.09) * fine;    // cloths + tabling
     // furled canvas (rolled jib, square sails on their yards): weathered cloth, not a white bar
     c = mix(c, c * vec3(0.66, 0.62, 0.55), smoothstep(0.35, 0.95, vFleetRig.x));
     float slot = vFleetBrand.a;
-    if (slot >= 0.0 && e.x >= 0.0 && e.x <= 1.0 && e.y >= 0.0 && e.y <= 1.0) {
+    // the roundel rides the furl morph and fades as the sail comes down (docked: the cover and house flag carry it)
+    float show = (1.0 - smoothstep(0.2, 0.6, vFleetRig.x)) * clampR;
+    if (slot >= 0.0 && show > 0.0 && er < 0.56) {
+      // a thin brand ring round the white disc: a deeper shade on a dyed sail, so it frames the disc
+      vec3 ringCol = dye.w > 1.5 ? dye.rgb : dye.w > 0.5 ? dye.rgb * 0.42 : vFleetBrand.rgb;
+      float ring = smoothstep(0.482 - era, 0.482 + era, er) * (1.0 - smoothstep(0.535 - era, 0.535 + era, er));
+      c = mix(c, ringCol, ring * show);
+    }
+    if (slot >= 0.0 && show > 0.0 && e.x >= 0.0 && e.x <= 1.0 && e.y >= 0.0 && e.y <= 1.0) {
       // manifest rule: flip u when gl_FrontFacing == isMirrored, with three's det<0 front-face swap.
       // The mirror happens in this vertex shader (no swap), so the rule reduces to: flip on back faces.
       bool flipU = !gl_FrontFacing;
@@ -310,7 +350,7 @@ void hbFleetColor(inout vec3 c) {
       vec2 uv = vec2((cell.x + inset.x) * uEmblemGrid.z, 1.0 - (cell.y + inset.y) * uEmblemGrid.w);
       vec2 gx = vec2(ex.x * sx * 0.97 * uEmblemGrid.z, -ex.y * 0.97 * uEmblemGrid.w);
       vec2 gy = vec2(ey.x * sx * 0.97 * uEmblemGrid.z, -ey.y * 0.97 * uEmblemGrid.w);
-      vec4 t = textureGrad(uEmblems, uv, gx, gy);        // premultiplied
+      vec4 t = textureGrad(uEmblems, uv, gx, gy) * show; // premultiplied
       c = c * (1.0 - t.a) + t.rgb * 0.92;                  // printed on cloth: a touch under paper-white
     }
   } else if (vFleetRig.z > 0.5) {
@@ -362,7 +402,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   }
   #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => "hb_fleet_v4";
+  m.customProgramCacheKey = () => "hb_fleet_v5";
 
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";

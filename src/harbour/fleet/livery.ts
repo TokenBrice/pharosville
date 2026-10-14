@@ -1,9 +1,10 @@
 /**
  * Hull livery: the painted topsides, sheer stripe, deck tone and coachroof of each hull, chosen
  * deterministically from the coin id (a hash). DECORATIVE ONLY: no colour here carries data. The brand
- * colour stays on the boot-top, pennant and sail covers (fleet-material); this is the harbour's paint pot,
- * a curated Nordic / Mediterranean range that sits inside style C's restraint (no saturated hue).
+ * colour stays on the boot-top, pennant, sail covers and the sails' dye (sailDye, fleet-material); this is the
+ * harbour's paint pot, a curated Nordic / Mediterranean range that sits inside style C's restraint (no saturated hue).
  */
+import * as THREE from "three";
 import type { Family } from "./variants";
 
 /** Topside paints (sRGB). */
@@ -106,4 +107,22 @@ export function linear(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
   const f = (c: number) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
   return [f((n >> 16) & 255), f((n >> 8) & 255), f(n & 255)];
+}
+
+/**
+ * The sails' dye from the coin's brand colour (sRGB hex) → linear rgb + mode for the fleet shader:
+ *   1 = dyed canvas: the brand hue, never neon, and lifted when very dark so the sails still read at night and
+ *       in shadow (the lift is toward a lighter shade of the same hue, so it stays the brand);
+ *   2 = a near-white brand: the canvas stays, banded in a deeper shade of the brand at the foot and leech.
+ */
+export function sailDye(hex: string): { rgb: [number, number, number]; mode: 1 | 2 } {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(hex).getHSL(hsl, THREE.SRGBColorSpace);
+  const out = new THREE.Color();
+  if (hsl.l > 0.8) {
+    out.setHSL(hsl.h, Math.min(hsl.s, 0.6), 0.42, THREE.SRGBColorSpace);
+    return { rgb: [out.r, out.g, out.b], mode: 2 };
+  }
+  out.setHSL(hsl.h, Math.min(hsl.s, 0.72), THREE.MathUtils.clamp(hsl.l, 0.36, 0.66), THREE.SRGBColorSpace);
+  return { rgb: [out.r, out.g, out.b], mode: 1 };
 }

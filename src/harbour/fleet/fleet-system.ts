@@ -21,14 +21,14 @@ import { coastDistance } from "../sim/obstacles";
 import type { QualityService, QualityTier } from "../engine/quality";
 import { approach, hash01, indexVariants, pickVariant, sternLampLit, targetSwing, wreckScale, type VariantIndex } from "./variants";
 import { titanFor } from "./titans";
-import { DECK, linear, liveryFor, TOPSIDE, TRIM } from "./livery";
+import { DECK, linear, liveryFor, sailDye, TOPSIDE, TRIM } from "./livery";
 import { ensureMotionService, MotionClock } from "../ui/services";
 
 /**
  * FleetSystem: every stablecoin's hull, in ONE BatchedMesh multi-draw (+ its shadow pass), posed every
  * frame from the 'sim' service: hull variant by peg family × supply class (kit manifest), LOD hull when
  * small on screen, furl morph, boom swing + tack mirroring, heel from the sim plus swell bob/pitch/roll
- * from ocean.heightAt, brand boot-top/pennant/cover tint, the coin emblem on the mainsail. Also:
+ * from ocean.heightAt, brand boot-top/pennant/cover tint, brand-dyed sails, the coin emblem on the main (and second) sail. Also:
  * wake stamps, mooring lines, riding lights, Wreck Cove hulks, mooring buoys, and the 'picking' service.
  *
  * Reduced motion ('motion' service): the sim holds its clock (sim/system.ts), the sea its swell
@@ -75,8 +75,8 @@ const COVE_ITEMS = ["wreck_great_hulk", "wreck_schooner_sunk", "wreck_stern_sect
 const COVE_LAMP = new THREE.Color("#FFB36B");
 const BUOY_KIT = "mooring_buoy";
 const DATA_W = 256;
-/** Livery texels per instance (uFleetPaint): topside, trim, deck, coachroof. */
-const PAINT_TEXELS = 4;
+/** Livery texels per instance (uFleetPaint): topside, trim, deck, coachroof, sail dye. */
+const PAINT_TEXELS = 5;
 /**
  * Far away the rig recedes (fleet-material STRUCK): spars weather to slate and rigging drops as a hull shrinks
  * from SPAR_NEAR to SPAR_FAR px LOA, and up to STRIKE_SHARE of the furled hulls (hash-picked) strike theirs, so
@@ -317,10 +317,14 @@ export class FleetSystem implements WorldSystem {
     d[o + 4] = r; d[o + 5] = g; d[o + 6] = b; d[o + 7] = slot;
   }
 
-  /** The hull's livery (decorative, hash-picked per coin) into uFleetPaint; 0 texels = the kit's own paint. */
-  private writePaint(inst: number, id: string | null, family: string): void {
+  /**
+   * The hull's livery (decorative, hash-picked per coin) into uFleetPaint; 0 texels = the kit's own paint. The
+   * sails' dye (texel 4) comes from the brand colour, titans included; none (canvas) for a wreck.
+   */
+  private writePaint(inst: number, id: string | null, family: string, brandColor: string | null): void {
     const p = this.paint, o = inst * PAINT_TEXELS * 4;
     p.fill(0, o, o + PAINT_TEXELS * 4);
+    if (brandColor) { const d = sailDye(brandColor); p.set(d.rgb, o + 16); p[o + 19] = d.mode; }
     if (id) {
       const lv = liveryFor(id, family);
       p.set(linear(TOPSIDE[lv.topside]), o); p[o + 3] = lv.nameBoard ? 1 : 0;
@@ -363,7 +367,7 @@ export class FleetSystem implements WorldSystem {
         slot: this.atlas ? this.atlas.slotFor({ id: boat.id, symbol: boat.symbol, brandColor: boat.brandColor }) : -1,
         brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, struck: false, mastK: titan ? 2 : hash01(boat.id + "#mast"), titan: !!titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
       };
-      this.writePaint(rec.inst, wrecked || titan ? null : boat.id, variant.family);
+      this.writePaint(rec.inst, wrecked || titan ? null : boat.id, variant.family, wrecked ? null : boat.brandColor);
       this.boats.push(rec);
       this.byId.set(rec.id, rec);
     }
@@ -437,7 +441,7 @@ export class FleetSystem implements WorldSystem {
       const len = detailed ? Math.max(10, Math.min(16, s.loa * 0.85)) * (0.9 + 0.2 * hash01(w.id + "#s")) : Math.min(6.8, Math.max(4.4, s.loa * 0.6)) * (0.85 + 0.3 * hash01(w.id + "#s"));
       const scale = (len / prop.loa) * (detailed ? wreckScale(w.peakMcap) : 1);
       const inst = this.addInstance(geom);
-      this.writePaint(inst, null, "");
+      this.writePaint(inst, null, "", null);
       const side = hash01(w.id + "#side") < 0.5 ? -1 : 1;
       // the keel half-buried in the sand where she lies: the sand's own height, less the burial
       const sand = Math.min(gy(s.x, s.z), gy(s.x + Math.sin(s.h) * len * 0.3, s.z + Math.cos(s.h) * len * 0.3), gy(s.x - Math.sin(s.h) * len * 0.3, s.z - Math.cos(s.h) * len * 0.3));
@@ -533,7 +537,7 @@ export class FleetSystem implements WorldSystem {
       const half = it.loa * p.scale * 0.32, fx = Math.sin(p.h) * half, fz = Math.cos(p.h) * half;
       const y = p.water || it.sits === "water" ? sea : Math.min(gy(p.x, p.z), (gy(p.x + fx, p.z + fz) + gy(p.x - fx, p.z - fz)) / 2) - 0.05;
       const inst = this.addInstance(geom);
-      this.writePaint(inst, null, "");
+      this.writePaint(inst, null, "", null);
       const board = p.coin && p.board ? this.boards.slotOf(p.coin.id) : -1;
       this.writeData(inst, p.lit ? 1 : 0, 0, 0, 0.6, 0.6, 0.6, board >= 0 ? -10 - board : -9, 0);
       this.wreckInst.push({ inst, x: p.x, z: p.z, h: p.h, scale: p.scale, heel: 0, y, pitch: 0, phi: 0 });
@@ -551,7 +555,7 @@ export class FleetSystem implements WorldSystem {
     if (geom == null) return;
     for (const m of this.layout!.moorings ?? []) {
       const inst = this.addInstance(geom);
-      this.writePaint(inst, null, "");
+      this.writePaint(inst, null, "", null);
       this.writeData(inst, 0, 0, 0, 0.8, 0.2, 0.1, -1);
       this.buoyInst.push({ inst, x: m.position[0], z: m.position[2], phi: hash01(m.id) * 6.28 });
     }

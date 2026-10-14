@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { AssetStore } from "../engine/assets";
+import { planSails, ROLE_BODY, type SailMeshOut } from "./sail-plan";
 
 /**
  * The hull kit (public/harbour/kit, manifest.json) baked for ONE BatchedMesh draw:
@@ -9,9 +10,11 @@ import type { AssetStore } from "../engine/assets";
  * whole node/morph contract as vertex attributes, so the vertex shader can pose any hull:
  *
  *   position, normal, color (vec4: rgb albedo, a = pattern id / 16)
- *   aSailUV  (TEXCOORD_0, sail space) · aEmbUV (TEXCOORD_1, emblem square [0,1]², else -1)
+ *   aSailUV  (TEXCOORD_0, sail space) · aEmbUV (emblem square [0,1]², else -1: re-measured by sail-plan.ts
+ *     from TEXCOORD_1, a bigger roundel on sail_main plus one on the second sail)
  *   aFurl / aFurlN: the "furl" morph deltas (0 = set … 1 = furled / cover on)
- *   aMeta = (kind 0 opaque | 1 sail | 2 cover, node, brand 0..1, flag 0..1)
+ *   aMeta = (kind 0 opaque | 1 sail | 2 cover, node, brand 0..1 (opaque) | sail role (sail-plan ROLE_*), flag 0..1)
+ *     LOD sails (hb_opaque in the kit: rig paint 8 in the full hull's cloth colour) bake as kind 1 so they take the dye.
  *     node: 0 rigid · 1 rigid + mirrored on port tack · 2 boom · 3 boom_2 · 4 jib
  *   aPivot / aAxis: rotation pivot + axis of the node's group (boom: gooseneck, +y; jib: tack, stay axis)
  *   aPaint = (livery region, x / (loa / 2)): the kit's _PAINT corner attribute (0 keep · 1 + 0.98 t topsides,
@@ -70,7 +73,7 @@ function nodeOrigin(nodes: ManifestNode[], name: string): THREE.Vector3 | null {
 }
 
 /** Flatten one GLB into the fleet attribute layout. `pivots` comes from the manifest (Blender object origins). */
-export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean; loa?: number; wreck?: boolean; skip?: ReadonlySet<string> } = {}): THREE.BufferGeometry {
+export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean; loa?: number; wreck?: boolean; skip?: ReadonlySet<string>; cloth?: [number, number, number] | null } = {}): THREE.BufferGeometry {
   const halfLoa = (opts.loa ?? 10) / 2;
   const boom = nodeOrigin(nodes, "boom") ?? new THREE.Vector3();
   const boom2 = nodeOrigin(nodes, "boom_2") ?? new THREE.Vector3();
@@ -80,6 +83,9 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
   const P: number[] = [], N: number[] = [], C: number[] = [], SU: number[] = [], EU: number[] = [], F: number[] = [], FN: number[] = [];
   const M: number[] = [], PV: number[] = [], AX: number[] = [], PA: number[] = [], I: number[] = [];
   gltf.scene.updateMatrixWorld(true);
+  const sails = opts.lod || opts.wreck ? new Map<THREE.Mesh, SailMeshOut>() : planHullSails(gltf);
+  const cloth = opts.lod ? opts.cloth ?? null : null;
+  let clothOut: [number, number, number] | null = null;
   gltf.scene.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -102,6 +108,8 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     const flag = mesh.name === "flag" ? 1 : 0;
     const pos = geo.attributes.position, nrm = geo.attributes.normal, col = geo.attributes.color;
     const uv0 = geo.attributes.uv, uv1 = geo.attributes.uv1, brand = geo.attributes._brand, paint = geo.attributes._paint;
+    const plan = sails.get(mesh);
+    if (mesh.name === "sail_main" && col && plan) { const i = Math.max(0, plan.role.indexOf(ROLE_BODY)); clothOut = [col.getX(i), col.getY(i), col.getZ(i)]; }
     const nodePaint = SPAR_NODES.has(mesh.name) ? PAINT_SPAR : mesh.name === "rigging" ? PAINT_RIGGING : 0;
     const mi = mesh.morphTargetDictionary?.furl;
     const mp = mi != null ? geo.morphAttributes.position?.[mi] : undefined;
@@ -160,13 +168,17 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     }
     for (const g of groups) {
       const mat = mats[g.materialIndex ?? 0];
-      const kind = opts.wreck && mat.name === "hb_emissive" ? KIND_LAMP : epitaph && (KIND[mat.name] ?? 0) === 0 ? KIND_BOARD : KIND[mat.name] ?? 0;
+      const gk = opts.wreck && mat.name === "hb_emissive" ? KIND_LAMP : epitaph && (KIND[mat.name] ?? 0) === 0 ? KIND_BOARD : KIND[mat.name] ?? 0;
       const used = new Map<number, number>();
       const end = g.start + g.count;
       for (let k = g.start; k < end; k++) {
         const vi = geo.index ? geo.index.getX(k) : k;
         let out = used.get(vi);
         if (out == null) {
+          // a LOD sail: the rig's paint in the cloth colour of the full hull
+          const lodSail = !!cloth && gk === 0 && !!col && !!paint && Math.abs(paint.getX(vi) - PAINT_SPAR) < 0.5
+            && Math.abs(col.getX(vi) - cloth[0]) + Math.abs(col.getY(vi) - cloth[1]) + Math.abs(col.getZ(vi) - cloth[2]) < 0.06;
+          const kind = lodSail ? 1 : gk;
           out = P.length / 3 - base;
           used.set(vi, out);
           tmpV.fromBufferAttribute(pos, vi).applyMatrix4(mw);
@@ -176,8 +188,10 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
           else if (col) C.push(col.getX(vi), col.getY(vi), col.getZ(vi), col.itemSize > 3 ? col.getW(vi) : 0); else C.push(1, 1, 1, 0);
           if (coverUV && kind === 2) SU.push(coverUV[vi * 2], coverUV[vi * 2 + 1]);
           else if (kind === KIND_BOARD) SU.push(uv0 ? uv0.getX(vi) : -4, uv0 ? uv0.getY(vi) : -4);
+          else if (lodSail) SU.push(0.5, 0.5625); // plain cloth: between seams, clear of the tabling
           else SU.push(uv0 && kind === 1 ? uv0.getX(vi) : 0, uv0 && kind === 1 ? uv0.getY(vi) : 0);
-          EU.push(uv1 && kind === 1 ? uv1.getX(vi) : -1, uv1 && kind === 1 ? uv1.getY(vi) : -1);
+          if (plan && kind === 1) EU.push(plan.emb[vi * 2], plan.emb[vi * 2 + 1]);
+          else EU.push(uv1 && kind === 1 ? uv1.getX(vi) : -1, uv1 && kind === 1 ? uv1.getY(vi) : -1);
           if (furlAdj) F.push(furlAdj[vi * 3], furlAdj[vi * 3 + 1], furlAdj[vi * 3 + 2]);
           else if (mp) {
             // deltas are directions: the node's linear part (KHR_mesh_quantization scale) only
@@ -187,7 +201,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
             F.push(tmpV.x, tmpV.y, tmpV.z);
           } else F.push(0, 0, 0);
           if (mn) { tmpV.fromBufferAttribute(mn, vi); if (!relative && nrm) tmpV.sub(tmpP.fromBufferAttribute(nrm, vi)); FN.push(tmpV.x, tmpV.y, tmpV.z); } else FN.push(0, 0, 0);
-          M.push(kind, node, brand ? brand.getX(vi) : 0, flag);
+          M.push(kind, node, kind === 1 ? plan?.role[vi] ?? ROLE_BODY : brand ? brand.getX(vi) : 0, flag);
           let pc = kind === 0 ? (paint ? paint.getX(vi) : nodePaint) : 0;
           if (opts.lod && pc >= 1 && pc < 2.5) pc += 10; // LOD topsides: the stripe is painted in the shader
           else if (opts.lod && pc > 7.5 && pc < 8.5) pc = 9; // LOD rig: may be struck far away when furled
@@ -212,6 +226,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
   g.setAttribute("aAxis", new THREE.Float32BufferAttribute(AX, 3));
   g.setAttribute("aPaint", new THREE.Float32BufferAttribute(PA, 2));
   g.setIndex(I);
+  g.userData.cloth = clothOut;
   // bounds cover the set AND furled shapes and the boom swung either way
   g.computeBoundingBox();
   const bb = g.boundingBox!;
@@ -219,6 +234,29 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
   bb.min.z = Math.min(bb.min.z, -span * 0.45); bb.max.z = Math.max(bb.max.z, span * 0.45);
   g.computeBoundingSphere();
   return g;
+}
+
+/** The hull's sails (hb_sail meshes, set shape in the GLB root frame) through sail-plan: emblem UVs and dye roles. */
+function planHullSails(gltf: GLTF): Map<THREE.Mesh, SailMeshOut> {
+  const meshes: THREE.Mesh[] = [];
+  gltf.scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && (Array.isArray(m.material) ? m.material : [m.material]).some((x) => x.name === "hb_sail")) meshes.push(m);
+  });
+  const out = planSails(meshes.map((m) => {
+    const geo = m.geometry, pos = geo.attributes.position, n = pos.count;
+    const P = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { tmpV.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld); P[i * 3] = tmpV.x; P[i * 3 + 1] = tmpV.y; P[i * 3 + 2] = tmpV.z; }
+    const uv1 = geo.attributes.uv1, col = geo.attributes.color;
+    const U = uv1 ? new Float32Array(n * 2) : null, C = col ? new Float32Array(n * 3) : null;
+    for (let i = 0; i < n; i++) {
+      if (U) { U[i * 2] = uv1.getX(i); U[i * 2 + 1] = uv1.getY(i); }
+      if (C) { C[i * 3] = col.getX(i); C[i * 3 + 1] = col.getY(i); C[i * 3 + 2] = col.getZ(i); }
+    }
+    const index = geo.index ? geo.index.array : Uint32Array.from({ length: n }, (_, i) => i);
+    return { name: m.name, pos: P, index, uv1: U, color: C };
+  }));
+  return new Map(meshes.map((m, i) => [m, out[i]]));
 }
 
 /** Load the manifest and every GLB it lists, in parallel. */
@@ -235,7 +273,7 @@ export async function loadKit(assets: AssetStore): Promise<Kit> {
         h.lod ? assets.gltf(KIT_BASE + h.lod).catch(() => null) : Promise.resolve(null),
       ]);
       const fg = bakeGltf(full, h.nodes, { loa: h.loa_m });
-      const lg = lod ? bakeGltf(lod, [], { lod: true, loa: h.loa_m }) : null;
+      const lg = lod ? bakeGltf(lod, [], { lod: true, loa: h.loa_m, cloth: fg.userData.cloth as [number, number, number] | null }) : null;
       const anchor = (name: string, fb: [number, number, number]) => nodeOrigin(h.nodes, name) ?? new THREE.Vector3(...fb);
       hulls.set(h.id, {
         id: h.id, family: h.family, cls: h.class, loa: h.loa_m, beam: h.beam_m, full: fg, lod: lg,
