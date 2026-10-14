@@ -195,7 +195,7 @@ export class HarbourUIStore {
     const w = this.picking.worldPosition(hit);
     if (!w) return;
     const { rig, camera } = this.ctx;
-    const close = hit.kind === "boat" ? 210 : hit.kind === "yard" ? 170 : hit.kind === "harbour" ? 300
+    const close = hit.kind === "boat" ? 210 : hit.kind === "yard" ? 170 : hit.kind === "wreck" ? 160 : hit.kind === "harbour" ? 300
       : hit.id === "far-ports" || hit.id === "wreck-cove" || hit.id === "the-roads" ? 420 : hit.id === "slipway" ? 340 : hit.id === "pharos" ? 440 : 300;
     // the Pharos stands ~100 m to its statue: aim at its middle so the beacon and its tag stay in frame
     const ty = hit.kind === "landmark" && hit.id === "pharos" ? 45 : 0;

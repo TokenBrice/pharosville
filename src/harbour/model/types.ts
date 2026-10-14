@@ -7,6 +7,7 @@
  */
 import type { ApiMeta } from "@shared/types/api-meta";
 import type { ChainsResponse, ChainSummary } from "@shared/types/chains";
+import type { CauseFamily } from "./obituary";
 import type { DeadStablecoin, PegSummaryCoin, StablecoinData, StressSignalEntry } from "@shared/types/market";
 import type { MintBurnFlowsResponse } from "@shared/types/mint-burn";
 import type { SafetyGradeEntry } from "@shared/types/safety-grades";
@@ -188,7 +189,8 @@ export interface HarbourReadings {
   /** Storm cones hoisted: one per ALERT+ coin, max 5; `extra` is the "+N". null = unknown. */
   stormCones: { count: number; shown: number; extra: number } | null;
   shoals: Array<{ id: string; bps: number | null; supply: number }>;
-  wrecks: Array<{ id: string; name: string; symbol: string; cause: string; deathDate: string; peakMcap: number | null }>;
+  /** The dead, oldest first. `family`: the cause family (model/obituary.ts) that picks the wreck's form. */
+  wrecks: Array<{ id: string; name: string; symbol: string; cause: string; family: CauseFamily; deathDate: string; peakMcap: number | null }>;
 }
 
 export interface HarbourModel {

@@ -1,6 +1,8 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { HullClass } from "../layout/types";
 import { hash01 } from "./variants";
+import { daysSinceDeath } from "../model/obituary";
 
 /**
  * WRECK COVE v2 (P7 c): the pure half. The dead coins (readings.wrecks, ranked by peak market cap) become the
@@ -17,7 +19,11 @@ import { hash01 } from "./variants";
  * lit at dusk; their wrecks keep no post. Every other wreck carries its own post beside it. Decorative layout,
  * data-honest content: one wreck and one nameboard per dead coin.
  */
-export interface CoveDead { id: string; name: string; symbol: string; deathDate: string; peakMcap: number | null }
+export interface CoveDead {
+  id: string; name: string; symbol: string; deathDate: string; peakMcap: number | null;
+  /** Cause family (model/obituary.ts): picks the wreck's form. Absent: the slot's authored kit. */
+  family?: string;
+}
 export interface CoveSlot {
   id: string; cls: HullClass; x: number; z: number; h: number;
   /** Authored by the island (layout zones.wreckCove, P7): the rank (1 = biggest peak cap) and its wreck. */
@@ -57,6 +63,43 @@ const MEMORIAL_GAP = 5.2;
 /** The kit's lengths (m, manifest loa_m): footprints for keeping the memorial clear of the wrecks. */
 const ITEM_LOA: Record<string, number> = { wreck_great_hulk: 26, wreck_schooner_sunk: 18, wreck_stern_section: 8.5, wreck_capsized: 13, wreck_burned: 15, wreck_rib_cage: 16, wreck_mast_stump: 14, wreck_skiff: 5, wreck_dinghy: 3.4 };
 const SIZE_RANK: Record<string, number> = { flagship: 0, large: 1, medium: 2, small: 3, boat: 4, skiff: 5 };
+
+/**
+ * WRECK FORM = CAUSE FAMILY (research/04 §3). Each family has one form, at every size: a death spiral lies
+ * capsized, an exploit burned to her bilges, a counterparty failure broken in two, a coin drained of its liquidity
+ * swallowed by the sand to her mast, a wind-down left to rot to her ribs, and a coin killed by decree laid up whole
+ * (the great hulk). Where the slot is a small boat's (the long tail), the turned-over and the left-to-rot forms
+ * take the small boats' own models (the dinghy keel-up, the skiff stove in and sanded up); in the shallows a
+ * drained coin is the schooner gone down there. The size stays the slot's (the peak-cap rank).
+ */
+export const FAMILY_KIT: Record<string, string> = {
+  spiral: "wreck_capsized", exploit: "wreck_burned", counterparty: "wreck_stern_section",
+  run: "wreck_mast_stump", "wind-down": "wreck_rib_cage", decree: "wreck_great_hulk",
+};
+const SMALL_KIT: Record<string, string> = { spiral: "wreck_dinghy", "wind-down": "wreck_skiff" };
+/** A slot whose authored wreck is shorter than this (m) is a small boat's. */
+const SMALL_SLOT_M = 3.5;
+/** The least scale a form may shrink to (its nameboard and its shape still read). */
+const FORM_FLOOR: Record<string, number> = {
+  wreck_great_hulk: 0.3, wreck_schooner_sunk: 0.4, wreck_stern_section: 0.36, wreck_capsized: 0.22, wreck_burned: 0.26,
+  wreck_rib_cage: 0.2, wreck_mast_stump: 0.3, wreck_skiff: 0.3, wreck_dinghy: 0.3,
+};
+
+/** …and the most it may grow to (a stern section stood on end looms like a house past this). */
+const FORM_CEIL: Record<string, number> = { wreck_stern_section: 1.3, wreck_mast_stump: 1.4 };
+
+/**
+ * The form a dead coin takes in a slot authored for `kit` at `scale`: [kit, scale], the slot's footprint (its
+ * authored length) kept. An unknown family keeps the authored wreck.
+ */
+export function formFor(family: string | undefined, kit: string, scale: number, water: boolean): [string, number] {
+  const want = family && FAMILY_KIT[family];
+  if (!want || !ITEM_LOA[kit]) return [kit, scale];
+  const len = ITEM_LOA[kit] * scale;
+  const item = water && family === "run" ? "wreck_schooner_sunk" : (len < SMALL_SLOT_M && SMALL_KIT[family!]) || want;
+  if (item === kit) return [kit, scale];
+  return [item, Math.min(FORM_CEIL[item] ?? 2.2, Math.max(FORM_FLOOR[item] ?? 0.2, len / ITEM_LOA[item]))];
+}
 const MID = ["wreck_capsized", "wreck_burned", "wreck_rib_cage"];
 
 interface Tier { items: string[]; lo: number; hi: number }
@@ -140,6 +183,14 @@ export function composeCove(deadIn: readonly CoveDead[], slotsIn: readonly CoveS
  */
 function authoredCove(dead: readonly CoveDead[], slotsIn: readonly CoveSlot[], arc: readonly CoveMemorialPost[]): CovePiece[] {
   const slots = [...slotsIn].sort((a, b) => a.rank! - b.rank!);
+  // more dead than the island has slots for (the register grows between island bakes): every one still gets its
+  // wreck, beside one of the long tail's small boats, a boat's length along her keel line
+  const tail0 = Math.min(22, slots.length - 1), have = slots.length, bases = have - tail0 - 1;
+  for (let i = have; i < dead.length && bases > 0; i++) {
+    const k = i - have, b = slots[tail0 + 1 + (k * 7) % bases];
+    const d = ((ITEM_LOA[b.kit!] ?? 5) * (b.scale ?? 1) + 1.8) * (1 + Math.floor(k / bases));
+    slots.push({ ...b, id: `${b.id}+${i}`, rank: i + 1, x: b.x + Math.sin(b.h) * d, z: b.z + Math.cos(b.h) * d, h: b.h + 0.6, sits: "sand" });
+  }
   const n = Math.min(dead.length, slots.length);
   // tiers: runs of the same tier scale (the guide's bands), spread by log peak cap within each
   const tierOf = (i: number) => (i < 2 ? 0 : i < 4 ? 1 : i < 10 ? 2 : i < 22 ? 3 : 4);
@@ -150,7 +201,9 @@ function authoredCove(dead: readonly CoveDead[], slotsIn: readonly CoveSlot[], a
     const sl = slots[i], c = dead[i];
     const [a, b] = span.get(tierOf(i))!;
     const t = b > a ? (logCap(c) - a) / (b - a) : 0.5;
-    out.push({ item: sl.kit!, x: sl.x, z: sl.z, h: sl.h, scale: (sl.scale ?? 1) * (0.8 + 0.35 * t), water: sl.sits === "water", coin: c, board: i >= Math.min(MEMORIAL_N, arc.length), lit: false, rank: i });
+    const water = sl.sits === "water";
+    const [item, scale] = formFor(c.family, sl.kit!, sl.scale ?? 1, water);
+    out.push({ item, x: sl.x, z: sl.z, h: sl.h, scale: scale * (0.8 + 0.35 * t), water, coin: c, board: i >= Math.min(MEMORIAL_N, arc.length), lit: false, rank: i });
   }
   for (const m of [...arc].sort((p, q) => p.rank - q.rank)) {
     const c = dead[m.rank - 1];
@@ -331,3 +384,149 @@ function drawBoard(g: CanvasRenderingContext2D, x0: number, y0: number, c: CoveD
   g.fillText(line, x0 + W / 2, y0 + H * 0.87, W - mx * 2);
   g.restore();
 }
+
+// ------------------------------------------------------------------ the 'cove' service
+
+/** One placed piece that remembers a dead coin: its wreck, or its memorial post (world position, top height). */
+export interface CoveMark {
+  id: string;
+  inst: number;
+  item: string;
+  x: number; y: number; z: number;
+  /** Heading (the kit's +x along (sin h, cos h); its board faces h − π/2) and scale. */
+  h: number; scale: number;
+  /** Height of its highest point above `y` (m). */
+  top: number;
+  /** Its length on the ground (m). */
+  len: number;
+  memorial: boolean;
+  /** Its highest point (world): where a gull stands on her (wrecks big enough to perch on). */
+  perch: [number, number, number] | null;
+  /** Its epitaph lantern's centre (world), when it carries a post. */
+  lamp: [number, number, number] | null;
+  /** Lit at dusk (a memorial post), and its nameboard slot (-1: none). */
+  lit: boolean;
+  board: number;
+}
+
+/**
+ * 'cove' service: where each dead coin lies (for picking, tags and camera flights) and the focus the UI puts on
+ * one (hover: a warm rim; selected: the rim and its lantern lit bright, day or night). `write` re-writes a
+ * piece's per-instance data with the given highlight.
+ */
+export class CoveService {
+  marks: CoveMark[] = [];
+  private byId = new Map<string, CoveMark[]>();
+  private hoverId: string | null = null;
+  private selectedId: string | null = null;
+  /** `glow`: the selected coin's lantern (its memorial post's, else its own post's), or null when none is selected. */
+  constructor(private readonly write: (m: CoveMark, hi: number) => void, private readonly glow?: (lamp: [number, number, number] | null) => void) {}
+
+  set(marks: CoveMark[]): void {
+    this.marks = marks;
+    this.byId = new Map();
+    for (const m of marks) { const a = this.byId.get(m.id); if (a) a.push(m); else this.byId.set(m.id, [m]); }
+    this.apply(new Set([this.hoverId, this.selectedId]));
+    this.relight();
+  }
+
+  /** The wreck itself when it lies here (else its memorial post). */
+  mark(id: string): CoveMark | null {
+    const a = this.byId.get(id);
+    return a ? a.find((m) => !m.memorial) ?? a[0] : null;
+  }
+  /** The selected coin's wreck (else its post), or null. */
+  selectedMark(): CoveMark | null { return this.selectedId ? this.mark(this.selectedId) : null; }
+  /** Every piece for a coin (wreck and memorial post). */
+  marksOf(id: string): readonly CoveMark[] { return this.byId.get(id) ?? []; }
+
+  focus(hover: string | null, selected: string | null): void {
+    if (hover === this.hoverId && selected === this.selectedId) return;
+    const touched = new Set([this.hoverId, this.selectedId, hover, selected]);
+    const reglow = selected !== this.selectedId;
+    this.hoverId = hover; this.selectedId = selected;
+    this.apply(touched);
+    if (reglow) this.relight();
+  }
+
+  private relight(): void {
+    const ms = this.selectedId ? this.byId.get(this.selectedId) ?? [] : [];
+    this.glow?.((ms.find((m) => m.memorial && m.lamp) ?? ms.find((m) => m.lamp))?.lamp ?? null);
+  }
+
+  private apply(ids: Set<string | null>): void {
+    for (const id of ids) {
+      if (!id) continue;
+      const hi = id === this.selectedId ? 1 : id === this.hoverId ? 0.5 : 0;
+      for (const m of this.byId.get(id) ?? []) this.write(m, hi);
+    }
+  }
+}
+
+// ------------------------------------------------------------------ the fresh wreath
+
+/** A death this recent (days) still has a fresh wreath laid at its post. */
+export const WREATH_DAYS = 90;
+
+/** The newest death when it is within WREATH_DAYS of `now` (data: deathDate; a month-only date counts from its last day). */
+export function freshDeath<T extends { deathDate: string }>(dead: readonly T[], now: number, days = WREATH_DAYS): T | null {
+  let best: T | null = null;
+  for (const d of dead) if (!best || d.deathDate > best.deathDate) best = d;
+  if (!best) return null;
+  const age = daysSinceDeath(best.deathDate, now);
+  return age != null && age >= -31 && age <= days ? best : null;
+}
+
+/**
+ * A laurel wreath (evergreen ring, a red ribbon bow and its tails), 1 m across, standing in the xy plane facing +z;
+ * vertex colours, one mesh. Made only while a death is fresh.
+ */
+export function buildWreath(): THREE.Mesh {
+  const parts: THREE.BufferGeometry[] = [];
+  const paint = (g: THREE.BufferGeometry, hex: string, jitter = 0) => {
+    const c = new THREE.Color(hex), n = g.attributes.position.count, col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const k = 1 + (jitter ? (hash01(`w${i}`) - 0.5) * jitter : 0);
+      col[i * 3] = c.r * k; col[i * 3 + 1] = c.g * k; col[i * 3 + 2] = c.b * k;
+    }
+    g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    return g.index ? g.toNonIndexed() : g;
+  };
+  // the ring: a fat torus of leaves (faceted, two greens)
+  parts.push(paint(new THREE.TorusGeometry(0.4, 0.12, 5, 18), "#2f5a2a", 0.5));
+  // leaf tufts round it
+  for (let k = 0; k < 12; k++) {
+    const a = (k / 12) * Math.PI * 2;
+    const g = new THREE.IcosahedronGeometry(0.1, 0);
+    g.translate(Math.cos(a) * 0.4, Math.sin(a) * 0.4, 0.06);
+    parts.push(paint(g, k % 3 ? "#3f7434" : "#5d8a3c", 0.3));
+  }
+  // the bow at the foot and two ribbon tails
+  const bow = new THREE.SphereGeometry(0.1, 6, 4); bow.scale(1.6, 0.9, 0.7); bow.translate(0, -0.42, 0.1);
+  parts.push(paint(bow, "#b3262a"));
+  for (const sx of [-1, 1]) {
+    const t = new THREE.BoxGeometry(0.06, 0.34, 0.02); t.rotateZ(sx * 0.32); t.translate(sx * 0.07, -0.6, 0.11);
+    parts.push(paint(t, "#9e1f24"));
+  }
+  const geo = mergeGeometries(parts.map((p) => { p.deleteAttribute("uv"); return p; }))!;
+  for (const p of parts) p.dispose();
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, flatShading: true }));
+  mesh.name = "cove-wreath";
+  mesh.castShadow = true;
+  return mesh;
+}
+
+const TOPS = new WeakMap<THREE.BufferGeometry, THREE.Vector3>();
+/** A geometry's highest vertex (item frame), cached: a hulk's masthead, a capsized hull's keel. */
+export function topVertex(g: THREE.BufferGeometry): THREE.Vector3 {
+  let t = TOPS.get(g);
+  if (!t) {
+    const p = g.attributes.position;
+    t = new THREE.Vector3(0, -Infinity, 0);
+    for (let i = 0; i < p.count; i++) if (p.getY(i) > t.y) t.set(p.getX(i), p.getY(i), p.getZ(i));
+    TOPS.set(g, t);
+  }
+  return t;
+}
+/** Wrecks a gull may stand on (big enough, and with a high point that is hull or spar, not rag). */
+export const PERCH_ITEMS = new Set(["wreck_great_hulk", "wreck_capsized", "wreck_stern_section", "wreck_burned", "wreck_schooner_sunk", "wreck_mast_stump"]);

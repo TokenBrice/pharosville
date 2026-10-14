@@ -75,7 +75,7 @@ varying vec3 vPaintC;       // x / half loa, name board, far (0 near … 1 a few
 varying vec4 vFleetBrand;   // rgb, slot
 varying vec4 vFleetMisc;    // highlight, flip (mirrored node now), kind, brand mask | sail role
 varying vec4 vFleetUV;      // sail uv, emblem uv
-varying vec3 vFleetRig;     // furl, node, flag
+varying vec4 vFleetRig;     // furl, node, flag, side (posed object-space normal z: covers print their roundel on ±z)
 varying vec4 vSailDye;      // sails: dye rgb, mode (uFleetPaint texel 4)
 vec4 hbFleetTexel(int idx, int k) {
   int size = textureSize(uFleetData, 0).x;
@@ -156,7 +156,7 @@ void hbFleetPose(vec3 p, vec3 n) {
   vSailDye = aMeta.x > 0.5 && aMeta.x < 1.5 ? hbPaintTexel(idx, 4) : vec4(0.0);
   vFleetMisc = vec4(a.z, flip, aMeta.x, aMeta.z);
   vFleetUV = vec4(aSailUV, aEmbUV);
-  vFleetRig = vec3(furl, node, aMeta.w);
+  vFleetRig = vec4(furl, node, aMeta.w, n.z);
 }
 `;
 
@@ -208,7 +208,7 @@ uniform vec3 uSunColor;
 varying vec4 vFleetBrand;
 varying vec4 vFleetMisc;
 varying vec4 vFleetUV;
-varying vec3 vFleetRig;
+varying vec4 vFleetRig;
 varying vec4 vSailDye;
 varying vec4 vPaintA;
 varying vec4 vPaintB;
@@ -306,6 +306,20 @@ void hbFleetColor(inout vec3 c) {
     float band = 1.0 - smoothstep(0.035, 0.08, abs(su.y - 0.9));
     float ties = (1.0 - smoothstep(0.025, 0.05, abs(fract(su.x * 7.0) - 0.5))) * smoothstep(0.3, 0.6, su.y);
     c *= mix(dyed, vec3(0.8, 0.76, 0.66), band * 0.65) * (1.0 - ties * 0.22);
+    // the coin's roundel printed on each side of the furled cover (hull-kit bakes it in the side plane, u along +x):
+    // read the right way round from either side, faded off the crest and while the sail is still coming down
+    float side = vFleetRig.w;
+    float show = smoothstep(0.55, 0.9, vFleetRig.x) * smoothstep(0.25, 0.55, abs(side));
+    if (vFleetBrand.a >= 0.0 && show > 0.0 && e.x >= 0.0 && e.x <= 1.0 && e.y >= 0.0 && e.y <= 1.0) {
+      float sx = side < 0.0 ? -1.0 : 1.0;
+      vec2 q = vec2(side < 0.0 ? 1.0 - e.x : e.x, e.y);
+      vec2 cell = vec2(mod(vFleetBrand.a, uEmblemGrid.x), floor(vFleetBrand.a / uEmblemGrid.x));
+      vec2 uv = vec2((cell.x + q.x) * uEmblemGrid.z, 1.0 - (cell.y + q.y) * uEmblemGrid.w);
+      vec2 gx = vec2(ex.x * sx * uEmblemGrid.z, -ex.y * uEmblemGrid.w);
+      vec2 gy = vec2(ey.x * sx * uEmblemGrid.z, -ey.y * uEmblemGrid.w);
+      vec4 t = textureGrad(uEmblems, uv, gx, gy) * show;  // premultiplied
+      c = c * (1.0 - t.a) + t.rgb * 0.9;
+    }
   } else if (kind > 0.5) {
     vec4 dye = vSailDye;
     if (dye.w > 0.5) {
@@ -387,7 +401,8 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
     // wreck lanterns: warm oil light × uLamp (the hb_emissive contract), a slow uneven flicker
     if (vFleetMisc.z > 3.5) {
       float fl = 0.86 + 0.08 * sin(uTime * 5.3 + vHbWorld.x * 1.7) + 0.06 * sin(uTime * 11.9 + vHbWorld.z * 2.3);
-      outgoingLight += vec3(1.0, 0.42, 0.095) * uLamp * vFleetRig.x * fl;
+      // (a selected wreck's lantern, 'cove' focus hi = 1, burns bright day or night: her memorial light)
+      outgoingLight += vec3(1.0, 0.42, 0.095) * (uLamp * vFleetRig.x + smoothstep(0.7, 1.0, vFleetMisc.x) * (1.6 + 1.4 * uLamp)) * fl;
     }
     // sail cloth glows when the low sun is behind it
     if (vFleetMisc.z > 0.5 && vFleetMisc.z < 1.5) outgoingLight += diffuseColor.rgb * uSunColor * max(0.0, dot(-fN, uSunDir)) * 0.16 * (1.0 - vFleetRig.x);
@@ -402,7 +417,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   }
   #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => "hb_fleet_v5";
+  m.customProgramCacheKey = () => "hb_fleet_v6";
 
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";

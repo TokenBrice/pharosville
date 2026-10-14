@@ -1,0 +1,108 @@
+name: Sync pharos-watch data
+
+# Keeps the data vendored from TokenBrice/pharos-watch from drifting: the yard's
+# pre-launch book, the logo book (public/logos + data/logos.json), brand
+# colours and the cemetery (shared/data/dead-stablecoins.json). It runs
+# `npm run sync:pharos-watch` against a read-only checkout of pharos-watch,
+# rebuilds the sail-emblem atlas from the synced logos (public/harbour/emblems.*,
+# sharp only, byte-identical to a local build) and opens (or refreshes) ONE pull
+# request from the `sync/pharos-watch` branch when the data changed. The branch
+# is pushed with --force-with-lease against the head seen when the job started,
+# so a commit pushed to it mid-run is never clobbered. It never deploys and
+# never pushes to main.
+# Operator setup: docs/pharosville/OPERATIONS.md, "Sync pharos-watch data".
+
+on:
+  schedule:
+    - cron: "37 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: pharos-watch branch, tag or commit to sync from
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-pharos-data
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      BRANCH: sync/pharos-watch
+      SOURCE_DIR: ${{ github.workspace }}/.pharos-watch-source
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: main
+      - uses: ./.github/actions/setup-workspace
+      - name: Record the sync branch head (lease for the push)
+        run: echo "BRANCH_LEASE=$(git ls-remote --heads origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_ENV"
+      - name: Check out pharos-watch (read-only token)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: TokenBrice/pharos-watch
+          ref: ${{ inputs.ref || 'main' }}
+          token: ${{ secrets.PHAROS_WATCH_READ_TOKEN }}
+          path: .pharos-watch-source
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          # the authored files scripts/harbour/sync-source.mjs reads (SOURCE_PATHS); generated registry files are not tracked upstream
+          sparse-checkout: |
+            data/logos.json
+            public/logos
+            public/_redirects
+            shared/data/dead-stablecoins.json
+            shared/data/stablecoins/coins
+            shared/data/stablecoins/legacy-route-redirects.json
+      - name: Sync
+        run: |
+          set -o pipefail
+          npm run sync:pharos-watch -- --source "$SOURCE_DIR" | tee "$RUNNER_TEMP/sync-summary.txt"
+      - name: Rebuild the sail-emblem atlas
+        run: node scripts/harbour/build-emblems.mjs
+      - name: Check the synced data
+        run: |
+          npm run check:pharos-watch-sync
+          npm run check:runtime-media
+      - name: Open or refresh the sync pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # the atlas is rebuilt every run but only ships WITH a data change, never on its own
+          paths=(data/logos.json data/brand-colors.json data/pharos-watch-sync.json public/logos src/harbour/data/prelaunch.json shared/data/dead-stablecoins.json)
+          if git diff --quiet -- "${paths[@]}" && [ -z "$(git ls-files --others --exclude-standard -- "${paths[@]}")" ]; then
+            echo "pharos-watch data unchanged: no pull request."
+            exit 0
+          fi
+          source_sha=$(git -C "$SOURCE_DIR" rev-parse --short=12 HEAD)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add -A -- "${paths[@]}" public/harbour/emblems.png public/harbour/emblems.webp public/harbour/emblems.json
+          git commit -m "data: sync pharos-watch @ $source_sha"
+          git push --force-with-lease="refs/heads/$BRANCH:$BRANCH_LEASE" origin "HEAD:refs/heads/$BRANCH"
+          {
+            echo "Automated \`npm run sync:pharos-watch\` against TokenBrice/pharos-watch@$source_sha."
+            echo
+            echo '```'
+            grep '^\[sync\]' "$RUNNER_TEMP/sync-summary.txt" || true
+            echo '```'
+            echo
+            echo "The sail-emblem atlas (public/harbour/emblems.*) was rebuilt from the synced logos in this run."
+            echo "A pull request opened by GITHUB_TOKEN does not start other workflows: close and reopen it (or push to it) to run the deploy validation."
+          } > "$RUNNER_TEMP/pr-body.md"
+          if [ "$(gh pr list --head "$BRANCH" --base main --state open --json number --jq length)" = "0" ]; then
+            gh pr create --base main --head "$BRANCH" --title "data: sync pharos-watch @ $source_sha" --body-file "$RUNNER_TEMP/pr-body.md"
+          else
+            gh pr edit "$BRANCH" --title "data: sync pharos-watch @ $source_sha" --body-file "$RUNNER_TEMP/pr-body.md"
+          fi

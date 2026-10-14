@@ -220,6 +220,7 @@ vec3 hbPool(vec3 worldPos, vec3 worldN) {
   vec2 uv = (worldPos.xz - uPoolBounds.xy) * uPoolBounds.zw;
   if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec3(0.0);
   vec4 p = texture2D(uPoolTex, uv);
+  p.rgb *= min(1.0, 0.5 / max(dot(p.rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-4));   // overlapping lamps: a sane max
   float upw = smoothstep(0.2, 0.85, worldN.y);
   float below = smoothstep(p.a + 0.6, p.a - 0.4, worldPos.y);      // floors: only under the source
   float band = exp(-pow((worldPos.y - p.a) / 2.6, 2.0));           // walls: around the source height
@@ -244,6 +245,166 @@ float hbAO(vec3 P, vec3 N) {
     occ += w * o; wsum += w;
   }
   return 1.0 - 0.8 * occ / max(wsum, 1e-3);
+}
+`;
+
+
+/** Shared by the kit and its shadow-depth twin: which leaves the calendar has taken. */
+const GLSL_LEAF_FALL = /* glsl */ `
+uniform vec4 uFoliage;      // spring, summer, autumn, winter weights (calendar, decorative)
+uniform float uSeasonPhase; // 0..1 through the (northern-equivalent) year
+float hbIs(float pid, float k) { return step(abs(pid - k), 0.25); }
+// late-autumn leaf fall, then the bare winter: how much of a deciduous canopy is gone (0..1)
+float hbLeafFall() {
+  return clamp(uFoliage.w + uFoliage.z * smoothstep(0.84, 0.93, uSeasonPhase) * 0.55, 0.0, 1.0);
+}
+// conifers (the dark blue-green spruce) keep their needles all year: 1 = conifer
+float hbConifer(vec3 vc) {
+  return max(1.0 - smoothstep(0.045, 0.075, vc.g), smoothstep(0.26, 0.33, vc.b / max(vc.g, 1e-3)));
+}
+`;
+
+/** Late-autumn / winter leaf fall at compile time (mirrors hbLeafFall): > 0 compiles the bare-crown discard in. */
+export function leafFallAt(u: WorldUniforms): number {
+  const f = u.uFoliage.value;
+  const x = THREE.MathUtils.clamp((u.uSeasonPhase.value - 0.84) / 0.09, 0, 1);
+  return Math.min(1, f.w + f.z * x * x * (3 - 2 * x) * 0.55);
+}
+
+const GLSL_SEASON = /* glsl */ `
+${GLSL_LEAF_FALL}
+uniform float uSnowCover;
+uniform float uWetness;
+uniform vec3 uHbSunDir;   // = uSunDir / uSunColor (renamed: the fleet port declares those itself)
+uniform vec3 uHbSunColor;
+float hbLuma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+// SEASON ON VEGETATION. pid 8 leaf (trees, shrubs, hedges, ivy), 6 grass (meadows, verges).
+// col = patterned albedo, vc = authored vertex albedo; W = world position; dW = its screen footprint.
+// bare = how much of this fragment the leaf fall takes (deciduous only; the kit discards by it).
+vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
+  bare = 0.0;
+  float leaf = hbIs(pid, 8.0), grass = hbIs(pid, 6.0);
+  if (leaf + grass < 0.5) return col;
+  float sp = uFoliage.x, su = uFoliage.y, au = uFoliage.z, wi = uFoliage.w;
+  float shade = hbLuma(col) / max(hbLuma(vc), 1e-4);     // the pattern's light and dark survive the recolour
+  float patchN = hbNoise(W * 0.06);
+  if (grass > 0.5) {
+    // spring: fresh yellow-lime turf strewn with wildflowers (yellow, white, pink, violet) in meadow drifts
+    vec3 spring = col * vec3(1.12, 1.2, 0.42) + vec3(0.012, 0.016, 0.0);
+    vec2 fc = floor(W.xz * 0.6), ff = fract(W.xz * 0.6) - 0.5;   // ~1.7 m cells: a clump of blooms each
+    float meadow = smoothstep(0.3, 0.65, hbNoise(W * 0.05 + 3.0));
+    float density = 0.06 + 0.5 * meadow;
+    float on = step(1.0 - density, hbWhite(vec3(fc, 53.0)));
+    vec2 jit = vec2(hbWhite(vec3(fc, 61.0)), hbWhite(vec3(fc, 67.0))) - 0.5;
+    float petal = (1.0 - smoothstep(0.17, 0.25, length(ff - jit * 0.45))) * on;
+    float fk = hbWhite(vec3(fc, 71.0));
+    vec3 flower = fk < 0.38 ? vec3(0.95, 0.62, 0.01) : fk < 0.6 ? vec3(0.92, 0.9, 0.84) : fk < 0.85 ? vec3(0.92, 0.18, 0.4) : vec3(0.4, 0.2, 0.9);
+    float sub = smoothstep(0.3, 0.7, dW * 0.6);            // sub-pixel flowers fade to their mean tint
+    float cov = mix(petal, density * 0.16, sub);
+    spring = mix(spring, mix(flower, vec3(0.88, 0.62, 0.48), sub) * (0.62 + 0.38 * shade), cov);
+    // summer: deep and lush, with sun-gold drifts where the meadow runs dry
+    vec3 summer = mix(col * vec3(0.8, 0.95, 0.56), vec3(0.3, 0.25, 0.05) * shade, smoothstep(0.58, 0.85, patchN) * 0.4);
+    vec3 straw = vec3(0.26, 0.19, 0.065) * shade * (0.8 + 0.4 * patchN);
+    vec3 dormant = mix(col, vec3(0.11, 0.1, 0.055) * shade, 0.65);
+    return spring * sp + summer * su + mix(col, straw, 0.3 + 0.4 * patchN) * au + dormant * wi;
+  }
+  float conifer = hbConifer(vc);
+  float tree = hbWhite(floor(W * 0.17) + 31.0);           // ~6 m cells: roughly one value per crown
+  // spring: fresh yellow-lime; pink or white blossom on over half the deciduous trees
+  vec3 lime = col * vec3(1.1, 1.24, 0.38) + vec3(0.008, 0.012, 0.0);
+  float bloomTree = step(0.45, tree);
+  float dotN = hbWhite(floor(W * 1.15) + 7.0);
+  float dots = step(0.45, dotN);
+  dots = mix(dots, 0.55, smoothstep(0.2, 0.45, dW * 1.15)) * bloomTree;
+  vec3 bloom = mix(vec3(0.95, 0.34, 0.52), vec3(0.93, 0.9, 0.86), step(0.76, tree)) * (0.55 + 0.45 * shade);
+  lime = mix(lime, bloom, (0.55 + 0.45 * dots) * bloomTree);
+  // summer: deep, lush green
+  vec3 deep = col * vec3(0.68, 0.92, 0.56);
+  // autumn: amber, orange, red and gold, tree by tree; a few hold on to green
+  float t = fract(tree * 3.7 + patchN * 0.5);
+  vec3 hue = t < 0.28 ? mix(vec3(0.78, 0.36, 0.035), vec3(0.86, 0.56, 0.07), t / 0.28)
+           : t < 0.55 ? mix(vec3(0.74, 0.18, 0.025), vec3(0.84, 0.38, 0.04), (t - 0.28) / 0.27)
+           : t < 0.78 ? mix(vec3(0.5, 0.06, 0.025), vec3(0.68, 0.11, 0.03), (t - 0.55) / 0.23)
+           : t < 0.92 ? mix(vec3(0.72, 0.6, 0.08), vec3(0.85, 0.7, 0.12), (t - 0.78) / 0.14)
+           : col / max(shade, 0.2) * 1.6;
+  vec3 autumn = hue * shade * 0.42;
+  // winter: deciduous crowns are bare twigs; conifers darken a little under the cold light
+  vec3 twig = vec3(0.12, 0.1, 0.085) * (0.7 + 0.6 * shade);
+  float fall = hbLeafFall();
+  vec3 decid = lime * sp + deep * su + autumn * au + mix(autumn, twig, 0.7) * wi;
+  decid = mix(decid, twig, fall * 0.35);
+  bare = fall * (1.0 - conifer);
+  vec3 needles = col * (vec3(1.08, 1.16, 0.78) * sp + vec3(0.84, 0.96, 0.78) * su + vec3(0.92, 0.95, 0.88) * au + vec3(0.8, 0.86, 0.86) * wi);
+  return mix(decid, needles, conifer);
+}
+
+// WEATHER ON THE GROUND (snow cover: season + snowfall; wetness: rain, written by the weather director).
+// N = shading normal (world). Writes snow / puddle coverage for the lighting additions.
+void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, float dW, out float snow, out float puddle) {
+  snow = 0.0; puddle = 0.0;
+  float up = N.y;
+  float dry = smoothstep(0.2, 0.75, W.y);                 // nothing lies at or under the water line
+  float leaf = hbIs(pid, 8.0);
+  if (uSnowCover > 0.002) {
+    // trodden ground holds thinner snow: setts, deck planks, quay ashlar
+    float trod = hbIs(pid, 4.0) * 0.5 + (hbIs(pid, 3.0) + hbIs(pid, 11.0)) * 0.42 + hbIs(pid, 2.0) * 0.22;
+    float n1 = hbFbm(W * 0.42);
+    float n2 = hbNoise(W * 2.6);
+    // conifers are dusted (the snow sits on the tiers' tops), not buried
+    float lo = mix(0.42, 0.34, leaf), hi = mix(0.74, 0.62, leaf);
+    float upm = smoothstep(lo - 0.14 * uSnowCover, hi - 0.14 * uSnowCover, up + (n2 - 0.5) * 0.14 * hbFine(dW, 0.4));
+    float cover = uSnowCover * (1.0 - trod) * (1.0 - 0.45 * leaf);
+    #ifdef USE_BATCHING
+      cover *= 0.4;                                        // hulls under way shed it: a dusting on the decks
+    #endif
+    // two scales: drifts and bare patches the overview can read (~25 m), soft edges up close (~2.5 m);
+    // steep ground sheds it
+    float nL = hbNoise(W * vec3(0.045, 0.02, 0.045));
+    float field = n1 * 0.45 + nL * 0.45 + 0.1 + (n2 - 0.5) * 0.1 * hbFine(dW, 0.4) - (1.0 - up) * 0.25 * (1.0 - leaf);
+    float thr = 1.0 - cover * 0.95;
+    snow = smoothstep(thr - 0.07, thr + 0.07, field) * upm * dry;
+    vec3 snowC = vec3(0.64, 0.675, 0.73) * (0.95 + 0.05 * n2);
+    alb = mix(alb, snowC, snow);
+    rough = mix(rough, 0.6, snow);
+    // icicles: under a snowy eave a fringe of ice teeth hangs down the house wall (the height field just inside
+    // the wall is the roof above it); only on clad / rendered / plain house walls, not on quay or terrace stone
+    float wall = (1.0 - smoothstep(0.12, 0.3, abs(up))) * (hbIs(pid, 1.0) + hbIs(pid, 10.0) + hbIs(pid, 0.0));
+    if (wall > 0.5 && uAOBounds.z > 0.0) {
+      vec2 nh = normalize(N.xz + vec2(1e-5));
+      float gap = hbHeight(W.xz - nh * 0.7) - W.y;
+      float u = dot(W.xz, vec2(-nh.y, nh.x));
+      float col = floor(u / 0.26);
+      float len = (0.18 + 0.62 * hbWhite(vec3(col, 3.0, 17.0))) * smoothstep(0.35, 0.8, uSnowCover);
+      float f = abs(fract(u / 0.26) - 0.5) * 2.0;
+      float tooth = step(f, 0.8 * (1.0 - gap / max(len, 1e-3))) * step(0.02, gap) * step(3.0, W.y) * hbFine(dW, 0.26);
+      alb = mix(alb, vec3(0.62, 0.74, 0.82), tooth);
+      rough = mix(rough, 0.08, tooth);
+      snow = max(snow, tooth * 0.6);
+    }
+    // rime: an icy glaze on the rock and stone along the waterline
+    float rime = uSnowCover * smoothstep(-0.15, 0.3, W.y) * (1.0 - smoothstep(0.7, 1.6, W.y))
+               * smoothstep(0.32, 0.6, hbNoise(W * vec3(1.3, 3.5, 1.3))) * (1.0 - leaf);
+    rime *= 1.0 - snow;
+    alb = mix(alb, vec3(0.66, 0.76, 0.82), rime * 0.8);
+    rough = mix(rough, 0.16, rime);
+  }
+  if (uWetness > 0.002) {
+    float w = uWetness * (1.0 - snow);
+    // stone, planks and earth darken most; leaves and metal least
+    float porous = 1.0 - 0.6 * leaf - 0.7 * hbIs(pid, 12.0) - 0.3 * hbIs(pid, 6.0);
+    alb *= 1.0 - 0.42 * w * porous;
+    float upw = smoothstep(0.25, 0.9, up);
+    // stone and planks gloss; turf and leaves stay matte (a soaked meadow is not a mirror)
+    rough = mix(rough, mix(0.34, 0.14, upw), w * (1.0 - 0.5 * leaf - 0.75 * hbIs(pid, 6.0)));
+    // puddles on level stone, setts and planks
+    float hard = hbIs(pid, 2.0) + hbIs(pid, 3.0) + hbIs(pid, 4.0) + hbIs(pid, 11.0) + hbIs(pid, 0.0) * 0.6;
+    float pn = hbFbm(W * 0.21) + (hbNoise(W * 1.3) - 0.5) * 0.05;
+    float lvl = 0.72 - 0.11 * w;
+    puddle = smoothstep(lvl, lvl + 0.035, pn) * smoothstep(0.93, 0.985, up) * hard * w * dry;
+    alb = mix(alb, alb * 0.4, puddle);
+    rough = mix(rough, 0.03, puddle);
+  }
 }
 `;
 
@@ -287,6 +448,8 @@ export class HarbourMaterials {
       uWindowOcc: u.uWindowOcc, uNightLift: u.uNightLift,
       uPoolTex: this.pool.uPoolTex, uPoolBounds: this.pool.uPoolBounds, uRimK: this.rimK,
       uAOTex: this.ao.uAOTex, uAOBounds: this.ao.uAOBounds,
+      uSnowCover: u.uSnowCover, uWetness: u.uWetness, uFoliage: u.uFoliage, uSeasonPhase: u.uSeasonPhase,
+      uHbSunDir: u.uSunDir, uHbSunColor: u.uSunColor,
     };
   }
 
@@ -302,44 +465,114 @@ export class HarbourMaterials {
     m.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, this.shared(), cloudShadowUniforms);
       injectVaryings(shader);
+      // winter / late-autumn bare crowns discard: compiled in only when the calendar can need it
+      if (leafFallAt(this.uniforms) > 0.001) shader.defines = { ...shader.defines, HB_BARE: "" };
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}`)
+        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}`)
         .replace("#include <color_fragment>", `
+  vec3 hbVc = vec3(1.0);
   #if defined( USE_COLOR_ALPHA )
     float hbPid = floor(vColor.a * 16.0 + 0.5);
-    diffuseColor.rgb *= vColor.rgb;
+    diffuseColor.rgb *= vColor.rgb; hbVc = vColor.rgb;
   #elif defined( USE_COLOR )
     float hbPid = ${fallbackPid};
-    diffuseColor.rgb *= vColor.rgb;
+    diffuseColor.rgb *= vColor.rgb; hbVc = vColor.rgb;
   #else
     float hbPid = ${fallbackPid};
   #endif
+  float hbSdW = fwidth(vHbWorld.x) + fwidth(vHbWorld.z);
+  float hbBareNoise = hbNoise(vHbWorld * 1.7);
   float hbRough;
   diffuseColor.rgb *= hbPattern(hbPid, hbRough);
+  {
+    float hbBare;
+    diffuseColor.rgb = hbFoliage(diffuseColor.rgb, hbVc, hbPid, vHbWorld, hbSdW, hbBare);
+    #ifdef HB_BARE
+      if (hbBareNoise < hbBare * 0.84) discard;     // bare crowns: a sparse net of twigs survives
+    #endif
+  }
   diffuseColor.a = 1.0;`)
         .replace("#include <roughnessmap_fragment>", "float roughnessFactor = hbRough;")
+        .replace("#include <emissivemap_fragment>", `
+  float hbSnow, hbPuddle;
+  hbWeather(diffuseColor.rgb, roughnessFactor, inverseTransformDirection(normal, viewMatrix), hbPid, vHbWorld, hbSdW, hbSnow, hbPuddle);
+  #include <emissivemap_fragment>`)
         .replace("#include <aomap_fragment>", `#include <aomap_fragment>
   float hbOcc = hbAO(vHbWorld, inverseTransformDirection(normal, viewMatrix));
   float hbCs = hbCloudShadow(vHbWorld.xz);   // drifting cloud shadows (sky system)
   reflectedLight.directDiffuse *= hbCs;
   reflectedLight.directSpecular *= hbCs;
   reflectedLight.indirectDiffuse *= hbOcc;
-  reflectedLight.indirectSpecular *= hbOcc;`)
+  reflectedLight.indirectSpecular *= hbOcc;
+  // wet ground shows a sheen, never a white flare: on wet surfaces the sun / moon / lamp / flash highlight
+  // (GGX at puddle roughness peaks thousands of times over) is capped near what the sky lights the scene with
+  {
+    float hbWetK = smoothstep(0.0, 0.25, uWetness);
+    float hbCap = 0.005 + 0.5 * hbLuma(uHemiSky);
+    float hbSl = hbLuma(reflectedLight.directSpecular);
+    reflectedLight.directSpecular *= mix(1.0, min(1.0, hbCap / max(hbSl, 1e-5)), hbWetK);
+  }`)
         .replace("#include <opaque_fragment>", `
   {
     vec3 hbV = normalize(vViewPosition);
     vec3 hbNw = inverseTransformDirection(normal, viewMatrix);
     vec3 hbVw = inverseTransformDirection(hbV, viewMatrix);
-    outgoingLight += hbEnvSpec(hbNw, hbVw, roughnessFactor, 0.03) * uRimK * hbOcc;
+    // wet: the sky sheen is capped by the sky's own brightness, so grazing wet slopes never go white
+    float hbSkyL = hbLuma(uHemiSky);
+    outgoingLight += min(hbEnvSpec(hbNw, hbVw, roughnessFactor, 0.03), vec3(mix(4.0, 0.35 * hbSkyL + 0.01, smoothstep(0.0, 0.25, uWetness)))) * uRimK * hbOcc;
     outgoingLight += diffuseColor.rgb * hbPool(vHbWorld, hbNw);
     // moonlight fill (0 by day): soft, mostly from above, with an albedo floor so dark hulls and
     // navy/black sail covers keep a readable mid-tone at night instead of collapsing to silhouettes
     outgoingLight += max(diffuseColor.rgb, vec3(0.12)) * uNightLift * hbOcc * (0.6 + 0.4 * max(hbNw.y, 0.0));
+    // puddles mirror the sky; fresh snow catches the sun in sparse glints (faded where sub-pixel)
+    // puddles: dark mirrors of the sky (water's low Fresnel, brighter only toward grazing), capped by the sky
+    outgoingLight += min(hbEnvSpec(hbNw, hbVw, 0.02, 0.03), vec3(0.3 * hbSkyL + 0.003)) * hbPuddle * hbOcc;
+    if (hbSnow > 0.01) {
+      float g = step(0.992, hbWhite(floor(vHbWorld * 4.5) + 101.0)) * hbFine(hbSdW, 0.22);
+      float spec = pow(max(dot(reflect(-hbVw, hbNw), uHbSunDir), 0.0), 4.0);
+      outgoingLight += uHbSunColor * g * spec * hbSnow * hbCs * 0.5;
+    }
   }
   #include <opaque_fragment>`);
     };
-    m.customProgramCacheKey = () => `hb_kit_${fallbackPid}`;
+    m.customProgramCacheKey = () => `hb_kit_${fallbackPid}_${leafFallAt(this.uniforms) > 0.001 ? "bare" : "leaf"}`;
     this.cache.set(key, m);
+    return m;
+  }
+
+  /**
+   * Shadow-depth twin of the kit: drops the same bare-crown fragments, so a winter tree casts the shadow of
+   * its twigs, not of last summer's canopy. Only needed while leafFallAt() > 0 (the season system assigns it).
+   */
+  kitDepth(): THREE.MeshDepthMaterial {
+    const hit = this.cache.get("kit-depth");
+    if (hit) return hit as THREE.MeshDepthMaterial;
+    const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+    m.name = "hb_kit_depth";
+    m.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, { uFoliage: this.uniforms.uFoliage, uSeasonPhase: this.uniforms.uSeasonPhase });
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nattribute vec4 color;\nvarying vec3 vHbWorld;\nvarying vec4 vHbCol;")
+        .replace("#include <begin_vertex>", `#include <begin_vertex>
+  vHbCol = color;
+  {
+    vec4 hbW = vec4(transformed, 1.0);
+    #ifdef USE_INSTANCING
+      hbW = instanceMatrix * hbW;
+    #endif
+    vHbWorld = (modelMatrix * hbW).xyz;
+  }`);
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_LEAF_FALL}\nvarying vec3 vHbWorld;\nvarying vec4 vHbCol;`)
+        .replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>
+  {
+    float pid = floor(vHbCol.a * 16.0 + 0.5);
+    float bare = hbIs(pid, 8.0) * hbLeafFall() * (1.0 - hbConifer(vHbCol.rgb));
+    if (hbNoise(vHbWorld * 1.7) < bare * 0.84) discard;
+  }`);
+    };
+    m.customProgramCacheKey = () => "hb_kit_depth_v1";
+    this.cache.set("kit-depth", m);
     return m;
   }
 

@@ -11,12 +11,12 @@ import { getHarbourMaterials } from "../world/materials";
 import { EmblemAtlas } from "./emblems";
 import { createFleetMaterials, type FleetUniforms } from "./fleet-material";
 import { loadKit, loadWreckKit, type HullVariant, type Kit, type WreckItem } from "./hull-kit";
-import { composeCove, EpitaphBoards, type CoveDead, type CovePiece, type CoveSlot } from "./wreck-cove";
+import { buildWreath, composeCove, CoveService, EpitaphBoards, freshDeath, PERCH_ITEMS, topVertex, type CoveDead, type CoveMark, type CovePiece, type CoveSlot } from "./wreck-cove";
 import type { LightsService } from "../lights/lights-service";
 import { bollardFor, MooringLines } from "./mooring-lines";
 import { RidingLights } from "./riding-lights";
 import { Fenders } from "./fenders";
-import { HouseFlags } from "./house-flags";
+import { FLAG_BURGEE, FLAG_DISTRESS, FLAG_HOUSE, HouseFlags } from "./house-flags";
 import { coastDistance } from "../sim/obstacles";
 import type { QualityService, QualityTier } from "../engine/quality";
 import { approach, hash01, indexVariants, pickVariant, sternLampLit, targetSwing, wreckScale, type VariantIndex } from "./variants";
@@ -58,14 +58,21 @@ const LAMP_GREEN = new THREE.Color("#3DFF7A");
  * which a hull swaps to its full mesh (in / out, px), how near mooring lines and house flags are drawn,
  * up to what zoom the fleet casts shadows, and whether still hulls stamp contact rings in the wake RT.
  */
-interface FleetTier { lodIn: number; lodOut: number; lineRange: number; flagRange: number; shadowDist: number; contact: boolean; fenderRange: number }
+interface FleetTier { lodIn: number; lodOut: number; lineRange: number; flagRange: number; flagMinPx: number; shadowDist: number; contact: boolean; fenderRange: number }
 const FLEET_TIERS: Record<QualityTier, FleetTier> = {
-  high: { lodIn: 40, lodOut: 34, lineRange: 650, flagRange: 1300, shadowDist: 640, contact: true, fenderRange: 300 },
-  medium: { lodIn: 58, lodOut: 50, lineRange: 460, flagRange: 950, shadowDist: 520, contact: true, fenderRange: 200 },
-  low: { lodIn: 90, lodOut: 78, lineRange: 300, flagRange: 640, shadowDist: 360, contact: false, fenderRange: 0 },
+  high: { lodIn: 40, lodOut: 34, lineRange: 650, flagRange: 2400, flagMinPx: 9, shadowDist: 640, contact: true, fenderRange: 300 },
+  medium: { lodIn: 58, lodOut: 50, lineRange: 460, flagRange: 1800, flagMinPx: 8, shadowDist: 520, contact: true, fenderRange: 200 },
+  low: { lodIn: 90, lodOut: 78, lineRange: 300, flagRange: 1100, flagMinPx: 7, shadowDist: 360, contact: false, fenderRange: 0 },
 };
 /** DEWS bands at which the weather turns to storm for the fleet (ALERT … DANGER → 0.55 … 1). */
 const STORM_BY_BAND: Record<string, number> = { CALM: 0, WATCH: 0, ALERT: 0.55, WARNING: 0.8, DANGER: 1 };
+/**
+ * A still hull's contact stamp strength by the fleet's storm: in calm water only a faint darkening line (under
+ * the ocean's ring-foam threshold, wake.ts G × ocean fRing), building through ALERT to the white rings at WARNING+.
+ */
+function contactStrength(storm: number): number {
+  return 0.3 + 0.6 * THREE.MathUtils.smoothstep(storm, 0.3, 0.8);
+}
 const WRECK_KITS = ["wreck_a", "wreck_b", "wreck_c"];
 /** The dead coins with the biggest peak cap get full-size, detailed hulks; the rest lie smaller. */
 const DETAILED_WRECKS = 16;
@@ -148,6 +155,18 @@ export class FleetSystem implements WorldSystem {
   private coveLights: number[] = [];
   /** The cove as laid out (dev inspection: __harbour fleet.covePieces). */
   private covePieces: CovePiece[] = [];
+  /** 'cove' service: where each dead coin lies, and the UI's focus on one (wreck-cove.ts). */
+  private wreath: THREE.Mesh | null = null;
+  private coveGlow = -1;
+  private readonly coveSvc = new CoveService(
+    (m, hi) => this.writeData(m.inst, m.lit ? 1 : 0, 0, hi, 0.6, 0.6, 0.6, m.board >= 0 ? -10 - m.board : -9, 0),
+    // the selected coin's lantern also throws a brighter pool of light on the sand (dusk and night)
+    (lamp) => {
+      const lights = this.ctx?.services.get("lights") as LightsService | undefined;
+      if (this.coveGlow >= 0) lights?.remove(this.coveGlow);
+      this.coveGlow = lamp && lights ? lights.add("harbourlight", lamp, COVE_LAMP, 8) : -1;
+    },
+  );
   private batchV = 0;
   private batchI = 0;
   private model: HarbourModel | null = null;
@@ -240,6 +259,7 @@ export class FleetSystem implements WorldSystem {
     ctx.scene.add(this.ring);
 
     ctx.services.set("picking", this.pickingService());
+    ctx.services.set("cove", this.coveSvc);
     this.clock = new MotionClock(ensureMotionService(ctx));
     const quality = ctx.services.get("quality") as QualityService | undefined;
     if (quality) {
@@ -527,6 +547,7 @@ export class FleetSystem implements WorldSystem {
     this.coveLights = [];
     const gy = (x: number, z: number) => (ground ? ground.heightAt(x, z) : 0.5);
     const sea = this.layout?.seaLevel ?? 0;
+    const marks: CoveMark[] = [];
     for (const p of pieces) {
       const it = items.get(p.item);
       if (!it) continue;
@@ -535,19 +556,55 @@ export class FleetSystem implements WorldSystem {
       if (geom == null) continue;
       // baked pose (heel, burial): set on the sand under her (the lowest of her ends and middle), or on the sea
       const half = it.loa * p.scale * 0.32, fx = Math.sin(p.h) * half, fz = Math.cos(p.h) * half;
-      const y = p.water || it.sits === "water" ? sea : Math.min(gy(p.x, p.z), (gy(p.x + fx, p.z + fz) + gy(p.x - fx, p.z - fz)) / 2) - 0.05;
+      // (a sand wreck in the shallows lies awash: her drifted sand and burial under the water)
+      const y = it.sits === "water" ? sea : p.water ? sea - 0.8 * p.scale : Math.min(gy(p.x, p.z), (gy(p.x + fx, p.z + fz) + gy(p.x - fx, p.z - fz)) / 2) - 0.05;
       const inst = this.addInstance(geom);
       this.writePaint(inst, null, "", null);
       const board = p.coin && p.board ? this.boards.slotOf(p.coin.id) : -1;
       this.writeData(inst, p.lit ? 1 : 0, 0, 0, 0.6, 0.6, 0.6, board >= 0 ? -10 - board : -9, 0);
       this.wreckInst.push({ inst, x: p.x, z: p.z, h: p.h, scale: p.scale, heel: 0, y, pitch: 0, phi: 0 });
-      if (p.lit && it.light && lights) {
-        // the lantern centre, through the piece's yaw (glTF +x → heading)
+      // the lantern centre, through the piece's yaw (glTF +x → heading)
+      let lamp: [number, number, number] | null = null;
+      if (it.light && (!wreck || p.board)) {
         const th = p.h - Math.PI / 2, c = Math.cos(th), sn = Math.sin(th);
         const lx = it.light.x * p.scale, ly = it.light.y * p.scale, lz = it.light.z * p.scale;
-        this.coveLights.push(lights.add("lamp", [p.x + lx * c + lz * sn, y + ly, p.z - lx * sn + lz * c], COVE_LAMP, 3.4));
+        lamp = [p.x + lx * c + lz * sn, y + ly, p.z - lx * sn + lz * c];
       }
+      let perch: [number, number, number] | null = null;
+      if (wreck && PERCH_ITEMS.has(p.item) && it.loa * p.scale > 6) {
+        const tv = topVertex(it.bare ?? it.full), th = p.h - Math.PI / 2, c = Math.cos(th), sn = Math.sin(th);
+        perch = [p.x + (tv.x * c + tv.z * sn) * p.scale, y + tv.y * p.scale, p.z + (-tv.x * sn + tv.z * c) * p.scale];
+      }
+      if (p.coin) {
+        const bb = it.full.boundingBox ?? (it.full.computeBoundingBox(), it.full.boundingBox);
+        marks.push({ id: p.coin.id, inst, item: p.item, x: p.x, y, z: p.z, h: p.h, scale: p.scale, top: Math.max(1.5, (bb?.max.y ?? 3) * p.scale),
+          len: it.loa * p.scale, memorial: !wreck, perch, lamp, lit: p.lit, board });
+      }
+      if (p.lit && lamp && lights) this.coveLights.push(lights.add("lamp", lamp, COVE_LAMP, 3.4));
     }
+    this.coveSvc.set(marks);
+    this.placeWreath(dead, gy);
+  }
+
+  /** A fresh wreath at the newest death's post while it is under WREATH_DAYS old (dev: ?wreath=1 forces one). */
+  private placeWreath(dead: readonly CoveDead[], gy: (x: number, z: number) => number): void {
+    if (this.wreath) { this.wreath.removeFromParent(); this.wreath.geometry.dispose(); (this.wreath.material as THREE.Material).dispose(); this.wreath = null; }
+    const force = import.meta.env.DEV && new URLSearchParams(location.search).get("wreath") === "1";
+    const fresh = force ? freshDeath(dead, Date.now(), Infinity) : freshDeath(dead, Date.now());
+    const marks = fresh ? this.coveSvc.marksOf(fresh.id) : [];
+    const m = marks.find((k) => k.memorial && k.lamp) ?? marks.find((k) => k.lamp);
+    if (!m?.lamp || !this.ctx) return;
+    // leaning against the foot of her post, facing out the way her board does
+    // (sized to the post: the lantern stands ~1.6 m up a post at scale 1)
+    const f = m.h - Math.PI / 2, fx = Math.sin(f), fz = Math.cos(f), k = m.scale * 0.7;
+    const x = m.lamp[0] + fx * 0.3 * k, z = m.lamp[2] + fz * 0.3 * k;
+    const w = this.wreath = buildWreath();
+    w.scale.setScalar(k);
+    w.position.set(x, gy(x, z) + 0.5 * k, z);
+    w.rotation.set(-0.3, f, 0, "YXZ");
+    w.updateMatrixWorld();
+    w.matrixAutoUpdate = false;
+    this.ctx.scene.add(w);
   }
 
   private placeBuoys(): void {
@@ -589,6 +646,7 @@ export class FleetSystem implements WorldSystem {
     const stormT = STORM_BY_BAND[readings?.stormBand ?? "CALM"] ?? 0;
     this.storm += (stormT - this.storm) * (1 - Math.exp(-dt * 0.35));
     const storm = this.storm;
+    const contactK = contactStrength(storm);
     const ground = ctx.services.get("ground") as GroundService | undefined;
     const mesh = this.mesh;
     mesh.castShadow = ctx.rig.distance < tier.shadowDist;
@@ -607,7 +665,11 @@ export class FleetSystem implements WorldSystem {
     const glowK = THREE.MathUtils.smoothstep(glow, RIDING_GLOW - 0.12, RIDING_GLOW + 0.2);
     this.riding.begin();
     this.flags?.begin();
-    const downwind = windFrom + Math.PI;
+    // the weather's wind (uWindVec: downwind on the ground plane, length = strength incl. gusts) drives the flags
+    const wv = ctx.uniforms.uWindVec?.value;
+    const wLen = wv ? Math.hypot(wv.x, wv.y) : 0;
+    const flagDownwind = wLen > 1e-3 ? Math.atan2(wv!.x, wv!.y) : windFrom + Math.PI;
+    const flagWind = wLen > 1e-3 ? wLen : sim?.wind.strength ?? 0.35;
 
     for (let i = 0, bi = 0; i < n && bi < this.boats.length; i++) {
       const b = this.boats[bi];
@@ -691,16 +753,24 @@ export class FleetSystem implements WorldSystem {
       b.flag = b.loa >= 12 ? 1 : b.flag ? (px > 55 ? 1 : 0) : (px > 72 ? 1 : 0);
       const far = b.hi > 0.05 || b.wrecked ? 0 : 1 - THREE.MathUtils.smoothstep(px, SPAR_FAR, SPAR_NEAR);
       b.struck = !moving && sail < 0.1 && b.mastK < far * STRIKE_SHARE;
-      this.writeData(b.inst, b.wrecked ? 0 : 1 - sail, b.wrecked ? 0 : b.swing, b.hi, b.brand.r, b.brand.g, b.brand.b, b.wrecked ? -2 : b.slot, b.wrecked ? 0 : b.flag, far, b.struck);
 
-      // a house flag with the coin's emblem at the masthead of the bigger hulls at rest (sails furled)
-      // (aground on the Shoals: a distress signal instead, every hull)
+      // At rest (docked, moored, at anchor) every hull flies its coin's colours, so a furled fleet still reads coin
+      // by coin: a brand burgee with the emblem at the masthead (a titan: a big house flag), never smaller than a few
+      // px (the overview: a dot of brand colour over each hull); a struck rig flies it from the stern staff. It
+      // replaces the kit's plain pennant. Aground on the Shoals: the distress flag instead.
       const distress = ph === PH_ANCHORED && sim?.slotOf(i)?.kind === "shoals";
-      if (this.flags && !moving && !b.wrecked && !b.struck && b.visible && b.dist < tier.flagRange && (distress || (b.loa >= 12.5 && b.slot >= 0 && ph !== PH_ANCHORED))) {
-        this.v.copy(b.variant.masthead).applyMatrix4(this.m4);
-        const size = b.titan ? Math.max(5.6, b.loa * 0.2) : Math.min(3.8, Math.max(1.4, b.loa * (b.loa < 15 ? 0.11 : 0.13)));
-        this.flags.add(this.v.x, this.v.y + 0.35, this.v.z, size, downwind, Math.atan2(cam.position.x - x, cam.position.z - z), distress ? -3 : b.slot, b.phi * 3);
+      if (this.flags && !moving && !b.wrecked && b.visible && b.dist < tier.flagRange) {
+        const pxM = pxPerM / b.dist;
+        const base = b.titan ? b.loa * 0.3 : THREE.MathUtils.clamp(b.loa * 0.21, 1.3, 4.6);
+        const size = Math.min(Math.max(base, tier.flagMinPx / pxM), b.loa * (b.titan ? 0.42 : 0.55));
+        const v = b.variant;
+        if (b.struck) { this.lampAt(v.sternCleat.x * 0.92, v.sternCleat.y, 0); this.v.y += 0.5 + size * 0.72; }
+        else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += 0.3; }
+        this.flags.add(this.v.x, this.v.y, this.v.z, size, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), b.slot, b.phi * 3, b.brand,
+          distress ? FLAG_DISTRESS : b.titan ? FLAG_HOUSE : FLAG_BURGEE);
+        b.flag = 0;
       }
+      this.writeData(b.inst, b.wrecked ? 0 : 1 - sail, b.wrecked ? 0 : b.swing, b.hi, b.brand.r, b.brand.g, b.brand.b, b.wrecked ? -2 : b.slot, b.wrecked ? 0 : b.flag, far, b.struck);
 
       // night: under way, masthead + red/green sidelights (+ the stern light); anchored, an anchor light;
       // moored, only some hulls show a dim one. Stern / anchor lamps are lit only with a peg reading.
@@ -737,7 +807,7 @@ export class FleetSystem implements WorldSystem {
           // aground: surf breaks and churns round the hull, pulsing with the swell
           const surge = 0.5 + 0.5 * Math.sin(time * 1.4 + b.phi);
           wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * (1.6 + 0.4 * surge), 1.4 + 0.6 * surge, b.loa * 0.7);
-        } else if (tier.contact || b.visible) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb, 0.9, b.loa * 0.5);
+        } else if (tier.contact || b.visible) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb, contactK, b.loa * 0.5);
         st.wakes++;
       }
       if (ph === PH_DOCKED || ph === PH_MOORED) st.docked++;
@@ -785,7 +855,7 @@ export class FleetSystem implements WorldSystem {
         Math.min(1.1, u.uHemiSky.value.g * 1.1 + u.uSunColor.value.g * 0.42) * dim,
         Math.min(1.1, u.uHemiSky.value.b * 1.1 + u.uSunColor.value.b * 0.42) * dim,
       );
-      this.flags.end(fl, sim?.wind.strength ?? 0.35);
+      this.flags.end(fl, flagWind);
     }
     this.uniforms.uFleetData.value.needsUpdate = true;
 
@@ -907,13 +977,20 @@ export class FleetSystem implements WorldSystem {
     const ring = this.ring;
     if (!ring) return;
     const b = this.selected ? this.byId.get(this.selected) : undefined;
-    this.ringK += ((b ? 1 : 0) - this.ringK) * (1 - Math.exp(-frame.delta * 5));
-    ring.visible = this.ringK > 0.01 && !!b;
-    if (!b || !ring.visible) return;
-    const ocean = ctx.services.get("ocean") as OceanService | undefined;
-    const y = (ocean ? ocean.heightAt(b.cx, b.cz) : 0) + 0.3;
-    ring.position.set(b.cx, y, b.cz);
-    ring.scale.setScalar(Math.max(4, b.loa * 0.66));
+    // (or a selected wreck in the cove: the ring on the sand round her)
+    const w = b ? null : this.coveSvc.selectedMark();
+    this.ringK += ((b || w ? 1 : 0) - this.ringK) * (1 - Math.exp(-frame.delta * 5));
+    ring.visible = this.ringK > 0.01 && !!(b || w);
+    if (!ring.visible) return;
+    if (b) {
+      const ocean = ctx.services.get("ocean") as OceanService | undefined;
+      const y = (ocean ? ocean.heightAt(b.cx, b.cz) : 0) + 0.3;
+      ring.position.set(b.cx, y, b.cz);
+      ring.scale.setScalar(Math.max(4, b.loa * 0.66));
+    } else if (w) {
+      ring.position.set(w.x, w.y + 0.45, w.z);
+      ring.scale.setScalar(Math.max(4, w.len * 0.62));
+    }
     const m = ring.material as THREE.ShaderMaterial;
     m.uniforms.uTime.value = frame.elapsed;
     m.uniforms.uK.value = this.ringK;

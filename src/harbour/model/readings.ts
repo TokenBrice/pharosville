@@ -1,5 +1,6 @@
 import { PSI_SWEEP_DURATION } from "@shared/lib/psi-colors";
 import type { DeadStablecoin } from "@shared/types/market";
+import { causeFamily } from "./obituary";
 import type {
   Boat, ConditionBand, DewsBand, EndpointTruth, FlowsReading, HarbourReadings, MintBurnPayload,
   PsiReading, SeaStateReading, StabilityPayload, WeatherReading,
@@ -97,5 +98,5 @@ export function stormCones(boats: Boat[], stressAvailable: boolean): HarbourRead
 export function wrecks(dead: readonly DeadStablecoin[]): HarbourReadings["wrecks"] {
   return [...dead]
     .sort((a, b) => (a.deathDate < b.deathDate ? -1 : a.deathDate > b.deathDate ? 1 : a.id < b.id ? -1 : 1))
-    .map((d) => ({ id: d.id, name: d.name, symbol: d.symbol, cause: d.causeOfDeath, deathDate: d.deathDate, peakMcap: d.peakMcap ?? null }));
+    .map((d) => ({ id: d.id, name: d.name, symbol: d.symbol, cause: d.causeOfDeath, family: causeFamily(d), deathDate: d.deathDate, peakMcap: d.peakMcap ?? null }));
 }

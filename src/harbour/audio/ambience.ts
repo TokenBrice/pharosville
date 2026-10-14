@@ -10,7 +10,15 @@
  *   - wind, scaled by the weather (DEWS), in gusts, with a whistle only in a blow;
  *   - gulls (fewer at night), rigging creaks and halyard taps near the harbour, a bell buoy rocked by the swell;
  *   - the Pharos fire's roar and crackle when the camera is near it; the Mint's presses, faintly, near the Mint;
- *   - the foghorn, ONLY while the data is stale, never otherwise.
+ *   - the foghorn, ONLY while the data is stale, never otherwise;
+ *   - WEATHER, all of it data (the supply-weighted DEWS band, through the 'weather' service): rain hissing on
+ *     the open sea and pattering on roofs and quays (louder near the town), eaves dripping while things are
+ *     wet, snow hushing the whole scene (a high shelf over everything, softer gulls), heavier storm surf with
+ *     spray, gusts, a moaning howl and the rigging's whistle in a blow, and thunder after each flash,
+ *     delayed by the distance of the strike (a tearing crack and roll when near, a low rumble when far);
+ *   - SEASON colour (calendar, declared decorative like the time of day): songbirds in the trees in spring,
+ *     crickets at dusk in summer, dry leaves rustling in the gusts of autumn, and the crisp hush of winter
+ *     with a crunch of footsteps in the snow near the town.
  *
  * Distance works as in the open air: farther sources are quieter AND darker (lowpassed), and their pan
  * follows where they lie on screen. The master stays well below full scale; start and stop are slow ramps.
@@ -45,6 +53,31 @@ export interface AmbienceInputs {
   mint: number;
   mintPan: number;
   mintRate: number;
+  /** precipitation intensity 0..1, rain and snow (the TYPE follows the season, the INTENSITY the DEWS band) */
+  rain: number;
+  snow: number;
+  /** wet surfaces 0..1: the eaves keep dripping after the rain */
+  wet: number;
+  /** storminess 0..1 from the DEWS band: calm 0, watch .25, alert .5, warning .75, danger 1 */
+  storm: number;
+  /** gustiness 0..1 */
+  gust: number;
+  /** calendar season weights (sum ≈ 1) and the snow lying on the land 0..1 */
+  spring: number;
+  summer: number;
+  autumn: number;
+  winter: number;
+  snowCover: number;
+  /** nearness 0..1 of the town's roofs and quays, of the trees, and of land at all; pans -1..1 */
+  town: number;
+  townPan: number;
+  trees: number;
+  treesPan: number;
+  land: number;
+  /** prefers-reduced-motion: no startling cracks (thunder only as a far, softer roll) */
+  reduced: boolean;
+  /** low quality tier (a weaker machine): skip the costlier storm layers (howl, spray, the second rain stream) */
+  lean: boolean;
 }
 
 export interface AmbienceOptions {
@@ -82,6 +115,16 @@ function noiseBuffer(ac: BaseAudioContext, seconds: number, color: "white" | "pi
   return buf;
 }
 
+/** Identity to ±0.8, then a tanh knee that approaches (never reaches) ±0.98. */
+function softClipCurve(): Float32Array<ArrayBuffer> {
+  const n = 2049, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1, a = Math.abs(x);
+    c[i] = Math.sign(x) * (a <= 0.8 ? a : 0.8 + 0.18 * Math.tanh((a - 0.8) / 0.18));
+  }
+  return c;
+}
+
 /** A noise loop that only runs while it can be heard: started on demand, stopped once its bus has faded. */
 class LazyLoop {
   private src: AudioBufferSourceNode | null = null;
@@ -111,6 +154,8 @@ export class Ambience {
   private readonly inputs: AmbienceInputs = {
     zoom: 0.5, wind: 0.35, fog: 0, night: 0, shore: 0.5, shorePan: 0, harbour: 0.5, reef: 0.2, reefPan: -0.5,
     fire: 0, firePan: 0, mint: 0, mintPan: 0, mintRate: 0.5,
+    rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
+    town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false,
   };
   private readonly rnd: () => number;
   private readonly bank: ClipBank;
@@ -146,9 +191,36 @@ export class Ambience {
   private readonly bellBus: GainNode;
   private readonly hornBus: GainNode;
   private readonly echo: DelayNode;
+  // weather
+  private readonly hush: BiquadFilterNode;
+  private readonly duck: GainNode;
+  private readonly rainFine: GainNode;
+  private readonly rainBody: GainNode;
+  private readonly rainGust: GainNode;
+  private readonly rainLoop: LazyLoop;
+  private readonly patterBus: GainNode;
+  private readonly patterLp: BiquadFilterNode;
+  private readonly dripBus: GainNode;
+  private readonly spray: GainNode;
+  private readonly sprayBus: GainNode;
+  private readonly sprayLoop: LazyLoop;
+  private readonly howl: GainNode[];
+  private readonly howlBus: GainNode;
+  private readonly howlLoop: LazyLoop;
+  private readonly thunderBus: GainNode;
+  private thunders: number[] = [];
+  // season
+  private readonly birdBus: GainNode;
+  private readonly cricketBus: GainNode;
+  private readonly rustleBus: GainNode;
+  private readonly rustleLp: BiquadFilterNode;
+  private readonly crunchBus: GainNode;
   private timer = 0;
   private idle = 0;
-  private next = { wave: 0, lap: 0, reef: 0, gull: 0, creak: 0, tap: 0, horn: 0, gust: 0, crackle: 0, press: 0, refresh: 0 };
+  private next = {
+    wave: 0, lap: 0, reef: 0, gull: 0, creak: 0, tap: 0, horn: 0, gust: 0, crackle: 0, press: 0, refresh: 0,
+    rainA: 0, rainB: 0, drip: 0, bird: 0, cricket: 0, crunch: 0,
+  };
   private setLeft = 0;
   private pressN = 0;
   private disposed = false;
@@ -165,7 +237,16 @@ export class Ambience {
     this.out = ac.createGain();
     this.out.gain.setValueAtTime(0, now);
     this.out.gain.linearRampToValueAtTime(MASTER, now + 3);     // a slow fade in, never a jolt
-    this.out.connect(comp).connect(ac.destination);
+    // snow hushes the world: a high shelf over everything (snow on the ground and in the air soaks up the highs)
+    this.hush = this.filter("highshelf", 2500, 0.7); this.hush.gain.value = 0;
+    // a safety soft clip after the glue compressor (linear to 0.8, then a smooth knee that never reaches 1):
+    // thunder over a storm surf can never clip, at the cost of a table lookup per sample
+    const safety = ac.createWaveShaper();
+    safety.curve = softClipCurve();
+    this.out.connect(this.hush).connect(comp).connect(safety).connect(ac.destination);
+    // the weather beds (wind, rain, spray, howl) pass through a duck that dips under a near thunderclap, so
+    // the clap stands out of a downpour without pushing the mix toward full scale
+    this.duck = ac.createGain(); this.duck.connect(this.out);
 
     // a short, damp slap-back echo for the distant events (bell, horn, gulls): the harbour walls
     this.echo = ac.createDelay(1);
@@ -214,7 +295,7 @@ export class Ambience {
     this.loop(this.white, windLoBp); this.loop(this.white, windHiBp);
     windLoBp.connect(this.windLo).connect(this.windGust);
     windHiBp.connect(this.windHi).connect(this.windGust);
-    this.windGust.connect(this.windGain).connect(this.out);
+    this.windGust.connect(this.windGain).connect(this.duck);
     this.windLow = ac.createGain(); this.windLow.gain.value = 0;
     const windLp = this.filter("lowpass", 140, 0.6);
     this.loop(pink, windLp);
@@ -235,6 +316,50 @@ export class Ambience {
     this.mintPan = ac.createStereoPanner();
     this.mintLp.connect(this.mintPan).connect(this.mintBus).connect(this.out);
 
+    // ---- rain: the fine hiss of drops on the open sea and a heavier body in a downpour, driven by the gusts;
+    // the patter of drops on roofs and quays (clips), louder and brighter near the town; eaves dripping
+    const rainIn = ac.createGain();
+    this.rainFine = ac.createGain(); this.rainFine.gain.value = 0;
+    this.rainBody = ac.createGain(); this.rainBody.gain.value = 0;
+    this.rainGust = ac.createGain(); this.rainGust.gain.value = 1;
+    rainIn.connect(this.filter("bandpass", 6500, 0.5)).connect(this.rainFine).connect(this.rainGust);
+    rainIn.connect(this.filter("bandpass", 1500, 0.6)).connect(this.rainBody).connect(this.rainGust);
+    this.rainGust.connect(this.duck);
+    this.rainLoop = new LazyLoop(ac, this.white, rainIn);
+    this.patterBus = ac.createGain(); this.patterBus.gain.value = 0;
+    this.patterLp = this.filter("lowpass", 6000, 0.5);
+    this.patterLp.connect(this.patterBus).connect(this.duck);
+    this.dripBus = ac.createGain(); this.dripBus.gain.value = 0; this.dripBus.connect(this.out);
+
+    // ---- storm surf: the hiss of spray and whitecaps, thrown up with each break
+    this.spray = ac.createGain(); this.spray.gain.value = 0.15;
+    this.sprayBus = ac.createGain(); this.sprayBus.gain.value = 0;
+    const sprayHp = this.filter("highpass", 1800, 0.5);
+    this.sprayLoop = new LazyLoop(ac, this.white, sprayHp);
+    sprayHp.connect(this.spray).connect(this.sprayBus).connect(this.duck);
+
+    // ---- the howl of a storm round the buildings: three narrow bands crossfaded by the gusts (a moaning glide
+    // without automating a cutoff)
+    const howlIn = ac.createGain();
+    this.howlBus = ac.createGain(); this.howlBus.gain.value = 0; this.howlBus.connect(this.duck);
+    this.howl = [330, 460, 620].map((f) => {
+      const g = ac.createGain(); g.gain.value = 0.33;
+      howlIn.connect(this.filter("bandpass", f, 9)).connect(g).connect(this.howlBus);
+      return g;
+    });
+    this.howlLoop = new LazyLoop(ac, this.white, howlIn);
+
+    // ---- thunder (clips placed by the controller after each flash)
+    this.thunderBus = ac.createGain(); this.thunderBus.gain.value = 1.5; this.thunderBus.connect(this.out);
+
+    // ---- season colour
+    this.birdBus = ac.createGain(); this.birdBus.gain.value = 0; this.birdBus.connect(this.out);
+    this.cricketBus = ac.createGain(); this.cricketBus.gain.value = 0; this.cricketBus.connect(this.out);
+    this.rustleBus = ac.createGain(); this.rustleBus.gain.value = 0;
+    this.rustleLp = this.filter("lowpass", 9000, 0.5);
+    this.rustleLp.connect(this.rustleBus).connect(this.out);
+    this.crunchBus = ac.createGain(); this.crunchBus.gain.value = 0; this.crunchBus.connect(this.out);
+
     this.harbourBus = ac.createGain(); this.harbourBus.gain.value = 0; this.harbourBus.connect(this.out);
     this.gullBus = ac.createGain(); this.gullBus.gain.value = 0; this.gullBus.connect(this.out); this.gullBus.connect(this.echo);
     this.bellBus = ac.createGain(); this.bellBus.gain.value = 0.11; this.bellBus.connect(this.out); this.bellBus.connect(this.echo);
@@ -244,6 +369,7 @@ export class Ambience {
     this.next = {
       wave: t + 0.2, lap: t + 0.6, reef: t + 1.5, gull: t + 3 + this.rnd() * 4, creak: t + 3, tap: t + 1.5, horn: t + 3, gust: t,
       crackle: t, press: t + 0.5, refresh: t + 20,
+      rainA: t, rainB: t + 1.7, drip: t + 1, bird: t + 1 + this.rnd() * 3, cricket: t, crunch: t + 4,
     };
     if (opts.manual) this.bank.buildAll();
     else {
@@ -307,45 +433,94 @@ export class Ambience {
   step(): void {
     if (this.disposed) return;
     const ac = this.ac, now = ac.currentTime, ahead = now + 0.3, r = this.rnd;
-    const I = this.inputs, { zoom, wind, fog, night } = I;
+    const I = this.inputs, { zoom, wind, fog, night, rain, snow, storm, gust } = I;
     const near = Math.max(0, Math.min(1, 1 - zoom));
     const tc = 0.8;
     const air = (d: number, lo: number, hi: number) => lo * Math.pow(hi / lo, Math.max(0, Math.min(1, d)));
+    const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 
-    // ---- levels: nearer is louder AND brighter
-    this.aim(this.shoreBus.gain, 0.5 * (0.3 + 0.7 * I.shore) * (1 - 0.3 * zoom), tc);
+    // ---- levels: nearer is louder AND brighter; a storm heavies the whole sea
+    this.aim(this.shoreBus.gain, 0.5 * (0.3 + 0.7 * I.shore) * (1 - 0.3 * zoom) * (1 + 0.5 * storm), tc);
     this.aim(this.shoreLp.frequency, air(I.shore * (1 - 0.4 * zoom), 900, 14000), tc);
-    this.aim(this.bedGain.gain, (0.16 + 0.16 * zoom + 0.05 * wind) * (1 - 0.5 * I.shore * near), tc);   // a near wave masks the far sea
+    this.aim(this.bedGain.gain, (0.16 + 0.16 * zoom + 0.05 * wind + 0.14 * storm) * (1 - 0.5 * I.shore * near) * (1 - 0.2 * I.snowCover), tc);   // a near wave masks the far sea
     this.aim(this.bedLp.frequency, air(1 - zoom, 420, 900), tc);
     this.aim(this.lapBus.gain, 0.06 + 1.1 * I.harbour * I.harbour, tc);
     this.aim(this.lapLp.frequency, air(I.harbour, 1200, 12000), tc);
-    this.aim(this.reefBus.gain, (0.12 + 0.55 * I.reef) * (0.7 + 0.5 * wind), tc);
+    this.aim(this.reefBus.gain, (0.12 + 0.55 * I.reef) * (0.7 + 0.5 * wind) * (1 + 0.6 * storm), tc);
     this.aim(this.reefLp.frequency, air(I.reef, 380, 2600), tc);
     this.aim(this.reefPan.pan, I.reefPan * 0.8, tc);
     this.aim(this.windGain.gain, (0.05 + 0.42 * wind * wind) * (0.7 + 0.3 * zoom), tc);
     this.aim(this.windLow.gain, 1.1 * wind * wind, tc);
-    this.whistleLoop.update(wind > 0.56, wind < 0.55, now, r);
-    this.aim(this.harbourBus.gain, 0.08 + 1.1 * I.harbour * I.harbour, tc);
-    this.aim(this.gullBus.gain, (0.12 + 0.3 * near) * (1 - 0.8 * night) * (1 - 0.5 * fog), tc);
+    // the rigging sings in a blow, and in any storm from WARNING up
+    const blow = Math.max(wind, storm > 0.6 ? 0.45 + 0.45 * storm : 0);
+    this.whistleLoop.update(blow > 0.56, blow < 0.55, now, r);
+    this.aim(this.harbourBus.gain, (0.08 + 1.1 * I.harbour * I.harbour) * (1 - 0.3 * snow), tc);
+    // gulls shelter from a storm and the rain, and snow softens them
+    this.aim(this.gullBus.gain, (0.12 + 0.3 * near) * (1 - 0.8 * night) * (1 - 0.5 * fog) * (1 - 0.7 * storm) * (1 - 0.5 * rain) * (1 - 0.5 * snow), tc);
     this.aim(this.fireBus.gain, 0.5 * I.fire * I.fire, 0.5);
     this.aim(this.firePan.pan, I.firePan * 0.8, 0.5);
     this.aim(this.mintBus.gain, 0.16 * I.mint * I.mint, 0.5);
     this.aim(this.mintLp.frequency, air(I.mint, 700, 6000), 0.5);
     this.aim(this.mintPan.pan, I.mintPan * 0.8, 0.5);
 
+    // ---- weather (data): snow's hush, rain on the sea and the roofs, drips, spray, the howl
+    this.aim(this.hush.gain, -(11 * snow + 4 * I.snowCover), 1.5);
+    this.rainLoop.update(rain > 0.01, rain < 0.005, now, r);
+    this.aim(this.rainFine.gain, 0.28 * Math.pow(rain, 0.7) * (0.8 + 0.2 * zoom), 1);
+    this.aim(this.rainBody.gain, 0.4 * rain * rain, 1);
+    this.aim(this.patterBus.gain, (0.25 + 0.75 * I.town) * clamp01(rain * 2.5), 1);
+    this.aim(this.patterLp.frequency, air(I.town * (1 - 0.4 * zoom), 2200, 12000), 1);
+    this.aim(this.dripBus.gain, 0.5 * I.wet * (1 - snow) * (0.15 + 0.85 * I.town), 1);
+    this.sprayLoop.update(storm > 0.4 && !I.lean, storm < 0.35 || I.lean, now, r);
+    this.aim(this.sprayBus.gain, 0.4 * storm * storm * (0.3 + 0.7 * I.shore), 1);
+    const howl = storm > 0.5 ? Math.pow((storm - 0.5) / 0.5, 1.5) : 0;
+    this.howlLoop.update(howl > 0.02 && !I.lean, howl < 0.01 || I.lean, now, r);
+    this.aim(this.howlBus.gain, 2.4 * howl * (0.5 + 0.5 * gust) * (0.7 + 0.3 * zoom), 1);
+
+    // ---- season colour (calendar): the weather silences it (no birdsong in a downpour)
+    const day = 1 - night;
+    const quiet = (1 - clamp01(rain * 1.6)) * (1 - 0.9 * storm) * (1 - snow);
+    const birds = (I.spring + 0.5 * I.summer + 0.2 * I.autumn + 0.04 * I.winter) * day * quiet;
+    this.aim(this.birdBus.gain, birds * (0.05 + 0.5 * I.trees), 1);
+    const dusk = clamp01((night - 0.2) / 0.4);
+    const crickets = (I.summer + 0.3 * I.spring + 0.5 * I.autumn) * dusk * (1 - clamp01(rain * 2)) * (1 - 0.8 * storm);
+    this.aim(this.cricketBus.gain, crickets * (0.04 + 0.4 * I.land), 1);
+    const leafy = I.autumn + 0.35 * (I.spring + I.summer) + 0.04 * I.winter;
+    const rustle = Math.pow(wind, 1.2) * leafy * (1 - 0.7 * I.wet);
+    this.aim(this.rustleBus.gain, rustle * (0.3 + 2 * I.land), 1);
+    this.aim(this.rustleLp.frequency, air(I.autumn, 3200, 11000), 1);    // dry autumn leaves are crisp, green ones soft
+    const crunch = I.snowCover > 0.25 && night < 0.85 ? I.town * near * clamp01((I.snowCover - 0.25) * 2) : 0;
+    this.aim(this.crunchBus.gain, 0.7 * crunch, 1);
+
+    // only what the scene needs is synthesised
+    if (rain > 0.005) this.need(rain < 0.35 ? "drizzle" : "rain");
+    if (I.wet > 0.05) this.need("drip");
+    if (storm > 0.6) this.need("thunder", "rumble");
+    if (birds > 0.01) this.need("bird");
+    if (crickets > 0.01) this.need("cricket");
+    if (rustle > 0.01) this.need("rustle");
+    if (crunch > 0.01) this.need("crunch");
+
     const N = this.next;
     // ---- the swell: one wave per period, in sets; the shore, the bed, the laps and the bell answer it
     if (N.wave < ahead) {
       const at = Math.max(N.wave, now);
-      if (this.setLeft <= 0 && r() < 0.18) this.setLeft = 3;
+      if (this.setLeft <= 0 && r() < 0.18 + 0.3 * storm) this.setLeft = 3;
       const big = this.setLeft > 0 ? 1.25 : 1;
       this.setLeft--;
-      const size = (0.55 + 0.45 * r()) * big * (0.85 + 0.3 * wind);
+      const size = (0.55 + 0.45 * r()) * big * (0.85 + 0.3 * wind) * (1 + 0.35 * storm);
+      const deep = 1 - 0.08 * storm;      // storm breakers are bigger, slower, deeper
       // the main wash, and often a second one further along the beach
       // (the nearest stretch of beach pulls the main wash to its side of the screen)
       const lean = I.shorePan * 0.6 * I.shore;
-      this.play("shore", at, this.shoreLp, 0.9 * size, lean + (r() - 0.5) * (1.2 - 0.6 * I.shore), 0.94 + r() * 0.1);
-      if (r() < 0.6) this.play("shore", at + 0.8 + r() * 2.4, this.shoreLp, 0.45 * size * (0.6 + 0.4 * r()), r() * 1.6 - 0.8, 0.9 + r() * 0.12);
+      this.play("shore", at, this.shoreLp, 0.9 * size, lean + (r() - 0.5) * (1.2 - 0.6 * I.shore), (0.94 + r() * 0.1) * deep);
+      if (r() < 0.6 + 0.3 * storm) this.play("shore", at + 0.8 + r() * 2.4, this.shoreLp, 0.45 * size * (0.6 + 0.4 * r()), r() * 1.6 - 0.8, (0.9 + r() * 0.12) * deep);
+      // spray flung off the break in a storm
+      if (storm > 0.35) {
+        const sg = this.spray.gain;
+        sg.setTargetAtTime(0.45 + 0.55 * size, at + 0.8, 0.25);
+        sg.setTargetAtTime(0.15, at + 1.8, 1.4);
+      }
       // the far bed swells a little ahead of the beach and ebbs after it
       const g = this.bedSwell.gain;
       g.setTargetAtTime(0.65 + 0.55 * size, at, 0.9);
@@ -358,7 +533,7 @@ export class Ambience {
         this.play("bell", at + 1 + r(), this.bellBus, 1, -0.4, 0.99 + r() * 0.02);
         if (r() < 0.35) this.play("bell", at + 2.2 + r() * 0.6, this.bellBus, 0.55, -0.4, 0.99 + r() * 0.02);
       }
-      N.wave = at + (6 + r() * 3.5) * (1 - 0.18 * wind);
+      N.wave = at + (6 + r() * 3.5) * (1 - 0.18 * wind) * (1 - 0.12 * storm);
     }
     // stray laps between the swells
     if (N.lap < ahead) {
@@ -373,15 +548,72 @@ export class Ambience {
     }
     // gusts: the wind band wanders and swells
     if (N.gust < ahead) {
-      const at = Math.max(N.gust, now), d = 1.2 + r() * 2.8;
-      const hi = Math.min(1, r() * (0.5 + wind * 0.7));
+      const at = Math.max(N.gust, now), d = (1.2 + r() * 2.8) * (1 - 0.35 * gust);
+      const hi = Math.min(1, r() * (0.5 + wind * 0.7 + 0.3 * gust));
       this.windLo.gain.setTargetAtTime(1 - hi * 0.7, at, d * 0.4);
       this.windHi.gain.setTargetAtTime(hi, at, d * 0.4);
-      this.windGust.gain.setTargetAtTime(0.35 + r() * (0.5 + wind * 0.6), at, d * 0.35);
+      this.windGust.gain.setTargetAtTime(0.35 + r() * (0.5 + wind * 0.6 + 0.4 * gust), at, d * 0.35);
       // the whistle sings in some gusts of a blow, never as a steady tone
-      this.whistle.gain.setTargetAtTime(wind > 0.55 && r() < 0.55 ? (wind - 0.55) * (0.3 + 0.5 * r()) : 0, at, d * 0.3);
+      this.whistle.gain.setTargetAtTime(blow > 0.55 && r() < 0.55 ? (blow - 0.55) * (0.3 + 0.5 * r()) : 0, at, d * 0.3);
+      // driving rain: sheets of it come with the gusts
+      if (rain > 0.01) this.rainGust.gain.setTargetAtTime(0.7 + 0.7 * hi * (0.3 + gust), at, d * 0.35);
+      // the howl moans up and down with the gust
+      if (howl > 0.01) {
+        const p = hi * 2 + (r() - 0.5) * 0.6;
+        this.howl.forEach((g, k) => g.gain.setTargetAtTime(0.1 + 0.6 * Math.exp(-1.6 * (p - k) * (p - k)), at, d * 0.45));
+      }
+      // a gust through the leaves
+      if (rustle > 0.01 && r() < 0.25 + 0.6 * wind) this.play("rustle", at + d * 0.15, this.rustleLp, 0.5 + 0.5 * hi, I.treesPan * 0.4 + r() * 1.4 - 0.7, 0.9 + r() * 0.2);
       N.gust = at + d;
     }
+    // ---- rain on roofs and quays: overlapped 4 s clips (seamless); a second stream doubles a downpour
+    if (rain > 0.01) {
+      if (N.rainA < ahead) {
+        const at = Math.max(N.rainA, now);
+        this.play(rain < 0.3 ? "drizzle" : "rain", at, this.patterLp, 0.9, I.townPan * 0.3 + r() * 0.4 - 0.2, 0.95 + r() * 0.1);
+        N.rainA = at + 3.45 + r() * 0.1;
+      }
+      if (rain > 0.6 && !I.lean) {
+        if (N.rainB < ahead) {
+          const at = Math.max(N.rainB, now);
+          this.play("rain", at, this.patterLp, 0.8 * clamp01((rain - 0.6) / 0.3), r() < 0.5 ? -0.6 : 0.6, 0.9 + r() * 0.15);
+          N.rainB = at + 3.45 + r() * 0.1;
+        }
+      } else N.rainB = Math.max(N.rainB, now + 1.7);
+    } else N.rainA = Math.max(N.rainA, now);
+    // the eaves drip while things are wet (and after the rain has stopped)
+    if (I.wet > 0.05 && snow < 0.5) {
+      if (N.drip < ahead) {
+        const at = Math.max(N.drip, now);
+        this.play("drip", at, this.dripBus, 0.5 + 0.5 * r(), I.townPan * 0.5 + r() * 1.2 - 0.6, 0.85 + r() * 0.3);
+        N.drip = at + (0.3 + r() * 2.2) / (0.3 + I.wet);
+      }
+    } else N.drip = Math.max(N.drip, now);
+    // songbirds, and now and then an answer from another tree
+    if (birds > 0.01) {
+      if (N.bird < ahead) {
+        const at = Math.max(N.bird, now), pan = I.treesPan * 0.5 + r() * 1.2 - 0.6;
+        this.play("bird", at, this.birdBus, 0.5 + 0.5 * r(), pan, 0.94 + r() * 0.12);
+        if (r() < 0.3) this.play("bird", at + 1 + r() * 1.5, this.birdBus, 0.35 + 0.3 * r(), -pan, 0.92 + r() * 0.16);
+        N.bird = at + (1.5 + r() * 5) / (0.4 + Math.min(1, birds));
+      }
+    } else N.bird = Math.max(N.bird, now + r() * 2);
+    // crickets: overlapped 4 s clips like the fire
+    if (crickets > 0.01) {
+      if (N.cricket < ahead) {
+        const at = Math.max(N.cricket, now);
+        this.play("cricket", at, this.cricketBus, 0.8, I.treesPan * 0.3 + r() * 0.6 - 0.3, 0.97 + r() * 0.06);
+        N.cricket = at + 3.45 + r() * 0.1;
+      }
+    } else N.cricket = Math.max(N.cricket, now);
+    // footsteps in the snow, now and then, near the town
+    if (crunch > 0.01) {
+      if (N.crunch < ahead) {
+        const at = Math.max(N.crunch, now);
+        this.play("crunch", at, this.crunchBus, 0.6 + 0.4 * r(), I.townPan * 0.5 + r() * 1.2 - 0.6, 0.92 + r() * 0.16);
+        N.crunch = at + 7 + r() * 14;
+      }
+    } else N.crunch = Math.max(N.crunch, now + 3);
     // the Pharos fire, only running when it can be heard
     if (I.fire > 0.03) {
       if (N.crackle < ahead) {
@@ -430,6 +662,46 @@ export class Ambience {
     }
   }
 
+  /** Ask the bank for lazy kinds; start synthesising if it was idle. */
+  private need(...kinds: ClipKind[]): void {
+    const busy = this.bank.pending;
+    let added = false;
+    for (const k of kinds) added = this.bank.want(k) || added;
+    if (!added) return;
+    if (!this.timer) this.bank.buildAll();
+    else if (!busy) this.pump();
+  }
+
+  /**
+   * Thunder for a lightning flash `km` away: it arrives with the sound's own delay (343 m/s), compressed
+   * beyond ~10 s so a far strike's roll still answers its flash (monotonic: farther is always later). A near
+   * strike (< 4 km) cracks and rolls; a far one is only the low rumble, quieter with distance. Placed at
+   * `pan`. At most three rolls at once (a flurry of flashes must not stack into a roar). Reduced motion:
+   * never a crack, and softer.
+   */
+  thunder(km: number, intensity = 1, pan = 0, delaySec = (km * 1000) / 343): void {
+    if (this.disposed) return;
+    const now = this.ac.currentTime;
+    this.thunders = this.thunders.filter((t) => t > now);
+    if (this.thunders.length >= 3) return;
+    const d = Math.max(0.3, km), reduced = this.inputs.reduced;
+    const near = d < 4 && !reduced;
+    const delay = delaySec <= 10 ? Math.max(0.2, delaySec) : Math.min(20, 10 + (delaySec - 10) * 0.3);
+    const at = now + delay;
+    const strength = 0.35 + 0.65 * Math.max(0, Math.min(1, intensity));
+    const lvl = strength * (near ? 0.85 * Math.min(1, Math.sqrt(2.5 / d)) : Math.max(0.6, Math.min(0.9, 6 / d))) * (reduced ? 0.6 : 1);
+    const kind = near ? "thunder" : "rumble";
+    this.need(kind);
+    this.play(kind, at, this.thunderBus, lvl, pan, 0.88 + this.rnd() * 0.2);
+    if (near) {
+      // dip the weather beds under the clap, then let them back over the roll
+      const g = this.duck.gain, k = 1 - 0.55 * lvl;
+      g.setTargetAtTime(k, at, 0.02);
+      g.setTargetAtTime(1, at + 0.5, 1.2);
+    }
+    this.thunders.push(at + (near ? 10 : 16));
+  }
+
   private env(at: number, attack: number, hold: number, release: number, peak: number): GainNode {
     const g = this.ac.createGain();
     g.gain.setValueAtTime(0, at);
@@ -475,6 +747,7 @@ export class Ambience {
     await new Promise((r) => setTimeout(r, 680));
     for (const s of this.sources) { try { s.stop(); } catch { /* already stopped */ } }
     this.whistleLoop.stop();
+    for (const l of [this.rainLoop, this.sprayLoop, this.howlLoop]) l.stop();
     this.out.disconnect();
     if ("close" in this.ac) await (this.ac as AudioContext).close().catch(() => undefined);
   }

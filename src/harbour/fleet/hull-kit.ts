@@ -11,7 +11,8 @@ import { planSails, ROLE_BODY, type SailMeshOut } from "./sail-plan";
  *
  *   position, normal, color (vec4: rgb albedo, a = pattern id / 16)
  *   aSailUV  (TEXCOORD_0, sail space) · aEmbUV (emblem square [0,1]², else -1: re-measured by sail-plan.ts
- *     from TEXCOORD_1, a bigger roundel on sail_main plus one on the second sail)
+ *     from TEXCOORD_1, a bigger roundel on sail_main plus one on the second sail; on a furled cover, the roundel
+ *     printed on each side of it, in the hull's side plane (u along +x: the shader flips it on the -z side))
  *   aFurl / aFurlN: the "furl" morph deltas (0 = set … 1 = furled / cover on)
  *   aMeta = (kind 0 opaque | 1 sail | 2 cover, node, brand 0..1 (opaque) | sail role (sail-plan ROLE_*), flag 0..1)
  *     LOD sails (hb_opaque in the kit: rig paint 8 in the full hull's cloth colour) bake as kind 1 so they take the dye.
@@ -23,6 +24,8 @@ import { planSails, ROLE_BODY, type SailMeshOut } from "./sail-plan";
  *     Decorative, never data.
  */
 export const KIT_BASE = "/harbour/kit/";
+/** Furled cover's half-height over the rolled sail's mean radius (its half-width stays 0.42): a tall, narrow sail bag. */
+const COVER_TALL = 0.95;
 
 export interface ManifestNode { name: string; parent: string; origin: [number, number, number]; empty?: boolean; material?: string; stay_axis?: [number, number, number] }
 export interface ManifestHull {
@@ -123,7 +126,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     // rolled jib is a slim roll on its stay. The furl morph's end shape is pulled toward its axis.
     const isCover = mats.some((m) => m.name === "hb_cover");
     const isJib = mesh.name === "sail_jib";
-    let furlAdj: Float32Array | null = null, coverUV: Float32Array | null = null;
+    let furlAdj: Float32Array | null = null, coverUV: Float32Array | null = null, coverEmb: Float32Array | null = null;
     if (mp && (isCover || isJib) && !opts.lod) {
       const nv = pos.count;
       const B = new Float32Array(nv * 3), Pf = new Float32Array(nv * 3);
@@ -149,12 +152,20 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
         for (let vi = 0; vi < nv; vi++) { const x = Pf[vi * 3]; rm += Math.hypot(Pf[vi * 3 + 1] - (ay + by * x), Pf[vi * 3 + 2] - (az + bz * x)); }
         rm = rm / nv || 0.1;
         coverUV = new Float32Array(nv * 2);
+        coverEmb = new Float32Array(nv * 2);
+        // a sail bag, not a tube: the same footprint on the boom, taller and narrow, so the coin's roundel printed
+        // on each side (largest that fits, mid-boom) reads from the harbour's 30-38° camera
+        let lo = Infinity, hi = -Infinity;
+        for (let vi = 0; vi < nv; vi++) { const ry = Pf[vi * 3 + 1] - (ay + by * Pf[vi * 3]); lo = Math.min(lo, ry); hi = Math.max(hi, ry); }
+        // (the upper 70 %: the top and the flat side, what the camera sees from above; the underside faces the water)
+        const D = Math.max(1e-3, (hi - lo) * COVER_TALL * 0.7), xm = (x0 + x1) / 2, ym = (hi - 0.35 * (hi - lo)) * COVER_TALL;
         for (let vi = 0; vi < nv; vi++) {
-          const x = Pf[vi * 3], cy = ay + by * x - rm * 0.3, cz = az + bz * x;
+          const x = Pf[vi * 3], cy = ay + by * x - rm * (0.85 - COVER_TALL), cz = az + bz * x;
           const ry = Pf[vi * 3 + 1] - (ay + by * x), rz = Pf[vi * 3 + 2] - cz;
-          const ny = cy + ry * 0.55, nz = cz + rz * 0.42;
+          const ny = cy + ry * COVER_TALL, nz = cz + rz * 0.42;
           furlAdj[vi * 3] = Pf[vi * 3] - B[vi * 3]; furlAdj[vi * 3 + 1] = ny - B[vi * 3 + 1]; furlAdj[vi * 3 + 2] = nz - B[vi * 3 + 2];
           coverUV[vi * 2] = (x - x0) / Math.max(1e-3, x1 - x0); coverUV[vi * 2 + 1] = ry / rm;
+          coverEmb[vi * 2] = (x - xm) / D + 0.5; coverEmb[vi * 2 + 1] = 0.5 - (ry * COVER_TALL - ym) / D;
         }
       } else {
         const ax = jibAxis;
@@ -191,6 +202,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
           else if (lodSail) SU.push(0.5, 0.5625); // plain cloth: between seams, clear of the tabling
           else SU.push(uv0 && kind === 1 ? uv0.getX(vi) : 0, uv0 && kind === 1 ? uv0.getY(vi) : 0);
           if (plan && kind === 1) EU.push(plan.emb[vi * 2], plan.emb[vi * 2 + 1]);
+          else if (coverEmb && kind === 2) EU.push(coverEmb[vi * 2], coverEmb[vi * 2 + 1]);
           else EU.push(uv1 && kind === 1 ? uv1.getX(vi) : -1, uv1 && kind === 1 ? uv1.getY(vi) : -1);
           if (furlAdj) F.push(furlAdj[vi * 3], furlAdj[vi * 3 + 1], furlAdj[vi * 3 + 2]);
           else if (mp) {

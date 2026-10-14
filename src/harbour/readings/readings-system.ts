@@ -5,7 +5,6 @@ import type { HarbourFeed } from "../data/fetch";
 import type { HarbourModel } from "../model/types";
 import type { OceanService } from "../ocean/ocean-system";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
-import type { SkyService } from "../sky/sky-system";
 import type { LightsService } from "../lights/lights-service";
 import type { LighthouseService } from "../world/lighthouse-system";
 import { getHarbourMaterials } from "../world/materials";
@@ -23,7 +22,7 @@ import { TideGauge } from "./tide-gauge";
  *
  * Service 'readings' (for the UI): per-landmark freshness (current / stale / unknown + age), the
  * tide reading, the mint/burn flow scope (the Mint and the Burn read it: src/harbour/civic), the fog amount. Registered right after the data system so
- * the weather can dim the key light before the island copies it into its lights.
+ * the weather director (next) reads its targets before the sky and the island use them.
  *
  * Dev only: ?psi=TREMOR|none ?psiScore=55 ?offpeg=0.06 ?dews=ALERT ?cones=3 ?tide=-0.8 ?stale=1
  * (see bind.ts applyDevOverrides). The engine's own ?sea= ?cloud= ?wind= ?lamp= ?reach= win.
@@ -42,6 +41,8 @@ export interface ReadingsService {
   readonly cones: number | null;
   /** The weather band the mast and the sky both show (null = no stress reading). */
   readonly stormBand: NonNullable<WorldTargets["weather"]>["band"] | null;
+  /** The DEWS weather target (continuous level 0..4) the weather director eases toward; null = no stress reading. */
+  readonly weather: WorldTargets["weather"];
   /** Red pennant at the masthead (band DANGER). */
   readonly pennant: boolean;
   /** The individual coins at Alert or worse, worst first (the panel lists them; the mast does not count them). */
@@ -82,12 +83,8 @@ export class ReadingsSystem implements WorldSystem {
   private lastLamp = -1;
   private lastReach = -1;
   private lastSea: number | null = -1;
-  private lastCloud = -1;
-  private lastWind = -1;
   private windS = 0.3;
-  private coverS = 0;
   private alertS = 0;
-  private readonly tmpC = new THREE.Color();
   private gauge: TideGauge | null = null;
   private cones: StormCones | null = null;
   private signalMissing = false;
@@ -115,6 +112,7 @@ export class ReadingsSystem implements WorldSystem {
       get psi() { return sys.targets?.psi ?? { lit: false, sweepSec: 12, reach: 0, lamp: 0 as LampStep, band: null, score: null }; },
       get cones() { return sys.targets?.cones ?? null; },
       get stormBand() { return sys.targets?.weather?.band ?? null; },
+      get weather() { return sys.targets?.weather ?? null; },
       get pennant() { return sys.targets?.pennant ?? false; },
       get alerts() { return sys.targets?.alerts ?? []; },
       get fog() { return sys.fogS; },
@@ -260,34 +258,10 @@ export class ReadingsSystem implements WorldSystem {
       if (t.sea != null) ocean.setSeaState(t.sea);
     }
 
-    // ---- 3. weather: DEWS → cloud + wind (the sky eases both; no random weather)
-    const sky = ctx.services.get("sky") as SkyService | undefined;
+    // ---- 3. weather: DEWS → the weather director (src/harbour/weather) eases the sky, wind, rain/snow,
+    //      lightning and the overcast light from `weather` (no random weather); the mast's flag flaps here
     const w = t.weather;
-    if (sky && w) {
-      if (w.cloud !== this.lastCloud && !this.q.has("cloud")) { this.lastCloud = w.cloud; sky.setCloudCover(w.cloud); }
-      if (w.wind !== this.lastWind && !this.q.has("wind")) { this.lastWind = w.wind; sky.setWind(w.wind); }
-    }
     this.windS += ((w?.wind ?? 0.3) - this.windS) * (1 - Math.exp(-dt * 0.5));
-    // overcast mutes and greys the key light (same easing as the sky's cover). This system runs
-    // after TimeOfDay wrote the uniforms and before the island copies them into its lights.
-    const coverT = this.q.has("cloud") ? Number(this.q.get("cloud")) || 0 : w?.cloud ?? 0;
-    this.coverS += (coverT - this.coverS) * (1 - Math.exp(-dt * 0.5));
-    const oc = THREE.MathUtils.smoothstep(this.coverS, 0.35, 1.0);
-    if (oc > 1e-3) {
-      const sun = U.uSunColor.value;
-      const l = 0.2126 * sun.r + 0.7152 * sun.g + 0.0722 * sun.b;
-      sun.lerp(this.tmpC.setRGB(l, l, l), 0.4 * oc).multiplyScalar(1 - 0.5 * oc);
-      U.uHemiSky.value.multiplyScalar(1 + 0.15 * oc);
-    }
-    // under the cloud deck the day grades darker and cooler (a clear sky stays warm); the sky's own
-    // storm grade (runs next) greys it further from ALERT up
-    const cool = THREE.MathUtils.smoothstep(this.coverS, 0.3, 0.8) * (1 - U.uNight.value);
-    if (cool > 1e-3) {
-      const g = ctx.timeOfDay.grade;
-      g.gain = [g.gain[0] * (1 - 0.13 * cool), g.gain[1] * (1 - 0.07 * cool), g.gain[2] * (1 + 0.02 * cool)];
-      g.lift = [g.lift[0] * (1 - 0.012 * cool), g.lift[1], g.lift[2] * (1 + 0.02 * cool)];
-      g.warmSat *= 1 - 0.12 * cool;
-    }
 
     // ---- 4. fog, only for stale / unavailable fleet data; rolls in over 10 s
     const fogT = t.fog ? 1 : 0;

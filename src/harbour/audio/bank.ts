@@ -10,8 +10,19 @@ import { SYNTHS, makeRng, type Clip, type ClipKind } from "./dsp";
  * Synthesis rate per kind: each just above twice its highest content (the source node resamples on play).
  * Halves the memory and the synthesis time against 48 kHz; the bank holds ~18 MB of PCM in all.
  */
-const RATE: Record<ClipKind, number> = { shore: 24000, lap: 24000, reef: 12000, crackle: 24000, press: 24000, halyard: 24000, bell: 16000, gull: 24000, creak: 16000 };
-const PLAN: Record<ClipKind, number> = { shore: 6, lap: 8, reef: 3, crackle: 3, press: 2, halyard: 5, bell: 2, gull: 6, creak: 4 };
+const RATE: Record<ClipKind, number> = {
+  shore: 24000, lap: 24000, reef: 12000, crackle: 24000, press: 24000, halyard: 24000, bell: 16000, gull: 24000, creak: 16000,
+  drizzle: 24000, rain: 24000, drip: 24000, thunder: 24000, rumble: 8000, bird: 24000, cricket: 24000, rustle: 24000, crunch: 24000,
+};
+const PLAN: Record<ClipKind, number> = {
+  shore: 6, lap: 8, reef: 3, crackle: 3, press: 2, halyard: 5, bell: 2, gull: 6, creak: 4,
+  drizzle: 2, rain: 3, drip: 4, thunder: 3, rumble: 4, bird: 7, cricket: 3, rustle: 5, crunch: 3,
+};
+/**
+ * Weather and season kinds are LAZY: synthesised only once the scene asks for them (want()), so a calm
+ * summer noon never spends a millisecond or a megabyte on thunder or snow.
+ */
+const LAZY = new Set<ClipKind>(["drizzle", "rain", "drip", "thunder", "rumble", "bird", "cricket", "rustle", "crunch"]);
 /** the first of each kind comes first, so the scene is audible within a few hundred ms */
 const FIRST: ClipKind[] = ["shore", "lap", "reef", "shore", "lap", "halyard", "gull", "creak", "bell", "crackle", "press"];
 const REFRESH: ClipKind[] = ["shore", "lap", "reef", "shore", "gull", "lap", "halyard", "creak"];
@@ -25,12 +36,21 @@ export class ClipBank {
   private job: Job | null = null;
   private seed: number;
   private refreshN = 0;
+  private readonly wanted: ClipKind[] = [];
 
   constructor(private readonly ac: BaseAudioContext, seed: number) {
     this.seed = seed >>> 0;
     const filled = Object.fromEntries(Object.keys(PLAN).map((k) => [k, 0])) as Record<ClipKind, number>;
     for (const k of FIRST) this.queue.push({ kind: k, slot: filled[k]++ });
-    for (const k of Object.keys(PLAN) as ClipKind[]) while (filled[k] < PLAN[k]) this.queue.push({ kind: k, slot: filled[k]++ });
+    for (const k of Object.keys(PLAN) as ClipKind[]) if (!LAZY.has(k)) while (filled[k] < PLAN[k]) this.queue.push({ kind: k, slot: filled[k]++ });
+  }
+
+  /** Ask for a lazy kind: queues its variants the first time (true), no-op after. */
+  want(kind: ClipKind): boolean {
+    if (!LAZY.has(kind) || this.wanted.includes(kind)) return false;
+    this.wanted.push(kind);
+    for (let i = 0; i < PLAN[kind]; i++) this.queue.push({ kind, slot: i });
+    return true;
   }
 
   get pending(): boolean { return !!this.job || this.queue.length > 0; }
@@ -48,7 +68,8 @@ export class ClipBank {
   /** Queue one replacement variant (call every ~20 s while playing). */
   refresh(): void {
     if (this.pending) return;
-    const kind = REFRESH[this.refreshN++ % REFRESH.length];
+    const pool = this.wanted.length ? [...REFRESH, ...this.wanted] : REFRESH;
+    const kind = pool[this.refreshN++ % pool.length];
     this.queue.push({ kind, slot: Math.floor(makeRng(this.seed + this.refreshN)() * PLAN[kind]) });
   }
 

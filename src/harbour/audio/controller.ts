@@ -30,11 +30,51 @@ interface Life { wind?: number }
 interface CivicLayout { pharos?: { position: Vec3 }; civic?: Array<{ kind: string; position: Vec3 }> }
 /** Optional civic service: the Mint's activity 0..1, when the civic layer publishes it. */
 interface Civic { mintRate?: number }
+/** Lights in the layout: the town's windows say where its roofs and quays are. */
+interface LitLayout { lights?: Array<{ kind: string; position: Vec3 }> }
+
+/**
+ * The 'weather' service (src/harbour/weather), read structurally and every field optional: the sound
+ * must never depend on it being there. DEWS level 0..4 (continuous), eased by the director.
+ */
+export interface WeatherLike {
+  readonly state?: { readonly level?: number | null; readonly wind?: number; readonly rain?: number; readonly snow?: number; readonly wetness?: number };
+  readonly band?: string | null;
+  readonly precip?: { readonly rain?: number; readonly snow?: number };
+  onLightning?(cb: (e: StrikeLike) => void): (() => void) | void;
+}
+export interface StrikeLike { distanceKm?: number; thunderDelaySec?: number; intensity?: number; azimuth?: number }
+/** The 'season' service (calendar): weights in contract order spring, summer, autumn, winter. */
+export interface SeasonLike { readonly weights?: readonly number[]; readonly snowCover?: number }
+interface Motion { readonly reduced?: boolean }
+interface Quality { readonly tier?: string }
+
+const BAND_LEVEL: Record<string, number> = { CALM: 0, WATCH: 1, ALERT: 2, WARNING: 3, DANGER: 4 };
+const clamp01 = (x: number) => (x > 0 ? (x < 1 ? x : 1) : 0);
+
+/** Weather and season → the ambience's weather inputs. Absent services read as fair weather, no season colour. */
+export function weatherInputs(w: WeatherLike | undefined, s: SeasonLike | undefined, fallbackWind: number, fallbackWet: number): Partial<AmbienceInputs> {
+  const st = w?.state;
+  const level = st?.level ?? (w?.band ? BAND_LEVEL[w.band.toUpperCase()] : undefined);
+  const storm = level == null ? 0 : clamp01(level / 4);
+  const wt = s?.weights;
+  return {
+    storm,
+    // the director's gust amplitude grows with the band (0.04 + 0.11 · level): 0..1 here
+    gust: level == null ? 0.2 : clamp01((0.04 + 0.11 * level) / 0.48),
+    wind: clamp01(st?.wind ?? fallbackWind),
+    rain: clamp01(w?.precip?.rain ?? st?.rain ?? 0),
+    snow: clamp01(w?.precip?.snow ?? st?.snow ?? 0),
+    wet: clamp01(st?.wetness ?? fallbackWet),
+    spring: clamp01(wt?.[0] ?? 0), summer: clamp01(wt?.[1] ?? 0), autumn: clamp01(wt?.[2] ?? 0), winter: clamp01(wt?.[3] ?? 0),
+    snowCover: clamp01(s?.snowCover ?? 0),
+  };
+}
 
 /** Where the sound sources sit, gathered once per layout. */
-interface Sources { coast: Vec2[]; berths: Vec2[]; reef: Vec2 | null; fire: Vec3 | null; mint: Vec3 | null }
+interface Sources { coast: Vec2[]; berths: Vec2[]; reef: Vec2 | null; fire: Vec3 | null; mint: Vec3 | null; town: Vec2[]; trees: Vec2[] }
 
-function gatherSources(L: HarbourLayout & CivicLayout): Sources {
+function gatherSources(L: HarbourLayout & CivicLayout & LitLayout): Sources {
   const shoals = L.zones?.shoals?.polygon;
   const reef: Vec2 | null = shoals?.length
     ? [shoals.reduce((a, p) => a + p[0], 0) / shoals.length, shoals.reduce((a, p) => a + p[1], 0) / shoals.length]
@@ -47,6 +87,9 @@ function gatherSources(L: HarbourLayout & CivicLayout): Sources {
     coast: L.island?.coast ?? [],
     berths: (L.piers ?? []).flatMap((p) => p.berths.map((b) => [b.position[0], b.position[2]] as Vec2)),
     reef, fire, mint: m ? [m[0], m[1] + 12, m[2]] : null,
+    town: (L.lights ?? []).filter((l) => l.kind === "window").map((l) => [l.position[0], l.position[2]] as Vec2),
+    // the hamlets sit among the island's trees
+    trees: (L.landmarks ?? []).filter((l) => l.id.startsWith("hamlet")).map((l) => [l.position[0], l.position[2]] as Vec2),
   };
 }
 
@@ -57,6 +100,26 @@ function segDist(px: number, pz: number, a: Vec2, b: Vec2): number {
   const t = l ? Math.max(0, Math.min(1, ((px - a[0]) * dx + (pz - a[1]) * dz) / l)) : 0;
   hit[0] = a[0] + t * dx; hit[1] = a[1] + t * dz;
   return Math.hypot(px - hit[0], pz - hit[1]);
+}
+
+/** Even-odd point in polygon. */
+function inside(px: number, pz: number, poly: Vec2[]): boolean {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a[1] > pz) !== (b[1] > pz) && px < ((b[0] - a[0]) * (pz - a[1])) / (b[1] - a[1]) + a[0]) c = !c;
+  }
+  return c;
+}
+
+/** Nearest of `pts` to (x, z): its distance, the point left in `hit`. */
+function nearest(x: number, z: number, pts: Vec2[]): number {
+  let d = Infinity;
+  for (const p of pts) {
+    const e = Math.hypot(p[0] - x, p[1] - z);
+    if (e < d) { d = e; hit[0] = p[0]; hit[1] = p[1]; }
+  }
+  return d;
 }
 
 function readChoice(): boolean {
@@ -74,6 +137,9 @@ class Controller implements SoundController {
   private starting = false;
   private src: Sources | null = null;
   private srcFor: unknown = null;
+  private unsubStrike: (() => void) | null = null;
+  /** the camera's right on the ground, kept for placing thunder */
+  private readonly right: Vec2 = [1, 0];
   private readonly listeners = new Set<() => void>();
   private readonly onGesture = () => { this.disarm(); if (this.on) this.start(); };
   private readonly onVisibility = () => {
@@ -141,13 +207,23 @@ class Controller implements SoundController {
     const zoom = Math.max(0, Math.min(1, (ctx.rig.distance - lo) / (hi - lo)));
     const fog = (ctx.services.get("readings") as Readings | undefined)?.fog ?? 0;
     const wind = (ctx.services.get("life") as Life | undefined)?.wind ?? 0.35;
-    const inputs: Partial<AmbienceInputs> = { zoom: Math.sqrt(zoom), wind, fog, night: ctx.uniforms.uNight.value };
+    const weather = ctx.services.get("weather") as WeatherLike | undefined;
+    const wetU = (ctx.uniforms as unknown as { uWetness?: { value: number } }).uWetness?.value ?? 0;
+    const inputs: Partial<AmbienceInputs> = {
+      zoom: Math.sqrt(zoom), fog, night: ctx.uniforms.uNight.value,
+      ...weatherInputs(weather, ctx.services.get("season") as SeasonLike | undefined, wind, wetU),
+      reduced: !!(ctx.services.get("motion") as Motion | undefined)?.reduced,
+      lean: (ctx.services.get("quality") as Quality | undefined)?.tier === "low",
+    };
+    // thunder answers the weather's lightning (subscribed once the service is there)
+    if (!this.unsubStrike && weather?.onLightning) this.unsubStrike = weather.onLightning((e) => this.strike(e)) ?? (() => undefined);
     if (L) {
       if (this.srcFor !== L) { this.src = gatherSources(L); this.srcFor = L; }
       const S = this.src!;
       const t = ctx.rig.target, cam = ctx.rig.camera.position, e = ctx.rig.camera.matrixWorld.elements;
       const lx = t.x + (cam.x - t.x) * 0.45, ly = t.y + (cam.y - t.y) * 0.45, lz = t.z + (cam.z - t.z) * 0.45;
       const rl = Math.hypot(e[0], e[2]) || 1, rx = e[0] / rl, rz = e[2] / rl;   // the camera's right, on the ground
+      this.right[0] = rx; this.right[1] = rz;
       const near = (dg: number, h: number, ref: number) => Math.min(1, (ref * ref) / (dg * dg + h * h + 1));
       const pan = (x: number, z: number) => { const dx = x - lx, dz = z - lz; return Math.max(-1, Math.min(1, (dx * rx + dz * rz) / (Math.hypot(dx, dz) + 40))); };
       let dc = Infinity, cx = lx, cz = lz;
@@ -167,12 +243,28 @@ class Controller implements SoundController {
         inputs.mintPan = pan(S.mint[0], S.mint[2]);
         inputs.mintRate = (ctx.services.get("civic") as Civic | undefined)?.mintRate ?? 0.5;
       } else inputs.mint = 0;
+      if (S.town.length) { inputs.town = near(nearest(lx, lz, S.town), ly, 120); inputs.townPan = pan(hit[0], hit[1]); }
+      const onLand = S.coast.length > 2 && inside(lx, lz, S.coast);
+      inputs.land = onLand ? near(0, ly, 170) : 0.4 * (inputs.shore ?? 0);
+      inputs.trees = Math.max(S.trees.length ? near(nearest(lx, lz, S.trees), ly, 140) : 0, 0.6 * inputs.land);
+      if (S.trees.length) inputs.treesPan = pan(hit[0], hit[1]);
     }
     amb.set(inputs);
   }
 
+  /** A lightning strike: its thunder, delayed by its distance, from where it struck (azimuth 0 = -z, +π/2 = +x). */
+  private strike(e: StrikeLike): void {
+    const amb = this.amb;
+    if (!amb) return;
+    const az = e.azimuth ?? 0, dx = Math.sin(az), dz = -Math.cos(az);
+    const pan = Math.max(-1, Math.min(1, dx * this.right[0] + dz * this.right[1]));
+    const km = e.distanceKm ?? 10;
+    amb.thunder(km, e.intensity ?? 0.6, pan * 0.8, e.thunderDelaySec ?? (km * 1000) / 343);
+  }
+
   stop(): void {
     clearInterval(this.poll);
+    this.unsubStrike?.(); this.unsubStrike = null;
     const amb = this.amb, ac = this.ac;
     this.amb = null; this.ac = null;
     if (amb) void amb.dispose(); else if (ac) void ac.close().catch(() => undefined);

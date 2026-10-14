@@ -12,12 +12,20 @@
  *     sparse stone knocks and a deep gurgle (rocks), decaying as the water draws back;
  *   - lap: a small slap against a hull or pile, a hollow wooden knock, then a trickle of bubbles;
  *   - reef surf: a far, heavy, lowpassed break with a long roaring tail (the air has eaten the highs);
- *   - fire crackle and the Mint's press stroke for the near-field civic sounds.
+ *   - fire crackle and the Mint's press stroke for the near-field civic sounds;
+ *   - weather: rain patter on roofs and quays (drop ticks, puddle plinks, a merged roof roar), eave drips,
+ *     near thunder (the tearing N-wave cracks of the closest channel, the clap, a rolling tail) and far
+ *     thunder (only the low roll: the air has eaten the rest);
+ *   - season colour: songbird phrases, crickets, a gust through dry leaves, footsteps crunching in snow.
  */
 
 export interface Clip { readonly sr: number; readonly L: Float32Array; readonly R: Float32Array }
 export type Rng = () => number;
-export type ClipKind = "shore" | "lap" | "reef" | "crackle" | "press" | "halyard" | "bell" | "gull" | "creak";
+export type ClipKind = "shore" | "lap" | "reef" | "crackle" | "press" | "halyard" | "bell" | "gull" | "creak"
+  // weather (DEWS): precipitation, thunder
+  | "drizzle" | "rain" | "drip" | "thunder" | "rumble"
+  // season colour (calendar, decorative)
+  | "bird" | "cricket" | "rustle" | "crunch";
 
 /** mulberry32: small, fast, seedable. */
 export function makeRng(seed: number): Rng {
@@ -519,6 +527,377 @@ export function* creak(seed: number, sr: number): Generator<void, Clip> {
   return { sr, L, R };
 }
 
+// ---------------------------------------------------------------------------------------------------------
+// Weather and season clips
+// ---------------------------------------------------------------------------------------------------------
+
+/** RMS of unit noise through a 2-pole lowpass at fc (noise-equivalent bandwidth ≈ 1.11 fc): divide by it. */
+const lpRms = (fc: number, sr: number) => Math.sqrt(Math.min(1, (1.11 * fc) / (sr / 2)));
+
+/** A drop or leaf tick: a few ms of noise through a resonant band (unity gain at the peak), soft-started. */
+function tick(L: Float32Array, R: Float32Array, sr: number, at: number, f: number, q: number, tau: number, amp: number, pan: number, N: () => number): void {
+  const i0 = Math.floor(at * sr), n = Math.min(L.length - i0, Math.ceil(tau * 6 * sr) + 4);
+  if (i0 < 0 || n <= 0) return;
+  const [gl, gr] = panGains(pan);
+  const bp = new Svf(sr); bp.set(f, q);
+  const d = Math.exp(-1 / (tau * sr));
+  let e = amp;
+  for (let i = 0; i < n; i++) {
+    bp.run(N() * e * (i < 4 ? (i + 1) / 5 : 1));
+    const s = bp.bp / q;
+    L[i0 + i] += s * gl; R[i0 + i] += s * gr;
+    e *= d;
+  }
+}
+
+/**
+ * An N-wave: the pressure jump of a thunder crack, then a linear fall through zero and a quick return. Its
+ * duration sets its colour (short = bright tearing, long = a dull thud from farther along the channel).
+ */
+function nwave(L: Float32Array, R: Float32Array, sr: number, at: number, dur: number, amp: number, pan: number): void {
+  const i0 = Math.floor(at * sr), m = Math.max(5, Math.round(dur * sr));
+  if (i0 < 0 || i0 + m + 6 > L.length) return;
+  const [gl, gr] = panGains(pan);
+  for (let i = 0; i <= m + 5; i++) {
+    const v = i < 3 ? (amp * (i + 1)) / 4 : i <= m ? amp * (1 - (2 * i) / m) : -amp * (1 - (i - m) / 6);
+    L[i0 + i] += v * gl; R[i0 + i] += v * gr;
+  }
+}
+
+/** Scale a clip down (never up) so its peak stays at or below `peak`: no new clip can approach full scale. */
+function limit(c: { L: Float32Array; R: Float32Array }, peak: number): void {
+  let p = 0;
+  for (let i = 0; i < c.L.length; i++) p = Math.max(p, Math.abs(c.L[i]), Math.abs(c.R[i]));
+  if (p <= peak) return;
+  const k = peak / p;
+  for (let i = 0; i < c.L.length; i++) { c.L[i] *= k; c.R[i] *= k; }
+}
+
+/**
+ * Rain on roofs, quays and puddles: drop ticks on hard surfaces (a resonant band each), plinks where drops
+ * land in standing water (a Minnaert bubble, pitch rising), over the merged roar of countless far drops.
+ * `rate` drops per second (drizzle ~45, rain ~170). 4 s, faded at both ends: overlapped end to end.
+ */
+export function* patter(seed: number, sr: number, rate: number, size: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 4, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  // the roof roar: a soft band of noise, independent L/R, swelling a little with the shower's own gusting
+  const fl = new Svf(sr), fr = new Svf(sr);
+  fl.set(range(r, 1500, 2500), 0.45); fr.set(range(r, 1500, 2500), 0.45);
+  const kw = onePole(0.7, sr), wStd = Math.sqrt(kw / 2);
+  const bed = 0.05 * Math.sqrt(rate / 170) * size;
+  let w = 0;
+  for (let i = 0; i < n; i++) {
+    w += kw * (N() - w);
+    const e = bed * Math.max(0.35, 1 + 0.35 * (w / wStd));
+    fl.run(N()); fr.run(N());
+    L[i] += fl.bp * e; R[i] += fr.bp * e;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  for (let t = 0.005; t < T - 0.02;) {
+    t += -Math.log(1 - r() * 0.9999) / rate;
+    const loud = Math.pow(r(), 3), pan = range(r, -0.95, 0.95);
+    if (r() < 0.14) {
+      const f = logRange(r, 1000, 3600);
+      grain(L, R, sr, t, f, range(r, 6, 14) / f, (0.008 + 0.05 * loud) * size, pan, 0.4, r() * TAU);
+    } else if (r() < 0.04 * size) {
+      // a fat drop off a gutter onto a plank: low and dull
+      tick(L, R, sr, t, logRange(r, 380, 900), 2, range(r, 0.003, 0.006), 0.22 * size, pan, N);
+    } else {
+      tick(L, R, sr, t, logRange(r, 700, 6500), range(r, 1.5, 5), range(r, 0.0005, 0.003), (0.03 + 0.24 * loud) * size, pan, N);
+    }
+  }
+  yield;
+  seal({ L, R }, sr, 0.5, 0.5);
+  limit({ L, R }, 0.8);
+  return { sr, L, R };
+}
+
+/** Eaves still dripping: one to three drops into a puddle or onto a plank. 1.6 s. */
+export function* drip(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 1.6, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const pan = range(r, -0.8, 0.8), drops = 1 + Math.floor(r() * 2.6);
+  for (let k = 0; k < drops; k++) {
+    const at = 0.03 + r() * (T - 0.6), f = logRange(r, 700, 2400);
+    grain(L, R, sr, at, f, range(r, 10, 18) / f, range(r, 0.06, 0.14), pan + range(r, -0.1, 0.1), 0.45, r() * TAU);
+    tick(L, R, sr, at, f * range(r, 2.5, 3.5), 3, 0.0008, 0.06, pan, N);
+  }
+  yield;
+  seal({ L, R }, sr, 0.002, 0.1);
+  limit({ L, R }, 0.8);
+  return { sr, L, R };
+}
+
+/** Asymmetric swell: a quicker rise, a slower fall (a roll of thunder, a gust). */
+const swell = (t: number, c: number, w: number) => { const u = (t - c) / (t < c ? w * 0.45 : w); return Math.exp(-u * u); };
+
+/** The "rolling" of a roll of thunder: a slow random flutter (a few Hz) of its loudness, mean 1. */
+function roller(N: () => number, sr: number, hz: number, depth: number): () => number {
+  const k = onePole(hz, sr), std = Math.sqrt(k / 2);
+  let a = 0, b = 0;
+  return () => { a += k * (N() - a); b += k * (a - b); return Math.max(0.12, 1 + depth * (b / std) * 1.6); };
+}
+
+/**
+ * A near strike: the TEAR (a ripping run of N-wave cracks from the nearest stretches of the channel, dense
+ * then thinning and duller as the sound arrives from farther along it), the CLAP and its low boom, then the
+ * ROLL: swells of low rumble as the rest of the channel, and the echoes off the hills, arrive. 7.5–10 s.
+ */
+export function* thunder(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = range(r, 7.5, 10), n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const pan0 = range(r, -0.3, 0.3), t0 = 0.03, tear = range(r, 0.25, 0.6);
+  // 1. the tear
+  for (let t = t0; t < t0 + tear;) {
+    const x = (t - t0) / tear;
+    t += -Math.log(1 - r() * 0.9999) / (900 * (1 - x) * (1 - x) + 40);
+    nwave(L, R, sr, t, range(r, 0.0003, 0.0012) * (1 + 2.5 * x), (0.06 + 0.32 * Math.pow(r(), 2)) * (1 - 0.65 * x), pan0 + range(r, -0.5, 0.5));
+  }
+  yield;
+  // 2. the clap's boom and body, then 3. the roll (independent L/R so it fills the sky)
+  const tc = t0 + tear * 0.15;
+  const boom = new Svf(sr), body = new Svf(sr), rl = new Svf(sr), rr = new Svf(sr), gl = new Svf(sr), gr = new Svf(sr);
+  const fBoom = range(r, 60, 85), fRoll = range(r, 95, 140);
+  boom.set(fBoom, 0.7); body.set(range(r, 180, 260), 0.8); rl.set(fRoll, 0.7); rr.set(fRoll * 1.06, 0.7); gl.set(300, 1); gr.set(320, 1);
+  const kBoom = 0.3 / lpRms(fBoom, sr), kRoll = 0.15 / lpRms(fRoll, sr);
+  const swells: Array<[number, number, number]> = [];
+  for (let k = 0, c = tc + range(r, 0.5, 1.1), a = 1; k < 4 + Math.floor(r() * 4); k++, c += range(r, 0.5, 1.6), a *= range(r, 0.5, 0.92)) swells.push([c, range(r, 0.4, 1.2), a]);
+  const boomDecay = range(r, 0.6, 1.1), roll = roller(N, sr, range(r, 3, 6), 0.55);
+  for (let i = Math.floor(tc * sr); i < n; i++) {
+    const t = i / sr, u = t - tc;
+    const be = smooth(u / 0.025) * Math.exp(-u / boomDecay);
+    let re = 0;
+    for (const [c, w, a] of swells) re += a * swell(t, c, w);
+    re *= (1 - smooth((t - (T - 1.8)) / 1.8)) * roll();
+    const m = N();
+    boom.run(m); body.run(m);
+    rl.run(N()); rr.run(N()); gl.run(N()); gr.run(N());
+    const mono = boom.lp * kBoom * be + body.bp * 0.25 * be * Math.exp(-u / 0.35);
+    L[i] += mono * 0.95 + rl.lp * kRoll * re + gl.bp * 0.1 * re * (1 - smooth(u / 4));
+    R[i] += mono + rr.lp * kRoll * re + gr.bp * 0.1 * re * (1 - smooth(u / 4));
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  seal({ L, R }, sr, 0.003, 1.2);
+  limit({ L, R }, 0.85);
+  return { sr, L, R };
+}
+
+/** A far strike: only the low roll survives the distance, swelling and grumbling for 11–16 s. */
+export function* rumble(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = range(r, 11, 16), n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  // the roll sits low, but its grumble (180–300 Hz) is what a small speaker can actually play
+  const f = range(r, 85, 140), fl = new Svf(sr), fr = new Svf(sr), gl = new Svf(sr), gr = new Svf(sr);
+  fl.set(f, 0.6); fr.set(f * 1.05, 0.6); gl.set(range(r, 180, 300), 1.1); gr.set(range(r, 180, 300), 1.1);
+  const k = 0.3 / lpRms(f, sr);
+  const swells: Array<[number, number, number]> = [];
+  const first = r() < 0.5 ? 1 : 0.7;
+  for (let j = 0, c = range(r, 0.6, 1.4), a = first; j < 4 + Math.floor(r() * 5); j++, c += range(r, 1, 2.6), a = (j === 1 && first < 1 ? 1 : a * range(r, 0.5, 0.9))) swells.push([c, range(r, 0.35, 1.1), a]);
+  const roll = roller(N, sr, range(r, 2, 4.5), 0.6);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    let e = 0;
+    for (const [c, w, a] of swells) e += a * swell(t, c, w);
+    // the reverberant roll between the swells never quite stops until the end
+    e = (e + 0.18 * smooth(t / swells[0][0]) * Math.exp(-t / (T * 0.45))) * roll();
+    fl.run(N()); fr.run(N()); gl.run(N()); gr.run(N());
+    const grumble = 0.16 * e * (1 - 0.6 * smooth(t / (T * 0.6)));
+    L[i] = fl.lp * k * e + gl.bp * grumble;
+    R[i] = fr.lp * k * e + gr.bp * grumble;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  seal({ L, R }, sr, 0.1, 1.5);
+  limit({ L, R }, 0.8);
+  return { sr, L, R };
+}
+
+interface Note { t: number; d: number; f0: number; f1: number; arch: number; a: number }
+
+/**
+ * A songbird phrase from the trees: a fluting run of whistled notes (blackbird, robin), an accelerating
+ * trill ending in a flourish (chaffinch, wren), or a repeated two-note "tea-cher" (great tit). 1–3 s.
+ */
+export function* bird(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed);
+  const notes: Note[] = [];
+  const kind = r();
+  let t = 0.02;
+  if (kind < 0.4) {
+    for (let k = 0, m = 3 + Math.floor(r() * 4); k < m; k++) {
+      const d = range(r, 0.08, 0.24), f0 = logRange(r, 1500, 2900);
+      notes.push({ t, d, f0, f1: f0 * range(r, 0.75, 1.35), arch: range(r, -0.15, 0.2), a: range(r, 0.45, 1) });
+      t += d + range(r, 0.03, 0.12);
+    }
+    if (r() < 0.6) for (let k = 0, m = 3 + Math.floor(r() * 6); k < m; k++) {
+      const d = range(r, 0.02, 0.04), f0 = logRange(r, 3800, 6200);
+      notes.push({ t, d, f0, f1: f0 * range(r, 0.8, 1.1), arch: 0, a: range(r, 0.15, 0.35) });
+      t += d + range(r, 0.015, 0.03);
+    }
+  } else if (kind < 0.75) {
+    const m = 8 + Math.floor(r() * 9), top = range(r, 4300, 5600);
+    for (let k = 0; k < m; k++) {
+      const x = k / m, d = range(r, 0.03, 0.045), f0 = top * (1 - 0.25 * x);
+      notes.push({ t, d, f0, f1: f0 * 0.62, arch: 0.05, a: 0.5 + 0.4 * x });
+      t += lerp(0.095, 0.055, x);
+    }
+    for (let k = 0, m = 2 + Math.floor(r() * 2); k < m; k++) {
+      const d = range(r, 0.08, 0.14), f0 = lerp(3600, 2600, k / m);
+      notes.push({ t, d, f0, f1: f0 * range(r, 0.85, 1.25), arch: 0.15, a: 0.9 });
+      t += d + 0.03;
+    }
+  } else {
+    const hi = range(r, 5200, 6600), lo = hi * range(r, 0.62, 0.72);
+    for (let k = 0, m = 3 + Math.floor(r() * 4); k < m; k++) {
+      const d1 = range(r, 0.07, 0.1), d2 = range(r, 0.07, 0.1);
+      notes.push({ t, d: d1, f0: hi, f1: hi * 0.97, arch: 0, a: 0.8 });
+      notes.push({ t: t + d1 + 0.04, d: d2, f0: lo, f1: lo * 0.95, arch: 0, a: 0.7 });
+      t += d1 + d2 + range(r, 0.12, 0.18);
+    }
+  }
+  const T = t + 0.25, n = Math.ceil(T * sr);
+  const D = new Float32Array(n), L = new Float32Array(n), R = new Float32Array(n);
+  const pan = range(r, -0.7, 0.7), [pl, pr] = panGains(pan);
+  const h2 = range(r, 0.05, 0.2), vib = range(r, 18, 40), vibD = range(r, 0, 0.012);
+  const kSoft = onePole(range(r, 5500, 8000), sr);
+  let ph = 0, soft = 0;
+  for (const nt of notes) {
+    const i0 = Math.floor(nt.t * sr), m = Math.ceil(nt.d * sr);
+    for (let i = 0; i < m && i0 + i < n; i++) {
+      const x = i / m, u = i / sr;
+      const f = (lerp(nt.f0, nt.f1, x) + nt.arch * Math.sin(Math.PI * x) * nt.f0) * (1 + vibD * Math.sin(TAU * vib * u));
+      ph += (TAU * f) / sr;
+      const e = smooth(x / 0.12) * smooth((1 - x) / 0.25) * nt.a * 0.3;
+      D[i0 + i] += (Math.sin(ph) + h2 * Math.sin(2 * ph)) * e;
+    }
+  }
+  yield;
+  // softened by the distance and the leaves, with a faint second arrival off the trunks
+  const echo = Math.floor(range(r, 0.05, 0.09) * sr);
+  for (let i = 0; i < n; i++) {
+    soft += kSoft * (D[i] - soft);
+    const v = soft + (i >= echo ? D[i - echo] * 0.14 : 0);
+    L[i] = v * pl; R[i] = v * pr;
+  }
+  seal({ L, R }, sr, 0.005, 0.12);
+  limit({ L, R }, 0.6);
+  return { sr, L, R };
+}
+
+/** Crickets at dusk: two to four callers (a carrier near 4.5 kHz in chirps of 3–5 pulses) over a far chorus. 4 s, overlapped. */
+export function* cricket(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 4, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  for (let c = 0, m = 2 + Math.floor(r() * 3); c < m; c++) {
+    const fc = range(r, 4200, 5200), period = range(r, 0.38, 0.65), pulses = 3 + Math.floor(r() * 3);
+    const pd = range(r, 0.011, 0.018), pg = range(r, 0.008, 0.012), amp = range(r, 0.04, 0.14);
+    const [gl, gr] = panGains(range(r, -0.9, 0.9));
+    for (let t = r() * period; t < T; t += period * range(r, 0.96, 1.04)) {
+      for (let p = 0; p < pulses; p++) {
+        const i0 = Math.floor((t + p * (pd + pg)) * sr), len = Math.ceil(pd * sr);
+        let ph = r() * TAU;
+        for (let i = 0; i < len && i0 + i < n; i++) {
+          const x = i / len, e = Math.pow(Math.sin(Math.PI * x), 2) * amp;
+          ph += (TAU * fc * (1 - 0.02 * x)) / sr;
+          const v = (Math.sin(ph) + 0.1 * Math.sin(2 * ph)) * e;
+          L[i0 + i] += v * gl; R[i0 + i] += v * gr;
+        }
+      }
+    }
+    yield;
+  }
+  // the far chorus: band-limited noise in a fast pulse, wandering in level
+  const bl = new Svf(sr), br = new Svf(sr);
+  bl.set(4600, 5); br.set(4500, 5);
+  const kw = onePole(0.5, sr), wStd = Math.sqrt(kw / 2), rate = range(r, 26, 34);
+  let w = 0;
+  for (let i = 0; i < n; i++) {
+    w += kw * (N() - w);
+    const puls = Math.pow(Math.abs(Math.sin((Math.PI * rate * i) / sr)), 4);
+    const e = 0.03 * puls * Math.max(0.2, 1 + 0.4 * (w / wStd));
+    bl.run(N()); br.run(N());
+    L[i] += (bl.bp / 5) * e; R[i] += (br.bp / 5) * e;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  seal({ L, R }, sr, 0.5, 0.5);
+  limit({ L, R }, 0.6);
+  return { sr, L, R };
+}
+
+/**
+ * A gust through dry leaves: a swell of tiny crisp ticks and a hiss, with a few leaves skittering over the
+ * cobbles. The scheduler darkens it for green summer leaves. 2–3.5 s.
+ */
+export function* rustle(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = range(r, 2, 3.5), n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const tp = range(r, 0.4, 0.9), decay = range(r, 0.5, 1.1);
+  const env = (t: number) => (t < tp ? smooth(t / tp) : Math.exp(-(t - tp) / decay));
+  const pan0 = range(r, -0.8, 0.8), pan1 = range(r, -0.8, 0.8);
+  for (let t = 0.01; t < T - 0.05;) {
+    t += -Math.log(1 - r() * 0.9999) / (30 + 1100 * env(t));
+    const e = env(t);
+    tick(L, R, sr, t, logRange(r, 1800, 9000), range(r, 1.2, 3), range(r, 0.0002, 0.0009), (0.05 + 0.5 * Math.pow(r(), 4)) * (0.3 + 0.7 * e), lerp(pan0, pan1, t / T) + range(r, -0.5, 0.5), N);
+  }
+  yield;
+  const kl = onePole(2200, sr);
+  let al = 0, ar = 0;
+  for (let i = 0; i < n; i++) {
+    const e = env(i / sr) * 0.035, wl = N(), wr = N();
+    al += kl * (wl - al); ar += kl * (wr - ar);
+    L[i] += (wl - al) * e; R[i] += (wr - ar) * e;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  for (let k = 0, m = 1 + Math.floor(r() * 4); k < m; k++) {
+    let t = range(r, tp * 0.6, Math.min(T - 0.8, tp + decay));
+    const pan = range(r, -0.7, 0.7);
+    for (let j = 0, c = 5 + Math.floor(r() * 8); j < c; j++, t += range(r, 0.025, 0.06)) {
+      tick(L, R, sr, t, logRange(r, 2500, 6000), 2, range(r, 0.0004, 0.001), range(r, 0.2, 0.45), pan, N);
+      if (r() < 0.4) tick(L, R, sr, t, logRange(r, 900, 1500), 2, 0.002, 0.12, pan, N);
+    }
+  }
+  seal({ L, R }, sr, 0.01, 0.2);
+  limit({ L, R }, 0.7);
+  return { sr, L, R };
+}
+
+/** Footsteps crunching in fresh snow: two to four steps, each a heel-and-toe burst of tiny compressions. */
+export function* crunch(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const steps = 2 + Math.floor(r() * 3), gap = range(r, 0.5, 0.62);
+  const T = steps * gap + 0.4, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const pan0 = range(r, -0.6, 0.6), pan1 = pan0 + range(r, -0.3, 0.3);
+  const thud = new Svf(sr); thud.set(120, 0.7);
+  const kThud = 0.012 / lpRms(120, sr);
+  for (let s = 0; s < steps; s++) {
+    const ts = 0.05 + s * gap * range(r, 0.96, 1.04), ds = range(r, 0.16, 0.26), heel = range(r, 0.3, 0.45);
+    const env = (u: number) => (u < 0 || u > ds ? 0 : 0.7 * swell(u, ds * 0.15, ds * 0.18) + swell(u, ds * (heel + 0.2), ds * 0.25));
+    const pan = lerp(pan0, pan1, s / steps) + (s % 2 ? 0.08 : -0.08);
+    for (let u = 0; u < ds;) {
+      u += -Math.log(1 - r() * 0.9999) / (200 + 2200 * env(u));
+      const e = env(u);
+      if (e > 0.02) tick(L, R, sr, ts + u, logRange(r, 700, 4500), range(r, 1.2, 2), range(r, 0.0003, 0.0012), (0.03 + 0.1 * Math.pow(r(), 3)) * e, pan, N);
+    }
+    const i0 = Math.floor(ts * sr), m = Math.ceil(ds * sr), [gl, gr] = panGains(pan);
+    for (let i = 0; i < m && i0 + i < n; i++) {
+      thud.run(N());
+      const v = thud.lp * kThud * env(i / sr);
+      L[i0 + i] += v * gl; R[i0 + i] += v * gr;
+    }
+    yield;
+  }
+  seal({ L, R }, sr, 0.005, 0.1);
+  limit({ L, R }, 0.5);
+  return { sr, L, R };
+}
+
 export const SYNTHS: Record<ClipKind, (seed: number, sr: number) => Generator<void, Clip>> = {
   shore: (s, sr) => shoreWash(s, sr, { stone: (s & 3) === 3 }),
   lap,
@@ -529,6 +908,15 @@ export const SYNTHS: Record<ClipKind, (seed: number, sr: number) => Generator<vo
   bell,
   gull,
   creak,
+  drizzle: (s, sr) => patter(s, sr, 45, 0.6),
+  rain: (s, sr) => patter(s, sr, 170, 1),
+  drip,
+  thunder,
+  rumble,
+  bird,
+  cricket,
+  rustle,
+  crunch,
 };
 
 /** Run a synthesiser to completion (Node, tests). */

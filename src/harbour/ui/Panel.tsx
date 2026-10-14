@@ -1,9 +1,11 @@
-import { Fragment, useEffect, useRef, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { CAUSE_META } from "@shared/lib/cause-of-death";
+import { deadRecords, FAMILIES, FAMILY_ORDER, type CauseFamily } from "../model/obituary";
 import type { HarbourLayout } from "../layout/types";
 import type { Boat, HarbourModel } from "../model/types";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { ChainSplit, chainLogo, Crest, DEWS_INK, FlowBars, Freshness, Logo, PSI_INK, Sparkline, TideBars } from "./bits";
-import { circuitStops, epitaphOf, flowTotals, quoted, whereLine, whyHere, wreckDate } from "./facts";
+import { circuitStops, flowTotals, obituaryText, quoted, whereLine, whyHere, wreckDate } from "./facts";
 import { age, bps, causeName, HULL_NAME, MINUS, money, pctChange, pegName, share, titleCase } from "./format";
 import { CHAIN_COLOR, placeName, scopeName } from "./places";
 import { expectedLabel, groupYard, launchedFromYard, PHASE_NAME, PHASES, STAGE_NAME, STAGE_OF, UPCOMING_URL, yardCoins, type YardCoin } from "./yard";
@@ -77,8 +79,10 @@ function PanelContent({ hit, titleRef }: { hit: PickHit; titleRef: React.RefObje
   const { model } = useUI();
   if (hit.kind === "boat") {
     const b = model?.boats.find((x) => x.id === hit.id);
+    if (b?.state === "wrecked" && deadRecords().has(b.id)) return <ObituaryPanel id={b.id} titleRef={titleRef} />;
     return b ? <BoatPanel b={b} titleRef={titleRef} /> : <Head kicker="Vessel" title={hit.id} sub="no longer on the register" titleRef={titleRef} />;
   }
+  if (hit.kind === "wreck") return <ObituaryPanel id={hit.id} titleRef={titleRef} />;
   if (hit.kind === "harbour") return <HarbourPanel chain={hit.id} model={model} titleRef={titleRef} />;
   if (hit.kind === "yard") return <YardCoinPanel id={hit.id} titleRef={titleRef} />;
   const L = store.ctx.services.get("layout") as HarbourLayout | undefined;
@@ -345,24 +349,101 @@ function StormPanel({ model, titleRef }: P) {
   );
 }
 
+// ------------------------------------------------------------------ Wreck Cove: the register of the dead
+
+type CoveSort = "newest" | "oldest" | "peak" | "name";
+const COVE_SORTS: Array<[CoveSort, string]> = [["newest", "Newest"], ["oldest", "Oldest"], ["peak", "Peak cap"], ["name", "A–Z"]];
+/** The list's sort and filter outlive the panel (an obituary and back finds the list as it was left). */
+const coveView: { sort: CoveSort; family: CauseFamily | null } = { sort: "newest", family: null };
+
+/** A dead coin's hit: its wreck in the cove, or the payload hull lying wrecked (the sim beaches those). */
+export function wreckHit(store: HarbourUIStore, id: string): PickHit {
+  return store.boat(id)?.state === "wrecked" ? { kind: "boat", id } : { kind: "wreck", id };
+}
+
 function WreckPanel({ model, titleRef }: P) {
-  const wrecks = [...(model?.readings.wrecks ?? [])].reverse();
+  const store = useStore();
+  const [sort, setSort] = useState<CoveSort>(coveView.sort);
+  const [family, setFamily] = useState<CauseFamily | null>(coveView.family);
+  useEffect(() => { coveView.sort = sort; coveView.family = family; }, [sort, family]);
+  const recs = deadRecords();
+  const all = (model?.readings.wrecks ?? []).map((w) => ({ w, r: recs.get(w.id) ?? null }));
+  const counts = new Map<CauseFamily, number>();
+  for (const { w } of all) counts.set(w.family, (counts.get(w.family) ?? 0) + 1);
+  const rows = all.filter(({ w }) => !family || w.family === family).sort((a, b) =>
+    sort === "peak" ? (b.w.peakMcap ?? -1) - (a.w.peakMcap ?? -1)
+      : sort === "name" ? a.w.symbol.localeCompare(b.w.symbol, "en", { sensitivity: "base" })
+        : sort === "oldest" ? a.w.deathDate.localeCompare(b.w.deathDate) : b.w.deathDate.localeCompare(a.w.deathDate));
+  const fam = family ? FAMILIES[family] : null;
   return (
     <>
-      <Head kicker="Sea zone · the cove" title="Wreck Cove" sub={`${wrecks.length} wrecks, newest first`} titleRef={titleRef} />
+      <Head kicker="Sea zone · the cove" title="Wreck Cove" sub={`${all.length} wrecks, one for every stablecoin that died`} titleRef={titleRef} />
       <div className="hb-panel-body">
-        <p className="hb-why">Stablecoins that died lie beached here as grey hulks, each with its epitaph.</p>
-        <p className="hb-caption">Know it by the bleached ribs on the beach and the masts leaning out of the shallows.</p>
-        <Sec title="The hulks">
-          <ul className="hb-list">
-            {wrecks.map((w) => (
+        <p className="hb-why">Each wreck is one dead coin. Its size is the peak market cap it reached; its form tells how it died. The twenty largest have their posts on the memorial above the tide line, lit at dusk.</p>
+        <Sec title="How they died">
+          <div className="hb-chips" role="group" aria-label="Show one cause of death">
+            {FAMILY_ORDER.filter((f) => counts.get(f)).map((f) => (
+              <button key={f} type="button" className="hb-chip" aria-pressed={family === f} onClick={() => setFamily(family === f ? null : f)}>
+                <i style={{ background: FAMILIES[f].ink }} aria-hidden="true" />{FAMILIES[f].name}<b className="hb-num">{counts.get(f)}</b>
+              </button>
+            ))}
+          </div>
+          <p className="hb-caption">{fam ? <>{fam.name}: each lies {fam.form}. <button type="button" className="hb-textbtn" onClick={() => setFamily(null)}>Show all</button></> : "Capsized: a death spiral. Burned: exploited. Broken in two: a counterparty failed. Sunk to the mast: drained. Bare ribs: wound down. Laid up whole: killed by decree."}</p>
+        </Sec>
+        <Sec title={`The wrecks · ${rows.length}`}>
+          <div className="hb-sorts" role="group" aria-label="Sort the wrecks">
+            {COVE_SORTS.map(([k, label]) => <button key={k} type="button" aria-pressed={sort === k} onClick={() => setSort(k)}>{label}</button>)}
+          </div>
+          <ul className="hb-list hb-wrecks">
+            {rows.map(({ w, r }) => (
               <li key={w.id}>
-                <div className="hb-row"><span><b>{w.name}</b> <em>{w.symbol !== w.name ? w.symbol : ""}</em></span><span className="hb-wreck-meta">{wreckDate(w.deathDate)}</span></div>
-                <span className="hb-epitaph">{epitaphOf(w.id) ? quoted(epitaphOf(w.id)!) : causeName(w.cause)}{w.peakMcap ? <span className="hb-wreck-meta"> · peak {money(w.peakMcap)}</span> : null}</span>
+                <button type="button" className="hb-row" onClick={() => store.select(wreckHit(store, w.id))}>
+                  <span className="hb-wreck-name"><Logo src={r?.logo ?? null} label={w.symbol} color="#8a7d66" size={20} /><b>{w.symbol}</b><em>{w.name !== w.symbol ? w.name : ""}</em></span>
+                  <span className="hb-num">{sort === "peak" ? money(w.peakMcap) : wreckDate(w.deathDate)}</span>
+                  <span className="hb-wreck-line">{family && r?.epitaph ? <span className="hb-wreck-epitaph">{quoted(r.epitaph)}</span>
+                    : <span className="hb-band" style={{ "--band": FAMILIES[w.family].ink } as React.CSSProperties}>{FAMILIES[w.family].name}</span>}
+                    <span className="hb-wreck-meta">{sort === "peak" ? wreckDate(w.deathDate) : w.peakMcap ? `peak ${money(w.peakMcap)}` : "peak not recorded"}</span></span>
+                </button>
               </li>
             ))}
           </ul>
         </Sec>
+        <p className="hb-caption" style={{ marginTop: 14 }}><a className="hb-out" href="https://pharos.watch/cemetery/" target="_blank" rel="noopener noreferrer">The full cemetery on pharos.watch<span aria-hidden="true"> ↗</span><span className="hb-sr"> (opens in a new tab)</span></a></p>
+      </div>
+    </>
+  );
+}
+
+/** One dead coin's obituary, in the chart-paper voice: its lived dates, peak, cause, epitaph, story and sources. */
+function ObituaryPanel({ id, titleRef }: { id: string; titleRef: P["titleRef"] }) {
+  const store = useStore();
+  const r = deadRecords().get(id);
+  if (!r) return <Head kicker="In memoriam" title={id} sub="not in the register of the dead" titleRef={titleRef} />;
+  const fam = FAMILIES[r.family];
+  const filed = (CAUSE_META as Record<string, { label: string } | undefined>)[r.cause]?.label ?? causeName(r.cause);
+  return (
+    <>
+      <Head kicker="In memoriam · Wreck Cove" title={r.symbol} sub={r.name !== r.symbol ? r.name : `a ${pegName(r.pegCurrency)} stablecoin`}
+        logo={<Logo src={r.logo} label={r.symbol} color="#8a7d66" />} titleRef={titleRef} />
+      <div className="hb-panel-body">
+        {r.epitaph && <p className="hb-obit-epitaph">{quoted(r.epitaph)}</p>}
+        <div className="hb-where">Lies in Wreck Cove, {fam.form}</div>
+        <dl className="hb-dl hb-obit-dl" style={{ marginTop: 12 }}>
+          <dt>Lived</dt><dd>{r.born ? <>{r.born} – {wreckDate(r.deathDate)}</> : <>† {wreckDate(r.deathDate)}<em> · launch not recorded</em></>}</dd>
+          <dt>Peak market cap</dt><dd>{r.peakMcap ? money(r.peakMcap) : <em>not recorded</em>}</dd>
+          <dt>Cause of death</dt><dd><span className="hb-band" style={{ "--band": fam.ink } as React.CSSProperties}>{fam.name}</span>{filed.toLowerCase() !== fam.name.toLowerCase() ? <em> · filed as {filed.toLowerCase()}</em> : null}</dd>
+          <dt>Pegged to</dt><dd>{pegName(r.pegCurrency)}</dd>
+        </dl>
+        <Sec title="Obituary"><p className="hb-obit">{obituaryText(r.obituary)}</p></Sec>
+        {r.sourceUrl && (
+          <Sec title="Sources">
+            <p className="hb-obit-src"><a href={r.sourceUrl} target="_blank" rel="noopener noreferrer">{r.sourceLabel ?? new URL(r.sourceUrl).hostname}<span aria-hidden="true"> ↗</span><span className="hb-sr"> (source, opens in a new tab)</span></a></p>
+          </Sec>
+        )}
+        <p className="hb-caption" style={{ marginTop: 16 }}><a className="hb-out" href={r.pharosUrl} target="_blank" rel="noopener noreferrer">Its grave on pharos.watch<span aria-hidden="true"> ↗</span><span className="hb-sr"> (opens in a new tab)</span></a></p>
+        <ul className="hb-list hb-stops" style={{ marginTop: 10 }}>
+          <li><button type="button" className="hb-row" onClick={() => store.select({ kind: "landmark", id: "wreck-cove" })}><span><b>Wreck Cove</b><em>every wreck, by date, cause and peak</em></span><span className="hb-num" aria-hidden="true">→</span></button></li>
+        </ul>
       </div>
     </>
   );

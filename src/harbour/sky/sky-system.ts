@@ -19,8 +19,10 @@ import { ensureMotionService, MotionClock } from "../ui/services";
  * Weather: cloud cover (DEWS) also drives a storm grade: a slate cloud deck with rain veils, a greyer
  * horizon, a dimmer and duller key light, a desaturated grade, and drifting cloud shadows on land and sea.
  *
- * Service 'sky': setCloudCover(0..1), setWind(0..1) (DEWS drives them later) and the shared uniforms the
- * ocean uses (band texture for reflection/haze, pretend-horizon distance, virtual glint light).
+ * Service 'sky': setCloudCover(0..1), setWind(0..1) (the weather director drives both from DEWS) and the
+ * shared uniforms the ocean uses (band texture for reflection/haze, pretend-horizon distance, virtual glint light).
+ * From the 'weather' service it also paints rain curtains / snow veils hanging from the deck, the lightning
+ * flash inside the clouds (and a brief cold flash on the world light), and Danger's darkened light (gloom).
  */
 export interface SkyShared {
   uSkyBand: THREE.IUniform<THREE.Texture | null>;
@@ -40,12 +42,16 @@ export interface SkyShared {
 }
 
 export interface SkyService {
-  setCloudCover(v: number): void;
-  setWind(v: number): void;
+  /** immediate: jump there (first reading, dev overrides) instead of easing. */
+  setCloudCover(v: number, immediate?: boolean): void;
+  setWind(v: number, immediate?: boolean): void;
   readonly shared: SkyShared;
   /** Horizontal distance (m) from the camera to the painted horizon; content beyond it is hidden. */
   horizonDistance(): number;
 }
+
+/** What the sky reads from the weather director's service (src/harbour/weather). */
+interface WeatherSkyLike { readonly gloom: number; readonly flash: { readonly azimuth: number; readonly elevation: number } }
 
 const BAND_FRAC = 0.2;               // pretend horizon sits this fraction of the frame below the top
 const BAND_TH = 48, BAND_E0 = -1.5, BAND_E1 = 14;
@@ -127,6 +133,10 @@ export class SkySystem implements WorldSystem {
     uParallax: { value: new THREE.Vector4() },
     uWeather: { value: new THREE.Vector3() },
     uStorm: { value: 0 },
+    /** rain, snow (0..1), lightning flash (0..1), flash azimuth (deg, band space) */
+    uPrecipSky: { value: new THREE.Vector4() },
+    /** flash elevation (deg), wind slant of the curtains, -, - */
+    uPrecipSkyB: { value: new THREE.Vector4() },
   };
   private readonly bd = {
     uCam: { value: new THREE.Vector3() }, uFwdAzV: { value: 0 }, uR: { value: 1500 }, uSpan: { value: 0.5 },
@@ -180,8 +190,8 @@ export class SkySystem implements WorldSystem {
 
     this.seedBanks();
     const svc: SkyService = {
-      setCloudCover: (v) => { this.cover = THREE.MathUtils.clamp(v, 0, 1); },
-      setWind: (v) => { this.wind = THREE.MathUtils.clamp(v, 0, 1); },
+      setCloudCover: (v, now) => { this.cover = THREE.MathUtils.clamp(v, 0, 1); if (now) this.coverS = this.cover; },
+      setWind: (v, now) => { this.wind = THREE.MathUtils.clamp(v, 0, 1); if (now) this.windS = this.wind; },
       shared: this.shared,
       horizonDistance: () => this.horizon,
     };
@@ -277,7 +287,10 @@ export class SkySystem implements WorldSystem {
     const visTop = Math.max(0.3, (depr - (pitch - vfov / 2)) / D2R);   // visible band height above the horizon (deg)
     const discE = (el: number) => THREE.MathUtils.clamp(0.7 + 2.6 * THREE.MathUtils.clamp(el / (55 * D2R), 0, 1), 0.45, Math.max(0.5, visTop - 0.95));
     const sunVis = THREE.MathUtils.smoothstep(sunEl, -0.06, 0.04) * (1 - THREE.MathUtils.smoothstep(night, 0.35, 0.7));
-    const moonVis = THREE.MathUtils.smoothstep(night, 0.45, 0.9);
+    // the night overcast (skyNightDeck in the band shader): broken at WATCH, shut from ALERT up — the moon goes behind it
+    const nightClosed = THREE.MathUtils.smoothstep(this.coverS, 0.2, 0.36) * THREE.MathUtils.smoothstep(night, 0.25, 0.75);
+    const nightGaps = 1 - THREE.MathUtils.smoothstep(this.coverS, 0.42, 0.58);
+    const moonVis = THREE.MathUtils.smoothstep(night, 0.45, 0.9) * (1 - nightClosed * (1 - nightGaps));
     this.u.uSunDisc.value.set(sunAz * COMP, discE(sunEl), 0.62, sunVis);
     // the moon keeps a fixed station left of the harbour mouth (not on the beam's axis), small, with a halo
     const moonTh = -12 + 1.2 * Math.sin(hour * 0.26);
@@ -296,12 +309,15 @@ export class SkySystem implements WorldSystem {
     const sunW = sunVis * this.u.uDiscK.value.x;
     const moonW = moonVis * this.u.uDiscK.value.y;
     const keyLum = Math.max(0.05, W.uSunColor.value.r * 0.3 + W.uSunColor.value.g * 0.59 + W.uSunColor.value.b * 0.11);
+    // the storm deck hides the moon and the sun: their glitter on the sea goes with them
+    const deck = 1 - 0.92 * THREE.MathUtils.smoothstep(this.coverS, 0.45, 0.85);
     if (moonW > sunW) {
       this.shared.uGlintDir.value.copy(glintOf(moonTh / COMP, discE(moonEl) + 0.35, moonEl));
-      this.shared.uGlintCol.value.setRGB(0.78, 0.85, 1.0).multiplyScalar(0.85 * moonW);
+      // through a broken night deck the moon's path on the sea comes and goes: keep a little of it
+      this.shared.uGlintCol.value.setRGB(0.78, 0.85, 1.0).multiplyScalar(0.85 * moonW * deck * (1 - nightClosed * (1 - 0.35 * nightGaps)));
     } else {
       this.shared.uGlintDir.value.copy(glintOf(sunAz, discE(sunEl), sunEl));
-      this.shared.uGlintCol.value.copy(W.uSunColor.value).multiplyScalar((1.2 / keyLum) * sunW);
+      this.shared.uGlintCol.value.copy(W.uSunColor.value).multiplyScalar((1.2 / keyLum) * sunW * deck);
     }
     this.shared.uFwdAz.value = fwdAz;
     this.shared.uHorizonDist.value = R;
@@ -327,7 +343,9 @@ export class SkySystem implements WorldSystem {
       this.u.uBankB.value[i].set(b.cell, a, b.haze, b.mirror);
     });
     this.u.uWeather.value.set(this.coverS, this.windS, this.cirrusDrift);
-    const wdA = -0.6 + 0.15 * Math.sin(driftT * 0.01);
+    // one wind field: the weather director's direction (uWindVec, the way the hulls lie) with a slow wobble
+    const wv0 = W.uWindVec.value;
+    const wdA = (wv0.lengthSq() > 1e-6 ? Math.atan2(wv0.y, wv0.x) : -0.6) + 0.15 * Math.sin(driftT * 0.01);
     this.shared.uWeatherSea.value.set(this.coverS, this.windS, Math.cos(wdA), Math.sin(wdA));
 
     // ---- storm grade (ALERT and above): slate sky, dimmer duller key light, greyer world, flatter grade.
@@ -351,6 +369,35 @@ export class SkySystem implements WorldSystem {
       g.gain = [g.gain[0] * (1 - 0.04 * storm), g.gain[1] * (1 - 0.01 * storm), g.gain[2] * (1 - 0.03 * storm)];
       g.contrast = 1 + (g.contrast - 1) * (1 - 0.35 * storm);
     }
+
+    // ---- weather (director): curtains, the lightning flash in the deck and on the world, Danger's gloom
+    const wx = ctx.services.get("weather") as WeatherSkyLike | undefined;
+    if (wx) {
+      const flash = W.uLightning.value;
+      let fth = wx.flash.azimuth - fwdAz;
+      fth = Math.atan2(Math.sin(fth), Math.cos(fth)) / D2R;
+      this.u.uPrecipSky.value.set(W.uPrecip.value.x, W.uPrecip.value.y, flash, fth);
+      const wv = W.uWindVec.value;
+      // curtains lean downwind: + when the wind blows to the view's right
+      this.u.uPrecipSkyB.value.set(wx.flash.elevation, (wv.x * rightX + wv.y * rightZ) * 0.6, 0, 0);
+      const gloom = wx.gloom * (1 - 0.6 * night);
+      if (gloom > 1e-3) {
+        W.uSunColor.value.multiplyScalar(1 - 0.38 * gloom);
+        W.uHemiSky.value.multiplyScalar(1 - 0.16 * gloom);
+        W.uAmbient.value.multiplyScalar(1 - 0.16 * gloom);
+        W.uZenith.value.multiplyScalar(1 - 0.22 * gloom);
+        W.uHorizon.value.multiplyScalar(1 - 0.12 * gloom);
+        const g = ctx.timeOfDay.grade;
+        g.gain = [g.gain[0] * (1 - 0.06 * gloom), g.gain[1] * (1 - 0.05 * gloom), g.gain[2] * (1 - 0.02 * gloom)];
+      }
+      if (flash > 1e-3) {
+        // a cold blue-white flash on everything the sky lights (the hemisphere and fill lights copy these next)
+        const fk = flash * (0.55 + 0.9 * night);
+        W.uHemiSky.value.r += 0.55 * fk; W.uHemiSky.value.g += 0.6 * fk; W.uHemiSky.value.b += 0.78 * fk;
+        W.uFillColor.value.r += 0.9 * fk; W.uFillColor.value.g += 1.0 * fk; W.uFillColor.value.b += 1.25 * fk;
+        W.uAmbient.value.r += 0.25 * fk; W.uAmbient.value.g += 0.28 * fk; W.uAmbient.value.b += 0.36 * fk;
+      }
+    } else this.u.uPrecipSky.value.set(0, 0, 0, 0);
 
     // ---- drifting cloud shadows on land and sea (projected along the key light from ~600 m)
     const cs = cloudShadowUniforms;

@@ -28,6 +28,14 @@ export interface WorldUniforms {
   // ---- polish pass (TimeOfDay keyframes)
   uWindowOcc: THREE.IUniform<number>;       // share of windows lit (deterministic per window): 21 h ≈ 0.62, 23 h ≈ 0.3
   uNightLift: THREE.IUniform<THREE.Color>;  // moonlight fill on kit/fleet albedo (with a luminance floor), 0 by day
+  // ---- weather + season contract (additive; P7). Weather = DEWS data (src/harbour/weather), season = calendar (decorative).
+  uWetness: THREE.IUniform<number>;         // 0 dry … 1 soaked (weather director: rises with rain, dries slowly after)
+  uSnowCover: THREE.IUniform<number>;       // 0 … 1 snow lying on roofs/land (season system)
+  uFoliage: THREE.IUniform<THREE.Vector4>;  // season weights: spring, summer, autumn, winter (sum 1; season system)
+  uSeasonPhase: THREE.IUniform<number>;     // 0 … 1 through the year (season system)
+  uPrecip: THREE.IUniform<THREE.Vector2>;   // rain, snow intensity 0..1 (weather director)
+  uLightning: THREE.IUniform<number>;       // 0 … 1 current lightning flash (weather director)
+  uWindVec: THREE.IUniform<THREE.Vector2>;  // wind on the ground plane (x, z), length = strength 0..~1.4 incl. gusts (weather director)
 }
 
 export function createWorldUniforms(): WorldUniforms {
@@ -52,5 +60,12 @@ export function createWorldUniforms(): WorldUniforms {
     uLens: { value: 5 },
     uWindowOcc: { value: 0.6 },
     uNightLift: { value: new THREE.Color(0, 0, 0) },
+    uWetness: { value: 0 },
+    uSnowCover: { value: 0 },
+    uFoliage: { value: new THREE.Vector4(0, 1, 0, 0) },
+    uSeasonPhase: { value: 0.5 },
+    uPrecip: { value: new THREE.Vector2(0, 0) },
+    uLightning: { value: 0 },
+    uWindVec: { value: new THREE.Vector2(0.24, -0.17) },
   };
 }

@@ -10,71 +10,72 @@
  * as roundels too. Coins without a logo get a generated monogram at runtime (fleet/emblems.ts) in the
  * free slots after these.
  *
- * Usage: node scripts/harbour/build-emblems.mjs   (needs ImageMagick 7 `magick` + `rsvg-convert`)
+ * Usage: node scripts/harbour/build-emblems.mjs
+ * Needs only the `sharp` devDependency (libvips + librsvg are bundled), so the sync workflow rebuilds
+ * the atlas on a stock runner and a local build matches it.
  */
-import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, writeFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
-import { promisify } from "node:util";
+import sharp from "sharp";
 
-const run = promisify(execFile);
 const ROOT = resolve(new URL("../..", import.meta.url).pathname);
 const SLOT = 128, COLS = 32, WIDTH = SLOT * COLS;
 const ROUNDEL_R = 61;      // white disc radius (px)
 const LOGO_R = 52;         // logo clip radius (px)
 const RIM = "#BDB2A0";     // warm grey rim so the roundel still reads on white cloth
+const SIDE = LOGO_R * 2;
+const NONE = { r: 0, g: 0, b: 0, alpha: 0 };
+const svg = (w, h, body) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${body}</svg>`);
+// roundel: rim ring then white disc, centred on the slot
+const ROUNDEL = await sharp(svg(SLOT, SLOT,
+  `<circle cx="${SLOT / 2}" cy="${SLOT / 2}" r="${ROUNDEL_R + 1.6}" fill="${RIM}"/><circle cx="${SLOT / 2}" cy="${SLOT / 2}" r="${ROUNDEL_R - 1.4}" fill="#fff"/>`)).png().toBuffer();
+const CLIP = svg(SIDE, SIDE, `<circle cx="${LOGO_R}" cy="${LOGO_R}" r="${LOGO_R}" fill="#fff"/>`);
 
 const logos = JSON.parse(await readFile(join(ROOT, "data/logos.json"), "utf8"));
 const ids = Object.keys(logos).sort((a, b) => (a.length - b.length) || (a < b ? -1 : a > b ? 1 : 0));
 // one tile per logo FILE (a coin listed under its llama id and its registry slug shares one slot)
 const paths = [...new Set(ids.map((id) => logos[id]))];
-const tmp = await mkdtemp(join(tmpdir(), "harbour-emblems-"));
 
-async function tile(path, i) {
-  const src = join(ROOT, "public", path);
-  const raster = join(tmp, `r${i}.png`);
-  const out = join(tmp, `t${String(i).padStart(4, "0")}.png`);
-  const side = LOGO_R * 2;
+/** The logo rasterised at twice the clip square (first frame of an animated file), as a PNG buffer. */
+async function raster(src) {
   if (extname(src).toLowerCase() === ".svg") {
-    await run("rsvg-convert", ["-w", String(side * 2), "-h", String(side * 2), "-a", "-b", "none", "-o", raster, src]);
-  } else {
-    await run("magick", [`${src}[0]`, "-background", "none", "-filter", "Mitchell", "-resize", `${side * 2}x${side * 2}`, raster]);
+    // render the vector at the density that makes its longer side 2 × SIDE, not upscaled from 72 dpi
+    const { width = SIDE, height = SIDE } = await sharp(src).metadata();
+    const density = Math.min(2400, 72 * (SIDE * 2) / Math.max(width, height));
+    return sharp(src, { density }).resize(SIDE * 2, SIDE * 2, { fit: "inside" }).png().toBuffer();
   }
-  const c = SLOT / 2;
-  await run("magick", [
-    "-size", `${SLOT}x${SLOT}`, "xc:none",
-    // roundel: rim ring then white disc
-    "-fill", RIM, "-draw", `circle ${c - 0.5},${c - 0.5} ${c - 0.5},${c - 0.5 - ROUNDEL_R - 1.6}`,
-    "-fill", "white", "-draw", `circle ${c - 0.5},${c - 0.5} ${c - 0.5},${c - 0.5 - ROUNDEL_R + 1.4}`,
-    // logo fitted into the clip circle's square, then clipped to the circle
-    "(", raster, "-trim", "+repage", "-resize", `${side}x${side}`, "-gravity", "center", "-background", "none", "-extent", `${side}x${side}`,
-    // keep the logo's own transparency: multiply its alpha by a circular mask (DstIn)
-    "(", "-size", `${side}x${side}`, "xc:none", "-fill", "white", "-draw", `circle ${LOGO_R - 0.5},${LOGO_R - 0.5} ${LOGO_R - 0.5},0`, ")",
-    "-compose", "DstIn", "-composite", ")",
-    "-gravity", "center", "-compose", "Over", "-composite",
-    out,
-  ]);
-  return out;
+  return sharp(src, { pages: 1 }).resize(SIDE * 2, SIDE * 2, { fit: "inside", kernel: "mitchell" }).png().toBuffer();
+}
+
+async function tile(path) {
+  let img = await raster(join(ROOT, "public", path));
+  // trim the logo's own margin (a blank image has nothing to trim and keeps its frame)
+  img = await sharp(img).trim().png().toBuffer().catch(() => img);
+  // logo fitted into the clip circle's square, then its alpha multiplied by a circular mask (dest-in)
+  const logo = await sharp(img).ensureAlpha()
+    .resize(SIDE, SIDE, { fit: "contain", background: NONE, kernel: "mitchell" })
+    .composite([{ input: CLIP, blend: "dest-in" }]).png().toBuffer();
+  return sharp(ROUNDEL).composite([{ input: logo, gravity: "center" }]).png().toBuffer();
 }
 
 const tiles = new Array(paths.length);
 let next = 0;
 const failed = [];
-await Promise.all(Array.from({ length: 12 }, async () => {
+await Promise.all(Array.from({ length: 8 }, async () => {
   while (next < paths.length) {
     const i = next++;
-    try { tiles[i] = await tile(paths[i], i); } catch (e) { failed.push(paths[i]); console.warn(`[emblems] ${paths[i]}: ${String(e.stderr ?? e).slice(0, 160)}`); }
+    try { tiles[i] = await tile(paths[i]); } catch (e) { failed.push(paths[i]); console.warn(`[emblems] ${paths[i]}: ${String(e.message ?? e).slice(0, 160)}`); }
   }
 }));
 
 const kept = paths.map((p, i) => [p, tiles[i]]).filter(([, t]) => t);
 const rows = Math.ceil(kept.length / COLS);
-const outPng = join(ROOT, "public/harbour/emblems.png");
-await run("magick", ["montage", ...kept.map(([, t]) => t), "-tile", `${COLS}x`, "-geometry", `${SLOT}x${SLOT}+0+0`, "-background", "none", "-depth", "8", `PNG32:${outPng}`]);
-await run("magick", [outPng, "-quality", "90", "-define", "webp:alpha-quality=100", join(ROOT, "public/harbour/emblems.webp")]);
+const atlas = await sharp({ create: { width: WIDTH, height: rows * SLOT, channels: 4, background: NONE } })
+  .composite(kept.map(([, t], i) => ({ input: t, left: (i % COLS) * SLOT, top: Math.floor(i / COLS) * SLOT })))
+  .png().toBuffer();
+await sharp(atlas).png({ compressionLevel: 9 }).toFile(join(ROOT, "public/harbour/emblems.png"));
+await sharp(atlas).webp({ quality: 90, alphaQuality: 100, effort: 6 }).toFile(join(ROOT, "public/harbour/emblems.webp"));
 const slotOf = new Map(kept.map(([p], i) => [p, i]));
 const map = Object.fromEntries(ids.filter((id) => slotOf.has(logos[id])).map((id) => [id, slotOf.get(logos[id])]));
 await writeFile(join(ROOT, "public/harbour/emblems.json"), JSON.stringify({ slot: SLOT, cols: COLS, width: WIDTH, height: rows * SLOT, ids: map }) + "\n");
-await rm(tmp, { recursive: true, force: true });
 console.log(`[emblems] ${Object.keys(map).length} coins, ${kept.length} logos → ${COLS}×${rows} slots (${WIDTH}×${rows * SLOT})${failed.length ? `, ${failed.length} failed: ${failed.join(", ")}` : ""}`);

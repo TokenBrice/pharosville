@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HullClass } from "../layout/types";
-import { composeCove, MEMORIAL_N, MEMORIAL_SCALE, tierPlan, type CoveDead, type CoveSlot } from "./wreck-cove";
+import { composeCove, CoveService, formFor, freshDeath, MEMORIAL_N, MEMORIAL_SCALE, tierPlan, type CoveDead, type CoveSlot } from "./wreck-cove";
 
 const dead: CoveDead[] = Array.from({ length: 88 }, (_, i) => ({ id: `dead-${i}`, name: `Dead ${i}`, symbol: `D${i}`, deathDate: "2022-05", peakMcap: 10 ** (10.5 - i * 0.05) }));
 const CLS: HullClass[] = ["large", "large", "large", "medium", "medium", "medium", "medium", "medium", ...Array<HullClass>(16).fill("small"), ...Array<HullClass>(26).fill("boat"), ...Array<HullClass>(38).fill("skiff")];
@@ -73,5 +73,65 @@ describe("Wreck Cove v2 composition", () => {
     expect(posts.every((p) => p.lit && p.h === 1.9)).toBe(true);
     // no bell or pennants of ours: the island bakes them
     expect(pieces.some((p) => p.item === "wreck_cove_bell" || p.item === "wreck_cove_pennants")).toBe(false);
+  });
+});
+
+describe("Wreck Cove stories", () => {
+  // the island's authored cove: rank, kit, scale per slot (layout zones.wreckCove)
+  const authored: CoveSlot[] = [
+    { id: "s1", cls: "flagship", x: 0, z: 0, h: 0, rank: 1, kit: "wreck_great_hulk", scale: 1, sits: "sand" },
+    { id: "s2", cls: "large", x: 40, z: 0, h: 0, rank: 2, kit: "wreck_schooner_sunk", scale: 1, sits: "water" },
+    ...Array.from({ length: 24 }, (_, i): CoveSlot => ({ id: `t${i}`, cls: "boat", x: 80 + i * 6, z: 0, h: 0, rank: 3 + i, kit: "wreck_skiff", scale: 0.45, sits: "sand" })),
+  ];
+  const fam = (family: string, i: number): CoveDead => ({ id: `${family}-${i}`, name: family, symbol: family, deathDate: "2023-01", peakMcap: 10 ** (10 - i * 0.1), family });
+
+  it("gives each cause family its own form, keeping the slot's footprint", () => {
+    expect(formFor("spiral", "wreck_rib_cage", 1, false)).toEqual(["wreck_capsized", 16 / 13]);
+    expect(formFor("exploit", "wreck_capsized", 1, false)[0]).toBe("wreck_burned");
+    expect(formFor("counterparty", "wreck_capsized", 1, false)[0]).toBe("wreck_stern_section");
+    expect(formFor("run", "wreck_capsized", 1, false)[0]).toBe("wreck_mast_stump");
+    expect(formFor("wind-down", "wreck_capsized", 1, false)[0]).toBe("wreck_rib_cage");
+    expect(formFor("decree", "wreck_capsized", 1, false)[0]).toBe("wreck_great_hulk");
+    // the long tail's small boats: turned over and left-to-rot keep small-boat models; the rest shrink to a floor
+    expect(formFor("spiral", "wreck_skiff", 0.45, false)[0]).toBe("wreck_dinghy");
+    expect(formFor("wind-down", "wreck_dinghy", 0.45, false)[0]).toBe("wreck_skiff");
+    expect(formFor("exploit", "wreck_skiff", 0.45, false)[1]).toBeGreaterThanOrEqual(0.22);
+    // drained, in the shallows: the schooner gone down there; no family: the authored wreck
+    expect(formFor("run", "wreck_schooner_sunk", 1, true)).toEqual(["wreck_schooner_sunk", 1]);
+    expect(formFor(undefined, "wreck_skiff", 0.45, false)).toEqual(["wreck_skiff", 0.45]);
+  });
+
+  it("keeps peak-cap rank for place and gives the dead beyond the island's slots a wreck too", () => {
+    const deadF = [fam("decree", 0), fam("spiral", 1), ...Array.from({ length: 30 }, (_, i) => fam("wind-down", 2 + i))];
+    const pieces = composeCove(deadF, authored, null);
+    const wrecks = pieces.filter((p) => p.coin);
+    expect(wrecks.length).toBe(32);
+    expect(new Set(wrecks.map((p) => `${Math.round(p.x)},${Math.round(p.z)}`)).size).toBe(32);
+    const r = (id: string) => wrecks.find((p) => p.coin!.id === id)!;
+    expect(r("decree-0")).toMatchObject({ item: "wreck_great_hulk", x: 0 });
+    expect(r("spiral-1")).toMatchObject({ item: "wreck_capsized", x: 40, water: true });
+    expect(r("wind-down-2").item).toBe("wreck_skiff");
+  });
+
+  it("lays a fresh wreath only for a death within 90 days", () => {
+    const now = Date.UTC(2026, 9, 14);
+    expect(freshDeath([{ deathDate: "2026-05" }, { deathDate: "2025-01" }], now)).toBeNull();
+    expect(freshDeath([{ deathDate: "2026-08" }, { deathDate: "2025-01" }], now)?.deathDate).toBe("2026-08");
+    expect(freshDeath([{ deathDate: "2026-10-01" }], now)?.deathDate).toBe("2026-10-01");
+  });
+
+  it("puts the UI's focus on every piece of the coin, and lights the selected one's lantern", () => {
+    const writes: Array<[string, boolean, number]> = [];
+    let lamp: unknown = "unset";
+    const svc = new CoveService((m, hi) => writes.push([m.id, m.memorial, hi]), (l) => { lamp = l; });
+    const mk = (id: string, memorial: boolean, l: [number, number, number] | null) => ({ id, inst: 0, item: "x", x: 0, y: 0, z: 0, h: 0, scale: 1, top: 2, len: 5, memorial, perch: null, lamp: l, lit: memorial, board: -1 });
+    svc.set([mk("a", false, null), mk("a", true, [1, 2, 3]), mk("b", false, [4, 5, 6])]);
+    expect(svc.mark("a")?.memorial).toBe(false);
+    svc.focus("b", "a");
+    expect(writes).toEqual(expect.arrayContaining([["a", false, 1], ["a", true, 1], ["b", false, 0.5]]));
+    expect(lamp).toEqual([1, 2, 3]);
+    svc.focus(null, null);
+    expect(lamp).toBeNull();
+    expect(writes.slice(-3).every((w) => w[2] === 0)).toBe(true);
   });
 });
