@@ -1,0 +1,322 @@
+{
+ "lighthouse_pharos.glb": {
+  "tris": 4650,
+  "budget": 15000,
+  "ok": true,
+  "family": "lighthouse",
+  "nodes": 23,
+  "kb": 326.0
+ },
+ "lighthouse_keeper_cottage.glb": {
+  "tris": 1398,
+  "budget": 2500,
+  "ok": true,
+  "family": "lighthouse",
+  "nodes": 11,
+  "kb": 106.1
+ },
+ "lighthouse_oil_store.glb": {
+  "tris": 88,
+  "budget": 2500,
+  "ok": true,
+  "family": "lighthouse",
+  "nodes": 4,
+  "kb": 8.9
+ },
+ "lighthouse_signal_mast.glb": {
+  "tris": 168,
+  "budget": 2500,
+  "ok": true,
+  "family": "lighthouse",
+  "nodes": 7,
+  "kb": 17.1
+ },
+ "house_a_falu_gable.glb": {
+  "tris": 1840,
+  "budget": 2500,
+  "ok": true,
+  "family": "house",
+  "nodes": 11,
+  "kb": 136.7
+ },
+ "house_b_ochre_slate_tall.glb": {
+  "tris": 2274,
+  "budget": 2500,
+  "ok": true,
+  "family": "house",
+  "nodes": 10,
+  "kb": 165.6
+ },
+ "house_c_white_render.glb": {
+  "tris": 1846,
+  "budget": 2500,
+  "ok": true,
+  "family": "house",
+  "nodes": 11,
+  "kb": 137.1
+ },
+ "house_d_blue_tar.glb": {
+  "tris": 1532,
+  "budget": 2500,
+  "ok": true,
+  "family": "house",
+  "nodes": 8,
+  "kb": 112.8
+ },
+ "house_e_turf_cottage.glb": {
+  "tris": 1128,
+  "budget": 2500,
+  "ok": true,
+  "family": "house",
+  "nodes": 11,
+  "kb": 94.6
+ },
+ "house_f_warehouse.glb": {
+  "tris": 1182,
+  "budget": 2500,
+  "ok": true,
+  "family": "house",
+  "nodes": 8,
+  "kb": 88.9
+ },
+ "pier_main_10m.glb": {
+  "tris": 304,
+  "budget": null,
+  "ok": true,
+  "family": "pier",
+  "nodes": 5,
+  "kb": 23.6
+ },
+ "pier_finger_16m.glb": {
+  "tris": 372,
+  "budget": null,
+  "ok": true,
+  "family": "pier",
+  "nodes": 5,
+  "kb": 27.7
+ },
+ "pier_thead_20m.glb": {
+  "tris": 496,
+  "budget": null,
+  "ok": true,
+  "family": "pier",
+  "nodes": 5,
+  "kb": 36.0
+ },
+ "quay_wall_10m.glb": {
+  "tris": 300,
+  "budget": null,
+  "ok": true,
+  "family": "quay",
+  "nodes": 6,
+  "kb": 24.9
+ },
+ "quay_bollard.glb": {
+  "tris": 56,
+  "budget": null,
+  "ok": true,
+  "family": "quay",
+  "nodes": 2,
+  "kb": 4.7
+ },
+ "prop_lamp_post.glb": {
+  "tris": 108,
+  "budget": null,
+  "ok": true,
+  "family": "prop",
+  "nodes": 3,
+  "kb": 8.6
+ },
+ "hull_ship_flagship_docked.glb": {
+  "tris": 1327,
+  "budget": 2500,
+  "ok": true,
+  "family": "hull",
+  "nodes": 16,
+  "kb": 99.9
+ },
+ "hull_ship_flagship_sailing.glb": {
+  "tris": 1336,
+  "budget": 2500,
+  "ok": true,
+  "family": "hull",
+  "nodes": 25,
+  "kb": 103.0
+ },
+ "hull_brig_large_docked.glb": {
+  "tris": 875,
+  "budget": 900,
+  "ok": true,
+  "family": "hull",
+  "nodes": 16,
+  "kb": 69.1
+ },
+ "hull_brig_large_sailing.glb": {
+  "tris": 888,
+  "budget": 900,
+  "ok": true,
+  "family": "hull",
+  "nodes": 22,
+  "kb": 70.4
+ },
+ "hull_schooner_large_docked.glb": {
+  "tris": 783,
+  "budget": 900,
+  "ok": true,
+  "family": "hull",
+  "nodes": 16,
+  "kb": 62.5
+ },
+ "hull_schooner_large_sailing.glb": {
+  "tris": 800,
+  "budget": 900,
+  "ok": true,
+  "family": "hull",
+  "nodes": 17,
+  "kb": 61.9
+ },
+ "hull_sloop_small_docked.glb": {
+  "tris": 595,
+  "budget": 900,
+  "ok": true,
+  "family": "hull",
+  "nodes": 15,
+  "kb": 49.3
+ },
+ "hull_sloop_small_sailing.glb": {
+  "tris": 608,
+  "budget": 900,
+  "ok": true,
+  "family": "hull",
+  "nodes": 15,
+  "kb": 48.7
+ },
+ "hull_sloop_medium_docked.glb": {
+  "tris": 619,
+  "budget": 900,
+  "ok": true,
+  "family": "hull",
+  "nodes": 15,
+  "kb": 51.0
+ },
+ "hull_sloop_medium_sailing.glb": {
+  "tris": 632,
+  "budget": 900,
+  "ok": true,
+  "family": "hull",
+  "nodes": 15,
+  "kb": 50.4
+ },
+ "hull_botter_medium_docked.glb": {
+  "tris": 625,
+  "budget": 900,
+  "ok": true,
+  "family": "hull",
+  "nodes": 17,
+  "kb": 53.2
+ },
+ "hull_botter_medium_sailing.glb": {
+  "tris": 638,
+  "budget": 900,
+  "ok": true,
+  "family": "hull",
+  "nodes": 17,
+  "kb": 52.7
+ },
+ "hull_cat_boat_docked.glb": {
+  "tris": 565,
+  "budget": 900,
+  "ok": true,
+  "family": "hull",
+  "nodes": 14,
+  "kb": 46.4
+ },
+ "hull_cat_boat_sailing.glb": {
+  "tris": 569,
+  "budget": 900,
+  "ok": true,
+  "family": "hull",
+  "nodes": 14,
+  "kb": 45.8
+ },
+ "prop_crates.glb": {
+  "tris": 132,
+  "budget": null,
+  "ok": true,
+  "family": "prop",
+  "nodes": 2,
+  "kb": 11.1
+ },
+ "prop_barrels.glb": {
+  "tris": 112,
+  "budget": null,
+  "ok": true,
+  "family": "prop",
+  "nodes": 2,
+  "kb": 8.0
+ },
+ "prop_nets.glb": {
+  "tris": 200,
+  "budget": null,
+  "ok": true,
+  "family": "prop",
+  "nodes": 3,
+  "kb": 22.1
+ },
+ "tree_spruce.glb": {
+  "tris": 64,
+  "budget": null,
+  "ok": true,
+  "family": "veg",
+  "nodes": 3,
+  "kb": 7.0
+ },
+ "tree_birch.glb": {
+  "tris": 76,
+  "budget": null,
+  "ok": true,
+  "family": "veg",
+  "nodes": 3,
+  "kb": 9.1
+ },
+ "prop_fence_picket.glb": {
+  "tris": 156,
+  "budget": null,
+  "ok": true,
+  "family": "prop",
+  "nodes": 2,
+  "kb": 12.0
+ },
+ "prop_hjell_rack.glb": {
+  "tris": 300,
+  "budget": null,
+  "ok": true,
+  "family": "prop",
+  "nodes": 3,
+  "kb": 22.7
+ },
+ "prop_buoy.glb": {
+  "tris": 56,
+  "budget": null,
+  "ok": true,
+  "family": "prop",
+  "nodes": 2,
+  "kb": 4.7
+ },
+ "prop_hand_crane.glb": {
+  "tris": 64,
+  "budget": null,
+  "ok": true,
+  "family": "prop",
+  "nodes": 2,
+  "kb": 5.5
+ },
+ "prop_dinghy.glb": {
+  "tris": 321,
+  "budget": null,
+  "ok": true,
+  "family": "prop",
+  "nodes": 2,
+  "kb": 22.9
+ }
+}

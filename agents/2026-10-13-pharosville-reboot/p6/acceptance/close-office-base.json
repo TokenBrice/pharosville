@@ -1,0 +1,41 @@
+{
+ "url": "http://localhost:5190/?t=11&cam=78.14,6,151.67,110,30",
+ "out": "/home/ahirice/Documents/git/pharosville/.worktrees/harbour/agents/2026-10-13-pharosville-reboot/p6/acceptance/close-office-base.png",
+ "viewport": "1600x1000@1",
+ "gpu": "ANGLE (NVIDIA, Vulkan 1.4.341 (NVIDIA NVIDIA GeForce RTX 5070 Ti (0x00002C05)), NVIDIA)",
+ "webgpuAdapter": "nvidia/blackwell",
+ "frames": 121,
+ "fps": 61,
+ "p50": 16.7,
+ "p95": 16.7,
+ "max": 16.8,
+ "stats": {
+  "backend": "webgl2",
+  "drawCalls": 80,
+  "triangles": 1091753,
+  "textures": 50,
+  "programs": 47,
+  "hour": 11,
+  "systems": [
+   "layout",
+   "data",
+   "readings",
+   "sky",
+   "ocean",
+   "island",
+   "lighthouse",
+   "civic",
+   "fleet",
+   "life",
+   "identity",
+   "lights",
+   "beam",
+   "ui"
+  ],
+  "firstFrameMs": 4771,
+  "dpr": 1,
+  "gpuMs": 2.86,
+  "quality": "high"
+ },
+ "consoleErrors": []
+}

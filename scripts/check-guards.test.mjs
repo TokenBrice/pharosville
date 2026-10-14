@@ -267,7 +267,7 @@ const runtimeFactsMarkdown = buildRuntimeFactsMarkdown();
 assert.match(runtimeFactsMarkdown, /^# PharosVille Runtime Facts/);
 assert.match(runtimeFactsMarkdown, /## API Allowlist/);
 assert.match(runtimeFactsMarkdown, /## Bundle Budgets/);
-assert.equal(sharedBundleBudgets.desktop.label, "desktop lazy chunk");
+assert.equal(sharedBundleBudgets.desktop.label, "Harbour lazy chunk");
 assert.equal(sharedBundleBudgets.renderer.label, "Three.js renderer chunk");
 assert.equal(sharedBundleBudgets.renderer.required, true);
 assert.equal(
@@ -311,9 +311,11 @@ const viewportGateSource = [
   "export const MIN_WIDE_SHORT_SIDE_PX = 640;",
 ].join("\n");
 const viewportGateClient = [
-  'import { isWidescreenViewport } from "./systems/viewport-gate";',
-  'const Desktop = lazy(() => import("./pharosville-desktop-data"));',
+  'import { canViewportShowMap, isWidescreenViewport } from "./systems/viewport-gate";',
+  'import { dismissPoster } from "./harbour/app/poster";',
+  'const HarbourApp = lazy(() => import("./harbour/app/harbour-app"));',
   "isWidescreenViewport(window.screen.width, window.screen.height);",
+  "canViewportShowMap(window.innerWidth, window.innerHeight);",
 ].join("\n");
 const viewportGateCheck = checkViewportGate({
   gateSource: viewportGateSource,
@@ -330,12 +332,19 @@ assert.deepEqual(viewportGateCheck.gate, {
 const driftedViewportGateCheck = checkViewportGate({
   gateSource: viewportGateSource,
   clientSource: viewportGateClient.replace(
-    'import("./pharosville-desktop-data")',
+    'import("./harbour/app/harbour-app")',
     'import("./world")',
   ),
 });
 assert.deepEqual(driftedViewportGateCheck.errors, [
-  "src/client.tsx must lazy-import ./pharosville-desktop-data after the viewport gate.",
+  "src/client.tsx must lazy-import ./harbour/app/harbour-app after the viewport gate.",
+]);
+assert.deepEqual(checkViewportGate({
+  gateSource: viewportGateSource,
+  clientSource: `${viewportGateClient}\nimport { Engine } from "./harbour/engine/engine";\nmatchMedia("(orientation: portrait)");`,
+}).errors, [
+  "src/client.tsx must not gate on (orientation: portrait); both gate halves are size tests.",
+  "src/client.tsx must not statically import the Harbour runtime (only ./harbour/app/poster).",
 ]);
 assert.throws(
   () => checkViewportGate({
@@ -533,8 +542,7 @@ assert.match(
   /pull-request rule is missing/,
 );
 
-assert.doesNotMatch(packageJson.scripts["test:visual:dist:static"], /resizing below/);
-assert.match(packageJson.scripts["test:visual:dist:static"], /@visual-static|resized below/);
+assert.match(packageJson.scripts["test:visual:dist:dom"], /harbour-dom\.spec\.ts .*--grep @visual-dom/);
 
 assert.deepEqual(parseChangedPaths("AM src/index.ts\n D docs/pharosville/AGENT_ONBOARDING.md\n"), [
   "src/index.ts",

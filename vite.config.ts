@@ -11,7 +11,7 @@ import { loadWorktreeSharedPharosEnv } from "./scripts/pharosville/local-api-env
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const pharosVilleDesktopQuery = "(min-width: 1280px) and (min-height: 760px)";
-const pharosVilleDesktopChunkName = "pharosville-desktop-data";
+const pharosVilleDesktopChunkName = "harbour-app";
 
 function localPharosVilleApiProxy(env: { PHAROS_API_BASE?: string; PHAROS_API_KEY?: string }): Plugin {
   return {
@@ -208,17 +208,7 @@ export default defineConfig(({ mode }) => {
             if (id.includes("/node_modules/react/") || id.includes("/node_modules/react-dom/")) {
               return "vendor-react";
             }
-            if (id.includes("/node_modules/@tanstack/react-query/")) {
-              return "vendor-query";
-            }
-            if (id.includes("/node_modules/lucide-react/")) {
-              return "vendor-icons";
-            }
-            if (
-              id.includes("/node_modules/three/")
-              || id.includes("/node_modules/postprocessing/")
-              || id.includes("/node_modules/n8ao/")
-            ) {
+            if (id.includes("/node_modules/three/") || id.includes("/node_modules/postprocessing/")) {
               return "vendor-rendering";
             }
             return undefined;

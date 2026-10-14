@@ -34,9 +34,9 @@ export const REQUIRED_PERMISSIONS_POLICY_FEATURES = [
 ];
 
 /**
- * Features the page itself may use, and no other origin: Stay mode (W6.9,
- * `src/hooks/use-stay-mode.ts`) takes the window fullscreen and keeps the
- * screen awake. Every other required feature stays denied with `()`.
+ * Features the page itself may use, and no other origin: the Garden-era Stay
+ * mode took the window fullscreen and kept the screen awake (not yet ported to
+ * the Harbour). Every other required feature stays denied with `()`.
  */
 export const SELF_ONLY_PERMISSIONS_POLICY_FEATURES = ["fullscreen", "screen-wake-lock"];
 

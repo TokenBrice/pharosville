@@ -1,0 +1,332 @@
+{
+ "overview-persp": {
+  "preset": "overview",
+  "px": {
+   "flagship": {
+    "n": 6,
+    "hull_px_median": 67.8,
+    "hull_px_min": 58.8,
+    "hull_px_max": 76.5,
+    "mast_px_median": 64.6
+   },
+   "large": {
+    "n": 24,
+    "hull_px_median": 46.4,
+    "hull_px_min": 43.3,
+    "hull_px_max": 50.9,
+    "mast_px_median": 38.3
+   },
+   "medium": {
+    "n": 82,
+    "hull_px_median": 28.8,
+    "hull_px_min": 15.7,
+    "hull_px_max": 31.4,
+    "mast_px_median": 28.3
+   },
+   "small": {
+    "n": 147,
+    "hull_px_median": 25.8,
+    "hull_px_min": 12.1,
+    "hull_px_max": 29.2,
+    "mast_px_median": 22.3
+   },
+   "boat": {
+    "n": 110,
+    "hull_px_median": 22.0,
+    "hull_px_min": 9.0,
+    "hull_px_max": 23.2,
+    "mast_px_median": 15.9
+   },
+   "skiff": {
+    "n": 157,
+    "hull_px_median": 15.3,
+    "hull_px_min": 6.0,
+    "hull_px_max": 16.2,
+    "mast_px_median": 9.7
+   }
+  },
+  "fill": {
+   "land_piers_boats": 0.592,
+   "haze_band": 0.049,
+   "water": 0.36
+  }
+ },
+ "overview-ortho": {
+  "preset": "overview",
+  "px": {
+   "flagship": {
+    "n": 6,
+    "hull_px_median": 76.6,
+    "hull_px_min": 76.6,
+    "hull_px_max": 94.0,
+    "mast_px_median": 71.2
+   },
+   "large": {
+    "n": 24,
+    "hull_px_median": 46.0,
+    "hull_px_min": 46.0,
+    "hull_px_max": 56.3,
+    "mast_px_median": 37.3
+   },
+   "medium": {
+    "n": 82,
+    "hull_px_median": 33.2,
+    "hull_px_min": 23.5,
+    "hull_px_max": 33.2,
+    "mast_px_median": 27.7
+   },
+   "small": {
+    "n": 147,
+    "hull_px_median": 25.5,
+    "hull_px_min": 18.1,
+    "hull_px_max": 25.5,
+    "mast_px_median": 21.9
+   },
+   "boat": {
+    "n": 110,
+    "hull_px_median": 19.2,
+    "hull_px_min": 13.5,
+    "hull_px_max": 19.2,
+    "mast_px_median": 15.8
+   },
+   "skiff": {
+    "n": 157,
+    "hull_px_median": 12.8,
+    "hull_px_min": 9.0,
+    "hull_px_max": 12.8,
+    "mast_px_median": 9.7
+   }
+  },
+  "fill": {
+   "land_piers_boats": 0.624,
+   "haze_band": 0.015,
+   "water": 0.361
+  }
+ },
+ "harbour-eth-persp": {
+  "preset": "harbour:pier-ethereum",
+  "px": {
+   "flagship": {
+    "n": 4,
+    "hull_px_median": 95.3,
+    "hull_px_min": 81.1,
+    "hull_px_max": 99.4,
+    "mast_px_median": 104.2
+   },
+   "large": {
+    "n": 20,
+    "hull_px_median": 82.8,
+    "hull_px_min": 68.0,
+    "hull_px_max": 91.2,
+    "mast_px_median": 73.1
+   },
+   "medium": {
+    "n": 72,
+    "hull_px_median": 46.5,
+    "hull_px_min": 34.3,
+    "hull_px_max": 52.9,
+    "mast_px_median": 67.4
+   },
+   "small": {
+    "n": 129,
+    "hull_px_median": 47.8,
+    "hull_px_min": 25.4,
+    "hull_px_max": 58.4,
+    "mast_px_median": 49.9
+   },
+   "boat": {
+    "n": 80,
+    "hull_px_median": 45.1,
+    "hull_px_min": 19.6,
+    "hull_px_max": 49.2,
+    "mast_px_median": 46.3
+   },
+   "skiff": {
+    "n": 111,
+    "hull_px_median": 32.8,
+    "hull_px_min": 12.7,
+    "hull_px_max": 36.0,
+    "mast_px_median": 18.6
+   }
+  }
+ },
+ "harbour-eth-ortho": {
+  "preset": "harbour:pier-ethereum",
+  "px": {
+   "flagship": {
+    "n": 1,
+    "hull_px_median": 146.8,
+    "hull_px_min": 146.8,
+    "hull_px_max": 146.8,
+    "mast_px_median": 101.2
+   },
+   "large": {
+    "n": 10,
+    "hull_px_median": 88.1,
+    "hull_px_min": 88.1,
+    "hull_px_max": 88.1,
+    "mast_px_median": 71.5
+   },
+   "medium": {
+    "n": 64,
+    "hull_px_median": 63.6,
+    "hull_px_min": 63.6,
+    "hull_px_max": 63.6,
+    "mast_px_median": 84.7
+   },
+   "small": {
+    "n": 118,
+    "hull_px_median": 48.9,
+    "hull_px_min": 48.9,
+    "hull_px_max": 48.9,
+    "mast_px_median": 41.9
+   },
+   "boat": {
+    "n": 73,
+    "hull_px_median": 36.7,
+    "hull_px_min": 36.7,
+    "hull_px_max": 36.7,
+    "mast_px_median": 48.5
+   },
+   "skiff": {
+    "n": 83,
+    "hull_px_median": 24.5,
+    "hull_px_min": 24.5,
+    "hull_px_max": 24.5,
+    "mast_px_median": 30.7
+   }
+  }
+ },
+ "harbour-small-persp": {
+  "preset": "harbour:pier-base",
+  "px": {
+   "flagship": {
+    "n": 1,
+    "hull_px_median": 279.6,
+    "hull_px_min": 279.6,
+    "hull_px_max": 279.6,
+    "mast_px_median": 250.0
+   },
+   "large": {
+    "n": 3,
+    "hull_px_median": 156.5,
+    "hull_px_min": 154.6,
+    "hull_px_max": 165.5,
+    "mast_px_median": 161.3
+   },
+   "medium": {
+    "n": 14,
+    "hull_px_median": 118.2,
+    "hull_px_min": 98.7,
+    "hull_px_max": 181.7,
+    "mast_px_median": 128.7
+   },
+   "small": {
+    "n": 22,
+    "hull_px_median": 105.2,
+    "hull_px_min": 69.6,
+    "hull_px_max": 125.2,
+    "mast_px_median": 127.0
+   },
+   "boat": {
+    "n": 25,
+    "hull_px_median": 95.9,
+    "hull_px_min": 56.7,
+    "hull_px_max": 109.0,
+    "mast_px_median": 101.9
+   },
+   "skiff": {
+    "n": 25,
+    "hull_px_median": 48.8,
+    "hull_px_min": 35.6,
+    "hull_px_max": 54.5,
+    "mast_px_median": 60.6
+   }
+  }
+ },
+ "harbour-small-ortho": {
+  "preset": "harbour:pier-base",
+  "px": {
+   "flagship": {
+    "n": 1,
+    "hull_px_median": 324.4,
+    "hull_px_min": 324.4,
+    "hull_px_max": 324.4,
+    "mast_px_median": 223.6
+   },
+   "large": {
+    "n": 2,
+    "hull_px_median": 194.7,
+    "hull_px_min": 194.7,
+    "hull_px_max": 194.7,
+    "mast_px_median": 254.9
+   },
+   "medium": {
+    "n": 14,
+    "hull_px_median": 140.6,
+    "hull_px_min": 140.6,
+    "hull_px_max": 140.6,
+    "mast_px_median": 117.2
+   },
+   "small": {
+    "n": 21,
+    "hull_px_median": 108.1,
+    "hull_px_min": 108.1,
+    "hull_px_max": 108.1,
+    "mast_px_median": 146.4
+   },
+   "boat": {
+    "n": 23,
+    "hull_px_median": 81.1,
+    "hull_px_min": 81.1,
+    "hull_px_max": 81.1,
+    "mast_px_median": 107.1
+   },
+   "skiff": {
+    "n": 22,
+    "hull_px_median": 54.1,
+    "hull_px_min": 54.1,
+    "hull_px_max": 54.1,
+    "mast_px_median": 40.9
+   }
+  }
+ },
+ "close-persp": {
+  "preset": "close",
+  "px": {
+   "medium": {
+    "n": 20,
+    "hull_px_median": 241.1,
+    "hull_px_min": 167.3,
+    "hull_px_max": 335.4,
+    "mast_px_median": 365.2
+   },
+   "small": {
+    "n": 1,
+    "hull_px_median": 398.4,
+    "hull_px_min": 398.4,
+    "hull_px_max": 398.4,
+    "mast_px_median": 485.3
+   }
+  }
+ },
+ "close-ortho": {
+  "preset": "close",
+  "px": {
+   "medium": {
+    "n": 16,
+    "hull_px_median": 309.1,
+    "hull_px_min": 309.1,
+    "hull_px_max": 309.1,
+    "mast_px_median": 295.5
+   },
+   "small": {
+    "n": 6,
+    "hull_px_median": 237.7,
+    "hull_px_min": 237.7,
+    "hull_px_max": 237.7,
+    "mast_px_median": 339.6
+   }
+  }
+ }
+}

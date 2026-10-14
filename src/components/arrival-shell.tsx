@@ -1,22 +1,28 @@
+/**
+ * The generic guide to the harbour's language. index.html carries the same three lines for the
+ * no-JS first paint; client.test.tsx keeps the copies identical. No live readings here.
+ */
+export const HARBOUR_GUIDE: ReadonlyArray<{ term: string; text: string }> = [
+  { term: "Boats", text: "One boat is one stablecoin. It sails a circuit between its chains and docks longest where it holds the most supply." },
+  { term: "Lighthouse", text: "The beam is the Pharos Stability Index: the market as a whole." },
+  { term: "Sea and sky", text: "Rough water is supply trading off its peg, storms are stress signals, and fog means the data has gone stale." },
+];
+
 interface ArrivalShellProps {
   stage: string;
-  veil?: boolean;
 }
 
-/** Generic guide only: observations belong to the independent live reading key. */
-export function ArrivalShell({ stage, veil = false }: ArrivalShellProps) {
+/** Overlay on the first-paint poster while the harbour loads (and the no-JS page in index.html). */
+export function ArrivalShell({ stage }: ArrivalShellProps) {
   return (
-    <section className={`pv-arrival-shell${veil ? " pv-arrival-shell--veil" : ""}`} aria-label="PharosVille welcome">
-      <div className="pv-arrival-shell__content">
-        <h2>PharosVille</h2>
-        <p className="pv-arrival-shell__promise">A living stablecoin garden</p>
-        <p>Watch the market, then inspect the evidence.</p>
-        <dl className="pv-arrival-shell__guide">
-          <div><dt>Lighthouse</dt><dd>The official Pharos Stability Index describes the market as a whole.</dd></div>
-          <div><dt>Water</dt><dd>Surface signatures distinguish categorical peg risk; missing evidence is not calm.</dd></div>
-          <div><dt>Sails</dt><dd>One ship is one stablecoin. Size uses a compressed supply scale, not proportional market cap.</dd></div>
+    <section className="pv-arrival" aria-label="PharosVille welcome">
+      <h2 className="pv-arrival__mark">Pharos<i>Ville</i></h2>
+      <div className="pv-arrival__card">
+        <p className="pv-arrival__promise">A living stablecoin harbour</p>
+        <dl className="pv-arrival__guide">
+          {HARBOUR_GUIDE.map((row) => <div key={row.term}><dt>{row.term}</dt><dd>{row.text}</dd></div>)}
         </dl>
-        <p className="pv-arrival-shell__stage" role="status">{stage}</p>
+        <p className="pv-arrival__stage" role="status">{stage}</p>
         <nav aria-label="Pharos analytics">
           <a href="https://pharos.watch/">Open Pharos analytics</a>
           <a href="https://pharos.watch/stability-index/">Stability Index</a>
@@ -26,8 +32,7 @@ export function ArrivalShell({ stage, veil = false }: ArrivalShellProps) {
   );
 }
 
-/** A rejected presentation/data module retains useful DOM; renderer failures
- * are handled inside the world by its selectable WorldStaticOverview. */
-export function ArrivalModuleFailure() {
-  return <ArrivalShell stage="The world module could not load. Open Pharos analytics, or reload this page to retry." />;
+/** A rejected module or a failed renderer keeps the poster, the guide and the useful links. */
+export function ArrivalModuleFailure({ reason = "The harbour module could not load." }: { reason?: string }) {
+  return <ArrivalShell stage={`${reason} Open Pharos analytics, or reload this page to retry.`} />;
 }

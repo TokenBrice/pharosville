@@ -1,6 +1,6 @@
 # PharosVille Agent Onboarding
 
-Last updated: 2026-10-03
+Last updated: 2026-10-14
 
 Use this after `AGENTS.md` to route the current task. Keep startup small:
 read only the docs needed for the change in front of you.
@@ -40,16 +40,13 @@ read only the docs needed for the change in front of you.
 
 | Task | Read only if needed | First checks |
 | --- | --- | --- |
-| App shell, API proxy, metadata, viewport gate | `docs/pharosville/CONTRACTS.md`, `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville-page.md` | `npm run validate:changed` |
-| World model, data semantics, layout, motion | `docs/pharosville/CONTRACTS.md`, `src/systems/README.md` | `npm test -- src/systems` |
-| Art direction, composition, light hierarchy, visual restraint | `docs/pharosville/VISUAL_INVARIANTS.md`, the active visual-upgrade plan `agents/2026-10-02-visual-upgrade/01-implementation-plan.md` (§4 decisions, §7.2 art A/B protocol); the Hour-Print plan it builds on is in git history at commit `599c822` | operator review of the picture rules, then real-GPU `npm run preview` evidence (`--clock`, `--metrics --value-plan`) |
-| Day score, rituals, director, attention budget | `docs/pharosville/CONTRACTS.md` ("Media and motion"), `docs/pharosville/VISUAL_INVARIANTS.md` | `npm test -- src/systems/garden-score.test.ts src/systems/garden-director.test.ts`, then `npm run preview -- --ritual <kind>` |
-| Chrome, now-line, record card, ink labels | `docs/pharosville/CONTRACTS.md` ("Runtime, security and access") | `npm test -- src/systems/chrome-air.test.ts src/components` |
-| Sound (opt-in) | `docs/pharosville/CONTRACTS.md` ("Media and motion") | `npm test -- src/hooks/use-garden-sound.test.tsx` |
-| Three.js renderer, hit testing, interaction | `docs/pharosville/CONTRACTS.md`, `docs/pharosville/THREEJS_AGENT_REFERENCE.md`, `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville/TESTING.md` | focused unit test (`npm test -- src/three src/renderer`), then `npm run test:visual` |
-| Lighthouse model or ship logos | `docs/pharosville/ASSET_PIPELINE.md` | `npm run check:garden-models` or focused sail tests |
-| Reference generation | `docs/pharosville/ASSET_PIPELINE.md` | operator review; keep scratch in `outputs/` |
-| Visual evidence, look, frame time | `docs/pharosville/VISUAL_INVARIANTS.md`, `docs/pharosville/CONTRACTS.md`, `docs/pharosville/TESTING.md` | `npm run preview` for anything you intend to LOOK at or quote a frame time from; `npm run test:visual` for the assertions |
+| App shell, API proxy, metadata, viewport gate, first-paint poster | `docs/pharosville/CONTRACTS.md`, `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville-page.md` | `npm run validate:changed` |
+| The Harbour world: meaning, art direction, circuits, minimal UI | `agents/2026-10-13-pharosville-reboot/PLAN.md` (D1-D14), `agents/2026-10-13-pharosville-reboot/p2/BRIEF.md` (engine, services, asset contracts) | `npx vitest run src/harbour` |
+| Engine, renderer, systems, sea/sky/beam, fleet | `docs/pharosville/ARCHITECTURE.md`, `src/harbour/systems.ts` (order = update order) | `npx vitest run src/harbour`, then `npm run preview -- --url <url>` |
+| Data feed, model, sim (boat circuits) | `docs/pharosville/ARCHITECTURE.md`, `src/harbour/data/fetch.ts` | `npx vitest run src/harbour/data src/harbour/model src/harbour/sim` |
+| Chart UI (hover tag, panel, ledger, search) | `src/harbour/ui/` | `npx vitest run src/harbour/ui` |
+| Production mount and poster crossfade | `src/harbour/app/harbour-app.tsx`, `src/client.tsx` | `npm test -- src/client.test.tsx`, `npm run check:viewport-gate`, then the real-browser gate check in `docs/pharosville/TESTING.md` (`npm run preview -- --log-requests`) |
+| Visual evidence, look, frame time | `docs/pharosville/TESTING.md` | `npm run preview` (`scripts/harbour/shot.mjs`, real GPU) for anything you LOOK at or quote a frame time from; `npm run test:visual` only for DOM assertions |
 | Versioned release, tag, or GitHub Release | `docs/pharosville/RELEASES.md` | `npm run check:release-contract` |
 | Docs/process only | `docs/pharosville/README.md` | `npm run validate:docs` |
 | Unknown or mixed scope | this file, then exact source files | `npm run validate:changed` |
@@ -78,11 +75,11 @@ npm run agent:plan:new -- <slug>
 
 - Exposing `PHAROS_API_KEY` through client code, docs, fixtures, or logs.
 - Treating old `agents/*plan*.md` files as authoritative over current code and route docs.
-- Judging the render or the frame time through a Playwright browser. Use `npm run preview` — it goes through the operator's own Chrome flags. (The correctness lane asks the bundled browser for hardware rendering outside CI so the gates can run at all; that does not make its frame times quotable.)
+- Judging the render or the frame time through a Playwright browser. Use `npm run preview` (`scripts/harbour/shot.mjs`) — it goes through the operator's own Chrome and refuses a software frame. (The correctness lane asks the bundled browser for hardware rendering outside CI so the gates can run at all; that does not make its frame times quotable.)
 - Looking for committed screenshot baselines to regenerate. There are none — the visual lane asserts DOM state and telemetry, so a renderer change cannot put it in debt.
 - Gating any viewport decision on `(orientation: portrait)`. It is a viewport aspect test, not a device test.
 - Treating a changelog entry, `main` deploy, local tag, or manual GitHub Release as the complete versioned release path.
 - Reintroducing a renderer switch or graphical fallback.
 - Reintroducing an unreviewed runtime asset inventory or namespace.
 - Adding runtime references to remote generation or prototype URLs.
-- Encoding analytical meaning only in WebGL without detail-panel and accessibility-ledger parity.
+- Encoding analytical meaning only in WebGL without a hover tag, side panel or ledger reading for it (D11: text on demand only).

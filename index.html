@@ -5,79 +5,53 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="A living digital Japanese garden where live Pharos stablecoin markets unfold as ships, water, light and weather: calm to watch, and informative about peg risk."
+      content="A living harbour where every stablecoin is a boat: supply sails between chain harbours, the lighthouse beam is the Pharos Stability Index, and the sea and weather carry peg and stress signals."
     />
-    <title>PharosVille — A Living Stablecoin Garden</title>
+    <title>PharosVille: a living stablecoin harbour</title>
     <link rel="canonical" href="https://pharosville.pharos.watch/" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="preload" href="/fonts/eb-garamond-400-latin.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href="/fonts/eb-garamond-400-italic-latin.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/eb-garamond-600-latin.woff2" as="font" type="font/woff2" crossorigin />
-    <meta name="theme-color" content="#12313d" />
+    <link rel="preload" as="image" type="image/avif" imagesrcset="/harbour/poster-960.avif 960w, /harbour/poster-1600.avif 1600w" imagesizes="100vw" fetchpriority="high" />
+    <meta name="theme-color" content="#0d1b2a" />
     <link rel="stylesheet" href="/arrival-shell.css" />
-    <script>
-      // First paint uses clock-selected stylesheet classes, never inline styles.
-      // garden-arrival.test.ts pins the clock copy and exact CSP script hash.
-      (function () {
-        try {
-          var q = new URLSearchParams(location.search.slice(1) + "&" + location.hash.replace(/^#\??/, ""));
-          var local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-          var now = new Date(), r = Math.PI / 180, t = local ? parseFloat(q.get("t") || "") : NaN;
-          var pin = local && /^(\d{4})-(\d\d)-(\d\d)$/.exec(q.get("d") || "");
-          var Y = pin ? +pin[1] : now.getFullYear(), M = pin ? pin[2] - 1 : now.getMonth(), D = pin ? +pin[3] : now.getDate();
-          var h = t >= 0 ? Math.min(24, t) : local && q.get("n") === "1" ? 22 : now.getHours() + now.getMinutes() / 60;
-          var jan = new Date(Y, 0, 1).getTimezoneOffset(), jul = new Date(Y, 6, 1).getTimezoneOffset();
-          var zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-          var south = (jan !== jul && jan < jul) || /^(Antarctica\/|Australia\/|America\/(Argentina\/|Asuncion|Bahia|Buenos_Aires|Campo_Grande|Cuiaba|La_Paz|Lima|Montevideo|Punta_Arenas|Recife|Santiago|Sao_Paulo)|Africa\/(Johannesburg|Maputo|Harare|Lusaka|Windhoek|Gaborone|Maseru|Mbabane|Luanda|Lubumbashi|Blantyre|Dar_es_Salaam)|Asia\/Jakarta|Indian\/(Antananarivo|Mauritius|Reunion)|Pacific\/(Apia|Auckland|Chatham|Fiji|Noumea|Port_Moresby|Tahiti|Tongatapu))/.test(zone);
-          var doy = Math.round((Date.UTC(Y, M, D) - Date.UTC(Y, 0, 1)) / 864e5) + 1, lat = (south ? -35 : 35) * r;
-          var dec = 23.44 * r * Math.sin((2 * Math.PI * (284 + doy)) / 365);
-          var ha = h - 12 - (Math.max(jan, jul) - new Date(Y, M, D, 12).getTimezoneOffset()) / 60;
-          ha -= 24 * Math.floor((ha + 12) / 24);
-          var e = Math.asin(Math.min(1, Math.max(-1, Math.sin(lat) * Math.sin(dec) + Math.cos(lat) * Math.cos(dec) * Math.cos(ha * 15 * r)))) / r;
-          var s = function (a, b) { var x = Math.min(1, Math.max(0, (e - a) / (b - a))); return x * x * (3 - 2 * x); };
-          var w = ha >= 0 // dawn, day, golden, blue, night
-            ? e >= 8 ? [0, 1 - s(16, 8), s(16, 8), 0, 0] : e >= 4 ? [0, 0, 1, 0, 0]
-              : e >= -4 ? [0, 0, 1 - s(4, -4), s(4, -4), 0] : [0, 0, 0, 1 - s(-4, -12), s(-4, -12)]
-            : e < -2 ? [s(-12, -2), 0, 0, 0, 1 - s(-12, -2)] : e < 6 ? [1, 0, 0, 0, 0] : [1 - s(6, 16), s(6, 16), 0, 0, 0];
-          var beat = 0;
-          for (var i = 1; i < 5; i += 1) if (w[i] > w[beat]) beat = i;
-          document.documentElement.setAttribute("data-pv-veil-beat", ["dawn", "day", "golden", "blue", "night"][beat]);
-        } catch (error) {
-          document.documentElement.setAttribute("data-pv-veil-beat", "day");
-        }
-      })();
-    </script>
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="PharosVille" />
-    <meta property="og:title" content="PharosVille — A Living Stablecoin Garden" />
-    <meta property="og:description" content="Watch live Pharos stablecoin markets unfold in a calm, living digital garden: ships are stablecoins, water is peg risk." />
+    <meta property="og:title" content="PharosVille: a living stablecoin harbour" />
+    <meta property="og:description" content="Every stablecoin is a boat in a lighthouse harbour town, sailing between chain harbours in proportion to its supply. The beam, the sea and the weather carry the market's live signals." />
     <meta property="og:url" content="https://pharosville.pharos.watch/" />
     <meta property="og:image" content="https://pharosville.pharos.watch/og-card.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="PharosVille — a living stablecoin garden with the Pharos beyond moss, stone and anchored sails. Illustration, not live readings." />
+    <meta property="og:image:alt" content="The PharosVille harbour at golden hour: a lighthouse headland, a town on the quay and a bay of stablecoin boats. Illustration, not live readings." />
 
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="PharosVille — A Living Stablecoin Garden" />
-    <meta name="twitter:description" content="Watch live Pharos stablecoin markets unfold in a calm, living digital garden: ships are stablecoins, water is peg risk." />
+    <meta name="twitter:title" content="PharosVille: a living stablecoin harbour" />
+    <meta name="twitter:description" content="Every stablecoin is a boat in a lighthouse harbour town, sailing between chain harbours in proportion to its supply. The beam, the sea and the weather carry the market's live signals." />
     <meta name="twitter:image" content="https://pharosville.pharos.watch/og-card.png" />
-    <meta name="twitter:image:alt" content="PharosVille — a living stablecoin garden with the Pharos beyond moss, stone and anchored sails. Illustration, not live readings." />
+    <meta name="twitter:image:alt" content="The PharosVille harbour at golden hour: a lighthouse headland, a town on the quay and a bay of stablecoin boats. Illustration, not live readings." />
   </head>
   <body>
+    <div id="pv-poster" class="pv-poster" aria-hidden="true">
+      <picture>
+        <source type="image/avif" srcset="/harbour/poster-960.avif 960w, /harbour/poster-1600.avif 1600w" sizes="100vw" />
+        <source type="image/webp" srcset="/harbour/poster-960.webp 960w, /harbour/poster-1600.webp 1600w" sizes="100vw" />
+        <img src="/harbour/poster-1600.webp" alt="" width="1600" height="1000" fetchpriority="high" decoding="async" />
+      </picture>
+    </div>
     <div id="root">
-      <section class="pv-arrival-shell" aria-label="PharosVille welcome">
-        <div class="pv-arrival-shell__content">
-          <h1>PharosVille</h1>
-          <p class="pv-arrival-shell__promise">A living stablecoin garden</p>
-          <p>Watch the market, then inspect the evidence.</p>
-          <dl class="pv-arrival-shell__guide">
-            <div><dt>Lighthouse</dt><dd>The official Pharos Stability Index describes the market as a whole.</dd></div>
-            <div><dt>Water</dt><dd>Surface signatures distinguish categorical peg risk; missing evidence is not calm.</dd></div>
-            <div><dt>Sails</dt><dd>One ship is one stablecoin. Size uses a compressed supply scale, not proportional market cap.</dd></div>
+      <section class="pv-arrival" aria-label="PharosVille welcome">
+        <h1 class="pv-arrival__mark">Pharos<i>Ville</i></h1>
+        <div class="pv-arrival__card">
+          <p class="pv-arrival__promise">A living stablecoin harbour</p>
+          <dl class="pv-arrival__guide">
+            <div><dt>Boats</dt><dd>One boat is one stablecoin. It sails a circuit between its chains and docks longest where it holds the most supply.</dd></div>
+            <div><dt>Lighthouse</dt><dd>The beam is the Pharos Stability Index: the market as a whole.</dd></div>
+            <div><dt>Sea and sky</dt><dd>Rough water is supply trading off its peg, storms are stress signals, and fog means the data has gone stale.</dd></div>
           </dl>
-          <p class="pv-arrival-shell__stage" role="status">Waiting for the application module.</p>
+          <p class="pv-arrival__stage" role="status">Raising the harbour.</p>
           <nav aria-label="Pharos analytics">
             <a href="https://pharos.watch/">Open Pharos analytics</a>
             <a href="https://pharos.watch/stability-index/">Stability Index</a>

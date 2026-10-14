@@ -3,7 +3,7 @@
 Canonical app: https://pharosville.pharos.watch/
 Repository: https://github.com/TokenBrice/pharosville
 
-PharosVille is a desktop-only React and Canvas 2D maritime observatory for live Pharos stablecoin signals. It visualizes stablecoin supply, chain dock presence, and risk/status signals as ships, harbors, water zones, detail panels, and an accessibility ledger.
+PharosVille is a living stablecoin harbour: a desktop-only React and three.js (WebGL2) world for live Pharos stablecoin signals. Every stablecoin is a boat sailing between chain harbours in proportion to its supply; the lighthouse beam is the Pharos Stability Index, the sea state is the off-peg share, the weather is stress signals and fog is stale data. Exact readings appear on demand in a hover tag, a side panel and a ledger.
 
 The app is an interpretive data visualization, not financial advice. It does not provide wallet connection, trading, custody, user accounts, or browser-exposed API credentials.
 

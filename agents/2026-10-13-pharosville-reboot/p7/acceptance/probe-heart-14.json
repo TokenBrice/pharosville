@@ -1,0 +1,199 @@
+{
+ "url": "http://localhost:5190/?view=heart&t=14",
+ "out": "/home/ahirice/Documents/git/pharosville/.worktrees/harbour/agents/2026-10-13-pharosville-reboot/p7/acceptance/probe-heart-14.png",
+ "viewport": "1600x1000@1",
+ "gpu": "ANGLE (NVIDIA, Vulkan 1.4.341 (NVIDIA NVIDIA GeForce RTX 5070 Ti (0x00002C05)), NVIDIA)",
+ "webgpuAdapter": "nvidia/blackwell",
+ "frames": 61,
+ "fps": 61,
+ "p50": 16.7,
+ "p95": 16.7,
+ "max": 16.8,
+ "stats": {
+  "backend": "webgl2",
+  "drawCalls": 128,
+  "triangles": 1174725,
+  "textures": 51,
+  "programs": 94,
+  "hour": 14,
+  "systems": [
+   "layout",
+   "data",
+   "readings",
+   "sky",
+   "ocean",
+   "island",
+   "lighthouse",
+   "civic",
+   "fleet",
+   "life",
+   "identity",
+   "lights",
+   "beam",
+   "ui"
+  ],
+  "firstFrameMs": 3774,
+  "dpr": 1,
+  "gpuMs": 3.83,
+  "quality": "high",
+  "boot": {
+   "layout": 20,
+   "data": 798,
+   "readings": 18,
+   "sky": 5,
+   "ocean": 890,
+   "island": 360,
+   "lighthouse": 18,
+   "civic": 131,
+   "fleet": 261,
+   "lights": 0,
+   "beam": 0,
+   "compile": 15,
+   "firstRender": 1243,
+   "life": 185,
+   "identity": 260
+  }
+ },
+ "consoleErrors": [],
+ "evalResult": {
+  "samples": 40,
+  "moving": 3098,
+  "bad": [
+   [
+    "96",
+    1.62,
+    0.11,
+    3,
+    0,
+    0
+   ],
+   [
+    "xusd-straitsx",
+    1.41,
+    0.25,
+    3,
+    0,
+    0
+   ],
+   [
+    "189",
+    1,
+    0.22,
+    3,
+    0,
+    1
+   ],
+   [
+    "ousg-ondo-finance",
+    1.1,
+    0.24,
+    3,
+    0,
+    1
+   ]
+  ],
+  "phases": {},
+  "titans": {
+   "usdt-tether": [
+    "154.4",
+    "-256.2",
+    "0.00",
+    "0.00",
+    0
+   ],
+   "usdc-circle": [
+    "126.1",
+    "199.7",
+    "0.00",
+    "0.00",
+    0
+   ],
+   "usde-ethena": [
+    "-12.8",
+    "-181.3",
+    "0.00",
+    "0.00",
+    0
+   ],
+   "usds-sky": [
+    "-152.8",
+    "-0.1",
+    "0.00",
+    "0.00",
+    0
+   ]
+  },
+  "stats": {
+   "underWay": 94,
+   "docked": 221,
+   "moored": 288,
+   "anchored": 22,
+   "voyages": 0,
+   "overflow": 347,
+   "outings": 33,
+   "dockings": 1,
+   "expectedUnderWay": 108.22400263723246,
+   "expectedDockingsPerMin": 11.919444444444526
+  },
+  "count": 625,
+  "labels": [
+   [
+    "shoals",
+    "THE/SHOALS",
+    [
+     -405,
+     -99
+    ]
+   ],
+   [
+    "far-ports",
+    "THE/FAR PORTS",
+    [
+     211,
+     -481
+    ]
+   ],
+   [
+    "wreck-cove",
+    "WRECK COVE",
+    [
+     -267,
+     239
+    ]
+   ],
+   [
+    "the-roads",
+    "THE/ROADS",
+    [
+     -86,
+     -355
+    ]
+   ],
+   [
+    "outer-passage",
+    "THE/OUTER PASSAGE",
+    [
+     -327,
+     -384
+    ]
+   ],
+   [
+    "western-reach",
+    "THE/WESTERN REACH",
+    [
+     -573,
+     349
+    ]
+   ],
+   [
+    "southern-sea",
+    "THE/SOUTHERN SEA",
+    [
+     269,
+     269
+    ]
+   ]
+  ],
+  "badCount": 4
+ }
+}

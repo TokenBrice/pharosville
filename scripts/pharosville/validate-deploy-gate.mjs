@@ -18,28 +18,19 @@ const DEPLOY_GATE_COMMANDS = [
   ["npm", ["run", "check:viewport-gate"]],
   ["npm", ["run", "check:security-headers:static"]],
   ["npm", ["run", "check:runtime-media"]],
-  ["npm", ["run", "check:pharosville-colors"]],
   ["npm", ["run", "build"]],
   ["npm", ["run", "check:bundle-size"]],
   ["npm", ["run", "test:visual:dist"]],
   ["npm", ["run", "test:visual:dist:accessibility:firefox"]],
 ];
 
-// The same reasoning as the list above, taken one step further. A renderer
-// regression that only shows on a GPU cannot be caught by CI at all, so the
-// tripwire is here or nowhere. It measures the operator's real Chrome on the
-// dev server; preview.mjs owns deciding whether that is even possible.
-//
-// Two arms, because they are two different frames with two different answers.
-// The animated arm is the frame-time gate. The reduced arm is the SETTLED
-// STATIC frame — no RAF, one deterministic paint, its own resource counts —
-// and it is here because the 2026-07-27 cleanliness audit (V-07) found that
-// path over the triangle ceiling precisely because nothing ever sampled it.
-// Each writes its own screenshot so neither overwrites the other's evidence.
-const PERF_TRIPWIRES = [
-  ["node", ["scripts/pharosville/preview.mjs", "--assert"]],
-  ["node", ["scripts/pharosville/preview.mjs", "--assert", "--reduced", "--out", "preview-reduced.png"]],
-];
+// A renderer regression that only shows on a GPU cannot be caught by CI at all,
+// so a real-GPU tripwire belongs here. The Garden Observatory's preview.mjs
+// tripwires were retired with that world at the Harbour cutover, and the
+// Harbour's own frame-time gate is not wired yet: until it is, every run says
+// so (PASS_PERF_SKIPPED) rather than reading as measured. Measure by hand with
+// `npm run preview` (scripts/harbour/shot.mjs, the operator's real Chrome).
+const PERF_TRIPWIRES = [];
 
 /** preview.mjs's "did not measure" code. It is not a pass, and must never be reported as one. */
 const PREVIEW_SKIP_EXIT_CODE = 78;
@@ -73,6 +64,11 @@ function formatCommand(command, args) {
  * "some of it was measured" is not a claim this gate is allowed to make.
  */
 function runPerfTripwires(cwd) {
+  if (PERF_TRIPWIRES.length === 0) {
+    console.log("\nPerf tripwire SKIPPED: the Harbour has no automated real-GPU frame-time gate yet.");
+    console.log("Measure with `npm run preview` (scripts/harbour/shot.mjs) on the operator's GPU.");
+    return "skipped";
+  }
   let outcome = "measured";
   for (const [command, args] of PERF_TRIPWIRES) {
     console.log(`\n> ${formatCommand(command, args)}`);

@@ -1,44 +1,134 @@
-/* First-byte identity uses only stylesheet classes and the clock's beat attribute. */
+/* First paint: the harbour poster, the arrival card, and the small-screen gate pages.
+   Static, class-only (CSP style-src 'self'); the live harbour crossfades in over the poster. */
+@font-face { font-family: "EB Garamond"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/eb-garamond-400-latin.woff2") format("woff2"); }
+@font-face { font-family: "EB Garamond"; font-style: italic; font-weight: 400; font-display: swap; src: url("/fonts/eb-garamond-400-italic-latin.woff2") format("woff2"); }
+@font-face { font-family: "EB Garamond"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/eb-garamond-600-latin.woff2") format("woff2"); }
+
 :root {
-  --pv-veil-top: #4986bb;
-  --pv-veil-mid: #516e8f;
-  --pv-veil-bottom: #0c2329;
-  background: #12313d;
+  --pv-night: #0d1b2a;
+  --pv-paper: #f4ecda;
+  --pv-ink: #23201a;
+  --pv-ink-2: #4a4236;
+  --pv-brass: #a68242;
+  --pv-serif: "EB Garamond", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --pv-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --pv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  background: var(--pv-night);
 }
-:root[data-pv-veil-beat="dawn"] { --pv-veil-top: #787081; --pv-veil-mid: #947e78; --pv-veil-bottom: #0b0a08; }
-:root[data-pv-veil-beat="golden"] { --pv-veil-top: #4b4c7f; --pv-veil-mid: #5f5d7c; --pv-veil-bottom: #04030f; }
-:root[data-pv-veil-beat="blue"] { --pv-veil-top: #151d4b; --pv-veil-mid: #1a274b; --pv-veil-bottom: #010206; }
-:root[data-pv-veil-beat="night"] { --pv-veil-top: #141b34; --pv-veil-mid: #151e39; --pv-veil-bottom: #000205; }
-html, body { margin: 0; min-height: 100%; }
-.pv-arrival-shell {
+html, body, #root { margin: 0; min-height: 100%; }
+body { background: var(--pv-night); color: #eef0ec; font-family: var(--pv-ui); }
+button, input, select, textarea { font: inherit; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* ---- poster: full-bleed key art, the same framing as the live harbour's first view ---- */
+.pv-poster {
+  position: fixed; inset: 0; z-index: 5; pointer-events: none;
+  background: linear-gradient(#e9c3a6, #c49a8c 30%, #1d5677 55%, var(--pv-night));
+  transition: opacity 1100ms var(--pv-ease);
+}
+.pv-poster img { display: block; width: 100%; height: 100%; max-width: none; object-fit: cover; }
+:root[data-pv-live] .pv-poster { opacity: 0; }
+
+/* ---- arrival: the corner wordmark (where the live one appears) + one chart-paper card ---- */
+.pv-arrival {
+  position: fixed; inset: 0; z-index: 20; pointer-events: none;
+  color: var(--pv-ink); font-family: var(--pv-serif);
+  transition: opacity 700ms var(--pv-ease);
+}
+:root[data-pv-live] .pv-arrival { opacity: 0; }
+.pv-arrival a, .pv-arrival nav { pointer-events: auto; }
+.pv-arrival__mark,
+.pv-arrival__card {
+  background-color: var(--pv-paper);
+  background-image: radial-gradient(120% 90% at 50% 40%, rgba(255, 252, 240, 0.55), rgba(255, 252, 240, 0) 60%, rgba(150, 118, 64, 0.1) 100%);
+  border: 1px solid rgba(110, 84, 40, 0.55);
+  border-radius: 1px;
+  box-shadow: 0 1px 1px rgba(20, 16, 10, 0.12), 0 10px 30px -6px rgba(8, 14, 24, 0.45);
+}
+.pv-arrival__mark {
+  position: absolute; top: 14px; left: 14px; margin: 0;
+  padding: 5px 13px 6px 12px;
+  font: 600 19px/1 var(--pv-serif); letter-spacing: 0.01em;
+}
+.pv-arrival__mark i { font-weight: 400; font-style: italic; }
+.pv-arrival__card {
+  position: absolute; left: 50%; bottom: max(28px, 4vh);
+  width: min(calc(100% - 32px), 34rem);
+  transform: translateX(-50%);
   box-sizing: border-box;
-  min-height: 100svh;
-  display: flex;
-  align-items: center;
-  padding: 32px;
-  color: #eef0ec;
-  background: linear-gradient(var(--pv-veil-top), var(--pv-veil-mid) 42%, var(--pv-veil-bottom) 80%);
-  font: 1rem/1.5 system-ui, sans-serif;
+  padding: 18px 24px 16px;
+  font-size: 16px; line-height: 1.4;
 }
-.pv-arrival-shell__content {
-  width: min(100%, 620px);
-  margin: auto;
-  padding: 24px;
-  background: #16222f;
+.pv-arrival__card::before {
+  content: ""; position: absolute; inset: 4px; border: 0.5px solid rgba(166, 130, 66, 0.55); pointer-events: none;
 }
-.pv-arrival-shell h1,
-.pv-arrival-shell h2 { margin: 0; font: 600 2.125rem/1.1 "EB Garamond", Georgia, serif; }
-.pv-arrival-shell__promise { margin: 8px 0 24px; font: 1.25rem/1.4 "EB Garamond", Georgia, serif; }
-.pv-arrival-shell__guide { margin: 24px 0; }
-.pv-arrival-shell__guide > div { margin: 12px 0; }
-.pv-arrival-shell dt { font-weight: 600; }
-.pv-arrival-shell dd { margin: 0; }
-.pv-arrival-shell__stage { border-top: 1px solid #64717c; padding-top: 16px; }
-.pv-arrival-shell nav { display: flex; flex-wrap: wrap; gap: 8px 24px; }
-.pv-arrival-shell a { display: inline-flex; align-items: center; min-height: 44px; color: #eef0ec; text-underline-offset: 4px; }
-.pv-arrival-shell a:focus-visible { outline: 2px solid #eef0ec; outline-offset: 4px; }
-.pv-arrival-shell--veil { position: absolute; inset: 0; z-index: 5; }
+.pv-arrival__promise { margin: 0 0 10px; font-size: 1.45rem; font-style: italic; text-align: center; }
+.pv-arrival__guide {
+  display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px;
+  margin: 0 0 12px; padding: 10px 0 0; border-top: 0.5px solid var(--pv-brass);
+}
+.pv-arrival__guide > div { display: contents; }
+.pv-arrival__guide dt { font-weight: 600; }
+.pv-arrival__guide dd { margin: 0; color: var(--pv-ink-2); }
+.pv-arrival__stage {
+  margin: 0; padding-top: 10px; border-top: 0.5px solid var(--pv-brass);
+  font-style: italic; color: var(--pv-ink-2); text-align: center;
+}
+.pv-arrival nav { display: flex; justify-content: center; flex-wrap: wrap; gap: 0 22px; }
+.pv-arrival nav a {
+  display: inline-flex; align-items: center; min-height: 36px;
+  color: #7a5a22; text-underline-offset: 3px; text-decoration-thickness: 0.5px;
+}
+.pv-arrival nav a:focus-visible { outline: 2px solid #1668a3; outline-offset: 2px; }
 @media (max-width: 640px) {
-  .pv-arrival-shell { padding: 16px; }
-  .pv-arrival-shell__content { padding: 20px; }
+  .pv-arrival__guide { grid-template-columns: 1fr; }
+  .pv-arrival__guide dd { margin-bottom: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pv-poster, .pv-arrival { transition-duration: 1ms; }
+}
+
+/* ---- gate pages: screens or windows too small to chart (size tests, never orientation) ---- */
+.pharosville-gate { min-height: 100svh; background: #16222f; color: #eef0ec; }
+.pharosville-gate__illustration { margin: 24px 0; }
+.pharosville-gate__still { display: block; width: 100%; height: auto; }
+.pharosville-gate__illustration figcaption { padding: 12px 0; font: 0.875rem/1.5 var(--pv-ui); }
+.pharosville-narrow {
+  position: relative; z-index: 30; box-sizing: border-box; min-height: 100svh; padding: 32px 24px 40px;
+  background: #16222f; color: #eef0ec; font-family: var(--pv-ui);
+}
+.pharosville-narrow__inner { width: min(100%, 620px); margin: auto; }
+.pharosville-narrow h2 { margin: 0; font: 600 2.125rem/1.1 var(--pv-serif); text-wrap: balance; }
+.pharosville-narrow p { margin: 18px 0 0; font-size: 1rem; line-height: 1.6; text-wrap: pretty; }
+.pharosville-narrow .pharosville-narrow__promise { margin-top: 8px; font: italic 1.25rem/1.4 var(--pv-serif); }
+.pharosville-narrow__guide { margin: 28px 0; }
+.pharosville-narrow__guide > div { margin: 16px 0; }
+.pharosville-narrow__guide dt { font-weight: 600; }
+.pharosville-narrow__guide dd { margin: 4px 0 0; line-height: 1.6; }
+.pharosville-narrow__links { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.pharosville-narrow__links a {
+  display: inline-flex; align-items: center; min-height: 44px;
+  color: inherit; font-size: 0.875rem; text-underline-offset: 4px;
+}
+.pharosville-narrow__links a:hover { text-decoration-thickness: 2px; }
+.pharosville-narrow__links a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+.pharosville-narrow .pharosville-narrow__size {
+  margin-top: 28px; padding-top: 20px; border-top: 1px solid #64717c; font-size: 0.875rem;
+}
+.pharosville-narrow button {
+  min-height: 44px; margin-top: 20px; padding: 8px 16px;
+  border: 1px solid #64717c; background: transparent; color: inherit; cursor: pointer;
+}
+@media (min-width: 700px) {
+  .pharosville-narrow__inner:has(.pharosville-gate__illustration) {
+    width: min(100%, 1080px);
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 32px;
+  }
+  .pharosville-narrow__inner > :not(.pharosville-gate__illustration) { grid-column: 1; }
+  .pharosville-gate__illustration {
+    grid-column: 2; grid-row: 1 / 7; align-self: start; position: sticky; top: 24px; margin: 0;
+  }
 }

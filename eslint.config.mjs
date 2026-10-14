@@ -31,6 +31,8 @@ export default tseslint.config(
       ".playwright-mcp/**",
       ".worktrees/**",
       ".claude/**",
+      // P1 renderer spike (agents/2026-10-13-pharosville-reboot): throwaway prototype, never shipped
+      "spikes/**",
     ],
   },
   js.configs.recommended,

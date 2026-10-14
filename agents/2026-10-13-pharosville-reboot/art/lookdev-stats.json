@@ -1,0 +1,43 @@
+{
+ "triangles": 16856,
+ "materials": [
+  "M_beam",
+  "M_cloud",
+  "M_lamp",
+  "M_palette",
+  "M_sail",
+  "M_sky",
+  "M_water",
+  "M_window"
+ ],
+ "material_count": 8,
+ "mesh_objects": 136,
+ "triangles_by_group": {
+  "lh": 3844,
+  "cloud": 2240,
+  "island": 1728,
+  "boat": 1698,
+  "pier": 1288,
+  "cot": 974,
+  "knoll": 880,
+  "flowers": 720,
+  "crown": 600,
+  "bollards": 576,
+  "boulder": 560,
+  "quay": 324,
+  "veg": 300,
+  "crate": 216,
+  "trunk": 200,
+  "step": 168,
+  "fence": 168,
+  "shrub": 160,
+  "beam": 128,
+  "barrel": 36,
+  "flagpole": 20,
+  "plot": 12,
+  "flag": 12,
+  "sea": 2,
+  "sky": 2
+ },
+ "build_s": 9.7
+}

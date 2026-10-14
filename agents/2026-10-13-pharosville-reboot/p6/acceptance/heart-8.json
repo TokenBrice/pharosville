@@ -1,0 +1,41 @@
+{
+ "url": "http://localhost:5190/?view=heart&t=8",
+ "out": "/home/ahirice/Documents/git/pharosville/.worktrees/harbour/agents/2026-10-13-pharosville-reboot/p6/acceptance/heart-8.png",
+ "viewport": "1600x1000@1",
+ "gpu": "ANGLE (NVIDIA, Vulkan 1.4.341 (NVIDIA NVIDIA GeForce RTX 5070 Ti (0x00002C05)), NVIDIA)",
+ "webgpuAdapter": "nvidia/blackwell",
+ "frames": 182,
+ "fps": 61,
+ "p50": 16.7,
+ "p95": 16.8,
+ "max": 16.8,
+ "stats": {
+  "backend": "webgl2",
+  "drawCalls": 128,
+  "triangles": 1291196,
+  "textures": 50,
+  "programs": 54,
+  "hour": 8,
+  "systems": [
+   "layout",
+   "data",
+   "readings",
+   "sky",
+   "ocean",
+   "island",
+   "lighthouse",
+   "civic",
+   "fleet",
+   "life",
+   "identity",
+   "lights",
+   "beam",
+   "ui"
+  ],
+  "firstFrameMs": 4931,
+  "dpr": 1,
+  "gpuMs": 1.06,
+  "quality": "high"
+ },
+ "consoleErrors": []
+}

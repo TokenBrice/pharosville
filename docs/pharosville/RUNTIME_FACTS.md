@@ -7,11 +7,11 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 ## App And Routes
 
 - Canonical app URL: `https://pharosville.pharos.watch/`
-- Renderer: one production Three.js/WebGL renderer
-- GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
-- Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.20.1` (`steadyLamp`)
-- Latest changelog entry: `2026-10-03-steady-lamp` / `v0.20.1` / 2026-10-03 / Steady Lamp
+- World: The Harbour, one three.js WebGL2 Engine (`src/harbour/engine/`) mounted by `src/harbour/app/harbour-app.tsx`
+- Renderer failure fallback: the first-paint poster stays up with the arrival guide and Pharos links; no alternate renderer
+- Runtime media namespace: `/harbour/`
+- Latest app version: `v1.0.0` (`theHarbour`)
+- Latest changelog entry: `2026-10-14-the-harbour` / `v1.0.0` / 2026-10-14 / The Harbour
 
 ## Viewport Gate
 
@@ -19,7 +19,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Wide-laptop profile: `1200×640px`
 - Device capability and current-viewport readiness independently sort their own dimensions and must satisfy either size profile.
 - Orientation and aspect ratio are not gates: a 720×1000 tall viewport, a 1200×640 laptop viewport, and a 2560×720 ultrawide viewport all pass.
-- `src/client.tsx` lazy-loads the desktop data and Three.js runtime only after that gate; `npm run check:viewport-gate` guards the boundary.
+- `src/client.tsx` lazy-loads the Harbour chunk (`src/harbour/app/harbour-app.tsx`: Engine, systems, data feed) only after that gate; `npm run check:viewport-gate` guards the boundary.
 
 ## API Allowlist
 
@@ -33,74 +33,23 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 ## Runtime Media
 
-- Stablecoin sails and rendered-harbor flags load same-origin logo images into shared in-memory atlases with deterministic mark fallbacks.
-- Ship, dock, island, cemetery, ambient-life, and water visuals are renderer-owned procedural geometry/materials.
-- Water normal: `/pharosville/textures/water-normals.png` with a content-hash query.
+- Stablecoin emblems: one atlas, `/harbour/emblems.webp` + `/harbour/emblems.json`; panel and search medallions load same-origin `/logos/` and `/chains/` marks.
+- Static world GLB: `/harbour/island.glb`
+- Static world GLB: `/harbour/lighthouse.glb`
+- Boat hull kit: `/harbour/kit/manifest.json` and its GLBs; sea mask: `/harbour/sea-sdf.webp` (lossless); shipped GLBs are fetched as pre-gzipped `.glb.gz`.
+- First paint: `/harbour/poster-{960,1600}.{avif,webp}` (an illustration, no live numbers), crossfaded into the first live frame.
 
-| Model | URL | Bytes | Geometry | SHA-256 |
-| --- | --- | --- | --- | --- |
-| `garden-lighthouse-shell` | `/pharosville/models/garden-lighthouse-shell.glb` | 190 KiB | 8 draws / 30,436 tris / 19,901 verts / 0 textures | `68c6da645a69dd6c8b90f0ceb2a05ca4fc49450d30fd02241b66dfd44fc7cf26` |
-| `garden-hero-tether` | `/pharosville/models/garden-hero-tether.glb` | 20 KiB | 4 draws / 930 tris / 842 verts / 0 textures | `d8b66430e8c05b5d66d6c83f443697691141d74fa3f2027b29139b6bc12245ef` |
-| `garden-hero-circle` | `/pharosville/models/garden-hero-circle.glb` | 28 KiB | 5 draws / 1,258 tris / 1,392 verts / 0 textures | `2e5e50cdd5e1fb137abb2f6715ba0970ae8ae536313d6b23d3034e8577ed5851` |
-| `garden-hero-maker` | `/pharosville/models/garden-hero-maker.glb` | 31 KiB | 5 draws / 1,764 tris / 1,451 verts / 0 textures | `4998bb3c019e629cbecab19946ae28b83aedbc087310f9f570a9a5388956f20f` |
-| `garden-hero-sky` | `/pharosville/models/garden-hero-sky.glb` | 34 KiB | 5 draws / 1,904 tris / 1,707 verts / 0 textures | `1083ae6633e2a4789bf75a0d50f45d0c14fa8b11c2a3e95efb0de666b35ffd54` |
-| `garden-hero-ethena` | `/pharosville/models/garden-hero-ethena.glb` | 28 KiB | 5 draws / 1,286 tris / 1,341 verts / 0 textures | `a6cf8aa95fb5d9ff6eef3dcf804592bbc6af55c0ae0780ca4ca3406cb8da383f` |
-| `garden-hero-liberty` | `/pharosville/models/garden-hero-liberty.glb` | 20 KiB | 4 draws / 930 tris / 842 verts / 0 textures | `ec8e689b2ad6b0821fa85488be042f124af42b572f296546857084ddc4f77eef` |
-| `garden-hero-paypal` | `/pharosville/models/garden-hero-paypal.glb` | 24 KiB | 5 draws / 1,074 tris / 1,060 verts / 0 textures | `6dd7594730e6f509d9da975846667cbcdf67241ae3b54a61ed73b799c597f79d` |
-| `garden-hero-bullion` | `/pharosville/models/garden-hero-bullion.glb` | 24 KiB | 5 draws / 1,092 tris / 946 verts / 0 textures | `f0e70a7c80fe57b346115259269997d1e292b7d88233b00b4b1f3e41ccd24ed4` |
+## World Systems
 
-- The procedural lighthouse shell remains the in-scene fallback if its GLB cannot load.
+- Registration (= update) order: `LayoutSystem` → `DataSystem` → `ReadingsSystem` → `SkySystem` → `OceanSystem` → `IslandSystem` → `LighthouseSystem` → `CivicSystem` → `FleetSystem` → `LifeSystem` → `IdentitySystem` → `LightsSystem` → `BeamSystem`
 
 ## Bundle Budgets
 
-- entry chunk: raw <= 300 KiB, gzip <= 90 KiB
-- desktop lazy chunk: raw <= 1,024 KiB, gzip <= 290 KiB
-- world lazy chunk: raw <= 440 KiB, gzip <= 145 KiB
-- Three.js renderer chunk: raw <= 1,600 KiB, gzip <= 454 KiB
-- entry CSS: raw <= 44 KiB, gzip <= 8 KiB
-- Total JS: raw <= 3,200 KiB, gzip <= 1,024 KiB
-
-## Squads
-
-| Squad | Flagship | Members |
-| --- | --- | --- |
-| Sky | `usds-sky` | `usds-sky`, `stusds-sky`, `susds-sky` |
-| Maker | `dai-makerdao` | `dai-makerdao`, `sdai-sky` |
-| Ethena | `usde-ethena` | `usde-ethena`, `susde-ethena` |
-
-## Titan Ships
-
-| Stablecoin ID | Scale |
-| --- | --- |
-
-## Heritage Hulls
-
-| Stablecoin ID | Scale |
-| --- | --- |
-| `bold-liquity` | `1.23` |
-| `crvusd-curve` | `1.28` |
-| `fxusd-f-x-protocol` | `1.23` |
-| `m-m0` | `1.24` |
-| `paxg-paxos` | `1.32` |
-| `rlusd-ripple` | `1.28` |
-| `susdai-usd-ai` | `1.21` |
-| `u-united-stables` | `1.24` |
-| `usd0-usual` | `1.22` |
-| `usdai-usd-ai` | `1.23` |
-| `usdd-tron-dao-reserve` | `1.26` |
-| `usdf-falcon` | `1.3` |
-| `usdg-paxos` | `1.28` |
-| `usdtb-ethena` | `1.25` |
-| `usdy-ondo-finance` | `1.27` |
-| `usyc-hashnote` | `1.2` |
-| `xaut-tether` | `1.28` |
-
-## Dock Rules
-
-- Standard chain harbor cap: `8`
-- Preferred chain IDs: `ethereum`, `base`, `tron`, `solana`, `hyperliquid`, `polygon`, `bsc`, `arbitrum`, `ton`
-- Suppressed rendered harbor IDs: `optimism`
-- Detached dispatch wharf chain IDs: `ton`
+- entry chunk: raw <= 64 KiB, gzip <= 24 KiB
+- Harbour lazy chunk: raw <= 1,500 KiB, gzip <= 456 KiB
+- Three.js renderer chunk: raw <= 960 KiB, gzip <= 276 KiB
+- Harbour CSS: raw <= 28 KiB, gzip <= 7 KiB
+- Total JS: raw <= 2,720 KiB, gzip <= 820 KiB
 
 ## Workflow Gates
 

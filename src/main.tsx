@@ -1,6 +1,5 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
 import { installClientErrorReporter } from "./error-reporter";
 import { installGoogleAnalytics } from "./google-analytics";
@@ -8,18 +7,8 @@ import { installGoogleAnalytics } from "./google-analytics";
 installClientErrorReporter();
 installGoogleAnalytics();
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-    },
-  },
-});
-
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
+    <App />
   </StrictMode>,
 );

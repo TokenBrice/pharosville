@@ -1,0 +1,344 @@
+{
+  "name": "Style B - Living Sea Chart",
+  "note": "sRGB hex. Albedos are vertex colours; the wash ramp, ink and paper are applied by the shader/post. Saturated hue is reserved for brand sails/covers, lamps and status.",
+  "colours": {
+    "paper": {
+      "hex": "#F3EAD6",
+      "role": "chart paper: highlights, foam, sky zenith at noon, post paper tint"
+    },
+    "paper_shade": {
+      "hex": "#DCCBAA",
+      "role": "paper in shadow / vignette tint"
+    },
+    "ink": {
+      "hex": "#3B2A1F",
+      "role": "sepia ink: outlines, hatching, engraved sea lines"
+    },
+    "ink_soft": {
+      "hex": "#6E5847",
+      "role": "secondary ink: waterlining far from shore, cloud contours"
+    },
+    "ink_night": {
+      "hex": "#1C1A33",
+      "role": "outline/hatch ink at night"
+    },
+    "sea_deep": {
+      "hex": "#3D6A86",
+      "role": "chart blue, open water"
+    },
+    "sea_mid": {
+      "hex": "#5F8FA6",
+      "role": "sea between 6-20 m from shore"
+    },
+    "sea_shallow": {
+      "hex": "#93BABD",
+      "role": "shallows wash"
+    },
+    "sea_shoal": {
+      "hex": "#C6D7C4",
+      "role": "hatched shoal band at the shore"
+    },
+    "foam": {
+      "hex": "#F7F1E3",
+      "role": "contact foam, wakes"
+    },
+    "sea_night": {
+      "hex": "#1E2A52",
+      "role": "indigo sea at night"
+    },
+    "grass": {
+      "hex": "#9DAE78",
+      "role": "sage turf"
+    },
+    "grass_dry": {
+      "hex": "#BDB584",
+      "role": "dry turf / paths edges"
+    },
+    "grass_deep": {
+      "hex": "#768A5C",
+      "role": "moist turf, shade side"
+    },
+    "foliage": {
+      "hex": "#6F8752",
+      "role": "tree crowns"
+    },
+    "foliage_lit": {
+      "hex": "#93A867",
+      "role": "tree crowns, lit lobes"
+    },
+    "cypress": {
+      "hex": "#4F6448",
+      "role": "cypress / dark evergreens"
+    },
+    "rock": {
+      "hex": "#A79C8B",
+      "role": "headland rock"
+    },
+    "rock_dark": {
+      "hex": "#7E7468",
+      "role": "rock faces in fissures"
+    },
+    "rock_wet": {
+      "hex": "#5C5751",
+      "role": "tide line on rock"
+    },
+    "sand": {
+      "hex": "#E3D0A6",
+      "role": "beach, slipway sand"
+    },
+    "path": {
+      "hex": "#CDBB98",
+      "role": "lanes and paving"
+    },
+    "cobble": {
+      "hex": "#B7A88E",
+      "role": "quay paving"
+    },
+    "stone": {
+      "hex": "#C9C1B2",
+      "role": "lighthouse / quay ashlar"
+    },
+    "stone_warm": {
+      "hex": "#D8C8AC",
+      "role": "warm limestone trims"
+    },
+    "stone_dark": {
+      "hex": "#9A907F",
+      "role": "plinths, copings in shade, string courses"
+    },
+    "plaster_cream": {
+      "hex": "#EEE3CB",
+      "role": "house wall"
+    },
+    "plaster_ochre": {
+      "hex": "#E5C99B",
+      "role": "house wall"
+    },
+    "plaster_rose": {
+      "hex": "#E1BCA5",
+      "role": "house wall"
+    },
+    "plaster_blue": {
+      "hex": "#C9D3CF",
+      "role": "house wall"
+    },
+    "plaster_straw": {
+      "hex": "#E9DDB2",
+      "role": "house wall"
+    },
+    "roof_terra": {
+      "hex": "#B36B4E",
+      "role": "terracotta tile roof"
+    },
+    "roof_rust": {
+      "hex": "#9E5B45",
+      "role": "darker tile roof"
+    },
+    "roof_slate": {
+      "hex": "#66707A",
+      "role": "slate roof"
+    },
+    "roof_ochre": {
+      "hex": "#C38E5E",
+      "role": "pale tile roof"
+    },
+    "shutter_sage": {
+      "hex": "#7F9583",
+      "role": "shutters"
+    },
+    "shutter_blue": {
+      "hex": "#5D7C94",
+      "role": "shutters"
+    },
+    "shutter_ox": {
+      "hex": "#8C4A3E",
+      "role": "shutters / doors"
+    },
+    "frame": {
+      "hex": "#F1EADB",
+      "role": "window frames, sills"
+    },
+    "glass": {
+      "hex": "#3C4A55",
+      "role": "window glass by day"
+    },
+    "wood": {
+      "hex": "#8E6D4C",
+      "role": "pier deck, crates"
+    },
+    "wood_dark": {
+      "hex": "#5D4633",
+      "role": "piles, beams, spars"
+    },
+    "wood_pale": {
+      "hex": "#B99A73",
+      "role": "new planks, decks"
+    },
+    "iron": {
+      "hex": "#34373B",
+      "role": "bollards, railings, lamp posts"
+    },
+    "brass": {
+      "hex": "#B89350",
+      "role": "lantern dome, fittings (only metallic)"
+    },
+    "rope": {
+      "hex": "#CDB98F",
+      "role": "mooring lines, nets"
+    },
+    "hull_navy": {
+      "hex": "#2F4A63",
+      "role": "hull paint"
+    },
+    "hull_ox": {
+      "hex": "#7B3029",
+      "role": "hull paint"
+    },
+    "hull_green": {
+      "hex": "#2F5E57",
+      "role": "hull paint"
+    },
+    "hull_cream": {
+      "hex": "#E8DFCB",
+      "role": "hull paint / topsides"
+    },
+    "hull_black": {
+      "hex": "#252A2E",
+      "role": "flagship hull"
+    },
+    "hull_tar": {
+      "hex": "#3B2B20",
+      "role": "gold brig stained hull"
+    },
+    "antifoul": {
+      "hex": "#6B3A30",
+      "role": "below waterline"
+    },
+    "gilt": {
+      "hex": "#C9A04A",
+      "role": "gold-family trim"
+    },
+    "canvas": {
+      "hex": "#F1E8D4",
+      "role": "usd sails"
+    },
+    "tanbark": {
+      "hex": "#9A573C",
+      "role": "eur sails"
+    },
+    "ochre_canvas": {
+      "hex": "#C9A25E",
+      "role": "fiat sails"
+    },
+    "lamp": {
+      "hex": "#FFC66E",
+      "role": "lamp light / emissive"
+    },
+    "window_glow": {
+      "hex": "#FFB65C",
+      "role": "lit windows"
+    },
+    "lantern": {
+      "hex": "#FFD99A",
+      "role": "lighthouse lamp + beam"
+    },
+    "riding": {
+      "hex": "#FFE6B0",
+      "role": "masthead riding lights"
+    },
+    "sky_gold_low": {
+      "hex": "#F2C58E",
+      "role": "golden horizon"
+    },
+    "sky_gold_mid": {
+      "hex": "#E7B7A2",
+      "role": "golden mid sky (rose)"
+    },
+    "sky_gold_top": {
+      "hex": "#A9A9C4",
+      "role": "golden upper sky (lilac)"
+    },
+    "sky_noon_low": {
+      "hex": "#E9E6D6",
+      "role": "noon horizon haze (paper)"
+    },
+    "sky_noon_top": {
+      "hex": "#93B4CB",
+      "role": "noon zenith wash"
+    },
+    "sky_night_low": {
+      "hex": "#3A3F73",
+      "role": "night horizon (indigo glow)"
+    },
+    "sky_night_top": {
+      "hex": "#141734",
+      "role": "night zenith"
+    },
+    "star": {
+      "hex": "#F4E3B5",
+      "role": "ink-gold stars"
+    },
+    "moon": {
+      "hex": "#F3EBD2",
+      "role": "moon disc"
+    }
+  },
+  "brand": {
+    "usdt_like": {
+      "hex": "#26A17B",
+      "emblem": 0
+    },
+    "usdc_like": {
+      "hex": "#2775CA",
+      "emblem": 1
+    },
+    "dai_like": {
+      "hex": "#E9A23B",
+      "emblem": 2
+    },
+    "eur_like": {
+      "hex": "#3B5BA9",
+      "emblem": 3
+    },
+    "gold_like": {
+      "hex": "#C8A24A",
+      "emblem": 4
+    },
+    "pyusd_like": {
+      "hex": "#4B6CB7",
+      "emblem": 5
+    },
+    "usde_like": {
+      "hex": "#2B2B2B",
+      "emblem": 6
+    },
+    "fdusd_like": {
+      "hex": "#B8433A",
+      "emblem": 7
+    },
+    "eure_like": {
+      "hex": "#3E8E6E",
+      "emblem": 8
+    }
+  },
+  "states": {
+    "golden": {
+      "sun_elev_deg": 13,
+      "shadow_tint": "#8C86A8",
+      "light": "#FFD2A0",
+      "ink": "ink"
+    },
+    "noon": {
+      "sun_elev_deg": 58,
+      "shadow_tint": "#9AA7B8",
+      "light": "#FFF6E6",
+      "ink": "ink"
+    },
+    "night": {
+      "moon_elev_deg": 40,
+      "shadow_tint": "#2E3364",
+      "light": "#9FB2E6",
+      "ink": "ink_night"
+    }
+  }
+}

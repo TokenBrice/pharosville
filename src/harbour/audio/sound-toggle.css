@@ -1,0 +1,21 @@
+/* The sound toggle: a small ink speaker in the corner mark, after a brass hairline (chart voice, D12). */
+.hb-sound {
+  position: relative; align-self: stretch; display: grid; place-items: center;
+  width: 34px; margin-left: 0; padding: 0 2px 0 1px; color: var(--ink-3);
+  transition: color 150ms var(--ease), background-color 150ms var(--ease);
+}
+.hb-sound::before {
+  content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 0.5px; background: var(--brass-soft);
+}
+.hb-sound:hover { color: var(--ink); background: rgba(166, 130, 66, 0.1); }
+.hb-sound:focus-visible { outline-offset: -2px; }
+.hb-sound svg { display: block; overflow: visible; }
+.hb-sound svg path { fill: none; stroke: currentColor; stroke-width: 1.15; stroke-linecap: round; stroke-linejoin: round; }
+.hb-sound .hb-sound-body { fill: rgba(166, 130, 66, 0.16); }
+.hb-sound .hb-sound-waves path { transition: opacity 200ms var(--ease); opacity: 0; }
+.hb-sound .hb-sound-off { stroke-width: 1; opacity: 0.75; transition: opacity 200ms var(--ease); }
+.hb-sound[aria-pressed="true"] { color: var(--ink-2); }
+.hb-sound[aria-pressed="true"] .hb-sound-waves path { opacity: 1; }
+.hb-sound[aria-pressed="true"] .hb-sound-waves path + path { opacity: 0.55; }
+.hb-sound[aria-pressed="true"] .hb-sound-off { opacity: 0; }
+.hb-reduced .hb-sound, .hb-reduced .hb-sound * { transition-duration: 1ms; }
