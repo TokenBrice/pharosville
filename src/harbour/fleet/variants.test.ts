@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { approach, indexVariants, pickVariant, targetSwing, wreckScale } from "./variants";
+import { approach, indexVariants, MOORED_LIT, pickVariant, sternLampLit, targetSwing, wreckScale } from "./variants";
 
 const HULLS = [
   { id: "usd_cat_skiff", family: "usd", class: "skiff" },
@@ -46,5 +46,24 @@ describe("targetSwing", () => {
   it("wreck scale grows with peak cap", () => {
     expect(wreckScale(1e7)).toBeLessThan(wreckScale(1e10));
     expect(wreckScale(null)).toBeGreaterThan(0);
+  });
+});
+
+describe("sternLampLit", () => {
+  const ids = Array.from({ length: 2000 }, (_, i) => `coin-${i}`);
+  it("never lights a lamp for a coin without a peg reading", () => {
+    for (const id of ids) for (const at of ["under-way", "anchored", "moored"] as const) expect(sternLampLit({ id, nullPeg: true }, at)).toBe(false);
+  });
+  it("lights every hull with a reading under way and at anchor", () => {
+    for (const id of ids) {
+      expect(sternLampLit({ id, nullPeg: false }, "under-way")).toBe(true);
+      expect(sternLampLit({ id, nullPeg: false }, "anchored")).toBe(true);
+    }
+  });
+  it("lights only a deterministic minority of moored hulls with a reading", () => {
+    const lit = ids.filter((id) => sternLampLit({ id, nullPeg: false }, "moored")).length / ids.length;
+    expect(lit).toBeGreaterThan(MOORED_LIT - 0.05);
+    expect(lit).toBeLessThan(MOORED_LIT + 0.05);
+    expect(sternLampLit({ id: "x", nullPeg: false }, "moored")).toBe(sternLampLit({ id: "x", nullPeg: false }, "moored"));
   });
 });

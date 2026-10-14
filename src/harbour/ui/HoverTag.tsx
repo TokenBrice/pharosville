@@ -1,7 +1,9 @@
 import { useRef } from "react";
 import { boatFact, harbourFact, landmarkFact } from "./facts";
+import { placeName } from "./places";
+import { expectedLabel, PHASE_NAME, yardCoins } from "./yard";
 import { useFrame, usePresence, useStore, useSticky, useUI } from "./hooks";
-import { sameHit, type PickHit, type ScreenPoint } from "./services";
+import { getLayout, sameHit, type PickHit, type ScreenPoint } from "./services";
 
 /**
  * The chart-paper tag: name + one fact, hung from a brass leader at the object's anchor. Follows the
@@ -46,13 +48,23 @@ function Tag({ hit, shown, pinned }: { hit: PickHit; shown: boolean; pinned: boo
     const b = store.boat(hit.id);
     if (b) {
       name = b.symbol;
-      fact = boatFact(b, store.whereaboutsOf(b.id)).slice(b.symbol.length + 3);
+      const w = store.whereaboutsOf(b.id);
+      fact = boatFact(b, w).slice(b.symbol.length + 3);
       swatch = b.brandColor;
+      decorative = w.kind === "outing";
+    }
+  } else if (hit.kind === "yard") {
+    const c = yardCoins(store.ctx).find((y) => y.id === hit.id);
+    if (c) {
+      name = c.symbol;
+      fact = `on the slips · ${c.phase ? PHASE_NAME[c.phase].toLowerCase() : "phase not stated"}${c.expected ? ` · ${expectedLabel(c.expected)}` : ""}`;
     }
   } else if (hit.kind === "landmark") {
-    const lm = store.ctx.services.get("layout") as { landmarks: Array<{ id: string; name: string }> } | undefined;
-    name = lm?.landmarks.find((l) => l.id === hit.id)?.name ?? hit.id;
-    const f = landmarkFact(hit.id, model, store.underWay());
+    name = placeName(getLayout(store.ctx), hit.id);
+    const f = landmarkFact(hit.id, model, store.underWay(), {
+      yard: hit.id === "slipway" ? yardCoins(store.ctx).length : undefined,
+      roads: hit.id === "the-roads" ? store.boatsInZone("the-roads")?.length : undefined,
+    });
     fact = f.fact; decorative = !!f.decorative;
   } else {
     name = `${hit.id} harbour`;

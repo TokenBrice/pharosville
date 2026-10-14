@@ -10,12 +10,11 @@ import type { LightsService } from "../lights/lights-service";
 import type { LighthouseService } from "../world/lighthouse-system";
 import { getHarbourMaterials } from "../world/materials";
 import {
-  applyDevOverrides, deriveTargets, MAX_CONES, TIDE_FULL_SCALE_PCT,
+  applyDevOverrides, deriveTargets, DEV_OVERRIDE_KEYS, MAX_CONES, TIDE_FULL_SCALE_PCT,
   type AlertCoin, type LampStep, type LandmarkId, type LandmarkReading, type TideReading, type WorldTargets,
 } from "./bind";
 import { StaleFog } from "./fog";
 import { StormCones } from "./storm-cones";
-import { TideBoard } from "./tide-board";
 import { TideGauge } from "./tide-gauge";
 
 /**
@@ -23,7 +22,7 @@ import { TideGauge } from "./tide-gauge";
  * (2–4 s; the fog 10 s), never popping. See bind.ts for the grammar.
  *
  * Service 'readings' (for the UI): per-landmark freshness (current / stale / unknown + age), the
- * tide reading, the board's flow scope, the fog amount. Registered right after the data system so
+ * tide reading, the mint/burn flow scope (the Mint and the Burn read it: src/harbour/civic), the fog amount. Registered right after the data system so
  * the weather can dim the key light before the island copies it into its lights.
  *
  * Dev only: ?psi=TREMOR|none ?psiScore=55 ?offpeg=0.06 ?dews=ALERT ?cones=3 ?tide=-0.8 ?stale=1
@@ -36,7 +35,7 @@ export interface ReadingsService {
   /** Wall-clock ms the landmark ages were measured at (add elapsed time for a live age). */
   readonly asOfMs: number;
   readonly tide: Readonly<TideReading & { fullScalePct: number }>;
-  /** Tide-board scope: mint/burn covers these chains only (the board itself is pure shape). */
+  /** Mint/burn flows: the 24 h net and the chains the data covers (the Mint and the Burn show it, D19). */
   readonly flows: Readonly<{ net24hUsd: number | null; scope: string[]; available: boolean; stale: boolean }>;
   readonly psi: Readonly<WorldTargets["psi"]>;
   /** Cones on the storm mast = the supply-weighted DEWS level (0 Calm … 4 Danger); null = no reading. */
@@ -74,7 +73,7 @@ export class ReadingsSystem implements WorldSystem {
   private version = 0;
   private readonly listeners = new Set<() => void>();
   private readonly q = new URLSearchParams(location.search);
-  private readonly dev = import.meta.env.DEV && ["psi", "psiScore", "offpeg", "dews", "cones", "tide", "stale"].some((k) => this.q.has(k));
+  private readonly dev = import.meta.env.DEV && DEV_OVERRIDE_KEYS.some((k) => this.q.has(k));
   private fx: FxTextures | null = null;
   private fog: StaleFog | null = null;
   private fogS = 0;
@@ -89,13 +88,11 @@ export class ReadingsSystem implements WorldSystem {
   private coverS = 0;
   private alertS = 0;
   private readonly tmpC = new THREE.Color();
-  private board: TideBoard | null = null;
   private gauge: TideGauge | null = null;
   private cones: StormCones | null = null;
   private landmarksBound = false;
   private bindTries = 0;
   private heldFor: boolean | null = null;
-  private boardClock = 0;
   /** The Pharos lamp glass: its own material so it can go dark (unknown PSI) and take the lamp colour. */
   private lensMat: THREE.MeshStandardMaterial | null = null;
   private readonly lensLevel: THREE.IUniform<number> = { value: 1 };
@@ -130,8 +127,8 @@ export class ReadingsSystem implements WorldSystem {
   private bindLandmarks(ctx: EngineContext): void {
     if (this.landmarksBound || this.bindTries++ > 600) return;
     const scene = ctx.scene;
-    const board = scene.getObjectByName("tide_board") as THREE.Mesh | undefined;
-    if (!board?.isMesh) return;
+    // P6 (D19): the tide board is gone (the Mint and the Burn show the flows); the storm mast marks "the island is in"
+    if (!scene.getObjectByName("storm_mast")) return;
     const north: THREE.Object3D[] = [];
     let levelNode: THREE.Object3D | null = null;
     scene.traverse((o) => {
@@ -141,10 +138,6 @@ export class ReadingsSystem implements WorldSystem {
     });
     this.landmarksBound = true;
     this.bindLens(ctx);
-    this.board = new TideBoard(ctx.renderer.capabilities.getMaxAnisotropy());
-    board.material = this.board.material;
-    board.receiveShadow = true;
-    if (this.targets) this.board.setFlows(this.targets.flows, Date.now());
     const slots = north.filter(Boolean);
     if (slots.length) {
       const mats = getHarbourMaterials(ctx);
@@ -189,7 +182,6 @@ export class ReadingsSystem implements WorldSystem {
     if (this.dev) t = applyDevOverrides(t, this.q);
     this.targets = t;
     this.version++;
-    this.board?.setFlows(t.flows, Date.now());
     this.cones?.setCount(t.cones, t.pennant);
     for (const fn of this.listeners) fn();
   }
@@ -294,13 +286,8 @@ export class ReadingsSystem implements WorldSystem {
     const fogE = this.fogS * this.fogS * (3 - 2 * this.fogS);
     this.fog?.update(fogE, U.uHaze.value, U.uHorizon.value, U.uNight.value);
 
-    // ---- 5–7. landmarks: the tide board, the storm cones, the tide gauge
+    // ---- 5–6. landmarks: the storm cones, the tide gauge
     const glow = U.uWindowGlow.value;
-    if (this.board) {
-      this.boardClock += dt;
-      if (this.boardClock > 20) { this.boardClock = 0; this.board.setNow(frame.nowMs); }
-      this.board.update(dt, glow, U.uNight.value);
-    }
     this.cones?.update(dt, frame.elapsed, this.windS, reduced, ctx.camera.position);
     this.gauge?.update(dt, t.tide.level, t.tide.pct != null, t.landmarks["tide-gauge"].state === "stale", glow, reduced);
   }
@@ -308,7 +295,6 @@ export class ReadingsSystem implements WorldSystem {
   dispose(ctx: EngineContext): void {
     this.fog?.dispose();
     this.fx?.release();
-    this.board?.dispose();
     this.gauge?.dispose();
     this.cones?.dispose();
     this.lensMat?.dispose();

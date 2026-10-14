@@ -11,7 +11,7 @@
  *                SAME supply-weighted band (0 Calm … 4 Danger) plus a red pennant at Danger, so the mast
  *                and the sky always tell one story; the individual ALERT+ coins live in the panel
  *   7d supply  → the tide gauge, signed-sqrt against TIDE_FULL_SCALE_PCT
- *   mint/burn  → the Customs House tide board (24 closed hours)
+ *   mint/burn  → the Mint and the Burn (src/harbour/civic, D19; the tide board is gone)
  *   freshness  → sea fog, ONLY when /api/stablecoins is stale or unavailable
  */
 import type {
@@ -181,6 +181,8 @@ export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted }: D
  *   ?psi=TREMOR|none  ?psiScore=55  ?offpeg=0.06  ?dews=ALERT  ?cones=3 (5 = four + pennant)  ?tide=-0.8 (percent)
  *   ?stale=1 (fleet stale → fog)  ?stale=mintBurn,chains (those landmarks stale)
  */
+export const DEV_OVERRIDE_KEYS = ["psi", "psiScore", "offpeg", "dews", "cones", "tide", "stale"] as const;
+
 export function applyDevOverrides(t: WorldTargets, q: URLSearchParams): WorldTargets {
   const out: WorldTargets = { ...t, psi: { ...t.psi }, landmarks: { ...t.landmarks }, flows: { ...t.flows } };
   const psi = q.get("psi");

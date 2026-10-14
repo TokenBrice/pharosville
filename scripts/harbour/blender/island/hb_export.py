@@ -5,8 +5,7 @@ public/harbour/island.glb
     (COLOR_0: rgb = albedo x baked AO, a = pattern id / 16, style C contract)
   - named runtime nodes kept separate: tide_board (flat board, UV u = hour 0..24, v = up), storm_mast (+ empties
     storm_mast_cone_n0..4 / _s0..4), tide_gauge (+ tide_gauge_level), slipway, shakkei (distant hills)
-public/harbour/lighthouse.glb
-  - pharos (tower, hb_opaque/hb_window/hb_glass), lens (rotating node: hb_emissive + brass), lantern (empty)
+(P6: public/harbour/lighthouse.glb, the Pharos of Alexandria, has its own builder: scripts/harbour/blender/pharos)
 outputs/harbour/island/window_lights.json  - layout lights (windows grouped per building + lamps)
 """
 import subprocess
@@ -381,71 +380,8 @@ STATS = dict(island=dict(tris=tri_count_of(island_objs), meshes=sum(1 for o in i
                          primitives={o.name: o.data.materials[0].name if o.type == 'MESH' and o.data.materials else None for o in island_objs},
                          per_mesh={o.name: tri_count_of([o]) for o in island_objs if o.type == 'MESH'}))
 
-# ------------------------------------------------------------------ lighthouse.glb: tower + rotating lens + lantern empty
-PH = bpy.data.objects['pharos_src']
-# lighthouse.glb is authored at the origin, scale baked in, unrotated: the runtime places it at the 'pharos'
-# landmark position and turns it by that landmark's headingRad (= the -45 deg used here).
-PH_FRAME = Matrix.Translation(PH.matrix_world.translation) @ PH.matrix_world.to_quaternion().to_matrix().to_4x4()
-lh_parts = {}
-lens_parts = []
-lantern_empty = None
-for ob in descendants(PH):
-    if ob.type == 'EMPTY':
-        if ob.name.startswith('pharos_lamp'):
-            lantern_empty = ob
-        continue
-    if ob.type != 'MESH':
-        continue
-    o = baked_copy(ob, ob.name + '_lx', local_to=PH_FRAME)
-    ensure_col(o.data)
-    if ob.name in ('pharos_lens', 'pharos_lensframe'):
-        lens_parts.append(o)
-        continue
-    role = mat_role(ob.data.materials[0] if ob.data.materials else None) or 'hb_opaque'
-    lh_parts.setdefault(role, []).append(o)
-lroot = bpy.data.objects.new('pharos', None); EXC.objects.link(lroot)
-lroot['runtime'] = 'lighthouse: rotate node "lens" about its local up axis; "lantern" = light origin (beam, halo)'
-LH_OBJS = [lroot]
-for role, objs in lh_parts.items():
-    o = join(objs, f'tower_{role[3:]}')
-    single_material(o, EXP_MAT[role])
-    o.parent = lroot; o.matrix_parent_inverse.identity()
-    LH_OBJS.append(o)
-lens = join(lens_parts, 'lens')
-for i, m in enumerate(lens.data.materials):
-    lens.data.materials[i] = EXP_MAT['hb_emissive'] if (m and m.name == 'lens') else EXP_MAT['hb_opaque']
-lens.parent = lroot; lens.matrix_parent_inverse.identity()
-LH_OBJS.append(lens)
-le = bpy.data.objects.new('lantern', None); EXC.objects.link(le)
-le.parent = lroot; le.matrix_parent_inverse.identity()
-le.location = PH_FRAME.inverted() @ lantern_empty.matrix_world.translation
-LH_OBJS.append(le)
-le2 = bpy.data.objects.new('pharos_lamp', None); EXC.objects.link(le2)        # alias the lighthouse system looks up
-le2.parent = lroot; le2.matrix_parent_inverse.identity(); le2.location = le.location.copy()
-LH_OBJS.append(le2)
-if '--no-ao' not in ARGV:
-    # bake in place: the copies are authored at the origin, where the island's own chunks would occlude them (that
-    # was the 'charcoal chimney'); stood on the headland they get only their own and the knoll's occlusion
-    _lh_ao = [o for o in LH_OBJS if o.type == 'MESH' and o.data.materials and o.data.materials[0] == EXP_MAT['hb_opaque']]
-    for o in _lh_ao:
-        o.matrix_world = PH_FRAME
-    bpy.context.view_layer.update()
-    bake_ao(_lh_ao, distance=4.0)
-    for o in _lh_ao:
-        o.matrix_world = Matrix.Identity(4)
-    bpy.context.view_layer.update()
-for o in LH_OBJS:
-    if o.type == 'MESH' and o.name.startswith('tower_'):
-        # the tower is drawn from the same fixed camera; cull in world orientation
-        mw = PH_FRAME.to_3x3()
-        bm = bmesh.new(); bm.from_mesh(o.data); bm.normal_update()
-        dead = [f for f in bm.faces if (mw @ f.normal).normalized().dot(V_CAM) < CULL_DOT]
-        bmesh.ops.delete(bm, geom=dead, context='FACES'); bm.to_mesh(o.data); bm.free()
-lraw = os.path.join(OUTD, 'lighthouse.raw.glb')
-export_glb(LH_OBJS, lraw)
-STATS['lighthouse'] = dict(tris=tri_count_of(LH_OBJS), lantern_world=list(le.matrix_world.translation), meshes=[o.name for o in LH_OBJS])
-
-
+# ------------------------------------------------------------------ lighthouse.glb: P6 - the Pharos of Alexandria has its own builder
+# (scripts/harbour/blender/pharos/export.py writes public/harbour/lighthouse.glb); the island never exports one any more.
 # ------------------------------------------------------------------ meshopt (gltf-transform)
 def meshopt(src, dst):
     cmd = ['npx', '--yes', '@gltf-transform/cli@4.1.1', 'meshopt', src, dst]
@@ -455,8 +391,7 @@ def meshopt(src, dst):
 
 
 meshopt(raw, os.path.join(OUT_PUB, 'island.glb'))
-meshopt(lraw, os.path.join(OUT_PUB, 'lighthouse.glb'))
-for k, p in (('island', 'island.glb'), ('lighthouse', 'lighthouse.glb')):
+for k, p in (('island', 'island.glb'),):
     STATS[k]['kb_raw'] = round(os.path.getsize(os.path.join(OUTD, p.replace('.glb', '.raw.glb'))) / 1024, 1)
     STATS[k]['kb'] = round(os.path.getsize(os.path.join(OUT_PUB, p)) / 1024, 1)
 

@@ -63,9 +63,11 @@ def build_water(sdf_img):
     foam = f_contact.max(band2 * brk2 * 0.9).max(band3).max(f_hull).max(f_wake)
     foam = foam * C(nt, 1.0, 'FOAM_K')
     # far haze toward the backdrop (screen depth V)
-    vv = (wy - wx) * 0.70710678
-    hraw = vv.sstep(380.0, 560.0)
-    haze = vv.sstep(420.0, 600.0).pow(1.4) * C(nt, 0.75, 'HAZE_MAX')
+    # P6: haze by the view distance relative to the sky card (HAZE_R = slant distance to the card, set per camera)
+    cdat = node(nt, 'ShaderNodeCameraData')
+    vv = SX(nt, cdat.outputs['View Distance']) / C(nt, 900.0, 'HAZE_R')
+    hraw = vv.sstep(0.62, 0.97)
+    haze = vv.sstep(0.74, 1.0).pow(1.6) * C(nt, 0.75, 'HAZE_MAX')
     hz = rgb(nt, (0.5, 0.5, 0.5), 'HAZE')
     sea = mixc(nt, haze, ramp.outputs['Color'], hz)
     fc = rgb(nt, PAL['foam'], 'FOAM')
@@ -110,7 +112,7 @@ def sky_radius(pr):
     R = cam.z / math.tan(max(0.05, pit - vfov / 2 + 0.2 * vfov))
     span = math.atan(math.tan(vfov / 2) * 1.6) + 0.25
     far = 0.0
-    for p in [tuple(q) for q in CJ['coast']] + [tuple(q) for q in CJ['bw_line']]:
+    for p in [tuple(q) for q in CJ['coast']] + [tuple(q) for q in CJ['bw_line']] + [tuple(q) for q in CJ.get('pharos', {}).get('islet', [])]:
         d = Vector((p[0] - cam.x, p[1] - cam.y))
         if d.length < 1e-3 or d.normalized().dot(FWD.to_2d()) < math.cos(span):
             continue
@@ -189,8 +191,7 @@ def mountain_range(name, cam, R, az0, az1, emax, seed, mat, n=220, lift=-6.0):
             h += amp * r_ ** 2.2; amp *= 0.5; f *= 2.1
         env = max(0.0, noise.noise(Vector((s * 0.0022 + seed, 0.5, 0.0))) + 0.22) / 0.7
         h = R * math.tan(math.radians(emax)) * h * 0.55 * min(1.0, env) ** 0.8
-        a = fa - math.radians(az)
-        p = Vector((cam.x + math.cos(a) * R, cam.y + math.sin(a) * R, 0))
+        p = Vector((cam.x, cam.y, 0)) + FWD * R + SIDE * (math.tan(math.radians(az)) * R)      # P6: on the flat wall
         base.append(bm.verts.new((p.x, p.y, lift)))
         peaks.append(bm.verts.new((p.x, p.y, max(h, lift + 1.0))))
     for k in range(n):
@@ -280,8 +281,10 @@ def build_sky():
         n = 72; top = R * math.tan(math.radians(22))
         ring = []
         for k in range(n + 1):
-            a = fa + math.radians(-42 + 84 * k / n)
-            p = (cam.x + math.cos(a) * R, cam.y + math.sin(a) * R)
+            # P6: a flat wall square to the view at forward distance R (a straight horizon, like the runtime frame; the old
+            # cylinder round the camera bent it into a frown once the heart pitched down to 26 deg)
+            dl = math.tan(math.radians(-42 + 84 * k / n))
+            p = (cam.x + FWD.x * R - SIDE.x * dl * R, cam.y + FWD.y * R - SIDE.y * dl * R)
             ring.append((bd.verts.new((p[0], p[1], -12.0)), bd.verts.new((p[0], p[1], top))))
         for (a0, a1), (b0, b1) in zip(ring, ring[1:]):
             bd.faces.new((a0, b0, b1, a1))

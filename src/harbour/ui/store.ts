@@ -11,7 +11,8 @@ import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { Boat, HarbourModel } from "../model/types";
 import { PANEL_LANDMARKS, whereabouts, type Whereabouts } from "./facts";
 import { UIPicking } from "./picking";
-import { ensureMotionService, getModel, getSim, sameHit, type MotionService, type PickHit, type PickingService } from "./services";
+import { inPoly, seaZones } from "./places";
+import { ensureMotionService, getLayout, getModel, getSim, sameHit, type MotionService, type PickHit, type PickingService } from "./services";
 
 export interface UIState {
   model: HarbourModel | null;
@@ -194,7 +195,10 @@ export class HarbourUIStore {
     const w = this.picking.worldPosition(hit);
     if (!w) return;
     const { rig, camera } = this.ctx;
-    const close = hit.kind === "boat" ? 210 : hit.kind === "harbour" ? 300 : hit.id === "far-ports" || hit.id === "wreck-cove" ? 420 : 300;
+    const close = hit.kind === "boat" ? 210 : hit.kind === "yard" ? 170 : hit.kind === "harbour" ? 300
+      : hit.id === "far-ports" || hit.id === "wreck-cove" || hit.id === "the-roads" ? 420 : hit.id === "slipway" ? 340 : hit.id === "pharos" ? 440 : 300;
+    // the Pharos stands ~100 m to its statue: aim at its middle so the beacon and its tag stay in frame
+    const ty = hit.kind === "landmark" && hit.id === "pharos" ? 45 : 0;
     const dist = Math.min(Math.max(rig.distance, close * 0.75), close);
     const vh = this.ctx.renderer.domElement.clientHeight || innerHeight;
     const vw = this.ctx.renderer.domElement.clientWidth || innerWidth;
@@ -203,7 +207,7 @@ export class HarbourUIStore {
     // screen-right on the ground plane is (cos yaw, 0, −sin yaw)
     const tx = w[0] + Math.cos(rig.yaw) * shift, tz = w[2] - Math.sin(rig.yaw) * shift;
     rig.applyPreset({
-      target: [tx, 0, tz], distance: dist, fovDeg: camera.fov,
+      target: [tx, ty, tz], distance: dist, fovDeg: camera.fov,
       pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
     }, this.state.reducedMotion);
   }
@@ -226,10 +230,23 @@ export class HarbourUIStore {
     if (i < 0) return { kind: "unknown", place: null };
     const slot = sim.layout.slots[sim.pose.slot[i]] ?? null;
     const place = slot ? sim.layout.pierChains.get(slot.where) ?? null : null;
-    return whereabouts(sim.pose.phase[i], slot?.kind ?? null, place);
+    return whereabouts(sim.pose.phase[i], slot?.kind ?? null, place, sim.pose.outing?.[i] === 1);
   }
 
   underWay(): number | null { return getSim(this.ctx)?.stats.underWay ?? null; }
+
+  /** Boats lying in a sea zone right now (by the sim pose), biggest first; null without a sim or zone. */
+  boatsInZone(zoneId: string): Boat[] | null {
+    const sim = getSim(this.ctx), zone = seaZones(getLayout(this.ctx)).find((z) => z.id === zoneId);
+    if (!sim || !zone) return null;
+    const out: Boat[] = [];
+    for (let i = 0; i < sim.pose.count; i++) {
+      if (!inPoly(sim.pose.position[i * 3], sim.pose.position[i * 3 + 2], zone.polygon)) continue;
+      const b = this.boat(sim.pose.ids[i]);
+      if (b) out.push(b);
+    }
+    return out.sort((a, b) => b.supply - a.supply);
+  }
 
   dispose(): void { for (const c of this.cleanups) c(); }
 }

@@ -4,7 +4,7 @@
  * arc length, so a pose lookup is O(1) and speed along the path is exactly what the timing says.
  */
 import type { Vec2 } from "../layout/types";
-import { clearance, openWaterFactor, type ObstacleField } from "./obstacles";
+import { clearance, hullClearance, openWaterFactor, type ObstacleField } from "./obstacles";
 
 export interface SubPath {
   /** Uniformly spaced samples, x,z interleaved. */
@@ -160,11 +160,85 @@ export interface PathExtras {
   tailLen?: number;
   /** Leading control points (the departure arc) kept exactly. */
   headKeep?: number;
+  /** Fine clearance (m) to hard structure (the real coast and the decks): the whole hull keeps off it. */
+  hard?: ((x: number, z: number) => number) | null;
 }
 
-function subPath(points: readonly Vec2[], step = 0.5): SubPath {
+/** Water kept between the hull's outline and land or a deck under way, by hull length (m). */
+export const hullMargin = (loa: number): number => 0.3 + 0.025 * loa;
+
+const WORST = new Float64Array(2);
+const headingAt = (x: Float64Array, z: Float64Array, n: number, i: number): number => {
+  const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
+  return Math.atan2(x[b] - x[a], z[b] - z[a]);
+};
+
+/**
+ * Keep the whole hull clear (bow, stern and both sides, not just the centre line): wherever a sample's
+ * outline comes within the margin of land or a deck, the path is pushed out along the clearance
+ * gradient there, the push spread over about a hull length each way so it bends smoothly round the
+ * obstacle; repeated until clear. The ends (berth, cusp) stay put and the margin tapers to a hair
+ * there, where the hull is meant to lie close to a quay or a finger.
+ */
+function relaxClear(x: Float64Array, z: Float64Array, n: number, ds: number, hard: (x: number, z: number) => number, field: ObstacleField | null, loa: number, beam: number, margin: number, astern = false): void {
+  if (n < 3) return;
+  const span = Math.max(3, Math.round(Math.max(12, loa * 1.5) / ds));
+  const total = (n - 1) * ds;
+  const need = new Float64Array(n), mob = new Float64Array(n), dx = new Float64Array(n), dz = new Float64Array(n);
+  // the start heading (the hull's own) and the final run in along the berth axis are held
+  const hold = Math.min(loa * 0.25, total * 0.1);
+  for (let i = 0; i < n; i++) {
+    const e = Math.min(i * ds, total - i * ds);
+    const a = Math.min(1, e / loa), b = Math.min(1, Math.max(0, (e - hold) / 4));
+    need[i] = 0.05 + (margin - 0.05) * a * a * (3 - 2 * a);
+    mob[i] = b * b * (3 - 2 * b);
+  }
+  // samples to (re)check: all at first, then only round the last pushes
+  let check = new Uint8Array(n).fill(1);
+  for (let it = 0; it < 40; it++) {
+    dx.fill(0); dz.fill(0);
+    const next = new Uint8Array(n);
+    let any = false;
+    for (let i = 0; i < n; i++) {
+      if (!check[i]) continue;
+      if (field && clearance(field, x[i], z[i]) > loa / 2 + 3) continue;
+      const hi = headingAt(x, z, n, i) + (astern ? Math.PI : 0);
+      let c = hullClearance(hard, x[i], z[i], hi, loa, beam, WORST), px = WORST[0], pz = WORST[1];
+      // a sharp turn here (she yaws between this sample and the next): the hull swept through it
+      if (i < n - 1) {
+        let dh = headingAt(x, z, n, i + 1) + (astern ? Math.PI : 0) - hi;
+        dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+        for (let k = 1, m = Math.ceil(Math.abs(dh) / 0.2); k < m; k++) {
+          const cs = hullClearance(hard, x[i], z[i], hi + (dh * k) / m, loa, beam, WORST);
+          if (cs < c) { c = cs; px = WORST[0]; pz = WORST[1]; }
+        }
+      }
+      const def = need[i] - c;
+      if (def <= 0) continue;
+      let gx = hard(px + 0.5, pz) - hard(px - 0.5, pz), gz = hard(px, pz + 0.5) - hard(px, pz - 0.5);
+      const gl = Math.hypot(gx, gz);
+      if (gl < 1e-6) continue;
+      gx /= gl; gz /= gl;
+      any = true;
+      const m = Math.min(def + 0.1, 1.5);
+      for (let j = Math.max(0, i - span); j <= Math.min(n - 1, i + span); j++) {
+        const k = 1 - Math.abs(j - i) / (span + 1), w = m * k * k * (3 - 2 * k);
+        // the largest push along this way wins (neighbouring offenders do not stack up)
+        const cur = dx[j] * gx + dz[j] * gz;
+        if (w > cur) { dx[j] += gx * (w - cur); dz[j] += gz * (w - cur); }
+      }
+      for (let j = Math.max(0, i - 2 * span); j <= Math.min(n - 1, i + 2 * span); j++) next[j] = 1;
+    }
+    if (!any) return;
+    for (let j = 0; j < n; j++) { x[j] += dx[j] * mob[j]; z[j] += dz[j] * mob[j]; }
+    check = next;
+  }
+}
+
+function subPath(points: readonly Vec2[], step = 0.5, fix: ((x: Float64Array, z: Float64Array, n: number, ds: number) => void) | null = null): SubPath {
   const xs = points.map((p) => p[0]), zs = points.map((p) => p[1]);
-  const r = resample(xs, zs, points.length, step, 400);
+  let r = resample(xs, zs, points.length, step, 400);
+  if (fix) { fix(r.x, r.z, r.n, r.ds); r = resample(r.x, r.z, r.n, step, 400); }
   const pts = new Float32Array(r.n * 2);
   for (let i = 0; i < r.n; i++) { pts[i * 2] = r.x[i]; pts[i * 2 + 1] = r.z[i]; }
   const hdg = new Float32Array(r.n);
@@ -267,6 +341,7 @@ export function buildPath(points: readonly Vec2[], loa: number, tailKeep = 2, fi
     for (const i of bad) for (let j = Math.max(1, i - 3); j <= Math.min(n1 - 2, i + 3); j++) if (wgt[j] > 0.02 && turnAt(j) > maxTurn) next.add(j);
     bad = [...next];
   }
+  if (extras.hard) relaxClear(x, z, n1, ds1, extras.hard, field, loa, beam, hullMargin(loa));
   const r2 = resample(x, z, r1.n, 1.0, MAX_SAMPLES);
   const n = r2.n, ds = r2.ds, length = r2.length;
   const out = new Float32Array(n * 2);
@@ -335,7 +410,7 @@ export function buildPath(points: readonly Vec2[], loa: number, tailKeep = 2, fi
   const ratio = ctrlLen > 0 ? length / ctrlLen : 1;
   const laneA = Math.min(length, (extras.headLen ?? loa * 2) * ratio + loa);
   const laneB = Math.max(laneA, length - (extras.tailLen ?? loa * 3) * ratio - loa);
-  const rev = extras.rev && extras.rev.length >= 2 ? subPath(extras.rev) : null;
+  const rev = extras.rev && extras.rev.length >= 2 ? subPath(extras.rev, 0.5, extras.hard ? (rx, rz, rn, rds) => relaxClear(rx, rz, rn, rds, extras.hard!, field, loa, beam, hullMargin(loa) * 0.5, true) : null) : null;
   return {
     pts: out, hdg, n, ds, length, vrel, q, Q, sOfQ, rev,
     w0: extras.w0 ? Float32Array.from(extras.w0) : null, w1: extras.w1 ? Float32Array.from(extras.w1) : null, laneA, laneB,

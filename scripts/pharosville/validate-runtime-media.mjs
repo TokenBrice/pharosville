@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { extname, join, normalize, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import { gunzipSync } from "node:zlib";
 
 const repoRoot = process.cwd();
 const publicRoot = resolve(repoRoot, "public");
@@ -320,6 +321,15 @@ function validateHarbourMedia() {
   }
   for (const required of ["/harbour/island.glb", "/harbour/lighthouse.glb", "/harbour/kit/manifest.json"]) {
     if (!referencedHarbourMedia.has(required) && validatePublicFileExists(required, "Harbour runtime")) referencedHarbourMedia.add(required);
+  }
+  // bake sources stay out of the deploy: the runtime loads sea-sdf.webp, the PNG lives in assets/harbour/
+  if (existsSync(join(publicRoot, "harbour/sea-sdf.png"))) errors.push("public/harbour/sea-sdf.png would deploy unused: it belongs in assets/harbour/");
+  // the runtime fetches every /harbour/ GLB as its pre-gzipped sibling (scripts/harbour/compress-assets.mjs)
+  const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
+  for (const glb of walk(join(publicRoot, "harbour")).filter((f) => f.endsWith(".glb"))) {
+    const gz = `${glb}.gz`, name = relative(publicRoot, gz);
+    if (!existsSync(gz)) { errors.push(`${name} is missing: run npm run harbour:compress`); continue; }
+    if (!gunzipSync(readFileSync(gz)).equals(readFileSync(glb))) errors.push(`${name} is stale: run npm run harbour:compress`);
   }
 }
 

@@ -10,6 +10,8 @@ import { LightsSystem } from "./lights/lights-system";
 import { FleetSystem } from "./fleet/fleet-system";
 import { ReadingsSystem } from "./readings/readings-system";
 import { LifeSystem } from "./life/life-system";
+import { IdentitySystem } from "./identity/identity-system";
+import { CivicSystem } from "./civic/civic-system";
 
 /**
  * Ordered registry of world systems. Each owner appends its factory here (keep order):
@@ -23,8 +25,10 @@ export const SYSTEMS: Array<() => WorldSystem> = [
   () => new OceanSystem(),
   () => new IslandSystem(),
   () => new LighthouseSystem(),
+  () => new CivicSystem(),
   () => new FleetSystem(),
   () => new LifeSystem(),
+  () => new IdentitySystem(),
   () => new LightsSystem(),
   () => new BeamSystem(),
 ];

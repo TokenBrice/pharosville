@@ -18,7 +18,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/harbour/compress-assets.mjs && vite build",
+    "harbour:compress": "node scripts/harbour/compress-assets.mjs",
     "serve:dist": "vite preview --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=0",

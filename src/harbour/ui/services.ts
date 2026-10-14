@@ -8,10 +8,11 @@ import type { HarbourLayout } from "../layout/types";
 import type { HarbourModel } from "../model/types";
 import type { HarbourSim } from "../sim/sim";
 
-export type PickKind = "boat" | "landmark" | "harbour";
+export type PickKind = "boat" | "landmark" | "harbour" | "yard";
 
 /**
- * What the pointer is over. boat → coin id; landmark → layout landmark id; harbour → chain name.
+ * What the pointer is over. boat → coin id; landmark → layout landmark / civic panel / sea-zone id;
+ * harbour → chain name; yard → a pre-launch coin id (a hull on the Shipyard's slips).
  * `at`: the world point the pointer found it at (a pier is long; its tag hangs where you pointed).
  * Identity (sameHit) ignores `at`.
  */
@@ -74,6 +75,23 @@ export function ensureMotionService(ctx: EngineContext): MotionService {
   };
   ctx.services.set("motion", svc);
   return svc;
+}
+
+/**
+ * A system's decorative clock under the 'motion' service: `live` eases 1 (full motion) … 0 (reduced) over
+ * about a second, and `time` advances by dt × live, so reduced motion stops every sway where it stands
+ * and turning it off resumes from there (no jump).
+ */
+export class MotionClock {
+  live: number;
+  time = 0;
+  constructor(private readonly motion: MotionService) { this.live = motion.reduced ? 0 : 1; }
+  step(dt: number): number {
+    this.live += ((this.motion.reduced ? 0 : 1) - this.live) * (1 - Math.exp(-dt * 3));
+    if (this.live < 1e-3) this.live = 0;
+    this.time += dt * this.live;
+    return this.time;
+  }
 }
 
 export const getModel = (ctx: EngineContext) => (ctx.services.get("model") as HarbourModel | undefined) ?? null;

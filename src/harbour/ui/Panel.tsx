@@ -1,14 +1,21 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, type ReactNode } from "react";
 import type { HarbourLayout } from "../layout/types";
 import type { Boat, HarbourModel } from "../model/types";
-import { ChainSplit, chainLogo, DEWS_INK, Freshness, Logo, PSI_INK, Sparkline, TideBars } from "./bits";
-import { circuitStops, epitaphOf, quoted, whereLine, whyHere, wreckDate } from "./facts";
-import { bps, causeName, HULL_NAME, MINUS, money, pctChange, pegName, share, titleCase } from "./format";
+import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
+import { ChainSplit, chainLogo, Crest, DEWS_INK, FlowBars, Freshness, Logo, PSI_INK, Sparkline, TideBars } from "./bits";
+import { circuitStops, epitaphOf, flowTotals, quoted, whereLine, whyHere, wreckDate } from "./facts";
+import { age, bps, causeName, HULL_NAME, MINUS, money, pctChange, pegName, share, titleCase } from "./format";
+import { CHAIN_COLOR, placeName, scopeName } from "./places";
+import { expectedLabel, groupYard, launchedFromYard, PHASE_NAME, PHASES, STAGE_NAME, STAGE_OF, UPCOMING_URL, yardCoins, type YardCoin } from "./yard";
+
+/** The hull each phase stands for, in one word (the build line's second row). */
+const STAGE_WORD = { keel: "keel", ribs: "frames", planked: "planks", painted: "paint", rigged: "rigging" } as const;
 
 const signed = (v: number) => (v < 0 ? MINUS : "") + Math.abs(v).toFixed(2);
 import { usePresence, useStore, useSticky, useUI, useUISlice } from "./hooks";
 import { getFeed, getLighthouse, type PickHit } from "./services";
 import type { HarbourUIStore } from "./store";
+import { DEV_OVERRIDE_KEYS } from "../readings/bind";
 
 type Raw = Record<string, unknown>;
 const raw = (store: HarbourUIStore, key: string): Raw | null => {
@@ -17,7 +24,16 @@ const raw = (store: HarbourUIStore, key: string): Raw | null => {
 };
 const sumBuckets = (o: unknown) => (o && typeof o === "object" ? Object.values(o as Record<string, unknown>).reduce<number>((s, v) => s + (typeof v === "number" && Number.isFinite(v) ? v : 0), 0) : 0);
 
+/** Dev only: URL reading overrides bend the world, not the payloads this panel reads, so say so. */
+function DevOverrideNote({ store }: { store: HarbourUIStore }) {
+  if (!(store.ctx.services.get("readings") as { overridden?: boolean } | undefined)?.overridden) return null;
+  const q = new URLSearchParams(location.search);
+  const keys = DEV_OVERRIDE_KEYS.filter((k) => q.has(k)).map((k) => `${k}=${q.get(k)}`).join(" ");
+  return <p className="hb-caption hb-dev-override" role="note">Dev override ({keys}): the world shows forced readings; the figures below are the live data.</p>;
+}
+
 export function SidePanel({ onClose }: { onClose: () => void }) {
+  const store = useStore();
   const selected = useUISlice((s) => s.selected);
   const [mounted, shown] = usePresence(selected != null, 220);
   const hit = useSticky(selected);
@@ -30,6 +46,7 @@ export function SidePanel({ onClose }: { onClose: () => void }) {
       <button type="button" className="hb-close" aria-label="Close panel (Esc)" onClick={onClose}>
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
       </button>
+      <DevOverrideNote store={store} />
       <PanelContent hit={hit} titleRef={titleRef} key={key} />
     </aside>
   );
@@ -43,7 +60,7 @@ function Head({ kicker, title, sub, logo, titleRef }: HeadProps) {
       <div className="hb-title-row">
         {logo}
         <div>
-          <h2 id="hb-panel-title" className="hb-title" tabIndex={-1} ref={titleRef}>{title}</h2>
+          <h2 id="hb-panel-title" className="hb-title" data-long={title.length > 10 ? (title.length > 13 ? "2" : "1") : undefined} tabIndex={-1} ref={titleRef}>{title}</h2>
           {sub && <div className="hb-sub">{sub}</div>}
         </div>
       </div>
@@ -63,25 +80,24 @@ function PanelContent({ hit, titleRef }: { hit: PickHit; titleRef: React.RefObje
     return b ? <BoatPanel b={b} titleRef={titleRef} /> : <Head kicker="Vessel" title={hit.id} sub="no longer on the register" titleRef={titleRef} />;
   }
   if (hit.kind === "harbour") return <HarbourPanel chain={hit.id} model={model} titleRef={titleRef} />;
+  if (hit.kind === "yard") return <YardCoinPanel id={hit.id} titleRef={titleRef} />;
   const L = store.ctx.services.get("layout") as HarbourLayout | undefined;
-  const name = L?.landmarks.find((l) => l.id === hit.id)?.name ?? hit.id;
+  const name = placeName(L ?? null, hit.id);
   switch (hit.id) {
     case "pharos": return <PharosPanel model={model} titleRef={titleRef} />;
     case "shoals": return <ShoalsPanel model={model} titleRef={titleRef} />;
     case "customs-house": case "tide-board": return <CustomsPanel model={model} titleRef={titleRef} />;
+    case "mint": return <FlowPanel side="mint" model={model} titleRef={titleRef} />;
+    case "burn": return <FlowPanel side="burn" model={model} titleRef={titleRef} />;
+    case "slipway": return <ShipyardPanel titleRef={titleRef} />;
     case "storm-mast": return <StormPanel model={model} titleRef={titleRef} />;
     case "wreck-cove": return <WreckPanel model={model} titleRef={titleRef} />;
     case "far-ports": return <FarPortsPanel model={model} titleRef={titleRef} />;
+    case "the-roads": return <RoadsPanel titleRef={titleRef} />;
     case "harbourmaster": return <HarbourmasterPanel titleRef={titleRef} />;
-    case "registry": return (
-      <><Head kicker="Landmark" title={name} sub={`${model?.payloadCount ?? 0} coins on the register`} titleRef={titleRef} />
-        <div className="hb-panel-body"><p className="hb-why">Every stablecoin the register knows is a boat in this harbour: no sampling, no sister ships. The full list lives in the ledger.</p>
-          <p className="hb-caption">Press <kbd>L</kbd> to open the ledger, or <kbd>/</kbd> to find one coin.</p></div></>
-    );
-    case "slipway": return (
-      <><Head kicker="Landmark" title={name} sub="where new coins are launched" titleRef={titleRef} />
-        <div className="hb-panel-body"><p className="hb-why">When a coin first appears on the register, its hull slides down this slipway and sails to the harbour that holds most of its supply.</p></div></>
-    );
+    case "chartroom": return <ChartRoomPanel model={model} titleRef={titleRef} />;
+    case "keeperslog": return <KeepersLogPanel model={model} titleRef={titleRef} />;
+    case "registry": return <RegistryPanel model={model} titleRef={titleRef} />;
     default: return <Head kicker="Landmark" title={name} titleRef={titleRef} />;
   }
 }
@@ -198,12 +214,12 @@ function PharosPanel({ model, titleRef }: P) {
   const lh = getLighthouse(store.ctx);
   return (
     <>
-      <Head kicker="The lighthouse" title="The Pharos" sub="Pharos Stability Index" titleRef={titleRef} />
+      <Head kicker="The beacon" title="The Pharos" sub="Pharos Stability Index" titleRef={titleRef} />
       <div className="hb-panel-body">
-        {!p?.lit || p.score == null ? <p className="hb-why">The lantern is unlit: there is no stability reading. It never shows a calm default.</p> : (
+        {!p?.lit || p.score == null ? <p className="hb-why">The fire is out: there is no stability reading. The beacon never shows a calm default.</p> : (
           <>
             <div className="hb-big hb-num" style={{ marginTop: 6 }}>{p.score.toFixed(1)}<small><span className="hb-band" style={{ "--band": PSI_INK[p.band ?? ""] } as React.CSSProperties}>{titleCase(p.band ?? "")}</span></small></div>
-            <p className="hb-why">The beam’s rhythm is the stability band{p.sweepSec ? `: one sweep every ${Math.round(lh?.period ?? p.sweepSec)} seconds` : ""}. Its reach follows the score.</p>
+            <p className="hb-why">A fire burns in the lantern and a bronze mirror throws it out to sea. The beam’s rhythm is the stability band{p.sweepSec ? `: one sweep every ${Math.round(lh?.period ?? p.sweepSec)} seconds` : ""}; its reach follows the score.</p>
             <Sec title="Last 30 days">
               <Sparkline values={histScores} dates={histDates} label={`PSI over the last ${hist.length} days, now ${p.score.toFixed(1)}`} />
               <dl className="hb-dl" style={{ marginTop: 8 }}>
@@ -265,9 +281,10 @@ function ShoalsPanel({ model, titleRef }: P) {
   const bySym = new Map(model?.boats.map((b) => [b.id, b]) ?? []);
   return (
     <>
-      <Head kicker="The reef" title="The Shoals" sub={s.length ? `${s.length} ${s.length === 1 ? "boat" : "boats"} off peg` : "clear water"} titleRef={titleRef} />
+      <Head kicker="Sea zone · the reef" title="The Shoals" sub={s.length ? `${s.length} ${s.length === 1 ? "boat" : "boats"} off peg` : "clear water"} titleRef={titleRef} />
       <div className="hb-panel-body">
         <p className="hb-why">Coins that lose their peg leave their circuit and anchor here, heeling on the reef, until the peg holds again.</p>
+        <p className="hb-caption">Know it by the surf breaking on the reef, the red-and-white hazard buoys and the reef beacon.</p>
         {sea?.offPegShare != null && <p className="hb-caption">Sea state {sea.step ?? "—"} of 3: {share(sea.offPegShare)} of supply is off peg.</p>}
         <Sec title="Aground">
           {s.length ? <BoatList rows={s.map((x) => ({ id: x.id, label: <><b>{bySym.get(x.id)?.symbol ?? x.id}</b> <em>{money(x.supply)}</em></>, value: <span className="hb-down">{bps(x.bps)}</span> }))} />
@@ -284,20 +301,21 @@ function CustomsPanel({ model, titleRef }: P) {
   const mint = f?.hourly.reduce((s, h) => s + h.mintUsd, 0) ?? 0, burn = f?.hourly.reduce((s, h) => s + h.burnUsd, 0) ?? 0;
   return (
     <>
-      <Head kicker="Landmark" title="Customs House" sub="the tide board of mint and burn" titleRef={titleRef} />
+      <Head kicker="The flows quarter" title="Customs House" sub="the ledger of mint and burn" titleRef={titleRef} />
       <div className="hb-panel-body">
-        {!f?.available ? <p className="hb-why">The tide board is dark: there is no flow reading.</p> : (
+        {!f?.available ? <p className="hb-why">The books are closed: there is no flow reading.</p> : (
           <>
             <div className="hb-big hb-num" style={{ marginTop: 6 }}>{money(f.net24hUsd, { signed: true })}<small>net, 24 h</small></div>
-            <p className="hb-why">Each painted bar on the board is one hour: blue above the line for supply minted, red below for supply burned.</p>
+            <p className="hb-why">The Customs House keeps the exact books of the Mint beside it and the Burn across the mouth. Each bar is one hour: blue above the line for supply minted, red below for supply burned.</p>
             <Sec title="Hourly net"><TideBars hourly={f.hourly} /></Sec>
             <Sec title="Totals">
               <dl className="hb-dl">
                 <dt>Minted</dt><dd>{money(mint)}</dd>
                 <dt>Burned</dt><dd>{money(burn)}</dd>
-                {f.scope.length > 0 && <><dt>Chains read</dt><dd>{f.scope.length}</dd></>}
+                {f.scope.length > 0 && <><dt>Chains read</dt><dd>{f.scope.map(scopeName).join(" · ")}</dd></>}
               </dl>
             </Sec>
+            <FlowLinks />
           </>
         )}
         {model && <Freshness label="Flow data" state={model.truth.mintBurn.state} ageSec={model.truth.mintBurn.ageSec} />}
@@ -313,9 +331,9 @@ function StormPanel({ model, titleRef }: P) {
   const w = model?.readings.weather;
   return (
     <>
-      <Head kicker="Landmark" title="Storm-signal Mast" sub={!c ? "no stress reading" : c.count === 0 ? "no cones hoisted" : `${c.count} ${c.count === 1 ? "cone" : "cones"} hoisted`} titleRef={titleRef} />
+      <Head kicker="Landmark" title="Storm-signal Station" sub={!c ? "no stress reading" : c.count === 0 ? "no cones hoisted" : `${c.count} ${c.count === 1 ? "cone" : "cones"} hoisted`} titleRef={titleRef} />
       <div className="hb-panel-body">
-        <p className="hb-why">One cone for each coin at early-warning Alert or worse, up to five{c && c.extra > 0 ? `; ${c.extra} more are not shown on the mast` : ""}. The weather over the bay is the same stress, weighted by supply.</p>
+        <p className="hb-why">One cone on the mast for each coin at early-warning Alert or worse, up to five{c && c.extra > 0 ? `; ${c.extra} more are not shown` : ""}. The weather over the bay is the same stress, weighted by supply.</p>
         {w?.band && <p className="hb-caption">Weather: {titleCase(w.band)}, over {share(w.coverage)} of supply.</p>}
         <Sec title="Alerts">
           {alerts.length ? <BoatList rows={alerts.map((b) => ({ id: b.id, label: <><b>{b.symbol}</b> <em>{money(b.supply)}</em></>, value: <span className="hb-band" style={{ "--band": DEWS_INK[b.dews!] } as React.CSSProperties}>{titleCase(b.dews!)} {Math.round(b.dewsScore ?? 0)}</span> }))} />
@@ -331,9 +349,10 @@ function WreckPanel({ model, titleRef }: P) {
   const wrecks = [...(model?.readings.wrecks ?? [])].reverse();
   return (
     <>
-      <Head kicker="The cove" title="Wreck Cove" sub={`${wrecks.length} wrecks, newest first`} titleRef={titleRef} />
+      <Head kicker="Sea zone · the cove" title="Wreck Cove" sub={`${wrecks.length} wrecks, newest first`} titleRef={titleRef} />
       <div className="hb-panel-body">
         <p className="hb-why">Stablecoins that died lie beached here as grey hulks, each with its epitaph.</p>
+        <p className="hb-caption">Know it by the bleached ribs on the beach and the masts leaning out of the shallows.</p>
         <Sec title="The hulks">
           <ul className="hb-list">
             {wrecks.map((w) => (
@@ -353,9 +372,10 @@ function FarPortsPanel({ model, titleRef }: P) {
   const far = (model?.harbours ?? []).filter((h) => !h.piered);
   return (
     <>
-      <Head kicker="Offshore" title="Far Ports" sub={`${far.length} chains without a pier`} titleRef={titleRef} />
+      <Head kicker="Sea zone · offshore" title="The Far Ports" sub={`${far.length} chains without a pier`} titleRef={titleRef} />
       <div className="hb-panel-body">
         <p className="hb-why">Supply on chains too small for a pier of their own. Boats sail out here for the share of their supply these chains hold.</p>
+        <p className="hb-caption">Know it by the buoyed anchorage and its marker lights, out on the horizon.</p>
         <Sec title="Chains">
           <ul className="hb-list">
             {far.slice(0, 40).map((h) => <li key={h.chain}><div className="hb-row"><span>{h.chain}</span><span className="hb-num">{money(h.supplyUsd)}</span></div></li>)}
@@ -370,7 +390,7 @@ function FarPortsPanel({ model, titleRef }: P) {
 function HarbourmasterPanel({ titleRef }: { titleRef: P["titleRef"] }) {
   const store = useStore();
   useUI();
-  const s = (store.ctx.services.get("sim") as { stats: { underWay: number; docked: number; moored: number; anchored: number }; frozen: boolean } | undefined);
+  const s = (store.ctx.services.get("sim") as { stats: { underWay: number; docked: number; moored: number; anchored: number; outings?: number }; frozen: boolean } | undefined);
   return (
     <>
       <Head kicker="Landmark" title="Harbourmaster’s Office" sub="the day’s movements" titleRef={titleRef} />
@@ -380,10 +400,12 @@ function HarbourmasterPanel({ titleRef }: { titleRef: P["titleRef"] }) {
           <Sec title="Right now">
             <dl className="hb-dl">
               <dt>Under way</dt><dd>{s.stats.underWay}</dd>
+              {s.stats.outings != null && s.stats.outings > 0 && <><dt><em>of which out for a sail</em></dt><dd><em>{s.stats.outings}</em></dd></>}
               <dt>Alongside</dt><dd>{s.stats.docked}</dd>
               <dt>On moorings</dt><dd>{s.stats.moored}</dd>
               <dt>At anchor</dt><dd>{s.stats.anchored}</dd>
             </dl>
+            {s.stats.outings != null && <p className="hb-caption">A boat out for a sail is decoration: a loop out of its own harbour and back to the same berth.</p>}
           </Sec>
         )}
       </div>
@@ -399,8 +421,8 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
   const chainRow = ((raw(store, "chains")?.chains as Raw[] | undefined) ?? []).find((c) => c.name === chain);
   return (
     <>
-      <Head kicker={h?.piered === false ? "Far port" : "Harbour"} title={chain} sub={h ? `${share(h.share)} of all stablecoin supply` : undefined}
-        logo={<Logo src={chainLogo(chain)} label={chain} color="#1f5873" />} titleRef={titleRef} />
+      <Head kicker={h?.piered === false ? "Far port" : CHAIN_COLOR[chain] ? `${chain} harbour · harbour office` : "Harbour"} title={chain} sub={h ? `${share(h.share)} of all stablecoin supply` : undefined}
+        logo={CHAIN_COLOR[chain] ? <Crest chain={chain} color={CHAIN_COLOR[chain]} /> : <Logo src={chainLogo(chain)} label={chain} color="#1f5873" />} titleRef={titleRef} />
       <div className="hb-panel-body">
         {h && (
           <>
@@ -411,6 +433,7 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
               <div><span className="hb-sc">30 d</span><b>{pctChange(chainRow?.change30dPct as number | undefined)}</b></div>
             </div>
             <p className="hb-why">{h.visitors} {h.visitors === 1 ? "boat calls" : "boats call"} here. A pier’s length and its berths follow the supply it holds.</p>
+            {h.piered && CHAIN_COLOR[chain] && <p className="hb-caption">Know it by the harbour office with the {chain} crest, the house flag and awnings in its colour, and its name lettered on the water.</p>}
             <Sec title="Largest callers">
               <BoatList rows={visitors.slice(0, 10).map(({ b, usd }) => ({ id: b.id, label: <><b>{b.symbol}</b> <em>{share(usd / h.supplyUsd)}</em></>, value: money(usd) }))} />
             </Sec>
@@ -418,6 +441,280 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
           </>
         )}
         {model && <Freshness label="Chain data" state={model.truth.chains.state} ageSec={model.truth.chains.ageSec} />}
+      </div>
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ P6: the flows quarter
+
+/** Cross-links between the three flow buildings (the Customs House keeps the books of both). */
+function FlowLinks({ except }: { except?: string }) {
+  const store = useStore();
+  const rows = [
+    { id: "mint", label: "The Mint", note: "supply created" },
+    { id: "burn", label: "The Burn", note: "supply destroyed" },
+    { id: "customs-house", label: "Customs House", note: "the exact books" },
+  ].filter((r) => r.id !== except);
+  return (
+    <Sec title="The flows quarter">
+      <ul className="hb-list hb-stops">
+        {rows.map((r) => (
+          <li key={r.id}><button type="button" className="hb-row" onClick={() => store.select({ kind: "landmark", id: r.id })}><span><b>{r.label}</b><em>{r.note}</em></span><span className="hb-num" aria-hidden="true">→</span></button></li>
+        ))}
+      </ul>
+    </Sec>
+  );
+}
+
+/** THE MINT / THE BURN: one side of the 24 h flows, the scope it is read on, and what drives the works. */
+function FlowPanel({ side, model, titleRef }: { side: "mint" | "burn" } & P) {
+  const f = model?.readings.flows;
+  const t = flowTotals(model);
+  const mint = side === "mint";
+  const vol = t ? (mint ? t.mint : t.burn) : null;
+  const other = t ? (mint ? t.burn : t.mint) : null;
+  const dominant = t && t.net != null ? (t.net >= 0 ? "mint" : "burn") : null;
+  const scope = f?.scope.length ? f.scope.map(scopeName) : ["Ethereum", "Base", "Arbitrum"];
+  return (
+    <>
+      <Head kicker="The flows quarter" title={mint ? "The Mint" : "The Burn"} sub={mint ? "where supply is struck" : "where supply is destroyed"} titleRef={titleRef} />
+      <div className="hb-panel-body">
+        {!t || vol == null ? <p className="hb-why">{mint ? "The furnaces are banked: there is no flow reading." : "The fire is banked: there is no flow reading."}</p> : (
+          <>
+            <div className="hb-big hb-num" style={{ marginTop: 6 }}>{money(vol)}<small>{mint ? "minted" : "burned"}, 24 h</small></div>
+            <p className="hb-why">{mint
+              ? "Its chimneys smoke, its furnaces glow, its presses stamp and its workers bustle in proportion to the dollars minted in the last 24 hours."
+              : "Its fire and smoke grow with the dollars burned (redeemed) in the last 24 hours."}
+              {dominant === side ? (mint ? " More is being minted than burned, so the Mint outworks the Burn." : " More is being burned than minted, so the Burn outshines the Mint.") : ""}</p>
+            <Sec title={`Hourly, ${mint ? "minted" : "burned"}`}><FlowBars hourly={f?.hourly ?? []} side={side} /></Sec>
+            <Sec title="Last 24 hours">
+              <dl className="hb-dl">
+                <dt>{mint ? "Minted" : "Burned"}</dt><dd>{money(vol)}</dd>
+                <dt>{mint ? "Burned, across the mouth" : "Minted, at the Mint"}</dt><dd>{money(other)}</dd>
+                <dt>Net</dt><dd className={t.net == null ? "" : t.net > 0 ? "hb-up" : t.net < 0 ? "hb-down" : ""}>{money(t.net, { signed: true })}</dd>
+              </dl>
+            </Sec>
+          </>
+        )}
+        <Sec title="Scope">
+          <div className="hb-scope">
+            {scope.map((c) => <span key={c}>{CHAIN_COLOR[c] ? <Crest chain={c} color={CHAIN_COLOR[c]} size={20} /> : <Logo src={chainLogo(c)} label={c} color="#1f5873" size={20} />}{c}</span>)}
+          </div>
+          <p className="hb-caption">Mint and burn are read on {scope.length === 3 ? `${scope[0]}, ${scope[1]} and ${scope[2]}` : scope.join(", ")} only, the honest scope of the data. Issuance elsewhere is not counted here.</p>
+        </Sec>
+        <FlowLinks except={side} />
+        {model && <Freshness label="Flow data" state={model.truth.mintBurn.state} ageSec={model.truth.mintBurn.ageSec} />}
+      </div>
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ P6: the Shipyard
+
+const fullDate = (d: string) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d);
+  return m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : d;
+};
+
+function UpcomingLink({ children }: { children: ReactNode }) {
+  return <a className="hb-out" href={UPCOMING_URL} target="_blank" rel="noopener noreferrer">{children}<span aria-hidden="true"> ↗</span><span className="hb-sr"> (opens pharos.watch in a new tab)</span></a>;
+}
+
+/** The yard's build line: one step per launch phase, the coin's own step marked. */
+function BuildStages({ coins, current }: { coins?: readonly YardCoin[]; current?: YardCoin }) {
+  const counts = new Map(PHASES.map((p) => [p, coins?.filter((c) => c.phase === p).length ?? 0]));
+  const at = current?.phase ? PHASES.indexOf(current.phase) : -1;
+  return (
+    <ol className="hb-stages" aria-label={current ? `Launch phase: ${current.phase ? PHASE_NAME[current.phase] : "not stated"}` : "Coins by launch phase"}>
+      {PHASES.map((p, i) => (
+        <li key={p} data-done={current ? i <= at : undefined} aria-current={current && i === at ? "step" : undefined}>
+          <i aria-hidden="true" />
+          <span>{PHASE_NAME[p]}</span>
+          <small>{STAGE_WORD[STAGE_OF[p]]}</small>
+          {coins && <b className="hb-num">{counts.get(p)}</b>}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function ShipyardPanel({ titleRef }: { titleRef: P["titleRef"] }) {
+  const store = useStore();
+  const { model } = useUI();
+  const coins = yardCoins(store.ctx);
+  const gone = launchedFromYard(model).filter((g) => !coins.some((c) => c.id === g.id));
+  const groups = groupYard(coins);
+  return (
+    <>
+      <Head kicker="The yard" title="The Shipyard" sub={`${coins.length} ${coins.length === 1 ? "coin" : "coins"} on the slips, not yet launched`} titleRef={titleRef} />
+      <div className="hb-panel-body">
+        <p className="hb-why">Every tracked launch is a hull under construction. Its stage follows its launch phase: a bare keel when announced, framed on testnet, planked while auditing, painted in beta, rigged when launching soon. When the coin goes live, it slides down the slip and joins the fleet.</p>
+        <Sec title="By phase"><BuildStages coins={coins} /></Sec>
+        {gone.length > 0 && (
+          <Sec title="Launched">
+            <BoatList rows={gone.map((g) => ({ id: g.id, label: <><b>{g.symbol}</b> <em>down the slip, now with the fleet</em></>, value: "→" }))} />
+          </Sec>
+        )}
+        {groups.map((g) => (
+          <Sec key={g.label} title={`${g.label} · ${g.coins.length}`}>
+            <ul className="hb-list hb-yard">
+              {g.coins.map((c) => (
+                <li key={c.id}>
+                  <button type="button" className="hb-row" onClick={() => store.select({ kind: "yard", id: c.id })}>
+                    <span><Logo src={c.logo} label={c.symbol} color="#7a5a22" size={22} /><b>{c.symbol}</b><em>{c.name !== c.symbol ? c.name : ""}</em></span>
+                    <span className="hb-num">{expectedLabel(c.expected)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </Sec>
+        ))}
+        {coins.length === 0 && <p className="hb-empty">The slips are empty: no tracked launches.</p>}
+        <p className="hb-caption" style={{ marginTop: 16 }}>Dates are expected, not promised. <UpcomingLink>Every tracked launch on pharos.watch</UpcomingLink></p>
+      </div>
+    </>
+  );
+}
+
+/** A pre-launch coin's dossier: phase, expected date, milestones. */
+function YardCoinPanel({ id, titleRef }: { id: string; titleRef: P["titleRef"] }) {
+  const store = useStore();
+  const c = yardCoins(store.ctx).find((y) => y.id === id);
+  if (!c) return <Head kicker="On the slips" title={id} sub="no longer in the yard" titleRef={titleRef} />;
+  const shown = c.milestones.slice(0, 6);
+  return (
+    <>
+      <Head kicker="On the slips · pre-launch" title={c.symbol} sub={c.name !== c.symbol ? c.name : c.issuer ?? "a stablecoin not yet launched"} logo={<Logo src={c.logo} label={c.symbol} color="#7a5a22" />} titleRef={titleRef} />
+      <div className="hb-panel-body">
+        <div className="hb-where">Building at the Shipyard · {STAGE_NAME[c.stage]}</div>
+        <p className="hb-why">Not launched yet: the hull’s stage follows the launch phase. On launch day it slides down the slip and sails to the harbour that holds its supply.</p>
+        <Sec title="Launch phase"><BuildStages current={c} /></Sec>
+        <dl className="hb-dl" style={{ marginTop: 10 }}>
+          <dt>Expected</dt><dd>{c.expected ? expectedLabel(c.expected) : <em>not stated</em>}</dd>
+          {c.peg && c.peg !== "OTHER" && <><dt>Pegged to</dt><dd>{pegName(c.peg)}</dd></>}
+        </dl>
+        {c.phaseDetail && <p className="hb-caption hb-detail">{c.phaseDetail}</p>}
+        <Sec title={`Milestones${c.milestones.length ? ` · ${c.milestones.length}` : ""}`}>
+          {shown.length ? (
+            <ol className="hb-milestones">
+              {shown.map((m, i) => (
+                <li key={`${m.date}-${i}`}>
+                  <span className="hb-ms-date hb-num">{fullDate(m.date)}<i className="hb-sc">{m.type}</i></span>
+                  <span className="hb-ms-title">{m.sourceUrl ? <a href={m.sourceUrl} target="_blank" rel="noopener noreferrer">{m.title}<span className="hb-sr"> (source, opens in a new tab)</span></a> : m.title}</span>
+                </li>
+              ))}
+            </ol>
+          ) : <p className="hb-empty">No milestones recorded yet.</p>}
+          {c.milestones.length > shown.length && <p className="hb-caption">and {c.milestones.length - shown.length} earlier on pharos.watch.</p>}
+        </Sec>
+        <p className="hb-caption" style={{ marginTop: 16 }}><UpcomingLink>The full dossier on pharos.watch/upcoming</UpcomingLink></p>
+        <ul className="hb-list hb-stops" style={{ marginTop: 10 }}>
+          <li><button type="button" className="hb-row" onClick={() => store.select({ kind: "landmark", id: "slipway" })}><span><b>The Shipyard</b><em>every coin on the slips</em></span><span className="hb-num" aria-hidden="true">→</span></button></li>
+        </ul>
+      </div>
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ P6: sea zones and civic buildings
+
+function RoadsPanel({ titleRef }: { titleRef: P["titleRef"] }) {
+  const store = useStore();
+  useUI(); // re-render on tick: boats come and go
+  const here = store.boatsInZone("the-roads") ?? [];
+  return (
+    <>
+      <Head kicker="Sea zone · anchorage" title="The Roads" sub="the outer mooring field" titleRef={titleRef} />
+      <div className="hb-panel-body">
+        <p className="hb-why">Ethereum holds more small hulls than its piers can berth, so the rest ride to swing moorings here, in the lee of the breakwater. A boat in the Roads is still in Ethereum’s harbour.</p>
+        <p className="hb-caption">Know it by the field of mooring buoys beyond the town, every bow into the wind.</p>
+        <Sec title={`In the Roads now · ${here.length}`}>
+          {here.length ? <BoatList rows={here.slice(0, 12).map((b) => ({ id: b.id, label: <><b>{b.symbol}</b> <em>{whereLine(b, store.whereaboutsOf(b.id))}</em></>, value: money(b.supply) }))} />
+            : <p className="hb-empty">No boat lies in the Roads just now.</p>}
+          {here.length > 12 && <p className="hb-caption">and {here.length - 12} more.</p>}
+        </Sec>
+      </div>
+    </>
+  );
+}
+
+function ChartRoomPanel({ model, titleRef }: P) {
+  const store = useStore();
+  const p = model?.readings.psi;
+  const stab = raw(store, "stability");
+  const hist = ((stab?.history as Array<{ date: number; score: number }> | undefined) ?? []).filter((h) => Number.isFinite(h.score))
+    .sort((a, b) => a.date - b.date).slice(-30);
+  const scores = hist.map((h) => h.score);
+  return (
+    <>
+      <Head kicker="Landmark" title="The Chart Room" sub="the Pharos’s log, 30 days" titleRef={titleRef} />
+      <div className="hb-panel-body">
+        <p className="hb-why">Where the keepers chart the stability index day by day: the beacon shows the market now, the Chart Room shows how it got here.</p>
+        <Sec title="Stability, last 30 days">
+          <Sparkline values={scores} dates={hist.map((h) => h.date)} label={`PSI over the last ${hist.length} days${p?.score != null ? `, now ${p.score.toFixed(1)}` : ""}`} />
+          {hist.length > 1 && (
+            <dl className="hb-dl" style={{ marginTop: 8 }}>
+              <dt>30-day range</dt><dd>{Math.min(...scores).toFixed(1)} – {Math.max(...scores).toFixed(1)}</dd>
+              <dt>Change over the period</dt><dd>{signed(scores[scores.length - 1] - scores[0])}</dd>
+            </dl>
+          )}
+        </Sec>
+        <ul className="hb-list hb-stops" style={{ marginTop: 14 }}>
+          <li><button type="button" className="hb-row" onClick={() => store.select({ kind: "landmark", id: "pharos" })}><span><b>The Pharos</b><em>the reading now</em></span><span className="hb-num" aria-hidden="true">→</span></button></li>
+        </ul>
+        {model && <Freshness label="Stability index" state={model.truth.stability.state} ageSec={model.truth.stability.ageSec} />}
+      </div>
+    </>
+  );
+}
+
+function KeepersLogPanel({ model, titleRef }: P) {
+  const rows = model ? (Object.keys(model.truth) as Array<keyof HarbourModel["truth"]>).map((k) => ({ k, label: PHAROSVILLE_ENDPOINT_REGISTRY[k]?.label ?? k, t: model.truth[k] })) : [];
+  const lag = rows.filter((r) => r.t.state !== "current").length;
+  return (
+    <>
+      <Head kicker="Landmark" title="The Keeper’s Log" sub={!model ? "awaiting data" : lag === 0 ? "every reading fresh" : `${lag} ${lag === 1 ? "reading" : "readings"} lagging`} titleRef={titleRef} />
+      <div className="hb-panel-body">
+        <p className="hb-why">The keeper notes when each reading last came in. When the register itself goes stale, fog rolls in and every boat finishes its leg and holds: nothing pretends to be live.</p>
+        <Sec title="Readings">
+          <table className="hb-table hb-log">
+            <caption className="hb-sr">When each reading last arrived</caption>
+            <thead><tr><th scope="col"><span className="hb-sc">Reading</span></th><th scope="col" className="r"><span className="hb-sc">Updated</span></th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.k}>
+                  <td><span className="hb-dot" data-state={r.t.state} aria-hidden="true" /> {r.label}</td>
+                  <td className="r">{r.t.state === "unavailable" ? <em>unavailable</em> : <>{r.t.state === "stale" ? <em>stale · </em> : null}{age(r.t.ageSec)}{r.t.ageSec != null && r.t.ageSec >= 90 ? " ago" : ""}</>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Sec>
+      </div>
+    </>
+  );
+}
+
+function RegistryPanel({ model, titleRef }: P) {
+  const live = (model?.boats ?? []).filter((b) => b.state !== "wrecked");
+  const tally = new Map<string, number>();
+  for (const b of live) { const g = b.grade ? b.grade.charAt(0).toUpperCase() : "—"; tally.set(g, (tally.get(g) ?? 0) + 1); }
+  const order = ["A", "B", "C", "D", "F", "—"].filter((g) => tally.has(g));
+  return (
+    <>
+      <Head kicker="Landmark" title="The Registry" sub={`${model?.payloadCount ?? 0} coins on the register`} titleRef={titleRef} />
+      <div className="hb-panel-body">
+        <p className="hb-why">Every stablecoin the register knows is a boat in this harbour: no sampling, no sister ships. The Registry also keeps each coin’s safety grade.</p>
+        {order.length > 0 && (
+          <Sec title="Safety grades">
+            <dl className="hb-dl">
+              {order.map((g) => <Fragment key={g}><dt>{g === "—" ? "Unrated" : `Grade ${g}`}</dt><dd>{tally.get(g)}</dd></Fragment>)}
+            </dl>
+          </Sec>
+        )}
+        <p className="hb-caption">Press <kbd>L</kbd> for the ledger, or <kbd>/</kbd> to find one coin.</p>
+        {model && <Freshness label="Safety grades" state={model.truth.safetyGrades.state} ageSec={model.truth.safetyGrades.ageSec} />}
       </div>
     </>
   );

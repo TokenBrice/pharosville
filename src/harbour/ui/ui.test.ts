@@ -56,6 +56,9 @@ describe("facts", () => {
   it("one-fact tag lines", () => {
     expect(boatFact(boat(), whereabouts(0, "berth", "Tron"))).toBe("USDT · $184.1B · alongside Tron");
     expect(boatFact(boat(), whereabouts(2, "berth", "Ethereum"))).toBe("USDT · $184.1B · sailing to Ethereum");
+    // a decorative harbour outing (D22) never reads as a voyage to a chain
+    expect(boatFact(boat(), whereabouts(2, "berth", "Ethereum", true))).toBe("USDT · $184.1B · out for a sail");
+    expect(whereabouts(0, "berth", "Ethereum", true).kind).toBe("alongside");
     expect(boatFact(boat({ pegDeviationBps: -35, state: "shoals" }), whereabouts(5, "shoals", null))).toBe("USDT · $184.1B · on the Shoals −35 bps");
   });
   it("explains the position from the data", () => {

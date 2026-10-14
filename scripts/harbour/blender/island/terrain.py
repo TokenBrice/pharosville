@@ -21,8 +21,8 @@ R_QUAY = 58.0
 RINGS = [(R_QUAY, R_QUAY + 18.0, Z_SHORE), (R_QUAY + 19.0, R_QUAY + 34.0, 8.0), (R_QUAY + 35.0, R_QUAY + 50.0, 13.5),
          (R_QUAY + 51.0, R_QUAY + 66.0, 19.0)]
 TOWN_TH = [(168.0, 12.0), (160.0, 20.0), (150.0, 30.0), (140.0, 40.0)]
-PHAROS = (-72.0, 96.0)          # the headland reference (table centre = PHAROS - (16, 4)); the tower itself stands on the knoll
-PHAROS_TOWER = (-80.0, 100.0)
+PHAROS = (-72.0, 96.0)          # legacy reference (P5 headland); P6 headland table: HEAD_C / HEAD_R
+HEAD_C, HEAD_R, HEAD_H = (-102.0, 94.0), (40.0, 20.0), 8.0      # P6: a lower rocky table under the Burn, the road, the abutment
 
 _S = 2.0
 _grid = None          # (x0, y1, nx, ny, dist array) inside-distance to the coast (m)
@@ -35,10 +35,43 @@ def to_uv(x, y):
 
 
 # the winding road to the Pharos (screen plan): the dresser lays it, the terrain cuts its bench into the headland's flank
-PHAROS_ROAD = [(-118.0, 22.0), (-132.0, 34.0), (-124.0, 52.0), (-142.0, 60.0), (-134.0, 76.0), (-112.0, 84.0), (-96.0, 92.0),
-               (-84.0, 96.0)]
+PHAROS_ROAD = [(-97.0, 70.0), (-104.0, 82.0), (-122.0, 88.0), (-140.0, 98.0), (-150.0, 108.0), (-156.0, 116.0)]   # P6: the Tron
+# quay's north end -> up the headland past the Chart Room and the Keeper's Log -> the causeway abutment
 ROAD_CUT_W = 3.0
 _road = None          # (dense uv polyline, graded z per point, bbox)
+_pads = []            # P6 civic plots: level pads [(cx, cy, fx, fy, hw, hd, z, blend, bbox)] (world)
+
+
+def set_pads(pads):
+    """Level pads (world): dict(c, face, w, d, z, blend). Inside the rectangle the ground is exactly z; it eases back to
+    the land over `blend` metres outside (hb_land walls every edge where the two differ)."""
+    global _pads
+    _pads = []
+    for p in pads:
+        cx, cy = p['c']; fx, fy = p['face']; hw, hd = p['w'] / 2, p['d'] / 2; b = p.get('blend', 2.5)
+        r = math.hypot(hw, hd) + b
+        # the ground sits 8 cm under the pad level: the civic model's own ground (at the pad level) never z-fights it
+        _pads.append((cx, cy, fx, fy, hw, hd, p['z'] - 0.08, b, (cx - r, cy - r, cx + r, cy + r)))
+
+
+def pad_at(x, y, margin=0.0):
+    """(z, outside distance) of the pad covering (x, y) within `margin` m of its edge, else None."""
+    best = None
+    for (cx, cy, fx, fy, hw, hd, z, b, bb) in _pads:
+        if not (bb[0] - margin <= x <= bb[2] + margin and bb[1] - margin <= y <= bb[3] + margin):
+            continue
+        dx, dy = x - cx, y - cy
+        ly = dx * fx + dy * fy; lx = dx * -fy + dy * fx
+        ox, oy = max(abs(lx) - hw, 0.0), max(abs(ly) - hd, 0.0)
+        d = math.hypot(ox, oy)
+        if d <= margin and (best is None or d < best[1]):
+            best = (z, d, b)
+    return best
+
+
+def head_d(u, v):
+    """Normalised distance from the headland table's centre (screen plan): < 1 on the table."""
+    return math.hypot((u - HEAD_C[0]) / HEAD_R[0], (v - HEAD_C[1]) / HEAD_R[1])
 
 
 def init(coast, quay_lines=None, beaches=None):
@@ -165,11 +198,9 @@ def natural(u, v):
     if bowl > 0 and r > R_QUAY:
         hb = Z_SHORE + (r - R_QUAY) * 0.33 + 3.0 * sstep(115.0, 132.0, r)
         h = h * (1 - bowl) + max(h, hb) * bowl
-    # the Pharos headland: a heather table at ~15 m
-    hd = math.hypot((u - PHAROS[0] + 16) / 50.0, (v - PHAROS[1] + 4) / 28.0)
-    h = max(h, Z_SHORE + 15.0 * (1 - sstep(0.7, 1.25, hd)) + 1.4 * (1 - sstep(0.0, 0.7, hd)))
-    # the summit knoll the Pharos stands on (its plinth is levelled by the builder)
-    h += 3.2 * gauss(u, v, PHAROS_TOWER[0], PHAROS_TOWER[1], 16.0, 13.0)
+    # the headland: a low heather table (P6: the tower moved out to its islet; the Burn stands on the NE point)
+    hd = head_d(u, v)
+    h = max(h, Z_SHORE + HEAD_H * (1 - sstep(0.7, 1.25, hd)) + 1.0 * (1 - sstep(0.0, 0.7, hd)))
     # west lobe: the spruce spine and the windmill knoll above rolling meadows
     h += 11.0 * math.exp(-(line_d(u, v, WEST_SPINE) / 42.0) ** 2) * sstep(4.0, 30.0, dc)
     h += 7.0 * gauss(u, v, *WINDMILL_UV, 26.0, 22.0)
@@ -208,7 +239,7 @@ def _quay_flat(x, y):
     return best
 
 
-def height(x, y, coves=()):
+def height(x, y, coves=(), pads=True):
     u, v = to_uv(x, y)
     n = natural(u, v)
     z, w = town_step(u, v)
@@ -239,6 +270,12 @@ def height(x, y, coves=()):
     if kb > 0:                       # a strand: sand from the waterline up, easing into the land behind
         dc = dcoast(x, y)
         h = h * (1 - kb) + min(h, 0.22 + dc * (0.072 if _kind == 'sand' else 0.11)) * kb
+    if _pads and pads:               # P6 civic pads: dead level inside, a short easing outside (walled by hb_land)
+        pd = pad_at(x, y, 4.0)
+        if pd is not None:
+            zp, d, b = pd
+            k = 1.0 - sstep(0.0, b, d)
+            h = h * (1 - k) + zp * k
     return h
 
 

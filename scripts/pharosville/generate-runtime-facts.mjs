@@ -218,7 +218,7 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     "",
     "- Stablecoin emblems: one atlas, `/harbour/emblems.webp` + `/harbour/emblems.json`; panel and search medallions load same-origin `/logos/` and `/chains/` marks.",
     ...harbour.glbs.map((url) => `- Static world GLB: \`${url}\``),
-    "- Boat hull kit: `/harbour/kit/manifest.json` and its GLBs; sea mask: `/harbour/sea-sdf.png`.",
+    "- Boat hull kit: `/harbour/kit/manifest.json` and its GLBs; sea mask: `/harbour/sea-sdf.webp` (lossless); shipped GLBs are fetched as pre-gzipped `.glb.gz`.",
     "- First paint: `/harbour/poster-{960,1600}.{avif,webp}` (an illustration, no live numbers), crossfaded into the first live frame.",
     "",
     "## World Systems",

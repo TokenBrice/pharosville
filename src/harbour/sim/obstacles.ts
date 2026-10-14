@@ -138,6 +138,34 @@ export function clearance(f: ObstacleField, x: number, z: number): number {
   return (d[k] * (1 - fu) + d[k + 1] * fu) * (1 - fv) + (d[k + f.nx] * (1 - fu) + d[k + f.nx + 1] * fu) * fv;
 }
 
+/** Half-width of a hull (× beam) at station t along it (t = -0.5 stern … 0.5 bow): fine bow, fuller transom. */
+export function hullHalfWidth(t: number): number {
+  return 0.5 * (1 - (t > 0 ? 0.75 : 0.3) * (2 * t) ** 2);
+}
+/**
+ * Least clearance (m) of a hull's outline (bow and stern tips, both sides at least every 1.5 m) at
+ * (x, z), bow on heading h, to whatever `hard` measures (< 0: part of the hull is aground or over a
+ * deck; a distance field, so nothing between two outline points reaches in deeper than 0.75 m past what
+ * they read). `out`, when given, receives the outline point that is worst off.
+ */
+export function hullClearance(hard: (x: number, z: number) => number, x: number, z: number, h: number, loa: number, beam: number, out?: Float64Array): number {
+  const fx = Math.sin(h), fz = Math.cos(h);
+  const nk = Math.max(8, Math.ceil(loa / 1.5));
+  let worst = Infinity, wx = x, wz = z;
+  for (let k = 0; k <= nk; k++) {
+    const t = k / nk - 0.5, w = beam * hullHalfWidth(t);
+    const cx = x + fx * loa * t, cz = z + fz * loa * t;
+    const tip = k === 0 || k === nk;
+    for (let side = -1; side <= 1; side += tip ? 1 : 2) {
+      const px = cx - fz * w * side, pz = cz + fx * w * side;
+      const c = hard(px, pz);
+      if (c < worst) { worst = c; wx = px; wz = pz; }
+    }
+  }
+  if (out) { out[0] = wx; out[1] = wz; }
+  return worst;
+}
+
 /** Open-water speed factor: 1 near land and structures (harbour speed), up to 1.5 well offshore (sea speed). */
 export const OPEN_WATER_MAX = 1.5;
 export function openWaterFactor(f: ObstacleField | null, x: number, z: number): number {

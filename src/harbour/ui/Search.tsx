@@ -5,7 +5,9 @@ import { PANEL_LANDMARKS } from "./facts";
 import { money } from "./format";
 import { usePresence, useStore, useUISlice } from "./hooks";
 import { searchCoins, type Searchable } from "./search";
+import { placeName, plotFor, seaZones, ZONE_PANEL } from "./places";
 import { getLayout, type PickHit } from "./services";
+import { PHASE_NAME, yardCoins } from "./yard";
 
 interface Item extends Searchable { hit: PickHit; logo: string | null; color: string; note: string }
 
@@ -31,10 +33,21 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
       out.push({ id: `chain:${h.chain}`, symbol: h.chain, name: h.piered ? `${h.chain} harbour` : `${h.chain}, a far port`, supply: h.supplyUsd,
         hit: { kind: "harbour", id: h.chain }, logo: chainLogo(h.chain), color: "#1f5873", note: money(h.supplyUsd) });
     }
-    for (const lm of getLayout(store.ctx)?.landmarks ?? []) {
-      if (!PANEL_LANDMARKS.has(lm.id) || lm.id === "tide-board") continue;
-      out.push({ id: `lm:${lm.id}`, symbol: lm.name, name: lm.name.replace(/^The /, ""), supply: 0,
-        hit: { kind: "landmark", id: lm.id }, logo: null, color: "#a68242", note: "landmark" });
+    // pre-launch coins: hulls on the Shipyard's slips
+    const live = new Set(out.map((o) => o.id));
+    for (const c of yardCoins(store.ctx)) {
+      if (live.has(c.id)) continue;
+      out.push({ id: c.id, symbol: c.symbol, name: c.name, supply: 0, hit: { kind: "yard", id: c.id }, logo: c.logo, color: "#7a5a22",
+        note: `pre-launch · ${c.phase ? PHASE_NAME[c.phase].toLowerCase() : "shipyard"}` });
+    }
+    const L = getLayout(store.ctx);
+    const zoneIds = new Set(seaZones(L).map((z) => ZONE_PANEL[z.kind]).filter(Boolean));
+    for (const id of PANEL_LANDMARKS) {
+      if (id === "tide-board") continue;
+      if (!L?.landmarks.some((l) => l.id === id) && !plotFor(L, id) && !zoneIds.has(id)) continue;
+      const name = placeName(L, id);
+      out.push({ id: `lm:${id}`, symbol: name, name: name.replace(/^The /, ""), supply: 0,
+        hit: { kind: "landmark", id }, logo: null, color: "#a68242", note: zoneIds.has(id) ? "sea zone" : "landmark" });
     }
     return out;
   }, [model, store]);
@@ -77,7 +90,7 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
               {r.hit.kind === "landmark" ? <span className="hb-logo hb-lm-glyph" aria-hidden="true" /> : <Logo src={r.logo} label={r.symbol} color={r.color} />}
               <b>{r.symbol}</b>
               <em>{r.hit.kind === "landmark" ? "" : r.name}</em>
-              <span className={r.hit.kind === "landmark" ? "hb-result-kind" : "hb-num"}>{r.note}</span>
+              <span className={r.hit.kind === "landmark" || r.hit.kind === "yard" ? "hb-result-kind" : "hb-num"}>{r.note}</span>
             </li>
           ))}
         </ul>

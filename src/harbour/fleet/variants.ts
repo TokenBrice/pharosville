@@ -68,3 +68,24 @@ export function wreckScale(peakMcap: number | null): number {
   const k = Math.min(1, Math.max(0, (Math.log10(peakMcap) - 7) / 3.5));
   return 0.8 + 0.35 * k;
 }
+
+/** Deterministic 0..1 hash of a string (FNV-1a): decorative per-coin choices. */
+export function hash01(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return ((h >>> 0) % 100000) / 100000;
+}
+
+/** Share of hulls WITH a peg reading that show an anchor light at a mooring or berth: a few, not a candle field. */
+export const MOORED_LIT = 0.3;
+
+/**
+ * Whether her stern / anchor lamp is lit. Data truth: a lit lamp means a peg reading exists, so a coin
+ * without one (nullPeg) never shows it, moored or under way. With a reading: always under way and at
+ * anchor; at a mooring or berth only a deterministic minority (MOORED_LIT, chosen by id).
+ * (Masthead and sidelights under way are navigation decoration, not a reading.)
+ */
+export function sternLampLit(boat: { id: string; nullPeg: boolean }, at: "under-way" | "anchored" | "moored"): boolean {
+  if (boat.nullPeg) return false;
+  return at !== "moored" || hash01(boat.id + "#lamp") < MOORED_LIT;
+}

@@ -17,8 +17,9 @@ import { Fenders } from "./fenders";
 import { HouseFlags } from "./house-flags";
 import { coastDistance } from "../sim/obstacles";
 import type { QualityService, QualityTier } from "../engine/quality";
-import { approach, indexVariants, pickVariant, targetSwing, wreckScale, type VariantIndex } from "./variants";
+import { approach, hash01, indexVariants, pickVariant, sternLampLit, targetSwing, wreckScale, type VariantIndex } from "./variants";
 import { DECK, linear, liveryFor, TOPSIDE, TRIM } from "./livery";
+import { ensureMotionService, MotionClock } from "../ui/services";
 
 /**
  * FleetSystem: every stablecoin's hull, in ONE BatchedMesh multi-draw (+ its shadow pass), posed every
@@ -26,6 +27,10 @@ import { DECK, linear, liveryFor, TOPSIDE, TRIM } from "./livery";
  * small on screen, furl morph, boom swing + tack mirroring, heel from the sim plus swell bob/pitch/roll
  * from ocean.heightAt, brand boot-top/pennant/cover tint, the coin emblem on the mainsail. Also:
  * wake stamps, mooring lines, riding lights, Wreck Cove hulks, mooring buoys, and the 'picking' service.
+ *
+ * Reduced motion ('motion' service): the sim holds its clock (sim/system.ts), the sea its swell
+ * (ocean-system.ts), and the fleet's own clock (rig life, storm labouring, fenders, flags, lamp shimmer)
+ * eases to a stop over a second (and back when it turns off): hulls lie still and, not moving, stamp no wakes.
  *
  * Dev: ?fleet=debug overlays counts, timings and a hull/land intersection audit.
  */
@@ -41,8 +46,6 @@ export interface PickingService {
 
 /** Riding lights come on with the town (uWindowGlow), not at the first hint of golden hour. */
 const RIDING_GLOW = 0.3;
-/** Share of hulls at a mooring or berth showing an anchor light (chosen by id): a few, not a candle field. */
-const MOORED_LIT = 0.3;
 /** Linear colours: oil lamps are warm white; sidelights red / green. */
 const LAMP_WARM = new THREE.Color("#FFE2B0");
 const LAMP_RED = new THREE.Color("#FF3A24");
@@ -75,12 +78,6 @@ const PAINT_TEXELS = 4;
 const SPAR_NEAR = 70, SPAR_FAR = 34, STRIKE_SHARE = 0.8;
 const CLASS_LOA_FALLBACK: Record<HullClass, number> = { flagship: 26, large: 18, medium: 13, small: 10, boat: 7.5, skiff: 5 };
 
-const hash01 = (s: string): number => {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return ((h >>> 0) % 100000) / 100000;
-};
-
 interface BoatRec {
   id: string;
   inst: number;
@@ -107,7 +104,8 @@ interface BoatRec {
   stern: [number, number, number] | null;
   visible: boolean;
   dist: number;
-  /** Shows an anchor light when moored (a deterministic minority), and whether its pennant flies. */
+  /** Has a peg reading (stern / anchor lamp may be lit at all); shows an anchor light when moored (sternLampLit); whether its pennant flies. */
+  reading: boolean;
   lit: boolean;
   flag: number;
   /** Rig struck this frame (far away, furled): no masthead flag or light. `mastK` orders who strikes first. */
@@ -161,11 +159,14 @@ export class FleetSystem implements WorldSystem {
   private readonly sphere = new THREE.Sphere();
   private ctx: EngineContext | null = null;
   private failed = false;
+  private logosAsked = false;
   private tier: FleetTier = FLEET_TIERS.high;
   private unsubQuality: (() => void) | null = null;
   /** 0 fair … 1 full storm (DEWS ALERT+), eased; drives pitch/roll, heel and line snubbing. */
   private storm = 0;
+  /** The fleet's decorative clock (s) and motion level (1 full … 0 reduced): reduced motion freezes every sway in place. */
   private time = 0;
+  private clock: MotionClock | null = null;
   private readonly ropeLight = new THREE.Color();
   private readonly flagLight = new THREE.Color();
   private ocean: OceanService | null = null;
@@ -183,6 +184,7 @@ export class FleetSystem implements WorldSystem {
       uEmblems: { value: new THREE.Texture() },
       uEmblemGrid: { value: new THREE.Vector4(32, 1, 1 / 32, 1) },
       uWind: { value: 0.35 },
+      uFleetTime: { value: 0 },
     };
   }
 
@@ -208,16 +210,17 @@ export class FleetSystem implements WorldSystem {
     this.buildMesh(ctx, 1500);
     this.lines = new MooringLines(ctx.uniforms.uResolution, 700);
     ctx.scene.add(this.lines.object);
-    this.riding = new RidingLights(ctx.uniforms);
+    this.riding = new RidingLights({ ...ctx.uniforms, uTime: this.uniforms.uFleetTime });
     ctx.scene.add(this.riding.object);
     this.fenders = new Fenders();
     ctx.scene.add(this.fenders.mesh);
-    this.flags = new HouseFlags(ctx.uniforms, this.atlas.texture, this.atlas.grid);
+    this.flags = new HouseFlags({ ...ctx.uniforms, uTime: this.uniforms.uFleetTime }, this.atlas.texture, this.atlas.grid);
     ctx.scene.add(this.flags.mesh);
     this.ring = this.makeRing();
     ctx.scene.add(this.ring);
 
     ctx.services.set("picking", this.pickingService());
+    this.clock = new MotionClock(ensureMotionService(ctx));
     const quality = ctx.services.get("quality") as QualityService | undefined;
     if (quality) {
       this.tier = FLEET_TIERS[quality.tier] ?? FLEET_TIERS.high;
@@ -336,7 +339,7 @@ export class FleetSystem implements WorldSystem {
         swing: prev?.swing ?? 0, heel: prev?.heel ?? 0, hi: 0, px: prev?.px ?? 0, pz: prev?.pz ?? 0, vx: 0, vz: 0, seen: !!prev?.seen,
         phi: hash01(boat.id + "#bob") * Math.PI * 2,
         slot: this.atlas ? this.atlas.slotFor({ id: boat.id, symbol: boat.symbol, brandColor: boat.brandColor }) : -1,
-        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, lit: hash01(boat.id + "#lamp") < MOORED_LIT, flag: 1, struck: false, mastK: hash01(boat.id + "#mast"), cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
+        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, struck: false, mastK: hash01(boat.id + "#mast"), cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
       };
       this.writePaint(rec.inst, wrecked ? null : boat.id, variant.family);
       this.boats.push(rec);
@@ -441,6 +444,8 @@ export class FleetSystem implements WorldSystem {
 
   update(frame: FrameState, ctx: EngineContext): void {
     if (!this.mesh || this.failed) return;
+    // the emblem logos are not first-view weight: fetched once the first frame is up (roundels until then)
+    if (!this.logosAsked) { this.logosAsked = true; requestAnimationFrame(() => { void this.atlas?.loadLogos(); }); }
     const t0 = performance.now();
     const model = ctx.services.get("model") as HarbourModel | undefined;
     const sim = ctx.services.get("sim") as HarbourSim | undefined;
@@ -452,8 +457,9 @@ export class FleetSystem implements WorldSystem {
     this.frustum.setFromProjectionMatrix(this.pv);
     const viewH = ctx.renderer.domElement.clientHeight || innerHeight;
     const pxPerM = viewH / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));
-    const time = frame.elapsed, dt = Math.max(1e-3, frame.delta);
-    this.time = time;
+    const dt = Math.max(1e-3, frame.delta);
+    const time = this.time = this.clock ? this.clock.step(dt) : frame.elapsed;
+    this.uniforms.uFleetTime.value = time;
     const tier = this.tier;
     // storm: the weather band the sky and the storm mast show (DEWS ALERT and worse)
     const readings = ctx.services.get("readings") as { stormBand?: string | null } | undefined;
@@ -572,9 +578,9 @@ export class FleetSystem implements WorldSystem {
         this.flags.add(this.v.x, this.v.y + 0.35, this.v.z, Math.min(3.8, Math.max(1.4, b.loa * (b.loa < 15 ? 0.11 : 0.13))), downwind, Math.atan2(cam.position.x - x, cam.position.z - z), distress ? -3 : b.slot, b.phi * 3);
       }
 
-      // night: under way, masthead + red/green sidelights + stern light; anchored, an anchor light;
-      // moored, only some hulls show a dim one
-      if (glowK > 0.001 && b.visible && !b.wrecked && (moving || ph === PH_ANCHORED || b.lit)) {
+      // night: under way, masthead + red/green sidelights (+ the stern light); anchored, an anchor light;
+      // moored, only some hulls show a dim one. Stern / anchor lamps are lit only with a peg reading.
+      if (glowK > 0.001 && b.visible && !b.wrecked && (moving || (ph === PH_ANCHORED && b.reading) || b.lit)) {
         const v = b.variant, rl = this.riding;
         const lampAt = this.lampAt;
         if (moving) {
@@ -585,8 +591,10 @@ export class FleetSystem implements WorldSystem {
           rl.add(pl.x, pl.y, pl.z, LAMP_RED.r * 3.2, LAMP_RED.g * 3.2, LAMP_RED.b * 3.2, 0.3, h0, 0.7);
           const sl = lampAt(bx, by, bz);
           rl.add(sl.x, sl.y, sl.z, LAMP_GREEN.r * 2.8, LAMP_GREEN.g * 2.8, LAMP_GREEN.b * 2.8, 0.3, h0, 0.7);
-          const sp = lampAt(v.sternCleat.x, v.sternCleat.y + 0.9, 0);
-          rl.add(sp.x, sp.y, sp.z, LAMP_WARM.r * 2.2, LAMP_WARM.g * 2.2, LAMP_WARM.b * 2.2, 0.26, h0, 0.8);
+          if (b.reading) {
+            const sp = lampAt(v.sternCleat.x, v.sternCleat.y + 0.9, 0);
+            rl.add(sp.x, sp.y, sp.z, LAMP_WARM.r * 2.2, LAMP_WARM.g * 2.2, LAMP_WARM.b * 2.2, 0.26, h0, 0.8);
+          }
         } else {
           const k = ph === PH_ANCHORED ? 1.3 : 0.65;
           // rig struck far away: the anchor lamp hangs low in the forestay's place, not on thin air
@@ -626,7 +634,7 @@ export class FleetSystem implements WorldSystem {
       }
     }
 
-    // buoys bob on the swell
+    // buoys bob on the swell (still under reduced motion)
     for (const bu of this.buoyInst) {
       const y = this.seaH(bu.x, bu.z);
       this.e.set(Math.sin(time * 1.3 + bu.phi) * 0.06, bu.phi, Math.sin(time * 1.1 + bu.phi * 2) * 0.06, "YZX");

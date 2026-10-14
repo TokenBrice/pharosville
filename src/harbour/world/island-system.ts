@@ -4,22 +4,13 @@ import type { HarbourLayout } from "../layout/types";
 import { aoHeightTexture, renderGround } from "./ground";
 import { getLightsStore } from "../lights/lights-service";
 import { getHarbourMaterials } from "./materials";
-import { buildStandIn } from "./standin";
 import { SunRig } from "./sun";
 
 export const ISLAND_URL = "/harbour/island.glb";
 
-/** True when a static asset really exists (Vite's dev fallback answers unknown paths with index.html). */
-export async function assetExists(url: string): Promise<boolean> {
-  try {
-    const r = await fetch(url, { method: "HEAD" });
-    return r.ok && !(r.headers.get("content-type") ?? "").includes("text/html");
-  } catch { return false; }
-}
-
 /**
- * The static island: public/harbour/island.glb through the harbour material port, or — until it exists —
- * the dev stand-in assembled from style C's kit along the layout. Owns the key/fill/world lights and the
+ * The static island: public/harbour/island.glb (fetched pre-gzipped, engine/assets.ts) through the harbour
+ * material port; in dev only, when it fails to load, the stand-in assembled from style C's kit along the layout. Owns the key/fill/world lights and the
  * fitted sun shadow, and publishes the 'ground' height-field service.
  */
 export class IslandSystem implements WorldSystem {
@@ -39,11 +30,14 @@ export class IslandSystem implements WorldSystem {
     this.sun.topY = Math.min(60, max[1]);
     ctx.scene.add(this.sun.group);
 
-    if (await assetExists(ISLAND_URL)) {
+    try {
       const gltf = await ctx.assets.gltf(ISLAND_URL);
       mats.apply(gltf.scene);
       this.root = gltf.scene;
-    } else {
+    } catch (e) {
+      if (!import.meta.env.DEV) throw e;
+      console.warn("[harbour] island.glb failed to load: dev stand-in", e);
+      const { buildStandIn } = await import("./standin");
       const s = await buildStandIn(ctx, layout, mats);
       layout.lights = [...(layout.lights ?? []), ...s.lights];
       this.root = s.group;

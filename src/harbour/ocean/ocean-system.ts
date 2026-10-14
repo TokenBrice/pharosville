@@ -9,6 +9,8 @@ import { buildSeaSdf, defaultSeaBounds, landMaskFromHeights, SDF_COAST_RANGE, se
 import { acquireFxTextures, type FxTextures } from "./textures";
 import { WakeField, type WakeService } from "./wake";
 import { SEA_STATES, waveHeight } from "./waves";
+import { ensureMotionService, MotionClock } from "../ui/services";
+import { buildZoneMask, type SeaZoneLike } from "./zone-mask";
 
 /**
  * OCEAN: one large sea plane (fine grid over the sea bounds, a stretched far ring beyond), an unlit
@@ -25,6 +27,10 @@ export interface OceanService {
   readonly seaState: SeaState;
   /** Sea surface height (m) at world (x, z) now, for bobbing hulls. */
   heightAt(x: number, z: number): number;
+  /** P6 (identity): the sea's own clock, swell scale and SDF, so overlays on the water (chart lettering) ride the same swell. */
+  /** P6 (identity): signed coast distance (m) at world (x, z) from the sea SDF; > 0 is open water. */
+  coastAt(x: number, z: number): number;
+  readonly shared: { uTime: THREE.IUniform<number>; uSea: THREE.IUniform<THREE.Vector4>; uSdf: THREE.IUniform<THREE.Texture>; uSdfBounds: THREE.IUniform<THREE.Vector4> };
 }
 
 const GRID_N = 256;
@@ -68,7 +74,10 @@ async function loadSdf(url: string): Promise<{ tex: THREE.Texture; coast: Uint8A
     const w = bmp.width, h = bmp.height, row = w * 4;
     const data = new Uint8Array(w * h * 4);
     for (let j = 0; j < h; j++) data.set(px.subarray((h - 1 - j) * row, (h - j) * row), j * row);
+    // the channels are data (lossless WebP, alpha 1): no colour-space conversion, no premultiplication
     const tex = new THREE.DataTexture(data, w, h, THREE.RGBAFormat);
+    tex.colorSpace = THREE.NoColorSpace;
+    tex.premultiplyAlpha = false;
     const coast = new Uint8Array(w * h);
     for (let i = 0; i < coast.length; i++) coast[i] = data[i * 4];
     return { tex, coast, size: w };
@@ -90,9 +99,13 @@ export class OceanSystem implements WorldSystem {
   private state: SeaState = 1;
   private readonly seaU = { value: new THREE.Vector4(SEA_STATES[1].amp, SEA_STATES[1].chop, SEA_STATES[1].caps, SEA_STATES[1].bands) };
   private readonly seaGoal = new THREE.Vector4().copy(this.seaU.value);
+  /** The sea's clock (swell, detail normals, foam): eases to a stop under reduced motion (MotionClock). */
   private time = 0;
+  private readonly seaTime = { value: 0 };
+  private clock: MotionClock | null = null;
   private layout: HarbourLayout | null = null;
   private awaitGround = false;
+  private zoneTex: THREE.DataTexture | null = null;
   private debugMovers: Array<{ cx: number; cz: number; r: number; w: number; ph: number; hw: number }> = [];
 
   async init(ctx: EngineContext): Promise<void> {
@@ -102,7 +115,7 @@ export class OceanSystem implements WorldSystem {
     this.fx = acquireFxTextures(ctx);
 
     // sea SDF: the baked PNG when it exists, else generated now from the layout (same encoding)
-    const loaded = await loadSdf(layout.sea?.sdf ?? "/harbour/sea-sdf.png");
+    const loaded = await loadSdf(layout.sea?.sdf ?? "/harbour/sea-sdf.webp");
     if (loaded) {
       this.sdfTex = loaded.tex; this.coastR = loaded.coast; this.sdfSize = loaded.size;
     } else {
@@ -138,11 +151,13 @@ export class OceanSystem implements WorldSystem {
       vertexShader: OCEAN_VERT,
       fragmentShader: OCEAN_FRAG,
       uniforms: {
-        uTime: W.uTime, uNight: W.uNight, uCameraPos: W.uCameraPos, uSunDir: W.uSunDir, uSunColor: W.uSunColor,
+        uTime: this.seaTime, uNight: W.uNight, uCameraPos: W.uCameraPos, uSunDir: W.uSunDir, uSunColor: W.uSunColor,
         uAmbient: W.uAmbient, uZenith: W.uZenith,
         uSea: this.seaU,
         uSdfBounds: { value: new THREE.Vector4(...this.bounds) },
         uSdf: { value: this.sdfTex },
+        // P6 D18 sea-zone cues (identity agent): R shoals, G far ports, B harbour waters, A the roads
+        uZones: { value: (this.zoneTex = buildZoneMask((layout as { seaZones?: SeaZoneLike[] }).seaZones, this.bounds)) },
         uWake: { value: this.wake.texture }, uWakeLive: { value: this.wake.live },
         uWakeBounds: { value: new THREE.Vector4(...this.bounds) },
         uNoise: { value: this.fx.noise }, uRipple: { value: this.fx.ripple },
@@ -178,6 +193,8 @@ export class OceanSystem implements WorldSystem {
       setSeaState: (s) => this.setSeaState(s),
       get seaState() { return getState(); },
       heightAt: (x, z) => waveHeight(x, z, this.time, this.seaU.value.x) * this.dampAt(x, z),
+      coastAt: (x, z) => this.coastAt(x, z),
+      shared: { uTime: this.seaTime, uSea: this.seaU, uSdf: this.material.uniforms.uSdf, uSdfBounds: this.material.uniforms.uSdfBounds },
     };
     ctx.services.set("ocean", svc);
     ctx.services.set("wake", this.wake satisfies WakeService);
@@ -190,13 +207,20 @@ export class OceanSystem implements WorldSystem {
     this.seaGoal.set(p.amp, p.chop, p.caps, p.bands);
   }
 
+  private coastAt(x: number, z: number): number {
+    const [x0, z0, x1, z1] = this.bounds;
+    const u = (x - x0) / (x1 - x0), v = (z - z0) / (z1 - z0);
+    if (u < 0 || u > 1 || v < 0 || v > 1) return 200;
+    const n = this.sdfSize;
+    const r = this.coastR[Math.min(n - 1, Math.floor(v * n)) * n + Math.min(n - 1, Math.floor(u * n))];
+    return (r / 255 - 0.5) * SDF_COAST_RANGE;
+  }
+
   private dampAt(x: number, z: number): number {
     const [x0, z0, x1, z1] = this.bounds;
     const u = (x - x0) / (x1 - x0), v = (z - z0) / (z1 - z0);
     if (u < 0 || u > 1 || v < 0 || v > 1) return 1;
-    const n = this.sdfSize;
-    const r = this.coastR[Math.min(n - 1, Math.floor(v * n)) * n + Math.min(n - 1, Math.floor(u * n))];
-    const coast = (r / 255 - 0.5) * SDF_COAST_RANGE;
+    const coast = this.coastAt(x, z);
     const s = THREE.MathUtils.smoothstep(coast, 0, 34);
     return s * 0.9 + 0.1 * THREE.MathUtils.smoothstep(coast, -2, 2);
   }
@@ -231,7 +255,8 @@ export class OceanSystem implements WorldSystem {
       const ground = ctx.services.get("ground") as HeightField | undefined;
       if (ground?.heights) { this.awaitGround = false; this.rebuildFromGround(ground); }
     }
-    this.time = ctx.uniforms.uTime.value;
+    this.clock ??= new MotionClock(ensureMotionService(ctx));
+    this.time = this.seaTime.value = this.clock.step(frame.delta);
     this.seaU.value.lerp(this.seaGoal, 1 - Math.exp(-frame.delta * 0.4));
     for (const m of this.debugMovers) {
       const a = m.ph + this.time * m.w;
@@ -251,6 +276,7 @@ export class OceanSystem implements WorldSystem {
     this.material.dispose();
     this.wake.dispose();
     this.sdfTex.dispose();
+    this.zoneTex?.dispose();
     this.fx.release();
     ctx.services.delete("ocean");
     ctx.services.delete("wake");

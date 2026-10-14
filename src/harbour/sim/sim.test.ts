@@ -57,24 +57,67 @@ describe("HarbourSim", () => {
     expect(worst).toBe(0);
   });
 
-  it("puts 25-40 hulls under way and docks 4-8 a minute", () => {
+  // (the D22 bands, 12-18% under way and 10-15 dockings a minute, are held in the real harbour:
+  // harbour-layout.test.ts; this ring harbour funnels every pier through one lane node)
+  it("keeps the harbour busy but calm: ~8-18% under way, 6-15 dockings a minute, outings included", () => {
     const sim = new HarbourSim(model, layout, T0_MS);
     const prev = new Uint8Array(model.boats.length).fill(255);
-    let uw = 0, samples = 0, arrivals = 0;
+    let uw = 0, out = 0, samples = 0, arrivals = 0;
     const minutes = 120;
     for (let k = 0; k < minutes * 30; k++) {
       const p = sim.poseAt(T0_MS + k * 2_000);
-      uw += sim.stats.underWay; samples++;
+      uw += sim.stats.underWay; out += sim.stats.outings; samples++;
       for (let i = 0; i < p.count; i++) {
         if (prev[i] === PH_APPROACHING && (p.phase[i] === PH_DOCKED || p.phase[i] === PH_MOORED)) arrivals++;
         prev[i] = p.phase[i];
       }
     }
-    const meanUnderWay = uw / samples, perMin = arrivals / minutes;
-    expect(meanUnderWay).toBeGreaterThanOrEqual(25);
-    expect(meanUnderWay).toBeLessThanOrEqual(40);
-    expect(perMin).toBeGreaterThanOrEqual(4);
-    expect(perMin).toBeLessThanOrEqual(8);
+    const n = model.boats.length, meanUnderWay = uw / samples, perMin = arrivals / minutes;
+    expect(meanUnderWay / n).toBeGreaterThanOrEqual(0.08);
+    expect(meanUnderWay / n).toBeLessThanOrEqual(0.18);
+    expect(perMin).toBeGreaterThanOrEqual(6);
+    expect(perMin).toBeLessThanOrEqual(15);
+    // the outings are a share of the life on the water, not all of it
+    expect(out / samples).toBeGreaterThan(meanUnderWay * 0.1);
+    expect(out / samples).toBeLessThan(meanUnderWay * 0.7);
+    expect(sim.stats.dockings).toBe(arrivals);
+    expect(sim.stats.expectedDockingsPerMin).toBeGreaterThan(perMin * 0.8);
+    expect(sim.stats.expectedDockingsPerMin).toBeLessThan(perMin * 1.25);
+  });
+
+  it("harbour outings (decorative) are flagged, staggered, and come back to the same berth", () => {
+    const sim = new HarbourSim(model, layout, T0_MS);
+    const outers = sim.plan.boats.map((b, i) => (b.outing ? i : -1)).filter((i) => i >= 0);
+    expect(outers.length).toBeGreaterThan(50);
+    const left = new Map<number, number>(); // hull → the slot she left from
+    let departures = 0, returns = 0, concurrentMax = 0;
+    const startMin = new Set<number>();
+    for (let k = 0; k < 2 * 3600 / 5; k++) {
+      const p = sim.poseAt(T0_MS + k * 5_000);
+      let now = 0;
+      for (const i of outers) {
+        const plan = sim.plan.boats[i];
+        if (p.outing[i]) {
+          now++;
+          // an outing is only ever flagged under way, on the plan, bound back to her own slot
+          expect(moving(p.phase[i])).toBe(true);
+          expect(p.slot[i]).toBe(plan.staticSlot);
+          if (!left.has(i)) { left.set(i, plan.staticSlot); departures++; startMin.add(Math.floor(k / 12)); }
+        } else if (left.has(i) && still(p.phase[i])) {
+          expect(p.slot[i]).toBe(left.get(i));
+          left.delete(i); returns++;
+        }
+      }
+      concurrentMax = Math.max(concurrentMax, now);
+    }
+    expect(departures).toBeGreaterThan(80);
+    expect(returns).toBeGreaterThan(departures * 0.85);
+    // staggered: departures in most minutes, never a mass exodus
+    expect(startMin.size).toBeGreaterThan(50);
+    expect(concurrentMax).toBeLessThan(outers.length * 0.25);
+    // circuit hulls never carry the flag
+    const p = sim.poseAt(T0_MS + 1_234_000);
+    sim.plan.boats.forEach((b, i) => { if (!b.outing) expect(p.outing[i]).toBe(0); });
   });
 
   it("docks each hull at each stop for time ∝ its supply share there", () => {

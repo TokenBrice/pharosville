@@ -1,6 +1,6 @@
 """The Harbour v2 - town: terraced houses (style C base + the fixes: dormers, porches, gutters, finials, shop signs,
-awnings, window variety), landmark buildings (Customs House + tide board, Harbourmaster, Registry, church,
-bonded warehouse), hamlet sheds + net lofts, the Pharos group, storm mast, tide gauge, slipway.
+awnings, window variety), the bonded warehouse, hamlet sheds + net lofts, the storm mast, the tide gauge, the windmill.
+P6: the civic buildings (Customs House, Mint, Burn, Shipyard, Registry, ...) are separate models on layout.civic plots.
 exec'd into build_island's namespace."""
 
 set_coll(collection('town', ROOTC))
@@ -290,179 +290,11 @@ def make_root(name, p, z, rz=0.0):
 
 LM = CJ['landmarks']
 
-# ---------------------------------------------------------------- Customs House + the tide board
-cp = LM['customs_house']['p']; zq = Z_SHORE
-# v4: the Customs House stands on the first terrace, above the square and the big tide board in front of it
-ch = make_root('customs_house', cp, LM['customs_house']['z'], face_rz(LM['customs_house']['face']))
-stone_block('customs_house_body', -11, -7, -1.5, 11, 7, 11.4, 'stone_white', 'render', ch)
-stone_block('customs_house_plinth', -11.3, -7.3, -1.5, 11.3, 7.3, 1.0, 'granite', 'ashlar', ch)
-stone_block('customs_house_cornice', -11.4, -7.4, 11.2, 11.4, 7.4, 11.8, 'granite_light', 'plain', ch)
-for z_ in (4.6, 8.1):
-    stone_block(f'customs_house_band{z_}', -11.15, -7.15, z_ - 0.15, 11.15, 7.15, z_ + 0.15, 'granite_light', 'plain', ch)
-for sx in (-1, 1):
-    stone_block(f'customs_house_quoin{sx}', sx * 11 - 0.6, -7.2, 1.0, sx * 11 + 0.6, 7.2, 11.2, 'granite_light', 'ashlar', ch)
-hip_roof('customs_house_roof', -11.4, -7.4, 11.4, 7.4, 11.8, 4.6, PAL['roof_slate'], PT['slate'], ch)
-# central pediment + clock
-ped = bmesh.new()
-vs = [ped.verts.new(v) for v in ((-5.2, -7.6, 11.8), (5.2, -7.6, 11.8), (0, -7.6, 15.2), (-5.2, -6.0, 11.8), (5.2, -6.0, 11.8), (0, -6.0, 15.2))]
-ped.faces.new((vs[0], vs[1], vs[2])); ped.faces.new((vs[0], vs[2], vs[5], vs[3])); ped.faces.new((vs[1], vs[4], vs[5], vs[2]))
-obj('customs_house_pediment', ped, PAL['stone_white'], PT['render'], parent=ch, family='landmark')
-clk = bm_cyl(1.25, 1.25, 0.25, 20, (0, 0, 0)); xf(clk, rx=math.pi / 2); xf(clk, loc=(0, -7.7, 13.3))
-obj('customs_house_clock', clk, PAL['trim'], PT['plain'], parent=ch, family='landmark')
-hands = bm_box2(-0.06, -7.95, 13.25, 0.06, -7.85, 14.2); merge(hands, bm_box2(-0.06, -7.95, 13.25, 0.75, -7.85, 13.37))
-merge(hands, bm_cyl(1.3, 1.3, 0.08, 20, (0, 0, 0)))
-obj('customs_house_clockhands', hands, PAL['iron'], PT['metal'], parent=ch, family='landmark')
-facade_windows('customs_house', ch, -10, 10, -7.0, (2.8, 6.3, 9.7), ww=1.0, wh=1.7, pitch=2.5,
-               skip=lambda i, z: z < 3 and i in (3, 4))
-for sx in (-1, 1):
-    facade_windows(f'customs_house_side{sx}', ch, -6, 6, sx * 11.0, (2.8, 6.3, 9.7), ww=1.0, wh=1.7, pitch=2.6, n=(sx, 0, 0))
-door = bm_box2(-1.6, -7.15, 1.0, 1.6, -6.9, 4.4)
-obj('customs_house_door', door, PAL['door_blue'], PT['boards'], parent=ch, family='landmark')
-steps = bmesh.new()
-for k in range(4):
-    merge(steps, bm_box2(-3.4 + k * 0.3, -7.9 + k * 0.2, -0.4, 3.4 - k * 0.3, -7.0, 0.25 * (k + 1)))
-obj('customs_house_steps', steps, PAL['granite_light'], PT['ashlar'], parent=ch, family='landmark', bevel=0.03)
-fp_ = bm_cyl(0.12, 0.08, 9.0, 6, (9.5, -7.9, 0)); merge(fp_, bm_sphere(0.22, (9.5, -7.9, 9.1), 6, 4))
-obj('customs_house_flagpole', fp_, PAL['trim'], PT['plain'], parent=ch, family='landmark')
-collect_windows(ch, 'customs_house')
-# the tide board (v4: twice the size, tilted back toward the camera so it reads as a bar chart from the heart view): a
-# framed slate on a granite plinth along the square's front, leaning back on iron struts.
-# "tide_board" = the flat face the runtime draws 24 hourly bars on (UV 0..1, u = hour, v = up the board).
-tbp = LM['tide_board']['p']
-tb = make_root('tide_board_frame', tbp, zq, face_rz(LM['tide_board']['face']))
-BW_, BH_ = 43.2, 14.9                   # 2.4x the P3 board (18 x 6.2), the runtime canvas' aspect
-TB_TILT = math.radians(50.0)            # back from vertical: the face looks up at the heart camera (pitch 30)
-TB_Y0, TB_Z0 = -5.2, 1.15               # the board's bottom edge (local, the square at 0)
-
-
-def tb_place(bm_):
-    """Board space (x across, y = depth behind the face, z up the board from its bottom edge) -> the tilted board."""
-    xf(bm_, rx=-TB_TILT); xf(bm_, loc=(0.0, TB_Y0, TB_Z0))
-    return bm_
-
-
-plinth = bmesh.new()
-merge(plinth, bm_box2(-BW_ / 2 - 1.0, TB_Y0 - 0.9, -0.5, BW_ / 2 + 1.0, TB_Y0 + 0.9, TB_Z0 + 0.1))
-for sx in (-1, 1):                       # end piers rising with the board's edges
-    pe = bm_box2(sx * (BW_ / 2 + 0.25) - 0.55, -0.6, -0.3, sx * (BW_ / 2 + 0.25) + 0.55, 0.6, BH_ + 0.2)
-    tb_place(pe); merge(plinth, pe)
-obj('tide_board_plinth', plinth, PAL['granite_light'], PT['ashlar'], parent=tb, family='landmark', bevel=0.05)
-frame = bmesh.new()
-merge(frame, bm_box2(-BW_ / 2 - 0.35, -0.3, -0.4, BW_ / 2 + 0.35, 0.3, -0.05))
-merge(frame, bm_box2(-BW_ / 2 - 0.35, -0.3, BH_ + 0.05, BW_ / 2 + 0.35, 0.3, BH_ + 0.45))
-merge(frame, bm_box2(-BW_ / 2 - 0.35, -0.25, -0.05, -BW_ / 2, 0.25, BH_ + 0.05))
-merge(frame, bm_box2(BW_ / 2, -0.25, -0.05, BW_ / 2 + 0.35, 0.25, BH_ + 0.05))
-merge(frame, bm_box2(-BW_ / 2 - 0.1, -0.15, 0.0, BW_ / 2 + 0.1, 0.35, BH_))           # backing
-for k in range(1, 6):                                                                     # brass hour rules (every 4 h)
-    x_ = -BW_ / 2 + k * BW_ / 6
-    merge(frame, bm_box2(x_ - 0.06, -0.24, -0.04, x_ + 0.06, -0.18, 0.5))
-merge(frame, bm_box2(-3.2, -0.36, BH_ + 0.45, 3.2, 0.25, BH_ + 1.9))                     # name plate
-tb_place(frame)
-obj('tide_board_framework', frame, face=lambda q: ((PAL['brass'], PT['metal']) if (q.area < 1.0 or q.center.z > TB_Z0 + (BH_ + 0.5) * math.cos(TB_TILT)) else (PAL['door_green'], PT['boards'])),
-    parent=tb, family='landmark')
-struts = bmesh.new()
-for sx in (-BW_ / 2 + 2.5, -BW_ / 6, BW_ / 6, BW_ / 2 - 2.5):
-    top = Vector((sx, TB_Y0 + BH_ * 0.8 * math.sin(TB_TILT) + 0.35 * math.cos(TB_TILT), TB_Z0 + BH_ * 0.8 * math.cos(TB_TILT) - 0.35 * math.sin(TB_TILT)))
-    foot = Vector((sx, top.y + 3.2, 0.0))
-    merge(struts, nl_kit.beam(tuple(top), tuple(foot), 0.22, 0.22))
-    merge(struts, bm_box2(sx - 0.4, foot.y - 0.4, -0.2, sx + 0.4, foot.y + 0.4, 0.35))
-obj('tide_board_struts', struts, PAL['iron'], PT['metal'], parent=tb, family='landmark')
-board = bmesh.new(); uvl = board.loops.layers.uv.new('UVMap')
-vs = [board.verts.new(v) for v in ((-BW_ / 2, -0.17, 0.0), (BW_ / 2, -0.17, 0.0), (BW_ / 2, -0.17, BH_), (-BW_ / 2, -0.17, BH_))]
-f = board.faces.new(vs)
-for lp, uv in zip(f.loops, ((0, 0), (1, 0), (1, 1), (0, 1))):
-    lp[uvl].uv = uv
-tb_place(board)
-bf = obj('tide_board', board, lin('#1E2A26'), PT['plain'], parent=tb, family='landmark', jitter=0.0, shadow=False)
-NAMED['tide_board'] = bf
-# a painted demo pattern for the key art (runtime replaces it): 24 bars, mint up / rust down around a mid line
-demo = bmesh.new()
-rngb = random.Random(24)
-for k in range(24):
-    x0 = -BW_ / 2 + 0.6 + k * (BW_ - 1.2) / 24; x1 = x0 + (BW_ - 1.2) / 24 * 0.66
-    v = rngb.uniform(-1, 1) * (0.5 + 0.5 * math.sin(k / 3.5))
-    z0, z1 = (BH_ / 2, BH_ / 2 + v * BH_ * 0.42) if v > 0 else (BH_ / 2 + v * BH_ * 0.42, BH_ / 2)
-    merge(demo, bm_box2(x0, -0.22, z0, x1, -0.19, z1))
-merge(demo, bm_box2(-BW_ / 2 + 0.3, -0.23, BH_ / 2 - 0.05, BW_ / 2 - 0.3, -0.2, BH_ / 2 + 0.05))
-tb_place(demo)
-TIDE_DEMO = obj('tide_board_demo_bars', demo, face=lambda q: ((lin('#8FF0C4') if (q.center - Vector((0, TB_Y0, TB_Z0))).dot(Vector((0, math.sin(TB_TILT), math.cos(TB_TILT)))) > BH_ / 2 + 0.06 else lin('#F08A5A')) if q.area < 6 else PAL['trim'], PT['plain']),
-                parent=tb, family='keyart', jitter=0.0, shadow=False)
-
-# ---------------------------------------------------------------- Harbourmaster's office: lookout cupola + flag mast
-hp_ = LM['harbourmaster']['p']
-hm = make_root('harbourmaster', hp_, zq, face_rz(LM['harbourmaster']['face']))
-stone_block('harbourmaster_body', -6.5, -6, -1.5, 6.5, 6, 7.6, 'wall_falu', 'boards', hm, bevel=0.04)
-stone_block('harbourmaster_plinth', -6.7, -6.2, -1.5, 6.7, 6.2, 0.8, 'granite', 'ashlar', hm)
-hip_roof('harbourmaster_roof', -6.5, -6, 6.5, 6, 7.6, 3.4, PAL['roof_slate'], PT['slate'], hm)
-stone_block('harbourmaster_lookout', -2.2, -2.2, 10.2, 2.2, 2.2, 12.6, 'trim', 'boards', hm)
-facade_windows('harbourmaster_look', hm, -2.0, 2.0, -2.25, (11.4,), ww=0.8, wh=1.4, pitch=1.3, lit_p=1.0)
-facade_windows('harbourmaster_look_e', hm, -2.0, 2.0, 2.25, (11.4,), ww=0.8, wh=1.4, pitch=1.3, lit_p=1.0, n=(1, 0, 0))
-hip_roof('harbourmaster_lookroof', -2.2, -2.2, 2.2, 2.2, 12.6, 1.8, PAL['roof_slate'], PT['slate'], hm, ov=0.35)
-facade_windows('harbourmaster', hm, -6, 6, -6.0, (2.6, 5.6), ww=0.9, wh=1.4, pitch=2.3)
-facade_windows('harbourmaster_e', hm, -5, 5, 6.5, (2.6, 5.6), ww=0.9, wh=1.4, pitch=2.5, n=(1, 0, 0))
-mast = bm_cyl(0.14, 0.08, 14.0, 6, (5.0, -7.5, 0)); merge(mast, nl_kit.beam((5.0, -9.5, 11.0), (5.0, -5.5, 11.0), 0.1, 0.1))
-obj('harbourmaster_mast', mast, PAL['trim'], PT['plain'], parent=hm, family='landmark')
-obj('harbourmaster_door', bm_box2(-1.0, -6.12, 0.8, 1.0, -5.9, 3.2), PAL['door_green'], PT['boards'], parent=hm, family='landmark')
-collect_windows(hm, 'harbourmaster')
-
-# ---------------------------------------------------------------- the Registry: portico, pediment, clock (terrace 2)
-rp = LM['registry']['p']
-rg = make_root('registry', rp, LM['registry']['z'], face_rz(LM['registry']['face']))
-stone_block('registry_body', -10, -6.5, -2.0, 10, 6.5, 9.6, 'granite_light', 'ashlar', rg)
-stone_block('registry_cornice', -10.3, -6.8, 9.4, 10.3, 6.8, 10.1, 'stone_white', 'plain', rg)
-hip_roof('registry_roof', -10.3, -6.8, 10.3, 6.8, 10.1, 3.6, PAL['roof_slate'], PT['slate'], rg)
-port = bmesh.new()
-merge(port, bm_box2(-6.0, -9.6, -0.4, 6.0, -6.4, 0.5))
-merge(port, bm_box2(-6.3, -9.9, 7.6, 6.3, -6.4, 8.4))
-for k in range(6):
-    x = -5.0 + k * 2.0
-    merge(port, bm_cyl(0.38, 0.32, 7.1, 10, (x, -8.8, 0.5)))
-obj('registry_portico', port, PAL['stone_white'], PT['plain'], parent=rg, family='landmark', smooth=False)
-ped = bmesh.new()
-vs = [ped.verts.new(v) for v in ((-6.4, -10.0, 8.4), (6.4, -10.0, 8.4), (0, -10.0, 11.0), (-6.4, -6.4, 8.4), (6.4, -6.4, 8.4), (0, -6.4, 11.0))]
-ped.faces.new((vs[0], vs[1], vs[2])); ped.faces.new((vs[0], vs[2], vs[5], vs[3])); ped.faces.new((vs[1], vs[4], vs[5], vs[2]))
-obj('registry_pediment', ped, PAL['roof_slate'], PT['slate'], parent=rg, family='landmark')
-ptri = bmesh.new()
-vs = [ptri.verts.new(v) for v in ((-6.0, -10.02, 8.5), (6.0, -10.02, 8.5), (0, -10.02, 10.7))]
-ptri.faces.new(vs)
-obj('registry_tympanum', ptri, PAL['stone_white'], PT['plain'], parent=rg, family='landmark')
-facade_windows('registry', rg, -9.5, 9.5, -6.5, (2.4, 6.0), ww=1.1, wh=2.2, pitch=2.4, skip=lambda i, z: 2 <= i <= 5 and z < 3)
-facade_windows('registry_e', rg, -5.5, 5.5, 10.0, (2.4, 6.0), ww=1.1, wh=2.2, pitch=2.6, n=(1, 0, 0))
-obj('registry_door', bm_box2(-1.3, -6.6, 0.5, 1.3, -6.4, 4.6), PAL['door_green'], PT['boards'], parent=rg, family='landmark')
-cl = bm_cyl(0.95, 0.95, 0.2, 18, (0, 0, 0)); xf(cl, rx=math.pi / 2); xf(cl, loc=(0, -10.1, 9.4))
-obj('registry_clock', cl, PAL['brass'], PT['metal'], parent=rg, family='landmark')
-collect_windows(rg, 'registry')
-
-# ---------------------------------------------------------------- Seamen's church: white nave + slate spire (terrace 3)
-cp2 = LM['church']['p']
-cr = make_root('church', cp2, LM['church']['z'], face_rz(LM['church']['face']))
-stone_block('church_nave', -5.0, -9.0, -2.0, 5.0, 9.0, 7.0, 'stone_white', 'render', cr)
-nave = bmesh.new()
-vs = [nave.verts.new(v) for v in ((-5.6, -9.3, 7.0), (5.6, -9.3, 7.0), (0, -9.3, 12.2), (-5.6, 9.3, 7.0), (5.6, 9.3, 7.0), (0, 9.3, 12.2))]
-nave.faces.new((vs[0], vs[2], vs[5], vs[3])); nave.faces.new((vs[1], vs[4], vs[5], vs[2]))
-obj('church_roof', nave, PAL['roof_slate'], PT['slate'], parent=cr, family='landmark')
-gab = bmesh.new()
-vs = [gab.verts.new(v) for v in ((-5.0, -9.0, 7.0), (5.0, -9.0, 7.0), (0, -9.0, 11.6)) ]
-gab.faces.new(vs)
-obj('church_gable', gab, PAL['stone_white'], PT['render'], parent=cr, family='landmark')
-stone_block('church_tower', -2.6, -13.6, -2.0, 2.6, -8.4, 14.0, 'stone_white', 'render', cr)
-stone_block('church_belfry', -2.8, -13.8, 14.0, 2.8, -8.2, 15.0, 'granite_light', 'plain', cr)
-sp = bm_cyl(2.9 / math.cos(math.pi / 8), 0.1, 9.5, 8, (0, -11.0, 15.0), rot=math.pi / 8)
-obj('church_spire', sp, PAL['roof_slate'], PT['slate'], parent=cr, family='landmark')
-cross = bm_box2(-0.08, -11.08, 24.4, 0.08, -10.92, 26.2); merge(cross, bm_box2(-0.55, -11.08, 25.4, 0.55, -10.92, 25.6))
-obj('church_cross', cross, PAL['brass'], PT['metal'], parent=cr, family='landmark')
-trim = bmesh.new(); glass = bmesh.new(); gl = []
-for y in (-4.5, -0.5, 3.5):
-    for sx in (-1, 1):
-        add_window(trim, glass, Vector((sx * 5.0, y, 3.8)), Vector((0, 1, 0)), Vector((sx, 0, 0)), 0.9, 2.6, mull=True, rng=TRNG, lit_p=0.8, gl_list=gl)
-add_window(trim, glass, Vector((0, -13.6, 11.5)), Vector((1, 0, 0)), Vector((0, -1, 0)), 1.0, 1.6, mull=False, rng=TRNG, lit_p=0.4, gl_list=gl)
-add_window(trim, glass, Vector((2.6, -11.0, 11.5)), Vector((0, 1, 0)), Vector((1, 0, 0)), 1.0, 1.6, mull=False, rng=TRNG, lit_p=0.4, gl_list=gl)
-obj('church_wtrim', trim, PAL['trim'], PT['plain'], parent=cr, family='landmark')
-glass_obj('church_glass', glass, gl, cr, 'landmark')
-obj('church_door', bm_box2(-1.0, -13.75, -0.2, 1.0, -13.5, 2.8), PAL['door_red'], PT['boards'], parent=cr, family='landmark')
-collect_windows(cr, 'church')
-
+# P6 (D19, D21): the Customs House, the Harbourmaster's office and the Registry are civic models now (public/harbour/civic,
+# placed on layout.civic plots by the runtime); the tide board is gone (D19), and so is the Seamen's church (its terrace
+# is the flows quarter's).
 # ---------------------------------------------------------------- bonded warehouse (basin): hoist gable
+zq = Z_SHORE
 wp = LM['warehouse']['p']
 wh_ = make_root('bonded_warehouse', wp, zq, face_rz(LM['warehouse']['face']))
 stone_block('warehouse_body', -9, -11, -1.5, 9, 11, 12.0, 'wall_falu', 'boards', wh_, bevel=0.0)
@@ -484,68 +316,9 @@ facade_windows('warehouse', wh_, -8, 8, -11.0, (2.4, 6.0, 9.6), ww=0.8, wh=1.2, 
 facade_windows('warehouse_s', wh_, -10, 10, -9.05, (2.4, 6.0, 9.6), ww=0.8, wh=1.2, pitch=3.0, n=(-1, 0, 0))
 collect_windows(wh_, 'warehouse')
 
-# ---------------------------------------------------------------- the Pharos (D8) + keeper's cottage + oil store (headland)
-set_coll(collection('lighthouse', ROOTC))
-lhp = LM['pharos']['p']
-PHAROS_ROOT, LH_LAMP = build_lighthouse('pharos', (lhp[0], lhp[1], LM['pharos']['z']), rz=math.radians(-45))
-PHAROS_SCALE = 1.3                      # ~40 m to the lantern top: the tallest silhouette by far (polish pass)
-PHAROS_ROOT.scale = (PHAROS_SCALE,) * 3
-LH_LAMP = Vector((lhp[0], lhp[1], LM['pharos']['z'])) + (LH_LAMP - Vector((lhp[0], lhp[1], LM['pharos']['z']))) * PHAROS_SCALE
-kp = LM['keepers_cottage']['p']
-KRZ = face_rz(LM['keepers_cottage']['face'])
-kc = build_house('keepers_cottage', dict(w=10.0, d=6.4, floors=1, fh=3.0, base=0.6, ridge='x', pitch=44, wall=PAL['wall_white'],
-                                          wall_pat='render', roof=PAL['roof_red'], roof_style='tiles', door='-y', win_pitch=2.4,
-                                          flowers=True, door_col=PAL['door_green'], chimney=True, win_faces=['-y', '-x', '+x']),
-                 (kp[0], kp[1], LM['keepers_cottage']['z']), KRZ, seed=41, family='lighthouse')
-collect_windows(kc, 'keepers_cottage')
-# stone foundation down to the lowest ground under the footprint (the slope falls away toward the lagoon)
-_kz0 = min(H(kp[0] + lx * math.cos(KRZ) - ly * math.sin(KRZ), kp[1] + lx * math.sin(KRZ) + ly * math.cos(KRZ))
-           for lx in (-5.6, 0.0, 5.6) for ly in (-3.7, 0.0, 3.7))
-_kf = bm_box2(-5.45, -3.65, _kz0 - LM['keepers_cottage']['z'] - 0.8, 5.45, 3.65, 0.25)
-obj('keepers_cottage_foundation', _kf, PAL['granite'], PT['ashlar'], parent=kc, bevel=0.05, family='lighthouse')
-if 'chimney_top' in kc:
-    CHIMNEYS.append(kc.matrix_world @ Vector(kc['chimney_top']))
-op = LM['oil_store']['p']
-build_oil_store('oil_store', (op[0], op[1], LM['oil_store']['z']), face_rz(LM['oil_store']['face']))
-# keeper's garden (in the cottage's own frame): a low stone wall round the yard, a path to the tower door, a washing line
-kz = LM['keepers_cottage']['z']
-_kc, _ks = math.cos(KRZ), math.sin(KRZ)
-K = lambda lx, ly: (kp[0] + lx * _kc - ly * _ks, kp[1] + lx * _ks + ly * _kc)
-def ground_path(bm, a_, b_, w, step=1.2):
-    n_ = max(1, int(math.hypot(b_[0] - a_[0], b_[1] - a_[1]) / step))
-    ribbon(bm, [(a_[0] + (b_[0] - a_[0]) * k_ / n_, a_[1] + (b_[1] - a_[1]) * k_ / n_) for k_ in range(n_ + 1)], w, lift=0.1)
-
-
-def ground_run(bm, a_, b_, w, th, lift, step=1.2):
-    """A strip laid ON the ground: short segments, each embedded (bottom below the lower end), so it follows the
-    heightfield instead of bridging over hollows or floating off a slope."""
-    n_ = max(1, int(math.hypot(b_[0] - a_[0], b_[1] - a_[1]) / step))
-    for k_ in range(n_):
-        p_ = (a_[0] + (b_[0] - a_[0]) * k_ / n_, a_[1] + (b_[1] - a_[1]) * k_ / n_)
-        q_ = (a_[0] + (b_[0] - a_[0]) * (k_ + 1) / n_, a_[1] + (b_[1] - a_[1]) * (k_ + 1) / n_)
-        merge(bm, nl_kit.beam((p_[0], p_[1], H(*p_) + lift - th / 2), (q_[0], q_[1], H(*q_) + lift - th / 2), w, th))
-
-
-gw = bmesh.new()
-for a_, b_ in (((-9, -7), (-9, 8)), ((-9, 8), (9, 8)), ((9, 8), (9, -7)), ((9, -7), (2, -7))):
-    ground_run(gw, K(*a_), K(*b_), 0.6, 1.6, 0.85, step=1.6)
-obj('keeper_wall', gw, PAL['granite'], PT['ashlar'], family='lighthouse')
-pth = bmesh.new()
-_dd = (-0.70710678, -0.70710678)                      # the tower's door side (world), platform edge at ~11.5 m
-door = (lhp[0] + _dd[0] * 10.6, lhp[1] + _dd[1] * 10.6)
-for a_, b_ in ((K(0, -7.5), K(0, -12)), (K(0, -12), door)):
-    ground_path(pth, a_, b_, 1.8)
-obj('headland_path', pth, PAL['gravel'], PT['cobble'], family='lighthouse', jitter=0.02)
-ln_ = bmesh.new(); cl_ = bmesh.new()
-a3 = Vector((*K(3, 5), kz)); b3 = Vector((*K(8, 5), kz))
-for p_ in (a3, b3):
-    merge(ln_, nl_kit.line3(p_, p_ + Vector((0, 0, 2.3)), 0.06))
-merge(ln_, nl_kit.line3(a3 + Vector((0, 0, 2.2)), b3 + Vector((0, 0, 2.2)), 0.02))
-for k_ in range(4):
-    c_ = a3.lerp(b3, 0.15 + k_ * 0.22) + Vector((0, 0, 1.55))
-    merge(cl_, nl_kit.obox(c_, (b3 - a3).normalized(), 0.7, 0.04, 0.8))
-obj('keeper_laundry_line', ln_, PAL['timber_dark'], PT['plain'], family='lighthouse')
-obj('keeper_laundry', cl_, face=lambda q: ((PAL['trim'], PAL['brand_usdc'], PAL['hull_red'], PAL['wall_ochre'])[q.index // 5 % 4], 0), family='lighthouse')
+# P6 (D15): the Pharos is the Alexandria tower on its islet (public/harbour/lighthouse.glb, its own builder); the old headland
+# group (tower, keeper's cottage, oil store, garden) is gone - the Keeper's Log and the Chart Room plots stand by the road.
+LH_LAMP = Vector((CJ['pharos']['p'][0], CJ['pharos']['p'][1], CJ['pharos']['z'] + 88.4))     # the fire (key-art light)
 
 # ---------------------------------------------------------------- storm-signal mast (cone attach empties), tide gauge, slipway
 set_coll(collection('landmarks', ROOTC))
@@ -597,28 +370,7 @@ obj('tide_gauge_board', gauge, face=lambda q: ((PAL['hull_red'] if int((q.center
     parent=tg, family='landmark', jitter=0.0)
 empty('tide_gauge_level', (0, -0.5, 0.0), parent=tg, family='landmark', size=0.5)
 
-sl = CJ['slip']
-_sd = (sl['bottom'][0] - sl['top'][0], sl['bottom'][1] - sl['top'][1])
-sw = make_root('slipway', sl['top'], 0.0, face_rz(_sd))
-NAMED['slipway'] = sw
-L_ = math.hypot(*_sd)
-ramp = bmesh.new()
-merge(ramp, nl_kit.beam((0, 0, Z_SHORE + 0.02), (0, -L_, -1.6), sl['width'], 0.5))
-obj('slipway_ramp', ramp, PAL['timber_dark'], PT['plain'], parent=sw, family='landmark', jitter=0.08)
-rails = bmesh.new()
-for sx in (-1.6, 1.6):
-    merge(rails, nl_kit.beam((sx, 0, Z_SHORE + 0.3), (sx, -L_, -1.3), 0.25, 0.18))
-obj('slipway_rails', rails, PAL['iron'], PT['metal'], parent=sw, family='landmark')
-cradle = bmesh.new()
-for k in range(3):
-    y = -4 - k * 3.2
-    z = Z_SHORE + 0.3 + y * (Z_SHORE + 1.6) / L_
-    merge(cradle, bm_box2(-2.2, y - 0.3, z, 2.2, y + 0.3, z + 0.5))
-    for sx in (-1.8, 1.8):
-        merge(cradle, nl_kit.beam((sx, y, z + 0.4), (sx * 0.6, y, z + 1.6), 0.24, 0.24))
-obj('slipway_cradle', cradle, PAL['timber'], PT['boards'], parent=sw, family='landmark')
-winch = bm_box2(-1.2, 3.0, Z_SHORE, 1.2, 4.6, Z_SHORE + 1.4); merge(winch, bm_cyl(0.45, 0.45, 2.0, 10, (-1.0, 3.8, Z_SHORE + 1.5)))
-obj('slipway_winch', winch, PAL['hull_red'], PT['metal'], parent=sw, family='landmark')
+# (the Slipway is the Shipyard's launch slip: the shipyard model carries it)
 
 # ---------------------------------------------------------------- the windmill on its meadow knoll (decorative)
 wmp = CJ['windmill']; wz = min(H(wmp[0] + dx, wmp[1] + dy) for dx in (-3, 3) for dy in (-3, 3))

@@ -1,5 +1,5 @@
 /**
- * Runtime fallback for public/harbour/sea-sdf.png (pure, renderer-free, unit-tested).
+ * Runtime fallback for public/harbour/sea-sdf.webp (lossless copy of the baked assets/harbour/sea-sdf.png) (pure, renderer-free, unit-tested).
  * Encoding (P2 brief), RGBA8 over bounds [minX, minZ, maxX, maxZ]; in memory row 0 = minZ, column 0 = minX
  * (the baked PNG stores the top row = maxZ, three's flipY convention; the loader flips it):
  *   R = clamp(0.5 + coastSignedDistance / 128)   (> 0.5 = sea)

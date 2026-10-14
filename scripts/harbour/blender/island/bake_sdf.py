@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sea distance field for The Harbour (pure Python: numpy + scipy + PIL).
 
-public/harbour/sea-sdf.png, RGBA8 2048^2 over layout.sea.bounds = [minX, minZ, maxX, maxZ] (glTF metres):
+assets/harbour/sea-sdf.png (bake source; the runtime loads public/harbour/sea-sdf.webp), RGBA8 2048^2 over layout.sea.bounds = [minX, minZ, maxX, maxZ] (glTF metres):
   R = clamp(0.5 + coastSignedDistance / 128, 0, 1)   (> 0.5 = sea; land = island, breakwater, stone jetty, rocks)
   G = clamp(depth / 40, 0, 1)                        (stylised bathymetry: dredged bay, shelving coast, shoal reef)
   B = clamp(distanceToStructure / 16, 0, 1)          (piles, pier decks, quay walls, breakwater, buoys)
@@ -70,8 +70,15 @@ def bake(cj, bounds, n=N, contact_polys=(), wakes=(), extra_land=(), extra_circl
     land_polys = [coast, bw_poly] + [[tuple(p) for p in s['poly']] for s in cj.get('skerries', [])] + list(extra_land)
     if cj.get('mainland'):
         land_polys.append([tuple(p) for p in cj['mainland']['poly']])
+    ph = cj.get('pharos')
+    cw_poly = None
+    if ph:                                            # P6: the Pharos islet is land; its causeway is land + structure
+        land_polys.append([tuple(p) for p in ph['islet']])
+        cw = ph['causeway']
+        cw_poly = _seg_polys(cw['a'], cw['b'], cw['width'])
+        land_polys.append(cw_poly)
     circles = [tuple(c) for c in cj['shoals']['rocks']] + [tuple(c) for c in cj.get('cove_rocks', [])] + [(bw[-1][0], bw[-1][1], 4.4)] + list(extra_circles)
-    struct_polys = [bw_poly]
+    struct_polys = [bw_poly] + ([cw_poly] if cw_poly else [])
     for s in cj['struct']:
         if s['kind'] in ('pier', 'finger', 'thead'):
             struct_polys.append(_seg_polys(s['a'], s['b'], s['width']))
@@ -139,6 +146,7 @@ if __name__ == '__main__':
     bounds = cj['sea_bounds']                 # == layout.sea.bounds (compose.py writes both)
     # layout bounds are glTF [minX, minZ, maxX, maxZ]
     arr = bake(cj, bounds)
-    out = os.path.join(ROOT, 'public/harbour/sea-sdf.png')
+    out = os.path.join(ROOT, 'assets/harbour/sea-sdf.png')
     write_png(arr, out)
     print('sea-sdf ->', out, os.path.getsize(out) // 1024, 'KB', 'land frac', float((arr['sd'] < 0).mean()))
+    print('then: npm run harbour:compress -- --webp   (writes the lossless public/harbour/sea-sdf.webp the runtime loads)')

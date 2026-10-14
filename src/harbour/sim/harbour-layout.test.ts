@@ -48,7 +48,7 @@ function readCoast(path: string, bounds: [number, number, number, number]): Coas
   return { data, size: w, bounds };
 }
 
-const coast = readCoast(new URL("../../../public/harbour/sea-sdf.png", import.meta.url).pathname, layout.sea!.bounds as [number, number, number, number]);
+const coast = readCoast(new URL("../../../assets/harbour/sea-sdf.png", import.meta.url).pathname, layout.sea!.bounds as [number, number, number, number]);
 const L = buildSimLayout(layout, coast);
 
 describe("the sim in the real harbour", () => {
@@ -95,6 +95,25 @@ describe("the sim in the real harbour", () => {
     expect(centreOnLand).toBe(0);
     expect(endsOnLand / samples).toBeLessThan(0.002);
   });
+
+  it("D22: 12-18% of hulls under way, 10-15 dockings a minute, harbour outings among them", () => {
+    const model = buildHarbourModel(makePayloads(), T0_MS, { pieredChains: layout.piers.map((p) => p.chain), dead: [] });
+    const sim = new HarbourSim(model, layout, T0_MS, coast);
+    const n = model.boats.length, minutes = 90;
+    let uw = 0, out = 0, samples = 0;
+    sim.poseAt(T0_MS - 2_000);
+    const d0 = sim.stats.dockings;
+    for (let k = 0; k < minutes * 30; k++) {
+      sim.poseAt(T0_MS + k * 2_000);
+      uw += sim.stats.underWay; out += sim.stats.outings; samples++;
+    }
+    const perMin = (sim.stats.dockings - d0) / minutes;
+    expect(uw / samples / n).toBeGreaterThanOrEqual(0.12);
+    expect(uw / samples / n).toBeLessThanOrEqual(0.18);
+    expect(perMin).toBeGreaterThanOrEqual(10);
+    expect(perMin).toBeLessThanOrEqual(15);
+    expect(out / samples).toBeGreaterThan(uw / samples * 0.2);
+  }, 60_000);
 
   it("keeps still hulls apart, and hulls under way rarely brush another", () => {
     const model = buildHarbourModel(makePayloads(), T0_MS, { pieredChains: layout.piers.map((p) => p.chain), dead: [] });

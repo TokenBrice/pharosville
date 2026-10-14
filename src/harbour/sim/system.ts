@@ -5,6 +5,11 @@
  * Dev only (never in production builds): `?sim=1` logs the under-way count every 10 s;
  * `?simspeed=N` runs the sim clock N×; `?simdebug=1` draws plain hull markers from the poses;
  * `?simat=<epoch ms>` starts the sim clock there; the 'simclock' service shifts it (gate captures).
+ *
+ * Reduced motion (the 'motion' service: prefers-reduced-motion or ?motion=reduce) HOLDS the sim clock:
+ * every boat lies still at the pose she had (no sailing, no swinging to her mooring). When it turns off
+ * the clock runs on from where it was held (it then lags wall time by the pause), so nothing jumps.
+ * The model and its freshness always read the real clock.
  */
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
@@ -15,6 +20,7 @@ import type { HarbourModel } from "../model/types";
 import { HarbourSim, PH_APPROACHING, PH_DOCKED, PH_MOORED } from "./sim";
 import type { CoastGrid } from "./obstacles";
 import { SimDebugMarkers } from "./debug-markers";
+import { ensureMotionService } from "../ui/services";
 
 /** Re-evaluate freshness this often even without new payloads (a silent feed must turn stale). */
 const TRUTH_RECHECK_MS = 30_000;
@@ -58,6 +64,10 @@ export class DataSystem implements WorldSystem {
   private t0 = 0;
   /** Dev only: sim clock offset (ms) from wall time. */
   private offset = 0;
+  /** Reduced motion: the sim time (ms) the clock is held at, else null; and the lag accrued by past holds. */
+  private heldAt: number | null = null;
+  private motionLag = 0;
+  private unsubMotion: (() => void) | null = null;
 
   async init(ctx: EngineContext): Promise<void> {
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
@@ -71,15 +81,23 @@ export class DataSystem implements WorldSystem {
       if (q.get("simdebug") === "1") this.markers = new SimDebugMarkers(ctx.scene);
       const at = Number(q.get("simat"));
       if (q.has("simat") && Number.isFinite(at)) this.offset = at - Date.now();
-      ctx.services.set("simclock", { shift: (ms: number) => { this.offset += ms; }, now: () => this.simNow(Date.now()) });
+      ctx.services.set("simclock", { shift: (ms: number) => { this.offset += ms; }, now: () => this.simClock(Date.now()) });
     }
     this.t0 = Date.now();
+    const motion = ensureMotionService(ctx);
+    const hold = (reduced: boolean) => {
+      const wall = this.simNow(Date.now()) - this.motionLag;
+      if (reduced && this.heldAt === null) this.heldAt = wall;
+      else if (!reduced && this.heldAt !== null) { this.motionLag += wall - this.heldAt; this.heldAt = null; }
+    };
+    hold(motion.reduced);
+    this.unsubMotion = motion.subscribe(hold);
     // the island's real coastline, from the baked sea SDF (the same bytes for every viewer)
     const coast = await loadCoast(layout);
     const now = this.simNow(Date.now());
     // AWAITING DATA: an empty, unavailable model until the first payloads land — never a fixture fleet
     const empty = buildHarbourModel({}, now, { pieredChains: layout.piers.map((p) => p.chain) });
-    this.sim = new HarbourSim(empty, layout, now, coast);
+    this.sim = new HarbourSim(empty, layout, this.simClock(Date.now()), coast);
     ctx.services.set("model", empty);
     ctx.services.set("sim", this.sim);
     this.feed = new HarbourFeed();
@@ -88,14 +106,20 @@ export class DataSystem implements WorldSystem {
     void this.feed.start();
   }
 
+  /** The model's clock: wall time (dev: scaled / offset). */
   private simNow(nowMs: number): number {
     return (this.speed === 1 ? nowMs : this.t0 + (nowMs - this.t0) * this.speed) + this.offset;
   }
 
-  private rebuild(ctx: EngineContext, now: number): HarbourModel | null {
+  /** The sim's clock: the model's, held under reduced motion and lagging by the time it was held. */
+  private simClock(nowMs: number): number {
+    return this.heldAt ?? this.simNow(nowMs) - this.motionLag;
+  }
+
+  private rebuild(ctx: EngineContext, now: number, simT: number): HarbourModel | null {
     if (!this.feed || !this.sim || !this.layout) return null;
     const model = buildHarbourModel(this.feed.payloads, now, { pieredChains: this.layout.piers.map((p) => p.chain) });
-    this.sim.setModel(model, now);
+    this.sim.setModel(model, simT);
     ctx.services.set("model", model);
     return model;
   }
@@ -113,10 +137,10 @@ export class DataSystem implements WorldSystem {
     if (this.dirty) {
       this.dirty = false;
       this.lastBuild = frame.nowMs;
-      const model = this.rebuild(ctx, now);
+      const model = this.rebuild(ctx, now, this.simClock(frame.nowMs));
       if (model) this.truthSig = Object.values(model.truth).map((t) => t.state).join();
     }
-    const pose = sim.poseAt(now);
+    const pose = sim.poseAt(this.simClock(frame.nowMs));
     this.markers?.update(sim);
     if (this.logEvery) {
       if (this.prevPhase.length !== pose.count) this.prevPhase = new Uint8Array(pose.count);
@@ -139,6 +163,7 @@ export class DataSystem implements WorldSystem {
 
   dispose(ctx: EngineContext): void {
     this.feed?.stop();
+    this.unsubMotion?.(); this.unsubMotion = null;
     this.markers?.dispose();
     this.feed = null;
     this.sim = null;

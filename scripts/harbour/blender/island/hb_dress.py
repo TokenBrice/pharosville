@@ -35,6 +35,8 @@ for k, L in CJ['landmarks'].items():
         continue
     r = L['fp'] / 2 + 3
     occ_poly([(L['p'][0] - r, L['p'][1] - r), (L['p'][0] + r, L['p'][1] - r), (L['p'][0] + r, L['p'][1] + r), (L['p'][0] - r, L['p'][1] + r)])
+for cv in CJ.get('civic', []):                                 # P6: the civic plots (+ a lane round each) stay clear
+    occ_poly(plot_rect(cv, 2.5))
 for name, L in QL.items():                                     # quay aprons
     depth = APRON.get(name, 3.0 if name.endswith(('-w', '-e')) else 7.0) + 1.5
     for a, b in zip(L, L[1:]):
@@ -131,7 +133,7 @@ for pid, cv in COVES.items():
     road([(u0, v0), mid, (u1, v1)], 2.2, PAL['earth'], 'path_' + pid, path_bm)
 # footpaths: the town top to the crest; the windmill; Wreck Cove
 for ctrl in ([(96.0, 128.0), (108.0, 140.0), (130.0, 146.0)], [(-206.0, -80.0), (-218.0, -110.0), (-226.0, -150.0), (-224.0, -162.0)],
-             [(-196.0, -50.0), (-214.0, -54.0), (-226.0, -58.0)], [(40.0, 112.0), (24.0, 120.0), (10.0, 118.0)]):
+             [(-196.0, -50.0), (-214.0, -54.0), (-226.0, -58.0)]):
     road(ctrl, 1.8, PAL['earth'], 'path', path_bm)
 refresh_occ()
 obj('land_roads', road_bm, PAL['gravel'], PT['cobble'], family='terrain', jitter=0.04)
@@ -293,7 +295,7 @@ def place_meadow(p, rng):
     z = H(*p)
     u, v = uvp(*p)
     kind = rng.random()
-    hd = math.hypot((u - terrain.PHAROS[0] + 16) / 50.0, (v - terrain.PHAROS[1] + 4) / 28.0)
+    hd = terrain.head_d(u, v)
     if hd < 1.05:
         if terrain.fbm(p[0], p[1], 0.045, 2, 21) < 0.56:
             return
@@ -410,14 +412,15 @@ def along_line(line, step, inset, start=None):
 
 
 for name, L in QL.items():
-    if name.endswith(('-w', '-e')):
+    if name.endswith(('-w', '-e')) or name == 'yard':
         continue
     step = {'grand': 21.0, 'long': 26.0, 'tron': 20.0, 'wharf': 24.0, 'battery': 18.0}.get(name, 22.0)
     for (p, t, nl) in along_line(L, step, 1.8):
         lamp(p, Z_SHORE + 0.06)
 for (k, pts, z) in LANES:
     for i in range(3, len(pts) - 2, 9):
-        lamp(pts[i], z + 0.04)
+        if not in_pad(*pts[i], 1.5):
+            lamp(pts[i], z + 0.04)
 for (x, y, z, kind, col) in CJ['lamps']:
     lamp((x, y), z, 3.0 if z < 2 else 3.4, pennant=col if kind == 'pierhead' else None, kind=kind)
 obj('lamps_posts', lampb, PAL['iron'], PT['metal'], family='prop_lamp')
@@ -459,7 +462,7 @@ obj('bunting_flags', bunt, face=lambda q: (BCOLS[q.index % len(BCOLS)], PT['plai
 
 # market stalls with striped awnings on the Customs square + the promenade (A graft) + fish boxes
 stall = bmesh.new(); awn = bmesh.new(); awn_cols = []; boxes = bmesh.new()
-STALLS = [(124.0, 13.0), (60.0, 13.0), (144.0, 12.5)]
+STALLS = [(128.0, 13.0), (100.0, 13.0), (144.0, 12.5), (84.0, 13.0)]
 for i, (th, dr) in enumerate(STALLS):
     p = Vector(town_pt(th, TOWN['r_quay'] + dr)); fdir = (Vector(town_pt(th, 0)) - p).normalized(); sd = Vector((-fdir.y, fdir.x))
     ang = math.atan2(sd.y, sd.x)
@@ -490,10 +493,11 @@ obj('quay_fishboxes', boxes, face=lambda q: ((PAL['brand_usdc'] if int(q.center.
 cr, br, nets, corks, coils = (bmesh.new() for _ in range(5))
 CLUTTER = []
 for name, L in QL.items():
-    if name.endswith(('-w', '-e')):
+    if name.endswith(('-w', '-e')) or name == 'yard':
         continue
     for (p, t, nl) in along_line(L, {'grand': 34.0, 'long': 30.0, 'wharf': 18.0}.get(name, 26.0), 4.5, start=9.0):
-        CLUTTER.append((p, t, DRNG.randint(3, 6)))
+        if not in_pad(*p, 2.0):
+            CLUTTER.append((p, t, DRNG.randint(3, 6)))
 for (p, t, n) in CLUTTER:
     tv = Vector((t[0], t[1])); nv = Vector((-t[1], t[0])); c0 = Vector(p)
     ang = math.atan2(t[1], t[0])
@@ -520,7 +524,7 @@ obj('props_coils', coils, PAL['rope'], PT['plain'], family='prop_rope', jitter=0
 
 # benches on the squares + lanes
 bench = bmesh.new()
-for (th, r_, k) in ((126.0, 60.0, 2), (62.0, 60.0, 2), (40.0, 30.0, 0)):
+for (th, r_, k) in ((126.0, 60.0, 2), (62.0, 60.0, 2), (134.0, 14.0, 0)):
     p = Vector(town_pt(th, TOWN['r_quay'] + r_)); z = RINGS[k][2]
     fdir = (Vector(town_pt(th, 0)) - p).normalized(); ang = math.atan2(fdir.y, fdir.x) + math.pi / 2
     b = bmesh.new()
@@ -750,7 +754,23 @@ for (x, y) in CJ['shoals']['buoys']:
     merge(cb, bm_cyl(0.12, 0.12, 3.0, 6, (x, y, 0.9)))
     merge(cb, bm_cyl(0.0, 0.55, 0.8, 8, (x, y, 3.7)))
     merge(cb, bm_cyl(0.55, 0.0, 0.8, 8, (x, y, 4.5)))
-obj('shoals_buoys', cb, face=lambda q: ((lin('#E8C33A') if (q.center.z < 0.5 or 3.6 < q.center.z < 4.4) else PAL['hull_black']), PT['plain']), family='shoals')
+obj('shoals_buoys', cb, face=lambda q: ((PAL['hull_red'] if int((q.center.z + 0.3) / 0.75) % 2 == 0 else PAL['wall_white']), PT['plain']), family='shoals')
+# P6 (D18): the reef beacon - a squat granite tower on the reef's biggest rock, red-and-white day-mark cage, a red light
+_bc = CJ['shoals']['beacon']
+bb_, bt_, bm_ = bmesh.new(), bmesh.new(), bmesh.new()
+merge(bb_, bm_cyl(3.6, 3.0, 2.2, 14, (_bc[0], _bc[1], -1.5)))
+for k in range(4):
+    merge(bt_, bm_cyl(2.3 - 0.18 * k, 2.3 - 0.18 * (k + 1), 1.6, 12, (_bc[0], _bc[1], 0.7 + k * 1.6), cap=(k == 3)))
+merge(bm_, bm_cyl(2.0, 2.0, 0.2, 12, (_bc[0], _bc[1], 7.1)))
+for k in range(8):
+    a_ = 2 * math.pi * k / 8
+    merge(bm_, nl_kit.beam((_bc[0] + math.cos(a_) * 1.4, _bc[1] + math.sin(a_) * 1.4, 7.2), (_bc[0] + math.cos(a_) * 0.2, _bc[1] + math.sin(a_) * 0.2, 10.4), 0.16, 0.16))
+merge(bm_, bm_sphere(0.9, (_bc[0], _bc[1], 10.8), 10, 6))
+obj('shoals_beacon_base', bb_, face=lambda q: ((PAL['rock_wet'] if q.center.z < 0.3 else PAL['granite']), PT['rock']), family='shoals', jitter=0.06)
+obj('shoals_beacon_tower', bt_, face=lambda q: ((PAL['hull_red'] if int((q.center.z - 0.7) / 1.6) % 2 == 0 else PAL['wall_white']), PT['ashlar']), family='shoals', bevel=0.03)
+obj('shoals_beacon_daymark', bm_, PAL['iron'], PT['metal'], family='shoals')
+obj('shoals_beacon_lamp', bm_cyl(0.75, 0.75, 1.0, 10, (_bc[0], _bc[1], 7.3)), mat=M['beacon_red'], family='shoals', shadow=False)
+LAMP_PTS.append(Vector((_bc[0], _bc[1], 7.8)))
 mb = bmesh.new()
 for m_ in CJ['moorings']:
     x, y = m_['buoy']
@@ -775,9 +795,86 @@ for (a, b) in CJ['far']['rafts']:
             q = (a[0] + dx * t - dy * sd, a[1] + dy * t + dx * sd)
             merge(fpile, bm_cyl(0.24, 0.22, 3.6, 7, (q[0], q[1], -1.6)))
             merge(fpile, bm_cyl(0.27, 0.0, 0.25, 7, (q[0], q[1], 2.0)))
+# P6 (D18): the buoyed anchorage - a marker-light post at each raft's head and tail (amber), yellow buoys round the field
+fpost, flamp, fbuoy = bmesh.new(), bmesh.new(), bmesh.new()
+for (a, b) in CJ['far']['rafts']:
+    L_ = math.hypot(b[0] - a[0], b[1] - a[1]); dx, dy = (b[0] - a[0]) / L_, (b[1] - a[1]) / L_
+    for (q, sg) in ((a, -1), (b, 1)):
+        p_ = (q[0] + dx * sg * 1.6, q[1] + dy * sg * 1.6)
+        merge(fpost, bm_cyl(0.32, 0.26, 7.4, 8, (p_[0], p_[1], -2.4)))
+        merge(fpost, bm_cyl(0.55, 0.55, 0.16, 8, (p_[0], p_[1], 4.9)))
+        merge(fpost, bm_cyl(0.5, 0.0, 0.5, 8, (p_[0], p_[1], 5.9)))
+        merge(flamp, bm_cyl(0.36, 0.36, 0.8, 8, (p_[0], p_[1], 5.05)))
+        LAMP_PTS.append(Vector((p_[0], p_[1], 5.45))); LAMP_LIGHTS.append((p_[0], p_[1], 5.45, 'pierhead', '#FFB347'))
+for p_ in CJ['far'].get('buoys', []):
+    merge(fbuoy, bm_cyl(0.7, 0.8, 1.1, 8, (p_[0], p_[1], -0.3)))
+    merge(fbuoy, bm_cyl(0.0, 0.5, 0.9, 8, (p_[0], p_[1], 0.8)))
+obj('far_ports_marker_posts', fpost, face=lambda q: ((PAL['wall_ochre'] if q.center.z > 3.0 else PAL['tar']), PT['plain']), family='far_ports', jitter=0.05)
+obj('far_ports_marker_lamps', flamp, mat=M['lamp'], family='far_ports', shadow=False)
+obj('far_ports_buoys', fbuoy, lin('#E8C33A'), PT['plain'], family='far_ports', jitter=0.05)
 obj('far_ports_rafts', fr, PAL['timber_grey'], PT['planks_x'] if 'planks_x' in PT else PT['plain'], family='far_ports', jitter=0.08)
 obj('far_ports_piles', fpile, PAL['timber_dark'], PT['plain'], family='far_ports', jitter=0.06)
 obj('far_ports_floats', ffloat, lin('#3A3F42'), PT['plain'], family='far_ports', jitter=0.04)
+
+# ------------------------------------------------------------------ P6 (D18): Wreck Cove - old ribs on the strand, masts in the shallows
+# The long-dead, left where they broke up: bleached keels with their frames standing like ribs, half sunk in the sand at
+# the waterline, and topmasts leaning out of the shallows beyond (the runtime's beached hulks lie up the strand above them).
+ribs, wmast = bmesh.new(), bmesh.new()
+_wrng = random.Random(1313)
+_strand = [tuple(p) for p in CJ['wreck']['strand']]
+_Ls = polyline_len(_strand)
+_lanes = [(Vector(CJ['lanes']['nodes'][a_]), Vector(CJ['lanes']['nodes'][b_])) for a_, b_ in CJ['lanes']['edges']]
+
+
+def _off_lanes(p, clr):
+    return all(seg_d((p.x, p.y), a_, b_) > clr for a_, b_ in _lanes)
+
+
+for k, s_ in enumerate((0.16, 0.37, 0.58, 0.8)):
+    p, t = along(_strand, _Ls * s_)
+    t = Vector(t); nl = Vector((-t.y, t.x))                    # nl points inland (the strand's left)
+    c = Vector(p) - nl * _wrng.uniform(2.5, 5.0)
+    L_ = _wrng.uniform(12.0, 19.0)
+    ax = (t * math.cos(0.5) + nl * math.sin(0.5) * _wrng.choice((-1, 1))).normalized()     # lying across the waterline
+    up_ = Vector((0, 0, 1)); side = Vector((-ax.y, ax.x, 0))
+    k0 = c - ax * L_ / 2; k1 = c + ax * L_ / 2
+    zk = -0.7
+    merge(ribs, nl_kit.beam((k0.x, k0.y, zk), (k1.x, k1.y, zk + 0.3), 0.45, 0.4))           # the keel
+    merge(ribs, nl_kit.beam((k1.x, k1.y, zk + 0.3), (k1.x + ax.x * 1.2, k1.y + ax.y * 1.2, zk + 4.2), 0.4, 0.35))   # stem post
+    nfr = int(L_ / 1.35)
+    for j in range(1, nfr):
+        if _wrng.random() < 0.18:
+            continue                                            # a gap where frames have gone
+        u_ = j / nfr
+        q = k0 + ax * L_ * u_
+        half = 2.7 * math.sin(math.pi * min(1.0, 0.15 + u_ * 0.9)) + 0.4
+        hgt = (3.4 if _wrng.random() > 0.3 else _wrng.uniform(1.4, 2.6)) * (0.75 + 0.25 * math.sin(math.pi * u_))
+        for sd in (-1, 1):
+            if _wrng.random() < 0.12:
+                continue
+            pts3 = [Vector((q.x, q.y, zk + 0.2))]
+            for m_ in range(1, 4):
+                f_ = m_ / 3
+                off = side * sd * half * math.sin(f_ * math.pi / 2)
+                pts3.append(Vector((q.x + off.x, q.y + off.y, zk + 0.2 + hgt * (1 - math.cos(f_ * math.pi / 2)) ** 0.8 + hgt * 0.4 * f_)))
+            for a3, b3 in zip(pts3, pts3[1:]):
+                merge(ribs, nl_kit.beam(a3, b3, 0.26, 0.3))
+for k in range(5):
+    p, t = along(_strand, _Ls * (0.1 + 0.2 * k + _wrng.uniform(-0.05, 0.05)))
+    t = Vector(t); nl = Vector((-t.y, t.x))
+    base = Vector(p) - nl * _wrng.uniform(9.0, 16.0)
+    if not _off_lanes(base, 12.0):
+        continue
+    lean = _wrng.uniform(0.25, 0.6); az = math.atan2(-nl.y, -nl.x) + _wrng.uniform(-0.8, 0.8)
+    h_ = _wrng.uniform(8.0, 13.0)
+    top = Vector((base.x + math.cos(az) * math.sin(lean) * h_, base.y + math.sin(az) * math.sin(lean) * h_, -1.0 + math.cos(lean) * h_))
+    merge(wmast, nl_kit.beam((base.x, base.y, -1.5), tuple(top), 0.42, 0.42))
+    if _wrng.random() < 0.6:                                    # a yard still crossed on it, canted
+        yc = Vector((base.x, base.y, -1.5)).lerp(top, 0.78); ya = Vector((math.cos(az + 1.57), math.sin(az + 1.57), _wrng.uniform(-0.4, 0.4))).normalized()
+        merge(wmast, nl_kit.beam(tuple(yc - ya * 3.2), tuple(yc + ya * 3.2), 0.22, 0.22))
+obj('wreck_ribs', ribs, face=lambda q: ((lin('#B8AE9C') if q.normal.z > 0.2 else lin('#8B8172')) if q.center.z > -0.1 else (lin('#4A4640'), 0)[0], PT['plain']),
+    family='wreck', jitter=0.1)
+obj('wreck_masts', wmast, face=lambda q: ((lin('#6E6458') if q.center.z > 0.0 else lin('#3D3A36')), PT['plain']), family='wreck', jitter=0.08)
 
 # ------------------------------------------------------------------ folk + gulls (decorative)
 dark, coats, heads = bmesh.new(), bmesh.new(), bmesh.new(); coat_ranges = []
@@ -789,6 +886,8 @@ for k in range(64):
         p = (p[0] + nl[0] * DRNG.uniform(-3, 3), p[1] + nl[1] * DRNG.uniform(-3, 3)); z = Z_SHORE
     elif k < 44:
         (band, pts, zb) = LANES[k % len(LANES)]; p = pts[DRNG.randrange(len(pts))]; z = zb
+        if in_pad(*p, 1.0):
+            continue
     elif k < 52:
         lp = along_line(QL['long'], 3.0, 5.0); (p, t, nl) = lp[DRNG.randrange(len(lp))]; z = Z_SHORE
     else:

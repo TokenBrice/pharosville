@@ -5,7 +5,6 @@ import {
   applyDevOverrides, deriveTargets, lampStepForBand, mastForBand, reachForScore, seaStepForShare, tideFromFraction, tideFromPct,
   TIDE_FULL_SCALE_PCT,
 } from "./bind";
-import { boardHeight, boardScaleUsd } from "./tide-board";
 
 const NOW = 1_790_000_000_000;
 const fresh = { updatedAt: NOW / 1000 - 60, ageSeconds: 60, status: "fresh" as const };
@@ -110,15 +109,5 @@ describe("readings → world targets", () => {
     expect(t.landmarks.harbour.state).toBe("stale");
     expect(applyDevOverrides(t, new URLSearchParams("psi=none")).psi.lit).toBe(false);
     expect(applyDevOverrides(t, new URLSearchParams("dews=DANGER"))).toMatchObject({ cones: 4, pennant: true });
-  });
-
-  it("tide board scale: symmetric, $50M steps, never below one step", () => {
-    expect(boardScaleUsd({ hourly: [{ hourTs: 0, netUsd: 186e6, mintUsd: 0, burnUsd: 0 }, { hourTs: 1, netUsd: -179e6, mintUsd: 0, burnUsd: 0 }] })).toBe(200e6);
-    expect(boardScaleUsd({ hourly: [{ hourTs: 0, netUsd: null, mintUsd: 0, burnUsd: 0 }] })).toBe(50e6);
-    // signed-sqrt heights: sign and order kept, a quiet hour still stands off the line
-    expect(boardHeight(200e6, 200e6)).toBe(1);
-    expect(boardHeight(-50e6, 200e6)).toBeCloseTo(-0.5);
-    expect(boardHeight(2e6, 200e6)).toBeCloseTo(0.1);
-    expect(boardHeight(-900e6, 200e6)).toBe(-1);
   });
 });

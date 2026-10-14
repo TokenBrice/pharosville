@@ -8,6 +8,7 @@ import { bakeCloudAtlas, CLOUD_CELLS } from "./clouds";
 import { cloudShadowUniforms } from "./cloud-shadow";
 import { applySkyPalette, createSkyPaletteUniforms } from "./palette";
 import { MAX_BANKS, SKY_BAND_GLSL } from "./sky-glsl";
+import { ensureMotionService, MotionClock } from "../ui/services";
 
 /**
  * SKY: a camera-attached painted backdrop (a flat card facing the camera, so the pretend horizon is a
@@ -99,6 +100,8 @@ export class SkySystem implements WorldSystem {
   private wind = 0.3;
   private windS = 0.3;
   private cirrusDrift = 0;
+  /** Cloud drift eases to a stop under reduced motion. */
+  private clock: MotionClock | null = null;
   private banks: Bank[] = [];
   private landPts: Array<[number, number]> = [];
   private horizon = 1500;
@@ -143,6 +146,8 @@ export class SkySystem implements WorldSystem {
       const polys = Array.isArray(coast) && Array.isArray((coast as unknown[][])[0]?.[0]) ? (coast as Array<Array<[number, number]>>) : [coast as Array<[number, number]>];
       for (const poly of polys) if (Array.isArray(poly)) for (const p of poly) pts.push([p[0], p[1]]);
       for (const line of [layout.island?.breakwater, layout.island?.mole]) for (const p of line ?? []) pts.push([p[0], p[1]]);
+      // P6: the Pharos islet (layout.island.islets) stands out at the mouth - keep it inside the sky card
+      for (const poly of layout.island?.islets ?? []) for (const p of poly) pts.push([p[0], p[1]]);
       this.landPts = pts;
     }
     this.fx = acquireFxTextures(ctx);
@@ -303,7 +308,9 @@ export class SkySystem implements WorldSystem {
     this.shared.uHorizonDepr.value = depr;
 
     // ---- clouds: cover reveals banks, wind drifts them (near layers faster); wrap at the band edge with a fade
-    const driftDeg = (0.004 + 0.05 * this.windS) * dt;
+    this.clock ??= new MotionClock(ensureMotionService(ctx));
+    const driftT = this.clock.step(dt), live = this.clock.live;
+    const driftDeg = (0.004 + 0.05 * this.windS) * dt * live;
     this.cirrusDrift += driftDeg * 0.6;
     // fair-weather cumulus even when calm (2-3 banks), the full sky at ALERT and above
     const vis = 5 + this.coverS * MAX_BANKS;
@@ -320,7 +327,7 @@ export class SkySystem implements WorldSystem {
       this.u.uBankB.value[i].set(b.cell, a, b.haze, b.mirror);
     });
     this.u.uWeather.value.set(this.coverS, this.windS, this.cirrusDrift);
-    const wdA = -0.6 + 0.15 * Math.sin(frame.elapsed * 0.01);
+    const wdA = -0.6 + 0.15 * Math.sin(driftT * 0.01);
     this.shared.uWeatherSea.value.set(this.coverS, this.windS, Math.cos(wdA), Math.sin(wdA));
 
     // ---- storm grade (ALERT and above): slate sky, dimmer duller key light, greyer world, flatter grade.
@@ -351,7 +358,7 @@ export class SkySystem implements WorldSystem {
     const sunUp = THREE.MathUtils.smoothstep(sunDir.y, 0.04, 0.3);
     const proj = 600 / Math.max(0.25, sunDir.y);
     const wind = this.shared.uWeatherSea.value;
-    this.shadowDrift += dt * (1.5 + 7 * this.windS);
+    this.shadowDrift += dt * live * (1.5 + 7 * this.windS);
     cs.uCloudShadow.value.set(
       -wind.z * this.shadowDrift + sunDir.x * proj * 0.15,
       -wind.w * this.shadowDrift + sunDir.z * proj * 0.15,

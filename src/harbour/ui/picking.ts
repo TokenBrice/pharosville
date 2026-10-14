@@ -8,12 +8,16 @@ import * as THREE from "three";
 import type { EngineContext } from "../engine/types";
 import type { HarbourLayout, Vec2 } from "../layout/types";
 import { pierIdFor } from "../model/classify";
+import { CIVIC_PANEL_ID, civicPlots, civicTop, inPlot, inPoly, officeChain, plotFor, seaZones, ZONE_PANEL, type CivicPlot } from "./places";
 import { getGround, getLayout, getSim, getWorldPicking, type GroundLike, type PickHit, type PickingService, type ScreenPoint } from "./services";
+import { yardCoins, yardHullPosition } from "./yard";
 
 /** Landmarks read as areas on the water (polygon / footprint hit), not as buildings. */
 const AREA_ZONE: Record<string, string> = { shoals: "shoals", "wreck-cove": "wreckCove", "far-ports": "farPorts" };
 /** Purely decorative landmarks are not offered for picking at all (they would only add noise). */
 const SKIP = new Set(["breakwater", "tide-gauge"]);
+/** A yard hull's tag height above its cradle (m): small keels, no rig yet. */
+const YARD_TOP = 7;
 
 const v = new THREE.Vector3();
 const ray = new THREE.Raycaster();
@@ -33,14 +37,6 @@ function segDist(px: number, py: number, ax: number, ay: number, bx: number, by:
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
-function inPoly(x: number, z: number, poly: Vec2[]): boolean {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, zi] = poly[i], [xj, zj] = poly[j];
-    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
-  }
-  return inside;
-}
 
 export class AnalyticPicking implements PickingService {
   private rect = { left: 0, top: 0, width: 1, height: 1 };
@@ -119,10 +115,39 @@ export class AnalyticPicking implements PickingService {
       if (best >= 0) return { kind: "boat", id: p.ids[best] };
     }
 
+    // the Shipyard's hulls (when the civic system has placed them): keel → deck-top segment
+    if (boats) {
+      let yBest: string | null = null, yScore = 1;
+      for (const c of yardCoins(this.ctx)) {
+        const w = yardHullPosition(this.ctx, c.id);
+        if (!w) continue;
+        this.project(w[0], w[1], w[2], a);
+        if (!a.visible) continue;
+        this.project(w[0], w[1] + YARD_TOP, w[2], b);
+        const r = Math.max(7, 4.5 * this.ppm(w[0], w[1], w[2]));
+        const score = segDist(clientX, clientY, a.x, a.y, b.x, b.y) / r;
+        if (score < yScore) { yScore = score; yBest = c.id; }
+      }
+      if (yBest) return { kind: "yard", id: yBest };
+    }
+
     // buildings: projected base→roof segment
     let lmBest: PickHit | null = null, lmScore = 1;
+    const plots = civicPlots(L);
+    // a civic model stands where the old landmark stood: the plot answers for that id
+    const civicIds = new Set(plots.map((pl) => CIVIC_PANEL_ID[pl.kind]).filter(Boolean));
+    for (const pl of plots) {
+      const [x, y, z] = pl.position;
+      this.project(x, y, z, a);
+      if (!a.visible) continue;
+      this.project(x, y + civicTop(pl.kind), z, b);
+      const r = Math.max(10, Math.min(pl.footprint[0], pl.footprint[1]) * 0.42 * this.ppm(x, y, z));
+      const score = segDist(clientX, clientY, a.x, a.y, b.x, b.y) / r;
+      const hit = this.plotHit(pl);
+      if (hit && score < lmScore) { lmScore = score; lmBest = hit; }
+    }
     for (const lm of L.landmarks) {
-      if (SKIP.has(lm.id) || AREA_ZONE[lm.id] || lm.id.startsWith("hamlet-")) continue;
+      if (SKIP.has(lm.id) || AREA_ZONE[lm.id] || lm.id.startsWith("hamlet-") || civicIds.has(lm.id)) continue;
       const [x, y, z] = lm.position;
       this.project(x, y, z, a);
       if (!a.visible) continue;
@@ -153,6 +178,7 @@ export class AnalyticPicking implements PickingService {
     }
     if (onLand) {
       const at: [number, number, number] = [hitPt.x, hitPt.y, hitPt.z];
+      for (const pl of plots) if (inPlot(pl, hitPt.x, hitPt.z, 2)) { const h = this.plotHit(pl); if (h) return h.kind === "harbour" ? { ...h, at } : h; }
       const hamlets = (L.zones as { hamlets?: Record<string, { centre: Vec2; halfWidth: number }> }).hamlets ?? {};
       for (const [pierId, h] of Object.entries(hamlets)) {
         if (Math.hypot(hitPt.x - h.centre[0], hitPt.z - h.centre[1]) <= h.halfWidth) {
@@ -164,10 +190,48 @@ export class AnalyticPicking implements PickingService {
     }
     plane.constant = -L.seaLevel;
     if (onLand === false || ray.ray.intersectPlane(plane, hitPt)) {
+      // the yard's slipways run out into the water
+      const yard = plots.find((pl) => pl.kind === "shipyard");
+      if (yard && inPlot(yard, hitPt.x, hitPt.z, 4)) return { kind: "landmark", id: "slipway" };
+      const zones = seaZones(L);
+      if (zones.length) {
+        // named water (P6 sea zones): a harbour's water is that harbour; open water opens nothing
+        for (const zn of zones) {
+          if (zn.kind === "open" || !inPoly(hitPt.x, hitPt.z, zn.polygon)) continue;
+          if (zn.kind === "harbour" && zn.chain) return { kind: "harbour", id: zn.chain, at: [hitPt.x, L.seaLevel, hitPt.z] };
+          const id = ZONE_PANEL[zn.kind];
+          if (id) return { kind: "landmark", id };
+        }
+        return null;
+      }
       for (const [lmId, zoneKey] of Object.entries(AREA_ZONE)) {
         const zone = L.zones[zoneKey] as { polygon?: Vec2[] } | undefined;
         if (zone?.polygon && inPoly(hitPt.x, hitPt.z, zone.polygon)) return { kind: "landmark", id: lmId };
       }
+    }
+    return null;
+  }
+
+  /** What a civic plot opens: a harbour office is its chain's harbour, the rest their panel id. */
+  private plotHit(pl: CivicPlot): PickHit | null {
+    const chain = officeChain(this.layout, pl.kind);
+    if (chain) return { kind: "harbour", id: chain, at: [pl.position[0], pl.position[1] + civicTop(pl.kind) - 3, pl.position[2]] };
+    const id = CIVIC_PANEL_ID[pl.kind];
+    return id ? { kind: "landmark", id } : null;
+  }
+
+  /** A landmark id's anchor and ground point from the P6 layout (civic plot, Pharos, sea-zone label). */
+  private placeOf(id: string): { ground: [number, number, number]; top: [number, number, number] } | null {
+    const L = this.layout;
+    const pl = plotFor(L, id);
+    if (pl) {
+      const [x, y, z] = pl.position;
+      return { ground: [x, y, z], top: [x, y + civicTop(pl.kind), z] };
+    }
+    const zn = seaZones(L).find((zz) => zz.id === id || ZONE_PANEL[zz.kind] === id);
+    if (zn && zn.kind !== "harbour") {
+      const [x, z] = zn.labelAnchor, sl = L?.seaLevel ?? 0;
+      return { ground: [x, sl, z], top: [x, sl + 6, z] };
     }
     return null;
   }
@@ -251,7 +315,15 @@ export class AnalyticPicking implements PickingService {
       if (i < 0 || !sim) return null;
       return [sim.pose.position[i * 3], 0, sim.pose.position[i * 3 + 2]];
     }
+    if (hit.kind === "yard") {
+      const w = yardHullPosition(this.ctx, hit.id);
+      if (w) return [w[0], 0, w[2]];
+      const yard = plotFor(L, "slipway");
+      return yard ? [yard.position[0], 0, yard.position[2]] : null;
+    }
     if (hit.kind === "landmark") {
+      const place = this.placeOf(hit.id);
+      if (place) return place.ground;
       const lm = L.landmarks.find((l) => l.id === hit.id);
       return lm ? [...lm.position] : null;
     }
@@ -275,10 +347,18 @@ export class AnalyticPicking implements PickingService {
     if (hit.kind === "landmark") {
       const lantern = hit.id === "pharos" ? (this.ctx.services.get("lighthouse") as { lanternPosition?: THREE.Vector3 } | undefined)?.lanternPosition : undefined;
       if (lantern) return this.project(lantern.x, lantern.y + 7, lantern.z, out);
+      const place = this.placeOf(hit.id);
+      if (place) return this.project(place.top[0], place.top[1], place.top[2], out);
       const anchor = this.anchorOf(hit.id);
       if (anchor) return this.project(anchor[0], anchor[1], anchor[2], out);
       const lm = L.landmarks.find((l) => l.id === hit.id);
       return lm ? this.project(lm.position[0], lm.position[1] + 10, lm.position[2], out) : null;
+    }
+    if (hit.kind === "yard") {
+      const w = yardHullPosition(this.ctx, hit.id);
+      if (w) return this.project(w[0], w[1] + YARD_TOP + 1.5, w[2], out);
+      const yard = plotFor(L, "slipway");
+      return yard ? this.project(yard.position[0], yard.position[1] + civicTop("shipyard"), yard.position[2], out) : null;
     }
     const at = hit.at ?? this.deckAnchor(hit.id);
     if (at) return this.project(at[0], at[1] + 3, at[2], out);

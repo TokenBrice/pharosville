@@ -5,6 +5,10 @@ import * as THREE from "three";
  * public/harbour/emblems.{webp,json}, every logo on a white roundel) copied into a canvas, plus a
  * generated MONOGRAM roundel (symbol letters on the coin's brand colour) for every boat without a logo,
  * in the free slots after the logos. One CanvasTexture, premultiplied (clean mip edges), sRGB.
+ *
+ * The logo image (~1 MB) is not first-view weight: `load` reads only the slot map, logo slots show a
+ * plain brand-colour roundel, and the fleet calls `loadLogos` after the first frame to paint the logos
+ * in (monograms instead if the image never arrives).
  */
 export const EMBLEMS_JSON = "/harbour/emblems.json";
 export const EMBLEMS_IMG = "/harbour/emblems.webp";
@@ -22,8 +26,12 @@ export class EmblemAtlas {
   private readonly slots = new Map<string, number>();
   private nextFree: number;
   private capacity: number;
+  /** Logo slots holding a placeholder roundel until the logo image lands. */
+  private readonly pending = new Map<number, EmblemCoin>();
+  private logos: "wait" | "loading" | "done" = "wait";
+  private disposed = false;
 
-  private constructor(private readonly meta: AtlasMeta, private readonly img: ImageBitmap | null, extraSlots: number) {
+  private constructor(private readonly meta: AtlasMeta, extraSlots: number) {
     const rowsLogos = Math.ceil(Object.keys(meta.ids).length / meta.cols);
     const rows = Math.max(1, Math.min(meta.cols, rowsLogos + Math.ceil(extraSlots / meta.cols) + 1));
     this.capacity = rows * meta.cols;
@@ -31,7 +39,6 @@ export class EmblemAtlas {
     this.canvas.width = meta.width;
     this.canvas.height = rows * meta.slot;
     this.g = this.canvas.getContext("2d", { willReadFrequently: false })!;
-    if (img) this.g.drawImage(img, 0, 0);
     for (const [id, s] of Object.entries(meta.ids)) this.slots.set(id, s);
     this.nextFree = rowsLogos * meta.cols; // monograms start on a fresh row (logos may be re-built)
     this.nextFree = Math.max(this.nextFree, Object.keys(meta.ids).length);
@@ -46,32 +53,59 @@ export class EmblemAtlas {
     this.texture = t;
   }
 
+  /** The slot map only (small); the logo image comes later through loadLogos. */
   static async load(extraSlots: number): Promise<EmblemAtlas> {
     let meta: AtlasMeta = { slot: 128, cols: 32, width: 4096, height: 128, ids: {} };
-    let img: ImageBitmap | null = null;
     try {
       const r = await fetch(EMBLEMS_JSON);
       if (r.ok && (r.headers.get("content-type") ?? "").includes("json")) meta = await r.json() as AtlasMeta;
+    } catch (e) { console.warn("[harbour] fleet: emblem atlas unavailable, monograms only", e); }
+    return new EmblemAtlas(meta, extraSlots);
+  }
+
+  /** Paint the logo image over the logo slots (once); if it cannot load, the waiting coins get monograms. */
+  async loadLogos(): Promise<void> {
+    if (this.logos !== "wait") return;
+    this.logos = "loading";
+    let img: ImageBitmap | null = null;
+    try {
       const ri = await fetch(EMBLEMS_IMG);
       if (ri.ok && (ri.headers.get("content-type") ?? "").includes("image")) img = await createImageBitmap(await ri.blob(), { premultiplyAlpha: "none" });
-    } catch (e) { console.warn("[harbour] fleet: emblem atlas unavailable, monograms only", e); }
-    if (!img) meta.ids = {};
-    return new EmblemAtlas(meta, img, extraSlots);
+    } catch (e) { console.warn("[harbour] fleet: emblem logos unavailable, monograms instead", e); }
+    this.logos = "done";
+    if (this.disposed) { img?.close(); return; }
+    if (img) {
+      const rowsLogos = Math.ceil(Object.keys(this.meta.ids).length / this.meta.cols);
+      this.g.clearRect(0, 0, this.canvas.width, Math.min(img.height, rowsLogos * this.meta.slot));
+      this.g.drawImage(img, 0, 0);
+      img.close();
+    } else for (const [slot, c] of this.pending) this.drawRoundel(slot, c, true);
+    this.pending.clear();
+    this.texture.needsUpdate = true;
   }
 
   /** Slot for a coin: its logo, or a monogram drawn on first request. -1 when the atlas is full. */
   slotFor(c: EmblemCoin): number {
     const hit = this.slots.get(c.id);
-    if (hit != null) return hit;
+    if (hit != null) {
+      // a logo slot before the logos land: the coin's brand-colour roundel (a monogram if they never will)
+      if (this.logos !== "done" && !this.pending.has(hit)) {
+        this.pending.set(hit, c);
+        this.drawRoundel(hit, c, false);
+        this.texture.needsUpdate = true;
+      }
+      return hit;
+    }
     if (this.nextFree >= this.capacity) return -1;
     const s = this.nextFree++;
-    this.drawMonogram(s, c);
+    this.drawRoundel(s, c, true);
     this.slots.set(c.id, s);
     this.texture.needsUpdate = true;
     return s;
   }
 
-  private drawMonogram(slot: number, c: EmblemCoin): void {
+  /** The coin's brand-colour roundel, lettered with its monogram or (a placeholder) plain. */
+  private drawRoundel(slot: number, c: EmblemCoin, lettered: boolean): void {
     const S = this.meta.slot, g = this.g;
     const x0 = (slot % this.meta.cols) * S, y0 = Math.floor(slot / this.meta.cols) * S;
     const cx = x0 + S / 2, cy = y0 + S / 2;
@@ -88,6 +122,7 @@ export class EmblemAtlas {
     g.beginPath(); g.arc(cx, cy, S * 0.465, 0, Math.PI * 2); g.fillStyle = "#FFFFFF"; g.fill();
     g.beginPath(); g.arc(cx, cy, S * 0.41, 0, Math.PI * 2); g.fillStyle = `#${base.getHexString(THREE.SRGBColorSpace)}`; g.fill();
     g.beginPath(); g.arc(cx, cy, S * 0.36, 0, Math.PI * 2); g.lineWidth = S * 0.012; g.strokeStyle = ink === "#FFFFFF" ? "rgba(255,255,255,0.55)" : "rgba(30,42,51,0.45)"; g.stroke();
+    if (!lettered) { g.restore(); return; }
     const letters = monogram(c.symbol || c.id);
     const size = letters.length <= 1 ? 0.5 : letters.length === 2 ? 0.4 : letters.length === 3 ? 0.3 : 0.24;
     g.fillStyle = ink;
@@ -97,7 +132,7 @@ export class EmblemAtlas {
     g.restore();
   }
 
-  dispose(): void { this.texture.dispose(); this.img?.close(); }
+  dispose(): void { this.disposed = true; this.texture.dispose(); }
 }
 
 /** Up to 4 letters of a symbol, dropping a trailing currency suffix ("USD", "EUR") when the rest is ≥ 2 letters. */

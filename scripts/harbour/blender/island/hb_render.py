@@ -332,6 +332,9 @@ for cam in CAMS:
         coll_.hide_render = nm_ != cam
     Dc = CJ['presets'][cam]['distance']
     wt.mist_settings.start = Dc * 0.72; wt.mist_settings.depth = Dc * 1.25
+    _R, _cv = sky_radius(CJ['presets'][cam])
+    for _mn in ('sea', 'M_sea'):
+        setv(_mn, 'HAZE_R', math.hypot(_R, _cv.z))
     for st in STATES:
         apply_state(st)
         out = os.path.join(OUT, f'key-{cam}-{st}{SUFFIX}.png')

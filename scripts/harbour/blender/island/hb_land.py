@@ -14,6 +14,7 @@ import terrain
 from scipy.spatial import Delaunay
 from geom import along, polyline_len, catmull
 terrain.init(COAST, QL, CJ.get('beaches'))
+terrain.set_pads([dict(c=cv['c'], face=cv['face'], w=cv['w'], d=cv['d'], z=cv['z'], blend=2.5) for cv in CJ.get('civic', [])])   # P6 civic pads
 SAND, SHINGLE, PEBBLE, WETSAND = lin('#D3BF96'), lin('#A49E90'), lin('#AFA593'), lin('#9E8D6E')
 TOWN = CJ['town']
 CTW = Vector(TOWN['ct'])                 # amphitheatre centre (world)
@@ -95,6 +96,17 @@ def ribbon(bm, pts, width, lift=0.12, skirt=0.55):
         bm.faces.new((R_[i], Rs[i], Rs[i + 1], R_[i + 1]))
 
 
+def plot_rect(cv, grow=0.0):
+    """A civic plot's rectangle (world), grown by `grow` metres on every side."""
+    c = Vector(cv['c']); f = Vector(cv['face']); t = Vector((-f.y, f.x))
+    hw, hd = cv['w'] / 2 + grow, cv['d'] / 2 + grow
+    return [tuple(c + t * a + f * b) for a, b in ((-hw, -hd), (hw, -hd), (hw, hd), (-hw, hd))]
+
+
+def in_pad(x, y, margin=0.0):
+    return terrain.pad_at(x, y, margin) is not None
+
+
 # ------------------------------------------------------------------ heightfield
 def build_heightfield():
     from PIL import Image, ImageDraw
@@ -123,7 +135,7 @@ def build_heightfield():
             x += step
         y += step * 0.866
     # finer facets on the Pharos headland (the hero's ground) and the town bowl
-    for (cu, cv, ru, rv, st) in ((terrain.PHAROS[0] - 16, terrain.PHAROS[1] - 4, 60, 34, 3.2), (CT_UV[0], CT_UV[1] + 60, 150, 90, 3.6)):
+    for (cu, cv, ru, rv, st) in ((terrain.HEAD_C[0], terrain.HEAD_C[1], 60, 34, 3.2), (CT_UV[0], CT_UV[1] + 60, 150, 90, 3.6)):
         v = cv - rv
         while v < cv + rv:
             u = cu - ru
@@ -143,6 +155,13 @@ def build_heightfield():
                 th = th1 - 8 + (th0 - th1 + 16) * i / n
                 p = town_pt(th, rr)
                 if inside(*p):
+                    pts.append(p)
+    # P6 civic pads: rows hugging each pad's edge (inside and out) so the level pad and its wall stay crisp
+    for cv in CJ.get('civic', []):
+        for off in (-0.45, 0.45, 2.6):
+            ring = plot_rect(cv, off)
+            for p in _resample(ring, 2.2):
+                if inside(*p) and dcoast(*p) > 1.0:
                     pts.append(p)
     # quay aprons: a row just inland of every quay line so the apron stays flat to its edge
     for L in QL.values():
@@ -171,9 +190,15 @@ def build_heightfield():
     return bm
 
 
+PAD_COL = {'shipyard': (lin('#A79E89'), 'cobble'), 'burn': (lin('#8F8A80'), 'cobble')}
+
+
 def hf_face(q):
     c = q.center; nz = q.normal.z
     u, v = uvp(c.x, c.y)
+    pd = terrain.pad_at(c.x, c.y, 0.0)
+    if pd is not None and nz > 0.9:                 # P6 civic pads: paved (the building's own model stands on it)
+        return (jitter_col(PAL['cobble'], 0.96 + 0.08 * terrain.fbm(c.x, c.y, 0.05, 2, 13)), PT['cobble'])
     nn = terrain.fbm(c.x, c.y, 0.02, 2, 11)
     if nz < 0.34:                                   # only the steepest ground shows granite; the flanks stay turf
         return ((PAL['rock'] if nn > 0.5 else lin('#8A8B86')), PT['rock'])
@@ -193,7 +218,7 @@ def hf_face(q):
         stripe = int((u * 0.9 + v * 0.3) / 2.6) % 2 if fl['kind'] in ('plough', 'hay') else 0
         return (jitter_col(fc, 0.93 if stripe else 1.03), PT['grass'] if fl['kind'] != 'plough' else PT['plain'])
     base = PAL['grass']
-    hd = math.hypot((u - terrain.PHAROS[0] + 16) / 50.0, (v - terrain.PHAROS[1] + 4) / 28.0)
+    hd = terrain.head_d(u, v)
     if hd < 1.1:
         base = lin('#7E9150')                                                    # wind-cropped headland turf
     elif c.z > 17 or terrain.line_d(u, v, terrain.WEST_SPINE) < 24 or terrain.line_d(u, v, terrain.EAST_SPINE) < 24:
@@ -230,7 +255,7 @@ def _terrain_paint(me):
             k_moss = max(0.0, min(1.0, (0.42 - n1) / 0.1)) * 0.35
             c = c.lerp(dry, k_dry).lerp(moss, k_moss)
             u_, v_ = uvp(x, y)
-            hd = math.hypot((u_ - terrain.PHAROS[0] + 16) / 50.0, (v_ - terrain.PHAROS[1] + 4) / 28.0)
+            hd = terrain.head_d(u_, v_)
             if hd < 1.15 and n2 > 0.58:
                 c = c.lerp(heath_, 0.35 * min(1.0, (n2 - 0.58) / 0.1))      # heather on the headland
             c = c * (0.92 + 0.16 * n2)
@@ -309,11 +334,15 @@ for k in range(1, len(RINGS)):
     WALL_ARCS.append((k, ths))
     for a_, b_ in zip(ths, ths[1:]):
         pa, pb = town_pt(a_, r0 - 0.45), town_pt(b_, r0 - 0.45)
+        if in_pad(*town_pt((a_ + b_) / 2, r0), 1.2):
+            continue
         merge(tw_, nl_kit.beam((pa[0], pa[1], (zb - 0.8 + z + 0.05) / 2), (pb[0], pb[1], (zb - 0.8 + z + 0.05) / 2), 1.0, z + 0.85 - zb))
         ca, cb = town_pt(a_, r0 - 0.4), town_pt(b_, r0 - 0.4)
         merge(tc_, nl_kit.beam((ca[0], ca[1], z + 0.25), (cb[0], cb[1], z + 0.25), 1.35, 0.4))
     for th in (th0, th1):
         p = town_pt(th, r0 - 0.5)
+        if in_pad(*p, 1.5):
+            continue
         merge(tw_, bm_box(2.0, 2.0, z + 0.3 - zb + 0.8, (p[0], p[1], zb - 0.8 + (z + 0.3 - zb + 0.8) / 2)))
     # ivy + valerian tumbling over the walls (A graft)
     th = th0 - irng.uniform(1, 4)
@@ -323,6 +352,9 @@ for k in range(1, len(RINGS)):
         tn = Vector(town_pt(th - 1, r0)) - Vector(town_pt(th + 1, r0)); ang = math.atan2(tn.y, tn.x)
         b = bm_ico(1.0, (0, 0, 0), 1, (w_ / 2, 0.36, h_ / 2), seed=irng.randint(0, 999), amp=0.18)
         p = town_pt(th, r0 - 0.75)                   # hugging the wall face (never a dark spike standing off it)
+        if in_pad(*p, 2.0):
+            th -= math.degrees((w_ + irng.uniform(3.0, 14.0)) / r0); b.free()
+            continue
         xf(b, rz=ang); xf(b, loc=(p[0], p[1], z - h_ / 2 + 0.15))
         merge(ivy, b)
         if irng.random() < 0.45:
@@ -345,11 +377,15 @@ for k in range(1, len(RINGS)):
     pts = [town_pt(th0 - (th0 - th1) * i / n, r0 + 1.8) for i in range(n + 1)]
     LANES.append((k, pts, z))
     for a_, b_ in zip(pts, pts[1:]):
+        if in_pad((a_[0] + b_[0]) / 2, (a_[1] + b_[1]) / 2, 1.0):
+            continue
         merge(lanes_bm, nl_kit.beam((a_[0], a_[1], z + 0.04), (b_[0], b_[1], z + 0.04), 3.2, 0.24))
 obj('town_lanes', lanes_bm, PAL['gravel'], PT['cobble'], family='town', jitter=0.03)
 STAIRS = []
 for (th, band) in TOWN['stairs']:
     r0 = RINGS[band][0]; za = RINGS[band - 1][2]; zb = RINGS[band][2]
+    if in_pad(*town_pt(th, r0 - 2.0), 3.0) or in_pad(*town_pt(th, r0 + 1.0), 3.0):
+        continue
     n = int((zb - za) / 0.3)
     run = n * 0.34
     radial = Vector(town_pt(th, r0 + 1)) - Vector(town_pt(th, r0)); radial.normalize()
@@ -405,6 +441,8 @@ def coping_line(line, bm):
 
 
 for name, L in QL.items():
+    if name == 'yard':
+        continue
     depth = APRON.get(name, 3.0 if name.endswith(('-w', '-e')) else 7.0)
     strip_left(L, depth, Z_SHORE - 0.3, Z_SHORE + 0.06, pav)
     coping_line(L, cop)
@@ -763,5 +801,221 @@ obj('mole_tree_trunks', mtrunk, PAL['timber_dark'], PT['plain'], family='veg')
 obj('mole_tree_crowns', mleaf, face=lambda q: ((lin('#7D9A4A') if q.normal.z > 0.3 else lin('#5E7D3C')), PT['leaf']), family='veg', jitter=0.08)
 obj('mole_chain_band', mband, ETH_BAND, PT['plain'], family='quay', jitter=0.0)
 obj('mole_light_caps', mtw, PAL['iron'], PT['metal'], family='marina')
+
+# ------------------------------------------------------------------ P6: civic pads - granite retaining walls / parapets on every edge
+# where the level pad and the land beside it differ (the civic models stand on the pads; the walls make them read as
+# terraces cut into the hill rather than ground smeared flat)
+set_coll(collection('civic_pads', ROOTC))
+pw_, pc_ = bmesh.new(), bmesh.new()
+for cv in CJ.get('civic', []):
+    zp = cv['z']
+    ring = plot_rect(cv, 0.0)
+    for i in range(4):
+        a, b = Vector(ring[i]), Vector(ring[(i + 1) % 4])
+        t = (b - a); L_ = t.length; t.normalize()
+        nout = Vector((t.y, -t.x))
+        if (Vector(cv['c']) - a).dot(nout) > 0:
+            nout = -nout
+        n_ = max(1, int(L_ / 1.6))
+        for k in range(n_):
+            p0 = a + t * (L_ * k / n_); p1 = a + t * (L_ * (k + 1) / n_)
+            zo = [terrain.height(*(q + nout * 1.7), pads=False) if point_in_poly(*(q + nout * 1.7), COAST) else -1.5 for q in (p0, p1, (p0 + p1) / 2)]
+            dz = max(abs(z_ - zp) for z_ in zo)
+            if dz < 0.55:
+                continue
+            lo = min(min(zo), zp) - 0.7; hi = max(zp + (0.55 if min(zo) < zp - 0.4 else 0.0), max(zo) + 0.15)
+            q0 = p0 + nout * 0.45; q1 = p1 + nout * 0.45
+            merge(pw_, nl_kit.beam((q0.x, q0.y, (lo + hi) / 2), (q1.x, q1.y, (lo + hi) / 2), 0.9, hi - lo))
+            merge(pc_, nl_kit.beam((q0.x, q0.y, hi + 0.12), (q1.x, q1.y, hi + 0.12), 1.15, 0.26))
+if len(pw_.faces):
+    obj('civic_pad_walls', pw_, PAL['granite'], PT['ashlar'], family='quay', bevel=0.03)
+    obj('civic_pad_coping', pc_, PAL['granite_light'], PT['plain'], family='quay', jitter=0.06)
+else:
+    pw_.free(); pc_.free()
+
+# ------------------------------------------------------------------ P6 (D15): the Pharos islet + the arched causeway
+# The rock: crafted strata cliffs to a weathered granite cap that rises to the podium (lighthouse.glb carries the 64 m
+# podium + pavement + tower). The causeway: pale limestone like the Pharos, five arches over the channel to the headland.
+set_coll(collection('pharos_islet', ROOTC))
+PHJ = CJ['pharos']
+ISL = [tuple(p) for p in PHJ['islet']]
+PCN = Vector(PHJ['p']); PZ = PHJ['z']; PHALF = PHJ['half']
+LIME, LIME_D, LIME_L = lin('#D9CDB2'), lin('#BBAE92'), lin('#E8DEC8')
+
+
+def _isl_edge_d(x, y):
+    return min(seg_d((x, y), ISL[i], ISL[(i + 1) % len(ISL)]) for i in range(len(ISL)))
+
+
+def islet_h(x, y):
+    """Rock height on the islet: a 3-4.6 m rim of cliff, rising to ~4.9 m against the podium."""
+    de = _isl_edge_d(x, y)
+    rim = 3.1 + 1.5 * terrain.fbm(x, y, 0.045, 2, 71)
+    return min(PZ - 1.0, rim + 1.2 * terrain.sstep(0.0, 9.0, de) + 0.5 * (terrain.fbm(x, y, 0.12, 2, 72) - 0.5))
+
+
+_ib = bmesh.new()
+_ipts = list(_resample(ISL, 1.8))
+_sq = [(PCN.x + sx * (PHALF - 0.8), PCN.y + sy * (PHALF - 0.8)) for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+_ipts += _resample(_sq, 2.5)
+_rr = random.Random(73)
+_xs = [p[0] for p in ISL]; _ys = [p[1] for p in ISL]
+_y = min(_ys)
+while _y < max(_ys):
+    _x = min(_xs)
+    while _x < max(_xs):
+        q = (_x + _rr.uniform(-0.8, 0.8), _y + _rr.uniform(-0.8, 0.8))
+        if point_in_poly(*q, ISL) and _isl_edge_d(*q) > 1.0 and not (abs(q[0] - PCN.x) < PHALF - 0.4 and abs(q[1] - PCN.y) < PHALF - 0.4):
+            _ipts.append(q)
+        _x += 2.6
+    _y += 2.6 * 0.866
+_IP = np.array(_ipts)
+_itri = Delaunay(_IP)
+_iv = [_ib.verts.new((p[0], p[1], islet_h(*p) if _isl_edge_d(*p) > 0.2 else islet_h(*p) - 0.1)) for p in _ipts]
+for t_ in _itri.simplices:
+    c_ = _IP[t_].mean(axis=0)
+    if not point_in_poly(c_[0], c_[1], ISL) or (abs(c_[0] - PCN.x) < PHALF - 1.0 and abs(c_[1] - PCN.y) < PHALF - 1.0):
+        continue
+    try:
+        _ib.faces.new([_iv[i] for i in t_])
+    except ValueError:
+        pass
+_ib.normal_update()
+for f_ in _ib.faces:
+    if f_.normal.z < 0:
+        f_.normal_flip()
+
+
+ISLET_ROCK = [lin('#C3AA82'), lin('#B59B74'), lin('#CDB893'), lin('#A88F6C')]      # warm Alexandrian limestone
+
+
+def _islet_face(q):
+    c = q.center; nn = terrain.fbm(c.x, c.y, 0.08, 2, 74)
+    if q.normal.z < 0.55:
+        return (ISLET_ROCK[int(abs(c.x * 3 + c.y)) % len(ISLET_ROCK)], PT['rock'])
+    if nn > 0.64:
+        return (lin('#7E8B57'), PT['grass'])              # thrift and sea-grass in the hollows
+    return ((LICHEN if nn < 0.22 else ISLET_ROCK[int(nn * 9) % len(ISLET_ROCK)]), PT['rock'])
+
+
+obj('pharos_islet_cap', _ib, face=_islet_face, jitter=0.06, seed=75, family='terrain')
+# the islet's own crafted cliff: strata_cliff reads H (column tops) and COAST (which side is land) - lend it the islet's
+_H_land, _C_land = H, COAST
+H = lambda x, y: islet_h(x, y)
+COAST = ISL
+_ic, _il, _if = strata_cliff(ISL + [ISL[0]], 77)
+H, COAST = _H_land, _C_land
+obj('pharos_islet_cliffs', _ic, face=cliff_face, jitter=0.06, seed=78, family='terrain')
+_ibl = bmesh.new()
+for k, (p, nr, t) in enumerate(_if):                        # boulders and surf rocks round the foot
+    if _crng.random() < 0.5:
+        r = _crng.uniform(0.8, 2.2)
+        c = p + nr * (r * 0.6 + _crng.uniform(0.0, 1.6))
+        merge(_ibl, bm_ico(r, (c.x, c.y, _crng.uniform(-0.6, 0.3)), 1 if r > 1.3 else 0, (1.3, 1.0, 0.8), seed=500 + k, amp=0.3))
+obj('pharos_islet_boulders', _ibl, face=lambda q: ((WET if q.center.z < 0.35 else (WEATHER if q.normal.z > 0.55 else GRANITE[q.index % 3])), PT['rock']),
+    family='terrain', jitter=0.08)
+STRUCT_POLYS.append(ISL)
+
+CWJ = PHJ['causeway']
+CA, CB = Vector(CWJ['a']), Vector(CWJ['b']); CWW = CWJ['width']; ZA = CWJ['za']
+cd_ = (CB - CA); CL = cd_.length; cd_.normalize(); cn_ = Vector((-cd_.y, cd_.x))
+s_ramp = CL * 0.32
+
+
+def deck_z(s):
+    return ZA + (PZ - ZA) * terrain.sstep(0.0, s_ramp, s)
+
+
+_wet = [s_ for s_ in np.arange(0.0, CL, 0.5) if not point_in_poly(*(CA + cd_ * s_), COAST) and not point_in_poly(*(CA + cd_ * s_), ISL)]
+SW0, SW1 = (min(_wet) - 1.0, max(_wet) + 1.0) if _wet else (CL * 0.3, CL * 0.7)
+cw_deck, cw_side, cw_par, cw_cop, cw_pier, cw_sof = (bmesh.new() for _ in range(6))
+# the landing: the deck runs on 7 m up the headland, easing down into the ground
+_L0 = CA - cd_ * 7.0
+_zg = H(*_L0)
+merge(cw_deck, nl_kit.beam((_L0.x, _L0.y, _zg - 0.45), (CA.x, CA.y, deck_z(0.0) - 0.45), CWW, 0.9))
+for sd in (-1, 1):
+    o = cn_ * sd * (CWW / 2 - 0.3)
+    merge(cw_par, nl_kit.beam((_L0.x + o.x, _L0.y + o.y, _zg + 0.2), (CA.x + o.x, CA.y + o.y, deck_z(0.0) + 0.5), 0.6, 1.0))
+    merge(cw_par, nl_kit.obox((_L0.x + o.x, _L0.y + o.y, _zg + 0.4), (cd_.x, cd_.y, 0), 1.0, 1.0, 1.6))      # gate piers
+# the deck slab + paving, parapets with coping, in 1 m pieces along the run
+n_ = int(CL)
+for k in range(n_):
+    s0, s1 = CL * k / n_, CL * (k + 1) / n_
+    a, b = CA + cd_ * s0, CA + cd_ * s1
+    za, zb = deck_z(s0), deck_z(s1)
+    merge(cw_deck, nl_kit.beam((a.x, a.y, za - 0.5), (b.x, b.y, zb - 0.5), CWW, 1.0))
+    for sd in (-1, 1):
+        o = cn_ * sd * (CWW / 2 - 0.3)
+        merge(cw_par, nl_kit.beam((a.x + o.x, a.y + o.y, za + 0.5), (b.x + o.x, b.y + o.y, zb + 0.5), 0.6, 1.0))
+        merge(cw_cop, nl_kit.beam((a.x + o.x, a.y + o.y, za + 1.08), (b.x + o.x, b.y + o.y, zb + 1.08), 0.78, 0.18))
+# solid abutment masonry on the headland and on the islet (to the sea floor), under the deck
+for (s0, s1) in ((0.0, SW0), (SW1, CL)):
+    if s1 - s0 < 0.5:
+        continue
+    for k in range(max(1, int(s1 - s0))):
+        q0, q1 = s0 + (s1 - s0) * k / max(1, int(s1 - s0)), s0 + (s1 - s0) * (k + 1) / max(1, int(s1 - s0))
+        a, b = CA + cd_ * q0, CA + cd_ * q1
+        zt = min(deck_z(q0), deck_z(q1)) - 0.9
+        merge(cw_side, nl_kit.beam((a.x, a.y, (zt + SEA_FLOOR) / 2), (b.x, b.y, (zt + SEA_FLOOR) / 2), CWW - 0.1, zt - SEA_FLOOR))
+# the arches over the channel: piers with cutwaters, spandrel faces, barrel soffits
+NB = max(3, round((SW1 - SW0) / 7.4))
+PIER = 1.7
+bay = (SW1 - SW0) / NB
+ZSPR = 0.45
+for i in range(NB + 1):                                      # piers (the end ones are half-buried in the abutments)
+    sc = SW0 + i * bay
+    c = CA + cd_ * sc
+    zt = deck_z(sc) - 0.9
+    merge(cw_pier, nl_kit.obox((c.x, c.y, (SEA_FLOOR + ZSPR) / 2), (cd_.x, cd_.y, 0), PIER, CWW, ZSPR - SEA_FLOOR))
+    for sd in (-1, 1):                                       # pointed cutwaters both sides, to the springing
+        tip = c + cn_ * sd * (CWW / 2 + 1.6)
+        bmc = bmesh.new()
+        v0 = [bmc.verts.new((*(c + cn_ * sd * CWW / 2 + cd_ * (PIER / 2)), z_)) for z_ in (SEA_FLOOR, ZSPR + 0.3)]
+        v1 = [bmc.verts.new((*(c + cn_ * sd * CWW / 2 - cd_ * (PIER / 2)), z_)) for z_ in (SEA_FLOOR, ZSPR + 0.3)]
+        v2 = [bmc.verts.new((tip.x, tip.y, z_)) for z_ in (SEA_FLOOR, ZSPR - 0.2)]
+        bmc.faces.new((v0[0], v2[0], v2[1], v0[1])); bmc.faces.new((v2[0], v1[0], v1[1], v2[1])); bmc.faces.new((v0[1], v2[1], v1[1]))
+        bmesh.ops.recalc_face_normals(bmc, faces=bmc.faces)
+        merge(cw_pier, bmc)
+for i in range(NB):                                          # spandrels + soffits, one bay at a time
+    s0, s1 = SW0 + i * bay + PIER / 2, SW0 + (i + 1) * bay - PIER / 2
+    span = s1 - s0; sc = (s0 + s1) / 2
+    z_under = min(deck_z(s0), deck_z(s1)) - 1.0
+    rise = max(0.6, min(span / 2, z_under - ZSPR - 0.35))
+    m = 14
+    arch = [(s0 + span * j / m, ZSPR + rise * math.sqrt(max(0.0, 1.0 - ((s0 + span * j / m - sc) / (span / 2)) ** 2))) for j in range(m + 1)]
+    for sd in (-1, 1):
+        o = cn_ * sd * (CWW / 2)
+        for j in range(m):
+            (sa, za_), (sb, zb_) = arch[j], arch[j + 1]
+            pa, pb = CA + cd_ * sa + o, CA + cd_ * sb + o
+            ta, tb = deck_z(sa) - 1.0, deck_z(sb) - 1.0
+            vs = [cw_side.verts.new(v) for v in ((pa.x, pa.y, za_), (pb.x, pb.y, zb_), (pb.x, pb.y, tb + 0.02), (pa.x, pa.y, ta + 0.02))]
+            cw_side.faces.new(vs if sd < 0 else vs[::-1])
+        # the voussoir ring: a slightly proud band round the arch on each face
+        for j in range(m):
+            (sa, za_), (sb, zb_) = arch[j], arch[j + 1]
+            pa, pb = CA + cd_ * sa + o * 1.03, CA + cd_ * sb + o * 1.03
+            merge(cw_cop, nl_kit.beam((pa.x, pa.y, za_ + 0.28), (pb.x, pb.y, zb_ + 0.28), 0.3, 0.6))
+    for j in range(m):                                       # soffit (barrel)
+        (sa, za_), (sb, zb_) = arch[j], arch[j + 1]
+        L0, L1 = CA + cd_ * sa - cn_ * (CWW / 2), CA + cd_ * sb - cn_ * (CWW / 2)
+        R0, R1 = CA + cd_ * sa + cn_ * (CWW / 2), CA + cd_ * sb + cn_ * (CWW / 2)
+        vs = [cw_sof.verts.new(v) for v in ((L0.x, L0.y, za_), (R0.x, R0.y, za_), (R1.x, R1.y, zb_), (L1.x, L1.y, zb_))]
+        cw_sof.faces.new(vs)
+    # the spandrel fill between the faces above the barrel (a solid wedge so no gap shows from any side)
+    for j in range(m):
+        (sa, za_), (sb, zb_) = arch[j], arch[j + 1]
+        pa, pb = CA + cd_ * sa, CA + cd_ * sb
+        ztop = min(deck_z(sa), deck_z(sb)) - 1.0
+        zm = max(za_, zb_)
+        if ztop - zm > 0.1:
+            merge(cw_side, nl_kit.beam((pa.x, pa.y, (zm + ztop) / 2), (pb.x, pb.y, (zm + ztop) / 2), CWW - 0.04, ztop - zm))
+obj('causeway_deck', cw_deck, face=lambda q: ((lin('#CBBE9F'), PT['ashlar']) if q.normal.z > 0.9 else (LIME_D, PT['ashlar'])), family='quay', jitter=0.05)
+obj('causeway_spandrels', cw_side, LIME, PT['ashlar'], family='quay', jitter=0.05)
+obj('causeway_soffits', cw_sof, lin('#8F8572'), PT['ashlar'], family='quay', jitter=0.04)
+obj('causeway_parapets', cw_par, LIME, PT['ashlar'], family='quay', jitter=0.05, bevel=0.03)
+obj('causeway_coping', cw_cop, LIME_L, PT['plain'], family='quay', jitter=0.04)
+obj('causeway_piers', cw_pier, face=lambda q: ((WET, PT['rock']) if q.center.z < 0.4 else (LIME_D, PT['ashlar'])), family='quay', jitter=0.05)
+STRUCT_POLYS.append([tuple(CA - cn_ * CWW / 2), tuple(CB - cn_ * CWW / 2), tuple(CB + cn_ * CWW / 2), tuple(CA + cn_ * CWW / 2)])
 
 print('LAND built')

@@ -44,6 +44,7 @@ uniform vec4 uSdfBounds;
 uniform sampler2D uSdf;
 uniform sampler2D uWake, uWakeLive;
 uniform vec4 uWakeBounds;
+uniform sampler2D uZones;     // P6 D18 sea zones: R shoals, G far ports, B harbour waters, A the roads (zone-mask.ts)
 uniform sampler2D uNoise, uRipple;
 uniform vec3 uAbyss, uDeep, uMid, uShallow, uShoal, uSunlitShoal, uFoamCol, uFoamNight;
 // sky (shared from the sky service)
@@ -56,6 +57,7 @@ uniform vec4 uWeatherSea;     // cover, wind, wind dir x, wind dir z
 uniform vec3 uBeamPos, uBeamCol;
 uniform float uBeamAngle;
 uniform vec4 uBeamShape;
+uniform float uBeamBack;
 uniform float uDebug;
 uniform vec2 uSceneCenter;
 uniform float uSceneRadius;
@@ -93,6 +95,7 @@ void main() {
   float coast = mix(220.0, (sdf.r - 0.5) * 128.0, inside);
   float depth = mix(40.0, sdf.g * 40.0, inside);
   float sdist = mix(16.0, sdf.b * 16.0, inside);
+  vec4 zm = texture2D(uZones, clamp(suv, 0.0, 1.0)) * inside;
   vec2 wuv = (xz - uWakeBounds.xy) / (uWakeBounds.zw - uWakeBounds.xy);
   vec2 wedge = min(wuv, 1.0 - wuv);
   float winside = step(0.0, min(wedge.x, wedge.y));
@@ -107,6 +110,8 @@ void main() {
   vec2 pawUv = xz * 0.0019 - wdir * t * (0.004 + 0.012 * wind);
   float paws = smoothstep(0.38, 0.7, texture2D(uNoise, pawUv).g * 0.7 + texture2D(uNoise, pawUv * 2.7 + 0.3).b * 0.45);
   float rough = mix(0.35, 1.0, paws) * (0.75 + 0.5 * wind);
+  // zones: the harbours lie in the lee (calmer, glassier); the Roads catch the open-sea wind
+  rough *= (1.0 - 0.38 * zm.b) * (1.0 + 0.3 * zm.a);
 
   // ---------------------------------------------------------------- normals
   float far01 = smoothstep(250.0, 1300.0, camD);
@@ -121,7 +126,7 @@ void main() {
   vec4 r2 = texture2D(uRipple, (rot * xz) * 0.107 - vec2(wdir.y, -wdir.x) * t * 0.014 * sp);
   vec4 r3 = texture2D(uRipple, (rot * rot * xz) * 0.0093 + wdir * t * 0.0025);
   vec2 d1 = r1.rg * 2.0 - 1.0, d2 = r2.rg * 2.0 - 1.0, d3 = r3.rg * 2.0 - 1.0;
-  float shoreCalm = mix(0.45, 1.0, smoothstep(1.0, 18.0, coast));
+  float shoreCalm = mix(0.45, 1.0, smoothstep(1.0, 18.0, coast)) * (1.0 - 0.3 * zm.b);
   float dk = (0.16 + 0.12 * uSea.y) * rough * shoreCalm;
   vec2 dn = (d1 * (1.0 - far01 * 0.7) + d2 * 0.75 * (1.0 - far01) + d3 * (0.45 + 0.5 * far01)) * dk;
   // wakes rough up the surface
@@ -155,6 +160,12 @@ void main() {
   // sunlit caustic shimmer over the shallow shelf
   float caus = smoothstep(0.86, 0.99, 1.0 - abs(r1.a - r2.a)) * (1.0 - smoothstep(0.5, 4.0, dep)) * sunUp;
   body += uSunlitShoal * caus * 0.18;
+  // the Shoals: clear turquoise water over the reef shelf, bright by day, a pale jade glimmer at night
+  {
+    float reefK = zm.r * (0.55 + 0.45 * smoothstep(0.35, 0.7, nA.b + 0.25 * nC.g));
+    vec3 turq = mix(vec3(0.10, 0.62, 0.56), vec3(0.20, 0.78, 0.66), nA.g);
+    body = mix(body, turq * mix(1.0, 0.3, uNight), reefK * (0.62 - 0.25 * uNight));
+  }
   // churned wake water is lighter and greener
   body = mix(body, uShoal * 1.35 * mix(1.0, 0.45, uNight), clamp(trail * 0.25 + live.r * 0.2, 0.0, 0.35));
   // hull occlusion
@@ -184,7 +195,7 @@ void main() {
   vec3 sky = band(thR, eR, 2.6 + 1.2 * rough + clamp(eR * 0.12, 0.0, 1.8));
   float NdV = max(dot(Nr, V), 0.0);
   float F = 0.03 + 0.97 * pow(1.0 - NdV, 5.0);
-  F = min(F * (0.8 + 0.5 * rough), 0.6);
+  F = min(F * (0.8 + 0.5 * rough) * (1.0 + 0.4 * zm.b), 0.6 + 0.12 * zm.b);
   vec3 col = body * (1.0 - F) + sky * F;
 
   // ---------------------------------------------------------------- sun / moon glitter path
@@ -237,7 +248,7 @@ void main() {
       float lat = abs(rel.x * bd.y - rel.y * bd.x);
       float w = 2.0 + along * tan(uBeamShape.y) * 1.25;
       float foot = exp(-pow(lat / w, 2.0) * 1.6) * smoothstep(0.0, 40.0, along) * exp(-along / (uBeamShape.x * 0.55));
-      beam += uBeamCol * foot * (0.05 + bspec * 7.0 * sparkMask);
+      beam += uBeamCol * foot * (0.05 + bspec * 7.0 * sparkMask) * (k == 0 ? 1.0 : uBeamBack);
     }
     // the lantern's own reflection column toward the camera (flashes by day when a beam faces the camera)
     float lr = max(dot(R, Lb), 0.0);
@@ -273,6 +284,13 @@ void main() {
   float lane = texture2D(uNoise, vec2(wl.x * 0.0035 - t * 0.004, wl.y * 0.045)).g * 0.75 + texture2D(uNoise, vec2(wl.x * 0.011, wl.y * 0.13) + 0.41).b * 0.4;
   float streaks = smoothstep(0.7, 0.88, lane) * smoothstep(0.35, 1.0, storm) * smoothstep(20.0, 70.0, coast) * (0.35 + 0.65 * nC.r);
   caps = max(caps, streaks * 0.75);
+  // the Shoals: lines of surf breaking across the reef, rolling in with the swell
+  {
+    float sPh = dot(xz, SWELL) * 0.15 - t * 0.85 + (nA.b - 0.5) * 5.0;
+    float brk = pow(0.5 + 0.5 * sin(sPh), 10.0) * smoothstep(0.35, 0.62, nB.g * 0.8 + nC.r * 0.35);
+    float spray = smoothstep(0.62, 0.8, nC.a * 0.7 + nB.b * 0.4) * 0.35;
+    caps = max(caps, (brk * 0.95 + spray * brk) * smoothstep(0.25, 0.8, zm.r) * (1.0 - far01 * 0.4));
+  }
   float foam = clamp(max(max(coastFoam, fStruct), max(max(fTrail, fKel), max(fRing, caps))), 0.0, 1.0);
   foam *= 1.0 - smoothstep(uHorizonDist * 0.86, uHorizonDist * 0.99, fwdD);
   float ndl = max(dot(N, uSunDir), 0.0);

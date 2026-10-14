@@ -79,6 +79,8 @@ if EXPORT:
     exec(open(os.path.join(HERE_, 'hb_export.py')).read())
 
 if RENDER:
+    if '--no-import' not in ARGV:
+        exec(open(os.path.join(HERE_, 'hb_import.py')).read())     # P6: the Pharos + civic models (key art only)
     exec(open(os.path.join(HERE_, 'hb_scene.py')).read())
     exec(open(os.path.join(HERE_, 'hb_render.py')).read())
 

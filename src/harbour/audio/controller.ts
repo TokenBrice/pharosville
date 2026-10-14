@@ -1,6 +1,6 @@
 import type { EngineContext } from "../engine/types";
-import type { HarbourLayout } from "../layout/types";
-import type { Ambience } from "./ambience";
+import type { HarbourLayout, Vec2, Vec3 } from "../layout/types";
+import type { Ambience, AmbienceInputs } from "./ambience";
 
 /**
  * The opt-in sound switch (D13). Off by default; the visitor's choice is remembered per browser.
@@ -26,6 +26,38 @@ export interface SoundController {
 
 interface Readings { fog?: number }
 interface Life { wind?: number }
+/** P6 layout additions read here, all optional (older layouts simply have no Mint / no pharos block). */
+interface CivicLayout { pharos?: { position: Vec3 }; civic?: Array<{ kind: string; position: Vec3 }> }
+/** Optional civic service: the Mint's activity 0..1, when the civic layer publishes it. */
+interface Civic { mintRate?: number }
+
+/** Where the sound sources sit, gathered once per layout. */
+interface Sources { coast: Vec2[]; berths: Vec2[]; reef: Vec2 | null; fire: Vec3 | null; mint: Vec3 | null }
+
+function gatherSources(L: HarbourLayout & CivicLayout): Sources {
+  const shoals = L.zones?.shoals?.polygon;
+  const reef: Vec2 | null = shoals?.length
+    ? [shoals.reduce((a, p) => a + p[0], 0) / shoals.length, shoals.reduce((a, p) => a + p[1], 0) / shoals.length]
+    : null;
+  const ph = L.pharos?.position ?? L.landmarks?.find((l) => l.id === "pharos")?.position;
+  // the fire burns in the lantern near the top of the ~100 m tower
+  const fire: Vec3 | null = ph ? [ph[0], ph[1] + (L.pharos ? 82 : 30), ph[2]] : null;
+  const m = L.civic?.find((c) => c.kind === "mint")?.position ?? null;
+  return {
+    coast: L.island?.coast ?? [],
+    berths: (L.piers ?? []).flatMap((p) => p.berths.map((b) => [b.position[0], b.position[2]] as Vec2)),
+    reef, fire, mint: m ? [m[0], m[1] + 12, m[2]] : null,
+  };
+}
+
+/** Distance from (px, pz) to the segment ab; the closest point is left in `hit`. */
+const hit: Vec2 = [0, 0];
+function segDist(px: number, pz: number, a: Vec2, b: Vec2): number {
+  const dx = b[0] - a[0], dz = b[1] - a[1], l = dx * dx + dz * dz;
+  const t = l ? Math.max(0, Math.min(1, ((px - a[0]) * dx + (pz - a[1]) * dz) / l)) : 0;
+  hit[0] = a[0] + t * dx; hit[1] = a[1] + t * dz;
+  return Math.hypot(px - hit[0], pz - hit[1]);
+}
 
 function readChoice(): boolean {
   try { return localStorage.getItem(KEY) === "on"; } catch { return false; }
@@ -40,6 +72,8 @@ class Controller implements SoundController {
   private ac: AudioContext | null = null;
   private poll = 0;
   private starting = false;
+  private src: Sources | null = null;
+  private srcFor: unknown = null;
   private readonly listeners = new Set<() => void>();
   private readonly onGesture = () => { this.disarm(); if (this.on) this.start(); };
   private readonly onVisibility = () => {
@@ -93,17 +127,48 @@ class Controller implements SoundController {
     }).catch(() => { this.starting = false; });
   }
 
-  /** World → sound: zoom, wind (DEWS), stale fog, night. */
+  /**
+   * World → sound: zoom, wind (DEWS), stale fog, night, and where the sources lie. The listener sits on the
+   * camera ray, 45% of the way out from the target: nearness falls with the square of the distance to it,
+   * and a source's pan is its bearing across the screen.
+   */
   private feed(): void {
     const amb = this.amb;
     if (!amb) return;
     const { ctx } = this;
-    const L = ctx.services.get("layout") as HarbourLayout | undefined;
+    const L = ctx.services.get("layout") as (HarbourLayout & CivicLayout) | undefined;
     const lo = L?.camera.minDistance ?? 90, hi = L?.camera.maxDistance ?? 1150;
     const zoom = Math.max(0, Math.min(1, (ctx.rig.distance - lo) / (hi - lo)));
     const fog = (ctx.services.get("readings") as Readings | undefined)?.fog ?? 0;
     const wind = (ctx.services.get("life") as Life | undefined)?.wind ?? 0.35;
-    amb.set({ zoom: Math.sqrt(zoom), wind, fog, night: ctx.uniforms.uNight.value });
+    const inputs: Partial<AmbienceInputs> = { zoom: Math.sqrt(zoom), wind, fog, night: ctx.uniforms.uNight.value };
+    if (L) {
+      if (this.srcFor !== L) { this.src = gatherSources(L); this.srcFor = L; }
+      const S = this.src!;
+      const t = ctx.rig.target, cam = ctx.rig.camera.position, e = ctx.rig.camera.matrixWorld.elements;
+      const lx = t.x + (cam.x - t.x) * 0.45, ly = t.y + (cam.y - t.y) * 0.45, lz = t.z + (cam.z - t.z) * 0.45;
+      const rl = Math.hypot(e[0], e[2]) || 1, rx = e[0] / rl, rz = e[2] / rl;   // the camera's right, on the ground
+      const near = (dg: number, h: number, ref: number) => Math.min(1, (ref * ref) / (dg * dg + h * h + 1));
+      const pan = (x: number, z: number) => { const dx = x - lx, dz = z - lz; return Math.max(-1, Math.min(1, (dx * rx + dz * rz) / (Math.hypot(dx, dz) + 40))); };
+      let dc = Infinity, cx = lx, cz = lz;
+      for (let i = 0, n = S.coast.length; i < n; i++) {
+        const d = segDist(lx, lz, S.coast[i], S.coast[(i + 1) % n]);
+        if (d < dc) { dc = d; cx = hit[0]; cz = hit[1]; }
+      }
+      let db = Infinity;
+      for (const b of S.berths) db = Math.min(db, Math.hypot(b[0] - lx, b[1] - lz));
+      inputs.shore = S.coast.length ? near(dc, ly, 150) : 0.4;
+      inputs.shorePan = pan(cx, cz);
+      inputs.harbour = S.berths.length ? near(db, ly, 120) : 0.3;
+      if (S.reef) { inputs.reef = near(Math.hypot(S.reef[0] - lx, S.reef[1] - lz), ly, 160); inputs.reefPan = pan(S.reef[0], S.reef[1]); }
+      if (S.fire) { inputs.fire = near(Math.hypot(S.fire[0] - lx, S.fire[2] - lz), ly - S.fire[1], 70); inputs.firePan = pan(S.fire[0], S.fire[2]); }
+      if (S.mint) {
+        inputs.mint = near(Math.hypot(S.mint[0] - lx, S.mint[2] - lz), ly - S.mint[1], 80);
+        inputs.mintPan = pan(S.mint[0], S.mint[2]);
+        inputs.mintRate = (ctx.services.get("civic") as Civic | undefined)?.mintRate ?? 0.5;
+      } else inputs.mint = 0;
+    }
+    amb.set(inputs);
   }
 
   stop(): void {

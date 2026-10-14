@@ -4624,5 +4624,1028 @@
    ],
    "kb": 11.5
   }
- ]
+ ],
+ "wreck_kit": {
+  "version": 2,
+  "generator": "scripts/harbour/blender/wrecks/export.py (lookdev: scripts/harbour/blender/wrecks/render.py)",
+  "status": "new kit, not yet wired: the runtime still places wreck_a/b/c from \"props\"",
+  "axes": "glTF: +x bow, +y up, +z FRONT (seaward / camera side; the epitaph board faces +z). Origin = the ground under the wreck: y = 0 is the sand surface (\"sits\": sand) or the sea surface (\"sits\": water). Pose is BAKED (heel, pitch, burial, broken back): place at ground height, yaw only, do not heel again. Geometry below y = -0.7 is culled (keel buried); allow up to ~0.5 m of terrain unevenness.",
+  "materials": {
+   "hb_opaque": "COLOR_0.rgb = albedo with the weathering baked PER CORNER (sun bleach, salt tide mark, weed/kelp line, damp contact), COLOR_0.a = pattern id / 16 (style C table). No _BRAND / _PAINT: wrecks are never liveried.",
+   "hb_emissive": "lantern glass: emissive x uLamp (same contract as the civic kit)",
+   "hb_window": "hut / station panes: COLOR_0.r = lit, .g = warmth (civic contract)"
+  },
+  "epitaph": {
+   "node": "epitaph",
+   "board_m": [
+    1.1,
+    0.34
+   ],
+   "uv": "TEXCOORD_0",
+   "rect": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "reads_from": "+z (front)",
+   "text": "coin name (u left->right, v bottom->top); keep a 6% margin; dark ink on the weathered cream board (COLOR_0 ~ #CDC4AE)",
+   "note": "every wreck carries one, beside it on its front side; hide it to use the standalone wreck_cove_epitaph posts in the memorial row instead (recommended scale 2-2.5x at harbour zoom)"
+  },
+  "two_sided": "hb_opaque parts that are seen from both sides (holed hulls, rags, pennants) carry duplicated reversed faces: keep backface culling ON.",
+  "items": [
+   {
+    "id": "wreck_great_hulk",
+    "file": "wreck_great_hulk.glb",
+    "kind": "wreck",
+    "size_class": "great",
+    "loa_m": 26.0,
+    "sits": "sand",
+    "tris": 1832,
+    "tris_epitaph": 157,
+    "budget": 2500,
+    "nodes": [
+     {
+      "name": "epitaph",
+      "parent": "wreck_great_hulk",
+      "origin": [
+       16.5,
+       0.0,
+       4.0
+      ],
+      "material": "hb_opaque",
+      "tris": 145,
+      "uv": "TEXCOORD_0",
+      "anim": "driftwood post + nameboard; TEXCOORD_0 [0,1]^2 on the board front = the coin-name region, (-4,-4) elsewhere"
+     },
+     {
+      "name": "epitaph_lamp",
+      "parent": "epitaph",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_emissive",
+      "tris": 12,
+      "anim": "hb_emissive lantern glass: lit at dusk/night (emissive x uLamp), optional slow flicker"
+     },
+     {
+      "name": "epitaph_light",
+      "parent": "epitaph",
+      "origin": [
+       0.415,
+       1.57,
+       0.085
+      ],
+      "empty": true,
+      "anim": "lantern centre: point light / glow sprite"
+     },
+     {
+      "name": "hull",
+      "parent": "wreck_great_hulk",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 1587
+     },
+     {
+      "name": "rag",
+      "parent": "wreck_great_hulk",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 88,
+      "anim": "tattered canvas, two-sided: optional flutter (sway grows with depth below its top edge; gentle, wind-driven)"
+     }
+    ],
+    "kb": 49.1
+   },
+   {
+    "id": "wreck_schooner_sunk",
+    "file": "wreck_schooner_sunk.glb",
+    "kind": "wreck",
+    "size_class": "large",
+    "loa_m": 18.0,
+    "sits": "water",
+    "tris": 759,
+    "tris_epitaph": 157,
+    "budget": 1200,
+    "nodes": [
+     {
+      "name": "epitaph",
+      "parent": "wreck_schooner_sunk",
+      "origin": [
+       11.0,
+       0.0,
+       -7.5
+      ],
+      "material": "hb_opaque",
+      "tris": 145,
+      "uv": "TEXCOORD_0",
+      "anim": "driftwood post + nameboard; TEXCOORD_0 [0,1]^2 on the board front = the coin-name region, (-4,-4) elsewhere"
+     },
+     {
+      "name": "epitaph_lamp",
+      "parent": "epitaph",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_emissive",
+      "tris": 12,
+      "anim": "hb_emissive lantern glass: lit at dusk/night (emissive x uLamp), optional slow flicker"
+     },
+     {
+      "name": "epitaph_light",
+      "parent": "epitaph",
+      "origin": [
+       0.466,
+       1.57,
+       0.085
+      ],
+      "empty": true,
+      "anim": "lantern centre: point light / glow sprite"
+     },
+     {
+      "name": "hull",
+      "parent": "wreck_schooner_sunk",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 534
+     },
+     {
+      "name": "rag",
+      "parent": "wreck_schooner_sunk",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 68,
+      "anim": "tattered canvas, two-sided: optional flutter (sway grows with depth below its top edge; gentle, wind-driven)"
+     }
+    ],
+    "kb": 25.2
+   },
+   {
+    "id": "wreck_stern_section",
+    "file": "wreck_stern_section.glb",
+    "kind": "wreck",
+    "size_class": "large",
+    "loa_m": 8.5,
+    "sits": "sand",
+    "tris": 1157,
+    "tris_epitaph": 157,
+    "budget": 1200,
+    "nodes": [
+     {
+      "name": "epitaph",
+      "parent": "wreck_stern_section",
+      "origin": [
+       2.5,
+       0.0,
+       4.0
+      ],
+      "material": "hb_opaque",
+      "tris": 145,
+      "uv": "TEXCOORD_0",
+      "anim": "driftwood post + nameboard; TEXCOORD_0 [0,1]^2 on the board front = the coin-name region, (-4,-4) elsewhere"
+     },
+     {
+      "name": "epitaph_lamp",
+      "parent": "epitaph",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_emissive",
+      "tris": 12,
+      "anim": "hb_emissive lantern glass: lit at dusk/night (emissive x uLamp), optional slow flicker"
+     },
+     {
+      "name": "epitaph_light",
+      "parent": "epitaph",
+      "origin": [
+       0.377,
+       1.57,
+       0.085
+      ],
+      "empty": true,
+      "anim": "lantern centre: point light / glow sprite"
+     },
+     {
+      "name": "hull",
+      "parent": "wreck_stern_section",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 1000
+     }
+    ],
+    "kb": 32.4
+   },
+   {
+    "id": "wreck_capsized",
+    "file": "wreck_capsized.glb",
+    "kind": "wreck",
+    "size_class": "medium",
+    "loa_m": 13.0,
+    "sits": "sand",
+    "tris": 1007,
+    "tris_epitaph": 157,
+    "budget": 1200,
+    "nodes": [
+     {
+      "name": "epitaph",
+      "parent": "wreck_capsized",
+      "origin": [
+       8.5,
+       0.0,
+       2.4
+      ],
+      "material": "hb_opaque",
+      "tris": 145,
+      "uv": "TEXCOORD_0",
+      "anim": "driftwood post + nameboard; TEXCOORD_0 [0,1]^2 on the board front = the coin-name region, (-4,-4) elsewhere"
+     },
+     {
+      "name": "epitaph_lamp",
+      "parent": "epitaph",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_emissive",
+      "tris": 12,
+      "anim": "hb_emissive lantern glass: lit at dusk/night (emissive x uLamp), optional slow flicker"
+     },
+     {
+      "name": "epitaph_light",
+      "parent": "epitaph",
+      "origin": [
+       0.411,
+       1.57,
+       0.085
+      ],
+      "empty": true,
+      "anim": "lantern centre: point light / glow sprite"
+     },
+     {
+      "name": "hull",
+      "parent": "wreck_capsized",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 850
+     }
+    ],
+    "kb": 30.3
+   },
+   {
+    "id": "wreck_burned",
+    "file": "wreck_burned.glb",
+    "kind": "wreck",
+    "size_class": "medium",
+    "loa_m": 15.0,
+    "sits": "sand",
+    "tris": 1151,
+    "tris_epitaph": 157,
+    "budget": 1200,
+    "nodes": [
+     {
+      "name": "epitaph",
+      "parent": "wreck_burned",
+      "origin": [
+       9.7,
+       0.0,
+       3.0
+      ],
+      "material": "hb_opaque",
+      "tris": 145,
+      "uv": "TEXCOORD_0",
+      "anim": "driftwood post + nameboard; TEXCOORD_0 [0,1]^2 on the board front = the coin-name region, (-4,-4) elsewhere"
+     },
+     {
+      "name": "epitaph_lamp",
+      "parent": "epitaph",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_emissive",
+      "tris": 12,
+      "anim": "hb_emissive lantern glass: lit at dusk/night (emissive x uLamp), optional slow flicker"
+     },
+     {
+      "name": "epitaph_light",
+      "parent": "epitaph",
+      "origin": [
+       0.379,
+       1.57,
+       0.085
+      ],
+      "empty": true,
+      "anim": "lantern centre: point light / glow sprite"
+     },
+     {
+      "name": "hull",
+      "parent": "wreck_burned",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 994
+     }
+    ],
+    "kb": 30.9
+   },
+   {
+    "id": "wreck_rib_cage",
+    "file": "wreck_rib_cage.glb",
+    "kind": "wreck",
+    "size_class": "medium",
+    "loa_m": 16.0,
+    "sits": "sand",
+    "tris": 943,
+    "tris_epitaph": 157,
+    "budget": 1200,
+    "nodes": [
+     {
+      "name": "epitaph",
+      "parent": "wreck_rib_cage",
+      "origin": [
+       10.5,
+       0.0,
+       3.2
+      ],
+      "material": "hb_opaque",
+      "tris": 145,
+      "uv": "TEXCOORD_0",
+      "anim": "driftwood post + nameboard; TEXCOORD_0 [0,1]^2 on the board front = the coin-name region, (-4,-4) elsewhere"
+     },
+     {
+      "name": "epitaph_lamp",
+      "parent": "epitaph",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_emissive",
+      "tris": 12,
+      "anim": "hb_emissive lantern glass: lit at dusk/night (emissive x uLamp), optional slow flicker"
+     },
+     {
+      "name": "epitaph_light",
+      "parent": "epitaph",
+      "origin": [
+       0.427,
+       1.57,
+       0.085
+      ],
+      "empty": true,
+      "anim": "lantern centre: point light / glow sprite"
+     },
+     {
+      "name": "hull",
+      "parent": "wreck_rib_cage",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 786
+     }
+    ],
+    "kb": 26.9
+   },
+   {
+    "id": "wreck_mast_stump",
+    "file": "wreck_mast_stump.glb",
+    "kind": "wreck",
+    "size_class": "small",
+    "loa_m": 14.0,
+    "sits": "sand",
+    "tris": 571,
+    "tris_epitaph": 157,
+    "budget": 1200,
+    "nodes": [
+     {
+      "name": "epitaph",
+      "parent": "wreck_mast_stump",
+      "origin": [
+       3.4,
+       0.0,
+       3.2
+      ],
+      "material": "hb_opaque",
+      "tris": 145,
+      "uv": "TEXCOORD_0",
+      "anim": "driftwood post + nameboard; TEXCOORD_0 [0,1]^2 on the board front = the coin-name region, (-4,-4) elsewhere"
+     },
+     {
+      "name": "epitaph_lamp",
+      "parent": "epitaph",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_emissive",
+      "tris": 12,
+      "anim": "hb_emissive lantern glass: lit at dusk/night (emissive x uLamp), optional slow flicker"
+     },
+     {
+      "name": "epitaph_light",
+      "parent": "epitaph",
+      "origin": [
+       0.41,
+       1.57,
+       0.085
+      ],
+      "empty": true,
+      "anim": "lantern centre: point light / glow sprite"
+     },
+     {
+      "name": "hull",
+      "parent": "wreck_mast_stump",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 386
+     },
+     {
+      "name": "rag",
+      "parent": "wreck_mast_stump",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 28,
+      "anim": "tattered canvas, two-sided: optional flutter (sway grows with depth below its top edge; gentle, wind-driven)"
+     }
+    ],
+    "kb": 21.0
+   },
+   {
+    "id": "wreck_skiff",
+    "file": "wreck_skiff.glb",
+    "kind": "wreck",
+    "size_class": "small",
+    "loa_m": 5.0,
+    "sits": "sand",
+    "tris": 548,
+    "tris_epitaph": 157,
+    "budget": 1200,
+    "nodes": [
+     {
+      "name": "epitaph",
+      "parent": "wreck_skiff",
+      "origin": [
+       3.9,
+       0.0,
+       1.8
+      ],
+      "material": "hb_opaque",
+      "tris": 145,
+      "uv": "TEXCOORD_0",
+      "anim": "driftwood post + nameboard; TEXCOORD_0 [0,1]^2 on the board front = the coin-name region, (-4,-4) elsewhere"
+     },
+     {
+      "name": "epitaph_lamp",
+      "parent": "epitaph",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_emissive",
+      "tris": 12,
+      "anim": "hb_emissive lantern glass: lit at dusk/night (emissive x uLamp), optional slow flicker"
+     },
+     {
+      "name": "epitaph_light",
+      "parent": "epitaph",
+      "origin": [
+       0.45,
+       1.57,
+       0.085
+      ],
+      "empty": true,
+      "anim": "lantern centre: point light / glow sprite"
+     },
+     {
+      "name": "hull",
+      "parent": "wreck_skiff",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 391
+     }
+    ],
+    "kb": 19.2
+   },
+   {
+    "id": "wreck_dinghy",
+    "file": "wreck_dinghy.glb",
+    "kind": "wreck",
+    "size_class": "tiny",
+    "loa_m": 3.4,
+    "sits": "sand",
+    "tris": 481,
+    "tris_epitaph": 157,
+    "budget": 1200,
+    "nodes": [
+     {
+      "name": "epitaph",
+      "parent": "wreck_dinghy",
+      "origin": [
+       2.7,
+       0.0,
+       1.4
+      ],
+      "material": "hb_opaque",
+      "tris": 145,
+      "uv": "TEXCOORD_0",
+      "anim": "driftwood post + nameboard; TEXCOORD_0 [0,1]^2 on the board front = the coin-name region, (-4,-4) elsewhere"
+     },
+     {
+      "name": "epitaph_lamp",
+      "parent": "epitaph",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_emissive",
+      "tris": 12,
+      "anim": "hb_emissive lantern glass: lit at dusk/night (emissive x uLamp), optional slow flicker"
+     },
+     {
+      "name": "epitaph_light",
+      "parent": "epitaph",
+      "origin": [
+       0.41,
+       1.57,
+       0.085
+      ],
+      "empty": true,
+      "anim": "lantern centre: point light / glow sprite"
+     },
+     {
+      "name": "hull",
+      "parent": "wreck_dinghy",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 324
+     }
+    ],
+    "kb": 17.5
+   },
+   {
+    "id": "wreck_cove_driftwood",
+    "file": "wreck_cove_driftwood.glb",
+    "kind": "cove",
+    "size_class": "driftwood",
+    "tris": 235,
+    "budget": 600,
+    "nodes": [
+     {
+      "name": "body",
+      "parent": "wreck_cove_driftwood",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 235
+     }
+    ],
+    "kb": 8.2
+   },
+   {
+    "id": "wreck_cove_lobster_pots",
+    "file": "wreck_cove_lobster_pots.glb",
+    "kind": "cove",
+    "size_class": "pots",
+    "tris": 574,
+    "budget": 600,
+    "nodes": [
+     {
+      "name": "body",
+      "parent": "wreck_cove_lobster_pots",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 574
+     }
+    ],
+    "kb": 14.7
+   },
+   {
+    "id": "wreck_cove_warden_hut",
+    "file": "wreck_cove_warden_hut.glb",
+    "kind": "cove",
+    "size_class": "hut",
+    "tris": 389,
+    "budget": 600,
+    "nodes": [
+     {
+      "name": "body",
+      "parent": "wreck_cove_warden_hut",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 347
+     },
+     {
+      "name": "chimney",
+      "parent": "wreck_cove_warden_hut",
+      "origin": [
+       1.2,
+       4.5,
+       -0.5
+      ],
+      "empty": true,
+      "anim": "smoke emitter (thin, the warden is in)"
+     },
+     {
+      "name": "hut_lamp",
+      "parent": "wreck_cove_warden_hut",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_emissive",
+      "tris": 12,
+      "anim": "hb_emissive door lantern: lit at dusk/night"
+     },
+     {
+      "name": "hut_windows",
+      "parent": "wreck_cove_warden_hut",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_window",
+      "tris": 30,
+      "anim": "hb_window panes (r = lit, g = warmth)"
+     },
+     {
+      "name": "lamp_light",
+      "parent": "wreck_cove_warden_hut",
+      "origin": [
+       0.25,
+       2.05,
+       2.15
+      ],
+      "empty": true,
+      "anim": "lantern centre: point light / glow sprite"
+     }
+    ],
+    "kb": 13.4
+   },
+   {
+    "id": "wreck_cove_lifeboat_station",
+    "file": "wreck_cove_lifeboat_station.glb",
+    "kind": "cove",
+    "size_class": "lifeboat",
+    "tris": 348,
+    "budget": 600,
+    "nodes": [
+     {
+      "name": "body",
+      "parent": "wreck_cove_lifeboat_station",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 316
+     },
+     {
+      "name": "lamp_light",
+      "parent": "wreck_cove_lifeboat_station",
+      "origin": [
+       0.0,
+       2.95,
+       0.45
+      ],
+      "empty": true,
+      "anim": "lantern centre: point light / glow sprite"
+     },
+     {
+      "name": "slip_foot",
+      "parent": "wreck_cove_lifeboat_station",
+      "origin": [
+       0.0,
+       -1.7,
+       15.0
+      ],
+      "empty": true,
+      "anim": "foot of the slipway (about 1.6 m below the boathouse floor): place it at or below sea level"
+     },
+     {
+      "name": "station_lamp",
+      "parent": "wreck_cove_lifeboat_station",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_emissive",
+      "tris": 12,
+      "anim": "hb_emissive door lantern: lit at dusk/night"
+     },
+     {
+      "name": "station_windows",
+      "parent": "wreck_cove_lifeboat_station",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_window",
+      "tris": 20,
+      "anim": "hb_window panes (r = lit, g = warmth)"
+     }
+    ],
+    "kb": 12.5
+   },
+   {
+    "id": "wreck_cove_tidepool",
+    "file": "wreck_cove_tidepool.glb",
+    "kind": "cove",
+    "size_class": "tidepool",
+    "tris": 300,
+    "budget": 600,
+    "nodes": [
+     {
+      "name": "body",
+      "parent": "wreck_cove_tidepool",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 300
+     }
+    ],
+    "kb": 9.0
+   },
+   {
+    "id": "wreck_cove_anchor",
+    "file": "wreck_cove_anchor.glb",
+    "kind": "cove",
+    "size_class": "anchor",
+    "tris": 260,
+    "budget": 600,
+    "nodes": [
+     {
+      "name": "body",
+      "parent": "wreck_cove_anchor",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 260
+     }
+    ],
+    "kb": 8.2
+   },
+   {
+    "id": "wreck_cove_flotsam",
+    "file": "wreck_cove_flotsam.glb",
+    "kind": "cove",
+    "size_class": "flotsam",
+    "tris": 384,
+    "budget": 600,
+    "nodes": [
+     {
+      "name": "body",
+      "parent": "wreck_cove_flotsam",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 384
+     }
+    ],
+    "kb": 11.5
+   },
+   {
+    "id": "wreck_cove_bell",
+    "file": "wreck_cove_bell.glb",
+    "kind": "cove",
+    "size_class": "bell",
+    "tris": 311,
+    "budget": 600,
+    "nodes": [
+     {
+      "name": "bell",
+      "parent": "wreck_cove_bell",
+      "origin": [
+       0.0,
+       3.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 132,
+      "anim": "swings about its origin (the headstock) around local glTF +x: toll +/-0.5 rad when a coin is wrecked"
+     },
+     {
+      "name": "body",
+      "parent": "wreck_cove_bell",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 179
+     }
+    ],
+    "kb": 11.0
+   },
+   {
+    "id": "wreck_cove_pennants",
+    "file": "wreck_cove_pennants.glb",
+    "kind": "cove",
+    "size_class": "pennants",
+    "tris": 257,
+    "budget": 600,
+    "nodes": [
+     {
+      "name": "body",
+      "parent": "wreck_cove_pennants",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 201
+     },
+     {
+      "name": "pennant_0",
+      "parent": "wreck_cove_pennants",
+      "origin": [
+       -1.595,
+       5.48,
+       -0.148
+      ],
+      "material": "hb_opaque",
+      "tris": 16,
+      "anim": "pennant: origin at the hoist, fly along local +x; flutter = sway growing with x"
+     },
+     {
+      "name": "pennant_1",
+      "parent": "wreck_cove_pennants",
+      "origin": [
+       0.183,
+       4.48,
+       0.291
+      ],
+      "material": "hb_opaque",
+      "tris": 20,
+      "anim": "pennant: origin at the hoist, fly along local +x; flutter = sway growing with x"
+     },
+     {
+      "name": "pennant_2",
+      "parent": "wreck_cove_pennants",
+      "origin": [
+       1.888,
+       4.98,
+       -0.411
+      ],
+      "material": "hb_opaque",
+      "tris": 20,
+      "anim": "pennant: origin at the hoist, fly along local +x; flutter = sway growing with x"
+     }
+    ],
+    "kb": 12.2
+   },
+   {
+    "id": "wreck_cove_gull_perches",
+    "file": "wreck_cove_gull_perches.glb",
+    "kind": "cove",
+    "size_class": "perches",
+    "tris": 208,
+    "budget": 600,
+    "nodes": [
+     {
+      "name": "body",
+      "parent": "wreck_cove_gull_perches",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 208
+     }
+    ],
+    "kb": 8.2
+   },
+   {
+    "id": "wreck_cove_epitaph",
+    "file": "wreck_cove_epitaph.glb",
+    "kind": "cove",
+    "size_class": "epitaph",
+    "tris": 157,
+    "budget": 600,
+    "nodes": [
+     {
+      "name": "epitaph",
+      "parent": "wreck_cove_epitaph",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_opaque",
+      "tris": 145,
+      "uv": "TEXCOORD_0",
+      "anim": "driftwood post + nameboard; TEXCOORD_0 [0,1]^2 on the board front = the coin-name region, (-4,-4) elsewhere"
+     },
+     {
+      "name": "epitaph_lamp",
+      "parent": "epitaph",
+      "origin": [
+       0.0,
+       0.0,
+       -0.0
+      ],
+      "material": "hb_emissive",
+      "tris": 12,
+      "anim": "hb_emissive lantern glass: lit at dusk/night (emissive x uLamp), optional slow flicker"
+     },
+     {
+      "name": "epitaph_light",
+      "parent": "epitaph",
+      "origin": [
+       0.432,
+       1.57,
+       0.085
+      ],
+      "empty": true,
+      "anim": "lantern centre: point light / glow sprite"
+     }
+    ],
+    "kb": 7.7
+   }
+  ]
+ }
 }

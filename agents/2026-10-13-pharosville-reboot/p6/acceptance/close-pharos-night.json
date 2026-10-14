@@ -1,0 +1,41 @@
+{
+ "url": "http://localhost:5190/?t=21.5&cam=-257,55,-107,300,18",
+ "out": "/home/ahirice/Documents/git/pharosville/.worktrees/harbour/agents/2026-10-13-pharosville-reboot/p6/acceptance/close-pharos-night.png",
+ "viewport": "1600x1000@1",
+ "gpu": "ANGLE (NVIDIA, Vulkan 1.4.341 (NVIDIA NVIDIA GeForce RTX 5070 Ti (0x00002C05)), NVIDIA)",
+ "webgpuAdapter": "nvidia/blackwell",
+ "frames": 121,
+ "fps": 61,
+ "p50": 16.7,
+ "p95": 16.7,
+ "max": 16.8,
+ "stats": {
+  "backend": "webgl2",
+  "drawCalls": 93,
+  "triangles": 1069551,
+  "textures": 50,
+  "programs": 52,
+  "hour": 21.5,
+  "systems": [
+   "layout",
+   "data",
+   "readings",
+   "sky",
+   "ocean",
+   "island",
+   "lighthouse",
+   "civic",
+   "fleet",
+   "life",
+   "identity",
+   "lights",
+   "beam",
+   "ui"
+  ],
+  "firstFrameMs": 4684,
+  "dpr": 1,
+  "gpuMs": 1.02,
+  "quality": "high"
+ },
+ "consoleErrors": []
+}

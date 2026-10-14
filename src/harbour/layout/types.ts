@@ -43,6 +43,8 @@ export interface LayoutIsland {
   bay: Vec2[];
   breakwater: Vec2[];
   mole: Vec2[];
+  /** P6: offshore islets (the Pharos islet), (x, z) polygons. */
+  islets?: Vec2[][];
 }
 
 export type PierSegmentKind = "finger" | "arm" | "grand" | "thead" | "breakwater" | "mole" | "quay" | (string & {});

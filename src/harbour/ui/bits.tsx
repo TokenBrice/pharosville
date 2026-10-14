@@ -115,6 +115,49 @@ export function TideBars({ hourly }: { hourly: Array<{ hourTs: number; netUsd: n
   );
 }
 
+/**
+ * One side of the flows, hour by hour (the Mint's minting or the Burn's burning): bars up from a
+ * baseline, on the series' own scale. Hover reads one hour.
+ */
+export function FlowBars({ hourly, side }: { hourly: Array<{ hourTs: number; mintUsd: number; burnUsd: number }>; side: "mint" | "burn" }) {
+  const W = 300, H = 46;
+  const vals = hourly.map((h) => (side === "mint" ? h.mintUsd : h.burnUsd));
+  const max = Math.max(1, ...vals);
+  const bw = W / Math.max(24, vals.length);
+  const [hover, setHover] = useState<number | null>(null);
+  const ink = side === "mint" ? "#1f5873" : "#b5382b";
+  const word = side === "mint" ? "minted" : "burned";
+  const h = hover != null ? hourly[hover] : null;
+  return (
+    <div>
+      <svg className="hb-flowbars" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img"
+        aria-label={`Supply ${word} each hour, last ${vals.length} hours; largest hour ${money(max)}`} onMouseLeave={() => setHover(null)}>
+        <line x1="0" x2={W} y1={H - 0.5} y2={H - 0.5} stroke="#7a5a22" strokeWidth="0.75" vectorEffect="non-scaling-stroke" />
+        {vals.map((v, i) => {
+          const hgt = v > 0 ? Math.max(1.5, (v / max) * (H - 3)) : 0;
+          return (
+            <g key={hourly[i].hourTs} onMouseEnter={() => setHover(i)}>
+              <rect x={i * bw} y={0} width={bw} height={H} fill="transparent" />
+              {hgt > 0 && <rect x={i * bw + 1} y={H - hgt} width={bw - 2} height={hgt} rx="1" fill={ink} opacity={hover == null || hover === i ? 0.9 : 0.4} />}
+            </g>
+          );
+        })}
+      </svg>
+      <div className="hb-axis-note"><span>24 h ago</span><span>{h ? `${new Date(h.hourTs * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${money(side === "mint" ? h.mintUsd : h.burnUsd)} ${word}` : `${word} each hour`}</span><span>now</span></div>
+    </div>
+  );
+}
+
+/** A chain's crest on its house colour (many crests are white on transparent). */
+export function Crest({ chain, color, size = 52 }: { chain: string; color: string; size?: number }) {
+  const [broken, setBroken] = useState(false);
+  return (
+    <span className="hb-crest" style={{ width: size, height: size, background: color }} aria-hidden="true">
+      {!broken ? <img src={chainLogo(chain)} alt="" onError={() => setBroken(true)} /> : <span>{chain.slice(0, 2)}</span>}
+    </span>
+  );
+}
+
 export function Freshness({ label, state, ageSec }: { label: string; state: Freshness; ageSec: number | null }) {
   return (
     <div className="hb-foot">

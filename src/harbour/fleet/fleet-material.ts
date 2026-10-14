@@ -24,6 +24,8 @@ export interface FleetUniforms {
   /** (cols, rows, 1/cols, 1/rows) */
   uEmblemGrid: THREE.IUniform<THREE.Vector4>;
   uWind: THREE.IUniform<number>;
+  /** The fleet's decorative clock (s): stands still under reduced motion (rig life, flags, lamp shimmer). */
+  uFleetTime: THREE.IUniform<number>;
 }
 
 /**
@@ -306,7 +308,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   m.name = "hb_fleet";
   m.onBeforeCompile = (shader, renderer) => {
     baseHook(shader, renderer);
-    Object.assign(shader.uniforms, fleet, { uSunDir: u.uSunDir, uSunColor: u.uSunColor, uTime: u.uTime });
+    Object.assign(shader.uniforms, fleet, { uSunDir: u.uSunDir, uSunColor: u.uSunColor, uTime: fleet.uFleetTime });
     shader.vertexShader = shader.vertexShader
       .replace("#include <batching_pars_vertex>", `#include <batching_pars_vertex>\nuniform float uTime;\n${VERT_PARS}`)
       .replace("#include <beginnormal_vertex>", "hbFleetPose(position, normal);\nvec3 objectNormal = hbFleetN;\n#ifdef USE_TANGENT\nvec3 objectTangent = vec3(tangent.xyz);\n#endif")
@@ -339,7 +341,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";
   depth.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, { uFleetData: fleet.uFleetData, uTime: u.uTime });
+    Object.assign(shader.uniforms, { uFleetData: fleet.uFleetData, uTime: fleet.uFleetTime });
     shader.vertexShader = shader.vertexShader
       .replace("#include <batching_pars_vertex>", `#include <batching_pars_vertex>\n${DEPTH_VERT_PARS}`)
       .replace("#include <begin_vertex>", "vec3 transformed = hbFleetPoseP(position);");
