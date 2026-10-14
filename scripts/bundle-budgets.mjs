@@ -17,8 +17,12 @@ export const bundleBudgets = {
     // gate. Measured 520.5 KiB raw / 172.5 KiB gzip while the P3/P4 polish
     // passes were still landing; the cap is measured + ~23% for that work, not
     // a licence to grow past it without a measured re-baseline.
-    maxRawBytes: 640 * 1024,
-    maxGzipBytes: 212 * 1024,
+    // Re-baselined 2026-10-14 after the operator's P6-P8 rounds (civic quarter,
+    // chain identity and chart lettering, procedural audio, Titan ships, Wreck
+    // Cove v2, the 43-coin pre-launch book): measured 1,319.7 KiB raw /
+    // 400.4 KiB gzip. Cap = measured + ~14%.
+    maxRawBytes: 1_500 * 1024,
+    maxGzipBytes: 456 * 1024,
     required: true,
   },
   renderer: {
@@ -49,8 +53,10 @@ export const aggregateBudgets = {
   // 1,582.4 KiB raw / 484.4 KiB gzip of JS in total (entry + vendor-react +
   // harbour-app + vendor-rendering). Cap = measured + ~20%, earmarked for the
   // remaining P3/P4 polish; the per-chunk caps above are enforced independently.
-  maxJsRawBytes: 1_900 * 1024,
-  maxJsGzipBytes: 580 * 1024,
+  // Re-baselined 2026-10-14 after P6-P8: measured 2,444.1 KiB raw / 736.9 KiB
+  // gzip in total. Cap = measured + ~11%.
+  maxJsRawBytes: 2_720 * 1024,
+  maxJsGzipBytes: 820 * 1024,
 };
 
 export const forbiddenBundleChunks = [
