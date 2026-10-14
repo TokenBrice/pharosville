@@ -12,6 +12,23 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-10-14-the-harbour",
+    version: PHAROSVILLE_RELEASE_VERSIONS.theHarbour,
+    date: "2026-10-14",
+    title: "The Harbour",
+    summary: "PharosVille is reborn as a lantern-lit harbour island where every stablecoin is a boat: the Pharos of Alexandria keeps the market's watch, the sea and sky carry the readings, and the whole world is legible at a glance.",
+    bullets: [
+      "A new world on one three.js WebGL2 engine: a bounded harbour island in a crafted-miniature style, authored as reproducible Blender kits, seen from a 3/4 view with pan and zoom, with a poster first paint that crossfades to the live harbour. Windows too small to chart keep the welcome page and request no world data or runtime.",
+      "Every stablecoin is a boat. Each sails a circuit between its chains' harbours and docks longest where it holds the most supply; 15-17% of the fleet is under way at any moment, with real dockings, mooring lines and wakes. Boats show their coin's real logo on brand-coloured sails, and USDT, USDC, USDe and USDS sail their own Titan-class ships.",
+      "The Pharos of Alexandria crowns the harbour mouth: its beacon fire and bronze mirror throw the beam whose rhythm, reach and colour are the Stability Index, and an unlit lantern means no reading. Off-peg coins anchor on the Shoals, the sea state and weather follow peg and stress signals, and fog with an amber dot marks stale data.",
+      "Places tell the data's story: chain harbours flagged with their crests (Tron in its own outer harbour), the Mint and the Burn whose fires follow mint and burn volume, a Shipyard building all 43 pre-launch coins at their launch stage, the storm-signal station, and Wreck Cove's named memorial for the dead coins. Sea zones are lettered on the water like a chart.",
+      "Text appears only on demand: hover tags, a slim chart-paper side panel, `/` search over every coin, chain and landmark, and an `L` ledger with sortable Coins, Chains, Wrecks and Pre-launch tables for keyboard and screen-reader visitors.",
+      "Day and night follow the visitor's clock, with lit windows, riding lights and the beacon after dusk; reduced motion stills the world, and the sea, wind, gulls and rigging ambience stays opt-in and off by default.",
+      "Fixed the fleet disappearing behind \"Stablecoins unavailable\" when `/api/stablecoins` reports a per-chain holding with `chainCirculating.<chain>.current: null`; an unknown holding is accepted and the chain stays off the ship's route exactly as a zero holding does.",
+    ],
+    source: "Collected from the `reboot/harbour` branch (P1-P9, see `agents/2026-10-13-pharosville-reboot/PLAN.md`) after v0.20.1, including the per-chain null-holdings fix from #71. Replaces the Garden Observatory world, which never shipped.",
+  },
+  {
     id: "2026-10-03-steady-lamp",
     version: PHAROSVILLE_RELEASE_VERSIONS.steadyLamp,
     date: "2026-10-03",
