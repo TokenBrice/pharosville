@@ -14,6 +14,10 @@ import type { AssetStore } from "../engine/assets";
  *   aMeta = (kind 0 opaque | 1 sail | 2 cover, node, brand 0..1, flag 0..1)
  *     node: 0 rigid · 1 rigid + mirrored on port tack · 2 boom · 3 boom_2 · 4 jib
  *   aPivot / aAxis: rotation pivot + axis of the node's group (boom: gooseneck, +y; jib: tack, stay axis)
+ *   aPaint = (livery region, x / (loa / 2)): the kit's _PAINT corner attribute (0 keep · 1 + 0.98 t topsides,
+ *     t boot-top 0 .. sheer 1 · 3 sheer stripe / band · 4 deck · 5 rail cap · 6 inside bulwarks · 7 coachroof ·
+ *     8 spar; LOD: topsides + 10, rig 9) plus, from the node names, 8 for spars and 10 for standing rigging.
+ *     Decorative, never data.
  */
 export const KIT_BASE = "/harbour/kit/";
 
@@ -51,6 +55,8 @@ export interface Kit {
 
 const KIND: Record<string, number> = { hb_opaque: 0, hb_sail: 1, hb_cover: 2 };
 const MIRROR_RIGID = new Set(["yards", "sail_extra"]);
+const SPAR_NODES = new Set(["mast", "yards", "boom_spar", "boom_2_spar", "gaff", "gaff_2"]);
+const PAINT_SPAR = 8, PAINT_RIGGING = 10;
 const tmpV = new THREE.Vector3();
 const tmpP = new THREE.Vector3();
 const tmpN = new THREE.Matrix3();
@@ -61,14 +67,15 @@ function nodeOrigin(nodes: ManifestNode[], name: string): THREE.Vector3 | null {
 }
 
 /** Flatten one GLB into the fleet attribute layout. `pivots` comes from the manifest (Blender object origins). */
-export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean } = {}): THREE.BufferGeometry {
+export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean; loa?: number } = {}): THREE.BufferGeometry {
+  const halfLoa = (opts.loa ?? 10) / 2;
   const boom = nodeOrigin(nodes, "boom") ?? new THREE.Vector3();
   const boom2 = nodeOrigin(nodes, "boom_2") ?? new THREE.Vector3();
   const jibNode = nodes.find((n) => n.name === "sail_jib");
   const jib = jibNode ? new THREE.Vector3(...jibNode.origin) : new THREE.Vector3();
   const jibAxis = jibNode?.stay_axis ? new THREE.Vector3(...jibNode.stay_axis).normalize() : new THREE.Vector3(0, 1, 0);
   const P: number[] = [], N: number[] = [], C: number[] = [], SU: number[] = [], EU: number[] = [], F: number[] = [], FN: number[] = [];
-  const M: number[] = [], PV: number[] = [], AX: number[] = [], I: number[] = [];
+  const M: number[] = [], PV: number[] = [], AX: number[] = [], PA: number[] = [], I: number[] = [];
   gltf.scene.updateMatrixWorld(true);
   gltf.scene.traverse((o) => {
     const mesh = o as THREE.Mesh;
@@ -89,7 +96,8 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     else if (MIRROR_RIGID.has(mesh.name) || (mesh.name === "sail_main" && parentName === "_heel")) node = 1;
     const flag = mesh.name === "flag" ? 1 : 0;
     const pos = geo.attributes.position, nrm = geo.attributes.normal, col = geo.attributes.color;
-    const uv0 = geo.attributes.uv, uv1 = geo.attributes.uv1, brand = geo.attributes._brand;
+    const uv0 = geo.attributes.uv, uv1 = geo.attributes.uv1, brand = geo.attributes._brand, paint = geo.attributes._paint;
+    const nodePaint = SPAR_NODES.has(mesh.name) ? PAINT_SPAR : mesh.name === "rigging" ? PAINT_RIGGING : 0;
     const mi = mesh.morphTargetDictionary?.furl;
     const mp = mi != null ? geo.morphAttributes.position?.[mi] : undefined;
     const mn = mi != null ? geo.morphAttributes.normal?.[mi] : undefined;
@@ -174,6 +182,10 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
           } else F.push(0, 0, 0);
           if (mn) { tmpV.fromBufferAttribute(mn, vi); if (!relative && nrm) tmpV.sub(tmpP.fromBufferAttribute(nrm, vi)); FN.push(tmpV.x, tmpV.y, tmpV.z); } else FN.push(0, 0, 0);
           M.push(kind, node, brand ? brand.getX(vi) : 0, flag);
+          let pc = kind === 0 ? (paint ? paint.getX(vi) : nodePaint) : 0;
+          if (opts.lod && pc >= 1 && pc < 2.5) pc += 10; // LOD topsides: the stripe is painted in the shader
+          else if (opts.lod && pc > 7.5 && pc < 8.5) pc = 9; // LOD rig: may be struck far away when furled
+          PA.push(pc, P[P.length - 3] / halfLoa);
           PV.push(pivot.x, pivot.y, pivot.z);
           AX.push(axis.x, axis.y, axis.z);
         }
@@ -192,6 +204,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
   g.setAttribute("aMeta", new THREE.Float32BufferAttribute(M, 4));
   g.setAttribute("aPivot", new THREE.Float32BufferAttribute(PV, 3));
   g.setAttribute("aAxis", new THREE.Float32BufferAttribute(AX, 3));
+  g.setAttribute("aPaint", new THREE.Float32BufferAttribute(PA, 2));
   g.setIndex(I);
   // bounds cover the set AND furled shapes and the boom swung either way
   g.computeBoundingBox();
@@ -215,8 +228,8 @@ export async function loadKit(assets: AssetStore): Promise<Kit> {
         assets.gltf(KIT_BASE + h.file),
         h.lod ? assets.gltf(KIT_BASE + h.lod).catch(() => null) : Promise.resolve(null),
       ]);
-      const fg = bakeGltf(full, h.nodes);
-      const lg = lod ? bakeGltf(lod, [], { lod: true }) : null;
+      const fg = bakeGltf(full, h.nodes, { loa: h.loa_m });
+      const lg = lod ? bakeGltf(lod, [], { lod: true, loa: h.loa_m }) : null;
       const anchor = (name: string, fb: [number, number, number]) => nodeOrigin(h.nodes, name) ?? new THREE.Vector3(...fb);
       hulls.set(h.id, {
         id: h.id, family: h.family, cls: h.class, loa: h.loa_m, beam: h.beam_m, full: fg, lod: lg,

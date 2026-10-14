@@ -16,11 +16,14 @@
  *     [--json out.json]     write the report as JSON
  *     [--uncapped]          launch with --disable-gpu-vsync --disable-frame-rate-limit: rAF runs as fast as the
  *                           GPU allows, so fps/p50 are the TRUE frame cost (not clamped to the display refresh)
+ *     [--log-requests]      record every request from navigation on; the report gains `requests`
+ *                           ({ url, type, status, bytes }), `apiRequests` (same-origin /api/* URLs) and
+ *                           `transferBytes`. Use it for the desktop gate: a blocked viewport must show 0 apiRequests.
  *
  * Report: GPU identity, WebGPU availability, frame-time p50/p95/max over --seconds (rAF deltas),
  * console errors, and window.__harbourStats (if the page exposes it: draws, triangles, backend).
  */
-import { chromium } from "playwright";
+import { captureLock, connectShared } from "./shared-browser.mjs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
@@ -45,22 +48,37 @@ const height = Number(args.height ?? 1000);
 const dpr = Number(args.dpr ?? 1);
 const waitMs = Number(args.wait ?? 4000);
 const seconds = Number(args.seconds ?? 4);
-const chromeArgs = [];
-if (args.webgpu) chromeArgs.push("--enable-unsafe-webgpu", "--enable-features=Vulkan");
-if (args.uncapped) chromeArgs.push("--disable-gpu-vsync", "--disable-frame-rate-limit");
-
-const browser = await chromium.launch({
-  executablePath: process.platform === "darwin"
-    ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-    : "/usr/bin/google-chrome-stable",
-  headless: false,
-  args: chromeArgs,
-});
-const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr });
+// One persistent capture browser per profile (scripts/harbour/shared-browser.mjs): every capture is a
+// TAB in the same long-lived window, never a new window. Captures are serialised by a lock.
+const profileName = args.webgpu ? "webgpu" : args.uncapped ? "uncapped" : "standard";
+const releaseCapture = await captureLock(profileName);
+const browser = await connectShared(profileName);
+const context = browser.contexts()[0] ?? await browser.newContext();
 const page = await context.newPage();
+await page.setViewportSize({ width, height });
+if (dpr !== 1) {
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: dpr, mobile: false });
+}
+await page.bringToFront();
+async function finish(code = 0) {
+  await page.close().catch(() => {});
+  await releaseCapture();
+  process.exit(code);
+}
+for (const ev of ["unhandledRejection", "uncaughtException"]) process.on(ev, (err) => { console.error(err); void finish(1); });
 const consoleErrors = [];
 page.on("console", (msg) => { if (msg.type() === "error" || msg.type() === "warning") consoleErrors.push(`[${msg.type()}] ${msg.text()}`.slice(0, 400)); });
 page.on("pageerror", (err) => consoleErrors.push(`[pageerror] ${String(err).slice(0, 400)}`));
+const requests = [];
+if (args["log-requests"]) {
+  page.on("requestfinished", async (req) => {
+    const entry = { url: req.url(), type: req.resourceType(), status: null, bytes: null };
+    requests.push(entry);
+    try { entry.status = (await req.response())?.status() ?? null; entry.bytes = (await req.sizes()).responseBodySize; } catch { /* page closed */ }
+  });
+  page.on("requestfailed", (req) => requests.push({ url: req.url(), type: req.resourceType(), status: "failed", bytes: 0 }));
+}
 
 await page.goto(url, { waitUntil: "load" });
 await page.waitForTimeout(waitMs);
@@ -84,8 +102,7 @@ const identity = await page.evaluate(async () => {
 
 if (/swiftshader|llvmpipe|software/i.test(identity.webgl)) {
   console.error(`REFUSED: software renderer (${identity.webgl}). Not a real-GPU frame.`);
-  await browser.close();
-  process.exit(78);
+  await finish(78);
 }
 
 const timing = await page.evaluate((secs) => new Promise((done) => {
@@ -111,7 +128,12 @@ const report = {
   p50: +pct(0.5).toFixed(2), p95: +pct(0.95).toFixed(2), max: +timing[timing.length - 1].toFixed(2),
   stats, consoleErrors: consoleErrors.slice(0, 20),
   ...(evalResult === undefined ? {} : { evalResult }),
+  ...(args["log-requests"] ? {
+    apiRequests: requests.filter((r) => new URL(r.url).pathname.startsWith("/api/")).map((r) => r.url),
+    transferBytes: requests.reduce((sum, r) => sum + (r.bytes ?? 0), 0),
+    requests,
+  } : {}),
 };
 console.log(JSON.stringify(report, null, 1));
 if (args.json) { await mkdir(dirname(resolve(args.json)), { recursive: true }); await writeFile(resolve(args.json), JSON.stringify(report, null, 1)); }
-await browser.close();
+await finish(0);

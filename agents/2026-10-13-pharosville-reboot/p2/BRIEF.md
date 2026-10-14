@@ -9,6 +9,8 @@
 
 ## Working rules
 
+- **Never launch a browser yourself** (operator rule): every capture goes through `scripts/harbour/shot.mjs`, which uses one persistent headless real-GPU Chrome and never opens a window.
+
 - **Worktree:** `/home/ahirice/Documents/git/pharosville/.worktrees/harbour`, branch `reboot/harbour`.
   - Work only there. Never touch the main checkout.
   - **Do not commit**; the orchestrator commits.

@@ -82,10 +82,13 @@ def ribbon(bm, pts, width, lift=0.12, skirt=0.55):
         l_ = (p[0] + nx_, p[1] + ny_); r_ = (p[0] - nx_, p[1] - ny_)
         zl, zr, zc = H(*l_), H(*r_), H(*p)
         zt = max(zl, zr, zc)
-        L_.append(bm.verts.new((l_[0], l_[1], (zl + zc) / 2 + lift if zt - min(zl, zr) < 0.6 else zl + lift)))
-        R_.append(bm.verts.new((r_[0], r_[1], (zr + zc) / 2 + lift if zt - min(zl, zr) < 0.6 else zr + lift)))
-        Ls.append(bm.verts.new((l_[0], l_[1], zl - skirt)))
-        Rs.append(bm.verts.new((r_[0], r_[1], zr - skirt)))
+        # on a steep flank the coarse ground mesh departs from H between its vertices: lift the strip with the slope
+        g = math.hypot(H(p[0] + 1.0, p[1]) - zc, H(p[0], p[1] + 1.0) - zc)
+        lf = lift + min(0.7, 0.55 * g)
+        L_.append(bm.verts.new((l_[0], l_[1], (zl + zc) / 2 + lf if zt - min(zl, zr) < 0.6 else zl + lf)))
+        R_.append(bm.verts.new((r_[0], r_[1], (zr + zc) / 2 + lf if zt - min(zl, zr) < 0.6 else zr + lf)))
+        Ls.append(bm.verts.new((l_[0], l_[1], zl - skirt - 0.6 * g)))
+        Rs.append(bm.verts.new((r_[0], r_[1], zr - skirt - 0.6 * g)))
     for i in range(len(pts) - 1):
         bm.faces.new((L_[i], R_[i], R_[i + 1], L_[i + 1]))
         bm.faces.new((Ls[i], L_[i], L_[i + 1], Ls[i + 1]))
@@ -172,10 +175,10 @@ def hf_face(q):
     c = q.center; nz = q.normal.z
     u, v = uvp(c.x, c.y)
     nn = terrain.fbm(c.x, c.y, 0.02, 2, 11)
-    if nz < 0.5:
-        return ((PAL['rock_dark'] if nn > 0.58 else PAL['rock']), PT['rock'])
+    if nz < 0.34:                                   # only the steepest ground shows granite; the flanks stay turf
+        return ((PAL['rock'] if nn > 0.5 else lin('#8A8B86')), PT['rock'])
     if nz < 0.72:
-        return ((PAL['rock'] if nn > 0.62 else PAL['grass_dark']), PT['rock'] if nn > 0.62 else PT['grass'])
+        return ((lin('#7A7F72') if nn > 0.66 else PAL['grass_dark']), PT['rock'] if nn > 0.66 else PT['grass'])
     kb, kind = terrain.beach_k(c.x, c.y)
     if kb > 0.45:                                                                # the strands: sand / shingle / pebbles
         dc = terrain.dcoast(c.x, c.y)
@@ -245,7 +248,7 @@ def _terrain_paint(me):
 _terrain_paint(HF.data)
 
 
-def coast_skirt(name, poly, ztop, straight, rows=4, amp=1.3, seed=1, jag=0.8):
+def coast_skirt(name, poly, ztop, straight, rows=4, amp=1.3, seed=1, jag=0.8, skip=()):
     """Rock strata from the sea floor up to the heightfield rim (style C cliff), vertical masonry on quay lines."""
     bm = bmesh.new(); n = len(poly); rings = []
     tops = [ztop(x, y) for x, y in poly]
@@ -272,6 +275,8 @@ def coast_skirt(name, poly, ztop, straight, rows=4, amp=1.3, seed=1, jag=0.8):
         rings.append(ring)
     for a, b in zip(rings, rings[1:]):
         for i in range(n):
+            if i in skip:
+                continue
             j = (i + 1) % n
             bm.faces.new((a[i], a[j], b[j], b[i]))
     bm.normal_update()
@@ -283,16 +288,11 @@ def coast_skirt(name, poly, ztop, straight, rows=4, amp=1.3, seed=1, jag=0.8):
         kb_, kind_ = terrain.beach_k(c.x, c.y)
         if kb_ > 0.4:                       # the strand runs on under the water
             return ((WETSAND if kind_ == 'sand' else SHINGLE), PT['plain'])
-        if c.z < 0.6:
-            return (PAL['rock_wet'], PT['rock'])
-        nn = noise.noise(Vector((c.x * 0.09, c.y * 0.09, c.z * 0.4 + seed)))
-        if q.normal.z > 0.45:
-            return (PAL['rock_light'], PT['rock'])
-        return (PAL['rock_dark'] if nn > 0.2 else PAL['rock'], PT['rock'])
+        return cliff_face(q)                # the rock shares the strata cliffs' granite (hb_cliffs)
     return obj(name, bm, face=fc, jitter=0.07, seed=seed, family='terrain')
 
 
-coast_skirt('land_cliffs', _resample(COAST, 3.0), lambda x, y: H(x, y), on_quay)
+exec(open(os.path.join(HERE_, 'hb_cliffs.py')).read())          # the coast: low rocky skirt + crafted granite strata cliffs
 
 # ------------------------------------------------------------------ the amphitheatre: curved retaining walls + coping + ivy
 set_coll(collection('town', ROOTC))
@@ -660,41 +660,107 @@ obj('harbour_light_cap', cp_, PAL['iron'], PT['metal'], family='breakwater')
 obj('harbour_light_lamp', bm_cyl(0.72, 0.72, 1.2, 10, (hp.x, hp.y, 8.4)), mat=M['lamp'], family='breakwater', shadow=False)
 HL_POS = Vector((hp.x, hp.y, 9.0))
 
-# ------------------------------------------------------------------ the marina's stone moles (v4): ashlar walls straight
-# down to the sea floor (hulls lie bow-in along both faces), a cobbled crest between granite copings, a round pierhead
-# painted with Ethereum's band under its coping, a little harbour light on each head (green: the Grand Mole, red: the Inner)
+# ------------------------------------------------------------------ the marina's stone moles (v5): ashlar walls straight
+# down to the sea floor (hulls lie bow-in along both faces), granite copings, a raised flagstone promenade down the
+# middle (benches, little planted trees between the lamps), and a round pierhead bastion carrying a proper harbour
+# light (green: the Grand Mole, red: the Inner) with its gallery and lantern
 set_coll(collection('marina', ROOTC))
 mcrest, mcop, mband, mtw = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
+mprom, mbench, mplant, mleaf, mtrunk = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
 MOLE_TOWERS = []
 ETH_BAND = lin(CJ['pennant']['pier-ethereum'])
+_mrng = random.Random(41)
+
+
+def _bench(bm_, p, ang, z):
+    b_ = bmesh.new()
+    merge(b_, bm_box2(-0.95, -0.25, 0.42, 0.95, 0.25, 0.52)); merge(b_, bm_box2(-0.95, 0.22, 0.52, 0.95, 0.3, 0.98))
+    for dx in (-0.8, 0.8):
+        merge(b_, bm_box2(dx - 0.06, -0.22, 0.0, dx + 0.06, 0.28, 0.42))
+    xf(b_, rz=ang); xf(b_, loc=(p.x, p.y, z)); merge(bm_, b_)
+
+
 for m in CJ.get('moles', []):
     pts = [Vector(p) for p in _resample([tuple(p) for p in m['line']], 3.0, closed=False)]
     w_ = m['width']
     for a, b in zip(pts, pts[1:]):
         merge(mcrest, nl_kit.beam((a.x, a.y, (SEA_FLOOR + Z_SHORE) / 2), (b.x, b.y, (SEA_FLOOR + Z_SHORE) / 2), w_, Z_SHORE - SEA_FLOOR))
-    left, right = [], []
+    left, right, frames_ = [], [], []
     for i, p in enumerate(pts):
         a = pts[max(0, i - 1)]; b = pts[min(len(pts) - 1, i + 1)]
         t = (b - a).normalized(); nl = Vector((-t.y, t.x))
         left.append(tuple(p + nl * w_ / 2)); right.append(tuple(p - nl * w_ / 2))
+        frames_.append((p, t, nl))
     coping_line(left[::-1], mcop); coping_line(right, mcop)          # stones laid on the crest side of each edge
+    # the promenade: a raised flagstone walk between granite kerbs, stopping short of the pierhead bastion
+    pw = w_ - 5.2
     h = Vector(m['head']); hr = m['head_r']
+    walk = [f for f in frames_ if (f[0] - h).length > hr + 1.0]
+    for (p, t, nl), (q, t2, n2) in zip(walk, walk[1:]):
+        merge(mprom, nl_kit.beam((p.x, p.y, Z_SHORE + 0.08), (q.x, q.y, Z_SHORE + 0.08), pw, 0.24))      # its sides read as the kerbs
+    # the walk's furniture by arc length: the lamps stand every 24 m (compose LAMPS), a pair of benches back to back
+    # between each two, and a little planted tree in a stone tub every other gap
+    Lw = polyline_len([tuple(f[0]) for f in walk]); s_ = 24.0; k_ = 0
+    wl = [tuple(f[0]) for f in walk]
+    while s_ < Lw - 8.0:
+        p2, t2 = along(wl, s_); p2 = Vector(p2); t2 = Vector(t2); n2 = Vector((-t2.y, t2.x)); ang = math.atan2(t2.y, t2.x)
+        if k_ % 2 == 0:
+            for sd in (1, -1):                         # back to back, each facing its own row of hulls
+                _bench(mbench, p2 + n2 * sd * 0.45 - t2 * 2.4, ang + (0 if sd < 0 else math.pi), Z_SHORE + 0.26)
+                _bench(mbench, p2 + n2 * sd * 0.45 + t2 * 2.4, ang + (0 if sd < 0 else math.pi), Z_SHORE + 0.26)
+        else:
+            merge(mplant, bm_cyl(0.95, 0.8, 0.75, 10, (p2.x, p2.y, Z_SHORE + 0.2)))
+            hh = _mrng.uniform(4.2, 5.2)
+            merge(mtrunk, bm_cyl(0.16, 0.11, hh * 0.6, 5, (p2.x, p2.y, Z_SHORE + 0.8)))
+            for kk in range(3):
+                o = Vector((_mrng.uniform(-0.5, 0.5), _mrng.uniform(-0.5, 0.5), 0))
+                merge(mleaf, bm_ico(1.25 - 0.18 * kk, (p2.x + o.x, p2.y + o.y, Z_SHORE + 0.8 + hh * (0.6 + 0.13 * kk)), 1, (1, 1, 0.85),
+                                    seed=_mrng.randint(0, 99), amp=0.22))
+        s_ += 24.0; k_ += 1
+    # the pierhead bastion: a round drum to the sea floor, coping, Ethereum's band, benches round its rim
     merge(mcrest, bm_cyl(hr, hr, Z_SHORE - SEA_FLOOR, 28, (h.x, h.y, SEA_FLOOR)))
     merge(mcop, bm_cyl(hr + 0.2, hr + 0.2, 0.36, 28, (h.x, h.y, Z_SHORE - 0.02)))
     merge(mband, bm_cyl(hr + 0.05, hr + 0.05, 0.8, 28, (h.x, h.y, Z_SHORE - 1.25)))
+    merge(mprom, bm_cyl(hr - 1.0, hr - 1.0, 0.2, 24, (h.x, h.y, Z_SHORE - 0.04)))
+    t_in = (Vector(m['line'][-2]) - h).normalized()
+    for k in range(5):
+        a_ = math.atan2(t_in.y, t_in.x) + math.pi * (0.45 + 0.275 * k)
+        pb = h + Vector((math.cos(a_), math.sin(a_))) * (hr - 2.0)
+        _bench(mbench, pb, a_ - math.pi / 2, Z_SHORE + 0.16)
     STRUCT_POLYS.append(left + right[::-1])
     CIRCLES.append((h.x, h.y, hr + 0.3))
-    col = PAL['door_green'] if m['name'] == 'grand' else PAL['hull_red']
-    tw = bm_cyl(1.3, 1.05, 5.4, 12, (h.x, h.y, Z_SHORE + 0.3))
-    merge(mtw, bm_cyl(1.6, 1.6, 0.3, 12, (h.x, h.y, Z_SHORE)))
-    obj(f'mole_light_tower_{m["name"]}', tw, face=lambda q, col=col: ((col if (q.center.z % 1.8) < 0.9 else PAL['wall_white']), PT['render']), family='marina')
-    cp_ = bm_cyl(1.45, 1.45, 0.2, 12, (h.x, h.y, Z_SHORE + 5.7)); merge(cp_, bm_cyl(0.85, 0.12, 0.85, 12, (h.x, h.y, Z_SHORE + 7.1)))
+    # the light: granite plinth, a banded tower, an iron gallery with its rail, the lantern and a domed cap
+    col = lin('#3E8C5C') if m['name'] == 'grand' else lin('#B8392B')
+    zb = Z_SHORE + 0.16
+    merge(mtw, bm_cyl(2.5, 2.5, 0.3, 14, (h.x, h.y, zb)))
+    plinth = bm_cyl(2.2, 2.05, 1.3, 12, (h.x, h.y, zb + 0.3))
+    obj(f'mole_light_plinth_{m["name"]}', plinth, PAL['granite_light'], PT['ashlar'], family='marina', bevel=0.04)
+    tw = bmesh.new()                                 # six 1 m courses, banded colour / white
+    for k in range(6):
+        r0_, r1_ = 1.45 - 0.35 * k / 6, 1.45 - 0.35 * (k + 1) / 6
+        merge(tw, bm_cyl(r0_, r1_, 6.2 / 6, 14, (h.x, h.y, zb + 1.6 + k * 6.2 / 6), cap=(k == 5)))
+    obj(f'mole_light_tower_{m["name"]}', tw, face=lambda q, col=col, zb=zb: ((col if int((q.center.z - zb - 1.6) / (6.2 / 6)) % 2 == 1 else PAL['wall_white']), PT['render']),
+        family='marina')
+    zg = zb + 7.8
+    merge(mtw, bm_cyl(1.9, 1.9, 0.18, 14, (h.x, h.y, zg)))                    # gallery deck
+    for k in range(14):                                                     # rail stanchions + top rail
+        a_ = 2 * math.pi * k / 14
+        merge(mtw, bm_cyl(0.04, 0.04, 0.8, 4, (h.x + math.cos(a_) * 1.8, h.y + math.sin(a_) * 1.8, zg + 0.18), cap=False))
+    merge(mtw, bm_cyl(1.82, 1.82, 0.06, 14, (h.x, h.y, zg + 0.95), cap=False))
+    merge(mtw, bm_cyl(1.0, 1.0, 0.2, 10, (h.x, h.y, zg + 0.18)))
+    obj(f'mole_light_lamp_{m["name"]}', bm_cyl(0.78, 0.78, 1.25, 10, (h.x, h.y, zg + 0.38)), mat=M['lamp'], family='marina', shadow=False)
+    cp_ = bm_cyl(1.05, 1.05, 0.16, 12, (h.x, h.y, zg + 1.63)); merge(cp_, bm_cyl(1.0, 0.1, 0.95, 12, (h.x, h.y, zg + 1.79)))
+    merge(cp_, bm_sphere(0.16, (h.x, h.y, zg + 2.85), 6, 4))
     merge(mtw, cp_)
-    obj(f'mole_light_lamp_{m["name"]}', bm_cyl(0.66, 0.66, 1.15, 10, (h.x, h.y, Z_SHORE + 5.9)), mat=M['lamp'], family='marina', shadow=False)
-    MOLE_TOWERS.append(Vector((h.x, h.y, Z_SHORE + 6.5)))
+    MOLE_TOWERS.append(Vector((h.x, h.y, zg + 1.0)))
 obj('mole_crest', mcrest, face=lambda q: ((PAL['quay'], PT['ashlar']) if q.normal.z > 0.9 else ((PAL['rock_wet'], PT['ashlar']) if q.center.z < 0.4 else (PAL['quay_dark'], PT['ashlar']))),
     family='quay', bevel=0.04)
 obj('mole_coping', mcop, PAL['quay'], PT['plain'], family='quay', jitter=0.08)
+obj('mole_promenade', mprom, face=lambda q: ((lin('#B2AA98'), PT['ashlar']) if q.normal.z > 0.9 else (PAL['granite'], PT['ashlar'])), family='quay', jitter=0.05)
+obj('mole_benches', mbench, PAL['timber'], PT['boards'], family='prop_bench')
+obj('mole_planters', mplant, PAL['granite'], PT['ashlar'], family='quay', jitter=0.05)
+obj('mole_tree_trunks', mtrunk, PAL['timber_dark'], PT['plain'], family='veg')
+obj('mole_tree_crowns', mleaf, face=lambda q: ((lin('#7D9A4A') if q.normal.z > 0.3 else lin('#5E7D3C')), PT['leaf']), family='veg', jitter=0.08)
 obj('mole_chain_band', mband, ETH_BAND, PT['plain'], family='quay', jitter=0.0)
 obj('mole_light_caps', mtw, PAL['iron'], PT['metal'], family='marina')
 

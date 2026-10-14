@@ -83,13 +83,15 @@ class MB:
     def __init__(self, seed=0):
         self.v, self.vf, self.f = [], [], []
         self.rng = random.Random(seed)
+        self.paint = 0.0     # default _PAINT region for new faces (see to_object)
 
     def vert(self, p, pf=None):
         self.v.append(Vector(p))
         self.vf.append(Vector(pf if pf is not None else p))
         return len(self.v) - 1
 
-    def face(self, idx, col, pat=0, brand=0.0, uv=None, uv2=None, smooth=False, jitter=0.03):
+    def face(self, idx, col, pat=0, brand=0.0, uv=None, uv2=None, smooth=False, jitter=0.03, paint=None):
+        """paint: _PAINT region code (float) or fn(vertex position) -> code per corner; default self.paint."""
         out, uo, u2o = [], [], []
         for k, i in enumerate(idx):
             if i in out:
@@ -101,7 +103,9 @@ class MB:
             return
         j = 1 + self.rng.uniform(-jitter, jitter)
         c = tuple(min(1.0, max(0.0, x * j)) for x in col[:3])
-        self.f.append(dict(i=out, col=c, pat=pat, brand=brand, uv=uo, uv2=u2o, smooth=smooth))
+        p = self.paint if paint is None else paint
+        pc = [float(p(self.v[i])) for i in out] if callable(p) else float(p)
+        self.f.append(dict(i=out, col=c, pat=pat, brand=brand, uv=uo, uv2=u2o, smooth=smooth, paint=pc))
 
     def tris(self):
         return sum(len(f['i']) - 2 for f in self.f)
@@ -114,6 +118,8 @@ class MB:
         for f in list(self.f[start:]):
             m = {i: self.vert(self.v[i], self.vf[i]) for i in f['i']}
             g = dict(f); g['i'] = [m[i] for i in f['i']][::-1]; g['uv'] = f['uv'][::-1]; g['uv2'] = f['uv2'][::-1]
+            if isinstance(f.get('paint'), list):
+                g['paint'] = f['paint'][::-1]
             g['col'] = tuple(x * dark for x in (col or f['col']))
             if brand is not None:
                 g['brand'] = brand
@@ -231,6 +237,11 @@ def to_object(mb, name, mat, parent=None, origin=(0, 0, 0), coll=None, props=Non
     cbuf = [0.0] * (n_loops * 4)
     want_brand = any(f['brand'] for f in mb.f)
     bbuf = [0.0] * n_loops
+    # _PAINT (corner float): decorative paint region for the runtime's per-coin livery, never data.
+    #   0 keep · 1 + 0.98 t topsides (t: boot-top 0 .. sheer 1) · 3 sheer stripe / band · 4 + 0.98 s deck (s: stbd 0 .. port 1) · 5 rail cap
+    #   6 inside bulwarks · 7 coachroof · 8 spar (LOD masts)
+    want_paint = any(f.get('paint') for f in mb.f)
+    pbuf = [0.0] * n_loops
     want_uv = mat == 'hb_sail' or any(any(x != (0.0, 0.0) for x in f['uv']) for f in mb.f)
     want_uv2 = mat == 'hb_sail'
     ubuf = [0.0] * (n_loops * 2); u2buf = [0.0] * (n_loops * 2)
@@ -240,6 +251,8 @@ def to_object(mb, name, mat, parent=None, origin=(0, 0, 0), coll=None, props=Non
         for k, li in enumerate(poly.loop_indices):
             cbuf[li * 4:li * 4 + 4] = (*f['col'], a)
             bbuf[li] = f['brand']
+            fp = f.get('paint', 0.0)
+            pbuf[li] = fp[k] if isinstance(fp, list) else fp
             ubuf[li * 2:li * 2 + 2] = f['uv'][k]
             u2buf[li * 2:li * 2 + 2] = f['uv2'][k]
         smooth.append(f['smooth'])
@@ -247,6 +260,9 @@ def to_object(mb, name, mat, parent=None, origin=(0, 0, 0), coll=None, props=Non
     if want_brand:
         br = me.attributes.new('_BRAND', 'FLOAT', 'CORNER')
         br.data.foreach_set('value', bbuf)
+    if want_paint:
+        pa = me.attributes.new('_PAINT', 'FLOAT', 'CORNER')
+        pa.data.foreach_set('value', pbuf)
     if want_uv:
         uvl = me.uv_layers.new(name='UVMap'); uvl.data.foreach_set('uv', ubuf)
     if want_uv2:

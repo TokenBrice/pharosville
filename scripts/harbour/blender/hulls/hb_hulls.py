@@ -121,10 +121,29 @@ class Hull:
 
 
 SMOOTH_SEG = ('top', 'band', 'boot', 'bottom', 'stripe')
+# _PAINT region per profile segment (hb_lib.to_object): the runtime repaints these per coin (decorative livery)
+PAINT_SEG = dict(stripe=3.0, band=3.0, cap=5.0, deck_in=6.0)
 
 
-def loft(mb, H, sch, n, band=False, hole=None, pat_top=PT['strakes']):
-    """Sections from stern (u=-1) to bow (u=1). hole(x, y, z) -> True drops that face (wrecks)."""
+def deck_side(p):
+    """_PAINT for the deck: 4 + 0.98 s, s = 0 starboard edge .. 1 port edge (a painted margin reads from above)."""
+    return 4.0 + (0.98 if p.y > 0 else 0.0)
+
+
+def topside_t(H, boot_k=1.0):
+    """_PAINT for topsides: 1 + 0.98 t, t = 0 at the boot-top .. 1 at the sheer (corner-wise)."""
+    def f(p):
+        u = H.u_at(p.x)
+        zb = H.boot * boot_k * (1 + 0.3 * u * u)
+        t = (p.z - zb) / max(1e-3, H.zt(u) - zb)
+        return 1.0 + 0.98 * min(1.0, max(0.0, t))
+    return f
+
+
+def loft(mb, H, sch, n, band=False, hole=None, pat_top=PT['strakes'], paint=True):
+    """Sections from stern (u=-1) to bow (u=1). hole(x, y, z) -> True drops that face (wrecks).
+    paint: tag the livery regions (_PAINT) - only the runtime hulls, never wrecks or tenders."""
+    tfn = topside_t(H)
     secs = []
     for i in range(n + 1):
         t = i / n
@@ -145,7 +164,8 @@ def loft(mb, H, sch, n, band=False, hole=None, pat_top=PT['strakes']):
             c = sum((mb.v[i] for i in idx), Vector()) / len(idx)
             if hole(c, nm):
                 return
-        mb.face(idx, sch[nm], pat.get(nm, 0), 1.0 if nm == 'boot' else 0.0, smooth=nm in SMOOTH_SEG)
+        pc = (tfn if nm in ('top', 'transom') else deck_side if nm == 'deck' else PAINT_SEG.get(nm, 0.0)) if paint else 0.0
+        mb.face(idx, sch[nm], pat.get(nm, 0), 1.0 if nm == 'boot' else 0.0, smooth=nm in SMOOTH_SEG, paint=pc)
     for i in range(n):
         (pa, sa, names), (pb, sb, _) = secs[i], secs[i + 1]
         for k in range(len(pa) - 1):
@@ -510,8 +530,10 @@ class Rig:
         z = H.deck((x0 + x1) / 2)
         w = min(H.half(x0), H.half(x1)) * 2 * wfrac
         box2(s.deck, x0, -w / 2, z - 0.1, x1, w / 2, z + h, col or s.sch['house'], PT['boards'], skip=('-z',))
+        s.deck.paint = 7.0
         box2(s.deck, x0 - 0.04 * s.S, -w / 2 - 0.04 * s.S, z + h, x1 + 0.04 * s.S, w / 2 + 0.04 * s.S, z + h + 0.07 * s.S + crown,
              roof or s.sch['roof'], PT['planks_y'], skip=('-z',))
+        s.deck.paint = 0.0
 
     def hatch(s, x, l, w, h, col=None):
         z = s.H.deck(x)
@@ -710,7 +732,7 @@ def build_boat(vid, family, rig, cls, sch, coll=None, seed=0, n_sec=None):
             # ship's boat on chocks, upside down, brand bottom
             bt = MB()
             Hb = Hull(0.16 * L, FORMS['dinghy'])
-            loft(bt, Hb, SCH(top='hull_white', stripe='hull_white', cap='varnish', bottom='hull_white', boot='brand_default'), 4)
+            loft(bt, Hb, SCH(top='hull_white', stripe='hull_white', cap='varnish', bottom='hull_white', boot='brand_default'), 4, paint=False)
             for i, (p, pf) in enumerate(zip(bt.v, bt.vf)):
                 q = Vector((p.x, -p.y, -p.z)) + Vector((H.x0 - 0.12 * L, 0, dz(H.x0 - 0.12 * L) + 0.75 * S))
                 bt.v[i] = q; bt.vf[i] = q.copy()
@@ -815,6 +837,7 @@ def build_lod(vid, family, rig, cls, sch, coll=None):
     H = Hull(L, FORMS[rig])
     mb = MB(7)
     n = 5
+    tfn = topside_t(H, 1.2)
     secs = []
     for i in range(n + 1):
         u = -1 + 2 * i / n
@@ -828,16 +851,17 @@ def build_lod(vid, family, rig, cls, sch, coll=None):
         (pa, sa, nm), (pb, sb, _) = secs[i], secs[i + 1]
         for k in range(len(pa) - 1):
             c = sch[nm[k]]; br = 1.0 if nm[k] == 'boot' else 0.0
-            mb.face((pa[k], pb[k], pb[k + 1], pa[k + 1]), c, 0, br)
-            mb.face((sa[k], sa[k + 1], sb[k + 1], sb[k]), c, 0, br)
-        mb.face((sa[0], sb[0], pb[0], pa[0]), sch['deck'], 0)
+            pc = tfn if nm[k] == 'top' else 0.0
+            mb.face((pa[k], pb[k], pb[k + 1], pa[k + 1]), c, 0, br, paint=pc)
+            mb.face((sa[k], sa[k + 1], sb[k + 1], sb[k]), c, 0, br, paint=pc)
+        mb.face((sa[0], sb[0], pb[0], pa[0]), sch['deck'], 0, paint=deck_side)
     pa, sa, _ = secs[0]
-    mb.face(pa + sa[-2::-1], sch['transom'])
+    mb.face(pa + sa[-2::-1], sch['transom'], paint=tfn)
 
-    def tri2(pts, ptsf, col, brand=0.0):
+    def tri2(pts, ptsf, col, brand=0.0, paint=None):
         ids = [mb.vert(p, q) for p, q in zip(pts, ptsf)]
         g0 = len(mb.f)
-        mb.face(ids, col, 0, brand, jitter=0.0)
+        mb.face(ids, col, 0, brand, jitter=0.0, paint=paint)
         mb.backface(g0)
     dz = H.deck
     cloth = sch['cloth']
@@ -857,7 +881,7 @@ def build_lod(vid, family, rig, cls, sch, coll=None):
             af = [G + Vector((-0.05 * blen, -r, 0.05)), E + Vector((0.06 * blen, -r, 0.05)), E + Vector((0.06 * blen, 0, 0.05 + 2 * r)), G + Vector((-0.05 * blen, 0, 0.05 + 2 * r))]
             bf = [G + Vector((-0.05 * blen, r, 0.05)), E + Vector((0.06 * blen, r, 0.05)), E + Vector((0.06 * blen, 0, 0.05 + 2 * r)), G + Vector((-0.05 * blen, 0, 0.05 + 2 * r))]
             for ff in (af, bf):
-                tri2(a, ff, PAL['brand_default'], 1.0)
+                tri2(a, ff, PAL['brand_default'], 1.0, paint=0.0)
 
     def jib(tack, head, cx, cz):
         Cl = Vector((cx, 0, cz))
@@ -870,6 +894,7 @@ def build_lod(vid, family, rig, cls, sch, coll=None):
         tri2([b_(Vector((x, -wb / 2, z0))), b_(Vector((x, wb / 2, z0))), b_(Vector((x, wt / 2, z1))), b_(Vector((x, -wt / 2, z1)))],
              [b_(Vector((x, -wt / 2, z1 - 0.4))), b_(Vector((x, wt / 2, z1 - 0.4))), b_(Vector((x, wt / 2, z1))), b_(Vector((x, -wt / 2, z1)))], cloth)
     st, bw = H.stern(), H.bow()
+    mb.paint = 8.0    # the rig (spars + furled cloth; not the brand covers): the runtime lets it recede far away
     if rig == 'cat':
         mx = H.x0 + 0.34 * L; t = mast(mx, 1.18 * L)
         gaff(mx, dz(mx) + 0.55, 0.86 * L, dz(mx) + 0.78 * L, 0.5 * L, 26)
@@ -907,6 +932,7 @@ def build_lod(vid, family, rig, cls, sch, coll=None):
         mast(fx, 0.9 * L); mast(mzx, 0.66 * L)
         gaff(fx, dz(fx) + 0.35 + 0.04 * L, (fx - mzx) * 0.95, dz(fx) + 0.66 * L, 0.5 * L, 24)
         gaff(mzx, dz(mzx) + 0.4, 0.36 * L, dz(mzx) + 0.48 * L, 0.36 * L, 26, cover=False)
+    mb.paint = 0.0
     root = empty(vid + '_lod', coll=coll)
     o = to_object(mb, 'lod', 'hb_opaque', parent=root, coll=coll)
     root['family'] = family; root['class'] = cls; root['rig'] = rig; root['loa_m'] = L; root['beam_m'] = round(H.B, 2)
@@ -933,7 +959,7 @@ def build_wreck(kind, coll=None):
         if kind == 'c':   # old ribs: most topside planking gone
             return nm in ('top', 'stripe', 'cap', 'deck', 'deck_in', 'transom') and (abs(c.x) < 0.38 * L or rng.random() < 0.5)
         return False
-    loft(mb, H, sch, 9, hole=hole, pat_top=PT['boards'])
+    loft(mb, H, sch, 9, hole=hole, pat_top=PT['boards'], paint=False)
     for f in mb.f:
         f['brand'] = 0.0
     # double-side the hull (we see inside through the holes)
@@ -1008,7 +1034,7 @@ def build_dinghy(coll=None):
     mb = MB(31)
     sch = SCH(top='hull_white', stripe='hull_blue', cap='varnish', deck='varnish', deck_in='cream', bottom='antifoul', transom='varnish')
     # open boat: no deck strip -> build a loft and drop the deck faces, add thwarts
-    loft(mb, H, sch, 6, hole=lambda c, nm: nm == 'deck')
+    loft(mb, H, sch, 6, hole=lambda c, nm: nm == 'deck', paint=False)
     mb.backface(0, col=PAL['cream'], dark=0.9, brand=0.0)   # open boat: show the inside
     # floor (inside, below the sheer)
     zf = 0.12

@@ -45,7 +45,7 @@ read only the docs needed for the change in front of you.
 | Engine, renderer, systems, sea/sky/beam, fleet | `docs/pharosville/ARCHITECTURE.md`, `src/harbour/systems.ts` (order = update order) | `npx vitest run src/harbour`, then `npm run preview -- --url <url>` |
 | Data feed, model, sim (boat circuits) | `docs/pharosville/ARCHITECTURE.md`, `src/harbour/data/fetch.ts` | `npx vitest run src/harbour/data src/harbour/model src/harbour/sim` |
 | Chart UI (hover tag, panel, ledger, search) | `src/harbour/ui/` | `npx vitest run src/harbour/ui` |
-| Production mount and poster crossfade | `src/harbour/app/harbour-app.tsx`, `src/client.tsx` | `npm test -- src/client.test.tsx`, `npm run check:viewport-gate` |
+| Production mount and poster crossfade | `src/harbour/app/harbour-app.tsx`, `src/client.tsx` | `npm test -- src/client.test.tsx`, `npm run check:viewport-gate`, then the real-browser gate check in `docs/pharosville/TESTING.md` (`npm run preview -- --log-requests`) |
 | Visual evidence, look, frame time | `docs/pharosville/TESTING.md` | `npm run preview` (`scripts/harbour/shot.mjs`, real GPU) for anything you LOOK at or quote a frame time from; `npm run test:visual` only for DOM assertions |
 | Versioned release, tag, or GitHub Release | `docs/pharosville/RELEASES.md` | `npm run check:release-contract` |
 | Docs/process only | `docs/pharosville/README.md` | `npm run validate:docs` |

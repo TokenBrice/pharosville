@@ -50,7 +50,18 @@ npm run preview -- --url "http://localhost:5173/?t=18.5" --out outputs/harbour/x
 ```
 
 `?t=<hour>` pins the time of day; `?view=heart|overview` picks the camera.
-LOOK at every PNG before claiming anything about the picture.
+LOOK at every PNG before claiming anything about the picture. `--uncapped`
+lifts vsync so p50 is the true frame cost; any other GPU load on the machine
+(another browser, a Blender export) skews it, so quote numbers from a quiet run.
+
+Desktop gate on the real browser: `--log-requests` adds `apiRequests` and every
+request to the report. A blocked window must mount no canvas and show
+`apiRequests: []`; an admitted one mounts:
+
+```bash
+npm run preview -- --url http://localhost:5173/ --width 1100 --height 700 --log-requests --eval '!!document.querySelector("canvas")'
+npm run preview -- --url http://localhost:5173/ --width 1600 --height 1000 --log-requests --eval '!!document.querySelector("canvas")'
+```
 
 ### The CI visual lane renders no world
 

@@ -45,6 +45,9 @@ random.seed(11)
 
 CJ = json.load(open(os.path.join(OUTD, 'compose.json')))
 CJ_LAYOUT = json.load(open(os.path.join(ROOT, 'src/harbour/data/layout.json')))
+if '--probe' in ARGV:          # dev close-up camera (runtime ?cam= convention: glTF x,y,z,distance): --cams probe
+    _pv = [float(v) for v in arg('--probe', '0,0,0,200').split(',')]
+    CJ['presets']['probe'] = dict(target=_pv[:3], distance=_pv[3], fovDeg=25.0, pitchDeg=30.0, yawDeg=45.0)
 
 reset_scene()
 scene = bpy.context.scene

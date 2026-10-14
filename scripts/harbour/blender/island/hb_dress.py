@@ -112,8 +112,7 @@ catmull = _G.catmull
 ROADS = {}
 road_bm = bmesh.new(); path_bm = bmesh.new()
 # the winding road: Tron quay -> switchbacks up the headland's flank -> the Pharos; a spur to the keeper's cottage
-ROADS['pharos'] = road([(-118.0, 22.0), (-132.0, 34.0), (-124.0, 52.0), (-142.0, 60.0), (-134.0, 76.0), (-112.0, 84.0), (-96.0, 92.0),
-                        (-84.0, 96.0)], 3.0, PAL['gravel'], 'road_pharos', road_bm)
+ROADS['pharos'] = road(terrain.PHAROS_ROAD, terrain.ROAD_CUT_W, PAL['gravel'], 'road_pharos', road_bm)     # on its own bench (terrain.py)
 # the west road: Long Quay west end -> the farms -> the windmill -> up the spine to the headland road
 ROADS["west"] = road([(-131.0, -178.0), (-140.0, -152.0), (-160.0, -146.0), (-186.0, -132.0), (-200.0, -110.0), (-206.0, -80.0),
                       (-196.0, -50.0), (-176.0, -20.0), (-152.0, 4.0), (-134.0, 22.0), (-118.0, 22.0)], 3.0, PAL['gravel'], 'road_west', road_bm)

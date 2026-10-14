@@ -18,6 +18,7 @@ import { HouseFlags } from "./house-flags";
 import { coastDistance } from "../sim/obstacles";
 import type { QualityService, QualityTier } from "../engine/quality";
 import { approach, indexVariants, pickVariant, targetSwing, wreckScale, type VariantIndex } from "./variants";
+import { DECK, linear, liveryFor, TOPSIDE, TRIM } from "./livery";
 
 /**
  * FleetSystem: every stablecoin's hull, in ONE BatchedMesh multi-draw (+ its shadow pass), posed every
@@ -64,6 +65,14 @@ const WRECK_KITS = ["wreck_a", "wreck_b", "wreck_c"];
 const DETAILED_WRECKS = 16;
 const BUOY_KIT = "mooring_buoy";
 const DATA_W = 256;
+/** Livery texels per instance (uFleetPaint): topside, trim, deck, coachroof. */
+const PAINT_TEXELS = 4;
+/**
+ * Far away the rig recedes (fleet-material STRUCK): spars weather to slate and rigging drops as a hull shrinks
+ * from SPAR_NEAR to SPAR_FAR px LOA, and up to STRIKE_SHARE of the furled hulls (hash-picked) strike theirs, so
+ * docked rows read as hulls and a few masts.
+ */
+const SPAR_NEAR = 70, SPAR_FAR = 34, STRIKE_SHARE = 0.8;
 const CLASS_LOA_FALLBACK: Record<HullClass, number> = { flagship: 26, large: 18, medium: 13, small: 10, boat: 7.5, skiff: 5 };
 
 const hash01 = (s: string): number => {
@@ -101,6 +110,9 @@ interface BoatRec {
   /** Shows an anchor light when moored (a deterministic minority), and whether its pennant flies. */
   lit: boolean;
   flag: number;
+  /** Rig struck this frame (far away, furled): no masthead flag or light. `mastK` orders who strikes first. */
+  struck: boolean;
+  mastK: number;
   /** Picking sphere (world). */
   cx: number; cy: number; cz: number; r: number; top: number;
 }
@@ -115,6 +127,7 @@ export class FleetSystem implements WorldSystem {
   private depth: THREE.MeshDepthMaterial | null = null;
   private readonly uniforms: FleetUniforms;
   private data = new Float32Array(0);
+  private paint = new Float32Array(0);
   private geomIds = new Map<string, number>();
   private boats: BoatRec[] = [];
   private byId = new Map<string, BoatRec>();
@@ -166,6 +179,7 @@ export class FleetSystem implements WorldSystem {
     dt.needsUpdate = true;
     this.uniforms = {
       uFleetData: { value: dt },
+      uFleetPaint: { value: new THREE.DataTexture(new Float32Array(DATA_W * 4), DATA_W, 1, THREE.RGBAFormat, THREE.FloatType) },
       uEmblems: { value: new THREE.Texture() },
       uEmblemGrid: { value: new THREE.Vector4(32, 1, 1 / 32, 1) },
       uWind: { value: 0.35 },
@@ -239,6 +253,17 @@ export class FleetSystem implements WorldSystem {
   }
 
   private ensureData(maxInstances: number): void {
+    const prows = Math.ceil((maxInstances * PAINT_TEXELS) / DATA_W);
+    if (this.paint.length < prows * DATA_W * 4) {
+      const old = this.uniforms.uFleetPaint.value;
+      const p = new Float32Array(prows * DATA_W * 4);
+      p.set(this.paint);
+      this.paint = p;
+      const t = new THREE.DataTexture(p, DATA_W, prows, THREE.RGBAFormat, THREE.FloatType);
+      t.needsUpdate = true;
+      this.uniforms.uFleetPaint.value = t;
+      old.dispose();
+    }
     const rows = Math.ceil((maxInstances * 2) / DATA_W);
     if (this.data.length >= rows * DATA_W * 4) return;
     this.data = new Float32Array(rows * DATA_W * 4);
@@ -260,10 +285,26 @@ export class FleetSystem implements WorldSystem {
     return mesh.addInstance(geom);
   }
 
-  private writeData(inst: number, furl: number, swing: number, hi: number, r: number, g: number, b: number, slot: number, flag = 1): void {
+  private writeData(inst: number, furl: number, swing: number, hi: number, r: number, g: number, b: number, slot: number, flag = 1, far = 0, struck = false): void {
     const d = this.data, o = inst * 8;
-    d[o] = furl; d[o + 1] = swing; d[o + 2] = hi; d[o + 3] = flag;
+    // pennant flying (sign), how far the rig has receded and whether it is struck share one channel
+    const m = 1 + far + (struck ? 2 : 0);
+    d[o] = furl; d[o + 1] = swing; d[o + 2] = hi; d[o + 3] = flag > 0.5 ? m : -m;
     d[o + 4] = r; d[o + 5] = g; d[o + 6] = b; d[o + 7] = slot;
+  }
+
+  /** The hull's livery (decorative, hash-picked per coin) into uFleetPaint; 0 texels = the kit's own paint. */
+  private writePaint(inst: number, id: string | null, family: string): void {
+    const p = this.paint, o = inst * PAINT_TEXELS * 4;
+    p.fill(0, o, o + PAINT_TEXELS * 4);
+    if (id) {
+      const lv = liveryFor(id, family);
+      p.set(linear(TOPSIDE[lv.topside]), o); p[o + 3] = lv.nameBoard ? 1 : 0;
+      p.set(linear(TRIM[lv.stripe]), o + 4); p[o + 7] = 1;
+      p.set(linear(DECK[lv.deck]), o + 8);
+      if (lv.roof) { p.set(linear(TRIM[lv.roof]), o + 12); p[o + 15] = 1; }
+    }
+    this.uniforms.uFleetPaint.value.needsUpdate = true;
   }
 
   // ------------------------------------------------------------------ model → instances
@@ -295,8 +336,9 @@ export class FleetSystem implements WorldSystem {
         swing: prev?.swing ?? 0, heel: prev?.heel ?? 0, hi: 0, px: prev?.px ?? 0, pz: prev?.pz ?? 0, vx: 0, vz: 0, seen: !!prev?.seen,
         phi: hash01(boat.id + "#bob") * Math.PI * 2,
         slot: this.atlas ? this.atlas.slotFor({ id: boat.id, symbol: boat.symbol, brandColor: boat.brandColor }) : -1,
-        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, lit: hash01(boat.id + "#lamp") < MOORED_LIT, flag: 1, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
+        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, lit: hash01(boat.id + "#lamp") < MOORED_LIT, flag: 1, struck: false, mastK: hash01(boat.id + "#mast"), cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
       };
+      this.writePaint(rec.inst, wrecked ? null : boat.id, variant.family);
       this.boats.push(rec);
       this.byId.set(rec.id, rec);
     }
@@ -368,6 +410,7 @@ export class FleetSystem implements WorldSystem {
       const len = detailed ? Math.max(10, Math.min(16, s.loa * 0.85)) * (0.9 + 0.2 * hash01(w.id + "#s")) : Math.min(6.8, Math.max(4.4, s.loa * 0.6)) * (0.85 + 0.3 * hash01(w.id + "#s"));
       const scale = (len / prop.loa) * (detailed ? wreckScale(w.peakMcap) : 1);
       const inst = this.addInstance(geom);
+      this.writePaint(inst, null, "");
       const side = hash01(w.id + "#side") < 0.5 ? -1 : 1;
       // the keel half-buried in the sand where she lies: the sand's own height, less the burial
       const sand = Math.min(gy(s.x, s.z), gy(s.x + Math.sin(s.h) * len * 0.3, s.z + Math.cos(s.h) * len * 0.3), gy(s.x - Math.sin(s.h) * len * 0.3, s.z - Math.cos(s.h) * len * 0.3));
@@ -388,6 +431,7 @@ export class FleetSystem implements WorldSystem {
     if (geom == null) return;
     for (const m of this.layout!.moorings ?? []) {
       const inst = this.addInstance(geom);
+      this.writePaint(inst, null, "");
       this.writeData(inst, 0, 0, 0, 0.8, 0.2, 0.1, -1);
       this.buoyInst.push({ inst, x: m.position[0], z: m.position[2], phi: hash01(m.id) * 6.28 });
     }
@@ -516,12 +560,14 @@ export class FleetSystem implements WorldSystem {
       if (b.visible) { st.visible++; if (g === b.geomFull) st.full++; else st.lod++; }
       // pennants: small hulls strike theirs when small on screen (no speckle across the bay)
       b.flag = b.loa >= 12 ? 1 : b.flag ? (px > 55 ? 1 : 0) : (px > 72 ? 1 : 0);
-      this.writeData(b.inst, b.wrecked ? 0 : 1 - sail, b.wrecked ? 0 : b.swing, b.hi, b.brand.r, b.brand.g, b.brand.b, b.wrecked ? -2 : b.slot, b.wrecked ? 0 : b.flag);
+      const far = b.hi > 0.05 || b.wrecked ? 0 : 1 - THREE.MathUtils.smoothstep(px, SPAR_FAR, SPAR_NEAR);
+      b.struck = !moving && sail < 0.1 && b.mastK < far * STRIKE_SHARE;
+      this.writeData(b.inst, b.wrecked ? 0 : 1 - sail, b.wrecked ? 0 : b.swing, b.hi, b.brand.r, b.brand.g, b.brand.b, b.wrecked ? -2 : b.slot, b.wrecked ? 0 : b.flag, far, b.struck);
 
       // a house flag with the coin's emblem at the masthead of the bigger hulls at rest (sails furled)
       // (aground on the Shoals: a distress signal instead, every hull)
       const distress = ph === PH_ANCHORED && sim?.slotOf(i)?.kind === "shoals";
-      if (this.flags && !moving && !b.wrecked && b.visible && b.dist < tier.flagRange && (distress || (b.loa >= 12.5 && b.slot >= 0 && ph !== PH_ANCHORED))) {
+      if (this.flags && !moving && !b.wrecked && !b.struck && b.visible && b.dist < tier.flagRange && (distress || (b.loa >= 12.5 && b.slot >= 0 && ph !== PH_ANCHORED))) {
         this.v.copy(b.variant.masthead).applyMatrix4(this.m4);
         this.flags.add(this.v.x, this.v.y + 0.35, this.v.z, Math.min(3.8, Math.max(1.4, b.loa * (b.loa < 15 ? 0.11 : 0.13))), downwind, Math.atan2(cam.position.x - x, cam.position.z - z), distress ? -3 : b.slot, b.phi * 3);
       }
@@ -543,7 +589,8 @@ export class FleetSystem implements WorldSystem {
           rl.add(sp.x, sp.y, sp.z, LAMP_WARM.r * 2.2, LAMP_WARM.g * 2.2, LAMP_WARM.b * 2.2, 0.26, h0, 0.8);
         } else {
           const k = ph === PH_ANCHORED ? 1.3 : 0.65;
-          const mh = lampAt(v.masthead.x, v.masthead.y, v.masthead.z);
+          // rig struck far away: the anchor lamp hangs low in the forestay's place, not on thin air
+          const mh = b.struck ? lampAt(v.bowCleat.x * 0.8, v.bowCleat.y + 1.2, 0) : lampAt(v.masthead.x, v.masthead.y, v.masthead.z);
           rl.add(mh.x, mh.y, mh.z, LAMP_WARM.r * k, LAMP_WARM.g * k, LAMP_WARM.b * k, ph === PH_ANCHORED ? 0.26 : 0.17, h0, 0.5);
         }
       }
@@ -891,6 +938,7 @@ export class FleetSystem implements WorldSystem {
     this.material?.dispose(); this.depth?.dispose();
     this.atlas?.dispose();
     this.uniforms.uFleetData.value.dispose();
+    this.uniforms.uFleetPaint.value.dispose();
     this.debug?.remove();
     this.unsubQuality?.(); this.unsubQuality = null;
     ctx.services.delete("picking");

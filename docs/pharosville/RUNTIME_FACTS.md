@@ -41,7 +41,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 ## World Systems
 
-- Registration (= update) order: `LayoutSystem` → `DataSystem` → `ReadingsSystem` → `SkySystem` → `OceanSystem` → `IslandSystem` → `LighthouseSystem` → `FleetSystem` → `LightsSystem` → `BeamSystem`
+- Registration (= update) order: `LayoutSystem` → `DataSystem` → `ReadingsSystem` → `SkySystem` → `OceanSystem` → `IslandSystem` → `LighthouseSystem` → `FleetSystem` → `LifeSystem` → `LightsSystem` → `BeamSystem`
 
 ## Bundle Budgets
 

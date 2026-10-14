@@ -53,6 +53,13 @@ export const RETIRED_AGENT_RECORD_SCRIPTS = new Set([
   "capture:triptych",
 ]);
 
+// Scripts of OTHER repositories quoted by research records under agents/
+// (the Harbour reboot's ClaudeVille anatomy cites its `art:analyze`). Never
+// executed here; accepted ONLY under agents/.
+export const EXTERNAL_AGENT_RECORD_SCRIPTS = new Set([
+  "art:analyze",
+]);
+
 const ignoredReferencePattern =
   /^(?:https?:|mailto:|#|\/(?:api|pharosville)(?:\/|$)|[a-z]+:)/i;
 
@@ -191,7 +198,8 @@ export function checkMarkdownFiles({ repoRoot = process.cwd(), markdownFiles, pa
     const text = typeof file.text === "string" ? file.text : readFileSync(resolve(repoRoot, file.path), "utf8");
     for (const command of findDocumentedNpmRunCommands(text)) {
       if (!packageScripts.has(command.scriptName)
-        && !(file.path.startsWith("agents/") && RETIRED_AGENT_RECORD_SCRIPTS.has(command.scriptName))) {
+        && !(file.path.startsWith("agents/")
+          && (RETIRED_AGENT_RECORD_SCRIPTS.has(command.scriptName) || EXTERNAL_AGENT_RECORD_SCRIPTS.has(command.scriptName)))) {
         missingScripts.push({ filePath: file.path, ...command });
       }
     }

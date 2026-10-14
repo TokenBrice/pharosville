@@ -330,19 +330,23 @@ V_CAM = Vector((math.sin(math.radians(45)) * math.cos(math.radians(V_PITCH)), -m
 CULL_DOT = -0.45
 
 
-def cull_hidden(o):
+DROWNED_Z = -1.4      # the runtime sea is opaque: a face wholly below this (wave troughs reach ~-0.6) is never seen
+
+
+def cull_hidden(o, drowned=False):
     if '--keep-backfaces' in ARGV or o.type != 'MESH':
         return 0
     bm = bmesh.new(); bm.from_mesh(o.data)
     bm.normal_update()
-    dead = [f for f in bm.faces if f.normal.length > 0.5 and f.normal.dot(V_CAM) < CULL_DOT]
+    dead = [f for f in bm.faces if (f.normal.length > 0.5 and f.normal.dot(V_CAM) < CULL_DOT) or
+            (drowned and max(v.co.z for v in f.verts) < DROWNED_Z)]
     n = len(dead)
     bmesh.ops.delete(bm, geom=dead, context='FACES')
     bm.to_mesh(o.data); bm.free()
     return n
 
 
-culled = sum(cull_hidden(o) for o in CHUNK_OBJS + [o for o in NAMED_OUT if o.name != 'tide_board'])
+culled = sum(cull_hidden(o, drowned=True) for o in CHUNK_OBJS) + sum(cull_hidden(o) for o in NAMED_OUT if o.name != 'tide_board')
 print('CULLED faces', culled)
 
 # ------------------------------------------------------------------ write island.glb

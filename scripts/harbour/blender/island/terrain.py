@@ -34,9 +34,16 @@ def to_uv(x, y):
     return ((x + y) / SQ2, (y - x) / SQ2 - VOFF)
 
 
+# the winding road to the Pharos (screen plan): the dresser lays it, the terrain cuts its bench into the headland's flank
+PHAROS_ROAD = [(-118.0, 22.0), (-132.0, 34.0), (-124.0, 52.0), (-142.0, 60.0), (-134.0, 76.0), (-112.0, 84.0), (-96.0, 92.0),
+               (-84.0, 96.0)]
+ROAD_CUT_W = 3.0
+_road = None          # (dense uv polyline, graded z per point, bbox)
+
+
 def init(coast, quay_lines=None, beaches=None):
     """Rasterise the coast (world coords) into a distance-inside field; remember the quay lines and beaches (world)."""
-    global _grid, _quays, _beaches
+    global _grid, _quays, _beaches, _road
     _beaches = []
     for b in (beaches or []):
         L = list(map(tuple, b['line'])); m = b['depth'] + 30.0
@@ -54,6 +61,24 @@ def init(coast, quay_lines=None, beaches=None):
     d = ndimage.distance_transform_edt(m) * _S
     _grid = (x0, y1, nx, ny, d)
     _quays = dict(quay_lines or {})
+    # the road's bench: the ground's own height along the road, smoothed into an even grade (a cut on the climbs, a
+    # little fill in the hollows), so the road lies ON a terrace instead of skidding across the slope
+    _road = None
+    from geom import catmull
+    pts = catmull(PHAROS_ROAD, 6, closed=False)
+    dense = []
+    for a, b in zip(pts, pts[1:]):
+        n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / 1.5))
+        dense += [(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n) for k in range(n)]
+    dense.append(pts[-1])
+    z0 = [height(*from_uv(*p)) for p in dense]
+    zs = []
+    for i in range(len(dense)):
+        w = [z0[j] for j in range(max(0, i - 10), min(len(dense), i + 11))]
+        zs.append(sum(w) / len(w))
+    zs[0] = z0[0]; zs[-1] = z0[-1]
+    m = ROAD_CUT_W / 2 + 7.0
+    _road = (dense, zs, (min(p[0] for p in dense) - m, min(p[1] for p in dense) - m, max(p[0] for p in dense) + m, max(p[1] for p in dense) + m))
 
 
 def dcoast(x, y):
@@ -196,6 +221,20 @@ def height(x, y, coves=()):
             k = 0.0            # never pull the terraces down
         h = h * (1 - k) + Z_SHORE * k
     h = max(h, Z_SHORE - 1.4)
+    if _road is not None:
+        dense, zs, bb = _road
+        if bb[0] <= u <= bb[2] and bb[1] <= v <= bb[3]:
+            best = (1e9, 0.0)
+            for i in range(len(dense) - 1):
+                a, b = dense[i], dense[i + 1]
+                abx, aby = b[0] - a[0], b[1] - a[1]
+                t = max(0.0, min(1.0, ((u - a[0]) * abx + (v - a[1]) * aby) / (abx * abx + aby * aby + 1e-9)))
+                dd = math.hypot(u - a[0] - abx * t, v - a[1] - aby * t)
+                if dd < best[0]:
+                    best = (dd, zs[i] + (zs[i + 1] - zs[i]) * t)
+            k = 1.0 - sstep(ROAD_CUT_W / 2 + 0.6, ROAD_CUT_W / 2 + 6.5, best[0])
+            if k > 0:
+                h = h * (1 - k) + best[1] * k
     kb, _kind = beach_k(x, y)
     if kb > 0:                       # a strand: sand from the waterline up, easing into the land behind
         dc = dcoast(x, y)

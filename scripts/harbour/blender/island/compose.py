@@ -21,7 +21,7 @@ Writes (same contract as v2):
 
     python3 compose.py [--plan-only]
 """
-import json, math, os, random, sys, heapq
+import json, math, os, random, sys, heapq, zlib
 from collections import Counter, defaultdict
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -165,7 +165,7 @@ def cove_ctrl(pid, c, n, hw, depth):
     e1 = add(add(c, mul(t, hw - 4)), mul(n, -depth + 5)); e0 = add(add(c, mul(t, hw + 9)), mul(n, 1.0))
     COVE_INFO[pid] = dict(c=c, n=n, t=t, hw=hw, depth=depth, back=back_c, qa=qa, qb=qb, w=(w0, w1), e=(e1, e0))
     # v4: irregular rocky arms - each a knuckled granite point reaching past the cove mouth, a few rocks off its tip
-    rng = random.Random(hash(pid) % 997)
+    rng = random.Random(zlib.crc32(pid.encode()) % 997)        # stable across processes (str hash() is salted per run)
     arm = lambda sgn: [add(add(c, mul(t, sgn * (hw + 23))), mul(n, 1.0)), add(add(c, mul(t, sgn * (hw + 19.5))), mul(n, 4.0 + rng.uniform(-0.8, 0.8))),
                        add(add(c, mul(t, sgn * (hw + 16.0))), mul(n, 6.2 + rng.uniform(-1.0, 0.6))),
                        add(add(c, mul(t, sgn * (hw + 12.5))), mul(n, 4.8 + rng.uniform(-0.8, 0.8))), add(add(c, mul(t, sgn * (hw + 10.5))), mul(n, 2.8))]
@@ -225,26 +225,35 @@ def coast_ctrl():
 # Grand Mole (rooted on the warehouse wharf, its pierhead west by the Tron quay), every row one gentle smile round a far
 # centre, the big ships alongside the Grand Mole's straight outer facets. The fairways are a serpentine: in at the Grand
 # Mole's head, east along the outer fairway, round the Inner Mole's head, west along the inner one.
-MC = (10.0, 450.0)                   # the rows' common centre (screen plan, far north)
-R_LQ = 662.0                         # Long Quay face (V -208 under the heart target)
+# v5 (P5 art direction: "the moles are long straight bars cutting the bay into stripes"): a tighter common centre so
+# every row is a visible smile (the ends lift ~20 m), wider moles that carry a promenade (lamps, benches) and a round
+# pierhead bastion with its light, and the Grand Mole sweeping into the wharf on an S-curve instead of a knee. The rows,
+# fairway widths, bow gap and lead geometry are unchanged; the old v4 centre is kept to carry the lagoon's lanes, gates
+# and drifts by the same lift (_lift below), so every clearance the v4 checks proved stays as it was.
+MC0, R_LQ0 = (10.0, 450.0), 662.0      # v4 (lanes/gates/drifts north of the Grand Mole were authored against this)
+V_LQB = -215.0                       # the Long Quay's lowest point (v4 -212: 3 m south pays for the wider moles)
+R_LQ = 370.0                         # Long Quay face
+MC = (20.0, V_LQB + R_LQ)            # the rows' common centre (screen plan, north)
 BOW_GAP = 0.7                        # bow to the quay face
 FW1, FW2 = 27.0, 29.0                # fairway widths, stern line to stern line
-W_M1, W_M2 = 8.0, 9.0                # Inner / Grand Mole widths
+W_M1, W_M2 = 11.0, 12.0              # Inner / Grand Mole widths (v4 8 / 9): a promenade between the copings
 R_M1S = R_LQ - 2 * (BOW_GAP + LOA['small']) - FW1
 R_M1, R_M1N = R_M1S - W_M1 / 2, R_M1S - W_M1
 R_M2S = R_M1N - 2 * (BOW_GAP + LOA['medium']) - FW2
 R_M2, R_M2N = R_M2S - W_M2 / 2, R_M2S - W_M2
 R_F1 = R_LQ - BOW_GAP - LOA['small'] - FW1 / 2         # fairway centre lines
 R_F2 = R_M1N - BOW_GAP - LOA['medium'] - FW2 / 2
+_R_M2N0 = R_LQ0 - 2 * (BOW_GAP + LOA['small']) - FW1 - 8.0 - 2 * (BOW_GAP + LOA['medium']) - FW2 - 9.0
 M1_U = (-128.0, 100.0)               # Inner Mole: root (inside the west shore) .. pierhead centre
-M2_U = (-76.0, 150.0)                # Grand Mole: pierhead centre .. end of the arc (a straight root runs on into the wharf)
-M2_ROOT = (198.0, -91.0)
-HEAD_R = {'inner': 6.5, 'grand': 7.5}
+M2_U = (-76.0, 150.0)                # Grand Mole: pierhead centre .. end of the arc (an S-curve root runs on into the wharf)
+M2_ROOT = (197.0, -96.0)
+HEAD_R = {'inner': 8.0, 'grand': 9.0}
 
 
-def marc(r, u):
+def marc(r, u, mc=None):
     """V of the marina arc of radius r at screen U."""
-    return MC[1] - math.sqrt(r * r - (u - MC[0]) ** 2)
+    mc = mc or MC
+    return mc[1] - math.sqrt(r * r - (u - mc[0]) ** 2)
 
 
 def mang(u, r):
@@ -261,9 +270,18 @@ def arc_pts(r, u0, u1, step=6.0):
     return [(u0 + (u1 - u0) * k / (n - 1), marc(r, u0 + (u1 - u0) * k / (n - 1))) for k in range(n)]
 
 
+def _lift(u, v, v_free=-12.0, v_full=-62.0):
+    """A v4 point north of the Grand Mole carried up by the mole's own lift at that U (full at the mole, none by the
+    Vagen's mouth), so its clearance to the mole's outer face is what v4 had."""
+    du = marc(R_M2N, min(max(u, -90.0), 150.0)) - marc(_R_M2N0, min(max(u, -90.0), 150.0), MC0)
+    k = min(1.0, max(0.0, (v - v_free) / (v_full - v_free)))
+    return (u, v + du * k)
+
+
 LONG_QUAY = arc_pts(R_LQ, 150.0, -114.0, 9.0)          # east -> west
-WEST_SHORE = [(-118.5, -197.0), (-121.0, -190.0), (-122.0, -160.0), (-123.0, -134.0), (-124.0, -120.0)]
-EAST_CORNER = [(185.0, -140.0), (178.0, -160.0), (168.0, -178.0), (158.0, -192.0)]
+_LQW, _LQE = LONG_QUAY[-1][1], LONG_QUAY[0][1]
+WEST_SHORE = [(-118.5, _LQW + 3.3), (-121.0, _LQW + 10.3)] + [p for p in ((-122.0, -160.0), (-123.0, -134.0), (-124.0, -120.0)) if p[1] > _LQW + 18.0]
+EAST_CORNER = [p for p in ((185.0, -140.0), (178.0, -160.0), (168.0, -178.0), (158.0, -192.0)) if p[1] > _LQE + 4.0]
 EAST_WHARF = [(167.0, -30.0), (179.0, -50.0), (186.0, -74.0), (188.0, -98.0), (188.0, -118.0)]
 TRON_QUAY = [(-125.0, -114.0), (-127.0, -82.0), (-126.0, -44.0), (-121.0, -6.0), (-113.0, 28.0), (-101.0, 56.0), (-93.0, 68.0)]   # Tron: ~29 % of supply
 def _snap(poly, lines, tol=1.6):
@@ -522,10 +540,32 @@ assert _th2 - VAGEN_GAP_DEG < _th + VAGEN_GAP_DEG, ('Vagen berths overlap', _th,
 MOLES = []             # world: the stone moles (centre line root -> head, width, round pierhead)
 
 
-def mole(name, r, u_root, u_head, width, root=None):
-    line = Wl(([root] if root else []) + arc_pts(r, u_root, u_head, 6.0))
+def _bezier(p0, p1, p2, p3, n):
+    out = []
+    for k in range(n + 1):
+        t = k / n; m = 1 - t
+        out.append(tuple(m ** 3 * p0[i] + 3 * m * m * t * p1[i] + 3 * m * t * t * p2[i] + t ** 3 * p3[i] for i in range(2)))
+    return out
+
+
+def m2_root_curve(r):
+    """The Grand Mole's root (screen plan): from the wharf, an S-curve that meets the arc of radius r tangentially at
+    M2_U[1] (no knee) - root first, arc end last."""
+    ua = M2_U[1]; A = (ua, marc(r, ua))
+    sl = (ua - MC[0]) / math.sqrt(r * r - (ua - MC[0]) ** 2)          # dV/dU of the arc at A
+    tA = norm((-1.0, -sl))                                              # travel root -> head at A
+    R0 = M2_ROOT; t0 = norm((-1.0, 0.3))                                # leaving the wharf heading (nearly) west
+    k = length(sub(A, R0)) * 0.42
+    return _bezier(R0, add(R0, mul(t0, k)), sub(A, mul(tA, k)), A, 10)
+
+
+def mole(name, r, u_root, u_head, width, root=False):
+    pts = arc_pts(r, u_root, u_head, 6.0)
+    if root:
+        pts = m2_root_curve(r)[:-1] + pts
+    line = Wl(pts)
     MOLES.append(dict(name=name, line=line, width=width, head=line[-1], head_r=HEAD_R[name], r=r))
-    # the pier's own segments (sim obstacle stamping + where mooring lines make fast): the mole's crest in 12 m pieces
+    # the pier's own segments (sim obstacle stamping + where mooring lines make fast): the mole's crest in ~12 m pieces
     for a_, b_ in zip(line[::2], line[2::2] + ([line[-1]] if len(line) % 2 == 0 else [])):
         PIERS['pier-ethereum']['segments'].append(dict(kind='mole', a=a_, b=b_, width=width))
     hc = line[-1]
@@ -543,21 +583,21 @@ def mole_polys():
 
 
 mole('inner', R_M1, M1_U[0], M1_U[1], W_M1)
-mole('grand', R_M2, M2_U[1], M2_U[0], W_M2, root=M2_ROOT)
+mole('grand', R_M2, M2_U[1], M2_U[0], W_M2, root=True)
 for _L in (LONG_QUAY, [LONG_QUAY[-1]] + WEST_SHORE):     # the Long Quay + west shore as quay segments (mooring lines)
     _Lw = Wl(_L)
     for _a, _b in zip(_Lw, _Lw[1:]):
         _a, _b = _inland(_a, _b, W(10.0, -150.0))
         PIERS['pier-ethereum']['segments'].append(dict(kind='quay', a=_a, b=_b, width=2.0))
 
-MOUTH = [(-100.0, -117.0)]                                # into the outer fairway past the Grand Mole's head
+MOUTH = [(-100.0, marc(R_F2, -100.0))]                               # into the outer fairway past the Grand Mole's head
 
 
 def lead_f2(u):
     return MOUTH + [(uu, marc(R_F2, uu)) for uu in range(-80, int(u) - 10, 22)]
 
 
-TURN = [(158.0, -124.0), (161.0, -146.0), (154.0, -166.0)]   # round the Inner Mole's head into the inner fairway
+TURN = [(158.0, marc(R_F2 + 15.4, 158.0)), (161.0, marc(R_M1 + 5.2, 161.0)), (154.0, marc(R_F1 - 5.2, 154.0))]   # round the Inner Mole's head into the inner fairway
 
 
 def lead_f1(u):
@@ -598,26 +638,31 @@ _rows['m2s'] = med_row('pier-ethereum', R_M2S, -1, 146.0, -68.0, [M] * 60, 'g-et
 _nm = _NM - _rows['m2s'].count(M)
 # the Inner Mole's north face: the rest of the mediums from the root, then smalls; its south face and the Long Quay: smalls
 _rows['m1n'] = med_row('pier-ethereum', R_M1N, +1, -114.0, 91.0, [M] * max(0, _nm) + [S_] * 60, 'g-eth-marina', lead_f2, R_F2)
-_rows['m1s'] = med_row('pier-ethereum', R_M1S, -1, -114.0, 91.0, [S_] * 60, 'g-eth-marina', lead_f1, R_F1)
+_rows['m1s'] = med_row('pier-ethereum', R_M1S, -1, -111.0, 91.0, [S_] * 60, 'g-eth-marina', lead_f1, R_F1)
 _ns = _NS - _rows['m1n'].count(S_) - _rows['m1s'].count(S_)
 _rows['lq'] = med_row('pier-ethereum', R_LQ, +1, -110.0, 124.0, [S_] * max(0, _ns + 4), 'g-eth-marina', lead_f1, R_F1, skip=((10.0, 26.0),))
 MARINA_ROWS = {k: len(v) for k, v in _rows.items()}
 
 # the big ships alongside the Grand Mole's outer face, each on a straight facet (chord) of the arc, bows east
-_a0 = mang(-66.0, R_M2N)
+_a0 = mang(-68.0, R_M2N)
 for _k in range(7):
     _da = ALONG['large'] / R_M2N
     _pa, _pb = W(*mpt(R_M2N, _a0)), W(*mpt(R_M2N, _a0 + _da))
     _n = norm(sub(W(*MC), lerp(_pa, _pb, 0.5)))
     alongside_line('pier-ethereum', _pa, _pb, _n, 'large', 'g-eth-mole', +1, fender=0.9)
     _a0 += _da + 1.6 / R_M2N
-# ... and one more on the straight root piece where the Grand Mole runs into the wharf
-_rp = [W(*M2_ROOT), W(*mpt(R_M2, mang(M2_U[1], R_M2)))]
-_rd = norm(sub(_rp[0], _rp[1])); _rn = perp(_rd)
-if dot(_rn, sub(W(150.0, -40.0), _rp[1])) < 0:
-    _rn = mul(_rn, -1)
-_ra = add(add(_rp[1], mul(_rn, W_M2 / 2)), mul(_rd, 3.0))
-alongside_line('pier-ethereum', _ra, add(_ra, mul(_rd, ALONG['large'])), _rn, 'large', 'g-eth-mole', +1, fender=0.9)
+# ... and one more: on the arc if it still has room, else on the root's chord where the S-curve runs into the wharf
+if mpt(R_M2N, _a0 + ALONG['large'] / R_M2N)[0] <= M2_U[1] + 1.0:
+    _pa, _pb = W(*mpt(R_M2N, _a0)), W(*mpt(R_M2N, _a0 + ALONG['large'] / R_M2N))
+    alongside_line('pier-ethereum', _pa, _pb, norm(sub(W(*MC), lerp(_pa, _pb, 0.5))), 'large', 'g-eth-mole', +1, fender=0.9)
+else:
+    _rc = Wl(m2_root_curve(R_M2))
+    _rp = [_rc[1], along(_rc, ALONG['large'] + 6.0)[0]]
+    _rd = norm(sub(_rp[0], _rp[1])); _rn = perp(_rd)
+    if dot(_rn, sub(W(150.0, -40.0), _rp[1])) < 0:
+        _rn = mul(_rn, -1)
+    _ra = add(add(_rp[1], mul(_rn, W_M2 / 2 + 0.4)), mul(_rd, 3.0))
+    alongside_line('pier-ethereum', _ra, add(_ra, mul(_rd, ALONG['large'])), _rn, 'large', 'g-eth-mole', +1, fender=0.9)
 # the warehouse wharf (lagoon east shore, Bryggen): one big hull alongside under the gable fronts
 _ew = Wl(EAST_WHARF)
 _s = 1.0
@@ -655,11 +700,11 @@ BW_W = 8.0
 BW_LINE = Wl([(8.0, 112.0), (11.0, 126.0), (15.0, 142.0), (18.0, 158.0), (17.0, 174.0)])
 HARBOUR_LIGHTS = [(BW_LINE[-1], 'red')]
 for _m in MOLES:          # the marina: a light on each pierhead (green to starboard coming in, red to port) + crest lamps
-    HARBOUR_LIGHTS.append((_m['head'], 'green' if _m['name'] == 'grand' else 'red', Z_SHORE + 6.5))
-    _tot = polyline_len(_m['line']); _s = 16.0
+    HARBOUR_LIGHTS.append((_m['head'], 'green' if _m['name'] == 'grand' else 'red', Z_SHORE + 8.95))
+    _tot = polyline_len(_m['line']); _s = 12.0
     while _s < _tot - _m['head_r'] - 8.0:
         _p, _t = along(_m['line'], _s)
-        LAMPS.append((_p[0], _p[1], Z_SHORE, 'lamp', None)); _s += 32.0
+        LAMPS.append((_p[0], _p[1], Z_SHORE, 'lamp', None)); _s += 24.0
     _p, _t = along(_m['line'], _tot - _m['head_r'] - 2.5)
     LAMPS.append((_p[0], _p[1], Z_SHORE, 'pierhead', PENNANT['pier-ethereum']))
 
@@ -736,8 +781,8 @@ def chain_edges(ids, closed=False):
 
 
 LOOP = [('L-m', (-34.0, 96.0)), ('L-t1', (-46.0, 62.0)), ('L-t2', (-66.0, 32.0)), ('L-w1', (-84.0, 6.0)),
-        ('L-w2', (-90.0, -34.0)), ('L-w3', (-96.0, -64.0)), ('L-s1', (-50.0, -62.0)), ('L-s2', (10.0, -64.0)),
-        ('L-s3', (70.0, -60.0)), ('L-s4', (124.0, -54.0)), ('L-e1', (154.0, -50.0)), ('L-e2', (152.0, -30.0)),
+        ('L-w2', (-90.0, -34.0)), ('L-w3', _lift(-96.0, -64.0)), ('L-s1', _lift(-50.0, -62.0)), ('L-s2', _lift(10.0, -64.0)),
+        ('L-s3', _lift(70.0, -60.0)), ('L-s4', _lift(124.0, -54.0)), ('L-e1', _lift(154.0, -50.0)), ('L-e2', (152.0, -30.0)),
         ('L-v1', (128.0, -22.0)), ('L-v2', (70.0, -21.0)), ('L-v3', (28.0, -14.0)), ('L-c1', (8.0, 18.0)), ('L-c2', (-6.0, 52.0)),
         ('L-c3', (-16.0, 86.0))]
 for nid, p in LOOP:
@@ -837,6 +882,8 @@ def drift(pid, blobs, counts, seed, outer=False, avoid=None, loose=(1.0, 1.3, 1.
             g = min(gates, key=lambda n: length(sub(NODES[n], p)))
             if any(sea_clear(lerp(NODES[g], ap, k / 12)) < 4.0 for k in range(13)):
                 return True
+            if any(seg_dist((x, y), NODES[g], ap) < r + 3.0 for x, y, r in COVE_ROCKS + SHOALS_ROCKS):     # rocks are not in sea_clear
+                return True
         if any(abs(q[0] - b_[0]) < rr and abs(q[1] - b_[1]) < rr and length(sub(q, b_)) < rr for q in hull for b_, rr in berths):
             return True
         if any(seg_dist(q, NODES[a_], NODES[b_]) < lane_clear for q in hull for a_, b_ in EDGES):
@@ -917,8 +964,8 @@ _eb, _es = occ('pier-ethereum', 'boat'), occ('pier-ethereum', 'skiff')
 # Ethereum: about half the swing fleet rides in the lagoon in loose drifts east of the hero sightline (camera -> mouth /
 # Pharos stays open water, and so does the water in front of the town); the rest lies in the outer roads behind the
 # breakwater, beyond the town (masts on the horizon). Bays between the drifts keep the fairways and pier heads clear.
-_in_b, _in_s = 12, 14
-drift('pier-ethereum', [((102.0, -40.0), 34.0, 10.0, 0.06, 1.0), ((44.0, -40.0), 26.0, 10.0, -0.06, 0.8), ((-14.0, -34.0), 22.0, 14.0, 0.2, 0.6)],
+_in_b, _in_s = 12, 12
+drift('pier-ethereum', [(_lift(102.0, -40.0), 34.0, 10.0, 0.06, 1.0), (_lift(44.0, -40.0), 26.0, 10.0, -0.06, 0.8), (_lift(-14.0, -34.0), 22.0, 14.0, 0.2, 0.6)],
       {'boat': _in_b, 'skiff': _in_s}, 11, lane_clear=6.0)
 drift('pier-ethereum', [((112.0, 186.0), 66.0, 38.0, -0.08, 1.0), ((196.0, 140.0), 44.0, 30.0, -0.6, 0.9), ((238.0, 90.0), 20.0, 30.0, -0.9, 0.5),
                         ((66.0, 212.0), 26.0, 14.0, 0.1, 0.5), ((200.0, 200.0), 30.0, 18.0, -0.3, 0.45)],
@@ -933,15 +980,15 @@ for i, (pid, c, n, hw, depth) in enumerate(COVES):
     o, ang = COVE_DRIFT[pid]
     sz = math.sqrt(N_ * 300.0)
     blobs = [(o, sz * 0.75, sz * 0.5, ang, 1.0), (add(o, rot((sz * 0.7, sz * 0.25), ang)), sz * 0.4, sz * 0.3, ang, 0.45)]
-    drift(pid, blobs, cnt, 20 + i, outer=True, gates=coast_ids)
+    drift(pid, blobs, cnt, 20 + i, outer=True, gates=coast_ids, lane_clear=10.0)     # the sim's lanes keep 7.5 m + a hull off moored boats
 
 GATE_ON = {'g-eth-wharf': 'L-s4', 'g-eth-vagen': 'L-v1', 'g-eth-marina': 'L-w2', 'g-eth-mole': 'L-s1', 'g-tron': 'L-w1'}
 for pid, c, n, hw, depth in COVES:
     GATE_ON['g-' + pid[5:]] = 'C-' + pid[5:]
 GATES = {}
 loop_ids = [n for n, _ in LOOP]
-GATE_POS = {'g-eth-marina': W(-106.0, -102.0), 'g-eth-mole': W(-32.0, -70.0),
-            'g-eth-wharf': W(160.0, -62.0), 'g-eth-vagen': W(100.0, -8.0), 'g-tron': W(-90.0, -16.0)}
+GATE_POS = {'g-eth-marina': W(-106.0, marc(R_F2 - 13.4, -106.0)), 'g-eth-mole': W(*_lift(-32.0, -70.0)),
+            'g-eth-wharf': W(*_lift(160.0, -62.0)), 'g-eth-vagen': W(100.0, -8.0), 'g-tron': W(-90.0, -16.0)}
 for g, on in GATE_ON.items():
     gid = 'gate-' + g[2:]
     if g in GATE_POS:
@@ -1000,7 +1047,7 @@ BEACHES.append(dict(name='wreck', line=Wl(_strand), depth=46.0, kind='sand'))
 WRECK_SLOTS = []                        # (centre, bow direction, class): filled once the terrain is known (section 6)
 
 # slipway: the boatyard at the lagoon's east corner, launching west into open lagoon water
-SLIP = dict(top=W(138.0, -210.0), bottom=W(137.0, -188.0), width=7.0)     # the boatyard at the Long Quay's open east end
+SLIP = dict(top=W(138.0, marc(R_LQ, 138.0) - 10.0), bottom=W(137.0, marc(R_LQ, 137.0) + 12.0), width=7.0)     # the boatyard at the Long Quay's open east end
 
 FAR_C = W(452.0, 30.0)                 # east of the outer ring: the whole raft field lies beyond its lane and gate
 FAR_ROWS = []
@@ -1639,7 +1686,7 @@ def lights_list():
 
 
 BAY_UV = [(0.0, 112.0), (2.0, 94.0), (12.0, 60.0), (38.0, 12.0)] + VAGEN_ARC[::4] + \
-         [(182.0, -50.0), (192.0, -116.0), (186.0, -150.0), (164.0, -186.0)] + LONG_QUAY[::3] + [(-124.0, -196.0), (-128.0, -120.0), (-146.0, -106.0), (-160.0, -40.0), (-132.0, 22.0)] + \
+         [(182.0, -50.0), (192.0, -116.0), (186.0, -150.0), (164.0, _LQE + 11.0)] + LONG_QUAY[::3] + [(-124.0, _LQW + 4.0), (-128.0, -120.0), (-146.0, -106.0), (-160.0, -40.0), (-132.0, 22.0)] + \
          TRON_QUAY + [(-58.0, 98.0), (-52.0, 104.0)]
 
 
@@ -1713,7 +1760,7 @@ def write_layout(window_lights, sea_bounds):
         slipway=dict(polygon=[gl2(p) for p in rect(lerp(SLIP['top'], SLIP['bottom'], 0.5), norm(sub(SLIP['bottom'], SLIP['top'])),
                                                     length(sub(SLIP['top'], SLIP['bottom'])), SLIP['width'])],
                      slots=[gl3(lerp(SLIP['top'], SLIP['bottom'], 0.25), Z_SHORE)],
-                     launchPath=[gl2(SLIP['top']), gl2(SLIP['bottom']), gl2(W(140.0, -172.0)), gl2(W(156.0, -150.0))]),
+                     launchPath=[gl2(SLIP['top']), gl2(SLIP['bottom']), gl2(W(140.0, marc(R_LQ, 140.0) + 28.0)), gl2(W(156.0, marc(R_LQ, 156.0) + 50.0))]),
         farPorts=dict(polygon=[gl2(p) for p in blob(add(FAR_C, mul(_rv, 6.0)), max(polyline_len(r_['line']) for r_ in FAR_ROWS) / 2 + 14, _span / 2 + 16,
                                                      random.Random(3), 12, 0.05, ang=math.atan2(_ru[1], _ru[0]))],
                       rows=[dict(cls=r_['cls'], line=[gl2(p) for p in r_['line']], slots=[gl3(p) for p in r_['slots']]) for r_ in FAR_ROWS],

@@ -2,7 +2,15 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
-## Unreleased - Garden Observatory
+## Unreleased - The Harbour
+
+Work in progress on `reboot/harbour`; see `agents/2026-10-13-pharosville-reboot/PLAN.md`. Replaces the Garden Observatory world below, which never shipped. Renamed and mirrored into the in-app changelog only by the release PR.
+
+- PharosVille is now a bounded harbour island rendered by one three.js WebGL2 engine: every stablecoin is one boat that sails a circuit between its chains' piers and docks longest where it holds the most supply, with the Ethereum marina, a skiff basin, the Far Ports and Wreck Cove for dead coins.
+- The world carries the readings: the Pharos beam's rhythm and reach are the Stability Index (an unlit lantern means no reading), off-peg coins anchor on the Shoals, the sea state and storm cones follow peg and stress signals, the Customs House tide board paints 24 hours of mint and burn, and fog with an amber dot marks stale data.
+- Text appears only on demand: a hover tag, a slim side panel, `/` search over every coin, chain and landmark, and an `L` ledger whose legend and sortable Coins, Chains and Wrecks tables carry every reading for keyboard and screen-reader visitors.
+- A first-paint poster and guide appear before any module loads and crossfade to the live harbour on its first drawn frame; windows too small to chart keep the welcome page and request no world data or runtime.
+- Day and night follow the visitor's clock, with lit windows, riding lights and pier lamps after dusk; reduced motion is honoured, and sea, gulls and rigging ambience stay opt-in and off by default.
 
 Work in progress on `feat/garden-observatory`; see `agents/2026-10-05-garden-levers/00-implementation-plan.md`. Renamed and mirrored into the in-app changelog only by the release PR.
 

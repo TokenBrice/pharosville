@@ -231,7 +231,7 @@
    ],
    "class": "skiff",
    "lod": "hull_usd_cat_skiff_lod.glb",
-   "kb": 28.1
+   "kb": 29.4
   },
   {
    "id": "usd_sloop_boat",
@@ -454,7 +454,7 @@
    ],
    "class": "boat",
    "lod": "hull_usd_sloop_boat_lod.glb",
-   "kb": 34.4
+   "kb": 35.9
   },
   {
    "id": "usd_sloop_small",
@@ -677,7 +677,7 @@
    ],
    "class": "small",
    "lod": "hull_usd_sloop_small_lod.glb",
-   "kb": 35.3
+   "kb": 36.9
   },
   {
    "id": "usd_cutter_medium",
@@ -900,7 +900,7 @@
    ],
    "class": "medium",
    "lod": "hull_usd_cutter_medium_lod.glb",
-   "kb": 36.6
+   "kb": 38.1
   },
   {
    "id": "usd_schooner_large",
@@ -1186,7 +1186,7 @@
    ],
    "class": "large",
    "lod": "hull_usd_schooner_large_lod.glb",
-   "kb": 48.6
+   "kb": 50.4
   },
   {
    "id": "usd_ship_flagship",
@@ -1449,7 +1449,7 @@
    ],
    "class": "flagship",
    "lod": "hull_usd_ship_flagship_lod.glb",
-   "kb": 61.1
+   "kb": 63.6
   },
   {
    "id": "eur_botter_boat",
@@ -1672,7 +1672,7 @@
    ],
    "class": "boat",
    "lod": "hull_eur_botter_boat_lod.glb",
-   "kb": 34.4
+   "kb": 35.9
   },
   {
    "id": "eur_botter_small",
@@ -1895,7 +1895,7 @@
    ],
    "class": "small",
    "lod": "hull_eur_botter_small_lod.glb",
-   "kb": 35.4
+   "kb": 37.0
   },
   {
    "id": "eur_botter_medium",
@@ -2118,7 +2118,7 @@
    ],
    "class": "medium",
    "lod": "hull_eur_botter_medium_lod.glb",
-   "kb": 35.4
+   "kb": 37.0
   },
   {
    "id": "eur_botter_large",
@@ -2341,7 +2341,7 @@
    ],
    "class": "large",
    "lod": "hull_eur_botter_large_lod.glb",
-   "kb": 36.9
+   "kb": 38.6
   },
   {
    "id": "gold_brig_medium",
@@ -2589,7 +2589,7 @@
    ],
    "class": "medium",
    "lod": "hull_gold_brig_medium_lod.glb",
-   "kb": 45.1
+   "kb": 46.6
   },
   {
    "id": "gold_brig_large",
@@ -2837,7 +2837,7 @@
    ],
    "class": "large",
    "lod": "hull_gold_brig_large_lod.glb",
-   "kb": 47.3
+   "kb": 49.0
   },
   {
    "id": "fiat_lugger_boat",
@@ -3123,7 +3123,7 @@
    ],
    "class": "boat",
    "lod": "hull_fiat_lugger_boat_lod.glb",
-   "kb": 44.2
+   "kb": 45.3
   },
   {
    "id": "fiat_lugger_small",
@@ -3409,7 +3409,7 @@
    ],
    "class": "small",
    "lod": "hull_fiat_lugger_small_lod.glb",
-   "kb": 43.6
+   "kb": 44.6
   },
   {
    "id": "fiat_lugger_medium",
@@ -3695,7 +3695,7 @@
    ],
    "class": "medium",
    "lod": "hull_fiat_lugger_medium_lod.glb",
-   "kb": 45.2
+   "kb": 46.3
   },
   {
    "id": "other_work_skiff",
@@ -3918,7 +3918,7 @@
    ],
    "class": "skiff",
    "lod": "hull_other_work_skiff_lod.glb",
-   "kb": 30.9
+   "kb": 32.2
   },
   {
    "id": "other_work_boat",
@@ -4141,7 +4141,7 @@
    ],
    "class": "boat",
    "lod": "hull_other_work_boat_lod.glb",
-   "kb": 33.7
+   "kb": 35.2
   },
   {
    "id": "other_work_small",
@@ -4364,7 +4364,7 @@
    ],
    "class": "small",
    "lod": "hull_other_work_small_lod.glb",
-   "kb": 34.6
+   "kb": 36.2
   }
  ],
  "lods": [
@@ -4373,126 +4373,126 @@
    "file": "hull_usd_cat_skiff_lod.glb",
    "tris": 93,
    "budget": 150,
-   "kb": 5.4
+   "kb": 6.0
   },
   {
    "id": "usd_sloop_boat",
    "file": "hull_usd_sloop_boat_lod.glb",
    "tris": 95,
    "budget": 150,
-   "kb": 5.5
+   "kb": 6.1
   },
   {
    "id": "usd_sloop_small",
    "file": "hull_usd_sloop_small_lod.glb",
    "tris": 95,
    "budget": 150,
-   "kb": 5.4
+   "kb": 6.1
   },
   {
    "id": "usd_cutter_medium",
    "file": "hull_usd_cutter_medium_lod.glb",
    "tris": 95,
    "budget": 150,
-   "kb": 5.5
+   "kb": 6.1
   },
   {
    "id": "usd_schooner_large",
    "file": "hull_usd_schooner_large_lod.glb",
    "tris": 105,
    "budget": 150,
-   "kb": 5.7
+   "kb": 6.4
   },
   {
    "id": "usd_ship_flagship",
    "file": "hull_usd_ship_flagship_lod.glb",
    "tris": 119,
    "budget": 150,
-   "kb": 6.1
+   "kb": 6.8
   },
   {
    "id": "eur_botter_boat",
    "file": "hull_eur_botter_boat_lod.glb",
    "tris": 95,
    "budget": 150,
-   "kb": 5.5
+   "kb": 6.2
   },
   {
    "id": "eur_botter_small",
    "file": "hull_eur_botter_small_lod.glb",
    "tris": 95,
    "budget": 150,
-   "kb": 5.5
+   "kb": 6.2
   },
   {
    "id": "eur_botter_medium",
    "file": "hull_eur_botter_medium_lod.glb",
    "tris": 95,
    "budget": 150,
-   "kb": 5.5
+   "kb": 6.2
   },
   {
    "id": "eur_botter_large",
    "file": "hull_eur_botter_large_lod.glb",
    "tris": 95,
    "budget": 150,
-   "kb": 5.5
+   "kb": 6.2
   },
   {
    "id": "gold_brig_medium",
    "file": "hull_gold_brig_medium_lod.glb",
    "tris": 109,
    "budget": 150,
-   "kb": 5.9
+   "kb": 6.6
   },
   {
    "id": "gold_brig_large",
    "file": "hull_gold_brig_large_lod.glb",
    "tris": 109,
    "budget": 150,
-   "kb": 5.9
+   "kb": 6.6
   },
   {
    "id": "fiat_lugger_boat",
    "file": "hull_fiat_lugger_boat_lod.glb",
    "tris": 103,
    "budget": 150,
-   "kb": 5.7
+   "kb": 6.3
   },
   {
    "id": "fiat_lugger_small",
    "file": "hull_fiat_lugger_small_lod.glb",
    "tris": 103,
    "budget": 150,
-   "kb": 5.7
+   "kb": 6.3
   },
   {
    "id": "fiat_lugger_medium",
    "file": "hull_fiat_lugger_medium_lod.glb",
    "tris": 103,
    "budget": 150,
-   "kb": 5.7
+   "kb": 6.3
   },
   {
    "id": "other_work_skiff",
    "file": "hull_other_work_skiff_lod.glb",
    "tris": 95,
    "budget": 150,
-   "kb": 5.5
+   "kb": 6.1
   },
   {
    "id": "other_work_boat",
    "file": "hull_other_work_boat_lod.glb",
    "tris": 95,
    "budget": 150,
-   "kb": 5.5
+   "kb": 6.1
   },
   {
    "id": "other_work_small",
    "file": "hull_other_work_small_lod.glb",
    "tris": 95,
    "budget": 150,
-   "kb": 5.5
+   "kb": 6.1
   }
  ],
  "props": [
