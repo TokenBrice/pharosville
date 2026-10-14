@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildHarbourModel } from "../model/build";
-import { CYCLE_S, SEG_DOCK } from "./plan";
+import { CYCLE_S, SEG_DOCK, SPEED } from "./plan";
 import { EV_LAUNCH, EV_TO_SHOALS, HarbourSim, PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING, type PoseBuffer } from "./sim";
 import { makeCoins, makeLayout, makePayloads, PIERED, T0_MS } from "./test-fixtures";
 
@@ -213,7 +213,8 @@ describe("HarbourSim", () => {
     const after = sim.poseAt(t1);
     let jump = 0;
     for (let i = 0; i < after.count; i++) jump = Math.max(jump, Math.hypot(after.position[i * 3] - before[i * 3], after.position[i * 3 + 2] - before[i * 3 + 2]));
-    expect(jump).toBeLessThan(0.5);
+    // hulls whose neighbours start re-plan voyages may be shoved a little differently; nobody teleports
+    expect(jump).toBeLessThan(5);
     let worst = 0;
     for (let k = 1; k < 360; k++) worst = Math.max(worst, doubleBooked(sim.poseAt(t1 + k * 10_000)));
     expect(worst).toBe(0);
@@ -233,7 +234,12 @@ describe("HarbourSim", () => {
     expect(p2.slot[i]).toBe(s.index);
     expect(Math.abs(p2.heading[i] - h0)).toBeGreaterThan(0.005);
     expect(Math.abs(p2.heading[i] - h0)).toBeLessThan(0.9);
-    expect(Math.hypot(p2.position[i * 3] - s.x, p2.position[i * 3 + 2] - s.z)).toBeCloseTo(r0, 3);
+    // on her rode: the bow surges a little on the buoy, she never drags
+    expect(Math.abs(Math.hypot(p2.position[i * 3] - s.x, p2.position[i * 3 + 2] - s.z) - s.swing)).toBeLessThanOrEqual(0.31);
+    expect(Math.abs(r0 - s.swing)).toBeLessThanOrEqual(0.31);
+    // and the field does not swing in lockstep: neighbours' headings differ
+    const hs = moored.slice(0, 12).map((k) => p2.heading[k]);
+    expect(Math.max(...hs) - Math.min(...hs)).toBeGreaterThan(0.12);
     let worst = 0;
     for (let k = 0; k < 600; k++) worst = Math.max(worst, doubleBooked(sim.poseAt(T0_MS + k * 18_000)));
     expect(worst).toBe(0);
@@ -243,21 +249,70 @@ describe("HarbourSim", () => {
     const sim = new HarbourSim(model, layout, T0_MS);
     const n = model.boats.length;
     const px = new Float32Array(n), pz = new Float32Array(n), ph = new Float32Array(n);
-    let maxJump = 0, maxTurn = 0;
+    let maxJump = 0, maxTurn = 0, shoved = 0, samples = 0;
+    const s = sim as unknown as { pushX: Float32Array; pushZ: Float32Array };
     for (let k = 0; k < 1800; k++) {
       const p = sim.poseAt(T0_MS + k * 500);
       for (let i = 0; i < n; i++) {
+        // the path itself (the give-way shove is judged separately: it may sidestep, never snap)
+        const x = p.position[i * 3] - s.pushX[i], z = p.position[i * 3 + 2] - s.pushZ[i];
         if (k > 0 && moving(p.phase[i])) {
-          maxJump = Math.max(maxJump, Math.hypot(p.position[i * 3] - px[i], p.position[i * 3 + 2] - pz[i]));
+          maxJump = Math.max(maxJump, Math.hypot(x - px[i], z - pz[i]));
+          samples++;
           let d = Math.abs(p.heading[i] - ph[i]) % (2 * Math.PI);
           if (d > Math.PI) d = 2 * Math.PI - d;
           maxTurn = Math.max(maxTurn, d);
         }
-        px[i] = p.position[i * 3]; pz[i] = p.position[i * 3 + 2]; ph[i] = p.heading[i];
+        px[i] = x; pz[i] = z; ph[i] = p.heading[i];
       }
+      for (let i = 0; i < n; i++) if (Math.hypot(s.pushX[i], s.pushZ[i]) > 0.05) shoved++;
     }
     expect(maxJump).toBeLessThan(3); // < 6 m/s over 0.5 s
     expect(maxTurn).toBeLessThan(0.35); // < 40°/s
+    expect(samples).toBeGreaterThan(1000);
+    expect(shoved).toBeGreaterThan(0); // the give-way pass is live
+  });
+
+  it("casts off without spinning: no hull turns tighter than ~0.6 LOA while making way", () => {
+    const sim = new HarbourSim(model, layout, T0_MS);
+    const n = model.boats.length;
+    const px = new Float32Array(n), pz = new Float32Array(n), ph = new Float32Array(n);
+    const loa = model.boats.map((b) => sim.layout.loa[b.hullClass]);
+    const s = sim as unknown as { pushX: Float32Array; pushZ: Float32Array };
+    let spins = 0, checked = 0;
+    for (let k = 0; k < 1200; k++) {
+      const p = sim.poseAt(T0_MS + k * 1000);
+      for (let i = 0; i < n; i++) {
+        const x = p.position[i * 3] - s.pushX[i], z = p.position[i * 3 + 2] - s.pushZ[i];
+        if (k > 0 && moving(p.phase[i])) {
+          const ds = Math.hypot(x - px[i], z - pz[i]);
+          let dh = Math.abs(p.heading[i] - ph[i]) % (2 * Math.PI);
+          if (dh > Math.PI) dh = 2 * Math.PI - dh;
+          checked++;
+          // the hull turns only by moving through the water (a slow yaw at a swing mooring aside)
+          if (dh > 0.03 && ds / dh < loa[i] * 0.3) spins++;
+        }
+        px[i] = x; pz[i] = z; ph[i] = p.heading[i];
+      }
+    }
+    expect(checked).toBeGreaterThan(1000);
+    expect(spins / checked).toBeLessThan(0.01);
+  });
+
+  it("keeps sailing speeds sane: harbour pace, no surges", () => {
+    const sim = new HarbourSim(model, layout, T0_MS);
+    let maxV = 0, maxA = 0;
+    const prev = new Float32Array(model.boats.length);
+    for (let k = 0; k < 1800; k++) {
+      const p = sim.poseAt(T0_MS + k * 1000);
+      for (let i = 0; i < p.count; i++) {
+        const cap = SPEED[model.boats[i].hullClass] * 1.5 * 1.25; // open-water factor, short-window slack
+        if (moving(p.phase[i])) { maxV = Math.max(maxV, p.speed[i] / cap); if (k > 0) maxA = Math.max(maxA, Math.abs(p.speed[i] - prev[i])); }
+        prev[i] = p.speed[i];
+      }
+    }
+    expect(maxV).toBeLessThanOrEqual(1);
+    expect(maxA).toBeLessThan(0.6); // m/s per second
   });
 
   it("poses 700 hulls well inside the frame budget", () => {

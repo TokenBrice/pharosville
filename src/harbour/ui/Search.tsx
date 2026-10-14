@@ -1,29 +1,49 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Logo } from "./bits";
+import type { HarbourModel } from "../model/types";
+import { chainLogo, Logo } from "./bits";
+import { PANEL_LANDMARKS } from "./facts";
 import { money } from "./format";
-import { usePresence, useStore, useUI, useUISlice } from "./hooks";
-import { searchCoins } from "./search";
+import { usePresence, useStore, useUISlice } from "./hooks";
+import { searchCoins, type Searchable } from "./search";
+import { getLayout, type PickHit } from "./services";
 
-/** '/' search: a compact chart-paper field; ↑/↓ choose, Enter flies to and selects the boat. */
+interface Item extends Searchable { hit: PickHit; logo: string | null; color: string; note: string }
+
+/** '/' search: a compact chart-paper field over coins, harbours and landmarks; ↑/↓ choose, Enter sails there. */
 export function Search({ onClose }: { onClose: () => void }) {
   const searchOpen = useUISlice((s) => s.searchOpen);
   const model = useUISlice((s) => s.model);
   const [mounted, shown] = usePresence(searchOpen, 180);
   if (!mounted) return null;
-  return <SearchBox shown={shown && searchOpen} boats={model?.boats ?? []} onClose={onClose} />;
+  return <SearchBox shown={shown && searchOpen} model={model} onClose={onClose} />;
 }
 
-function SearchBox({ shown, boats, onClose }: { shown: boolean; boats: NonNullable<ReturnType<typeof useUI>["model"]>["boats"]; onClose: () => void }) {
+function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourModel | null; onClose: () => void }) {
   const store = useStore();
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
   const input = useRef<HTMLInputElement>(null);
-  const results = useMemo(() => searchCoins(q, boats, 7), [q, boats]);
+  const items = useMemo<Item[]>(() => {
+    const out: Item[] = (model?.boats ?? []).map((b) => ({
+      id: b.id, symbol: b.symbol, name: b.name, supply: b.supply, hit: { kind: "boat", id: b.id }, logo: b.logo, color: b.brandColor, note: money(b.supply),
+    }));
+    for (const h of model?.harbours ?? []) {
+      out.push({ id: `chain:${h.chain}`, symbol: h.chain, name: h.piered ? `${h.chain} harbour` : `${h.chain}, a far port`, supply: h.supplyUsd,
+        hit: { kind: "harbour", id: h.chain }, logo: chainLogo(h.chain), color: "#1f5873", note: money(h.supplyUsd) });
+    }
+    for (const lm of getLayout(store.ctx)?.landmarks ?? []) {
+      if (!PANEL_LANDMARKS.has(lm.id) || lm.id === "tide-board") continue;
+      out.push({ id: `lm:${lm.id}`, symbol: lm.name, name: lm.name.replace(/^The /, ""), supply: 0,
+        hit: { kind: "landmark", id: lm.id }, logo: null, color: "#a68242", note: "landmark" });
+    }
+    return out;
+  }, [model, store]);
+  const results = useMemo(() => searchCoins(q, items, 7), [q, items]);
   useEffect(() => { input.current?.focus(); }, []);
 
   const choose = (i: number) => {
-    const b = results[i];
-    if (b) store.select({ kind: "boat", id: b.id });
+    const r = results[i];
+    if (r) store.select(r.hit);
   };
   return (
     <div className="hb-search hb-paper hb-fade" data-shown={shown} role="dialog" aria-label="Find a coin">
@@ -33,8 +53,8 @@ function SearchBox({ shown, boats, onClose }: { shown: boolean; boats: NonNullab
           ref={input}
           value={q}
           onChange={(e) => { setQ(e.target.value); setActive(0); }}
-          placeholder={`Find one of ${boats.length || 625} coins…`}
-          aria-label="Search coins by symbol or name"
+          placeholder={`Find a coin, a chain or a landmark…`}
+          aria-label="Search coins, chains and landmarks"
           role="combobox"
           aria-expanded={results.length > 0}
           aria-controls="hb-search-results"
@@ -50,20 +70,20 @@ function SearchBox({ shown, boats, onClose }: { shown: boolean; boats: NonNullab
         />
       </div>
       {results.length > 0 && (
-        <ul className="hb-results" id="hb-search-results" role="listbox" aria-label="Matching coins">
-          {results.map((b, i) => (
-            <li key={b.id} id={`hb-sr-${i}`} role="option" aria-selected={i === active} className="hb-result"
+        <ul className="hb-results" id="hb-search-results" role="listbox" aria-label="Matches">
+          {results.map((r, i) => (
+            <li key={r.id} id={`hb-sr-${i}`} role="option" aria-selected={i === active} className="hb-result" data-kind={r.hit.kind}
               onMouseEnter={() => setActive(i)} onMouseDown={(e) => { e.preventDefault(); choose(i); }}>
-              <Logo src={b.logo} label={b.symbol} color={b.brandColor} />
-              <b>{b.symbol}</b>
-              <em>{b.name}</em>
-              <span className="hb-num">{money(b.supply)}</span>
+              {r.hit.kind === "landmark" ? <span className="hb-logo hb-lm-glyph" aria-hidden="true" /> : <Logo src={r.logo} label={r.symbol} color={r.color} />}
+              <b>{r.symbol}</b>
+              <em>{r.hit.kind === "landmark" ? "" : r.name}</em>
+              <span className={r.hit.kind === "landmark" ? "hb-result-kind" : "hb-num"}>{r.note}</span>
             </li>
           ))}
         </ul>
       )}
-      {q.trim() && results.length === 0 && <div className="hb-search-hint">No coin answers to “{q.trim()}”.</div>}
-      {!q.trim() && <div className="hb-search-hint">Type a ticker or a name · Enter sails there · Esc closes</div>}
+      {q.trim() && results.length === 0 && <div className="hb-search-hint">Nothing in the harbour answers to “{q.trim()}”.</div>}
+      {!q.trim() && <div className="hb-search-hint">A ticker, a chain or a place · Enter sails there · Esc closes</div>}
     </div>
   );
 }

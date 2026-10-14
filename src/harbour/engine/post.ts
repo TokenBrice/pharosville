@@ -5,6 +5,7 @@ import {
 } from "postprocessing";
 import type { CameraRig } from "./camera-rig";
 import type { Grade, TimeOfDay } from "./time-of-day";
+import type { QualitySettings } from "./quality";
 
 /**
  * The WebGL2 post chain (one merged EffectPass + SMAA):
@@ -22,9 +23,21 @@ function sCurve(v: number, c: number): number {
   return v < 0.5 ? 0.5 * Math.pow(2 * v, c) : 1 - 0.5 * Math.pow(2 * (1 - v), c);
 }
 
+const smooth = (e0: number, e1: number, x: number) => { const t = clamp01((x - e0) / (e1 - e0)); return t * t * (3 - 2 * t); };
+/** Soft hue window (degrees, may wrap): 1 inside [a, b], easing out over `soft` degrees. */
+function hueBand(h: number, a: number, b: number, soft: number): number {
+  const d = (x: number) => ((x % 360) + 360) % 360;
+  const w = d(b - a), p = d(h - a);
+  if (p <= w) return 1;
+  const out = Math.min(p - w, 360 - p);
+  return 1 - smooth(0, soft, out);
+}
+
 /**
  * Pure grade function on sRGB-encoded display values (what LUT3DEffect samples with).
  * Blender colour balance (LGG): x = ((v - 1)·(2 - lift) + 1)·gain; out = x^(1/gamma).
+ * Then an S-curve, and a saturation that may depend on value (shadowSat) and hue (blueSat: cyan→blue,
+ * warmSat: red→green), so the grade can keep the sea receding while roofs and sails carry the colour.
  */
 export function gradePixel(rgb: [number, number, number], g: Grade, out: [number, number, number] = [0, 0, 0]): [number, number, number] {
   for (let c = 0; c < 3; c++) {
@@ -33,7 +46,22 @@ export function gradePixel(rgb: [number, number, number], g: Grade, out: [number
     out[c] = sCurve(clamp01(x), g.contrast);
   }
   const l = 0.2126 * out[0] + 0.7152 * out[1] + 0.0722 * out[2];
-  for (let c = 0; c < 3; c++) out[c] = clamp01(l + (out[c] - l) * g.saturation);
+  let sat = g.saturation;
+  const shadowSat = g.shadowSat ?? 1, blueSat = g.blueSat ?? 1, warmSat = g.warmSat ?? 1;
+  if (shadowSat !== 1) sat *= shadowSat + (1 - shadowSat) * smooth(0.03, 0.42, l);
+  if (blueSat !== 1 || warmSat !== 1) {
+    const mx = Math.max(out[0], out[1], out[2]), mn = Math.min(out[0], out[1], out[2]), ch = mx - mn;
+    if (ch > 1e-4) {
+      let h: number;
+      if (mx === out[0]) h = 60 * (((out[1] - out[2]) / ch) % 6);
+      else if (mx === out[1]) h = 60 * ((out[2] - out[0]) / ch + 2);
+      else h = 60 * ((out[0] - out[1]) / ch + 4);
+      const chroma = smooth(0.02, 0.12, ch);   // near-greys keep their (tiny) hue untouched
+      sat *= 1 + (blueSat - 1) * hueBand(h, 180, 245, 25) * chroma;
+      sat *= 1 + (warmSat - 1) * hueBand(h, 345, 115, 25) * chroma;
+    }
+  }
+  for (let c = 0; c < 3; c++) out[c] = clamp01(l + (out[c] - l) * sat);
   return out;
 }
 
@@ -53,8 +81,13 @@ export function fillGradeLUT(data: Uint16Array, size: number, g: Grade): void {
   }
 }
 
-function gradeKey(g: Grade): string {
-  return [...g.lift, ...g.gamma, ...g.gain, g.saturation, g.contrast].map((v) => v.toFixed(3)).join(",");
+/** Packs the grade into `out` (15 numbers); returns true when it moved since the last pack. */
+function packGrade(g: Grade, out: Float32Array): boolean {
+  let moved = false;
+  const put = (i: number, v: number) => { if (Math.abs(out[i] - v) > 5e-4) { out[i] = v; moved = true; } };
+  for (let c = 0; c < 3; c++) { put(c, g.lift[c]); put(3 + c, g.gamma[c]); put(6 + c, g.gain[c]); }
+  put(9, g.saturation); put(10, g.contrast); put(11, g.shadowSat ?? 1); put(12, g.blueSat ?? 1); put(13, g.warmSat ?? 1);
+  return moved;
 }
 
 export class PostChain {
@@ -63,8 +96,9 @@ export class PostChain {
   readonly tiltShift: TiltShiftEffect;
   readonly vignette: VignetteEffect;
   readonly lut: LUT3DEffect;
+  readonly smaa: SMAAEffect;
   private readonly lutTex: THREE.Data3DTexture;
-  private lutKey = "";
+  private readonly lutKey = new Float32Array(15).fill(-1);
   private lutAge = 1e9;
   /** Camera distances where tilt-shift starts / reaches full strength (set from the layout presets). */
   tiltNear = 260;
@@ -85,8 +119,18 @@ export class PostChain {
     this.lutTex.needsUpdate = true;
     this.lut = new LUT3DEffect(this.lutTex, { inputColorSpace: THREE.SRGBColorSpace });
     this.vignette = new VignetteEffect({ offset: 0.28, darkness: 0.42 });
+    // the tilt-shift blur pass runs even at opacity 0: skip it while the effect is faded out (heart/close)
+    const tiltUpdate = this.tiltShift.update.bind(this.tiltShift);
+    this.tiltShift.update = (r, input, dt) => { if (this.tiltShift.blendMode.opacity.value > 0.002) tiltUpdate(r, input, dt); };
     composer.addPass(new EffectPass(camera, this.tiltShift, this.bloom, this.toneMapping, this.lut, this.vignette));
-    composer.addPass(new EffectPass(camera, new SMAAEffect({ preset: SMAAPreset.HIGH })));
+    this.smaa = new SMAAEffect({ preset: SMAAPreset.HIGH });
+    composer.addPass(new EffectPass(camera, this.smaa));
+  }
+
+  /** Quality tier hooks (same art; cheaper effects). */
+  setQuality(q: QualitySettings): void {
+    this.bloom.mipmapBlurPass.levels = q.bloomLevels;
+    this.smaa.applyPreset(q.smaa === "high" ? SMAAPreset.HIGH : q.smaa === "medium" ? SMAAPreset.MEDIUM : SMAAPreset.LOW);
   }
 
   update(delta: number, tod: TimeOfDay, rig: CameraRig): void {
@@ -101,11 +145,9 @@ export class PostChain {
     // LUT: regenerate when the grade moved (throttled to 4 Hz while the clock runs).
     this.lutAge += delta;
     if (this.lutAge > 0.25) {
-      const key = gradeKey(tod.grade);
-      if (key !== this.lutKey) {
+      if (packGrade(tod.grade, this.lutKey)) {
         fillGradeLUT(this.lutTex.image.data as Uint16Array, LUT_SIZE, tod.grade);
         this.lutTex.needsUpdate = true;
-        this.lutKey = key;
         this.lutAge = 0;
       }
     }

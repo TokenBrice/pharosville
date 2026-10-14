@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Boat } from "../model/types";
 import { cullLabels } from "./cull";
-import { boatFact, landmarkFact, whereabouts, whyHere } from "./facts";
+import { boatFact, circuitStops, landmarkFact, whereabouts, whyHere } from "./facts";
 import { bps, money, pctChange, pegName, share } from "./format";
 import { searchCoins } from "./search";
 
@@ -15,6 +15,10 @@ describe("search", () => {
   it("matches name words and subsequences", () => {
     expect(searchCoins("paypal", COINS)[0].symbol).toBe("PYUSD");
     expect(searchCoins("tthr", COINS)[0].symbol).toBe("USDT");
+  });
+  it("drops mid-word and subsequence noise when a strong match exists", () => {
+    const items = [...COINS, coin("MSUSD", "Metronome Synth USD", 5e7), coin("EUSD", "Electronic USD", 4e7), { id: "chain:Tron", symbol: "Tron", name: "Tron harbour", supply: 9.5e10 }];
+    expect(searchCoins("tron", items).map((c) => c.symbol)).toEqual(["Tron"]);
   });
   it("returns nothing for an empty or hopeless query", () => {
     expect(searchCoins("  ", COINS)).toEqual([]);
@@ -55,13 +59,26 @@ describe("facts", () => {
     expect(boatFact(boat({ pegDeviationBps: -35, state: "shoals" }), whereabouts(5, "shoals", null))).toBe("USDT · $184.1B · on the Shoals −35 bps");
   });
   it("explains the position from the data", () => {
-    expect(whyHere(boat(), whereabouts(0, "berth", "Tron"))).toMatch(/longest at Tron, which holds 51%/);
+    expect(whyHere(boat(), whereabouts(0, "berth", "Tron"))).toMatch(/circuit of 2 stops, Tron and Ethereum,.*longest at Tron, where 51% of its supply sits/);
     expect(whyHere(boat({ state: "shoals", pegDeviationBps: -35 }), whereabouts(5, "shoals", null))).toMatch(/35 bps below its peg/);
     expect(whyHere(boat({ circuit: [{ chain: null, where: "far", share: 1, rawShare: 1 }] }), whereabouts(4, "far", null))).toMatch(/Far Ports/);
   });
   it("landmarks without data say so instead of inventing one", () => {
     expect(landmarkFact("pharos", null, null).fact).toMatch(/unlit/);
     expect(landmarkFact("church", null, null).decorative).toBe(true);
+  });
+});
+
+describe("circuit stops", () => {
+  it("lists the stops the prose names, and what the Far Ports absorbs", () => {
+    const b = boat({
+      chainShares: [{ chain: "XRPL", share: 0.73, usd: 73 }, { chain: "BSC", share: 0.1, usd: 10 }, { chain: "Polygon", share: 0.046, usd: 4.6 }],
+      circuit: [{ chain: null, where: "far", share: 0.8, rawShare: 0.8 }, { chain: "BSC", where: "pier-bsc", share: 0.2, rawShare: 0.2 }],
+    });
+    const rows = circuitStops(b);
+    expect(rows.map((r) => r.name)).toEqual(["the Far Ports", "BSC"]);
+    expect(rows[0].folded).toEqual(["XRPL", "Polygon"]);
+    expect(whyHere(b, whereabouts(2, "far", null))).toMatch(/2 stops, the Far Ports and BSC,.*longest at the Far Ports, where 80%/);
   });
 });
 

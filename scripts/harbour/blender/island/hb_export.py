@@ -420,7 +420,16 @@ le2 = bpy.data.objects.new('pharos_lamp', None); EXC.objects.link(le2)        # 
 le2.parent = lroot; le2.matrix_parent_inverse.identity(); le2.location = le.location.copy()
 LH_OBJS.append(le2)
 if '--no-ao' not in ARGV:
-    bake_ao([o for o in LH_OBJS if o.type == 'MESH' and o.data.materials and o.data.materials[0] == EXP_MAT['hb_opaque']], distance=4.0)
+    # bake in place: the copies are authored at the origin, where the island's own chunks would occlude them (that
+    # was the 'charcoal chimney'); stood on the headland they get only their own and the knoll's occlusion
+    _lh_ao = [o for o in LH_OBJS if o.type == 'MESH' and o.data.materials and o.data.materials[0] == EXP_MAT['hb_opaque']]
+    for o in _lh_ao:
+        o.matrix_world = PH_FRAME
+    bpy.context.view_layer.update()
+    bake_ao(_lh_ao, distance=4.0)
+    for o in _lh_ao:
+        o.matrix_world = Matrix.Identity(4)
+    bpy.context.view_layer.update()
 for o in LH_OBJS:
     if o.type == 'MESH' and o.name.startswith('tower_'):
         # the tower is drawn from the same fixed camera; cull in world orientation

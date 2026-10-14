@@ -1,5 +1,9 @@
 import * as THREE from "three";
 import type { EngineContext } from "../engine/types";
+import type { QualityService, QualitySettings } from "../engine/quality";
+
+const UP_Y = new THREE.Vector3(0, 1, 0);
+const UP_Z = new THREE.Vector3(0, 0, 1);
 
 /**
  * Key light (sun by day, moon by night) with ONE shadow map fitted to what the camera sees, a shadowless
@@ -18,7 +22,12 @@ export class SunRig {
   /** World-space region the shadow may cover: (minX, minZ, maxX, maxZ) and max structure height. */
   bounds = new THREE.Vector4(-400, -400, 400, 400);
   topY = 36;
-  private readonly mapSize: number;
+  private mapSize: number;
+  private quality: QualitySettings | null = null;
+  private sinceShadow = 1e9;
+  private readonly heldSun = new THREE.Vector3(0, 1, 0);
+  /** half extent, centre x/y, depth range, sun direction of the last fit */
+  private readonly lastFit = new Float64Array(7);
   private readonly lightView = new THREE.Matrix4();
   private readonly lightViewInv = new THREE.Matrix4();
   private readonly ray = new THREE.Ray();
@@ -40,8 +49,25 @@ export class SunRig {
     this.group.name = "harbour-sun-rig";
   }
 
-  update(ctx: EngineContext): void {
+  /**
+   * Shadow-map caching: the map is re-rendered only when the fitted light frustum moved (pan/zoom, sun
+   * drift beyond ~0.1°), when the quality tier changed, or on the tier's refresh interval (moving boats).
+   * High refreshes every frame; Medium/Low at 30/15 Hz while the camera is still.
+   */
+  update(ctx: EngineContext, delta = 0): void {
     const u = ctx.uniforms;
+    const q = (ctx.services.get("quality") as QualityService | undefined)?.settings;
+    let force = false;
+    if (q && q !== this.quality) {
+      this.quality = q;
+      if (this.key.shadow.mapSize.x !== q.shadowMapSize) {
+        this.key.shadow.mapSize.set(q.shadowMapSize, q.shadowMapSize);
+        this.key.shadow.map?.dispose();
+        (this.key.shadow as { map: THREE.WebGLRenderTarget | null }).map = null;
+        this.mapSize = q.shadowMapSize;
+      }
+      force = true;
+    }
     this.key.color.copy(u.uSunColor.value);
     this.fill.color.copy(u.uFillColor.value);
     this.hemi.color.copy(u.uHemiSky.value);
@@ -51,12 +77,21 @@ export class SunRig {
     // moonlight: softer, lighter shadows
     this.key.shadow.intensity = 1 - 0.3 * u.uNight.value;
     this.key.shadow.radius = 2.2 + 2.5 * u.uNight.value;
-    this.fitShadow(ctx.camera, u.uSunDir.value);
+    // hold the shadow sun until it drifted ~0.1° (or a refresh is due): a running clock must not force a re-render
+    const interval = q?.shadowInterval ?? 0;
+    this.sinceShadow += delta;
+    const due = force || this.sinceShadow >= interval;
+    if (due || this.heldSun.angleTo(u.uSunDir.value) > 0.002) this.heldSun.copy(u.uSunDir.value);
+    const moved = this.fitShadow(ctx.camera, this.heldSun);
+    const sm = ctx.renderer.shadowMap;
+    sm.autoUpdate = false;
+    if (due || moved) { sm.needsUpdate = true; this.sinceShadow = 0; }
   }
 
-  private fitShadow(camera: THREE.PerspectiveCamera, sunDir: THREE.Vector3): void {
+  /** Fits the shadow camera; returns true when the light frustum changed (the cached map is stale). */
+  private fitShadow(camera: THREE.PerspectiveCamera, sunDir: THREE.Vector3): boolean {
     // light basis (looking along -sunDir)
-    const up = Math.abs(sunDir.y) > 0.98 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+    const up = Math.abs(sunDir.y) > 0.98 ? UP_Z : UP_Y;
     this.lightView.lookAt(this.tmp.set(0, 0, 0), this.ndc.copy(sunDir).negate(), up);
     this.lightViewInv.copy(this.lightView).invert();
 
@@ -64,13 +99,14 @@ export class SunRig {
     const b = this.bounds;
     let n = 0;
     const maxDist = camera.far * 0.9;
-    for (const sy of [-1, 0, 1]) {
-      for (const sx of [-1, 0, 1]) {
+    for (let sy = -1; sy <= 1; sy++) {
+      for (let sx = -1; sx <= 1; sx++) {
         if (sx === 0 && sy === 0) continue;
         this.ndc.set(sx, sy, 0.5).unproject(camera);
         this.ray.origin.copy(camera.position);
         this.ray.direction.copy(this.ndc).sub(camera.position).normalize();
-        for (const h of [0, this.topY]) {
+        for (let hi = 0; hi < 2; hi++) {
+          const h = hi === 0 ? 0 : this.topY;
           const d = this.ray.direction.y < -1e-4 ? (h - this.ray.origin.y) / this.ray.direction.y : maxDist;
           const p = this.pts[n++].copy(this.ray.direction).multiplyScalar(Math.min(Math.max(d, 0), maxDist)).add(this.ray.origin);
           p.x = THREE.MathUtils.clamp(p.x, b.x, b.z);
@@ -94,8 +130,8 @@ export class SunRig {
 
     // depth range: the island box in light space
     let minZ = Infinity, maxZ = -Infinity;
-    for (const x of [b.x, b.z]) for (const z of [b.y, b.w]) for (const y of [-6, this.topY + 6]) {
-      const p = this.tmp.set(x, y, z).applyMatrix4(this.lightViewInv);
+    for (let c = 0; c < 8; c++) {
+      const p = this.tmp.set(c & 1 ? b.z : b.x, c & 4 ? this.topY + 6 : -6, c & 2 ? b.w : b.y).applyMatrix4(this.lightViewInv);
       minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
     }
     const centre = this.tmp.set(cx, cy, maxZ + 20).applyMatrix4(this.lightView);
@@ -108,6 +144,11 @@ export class SunRig {
     cam.updateProjectionMatrix();
     k.shadow.normalBias = texel * 1.6;
     k.target.updateMatrixWorld();
+    const f = this.lastFit;
+    const moved = f[0] !== half || f[1] !== cx || f[2] !== cy || Math.abs(f[3] - (maxZ - minZ)) > 1e-3 ||
+      f[4] !== sunDir.x || f[5] !== sunDir.y || f[6] !== sunDir.z;
+    f[0] = half; f[1] = cx; f[2] = cy; f[3] = maxZ - minZ; f[4] = sunDir.x; f[5] = sunDir.y; f[6] = sunDir.z;
+    return moved;
   }
 
   dispose(): void {

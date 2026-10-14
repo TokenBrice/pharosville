@@ -3,8 +3,8 @@ import { FullscreenPass, NOISE_GLSL } from "../ocean/gpu-bake";
 
 /**
  * Painted cumulus impostors. Each atlas cell (4:1) holds one cloud bank authored as a deterministic
- * cluster of sphere lobes (flat base, towering crown, cauliflower crown lobes), domain-warped and
- * detail-billowed so it reads painted, not CG. The bake stores lighting-independent data:
+ * cluster of sphere lobes (towering crown, cauliflower crown lobes), domain-warped and detail-billowed,
+ * with eroded soft edges and a ragged base that dissolves into the haze, so it reads painted, not cut out. The bake stores lighting-independent data:
  *   RG = surface normal xy (card space), B = silhouette proximity (rim), A = coverage.
  * The sky shader lights it every frame from the real sun/moon direction.
  */
@@ -96,9 +96,9 @@ vec2 field(vec2 p) {
   float billow = fbm2(p * 9.0 + 1.7) - 0.5;
   sd += billow * 0.035;
   h += (fbm2(p * 7.0 + 5.3) - 0.5) * 0.05;
-  // flat, slightly ragged base
-  float b = uBase + (fbm2(vec2(p.x * 3.0, 0.5)) - 0.5) * 0.03;
-  sd = max(sd, (b - p.y) * 1.0);
+  // a soft, slightly ragged flat base: the lobes merge into one underside instead of hanging as teeth
+  float b = uBase + (fbm2(vec2(p.x * 3.0, 0.5)) - 0.5) * 0.04;
+  sd = smax(sd, (b - p.y), 0.05);
   return vec2(h, sd);
 }
 void main() {
@@ -109,8 +109,11 @@ void main() {
   float hy = field(p + vec2(0.0, e)).x - field(p - vec2(0.0, e)).x;
   vec3 n = normalize(vec3(-hx / (2.0 * e), -hy / (2.0 * e), 1.0));
   // near the flat base the surface turns under
-  n = normalize(n + vec3(0.0, -1.4, 0.0) * (1.0 - smoothstep(0.0, 0.07, p.y - uBase)));
-  float a = 1.0 - smoothstep(-0.006, 0.004, f.y);
+  n = normalize(n + vec3(0.0, -1.6, 0.0) * (1.0 - smoothstep(0.0, 0.14, p.y - uBase)));
+  // soft, eroded silhouette (wisps at the edges) and a ragged base that dissolves into the haze
+  float ero = fbm2(p * 16.0 + 2.3) - 0.5;
+  float a = 1.0 - smoothstep(-0.03, 0.01, f.y + ero * 0.04);
+  a *= smoothstep(uBase - 0.03, uBase + 0.09, p.y + ero * 0.05);
   float rim = 1.0 - smoothstep(0.0, 0.026, -f.y);
   gl_FragColor = vec4(n.xy * 0.5 + 0.5, rim, a);
 }`;

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { EngineContext } from "../engine/types";
 import type { WorldUniforms } from "../engine/uniforms";
+import { CLOUD_SHADOW_GLSL, cloudShadowUniforms } from "../sky/cloud-shadow";
 
 /**
  * THE HARBOUR MATERIAL PORT — style C "Northern Light" (p1/style-c/nl_common.py build_kit_material,
@@ -195,6 +196,7 @@ vec3 hbPattern(float pid, out float rough) {
 `;
 
 const GLSL_ENV = /* glsl */ `
+uniform vec3 uNightLift;
 uniform vec3 uHemiSky;
 uniform vec3 uHemiGround;
 uniform vec3 uHorizon;
@@ -261,7 +263,8 @@ function injectVaryings(shader: Shader): void {
   }`);
 }
 
-const WIN_MAX = 6.0;
+/** Peak window radiance: bright enough to bloom softly, low enough that frames and mullions survive it. */
+const WIN_MAX = 2.6;
 
 export class HarbourMaterials {
   readonly pool: PoolUniforms;
@@ -281,6 +284,7 @@ export class HarbourMaterials {
     return {
       uTime: u.uTime, uHemiSky: u.uHemiSky, uHemiGround: u.uHemiGround, uHorizon: u.uHorizon,
       uWindowGlow: u.uWindowGlow, uLamp: u.uLamp, uLens: u.uLens, uNight: u.uNight,
+      uWindowOcc: u.uWindowOcc, uNightLift: u.uNightLift,
       uPoolTex: this.pool.uPoolTex, uPoolBounds: this.pool.uPoolBounds, uRimK: this.rimK,
       uAOTex: this.ao.uAOTex, uAOBounds: this.ao.uAOBounds,
     };
@@ -296,10 +300,10 @@ export class HarbourMaterials {
     m.name = "hb_kit";
     const fallbackPid = (opts.pattern ?? 0).toFixed(1);
     m.onBeforeCompile = (shader) => {
-      Object.assign(shader.uniforms, this.shared());
+      Object.assign(shader.uniforms, this.shared(), cloudShadowUniforms);
       injectVaryings(shader);
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}`)
+        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}`)
         .replace("#include <color_fragment>", `
   #if defined( USE_COLOR_ALPHA )
     float hbPid = floor(vColor.a * 16.0 + 0.5);
@@ -316,6 +320,9 @@ export class HarbourMaterials {
         .replace("#include <roughnessmap_fragment>", "float roughnessFactor = hbRough;")
         .replace("#include <aomap_fragment>", `#include <aomap_fragment>
   float hbOcc = hbAO(vHbWorld, inverseTransformDirection(normal, viewMatrix));
+  float hbCs = hbCloudShadow(vHbWorld.xz);   // drifting cloud shadows (sky system)
+  reflectedLight.directDiffuse *= hbCs;
+  reflectedLight.directSpecular *= hbCs;
   reflectedLight.indirectDiffuse *= hbOcc;
   reflectedLight.indirectSpecular *= hbOcc;`)
         .replace("#include <opaque_fragment>", `
@@ -325,6 +332,9 @@ export class HarbourMaterials {
     vec3 hbVw = inverseTransformDirection(hbV, viewMatrix);
     outgoingLight += hbEnvSpec(hbNw, hbVw, roughnessFactor, 0.03) * uRimK * hbOcc;
     outgoingLight += diffuseColor.rgb * hbPool(vHbWorld, hbNw);
+    // moonlight fill (0 by day): soft, mostly from above, with an albedo floor so dark hulls and
+    // navy/black sail covers keep a readable mid-tone at night instead of collapsing to silhouettes
+    outgoingLight += max(diffuseColor.rgb, vec3(0.12)) * uNightLift * hbOcc * (0.6 + 0.4 * max(hbNw.y, 0.0));
   }
   #include <opaque_fragment>`);
     };
@@ -333,7 +343,13 @@ export class HarbourMaterials {
     return m;
   }
 
-  /** Dark glass by day (sky reflections), sodium-warm by night. COLOR_0.r = lit factor, .g = warmth. */
+  /**
+   * Windows: painted frame + cross mullion around dark glass by day; by night a share of rooms
+   * (uWindowOcc, deterministic per window) glows, each with its own warmth (candle → cool lamp) and level,
+   * brighter low in the room, and clamped so frames and mullions stay visible under bloom.
+   * Needs the per-window attributes written by prepareWindowGeometry() (apply() does it).
+   * COLOR_0.r = authored lit factor (kept as a level hint), .g = warmth.
+   */
   window(): THREE.MeshStandardMaterial {
     const hit = this.cache.get("window");
     if (hit) return hit as THREE.MeshStandardMaterial;
@@ -342,31 +358,60 @@ export class HarbourMaterials {
     m.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, this.shared());
       injectVaryings(shader);
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nattribute vec4 hbWin;\nattribute vec3 hbWinC;\nvarying vec4 vHbWin;\nvarying vec3 vHbWinC;")
+        .replace("#include <begin_vertex>", `#include <begin_vertex>
+  vHbWin = hbWin;
+  {
+    vec4 c = vec4(hbWinC, 1.0);
+    #ifdef USE_INSTANCING
+      c = instanceMatrix * c;
+    #endif
+    vHbWinC = (modelMatrix * c).xyz;
+  }`);
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>\nuniform float uWindowGlow;\n${GLSL_NOISE}\n${GLSL_ENV}\nvarying vec3 vHbLocal;\nvarying vec3 vHbLocalN;\nvarying vec3 vHbWorld;`)
+        .replace("#include <common>", `#include <common>\nuniform float uWindowGlow;\nuniform float uWindowOcc;\n${GLSL_NOISE}\n${GLSL_ENV}\nvarying vec3 vHbLocal;\nvarying vec3 vHbLocalN;\nvarying vec3 vHbWorld;\nvarying vec4 vHbWin;\nvarying vec3 vHbWinC;`)
         .replace("#include <color_fragment>", `
   float hbLit = 1.0, hbWarm = 0.0;
   #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
     hbLit = vColor.r; hbWarm = vColor.g;
-  #endif`)
+  #endif
+  // frame + cross mullion (metres in the window plane), faded to coverage when under ~2 px
+  vec2 hbWm = max(vHbWin.zw, vec2(0.05));
+  vec2 hbP = vHbWin.xy * hbWm;
+  vec2 hbAA = fwidth(hbP) + 1e-4;
+  float hbEdge = min(min(hbP.x, hbWm.x - hbP.x), min(hbP.y, hbWm.y - hbP.y));
+  float hbFrame = 1.0 - smoothstep(0.06 - hbAA.x, 0.06 + hbAA.x, hbEdge);
+  float hbBar = 1.0 - smoothstep(0.03 - hbAA.x, 0.03 + hbAA.x, min(abs(hbP.x - hbWm.x * 0.5), abs(hbP.y - hbWm.y * 0.6)));
+  float hbWood = max(hbFrame, hbBar);
+  hbWood = mix(hbWood, 0.3, smoothstep(0.03, 0.09, max(hbAA.x, hbAA.y)));
+  float hbGlass = 1.0 - hbWood;
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.6, 0.55), hbWood);`)
+        .replace("#include <roughnessmap_fragment>", "float roughnessFactor = mix(0.6, 0.08, hbGlass);")
         .replace("#include <emissivemap_fragment>", `
   {
-    vec3 warm = vec3(1.0, 0.4233, 0.0953);      // sodium #FFAE57 (linear)
-    vec3 cool = vec3(1.0, 0.6795, 0.3515);      // #FFD7A0 (linear)
-    // per-window flicker-free variation: some rooms dimmer, some warmer
-    vec3 cellW = floor(vHbWorld * 0.7);
-    float v = 0.7 + 0.5 * hbWhite(cellW + 11.0);
-    v *= step(0.16, hbWhite(cellW + 29.0));        // ~1 room in 6 is dark
-    totalEmissiveRadiance = mix(warm, cool, hbWarm) * hbLit * uWindowGlow * ${WIN_MAX.toFixed(1)} * v;
+    // one identity per window (its centre), stable across frames, instances and LOD
+    vec3 hbId = floor(vHbWinC * 2.0);
+    float on = step(hbWhite(hbId + 11.0), uWindowOcc);
+    float tint = fract(hbWhite(hbId + 29.0) + hbWarm * 0.35);
+    vec3 candle = vec3(1.0, 0.26, 0.04);        // deep candle orange (linear)
+    vec3 lamp = vec3(1.0, 0.50, 0.17);          // oil lamp
+    vec3 cool = vec3(0.92, 0.72, 0.50);         // cooler electric lamp
+    vec3 col = tint < 0.6 ? mix(candle, lamp, tint / 0.6) : mix(lamp, cool, (tint - 0.6) / 0.4);
+    float level = 0.45 + 0.55 * max(hbWhite(hbId + 47.0), hbLit * 0.6);
+    // lit room: brighter low and centre (the lamp on the table), darker top corners
+    vec2 q = vHbWin.xy - vec2(0.5, 0.3);
+    float room = 0.6 + 0.55 * exp(-q.x * q.x * 5.0 - q.y * q.y * 4.0);
+    totalEmissiveRadiance = col * on * level * room * uWindowGlow * ${WIN_MAX.toFixed(1)} * (hbGlass + 0.04);
   }`)
         .replace("#include <opaque_fragment>", `
   {
     vec3 hbV = normalize(vViewPosition);
-    outgoingLight += hbEnvSpec(inverseTransformDirection(normal, viewMatrix), inverseTransformDirection(hbV, viewMatrix), 0.08, 0.06) * 1.4;
+    outgoingLight += hbEnvSpec(inverseTransformDirection(normal, viewMatrix), inverseTransformDirection(hbV, viewMatrix), 0.08, 0.06) * 1.4 * hbGlass;
   }
   #include <opaque_fragment>`);
     };
-    m.customProgramCacheKey = () => "hb_window";
+    m.customProgramCacheKey = () => "hb_window_v2";
     this.cache.set("window", m);
     return m;
   }
@@ -445,6 +490,7 @@ export class HarbourMaterials {
         }
       };
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(swap) : swap(mesh.material);
+      if ((Array.isArray(mesh.material) ? mesh.material : [mesh.material]).some((m) => m.name === "hb_window")) prepareWindowGeometry(mesh.geometry);
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       // only the opaque kit casts (window panes sit inside walls that already do)
       mesh.castShadow = mats.every((m) => m.name === "hb_kit");
@@ -456,6 +502,57 @@ export class HarbourMaterials {
     for (const m of this.cache.values()) m.dispose();
     this.cache.clear();
   }
+}
+
+/**
+ * Per-window attributes for the window material: every connected piece of a window mesh is one window
+ * pane. hbWin = (u, v, width m, height m) in the pane's own plane (u across, v up), hbWinC = its centre.
+ * Idempotent; runs once at load (union-find over the index).
+ */
+export function prepareWindowGeometry(g: THREE.BufferGeometry): void {
+  if (g.attributes.hbWin) return;
+  const pos = g.attributes.position, nrm = g.attributes.normal;
+  const n = pos.count;
+  const parent = new Int32Array(n);
+  for (let i = 0; i < n; i++) parent[i] = i;
+  const find = (x: number) => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  const idx = g.index;
+  const triCount = idx ? idx.count : n;
+  for (let t = 0; t < triCount; t += 3) {
+    const a = find(idx ? idx.getX(t) : t);
+    for (let k = 1; k < 3; k++) { const b = find(idx ? idx.getX(t + k) : t + k); if (b !== a) parent[b] = a; }
+  }
+  const comp = new Map<number, { min: THREE.Vector3; max: THREE.Vector3; n: THREE.Vector3; verts: number[] }>();
+  const p = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    let c = comp.get(r);
+    if (!c) { c = { min: new THREE.Vector3(Infinity, Infinity, Infinity), max: new THREE.Vector3(-Infinity, -Infinity, -Infinity), n: new THREE.Vector3(), verts: [] }; comp.set(r, c); }
+    p.fromBufferAttribute(pos, i);
+    c.min.min(p); c.max.max(p);
+    if (nrm) { c.n.x += nrm.getX(i); c.n.y += nrm.getY(i); c.n.z += nrm.getZ(i); }
+    c.verts.push(i);
+  }
+  const win = new Float32Array(n * 4), ctr = new Float32Array(n * 3);
+  const side = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), centre = new THREE.Vector3();
+  for (const c of comp.values()) {
+    centre.addVectors(c.min, c.max).multiplyScalar(0.5);
+    c.n.y = 0;
+    if (c.n.lengthSq() < 1e-6) c.n.set(0, 0, 1);
+    side.crossVectors(up, c.n.normalize()).normalize();
+    let lo = Infinity, hi = -Infinity;
+    for (const i of c.verts) { const s = side.dot(p.fromBufferAttribute(pos, i).sub(centre)); lo = Math.min(lo, s); hi = Math.max(hi, s); }
+    const w = Math.max(1e-3, hi - lo), h = Math.max(1e-3, c.max.y - c.min.y);
+    for (const i of c.verts) {
+      p.fromBufferAttribute(pos, i);
+      win[i * 4] = (side.dot(p.clone().sub(centre)) - lo) / w;
+      win[i * 4 + 1] = (p.y - c.min.y) / h;
+      win[i * 4 + 2] = w; win[i * 4 + 3] = h;
+      ctr[i * 3] = centre.x; ctr[i * 3 + 1] = centre.y; ctr[i * 3 + 2] = centre.z;
+    }
+  }
+  g.setAttribute("hbWin", new THREE.BufferAttribute(win, 4));
+  g.setAttribute("hbWinC", new THREE.BufferAttribute(ctr, 3));
 }
 
 const baked = new WeakSet<THREE.BufferGeometry>();

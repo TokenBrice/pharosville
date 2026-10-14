@@ -1,13 +1,9 @@
 #!/usr/bin/env node
-import "tsx/cjs";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { aggregateBudgets, bundleBudgets } from "../bundle-budgets.mjs";
-
-const require = createRequire(import.meta.url);
 
 const OUTPUT_PATH = "docs/pharosville/RUNTIME_FACTS.md";
 
@@ -137,7 +133,7 @@ function resolveApiPathBase(apiPathsSource, method) {
 
 function parseBundleFacts() {
   return {
-    chunks: ["entry", "desktop", "world", "renderer", "css"].map((key) => {
+    chunks: Object.keys(bundleBudgets).map((key) => {
       const budget = bundleBudgets[key];
       return {
         key,
@@ -153,106 +149,16 @@ function parseBundleFacts() {
   };
 }
 
-function parseGardenModelFacts(repoRoot) {
-  const source = readText(repoRoot, "src/three/garden-models.ts");
-  const manifestBlock = matchRequired(
-    source,
-    /GARDEN_MODEL_MANIFEST\s*=\s*{([\s\S]*?)}\s*as const satisfies/,
-    "garden model manifest",
-  )[1];
-  const shaBySymbol = Object.fromEntries(
-    [...source.matchAll(/const\s+([A-Z_]+_SHA256)\s*=\s*"([a-f0-9]{64})"/g)]
-      .map((match) => [match[1], match[2]]),
-  );
-  const urlBySymbol = Object.fromEntries(
-    [...source.matchAll(/const\s+([A-Za-z0-9]+Url)\s*=\s*`([^?`]+)\?v=/g)]
-      .map((match) => [match[1], match[2]]),
-  );
-  const lighthouseBlock = matchRequired(
-    manifestBlock,
-    /"garden-lighthouse-shell":\s*{([\s\S]*?)\n\s*},\n\s*"garden-hero-[a-z-]+":/,
-    "lighthouse model metadata",
-  )[1];
-  const entries = [
-    parseGardenModelBlock("garden-lighthouse-shell", lighthouseBlock, shaBySymbol, urlBySymbol),
-    ...[...manifestBlock.matchAll(/"(garden-hero-[^"]+)":\s*heroModelMetadata\(\{([\s\S]*?)\n\s*}\),/g)]
-      .map((match) => parseGardenModelBlock(match[1], match[2], shaBySymbol, urlBySymbol)),
-  ];
-  // Guard against the regexes silently skipping a model. Derived from the
-  // manifest rather than hard-coded, so growing the hero fleet (W5.1 took it
-  // from 2 hulls to 10) does not require editing this number.
-  const expected = [...manifestBlock.matchAll(/heroModelMetadata\(\{/g)].length + 1;
-  if (entries.length !== expected) {
-    throw new Error(`Expected ${expected} garden model entries, parsed ${entries.length}.`);
+function parseHarbourFacts(repoRoot) {
+  const systemsSource = readText(repoRoot, "src/harbour/systems.ts");
+  const registry = matchRequired(systemsSource, /export const SYSTEMS[\s\S]*?=\s*\[([\s\S]*?)\];/, "harbour system registry")[1];
+  const systems = [...registry.matchAll(/new\s+([A-Za-z0-9]+)\(/g)].map((match) => match[1]);
+  if (systems.length === 0) throw new Error("Could not parse the Harbour system registry.");
+  const glbs = [];
+  for (const path of ["src/harbour/world/island-system.ts", "src/harbour/world/lighthouse-system.ts"]) {
+    glbs.push(matchRequired(readText(repoRoot, path), /"(\/harbour\/[a-z0-9-]+\.glb)"/, `${path} GLB URL`)[1]);
   }
-  return entries;
-}
-
-function parseGardenModelBlock(id, block, shaBySymbol, urlBySymbol) {
-  const geometryBlock = matchRequired(block, /geometry:\s*{([^}]+)}/, `${id} geometry`)[1];
-  const shaSymbol = matchRequired(block, /sha256:\s*([A-Z_]+_SHA256)/, `${id} SHA symbol`)[1];
-  const urlSymbol = matchRequired(block, /url:\s*([A-Za-z0-9]+Url)/, `${id} URL symbol`)[1];
-  return {
-    bytes: normalizeNumber(matchRequired(block, /bytes:\s*([\d_]+)/, `${id} bytes`)[1]),
-    compression: block.includes('compression: "none"') ? "none" : "none",
-    drawCalls: normalizeNumber(matchRequired(geometryBlock, /drawCalls:\s*([\d_]+)/, `${id} draw calls`)[1]),
-    id,
-    label: matchRequired(block, /label:\s*"([^"]+)"/, `${id} label`)[1],
-    sha256: shaBySymbol[shaSymbol] ?? "",
-    textures: normalizeNumber(matchRequired(geometryBlock, /textures:\s*([\d_]+)/, `${id} textures`)[1]),
-    triangles: normalizeNumber(matchRequired(geometryBlock, /triangles:\s*([\d_]+)/, `${id} triangles`)[1]),
-    url: urlBySymbol[urlSymbol] ?? "",
-    vertices: normalizeNumber(matchRequired(geometryBlock, /vertices:\s*([\d_]+)/, `${id} vertices`)[1]),
-  };
-}
-
-function parseSquadFacts(repoRoot) {
-  const source = readText(repoRoot, "src/systems/maker-squad.ts");
-  return [...source.matchAll(/export const ([A-Z_]+_SQUAD): StablecoinSquad = {([\s\S]*?)\n};/g)].map((match) => {
-    const block = match[2];
-    return {
-      exportName: match[1],
-      flagshipId: matchRequired(block, /flagshipId:\s*"([^"]+)"/, `${match[1]} flagship`)[1],
-      id: matchRequired(block, /id:\s*"([^"]+)"/, `${match[1]} id`)[1],
-      label: matchRequired(block, /label:\s*"([^"]+)"/, `${match[1]} label`)[1],
-      memberIds: parseQuotedArray(block, /memberIds:\s*\[([\s\S]*?)]/, `${match[1]} members`),
-    };
-  });
-}
-
-function parseTitanFacts(repoRoot) {
-  const source = readText(repoRoot, "src/systems/ship-visuals.ts");
-  const block = matchRequired(source, /TITAN_SHIPS:[\s\S]*?=\s*{([\s\S]*?)};/, "titan definitions")[1];
-  return [...block.matchAll(/"([^"]+)":\s*{\s*scale:\s*([\d.]+)\s*}/g)]
-    .map((match) => ({ id: match[1], scale: Number(match[2]) }))
-    .sort((a, b) => a.id.localeCompare(b.id));
-}
-
-function parseHeritageFacts(repoRoot) {
-  const source = readText(repoRoot, "src/systems/unique-ships.ts");
-  const block = matchRequired(source, /UNIQUE_SHIP_DEFINITIONS\s*=\s*{([\s\S]*?)}\s*as const/, "heritage definitions")[1];
-  return [...block.matchAll(/"([^"]+)":\s*{[\s\S]*?scale:\s*([\d.]+)\s*}/g)]
-    .map((match) => ({ id: match[1], scale: Number(match[2]) }))
-    .sort((a, b) => a.id.localeCompare(b.id));
-}
-function parseDockFacts(repoRoot) {
-  const dockSource = readText(repoRoot, "src/systems/chain-docks.ts");
-  const layoutSource = readText(repoRoot, "src/systems/world-layout.ts");
-  // Preferred berths are read from the module itself rather than scraped from
-  // its text: the export already changed shape once (object literal to
-  // Object.fromEntries) and the old regex silently slid to the next `= {`
-  // block, publishing slot keys as chain ids while the self-consistent
-  // --check gate stayed green.
-  const worldLayout = require(resolve(repoRoot, "src/systems/world-layout.ts"));
-  if (!worldLayout.PREFERRED_DOCK_TILES) {
-    throw new Error("PREFERRED_DOCK_TILES is not exported by src/systems/world-layout.ts.");
-  }
-  return {
-    maxChainHarbors: normalizeNumber(matchRequired(dockSource, /MAX_CHAIN_HARBORS\s*=\s*([\d_]+)/, "max chain harbors")[1]),
-    pigeonnierChainIds: parseQuotedArray(layoutSource, /PIGEONNIER_HARBOR_CHAIN_IDS\s*=\s*\[([\s\S]*?)]\s*as const/, "pigeonnier chain IDs"),
-    preferredChainIds: Object.keys(worldLayout.PREFERRED_DOCK_TILES),
-    suppressedChainIds: parseQuotedArray(dockSource, /SUPPRESSED_CHAIN_HARBOR_IDS\s*=\s*new Set<string>\(\[([\s\S]*?)]\)/, "suppressed chain IDs"),
-  };
+  return { glbs, systems };
 }
 
 function parseWorkflowFacts(repoRoot) {
@@ -272,24 +178,12 @@ function parseWorkflowFacts(repoRoot) {
   };
 }
 
-function table(headers, rows) {
-  return [
-    `| ${headers.join(" | ")} |`,
-    `| ${headers.map(() => "---").join(" | ")} |`,
-    ...rows.map((row) => `| ${row.join(" | ")} |`),
-  ].join("\n");
-}
-
 export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
   const release = parseReleaseFacts(repoRoot);
   const viewport = parseViewportFacts(repoRoot);
   const api = parseApiFacts(repoRoot);
   const bundle = parseBundleFacts();
-  const gardenModels = parseGardenModelFacts(repoRoot);
-  const squads = parseSquadFacts(repoRoot);
-  const titans = parseTitanFacts(repoRoot);
-  const heritage = parseHeritageFacts(repoRoot);
-  const docks = parseDockFacts(repoRoot);
+  const harbour = parseHarbourFacts(repoRoot);
   const workflows = parseWorkflowFacts(repoRoot);
 
   return `${[
@@ -302,9 +196,9 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     "## App And Routes",
     "",
     "- Canonical app URL: `https://pharosville.pharos.watch/`",
-    "- Renderer: one production Three.js/WebGL renderer",
-    "- GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer",
-    "- Runtime model namespace: `/pharosville/models/`",
+    "- World: The Harbour, one three.js WebGL2 Engine (`src/harbour/engine/`) mounted by `src/harbour/app/harbour-app.tsx`",
+    "- Renderer failure fallback: the first-paint poster stays up with the arrival guide and Pharos links; no alternate renderer",
+    "- Runtime media namespace: `/harbour/`",
     `- Latest app version: \`${release.latestVersion}\` (\`${release.latestKey}\`)`,
     `- Latest changelog entry: \`${release.changelog.id}\` / \`${release.changelog.version}\` / ${release.changelog.date} / ${release.changelog.title}`,
     "",
@@ -314,7 +208,7 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     `- Wide-laptop profile: \`${viewport.wideLongSide}×${viewport.wideShortSide}px\``,
     "- Device capability and current-viewport readiness independently sort their own dimensions and must satisfy either size profile.",
     "- Orientation and aspect ratio are not gates: a 720×1000 tall viewport, a 1200×640 laptop viewport, and a 2560×720 ultrawide viewport all pass.",
-    "- `src/client.tsx` lazy-loads the desktop data and Three.js runtime only after that gate; `npm run check:viewport-gate` guards the boundary.",
+    "- `src/client.tsx` lazy-loads the Harbour chunk (`src/harbour/app/harbour-app.tsx`: Engine, systems, data feed) only after that gate; `npm run check:viewport-gate` guards the boundary.",
     "",
     "## API Allowlist",
     "",
@@ -322,55 +216,19 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     "",
     "## Runtime Media",
     "",
-    "- Stablecoin sails and rendered-harbor flags load same-origin logo images into shared in-memory atlases with deterministic mark fallbacks.",
-    "- Ship, dock, island, cemetery, ambient-life, and water visuals are renderer-owned procedural geometry/materials.",
-    "- Water normal: `/pharosville/textures/water-normals.png` with a content-hash query.",
+    "- Stablecoin emblems: one atlas, `/harbour/emblems.webp` + `/harbour/emblems.json`; panel and search medallions load same-origin `/logos/` and `/chains/` marks.",
+    ...harbour.glbs.map((url) => `- Static world GLB: \`${url}\``),
+    "- Boat hull kit: `/harbour/kit/manifest.json` and its GLBs; sea mask: `/harbour/sea-sdf.png`.",
+    "- First paint: `/harbour/poster-{960,1600}.{avif,webp}` (an illustration, no live numbers), crossfaded into the first live frame.",
     "",
-    table(
-      ["Model", "URL", "Bytes", "Geometry", "SHA-256"],
-      gardenModels.map((model) => [
-        `\`${model.id}\``,
-        `\`${model.url}\``,
-        formatBytes(model.bytes),
-        `${model.drawCalls} draws / ${model.triangles.toLocaleString("en-US")} tris / ${model.vertices.toLocaleString("en-US")} verts / ${model.textures} textures`,
-        `\`${model.sha256}\``,
-      ]),
-    ),
+    "## World Systems",
     "",
-    "- The procedural lighthouse shell remains the in-scene fallback if its GLB cannot load.",
+    `- Registration (= update) order: ${harbour.systems.map((name) => `\`${name}\``).join(" → ")}`,
     "",
     "## Bundle Budgets",
     "",
     ...bundle.chunks.map((chunk) => `- ${chunk.label}: raw <= ${formatBytes(chunk.maxRawBytes)}, gzip <= ${formatBytes(chunk.maxGzipBytes)}`),
     `- Total JS: raw <= ${formatBytes(bundle.totalJs.maxRawBytes)}, gzip <= ${formatBytes(bundle.totalJs.maxGzipBytes)}`,
-    "",
-    "## Squads",
-    "",
-    table(
-      ["Squad", "Flagship", "Members"],
-      squads.map((squad) => [squad.label, `\`${squad.flagshipId}\``, squad.memberIds.map((id) => `\`${id}\``).join(", ")]),
-    ),
-    "",
-    "## Titan Ships",
-    "",
-    table(
-      ["Stablecoin ID", "Scale"],
-      titans.map((titan) => [`\`${titan.id}\``, titan.scale == null ? "" : `\`${titan.scale}\``]),
-    ),
-    "",
-    "## Heritage Hulls",
-    "",
-    table(
-      ["Stablecoin ID", "Scale"],
-      heritage.map((ship) => [`\`${ship.id}\``, `\`${ship.scale}\``]),
-    ),
-    "",
-    "## Dock Rules",
-    "",
-    `- Standard chain harbor cap: \`${docks.maxChainHarbors}\``,
-    `- Preferred chain IDs: ${docks.preferredChainIds.map((id) => `\`${id}\``).join(", ")}`,
-    `- Suppressed rendered harbor IDs: ${docks.suppressedChainIds.map((id) => `\`${id}\``).join(", ")}`,
-    `- Detached dispatch wharf chain IDs: ${docks.pigeonnierChainIds.map((id) => `\`${id}\``).join(", ")}`,
     "",
     "## Workflow Gates",
     "",

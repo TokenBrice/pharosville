@@ -446,7 +446,7 @@ collect_windows(wh_, 'warehouse')
 set_coll(collection('lighthouse', ROOTC))
 lhp = LM['pharos']['p']
 PHAROS_ROOT, LH_LAMP = build_lighthouse('pharos', (lhp[0], lhp[1], LM['pharos']['z']), rz=math.radians(-45))
-PHAROS_SCALE = 1.15                     # ~33.5 m to the lantern top (brief: 30-34 m)
+PHAROS_SCALE = 1.3                      # ~40 m to the lantern top: the tallest silhouette by far (polish pass)
 PHAROS_ROOT.scale = (PHAROS_SCALE,) * 3
 LH_LAMP = Vector((lhp[0], lhp[1], LM['pharos']['z'])) + (LH_LAMP - Vector((lhp[0], lhp[1], LM['pharos']['z']))) * PHAROS_SCALE
 kp = LM['keepers_cottage']['p']
@@ -456,6 +456,11 @@ kc = build_house('keepers_cottage', dict(w=10.0, d=6.4, floors=1, fh=3.0, base=0
                                           flowers=True, door_col=PAL['door_green'], chimney=True, win_faces=['-y', '-x', '+x']),
                  (kp[0], kp[1], LM['keepers_cottage']['z']), KRZ, seed=41, family='lighthouse')
 collect_windows(kc, 'keepers_cottage')
+# stone foundation down to the lowest ground under the footprint (the slope falls away toward the lagoon)
+_kz0 = min(H(kp[0] + lx * math.cos(KRZ) - ly * math.sin(KRZ), kp[1] + lx * math.sin(KRZ) + ly * math.cos(KRZ))
+           for lx in (-5.6, 0.0, 5.6) for ly in (-3.7, 0.0, 3.7))
+_kf = bm_box2(-5.45, -3.65, _kz0 - LM['keepers_cottage']['z'] - 0.8, 5.45, 3.65, 0.25)
+obj('keepers_cottage_foundation', _kf, PAL['granite'], PT['ashlar'], parent=kc, bevel=0.05, family='lighthouse')
 if 'chimney_top' in kc:
     CHIMNEYS.append(kc.matrix_world @ Vector(kc['chimney_top']))
 op = LM['oil_store']['p']
@@ -464,19 +469,30 @@ build_oil_store('oil_store', (op[0], op[1], LM['oil_store']['z']), face_rz(LM['o
 kz = LM['keepers_cottage']['z']
 _kc, _ks = math.cos(KRZ), math.sin(KRZ)
 K = lambda lx, ly: (kp[0] + lx * _kc - ly * _ks, kp[1] + lx * _ks + ly * _kc)
-gw = bmesh.new()
-for a_, b_ in (((-9, -7), (-9, 8)), ((-9, 8), (9, 8)), ((9, 8), (9, -7)), ((9, -7), (2, -7))):
-    pa, pb = K(*a_), K(*b_)
-    merge(gw, nl_kit.beam((pa[0], pa[1], H(*pa) + 0.4), (pb[0], pb[1], H(*pb) + 0.4), 0.6, 0.9))
-obj('keeper_wall', gw, PAL['granite'], PT['ashlar'], family='lighthouse')
-pth = bmesh.new()
-door = (lhp[0] - 0.707 * 7.5, lhp[1] - 0.707 * 7.5)
-for a_, b_ in ((K(0, -7.5), K(0, -12)), (K(0, -12), door)):
-    n_ = max(1, int(math.hypot(b_[0] - a_[0], b_[1] - a_[1]) / 3))
+def ground_path(bm, a_, b_, w, step=1.2):
+    n_ = max(1, int(math.hypot(b_[0] - a_[0], b_[1] - a_[1]) / step))
+    ribbon(bm, [(a_[0] + (b_[0] - a_[0]) * k_ / n_, a_[1] + (b_[1] - a_[1]) * k_ / n_) for k_ in range(n_ + 1)], w, lift=0.1)
+
+
+def ground_run(bm, a_, b_, w, th, lift, step=1.2):
+    """A strip laid ON the ground: short segments, each embedded (bottom below the lower end), so it follows the
+    heightfield instead of bridging over hollows or floating off a slope."""
+    n_ = max(1, int(math.hypot(b_[0] - a_[0], b_[1] - a_[1]) / step))
     for k_ in range(n_):
         p_ = (a_[0] + (b_[0] - a_[0]) * k_ / n_, a_[1] + (b_[1] - a_[1]) * k_ / n_)
         q_ = (a_[0] + (b_[0] - a_[0]) * (k_ + 1) / n_, a_[1] + (b_[1] - a_[1]) * (k_ + 1) / n_)
-        merge(pth, nl_kit.beam((p_[0], p_[1], H(*p_) + 0.06), (q_[0], q_[1], H(*q_) + 0.06), 1.8, 0.24))
+        merge(bm, nl_kit.beam((p_[0], p_[1], H(*p_) + lift - th / 2), (q_[0], q_[1], H(*q_) + lift - th / 2), w, th))
+
+
+gw = bmesh.new()
+for a_, b_ in (((-9, -7), (-9, 8)), ((-9, 8), (9, 8)), ((9, 8), (9, -7)), ((9, -7), (2, -7))):
+    ground_run(gw, K(*a_), K(*b_), 0.6, 1.6, 0.85, step=1.6)
+obj('keeper_wall', gw, PAL['granite'], PT['ashlar'], family='lighthouse')
+pth = bmesh.new()
+_dd = (-0.70710678, -0.70710678)                      # the tower's door side (world), platform edge at ~11.5 m
+door = (lhp[0] + _dd[0] * 10.6, lhp[1] + _dd[1] * 10.6)
+for a_, b_ in ((K(0, -7.5), K(0, -12)), (K(0, -12), door)):
+    ground_path(pth, a_, b_, 1.8)
 obj('headland_path', pth, PAL['gravel'], PT['cobble'], family='lighthouse', jitter=0.02)
 ln_ = bmesh.new(); cl_ = bmesh.new()
 a3 = Vector((*K(3, 5), kz)); b3 = Vector((*K(8, 5), kz))
@@ -502,8 +518,19 @@ yd = nl_kit.beam((0, -5.4, 19.6), (0, 5.4, 19.6), 0.24, 0.24)
 merge(yd, bm_cyl(0.6, 0.6, 0.2, 8, (0, 0, 21.4)))
 obj('storm_mast_yard', yd, PAL['tar'], PT['plain'], parent=sm, family='landmark')
 ln = bmesh.new()
+_smr = face_rz(LM['storm_mast']['face']); _smz = LM['storm_mast']['z']
+_dead = bmesh.new()
 for p in ((6.5, 0, 0.4), (-4.8, 4.8, 0.4), (-4.8, -4.8, 0.4)):
-    merge(ln, nl_kit.line3((0, 0, 22.0), p, 0.035))
+    # every stay comes down to a stone deadeye ON the quay: shortened until its foot is on land, never in the sea
+    for k_ in (1.0, 0.8, 0.62, 0.48, 0.36):
+        q_ = (p[0] * k_, p[1] * k_)
+        wx = smp[0] + q_[0] * math.cos(_smr) - q_[1] * math.sin(_smr); wy = smp[1] + q_[0] * math.sin(_smr) + q_[1] * math.cos(_smr)
+        if point_in_poly(wx, wy, COAST) and H(wx, wy) > _smz - 0.6:
+            break
+    foot_ = (q_[0], q_[1], 0.45)
+    merge(ln, nl_kit.line3((0, 0, 22.0), foot_, 0.035))
+    merge(_dead, bm_box2(q_[0] - 0.3, q_[1] - 0.3, -0.2, q_[0] + 0.3, q_[1] + 0.3, 0.45))
+obj('storm_mast_deadeyes', _dead, PAL['granite_light'], PT['ashlar'], parent=sm, family='landmark')
 for sx in (-1, 1):
     merge(ln, nl_kit.line3((0, sx * 5.1, 19.6), (0, sx * 5.1, 6.0), 0.03))
 obj('storm_mast_halyards', ln, PAL['tar'], PT['plain'], parent=sm, family='landmark')

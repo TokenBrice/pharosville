@@ -2,9 +2,9 @@
  * Normalizes a HarbourLayout (v1 piers/berths, v2 + moorings) into what the sim needs:
  * typed slots grouped into (where, class) pools, and an all-pairs routed one-way lane graph.
  */
-import { pierIdFor } from "../model/classify";
+import { pierIdFor, u01 } from "../model/classify";
 import type { HarbourLayout, HullClass, Vec2 } from "../layout/types";
-import { buildObstacleField, openWaterFactor, type ObstacleField } from "./obstacles";
+import { buildKeepOffField, buildObstacleField, clearance, coastDistance, openWaterFactor, type CoastGrid, type ObstacleField } from "./obstacles";
 
 export const CLASS_ORDER: readonly HullClass[] = ["flagship", "large", "medium", "small", "boat", "skiff"];
 export const DEFAULT_LOA: Record<HullClass, number> = { flagship: 26, large: 18, medium: 13, small: 10, boat: 7.5, skiff: 5 };
@@ -28,9 +28,19 @@ export interface Slot {
   outNode: number;
   /** Arrival polyline (x,z pairs), from the inNode position to the slot. */
   approach: Vec2[];
-  /** True when departures back out first (bow-in berths). */
+  /** True when departures back out first (bow-in berths, pontoon rows). */
   astern: boolean;
+  /** How the hull lies: alongside a quay/T-head, bow-in to a finger or pontoon, or swinging/anchored/beached. */
+  mode: SlotMode;
+  /** Alongside: offset from the berth to where the hull lies once warped off (outward, ~1 beam). */
+  warp: Vec2 | null;
+  /** Pontoon rows: where the bow line makes fast. */
+  line: Vec2 | null;
+  /** Slots whose hull footprint overlaps this one's: never occupied at the same time. */
+  conflicts: number[];
 }
+
+export type SlotMode = "alongside" | "finger" | "pontoon" | "swing" | "anchor" | "beached" | "raft";
 
 export interface LaneGraph {
   ids: string[];
@@ -51,16 +61,131 @@ export interface LaneGraph {
 /** Wind the hull lies to when it can swing: direction the wind blows FROM, as a bow heading. */
 export const PREVAILING_WIND_FROM = -2.35;
 
-export function buildLaneGraph(layout: HarbourLayout, field: ObstacleField | null = null): LaneGraph {
-  const nodes = layout.lanes?.nodes ?? [];
-  const n = nodes.length;
-  const ids = nodes.map((nd) => nd.id);
+/** Lanes keep this far (m) from land and structure: a flagship's half-beam plus a 4 m margin. */
+export const LANE_CLEARANCE = 7.5;
+
+/**
+ * Lane edges authored as straight lines may cut a headland, a quay or a row of pontoons. Each blocked
+ * edge is re-routed once, at load, by A* on a coarse clearance grid and string-pulled into a few
+ * waypoints, so every hull path built on the lanes starts from water.
+ */
+function detourEdge(field: ObstacleField, keepOff: ObstacleField | null, ax: number, az: number, bx: number, bz: number, need: number): Vec2[] | null {
+  // clearance in "need" units: hard structure, and still hulls (which may be passed closer)
+  const cl = (x: number, z: number) => {
+    const c = clearance(field, x, z);
+    return keepOff ? Math.min(c, (clearance(keepOff, x, z) + 0.5) * (need / 3)) : c;
+  };
+  const segOk = (x0: number, z0: number, x1: number, z1: number, lim: number, skipEnds: number) => {
+    const len = Math.hypot(x1 - x0, z1 - z0), k = Math.max(2, Math.ceil(len / 2));
+    for (let i = 0; i <= k; i++) {
+      const t = i / k, d = t * len;
+      if (d < skipEnds || len - d < skipEnds) continue;
+      if (cl(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t) < lim) return false;
+    }
+    return true;
+  };
+  // the nodes themselves may sit close to things: judge the edge away from its ends
+  if (segOk(ax, az, bx, bz, need, 12)) return null;
+  const C = 4, pad = 220;
+  const minX = Math.min(ax, bx) - pad, minZ = Math.min(az, bz) - pad;
+  const nx = Math.ceil((Math.max(ax, bx) + pad - minX) / C), nz = Math.ceil((Math.max(az, bz) + pad - minZ) / C);
+  const N = nx * nz;
+  const clr = new Float32Array(N);
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) clr[j * nx + i] = cl(minX + (i + 0.5) * C, minZ + (j + 0.5) * C);
+  const cellOf = (x: number, z: number) => Math.min(nz - 1, Math.max(0, Math.floor((z - minZ) / C))) * nx + Math.min(nx - 1, Math.max(0, Math.floor((x - minX) / C)));
+  const s0 = cellOf(ax, az), s1 = cellOf(bx, bz);
+  const g = new Float32Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1), closed = new Uint8Array(N);
+  const heap: number[] = [], key: number[] = [];
+  const push = (c: number, k: number) => {
+    heap.push(c); key.push(k);
+    let i = heap.length - 1;
+    while (i > 0) { const p = (i - 1) >> 1; if (key[p] <= key[i]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; [key[p], key[i]] = [key[i], key[p]]; i = p; }
+  };
+  const pop = (): number => {
+    const top = heap[0], lastC = heap.pop()!, lastK = key.pop()!;
+    if (heap.length) {
+      heap[0] = lastC; key[0] = lastK;
+      let i = 0;
+      for (;;) { const l = i * 2 + 1, r = l + 1; let m = i; if (l < heap.length && key[l] < key[m]) m = l; if (r < heap.length && key[r] < key[m]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; [key[m], key[i]] = [key[i], key[m]]; i = m; }
+    }
+    return top;
+  };
+  const h = (c: number) => Math.hypot((c % nx) - (s1 % nx), Math.floor(c / nx) - Math.floor(s1 / nx)) * C;
+  g[s0] = 0; push(s0, h(s0));
+  const near = (c: number) => Math.hypot(((c % nx) - (s0 % nx)) * C, (Math.floor(c / nx) - Math.floor(s0 / nx)) * C) < 14 || Math.hypot(((c % nx) - (s1 % nx)) * C, (Math.floor(c / nx) - Math.floor(s1 / nx)) * C) < 14;
+  while (heap.length) {
+    const c = pop();
+    if (closed[c]) continue;
+    closed[c] = 1;
+    if (c === s1) break;
+    const ci = c % nx, cj = Math.floor(c / nx);
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      if (!di && !dj) continue;
+      const i2 = ci + di, j2 = cj + dj;
+      if (i2 < 0 || j2 < 0 || i2 >= nx || j2 >= nz) continue;
+      const c2 = j2 * nx + i2;
+      if (closed[c2]) continue;
+      const cl = clr[c2];
+      if (cl < need * 0.6 && !near(c2)) continue;
+      // prefer open water: a soft cost for running close to things
+      const w = (di && dj ? Math.SQRT2 : 1) * C * (1 + Math.max(0, (need * 2.2 - cl) / need) * 1.5);
+      const ng = g[c] + w;
+      if (ng < g[c2]) { g[c2] = ng; prev[c2] = c; push(c2, ng + h(c2)); }
+    }
+  }
+  if (prev[s1] < 0) return null;
+  const cells: Vec2[] = [];
+  for (let c = s1; c >= 0; c = prev[c]) cells.push([minX + ((c % nx) + 0.5) * C, minZ + (Math.floor(c / nx) + 0.5) * C]);
+  cells.reverse();
+  cells[0] = [ax, az]; cells[cells.length - 1] = [bx, bz];
+  // string-pull: from each kept point, jump to the farthest point still in clear view
+  const out: Vec2[] = [cells[0]];
+  let i = 0;
+  while (i < cells.length - 1) {
+    let j = cells.length - 1;
+    while (j > i + 1 && !segOk(cells[i][0], cells[i][1], cells[j][0], cells[j][1], need * 0.85, i === 0 || j === cells.length - 1 ? 10 : 0)) j--;
+    out.push(cells[j]);
+    i = j;
+  }
+  return out.slice(1, -1);
+}
+
+export function buildLaneGraph(layout: HarbourLayout, field: ObstacleField | null = null, keepOff: ObstacleField | null = null): LaneGraph {
+  const srcNodes = layout.lanes?.nodes ?? [];
+  const ids = srcNodes.map((nd) => nd.id);
+  const xs: number[] = srcNodes.map((nd) => nd.position[0]), zs: number[] = srcNodes.map((nd) => nd.position[2]);
   const index = new Map(ids.map((id, i) => [id, i]));
-  const x = new Float64Array(n), z = new Float64Array(n);
-  nodes.forEach((nd, i) => { x[i] = nd.position[0]; z[i] = nd.position[2]; });
+  // A zone's gate (Far Ports, Shoals) is where its traffic leaves the lane, not a waypoint for
+  // everyone else: through traffic bypasses it instead of sailing through the moored rows / reef.
+  let edges = [...(layout.lanes?.edges ?? [])];
+  const zoneGates = new Set(Object.values(layout.zones ?? {}).map((z) => (z as { gate?: unknown })?.gate).filter((g): g is string => typeof g === "string"));
+  for (const gid of zoneGates) {
+    const ins = edges.filter((e) => e.to === gid).map((e) => e.from), outs = edges.filter((e) => e.from === gid).map((e) => e.to);
+    for (const a of ins) for (const b of outs) if (a !== b && !edges.some((e) => e.from === a && e.to === b)) edges.push({ from: a, to: b });
+  }
+  if (field) {
+    const split: typeof edges = [];
+    for (const e of edges) {
+      const a = index.get(e.from), b = index.get(e.to);
+      if (a == null || b == null) { split.push(e); continue; }
+      const way = detourEdge(field, keepOff, xs[a], zs[a], xs[b], zs[b], LANE_CLEARANCE);
+      if (!way || !way.length) { split.push(e); continue; }
+      let last = e.from;
+      way.forEach((q, k) => {
+        const id = `${e.from}>${e.to}#${k + 1}`;
+        if (!index.has(id)) { index.set(id, ids.length); ids.push(id); xs.push(q[0]); zs.push(q[1]); }
+        split.push({ from: last, to: id });
+        last = id;
+      });
+      split.push({ from: last, to: e.to });
+    }
+    edges = split;
+  }
+  const n = ids.length;
+  const x = Float64Array.from(xs), z = Float64Array.from(zs);
   const adj: Array<Array<[number, number]>> = Array.from({ length: n }, () => []);
   const indeg = new Int32Array(n), outdeg = new Int32Array(n);
-  for (const e of layout.lanes?.edges ?? []) {
+  for (const e of edges) {
     const a = index.get(e.from), b = index.get(e.to);
     if (a == null || b == null) continue;
     adj[a].push([b, Math.hypot(x[b] - x[a], z[b] - z[a])]);
@@ -140,10 +265,15 @@ export interface SimLayout {
   windFrom: number;
   /** Clearance field from the layout geometry (null when the layout has none, e.g. tests). */
   field: ObstacleField | null;
+  /** Distance to still hulls (moorings, Far Ports rows, the Shoals) and no-go zones: lanes keep off it. */
+  keepOff: ObstacleField | null;
+  /** Fine clearance (m) to hard structure: the real coast (sea SDF) and pier decks. */
+  hard(x: number, z: number): number;
   slots: Slot[];
   /** pools.get(where)?.get(cls) → slot indices. */
   pools: Map<string, Map<HullClass, number[]>>;
   shoals: number[];
+  /** Wreck Cove: authored hulks first (beached), then the boneyard along the same strand. */
   wrecks: number[];
   /** Slipway launch polyline (x,z), or null. */
   launchPath: Vec2[] | null;
@@ -164,9 +294,56 @@ function mode(xs: number[]): number {
   return best;
 }
 
-export function buildSimLayout(layout: HarbourLayout): SimLayout {
-  const field = buildObstacleField(layout);
-  const graph = buildLaneGraph(layout, field);
+function segDist(px: number, pz: number, a: Vec2, b: Vec2): number {
+  const dx = b[0] - a[0], dz = b[1] - a[1], l2 = dx * dx + dz * dz;
+  const t = l2 > 0 ? Math.min(1, Math.max(0, ((px - a[0]) * dx + (pz - a[1]) * dz) / l2)) : 0;
+  return Math.hypot(px - a[0] - dx * t, pz - a[1] - dz * t);
+}
+
+/** Where still hulls lie (from the layout alone): mooring swing circles, Far Ports rows, the Shoals. */
+function stillHullDisks(layout: HarbourLayout, loa: Record<HullClass, number>): Array<[number, number, number]> {
+  const disks: Array<[number, number, number]> = [];
+  type M = NonNullable<HarbourLayout["moorings"]>[number] & { boatCenter?: [number, number, number] };
+  for (const m of (layout.moorings ?? []) as M[]) {
+    const L = loa[m.class];
+    const swing = m.boatCenter ? Math.hypot(m.boatCenter[0] - m.position[0], m.boatCenter[2] - m.position[2]) : Math.max(L * 0.5 + 1, (m.swingRadius ?? L) - L * 0.5);
+    disks.push([m.position[0], m.position[2], swing + L / 2 + 1.5]);
+  }
+  for (const row of layout.zones?.farPorts?.rows ?? []) {
+    const L = loa[row.cls], la = row.line?.[0], lb = row.line?.[row.line.length - 1];
+    for (const sl of row.slots) {
+      if (!la || !lb) { disks.push([sl[0], sl[2], L / 2 + 1]); continue; }
+      const ll = Math.hypot(lb[0] - la[0], lb[1] - la[1]) || 1, dx = (lb[0] - la[0]) / ll, dz = (lb[1] - la[1]) / ll;
+      const t = (sl[0] - la[0]) * dx + (sl[2] - la[1]) * dz, px = la[0] + dx * t, pz = la[1] + dz * t;
+      let nx = sl[0] - px, nz = sl[2] - pz;
+      const nl = Math.hypot(nx, nz);
+      if (nl < 1e-3) { disks.push([sl[0], sl[2], L / 2 + 1]); continue; }
+      nx /= nl; nz /= nl;
+      disks.push([px + nx * (1.6 + L / 2), pz + nz * (1.6 + L / 2), L / 2 + 1]);
+    }
+  }
+  for (const sl of layout.zones?.shoals?.slots ?? []) disks.push([sl[0], sl[2], 3 + loa.medium / 2 + 1.5]);
+  return disks;
+}
+
+function noGoZones(layout: HarbourLayout): Vec2[][] {
+  const polys: Vec2[][] = [];
+  const z = layout.zones ?? {};
+  if ((z.wreckCove?.polygon?.length ?? 0) >= 3) polys.push(z.wreckCove!.polygon);
+  if ((z.shoals?.polygon?.length ?? 0) >= 3) polys.push(z.shoals!.polygon);
+  return polys;
+}
+
+/** Wreck Cove boneyard size: room for every recorded dead coin. */
+export const BONEYARD_MAX = 110;
+/** Shoals anchorages (authored + generated): a bad day can put dozens of coins off peg. */
+export const SHOALS_MAX = 40;
+
+export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = null): SimLayout {
+  const field = buildObstacleField(layout, coast);
+  const loa0 = { ...DEFAULT_LOA, ...(layout.hull?.loa ?? {}) } as Record<HullClass, number>;
+  const keepOff = field ? buildKeepOffField(field, stillHullDisks(layout, loa0), noGoZones(layout)) : null;
+  const graph = buildLaneGraph(layout, field, keepOff);
   const loa = { ...DEFAULT_LOA, ...(layout.hull?.loa ?? {}) } as Record<HullClass, number>;
   const beam = Object.fromEntries(CLASS_ORDER.map((k) => [k, layout.hull?.beam?.[k] ?? loa[k] * 0.32])) as Record<HullClass, number>;
   const slots: Slot[] = [];
@@ -177,8 +354,21 @@ export function buildSimLayout(layout: HarbourLayout): SimLayout {
   const bowVec = (h: number): Vec2 => [Math.sin(h), Math.cos(h)];
   const windFrom = (layout as { wind?: { bowHeadingRad?: number } }).wind?.bowHeadingRad ?? PREVAILING_WIND_FROM;
 
-  const add = (s: Omit<Slot, "index">) => {
-    const slot = { ...s, index: slots.length };
+  // hard structure, fine: the real coast when the SDF is known, else the coarse field; plus decks
+  const decks: Array<{ a: Vec2; b: Vec2; hw: number }> = [];
+  for (const p of layout.piers ?? []) for (const s of p.segments ?? []) if (!(coast && s.kind === "quay")) decks.push({ a: s.a, b: s.b, hw: Math.max(0.45, s.width / 2) });
+  for (const row of layout.zones?.farPorts?.rows ?? []) for (let i = 1; i < (row.line?.length ?? 0); i++) decks.push({ a: row.line[i - 1], b: row.line[i], hw: 1.4 });
+  const hard = (x: number, z: number): number => {
+    let c = coast ? coastDistance(coast, x, z) : field ? clearance(field, x, z) : 1e3;
+    for (const d of decks) {
+      const v = segDist(x, z, d.a, d.b) - d.hw;
+      if (v < c) c = v;
+    }
+    return c;
+  };
+
+  const add = (s: Omit<Slot, "index" | "conflicts" | "warp" | "line"> & { warp?: Vec2 | null; line?: Vec2 | null }) => {
+    const slot: Slot = { warp: null, line: null, ...s, conflicts: [], index: slots.length };
     slots.push(slot);
     if (s.kind === "shoals" || s.kind === "wreck") return slot;
     let byCls = pools.get(s.where);
@@ -204,7 +394,31 @@ export function buildSimLayout(layout: HarbourLayout): SimLayout {
       ap[ap.length - 1] = [cx, cz];
       if (inNode >= 0 && Math.hypot(ap[0][0] - start[0], ap[0][1] - start[1]) > 1) ap.unshift(start);
     }
-    return add({ id, where, cls, kind, x: px, z: pz, heading: h, swing, inNode, outNode, approach: ap, astern: false });
+    return add({ id, where, cls, kind, x: px, z: pz, heading: h, swing, inNode, outNode, approach: ap, astern: false, mode: kind === "shoals" ? "anchor" : "swing" });
+  };
+
+  /**
+   * Alongside: slide the berth off the wall until the whole hull (tapered at the ends) clears it by a
+   * fender gap, and note which way it warps off. Curved quays and T-heads no longer eat the hull.
+   */
+  const fitAlongside = (x: number, z: number, h: number, cls: HullClass): { x: number; z: number; warp: Vec2 } => {
+    const [fx, fz] = bowVec(h);
+    const sx = -fz, sz = fx;
+    const L = loa[cls], B = beam[cls];
+    const side = hard(x + sx * B, z + sz * B) >= hard(x - sx * B, z - sz * B) ? 1 : -1;
+    const ox = sx * side, oz = sz * side;
+    let px = x, pz = z;
+    for (let it = 0; it < 48; it++) {
+      let worst = Infinity;
+      for (const t of [-0.47, -0.35, -0.2, 0, 0.2, 0.35, 0.47]) {
+        const need = 0.6 + (B / 2) * (1 - 0.55 * (2 * t) ** 2);
+        worst = Math.min(worst, hard(px + fx * L * t, pz + fz * L * t) - need);
+      }
+      if (worst >= 0) break;
+      px += ox * 0.25; pz += oz * 0.25;
+    }
+    const w = B * 0.85 + 0.8;
+    return { x: px, z: pz, warp: [ox * w, oz * w] };
   };
 
   for (const p of layout.piers ?? []) {
@@ -215,14 +429,21 @@ export function buildSimLayout(layout: HarbourLayout): SimLayout {
     for (const b of p.berths ?? []) {
       const gate = nodeOf(b.gate);
       let approach: Vec2[] = (b.approach ?? []).map((q) => [q[0], q[1]] as Vec2);
-      const end: Vec2 = [b.position[0], b.position[2]];
+      let end: Vec2 = [b.position[0], b.position[2]];
+      const alongside = (b as { mode?: string }).mode === "alongside" || ((b as { mode?: string }).mode == null && (b.class === "flagship" || b.class === "large"));
+      let warp: Vec2 | null = null;
+      if (alongside && (coast || field)) {
+        const f = fitAlongside(end[0], end[1], b.headingRad, b.class);
+        end = [f.x, f.z]; warp = f.warp;
+      }
       if (approach.length < 2) {
         const [bx, bz] = bowVec(b.headingRad);
         const g = gate >= 0 ? gate : nearestNode(graph, end[0], end[1]);
         approach = [[graph.x[g], graph.z[g]], [end[0] - bx * loa[b.class] * 2, end[1] - bz * loa[b.class] * 2], end];
       }
+      approach[approach.length - 1] = end;
       const g = gate >= 0 ? gate : nearestNode(graph, approach[0][0], approach[0][1]);
-      add({ id: b.id, where: p.id, cls: b.class, kind: "berth", x: end[0], z: end[1], heading: b.headingRad, swing: 0, inNode: g, outNode: g, approach, astern: true });
+      add({ id: b.id, where: p.id, cls: b.class, kind: "berth", x: end[0], z: end[1], heading: b.headingRad, swing: 0, inNode: g, outNode: g, approach, astern: !alongside, mode: alongside ? "alongside" : "finger", warp });
     }
   }
   const whereOf = (chainOrId: string | null): string => {
@@ -247,14 +468,70 @@ export function buildSimLayout(layout: HarbourLayout): SimLayout {
     for (const id of [typeof zone?.gate === "string" ? zone.gate : "", ...ids]) { const k = nodeOf(id || undefined); if (k >= 0) return k; }
     return -1;
   };
+  // Far Ports: pontoon rows; hulls lie bow-in to the pontoon and come and go along the fairway behind
+  // their row (the next row's pontoon bounds it), so nobody sails through a moored row.
   const farZone = zones.farPorts as ({ gate?: string } & NonNullable<typeof zones.farPorts>) | undefined;
   const farIn = zoneGate(farZone, "gate-in:far", "F-gate"), farOut = zoneGate(farZone, "gate-out:far", "F-gate");
   let fi = 0;
   for (const row of zones.farPorts?.rows ?? []) {
+    const L = loa[row.cls];
+    const la = row.line?.[0], lb = row.line?.[row.line.length - 1];
     for (const s of row.slots) {
       const inN = farIn >= 0 ? farIn : nearestNode(graph, s[0], s[2]);
       const outN = farOut >= 0 ? farOut : inN;
-      swingSlot(`far/${row.cls}/${String(++fi).padStart(3, "0")}`, "far", row.cls, "far", s[0], s[2], loa[row.cls] * 0.6, inN, outN);
+      const id = `far/${row.cls}/${String(++fi).padStart(3, "0")}`;
+      if (!la || !lb || Math.hypot(lb[0] - la[0], lb[1] - la[1]) < 1) {
+        swingSlot(id, "far", row.cls, "far", s[0], s[2], L * 0.15, inN, outN);
+        continue;
+      }
+      const ll = Math.hypot(lb[0] - la[0], lb[1] - la[1]);
+      const dx = (lb[0] - la[0]) / ll, dz = (lb[1] - la[1]) / ll;
+      const t = (s[0] - la[0]) * dx + (s[2] - la[1]) * dz;
+      const lp: Vec2 = [la[0] + dx * t, la[1] + dz * t];
+      let nx = s[0] - lp[0], nz = s[2] - lp[1];
+      const nl = Math.hypot(nx, nz) || 1;
+      if (nl > L * 0.8 || t < -L || t > ll + L) {
+        // not moored to this row's pontoon: an anchorage spot
+        swingSlot(id, "far", row.cls, "far", s[0], s[2], L * 0.15, inN, outN);
+        continue;
+      }
+      nx /= nl; nz /= nl;
+      const h = Math.atan2(-nx, -nz); // bow to the pontoon
+      const off = 1.6 + L / 2;
+      const cx = lp[0] + nx * off, cz = lp[1] + nz * off;
+      // fairway: from the sterns to whatever bounds it (the next pontoon), at most 2 LOA
+      let room = 0;
+      while (room < L * 2 && hard(cx + nx * (L / 2 + room + 1), cz + nz * (L / 2 + room + 1)) > beam[row.cls] * 0.5) room += 1;
+      const co = L / 2 + Math.max(2.5, room * 0.5);
+      // enter the fairway from one of its ends, from the nearest lane node in clear water (the Far
+      // Ports gate may sit among the rows: through the rows is no way in)
+      const fairway = (tt: number): Vec2 => [la[0] + dx * tt + nx * (off + co), la[1] + dz * tt + nz * (off + co)];
+      const clearRun = (p: Vec2, q: Vec2) => {
+        const len = Math.hypot(q[0] - p[0], q[1] - p[1]), k = Math.max(2, Math.ceil(len / 3));
+        for (let i = 1; i < k; i++) {
+          const x = p[0] + ((q[0] - p[0]) * i) / k, z = p[1] + ((q[1] - p[1]) * i) / k;
+          if ((field && clearance(field, x, z) < 4) || (keepOff && clearance(keepOff, x, z) < 0.5)) return false;
+        }
+        return true;
+      };
+      let best: { endT: number; node: number; d: number } | null = null;
+      for (const endT of [-L * 1.2, ll + L * 1.2]) {
+        const e = fairway(endT);
+        const cand = graph.through.map((k) => [k, Math.hypot(graph.x[k] - e[0], graph.z[k] - e[1])] as [number, number]).sort((p, q) => p[1] - q[1]).slice(0, 8);
+        for (const [k, d] of cand) {
+          const dd = d + Math.abs(endT - t);
+          if (best && dd >= best.d) break;
+          if (clearRun([graph.x[k], graph.z[k]], e)) { best = { endT, node: k, d: dd }; break; }
+        }
+      }
+      const endT = best ? best.endT : -L * 1.2;
+      const node = best ? best.node : inN;
+      const sg = Math.sign(endT - t) || 1;
+      const approach: Vec2[] = [fairway(endT)];
+      if (Math.abs(endT - t) > L * 2.2) approach.push(fairway(t + sg * L * 1.1));
+      approach.push([cx + nx * Math.min(co, L * 0.9), cz + nz * Math.min(co, L * 0.9)], [cx, cz]);
+      if (node >= 0) approach.unshift([graph.x[node], graph.z[node]]);
+      add({ id, where: "far", cls: row.cls, kind: "far", x: cx, z: cz, heading: h, swing: 0, inNode: node, outNode: node, approach, astern: true, mode: "pontoon", line: [lp[0] + nx * 1.2, lp[1] + nz * 1.2] });
     }
   }
   const shZone = zones.shoals as ({ gate?: string } & NonNullable<typeof zones.shoals>) | undefined;
@@ -265,12 +542,87 @@ export function buildSimLayout(layout: HarbourLayout): SimLayout {
     const slot = swingSlot(`shoals/${String(i + 1).padStart(2, "0")}`, "shoals", "medium", "shoals", s[0], s[2], 3, inN, shOut >= 0 ? shOut : inN);
     shoals.push(slot.index);
   });
+
+  // more anchorage on the reef than authored (a bad day has many depegs): spread seaward of the
+  // authored spots, well clear of every lane and of each other
+  if (shoals.length) {
+    let cx = 0, cz = 0;
+    for (const i of shoals) { cx += slots[i].x; cz += slots[i].z; }
+    cx /= shoals.length; cz /= shoals.length;
+    const laneD = (x: number, z: number) => {
+      let d = Infinity;
+      for (const e of layout.lanes?.edges ?? []) {
+        const a = graph.index.get(e.from), b = graph.index.get(e.to);
+        if (a == null || b == null) continue;
+        d = Math.min(d, segDist(x, z, [graph.x[a], graph.z[a]], [graph.x[b], graph.z[b]]));
+      }
+      return d;
+    };
+    const taken: Vec2[] = shoals.map((i) => [slots[i].x, slots[i].z]);
+    const inN = slots[shoals[0]].inNode, outN = slots[shoals[0]].outNode;
+    for (let k = 0; k < 1200 && shoals.length < SHOALS_MAX; k++) {
+      const a = k * 2.399963, r = 8 + 3.2 * Math.sqrt(k + 1);
+      const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+      if (laneD(x, z) < 30 || hard(x, z) < 12) continue;
+      if (taken.some((q) => Math.hypot(q[0] - x, q[1] - z) < 15)) continue;
+      taken.push([x, z]);
+      shoals.push(swingSlot(`shoals/x${String(shoals.length + 1).padStart(2, "0")}`, "shoals", "medium", "shoals", x, z, 3, inN, outN).index);
+    }
+  }
+
+  // Wreck Cove: hulks lie beached on the strand (half in the water), never in open water or the trees
   const wrecks: number[] = [];
-  for (const w of zones.wreckCove?.slots ?? []) {
-    const node = nearestNode(graph, w.position[0], w.position[2]);
-    const slot = add({ id: w.id, where: "wreck", cls: w.class, kind: "wreck", x: w.position[0], z: w.position[2], heading: w.headingRad, swing: 0,
-      inNode: node, outNode: node, approach: node >= 0 ? [[graph.x[node], graph.z[node]], [w.position[0], w.position[2]]] : [[w.position[0], w.position[2]]], astern: false });
+  const wreckAt = (id: string, cls: HullClass, x: number, z: number, h: number) => {
+    const node = nearestNode(graph, x, z);
+    const [bx, bz] = bowVec(h);
+    const slot = add({ id, where: "wreck", cls, kind: "wreck", x, z, heading: h, swing: 0, inNode: node, outNode: node,
+      approach: node >= 0 ? [[graph.x[node], graph.z[node]], [x - bx * loa[cls] * 2, z - bz * loa[cls] * 2], [x, z]] : [[x, z]], astern: false, mode: "beached" });
     wrecks.push(slot.index);
+  };
+  const authored = zones.wreckCove?.slots ?? [];
+  if (!coast || !authored.length) {
+    for (const w of authored) wreckAt(w.id, w.class, w.position[0], w.position[2], w.headingRad);
+  } else {
+    // the strand: shoreline points around the cove, in three bands (shallows, waterline, up the beach)
+    let cx = 0, cz = 0;
+    for (const w of authored) { cx += w.position[0]; cz += w.position[2]; }
+    cx /= authored.length; cz /= authored.length;
+    type Cand = { x: number; z: number; c: number; up: number; d: number };
+    const cand: Cand[] = [];
+    for (let z = cz - 170; z <= cz + 170; z += 2) for (let x = cx - 170; x <= cx + 170; x += 2) {
+      const c = coastDistance(coast, x, z);
+      if (c < -2.4 || c > 2.6) continue;
+      const gx = coastDistance(coast, x + 1.5, z) - coastDistance(coast, x - 1.5, z), gz = coastDistance(coast, x, z + 1.5) - coastDistance(coast, x, z - 1.5);
+      const gl = Math.hypot(gx, gz);
+      if (gl < 0.3) continue; // no clear slope: a spit or an islet tip
+      cand.push({ x, z, c, up: Math.atan2(-gx / gl, -gz / gl), d: Math.hypot(x - cx, z - cz) });
+    }
+    cand.sort((p, q) => p.d - q.d);
+    const taken: Array<[number, number, number]> = [];
+    const free = (p: Cand, r: number) => !taken.some((q) => Math.hypot(q[0] - p.x, q[1] - p.z) < r + q[2]);
+    // authored hulks: the nearest free bit of waterline to where they were meant to lie
+    for (const w of authored) {
+      const r = loa[w.class] * 0.42;
+      let best: Cand | null = null, bd = Infinity;
+      for (const p of cand) {
+        if (Math.abs(p.c - 0.4) > 0.9 || !free(p, r)) continue;
+        const d = Math.hypot(p.x - w.position[0], p.z - w.position[2]);
+        if (d < bd) { bd = d; best = p; }
+      }
+      if (!best) continue;
+      taken.push([best.x, best.z, r]);
+      // heeled over on the strand: bow up the beach, give or take the way she drove ashore
+      wreckAt(w.id, w.class, best.x, best.z, best.up + (u01(w.id + "#up") - 0.5) * 1.3);
+    }
+    // the boneyard: the rest of the dead along the same strand, smaller and further gone
+    let k = 0;
+    for (const p of cand) {
+      if (wrecks.length >= authored.length + BONEYARD_MAX || p.d > 170) break;
+      if (!free(p, 2.3)) continue;
+      taken.push([p.x, p.z, 2.3]);
+      wreckAt(`wreck/bone/${String(k).padStart(3, "0")}`, "boat", p.x, p.z, p.up + (u01("bone#h" + k) - 0.5) * 1.6);
+      k++;
+    }
   }
   const launch = zones.slipway?.launchPath;
 
@@ -283,7 +635,51 @@ export function buildSimLayout(layout: HarbourLayout): SimLayout {
     for (const i of all) { x += slots[i].x; z += slots[i].z; }
     gates.set(where, { inNode, outNode, x: x / all.length, z: z / all.length });
   }
-  return { graph, windFrom, field, slots, pools, shoals, wrecks, launchPath: launch && launch.length >= 2 ? launch.map((q) => [q[0], q[1]] as Vec2) : null, loa, beam, pierChains, whereOf, gates };
+
+  // footprints that overlap are never occupied together (adjacent alongside berths, close moorings)
+  const foot = (s: Slot): Array<[number, number, number, number, number]> => {
+    const L = loa[s.cls], B = beam[s.cls];
+    const caps: Array<[number, number, number, number, number]> = [];
+    const yaws = s.swing > 0 ? [-0.45, 0, 0.45] : [0];
+    for (const dy of yaws) {
+      const h = s.heading + dy;
+      const [fx, fz] = bowVec(h);
+      const cx = s.x - Math.sin(h) * s.swing, cz = s.z - Math.cos(h) * s.swing;
+      const hl = Math.max(0, L / 2 - B / 2);
+      caps.push([cx - fx * hl, cz - fz * hl, cx + fx * hl, cz + fz * hl, B / 2]);
+    }
+    return caps;
+  };
+  const cell = 30, grid = new Map<number, number[]>();
+  const key = (x: number, z: number) => (Math.floor(x / cell) + 1000) * 4096 + Math.floor(z / cell) + 1000;
+  const docks = slots.filter((s) => s.kind !== "wreck");
+  for (const s of docks) { const k = key(s.x, s.z); (grid.get(k) ?? grid.set(k, []).get(k)!).push(s.index); }
+  const capDist = (a: [number, number, number, number, number], b: [number, number, number, number, number]) => {
+    let d = Infinity;
+    for (let i = 0; i <= 6; i++) {
+      const t = i / 6;
+      d = Math.min(d, segDist(a[0] + (a[2] - a[0]) * t, a[1] + (a[3] - a[1]) * t, [b[0], b[1]], [b[2], b[3]]), segDist(b[0] + (b[2] - b[0]) * t, b[1] + (b[3] - b[1]) * t, [a[0], a[1]], [a[2], a[3]]));
+    }
+    return d - a[4] - b[4];
+  };
+  for (const s of docks) {
+    const fs = foot(s);
+    const gx = Math.floor(s.x / cell), gz = Math.floor(s.z / cell);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      for (const o of grid.get((gx + i + 1000) * 4096 + gz + j + 1000) ?? []) {
+        if (o <= s.index) continue;
+        const so = slots[o];
+        // berths only crowd berths of their own pier (piers are laid out apart); swinging hulls anyone
+        if (s.swing === 0 && so.swing === 0 && s.where !== so.where) continue;
+        if (Math.hypot(so.x - s.x, so.z - s.z) > (loa[s.cls] + loa[so.cls]) / 2 + s.swing + so.swing + 2) continue;
+        const gap = s.swing > 0 || so.swing > 0 ? 0.8 : s.mode === "finger" && so.mode === "finger" ? 0.3 : 0.5;
+        const fo = foot(so);
+        if (fs.some((a) => fo.some((b) => capDist(a, b) < gap))) { s.conflicts.push(o); so.conflicts.push(s.index); }
+      }
+    }
+  }
+
+  return { graph, windFrom, field, keepOff, hard, slots, pools, shoals, wrecks, launchPath: launch && launch.length >= 2 ? launch.map((q) => [q[0], q[1]] as Vec2) : null, loa, beam, pierChains, whereOf, gates };
 }
 
 /**
@@ -307,6 +703,7 @@ export function addRaftSlot(L: SimLayout, where: string, k: number): Slot {
   const slot: Slot = {
     index: L.slots.length, id: `${where}/raft/${k + 1}`, where, cls: "large", kind: "raft", x: px, z: pz, heading: Math.atan2(dx, dz), swing: 0,
     inNode: node, outNode: g ? g.outNode : node, approach: [[nx, nz], [px - dx * cellL, pz - dz * cellL], [px, pz]], astern: false,
+    mode: "raft", warp: null, line: null, conflicts: [],
   };
   L.slots.push(slot);
   return slot;

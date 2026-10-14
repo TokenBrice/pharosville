@@ -8,7 +8,7 @@ import * as THREE from "three";
 import type { EngineContext } from "../engine/types";
 import type { HarbourLayout, Vec2 } from "../layout/types";
 import { pierIdFor } from "../model/classify";
-import { getLayout, getSim, getWorldPicking, type PickHit, type PickingService, type ScreenPoint } from "./services";
+import { getGround, getLayout, getSim, getWorldPicking, type GroundLike, type PickHit, type PickingService, type ScreenPoint } from "./services";
 
 /** Landmarks read as areas on the water (polygon / footprint hit), not as buildings. */
 const AREA_ZONE: Record<string, string> = { shoals: "shoals", "wreck-cove": "wreckCove", "far-ports": "farPorts" };
@@ -20,6 +20,9 @@ const ray = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const hitPt = new THREE.Vector3();
+const deckPt = new THREE.Vector3();
+/** Above every roof and the lantern: height-field marches start here. */
+const SKY_TOP = 80;
 
 function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
   const dx = bx - ax, dy = by - ay;
@@ -129,33 +132,108 @@ export class AnalyticPicking implements PickingService {
     }
     if (lmBest) return lmBest;
 
-    // ground: piers / quays (deck height), then hamlets, then areas on the sea
+    // ground: the surface the ray really meets (island height field: terrain, quays, roofs), then the
+    // pier decks. Only a pier deck or a hamlet is that harbour; open water is only ever a sea area.
     const r = this.ctx.renderer.domElement.getBoundingClientRect();
     ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, this.ctx.camera);
+    const ground = getGround(this.ctx);
+    const onLand = ground ? this.surface(ray.ray, ground, L.seaLevel, hitPt) : null;
+    const tSurface = onLand ? ray.ray.origin.distanceTo(hitPt) : Infinity;
+    // pier decks are flat: meet the deck plane, and accept it when nothing solid comes first
     plane.constant = -((L as { quayY?: number }).quayY ?? 2.4);
-    if (ray.ray.intersectPlane(plane, hitPt)) {
+    if (ray.ray.intersectPlane(plane, deckPt) && ray.ray.origin.distanceTo(deckPt) <= tSurface + 0.5) {
       for (const pier of L.piers) {
         for (const s of pier.segments) {
-          if (segDist(hitPt.x, hitPt.z, s.a[0], s.a[1], s.b[0], s.b[1]) <= s.width / 2 + 1.5) return { kind: "harbour", id: pier.chain };
-        }
-      }
-      const hamlets = (L.zones as { hamlets?: Record<string, { centre: Vec2; halfWidth: number }> }).hamlets ?? {};
-      for (const [pierId, h] of Object.entries(hamlets)) {
-        if (Math.hypot(hitPt.x - h.centre[0], hitPt.z - h.centre[1]) <= h.halfWidth * 1.6) {
-          const pier = L.piers.find((pp) => pp.id === pierId);
-          if (pier) return { kind: "harbour", id: pier.chain };
+          if (segDist(deckPt.x, deckPt.z, s.a[0], s.a[1], s.b[0], s.b[1]) <= s.width / 2 + 0.75) return { kind: "harbour", id: pier.chain, at: [deckPt.x, deckPt.y, deckPt.z] };
         }
       }
     }
+    if (onLand) {
+      const at: [number, number, number] = [hitPt.x, hitPt.y, hitPt.z];
+      const hamlets = (L.zones as { hamlets?: Record<string, { centre: Vec2; halfWidth: number }> }).hamlets ?? {};
+      for (const [pierId, h] of Object.entries(hamlets)) {
+        if (Math.hypot(hitPt.x - h.centre[0], hitPt.z - h.centre[1]) <= h.halfWidth) {
+          const pier = L.piers.find((pp) => pp.id === pierId);
+          if (pier) return { kind: "harbour", id: pier.chain, at };
+        }
+      }
+      return null;
+    }
     plane.constant = -L.seaLevel;
-    if (ray.ray.intersectPlane(plane, hitPt)) {
+    if (onLand === false || ray.ray.intersectPlane(plane, hitPt)) {
       for (const [lmId, zoneKey] of Object.entries(AREA_ZONE)) {
         const zone = L.zones[zoneKey] as { polygon?: Vec2[] } | undefined;
         if (zone?.polygon && inPoly(hitPt.x, hitPt.z, zone.polygon)) return { kind: "landmark", id: lmId };
       }
     }
     return null;
+  }
+
+  /**
+   * March a camera ray down through the height field. Returns true (land, `out` = the surface point),
+   * false (open water, `out` = the sea-level point) or null (the ray never comes down).
+   */
+  private surface(r: THREE.Ray, g: GroundLike, seaLevel: number, out: THREE.Vector3): boolean | null {
+    const o = r.origin, d = r.direction;
+    if (d.y > -1e-4) return null;
+    const horiz = Math.max(1e-4, Math.hypot(d.x, d.z));
+    const dt = 0.75 / horiz;
+    const tSea = (seaLevel - o.y) / d.y;
+    for (let t = Math.max(0, (SKY_TOP - o.y) / d.y); t < tSea; t += dt) {
+      const x = o.x + d.x * t, y = o.y + d.y * t, z = o.z + d.z * t;
+      const h = g.heightAt(x, z);
+      if (h > seaLevel + 0.25 && y <= h) { out.set(x, h, z); return true; }
+    }
+    out.set(o.x + d.x * tSea, seaLevel, o.z + d.z * tSea);
+    return false;
+  }
+
+  /** True when the island hides a point from the camera (height-field march toward the eye). */
+  private occluded(x: number, y: number, z: number): boolean {
+    const g = getGround(this.ctx);
+    if (!g) return false;
+    const c = this.ctx.camera.position;
+    let dx = c.x - x, dy = c.y - y, dz = c.z - z;
+    const len = Math.hypot(dx, dy, dz);
+    dx /= len; dy /= len; dz /= len;
+    if (dy <= 0) return false;
+    const horiz = Math.max(1e-4, Math.hypot(dx, dz));
+    const dt = 1 / horiz, tEnd = Math.min(len, (SKY_TOP - y) / dy);
+    for (let t = dt * 2; t < tEnd; t += dt) {
+      if (g.heightAt(x + dx * t, z + dz * t) > y + dy * t + 0.3) return true;
+    }
+    return false;
+  }
+
+  waterline(id: string, out: ScreenPoint = { x: 0, y: 0, visible: false }): ScreenPoint | null {
+    const i = this.boatIndex(id), sim = getSim(this.ctx);
+    if (i < 0 || !sim) return null;
+    this.begin();
+    return this.project(sim.pose.position[i * 3], 0.4, sim.pose.position[i * 3 + 2], out);
+  }
+
+  hidden(id: string): boolean {
+    const i = this.boatIndex(id), sim = getSim(this.ctx), L = this.layout;
+    if (i < 0 || !sim || !L) return false;
+    const cls = sim.model.boats[i]?.hullClass ?? "boat";
+    const y = (L.deckY ?? 1.2) + (L.hull.mastAboveDeck[cls] ?? 8) * 0.3;
+    return this.occluded(sim.pose.position[i * 3], y, sim.pose.position[i * 3 + 2]);
+  }
+
+  /** A harbour named without a pointer (search, ledger): the point of its pier deck nearest the approach gate. */
+  private deckAnchor(chain: string): [number, number, number] | null {
+    const L = this.layout;
+    const pier = L?.piers.find((p) => p.id === pierIdFor(chain));
+    if (!L || !pier) return null;
+    let best: [number, number, number] | null = null, bestD = Infinity;
+    for (const s of pier.segments) {
+      const dx = s.b[0] - s.a[0], dz = s.b[1] - s.a[1], l2 = dx * dx + dz * dz;
+      const t = l2 > 0 ? Math.max(0, Math.min(1, ((pier.gate[0] - s.a[0]) * dx + (pier.gate[1] - s.a[1]) * dz) / l2)) : 0;
+      const x = s.a[0] + t * dx, z = s.a[1] + t * dz, d = Math.hypot(x - pier.gate[0], z - pier.gate[1]);
+      if (d < bestD) { bestD = d; best = [x, (L as { quayY?: number }).quayY ?? 2.4, z]; }
+    }
+    return best;
   }
 
   private anchorOf(landmarkId: string): [number, number, number] | null {
@@ -175,11 +253,12 @@ export class AnalyticPicking implements PickingService {
       const lm = L.landmarks.find((l) => l.id === hit.id);
       return lm ? [...lm.position] : null;
     }
-    const pid = pierIdFor(hit.id);
-    const lab = L.labels?.find((l) => l.id === "label-" + pid);
-    if (lab) return [lab.anchor[0], 0, lab.anchor[2]];
-    const pier = L.piers.find((p) => p.id === pid);
-    return pier ? [pier.gate[0], 0, pier.gate[1]] : null;
+    if (hit.at) return [hit.at[0], 0, hit.at[2]];
+    const deck = this.deckAnchor(hit.id);
+    if (deck) return [deck[0], 0, deck[2]];
+    // a chain without a pier lives in the Far Ports
+    const far = L.landmarks.find((l) => l.id === "far-ports");
+    return far ? [...far.position] : null;
   }
 
   screenPosition(hit: PickHit, out: ScreenPoint = { x: 0, y: 0, visible: false }): ScreenPoint | null {
@@ -199,8 +278,8 @@ export class AnalyticPicking implements PickingService {
       const lm = L.landmarks.find((l) => l.id === hit.id);
       return lm ? this.project(lm.position[0], lm.position[1] + 10, lm.position[2], out) : null;
     }
-    const lab = L.labels?.find((l) => l.id === "label-" + pierIdFor(hit.id));
-    if (lab) return this.project(lab.anchor[0], lab.anchor[1] + 4, lab.anchor[2], out);
+    const at = hit.at ?? this.deckAnchor(hit.id);
+    if (at) return this.project(at[0], at[1] + 3, at[2], out);
     const w = this.worldPosition(hit);
     return w ? this.project(w[0], 8, w[2], out) : null;
   }
@@ -235,6 +314,8 @@ export class UIPicking implements PickingService {
   }
 
   worldPosition(hit: PickHit): [number, number, number] | null { return this.own.worldPosition(hit); }
+  waterline(id: string, out?: ScreenPoint): ScreenPoint | null { return this.own.waterline(id, out); }
+  hidden(id: string): boolean { return this.own.hidden(id); }
 
   setHover(hit: PickHit | null): void { getWorldPicking(this.ctx)?.setHover(hit?.kind === "boat" ? hit.id : null); }
   setSelected(hit: PickHit | null): void { getWorldPicking(this.ctx)?.setSelected(hit?.kind === "boat" ? hit.id : null); }

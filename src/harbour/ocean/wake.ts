@@ -6,7 +6,7 @@ import type { Bounds4 } from "./sea-sdf";
  * WAKE service ('wake'): a world-space wake/foam field over the sea bounds that every hull stamps into.
  *
  *  - `texture` (history, R16F ping-pong): turbulent trail left behind moving hulls; diffuses and decays
- *    (~9 s half-life), so a turning boat leaves a curved foam trail.
+ *    (~4.5 s half-life), so a turning boat leaves a curved foam trail.
  *  - `live` (RGBA8, rebuilt every frame): R = Kelvin wedge arms + bow wave, G = hull contact ring,
  *    B = hull occlusion (darker water under the hull).
  *
@@ -32,10 +32,10 @@ varying vec2 vL; varying vec4 vS;
 void main() {
   float hl = sA.w, hb = sB.x, spd = sB.y;
   float moving = step(0.25, spd);
-  float wl = hl * (3.0 + 7.0 * clamp(spd / 5.0, 0.0, 1.0));       // Kelvin wedge length behind the stern
+  float wl = hl * (3.0 + 4.0 * smoothstep(1.2, 6.0, spd));         // Kelvin wedge length behind the stern
   vec2 lo, hi;
   if (uTrail > 0.5) { lo = vec2(-hl * 1.6, -hb * 1.6); hi = vec2(hl * 1.2, hb * 1.6); }
-  else if (moving > 0.5) { lo = vec2(-hl - wl, -(wl * 0.42 + hb * 2.5)); hi = vec2(hl * 1.5, wl * 0.42 + hb * 2.5); }
+  else if (moving > 0.5) { lo = vec2(-hl - wl * 1.1, -(wl * 0.42 + hb * 2.0)); hi = vec2(hl * 1.3, wl * 0.42 + hb * 2.0); }
   else { lo = vec2(-hl * 1.5, -hb * 2.2); hi = vec2(hl * 1.5, hb * 2.2); }
   vec2 t = position.xy * 0.5 + 0.5;
   vec2 l = mix(lo, hi, t);
@@ -56,11 +56,13 @@ void main() {
   if (uTrail > 0.5) {
     // churned water at the stern: deposit normalised by the time a texel spends under the stamp,
     // so the trail settles at ~1 right behind the hull whatever the speed
+    // a slow hull barely stirs the water: speed^2-ish and hull length scale the churn
     float sternL = hl * 0.3;
-    float stern = exp(-(pow((q.x + hl * 0.9) / sternL, 2.0) + pow(q.y / (hb * 0.7), 2.0)));
-    float sides = exp(-pow((abs(q.y) - hb * 1.05) / (hb * 0.3), 2.0)) * smoothstep(hl * 1.05, 0.0, abs(q.x)) * 0.12;
+    float stern = exp(-(pow((q.x + hl * 0.9) / sternL, 2.0) + pow(q.y / (hb * 0.45), 2.0)));
+    float sides = exp(-pow((abs(q.y) - hb * 1.0) / (hb * 0.22), 2.0)) * smoothstep(hl * 1.05, 0.0, abs(q.x)) * 0.08;
     float rate = spd / (sternL * 1.77);
-    gl_FragColor = vec4((stern + sides) * rate * k * uDt * 1.1, 0.0, 0.0, 1.0);
+    float sK = smoothstep(0.8, 1.6, spd) * (0.3 + 0.7 * smoothstep(1.6, 5.0, spd)) * clamp(hl / 7.0, 0.5, 1.0);
+    gl_FragColor = vec4((stern + sides) * rate * k * sK * uDt * 0.75, 0.0, 0.0, 1.0);
     return;
   }
   float e = length(vec2(q.x / hl, q.y / hb));
@@ -68,20 +70,21 @@ void main() {
   float occl = 1.0 - smoothstep(0.75, 1.35, e);
   float kel = 0.0;
   if (spd > 0.25) {
-    float sp = clamp(spd / 4.0, 0.2, 1.0);
+    // speed^2-ish and hull length: a harbour hull at ~4 m/s draws thin lines; nothing below ~1.5 m/s
+    float sp = smoothstep(0.8, 1.6, spd) * (0.35 + 0.65 * smoothstep(1.6, 5.0, spd)) * clamp(hl / 7.0, 0.5, 1.0);
     float u = hl * 0.75 - q.x;                                        // distance aft of the bow shoulder
-    float wl = hl * (3.0 + 7.0 * clamp(spd / 5.0, 0.0, 1.0));
-    float arm = abs(abs(q.y) - (hb * 0.7 + u * 0.354));               // Kelvin half-angle 19.47 deg
-    float w = 0.55 + u * 0.045;                                       // stylised: wider than a wake texel
-    float fall = exp(-u / (wl * 0.45)) * smoothstep(0.0, hl * 0.4, u);
-    // echelon: the arm breaks into short feathered crests
-    float ech = 0.7 + 0.3 * smoothstep(-0.2, 0.6, sin(u * 6.2831 / max(1.2, hb * 1.4) - abs(q.y) * 1.3));
-    kel = exp(-(arm * arm) / (w * w)) * fall * ech * 1.2;
+    float wl = hl * (3.0 + 4.0 * smoothstep(1.2, 6.0, spd));
+    float arm = abs(abs(q.y) - (hb * 0.6 + u * 0.354));               // Kelvin half-angle 19.47 deg
+    float w = 0.5 + u * 0.018;                                        // thin lines (>= 1 texel: 0.47 m)
+    float fall = exp(-u / (wl * 0.5)) * smoothstep(0.0, hl * 0.4, u);
+    // echelon: the arm breaks into short feathered crests with gaps
+    float ech = smoothstep(-0.1, 0.7, sin(u * 6.2831 / max(1.2, hb * 1.3) - abs(q.y) * 1.3));
+    kel = exp(-(arm * arm) / (w * w)) * fall * (0.25 + 0.75 * ech);
     // transverse waves inside the wedge
-    float inside = smoothstep(0.0, 1.0, (hb * 0.7 + u * 0.354) - abs(q.y)) * step(0.0, u);
-    kel += inside * pow(0.5 + 0.5 * cos(u * 6.2831 / max(2.0, hl * 0.9)), 6.0) * fall * 0.35;
-    float bow = exp(-(pow((q.x - hl * 0.95) / (hl * 0.18), 2.0) + pow(q.y / (hb * 1.25), 2.0)));
-    kel = (kel + bow * 0.9) * sp;
+    float inside = smoothstep(0.0, 1.0, (hb * 0.6 + u * 0.354) - abs(q.y)) * step(0.0, u);
+    kel += inside * pow(0.5 + 0.5 * cos(u * 6.2831 / max(2.0, hl * 0.9)), 6.0) * fall * 0.18;
+    float bow = exp(-(pow((q.x - hl * 0.9) / (hl * 0.12), 2.0) + pow(q.y / (hb * 1.05), 2.0)));
+    kel = (kel + bow * 0.45) * sp;
   }
   gl_FragColor = vec4(kel * k, ring * k * (spd > 0.25 ? 0.45 : 0.7), occl * min(k, 1.0), 1.0);
 }`;

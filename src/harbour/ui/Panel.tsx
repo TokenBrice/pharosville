@@ -1,8 +1,8 @@
-import { Fragment, useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { HarbourLayout } from "../layout/types";
 import type { Boat, HarbourModel } from "../model/types";
 import { ChainSplit, chainLogo, DEWS_INK, Freshness, Logo, PSI_INK, Sparkline, TideBars } from "./bits";
-import { epitaphOf, quoted, whereLine, whyHere, wreckDate } from "./facts";
+import { circuitStops, epitaphOf, quoted, whereLine, whyHere, wreckDate } from "./facts";
 import { bps, causeName, HULL_NAME, MINUS, money, pctChange, pegName, share, titleCase } from "./format";
 
 const signed = (v: number) => (v < 0 ? MINUS : "") + Math.abs(v).toFixed(2);
@@ -76,7 +76,7 @@ function PanelContent({ hit, titleRef }: { hit: PickHit; titleRef: React.RefObje
     case "registry": return (
       <><Head kicker="Landmark" title={name} sub={`${model?.payloadCount ?? 0} coins on the register`} titleRef={titleRef} />
         <div className="hb-panel-body"><p className="hb-why">Every stablecoin the register knows is a boat in this harbour: no sampling, no sister ships. The full list lives in the ledger.</p>
-          <p className="hb-caption">Press <b>L</b> to open the ledger, or <b>/</b> to find one coin.</p></div></>
+          <p className="hb-caption">Press <kbd>L</kbd> to open the ledger, or <kbd>/</kbd> to find one coin.</p></div></>
     );
     case "slipway": return (
       <><Head kicker="Landmark" title={name} sub="where new coins are launched" titleRef={titleRef} />
@@ -118,12 +118,11 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
           </div>
         </Sec>
 
-        {b.state !== "wrecked" && (
-          <Sec title="Circuit">
-            <ChainSplit boat={b} />
-            <p className="hb-caption">Visits each chain in proportion to its supply there. Sailing is not a bridge transfer.</p>
-          </Sec>
-        )}
+        {b.state !== "wrecked" && <CircuitSec b={b} />}
+
+        <Sec title="Supply by chain">
+          <ChainSplit boat={b} />
+        </Sec>
 
         <Sec title="Peg">
           <dl className="hb-dl">
@@ -158,6 +157,31 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
   );
 }
 
+/** The stops the boat actually calls at (the prose names the same ones), each a way into that harbour. */
+function CircuitSec({ b }: { b: Boat }) {
+  const store = useStore();
+  const stops = circuitStops(b);
+  const single = stops.length <= 1;
+  return (
+    <Sec title={single ? "Berth" : `Circuit · ${stops.length} stops`}>
+      <ul className="hb-list hb-stops">
+        {stops.map((s) => (
+          <li key={s.name}>
+            <button type="button" className="hb-row" onClick={() => store.select(s.chain ? { kind: "harbour", id: s.chain } : { kind: "landmark", id: "far-ports" })}>
+              <span><b>{s.chain ?? "Far Ports"}</b>{s.folded.length > 0 && <em>{s.folded.slice(0, 2).join(", ")}{s.folded.length > 2 ? ` + ${s.folded.length - 2} more` : ""}</em>}</span>
+              <span className="hb-num">{single ? "home berth" : share(s.supplyShare)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="hb-caption">
+        {single ? "Its supply sits at this one harbour, so it swings at its home mooring." : "Docks at each stop for a time in proportion to its supply there. Sailing is not a bridge transfer."}
+        {stops.some((s) => s.folded.length > 0) ? " Chains without a pier, or under 5 % of its supply, fold into the Far Ports." : ""}
+      </p>
+    </Sec>
+  );
+}
+
 // ------------------------------------------------------------------ landmarks
 
 type P = { model: HarbourModel | null; titleRef: React.RefObject<HTMLHeadingElement | null> };
@@ -172,12 +196,6 @@ function PharosPanel({ model, titleRef }: P) {
   const histDates = hist.map((h) => h.date);
   const histScores = hist.map((h) => h.score);
   const lh = getLighthouse(store.ctx);
-  const comps: Array<[string, string, string]> = [
-    ["severity", "Severity", "how far off peg the stressed coins are"],
-    ["breadth", "Breadth", "how much supply is off peg"],
-    ["stressBreadth", "Stress breadth", "how much supply carries early-warning stress"],
-    ["trend", "Trend", "the direction of the last days"],
-  ];
   return (
     <>
       <Head kicker="The lighthouse" title="The Pharos" sub="Pharos Stability Index" titleRef={titleRef} />
@@ -193,20 +211,40 @@ function PharosPanel({ model, titleRef }: P) {
                 {hist.length > 1 && <><dt>30-day range</dt><dd>{Math.min(...histScores).toFixed(1)} – {Math.max(...histScores).toFixed(1)}</dd></>}
               </dl>
             </Sec>
-            {cur?.components && (
-              <Sec title="Components">
-                <dl className="hb-dl">
-                  {comps.map(([k, label, hint]) => cur.components?.[k] != null && (
-                    <Fragment key={k}><dt>{label}<br /><em style={{ fontSize: 13.5, color: "var(--ink-3)" }}>{hint}</em></dt><dd>{signed(cur.components[k])}</dd></Fragment>
-                  ))}
-                </dl>
-              </Sec>
-            )}
+            {cur?.components && <PsiComponents c={cur.components} score={p.score} />}
           </>
         )}
         {model && <Freshness label="Stability index" state={model.truth.stability.state} ageSec={model.truth.stability.ageSec} />}
       </div>
     </>
+  );
+}
+
+/**
+ * The score is 100 less what each component costs (the trend can add points back). Each row is drawn
+ * as the points it moves the score, on one shared scale, so the biggest drag reads at a glance.
+ */
+function PsiComponents({ c, score }: { c: Record<string, number>; score: number }) {
+  const rows: Array<{ key: string; label: string; hint: string; pts: number }> = [
+    { key: "severity", label: "Severity", hint: "how far off peg stressed coins trade", pts: -(c.severity ?? 0) },
+    { key: "breadth", label: "Breadth", hint: "how much supply is off peg", pts: -(c.breadth ?? 0) },
+    { key: "stressBreadth", label: "Stress breadth", hint: "supply under early warning", pts: -(c.stressBreadth ?? 0) },
+    { key: "trend", label: "Trend", hint: "the drift of recent days", pts: c.trend ?? 0 },
+  ].filter((r) => c[r.key] != null && Number.isFinite(c[r.key]));
+  const scale = Math.max(5, ...rows.map((r) => Math.abs(r.pts)));
+  return (
+    <Sec title="Points off 100">
+      <ul className="hb-pts">
+        {rows.map((r) => (
+          <li key={r.key}>
+            <span className="hb-pts-label">{r.label}<em>{r.hint}</em></span>
+            <span className="hb-pts-bar" aria-hidden="true"><i data-sign={r.pts < 0 ? "down" : "up"} style={{ width: `${Math.max(Math.abs(r.pts) > 0.004 ? 2 : 0, (Math.abs(r.pts) / scale) * 100).toFixed(1)}%` }} /></span>
+            <span className={`hb-num hb-pts-v${r.pts < -0.004 ? " hb-down" : r.pts > 0.004 ? " hb-up" : ""}`}>{Math.abs(r.pts) < 0.005 ? "0.00" : signed(r.pts).replace(/^(?!−)/, "+")}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="hb-caption">100 {rows.map((r) => `${r.pts < 0 ? MINUS : "+"} ${Math.abs(r.pts).toFixed(2)}`).join(" ")} = {score.toFixed(1)}. Red costs points; green adds them back.</p>
+    </Sec>
   );
 }
 

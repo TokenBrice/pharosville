@@ -3,6 +3,7 @@ import { getBeamUniforms } from "../beam/uniforms";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import type { SkyService, SkyShared } from "../sky/sky-system";
+import { cloudShadowUniforms } from "../sky/cloud-shadow";
 import { OCEAN_FRAG, OCEAN_VERT, SEA_PALETTE } from "./ocean-material";
 import { buildSeaSdf, defaultSeaBounds, landMaskFromHeights, SDF_COAST_RANGE, seaSdfInputFromLayout, type Bounds4, type HeightField } from "./sea-sdf";
 import { acquireFxTextures, type FxTextures } from "./textures";
@@ -149,6 +150,7 @@ export class OceanSystem implements WorldSystem {
         uShoal: col(SEA_PALETTE.shoal), uSunlitShoal: col(SEA_PALETTE.sunlitShoal), uFoamCol: col(SEA_PALETTE.foam), uFoamNight: col(SEA_PALETTE.foamNight),
         ...skyShared,
         ...getBeamUniforms(ctx),
+        ...cloudShadowUniforms,
         uDebug: { value: 0 },
         uSceneCenter: { value: new THREE.Vector2((layout.bounds.min[0] + layout.bounds.max[0]) / 2, (layout.bounds.min[2] + layout.bounds.max[2]) / 2) },
         uSceneRadius: { value: Math.hypot(layout.bounds.max[0] - layout.bounds.min[0], layout.bounds.max[2] - layout.bounds.min[2]) / 2 },

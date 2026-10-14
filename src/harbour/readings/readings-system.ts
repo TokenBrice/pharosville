@@ -93,6 +93,7 @@ export class ReadingsSystem implements WorldSystem {
   init(ctx: EngineContext): void {
     this.fx = acquireFxTextures(ctx);
     this.fog = new StaleFog(ctx.composer, ctx.camera, this.fx.noise, ctx.uniforms.uTime);
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- getters below read live system state
     const sys = this;
     const svc: ReadingsService = {
       get version() { return sys.version; },

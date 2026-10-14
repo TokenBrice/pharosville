@@ -34,6 +34,25 @@ const repoRootPathPattern =
 const repoRootPathStartPattern =
   /^(?:README\.md|AGENTS\.md|CLAUDE\.md|package\.json|package-lock\.json|wrangler\.toml|vite\.config\.ts|vitest\.config\.ts|playwright\.config\.ts|tsconfig\.json|(?:agent|agents|data|docs|functions|public|scripts|shared|src|tests)\/)/;
 
+// npm scripts deleted with the Garden Observatory world at the Harbour cutover
+// (2026-10-14). Dated plans under agents/ still quote them as records of how
+// that world was validated; nothing executes those plans any more. Accepted
+// ONLY under agents/: every onboarding doc must name live scripts.
+export const RETIRED_AGENT_RECORD_SCRIPTS = new Set([
+  "check:pharosville-colors",
+  "check:garden-models",
+  "check:garden-luts",
+  "compile:garden-assets",
+  "test:perf",
+  "test:perf:reference",
+  "test:visual:dist:interaction",
+  "test:visual:dist:static",
+  "test:visual:dist:motion",
+  "test:visual:no-reuse",
+  "test:visual:accessibility",
+  "capture:triptych",
+]);
+
 const ignoredReferencePattern =
   /^(?:https?:|mailto:|#|\/(?:api|pharosville)(?:\/|$)|[a-z]+:)/i;
 
@@ -171,7 +190,8 @@ export function checkMarkdownFiles({ repoRoot = process.cwd(), markdownFiles, pa
   for (const file of markdownFiles) {
     const text = typeof file.text === "string" ? file.text : readFileSync(resolve(repoRoot, file.path), "utf8");
     for (const command of findDocumentedNpmRunCommands(text)) {
-      if (!packageScripts.has(command.scriptName)) {
+      if (!packageScripts.has(command.scriptName)
+        && !(file.path.startsWith("agents/") && RETIRED_AGENT_RECORD_SCRIPTS.has(command.scriptName))) {
         missingScripts.push({ filePath: file.path, ...command });
       }
     }

@@ -33,6 +33,7 @@ uniform float uWind;
 varying vec4 vFleetBrand;   // rgb, slot
 varying vec4 vFleetMisc;    // highlight, flip (mirrored node now), kind, brand mask
 varying vec4 vFleetUV;      // sail uv, emblem uv
+varying vec3 vFleetRig;     // furl, node, flag
 vec4 hbFleetTexel(int idx, int k) {
   int size = textureSize(uFleetData, 0).x;
   int j = idx * 2 + k;
@@ -73,10 +74,12 @@ void hbFleetPose(vec3 p, vec3 n) {
     float ph = uTime * (6.0 + 3.0 * uWind) + float(idx) * 2.3;
     p.z += sin(ph + p.x * 3.0 + p.y) * (0.05 + 0.08 * uWind) * (1.0 - furl * 0.5);
   }
+  if (aMeta.w > 0.5 && a.w < 0.5) p = vec3(0.0); // pennant struck (small hulls seen from afar)
   hbFleetP = p; hbFleetN = n;
   vFleetBrand = b;
   vFleetMisc = vec4(a.z, flip, aMeta.x, aMeta.z);
   vFleetUV = vec4(aSailUV, aEmbUV);
+  vFleetRig = vec3(furl, node, aMeta.w);
 }
 `;
 
@@ -103,6 +106,7 @@ vec3 hbFleetPoseP(vec3 p) {
   vec4 a = hbFleetTexel(idx, 0);
   float furl = a.x, swing = a.y;
   p += aFurl * furl;
+  if (aMeta.w > 0.5 && a.w < 0.5) p = vec3(0.0);
   float node = aMeta.y;
   if (node > 0.5 && swing > 0.0) p.z = -p.z;
   if (node > 1.5) {
@@ -121,6 +125,7 @@ uniform vec3 uSunColor;
 varying vec4 vFleetBrand;
 varying vec4 vFleetMisc;
 varying vec4 vFleetUV;
+varying vec3 vFleetRig;
 float hbSeam(float c, float period, float w) {
   float f = abs(fract(c / period + 0.5) - 0.5) * period;
   float aa = fwidth(c) * 0.75 + 1e-5;
@@ -135,10 +140,20 @@ void hbFleetColor(inout vec3 c) {
   float seams = hbSeam(su.y, 0.125, 0.006);
   float tabling = max(1.0 - smoothstep(0.015, 0.03, min(su.x, 1.0 - su.x)), 1.0 - smoothstep(0.02, 0.035, su.y));
   float fine = 1.0 - smoothstep(0.02, 0.08, fwidth(su.y));
+  // hulks: salt-bleached, tar-stained timber, never a clean grey
+  if (vFleetBrand.a < -1.5) c *= vec3(0.66, 0.58, 0.49);
+  vec3 brand = vFleetBrand.rgb;
+  float bl = dot(brand, vec3(0.2126, 0.7152, 0.0722));
+  vec3 dyed = mix(vec3(bl), brand, 0.7) * 0.74;          // dyed canvas: muted, a shade darker, never plastic
   if (kind > 1.5) {
-    c *= vFleetBrand.rgb;                                 // brand sail cover
+    // brand sail cover: flaked low on the boom, a pale lacing band along its top, lacing ties
+    float band = 1.0 - smoothstep(0.035, 0.08, abs(su.y - 0.9));
+    float ties = (1.0 - smoothstep(0.025, 0.05, abs(fract(su.x * 7.0) - 0.5))) * smoothstep(0.3, 0.6, su.y);
+    c *= mix(dyed, vec3(0.8, 0.76, 0.66), band * 0.65) * (1.0 - ties * 0.22);
   } else if (kind > 0.5) {
     c *= 1.0 - (seams * 0.07 + tabling * 0.09) * fine;    // cloths + tabling
+    // furled canvas (rolled jib, square sails on their yards): weathered cloth, not a white bar
+    c = mix(c, c * vec3(0.66, 0.62, 0.55), smoothstep(0.35, 0.95, vFleetRig.x));
     float slot = vFleetBrand.a;
     if (slot >= 0.0 && e.x >= 0.0 && e.x <= 1.0 && e.y >= 0.0 && e.y <= 1.0) {
       // manifest rule: flip u when gl_FrontFacing == isMirrored, with three's det<0 front-face swap.
@@ -155,8 +170,10 @@ void hbFleetColor(inout vec3 c) {
       vec4 t = textureGrad(uEmblems, uv, gx, gy);        // premultiplied
       c = c * (1.0 - t.a) + t.rgb * 0.92;                  // printed on cloth: a touch under paper-white
     }
+  } else if (vFleetRig.z > 0.5) {
+    c = dyed * 1.15;                                       // house pennant in the brand colour (no national ensign)
   } else {
-    c = mix(c, vFleetBrand.rgb, vFleetMisc.w);           // boot-top, pennants
+    c = mix(c, vFleetBrand.rgb, vFleetMisc.w);           // boot-top
   }
 }
 `;
@@ -184,7 +201,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
     vec3 fN = inverseTransformDirection(normal, viewMatrix);
     vec3 fV = normalize(cameraPosition - vHbWorld);
     // sail cloth glows when the low sun is behind it
-    if (vFleetMisc.z > 0.5 && vFleetMisc.z < 1.5) outgoingLight += diffuseColor.rgb * uSunColor * max(0.0, dot(-fN, uSunDir)) * 0.16;
+    if (vFleetMisc.z > 0.5 && vFleetMisc.z < 1.5) outgoingLight += diffuseColor.rgb * uSunColor * max(0.0, dot(-fN, uSunDir)) * 0.16 * (1.0 - vFleetRig.x);
     // hover / selection: soft warm rim + lift
     float hi = vFleetMisc.x;
     if (hi > 0.001) {
@@ -196,7 +213,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   }
   #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => "hb_fleet_v1";
+  m.customProgramCacheKey = () => "hb_fleet_v2";
 
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";
@@ -206,6 +223,6 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
       .replace("#include <batching_pars_vertex>", `#include <batching_pars_vertex>\n${DEPTH_VERT_PARS}`)
       .replace("#include <begin_vertex>", "vec3 transformed = hbFleetPoseP(position);");
   };
-  depth.customProgramCacheKey = () => "hb_fleet_depth_v1";
+  depth.customProgramCacheKey = () => "hb_fleet_depth_v2";
   return { material: m, depth };
 }

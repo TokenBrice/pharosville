@@ -1,10 +1,14 @@
 # PharosVille Architecture
 
-Last updated: 2026-09-27
+Last updated: 2026-10-14
 
-PharosVille is a desktop-gated React app with a pure data-to-world layer and
-one imperative Three.js/WebGL renderer. The DOM remains the analytical and
-failure-safe surface.
+PharosVille is The Harbour: a desktop-gated React shell around one imperative
+three.js WebGL2 world (`src/harbour/`). Every stablecoin is one boat sailing a
+circuit between its chains' piers, docking longest where it holds the most
+supply; the lighthouse beam is the Pharos Stability Index; sea state, weather
+and fog carry off-peg share, stress signals and stale data. The world carries
+the meaning; text appears only on demand (hover tag, side panel, ledger).
+Decisions D1-D14 live in `agents/2026-10-13-pharosville-reboot/PLAN.md`.
 
 ## Request and loading boundary
 
@@ -13,97 +17,66 @@ Browser → /api/<allowlisted read path> → Pages Function → PHAROS_API_BASE
 ```
 
 The gate in `src/client.tsx` admits only the 900×720 or 1200×640 size profiles
-before desktop data, logos, models, or Three.js load. Dimensions are sorted;
-these are SIZE tests, never orientation tests. The Pages Function alone reads
-`PHAROS_API_KEY`, and browser code calls same-origin `/api/*` only.
+(`src/systems/viewport-gate.ts`), on the physical screen and on the current
+window, before it lazy-imports `src/harbour/app/harbour-app.tsx`. Dimensions
+are sorted; these are SIZE tests, never orientation tests. A blocked viewport
+gets the static welcome page and never loads three.js, GLBs, logos or world
+data. The Pages Function alone reads `PHAROS_API_KEY`; browser code calls
+same-origin `/api/*` only.
+
+## First paint
+
+`index.html` paints a full-window poster (`public/harbour/poster-*.{avif,webp}`,
+an illustration with no live numbers) outside the React root, with the arrival
+card from `public/arrival-shell.css`. `HarbourApp` builds the Engine, waits for
+the first rendered frame and the first stablecoin payload (8 s at most), lets
+the fleet settle for a few frames, then crossfades the poster into the live
+canvas. If WebGL2 cannot start, the poster stays up with the guide and links.
+The shell has no inline script, so the CSP pins no script hash.
 
 ## Runtime pipeline
 
 ```text
-API hooks → buildPharosVilleWorld() → motion plan + display slice
-         → route-owned frame loop → Three.js frame + DOM parity
+HarbourFeed (/api/*, per-endpoint cadence) → buildHarbourModel → HarbourSim
+  → Engine frame: systems update in registration order → post chain → canvas
+  → overlay UI (React root in src/harbour/ui/) reads services, never the scene
 ```
 
-`src/systems/` builds the authoritative finite 140×140 plate: the irregular
-land rim and its two openings, seven named waters, shore coves and stations,
-the connected Ethereum/L2 precinct, the tsukiyama island, and the leg-based
-motion plan. `src/pharosville-world.tsx` owns selection, URL state, camera
-intent, accessible overlays, and shared refs. `useWorldRenderLoop` owns the
-single normal-motion RAF, samples, scheduler, hit snapshots, metrics, and
-renderer lifecycle.
-
-## Rendering boundary and modules
-
-`src/renderer/` owns the engine-neutral backend, scheduler, metrics, and hit
-testing. `src/three/` owns scene construction, GPU resources, and disposal.
-
-- `garden-rim.ts` is the authoritative water-safety/placement field; its
-  `garden-rim-mesh.ts` turns the finite rim into batched shore geometry.
-- `garden-sea-edges.ts` and `src/systems/garden-sea-edge-sites.ts` place the
-  decorative edge geography from the seven-body field.
-- `garden-docks.ts` authors `DockRecipe` station archetypes;
-  `garden-harbor-batch.ts` renders their global material buckets and instanced
-  props. Cove, station type, and shore bearing come from `DockNode.station`.
-- `garden-wake-batch.ts` owns world-wide trail and bow batches. Its slots cover
-  live, departing, and outsider ships without per-ship wake meshes.
-- `garden-draw-census.ts` attributes draw submissions and must reconcile with
-  `renderer.info`; it is diagnostic evidence, not a second renderer.
-- `garden-waterfall.ts` is the single hero fall; `garden-water-exclusion.ts`
-  is the conservative distance field used by placement and motion.
-- `garden-sky.ts`, `garden-horizon.ts`, and `garden-day-cycle.ts` compose the
-  graded sky, fog seam, shakkei, and shared phase state. `garden-post.ts` owns
-  the post chain and its overview N8AO lifecycle.
-
-The fleet uses six batched hull families and a shared sail atlas. The lighthouse
-and selected heroes use checked GLBs over aligned procedural fallbacks.
-
-Hour-Print seams (branch `feat/hour-print`):
-
-- `src/systems/rest-seat.ts` is the authored rest pose (seat C, yaw 31°); the
-  camera, the light's noon bearing and the threshold landform read it.
-- `src/systems/sky-almanac.ts` is the solar/lunar clock and
-  `src/systems/day-cycle-beats.ts` the five-beat score from it. Both are pure,
-  so the DOM now-line, the chrome tokens (`src/systems/chrome-air.ts`) and the
-  renderer agree on one date.
-- `garden-aerial.ts` is the one air shared by every scene material;
-  `garden-print-inks.ts` the shade inks; the sky-contact keyline is a
-  `garden-post.ts` pass. `garden-noise-pack.ts` is the only noise texture.
-- `garden-wakes.ts` is the K8 wake field (a HalfFloat ping-pong the water
-  samples); `garden-wake-batch.ts` still draws the trail and bow batches.
-- `src/systems/garden-score.ts` places the day's rituals, and
-  `src/systems/garden-director.ts` admits them inside the attention budget and
-  holds the ritual registry. Visual owners (`garden-keeper.ts` for the
-  kindling, `garden-stone-garden.ts` for the anniversary lantern, the almanac
-  dressing, `src/systems/garden-crossing.ts`, …) register one handler per kind
-  with `registerRitual`. `src/systems/garden-calendar.ts` supplies the 72 kō and continuous
-  phenology.
-- Opt-in sound is a lazy chunk (`src/lib/pharosville-audio/`) behind
-  `src/hooks/use-garden-sound.ts`.
+- `engine/`: `Engine` (renderer, scene, perspective camera on the bounded
+  `CameraRig`, `TimeOfDay`, `AssetStore`, pmndrs `PostChain` with bloom, AgX
+  and SMAA, `QualityGovernor` for the pixel ratio) and the shared
+  `WorldUniforms`. Systems implement `WorldSystem` and expose services through
+  `ctx.services`.
+- `systems.ts`: the ordered registry. Layout, data, readings, sky, ocean,
+  island, lighthouse, fleet, lights, beam.
+- `data/`, `model/`, `sim/`: the same-origin feed (last good payload per
+  endpoint, freshness from `_meta` and headers), the pure model (coins, piers,
+  truth states, readings) and the deterministic circuit sim (boat poses at
+  time t).
+- `readings/`: binds PSI, off-peg share, DEWS and staleness to the beam, sea
+  state, storm cones, tide gauge and fog.
+- `sky/`, `ocean/`, `world/`, `fleet/`, `lights/`, `beam/`: the picture, from
+  `public/harbour/` assets (island and lighthouse GLBs, boat kit, sea SDF,
+  emblem atlas).
+- `ui/`: the chart-paper overlay (corner mark, hover tag, side panel, ledger,
+  search, chart labels) on its own React root, mounted by `ui/mount.tsx`.
+- `app/`: the production mount and the poster crossfade. `harbour.html` +
+  `main.ts` are the dev-only standalone entry.
 
 ## Contracts and budgets
 
-The finite plate, rim field, sea-body partition, station topology, display
-transforms, and leg samples are shared by drawing, hit testing, keyboard
-targets, following, detail anchors, and telemetry. Shader edge smoothing is
-presentation only. Reduced motion is a complete deterministic static frame.
-
-Hard ceilings are 700 calls, 500 geometries, 500,000 triangles, and 72
-textures. At the Hour-Print rest seat the default reads about 105 scene calls
-and 50 textures at noon (see `TESTING.md` for dated references); whole-map
-N8AO is released so its animated overview remains at or below 72.
-Repeated structures are batched or instanced and renderer-owned resources are
-disposed with their content subtree.
+Bundle caps are enforced by `npm run check:bundle-size`
+(`scripts/bundle-budgets.mjs`) and listed in `RUNTIME_FACTS.md`. Frame time and
+looks are judged only on the real GPU with `npm run preview`
+(`scripts/harbour/shot.mjs`); see `TESTING.md`.
 
 ## Validation
 
 ```bash
-npm test -- src/systems
-npm test -- src/three src/renderer
+npx vitest run src/harbour
+npm test
 npm run check:viewport-gate
 npm run validate:docs
 npm run test:visual
-npm run test:perf
+npm run preview -- --url http://localhost:5173/
 ```
-
-See `THREEJS_AGENT_REFERENCE.md` for renderer changes and `TESTING.md` for
-real-GPU preview and census evidence.

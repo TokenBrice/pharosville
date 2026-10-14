@@ -67,9 +67,33 @@ export function whyHere(b: Boat, w: Whereabouts): string {
     if (!b.circuit[0]?.chain) return `Its supply sits on chains without a pier of their own, so it rides at anchor in ${FAR_PORTS}.`;
     return `Stays at ${b.circuit[0].chain} because ${top ? share(top.share) : "all"} of its supply is there.`;
   }
-  const stop = b.circuit.reduce((m, s) => (s.share > m.share ? s : m), b.circuit[0]);
-  const stopName = stop.chain ?? FAR_PORTS;
-  return `Sails a circuit of ${b.circuit.length} harbours, staying at each in proportion to its supply there. It spends the longest at ${stopName}, which holds ${share(stop.rawShare)}.`;
+  const stops = circuitStops(b);
+  const names = stops.map((s) => s.name);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
+  const stop = stops.reduce((m, s) => (s.supplyShare > m.supplyShare ? s : m), stops[0]);
+  return `Sails a circuit of ${stops.length} stops, ${list}, staying at each in proportion to its supply there. It stays longest at ${stop.name}, where ${share(stop.supplyShare)} of its supply sits.`;
+}
+
+export interface StopRow {
+  /** Chain name, or "the Far Ports". */
+  name: string;
+  /** Pier chain (null for the Far Ports). */
+  chain: string | null;
+  /** Share of the coin's supply this stop stands for (drives the time docked there). */
+  supplyShare: number;
+  /** For the Far Ports: the chains folded into it (no pier, or too small a share for a call of their own). */
+  folded: string[];
+}
+
+/** The circuit as the panel lists it: the stops in sailing order, the Far Ports naming what it absorbs. */
+export function circuitStops(b: Boat): StopRow[] {
+  const piered = new Set(b.circuit.map((c) => c.chain).filter((c): c is string => !!c));
+  return b.circuit.map((c) => ({
+    name: c.chain ?? FAR_PORTS,
+    chain: c.chain,
+    supplyShare: c.rawShare,
+    folded: c.chain ? [] : b.chainShares.filter((x) => !piered.has(x.chain)).map((x) => x.chain),
+  }));
 }
 
 /** Landmark tag facts. Decorative buildings say so, in italics (the caller styles `decorative`). */

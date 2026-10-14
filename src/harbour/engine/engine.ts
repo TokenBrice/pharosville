@@ -6,7 +6,7 @@ import { PostChain } from "./post";
 import { CameraRig } from "./camera-rig";
 import { TimeOfDay } from "./time-of-day";
 import { createWorldUniforms } from "./uniforms";
-import type { EngineContext, FrameState, HarbourStats, WorldSystem } from "./types";
+import type { EngineContext, HarbourStats, WorldSystem } from "./types";
 
 declare global { interface Window { __harbourStats?: HarbourStats; __harbour?: Engine } }
 
@@ -21,6 +21,11 @@ export class Engine {
   private raf = 0;
   private running = false;
   private firstFrameMs: number | null = null;
+  /** Reused every frame (no per-frame allocation). */
+  private readonly frameState: { elapsed: number; delta: number; nowMs: number } = { elapsed: 0, delta: 0, nowMs: 0 };
+  private readonly stats: HarbourStats = {
+    backend: "webgl2", drawCalls: 0, triangles: 0, textures: 0, programs: 0, hour: 0, systems: [], firstFrameMs: null, dpr: 1, gpuMs: null, quality: "high",
+  };
   private readonly startMs = performance.now();
   readonly bloom: BloomEffect;
   readonly toneMapping: ToneMappingEffect;
@@ -46,15 +51,17 @@ export class Engine {
     this.post = new PostChain(renderer, composer, scene, camera);
     this.bloom = this.post.bloom;
     this.toneMapping = this.post.toneMapping;
-    this.governor = new QualityGovernor(renderer.getContext() as WebGL2RenderingContext, (dpr) => {
+    this.governor = new QualityGovernor(renderer.getContext() as WebGL2RenderingContext, (settings, dpr) => {
       renderer.setPixelRatio(dpr);
-      this.resize();
+      this.post.setQuality(settings);
+      if (this.ctx) this.resize();
     });
-    renderer.setPixelRatio(this.governor.dpr);
     // the layout system tunes the tilt-shift range from its presets
 
     this.ctx = { renderer, scene, camera, rig, composer, uniforms: createWorldUniforms(), timeOfDay: new TimeOfDay(), assets: new AssetStore(), services: new Map() };
     this.ctx.services.set("post", this.post);
+    this.ctx.services.set("quality", this.governor);
+    this.governor.publish();
     this.attachInput();
     addEventListener("resize", this.onResize);
     document.addEventListener("visibilitychange", this.onVisibility);
@@ -89,7 +96,8 @@ export class Engine {
     const delta = Math.min(0.1, Math.max(0, (now - this.clock.last) / 1000));
     this.clock.last = now;
     this.clock.elapsed += delta;
-    const frame: FrameState = { elapsed: this.clock.elapsed, delta, nowMs: Date.now() };
+    const frame = this.frameState;
+    frame.elapsed = this.clock.elapsed; frame.delta = delta; frame.nowMs = Date.now();
     ctx.uniforms.uTime.value = frame.elapsed;
     ctx.timeOfDay.update(frame.nowMs, frame.elapsed, ctx.uniforms);
     ctx.rig.update(delta);
@@ -101,18 +109,18 @@ export class Engine {
     ctx.composer.render(delta);
     this.governor.end(delta);
     if (this.firstFrameMs === null) this.firstFrameMs = performance.now() - this.startMs;
-    window.__harbourStats = {
-      backend: "webgl2",
-      drawCalls: ctx.renderer.info.render.calls,
-      triangles: ctx.renderer.info.render.triangles,
-      textures: ctx.renderer.info.memory.textures,
-      programs: ctx.renderer.info.programs?.length ?? 0,
-      hour: Number(ctx.timeOfDay.hour.toFixed(2)),
-      systems: this.systems.map((s) => s.name),
-      firstFrameMs: this.firstFrameMs === null ? null : Math.round(this.firstFrameMs),
-      dpr: this.governor.dpr,
-      gpuMs: this.governor.gpuMs === null ? null : Number(this.governor.gpuMs.toFixed(2)),
-    };
+    const st = this.stats, info = ctx.renderer.info;
+    st.drawCalls = info.render.calls;
+    st.triangles = info.render.triangles;
+    st.textures = info.memory.textures;
+    st.programs = info.programs?.length ?? 0;
+    st.hour = Math.round(ctx.timeOfDay.hour * 100) / 100;
+    if (st.systems.length !== this.systems.length) st.systems = this.systems.map((s) => s.name);
+    st.firstFrameMs = this.firstFrameMs === null ? null : Math.round(this.firstFrameMs);
+    st.dpr = this.governor.dpr;
+    st.gpuMs = this.governor.gpuMs === null ? null : Math.round(this.governor.gpuMs * 100) / 100;
+    st.quality = this.governor.tier;
+    window.__harbourStats = st;
   }
 
   resize(): void {

@@ -1,4 +1,4 @@
-/** Fuzzy coin search over symbol and name. Pure; the ranking favours what a reader means by a ticker. */
+/** Fuzzy search over coins, harbours (chains) and landmarks. Pure; the ranking favours what a reader means by a ticker. */
 
 export interface Searchable { id: string; symbol: string; name: string; supply: number }
 
@@ -19,6 +19,9 @@ function subsequenceScore(q: string, s: string): number {
   return score;
 }
 
+/** Scores ≥ STRONG are exact, prefix or word-start matches; anything weaker is only offered when nothing strong is. */
+export const STRONG = 600;
+
 export function scoreCoin(query: string, c: Searchable): number {
   const q = query.trim().toLowerCase();
   if (!q) return 0;
@@ -30,21 +33,28 @@ export function scoreCoin(query: string, c: Searchable): number {
   if (name.startsWith(q)) return 700;
   if (name.split(/[\s\-_.()]+/).some((w) => w.startsWith(q))) return 600;
   if (sym.includes(q)) return 500;
-  if (name.includes(q)) return 400;
+  // a fragment inside a word ("tron" in "electronic") is noise unless the query is long and specific
+  if (q.length >= 5 && name.includes(q)) return 400;
   const a = subsequenceScore(q, sym), b = subsequenceScore(q, name);
   const best = Math.max(a, b);
-  return best > 0 && best >= q.length * 3 ? 100 + Math.min(best, 250) : -1;
+  return best > 0 && best >= q.length * 5 ? 100 + Math.min(best, 250) : -1;
 }
 
-/** Top `limit` matches, best first; ties broken by supply (the bigger hull is the likelier target). */
+/**
+ * Top `limit` matches, best first; ties broken by supply (the bigger hull is the likelier target).
+ * When anything matches strongly (exact, prefix, word start), the weak tail is dropped.
+ */
 export function searchCoins<T extends Searchable>(query: string, coins: readonly T[], limit = 8): T[] {
   const q = query.trim();
   if (!q) return [];
   const scored: Array<[number, T]> = [];
+  let top = 0;
   for (const c of coins) {
     const s = scoreCoin(q, c);
-    if (s > 0) scored.push([s, c]);
+    if (s > 0) { scored.push([s, c]); top = Math.max(top, s); }
   }
-  scored.sort((x, y) => y[0] - x[0] || y[1].supply - x[1].supply);
-  return scored.slice(0, limit).map(([, c]) => c);
+  const floor = top >= STRONG ? 500 : 0;
+  return scored.filter(([s]) => s >= floor)
+    .sort((x, y) => y[0] - x[0] || y[1].supply - x[1].supply)
+    .slice(0, limit).map(([, c]) => c);
 }

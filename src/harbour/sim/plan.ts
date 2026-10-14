@@ -7,7 +7,7 @@
 import { u01 } from "../model/classify";
 import type { Boat, HarbourModel, HullClass } from "../model/types";
 import { addRaftSlot, CLASS_ORDER, type SimLayout } from "./layout-graph";
-import { legTiming } from "./path";
+import { ACCEL, cruiseSpeed, legTiming, newLegTiming } from "./path";
 import { buildLegPath } from "./routes";
 
 export const CYCLE_S = 6 * 3600;
@@ -15,9 +15,10 @@ export const CYCLE_S = 6 * 3600;
 const ALLOWED_PERIODS_MIN = [20, 24, 30, 36, 40, 45, 60, 72, 90, 120, 180, 360];
 /** Calm tuning, not data: big ships move rarely, the mid-fleet carries the motion. */
 export const PERIOD_MIN: Record<HullClass, number> = { flagship: 24, large: 30, medium: 40, small: 60, boat: 60, skiff: 60 };
-export const SPEED: Record<HullClass, number> = { flagship: 3.5, large: 3.8, medium: 4.3, small: 4.3, boat: 4.0, skiff: 3.7 };
+/** Harbour cruising speed by class (m/s; ×OPEN_WATER_MAX offshore): ~3 m/s for a 13 m hull, ∝ √LOA. */
+export const SPEED: Record<HullClass, number> = { flagship: cruiseSpeed(26), large: cruiseSpeed(18), medium: cruiseSpeed(13), small: cruiseSpeed(10), boat: cruiseSpeed(7.5), skiff: cruiseSpeed(5) };
 /** A hull spends at most this share of its circuit under way; long circuits stretch the period. */
-export const MAX_SAIL_FRAC = 0.31;
+export const MAX_SAIL_FRAC = 0.28;
 /** Unberthing (astern + pivot) and berthing, on top of the lane distance. */
 export const MANOEUVRE_S = 55;
 /** A berth is reserved this long before arrival and after departure (approach/exit fairway). */
@@ -32,7 +33,7 @@ const UNDER_WAY_SOFT_CAP = 32;
 export const SEG_DOCK = 0, SEG_LEG = 1;
 
 const REP_LEGS = new WeakMap<SimLayout, Map<string, { travel: number; manoeuvre: number } | null>>();
-const TIMING = { tAstern: 0, tTurn: 0, h0: 0, turn: 0, hEnd: 0, s0: 0, lf: 0, aD: 0, dD: 0, v: 0, t1: 0, t3: 0, tf: 0 };
+const TIMING = newLegTiming();
 
 export interface BoatPlan {
   id: string;
@@ -164,7 +165,8 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
   const legSeconds = (from: string, to: string, cls: HullClass): number => {
     const r = repLeg(from, to);
     if (!r) return (laneMetres(from, to) + (approachLong.get(from) ?? 40) + (approachLong.get(to) ?? 40)) / SPEED[cls] + MANOEUVRE_S;
-    return r.travel / SPEED[cls] + r.manoeuvre * Math.sqrt(L.loa[cls] / L.loa.medium) + 10;
+    const v = SPEED[cls];
+    return r.travel / v + v / ACCEL + r.manoeuvre * Math.sqrt(L.loa[cls] / L.loa.medium) + 10;
   };
 
   const whereOfStop = (chain: string | null) => {
@@ -193,6 +195,9 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
         const s = list[(start + j) % list.length];
         if (!tl(s).isFree(a, b)) continue;
         if (avoid.some(([as, aa, ab]) => as === s && a < ab && aa < b)) continue;
+        // a neighbour whose hull would overlap this one's is busy then: skip
+        const cf = L.slots[s].conflicts;
+        if (cf.length && cf.some((c) => !tl(c).isFree(a, b) || avoid.some(([as, aa, ab]) => as === c && a < ab && aa < b))) continue;
         return s;
       }
     }
@@ -401,7 +406,7 @@ function representativeLeg(L: SimLayout, from: string, to: string): { travel: nu
   if (a >= 0 && b >= 0) {
     const path = buildLegPath(L, a, b, "medium");
     const tm = legTiming(path, 1e9, L.loa.medium, TIMING, L.slots[a].heading, L.slots[b].heading);
-    v = { travel: tm.lf + tm.aD + tm.dD, manoeuvre: tm.tAstern + tm.tTurn };
+    v = { travel: tm.lf, manoeuvre: tm.tW0 + tm.tW1 + tm.tAstern + tm.tTurn };
   }
   reps.set(key, v);
   return v;

@@ -98,6 +98,53 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     const linear = new THREE.Matrix4().copy(mw).setPosition(0, 0, 0);
     tmpN.getNormalMatrix(mw);
     const base = P.length / 3;
+    // Furled canvas, slimmed: the brand cover lies flaked low on the boom (not a fat tube) and the
+    // rolled jib is a slim roll on its stay. The furl morph's end shape is pulled toward its axis.
+    const isCover = mats.some((m) => m.name === "hb_cover");
+    const isJib = mesh.name === "sail_jib";
+    let furlAdj: Float32Array | null = null, coverUV: Float32Array | null = null;
+    if (mp && (isCover || isJib) && !opts.lod) {
+      const nv = pos.count;
+      const B = new Float32Array(nv * 3), Pf = new Float32Array(nv * 3);
+      for (let vi = 0; vi < nv; vi++) {
+        tmpV.fromBufferAttribute(pos, vi).applyMatrix4(mw);
+        B[vi * 3] = tmpV.x; B[vi * 3 + 1] = tmpV.y; B[vi * 3 + 2] = tmpV.z;
+        tmpV.fromBufferAttribute(mp, vi);
+        if (!relative) tmpV.sub(tmpP.fromBufferAttribute(pos, vi));
+        tmpV.applyMatrix4(linear);
+        Pf[vi * 3] = B[vi * 3] + tmpV.x; Pf[vi * 3 + 1] = B[vi * 3 + 1] + tmpV.y; Pf[vi * 3 + 2] = B[vi * 3 + 2] + tmpV.z;
+      }
+      furlAdj = new Float32Array(nv * 3);
+      if (isCover) {
+        // centre line y(x), z(x) by least squares, then a slimmer, lower section
+        let sx = 0, sxx = 0, sy = 0, sxy = 0, sz = 0, sxz = 0, x0 = Infinity, x1 = -Infinity;
+        for (let vi = 0; vi < nv; vi++) {
+          const x = Pf[vi * 3], y = Pf[vi * 3 + 1], z = Pf[vi * 3 + 2];
+          sx += x; sxx += x * x; sy += y; sxy += x * y; sz += z; sxz += x * z; x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+        }
+        const den = nv * sxx - sx * sx || 1;
+        const by = (nv * sxy - sx * sy) / den, ay = (sy - by * sx) / nv, bz = (nv * sxz - sx * sz) / den, az = (sz - bz * sx) / nv;
+        let rm = 0;
+        for (let vi = 0; vi < nv; vi++) { const x = Pf[vi * 3]; rm += Math.hypot(Pf[vi * 3 + 1] - (ay + by * x), Pf[vi * 3 + 2] - (az + bz * x)); }
+        rm = rm / nv || 0.1;
+        coverUV = new Float32Array(nv * 2);
+        for (let vi = 0; vi < nv; vi++) {
+          const x = Pf[vi * 3], cy = ay + by * x - rm * 0.3, cz = az + bz * x;
+          const ry = Pf[vi * 3 + 1] - (ay + by * x), rz = Pf[vi * 3 + 2] - cz;
+          const ny = cy + ry * 0.55, nz = cz + rz * 0.42;
+          furlAdj[vi * 3] = Pf[vi * 3] - B[vi * 3]; furlAdj[vi * 3 + 1] = ny - B[vi * 3 + 1]; furlAdj[vi * 3 + 2] = nz - B[vi * 3 + 2];
+          coverUV[vi * 2] = (x - x0) / Math.max(1e-3, x1 - x0); coverUV[vi * 2 + 1] = ry / rm;
+        }
+      } else {
+        const ax = jibAxis;
+        for (let vi = 0; vi < nv; vi++) {
+          const dx = Pf[vi * 3] - jib.x, dy = Pf[vi * 3 + 1] - jib.y, dz = Pf[vi * 3 + 2] - jib.z;
+          const t = dx * ax.x + dy * ax.y + dz * ax.z;
+          const rx = dx - ax.x * t, ry = dy - ax.y * t, rz = dz - ax.z * t;
+          furlAdj[vi * 3] = Pf[vi * 3] - rx * 0.6 - B[vi * 3]; furlAdj[vi * 3 + 1] = Pf[vi * 3 + 1] - ry * 0.6 - B[vi * 3 + 1]; furlAdj[vi * 3 + 2] = Pf[vi * 3 + 2] - rz * 0.6 - B[vi * 3 + 2];
+        }
+      }
+    }
     for (const g of groups) {
       const mat = mats[g.materialIndex ?? 0];
       const kind = KIND[mat.name] ?? 0;
@@ -112,10 +159,13 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
           tmpV.fromBufferAttribute(pos, vi).applyMatrix4(mw);
           P.push(tmpV.x, tmpV.y, tmpV.z);
           if (nrm) { tmpV.fromBufferAttribute(nrm, vi).applyMatrix3(tmpN).normalize(); N.push(tmpV.x, tmpV.y, tmpV.z); } else N.push(0, 1, 0);
-          if (col) C.push(col.getX(vi), col.getY(vi), col.getZ(vi), col.itemSize > 3 ? col.getW(vi) : 0); else C.push(1, 1, 1, 0);
-          SU.push(uv0 && kind === 1 ? uv0.getX(vi) : 0, uv0 && kind === 1 ? uv0.getY(vi) : 0);
+          if (mesh.name === "yards" && !opts.lod) C.push(0.3, 0.2, 0.12, col && col.itemSize > 3 ? col.getW(vi) : 0); // spars are tarred wood, not white planks
+          else if (col) C.push(col.getX(vi), col.getY(vi), col.getZ(vi), col.itemSize > 3 ? col.getW(vi) : 0); else C.push(1, 1, 1, 0);
+          if (coverUV && kind === 2) SU.push(coverUV[vi * 2], coverUV[vi * 2 + 1]);
+          else SU.push(uv0 && kind === 1 ? uv0.getX(vi) : 0, uv0 && kind === 1 ? uv0.getY(vi) : 0);
           EU.push(uv1 && kind === 1 ? uv1.getX(vi) : -1, uv1 && kind === 1 ? uv1.getY(vi) : -1);
-          if (mp) {
+          if (furlAdj) F.push(furlAdj[vi * 3], furlAdj[vi * 3 + 1], furlAdj[vi * 3 + 2]);
+          else if (mp) {
             // deltas are directions: the node's linear part (KHR_mesh_quantization scale) only
             tmpV.fromBufferAttribute(mp, vi);
             if (!relative) tmpV.sub(tmpP.fromBufferAttribute(pos, vi));

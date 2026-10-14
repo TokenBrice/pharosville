@@ -56,4 +56,6 @@ export interface HarbourStats {
   dpr?: number;
   /** Last measured GPU frame time (EXT_disjoint_timer_query_webgl2), if available. */
   gpuMs?: number | null;
+  /** Quality tier chosen by the governor ('quality' service). */
+  quality?: "high" | "medium" | "low";
 }

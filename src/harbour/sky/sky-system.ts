@@ -5,13 +5,18 @@ import type { HarbourLayout } from "../layout/types";
 import { FullscreenPass } from "../ocean/gpu-bake";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import { bakeCloudAtlas, CLOUD_CELLS } from "./clouds";
+import { cloudShadowUniforms } from "./cloud-shadow";
 import { applySkyPalette, createSkyPaletteUniforms } from "./palette";
 import { MAX_BANKS, SKY_BAND_GLSL } from "./sky-glsl";
 
 /**
- * SKY: a camera-attached painted backdrop (a cylindrical card around the camera, not a dome), placed
- * beyond the island so the top of the overview frame shows a horizon band: gradient, sun/moon, stars,
- * painted cumulus impostors, cirrus, shakkei hills and a haze line that matches the sea fog.
+ * SKY: a camera-attached painted backdrop (a flat card facing the camera, so the pretend horizon is a
+ * straight line, not a fishbowl arc), placed beyond the island so the top of the overview frame shows a
+ * horizon band: gradient, sun/moon, stars, painted cumulus impostors in depth layers with parallax,
+ * cirrus, shakkei hills and a haze line that matches the sea fog.
+ *
+ * Weather: cloud cover (DEWS) also drives a storm grade: a slate cloud deck with rain veils, a greyer
+ * horizon, a dimmer and duller key light, a desaturated grade, and drifting cloud shadows on land and sea.
  *
  * Service 'sky': setCloudCover(0..1), setWind(0..1) (DEWS drives them later) and the shared uniforms the
  * ocean uses (band texture for reflection/haze, pretend-horizon distance, virtual glint light).
@@ -49,9 +54,11 @@ const BACKDROP_VERT = /* glsl */ `
 uniform vec3 uCam; uniform float uFwdAzV, uR, uSpan, uYBot, uYTop;
 varying float vTh; varying float vY;
 void main() {
-  float a = uFwdAzV + (position.x - 0.5) * 2.0 * uSpan;
-  vec3 wp = vec3(uCam.x + sin(a) * uR, mix(uYBot, uYTop, position.y), uCam.z - cos(a) * uR);
-  vTh = degrees((position.x - 0.5) * 2.0 * uSpan);
+  float u = (position.x - 0.5) * 2.0 * tan(uSpan);
+  vec2 f = vec2(sin(uFwdAzV), -cos(uFwdAzV)), r = vec2(cos(uFwdAzV), sin(uFwdAzV));
+  vec2 h = uCam.xz + (f + r * u) * uR;
+  vec3 wp = vec3(h.x, mix(uYBot, uYTop, position.y), h.y);
+  vTh = degrees(atan(u));
   vY = wp.y;
   gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
 }`;
@@ -77,7 +84,7 @@ void main() {
   gl_FragColor = vec4(skyBand(th, e, 0.25), 1.0);
 }`;
 
-interface Bank { th: number; e: number; h: number; w: number; cell: number; mirror: number; slot: number; drift: number }
+interface Bank { th: number; e: number; h: number; w: number; cell: number; mirror: number; slot: number; drift: number; dist: number; haze: number }
 
 export class SkySystem implements WorldSystem {
   readonly name = "sky";
@@ -116,6 +123,7 @@ export class SkySystem implements WorldSystem {
     uSkyNoise: { value: null as THREE.Texture | null },
     uParallax: { value: new THREE.Vector4() },
     uWeather: { value: new THREE.Vector3() },
+    uStorm: { value: 0 },
   };
   private readonly bd = {
     uCam: { value: new THREE.Vector3() }, uFwdAzV: { value: 0 }, uR: { value: 1500 }, uSpan: { value: 0.5 },
@@ -124,6 +132,8 @@ export class SkySystem implements WorldSystem {
   private readonly tmp = new THREE.Vector3();
   private readonly moonDir = new THREE.Vector3();
   private readonly glint = new THREE.Vector3();
+  private readonly tmpC = new THREE.Color();
+  private shadowDrift = (Date.now() / 1000) % 5000;
 
   init(ctx: EngineContext): void {
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
@@ -178,19 +188,26 @@ export class SkySystem implements WorldSystem {
   }
 
   private seedBanks(): void {
-    // hand-placed composition (th, e base, height in deg) - far to near; cover reveals them in `slot` order
-    const spec: Array<[number, number, number, number, number]> = [
-      // th,   e,    h,    cell, slot   (view half-width is ~19 deg; banks crop at the frame top like style C)
-      [-14,  1.35, 5.2,  0, 0],
-      [ 13,  1.05, 3.4,  1, 1],
-      [  2,  2.3,  2.6,  3, 3],
-      [ 27,  1.5,  4.6,  2, 2],
-      [-33,  1.1,  3.0,  4, 4],
-      [-2,   0.95, 4.2,  5, 5],
-      [ 36,  2.6,  2.4,  6, 6],
-      [-24,  0.9,  2.8,  7, 7],
+    // hand-placed composition in three depth layers (far to near): th, e base, height (deg), cell, slot,
+    // distance (m, drives parallax) and aerial haze. Far banks sit low, small and hazy on the horizon;
+    // near banks are big, lifted and crop at the frame top like style C. Cover reveals them in slot order.
+    const spec: Array<[number, number, number, number, number, number, number]> = [
+      // th,   e,    h,    cell, slot, dist,  haze
+      [ 21,  0.25, 1.5,  1, 0, 16000, 0.42],
+      [-27,  0.3,  1.8,  7, 3, 14000, 0.4],
+      [  4,  0.45, 1.3,  6, 5, 15000, 0.45],
+      [-12,  0.9,  3.4,  3, 1, 9000,  0.2],
+      [ 30,  1.15, 3.0,  4, 4, 8000,  0.18],
+      [ 12,  1.7,  4.4,  0, 2, 5200,  0.08],
+      [-36,  1.9,  5.0,  2, 6, 4800,  0.07],
+      [ -4,  2.6,  5.6,  5, 7, 4200,  0.05],
     ];
-    this.banks = spec.map(([th, e, h, cell, slot], i) => ({ th, e, h, w: h * 4 * (0.9 + 0.2 * ((i * 37) % 7) / 7), cell: cell % CLOUD_CELLS, mirror: i % 2, slot, drift: 0 }));
+    // the composition drifts with the wall clock, so each visit (and each hour) frames it differently
+    const t0 = (Date.now() / 1000) % 1e6;
+    this.banks = spec.map(([th, e, h, cell, slot, dist, haze], i) => ({
+      th, e, h, w: h * 4 * (0.9 + 0.2 * ((i * 37) % 7) / 7), cell: cell % CLOUD_CELLS, mirror: i % 2, slot,
+      drift: t0 * 0.012 * (3000 / dist), dist, haze,
+    }));
   }
 
   update(frame: FrameState, ctx: EngineContext): void {
@@ -216,8 +233,9 @@ export class SkySystem implements WorldSystem {
     let far = 0;
     for (const [px, pz] of this.landPts) {
       const dx = px - cx, dz = pz - cz, d = Math.hypot(dx, dz);
-      if ((dx * fwd.x + dz * fwd.z) / (d * fl) < Math.cos(span)) continue;   // outside the card's arc
-      far = Math.max(far, d);
+      const df = (dx * fwd.x + dz * fwd.z) / fl;                              // depth along the view
+      if (df / d < Math.cos(span)) continue;                                  // outside the card
+      far = Math.max(far, df);
     }
     if (far > 0) R = Math.max(R, far + 14);
     this.horizon = R;
@@ -235,6 +253,7 @@ export class SkySystem implements WorldSystem {
     const lateral = rig.target.x * rightX + rig.target.z * rightZ;
     const deg = (d: number) => (lateral / d) * (180 / Math.PI);
     this.u.uParallax.value.set(deg(9000), deg(5200), deg(3000), deg(7000));
+    const lateralDeg = deg(1);
 
     // ---- sun & moon. The key light (uSunDir) is the sun by day and the moon by night (TimeOfDay);
     //      the painted discs are art-directed: the moon keeps style C's station (az 50, el 26), drifting slowly.
@@ -248,14 +267,16 @@ export class SkySystem implements WorldSystem {
       return a / D2R;
     };
     const elev = (d: THREE.Vector3) => Math.asin(THREE.MathUtils.clamp(d.y, -1, 1));
-    const sunAz = relAz(sunDir), moonAz = relAz(moonDir), sunEl = elev(sunDir), moonEl = elev(moonDir);
+    const sunAz = relAz(sunDir), sunEl = elev(sunDir), moonEl = elev(moonDir);
     const COMP = 0.34;                                 // azimuth compression: pull sun/moon toward the view
     const visTop = Math.max(0.3, (depr - (pitch - vfov / 2)) / D2R);   // visible band height above the horizon (deg)
     const discE = (el: number) => THREE.MathUtils.clamp(0.7 + 2.6 * THREE.MathUtils.clamp(el / (55 * D2R), 0, 1), 0.45, Math.max(0.5, visTop - 0.95));
     const sunVis = THREE.MathUtils.smoothstep(sunEl, -0.06, 0.04) * (1 - THREE.MathUtils.smoothstep(night, 0.35, 0.7));
     const moonVis = THREE.MathUtils.smoothstep(night, 0.45, 0.9);
     this.u.uSunDisc.value.set(sunAz * COMP, discE(sunEl), 0.62, sunVis);
-    this.u.uMoonDisc.value.set(moonAz * COMP, discE(moonEl), 0.72, moonVis);
+    // the moon keeps a fixed station left of the harbour mouth (not on the beam's axis), small, with a halo
+    const moonTh = -12 + 1.2 * Math.sin(hour * 0.26);
+    this.u.uMoonDisc.value.set(moonTh, discE(moonEl) + 0.35, 0.3, moonVis);
     // clouds/hills are lit by the key light (true azimuth)
     this.u.uLight.value.set(relAz(sunDir), Math.max(0.05, sunEl), 0, 0);
 
@@ -271,8 +292,8 @@ export class SkySystem implements WorldSystem {
     const moonW = moonVis * this.u.uDiscK.value.y;
     const keyLum = Math.max(0.05, W.uSunColor.value.r * 0.3 + W.uSunColor.value.g * 0.59 + W.uSunColor.value.b * 0.11);
     if (moonW > sunW) {
-      this.shared.uGlintDir.value.copy(glintOf(moonAz, discE(moonEl), moonEl));
-      this.shared.uGlintCol.value.setRGB(0.78, 0.85, 1.0).multiplyScalar(1.5 * moonW);
+      this.shared.uGlintDir.value.copy(glintOf(moonTh / COMP, discE(moonEl) + 0.35, moonEl));
+      this.shared.uGlintCol.value.setRGB(0.78, 0.85, 1.0).multiplyScalar(0.85 * moonW);
     } else {
       this.shared.uGlintDir.value.copy(glintOf(sunAz, discE(sunEl), sunEl));
       this.shared.uGlintCol.value.copy(W.uSunColor.value).multiplyScalar((1.2 / keyLum) * sunW);
@@ -281,24 +302,63 @@ export class SkySystem implements WorldSystem {
     this.shared.uHorizonDist.value = R;
     this.shared.uHorizonDepr.value = depr;
 
-    // ---- clouds: cover reveals banks, wind drifts them; wrap at the band edge with a fade
+    // ---- clouds: cover reveals banks, wind drifts them (near layers faster); wrap at the band edge with a fade
     const driftDeg = (0.004 + 0.05 * this.windS) * dt;
     this.cirrusDrift += driftDeg * 0.6;
-    const vis = this.coverS * MAX_BANKS * 1.25;
+    // fair-weather cumulus even when calm (2-3 banks), the full sky at ALERT and above
+    const vis = 5 + this.coverS * MAX_BANKS;
     this.banks.forEach((b, i) => {
-      b.drift += driftDeg * (0.7 + 0.08 * i);
-      let th = b.th + b.drift;
-      const lim = 52;
-      th = ((th + lim) % (2 * lim) + 2 * lim) % (2 * lim) - lim;
-      const edge = THREE.MathUtils.smoothstep(lim - Math.abs(th) - b.w * 0.5, 0, 8);
-      const a = THREE.MathUtils.clamp(vis - b.slot, 0, 1) * edge;
+      b.drift += driftDeg * (3000 / b.dist) * 1.6;
       const grow = 0.85 + 0.3 * this.coverS;
+      // each bank cycles just beyond the frame edge, fading only while (mostly) out of view
+      const lim = halfH / D2R + b.w * grow * 0.5 + 3;
+      let th = b.th + b.drift + lateralDeg / b.dist;
+      th = ((th + lim) % (2 * lim) + 2 * lim) % (2 * lim) - lim;
+      const edge = THREE.MathUtils.smoothstep(lim - Math.abs(th), 0, 6);
+      const a = THREE.MathUtils.clamp(vis - b.slot, 0, 1) * edge;
       this.u.uBanks.value[i].set(th, b.e, b.w * grow, b.h * grow);
-      this.u.uBankB.value[i].set(b.cell, a, 0.06 + 0.04 * (MAX_BANKS - 1 - i) / MAX_BANKS, b.mirror);
+      this.u.uBankB.value[i].set(b.cell, a, b.haze, b.mirror);
     });
     this.u.uWeather.value.set(this.coverS, this.windS, this.cirrusDrift);
     const wdA = -0.6 + 0.15 * Math.sin(frame.elapsed * 0.01);
     this.shared.uWeatherSea.value.set(this.coverS, this.windS, Math.cos(wdA), Math.sin(wdA));
+
+    // ---- storm grade (ALERT and above): slate sky, dimmer duller key light, greyer world, flatter grade.
+    //      Runs after TimeOfDay and the readings binder wrote the uniforms, before the island copies them.
+    const storm = THREE.MathUtils.smoothstep(this.coverS, 0.38, 0.75);
+    this.u.uStorm.value = storm;
+    if (storm > 1e-3) {
+      const greyOf = (c: THREE.Color, k: number, mul: number) => {
+        const l = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+        c.lerp(this.tmpC.setRGB(l * 0.96, l, l * 1.02), k).multiplyScalar(mul);
+      };
+      greyOf(W.uZenith.value, 0.75 * storm, 1 - 0.38 * storm);
+      greyOf(W.uHorizon.value, 0.6 * storm, 1 - 0.22 * storm);
+      greyOf(W.uHaze.value, 0.55 * storm, 1 - 0.18 * storm);
+      greyOf(W.uSunColor.value, 0.55 * storm, 1 - 0.62 * storm);
+      greyOf(W.uHemiSky.value, 0.5 * storm, 1 - 0.12 * storm);
+      greyOf(W.uAmbient.value, 0.5 * storm, 1 - 0.12 * storm);
+      greyOf(W.uFillColor.value, 0.5 * storm, 1);
+      const g = ctx.timeOfDay.grade;
+      g.saturation *= 1 - 0.42 * storm;
+      g.gain = [g.gain[0] * (1 - 0.04 * storm), g.gain[1] * (1 - 0.01 * storm), g.gain[2] * (1 - 0.03 * storm)];
+      g.contrast = 1 + (g.contrast - 1) * (1 - 0.35 * storm);
+    }
+
+    // ---- drifting cloud shadows on land and sea (projected along the key light from ~600 m)
+    const cs = cloudShadowUniforms;
+    cs.uCloudShadowTex.value = this.fx.noise;
+    const sunUp = THREE.MathUtils.smoothstep(sunDir.y, 0.04, 0.3);
+    const proj = 600 / Math.max(0.25, sunDir.y);
+    const wind = this.shared.uWeatherSea.value;
+    this.shadowDrift += dt * (1.5 + 7 * this.windS);
+    cs.uCloudShadow.value.set(
+      -wind.z * this.shadowDrift + sunDir.x * proj * 0.15,
+      -wind.w * this.shadowDrift + sunDir.z * proj * 0.15,
+      1 / (1100 - 300 * storm),
+      (0.42 + 0.2 * storm) * sunUp * THREE.MathUtils.smoothstep(this.coverS, 0.12, 0.45) * (1 - 0.7 * night),
+    );
+    cs.uCloudShadowK.value.set(0.66 - 0.3 * this.coverS, 0.16);
 
     // ---- band texture for the sea (cheap: 512 x 128)
     this.bandPass.render(ctx.renderer, this.bandRT);

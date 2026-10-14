@@ -80,17 +80,23 @@ def refresh_occ():
 def road(ctrl_uv, width, col, name, bm, step=3.5, smooth=True, mark=True):
     pts = [wpt(*p) for p in (catmull(ctrl_uv, 6, closed=False) if smooth else ctrl_uv)]
     out = []
+    dense = []
     for a, b in zip(pts, pts[1:]):
-        n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / step))
+        n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / 1.5))
         for k in range(n):
-            p = (a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n)
-            q = (a[0] + (b[0] - a[0]) * (k + 1) / n, a[1] + (b[1] - a[1]) * (k + 1) / n)
-            if not (point_in_poly(*p, COAST) and point_in_poly(*q, COAST)):
-                continue
-            merge(bm, nl_kit.beam((p[0], p[1], H(*p) + 0.08), (q[0], q[1], H(*q) + 0.08), width, 0.24))
-            if mark:
-                od.line([o_to(*p), o_to(*q)], fill=255, width=int(width + 2))
-            out.append(p)
+            dense.append((a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n))
+    dense.append(pts[-1])
+    run = []
+    for i, p in enumerate(dense):
+        if point_in_poly(*p, COAST):
+            run.append(p)
+            if mark and run and len(run) > 1:
+                od.line([o_to(*run[-2]), o_to(*run[-1])], fill=255, width=int(width + 2))
+            if i % 2 == 0:
+                out.append(p)
+        else:
+            ribbon(bm, run, width); run = []
+    ribbon(bm, run, width)
     return out
 
 
@@ -126,20 +132,41 @@ obj('land_roads', road_bm, PAL['gravel'], PT['cobble'], family='terrain', jitter
 obj('land_paths', path_bm, PAL['earth'], PT['cobble'], family='terrain', jitter=0.05)
 
 # ------------------------------------------------------------------ dry-stone walls round the meadows (they follow the land)
-walls = bmesh.new()
-for f in terrain.FIELDS:
+walls = bmesh.new(); hedge = bmesh.new(); sheep = bmesh.new(); sheep_h = bmesh.new()
+for fi, f in enumerate(terrain.FIELDS):
     p = f['poly'] + f['poly'][:1]
-    for a, b in zip(p, p[1:]):
-        n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / 3.0))
+    for ei, (a, b) in enumerate(zip(p, p[1:])):
+        # pastures and hay fields are bounded by hedgerows on some sides, dry-stone walls on the rest
+        is_hedge = f['kind'] != 'plough' and (ei + fi) % 3 == 0
+        n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / (1.6 if is_hedge else 3.0)))
         for k in range(n):
             q0 = (a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n)
             q1 = (a[0] + (b[0] - a[0]) * (k + 1) / n, a[1] + (b[1] - a[1]) * (k + 1) / n)
             if not on_land(*q0) or not on_land(*q1) or DRNG.random() < 0.06:
                 continue
-            merge(walls, nl_kit.beam((q0[0], q0[1], H(*q0) + 0.32), (q1[0], q1[1], H(*q1) + 0.32), 0.6, 0.85))
+            if is_hedge:
+                r_ = DRNG.uniform(0.9, 1.5)
+                merge(hedge, bm_ico(r_, (q0[0], q0[1], H(*q0) + r_ * 0.55), 1, (1.25, 1.0, 0.95), seed=DRNG.randint(0, 999), amp=0.3))
+            else:
+                merge(walls, nl_kit.beam((q0[0], q0[1], H(*q0) + 0.32), (q1[0], q1[1], H(*q1) + 0.32), 0.6, 0.85))
             od.line([o_to(*q0), o_to(*q1)], fill=255, width=2)
+    if f['kind'] == 'pasture':           # a small flock grazing (decorative)
+        xs_ = [q[0] for q in f['poly']]; ys_ = [q[1] for q in f['poly']]
+        cx_, cy_ = sum(xs_) / len(xs_), sum(ys_) / len(ys_)
+        for k in range(DRNG.randint(5, 9)):
+            q = (cx_ + DRNG.gauss(0, 5.0), cy_ + DRNG.gauss(0, 4.0))
+            if not point_in_poly(q[0], q[1], f['poly']):
+                continue
+            a_ = DRNG.uniform(0, 6.28); z_ = H(*q)
+            merge(sheep, bm_ico(0.55, (q[0], q[1], z_ + 0.62), 1, (1.35, 0.85, 0.8), seed=DRNG.randint(0, 999), amp=0.12))
+            merge(sheep_h, bm_ico(0.24, (q[0] + math.cos(a_) * 0.75, q[1] + math.sin(a_) * 0.75, z_ + 0.72), 0, (1.2, 1.0, 1.0), seed=k))
+            for lx in (-0.3, 0.3):
+                merge(sheep_h, bm_cyl(0.07, 0.07, 0.4, 4, (q[0] + lx * math.cos(a_), q[1] + lx * math.sin(a_), z_)))
 refresh_occ()
 obj('field_walls', walls, PAL['rock'], PT['ashlar'], family='prop_wall', jitter=0.12)
+obj('field_hedges', hedge, face=lambda q: ((lin('#5E8238') if q.normal.z > 0.3 else lin('#4A6A2E')), PT['leaf']), family='veg', jitter=0.1)
+obj('field_sheep', sheep, lin('#EEE9DD'), PT['plain'], family='veg', jitter=0.04)
+obj('field_sheep_heads', sheep_h, lin('#2E2B29'), PT['plain'], family='veg')
 
 # ------------------------------------------------------------------ VEGETATION
 leafS, trunkS = bmesh.new(), bmesh.new()
@@ -149,13 +176,26 @@ shrub, tuft, flw, heath, bould, lich = (bmesh.new() for _ in range(6))
 TREES = {'spruce': 0, 'round': 0, 'birch': 0}
 
 
+ROUND_TINTS = [lin('#7FA348'), lin('#6C9440'), lin('#8DAA52'), lin('#5F8A3C'), lin('#9AA24C')]
+ROUND_TINT_AT = []          # (x, y, r2, tint) per tree: the leaf faces take their tree's tint
+
+
 def round_tree(p, h, rng):
+    """A clustered, multi-lobe canopy (3-5 lobes of different sizes round a main crown), one of five tints per tree."""
     x, y, z = p
-    merge(trunkR, bm_cyl(0.22 * h / 8, 0.14 * h / 8, h * 0.5, 5, (x, y, z - 0.3)))
-    r = h * 0.34
-    merge(leafR, bm_ico(r, (x, y, z + h * 0.62), 1, (1.0, 1.0, 0.86), seed=rng.randint(0, 999), amp=0.22))
-    o = Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), 0)).normalized() * r * 0.6
-    merge(leafR, bm_ico(r * 0.72, (x + o.x, y + o.y, z + h * 0.5), 1, (1.0, 1.0, 0.85), seed=rng.randint(0, 999), amp=0.25))
+    merge(trunkR, bm_cyl(0.22 * h / 8, 0.14 * h / 8, h * 0.55, 5, (x, y, z - 0.3)))
+    r = h * 0.3
+    lobes = [(0.0, 0.0, h * 0.64, r)]
+    a0 = rng.uniform(0, 6.28)
+    for k in range(rng.randint(2, 4)):
+        a = a0 + k * 2.1 + rng.uniform(-0.4, 0.4)
+        d = r * rng.uniform(0.55, 0.85)
+        lobes.append((math.cos(a) * d, math.sin(a) * d, h * rng.uniform(0.46, 0.66), r * rng.uniform(0.55, 0.78)))
+    if rng.random() < 0.6:
+        lobes.append((rng.uniform(-0.3, 0.3) * r, rng.uniform(-0.3, 0.3) * r, h * 0.84, r * 0.5))
+    for (ox, oy, oz, rr) in lobes:
+        merge(leafR, bm_ico(rr, (x + ox, y + oy, z + oz), 1, (1.0, 1.0, rng.uniform(0.78, 0.9)), seed=rng.randint(0, 999), amp=0.24))
+    ROUND_TINT_AT.append((x, y, (r * 2.2) ** 2, rng.choice(ROUND_TINTS) if rng.random() > 0.06 else lin('#B49A4A')))
 
 
 def scatter(n, sampler, place, min_d, rng, max_try=None, allow_crop=False):
@@ -238,6 +278,11 @@ print('TREES', TREES)
 
 
 # ground dressing: shrubs, tufts, flowers, heather on the headland, boulders + lichen
+def seat_z(p, r):
+    """Lowest ground under a round prop of radius r: seated there it never floats off the downhill side."""
+    return min(H(p[0] + dx, p[1] + dy) for dx, dy in ((0, 0), (r, 0), (-r, 0), (0, r), (0, -r)))
+
+
 def place_meadow(p, rng):
     z = H(*p)
     u, v = uvp(*p)
@@ -248,10 +293,11 @@ def place_meadow(p, rng):
             return
         for k_ in range(rng.randint(2, 4)):
             q = (p[0] + rng.uniform(-2.2, 2.2), p[1] + rng.uniform(-2.2, 2.2))
-            merge(heath, bm_ico(rng.uniform(0.6, 1.1), (q[0], q[1], H(*q) + 0.1), 1, (1.4, 1.0, 0.45), seed=rng.randint(0, 999), amp=0.3))
+            rh = rng.uniform(0.6, 1.1)
+            merge(heath, bm_ico(rh, (q[0], q[1], seat_z(q, rh * 1.3) + 0.05), 1, (1.4, 1.0, 0.45), seed=rng.randint(0, 999), amp=0.3))
         if hd > 0.8 and rng.random() < 0.5:
             rr = rng.uniform(0.8, 1.8)
-            merge(bould, bm_ico(rr, (p[0], p[1], z + 0.1), 1, (1.25, 1.0, 0.7), seed=rng.randint(0, 999), amp=0.35))
+            merge(bould, bm_ico(rr, (p[0], p[1], seat_z(p, rr * 1.2) + 0.05), 1, (1.25, 1.0, 0.7), seed=rng.randint(0, 999), amp=0.35))
         return
     if kind < 0.3:
         merge(shrub, bm_ico(rng.uniform(0.7, 1.3), (p[0], p[1], z + 0.4), 1, (1.2, 1.0, 0.85), seed=rng.randint(0, 999), amp=0.3))
@@ -264,7 +310,8 @@ def place_meadow(p, rng):
             merge(flw, bm_cyl(0.18, 0.0, 0.34, 3, (p[0] + rng.uniform(-0.9, 0.9), p[1] + rng.uniform(-0.9, 0.9), z + 0.05), rot=rng.random()))
     else:
         rr = rng.uniform(0.6, 1.8)
-        merge(bould, bm_ico(rr, (p[0], p[1], z + 0.1), 1, (1.25, 1.0, 0.7), seed=rng.randint(0, 999), amp=0.35))
+        z = seat_z(p, rr * 1.2)
+        merge(bould, bm_ico(rr, (p[0], p[1], z + 0.05), 1, (1.25, 1.0, 0.7), seed=rng.randint(0, 999), amp=0.35))
         if rng.random() < 0.6:
             merge(lich, bm_ico(rr * 0.5, (p[0] + rr * 0.1, p[1], z + 0.1 + rr * 0.55), 0, (1.3, 1.0, 0.25), seed=rng.randint(0, 99)))
 
@@ -282,13 +329,31 @@ for (u, v) in OUTCROPS:
         if not on_land(*q):
             continue
         rr = DRNG.uniform(1.2, 3.4) * (1.3 if k == 0 else 1.0)
-        merge(bould, bm_ico(rr, (q[0], q[1], H(*q) + rr * 0.15), 1, (1.2, 1.0, 0.85 + DRNG.random() * 0.4), seed=DRNG.randint(0, 999), amp=0.32))
+        zq = seat_z(q, rr * 1.1)
+        merge(bould, bm_ico(rr, (q[0], q[1], zq + rr * 0.1), 1, (1.2, 1.0, 0.85 + DRNG.random() * 0.4), seed=DRNG.randint(0, 999), amp=0.32))
         if DRNG.random() < 0.7:
-            merge(lich, bm_ico(rr * 0.45, (q[0], q[1], H(*q) + rr * 0.95), 0, (1.3, 1.0, 0.25), seed=DRNG.randint(0, 99)))
+            merge(lich, bm_ico(rr * 0.45, (q[0], q[1], zq + rr * 0.9), 0, (1.3, 1.0, 0.25), seed=DRNG.randint(0, 99)))
 obj('trees_spruce', leafS, face=lambda q: ((PAL['spruce_light'] if q.normal.z > 0.35 else PAL['spruce']), PT['leaf']), family='tree_spruce', jitter=0.1, seed=3)
 obj('trees_spruce_trunk', trunkS, PAL['timber_dark'], PT['plain'], family='tree_spruce')
-obj('trees_round', leafR, face=lambda q: ((lin('#7FA348') if terrain.vnoise(q.center.x, q.center.y, 0.05, 4) > 0.5 else lin('#5F8A3C')) if q.normal.z > 0.1 else lin('#4C6E33'), PT['leaf']),
-    family='tree_round', jitter=0.08, seed=4)
+_RT_GRID = {}
+for (x_, y_, r2_, t_) in ROUND_TINT_AT:
+    _RT_GRID.setdefault((int(x_ // 16), int(y_ // 16)), []).append((x_, y_, r2_, t_))
+
+
+def _round_face(q):
+    c = q.center
+    best, tint = 1e9, ROUND_TINTS[0]
+    for i in (-1, 0, 1):
+        for j in (-1, 0, 1):
+            for (x_, y_, r2_, t_) in _RT_GRID.get((int(c.x // 16) + i, int(c.y // 16) + j), ()):
+                d2 = (c.x - x_) ** 2 + (c.y - y_) ** 2
+                if d2 < best:
+                    best, tint = d2, t_
+    k = 1.08 if q.normal.z > 0.45 else (0.94 if q.normal.z > -0.1 else 0.72)      # sunlit crowns, shaded undersides
+    return (tuple(ch * k for ch in tint), PT['leaf'])
+
+
+obj('trees_round', leafR, face=_round_face, family='tree_round', jitter=0.07, seed=4)
 obj('trees_round_trunk', trunkR, PAL['timber_dark'], PT['plain'], family='tree_round')
 obj('trees_birch', leafB, face=lambda q: ((PAL['birch_leaf2'] if noise.noise(q.center * 0.15) > 0.15 else PAL['birch_leaf']), PT['leaf']), family='tree_birch', jitter=0.08, seed=5)
 obj('trees_birch_trunk', trunkB, PAL['birch_bark'], PT['plain'], family='tree_birch')
@@ -612,14 +677,28 @@ for m_ in CJ['moorings']:
     x, y = m_['buoy']
     merge(mb, bm_cyl(0.45, 0.2, 0.55, 5, (x, y, -0.15)))
 obj('mooring_buoys', mb, face=lambda q: ((PAL['hull_red'] if q.normal.z > 0.5 else lin('#E8E2D6')), PT['plain']), family='mooring')
-fr = bmesh.new()
+fr, fpile, ffloat = bmesh.new(), bmesh.new(), bmesh.new()
 for (a, b) in CJ['far']['rafts']:
-    merge(fr, nl_kit.beam((a[0], a[1], 0.2), (b[0], b[1], 0.2), 2.4, 0.6))
     L_ = math.hypot(b[0] - a[0], b[1] - a[1])
-    for k in range(int(L_ / 6) + 1):
-        q = (a[0] + (b[0] - a[0]) * k * 6 / L_, a[1] + (b[1] - a[1]) * k * 6 / L_)
-        merge(fr, bm_cyl(0.5, 0.5, 0.7, 8, (q[0], q[1], -0.3)))
-obj('far_ports_rafts', fr, PAL['timber_grey'], PT['plain'], family='far_ports', jitter=0.05)
+    dx, dy = (b[0] - a[0]) / L_, (b[1] - a[1]) / L_
+    # plank deck in short sections (a slight stagger reads as separate floating pontoon units), drum floats below
+    n_sec = max(1, int(L_ / 7.5))
+    for k in range(n_sec):
+        t0, t1 = k * L_ / n_sec + 0.15, (k + 1) * L_ / n_sec - 0.15
+        za = 0.32 + 0.04 * math.sin(k * 1.7)
+        merge(fr, nl_kit.beam((a[0] + dx * t0, a[1] + dy * t0, za), (a[0] + dx * t1, a[1] + dy * t1, za), 2.2, 0.22))
+        for t in (t0 + 1.2, t1 - 1.2):
+            merge(ffloat, nl_kit.beam((a[0] + dx * t - dy * 0.7, a[1] + dy * t + dx * 0.7, 0.02), (a[0] + dx * t + dy * 0.7, a[1] + dy * t - dx * 0.7, 0.02), 1.0, 0.4))
+    # mooring piles standing proud of the deck every other section, a cleat between
+    for k in range(int(L_ / 9) + 1):
+        t = min(L_, k * 9.0)
+        for sd in (-1.25, 1.25):
+            q = (a[0] + dx * t - dy * sd, a[1] + dy * t + dx * sd)
+            merge(fpile, bm_cyl(0.24, 0.22, 3.6, 7, (q[0], q[1], -1.6)))
+            merge(fpile, bm_cyl(0.27, 0.0, 0.25, 7, (q[0], q[1], 2.0)))
+obj('far_ports_rafts', fr, PAL['timber_grey'], PT['planks_x'] if 'planks_x' in PT else PT['plain'], family='far_ports', jitter=0.08)
+obj('far_ports_piles', fpile, PAL['timber_dark'], PT['plain'], family='far_ports', jitter=0.06)
+obj('far_ports_floats', ffloat, lin('#3A3F42'), PT['plain'], family='far_ports', jitter=0.04)
 
 # ------------------------------------------------------------------ folk + gulls (decorative)
 dark, coats, heads = bmesh.new(), bmesh.new(), bmesh.new(); coat_ranges = []

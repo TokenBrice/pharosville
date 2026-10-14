@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { EngineContext, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import { aoHeightTexture, renderGround } from "./ground";
 import { getLightsStore } from "../lights/lights-service";
@@ -49,6 +49,8 @@ export class IslandSystem implements WorldSystem {
       this.root = s.group;
     }
     this.root.name = this.root.name || "harbour-island";
+    // shadow-caster budget: the far backdrop hills (shakkei) lie outside the fitted shadow box anyway
+    this.root.traverse((o) => { if (o.name === "shakkei") o.castShadow = false; });
     ctx.scene.add(this.root);
     this.root.updateMatrixWorld(true);
     const ground = renderGround(ctx.renderer, this.root, [min[0], min[2], max[0], max[2]], 1024);
@@ -67,8 +69,8 @@ export class IslandSystem implements WorldSystem {
     }
   }
 
-  update(_frame: unknown, ctx: EngineContext): void {
-    this.sun.update(ctx);
+  update(frame: FrameState, ctx: EngineContext): void {
+    this.sun.update(ctx, frame.delta);
     if (ctx.scene.background === this.fallbackBg) this.fallbackBg.copy(ctx.uniforms.uHorizon.value).lerp(ctx.uniforms.uZenith.value, 0.25);
     if (this.fallbackSea) (this.fallbackSea.material as THREE.MeshBasicMaterial).color.set("#143F55").multiplyScalar(1 - 0.75 * ctx.uniforms.uNight.value);
   }

@@ -1,0 +1,3 @@
+/* The live world fills the window under the poster (index.html) and the overlay UI. */
+.pv-world { position: fixed; inset: 0; z-index: 0; background: #0d1b2a; touch-action: none; }
+.pv-world canvas { display: block; width: 100%; height: 100%; outline: none; }

@@ -298,13 +298,33 @@ def build_house(name, P, loc=(0, 0, 0), rz=0.0, seed=0, family='house'):
 
 
 # =================================================================== LIGHTHOUSE (D8)
+def _rings(bm, step=1.1):
+    """Cut long vertical edges into ~step m pieces: AO is baked per vertex, and a tall face with only its end
+    vertices takes the dark of its two concave corners over its whole height (the old 'charcoal chimney')."""
+    edges = [e for e in bm.edges if abs(e.verts[0].co.z - e.verts[1].co.z) > step * 1.5
+             and abs((e.verts[0].co.xy - e.verts[1].co.xy).length) < abs(e.verts[0].co.z - e.verts[1].co.z)]
+    for e in edges:
+        n = int(abs(e.verts[0].co.z - e.verts[1].co.z) / step)
+        bmesh.ops.subdivide_edges(bm, edges=[e], cuts=n, use_grid_fill=False)
+    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 4])
+    return bm
+
+
 def build_lighthouse(name='lighthouse', loc=(0, 0, 0), rz=0.0, family='lighthouse'):
     root = empty(name, loc, (0, 0, rz), family=family)
-    g, gl_ = PAL['granite'], PAL['granite_light']
+    # the hero's own stone: light warm granite ashlar that catches the golden light, paler dressed quoins and bands;
+    # a white-painted lantern under a black iron dome with brass trim (the lamp is the only saturated light up here)
+    g, gl_ = lin('#D6CAB2'), lin('#EDE5D3')
+    paint, dome_c = lin('#F4F1EA'), lin('#23282B')
+    # --- stone platform the tower stands on (its retaining wall runs down into the knoll)
+    pl = bm_cyl(7.3 / math.cos(math.pi / 8), 7.3 / math.cos(math.pi / 8), 4.2, 8, (0, 0, -4.0), rot=math.pi / 8)
+    obj(name + '_platform', _rings(pl), lin('#C9BDA5'), PT['ashlar'], parent=root, family=family, seed=2)
+    pc = bm_cyl(7.55 / math.cos(math.pi / 8), 7.55 / math.cos(math.pi / 8), 0.32, 8, (0, 0, 0.0), rot=math.pi / 8)
+    obj(name + '_platform_coping', pc, gl_, PT['plain'], parent=root, bevel=0.04, family=family)
     # --- square masonry base
     B, HB = 8.6, 5.2
     stone = bm_box2(-B / 2, -B / 2, -1.5, B / 2, B / 2, HB)
-    obj(name + '_base', stone, g, PT['ashlar'], parent=root, bevel=0.06, family=family)
+    obj(name + '_base', _rings(stone), g, PT['ashlar'], parent=root, bevel=0.06, family=family)
     q = bm_box2(-B / 2 - 0.25, -B / 2 - 0.25, -1.5, B / 2 + 0.25, B / 2 + 0.25, 0.7)  # plinth
     merge(q, bm_box2(-B / 2 - 0.3, -B / 2 - 0.3, HB - 0.1, B / 2 + 0.3, B / 2 + 0.3, HB + 0.55))  # cornice
     for sx in (-1, 1):
@@ -345,14 +365,14 @@ def build_lighthouse(name='lighthouse', loc=(0, 0, 0), rz=0.0, family='lighthous
     # --- octagonal middle shaft
     z0, z1 = HB + 0.55, 19.5
     oc = bm_cyl(3.25 / math.cos(math.pi / 8), 2.75 / math.cos(math.pi / 8), z1 - z0, 8, (0, 0, z0), rot=math.pi / 8)
-    obj(name + '_shaft_oct', oc, g, PT['ashlar'], parent=root, bevel=0.07, bevel_angle=30, family=family, seed=7)
+    obj(name + '_shaft_oct', _rings(oc), g, PT['ashlar'], parent=root, bevel=0.07, bevel_angle=30, family=family, seed=7)
     bands = bmesh.new()
     for zb, rr in ((z0, 3.45), (12.3, 3.15), (z1 - 0.35, 2.95)):
         merge(bands, bm_cyl(rr / math.cos(math.pi / 8), rr / math.cos(math.pi / 8), 0.4, 8, (0, 0, zb), rot=math.pi / 8))
     obj(name + '_bands', bands, gl_, PT['plain'], parent=root, bevel=0.04, family=family)
     # windows on the octagon (faces normal along axes/diagonals)
     glass = bmesh.new(); gls = []; trim = bmesh.new()
-    for zc, ang in ((8.6, 225), (10.6, 270), (14.6, 180), (16.8, 225)):
+    for zc, ang in ((8.6, 0), (11.4, 315), (14.6, 45), (17.2, 0)):
         a = math.radians(ang)
         r = 3.25 + (2.75 - 3.25) * (zc - z0) / (z1 - z0)
         nrm = Vector((math.cos(a), math.sin(a), 0)); t = Vector((-nrm.y, nrm.x, 0))
@@ -361,8 +381,8 @@ def build_lighthouse(name='lighthouse', loc=(0, 0, 0), rz=0.0, family='lighthous
     # --- round upper shaft
     z2 = 25.0
     rs = bm_cyl(2.55, 2.35, z2 - z1, 24, (0, 0, z1))
-    obj(name + '_shaft_round', rs, gl_, PT['ashlar'], parent=root, smooth=True, family=family, seed=9)
-    for zc, ang in ((22.0, 225),):
+    obj(name + '_shaft_round', _rings(rs), g, PT['ashlar'], parent=root, smooth=True, family=family, seed=9)
+    for zc, ang in ((22.0, 0),):
         a = math.radians(ang); nrm = Vector((math.cos(a), math.sin(a), 0)); t = Vector((-nrm.y, nrm.x, 0))
         add_window(trim, glass, nrm * 2.43 + Vector((0, 0, zc)), t, nrm, 0.5, 1.0, mull=False, rng=random.Random(4),
                    lit_p=1.0, gl_list=gls)
@@ -377,15 +397,15 @@ def build_lighthouse(name='lighthouse', loc=(0, 0, 0), rz=0.0, family='lighthous
         merge(cb, obox((math.cos(a) * 2.75, math.sin(a) * 2.75, z2 + 0.15), (-math.sin(a), math.cos(a), 0), 0.42, 0.7, 0.9))
     obj(name + '_corbels', cb, g, PT['ashlar'], parent=root, family=family, seed=11)
     zg = z2 + 0.75
-    slab = bm_cyl(3.4, 3.4, 0.42, 24, (0, 0, zg))
-    obj(name + '_gallery', slab, gl_, PT['plain'], parent=root, bevel=0.05, family=family)
+    slab = bm_cyl(3.45, 3.45, 0.46, 24, (0, 0, zg))
+    obj(name + '_gallery', slab, paint, PT['plain'], parent=root, bevel=0.05, family=family)
     zg += 0.42
     rl = bmesh.new()
     for k in range(24):
         a = 2 * math.pi * k / 24
         p = Vector((math.cos(a) * 3.25, math.sin(a) * 3.25, zg))
-        merge(rl, line3(p, p + Vector((0, 0, 1.05)), 0.045))
-    for zz, rr in ((zg + 1.05, 0.06), (zg + 0.55, 0.04)):
+        merge(rl, line3(p, p + Vector((0, 0, 1.1)), 0.065))
+    for zz, rr in ((zg + 1.1, 0.095), (zg + 0.58, 0.06)):
         ring = [Vector((math.cos(2 * math.pi * k / 24) * 3.25, math.sin(2 * math.pi * k / 24) * 3.25, zz)) for k in range(25)]
         for a_, b_ in zip(ring, ring[1:]):
             merge(rl, bm_rod(a_, b_, rr, 4))
@@ -393,7 +413,7 @@ def build_lighthouse(name='lighthouse', loc=(0, 0, 0), rz=0.0, family='lighthous
     # --- lantern room
     zl = zg
     ped = bm_cyl(1.95, 1.95, 0.9, 16, (0, 0, zl))
-    obj(name + '_lantern_base', ped, PAL['iron'], PT['metal'], parent=root, family=family, bevel=0.03)
+    obj(name + '_lantern_base', ped, paint, PT['metal'], parent=root, family=family, bevel=0.03)
     zl += 0.9
     gh = 2.1
     lg = bm_cyl(1.82, 1.82, gh, 16, (0, 0, zl), cap=False)
@@ -404,7 +424,7 @@ def build_lighthouse(name='lighthouse', loc=(0, 0, 0), rz=0.0, family='lighthous
         merge(mu, obox((math.cos(a) * 1.84, math.sin(a) * 1.84, zl + gh / 2), (-math.sin(a), math.cos(a), 0), 0.07, 0.07, gh))
     for zz in (zl + 0.04, zl + gh * 0.5, zl + gh - 0.04):
         merge(mu, bm_cyl(1.88, 1.88, 0.08, 16, (0, 0, zz - 0.04)))
-    obj(name + '_astragals', mu, PAL['iron'], PT['metal'], parent=root, family=family)
+    obj(name + '_astragals', mu, paint, PT['metal'], parent=root, family=family)
     # Fresnel lens: stacked prism rings, brass frame
     lens = bmesh.new()
     zc = zl + 0.15
@@ -418,10 +438,11 @@ def build_lighthouse(name='lighthouse', loc=(0, 0, 0), rz=0.0, family='lighthous
     merge(lf, bm_cyl(0.25, 0.25, 0.15, 8, (0, 0, zl)))
     obj(name + '_lensframe', lf, PAL['brass'], PT['metal'], parent=root, family=family)
     zl += gh
-    cor = bm_cyl(2.05, 2.05, 0.25, 16, (0, 0, zl))
-    dome = bm_cyl(2.0, 0.35, 1.45, 16, (0, 0, zl + 0.25))
-    merge(cor, dome)
-    obj(name + '_dome', cor, PAL['iron'], PT['metal'], parent=root, family=family, smooth=False)
+    cor = bm_cyl(2.12, 2.12, 0.28, 16, (0, 0, zl))
+    obj(name + '_dome_ring', cor, PAL['brass'], PT['metal'], parent=root, family=family)
+    dome = bm_cyl(2.02, 1.55, 0.55, 16, (0, 0, zl + 0.28))
+    merge(dome, bm_cyl(1.55, 0.35, 0.95, 16, (0, 0, zl + 0.83)))
+    obj(name + '_dome', dome, dome_c, PT['metal'], parent=root, family=family, smooth=False)
     top = bm_sphere(0.38, (0, 0, zl + 2.0), 10, 6)
     merge(top, bm_cyl(0.06, 0.03, 1.4, 6, (0, 0, zl + 2.2)))
     merge(top, obox((0.25, 0, zl + 3.0), (1, 0, 0), 0.9, 0.04, 0.2))  # vane

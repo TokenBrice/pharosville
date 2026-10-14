@@ -26,9 +26,8 @@ Important project rules:
 - Browser code calls same-origin `/api/*` only.
 - `PHAROS_API_KEY` must stay server-side and must never be exposed in browser-visible env vars, docs, fixtures, logs, query strings, or static assets.
 - Preserve the desktop gate. Unsupported viewports must not mount the world runtime or fetch world data.
-- Runtime media is limited to same-origin stablecoin and harbor logos plus
-  checked files under `public/pharosville/models/` and
-  `public/pharosville/textures/`.
+- Runtime media is limited to same-origin stablecoin and chain logos plus
+  checked files under `public/harbour/`.
 - Do not commit generated `dist/`, `test-results/`, local env files, or scratch artifacts.
 
 ## Local Setup

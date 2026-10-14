@@ -1,6 +1,6 @@
 # PharosVille Change Checklist
 
-Last updated: 2026-09-27
+Last updated: 2026-10-14
 
 ## Before editing
 
@@ -12,40 +12,30 @@ Last updated: 2026-09-27
 
 ## Keep these contracts
 
-- One production Three.js renderer; a DOM static overview on renderer/GPU
-  failure; no renderer flag or Canvas fallback.
-- The desktop landscape gate before data, Three.js, models, and logo decoding.
-- Analytical meaning in systems plus DOM detail/ledger parity, never pixels
-  alone. Do not turn routes or docking into transfer/issuer claims.
-- One shared motion sample for drawing, hit testing, following, selection, and
-  debug; one route-owned RAF; a deterministic no-RAF reduced-motion frame.
-- World rebuilds dispose old renderer-owned content; frame work does not create
-  unbounded geometry, materials, textures, lights, loaders, or timers.
-- Full-fleet composition is controlled by region placement and capacity, not by
-  restoring the retired 20-ship cap.
-- Same-origin media with deterministic fallbacks. Checked models change through
-  generators, not binary edits.
-- Garden Observatory comparisons report signed, owner-attributed JS gzip,
-  draw-call, triangle, texture and logical-byte deltas under unchanged global
-  caps; resource equality and a blanket no-new-textures rule are not required.
-  Name the displaced salience or cost, charge shared assets once, and reconcile
-  earned allowances against measured totals rather than spending headroom twice.
-  Keep the existing fleet sail-program attribute ceiling (16/16) and admit
-  every discrete event through the director's attention budget. Any cap change
-  belongs to the orchestrator and requires the approved evidence.
-- Chrome colours come from the light score (`src/systems/chrome-air.ts`), never
-  a day/night switch, and every text role stays AA
-  (`src/systems/chrome-air.test.ts`).
+- One production world, The Harbour (`src/harbour/`), on one three.js WebGL2
+  Engine; if WebGL2 cannot start the poster and guide stay up. No renderer flag
+  or second graphics stack.
+- The desktop gate (size tests on screen and window, never orientation) before
+  data, three.js, GLBs and logo decoding.
+- The world carries the meaning (PLAN D10/D11): no persistent numeral HUD; every
+  reading the world encodes is also readable on demand (hover tag, side panel,
+  ledger). Do not turn circuits or docking into transfer/issuer claims.
+- Systems register through `src/harbour/systems.ts` (order = update order) and
+  share uniforms and services through the Engine context; frame work does not
+  create unbounded geometry, materials, textures, lights or timers, and every
+  system disposes what it created.
+- Same-origin media under `public/harbour/`, `/logos/` and `/chains/`;
+  `npm run check:runtime-media` keeps them decodable.
+- Bundle caps live in `scripts/bundle-budgets.mjs`; raise one only with a
+  measured re-baseline and its cause.
 
 ## Validate proportionately
 
-- World semantics: `npm test -- src/systems`
-- Three.js or hit testing: `npm test -- src/three src/renderer`
-- Browser visual/interaction: `npm run test:visual`
-- Resource or performance: `npm run test:perf`
-- Garden Observatory resource/device acceptance: follow the M5 Pro calibration protocol in `TESTING.md` ("M5 Pro calibration — Garden Observatory"); hardware evidence remains pending until its baseline/candidate matrix and long-session gates are recorded.
+- Harbour logic: `npx vitest run src/harbour`
+- Shell, gate and first paint: `npm test -- src/client.test.tsx` and `npm run check:viewport-gate`
+- Browser DOM contract: `npm run test:visual`
+- Look and frame time: `npm run preview` (real GPU only)
 - Media: `npm run check:runtime-media`
-- Viewport/import boundary: `npm run check:viewport-gate`
 - Docs: `npm run validate:docs`
 - Mixed scope: `npm run validate:changed`
 

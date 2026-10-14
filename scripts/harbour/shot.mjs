@@ -10,9 +10,12 @@
  *   node scripts/harbour/shot.mjs --url http://localhost:5190/harbour.html --out agents/.../x.png
  *     [--width 1600 --height 1000] [--dpr 1] [--wait 4000] [--seconds 5]
  *     [--webgpu]            enable WebGPU (default operator Chrome on Linux exposes NO adapter)
- *     [--eval "js"]         run in page after load, before measuring (e.g. set time of day)
+ *     [--eval "js"]         run in page after load, before measuring (e.g. set time of day); a JSON-able
+ *                           return value (a Promise is awaited) is reported as `evalResult`
  *     [--burst N --interval ms]   extra frames <out>-NN.png
  *     [--json out.json]     write the report as JSON
+ *     [--uncapped]          launch with --disable-gpu-vsync --disable-frame-rate-limit: rAF runs as fast as the
+ *                           GPU allows, so fps/p50 are the TRUE frame cost (not clamped to the display refresh)
  *
  * Report: GPU identity, WebGPU availability, frame-time p50/p95/max over --seconds (rAF deltas),
  * console errors, and window.__harbourStats (if the page exposes it: draws, triangles, backend).
@@ -44,6 +47,7 @@ const waitMs = Number(args.wait ?? 4000);
 const seconds = Number(args.seconds ?? 4);
 const chromeArgs = [];
 if (args.webgpu) chromeArgs.push("--enable-unsafe-webgpu", "--enable-features=Vulkan");
+if (args.uncapped) chromeArgs.push("--disable-gpu-vsync", "--disable-frame-rate-limit");
 
 const browser = await chromium.launch({
   executablePath: process.platform === "darwin"
@@ -61,8 +65,9 @@ page.on("pageerror", (err) => consoleErrors.push(`[pageerror] ${String(err).slic
 await page.goto(url, { waitUntil: "load" });
 await page.waitForTimeout(waitMs);
 
+let evalResult;
 if (args.eval) {
-  await page.evaluate((code) => (0, eval)(code), String(args.eval));
+  evalResult = await page.evaluate((code) => (0, eval)(code), String(args.eval));
   await page.waitForTimeout(1200);
 }
 
@@ -105,6 +110,7 @@ const report = {
   frames: timing.length, fps: Math.round(timing.length / seconds),
   p50: +pct(0.5).toFixed(2), p95: +pct(0.95).toFixed(2), max: +timing[timing.length - 1].toFixed(2),
   stats, consoleErrors: consoleErrors.slice(0, 20),
+  ...(evalResult === undefined ? {} : { evalResult }),
 };
 console.log(JSON.stringify(report, null, 1));
 if (args.json) { await mkdir(dirname(resolve(args.json)), { recursive: true }); await writeFile(resolve(args.json), JSON.stringify(report, null, 1)); }

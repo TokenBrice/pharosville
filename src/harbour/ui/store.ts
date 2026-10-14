@@ -5,6 +5,7 @@
  * the sim have advanced and before the composer renders, so DOM tags never lag the hulls.
  */
 import * as THREE from "three";
+import type { CameraPreset } from "../engine/camera-rig";
 import type { Engine } from "../engine/engine";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { Boat, HarbourModel } from "../model/types";
@@ -40,14 +41,26 @@ export class HarbourUIStore {
   private lastTick = 0;
   private dragging = false;
   private down: { x: number; y: number; t: number } | null = null;
+  /** Where the pointer was first seen; hovering starts only once it has travelled from there. */
+  private seen: { x: number; y: number } | null = null;
   private readonly cleanups: Array<() => void> = [];
+  /** The framing the visitor landed on: Home / double-click on open water flies back to it. */
+  private readonly home: CameraPreset;
+  private readonly devStale = import.meta.env.DEV ? new URLSearchParams(location.search).get("stale") : null;
+  private staleSrc: HarbourModel | null = null;
+  private staleOut: HarbourModel | null = null;
 
   constructor(readonly engine: Engine) {
     const ctx = engine.ctx;
     this.picking = new UIPicking(ctx);
     this.motion = ensureMotionService(ctx);
+    const { rig, camera } = ctx;
+    this.home = {
+      target: [rig.target.x, rig.target.y, rig.target.z], distance: rig.distance, fovDeg: camera.fov,
+      pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
+    };
     this.state = {
-      model: getModel(ctx), hover: null, selected: null, searchOpen: false, ledgerOpen: false, chartMode: false,
+      model: this.readModel(), hover: null, selected: null, searchOpen: false, ledgerOpen: false, chartMode: false,
       reducedMotion: this.motion.reduced, tick: 0,
     };
     this.cleanups.push(this.motion.subscribe((reduced) => this.set({ reducedMotion: reduced })));
@@ -82,7 +95,7 @@ export class HarbourUIStore {
   }
 
   private frame(frame: FrameState): void {
-    const model = getModel(this.ctx);
+    const model = this.readModel();
     if (model !== this.state.model) this.set({ model });
     if (frame.nowMs - this.lastTick >= 1000) { this.lastTick = frame.nowMs; this.set({ tick: this.state.tick + 1 }); }
     // hover: re-pick on pointer motion, and every 120 ms while still (boats sail out from under it)
@@ -95,6 +108,25 @@ export class HarbourUIStore {
     for (const fn of this.frameFns) fn(frame);
   }
 
+  /**
+   * The model as the UI reads it. Dev only: `?stale=1` (or `?stale=mintBurn,chains`) fogs the world
+   * through the readings system; the same override marks those endpoints stale here, so the dot, the
+   * wordmark and the panel footers say what the fog says.
+   */
+  private readModel(): HarbourModel | null {
+    const m = getModel(this.ctx);
+    if (!m || !this.devStale) return m;
+    if (m === this.staleSrc) return this.staleOut;
+    const keys = this.devStale === "1" ? ["stablecoins"] : this.devStale.split(",");
+    const truth = { ...m.truth };
+    for (const k of Object.keys(truth) as Array<keyof typeof truth>) {
+      if (keys.includes(k)) truth[k] = { ...truth[k], state: "stale", ageSec: Math.max(truth[k].ageSec ?? 0, 2 * 3600) };
+    }
+    this.staleSrc = m;
+    this.staleOut = { ...m, truth };
+    return this.staleOut;
+  }
+
   private setHover(hit: PickHit | null): void {
     if (sameHit(hit, this.state.hover)) return;
     this.picking.setHover(hit);
@@ -104,6 +136,12 @@ export class HarbourUIStore {
 
   private attachPointer(el: HTMLCanvasElement): void {
     const move = (e: PointerEvent) => {
+      // Chrome sends pointermoves for a cursor that merely rests over the page at load (and on layout
+      // changes; a resting hand jitters it by a pixel): only a pointer that has really travelled may hover.
+      if (!this.pointer.inside) {
+        if (!this.seen) this.seen = { x: e.clientX, y: e.clientY };
+        if (Math.hypot(e.clientX - this.seen.x, e.clientY - this.seen.y) < 6) return;
+      }
       this.pointer.x = e.clientX; this.pointer.y = e.clientY; this.pointer.dirty = true; this.pointer.inside = true;
       if (this.down && Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y) > 5) {
         this.dragging = true;
@@ -122,7 +160,10 @@ export class HarbourUIStore {
       if (hit && this.isOpenable(hit)) this.select(hit);
       else if (!hit) this.select(null);
     };
-    const leave = () => { this.pointer.inside = false; this.setHover(null); };
+    const leave = () => { this.pointer.inside = false; this.seen = null; this.setHover(null); };
+    // double-click on open water: back to the landing framing
+    const dbl = (e: MouseEvent) => { if (!this.picking.pick(e.clientX, e.clientY)) this.goHome(); };
+    el.addEventListener("dblclick", dbl);
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointerup", up);
@@ -132,6 +173,7 @@ export class HarbourUIStore {
       el.removeEventListener("pointerdown", down);
       el.removeEventListener("pointerup", up);
       el.removeEventListener("pointerleave", leave);
+      el.removeEventListener("dblclick", dbl);
     });
   }
 
@@ -164,6 +206,11 @@ export class HarbourUIStore {
       target: [tx, 0, tz], distance: dist, fovDeg: camera.fov,
       pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
     }, this.state.reducedMotion);
+  }
+
+  /** Fly back to the framing the visitor landed on. */
+  goHome(): void {
+    this.ctx.rig.applyPreset(this.home, this.state.reducedMotion);
   }
 
   // ------------------------------------------------------------------ reads

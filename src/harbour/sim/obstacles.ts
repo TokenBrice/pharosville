@@ -10,6 +10,25 @@ export interface ObstacleField {
   minX: number; minZ: number; cell: number; nx: number; nz: number;
   /** Clearance in metres (0 inside obstacles). */
   dist: Float32Array;
+  /** Fine signed coast distance (m, > 0 = sea) from the baked sea SDF, when the sim was given one. */
+  coast: CoastGrid | null;
+}
+
+/**
+ * The baked sea SDF's coast channel (layout.sea.sdf, R = 0.5 + coastDistance / 128), rows from minZ.
+ * The rendered island's real coastline: the layout's coast polygon is only its outline sketch.
+ */
+export interface CoastGrid { data: Uint8Array; size: number; bounds: [number, number, number, number] }
+export const COAST_RANGE = 128;
+
+/** Signed coast distance (m, > 0 = sea), bilinear; open sea outside the grid. */
+export function coastDistance(c: CoastGrid, x: number, z: number): number {
+  const n = c.size, b = c.bounds;
+  const u = ((x - b[0]) / (b[2] - b[0])) * n - 0.5, v = ((z - b[1]) / (b[3] - b[1])) * n - 0.5;
+  if (u < 0 || v < 0 || u >= n - 1 || v >= n - 1) return COAST_RANGE / 2;
+  const i = Math.floor(u), j = Math.floor(v), fu = u - i, fv = v - j, k = j * n + i, d = c.data;
+  const r = (d[k] * (1 - fu) + d[k + 1] * fu) * (1 - fv) + (d[k + n] * (1 - fu) + d[k + n + 1] * fu) * fv;
+  return (r / 255 - 0.5) * COAST_RANGE;
 }
 
 const CELL = 2;
@@ -78,23 +97,33 @@ function chamfer(mask: Uint8Array, nx: number, nz: number): Float32Array {
   return d;
 }
 
-export function buildObstacleField(layout: HarbourLayout): ObstacleField | null {
+export function buildObstacleField(layout: HarbourLayout, coast: CoastGrid | null = null): ObstacleField | null {
   const isl = layout.island;
-  const hasGeometry = (isl?.coast?.length ?? 0) >= 3 || (layout.piers ?? []).some((p) => (p.segments ?? []).length > 0);
+  const hasGeometry = coast != null || (isl?.coast?.length ?? 0) >= 3 || (layout.piers ?? []).some((p) => (p.segments ?? []).length > 0);
   if (!hasGeometry || !layout.bounds) return null;
-  const pad = 120;
+  const pad = 160;
   const minX = layout.bounds.min[0] - pad, minZ = layout.bounds.min[2] - pad;
   const nx = Math.ceil((layout.bounds.max[0] + pad - minX) / CELL), nz = Math.ceil((layout.bounds.max[2] + pad - minZ) / CELL);
-  const f: ObstacleField = { minX, minZ, cell: CELL, nx, nz, dist: new Float32Array(0) };
+  const f: ObstacleField = { minX, minZ, cell: CELL, nx, nz, dist: new Float32Array(0), coast };
   const mask = new Uint8Array(nx * nz);
-  const polys = (v: unknown): Vec2[][] => (!Array.isArray(v) || v.length === 0 ? [] : Array.isArray((v as unknown[][])[0]?.[0]) ? (v as Vec2[][]) : [v as Vec2[]]);
-  for (const poly of polys(isl?.coast)) fillPolygon(mask, nx, nz, poly, f, 1);
-  for (const poly of polys(isl?.bay)) fillPolygon(mask, nx, nz, poly, f, 0);
-  for (const line of [isl?.breakwater, isl?.mole]) {
-    if (!Array.isArray(line)) continue;
-    for (let i = 1; i < line.length; i++) stampCapsule(mask, f, line[i - 1], line[i], 4.5);
+  if (coast) {
+    // the real coast (quay walls, moles and breakwaters are coast in the SDF)
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+      if (coastDistance(coast, minX + (i + 0.5) * CELL, minZ + (j + 0.5) * CELL) < 0.5) mask[j * nx + i] = 1;
+    }
+  } else {
+    const polys = (v: unknown): Vec2[][] => (!Array.isArray(v) || v.length === 0 ? [] : Array.isArray((v as unknown[][])[0]?.[0]) ? (v as Vec2[][]) : [v as Vec2[]]);
+    for (const poly of polys(isl?.coast)) fillPolygon(mask, nx, nz, poly, f, 1);
+    for (const poly of polys(isl?.bay)) fillPolygon(mask, nx, nz, poly, f, 0);
+    for (const line of [isl?.breakwater, isl?.mole]) {
+      if (!Array.isArray(line)) continue;
+      for (let i = 1; i < line.length; i++) stampCapsule(mask, f, line[i - 1], line[i], 4.5);
+    }
   }
-  for (const p of layout.piers ?? []) for (const s of p.segments ?? []) stampCapsule(mask, f, s.a, s.b, Math.max(0.6, s.width / 2));
+  // decks over water: arms, T-heads, fingers (a quay is coast when the SDF is known)
+  for (const p of layout.piers ?? []) for (const s of p.segments ?? []) if (!(coast && s.kind === "quay")) stampCapsule(mask, f, s.a, s.b, Math.max(0.6, s.width / 2));
+  // Far Ports pontoons
+  for (const row of layout.zones?.farPorts?.rows ?? []) for (let i = 1; i < (row.line?.length ?? 0); i++) stampCapsule(mask, f, row.line[i - 1], row.line[i], 1.4);
   const d = chamfer(mask, nx, nz);
   for (let k = 0; k < d.length; k++) d[k] = mask[k] ? 0 : (d[k] - 0.5) * CELL;
   f.dist = d;
@@ -109,10 +138,28 @@ export function clearance(f: ObstacleField, x: number, z: number): number {
   return (d[k] * (1 - fu) + d[k + 1] * fu) * (1 - fv) + (d[k + f.nx] * (1 - fu) + d[k + f.nx + 1] * fu) * fv;
 }
 
-/** Speed factor for open water: 1 near land and structures, up to 1.9 well offshore (harbour speed vs sea speed). */
+/** Open-water speed factor: 1 near land and structures (harbour speed), up to 1.5 well offshore (sea speed). */
+export const OPEN_WATER_MAX = 1.5;
 export function openWaterFactor(f: ObstacleField | null, x: number, z: number): number {
   if (!f) return 1;
   const c = clearance(f, x, z);
   const t = Math.min(1, Math.max(0, (c - 25) / 45));
-  return 1 + 0.9 * t * t * (3 - 2 * t);
+  return 1 + (OPEN_WATER_MAX - 1) * t * t * (3 - 2 * t);
+}
+
+/**
+ * A second clearance field for hull paths: distance to the hulls that lie still (mooring swing
+ * circles, Far Ports rows, Shoals anchorages) and to no-go zones (Wreck Cove, the Shoals reef).
+ * Lanes and leg interiors keep off it; slot approaches may enter it.
+ */
+export function buildKeepOffField(base: ObstacleField, disks: ReadonlyArray<[number, number, number]>, polys: ReadonlyArray<readonly Vec2[]>): ObstacleField {
+  const { nx, nz } = base;
+  const f: ObstacleField = { minX: base.minX, minZ: base.minZ, cell: base.cell, nx, nz, dist: new Float32Array(0), coast: null };
+  const mask = new Uint8Array(nx * nz);
+  for (const poly of polys) fillPolygon(mask, nx, nz, poly, f, 1);
+  for (const [x, z, r] of disks) stampCapsule(mask, f, [x, z], [x, z], r);
+  const d = chamfer(mask, nx, nz);
+  for (let k = 0; k < d.length; k++) d[k] = mask[k] ? 0 : (d[k] - 0.5) * base.cell;
+  f.dist = d;
+  return f;
 }

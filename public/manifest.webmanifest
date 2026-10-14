@@ -1,12 +1,12 @@
 {
   "name": "PharosVille",
   "short_name": "PharosVille",
-  "description": "A desktop maritime observatory for live Pharos stablecoin signals.",
+  "description": "A living stablecoin harbour: live Pharos market signals as boats, a lighthouse, sea and weather.",
   "start_url": "/",
   "scope": "/",
   "display": "browser",
-  "background_color": "#06131b",
-  "theme_color": "#12313d",
+  "background_color": "#0d1b2a",
+  "theme_color": "#0d1b2a",
   "icons": [
     {
       "src": "/favicon.svg",
@@ -21,7 +21,7 @@
       "sizes": "1200x630",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "PharosVille maritime stablecoin observatory"
+      "label": "The PharosVille harbour at golden hour"
     }
   ]
 }

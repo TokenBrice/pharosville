@@ -66,7 +66,7 @@ export function makeLayout(opts: { berthsPerClass?: number; moorings?: boolean }
       farPorts: { polygon: [], rows: farRows },
     },
     moorings: opts.moorings ? Array.from({ length: 60 }, (_, j) => ({ id: `moor-${j}`, chain: PIERED[j % 4], class: (j % 2 ? "skiff" : "boat") as HullClass,
-      position: [-80 + (j % 10) * 16, 0, -60 + Math.floor(j / 10) * 20] as Vec3, swingRadius: 9 })) : undefined,
+      position: [-110 + (j % 10) * 24, 0, -75 + Math.floor(j / 10) * 26] as Vec3, swingRadius: 9 })) : undefined,
   };
   return layout as unknown as HarbourLayout;
 }

@@ -2,8 +2,8 @@
 /**
  * Guard the desktop-only lazy boundary.
  *
- * `src/client.tsx` must evaluate the shared viewport predicate before it
- * imports the desktop data/runtime chunk. This keeps world data, Three.js,
+ * `src/client.tsx` must evaluate the shared viewport predicates before it
+ * imports the Harbour runtime chunk. This keeps world data, Three.js,
  * and GLB requests off blocked viewports without duplicating thresholds.
  */
 import { readFileSync } from "node:fs";
@@ -40,11 +40,17 @@ export function checkViewportGate({
   if (!clientSource.includes("isWidescreenViewport(window.screen.width, window.screen.height)")) {
     errors.push("src/client.tsx must apply isWidescreenViewport to the physical screen before mounting the world.");
   }
-  if (!clientSource.includes('import("./pharosville-desktop-data")')) {
-    errors.push("src/client.tsx must lazy-import ./pharosville-desktop-data after the viewport gate.");
+  if (!clientSource.includes("canViewportShowMap(window.innerWidth, window.innerHeight)")) {
+    errors.push("src/client.tsx must apply canViewportShowMap to the window before mounting the world.");
   }
-  if (/from\s+["']\.\/pharosville-desktop-data["']/.test(clientSource)) {
-    errors.push("src/client.tsx must not statically import ./pharosville-desktop-data.");
+  if (/matchMedia\([^)]*orientation/.test(clientSource)) {
+    errors.push("src/client.tsx must not gate on (orientation: portrait); both gate halves are size tests.");
+  }
+  if (!clientSource.includes('import("./harbour/app/harbour-app")')) {
+    errors.push("src/client.tsx must lazy-import ./harbour/app/harbour-app after the viewport gate.");
+  }
+  if (/from\s+["']\.\/harbour\/(?!app\/poster["'])[^"']*["']/.test(clientSource)) {
+    errors.push("src/client.tsx must not statically import the Harbour runtime (only ./harbour/app/poster).");
   }
 
   return { errors, gate };

@@ -25,6 +25,9 @@ export interface WorldUniforms {
   uHemiGround: THREE.IUniform<THREE.Color>; // world-light radiance from below
   uLamp: THREE.IUniform<number>;            // emission strength of lamp glass (Blender units: noon 0.4 … night 40)
   uLens: THREE.IUniform<number>;            // emission strength of the Pharos lens (noon 3 … night 14)
+  // ---- polish pass (TimeOfDay keyframes)
+  uWindowOcc: THREE.IUniform<number>;       // share of windows lit (deterministic per window): 21 h ≈ 0.62, 23 h ≈ 0.3
+  uNightLift: THREE.IUniform<THREE.Color>;  // moonlight fill on kit/fleet albedo (with a luminance floor), 0 by day
 }
 
 export function createWorldUniforms(): WorldUniforms {
@@ -47,5 +50,7 @@ export function createWorldUniforms(): WorldUniforms {
     uHemiGround: { value: new THREE.Color(0.2, 0.2, 0.2) },
     uLamp: { value: 0.4 },
     uLens: { value: 5 },
+    uWindowOcc: { value: 0.6 },
+    uNightLift: { value: new THREE.Color(0, 0, 0) },
   };
 }

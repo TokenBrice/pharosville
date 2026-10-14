@@ -4,6 +4,7 @@ import type { HarbourLayout } from "../layout/types";
 import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { getLightsStore, type LightsStore } from "./lights-service";
+import type { QualityService } from "../engine/quality";
 
 const MAX_POINT = 16;
 const POOL_RES = 2048;
@@ -47,6 +48,10 @@ export class LightsSystem implements WorldSystem {
   private sprites!: THREE.Mesh;
   private pillars!: THREE.Mesh;
   private readonly points: THREE.PointLight[] = [];
+  private pointCount = MAX_POINT;
+  private readonly bestD = new Float64Array(MAX_POINT);
+  private readonly bestI = new Int32Array(MAX_POINT);
+  private readonly clearColor = new THREE.Color();
   private seenVersion = -1;
   private seenMove = -1;
   private pickTimer = 0;
@@ -154,13 +159,15 @@ export class LightsSystem implements WorldSystem {
           vec2 toCam = normalize(cameraPosition.xz - iPos.xz);
           vec2 side = vec2(-toCam.y, toCam.x);
           float h = max(iPos.y, 1.0);
-          float len = 5.0 + h * 2.6;
+          float len = 3.5 + h * 1.5;                  // short: a pillar, not a laser down the bay
           float wid = 0.9 + max(iPar.x, 0.4) * 1.6;
           float t = position.y + 0.5;                 // 0 under the light … 1 toward the camera
           vec2 p = iPos.xz + side * position.x * wid * (1.0 + t * 0.6) + toCam * (iWet + (t - 0.04) * len);
           vQ = vec2(position.x * 2.0, t); vW = p;
           vL = vec2(position.x * wid, t * len + iPos.x * 0.37 + iPos.z * 0.61);   // pillar frame (m), per-light phase
-          vC = iCol.rgb * lhGlow(iPar.y) * 0.85;
+          // fade with distance (the overview keeps a hint), and riding lights (small sprites) stay modest
+          float camD = distance(cameraPosition, iPos);
+          vC = iCol.rgb * lhGlow(iPar.y) * 0.85 * mix(1.0, 0.3, smoothstep(220.0, 900.0, camD)) * (iPar.x < 0.4 ? 0.5 : 1.0);
           bool show = iCol.a > 0.0 && iPar.w < 0.0;
           gl_Position = show ? projectionMatrix * viewMatrix * vec4(p.x, 1.1, p.y, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);   // above the swell crests
         }`,
@@ -281,13 +288,13 @@ export class LightsSystem implements WorldSystem {
     this.pickTimer -= frame.delta;
     if (this.pickTimer <= 0) { this.pickTimer = 0.2; this.pickPoints(ctx); }
     const glow = THREE.MathUtils.smoothstep(ctx.uniforms.uWindowGlow.value, 0.02, 0.55);
-    for (const p of this.points) p.intensity = (p.userData.base as number ?? 0) * glow;
+    for (let k = 0; k < MAX_POINT; k++) { const p = this.points[k]; p.intensity = ((p.userData.base as number | undefined) ?? 0) * glow; }
   }
 
   private renderPools(ctx: EngineContext): void {
     const r = ctx.renderer;
     const prev = r.getRenderTarget();
-    const prevClear = r.getClearColor(new THREE.Color()), prevAlpha = r.getClearAlpha();
+    const prevClear = r.getClearColor(this.clearColor), prevAlpha = r.getClearAlpha();
     r.setRenderTarget(this.poolRT);
     r.setClearColor(0x000000, 0);
     r.clear(true, false, false);
@@ -296,24 +303,35 @@ export class LightsSystem implements WorldSystem {
     r.setClearColor(prevClear, prevAlpha);
   }
 
-  /** Promote the ≤16 strongest lights nearest the camera focus to real point lights. */
+  /**
+   * Promote the N lights nearest the camera focus to real point lights (N by quality tier; changing N
+   * recompiles lit programs once, so it only follows the tier). Allocation-free top-N selection.
+   */
   private pickPoints(ctx: EngineContext): void {
+    const q = (ctx.services.get("quality") as QualityService | undefined)?.settings;
+    const want = Math.min(MAX_POINT, q?.pointLights ?? MAX_POINT);
+    if (want !== this.pointCount) {
+      this.pointCount = want;
+      for (let k = 0; k < MAX_POINT; k++) this.points[k].visible = k < want;
+    }
     const focus = ctx.rig.target;
     const camPos = ctx.camera.position;
-    const cand: Array<[number, number]> = [];
     const L = this.store.lights;
+    const bestD = this.bestD, bestI = this.bestI;
+    let n = 0;
     for (let i = 0; i < L.length; i++) {
       const l = L[i];
       if (!l.alive || !l.on || l.spec.point <= 0) continue;
       const d = l.position.distanceToSquared(focus) * 0.7 + l.position.distanceToSquared(camPos) * 0.3;
-      cand.push([d, i]);
+      if (n === want && d >= bestD[n - 1]) continue;
+      let j = n < want ? n++ : n - 1;
+      while (j > 0 && bestD[j - 1] > d) { bestD[j] = bestD[j - 1]; bestI[j] = bestI[j - 1]; j--; }
+      bestD[j] = d; bestI[j] = i;
     }
-    cand.sort((a, b) => a[0] - b[0]);
     for (let k = 0; k < MAX_POINT; k++) {
       const p = this.points[k];
-      const c = cand[k];
-      if (!c) { p.userData.base = 0; continue; }
-      const l = L[c[1]];
+      if (k >= n) { p.userData.base = 0; continue; }
+      const l = L[bestI[k]];
       p.position.copy(l.position);
       p.color.copy(l.color);
       p.distance = Math.max(10, l.radius * 3);

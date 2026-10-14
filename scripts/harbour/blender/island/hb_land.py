@@ -68,6 +68,29 @@ def _resample(poly, step, closed=True):
     return out
 
 
+def ribbon(bm, pts, width, lift=0.12, skirt=0.55):
+    """A strip draped ON the heightfield: both edges sampled at the ground (so it follows cross-slope too), with a
+    short skirt down each edge; never a slab bridging a hollow or standing proud on a slope."""
+    if len(pts) < 2:
+        return
+    L_, R_, Ls, Rs = [], [], [], []
+    for i, p in enumerate(pts):
+        a = pts[max(0, i - 1)]; b = pts[min(len(pts) - 1, i + 1)]
+        tx, ty = b[0] - a[0], b[1] - a[1]; tl = math.hypot(tx, ty) or 1.0
+        nx_, ny_ = -ty / tl * width / 2, tx / tl * width / 2
+        l_ = (p[0] + nx_, p[1] + ny_); r_ = (p[0] - nx_, p[1] - ny_)
+        zl, zr, zc = H(*l_), H(*r_), H(*p)
+        zt = max(zl, zr, zc)
+        L_.append(bm.verts.new((l_[0], l_[1], (zl + zc) / 2 + lift if zt - min(zl, zr) < 0.6 else zl + lift)))
+        R_.append(bm.verts.new((r_[0], r_[1], (zr + zc) / 2 + lift if zt - min(zl, zr) < 0.6 else zr + lift)))
+        Ls.append(bm.verts.new((l_[0], l_[1], zl - skirt)))
+        Rs.append(bm.verts.new((r_[0], r_[1], zr - skirt)))
+    for i in range(len(pts) - 1):
+        bm.faces.new((L_[i], R_[i], R_[i + 1], L_[i + 1]))
+        bm.faces.new((Ls[i], L_[i], L_[i + 1], Ls[i + 1]))
+        bm.faces.new((R_[i], Rs[i], Rs[i + 1], R_[i + 1]))
+
+
 # ------------------------------------------------------------------ heightfield
 def build_heightfield():
     from PIL import Image, ImageDraw
@@ -129,6 +152,10 @@ def build_heightfield():
         c = P[t].mean(axis=0)
         if not inside(c[0], c[1]):
             continue
+        # no slivers bridging a bay (a Delaunay edge across water whose centroid happens to fall on land)
+        q3 = P[t]
+        if max(np.hypot(*(q3[0] - q3[1])), np.hypot(*(q3[1] - q3[2])), np.hypot(*(q3[2] - q3[0]))) > 14.0:
+            continue
         try:
             bm.faces.new([vs[i] for i in t])
         except ValueError:
@@ -167,7 +194,48 @@ def hf_face(q):
     return (tuple(lo[i] + (hi[i] - lo[i]) * t for i in range(3)), PT['grass'])
 
 
-HF = obj('land_terrain', build_heightfield(), face=hf_face, jitter=0.035, seed=4, family='terrain')
+HF = obj('land_terrain', build_heightfield(), face=hf_face, jitter=0.0, seed=4, family='terrain', smooth=True)
+
+
+class _VQ:          # a vertex dressed as a face for hf_face (centre + normal)
+    __slots__ = ('center', 'normal')
+
+
+def _terrain_paint(me):
+    """Smooth-shaded ground with a painterly per-vertex colour: hf_face's ground type at each vertex (the pattern id
+    stays per face), broken up by low-frequency dry-grass / moss / heather drifts and a darker damp foot to slopes."""
+    me.calc_normals_split() if hasattr(me, 'calc_normals_split') else None
+    vcol = np.zeros((len(me.vertices), 3), np.float32)
+    dry, moss, heath_ = lin('#B2A866'), lin('#5D7A3C'), lin('#8A7090')
+    q = _VQ()
+    for v in me.vertices:
+        q.center = v.co; q.normal = v.normal
+        c, _pt = hf_face(q)
+        c = Vector(c[:3])
+        x, y = v.co.x, v.co.y
+        n1 = terrain.fbm(x, y, 0.016, 3, 31)          # meadow drifts (tens of metres)
+        n2 = terrain.fbm(x, y, 0.07, 2, 37)           # patches (a few metres)
+        if v.normal.z > 0.72:
+            k_dry = max(0.0, min(1.0, (n1 - 0.55) / 0.12)) * 0.42
+            k_moss = max(0.0, min(1.0, (0.42 - n1) / 0.1)) * 0.35
+            c = c.lerp(dry, k_dry).lerp(moss, k_moss)
+            u_, v_ = uvp(x, y)
+            hd = math.hypot((u_ - terrain.PHAROS[0] + 16) / 50.0, (v_ - terrain.PHAROS[1] + 4) / 28.0)
+            if hd < 1.15 and n2 > 0.58:
+                c = c.lerp(heath_, 0.35 * min(1.0, (n2 - 0.58) / 0.1))      # heather on the headland
+            c = c * (0.92 + 0.16 * n2)
+        vcol[v.index] = (c.x, c.y, c.z)
+    attr = me.color_attributes['Col']
+    buf = np.zeros(len(me.loops) * 4, np.float32)
+    attr.data.foreach_get('color', buf)
+    buf = buf.reshape(-1, 4)
+    li = np.zeros(len(me.loops), np.int64)
+    me.loops.foreach_get('vertex_index', li)
+    buf[:, :3] = vcol[li]
+    attr.data.foreach_set('color', buf.ravel())
+
+
+_terrain_paint(HF.data)
 
 
 def coast_skirt(name, poly, ztop, straight, rows=4, amp=1.3, seed=1, jag=0.8):
@@ -243,8 +311,9 @@ for k in range(1, len(RINGS)):
         w_ = irng.uniform(2.5, 6.0); h_ = (z - zb) * irng.uniform(0.45, 0.95)
         p = town_pt(th, r0 - 1.0)
         tn = Vector(town_pt(th - 1, r0)) - Vector(town_pt(th + 1, r0)); ang = math.atan2(tn.y, tn.x)
-        b = bm_ico(1.0, (0, 0, 0), 1, (w_ / 2, 0.55, h_ / 2), seed=irng.randint(0, 999), amp=0.25)
-        xf(b, rz=ang); xf(b, loc=(p[0], p[1], z - h_ / 2 + 0.2))
+        b = bm_ico(1.0, (0, 0, 0), 1, (w_ / 2, 0.36, h_ / 2), seed=irng.randint(0, 999), amp=0.18)
+        p = town_pt(th, r0 - 0.75)                   # hugging the wall face (never a dark spike standing off it)
+        xf(b, rz=ang); xf(b, loc=(p[0], p[1], z - h_ / 2 + 0.15))
         merge(ivy, b)
         if irng.random() < 0.45:
             for kk in range(3):
@@ -253,7 +322,7 @@ for k in range(1, len(RINGS)):
         th -= math.degrees((w_ + irng.uniform(3.0, 14.0)) / r0)
 obj('terrace_walls', tw_, PAL['granite'], PT['ashlar'], family='quay', bevel=0.04)
 obj('terrace_coping', tc_, PAL['granite_light'], PT['plain'], family='quay', bevel=0.04)
-obj('terrace_ivy', ivy, face=lambda q: ((lin('#4F6E37') if q.normal.z > 0.2 else lin('#3D5A30')), PT['leaf']), family='veg', jitter=0.08)
+obj('terrace_ivy', ivy, face=lambda q: ((lin('#6E9046') if q.normal.z > 0.2 else lin('#587C3C')), PT['leaf']), family='veg', jitter=0.1)
 obj('terrace_ivy_flowers', ivyf, face=lambda q: ((PAL['flower_p'], PAL['flower_w'], PAL['rowan_berry'])[q.index // 20 % 3], 0), family='veg')
 
 # lanes along each terrace (gravel), stairs between the bands, the squares
@@ -399,6 +468,7 @@ for pi, segs in by_pi.items():
         xf(bm, rz=ang); xf(bm, loc=(root.x, root.y, 0))
         merge(stone, bm)
     else:
+        floating = fr['material'] == 'pontoon'
         sl, pk, fm, pl, rl = (bmesh.new() for _ in range(5))
         for (x0, y0, x1, y1, along_x) in rects:
             merge(sl, bm_box2(x0, y0, deck - 0.2, x1, y1, deck - 0.05))
@@ -407,9 +477,14 @@ for pi, segs in by_pi.items():
             if along_x:
                 for yy in (y0 - 0.05, y1 + 0.05):
                     merge(rl, bm_box2(x0, yy - 0.07, deck - 0.38, x1, yy + 0.07, deck + 0.04))
-                n = max(1, round((x1 - x0) / 3.4))
+                n = max(1, round((x1 - x0) / (6.8 if floating else 3.4)))
                 for k in range(n + 1):
                     xx = x0 + 0.2 + k * (x1 - x0 - 0.4) / n
+                    if floating:     # a pontoon: drum floats under the deck, a guide pile every other bay
+                        merge(fm, bm_box2(xx - 0.9, y0 + 0.15, -0.25, xx + 0.9, y1 - 0.15, deck - 0.2))
+                        if k % 2 == 0:
+                            merge(pl, bm_cyl(0.2, 0.18, 4.2, 6, (xx, y1 + 0.3, -2.6), rot=0.3))
+                        continue
                     for yy in (y0 + 0.1, y1 - 0.1):
                         merge(pl, bm_cyl(0.22, 0.2, deck + 2.85, 4, (xx, yy, -2.6), cap=False, rot=0.785))
                     merge(fm, bm_box2(xx - 0.1, y0, deck - 0.62, xx + 0.1, y1, deck - 0.2))
@@ -419,6 +494,9 @@ for pi, segs in by_pi.items():
                 n = max(1, round((y1 - y0) / 3.4))
                 for k in range(n + 1):
                     yy = y0 + 0.2 + k * (y1 - y0 - 0.4) / n
+                    if floating:
+                        merge(fm, bm_box2(x0 + 0.1, yy - 0.5, -0.2, x1 - 0.1, yy + 0.5, deck - 0.2))
+                        continue
                     for xx in (x0 + 0.1, x1 - 0.1):
                         merge(pl, bm_cyl(0.22, 0.2, deck + 2.85, 4, (xx, yy, -2.6), cap=False, rot=0.785))
                     merge(fm, bm_box2(x0, yy - 0.1, x1, yy + 0.1, deck - 0.62, deck - 0.2) if False else bm_box2(x0, yy - 0.1, deck - 0.62, x1, yy + 0.1, deck - 0.2))
@@ -451,6 +529,66 @@ if len(stone.faces):
         family='pier', bevel=0.06)
 else:
     stone.free()
+
+# chain identity, in the world (no text): each chain's pier heads carry a painted fascia in the chain colour, and a tall
+# flagstaff at every pier root / chain quay flies the chain colour downwind
+CHAIN_BAND = {}
+_wb = Vector(CJ['wind_bow']).normalized()
+for pi, segs in by_pi.items():
+    fr = CJ['pier_frames'][pi]
+    pid = fr['pid']
+    root = Vector(fr['root']); d = Vector(fr['dir']).normalized(); nl = Vector((-d.y, d.x))
+    deck = fr['deck']
+    bm_ = CHAIN_BAND.setdefault(pid, bmesh.new())
+    heads = [s_ for s_ in segs if s_['kind'] == 'thead']
+    arm = [s_ for s_ in segs if s_['kind'] == 'pier'][0]
+    if heads:
+        h_ = heads[0]; a_, b_ = Vector(h_['a']), Vector(h_['b'])
+        off = d * (h_['width'] / 2 + 0.12)
+        merge(bm_, nl_kit.beam((*(a_ + off), deck - 0.18), (*(b_ + off), deck - 0.18), 0.12, 0.5))
+        for e_ in (a_, b_):                      # the head's ends too
+            merge(bm_, nl_kit.beam((*(e_ + off), deck - 0.18), (*(e_ - d * (h_['width'] / 2 + 0.12)), deck - 0.18), 0.12, 0.5))
+    else:
+        tip = Vector(arm['b'])
+        w_ = arm['width'] / 2 + 0.12
+        merge(bm_, nl_kit.beam((*(tip + nl * w_ + d * 0.12), deck - 0.18), (*(tip - nl * w_ + d * 0.12), deck - 0.18), 0.12, 0.5))
+        for sd in (1, -1):
+            merge(bm_, nl_kit.beam((*(tip + nl * sd * w_ - d * 7.0), deck - 0.18), (*(tip + nl * sd * w_ + d * 0.12), deck - 0.18), 0.12, 0.5))
+FLAG_AT = []
+for pi, segs in by_pi.items():
+    fr = CJ['pier_frames'][pi]
+    if fr['pid'] == 'pier-hyperliquid-l1':
+        continue
+    root = Vector(fr['root']); d = Vector(fr['dir']).normalized(); nl = Vector((-d.y, d.x))
+    FLAG_AT.append((fr['pid'], root - d * 3.5 + nl * (fr['width'] / 2 + 2.0)))
+_tq = [Vector(p) for p in QL['tron']]
+for k in (0.18, 0.5, 0.82):
+    L_ = sum((b - a).length for a, b in zip(_tq, _tq[1:])); s_ = L_ * k
+    for a, b in zip(_tq, _tq[1:]):
+        if s_ <= (b - a).length:
+            p_ = a.lerp(b, s_ / (b - a).length); t_ = (b - a).normalized()
+            inl = Vector((t_.y, -t_.x)) if point_in_poly(*(p_ + Vector((t_.y, -t_.x)) * 4), COAST) else Vector((-t_.y, t_.x))
+            FLAG_AT.append(('pier-tron', p_ + inl * 5.0)); break
+        s_ -= (b - a).length
+for cv in CJ['coves']:
+    if cv['pid'] == 'pier-hyperliquid-l1':
+        b = Vector(cv['back']); n_ = Vector(cv['n']); t_ = Vector(cv['t'])
+        FLAG_AT.append((cv['pid'], b - n_ * 4.0 + t_ * 6.0))
+flag_pole = bmesh.new()
+for pid, p_ in FLAG_AT:
+    z0 = H(p_.x, p_.y) if point_in_poly(p_.x, p_.y, COAST) else DECK
+    merge(flag_pole, bm_cyl(0.13, 0.08, 10.5, 6, (p_.x, p_.y, z0 - 0.4)))
+    merge(flag_pole, bm_sphere(0.2, (p_.x, p_.y, z0 + 10.2), 6, 4))
+    fly = -_wb                                     # flags stream downwind
+    fb = bmesh.new()
+    for k in range(4):                             # a gently waved flag (four panels)
+        a_ = p_ + fly * (0.15 + k * 0.85); b_ = p_ + fly * (0.15 + (k + 1) * 0.85)
+        sway = Vector((-fly.y, fly.x)) * (0.18 * math.sin(k * 1.6))
+        merge(fb, nl_kit.beam((*(a_ + sway), z0 + 9.2), (*(b_ + sway), z0 + 9.2), 0.06, 1.6))
+    merge(CHAIN_BAND.setdefault(pid, bmesh.new()), fb)
+obj('chain_flagstaffs', flag_pole, PAL['wall_white'], PT['plain'], family='quay')
+for pid, bm_ in CHAIN_BAND.items():
+    obj('chain_colour_' + pid[5:], bm_, lin(CJ['pennant'][pid]), PT['plain'], family='pier', jitter=0.03)
 
 # bollards (one merged object)
 bol = bmesh.new()

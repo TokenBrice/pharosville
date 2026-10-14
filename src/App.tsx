@@ -5,7 +5,7 @@ export function App() {
   return (
     <div data-pharosville-route>
       <h1 id="pharosville-heading" className="sr-only">PharosVille</h1>
-      <SectionErrorBoundary name="PharosVille" supportingText="Refresh the page to retry the PharosVille map.">
+      <SectionErrorBoundary name="PharosVille" supportingText="Refresh the page to retry the PharosVille harbour.">
         <PharosVilleClient />
       </SectionErrorBoundary>
     </div>

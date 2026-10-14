@@ -21,7 +21,8 @@ R_QUAY = 58.0
 RINGS = [(R_QUAY, R_QUAY + 18.0, Z_SHORE), (R_QUAY + 19.0, R_QUAY + 34.0, 8.0), (R_QUAY + 35.0, R_QUAY + 50.0, 13.5),
          (R_QUAY + 51.0, R_QUAY + 66.0, 19.0)]
 TOWN_TH = [(168.0, 12.0), (160.0, 20.0), (150.0, 30.0), (140.0, 40.0)]
-PHAROS = (-72.0, 96.0)
+PHAROS = (-72.0, 96.0)          # the headland reference (table centre = PHAROS - (16, 4)); the tower itself stands on the knoll
+PHAROS_TOWER = (-80.0, 100.0)
 
 _S = 2.0
 _grid = None          # (x0, y1, nx, ny, dist array) inside-distance to the coast (m)
@@ -136,6 +137,8 @@ def natural(u, v):
     # the Pharos headland: a heather table at ~15 m
     hd = math.hypot((u - PHAROS[0] + 16) / 50.0, (v - PHAROS[1] + 4) / 28.0)
     h = max(h, Z_SHORE + 15.0 * (1 - sstep(0.7, 1.25, hd)) + 1.4 * (1 - sstep(0.0, 0.7, hd)))
+    # the summit knoll the Pharos stands on (its plinth is levelled by the builder)
+    h += 3.2 * gauss(u, v, PHAROS_TOWER[0], PHAROS_TOWER[1], 16.0, 13.0)
     # west lobe: the spruce spine and the windmill knoll above rolling meadows
     h += 11.0 * math.exp(-(line_d(u, v, WEST_SPINE) / 42.0) ** 2) * sstep(4.0, 30.0, dc)
     h += 7.0 * gauss(u, v, *WINDMILL_UV, 26.0, 22.0)

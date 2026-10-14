@@ -7,8 +7,9 @@ import { BlendFunction, Effect, EffectAttribute, EffectPass, type EffectComposer
  *
  * A depth-aware post effect (scene-linear, before bloom / AgX) integrating an exponential height fog
  * along each view ray: thick on the water, thinning up the hill so the town and the Pharos stand
- * out of the bank, drifting in noise patches. Bright lamps keep part of their HDR excess, so the
- * harbour lights glow through the murk. The pass is disabled at zero.
+ * out of the bank, drifting in banks with clear lanes between them, starting beyond the near foreground
+ * (which stays crisp) and thickening with distance. Bright lamps keep and spread their HDR excess, so
+ * the harbour lights bloom through the murk as halos. The pass is disabled at zero.
  */
 const FRAG = /* glsl */ `
 uniform float uAmount;
@@ -17,8 +18,9 @@ uniform mat4 uCamWorld;
 uniform mat4 uInvProj;
 uniform float uTime;
 uniform sampler2D uNoise;
-const float H = 24.0;          // scale height of the bank (m)
-const float A = 0.028;         // density at the sea surface (1/m)
+uniform float uFocus;          // camera distance to the framed water (m): fog starts beyond the near foreground
+const float H = 16.0;          // scale height of the bank (m)
+const float A = 0.03;          // density at the sea surface (1/m)
 void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
   float viewZ = perspectiveDepthToViewZ(depth, cameraNear, cameraFar);
   vec4 ray = uInvProj * vec4(uv * 2.0 - 1.0, 1.0, 1.0);
@@ -30,15 +32,19 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   float dy = wp.y - cp.y;
   float e0 = exp(-max(cp.y, 0.0) / H), e1 = exp(-max(wp.y, 0.0) / H);
   float od = abs(dy) > 0.5 ? A * L * H * (e1 - e0) / -dy : A * L * e0;
-  // drifting banks: two octaves of the shared fbm at the hit point, moving with the onshore breeze
-  vec2 q = wp.xz + vec2(uTime * 2.2, uTime * 0.9);
-  float n = texture2D(uNoise, q * 0.0019).r * 0.65 + texture2D(uNoise, q * 0.0071 + 0.37).g * 0.45;
-  od *= 0.45 + 1.0 * smoothstep(0.25, 0.85, n);
+  // drifting banks: two octaves of the shared fbm, sampled along the ray near the water, moving with
+  // the onshore breeze; clear lanes open between them
+  vec3 qp = mix(cp, wp, clamp((cp.y - 6.0) / max(cp.y - wp.y, 1.0), 0.0, 1.0));
+  vec2 q = qp.xz + vec2(uTime * 2.2, uTime * 0.9);
+  float n = texture2D(uNoise, q * 0.0021).r * 0.7 + texture2D(uNoise, q * 0.0068 + 0.37).g * 0.45;
+  od *= 0.1 + 1.9 * smoothstep(0.32, 0.8, n);
+  // the near foreground stays crisp; the bank thickens with distance (aerial depth)
+  od *= smoothstep(uFocus * 0.25, uFocus * 1.15, L) * (0.75 + 0.5 * smoothstep(uFocus, uFocus * 2.2, L));
   // a veil, never a wall: the harbour stays legible through the thickest bank
-  float f = min(1.0 - exp(-od), 0.8) * uAmount;
+  float f = min(1.0 - exp(-od), 0.88) * uAmount;
   vec3 col = mix(inputColor.rgb, uFogCol, f);
-  // lamps, windows and the beam keep part of their HDR excess: lights glow through fog
-  col += max(inputColor.rgb - 0.9, 0.0) * f * 0.55;
+  // lamps, windows and the beam keep (and spread) their HDR excess: halos bloom through the fog
+  col += max(inputColor.rgb - 0.8, 0.0) * f * 1.1;
   outputColor = vec4(col, inputColor.a);
 }`;
 
@@ -54,6 +60,7 @@ export class StaleFogEffect extends Effect {
         ["uInvProj", new THREE.Uniform(new THREE.Matrix4())],
         ["uTime", time as THREE.Uniform],
         ["uNoise", new THREE.Uniform(noise)],
+        ["uFocus", new THREE.Uniform(300)],
       ]),
     });
   }
@@ -65,6 +72,7 @@ export class StaleFog {
   private readonly effect: StaleFogEffect;
   private pass: EffectPass | null;
   private readonly grey = new THREE.Color();
+  private readonly dir = new THREE.Vector3();
   amount = 0;
 
   constructor(private readonly composer: EffectComposer, private readonly camera: THREE.PerspectiveCamera,
@@ -88,6 +96,9 @@ export class StaleFog {
     u.get("uAmount")!.value = amount;
     (u.get("uCamWorld")!.value as THREE.Matrix4).copy(this.camera.matrixWorld);
     (u.get("uInvProj")!.value as THREE.Matrix4).copy(this.camera.projectionMatrixInverse);
+    // distance from the camera to the water along the view axis (the framed subject)
+    const d = this.camera.getWorldDirection(this.dir);
+    u.get("uFocus")!.value = d.y < -0.05 ? THREE.MathUtils.clamp(this.camera.position.y / -d.y, 80, 2000) : 600;
     // mist: the hour's haze, a touch of horizon light, half desaturated (fog is grey, not tinted glass)
     const c = u.get("uFogCol")!.value as THREE.Color;
     // by night the bank is moonlit and lamp-lit: paler than the dark scene it veils, so it still reads

@@ -10,8 +10,12 @@ import type { HarbourSim } from "../sim/sim";
 
 export type PickKind = "boat" | "landmark" | "harbour";
 
-/** What the pointer is over. boat → coin id; landmark → layout landmark id; harbour → chain name. */
-export interface PickHit { kind: PickKind; id: string }
+/**
+ * What the pointer is over. boat → coin id; landmark → layout landmark id; harbour → chain name.
+ * `at`: the world point the pointer found it at (a pier is long; its tag hangs where you pointed).
+ * Identity (sameHit) ignores `at`.
+ */
+export interface PickHit { kind: PickKind; id: string; at?: [number, number, number] }
 
 /** CSS pixels relative to the viewport. `visible` is false when behind the camera or off screen. */
 export interface ScreenPoint { x: number; y: number; visible: boolean }
@@ -27,6 +31,10 @@ export interface PickingService {
   screenPosition(hit: PickHit, out?: ScreenPoint): ScreenPoint | null;
   /** The object's ground position (x, y, z), for camera flights. */
   worldPosition(hit: PickHit): [number, number, number] | null;
+  /** A boat's waterline in viewport CSS px (chart-label leaders). */
+  waterline(id: string, out?: ScreenPoint): ScreenPoint | null;
+  /** True when the static island (terrain, buildings) hides the boat's hull and lower sail from the camera. */
+  hidden(id: string): boolean;
   setHover(hit: PickHit | null): void;
   setSelected(hit: PickHit | null): void;
 }
@@ -73,6 +81,9 @@ export const getSim = (ctx: EngineContext) => (ctx.services.get("sim") as Harbou
 export const getLayout = (ctx: EngineContext) => (ctx.services.get("layout") as HarbourLayout | undefined) ?? null;
 export const getFeed = (ctx: EngineContext) => (ctx.services.get("feed") as HarbourFeed | undefined) ?? null;
 export const getWorldPicking = (ctx: EngineContext) => (ctx.services.get("picking") as WorldPicking | undefined) ?? null;
+/** The island's top-down height field (src/harbour/world/ground.ts), read structurally. */
+export interface GroundLike { heightAt(x: number, z: number): number }
+export const getGround = (ctx: EngineContext) => (ctx.services.get("ground") as GroundLike | undefined) ?? null;
 
 export interface LighthouseLike { readonly period: number; readonly lit: boolean }
 export const getLighthouse = (ctx: EngineContext) => (ctx.services.get("lighthouse") as LighthouseLike | undefined) ?? null;

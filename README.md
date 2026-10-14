@@ -47,21 +47,18 @@ At a high level:
 1. The React route gates unsupported viewports before world data is mounted.
 2. The browser requests same-origin `/api/*` endpoints.
 3. Cloudflare Pages Functions proxy only the allowed PharosVille read paths.
-4. `src/systems/` builds a pure world model from live data.
-5. `src/three/` renders the Garden Observatory while `src/renderer/` owns its thin lifecycle and hit-test boundary.
-6. Runtime media is limited to same-origin stablecoin and harbor marks, checked models, and the checked water-normal texture; GPU failure falls back to a DOM signal overview.
+4. `src/harbour/` turns that data into The Harbour: a three.js WebGL2 world where every stablecoin is a boat sailing between chain harbours in proportion to its supply, the lighthouse beam is the Stability Index, and sea, weather and fog carry peg, stress and staleness.
+5. `src/harbour/app/` mounts the Engine, its world systems and the chart-paper UI from a lazily loaded chunk; a poster of the harbour paints first and crossfades into the first live frame.
+6. Runtime media is limited to same-origin stablecoin and chain marks and the checked files under `public/harbour/`; if WebGL2 cannot start, the poster stays up with the guide and Pharos links.
 
 For the full implementation map, see [Architecture](./docs/pharosville/ARCHITECTURE.md).
-For agent-facing Three.js guidance (module map, frame contract, disposal, tiers),
-see [Three.js Agent Reference](./docs/pharosville/THREEJS_AGENT_REFERENCE.md).
 
 ## Repo Map
 
-- `src/` - PharosVille React shell, Three.js runtime, hooks, content, systems, and renderer
+- `src/` - PharosVille React shell and viewport gate; `src/harbour/` is the Harbour world (engine, systems, data, UI)
 - `shared/` - runtime-neutral PharosVille API contract and data logic
 - `functions/` - Cloudflare Pages Function proxy and server-side response hardening
-- `public/pharosville/models/` - checked runtime GLB models
-- `public/pharosville/textures/` - checked Three.js textures
+- `public/harbour/` - checked runtime GLBs, the boat kit, the sea mask, the emblem atlas and the first-paint poster
 - `docs/pharosville/` - architecture, testing, operations, visual, and asset-maintenance docs
 - `.github/workflows/` - deploy, canary, CodeQL, and dependency/security automation
 - `agents/` - active planning and handoff artifacts
@@ -114,7 +111,6 @@ npm run validate:docs
 npm run typecheck
 npm test
 npm run check:runtime-media
-npm run check:pharosville-colors
 npm run build
 npm run test:visual
 ```

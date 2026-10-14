@@ -330,13 +330,9 @@ Then check that the rewrite actually fires:
 curl -s 'https://pharosville.pharos.watch/?sel=ship.usdc-circle' | grep 'og:title'
 ```
 
-**What the Copy link button produces.** The app keeps its deep-link params in
-the URL fragment (`/#sel=ship.usdc-circle`), which never reaches a server.
-Copy link therefore moves them into the query string
-(`buildShareableWorldUrlHref` in `src/hooks/use-world-url-state.ts`), so a copied
-selection unfurls through this route as `?sel=…`. A moment link, which
-already carries `?ship=…&cam=…`, is copied as it is. This route reads only
-`sel`, so a moment link still unfurls as the homepage.
+**Selection links.** The Garden-era Copy link button wrote `?sel=…` links; the
+Harbour UI does not write selection URLs yet, so a shared link unfurls as the
+homepage unless it carries `sel=` itself. This route still reads only `sel`.
 
 ## Rotate `PHAROS_API_KEY`
 

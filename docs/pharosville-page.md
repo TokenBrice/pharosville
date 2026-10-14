@@ -1,11 +1,12 @@
 # PharosVille Route Contract
 
-Last updated: 2026-09-08
+Last updated: 2026-10-14
 
-PharosVille is a living stablecoin garden at
-`https://pharosville.pharos.watch/`: a stablecoin harbour you watch like a
-garden. Live Pharos markets unfold as ships, water, light, and weather, while
-exact readings remain available in DOM details and the accessibility ledger.
+PharosVille is a living stablecoin harbour at
+`https://pharosville.pharos.watch/`. Every stablecoin is a boat in a lighthouse
+harbour town, sailing between chain harbours in proportion to its supply. The
+world carries the meaning; exact readings appear only on demand, in the hover
+tag, the side panel and the ledger.
 
 ## Entry and trust boundary
 
@@ -15,64 +16,37 @@ exact readings remain available in DOM details and the accessibility ledger.
   independently satisfy either the standard 900×720 profile or the wide-laptop
   1200×640 profile. Dimensions are sorted, so these remain direct size tests,
   not an orientation or aspect-ratio gate. Blocked viewports render DOM guidance
-  without fetching world data or importing Three.js and its media.
-- The production renderer is Three.js/WebGL. Renderer, WebGL, module, or
-  context failure shows the selectable DOM `WorldStaticOverview`; there is no
-  graphical fallback renderer.
+  without fetching world data or importing three.js and its media.
+- First paint is a poster of the harbour (an illustration, no live numbers)
+  that crossfades into the first live frame. The production renderer is
+  three.js/WebGL2; if it cannot start, the poster stays up with the guide and
+  Pharos links. There is no graphical fallback renderer.
 
 ## What the world means
 
 | World element | Meaning | It must not imply |
 | --- | --- | --- |
-| Lighthouse | PSI score and band | total market health from one cue |
-| Harbor | rendered-chain stablecoin supply | transfers or bridge volume |
-| Ship | one active stablecoin and its evidence | issuer activity or operations |
-| Route | deterministic display of chain/risk presence | real movement or transactions |
-| Water body | existing peg/DEWS or ledger category | confirmed stress from stale evidence |
-| Wreck | dead or frozen lifecycle state | a currently active stablecoin |
+| Boat | one active stablecoin; hull family by peg currency, size by supply class | issuer activity or operations |
+| Circuit | the boat docks at each chain's pier for a share of its time equal to its supply share there | a real transfer or bridge volume |
+| Pier | a chain harbour, sized by the supply it holds | chain health from one cue |
+| Lighthouse beam | the Pharos Stability Index score and band | total market health from one cue |
+| Sea state | the off-peg share of supply | confirmed stress from stale evidence |
+| Weather | DEWS stress signals | a forecast |
+| Fog | stale or missing data | calm |
 
-The Garden Observatory holds a terraced island and Pharos lighthouse, a ring
-of distinct harbors, a full fleet of water-safe ships, separate water bodies,
-the TON pigeonnier, and a sea wreckyard. Fleet placement is deterministic,
-region-aware, and capacity-bounded at 320 ships; it is not a small curated
-20-ship slice.
+## Interaction and motion
 
-Four instanced procedural silhouettes carry ordinary ships. Titan and heritage
-ships can load a checked hero hull over the same procedural fallback. Sail
-cloth, marks, livery, chain flags, and water behavior make entities readable at
-overview scale; the DOM detail panel and accessibility ledger carry exact
-values, freshness, provenance, and caveats.
+- The resting frame is the world plus one corner wordmark with a live dot (D11).
+  Hover shows a tag; click opens the side panel; `L` the ledger, `/` search,
+  `C` chart labels; Escape closes the top layer.
+- Pan and zoom stay inside the harbour; the sim is deterministic in wall-clock
+  time, so a reload never teleports the fleet.
 
-## Interaction, caption, and motion
+## Media
 
-- The resting frame is the world, one deterministic “now” sentence, and one
-  quiet Explore affordance. Find, Legend, Harbor ledger, and view controls
-  reveal on pointer approach, keyboard focus, `/`, or camera input; focused
-  controls remain visible.
-- The now sentence gives an arrival ceremony first, then the latest market
-  transition, then a stale-feed warning, otherwise the wall-clock phase and
-  freshness. It changes only when those data or time inputs change.
-- Pointer and keyboard targets use the same displayed poses as rendering.
-- Selection, deep links, pan, zoom, reset, Observe, day/night, Escape clear,
-  and the accessible detail flow remain supported.
-- Version and renderer telemetry are absent from ordinary chrome. `?debug=1`
-  shows version, FPS, draws, triangles, textures, and GPU p95.
-- One route-owned clock drives normal animation. Reduced motion produces a
-  composed static frame with no continuous RAF; hidden or offscreen surfaces
-  pause without a catch-up teleport.
-
-## Performance and media
-
-The renderer adapts between full, balanced, interaction, recovery, and
-constrained tiers. It may shed decorative work but not analytical entities,
-selection, hit targets, DOM labels, or details. Repeated fleet geometry,
-lanterns, and marks use batching or instancing; resource and pacing limits are
-tested rather than assumed.
-
-Runtime media is same-origin and deliberately small in scope: stablecoin logos,
-the checked chain-logo set for harbor flags, one checked water normal, and the
-checked GLB manifest. All other scene content is procedural. See
-`docs/pharosville/ASSET_PIPELINE.md`.
+Runtime media is same-origin: stablecoin and chain logos, and the checked
+files under `public/harbour/` (island and lighthouse GLBs, the boat kit, the sea
+mask, the emblem atlas, the poster).
 
 ## Non-goals
 

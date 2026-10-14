@@ -12,10 +12,33 @@ import { buildHarbourModel } from "../model/build";
 import { allTruth } from "../model/truth";
 import type { HarbourModel } from "../model/types";
 import { HarbourSim, PH_APPROACHING, PH_DOCKED, PH_MOORED } from "./sim";
+import type { CoastGrid } from "./obstacles";
 import { SimDebugMarkers } from "./debug-markers";
 
 /** Re-evaluate freshness this often even without new payloads (a silent feed must turn stale). */
 const TRUTH_RECHECK_MS = 30_000;
+
+/** The sea SDF's coast channel (R), rows from minZ, or null (the sim then uses the layout's coast outline). */
+async function loadCoast(layout: HarbourLayout): Promise<CoastGrid | null> {
+  const url = layout.sea?.sdf, bounds = layout.sea?.bounds as [number, number, number, number] | undefined;
+  if (!url || !bounds) return null;
+  try {
+    const res = await fetch(url);
+    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("image")) return null;
+    const bmp = await createImageBitmap(await res.blob(), { colorSpaceConversion: "none", premultiplyAlpha: "none" });
+    const cv = new OffscreenCanvas(bmp.width, bmp.height);
+    const c2 = cv.getContext("2d");
+    if (!c2 || bmp.width !== bmp.height) return null;
+    c2.drawImage(bmp, 0, 0);
+    const px = c2.getImageData(0, 0, bmp.width, bmp.height).data;
+    const n = bmp.width, data = new Uint8Array(n * n);
+    // the PNG's top row is z = maxZ
+    for (let j = 0; j < n; j++) { const src = (n - 1 - j) * n * 4; for (let i = 0; i < n; i++) data[j * n + i] = px[src + i * 4]; }
+    return { data, size: n, bounds };
+  } catch {
+    return null;
+  }
+}
 
 export class DataSystem implements WorldSystem {
   readonly name = "data";
@@ -33,7 +56,7 @@ export class DataSystem implements WorldSystem {
   private markers: SimDebugMarkers | null = null;
   private t0 = 0;
 
-  init(ctx: EngineContext): void {
+  async init(ctx: EngineContext): Promise<void> {
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
     if (!layout) { console.warn("[harbour] data: no layout service; the fleet stays empty"); return; }
     this.layout = layout;
@@ -45,10 +68,12 @@ export class DataSystem implements WorldSystem {
       if (q.get("simdebug") === "1") this.markers = new SimDebugMarkers(ctx.scene);
     }
     this.t0 = Date.now();
-    const now = this.simNow(this.t0);
+    // the island's real coastline, from the baked sea SDF (the same bytes for every viewer)
+    const coast = await loadCoast(layout);
+    const now = this.simNow(Date.now());
     // AWAITING DATA: an empty, unavailable model until the first payloads land — never a fixture fleet
     const empty = buildHarbourModel({}, now, { pieredChains: layout.piers.map((p) => p.chain) });
-    this.sim = new HarbourSim(empty, layout, now);
+    this.sim = new HarbourSim(empty, layout, now, coast);
     ctx.services.set("model", empty);
     ctx.services.set("sim", this.sim);
     this.feed = new HarbourFeed();
