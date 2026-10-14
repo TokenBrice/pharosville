@@ -32,7 +32,7 @@ HEX = {
     'rock': '#857F78', 'rock_dark': '#5E5A55', 'rock_light': '#A8A29A', 'lichen': '#C2A85A', 'grass': '#748F45',
     'canvas': '#F2ECDF', 'rope': '#CDBB92', 'door_green': '#2F5A4A', 'door_blue': '#2E4B6B', 'door_red': '#7A2A22',
     'flag_red': '#B23A30', 'flag_blue': '#2A4A86', 'flag_white': '#F2EFE8', 'flag_gold': '#E1B649', 'clock': '#F4EEDC',
-    'hull_red': '#8E2F24', 'hull_black': '#1E2327', 'antifoul': '#7B2E25', 'deck': '#C4A272', 'cone': '#1A1D20',
+    'hull_red': '#8E2F24', 'hull_black': '#1E2327', 'antifoul': '#7B2E25', 'deck': '#C4A272', 'cone': '#1A1D20', 'flag_green': '#2F8A45',
 }
 PAL = {k: lin(v) for k, v in HEX.items()}
 PAL.update({k: v for k, v in hb_lib.PAL.items() if k not in PAL})

@@ -9,7 +9,8 @@ import type { WorldUniforms } from "../engine/uniforms";
  *   texel 0 = (furl 0..1, signed boom swing rad (>0 = port tack, mirrored rig), highlight 0..1,
  *              pennant: sign = flies (>0) or struck (<0); |w| = 1 + far (0..1: spars recede far away), + 2 when
  *              the CPU struck the rig (see STRUCK))
- *   texel 1 = (brand r, g, b linear, emblem slot or -1)
+ *   texel 1 = (brand r, g, b linear, emblem slot or -1; -2 = a v1 hulk; ≤ -9 = a wreck kit v2 piece, -10 - n = nameboard n)
+ *   (wreck kit v2 pieces: texel 0.x = their lantern lit 0..1; kinds 3 = epitaph board, 4 = lantern glass)
  * and the static livery in `uFleetPaint` (4 RGBA32F texels per instance, written once at install, decorative):
  *   texel 0 = (topside rgb, name board 0|1) · 1 = (stripe / trim rgb, painted 0|1) · 2 = (deck rgb, -) ·
  *   3 = (coachroof rgb, painted 0|1). The kit's aPaint region picks which one a corner wears.
@@ -26,6 +27,9 @@ export interface FleetUniforms {
   uWind: THREE.IUniform<number>;
   /** The fleet's decorative clock (s): stands still under reduced motion (rig life, flags, lamp shimmer). */
   uFleetTime: THREE.IUniform<number>;
+  /** Wreck Cove epitaph nameboards (alpha = ink) and their grid (cols, rows, 1/cols, 1/rows). */
+  uBoards: THREE.IUniform<THREE.Texture>;
+  uBoardGrid: THREE.IUniform<THREE.Vector4>;
 }
 
 /**
@@ -192,6 +196,9 @@ vec3 hbFleetPoseP(vec3 p) {
 const FRAG_PARS = /* glsl */ `
 uniform sampler2D uEmblems;
 uniform vec4 uEmblemGrid;
+uniform sampler2D uBoards;
+uniform vec4 uBoardGrid;
+uniform float uLamp;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 varying vec4 vFleetBrand;
@@ -262,8 +269,22 @@ void hbFleetColor(inout vec3 c) {
   float seams = hbSeam(su.y, 0.125, 0.006);
   float tabling = max(1.0 - smoothstep(0.015, 0.03, min(su.x, 1.0 - su.x)), 1.0 - smoothstep(0.02, 0.035, su.y));
   float fine = 1.0 - smoothstep(0.02, 0.08, fwidth(su.y));
-  // hulks: salt-bleached, tar-stained timber, never a clean grey
-  if (vFleetBrand.a < -1.5) c *= vec3(0.66, 0.58, 0.49);
+  vec2 sx2 = dFdx(su), sy2 = dFdy(su);
+  // hulks (v1): salt-bleached, tar-stained timber, never a clean grey (v2 wrecks carry their weathering baked)
+  if (vFleetBrand.a < -1.5 && vFleetBrand.a > -2.5) c *= vec3(0.66, 0.58, 0.49);
+  if (kind > 3.5) { c = vec3(0.042, 0.04, 0.034); return; }   // lantern glass (its glow is added after lighting)
+  if (kind > 2.5) {
+    // the epitaph nameboard: the dead coin's name in dark ink, carved into the weathered board
+    float board = -vFleetBrand.a - 10.0;
+    if (board >= 0.0 && su.x >= 0.0 && su.x <= 1.0 && su.y >= 0.0 && su.y <= 1.0) {
+      vec2 cell = vec2(mod(board, uBoardGrid.x), floor(board / uBoardGrid.x));
+      // (glTF TEXCOORD_0: v runs top → bottom of the board, as the canvas rows do; flipY puts row 0 at v = 1)
+      vec2 uv = vec2((cell.x + su.x) * uBoardGrid.z, 1.0 - (cell.y + su.y) * uBoardGrid.w);
+      float ink = textureGrad(uBoards, uv, vec2(sx2.x, -sx2.y) * uBoardGrid.zw, vec2(sy2.x, -sy2.y) * uBoardGrid.zw).a;
+      c = mix(c, c * vec3(0.16, 0.13, 0.11), ink * 0.92);
+    }
+    return;
+  }
   vec3 brand = vFleetBrand.rgb;
   float bl = dot(brand, vec3(0.2126, 0.7152, 0.0722));
   vec3 dyed = mix(vec3(bl), brand, 0.7) * 0.74;          // dyed canvas: muted, a shade darker, never plastic
@@ -308,7 +329,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   m.name = "hb_fleet";
   m.onBeforeCompile = (shader, renderer) => {
     baseHook(shader, renderer);
-    Object.assign(shader.uniforms, fleet, { uSunDir: u.uSunDir, uSunColor: u.uSunColor, uTime: fleet.uFleetTime });
+    Object.assign(shader.uniforms, fleet, { uSunDir: u.uSunDir, uSunColor: u.uSunColor, uTime: fleet.uFleetTime, uLamp: u.uLamp });
     shader.vertexShader = shader.vertexShader
       .replace("#include <batching_pars_vertex>", `#include <batching_pars_vertex>\nuniform float uTime;\n${VERT_PARS}`)
       .replace("#include <beginnormal_vertex>", "hbFleetPose(position, normal);\nvec3 objectNormal = hbFleetN;\n#ifdef USE_TANGENT\nvec3 objectTangent = vec3(tangent.xyz);\n#endif")
@@ -323,6 +344,11 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   {
     vec3 fN = inverseTransformDirection(normal, viewMatrix);
     vec3 fV = normalize(cameraPosition - vHbWorld);
+    // wreck lanterns: warm oil light × uLamp (the hb_emissive contract), a slow uneven flicker
+    if (vFleetMisc.z > 3.5) {
+      float fl = 0.86 + 0.08 * sin(uTime * 5.3 + vHbWorld.x * 1.7) + 0.06 * sin(uTime * 11.9 + vHbWorld.z * 2.3);
+      outgoingLight += vec3(1.0, 0.42, 0.095) * uLamp * vFleetRig.x * fl;
+    }
     // sail cloth glows when the low sun is behind it
     if (vFleetMisc.z > 0.5 && vFleetMisc.z < 1.5) outgoingLight += diffuseColor.rgb * uSunColor * max(0.0, dot(-fN, uSunDir)) * 0.16 * (1.0 - vFleetRig.x);
     // hover / selection: soft warm rim + lift
@@ -336,7 +362,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   }
   #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => "hb_fleet_v3";
+  m.customProgramCacheKey = () => "hb_fleet_v4";
 
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";

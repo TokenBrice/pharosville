@@ -32,7 +32,7 @@ export class EmblemAtlas {
   private disposed = false;
 
   private constructor(private readonly meta: AtlasMeta, extraSlots: number) {
-    const rowsLogos = Math.ceil(Object.keys(meta.ids).length / meta.cols);
+    const rowsLogos = logoRows(meta);
     const rows = Math.max(1, Math.min(meta.cols, rowsLogos + Math.ceil(extraSlots / meta.cols) + 1));
     this.capacity = rows * meta.cols;
     this.canvas = document.createElement("canvas");
@@ -41,7 +41,6 @@ export class EmblemAtlas {
     this.g = this.canvas.getContext("2d", { willReadFrequently: false })!;
     for (const [id, s] of Object.entries(meta.ids)) this.slots.set(id, s);
     this.nextFree = rowsLogos * meta.cols; // monograms start on a fresh row (logos may be re-built)
-    this.nextFree = Math.max(this.nextFree, Object.keys(meta.ids).length);
     this.grid.set(meta.cols, rows, 1 / meta.cols, 1 / rows);
     const t = new THREE.CanvasTexture(this.canvas);
     t.colorSpace = THREE.SRGBColorSpace;
@@ -75,7 +74,7 @@ export class EmblemAtlas {
     this.logos = "done";
     if (this.disposed) { img?.close(); return; }
     if (img) {
-      const rowsLogos = Math.ceil(Object.keys(this.meta.ids).length / this.meta.cols);
+      const rowsLogos = logoRows(this.meta);
       this.g.clearRect(0, 0, this.canvas.width, Math.min(img.height, rowsLogos * this.meta.slot));
       this.g.drawImage(img, 0, 0);
       img.close();
@@ -133,6 +132,13 @@ export class EmblemAtlas {
   }
 
   dispose(): void { this.disposed = true; this.texture.dispose(); }
+}
+
+/** Rows the logo tiles fill (several coin ids may share one logo's slot). */
+function logoRows(meta: AtlasMeta): number {
+  let top = -1;
+  for (const s of Object.values(meta.ids)) top = Math.max(top, s);
+  return Math.ceil((top + 1) / meta.cols);
 }
 
 /** Up to 4 letters of a symbol, dropping a trailing currency suffix ("USD", "EUR") when the rest is ≥ 2 letters. */

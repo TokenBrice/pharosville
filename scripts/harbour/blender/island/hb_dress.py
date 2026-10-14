@@ -806,75 +806,149 @@ for (a, b) in CJ['far']['rafts']:
         merge(fpost, bm_cyl(0.5, 0.0, 0.5, 8, (p_[0], p_[1], 5.9)))
         merge(flamp, bm_cyl(0.36, 0.36, 0.8, 8, (p_[0], p_[1], 5.05)))
         LAMP_PTS.append(Vector((p_[0], p_[1], 5.45))); LAMP_LIGHTS.append((p_[0], p_[1], 5.45, 'pierhead', '#FFB347'))
+# P7 (acceptance #6): the Far Ports are a buoyed anchorage (every hull on its own swinging mooring; the runtime draws those
+# buoys). Round it, lit special-mark pillar buoys: a yellow float, a short lattice pillar, an X topmark, an amber light.
 for p_ in CJ['far'].get('buoys', []):
-    merge(fbuoy, bm_cyl(0.7, 0.8, 1.1, 8, (p_[0], p_[1], -0.3)))
-    merge(fbuoy, bm_cyl(0.0, 0.5, 0.9, 8, (p_[0], p_[1], 0.8)))
-obj('far_ports_marker_posts', fpost, face=lambda q: ((PAL['wall_ochre'] if q.center.z > 3.0 else PAL['tar']), PT['plain']), family='far_ports', jitter=0.05)
-obj('far_ports_marker_lamps', flamp, mat=M['lamp'], family='far_ports', shadow=False)
-obj('far_ports_buoys', fbuoy, lin('#E8C33A'), PT['plain'], family='far_ports', jitter=0.05)
-obj('far_ports_rafts', fr, PAL['timber_grey'], PT['planks_x'] if 'planks_x' in PT else PT['plain'], family='far_ports', jitter=0.08)
-obj('far_ports_piles', fpile, PAL['timber_dark'], PT['plain'], family='far_ports', jitter=0.06)
-obj('far_ports_floats', ffloat, lin('#3A3F42'), PT['plain'], family='far_ports', jitter=0.04)
+    x, y = p_
+    merge(fbuoy, bm_cyl(1.0, 1.15, 1.3, 10, (x, y, -0.45)))
+    merge(fbuoy, bm_cyl(0.75, 0.55, 0.35, 10, (x, y, 0.85)))
+    for k in range(3):
+        a_ = 2 * math.pi * k / 3
+        merge(fpost, nl_kit.beam((x + math.cos(a_) * 0.55, y + math.sin(a_) * 0.55, 1.1), (x + math.cos(a_) * 0.18, y + math.sin(a_) * 0.18, 3.6), 0.09, 0.09))
+    for sg in (-1, 1):                                       # the X topmark (special mark), faced to the default camera
+        merge(fbuoy, nl_kit.beam((x - 0.55, y - 0.55 * sg, 4.1 - 0.45), (x + 0.55, y + 0.55 * sg, 4.1 + 0.45), 0.16, 0.12))
+    merge(flamp, bm_cyl(0.2, 0.2, 0.42, 8, (x, y, 3.55)))
+    LAMP_PTS.append(Vector((x, y, 3.8))); LAMP_LIGHTS.append((x, y, 3.8, 'pierhead', '#FFB347'))
+for _nm, _bm, _kw in (('far_ports_marker_posts', fpost, dict(color=PAL['iron'], pattern=PT['metal'], jitter=0.05)),
+                      ('far_ports_marker_lamps', flamp, dict(mat=M['lamp'], shadow=False)),
+                      ('far_ports_buoys', fbuoy, dict(color=lin('#E8C33A'), pattern=PT['plain'], jitter=0.05)),
+                      ('far_ports_rafts', fr, dict(color=PAL['timber_grey'], pattern=PT['plain'], jitter=0.08)),
+                      ('far_ports_piles', fpile, dict(color=PAL['timber_dark'], pattern=PT['plain'], jitter=0.06)),
+                      ('far_ports_floats', ffloat, dict(color=lin('#3A3F42'), pattern=PT['plain'], jitter=0.04))):
+    if len(_bm.faces):
+        obj(_nm, _bm, family='far_ports', **_kw)
+    else:
+        _bm.free()
 
-# ------------------------------------------------------------------ P6 (D18): Wreck Cove - old ribs on the strand, masts in the shallows
-# The long-dead, left where they broke up: bleached keels with their frames standing like ribs, half sunk in the sand at
-# the waterline, and topmasts leaning out of the shallows beyond (the runtime's beached hulks lie up the strand above them).
-ribs, wmast = bmesh.new(), bmesh.new()
+# ------------------------------------------------------------------ P7 (operator c): Wreck Cove dressed from the wreck kit v2
+# The 88 dead are the runtime's (layout zones.wreckCove: slots + the memorial arc). Here, the cove itself: its static props
+# (compose.py WRECK_PROPS, imported from the wreck builder's raw GLBs and baked into island.glb), boulders among the small
+# wrecks, a dark wrack line of weed and drift above the tide, shingle bands at the waterline, marram grass on the dunes.
+WK_RAW = os.path.join(ROOT, 'outputs/harbour/wrecks/raw')
+_WK_MAT = {'hb_window': 'window', 'hb_emissive': 'lamp', 'hb_fire': 'lamp', 'hb_glass': 'lantern_glass'}
+
+
+def _wk_col(me):
+    """The kit's COLOR_0 (rgb albedo, a = pattern id / 16) as the island's 'Col' (FLOAT_COLOR, CORNER)."""
+    ca = me.color_attributes
+    n = len(me.loops)
+    buf = np.ones((n, 4), np.float32)
+    src = ca.get('Color') or (ca[0] if len(ca) else None)
+    if src is not None:
+        if src.domain == 'CORNER':
+            tmp = np.zeros(n * 4, np.float32); src.data.foreach_get('color', tmp); buf = tmp.reshape(-1, 4)
+        else:
+            tmp = np.zeros(len(me.vertices) * 4, np.float32); src.data.foreach_get('color', tmp); tmp = tmp.reshape(-1, 4)
+            li = np.zeros(n, np.int64); me.loops.foreach_get('vertex_index', li); buf = tmp[li]
+    for nm_ in [a.name for a in ca]:
+        ca.remove(ca[nm_])
+    col = ca.new('Col', 'FLOAT_COLOR', 'CORNER'); col.data.foreach_set('color', buf.ravel())
+
+
+def wk_import(kit, c, bow, k, z):
+    path = os.path.join(WK_RAW, kit + '.glb')
+    if not os.path.exists(path):
+        print('WRECK KIT missing', path)
+        return []
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=path)
+    new = [o for o in bpy.data.objects if o not in before]
+    for o in new:
+        for cl in list(o.users_collection):
+            cl.objects.unlink(o)
+        cur_coll().objects.link(o)
+    root = empty('wk_' + kit, (c[0], c[1], z), (0.0, 0.0, math.atan2(bow[1], bow[0])), family='wreck')
+    root.scale = (k, k, k)
+    for o in new:
+        if o.parent is None:
+            o.parent = root
+        o['family'] = 'wreck'
+        if o.type == 'MESH':
+            _wk_col(o.data)
+            for i, m in enumerate(o.data.materials):
+                nm = (m.name if m else 'hb_opaque').split('.')[0]
+                o.data.materials[i] = M[_WK_MAT.get(nm, 'kit')]
+    bpy.context.view_layer.update()
+    for o in new:                                            # the hut's and the station's lanterns light at night
+        if o.type == 'EMPTY' and o.name.split('.')[0] == 'lamp_light':
+            p = o.matrix_world.translation
+            LAMP_PTS.append(p.copy()); LAMP_LIGHTS.append((p.x, p.y, p.z, 'lamp', '#FFB15C'))
+    return new
+
+
+_WK = CJ['wreck']
+for pr_ in _WK.get('props', []):
+    wk_import(pr_['kit'], pr_['c'], pr_['bow'], pr_['scale'], pr_['z'])
+print('WRECK COVE props', len(_WK.get('props', [])))
 _wrng = random.Random(1313)
-_strand = [tuple(p) for p in CJ['wreck']['strand']]
+_strand = [tuple(p) for p in _WK['strand']]
 _Ls = polyline_len(_strand)
-_lanes = [(Vector(CJ['lanes']['nodes'][a_]), Vector(CJ['lanes']['nodes'][b_])) for a_, b_ in CJ['lanes']['edges']]
-
-
-def _off_lanes(p, clr):
-    return all(seg_d((p.x, p.y), a_, b_) > clr for a_, b_ in _lanes)
-
-
-for k, s_ in enumerate((0.16, 0.37, 0.58, 0.8)):
-    p, t = along(_strand, _Ls * s_)
-    t = Vector(t); nl = Vector((-t.y, t.x))                    # nl points inland (the strand's left)
-    c = Vector(p) - nl * _wrng.uniform(2.5, 5.0)
-    L_ = _wrng.uniform(12.0, 19.0)
-    ax = (t * math.cos(0.5) + nl * math.sin(0.5) * _wrng.choice((-1, 1))).normalized()     # lying across the waterline
-    up_ = Vector((0, 0, 1)); side = Vector((-ax.y, ax.x, 0))
-    k0 = c - ax * L_ / 2; k1 = c + ax * L_ / 2
-    zk = -0.7
-    merge(ribs, nl_kit.beam((k0.x, k0.y, zk), (k1.x, k1.y, zk + 0.3), 0.45, 0.4))           # the keel
-    merge(ribs, nl_kit.beam((k1.x, k1.y, zk + 0.3), (k1.x + ax.x * 1.2, k1.y + ax.y * 1.2, zk + 4.2), 0.4, 0.35))   # stem post
-    nfr = int(L_ / 1.35)
-    for j in range(1, nfr):
-        if _wrng.random() < 0.18:
-            continue                                            # a gap where frames have gone
-        u_ = j / nfr
-        q = k0 + ax * L_ * u_
-        half = 2.7 * math.sin(math.pi * min(1.0, 0.15 + u_ * 0.9)) + 0.4
-        hgt = (3.4 if _wrng.random() > 0.3 else _wrng.uniform(1.4, 2.6)) * (0.75 + 0.25 * math.sin(math.pi * u_))
-        for sd in (-1, 1):
-            if _wrng.random() < 0.12:
-                continue
-            pts3 = [Vector((q.x, q.y, zk + 0.2))]
-            for m_ in range(1, 4):
-                f_ = m_ / 3
-                off = side * sd * half * math.sin(f_ * math.pi / 2)
-                pts3.append(Vector((q.x + off.x, q.y + off.y, zk + 0.2 + hgt * (1 - math.cos(f_ * math.pi / 2)) ** 0.8 + hgt * 0.4 * f_)))
-            for a3, b3 in zip(pts3, pts3[1:]):
-                merge(ribs, nl_kit.beam(a3, b3, 0.26, 0.3))
-for k in range(5):
-    p, t = along(_strand, _Ls * (0.1 + 0.2 * k + _wrng.uniform(-0.05, 0.05)))
+wrock, wweed, wpeb, wgrass = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
+for (x, y, r) in _WK.get('rocks', []):                       # boulders: low granite lumps, half sunk in the sand
+    zr = H(x, y) if point_in_poly(x, y, COAST) else -0.4
+    merge(wrock, bm_ico(r, (x, y, zr - r * 0.35), 1, (1.0, 0.85, 0.62), seed=int(x * 7 + y * 13) % 97, amp=0.22))
+# the wrack line: a thin, broken ribbon of dark weed wandering along the high-tide mark (two strands in places), the odd
+# bleached stick caught in it
+for _band, _dd, _keep in ((0, 24.0, 0.86), (1, 21.5, 0.35)):
+    _s = 1.5; _prev = None
+    while _s < _Ls - 1.5:
+        p, t = along(_strand, _s)
+        t = Vector(t); nl = Vector((-t.y, t.x))
+        d_ = _dd + 2.0 * math.sin(_s * 0.06 + _band) + 0.9 * math.sin(_s * 0.21 + 2.0 * _band) + _wrng.uniform(-0.25, 0.25)
+        q = Vector(p) + nl * d_
+        if _prev is not None and _wrng.random() < _keep:
+            w_ = _wrng.uniform(0.22, 0.55) * (1.0 if _band == 0 else 0.7)
+            za, zb = H(_prev.x, _prev.y) + 0.03, H(q.x, q.y) + 0.03
+            merge(wweed, nl_kit.beam((_prev.x, _prev.y, za), (q.x, q.y, zb), w_, 0.05))
+            if _wrng.random() < 0.08:
+                a2 = t.copy(); a2.rotate(Matrix.Rotation(_wrng.uniform(-1.2, 1.2), 2)); L2 = _wrng.uniform(1.2, 2.8)
+                merge(wpeb, nl_kit.beam((q.x - a2.x * L2 / 2, q.y - a2.y * L2 / 2, zb + 0.06), (q.x + a2.x * L2 / 2, q.y + a2.y * L2 / 2, zb + 0.1), 0.13, 0.13))
+        _prev = q
+        _s += _wrng.uniform(0.9, 1.6)
+_s = 1.0
+while _s < _Ls - 1.0:                                        # shingle at the waterline: banks of grey pebbles
+    p, t = along(_strand, _s)
     t = Vector(t); nl = Vector((-t.y, t.x))
-    base = Vector(p) - nl * _wrng.uniform(9.0, 16.0)
-    if not _off_lanes(base, 12.0):
+    for _k in range(3):
+        q = Vector(p) + nl * _wrng.uniform(-0.6, 3.2) + t * _wrng.uniform(-1.2, 1.2)
+        if point_in_poly(q.x, q.y, COAST):
+            merge(wpeb, bm_ico(_wrng.uniform(0.16, 0.34), (q.x, q.y, H(q.x, q.y) + 0.02), 1, (1.0, 0.8, 0.45), seed=_k, amp=0.2))
+    _s += _wrng.uniform(1.4, 2.6)
+_s = 1.5
+while _s < _Ls - 1.5:                                        # marram grass in tussocks on the dunes behind the memorial
+    p, t = along(_strand, _s)
+    t = Vector(t); nl = Vector((-t.y, t.x))
+    q = Vector(p) + nl * _wrng.uniform(38.0, 64.0) + t * _wrng.uniform(-1.5, 1.5)
+    if point_in_poly(q.x, q.y, COAST) and (terrain.beach_k(q.x, q.y)[0] > 0.2 or not occupied(q.x, q.y)) and terrain.pad_at(q.x, q.y, 1.0) is None:
+        zq = H(q.x, q.y)
+        for _b in range(_wrng.randint(10, 16)):
+            a_ = _wrng.uniform(0, 6.28); lean = _wrng.uniform(0.2, 0.6); hh = _wrng.uniform(0.9, 1.6)
+            b0 = (q.x + math.cos(a_) * 0.15, q.y + math.sin(a_) * 0.15, zq)
+            b1 = (b0[0] + math.cos(a_) * hh * lean, b0[1] + math.sin(a_) * hh * lean, zq + hh)
+            merge(wgrass, nl_kit.beam(b0, b1, 0.1, 0.04))
+    _s += _wrng.uniform(0.9, 1.8)
+for _k in range(30):                                         # bleached driftwood strewn over the upper beach
+    p, t = along(_strand, _wrng.uniform(0.04, 0.96) * _Ls)
+    t = Vector(t); nl = Vector((-t.y, t.x))
+    q = Vector(p) + nl * _wrng.uniform(12.0, 44.0)
+    if not point_in_poly(q.x, q.y, COAST):
         continue
-    lean = _wrng.uniform(0.25, 0.6); az = math.atan2(-nl.y, -nl.x) + _wrng.uniform(-0.8, 0.8)
-    h_ = _wrng.uniform(8.0, 13.0)
-    top = Vector((base.x + math.cos(az) * math.sin(lean) * h_, base.y + math.sin(az) * math.sin(lean) * h_, -1.0 + math.cos(lean) * h_))
-    merge(wmast, nl_kit.beam((base.x, base.y, -1.5), tuple(top), 0.42, 0.42))
-    if _wrng.random() < 0.6:                                    # a yard still crossed on it, canted
-        yc = Vector((base.x, base.y, -1.5)).lerp(top, 0.78); ya = Vector((math.cos(az + 1.57), math.sin(az + 1.57), _wrng.uniform(-0.4, 0.4))).normalized()
-        merge(wmast, nl_kit.beam(tuple(yc - ya * 3.2), tuple(yc + ya * 3.2), 0.22, 0.22))
-obj('wreck_ribs', ribs, face=lambda q: ((lin('#B8AE9C') if q.normal.z > 0.2 else lin('#8B8172')) if q.center.z > -0.1 else (lin('#4A4640'), 0)[0], PT['plain']),
-    family='wreck', jitter=0.1)
-obj('wreck_masts', wmast, face=lambda q: ((lin('#6E6458') if q.center.z > 0.0 else lin('#3D3A36')), PT['plain']), family='wreck', jitter=0.08)
+    a2 = t.copy(); a2.rotate(Matrix.Rotation(_wrng.uniform(-3.1, 3.1), 2)); L2 = _wrng.uniform(1.6, 4.2); zq = H(q.x, q.y)
+    merge(wpeb, nl_kit.beam((q.x - a2.x * L2 / 2, q.y - a2.y * L2 / 2, zq + 0.1), (q.x + a2.x * L2 / 2, q.y + a2.y * L2 / 2, zq + 0.16), 0.22, 0.2))
+obj('wreck_cove_boulders', wrock, face=lambda q: ((PAL['rock_light'] if q.normal.z > 0.5 else PAL['rock']), PT['rock']), family='wreck', jitter=0.08)
+obj('wreck_cove_wrack', wweed, face=lambda q: ((lin('#6A6446') if q.index % 3 else lin('#7A6A4C')), PT['plain']), family='wreck', jitter=0.1)
+obj('wreck_cove_shingle', wpeb, face=lambda q: ((lin('#9A968C') if q.normal.z > 0.3 else lin('#6F6C66')), PT['plain']), family='wreck', jitter=0.15)
+obj('wreck_cove_marram', wgrass, face=lambda q: ((lin('#B7B583') if q.index % 2 else lin('#97A06A')), PT['plain']), family='wreck', jitter=0.1)
 
 # ------------------------------------------------------------------ folk + gulls (decorative)
 dark, coats, heads = bmesh.new(), bmesh.new(), bmesh.new(); coat_ranges = []

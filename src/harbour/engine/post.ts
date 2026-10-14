@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import {
-  BloomEffect, EffectComposer, EffectPass, KernelSize, LUT3DEffect, RenderPass, SMAAEffect, SMAAPreset,
+  BloomEffect, EffectComposer, EffectPass, KernelSize, LUT3DEffect, Pass, RenderPass, SMAAEffect, SMAAPreset,
   TiltShiftEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect,
 } from "postprocessing";
 import type { CameraRig } from "./camera-rig";
@@ -8,8 +8,8 @@ import type { Grade, TimeOfDay } from "./time-of-day";
 import type { QualitySettings } from "./quality";
 
 /**
- * The WebGL2 post chain (one merged EffectPass + SMAA):
- *   tilt-shift (overview only) → bloom → AgX → per-hour 3D LUT grade → vignette → SMAA.
+ * The WebGL2 post chain (NaN scrub, one merged EffectPass + SMAA):
+ *   scrub → tilt-shift (overview only) → bloom → AgX → per-hour 3D LUT grade → vignette → SMAA.
  * The LUT is generated on the CPU from style C's grade (lift/gamma/gain + saturation + AgX look contrast)
  * and regenerated only when the interpolated grade actually changes.
  */
@@ -90,6 +90,41 @@ function packGrade(g: Grade, out: Float32Array): boolean {
   return moved;
 }
 
+/**
+ * Zeroes non-finite scene pixels before anything blurs them. One NaN/Inf pixel from any shader (pow of a
+ * negative, a half-float overflow) is spread by the bloom mip chain over the whole screen: a black frame.
+ * NaN fails every comparison, so the range test catches it even where a driver folds isnan() away.
+ */
+const SCRUB_FRAG = /* glsl */ `
+uniform sampler2D inputBuffer;
+varying vec2 vUv;
+void main() {
+  vec4 c = texture2D(inputBuffer, vUv);
+  bvec4 ok = bvec4(c.r >= 0.0 && c.r <= 65000.0, c.g >= 0.0 && c.g <= 65000.0, c.b >= 0.0 && c.b <= 65000.0, c.a >= 0.0 && c.a <= 65000.0);
+  gl_FragColor = vec4(ok.r ? c.r : 0.0, ok.g ? c.g : 0.0, ok.b ? c.b : 0.0, ok.a ? c.a : 1.0);
+}`;
+
+export class NanScrubPass extends Pass {
+  private readonly mat: THREE.ShaderMaterial;
+  constructor() {
+    super("NanScrubPass");
+    this.mat = new THREE.ShaderMaterial({
+      name: "hb_post_scrub", uniforms: { inputBuffer: { value: null } },
+      vertexShader: "varying vec2 vUv; void main() { vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 1.0, 1.0); }",
+      fragmentShader: SCRUB_FRAG, blending: THREE.NoBlending, depthWrite: false, depthTest: false, toneMapped: false,
+    });
+    this.fullscreenMaterial = this.mat;
+  }
+
+  render(renderer: THREE.WebGLRenderer, inputBuffer: THREE.WebGLRenderTarget, outputBuffer: THREE.WebGLRenderTarget): void {
+    this.mat.uniforms.inputBuffer.value = inputBuffer.texture;
+    renderer.setRenderTarget(this.renderToScreen ? null : outputBuffer);
+    renderer.render(this.scene, this.camera);
+  }
+
+  dispose(): void { this.mat.dispose(); super.dispose(); }
+}
+
 export class PostChain {
   readonly bloom: BloomEffect;
   readonly toneMapping: ToneMappingEffect;
@@ -97,6 +132,8 @@ export class PostChain {
   readonly vignette: VignetteEffect;
   readonly lut: LUT3DEffect;
   readonly smaa: SMAAEffect;
+  private readonly scrub = new NanScrubPass();
+  private readonly main: EffectPass;
   private readonly lutTex: THREE.Data3DTexture;
   private readonly lutKey = new Float32Array(15).fill(-1);
   private lutAge = 1e9;
@@ -106,6 +143,7 @@ export class PostChain {
 
   constructor(readonly renderer: THREE.WebGLRenderer, readonly composer: EffectComposer, scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
     composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(this.scrub);
     this.tiltShift = new TiltShiftEffect({ focusArea: 0.6, feather: 0.38, offset: 0.06, kernelSize: KernelSize.MEDIUM, resolutionScale: 0.5 });
     this.bloom = new BloomEffect({ intensity: 0.6, luminanceThreshold: 1.3, luminanceSmoothing: 0.35, mipmapBlur: true, radius: 0.72, levels: 8 });
     this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
@@ -122,9 +160,20 @@ export class PostChain {
     // the tilt-shift blur pass runs even at opacity 0: skip it while the effect is faded out (heart/close)
     const tiltUpdate = this.tiltShift.update.bind(this.tiltShift);
     this.tiltShift.update = (r, input, dt) => { if (this.tiltShift.blendMode.opacity.value > 0.002) tiltUpdate(r, input, dt); };
-    composer.addPass(new EffectPass(camera, this.tiltShift, this.bloom, this.toneMapping, this.lut, this.vignette));
+    this.main = new EffectPass(camera, this.tiltShift, this.bloom, this.toneMapping, this.lut, this.vignette);
+    composer.addPass(this.main);
     this.smaa = new SMAAEffect({ preset: SMAAPreset.HIGH });
     composer.addPass(new EffectPass(camera, this.smaa));
+  }
+
+  /**
+   * Called once every system has added its passes (stale fog, beam shafts), before the first render:
+   * the scrub goes right ahead of the bloom pass so it cleans whatever those scene-linear passes wrote.
+   */
+  seal(): void {
+    const passes = this.composer.passes as Pass[];
+    passes.splice(passes.indexOf(this.scrub), 1);
+    passes.splice(passes.indexOf(this.main), 0, this.scrub);
   }
 
   /** Quality tier hooks (same art; cheaper effects). */
@@ -153,5 +202,5 @@ export class PostChain {
     }
   }
 
-  dispose(): void { this.lutTex.dispose(); }
+  dispose(): void { this.lutTex.dispose(); this.scrub.dispose(); }
 }

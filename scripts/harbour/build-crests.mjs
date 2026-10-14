@@ -43,10 +43,18 @@ const CHAINS = {
 const SLUGS = Object.keys(CHAINS);
 const PANEL = 256, FLAG_W = 256, FLAG_H = 170, CREST_W = PANEL * SLUGS.length, CREST_H = 512;
 
+// Heraldic marks that differ from public/chains/*.svg. Base's current mark is a plain square, which on a shield
+// reads as a blank panel: the crest carries Base's classic coin (a disc cut by a bar from the hoist) instead.
+const MARK_SVG = {
+  base: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 111 111"><path fill="#fff" d="M54.921 110.034C85.359 110.034 110.034 85.402 110.034 55.017C110.034 24.6319 85.359 0 54.921 0C26.0432 0 2.35281 22.1714 0.6 46.6H74.5V63.4H0.6C2.35281 87.8625 26.0432 110.034 54.921 110.034Z"/></svg>`,
+};
+
 /** The chain mark as a white alpha mask fitted in a side² square. */
 async function markMask(slug, side) {
   const raster = join(tmp, `${slug}-r.png`), out = join(tmp, `${slug}-m${side}.png`);
-  await run("rsvg-convert", ["-w", String(side * 3), "-h", String(side * 3), "-a", "-b", "none", "-o", raster, join(ROOT, "public/chains", `${slug}.svg`)]);
+  let src = join(ROOT, "public/chains", `${slug}.svg`);
+  if (MARK_SVG[slug]) { src = join(tmp, `${slug}-mark.svg`); await writeFile(src, MARK_SVG[slug]); }
+  await run("rsvg-convert", ["-w", String(side * 3), "-h", String(side * 3), "-a", "-b", "none", "-o", raster, src]);
   // every source colour → white, keep the alpha (so gradients and red/purple marks all read as one silhouette)
   await run("magick", [raster, "-trim", "+repage", "-resize", `${side}x${side}`, "-gravity", "center", "-background", "none", "-extent", `${side}x${side}`,
     "-channel", "RGB", "-evaluate", "set", "100%", "+channel", out]);

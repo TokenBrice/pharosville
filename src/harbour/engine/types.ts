@@ -58,4 +58,6 @@ export interface HarbourStats {
   gpuMs?: number | null;
   /** Quality tier chosen by the governor ('quality' service). */
   quality?: "high" | "medium" | "low";
+  /** Boot profile (ms): each system's init, then the first frame's render. */
+  boot?: Record<string, number>;
 }

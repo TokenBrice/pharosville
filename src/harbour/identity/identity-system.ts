@@ -1,12 +1,14 @@
 import * as THREE from "three";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import { getLightsStore } from "../lights/lights-service";
+import type { GroundService } from "../world/ground";
 import type { OceanService } from "../ocean/ocean-system";
 import { ensureMotionService, type MotionService } from "../ui/services";
 import { CrestFlags } from "./crest-flags";
-import { fitLabel, labelSpecs, type FitObstacle, type LabelSpec } from "./labels";
+import { labelSpecs, placeLabels, type FitObstacle, type LabelSpec, type PlaceView } from "./labels";
 import { ChartLettering } from "./lettering";
 import { OfficeDresser, officePlots } from "./offices";
+import { markSites, PierMarks, type MarkPier } from "./pier-marks";
 import type { ChartFont, CrestAtlas, IdentityLayout } from "./types";
 
 /**
@@ -14,6 +16,7 @@ import type { ChartFont, CrestAtlas, IdentityLayout } from "./types";
  *   - chart lettering printed on the sea (lettering.ts / labels.ts);
  *   - each harbour office dressed in its chain's heraldry: facade crest, chain-colour awning, and the crest
  *     flown as a large house flag on a topmast over the office (offices.ts / crest-flags.ts);
+ *   - chain-colour beacons and bollards on the pier heads (pier-marks.ts);
  *   - anchorage buoy lights across the Far Ports at night.
  * Atlases: scripts/harbour/build-crests.mjs → public/harbour/crests.* and chart-lettering.*.
  *
@@ -24,6 +27,9 @@ export interface IdentityService { readonly chains: CrestAtlas["chains"]; readon
 /** The dominant harbour's house flag reads first: larger cloth on a taller topmast. */
 const FLAG_SCALE: Record<string, number> = { ethereum: 1.65 };
 
+/** Roof/ridge heights above the plot (m) for the chart's line-of-sight test; others ~18 m. */
+const CIVIC_HEIGHT: Record<string, number> = { customs: 26, mint: 30, burn: 26, shipyard: 14, registry: 20, stormstation: 22 };
+
 interface LifeWind { readonly wind: number; readonly windTo: readonly [number, number] }
 
 async function json<T>(url: string): Promise<T | null> {
@@ -33,11 +39,43 @@ async function json<T>(url: string): Promise<T | null> {
   } catch { return null; }
 }
 
+/** Metres added to dry land in the sight grid for trees (not in the island's height field). */
+const TREE_ALLOWANCE = 11;
+
+/**
+ * A coarse (4 m) max-pooled height grid for the chart's line-of-sight test: the island's height field plus
+ * whatever stands outside the island model (extra(x, z), -Infinity where nothing does). O(1) per lookup.
+ */
+function sightGrid(ground: GroundService, extra: (x: number, z: number) => number, cell = 4): (x: number, z: number) => number {
+  const [minX, minZ, maxX, maxZ] = ground.bounds, N = ground.size;
+  const nx = Math.ceil((maxX - minX) / cell), nz = Math.ceil((maxZ - minZ) / cell);
+  const g = new Float32Array(nx * nz).fill(-8);
+  for (let r = 0; r < N; r++) {
+    // row 0 = world z max
+    const z = maxZ - ((r + 0.5) / N) * (maxZ - minZ), gz = Math.min(nz - 1, Math.floor((z - minZ) / cell));
+    for (let c = 0; c < N; c++) {
+      const gx = Math.min(nx - 1, Math.floor((((c + 0.5) / N) * (maxX - minX)) / cell)), k = gz * nx + gx;
+      // land stands taller than its height field to the eye: the woods and the life layer's trees ride on it
+      const h0 = ground.heights[r * N + c], h = h0 > 1.5 ? h0 + TREE_ALLOWANCE : h0;
+      if (h > g[k]) g[k] = h;
+    }
+  }
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+    const h = extra(minX + (i + 0.5) * cell, minZ + (j + 0.5) * cell);
+    if (h > g[j * nx + i]) g[j * nx + i] = h;
+  }
+  return (x, z) => {
+    const i = Math.floor((x - minX) / cell), j = Math.floor((z - minZ) / cell);
+    return i < 0 || j < 0 || i >= nx || j >= nz ? -8 : g[j * nx + i];
+  };
+}
+
 export class IdentitySystem implements WorldSystem {
   readonly name = "identity";
   private lettering: ChartLettering | null = null;
   private flags: CrestFlags | null = null;
   private dresser: OfficeDresser | null = null;
+  private marks: PierMarks | null = null;
   private atlas: CrestAtlas | null = null;
   private motion: MotionService | null = null;
   private scanIn = 0;
@@ -58,7 +96,9 @@ export class IdentitySystem implements WorldSystem {
 
     if (font && sdfTex && layout.seaZones?.length) {
       const ocean = ctx.services.get("ocean") as OceanService | undefined;
-      this.labels = this.fittedSpecs(layout, font, ocean, ctx.camera.aspect);
+      const t0 = performance.now();
+      this.labels = this.fittedSpecs(layout, font, ocean, ctx.camera.aspect, ctx.services.get("ground") as GroundService | undefined);
+      performance.measure("identity:labels", { start: t0 });
       this.lettering = new ChartLettering(this.labels, font, sdfTex, ctx.uniforms, ocean, layout.seaLevel ?? 0);
       ctx.scene.add(this.lettering.mesh);
     }
@@ -71,6 +111,17 @@ export class IdentitySystem implements WorldSystem {
       this.dresser = new OfficeDresser(atlas, crestTex, officePlots(layout.civic));
       this.flags = new CrestFlags(crestTex);
       ctx.scene.add(this.flags.group);
+      // chain-colour beacons and bollards on each harbour's pier head (one instanced draw)
+      const ground = ctx.services.get("ground") as GroundService | undefined;
+      const piers = (layout as { piers?: MarkPier[] }).piers ?? [];
+      if (ground && piers.length) {
+        const ocean = ctx.services.get("ocean") as OceanService | undefined;
+        const sea = layout.seaLevel ?? 0;
+        const sites = markSites(piers, ocean ? (x, z) => ocean.coastAt(x, z) > -5 : undefined)
+          .map((m) => ({ ...m, y: ground.heightAt(m.x, m.z) }))
+          .filter((m) => m.y > sea + 0.4);
+        if (sites.length) { this.marks = new PierMarks(sites, atlas.chains); ctx.scene.add(this.marks.mesh); }
+      }
       const labels = () => this.labels;
       ctx.services.set("identity", { chains: atlas.chains, get labels() { return labels(); } } satisfies IdentityService);
     }
@@ -120,39 +171,63 @@ export class IdentitySystem implements WorldSystem {
     }
   }
 
-  /** Names slid into their own water, clear of piers, inside the overview's frame. */
-  private fittedSpecs(layout: IdentityLayout, font: ChartFont, ocean: OceanService | undefined, aspect: number) {
+  /**
+   * Names placed in their own water with collision avoidance (labels.ts placeLabels): clear of piers and of
+   * each other, uncut by the frame edge and not hidden behind the town, in both default views.
+   */
+  private fittedSpecs(layout: IdentityLayout, font: ChartFont, ocean: OceanService | undefined, aspect: number, ground: GroundService | undefined) {
     const zones = layout.seaZones ?? [];
     const piers = (layout as { piers?: Array<{ segments: Array<{ a: [number, number]; b: [number, number]; width: number }> }> }).piers ?? [];
     const obstacles: FitObstacle[] = piers.flatMap((p) => p.segments.map((g) => ({ a: g.a, b: g.b, halfWidth: g.width / 2 })));
-    const ovp = (layout as { camera?: { presets?: Record<string, { target: number[]; distance: number; fovDeg: number; pitchDeg: number; yawDeg: number }> } }).camera?.presets?.overview;
-    const ov = ovp?.target;
-    const centre: [number, number] = ov ? [ov[0], ov[2]] : [0, 0];
-    // the overview's own frame (same maths as the camera rig): names should be on screen there
-    let inFrame: ((x: number, z: number) => boolean) | undefined;
-    if (ovp) {
-      const cam = new THREE.PerspectiveCamera(ovp.fovDeg, Math.max(1.2, aspect), 1, 10000);
-      const yaw = THREE.MathUtils.degToRad(ovp.yawDeg), pitch = THREE.MathUtils.degToRad(ovp.pitchDeg);
-      const t = new THREE.Vector3(ovp.target[0], ovp.target[1], ovp.target[2]);
-      cam.position.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(ovp.distance).add(t);
+    type Preset = { target: number[]; distance: number; fovDeg: number; pitchDeg: number; yawDeg: number };
+    const presets = (layout as { camera?: { presets?: Record<string, Preset> } }).camera?.presets ?? {};
+    // the default views' own frames (same maths as the camera rig): the overview must show every name whole;
+    // the heart shows its zone names whole or not at all (the open-sea names have faded out by then)
+    const view = (p: Preset, want: PlaceView["want"]): PlaceView => {
+      const cam = new THREE.PerspectiveCamera(p.fovDeg, THREE.MathUtils.clamp(aspect, 1.25, 2), 1, 10000);
+      const yaw = THREE.MathUtils.degToRad(p.yawDeg), pitch = THREE.MathUtils.degToRad(p.pitchDeg);
+      const t = new THREE.Vector3(p.target[0], p.target[1], p.target[2]);
+      cam.position.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(p.distance).add(t);
       cam.lookAt(t);
       cam.updateMatrixWorld(true);
       const v = new THREE.Vector3();
-      inFrame = (x, z) => { v.set(x, 0, z).project(cam); return Math.abs(v.x) < 0.9 && v.y > -0.86 && v.y < 0.5; };
+      return {
+        eye: [cam.position.x, cam.position.y, cam.position.z],
+        want,
+        project: (x, y, z) => { v.set(x, y, z).project(cam); return v.z > 1 ? null : [v.x, v.y]; },
+      };
+    };
+    const views: PlaceView[] = [];
+    if (presets.overview) views.push(view(presets.overview, { zone: "whole", open: "whole" }));
+    if (presets.heart) views.push(view(presets.heart, { zone: "clean" }));
+    // line of sight: the island's height field, plus what stands on it outside the island model
+    const seaLevel = layout.seaLevel ?? 0;
+    const tall = (layout.civic ?? []).map((c) => ({ x: c.position[0], z: c.position[2], hx: c.footprint[0] / 2, hz: c.footprint[1] / 2, r: c.rotationY, h: c.position[1] + (CIVIC_HEIGHT[c.kind] ?? 18) }));
+    const pharos = (layout as { pharos?: { position: [number, number, number] } }).pharos?.position;
+    const heightAt = ground ? sightGrid(ground, (x, z) => {
+      let h = -Infinity;
+      // the Pharos: its square tiers and corner statues, a little generous
+      if (pharos && Math.max(Math.abs(x - pharos[0]), Math.abs(z - pharos[2])) < 22) h = 100;
+      for (const b of tall) {
+        const dx = x - b.x, dz = z - b.z, c = Math.cos(b.r), s = Math.sin(b.r);
+        if (Math.abs(dx * c - dz * s) < b.hx && Math.abs(dx * s + dz * c) < b.hz) h = Math.max(h, b.h);
+      }
+      return h;
+    }) : undefined;
+    // anchored hulls, buoys and reef rocks of the sea zones (layout.zones.*: slots/buoys [x, y, z], rocks [x, z, r])
+    const crowd: FitObstacle[] = [];
+    for (const zv of Object.values((layout as { zones?: Record<string, Record<string, unknown>> }).zones ?? {})) {
+      for (const key of ["slots", "buoys"]) for (const q of (Array.isArray(zv[key]) ? zv[key] : []) as number[][]) if (q.length >= 3) crowd.push({ a: [q[0], q[2]], b: [q[0], q[2]], halfWidth: 6 });
+      for (const q of (Array.isArray(zv.rocks) ? zv.rocks : []) as number[][]) if (q.length >= 3) crowd.push({ a: [q[0], q[1]], b: [q[0], q[1]], halfWidth: q[2] + 1 });
     }
-    return labelSpecs(zones).map((spec) => {
-      const zone = zones.find((z) => z.id === spec.id)!;
-      const near = obstacles.filter((o) => Math.min(Math.hypot(o.a[0] - spec.anchor[0], o.a[1] - spec.anchor[1]), Math.hypot(o.b[0] - spec.anchor[0], o.b[1] - spec.anchor[1])) < 320);
-      // nudged away from the island: in perspective the town and hills hide whatever lies close behind them
-      const pull = { at: centre, weight: -0.08 };
-      return fitLabel(spec, zone, font, near, pull, ocean?.coastAt, spec.cls === "open" ? undefined : inFrame);
-    });
+    return placeLabels(labelSpecs(zones), zones, font, { obstacles, crowd, coastAt: ocean?.coastAt, heightAt, seaLevel, views });
   }
 
   dispose(ctx: EngineContext): void {
     if (this.lettering) { ctx.scene.remove(this.lettering.mesh); this.lettering.dispose(); }
     if (this.flags) { ctx.scene.remove(this.flags.group); this.flags.dispose(); }
     this.dresser?.dispose();
+    if (this.marks) { ctx.scene.remove(this.marks.mesh); this.marks.dispose(); }
     ctx.services.delete("identity");
   }
 }

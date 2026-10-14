@@ -53,7 +53,7 @@ void main() {
   float r = length(vUv);
   if (r > 1.0) discard;
   // a soft ball, lit from above: the top lighter, the underside in shade
-  float a = pow(1.0 - r * r, 1.6);
+  float a = pow(max(1.0 - r * r, 0.0), 1.6);
   vec3 col = mix(uSmokeShade, uSmokeLit, clamp(0.7 + 0.45 * vUv.y, 0.0, 1.0));
   // young puffs are a little denser and warmer (wood smoke), old ones thin to the haze
   gl_FragColor = vec4(col, a * vAlpha * uSmokeOpacity * (1.0 - 0.45 * vLife));

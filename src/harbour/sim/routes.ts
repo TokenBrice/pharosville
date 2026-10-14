@@ -386,6 +386,9 @@ function roundHairpins(L: SimLayout, pts: Vec2[], from: number, loa: number, axi
         const t = k / 8;
         for (const [p0, p1] of [[v, q1], [q1, q2]] as const) if (L.hard(p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t) < loa / 2 + 2) ok = false;
       }
+      // and the way on from the loop: never across a pier head or a corner of land (it may run close in)
+      const lb = Math.hypot(b[0] - q2[0], b[1] - q2[1]);
+      for (let s = 2; ok && s < lb - 2; s += 1) if (L.hard(q2[0] + ((b[0] - q2[0]) * s) / lb, q2[1] + ((b[1] - q2[1]) * s) / lb) < loa * 0.16 + 0.8) ok = false;
       if (!ok) continue;
       out.push(q1, q2);
       done = true;

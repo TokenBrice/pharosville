@@ -6,6 +6,7 @@ import { indexVariants, pickVariant } from "../fleet/variants";
 import { hashColor, rigFor } from "../model/classify";
 import type { HarbourMaterials } from "../world/materials";
 import { CIVIC_BASE, toWorld, worldGeometry, type LoadedPlot, type ManifestKind } from "./assemble";
+import type { CivicBoards } from "./boards";
 import { Embers } from "./fx";
 import type { WorkerSlot } from "./workers";
 import { allocateYard, type HullStage, type PrelaunchCoin, type YardPlace } from "./yard";
@@ -17,7 +18,9 @@ import { allocateYard, type HullStage, type PrelaunchCoin, type YardPlace } from
  * of its berth, facing the harbour's camera side. Shipwrights hammer at the hulls, the gantry cranes run
  * slowly on their rails. A coin that appears live leaves the yard (the sim sails it out from the Slipway).
  *
- * The whole yard is ONE merged kit mesh (rebuilt only when a coin launches) + one board mesh.
+ * The whole yard is ONE merged kit mesh (rebuilt only when a coin launches); the name boards are painted into the
+ * quarter's shared board atlas (boards.ts). A launched coin's hull, posts AND board leave together: its berth stays
+ * empty until the registry's book (re-synced) puts the next coin there.
  */
 
 const KIT = "/harbour/kit/";
@@ -149,9 +152,6 @@ export class Shipyard {
   readonly group = new THREE.Group();
   readonly hulls: YardHull[] = [];
   private mesh: THREE.Mesh | null = null;
-  private boards: THREE.Mesh | null = null;
-  private boardMat: THREE.MeshStandardMaterial | null = null;
-  private boardTex: THREE.CanvasTexture | null = null;
   private readonly cranes: Array<{ node: THREE.Object3D; z: number; ph: number }> = [];
   private placed: Placed[] = [];
   /** Sawdust where the frames are being faired (two hulls, decorative). */
@@ -159,14 +159,14 @@ export class Shipyard {
   private launched = new Set<string>();
   private t = 0;
 
-  private constructor(p: LoadedPlot, private readonly mats: HarbourMaterials) {
+  private constructor(p: LoadedPlot, private readonly mats: HarbourMaterials, private readonly boards: CivicBoards) {
     this.group.name = "shipyard";
     p.nodes.forEach((n, name) => { if (/^crane_\d+$/.test(name)) this.cranes.push({ node: n, z: n.position.z, ph: this.cranes.length * 2.1 }); });
   }
 
-  static async build(p: LoadedPlot, mats: HarbourMaterials, coins: readonly PrelaunchCoin[], stageSpec: ManifestKind,
+  static async build(p: LoadedPlot, mats: HarbourMaterials, boards: CivicBoards, coins: readonly PrelaunchCoin[], stageSpec: ManifestKind,
     load: (url: string) => Promise<GLTF>, launchAt: [number, number] | null): Promise<Shipyard> {
-    const y = new Shipyard(p, mats);
+    const y = new Shipyard(p, mats, boards);
     const spec = p.spec;
     const slips = spec.slips ?? [], berths = spec.berths ?? [];
     // the launch slip first (where the sim's Slipway voyage starts), then the nearest; berths: front row, nearest the slips
@@ -316,41 +316,16 @@ export class Shipyard {
   }
 
   private buildBoards(): void {
-    const n = this.placed.length;
-    if (!n) return;
-    const CW = 512, CH = 128, cols = 4, rows = Math.ceil(n / cols);
-    const canvas = document.createElement("canvas");
-    canvas.width = CW * cols; canvas.height = THREE.MathUtils.ceilPowerOfTwo(CH * rows);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 4;
-    this.boardTex = tex;
-    const P: number[] = [], UV: number[] = [], N: number[] = [];
-    const face = new THREE.Vector3(Math.SQRT1_2, 0, Math.SQRT1_2), side = new THREE.Vector3(face.z, 0, -face.x);
-    this.placed.forEach((pl, i) => {
-      const cx = (i % cols) * CW, cy = Math.floor(i / cols) * CH;
-      this.drawBoard(ctx, pl.place, cx, cy, CW, CH, () => { tex.needsUpdate = true; });
-      const w = pl.boardW, h = w * (CH / CW);
-      const c = pl.board.clone().setY(pl.board.y + 2.6 + h / 2 - 0.25).addScaledVector(face, 0.12);
-      const corner = (sx: number, sy: number) => c.clone().addScaledVector(side, sx * w / 2).setY(c.y + sy * h / 2);
-      const u0 = cx / canvas.width, u1 = (cx + CW) / canvas.width, v1 = 1 - cy / canvas.height, v0 = 1 - (cy + CH) / canvas.height;
-      const q = [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, -1), corner(1, 1), corner(-1, 1)];
-      const uv = [[u0, v0], [u1, v0], [u1, v1], [u0, v0], [u1, v1], [u0, v1]];
-      q.forEach((v, k) => { P.push(v.x, v.y, v.z); UV.push(uv[k][0], uv[k][1]); N.push(face.x, 0, face.z); });
-    });
-    tex.needsUpdate = true;
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(P, 3));
-    g.setAttribute("normal", new THREE.Float32BufferAttribute(N, 3));
-    g.setAttribute("uv", new THREE.Float32BufferAttribute(UV, 2));
-    this.boardMat = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: new THREE.Color(1, 1, 1), emissiveIntensity: 0.05, roughness: 0.7, side: THREE.DoubleSide });
-    this.boardMat.name = "hb_civic_boards";
-    this.boards = new THREE.Mesh(g, this.boardMat);
-    this.boards.name = "shipyard-boards";
-    this.boards.receiveShadow = true;
-    this.group.add(this.boards);
+    const face = new THREE.Vector3(Math.SQRT1_2, 0, Math.SQRT1_2), side = new THREE.Vector3(face.z, 0, -face.x), up = new THREE.Vector3(0, 1, 0);
+    const ctx = this.boards.ctx;
+    for (const pl of this.placed) {
+      const slot = this.boards.alloc(512, 128);
+      if (!slot || !ctx) continue;
+      this.boards.paint(slot, () => this.drawBoard(ctx, pl.place, slot.x, slot.y, slot.w, slot.h, () => this.boards.touch()));
+      const w = pl.boardW, h = w * (slot.h / slot.w);
+      const centre = pl.board.clone().setY(pl.board.y + 2.6 + h / 2 - 0.25).addScaledVector(face, 0.12);
+      this.boards.place(`yard:${pl.place.coin.id}`, slot, { centre, right: side.clone(), up, w, h }, !this.launched.has(pl.place.coin.id));
+    }
   }
 
   private drawBoard(ctx: CanvasRenderingContext2D, place: YardPlace, x: number, y: number, w: number, h: number, done: () => void): void {
@@ -410,6 +385,7 @@ export class Shipyard {
     }
     if (!changed) return;
     this.launched = new Set(this.hulls.filter((h) => h.launched).map((h) => h.coin.id));
+    for (const pl of this.placed) this.boards.show(`yard:${pl.place.coin.id}`, !this.launched.has(pl.place.coin.id));
     this.rebuild();
   }
 
@@ -426,7 +402,6 @@ export class Shipyard {
       const s = Math.sin(this.t * (2 * Math.PI / 95) + c.ph);
       c.node.position.z = c.z + 12 * Math.sign(s) * Math.pow(Math.abs(s), 0.6);
     }
-    if (this.boardMat) this.boardMat.emissiveIntensity = 0.04 + 0.22 * night;
   }
 
   /** The gang's stations (static; recomputed when a hull leaves the yard). */
@@ -467,9 +442,6 @@ export class Shipyard {
 
   dispose(): void {
     this.mesh?.geometry.dispose();
-    this.boards?.geometry.dispose();
-    this.boardMat?.dispose();
-    this.boardTex?.dispose();
     for (const pl of this.placed) { pl.hull.dispose(); pl.extra.forEach((g) => g.dispose()); }
     for (const d of this.dust) d.dispose();
   }

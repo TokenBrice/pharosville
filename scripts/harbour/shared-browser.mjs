@@ -61,7 +61,7 @@ async function lock(name, timeoutMs) {
     } catch {
       const owner = Number(await readFile(`${dir}/pid`, "utf8").catch(() => "0"));
       if (owner && !alive(owner)) { await rm(dir, { recursive: true, force: true }); continue; }
-      if (Date.now() > deadline) throw new Error(`timed out waiting for lock ${name} (held by pid ${owner})`);
+      if (Date.now() >= deadline) throw new Error(`timed out waiting for lock ${name} (held by pid ${owner})`);
       await sleep(250 + Math.random() * 250);
     }
   }
@@ -94,8 +94,17 @@ export async function connectShared(profileName = "standard") {
 }
 
 /** Serialise captures across all agents/processes (one foreground tab, honest frame timings). */
-export function captureLock(profileName = "standard") {
-  return lock(`capture-${profileName}`, 15 * 60_000);
+export async function captureLock(profileName = "standard") {
+  // ONE capture at a time: background tabs get throttled (1 fps, ghosted frames), measured 2026-10-14.
+  const slots = 1;
+  const deadline = Date.now() + 15 * 60_000;
+  for (;;) {
+    for (let i = 0; i < slots; i++) {
+      try { return await lock(`capture-${profileName}-${i}`, 0); } catch { /* slot busy */ }
+    }
+    if (Date.now() > deadline) throw new Error(`timed out waiting for a ${profileName} capture slot`);
+    await sleep(300 + Math.random() * 300);
+  }
 }
 
 if (process.argv[1]?.endsWith("shared-browser.mjs") && process.argv[2] === "stop") {

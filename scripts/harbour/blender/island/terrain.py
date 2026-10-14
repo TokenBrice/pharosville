@@ -231,7 +231,7 @@ def _quay_flat(x, y):
     """Distance (m) to the nearest quay line and its apron depth, for the shore-level flats."""
     best = (1e9, 0.0)
     for name, L in _quays.items():
-        ap = 13.0 if name in ('long', 'grand') else (8.0 if name.startswith('cove') else 9.0)
+        ap = 13.0 if name in ('long', 'grand', 'tron') else (8.0 if name.startswith('cove') else 9.0)
         for a, b in zip(L, L[1:]):
             d = seg_d(x, y, a, b)
             if d < best[0]:
@@ -270,6 +270,8 @@ def height(x, y, coves=(), pads=True):
     if kb > 0:                       # a strand: sand from the waterline up, easing into the land behind
         dc = dcoast(x, y)
         h = h * (1 - kb) + min(h, 0.22 + dc * (0.072 if _kind == 'sand' else 0.11)) * kb
+        if _kind == 'sand' and dc > 36.0:          # P7: dune hummocks behind Wreck Cove's strand (marram grass on them)
+            h += kb * sstep(36.0, 44.0, dc) * (0.8 + 4.2 * max(0.0, fbm(x, y, 0.055, 2, 21) - 0.25))
     if _pads and pads:               # P6 civic pads: dead level inside, a short easing outside (walled by hb_land)
         pd = pad_at(x, y, 4.0)
         if pd is not None:

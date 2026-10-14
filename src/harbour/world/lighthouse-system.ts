@@ -181,8 +181,9 @@ export class LighthouseSystem implements WorldSystem {
       const l = Math.hypot(tx, tz) || 1;
       const facing = Math.max(0, (Math.sin(h) * tx + Math.cos(h) * tz) / l);
       const glint = Math.pow(facing, 24);
-      this.mirrorMat.emissive.setRGB(1.0, 0.62 * tint.y, 0.3 * tint.z);
-      this.mirrorMat.emissiveIntensity = this.level * (fl * (0.25 + 2.2 * night) + glint * (6 + 6 * (1 - night)));
+      this.mirrorMat.emissive.setRGB(1.0, 0.45 * tint.y, 0.14 * tint.z);
+      // polished bronze catching the fire (warm, flickering), not a lit white disc
+      this.mirrorMat.emissiveIntensity = this.level * (fl * fl * (0.15 + 0.5 * night) + glint * (6 + 6 * (1 - night)));
     }
   }
 

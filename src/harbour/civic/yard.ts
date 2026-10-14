@@ -82,9 +82,46 @@ export function allocateYard(coins: readonly PrelaunchCoin[], slipOrder: readonl
   return out;
 }
 
-/** Pre-launch coins that are live now (their id, or their DefiLlama id, is in the payload). */
-export function launchedIds(coins: readonly PrelaunchCoin[], liveIds: ReadonlySet<string>): Set<string> {
+/**
+ * Pre-launch coins that are live now: their id or DefiLlama id is in the payload, or a live coin carries the same
+ * name AND symbol (the registry's slug, e.g. "eurr-revolut", and the payload's numeric id, "436", can differ).
+ */
+export function launchedIds(coins: readonly PrelaunchCoin[], live: Iterable<{ id: string; symbol?: string; name?: string }>): Set<string> {
+  const ids = new Set<string>(), named = new Set<string>();
+  const nameKey = (name: string, symbol: string) => `${name.trim().toLowerCase()}|${symbol.trim().toLowerCase()}`;
+  for (const b of live) { ids.add(b.id); if (b.name && b.symbol) named.add(nameKey(b.name, b.symbol)); }
   const out = new Set<string>();
-  for (const c of coins) if (liveIds.has(c.id) || (c.llamaId != null && liveIds.has(c.llamaId))) out.add(c.id);
+  for (const c of coins) {
+    if (ids.has(c.id) || (c.llamaId != null && ids.has(c.llamaId)) || named.has(nameKey(c.name, c.symbol))) out.add(c.id);
+  }
   return out;
+}
+
+/** The Registry's grade board: live (not wrecked) boats by grade letter, "—" for unrated (as the Registry panel counts). */
+export function gradeTally(boats: ReadonlyArray<{ grade: string | null; state: string }>): Map<string, number> {
+  const t = new Map<string, number>();
+  for (const b of boats) {
+    if (b.state === "wrecked") continue;
+    const g = b.grade && /^[A-F]/i.test(b.grade) ? b.grade.charAt(0).toUpperCase() : "—";
+    t.set(g, (t.get(g) ?? 0) + 1);
+  }
+  return t;
+}
+
+export interface ChainMove { name: string; change24hPct?: number | null }
+
+/**
+ * The Harbourmaster's movers hoist: among the harbours with a crest (`slugs`), the largest 24 h supply gain
+ * (only if > 0) and the largest loss (only if < 0). Chain names map to crest slugs as "Hyperliquid L1" → "hyperliquid-l1".
+ */
+export function topMovers(rows: readonly ChainMove[], slugs: readonly string[]): { up: { slug: string; pct: number } | null; down: { slug: string; pct: number } | null } {
+  const known = new Set(slugs);
+  let up: { slug: string; pct: number } | null = null, down: { slug: string; pct: number } | null = null;
+  for (const r of rows) {
+    const slug = String(r?.name ?? "").trim().toLowerCase().replace(/\s+/g, "-"), pct = r?.change24hPct;
+    if (!known.has(slug) || typeof pct !== "number" || !Number.isFinite(pct)) continue;
+    if (pct > 0 && (!up || pct > up.pct)) up = { slug, pct };
+    if (pct < 0 && (!down || pct < down.pct)) down = { slug, pct };
+  }
+  return { up, down };
 }

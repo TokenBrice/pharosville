@@ -22,7 +22,16 @@ export function nearestChain(plots: ReadonlyArray<{ chain: string; x: number; z:
 }
 
 const DRESSED = "__hbIdentity";
-const PANEL_GROW = 1.4;
+/** Facade crest growth about its centre, and a drop (m, in the wall plane) to keep it in the wide part of a gable. */
+const PANEL_GROW: Record<string, { grow: number; drop: number }> = { tron: { grow: 1.95, drop: 0.25 } };
+const PANEL_DEFAULT = { grow: 1.4, drop: 0 };
+
+/** A float copy of an attribute (glTF quantized positions are normalized int16: they cannot hold a grown value). */
+function floatCopy(a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): THREE.BufferAttribute {
+  const out = new THREE.Float32BufferAttribute(new Float32Array(a.count * a.itemSize), a.itemSize);
+  for (let i = 0; i < a.count; i++) for (let k = 0; k < a.itemSize; k++) out.setComponent(i, k, a.getComponent(i, k));
+  return out;
+}
 
 function meshesOf(o: THREE.Object3D): THREE.Mesh[] {
   const out: THREE.Mesh[] = [];
@@ -62,8 +71,10 @@ export class OfficeDresser {
       if (!c) continue;
       o.userData[DRESSED] = true;
       for (const m of meshesOf(o)) {
-        const g = m.geometry.clone(), uv = g.getAttribute("uv") as THREE.BufferAttribute | undefined;
-        if (!uv) continue;
+        const g = m.geometry.clone(), uvSrc = g.getAttribute("uv") as THREE.BufferAttribute | undefined;
+        if (!uvSrc) continue;
+        const uv = floatCopy(uvSrc);
+        g.setAttribute("uv", uv);
         const [u0, v0, u1, v1] = c.panel;
         // glTF UVs keep v = 0 at the top (three's GLTFLoader does not flip them); the atlas is loaded flipY
         for (let i = 0; i < uv.count; i++) uv.setXY(i, u0 + (u1 - u0) * uv.getX(i), v1 - (v1 - v0) * uv.getY(i));
@@ -71,9 +82,12 @@ export class OfficeDresser {
         // the crest reads "large on the facade" (D17): grown about its centre in the wall plane, a hair proud
         g.computeBoundingBox();
         const c0 = g.boundingBox!.getCenter(new THREE.Vector3());
-        const pos = g.getAttribute("position") as THREE.BufferAttribute;
-        for (let i = 0; i < pos.count; i++) pos.setXYZ(i, c0.x + (pos.getX(i) - c0.x) * PANEL_GROW, c0.y + (pos.getY(i) - c0.y) * PANEL_GROW, pos.getZ(i) + 0.04);
-        pos.needsUpdate = true;
+        const pos = floatCopy(g.getAttribute("position"));
+        g.setAttribute("position", pos);
+        const { grow, drop } = PANEL_GROW[chain!] ?? PANEL_DEFAULT;
+        // the drop is in metres; the geometry may sit under a scaled node
+        const dy = drop / Math.max(1e-3, m.getWorldScale(this.v).y);
+        for (let i = 0; i < pos.count; i++) pos.setXYZ(i, c0.x + (pos.getX(i) - c0.x) * grow, c0.y + (pos.getY(i) - c0.y) * grow - dy, pos.getZ(i) + 0.04);
         g.computeBoundingSphere();
         m.geometry = g;
         m.material = this.panelMat;

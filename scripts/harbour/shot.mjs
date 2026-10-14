@@ -61,11 +61,19 @@ if (dpr !== 1) {
   await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: dpr, mobile: false });
 }
 await page.bringToFront();
+let finishing = false;
 async function finish(code = 0) {
-  await page.close().catch(() => {});
-  await releaseCapture();
+  if (finishing) return;
+  finishing = true;
+  // Release the shared lock FIRST, then try to close our tab, and never let a hung close keep us alive.
+  await releaseCapture().catch(() => {});
+  setTimeout(() => process.exit(code), 3000).unref?.();
+  await Promise.race([page.close().catch(() => {}), new Promise((r) => setTimeout(r, 2500))]);
   process.exit(code);
 }
+// A hung capture must never hold the shared lock: hard-stop after --timeout seconds (default 240).
+const HARD_TIMEOUT = setTimeout(() => { console.error("shot.mjs: hard timeout, releasing the capture lock"); void finish(124); }, Number(args.timeout ?? 240) * 1000);
+HARD_TIMEOUT.unref?.();
 for (const ev of ["unhandledRejection", "uncaughtException"]) process.on(ev, (err) => { console.error(err); void finish(1); });
 const consoleErrors = [];
 page.on("console", (msg) => { if (msg.type() === "error" || msg.type() === "warning") consoleErrors.push(`[${msg.type()}] ${msg.text()}`.slice(0, 400)); });
@@ -81,6 +89,9 @@ if (args["log-requests"]) {
 }
 
 await page.goto(url, { waitUntil: "load" });
+// Wait for the world's first live frame (poster crossfade done), not a fixed delay. Pages without the
+// Harbour runtime simply time out here after 60 s worth of polling only if they never report.
+await page.waitForFunction(() => window.__harbourStats?.firstFrameMs != null, null, { timeout: Number(args["ready-timeout"] ?? 60) * 1000 }).catch(() => {});
 await page.waitForTimeout(waitMs);
 
 let evalResult;

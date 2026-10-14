@@ -29,7 +29,8 @@ export interface ManifestHull {
   nodes: ManifestNode[];
 }
 export interface ManifestProp { id: string; file: string; family: string; loa_m?: number; nodes: ManifestNode[] }
-export interface KitManifest { hulls: ManifestHull[]; props: ManifestProp[] }
+export interface ManifestWreckItem { id: string; file: string; kind: string; size_class?: string; loa_m?: number; sits?: string; nodes: ManifestNode[] }
+export interface KitManifest { hulls: ManifestHull[]; props: ManifestProp[]; wreck_kit?: { items: ManifestWreckItem[] } }
 
 export interface HullVariant {
   id: string;
@@ -54,6 +55,8 @@ export interface Kit {
 }
 
 const KIND: Record<string, number> = { hb_opaque: 0, hb_sail: 1, hb_cover: 2 };
+/** Wreck kit v2 kinds: the epitaph nameboard (TEXCOORD_0 = board space) and lantern glass (hb_emissive × uLamp). */
+export const KIND_BOARD = 3, KIND_LAMP = 4;
 const MIRROR_RIGID = new Set(["yards", "sail_extra"]);
 const SPAR_NODES = new Set(["mast", "yards", "boom_spar", "boom_2_spar", "gaff", "gaff_2"]);
 const PAINT_SPAR = 8, PAINT_RIGGING = 10;
@@ -67,7 +70,7 @@ function nodeOrigin(nodes: ManifestNode[], name: string): THREE.Vector3 | null {
 }
 
 /** Flatten one GLB into the fleet attribute layout. `pivots` comes from the manifest (Blender object origins). */
-export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean; loa?: number } = {}): THREE.BufferGeometry {
+export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean; loa?: number; wreck?: boolean; skip?: ReadonlySet<string> } = {}): THREE.BufferGeometry {
   const halfLoa = (opts.loa ?? 10) / 2;
   const boom = nodeOrigin(nodes, "boom") ?? new THREE.Vector3();
   const boom2 = nodeOrigin(nodes, "boom_2") ?? new THREE.Vector3();
@@ -87,6 +90,8 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     let node = 0;
     const ancestors: string[] = [];
     for (let p: THREE.Object3D | null = mesh; p; p = p.parent) ancestors.push(p.name);
+    if (opts.skip && ancestors.some((a) => opts.skip!.has(a))) return;
+    const epitaph = !!opts.wreck && ancestors.includes("epitaph");
     const parentName = mesh.parent?.name ?? "";
     let pivot = new THREE.Vector3(), axis = new THREE.Vector3(0, 1, 0);
     if (opts.lod) node = 1;
@@ -155,7 +160,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     }
     for (const g of groups) {
       const mat = mats[g.materialIndex ?? 0];
-      const kind = KIND[mat.name] ?? 0;
+      const kind = opts.wreck && mat.name === "hb_emissive" ? KIND_LAMP : epitaph && (KIND[mat.name] ?? 0) === 0 ? KIND_BOARD : KIND[mat.name] ?? 0;
       const used = new Map<number, number>();
       const end = g.start + g.count;
       for (let k = g.start; k < end; k++) {
@@ -170,6 +175,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
           if (mesh.name === "yards" && !opts.lod) C.push(0.3, 0.2, 0.12, col && col.itemSize > 3 ? col.getW(vi) : 0); // spars are tarred wood, not white planks
           else if (col) C.push(col.getX(vi), col.getY(vi), col.getZ(vi), col.itemSize > 3 ? col.getW(vi) : 0); else C.push(1, 1, 1, 0);
           if (coverUV && kind === 2) SU.push(coverUV[vi * 2], coverUV[vi * 2 + 1]);
+          else if (kind === KIND_BOARD) SU.push(uv0 ? uv0.getX(vi) : -4, uv0 ? uv0.getY(vi) : -4);
           else SU.push(uv0 && kind === 1 ? uv0.getX(vi) : 0, uv0 && kind === 1 ? uv0.getY(vi) : 0);
           EU.push(uv1 && kind === 1 ? uv1.getX(vi) : -1, uv1 && kind === 1 ? uv1.getY(vi) : -1);
           if (furlAdj) F.push(furlAdj[vi * 3], furlAdj[vi * 3 + 1], furlAdj[vi * 3 + 2]);
@@ -245,4 +251,34 @@ export async function loadKit(assets: AssetStore): Promise<Kit> {
     }),
   ]);
   return { manifest, hulls, props };
+}
+
+export interface WreckItem {
+  id: string;
+  loa: number;
+  sits: "sand" | "water";
+  /** Baked with its epitaph post (nameboard + lantern), and without it (the memorial's own wrecks). */
+  full: THREE.BufferGeometry;
+  bare: THREE.BufferGeometry | null;
+  /** The lantern centre in the item frame (glTF, origin = ground under it), if it has one. */
+  light: THREE.Vector3 | null;
+}
+
+/** The wreck kit v2 (manifest `wreck_kit`): the wrecks and the memorial furniture (epitaph post, bell, pennants). */
+export async function loadWreckKit(assets: AssetStore, manifest: KitManifest, ids: ReadonlySet<string>): Promise<Map<string, WreckItem>> {
+  const out = new Map<string, WreckItem>();
+  const items = (manifest.wreck_kit?.items ?? []).filter((it) => ids.has(it.id));
+  await Promise.all(items.map(async (it) => {
+    const g = await assets.gltf(KIT_BASE + it.file);
+    g.scene.updateMatrixWorld(true);
+    const lightObj = g.scene.getObjectByName("epitaph_light");
+    const light = lightObj ? lightObj.getWorldPosition(new THREE.Vector3()) : null;
+    const hasPost = it.nodes.some((n) => n.name === "epitaph") && it.kind === "wreck";
+    out.set(it.id, {
+      id: it.id, loa: it.loa_m ?? 2, sits: it.sits === "water" ? "water" : "sand", light,
+      full: bakeGltf(g, it.nodes, { wreck: true, loa: it.loa_m ?? 2 }),
+      bare: hasPost ? bakeGltf(g, it.nodes, { wreck: true, loa: it.loa_m ?? 2, skip: new Set(["epitaph"]) }) : null,
+    });
+  }));
+  return out;
 }

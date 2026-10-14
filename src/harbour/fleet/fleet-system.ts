@@ -10,7 +10,9 @@ import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { EmblemAtlas } from "./emblems";
 import { createFleetMaterials, type FleetUniforms } from "./fleet-material";
-import { loadKit, type HullVariant, type Kit } from "./hull-kit";
+import { loadKit, loadWreckKit, type HullVariant, type Kit, type WreckItem } from "./hull-kit";
+import { composeCove, EpitaphBoards, type CoveDead, type CovePiece, type CoveSlot } from "./wreck-cove";
+import type { LightsService } from "../lights/lights-service";
 import { bollardFor, MooringLines } from "./mooring-lines";
 import { RidingLights } from "./riding-lights";
 import { Fenders } from "./fenders";
@@ -18,6 +20,7 @@ import { HouseFlags } from "./house-flags";
 import { coastDistance } from "../sim/obstacles";
 import type { QualityService, QualityTier } from "../engine/quality";
 import { approach, hash01, indexVariants, pickVariant, sternLampLit, targetSwing, wreckScale, type VariantIndex } from "./variants";
+import { titanFor } from "./titans";
 import { DECK, linear, liveryFor, TOPSIDE, TRIM } from "./livery";
 import { ensureMotionService, MotionClock } from "../ui/services";
 
@@ -66,6 +69,10 @@ const STORM_BY_BAND: Record<string, number> = { CALM: 0, WATCH: 0, ALERT: 0.55, 
 const WRECK_KITS = ["wreck_a", "wreck_b", "wreck_c"];
 /** The dead coins with the biggest peak cap get full-size, detailed hulks; the rest lie smaller. */
 const DETAILED_WRECKS = 16;
+/** Wreck kit v2 (manifest `wreck_kit`): Wreck Cove's wrecks and its memorial furniture (wreck-cove.ts). */
+const COVE_ITEMS = ["wreck_great_hulk", "wreck_schooner_sunk", "wreck_stern_section", "wreck_capsized", "wreck_burned", "wreck_rib_cage",
+  "wreck_mast_stump", "wreck_skiff", "wreck_dinghy", "wreck_cove_epitaph", "wreck_cove_bell", "wreck_cove_pennants"];
+const COVE_LAMP = new THREE.Color("#FFB36B");
 const BUOY_KIT = "mooring_buoy";
 const DATA_W = 256;
 /** Livery texels per instance (uFleetPaint): topside, trim, deck, coachroof. */
@@ -132,6 +139,15 @@ export class FleetSystem implements WorldSystem {
   private wreckInst: Array<{ inst: number; x: number; z: number; h: number; scale: number; heel: number; y: number; pitch: number; phi: number }> = [];
   private wrecksPosed = false;
   private buoyInst: Array<{ inst: number; x: number; z: number; phi: number }> = [];
+  /** Wreck kit v2: loaded after the first frame (the cove is off the default views); its nameboards and lanterns. */
+  private cove: Map<string, WreckItem> | null = null;
+  private coveState: "wait" | "loading" | "done" = "wait";
+  private boards: EpitaphBoards | null = null;
+  private coveLights: number[] = [];
+  /** The cove as laid out (dev inspection: __harbour fleet.covePieces). */
+  private covePieces: CovePiece[] = [];
+  private batchV = 0;
+  private batchI = 0;
   private model: HarbourModel | null = null;
   private layout: HarbourLayout | null = null;
   private piers = new Map<string, Pier>();
@@ -185,6 +201,8 @@ export class FleetSystem implements WorldSystem {
       uEmblemGrid: { value: new THREE.Vector4(32, 1, 1 / 32, 1) },
       uWind: { value: 0.35 },
       uFleetTime: { value: 0 },
+      uBoards: { value: new THREE.Texture() },
+      uBoardGrid: { value: new THREE.Vector4(1, 1, 1, 1) },
     };
   }
 
@@ -250,6 +268,7 @@ export class FleetSystem implements WorldSystem {
     mesh.perObjectFrustumCulled = true;
     mesh.sortObjects = false;
     for (const [id, g] of geos) this.geomIds.set(id, mesh.addGeometry(g));
+    this.batchV = nv; this.batchI = ni;
     this.mesh = mesh;
     this.ensureData(maxInstances);
     ctx.scene.add(mesh);
@@ -322,10 +341,11 @@ export class FleetSystem implements WorldSystem {
     this.boats = []; this.byId = new Map(); this.wreckInst = []; this.buoyInst = [];
     const loaOf = (c: HullClass) => layout.hull?.loa?.[c] ?? CLASS_LOA_FALLBACK[c];
     for (const boat of model.boats) {
-      const vid = pickVariant(this.index, boat.rig, boat.hullClass);
+      const titan = titanFor(boat.id, (v) => kit.hulls.has(v)); // the majors sail their own hero ship (titans.ts)
+      const vid = titan ?? pickVariant(this.index, boat.rig, boat.hullClass);
       const variant = vid ? kit.hulls.get(vid) : undefined;
       if (!variant) continue;
-      const loa = loaOf(boat.hullClass);
+      const loa = titan ? variant.loa : loaOf(boat.hullClass);
       const scale = loa / variant.loa;
       const geomFull = this.geomIds.get(variant.id)!;
       const geomLod = this.geomIds.get(`${variant.id}#lod`) ?? geomFull;
@@ -339,9 +359,9 @@ export class FleetSystem implements WorldSystem {
         swing: prev?.swing ?? 0, heel: prev?.heel ?? 0, hi: 0, px: prev?.px ?? 0, pz: prev?.pz ?? 0, vx: 0, vz: 0, seen: !!prev?.seen,
         phi: hash01(boat.id + "#bob") * Math.PI * 2,
         slot: this.atlas ? this.atlas.slotFor({ id: boat.id, symbol: boat.symbol, brandColor: boat.brandColor }) : -1,
-        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, struck: false, mastK: hash01(boat.id + "#mast"), cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
+        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, struck: false, mastK: titan ? 2 : hash01(boat.id + "#mast"), cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
       };
-      this.writePaint(rec.inst, wrecked ? null : boat.id, variant.family);
+      this.writePaint(rec.inst, wrecked || titan ? null : boat.id, variant.family);
       this.boats.push(rec);
       this.byId.set(rec.id, rec);
     }
@@ -357,6 +377,8 @@ export class FleetSystem implements WorldSystem {
    * best slots; the rest lie smaller and further gone along the same beach.
    */
   private placeWrecks(model: HarbourModel, sim: HarbourSim | undefined): void {
+    if (this.cove) { this.placeCove(model, sim); return; }
+    if (this.coveState !== "done" && this.kit?.manifest.wreck_kit) return; // the v2 cove lands shortly
     const L = sim?.layout;
     const kit = this.kit!;
     const ground = this.ctx?.services.get("ground") as GroundService | undefined;
@@ -429,6 +451,99 @@ export class FleetSystem implements WorldSystem {
     }
   }
 
+  /** The wreck kit v2 into the batch (it grows to take it), then the cove is laid out afresh. */
+  private async loadCove(): Promise<void> {
+    const kit = this.kit, ctx = this.ctx, mesh = this.mesh;
+    if (!kit?.manifest.wreck_kit || !ctx || !mesh) { this.coveState = "done"; return; }
+    try {
+      const items = await loadWreckKit(ctx.assets, kit.manifest, new Set(COVE_ITEMS));
+      if (this.failed || this.mesh !== mesh) return;
+      let nv = 0, ni = 0;
+      for (const it of items.values()) for (const g of [it.full, it.bare]) if (g) { nv += g.attributes.position.count; ni += g.index!.count; }
+      mesh.setGeometrySize(this.batchV + nv, this.batchI + ni);
+      this.batchV += nv; this.batchI += ni;
+      for (const it of items.values()) {
+        this.geomIds.set(it.id, mesh.addGeometry(it.full));
+        if (it.bare) this.geomIds.set(`${it.id}#bare`, mesh.addGeometry(it.bare));
+      }
+      this.cove = items;
+    } catch (e) {
+      console.warn("[harbour] fleet: wreck kit v2 failed, v1 hulks instead", e);
+    }
+    this.coveState = "done";
+    if (this.model) {
+      for (const w of this.wreckInst) mesh.deleteInstance(w.inst);
+      this.wreckInst = [];
+      this.placeWrecks(this.model, ctx.services.get("sim") as HarbourSim | undefined);
+      this.wrecksPosed = false;
+    }
+  }
+
+  /**
+   * WRECK COVE v2 (wreck-cove.ts): every dead coin a wreck from the v2 kit on the cove's slots, by peak cap; the
+   * top 20 on the memorial arc above the wrack line (their own posts, lanterns lit at dusk), the rest with a post
+   * beside the wreck. Nameboards from one canvas atlas; lanterns glow × uLamp and light the sand ('lights').
+   */
+  private placeCove(model: HarbourModel, sim: HarbourSim | undefined): void {
+    const items = this.cove!, ctx = this.ctx;
+    const L = sim?.layout;
+    const ground = ctx?.services.get("ground") as GroundService | undefined;
+    const lights = ctx?.services.get("lights") as LightsService | undefined;
+    const coast = L?.field?.coast ?? null;
+    const taken = new Set<number>();
+    if (sim) for (let i = 0; i < sim.pose.count; i++) if (model.boats[i]?.state === "wrecked" && sim.pose.slot[i] >= 0) taken.add(sim.pose.slot[i]);
+    // the island's authored cove (P7: every slot carries its rank and wreck kit, plus the memorial arc) when it has
+    // one; else the sim's wreck slots, composed here
+    type AuthoredSlot = { id: string; class: HullClass; position: [number, number, number]; headingRad: number; rank?: number; kit?: string; scale?: number; sits?: "sand" | "water" };
+    const zone = this.layout?.zones.wreckCove as { slots?: AuthoredSlot[]; memorialArc?: Array<{ rank: number; position: [number, number, number]; headingRad: number; scale?: number }> } | undefined;
+    const takenIds = new Set([...taken].map((w) => L?.slots[w]?.id));
+    const authored = (zone?.slots ?? []).filter((s) => s.rank != null && s.kit && !takenIds.has(s.id));
+    const slots: CoveSlot[] = authored.length
+      ? authored.map((s) => ({ id: s.id, cls: s.class, x: s.position[0], z: s.position[2], h: s.headingRad, rank: s.rank!, kit: s.kit!, scale: s.scale ?? 1, sits: s.sits === "water" ? "water" : "sand" }))
+      : L
+        ? L.wrecks.filter((w) => !taken.has(w) && !L.slots[w].id.startsWith("wreck/bone")).map((w) => { const s = L.slots[w]; return { id: s.id, cls: s.cls, x: s.x, z: s.z, h: s.heading }; })
+        : (zone?.slots ?? []).map((s) => ({ id: s.id, cls: s.class, x: s.position[0], z: s.position[2], h: s.headingRad }));
+    const arc = authored.length ? (zone?.memorialArc ?? []).map((m) => ({ rank: m.rank, x: m.position[0], z: m.position[2], h: m.headingRad, scale: m.scale ?? 2.2 })) : [];
+    const live = new Set(model.boats.map((b) => b.id));
+    const dead: CoveDead[] = model.readings.wrecks.filter((w) => !live.has(w.id));
+    const poly = this.layout?.zones.wreckCove?.polygon ?? [];
+    const yaw = THREE.MathUtils.degToRad(this.layout?.camera.presets.overview?.yawDeg ?? 45);
+    const env = coast && ground ? {
+      coast: (x: number, z: number) => coastDistance(coast, x, z), ground: (x: number, z: number) => ground.heightAt(x, z),
+      inside: (x: number, z: number) => poly.length < 3 || inPolygon(poly, x, z), toViewer: [Math.sin(yaw), Math.cos(yaw)] as const,
+    } : null;
+    const pieces = this.covePieces = composeCove(dead, slots, env, arc);
+    this.boards?.dispose();
+    this.boards = EpitaphBoards.build(dead);
+    this.uniforms.uBoards.value = this.boards.texture;
+    this.uniforms.uBoardGrid.value.copy(this.boards.grid);
+    if (lights) for (const id of this.coveLights) lights.remove(id);
+    this.coveLights = [];
+    const gy = (x: number, z: number) => (ground ? ground.heightAt(x, z) : 0.5);
+    const sea = this.layout?.seaLevel ?? 0;
+    for (const p of pieces) {
+      const it = items.get(p.item);
+      if (!it) continue;
+      const wreck = p.coin && p.item !== "wreck_cove_epitaph";
+      const geom = this.geomIds.get(wreck && !p.board && it.bare ? `${it.id}#bare` : it.id);
+      if (geom == null) continue;
+      // baked pose (heel, burial): set on the sand under her (the lowest of her ends and middle), or on the sea
+      const half = it.loa * p.scale * 0.32, fx = Math.sin(p.h) * half, fz = Math.cos(p.h) * half;
+      const y = p.water || it.sits === "water" ? sea : Math.min(gy(p.x, p.z), (gy(p.x + fx, p.z + fz) + gy(p.x - fx, p.z - fz)) / 2) - 0.05;
+      const inst = this.addInstance(geom);
+      this.writePaint(inst, null, "");
+      const board = p.coin && p.board ? this.boards.slotOf(p.coin.id) : -1;
+      this.writeData(inst, p.lit ? 1 : 0, 0, 0, 0.6, 0.6, 0.6, board >= 0 ? -10 - board : -9, 0);
+      this.wreckInst.push({ inst, x: p.x, z: p.z, h: p.h, scale: p.scale, heel: 0, y, pitch: 0, phi: 0 });
+      if (p.lit && it.light && lights) {
+        // the lantern centre, through the piece's yaw (glTF +x → heading)
+        const th = p.h - Math.PI / 2, c = Math.cos(th), sn = Math.sin(th);
+        const lx = it.light.x * p.scale, ly = it.light.y * p.scale, lz = it.light.z * p.scale;
+        this.coveLights.push(lights.add("lamp", [p.x + lx * c + lz * sn, y + ly, p.z - lx * sn + lz * c], COVE_LAMP, 3.4));
+      }
+    }
+  }
+
   private placeBuoys(): void {
     const geom = this.geomIds.get(BUOY_KIT);
     if (geom == null) return;
@@ -446,6 +561,8 @@ export class FleetSystem implements WorldSystem {
     if (!this.mesh || this.failed) return;
     // the emblem logos are not first-view weight: fetched once the first frame is up (roundels until then)
     if (!this.logosAsked) { this.logosAsked = true; requestAnimationFrame(() => { void this.atlas?.loadLogos(); }); }
+    // so is Wreck Cove's kit (the cove lies off both default views)
+    if (this.coveState === "wait" && this.model) { this.coveState = "loading"; requestAnimationFrame(() => { void this.loadCove(); }); }
     const t0 = performance.now();
     const model = ctx.services.get("model") as HarbourModel | undefined;
     const sim = ctx.services.get("sim") as HarbourSim | undefined;
@@ -884,7 +1001,7 @@ export class FleetSystem implements WorldSystem {
     const s = this.stats, st = sim?.stats;
     const lights = this.riding.count;
     this.debug!.textContent = [
-      `fleet  boats ${this.boats.length} · wrecks ${this.wreckInst.length} · buoys ${this.buoyInst.length}`,
+      `fleet  boats ${this.boats.length} · wrecks ${this.wreckInst.length} (cove ${this.covePieces.length}) · buoys ${this.buoyInst.length}`,
       `view   visible ${s.visible} (full ${s.full} · lod ${s.lod}) · cast shadows ${this.mesh!.castShadow ? "on" : "off"}`,
       `sim    under way ${st?.underWay ?? 0} · docked ${st?.docked ?? 0} · moored ${st?.moored ?? 0} · anchored ${st?.anchored ?? 0} · voyages ${st?.voyages ?? 0}`,
       `fx     wakes ${s.wakes} (moving ${s.moving}) · lines ${this.lines.lines} · riding lights ${lights}`,
@@ -945,12 +1062,22 @@ export class FleetSystem implements WorldSystem {
     if (this.flags) { ctx.scene.remove(this.flags.mesh); this.flags.dispose(); }
     this.material?.dispose(); this.depth?.dispose();
     this.atlas?.dispose();
+    this.boards?.dispose();
     this.uniforms.uFleetData.value.dispose();
     this.uniforms.uFleetPaint.value.dispose();
     this.debug?.remove();
     this.unsubQuality?.(); this.unsubQuality = null;
     ctx.services.delete("picking");
   }
+}
+
+function inPolygon(poly: ReadonlyArray<readonly [number, number]>, x: number, z: number): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i], [xj, zj] = poly[j];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 function segDist(ax: number, az: number, bx: number, bz: number, cx: number, cz: number, dx: number, dz: number): number {

@@ -1526,15 +1526,15 @@
     26,
     20
    ],
-   "tris": 2048,
+   "tris": 1908,
    "budget": 6000,
    "nodes": [
     {
      "name": "bell",
      "origin": [
-      0.0,
-      17.6,
-      2.6
+      10.6,
+      5.25,
+      6.6
      ],
      "empty": true,
      "anim": "the registry bell (Lutine): rung once on a new listing, twice on a delisting"
@@ -1547,7 +1547,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1961
+     "tris": 1842
     },
     {
      "name": "registry_body_lamps",
@@ -1557,7 +1557,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 24
+     "tris": 48
     },
     {
      "name": "registry_body_windows",
@@ -1567,7 +1567,7 @@
       -0.0
      ],
      "material": "hb_window",
-     "tris": 63
+     "tris": 18
     }
    ],
    "anchors": {
@@ -1577,12 +1577,55 @@
      10.0
     ],
     "bell": [
-     0.0,
-     17.6,
-     2.6
-    ]
+     10.6,
+     5.25,
+     6.6
+    ],
+    "frieze": {
+     "centre": [
+      0.0,
+      10.6,
+      8.06
+     ],
+     "normal": [
+      0,
+      0,
+      1
+     ],
+     "size": [
+      17.0,
+      0.82
+     ]
+    },
+    "grade_board": {
+     "centre": [
+      -10.74,
+      6.2,
+      -2.0
+     ],
+     "normal": [
+      -1,
+      0,
+      0
+     ],
+     "size": [
+      12.0,
+      4.6
+     ]
+    },
+    "register_flag": {
+     "hoist": [
+      11.42,
+      21.8,
+      -8.4
+     ],
+     "size": [
+      5.2,
+      3.3
+     ]
+    }
    },
-   "kb": 39.6
+   "kb": 37.0
   },
   "chartroom": {
    "file": "chartroom.glb",
@@ -1634,74 +1677,9 @@
     14,
     14
    ],
-   "tris": 719,
+   "tris": 961,
    "budget": 6000,
    "nodes": [
-    {
-     "name": "cone_0",
-     "origin": [
-      6.8,
-      15.5,
-      1.4
-     ],
-     "material": "hb_opaque",
-     "tris": 28,
-     "anim": "storm cone 1: visible when the DEWS level >= 1 (hide otherwise)"
-    },
-    {
-     "name": "cone_1",
-     "origin": [
-      6.8,
-      13.8,
-      1.4
-     ],
-     "material": "hb_opaque",
-     "tris": 28,
-     "anim": "storm cone 2: visible when the DEWS level >= 2 (hide otherwise)"
-    },
-    {
-     "name": "cone_2",
-     "origin": [
-      6.8,
-      12.1,
-      1.4
-     ],
-     "material": "hb_opaque",
-     "tris": 28,
-     "anim": "storm cone 3: visible when the DEWS level >= 3 (hide otherwise)"
-    },
-    {
-     "name": "cone_3",
-     "origin": [
-      6.8,
-      10.4,
-      1.4
-     ],
-     "material": "hb_opaque",
-     "tris": 28,
-     "anim": "storm cone 4: visible when the DEWS level >= 4 (hide otherwise)"
-    },
-    {
-     "name": "cone_hoist",
-     "origin": [
-      6.8,
-      16.2,
-      1.4
-     ],
-     "empty": true,
-     "anim": "top of the cone string (glTF yard arm); cones hang below it, 1.7 m apart"
-    },
-    {
-     "name": "pennant",
-     "origin": [
-      2.6,
-      21.9,
-      1.4
-     ],
-     "material": "hb_opaque",
-     "tris": 2,
-     "anim": "danger pennant at the masthead: visible at DEWS Danger"
-    },
     {
      "name": "stormstation_body",
      "origin": [
@@ -1710,7 +1688,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 589
+     "tris": 931
     },
     {
      "name": "stormstation_body_lamps",
@@ -1720,7 +1698,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 12
+     "tris": 24
     },
     {
      "name": "stormstation_body_windows",
@@ -1730,40 +1708,28 @@
       -0.0
      ],
      "material": "hb_window",
-     "tris": 4
+     "tris": 6
     }
    ],
    "anchors": {
-    "mast_top": [
-     2.6,
-     22.5,
-     1.4
-    ],
-    "yard_y": 16.5,
-    "cones": [
-     [
-      6.800000000000001,
-      15.5,
-      1.4
+    "weather_board": {
+     "centre": [
+      -2.0,
+      3.4,
+      3.02
      ],
-     [
-      6.800000000000001,
-      13.8,
-      1.4
+     "normal": [
+      0,
+      0,
+      1
      ],
-     [
-      6.800000000000001,
-      12.1,
-      1.4
-     ],
-     [
-      6.800000000000001,
-      10.4,
-      1.4
+     "size": [
+      7.2,
+      2.7
      ]
-    ]
+    }
    },
-   "kb": 20.8
+   "kb": 20.6
   },
   "harbourmaster": {
    "file": "harbourmaster.glb",
@@ -1771,19 +1737,9 @@
     20,
     16
    ],
-   "tris": 2148,
+   "tris": 2276,
    "budget": 6000,
    "nodes": [
-    {
-     "name": "flag_pole_top",
-     "origin": [
-      5.6,
-      27.9,
-      -0.0
-     ],
-     "empty": true,
-     "anim": "harbourmaster's flag: the runtime hangs a waving flag here (hoist at this point, flying downwind)"
-    },
     {
      "name": "harbourmaster_body",
      "origin": [
@@ -1792,7 +1748,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 2060
+     "tris": 2188
     },
     {
      "name": "harbourmaster_body_lamps",
@@ -1825,9 +1781,31 @@
      -4.0,
      0.5,
      5.0
-    ]
+    ],
+    "mover_up": {
+     "hoist": [
+      5.6,
+      27.25,
+      4.6
+     ],
+     "size": [
+      3.6,
+      2.4
+     ]
+    },
+    "mover_down": {
+     "hoist": [
+      5.6,
+      27.25,
+      -4.6
+     ],
+     "size": [
+      3.6,
+      2.4
+     ]
+    }
    },
-   "kb": 36.4
+   "kb": 38.2
   },
   "keeperslog": {
    "file": "keeperslog.glb",
@@ -2616,7 +2594,7 @@
   "hull-stages": {
    "file": "hull-stages.glb",
    "footprint": null,
-   "tris": 3134,
+   "tris": 3414,
    "budget": 6000,
    "nodes": [
     {
@@ -2627,7 +2605,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 120
+     "tris": 400
     },
     {
      "name": "painted",
@@ -2664,7 +2642,7 @@
    "beam_m": 3.51,
    "keel_bottom_y": -1.21,
    "freeboard_m": 1.24,
-   "kb": 64.6
+   "kb": 69.3
   }
  }
 }

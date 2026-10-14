@@ -101,8 +101,12 @@ def build_customs(coll=None):
     return root, dict(anchors=dict(entrance=[0.0, 0.0, 15.0], clock=[TX, round(tz0 + 4.6, 2), round(-(TY - TH), 2)], podium_y=P))
 
 
-# =================================================================== THE REGISTRY  26 x 20  (Lloyd's: columned hall, the bell, the ledger)
+# =================================================================== THE REGISTRY  26 x 20  (a register of shipping: ledger hall, grade board, flag)
 def build_registry(coll=None):
+    """A classification society's hall (Lloyd's Register, not a chapel): a columned exchange with a gilt anchor-and-ledger
+    relief in the pediment, the society's name on the frieze, a tall flagstaff, the Lutine bell in a free-standing iron
+    frame on the podium, and the grade board (painted shields A-F with counts) on the side wall the camera sees.
+    The runtime paints the frieze, the flag and the board (anchors frieze / register_flag / grade_board)."""
     root = empty('registry', coll=coll)
     K = Kit(42)
     op = K.op
@@ -112,46 +116,92 @@ def build_registry(coll=None):
     X0, X1, Y0, Y1, E = -10.5, 10.5, -5.0, 9.0, P + 9.8
     box2(op, X0, Y0, P, X1, Y1, E, PAL['stone_light'], PT['ashlar'])
     box2(op, X0 - 0.4, Y0 - 0.4, E, X1 + 0.4, Y1 + 0.4, E + 0.7, PAL['marble'], 0)
-    for y in (-1.5, 2.5, 6.5):
-        for s in (-1, 1):
-            window(K, (s * X1, y, P + 5.0), (s, 0, 0), 1.4, 4.4, arch=True, frame=PAL['marble'])
-    xs = colonnade(op, -8.6, 8.6, -7.0, P, 8.9, 6, 0.55, PAL['marble'], cap_col=PAL['gilt'])
+    # rusticated base course + a string course: a counting house, not a nave
+    box2(op, X0 - 0.15, Y0 - 0.15, P, X1 + 0.15, Y1 + 0.15, P + 1.4, PAL['stone_dark'], PT['ashlar'])
+    box2(op, X0 - 0.2, Y0 - 0.2, P + 5.6, X1 + 0.2, Y1 + 0.2, P + 5.9, PAL['marble'], 0)
+    for y in (-1.5, 2.5, 6.5):   # square-headed sash windows, two storeys (the far side; the near side carries the board)
+        for z in (P + 3.3, P + 7.7):
+            window(K, (X1, y, z), (1, 0, 0), 1.4, 2.6, frame=PAL['marble'], mullion=True)
+    # the grade board's frame on the near side wall (the runtime paints the shields inside it)
+    GB_Y, GB_Z, GB_W, GB_H = 2.0, P + 5.0, 12.0, 4.6
+    t, n, up = frame3((-1, 0, 0))
+    gc = Vector((X0, GB_Y, GB_Z))
+    fw = 0.32
+    for (dx, dz, w, h) in ((0, -(GB_H / 2 + fw / 2), GB_W + 2 * fw, fw), (0, GB_H / 2 + fw / 2, GB_W + 2 * fw, fw),
+                           (-(GB_W / 2 + fw / 2), 0, fw, GB_H), (GB_W / 2 + fw / 2, 0, fw, GB_H)):
+        obox(op, gc + t * dx + up * dz + n * 0.22, t, n, w, 0.44, h, PAL['gilt'], PT['metal'])
+    obox(op, gc + up * (GB_H / 2 + 0.75) + n * 0.3, t, n, GB_W + 1.2, 0.6, 0.35, PAL['marble'])        # hood moulding
+    for s in (-1, 1):   # lamps either side of the board
+        box2(K.em, X0 - 0.75, GB_Y + s * (GB_W / 2 + 0.9) - 0.25, GB_Z + 0.6, X0 - 0.25, GB_Y + s * (GB_W / 2 + 0.9) + 0.25, GB_Z + 1.3, PAL['iron'], 0)
+        beam(op, (X0, GB_Y + s * (GB_W / 2 + 0.9), GB_Z + 0.4), (X0 - 0.5, GB_Y + s * (GB_W / 2 + 0.9), GB_Z + 0.6), 0.08, 0.08, PAL['iron'])
+    # portico: six columns, an entablature carrying the society's name (the runtime letters it), the pediment
+    colonnade(op, -8.6, 8.6, -7.0, P, 8.9, 6, 0.55, PAL['marble'], cap_col=PAL['gilt'])
     box2(op, -9.6, -8.0, P + 8.9, 9.6, Y0, P + 9.9, PAL['marble'], 0)
     for x in (-5.2, 0.0, 5.2):
-        window(K, (x, Y0, P + 4.0), (0, -1, 0), 1.8, 4.6, arch=True, frame=PAL['marble'])
-    pediment(op, -9.8, 9.8, -8.2, Y0, P + 10.2, 3.4, PAL['marble'], tymp=PAL['stone_dark'])
+        window(K, (x, Y0, P + 5.2), (0, -1, 0), 1.8, 3.2, frame=PAL['marble'], mullion=True)
+    pediment(op, -9.8, 9.8, -8.2, Y0, P + 10.2, 3.4, PAL['marble'], tymp=PAL['door_blue'])
     box2(op, -9.8, -8.2, P + 9.9, 9.8, Y0, P + 10.2, PAL['marble'], 0)
     gable_roof(op, X0, -8.2, X1, Y1, E + 0.7, 3.4, PAL['lead'], PT['slate'], ov=0.3, axis='y', ends=False)
     poly(op, ((X0, Y1 + 0.3, E + 0.7), (X1, Y1 + 0.3, E + 0.7), (0, Y1 + 0.3, E + 4.1)), PAL['stone_light'], PT['ashlar'], nrm=(0, 1, 0))
-    # the ledger: a great open book in the tympanum, gilt edges
-    lz = P + 10.6
+    # the relief: a great fouled anchor over an open ledger, gilt on the blue tympanum
+    yr = -8.0          # proud of the tympanum (at yf + 0.25 = -7.95)
+    z0 = P + 10.2
+    nb = Vector((0, -1, 0))
+    G = PAL['gilt']
+    for s in (-1, 1):   # the ledger: two pages fanned open, ruled lines
+        a = Vector((0, yr - 0.08, z0 + 0.35)); b = Vector((s * 3.0, yr - 0.16, z0 + 0.55))
+        pts = (a, b, b + Vector((0, 0, 1.25)), a + Vector((0, 0, 1.45)))
+        poly(op, pts, PAL['cream'], 0, nrm=nb)
+        beam(op, b + Vector((0, 0, -0.04)), b + Vector((0, 0, 1.29)), 0.16, 0.16, G)
+        beam(op, a + Vector((0, 0, -0.04)), b + Vector((0, 0, -0.04)), 0.12, 0.12, G)
+        for k in range(4):
+            z = 0.42 + k * 0.26
+            beam(op, a + Vector((s * 0.35, -0.04, z)), a + Vector((s * 2.6, -0.1, z + 0.18)), 0.05, 0.03, PAL['iron'], up=nb)
+    # the anchor in front of the book: shank, stock, ring, arms + flukes
+    ay = yr - 0.45
+    beam(op, (0, ay, z0 + 0.25), (0, ay, z0 + 2.95), 0.26, 0.26, G, PT['metal'])                         # shank
+    beam(op, (-1.15, ay - 0.05, z0 + 2.55), (1.15, ay - 0.05, z0 + 2.55), 0.2, 0.22, PAL['oak'])          # stock
+    disc(op, (0, ay, z0 + 3.12), (0, -1, 0), 0.26, 0.12, G, 10, PT['metal'])                              # ring
     for s in (-1, 1):
-        a = Vector((0, -8.35, lz + 0.2)); b = Vector((s * 2.6, -8.45, lz + 1.1))
-        pts = (a, b, b + Vector((0, 0, 1.4)), a + Vector((0, 0, 1.6)))
-        poly(op, pts, PAL['cream'], 0, nrm=(0, -1, 0))
-        beam(op, b, b + Vector((0, 0, 1.4)), 0.14, 0.14, PAL['gilt'])
-        for k in range(3):
-            z = 0.45 + k * 0.38
-            beam(op, a + Vector((s * 0.35, -0.06, z)), a + Vector((s * 2.1, -0.12, z + 0.72)), 0.06, 0.04, PAL['iron'], up=Vector((0, -1, 0)))
-    beam(op, (0, -8.4, lz + 0.1), (0, -8.4, lz + 1.9), 0.18, 0.18, PAL['gilt'])
-    # the bell: a bell-cote on the ridge with a great bronze bell hung in it
-    bx, by, bz = 0.0, -2.6, E + 0.7 + 2.9
-    for sx in (-1, 1):
-        box2(op, bx + sx * 1.9 - 0.35, by - 0.4, E + 0.7, bx + sx * 1.9 + 0.35, by + 0.4, bz + 3.6, PAL['marble'], 0)
-    box2(op, bx - 2.5, by - 0.6, bz + 3.6, bx + 2.5, by + 0.6, bz + 4.2, PAL['marble'], 0)
-    pediment(op, bx - 2.5, bx + 2.5, by - 0.6, by + 0.6, bz + 4.2, 1.2, PAL['marble'])
-    beam(op, (bx - 1.6, by, bz + 3.3), (bx + 1.6, by, bz + 3.3), 0.25, 0.25, PAL['oak'])
-    lathe(op, (bx, by), [(1.45, bz + 0.2), (1.35, bz + 0.45), (1.0, bz + 1.1), (0.85, bz + 2.2), (0.6, bz + 2.75), (0.0, bz + 2.95)], PAL['bronze_light'],
+        p0 = Vector((0, ay, z0 + 0.3))
+        pts = [p0 + Vector((s * 1.6 * math.sin(a_), 0, 1.6 * (1 - math.cos(a_)) * 0.75)) for a_ in (0.0, 0.45, 0.9, 1.25)]
+        for a_, b_ in zip(pts[:-1], pts[1:]):
+            beam(op, a_, b_, 0.24, 0.24, G, PT['metal'], up=nb)
+        tip = pts[-1]
+        poly(op, (tip + Vector((0, -0.14, -0.05)), tip + Vector((-s * 0.55, -0.14, 0.15)), tip + Vector((s * 0.15, -0.14, 0.7))), G, PT['metal'], nrm=nb)
+    door(K, (0, Y0, P), (0, -1, 0), 2.4, 3.8, col=PAL['door_blue'], frame=PAL['marble'])
+    # the Lutine bell: a free-standing gilt-iron frame on the podium, right of the steps (rung for a new listing / a loss)
+    bx, by = 10.6, -6.6
+    for s in (-1, 1):
+        beam(op, (bx + s * 1.25, by, P), (bx + s * 0.95, by, P + 4.4), 0.2, 0.2, PAL['iron'], PT['metal'])
+    beam(op, (bx - 1.25, by, P + 4.4), (bx + 1.25, by, P + 4.4), 0.26, 0.3, PAL['oak'])
+    pyramid_roof(op, bx, by, 1.5, P + 4.55, 0.9, PAL['copper'], 0, ov=0.1)
+    bz = P + 2.05
+    lathe(op, (bx, by), [(0.95, bz), (0.88, bz + 0.18), (0.66, bz + 0.7), (0.56, bz + 1.5), (0.4, bz + 1.9), (0.0, bz + 2.05)], PAL['bronze_light'],
           PT['metal'], 14, smooth=True)
-    sphere(op, (bx, by, bz + 0.25), 0.28, PAL['bronze'], 6, 3)
-    bell = empty('bell', (bx, by, bz + 3.0), parent=root, coll=coll)
+    sphere(op, (bx, by, bz + 0.12), 0.2, PAL['bronze'], 6, 3)
+    beam(op, (bx, by, bz + 2.05), (bx, by, P + 4.25), 0.1, 0.1, PAL['iron'])
+    bell = empty('bell', (bx, by, bz + 2.0), parent=root, coll=coll)
     bell['anim'] = 'the registry bell (Lutine): rung once on a new listing, twice on a delisting'
-    door(K, (0, Y0, P), (0, -1, 0), 2.2, 3.6, col=PAL['door_green'], frame=PAL['marble'])
-    for s in (-1, 1):   # gilt lamps on the cheeks
+    # the society's flagstaff: a tall white mast with a yard on the podium's right corner (the runtime flies the register flag)
+    fx, fy = 11.3, 8.4
+    box2(op, fx - 0.7, fy - 0.7, P, fx + 0.7, fy + 0.7, P + 0.8, PAL['granite'], PT['ashlar'])
+    cyl(op, (fx, fy), 0.2, 0.09, P + 0.8, P + 21.0, PAL['wall_white'], 0, 8)
+    sphere(op, (fx, fy, P + 21.15), 0.22, PAL['gilt'], 6, 3)
+    beam(op, (fx - 1.6, fy, P + 16.5), (fx + 1.6, fy, P + 16.5), 0.1, 0.12, PAL['wall_white'])
+    for p in ((fx - 3.0, fy + 1.0, P), (fx + 0.8, fy - 3.4, P)):
+        beam(op, (fx, fy, P + 16.4), p, 0.04, 0.04, PAL['tar'])
+    for s in (-1, 1):   # gilt lamps on the stair cheeks
         cyl(op, (s * 8.6, -9.4), 0.14, 0.1, 0.0, 3.2, PAL['iron'], PT['metal'], 6)
         box2(K.em, s * 8.6 - 0.26, -9.66, 3.2, s * 8.6 + 0.26, -9.14, 3.8, PAL['iron'], 0)
     K.emit(root, 'registry_body', coll)
-    return root, dict(anchors=dict(entrance=[0.0, 0.0, 10.0], bell=[bx, round(bz + 3.0, 2), round(-by, 2)]))
+    gl = lambda v: [round(v[0], 2), round(v[2], 2), round(-v[1], 2)]
+    return root, dict(anchors=dict(
+        entrance=[0.0, 0.0, 10.0], bell=gl((bx, by, bz + 2.0)),
+        # painted by the runtime: centre (glTF), outward normal (glTF), size (w, h) metres
+        frieze=dict(centre=gl((0.0, -8.06, P + 9.4)), normal=[0, 0, 1], size=[17.0, 0.82]),
+        grade_board=dict(centre=gl((X0 - 0.24, GB_Y, GB_Z)), normal=[-1, 0, 0], size=[GB_W, GB_H]),
+        register_flag=dict(hoist=gl((fx + 0.12, fy, P + 20.6)), size=[5.2, 3.3])))
 
 
 # =================================================================== THE CHART ROOM  18 x 14  (observatory dome + armillary)
@@ -237,67 +287,74 @@ def build_chartroom(coll=None):
 
 
 # =================================================================== STORM STATION  14 x 14  (signal mast, cone yard)
+def signal_shape(mb, kind, c, s=1.0):
+    """A storm signal: black canvas over hoops. 'up' / 'down' cone (apex up / down) or a 'drum' (cylinder)."""
+    x, y, z = c
+    R, H = 1.25 * s, 2.3 * s
+    if kind == 'drum':
+        r, h = 1.0 * s, 2.0 * s
+        cyl(mb, (x, y), r, r, z - h / 2, z + h / 2, PAL['cone'], 0, 12, top=True, bottom=True)
+        for zz in (z - h / 2, z, z + h / 2):    # the hoops show as pale bands
+            cyl(mb, (x, y), r + 0.04, r + 0.04, zz - 0.07, zz + 0.07, PAL['timber_grey'], 0, 12, top=False)
+    elif kind == 'up':
+        cyl(mb, (x, y), R, 0.0, z - H / 2, z + H / 2, PAL['cone'], 0, 12, top=False, bottom=True)
+        cyl(mb, (x, y), R + 0.04, R + 0.04, z - H / 2 - 0.07, z - H / 2 + 0.07, PAL['timber_grey'], 0, 12, top=False)
+    else:
+        cyl(mb, (x, y), 0.0, R, z - H / 2, z + H / 2, PAL['cone'], 0, 12, top=True)
+        cyl(mb, (x, y), R + 0.04, R + 0.04, z + H / 2 - 0.07, z + H / 2 + 0.07, PAL['timber_grey'], 0, 12, top=False)
+
+
 def build_stormstation(coll=None):
+    """The storm-signal OFFICE. The signal itself flies on the island's storm mast on the breakwater root, 20 m away
+    (readings/storm-cones.ts hoists one shape per DEWS step there): one mast, one owner. The office keeps the watch:
+    the anemometer, the weather board chalked with the band (the runtime paints anchor weather_board) and the signal
+    locker with the spare shapes, cones and drums, racked by the door."""
     root = empty('stormstation', coll=coll)
     K = Kit(44)
     op = K.op
     P = 0.5
     box2(op, -7.0, -7.0, -1.5, 7.0, 7.0, P, PAL['granite'], PT['ashlar'], skip=('+z',))
     poly(op, ((-7, -7, P), (7, -7, P), (7, 7, P), (-7, 7, P)), PAL['quay'], PT['cobble'], nrm=(0, 0, 1))
-    # signal hut
-    HX0, HX1, HY0, HY1 = -6.2, -0.6, 0.6, 6.4
-    box2(op, HX0, HY0, P, HX1, HY1, P + 3.6, PAL['wall_white'], PT['render'])
-    hip_roof(op, HX0, HY0, HX1, HY1, P + 3.6, 2.0, PAL['roof_red'], PT['tiles'], ov=0.35)
-    box2(op, -2.4, 3.4, P + 4.4, -1.6, 4.2, P + 6.4, PAL['brick'], PT['ashlar'])
-    window(K, (-4.6, HY0, P + 2.0), (0, -1, 0), 1.1, 1.3, shutters=PAL['flag_red'])
-    door(K, (-2.2, HY0, P), (0, -1, 0), 1.2, 2.4, col=PAL['flag_red'])
-    window(K, (HX0, 3.5, P + 2.0), (-1, 0, 0), 1.1, 1.3, shutters=PAL['flag_red'])
-    # barometer board by the door
-    box2(op, -6.0, HY0 - 0.12, P + 0.9, -5.3, HY0, P + 3.0, PAL['oak'], 0)
-    disc(op, (-5.65, HY0 - 0.12, P + 2.4), (0, -1, 0), 0.28, 0.05, PAL['clock'], 10)
-    # anemometer + wind vane on the hut roof
-    ax, ay, az = -4.2, 3.5, P + 5.6
-    cyl(op, (ax, ay), 0.06, 0.05, P + 4.6, az + 1.6, PAL['iron'], PT['metal'], 5)
+    # the office
+    HX0, HX1, HY0, HY1 = -6.2, 1.4, 0.6, 6.4
+    box2(op, HX0, HY0, P, HX1, HY1, P + 3.8, PAL['wall_white'], PT['render'])
+    hip_roof(op, HX0, HY0, HX1, HY1, P + 3.8, 2.2, PAL['roof_red'], PT['tiles'], ov=0.35)
+    box2(op, -0.4, 3.4, P + 4.6, 0.4, 4.2, P + 6.6, PAL['brick'], PT['ashlar'])
+    for x in (-4.6, -0.6):
+        window(K, (x, HY0, P + 2.0), (0, -1, 0), 1.1, 1.3, shutters=PAL['flag_red'])
+    door(K, (-2.6, HY0, P), (0, -1, 0), 1.2, 2.4, col=PAL['flag_red'])
+    window(K, (HX1, 3.5, P + 2.0), (1, 0, 0), 1.1, 1.3, shutters=PAL['flag_red'])
+    # anemometer + wind vane on the roof
+    ax, ay, az = -4.2, 3.5, P + 5.8
+    cyl(op, (ax, ay), 0.06, 0.05, P + 4.8, az + 1.6, PAL['iron'], PT['metal'], 5)
     for k in range(3):
         a = 2 * math.pi * k / 3
         p = Vector((ax + 0.75 * math.cos(a), ay + 0.75 * math.sin(a), az + 1.6))
         beam(op, (ax, ay, az + 1.6), p, 0.05, 0.05, PAL['iron'])
         sphere(op, tuple(p), 0.2, PAL['brass'], 6, 3)
-    # the mast: white pole on a granite footing, crosstree yard, gaff, stays to ground anchors
-    MX, MY = 2.6, -1.4
-    box2(op, MX - 1.1, MY - 1.1, P, MX + 1.1, MY + 1.1, P + 1.0, PAL['granite_light'], PT['ashlar'])
-    cyl(op, (MX, MY), 0.3, 0.13, P + 1.0, P + 22.0, PAL['wall_white'], 0, 8)
-    sphere(op, (MX, MY, P + 22.15), 0.3, PAL['gilt'], 6, 3)
-    YZ = P + 16.0
-    beam(op, (MX - 4.6, MY, YZ), (MX + 4.6, MY, YZ), 0.2, 0.22, PAL['tar'])
-    beam(op, (MX, MY, YZ - 3.0), (MX - 3.2, MY + 0.0, YZ - 1.8), 0.16, 0.16, PAL['tar'])
-    for p in ((MX + 6.0, MY + 0.0, P), (MX - 5.4, MY + 4.0, P), (MX - 3.0, MY - 5.0, P), (MX + 2.5, MY + 5.6, P)):
-        beam(op, (MX, MY, YZ + 2.5), p, 0.05, 0.05, PAL['tar'])
-        box2(op, p[0] - 0.3, p[1] - 0.3, P, p[0] + 0.3, p[1] + 0.3, P + 0.4, PAL['iron'], PT['metal'])
-    hx = MX + 4.2
-    beam(op, (hx, MY, YZ), (hx, MY, P + 1.2), 0.04, 0.04, PAL['tar'])                                   # halyard
-    beam(op, (MX - 4.2, MY, YZ), (MX - 4.2, MY, P + 6.0), 0.04, 0.04, PAL['tar'])
-    cleat = empty('cone_hoist', (hx, MY, YZ - 0.3), parent=root, coll=coll)
-    cleat['anim'] = 'top of the cone string (glTF yard arm); cones hang below it, 1.7 m apart'
-    for k in range(4):   # storm cones, apex down, hung one below the other (show the first N)
-        mb = MB(500 + k)
-        cz = YZ - 1.0 - k * 1.7
-        cyl(mb, (hx, MY), 0.0, 0.7, cz - 0.65, cz + 0.55, PAL['cone'], 0, 10, top=True)
-        ob = to_object(mb, f'cone_{k}', 'hb_opaque', parent=root, origin=(hx, MY, cz), coll=coll)
-        ob['anim'] = f'storm cone {k + 1}: visible when the DEWS level >= {k + 1} (hide otherwise)'
-    mb = MB(510)
-    pz = P + 21.4
-    pts = [(MX + 0.15, MY, pz), (MX + 0.15, MY, pz - 1.0)]
-    tip = Vector((MX + 4.8, MY + 0.25, pz - 0.65))
-    poly(mb, (pts[0], pts[1], tip), PAL['flag_red'], 0, nrm=(0, -1, 0))
-    poly(mb, (pts[0], pts[1], tip), mul(PAL['flag_red'], 0.85), 0, nrm=(0, 1, 0))
-    ob = to_object(mb, 'pennant', 'hb_opaque', parent=root, origin=(MX, MY, pz), coll=coll)
-    ob['anim'] = 'danger pennant at the masthead: visible at DEWS Danger'
-    # lamp on the mast foot
-    box2(K.em, MX - 0.25, MY - 1.4, P + 3.0, MX + 0.25, MY - 0.9, P + 3.6, PAL['iron'], 0)
+    # the weather board in front of the office, under a little roof: the runtime chalks the DEWS band on it
+    WB_X, WB_Y, WB_Z, WB_W, WB_H = -2.0, -3.0, P + 2.9, 7.2, 2.7
+    for s in (-1, 1):
+        box2(op, WB_X + s * (WB_W / 2 - 0.1) - 0.14, WB_Y - 0.14, P, WB_X + s * (WB_W / 2 - 0.1) + 0.14, WB_Y + 0.14, WB_Z + WB_H / 2 + 0.6,
+             PAL['oak'], 0)
+    box2(op, WB_X - WB_W / 2 - 0.18, WB_Y + 0.0, WB_Z - WB_H / 2 - 0.18, WB_X + WB_W / 2 + 0.18, WB_Y + 0.16, WB_Z + WB_H / 2 + 0.18, PAL['timber_dark'], 0)
+    box2(op, WB_X - WB_W / 2 - 0.35, WB_Y - 0.35, WB_Z + WB_H / 2 + 0.18, WB_X + WB_W / 2 + 0.35, WB_Y + 0.4, WB_Z + WB_H / 2 + 0.45, PAL['roof_red'], 0)
+    # the signal locker: the shapes racked by the office (black canvas cones and drums)
+    box2(op, 2.2, 0.8, P, 6.6, 6.2, P + 0.5, PAL['timber'], PT['boards'])
+    for k, kind in enumerate(('up', 'drum', 'down')):
+        signal_shape(op, kind, (4.4, 1.9 + k * 1.8, P + 0.5 + 0.62), 0.5)
+    for k, kind in enumerate(('drum', 'up')):
+        signal_shape(op, kind, (4.4, 2.8 + k * 1.8, P + 0.5 + 1.25 + 0.62), 0.5)
+    for y in (0.9, 6.1):
+        beam(op, (2.3, y, P + 0.5), (2.3, y, P + 3.1), 0.16, 0.16, PAL['oak'])
+        beam(op, (6.5, y, P + 0.5), (6.5, y, P + 3.1), 0.16, 0.16, PAL['oak'])
+    box2(op, 2.0, 0.6, P + 3.1, 6.8, 6.4, P + 3.35, PAL['roof_red'], 0)
+    # lamps: the door and the weather board
+    box2(K.em, -2.6 - 0.25, HY0 - 0.6, P + 2.8, -2.6 + 0.25, HY0 - 0.1, P + 3.4, PAL['iron'], 0)
+    box2(K.em, WB_X - 0.25, WB_Y - 0.75, WB_Z + WB_H / 2 + 0.5, WB_X + 0.25, WB_Y - 0.25, WB_Z + WB_H / 2 + 0.9, PAL['iron'], 0)
     K.emit(root, 'stormstation_body', coll)
-    return root, dict(anchors=dict(mast_top=[MX, round(P + 22.0, 2), round(-MY, 2)], yard_y=round(YZ, 2),
-                                   cones=[[hx, round(YZ - 1.0 - k * 1.7, 2), round(-MY, 2)] for k in range(4)]))
+    gl = lambda v: [round(v[0], 2), round(v[2], 2), round(-v[1], 2)]
+    return root, dict(anchors=dict(weather_board=dict(centre=gl((WB_X, WB_Y - 0.02, WB_Z)), normal=[0, 0, 1], size=[WB_W, WB_H])))
 
 
 # =================================================================== HARBOURMASTER  20 x 16  (tower office with a balcony)
@@ -353,9 +410,25 @@ def build_harbourmaster(coll=None):
     box2(op, TX0 + 0.05, TY0 + 0.05, lz1, TX1 - 0.05, TY1 - 0.05, lz1 + 0.35, PAL['trim'], 0)
     pyramid_roof(op, (TX0 + TX1) / 2, (TY0 + TY1) / 2, (TX1 - TX0) / 2, lz1 + 0.35, 3.0, PAL['copper'], 0, ov=0.5)
     fx, fy = (TX0 + TX1) / 2, (TY0 + TY1) / 2
-    cyl(op, (fx, fy), 0.13, 0.07, lz1 + 3.0, lz1 + 9.0, PAL['trim'], 0, 6)
-    beam(op, (fx - 1.4, fy, lz1 + 6.6), (fx + 1.4, fy, lz1 + 6.6), 0.1, 0.1, PAL['trim'])
-    flag_node(root, (fx, fy, lz1 + 8.8), coll, "harbourmaster's flag")
+    # the movers hoist: a signal yard across the tower (front to back, so both hoists read side by side from the camera);
+    # the runtime flies the day's top gaining harbour's crest over a green cone (apex up) at the front yardarm and the
+    # top losing harbour's crest over a red cone (apex down) at the back one (anchors mover_up / mover_down)
+    cyl(op, (fx, fy), 0.16, 0.08, lz1 + 3.0, lz1 + 11.0, PAL['trim'], 0, 6)
+    sphere(op, (fx, fy, lz1 + 11.1), 0.2, PAL['gilt'], 6, 3)
+    YDZ, YA = lz1 + 8.4, 4.6
+    beam(op, (fx, fy - YA - 0.2, YDZ), (fx, fy + YA + 0.2, YDZ), 0.14, 0.14, PAL['trim'])
+    movers = {}
+    for key, s_, col, kind in (('mover_up', -1, PAL['flag_green'], 'up'), ('mover_down', 1, PAL['flag_red'], 'down')):
+        hy = fy + s_ * YA
+        beam(op, (fx, fy, lz1 + 10.6), (fx, hy, YDZ), 0.035, 0.035, PAL['tar'])                          # yard lift
+        beam(op, (fx, hy, YDZ), (fx, hy, YDZ - 6.2), 0.03, 0.03, PAL['tar'])                               # halyard
+        cz = YDZ - 4.9
+        R, H = 0.8, 1.5
+        if kind == 'up':
+            cyl(op, (fx, hy), R, 0.0, cz - H / 2, cz + H / 2, col, 0, 10, top=False, bottom=True)
+        else:
+            cyl(op, (fx, hy), 0.0, R, cz - H / 2, cz + H / 2, col, 0, 10, top=True)
+        movers[key] = [round(fx, 2), round(YDZ - 0.25, 2), round(-hy, 2)]
     # telescope on the balcony
     rod(op, (TX0 - 0.5, TY0 - 0.6, tz1 + 1.4), (TX0 + 0.9, TY0 - 1.3, tz1 + 1.9), 0.14, PAL['brass'], 6, cap=True)
     beam(op, (TX0 - 0.1, TY0 - 0.9, tz1 + 0.45), (TX0 + 0.1, TY0 - 0.95, tz1 + 1.55), 0.06, 0.06, PAL['iron'])
@@ -367,7 +440,8 @@ def build_harbourmaster(coll=None):
         box2(op, -8.9 + (k % 2) * 0.8, OY0 - 0.74, P + 1.35 + (k // 2) * 0.65, -8.3 + (k % 2) * 0.8, OY0 - 0.7, P + 1.85 + (k // 2) * 0.65,
              PAL['canvas'], 0)
     K.emit(root, 'harbourmaster_body', coll)
-    return root, dict(anchors=dict(balcony=[fx, round(tz1 + 0.45, 2), round(-fy, 2)], entrance=[-4.0, P, 5.0]))
+    return root, dict(anchors=dict(balcony=[fx, round(tz1 + 0.45, 2), round(-fy, 2)], entrance=[-4.0, P, 5.0],
+                                   mover_up=dict(hoist=movers['mover_up'], size=[3.6, 2.4]), mover_down=dict(hoist=movers['mover_down'], size=[3.6, 2.4])))
 
 
 # =================================================================== KEEPER'S LOG  12 x 10  (octagonal watch house)

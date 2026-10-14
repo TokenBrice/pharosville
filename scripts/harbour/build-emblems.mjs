@@ -27,10 +27,12 @@ const RIM = "#BDB2A0";     // warm grey rim so the roundel still reads on white 
 
 const logos = JSON.parse(await readFile(join(ROOT, "data/logos.json"), "utf8"));
 const ids = Object.keys(logos).sort((a, b) => (a.length - b.length) || (a < b ? -1 : a > b ? 1 : 0));
+// one tile per logo FILE (a coin listed under its llama id and its registry slug shares one slot)
+const paths = [...new Set(ids.map((id) => logos[id]))];
 const tmp = await mkdtemp(join(tmpdir(), "harbour-emblems-"));
 
-async function tile(id, i) {
-  const src = join(ROOT, "public", logos[id]);
+async function tile(path, i) {
+  const src = join(ROOT, "public", path);
   const raster = join(tmp, `r${i}.png`);
   const out = join(tmp, `t${String(i).padStart(4, "0")}.png`);
   const side = LOGO_R * 2;
@@ -56,22 +58,23 @@ async function tile(id, i) {
   return out;
 }
 
-const tiles = new Array(ids.length);
+const tiles = new Array(paths.length);
 let next = 0;
 const failed = [];
 await Promise.all(Array.from({ length: 12 }, async () => {
-  while (next < ids.length) {
+  while (next < paths.length) {
     const i = next++;
-    try { tiles[i] = await tile(ids[i], i); } catch (e) { failed.push(ids[i]); console.warn(`[emblems] ${ids[i]}: ${String(e.stderr ?? e).slice(0, 160)}`); }
+    try { tiles[i] = await tile(paths[i], i); } catch (e) { failed.push(paths[i]); console.warn(`[emblems] ${paths[i]}: ${String(e.stderr ?? e).slice(0, 160)}`); }
   }
 }));
 
-const kept = ids.map((id, i) => [id, tiles[i]]).filter(([, t]) => t);
+const kept = paths.map((p, i) => [p, tiles[i]]).filter(([, t]) => t);
 const rows = Math.ceil(kept.length / COLS);
 const outPng = join(ROOT, "public/harbour/emblems.png");
 await run("magick", ["montage", ...kept.map(([, t]) => t), "-tile", `${COLS}x`, "-geometry", `${SLOT}x${SLOT}+0+0`, "-background", "none", "-depth", "8", `PNG32:${outPng}`]);
 await run("magick", [outPng, "-quality", "90", "-define", "webp:alpha-quality=100", join(ROOT, "public/harbour/emblems.webp")]);
-const map = Object.fromEntries(kept.map(([id], i) => [id, i]));
+const slotOf = new Map(kept.map(([p], i) => [p, i]));
+const map = Object.fromEntries(ids.filter((id) => slotOf.has(logos[id])).map((id) => [id, slotOf.get(logos[id])]));
 await writeFile(join(ROOT, "public/harbour/emblems.json"), JSON.stringify({ slot: SLOT, cols: COLS, width: WIDTH, height: rows * SLOT, ids: map }) + "\n");
 await rm(tmp, { recursive: true, force: true });
-console.log(`[emblems] ${kept.length} logos → ${COLS}×${rows} slots (${WIDTH}×${rows * SLOT})${failed.length ? `, ${failed.length} failed: ${failed.join(", ")}` : ""}`);
+console.log(`[emblems] ${Object.keys(map).length} coins, ${kept.length} logos → ${COLS}×${rows} slots (${WIDTH}×${rows * SLOT})${failed.length ? `, ${failed.length} failed: ${failed.join(", ")}` : ""}`);

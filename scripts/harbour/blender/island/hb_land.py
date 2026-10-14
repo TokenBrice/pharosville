@@ -209,6 +209,17 @@ def hf_face(q):
         dc = terrain.dcoast(c.x, c.y)
         if kind == 'sand':
             col = SHINGLE if dc < 3.5 else (SAND if dc < 42 else lin('#B9B07A'))
+            pn = terrain.fbm(c.x, c.y, 0.035, 2, 77)
+            if 5.5 < dc < 8.0 and nn > 0.46:                       # P7: a second, patchy shingle bank
+                col = SHINGLE
+            elif 9.0 < dc < 36.0 and pn > 0.64:                     # pebble scatters across the upper beach
+                col = tuple(SAND[i] * 0.55 + SHINGLE[i] * 0.45 for i in range(3))
+            elif 9.0 < dc < 36.0 and pn < 0.32:                     # damp hollows
+                col = tuple(v * 0.9 for v in SAND)
+            elif 22.0 < dc < 26.0:                                  # the wrack line: damp, weed-stained sand
+                col = lin('#A79A78')
+            elif dc > 38.0 and nn > 0.55:                           # dune grass creeping down between the hummocks
+                col = lin('#A9A779')
         else:
             col = PEBBLE if dc < 7.5 else lin('#A6A77A')
         return (jitter_col(col, 0.95 + 0.1 * nn), PT['plain'])
@@ -405,7 +416,7 @@ obj('town_stairs', steps, PAL['granite_light'], PT['ashlar'], family='town', bev
 # ------------------------------------------------------------------ quay aprons (cobbles) + coping + water stairs
 set_coll(collection('quay', ROOTC))
 pav = bmesh.new(); cop = bmesh.new()
-APRON = {'grand': 9.0, 'long': 12.0, 'tron': 6.0, 'battery': 8.0, 'wharf': 9.5}
+APRON = {'grand': 9.0, 'long': 12.0, 'tron': 11.0, 'westq': 6.0, 'battery': 8.0, 'wharf': 9.5}
 
 
 def strip_left(line, depth, z0, z1, bm):
@@ -474,7 +485,7 @@ by_pi = {}
 for s in CJ['struct']:
     if s['kind'] in ('pier', 'finger', 'thead'):
         by_pi.setdefault(s['pi'], []).append(s)
-dk_slab, dk_plank, dk_frame, dk_piles, dk_rail, stone = (bmesh.new() for _ in range(6))
+dk_slab, dk_plank, dk_frame, dk_piles, dk_rail, stone, stone_pave, stone_cope = (bmesh.new() for _ in range(8))
 PLANK_COLS = []
 
 
@@ -510,11 +521,23 @@ for pi, segs in by_pi.items():
         else:
             rects.append((ax - w / 2, min(ay, by), ax + w / 2, max(ay, by), False))
     if fr['material'] == 'stone':
-        bm = bmesh.new()
+        # P7: dressed stone jetties (Tron's deep-water harbour, the Hyperliquid jetty): ashlar walls, a paving of ~2.2 m
+        # flags (fine enough that the baked AO stays local), a raised granite coping round every edge
+        bm = bmesh.new(); pv_ = bmesh.new(); cp_ = bmesh.new()
         for (x0, y0, x1, y1, _) in rects:
-            merge(bm, bm_box2(x0, y0, SEA_FLOOR, x1, y1, deck))
-        xf(bm, rz=ang); xf(bm, loc=(root.x, root.y, 0))
-        merge(stone, bm)
+            merge(bm, bm_box2(x0, y0, SEA_FLOOR, x1, y1, deck - 0.03))
+            nx_ = max(1, round((x1 - x0) / 2.2)); ny_ = max(1, round((y1 - y0) / 2.2))
+            for i_ in range(nx_):
+                for j_ in range(ny_):
+                    a0 = x0 + (x1 - x0) * i_ / nx_; a1 = x0 + (x1 - x0) * (i_ + 1) / nx_
+                    b0 = y0 + (y1 - y0) * j_ / ny_; b1 = y0 + (y1 - y0) * (j_ + 1) / ny_
+                    pv_.faces.new([pv_.verts.new(p) for p in ((a0, b0, deck), (a1, b0, deck), (a1, b1, deck), (a0, b1, deck))])
+            cw_ = 0.55
+            for (c0, c1, c2, c3) in ((x0, y0, x1, y0 + cw_), (x0, y1 - cw_, x1, y1), (x0, y0, x0 + cw_, y1), (x1 - cw_, y0, x1, y1)):
+                merge(cp_, bm_box2(c0, c1, deck - 0.05, c2, c3, deck + 0.16))
+        for b_ in (bm, pv_, cp_):
+            xf(b_, rz=ang); xf(b_, loc=(root.x, root.y, 0))
+        merge(stone, bm); merge(stone_pave, pv_); merge(stone_cope, cp_)
     else:
         floating = fr['material'] == 'pontoon'
         sl, pk, fm, pl, rl = (bmesh.new() for _ in range(5))
@@ -575,8 +598,11 @@ obj('pier_piles', dk_piles, PAL['tar'], PT['plain'], family='pier', smooth=False
 if len(stone.faces):
     obj('pier_stone', stone, face=lambda q: ((PAL['quay'], PT['plain']) if q.normal.z > 0.9 else ((PAL['rock_wet'], PT['ashlar']) if q.center.z < 0.5 else (PAL['quay_dark'], PT['ashlar']))),
         family='pier', bevel=0.06)
+    obj('pier_stone_paving', stone_pave, face=lambda q: (jitter_col(PAL['quay'], 0.9 + 0.2 * ((q.index * 2654435761) % 997) / 997.0), PT['cobble']),
+        family='pier', jitter=0.0)
+    obj('pier_stone_coping', stone_cope, PAL['granite_light'], PT['ashlar'], family='pier', jitter=0.05, bevel=0.04)
 else:
-    stone.free()
+    stone.free(); stone_pave.free(); stone_cope.free()
 
 # chain identity, in the world (no text): each chain's pier heads carry a painted fascia in the chain colour, and a tall
 # flagstaff at every pier root / chain quay flies the chain colour downwind

@@ -184,7 +184,7 @@ export class LightsSystem implements WorldSystem {
           float n = lhNoise(vec2(vL.x * 0.9, vL.y * 1.3 - uTime * 0.9));
           float n2 = lhNoise(vec2(vL.x * 2.1 + 7.0, vL.y * 0.55 + uTime * 0.35));
           float across = exp(-vQ.x * vQ.x * 3.2);
-          float along = pow(1.0 - vQ.y, 0.9) * smoothstep(0.0, 0.06, vQ.y);
+          float along = pow(max(1.0 - vQ.y, 0.0), 0.9) * smoothstep(0.0, 0.06, vQ.y);
           float shimmer = smoothstep(0.35, 0.85, n * 0.7 + n2 * 0.45);
           gl_FragColor = vec4(vC * across * along * (0.3 + 1.6 * shimmer), 1.0);
         }`,

@@ -740,7 +740,10 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
         if (Math.hypot(so.x - s.x, so.z - s.z) > (loa[s.cls] + loa[so.cls]) / 2 + s.swing + so.swing + 2) continue;
         const gap = s.swing > 0 || so.swing > 0 ? 0.8 : s.mode === "finger" && so.mode === "finger" ? 0.3 : 0.5;
         const fo = foot(so);
-        if (fs.some((a) => fo.some((b) => capDist(a, b) < gap))) { s.conflicts.push(o); so.conflicts.push(s.index); }
+        // two buoys laid closer than their rodes allow (the hulls swing with wind, tide and yaw, ~±1.2 rad, far
+        // past the footprints above): never occupied together either
+        const crowded = s.swing > 0 && so.swing > 0 && Math.hypot(so.x - s.x, so.z - s.z) < (s.swing + so.swing + (loa[s.cls] + loa[so.cls]) / 2) * 0.6;
+        if (crowded || fs.some((a) => fo.some((b) => capDist(a, b) < gap))) { s.conflicts.push(o); so.conflicts.push(s.index); }
       }
     }
   }

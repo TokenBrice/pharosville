@@ -29,6 +29,7 @@ uniform float uSize0;
 uniform float uSize1;
 uniform float uDrift;          // downwind travel (m) at full wind
 uniform vec4 uWind;            // xy downwind (x, z), z strength 0..1
+uniform float uBend;           // extra early lean (0 = a column that bends only late)
 varying vec2 vUv;
 varying float vAlpha;
 varying float vLife;
@@ -38,7 +39,7 @@ void main() {
   float life = fract(uT * uRate * (0.85 + 0.3 * aSeed.w) + aSeed.x);
   float w = uWind.z;
   float rise = uRise * (1.0 - 0.35 * w) * (1.0 - exp(-life * 2.4)) * 1.1;
-  float drift = (0.25 + w) * uDrift * life * life + 0.08 * uDrift * life;
+  float drift = (0.25 + w) * uDrift * life * life + (0.08 + uBend) * uDrift * life;
   vec3 c = aOrigin + vec3(uWind.x * drift, rise, uWind.y * drift);
   float ph = uT * 0.22 + aSeed.y * 6.28 + life * 3.0;
   c.xz += vec2(sin(ph), cos(ph * 0.83)) * (0.3 + 0.12 * uSize1 * life) + (aSeed.zw - 0.5) * uSize1 * 0.5 * life;
@@ -66,7 +67,7 @@ void main() {
   float r = length(vUv);
   if (r > 1.0) discard;
   float n = texture2D(uNoise, vUv * 0.3 + vSeed + vLife * 0.2).r;
-  float a = pow(1.0 - r * r, 1.4) * smoothstep(0.12, 0.7, n * 1.25 - r * 0.3 + 0.22);
+  float a = pow(max(1.0 - r * r, 0.0), 1.4) * smoothstep(0.12, 0.7, n * 1.25 - r * 0.3 + 0.22);
   vec3 col = mix(uShade, uLit, clamp(0.62 + 0.5 * vUv.y, 0.0, 1.0));
   // a fire under the stack lights the young smoke from below
   col += uUnder * (1.0 - smoothstep(0.0, 0.3, vLife)) * clamp(0.6 - 0.6 * vUv.y, 0.0, 1.0);
@@ -75,6 +76,8 @@ void main() {
 
 export interface SmokeLook {
   rate: number; rise: number; size0: number; size1: number; drift: number;
+  /** Lean from the start (0 default: the column rises, then bends downwind). */
+  bend?: number;
   opacity: number;
   /** 0 white wood smoke … 1 black coal / burn smoke. */
   darkness: number;
@@ -86,7 +89,7 @@ export class Smoke {
   readonly mesh: THREE.Mesh;
   readonly u = {
     uT: { value: 0 }, uRate: { value: 0.06 }, uRise: { value: 20 }, uSize0: { value: 1.5 }, uSize1: { value: 8 },
-    uDrift: { value: 30 }, uWind: { value: new THREE.Vector4(0.8, -0.55, 0.3, 0) },
+    uDrift: { value: 30 }, uWind: { value: new THREE.Vector4(0.8, -0.55, 0.3, 0) }, uBend: { value: 0 },
     uLit: { value: new THREE.Color() }, uShade: { value: new THREE.Color() }, uUnder: { value: new THREE.Color(0, 0, 0) },
     uOpacity: { value: 0.3 }, uNoise: { value: null as THREE.Texture | null },
   };
@@ -124,7 +127,7 @@ export class Smoke {
     const U = this.u;
     U.uT.value = this.t;
     U.uRate.value = look.rate; U.uRise.value = look.rise; U.uSize0.value = look.size0; U.uSize1.value = look.size1;
-    U.uDrift.value = look.drift; U.uOpacity.value = look.opacity;
+    U.uDrift.value = look.drift; U.uOpacity.value = look.opacity; U.uBend.value = look.bend ?? 0;
     U.uWind.value.set(windTo[0], windTo[1], wind, 0);
     const lit = U.uLit.value, shade = U.uShade.value, t = this.tmp;
     lit.copy(u.uHemiSky.value).add(t.copy(u.uSunColor.value).multiplyScalar(0.26)).multiply(t.setRGB(0.92, 0.9, 0.88));
@@ -183,7 +186,7 @@ void main() {
   float cut = v * 1.12 + (1.0 - env) * 0.95;
   float a = smoothstep(cut - 0.06, cut + 0.14, n * 1.3 + 0.12) * smoothstep(0.0, 0.06, v);
   if (a < 0.01) discard;
-  float heat = clamp(a * pow(1.0 - v, 0.8) * (0.55 + 0.45 * env), 0.0, 1.0);
+  float heat = clamp(a * pow(clamp(1.0 - v, 0.0, 1.0), 0.8) * (0.55 + 0.45 * env), 0.0, 1.0);
   vec3 tip = vec3(0.75, 0.07, 0.01), body2 = vec3(1.0, 0.36, 0.04), core = vec3(1.0, 0.78, 0.36);
   vec3 col = heat < 0.45 ? mix(tip, body2, heat / 0.45) : mix(body2, core, (heat - 0.45) / 0.55);
   gl_FragColor = vec4(col * a * uGain * min(uLevel, 1.0), 1.0);

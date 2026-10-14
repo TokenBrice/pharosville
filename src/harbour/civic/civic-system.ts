@@ -9,14 +9,15 @@ import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import type { ReadingsService } from "../readings/readings-system";
 import { ensureMotionService, type MotionService } from "../ui/services";
 import { getHarbourMaterials } from "../world/materials";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { CIVIC_BASE, loadPlot, mergeStatic, pieceCentres, toWorld, worldGeometry, type CivicManifest, type CivicPlot, type LoadedPlot } from "./assemble";
-import { BurnFurnace } from "./burn";
+import { CIVIC_BASE, loadPlot, mergeStatic, pieceCentres, toWorld, type CivicManifest, type CivicPlot, type LoadedPlot } from "./assemble";
+import { CivicBoards, flagPlace, wallPlace, type BoardSlot } from "./boards";
+import { BurnFurnace, plumeLee } from "./burn";
 import { applyFlowOverrides, civicFlows, workLevels, type CivicFlows, type FlowSide } from "./flows";
 import { MINT_WORKERS, MintWorks } from "./mint";
 import { Shipyard } from "./shipyard";
 import { Workers } from "./workers";
-import { launchedIds, type HullStage, type PrelaunchBook, type PrelaunchCoin } from "./yard";
+import { gradeTally, launchedIds, topMovers, type ChainMove, type HullStage, type PrelaunchBook, type PrelaunchCoin } from "./yard";
+import { paintCrestFlag, paintFrieze, paintGradeBoard, paintRegisterFlag, paintWeatherBoard } from "./paint";
 
 /**
  * CIVIC: the P6 utility quarter (D19–D21). Loads public/harbour/civic/<kind>.glb at every layout.civic plot
@@ -25,6 +26,12 @@ import { launchedIds, type HullStage, type PrelaunchBook, type PrelaunchCoin } f
  *   the Mint   chimneys, furnaces, presses, waterwheel, workers ∝ mint volume (24 h + the latest closed hour)
  *   the Burn   fire, embers, coins down the chute, plume ∝ burn volume; the darker plume when the net is negative
  *   the Yard   the registry's pre-launch coins as hulls by construction stage (src/harbour/data/prelaunch.json)
+ * and tells the data stories of the other utility buildings without a hover (boards.ts / paint.ts, one draw):
+ *   the Storm-signal Office    the band chalked on its weather board, spare cones and drums in its locker. The signal
+ *                              itself has ONE owner: the island's storm mast beside it (readings/storm-cones.ts)
+ *   the Registry               "REGISTER OF SHIPPING" on its frieze, its house flag, the grade board (shields A–F, counts)
+ *   the Harbourmaster          the movers hoist: the day's top gaining harbour's crest over a green cone, the top
+ *                              losing harbour's over a red one (24 h chain supply change, /api/chains)
  * Stale / no flow reading: the fires bank to embers and the chimneys go quiet (the readings fog carries the rest).
  * Scope of the flows: Ethereum · Base · Arbitrum.
  *
@@ -58,7 +65,7 @@ export interface CivicService {
 
 /** Civic kind → the id the UI already uses for that place (ui/places.ts CIVIC_PANEL_ID). */
 const PANEL_ID: Record<string, string> = { customs: "customs-house", stormstation: "storm-mast", shipyard: "slipway" };
-const TOP: Record<string, number> = { mint: 33, burn: 22, shipyard: 22, customs: 30, registry: 18, chartroom: 12, stormstation: 22, harbourmaster: 26, keeperslog: 10 };
+const TOP: Record<string, number> = { mint: 33, burn: 22, shipyard: 22, customs: 30, registry: 22, chartroom: 12, stormstation: 10, harbourmaster: 30, keeperslog: 10 };
 const WORKERS = MINT_WORKERS + 30;
 
 export class CivicSystem implements WorldSystem {
@@ -79,11 +86,19 @@ export class CivicSystem implements WorldSystem {
   private version = 0;
   private book: PrelaunchCoin[] = [];
   private pickables: CivicPickable[] = [];
-  private cones: THREE.Mesh[] = [];
-  private pennant: THREE.Mesh | null = null;
-  /** The hoisted cones (+ pennant) as one mesh, rebuilt only when the signal changes. */
-  private signal: THREE.Mesh | null = null;
   private signalKey = "";
+  private boards: CivicBoards | null = null;
+  private weather: BoardSlot | null = null;
+  private grades: BoardSlot | null = null;
+  private gradeKey = "";
+  private gradeModel: HarbourModel | null = null;
+  private movers: { up: BoardSlot; down: BoardSlot; hoist: { up: THREE.Vector3; down: THREE.Vector3 }; size: [number, number] } | null = null;
+  private moversData: unknown = null;
+  private moversKey = "";
+  private crests: { img: HTMLImageElement; chains: Record<string, { flag: [number, number, number, number] }> } | null = null;
+  private flagWind: [number, number] = [0, 0];
+  private registryFlag: { slot: BoardSlot; hoist: THREE.Vector3; size: [number, number] } | null = null;
+  private burnLee: [number, number] | null = null;
   private lightIds: number[] = [];
   private readonly plotMap = new Map<string, { kind: string; root: THREE.Object3D; nodes: ReadonlyMap<string, THREE.Object3D> }>();
   private disposed = false;
@@ -170,16 +185,15 @@ export class CivicSystem implements WorldSystem {
       this.group.add(this.burn.group);
       this.lightIds.push(lights.add("lamp", this.burn.bowl.clone().setY(this.burn.bowl.y + 2), "#FF6A22", 12));
     }
-    const sp = byKind("stormstation");
-    if (sp) {
-      for (let i = 0; i < 4; i++) { const c = sp.nodes.get(`cone_${i}`) as THREE.Mesh | undefined; if (c?.isMesh) this.cones.push(c); }
-      const pn = sp.nodes.get("pennant") as THREE.Mesh | undefined;
-      this.pennant = pn?.isMesh ? pn : null;
-      for (const m of [...this.cones, this.pennant]) if (m) m.visible = false;
+    // the Burn's plume must never drift across the Pharos face from the default (heart) camera
+    const pharos = (layout as { pharos?: { position?: number[] } }).pharos?.position;
+    if (this.burn && pharos) {
+      const yaw = THREE.MathUtils.degToRad((layout.camera.presets as Record<string, { yawDeg?: number }>).heart?.yawDeg ?? 45);
+      this.burnLee = plumeLee([this.burn.bowl.x, this.burn.bowl.z], [pharos[0], pharos[2]], yaw);
     }
 
     // small moving parts cast no shadow (a draw each in the shadow pass for a few pixels); the gantries do
-    for (const p of this.plots) p.nodes.forEach((o, name) => { if (/^(press_\d+|wheel|cone_\d+|pennant)$/.test(name)) o.castShadow = false; });
+    for (const p of this.plots) p.nodes.forEach((o, name) => { if (/^(press_\d+|wheel)$/.test(name)) o.castShadow = false; });
 
     // one draw per material for every still part of every building
     for (const m of mergeStatic(this.plots.map((p) => p.root))) this.group.add(m);
@@ -187,6 +201,11 @@ export class CivicSystem implements WorldSystem {
 
     this.workers = new Workers(mats, WORKERS, 17);
     this.group.add(this.workers.mesh);
+
+    // the painted boards and flags (one atlas, one draw)
+    this.boards = new CivicBoards();
+    this.group.add(this.boards.mesh);
+    this.placeBoards(byKind);
 
     // the yard builds behind the first frame (its order book, the stage hulls, the kit hulls and the logos)
     const yp = byKind("shipyard"), stageSpec = manifest.kinds["hull-stages"];
@@ -201,11 +220,12 @@ export class CivicSystem implements WorldSystem {
       const bookMod = (await import("../data/prelaunch.json")) as unknown as { default?: PrelaunchBook } & PrelaunchBook;
       this.book = (bookMod.default ?? bookMod).coins ?? [];
       const lp = (layout.zones as { slipway?: { launchPath?: number[][] } }).slipway?.launchPath?.[0];
-      const yard = await Shipyard.build(yp, mats, this.book, stageSpec, load, lp ? [lp[0], lp[1]] : null);
+      if (!this.boards) return;
+      const yard = await Shipyard.build(yp, mats, this.boards, this.book, stageSpec, load, lp ? [lp[0], lp[1]] : null);
       if (this.disposed) { yard.dispose(); return; }
       this.yard = yard;
       this.group.add(yard.group);
-      if (this.model) yard.setLaunched(launchedIds(this.book, new Set(this.model.boats.map((b) => b.id))));
+      if (this.model) yard.setLaunched(launchedIds(this.book, this.model.boats));
       this.buildPickables();
       this.version++;
     } catch (e) { console.warn("[harbour] shipyard failed", e); }
@@ -265,7 +285,7 @@ export class CivicSystem implements WorldSystem {
       if (this.dev) c = applyFlowOverrides(c, this.q);
       this.flows = c;
       if (fresh && this.yard && this.model) {
-        this.yard.setLaunched(launchedIds(this.book, new Set(this.model.boats.map((b) => b.id))));
+        this.yard.setLaunched(launchedIds(this.book, this.model.boats));
         this.buildPickables();
       }
       this.version++;
@@ -278,15 +298,18 @@ export class CivicSystem implements WorldSystem {
     const banked = this.flows.banked;
     const vh = u.uResolution.value.y / Math.max(1, ctx.renderer.getPixelRatio());
     this.mint?.update(dt, levels.mint, banked, moving, windTo, wind, u);
-    this.burn?.update(dt, levels.burn, this.flows.dominance, banked, moving, windTo, wind, u, ctx.camera, vh);
+    this.burn?.update(dt, levels.burn, this.flows.dominance, banked, moving, windTo, wind, u, ctx.camera, vh, this.burnLee);
     this.yard?.update(dt, moving, u.uNight.value, { to: windTo, k: wind }, ctx.camera, vh);
 
-    // the storm station: cones = the DEWS level, the pennant at Danger (no reading: nothing hoisted)
-    if (this.cones.length || this.pennant) {
-      const n = readings?.cones ?? 0, pen = readings?.pennant ?? false;
-      const key = `${n}:${pen}`;
-      if (key !== this.signalKey) { this.signalKey = key; this.hoist(n, pen); }
+    // the storm-signal office's weather board: the DEWS band the island mast is flying (no reading: none)
+    const level = readings?.cones ?? null;
+    if (`${level}` !== this.signalKey && this.boards && this.weather) {
+      this.signalKey = `${level}`;
+      this.boards.paint(this.weather, (c, s) => paintWeatherBoard(c, s, level));
     }
+    this.paintGrades();
+    this.paintMovers(ctx, windTo);
+    this.boards?.update(dt, moving, u.uNight.value, wind);
 
     if (this.workers) {
       const tier = (ctx.services.get("quality") as QualityService | undefined)?.tier ?? "high";
@@ -301,24 +324,100 @@ export class CivicSystem implements WorldSystem {
     }
   }
 
-  private hoist(n: number, pennant: boolean): void {
-    if (this.signal) { this.group.remove(this.signal); this.signal.geometry.dispose(); this.signal = null; }
-    const parts = this.cones.slice(0, n);
-    if (pennant && this.pennant) parts.push(this.pennant);
-    if (!parts.length) return;
-    const geos = parts.map((m) => worldGeometry(m));
-    const geo = mergeGeometries(geos, false);
-    geos.forEach((g) => g.dispose());
-    if (!geo) return;
-    this.signal = new THREE.Mesh(geo, parts[0].material as THREE.Material);
-    this.signal.name = "civic-storm-signal";
-    this.signal.receiveShadow = true;
-    this.group.add(this.signal);
+  /** Board / flag anchors of a civic kind (manifest anchors, plot frame) → world placements; first paint. */
+  private placeBoards(byKind: (k: string) => LoadedPlot | null): void {
+    const boards = this.boards;
+    if (!boards) return;
+    type Wall = { centre: [number, number, number]; normal: [number, number, number]; size: [number, number] };
+    type Hoist = { hoist: [number, number, number]; size: [number, number] };
+    const anchor = <T>(p: LoadedPlot, name: string) => (p.spec.anchors?.[name] ?? null) as T | null;
+    const wall = (p: LoadedPlot, a: Wall, key: string, px: number, fn: (c: CanvasRenderingContext2D, s: BoardSlot) => void) => {
+      const slot = boards.alloc(px, Math.round(px * a.size[1] / a.size[0]));
+      if (!slot) return null;
+      const n = new THREE.Vector3(...a.normal).transformDirection(p.root.matrixWorld);
+      // a hair proud of the wall, so the paint never fights the stone
+      boards.place(key, slot, wallPlace(toWorld(p.root, a.centre).addScaledVector(n, 0.06), n, a.size[0], a.size[1]));
+      boards.paint(slot, fn);
+      return slot;
+    };
+    const reg = byKind("registry");
+    if (reg) {
+      const fr = anchor<Wall>(reg, "frieze"), gb = anchor<Wall>(reg, "grade_board"), fl = anchor<Hoist>(reg, "register_flag");
+      if (fr) wall(reg, fr, "registry:frieze", 1024, paintFrieze);
+      if (gb) this.grades = wall(reg, gb, "registry:grades", 1024, (c, s) => paintGradeBoard(c, s, null));
+      const slot = fl ? boards.alloc(256, Math.round(256 * fl.size[1] / fl.size[0])) : null;
+      if (fl && slot) {
+        boards.paint(slot, paintRegisterFlag);
+        this.registryFlag = { slot, hoist: toWorld(reg.root, fl.hoist), size: fl.size };
+      }
+    }
+    const st = byKind("stormstation");
+    const wb = st ? anchor<Wall>(st, "weather_board") : null;
+    if (st && wb) this.weather = wall(st, wb, "storm:weather", 512, (c, s) => paintWeatherBoard(c, s, null));
+    const hm = byKind("harbourmaster");
+    const mu = hm ? anchor<Hoist>(hm, "mover_up") : null, md = hm ? anchor<Hoist>(hm, "mover_down") : null;
+    if (hm && mu && md) {
+      const h = Math.round(256 * mu.size[1] / mu.size[0]);
+      const up = boards.alloc(256, h), down = boards.alloc(256, h);
+      if (up && down) this.movers = { up, down, hoist: { up: toWorld(hm.root, mu.hoist), down: toWorld(hm.root, md.hoist) }, size: mu.size };
+      // the crest atlas (the identity layer's heraldry): the flags are copied out of it
+      void Promise.all([
+        fetch("/harbour/crests.json").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        new Promise<HTMLImageElement | null>((res) => { const img = new Image(); img.onload = () => res(img); img.onerror = () => res(null); img.src = "/harbour/crests.png"; }),
+      ]).then(([atlas, img]) => {
+        if (this.disposed || !img || !atlas?.chains) return;
+        this.crests = { img, chains: atlas.chains };
+        this.moversKey = "";
+      });
+    }
+  }
+
+  /** The grade board's counts follow the model (the same tally as the Registry panel). */
+  private paintGrades(): void {
+    if (!this.boards || !this.grades || !this.model || this.model === this.gradeModel) return;
+    this.gradeModel = this.model;
+    const tally = this.model.hasFleet ? gradeTally(this.model.boats) : null;
+    const key = tally ? [...tally].join(",") : "none";
+    if (key === this.gradeKey) return;
+    this.gradeKey = key;
+    this.boards.paint(this.grades, (c, s) => paintGradeBoard(c, s, tally));
+  }
+
+  /** The movers hoist (and the register flag) fly downwind; the flags follow /api/chains' 24 h change. */
+  private paintMovers(ctx: EngineContext, windTo: readonly [number, number]): void {
+    const boards = this.boards;
+    if (!boards) return;
+    const turned = Math.abs(windTo[0] - this.flagWind[0]) + Math.abs(windTo[1] - this.flagWind[1]) > 0.15;
+    if (turned) this.flagWind = [windTo[0], windTo[1]];
+    const rf = this.registryFlag;
+    if (rf && turned) boards.place("registry:flag", rf.slot, flagPlace(rf.hoist, this.flagWind, rf.size[0], rf.size[1]));
+    const mv = this.movers;
+    if (!mv || !this.crests) return;
+    const feed = ctx.services.get("feed") as { payloads?: { chains?: { data?: { chains?: unknown } } } } | undefined;
+    const rows = feed?.payloads?.chains?.data?.chains;
+    if (rows !== this.moversData || !this.moversKey) {
+      this.moversData = rows;
+      const m = topMovers(Array.isArray(rows) ? rows as ChainMove[] : [], Object.keys(this.crests.chains));
+      const key = `${m.up?.slug ?? "-"}:${m.down?.slug ?? "-"}`;
+      if (key !== this.moversKey) {
+        this.moversKey = key;
+        const { img, chains } = this.crests;
+        if (m.up) boards.paint(mv.up, (c, s) => paintCrestFlag(c, s, img, chains[m.up!.slug].flag, "#2F8A45"));
+        if (m.down) boards.paint(mv.down, (c, s) => paintCrestFlag(c, s, img, chains[m.down!.slug].flag, "#B23A30"));
+        boards.place("harbourmaster:up", mv.up, flagPlace(mv.hoist.up, this.flagWind, mv.size[0], mv.size[1]), !!m.up);
+        boards.place("harbourmaster:down", mv.down, flagPlace(mv.hoist.down, this.flagWind, mv.size[0], mv.size[1]), !!m.down);
+        return;
+      }
+    }
+    if (turned) {
+      boards.move("harbourmaster:up", flagPlace(mv.hoist.up, this.flagWind, mv.size[0], mv.size[1]));
+      boards.move("harbourmaster:down", flagPlace(mv.hoist.down, this.flagWind, mv.size[0], mv.size[1]));
+    }
   }
 
   dispose(ctx: EngineContext): void {
     this.disposed = true;
-    this.signal?.geometry.dispose();
+    this.boards?.dispose();
     ctx.scene.remove(this.group);
     ctx.services.delete("civic");
     const lights = ctx.services.get("lights") as { remove(id: number): void } | undefined;

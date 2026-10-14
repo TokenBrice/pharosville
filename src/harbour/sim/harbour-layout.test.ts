@@ -115,6 +115,34 @@ describe("the sim in the real harbour", () => {
     expect(out / samples).toBeGreaterThan(uw / samples * 0.2);
   }, 60_000);
 
+  it("sails with her canvas set whenever she is under way clear of the berths (2 h sweep)", () => {
+    const model = buildHarbourModel(makePayloads(), T0_MS, { pieredChains: layout.piers.map((p) => p.chain), dead: [] });
+    const sim = new HarbourSim(model, layout, T0_MS, coast);
+    const n = model.boats.length;
+    const loa = model.boats.map((b) => sim.layout.loa[b.hullClass]);
+    const from = new Int32Array(n).fill(-1); // the berth she last lay at (-1: under way since the sweep began)
+    const away = (si: number, x: number, z: number) => { const s = si >= 0 ? sim.layout.slots[si] : null; return s ? Math.hypot(s.x - x, s.z - z) : Infinity; };
+    let sailing = 0, bare = 0, clear = 0, bareClear = 0;
+    for (let k = 0; k < (2 * 3600) / 5; k++) {
+      const p = sim.poseAt(T0_MS + k * 5000);
+      for (let i = 0; i < n; i++) {
+        const ph = p.phase[i];
+        if (ph !== PH_CASTING_OFF && ph !== PH_SAILING && ph !== PH_APPROACHING) { from[i] = p.slot[i]; continue; }
+        if (from[i] < 0) continue;
+        const x = p.position[i * 3], z = p.position[i * 3 + 2];
+        const d = Math.min(away(from[i], x, z), away(p.slot[i], x, z)) / loa[i];
+        // "sailing to <chain>" past the departure / approach zone: sails set
+        if (ph === PH_SAILING && d > 2.5) { sailing++; if (p.sailState[i] < 0.95) bare++; }
+        // whatever the phase, well out in the harbour: sails set
+        if (d > 4) { clear++; if (p.sailState[i] < 0.95) bareClear++; }
+      }
+    }
+    expect(sailing).toBeGreaterThan(20_000);
+    expect(bare).toBe(0);
+    expect(clear).toBeGreaterThan(sailing / 2);
+    expect(bareClear).toBe(0);
+  }, 60_000);
+
   it("keeps still hulls apart, and hulls under way rarely brush another", () => {
     const model = buildHarbourModel(makePayloads(), T0_MS, { pieredChains: layout.piers.map((p) => p.chain), dead: [] });
     const sim = new HarbourSim(model, layout, T0_MS, coast);

@@ -51,8 +51,14 @@ export const ACCEL = 0.12;
 const MAX_SAMPLES = 720;
 /** The berth run: the last GLIDE_LOA hull lengths are taken at no more than GLIDE_V of harbour speed. */
 const GLIDE_LOA = 2.0, GLIDE_V = 0.3;
-/** Sail hoisted from this far along the main path (LOA), and fully furled this far from the end. */
-const SET_FROM_LOA = 1.1, FURL_BY_LOA = 1.6;
+/**
+ * The sail, by distance from the BERTHS (LOA, astern run and warps included): hoisted from SET_FROM_LOA and
+ * fully set by SET_FULL_LOA out; lowered from FURL_FROM_LOA and fully down by FURL_BY_LOA from the berth ahead.
+ * Beyond ~2.5 hull lengths from either berth a hull under way always sails with her canvas set.
+ */
+const SET_FROM_LOA = 0.5, SET_FULL_LOA = 2.0, FURL_FROM_LOA = 2.6, FURL_BY_LOA = 1.2;
+/** Casting off (phase) until this far out from the berth (LOA). */
+const CAST_OFF_LOA = 1.5;
 const scratchX: number[] = [];
 const scratchZ: number[] = [];
 
@@ -602,13 +608,16 @@ export function evalLeg(p: PathRec, tm: LegTiming, out: Float64Array): void {
   const remaining = p.length - sq;
   if (tm.hEnd !== 0 && remaining < loa * 1.5) { const u = 1 - remaining / (loa * 1.5); out[2] += tm.hEnd * u * u * (3 - 2 * u); }
   out[3] = v;
-  // sail hoisted once she has turned and gathered way (a hull already under way keeps hers set);
-  // lowered on the run in, fully down before the last third of it (she glides in under bare poles)
-  const set = p.underway ? 1 : Math.min(1, Math.max(0, (sq - loa * SET_FROM_LOA) / (loa * 2.2)));
-  const furl = Math.min(1, Math.max(0, (remaining - loa * FURL_BY_LOA) / (loa * 3.0)));
+  // sail hoisted once she is clear of her berth (a hull already under way keeps hers set); lowered on the
+  // run in, down for the last hull length or so (she glides in under bare poles). Distances count from the
+  // berths themselves: the astern run and the warps are part of the way out / in.
+  const fromBerth = sq + (p.rev ? p.rev.length : 0) + (p.w0 ? Math.hypot(p.w0[2], p.w0[3]) : 0);
+  const toBerth = remaining + (p.w1 ? Math.hypot(p.w1[0], p.w1[1]) : 0);
+  const set = p.underway ? 1 : Math.min(1, Math.max(0, (fromBerth - loa * SET_FROM_LOA) / (loa * (SET_FULL_LOA - SET_FROM_LOA))));
+  const furl = Math.min(1, Math.max(0, (toBerth - loa * FURL_BY_LOA) / (loa * (FURL_FROM_LOA - FURL_BY_LOA))));
   const sail = Math.min(set, furl);
   out[4] = sail * sail * (3 - 2 * sail);
-  out[5] = !p.rev && !p.w0 && !p.underway && sq < loa * 1.5 ? LEG_CAST_OFF : remaining < loa * 3 || p.w1 && remaining < loa * 4 ? LEG_APPROACH : LEG_SAIL;
+  out[5] = !p.underway && fromBerth < loa * CAST_OFF_LOA ? LEG_CAST_OFF : remaining < loa * 3 || p.w1 && remaining < loa * 4 ? LEG_APPROACH : LEG_SAIL;
   out[6] = remaining;
   const la = Math.min(1, Math.max(0, (sq - p.laneA) / 60)), lb = Math.min(1, Math.max(0, (p.laneB - sq) / 60));
   out[IO_LANE] = Math.min(la * la * (3 - 2 * la), lb * lb * (3 - 2 * lb));

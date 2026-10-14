@@ -2,13 +2,13 @@ import * as THREE from "three";
 import type { WorldUniforms } from "../engine/uniforms";
 import type { OceanService } from "../ocean/ocean-system";
 import { wavesGLSL } from "../ocean/waves";
-import { layoutLabel, type LabelSpec } from "./labels";
+import { labelFootprint, layoutLabel, type LabelSpec } from "./labels";
 import type { ChartFont } from "./types";
 
 /**
  * CHART LETTERING ON THE WATER (D18): every sea-zone name set as nautical-chart typography printed on the
  * sea itself. One draw: SDF glyphs + hairline rules, riding the ocean's own Gerstner swell (same clock,
- * same coast damping), softly wavering, occluded by hulls (depth-tested, no depth write), faded by zoom per
+ * same coast damping), softly wavering, never cut by the frame edge (a name it would cut fades out whole), occluded by hulls (depth-tested, no depth write), faded by zoom per
  * class and by the coast, dark ink by day and a faint luminous silver at night.
  */
 const VERT = /* glsl */ `
@@ -21,12 +21,21 @@ uniform float uSeaLevel;
 attribute vec4 aFade;
 attribute float aInk;
 attribute float aSlot;
+attribute vec4 aBoxA;
+attribute vec4 aBoxB;
 varying vec2 vUv;
 varying float vA;
 varying float vRule;
 varying vec3 vWorld;
 varying float vCoast;
 ${wavesGLSL()}
+// how far outside the screen a point of the water is (0 = centre, 1 = the frame edge)
+float edgeOf(vec2 xz) {
+  vec4 c = projectionMatrix * viewMatrix * vec4(xz.x, uSeaLevel, xz.y, 1.0);
+  if (c.w <= 0.0) return 9.0;
+  vec2 n = abs(c.xy / c.w);
+  return max(n.x, n.y);
+}
 void main() {
   vec3 p = position;
   vec2 suv = (p.xz - uSdfBounds.xy) / (uSdfBounds.zw - uSdfBounds.xy);
@@ -38,6 +47,9 @@ void main() {
   float f = smoothstep(aFade.x, aFade.y, uCamDist) * (1.0 - smoothstep(aFade.z, aFade.w, uCamDist));
   // close in, the print steps back so the boats lead
   vA = f * aInk * mix(0.6, 1.0, smoothstep(160.0, 460.0, uCamDist));
+  // a name the frame edge would cut is not printed at all: the whole name fades as any corner nears the edge
+  float edge = max(max(edgeOf(aBoxA.xy), edgeOf(aBoxA.zw)), max(edgeOf(aBoxB.xy), edgeOf(aBoxB.zw)));
+  vA *= 1.0 - smoothstep(0.95, 1.01, edge);
   vRule = aSlot < -0.5 ? 1.0 : 0.0;
   vUv = uv;
   vWorld = p;
@@ -102,9 +114,11 @@ export class ChartLettering {
   readonly camDist = { value: 600 };
 
   constructor(specs: readonly LabelSpec[], font: ChartFont, atlas: THREE.Texture, u: WorldUniforms, ocean: OceanService | undefined, seaLevel: number) {
-    const pos: number[] = [], uv: number[] = [], fade: number[] = [], ink: number[] = [], slot: number[] = [], idx: number[] = [];
+    const pos: number[] = [], uv: number[] = [], fade: number[] = [], ink: number[] = [], slot: number[] = [], idx: number[] = [], boxA: number[] = [], boxB: number[] = [];
     const [AW, AH] = font.atlas;
     for (const spec of specs) {
+      // the main (widest) line's box: its corners decide whether the frame edge would cut the name
+      const box = labelFootprint(spec, font).at(-1)!;
       for (const q of layoutLabel(spec, font)) {
         const b = pos.length / 3;
         let uvs: Array<[number, number]>;
@@ -129,6 +143,8 @@ export class ChartLettering {
           fade.push(...spec.fade);
           ink.push(spec.ink);
           slot.push(q.slot);
+          boxA.push(box[0][0], box[0][1], box[1][0], box[1][1]);
+          boxB.push(box[2][0], box[2][1], box[3][0], box[3][1]);
         }
         for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
           const a = b + j * (nu + 1) + i, c = a + nu + 1;
@@ -142,6 +158,8 @@ export class ChartLettering {
     g.setAttribute("aFade", new THREE.Float32BufferAttribute(fade, 4));
     g.setAttribute("aInk", new THREE.Float32BufferAttribute(ink, 1));
     g.setAttribute("aSlot", new THREE.Float32BufferAttribute(slot, 1));
+    g.setAttribute("aBoxA", new THREE.Float32BufferAttribute(boxA, 4));
+    g.setAttribute("aBoxB", new THREE.Float32BufferAttribute(boxB, 4));
     g.setIndex(idx);
     g.computeBoundingSphere();
 
@@ -169,6 +187,8 @@ export class ChartLettering {
         uHalo: { value: 0.12 },
       },
       transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide,
+      // far off and grazing, the swell's own crests would nibble the print: a little depth bias (hulls still occlude)
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6,
     });
     this.haloMat = this.mat.clone();
     this.haloMat.uniforms = this.mat.uniforms;   // same uniform objects

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import book from "../data/prelaunch.json";
 import { activityForRate, applyFlowOverrides, civicFlows, dominanceFor, workLevels } from "./flows";
-import { allocateYard, launchedIds, stageFor, type PrelaunchBook, type PrelaunchCoin } from "./yard";
+import { allocateYard, gradeTally, launchedIds, stageFor, topMovers, type PrelaunchBook, type PrelaunchCoin } from "./yard";
 
 const hour = (mintUsd: number, burnUsd: number, i = 0) => ({ hourTs: i, netUsd: mintUsd - burnUsd, mintUsd, burnUsd });
 const flows = (hourly: ReturnType<typeof hour>[], extra: Partial<{ stale: boolean; available: boolean }> = {}) => ({
@@ -102,6 +102,29 @@ describe("the Shipyard", () => {
       { ...coins[0], id: "b-y", llamaId: "777" },
       { ...coins[0], id: "c-z", llamaId: null },
     ];
-    expect([...launchedIds(c, new Set(["a-x", "777", "zzz"]))].sort()).toEqual(["a-x", "b-y"]);
+    expect([...launchedIds(c, [{ id: "a-x" }, { id: "777" }, { id: "zzz" }])].sort()).toEqual(["a-x", "b-y"]);
+  });
+
+  it("a live coin under another id but the same name and symbol is launched too (EURR: eurr-revolut ↔ 436)", () => {
+    const c: PrelaunchCoin[] = [{ ...coins[0], id: "eurr-revolut", llamaId: null, name: "Revolut Euro", symbol: "EURR" }];
+    expect([...launchedIds(c, [{ id: "eurr-stablr", name: "StablR Euro", symbol: "EURR" }])]).toEqual([]);
+    expect([...launchedIds(c, [{ id: "436", name: "Revolut Euro", symbol: "EURR" }])]).toEqual(["eurr-revolut"]);
+  });
+});
+
+describe("registry and harbourmaster readings", () => {
+  it("grade tally counts live boats by letter, unrated apart, wrecks out", () => {
+    const t = gradeTally([{ grade: "A+", state: "moored" }, { grade: "A-", state: "docked" }, { grade: "F", state: "moored" },
+      { grade: "NR", state: "moored" }, { grade: null, state: "moored" }, { grade: "B", state: "wrecked" }]);
+    expect(Object.fromEntries(t)).toEqual({ A: 2, F: 1, "—": 2 });
+  });
+
+  it("movers: the largest gain and loss among crested harbours only, signs honoured", () => {
+    const rows = [{ name: "Solana", change24hPct: 0.0097 }, { name: "Polygon", change24hPct: -0.0246 }, { name: "XRP Ledger", change24hPct: -0.07 },
+      { name: "Hyperliquid L1", change24hPct: -0.01 }, { name: "Base", change24hPct: null }];
+    const m = topMovers(rows, ["solana", "polygon", "hyperliquid-l1", "base"]);
+    expect(m.up?.slug).toBe("solana");
+    expect(m.down?.slug).toBe("polygon");
+    expect(topMovers([{ name: "Solana", change24hPct: -0.01 }], ["solana"])).toEqual({ up: null, down: { slug: "solana", pct: -0.01 } });
   });
 });

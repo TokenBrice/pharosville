@@ -8,6 +8,12 @@ import { TimeOfDay } from "./time-of-day";
 import { createWorldUniforms } from "./uniforms";
 import type { EngineContext, HarbourStats, WorldSystem } from "./types";
 
+/**
+ * Systems nothing else needs at init and the first frame can do without (overlays and decoration):
+ * they init right after the first frame. Every reader of their services tolerates their absence.
+ */
+const DEFERRED: ReadonlySet<string> = new Set(["life", "identity"]);
+
 declare global { interface Window { __harbourStats?: HarbourStats; __harbour?: Engine } }
 
 /**
@@ -17,6 +23,10 @@ declare global { interface Window { __harbourStats?: HarbourStats; __harbour?: E
 export class Engine {
   readonly ctx: EngineContext;
   private readonly systems: WorldSystem[] = [];
+  /** Systems whose init has completed (only these update / resize). */
+  private readonly ready = new Set<WorldSystem>();
+  private readonly later: WorldSystem[] = [];
+  private disposed = false;
   private readonly clock = { last: 0, elapsed: 0 };
   private raf = 0;
   private running = false;
@@ -72,9 +82,47 @@ export class Engine {
   /** Register a system; order of registration is update order. */
   add(system: WorldSystem): this { this.systems.push(system); return this; }
 
+  /**
+   * Boot: every system's init in registration order, except the DEFERRED ones, which init right after the
+   * first frame (their update() is skipped until then). Then the scene's programs are compiled before the
+   * first frame (in parallel where KHR_parallel_shader_compile exists; elsewhere the GPU process compiles
+   * them while the main thread finishes the frame's CPU work). `?defer=0` boots everything first (A/B).
+   */
   async init(): Promise<void> {
-    for (const s of this.systems) await s.init(this.ctx);
+    const boot: Record<string, number> = {};
+    this.stats.boot = boot;
+    const defer = new URLSearchParams(location.search).get("defer") !== "0";
+    for (const s of this.systems) {
+      if (defer && DEFERRED.has(s.name)) { this.later.push(s); continue; }
+      const t = performance.now();
+      await s.init(this.ctx);
+      boot[s.name] = Math.round(performance.now() - t);
+      this.ready.add(s);
+    }
+    this.post.seal();
     this.resize();
+    const t = performance.now(), r = this.ctx.renderer;
+    // (three warns once per call when the extension is missing: issue the plain compile there)
+    if (r.extensions.has("KHR_parallel_shader_compile")) await r.compileAsync(this.ctx.scene, this.ctx.camera);
+    else r.compile(this.ctx.scene, this.ctx.camera);
+    boot.compile = Math.round(performance.now() - t);
+  }
+
+  /** The deferred systems, one after another in registration order, once the first frame is out. */
+  private async initLater(): Promise<void> {
+    const boot = this.stats.boot ?? {};
+    for (const s of this.later) {
+      if (this.disposed) return;
+      const t = performance.now();
+      try { await s.init(this.ctx); } catch (e) { console.error(`[harbour] ${s.name} init failed`, e); continue; }
+      boot[s.name] = Math.round(performance.now() - t);
+      if (this.disposed) { s.dispose(this.ctx); return; }
+      this.ready.add(s);
+      const w = this.container.clientWidth || innerWidth, h = this.container.clientHeight || innerHeight;
+      s.resize?.(w, h, this.ctx);
+      // its programs compile now (off the main thread where the driver can) instead of stalling its first draw
+      this.ctx.renderer.compile(this.ctx.scene, this.ctx.camera);
+    }
   }
 
   start(): void {
@@ -93,6 +141,7 @@ export class Engine {
 
   private frame(now: number): void {
     const { ctx } = this;
+    const t0 = this.firstFrameMs === null ? performance.now() : 0;
     const delta = Math.min(0.1, Math.max(0, (now - this.clock.last) / 1000));
     this.clock.last = now;
     this.clock.elapsed += delta;
@@ -104,11 +153,15 @@ export class Engine {
     ctx.uniforms.uCameraPos.value.copy(ctx.camera.position);
     ctx.renderer.info.reset();
     this.governor.begin();
-    for (const s of this.systems) s.update(frame, ctx);
+    for (const s of this.systems) if (this.ready.has(s)) s.update(frame, ctx);
     this.post.update(delta, ctx.timeOfDay, ctx.rig);
     ctx.composer.render(delta);
     this.governor.end(delta);
-    if (this.firstFrameMs === null) this.firstFrameMs = performance.now() - this.startMs;
+    if (this.firstFrameMs === null) {
+      this.firstFrameMs = performance.now() - this.startMs;
+      if (this.stats.boot) this.stats.boot.firstRender = Math.round(performance.now() - t0);
+      if (this.later.length) void this.initLater();
+    }
     const st = this.stats, info = ctx.renderer.info;
     st.drawCalls = info.render.calls;
     st.triangles = info.render.triangles;
@@ -131,7 +184,7 @@ export class Engine {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     uniforms.uResolution.value.set(w * renderer.getPixelRatio(), h * renderer.getPixelRatio());
-    for (const s of this.systems) s.resize?.(w, h, this.ctx);
+    for (const s of this.systems) if (this.ready.has(s)) s.resize?.(w, h, this.ctx);
   }
 
   private attachInput(): void {
@@ -149,10 +202,12 @@ export class Engine {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.stop();
     removeEventListener("resize", this.onResize);
     document.removeEventListener("visibilitychange", this.onVisibility);
-    for (const s of [...this.systems].reverse()) s.dispose(this.ctx);
+    // a deferred system still initialising disposes itself when its init settles (initLater)
+    for (const s of [...this.systems].reverse()) if (this.ready.has(s) || !this.later.includes(s)) s.dispose(this.ctx);
     this.post.dispose();
     this.ctx.composer.dispose();
     this.ctx.renderer.dispose();

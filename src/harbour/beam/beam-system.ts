@@ -211,6 +211,7 @@ export class BeamSystem implements WorldSystem {
   private stillFor = 0;
   private dayPresence = 0;
   private readonly tmp = new THREE.Vector3();
+  private readonly fireTint = new THREE.Color();
   private readonly U = {
     uCamWorld: new THREE.Uniform(new THREE.Matrix4()),
     uInvProj: new THREE.Uniform(new THREE.Matrix4()),
@@ -285,7 +286,7 @@ export class BeamSystem implements WorldSystem {
     const period = Math.max(2, this.lighthouse?.period ?? 12);
     const swell = this.stillFor > 0.5 ? 0.4 + 0.6 * (0.5 + 0.5 * Math.cos((frame.elapsed * 2 * Math.PI) / period)) : 1;
     // the firelight breathes (damped: the mirror gathers the whole fire)
-    const breath = 0.88 + 0.12 * flicker;
+    const breath = 0.7 + 0.3 * flicker;
 
     const L = 240 + 420 * this.reachS;
     const night = ctx.uniforms.uNight.value;
@@ -310,7 +311,8 @@ export class BeamSystem implements WorldSystem {
     // the shaft is born at the mirror face, behind the fire
     this.mirror.copy(this.lantern).addScaledVector(U.uAx0.value, -MIRROR_BACK);
     U.uBeamPos.value.copy(this.mirror);
-    U.uColor.value.copy(this.colorS);
+    // firelight: the shaft warms toward orange as the fire gutters, whitens a touch as it leaps
+    U.uColor.value.copy(this.colorS).multiply(this.fireTint.setRGB(1, 0.94 + 0.06 * flicker, 0.84 + 0.16 * flicker));
     U.uIntensity.value = vis * 1.05 * (1 + 0.8 * fog);
     U.uL.value = L;
     U.uTime.value = frame.elapsed;
@@ -331,15 +333,16 @@ export class BeamSystem implements WorldSystem {
     this.SH.uShT.value = frame.elapsed;
     this.pass.enabled = U.uIntensity.value > 0.002 || this.SH.uShAmt.value > 0.001;
 
-    // the mirror's glint: a sharp warm star when it faces the viewer (by day the sun glint, on rhythm)
+    // the mirror's glint: a sharp warm star when it faces the viewer (by day the sun glint, on rhythm); between
+    // flashes only a faint ember of it remains, so the lantern reads as fire, not a lamp bulb
     const dist = this.lantern.distanceTo(cam);
     this.halo.position.copy(this.lantern);
     const hu = this.haloMat.uniforms;
     hu.uColor.value.copy(this.colorS);
     hu.uSize.value = dist * (0.04 + 0.05 * flash);
     const near = THREE.MathUtils.smoothstep(dist, 60, 220);       // close-up: let the colonnade read
-    hu.uCore.value = (0.35 * nightK * swell + (3.0 + 5 * day) * flash + 3.0 * dayAlert) * (0.35 + 0.65 * near) * breath;
-    hu.uGlow.value = (0.25 * nightK * swell + (1.4 + 1.5 * day) * flash + 7.0 * dayAlert) * (0.3 + 0.7 * near);
+    hu.uCore.value = (0.1 * nightK * swell + (3.0 + 5 * day) * flash + 3.0 * dayAlert) * (0.35 + 0.65 * near) * breath;
+    hu.uGlow.value = (0.12 * nightK * swell + (1.4 + 1.5 * day) * flash + 7.0 * dayAlert) * (0.3 + 0.7 * near);
     hu.uStreak.value = ((1.1 + 0.6 * day) * flash) * (0.5 + 0.5 * near);
     this.halo.visible = lit;
 

@@ -59,6 +59,10 @@ uniform float uBeamAngle;
 uniform vec4 uBeamShape;
 uniform float uBeamBack;
 uniform float uDebug;
+// town lights (lights system's top-down pool RT): reflected in the water at night
+uniform sampler2D uPoolTex;
+uniform vec4 uPoolBounds;
+uniform float uWindowGlow;
 uniform vec2 uSceneCenter;
 uniform float uSceneRadius;
 varying vec3 vWorld;
@@ -75,6 +79,12 @@ vec3 band(float th, float e, float lod) {
   return mix(c, uZenith, smoothstep(uSkyBandRange.w - 2.0, uSkyBandRange.w + 18.0, e));
 }
 float wrapPi(float a) { return atan(sin(a), cos(a)); }
+// anti-aliased thin network where two drifting fields cross (caustics on the bed, lace in the foam)
+float hbNet(float a, float b, float w) {
+  float d = a - b;
+  float fw = fwidth(d) + 1e-4;
+  return (1.0 - smoothstep(0.0, w + fw * 1.2, abs(d))) * clamp(w / fw * 0.6, 0.0, 1.0);
+}
 
 void main() {
   vec2 xz = vWorld.xz;
@@ -116,15 +126,21 @@ void main() {
   // ---------------------------------------------------------------- normals
   float far01 = smoothstep(250.0, 1300.0, camD);
   float amp = uSea.x * vDamp;
+  // shading-only domain warp (the displacement and CPU heightAt are untouched): the crossing plane waves
+  // would otherwise read as a regular diamond lattice across the mid-distance and the overview
+  vec2 xzw = xz + (vec2(nA.g, nA.b) - 0.5) * 18.0 + (vec2(nB.b, nB.r) - 0.5) * 3.0;
   float groups = 0.45 + 1.1 * smoothstep(0.2, 0.8, nA.r * 0.7 + texture2D(uNoise, xz * 0.0011 + vec2(t * 0.0009, 0.0)).b * 0.5);
   // shading exaggerates a calm swell (soft-capped so rough seas don't turn to mirrors), in wave groups
   float ampShade = 0.9 * (1.0 - exp(-amp * mix(2.6, 2.0, far01) / 0.9));
-  vec3 gN = gerstnerNormal(xz, t, ampShade * groups);
+  vec3 gN = gerstnerNormal(xzw, t, ampShade * groups);
+  float crestH = gerstnerCrest(xzw, t);
   mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
   float sp = 0.6 + 1.2 * wind;
   vec4 r1 = texture2D(uRipple, xz * 0.043 + wdir * t * 0.010 * sp);
   vec4 r2 = texture2D(uRipple, (rot * xz) * 0.107 - vec2(wdir.y, -wdir.x) * t * 0.014 * sp);
   vec4 r3 = texture2D(uRipple, (rot * rot * xz) * 0.0093 + wdir * t * 0.0025);
+  vec4 r4 = texture2D(uRipple, (rot * xz.yx) * 0.0061 - wdir * t * 0.0017 + 0.37);
+  r3 = mix(r3, r4, 0.5 + 0.35 * (nA.r - 0.5) * 2.0);
   vec2 d1 = r1.rg * 2.0 - 1.0, d2 = r2.rg * 2.0 - 1.0, d3 = r3.rg * 2.0 - 1.0;
   float shoreCalm = mix(0.45, 1.0, smoothstep(1.0, 18.0, coast)) * (1.0 - 0.3 * zm.b);
   float dk = (0.16 + 0.12 * uSea.y) * rough * shoreCalm;
@@ -157,9 +173,29 @@ void main() {
   // A graft: sunlit teal shallows (light reaching the sand)
   float shoalK = (1.0 - smoothstep(0.3, 4.5, max(dep, depth))) * sunUp;
   body = mix(body, uSunlitShoal, shoalK * (0.22 + 0.3 * smoothstep(0.3, 0.75, nA.b) + 0.1 * nC.g));
-  // sunlit caustic shimmer over the shallow shelf
-  float caus = smoothstep(0.86, 0.99, 1.0 - abs(r1.a - r2.a)) * (1.0 - smoothstep(0.5, 4.0, dep)) * sunUp;
-  body += uSunlitShoal * caus * 0.18;
+  // clear shallows: the bed (sand with rock patches) shows through the turquoise, red absorbed first,
+  // with a drifting caustic net on it in sunlight. Overcast, storms and night cloud the view.
+  {
+    // a gentle shelf off every natural shore (quay walls and moles drop straight to depth instead)
+    float bedDep = max(min(depth, 0.25 + max(coast, 0.0) * 0.3) + (nA.r - 0.5) * 1.6 + (nB.g - 0.5) * 0.6, 0.0);
+    float clarity = (1.0 - 0.75 * storm) * (1.0 - 0.45 * cover) * (1.0 - 0.6 * uNight);
+    float seeBed = (1.0 - smoothstep(0.3, 7.0, bedDep)) * clarity * smoothstep(1.5, 7.0, sdist) * (1.0 - 0.65 * zm.b);
+    float rockN = texture2D(uNoise, xz * 0.031 + 0.17).r * 0.75 + nC.b * 0.35;
+    vec3 sand = mix(vec3(0.62, 0.55, 0.40), vec3(0.74, 0.67, 0.50), nB.g);
+    vec3 bed = mix(sand, vec3(0.26, 0.30, 0.26) * (0.8 + 0.4 * nC.r), smoothstep(0.62, 0.78, rockN));
+    vec3 absorb = exp(-bedDep * vec3(0.55, 0.17, 0.13));
+    vec3 seen = bed * absorb * mix(vec3(1.0), uSunlitShoal * 1.6, 0.35);
+    float cs = 1.0 - smoothstep(180.0, 650.0, camD);
+    vec2 cuv = xz * 0.043;
+    float cA = texture2D(uNoise, cuv + t * vec2(0.011, 0.007)).g;
+    float cB = texture2D(uNoise, (rot * cuv) * 1.19 - t * vec2(0.006, -0.009) + 0.5).g;
+    float caus = hbNet(cA, cB, 0.06) * cs * (0.55 + 0.45 * smoothstep(0.3, 0.7, nC.g));
+    float cGain = sunUp * (1.0 - cover * 0.7) * (1.0 - smoothstep(0.2, 5.5, bedDep));
+    seen *= 0.85 + 0.15 * smoothstep(0.35, 0.65, nC.g);
+    seen += vec3(1.0, 0.97, 0.85) * uSunColor * caus * 0.05 * cGain;
+    body = mix(body, seen * mix(0.95, 1.0, sunUp), seeBed * 0.62);
+    body += uSunlitShoal * caus * 0.10 * cGain * (1.0 - seeBed * 0.5) * (1.0 - smoothstep(0.5, 5.0, dep));
+  }
   // the Shoals: clear turquoise water over the reef shelf, bright by day, a pale jade glimmer at night
   {
     float reefK = zm.r * (0.55 + 0.45 * smoothstep(0.35, 0.7, nA.b + 0.25 * nC.g));
@@ -198,17 +234,59 @@ void main() {
   F = min(F * (0.8 + 0.5 * rough) * (1.0 + 0.4 * zm.b), 0.6 + 0.12 * zm.b);
   vec3 col = body * (1.0 - F) + sky * F;
 
+  // ---------------------------------------------------------------- the lit town in the water (night)
+  // planar-like: a light h metres up at foot P mirrors onto the water at P - away * D * h / Hc, so the
+  // pool texture is read back along the view ray (taps for 1-14 m sources) and smeared by the ripple
+  // normals into soft, shimmering streaks of windows and lamps. Calm harbour water mirrors best.
+  if (uWindowGlow > 0.02) {
+    vec2 away = -toCam.xz / max(camD, 1.0);
+    vec2 side = vec2(-away.y, away.x);
+    float Hc = max(uCameraPos.y - vWorld.y, 15.0);
+    float smear = dot(dn, side) * (4.0 + 7.0 * rough) + dot(gN.xz, side) * 14.0;
+    float wav = dot(dn, away) * 4.0 + dot(gN.xz, away) * 20.0;
+    vec3 acc = vec3(0.0);
+    for (int i = 0; i < 6; i++) {
+      float h = 1.2 + float(i) * 3.0;
+      vec2 q = xz + away * (camD * h / Hc + wav * (0.4 + 0.12 * float(i))) + side * smear * (0.5 + 0.1 * float(i));
+      vec2 puv = (q - uPoolBounds.xy) * uPoolBounds.zw;
+      float ok = step(0.0, puv.x) * step(puv.x, 1.0) * step(0.0, puv.y) * step(puv.y, 1.0);
+      acc += texture2D(uPoolTex, clamp(puv, 0.0, 1.0)).rgb * ok * (1.0 - 0.08 * float(i));
+    }
+    // keep each pool's core (a column, not a round blob), broken into ripple-lit dashes
+    acc *= smoothstep(0.03, 0.32, dot(acc, vec3(0.333))) * 1.5;
+    float shim = 0.15 + 1.9 * smoothstep(0.42, 0.8, r2.a * 0.6 + r1.a * 0.5 + 0.1 * sin(dot(xz, away) * 2.2 - t * 1.3));
+    float calmK = mix(1.0, 1.35, zm.b) * (1.0 - 0.5 * storm);
+    float fadeD = 1.0 - 0.55 * smoothstep(300.0, 1100.0, camD);
+    col += acc * smoothstep(0.02, 0.55, uWindowGlow) * shim * calmK * fadeD * (0.28 + 0.6 * F) * step(0.0, coast);
+  }
+
+  // ---------------------------------------------------------------- golden-hour light through the crests
+  // a low sun shines through the thin wave tops: a teal-green glow on crests facing the viewer
+  {
+    float golden = smoothstep(0.0, 0.08, uSunDir.y) * (1.0 - smoothstep(0.22, 0.42, uSunDir.y)) * (1.0 - uNight);
+    vec2 sunH = normalize(uSunDir.xz + 1e-4);
+    float back = clamp(dot(-toCam.xz / max(camD, 1.0), sunH), 0.0, 1.0);
+    float ch = crestH * 1.7 + (nB.g - 0.5) * 0.6;
+    float face = clamp(dot(gN.xz, toCam.xz / max(camD, 1.0)) * 6.0 + 0.3, 0.0, 1.0);
+    float sssK = golden * (0.3 + 0.7 * back * back) * smoothstep(0.15, 0.9, ch) * face * smoothstep(0.04, 0.35, amp) * (1.0 - far01 * 0.5) * (1.0 - cover * 0.6);
+    col += uSunColor * vec3(0.20, 0.62, 0.48) * sssK * 0.16 * step(1.0, coast);
+  }
+
   // ---------------------------------------------------------------- sun / moon glitter path
   // a column under the painted disc (envelope from a calmer normal), twinkling facets inside it
-  vec3 gT = gerstnerNormal(xz, t, amp * groups);                     // true swell for the glitter path
+  vec3 gT = gerstnerNormal(xzw, t, amp * groups);                     // true swell for the glitter path
   vec3 Nenv = normalize(vec3(gT.x + dn.x * 0.15, gT.y, gT.z + dn.y * 0.15));
   float rsE = max(dot(reflect(vd, Nenv), uGlintDir), 0.0);
   float rs = max(dot(R, uGlintDir), 0.0);
   float rsp = max(dot(reflect(vd, Nsp), uGlintDir), 0.0);
-  float tw = smoothstep(0.6, 0.9, r2.a * 0.6 + r1.a * 0.4 + 0.22 * sin(t * 2.3 + nC.a * 30.0));
-  float env = pow(rsE, 70.0);
+  // crisp: fewer, smaller, brighter facets inside a tighter column with a smooth bright core; far off the
+  // facets fall below a pixel, so their energy moves into the smooth sheen instead of sparkling confetti
+  float tw = smoothstep(0.8, 0.97, r2.a * 0.6 + r1.a * 0.4 + 0.22 * sin(t * 2.3 + nC.a * 30.0));
+  float env = pow(rsE, mix(70.0, 120.0, uNight));
+  float core = pow(rsE, 260.0);
   float overcast = 1.0 - 0.9 * smoothstep(0.35, 0.8, uWeatherSea.x);
-  vec3 glint = uGlintCol * (env * 0.1 + pow(rsE, 30.0) * 0.01 + (pow(rs, 260.0) * 1.6 + pow(rsp, 900.0) * 3.0) * tw * (0.08 + 0.92 * env));
+  vec3 glint = uGlintCol * (env * (0.1 + 0.1 * far01) + core * 0.16 + pow(rsE, 30.0) * 0.01
+    + (pow(rs, 300.0) * 3.6 + pow(rsp, 1100.0) * 8.0) * tw * (0.03 + 0.97 * env) * (1.0 - 0.55 * far01));
   // crest glints everywhere by day (facets catching a broad virtual light)
   vec3 Hs = normalize(normalize(uGlintDir + vec3(0.0, 0.6, 0.0)) + V);
   float facet = pow(max(dot(Nsp, Hs), 0.0), 1400.0) * smoothstep(0.5, 0.8, nB.a) * (1.0 - far01 * 0.85);
@@ -265,13 +343,40 @@ void main() {
   float p3 = 6.0 + 0.9 * sin(t * 0.42 + 1.7 + nA.g * 6.2831);
   float band3 = (1.0 - smoothstep(0.12, 0.34, abs(dnC - p3))) * smoothstep(0.52, 0.64, nC.r) * 0.55;
   float coastFoam = max(fContact, max(band2 * 0.9, band3) * bands) * step(-1.0, coast);
+  // lace: a fine drifting net of bubble threads (shared by the swash, the eddies and old wakes);
+  // beyond the heart view it melts into its mean coverage instead of shimmering
+  float lA = texture2D(uNoise, xz * 0.071 + t * vec2(0.003, -0.002)).b;
+  float lB = texture2D(uNoise, (rot * xz) * 0.083 - t * vec2(0.002, 0.003) + 0.61).b;
+  float laceFar = smoothstep(260.0, 760.0, camD);
+  float lace = mix(hbNet(lA, lB, 0.05), 0.3, laceFar);
+  // swash: a foam sheet runs in with each crest of the main swell and drains back, tearing open as it thins
+  {
+    float swPh = dot(xz, SWELL) * 0.1013 - t * 0.748 + nA.b * 2.2 + nB.r * 1.2;
+    float sw = 0.5 + 0.5 * sin(swPh);
+    sw = sw * sw * (3.0 - 2.0 * sw);
+    float beachK = 1.0 - smoothstep(2.5, 9.0, depth);
+    float sheetW = (0.45 + 2.5 * sw) * bands * mix(0.45, 1.0, beachK) * (0.7 + 0.6 * nB.g);
+    float inSheet = 1.0 - smoothstep(sheetW - 0.35, sheetW + 0.2, dnC);
+    float lip = (1.0 - smoothstep(0.0, 0.32, abs(dnC - sheetW))) * (0.45 + 0.55 * sw) * smoothstep(0.3, 0.55, nC.g + 0.15);
+    float torn = smoothstep(0.3 + 0.35 * (1.0 - sw), 0.55 + 0.35 * (1.0 - sw), mix(lA, 0.5, laceFar) * 0.8 + nC.r * 0.4);
+    float sheet = inSheet * max(lace * 0.95, (1.0 - torn) * 0.6);
+    coastFoam = max(coastFoam, max(sheet, lip * 0.9) * step(-1.0, coast) * step(dnC, 6.0));
+  }
   float sdN = sdist + (nC.g - 0.5) * 0.6;
   float fStruct = (1.0 - smoothstep(0.0, 0.3, sdN)) * 0.3 * smoothstep(0.35, 0.6, nC.g + 0.2) + (1.0 - smoothstep(0.08, 0.22, abs(sdN - 1.1))) * smoothstep(0.62, 0.75, nC.b) * 0.25;
+  // foam lingering in the eddies behind piles and quay corners: slow-turning scum and lace, not a ring
+  {
+    vec2 sw2 = vec2(sin(t * 0.05 + nA.g * 6.2831), cos(t * 0.041 + nA.b * 6.2831)) * 0.05;
+    float scum = smoothstep(0.58, 0.8, texture2D(uNoise, xz * 0.09 + sw2).g * 0.8 + nC.a * 0.35);
+    float eddyK = (1.0 - smoothstep(0.5, 3.6, sdN)) * smoothstep(0.0, 0.25, sdN);
+    fStruct = max(fStruct, max(scum * 0.5, lace * 0.45) * eddyK);
+  }
   // broken, translucent foam: noise eats the wake so it reads as lines of bubbles, not ribbons
   float fTrail = smoothstep(0.25, 0.85, trail * (0.2 + 1.3 * nC.g * nB.b * 1.6)) * (0.4 + 0.35 * smoothstep(0.4, 1.0, trail));
+  // as a wake ages it breaks into lace threads and drifting patches before it is gone
+  fTrail = max(fTrail, lace * smoothstep(0.06, 0.3, trail) * (1.0 - smoothstep(0.55, 0.95, trail)) * (0.35 + 0.4 * nB.g) * (1.0 - laceFar * 0.6));
   float fKel = smoothstep(0.07, 0.38, live.r * (0.45 + 1.0 * nC.r)) * 0.85;
   float fRing = smoothstep(0.3, 0.75, live.g * (0.35 + 1.0 * nC.b)) * 0.5;
-  float crestH = gerstnerCrest(xz, t);
   float caps = smoothstep(0.82 - 0.1 * storm, 0.97, crestH * 0.55 + nB.a * 0.55 + nC.r * 0.12) * uSea.z * smoothstep(25.0, 90.0, coast);
   // scattered whitecap flecks riding the crests across the whole bay once the declared sea is choppy
   // (uSea.z > 0: off-peg step 2+), so a rough sea reads at the heart view, not only in patches (readings)

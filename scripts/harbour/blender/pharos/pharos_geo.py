@@ -4,14 +4,14 @@ micro-bevelled mouldings, procedural pattern ids in COLOR_0 alpha, bronze and gi
 Blender units = metres, Z up, origin = the platform centre at pavement level. FRONT (door, ramp) = Blender -Y
 (= glTF +Z). The tower is ~104 m to the statue's raised hand.
 
-    tier 1  square, tapering (half 15 -> 12.6), pilaster panels, rows of slit windows, a door up a ramp
+    tier 1  square, tapering (half 15 -> 12.6), pilaster panels, a few slit windows, a door up a ramp
     cornice 1 with a parapet and four corner tritons blowing conches (acroteria)
     tier 2  octagonal, corner pilasters, windows, cornice + parapet
     tier 3  cylindrical drum, gallery balustrade
     lantern an 8-column tholos with a bronze brazier (fire_core) and the rotating bronze mirror
     crown   dome + a gilded Helios with a raised arm (statue)
     base    a 64 m square platform on a battered podium, a parapet with corner piers (front gap for the
-            causeway), two colossal pharaonic statues flanking the ramp
+            causeway), two colossal bronze pharaohs on pedestals flanking the ramp
 
 Node contract (names are load-bearing, see src/harbour/world/lighthouse-system.ts):
     pharos (root) / tower (hb_opaque) / tower_windows (hb_window) / statue (hb_opaque) / fire_core (hb_fire)
@@ -184,20 +184,22 @@ def build_tower(rng):
         # string courses across the panels (they stop at the pilasters: drawn at a shallower relief)
         for z in (14.0, 25.4, 36.8):
             strip_on_t1(S, k, -0.99, 0.99, z, z + 0.6, 0.3, lime, PT['plain'], bot=True)
-    # windows: small slits in the panels, staggered rows (hb_window: Col.r = lit, Col.g = warmth)
+    # windows: a few narrow slits climbing each face with the ramp inside (solid masonry elsewhere: a
+    # fortress-lighthouse, not an apartment block). hb_window: Col.r = lit, Col.g = warmth; about half glow.
     panels = [(-0.84, -0.63), (-0.545, -0.26), (-0.175, 0.175), (0.26, 0.545), (0.63, 0.84)]
     rows = [8.4, 18.6, 21.6, 29.6, 32.6, 40.8, 43.8]
+    STAIR = [0, 1, 2, 3, 4, 3, 2]
     for k in range(4):
         for pi_, (f0, f1) in enumerate(panels):
             for ri, z in enumerate(rows):
                 if k == 0 and pi_ == 2 and z < 19:
                     continue                         # the door bay
-                if (pi_ + ri) % 2 and not (pi_ == 2 and ri % 2 == 0):
+                if pi_ != STAIR[(ri + 2 * k) % len(STAIR)]:
                     continue
                 fc = (f0 + f1) / 2
-                hw = 0.55 / h1(z)
+                hw = 0.3 / h1(z)
                 lit = rng.random()
-                col = (0.35 + 0.65 * lit if rng.random() < 0.8 else 0.0, rng.random(), 0.0)
+                col = (0.45 + 0.55 * lit if (ri + k) % 2 == 0 else 0.0, rng.random(), 0.0)
                 a, b = t1_point(k, fc - hw, z, 0.06), t1_point(k, fc + hw, z, 0.06)
                 c, d = t1_point(k, fc + hw, z + 1.9, 0.06), t1_point(k, fc - hw, z + 1.9, 0.06)
                 quad(W, a, b, c, d, col)
@@ -278,15 +280,17 @@ def build_tower(rng):
         a = TAU * k / 8                       # face normal angle (flat faces at multiples of 45 deg)
         dv = Vector((math.cos(a), math.sin(a), 0)); tv = Vector((-math.sin(a), math.cos(a), 0))
         for ri, z in enumerate((58.6, 64.6, 70.2)):
-            for s in ((-1, 1) if ri != 1 else (0,)):
+            if ri != k % 3:
+                continue                      # one slit per face, climbing round the octagon
+            for s in (0,):
                 ap = apo(z) + 0.05
                 lit = rng.random()
-                col = (0.35 + 0.65 * lit if rng.random() < 0.75 else 0.0, rng.random(), 0.0)
+                col = (0.45 + 0.55 * lit if k % 2 == 0 else 0.0, rng.random(), 0.0)
                 cx = s * 1.9
-                quad(W, dv * ap + tv * (cx - 0.5) + Vector((0, 0, z)), dv * ap + tv * (cx + 0.5) + Vector((0, 0, z)),
-                     dv * ap + tv * (cx + 0.5) + Vector((0, 0, z + 1.8)), dv * ap + tv * (cx - 0.5) + Vector((0, 0, z + 1.8)), col)
-                box(S, dv * (ap + 0.1) + tv * cx + Vector((0, 0, z - 0.12)), (1.5, 0.26, 0.24), marble, PT['plain'], axes=(tv, dv, Vector((0, 0, 1))))
-                box(S, dv * (ap + 0.1) + tv * cx + Vector((0, 0, z + 1.92)), (1.5, 0.26, 0.24), marble, PT['plain'], axes=(tv, dv, Vector((0, 0, 1))))
+                quad(W, dv * ap + tv * (cx - 0.32) + Vector((0, 0, z)), dv * ap + tv * (cx + 0.32) + Vector((0, 0, z)),
+                     dv * ap + tv * (cx + 0.32) + Vector((0, 0, z + 1.8)), dv * ap + tv * (cx - 0.32) + Vector((0, 0, z + 1.8)), col)
+                box(S, dv * (ap + 0.1) + tv * cx + Vector((0, 0, z - 0.12)), (1.0, 0.26, 0.24), marble, PT['plain'], axes=(tv, dv, Vector((0, 0, 1))))
+                box(S, dv * (ap + 0.1) + tv * cx + Vector((0, 0, z + 1.92)), (1.0, 0.26, 0.24), marble, PT['plain'], axes=(tv, dv, Vector((0, 0, 1))))
     z = moulding(S, 8, T2_Z1, [(0.8, 8.8, 8.8), (0.3, 8.8, 9.4), (0.9, 9.6, 9.6), (0.4, 9.6, 10.2), (0.6, 10.2, 10.0)], marble, PT['plain'], rot=rot8)
     Z_T2TOP = z
     ngon_ring(S, 8, Z_T2TOP, Z_T2TOP + 1.1, 9.9, 9.3, lime, PT['ashlar'], rot=rot8)
@@ -301,7 +305,7 @@ def build_tower(rng):
         a = TAU * (k + 0.5) / 8
         dv = Vector((math.cos(a), math.sin(a), 0)); tv = Vector((-math.sin(a), math.cos(a), 0))
         zz = 79.4; rr = T3_R - 0.1
-        col = (0.5 + 0.5 * rng.random(), rng.random(), 0.0)
+        col = (0.5 + 0.5 * rng.random() if k in (0, 3, 5) else 0.0, rng.random(), 0.0)
         quad(W, dv * rr + tv * -0.45 + Vector((0, 0, zz)), dv * rr + tv * 0.45 + Vector((0, 0, zz)),
              dv * rr + tv * 0.45 + Vector((0, 0, zz + 1.6)), dv * rr + tv * -0.45 + Vector((0, 0, zz + 1.6)), col)
     z = moulding(S, n16, T3_Z1, [(0.5, 6.4, 6.8), (0.6, 7.0, 7.7), (0.3, 7.7, 7.5)], marble, PT['plain'])
@@ -441,44 +445,74 @@ def figure_helios(mb, base):
 
 
 def figure_pharaoh(mb, base, facing, scale=1.0):
-    """A colossal standing king in red granite on a plinth (the ramp's guardians): one block against its back
-    pillar, the left foot forward, arms at the sides, a gilt nemes and the double crown."""
+    """A colossal king in weathered bronze (verdigris, like the tritons) on a tall stepped limestone pedestal: the
+    ramp's guardians. Striding (left foot forward), the left arm at the side, the right hand on a tall gilt-headed
+    sceptre that rises past the crown, a nemes and the double crown: a statue's silhouette, never a bollard."""
     B = Vector(base); f = Vector(facing).normalized(); s = Vector((-f.y, f.x, 0)); up = Vector((0, 0, 1)); sc = scale
-    gr, grd, gilt = P['granite_red'], lin('#8E5646'), lin('#D9B45A')
+    br, brd, kilt, gilt = lin('#6C9585'), lin('#4F7466'), lin('#9A8250'), lin('#D9B45A')
     ax = (s, f, up)
-    box(mb, B + up * 1.4 * sc, (3.0 * sc, 3.6 * sc, 2.8 * sc), P['lime_dark'], PT['ashlar'], axes=ax)          # plinth
-    box(mb, B + up * 2.95 * sc, (3.3 * sc, 3.9 * sc, 0.3 * sc), P['marble'], PT['plain'], axes=ax)
-    z = 3.1 * sc
-    # back pillar
-    box(mb, B + up * (z + 3.7 * sc) - f * 0.85 * sc, (1.4 * sc, 0.5 * sc, 7.4 * sc), grd, PT['plain'], axes=ax)
-    # legs (striding: the left foot forward) and the kilt
-    box(mb, B + up * (z + 1.4 * sc) - s * 0.33 * sc + f * 0.35 * sc, (0.58 * sc, 0.75 * sc, 2.8 * sc), gr, PT['plain'], axes=ax)
-    box(mb, B + up * (z + 1.4 * sc) + s * 0.33 * sc - f * 0.25 * sc, (0.58 * sc, 0.75 * sc, 2.8 * sc), gr, PT['plain'], axes=ax)
-    box(mb, B + up * (z + 3.2 * sc), (1.6 * sc, 1.1 * sc, 1.0 * sc), gilt, PT['tiles'], axes=ax)
-    # torso (broad shoulders, narrow waist) + arms held at the sides
-    tz0, tz1 = z + 3.7 * sc, z + 6.0 * sc
-    pts = [(-0.7, tz0), (0.7, tz0), (1.05, tz1), (-1.05, tz1)]
-    for d0, d1, flip in ((0.42, 0.42, False), (-0.42, -0.42, True)):
+    # pedestal: a two-step base, an ashlar die, a moulded cornice
+    box(mb, B + up * 0.3 * sc, (4.6 * sc, 5.2 * sc, 0.6 * sc), P['lime_podium'], PT['ashlar'], axes=ax)
+    box(mb, B + up * 0.85 * sc, (4.0 * sc, 4.6 * sc, 0.5 * sc), P['lime_dark'], PT['ashlar'], axes=ax)
+    box(mb, B + up * 2.35 * sc, (3.2 * sc, 3.8 * sc, 2.5 * sc), P['lime'], PT['ashlar'], axes=ax)
+    box(mb, B + up * 3.72 * sc, (3.7 * sc, 4.3 * sc, 0.24 * sc), P['marble'], PT['plain'], axes=ax)
+    box(mb, B + up * 3.96 * sc, (3.4 * sc, 4.0 * sc, 0.24 * sc), P['marble'], PT['plain'], axes=ax)
+    z = 4.08 * sc
+    sc = scale * 1.2                       # the figure is colossal on its pedestal
+    P0 = lambda dx, df, dz: B + s * (dx * sc) + f * (df * sc) + up * (z + dz * sc)
+    # bronze footplate, feet and striding legs (tapered, the left forward)
+    box(mb, P0(0, 0.1, 0.08), (1.6 * sc, 2.2 * sc, 0.16 * sc), brd, PT['metal'], axes=ax)
+    for sd, fwd in ((-1, 0.55), (1, -0.2)):
+        box(mb, P0(sd * 0.36, fwd + 0.18, 0.3), (0.42 * sc, 0.95 * sc, 0.3 * sc), br, PT['metal'], axes=ax)
+        rod(mb, P0(sd * 0.36, fwd, 0.4), P0(sd * 0.36, fwd * 0.35, 1.6), 0.22 * sc, br, segs=6, r2=0.27 * sc, pat=PT['metal'])
+        rod(mb, P0(sd * 0.36, fwd * 0.35, 1.6), P0(sd * 0.33, 0.0, 3.0), 0.27 * sc, br, segs=6, r2=0.34 * sc, pat=PT['metal'])
+    # the kilt (shendyt): a flared gilt-bronze apron, a belt
+    ngon_frustum(mb, 8, B.z + z + 2.25 * sc, B.z + z + 3.35 * sc, 0.95 * sc, 0.68 * sc, kilt, PT['metal'], rot=math.pi / 8, cx=B.x, cy=B.y)
+    ngon_frustum(mb, 8, B.z + z + 3.35 * sc, B.z + z + 3.6 * sc, 0.7 * sc, 0.7 * sc, gilt, PT['metal'], rot=math.pi / 8, cx=B.x, cy=B.y)
+    # torso: narrow waist to broad shoulders
+    tz0, tz1 = z + 3.6 * sc, z + 5.6 * sc
+    pts = [(-0.62, tz0), (0.62, tz0), (1.0, tz1), (-1.0, tz1)]
+    for d0, flip in ((0.38, False), (-0.38, True)):
         ids = [mb.vert(B + s * (x * sc) + f * (d0 * sc) + up * zz) for x, zz in pts]
-        mb.face(ids[::-1] if flip else ids, gr, PT['plain'])
+        mb.face(ids[::-1] if flip else ids, br, PT['metal'])
     for side in (-1, 1):
-        a0 = mb.vert(B + s * (side * 0.7 * sc) + f * 0.42 * sc + up * tz0); a1 = mb.vert(B + s * (side * 1.05 * sc) + f * 0.42 * sc + up * tz1)
-        b0 = mb.vert(B + s * (side * 0.7 * sc) - f * 0.42 * sc + up * tz0); b1 = mb.vert(B + s * (side * 1.05 * sc) - f * 0.42 * sc + up * tz1)
-        mb.face([a0, b0, b1, a1] if side > 0 else [a1, b1, b0, a0], gr, PT['plain'])
-        box(mb, B + s * (side * 1.12 * sc) + up * (z + 4.6 * sc), (0.42 * sc, 0.6 * sc, 2.6 * sc), gr, PT['plain'], axes=ax)
-    box(mb, B + up * (tz1 + 0.12 * sc), (2.2 * sc, 0.9 * sc, 0.24 * sc), gr, PT['plain'], axes=ax)
-    # head + gilt nemes + the double crown
-    hz = tz1 + 0.75 * sc
-    ngon_frustum(mb, 6, B.z + hz - 0.5 * sc, B.z + hz + 0.4 * sc, 0.42 * sc, 0.38 * sc, gr, PT['plain'], cx=B.x, cy=B.y, smooth=True)
-    a0 = B + up * (hz + 0.5 * sc) - s * 0.5 * sc
-    a1 = B + up * (hz + 0.5 * sc) + s * 0.5 * sc
-    b1 = B + up * (hz - 0.85 * sc) + s * 0.95 * sc - f * 0.15 * sc
-    b0 = B + up * (hz - 0.85 * sc) - s * 0.95 * sc - f * 0.15 * sc
-    for off, flip in ((f * 0.1 * sc, False), (-f * 0.32 * sc, True)):
+        a0 = mb.vert(B + s * (side * 0.62 * sc) + f * 0.38 * sc + up * tz0); a1 = mb.vert(B + s * (side * 1.0 * sc) + f * 0.38 * sc + up * tz1)
+        b0 = mb.vert(B + s * (side * 0.62 * sc) - f * 0.38 * sc + up * tz0); b1 = mb.vert(B + s * (side * 1.0 * sc) - f * 0.38 * sc + up * tz1)
+        mb.face([a0, b0, b1, a1] if side > 0 else [a1, b1, b0, a0], br, PT['metal'])
+    box(mb, B + up * (tz1 + 0.1 * sc), (2.1 * sc, 0.8 * sc, 0.2 * sc), br, PT['metal'], axes=ax)
+    # broad gilt collar
+    ngon_frustum(mb, 10, B.z + tz1 - 0.05 * sc, B.z + tz1 + 0.22 * sc, 0.62 * sc, 0.4 * sc, gilt, PT['metal'], cx=B.x, cy=B.y)
+    # left arm at the side, a closed fist
+    shl = B + s * (-1.02 * sc) + up * (tz1 - 0.1 * sc)
+    rod(mb, shl, shl - s * 0.1 * sc - up * 1.4 * sc, 0.25 * sc, br, segs=6, r2=0.21 * sc, pat=PT['metal'])
+    rod(mb, shl - s * 0.1 * sc - up * 1.4 * sc, shl - s * 0.08 * sc - up * 2.6 * sc + f * 0.12 * sc, 0.21 * sc, br, segs=6, r2=0.19 * sc, pat=PT['metal'])
+    box(mb, shl - s * 0.08 * sc - up * 2.8 * sc + f * 0.12 * sc, (0.34 * sc, 0.4 * sc, 0.38 * sc), brd, PT['metal'], axes=ax)
+    # right arm forward to a tall sceptre planted beside the leading foot
+    shr = B + s * (1.02 * sc) + up * (tz1 - 0.1 * sc)
+    elb = shr + s * 0.18 * sc - up * 1.3 * sc + f * 0.15 * sc
+    hand = B + s * (1.35 * sc) + f * (0.95 * sc) + up * (tz0 + 0.55 * sc)
+    rod(mb, shr, elb, 0.25 * sc, br, segs=6, r2=0.21 * sc, pat=PT['metal'])
+    rod(mb, elb, hand, 0.21 * sc, br, segs=6, r2=0.19 * sc, pat=PT['metal'])
+    box(mb, hand, (0.36 * sc, 0.4 * sc, 0.42 * sc), brd, PT['metal'], axes=ax)
+    st0 = Vector((hand.x, hand.y, B.z + z + 0.1 * sc))
+    st1 = Vector((hand.x, hand.y, B.z + tz1 + 2.7 * sc))
+    rod(mb, st0, st1, 0.1 * sc, brd, segs=5, pat=PT['metal'], smooth=False)
+    rod(mb, st1, st1 + up * 0.35 * sc + f * 0.45 * sc, 0.13 * sc, gilt, segs=5, r2=0.07 * sc, pat=PT['metal'], smooth=False)   # the was head
+    ngon_frustum(mb, 8, st1.z - 0.25 * sc, st1.z + 0.05 * sc, 0.16 * sc, 0.2 * sc, gilt, PT['metal'], cx=st1.x, cy=st1.y)
+    # neck, head, nemes (gilt-striped headcloth with lappets) and the double crown
+    rod(mb, B + up * (tz1 + 0.15 * sc), B + up * (tz1 + 0.45 * sc), 0.24 * sc, br, segs=6, pat=PT['metal'])
+    hz = tz1 + 0.95 * sc
+    ngon_frustum(mb, 8, B.z + hz - 0.5 * sc, B.z + hz + 0.35 * sc, 0.4 * sc, 0.36 * sc, br, PT['metal'], cx=B.x, cy=B.y, smooth=True)
+    a0 = B + up * (hz + 0.4 * sc) - s * 0.48 * sc
+    a1 = B + up * (hz + 0.4 * sc) + s * 0.48 * sc
+    b1 = B + up * (hz - 0.95 * sc) + s * 0.9 * sc - f * 0.12 * sc
+    b0 = B + up * (hz - 0.95 * sc) - s * 0.9 * sc - f * 0.12 * sc
+    for off, flip in ((f * 0.08 * sc, False), (-f * 0.34 * sc, True)):
         ids = [mb.vert(p + off) for p in (b0, b1, a1, a0)]
         mb.face(ids[::-1] if flip else ids, gilt, PT['tiles'])
-    ngon_frustum(mb, 8, B.z + hz + 0.4 * sc, B.z + hz + 0.9 * sc, 0.45 * sc, 0.5 * sc, lin('#A8382C'), PT['plain'], cx=B.x, cy=B.y)
-    ngon_frustum(mb, 8, B.z + hz + 0.9 * sc, B.z + hz + 1.7 * sc, 0.32 * sc, 0.12 * sc, P['marble'], PT['plain'], cx=B.x, cy=B.y, smooth=True)
+    ngon_frustum(mb, 8, B.z + hz + 0.35 * sc, B.z + hz + 0.85 * sc, 0.44 * sc, 0.5 * sc, brd, PT['metal'], cx=B.x, cy=B.y)
+    ngon_frustum(mb, 8, B.z + hz + 0.85 * sc, B.z + hz + 1.8 * sc, 0.34 * sc, 0.1 * sc, br, PT['metal'], cx=B.x, cy=B.y, smooth=True)
+    ngon_frustum(mb, 6, B.z + hz + 1.8 * sc, B.z + hz + 2.0 * sc, 0.14 * sc, 0.02 * sc, gilt, PT['metal'], cx=B.x, cy=B.y)
 
 
 def mirror_parts(rng):
@@ -542,7 +576,7 @@ def build(coll=None):
             figure_triton(S, (sx * 13.6, sy * 13.6, info['Z_T1TOP'] + 2.0), (sx, sy, 0), scale=1.7)
     # the pharaoh guardians flank the ramp foot
     for sx in (-1, 1):
-        figure_pharaoh(S, (sx * 9.8, -PLAT + 8.5, 0.0), (0, -1, 0), scale=1.55)
+        figure_pharaoh(S, (sx * 9.8, -PLAT + 8.5, 0.0), (0, -1, 0), scale=1.5)
     tower = to_object(S, 'tower', 'hb_opaque', parent=root, coll=coll)
     wins = to_object(W, 'tower_windows', 'hb_window', parent=root, coll=coll)
     # statue (separate node: the runtime lights it from the fire)

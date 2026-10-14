@@ -435,7 +435,7 @@
    "issuer": "Luxembourg",
    "logo": null,
    "brandColor": null,
-   "llamaId": null,
+   "llamaId": "436",
    "geckoId": null
   },
   {
@@ -723,7 +723,7 @@
    "issuer": "Hong Kong",
    "logo": "/logos/hkdap-anchorpoint.png",
    "brandColor": null,
-   "llamaId": null,
+   "llamaId": "437",
    "geckoId": null
   },
   {
@@ -1089,7 +1089,7 @@
    "issuer": "South Korea",
    "logo": "/logos/krw1-bdacs.png",
    "brandColor": null,
-   "llamaId": null,
+   "llamaId": "429",
    "geckoId": null
   },
   {

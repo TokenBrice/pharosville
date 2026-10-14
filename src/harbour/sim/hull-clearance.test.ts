@@ -111,6 +111,8 @@ function realPayloads(nowMs: number): HarbourPayloads | null {
  * over a deck.
  */
 const TOL = 0.1;
+/** A hull lying at her berth, bow to the quay: up to half an SDF level (0.25 m) of "in" is fender contact. */
+const TOL_BERTHED = 0.25;
 
 interface Hit { t: number; id: string; cls: string; phase: string; slot: string; x: number; z: number; depth: number }
 
@@ -141,7 +143,7 @@ function audit(sim: HarbourSim, t0: number, hours: number, step: number) {
         if (dd > dw) { dw = dd; dx = qx; dz = qz; }
       }
       const base = { t: t0 + s * 1000, id: model.boats[i].id, cls: model.boats[i].hullClass, phase: PHASES[ph], slot: slot?.id ?? "-" };
-      if (lw > TOL) land.push({ ...base, x: lx, z: lz, depth: lw });
+      if (lw > (ph === PH_SAILING || ph === PH_APPROACHING || ph === PH_CASTING_OFF ? TOL : TOL_BERTHED)) land.push({ ...base, x: lx, z: lz, depth: lw });
       if (dw > TOL) deck.push({ ...base, x: dx, z: dz, depth: dw });
     }
   }

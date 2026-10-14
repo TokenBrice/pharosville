@@ -11,6 +11,7 @@ import { WakeField, type WakeService } from "./wake";
 import { SEA_STATES, waveHeight } from "./waves";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { buildZoneMask, type SeaZoneLike } from "./zone-mask";
+import { getHarbourMaterials } from "../world/materials";
 
 /**
  * OCEAN: one large sea plane (fine grid over the sea bounds, a stretched far ring beyond), an unlit
@@ -167,6 +168,9 @@ export class OceanSystem implements WorldSystem {
         ...getBeamUniforms(ctx),
         ...cloudShadowUniforms,
         uDebug: { value: 0 },
+        // the lights system's top-down pool RT, read back along the view ray as the town's reflection
+        uPoolTex: getHarbourMaterials(ctx).pool.uPoolTex, uPoolBounds: getHarbourMaterials(ctx).pool.uPoolBounds,
+        uWindowGlow: W.uWindowGlow,
         uSceneCenter: { value: new THREE.Vector2((layout.bounds.min[0] + layout.bounds.max[0]) / 2, (layout.bounds.min[2] + layout.bounds.max[2]) / 2) },
         uSceneRadius: { value: Math.hypot(layout.bounds.max[0] - layout.bounds.min[0], layout.bounds.max[2] - layout.bounds.min[2]) / 2 },
       },

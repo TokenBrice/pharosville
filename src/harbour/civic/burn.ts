@@ -13,6 +13,28 @@ import { Embers, Flames, glowMaterial, Smoke } from "./fx";
 
 const COINS = 10;
 
+/**
+ * The lee side for the Burn's plume: the horizontal direction (camera right or left, from the default view's yaw)
+ * that carries smoke AWAY from the Pharos on screen. Seen from the heart camera the Pharos stands just behind and
+ * left of the Burn, so a plume rising straight up or leaning toward it veils the tower's face.
+ */
+export function plumeLee(burn: readonly [number, number], pharos: readonly [number, number], yawRad: number): [number, number] {
+  const rx = Math.cos(yawRad), rz = -Math.sin(yawRad);
+  const side = Math.sign((burn[0] - pharos[0]) * rx + (burn[1] - pharos[1]) * rz) || 1;
+  return [rx * side, rz * side];
+}
+
+/** The wind the plume follows: the real wind, turned toward the lee when it would carry smoke toward the Pharos. */
+export function plumeWind(windTo: readonly [number, number], wind: number, lee: readonly [number, number] | null): { to: [number, number]; k: number } {
+  if (!lee) return { to: [windTo[0], windTo[1]], k: wind };
+  const d = windTo[0] * lee[0] + windTo[1] * lee[1];
+  let x = windTo[0], z = windTo[1];
+  if (d < 0.6) { const k = (0.6 - d) * 2.2; x += lee[0] * k; z += lee[1] * k; }
+  const l = Math.hypot(x, z) || 1;
+  // a lean, always: a burn plume standing straight up still crosses the tower behind it
+  return { to: [x / l, z / l], k: Math.max(wind, 0.55) };
+}
+
 export class BurnFurnace {
   readonly group = new THREE.Group();
   readonly flames: Flames;
@@ -81,7 +103,7 @@ export class BurnFurnace {
    * @param dominance -1 (the Burn dominates) … +1
    */
   update(dt: number, level: number, dominance: number, banked: boolean, moving: boolean, windTo: readonly [number, number], wind: number,
-    u: WorldUniforms, camera: THREE.PerspectiveCamera, viewportH: number): void {
+    u: WorldUniforms, camera: THREE.PerspectiveCamera, viewportH: number, lee: readonly [number, number] | null = null): void {
     const k = this.primed ? 1 - Math.exp(-dt / 2.5) : 1;
     this.level += (level - this.level) * k;
     this.dom += (dominance - this.dom) * k;
@@ -105,11 +127,13 @@ export class BurnFurnace {
 
     // the plume: white-grey at a balanced burn, a dark climbing column when the Burn dominates
     const s = Math.min(1.4, L);
+    const pw = plumeWind(windTo, wind, lee);
     this.smoke.update(moving ? dt : 0, {
-      rate: 0.04 + 0.06 * s, rise: 20 + 22 * s + 20 * burnDom, size0: 3.2 + 1.5 * burnDom, size1: 12 + 10 * s + 9 * burnDom, drift: 34 + 24 * s,
+      rate: 0.04 + 0.06 * s, rise: 18 + 16 * s + 14 * burnDom, size0: 3.2 + 1.5 * burnDom, size1: 9 + 6 * s + 5 * burnDom, drift: 40 + 26 * s,
+      bend: lee ? 0.32 : 0,
       opacity: banked ? 0 : 0.26 + 0.34 * Math.min(1, s) + 0.18 * burnDom, darkness: 0.3 + 0.6 * burnDom,
       under: this.under.setRGB(1.0, 0.4, 0.12).multiplyScalar(0.1 * night * Math.min(1, s)),
-    }, windTo, wind, u);
+    }, pw.to, pw.k, u);
 
     // coins: one every 1/rate s while the burn works
     const rate = banked ? 0 : 0.3 + 2.4 * Math.min(1.3, L);

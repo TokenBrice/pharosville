@@ -293,12 +293,35 @@ def build_hull_stages(coll=None):
         stbd = [Vector((p[0], -p[1], p[2])) for p in side]
         return port, stbd
 
-    # keel_only
+    # keel_only: the backbone laid and the floors going on (a ship begun, not a row of stakes): a deep keel with its hog,
+    # a tall stem and sternpost on their deadwood knees, seven floor timbers with their first futtocks, and the shores
     mb = MB(400)
-    backbone(mb)
-    for u in (-0.5, 0.0, 0.5):     # first floors on the keel
+    zkb, zks = H.zk(1.0), H.zk(-1.0)
+    xs, xb = H.x(-1.0, zks), H.x(1.0, zkb)
+    gz = H.zk(0.0) - 0.3 - 0.79                       # the berth floor in this frame (blocks 0.63 m at the berth scale 0.8)
+    beam(mb, (xs - 0.25, 0, zks - 0.05), (xb + 0.25, 0, zkb - 0.05), 0.5, 0.54, dark)              # keel
+    beam(mb, (xs + 0.5, 0, zks + 0.3), (xb - 0.6, 0, zkb + 0.3), 0.34, 0.2, tim)                   # hog
+    st = [Vector((H.x(1.0, z) + 0.15, 0, z)) for z in [zkb + (H.zt(1.0) + 1.0 - zkb) * k / 6 for k in range(7)]]
+    for a, b in zip(st[:-1], st[1:]):
+        beam(mb, a, b, 0.46, 0.5, dark, up=Vector((1, 0, 0)))                                       # stem
+    sa, sb = Vector((H.x(-1.0, zks) - 0.1, 0, zks)), Vector((H.x(-1.0, H.zt(-1.0)) - 0.1, 0, H.zt(-1.0) + 0.8))
+    beam(mb, sa, sb, 0.46, 0.5, dark, up=Vector((1, 0, 0)))                                         # sternpost
+    beam(mb, (H.x(0.72, H.zk(0.72)), 0, H.zk(0.72) + 0.25), st[2], 0.4, 0.42, tim)                 # stemson / apron knee
+    beam(mb, (H.x(-0.7, H.zk(-0.7)), 0, H.zk(-0.7) + 0.25), sa.lerp(sb, 0.45), 0.4, 0.42, tim)    # stern knee
+    for u in [-0.66 + 1.32 * k / 6 for k in range(7)]:   # floors + first futtocks
         port, stbd = frame_pts(u)
-        beam(mb, (port[-2].x, port[-2].y, port[-2].z), (stbd[-2].x, stbd[-2].y, stbd[-2].z), 0.2, 0.2, tim)
+        a, b = port[-2] + Vector((0, 0, 0.12)), stbd[-2] + Vector((0, 0, 0.12))
+        beam(mb, a, b, 0.28, 0.34, tim)
+        for side in (port, stbd):
+            p0, p1 = side[-2] + Vector((0, 0, 0.12)), side[-3]
+            rod(mb, p0, p0.lerp(p1, 0.85), 0.16, tim, 4, smooth=False)
+    for (p, q) in ((st[-2], Vector((xb + 2.6, 0, gz))), (sa.lerp(sb, 0.8), Vector((xs - 2.4, 0, gz)))):
+        beam(mb, p, q, 0.18, 0.18, PAL['timber_grey'])                                             # end shores
+    for u in (-0.33, 0.33):
+        port, stbd = frame_pts(u)
+        for side, sg in ((port, 1), (stbd, -1)):
+            top = side[-2].lerp(side[-3], 0.85)
+            beam(mb, top, Vector((top.x, sg * (H.B / 2 + 1.1), gz)), 0.16, 0.16, PAL['timber_grey'])  # side shores
     to_object(mb, 'keel_only', 'hb_opaque', parent=root, coll=coll)
     # ribs
     mb = MB(401)
