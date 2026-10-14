@@ -13,7 +13,8 @@ set_coll(collection('land', ROOTC))
 import terrain
 from scipy.spatial import Delaunay
 from geom import along, polyline_len, catmull
-terrain.init(COAST, QL)
+terrain.init(COAST, QL, CJ.get('beaches'))
+SAND, SHINGLE, PEBBLE, WETSAND = lin('#D3BF96'), lin('#A49E90'), lin('#AFA593'), lin('#9E8D6E')
 TOWN = CJ['town']
 CTW = Vector(TOWN['ct'])                 # amphitheatre centre (world)
 CT_UV = tuple(TOWN['ct_uv'])
@@ -175,8 +176,14 @@ def hf_face(q):
         return ((PAL['rock_dark'] if nn > 0.58 else PAL['rock']), PT['rock'])
     if nz < 0.72:
         return ((PAL['rock'] if nn > 0.62 else PAL['grass_dark']), PT['rock'] if nn > 0.62 else PT['grass'])
-    if c.z < 2.0 and math.hypot((u + 268) / 34, (v + 62) / 26) < 1.1:
-        return (lin('#CDB991'), PT['plain'])                                     # Wreck Cove sand
+    kb, kind = terrain.beach_k(c.x, c.y)
+    if kb > 0.45:                                                                # the strands: sand / shingle / pebbles
+        dc = terrain.dcoast(c.x, c.y)
+        if kind == 'sand':
+            col = SHINGLE if dc < 3.5 else (SAND if dc < 42 else lin('#B9B07A'))
+        else:
+            col = PEBBLE if dc < 7.5 else lin('#A6A77A')
+        return (jitter_col(col, 0.95 + 0.1 * nn), PT['plain'])
     fl = terrain.field_at(c.x, c.y)
     if fl is not None:
         fc = lin(terrain.FIELD_COL[fl['kind']])
@@ -247,7 +254,7 @@ def coast_skirt(name, poly, ztop, straight, rows=4, amp=1.3, seed=1, jag=0.8):
         ring = []
         for i, (x, y) in enumerate(poly):
             z = SEA_FLOOR + (tops[i] - SEA_FLOOR) * f
-            if straight(x, y) or r == rows:
+            if straight(x, y) or r == rows or terrain.beach_k(x, y)[0] > 0.4:
                 q = Vector((x, y)); dz = 0.0
             else:
                 p0 = Vector(poly[i - 1]); p2 = Vector(poly[(i + 1) % n])
@@ -273,6 +280,9 @@ def coast_skirt(name, poly, ztop, straight, rows=4, amp=1.3, seed=1, jag=0.8):
         c = q.center
         if straight(c.x, c.y):
             return ((PAL['rock_wet'] if c.z < 0.4 else PAL['quay_dark']), PT['ashlar'])
+        kb_, kind_ = terrain.beach_k(c.x, c.y)
+        if kb_ > 0.4:                       # the strand runs on under the water
+            return ((WETSAND if kind_ == 'sand' else SHINGLE), PT['plain'])
         if c.z < 0.6:
             return (PAL['rock_wet'], PT['rock'])
         nn = noise.noise(Vector((c.x * 0.09, c.y * 0.09, c.z * 0.4 + seed)))
@@ -402,9 +412,9 @@ for name, L in QL.items():
 sq = bmesh.new()
 n = 16
 for i in range(n):
-    th_a = 104 - 28 * i / n; th_b = 104 - 28 * (i + 1) / n
-    quad = [town_pt(th_a, TOWN['r_quay'] + 8.5), town_pt(th_b, TOWN['r_quay'] + 8.5), town_pt(th_b, TOWN['r_quay'] + 30.0),
-            town_pt(th_a, TOWN['r_quay'] + 30.0)]
+    th_a = 111 - 42 * i / n; th_b = 111 - 42 * (i + 1) / n
+    quad = [town_pt(th_a, TOWN['r_quay'] + 8.5), town_pt(th_b, TOWN['r_quay'] + 8.5), town_pt(th_b, TOWN['r_quay'] + 18.4),
+            town_pt(th_a, TOWN['r_quay'] + 18.4)]
     vt = [pav.verts.new((q[0], q[1], Z_SHORE + 0.06)) for q in quad]
     pav.faces.new(vt)
 sq.free()
@@ -533,6 +543,7 @@ else:
 # chain identity, in the world (no text): each chain's pier heads carry a painted fascia in the chain colour, and a tall
 # flagstaff at every pier root / chain quay flies the chain colour downwind
 CHAIN_BAND = {}
+DOLPH = bmesh.new()
 _wb = Vector(CJ['wind_bow']).normalized()
 for pi, segs in by_pi.items():
     fr = CJ['pier_frames'][pi]
@@ -544,16 +555,21 @@ for pi, segs in by_pi.items():
     arm = [s_ for s_ in segs if s_['kind'] == 'pier'][0]
     if heads:
         h_ = heads[0]; a_, b_ = Vector(h_['a']), Vector(h_['b'])
-        off = d * (h_['width'] / 2 + 0.12)
-        merge(bm_, nl_kit.beam((*(a_ + off), deck - 0.18), (*(b_ + off), deck - 0.18), 0.12, 0.5))
-        for e_ in (a_, b_):                      # the head's ends too
-            merge(bm_, nl_kit.beam((*(e_ + off), deck - 0.18), (*(e_ - d * (h_['width'] / 2 + 0.12)), deck - 0.18), 0.12, 0.5))
+        off = d * (h_['width'] / 2 + 0.14)
+        merge(bm_, nl_kit.beam((*(a_ + off), deck - 0.3), (*(b_ + off), deck - 0.3), 0.18, 0.85))
+        for e_ in (a_, b_):                      # the head's ends too, and a painted mooring dolphin off each corner
+            merge(bm_, nl_kit.beam((*(e_ + off), deck - 0.3), (*(e_ - d * (h_['width'] / 2 + 0.14)), deck - 0.3), 0.18, 0.85))
+            dv = (e_ - (a_ + b_) / 2).normalized()
+            dp = e_ + dv * 1.6 + d * 1.2
+            merge(bm_, bm_cyl(0.55, 0.55, 0.7, 10, (dp.x, dp.y, deck + 0.9)))
+            merge(DOLPH, bm_cyl(0.5, 0.45, deck + 6.0, 8, (dp.x, dp.y, -4.0)))
     else:
         tip = Vector(arm['b'])
         w_ = arm['width'] / 2 + 0.12
-        merge(bm_, nl_kit.beam((*(tip + nl * w_ + d * 0.12), deck - 0.18), (*(tip - nl * w_ + d * 0.12), deck - 0.18), 0.12, 0.5))
+        merge(bm_, nl_kit.beam((*(tip + nl * w_ + d * 0.14), deck - 0.3), (*(tip - nl * w_ + d * 0.14), deck - 0.3), 0.18, 0.85))
         for sd in (1, -1):
-            merge(bm_, nl_kit.beam((*(tip + nl * sd * w_ - d * 7.0), deck - 0.18), (*(tip + nl * sd * w_ + d * 0.12), deck - 0.18), 0.12, 0.5))
+            merge(bm_, nl_kit.beam((*(tip + nl * sd * w_ - d * 7.0), deck - 0.3), (*(tip + nl * sd * w_ + d * 0.14), deck - 0.3), 0.18, 0.85))
+obj('pier_dolphins', DOLPH, PAL['tar'], PT['plain'], family='pier', jitter=0.05)
 FLAG_AT = []
 for pi, segs in by_pi.items():
     fr = CJ['pier_frames'][pi]
@@ -643,5 +659,43 @@ cp_ = bm_cyl(1.6, 1.6, 0.2, 12, (hp.x, hp.y, 8.2)); merge(cp_, bm_cyl(0.9, 0.12,
 obj('harbour_light_cap', cp_, PAL['iron'], PT['metal'], family='breakwater')
 obj('harbour_light_lamp', bm_cyl(0.72, 0.72, 1.2, 10, (hp.x, hp.y, 8.4)), mat=M['lamp'], family='breakwater', shadow=False)
 HL_POS = Vector((hp.x, hp.y, 9.0))
+
+# ------------------------------------------------------------------ the marina's stone moles (v4): ashlar walls straight
+# down to the sea floor (hulls lie bow-in along both faces), a cobbled crest between granite copings, a round pierhead
+# painted with Ethereum's band under its coping, a little harbour light on each head (green: the Grand Mole, red: the Inner)
+set_coll(collection('marina', ROOTC))
+mcrest, mcop, mband, mtw = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
+MOLE_TOWERS = []
+ETH_BAND = lin(CJ['pennant']['pier-ethereum'])
+for m in CJ.get('moles', []):
+    pts = [Vector(p) for p in _resample([tuple(p) for p in m['line']], 3.0, closed=False)]
+    w_ = m['width']
+    for a, b in zip(pts, pts[1:]):
+        merge(mcrest, nl_kit.beam((a.x, a.y, (SEA_FLOOR + Z_SHORE) / 2), (b.x, b.y, (SEA_FLOOR + Z_SHORE) / 2), w_, Z_SHORE - SEA_FLOOR))
+    left, right = [], []
+    for i, p in enumerate(pts):
+        a = pts[max(0, i - 1)]; b = pts[min(len(pts) - 1, i + 1)]
+        t = (b - a).normalized(); nl = Vector((-t.y, t.x))
+        left.append(tuple(p + nl * w_ / 2)); right.append(tuple(p - nl * w_ / 2))
+    coping_line(left[::-1], mcop); coping_line(right, mcop)          # stones laid on the crest side of each edge
+    h = Vector(m['head']); hr = m['head_r']
+    merge(mcrest, bm_cyl(hr, hr, Z_SHORE - SEA_FLOOR, 28, (h.x, h.y, SEA_FLOOR)))
+    merge(mcop, bm_cyl(hr + 0.2, hr + 0.2, 0.36, 28, (h.x, h.y, Z_SHORE - 0.02)))
+    merge(mband, bm_cyl(hr + 0.05, hr + 0.05, 0.8, 28, (h.x, h.y, Z_SHORE - 1.25)))
+    STRUCT_POLYS.append(left + right[::-1])
+    CIRCLES.append((h.x, h.y, hr + 0.3))
+    col = PAL['door_green'] if m['name'] == 'grand' else PAL['hull_red']
+    tw = bm_cyl(1.3, 1.05, 5.4, 12, (h.x, h.y, Z_SHORE + 0.3))
+    merge(mtw, bm_cyl(1.6, 1.6, 0.3, 12, (h.x, h.y, Z_SHORE)))
+    obj(f'mole_light_tower_{m["name"]}', tw, face=lambda q, col=col: ((col if (q.center.z % 1.8) < 0.9 else PAL['wall_white']), PT['render']), family='marina')
+    cp_ = bm_cyl(1.45, 1.45, 0.2, 12, (h.x, h.y, Z_SHORE + 5.7)); merge(cp_, bm_cyl(0.85, 0.12, 0.85, 12, (h.x, h.y, Z_SHORE + 7.1)))
+    merge(mtw, cp_)
+    obj(f'mole_light_lamp_{m["name"]}', bm_cyl(0.66, 0.66, 1.15, 10, (h.x, h.y, Z_SHORE + 5.9)), mat=M['lamp'], family='marina', shadow=False)
+    MOLE_TOWERS.append(Vector((h.x, h.y, Z_SHORE + 6.5)))
+obj('mole_crest', mcrest, face=lambda q: ((PAL['quay'], PT['ashlar']) if q.normal.z > 0.9 else ((PAL['rock_wet'], PT['ashlar']) if q.center.z < 0.4 else (PAL['quay_dark'], PT['ashlar']))),
+    family='quay', bevel=0.04)
+obj('mole_coping', mcop, PAL['quay'], PT['plain'], family='quay', jitter=0.08)
+obj('mole_chain_band', mband, ETH_BAND, PT['plain'], family='quay', jitter=0.0)
+obj('mole_light_caps', mtw, PAL['iron'], PT['metal'], family='marina')
 
 print('LAND built')

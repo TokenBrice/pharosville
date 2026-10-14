@@ -11,7 +11,7 @@ import type { LighthouseService } from "../world/lighthouse-system";
 import { getHarbourMaterials } from "../world/materials";
 import {
   applyDevOverrides, deriveTargets, MAX_CONES, TIDE_FULL_SCALE_PCT,
-  type LampStep, type LandmarkId, type LandmarkReading, type TideReading, type WorldTargets,
+  type AlertCoin, type LampStep, type LandmarkId, type LandmarkReading, type TideReading, type WorldTargets,
 } from "./bind";
 import { StaleFog } from "./fog";
 import { StormCones } from "./storm-cones";
@@ -39,7 +39,14 @@ export interface ReadingsService {
   /** Tide-board scope: mint/burn covers these chains only (the board itself is pure shape). */
   readonly flows: Readonly<{ net24hUsd: number | null; scope: string[]; available: boolean; stale: boolean }>;
   readonly psi: Readonly<WorldTargets["psi"]>;
+  /** Cones on the storm mast = the supply-weighted DEWS level (0 Calm … 4 Danger); null = no reading. */
   readonly cones: number | null;
+  /** The weather band the mast and the sky both show (null = no stress reading). */
+  readonly stormBand: NonNullable<WorldTargets["weather"]>["band"] | null;
+  /** Red pennant at the masthead (band DANGER). */
+  readonly pennant: boolean;
+  /** The individual coins at Alert or worse, worst first (the panel lists them; the mast does not count them). */
+  readonly alerts: readonly AlertCoin[];
   /** Sea fog now, 0..1 (only ever non-zero when the fleet data is stale/unavailable). */
   readonly fog: number;
   /** True when dev URL overrides are bending the readings. */
@@ -57,6 +64,8 @@ const BEAM_HEX = ["#FFE8C2", "#FFA63D", "#FF4A36"] as const;
 const LENS_HEX = ["#FFE0A8", "#FFB04A", "#FF5A3E"] as const;
 const FOG_IN_SEC = 10, FOG_OUT_SEC = 6;
 const SWEEP_TAU = 1.2, LIT_SEC = 2.5;
+/** Daytime lens boost under a caution lamp (× uLamp ≈ 0.4 at noon): a steady lit glass + the rhythm flare. */
+const DAY_LAMP = 14, DAY_FLASH = 40;
 
 export class ReadingsSystem implements WorldSystem {
   readonly name = "readings";
@@ -78,6 +87,7 @@ export class ReadingsSystem implements WorldSystem {
   private lastWind = -1;
   private windS = 0.3;
   private coverS = 0;
+  private alertS = 0;
   private readonly tmpC = new THREE.Color();
   private board: TideBoard | null = null;
   private gauge: TideGauge | null = null;
@@ -106,6 +116,9 @@ export class ReadingsSystem implements WorldSystem {
       },
       get psi() { return sys.targets?.psi ?? { lit: false, sweepSec: 12, reach: 0, lamp: 0 as LampStep, band: null, score: null }; },
       get cones() { return sys.targets?.cones ?? null; },
+      get stormBand() { return sys.targets?.weather?.band ?? null; },
+      get pennant() { return sys.targets?.pennant ?? false; },
+      get alerts() { return sys.targets?.alerts ?? []; },
       get fog() { return sys.fogS; },
       get overridden() { return sys.dev; },
       subscribe(fn) { sys.listeners.add(fn); return () => sys.listeners.delete(fn); },
@@ -135,8 +148,11 @@ export class ReadingsSystem implements WorldSystem {
     const slots = north.filter(Boolean);
     if (slots.length) {
       const mats = getHarbourMaterials(ctx);
-      this.cones = new StormCones(slots.slice(0, MAX_CONES), mats.kit(), mats.emissive("#FF3A26", "#3A1712"), ctx.services.get("lights") as LightsService | undefined);
-      this.cones.setCount(this.targets?.cones ?? null);
+      // moored bows point into the wind (layout.wind): the pennant streams the other way
+      const bow = (ctx.services.get("layout") as { wind?: { bowHeadingRad?: number } } | undefined)?.wind?.bowHeadingRad ?? -1.0;
+      this.cones = new StormCones(slots.slice(0, MAX_CONES), mats.kit(), mats.emissive("#FF3A26", "#3A1712"),
+        ctx.services.get("lights") as LightsService | undefined, bow + Math.PI);
+      this.cones.setCount(this.targets?.cones ?? null, this.targets?.pennant ?? false);
     }
     if (levelNode) this.gauge = new TideGauge(levelNode);
   }
@@ -174,7 +190,7 @@ export class ReadingsSystem implements WorldSystem {
     this.targets = t;
     this.version++;
     this.board?.setFlows(t.flows, Date.now());
-    this.cones?.setCount(t.cones);
+    this.cones?.setCount(t.cones, t.pennant);
     for (const fn of this.listeners) fn();
   }
 
@@ -202,7 +218,19 @@ export class ReadingsSystem implements WorldSystem {
       const litE = this.litS * this.litS * (3 - 2 * this.litS);
       if (lh.setLitLevel) lh.setLitLevel(litE);
       else lh.setLit(this.litS > 0.5);
-      this.lensLevel.value = litE;
+      // caution by day: the lantern is lit amber in daylight (a steady lamp behind the glass) and
+      // flares as each beam panel swings past the viewer, so TREMOR+ reads on the Pharos at noon
+      const alertT = t.psi.lit && t.psi.lamp > 0 ? 1 : 0;
+      this.alertS += (alertT - this.alertS) * (1 - Math.exp(-dt / 2));
+      const day = 1 - U.uNight.value;
+      let flash = 0;
+      if (this.alertS > 1e-3 && day > 1e-3) {
+        const h = lh.sweepAngle(), cam = ctx.camera.position, lp = lh.lanternPosition;
+        const tx = cam.x - lp.x, tz = cam.z - lp.z, l = Math.hypot(tx, tz) || 1;
+        flash = Math.pow(Math.abs((Math.sin(h) * tx + Math.cos(h) * tz) / l), 12);
+      }
+      this.lensLevel.value = litE * (1 + this.alertS * day * (DAY_LAMP + DAY_FLASH * flash));
+      beam?.setDayPresence?.(this.alertS);
     }
     const lhAny = ctx.services.get("lighthouse") as LighthouseService | undefined;
     if (lhAny && this.heldFor !== reduced) {
@@ -250,6 +278,15 @@ export class ReadingsSystem implements WorldSystem {
       sun.lerp(this.tmpC.setRGB(l, l, l), 0.4 * oc).multiplyScalar(1 - 0.5 * oc);
       U.uHemiSky.value.multiplyScalar(1 + 0.15 * oc);
     }
+    // under the cloud deck the day grades darker and cooler (a clear sky stays warm); the sky's own
+    // storm grade (runs next) greys it further from ALERT up
+    const cool = THREE.MathUtils.smoothstep(this.coverS, 0.3, 0.8) * (1 - U.uNight.value);
+    if (cool > 1e-3) {
+      const g = ctx.timeOfDay.grade;
+      g.gain = [g.gain[0] * (1 - 0.13 * cool), g.gain[1] * (1 - 0.07 * cool), g.gain[2] * (1 + 0.02 * cool)];
+      g.lift = [g.lift[0] * (1 - 0.012 * cool), g.lift[1], g.lift[2] * (1 + 0.02 * cool)];
+      g.warmSat *= 1 - 0.12 * cool;
+    }
 
     // ---- 4. fog, only for stale / unavailable fleet data; rolls in over 10 s
     const fogT = t.fog ? 1 : 0;
@@ -262,7 +299,7 @@ export class ReadingsSystem implements WorldSystem {
     if (this.board) {
       this.boardClock += dt;
       if (this.boardClock > 20) { this.boardClock = 0; this.board.setNow(frame.nowMs); }
-      this.board.update(dt, glow);
+      this.board.update(dt, glow, U.uNight.value);
     }
     this.cones?.update(dt, frame.elapsed, this.windS, reduced, ctx.camera.position);
     this.gauge?.update(dt, t.tide.level, t.tide.pct != null, t.landmarks["tide-gauge"].state === "stale", glow, reduced);

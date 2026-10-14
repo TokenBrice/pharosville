@@ -50,8 +50,15 @@ for (th, band, p0, radial, run) in STAIRS:
     a = p0 - radial * 1.0; b = p0 + radial * (run + 2.0)
     od.line([o_to(a.x, a.y), o_to(b.x, b.y)], fill=255, width=5)
 # the Customs square
-for th in range(76, 106, 3):
+for th in range(70, 112, 3):
     od.line([o_to(*town_pt(th, TOWN['r_quay'] + 6)), o_to(*town_pt(th, TOWN['r_quay'] + 31))], fill=255, width=5)
+# the strands stay open (no trees, walls or meadow clutter on a beach)
+for _b in CJ.get('beaches', []):
+    _bx = [p[0] for p in _b['line']]; _by = [p[1] for p in _b['line']]; _m = _b['depth'] + 20.0
+    for _yy in np.arange(min(_by) - _m, max(_by) + _m, 1.0):
+        for _xx in np.arange(min(_bx) - _m, max(_bx) + _m, 1.0):
+            if terrain.beach_k(_xx, _yy)[0] > 0.3:
+                od.point(o_to(_xx, _yy), fill=255)
 OCC = np.array(occ_im) > 0
 
 
@@ -108,7 +115,7 @@ road_bm = bmesh.new(); path_bm = bmesh.new()
 ROADS['pharos'] = road([(-118.0, 22.0), (-132.0, 34.0), (-124.0, 52.0), (-142.0, 60.0), (-134.0, 76.0), (-112.0, 84.0), (-96.0, 92.0),
                         (-84.0, 96.0)], 3.0, PAL['gravel'], 'road_pharos', road_bm)
 # the west road: Long Quay west end -> the farms -> the windmill -> up the spine to the headland road
-ROADS['west'] = road([(-108.0, -150.0), (-134.0, -140.0), (-160.0, -146.0), (-186.0, -132.0), (-200.0, -110.0), (-206.0, -80.0),
+ROADS["west"] = road([(-131.0, -178.0), (-140.0, -152.0), (-160.0, -146.0), (-186.0, -132.0), (-200.0, -110.0), (-206.0, -80.0),
                       (-196.0, -50.0), (-176.0, -20.0), (-152.0, 4.0), (-134.0, 22.0), (-118.0, 22.0)], 3.0, PAL['gravel'], 'road_west', road_bm)
 # the coast road over the south ridge, east to west, with spurs down to each hamlet
 ROADS['south'] = road([(200.0, -196.0), (176.0, -214.0), (130.0, -230.0), (80.0, -238.0), (20.0, -240.0), (-40.0, -236.0),
@@ -125,7 +132,7 @@ for pid, cv in COVES.items():
     road([(u0, v0), mid, (u1, v1)], 2.2, PAL['earth'], 'path_' + pid, path_bm)
 # footpaths: the town top to the crest; the windmill; Wreck Cove
 for ctrl in ([(96.0, 128.0), (108.0, 140.0), (130.0, 146.0)], [(-206.0, -80.0), (-218.0, -110.0), (-226.0, -150.0), (-224.0, -162.0)],
-             [(-196.0, -50.0), (-226.0, -56.0), (-246.0, -64.0)], [(40.0, 112.0), (24.0, 120.0), (10.0, 118.0)]):
+             [(-196.0, -50.0), (-214.0, -54.0), (-226.0, -58.0)], [(40.0, 112.0), (24.0, 120.0), (10.0, 118.0)]):
     road(ctrl, 1.8, PAL['earth'], 'path', path_bm)
 refresh_occ()
 obj('land_roads', road_bm, PAL['gravel'], PT['cobble'], family='terrain', jitter=0.04)
@@ -453,7 +460,7 @@ obj('bunting_flags', bunt, face=lambda q: (BCOLS[q.index % len(BCOLS)], PT['plai
 
 # market stalls with striped awnings on the Customs square + the promenade (A graft) + fish boxes
 stall = bmesh.new(); awn = bmesh.new(); awn_cols = []; boxes = bmesh.new()
-STALLS = [(84.0, 15.5), (96.0, 15.0), (124.0, 13.0), (60.0, 13.0), (144.0, 12.5)]
+STALLS = [(124.0, 13.0), (60.0, 13.0), (144.0, 12.5)]
 for i, (th, dr) in enumerate(STALLS):
     p = Vector(town_pt(th, TOWN['r_quay'] + dr)); fdir = (Vector(town_pt(th, 0)) - p).normalized(); sd = Vector((-fdir.y, fdir.x))
     ang = math.atan2(sd.y, sd.x)
@@ -514,7 +521,7 @@ obj('props_coils', coils, PAL['rope'], PT['plain'], family='prop_rope', jitter=0
 
 # benches on the squares + lanes
 bench = bmesh.new()
-for (th, r_, k) in ((80.0, 24.0, 0), (110.0, 24.0, 0), (126.0, 60.0, 2), (62.0, 60.0, 2), (96.0, 44.0, 1), (40.0, 30.0, 0)):
+for (th, r_, k) in ((126.0, 60.0, 2), (62.0, 60.0, 2), (40.0, 30.0, 0)):
     p = Vector(town_pt(th, TOWN['r_quay'] + r_)); z = RINGS[k][2]
     fdir = (Vector(town_pt(th, 0)) - p).normalized(); ang = math.atan2(fdir.y, fdir.x) + math.pi / 2
     b = bmesh.new()
@@ -624,9 +631,82 @@ lum = bmesh.new()
 for k in range(3):
     q = cove_pt(cv, -cv['hw'] + 6 + k * 3.6, -5)
     for j in range(4):
-        merge(lum, nl_kit.obox((q[0], q[1], Z_SHORE + j * 0.42 + 0.19), tuple(cv['n']) + (0,), 4.5, 2.8, 0.38))
+        merge(lum, nl_kit.obox((q[0], q[1], H(*q) + j * 0.42 + 0.19), tuple(cv['n']) + (0,), 4.5, 2.8, 0.38))
 obj('hamlet_bsc_lumber', lum, PAL['timber'], PT['plain'], family='hamlet', jitter=0.1)
 p = cove_pt(cv, cv['hw'] - 4, -4); hand_crane('hamlet_bsc_crane', p[0], p[1], Z_SHORE, rz=cove_rz(cv) - 0.3, col='wall_ochre')
+
+# ------------------------------------------------------------------ STRANDS (v4): Wreck Cove's sand and shingle, the coves' pebble beaches
+# shingle along the waterline, driftwood under the dunes, old stakes in the shallows; pebbles, upturned dinghies and
+# net posts on the cove beaches; granite rocks off every cove's arms
+peb, drift_w, stakes, dinghy, dinghy_in, crock, marram = (bmesh.new() for _ in range(7))
+SRNG = random.Random(4242)
+
+
+def strand_pts(line, step, inland0, inland1, rng):
+    out = []
+    Ls = polyline_len(line); s_ = rng.uniform(0, step)
+    while s_ < Ls:
+        p, t = along(line, s_)
+        nl = Vector((-t[1], t[0]))
+        q = Vector(p) + nl * rng.uniform(inland0, inland1) + Vector(t) * rng.uniform(-step * 0.4, step * 0.4)
+        out.append((q, Vector(t), nl))
+        s_ += step * rng.uniform(0.6, 1.4)
+    return out
+
+
+for b in CJ.get('beaches', []):
+    line = [tuple(p) for p in b['line']]
+    if b['kind'] == 'sand':
+        for (q, t, nl) in strand_pts(line, 0.9, -0.5, 3.6, SRNG):                 # the shingle band
+            if point_in_poly(q.x, q.y, COAST) or SRNG.random() < 0.5:
+                r_ = SRNG.uniform(0.18, 0.42)
+                merge(peb, bm_ico(r_, (q.x, q.y, max(H(q.x, q.y), 0.05) + r_ * 0.25), 0, (1.3, 1.0, 0.6), seed=SRNG.randint(0, 99)))
+        for (q, t, nl) in strand_pts(line, 4.2, 41.0, 46.0, SRNG):               # driftwood under the dunes
+            if not point_in_poly(q.x, q.y, COAST):
+                continue
+            a_ = math.atan2(t.y, t.x) + SRNG.uniform(-0.6, 0.6); L_ = SRNG.uniform(2.8, 7.5); r_ = SRNG.uniform(0.16, 0.34)
+            d_ = Vector((math.cos(a_), math.sin(a_)))
+            pa, pb = q - d_ * L_ / 2, q + d_ * L_ / 2
+            merge(drift_w, nl_kit.beam((pa.x, pa.y, H(pa.x, pa.y) + r_ * 0.7), (pb.x, pb.y, H(pb.x, pb.y) + r_ * 0.7), r_ * 2, r_ * 1.7))
+            if SRNG.random() < 0.4:                                               # a root boss
+                merge(drift_w, bm_ico(r_ * 1.9, (pa.x, pa.y, H(pa.x, pa.y) + r_), 1, (1.0, 1.0, 0.8), seed=SRNG.randint(0, 99), amp=0.4))
+        for (q, t, nl) in strand_pts(line, 2.2, 37.0, 47.0, SRNG):               # marram tufts on the dune foot
+            if SRNG.random() < 0.55:
+                continue
+            z0 = H(q.x, q.y)
+            for k_ in range(SRNG.randint(3, 6)):
+                a_ = SRNG.uniform(0, 6.28); h_ = SRNG.uniform(0.45, 0.95)
+                merge(marram, bm_cyl(0.12, 0.0, h_, 3, (q.x + math.cos(a_) * 0.35, q.y + math.sin(a_) * 0.35, z0 - 0.05), rot=a_))
+        for (q, t, nl) in strand_pts(line, 13.0, -9.0, -3.0, SRNG):              # old stakes in the shallows, leaning
+            lean = SRNG.uniform(-0.25, 0.25)
+            top = q + nl * lean * 2.0
+            merge(stakes, nl_kit.beam((q.x, q.y, -1.6), (top.x, top.y, SRNG.uniform(1.2, 2.4)), 0.28, 0.28))
+    else:
+        for (q, t, nl) in strand_pts(line, 0.55, -0.3, 6.5, SRNG):                # the pebbles
+            r_ = SRNG.uniform(0.12, 0.34)
+            merge(peb, bm_ico(r_, (q.x, q.y, max(H(q.x, q.y), 0.05) + r_ * 0.2), 0, (1.25, 1.0, 0.65), seed=SRNG.randint(0, 99)))
+        n_d = SRNG.randint(1, 2)
+        for k in range(n_d):                                                      # dinghies drawn up, keel to the sky
+            p, t = along(line, polyline_len(line) * SRNG.uniform(0.25, 0.85))
+            nl = Vector((-t[1], t[0])); q = Vector(p) + nl * SRNG.uniform(3.0, 5.5)
+            hb_, _nm, _D = nl_kit.hull_mesh(4.2, dict(br=0.36, fb=0.14, dr=0.05, bow=2.0, stern=0.7, sheer=(0.3, 0.15), bulwark=0.1), {}, n=8)
+            xf(hb_, rx=math.pi, rz=math.atan2(nl.y, nl.x) + SRNG.uniform(-0.5, 0.5))
+            xf(hb_, loc=(q.x, q.y, H(q.x, q.y) + 0.62))
+            merge(dinghy if k % 2 == 0 else dinghy_in, hb_)
+        for (q, t, nl) in strand_pts(line, 6.0, 7.0, 8.5, SRNG):                 # net posts + a line between
+            z0 = H(q.x, q.y)
+            merge(stakes, bm_cyl(0.09, 0.07, 2.1, 5, (q.x, q.y, z0 - 0.2)))
+for (x, y, r) in CJ.get('cove_rocks', []):
+    merge(crock, bm_ico(r, (x, y, SRNG.uniform(-0.4, 0.2)), 1, (1.25, 1.0, 0.8), seed=int(abs(x * 3 + y)), amp=0.35))
+    if SRNG.random() < 0.5:
+        merge(crock, bm_ico(r * 0.55, (x + r * 0.9, y - r * 0.4, -0.3), 1, (1.2, 1.0, 0.7), seed=int(abs(x + y * 3)), amp=0.3))
+obj('strand_pebbles', peb, face=lambda q: ((lin('#B3AC9D'), lin('#8E887E'), lin('#C7B79A'), lin('#77746F'))[q.index // 7 % 4], PT['plain']), family='rock', jitter=0.1)
+obj('strand_driftwood', drift_w, face=lambda q: ((lin('#C9BCA6') if q.normal.z > 0.3 else lin('#9C8F7C')), PT['plain']), family='prop_crate', jitter=0.08)
+obj('strand_stakes', stakes, lin('#5A4B3E'), PT['plain'], family='prop_crate', jitter=0.1)
+obj('strand_dinghies', dinghy, face=lambda q: ((PAL['hull_blue'] if q.normal.z > -0.3 else PAL['hull_white']), PT['strakes']), family='prop_crate', jitter=0.05)
+obj('strand_dinghies_red', dinghy_in, face=lambda q: ((PAL['hull_red'] if q.normal.z > -0.3 else PAL['hull_white']), PT['strakes']), family='prop_crate', jitter=0.05)
+obj('strand_marram', marram, face=lambda q: ((lin('#A7A65A') if q.index % 3 else lin('#7F8C47')), PT['leaf']), family='veg', jitter=0.1)
+obj('cove_rocks', crock, face=lambda q: ((PAL['rock_wet'] if q.center.z < 0.35 else (PAL['rock_light'] if q.normal.z > 0.5 else PAL['rock'])), PT['rock']), family='rock', jitter=0.08)
 
 # ------------------------------------------------------------------ SKERRIES: granite humps, a grass cap, a few wind-bent spruces
 from mathutils.geometry import tessellate_polygon
@@ -714,7 +794,7 @@ for k in range(64):
         lp = along_line(QL['long'], 3.0, 5.0); (p, t, nl) = lp[DRNG.randrange(len(lp))]; z = Z_SHORE
     else:
         cv = list(COVES.values())[k % len(COVES)]
-        p = cove_pt(cv, DRNG.uniform(-cv['hw'] + 6, cv['hw'] - 6), -DRNG.uniform(1.5, 6.0)); z = Z_SHORE
+        p = cove_pt(cv, DRNG.uniform(-cv['hw'] + 6, cv['hw'] - 6), -DRNG.uniform(1.5, 6.0)); z = H(*p)
     c = DRNG.choice(('#2E4B6B', '#A84A33', '#D9A441', '#2F5A4A', '#7A2A22', '#E9E4DE', '#C2453A', '#AB9BC4', '#E39A7E'))
     rz_ = DRNG.uniform(0, 6.28)
     d_ = bm_box2(-0.22, -0.16, 0, 0.22, 0.16, 0.85); merge(d_, bm_cyl(0.2, 0.15, 0.14, 8, (0, 0, 1.78)))

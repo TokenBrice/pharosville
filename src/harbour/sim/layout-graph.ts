@@ -336,6 +336,8 @@ function noGoZones(layout: HarbourLayout): Vec2[][] {
 
 /** Wreck Cove boneyard size: room for every recorded dead coin. */
 export const BONEYARD_MAX = 110;
+/** The boneyard keeps to the cove: strand within this radius (m) of its hulks. */
+const BONEYARD_R = 95;
 /** Shoals anchorages (authored + generated): a bad day can put dozens of coins off peg. */
 export const SHOALS_MAX = 40;
 
@@ -515,7 +517,8 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
         return true;
       };
       let best: { endT: number; node: number; d: number } | null = null;
-      for (const endT of [-L * 1.2, ll + L * 1.2]) {
+      // (enter the fairway well clear of the row's end: the turn in must not sweep the end hull)
+      for (const endT of [-L * 2.6, ll + L * 2.6]) {
         const e = fairway(endT);
         const cand = graph.through.map((k) => [k, Math.hypot(graph.x[k] - e[0], graph.z[k] - e[1])] as [number, number]).sort((p, q) => p[1] - q[1]).slice(0, 8);
         for (const [k, d] of cand) {
@@ -524,7 +527,7 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
           if (clearRun([graph.x[k], graph.z[k]], e)) { best = { endT, node: k, d: dd }; break; }
         }
       }
-      const endT = best ? best.endT : -L * 1.2;
+      const endT = best ? best.endT : -L * 2.6;
       const node = best ? best.node : inN;
       const sg = Math.sign(endT - t) || 1;
       const approach: Vec2[] = [fairway(endT)];
@@ -565,6 +568,9 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
       const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
       if (laneD(x, z) < 30 || hard(x, z) < 12) continue;
       if (taken.some((q) => Math.hypot(q[0] - x, q[1] - z) < 15)) continue;
+      // and clear of every other hull lying here (moorings and Far Ports rows near the reef)
+      const reach = 3 + loa.medium / 2 + 2;
+      if (slots.some((o) => o.kind !== "shoals" && o.kind !== "wreck" && Math.hypot(o.x - x, o.z - z) < reach + o.swing + loa[o.cls] / 2)) continue;
       taken.push([x, z]);
       shoals.push(swingSlot(`shoals/x${String(shoals.length + 1).padStart(2, "0")}`, "shoals", "medium", "shoals", x, z, 3, inN, outN).index);
     }
@@ -579,33 +585,53 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
       approach: node >= 0 ? [[graph.x[node], graph.z[node]], [x - bx * loa[cls] * 2, z - bz * loa[cls] * 2], [x, z]] : [[x, z]], astern: false, mode: "beached" });
     wrecks.push(slot.index);
   };
+  // Wreck Cove: hulks lie beached up the strand, keel in the sand with no water under them. The beach
+  // slots the island authors (zones.wreckCove.beach) are taken as they are; otherwise the cove's hulk
+  // slots are walked up onto the nearest dry strand, and a boneyard of smaller hulks fills the same beach.
+  type BeachSlot = { id?: string; class?: HullClass; position: [number, number, number]; headingRad?: number } | [number, number, number];
+  const beach = ((zones.wreckCove as { beach?: BeachSlot[] } | undefined)?.beach ?? []).map((b, k) => Array.isArray(b)
+    ? { id: `wreck/beach/${String(k + 1).padStart(3, "0")}`, cls: "large" as HullClass, x: b[0], z: b[2], h: NaN }
+    : { id: b.id ?? `wreck/beach/${String(k + 1).padStart(3, "0")}`, cls: b.class ?? ("large" as HullClass), x: b.position[0], z: b.position[2], h: b.headingRad ?? NaN });
   const authored = zones.wreckCove?.slots ?? [];
-  if (!coast || !authored.length) {
+  /** Up the beach (bow heading), from the coast SDF's gradient; the layout's wind when unknown. */
+  const upAt = (x: number, z: number): number => {
+    if (!coast) return windFrom;
+    const gx = coastDistance(coast, x + 1.5, z) - coastDistance(coast, x - 1.5, z), gz = coastDistance(coast, x, z + 1.5) - coastDistance(coast, x, z - 1.5);
+    return Math.hypot(gx, gz) < 0.2 ? windFrom : Math.atan2(-gx, -gz);
+  };
+  // an authored beach (many slots, or slots set on the sand above sea level): taken as authored
+  const authoredBeach = authored.length >= 24 || authored.some((w) => w.position[1] > 0.05);
+  if (authoredBeach) for (const w of authored) beach.push({ id: w.id, cls: w.class, x: w.position[0], z: w.position[2], h: w.headingRad });
+  if (beach.length) {
+    beach.forEach((b, k) => wreckAt(b.id, b.cls, b.x, b.z, Number.isFinite(b.h) ? b.h : upAt(b.x, b.z) + (u01(b.id + "#up") - 0.5) * 1.3 + (k % 2 ? 0.2 : -0.2)));
+  } else if (!coast || !authored.length) {
     for (const w of authored) wreckAt(w.id, w.class, w.position[0], w.position[2], w.headingRad);
   } else {
-    // the strand: shoreline points around the cove, in three bands (shallows, waterline, up the beach)
+    // the strand: dry shore round the cove, from just above the waterline to a few metres up the beach
     let cx = 0, cz = 0;
     for (const w of authored) { cx += w.position[0]; cz += w.position[2]; }
     cx /= authored.length; cz /= authored.length;
     type Cand = { x: number; z: number; c: number; up: number; d: number };
     const cand: Cand[] = [];
-    for (let z = cz - 170; z <= cz + 170; z += 2) for (let x = cx - 170; x <= cx + 170; x += 2) {
+    for (let z = cz - BONEYARD_R; z <= cz + BONEYARD_R; z += 2) for (let x = cx - BONEYARD_R; x <= cx + BONEYARD_R; x += 2) {
       const c = coastDistance(coast, x, z);
-      if (c < -2.4 || c > 2.6) continue;
+      if (c < -6 || c > -0.6) continue;
       const gx = coastDistance(coast, x + 1.5, z) - coastDistance(coast, x - 1.5, z), gz = coastDistance(coast, x, z + 1.5) - coastDistance(coast, x, z - 1.5);
       const gl = Math.hypot(gx, gz);
       if (gl < 0.3) continue; // no clear slope: a spit or an islet tip
-      cand.push({ x, z, c, up: Math.atan2(-gx / gl, -gz / gl), d: Math.hypot(x - cx, z - cz) });
+      const d = Math.hypot(x - cx, z - cz);
+      if (d > BONEYARD_R) continue;
+      cand.push({ x, z, c, up: Math.atan2(-gx / gl, -gz / gl), d });
     }
     cand.sort((p, q) => p.d - q.d);
     const taken: Array<[number, number, number]> = [];
     const free = (p: Cand, r: number) => !taken.some((q) => Math.hypot(q[0] - p.x, q[1] - p.z) < r + q[2]);
-    // authored hulks: the nearest free bit of waterline to where they were meant to lie
+    // authored hulks: the nearest free dry strand to where they were meant to lie
     for (const w of authored) {
       const r = loa[w.class] * 0.42;
       let best: Cand | null = null, bd = Infinity;
       for (const p of cand) {
-        if (Math.abs(p.c - 0.4) > 0.9 || !free(p, r)) continue;
+        if (Math.abs(p.c + 1.6) > 1.2 || !free(p, r)) continue;
         const d = Math.hypot(p.x - w.position[0], p.z - w.position[2]);
         if (d < bd) { bd = d; best = p; }
       }
@@ -617,7 +643,7 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
     // the boneyard: the rest of the dead along the same strand, smaller and further gone
     let k = 0;
     for (const p of cand) {
-      if (wrecks.length >= authored.length + BONEYARD_MAX || p.d > 170) break;
+      if (wrecks.length >= authored.length + BONEYARD_MAX) break;
       if (!free(p, 2.3)) continue;
       taken.push([p.x, p.z, 2.3]);
       wreckAt(`wreck/bone/${String(k).padStart(3, "0")}`, "boat", p.x, p.z, p.up + (u01("bone#h" + k) - 0.5) * 1.6);
@@ -682,27 +708,78 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
   return { graph, windFrom, field, keepOff, hard, slots, pools, shoals, wrecks, launchPath: launch && launch.length >= 2 ? launch.map((q) => [q[0], q[1]] as Vec2) : null, loa, beam, pierChains, whereOf, gates };
 }
 
+const LANE_SEGS = new WeakMap<SimLayout, Float64Array>();
+/** The lane graph's edges as flat [ax, az, bx, bz] (derived once per layout). */
+function laneSegments(L: SimLayout): Float64Array {
+  let segs = LANE_SEGS.get(L);
+  if (segs) return segs;
+  const g = L.graph, out: number[] = [];
+  for (let a = 0; a < g.n; a++) for (let b = 0; b < g.n; b++) if (a !== b && g.next[a * g.n + b] === b && Number.isFinite(g.dist[a * g.n + b])) out.push(g.x[a], g.z[a], g.x[b], g.z[b]);
+  segs = Float64Array.from(out);
+  LANE_SEGS.set(L, segs);
+  return segs;
+}
+
 /**
- * Overflow raft slot k for `where`: hulls lie side by side in rows beyond the harbour's gate, in open
- * water. Cells are sized for a large hull so any class fits any raft slot. Created on demand by the
- * planner (rare when berths are sized from the plan's demand).
+ * Overflow raft slot k for `where`: hulls lie rafted side by side, six to a raft, bows to the wind, in
+ * open water near the harbour's gate but clear of every lane, structure, still hull and other raft.
+ * Cells are sized for a large hull so any class fits any raft slot. Created on demand by the planner
+ * (rare when berths are sized from the plan's demand); deterministic.
  */
 export function addRaftSlot(L: SimLayout, where: string, k: number): Slot {
   const g = L.gates.get(where);
   const node = g ? g.inNode : L.graph.through[0] ?? -1;
   const nx = node >= 0 ? L.graph.x[node] : 0, nz = node >= 0 ? L.graph.z[node] : 0;
-  const cx = g ? g.x : nx, cz = g ? g.z : nz;
-  let dx = nx - cx, dz = nz - cz;
-  const dl = Math.hypot(dx, dz) || 1;
-  dx /= dl; dz /= dl;
   const cellL = L.loa.large * 1.15, cellB = L.beam.large * 1.25;
-  const row = Math.floor(k / 6), col = k % 6;
-  const ahead = 22 + cellL * 0.5 + row * cellL;
-  const px = nx + dx * ahead - dz * (col - 2.5) * cellB;
-  const pz = nz + dz * ahead + dx * (col - 2.5) * cellB;
+  const h = L.windFrom, fx = Math.sin(h), fz = Math.cos(h), sx = -fz, sz = fx;
+  const segs = laneSegments(L);
+  const others = L.slots.filter((s) => s.kind === "raft");
+  const hulls = L.slots.filter((s) => s.kind !== "wreck");
+  /** Closest approach between this cell's hull and slot o's (sampled capsules), less both half-beams. */
+  const gapTo = (x: number, z: number, o: Slot): number => {
+    const ol = L.loa[o.cls], ob = L.beam[o.cls];
+    const ocx = o.x - Math.sin(o.heading) * o.swing, ocz = o.z - Math.cos(o.heading) * o.swing;
+    const ofx = Math.sin(o.heading), ofz = Math.cos(o.heading);
+    let d = Infinity;
+    for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) {
+      const ux = x + fx * cellL * 0.21 * a - (ocx + ofx * ol * 0.21 * b), uz = z + fz * cellL * 0.21 * a - (ocz + ofz * ol * 0.21 * b);
+      d = Math.min(d, Math.hypot(ux, uz));
+    }
+    return d - (cellB + ob) / 2 - o.swing * 0.5;
+  };
+  const fits = (x: number, z: number): boolean => {
+    for (const [a, b] of [[0, 0], [0.5, 0.5], [0.5, -0.5], [-0.5, 0.5], [-0.5, -0.5]]) {
+      const px = x + fx * cellL * a + sx * cellB * b, pz = z + fz * cellL * a + sz * cellB * b;
+      if (L.hard(px, pz) < 6) return false;
+      if (L.keepOff && clearance(L.keepOff, px, pz) < 4) return false;
+    }
+    for (let i = 0; i < segs.length; i += 4) if (segDist(x, z, [segs[i], segs[i + 1]], [segs[i + 2], segs[i + 3]]) < 16 + cellL / 2) return false;
+    for (const o of others) if (Math.hypot(o.x - x, o.z - z) < cellB * 0.95) return false;
+    for (const o of hulls) if (Math.hypot(o.x - x, o.z - z) < (cellL + L.loa[o.cls]) / 2 + o.swing + 4 && o.kind !== "raft" && gapTo(x, z, o) < 2) return false;
+    for (const o of others) if (Math.hypot(o.x - x, o.z - z) >= cellB * 0.95 && Math.hypot(o.x - x, o.z - z) < cellL + 2 && gapTo(x, z, o) < 0.4) return false;
+    return true;
+  };
+  // the next berth in this harbour's raft: beside the last one, else a new raft somewhere clear
+  const mine = others.filter((s) => s.where === where);
+  let px = NaN, pz = NaN;
+  const last = mine[mine.length - 1];
+  if (last && k % 6 !== 0) {
+    for (const side of [1, -1]) {
+      const qx = last.x + sx * cellB * side, qz = last.z + sz * cellB * side;
+      if (fits(qx, qz)) { px = qx; pz = qz; break; }
+    }
+  }
+  if (!Number.isFinite(px)) {
+    for (let i = 0; i < 6000; i++) { // out to ~340 m: a marina gate sits among berth rows and other harbours' rafts
+      const a = i * 2.399963, r = 30 + 4 * Math.sqrt(i);
+      const qx = nx + Math.cos(a) * r, qz = nz + Math.sin(a) * r;
+      if (fits(qx, qz)) { px = qx; pz = qz; break; }
+    }
+  }
+  if (!Number.isFinite(px)) { px = nx + fx * (22 + cellL); pz = nz + fz * (22 + cellL); }
   const slot: Slot = {
-    index: L.slots.length, id: `${where}/raft/${k + 1}`, where, cls: "large", kind: "raft", x: px, z: pz, heading: Math.atan2(dx, dz), swing: 0,
-    inNode: node, outNode: g ? g.outNode : node, approach: [[nx, nz], [px - dx * cellL, pz - dz * cellL], [px, pz]], astern: false,
+    index: L.slots.length, id: `${where}/raft/${k + 1}`, where, cls: "large", kind: "raft", x: px, z: pz, heading: h, swing: 0,
+    inNode: node, outNode: g ? g.outNode : node, approach: [[nx, nz], [px - fx * cellL * 1.6, pz - fz * cellL * 1.6], [px, pz]], astern: false,
     mode: "raft", warp: null, line: null, conflicts: [],
   };
   L.slots.push(slot);

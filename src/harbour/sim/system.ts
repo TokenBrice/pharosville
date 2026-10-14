@@ -3,7 +3,8 @@
  * services and advances the sim once per frame, before the fleet reads `sim.pose`.
  *
  * Dev only (never in production builds): `?sim=1` logs the under-way count every 10 s;
- * `?simspeed=N` runs the sim clock N×; `?simdebug=1` draws plain hull markers from the poses.
+ * `?simspeed=N` runs the sim clock N×; `?simdebug=1` draws plain hull markers from the poses;
+ * `?simat=<epoch ms>` starts the sim clock there; the 'simclock' service shifts it (gate captures).
  */
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
@@ -55,6 +56,8 @@ export class DataSystem implements WorldSystem {
   private speed = 1;
   private markers: SimDebugMarkers | null = null;
   private t0 = 0;
+  /** Dev only: sim clock offset (ms) from wall time. */
+  private offset = 0;
 
   async init(ctx: EngineContext): Promise<void> {
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
@@ -66,6 +69,9 @@ export class DataSystem implements WorldSystem {
       const s = Number(q.get("simspeed"));
       if (Number.isFinite(s) && s > 0) this.speed = s;
       if (q.get("simdebug") === "1") this.markers = new SimDebugMarkers(ctx.scene);
+      const at = Number(q.get("simat"));
+      if (q.has("simat") && Number.isFinite(at)) this.offset = at - Date.now();
+      ctx.services.set("simclock", { shift: (ms: number) => { this.offset += ms; }, now: () => this.simNow(Date.now()) });
     }
     this.t0 = Date.now();
     // the island's real coastline, from the baked sea SDF (the same bytes for every viewer)
@@ -83,7 +89,7 @@ export class DataSystem implements WorldSystem {
   }
 
   private simNow(nowMs: number): number {
-    return this.speed === 1 ? nowMs : this.t0 + (nowMs - this.t0) * this.speed;
+    return (this.speed === 1 ? nowMs : this.t0 + (nowMs - this.t0) * this.speed) + this.offset;
   }
 
   private rebuild(ctx: EngineContext, now: number): HarbourModel | null {
@@ -138,5 +144,6 @@ export class DataSystem implements WorldSystem {
     this.sim = null;
     ctx.services.delete("sim");
     ctx.services.delete("model");
+    ctx.services.delete("simclock");
   }
 }

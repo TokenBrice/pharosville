@@ -42,15 +42,36 @@ export interface PoseBuffer {
   slot: Int32Array;
   /** EV_* code of the voyage being sailed. */
   event: Uint8Array;
+  /**
+   * Mooring lines out, 0..1: 0 under way; after arrival they are thrown and made fast (bow line, then
+   * stern line, then the spring: 1 = all fast); before casting off they are let go and hauled aboard.
+   */
+  lines: Float32Array;
 }
 
 const MODE_PLAN = 0, MODE_VOYAGE = 1, MODE_HOLD = 2;
 const END_HOLD = 0, END_PLAN = 1;
 const SETTLE_S = 25;
+/** Lines: thrown and made fast over this many seconds after arrival; let go over this many before casting off. */
+const LINES_IN_S = 7, LINES_OUT_S = 4;
+/** The fender bump: she carries a little way into the fenders, rebounds, settles (s, rad/s, m). */
+const BUMP_T0 = 0.8, BUMP_W = (2 * Math.PI) / 4, BUMP_DECAY = 1.6, BUMP_END = 7, BUMP_A = 0.2;
 const PREFETCH_S = 240;
 const SHOALS_RING = 14;
-/** Hulls under way spread across a lane this wide (± metres, by id), so followers never stack. */
-const LANE_HALF = 5;
+/** Hulls under way spread across a lane this wide (± metres): by the speed they make, slow to starboard. */
+const LANE_HALF = 7;
+/** Leg cruise speed (m/s) at the lane's centre line, and the speed spread that spans its half-width. */
+const LANE_V_MID = 3.0, LANE_V_SPAN = 1.6;
+/** Own lane jitter (± m, by id), so hulls making the same speed do not stack exactly. */
+const LANE_JITTER = 1.2;
+/** Give-way passes per frame (the second settles shoves the first one caused). */
+const SEP_PASSES = 2;
+/** Hull-length stations sampled for the give-way overlap (bow … stern). */
+const SEP_K = [-0.42, -0.21, 0, 0.21, 0.42];
+/** A voyage begun under way (re-plan, depeg, recovery) eases her give-way shove in over this long (s). */
+const PUSH_FADE_S = 12;
+/** The most a moored hull sheers round her buoy away from a hull passing close (rad). */
+const MOORED_SHEER = 0.45;
 /** Water kept between hulls by the separation pass (m), and the most it may shove a hull sideways. */
 const SEP_GAP = 1.2;
 /** The shove eases in over this many metres before the gap is reached (no sudden sidesteps). */
@@ -91,6 +112,8 @@ interface BoatRt {
   voyage: Voyage | null;
   holdSlot: number;
   holdPhase: number;
+  /** When a voyage put her in the slot she holds (s, sim clock; -1e9 = she has always been there). */
+  holdSince: number;
   heelBase: number;
   lag: number;
   phi: number;
@@ -105,6 +128,11 @@ interface BoatRt {
 }
 
 const newTiming = (): LegTiming => newLegTiming();
+
+/** Leg-local time at which the hull comes to rest at the far end (before any spare time spent there). */
+function arrivalT(tm: LegTiming, path: PathRec): number {
+  return tm.tHold + tm.tW0 + tm.tTurn + (path.rev ? tm.tAstern : 0) + tm.tf + tm.tW1;
+}
 
 export interface SimStats {
   underWay: number;
@@ -146,12 +174,21 @@ export class HarbourSim {
   /** The give-way shove alone (excluding lane offsets), so re-plans start voyages from the unshoved pose. */
   private pushX = new Float32Array(0);
   private pushZ = new Float32Array(0);
+  /** Lane offset alone (before any give-way shove), and the cruise speed of the leg being sailed. */
+  private laneX = new Float32Array(0);
+  private laneZ = new Float32Array(0);
+  private legV = new Float32Array(0);
+  /** Give-way weight 0..1: a voyage begun from where she was shown eases its shove in (no jump). */
+  private pushF = new Float32Array(0);
   private cellHead = new Int32Array(4096);
   private cellNext = new Int32Array(0);
   /** Hot-path doubles live in fields, not arguments: a double passed to a non-inlined call is boxed. */
   private t = 0;
   private blend = 1;
   private legT = 0;
+  /** Seconds since she arrived at the slot she lies at / until she casts off from it (1e9: long ago / not soon). */
+  private dockT = 1e9;
+  private castT = 1e9;
 
   /** @param coast the baked sea SDF's coast channel: hulls then keep off the island's real coastline */
   constructor(model: HarbourModel, layout: HarbourLayout, nowMs = Date.now(), coast: CoastGrid | null = null) {
@@ -160,7 +197,7 @@ export class HarbourSim {
     this.wind.fromRad = this.layout.windFrom;
     // no data yet (boot): spend the wait building leg times, so the first real plan is quick
     if (!model.hasFleet) warmLegTimes(this.layout);
-    this.pose = { count: 0, ids: [], position: new Float32Array(0), heading: new Float32Array(0), heel: new Float32Array(0), sailState: new Float32Array(0), speed: new Float32Array(0), phase: new Uint8Array(0), slot: new Int32Array(0), event: new Uint8Array(0) };
+    this.pose = { count: 0, ids: [], position: new Float32Array(0), heading: new Float32Array(0), heel: new Float32Array(0), sailState: new Float32Array(0), speed: new Float32Array(0), phase: new Uint8Array(0), slot: new Int32Array(0), event: new Uint8Array(0), lines: new Float32Array(0) };
     this.install(model, nowMs, true);
   }
 
@@ -217,11 +254,11 @@ export class HarbourSim {
         id: b.id, cls: b.hullClass, loa: this.layout.loa[b.hullClass], plan,
         mode: keepVoyage ? MODE_VOYAGE : o && !replan ? o.mode : MODE_PLAN, cursor: 0, legSeg: -1, legPath: null, legTm: newTiming(), legEarly: 0.5, legLate: 0.5, legLocal: 0.5, legD: 0.5, // doubles from the start: keeps the fields unboxed
         prefetchSeg: -1,
-        voyage: keepVoyage, holdSlot: o && !replan ? o.holdSlot : -1, holdPhase: o && !replan ? o.holdPhase : PH_DOCKED,
+        voyage: keepVoyage, holdSlot: o && !replan ? o.holdSlot : -1, holdPhase: o && !replan ? o.holdPhase : PH_DOCKED, holdSince: o && !replan ? o.holdSince : -1e9,
         // on the Shoals: 8-15° of list, more the further off peg
         heelBase: Math.min(0.27, 0.13 + 0.035 * Math.log(1 + Math.abs(b.pegDeviationBps ?? 0) / 50)), lag: u01(b.id + "#lag") * 40, phi: u01(b.id + "#phi") * Math.PI * 2,
         yawA: 0.24 + 0.18 * u01(b.id + "#yaw"), yawP: YAW_PERIODS[Math.floor(u01(b.id + "#yp") * YAW_PERIODS.length)], yawP2: YAW_PERIODS[Math.floor(u01(b.id + "#yp2") * YAW_PERIODS.length)],
-        laneOff: (u01(b.id + "#lane") * 2 - 1) * LANE_HALF, beam: this.layout.beam[b.hullClass],
+        laneOff: (u01(b.id + "#lane") * 2 - 1) * LANE_JITTER, beam: this.layout.beam[b.hullClass],
         shoals: b.state === "shoals", wrecked: b.state === "wrecked",
       };
     });
@@ -273,21 +310,23 @@ export class HarbourSim {
     if (p.heading.length !== n) {
       p.position = new Float32Array(n * 3); p.heading = new Float32Array(n); p.heel = new Float32Array(n);
       p.sailState = new Float32Array(n); p.speed = new Float32Array(n); p.phase = new Uint8Array(n);
-      p.slot = new Int32Array(n).fill(-1); p.event = new Uint8Array(n);
+      p.slot = new Int32Array(n).fill(-1); p.event = new Uint8Array(n); p.lines = new Float32Array(n);
     }
     if (this.laneW.length !== n) {
       this.laneW = new Float32Array(n); this.sepW = new Float32Array(n); this.sepX = new Float32Array(n); this.sepZ = new Float32Array(n); this.cellNext = new Int32Array(n);
       this.pushX = new Float32Array(n); this.pushZ = new Float32Array(n);
+      this.laneX = new Float32Array(n); this.laneZ = new Float32Array(n); this.legV = new Float32Array(n); this.pushF = new Float32Array(n);
     }
   }
 
-  private snapshotPose(): Map<string, { x: number; z: number; h: number; slot: number; phase: number; moving: boolean }> {
-    const m = new Map<string, { x: number; z: number; h: number; slot: number; phase: number; moving: boolean }>();
+  /** Where every hull is shown now (x, z include the give-way shove px, pz: a voyage starts from there). */
+  private snapshotPose(): Map<string, { x: number; z: number; px: number; pz: number; h: number; slot: number; phase: number; moving: boolean }> {
+    const m = new Map<string, { x: number; z: number; px: number; pz: number; h: number; slot: number; phase: number; moving: boolean }>();
     const p = this.pose;
     for (let i = 0; i < p.count; i++) {
       const ph = p.phase[i];
       const k = i < this.pushX.length ? i : -1;
-      m.set(p.ids[i], { x: p.position[i * 3] - (k >= 0 ? this.pushX[k] : 0), z: p.position[i * 3 + 2] - (k >= 0 ? this.pushZ[k] : 0), h: p.heading[i], slot: p.slot[i], phase: ph, moving: ph === PH_CASTING_OFF || ph === PH_SAILING || ph === PH_APPROACHING });
+      m.set(p.ids[i], { x: p.position[i * 3], z: p.position[i * 3 + 2], px: k >= 0 ? this.pushX[k] : 0, pz: k >= 0 ? this.pushZ[k] : 0, h: p.heading[i], slot: p.slot[i], phase: ph, moving: ph === PH_CASTING_OFF || ph === PH_SAILING || ph === PH_APPROACHING });
     }
     return m;
   }
@@ -419,7 +458,7 @@ export class HarbourSim {
   }
 
   /** After a re-plan: hulls whose planned place changed sail there; the rest just carry on. */
-  private resyncFrom(i: number, t: number, at: { x: number; z: number; h: number; slot: number; moving: boolean }): void {
+  private resyncFrom(i: number, t: number, at: { x: number; z: number; px?: number; pz?: number; h: number; slot: number; moving: boolean }): void {
     const r = this.rt[i];
     r.mode = MODE_PLAN; r.voyage = null;
     this.t = t;
@@ -427,7 +466,7 @@ export class HarbourSim {
     const p = this.pose;
     // (a raft index from the old plan can name a different raft now: same slot means same place)
     const same = !at.moving && p.slot[i] === at.slot && at.slot < this.baseSlots && (p.phase[i] === PH_DOCKED || p.phase[i] === PH_MOORED);
-    const close = Math.hypot(p.position[i * 3] - at.x, p.position[i * 3 + 2] - at.z) < 1.5;
+    const close = Math.hypot(p.position[i * 3] - (at.x - (at.px ?? 0)), p.position[i * 3 + 2] - (at.z - (at.pz ?? 0))) < 1.5;
     if (same || close) return;
     this.rejoin(i, t, at);
   }
@@ -516,6 +555,28 @@ export class HarbourSim {
       + r.yawA * Math.sin((TAU * t) / r.yawP + r.phi) + 0.07 * Math.sin((TAU * t) / r.yawP2 + r.phi * 2.3);
   }
 
+  /**
+   * The fender bump, `tau` seconds after arrival (negative: just before): she carries a little way into
+   * the fenders, springs back, and settles on her lines. Writes the offset to tmp[13..14] and the roll
+   * it gives an alongside hull to tmp[15]. Bow-in slips and pontoons: along the bow; alongside: toward
+   * the quay; swinging slots: none.
+   */
+  private bumpAt(s: Slot, r: BoatRt, tau: number): void {
+    const o = this.tmp;
+    o[13] = 0; o[14] = 0; o[15] = 0;
+    const u = tau + BUMP_T0;
+    if (s.swing > 0 || !(u > 0 && u < BUMP_END)) return;
+    const win = 1 - (u / BUMP_END) ** 4;
+    const b = BUMP_A * Math.sqrt(r.loa / 13) * Math.sin(BUMP_W * u) * Math.exp(-u / BUMP_DECAY) * win;
+    let dx = Math.sin(s.heading), dz = Math.cos(s.heading);
+    if (s.mode === "alongside" && s.warp) {
+      const wl = Math.hypot(s.warp[0], s.warp[1]) || 1;
+      dx = -s.warp[0] / wl; dz = -s.warp[1] / wl;
+      o[15] = (b / BUMP_A) * 0.035 * (u01(r.id + "#side") < 0.5 ? 1 : -1);
+    }
+    o[13] = dx * b; o[14] = dz * b;
+  }
+
   /** Rest pose; this.blend (0..1) blends from the nominal (path end) pose to the living one. */
   private restPose(i: number, r: BoatRt, s: Slot, phase: number): void {
     const p = this.pose, t = this.t, w = this.blend, TAU = 2 * Math.PI;
@@ -529,15 +590,21 @@ export class HarbourSim {
       const sw = s.swing + w * 0.3 * Math.sin((TAU * t) / r.yawP2 + r.phi * 1.7);
       x = s.x - Math.sin(hh) * sw; z = s.z - Math.cos(hh) * sw; h = hh;
     } else if (s.kind !== "wreck") {
-      // alongside / in a slip: a little surge and yaw, held by the lines
-      const su = w * (0.16 + 0.004 * r.loa) * Math.sin((TAU * t) / 24 + r.phi);
+      // alongside / in a slip: a little surge and yaw, held by the lines (they take up once made fast)
+      const held = 0.35 + 0.65 * Math.min(1, Math.max(0, this.dockT / LINES_IN_S));
+      const su = w * held * (0.16 + 0.004 * r.loa) * Math.sin((TAU * t) / 24 + r.phi);
       x += Math.sin(h) * su; z += Math.cos(h) * su;
       h += w * (s.mode === "pontoon" ? 0.04 : 0.012) * Math.sin((TAU * t) / r.yawP + r.phi * 0.7);
+      this.bumpAt(s, r, this.dockT);
+      x += this.tmp[13]; z += this.tmp[14];
     }
     p.position[i * 3] = x; p.position[i * 3 + 1] = 0; p.position[i * 3 + 2] = z;
     p.heading[i] = h; p.speed[i] = 0; p.sailState[i] = 0;
     p.phase[i] = phase === PH_DOCKED && s.swing > 0 ? (s.kind === "shoals" ? PH_ANCHORED : PH_MOORED) : phase;
     p.slot[i] = s.index;
+    // lines: made fast after arrival, let go before casting off (anchor rodes and wrecks: none to throw)
+    const inL = Math.min(1, Math.max(0, this.dockT / LINES_IN_S)), outL = Math.min(1, Math.max(0, (this.castT - 0.5) / LINES_OUT_S));
+    p.lines[i] = s.kind === "wreck" ? 0 : Math.min(inL, outL);
     let heel = 0;
     if (r.shoals && s.kind === "shoals") {
       // aground and pounding: an irregular roll on top of the list, the loose sail flogging
@@ -545,6 +612,7 @@ export class HarbourSim {
       heel = side * (r.heelBase + 0.045 * Math.sin((TAU * t) / 7.2 + r.phi) + 0.025 * Math.sin((TAU * t) / 3.6 + r.phi * 2) + 0.015 * Math.sin((TAU * t) / 2.4 + r.phi * 3));
       p.sailState[i] = 0.22 + 0.08 * Math.sin((TAU * t) / 2.4 + r.phi);
     } else if (r.wrecked) heel = (u01(r.id + "#side") < 0.5 ? -1 : 1) * (0.36 + 0.24 * u01(r.id + "#list")) + 0.012 * Math.sin((TAU * t) / 12 + r.phi);
+    else if (s.mode === "alongside") heel = this.tmp[15]; // the fender touch rolls her off the quay a little
     p.heel[i] = heel;
     this.laneW[i] = 0;
   }
@@ -556,15 +624,23 @@ export class HarbourSim {
     evalLeg(path, tm, o);
     const p = this.pose;
     const code = o[5];
+    const tau = this.legT - arrivalT(tm, path);
     if ((code === LEG_HOLD && from >= 0) || code === LEG_HOLD_END) {
       // spare time before casting off / once in: at the berth, which is ours meanwhile
       this.blend = 0;
+      if (code === LEG_HOLD) { this.castT = tm.tHold - this.legT; this.dockT = 1e9; } else { this.dockT = tau; this.castT = 1e9; }
       this.restPose(i, r, this.layout.slots[code === LEG_HOLD_END ? dest : from], PH_DOCKED);
       return;
     }
+    p.lines[i] = 0;
+    if (tau > -BUMP_T0 && dest >= 0) {
+      // the last moment of the glide in: she touches the fenders
+      this.bumpAt(this.layout.slots[dest], r, tau);
+      o[0] += o[13]; o[1] += o[14];
+    }
     p.position[i * 3] = o[0]; p.position[i * 3 + 1] = 0; p.position[i * 3 + 2] = o[1];
     p.heading[i] = o[2]; p.speed[i] = o[3]; p.sailState[i] = o[4];
-    this.laneW[i] = o[IO_LANE]; this.sepW[i] = o[IO_SEP];
+    this.laneW[i] = o[IO_LANE]; this.sepW[i] = o[IO_SEP]; this.legV[i] = tm.v;
     p.phase[i] = code === LEG_CAST_OFF || code === LEG_TURN || code === LEG_HOLD ? PH_CASTING_OFF : code === LEG_APPROACH ? PH_APPROACHING : PH_SAILING;
     p.slot[i] = dest;
     // heel to leeward with the sail drawing (decorative; wind strength follows DEWS weather)
@@ -579,12 +655,18 @@ export class HarbourSim {
     const L = this.layout;
     p.event[i] = EV_NONE;
     this.laneW[i] = 0;
+    this.dockT = 1e9; this.castT = 1e9; this.pushF[i] = 1;
     if (r.mode === MODE_VOYAGE && r.voyage) {
       const v = r.voyage;
       const tl = t - v.t0;
-      if (tl < v.D) { this.legT = tl; this.writeLeg(i, r, v.path, v.tm, v.endSlot); p.event[i] = v.kind; return; }
+      if (tl < v.D) {
+        this.legT = tl; this.writeLeg(i, r, v.path, v.tm, v.endSlot); p.event[i] = v.kind;
+        const f = Math.min(1, tl / PUSH_FADE_S);
+        this.pushF[i] = f * f * (3 - 2 * f);
+        return;
+      }
       r.voyage = null;
-      if (v.endMode === END_HOLD || this.frozen) { r.mode = MODE_HOLD; r.holdSlot = v.endSlot; r.holdPhase = v.endPhase; }
+      if (v.endMode === END_HOLD || this.frozen) { r.mode = MODE_HOLD; r.holdSlot = v.endSlot; r.holdPhase = v.endPhase; r.holdSince = v.t0 + arrivalT(v.tm, v.path); }
       else {
         r.mode = MODE_PLAN;
         this.evalBoat(i);
@@ -603,15 +685,16 @@ export class HarbourSim {
       }
     }
     if (r.mode === MODE_HOLD) {
-      if (r.holdSlot < 0) { p.speed[i] = 0; p.sailState[i] = 0; p.phase[i] = PH_ANCHORED; return; }
+      if (r.holdSlot < 0) { p.speed[i] = 0; p.sailState[i] = 0; p.phase[i] = PH_ANCHORED; p.lines[i] = 0; return; }
       this.blend = 1;
+      this.dockT = t - r.holdSince;
       this.restPose(i, r, L.slots[r.holdSlot], r.holdPhase);
       return;
     }
     // MODE_PLAN
     const plan = r.plan;
     if (plan.kind === "static") { this.blend = 1; this.restPose(i, r, L.slots[plan.staticSlot], PH_DOCKED); return; }
-    if (plan.kind === "none") { p.speed[i] = 0; p.phase[i] = PH_ANCHORED; p.slot[i] = -1; return; }
+    if (plan.kind === "none") { p.speed[i] = 0; p.phase[i] = PH_ANCHORED; p.slot[i] = -1; p.lines[i] = 0; return; }
     const g = ((t % CYCLE_S) + CYCLE_S) % CYCLE_S;
     const u = (g + plan.offset) % CYCLE_S; // boatLocalTime, inlined
     let c = r.cursor;
@@ -642,6 +725,11 @@ export class HarbourSim {
         if (!this.pathCache.has(key) && !this.prefetchKeys.has(key)) { this.prefetchKeys.add(key); this.prefetch.push([i, plan.segFrom[nxt], plan.segSlot[nxt]]); }
       }
       const lateOff = r.legSeg === (c - 1 + nSeg) % nSeg ? r.legLate : 0, earlyOff = r.legSeg === (c + 1) % nSeg ? r.legEarly : 0;
+      if (nSeg > 1) {
+        // when she came in (the leg's spare time at the berth was spent here already) / casts off
+        if (r.legSeg === (c - 1 + nSeg) % nSeg && r.legPath) this.dockT = into - lateOff + r.legTm.tHoldEnd;
+        else if (r.legSeg === (c + 1) % nSeg) this.castT = toEnd - earlyOff + r.legTm.tHold;
+      }
       const w = s.swing > 0 ? Math.min(1, Math.max(0, Math.min(into - lateOff, toEnd - earlyOff)) / SETTLE_S) : 1;
       this.blend = w * w * (3 - 2 * w);
       this.restPose(i, r, s, PH_DOCKED);
@@ -681,109 +769,171 @@ export class HarbourSim {
   }
 
   /**
-   * Hulls under way spread across their lane (by id) and give way: a pure function of this instant's
-   * poses (deterministic, history-free), shoving each hull under way sideways out of any other hull's
-   * water — the smaller hull yields to a bigger one under way; still hulls never move.
+   * Hulls under way keep to their lane and give way: a pure function of this instant's poses
+   * (deterministic, history-free). Lane discipline first: across the lane by the speed she is making
+   * (slow hulls keep to starboard, fast ones overtake to port), so a faster hull passes beside a slower
+   * one rather than through it. Then a give-way pass shoves each hull under way sideways out of any
+   * other hull's water: still hulls never move, an overtaking hull keeps clear, and the smaller hull
+   * yields to the bigger one. Which side to give is chosen from the lane positions alone (never from
+   * this frame's shoves), so it cannot flip-flop from one frame to the next.
    */
   private separate(): void {
     const p = this.pose, n = p.count, rt = this.rt, L = this.layout;
-    const pos = p.position, sx = this.sepX, sz = this.sepZ;
+    const pos = p.position, sx = this.sepX, sz = this.sepZ, lx = this.laneX, lz = this.laneZ;
     const G = 36, CELL = 36, O = 640; // a cell spans the longest give-way reach
     const head = this.cellHead, next = this.cellNext;
     head.fill(-1);
-    const cellOf = (x: number, z: number) => Math.min(G - 1, Math.max(0, Math.floor((x + O) / CELL))) * G + Math.min(G - 1, Math.max(0, Math.floor((z + O) / CELL)));
     let movers = 0;
     for (let i = 0; i < n; i++) {
-      const c = cellOf(pos[i * 3], pos[i * 3 + 2]);
+      const c = Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3] + O) / CELL))) * G + Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3 + 2] + O) / CELL)));
       next[i] = head[c]; head[c] = i;
       const ph = p.phase[i];
-      sx[i] = 0; sz[i] = 0; this.pushX[i] = 0; this.pushZ[i] = 0;
+      sx[i] = 0; sz[i] = 0; lx[i] = 0; lz[i] = 0; this.pushX[i] = 0; this.pushZ[i] = 0;
       if (ph === PH_CASTING_OFF || ph === PH_SAILING || ph === PH_APPROACHING) {
         movers++;
         const lw = this.laneW[i];
         if (lw > 0) {
           const h = p.heading[i];
-          let o = rt[i].laneOff * lw;
-          // the lane is narrower past moorings and the reef
+          // starboard (+) for the slow, port (-) for the fast, plus a little of her own
+          const k = Math.min(1, Math.max(-1, (LANE_V_MID - this.legV[i]) / LANE_V_SPAN));
+          let o = (k * LANE_HALF + rt[i].laneOff) * lw;
+          // the lane is narrower past moorings and the reef, and where it runs near a quay or the shore
           const ko = L.keepOff;
           if (ko && o !== 0) {
-            const c = clearance(ko, pos[i * 3] - Math.cos(h) * o, pos[i * 3 + 2] + Math.sin(h) * o) - rt[i].beam / 2;
-            const f = Math.min(1, Math.max(0, c / 14));
+            const ox = pos[i * 3] - Math.cos(h) * o, oz = pos[i * 3 + 2] + Math.sin(h) * o;
+            let c = clearance(ko, ox, oz) / 14;
+            if (L.field) c = Math.min(c, (clearance(L.field, ox, oz) - rt[i].beam / 2) / 8);
+            const f = Math.min(1, Math.max(0, c - rt[i].beam / 28));
             o *= f * f * (3 - 2 * f);
           }
-          sx[i] = -Math.cos(h) * o; sz[i] = Math.sin(h) * o;
+          lx[i] = -Math.cos(h) * o; lz[i] = Math.sin(h) * o;
+          sx[i] = lx[i]; sz[i] = lz[i];
         }
       }
     }
     if (!movers) return;
-    const K = [-0.32, 0, 0.32];
-    for (let i = 0; i < n; i++) {
-      const ph = p.phase[i];
-      if (!(ph === PH_CASTING_OFF || ph === PH_SAILING || ph === PH_APPROACHING)) continue;
-      const r = rt[i];
-      // berthing / leaving a berth: slips and fairways are laid out with room; only true overlaps count
-      const sw = this.sepW[i];
-      const ramp = 1 + (SEP_RAMP - 1) * sw, gap = 0.4 + (SEP_GAP - 0.4) * sw;
-      const hi = p.heading[i], fx = Math.sin(hi), fz = Math.cos(hi), stx = -fz, stz = fx;
-      const xi = pos[i * 3] + sx[i], zi = pos[i * 3 + 2] + sz[i];
-      const ci = Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3] + O) / CELL))), cj = Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3 + 2] + O) / CELL)));
-      let push = 0;
-      for (let a = Math.max(0, ci - 1); a <= Math.min(G - 1, ci + 1); a++) for (let b = Math.max(0, cj - 1); b <= Math.min(G - 1, cj + 1); b++) {
-        for (let j = head[a * G + b]; j >= 0; j = next[j]) {
-          if (j === i) continue;
-          const rj = rt[j];
-          const xj = pos[j * 3] + sx[j], zj = pos[j * 3 + 2] + sz[j];
-          const dx = xi - xj, dz = zi - zj;
-          const reach = (r.loa + rj.loa) / 2 + gap + ramp;
-          if (dx * dx + dz * dz > reach * reach) continue;
-          const hj = p.heading[j], gx = Math.sin(hj), gz = Math.cos(hj);
-          let pen = -1e9;
-          for (let u = 0; u < 3; u++) for (let v = 0; v < 3; v++) {
-            const ex = dx + fx * r.loa * K[u] - gx * rj.loa * K[v], ez = dz + fz * r.loa * K[u] - gz * rj.loa * K[v];
-            const q = (r.beam + rj.beam) / 2 + gap + ramp - Math.sqrt(ex * ex + ez * ez);
-            if (q > pen) pen = q;
-          }
-          if (pen <= 0) continue;
-          pen = pen < ramp ? (pen * pen) / (2 * ramp) : pen - ramp / 2;
-          const phj = p.phase[j];
-          const mj = phj === PH_CASTING_OFF || phj === PH_SAILING || phj === PH_APPROACHING;
-          const lat = dx * stx + dz * stz;
-          // which way to give: alongside / overtaking, keep to the side she is already on; head-on,
-          // both to starboard; crossing, aim astern of the other (stable through the crossing)
-          let sgn = Math.tanh(lat / 1.5 + (i < j ? 0.7 : -0.7));
-          if (mj) {
+    for (let pass = 0; pass < SEP_PASSES; pass++) {
+      for (let i = 0; i < n; i++) {
+        const ph = p.phase[i];
+        if (!(ph === PH_CASTING_OFF || ph === PH_SAILING || ph === PH_APPROACHING)) continue;
+        const r = rt[i];
+        // berthing / leaving a berth: slips and fairways are laid out with room; only true overlaps count
+        const sw = this.sepW[i];
+        const ramp = 1 + (SEP_RAMP - 1) * sw, gap = 0.4 + (SEP_GAP - 0.4) * sw;
+        const hi = p.heading[i], fx = Math.sin(hi), fz = Math.cos(hi), stx = -fz, stz = fx;
+        // each pass shoves her afresh from her lane position, against the others' latest
+        const x0 = pos[i * 3] + lx[i], z0 = pos[i * 3 + 2] + lz[i], xi = x0, zi = z0;
+        const ci = Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3] + O) / CELL))), cj = Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3 + 2] + O) / CELL)));
+        let push = 0;
+        for (let a = Math.max(0, ci - 1); a <= Math.min(G - 1, ci + 1); a++) for (let b = Math.max(0, cj - 1); b <= Math.min(G - 1, cj + 1); b++) {
+          for (let j = head[a * G + b]; j >= 0; j = next[j]) {
+            if (j === i) continue;
+            const rj = rt[j];
+            const xj = pos[j * 3] + sx[j], zj = pos[j * 3 + 2] + sz[j];
+            const dx = xi - xj, dz = zi - zj;
+            const reach = (r.loa + rj.loa) / 2 + gap + ramp;
+            if (dx * dx + dz * dz > reach * reach) continue;
+            const hj = p.heading[j], gx = Math.sin(hj), gz = Math.cos(hj);
+            let pen = -1e9;
+            for (let u = 0; u < 5; u++) for (let v = 0; v < 5; v++) {
+              const ex = dx + fx * r.loa * SEP_K[u] - gx * rj.loa * SEP_K[v], ez = dz + fz * r.loa * SEP_K[u] - gz * rj.loa * SEP_K[v];
+              const q = (r.beam + rj.beam) / 2 + gap + ramp - Math.sqrt(ex * ex + ez * ez);
+              if (q > pen) pen = q;
+            }
+            if (pen <= 0) continue;
+            pen = pen < ramp ? (pen * pen) / (2 * ramp) : pen - ramp / 2;
+            const phj = p.phase[j];
+            const mj = phj === PH_CASTING_OFF || phj === PH_SAILING || phj === PH_APPROACHING;
+            // the side, from the lane positions only (stable): she keeps to the side of the other she is
+            // already on; dead level, the lower index goes to starboard
+            const lat0 = (x0 - pos[j * 3] - lx[j]) * stx + (z0 - pos[j * 3 + 2] - lz[j]) * stz;
+            // (a still hull: decisively off the side she is on, never half a shove)
+            let sgn = Math.tanh(lat0 / 0.5 + (i < j ? 0.3 : -0.3));
+            // running together, the faster hull passes to port of the slower (a side that holds while the
+            // paths converge or cross at a shallow angle; the lane order only breaks a tie)
+            const sPar = Math.tanh((p.speed[j] - p.speed[i]) / 0.2 + lat0 / 3 + (i < j ? 0.2 : -0.2));
             const cosd = fx * gx + fz * gz;
-            const wPar = Math.min(1, Math.max(0, (cosd - 0.45) / 0.4)), wHead = Math.min(1, Math.max(0, (-cosd - 0.45) / 0.4));
-            const sCross = Math.tanh(-4 * (stx * gx + stz * gz));
-            sgn = wPar * sgn + wHead + (1 - wPar - wHead) * sCross;
+            // bigger hull, right of way: the yield share by size (squared, so a skiff gives nearly all of it)
+            const li = r.loa * r.loa, lj = rj.loa * rj.loa;
+            const sizeW = lj / (li + lj);
+            let w = 1;
+            if (mj) {
+              const wPar = Math.min(1, Math.max(0, (cosd - 0.45) / 0.4)), wHead = Math.min(1, Math.max(0, (-cosd - 0.45) / 0.4));
+              // head-on, both to starboard; crossing, aim astern of the other (stable through the crossing)
+              const sCross = Math.tanh(-4 * (stx * gx + stz * gz));
+              sgn = wPar * sPar + wHead + (1 - wPar - wHead) * sCross;
+              // the overtaking hull (the other ahead) keeps clear; a big one overtaking a small one, the small also steps aside
+              const ahead = -(dx * fx + dz * fz) > 0 ? 1 : 0;
+              w = wPar * Math.max(0.15 + 0.85 * ahead, sizeW) + (1 - wPar) * sizeW;
+            }
+            push += sgn * pen * w;
           }
-          // who keeps clear: an overtaking hull (the other is ahead), else the smaller one; still hulls never
-          let w = 1;
-          if (mj) {
-            const ahead = -(dx * fx + dz * fz) > 0 ? 1 : 0;
-            const par = Math.min(1, Math.max(0, ((fx * gx + fz * gz) - 0.45) / 0.4));
-            w = par * (0.15 + 0.85 * ahead) + (1 - par) * (rj.loa / (r.loa + rj.loa));
-          }
-          push += sgn * pen * w;
         }
+        if (push === 0) { sx[i] = lx[i]; sz[i] = lz[i]; this.pushX[i] = 0; this.pushZ[i] = 0; continue; }
+        const cap = Math.max(r.beam + 2.5, 5);
+        push = Math.max(-cap, Math.min(cap, push)) * this.pushF[i];
+        let ox = lx[i] + stx * push, oz = lz[i] + stz * push;
+        // never into a quay, pier or the shore (eased, so the shove never snaps)
+        if (L.field) {
+          const c = clearance(L.field, pos[i * 3] + ox, pos[i * 3 + 2] + oz), lo = r.beam / 2 + 0.3;
+          const f = Math.min(1, Math.max(0, (c - lo) / 5));
+          ox = lx[i] + (ox - lx[i]) * f * f * (3 - 2 * f); oz = lz[i] + (oz - lz[i]) * f * f * (3 - 2 * f);
+        }
+        this.pushX[i] = ox - lx[i]; this.pushZ[i] = oz - lz[i];
+        sx[i] = ox; sz[i] = oz;
       }
-      if (push === 0 && sx[i] === 0 && sz[i] === 0) continue;
-      const cap = r.beam + 2.5;
-      push = Math.max(-cap, Math.min(cap, push));
-      let ox = sx[i] + stx * push, oz = sz[i] + stz * push;
-      // never into a quay, pier or the shore (eased, so the shove never snaps)
-      if (L.field) {
-        const c = clearance(L.field, pos[i * 3] + ox, pos[i * 3 + 2] + oz), lo = r.beam / 2 + 0.3;
-        const f = Math.min(1, Math.max(0, (c - lo) / 5));
-        const lx = sx[i], lz = sz[i];
-        ox = lx + (ox - lx) * f * f * (3 - 2 * f); oz = lz + (oz - lz) * f * f * (3 - 2 * f);
-      }
-      this.pushX[i] = ox - sx[i]; this.pushZ[i] = oz - sz[i];
-      sx[i] = ox; sz[i] = oz;
     }
     for (let i = 0; i < n; i++) {
       if (sx[i] === 0 && sz[i] === 0) continue;
       pos[i * 3] += sx[i]; pos[i * 3 + 2] += sz[i];
+    }
+    this.mooredYield();
+  }
+
+  /**
+   * A hull on a swinging mooring sheers away from a hull passing close: she swings round her buoy (on
+   * the same rode, so she never drags), never more than MOORED_SHEER radians. Pure, like the give-way.
+   */
+  private mooredYield(): void {
+    const p = this.pose, n = p.count, rt = this.rt, L = this.layout, pos = p.position;
+    const G = 36, CELL = 36, O = 640, head = this.cellHead, next = this.cellNext;
+    for (let i = 0; i < n; i++) {
+      if (p.phase[i] !== PH_MOORED) continue;
+      const s = L.slots[p.slot[i]];
+      if (!s || s.swing <= 0) continue;
+      const r = rt[i], hi = p.heading[i], fx = Math.sin(hi), fz = Math.cos(hi);
+      const xi = pos[i * 3], zi = pos[i * 3 + 2];
+      const ci = Math.min(G - 1, Math.max(0, Math.floor((xi + O) / CELL))), cj = Math.min(G - 1, Math.max(0, Math.floor((zi + O) / CELL)));
+      let px = 0, pz = 0;
+      for (let a = Math.max(0, ci - 1); a <= Math.min(G - 1, ci + 1); a++) for (let b = Math.max(0, cj - 1); b <= Math.min(G - 1, cj + 1); b++) {
+        for (let j = head[a * G + b]; j >= 0; j = next[j]) {
+          const phj = p.phase[j];
+          if (!(phj === PH_CASTING_OFF || phj === PH_SAILING || phj === PH_APPROACHING)) continue;
+          const rj = rt[j];
+          const dx = xi - pos[j * 3], dz = zi - pos[j * 3 + 2];
+          const reach = (r.loa + rj.loa) / 2 + 2;
+          if (dx * dx + dz * dz > reach * reach) continue;
+          const hj = p.heading[j], gx = Math.sin(hj), gz = Math.cos(hj);
+          // deepest overlap between the two hulls' stations, and which way it pushes her
+          let pen = 0, nx = 0, nz = 0;
+          for (let u = 0; u < 5; u++) for (let v = 0; v < 5; v++) {
+            const ex = dx + fx * r.loa * SEP_K[u] - gx * rj.loa * SEP_K[v], ez = dz + fz * r.loa * SEP_K[u] - gz * rj.loa * SEP_K[v];
+            const d = Math.sqrt(ex * ex + ez * ez), q = (r.beam + rj.beam) / 2 + 0.8 - d;
+            if (q > pen && d > 1e-3) { pen = q; nx = ex / d; nz = ez / d; }
+          }
+          px += nx * pen; pz += nz * pen;
+        }
+      }
+      if (px === 0 && pz === 0) continue;
+      // swing round the buoy: the tangential part of the shove, as an angle on her rode
+      const bx = s.x, bz = s.z, rx = xi - bx, rz = zi - bz, rl = Math.hypot(rx, rz);
+      if (rl < 0.5) continue;
+      const tx = -rz / rl, tz = rx / rl;
+      const da = Math.max(-MOORED_SHEER, Math.min(MOORED_SHEER, (px * tx + pz * tz) / rl));
+      const c = Math.cos(da), sn = Math.sin(da);
+      const nrx = rx * c - rz * sn, nrz = rx * sn + rz * c;
+      pos[i * 3] = bx + nrx; pos[i * 3 + 2] = bz + nrz;
+      p.heading[i] = Math.atan2(-nrx, -nrz);
     }
   }
 

@@ -23,6 +23,8 @@ export interface BeamService {
   setReach(v: number): void;
   /** 0 steady (warm white), 1 caution (amber), 2 alarm (red), or an explicit colour. */
   setColor(step: 0 | 1 | 2 | THREE.ColorRepresentation): void;
+  /** 0..1 caution lamp by day (readings: PSI TREMOR and worse): a steady lantern + a broader rhythm flash. */
+  setDayPresence?(v: number): void;
 }
 
 interface LighthouseLike {
@@ -164,6 +166,7 @@ export class BeamSystem implements WorldSystem {
   private lighthouse: LighthouseLike | undefined;
   private lastAngle = NaN;
   private stillFor = 0;
+  private dayPresence = 0;
   private readonly tmp = new THREE.Vector3();
   private readonly U = {
     uCamWorld: new THREE.Uniform(new THREE.Matrix4()),
@@ -210,6 +213,7 @@ export class BeamSystem implements WorldSystem {
     const svc: BeamService = {
       setReach: (v) => { this.reach = THREE.MathUtils.clamp(v, 0, 1); },
       setColor: (c) => { this.color.set(typeof c === "number" && c >= 0 && c <= 2 && Number.isInteger(c) ? LAMP_COLORS[c] : (c as THREE.ColorRepresentation)); },
+      setDayPresence: (v) => { this.dayPresence = THREE.MathUtils.clamp(v, 0, 1); },
     };
     ctx.services.set("beam", svc);
     const p = new URLSearchParams(location.search);
@@ -244,8 +248,10 @@ export class BeamSystem implements WorldSystem {
     const cam = ctx.camera.position;
     const toCam = this.tmp.set(cam.x - this.lantern.x, 0, cam.z - this.lantern.z).normalize();
     const c0 = Math.cos(angle) * toCam.x + Math.sin(angle) * toCam.z;
-    const flash = lit ? Math.pow(Math.abs(c0), 60) : 0;
     const day = 1 - nightK;
+    // caution by day (readings): the flash widens so the rhythm reads at a glance, the lamp stays lit
+    const dayAlert = this.dayPresence * day * (lit ? 1 : 0);
+    const flash = lit ? Math.pow(Math.abs(c0), 60 - 46 * dayAlert) : 0;
 
     // fog thickens the shaft (more to scatter from)
     const fog = (ctx.services.get("readings") as { fog?: number } | undefined)?.fog ?? 0;
@@ -273,15 +279,15 @@ export class BeamSystem implements WorldSystem {
     hu.uColor.value.copy(this.colorS);
     hu.uSize.value = dist * (0.045 + 0.035 * flash);
     const near = THREE.MathUtils.smoothstep(dist, 60, 220);       // close-up: let the glazing read
-    hu.uCore.value = (1.4 * nightK * swell + (2.5 + 5 * day) * flash) * (0.35 + 0.65 * near);
-    hu.uGlow.value = (0.6 * nightK * swell + (1.2 + 1.5 * day) * flash) * (0.3 + 0.7 * near);
+    hu.uCore.value = (1.4 * nightK * swell + (2.5 + 5 * day) * flash + 3.0 * dayAlert) * (0.35 + 0.65 * near);
+    hu.uGlow.value = (0.6 * nightK * swell + (1.2 + 1.5 * day) * flash + 7.0 * dayAlert) * (0.3 + 0.7 * near);
     hu.uStreak.value = (0.25 * nightK * swell + (0.9 + 0.8 * day) * flash) * (0.5 + 0.5 * near);
     this.halo.visible = lit;
 
     // shared with the sea
     this.bu.uBeamPos.value.copy(this.lantern);
     this.bu.uBeamAngle.value = angle;
-    this.bu.uBeamCol.value.copy(this.colorS).multiplyScalar((0.1 + 0.9 * nightK) * (0.4 + 0.6 * this.reachS) * 1.3 * (lit ? 1 : 0) * swell);
+    this.bu.uBeamCol.value.copy(this.colorS).multiplyScalar((0.1 + 0.15 * dayAlert + 0.9 * nightK) * (0.4 + 0.6 * this.reachS) * 1.3 * (lit ? 1 : 0) * swell);
     this.bu.uBeamShape.value.set(L, HALF, TILT, flash * (1.5 + 2.5 * day));
   }
 

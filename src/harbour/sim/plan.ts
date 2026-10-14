@@ -25,7 +25,7 @@ export const MANOEUVRE_S = 55;
 export const RESERVE_IN_S = 30;
 export const RESERVE_OUT_S = 50;
 /** Arrivals/departures at one harbour are kept ≥ one bucket apart (no contested gate). */
-const GATE_BUCKET_S = 10;
+const GATE_BUCKET_S = 20;
 const OFFSET_TRIES = 72;
 /** Above this many hulls under way in a minute, phase offsets that add more are penalised. */
 const UNDER_WAY_SOFT_CAP = 32;

@@ -104,6 +104,35 @@ export class MooringLines {
     this.count++;
   }
 
+  /**
+   * A line thrown from the deck (ax,ay,az: the cleat) to the shore (bx,by,bz: bollard), k = how far it
+   * has flown: the free end arcs over and drops onto the bollard, and the rope settles into its sag as
+   * it is made fast (k → 1). Hauled aboard, k runs back down and the end comes home the same way.
+   */
+  throwLine(ax: number, ay: number, az: number, bx: number, by: number, bz: number, k: number): void {
+    if (this.count >= this.max || k <= 0.01) return;
+    const len = Math.hypot(ax - bx, ay - by, az - bz);
+    const sag = 0.05 * len + 0.12;
+    const fly = 1 - k;
+    // the flying end's arc: highest mid-throw, gone once it lands
+    const lift = (0.35 + 0.18 * len) * 4 * k * fly;
+    const A = this.a, B = this.b;
+    let px = ax, py = ay, pz = az;
+    for (let s = 1; s <= SEGS; s++) {
+      const u = s / SEGS, t = u * k;
+      const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
+      // the flown part trails up to the flying end, and drops into its sag as it lands
+      const y = ay + (by - ay) * t + lift * u * (1.6 - 0.6 * u) * 0.75 - sag * 4 * t * (1 - t) * k * k;
+      const o = ((this.count * SEGS) + s - 1) * 12;
+      for (let v = 0; v < 4; v++) {
+        A[o + v * 3] = px; A[o + v * 3 + 1] = py; A[o + v * 3 + 2] = pz;
+        B[o + v * 3] = x; B[o + v * 3 + 1] = y; B[o + v * 3 + 2] = z;
+      }
+      px = x; py = y; pz = z;
+    }
+    this.count++;
+  }
+
   end(light: THREE.Color): void {
     const nq = this.count * SEGS;
     this.geo.setDrawRange(0, nq * 6);

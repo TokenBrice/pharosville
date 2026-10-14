@@ -21,6 +21,8 @@ const ndc = new THREE.Vector2();
 const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const hitPt = new THREE.Vector3();
 const deckPt = new THREE.Vector3();
+/** Scratch screen points for pick() (no per-pick allocation). */
+const PA: ScreenPoint = { x: 0, y: 0, visible: false }, PB: ScreenPoint = { x: 0, y: 0, visible: false };
 /** Above every roof and the lantern: height-field marches start here. */
 const SKY_TOP = 80;
 
@@ -53,8 +55,8 @@ export class AnalyticPicking implements PickingService {
   private get layout(): HarbourLayout | null { return getLayout(this.ctx); }
 
   private begin(): void {
-    const r = this.ctx.renderer.domElement.getBoundingClientRect();
-    this.rect = { left: r.left, top: r.top, width: r.width || innerWidth, height: r.height || innerHeight };
+    const r = this.ctx.renderer.domElement.getBoundingClientRect(), o = this.rect;
+    o.left = r.left; o.top = r.top; o.width = r.width || innerWidth; o.height = r.height || innerHeight;
     this.ctx.camera.updateMatrixWorld();
   }
 
@@ -94,7 +96,7 @@ export class AnalyticPicking implements PickingService {
     const L = this.layout;
     if (!L) return null;
     this.begin();
-    const a: ScreenPoint = { x: 0, y: 0, visible: false }, b: ScreenPoint = { x: 0, y: 0, visible: false };
+    const a = PA, b = PB;
 
     // boats: nearest projected hull→masthead segment within the hull's projected half-beam
     const sim = boats ? getSim(this.ctx) : null;

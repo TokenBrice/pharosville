@@ -27,15 +27,21 @@ PHAROS_TOWER = (-80.0, 100.0)
 _S = 2.0
 _grid = None          # (x0, y1, nx, ny, dist array) inside-distance to the coast (m)
 _quays = {}
+_beaches = []         # [(world polyline, depth m, kind)] - natural strands: the land slopes down to the waterline
 
 
 def to_uv(x, y):
     return ((x + y) / SQ2, (y - x) / SQ2 - VOFF)
 
 
-def init(coast, quay_lines=None):
-    """Rasterise the coast (world coords) into a distance-inside field; remember the quay lines (world)."""
-    global _grid, _quays
+def init(coast, quay_lines=None, beaches=None):
+    """Rasterise the coast (world coords) into a distance-inside field; remember the quay lines and beaches (world)."""
+    global _grid, _quays, _beaches
+    _beaches = []
+    for b in (beaches or []):
+        L = list(map(tuple, b['line'])); m = b['depth'] + 30.0
+        box = (min(p[0] for p in L) - m, min(p[1] for p in L) - m, max(p[0] for p in L) + m, max(p[1] for p in L) + m)
+        _beaches.append((L, b['depth'], b.get('kind', 'sand'), box))
     import numpy as np
     from PIL import Image, ImageDraw
     from scipy import ndimage
@@ -106,7 +112,7 @@ def line_d(u, v, pts):
 
 
 # spines (screen plan): spruce crests the dresser also reads
-WEST_SPINE = [(-190.0, 20.0), (-226.0, -20.0), (-262.0, -120.0), (-262.0, -186.0)]
+WEST_SPINE = [(-186.0, 20.0), (-204.0, -30.0), (-222.0, -116.0), (-250.0, -186.0)]
 EAST_SPINE = [(232.0, -10.0), (244.0, -70.0), (240.0, -140.0), (214.0, -200.0)]
 SOUTH_RIDGE = [(-130.0, -230.0), (-40.0, -238.0), (60.0, -240.0), (150.0, -228.0)]
 WINDMILL_UV = (-226.0, -168.0)
@@ -151,9 +157,7 @@ def natural(u, v):
     # facets: low-frequency undulation (crisp low-poly light catch), calmer on the headland table
     calm = 1.0 - 0.75 * (1 - sstep(0.75, 1.2, hd))
     h += (fbm(u, v, 0.02, 3, 3) - 0.5) * 3.0 * calm
-    # Wreck Cove: a low sand shelf in the west bight
-    k = gauss(u, v, -268.0, -62.0, 34.0, 26.0)
-    return h * (1 - k) + 1.2 * k
+    return h
 
 
 def town_step(u, v):
@@ -191,7 +195,34 @@ def height(x, y, coves=()):
         if z is not None and w > 0.5 and h > Z_SHORE + 0.5 and d > ap:
             k = 0.0            # never pull the terraces down
         h = h * (1 - k) + Z_SHORE * k
-    return max(h, Z_SHORE - 1.4)
+    h = max(h, Z_SHORE - 1.4)
+    kb, _kind = beach_k(x, y)
+    if kb > 0:                       # a strand: sand from the waterline up, easing into the land behind
+        dc = dcoast(x, y)
+        h = h * (1 - kb) + min(h, 0.22 + dc * (0.072 if _kind == 'sand' else 0.11)) * kb
+    return h
+
+
+def beach_k(x, y):
+    """(weight, kind) of the nearest strand at (x, y): 1 on the beach, fading out behind it and along the shore."""
+    best = (0.0, None)
+    for line, depth, kind, box in _beaches:
+        if not (box[0] <= x <= box[2] and box[1] <= y <= box[3]):
+            continue
+        dl = min(_segd(x, y, a, b) for a, b in zip(line, line[1:]))
+        if dl > depth + 30.0:
+            continue
+        # along-shore ends fade (the strand's own distance), inland the depth fades
+        k = (1.0 - sstep(depth * 0.85, depth + 14.0, dcoast(x, y))) * (1.0 - sstep(depth + 6.0, depth + 26.0, dl))
+        if k > best[0]:
+            best = (k, kind)
+    return best
+
+
+def _segd(px, py, a, b):
+    abx, aby = b[0] - a[0], b[1] - a[1]
+    t = max(0.0, min(1.0, ((px - a[0]) * abx + (py - a[1]) * aby) / (abx * abx + aby * aby + 1e-9)))
+    return math.hypot(px - a[0] - abx * t, py - a[1] - aby * t)
 
 
 def from_uv(u, v):

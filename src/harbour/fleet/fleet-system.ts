@@ -13,8 +13,10 @@ import { createFleetMaterials, type FleetUniforms } from "./fleet-material";
 import { loadKit, type HullVariant, type Kit } from "./hull-kit";
 import { bollardFor, MooringLines } from "./mooring-lines";
 import { RidingLights } from "./riding-lights";
+import { Fenders } from "./fenders";
 import { HouseFlags } from "./house-flags";
 import { coastDistance } from "../sim/obstacles";
+import type { QualityService, QualityTier } from "../engine/quality";
 import { approach, indexVariants, pickVariant, targetSwing, wreckScale, type VariantIndex } from "./variants";
 
 /**
@@ -44,9 +46,22 @@ const MOORED_LIT = 0.3;
 const LAMP_WARM = new THREE.Color("#FFE2B0");
 const LAMP_RED = new THREE.Color("#FF3A24");
 const LAMP_GREEN = new THREE.Color("#3DFF7A");
-const LOD_PX_IN = 40, LOD_PX_OUT = 34;
-const LINE_RANGE = 650;
+/**
+ * Fleet detail by the quality service's tier (the same art, less of it far away): the screen size at
+ * which a hull swaps to its full mesh (in / out, px), how near mooring lines and house flags are drawn,
+ * up to what zoom the fleet casts shadows, and whether still hulls stamp contact rings in the wake RT.
+ */
+interface FleetTier { lodIn: number; lodOut: number; lineRange: number; flagRange: number; shadowDist: number; contact: boolean; fenderRange: number }
+const FLEET_TIERS: Record<QualityTier, FleetTier> = {
+  high: { lodIn: 40, lodOut: 34, lineRange: 650, flagRange: 1300, shadowDist: 640, contact: true, fenderRange: 300 },
+  medium: { lodIn: 58, lodOut: 50, lineRange: 460, flagRange: 950, shadowDist: 520, contact: true, fenderRange: 200 },
+  low: { lodIn: 90, lodOut: 78, lineRange: 300, flagRange: 640, shadowDist: 360, contact: false, fenderRange: 0 },
+};
+/** DEWS bands at which the weather turns to storm for the fleet (ALERT … DANGER → 0.55 … 1). */
+const STORM_BY_BAND: Record<string, number> = { CALM: 0, WATCH: 0, ALERT: 0.55, WARNING: 0.8, DANGER: 1 };
 const WRECK_KITS = ["wreck_a", "wreck_b", "wreck_c"];
+/** The dead coins with the biggest peak cap get full-size, detailed hulks; the rest lie smaller. */
+const DETAILED_WRECKS = 16;
 const BUOY_KIT = "mooring_buoy";
 const DATA_W = 256;
 const CLASS_LOA_FALLBACK: Record<HullClass, number> = { flagship: 26, large: 18, medium: 13, small: 10, boat: 7.5, skiff: 5 };
@@ -78,6 +93,8 @@ interface BoatRec {
   brand: THREE.Color;
   bollardSlot: number;
   bow: [number, number, number] | null;
+  /** Bow-in (Mediterranean) berth: two bow lines to the quay, the stern's lazy line down to its block. */
+  med: boolean;
   stern: [number, number, number] | null;
   visible: boolean;
   dist: number;
@@ -102,12 +119,14 @@ export class FleetSystem implements WorldSystem {
   private boats: BoatRec[] = [];
   private byId = new Map<string, BoatRec>();
   private wreckInst: Array<{ inst: number; x: number; z: number; h: number; scale: number; heel: number; y: number; pitch: number; phi: number }> = [];
+  private wrecksPosed = false;
   private buoyInst: Array<{ inst: number; x: number; z: number; phi: number }> = [];
   private model: HarbourModel | null = null;
   private layout: HarbourLayout | null = null;
   private piers = new Map<string, Pier>();
   private lines!: MooringLines;
   private riding!: RidingLights;
+  private fenders: Fenders | null = null;
   private flags: HouseFlags | null = null;
   private hover: string | null = null;
   private selected: string | null = null;
@@ -129,6 +148,18 @@ export class FleetSystem implements WorldSystem {
   private readonly sphere = new THREE.Sphere();
   private ctx: EngineContext | null = null;
   private failed = false;
+  private tier: FleetTier = FLEET_TIERS.high;
+  private unsubQuality: (() => void) | null = null;
+  /** 0 fair … 1 full storm (DEWS ALERT+), eased; drives pitch/roll, heel and line snubbing. */
+  private storm = 0;
+  private time = 0;
+  private readonly ropeLight = new THREE.Color();
+  private readonly flagLight = new THREE.Color();
+  private ocean: OceanService | null = null;
+  /** Sea height under (x, z): a method, not a per-frame closure. */
+  private seaH(x: number, z: number): number { return this.ocean ? this.ocean.heightAt(x, z) : 0; }
+  /** A lamp's anchor in the current hull frame (this.m4) → world (this.v). Bound once, not per hull. */
+  private readonly lampAt = (lx: number, ly: number, lz: number): THREE.Vector3 => this.v.set(lx, ly, lz).applyMatrix4(this.m4);
 
   constructor() {
     const dt = new THREE.DataTexture(new Float32Array(DATA_W * 4 * 4), DATA_W, 4, THREE.RGBAFormat, THREE.FloatType);
@@ -165,12 +196,19 @@ export class FleetSystem implements WorldSystem {
     ctx.scene.add(this.lines.object);
     this.riding = new RidingLights(ctx.uniforms);
     ctx.scene.add(this.riding.object);
+    this.fenders = new Fenders();
+    ctx.scene.add(this.fenders.mesh);
     this.flags = new HouseFlags(ctx.uniforms, this.atlas.texture, this.atlas.grid);
     ctx.scene.add(this.flags.mesh);
     this.ring = this.makeRing();
     ctx.scene.add(this.ring);
 
     ctx.services.set("picking", this.pickingService());
+    const quality = ctx.services.get("quality") as QualityService | undefined;
+    if (quality) {
+      this.tier = FLEET_TIERS[quality.tier] ?? FLEET_TIERS.high;
+      this.unsubQuality = quality.onChange((q) => { this.tier = FLEET_TIERS[q.tier] ?? FLEET_TIERS.high; });
+    }
     if (import.meta.env.DEV && new URLSearchParams(location.search).get("fleet") === "debug") {
       this.debug = document.createElement("div");
       Object.assign(this.debug.style, { position: "fixed", left: "10px", top: "10px", zIndex: "50", font: "12px/1.45 ui-monospace, monospace", color: "#F4ECD8", background: "rgba(16,24,30,0.78)", padding: "8px 10px", borderRadius: "4px", whiteSpace: "pre", pointerEvents: "none" });
@@ -257,19 +295,21 @@ export class FleetSystem implements WorldSystem {
         swing: prev?.swing ?? 0, heel: prev?.heel ?? 0, hi: 0, px: prev?.px ?? 0, pz: prev?.pz ?? 0, vx: 0, vz: 0, seen: !!prev?.seen,
         phi: hash01(boat.id + "#bob") * Math.PI * 2,
         slot: this.atlas ? this.atlas.slotFor({ id: boat.id, symbol: boat.symbol, brandColor: boat.brandColor }) : -1,
-        brand, bollardSlot: -2, bow: null, stern: null, visible: false, dist: 0, lit: hash01(boat.id + "#lamp") < MOORED_LIT, flag: 1, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
+        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, lit: hash01(boat.id + "#lamp") < MOORED_LIT, flag: 1, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
       };
       this.boats.push(rec);
       this.byId.set(rec.id, rec);
     }
     this.placeWrecks(model, this.ctx?.services.get("sim") as HarbourSim | undefined);
+    this.wrecksPosed = false;
     this.placeBuoys();
   }
 
   /**
-   * Dead coins (readings.wrecks) that are not payload boats: hulks beached along the Wreck Cove strand
-   * (the sim's wreck slots: authored hulks first, then the boneyard), biggest peak cap first, each
-   * heeled over 20-35° and half buried, creaking slowly in the surf.
+   * Dead coins (readings.wrecks) that are not payload boats: hulks beached up the Wreck Cove strand (the
+   * sim's wreck slots: the island's beach slots / authored hulks first, then the boneyard), keel buried
+   * in dry sand, heeled over 20-35°. The DETAILED_WRECKS biggest by peak cap are full-size hulks on the
+   * best slots; the rest lie smaller and further gone along the same beach.
    */
   private placeWrecks(model: HarbourModel, sim: HarbourSim | undefined): void {
     const L = sim?.layout;
@@ -277,60 +317,69 @@ export class FleetSystem implements WorldSystem {
     const ground = this.ctx?.services.get("ground") as GroundService | undefined;
     const taken = new Set<number>();
     if (sim) for (let i = 0; i < sim.pose.count; i++) if (model.boats[i]?.state === "wrecked" && sim.pose.slot[i] >= 0) taken.add(sim.pose.slot[i]);
-    // clutter: hulks lie on open strand, not under trees or among rocks where nobody would see them
-    const clutter = (x: number, z: number) => {
-      if (!ground) return 0;
-      let m = -9;
-      for (let a = -6; a <= 6; a += 2) for (let b = -6; b <= 6; b += 2) if (a * a + b * b <= 36) m = Math.max(m, ground.heightAt(x + a, z + b));
-      return m;
+    const gy = (x: number, z: number) => (ground ? ground.heightAt(x, z) : 0.5);
+    // dry, open strand: sand above the waterline, no cliff or bank right over it
+    const dry = (x: number, z: number) => {
+      const h = gy(x, z);
+      if (h < 0.12 || h > 3.2) return false;
+      for (let a = -6; a <= 6; a += 3) for (let b = -6; b <= 6; b += 3) if (a * a + b * b <= 36 && gy(x + a, z + b) > h + 2.4) return false;
+      return true;
     };
-    type Spot = { x: number; z: number; h: number; big: boolean };
+    type Spot = { x: number; z: number; h: number; big: boolean; loa: number };
     const spots: Spot[] = [];
-    const near = (x: number, z: number, r: number) => spots.some((q) => Math.hypot(q.x - x, q.z - z) < r);
+    const near = (x: number, z: number, r: number) => spots.some((q) => Math.hypot(q.x - x, q.z - z) < r + q.loa * 0.3);
     let cx = 0, cz = 0, nc = 0;
     if (L) for (const w of L.wrecks) { cx += L.slots[w].x; cz += L.slots[w].z; nc++; }
     if (nc) { cx /= nc; cz /= nc; }
     if (L) for (const w of L.wrecks) {
       const s = L.slots[w];
-      if (taken.has(w) || clutter(s.x, s.z) > 3 || near(s.x, s.z, 6)) continue;
-      spots.push({ x: s.x, z: s.z, h: s.heading, big: !s.id.startsWith("wreck/bone") });
+      const big = !s.id.startsWith("wreck/bone");
+      if (taken.has(w) || !dry(s.x, s.z) || near(s.x, s.z, (big ? L.loa[s.cls] : 6) * 0.3)) continue;
+      spots.push({ x: s.x, z: s.z, h: s.heading, big, loa: big ? L.loa[s.cls] : 6 });
     }
-    // more open strand along the shore when the cove's own is wooded
+    const live = new Set(model.boats.map((b) => b.id));
+    const dead = model.readings.wrecks.filter((w) => !live.has(w.id)).sort((a, b) => (b.peakMcap ?? 0) - (a.peakMcap ?? 0));
+    // more dry strand round the cove when its own slots run out
     const coast = L?.field?.coast ?? null;
-    const dead = model.readings.wrecks.filter((w) => !new Set(model.boats.map((b) => b.id)).has(w.id)).sort((a, b) => (b.peakMcap ?? 0) - (a.peakMcap ?? 0));
     if (coast && nc && spots.length < dead.length) {
       const cand: Array<{ x: number; z: number; d: number }> = [];
-      for (let z = cz - 260; z <= cz + 260; z += 3) for (let x = cx - 260; x <= cx + 260; x += 3) {
+      for (let z = cz - 140; z <= cz + 140; z += 3) for (let x = cx - 140; x <= cx + 140; x += 3) {
         const c = coastDistance(coast, x, z);
-        if (c < -1.6 || c > 1.8) continue;
+        if (c < -5 || c > -0.5) continue;
         cand.push({ x, z, d: Math.hypot(x - cx, z - cz) });
       }
       cand.sort((p, q) => p.d - q.d);
       for (const p of cand) {
         if (spots.length >= dead.length) break;
-        if (near(p.x, p.z, 5.2) || clutter(p.x, p.z) > 2.5) continue;
+        if (near(p.x, p.z, 2.6) || !dry(p.x, p.z)) continue;
         const gx = coastDistance(coast, p.x + 1.5, p.z) - coastDistance(coast, p.x - 1.5, p.z), gz = coastDistance(coast, p.x, p.z + 1.5) - coastDistance(coast, p.x, p.z - 1.5);
-        spots.push({ x: p.x, z: p.z, h: Math.atan2(-gx, -gz) + (hash01(`w${p.x},${p.z}`) - 0.5) * 1.4, big: false });
+        spots.push({ x: p.x, z: p.z, h: Math.atan2(-gx, -gz) + (hash01(`w${p.x},${p.z}`) - 0.5) * 1.4, big: false, loa: 6 });
       }
     }
+    // the biggest dead take the best (authored, nearest the cove's heart) spots
+    spots.sort((a, b) => b.loa - a.loa || Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz));
     for (let i = 0; i < Math.min(spots.length, dead.length); i++) {
       const s = spots[i], w = dead[i];
+      const detailed = i < DETAILED_WRECKS;
       const kid = WRECK_KITS[(i * 7 + Math.floor(hash01(w.id) * 3)) % 3];
       const geom = this.geomIds.get(kid);
       const prop = kit.props.get(kid);
       if (geom == null || !prop) continue;
-      const scale = ((s.big ? 9 + 6 * hash01(w.id + "#s") : 5.5 + 4 * hash01(w.id + "#s")) / prop.loa) * wreckScale(w.peakMcap);
+      const len = detailed ? Math.max(10, Math.min(16, s.loa * 0.85)) * (0.9 + 0.2 * hash01(w.id + "#s")) : Math.min(6.8, Math.max(4.4, s.loa * 0.6)) * (0.85 + 0.3 * hash01(w.id + "#s"));
+      const scale = (len / prop.loa) * (detailed ? wreckScale(w.peakMcap) : 1);
       const inst = this.addInstance(geom);
-      const gy = ground ? ground.heightAt(s.x, s.z) : -1;
       const side = hash01(w.id + "#side") < 0.5 ? -1 : 1;
+      // the keel half-buried in the sand where she lies: the sand's own height, less the burial
+      const sand = Math.min(gy(s.x, s.z), gy(s.x + Math.sin(s.h) * len * 0.3, s.z + Math.cos(s.h) * len * 0.3), gy(s.x - Math.sin(s.h) * len * 0.3, s.z - Math.cos(s.h) * len * 0.3));
       this.wreckInst.push({
         inst, x: s.x, z: s.z, h: s.h, scale,
-        heel: side * (0.35 + 0.26 * hash01(w.id + "#heel")),
-        // settled into the strand: deeper in the shallows, barely on the beach
-        y: Math.max(-0.9, Math.min(gy, 0.8) - 0.35 - 0.3 * hash01(w.id + "#y")),
-        pitch: 0.04 + 0.08 * hash01(w.id + "#p"), phi: hash01(w.id + "#c") * 6.28,
+        heel: side * (0.3 + 0.24 * hash01(w.id + "#heel")),
+        y: sand - (0.18 + 0.22 * hash01(w.id + "#y")) * len * 0.11,
+        pitch: 0.03 + 0.07 * hash01(w.id + "#p"), phi: hash01(w.id + "#c") * 6.28,
       });
-      this.writeData(inst, 0, 0, 0, 0.5, 0.5, 0.5, -2, 0);
+      // smaller hulks: further gone, bleached
+      const k = detailed ? 0.5 : 0.62;
+      this.writeData(inst, 0, 0, 0, k, k, k, -2, 0);
     }
   }
 
@@ -352,7 +401,7 @@ export class FleetSystem implements WorldSystem {
     const model = ctx.services.get("model") as HarbourModel | undefined;
     const sim = ctx.services.get("sim") as HarbourSim | undefined;
     if (model && model !== this.model) this.install(model);
-    const ocean = ctx.services.get("ocean") as OceanService | undefined;
+    this.ocean = (ctx.services.get("ocean") as OceanService | undefined) ?? null;
     const wake = ctx.services.get("wake") as WakeService | undefined;
     const cam = ctx.camera;
     this.pv.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
@@ -360,13 +409,21 @@ export class FleetSystem implements WorldSystem {
     const viewH = ctx.renderer.domElement.clientHeight || innerHeight;
     const pxPerM = viewH / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));
     const time = frame.elapsed, dt = Math.max(1e-3, frame.delta);
-    const H = (x: number, z: number) => (ocean ? ocean.heightAt(x, z) : 0);
+    this.time = time;
+    const tier = this.tier;
+    // storm: the weather band the sky and the storm mast show (DEWS ALERT and worse)
+    const readings = ctx.services.get("readings") as { stormBand?: string | null } | undefined;
+    const stormT = STORM_BY_BAND[readings?.stormBand ?? "CALM"] ?? 0;
+    this.storm += (stormT - this.storm) * (1 - Math.exp(-dt * 0.35));
+    const storm = this.storm;
+    const ground = ctx.services.get("ground") as GroundService | undefined;
     const mesh = this.mesh;
-    mesh.castShadow = ctx.rig.distance < 640;
+    mesh.castShadow = ctx.rig.distance < tier.shadowDist;
 
     const st = this.stats;
     st.full = 0; st.lod = 0; st.visible = 0; st.moving = 0; st.docked = 0; st.wakes = 0;
     this.lines.begin();
+    this.fenders?.begin();
     const pose = sim?.pose;
     const n = pose && model && pose.count === model.boats.length ? pose.count : 0;
     const windFrom = sim?.wind.fromRad ?? -1;
@@ -398,7 +455,8 @@ export class FleetSystem implements WorldSystem {
       // rig pose
       const target = b.wrecked ? 0 : targetSwing(h, windFrom, sail);
       b.swing = approach(b.swing, target, dt * 0.55);
-      const heelT = pose!.heel[i];
+      // in a storm the sail drawing heels her hard over (the sim's heel follows the model's wind)
+      const heelT = pose!.heel[i] * (moving ? 1 + 1.3 * storm : 1);
       b.heel += (heelT - b.heel) * (1 - Math.exp(-dt * 1.2));
       const hiT = b.id === this.hover ? 1 : b.id === this.selected ? 0.5 : 0;
       b.hi += (hiT - b.hi) * hiK;
@@ -406,18 +464,41 @@ export class FleetSystem implements WorldSystem {
       // swell: bob, pitch, roll from the sea surface under the hull (big hulls average more)
       const fx = Math.sin(h), fz = Math.cos(h);
       const half = b.loa * 0.4, hb = b.beam * 0.5;
-      const h0 = H(x, z), hBow = H(x + fx * half, z + fz * half), hSt = H(x - fx * half, z - fz * half);
-      const hPort = H(x + fz * hb, z - fx * hb), hStb = H(x - fz * hb, z + fx * hb);
+      const h0 = this.seaH(x, z), hBow = this.seaH(x + fx * half, z + fz * half), hSt = this.seaH(x - fx * half, z - fz * half);
+      const hPort = this.seaH(x + fz * hb, z - fx * hb), hStb = this.seaH(x - fz * hb, z + fx * hb);
       const resp = b.wrecked ? 0.12 : Math.min(1, Math.max(0.3, 9 / b.loa));
       const idle = moving ? 0.6 : 1;
       const bob = (h0 * 0.7 + (hBow + hSt) * 0.15) + Math.sin(time * 0.9 + b.phi) * 0.035 * resp * idle;
-      const pitch = Math.atan2(hBow - hSt, half * 2) * 0.8 * resp + Math.sin(time * 0.7 + b.phi * 1.3) * 0.006 * resp;
-      const roll = Math.atan2(hPort - hStb, b.beam) * 0.7 * resp + Math.sin(time * 1.05 + b.phi) * 0.014 * resp * idle;
+      let pitch = Math.atan2(hBow - hSt, half * 2) * 0.8 * resp + Math.sin(time * 0.7 + b.phi * 1.3) * 0.006 * resp;
+      let roll = Math.atan2(hPort - hStb, b.beam) * 0.7 * resp + Math.sin(time * 1.05 + b.phi) * 0.014 * resp * idle;
+      // storm: under way she labours (pitching into the seas, rolling); alongside or on her mooring she
+      // snubs at her lines, surging back and forth and sheering
+      let sx = x, sz = z, sh = h;
+      if (storm > 0.01 && !b.wrecked) {
+        const k = storm * resp;
+        if (moving) {
+          pitch = pitch * (1 + 1.4 * storm) + k * (0.07 * Math.sin(time * 1.15 + b.phi * 1.7) + 0.03 * Math.sin(time * 2.3 + b.phi));
+          roll = roll * (1 + 1.2 * storm) + k * (0.09 * Math.sin(time * 0.83 + b.phi) + 0.035 * Math.sin(time * 1.9 + b.phi * 2.1));
+        } else {
+          const ph2 = time * 0.55 + b.phi * 2.3;
+          const snub = Math.sin(ph2) + 0.35 * Math.sin(ph2 * 2.1 + 1.3); // a tug, a slack, a sharper tug
+          const surge = storm * (0.25 + 0.012 * b.loa) * snub;
+          sx += fx * surge; sz += fz * surge;
+          sh += storm * 0.06 * Math.sin(time * 0.41 + b.phi * 1.1);
+          pitch += k * 0.05 * Math.sin(time * 1.1 + b.phi);
+          roll += k * 0.07 * Math.sin(time * 0.9 + b.phi * 1.4);
+        }
+      }
 
-      const wreckSink = b.wrecked ? -0.75 : 0;
-      this.e.set(b.heel + roll, h - Math.PI / 2, pitch, "YZX");
+      if (b.wrecked) {
+        // beached: on the sand, keel buried, no swell under her
+        this.e.set(b.heel, h - Math.PI / 2, 0.05, "YZX");
+        this.v.set(x, (ground ? ground.heightAt(x, z) : 0) - b.beam * 0.22, z);
+      } else {
+        this.e.set(b.heel + roll, sh - Math.PI / 2, pitch, "YZX");
+        this.v.set(sx, bob, sz);
+      }
       this.q.setFromEuler(this.e);
-      this.v.set(x, bob + wreckSink, z);
       this.m4.compose(this.v, this.q, this.s.setScalar(b.scale));
       mesh.setMatrixAt(b.inst, this.m4);
 
@@ -429,7 +510,7 @@ export class FleetSystem implements WorldSystem {
       const dx = cam.position.x - x, dy = cam.position.y - cy, dz = cam.position.z - z;
       b.dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
       const px = (b.loa / b.dist) * pxPerM;
-      let g = b.wrecked ? b.geomWreck : b.geomCur === b.geomFull ? (px < LOD_PX_OUT ? b.geomLod : b.geomFull) : (px > LOD_PX_IN ? b.geomFull : b.geomLod);
+      let g = b.wrecked ? b.geomWreck : b.geomCur === b.geomFull ? (px < tier.lodOut ? b.geomLod : b.geomFull) : (px > tier.lodIn ? b.geomFull : b.geomLod);
       if (b.hi > 0.05 && !b.wrecked) g = b.geomFull;
       if (g !== b.geomCur) { mesh.setGeometryIdAt(b.inst, g); b.geomCur = g; }
       if (b.visible) { st.visible++; if (g === b.geomFull) st.full++; else st.lod++; }
@@ -440,7 +521,7 @@ export class FleetSystem implements WorldSystem {
       // a house flag with the coin's emblem at the masthead of the bigger hulls at rest (sails furled)
       // (aground on the Shoals: a distress signal instead, every hull)
       const distress = ph === PH_ANCHORED && sim?.slotOf(i)?.kind === "shoals";
-      if (this.flags && !moving && !b.wrecked && b.visible && b.dist < 1300 && (distress || (b.loa >= 12.5 && b.slot >= 0 && ph !== PH_ANCHORED))) {
+      if (this.flags && !moving && !b.wrecked && b.visible && b.dist < tier.flagRange && (distress || (b.loa >= 12.5 && b.slot >= 0 && ph !== PH_ANCHORED))) {
         this.v.copy(b.variant.masthead).applyMatrix4(this.m4);
         this.flags.add(this.v.x, this.v.y + 0.35, this.v.z, Math.min(3.8, Math.max(1.4, b.loa * (b.loa < 15 ? 0.11 : 0.13))), downwind, Math.atan2(cam.position.x - x, cam.position.z - z), distress ? -3 : b.slot, b.phi * 3);
       }
@@ -449,7 +530,7 @@ export class FleetSystem implements WorldSystem {
       // moored, only some hulls show a dim one
       if (glowK > 0.001 && b.visible && !b.wrecked && (moving || ph === PH_ANCHORED || b.lit)) {
         const v = b.variant, rl = this.riding;
-        const lampAt = (lx: number, ly: number, lz: number) => this.v.set(lx, ly, lz).applyMatrix4(this.m4);
+        const lampAt = this.lampAt;
         if (moving) {
           const mh = lampAt(v.masthead.x, v.masthead.y, v.masthead.z);
           rl.add(mh.x, mh.y, mh.z, LAMP_WARM.r * 5, LAMP_WARM.g * 5, LAMP_WARM.b * 5, 0.42, h0, 0.6);
@@ -475,29 +556,32 @@ export class FleetSystem implements WorldSystem {
           // aground: surf breaks and churns round the hull, pulsing with the swell
           const surge = 0.5 + 0.5 * Math.sin(time * 1.4 + b.phi);
           wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * (1.6 + 0.4 * surge), 1.4 + 0.6 * surge, b.loa * 0.7);
-        } else wake.stamp(x, z, fx * 0.002, fz * 0.002, hb, 0.9, b.loa * 0.5);
+        } else if (tier.contact || b.visible) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb, 0.9, b.loa * 0.5);
         st.wakes++;
       }
       if (ph === PH_DOCKED || ph === PH_MOORED) st.docked++;
 
       // mooring lines (near the camera only: they are a close-zoom read)
-      if (slots && !b.wrecked && b.visible && b.dist < LINE_RANGE) {
+      if (slots && !b.wrecked && b.visible && b.dist < tier.lineRange) {
         const si = pose!.slot[i];
         const s = si >= 0 ? slots[si] : undefined;
-        if (s) this.mooringLines(b, s, x, z, h, bob);
+        if (s) this.mooringLines(b, s, x, z, pose!.lines[i], bob);
       }
     }
 
-    // hulks creak in the surf
-    for (const w of this.wreckInst) {
-      this.e.set(w.heel + Math.sin(time * 0.45 + w.phi) * 0.012, w.h - Math.PI / 2, w.pitch + Math.sin(time * 0.31 + w.phi) * 0.006, "YZX");
-      this.m4.compose(this.v.set(w.x, w.y + Math.sin(time * 0.6 + w.phi) * 0.03, w.z), this.q.setFromEuler(this.e), this.s.setScalar(w.scale));
-      mesh.setMatrixAt(w.inst, this.m4);
+    // hulks lie still on the dry strand (set once: they never move)
+    if (!this.wrecksPosed) {
+      this.wrecksPosed = true;
+      for (const w of this.wreckInst) {
+        this.e.set(w.heel, w.h - Math.PI / 2, w.pitch, "YZX");
+        this.m4.compose(this.v.set(w.x, w.y, w.z), this.q.setFromEuler(this.e), this.s.setScalar(w.scale));
+        mesh.setMatrixAt(w.inst, this.m4);
+      }
     }
 
     // buoys bob on the swell
     for (const bu of this.buoyInst) {
-      const y = H(bu.x, bu.z);
+      const y = this.seaH(bu.x, bu.z);
       this.e.set(Math.sin(time * 1.3 + bu.phi) * 0.06, bu.phi, Math.sin(time * 1.1 + bu.phi * 2) * 0.06, "YZX");
       this.m4.compose(this.v.set(bu.x, y - 0.05, bu.z), this.q.setFromEuler(this.e), this.s.setScalar(1));
       mesh.setMatrixAt(bu.inst, this.m4);
@@ -510,11 +594,12 @@ export class FleetSystem implements WorldSystem {
       u.uHemiSky.value.g * 1.6 + u.uSunColor.value.g * 0.12,
       u.uHemiSky.value.b * 1.6 + u.uSunColor.value.b * 0.12,
     );
-    this.lines.end(new THREE.Color(Math.min(1, light.x), Math.min(1, light.y), Math.min(1, light.z)));
+    this.lines.end(this.ropeLight.setRGB(Math.min(1, light.x), Math.min(1, light.y), Math.min(1, light.z)));
+    this.fenders?.end();
     this.riding.end(glowK, Math.min(1, (sim?.wind.strength ?? 0.35) * 1.4));
     if (this.flags) {
       const dim = 1 - 0.72 * u.uNight.value;
-      const fl = new THREE.Color(
+      const fl = this.flagLight.setRGB(
         Math.min(1.1, u.uHemiSky.value.r * 1.1 + u.uSunColor.value.r * 0.42) * dim,
         Math.min(1.1, u.uHemiSky.value.g * 1.1 + u.uSunColor.value.g * 0.42) * dim,
         Math.min(1.1, u.uHemiSky.value.b * 1.1 + u.uSunColor.value.b * 0.42) * dim,
@@ -528,7 +613,12 @@ export class FleetSystem implements WorldSystem {
     if (this.debug) this.updateDebug(frame, ctx, sim);
   }
 
-  private mooringLines(b: BoatRec, s: NonNullable<HarbourSim["layout"]["slots"][number]>, x: number, z: number, _h: number, bob: number): void {
+  /**
+   * Lines from the sim's `lines` (0..1): thrown from the deck once she is in (bow line, then stern line,
+   * then the spring), arcing over and dropping into their sag on the bollard; hauled back aboard before
+   * she casts off.
+   */
+  private mooringLines(b: BoatRec, s: NonNullable<HarbourSim["layout"]["slots"][number]>, x: number, z: number, lines: number, bob: number): void {
     const v = b.variant, sc = b.scale;
     if (s.kind === "berth") {
       if (b.bollardSlot !== s.index) {
@@ -540,23 +630,51 @@ export class FleetSystem implements WorldSystem {
         const tx = s.x + fx * (v.sternCleat.x * sc - b.loa * 0.25), tz = s.z + fz * (v.sternCleat.x * sc - b.loa * 0.25);
         b.bow = bollardFor(this.layout!, pier, bx, bz, Math.max(8, b.loa * 0.6));
         b.stern = bollardFor(this.layout!, pier, tx, tz, Math.max(8, b.loa * 0.6));
+        // bow-in to a quay with nothing alongside (a Mediterranean berth): two crossed bow lines to the
+        // quay and a lazy line from the stern down to its mooring block, never a rope across the water
+        const side = bollardFor(this.layout!, pier, s.x + sx * b.beam * 0.9, s.z + sz * b.beam * 0.9, b.beam * 0.6);
+        b.med = s.mode === "finger" && !side && !!b.bow;
+        if (b.med && b.bow) {
+          // her bollard sits on the quay dead ahead of the bow (one per berth): both bow lines go to it
+          b.bow = bollardFor(this.layout!, pier, s.x + fx * (b.loa * 0.5 + 1.2), s.z + fz * (b.loa * 0.5 + 1.2), Math.max(8, b.loa * 0.6)) ?? b.bow;
+          b.stern = [s.x - fx * b.loa * 1.25, -0.6, s.z - fz * b.loa * 1.25];
+        }
       }
+      // never a line stretched to a berth she is not at (stale holds, re-plans)
       const d = Math.hypot(x - s.x, z - s.z);
-      const k = 1 - THREE.MathUtils.smoothstep(d, b.loa * 0.12, b.loa * 0.9);
-      if (k <= 0) return;
-      if (b.bow) { this.v.copy(v.bowCleat).applyMatrix4(this.m4); this.lines.add(b.bow[0], b.bow[1], b.bow[2], this.v.x, this.v.y, this.v.z, k); }
-      if (b.stern) { this.v.copy(v.sternCleat).applyMatrix4(this.m4); this.lines.add(b.stern[0], b.stern[1], b.stern[2], this.v.x, this.v.y, this.v.z, k); }
+      const near = 1 - THREE.MathUtils.smoothstep(d, b.loa * 0.25, b.loa * 0.9);
+      if (near <= 0 || lines <= 0.001) return;
+      const kb = Math.min(near, THREE.MathUtils.smoothstep(lines, 0, 0.4));
+      const kt = Math.min(near, THREE.MathUtils.smoothstep(lines, 0.3, 0.72));
+      if (b.bow && kb > 0) {
+        if (b.med) {
+          // a Mediterranean berth: port and starboard bow lines in a V to her bollard, the second a beat later
+          for (let k = -1; k <= 1; k += 2) {
+            const kk = k < 0 ? kb : Math.max(0, (kb - 0.25) / 0.75);
+            if (kk <= 0) continue;
+            this.v.set(v.bowCleat.x * 0.86, v.bowCleat.y, v.beam * 0.3 * k).applyMatrix4(this.m4);
+            this.lines.throwLine(this.v.x, this.v.y, this.v.z, b.bow[0], b.bow[1], b.bow[2], kk);
+          }
+        } else { this.v.copy(v.bowCleat).applyMatrix4(this.m4); this.lines.throwLine(this.v.x, this.v.y, this.v.z, b.bow[0], b.bow[1], b.bow[2], kb); }
+      }
+      if (b.stern && kt > 0) { this.v.copy(v.sternCleat).applyMatrix4(this.m4); this.lines.throwLine(this.v.x, this.v.y, this.v.z, b.stern[0], b.stern[1], b.stern[2], kt); }
+      // fenders over the side once she is in (alongside: the quay side; in a slip: both sides)
+      if (this.fenders && b.dist < this.tier.fenderRange) {
+        let side = 0;
+        if (s.mode === "alongside" && s.warp) side = -s.warp[0] * -Math.cos(s.heading) + -s.warp[1] * Math.sin(s.heading) > 0 ? 1 : -1;
+        this.fenders.add(this.m4, v.loa, v.beam / 2, v.bowCleat.y, side, THREE.MathUtils.smoothstep(lines, 0.1, 0.5) * near, b.phi + this.time * 0.8);
+      }
       // alongside: a spring from amidships aft to the stern bollard, made fast last
       if (s.mode === "alongside" && b.stern) {
-        const ks = Math.max(0, k * 1.6 - 0.6);
+        const ks = Math.min(near, THREE.MathUtils.smoothstep(lines, 0.66, 1));
         this.v.set(v.bowCleat.x * 0.25, v.bowCleat.y, v.bowCleat.z).applyMatrix4(this.m4);
-        this.lines.add(b.stern[0], b.stern[1], b.stern[2], this.v.x, this.v.y, this.v.z, ks);
+        if (ks > 0) this.lines.throwLine(this.v.x, this.v.y, this.v.z, b.stern[0], b.stern[1], b.stern[2], ks);
       }
       return;
     }
     if (s.swing > 0) {
       const d = Math.hypot(x - s.x, z - s.z);
-      const k = 1 - THREE.MathUtils.smoothstep(d, s.swing + b.loa * 0.35, s.swing + b.loa * 1.4);
+      const k = Math.min(1 - THREE.MathUtils.smoothstep(d, s.swing + b.loa * 0.35, s.swing + b.loa * 1.4), THREE.MathUtils.smoothstep(lines, 0, 0.6));
       if (k <= 0) return;
       this.v.copy(v.bowCleat).applyMatrix4(this.m4);
       // a buoy ring for moorings; the anchor rode enters the water for the far anchorage and the Shoals
@@ -627,8 +745,9 @@ export class FleetSystem implements WorldSystem {
     const ndc = new THREE.Vector3();
     const tmp = new THREE.Vector3();
     const sph = new THREE.Sphere();
+    const segB = new THREE.Vector3(), pOnRay = new THREE.Vector3(), pOnSeg = new THREE.Vector3();
     const toNdc = (clientX: number, clientY: number): boolean => {
-      const el = this.ctx!.renderer.domElement, r = el.getBoundingClientRect();
+      const r = this.canvasRect();
       if (r.width <= 0 || r.height <= 0) return false;
       ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1, 0.5);
       return true;
@@ -656,8 +775,7 @@ export class FleetSystem implements WorldSystem {
           // vertical axis from the ground up: tall things are picked on their body, zones on their footprint
           const hgt = lm.footprint <= 30 ? Math.max(6, lm.footprint * 1.4) : 2;
           const segA = tmp.set(lm.position[0], lm.position[1], lm.position[2]);
-          const segB = new THREE.Vector3(lm.position[0], lm.position[1] + hgt, lm.position[2]);
-          const pOnRay = new THREE.Vector3(), pOnSeg = new THREE.Vector3();
+          segB.set(lm.position[0], lm.position[1] + hgt, lm.position[2]);
           const d2 = ray.distanceSqToSegment(segA, segB, pOnRay, pOnSeg);
           if (d2 > r * r) continue;
           const t = pOnRay.distanceTo(ray.origin);
@@ -678,7 +796,7 @@ export class FleetSystem implements WorldSystem {
           tmp.set(lm.position[0], lm.position[1] + (lm.footprint <= 30 ? lm.footprint * 1.2 : 4), lm.position[2]);
         }
         tmp.project(ctx.camera);
-        const r = ctx.renderer.domElement.getBoundingClientRect();
+        const r = this.canvasRect();
         const x = r.left + (tmp.x * 0.5 + 0.5) * r.width, y = r.top + (-tmp.y * 0.5 + 0.5) * r.height;
         const visible = tmp.z > -1 && tmp.z < 1 && Math.abs(tmp.x) <= 1 && Math.abs(tmp.y) <= 1;
         return { x, y, visible };
@@ -687,6 +805,18 @@ export class FleetSystem implements WorldSystem {
       setSelected: (id) => { this.selected = id; },
     };
   }
+
+  /** The canvas' client rect, read once per resize (getBoundingClientRect allocates and forces layout). */
+  private rect: { left: number; top: number; width: number; height: number } | null = null;
+  private canvasRect(): { left: number; top: number; width: number; height: number } {
+    if (!this.rect) {
+      const r = this.ctx!.renderer.domElement.getBoundingClientRect();
+      this.rect = { left: r.left, top: r.top, width: r.width, height: r.height };
+    }
+    return this.rect;
+  }
+
+  resize(): void { this.rect = null; }
 
   // ------------------------------------------------------------------ dev overlay
 
@@ -756,11 +886,13 @@ export class FleetSystem implements WorldSystem {
     if (this.lines) { ctx.scene.remove(this.lines.object); this.lines.dispose(); }
     if (this.ring) { ctx.scene.remove(this.ring); this.ring.geometry.dispose(); (this.ring.material as THREE.Material).dispose(); }
     if (this.riding) { ctx.scene.remove(this.riding.object); this.riding.dispose(); }
+    if (this.fenders) { ctx.scene.remove(this.fenders.mesh); this.fenders.dispose(); }
     if (this.flags) { ctx.scene.remove(this.flags.mesh); this.flags.dispose(); }
     this.material?.dispose(); this.depth?.dispose();
     this.atlas?.dispose();
     this.uniforms.uFleetData.value.dispose();
     this.debug?.remove();
+    this.unsubQuality?.(); this.unsubQuality = null;
     ctx.services.delete("picking");
   }
 }

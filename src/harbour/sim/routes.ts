@@ -244,7 +244,10 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
   extras.headKeep = head.length;
   extras.tailLen = polyLen(arr);
   extras.w1 = w1;
-  return { pts, tail: arr.length, extras };
+  // a swinging slot is reached through its field: only the pick-up run is kept exactly, the way in to
+  // it is cleared round the other moored hulls like the rest of the leg
+  const tail = to.swing > 0 && arr.length > 3 ? 3 : arr.length;
+  return { pts, tail, extras };
 }
 
 /** Smoothed path for a slot-to-slot leg of a hull class. */

@@ -278,15 +278,14 @@ for i, p in enumerate(CJ['shoals']['slots'][:21]):
 
 # ---------------------------------------------------------------- Wreck Cove: grey hulks beached in the bight
 hulk = bmesh.new()
-for i, (p, a) in enumerate(CJ['wreck']['slots'][:22]):
-    L_ = (18.0, 13.0, 10.0, 7.5)[i % 4]
+for i, (p, a, wcls, wz) in enumerate(CJ['wreck']['slots']):
+    L_ = CJ['hull']['loa'][wcls] * 0.92
     P_ = dict(br=0.3, fb=0.11, dr=0.06, bow=2.2, stern=0.6, sheer=(0.3, 0.15), bulwark=0.2)
     hb_, names, D_ = nl_kit.hull_mesh(L_, P_, {}, n=8)
     # broken: drop the deck faces, open the stern
     bmesh.ops.delete(hb_, geom=[f for f in hb_.faces if f.normal.z > 0.8 and f.calc_center_median().z > 0.1], context='FACES')
     xf(hb_, rx=math.radians(BRNG.uniform(-22, 22)), rz=a)
-    z = H(*p) if globals().get('H') and point_in_poly(p[0], p[1], COAST) else -0.4
-    xf(hb_, loc=(p[0], p[1], max(-0.6, min(z, 1.5)) - 0.3))
+    xf(hb_, loc=(p[0], p[1], wz - 0.35))
     merge(hulk, hb_)
 obj('wreck_hulks', hulk, face=lambda q: ((lin('#6E6A64') if q.normal.z > -0.2 else lin('#4E4A46')), PT['strakes']), family='keyart', jitter=0.12)
 

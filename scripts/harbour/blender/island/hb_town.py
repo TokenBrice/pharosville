@@ -96,6 +96,10 @@ def house2(name, lot, rng, extra=None):
         P.update(w=w, d=d, floors=3, fh=3.1, ridge='y', pitch=50, wall=PAL[rng.choice(('wall_falu', 'wall_ochre', 'wall_falu', 'wall_white', 'wall_mustard'))],
                  wall_pat='boards', roof_style='tar', flowers=False, door_col=PAL['tar'], win_pitch=3.2, chimney=False,
                  win_faces=['-y', '+x', '-x'])
+    elif style == 'boathouse':
+        P.update(floors=1, fh=3.3, ridge='y', pitch=rng.uniform(44, 50), wall=PAL[(extra or {}).get('wall', 'wall_falu')], wall_pat='boards',
+                 roof_style=rng.choice(('tar', 'tiles', 'turf')), flowers=False, door_col=PAL['tar'], win_pitch=3.0, chimney=False,
+                 win_faces=['+x', '-x'], base=0.5)
     if 'roof' not in P:
         P['roof'] = {'tiles': PAL[rng.choice(('roof_red', 'roof_red', 'roof_ochre'))], 'slate': PAL['roof_slate'],
                      'tar': PAL['roof_tar'], 'turf': PAL['turf']}[P['roof_style']]
@@ -106,6 +110,15 @@ def house2(name, lot, rng, extra=None):
     if tuple(face) == (-1, 0):
         rz = -math.pi / 2
     root = build_house(name, P, (lot['c'][0], lot['c'][1], lot['z']), rz, seed=rng.randint(0, 10 ** 6), family='house')
+    if style == 'boathouse':        # the big doors on the water gable + a timber run down onto the pebbles
+        bd = bm_box2(-w * 0.33, -d / 2 - 0.12, P['base'] - 0.2, w * 0.33, -d / 2 + 0.05, P['base'] + 2.75)
+        obj(name + '_boatdoor', bd, lin('#3B2E26'), PT['boards'], parent=root, family='house', jitter=0.05)
+        fr_ = bm_box2(-w * 0.36, -d / 2 - 0.16, P['base'] + 2.75, w * 0.36, -d / 2 + 0.05, P['base'] + 3.0)
+        for sx_ in (-1, 1):
+            merge(fr_, bm_box2(sx_ * w * 0.36 - 0.12, -d / 2 - 0.16, P['base'] - 0.2, sx_ * w * 0.36 + 0.12, -d / 2 + 0.05, P['base'] + 2.75))
+        obj(name + '_boatdoor_frame', fr_, PAL['trim'], PT['plain'], parent=root, family='house', jitter=0.0)
+        rp_ = nl_kit.beam((0, -d / 2 + 0.2, P['base'] - 0.05), (0, -d / 2 - 5.5, -1.2), w * 0.5, 0.22)
+        obj(name + '_ramp', rp_, PAL['timber_grey'], PT['boards'], parent=root, family='house', jitter=0.08)
     H = P['base'] + P['floors'] * P['fh']
     pitch = math.radians(P['pitch'])
     span = d if P['ridge'] == 'x' else w
@@ -213,7 +226,7 @@ HAMLET_WALL = {'pier-hyperliquid-l1': 'wall_mint', 'pier-polygon': 'wall_white',
 for i, lot in enumerate(LOTS_):
     nm = f"{lot['style']}_{i:03d}"
     extra = None
-    if lot.get('pid') and lot['style'] in ('hamlet', 'loft', 'cottage'):
+    if lot.get('pid') and lot['style'] in ('hamlet', 'loft', 'cottage', 'boathouse'):
         extra = dict(wall=HAMLET_WALL[lot['pid']])
         if lot['style'] != 'loft' and TRNG.random() < 0.45:
             extra['wall'] = TRNG.choice(WALLS)
@@ -279,7 +292,8 @@ LM = CJ['landmarks']
 
 # ---------------------------------------------------------------- Customs House + the tide board
 cp = LM['customs_house']['p']; zq = Z_SHORE
-ch = make_root('customs_house', cp, zq, face_rz(LM['customs_house']['face']))
+# v4: the Customs House stands on the first terrace, above the square and the big tide board in front of it
+ch = make_root('customs_house', cp, LM['customs_house']['z'], face_rz(LM['customs_house']['face']))
 stone_block('customs_house_body', -11, -7, -1.5, 11, 7, 11.4, 'stone_white', 'render', ch)
 stone_block('customs_house_plinth', -11.3, -7.3, -1.5, 11.3, 7.3, 1.0, 'granite', 'ashlar', ch)
 stone_block('customs_house_cornice', -11.4, -7.4, 11.2, 11.4, 7.4, 11.8, 'granite_light', 'plain', ch)
@@ -306,44 +320,72 @@ door = bm_box2(-1.6, -7.15, 1.0, 1.6, -6.9, 4.4)
 obj('customs_house_door', door, PAL['door_blue'], PT['boards'], parent=ch, family='landmark')
 steps = bmesh.new()
 for k in range(4):
-    merge(steps, bm_box2(-3.4 + k * 0.3, -9.4 + k * 0.5, -0.4, 3.4 - k * 0.3, -7.0, 0.25 * (k + 1)))
+    merge(steps, bm_box2(-3.4 + k * 0.3, -7.9 + k * 0.2, -0.4, 3.4 - k * 0.3, -7.0, 0.25 * (k + 1)))
 obj('customs_house_steps', steps, PAL['granite_light'], PT['ashlar'], parent=ch, family='landmark', bevel=0.03)
-fp_ = bm_cyl(0.12, 0.08, 9.0, 6, (9.5, -9.5, 0)); merge(fp_, bm_sphere(0.22, (9.5, -9.5, 9.1), 6, 4))
+fp_ = bm_cyl(0.12, 0.08, 9.0, 6, (9.5, -7.9, 0)); merge(fp_, bm_sphere(0.22, (9.5, -7.9, 9.1), 6, 4))
 obj('customs_house_flagpole', fp_, PAL['trim'], PT['plain'], parent=ch, family='landmark')
 collect_windows(ch, 'customs_house')
-# the tide board: a big framed black board on two granite posts on the square, facing the bay.
-# "tide_board" = the flat face the runtime draws 24 hourly bars on (UV 0..1, u = hour, v = up).
+# the tide board (v4: twice the size, tilted back toward the camera so it reads as a bar chart from the heart view): a
+# framed slate on a granite plinth along the square's front, leaning back on iron struts.
+# "tide_board" = the flat face the runtime draws 24 hourly bars on (UV 0..1, u = hour, v = up the board).
 tbp = LM['tide_board']['p']
 tb = make_root('tide_board_frame', tbp, zq, face_rz(LM['tide_board']['face']))
-BW_, BH_, BZ_ = 18.0, 6.2, 2.4
-for sx in (-1, 1):
-    stone_block(f'tide_board_post{sx}', sx * (BW_ / 2 + 0.2) - 0.45, -0.45, -0.5, sx * (BW_ / 2 + 0.2) + 0.45, 0.45, BZ_ + BH_ + 0.8, 'granite_light', 'ashlar', tb)
+BW_, BH_ = 43.2, 14.9                   # 2.4x the P3 board (18 x 6.2), the runtime canvas' aspect
+TB_TILT = math.radians(50.0)            # back from vertical: the face looks up at the heart camera (pitch 30)
+TB_Y0, TB_Z0 = -5.2, 1.15               # the board's bottom edge (local, the square at 0)
+
+
+def tb_place(bm_):
+    """Board space (x across, y = depth behind the face, z up the board from its bottom edge) -> the tilted board."""
+    xf(bm_, rx=-TB_TILT); xf(bm_, loc=(0.0, TB_Y0, TB_Z0))
+    return bm_
+
+
+plinth = bmesh.new()
+merge(plinth, bm_box2(-BW_ / 2 - 1.0, TB_Y0 - 0.9, -0.5, BW_ / 2 + 1.0, TB_Y0 + 0.9, TB_Z0 + 0.1))
+for sx in (-1, 1):                       # end piers rising with the board's edges
+    pe = bm_box2(sx * (BW_ / 2 + 0.25) - 0.55, -0.6, -0.3, sx * (BW_ / 2 + 0.25) + 0.55, 0.6, BH_ + 0.2)
+    tb_place(pe); merge(plinth, pe)
+obj('tide_board_plinth', plinth, PAL['granite_light'], PT['ashlar'], parent=tb, family='landmark', bevel=0.05)
 frame = bmesh.new()
-merge(frame, bm_box2(-BW_ / 2 - 0.3, -0.25, BZ_ - 0.35, BW_ / 2 + 0.3, 0.25, BZ_ - 0.05))
-merge(frame, bm_box2(-BW_ / 2 - 0.3, -0.25, BZ_ + BH_ + 0.05, BW_ / 2 + 0.3, 0.25, BZ_ + BH_ + 0.4))
-merge(frame, bm_box2(-BW_ / 2 - 0.3, -0.2, BZ_ - 0.05, -BW_ / 2, 0.2, BZ_ + BH_ + 0.05))
-merge(frame, bm_box2(BW_ / 2, -0.2, BZ_ - 0.05, BW_ / 2 + 0.3, 0.2, BZ_ + BH_ + 0.05))
-merge(frame, bm_box2(-BW_ / 2 - 0.1, -0.15, BZ_, BW_ / 2 + 0.1, 0.15, BZ_ + BH_))          # backing
-merge(frame, bm_box2(-1.6, -0.3, BZ_ + BH_ + 0.4, 1.6, 0.2, BZ_ + BH_ + 1.25))            # name plate
-obj('tide_board_framework', frame, face=lambda q: ((PAL['brass'], PT['metal']) if q.center.z > BZ_ + BH_ + 0.42 else (PAL['door_green'], PT['boards'])),
+merge(frame, bm_box2(-BW_ / 2 - 0.35, -0.3, -0.4, BW_ / 2 + 0.35, 0.3, -0.05))
+merge(frame, bm_box2(-BW_ / 2 - 0.35, -0.3, BH_ + 0.05, BW_ / 2 + 0.35, 0.3, BH_ + 0.45))
+merge(frame, bm_box2(-BW_ / 2 - 0.35, -0.25, -0.05, -BW_ / 2, 0.25, BH_ + 0.05))
+merge(frame, bm_box2(BW_ / 2, -0.25, -0.05, BW_ / 2 + 0.35, 0.25, BH_ + 0.05))
+merge(frame, bm_box2(-BW_ / 2 - 0.1, -0.15, 0.0, BW_ / 2 + 0.1, 0.35, BH_))           # backing
+for k in range(1, 6):                                                                     # brass hour rules (every 4 h)
+    x_ = -BW_ / 2 + k * BW_ / 6
+    merge(frame, bm_box2(x_ - 0.06, -0.24, -0.04, x_ + 0.06, -0.18, 0.5))
+merge(frame, bm_box2(-3.2, -0.36, BH_ + 0.45, 3.2, 0.25, BH_ + 1.9))                     # name plate
+tb_place(frame)
+obj('tide_board_framework', frame, face=lambda q: ((PAL['brass'], PT['metal']) if (q.area < 1.0 or q.center.z > TB_Z0 + (BH_ + 0.5) * math.cos(TB_TILT)) else (PAL['door_green'], PT['boards'])),
     parent=tb, family='landmark')
+struts = bmesh.new()
+for sx in (-BW_ / 2 + 2.5, -BW_ / 6, BW_ / 6, BW_ / 2 - 2.5):
+    top = Vector((sx, TB_Y0 + BH_ * 0.8 * math.sin(TB_TILT) + 0.35 * math.cos(TB_TILT), TB_Z0 + BH_ * 0.8 * math.cos(TB_TILT) - 0.35 * math.sin(TB_TILT)))
+    foot = Vector((sx, top.y + 3.2, 0.0))
+    merge(struts, nl_kit.beam(tuple(top), tuple(foot), 0.22, 0.22))
+    merge(struts, bm_box2(sx - 0.4, foot.y - 0.4, -0.2, sx + 0.4, foot.y + 0.4, 0.35))
+obj('tide_board_struts', struts, PAL['iron'], PT['metal'], parent=tb, family='landmark')
 board = bmesh.new(); uvl = board.loops.layers.uv.new('UVMap')
-vs = [board.verts.new(v) for v in ((-BW_ / 2, -0.17, BZ_), (BW_ / 2, -0.17, BZ_), (BW_ / 2, -0.17, BZ_ + BH_), (-BW_ / 2, -0.17, BZ_ + BH_))]
+vs = [board.verts.new(v) for v in ((-BW_ / 2, -0.17, 0.0), (BW_ / 2, -0.17, 0.0), (BW_ / 2, -0.17, BH_), (-BW_ / 2, -0.17, BH_))]
 f = board.faces.new(vs)
 for lp, uv in zip(f.loops, ((0, 0), (1, 0), (1, 1), (0, 1))):
     lp[uvl].uv = uv
+tb_place(board)
 bf = obj('tide_board', board, lin('#1E2A26'), PT['plain'], parent=tb, family='landmark', jitter=0.0, shadow=False)
 NAMED['tide_board'] = bf
 # a painted demo pattern for the key art (runtime replaces it): 24 bars, mint up / rust down around a mid line
 demo = bmesh.new()
 rngb = random.Random(24)
 for k in range(24):
-    x0 = -BW_ / 2 + 0.35 + k * (BW_ - 0.7) / 24; x1 = x0 + (BW_ - 0.7) / 24 * 0.66
+    x0 = -BW_ / 2 + 0.6 + k * (BW_ - 1.2) / 24; x1 = x0 + (BW_ - 1.2) / 24 * 0.66
     v = rngb.uniform(-1, 1) * (0.5 + 0.5 * math.sin(k / 3.5))
-    z0, z1 = (BZ_ + BH_ / 2, BZ_ + BH_ / 2 + v * BH_ * 0.42) if v > 0 else (BZ_ + BH_ / 2 + v * BH_ * 0.42, BZ_ + BH_ / 2)
+    z0, z1 = (BH_ / 2, BH_ / 2 + v * BH_ * 0.42) if v > 0 else (BH_ / 2 + v * BH_ * 0.42, BH_ / 2)
     merge(demo, bm_box2(x0, -0.22, z0, x1, -0.19, z1))
-merge(demo, bm_box2(-BW_ / 2 + 0.2, -0.23, BZ_ + BH_ / 2 - 0.03, BW_ / 2 - 0.2, -0.2, BZ_ + BH_ / 2 + 0.03))
-TIDE_DEMO = obj('tide_board_demo_bars', demo, face=lambda q: ((lin('#8FF0C4') if q.center.z > BZ_ + BH_ / 2 + 0.01 else lin('#F08A5A')) if q.area < 3 else PAL['trim'], PT['plain']),
+merge(demo, bm_box2(-BW_ / 2 + 0.3, -0.23, BH_ / 2 - 0.05, BW_ / 2 - 0.3, -0.2, BH_ / 2 + 0.05))
+tb_place(demo)
+TIDE_DEMO = obj('tide_board_demo_bars', demo, face=lambda q: ((lin('#8FF0C4') if (q.center - Vector((0, TB_Y0, TB_Z0))).dot(Vector((0, math.sin(TB_TILT), math.cos(TB_TILT)))) > BH_ / 2 + 0.06 else lin('#F08A5A')) if q.area < 6 else PAL['trim'], PT['plain']),
                 parent=tb, family='keyart', jitter=0.0, shadow=False)
 
 # ---------------------------------------------------------------- Harbourmaster's office: lookout cupola + flag mast

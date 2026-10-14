@@ -70,13 +70,18 @@ def bake(cj, bounds, n=N, contact_polys=(), wakes=(), extra_land=(), extra_circl
     land_polys = [coast, bw_poly] + [[tuple(p) for p in s['poly']] for s in cj.get('skerries', [])] + list(extra_land)
     if cj.get('mainland'):
         land_polys.append([tuple(p) for p in cj['mainland']['poly']])
-    circles = [tuple(c) for c in cj['shoals']['rocks']] + [(bw[-1][0], bw[-1][1], 4.4)] + list(extra_circles)
+    circles = [tuple(c) for c in cj['shoals']['rocks']] + [tuple(c) for c in cj.get('cove_rocks', [])] + [(bw[-1][0], bw[-1][1], 4.4)] + list(extra_circles)
     struct_polys = [bw_poly]
     for s in cj['struct']:
         if s['kind'] in ('pier', 'finger', 'thead'):
             struct_polys.append(_seg_polys(s['a'], s['b'], s['width']))
             if s.get('material') == 'stone':
                 land_polys.append(_seg_polys(s['a'], s['b'], s['width']))
+    for m in cj.get('moles', []):                     # the marina's stone moles: land, and structure for the contact foam
+        L = [tuple(p) for p in m['line']]
+        mp = _offset_line(L, m['width'] / 2) + _offset_line(L, -m['width'] / 2)[::-1]
+        land_polys.append(mp); struct_polys.append(mp)
+        circles.append((m['head'][0], m['head'][1], m['head_r']))
     land = _raster(land_polys, circles, bounds, n)
     xs, zs = _grid(bounds, n)
     X, Z = np.meshgrid(xs, zs)
@@ -87,7 +92,7 @@ def bake(cj, bounds, n=N, contact_polys=(), wakes=(), extra_land=(), extra_circl
     # structures: pier decks, piles (implicit in decks), quay walls (= coast within 1 px of a quay line), buoys
     qmask = _raster([_seg_polys(a, b, 1.2) for q in cj['quays'] for a, b in zip(q['line'], q['line'][1:])], [], bounds, n)
     buoys = [(m['buoy'][0], m['buoy'][1], 0.35) for m in cj['moorings']] if buoys else []
-    st = _raster(struct_polys, buoys, bounds, n) | qmask
+    st = _raster(struct_polys, buoys + [(m['head'][0], m['head'][1], m['head_r']) for m in cj.get('moles', [])], bounds, n) | qmask
     ds = ndimage.distance_transform_edt(~st) * px
     # bathymetry (stylised): shelving coast, a dredged bay, shallow coves, a shoal reef just outside the mouth
     depth = 1.2 + 38.0 * (1.0 - np.exp(-np.maximum(sd, 0) / 55.0))

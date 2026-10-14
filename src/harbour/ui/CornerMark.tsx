@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SoundToggle } from "../audio/SoundToggle";
 import { truthState } from "./bits";
 import { usePresence, useStore, useUISlice } from "./hooks";
 
@@ -65,6 +66,7 @@ export function CornerMark() {
           </span>
         </div>
       </span>
+      <SoundToggle />
       {introMounted && (
         <div className="hb-intro hb-paper hb-neat hb-fade" data-shown={introShown} role="status">
           <b>Every boat here is a stablecoin.</b>

@@ -57,6 +57,6 @@ export function waveHeight(x: number, z: number, t: number, amp: number): number
 export const SEA_STATES = [
   { amp: 0.1, chop: 0.35, caps: 0.0, bands: 0.8 },
   { amp: 0.24, chop: 0.55, caps: 0.0, bands: 1.0 },
-  { amp: 0.5, chop: 0.8, caps: 0.45, bands: 1.15 },
+  { amp: 0.5, chop: 0.8, caps: 0.85, bands: 1.15 },   // caps: whitecaps must read at the heart view (readings)
   { amp: 0.85, chop: 1.0, caps: 1.0, bands: 1.35 },
 ] as const;

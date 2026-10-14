@@ -49,6 +49,10 @@ export function cruiseSpeed(loa: number): number {
 export const ACCEL = 0.12;
 
 const MAX_SAMPLES = 720;
+/** The berth run: the last GLIDE_LOA hull lengths are taken at no more than GLIDE_V of harbour speed. */
+const GLIDE_LOA = 2.0, GLIDE_V = 0.3;
+/** Sail hoisted from this far along the main path (LOA), and fully furled this far from the end. */
+const SET_FROM_LOA = 1.1, FURL_BY_LOA = 1.6;
 const scratchX: number[] = [];
 const scratchZ: number[] = [];
 
@@ -313,6 +317,11 @@ export function buildPath(points: readonly Vec2[], loa: number, tailKeep = 2, fi
   for (let i = n - 2; i >= 0; i--) vrel[i] = Math.min(vrel[i], Math.sqrt(vrel[i + 1] * vrel[i + 1] + kk * ds));
   const iMono = Math.max(1, n - Math.round((loa * 3) / ds));
   for (let i = iMono; i < n; i++) vrel[i] = Math.min(vrel[i], vrel[i - 1]);
+  // the berth run: a long, dead-slow glide in along the slot axis, under bare poles (sail already down)
+  for (let i = 0; i < n; i++) {
+    const g = Math.min(1, Math.max(0, ((n - 1 - i) * ds) / (loa * GLIDE_LOA)));
+    vrel[i] = Math.min(vrel[i], GLIDE_V + (1 - GLIDE_V) * g * g * (3 - 2 * g));
+  }
   const q = new Float32Array(n);
   for (let i = 1; i < n; i++) q[i] = q[i - 1] + ds * 2 / (vrel[i] + vrel[i - 1]);
   const Q = q[n - 1];
@@ -518,9 +527,10 @@ export function evalLeg(p: PathRec, tm: LegTiming, out: Float64Array): void {
   const remaining = p.length - sq;
   if (tm.hEnd !== 0 && remaining < loa * 1.5) { const u = 1 - remaining / (loa * 1.5); out[2] += tm.hEnd * u * u * (3 - 2 * u); }
   out[3] = v;
-  // sail set over the first ~2 LOA once clear, furled over the last ~3 LOA
-  const set = Math.min(1, Math.max(0, (sq - loa * 0.6) / (loa * 1.8)));
-  const furl = Math.min(1, Math.max(0, (remaining - loa * 0.6) / (loa * 2.8)));
+  // sail hoisted once she has turned and gathered way (a hull already under way keeps hers set);
+  // lowered on the run in, fully down before the last third of it (she glides in under bare poles)
+  const set = p.underway ? 1 : Math.min(1, Math.max(0, (sq - loa * SET_FROM_LOA) / (loa * 2.2)));
+  const furl = Math.min(1, Math.max(0, (remaining - loa * FURL_BY_LOA) / (loa * 3.0)));
   const sail = Math.min(set, furl);
   out[4] = sail * sail * (3 - 2 * sail);
   out[5] = !p.rev && !p.w0 && !p.underway && sq < loa * 1.5 ? LEG_CAST_OFF : remaining < loa * 3 || p.w1 && remaining < loa * 4 ? LEG_APPROACH : LEG_SAIL;

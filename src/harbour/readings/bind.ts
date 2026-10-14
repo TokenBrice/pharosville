@@ -7,7 +7,9 @@
  *   PSI band   → the Pharos rhythm (PSI_SWEEP_DURATION), 3-step lamp colour, unlit when unknown
  *   PSI score  → beam reach + brightness, continuous (91 and 97 must look different)
  *   off-peg    → sea state, 4 declared steps of the supply-weighted share
- *   DEWS       → cloud cover + wind (no random weather) and one storm cone per ALERT+ coin (max 5)
+ *   DEWS       → cloud cover + wind (no random weather) and the storm mast: one cone per step of the
+ *                SAME supply-weighted band (0 Calm … 4 Danger) plus a red pennant at Danger, so the mast
+ *                and the sky always tell one story; the individual ALERT+ coins live in the panel
  *   7d supply  → the tide gauge, signed-sqrt against TIDE_FULL_SCALE_PCT
  *   mint/burn  → the Customs House tide board (24 closed hours)
  *   freshness  → sea fog, ONLY when /api/stablecoins is stale or unavailable
@@ -21,8 +23,8 @@ import { PSI_SWEEP_DURATION } from "@shared/lib/psi-colors";
 export const TIDE_FULL_SCALE_PCT = 2;
 /** Below this the week is slack water: the gauge rests on its datum (producer rounding, not a tide). */
 export const TIDE_SLACK_PCT = 0.01;
-/** Storm cones on the mast. */
-export const MAX_CONES = 5;
+/** Storm cones on the mast: one per DEWS step above Calm (Danger = 4, plus the pennant). */
+export const MAX_CONES = 4;
 /** Score that maps to zero / full beam reach. Reach is (score - lo)/(hi - lo), eased to spread the top. */
 export const REACH_SCORE_LO = 30;
 export const REACH_SCORE_HI = 100;
@@ -53,12 +55,19 @@ export interface TideReading {
   level: number;
 }
 
+export interface AlertCoin { id: string; symbol: string; band: DewsBand; score: number | null; supply: number }
+
 export interface WorldTargets {
   psi: { lit: boolean; sweepSec: number; reach: number; lamp: LampStep; band: ConditionBand | null; score: number | null };
   /** null = unknown: the sea is left as it is (never painted calm on purpose). */
   sea: SeaStep | null;
   weather: { cloud: number; wind: number; band: DewsBand | null } | null;
+  /** Hoisted cones = the supply-weighted DEWS level 0..4; null = no stress reading. */
   cones: number | null;
+  /** The red pennant at the masthead: weather band DANGER. */
+  pennant: boolean;
+  /** Individual coins at Alert or worse (for the panel; the mast shows the weighted band). */
+  alerts: AlertCoin[];
   tide: TideReading;
   flows: FlowsReading;
   /** Sea fog wanted: /api/stablecoins stale, or unavailable after the feed has tried. */
@@ -104,6 +113,21 @@ export function tideLevelForPct(pct: number): number {
   return pct < 0 ? -m : m;
 }
 
+/** Mast signal for a weather band: cones = the band's level, pennant at Danger. */
+export function mastForBand(band: DewsBand | null): { cones: number | null; pennant: boolean } {
+  return band == null ? { cones: null, pennant: false } : { cones: Math.min(MAX_CONES, DEWS_LEVEL[band]), pennant: band === "DANGER" };
+}
+
+/** Live coins at ALERT or worse, worst score first. */
+export function alertCoins(model: Pick<HarbourModel, "boats">): AlertCoin[] {
+  const out: AlertCoin[] = [];
+  for (const b of model.boats) {
+    if (b.state === "wrecked" || b.dews == null || DEWS_LEVEL[b.dews] < DEWS_LEVEL.ALERT) continue;
+    out.push({ id: b.id, symbol: b.symbol, band: b.dews, score: b.dewsScore, supply: b.supply });
+  }
+  return out.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.supply - a.supply);
+}
+
 export function landmarkState(t: EndpointTruth): LandmarkState {
   return t.state === "current" ? "current" : t.state === "stale" ? "stale" : "unknown";
 }
@@ -127,6 +151,8 @@ export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted }: D
     landmarks[id] = { state: landmarkState(t), ageSec: t.ageSec, endpoint: key };
   }
   const coins = model.truth.stablecoins;
+  const weatherKnown = r.weather.cloudCover != null && r.weather.wind != null;
+  const mast = mastForBand(weatherKnown ? r.weather.band : null);
   return {
     psi: {
       lit,
@@ -138,7 +164,9 @@ export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted }: D
     },
     sea: r.seaState.step,
     weather: r.weather.cloudCover != null && r.weather.wind != null ? { cloud: r.weather.cloudCover, wind: r.weather.wind, band: r.weather.band } : null,
-    cones: r.stormCones ? r.stormCones.shown : null,
+    cones: mast.cones,
+    pennant: mast.pennant,
+    alerts: alertCoins(model),
     tide: model.truth.chains.state === "unavailable" ? { pct: null, level: 0 } : tideFromFraction(chainsChange7d),
     flows: r.flows,
     fog: coins.state === "stale" || (coins.state === "unavailable" && stablecoinsAttempted),
@@ -150,7 +178,7 @@ export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted }: D
 
 /**
  * Dev-only reading overrides (never in production builds; the caller gates on import.meta.env.DEV):
- *   ?psi=TREMOR|none  ?psiScore=55  ?offpeg=0.06  ?dews=ALERT  ?cones=3  ?tide=-0.8 (percent)
+ *   ?psi=TREMOR|none  ?psiScore=55  ?offpeg=0.06  ?dews=ALERT  ?cones=3 (5 = four + pennant)  ?tide=-0.8 (percent)
  *   ?stale=1 (fleet stale → fog)  ?stale=mintBurn,chains (those landmarks stale)
  */
 export function applyDevOverrides(t: WorldTargets, q: URLSearchParams): WorldTargets {
@@ -174,10 +202,15 @@ export function applyDevOverrides(t: WorldTargets, q: URLSearchParams): WorldTar
   if (dews in DEWS_LEVEL) {
     const lvl = DEWS_LEVEL[dews as DewsBand];
     out.weather = { ...weatherForLevel(lvl), band: dews as DewsBand };
-    out.cones = [0, 0, 2, 4, 5][lvl];
+    const mast = mastForBand(dews as DewsBand);
+    out.cones = mast.cones;
+    out.pennant = mast.pennant;
   }
   const cones = Number(q.get("cones"));
-  if (q.has("cones") && Number.isFinite(cones)) out.cones = Math.max(0, Math.min(MAX_CONES, Math.round(cones)));
+  if (q.has("cones") && Number.isFinite(cones)) {
+    out.cones = Math.max(0, Math.min(MAX_CONES, Math.round(cones)));
+    out.pennant = cones > MAX_CONES;
+  }
   const tide = Number(q.get("tide"));
   if (q.has("tide") && Number.isFinite(tide)) out.tide = tideFromPct(tide);
   const stale = q.get("stale");

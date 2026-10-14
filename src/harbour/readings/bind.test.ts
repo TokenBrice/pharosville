@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { buildHarbourModel } from "../model/build";
 import type { HarbourPayloads } from "../model/types";
 import {
-  applyDevOverrides, deriveTargets, lampStepForBand, reachForScore, seaStepForShare, tideFromFraction, tideFromPct,
+  applyDevOverrides, deriveTargets, lampStepForBand, mastForBand, reachForScore, seaStepForShare, tideFromFraction, tideFromPct,
   TIDE_FULL_SCALE_PCT,
 } from "./bind";
-import { boardScaleUsd } from "./tide-board";
+import { boardHeight, boardScaleUsd } from "./tide-board";
 
 const NOW = 1_790_000_000_000;
 const fresh = { updatedAt: NOW / 1000 - 60, ageSeconds: 60, status: "fresh" as const };
@@ -60,13 +60,22 @@ describe("readings → world targets", () => {
     expect(derive(payloads()).sea).toBe(2); // ~5 % of supply on the Shoals
   });
 
-  it("weather and cones follow DEWS, unknown stays unknown", () => {
+  it("weather and cones follow the same supply-weighted DEWS band, unknown stays unknown", () => {
     const t = derive(payloads());
-    expect(t.cones).toBe(1);
+    // one small ALERT coin under a CALM giant: the weather is calm, so the mast flies no cone ...
+    expect(t.weather?.band).toBe("CALM");
+    expect(t.cones).toBe(0);
+    expect(t.pennant).toBe(false);
+    // ... and the panel still gets the individual alert
+    expect(t.alerts.map((a) => a.id)).toEqual(["b"]);
     expect(t.weather?.cloud).toBeGreaterThan(0.15);
+    expect([mastForBand("CALM"), mastForBand("WATCH"), mastForBand("ALERT"), mastForBand("WARNING"), mastForBand("DANGER")])
+      .toEqual([{ cones: 0, pennant: false }, { cones: 1, pennant: false }, { cones: 2, pennant: false }, { cones: 3, pennant: false }, { cones: 4, pennant: true }]);
+    expect(mastForBand(null)).toEqual({ cones: null, pennant: false });
     const u = derive(drop(payloads(), "stress"));
     expect(u.weather).toBeNull();
     expect(u.cones).toBeNull();
+    expect(u.alerts).toEqual([]);
   });
 
   it("tide: globalChange7dPct is a fraction; signed-sqrt against the full scale; slack near zero", () => {
@@ -100,10 +109,16 @@ describe("readings → world targets", () => {
     expect(t.fog).toBe(true);
     expect(t.landmarks.harbour.state).toBe("stale");
     expect(applyDevOverrides(t, new URLSearchParams("psi=none")).psi.lit).toBe(false);
+    expect(applyDevOverrides(t, new URLSearchParams("dews=DANGER"))).toMatchObject({ cones: 4, pennant: true });
   });
 
   it("tide board scale: symmetric, $50M steps, never below one step", () => {
     expect(boardScaleUsd({ hourly: [{ hourTs: 0, netUsd: 186e6, mintUsd: 0, burnUsd: 0 }, { hourTs: 1, netUsd: -179e6, mintUsd: 0, burnUsd: 0 }] })).toBe(200e6);
     expect(boardScaleUsd({ hourly: [{ hourTs: 0, netUsd: null, mintUsd: 0, burnUsd: 0 }] })).toBe(50e6);
+    // signed-sqrt heights: sign and order kept, a quiet hour still stands off the line
+    expect(boardHeight(200e6, 200e6)).toBe(1);
+    expect(boardHeight(-50e6, 200e6)).toBeCloseTo(-0.5);
+    expect(boardHeight(2e6, 200e6)).toBeCloseTo(0.1);
+    expect(boardHeight(-900e6, 200e6)).toBe(-1);
   });
 });
