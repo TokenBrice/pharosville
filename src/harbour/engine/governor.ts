@@ -48,7 +48,8 @@ export class QualityGovernor implements QualityService {
     this.ceiling = this.ladder.length - 1;
     const dbg = gl.getExtension("WEBGL_debug_renderer_info");
     const name = String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
-    this.rung = initialRungFor(name, this.ladder);
+    const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+    this.rung = initialRungFor(name, this.ladder, coarse);
     if (this.pinnedTier) this.rung = this.richest(this.pinnedTier);
     else if (this.pinnedDpr !== null) this.rung = this.ladder.length - 1;
     this.ext = gl.getExtension("EXT_disjoint_timer_query_webgl2") as { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null;

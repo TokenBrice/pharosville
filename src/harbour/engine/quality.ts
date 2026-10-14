@@ -56,11 +56,17 @@ export function ladderFor(deviceDpr: number): QualityRung[] {
   return out;
 }
 
+/** Phone and tablet GPUs by WEBGL_debug_renderer_info name (Android ANGLE strings carry the same names). */
+const MOBILE_GPU = /adreno|mali|immortalis|powervr|apple gpu|xclipse|maleoon|videocore/;
+
 /**
  * Starting rung from the GPU's name (WEBGL_debug_renderer_info). Integrated GPUs start one tier down and
- * may climb; discrete GPUs start at the top and may fall. Unknown starts at Medium 1.5.
+ * may climb; discrete GPUs start at the top and may fall. Unknown starts at Medium 1.5. Phone and tablet
+ * GPUs (by name, or any GPU behind a coarse primary pointer) start at Medium 1.5 whatever their name, and
+ * the governor climbs from there if frames allow: they share a battery and a thermal budget with a high-DPR
+ * panel (the ladder caps the ratio at 2).
  */
-export function initialRungFor(renderer: string, ladder: readonly QualityRung[]): number {
+export function initialRungFor(renderer: string, ladder: readonly QualityRung[], coarsePointer = false): number {
   const r = renderer.toLowerCase();
   const top = ladder.length - 1;
   /** richest rung of `tier` whose pixel ratio is ≤ dpr */
@@ -70,6 +76,7 @@ export function initialRungFor(renderer: string, ladder: readonly QualityRung[])
     return best < 0 ? top : best;
   };
   if (/swiftshader|llvmpipe|software|microsoft basic/.test(r)) return 0;
+  if (coarsePointer || MOBILE_GPU.test(r)) return at("medium", 1.5);
   if (/nvidia|geforce|quadro|rtx|radeon (rx|pro)|\brx \d/.test(r)) return top;
   if (/apple m\d (max|ultra)/.test(r)) return at("high", 1.5);
   return at("medium", 1.5);   // Apple / Intel / integrated Radeon / mobile / unknown

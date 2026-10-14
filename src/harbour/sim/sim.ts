@@ -13,10 +13,10 @@ import { u01 } from "../model/classify";
 import type { HarbourModel } from "../model/types";
 import { buildSimLayout, nearestNode, PREVAILING_WIND_FROM, type SimLayout, type Slot } from "./layout-graph";
 import { clearance, hullClearance, type CoastGrid } from "./obstacles";
-import { buildOutingPath } from "./outings";
+import { buildOutingPath, buildScenicPath, scenicClearOf } from "./outings";
 import { buildLegPath, legControlPoints } from "./routes";
 import { buildPath, evalLeg, hullMargin, IO_LANE, IO_LOA, IO_SEP, IO_T, legTiming, LEG_APPROACH, LEG_CAST_OFF, LEG_HOLD, LEG_HOLD_END, LEG_TURN, newLegTiming, type LegTiming, type PathRec } from "./path";
-import { boatLocalTime, buildPlan, seedLegTimes, CYCLE_S, findSegment, MANOEUVRE_S, SEG_DOCK, SPEED, type BoatPlan, type Plan, type RepLeg } from "./plan";
+import { boatLocalTime, buildPlan, RAFT_CLEAR, seedLegTimes, CYCLE_S, findSegment, MANOEUVRE_S, SEG_DOCK, SPEED, type BoatPlan, type Plan, type RepLeg } from "./plan";
 
 export const PHASES = ["docked", "casting-off", "sailing", "approaching", "moored", "anchored"] as const;
 export type Phase = (typeof PHASES)[number];
@@ -174,7 +174,7 @@ export class HarbourSim {
   private index = new Map<string, number>();
   private pathCache = new Map<string, PathRec>();
   /** Next-leg paths to build ahead of time, one per frame, so a cast-off never pays for its path. */
-  private prefetch: Array<[number, number, number]> = [];
+  private prefetch: Array<[number, number, number, number]> = [];
   private prefetchKeys = new Set<string>();
   private builtThisFrame = 0;
   private shoalsOf = new Map<string, number>();
@@ -451,16 +451,22 @@ export class HarbourSim {
     return true;
   }
 
-  private legPathFor(fromSlot: number, toSlot: number, r: BoatRt): PathRec {
-    const key = fromSlot + ">" + toSlot + ">" + r.cls;
+  /** `loop`: 0, or 1 + the loop variant the leg sails (plan.segLoop: an outing's loop, or a scenic leg's offshore loop). */
+  private legPathFor(fromSlot: number, toSlot: number, r: BoatRt, loop = 0): PathRec {
+    const key = fromSlot + ">" + toSlot + ">" + r.cls + (loop ? ">s" + loop : "");
     let p = this.pathCache.get(key);
     if (!p) {
       this.builtThisFrame++;
       // from a slot back to itself: a harbour outing's loop (one whose hull would touch land or a deck
       // anywhere, e.g. backing out of a cramped slip, is never sailed: she stays in)
-      const out = fromSlot === toSlot ? buildOutingPath(this.layout, fromSlot, r.cls) : null;
+      const out = fromSlot === toSlot && loop ? buildOutingPath(this.layout, fromSlot, r.cls, loop - 1) : null;
       if (out && !this.pathClear(out, r)) this.badOuting.add(key);
-      p = out ?? buildLegPath(this.layout, fromSlot, toSlot, r.cls);
+      // a scenic leg by the departure gate's offshore loop (one that would touch land or a deck sails the plain leg)
+      // (nor one whose loop runs through the plan's overflow rafts)
+      const scenic = loop > 0 && fromSlot !== toSlot && scenicClearOf(this.layout, fromSlot, toSlot, loop - 1, this.layout.slots.slice(this.baseSlots).filter((s) => s.kind === "raft"), RAFT_CLEAR);
+      let sc = scenic ? buildScenicPath(this.layout, fromSlot, toSlot, r.cls, loop - 1) : null;
+      if (sc && !this.pathClear(sc, r)) sc = null;
+      p = out ?? sc ?? buildLegPath(this.layout, fromSlot, toSlot, r.cls);
       if (this.pathCache.size > 1500) this.pathCache.delete(this.pathCache.keys().next().value!);
       this.pathCache.set(key, p);
     }
@@ -785,9 +791,9 @@ export class HarbourSim {
         }
       }
       if (toEnd < PREFETCH_S && nSeg > 1 && r.prefetchSeg !== (c + 1) % nSeg) {
-        const nxt = (c + 1) % nSeg, key = plan.segFrom[nxt] + ">" + plan.segSlot[nxt] + ">" + r.cls;
+        const nxt = (c + 1) % nSeg, sc = plan.segLoop[nxt], key = plan.segFrom[nxt] + ">" + plan.segSlot[nxt] + ">" + r.cls + (sc ? ">s" + sc : "");
         r.prefetchSeg = nxt;
-        if (!this.pathCache.has(key) && !this.prefetchKeys.has(key)) { this.prefetchKeys.add(key); this.prefetch.push([i, plan.segFrom[nxt], plan.segSlot[nxt]]); }
+        if (!this.pathCache.has(key) && !this.prefetchKeys.has(key)) { this.prefetchKeys.add(key); this.prefetch.push([i, plan.segFrom[nxt], plan.segSlot[nxt], sc]); }
       }
       const lateOff = r.legSeg === (c - 1 + nSeg) % nSeg && !r.legStay ? r.legLate : 0, earlyOff = r.legSeg === (c + 1) % nSeg && !r.legStay ? r.legEarly : 0;
       if (nSeg > 1 && !r.legStay) {
@@ -814,7 +820,7 @@ export class HarbourSim {
   private ensureLeg(r: BoatRt, seg: number): void {
     if (r.legSeg === seg && r.legPath) return;
     const L = this.layout, plan = r.plan, nSeg = plan.segStart.length;
-    const path = this.legPathFor(plan.segFrom[seg], plan.segSlot[seg], r);
+    const path = this.legPathFor(plan.segFrom[seg], plan.segSlot[seg], r, plan.segLoop[seg]);
     const from = L.slots[plan.segFrom[seg]], to = L.slots[plan.segSlot[seg]];
     const D = plan.segEnd[seg] - plan.segStart[seg];
     const tm = legTiming(path, 1e9, r.loa, r.legTm, from.heading, to.heading);
@@ -827,7 +833,7 @@ export class HarbourSim {
     r.legD = D + r.legEarly + r.legLate;
     legTiming(path, r.legD, r.loa, r.legTm, from.heading, to.heading);
     r.legPath = path; r.legSeg = seg;
-    r.legStay = plan.segFrom[seg] === plan.segSlot[seg] && this.badOuting.has(plan.segFrom[seg] + ">" + plan.segSlot[seg] + ">" + r.cls);
+    r.legStay = plan.segFrom[seg] === plan.segSlot[seg] && this.badOuting.has(plan.segFrom[seg] + ">" + plan.segSlot[seg] + ">" + r.cls + (plan.segLoop[seg] ? ">s" + plan.segLoop[seg] : ""));
   }
 
   private planLeg(i: number, r: BoatRt, seg: number): void {
@@ -1091,10 +1097,10 @@ export class HarbourSim {
     this.separate();
     // at most one look-ahead path per frame, and none on a frame that already built one
     while (this.builtThisFrame === 0 && this.prefetch.length) {
-      const [bi, from, to] = this.prefetch.shift()!;
+      const [bi, from, to, sc] = this.prefetch.shift()!;
       const r = this.rt[bi];
-      this.prefetchKeys.delete(from + ">" + to + ">" + (r?.cls ?? ""));
-      if (r && from < this.layout.slots.length && to < this.layout.slots.length) this.legPathFor(from, to, r);
+      this.prefetchKeys.delete(from + ">" + to + ">" + (r?.cls ?? "") + (sc ? ">s" + sc : ""));
+      if (r && from < this.layout.slots.length && to < this.layout.slots.length) this.legPathFor(from, to, r, sc);
     }
     this.posed = true;
     return this.pose;

@@ -57,7 +57,7 @@ describe("HarbourSim", () => {
     expect(worst).toBe(0);
   });
 
-  // (the D22 bands, 12-18% under way and 10-15 dockings a minute, are held in the real harbour:
+  // (the D22 bands, ~30% under way and 7-16 dockings a minute, are held in the real harbour:
   // harbour-layout.test.ts; this ring harbour funnels every pier through one lane node)
   it("keeps the harbour busy but calm: ~8-18% under way, 6-15 dockings a minute, outings included", () => {
     const sim = new HarbourSim(model, layout, T0_MS);
@@ -268,7 +268,8 @@ describe("HarbourSim", () => {
     const sim = new HarbourSim(model, v2, T0_MS);
     const p = sim.poseAt(T0_MS);
     const moored = [...Array(p.count).keys()].filter((i) => sim.slotOf(i)?.kind === "mooring" && p.phase[i] === PH_MOORED && sim.plan.boats[i].kind === "static");
-    expect(moored.length).toBeGreaterThan(10);
+    // (outings take a good share of the mooring field out at any moment: enough still lie on their rode)
+    expect(moored.length).toBeGreaterThan(5);
     const i = moored[0];
     const h0 = p.heading[i];
     const s = sim.slotOf(i)!;

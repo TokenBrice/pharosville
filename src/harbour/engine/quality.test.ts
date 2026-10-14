@@ -19,6 +19,17 @@ describe("quality ladder", () => {
     expect(l[initialRungFor("ANGLE (Intel, Intel(R) Iris(R) Xe Graphics)", l)]).toEqual({ tier: "medium", dpr: 1.5 });
     expect(initialRungFor("ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 5070 Ti)", l)).toBe(l.length - 1);
     expect(initialRungFor("SwiftShader", l)).toBe(0);
+  });
+
+  it("starts phone and tablet GPUs, and any coarse-pointer device, at Medium 1.5", () => {
+    const l = ladderFor(2.625);
+    const medium = { tier: "medium", dpr: 1.5 };
+    expect(l[initialRungFor("ANGLE (Qualcomm, Adreno (TM) 830, OpenGL ES 3.2)", l)]).toEqual(medium);
+    expect(l[initialRungFor("Mali-G715", l)]).toEqual(medium);
+    expect(l[initialRungFor("Apple GPU", l)]).toEqual(medium);
+    expect(l[initialRungFor("PowerVR Rogue GE8320", l)]).toEqual(medium);
+    expect(l[initialRungFor("ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 4060 Laptop GPU)", l, true)]).toEqual(medium);
+    expect(l[l.length - 1].dpr).toBe(2);
     expect(parseTier("low")).toBe("low");
     expect(parseTier("ultra")).toBeNull();
   });

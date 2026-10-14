@@ -13,8 +13,8 @@ tag, the side panel and the ledger.
 - The browser uses same-origin `/api/*` endpoints only; the Pages Function
   holds `PHAROS_API_KEY` and proxies the allowlisted reads.
 - The world loads only after both the physical screen and current viewport
-  independently satisfy either the standard 900×720 profile or the wide-laptop
-  1200×640 profile. Dimensions are sorted, so these remain direct size tests,
+  independently satisfy the 720×600 size profile (long side × short side),
+  which admits desktops, laptops, unfolded foldables and tablets. Dimensions are sorted, so these remain direct size tests,
   not an orientation or aspect-ratio gate. Blocked viewports render DOM guidance
   without fetching world data or importing three.js and its media.
 - First paint is a poster of the harbour (an illustration, no live numbers)

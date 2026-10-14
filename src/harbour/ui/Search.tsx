@@ -3,7 +3,7 @@ import type { HarbourModel } from "../model/types";
 import { chainLogo, Logo } from "./bits";
 import { PANEL_LANDMARKS } from "./facts";
 import { money } from "./format";
-import { usePresence, useStore, useUISlice } from "./hooks";
+import { touchFirst, usePresence, useStore, useUISlice } from "./hooks";
 import { searchCoins, type Searchable } from "./search";
 import { placeName, plotFor, seaZones, ZONE_PANEL } from "./places";
 import { getLayout, type PickHit } from "./services";
@@ -105,7 +105,7 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
         </ul>
       )}
       {q.trim() && results.length === 0 && <div className="hb-search-hint">Nothing in the harbour answers to “{q.trim()}”.</div>}
-      {!q.trim() && <div className="hb-search-hint">A ticker, a chain or a place · Enter sails there · Esc closes</div>}
+      {!q.trim() && <div className="hb-search-hint">{touchFirst() ? "A ticker, a chain or a place · tap a match to sail there" : "A ticker, a chain or a place · Enter sails there · Esc closes"}</div>}
     </div>
   );
 }

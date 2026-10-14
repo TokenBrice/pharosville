@@ -96,7 +96,10 @@ describe("the sim in the real harbour", () => {
     expect(endsOnLand / samples).toBeLessThan(0.002);
   });
 
-  it("D22: 12-18% of hulls under way, 10-15 dockings a minute, harbour outings among them", () => {
+  // D22, busier (operator, 2026-10-14): the real fleet runs ~30% under way at ~13 dockings a minute. This
+  // synthetic fleet overflows into rafts off the gates, which the offshore outings keep clear of: it runs
+  // lower, with longer, rarer outings.
+  it("D22: a busy harbour, ~17-38% of hulls under way, 7-16 dockings a minute, harbour outings among them", () => {
     const model = buildHarbourModel(makePayloads(), T0_MS, { pieredChains: layout.piers.map((p) => p.chain), dead: [] });
     const sim = new HarbourSim(model, layout, T0_MS, coast);
     const n = model.boats.length, minutes = 90;
@@ -108,10 +111,10 @@ describe("the sim in the real harbour", () => {
       uw += sim.stats.underWay; out += sim.stats.outings; samples++;
     }
     const perMin = (sim.stats.dockings - d0) / minutes;
-    expect(uw / samples / n).toBeGreaterThanOrEqual(0.12);
-    expect(uw / samples / n).toBeLessThanOrEqual(0.18);
-    expect(perMin).toBeGreaterThanOrEqual(10);
-    expect(perMin).toBeLessThanOrEqual(15);
+    expect(uw / samples / n).toBeGreaterThanOrEqual(0.17);
+    expect(uw / samples / n).toBeLessThanOrEqual(0.38);
+    expect(perMin).toBeGreaterThanOrEqual(7);
+    expect(perMin).toBeLessThanOrEqual(16);
     expect(out / samples).toBeGreaterThan(uw / samples * 0.2);
   }, 60_000);
 

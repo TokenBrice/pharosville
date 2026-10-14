@@ -8,9 +8,11 @@ import { resolve } from "node:path";
 import type { OutputBundle, OutputChunk } from "rollup";
 import { onRequest as pharosVilleApiProxy } from "./functions/api/[[path]]";
 import { loadWorktreeSharedPharosEnv } from "./scripts/pharosville/local-api-env.mjs";
+import { MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX } from "./src/systems/viewport-gate";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
-const pharosVilleDesktopQuery = "(min-width: 1280px) and (min-height: 760px)";
+// The gate's sorted size profile as a media query (either way up): admitted viewports preload the Harbour chunk.
+const pharosVilleDesktopQuery = `(min-width: ${MIN_LONG_SIDE_PX}px) and (min-height: ${MIN_SHORT_SIDE_PX}px), (min-width: ${MIN_SHORT_SIDE_PX}px) and (min-height: ${MIN_LONG_SIDE_PX}px)`;
 const pharosVilleDesktopChunkName = "harbour-app";
 
 function localPharosVilleApiProxy(env: { PHAROS_API_BASE?: string; PHAROS_API_KEY?: string }): Plugin {

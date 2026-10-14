@@ -406,3 +406,42 @@
 .hb-scope .hb-crest { border-radius: 50%; box-shadow: 0 0 0 0.5px rgba(35, 32, 26, 0.35); }
 .hb-title[data-long="1"] { font-size: 29px; }
 .hb-title[data-long="2"] { font-size: 24px; overflow-wrap: anywhere; }
+
+/* ------------------------------------------------------------------ touch and smaller screens
+   Touch has no hover: the key strip stays open and its keyboard glyphs step aside; every control is a
+   44 px target. Under 900 px wide the panel is a bottom sheet of at most half the height (store.ts
+   SHEET_BELOW_PX / SHEET_FRACTION keep a flown-to selection clear of it). */
+@media (hover: none) {
+  .hb-mark-more { grid-template-columns: 1fr; opacity: 1; }
+  .hb-mark-btn { padding-right: 8px; }
+  .hb-keys kbd { display: none; }
+}
+@media (pointer: coarse) {
+  .hb-mark-btn, .hb-sound { min-height: 44px; }
+  .hb-sound { width: 44px; }
+  .hb-keys { margin-right: 0; }
+  .hb-keys button { min-height: 44px; min-width: 44px; padding: 0 9px; }
+  .hb-close { width: 44px; height: 44px; top: 6px; right: 6px; }
+  .hb-tab, .hb-table th button, .hb-chip, .hb-sorts button, .hb-result, .hb-list .hb-row { min-height: 44px; }
+  .hb-tab, .hb-table th button, .hb-sorts button { display: inline-flex; align-items: center; }
+  .hb-table th button { display: flex; }
+  .hb-table td button { min-height: 44px; padding: 0 2px; }
+  .hb-list .hb-row { align-items: center; }
+  .hb-textbtn { display: inline-block; min-height: 44px; line-height: 44px; }
+  .hb-filter input { min-height: 44px; }
+  .hb-panel-body, .hb-ledger-body { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+}
+@media (max-width: 899.98px) {
+  .hb-panel {
+    top: auto; left: 0; right: 0; bottom: 0; width: auto; max-width: none;
+    max-height: 50vh; max-height: 50dvh;
+    border-left: 0; border-right: 0; border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    transform: translateY(14px);
+  }
+  .hb-panel[data-shown="true"] { transform: none; }
+  .hb-panel-head { padding: 16px 60px 10px 20px; }
+  .hb-panel-body { padding: 0 20px 18px; overscroll-behavior: contain; }
+  .hb-title { font-size: 29px; }
+  .hb-chart-badge { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+}

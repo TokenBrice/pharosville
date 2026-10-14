@@ -288,6 +288,8 @@ export interface SimLayout {
   gates: Map<string, { inNode: number; outNode: number; x: number; z: number }>;
   /** The Pharos (x, z): harbour outings near it sail past under the light. Null when the layout has none. */
   pharos: Vec2 | null;
+  /** The water the camera can be panned over (layout.camera.panClamp: minX, minZ, maxX, maxZ): offshore outings stay in it. */
+  view: [number, number, number, number] | null;
 }
 
 function mode(xs: number[]): number {
@@ -750,7 +752,9 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
 
   const ph = (layout as { pharos?: { position?: number[] } }).pharos?.position ?? layout.landmarks?.find((m) => m.id === "pharos")?.position;
   const pharos: Vec2 | null = ph ? [ph[0], ph[2]] : null;
-  return { graph, windFrom, field, keepOff, hard, slots, pools, shoals, wrecks, launchPath: launch && launch.length >= 2 ? launch.map((q) => [q[0], q[1]] as Vec2) : null, loa, beam, pierChains, whereOf, gates, pharos };
+  const pc = layout.camera?.panClamp;
+  const view: SimLayout["view"] = pc ? [pc.min[0], pc.min[1], pc.max[0], pc.max[1]] : null;
+  return { graph, windFrom, field, keepOff, hard, slots, pools, shoals, wrecks, launchPath: launch && launch.length >= 2 ? launch.map((q) => [q[0], q[1]] as Vec2) : null, loa, beam, pierChains, whereOf, gates, pharos, view };
 }
 
 const LANE_SEGS = new WeakMap<SimLayout, Float64Array>();

@@ -15,7 +15,7 @@ contract only with explicit intent and matching code, tests and route docs.
   the first-paint poster stays up with the guide and the analytics links;
   never boot another graphical renderer.
 - Both the device screen and the current viewport must satisfy the
-  sorted-dimension `900×720` or `1200×640` size profile before the Harbour
+  sorted-dimension `720×600` size profile before the Harbour
   chunk, world data, three.js, GLBs or logos load. These are size tests, never
   orientation tests. Blocked devices and small windows receive the welcome page
   with the guide, a static illustration ("Illustration, not live readings")

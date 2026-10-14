@@ -15,10 +15,9 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 ## Viewport Gate
 
-- Standard profile: `900×720px`
-- Wide-laptop profile: `1200×640px`
-- Device capability and current-viewport readiness independently sort their own dimensions and must satisfy either size profile.
-- Orientation and aspect ratio are not gates: a 720×1000 tall viewport, a 1200×640 laptop viewport, and a 2560×720 ultrawide viewport all pass.
+- Size profile: `720×600px` (long side × short side)
+- Device capability and current-viewport readiness independently sort their own dimensions and must satisfy that profile. It admits desktop and laptop windows, unfolded foldables and tablets either way up; phones and folded foldables get the welcome page.
+- Orientation and aspect ratio are not gates: an 832×680 unfolded foldable, a 744×1133 portrait tablet, a 1200×640 laptop viewport, and a 2560×720 ultrawide viewport all pass.
 - `src/client.tsx` lazy-loads the Harbour chunk (`src/harbour/app/harbour-app.tsx`: Engine, systems, data feed) only after that gate; `npm run check:viewport-gate` guards the boundary.
 
 ## API Allowlist
@@ -41,7 +40,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 ## World Systems
 
-- Registration (= update) order: `LayoutSystem` → `DataSystem` → `ReadingsSystem` → `SkySystem` → `OceanSystem` → `IslandSystem` → `LighthouseSystem` → `CivicSystem` → `FleetSystem` → `LifeSystem` → `IdentitySystem` → `LightsSystem` → `BeamSystem`
+- Registration (= update) order: `SeasonSystem` → `LayoutSystem` → `DataSystem` → `ReadingsSystem` → `WeatherSystem` → `SkySystem` → `OceanSystem` → `IslandSystem` → `LighthouseSystem` → `CivicSystem` → `FleetSystem` → `LifeSystem` → `IdentitySystem` → `LightsSystem` → `BeamSystem`
 
 ## Bundle Budgets
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Guard the desktop-only lazy boundary.
+ * Guard the viewport-gate lazy boundary.
  *
  * `src/client.tsx` must evaluate the shared viewport predicates before it
  * imports the Harbour runtime chunk. This keeps world data, Three.js,
@@ -17,16 +17,12 @@ const clientModulePath = resolve(repoRoot, "src/client.tsx");
 function extractGateConstants(source) {
   const longMatch = source.match(/export\s+const\s+MIN_LONG_SIDE_PX\s*=\s*(\d+)/);
   const shortMatch = source.match(/export\s+const\s+MIN_SHORT_SIDE_PX\s*=\s*(\d+)/);
-  const wideLongMatch = source.match(/export\s+const\s+MIN_WIDE_LONG_SIDE_PX\s*=\s*(\d+)/);
-  const wideShortMatch = source.match(/export\s+const\s+MIN_WIDE_SHORT_SIDE_PX\s*=\s*(\d+)/);
-  if (!longMatch || !shortMatch || !wideLongMatch || !wideShortMatch) {
-    throw new Error("Could not parse standard and wide-profile thresholds from src/systems/viewport-gate.ts");
+  if (!longMatch || !shortMatch) {
+    throw new Error("Could not parse the size-profile thresholds from src/systems/viewport-gate.ts");
   }
   return {
     longSide: Number(longMatch[1]),
     shortSide: Number(shortMatch[1]),
-    wideLongSide: Number(wideLongMatch[1]),
-    wideShortSide: Number(wideShortMatch[1]),
   };
 }
 
@@ -72,7 +68,7 @@ function main() {
   }
 
   console.log(
-    `Viewport-gate check passed (standard=${result.gate.longSide}×${result.gate.shortSide}px, wide=${result.gate.wideLongSide}×${result.gate.wideShortSide}px; desktop runtime remains lazy).`,
+    `Viewport-gate check passed (size profile ${result.gate.longSide}×${result.gate.shortSide}px, sorted; the Harbour runtime remains lazy).`,
   );
 }
 

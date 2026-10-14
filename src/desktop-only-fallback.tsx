@@ -1,5 +1,6 @@
 import { HARBOUR_GUIDE } from "./components/arrival-shell";
 import { FALLBACK_LINKS } from "./fallback-links";
+import { MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX } from "./systems/viewport-gate";
 
 /** A static illustration of the harbour (the first-paint poster). Never live readings. */
 export function HarbourIllustration() {
@@ -38,8 +39,8 @@ export function SmallScreenWelcome({ windowCanFit }: { windowCanFit: boolean }) 
           ))}
         </nav>
         <p className="pharosville-narrow__size">
-          {windowCanFit ? "Your device can show the living harbour. Give this window more room: " : "For the living harbour, open a larger screen: "}
-          900×720 or 1200×640, with either dimension first. These links open Pharos analytics; no live readings are embedded here.
+          {windowCanFit ? "Your device can show the living harbour. Give this window more room: " : "For the living harbour, open a larger screen, such as a tablet, an unfolded foldable or a computer: "}
+          at least {MIN_LONG_SIDE_PX}×{MIN_SHORT_SIDE_PX}, with either dimension first. These links open Pharos analytics; no live readings are embedded here.
         </p>
       </div>
     </section>

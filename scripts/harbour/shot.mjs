@@ -16,6 +16,12 @@
  *     [--json out.json]     write the report as JSON
  *     [--uncapped]          launch with --disable-gpu-vsync --disable-frame-rate-limit: rAF runs as fast as the
  *                           GPU allows, so fps/p50 are the TRUE frame cost (not clamped to the display refresh)
+ *     [--mobile]            emulate a mobile browser (CDP Emulation mobile flag: viewport meta, overlay scrollbars)
+ *     [--touch]             emulate a touch screen (CDP Emulation.setTouchEmulationEnabled: touch events,
+ *                           maxTouchPoints, (pointer: coarse)/(hover: none)); --eval code may then drive raw CDP
+ *                           input through `await window.__cdp(method, params)`, e.g.
+ *                           __cdp("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] })
+ *     [--screen WxH]        the emulated physical screen (window.screen), e.g. 832x750 under an 832x680 viewport
  *     [--log-requests]      record every request from navigation on; the report gains `requests`
  *                           ({ url, type, status, bytes }), `apiRequests` (same-origin /api/* URLs) and
  *                           `transferBytes`. Use it for the desktop gate: a blocked viewport must show 0 apiRequests.
@@ -56,9 +62,17 @@ const browser = await connectShared(profileName);
 const context = browser.contexts()[0] ?? await browser.newContext();
 const page = await context.newPage();
 await page.setViewportSize({ width, height });
-if (dpr !== 1) {
+const [screenWidth, screenHeight] = typeof args.screen === "string" ? args.screen.split("x").map(Number) : [];
+if (dpr !== 1 || args.mobile || args.touch || screenWidth) {
   const cdp = await context.newCDPSession(page);
-  await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: dpr, mobile: false });
+  await cdp.send("Emulation.setDeviceMetricsOverride", {
+    width, height, deviceScaleFactor: dpr, mobile: !!args.mobile,
+    ...(screenWidth && screenHeight ? { screenWidth, screenHeight } : {}),
+  });
+  if (args.touch) {
+    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+    await page.exposeFunction("__cdp", (method, params) => cdp.send(method, params));
+  }
 }
 await page.bringToFront();
 let finishing = false;
@@ -134,7 +148,7 @@ for (let i = 0; i < burst; i++) {
 }
 
 const report = {
-  url, out: outPath, viewport: `${width}x${height}@${dpr}`, gpu: identity.webgl, webgpuAdapter: identity.webgpu,
+  url, out: outPath, viewport: `${width}x${height}@${dpr}${args.mobile ? " mobile" : ""}${args.touch ? " touch" : ""}`, gpu: identity.webgl, webgpuAdapter: identity.webgpu,
   frames: timing.length, fps: Math.round(timing.length / seconds),
   p50: +pct(0.5).toFixed(2), p95: +pct(0.95).toFixed(2), max: +timing[timing.length - 1].toFixed(2),
   stats, consoleErrors: consoleErrors.slice(0, 20),

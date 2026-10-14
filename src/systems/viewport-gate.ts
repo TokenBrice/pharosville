@@ -1,38 +1,36 @@
 /**
- * Shared widescreen-gate thresholds.
+ * Shared viewport-gate thresholds.
  *
- * `src/client.tsx` applies these before it imports the desktop data/runtime
+ * `src/client.tsx` applies these before it imports the Harbour data/runtime
  * chunk. The guard `scripts/check-viewport-gate.mjs` verifies that lazy
  * boundary remains intact.
  *
  * Runtime-neutral: no React or DOM imports.
  */
 
-export const MIN_LONG_SIDE_PX = 900;
-export const MIN_SHORT_SIDE_PX = 720;
-export const MIN_WIDE_LONG_SIDE_PX = 1200;
-export const MIN_WIDE_SHORT_SIDE_PX = 640;
+/**
+ * One sorted size profile: 720 CSS px on the long side and 600 on the short
+ * side. It admits every earlier desktop profile (900×720, 1200×640), unfolded
+ * foldables (a Galaxy Z Fold 7 inner screen is ≈832×750, ≈832×680 under
+ * Chrome's toolbar) and tablets either way up (iPad mini 744×1133), while
+ * phones (short side ≤ ≈480) and folded foldables stay on the welcome page.
+ */
+export const MIN_LONG_SIDE_PX = 720;
+export const MIN_SHORT_SIDE_PX = 600;
 
 /**
  * Can this DEVICE show the map at all, in its best orientation?
  *
  * Orientation-free on purpose: a phone that is 390x844 has the same capability
  * whichever way up it is held, and the answer to "should this device ever mount
- * the world" must not flip when the user rotates it. The standard profile needs
- * 900x720 CSS pixels. A wide-window profile also
- * admits 1200x640, which keeps laptop screens chartable when browser chrome or
- * zoom trims the viewport height. Sorting the sides keeps this a monotonic
- * size test rather than an orientation or aspect-ratio gate.
+ * the world" must not flip when the user rotates it. Sorting the sides keeps
+ * this a monotonic size test rather than an orientation or aspect-ratio gate.
  */
 export function isWidescreenViewport(width: number, height: number): boolean {
   if (!width || !height) return false;
   const longSide = Math.max(width, height);
   const shortSide = Math.min(width, height);
-  const standardProfile = longSide >= MIN_LONG_SIDE_PX
-    && shortSide >= MIN_SHORT_SIDE_PX;
-  const wideProfile = longSide >= MIN_WIDE_LONG_SIDE_PX
-    && shortSide >= MIN_WIDE_SHORT_SIDE_PX;
-  return standardProfile || wideProfile;
+  return longSide >= MIN_LONG_SIDE_PX && shortSide >= MIN_SHORT_SIDE_PX;
 }
 
 /**
@@ -51,8 +49,9 @@ export function isWidescreenViewport(width: number, height: number): boolean {
  * The real question is whether the viewport has the room, so that is what is
  * measured. The same monotonic max/min test applies to the viewport: adding
  * room along either side can never take the world away. A phone still fails;
- * a 720x1000 tall window, a 1200x640 laptop window, and a 2560x720 ultrawide
- * window all pass without an orientation, aspect-ratio, or device-label query.
+ * a 744x1133 portrait tablet, an 832x680 unfolded foldable and a 2560x720
+ * ultrawide window all pass without an orientation, aspect-ratio, or
+ * device-label query.
  */
 export function canViewportShowMap(width: number, height: number): boolean {
   return isWidescreenViewport(width, height);

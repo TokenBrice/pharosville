@@ -54,3 +54,8 @@ export function useSticky<T>(value: T | null): T | null {
   if (value != null && value !== last) setLast(value);
   return value ?? last;
 }
+
+/** A touch-first device (no hover, coarse pointer): copy speaks of taps, not hovering and keys. */
+export function touchFirst(): boolean {
+  return typeof matchMedia === "function" && matchMedia("(hover: none) and (pointer: coarse)").matches;
+}

@@ -4,6 +4,7 @@ import { AssetStore } from "./assets";
 import { QualityGovernor } from "./governor";
 import { PostChain } from "./post";
 import { CameraRig } from "./camera-rig";
+import { CameraInput } from "./input";
 import { TimeOfDay } from "./time-of-day";
 import { createWorldUniforms } from "./uniforms";
 import type { EngineContext, HarbourStats, WorldSystem } from "./types";
@@ -47,6 +48,7 @@ export class Engine {
   readonly toneMapping: ToneMappingEffect;
   readonly post: PostChain;
   readonly governor: QualityGovernor;
+  private readonly input: CameraInput;
   private readonly onResize = () => this.resize();
   private readonly onVisibility = () => { if (document.hidden) this.stop(); else this.start(); };
 
@@ -78,7 +80,7 @@ export class Engine {
     this.ctx.services.set("post", this.post);
     this.ctx.services.set("quality", this.governor);
     this.governor.publish();
-    this.attachInput();
+    this.input = new CameraInput(renderer.domElement, rig);
     addEventListener("resize", this.onResize);
     document.addEventListener("visibilitychange", this.onVisibility);
     this.resize();
@@ -170,6 +172,7 @@ export class Engine {
     frame.elapsed = this.clock.elapsed; frame.delta = delta; frame.nowMs = Date.now();
     ctx.uniforms.uTime.value = frame.elapsed;
     ctx.timeOfDay.update(frame.nowMs, frame.elapsed, ctx.uniforms);
+    this.input.update(delta);
     ctx.rig.update(delta);
     ctx.uniforms.uCameraPos.value.copy(ctx.camera.position);
     ctx.renderer.info.reset();
@@ -215,23 +218,10 @@ export class Engine {
     for (const s of this.systems) if (this.ready.has(s)) s.resize?.(w, h, this.ctx);
   }
 
-  private attachInput(): void {
-    const el = this.ctx.renderer.domElement;
-    let dragging = false, lx = 0, ly = 0;
-    el.addEventListener("pointerdown", (e) => { dragging = true; lx = e.clientX; ly = e.clientY; el.setPointerCapture(e.pointerId); });
-    el.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
-      const [dx, dz] = this.ctx.rig.dragToWorld(e.clientX - lx, e.clientY - ly, el.clientHeight || innerHeight);
-      this.ctx.rig.pan(dx, dz);
-      lx = e.clientX; ly = e.clientY;
-    });
-    el.addEventListener("pointerup", (e) => { dragging = false; el.releasePointerCapture(e.pointerId); });
-    el.addEventListener("wheel", (e) => { e.preventDefault(); this.ctx.rig.zoom(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
-  }
-
   dispose(): void {
     this.disposed = true;
     this.stop();
+    this.input.dispose();
     removeEventListener("resize", this.onResize);
     document.removeEventListener("visibilitychange", this.onVisibility);
     // a deferred system still initialising disposes itself when its init settles (initLater)

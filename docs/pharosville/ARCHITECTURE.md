@@ -16,8 +16,8 @@ Decisions D1-D14 live in `agents/2026-10-13-pharosville-reboot/PLAN.md`.
 Browser → /api/<allowlisted read path> → Pages Function → PHAROS_API_BASE
 ```
 
-The gate in `src/client.tsx` admits only the 900×720 or 1200×640 size profiles
-(`src/systems/viewport-gate.ts`), on the physical screen and on the current
+The gate in `src/client.tsx` admits only the 720×600 size profile
+(`src/systems/viewport-gate.ts`; desktops, laptops, unfolded foldables, tablets), on the physical screen and on the current
 window, before it lazy-imports `src/harbour/app/harbour-app.tsx`. Dimensions
 are sorted; these are SIZE tests, never orientation tests. A blocked viewport
 gets the static welcome page and never loads three.js, GLBs, logos or world

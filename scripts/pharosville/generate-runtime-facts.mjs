@@ -76,8 +76,6 @@ function parseViewportFacts(repoRoot) {
   return {
     longSide: normalizeNumber(matchRequired(source, /MIN_LONG_SIDE_PX\s*=\s*([\d_]+)/, "long-side gate")[1]),
     shortSide: normalizeNumber(matchRequired(source, /MIN_SHORT_SIDE_PX\s*=\s*([\d_]+)/, "short-side gate")[1]),
-    wideLongSide: normalizeNumber(matchRequired(source, /MIN_WIDE_LONG_SIDE_PX\s*=\s*([\d_]+)/, "wide-profile long-side gate")[1]),
-    wideShortSide: normalizeNumber(matchRequired(source, /MIN_WIDE_SHORT_SIDE_PX\s*=\s*([\d_]+)/, "wide-profile short-side gate")[1]),
   };
 }
 
@@ -204,10 +202,9 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     "",
     "## Viewport Gate",
     "",
-    `- Standard profile: \`${viewport.longSide}×${viewport.shortSide}px\``,
-    `- Wide-laptop profile: \`${viewport.wideLongSide}×${viewport.wideShortSide}px\``,
-    "- Device capability and current-viewport readiness independently sort their own dimensions and must satisfy either size profile.",
-    "- Orientation and aspect ratio are not gates: a 720×1000 tall viewport, a 1200×640 laptop viewport, and a 2560×720 ultrawide viewport all pass.",
+    `- Size profile: \`${viewport.longSide}×${viewport.shortSide}px\` (long side × short side)`,
+    "- Device capability and current-viewport readiness independently sort their own dimensions and must satisfy that profile. It admits desktop and laptop windows, unfolded foldables and tablets either way up; phones and folded foldables get the welcome page.",
+    "- Orientation and aspect ratio are not gates: an 832×680 unfolded foldable, a 744×1133 portrait tablet, a 1200×640 laptop viewport, and a 2560×720 ultrawide viewport all pass.",
     "- `src/client.tsx` lazy-loads the Harbour chunk (`src/harbour/app/harbour-app.tsx`: Engine, systems, data feed) only after that gate; `npm run check:viewport-gate` guards the boundary.",
     "",
     "## API Allowlist",
