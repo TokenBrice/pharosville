@@ -13,7 +13,19 @@ nt = white.node_tree; [nt.nodes.remove(n) for n in list(nt.nodes) if n.type != '
 em = nt.nodes.new('ShaderNodeEmission'); em.inputs['Strength'].default_value = 1.0
 nt.links.new(em.outputs[0], nt.nodes['Material Output'].inputs['Surface'])
 vl = sc.view_layers[0]; vl.material_override = white
-pr = CJ['presets'][cam]
+for c in bpy.data.collections:          # the mainland sits beyond the runtime's sky card: never part of the frame
+    if c.name.startswith(('shakkei', 'sky')):
+        c.hide_render = True
+pr = dict(CJ['presets'][cam])
+if '--dist' in ARGV:
+    pr['distance'] = float(ARGV[ARGV.index('--dist') + 1])
+if '--pitch' in ARGV:
+    pr['pitchDeg'] = float(ARGV[ARGV.index('--pitch') + 1])
+if '--uv' in ARGV:        # screen-plan target (U, V) as compose.py authors it
+    u, v = (float(x) for x in ARGV[ARGV.index('--uv') + 1].split(','))
+    V0 = CJ['consts']['VOFF']; S2 = math.sqrt(2.0)
+    x, y = (u - (v + V0)) / S2, (u + (v + V0)) / S2
+    pr['target'] = [x, 0.0, -y]
 tx, ty, tz = pr['target']; T = Vector((tx, -tz, ty)); D = pr['distance']
 yaw, pit = math.radians(pr['yawDeg']), math.radians(pr['pitchDeg'])
 off = Vector((math.sin(yaw) * math.cos(pit), -math.cos(yaw) * math.cos(pit), math.sin(pit)))
@@ -29,4 +41,4 @@ sc.view_settings.view_transform = 'Standard'
 out = os.path.join(OUTD, f'mask-{cam}.png'); sc.render.filepath = out
 bpy.ops.render.render(write_still=True)
 img = bpy.data.images.load(out); px = np.array(img.pixels[:]).reshape(250, 400, 4)
-print('LANDFILL', cam, round(float((px[..., 0] > 0.5).mean()), 3))
+print('LANDFILL', cam, pr['distance'], pr['pitchDeg'], round(float((px[..., 0] > 0.5).mean()), 3))

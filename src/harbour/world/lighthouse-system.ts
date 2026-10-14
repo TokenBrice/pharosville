@@ -24,6 +24,12 @@ export interface LighthouseService {
   readonly lit: boolean;
   setSweep(seconds: number): void;
   setLit(lit: boolean): void;
+  /** 0..1 lantern level, for a fade instead of a cut (readings binder). */
+  setLitLevel?(v: number): void;
+  /** Reduced motion: hold the beam at a fixed heading (radians); null resumes the sweep. */
+  hold?(heading: number | null): void;
+  /** Lantern glow colour (PSI 3-step lamp). */
+  setLampColor?(c: THREE.ColorRepresentation): void;
 }
 
 const GLOW_VERT = /* glsl */ `
@@ -42,6 +48,7 @@ uniform float uLit;
 uniform float uFlash;
 uniform float uNight;
 uniform float uFar;
+uniform vec3 uLampCol;
 varying vec2 vQ;
 void main() {
   float r2 = dot(vQ, vQ);
@@ -49,7 +56,7 @@ void main() {
   float halo = exp(-r2 * 12.0) * (0.06 + 0.4 * uFlash) * uNight;
   float rays = pow(max(0.0, 1.0 - abs(vQ.y) * 26.0), 2.0) * exp(-abs(vQ.x) * 4.0) * uFlash * 0.5;
   // by day only the rhythm flash reads; by night the lamp glows steadily
-  vec3 c = vec3(1.0, 0.80, 0.52) * (core + halo + rays) * uLit * (0.12 * uLens * (0.15 + 0.85 * uNight) + 0.7 * uFlash) * uFar;
+  vec3 c = uLampCol * (core + halo + rays) * uLit * (0.12 * uLens * (0.15 + 0.85 * uNight) + 0.7 * uFlash) * uFar;
   gl_FragColor = vec4(c, 1.0);
 }`;
 
@@ -61,6 +68,8 @@ export class LighthouseSystem implements WorldSystem {
   private period = 12;
   private readonly lensLit: THREE.IUniform<number> = { value: 1 };
   private readonly flash: THREE.IUniform<number> = { value: 0 };
+  private readonly lampCol: THREE.IUniform<THREE.Color> = { value: new THREE.Color(1.0, 0.8, 0.52) };
+  private held: number | null = null;
   private glow: THREE.Mesh | null = null;
   private readonly position = new THREE.Vector3();
   private readonly lantern = new THREE.Vector3();
@@ -97,7 +106,7 @@ export class LighthouseSystem implements WorldSystem {
 
     // lantern glow sprite (bloomed)
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uSize: { value: 9 }, uFar: { value: 1 }, uLens: ctx.uniforms.uLens, uLit: this.lensLit, uFlash: this.flash, uNight: ctx.uniforms.uNight },
+      uniforms: { uSize: { value: 9 }, uFar: { value: 1 }, uLens: ctx.uniforms.uLens, uLit: this.lensLit, uFlash: this.flash, uNight: ctx.uniforms.uNight, uLampCol: this.lampCol },
       vertexShader: GLOW_VERT, fragmentShader: GLOW_FRAG,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
     });
@@ -122,11 +131,14 @@ export class LighthouseSystem implements WorldSystem {
       get lit() { return sys.get().lensLit.value > 0.5; },
       setSweep: (s: number) => { if (Number.isFinite(s) && s > 0.5) sys.get().period = s; },
       setLit: (lit: boolean) => { sys.get().lensLit.value = lit ? 1 : 0; },
+      setLitLevel: (v: number) => { sys.get().lensLit.value = THREE.MathUtils.clamp(v, 0, 1); },
+      hold: (heading: number | null) => { sys.get().held = heading; },
+      setLampColor: (c: THREE.ColorRepresentation) => { sys.get().lampCol.value.set(c); },
     };
   }
 
   update(frame: FrameState, ctx: EngineContext): void {
-    this.phase = (this.phase + frame.delta / this.period) % 1;
+    this.phase = this.held != null ? (((this.held / (Math.PI * 2)) % 1) + 1) % 1 : (this.phase + frame.delta / this.period) % 1;
     const h = this.phase * Math.PI * 2;
     for (const r of this.rotors) r.rotation.y = h;
     // flash when either beam panel faces the camera (the daytime rhythm read)

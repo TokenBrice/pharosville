@@ -1,42 +1,57 @@
-"""The Harbour v2 - dressing: vegetation (spruce crest, lush A-graft tree clusters, birches, meadows, heather),
-dry-stone walls + paths, quay life (lamps, bunting, striped awnings, stalls, crates, nets), pier-head pennant
-lamps, hamlet characters, shoals reef + buoys, mooring buoys, Far Ports rafts, folk, gulls.
+"""The Harbour v3 - dressing: roads (the winding road to the Pharos, the coast road over the south ridge), walled
+meadows, vegetation (spruce crests on the spines and behind the amphitheatre, lush A-graft trees in the town gardens,
+birches, meadow + headland dressing, rock outcrops), quay life along the curved quays (lamps, bunting, stalls,
+crates, nets, cranes), hamlet characters, skerries, the Shoals, buoys, the Far Ports rafts, folk, gulls, the mainland.
 exec'd into build_island's namespace (after land + town)."""
 from PIL import Image, ImageDraw
 
 DRNG = random.Random(909)
 set_coll(collection('dress', ROOTC))
+COVES = {c['pid']: c for c in CJ['coves']}
 
 # ------------------------------------------------------------------ occupancy raster (1 m): where nothing may grow
-OX0, OY0, OX1, OY1 = -320.0, -300.0, 300.0, 430.0
+_xs = [p[0] for p in COAST]; _ys = [p[1] for p in COAST]
+OX0, OY0, OX1, OY1 = min(_xs) - 10, min(_ys) - 10, max(_xs) + 10, max(_ys) + 10
 OS = 1.0
 OW, OH = int((OX1 - OX0) / OS), int((OY1 - OY0) / OS)
 occ_im = Image.new('L', (OW, OH), 0); od = ImageDraw.Draw(occ_im)
 o_to = lambda x, y: ((x - OX0) / OS, (OY1 - y) / OS)
 
 
-def occ_rect(x0, y0, x1, y1):
-    od.rectangle([o_to(x0, y1), o_to(x1, y0)], fill=255)
+def occ_poly(poly):
+    od.polygon([o_to(*p) for p in poly], fill=255)
+
+
+def lot_rect(lot, pad_w=1.5, pad_d=2.0):
+    f = Vector((lot['face'][0], lot['face'][1])); s_ = Vector((-f.y, f.x)); c = Vector(lot['c'])
+    w, d = lot['w'] / 2 + pad_w, lot['d'] / 2 + pad_d
+    return [tuple(c + s_ * a + f * b) for a, b in ((-w, -d), (w, -d), (w, d + 0.6), (-w, d + 0.6))]
 
 
 for lot in CJ['lots']:
-    cx, cy = lot['c']; w, d = lot['w'], lot['d']
-    if tuple(lot.get('face', (0, -1))) in ((1, 0), (-1, 0)):
-        w, d = d, w
-    occ_rect(cx - w / 2 - 1.5, cy - d / 2 - 2.5, cx + w / 2 + 1.5, cy + d / 2 + 1.5)
+    occ_poly(lot_rect(lot))
 for k, L in CJ['landmarks'].items():
     if k in ('shoals', 'wreck_cove', 'far_ports', 'breakwater') or k.startswith('hamlet'):
         continue
     r = L['fp'] / 2 + 3
-    occ_rect(L['p'][0] - r, L['p'][1] - r, L['p'][0] + r, L['p'][1] + r)
-occ_rect(-152, QY - 2, 152, QY + 17)                 # Grand Quay apron
-occ_rect(WX - 14, SY + 4, WX, QY + 2)                # basin apron
-for (fy, tz, x0, x1) in terrain.TERRACES:            # terrace lanes + walls
-    occ_rect(x0 - 2, fy - 2, x1 + 2, fy + 4.5)
-for pid, cx, hw in CJ['coves']:
-    occ_rect(cx - hw - 2, COVE_BACK - 2, cx + hw + 2, COVE_BACK + 9)
-for (x0, fy, za, zb) in STAIRS:
-    occ_rect(x0 - 2.5, fy - 9, x0 + 2.5, fy + 1)
+    occ_poly([(L['p'][0] - r, L['p'][1] - r), (L['p'][0] + r, L['p'][1] - r), (L['p'][0] + r, L['p'][1] + r), (L['p'][0] - r, L['p'][1] + r)])
+for name, L in QL.items():                                     # quay aprons
+    depth = APRON.get(name, 3.0 if name.endswith(('-w', '-e')) else 7.0) + 1.5
+    for a, b in zip(L, L[1:]):
+        t = Vector(b) - Vector(a)
+        if t.length < 1e-3:
+            continue
+        t.normalize(); nl = Vector((-t.y, t.x))
+        occ_poly([a, b, tuple(Vector(b) + nl * depth), tuple(Vector(a) + nl * depth)])
+for (k, pts, z) in LANES:                                       # terrace lanes + walls
+    for a, b in zip(pts, pts[1:]):
+        od.line([o_to(*a), o_to(*b)], fill=255, width=7)
+for (th, band, p0, radial, run) in STAIRS:
+    a = p0 - radial * 1.0; b = p0 + radial * (run + 2.0)
+    od.line([o_to(a.x, a.y), o_to(b.x, b.y)], fill=255, width=5)
+# the Customs square
+for th in range(76, 106, 3):
+    od.line([o_to(*town_pt(th, TOWN['r_quay'] + 6)), o_to(*town_pt(th, TOWN['r_quay'] + 31))], fill=255, width=5)
 OCC = np.array(occ_im) > 0
 
 
@@ -47,7 +62,7 @@ def occupied(x, y):
     return bool(OCC[i, j])
 
 
-def on_land(x, y, margin=2.0):
+def on_land(x, y):
     return point_in_poly(x, y, COAST) and not occupied(x, y)
 
 
@@ -56,43 +71,74 @@ def in_crop(x, y):
     return f is not None and f['kind'] in ('hay', 'plough')
 
 
-# ------------------------------------------------------------------ PATHS (earth/gravel) between hamlets, up to the church/headland
-paths = bmesh.new()
-PATHS = [
-    [(-200, -214), (-150, -206), (-100, -210), (-40, -206), (20, -208), (80, -204), (130, -206), (176, -198)],    # hamlet coast path
-    [(-30, -200), (-24, -170), (-10, -140), (0, -124)],                                                           # over the ridge
-    [(150, 172), (172, 176), (196, 186), (214, 172), (222, 160)],                                                 # to the headland
-    [(-110, 196), (-140, 210), (-170, 240), (-210, 268), (-252, 292)],                                            # to Wreck Cove
-    [(84, 252), (84, 262)], [(-60, 266), (-100, 290), (-150, 300)],
-]
-for pl in PATHS:
-    for a, b in zip(pl, pl[1:]):
-        n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / 4.0))
-        for k in range(n):
-            p = (a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n)
-            q = (a[0] + (b[0] - a[0]) * (k + 1) / n, a[1] + (b[1] - a[1]) * (k + 1) / n)
-            merge(paths, nl_kit.beam((p[0], p[1], H(*p) + 0.08), (q[0], q[1], H(*q) + 0.08), 2.0, 0.22))
-            od.line([o_to(*p), o_to(*q)], fill=255, width=4)
-OCC = np.array(occ_im) > 0
-obj('land_paths', paths, PAL['earth'], PT['cobble'], family='terrain', jitter=0.05)
+def refresh_occ():
+    global OCC
+    OCC = np.array(occ_im) > 0
 
-# ------------------------------------------------------------------ dry-stone field walls (south arm, west land, NE)
-walls = bmesh.new()
-WALLS = []
-for f in terrain.FIELDS:
-    p = f['poly']
-    WALLS.append([p[0], p[1], p[2], p[3], p[0]])
-for wl in WALLS:
-    for a, b in zip(wl, wl[1:]):
-        n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / 3.5))
+
+# ------------------------------------------------------------------ ROADS: the winding road to the Pharos, the coast road
+def road(ctrl_uv, width, col, name, bm, step=3.5, smooth=True, mark=True):
+    pts = [wpt(*p) for p in (catmull(ctrl_uv, 6, closed=False) if smooth else ctrl_uv)]
+    out = []
+    for a, b in zip(pts, pts[1:]):
+        n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / step))
         for k in range(n):
             p = (a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n)
             q = (a[0] + (b[0] - a[0]) * (k + 1) / n, a[1] + (b[1] - a[1]) * (k + 1) / n)
-            if not on_land(*p) or not on_land(*q):
+            if not (point_in_poly(*p, COAST) and point_in_poly(*q, COAST)):
                 continue
-            merge(walls, nl_kit.beam((p[0], p[1], H(*p) + 0.32), (q[0], q[1], H(*q) + 0.32), 0.6, 0.85))
-            od.line([o_to(*p), o_to(*q)], fill=255, width=2)
-OCC = np.array(occ_im) > 0
+            merge(bm, nl_kit.beam((p[0], p[1], H(*p) + 0.08), (q[0], q[1], H(*q) + 0.08), width, 0.24))
+            if mark:
+                od.line([o_to(*p), o_to(*q)], fill=255, width=int(width + 2))
+            out.append(p)
+    return out
+
+
+import geom as _G
+catmull = _G.catmull
+ROADS = {}
+road_bm = bmesh.new(); path_bm = bmesh.new()
+# the winding road: Tron quay -> switchbacks up the headland's flank -> the Pharos; a spur to the keeper's cottage
+ROADS['pharos'] = road([(-118.0, 22.0), (-132.0, 34.0), (-124.0, 52.0), (-142.0, 60.0), (-134.0, 76.0), (-112.0, 84.0), (-96.0, 92.0),
+                        (-84.0, 96.0)], 3.0, PAL['gravel'], 'road_pharos', road_bm)
+# the west road: Long Quay west end -> the farms -> the windmill -> up the spine to the headland road
+ROADS['west'] = road([(-108.0, -150.0), (-134.0, -140.0), (-160.0, -146.0), (-186.0, -132.0), (-200.0, -110.0), (-206.0, -80.0),
+                      (-196.0, -50.0), (-176.0, -20.0), (-152.0, 4.0), (-134.0, 22.0), (-118.0, 22.0)], 3.0, PAL['gravel'], 'road_west', road_bm)
+# the coast road over the south ridge, east to west, with spurs down to each hamlet
+ROADS['south'] = road([(200.0, -196.0), (176.0, -214.0), (130.0, -230.0), (80.0, -238.0), (20.0, -240.0), (-40.0, -236.0),
+                       (-100.0, -232.0), (-150.0, -222.0), (-196.0, -206.0), (-222.0, -186.0), (-216.0, -160.0), (-190.0, -146.0)],
+                      3.0, PAL['gravel'], 'road_south', road_bm)
+ROADS['east'] = road([(176.0, -150.0), (196.0, -172.0), (200.0, -196.0), (214.0, -180.0), (232.0, -170.0)], 2.6, PAL['gravel'], 'road_east', road_bm)
+for pid, cv in COVES.items():
+    b = Vector(cv['back']); n_ = Vector(cv['n'])
+    a = b - n_ * 6.0
+    u0, v0 = uvp(a.x, a.y)
+    tgt = min(ROADS['south'] + ROADS['west'] + ROADS['east'], key=lambda p: (p[0] - a.x) ** 2 + (p[1] - a.y) ** 2)
+    u1, v1 = uvp(*tgt)
+    mid = ((u0 + u1) / 2 + 6.0, (v0 + v1) / 2)
+    road([(u0, v0), mid, (u1, v1)], 2.2, PAL['earth'], 'path_' + pid, path_bm)
+# footpaths: the town top to the crest; the windmill; Wreck Cove
+for ctrl in ([(96.0, 128.0), (108.0, 140.0), (130.0, 146.0)], [(-206.0, -80.0), (-218.0, -110.0), (-226.0, -150.0), (-224.0, -162.0)],
+             [(-196.0, -50.0), (-226.0, -56.0), (-246.0, -64.0)], [(40.0, 112.0), (24.0, 120.0), (10.0, 118.0)]):
+    road(ctrl, 1.8, PAL['earth'], 'path', path_bm)
+refresh_occ()
+obj('land_roads', road_bm, PAL['gravel'], PT['cobble'], family='terrain', jitter=0.04)
+obj('land_paths', path_bm, PAL['earth'], PT['cobble'], family='terrain', jitter=0.05)
+
+# ------------------------------------------------------------------ dry-stone walls round the meadows (they follow the land)
+walls = bmesh.new()
+for f in terrain.FIELDS:
+    p = f['poly'] + f['poly'][:1]
+    for a, b in zip(p, p[1:]):
+        n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / 3.0))
+        for k in range(n):
+            q0 = (a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n)
+            q1 = (a[0] + (b[0] - a[0]) * (k + 1) / n, a[1] + (b[1] - a[1]) * (k + 1) / n)
+            if not on_land(*q0) or not on_land(*q1) or DRNG.random() < 0.06:
+                continue
+            merge(walls, nl_kit.beam((q0[0], q0[1], H(*q0) + 0.32), (q1[0], q1[1], H(*q1) + 0.32), 0.6, 0.85))
+            od.line([o_to(*q0), o_to(*q1)], fill=255, width=2)
+refresh_occ()
 obj('field_walls', walls, PAL['rock'], PT['ashlar'], family='prop_wall', jitter=0.12)
 
 # ------------------------------------------------------------------ VEGETATION
@@ -100,10 +146,10 @@ leafS, trunkS = bmesh.new(), bmesh.new()
 leafR, trunkR = bmesh.new(), bmesh.new()
 leafB, trunkB = bmesh.new(), bmesh.new()
 shrub, tuft, flw, heath, bould, lich = (bmesh.new() for _ in range(6))
+TREES = {'spruce': 0, 'round': 0, 'birch': 0}
 
 
 def round_tree(p, h, rng):
-    """A-graft lush deciduous crown: two overlapping lumpy spheres on a short trunk."""
     x, y, z = p
     merge(trunkR, bm_cyl(0.22 * h / 8, 0.14 * h / 8, h * 0.5, 5, (x, y, z - 0.3)))
     r = h * 0.34
@@ -112,14 +158,7 @@ def round_tree(p, h, rng):
     merge(leafR, bm_ico(r * 0.72, (x + o.x, y + o.y, z + h * 0.5), 1, (1.0, 1.0, 0.85), seed=rng.randint(0, 999), amp=0.25))
 
 
-def spruce_(p, h, rng):
-    nl_kit.spruce(leafS, trunkS, p, h, rng)
-
-
-TREES = {'spruce': 0, 'round': 0, 'birch': 0}
-
-
-def scatter(n, sampler, place, min_d, rng, max_try=None):
+def scatter(n, sampler, place, min_d, rng, max_try=None, allow_crop=False):
     placed = []
     tries = 0
     grid = {}
@@ -127,7 +166,7 @@ def scatter(n, sampler, place, min_d, rng, max_try=None):
     while len(placed) < n and tries < (max_try or n * 30):
         tries += 1
         p = sampler(rng)
-        if p is None or not on_land(*p) or in_crop(*p):
+        if p is None or not on_land(*p) or (not allow_crop and in_crop(*p)):
             continue
         key = (int(p[0] // cell), int(p[1] // cell))
         ok = True
@@ -144,83 +183,75 @@ def scatter(n, sampler, place, min_d, rng, max_try=None):
     return placed
 
 
-# spruce crest: a dense dark band along the ridge (silhouette), thinning down the slopes
-RIDGE_PTS = terrain.RIDGE
-
-
-def ridge_sampler(rng, spread=34.0):
-    i = rng.randrange(len(RIDGE_PTS) - 1)
-    a, b = RIDGE_PTS[i], RIDGE_PTS[i + 1]
-    t = rng.random()
-    x = a[0] + (b[0] - a[0]) * t; y = a[1] + (b[1] - a[1]) * t
-    return (x + rng.gauss(0, spread), y + rng.gauss(0, spread))
+def line_sampler(pts_uv, spread):
+    def s(rng):
+        i = rng.randrange(len(pts_uv) - 1)
+        a, b = pts_uv[i], pts_uv[i + 1]
+        t = rng.random()
+        u = a[0] + (b[0] - a[0]) * t + rng.gauss(0, spread); v = a[1] + (b[1] - a[1]) * t + rng.gauss(0, spread)
+        return wpt(u, v)
+    return s
 
 
 def place_spruce(p, rng):
     z = H(*p)
-    h = rng.uniform(7.5, 12.5) * (1.0 if z > 14 else 0.85)
-    spruce_((p[0], p[1], z - 0.3), h, rng)
+    h = rng.uniform(7.5, 12.5) * (1.0 if z > 12 else 0.85)
+    nl_kit.spruce(leafS, trunkS, (p[0], p[1], z - 0.3), h, rng)
     TREES['spruce'] += 1
 
 
-scatter(470, lambda r: ridge_sampler(r, 16.0), place_spruce, 4.6, DRNG)          # the dark crest itself
-COPSES = []
-_crng = random.Random(4)
-for k in range(44):
-    COPSES.append((_crng.uniform(-280, 250), _crng.uniform(-200, 380), _crng.uniform(8, 18), _crng.randint(6, 16)))
-COPSES += [(-238, 40, 26, 60), (-246, -20, 18, 30), (-226, 110, 20, 34), (-214, -96, 16, 22), (196, 300, 24, 46), (240, 230, 12, 14),
-           (-60, -168, 20, 22), (110, -170, 16, 14), (-170, -172, 14, 12)]
-for (cx, cy, sp, n) in COPSES:
-    if terrain.field_at(cx, cy) is not None:
-        continue
-    scatter(n, lambda r, cx=cx, cy=cy, sp=sp: (cx + r.gauss(0, sp), cy + r.gauss(0, sp)), place_spruce, 4.8, DRNG, max_try=n * 20)
-
-
 def place_round(p, rng):
-    z = H(*p)
-    round_tree((p[0], p[1], z), rng.uniform(6.5, 9.5), rng)
+    round_tree((p[0], p[1], H(*p)), rng.uniform(6.5, 9.5), rng)
     TREES['round'] += 1
 
 
-# lush round-crown trees: town gardens (the gaps between blocks), terrace backs, squares, hamlet greens
-TOWN_SPOTS = []
-for (fy, tz, x0, x1) in terrain.TERRACES:
-    for k in range(70):
-        TOWN_SPOTS.append((DRNG.uniform(x0, x1), fy + DRNG.uniform(6.0, 30.0)))
-for k in range(40):
-    TOWN_SPOTS.append((DRNG.uniform(-140, 150), DRNG.uniform(160, 182)))
-scatter(150, lambda r: TOWN_SPOTS[r.randrange(len(TOWN_SPOTS))], place_round, 6.5, DRNG, max_try=4000)
-for pid, cx, hw in CJ['coves']:
-    scatter(4, lambda r, cx=cx, hw=hw: (cx + r.uniform(-hw - 16, hw + 16), COVE_BACK + r.uniform(18, 34)), place_round, 7.0, DRNG, max_try=200)
-scatter(40, lambda r: (r.uniform(-210, 170), r.uniform(-196, -128)), place_round, 9.0, DRNG, max_try=2000)
-
-
 def place_birch(p, rng):
-    z = H(*p)
-    nl_kit.birch(leafB, trunkB, (p[0], p[1], z - 0.2), rng.uniform(6.0, 8.5), rng)
+    nl_kit.birch(leafB, trunkB, (p[0], p[1], H(*p) - 0.2), rng.uniform(6.0, 8.5), rng)
     TREES['birch'] += 1
 
 
-scatter(70, lambda r: ridge_sampler(r, 70.0), place_birch, 8.0, DRNG, max_try=3000)
-scatter(24, lambda r: (r.uniform(-250, -170), r.uniform(-130, 140)), place_birch, 9.0, DRNG, max_try=1500)
+# the crest behind the amphitheatre: a dark spruce band against the sky (r 124..142 round the Vagen)
+CREST = [(CT_UV[0] + math.cos(math.radians(a)) * 133.0, CT_UV[1] + math.sin(math.radians(a)) * 133.0) for a in range(166, 8, -6)]
+scatter(260, line_sampler(CREST, 6.5), place_spruce, 4.4, DRNG)
+scatter(200, line_sampler(terrain.WEST_SPINE, 13.0), place_spruce, 4.6, DRNG)
+scatter(180, line_sampler(terrain.EAST_SPINE, 12.0), place_spruce, 4.6, DRNG)
+COPSES = [((-150.0, -40.0), 10, 14), ((-180.0, 20.0), 12, 16), ((-250.0, -190.0), 12, 14), ((-90.0, -250.0), 9, 8), ((100.0, -250.0), 9, 8),
+          ((230.0, -40.0), 10, 12), ((210.0, 40.0), 12, 14), ((-60.0, 120.0), 7, 5), ((-150.0, 60.0), 9, 7), ((150.0, -210.0), 8, 8)]
+for (c, sp, n) in COPSES:
+    scatter(n, lambda r, c=c, sp=sp: wpt(c[0] + r.gauss(0, sp), c[1] + r.gauss(0, sp)), place_spruce, 4.8, DRNG, max_try=n * 30)
+# lush round-crowned trees in the town gardens: between the terraces' houses, behind them, round the squares
+TOWN_SPOTS = []
+for k, (r0, r1, z) in enumerate(RINGS):
+    th0, th1 = TOWN_TH[k]
+    for i in range(60):
+        TOWN_SPOTS.append(town_pt(DRNG.uniform(th1, th0), DRNG.uniform(r0 + 2, r1 + 1)))
+scatter(130, lambda r: TOWN_SPOTS[r.randrange(len(TOWN_SPOTS))], place_round, 6.0, DRNG, max_try=5000)
+for pid, cv in COVES.items():
+    b = Vector(cv['back']); n_ = Vector(cv['n']); t_ = Vector(cv['t'])
+    scatter(5, lambda r, b=b, n_=n_, t_=t_, hw=cv['hw']: tuple(b - n_ * r.uniform(14, 34) + t_ * r.uniform(-hw - 10, hw + 10)), place_round, 7.0, DRNG, max_try=300)
+scatter(36, lambda r: wpt(r.uniform(-200, 220), r.uniform(-250, -200)), place_round, 9.0, DRNG, max_try=2000)
+scatter(30, lambda r: wpt(r.uniform(-240, -150), r.uniform(-200, -40)), place_round, 10.0, DRNG, max_try=2000)
+scatter(60, line_sampler(terrain.WEST_SPINE + [(-150.0, 40.0)], 40.0), place_birch, 8.0, DRNG, max_try=3000)
+scatter(40, line_sampler(terrain.EAST_SPINE, 34.0), place_birch, 8.0, DRNG, max_try=2000)
+scatter(30, line_sampler(CREST, 16.0), place_birch, 8.0, DRNG, max_try=2000)
 print('TREES', TREES)
 
 
 # ground dressing: shrubs, tufts, flowers, heather on the headland, boulders + lichen
 def place_meadow(p, rng):
     z = H(*p)
+    u, v = uvp(*p)
     kind = rng.random()
-    hd = math.hypot((p[0] - 224) / 46.0, (p[1] - 182) / 70.0)
+    hd = math.hypot((u - terrain.PHAROS[0] + 16) / 50.0, (v - terrain.PHAROS[1] + 4) / 28.0)
     if hd < 1.05:
-        # the headland: heather + gorse only in drifts (negative space between), rocks at the cliff edge
         if terrain.fbm(p[0], p[1], 0.045, 2, 21) < 0.56:
             return
         for k_ in range(rng.randint(2, 4)):
             q = (p[0] + rng.uniform(-2.2, 2.2), p[1] + rng.uniform(-2.2, 2.2))
             merge(heath, bm_ico(rng.uniform(0.6, 1.1), (q[0], q[1], H(*q) + 0.1), 1, (1.4, 1.0, 0.45), seed=rng.randint(0, 999), amp=0.3))
-        if hd > 0.85 and rng.random() < 0.5:
+        if hd > 0.8 and rng.random() < 0.5:
             rr = rng.uniform(0.8, 1.8)
-            merge(bould, bm_ico(rr, (p[0], p[1] + 1.5, z + 0.1), 1, (1.25, 1.0, 0.7), seed=rng.randint(0, 999), amp=0.35))
+            merge(bould, bm_ico(rr, (p[0], p[1], z + 0.1), 1, (1.25, 1.0, 0.7), seed=rng.randint(0, 999), amp=0.35))
         return
     if kind < 0.3:
         merge(shrub, bm_ico(rng.uniform(0.7, 1.3), (p[0], p[1], z + 0.4), 1, (1.2, 1.0, 0.85), seed=rng.randint(0, 999), amp=0.3))
@@ -238,7 +269,22 @@ def place_meadow(p, rng):
             merge(lich, bm_ico(rr * 0.5, (p[0] + rr * 0.1, p[1], z + 0.1 + rr * 0.55), 0, (1.3, 1.0, 0.25), seed=rng.randint(0, 99)))
 
 
-scatter(1500, lambda r: (r.uniform(-300, 280), r.uniform(-250, 420)), place_meadow, 3.2, DRNG, max_try=40000)
+scatter(1700, lambda r: (r.uniform(OX0, OX1), r.uniform(OY0, OY1)), place_meadow, 3.2, DRNG, max_try=60000)
+# rock outcrops: clustered granite tors on the slopes (charm + breakup of the green)
+OUTCROPS = [(-170.0, -70.0), (-240.0, -120.0), (-158.0, 52.0), (250.0, -90.0), (230.0, -150.0), (-30.0, -232.0), (120.0, -226.0),
+            (-270.0, -170.0), (220.0, 20.0), (-200.0, 10.0), (60.0, 132.0), (-160.0, -200.0)]
+for (u, v) in OUTCROPS:
+    cx, cy = wpt(u, v)
+    if not point_in_poly(cx, cy, COAST):
+        continue
+    for k in range(DRNG.randint(4, 8)):
+        q = (cx + DRNG.gauss(0, 3.2), cy + DRNG.gauss(0, 3.2))
+        if not on_land(*q):
+            continue
+        rr = DRNG.uniform(1.2, 3.4) * (1.3 if k == 0 else 1.0)
+        merge(bould, bm_ico(rr, (q[0], q[1], H(*q) + rr * 0.15), 1, (1.2, 1.0, 0.85 + DRNG.random() * 0.4), seed=DRNG.randint(0, 999), amp=0.32))
+        if DRNG.random() < 0.7:
+            merge(lich, bm_ico(rr * 0.45, (q[0], q[1], H(*q) + rr * 0.95), 0, (1.3, 1.0, 0.25), seed=DRNG.randint(0, 99)))
 obj('trees_spruce', leafS, face=lambda q: ((PAL['spruce_light'] if q.normal.z > 0.35 else PAL['spruce']), PT['leaf']), family='tree_spruce', jitter=0.1, seed=3)
 obj('trees_spruce_trunk', trunkS, PAL['timber_dark'], PT['plain'], family='tree_spruce')
 obj('trees_round', leafR, face=lambda q: ((lin('#7FA348') if terrain.vnoise(q.center.x, q.center.y, 0.05, 4) > 0.5 else lin('#5F8A3C')) if q.normal.z > 0.1 else lin('#4C6E33'), PT['leaf']),
@@ -269,7 +315,6 @@ def lamp(p, z, h=3.6, pennant=None, kind='lamp'):
     LAMP_PTS.append(Vector((x, y, z + h + 0.45)))
     LAMP_LIGHTS.append((x, y, z + h + 0.45, kind, pennant))
     if pennant:
-        # chain pennant: a short staff + swallow-tail flag in the chain colour
         merge(lampb, bm_cyl(0.04, 0.03, 1.6, 4, (x, y, z + h + 1.2)))
         f = bmesh.new()
         vs = [f.verts.new(v) for v in ((x, y, z + h + 2.7), (x + 1.3, y + 0.2, z + h + 2.55), (x + 0.95, y + 0.15, z + h + 2.38),
@@ -280,18 +325,30 @@ def lamp(p, z, h=3.6, pennant=None, kind='lamp'):
         PENN_COLS.append((n0, len(pennb.faces), lin(pennant)))
 
 
-# Grand Quay: lamps along the edge every ~24 m, and along the terrace lanes
-for x in range(-140, 151, 24):
-    lamp((x, QY + 1.8), Z_SHORE + 0.06)
-for (fy, tz, x0, x1) in terrain.TERRACES:
-    for x in np.arange(x0 + 10, x1 - 5, 30.0):
-        lamp((float(x), fy + 4.6), tz + 0.04)
+def along_line(line, step, inset, start=None):
+    """Points every `step` m along a quay line, `inset` m to its land side, with the tangent."""
+    out = []
+    Lw = polyline_len(line)
+    s = start if start is not None else step / 2
+    while s < Lw:
+        p, t = along(line, s)
+        nl = (-t[1], t[0])
+        out.append(((p[0] + nl[0] * inset, p[1] + nl[1] * inset), t, nl))
+        s += step
+    return out
+
+
+for name, L in QL.items():
+    if name.endswith(('-w', '-e')):
+        continue
+    step = {'grand': 21.0, 'long': 26.0, 'tron': 20.0, 'wharf': 24.0, 'battery': 18.0}.get(name, 22.0)
+    for (p, t, nl) in along_line(L, step, 1.8):
+        lamp(p, Z_SHORE + 0.06)
+for (k, pts, z) in LANES:
+    for i in range(3, len(pts) - 2, 9):
+        lamp(pts[i], z + 0.04)
 for (x, y, z, kind, col) in CJ['lamps']:
     lamp((x, y), z, 3.0 if z < 2 else 3.4, pennant=col if kind == 'pierhead' else None, kind=kind)
-for pid, cx, hw in CJ['coves']:
-    for s in (-1, 1):
-        lamp((cx + s * (hw - 7), COVE_BACK + 1.6), Z_SHORE + 0.06)
-lamp((WX - 2.0, 120.0), Z_SHORE + 0.06); lamp((WX - 2.0, 40.0), Z_SHORE + 0.06); lamp((WX - 2.0, -40.0), Z_SHORE + 0.06)
 obj('lamps_posts', lampb, PAL['iron'], PT['metal'], family='prop_lamp')
 obj('lamps_glass', lglass, mat=M['lamp'], family='prop_lamp', shadow=False)
 if len(pennb.faces):
@@ -299,79 +356,88 @@ if len(pennb.faces):
 else:
     pennb.free()
 
-# bunting (A graft): catenary strings of little flags between the quay lamps
+# bunting (A graft): catenary strings of little flags along the Vagen promenade and across the hamlet coves
 bunt_line = bmesh.new(); bunt = bmesh.new()
 BCOLS = [PAL['hull_red'], PAL['flower_w'], PAL['wall_ochre'], PAL['hull_blue'], PAL['door_green'], PAL['flower_y']]
-for x in range(-140, 127, 24):
-    if 40 < x < 75:
-        continue
-    a = Vector((x, QY + 1.8, Z_SHORE + 4.3)); b = Vector((x + 24, QY + 1.8, Z_SHORE + 4.3))
-    pts = nl_kit.catenary(a, b, 1.1, 10)
-    for p, q in zip(pts, pts[1:]):
-        merge(bunt_line, nl_kit.line3(p, q, 0.02))
-    for k in range(1, 24):
-        t = k / 24
-        p = a.lerp(b, t); p.z -= 1.1 * 4 * t * (1 - t)
-        f = bmesh.new()
-        vs = [f.verts.new(v) for v in ((p.x - 0.32, p.y, p.z), (p.x + 0.32, p.y, p.z), (p.x, p.y - 0.02, p.z - 0.62))]
-        f.faces.new(vs)
-        merge(bunt, f)
-# bunting across the hamlet coves too (festive hamlets)
-for pid, cx, hw in CJ['coves']:
-    a = Vector((cx - hw + 7, COVE_BACK + 1.6, Z_SHORE + 4.0)); b = Vector((cx + hw - 7, COVE_BACK + 1.6, Z_SHORE + 4.0))
-    pts = nl_kit.catenary(a, b, 1.2, 10)
+
+
+def bunting(a, b, sag):
+    pts = nl_kit.catenary(a, b, sag, 10)
     for p, q in zip(pts, pts[1:]):
         merge(bunt_line, nl_kit.line3(p, q, 0.02))
     n = int((b - a).length / 1.0)
+    t = (b - a).normalized()
     for k in range(1, n):
-        t = k / n
-        p = a.lerp(b, t); p.z -= 1.2 * 4 * t * (1 - t)
+        u_ = k / n
+        p = a.lerp(b, u_); p.z -= sag * 4 * u_ * (1 - u_)
         f = bmesh.new()
-        vs = [f.verts.new(v) for v in ((p.x - 0.3, p.y, p.z), (p.x + 0.3, p.y, p.z), (p.x, p.y - 0.02, p.z - 0.58))]
+        vs = [f.verts.new(v) for v in (tuple(p - t * 0.32), tuple(p + t * 0.32), (p.x, p.y, p.z - 0.62))]
         f.faces.new(vs)
         merge(bunt, f)
+
+
+gp = along_line(QL['grand'], 21.0, 1.8)
+for (p0, _, _), (p1, _, _) in zip(gp, gp[1:]):
+    bunting(Vector((p0[0], p0[1], Z_SHORE + 4.3)), Vector((p1[0], p1[1], Z_SHORE + 4.3)), 1.1)
+for pid, cv in COVES.items():
+    qa, qb = Vector(cv['qa']), Vector(cv['qb']); n_ = Vector(cv['n'])
+    a = qa - n_ * 1.6; b = qb - n_ * 1.6
+    bunting(Vector((a.x, a.y, Z_SHORE + 4.0)), Vector((b.x, b.y, Z_SHORE + 4.0)), 1.2)
 obj('bunting_lines', bunt_line, PAL['tar'], PT['plain'], family='prop_bunting')
 obj('bunting_flags', bunt, face=lambda q: (BCOLS[q.index % len(BCOLS)], PT['plain']), family='prop_bunting', jitter=0.0)
 
-# market stalls with striped awnings on the Grand Quay apron (A graft) + fish boxes
+# market stalls with striped awnings on the Customs square + the promenade (A graft) + fish boxes
 stall = bmesh.new(); awn = bmesh.new(); awn_cols = []; boxes = bmesh.new()
-for i, (sx_, sy_) in enumerate(((-118.0, 160.5), (-30.0, 161.0), (-14.0, 161.0), (8.0, 160.5), (120.0, 161.0))):
-    merge(stall, bm_box2(sx_ - 2.0, sy_ - 0.6, Z_SHORE, sx_ + 2.0, sy_ + 0.6, Z_SHORE + 1.0))
+STALLS = [(84.0, 15.5), (96.0, 15.0), (124.0, 13.0), (60.0, 13.0), (144.0, 12.5)]
+for i, (th, dr) in enumerate(STALLS):
+    p = Vector(town_pt(th, TOWN['r_quay'] + dr)); fdir = (Vector(town_pt(th, 0)) - p).normalized(); sd = Vector((-fdir.y, fdir.x))
+    ang = math.atan2(sd.y, sd.x)
+    sb = bmesh.new()
+    merge(sb, bm_box2(-2.0, -0.6, Z_SHORE, 2.0, 0.6, Z_SHORE + 1.0))
     for dx in (-1.9, 1.9):
         for dy in (-1.3, 0.5):
-            merge(stall, bm_box2(sx_ + dx - 0.06, sy_ + dy - 0.06, Z_SHORE, sx_ + dx + 0.06, sy_ + dy + 0.06, Z_SHORE + 2.6))
-    col = (PAL['hull_red'], PAL['hull_blue'], PAL['door_green'], PAL['wall_ochre'], PAL['hull_red'])[i]
+            merge(sb, bm_box2(dx - 0.06, dy - 0.06, Z_SHORE, dx + 0.06, dy + 0.06, Z_SHORE + 2.6))
+    xf(sb, rz=ang + math.pi); xf(sb, loc=(p.x, p.y, 0)); merge(stall, sb)
+    col = (PAL['hull_red'], PAL['hull_blue'], PAL['door_green'], PAL['wall_ochre'], PAL['hull_red'])[i % 5]
     for k in range(8):
-        x0 = sx_ - 2.2 + k * 0.55
-        b = bm_box2(x0, sy_ - 1.7, -0.03, x0 + 0.55, sy_ + 0.7, 0.03)
+        x0 = -2.2 + k * 0.55
+        b = bm_box2(x0, -1.7, -0.03, x0 + 0.55, 0.7, 0.03)
         for v in b.verts:
-            v.co.z += Z_SHORE + 2.6 + (v.co.y - (sy_ + 0.7)) * -0.35
+            v.co.z += Z_SHORE + 2.6 + (v.co.y - 0.7) * -0.35
+        xf(b, rz=ang + math.pi); xf(b, loc=(p.x, p.y, 0))
         n0 = len(awn.faces); merge(awn, b)
         awn_cols.append((n0, len(awn.faces), col if k % 2 == 0 else PAL['trim']))
+    bx = bmesh.new()
     for k in range(6):
-        merge(boxes, bm_box2(sx_ - 1.8 + k * 0.62, sy_ - 0.5, Z_SHORE + 1.0, sx_ - 1.25 + k * 0.62, sy_ + 0.5, Z_SHORE + 1.25))
+        merge(bx, bm_box2(-1.8 + k * 0.62, -0.5, Z_SHORE + 1.0, -1.25 + k * 0.62, 0.5, Z_SHORE + 1.25))
+    xf(bx, rz=ang + math.pi); xf(bx, loc=(p.x, p.y, 0)); merge(boxes, bx)
 obj('quay_stalls', stall, PAL['timber'], PT['boards'], family='prop_stall')
 obj('quay_awnings', awn, face=lambda q: (next((c for (a, b, c) in awn_cols if a <= q.index < b), PAL['trim']), PT['plain']), family='prop_stall', jitter=0.0)
 obj('quay_fishboxes', boxes, face=lambda q: ((PAL['brand_usdc'] if int(q.center.x * 10) % 3 else PAL['wall_white']), 0), family='prop_stall')
 
-# crates, barrels, nets, coils on aprons and piers
+# crates, barrels, nets, coils along the aprons
 cr, br, nets, corks, coils = (bmesh.new() for _ in range(5))
-CLUTTER = [(-100, 158, 4), (-70, 157, 3), (-40, 158, 5), (24, 156, 3), (96, 157, 4), (136, 158, 6), (WX - 6, 96, 4), (WX - 6, 30, 5),
-           (WX - 6, -30, 3)]
-for pid, cx, hw in CJ['coves']:
-    CLUTTER.append((cx - hw + 8, COVE_BACK + 4.5, 4)); CLUTTER.append((cx + hw - 10, COVE_BACK + 4.5, 3))
-for (x, y, n) in CLUTTER:
+CLUTTER = []
+for name, L in QL.items():
+    if name.endswith(('-w', '-e')):
+        continue
+    for (p, t, nl) in along_line(L, {'grand': 34.0, 'long': 30.0, 'wharf': 18.0}.get(name, 26.0), 4.5, start=9.0):
+        CLUTTER.append((p, t, DRNG.randint(3, 6)))
+for (p, t, n) in CLUTTER:
+    tv = Vector((t[0], t[1])); nv = Vector((-t[1], t[0])); c0 = Vector(p)
+    ang = math.atan2(t[1], t[0])
     for k in range(n):
-        nl_kit.crate(cr, (x + (k % 3) * 1.1 + DRNG.uniform(-0.1, 0.1), y + (k // 3) * 0.9, Z_SHORE + 0.06 + (0.75 if k == n - 1 and n > 3 else 0)),
-                     DRNG.uniform(0.8, 1.0), DRNG.uniform(-0.2, 0.2))
+        q = c0 + tv * ((k % 3) * 1.1) + nv * ((k // 3) * 0.9)
+        nl_kit.crate(cr, (q.x, q.y, Z_SHORE + 0.06 + (0.75 if k == n - 1 and n > 3 else 0)), DRNG.uniform(0.8, 1.0), ang + DRNG.uniform(-0.2, 0.2))
     for k in range(DRNG.randint(1, 3)):
-        nl_kit.barrel(br, (x + 4.0 + k * 0.85, y + DRNG.uniform(-0.3, 0.3), Z_SHORE + 0.06), DRNG.uniform(0.9, 1.05))
+        q = c0 + tv * (4.0 + k * 0.85)
+        nl_kit.barrel(br, (q.x, q.y, Z_SHORE + 0.06), DRNG.uniform(0.9, 1.05))
     if DRNG.random() < 0.6:
-        r = DRNG.uniform(0.9, 1.4)
-        merge(nets, bm_ico(r, (x - 2.5, y, Z_SHORE + 0.15), 2, (1.3, 1.0, 0.42), seed=int(x), amp=0.25))
+        r = DRNG.uniform(0.9, 1.4); q = c0 - tv * 2.5
+        merge(nets, bm_ico(r, (q.x, q.y, Z_SHORE + 0.15), 2, (1.3, 1.0, 0.42), seed=int(abs(q.x)), amp=0.25))
         for k in range(5):
             a = DRNG.uniform(0, 6.28)
-            merge(corks, bm_ico(0.17, (x - 2.5 + math.cos(a) * r, y + math.sin(a) * r * 0.8, Z_SHORE + 0.45), 0, seed=k))
+            merge(corks, bm_ico(0.17, (q.x + math.cos(a) * r, q.y + math.sin(a) * r * 0.8, Z_SHORE + 0.45), 0, seed=k))
 for (x, y, z) in CJ['bollards'][::7]:
     t = bm_cyl(0.5, 0.5, 0.18, 10, (x + 1.2, y, z)); merge(t, bm_cyl(0.32, 0.32, 0.2, 10, (x + 1.2, y, z + 0.18)))
     merge(coils, t)
@@ -381,13 +447,16 @@ obj('props_nets', nets, lin('#596B52'), PT['leaf'], family='prop_nets', jitter=0
 obj('props_corks', corks, face=lambda q: ((PAL['wall_ochre'] if q.index % 40 < 20 else PAL['brand_red']), 0), family='prop_nets')
 obj('props_coils', coils, PAL['rope'], PT['plain'], family='prop_rope', jitter=0.05)
 
-# benches + a hand crane by the Customs House
+# benches on the squares + lanes
 bench = bmesh.new()
-for (x, y, z) in ((-60, 163, Z_SHORE), (30, 164, Z_SHORE), (110, 163, Z_SHORE), (60, 187.5, 7.0), (-20, 187.5, 7.0), (84, 256, 17.0)):
-    merge(bench, bm_box2(x - 0.9, y - 0.25, z + 0.45, x + 0.9, y + 0.25, z + 0.55))
-    merge(bench, bm_box2(x - 0.9, y + 0.2, z + 0.55, x + 0.9, y + 0.28, z + 1.0))
+for (th, r_, k) in ((80.0, 24.0, 0), (110.0, 24.0, 0), (126.0, 60.0, 2), (62.0, 60.0, 2), (96.0, 44.0, 1), (40.0, 30.0, 0)):
+    p = Vector(town_pt(th, TOWN['r_quay'] + r_)); z = RINGS[k][2]
+    fdir = (Vector(town_pt(th, 0)) - p).normalized(); ang = math.atan2(fdir.y, fdir.x) + math.pi / 2
+    b = bmesh.new()
+    merge(b, bm_box2(-0.9, -0.25, 0.45, 0.9, 0.25, 0.55)); merge(b, bm_box2(-0.9, 0.2, 0.55, 0.9, 0.28, 1.0))
     for dx in (-0.75, 0.75):
-        merge(bench, bm_box2(x + dx - 0.05, y - 0.2, z, x + dx + 0.05, y + 0.2, z + 0.45))
+        merge(b, bm_box2(dx - 0.05, -0.2, 0, dx + 0.05, 0.2, 0.45))
+    xf(b, rz=ang); xf(b, loc=(p.x, p.y, z)); merge(bench, b)
 obj('props_benches', bench, PAL['timber'], PT['boards'], family='prop_bench')
 
 
@@ -403,81 +472,98 @@ def hand_crane(name, cx_, cy_, z, rz=0.0, col='hull_red'):
     obj(name, cn, face=lambda q: ((PAL[col] if q.center.z > z + 0.7 else PAL['iron']), PT['metal']), family='prop_crane')
 
 
-hand_crane('crane_grandquay', 112.0, QY + 2.0, Z_SHORE)
-hand_crane('crane_basin', WX - 2.0, 60.0, Z_SHORE, rz=-math.pi / 2)
+def crane_on(line, s_, name, col='hull_red'):
+    p, t = along(line, polyline_len(line) * s_)
+    nl = (-t[1], t[0])
+    c = (p[0] + nl[0] * 2.0, p[1] + nl[1] * 2.0)
+    hand_crane(name, c[0], c[1], Z_SHORE, rz=math.atan2(-nl[0], nl[1]), col=col)      # jib (local -y) out over the water
 
-# ------------------------------------------------------------------ HAMLET CHARACTERS
-COVE = {pid: (cx, hw) for pid, cx, hw in CJ['coves']}
-# Hyperliquid: deep-water jetty + a mint-banded beacon tower at the root
-cx, hw = COVE['pier-hyperliquid-l1']
-bt = bm_cyl(1.6, 1.3, 9.0, 12, (cx + hw - 3, COVE_BACK + 3, Z_SHORE))
-obj('hamlet_hyper_beacon', bt, face=lambda q: ((lin('#5FD3BC') if (q.center.z % 2.2) < 1.1 else PAL['wall_white']), PT['render']), family='hamlet')
-obj('hamlet_hyper_beacon_cap', bm_cyl(1.5, 0.2, 1.3, 12, (cx + hw - 3, COVE_BACK + 3, Z_SHORE + 9.0)), PAL['iron'], PT['metal'], family='hamlet')
-obj('hamlet_hyper_beacon_lamp', bm_cyl(0.9, 0.9, 1.0, 10, (cx + hw - 3, COVE_BACK + 3, Z_SHORE + 8.0)), mat=M['lamp'], family='hamlet', shadow=False)
-LAMP_PTS.append(Vector((cx + hw - 3, COVE_BACK + 3, Z_SHORE + 8.5))); LAMP_LIGHTS.append((cx + hw - 3, COVE_BACK + 3, Z_SHORE + 8.5, 'pierhead', '#5FD3BC'))
-# Polygon: boatyard - a hull on stocks + timber stack
-cx, hw = COVE['pier-polygon']
+
+crane_on(QL['grand'], 0.82, 'crane_vagen')
+crane_on(QL['wharf'], 0.55, 'crane_wharf', 'wall_ochre')
+crane_on(QL['long'], 0.15, 'crane_longquay')
+
+# ------------------------------------------------------------------ HAMLET CHARACTERS (in each cove's own frame)
+def cove_pt(cv, along_t, out_n):
+    return tuple(Vector(cv['back']) + Vector(cv['t']) * along_t + Vector(cv['n']) * out_n)
+
+
+def cove_rz(cv):
+    n_ = cv['n']
+    return math.atan2(n_[0], -n_[1])
+
+
+cv = COVES['pier-hyperliquid-l1']; p = cove_pt(cv, cv['hw'] - 3, -3)
+obj('hamlet_hyper_beacon', bm_cyl(1.6, 1.3, 9.0, 12, (p[0], p[1], Z_SHORE)), face=lambda q: ((lin('#5FD3BC') if (q.center.z % 2.2) < 1.1 else PAL['wall_white']), PT['render']), family='hamlet')
+obj('hamlet_hyper_beacon_cap', bm_cyl(1.5, 0.2, 1.3, 12, (p[0], p[1], Z_SHORE + 9.0)), PAL['iron'], PT['metal'], family='hamlet')
+obj('hamlet_hyper_beacon_lamp', bm_cyl(0.9, 0.9, 1.0, 10, (p[0], p[1], Z_SHORE + 8.0)), mat=M['lamp'], family='hamlet', shadow=False)
+LAMP_PTS.append(Vector((p[0], p[1], Z_SHORE + 8.5))); LAMP_LIGHTS.append((p[0], p[1], Z_SHORE + 8.5, 'pierhead', '#5FD3BC'))
+# Polygon: boatyard - a hull on stocks + timber stacks
+cv = COVES['pier-polygon']
 P_ = dict(br=0.3, fb=0.11, dr=0.06, bow=2.2, stern=0.6, sheer=(0.3, 0.15), bulwark=0.2)
 hc = dict(top=PAL['timber'], band=PAL['timber'], stripe=PAL['timber'], rail=PAL['timber_dark'], boot=PAL['timber'], bottom=PAL['antifoul'],
           deck=PAL['timber'], deck_in=PAL['timber'], transom=PAL['timber'])
 hb_, names, D_ = nl_kit.hull_mesh(12.0, P_, hc, n=10)
 lay = hb_.faces.layers.int.get('seg'); segs = {f.index: names[f[lay]] for f in hb_.faces}
-xf(hb_, loc=(cx - hw - 14, COVE_BACK + 14, Z_SHORE + 1.6), rz=math.radians(90))
+p = cove_pt(cv, -cv['hw'] - 12, -10)
+xf(hb_, loc=(p[0], p[1], H(*p) + 1.6), rz=cove_rz(cv) + math.radians(90))
 obj('hamlet_polygon_hull_on_stocks', hb_, face=lambda q: ((PAL['antifoul'] if segs.get(q.index) == 'bottom' else PAL['timber']), PT['strakes']), family='hamlet')
 stk = bmesh.new()
 for k in range(5):
-    y = COVE_BACK + 8 + k * 2.4
-    merge(stk, bm_box2(cx - hw - 16, y - 0.3, Z_SHORE, cx - hw - 12, y + 0.3, Z_SHORE + 1.2 + (0.4 if k in (1, 3) else 0)))
-for k in range(6):
-    merge(stk, bm_box2(cx - hw - 6 + k * 0.0, COVE_BACK + 30 + k * 0.32, Z_SHORE, cx - hw + 2, COVE_BACK + 30.3 + k * 0.32, Z_SHORE + 0.3 + k * 0.0))
+    q = cove_pt(cv, -cv['hw'] - 16 + k * 2.4, -14)
+    merge(stk, nl_kit.obox((q[0], q[1], H(*q) + 0.6), tuple(cv['n']) + (0,), 4.0, 0.6, 1.2 + (0.4 if k in (1, 3) else 0)))
 obj('hamlet_polygon_stocks', stk, PAL['timber_dark'], PT['boards'], family='hamlet')
 # Arbitrum: rope-walk - a long low shed + coils
-cx, hw = COVE['pier-arbitrum']
-rw = bm_box2(cx - 14, COVE_BACK + 26, Z_SHORE - 0.5, cx + 14, COVE_BACK + 30.5, Z_SHORE + 2.6)
+cv = COVES['pier-arbitrum']
+p = cove_pt(cv, 0, -30); rz_ = cove_rz(cv); zr = H(*p)
+rw = bm_box2(-14, -2.25, -1.5, 14, 2.25, 2.6); xf(rw, rz=rz_); xf(rw, loc=(p[0], p[1], zr))
 obj('hamlet_arbitrum_ropewalk', rw, PAL['wall_blue'], PT['boards'], family='hamlet', bevel=0.04)
 rr_ = bmesh.new()
-vs = [rr_.verts.new(v) for v in ((cx - 14.3, COVE_BACK + 25.6, Z_SHORE + 2.6), (cx + 14.3, COVE_BACK + 25.6, Z_SHORE + 2.6), (cx + 14.3, COVE_BACK + 28.25, Z_SHORE + 3.8),
-                                  (cx - 14.3, COVE_BACK + 28.25, Z_SHORE + 3.8), (cx - 14.3, COVE_BACK + 30.9, Z_SHORE + 2.6), (cx + 14.3, COVE_BACK + 30.9, Z_SHORE + 2.6))]
+vs = [rr_.verts.new(v) for v in ((-14.3, -2.65, 2.6), (14.3, -2.65, 2.6), (14.3, 0, 3.8), (-14.3, 0, 3.8), (-14.3, 2.65, 2.6), (14.3, 2.65, 2.6))]
 rr_.faces.new((vs[0], vs[1], vs[2], vs[3])); rr_.faces.new((vs[3], vs[2], vs[5], vs[4]))
+xf(rr_, rz=rz_); xf(rr_, loc=(p[0], p[1], zr))
 obj('hamlet_arbitrum_ropewalk_roof', rr_, PAL['roof_tar'], PT['boards'], family='hamlet')
 coils2 = bmesh.new()
 for k in range(5):
-    x = cx - 10 + k * 4.5
-    merge(coils2, bm_cyl(0.7, 0.7, 0.35, 12, (x, COVE_BACK + 23.5, Z_SHORE))); merge(coils2, bm_cyl(0.45, 0.45, 0.38, 12, (x, COVE_BACK + 23.5, Z_SHORE + 0.35)))
+    q = cove_pt(cv, -10 + k * 4.5, -24)
+    merge(coils2, bm_cyl(0.7, 0.7, 0.35, 12, (q[0], q[1], H(*q)))); merge(coils2, bm_cyl(0.45, 0.45, 0.38, 12, (q[0], q[1], H(*q) + 0.35)))
 obj('hamlet_arbitrum_coils', coils2, PAL['rope'], PT['plain'], family='hamlet')
-# Base: hjell drying racks of stockfish + net piles
-cx, hw = COVE['pier-base']
+# Base: hjell drying racks of stockfish
+cv = COVES['pier-base']
 racks = bmesh.new(); fish = bmesh.new()
-for (x, y) in ((cx - hw - 12, COVE_BACK + 18), (cx + hw + 8, COVE_BACK + 20)):
-    z = H(x, y)
+for (at, an) in ((-cv['hw'] - 10, -16), (cv['hw'] + 8, -18)):
+    o = Vector(cove_pt(cv, at, an)); tt = Vector(cv['t']); nn_ = Vector(cv['n'])
+    z = H(o.x, o.y)
     L_ = 9.0
     for k in range(3):
-        yy = y + k * L_ / 2
+        yy = o - nn_ * (k * L_ / 2)
         for s in (-1, 1):
-            merge(racks, nl_kit.beam((x, yy, z), (x + s * 0.9, yy, z + 2.6), 0.14, 0.14))
-    merge(racks, nl_kit.beam((x, y, z + 2.45), (x, y + L_, z + 2.45), 0.14, 0.14))
+            merge(racks, nl_kit.beam((yy.x, yy.y, z), (yy.x + tt.x * s * 0.9, yy.y + tt.y * s * 0.9, z + 2.6), 0.14, 0.14))
+    e = o - nn_ * L_
+    merge(racks, nl_kit.beam((o.x, o.y, z + 2.45), (e.x, e.y, z + 2.45), 0.14, 0.14))
     for s in (-0.5, 0.5):
-        merge(racks, nl_kit.beam((x + s, y, z + 1.6), (x + s, y + L_, z + 1.6), 0.1, 0.1))
+        a_ = o + tt * s; b_ = e + tt * s
+        merge(racks, nl_kit.beam((a_.x, a_.y, z + 1.6), (b_.x, b_.y, z + 1.6), 0.1, 0.1))
     for k in range(20):
-        yy = y + 0.2 + k * (L_ - 0.4) / 19
-        for xx, zz in ((x - 0.5, z + 1.6), (x + 0.5, z + 1.6), (x, z + 2.45)):
-            merge(fish, bm_box(0.14, 0.12, 0.7, (xx, yy, zz - 0.4)))
+        yy = o - nn_ * (0.2 + k * (L_ - 0.4) / 19)
+        for off_, zz in ((-0.5, z + 1.6), (0.5, z + 1.6), (0.0, z + 2.45)):
+            q = yy + tt * off_
+            merge(fish, bm_box(0.14, 0.12, 0.7, (q.x, q.y, zz - 0.4)))
 obj('hamlet_base_hjell', racks, PAL['timber_grey'], PT['plain'], family='hamlet')
 obj('hamlet_base_stockfish', fish, lin('#B8A07A'), PT['plain'], family='hamlet', jitter=0.15)
-# Solana: merchant wharf - crane, barrels, a purple-striped awning stall
-cx, hw = COVE['pier-solana']
-hand_crane('hamlet_solana_crane', cx - hw + 6, COVE_BACK + 2.0, Z_SHORE, rz=0.3, col='brand_violet')
-# BSC: timber wharf - lumber stacks + an ochre crane
-cx, hw = COVE['pier-bsc']
+# Solana: merchant wharf crane; BSC: lumber stacks + an ochre crane
+cv = COVES['pier-solana']
+p = cove_pt(cv, -cv['hw'] + 4, -4); hand_crane('hamlet_solana_crane', p[0], p[1], Z_SHORE, rz=cove_rz(cv) + 0.3, col='brand_violet')
+cv = COVES['pier-bsc']
 lum = bmesh.new()
 for k in range(3):
-    x0 = cx - hw + 6 + k * 3.6
+    q = cove_pt(cv, -cv['hw'] + 6 + k * 3.6, -5)
     for j in range(4):
-        merge(lum, bm_box2(x0, COVE_BACK + 3.0 + j * 0.0, Z_SHORE + j * 0.42, x0 + 2.8, COVE_BACK + 7.5, Z_SHORE + j * 0.42 + 0.38))
-obj('hamlet_bsc_lumber', lum, PAL['timber'], PT['planks_x'], family='hamlet', jitter=0.1)
-hand_crane('hamlet_bsc_crane', cx + hw - 6, COVE_BACK + 2.0, Z_SHORE, rz=-0.3, col='wall_ochre')
+        merge(lum, nl_kit.obox((q[0], q[1], Z_SHORE + j * 0.42 + 0.19), tuple(cv['n']) + (0,), 4.5, 2.8, 0.38))
+obj('hamlet_bsc_lumber', lum, PAL['timber'], PT['plain'], family='hamlet', jitter=0.1)
+p = cove_pt(cv, cv['hw'] - 4, -4); hand_crane('hamlet_bsc_crane', p[0], p[1], Z_SHORE, rz=cove_rz(cv) - 0.3, col='wall_ochre')
 
-# ------------------------------------------------------------------ SKERRIES (west): granite humps, a grass cap, a few wind-bent spruces
+# ------------------------------------------------------------------ SKERRIES: granite humps, a grass cap, a few wind-bent spruces
 from mathutils.geometry import tessellate_polygon
 skL, skT = bmesh.new(), bmesh.new()
 for i, sk in enumerate(CJ['skerries']):
@@ -485,7 +571,6 @@ for i, sk in enumerate(CJ['skerries']):
     cx_ = sum(p[0] for p in poly) / len(poly); cy_ = sum(p[1] for p in poly) / len(poly)
     top = sk['top']
     coast_skirt(f'skerry_{i}', poly, lambda x, y, top=top: top * 0.55, lambda x, y: False, rows=3, amp=1.4, seed=40 + i, jag=1.2)
-    # domed cap: rings shrinking toward the centre
     capb = bmesh.new(); rings = []
     for r_, z_ in ((1.0, top * 0.55), (0.72, top * 0.85), (0.4, top)):
         rings.append([capb.verts.new((cx_ + (x - cx_) * r_, cy_ + (y - cy_) * r_, z_ + noise.noise(Vector((x * 0.2, y * 0.2, r_))) * 0.3)) for x, y in poly])
@@ -503,19 +588,12 @@ for i, sk in enumerate(CJ['skerries']):
     obj(f'skerry_{i}_cap', capb, face=lambda q, g_=g_: ((PAL['grass_dark'] if (g_ and q.normal.z > 0.75) else (PAL['rock_light'] if q.normal.z > 0.5 else PAL['rock'])),
                                                        PT['grass'] if (g_ and q.normal.z > 0.75) else PT['rock']), family='rock', jitter=0.06)
     if g_:
-        for k in range(4 if i == 0 else 2):
-            sp = (cx_ + DRNG.uniform(-8, 8), cy_ + DRNG.uniform(-4, 4))
+        for k in range(3):
+            sp = (cx_ + DRNG.uniform(-5, 5), cy_ + DRNG.uniform(-3, 3))
             nl_kit.spruce(skL, skT, (sp[0], sp[1], top - 0.4), DRNG.uniform(5.0, 7.5), DRNG)
     CIRCLES_EXTRA.append((cx_, cy_, 1.0))
 obj('skerry_spruce', skL, face=lambda q: ((PAL['spruce_light'] if q.normal.z > 0.35 else PAL['spruce']), PT['leaf']), family='tree_spruce', jitter=0.1)
 obj('skerry_spruce_trunk', skT, PAL['timber_dark'], PT['plain'], family='tree_spruce')
-# a cairn + a little day-beacon on the big skerry
-sk0 = CJ['skerries'][0]; c0 = (sum(p[0] for p in sk0['poly']) / len(sk0['poly']) + 9, sum(p[1] for p in sk0['poly']) / len(sk0['poly']) + 2)
-cairn = bmesh.new()
-for k in range(4):
-    merge(cairn, bm_ico(1.0 - k * 0.2, (c0[0], c0[1], sk0['top'] - 0.2 + k * 0.6), 1, (1.2, 1.0, 0.6), seed=k + 50, amp=0.2))
-merge(cairn, bm_cyl(0.12, 0.1, 4.0, 5, (c0[0], c0[1], sk0['top'] + 1.6)))
-obj('skerry_cairn', cairn, face=lambda q: ((PAL['hull_red'] if q.center.z > sk0['top'] + 3.0 else PAL['rock_light']), PT['rock']), family='rock')
 
 # ------------------------------------------------------------------ SHOALS reef: rocks + cardinal buoys; MOORING buoys; FAR PORTS rafts
 rk = bmesh.new()
@@ -536,21 +614,28 @@ for m_ in CJ['moorings']:
 obj('mooring_buoys', mb, face=lambda q: ((PAL['hull_red'] if q.normal.z > 0.5 else lin('#E8E2D6')), PT['plain']), family='mooring')
 fr = bmesh.new()
 for (a, b) in CJ['far']['rafts']:
-    merge(fr, bm_box2(a[0], a[1] - 1.2, -0.1, b[0], a[1] + 1.2, 0.5))
-    for k in range(int((b[0] - a[0]) / 6) + 1):
-        merge(fr, bm_cyl(0.5, 0.5, 0.7, 8, (a[0] + k * 6, a[1] - 1.3, -0.3)))
-obj('far_ports_rafts', fr, PAL['timber_grey'], PT['planks_y'], family='far_ports', jitter=0.05)
+    merge(fr, nl_kit.beam((a[0], a[1], 0.2), (b[0], b[1], 0.2), 2.4, 0.6))
+    L_ = math.hypot(b[0] - a[0], b[1] - a[1])
+    for k in range(int(L_ / 6) + 1):
+        q = (a[0] + (b[0] - a[0]) * k * 6 / L_, a[1] + (b[1] - a[1]) * k * 6 / L_)
+        merge(fr, bm_cyl(0.5, 0.5, 0.7, 8, (q[0], q[1], -0.3)))
+obj('far_ports_rafts', fr, PAL['timber_grey'], PT['plain'], family='far_ports', jitter=0.05)
 
 # ------------------------------------------------------------------ folk + gulls (decorative)
 dark, coats, heads = bmesh.new(), bmesh.new(), bmesh.new(); coat_ranges = []
 FOLK = []
-for k in range(60):
-    if k < 34:
-        p = (DRNG.uniform(-140, 150), DRNG.uniform(QY + 2, QY + 15)); z = Z_SHORE
-    elif k < 46:
-        (fy, tz, x0, x1) = terrain.TERRACES[k % 3]; p = (DRNG.uniform(x0, x1), fy + DRNG.uniform(1.5, 4.5)); z = tz
+gpts = along_line(QL['grand'], 3.0, 5.5)
+for k in range(64):
+    if k < 30:
+        (p, t, nl) = gpts[DRNG.randrange(len(gpts))]
+        p = (p[0] + nl[0] * DRNG.uniform(-3, 3), p[1] + nl[1] * DRNG.uniform(-3, 3)); z = Z_SHORE
+    elif k < 44:
+        (band, pts, zb) = LANES[k % len(LANES)]; p = pts[DRNG.randrange(len(pts))]; z = zb
+    elif k < 52:
+        lp = along_line(QL['long'], 3.0, 5.0); (p, t, nl) = lp[DRNG.randrange(len(lp))]; z = Z_SHORE
     else:
-        pid, cx, hw = CJ['coves'][k % 6]; p = (cx + DRNG.uniform(-hw + 4, hw - 4), COVE_BACK + DRNG.uniform(1.5, 6.5)); z = Z_SHORE
+        cv = list(COVES.values())[k % len(COVES)]
+        p = cove_pt(cv, DRNG.uniform(-cv['hw'] + 6, cv['hw'] - 6), -DRNG.uniform(1.5, 6.0)); z = Z_SHORE
     c = DRNG.choice(('#2E4B6B', '#A84A33', '#D9A441', '#2F5A4A', '#7A2A22', '#E9E4DE', '#C2453A', '#AB9BC4', '#E39A7E'))
     rz_ = DRNG.uniform(0, 6.28)
     d_ = bm_box2(-0.22, -0.16, 0, 0.22, 0.16, 0.85); merge(d_, bm_cyl(0.2, 0.15, 0.14, 8, (0, 0, 1.78)))
@@ -562,8 +647,8 @@ obj('folk_dark', dark, lin('#2B2E36'), PT['plain'], family='life')
 obj('folk_coats', coats, face=lambda q: (next(cc for (a0, a1, cc) in coat_ranges if a0 <= q.index < a1), 0), family='life', jitter=0.0)
 obj('folk_heads', heads, lin('#E3BE9E'), PT['plain'], family='life', smooth=True)
 gb = bmesh.new()
-for k in range(22):
-    x, y, z = DRNG.uniform(-60, 200), DRNG.uniform(-60, 200), DRNG.uniform(14, 34)
+for k in range(24):
+    x, y = wpt(DRNG.uniform(-120, 160), DRNG.uniform(-100, 110)); z = DRNG.uniform(14, 34)
     yaw = DRNG.uniform(0, 6.28); flap = DRNG.uniform(0.15, 0.45); s = DRNG.uniform(1.0, 1.4)
     g = bmesh.new()
     for side in (-1, 1):
@@ -623,12 +708,13 @@ def mainland_h(u, v):
 
 mrng = random.Random(64)
 mpts = []
-for v in np.arange(430.0, 820.0, 16.0):
-    for u in np.arange(-650.0, 1150.0, 16.0):
-        uu, vv = u + mrng.uniform(-5, 5), v + mrng.uniform(-5, 5)
+u0_, u1_ = MCUV[0][0], MCUV[-1][0]
+for v in np.arange(min(p[1] for p in MCUV) - 10, min(p[1] for p in MCUV) + 360.0, 20.0):
+    for u in np.arange(u0_, u1_, 20.0):
+        uu, vv = u + mrng.uniform(-6, 6), v + mrng.uniform(-6, 6)
         if vv > coast_v(uu) + 1.5:
             mpts.append((uu, vv))
-mpts += [(u, coast_v(u)) for u in np.arange(-650.0, 1150.0, 8.0)]
+mpts += [(u, coast_v(u)) for u in np.arange(u0_, u1_, 10.0)]
 MP = np.array(mpts)
 mtri = Delaunay(MP)
 mbm = bmesh.new()
@@ -638,7 +724,7 @@ for t in mtri.simplices:
     if c_[1] < coast_v(c_[0]) + 0.5:
         continue
     try:
-        f = mbm.faces.new([mvs[i] for i in t])
+        mbm.faces.new([mvs[i] for i in t])
     except ValueError:
         continue
 mbm.normal_update()
@@ -654,18 +740,8 @@ def mland_face(q):
         return (PAL['rock_dark'] if nn > 0.5 else PAL['rock'], PT['rock'])
     if c.z < 8 and nn > 0.62:
         return (PAL['grass'], PT['grass'])
-    return (lin('#3F5A3C') if nn > 0.45 else lin('#4B6741'), PT['leaf'])         # dark forest canopy, read at distance
+    return (lin('#3F5A3C') if nn > 0.45 else lin('#4B6741'), PT['leaf'])
 
 
 obj('shakkei_land', mbm, face=mland_face, jitter=0.05, family='shakkei')
-coast_skirt('shakkei_cliffs', [to_xy(u, coast_v(u)) for u in np.arange(1150.0, -650.0, -8.0)], lambda x, y: 3.0, lambda x, y: False,
-            rows=2, amp=1.8, seed=71, jag=1.4)
-# a sparse spruce fringe along the near hills (silhouette texture)
-shL, shT = bmesh.new(), bmesh.new()
-for k in range(260):
-    u = mrng.uniform(-600, 1100); v = coast_v(u) + mrng.uniform(10, 120)
-    x, y = to_xy(u, v)
-    nl_kit.spruce(shL, shT, (x, y, mainland_h(u, v) - 0.5), mrng.uniform(9, 15), mrng)
-obj('shakkei_spruce', shL, face=lambda q: ((lin('#34503A') if q.normal.z > 0.35 else lin('#29402F')), PT['leaf']), family='shakkei', jitter=0.08)
-shT.free()
 print('MAINLAND built')

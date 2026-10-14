@@ -36,12 +36,125 @@ def family_pick(rng):
     return 'usd' if r < 0.78 else ('fiat' if r < 0.90 else ('eur' if r < 0.955 else ('gold' if r < 0.975 else 'usd')))
 
 
+KIT_RAW = os.path.join(ROOT, 'outputs/harbour/hulls/raw')          # the kit GLBs before meshopt (Blender cannot decode it)
+KIT_MAN = json.load(open(os.path.join(ROOT, 'public/harbour/kit/manifest.json')))
+KIT_IDS = {h['id'] for h in KIT_MAN['hulls']}
+EMB = json.load(open(os.path.join(ROOT, 'public/harbour/emblems.json')))
+_EMB_IMG = {}
+FAM_OF_RIG = {'botter': 'eur', 'brig': 'gold', 'lugger': 'fiat'}
+
+
+def kit_id(fam, cls):
+    tbl = {'usd': {'skiff': 'usd_cat_skiff', 'boat': 'usd_sloop_boat', 'small': 'usd_sloop_small', 'medium': 'usd_cutter_medium',
+                   'large': 'usd_schooner_large', 'flagship': 'usd_ship_flagship'},
+           'eur': {'boat': 'eur_botter_boat', 'small': 'eur_botter_small', 'medium': 'eur_botter_medium', 'large': 'eur_botter_large'},
+           'gold': {'medium': 'gold_brig_medium', 'large': 'gold_brig_large', 'flagship': 'gold_brig_large'},
+           'fiat': {'boat': 'fiat_lugger_boat', 'small': 'fiat_lugger_small', 'medium': 'fiat_lugger_medium'},
+           'other': {'skiff': 'other_work_skiff', 'boat': 'other_work_boat', 'small': 'other_work_small'}}
+    hid = tbl.get(fam, {}).get(cls) or tbl['usd'][cls]
+    return hid if hid in KIT_IDS else None
+
+
+def emblem_mat(slot):
+    """hb_sail: cloth colour (COLOR_0) with the emblem atlas slot mapped into UV1's unit square."""
+    key = 'M_kitsail_%d' % slot
+    if key in M:
+        return M[key]
+    if 'img' not in _EMB_IMG:
+        p = os.path.join(ROOT, 'public/harbour/emblems.png')
+        _EMB_IMG['img'] = bpy.data.images.load(p, check_existing=True) if os.path.exists(p) else None
+    m = new_mat(key); nt = m.node_tree; p = nt.nodes['Principled BSDF']
+    at = node(nt, 'ShaderNodeAttribute', attribute_name='Col')
+    col = at.outputs['Color']
+    img = _EMB_IMG['img']
+    if img is not None:
+        uv1 = node(nt, 'ShaderNodeUVMap'); uv1.uv_map = 'UVMap.001'
+        u, v, _ = sep(nt, uv1.outputs['UV'])
+        cols_ = EMB['cols']; sz = EMB['slot']; W_, H_ = EMB['width'], EMB['height']
+        cx, cy = slot % cols_, slot // cols_
+        inside = u.sstep(-0.001, 0.0) * (1.0 - u.sstep(1.0, 1.001)) * v.sstep(-0.001, 0.0) * (1.0 - v.sstep(1.0, 1.001))
+        au = (u.clamp() + cx) * (sz / W_)
+        av = 1.0 - (cy + 1.0 - v.clamp()) * (sz / H_)
+        tex = node(nt, 'ShaderNodeTexImage', interpolation='Linear', extension='EXTEND'); tex.image = img
+        link(nt, comb(nt, au, av, 0.0), tex.inputs['Vector'])
+        a_ = SX(nt, tex.outputs['Alpha']) * inside
+        col = mixc(nt, a_, col, tex.outputs['Color'])
+    link(nt, col, p.inputs['Base Color'])
+    p.inputs['Roughness'].default_value = 0.85
+    m.use_backface_culling = False
+    M[key] = m
+    return m
+
+
+def kit_proto(hid, state, variant, brand, slot):
+    key = ('kit', hid, state, variant)
+    if key in _protos:
+        return _protos[key]
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=os.path.join(KIT_RAW, f'hull_{hid}.glb'))
+    new = [o for o in bpy.data.objects if o not in before]
+    coll = bpy.data.collections.new(f'k_{hid}_{state}_{variant}')
+    PROTO_C.children.link(coll)
+    for o in new:
+        for c in list(o.users_collection):
+            c.objects.unlink(o)
+        coll.objects.link(o)
+        if o.type == 'MESH':
+            me = o.data
+            ca = me.color_attributes.get('Color') or (me.color_attributes[0] if len(me.color_attributes) else None)
+            mat0 = me.materials[0].name if me.materials else ''
+            if ca is not None:
+                ca.name = 'Col'
+            if ca is not None and ca.data_type == 'FLOAT_COLOR' and ca.domain == 'CORNER':
+                buf = np.zeros(len(me.loops) * 4, np.float32); ca.data.foreach_get('color', buf); buf = buf.reshape(-1, 4)
+                br_ = me.attributes.get('_BRAND') or me.attributes.get('_brand')
+                if br_ is not None:
+                    w = np.zeros(len(br_.data), np.float32); br_.data.foreach_get('value', w)
+                    if br_.domain == 'POINT':
+                        vi = np.zeros(len(me.loops), np.int32); me.loops.foreach_get('vertex_index', vi); w = w[vi]
+                    if len(w) == len(buf):
+                        buf[w > 0.5, :3] = brand
+                if mat0.startswith('hb_cover'):
+                    buf[:, :3] *= np.array(brand, np.float32)
+                ca.data.foreach_set('color', buf.ravel())
+            if mat0.startswith('hb_sail'):
+                me.materials[0] = emblem_mat(slot)
+            elif mat0.startswith(('hb_opaque', 'hb_cover')) or not mat0:
+                me.materials.clear(); me.materials.append(M['kit'])
+            if me.shape_keys:
+                for kb in me.shape_keys.key_blocks:
+                    if kb.name == 'furl':
+                        kb.value = 1.0 if state == 'docked' else 0.0
+    # sailing pose (manifest): starboard tack - booms out to port, heel to port
+    if state == 'sailing':
+        for o in new:
+            nm = o.name.split('.')[0]
+            if nm in ('boom', 'boom_2'):
+                o.rotation_mode = 'XYZ'; o.rotation_euler.z -= 0.55
+            if nm == '_heel':
+                o.rotation_mode = 'XYZ'; o.rotation_euler.x -= 0.14
+    # riding light at the masthead empty
+    for o in new:
+        if o.name.split('.')[0] == 'masthead_light':
+            ml = bpy.data.objects.new('riding', bpy.data.meshes.new('riding'))
+            bmr = bm_sphere(0.16, (0, 0, 0.1), 8, 5); bmr.to_mesh(ml.data); bmr.free()
+            ml.data.materials.append(M['riding']); ml.parent = o; coll.objects.link(ml)
+    _protos[key] = (coll, {'tops': []})
+    return _protos[key]
+
+
 def proto(rig, cls, state, variant):
+    fam = FAM_OF_RIG.get(rig, 'usd')
+    if rig in ('sloop', 'cat') and variant % 7 == 3:
+        fam = 'other'
+    bname, emb = BRANDS[variant % len(BRANDS)]
+    hid = kit_id(fam, cls)
+    if hid is not None and os.path.isdir(KIT_RAW):
+        ids = list(EMB.get('ids', {}).values()) or [0]
+        return kit_proto(hid, state, variant, PAL[bname], ids[(variant * 37 + len(hid)) % len(ids)])
     key = (rig, cls, state, variant)
     if key in _protos:
         return _protos[key]
-    rng = random.Random(sum(map(ord, str(key))))
-    bname, emb = BRANDS[variant % len(BRANDS)]
     brand = PAL[bname]
     hk = ('stain' if rig == 'brig' else 'tar' if rig == 'botter' else
           ['white', 'blue', 'red', 'green', 'white', 'black'][variant % 6] if rig != 'ship' else ('black' if variant % 2 == 0 else 'white'))
@@ -51,12 +164,8 @@ def proto(rig, cls, state, variant):
     coll = bpy.data.collections.new(f'p_{rig}_{cls}_{state}_{variant}')
     PROTO_C.children.link(coll)
     prev = cur_coll(); set_coll(coll)
-    L_ = nl_kit.CLASS_LOA[cls] if cls in nl_kit.CLASS_LOA else 5.0
     root, info = build_boat(f'b_{rig}_{cls}_{state}_{variant}', rig, cls, brand, state, math.radians(10) if state == 'sailing' else 0.0,
                             1, emb, hc, cloth=cloth, loc=(0, 0, 0), heading=0.0, seed=variant)
-    if info['tops']:
-        t = max(info['tops'], key=lambda v: v.z)
-        obj(root.name + '_riding', bm_sphere(0.16, (t.x, t.y, t.z + 0.32), 8, 5), mat=M['riding'], parent=info['heel_root'], shadow=False)
     set_coll(prev)
     _protos[key] = (coll, info)
     return _protos[key]
@@ -123,16 +232,17 @@ for (pid, ck), items in by_pc.items():
         DOCKED += 1
 
 # ---------------------------------------------------------------- under way: on the lanes (sails set, heeling, wakes)
-LN = {n['id']: (n['position'][0], -n['position'][2]) for n in CJ_LAYOUT['lanes']['nodes']}
-EDG = [(e['from'], e['to']) for e in CJ_LAYOUT['lanes']['edges'] if not e['from'].startswith('gate') and not e['to'].startswith('gate')]
-UNDERWAY = [('L-e3', 'L-e4', 0.5, 'medium'), ('L-e4', 'M-out', 0.55, 'large'), ('M-in', 'L-ne', 0.4, 'small'), ('L-n1', 'L-n2', 0.35, 'medium'),
-            ('L-n2', 'L-n3', 0.6, 'small'), ('L-w1', 'L-w2', 0.5, 'small'), ('L-w3', 'L-w4', 0.3, 'boat'), ('L-s1', 'L-s2', 0.4, 'medium'),
-            ('L-se', 'L-e1', 0.6, 'small'), ('L-e1', 'L-e2', 0.45, 'boat'), ('Q-1', 'Q-2', 0.4, 'medium'), ('Q-3', 'Q-4', 0.5, 'small'),
-            ('C-1' if 'C-1' in LN else 'C-0', 'C-solana' if 'C-solana' in LN else 'C-w', 0.5, 'small'), ('C-r2', 'C-r3', 0.4, 'boat'),
-            ('C-r3', 'C-r4', 0.6, 'medium'), ('O-1' if 'O-1' in LN else 'N-1', 'N-1' if 'N-1' in LN else 'N-2', 0.5, 'large'),
-            ('N-1', 'N-2', 0.5, 'medium'), ('N-3', 'N-4', 0.5, 'small'), ('N-5', 'F-gate', 0.4, 'boat'), ('N-7', 'N-8', 0.5, 'medium'),
-            ('Q-6', 'Q-7', 0.5, 'small'), ('Q-5', 'Q-6', 0.4, 'boat'), ('L-sw', 'L-s1', 0.5, 'boat'), ('M-in', 'L-ne', 0.75, 'large'),
-            ('C-r1', 'C-r2', 0.5, 'small'), ('N-9', 'N-10', 0.5, 'small'), ('X-1' if 'X-1' in LN else 'Q-2', 'Q-3', 0.5, 'boat')]
+LN = {k: tuple(p) for k, p in CJ['lanes']['nodes'].items()}
+EDG = [tuple(e) for e in CJ['lanes']['edges'] if not e[0].startswith('gate') and not e[1].startswith('gate')]
+# under way: hand-picked lane legs (the heart frame gets the lagoon loop + two departures out of the mouth toward the horizon)
+UNDERWAY = [('L-m', 'L-t1', 0.5, 'medium'), ('L-t2', 'L-w1', 0.4, 'small'), ('L-w2', 'L-w3', 0.6, 'boat'), ('L-s1', 'L-s2', 0.3, 'medium'),
+            ('L-s3', 'L-s4', 0.6, 'small'), ('L-e1', 'L-e2', 0.5, 'large'), ('L-v1', 'L-v2', 0.55, 'small'), ('L-v3', 'L-c1', 0.5, 'medium'),
+            ('L-c2', 'L-c3', 0.4, 'large'), ('L-c3', 'M-out', 0.7, 'medium'), ('M-out', 'O-1', 0.25, 'small'), ('O-9', 'M-in', 0.6, 'medium'),
+            ('O-1', 'O-2', 0.4, 'large'), ('O-2', 'O-3', 0.5, 'small'), ('O-3', 'FP-gate', 0.5, 'boat'), ('O-4', 'O-5', 0.4, 'medium'),
+            ('O-5', 'C-0', 0.6, 'small'), ('C-0', 'C-hyperliquid-l1', 0.5, 'boat'), ('C-bsc', 'C-solana', 0.5, 'medium'),
+            ('C-base', 'C-arbitrum', 0.4, 'small'), ('C-polygon', 'C-w', 0.5, 'boat'), ('O-6', 'SH-gate', 0.5, 'small'),
+            ('SH-gate', 'O-7', 0.5, 'medium'), ('O-7', 'O-8', 0.5, 'small'), ('O-8', 'O-9', 0.5, 'boat'), ('L-w1', 'L-w2', 0.5, 'medium'),
+            ('L-s2', 'L-s3', 0.5, 'boat')]
 SAILING = 0
 WIND = Vector((CJ['wind_bow'][0], CJ['wind_bow'][1], 0)).normalized()     # bows of moored boats point INTO the wind
 for (a, b, t, cls) in UNDERWAY:
@@ -189,6 +299,7 @@ for row in CJ['far']['rows']:
             continue
         rig, pcls = rig_for(cls, family_pick(BRNG))
         coll, info = proto(rig, pcls, 'docked', BRNG.randrange(10))
-        place(coll, s, math.pi / 2)
-        BOAT_CONTACT.append(waterline(s, (0, 1), pcls))
+        rd = CJ['far']['row_dir']; ax_ = (-rd[1], rd[0])
+        place(coll, s, math.atan2(ax_[1], ax_[0]))
+        BOAT_CONTACT.append(waterline(s, ax_, pcls))
 print('BOATS docked', DOCKED, 'sailing', SAILING, 'prototypes', len(_protos))

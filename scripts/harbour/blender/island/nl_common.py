@@ -362,7 +362,8 @@ def build_kit_material():
     ax, ay, az = nx.abs(), ny.abs(), nz.abs()
     pid = (SX(nt, at.outputs['Alpha']) * 16.0 + 0.5).floor()
     vert = 1.0 - az.sstep(0.55, 0.8)               # 1 on walls
-    u = px * ay + py * ax                           # horizontal coord along a wall
+    hl = (nx * nx + ny * ny).sqrt().max(0.08)
+    u = (py * nx - px * ny) / hl                    # horizontal coord along a wall of any heading (runtime: dot(P.xy, t))
     one = C(nt, 1.0)
 
     def line(coord, period, width, soft=0.02):

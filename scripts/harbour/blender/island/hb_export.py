@@ -324,8 +324,9 @@ if '--no-ao' not in ARGV:
 
 # ------------------------------------------------------------------ fixed-camera back-face cull (D1: yaw 45 / pitch 35, pan + zoom only)
 # A face whose normal points away from every possible view ray (view vector within ~25 deg of V) is never seen.
-V_CAM = Vector((math.sin(math.radians(45)) * math.cos(math.radians(35)), -math.cos(math.radians(45)) * math.cos(math.radians(35)),
-                math.sin(math.radians(35)))).normalized()
+V_PITCH = 33.0        # v3 presets: heart 30, overview 38 (CULL_DOT keeps a wide margin either way)
+V_CAM = Vector((math.sin(math.radians(45)) * math.cos(math.radians(V_PITCH)), -math.cos(math.radians(45)) * math.cos(math.radians(V_PITCH)),
+                math.sin(math.radians(V_PITCH)))).normalized()
 CULL_DOT = -0.45
 
 

@@ -71,7 +71,7 @@ def house2(name, lot, rng, extra=None):
     elif style == 'cottage':
         ridge = 'x'
         turf = rng.random() < 0.35
-        P.update(floors=1, fh=3.0, ridge=ridge, pitch=rng.uniform(34, 44), wall=PAL[rng.choice(WALLS)],
+        P.update(floors=1, fh=3.0, ridge=ridge, pitch=rng.uniform(34, 44), wall=PAL[(extra or {}).get('wall', rng.choice(WALLS))],
                  wall_pat=rng.choice(('boards', 'render')), roof_style='turf' if turf else rng.choice(('tiles', 'slate')),
                  flowers=True, door_col=PAL[rng.choice(DOORS)], win_pitch=2.3)
     elif style == 'hamlet':
@@ -83,9 +83,17 @@ def house2(name, lot, rng, extra=None):
         ridge = 'y'
         P.update(floors=2, fh=2.9, ridge=ridge, pitch=50, wall=PAL[(extra or {}).get('wall', 'wall_falu')], wall_pat='boards',
                  roof_style='tar', flowers=False, door_col=PAL['tar'], win_pitch=3.0, chimney=False)
+    elif style == 'farmhouse':
+        ridge = 'x'
+        P.update(floors=rng.choice((1, 2)), fh=2.8, ridge=ridge, pitch=rng.uniform(38, 46), wall=PAL[rng.choice(('wall_falu', 'wall_white', 'wall_ochre'))],
+                 wall_pat='boards', roof_style=rng.choice(('turf', 'tiles', 'slate')), flowers=True, door_col=PAL[rng.choice(DOORS)], win_pitch=2.4)
+    elif style == 'barn':
+        ridge = 'x'
+        P.update(floors=1, fh=4.2, ridge=ridge, pitch=40, wall=PAL['wall_falu'], wall_pat='boards', roof_style='tar', flowers=False,
+                 door_col=PAL['tar'], win_pitch=4.0, chimney=False, win_faces=['-y'])
     elif style == 'warehouse':
         ridge = 'y'
-        P.update(w=w, d=d, floors=3, fh=3.1, ridge='y', pitch=44, wall=PAL[rng.choice(('wall_falu', 'wall_ochre', 'wall_falu'))],
+        P.update(w=w, d=d, floors=3, fh=3.1, ridge='y', pitch=50, wall=PAL[rng.choice(('wall_falu', 'wall_ochre', 'wall_falu', 'wall_white', 'wall_mustard'))],
                  wall_pat='boards', roof_style='tar', flowers=False, door_col=PAL['tar'], win_pitch=3.2, chimney=False,
                  win_faces=['-y', '+x', '-x'])
     if 'roof' not in P:
@@ -136,7 +144,7 @@ def house2(name, lot, rng, extra=None):
                 add_window(det, glass, Vector((x, yb - 0.62, zb + 0.65)), Vector((1, 0, 0)), Vector((0, -1, 0)), 0.75, 0.95,
                            mull=True, sill=False, rng=rng, lit_p=0.55, gl_list=gl)
     # porch hood over the door (terrace + cottage)
-    if style in ('terrace', 'cottage', 'hamlet') and rng.random() < 0.75:
+    if style in ('terrace', 'cottage', 'hamlet', 'farmhouse') and rng.random() < 0.75:
         nwin = max(1, int((w - 0.6) / (P.get('win_pitch', 2.2))))
         xs = [(i + 0.5) / nwin * w - w / 2 for i in range(nwin)]
         xd = xs[nwin // 2]
@@ -182,32 +190,32 @@ def house2(name, lot, rng, extra=None):
         glass_obj(name + '_glass2', glass, gl, root, 'house')
     else:
         glass.free()
-    if 'chimney_top' in root:
-        CHIMNEYS.append(root.matrix_world @ Vector(root['chimney_top']))
+    if 'chimney_top' in root:      # world position without relying on a depsgraph update
+        CHIMNEYS.append(Matrix.Translation(root.location) @ Matrix.Rotation(root.rotation_euler.z, 4, 'Z') @ Vector(root['chimney_top']))
     return root
 
 
 CHIMNEYS = []
 BUILDINGS = []
-# party walls: a terrace house with a neighbour flush against a side shows no windows on that side
-for la in CJ['lots']:
-    for lb in CJ['lots']:
-        if la is lb or abs(la['c'][1] - lb['c'][1]) > 3.0 or la['z'] != lb['z']:
+# party walls: a house with a neighbour flush against a side shows no windows on that side (any heading)
+LOTS_ = CJ['lots']
+for la in LOTS_:
+    f = Vector((la['face'][0], la['face'][1])); sd = Vector((-f.y, f.x))      # local +x (side axis) for a -y front
+    for lb in LOTS_:
+        if la is lb or abs(la['z'] - lb['z']) > 0.5:
             continue
-        gap = abs(la['c'][0] - lb['c'][0]) - (la['w'] + lb['w']) / 2
-        if gap < 0.8:
-            la['nb_e' if lb['c'][0] > la['c'][0] else 'nb_w'] = True
-for i, lot in enumerate(CJ['lots']):
+        dv = Vector(lb['c']) - Vector(la['c'])
+        along_ = dv.dot(sd); perp_ = dv.dot(f)
+        if abs(perp_) < 2.5 and abs(along_) - (la['w'] + lb['w']) / 2 < 0.8 and abs(along_) > 0.5:
+            la['nb_e' if along_ > 0 else 'nb_w'] = True
+HAMLET_WALL = {'pier-hyperliquid-l1': 'wall_mint', 'pier-polygon': 'wall_white', 'pier-arbitrum': 'wall_blue',
+               'pier-base': 'wall_falu', 'pier-solana': 'wall_sage', 'pier-bsc': 'wall_ochre'}
+for i, lot in enumerate(LOTS_):
     nm = f"{lot['style']}_{i:03d}"
-    if lot['style'] in ('terrace',) and abs(lot['c'][1] - 173.0) < 1 and TRNG.random() < 0.7:
-        lot['shop'] = True
     extra = None
-    if lot['style'] in ('hamlet', 'loft'):
-        # hamlet colour by chain quarter (character)
-        cx = min(CJ['coves'], key=lambda c: abs(c[1] - lot['c'][0]))
-        extra = dict(wall={'pier-hyperliquid-l1': 'wall_mint', 'pier-polygon': 'wall_white', 'pier-arbitrum': 'wall_blue',
-                           'pier-base': 'wall_falu', 'pier-solana': 'wall_sage', 'pier-bsc': 'wall_ochre'}[cx[0]])
-        if lot['style'] == 'hamlet' and TRNG.random() < 0.45:
+    if lot.get('pid') and lot['style'] in ('hamlet', 'loft', 'cottage'):
+        extra = dict(wall=HAMLET_WALL[lot['pid']])
+        if lot['style'] != 'loft' and TRNG.random() < 0.45:
             extra['wall'] = TRNG.choice(WALLS)
     root = house2(nm, lot, TRNG, extra)
     BUILDINGS.append((nm, root))
@@ -259,6 +267,10 @@ def facade_windows(name, parent, x0, x1, y, z_rows, ww=0.9, wh=1.5, pitch=2.4, l
     glass_obj(name + '_wglass', glass, gl, parent, 'landmark')
 
 
+def face_rz(face):
+    return math.atan2(face[0], -face[1])
+
+
 def make_root(name, p, z, rz=0.0):
     return empty(name, (p[0], p[1], z), (0, 0, rz), family='landmark')
 
@@ -267,7 +279,7 @@ LM = CJ['landmarks']
 
 # ---------------------------------------------------------------- Customs House + the tide board
 cp = LM['customs_house']['p']; zq = Z_SHORE
-ch = make_root('customs_house', cp, zq)
+ch = make_root('customs_house', cp, zq, face_rz(LM['customs_house']['face']))
 stone_block('customs_house_body', -11, -7, -1.5, 11, 7, 11.4, 'stone_white', 'render', ch)
 stone_block('customs_house_plinth', -11.3, -7.3, -1.5, 11.3, 7.3, 1.0, 'granite', 'ashlar', ch)
 stone_block('customs_house_cornice', -11.4, -7.4, 11.2, 11.4, 7.4, 11.8, 'granite_light', 'plain', ch)
@@ -302,7 +314,7 @@ collect_windows(ch, 'customs_house')
 # the tide board: a big framed black board on two granite posts on the square, facing the bay.
 # "tide_board" = the flat face the runtime draws 24 hourly bars on (UV 0..1, u = hour, v = up).
 tbp = LM['tide_board']['p']
-tb = make_root('tide_board_frame', tbp, zq)
+tb = make_root('tide_board_frame', tbp, zq, face_rz(LM['tide_board']['face']))
 BW_, BH_, BZ_ = 18.0, 6.2, 2.4
 for sx in (-1, 1):
     stone_block(f'tide_board_post{sx}', sx * (BW_ / 2 + 0.2) - 0.45, -0.45, -0.5, sx * (BW_ / 2 + 0.2) + 0.45, 0.45, BZ_ + BH_ + 0.8, 'granite_light', 'ashlar', tb)
@@ -336,7 +348,7 @@ TIDE_DEMO = obj('tide_board_demo_bars', demo, face=lambda q: ((lin('#8FF0C4') if
 
 # ---------------------------------------------------------------- Harbourmaster's office: lookout cupola + flag mast
 hp_ = LM['harbourmaster']['p']
-hm = make_root('harbourmaster', hp_, zq)
+hm = make_root('harbourmaster', hp_, zq, face_rz(LM['harbourmaster']['face']))
 stone_block('harbourmaster_body', -6.5, -6, -1.5, 6.5, 6, 7.6, 'wall_falu', 'boards', hm, bevel=0.04)
 stone_block('harbourmaster_plinth', -6.7, -6.2, -1.5, 6.7, 6.2, 0.8, 'granite', 'ashlar', hm)
 hip_roof('harbourmaster_roof', -6.5, -6, 6.5, 6, 7.6, 3.4, PAL['roof_slate'], PT['slate'], hm)
@@ -353,7 +365,7 @@ collect_windows(hm, 'harbourmaster')
 
 # ---------------------------------------------------------------- the Registry: portico, pediment, clock (terrace 2)
 rp = LM['registry']['p']
-rg = make_root('registry', rp, LM['registry']['z'])
+rg = make_root('registry', rp, LM['registry']['z'], face_rz(LM['registry']['face']))
 stone_block('registry_body', -10, -6.5, -2.0, 10, 6.5, 9.6, 'granite_light', 'ashlar', rg)
 stone_block('registry_cornice', -10.3, -6.8, 9.4, 10.3, 6.8, 10.1, 'stone_white', 'plain', rg)
 hip_roof('registry_roof', -10.3, -6.8, 10.3, 6.8, 10.1, 3.6, PAL['roof_slate'], PT['slate'], rg)
@@ -381,7 +393,7 @@ collect_windows(rg, 'registry')
 
 # ---------------------------------------------------------------- Seamen's church: white nave + slate spire (terrace 3)
 cp2 = LM['church']['p']
-cr = make_root('church', cp2, LM['church']['z'])
+cr = make_root('church', cp2, LM['church']['z'], face_rz(LM['church']['face']))
 stone_block('church_nave', -5.0, -9.0, -2.0, 5.0, 9.0, 7.0, 'stone_white', 'render', cr)
 nave = bmesh.new()
 vs = [nave.verts.new(v) for v in ((-5.6, -9.3, 7.0), (5.6, -9.3, 7.0), (0, -9.3, 12.2), (-5.6, 9.3, 7.0), (5.6, 9.3, 7.0), (0, 9.3, 12.2))]
@@ -410,7 +422,7 @@ collect_windows(cr, 'church')
 
 # ---------------------------------------------------------------- bonded warehouse (basin): hoist gable
 wp = LM['warehouse']['p']
-wh_ = make_root('bonded_warehouse', wp, zq, math.pi / 2)
+wh_ = make_root('bonded_warehouse', wp, zq, face_rz(LM['warehouse']['face']))
 stone_block('warehouse_body', -9, -11, -1.5, 9, 11, 12.0, 'wall_falu', 'boards', wh_, bevel=0.0)
 stone_block('warehouse_plinth', -9.2, -11.2, -1.5, 9.2, 11.2, 1.0, 'granite', 'ashlar', wh_)
 wr = bmesh.new()
@@ -438,42 +450,49 @@ PHAROS_SCALE = 1.15                     # ~33.5 m to the lantern top (brief: 30-
 PHAROS_ROOT.scale = (PHAROS_SCALE,) * 3
 LH_LAMP = Vector((lhp[0], lhp[1], LM['pharos']['z'])) + (LH_LAMP - Vector((lhp[0], lhp[1], LM['pharos']['z']))) * PHAROS_SCALE
 kp = LM['keepers_cottage']['p']
+KRZ = face_rz(LM['keepers_cottage']['face'])
 kc = build_house('keepers_cottage', dict(w=10.0, d=6.4, floors=1, fh=3.0, base=0.6, ridge='x', pitch=44, wall=PAL['wall_white'],
                                           wall_pat='render', roof=PAL['roof_red'], roof_style='tiles', door='-y', win_pitch=2.4,
                                           flowers=True, door_col=PAL['door_green'], chimney=True, win_faces=['-y', '-x', '+x']),
-                 (kp[0], kp[1], LM['keepers_cottage']['z']), math.radians(0), seed=41, family='lighthouse')
+                 (kp[0], kp[1], LM['keepers_cottage']['z']), KRZ, seed=41, family='lighthouse')
 collect_windows(kc, 'keepers_cottage')
 if 'chimney_top' in kc:
     CHIMNEYS.append(kc.matrix_world @ Vector(kc['chimney_top']))
 op = LM['oil_store']['p']
-build_oil_store('oil_store', (op[0], op[1], LM['oil_store']['z']), math.radians(0))
-# keeper's garden: a low stone wall round the cottage yard, a path to the tower door, a washing line
-kx, ky = kp[0], kp[1]; kz = LM['keepers_cottage']['z']
+build_oil_store('oil_store', (op[0], op[1], LM['oil_store']['z']), face_rz(LM['oil_store']['face']))
+# keeper's garden (in the cottage's own frame): a low stone wall round the yard, a path to the tower door, a washing line
+kz = LM['keepers_cottage']['z']
+_kc, _ks = math.cos(KRZ), math.sin(KRZ)
+K = lambda lx, ly: (kp[0] + lx * _kc - ly * _ks, kp[1] + lx * _ks + ly * _kc)
 gw = bmesh.new()
-for a_, b_ in (((kx - 9, ky - 7), (kx - 9, ky + 8)), ((kx - 9, ky + 8), (kx + 9, ky + 8)), ((kx + 9, ky + 8), (kx + 9, ky - 7)),
-               ((kx + 9, ky - 7), (kx + 2, ky - 7))):
-    merge(gw, nl_kit.beam((a_[0], a_[1], kz + 0.4), (b_[0], b_[1], kz + 0.4), 0.6, 0.9))
+for a_, b_ in (((-9, -7), (-9, 8)), ((-9, 8), (9, 8)), ((9, 8), (9, -7)), ((9, -7), (2, -7))):
+    pa, pb = K(*a_), K(*b_)
+    merge(gw, nl_kit.beam((pa[0], pa[1], H(*pa) + 0.4), (pb[0], pb[1], H(*pb) + 0.4), 0.6, 0.9))
 obj('keeper_wall', gw, PAL['granite'], PT['ashlar'], family='lighthouse')
 pth = bmesh.new()
-for a_, b_ in (((kx, ky - 7.5), (lhp[0] + 6, lhp[1] + 6)), ((lhp[0] + 6, lhp[1] + 6), (lhp[0] + 2.5, lhp[1] - 2))):
-    za, zb = H(*a_) + 0.05, H(*b_) + 0.05
-    merge(pth, nl_kit.beam((a_[0], a_[1], za), (b_[0], b_[1], zb), 1.8, 0.24))
+door = (lhp[0] - 0.707 * 7.5, lhp[1] - 0.707 * 7.5)
+for a_, b_ in ((K(0, -7.5), K(0, -12)), (K(0, -12), door)):
+    n_ = max(1, int(math.hypot(b_[0] - a_[0], b_[1] - a_[1]) / 3))
+    for k_ in range(n_):
+        p_ = (a_[0] + (b_[0] - a_[0]) * k_ / n_, a_[1] + (b_[1] - a_[1]) * k_ / n_)
+        q_ = (a_[0] + (b_[0] - a_[0]) * (k_ + 1) / n_, a_[1] + (b_[1] - a_[1]) * (k_ + 1) / n_)
+        merge(pth, nl_kit.beam((p_[0], p_[1], H(*p_) + 0.06), (q_[0], q_[1], H(*q_) + 0.06), 1.8, 0.24))
 obj('headland_path', pth, PAL['gravel'], PT['cobble'], family='lighthouse', jitter=0.02)
 ln_ = bmesh.new(); cl_ = bmesh.new()
-a3 = Vector((kx + 3, ky + 5, kz)); b3 = Vector((kx + 8, ky + 5, kz))
+a3 = Vector((*K(3, 5), kz)); b3 = Vector((*K(8, 5), kz))
 for p_ in (a3, b3):
     merge(ln_, nl_kit.line3(p_, p_ + Vector((0, 0, 2.3)), 0.06))
 merge(ln_, nl_kit.line3(a3 + Vector((0, 0, 2.2)), b3 + Vector((0, 0, 2.2)), 0.02))
 for k_ in range(4):
     c_ = a3.lerp(b3, 0.15 + k_ * 0.22) + Vector((0, 0, 1.55))
-    merge(cl_, nl_kit.obox(c_, (1, 0, 0), 0.7, 0.04, 0.8))
+    merge(cl_, nl_kit.obox(c_, (b3 - a3).normalized(), 0.7, 0.04, 0.8))
 obj('keeper_laundry_line', ln_, PAL['timber_dark'], PT['plain'], family='lighthouse')
 obj('keeper_laundry', cl_, face=lambda q: ((PAL['trim'], PAL['brand_usdc'], PAL['hull_red'], PAL['wall_ochre'])[q.index // 5 % 4], 0), family='lighthouse')
 
 # ---------------------------------------------------------------- storm-signal mast (cone attach empties), tide gauge, slipway
 set_coll(collection('landmarks', ROOTC))
 smp = LM['storm_mast']['p']
-sm = empty('storm_mast', (smp[0], smp[1], LM['storm_mast']['z']), (0, 0, math.radians(45)), family='landmark')
+sm = empty('storm_mast', (smp[0], smp[1], LM['storm_mast']['z']), (0, 0, face_rz(LM['storm_mast']['face'])), family='landmark')
 NAMED['storm_mast'] = sm
 b_ = bm_box2(-1.3, -1.3, -2.0, 1.3, 1.3, 0.6)
 obj('storm_mast_foot', b_, PAL['granite_light'], PT['ashlar'], parent=sm, family='landmark', bevel=0.05)
@@ -499,7 +518,7 @@ for k in range(2):
 obj('storm_mast_keyart_cones', cones, PAL['iron'], PT['plain'], parent=sm, family='keyart')
 
 tgp = LM['tide_gauge']['p']
-tg = empty('tide_gauge', (tgp[0], tgp[1], 0.0), family='landmark')
+tg = empty('tide_gauge', (tgp[0], tgp[1], 0.0), (0, 0, face_rz(LM['tide_gauge']['face'])), family='landmark')
 NAMED['tide_gauge'] = tg
 gauge = bmesh.new()
 for k in range(10):
@@ -510,12 +529,13 @@ obj('tide_gauge_board', gauge, face=lambda q: ((PAL['hull_red'] if int((q.center
 empty('tide_gauge_level', (0, -0.5, 0.0), parent=tg, family='landmark', size=0.5)
 
 sl = CJ['slip']
-sw = make_root('slipway', sl['top'], 0.0)
+_sd = (sl['bottom'][0] - sl['top'][0], sl['bottom'][1] - sl['top'][1])
+sw = make_root('slipway', sl['top'], 0.0, face_rz(_sd))
 NAMED['slipway'] = sw
-L_ = sl['top'][1] - sl['bottom'][1]
+L_ = math.hypot(*_sd)
 ramp = bmesh.new()
 merge(ramp, nl_kit.beam((0, 0, Z_SHORE + 0.02), (0, -L_, -1.6), sl['width'], 0.5))
-obj('slipway_ramp', ramp, PAL['timber_dark'], PT['planks_y'], parent=sw, family='landmark')
+obj('slipway_ramp', ramp, PAL['timber_dark'], PT['plain'], parent=sw, family='landmark', jitter=0.08)
 rails = bmesh.new()
 for sx in (-1.6, 1.6):
     merge(rails, nl_kit.beam((sx, 0, Z_SHORE + 0.3), (sx, -L_, -1.3), 0.25, 0.18))
@@ -530,5 +550,38 @@ for k in range(3):
 obj('slipway_cradle', cradle, PAL['timber'], PT['boards'], parent=sw, family='landmark')
 winch = bm_box2(-1.2, 3.0, Z_SHORE, 1.2, 4.6, Z_SHORE + 1.4); merge(winch, bm_cyl(0.45, 0.45, 2.0, 10, (-1.0, 3.8, Z_SHORE + 1.5)))
 obj('slipway_winch', winch, PAL['hull_red'], PT['metal'], parent=sw, family='landmark')
+
+# ---------------------------------------------------------------- the windmill on its meadow knoll (decorative)
+wmp = CJ['windmill']; wz = min(H(wmp[0] + dx, wmp[1] + dy) for dx in (-3, 3) for dy in (-3, 3))
+wm = empty('windmill', (wmp[0], wmp[1], wz), (0, 0, face_rz((-0.3, -1.0))), family='landmark')
+body = bm_cyl(3.6, 2.5, 10.5, 8, (0, 0, -1.5), rot=math.pi / 8)
+obj('windmill_body', body, PAL['stone_white'], PT['render'], parent=wm, family='landmark', bevel=0.03)
+obj('windmill_plinth', bm_cyl(3.9, 3.9, 1.6, 8, (0, 0, -1.2), rot=math.pi / 8), PAL['granite'], PT['ashlar'], parent=wm, family='landmark')
+cap = bm_cyl(2.9, 0.4, 3.0, 8, (0, 0, 9.0), rot=math.pi / 8); merge(cap, bm_sphere(0.35, (0, 0, 12.1), 6, 4))
+obj('windmill_cap', cap, PAL['roof_slate'], PT['slate'], parent=wm, family='landmark')
+gal = bm_cyl(3.4, 3.4, 0.2, 8, (0, 0, 6.2), rot=math.pi / 8)
+obj('windmill_gallery', gal, PAL['timber_dark'], PT['plain'], parent=wm, family='landmark')
+obj('windmill_door', bm_box2(-0.7, -3.25, 0.0, 0.7, -2.95, 2.3), PAL['door_green'], PT['boards'], parent=wm, family='landmark')
+trim = bmesh.new(); glass = bmesh.new(); gl = []
+add_window(trim, glass, Vector((0, -2.7, 5.0)), Vector((1, 0, 0)), Vector((0, -1, 0)), 0.7, 1.0, mull=True, rng=TRNG, lit_p=0.9, gl_list=gl)
+obj('windmill_wtrim', trim, PAL['trim'], PT['plain'], parent=wm, family='landmark')
+glass_obj('windmill_glass', glass, gl, wm, 'landmark')
+sails = bmesh.new(); slats = bmesh.new()
+hub = Vector((0, -3.3, 9.6))
+merge(sails, bm_cyl(0.5, 0.5, 0.9, 8, (0, 0, 0)))
+xf(sails, rx=math.pi / 2); xf(sails, loc=(hub.x, hub.y + 0.4, hub.z))
+for k in range(4):
+    blade = bm_box2(0.0, -0.11, -0.11, 9.6, 0.11, 0.11)
+    merge(blade, bm_box2(1.9, -0.05, 1.75, 9.6, 0.05, 1.85))                     # the outer stile
+    sl_ = bmesh.new()
+    for j in range(9):
+        x0 = 2.1 + j * 0.84
+        merge(sl_, bm_box2(x0, -0.03, 0.12, x0 + 0.62, 0.03, 1.75))
+    for bm_ in (blade, sl_):
+        xf(bm_, ry=-math.radians(20 + 90 * k)); xf(bm_, loc=tuple(hub))
+    merge(sails, blade); merge(slats, sl_)
+obj('windmill_sails', sails, PAL['timber_dark'], PT['plain'], parent=wm, family='landmark')
+obj('windmill_sailcloth', slats, PAL['canvas'], PT['plain'], parent=wm, family='landmark', jitter=0.06)
+collect_windows(wm, 'windmill')
 
 print('TOWN built', len(BUILDINGS), 'houses', len(WINDOW_GROUPS), 'window groups')

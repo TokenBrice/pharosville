@@ -1,4 +1,4 @@
-"""The Harbour v2 - whole-island build (style C "Northern Light" + A grafts), key art and exports.
+"""The Harbour v3 - whole-island build (style C "Northern Light" + A grafts), key art and exports.
 
     python3 compose.py && python3 bake_sdf.py                     # plan, layout.json, sea-sdf.png
     blender -b --factory-startup -P build_island.py -- [options]
@@ -29,7 +29,7 @@ def arg(name, default):
 
 ROOT = os.path.abspath(os.path.join(HERE_, '../../../..'))
 OUTD = os.path.join(ROOT, 'outputs/harbour/island')
-ART = os.path.join(ROOT, 'agents/2026-10-13-pharosville-reboot/p2/island')
+ART = os.path.join(ROOT, 'agents/2026-10-13-pharosville-reboot/p2/island-v3')
 P1C = os.path.join(ROOT, 'agents/2026-10-13-pharosville-reboot/p1/style-c')
 STAGES = arg('--stages', 'land,town,dress,boats').split(',')
 RENDER = '--render' in ARGV

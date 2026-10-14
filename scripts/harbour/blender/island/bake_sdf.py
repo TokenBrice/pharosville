@@ -85,14 +85,13 @@ def bake(cj, bounds, n=N, contact_polys=(), wakes=(), extra_land=(), extra_circl
     d_in = ndimage.distance_transform_edt(land) * px
     sd = np.where(land, -d_in, d_out)
     # structures: pier decks, piles (implicit in decks), quay walls (= coast within 1 px of a quay line), buoys
-    qmask = _raster([_seg_polys(q['a'], q['b'], 1.2) for q in cj['quays']], [], bounds, n)
+    qmask = _raster([_seg_polys(a, b, 1.2) for q in cj['quays'] for a, b in zip(q['line'], q['line'][1:])], [], bounds, n)
     buoys = [(m['buoy'][0], m['buoy'][1], 0.35) for m in cj['moorings']] if buoys else []
     st = _raster(struct_polys, buoys, bounds, n) | qmask
     ds = ndimage.distance_transform_edt(~st) * px
     # bathymetry (stylised): shelving coast, a dredged bay, shallow coves, a shoal reef just outside the mouth
     depth = 1.2 + 38.0 * (1.0 - np.exp(-np.maximum(sd, 0) / 55.0))
-    bay = _raster([[(cj['consts']['WX'], cj['consts']['SY']), (cj['consts']['BWX'], cj['consts']['SY']), (cj['consts']['BWX'], 84),
-                    (150, cj['consts']['QY']), (cj['consts']['WX'], cj['consts']['QY'])]], [], bounds, n)
+    bay = _raster([[tuple(p) for p in cj['bay']]], [], bounds, n)
     bay = ndimage.gaussian_filter(bay.astype(np.float32), 18.0 / px)
     depth = depth * (1 - bay) + np.minimum(depth, 3.0 + 7.5 * (1 - np.exp(-np.maximum(sd, 0) / 14.0))) * bay
     reef = _raster([[tuple(p) for p in cj['shoals']['poly']]], [], bounds, n)
@@ -132,8 +131,7 @@ def write_png(arr, path):
 
 if __name__ == '__main__':
     cj = json.load(open(os.path.join(ROOT, 'outputs/harbour/island/compose.json')))
-    layout = json.load(open(os.path.join(ROOT, 'src/harbour/data/layout.json')))
-    bounds = layout['sea']['bounds']
+    bounds = cj['sea_bounds']                 # == layout.sea.bounds (compose.py writes both)
     # layout bounds are glTF [minX, minZ, maxX, maxZ]
     arr = bake(cj, bounds)
     out = os.path.join(ROOT, 'public/harbour/sea-sdf.png')

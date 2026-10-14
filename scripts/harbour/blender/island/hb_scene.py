@@ -6,7 +6,7 @@ FWD = Vector((-1.0, 1.0, 0.0)).normalized()          # into the screen
 SIDE = Vector((1.0, 1.0, 0.0)).normalized()          # screen right
 SC = Vector((0.0, 90.0, 0.0))                        # island centre (for radial sky maths)
 V_BACK = 600.0                                       # backdrop wall: V (screen depth) of the sky card
-SEA_B = CJ_LAYOUT['sea']['bounds']                   # glTF [minX, minZ, maxX, maxZ]
+SEA_B = CJ['sea_bounds']                             # glTF [minX, minZ, maxX, maxZ] (v3 compose; = layout.sea.bounds)
 
 
 def V_of(x, y):
@@ -94,39 +94,63 @@ def build_water(sdf_img):
     return m
 
 
-# ------------------------------------------------------------------ sky backdrop, shakkei, cumulus
-def build_backdrop_mat():
-    m = new_mat('M_backdrop'); nt = m.node_tree; out = strip(nt)
+# ------------------------------------------------------------------ sky backdrop, shakkei, cumulus (v3: camera-relative, like the runtime)
+# The runtime paints its sky on a cylinder round the camera at the sky radius R (horizon a fixed fraction of the frame
+# below the top). The key art does the same per camera: backdrop, hills and cloud banks are authored in degrees.
+SKY_MATS = []
+
+
+def sky_radius(pr):
+    """Mirror of SkySystem.update: R from the frame (20 % band), pushed past the farthest land point in the view arc."""
+    tx, ty, tz = pr['target']; T = Vector((tx, -tz, ty))
+    D = pr['distance']; yaw = math.radians(pr['yawDeg']); pit = math.radians(pr['pitchDeg'])
+    cp = math.cos(pit)
+    cam = T + Vector((math.sin(yaw) * cp, -math.cos(yaw) * cp, math.sin(pit))) * D
+    vfov = math.radians(pr['fovDeg'])
+    R = cam.z / math.tan(max(0.05, pit - vfov / 2 + 0.2 * vfov))
+    span = math.atan(math.tan(vfov / 2) * 1.6) + 0.25
+    far = 0.0
+    for p in [tuple(q) for q in CJ['coast']] + [tuple(q) for q in CJ['bw_line']]:
+        d = Vector((p[0] - cam.x, p[1] - cam.y))
+        if d.length < 1e-3 or d.normalized().dot(FWD.to_2d()) < math.cos(span):
+            continue
+        far = max(far, d.length)
+    return (max(R, far + 14) if far else R), cam
+
+
+def build_backdrop_mat(name, cam):
+    m = new_mat(name); nt = m.node_tree; out = strip(nt)
     geo = node(nt, 'ShaderNodeNewGeometry')
     wx, wy, wz = sep(nt, geo.outputs['Position'])
-    dxs = wx - SC.x; dys = wy - SC.y
+    dxs = wx - cam.x; dys = wy - cam.y
     rr = (dxs * dxs + dys * dys).sqrt()
+    fw = dxs * FWD.x + dys * FWD.y; ss = dxs * SIDE.x + dys * SIDE.y
+    az = ss._m('ARCTAN2', fw) * 57.29578
+    el = wz._m('ARCTAN2', rr) * 57.29578
     sx_ = C(nt, 0, 'SUN_X'); sy_ = C(nt, 1, 'SUN_Y')
     cosang = (dxs * sx_ + dys * sy_) / rr
-    h = (wz / 260.0).clamp()
+    h = (el / 14.0).clamp()
     ramp = node(nt, 'ShaderNodeValToRGB', name='SKY_RAMP'); link(nt, h, ramp.inputs['Fac'])
     ramp.color_ramp.interpolation = 'EASE'
     glow = cosang.clamp().pow(4.0) * (1.0 - h.sstep(0.0, 0.55)) * C(nt, 0.5, 'GLOW_K')
     gcol = rgb(nt, (1, 0.8, 0.6), 'GLOW_COL')
     col = mixc(nt, glow.clamp(), ramp.outputs['Color'], gcol)
-    sp = vscale(nt, geo.outputs['Position'], 0.0016, 0.0016, 0.03)
-    st_n = noise3(nt, sp, 1.0, 3.0, 0.6)
-    streak = st_n.sstep(0.56, 0.7) * wz.sstep(30.0, 50.0) * (1.0 - wz.sstep(110.0, 170.0)) * C(nt, 0.0, 'STRATUS_K')
+    st_n = noise3(nt, comb(nt, az * 0.05, el * 0.9, 0.0), 1.0, 3.0, 0.6)
+    streak = st_n.sstep(0.56, 0.7) * el.sstep(1.6, 2.6) * (1.0 - el.sstep(5.0, 8.0)) * C(nt, 0.0, 'STRATUS_K')
     col = mixc(nt, streak, col, rgb(nt, (1, 0.8, 0.7), 'STRATUS_COL'))
-    mz = C(nt, 200.0, 'DISC_Z'); dk = C(nt, 0.0, 'DISC_K'); ms = C(nt, 0.0, 'DISC_S')
-    ss = dxs * SIDE.x + dys * SIDE.y
-    dd = ((ss - ms) * (ss - ms) + (wz - mz) * (wz - mz)).sqrt()
-    disc = (1.0 - dd.sstep(19.0, 21.5)) * dk
-    halo = (1.0 - dd.sstep(20.0, 260.0)).pow(2.5) * dk * 0.45
+    dk = C(nt, 0.0, 'DISC_K'); daz = C(nt, -12.0, 'DISC_AZ'); delv = C(nt, 3.0, 'DISC_EL')
+    dd = ((az - daz) * (az - daz) + (el - delv) * (el - delv)).sqrt()
+    disc = (1.0 - dd.sstep(1.25, 1.45)) * dk
+    halo = (1.0 - dd.sstep(1.3, 16.0)).pow(2.5) * dk * 0.45
     col = mixc(nt, (disc + halo).clamp(), col, rgb(nt, PAL['moon'], 'DISC_COL'))
-    vo = node(nt, 'ShaderNodeTexVoronoi'); vo.inputs['Scale'].default_value = 0.09
-    link(nt, geo.outputs['Position'], vo.inputs['Vector'])
-    star = (1.0 - SX(nt, vo.outputs['Distance']).sstep(0.02, 0.06)) * C(nt, 0.0, 'STAR_K') * h.sstep(0.12, 0.4)
+    vo = node(nt, 'ShaderNodeTexVoronoi'); vo.inputs['Scale'].default_value = 1.0
+    link(nt, comb(nt, az * 1.4, el * 1.4, 0.0), vo.inputs['Vector'])
+    star = (1.0 - SX(nt, vo.outputs['Distance']).sstep(0.03, 0.07)) * C(nt, 0.0, 'STAR_K') * el.sstep(1.0, 4.0)
     col = addc(nt, col, mulc(nt, (1, 1, 1), star))
     e = node(nt, 'ShaderNodeEmission'); link(nt, col, e.inputs['Color'])
     link(nt, C(nt, 1.0, 'SKY_E'), e.inputs['Strength'])
     nt.links.new(e.outputs[0], out.inputs['Surface'])
-    M['backdrop'] = m
+    SKY_MATS.append(m)
     return m
 
 
@@ -150,20 +174,23 @@ def build_mountain_mat(name, hfade=70.0, snow_z=64.0):
     return m
 
 
-def mountain_range(name, v, s0, s1, hmax, seed, mat, n=220, lift=-6.0):
+def mountain_range(name, cam, R, az0, az1, emax, seed, mat, n=220, lift=-6.0):
+    """A hill silhouette on an arc of radius R round the camera, heights in degrees of elevation."""
     bm = bmesh.new()
     base, peaks = [], []
-    c0 = SC + FWD * (v - V_of(SC.x, SC.y))
+    fa = math.atan2(FWD.y, FWD.x)
     for k in range(n + 1):
         t = k / n
-        s = s0 + (s1 - s0) * t
+        az = az0 + (az1 - az0) * t
+        s = az * R * 0.0175
         h = 0.0; amp = 1.0; f = 1.0
         for o in range(4):
             r_ = 1.0 - abs(noise.noise(Vector((s * 0.004 * f + seed * 3.3, seed, o * 1.7))))
             h += amp * r_ ** 2.2; amp *= 0.5; f *= 2.1
         env = max(0.0, noise.noise(Vector((s * 0.0022 + seed, 0.5, 0.0))) + 0.22) / 0.7
-        h = hmax * h * 0.55 * min(1.0, env) ** 0.8
-        p = c0 + SIDE * s
+        h = R * math.tan(math.radians(emax)) * h * 0.55 * min(1.0, env) ** 0.8
+        a = fa - math.radians(az)
+        p = Vector((cam.x + math.cos(a) * R, cam.y + math.sin(a) * R, 0))
         base.append(bm.verts.new((p.x, p.y, lift)))
         peaks.append(bm.verts.new((p.x, p.y, max(h, lift + 1.0))))
     for k in range(n):
@@ -210,11 +237,12 @@ def build_cloud_mat():
 CLOUDS = []
 
 
-def cumulus(name, centre, width, height, seed):
+def cumulus(name, centre, width, height, seed, side=None, fwd=None):
     """Sculpted cumulus bank: flat base, cauliflower tiers, soft edges."""
     rng_ = random.Random(seed)
     bm = bmesh.new()
     cx, cy, cz = centre
+    side = side or SIDE; fwd = fwd or FWD
     for ti in range(4):
         f = ti / 3
         tw = width * (1.0 - 0.6 * f) * rng_.uniform(0.9, 1.05)
@@ -224,7 +252,7 @@ def cumulus(name, centre, width, height, seed):
         for j in range(nb):
             t = (j + 0.5) / nb - 0.5
             r = tw / nb * rng_.uniform(0.66, 1.0) * (1.25 if abs(t) < 0.2 else 1.0)
-            p = Vector((cx, cy, 0)) + SIDE * (off + t * tw * 0.85) + FWD * rng_.uniform(-0.2, 0.2) * r
+            p = Vector((cx, cy, 0)) + side * (off + t * tw * 0.85) + fwd * rng_.uniform(-0.2, 0.2) * r
             merge(bm, bm_ico(r, (p.x, p.y, zc + rng_.uniform(-0.1, 0.25) * r), 3, (1.0, 0.8, 0.82), seed=seed * 31 + ti * 7 + j, amp=0.18))
     for v in bm.verts:
         if v.co.z < cz:
@@ -235,24 +263,39 @@ def cumulus(name, centre, width, height, seed):
     return ob
 
 
+SKY_SETS = {}
+
+
 def build_sky():
-    set_coll(collection('sky', ROOTC))
-    build_backdrop_mat()
-    cbd = SC + FWD * (V_BACK - V_of(SC.x, SC.y))
-    bd = bmesh.new()
-    vs = [bd.verts.new(cbd + SIDE * s + Vector((0, 0, z))) for s, z in ((-1600, -12), (1600, -12), (1600, 900), (-1600, 900))]
-    bd.faces.new(vs)
-    b = obj('sky_backdrop', bd, mat=M['backdrop'], shadow=False, family='sky')
-    b.visible_diffuse = False; b.visible_glossy = True
-    for nm, hf, sz in (('M_mount_far', 150.0, 128.0), ('M_mount_mid', 100.0, 88.0), ('M_mount_near', 60.0, 400.0)):
+    """One sky set per key-art camera (shown only for that camera)."""
+    for nm, hf, sz in (('M_mount_far', 150.0, 9999.0), ('M_mount_mid', 100.0, 9999.0), ('M_mount_near', 60.0, 9999.0)):
         build_mountain_mat(nm, hf, sz)
-    mountain_range('shakkei_far', V_BACK - 14, -1500, 1500, 170, 3, M['M_mount_far'])
-    mountain_range('shakkei_mid', V_BACK - 34, -1100, 900, 110, 11, M['M_mount_mid'])
-    mountain_range('shakkei_near', V_BACK - 60, -900, 160, 60, 8, M['M_mount_near'])
     build_cloud_mat()
-    for i, (s, z, w, h) in enumerate(((-620, 70, 220, 80), (180, 60, 260, 96), (760, 80, 200, 70), (-180, 120, 120, 40), (520, 150, 90, 30))):
-        c = SC + FWD * (V_BACK - 20 - V_of(SC.x, SC.y)) + SIDE * s
-        cumulus(f'cloud_{i}', (c.x, c.y, z), w, h, 40 + i)
+    for cam_name, pr in CJ['presets'].items():
+        coll = collection('sky_' + cam_name, ROOTC); set_coll(coll)
+        R, cam = sky_radius(pr)
+        fa = math.atan2(FWD.y, FWD.x)
+        m = build_backdrop_mat('M_backdrop_' + cam_name, cam)
+        bd = bmesh.new()
+        n = 72; top = R * math.tan(math.radians(22))
+        ring = []
+        for k in range(n + 1):
+            a = fa + math.radians(-42 + 84 * k / n)
+            p = (cam.x + math.cos(a) * R, cam.y + math.sin(a) * R)
+            ring.append((bd.verts.new((p[0], p[1], -12.0)), bd.verts.new((p[0], p[1], top))))
+        for (a0, a1), (b0, b1) in zip(ring, ring[1:]):
+            bd.faces.new((a0, b0, b1, a1))
+        b = obj('sky_backdrop_' + cam_name, bd, mat=m, shadow=False, family='sky')
+        b.visible_diffuse = False; b.visible_glossy = True
+        mountain_range('shakkei_far_' + cam_name, cam, R - 6, -40, 40, 2.4, 3, M['M_mount_far'])
+        mountain_range('shakkei_mid_' + cam_name, cam, R - 12, -12, 30, 1.4, 11, M['M_mount_mid'])
+        for i, (az, el, w, h) in enumerate(()):        # v3: no 3D cumulus (the runtime paints its banks on the card)
+            a = fa - math.radians(az); Rc = R - 4
+            c = Vector((cam.x + math.cos(a) * Rc, cam.y + math.sin(a) * Rc, 0))
+            side = Vector((math.sin(a), -math.cos(a), 0)); fw_ = Vector((math.cos(a), math.sin(a), 0))
+            cumulus(f'cloud_{cam_name}_{i}', (c.x, c.y, Rc * math.tan(math.radians(el))), Rc * math.radians(w), Rc * math.radians(h), 40 + i,
+                    side=side, fwd=fw_)
+        SKY_SETS[cam_name] = coll
 
 
 # ------------------------------------------------------------------ lights

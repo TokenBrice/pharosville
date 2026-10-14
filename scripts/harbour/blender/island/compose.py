@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
-"""The Harbour, composition v2: the whole island laid out in plan (pure Python).
+"""The Harbour, composition v3: the whole island laid out in plan (pure Python).
 
-Reads the berth requirement table (occupancy.py output) and authors the world: land levels, quays, piers,
-berths, swinging moorings, lane graph, zones, landmarks, town lots, vegetation scatter, lights, labels and
-camera presets. Writes
+v3 is authored in SCREEN space (U right, V away from the camera, metres; the heart target at U = V = 0) and
+converted to world coordinates with W(u, v). The camera never turns (yaw 45), so composing on screen is
+composing the frame:
+
+  - the Pharos stands on its headland at the upper left of the heart frame, against open sea and the sky band;
+  - the harbour mouth opens toward the horizon (departing boats sail off into the sky);
+  - the town is an amphitheatre round the Vagen, a curved inner bay, facing the camera and the golden sun;
+  - the lagoon below holds the Ethereum fan piers and mooring drift; Tron berths under the Pharos;
+  - six characterful coves on the camera-facing coasts, farm meadows + a windmill on the west lobe,
+    spruce crests and rock outcrops, a winding road to the lighthouse;
+  - the far coast stays inside the sky-card radius of both presets, so both frames show the horizon.
+
+Writes (same contract as v2):
   outputs/harbour/island/compose.json   - Blender build input (Blender coords: x east, y north, z up)
-  src/harbour/data/layout.json          - runtime layout v2 (glTF coords: x east, y up, z south)
+  src/harbour/data/layout.json          - runtime layout v2 contract (glTF coords: x east, y up, z south)
   scripts/harbour/blender/island/legs.json - lane-graph leg lengths for occupancy.py (second pass)
-  agents/.../p2/island/plan.png         - plan check (screen-aligned: up = away from the camera)
+  agents/.../p2/island-v3/plan.png      - plan check (screen-aligned)
 
     python3 compose.py [--plan-only]
 """
@@ -20,7 +30,7 @@ from geom import *
 
 ROOT = os.path.abspath(os.path.join(HERE, '../../../..'))
 OUTD = os.path.join(ROOT, 'outputs/harbour/island')
-ART = os.path.join(ROOT, 'agents/2026-10-13-pharosville-reboot/p2/island')
+ART = os.path.join(ROOT, 'agents/2026-10-13-pharosville-reboot/p2/island-v3')
 os.makedirs(OUTD, exist_ok=True); os.makedirs(ART, exist_ok=True)
 OCC = json.load(open(os.path.join(OUTD, 'occupancy.json')))
 
@@ -36,102 +46,202 @@ CHAINS = {'pier-ethereum': 'Ethereum', 'pier-tron': 'Tron', 'pier-bsc': 'BSC', '
           'pier-hyperliquid-l1': 'Hyperliquid L1', 'pier-base': 'Base', 'pier-arbitrum': 'Arbitrum', 'pier-polygon': 'Polygon'}
 PENNANT = {'pier-ethereum': '#6F7FD8', 'pier-tron': '#D2463C', 'pier-bsc': '#F0B90B', 'pier-solana': '#9A5CF0',
            'pier-hyperliquid-l1': '#5FD3BC', 'pier-base': '#2F6BFF', 'pier-arbitrum': '#2BA3EC', 'pier-polygon': '#8A52E6'}
+# the sim found overflow rafts in use 11 times: one more large berth at these four (P2 island v3 brief)
+EXTRA_LARGE = {'pier-ethereum': 1, 'pier-bsc': 1, 'pier-base': 1, 'far': 1}
+# the runtime sim plans with its own (longer) circuit periods; with v3 at the occupancy.py sizes its raft overflow
+# showed these extra concurrent hulls (2026-10-14, live payload): give each a berth/buoy of its own
+SIM_EXTRA = {('far', 'medium'): 1, ('far', 'small'): 2, ('far', 'boat'): 2, ('pier-bsc', 'small'): 1, ('pier-base', 'boat'): 3,
+             ('pier-base', 'skiff'): 5, ('pier-polygon', 'skiff'): 1, ('pier-arbitrum', 'skiff'): 1}
 
 
 def need(pid, cls):
-    return OCC['occupancy'][pid][cls]['berths']
+    o = OCC['occupancy'][pid][cls]
+    # capacity rule (occupancy.py): max(ceil(expected x 1.2), p95), + the overflow fix
+    n = max(math.ceil(o['expected'] * 1.2 - 1e-9), o['p95']) if o['visitors'] else 0
+    return n + (EXTRA_LARGE.get(pid, 0) if cls == 'large' else 0) + SIM_EXTRA.get((pid, cls), 0)
 
 
 REQ = {pid: {k: need(pid, k) for k in CLASSES} for pid in CHAINS}
 REQ_FAR = {k: need('far', k) for k in CLASSES}
 
 Z_SHORE, DECK = 2.4, 1.2
-WIND_BOW = norm((-1.0, -0.62))       # moored bows point into a south-westerly (screen left)
+VOFF = 80.0                          # world origin sits at screen (0, -80): the island's centre
+
+
+def W(u, v):
+    """Screen-plan point (U right, V away; heart target = origin) -> world (Blender x east, y north)."""
+    return from_uv(u, v + VOFF)
+
+
+def Wd(du, dv):
+    return from_uv(du, dv)
+
+
+def UV(p):
+    u, v = screen_uv(*p)
+    return (u, v - VOFF)
+
+
+def Wl(pts):
+    return [W(*p) for p in pts]
+
+
+# wind from the screen-left (west-south-west, the golden-hour sun side): moored bows point into it
+WIND_BOW = norm(Wd(-1.0, 0.22))
 
 # =====================================================================================================
-# 1. BAY + LAND (world coords, metres)
-#    The bay is a diamond on screen. North shore = Grand Quay + the town rising behind it; west shore = the
-#    Ethereum basin; east side = the breakwater (Tron alongside) closed by the south arm; the mouth opens at
-#    the NE corner right under the Pharos, so every boat in or out passes the lighthouse in the heart view.
-#    The six small chains each own a cove hamlet on the south coast, which faces the camera.
+# 1. COAST. CCW: the Pharos tip, the far coast going left, the west flank (Wreck Cove), the camera-facing
+#    south coast with its coves, the east flank, the far coast back to the battery point; then in through the
+#    mouth: the battery's channel face, the Vagen, the lagoon (east shore, the Long Quay, west shore), the
+#    Tron quay under the Pharos.
 # =====================================================================================================
-QY = 150.0           # Grand Quay face (north shore)
-WX = -150.0          # west shore (Ethereum basin root)
-SY = -112.0          # bay south shore
-BW_W = 9.0
-BW_LINE = [(170, -116), (170, -40), (170, 20), (170, 74), (167, 84)]       # breakwater crown centreline, root -> head
-BWX = 165.5          # breakwater inner face (approx.)
-SC_Y = -256.0        # south coast baseline
-COVE_BACK = -226.0   # cove back-quay line
-
-COVES = [('pier-hyperliquid-l1', -184.0, 16.0), ('pier-polygon', -136.0, 20.0), ('pier-arbitrum', -78.0, 26.0),
-         ('pier-base', -12.0, 28.0), ('pier-solana', 70.0, 42.0), ('pier-bsc', 152.0, 28.0)]
-
-STRAIGHT = [((-140, QY), (150, QY), 2.5), ((WX, SY + 4), (WX, 145), 2.5), ((-146, SY), (160, SY), 2.0)]
+CT = (100.0, 8.0)                    # the Vagen / amphitheatre centre (screen plan)
+R_QUAY = 58.0                        # Vagen quay radius
 
 
-def coast_ctrl():
-    pts = []
-    pts += [(162, SY), (120, SY), (80, SY), (40, SY), (0, SY), (-40, SY), (-80, SY), (-120, SY), (WX, SY)]
-    pts += [(WX, -80), (WX, -40), (WX, 0), (WX, 40), (WX, 80), (WX, 120), (WX, QY)]
-    pts += [(-110, QY), (-60, QY), (-10, QY), (40, QY), (90, QY), (140, QY), (150, QY)]
-    # NE corner: quay corner + stair up to the headland, the headland's SW tip faces the mouth
-    pts += [(158, 147), (168, 141), (178, 133), (188, 122), (202, 112), (224, 106), (248, 112), (268, 132), (278, 166),
-            (276, 206), (262, 242), (242, 274)]
-    pts += [(262, 306), (236, 346), (190, 382), (130, 404), (66, 414), (0, 418), (-60, 414)]
-    pts += [(-118, 398), (-166, 380), (-204, 354), (-226, 330), (-238, 306), (-256, 292), (-276, 286), (-290, 268), (-294, 240),
-            (-292, 210)]
-    pts += [(-318, 176), (-334, 110), (-338, 50), (-330, -10), (-314, -70), (-290, -128), (-256, -176), (-224, -214), (-206, -244)]
-    for pid, cx, hw in COVES:
-        pts += [(cx - hw - 6, SC_Y + 1), (cx - hw - 1, SC_Y + 7), (cx - hw + 1, COVE_BACK - 6), (cx - hw + 5, COVE_BACK),
-                (cx, COVE_BACK), (cx + hw - 5, COVE_BACK), (cx + hw - 1, COVE_BACK - 6), (cx + hw + 1, SC_Y + 7),
-                (cx + hw + 6, SC_Y + 1)]
-        STRAIGHT.append(((cx - hw + 5, COVE_BACK), (cx + hw - 5, COVE_BACK), 2.0))
-    pts += [(198, -252), (210, -226), (208, -190), (196, -152), (186, -128), (176, -118)]
+def vagen(theta_deg, r=R_QUAY):
+    a = math.radians(theta_deg)
+    return (CT[0] + math.cos(a) * r, CT[1] + math.sin(a) * r)
+
+
+VAGEN_TH = (188.0, -24.0)            # the quay arc runs from the west tip over the top to the east tip
+VAGEN_ARC = [vagen(t) for t in [VAGEN_TH[0] - k * (VAGEN_TH[0] - VAGEN_TH[1]) / 44 for k in range(45)]]
+
+# coves (south + corner coasts): (pid, centre on the coast (U, V), outward normal (screen), half width, depth)
+COVES = [
+    ('pier-polygon', (-266.0, -206.0), (-0.72, -0.69), 26.0, 30.0),
+    ('pier-arbitrum', (-160.0, -270.0), (-0.14, -1.0), 28.0, 32.0),
+    ('pier-base', (-52.0, -290.0), (0.0, -1.0), 31.0, 32.0),
+    ('pier-solana', (64.0, -290.0), (0.04, -1.0), 37.0, 32.0),
+    ('pier-bsc', (172.0, -270.0), (0.1, -1.0), 37.5, 36.0),
+    ('pier-hyperliquid-l1', (252.0, -192.0), (0.74, -0.67), 18.0, 24.0),
+]
+COVE_INFO = {}
+COVE_WALLED = {'pier-arbitrum': 'w', 'pier-base': 'we', 'pier-solana': 'we', 'pier-bsc': 'we'}
+
+
+def cove_ctrl(pid, c, n, hw, depth):
+    """A cove notch: rocky arms reaching out, side walls splayed open toward the sea (quays where the cove berths a big
+    hull alongside), rounded back corners and a short back quay; the hamlet sits at the back facing out of the cove."""
+    n = norm(n); t = (-n[1], n[0])           # t = along the coast in CCW travel (+U on the south coast)
+    back_c = add(c, mul(n, -depth))
+    qa = add(back_c, mul(t, -(hw - 9))); qb = add(back_c, mul(t, hw - 9))
+    w0 = add(c, mul(t, -hw - 3)); w1 = add(add(c, mul(t, -hw + 4)), mul(n, -depth + 5))
+    e1 = add(add(c, mul(t, hw - 4)), mul(n, -depth + 5)); e0 = add(c, mul(t, hw + 3))
+    COVE_INFO[pid] = dict(c=c, n=n, t=t, hw=hw, depth=depth, back=back_c, qa=qa, qb=qb, w=(w0, w1), e=(e1, e0))
+    pts = [add(add(c, mul(t, -hw - 22)), mul(n, 2)), add(add(c, mul(t, -hw - 12)), mul(n, 7)), add(add(c, mul(t, -hw - 5)), mul(n, 8)),
+           w0, lerp(w0, w1, 0.5), w1, add(add(c, mul(t, -hw + 7)), mul(n, -depth + 1.5)),
+           qa, lerp(qa, qb, 0.5), qb, add(add(c, mul(t, hw - 7)), mul(n, -depth + 1.5)), e1, lerp(e1, e0, 0.5), e0,
+           add(add(c, mul(t, hw + 5)), mul(n, 8)), add(add(c, mul(t, hw + 12)), mul(n, 7)), add(add(c, mul(t, hw + 22)), mul(n, 2))]
     return pts
 
 
-def fix_lines(poly):
+def coast_ctrl():
+    P = []
+    # the Pharos tip + far coast west (falls away so open sea shows behind the tower)
+    P += [(-50.0, 106.0), (-58.0, 114.0), (-74.0, 116.0), (-94.0, 108.0), (-116.0, 94.0), (-142.0, 78.0), (-172.0, 58.0),
+          (-200.0, 36.0), (-226.0, 10.0), (-244.0, -16.0)]
+    # Wreck Cove: a sandy bight on the west flank
+    P += [(-252.0, -36.0), (-248.0, -54.0), (-252.0, -72.0), (-266.0, -84.0), (-284.0, -98.0), (-294.0, -124.0), (-294.0, -158.0)]
+    P += cove_ctrl(*COVES[0])
+    P += [(-232.0, -246.0), (-204.0, -258.0)]
+    P += cove_ctrl(*COVES[1])
+    P += [(-106.0, -276.0)]
+    P += cove_ctrl(*COVES[2])
+    P += [(6.0, -286.0)]
+    P += cove_ctrl(*COVES[3])
+    P += [(116.0, -278.0)]
+    P += cove_ctrl(*COVES[4])
+    P += [(212.0, -246.0), (232.0, -224.0)]
+    P += cove_ctrl(*COVES[5])
+    # east flank up to the far coast behind the town
+    P += [(270.0, -156.0), (274.0, -118.0), (270.0, -78.0), (260.0, -36.0), (246.0, 4.0), (226.0, 42.0), (200.0, 76.0),
+          (170.0, 102.0), (136.0, 122.0), (98.0, 134.0), (62.0, 136.0), (34.0, 132.0), (16.0, 124.0)]
+    # the battery point (mole root) and its channel face
+    P += [(6.0, 116.0), (2.0, 108.0), (2.0, 94.0), (6.0, 78.0), (12.0, 60.0), (20.0, 42.0), (30.0, 26.0), (38.0, 16.0)]
+    # the Vagen quay (an exact arc)
+    P += VAGEN_ARC
+    # lagoon east shore (warehouse row), the Long Quay (south shore, fan-pier roots), the west shore
+    P += [(162.0, -22.0)] + EAST_WHARF + [(178.0, -154.0), (156.0, -184.0)]
+    P += LONG_QUAY
+    P += [(-118.0, -128.0), (-124.0, -96.0), (-126.0, -60.0), (-124.0, -24.0), (-118.0, 8.0), (-116.0, 30.0)]
+    # the Tron quay under the Pharos (exact line)
+    P += TRON_QUAY
+    P += [(-58.0, 98.0)]
+    return P
+
+
+# the Long Quay: Ethereum's fan-pier quay along the lagoon's south shore (a gentle concave curve)
+def _long_quay():
+    """East -> west: a gentle concave quay along the lagoon's south shore, bending up to meet the west shore."""
+    pts = []
+    for k in range(29):
+        t = k / 28
+        u = 132.0 - t * 240.0
+        v = -194.0 - 14.0 * math.sin(math.pi * min(1.0, t / 0.72) * 0.5) if t < 0.72 else -208.0
+        if u < -40:
+            kk = (-40 - u) / 68.0
+            v = -208.0 + 66.0 * kk * kk
+        pts.append((u, v))
+    return pts
+
+
+LONG_QUAY = _long_quay()
+EAST_WHARF = [(167.0, -30.0), (179.0, -50.0), (186.0, -74.0), (188.0, -98.0), (188.0, -118.0)]
+TRON_QUAY = [(-112.0, 42.0), (-100.0, 56.0), (-88.0, 70.0), (-77.0, 83.0), (-66.0, 95.0)]
+def _snap(poly, lines, tol=1.6):
     out = []
     for p in poly:
-        q = p
-        for a, b, tol in STRAIGHT:
-            ab = sub(b, a); t = dot(sub(p, a), ab) / dot(ab, ab)
-            if -0.02 <= t <= 1.02:
-                proj = add(a, mul(ab, max(0, min(1, t))))
-                if length(sub(p, proj)) < tol:
-                    q = proj
-        out.append(q)
+        best = None
+        for L in lines:
+            for a, b in zip(L, L[1:]):
+                ab = sub(b, a); t = max(0.0, min(1.0, dot(sub(p, a), ab) / (dot(ab, ab) or 1e-9)))
+                q = add(a, mul(ab, t)); d = length(sub(p, q))
+                if d < tol and (best is None or d < best[0]):
+                    best = (d, q)
+        out.append(best[1] if best else p)
     return out
 
 
-COAST = ccw(fix_lines(catmull(coast_ctrl(), 4)))
-LEVELS = []
+def _rocky(poly_uv, seed=5):
+    """Small rocky irregularity on natural shores (quays untouched)."""
+    rng = random.Random(seed); out = []
+    n = len(poly_uv)
+    for i, p in enumerate(poly_uv):
+        a = poly_uv[i - 1]; b = poly_uv[(i + 1) % n]
+        t = norm(sub(b, a)); nn = (t[1], -t[0])
+        k = 0.0 if _near_quay_uv(p) else (math.sin(i * 1.7) * 0.9 + rng.uniform(-1.2, 1.2))
+        out.append(add(p, mul(nn, k)))
+    return out
 
 
-def level(name, ctrl, z, edge='cliff', n=4):
-    p = ccw(catmull(ctrl, n)); LEVELS.append(dict(name=name, poly=p, z=z, edge=edge)); return p
+def _near_quay_uv(p, tol=6.0):
+    for L in _QUV:
+        if poly_dist(p, L, closed=False) < tol:
+            return True
+    return False
 
 
-T1 = level('t1', [(-134, 182), (-60, 182), (20, 182), (100, 182), (140, 184), (164, 206), (190, 240), (196, 282), (170, 326),
-                  (110, 360), (0, 382), (-100, 380), (-170, 360), (-206, 330), (-230, 290), (-236, 240), (-210, 200), (-170, 186)], 7.0, 'ashlar')
-T2 = level('t2', [(-120, 216), (-40, 216), (40, 216), (118, 216), (146, 230), (162, 266), (150, 308), (110, 340), (40, 360),
-                  (-60, 362), (-150, 342), (-200, 306), (-212, 262), (-190, 230), (-160, 220)], 12.0, 'ashlar')
-T3 = level('t3', [(-104, 250), (-20, 250), (60, 250), (112, 254), (128, 282), (118, 316), (76, 340), (0, 350), (-90, 346),
-                  (-160, 324), (-190, 292), (-178, 264), (-144, 254)], 17.0, 'ashlar')
-H1 = level('h1', [(-150, 288), (-60, 284), (30, 288), (92, 302), (104, 326), (70, 342), (0, 346), (-90, 344), (-158, 326), (-178, 304)], 23.0)
-H2 = level('h2', [(-136, 310), (-50, 306), (40, 312), (78, 330), (40, 340), (-40, 342), (-120, 336), (-156, 322)], 28.0)
-HEAD = level('head', [(196, 124), (214, 116), (236, 116), (256, 130), (266, 156), (266, 190), (256, 224), (236, 250), (212, 254),
-                      (196, 238), (188, 206), (186, 170), (188, 140)], 16.0)
-W1 = level('w1', [(-172, 150), (-172, 80), (-172, 0), (-174, -60), (-182, -100), (-206, -124), (-240, -126), (-262, -80),
-                  (-270, 0), (-272, 90), (-268, 160), (-256, 214), (-232, 230), (-200, 200)], 7.0)
-W2 = level('w2', [(-202, 130), (-200, 50), (-206, -30), (-222, -86), (-246, -92), (-256, -40), (-260, 40), (-256, 120), (-242, 170), (-220, 170)], 13.0)
-W3 = level('w3', [(-228, 90), (-228, 20), (-236, -36), (-250, -32), (-252, 30), (-246, 100), (-238, 124)], 19.0)
-S1 = level('s1', [(150, -130), (100, -128), (40, -128), (-20, -130), (-80, -130), (-130, -134), (-180, -140), (-222, -156),
-                  (-232, -190), (-200, -204), (-140, -204), (-80, -204), (-20, -204), (40, -204), (100, -204), (160, -202),
-                  (196, -190), (204, -160), (186, -138)], 6.0)
-S2 = level('s2', [(110, -150), (40, -150), (-30, -152), (-100, -156), (-170, -164), (-206, -178), (-180, -190), (-110, -188),
-                  (-40, -186), (30, -186), (100, -184), (140, -172), (146, -158)], 10.0)
+_cc = coast_ctrl()
+QUAY_LINES = {          # name -> world polyline (vertical masonry on the coast)
+    'grand': Wl(VAGEN_ARC), 'long': Wl(LONG_QUAY), 'tron': Wl(TRON_QUAY),
+    'battery': Wl([(2.0, 108.0), (2.0, 94.0), (6.0, 78.0), (12.0, 60.0)]), 'wharf': Wl(EAST_WHARF),
+}
+for pid, info in COVE_INFO.items():
+    QUAY_LINES['cove-' + pid] = Wl([info['qa'], info['qb']])
+    for sd in COVE_WALLED.get(pid, ''):
+        QUAY_LINES[f'cove-{pid}-{sd}'] = Wl(list(info[sd]))
+
+
+_QUV = [VAGEN_ARC, LONG_QUAY, TRON_QUAY, EAST_WHARF, [(2.0, 108.0), (2.0, 94.0), (6.0, 78.0), (12.0, 60.0)]] + \
+       [[i['qa'], i['qb']] for i in COVE_INFO.values()] + \
+       [list(COVE_INFO[p][sd]) for p, sds in COVE_WALLED.items() for sd in sds]
+
+
+COAST_UV = _rocky(catmull(_cc, 4))
+COAST = _snap(Wl(COAST_UV), list(QUAY_LINES.values()))
+COAST = ccw(_snap(COAST, [L for k, L in QUAY_LINES.items() if k.endswith(('-w', '-e'))], tol=6.5))     # cove walls: dead straight
+LEVELS = []          # v3: the terrain function carries the landform; no stepped levels in compose
 
 # =====================================================================================================
 # 2. HARBOUR STRUCTURES + BERTHS
@@ -141,7 +251,8 @@ STRUCT = []
 FOOT = []
 LAMPS = []           # (x, y, z, kind, color)
 BOLLARDS = []
-PIER_ENDS = {}       # pid -> (end point, direction) for gates
+PIER_ENDS = {}       # gate -> [(end point, direction)]
+PIER_FRAMES = []     # one per finger_pier call: root, direction (the builder lays its planks across this axis)
 
 
 def foot(center, d, cls, sprit=True):
@@ -159,44 +270,94 @@ def add_berth(pid, cls, center, d, approach, gate, mode):
     return bid
 
 
-def alongside_run(pid, start, direction, face_n, classes, gate, bow=+1, gap=1.0, zdeck=Z_SHORE, fender=0.8):
+def alongside_line(pid, a, b, face_n, cls, gate, bow, zdeck=Z_SHORE, fender=0.8, swing_in=1.0, lead=None, off_k=None, direct=False):
+    """One alongside berth on the chord a-b of a quay (world). face_n points into the water; `lead` = waypoints
+    that bring the hull round obstacles before the standard come-alongside."""
+    d = norm(sub(b, a)); face_n = norm(face_n)
+    mid = lerp(a, b, 0.5)
+    c = add(mid, mul(face_n, BEAM[cls] / 2 + fender))
+    dd = mul(d, bow)
+    Lb = length(sub(b, a))
+    off = BEAM[cls] * 2.2 + 6
+    if off_k is not None:
+        off = BEAM[cls] * off_k + 3.0
+    if direct:      # no room astern (a back quay): come in from the lead, square off the berth, slide alongside
+        app = list(lead or []) + [add(c, add(mul(face_n, BEAM[cls] + 3.0), mul(d, -bow * Lb * 0.2))), c]
+    else:
+        app = list(lead or []) + [add(mid, add(mul(face_n, off + 14 * swing_in), mul(d, -bow * (Lb * 0.9)))),
+                                  add(mid, add(mul(face_n, off), mul(d, -bow * Lb * 0.35))), c]
+    add_berth(pid, cls, c, dd, app, gate, 'alongside')
+    for k in (-0.36, 0.36):
+        BOLLARDS.append((*add(mid, mul(d, Lb * k)), zdeck))
+
+
+def alongside_run(pid, start, direction, face_n, classes, gate, bow=+1, gap=1.0, zdeck=Z_SHORE, fender=0.8, lead=None):
     direction = norm(direction); face_n = norm(face_n)
     s = gap
     for cls in classes:
         Lb = ALONG[cls]
-        mid = add(start, mul(direction, s + Lb / 2))
-        c = add(mid, mul(face_n, BEAM[cls] / 2 + fender))
-        d = mul(direction, bow)
-        off = BEAM[cls] * 2.2 + 6
-        app = [add(mid, add(mul(face_n, off + 14), mul(direction, -bow * (Lb * 0.9)))),
-               add(mid, add(mul(face_n, off), mul(direction, -bow * Lb * 0.35))), c]
-        add_berth(pid, cls, c, d, app, gate, 'alongside')
-        for k in (-0.36, 0.36):
-            BOLLARDS.append((*add(mid, mul(direction, Lb * k)), zdeck))
+        a = add(start, mul(direction, s)); b = add(start, mul(direction, s + Lb))
+        alongside_line(pid, a, b, face_n, cls, gate, bow, zdeck, fender, swing_in=0.5, lead=lead)
         s += Lb
     return s + gap
 
 
+def arc_alongside(pid, theta0, classes, gate, gap_deg=2.0, r=R_QUAY, step=-1, fender=0.8):
+    """Alongside berths round the Vagen arc (screen degrees), each on its chord; returns the end angle."""
+    th = theta0
+    for cls in classes:
+        Lb = ALONG[cls]
+        dth = math.degrees(2 * math.asin(min(1.0, Lb / 2 / r)))
+        a = W(*vagen(th)); b = W(*vagen(th + step * dth))
+        mid = lerp(a, b, 0.5)
+        n = norm(sub(W(*CT), mid))                   # into the water (toward the centre)
+        alongside_line(pid, a, b, n, cls, gate, bow=+1 if step < 0 else -1, fender=fender + (r - r * math.cos(math.radians(dth / 2))) * 0.6)
+        th += step * (dth + gap_deg)
+    return th
+
+
 def finger_pier(pid, root, direction, width, left, right, head=None, gate=None, lamp=True, first=4.0,
-                outer_left=(), outer_right=(), deck=DECK, material='timber'):
-    """Main pier from `root` along `direction`; left/right = finger-berth class sequences from the root outward
-    (left = left of `direction`); outer_* = alongside berths beyond the fingers; head = (length, [classes]) T-head.
-    Boats lie perpendicular to the pier, bow-in."""
+                outer_left=(), outer_right=(), deck=DECK, material='timber', fair=(None, None), first_lr=None):
+    """Main pier from `root` along `direction` (world); left/right = finger-berth class sequences from the root
+    outward; outer_* = alongside berths beyond the fingers; head = (length, [classes]) T-head. Boats lie
+    perpendicular to the pier, bow-in."""
     direction = norm(direction)
     n_l = perp(direction)
     lens = {}
     fingers = []
-    for s, seq, outer in ((+1, left, outer_left), (-1, right, outer_right)):
+    pi = len(PIER_FRAMES)
+    PIER_FRAMES.append(dict(pid=pid, root=root, dir=direction, width=width, deck=deck, material=material))
+    # pier length first (the fairway entrance sits beyond the head)
+    fl_, fr_ = first_lr or (first, first)
+
+    def side_len(seq, outer, f0):
+        t = f0; prev = None
+        for cls in seq:
+            if prev is not None and prev != cls:
+                t += 0.8
+            t += PITCH[cls]; prev = cls
+        return t + 1.0 + sum(ALONG[c] for c in outer)
+    L0 = max(side_len(left, outer_left, fl_), side_len(right, outer_right, fr_)) + 1.0
+    tip0 = L0 + ((6.0 + max(BEAM[c] for c in head[1]) + 1.6) if head else 0.0)
+    for s, seq, outer, fr, f0 in ((+1, left, outer_left, fair[0], fl_), (-1, right, outer_right, fair[1], fr_)):
         n = mul(n_l, s)
-        t = first; prev = None; pair = 0
+        t = f0; prev = None; pair = 0
+        hh = (head[0] / 2 + 5.0) if head else 0.0
         for cls in seq:
             pitch = PITCH[cls]
             if prev is not None and prev != cls:
                 t += 0.8
             base = add(root, mul(direction, t + pitch / 2))
             c = add(base, mul(n, width / 2 + 0.7 + LOA[cls] / 2))
-            fw = width / 2 + LOA[cls] + 8.0
-            app = [add(base, mul(n, fw + 8)), add(base, mul(n, fw)), add(base, mul(n, width / 2 + LOA[cls] + 1.5)), c]
+            fw = fr if fr is not None else width / 2 + LOA[cls] + 14.0
+            # approach: beyond the head, round the T-head, into the fairway (halfway between this pier's sterns and
+            # the next pier's), down it, then square in to the slot
+            if hh > fw:
+                app = [add(add(root, mul(direction, tip0 + 10.0)), mul(n, hh)), add(add(root, mul(direction, L0 - 3.0)), mul(n, hh)),
+                       add(add(root, mul(direction, L0 - 3.0)), mul(n, fw))]
+            else:
+                app = [add(add(root, mul(direction, tip0 + 10.0)), mul(n, fw))]
+            app += [add(base, mul(n, fw)), add(base, mul(n, width / 2 + LOA[cls] + 1.5)), c]
             add_berth(pid, cls, c, mul(n, -1), app, gate, 'finger')
             if pair % 2 == 0:
                 fingers.append((add(root, mul(direction, t + pitch)), n, FINGER[cls]))
@@ -206,86 +367,135 @@ def finger_pier(pid, root, direction, width, left, right, head=None, gate=None, 
         t += 1.0
         for cls in outer:
             Lb = ALONG[cls]
-            mid = add(root, mul(direction, t + Lb / 2))
-            c = add(mid, mul(n, width / 2 + BEAM[cls] / 2 + 0.8))
-            app = [add(mid, add(mul(n, BEAM[cls] * 2.2 + 18), mul(direction, -Lb * 0.9))),
-                   add(mid, add(mul(n, BEAM[cls] * 2.2 + 5), mul(direction, -Lb * 0.35))), c]
-            add_berth(pid, cls, c, direction, app, gate, 'alongside')
-            for k in (-0.36, 0.36):
-                BOLLARDS.append((*add(add(mid, mul(direction, Lb * k)), mul(n, width / 2 - 0.3)), deck))
+            a = add(add(root, mul(direction, t)), mul(n, width / 2))
+            b = add(add(root, mul(direction, t + Lb)), mul(n, width / 2))
+            side_off = max(hh, width / 2 + BEAM[cls] * 2.2 + 6 + 14)
+            alongside_line(pid, a, b, n, cls, gate, -1, deck, 0.8,
+                           lead=[add(add(root, mul(direction, tip0 + 10.0)), mul(n, side_off))])
             t += Lb
         lens[s] = t
     L = max(lens.values()) + 1.0
     end = add(root, mul(direction, L))
     P = PIERS[pid]
     P['segments'].append(dict(kind='arm', a=root, b=end, width=width))
-    STRUCT.append(dict(kind='pier', pid=pid, a=root, b=end, width=width, deck=deck, material=material))
+    STRUCT.append(dict(kind='pier', pid=pid, pi=pi, a=root, b=end, width=width, deck=deck, material=material))
     for (p, n, fl) in fingers:
         a = add(p, mul(n, width / 2 - 0.2)); b = add(p, mul(n, width / 2 + fl))
         P['segments'].append(dict(kind='finger', a=a, b=b, width=0.9))
-        STRUCT.append(dict(kind='finger', pid=pid, a=a, b=b, width=0.9, deck=deck, material=material))
+        STRUCT.append(dict(kind='finger', pid=pid, pi=pi, a=a, b=b, width=0.9, deck=deck, material=material))
+    tip = L
     if head:
         hl, hcls = head
         tw = 6.0
         hc = add(end, mul(direction, tw / 2))
         a = add(hc, mul(n_l, hl / 2)); b = add(hc, mul(n_l, -hl / 2))
         P['segments'].append(dict(kind='thead', a=a, b=b, width=tw))
-        STRUCT.append(dict(kind='thead', pid=pid, a=a, b=b, width=tw, deck=deck, material=material))
+        STRUCT.append(dict(kind='thead', pid=pid, pi=pi, a=a, b=b, width=tw, deck=deck, material=material))
         face0 = add(add(hc, mul(direction, tw / 2)), mul(n_l, hl / 2))
         alongside_run(pid, face0, mul(n_l, -1), direction, hcls, gate, bow=+1, zdeck=deck,
-                      gap=(hl - sum(ALONG[c] for c in hcls)) / 2)
-        L += tw
-        end = add(root, mul(direction, L))
+                      gap=(hl - sum(ALONG[c] for c in hcls)) / 2,
+                      lead=[add(add(root, mul(direction, tip0 + 14.0)), mul(n_l, hl / 2 + 14.0))])
         for k in (-1, 1):
             LAMPS.append((*add(add(hc, mul(direction, -tw / 2 + 0.6)), mul(n_l, k * (hl / 2 - 0.8))), deck, 'pierhead', PENNANT.get(pid)))
-        L += max(BEAM[c] for c in hcls) + 1.6
+        tip = L + tw + max(BEAM[c] for c in hcls) + 1.6
     elif lamp:
         LAMPS.append((*add(end, mul(direction, -0.8)), deck, 'pierhead', PENNANT.get(pid)))
-    PIER_ENDS.setdefault(gate, []).append((add(root, mul(direction, L)), direction))
-    return L, end
+    PIER_ENDS.setdefault(gate, []).append((add(root, mul(direction, tip)), direction))
+    return tip, end
 
 
-# ---------------------------------------------------------------- Grand Quay (Ethereum): the big ships alongside the town
-PIERS['pier-ethereum']['kind'] = 'grand'
-PIERS['pier-ethereum']['segments'].append(dict(kind='quay', a=(-150.0, QY), b=(150.0, QY), width=14.0))
-alongside_run('pier-ethereum', (-48.0, QY), (1, 0), (0, -1), ['large', 'large', 'large', 'flagship', 'flagship', 'large'],
-              'g-eth-quay', bow=-1, gap=3.0)
-
-# ---------------------------------------------------------------- Ethereum basin: six finger piers from the west shore
+# ---------------------------------------------------------------- the Vagen (Ethereum Grand Quay): the big ships round the arc
 M, S_ = 'medium', 'small'
-ETH_PIERS = [
-    # y root, north-side seq, south-side seq, outer N, outer S, head
-    (124.0, [M] * 10, [M] * 10, (), (), (26.0, ['large'])),
-    (82.0, [M] * 11, [M] * 11, ('large',), ('large',), None),
-    (38.0, [M] * 9, [M] * 9, (), (), (26.0, ['large'])),
-    (-2.0, [S_] * 20, [S_] * 19, (), ('large',), (26.0, ['large'])),
-    (-40.0, [S_] * 18, [S_] * 18, (), (), (26.0, ['large'])),
-    (-76.0, [S_] * 17, [S_] * 17, (), (), (26.0, ['large'])),
+PIERS['pier-ethereum']['kind'] = 'grand'
+PIERS['pier-ethereum']['segments'].append(dict(kind='quay', a=W(*vagen(150)), b=W(*vagen(30)), width=14.0))
+# west half (flagship, large, large) from the battery side, east half (large, flagship, large) from the warehouse side
+_th = arc_alongside('pier-ethereum', 182.0, ['large', 'flagship'], 'g-eth-vagen', step=-1, gap_deg=3.0)
+_th2 = arc_alongside('pier-ethereum', -14.0, ['large', 'flagship', 'large'], 'g-eth-vagen', step=+1, gap_deg=3.0)
+assert _th2 < _th, ('Vagen berths overlap', _th, _th2)
+
+# ---------------------------------------------------------------- Ethereum fan piers off the Long Quay (+1 from the west shore)
+#   (root on the quay as a fraction 0..1 east->west, screen direction, left seq, right seq, outer L, outer R, head)
+# (root U on the Long Quay, screen direction, left seq, right seq, head) - six piers, near parallel (the shore is
+# concave: true perpendiculars would converge), lengths stepping with the shore; two more off the west shore
+SPACING = 40.0
+
+
+def lq_at_u(u):
+    for a_, b_ in zip(LONG_QUAY, LONG_QUAY[1:]):
+        if min(a_[0], b_[0]) <= u <= max(a_[0], b_[0]):
+            t = (u - a_[0]) / (b_[0] - a_[0])
+            return W(*lerp(a_, b_, t))
+    raise ValueError(u)
+
+
+ETH_PIERS = [   # (root U, dir, left = west side, right = east side, outer west, outer east, T-head)
+    (124.0, (0.32, 1.0), [M] * 11, [], (), ('large', 'large'), True),
+    (84.0, (0.25, 1.0), [M] * 11, [M] * 11, (), (), True),
+    (44.0, (0.11, 1.0), [M] * 13, [M] * 13, (), (), True),
+    (8.0, (-0.02, 1.0), [S_] * 17, [S_] * 17, (), (), True),
+    (-26.0, (-0.14, 1.0), [S_] * 18, [S_] * 18, (), (), False),
+    (-60.0, (-0.15, 1.0), [S_] * 13, [S_] * 16, (), (), True),
+    (-98.0, (-0.26, 1.0), [], [S_] * 8, (), (), False),
 ]
-for i, (y, L_, R_, oL, oR, head) in enumerate(ETH_PIERS):
-    finger_pier('pier-ethereum', (WX, y), (1, 0), 3.0, L_, R_, head=head, gate=f'g-eth-{i}', outer_left=oL, outer_right=oR)
 
-# ---------------------------------------------------------------- the breakwater: Tron alongside, USDT right under the Pharos
-STRUCT.append(dict(kind='breakwater', line=BW_LINE, width=BW_W))
+
+def _swath(seq, outer):
+    if outer:
+        return 1.5 + 0.8 + max(BEAM[c] for c in outer)
+    return (1.5 + 0.7 + max(LOA[c] for c in seq)) if seq else 1.5
+
+
+for i, (u0, dv, L_, R_, oL, oR, th_) in enumerate(ETH_PIERS):
+    # fairway centre lines halfway between this pier's sterns and the neighbour's (west = left, east = right)
+    fl = fr = None
+    if i + 1 < len(ETH_PIERS):
+        nb = ETH_PIERS[i + 1]; gap = u0 - nb[0]
+        a_, b_ = _swath(L_, oL), _swath(nb[3], nb[5])
+        fl = a_ + (gap - a_ - b_) / 2
+    if i > 0:
+        nb = ETH_PIERS[i - 1]; gap = nb[0] - u0
+        a_, b_ = _swath(R_, oR), _swath(nb[2], nb[4])
+        fr = a_ + (gap - a_ - b_) / 2
+    finger_pier('pier-ethereum', lq_at_u(u0), Wd(*dv), 3.0, L_, R_, head=(28.0, ['large']) if th_ else None, gate=f'g-eth-{i}',
+                fair=(fl, fr), outer_left=oL, outer_right=oR, first=16.0 if u0 < -50 else 7.0,
+                first_lr=(26.0, 10.0) if -70 < u0 < -50 else None)
+# the warehouse wharf (lagoon east shore, Bryggen): big hulls alongside under the gable fronts
+_ew = Wl(EAST_WHARF)
+_s = 1.0
+for cls in ('large', 'large', 'large'):
+    a_, _ = along(_ew, _s); b_, _ = along(_ew, _s + ALONG[cls])
+    nrm = perp(norm(sub(b_, a_)))
+    if dot(nrm, sub(W(120.0, -70.0), a_)) < 0:
+        nrm = mul(nrm, -1)
+    alongside_line('pier-ethereum', a_, b_, nrm, cls, 'g-eth-wharf', +1, fender=0.9)
+    _s += ALONG[cls] + 1.5
+
+# ---------------------------------------------------------------- Tron: under the Pharos, alongside the stone quay
 PIERS['pier-tron']['kind'] = 'deepwater-quay'
-PIERS['pier-tron']['segments'].append(dict(kind='breakwater', a=(BWX, 78), b=(BWX, -30), width=BW_W))
-alongside_run('pier-tron', (BWX, 78.0), (0, -1), (-1, 0), ['flagship', 'large'], 'g-tron', bow=+1, gap=1.0)
-finger_pier('pier-tron', (BWX, -22.0), (-1, 0), 2.6, [M, S_], [M, S_], gate='g-tron', lamp=False)
-LAMPS.append((BW_X + 0.0 if False else 168.0, -20.0, 3.6, 'pierhead', PENNANT['pier-tron']))
-HARBOUR_LIGHTS = [((167.0, 84.0), 'red')]              # breakwater head at the mouth
-STORM = (184.0, 134.0)
+TQ = Wl(TRON_QUAY)
+PIERS['pier-tron']['segments'].append(dict(kind='quay', a=TQ[0], b=TQ[-1], width=8.0))
+_tn = norm(perp(sub(TQ[-1], TQ[0])))          # left of (west->east) = into the lagoon? check by the centre
+if dot(_tn, sub(W(-40.0, 40.0), TQ[0])) < 0:
+    _tn = mul(_tn, -1)
+alongside_run('pier-tron', TQ[-1], sub(TQ[0], TQ[-1]), _tn, ['flagship', 'large'], 'g-tron', bow=+1, gap=0.6)
+finger_pier('pier-tron', W(-118.0, 6.0), Wd(1.0, 0.0), 2.6, [M, S_], [M, S_], gate='g-tron', lamp=True)
+STORM = W(2.0, 112.0)                    # storm-signal mast on the battery tip, at the mouth
 
-# ---------------------------------------------------------------- the six cove hamlets (south coast)
-COVE_PIERS = {
+# the breakwater: a short curved mole off the battery tip, closing the mouth from the east (red light at its head)
+BW_W = 8.0
+BW_LINE = Wl([(8.0, 112.0), (3.0, 118.0), (-2.0, 121.0), (-7.0, 122.0)])
+HARBOUR_LIGHTS = [(BW_LINE[-1], 'red')]
+
+# ---------------------------------------------------------------- the six coves: a pier out of each cove, sheds at the back
+COVE_PIERS = {     # (fingers west, fingers east, side-quay alongside west, east, T-head)  (west/east = along -t/+t)
     'pier-hyperliquid-l1': ([], [], (), (), (40.0, ['flagship'])),
-    'pier-polygon': ([M, S_, S_], [M, S_, S_], (), (), (26.0, ['large'])),
-    'pier-arbitrum': ([M, M, S_, S_, S_], [M, M, S_, S_], (), ('large',), (26.0, ['large'])),
-    'pier-base': ([M, M, S_, S_, S_, S_, S_], [M, M, S_, S_, S_, S_], ('large',), (), (40.0, ['flagship'])),
-    'pier-solana': ([M, M, M, S_, S_, S_, S_], [M, M, M, S_, S_, S_, S_], ('large',), ('large',), (40.0, ['flagship'])),
-    'pier-bsc': ([M, M, S_, S_, S_, S_, S_], [M, M, S_, S_, S_, S_, S_], ('large',), ('large',), (26.0, ['large'])),
+    'pier-polygon': ([S_, S_, M], [S_, S_, M], (), (), (26.0, ['large'])),
+    'pier-arbitrum': ([M, M, S_, S_, S_], [M, M, S_, S_], ('large',), (), (26.0, ['large'])),
+    'pier-base': ([M, M, S_, S_, S_, S_, S_], [M, M, S_, S_, S_, S_], ('large',), ('large',), (40.0, ['flagship'])),
+    'pier-solana': ([M, M, M, S_, S_, S_, S_], [M, M, M, S_, S_, S_], ('large',), ('large',), (40.0, ['flagship'])),
+    'pier-bsc': ([M, M, S_, S_, S_, S_, S_], [M, M, S_, S_, S_, S_, S_], ('large',), ('large',), (28.0, ['large'])),
 }
-COVE_EXTRA = {'pier-solana': (['large'], ['large'])}
-COVE_FIRST = {'pier-solana': 11.0}
+COVE_BACK = {'pier-solana': 'we', 'pier-bsc': 'e'}      # a big hull alongside the back quay (that half of it)
 COVE_CHARACTER = {   # what makes each hamlet itself (the Blender builder dresses by this)
     'pier-hyperliquid-l1': 'deepwater stone jetty, beacon tower, mint-green doors',
     'pier-polygon': 'boatyard: a hull on stocks, timber stacks, violet shutters',
@@ -294,78 +504,45 @@ COVE_CHARACTER = {   # what makes each hamlet itself (the Blender builder dresse
     'pier-solana': 'merchant wharf: crane, warehouse, purple awnings',
     'pier-bsc': 'timber wharf: lumber stacks, gold-ochre sheds, hand crane',
 }
-for pid, cx, hw in COVES:
-    Ls, Rs, oW, oE, head = COVE_PIERS[pid]
+for pid, c, n, hw, depth in COVES:
+    I = COVE_INFO[pid]
+    Ls, Rs, sW, sE, head = COVE_PIERS[pid]
     PIERS[pid]['kind'] = 'cove'
-    PIERS[pid]['segments'].append(dict(kind='quay', a=(cx - hw + 5, COVE_BACK), b=(cx + hw - 5, COVE_BACK), width=8.0))
+    qa, qb = W(*I['qa']), W(*I['qb'])
+    PIERS[pid]['segments'].append(dict(kind='quay', a=qa, b=qb, width=8.0))
     g = 'g-' + pid[5:]
+    root = W(*I['back']); dirw = Wd(*I['n'])
+    hw_free = hw - (6.5 if (sW or sE) else 1.0)
     if pid == 'pier-hyperliquid-l1':
-        finger_pier(pid, (cx, COVE_BACK), (0, -1), 4.2, [], [], head=head, gate=g, deck=Z_SHORE, material='stone', first=34.0)
+        finger_pier(pid, root, dirw, 4.2, [], [], head=head, gate=g, deck=Z_SHORE, material='stone', first=24.0)
     else:
-        finger_pier(pid, (cx, COVE_BACK), (0, -1), 2.6, Rs, Ls, head=head, gate=g, outer_left=oE, outer_right=oW,
-                    first=COVE_FIRST.get(pid, 4.0))
-    ex = COVE_EXTRA.get(pid)
-    if ex:
-        w_, e_ = ex
-        if w_:
-            alongside_run(pid, (cx - hw + 5.5, COVE_BACK), (1, 0), (0, -1), w_, g, bow=+1, gap=0.3, fender=0.6)
-        if e_:
-            alongside_run(pid, (cx + hw - 5.5, COVE_BACK), (-1, 0), (0, -1), e_, g, bow=+1, gap=0.3, fender=0.6)
+        fr = (hw_free + 15.0) / 2 + 0.5 if (sW or sE) else (hw - 7.0 + 13.0) / 2
+        finger_pier(pid, root, dirw, 2.6, Rs, Ls, head=head, gate=g, first=9.0 if pid in COVE_BACK else 5.0, fair=(fr, fr))
+    for sd in COVE_BACK.get(pid, ''):
+        sgn = -1 if sd == 'w' else 1
+        qa_ = W(*add(I['back'], mul(I['t'], sgn * (hw - 7.5))))
+        qb_ = W(*add(I['back'], mul(I['t'], sgn * (hw - 7.5 - ALONG['large']))))
+        lead = [W(*add(add(c, mul(I['n'], 24.0)), mul(I['t'], sgn * (hw - 9.0)))), W(*add(add(I['back'], mul(I['n'], 16.0)), mul(I['t'], sgn * (hw - 9.0))))]
+        alongside_line(pid, qa_, qb_, Wd(*I['n']), 'large', g, +1, fender=1.3, lead=lead, direct=True)
+    # side-wall quays: one big hull alongside each wall that needs it, bow in
+    for side, cls_list, (pa, pb) in (('w', sW, I['w']), ('e', sE, I['e'][::-1])):
+        if not cls_list:
+            continue
+        a_, b_ = W(*pa), W(*pb)
+        dw = norm(sub(b_, a_)); mid_ = lerp(a_, b_, 0.5)
+        L_ = min(length(sub(b_, a_)), ALONG[cls_list[0]])
+        a_ = add(mid_, mul(dw, -L_ / 2)); b_ = add(mid_, mul(dw, L_ / 2))          # centred on the wall
+        inward = perp(dw)
+        if dot(inward, Wd(*(I['t'] if side == 'w' else mul(I['t'], -1)))) < 0:
+            inward = mul(inward, -1)
+        sgn = -1 if side == 'w' else 1
+        lead = [W(*add(add(c, mul(I['n'], 22.0)), mul(I['t'], sgn * (hw - 7.0))))]
+        alongside_line(pid, a_, b_, inward, cls_list[0], g, +1, fender=1.2,
+                       swing_in=0.0, lead=lead, off_k=1.0)
 
 # =====================================================================================================
-# 3. MOORINGS (skiff + boat): organic drifts, every bow into the south-westerly
-# =====================================================================================================
-SWING = {'boat': LOA['boat'] + 2.5, 'skiff': LOA['skiff'] + 2.0}
-MOORINGS = []
-
-
-def drift(pid, ctrl, counts, seed, r=9.6, avoid=None):
-    rng = random.Random(seed)
-    poly = ccw(catmull(ctrl, 5))
-    n_total = sum(counts.values())
-    taken = [m['buoy'] for m in MOORINGS]
-    berths = [(b['pos'], LOA[b['cls']] / 2 + SPRIT[b['cls']] + 9.0) for P in PIERS.values() for b in P['berths']]
-    av = lambda p: ((avoid and avoid(p)) or any(abs(p[0] - q[0]) < r and abs(p[1] - q[1]) < r and length(sub(p, q)) < r for q in taken)
-                    or any(abs(p[0] - q[0]) < rr and abs(p[1] - q[1]) < rr and length(sub(p, q)) < rr for q, rr in berths))
-    pts = poisson(poly, lambda p: r, rng, max_n=6000, avoid=av)
-    cx = sum(p[0] for p in poly) / len(poly); cy = sum(p[1] for p in poly) / len(poly)
-    pts.sort(key=lambda p: math.hypot(p[0] - cx, (p[1] - cy) * 1.2) + rng.uniform(0, 16))
-    if len(pts) < n_total:
-        print(f'WARN drift {pid}: {len(pts)} spots < {n_total}')
-    pts = pts[:n_total]
-    order = ['boat'] * counts.get('boat', 0) + ['skiff'] * counts.get('skiff', 0)
-    for i, (p, cls) in enumerate(zip(pts, order)):
-        d = rot(WIND_BOW, rng.uniform(-0.1, 0.1))
-        c = add(p, mul(d, -(LOA[cls] / 2 + 1.2)))
-        k = sum(1 for m in MOORINGS if m['pid'] == pid and m['cls'] == cls) + 1
-        MOORINGS.append(dict(id=f'{pid}/m-{cls}/{k:03d}', chain=CHAINS[pid], pid=pid, cls=cls, buoy=p, center=c, d=d, swing=SWING[cls]))
-        FOOT.append((foot(c, d, cls), MOORINGS[-1]['id']))
-    return poly
-
-
-DRIFTS = {k: [] for k in CHAINS}
-DRIFTS['pier-ethereum'] += [
-    drift('pier-ethereum', [(16, 106), (64, 112), (112, 106), (138, 76), (134, 34), (104, 14), (60, 10), (22, 24), (6, 60)],
-          {'boat': 36, 'skiff': 46}, 11, r=9.2),
-    drift('pier-ethereum', [(14, -10), (60, -6), (110, -14), (136, -40), (124, -78), (78, -88), (28, -84), (8, -52)],
-          {'boat': 28, 'skiff': 36}, 12, r=9.2),
-]
-DRIFTS['pier-tron'] += [drift('pier-tron', [(126, -46), (150, -46), (152, -66), (128, -68)], {'boat': 2, 'skiff': 2}, 13, r=8.0)]
-HAMLET_DRIFT = {'pier-hyperliquid-l1': {'boat': 5, 'skiff': 6}, 'pier-polygon': {'boat': 5, 'skiff': 16},
-                'pier-arbitrum': {'boat': 5, 'skiff': 16}, 'pier-base': {'boat': 7, 'skiff': 18},
-                'pier-solana': {'boat': 13, 'skiff': 9}, 'pier-bsc': {'boat': 9, 'skiff': 8}}
-for i, (pid, cx, hw) in enumerate(COVES):
-    n = sum(HAMLET_DRIFT[pid].values())
-    w = 18 + n * 1.05
-    y0 = -320
-    cx_ = cx + 8.0
-    DRIFTS[pid].append(drift(pid, [(cx_ - w, y0), (cx_ - w * 0.3, y0 + 3), (cx_ + w * 0.4, y0 + 2), (cx_ + w, y0 - 4), (cx_ + w * 0.9, y0 - 30),
-                                   (cx_ + w * 0.2, y0 - 36), (cx_ - w * 0.5, y0 - 34), (cx_ - w * 0.95, y0 - 26)], HAMLET_DRIFT[pid], 20 + i, r=8.4))
-
-# =====================================================================================================
-# 4. LANE GRAPH. Inner loop (one way, anticlockwise on screen) round the bay; the mouth under the Pharos;
-#    the coastal loop past the hamlet piers (westbound inside, eastbound outside the drifts); the outer
-#    passage north round the island to the Far Ports; the Shoals spur outside the mouth.
+# 4. LANE GRAPH. The lagoon loop (one way: in under the Pharos, round past the pier heads, out by the battery),
+#    the mouth toward the horizon, the outer ring round the island past every cove, the Far Ports, the Shoals.
 # =====================================================================================================
 NODES = {}
 EDGES = []
@@ -381,48 +558,137 @@ def chain_edges(ids, closed=False):
         EDGES.append((a, b))
 
 
-LOOP = [('L-ne', (150, 118)), ('L-n1', (100, 126)), ('L-n2', (40, 127)), ('L-n3', (-20, 126)), ('L-nw', (-12, 104)),
-        ('L-w1', (-8, 62)), ('L-w2', (-8, 20)), ('L-w3', (-10, -20)), ('L-w4', (-12, -58)), ('L-sw', (-6, -98)),
-        ('L-s1', (50, -100)), ('L-s2', (110, -98)), ('L-se', (146, -84)), ('L-e1', (148, -36)), ('L-e2', (144, 10)),
-        ('L-e3', (142, 60)), ('L-e4', (146, 96))]
+LOOP = [('L-m', (-34.0, 96.0)), ('L-t1', (-46.0, 62.0)), ('L-t2', (-66.0, 32.0)), ('L-w1', (-84.0, 6.0)),
+        ('L-w2', (-88.0, -40.0)), ('L-w3', (-86.0, -92.0)), ('L-s1', (-46.0, -94.0)), ('L-s2', (14.0, -94.0)),
+        ('L-s3', (72.0, -94.0)), ('L-s4', (128.0, -92.0)), ('L-e1', (160.0, -74.0)), ('L-e2', (156.0, -42.0)),
+        ('L-v1', (126.0, -30.0)), ('L-v2', (70.0, -32.0)), ('L-v3', (28.0, -24.0)), ('L-c1', (8.0, 18.0)), ('L-c2', (-6.0, 52.0)),
+        ('L-c3', (-16.0, 86.0))]
 for nid, p in LOOP:
-    node(nid, p)
+    node(nid, W(*p))
 chain_edges([n for n, _ in LOOP], closed=True)
-OUTER = [('M-in', (196, 96)), ('M-out', (184, 82)), ('Q-1', (196, 40)), ('Q-2', (198, -60)), ('Q-3', (228, -170)), ('Q-4', (238, -280)),
-         ('C-0', (208, -312)), ('C-w', (-236, -318)), ('C-r1', (-236, -372)), ('C-r2', (-60, -374)), ('C-r3', (120, -372)),
-         ('C-r4', (262, -320)), ('Q-5', (286, -180)), ('Q-6', (264, -40)), ('Q-7', (244, 70)), ('SH-gate', (262, 52)),
-         ('N-1', (300, 150)), ('N-2', (318, 300)), ('N-3', (210, 420)), ('N-4', (40, 470)), ('N-5', (-140, 500)), ('F-gate', (-300, 560)),
-         ('N-6', (-160, 540)), ('N-7', (40, 512)), ('N-8', (240, 460)), ('N-9', (356, 300)), ('N-10', (340, 130))]
+OUTER = [('M-in', (-44.0, 136.0)), ('M-out', (-22.0, 140.0)), ('O-1', (40.0, 164.0)), ('O-2', (150.0, 156.0)),
+         ('O-3', (240.0, 118.0)), ('FP-gate', (292.0, 64.0)), ('O-4', (310.0, -10.0)), ('O-5', (306.0, -112.0)), ('C-0', (296.0, -200.0)),
+         ('C-r1', (196.0, -348.0)), ('C-r2', (40.0, -360.0)), ('C-r3', (-140.0, -350.0)), ('C-w', (-306.0, -246.0)),
+         ('O-6', (-330.0, -150.0)), ('SH-gate', (-280.0, -6.0)), ('O-7', (-262.0, 80.0)), ('O-8', (-200.0, 112.0)), ('O-9', (-120.0, 150.0))]
 for nid, p in OUTER:
-    node(nid, p)
-EDGES += [('L-e4', 'M-out'), ('M-out', 'Q-1'), ('Q-1', 'Q-2'), ('Q-2', 'Q-3'), ('Q-3', 'Q-4'), ('Q-4', 'C-0'),
-          ('C-r1', 'C-r2'), ('C-r2', 'C-r3'), ('C-r3', 'C-r4'), ('C-r4', 'Q-5'), ('Q-5', 'Q-6'), ('Q-6', 'Q-7'), ('Q-7', 'M-in'),
-          ('M-in', 'L-ne'), ('Q-6', 'SH-gate'), ('SH-gate', 'Q-7'),
-          ('M-out', 'N-1'), ('N-1', 'N-2'), ('N-2', 'N-3'), ('N-3', 'N-4'), ('N-4', 'N-5'), ('N-5', 'F-gate'), ('F-gate', 'N-6'),
-          ('N-6', 'N-7'), ('N-7', 'N-8'), ('N-8', 'N-9'), ('N-9', 'N-10'), ('N-10', 'M-in')]
-# the coastal (westbound) lane: one node per hamlet pier head
+    node(nid, W(*p))
+EDGES += [('L-c3', 'M-out'), ('M-out', 'O-1'), ('O-1', 'O-2'), ('O-2', 'O-3'), ('O-3', 'FP-gate'), ('FP-gate', 'O-4'), ('O-4', 'O-5'),
+          ('O-5', 'C-0'), ('C-0', 'C-r1'), ('C-r1', 'C-r2'), ('C-r2', 'C-r3'), ('C-r3', 'C-w'), ('C-w', 'O-6'), ('O-6', 'SH-gate'),
+          ('SH-gate', 'O-7'), ('O-7', 'O-8'), ('O-8', 'O-9'), ('O-9', 'M-in'), ('M-in', 'L-m')]
+# cove lane: one node off each cove mouth, spliced into the south ring (east -> west)
 coast_ids = ['C-0']
-for pid, cx, hw in sorted(COVES, key=lambda c: -c[1]):
+for pid, c, n, hw, depth in sorted(COVES, key=lambda cv: -cv[1][0]):
     nid = 'C-' + pid[5:]
-    node(nid, (cx + hw + 4, -312))
+    node(nid, W(*add(c, mul(n, {'pier-hyperliquid-l1': 88.0, 'pier-polygon': 80.0, 'pier-bsc': 104.0}.get(pid, 92.0)))))
     coast_ids.append(nid)
-coast_ids.append('C-w')
-chain_edges(coast_ids)
-EDGES.append(('C-w', 'C-r1'))
+# rebuild the south ring through the cove nodes, ordered east -> west
+EDGES = [e for e in EDGES if e not in (('C-0', 'C-r1'), ('C-r1', 'C-r2'), ('C-r2', 'C-r3'), ('C-r3', 'C-w'))]
+_south = ['C-0'] + [n for n in coast_ids[1:]] + ['C-w']
+for k in ('C-r1', 'C-r2', 'C-r3'):
+    del NODES[k]
+chain_edges(_south)
+coast_ids = _south
 
-GATE_ON = {'g-eth-quay': 'L-n2', 'g-eth-0': 'L-nw', 'g-eth-1': 'L-w1', 'g-eth-2': 'L-w1', 'g-eth-3': 'L-w2', 'g-eth-4': 'L-w3',
-           'g-eth-5': 'L-w4', 'g-tron': 'L-e1'}
-for pid, cx, hw in COVES:
+# =====================================================================================================
+# 3. MOORINGS (skiff + boat): organic drifts, every bow into the wind
+# =====================================================================================================
+SWING = {'boat': LOA['boat'] + 2.5, 'skiff': LOA['skiff'] + 2.0}
+MOORINGS = []
+
+
+def drift(pid, ctrl_uv, counts, seed, r=9.6, avoid=None):
+    rng = random.Random(seed)
+    poly = ccw(Wl(catmull(ctrl_uv, 5)))
+    n_total = sum(counts.values())
+    taken = [m['buoy'] for m in MOORINGS]
+    berths = [(b['pos'], LOA[b['cls']] / 2 + SPRIT[b['cls']] + 9.0) for P in PIERS.values() for b in P['berths']]
+    structs = structure_polys()
+
+    def av(p):
+        if avoid and avoid(p):
+            return True
+        if any(abs(p[0] - q[0]) < r and abs(p[1] - q[1]) < r and length(sub(p, q)) < r for q in taken):
+            return True
+        if any(abs(p[0] - q[0]) < rr and abs(p[1] - q[1]) < rr and length(sub(p, q)) < rr for q, rr in berths):
+            return True
+        if pip(p[0], p[1], COAST) or poly_dist(p, COAST) < 16.0:
+            return True
+        if any(seg_dist(p, NODES[a_], NODES[b_]) < 9.0 for a_, b_ in EDGES):
+            return True
+        return any(poly_dist(p, s) < 14.0 for s in structs)
+    pts = poisson(poly, lambda p: r, rng, max_n=6000, avoid=av)
+    cx = sum(p[0] for p in poly) / len(poly); cy = sum(p[1] for p in poly) / len(poly)
+    pts.sort(key=lambda p: math.hypot(p[0] - cx, (p[1] - cy) * 1.2) + rng.uniform(0, 16))
+    if len(pts) < n_total:
+        print(f'WARN drift {pid}: {len(pts)} spots < {n_total}')
+    pts = pts[:n_total]
+    order = ['boat'] * counts.get('boat', 0) + ['skiff'] * counts.get('skiff', 0)
+    for i, (p, cls) in enumerate(zip(pts, order)):
+        d = rot(WIND_BOW, rng.uniform(-0.1, 0.1))
+        c = add(p, mul(d, -(LOA[cls] / 2 + 1.2)))
+        k = sum(1 for m in MOORINGS if m['pid'] == pid and m['cls'] == cls) + 1
+        MOORINGS.append(dict(id=f'{pid}/m-{cls}/{k:03d}', chain=CHAINS[pid], pid=pid, cls=cls, buoy=p, center=c, d=d, swing=SWING[cls]))
+        FOOT.append((foot(c, d, cls), MOORINGS[-1]['id']))
+        taken.append(p)
+    return poly
+
+
+def structure_polys(kinds=False):
+    out = []
+    for s in STRUCT:
+        if s['kind'] in ('pier', 'thead', 'finger'):
+            a, b, w = s['a'], s['b'], s['width']
+            d = norm(sub(b, a)); n = perp(d)
+            out.append(([add(a, mul(n, w / 2)), add(b, mul(n, w / 2)), add(b, mul(n, -w / 2)), add(a, mul(n, -w / 2))], s['kind']))
+    L = BW_LINE
+    out.append((offset(L, BW_W / 2, closed=False) + offset(L, -BW_W / 2, closed=False)[::-1], 'breakwater'))
+    return out if kinds else [p for p, _ in out]
+
+
+def occ(pid, cls):
+    return REQ[pid][cls]
+
+
+DRIFTS = {k: [] for k in CHAINS}
+_eb, _es = occ('pier-ethereum', 'boat'), occ('pier-ethereum', 'skiff')
+# the drift fills the lagoon's middle (masts as texture in the heart frame); the loop runs round it
+DRIFTS['pier-ethereum'] += [
+    # the west drift rides between the inbound and outbound legs under the headland; the east drift off the pier heads.
+    # The water in front of the town and the Vagen stays open (reflections, boats under way).
+    drift('pier-ethereum', [(-76.0, 40.0), (-56.0, 54.0), (-30.0, 52.0), (-14.0, 26.0), (-4.0, 0.0), (-2.0, -34.0), (-16.0, -70.0),
+                            (-46.0, -89.0), (-78.0, -88.0), (-80.0, -40.0)], {'boat': 40, 'skiff': _es - 30}, 11, r=7.8),
+    drift('pier-ethereum', [(26.0, -42.0), (70.0, -46.0), (120.0, -50.0), (150.0, -62.0), (148.0, -88.0), (90.0, -90.0), (36.0, -90.0),
+                            (16.0, -70.0)], {'boat': _eb - 40, 'skiff': 30}, 12, r=7.6),
+]
+DRIFTS['pier-tron'] += [drift('pier-tron', [(-110.0, -6.0), (-96.0, -2.0), (-96.0, -60.0), (-112.0, -62.0)],
+                              {'boat': occ('pier-tron', 'boat'), 'skiff': occ('pier-tron', 'skiff')}, 13, r=8.0)]
+COVE_DRIFT = {     # drift centre (screen) per hamlet: in the water between the coves, clear of every T-head
+    'pier-polygon': ((-338.0, -206.0), 0.8), 'pier-arbitrum': ((-230.0, -284.0), 0.6), 'pier-base': ((-108.0, -320.0), 0.0),
+    'pier-solana': ((6.0, -324.0), 0.0), 'pier-bsc': ((116.0, -318.0), -0.15), 'pier-hyperliquid-l1': ((306.0, -128.0), -1.3)}
+for i, (pid, c, n, hw, depth) in enumerate(COVES):
+    cnt = {'boat': occ(pid, 'boat'), 'skiff': occ(pid, 'skiff')}
+    N_ = sum(cnt.values())
+    o, ang = COVE_DRIFT[pid]
+    sz = math.sqrt(N_ * 104.0)
+    ctrl = [add(o, rot((math.cos(k * math.pi / 4) * sz * 0.78 * (1 + 0.12 * math.sin(k * 2.1)), math.sin(k * math.pi / 4) * sz * 0.6), ang))
+            for k in range(8)]
+    DRIFTS[pid].append(drift(pid, ctrl, cnt, 20 + i, r=8.0))
+
+GATE_ON = {'g-eth-wharf': 'L-e2', 'g-eth-vagen': 'L-v1', 'g-eth-0': 'L-s4', 'g-eth-1': 'L-s3', 'g-eth-2': 'L-s2', 'g-eth-3': 'L-s2', 'g-eth-4': 'L-s1',
+           'g-eth-5': 'L-s1', 'g-eth-6': 'L-w3', 'g-tron': 'L-t1'}
+for pid, c, n, hw, depth in COVES:
     GATE_ON['g-' + pid[5:]] = 'C-' + pid[5:]
 GATES = {}
 loop_ids = [n for n, _ in LOOP]
+GATE_POS = {**{f'g-eth-{i}': W(u0 + dv[0] * (90.0 if u0 > -80 else 60.0), -94.0) for i, (u0, dv, *_r) in enumerate(ETH_PIERS)},
+            'g-eth-wharf': W(166.0, -64.0), 'g-eth-vagen': W(100.0, -8.0), 'g-tron': W(-62.0, 54.0)}
 for g, on in GATE_ON.items():
     gid = 'gate-' + g[2:]
-    if g in PIER_ENDS:
+    if g in GATE_POS:
+        p = GATE_POS[g]
+    elif g in PIER_ENDS:
         (e, dd) = PIER_ENDS[g][0]
-        p = add(e, mul(dd, 8.0))
-    elif g == 'g-eth-quay':
-        p = (40.0, 132.0)
+        p = add(e, mul(dd, 9.0))
     else:
         p = NODES[on]
     node(gid, p)
@@ -436,155 +702,225 @@ for pid, P in PIERS.items():
     gs = [b['gate'] for b in P['berths']]
     P['gate'] = NODES[Counter(gs).most_common(1)[0][0]] if gs else None
 for m in MOORINGS:
-    cand = loop_ids if m['pid'] in ('pier-ethereum', 'pier-tron') else ['C-r1', 'C-r2', 'C-r3'] + coast_ids
+    cand = loop_ids if m['pid'] in ('pier-ethereum', 'pier-tron') else coast_ids
     m['gate'] = min(cand, key=lambda n: length(sub(NODES[n], m['buoy'])))
 
+
 # =====================================================================================================
-# 5. ZONES
+# 5. ZONES: the Shoals off the west flank, Wreck Cove's bight, the Far Ports off the east flank, skerries
 # =====================================================================================================
 rng = random.Random(7)
-SH_C = (282.0, 4.0)
-SHOALS_POLY = ccw(blob(SH_C, 46, 24, rng, 18, 0.2, ang=1.2))
+SH_C = W(-324.0, 52.0)
+SHOALS_POLY = ccw(blob(SH_C, 44, 26, rng, 18, 0.2, ang=0.9))
 SHOALS_ROCKS = []
 for k in range(16):
     a = rng.uniform(0, 6.28); r = math.sqrt(rng.uniform(0.05, 1))
-    p = add(SH_C, rot((math.cos(a) * 40 * r, math.sin(a) * 18 * r), 1.2))
+    p = add(SH_C, rot((math.cos(a) * 38 * r, math.sin(a) * 20 * r), 0.9))
     SHOALS_ROCKS.append((p[0], p[1], rng.uniform(0.9, 2.4) * (1.4 - r * 0.6)))
 SHOAL_SLOTS = poisson(SHOALS_POLY, lambda p: 10.5, random.Random(8), max_n=900,
                       avoid=lambda p: any(length(sub(p, (x, y))) < r + 3.5 for x, y, r in SHOALS_ROCKS))[:30]
-SHOAL_BUOYS = [add(SH_C, rot((math.cos(a) * 58, math.sin(a) * 32), 1.2)) for a in [i * 2 * math.pi / 6 + 0.3 for i in range(6)]]
+SHOAL_BUOYS = [add(SH_C, rot((math.cos(a) * 56, math.sin(a) * 34), 0.9)) for a in [i * 2 * math.pi / 6 + 0.3 for i in range(6)]]
 
-# the mainland across the northern sound (shakkei): coast line in screen space V = const-ish, hills beyond
+
 def mainland_coast():
     pts = []
     for k in range(0, 91):
-        u = -1000 + k * 25.0
-        v = 482 + 26 * math.sin(u / 160.0) + 14 * math.sin(u / 57.0 + 1.3)
-        pts.append(from_uv(u, v))
+        u = -1100 + k * 26.0
+        v = 520 + 26 * math.sin(u / 160.0) + 14 * math.sin(u / 57.0 + 1.3)
+        pts.append(W(u, v))
     return pts
 
 
 MAINLAND_COAST = mainland_coast()
-MAINLAND_POLY = MAINLAND_COAST + [from_uv(1250, 1400), from_uv(-1250, 1400)]
-# skerries off the west coast: breathing water with points of interest (land in the SDF)
+MAINLAND_POLY = MAINLAND_COAST + [W(1300, 1500), W(-1300, 1500)]
 _srng = random.Random(31)
-SKERRIES = [dict(poly=ccw(blob(c_, rx, ry, _srng, 14, 0.24, ang=a_)), top=t_, grass=g_)
-            for (c_, rx, ry, a_, t_, g_) in (((-414.0, -30.0), 44.0, 24.0, 0.5, 7.5, True), ((-430.0, -136.0), 22.0, 13.0, -0.3, 4.2, True),
-                                              ((-350.0, -214.0), 12.0, 8.0, 0.9, 2.6, False), ((-440.0, 76.0), 20.0, 12.0, 0.2, 4.0, True),
-                                              ((-380.0, 146.0), 9.0, 6.0, 1.2, 2.2, False), ((-476.0, 40.0), 12.0, 8.0, 0.4, 2.8, False),
-                                              ((-380.0, -300.0), 16.0, 10.0, -0.6, 3.0, True), ((396.0, -46.0), 30.0, 16.0, 0.9, 5.0, True),
-                                              ((360.0, -150.0), 12.0, 8.0, 0.3, 2.6, False), ((430.0, 70.0), 14.0, 9.0, -0.4, 3.0, False))]
-WRECK_POLY = ccw([(-226, 330), (-246, 302), (-272, 290), (-292, 270), (-298, 236), (-296, 208), (-336, 210), (-330, 300), (-270, 340)])
+SKERRIES = [dict(poly=ccw(blob(W(*c_), rx, ry, _srng, 14, 0.24, ang=a_)), top=t_, grass=g_)
+            for (c_, rx, ry, a_, t_, g_) in (((-352.0, -96.0), 20.0, 11.0, 0.5, 4.5, True), ((-300.0, 104.0), 12.0, 7.0, -0.3, 3.0, False),
+                                              ((-196.0, 140.0), 10.0, 6.0, 0.9, 2.4, False), ((352.0, -170.0), 15.0, 9.0, 0.2, 3.2, True),
+                                              ((276.0, 112.0), 16.0, 9.0, 1.2, 3.4, True), ((-300.0, -300.0), 9.0, 6.0, 0.4, 2.2, False))]
+WRECK_POLY = Wl([(-246.0, -30.0), (-242.0, -56.0), (-250.0, -78.0), (-272.0, -92.0), (-300.0, -96.0), (-306.0, -60.0), (-286.0, -28.0)])
 _wr = random.Random(9)
-WRECK_SLOTS = [(p, _wr.uniform(0, 6.28)) for p in poisson(ccw([(-232, 318), (-252, 300), (-276, 292), (-292, 268), (-296, 236),
-                                                                 (-312, 240), (-306, 296), (-260, 320)]), lambda p: 11.0, _wr, max_n=800)[:28]]
+WRECK_SLOTS = [(p, _wr.uniform(0, 6.28)) for p in poisson(ccw(Wl([(-250.0, -34.0), (-246.0, -58.0), (-256.0, -78.0), (-276.0, -90.0),
+                                                                   (-296.0, -88.0), (-290.0, -56.0), (-270.0, -36.0)])),
+                                                         lambda p: 11.0, _wr, max_n=800)[:24]]
 
-SLIP = dict(top=(-128.0, QY + 12.0), bottom=(-128.0, QY - 22.0), width=7.0)
+# slipway: the boatyard at the lagoon's east corner, launching west into open lagoon water
+SLIP = dict(top=W(178.0, -134.0), bottom=W(158.0, -122.0), width=7.0)
 
-FAR_C = (84.0, 584.0)
+FAR_C = W(352.0, 64.0)
 FAR_ROWS = []
 FAR_RAFTS = []
 _frng = random.Random(10)
 _rows = []
 for cls in CLASSES:
     n = REQ_FAR[cls]
-    per = {'flagship': 1, 'large': 3, 'medium': 10, 'small': 42, 'boat': 47, 'skiff': 48}[cls]
+    per = {'flagship': 1, 'large': 4, 'medium': 12, 'small': 21, 'boat': 24, 'skiff': 32}[cls]
     while n > 0:
         _rows.append((cls, min(per, n))); n -= per
-y = FAR_C[1] - sum(LOA[c] + SPRIT[c] + 7.0 for c, _ in _rows) / 2
+# rows run across the frame (screen U), stacked away from the camera (screen V)
+_ru, _rv = Wd(1.0, 0.0), Wd(0.0, 1.0)
+off_u = -sum(LOA[c] + SPRIT[c] + 7.0 for c, _ in _rows) / 2
 for i, (cls, m) in enumerate(_rows):
     pitch = BEAM[cls] + 1.7
     L = m * pitch
-    x0 = FAR_C[0] - L / 2 + _frng.uniform(-14, 14) + (i % 2) * 9
-    raft_a, raft_b = (x0 - 2, y), (x0 + L + 2, y)
+    s0 = -L / 2 + _frng.uniform(-10, 10) + (i % 2) * 8
+    base = add(FAR_C, mul(_rv, off_u))
+    raft_a, raft_b = add(base, mul(_ru, s0 - 2)), add(base, mul(_ru, s0 + L + 2))
     FAR_RAFTS.append((raft_a, raft_b))
-    FAR_ROWS.append(dict(cls=cls, line=[raft_a, raft_b], slots=[(x0 + (j + 0.5) * pitch, y + 1.6 + LOA[cls] / 2) for j in range(m)]))
-    y += LOA[cls] + SPRIT[cls] + 7.0
+    FAR_ROWS.append(dict(cls=cls, line=[raft_a, raft_b],
+                         slots=[add(add(base, mul(_ru, s0 + (j + 0.5) * pitch)), mul(_rv, 1.6 + LOA[cls] / 2)) for j in range(m)]))
+    off_u += LOA[cls] + SPRIT[cls] + 7.0
 
 # =====================================================================================================
-# 6. LANDMARKS, TOWN LOTS
+# 6. LANDMARKS, TOWN (the amphitheatre round the Vagen), farms
 # =====================================================================================================
-LH = (200.0, 130.0)           # the Pharos: on the headland's shoulder right over the mouth and USDT's berth
-LANDMARKS = dict(
-    pharos=dict(name='The Pharos', p=LH, z=16.0, fp=16, face=(-0.70710678, -0.70710678)),     # headingRad = -pi/4 = lighthouse.glb yaw
-    keepers_cottage=dict(name="Keeper's Cottage", p=(230.0, 164.0), z=16.0, fp=14, face=(-0.7, -0.7)),
-    oil_store=dict(name='Oil Store', p=(222.0, 140.0), z=16.0, fp=6, face=(-0.7, -0.7)),
-    customs_house=dict(name='Customs House', p=(64.0, 174.0), z=Z_SHORE, fp=24, face=(0, -1)),
-    tide_board=dict(name='Tide Board', p=(64.0, 160.6), z=Z_SHORE, fp=14, face=(0, -1)),
-    tide_gauge=dict(name='Tide Gauge', p=(46.0, QY - 0.5), z=0.0, fp=3, face=(0, -1)),
-    harbourmaster=dict(name="Harbourmaster's Office", p=(-104.0, 170.0), z=Z_SHORE, fp=16, face=(0, -1)),
-    registry=dict(name='The Registry', p=(60.0, 230.0), z=12.0, fp=20, face=(0, -1)),
-    storm_mast=dict(name='Storm-signal Mast', p=STORM, z=Z_SHORE, fp=6, face=(1, -1)),
-    slipway=dict(name='The Slipway', p=SLIP['top'], z=Z_SHORE, fp=10, face=(0, -1)),
-    church=dict(name="Seamen's Church", p=(84.0, 270.0), z=17.0, fp=18, face=(0, -1)),
-    warehouse=dict(name='Bonded Warehouse', p=(-170.0, 124.0), z=Z_SHORE, fp=22, face=(1, 0)),
-    breakwater=dict(name='The Breakwater', p=(170.0, 0.0), z=3.0, fp=80, face=(-1, 0)),
-    shoals=dict(name='The Shoals', p=SH_C, z=0.0, fp=60, face=(0, -1)),
-    wreck_cove=dict(name='Wreck Cove', p=(-280.0, 300.0), z=0.0, fp=50, face=(1, -1)),
-    far_ports=dict(name='Far Ports', p=FAR_C, z=0.0, fp=80, face=(0, -1)),
-)
 import terrain as _T
+_T.init(COAST, QUAY_LINES)
+
+
+def face_to(p_uv, target_uv):
+    return norm(Wd(*sub(target_uv, p_uv)))
+
+
+PHAROS_UV = (-72.0, 96.0)
+LH = W(*PHAROS_UV)
+PHAROS_FACE = norm(Wd(0.25, -1.0))                       # door toward the camera / the Tron quay
+LANDMARKS = dict(
+    pharos=dict(name='The Pharos', p=LH, z=0.0, fp=16, face=(-0.70710678, -0.70710678)),     # headingRad -pi/4 = lighthouse.glb yaw
+    keepers_cottage=dict(name="Keeper's Cottage", p=W(-104.0, 92.0), z=0.0, fp=14, face=norm(Wd(0.1, -1.0))),
+    oil_store=dict(name='Oil Store', p=W(-90.0, 104.0), z=0.0, fp=6, face=norm(Wd(0.1, -1.0))),
+    customs_house=dict(name='Customs House', p=W(*vagen(90, R_QUAY + 21.0)), z=Z_SHORE, fp=24, face=norm(Wd(0.0, -1.0))),
+    tide_board=dict(name='Tide Board', p=W(*vagen(90, R_QUAY + 9.0)), z=Z_SHORE, fp=14, face=norm(Wd(0.0, -1.0))),
+    tide_gauge=dict(name='Tide Gauge', p=W(*vagen(104, R_QUAY - 0.5)), z=0.0, fp=3, face=norm(Wd(*sub(CT, vagen(104))))),
+    harbourmaster=dict(name="Harbourmaster's Office", p=W(16.0, 92.0), z=Z_SHORE, fp=16, face=norm(Wd(-1.0, -0.35))),
+    registry=dict(name='The Registry', p=W(*vagen(118, R_QUAY + 47.0)), z=13.5, fp=20, face=face_to(vagen(118, R_QUAY + 47.0), CT)),
+    storm_mast=dict(name='Storm-signal Mast', p=STORM, z=Z_SHORE, fp=6, face=norm(Wd(-0.6, 1.0))),
+    slipway=dict(name='The Slipway', p=SLIP['top'], z=Z_SHORE, fp=10, face=norm(sub(SLIP['bottom'], SLIP['top']))),
+    church=dict(name="Seamen's Church", p=W(*vagen(58, R_QUAY + 47.0)), z=13.5, fp=18, face=face_to(vagen(58, R_QUAY + 47.0), CT)),
+    warehouse=dict(name='Bonded Warehouse', p=W(204.0, -104.0), z=Z_SHORE, fp=22, face=norm(Wd(-1.0, -0.08))),
+    breakwater=dict(name='The Breakwater', p=BW_LINE[1], z=3.0, fp=30, face=norm(Wd(0.0, 1.0))),
+    shoals=dict(name='The Shoals', p=SH_C, z=0.0, fp=60, face=norm(Wd(-1.0, 0.0))),
+    wreck_cove=dict(name='Wreck Cove', p=W(-272.0, -62.0), z=0.0, fp=50, face=norm(Wd(-1.0, 0.0))),
+    far_ports=dict(name='Far Ports', p=FAR_C, z=0.0, fp=80, face=norm(Wd(1.0, 0.0))),
+)
 for _k in ('pharos', 'keepers_cottage', 'oil_store'):
     LANDMARKS[_k]['z'] = round(_T.height(*LANDMARKS[_k]['p']), 2)
-for pid, cx, hw in COVES:
-    LANDMARKS['hamlet_' + pid[5:].replace('-', '_')] = dict(name=CHAINS[pid] + ' Cove', p=(cx, COVE_BACK - 8.0), z=Z_SHORE, fp=40,
-                                                          face=(0, -1), pid=pid)
+for pid, c, n, hw, depth in COVES:
+    I = COVE_INFO[pid]
+    LANDMARKS['hamlet_' + pid[5:].replace('-', '_')] = dict(name=CHAINS[pid] + ' Cove', p=W(*add(I['back'], mul(I['n'], -8.0))), z=Z_SHORE,
+                                                          fp=40, face=norm(Wd(*I['n'])), pid=pid)
 
 LOTS = []
-_RES = [(L['p'], L['fp'] / 2 + 3.0) for k, L in LANDMARKS.items() if k in ('customs_house', 'harbourmaster', 'registry', 'church', 'warehouse')]
+_RES_K = ('customs_house', 'harbourmaster', 'registry', 'church', 'warehouse', 'keepers_cottage', 'oil_store', 'pharos', 'storm_mast')
+_RES = [(LANDMARKS[k]['p'], LANDMARKS[k]['fp'] / 2 + 2.5) for k in _RES_K]
 
 
-def free_lot(cx, cy, w):
-    return all(abs(cx - p[0]) > r + w / 2 or abs(cy - p[1]) > r + 6 for p, r in _RES)
+def free_lot(p, w):
+    if any(length(sub(p, q)) < r + w / 2 for q, r in _RES):
+        return False
+    return all(length(sub(p, l['c'])) > (w + l['w']) / 2 * 0.92 for l in LOTS[-40:])
 
 
-def blocks(x0, x1, y, z, depth, rng, style='terrace', block=(3, 6), alley=(2.5, 4.5), garden=(9.0, 16.0), p_garden=0.25,
-           w_rng=(7.0, 9.6), face=(0, -1), jy=1.3, skip=()):
-    """Organic terraced blocks: 3-6 houses with jittered setbacks, alleys between blocks, the odd garden gap."""
-    x = x0
-    while x < x1:
+def lot(c, w, d, z, face, style, **kw):
+    if z is None:      # on the natural slope: sit on the lowest corner (the plinth runs into the hill)
+        z = round(min(_T.height(*q) for q in rect(c, perp(face), w, d)), 2)
+    LOTS.append(dict(c=c, w=w - 0.12, d=d, z=z, face=face, style=style, **kw))
+
+
+TOWN_ROWS = []       # (r_centre, z, th0, th1, depth, style)  - the amphitheatre: front row on the quay, three terraces up
+RINGS = [            # radial bands (screen metres from CT): (r0, r1, z) - terrace pads; walls at each r0
+    (R_QUAY, R_QUAY + 18.0, Z_SHORE),
+    (R_QUAY + 19.0, R_QUAY + 34.0, 8.0),
+    (R_QUAY + 35.0, R_QUAY + 50.0, 13.5),
+    (R_QUAY + 51.0, R_QUAY + 66.0, 19.0),
+]
+TOWN_TH = [(168.0, 12.0), (160.0, 20.0), (150.0, 30.0), (140.0, 40.0)]   # angular extent per band (screen degrees)
+STAIR_TH = [(124.0, 1), (76.0, 1), (148.0, 2), (98.0, 2), (52.0, 2), (112.0, 3), (66.0, 3)]   # (theta, band below the stair's top)
+SQUARES = [(90.0, 0, 26.0), (118.0, 2, 24.0), (58.0, 2, 22.0)]     # (theta, band, width in metres): Customs square, Registry, church
+trng = random.Random(42)
+
+
+def ring_row(band, rc, depth, style, rng, block=(3, 6), alley=(2.0, 3.6), p_gap=0.22, gap=(6.0, 12.0), w_rng=(6.8, 9.4),
+             jit_r=1.2, jit_rot=4.0, cluster_rot=7.0, shop=False):
+    """Houses along an arc, clustered: each block of 3-6 shares a small yaw twist (Bryggen / Alesund), alleys between,
+    the odd garden gap; stairs and squares leave openings."""
+    th0, th1 = TOWN_TH[band]
+    z = RINGS[band][2]
+    s = th0
+    while s > th1:
         n = rng.randint(*block)
+        twist = rng.uniform(-cluster_rot, cluster_rot)
+        rr = rc + rng.uniform(-jit_r, jit_r)
         for i in range(n):
             w = rng.uniform(*w_rng)
-            if x + w > x1:
+            dth = math.degrees(w / rr)
+            if s - dth < th1:
                 break
-            cx = x + w / 2
-            if not any(a <= cx <= b for a, b in skip) and free_lot(cx, y, w):
-                LOTS.append(dict(c=(cx, y + rng.uniform(-jy, jy)), w=w - 0.12, d=depth * rng.uniform(0.86, 1.1), z=z, rot=0.0,
-                                 style=style, face=face))
-            x += w + rng.uniform(0.0, 0.25)
-        x += rng.uniform(*garden) if rng.random() < p_garden else rng.uniform(*alley)
+            th = s - dth / 2
+            blocked = any(abs(th - st) < math.degrees(5.5 / rr) for st, b in STAIR_TH if b == band) or \
+                any(abs(th - sq) < math.degrees(wq / 2 / rr) for sq, b, wq in SQUARES if b == band)
+            if not blocked:
+                p_uv = vagen(th, rr + rng.uniform(-0.4, 0.4))
+                fdir = rot(norm(sub(CT, p_uv)), math.radians(twist + rng.uniform(-jit_rot, jit_rot)))
+                p = W(*p_uv)
+                if free_lot(p, w):
+                    lot(p, w, depth * rng.uniform(0.9, 1.08), z, norm(Wd(*fdir)), style, shop=shop and rng.random() < 0.75, band=band)
+            s -= dth + rng.uniform(0.0, 0.15)
+        s -= math.degrees(rng.uniform(*gap) / rr) if rng.random() < p_gap else math.degrees(rng.uniform(*alley) / rr)
 
 
-trng = random.Random(42)
-blocks(-90, 146, 174.0, Z_SHORE, 10.5, trng, skip=((-60, -52), (96, 104)), p_garden=0.12, garden=(8.0, 12.0))
-blocks(-112, 142, 195.0, 7.0, 9.0, trng, skip=((-90, -76), (-34, -20), (92, 106)), p_garden=0.5, garden=(14.0, 22.0))
-blocks(-100, 120, 229.0, 12.0, 8.8, trng, skip=((-58, -44), (-4, 10)), p_garden=0.55, garden=(12.0, 22.0))
-blocks(-84, 108, 264.0, 17.0, 8.5, trng, style='cottage', block=(1, 2), alley=(8.0, 14.0), garden=(16.0, 26.0), p_garden=0.6)
-# cove hamlets: a short terrace of sheds behind the back quay, one gable-ended net loft by the pier root
-for pid, cx, hw in COVES:
-    k = 0
-    xs = [cx - hw + 7.0, cx + hw - 7.0] if hw < 30 else [cx - hw + 7.0, cx - hw + 15.0, cx + hw - 15.0, cx + hw - 7.0]
+# front row on the quay apron (shops + awnings), three terraces up the amphitheatre, cottages on the top band
+ring_row(0, R_QUAY + 13.0, 9.6, 'terrace', trng, p_gap=0.12, gap=(5.0, 9.0), shop=True)
+ring_row(1, R_QUAY + 28.0, 9.0, 'terrace', trng, p_gap=0.3, gap=(8.0, 14.0))
+ring_row(2, R_QUAY + 44.0, 8.8, 'terrace', trng, p_gap=0.4, gap=(9.0, 16.0))
+ring_row(3, R_QUAY + 60.0, 8.4, 'cottage', trng, block=(1, 3), alley=(5.0, 9.0), p_gap=0.5, gap=(10.0, 18.0), w_rng=(7.0, 9.0), jit_r=2.0)
+
+# the warehouse row (Bryggen): tall gable-fronted stores along the lagoon's east shore, gables to the water
+WH_ROW = [((172.0, -40.0), (-0.86, -0.5)), ((182.0, -58.0), (-0.92, -0.38)), ((188.0, -78.0), (-0.97, -0.24)),
+          ((190.0, -126.0), (-0.95, 0.1))]
+for (p_uv, f_uv) in WH_ROW:
+    p_uv = add(p_uv, mul(norm(f_uv), -9.0))
+    lot(W(*p_uv), 9.5, 15.0, Z_SHORE, norm(Wd(*f_uv)), 'warehouse')
+# the battery strip: a short terrace climbing toward the harbourmaster, fronts to the channel
+for k, (p_uv, f_uv) in enumerate((((26.0, 52.0), (-0.9, -0.35)), ((22.0, 64.0), (-0.92, -0.3)), ((18.0, 76.0), (-0.95, -0.25)),
+                                   ((34.0, 74.0), (-0.6, -0.8)), ((40.0, 86.0), (-0.5, -0.86)))):
+    lot(W(*p_uv), trng.uniform(7.0, 8.6), 9.0, Z_SHORE if k < 3 else 8.0, norm(Wd(*f_uv)), 'terrace', band=0 if k < 3 else 1)
+# cove hamlets: sheds round the back quay facing out of the cove, a gable-ended net loft by the pier root
+for pid, c, n, hw, depth in COVES:
+    I = COVE_INFO[pid]
+    t_ = I['t']; nn = I['n']
+    xs = [-hw + 7.0, hw - 7.0] if hw < 30 else [-hw + 7.0, -hw + 15.0, hw - 15.0, hw - 7.0]
     for x in xs:
-        LOTS.append(dict(c=(x, COVE_BACK + 13.0 + trng.uniform(-1.0, 1.0)), w=trng.uniform(6.4, 8.0), d=8.0, z=Z_SHORE, rot=0.0,
-                         style='hamlet', face=(0, -1)))
-    LOTS.append(dict(c=(cx + (hw + 9.0) * (1 if trng.random() < 0.5 else -1), COVE_BACK + 4.0), w=7.0, d=9.5, z=Z_SHORE, rot=0.0,
-                     style='loft', face=(0, -1)))
-for y in (70.0, 10.0, -50.0):
-    LOTS.append(dict(c=(-168.0, y), w=11.0, d=16.0, z=Z_SHORE, rot=0.0, style='warehouse', face=(1, 0)))
+        p_uv = add(add(I['back'], mul(t_, x)), mul(nn, -(12.0 + trng.uniform(-1.0, 1.0))))
+        lot(W(*p_uv), trng.uniform(6.4, 8.0), 8.0, Z_SHORE, norm(Wd(*nn)), 'hamlet', pid=pid)
+    side = 1 if trng.random() < 0.5 else -1
+    p_uv = add(add(I['back'], mul(t_, side * (hw + 6.0))), mul(nn, 2.0))
+    lot(W(*p_uv), 7.0, 9.5, Z_SHORE, norm(Wd(*rot(nn, -side * 0.5))), 'loft', pid=pid)
+    # two cottages up the slope behind (a hamlet, not a shed row)
+    for k in range(2):
+        p_uv = add(add(I['back'], mul(t_, trng.uniform(-hw * 0.7, hw * 0.7))), mul(nn, -(26.0 + k * 11.0)))
+        lot(W(*p_uv), trng.uniform(7.0, 8.4), 7.4, None, norm(Wd(*rot(nn, trng.uniform(-0.3, 0.3)))), 'cottage', pid=pid)
+# farmsteads on the west meadows: a farmhouse + a barn round a yard, each a slightly different heading
+FARMS = [((-206.0, -122.0), 0.25), ((-178.0, -194.0), -0.2), ((196.0, -190.0), 0.15)]
+for (p_uv, a) in FARMS:
+    f = rot((0.0, -1.0), a)
+    lot(W(*p_uv), 10.0, 7.2, None, norm(Wd(*f)), 'farmhouse')
+    q = add(p_uv, rot((15.0, 7.0), a))
+    lot(W(*q), 14.0, 9.0, None, norm(Wd(*rot(f, 1.57))), 'barn')
+WINDMILL = W(-226.0, -168.0)
 print('buildings', len(LOTS), '+ landmarks')
 
 # =====================================================================================================
 # 7. CAMERA PRESETS (runtime convention: yaw 45 puts the camera at +x, +z (glTF) of the target)
 # =====================================================================================================
-def preset(target_xy, dist, ty=0.0):
-    tx, tyb = target_xy
-    return dict(target=[round(tx, 2), round(ty, 2), round(-tyb, 2)], distance=round(dist, 1), fovDeg=25.0, pitchDeg=35.0, yawDeg=45.0)
+def preset(target_uv, dist, ty=0.0, pitch=35.0):
+    tx, tyb = W(*target_uv)
+    return dict(target=[round(tx, 2), round(ty, 2), round(-tyb, 2)], distance=round(dist, 1), fovDeg=25.0, pitchDeg=pitch, yawDeg=45.0)
 
 
 PRESETS = {
-    'heart': preset((128.0, 154.0), 355.0, 6.0),
-    'overview': preset((20.0, -22.0), 990.0, 0.0),
+    'heart': preset((-6.0, 24.0), 340.0, 4.0, pitch=30.0),
+    'overview': preset((0.0, -90.0), 770.0, 0.0, pitch=38.0),
 }
 
 # =====================================================================================================
@@ -609,59 +945,122 @@ def check_capacity():
             if h < r:
                 ok = False
             rows.append((pid, k, OCC['occupancy'][pid][k]['expected'], OCC['occupancy'][pid][k]['p95'], r, h))
+    far = Counter()
+    for row in FAR_ROWS:
+        far[row['cls']] += len(row['slots'])
+    for k in CLASSES:
+        rows.append(('far', k, OCC['occupancy']['far'][k]['expected'], OCC['occupancy']['far'][k]['p95'], REQ_FAR[k], far.get(k, 0)))
+        ok = ok and far.get(k, 0) >= REQ_FAR[k]
     return ok, rows
 
 
-def _raster_poly(poly, S, X0, Y1):
-    """Rasterise a polygon into its own bbox crop: (mask, row0, col0)."""
+# ------------------------------------------------------------------ raster obstacle model (0.5 m): land + every structure
+class Raster:
+    def __init__(self, S=0.5, pad=60.0):
+        from PIL import Image, ImageDraw
+        import numpy as np
+        from scipy import ndimage
+        xs = [p[0] for p in COAST]; ys = [p[1] for p in COAST]
+        self.S = S; self.X0 = min(xs) - pad - 120; self.Y1 = max(ys) + pad + 120
+        X1 = max(xs) + pad + 120; Y0 = min(ys) - pad - 120
+        self.W, self.H = int((X1 - self.X0) / S), int((self.Y1 - Y0) / S)
+        to = self.to
+        land = Image.new('L', (self.W, self.H), 0); dl = ImageDraw.Draw(land)
+        dl.polygon([to(p) for p in COAST], fill=1)
+        for sk in SKERRIES:
+            dl.polygon([to(p) for p in sk['poly']], fill=1)
+        st = Image.new('L', (self.W, self.H), 0); ds = ImageDraw.Draw(st)
+        fg = Image.new('L', (self.W, self.H), 0); dfg = ImageDraw.Draw(fg)
+        for q, kind in structure_polys(kinds=True):
+            (dfg if kind == 'finger' else ds).polygon([to(p) for p in q], fill=1)
+        for (x, y, r) in SHOALS_ROCKS:
+            cx, cy = to((x, y)); ds.ellipse((cx - r / S, cy - r / S, cx + r / S, cy + r / S), fill=1)
+        self.land = np.array(land) > 0
+        self.fg = np.array(fg) > 0
+        self.st = (np.array(st) > 0) | self.fg
+        self.st_nf = np.array(st) > 0
+        solid = self.land | self.st
+        self.clear = ndimage.distance_transform_edt(~solid) * S       # metres to the nearest solid
+        self.np = np
+
+    def to(self, p):
+        return ((p[0] - self.X0) / self.S, (self.Y1 - p[1]) / self.S)
+
+    def clr(self, p):
+        x, y = self.to(p)
+        i, j = int(y), int(x)
+        if not (0 <= i < self.H and 0 <= j < self.W):
+            return 1e3
+        return float(self.clear[i, j])
+
+
+def check_overlaps(R):
+    """Hull footprints against each other, the land and the structures (0.5 m raster)."""
     from PIL import Image, ImageDraw
-    import numpy as np
-    xs = [p[0] for p in poly]; ys = [p[1] for p in poly]
-    c0 = int((min(xs) - X0) / S) - 1; c1 = int((max(xs) - X0) / S) + 2
-    r0 = int((Y1 - max(ys)) / S) - 1; r1 = int((Y1 - min(ys)) / S) + 2
-    im = Image.new('L', (c1 - c0, r1 - r0), 0)
-    ImageDraw.Draw(im).polygon([((p[0] - X0) / S - c0, (Y1 - p[1]) / S - r0) for p in poly], fill=1)
-    return np.array(im, bool), r0, c0
-
-
-def structure_polys():
-    out = []
-    for s in STRUCT:
-        if s['kind'] in ('pier', 'thead', 'finger'):
-            a, b, w = s['a'], s['b'], s['width']
-            d = norm(sub(b, a)); n = perp(d)
-            out.append([add(a, mul(n, w / 2)), add(b, mul(n, w / 2)), add(b, mul(n, -w / 2)), add(a, mul(n, -w / 2))])
-        if s['kind'] == 'breakwater':
-            L = s['line']
-            out.append(offset(L, s['width'] / 2, closed=False) + offset(L, -s['width'] / 2, closed=False)[::-1])
-    return out
-
-
-def check_overlaps():
-    """Raster check (0.25 m) of hull footprints against each other, the land and the structures."""
-    from PIL import Image, ImageDraw
-    import numpy as np
-    S = 0.25; X0, Y0, X1, Y1 = -330, -420, 300, 200
-    W, H = int((X1 - X0) / S), int((Y1 - Y0) / S)
-    acc = np.zeros((H, W), np.uint16)
+    np = R.np
+    acc = np.zeros((R.H, R.W), np.uint16)
     crops = []
     for poly, bid in FOOT:
-        m, r0, c0 = _raster_poly(poly, S, X0, Y1)
-        acc[r0:r0 + m.shape[0], c0:c0 + m.shape[1]] += m
+        im = Image.new('L', (R.W, R.H), 0)
+        xs = [R.to(p) for p in poly]
+        c0 = max(0, int(min(x for x, _ in xs)) - 2); c1 = min(R.W, int(max(x for x, _ in xs)) + 3)
+        r0 = max(0, int(min(y for _, y in xs)) - 2); r1 = min(R.H, int(max(y for _, y in xs)) + 3)
+        sub_ = Image.new('L', (c1 - c0, r1 - r0), 0)
+        ImageDraw.Draw(sub_).polygon([(x - c0, y - r0) for x, y in xs], fill=1)
+        m = np.array(sub_, bool)
+        acc[r0:r1, c0:c1] += m
         crops.append((m, r0, c0, bid))
-    land = Image.new('L', (W, H), 0); dl = ImageDraw.Draw(land)
-    to = lambda p: ((p[0] - X0) / S, (Y1 - p[1]) / S)
-    dl.polygon([to(p) for p in COAST], fill=1)
-    for q in structure_polys():
-        dl.polygon([to(p) for p in q], fill=1)
-    land = np.array(land) > 0
+    solid = R.land | R.st
+    solid_nf = R.land | R.st_nf
+    mode_of = {b['id']: b['mode'] for P in PIERS.values() for b in P['berths']}
     bad = []
+    S2 = R.S * R.S
     for m, r0, c0, bid in crops:
-        sa = acc[r0:r0 + m.shape[0], c0:c0 + m.shape[1]]; sl = land[r0:r0 + m.shape[0], c0:c0 + m.shape[1]]
-        a1 = (m & (sa > 1)).sum() * S * S; a2 = (m & sl).sum() * S * S
-        if a1 > 0.8 or a2 > 1.2:
+        sol = solid_nf if mode_of.get(bid) == 'finger' else solid
+        sa = acc[r0:r0 + m.shape[0], c0:c0 + m.shape[1]]; sl = sol[r0:r0 + m.shape[0], c0:c0 + m.shape[1]]
+        a1 = (m & (sa > 1)).sum() * S2; a2 = (m & sl).sum() * S2
+        if a1 > 0.8 or a2 > 0.5:
             bad.append((bid, round(float(a1), 1), round(float(a2), 1)))
-    return float((acc > 1).sum() * S * S), float(((acc > 0) & land).sum() * S * S), bad
+    return float((acc > 1).sum() * S2), bad
+
+
+def check_paths(R):
+    """Every berth approach (gate node -> approach points -> berth) and every lane edge must stay in clear water.
+    Clearance: lanes >= 7 m, approaches >= 2.5 m until the last leg (into the slot), the slot leg >= 0.4 m.
+    Returns a list of (what, worst clearance, where)."""
+    bad = []
+
+    def walk(pts, need, tail_need=None, tail_from=None):
+        worst = (1e9, None)
+        for i, (a, b) in enumerate(zip(pts, pts[1:])):
+            L = length(sub(b, a)); n = max(2, int(L / 1.0))
+            nd = tail_need if (tail_from is not None and i >= tail_from) else need
+            for k in range(n + 1):
+                p = lerp(a, b, k / n)
+                c = R.clr(p)
+                if c - nd < worst[0]:
+                    worst = (c - nd, p)
+        return worst
+    for a, b in EDGES:
+        w = walk([NODES[a], NODES[b]], 5.0)
+        if w[0] < 0:
+            bad.append((f'lane {a}->{b}', round(w[0], 1), [round(v) for v in UV(w[1])]))
+    for pid, P in PIERS.items():
+        for bt in P['berths']:
+            pts = [NODES[bt['gate']]] + list(bt['approach'])
+            tail = len(pts) - 2          # the last segment slides into the slot
+            w = walk(pts[:-1], 2.0)
+            w2 = walk(pts[-2:], 0.3)
+            if w[0] < 0:
+                bad.append((f"approach {bt['id']}", round(w[0], 1), [round(v) for v in UV(w[1])]))
+            elif w2[0] < 0:
+                bad.append((f"slot {bt['id']}", round(w2[0], 1), [round(v) for v in UV(w2[1])]))
+    for m in MOORINGS:
+        ap = add(m['buoy'], mul(m['d'], -(LOA[m['cls']] * 2.2 + 10)))
+        w = walk([NODES[m['gate']], ap, m['center']], 1.0)
+        if w[0] < 0:
+            bad.append((f"mooring {m['id']}", round(w[0], 1), [round(v) for v in UV(w[1])]))
+    return bad
 
 
 # ------------------------------------------------------------------ camera projection (runtime-identical)
@@ -677,16 +1076,35 @@ def cam_basis(pr):
     return cam, f, r, u
 
 
-def project(pr, p, W=1600, H=1000):
+def sky_radius(pr, land_pts):
+    """Mirror of SkySystem: the card radius (horizontal, from the camera) - 20 % band unless land pushes it out."""
+    cam, f, r, u = cam_basis(pr)
+    vfov = math.radians(pr['fovDeg']); pitch = math.radians(pr['pitchDeg'])
+    R0 = cam[2] / math.tan(max(0.05, pitch - vfov / 2 + 0.2 * vfov))
+    halfH = math.atan(math.tan(vfov / 2) * 1.6); span = halfH + 0.25
+    fl = math.hypot(f[0], f[1])
+    far = 0.0
+    for p in land_pts:
+        dx, dy = p[0] - cam[0], p[1] - cam[1]; d = math.hypot(dx, dy)
+        if (dx * f[0] + dy * f[1]) / (d * fl) < math.cos(span):
+            continue
+        far = max(far, d)
+    R = max(R0, far + 14) if far > 0 else R0
+    depr = math.atan(cam[2] / R)
+    band = (depr - (pitch - vfov / 2)) / vfov
+    return R, band
+
+
+def project(pr, p, W_=1600, H_=1000):
     cam, f, r, u = cam_basis(pr)
     d = tuple(p[i] - cam[i] for i in range(3))
     z = sum(d[i] * f[i] for i in range(3))
     if z <= 1e-3:
         return None
     th = math.tan(math.radians(pr['fovDeg']) / 2)
-    x = sum(d[i] * r[i] for i in range(3)) / z / th / (W / H)
+    x = sum(d[i] * r[i] for i in range(3)) / z / th / (W_ / H_)
     y = sum(d[i] * u[i] for i in range(3)) / z / th
-    return ((x + 1) * W / 2, (1 - y) * H / 2)
+    return ((x + 1) * W_ / 2, (1 - y) * H_ / 2)
 
 
 def hull_px(pr, center, d, cls):
@@ -701,6 +1119,7 @@ def hull_px(pr, center, d, cls):
 
 def frame_report():
     rep = {}
+    landpts = COAST + BW_LINE
     for name, pr in PRESETS.items():
         per = defaultdict(list)
         for P in PIERS.values():
@@ -716,16 +1135,21 @@ def frame_report():
         lm = {}
         for k in ('pharos', 'customs_house', 'storm_mast', 'church', 'registry', 'harbourmaster', 'shoals', 'wreck_cove', 'far_ports'):
             q = project(pr, (*LANDMARKS[k]['p'], LANDMARKS[k]['z']))
-            lm[k] = 'in' if q and 0 <= q[0] <= 1600 and 0 <= q[1] <= 1000 else 'out'
+            lm[k] = [round(q[0]), round(q[1])] if q and 0 <= q[0] <= 1600 and 0 <= q[1] <= 1000 else 'out'
+        q = project(pr, (*LANDMARKS['pharos']['p'], LANDMARKS['pharos']['z'] + 38.0))
+        lm['pharos_lantern'] = [round(q[0]), round(q[1])] if q else None
         rep[name]['landmarks'] = lm
+        R, band = sky_radius(pr, landpts)
+        rep[name]['sky'] = dict(R=round(R), band=round(band, 3))
     return rep
 
 
-def land_fill(pr, step=8):
-    """Fraction of the 1600x1000 frame whose view ray hits island land (levels at their z) before the sea."""
+def land_fill(pr, step=8, harbour=False):
+    """Fraction of the 1600x1000 frame whose view ray hits island land (terrain height) before the sea or the sky card;
+    harbour=True also counts piers, decks and hull footprints (what the frame shows that is not open water)."""
     cam, f, r, u = cam_basis(pr)
     th = math.tan(math.radians(pr['fovDeg']) / 2)
-    polys = [(L['poly'], L['z']) for L in LEVELS] + [(COAST, Z_SHORE)]
+    R, band = sky_radius(pr, COAST + BW_LINE)
     hit = tot = 0
     for py in range(step // 2, 1000, step):
         for px in range(step // 2, 1600, step):
@@ -734,28 +1158,18 @@ def land_fill(pr, step=8):
             tot += 1
             if d[2] >= 0:
                 continue
-            land = False
-            for poly, z in sorted(polys, key=lambda t: -t[1]):
-                t = (z - cam[2]) / d[2]
-                q = (cam[0] + d[0] * t, cam[1] + d[1] * t)
-                if pip(q[0], q[1], poly):
-                    land = True; break
-            hit += land
+            t = (Z_SHORE - cam[2]) / d[2]
+            q = (cam[0] + d[0] * t, cam[1] + d[1] * t)
+            if math.hypot(q[0] - cam[0], q[1] - cam[1]) > R:
+                continue
+            h = pip(q[0], q[1], COAST)
+            if not h and harbour:
+                h = any(pip(q[0], q[1], poly) for poly in _HPOLYS if abs(q[0] - poly[0][0]) < 60 and abs(q[1] - poly[0][1]) < 60)
+            hit += h
     return hit / tot
 
 
-def lane_pier_crossings():
-    zones = []
-    for s in STRUCT:
-        if s['kind'] in ('pier', 'thead', 'finger'):
-            zones.append((s['a'], s['b']))
-    hits = []
-    for a, b in EDGES:
-        pa, pb = NODES[a], NODES[b]
-        for (q0, q1) in zones:
-            if seg_intersect(pa, pb, q0, q1):
-                hits.append((a, b)); break
-    return hits
+_HPOLYS = []
 
 
 def dijkstra(src):
@@ -776,7 +1190,7 @@ def dijkstra(src):
 
 def leg_lengths():
     gate_of = {pid: Counter(b['gate'] for b in P['berths']).most_common(1)[0][0] for pid, P in PIERS.items() if P['berths']}
-    gate_of['far'] = 'F-gate'
+    gate_of['far'] = 'FP-gate'
     legs = {}
     for a, ga in gate_of.items():
         D = dijkstra(ga)
@@ -790,53 +1204,52 @@ def leg_lengths():
 # PLAN RENDER (screen-aligned: U right, V up)
 # =====================================================================================================
 def frame_footprint(pr, aspect=1.6):
-    """Ground (z=0) quad seen by a preset (Blender coords)."""
-    tx, ty_, tz = pr['target']; T = (tx, -tz, ty_)
-    D = pr['distance']; yaw = math.radians(pr['yawDeg']); pit = math.radians(pr['pitchDeg'])
-    cp = math.cos(pit)
-    off = (math.sin(yaw) * cp, -math.cos(yaw) * cp, math.sin(pit))
-    cam = tuple(T[i] + off[i] * D for i in range(3))
-    f = tuple(-o for o in off)
-    up0 = (0, 0, 1)
-    r = (f[1] * up0[2] - f[2] * up0[1], f[2] * up0[0] - f[0] * up0[2], f[0] * up0[1] - f[1] * up0[0])
-    rl = math.sqrt(sum(x * x for x in r)); r = tuple(x / rl for x in r)
-    u = (r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0])
+    cam, f, r, u = cam_basis(pr)
     th = math.tan(math.radians(pr['fovDeg']) / 2)
     out = []
     for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
         d = tuple(f[i] + r[i] * sx * th * aspect + u[i] * sy * th for i in range(3))
-        if d[2] >= -1e-4:
-            t = 2500.0
-        else:
-            t = -cam[2] / d[2]
-        t = min(t, 2500.0)
+        t = min(-cam[2] / d[2] if d[2] < -1e-4 else 2500.0, 2500.0)
         out.append((cam[0] + d[0] * t, cam[1] + d[1] * t))
     return out
 
 
-def render_plan(path, S=0.6):
+def render_plan(path, S=0.5):
     from PIL import Image, ImageDraw
-    U0, U1, V0, V1 = -520, 560, -420, 760
-    W, H = int((U1 - U0) / S), int((V1 - V0) / S)
-    im = Image.new('RGB', (W, H), (24, 70, 92)); d = ImageDraw.Draw(im)
+    U0, U1, V0, V1 = -440, 440, -420, 230
+    Wp, Hp = int((U1 - U0) / S), int((V1 - V0) / S)
+    im = Image.new('RGB', (Wp, Hp), (24, 70, 92)); d = ImageDraw.Draw(im)
 
     def to(p):
-        u, v = screen_uv(*p)
+        u, v = UV(p)
         return ((u - U0) / S, (V1 - v) / S)
-
-    zc = lambda z: (int(90 + z * 4), int(130 + z * 3), int(70 + z * 2))
-    d.polygon([to(p) for p in COAST], fill=(120, 140, 80))
-    for L in LEVELS:
-        d.polygon([to(p) for p in L['poly']], fill=zc(L['z']), outline=(60, 60, 60) if L['edge'] == 'ashlar' else None)
+    # terrain shading (height) on a coarse grid
+    import terrain as T_
+    step = 4.0
+    v = V0
+    while v < V1:
+        u = U0
+        while u < U1:
+            p = W(u, v)
+            if pip(p[0], p[1], COAST):
+                z = T_.height(*p)
+                col = (int(80 + z * 4.5), int(118 + z * 3.2), int(64 + z * 2.0))
+                x0, y0 = (u - U0) / S, (V1 - v) / S
+                d.rectangle((x0, y0 - step / S, x0 + step / S, y0), fill=col)
+            u += step
+        v += step
+    for sk in SKERRIES:
+        d.polygon([to(p) for p in sk['poly']], fill=(130, 130, 110))
     d.polygon([to(p) for p in SHOALS_POLY], outline=(200, 200, 120))
     for x, y, r in SHOALS_ROCKS:
         cx, cy = to((x, y)); d.ellipse((cx - r / S, cy - r / S, cx + r / S, cy + r / S), fill=(110, 110, 110))
     d.polygon([to(p) for p in WRECK_POLY], outline=(220, 200, 150))
+    for L in QUAY_LINES.values():
+        d.line([to(p) for p in L], fill=(230, 220, 200), width=3)
     for s in STRUCT:
         if s['kind'] in ('pier', 'thead', 'finger'):
             d.line([to(s['a']), to(s['b'])], fill=(170, 140, 100), width=max(1, int(s['width'] / S)))
-        if s['kind'] == 'breakwater':
-            d.line([to(p) for p in s['line']], fill=(160, 160, 150), width=int(s['width'] / S))
+    d.line([to(p) for p in BW_LINE], fill=(160, 160, 150), width=int(BW_W / S))
     for a, b in FAR_RAFTS:
         d.line([to(a), to(b)], fill=(170, 140, 100), width=3)
     col = dict(flagship=(255, 80, 80), large=(255, 160, 60), medium=(240, 230, 90), small=(120, 230, 120), boat=(120, 200, 255), skiff=(220, 160, 255))
@@ -845,25 +1258,30 @@ def render_plan(path, S=0.6):
         d.polygon([to(p) for p in poly], fill=col.get(cls, (255, 255, 255)))
     for row_ in FAR_ROWS:
         for c in row_['slots']:
-            d.polygon([to(p) for p in rect(c, (0, 1), LOA[row_['cls']], BEAM[row_['cls']])], fill=col[row_['cls']])
-    for m in MOORINGS:
-        cx, cy = to(m['buoy']); d.ellipse((cx - 1.5, cy - 1.5, cx + 1.5, cy + 1.5), fill=(255, 90, 40))
-    for lot in LOTS:
-        q = rect(lot['c'], (1, 0), lot['w'], lot['d'])
-        d.polygon([to(p) for p in q], fill=(200, 110, 90) if lot['style'] != 'warehouse' else (150, 90, 70), outline=(60, 40, 30))
+            d.polygon([to(p) for p in rect(c, _rv, LOA[row_['cls']], BEAM[row_['cls']])], fill=col[row_['cls']])
+    for lot_ in LOTS:
+        q = rect(lot_['c'], perp(lot_['face']), lot_['w'], lot_['d'])
+        d.polygon([to(p) for p in q], fill=(200, 110, 90) if lot_['style'] not in ('warehouse', 'barn') else (150, 90, 70), outline=(60, 40, 30))
+        fp = add(lot_['c'], mul(lot_['face'], lot_['d'] / 2))
+        d.line([to(lot_['c']), to(fp)], fill=(255, 255, 255), width=1)
     for k, L in LANDMARKS.items():
         cx, cy = to(L['p']); r = 4
         d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(255, 255, 255)); d.text((cx + 5, cy - 5), k, fill=(255, 255, 255))
     for a, b in EDGES:
-        d.line([to(NODES[a]), to(NODES[b])], fill=(255, 255, 255), width=1)
-        pa, pb = to(NODES[a]), to(NODES[b]); m = lerp(pa, pb, 0.6)
-        dd = norm(sub(pb, pa)); n = perp(dd)
+        pa, pb = to(NODES[a]), to(NODES[b])
+        d.line([pa, pb], fill=(255, 255, 255), width=1)
+        m = lerp(pa, pb, 0.6); dd = norm(sub(pb, pa)); n = perp(dd)
         d.polygon([add(m, mul(dd, 5)), add(m, add(mul(dd, -3), mul(n, 3))), add(m, add(mul(dd, -3), mul(n, -3)))], fill=(255, 255, 255))
     for name, pr in PRESETS.items():
         fp = frame_footprint(pr)
-        d.line([to(p) for p in fp + fp[:1]], fill=(255, 255, 0) if name == 'heart' else (255, 0, 255), width=2)
+        colr = (255, 255, 0) if name == 'heart' else (255, 0, 255)
+        d.line([to(p) for p in fp + fp[:1]], fill=colr, width=2)
+        cam, f, r, u = cam_basis(pr)
+        R, band = sky_radius(pr, COAST + BW_LINE)
+        az0 = math.atan2(f[0], f[1])
+        arc = [(cam[0] + R * math.sin(az0 + a), cam[1] + R * math.cos(az0 + a)) for a in [math.radians(x) for x in range(-34, 35, 2)]]
+        d.line([to(p) for p in arc], fill=colr, width=1)
     im.save(path)
-
 
 
 # =====================================================================================================
@@ -890,25 +1308,34 @@ def lights_list():
     return out
 
 
+BAY_UV = [(0.0, 112.0), (2.0, 94.0), (12.0, 60.0), (38.0, 12.0)] + VAGEN_ARC[::4] + \
+         [(182.0, -50.0), (192.0, -116.0), (156.0, -168.0)] + LONG_QUAY[::3] + [(-146.0, -106.0), (-160.0, -40.0), (-132.0, 22.0)] + \
+         TRON_QUAY + [(-58.0, 98.0), (-52.0, 104.0)]
+
+
 def write_compose(extra_lights):
-    quays = [dict(kind='grand', a=(-150.0, QY), b=(150.0, QY)), dict(kind='basin', a=(WX, SY), b=(WX, QY))]
-    for pid, cx, hw in COVES:
-        quays.append(dict(kind='cove', pid=pid, a=(cx - hw + 5, COVE_BACK), b=(cx + hw - 5, COVE_BACK)))
+    quays = [dict(kind=k.split('-')[0], name=k, pid=(k[5:] if k.startswith('cove-') else None), line=[r2(p) for p in L])
+             for k, L in QUAY_LINES.items()]
     berths = []
     for pid, P in PIERS.items():
         for b in P['berths']:
             berths.append(dict(id=b['id'], pid=pid, cls=b['cls'], pos=r2(b['pos']), d=r2(b['d']), mode=b['mode']))
+    coves = [dict(pid=pid, c=r2(W(*COVE_INFO[pid]['c'])), n=r2(Wd(*COVE_INFO[pid]['n'])), t=r2(Wd(*COVE_INFO[pid]['t'])),
+                  back=r2(W(*COVE_INFO[pid]['back'])), qa=r2(W(*COVE_INFO[pid]['qa'])), qb=r2(W(*COVE_INFO[pid]['qb'])),
+                  hw=COVE_INFO[pid]['hw'], depth=COVE_INFO[pid]['depth']) for pid, *_ in COVES]
     data = dict(
-        coast=[r2(p) for p in COAST], levels=[dict(name=L['name'], poly=[r2(p) for p in L['poly']], z=L['z'], edge=L['edge']) for L in LEVELS],
-        quays=quays, struct=STRUCT, berths=berths,
+        version=3, coast=[r2(p) for p in COAST], levels=[], quays=quays, struct=STRUCT, berths=berths,
         moorings=[dict(id=m['id'], pid=m['pid'], cls=m['cls'], buoy=r2(m['buoy']), center=r2(m['center']), d=r2(m['d'])) for m in MOORINGS],
-        lamps=LAMPS, bollards=BOLLARDS, lots=LOTS, landmarks=LANDMARKS, coves=COVES, cove_character=COVE_CHARACTER,
+        lamps=LAMPS, bollards=BOLLARDS, lots=LOTS, landmarks=LANDMARKS, coves=coves, cove_character=COVE_CHARACTER,
         pennant=PENNANT, chains=CHAINS, harbour_lights=HARBOUR_LIGHTS, storm=STORM, bw_line=BW_LINE, bw_width=BW_W,
         shoals=dict(poly=SHOALS_POLY, rocks=SHOALS_ROCKS, slots=SHOAL_SLOTS, buoys=SHOAL_BUOYS), skerries=SKERRIES,
         mainland=dict(coast=MAINLAND_COAST, poly=MAINLAND_POLY),
-        wreck=dict(poly=WRECK_POLY, slots=WRECK_SLOTS), slip=SLIP, far=dict(rafts=FAR_RAFTS, rows=FAR_ROWS, c=FAR_C),
-        presets=PRESETS, consts=dict(QY=QY, WX=WX, SY=SY, Z_SHORE=Z_SHORE, DECK=DECK, SC_Y=SC_Y, COVE_BACK=COVE_BACK, BWX=BWX),
-        hull=dict(loa=LOA, beam=BEAM, sprit=SPRIT), wind_bow=WIND_BOW, extra_lights=extra_lights,
+        wreck=dict(poly=WRECK_POLY, slots=WRECK_SLOTS), slip=SLIP, far=dict(rafts=FAR_RAFTS, rows=FAR_ROWS, c=FAR_C, row_dir=_ru),
+        presets=PRESETS, consts=dict(Z_SHORE=Z_SHORE, DECK=DECK, VOFF=VOFF), pier_frames=PIER_FRAMES, lanes=dict(nodes=NODES, edges=EDGES),
+        loop=[n for n, _ in LOOP], vagen_arc=Wl(VAGEN_ARC), long_quay=Wl(LONG_QUAY), tron_quay=Wl(TRON_QUAY), wharf=Wl(EAST_WHARF),
+        town=dict(ct=r2(W(*CT)), ct_uv=CT, r_quay=R_QUAY, rings=RINGS, th=TOWN_TH, stairs=STAIR_TH, squares=SQUARES),
+        bay=[r2(W(*p)) for p in BAY_UV], windmill=r2(WINDMILL), farms=[r2(W(*p)) for p, a in FARMS],
+        hull=dict(loa=LOA, beam=BEAM, sprit=SPRIT), wind_bow=WIND_BOW, extra_lights=extra_lights, sea_bounds=sea_bounds(),
     )
     json.dump(data, open(os.path.join(OUTD, 'compose.json'), 'w'))
 
@@ -935,37 +1362,43 @@ def write_layout(window_lights, sea_bounds):
                  for k, L in LANDMARKS.items()]
     zones = dict(
         shoals=dict(polygon=[gl2(p) for p in SHOALS_POLY], slots=[gl3(p) for p in SHOAL_SLOTS], buoys=[gl3(p) for p in SHOAL_BUOYS],
-                    rocks=[[round(x, 2), round(-y, 2), round(r, 2)] for x, y, r in SHOALS_ROCKS]),
+                    rocks=[[round(x, 2), round(-y, 2), round(r, 2)] for x, y, r in SHOALS_ROCKS], gate='SH-gate'),
         wreckCove=dict(polygon=[gl2(p) for p in WRECK_POLY],
                        slots=[dict(id=f'wreck-{i + 1:02d}', **{'class': ('large' if i % 5 == 0 else 'medium' if i % 2 else 'small')},
                                    position=gl3(p), headingRad=round(a, 4)) for i, (p, a) in enumerate(WRECK_SLOTS)]),
-        slipway=dict(polygon=[gl2(p) for p in rect(lerp(SLIP['top'], SLIP['bottom'], 0.5), (0, -1), length(sub(SLIP['top'], SLIP['bottom'])), SLIP['width'])],
-                     slots=[gl3(lerp(SLIP['top'], SLIP['bottom'], 0.25), Z_SHORE)], launchPath=[gl2(SLIP['top']), gl2(SLIP['bottom']), gl2((-60.0, 112.0))]),
-        farPorts=dict(polygon=[gl2(p) for p in blob(FAR_C, 90, 80, random.Random(3), 12, 0.05)],
+        slipway=dict(polygon=[gl2(p) for p in rect(lerp(SLIP['top'], SLIP['bottom'], 0.5), norm(sub(SLIP['bottom'], SLIP['top'])),
+                                                    length(sub(SLIP['top'], SLIP['bottom'])), SLIP['width'])],
+                     slots=[gl3(lerp(SLIP['top'], SLIP['bottom'], 0.25), Z_SHORE)],
+                     launchPath=[gl2(SLIP['top']), gl2(SLIP['bottom']), gl2(W(122.0, -100.0))]),
+        farPorts=dict(polygon=[gl2(p) for p in blob(FAR_C, 90, 70, random.Random(3), 12, 0.05, ang=math.atan2(_ru[1], _ru[0]))],
                       rows=[dict(cls=r_['cls'], line=[gl2(p) for p in r_['line']], slots=[gl3(p) for p in r_['slots']]) for r_ in FAR_ROWS],
-                      gate='F-gate'),
-        hamlets={pid: dict(name=CHAINS[pid] + ' Cove', character=COVE_CHARACTER[pid], centre=gl2((cx, COVE_BACK - 20)), halfWidth=hw)
-                 for pid, cx, hw in COVES},
+                      gate='FP-gate'),
+        hamlets={pid: dict(name=CHAINS[pid] + ' Cove', character=COVE_CHARACTER[pid], centre=gl2(W(*COVE_INFO[pid]['c'])),
+                           halfWidth=COVE_INFO[pid]['hw']) for pid, *_ in COVES},
     )
     labels = [dict(id=k.replace('_', '-'), text=L['name'], anchor=gl3(L['p'], L['z'] + (40 if k == 'pharos' else 14)), kind='landmark')
               for k, L in LANDMARKS.items() if k not in ('tide_board', 'tide_gauge')]
     labels += [dict(id='label-' + pid, text=CHAINS[pid], anchor=gl3(P['gate'], 6.0), kind='pier') for pid, P in PIERS.items() if P['gate']]
     xs = [p[0] for p in COAST]; ys = [p[1] for p in COAST]
-    if window_lights:     # the Blender build wrote every lamp + window group; add the harbour light(s)
+    if window_lights:
         lights = window_lights + [dict(kind=l['kind'], position=gl3(l['p'], l['z']), color=l['color'])
                                   for l in lights_list() if l['kind'] == 'harbourlight']
     else:
         lights = [dict(kind=l['kind'], position=gl3(l['p'], l['z']), color=l['color']) for l in lights_list()]
     assert len(lights) <= 400, len(lights)
+    # pan clamp: the island's screen extent (world box of the UV rectangle)
+    cxs = [W(u, v) for u in (-330.0, 330.0) for v in (-330.0, 150.0)]
     layout = dict(
         version=2, units='m',
         axes='glTF Y-up: x east (screen down-right at yaw 45), y up, z south (toward viewer); headingRad h: bow along (sin h, 0, cos h)',
         seaLevel=0.0, deckY=DECK, quayY=Z_SHORE,
-        bounds=dict(min=[round(min(xs) - 40, 1), -6.0, round(-max(ys) - 60, 1)], max=[round(max(xs) + 60, 1), 60.0, round(-min(ys) + 140, 1)]),
-        camera=dict(presets=PRESETS, panClamp=dict(min=[-420.0, -620.0], max=[420.0, 440.0]), minDistance=90.0, maxDistance=1250.0),
+        bounds=dict(min=[round(min(xs) - 60, 1), -6.0, round(-max(ys) - 60, 1)], max=[round(max(xs) + 60, 1), 60.0, round(-min(ys) + 60, 1)]),
+        camera=dict(presets=PRESETS, panClamp=dict(min=[round(min(p[0] for p in cxs), 1), round(min(-p[1] for p in cxs), 1)],
+                                                   max=[round(max(p[0] for p in cxs), 1), round(max(-p[1] for p in cxs), 1)]),
+                    minDistance=90.0, maxDistance=1150.0),
         hull=dict(classes=CLASSES, loa=LOA, beam=BEAM, mastAboveDeck=MAST,
                   mooring=dict(flagship='alongside', large='alongside', medium='finger', small='finger', boat='swing', skiff='swing')),
-        island=dict(coast=[gl2(p) for p in COAST], bay=[gl2(p) for p in [(WX, SY), (BWX, SY), (BWX, 80), (150, QY), (WX, QY)]],
+        island=dict(coast=[gl2(p) for p in COAST], bay=[gl2(W(*p)) for p in BAY_UV],
                     breakwater=[gl2(p) for p in BW_LINE], mole=[gl2(p) for p in BW_LINE[-3:]]),
         piers=piers, moorings=moorings, lanes=lanes, landmarks=landmarks, zones=zones, lights=lights, labels=labels,
         sea=dict(sdf='/harbour/sea-sdf.png', bounds=sea_bounds),
@@ -978,7 +1411,16 @@ def write_layout(window_lights, sea_bounds):
     return path
 
 
-SEA_BOUNDS = [-600.0, -700.0, 560.0, 460.0]     # glTF [minX, minZ, maxX, maxZ] (covers the island, the hamlet drifts, the Far Ports)
+def sea_bounds():
+    """Square SDF window (glTF [minX, minZ, maxX, maxZ]) round everything that floats or stands."""
+    pts = list(COAST) + [p for r_ in FAR_ROWS for p in r_['slots']] + list(SHOALS_POLY) + [m['buoy'] for m in MOORINGS] + \
+        [p for sk in SKERRIES for p in sk['poly']] + list(NODES.values())
+    xs = [p[0] for p in pts]; zs = [-p[1] for p in pts]
+    cx, cz = (min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2
+    h = max(max(xs) - min(xs), max(zs) - min(zs)) / 2 + 60
+    h = math.ceil(h / 10) * 10
+    return [round(cx - h, 1), round(cz - h, 1), round(cx + h, 1), round(cz + h, 1)]
+
 
 # =====================================================================================================
 if __name__ == '__main__':
@@ -989,14 +1431,25 @@ if __name__ == '__main__':
             print(f"{pid:22s}{k:9s}{E:7.1f}{p95:5d}{r:6d}{h:6d}{'' if h >= r else '  <-- SHORT'}{'  (+%d)' % (h - r) if h > r else ''}")
     print('capacity OK' if ok else 'CAPACITY SHORT')
     print(json.dumps(frame_report(), indent=None))
+    _HPOLYS[:] = [p for p, _ in FOOT] + structure_polys() + [rect(c, _rv, LOA[r_['cls']], BEAM[r_['cls']] + 1.2) for r_ in FAR_ROWS for c in r_['slots']]
     for name, pr in PRESETS.items():
-        print(name, 'land fill', round(land_fill(pr), 3))
-    over, on_land, bad = check_overlaps()
-    print(f'footprint overlap {over:.1f} m2, on land {on_land:.1f} m2, bad berths {len(bad)}')
+        print(name, 'land fill', round(land_fill(pr), 3), 'with harbour', round(land_fill(pr, 10, True), 3))
+    if '--sweep' in sys.argv:
+        for pit in (36.0, 38.0, 40.0):
+            for D in (820.0, 880.0, 940.0):
+                for tv in (-100.0, -112.0, -124.0):
+                    pr = preset((6.0, tv), D, 0.0, pit)
+                    rep = sky_radius(pr, COAST + BW_LINE)
+                    print('  sweep', pit, D, tv, 'band', round(rep[1], 3), 'fill', round(land_fill(pr, 12), 3), round(land_fill(pr, 14, True), 3))
+    R = Raster()
+    over, bad = check_overlaps(R)
+    print(f'footprint overlap {over:.1f} m2, bad berths {len(bad)}')
     for b in bad[:30]:
         print('  ', b)
-    hits = lane_pier_crossings()
-    print('lane/pier crossings:', hits)
+    pb = check_paths(R)
+    print('path problems', len(pb))
+    for b in pb[:40]:
+        print('  ', b)
     legs = leg_lengths()
     json.dump({'legLengths': legs}, open(os.path.join(HERE, 'legs.json'), 'w'), indent=1)
     print('moorings', len(MOORINGS), 'berths', sum(len(P['berths']) for P in PIERS.values()), 'lots', len(LOTS))
@@ -1004,6 +1457,9 @@ if __name__ == '__main__':
     print('plan written')
     if '--plan-only' not in sys.argv:
         wl = os.path.join(OUTD, 'window_lights.json')       # written by the Blender build (per-building window groups)
-        win = json.load(open(wl)) if os.path.exists(wl) else []
+        win = json.load(open(wl)) if os.path.exists(wl) and '--no-lights' not in sys.argv else []
         write_compose([])
-        print('layout ->', write_layout(win, SEA_BOUNDS), 'lights', len(win) + len(lights_list()))
+        sb = sea_bounds()
+        print('sea bounds', sb)
+        if '--layout' in sys.argv:       # the runtime layout ships with the matching island.glb: write it on purpose
+            print('layout ->', write_layout(win, sb), 'lights', len(win) + len(lights_list()))

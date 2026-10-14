@@ -116,7 +116,8 @@ pv.inputs['Anisotropy'].default_value = 0.55
 link(ntm, dens, pv.inputs['Density'])
 ntm.links.new(pv.outputs[0], outm.inputs['Volume'])
 M['mist'] = mm
-mist_box = obj('sea_mist', bm_box2(-260, -200, -0.5, 420, 360, 70), mat=mm, shadow=False, family='fx')
+_cx = [p[0] for p in CJ['coast']]; _cy = [p[1] for p in CJ['coast']]
+mist_box = obj('sea_mist', bm_box2(min(_cx) - 120, min(_cy) - 120, -0.5, max(_cx) + 120, max(_cy) + 120, 70), mat=mm, shadow=False, family='fx')
 spot = add_light('pharos_spot', 'SPOT', loc=tuple(LH_LAMP), color=PAL['lantern'], spot_size=math.radians(5.5), spot_blend=0.6,
                  shadow_soft_size=0.2)
 _bz = BEAM_AZ[0]
@@ -163,6 +164,10 @@ ee.use_shadows = True; ee.shadow_ray_count = 2; ee.shadow_step_count = 10
 ee.use_fast_gi = True; ee.fast_gi_distance = 14.0
 ee.volumetric_end = 1600.0; ee.volumetric_tile_size = '4'; ee.volumetric_samples = 96; ee.use_volumetric_shadows = False
 ee.shadow_resolution_scale = 1.0
+try:
+    ee.shadow_pool_size = '1024'
+except Exception:
+    pass
 try:
     ee.ray_tracing_options.resolution_scale = '1'; ee.ray_tracing_options.screen_trace_quality = 0.6
 except Exception:
@@ -220,7 +225,8 @@ def set_cb(lift, gamma, gain):
 
 
 def setv(mat, key, v):
-    n = M[mat].node_tree.nodes.get(key) if mat in M else None
+    mm = M.get(mat) or bpy.data.materials.get(mat)
+    n = mm.node_tree.nodes.get(key) if mm is not None else None
     if n is None:
         return
     if n.type == 'VALUE':
@@ -256,7 +262,7 @@ STATE = {
                   mount_lit='#3A4C78', mount_lit_k=0.4, snow=0.5, cloud_light='#7C8DB6', cloud_mid='#3A4878', cloud_shade='#1C2548',
                   cloud_rim='#D3DEFF', rim_k=1.0, cloud_e=1.0, lamp=40.0, win=6.0, lens=80.0, beam=0.75, ride=70.0, pillar=1.8,
                   lamp_w=190.0, lh_w=9000.0, winl=300.0, beacon=40.0, sea_e=0.5, exposure=0.3, foam_e=0.14, mist_k=0.004,
-                  spot_w=900000.0, sheen_k=0.25, sheen_col='#8FA6E0', stratus_k=0.35, stratus_col='#5E6F9E', disc_s=-160.0, disc_z=150.0,
+                  spot_w=900000.0, sheen_k=0.25, sheen_col='#8FA6E0', stratus_k=0.35, stratus_col='#5E6F9E', disc_az=-13.0, disc_el=2.6,
                   glare=(0.7, 0.7), cb=((0.98, 0.99, 1.05), (0.98, 1.0, 1.03), (1.03, 1.0, 0.98)), aerial=0.22, haze_e=0.8, shk_k=0.5, shk_e=0.6),
 }
 
@@ -271,15 +277,17 @@ def apply_state(st):
     fd = Vector((-d.x, -d.y, 0.8)).normalized()
     aim_dir(fill, fd); fill.data.energy = S['fill'][0]; fill.data.color = lin(S['fill'][1])
     set_ramp(wramp, [(p, lin(h)) for p, h in S['world']]); wbg.inputs['Strength'].default_value = S['world_k']
-    set_ramp(M['backdrop'].node_tree.nodes['SKY_RAMP'], [(p, lin(h)) for p, h in S['sky']])
+    for sm_ in SKY_MATS:
+        set_ramp(sm_.node_tree.nodes['SKY_RAMP'], [(p, lin(h)) for p, h in S['sky']])
     hzd = Vector((d.x, d.y, 0)).normalized()
-    for mat in ('backdrop', 'M_mount_far', 'M_mount_mid', 'M_mount_near', 'cloud', 'sea'):
+    for mat in [m_.name for m_ in SKY_MATS] + ['M_mount_far', 'M_mount_mid', 'M_mount_near', 'cloud', 'sea']:
         setv(mat, 'SUN_X', hzd.x); setv(mat, 'SUN_Y', hzd.y)
     setv('cloud', 'SUN_Z', d.z)
-    setv('backdrop', 'GLOW_COL', lin(S['glow'][0])); setv('backdrop', 'GLOW_K', S['glow'][1])
-    setv('backdrop', 'STRATUS_K', S.get('stratus_k', 0.0)); setv('backdrop', 'STRATUS_COL', lin(S.get('stratus_col', '#FFFFFF')))
-    setv('backdrop', 'DISC_K', S['disc']); setv('backdrop', 'STAR_K', S['stars'])
-    setv('backdrop', 'DISC_Z', S.get('disc_z', 200.0)); setv('backdrop', 'DISC_S', S.get('disc_s', 0.0))
+    for bk in [m_.name for m_ in SKY_MATS]:
+        setv(bk, 'GLOW_COL', lin(S['glow'][0])); setv(bk, 'GLOW_K', S['glow'][1])
+        setv(bk, 'STRATUS_K', S.get('stratus_k', 0.0)); setv(bk, 'STRATUS_COL', lin(S.get('stratus_col', '#FFFFFF')))
+        setv(bk, 'DISC_K', S['disc']); setv(bk, 'STAR_K', S['stars'])
+        setv(bk, 'DISC_AZ', S.get('disc_az', -12.0)); setv(bk, 'DISC_EL', S.get('disc_el', 3.0))
     setv('sea', 'SHEEN_K', S.get('sheen_k', 0.0)); setv('sea', 'SHEEN_COL', lin(S.get('sheen_col', '#FFFFFF')))
     setv('sea', 'HAZE_MAX', S.get('haze_max', 0.75)); setv('sea', 'HAZE', lin(S['haze'])); setv('sea', 'FOAM', lin(S['foam']))
     setv('sea', 'SEA_E', S.get('sea_e', 1.0)); setv('sea', 'FOAM_E', S.get('foam_e', 0.5))
@@ -320,6 +328,8 @@ def apply_state(st):
 os.makedirs(OUT, exist_ok=True)
 for cam in CAMS:
     scene.camera = CAMS_OB[cam]
+    for nm_, coll_ in SKY_SETS.items():
+        coll_.hide_render = nm_ != cam
     Dc = CJ['presets'][cam]['distance']
     wt.mist_settings.start = Dc * 0.72; wt.mist_settings.depth = Dc * 1.25
     for st in STATES:

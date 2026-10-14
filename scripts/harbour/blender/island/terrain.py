@@ -1,18 +1,62 @@
-"""The Harbour v2 - terrain height function (pure Python; shared by compose.py and the Blender build).
+"""The Harbour v3 - terrain height function (pure Python + numpy/scipy; shared by compose.py and the Blender build).
 
-height(x, y) in Blender coords (x east, y north) -> z metres, for points on the island. The town keeps stepped
-terraces (flat pads, ashlar fronts); everything else is a designed natural landform: a spruce ridge behind the
-town, a west highland, the Pharos headland plateau, a low ridge along the south arm, beaches at Wreck Cove.
+init(coast, quay_lines) once (world coords), then height(x, y) -> z metres on the island. Authored in SCREEN space
+(U right, V away from the camera; heart target at the origin; world = from_uv(u, v + VOFF)) like compose.py:
+
+  - the town amphitheatre: stepped terrace pads in radial bands round the Vagen (CT), carved into a natural bowl;
+  - the Pharos headland: a rocky table at ~15 m, cliffs to the open sea;
+  - the west lobe: rolling meadows (farmsteads, the windmill knoll) under a spruce spine;
+  - the east lobe: a forested hill with a spruce crest and rock outcrops;
+  - the south strip: a low ridge between the lagoon and the coves, the coves cut down to their quays;
+  - quay aprons are exactly at quay level; Wreck Cove is a sand bight.
 """
 import math
 
 Z_SHORE = 2.4
-QY, WX, SY = 150.0, -150.0, -112.0
-COVE_BACK = -226.0
+VOFF = 80.0
+SQ2 = math.sqrt(2.0)
+CT = (100.0, 8.0)
+R_QUAY = 58.0
+# radial terrace bands round CT (screen metres) and their angular extents (screen degrees, th0 > th1)
+RINGS = [(R_QUAY, R_QUAY + 18.0, Z_SHORE), (R_QUAY + 19.0, R_QUAY + 34.0, 8.0), (R_QUAY + 35.0, R_QUAY + 50.0, 13.5),
+         (R_QUAY + 51.0, R_QUAY + 66.0, 19.0)]
+TOWN_TH = [(168.0, 12.0), (160.0, 20.0), (150.0, 30.0), (140.0, 40.0)]
+PHAROS = (-72.0, 96.0)
 
-# terraces: (front y, z, x0, x1) - pad from its front up to the next front
-TERRACES = [(182.0, 7.0, -138.0, 150.0), (216.0, 12.0, -124.0, 126.0), (250.0, 17.0, -108.0, 116.0)]
-TOWN_TOP = 286.0          # above this the hill is natural again
+_S = 2.0
+_grid = None          # (x0, y1, nx, ny, dist array) inside-distance to the coast (m)
+_quays = {}
+
+
+def to_uv(x, y):
+    return ((x + y) / SQ2, (y - x) / SQ2 - VOFF)
+
+
+def init(coast, quay_lines=None):
+    """Rasterise the coast (world coords) into a distance-inside field; remember the quay lines (world)."""
+    global _grid, _quays
+    import numpy as np
+    from PIL import Image, ImageDraw
+    from scipy import ndimage
+    xs = [p[0] for p in coast]; ys = [p[1] for p in coast]
+    x0, x1, y0, y1 = min(xs) - 8, max(xs) + 8, min(ys) - 8, max(ys) + 8
+    nx, ny = int((x1 - x0) / _S) + 1, int((y1 - y0) / _S) + 1
+    im = Image.new('L', (nx, ny), 0)
+    ImageDraw.Draw(im).polygon([((x - x0) / _S, (y1 - y) / _S) for x, y in coast], fill=255)
+    m = np.array(im) > 127
+    d = ndimage.distance_transform_edt(m) * _S
+    _grid = (x0, y1, nx, ny, d)
+    _quays = dict(quay_lines or {})
+
+
+def dcoast(x, y):
+    x0, y1, nx, ny, d = _grid
+    fx, fy = (x - x0) / _S, (y1 - y) / _S
+    i, j = int(fy), int(fx)
+    if not (0 <= i < ny - 1 and 0 <= j < nx - 1):
+        return 0.0
+    tx, ty = fx - j, fy - i
+    return float(d[i, j] * (1 - tx) * (1 - ty) + d[i, j + 1] * tx * (1 - ty) + d[i + 1, j] * (1 - tx) * ty + d[i + 1, j + 1] * tx * ty)
 
 
 def _hash(ix, iy, s=0):
@@ -43,129 +87,138 @@ def sstep(a, b, x):
     return t * t * (3 - 2 * t)
 
 
-def gauss(x, y, cx, cy, sx, sy, ang=0.0):
+def gauss(u, v, cu, cv, su, sv, ang=0.0):
     c, s = math.cos(ang), math.sin(ang)
-    dx, dy = x - cx, y - cy
-    u = (dx * c + dy * s) / sx; v = (-dx * s + dy * c) / sy
-    return math.exp(-(u * u + v * v))
+    du, dv = u - cu, v - cv
+    a = (du * c + dv * s) / su; b = (-du * s + dv * c) / sv
+    return math.exp(-(a * a + b * b))
 
 
-def seg_dist(px, py, ax, ay, bx, by):
-    abx, aby = bx - ax, by - ay
-    t = max(0.0, min(1.0, ((px - ax) * abx + (py - ay) * aby) / (abx * abx + aby * aby + 1e-9)))
-    return math.hypot(px - ax - abx * t, py - ay - aby * t)
+def seg_d(pu, pv, a, b):
+    abx, aby = b[0] - a[0], b[1] - a[1]
+    t = max(0.0, min(1.0, ((pu - a[0]) * abx + (pv - a[1]) * aby) / (abx * abx + aby * aby + 1e-9)))
+    return math.hypot(pu - a[0] - abx * t, pv - a[1] - aby * t)
 
 
-RIDGE = [(-258, 168), (-216, 250), (-170, 320), (-110, 352), (-10, 366), (90, 352), (170, 322), (226, 270)]   # spruce crest spine
+def line_d(u, v, pts):
+    return min(seg_d(u, v, pts[i], pts[i + 1]) for i in range(len(pts) - 1))
 
 
-def ridge_d(x, y):
-    return min(seg_dist(x, y, *RIDGE[i], *RIDGE[i + 1]) for i in range(len(RIDGE) - 1))
+# spines (screen plan): spruce crests the dresser also reads
+WEST_SPINE = [(-190.0, 20.0), (-226.0, -20.0), (-262.0, -120.0), (-262.0, -186.0)]
+EAST_SPINE = [(232.0, -10.0), (244.0, -70.0), (240.0, -140.0), (214.0, -200.0)]
+SOUTH_RIDGE = [(-130.0, -230.0), (-40.0, -238.0), (60.0, -240.0), (150.0, -228.0)]
+WINDMILL_UV = (-226.0, -168.0)
 
 
-def natural(x, y):
-    h = Z_SHORE
-    # north hill + ridge (behind the town) - rises with y, crest along RIDGE
-    h += min(22.0, max(0.0, (y - 160.0)) * 0.10) * sstep(-262.0, -190.0, x)
-    h += 14.0 * math.exp(-(ridge_d(x, y) / 46.0) ** 2)
-    # west highland (Ethereum basin hinterland)
-    h += 19.0 * gauss(x, y, -248, 30, 54, 124, 0.08)
-    h += 7.0 * gauss(x, y, -212, -96, 40, 34)
-    # the Pharos headland plateau (a crisp table with cliffs)
-    hd = math.hypot((x - 224) / 46.0, (y - 182) / 70.0)
-    h = max(h, Z_SHORE + 15.8 * (1 - sstep(1.0, 1.3, hd)) + 1.2 * (1 - sstep(0.0, 0.8, hd)))
-    # south arm: a low rolling ridge between the bay and the hamlets
-    sd = seg_dist(x, y, -206, -168, 150, -164)
-    h += 8.5 * math.exp(-(sd / 26.0) ** 2) * (0.75 + 0.5 * fbm(x, y, 0.012, 2, 7))
-    # NE town land falls gently to the north-east coast
-    h += 6.0 * gauss(x, y, 190, 300, 50, 40)
+def town_polar(u, v):
+    du, dv = u - CT[0], v - CT[1]
+    return math.hypot(du, dv), math.degrees(math.atan2(dv, du))
+
+
+def _ang_in(th, th0, th1, soft=6.0):
+    """1 inside [th1, th0] (degrees, th0 > th1, theta in -180..180 with the arc wrapping past 180), soft edges."""
+    if th < -90:
+        th += 360.0
+    return sstep(th1 - soft, th1, th) * (1 - sstep(th0, th0 + soft, th))
+
+
+def natural(u, v):
+    dc = dcoast(*from_uv(u, v))
+    # shore rise: everything climbs a little inland
+    h = Z_SHORE - 0.4 + 7.5 * (1 - math.exp(-dc / 34.0))
+    # the amphitheatre bowl round the Vagen (the terraces are carved into it)
+    r, th = town_polar(u, v)
+    bowl = _ang_in(th, 186.0, -4.0, 20.0) * (1 - sstep(128.0, 150.0, r))
+    if bowl > 0 and r > R_QUAY:
+        hb = Z_SHORE + (r - R_QUAY) * 0.33 + 3.0 * sstep(115.0, 132.0, r)
+        h = h * (1 - bowl) + max(h, hb) * bowl
+    # the Pharos headland: a heather table at ~15 m
+    hd = math.hypot((u - PHAROS[0] + 16) / 50.0, (v - PHAROS[1] + 4) / 28.0)
+    h = max(h, Z_SHORE + 15.0 * (1 - sstep(0.7, 1.25, hd)) + 1.4 * (1 - sstep(0.0, 0.7, hd)))
+    # west lobe: the spruce spine and the windmill knoll above rolling meadows
+    h += 11.0 * math.exp(-(line_d(u, v, WEST_SPINE) / 42.0) ** 2) * sstep(4.0, 30.0, dc)
+    h += 7.0 * gauss(u, v, *WINDMILL_UV, 26.0, 22.0)
+    h += 3.0 * (fbm(u, v, 0.011, 2, 9) - 0.4) * sstep(10.0, 40.0, dc)
+    # east lobe: a forested hill
+    h += 13.0 * math.exp(-(line_d(u, v, EAST_SPINE) / 38.0) ** 2) * sstep(4.0, 30.0, dc)
+    h += 5.0 * gauss(u, v, 222.0, -104.0, 28.0, 38.0)
+    # the south strip's low ridge between the lagoon and the coves
+    h += 5.5 * math.exp(-(line_d(u, v, SOUTH_RIDGE) / 26.0) ** 2) * (0.75 + 0.5 * fbm(u, v, 0.014, 2, 7))
     # facets: low-frequency undulation (crisp low-poly light catch), calmer on the headland table
-    calm = 1.0 - 0.75 * (1 - sstep(0.9, 1.25, hd))
-    h += (fbm(x, y, 0.018, 3, 3) - 0.5) * 3.2 * calm
-    # Wreck Cove: a low beach shelf in the north-west bight
-    k = gauss(x, y, -280, 290, 40, 30)
-    return h * (1 - k) + 1.4 * k
+    calm = 1.0 - 0.75 * (1 - sstep(0.75, 1.2, hd))
+    h += (fbm(u, v, 0.02, 3, 3) - 0.5) * 3.0 * calm
+    # Wreck Cove: a low sand shelf in the west bight
+    k = gauss(u, v, -268.0, -62.0, 34.0, 26.0)
+    return h * (1 - k) + 1.2 * k
 
 
-def town_step(x, y):
-    """Stepped town terrace height or None outside the terraced core."""
-    if y < 160.0 or y > TOWN_TOP:
-        return None
-    z = Z_SHORE if (y < TERRACES[0][0] and TERRACES[0][2] <= x <= TERRACES[0][3]) else None
-    for (fy, tz, x0, x1) in TERRACES:
-        if y >= fy and x0 <= x <= x1:
-            z = tz
-    if z is None:
-        return None
-    # beyond the last terrace the core blends into the natural slope
-    return z
+def town_step(u, v):
+    """Stepped terrace height (z, weight) round the Vagen, or (None, 0) outside the amphitheatre."""
+    r, th = town_polar(u, v)
+    for (r0, r1, z), (th0, th1) in zip(RINGS, TOWN_TH):
+        if r0 <= r < r1 + 1.0:
+            w = _ang_in(th, th0 + 4.0, th1 - 4.0, 8.0)
+            if w > 0:
+                return z, w
+    return None, 0.0
 
 
-def flats():
-    """Areas that must be exactly at shore level: quay aprons, cove backs, the basin apron (centre, half sizes)."""
-    out = [((0.0, QY + 9.0), (156.0, 9.5)),               # Grand Quay apron + front row
-           ((WX - 14.0, 20.0), (16.0, 136.0)),            # Ethereum basin apron / warehouses
-           ((172.0, 148.0), (10.0, 6.0))]                 # NE quay corner
-    return out
+def _quay_flat(x, y):
+    """Distance (m) to the nearest quay line and its apron depth, for the shore-level flats."""
+    best = (1e9, 0.0)
+    for name, L in _quays.items():
+        ap = 13.0 if name in ('long', 'grand') else (8.0 if name.startswith('cove') else 9.0)
+        for a, b in zip(L, L[1:]):
+            d = seg_d(x, y, a, b)
+            if d < best[0]:
+                best = (d, ap)
+    return best
 
 
 def height(x, y, coves=()):
-    t = town_step(x, y)
-    n = natural(x, y)
-    if t is not None:
-        h = t
-    else:
-        h = n
-        # around the terraced core, blend the natural slope toward the terrace levels (no towering banks)
-        if 160 < y < TOWN_TOP + 30 and -170 < x < 180:
-            ref = Z_SHORE
-            for (fy, tz, x0, x1) in TERRACES:
-                if y >= fy:
-                    ref = tz
-            k = sstep(46.0, 0.0, max(0.0, max(TERRACES[0][2] - x, x - TERRACES[0][3])))
-            h = h * (1 - k * 0.85) + ref * k * 0.85
-    # shore-level flats (aprons, the Grand Quay front row)
-    for (c, hs) in flats():
-        dx = max(0.0, abs(x - c[0]) - hs[0]); dy = max(0.0, abs(y - c[1]) - hs[1])
-        d = math.hypot(dx, dy)
-        if d < 14.0:
-            k = sstep(14.0, 0.0, d)
-            h = h * (1 - k) + Z_SHORE * k
-    for (cx, hw) in coves:
-        dx = max(0.0, abs(x - cx) - hw - 14); dy = max(0.0, y - (COVE_BACK + 22.0))
-        d = math.hypot(dx, dy) if y > COVE_BACK - 30 else 99
-        if d < 12.0:
-            k = sstep(12.0, 0.0, d)
-            h = h * (1 - k) + Z_SHORE * k
-    return max(h, Z_SHORE - 1.2)
+    u, v = to_uv(x, y)
+    n = natural(u, v)
+    z, w = town_step(u, v)
+    h = n if z is None else n * (1 - w) + z * w
+    # quay aprons: exactly at quay level, easing into the slope behind
+    d, ap = _quay_flat(x, y)
+    if d < ap + 14.0:
+        k = 1.0 - sstep(ap, ap + 14.0, d)
+        if z is not None and w > 0.5 and h > Z_SHORE + 0.5 and d > ap:
+            k = 0.0            # never pull the terraces down
+        h = h * (1 - k) + Z_SHORE * k
+    return max(h, Z_SHORE - 1.4)
 
 
-# ------------------------------------------------------------------ fields: a patchwork on the south arm, the west slope, the NE land
-def _fields():
+def from_uv(u, v):
+    v = v + VOFF
+    return ((u - v) / SQ2, (u + v) / SQ2)
+
+
+# ------------------------------------------------------------------ meadows: irregular walled fields that follow the land
+def _meadows():
     import random as _r
     rng = _r.Random(57)
     out = []
-
-    def grid(xs, ys, skip=()):
-        for i in range(len(xs) - 1):
-            for j in range(len(ys) - 1):
-                if (i, j) in skip:
-                    continue
-                x0, x1, y0, y1 = xs[i], xs[i + 1], ys[j], ys[j + 1]
-                g = 2.2
-                poly = [(x0 + g + rng.uniform(-2, 2), y0 + g + rng.uniform(-2, 2)), (x1 - g + rng.uniform(-2, 2), y0 + g + rng.uniform(-2, 2)),
-                        (x1 - g + rng.uniform(-2, 2), y1 - g + rng.uniform(-2, 2)), (x0 + g + rng.uniform(-2, 2), y1 - g + rng.uniform(-2, 2))]
-                r = rng.random()
-                kind = 'hay' if r < 0.38 else ('pasture' if r < 0.78 else 'plough')
-                out.append(dict(poly=poly, kind=kind))
-    grid([-196, -158, -118, -76, -34, 8, 50, 92, 134], [-202, -168, -132], skip=((0, 1), (8, 0)))
-    grid([-212, -180], [-110, -76, -40, -4, 32, 70, 108], skip=())
-    grid([-262, -232, -212], [-118, -84, -52], skip=())
-    grid([150, 186, 222], [236, 268, 300], skip=((1, 1),))
+    # (centre uv, radius u, radius v, angle, kind)
+    spec = [((-206.0, -96.0), 22, 15, 0.4, 'hay'), ((-178.0, -128.0), 18, 13, -0.2, 'pasture'), ((-232.0, -132.0), 15, 12, 0.9, 'pasture'),
+            ((-200.0, -160.0), 16, 11, 0.2, 'plough'), ((-150.0, -196.0), 20, 12, -0.15, 'hay'), ((-214.0, -214.0), 14, 10, 0.5, 'pasture'),
+            ((206.0, -186.0), 18, 12, -0.4, 'hay'), ((182.0, -232.0), 14, 10, 0.1, 'pasture'), ((-110.0, -226.0), 16, 10, 0.05, 'pasture')]
+    for (c, ru, rv, a, kind) in spec:
+        pts = []
+        ph = rng.uniform(0, 6.28)
+        for k in range(9):
+            t = 2 * math.pi * k / 9
+            rr = 1 + 0.16 * math.sin(2 * t + ph) + 0.08 * math.sin(3 * t + ph * 1.7)
+            pu, pv = math.cos(t) * ru * rr, math.sin(t) * rv * rr
+            cu, cv = c[0] + pu * math.cos(a) - pv * math.sin(a), c[1] + pu * math.sin(a) + pv * math.cos(a)
+            pts.append(from_uv(cu, cv))
+        out.append(dict(poly=pts, kind=kind))
     return out
 
 
-FIELDS = _fields()
+FIELDS = _meadows()
 FIELD_COL = {'hay': '#B9B262', 'pasture': '#87A457', 'plough': '#8E7556'}
 
 
