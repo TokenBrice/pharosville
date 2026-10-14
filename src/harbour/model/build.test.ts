@@ -52,7 +52,7 @@ describe("buildHarbourModel", () => {
   it("small supply drift keeps the plan key; a portfolio change moves it", () => {
     const coins = makeCoins();
     const base = buildHarbourModel(makePayloads({ coins }), T0_MS, opts);
-    const drift = coins.map((c) => ({ ...c, chainCirculating: Object.fromEntries(Object.entries(c.chainCirculating).map(([k, v]) => [k, { current: v.current * 1.001 }])) }));
+    const drift = coins.map((c) => ({ ...c, chainCirculating: Object.fromEntries(Object.entries(c.chainCirculating).map(([k, v]) => [k, { current: (v.current ?? 0) * 1.001 }])) }));
     expect(buildHarbourModel(makePayloads({ coins: drift }), T0_MS, opts).planKey).toBe(base.planKey);
     const moved = coins.map((c, i) => (i === 5 ? { ...c, chainCirculating: { Solana: { current: 1e10 } }, chains: ["Solana"] } : c));
     expect(buildHarbourModel(makePayloads({ coins: moved }), T0_MS, opts).planKey).not.toBe(base.planKey);
