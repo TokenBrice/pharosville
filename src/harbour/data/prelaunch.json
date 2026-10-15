@@ -377,11 +377,6 @@
      "date": "2026-09-24",
      "type": "regulatory",
      "title": "Qivalis says it is close to securing the DNB EMI licence and targets go-live by end of 2026"
-    },
-    {
-     "date": "2026-10-05",
-     "type": "announcement",
-     "title": "Qivalis appoints Olga Elsenga as Chief Risk and Compliance Officer"
     }
    ],
    "issuer": "Netherlands",
@@ -445,7 +440,7 @@
    "pegCurrency": "USD",
    "pegType": "peggedUSD",
    "launchPhase": "beta",
-   "launchPhaseDetail": "Platform live; Q1 2026 earnings (May 5): CEO Lyons confirms stablecoin pilot for interbank money movement; Huntington confirmed as pilot partner alongside Bank of North Dakota and others (cross-border, digital escrow); INDX cash settlement launched Feb 2026; StoneCastle acquired; May 14 Investor Day positioned FIUSD as a core strategic growth vector ('issued through banks, accepted through merchants'). At the Bernstein Strategic Decisions conference (June 3 2026) CEO Lyons confirmed 'FIUSD goes live in July,' setting July 2026 for the interbank platform launch. That window closed without a launch announcement. The Q2 2026 earnings release filed with the SEC on August 6 2026 does not mention FIUSD, stablecoins, digital assets, or Solana anywhere, and Fiserv cut its full-year guidance in the same release; the earnings call transcript is equally silent. Pharos retired the July expectation on September 6 2026 and now carries the year only. Bank of North Dakota's Roughrider Coin white-label is still expected to begin its state-bank pilot in September 2026. Fiserv's digital asset platform went live on October 1 2026 hosting Roughrider Coin rather than FIUSD; on October 5 Fiserv said it had pivoted away from Paxos and Circle toward a more proprietary coin, joined the Open USD consortium, and gave no FIUSD launch date",
+   "launchPhaseDetail": "Platform live; Q1 2026 earnings (May 5): CEO Lyons confirms stablecoin pilot for interbank money movement; Huntington confirmed as pilot partner alongside Bank of North Dakota and others (cross-border, digital escrow); INDX cash settlement launched Feb 2026; StoneCastle acquired; May 14 Investor Day positioned FIUSD as a core strategic growth vector ('issued through banks, accepted through merchants'). At the Bernstein Strategic Decisions conference (June 3 2026) CEO Lyons confirmed 'FIUSD goes live in July,' setting July 2026 for the interbank platform launch. That window closed without a launch announcement. The Q2 2026 earnings release filed with the SEC on August 6 2026 does not mention FIUSD, stablecoins, digital assets, or Solana anywhere, and Fiserv cut its full-year guidance in the same release; the earnings call transcript is equally silent. Pharos retired the July expectation on September 6 2026 and now carries the year only. Bank of North Dakota's Roughrider Coin white-label is still expected to begin its state-bank pilot in September 2026, on a platform with no confirmed go-live",
    "expectedLaunchDate": "2026",
    "announcedDate": "2025-06",
    "milestones": [
@@ -508,11 +503,6 @@
      "date": "2026-08-06",
      "type": "delay",
      "title": "July go-live window closes; Q2 2026 results do not mention FIUSD"
-    },
-    {
-     "date": "2026-10-05",
-     "type": "milestone",
-     "title": "Fiserv drops Paxos and Circle from FIUSD and sets no launch date"
     }
    ],
    "issuer": "United States",
@@ -622,7 +612,7 @@
    "pegCurrency": "HKD",
    "pegType": "peggedHKD",
    "launchPhase": "announced",
-   "launchPhaseDetail": "HKMA-licensed stablecoin issuer FRS02, effective April 10 2026; launch expected in the coming months / H2 2026 with integration into PayMe (3.3M users) and HSBC HK App; peer-to-peer payments and tokenized investment subscriptions; 1:1 backed by HKD-denominated high-quality liquid assets in segregated accounts; on September 30 2026 HSBC named the token HSBC RedCoin, offered at launch only through PayMe and the HSBC HK Mobile App; ticker not yet confirmed",
+   "launchPhaseDetail": "HKMA-licensed stablecoin issuer FRS02, effective April 10 2026; launch expected in the coming months / H2 2026 with integration into PayMe (3.3M users) and HSBC HK App; peer-to-peer payments and tokenized investment subscriptions; 1:1 backed by HKD-denominated high-quality liquid assets in segregated accounts; symbol and ticker not yet confirmed",
    "expectedLaunchDate": "2026-H2",
    "announcedDate": "2026-03",
    "milestones": [
@@ -630,11 +620,6 @@
      "date": "2026-04-10",
      "type": "regulatory",
      "title": "HKMA grants stablecoin issuer licence to HSBC"
-    },
-    {
-     "date": "2026-09-30",
-     "type": "announcement",
-     "title": "HSBC names its Hong Kong dollar stablecoin HSBC RedCoin"
     }
    ],
    "issuer": "Hong Kong",
@@ -1079,11 +1064,6 @@
      "date": "2026-09-22",
      "type": "regulatory",
      "title": "Digital Asset Basic Act September public hearing effectively cancelled; FSC now targets a November subcommittee"
-    },
-    {
-     "date": "2026-10-01",
-     "type": "testnet",
-     "title": "BDACS demonstrates a testnet KRW1 to USDC swap through Circle StableFX"
     }
    ],
    "issuer": "South Korea",
@@ -1461,7 +1441,7 @@
    "pegCurrency": "USD",
    "pegType": "peggedUSD",
    "launchPhase": "beta",
-   "launchPhaseDetail": "IC unanimously approved bank-to-bank pilot March 25; risk rated low-to-moderate; 10 local banks interested; cost-neutral model; Fiserv contract negotiations still ongoing (not yet signed). Roughrider will be the first white-label deployment on Fiserv's FIUSD platform (Solana); FIUSD itself slipped from end-2025 to July 2026 (Fiserv CEO, June 3 2026), and that July window passed with no go-live announcement and no mention of FIUSD in Fiserv's Q2 2026 results. As of September 13 2026 the Bank of North Dakota's Roughrider page still describes a not-yet-started beta test under a non-binding, zero-cost agreement with total investment to be determined. No source has announced a start, so Pharos widened the September 2026 expectation to the year on September 13 2026. On October 1 2026 Fiserv announced its digital asset platform live with Roughrider Coin as the first financial-institution use case (VersaBank USA issuer and custodian, Fireblocks infrastructure, Solana), and on October 5 Bank of North Dakota named Gate City Bank, First International Bank & Trust, Capital Credit Union and North Star Community Credit Union as pilot partners in a voluntary, permissioned bank-to-bank pilot with no end date; the coin is not available to the public",
+   "launchPhaseDetail": "IC unanimously approved bank-to-bank pilot March 25; risk rated low-to-moderate; 10 local banks interested; cost-neutral model; Fiserv contract negotiations still ongoing (not yet signed). Roughrider will be the first white-label deployment on Fiserv's FIUSD platform (Solana); FIUSD itself slipped from end-2025 to July 2026 (Fiserv CEO, June 3 2026), and that July window passed with no go-live announcement and no mention of FIUSD in Fiserv's Q2 2026 results. As of September 13 2026 the Bank of North Dakota's Roughrider page still describes a not-yet-started beta test under a non-binding, zero-cost agreement with total investment to be determined. No source has announced a start, so Pharos widened the September 2026 expectation to the year on September 13 2026",
    "expectedLaunchDate": "2026",
    "announcedDate": "2025-10",
    "milestones": [
@@ -1504,16 +1484,6 @@
      "date": "2026-09-27",
      "type": "delay",
      "title": "September pilot window passes with no Roughrider start announced"
-    },
-    {
-     "date": "2026-10-01",
-     "type": "milestone",
-     "title": "Roughrider Coin goes live on Fiserv's digital asset platform"
-    },
-    {
-     "date": "2026-10-05",
-     "type": "partnership",
-     "title": "Bank of North Dakota names four pilot partners for Roughrider Coin"
     }
    ],
    "issuer": "United States",
@@ -1625,11 +1595,6 @@
      "date": "2026-08-03",
      "type": "audit",
      "title": "Q3 2026 audits by Zellic and Verilog published with remediation reports"
-    },
-    {
-     "date": "2026-09-09",
-     "type": "milestone",
-     "title": "tGLD, tBRL and tMXN become swappable through 1inch"
     },
     {
      "date": "2026-09-14",
