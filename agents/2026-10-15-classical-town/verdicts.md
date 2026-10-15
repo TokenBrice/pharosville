@@ -13,3 +13,18 @@ Board: `p2/G1-board.jpg` (commit 3456985a).
   4. Ethereum flag must not cover the Customs House facade from the civic camera.
 
 - **G1 fix loop 1 (commit after 3456985a):** all four fixes applied; board `p2/G1-fix-board.jpg`. Mint smoke still crosses its roof thinly downwind (accepted, revisit at P3 if needed). Fan-out started.
+
+## G2 · civic and offices (2026-10-15)
+
+Board: `p3/G2-board.jpg` (commit a632a8c4). **Approve; fix sightlines.** Accept the +10k tris / +190 KB over the old
+civic set. Fix after P4: Tron must show its facade to the camera and be clear of trees; Storm Station and Harbourmaster
+must not be hidden by walls / neighbouring lots.
+
+## G4 · vegetation and seasons (2026-10-15)
+
+Board: `p5/G4-board.jpg`. **Approve as is** (species mix, ~77% evergreen crown area, reduced snow on flat pine crowns).
+
+## G6a · ancient fleet forms (2026-10-15)
+
+Board: `p7a/G6a-board.jpg` (commit c43ad92b). **Approve; polish in P7b:** sculpt the hippos horse-head prow, enlarge the
+painted eyes, strengthen the brailed bundle on the LODs.
