@@ -64,6 +64,18 @@ export function snowSlopeOf(up: number, snowCover: number, leaf: boolean): numbe
   const lo = (leaf ? s.leafLo : s.lo) - s.give * snowCover, hi = (leaf ? s.leafHi : s.hi) - s.give * snowCover;
   return THREE.MathUtils.smoothstep(up, lo, hi);
 }
+/**
+ * Share of the snow cover a leaf keeps (mirrors hbWeather's cover factor): leaves hold less than ground (0.55), and the
+ * broad, flat evergreen crowns (pattern 14: umbrella pine, olive) hold less again, so a winter wood stays a dark
+ * mass under snow-capped tops instead of whitening into the ground.
+ */
+export const SNOW_LEAF_KEEP = 0.55;
+export const SNOW_CROWN_KEEP = 0.6;
+export function leafSnowKeepOf(pid: number): number {
+  const leaf = Math.abs(pid - PATTERN_LEAF) <= 0.25 || Math.abs(pid - PATTERN_LEAF_EVERGREEN) <= 0.25;
+  if (!leaf) return 1;
+  return SNOW_LEAF_KEEP * (Math.abs(pid - PATTERN_LEAF_EVERGREEN) <= 0.25 ? SNOW_CROWN_KEEP : 1);
+}
 /** Wall patterns that grow icicles under a snowy eave: plain (marble, trim), boards, render (stucco, limewash). */
 export const ICICLE_WALL_PATTERNS = [0, 1, 10] as const;
 
@@ -402,7 +414,8 @@ void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, flo
     // conifers are dusted (the snow sits on the tiers' tops), not buried
     float lo = mix(${SNOW_SLOPE.lo.toFixed(2)}, ${SNOW_SLOPE.leafLo.toFixed(2)}, leaf), hi = mix(${SNOW_SLOPE.hi.toFixed(2)}, ${SNOW_SLOPE.leafHi.toFixed(2)}, leaf);
     float upm = smoothstep(lo - ${SNOW_SLOPE.give.toFixed(2)} * uSnowCover, hi - ${SNOW_SLOPE.give.toFixed(2)} * uSnowCover, up + (n2 - 0.5) * 0.14 * hbFine(dW, 0.4));
-    float cover = uSnowCover * (1.0 - trod) * (1.0 - 0.45 * leaf);
+    float cover = uSnowCover * (1.0 - trod) * (1.0 - ${(1 - SNOW_LEAF_KEEP).toFixed(2)} * leaf);
+    cover *= 1.0 - ${(1 - SNOW_CROWN_KEEP).toFixed(2)} * hbIs(pid, ${PATTERN_LEAF_EVERGREEN.toFixed(1)});   // flat evergreen crowns: snow-capped, not buried
     #ifdef USE_BATCHING
       cover *= 0.4;                                        // hulls under way shed it: a dusting on the decks
     #endif

@@ -88,7 +88,7 @@ function gatherSources(L: HarbourLayout & CivicLayout & LitLayout): Sources {
     berths: (L.piers ?? []).flatMap((p) => p.berths.map((b) => [b.position[0], b.position[2]] as Vec2)),
     reef, fire, mint: m ? [m[0], m[1] + 12, m[2]] : null,
     town: (L.lights ?? []).filter((l) => l.kind === "window").map((l) => [l.position[0], l.position[2]] as Vec2),
-    // the hamlets sit among the island's trees
+    // the cove hamlets sit among the island's groves
     trees: (L.landmarks ?? []).filter((l) => l.id.startsWith("hamlet")).map((l) => [l.position[0], l.position[2]] as Vec2),
   };
 }

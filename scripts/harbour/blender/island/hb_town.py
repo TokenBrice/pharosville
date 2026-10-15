@@ -1,17 +1,13 @@
-"""The Harbour v2 - town: terraced houses (style C base + the fixes: dormers, porches, gutters, finials, shop signs,
-awnings, window variety), the bonded warehouse, hamlet sheds + net lofts, the storm mast, the tide gauge, the windmill.
+"""The Harbour v2 - town: the classical quarter (town houses, courtyard houses, cubic cove houses, horrea, net stores,
+villae rusticae, a boat shed), the bonded warehouse, the storm mast, the tide gauge, the Cycladic windmill.
 P6: the civic buildings (Customs House, Mint, Burn, Shipyard, Registry, ...) are separate models on layout.civic plots.
 exec'd into build_island's namespace."""
 
 set_coll(collection('town', ROOTC))
-TRNG = random.Random(2026)
 WINDOW_GROUPS = []        # (building name, [world points of lit windows]) -> layout lights
 WIN_SPILL = []            # key-art window spill lights (in front of facades)
 NAMED = {}                # runtime-addressable nodes (tide_board, storm_mast, tide_gauge, ...)
 
-WALLS = ['wall_white', 'wall_falu', 'wall_ochre', 'wall_blue', 'wall_mint', 'wall_mustard', 'wall_salmon', 'wall_sage']
-DOORS = ['door_green', 'door_blue', 'door_red']
-SIGN_COLS = ['door_green', 'door_blue', 'door_red', 'wall_ochre', 'hull_blue']
 
 
 def lot_world(lot):
@@ -38,196 +34,18 @@ def collect_windows(root, name):
     return pts
 
 
-def eave_gutters(bm, w, d, H, ridge, ov=0.35, gov=0.3):
-    """Gutters along both eaves + downpipes at the front corners."""
-    if ridge == 'x':
-        for s in (-1, 1):
-            y = s * (d / 2 + ov - 0.05)
-            merge(bm, bm_box2(-w / 2 - gov, y - 0.11, H - ov * 0.9 - 0.06, w / 2 + gov, y + 0.11, H - ov * 0.9 + 0.12))
-        for sx in (-1, 1):
-            merge(bm, bm_box2(sx * (w / 2 - 0.25) - 0.07, -d / 2 - 0.3, 0.3, sx * (w / 2 - 0.25) + 0.07, -d / 2 - 0.16, H - ov * 0.9))
-    else:
-        for s in (-1, 1):
-            x = s * (w / 2 + ov - 0.05)
-            merge(bm, bm_box2(x - 0.11, -d / 2 - gov, H - ov * 0.9 - 0.06, x + 0.11, d / 2 + gov, H - ov * 0.9 + 0.12))
-        for sx in (-1, 1):
-            merge(bm, bm_box2(sx * (w / 2 + 0.12) - 0.07, -d / 2 + 0.2, 0.3, sx * (w / 2 + 0.12) + 0.07, -d / 2 + 0.34, H - ov * 0.9))
-
-
-def house2(name, lot, rng, extra=None):
-    """A town house: C's build_house + dormers, porch hood, gutters, finials, shop sign, awning."""
-    style = lot['style']
-    w, d = lot['w'], lot['d']
-    sides = [f for f, s in (('-x', -1), ('+x', 1)) if not lot.get('nb_' + ('w' if s < 0 else 'e'))]
-    P = dict(w=w, d=d, base=0.7, door='-y', win_faces=['-y'] + sides, chimney=rng.random() < 0.85, chim_side=rng.choice((-1, 1)))
-    if style == 'terrace':
-        floors = rng.choice((2, 2, 3, 3)) if w < 9.2 else rng.choice((2, 3))
-        ridge = 'y' if rng.random() < 0.55 else 'x'
-        P.update(floors=floors, fh=rng.uniform(2.55, 2.85), ridge=ridge, pitch=rng.uniform(42, 52) if ridge == 'y' else rng.uniform(36, 44),
-                 wall=PAL[rng.choice(WALLS)], wall_pat=rng.choice(('boards', 'boards', 'render')),
-                 roof_style=rng.choice(('tiles', 'tiles', 'slate', 'tar')), flowers=rng.random() < 0.6,
-                 shutters=rng.random() < 0.35, shutter_col=PAL[rng.choice(DOORS)], door_col=PAL[rng.choice(DOORS)],
-                 ww=rng.choice((0.75, 0.8, 0.9)), wh=rng.choice((1.05, 1.15, 1.3)), win_pitch=rng.uniform(1.9, 2.4))
-    elif style == 'cottage':
-        ridge = 'x'
-        turf = rng.random() < 0.35
-        P.update(floors=1, fh=3.0, ridge=ridge, pitch=rng.uniform(34, 44), wall=PAL[(extra or {}).get('wall', rng.choice(WALLS))],
-                 wall_pat=rng.choice(('boards', 'render')), roof_style='turf' if turf else rng.choice(('tiles', 'slate')),
-                 flowers=True, door_col=PAL[rng.choice(DOORS)], win_pitch=2.3)
-    elif style == 'hamlet':
-        ridge = rng.choice(('x', 'y'))
-        P.update(floors=rng.choice((1, 1, 2)), fh=2.7, ridge=ridge, pitch=rng.uniform(38, 48), wall=PAL[extra.get('wall', rng.choice(WALLS))] if extra else PAL[rng.choice(WALLS)],
-                 wall_pat='boards', roof_style=rng.choice(('tar', 'tiles', 'turf')), flowers=rng.random() < 0.4,
-                 door_col=PAL[rng.choice(DOORS)], win_pitch=2.2, chimney=rng.random() < 0.5)
-    elif style == 'loft':
-        ridge = 'y'
-        P.update(floors=2, fh=2.9, ridge=ridge, pitch=50, wall=PAL[(extra or {}).get('wall', 'wall_falu')], wall_pat='boards',
-                 roof_style='tar', flowers=False, door_col=PAL['tar'], win_pitch=3.0, chimney=False)
-    elif style == 'farmhouse':
-        ridge = 'x'
-        P.update(floors=rng.choice((1, 2)), fh=2.8, ridge=ridge, pitch=rng.uniform(38, 46), wall=PAL[rng.choice(('wall_falu', 'wall_white', 'wall_ochre'))],
-                 wall_pat='boards', roof_style=rng.choice(('turf', 'tiles', 'slate')), flowers=True, door_col=PAL[rng.choice(DOORS)], win_pitch=2.4)
-    elif style == 'barn':
-        ridge = 'x'
-        P.update(floors=1, fh=4.2, ridge=ridge, pitch=40, wall=PAL['wall_falu'], wall_pat='boards', roof_style='tar', flowers=False,
-                 door_col=PAL['tar'], win_pitch=4.0, chimney=False, win_faces=['-y'])
-    elif style == 'warehouse':
-        ridge = 'y'
-        P.update(w=w, d=d, floors=3, fh=3.1, ridge='y', pitch=50, wall=PAL[rng.choice(('wall_falu', 'wall_ochre', 'wall_falu', 'wall_white', 'wall_mustard'))],
-                 wall_pat='boards', roof_style='tar', flowers=False, door_col=PAL['tar'], win_pitch=3.2, chimney=False,
-                 win_faces=['-y', '+x', '-x'])
-    elif style == 'boathouse':
-        P.update(floors=1, fh=3.3, ridge='y', pitch=rng.uniform(44, 50), wall=PAL[(extra or {}).get('wall', 'wall_falu')], wall_pat='boards',
-                 roof_style=rng.choice(('tar', 'tiles', 'turf')), flowers=False, door_col=PAL['tar'], win_pitch=3.0, chimney=False,
-                 win_faces=['+x', '-x'], base=0.5)
-    if 'roof' not in P:
-        P['roof'] = {'tiles': PAL[rng.choice(('roof_red', 'roof_red', 'roof_ochre'))], 'slate': PAL['roof_slate'],
-                     'tar': PAL['roof_tar'], 'turf': PAL['turf']}[P['roof_style']]
-    face = lot.get('face', (0, -1))
-    rz = math.atan2(-face[0], face[1]) + math.pi if tuple(face) != (0, -1) else 0.0
-    if tuple(face) == (1, 0):
-        rz = math.pi / 2
-    if tuple(face) == (-1, 0):
-        rz = -math.pi / 2
-    root = build_house(name, P, (lot['c'][0], lot['c'][1], lot['z']), rz, seed=rng.randint(0, 10 ** 6), family='house')
-    if style == 'boathouse':        # the big doors on the water gable + a timber run down onto the pebbles
-        bd = bm_box2(-w * 0.33, -d / 2 - 0.12, P['base'] - 0.2, w * 0.33, -d / 2 + 0.05, P['base'] + 2.75)
-        obj(name + '_boatdoor', bd, lin('#3B2E26'), PT['boards'], parent=root, family='house', jitter=0.05)
-        fr_ = bm_box2(-w * 0.36, -d / 2 - 0.16, P['base'] + 2.75, w * 0.36, -d / 2 + 0.05, P['base'] + 3.0)
-        for sx_ in (-1, 1):
-            merge(fr_, bm_box2(sx_ * w * 0.36 - 0.12, -d / 2 - 0.16, P['base'] - 0.2, sx_ * w * 0.36 + 0.12, -d / 2 + 0.05, P['base'] + 2.75))
-        obj(name + '_boatdoor_frame', fr_, PAL['trim'], PT['plain'], parent=root, family='house', jitter=0.0)
-        rp_ = nl_kit.beam((0, -d / 2 + 0.2, P['base'] - 0.05), (0, -d / 2 - 5.5, -1.2), w * 0.5, 0.22)
-        obj(name + '_ramp', rp_, PAL['timber_grey'], PT['boards'], parent=root, family='house', jitter=0.08)
-    H = P['base'] + P['floors'] * P['fh']
-    pitch = math.radians(P['pitch'])
-    span = d if P['ridge'] == 'x' else w
-    rise = span / 2 * math.tan(pitch)
-    zr = H + rise
-    det = bmesh.new(); dark = bmesh.new(); glass = bmesh.new(); gl = []; signs = bmesh.new(); aw = bmesh.new()
-    eave_gutters(dark, w, d, H, P['ridge'])
-    # ridge finials / cresting
-    if P['ridge'] == 'y':
-        for s in (-1, 1):
-            merge(dark, bm_cyl(0.09, 0.0, 1.1, 5, (0, s * (d / 2 + 0.25), zr + 0.1)))
-            merge(dark, bm_sphere(0.14, (0, s * (d / 2 + 0.25), zr + 0.3), 6, 4))
-        if rng.random() < 0.6:     # round attic window in the front gable
-            add_window(det, glass, Vector((0, -d / 2, H + rise * 0.45)), Vector((1, 0, 0)), Vector((0, -1, 0)), 0.55, 0.55,
-                       mull=False, sill=False, rng=rng, lit_p=0.5, gl_list=gl)
-    else:
-        for s in (-1, 1):
-            merge(dark, bm_cyl(0.08, 0.0, 0.9, 5, (s * (w / 2 + 0.25), 0, zr + 0.12)))
-        # dormers on the front slope
-        if P['floors'] >= 2 and rng.random() < 0.7 and w > 7.5:
-            nd = 1 if w < 9.5 else 2
-            for k in range(nd):
-                x = (k + 0.5) / nd * w - w / 2
-                dist = span / 2 * 0.55
-                yb = -math.cos(pitch) * dist; zb = zr - math.sin(pitch) * dist
-                bw_, bh_ = 1.7, 1.6
-                bx = bm_box2(x - bw_ / 2, yb - 0.6, zb - 0.3, x + bw_ / 2, yb + 1.2, zb + bh_)
-                merge(det, bx)
-                rf = bmesh.new()
-                vs = [rf.verts.new(v) for v in ((x - bw_ / 2 - 0.2, yb - 0.75, zb + bh_), (x + bw_ / 2 + 0.2, yb - 0.75, zb + bh_),
-                                                 (x, yb - 0.75, zb + bh_ + 0.9), (x - bw_ / 2 - 0.2, yb + 1.3, zb + bh_),
-                                                 (x + bw_ / 2 + 0.2, yb + 1.3, zb + bh_), (x, yb + 1.3, zb + bh_ + 0.9))]
-                rf.faces.new((vs[0], vs[1], vs[2])); rf.faces.new((vs[3], vs[5], vs[4]))
-                rf.faces.new((vs[0], vs[2], vs[5], vs[3])); rf.faces.new((vs[1], vs[4], vs[5], vs[2]))
-                merge(dark if P['roof_style'] in ('slate', 'tar') else signs, rf)
-                add_window(det, glass, Vector((x, yb - 0.62, zb + 0.65)), Vector((1, 0, 0)), Vector((0, -1, 0)), 0.75, 0.95,
-                           mull=True, sill=False, rng=rng, lit_p=0.55, gl_list=gl)
-    # porch hood over the door (terrace + cottage)
-    if style in ('terrace', 'cottage', 'hamlet', 'farmhouse') and rng.random() < 0.75:
-        nwin = max(1, int((w - 0.6) / (P.get('win_pitch', 2.2))))
-        xs = [(i + 0.5) / nwin * w - w / 2 for i in range(nwin)]
-        xd = xs[nwin // 2]
-        zt = P['base'] + 2.15 + 0.5
-        hood = bmesh.new()
-        vs = [hood.verts.new(v) for v in ((xd - 0.95, -d / 2, zt + 0.55), (xd + 0.95, -d / 2, zt + 0.55), (xd + 0.95, -d / 2 - 1.1, zt),
-                                           (xd - 0.95, -d / 2 - 1.1, zt))]
-        hood.faces.new(vs)
-        bmesh.ops.solidify(hood, geom=hood.faces[:], thickness=0.12)
-        merge(signs, hood)
-        for s in (-1, 1):
-            merge(dark, nl_kit.beam((xd + s * 0.8, -d / 2, zt - 0.6), (xd + s * 0.8, -d / 2 - 0.95, zt + 0.02), 0.08, 0.08))
-    # shop sign + striped awning (quay front row)
-    if lot.get('shop'):
-        sc = PAL[rng.choice(SIGN_COLS)]
-        zs = P['base'] + P['fh'] + 0.35
-        xs_ = rng.choice((-1, 1)) * (w / 2 - 0.5)
-        merge(dark, nl_kit.beam((xs_, -d / 2, zs + 0.6), (xs_, -d / 2 - 1.2, zs + 0.6), 0.07, 0.07))
-        sb = bm_box2(xs_ - 0.04, -d / 2 - 1.15, zs - 0.35, xs_ + 0.04, -d / 2 - 0.35, zs + 0.5)
-        obj(name + '_sign', sb, sc, PT['plain'], parent=root, family='house', jitter=0.0)
-        if rng.random() < 0.8:
-            stripe = PAL[rng.choice(('hull_red', 'door_green', 'hull_blue', 'wall_ochre'))]
-            n_ = max(3, int(w / 0.7))
-            for k in range(n_):
-                x0 = -w / 2 + 0.3 + k * (w - 0.6) / n_
-                b = bm_box2(x0, -d / 2 - 1.5, -0.03, x0 + (w - 0.6) / n_, -d / 2, 0.03)
-                for v in b.verts:
-                    v.co.z += P['base'] + 2.75 + (v.co.y + d / 2) * 0.42
-                merge(aw, b)
-            obj(name + '_awning', aw, face=lambda q, s_=stripe, x00=-w / 2 + 0.3, ww_=(w - 0.6) / n_: (
-                (s_ if int((q.center.x - x00) / ww_) % 2 == 0 else PAL['trim']), PT['plain']), parent=root, family='house', jitter=0.0)
-        else:
-            aw.free()
-    else:
-        aw.free()
-    obj(name + '_details', det, P.get('trim', PAL['trim']), PT['plain'], parent=root, family='house', jitter=0.0)
-    obj(name + '_ironwork', dark, PAL['tar'], PT['metal'], parent=root, family='house', jitter=0.0)
-    if len(signs.faces):
-        obj(name + '_hoods', signs, P['roof'], PT['tiles'] if P['roof_style'] == 'tiles' else PT['plain'], parent=root, family='house')
-    else:
-        signs.free()
-    if gl:
-        glass_obj(name + '_glass2', glass, gl, root, 'house')
-    else:
-        glass.free()
-    if 'chimney_top' in root:      # world position without relying on a depsgraph update
-        CHIMNEYS.append(Matrix.Translation(root.location) @ Matrix.Rotation(root.rotation_euler.z, 4, 'Z') @ Vector(root['chimney_top']))
-    return root
-
-
 # =================================================================== P2 pilot: classical town houses (A + C)
 # The terrace lots in front of the civic quarter (classical-town PLAN §4.4, P2): stucco town houses of 2-3 storeys under
 # low tiled hips or gables (or a roof terrace with a pergola, ~1 in 4), a painted band >= 1.3 m under the eave, board
 # shutters on plain deep-set windows, a kitchen flue (chimney_top); quay-front shops open as arched tabernae with a
-# counter and a linen velarium on free poles. The other lots keep their Nordic house until P4.
+# counter and a linen velarium on free poles. P4: every terrace lot.
 import nl_classical as cl
 CV, CP = cl.cv, cl.cv.PAL
-CLASSICAL_NEAR = ('customs', 'mint', 'registry', 'harbour-office-ethereum')
-CLASSICAL_R = 65.0
 WASHES = ['wash_white', 'wash_cream', 'wash_ochre', 'wash_sienna', 'wash_rose', 'wash_cream', 'wash_white', 'wash_blue']
 BANDS = [('poly_red', 'poly_ochre'), ('poly_blue', 'wash_white'), ('poly_red', 'wash_white')]
 SHUTTERS = ['shutter_blue', 'shutter_green', 'shutter_teal', 'shutter_ox']
 TILES = ['tile_a', 'tile_a', 'tile_b', 'tile_c']
-_CIV_C = [Vector(cv_['c']) for cv_ in CJ['civic'] if cv_['id'] in CLASSICAL_NEAR]
 _LAST_WASH = [None]
-
-
-def is_classical(lot):
-    return lot['style'] == 'terrace' and lot.get('band', 9) <= 1 and \
-        min((Vector(lot['c']) - c).length for c in _CIV_C) < CLASSICAL_R
 
 
 def lot_rz(lot):
@@ -333,12 +151,415 @@ def classical_house(name, lot, rng):
     return root
 
 
-def drop_tree(root):
-    for o in reversed(descendants(root)):
-        me = o.data if o.type == 'MESH' else None
-        bpy.data.objects.remove(o, do_unlink=True)
-        if me is not None and me.users == 0:
-            bpy.data.meshes.remove(me)
+# =================================================================== P4: the rest of the quarter, the coves and the farms
+# (classical-town PLAN §4.4) on the same kit: every lot keeps its footprint; a style is a builder. Each keeps a lit
+# opening on every free face (whichever way it turns to the camera), a kitchen flue (`chimney_top`) where people live,
+# walls in render / plain (the icicle patterns), and no clapboard, slate, tar, turf, dormers, gutters or awnings.
+SHUT_HAMLET = ['shutter_blue', 'shutter_green', 'shutter_teal', 'poly_blue']
+# per-chain cove tint, now a limewash wash over whitewash (the hamlets stay chain-legible but Cycladic)
+HAMLET_WALL = {'pier-hyperliquid-l1': ('wall_mint', 0.55), 'pier-polygon': ('bougain_light', 0.18), 'pier-arbitrum': ('wall_blue', 0.6),
+               'pier-base': ('poly_blue', 0.16), 'pier-solana': ('wall_sage', 0.4), 'pier-bsc': ('wall_ochre', 0.5)}
+OLIVE = [CP['olive_leaf'], CP['olive_dark']]
+
+
+def hamlet_wash(pid):
+    k, t = HAMLET_WALL[pid]
+    return CV.mix(CP['wash_white'], CP[k], t)
+
+
+def pick_wash(rng, keys=WASHES):
+    wk = rng.choice([k for k in keys if k != _LAST_WASH[0]] or keys)
+    _LAST_WASH[0] = wk
+    return CP[wk]
+
+
+def lot_root(name, lot):
+    return empty(name, (lot['c'][0], lot['c'][1], lot['z']), (0, 0, lot_rz(lot)), family='house')
+
+
+def finish(K, name, root, top=None):
+    if top is not None:
+        root['chimney_top'] = tuple(top)
+    cl.kit_objects(K, name, root, family='house')
+    if top is not None:
+        CHIMNEYS.append(Matrix.Translation(root.location) @ Matrix.Rotation(root.rotation_euler.z, 4, 'Z') @ Vector(root['chimney_top']))
+    return root
+
+
+def free_faces(lot, back=True):
+    """(normal, centre-offset sign) of the walls that show: the front, the sides without a neighbour, the back."""
+    out = [(0, -1)]
+    out += [(s, 0) for s, k in ((-1, 'nb_w'), (1, 'nb_e')) if not lot.get(k)]
+    if back:
+        out.append((0, 1))
+    return out
+
+
+def side_windows(K, lot, w, d, z, wash, sh=None, ww=0.65, wh=0.8, n_side=1, back=True, skip_front=True):
+    """Small deep-set openings on the side and back walls (the front is the builder's own)."""
+    for (sx, sy) in free_faces(lot, back):
+        if sy == -1 and skip_front:
+            continue
+        L = d if sx else w
+        for k in range(n_side):
+            u = ((k + 0.5) / n_side - 0.5) * L * 0.6
+            c = (sx * w / 2, u, z) if sx else (u, sy * d / 2, z)
+            CV.plain_window(K, c, (sx, sy, 0), ww, wh, wash, shutter=sh)
+
+
+def bay_door(op, c, n, w, h, col, frame):
+    """A cheap round-headed loading door for long walls: the painted leaf in a flat stone surround (two polygons), for
+    the many bays where the kit's moulded arch_door would cost ~120 triangles each."""
+    t, n, up = CV.frame3(n)
+    c = Vector(c)
+    for (ww, hh, off, cc) in ((w + 0.5, h + 0.25, 0.04, frame), (w, h, 0.07, col)):
+        hs = hh - ww / 2
+        g = c + n * off
+        CV.poly(op, [g + t * ww / 2, g + t * ww / 2 + up * hs] + [g + up * hs + t * (ww / 2 * math.cos(math.pi * k / 6)) + up * (ww / 2 * math.sin(math.pi * k / 6))
+                                                             for k in range(1, 6)] + [g - t * ww / 2 + up * hs, g - t * ww / 2],
+                cc, CV.PT['boards'] if cc is col else 0, nrm=n, jitter=0.0)
+
+
+def court_tree(op, rng, x, y, z):
+    """A small olive in a court: a leaning trunk and a broken grey-green crown (evergreen leaf pattern)."""
+    h = rng.uniform(2.2, 2.8)
+    CV.beam(op, (x, y, z), (x + rng.uniform(-0.4, 0.4), y + rng.uniform(-0.3, 0.3), z + h), 0.26, 0.26, CP['oak_dark'])
+    CV.foliage(op, rng, (x, y, z + h + 0.5), 1.35, OLIVE, 3, 0.55, CV.LEAF_EVERGREEN)
+
+
+def well(op, x, y, z):
+    CV.cyl(op, (x, y), 0.6, 0.6, z, z + 0.75, CP['lime'], CV.PT['ashlar'], 8)
+    CV.cyl(op, (x, y), 0.42, 0.42, z + 0.76, z + 0.77, CP['soot'], 0, 8)
+    for s in (-1, 1):
+        CV.box2(op, x + s * 0.55 - 0.08, y - 0.08, z + 0.7, x + s * 0.55 + 0.08, y + 0.08, z + 2.0, CP['oak_dark'], 0)
+    CV.box2(op, x - 0.7, y - 0.07, z + 1.9, x + 0.7, y + 0.07, z + 2.05, CP['oak_dark'], 0)
+
+
+def courtyard_house(name, lot, rng, wash=None):
+    """Cottage lots: a single-storey L or U round a flagged court with a well and an olive, inward-looking; small high
+    windows and an arched door on the street, low tiled ranges (the front one carries the flue)."""
+    w, d = lot['w'], lot['d']
+    root = lot_root(name, lot)
+    K = CV.Kit(rng.randint(0, 10 ** 6)); K.lit_p = 0.9
+    op = K.op
+    B = 0.5
+    wash = wash or pick_wash(rng)
+    sh = CP[rng.choice(SHUTTERS)]
+    tile = CP[rng.choice(TILES)]
+    E = B + rng.uniform(3.3, 3.7)
+    y0, y1 = -d / 2, d / 2
+    fd = min(3.5, d * 0.46)
+    yf = y0 + fd
+    u_plan = w >= 7.7 and rng.random() < 0.5
+    sw = 2.4 if u_plan else min(3.0, w * 0.38)
+    side = rng.choice((-1, 1))
+    CV.box2(op, -w / 2 - 0.08, y0 - 0.08, -2.0, w / 2 + 0.08, y1 + 0.08, B, CP['sandstone'], CV.PT['ashlar'])
+    # the street range
+    CV.box2(op, -w / 2, y0, B, w / 2, yf, E, wash, CV.PT['render'])
+    if rng.random() < 0.5:
+        rise = CV.tiled_gable(op, -w / 2, y0, w / 2, yf, E, rng.uniform(19.0, 23.0), tile, 'x', ov=0.35, end_col=wash)
+    else:
+        rise = CV.tiled_hip(op, -w / 2, y0, w / 2, yf, E, rng.uniform(20.0, 23.0), tile, ov=0.35)
+    if rng.random() < 0.6:
+        g, k = BANDS[rng.randrange(len(BANDS))]
+        CV.meander(op, (-w / 2, y0), (w / 2, y0), E - 0.95, 0.45, (0, -1, 0), ground=CP[g], key=CP[k], unit=0.8)
+    fx = rng.choice((-1, 1)) * w * 0.25
+    top = CV.flue(op, fx, y0 + fd * 0.35, E + rise * 0.7, h=1.0, col=wash)
+    # the side range(s): lower, their ridges running back from the street range
+    ranges = (-1, 1) if u_plan else (side,)
+    Es = E - 0.45
+    for s in ranges:
+        xa, xb = (-w / 2, -w / 2 + sw) if s < 0 else (w / 2 - sw, w / 2)
+        CV.box2(op, xa, yf, B, xb, y1, Es, wash, CV.PT['render'])
+        CV.tiled_gable(op, xa, yf, xb, y1, Es, 20.0, tile, 'y', ov=0.3, end_col=wash, antefix=None)
+    # court wall: the back and (L plan) the open side, a tile coping on top
+    ca = -w / 2 + (sw if (u_plan or side < 0) else 0.0)
+    cb = w / 2 - (sw if (u_plan or side > 0) else 0.0)
+    CV.box2(op, ca, y1 - 0.35, B, cb, y1, B + 2.2, wash, CV.PT['render'])
+    CV.box2(op, ca - 0.05, y1 - 0.42, B + 2.2, cb + 0.05, y1 + 0.07, B + 2.38, tile, CV.PT['tiles'])
+    if not u_plan:
+        xw = -w / 2 if side > 0 else w / 2 - 0.35
+        CV.box2(op, xw, yf, B, xw + 0.35, y1 - 0.35, B + 2.2, wash, CV.PT['render'])
+        CV.box2(op, xw - 0.07, yf, B + 2.2, xw + 0.42, y1 - 0.35, B + 2.38, tile, CV.PT['tiles'])
+    CV.poly(op, ((ca, yf, B + 0.02), (cb, yf, B + 0.02), (cb, y1 - 0.35, B + 0.02), (ca, y1 - 0.35, B + 0.02)), CP['lime_dark'],
+            CV.PT['cobble'], nrm=(0, 0, 1))
+    cx = (ca + cb) / 2
+    well(op, cx + (cb - ca) * 0.22, yf + 1.1, B)
+    court_tree(op, rng, cx - (cb - ca) * 0.2, (yf + y1) / 2 + 0.3, B)
+    # street front: the door and two small high windows; small openings on the free sides and the back
+    xd = rng.choice((-1, 1)) * w * 0.18
+    CV.arch_door(K, (xd, y0, B), (0, -1, 0), 1.2, 2.6, sh, CP['lime'])
+    for x in (-w / 2 + 1.1, w / 2 - 1.1):
+        if abs(x - xd) > 1.3:
+            CV.plain_window(K, (x, y0, B + 2.15), (0, -1, 0), 0.6, 0.75, wash, shutter=sh if rng.random() < 0.5 else None)
+    for (sx, sy) in free_faces(lot):
+        if sy == -1:
+            continue
+        if sx:
+            CV.plain_window(K, (sx * w / 2, y0 + fd / 2, B + 2.1), (sx, 0, 0), 0.55, 0.7, wash)
+        else:
+            CV.plain_window(K, (cx, y1, B + 1.6), (0, 1, 0), 0.5, 0.6, wash, lit=0.0)
+    if rng.random() < 0.6:
+        CV.pot_plant(op, rng, (-xd * 0.9 + rng.uniform(-0.4, 0.4), y0 - 0.6, 0.0), rng.choice(('bougain', 'vine')))
+    return finish(K, name, root, top)
+
+
+def island_house(name, lot, rng):
+    """Cove hamlets: a whitewashed cube (limewash-tinted per chain) with a flat roof behind a parapet, often a second
+    cube set back on it, an outside stair to the roof, a painted door and shutters, a white flue."""
+    w, d = lot['w'], lot['d']
+    root = lot_root(name, lot)
+    K = CV.Kit(rng.randint(0, 10 ** 6)); K.lit_p = 0.9
+    op = K.op
+    B = 0.35
+    wash = hamlet_wash(lot['pid']) if lot.get('pid') else CP['wash_white']
+    if rng.random() < 0.3:
+        wash = CP['wash_white']
+    door = CP[rng.choice(SHUT_HAMLET)]
+    E1 = B + rng.uniform(3.0, 3.4)
+    CV.box2(op, -w / 2 - 0.1, -d / 2 - 0.1, -2.0, w / 2 + 0.1, d / 2 + 0.1, B, CP['lime'], CV.PT['ashlar'])
+    CV.box2(op, -w / 2, -d / 2, B, w / 2, d / 2, E1, wash, CV.PT['render'])
+    upper = rng.random() < 0.6
+    us = rng.choice((-1, 1))
+    zf = CV.roof_terrace(op, -w / 2, -d / 2, w / 2, d / 2, E1, wash, parapet_h=0.6, cornice=wash,
+                         pergola_canopy=None if upper else rng.choice(('vine', 'bougain', 'bare')), rng=rng)
+    if upper:      # the second cube, set back from the street, on one side
+        ux0, ux1 = (-w / 2 + 0.3, -w / 2 + 0.3 + w * 0.52) if us < 0 else (w / 2 - 0.3 - w * 0.52, w / 2 - 0.3)
+        uy0 = -d / 2 + rng.uniform(1.4, 2.4)
+        E2 = zf + 2.7
+        CV.box2(op, ux0, uy0, zf, ux1, d / 2 - 0.3, E2, wash, CV.PT['render'])
+        CV.box2(op, ux0 - 0.1, uy0 - 0.1, E2, ux1 + 0.1, d / 2 - 0.2, E2 + 0.18, wash, 0)
+        CV.parapet(op, ux0, uy0, ux1, d / 2 - 0.3, E2 + 0.18, 0.4, 0.22, wash)
+        CV.plain_window(K, ((ux0 + ux1) / 2, uy0, zf + 1.5), (0, -1, 0), 0.7, 0.8, wash, shutter=door)
+        top = CV.flue(op, (ux0 + ux1) / 2 + us * 0.5, d / 2 - 1.0, E2 + 0.2, h=1.0, col=wash, cap=wash)
+    else:
+        top = CV.flue(op, rng.choice((-1, 1)) * (w / 2 - 0.8), d / 2 - 0.9, zf, h=1.3, col=wash, cap=wash)
+    # the outside stair up a free side to the roof terrace
+    st = [s for s in (-us, us) if not lot.get('nb_w' if s < 0 else 'nb_e')]
+    if st:
+        sx = st[0]
+        nst = max(6, int((E1 - B) / 0.32))
+        CV.outside_stair(op, sx * w / 2, -d / 2 + 0.6, B, E1, steps=nst, run=min(0.5, (d - 2.6) / nst), width=1.1, side=sx, col=wash)
+    # the street front: door and one or two shuttered openings, a pot by the door
+    xd = rng.choice((-1, 1)) * w * 0.2
+    CV.arch_door(K, (xd, -d / 2, B), (0, -1, 0), 1.1, 2.5, door, CV.mix(wash, CP['lime_dark'], 0.25))
+    for x in (-w / 2 + 1.2, w / 2 - 1.2):
+        if abs(x - xd) > 1.4:
+            CV.plain_window(K, (x, -d / 2, B + 1.7), (0, -1, 0), 0.7, 0.85, wash, shutter=door, closed=rng.random() < 0.12)
+    side_windows(K, lot, w, d, B + 1.8, wash, door)
+    if rng.random() < 0.7:
+        CV.pot_plant(op, rng, (xd + rng.choice((-1, 1)) * 1.1, -d / 2 - 0.55, B - 0.1), rng.choice(('bougain', 'bougain', 'vine')))
+    return finish(K, name, root, top)
+
+
+def horreum(name, lot, rng):
+    """Warehouse lots: a long stuccoed store on an ashlar base, gable to the water under a low tiled roof, an arched
+    loading door per bay on the free sides, slit windows high, a hoist beam in the gable. Tron's stores are red ochre."""
+    w, d = lot['w'], lot['d']
+    root = lot_root(name, lot)
+    K = CV.Kit(rng.randint(0, 10 ** 6)); K.lit_p = 0.75
+    op = K.op
+    B = 0.6
+    tron = lot.get('chain') == 'Tron'
+    wall = CV.mix(CP['wash_sienna'], CP['poly_red'], 0.4) if tron else pick_wash(rng, ['stone', 'wash_cream', 'wash_ochre', 'lime',
+                                                                                        'stone_rose'])
+    tile = CV.mix(CP['tile_c'] if tron else CP[rng.choice(TILES)], CP['terracotta'], 0.6)      # long shaded slopes: a warmer tile
+    E = B + rng.uniform(6.4, 7.2)
+    CV.box2(op, -w / 2 - 0.12, -d / 2 - 0.12, -2.0, w / 2 + 0.12, d / 2 + 0.12, B + 1.1, CP['sandstone'], CV.PT['ashlar'])
+    CV.box2(op, -w / 2, -d / 2, B + 1.1, w / 2, d / 2, E, wall, CV.PT['render'])
+    CV.box2(op, -w / 2 - 0.1, -d / 2 - 0.1, B + 3.6, w / 2 + 0.1, d / 2 + 0.1, B + 3.85, CP['lime'], 0)      # string course
+    if rng.random() < 0.5:
+        rise = CV.tiled_gable(op, -w / 2, -d / 2, w / 2, d / 2, E, rng.uniform(18.0, 21.0), tile, 'y', ov=0.45, end_col=wall)
+        CV.box2(op, -w / 2 - 0.2, -d / 2 - 0.25, E - 0.25, w / 2 + 0.2, -d / 2 + 0.05, E, CP['lime'], 0)        # gable cornice
+    else:      # a hipped store: one slope always takes the sun
+        CV.tiled_hip(op, -w / 2, -d / 2, w / 2, d / 2, E, rng.uniform(19.0, 22.0), tile, ov=0.45)
+        rise = 0.0           # no gable: the hoist beam comes out under the eave
+    # the water gable: the great loading arch, a lit opening over it, two slits, the hoist beam at the apex
+    CV.arch_door(K, (0, -d / 2, B), (0, -1, 0), 2.6, 3.9, CP['oak_dark'], CP['lime'], step=False)
+    CV.plain_window(K, (0, -d / 2, E - 1.2), (0, -1, 0), 0.9, 1.1, wall, arch=True, sill=False)
+    for s in (-1, 1):
+        CV.plain_window(K, (s * w * 0.3, -d / 2, B + 5.0), (0, -1, 0), 0.38, 1.15, wall, sill=False)
+        CV.plain_window(K, (s * w * 0.3, -d / 2, B + 2.4), (0, -1, 0), 0.38, 1.0, wall, sill=False, lit=0.0)
+    CV.beam(op, (0, -d / 2 + 0.5, E + rise * 0.72), (0, -d / 2 - 1.6, E + rise * 0.72), 0.28, 0.3, CP['oak_dark'])
+    CV.beam(op, (0, -d / 2 - 1.45, E + rise * 0.72), (0, -d / 2 - 1.45, B + 4.6), 0.04, 0.04, CP['oak_dark'])
+    # the loading bays down each free side
+    nb = 3
+    for (sx, sy) in free_faces(lot, back=False):
+        if not sx:
+            continue
+        for k in range(nb):
+            y = ((k + 0.5) / nb - 0.5) * d * 0.86
+            bay_door(op, (sx * w / 2, y, B + 1.1), (sx, 0, 0), 1.8, 2.9, CP['oak_dark'] if k != 1 else CP['timber_grey'], CP['lime'])
+            CV.plain_window(K, (sx * w / 2, y, B + 5.0), (sx, 0, 0), 0.38, 1.1, wall, sill=False)
+    CV.plain_window(K, (0, d / 2, B + 5.0), (0, 1, 0), 0.5, 1.0, wall, sill=False)
+    return finish(K, name, root)
+
+
+def net_store(name, lot, rng):
+    """Loft lots: a stone ground floor with an arched door, an open timber loft over it (nets and a furled sail hanging
+    under the tiles), gable to the water."""
+    w, d = lot['w'], lot['d']
+    root = lot_root(name, lot)
+    K = CV.Kit(rng.randint(0, 10 ** 6)); K.lit_p = 0.85
+    op = K.op
+    B = 0.4
+    stone = CV.mix(CP['stone_dark'], hamlet_wash(lot['pid']) if lot.get('pid') else CP['stone'], 0.35)
+    tile = CP[rng.choice(TILES)]
+    E1 = B + 3.0
+    E2 = E1 + 2.5
+    CV.box2(op, -w / 2 - 0.1, -d / 2 - 0.1, -2.0, w / 2 + 0.1, d / 2 + 0.1, B, CP['sandstone'], CV.PT['ashlar'])
+    CV.box2(op, -w / 2, -d / 2, B, w / 2, d / 2, E1, stone, CV.PT['render'])
+    CV.box2(op, -w / 2 - 0.3, -d / 2 - 0.35, E1, w / 2 + 0.3, d / 2 + 0.3, E1 + 0.22, CP['oak_dark'], CV.PT['planks_x'])
+    for x in (-w / 2 + 0.15, 0.0, w / 2 - 0.15):               # loft posts and the boarded back
+        for y in (-d / 2 + 0.15, -d / 6, d / 6, d / 2 - 0.15):
+            if x == 0.0 and abs(y) < d / 2 - 0.2:
+                continue
+            CV.box2(op, x - 0.13, y - 0.13, E1 + 0.22, x + 0.13, y + 0.13, E2, CP['oak_dark'], CV.PT['boards'])
+    CV.box2(op, -w / 2 + 0.1, d / 2 - 0.2, E1 + 0.22, w / 2 - 0.1, d / 2 - 0.05, E2, CP['timber_grey'], CV.PT['boards'])
+    for s in (-1, 1):                                           # rail beams along the sides
+        CV.box2(op, s * w / 2 - 0.1, -d / 2, E1 + 1.0, s * w / 2 + 0.1, d / 2, E1 + 1.15, CP['oak_dark'], 0)
+        CV.box2(op, s * w / 2 - 0.1, -d / 2, E2 - 0.2, s * w / 2 + 0.1, d / 2, E2, CP['oak_dark'], 0)
+    CV.tiled_gable(op, -w / 2, -d / 2, w / 2, d / 2, E2, rng.uniform(20.0, 23.0), tile, 'y', ov=0.5, end_col=CP['timber_grey'],
+                   end_pat=CV.PT['boards'])
+    # nets and a furled sail on the loft beams (visible through the open sides)
+    for k in range(3):
+        y = -d / 2 + 1.2 + k * (d - 2.4) / 2
+        CV.box2(op, -w / 2 + 0.4, y - 0.12, E1 + 0.8, w / 2 - 0.4, y + 0.12, E2 - 0.3, lin('#5E6E50') if k != 1 else lin('#7A5A3A'), 0)
+    CV.cyl(op, (0, 0), 0.32, 0.32, E1 + 0.25, E1 + 0.9, CP['linen'], 0, 6)
+    for k in range(5):
+        CV.sphere(op, (rng.uniform(-w / 2 + 0.6, w / 2 - 0.6), rng.uniform(-d / 2 + 0.6, d / 2 - 0.6), E1 + 0.4), 0.18, CP['wash_ochre'], 5, 3)
+    # ground floor: the door to the water, a lit opening, side windows
+    CV.arch_door(K, (0, -d / 2, B), (0, -1, 0), 1.9, 2.75, CP['oak_dark'], CP['lime'], step=False)
+    CV.plain_window(K, (w / 2 - 1.0 if rng.random() < 0.5 else -w / 2 + 1.0, -d / 2, B + 1.7), (0, -1, 0), 0.55, 0.7, stone, sill=False)
+    side_windows(K, lot, w, d, B + 1.7, stone, ww=0.55, wh=0.7)
+    return finish(K, name, root)
+
+
+def villa_rustica(name, lot, rng):
+    """Farmhouse lots: a two-storey ochre or cream farmhouse under a low hip, a timber portico along the front on stone
+    footings, shutters, a painted band, the kitchen flue."""
+    w, d = lot['w'], lot['d']
+    root = lot_root(name, lot)
+    K = CV.Kit(rng.randint(0, 10 ** 6)); K.lit_p = 0.85
+    op = K.op
+    B = 0.6
+    pd = 2.2                     # the portico eats into the lot's front
+    y0 = -d / 2 + pd
+    wash = pick_wash(rng, ['wash_ochre', 'wash_cream', 'wash_sienna', 'wash_rose'])
+    sh = CP[rng.choice(SHUTTERS)]
+    tile = CP[rng.choice(TILES)]
+    fh = 3.0
+    E = B + 2 * fh
+    CV.box2(op, -w / 2 - 0.1, -d / 2 - 0.1, -2.0, w / 2 + 0.1, d / 2 + 0.1, B, CP['sandstone'], CV.PT['ashlar'])
+    CV.box2(op, -w / 2, y0, B, w / 2, d / 2, E, wash, CV.PT['render'])
+    rise = CV.tiled_hip(op, -w / 2, y0, w / 2, d / 2, E, rng.uniform(20.0, 23.0), tile, ov=0.45)
+    g, k = BANDS[rng.randrange(len(BANDS))]
+    CV.meander(op, (-w / 2, y0), (w / 2, y0), E - 1.25, 0.5, (0, -1, 0), ground=CP[g], key=CP[k])
+    top = CV.flue(op, w * 0.22, (y0 + d / 2) / 2 + 0.6, E + rise * 0.8, h=1.2, col=wash)
+    # the portico: four oak posts on stone footings, a lean-to tiled roof against the front wall
+    for i in range(4):
+        x = -w / 2 + 0.5 + i * (w - 1.0) / 3
+        CV.box2(op, x - 0.3, -d / 2 + 0.05, B, x + 0.3, -d / 2 + 0.65, B + 0.5, CP['lime'], CV.PT['ashlar'])
+        CV.box2(op, x - 0.14, -d / 2 + 0.21, B + 0.5, x + 0.14, -d / 2 + 0.49, B + 2.85, CP['oak_dark'], CV.PT['boards'])
+    CV.box2(op, -w / 2 + 0.2, -d / 2 + 0.15, B + 2.85, w / 2 - 0.2, -d / 2 + 0.55, B + 3.1, CP['oak_dark'], 0)
+    CV.lean_to(op, -w / 2 + 0.2, w / 2 - 0.2, -d / 2 + 0.2, B + 3.1, y0, B + 3.75, tile)
+    CV.poly(op, ((-w / 2, -d / 2 + 0.1, B + 0.02), (w / 2, -d / 2 + 0.1, B + 0.02), (w / 2, y0, B + 0.02), (-w / 2, y0, B + 0.02)),
+            CP['tile_c'], CV.PT['cobble'], nrm=(0, 0, 1))
+    xs = [-w * 0.32, 0.0, w * 0.32]
+    CV.arch_door(K, (0.0, y0, B), (0, -1, 0), 1.3, 2.7, sh, CP['lime'], step=False)
+    for x in xs:
+        if x:
+            CV.plain_window(K, (x, y0, B + 1.6), (0, -1, 0), 0.8, 1.0, wash, shutter=sh)
+        CV.plain_window(K, (x, y0, B + fh + 1.5), (0, -1, 0), 0.75, 0.95, wash, shutter=sh, closed=rng.random() < 0.15)
+    for (sx, sy) in free_faces(lot):
+        if sy == -1:
+            continue
+        if sx:
+            CV.plain_window(K, (sx * w / 2, (y0 + d / 2) / 2, B + fh + 1.5), (sx, 0, 0), 0.7, 0.9, wash, shutter=sh)
+            CV.plain_window(K, (sx * w / 2, (y0 + d / 2) / 2, B + 1.6), (sx, 0, 0), 0.7, 0.9, wash)
+        else:
+            CV.plain_window(K, (-w * 0.2, d / 2, B + fh + 1.5), (0, 1, 0), 0.7, 0.9, wash)
+    return finish(K, name, root, top)
+
+
+def barn_press(name, lot, rng):
+    """Barn lots: a long tiled stone barn with a great arched door, slit windows, and an open olive-press shed at one end
+    (a stone basin, the upright millstone and the press beam under a lean-to)."""
+    w, d = lot['w'], lot['d']
+    root = lot_root(name, lot)
+    K = CV.Kit(rng.randint(0, 10 ** 6)); K.lit_p = 0.7
+    op = K.op
+    B = 0.4
+    stone = pick_wash(rng, ['stone', 'lime', 'stone_rose'])
+    tile = CP[rng.choice(TILES)]
+    s = rng.choice((-1, 1))
+    sw = 4.0
+    xa, xb = (-w / 2, w / 2 - sw) if s > 0 else (-w / 2 + sw, w / 2)
+    E = B + 4.6
+    CV.box2(op, -w / 2 - 0.1, -d / 2 - 0.1, -2.0, w / 2 + 0.1, d / 2 + 0.1, B, CP['sandstone'], CV.PT['ashlar'])
+    CV.box2(op, xa, -d / 2, B, xb, d / 2, E, stone, CV.PT['render'])
+    CV.tiled_gable(op, xa, -d / 2, xb, d / 2, E, rng.uniform(19.0, 22.0), tile, 'x', ov=0.45, end_col=stone)
+    xm = (xa + xb) / 2
+    CV.arch_door(K, (xm, -d / 2, B), (0, -1, 0), 2.8, 3.8, CP['oak_dark'], CP['lime'], step=False)
+    for x in (xa + 1.3, xb - 1.3):
+        CV.plain_window(K, (x, -d / 2, B + 3.2), (0, -1, 0), 0.35, 1.0, stone, sill=False)
+    xo = xb if s > 0 else xa
+    CV.plain_window(K, (xo, 0.0, B + 3.0), (s, 0, 0), 0.6, 0.75, stone, sill=False)
+    CV.plain_window(K, (xm, d / 2, B + 3.0), (0, 1, 0), 0.6, 0.75, stone, sill=False)
+    CV.plain_window(K, (-xo, 0.0, B + 3.0), (-s, 0, 0), 0.35, 1.0, stone, sill=False)
+    # the press shed: posts on the open side, a lean-to against the barn's end wall
+    xs0, xs1 = (xb, w / 2) if s > 0 else (-w / 2, xa)
+    xe = xs1 if s > 0 else xs0
+    for y in (-d / 2 + 0.3, 0.0, d / 2 - 0.3):
+        CV.box2(op, xe - s * 0.3 - 0.13, y - 0.13, B, xe - s * 0.3 + 0.13, y + 0.13, B + 2.7, CP['oak_dark'], CV.PT['boards'])
+    CV.box2(op, xs0, -d / 2, B, xs1, d / 2, B + 0.06, CP['lime_dark'], CV.PT['cobble'])
+    # a lean-to along the barn end: modelled as a low gable half (the kit's lean_to runs along y, so rotate by axes)
+    zt, zl = E - 0.5, B + 2.9
+    xi, xo2 = (xb, w / 2 + 0.4) if s > 0 else (xa, -w / 2 - 0.4)
+    CV.poly(op, ((xi, -d / 2 - 0.4, zt), (xo2, -d / 2 - 0.4, zl), (xo2, d / 2 + 0.4, zl), (xi, d / 2 + 0.4, zt)), tile, CV.PT['tiles'],
+            nrm=(s, 0, 1))
+    CV.poly(op, ((xo2, -d / 2 - 0.4, zl - 0.2), (xo2, d / 2 + 0.4, zl - 0.2), (xo2, d / 2 + 0.4, zl), (xo2, -d / 2 - 0.4, zl)),
+            CP['tile_ridge'], 0, nrm=(s, 0, 0))
+    cx = (xs0 + xs1) / 2
+    CV.cyl(op, (cx, 0.4), 1.25, 1.2, B, B + 0.8, CP['lime'], CV.PT['ashlar'], 10)
+    CV.disc(op, (cx, 0.4, B + 1.55), (1, 0, 0), 0.75, 0.35, CP['stone_dark'], 10)
+    CV.beam(op, (cx, 0.4, B + 0.8), (cx, 0.4, B + 2.6), 0.22, 0.22, CP['oak_dark'])
+    CV.beam(op, (cx - 1.2, 0.4, B + 2.0), (cx + 1.2, 0.4, B + 2.0), 0.18, 0.18, CP['oak_dark'])
+    for k in range(3):
+        CV.amphora(op, (cx - 0.9 + k * 0.6, -d / 2 + 0.8, B), 0.9)
+    return finish(K, name, root)
+
+
+def boat_shed(name, lot, rng):
+    """The boathouse: a stone shed under a tiled roof, its gable to the water opened by one tall arch over the slip, a
+    lit opening in the gable, a timber run down onto the pebbles."""
+    w, d = lot['w'], lot['d']
+    root = lot_root(name, lot)
+    K = CV.Kit(rng.randint(0, 10 ** 6)); K.lit_p = 0.85
+    op = K.op
+    B = 0.3
+    stone = CV.mix(CP['stone'], hamlet_wash(lot['pid']) if lot.get('pid') else CP['stone'], 0.4)
+    tile = CP[rng.choice(TILES)]
+    E = B + 4.2
+    CV.box2(op, -w / 2 - 0.1, -d / 2 + 0.4, -2.0, w / 2 + 0.1, d / 2 + 0.1, B, CP['sandstone'], CV.PT['ashlar'])
+    for s in (-1, 1):
+        CV.box2(op, s * w / 2 - (0.45 if s > 0 else 0), -d / 2 + 0.6, B, s * w / 2 + (0.45 if s < 0 else 0), d / 2, E, stone, CV.PT['render'])
+    CV.box2(op, -w / 2, d / 2 - 0.45, B, w / 2, d / 2, E, stone, CV.PT['render'])
+    CV.arcade(op, -w / 2, w / 2, -d / 2 + 0.6, 0.5, B - 0.4, E, 1, 0.9, B + 1.6, stone, CV.PT['render'], intr=CP['lime_dark'],
+              keystone=CP['lime'])
+    CV.poly(op, ((-w / 2 + 0.45, -d / 2 + 1.1, B + 0.2), (w / 2 - 0.45, -d / 2 + 1.1, B + 0.2), (w / 2 - 0.45, d / 2 - 0.45, B + 0.2),
+                 (-w / 2 + 0.45, d / 2 - 0.45, B + 0.2)), CP['interior'], 0, nrm=(0, 0, 1))
+    CV.box2(op, -w / 2 + 0.45, d / 2 - 0.6, B, w / 2 - 0.45, d / 2 - 0.45, E, CP['interior'], 0)
+    CV.tiled_gable(op, -w / 2, -d / 2 + 0.6, w / 2, d / 2, E, 21.0, tile, 'y', ov=0.45, end_col=stone)
+    CV.plain_window(K, (0, -d / 2 + 0.6, E + 0.6), (0, -1, 0), 0.6, 0.6, stone, arch=True, sill=False, lit=0.9)
+    for s in (-1, 1):
+        CV.plain_window(K, (s * w / 2, 0.8, B + 2.4), (s, 0, 0), 0.5, 0.7, stone, sill=False)
+    CV.beam(op, (0, -d / 2 + 1.2, B + 0.1), (0, -d / 2 - 5.0, -1.2), w * 0.45, 0.22, CP['timber_grey'], CV.PT['boards'])
+    return finish(K, name, root)
+
+
+STYLE_BUILD = {'cottage': courtyard_house, 'hamlet': island_house, 'warehouse': horreum, 'loft': net_store, 'farmhouse': villa_rustica,
+               'barn': barn_press, 'boathouse': boat_shed}
 
 
 CHIMNEYS = []
@@ -354,21 +575,16 @@ for la in LOTS_:
         along_ = dv.dot(sd); perp_ = dv.dot(f)
         if abs(perp_) < 2.5 and abs(along_) - (la['w'] + lb['w']) / 2 < 0.8 and abs(along_) > 0.5:
             la['nb_e' if along_ > 0 else 'nb_w'] = True
-HAMLET_WALL = {'pier-hyperliquid-l1': 'wall_mint', 'pier-polygon': 'wall_white', 'pier-arbitrum': 'wall_blue',
-               'pier-base': 'wall_falu', 'pier-solana': 'wall_sage', 'pier-bsc': 'wall_ochre'}
 for i, lot in enumerate(LOTS_):
+    i = lot.get('seed', i)                 # the lot's index before compose dropped the sightline lots
     nm = f"{lot['style']}_{i:03d}"
-    extra = None
-    if lot.get('pid') and lot['style'] in ('hamlet', 'loft', 'cottage', 'boathouse'):
-        extra = dict(wall=HAMLET_WALL[lot['pid']])
-        if lot['style'] != 'loft' and TRNG.random() < 0.45:
-            extra['wall'] = TRNG.choice(WALLS)
-    root = house2(nm, lot, TRNG, extra)
-    if is_classical(lot):      # the Nordic house still draws from TRNG, so every other lot keeps its look
-        if 'chimney_top' in root:
-            CHIMNEYS.pop()
-        drop_tree(root)
-        root = classical_house(nm, lot, random.Random(7000 + i))
+    rng = random.Random(7000 + i)          # per lot: the P2 terrace row keeps its look
+    if lot['style'] == 'terrace':
+        root = classical_house(nm, lot, rng)
+    elif lot['style'] == 'cottage' and lot.get('pid') and rng.random() < 0.5:
+        root = courtyard_house(nm, lot, rng, hamlet_wash(lot['pid']))
+    else:
+        root = STYLE_BUILD[lot['style']](nm, lot, rng)
     BUILDINGS.append((nm, root))
     bpy.context.view_layer.update()
     collect_windows(root, nm)
@@ -377,10 +593,6 @@ bpy.context.view_layer.update()
 
 
 # =================================================================== LANDMARK BUILDINGS
-def stone_block(name, x0, y0, z0, x1, y1, z1, col='granite', pat='ashlar', parent=None, bevel=0.05):
-    return obj(name, bm_box2(x0, y0, z0, x1, y1, z1), PAL[col], PT[pat], parent=parent, bevel=bevel, family='landmark')
-
-
 def hip_roof(name, x0, y0, x1, y1, z, rise, col, pat, parent=None, ov=0.4):
     bm = bmesh.new()
     x0 -= ov; y0 -= ov; x1 += ov; y1 += ov
@@ -402,22 +614,6 @@ def hip_roof(name, x0, y0, x1, y1, z, rise, col, pat, parent=None, ov=0.4):
     return obj(name, bm, col, pat, parent=parent, family='landmark', jitter=0.03)
 
 
-def facade_windows(name, parent, x0, x1, y, z_rows, ww=0.9, wh=1.5, pitch=2.4, lit_p=0.7, n=(0, -1, 0), rng=None, skip=None):
-    trim = bmesh.new(); glass = bmesh.new(); gl = []
-    t = Vector((1, 0, 0)) if abs(n[1]) > 0.5 else Vector((0, 1, 0))
-    nn = Vector(n)
-    k = max(1, int((x1 - x0) / pitch))
-    for zc in z_rows:
-        for i in range(k):
-            xc = x0 + (i + 0.5) * (x1 - x0) / k
-            if skip and skip(i, zc):
-                continue
-            c = Vector((xc, y, zc)) if abs(n[1]) > 0.5 else Vector((y, xc, zc))
-            add_window(trim, glass, c, t, nn, ww, wh, rng=rng or TRNG, lit_p=lit_p, gl_list=gl)
-    obj(name + '_wtrim', trim, PAL['trim'], PT['plain'], parent=parent, family='landmark', jitter=0.0)
-    glass_obj(name + '_wglass', glass, gl, parent, 'landmark')
-
-
 def face_rz(face):
     return math.atan2(face[0], -face[1])
 
@@ -435,23 +631,31 @@ LM = CJ['landmarks']
 zq = Z_SHORE
 wp = LM['warehouse']['p']
 wh_ = make_root('bonded_warehouse', wp, zq, face_rz(LM['warehouse']['face']))
-stone_block('warehouse_body', -9, -11, -1.5, 9, 11, 12.0, 'wall_falu', 'boards', wh_, bevel=0.0)
-stone_block('warehouse_plinth', -9.2, -11.2, -1.5, 9.2, 11.2, 1.0, 'granite', 'ashlar', wh_)
-wr = bmesh.new()
-vs = [wr.verts.new(v) for v in ((-9.5, -11.4, 12.0), (9.5, -11.4, 12.0), (0, -11.4, 19.0), (-9.5, 11.4, 12.0), (9.5, 11.4, 12.0), (0, 11.4, 19.0))]
-wr.faces.new((vs[0], vs[2], vs[5], vs[3])); wr.faces.new((vs[1], vs[4], vs[5], vs[2]))
-obj('warehouse_roof', wr, PAL['roof_tar'], PT['boards'], parent=wh_, family='landmark')
-gb = bmesh.new()
-vs = [gb.verts.new(v) for v in ((-9.0, -11.0, 12.0), (9.0, -11.0, 12.0), (0, -11.0, 18.6))]
-gb.faces.new(vs)
-obj('warehouse_gable', gb, PAL['wall_falu'], PT['boards'], parent=wh_, family='landmark')
-lod = bmesh.new()
-for z_ in (1.0, 4.6, 8.2):
-    merge(lod, bm_box2(-1.4, -11.15, z_, 1.4, -10.95, z_ + 2.6))
-merge(lod, nl_kit.beam((0, -11.0, 15.4), (0, -13.6, 15.4), 0.3, 0.3))
-obj('warehouse_doors', lod, PAL['tar'], PT['boards'], parent=wh_, family='landmark')
-facade_windows('warehouse', wh_, -8, 8, -11.0, (2.4, 6.0, 9.6), ww=0.8, wh=1.2, pitch=3.2, skip=lambda i, z: i in (2, 3))
-facade_windows('warehouse_s', wh_, -10, 10, -9.05, (2.4, 6.0, 9.6), ww=0.8, wh=1.2, pitch=3.0, n=(-1, 0, 0))
+# classical-town P4: the great horreum of the basin - stucco over an ashlar base, string courses, a low tiled gable to the
+# water with a cornice, three storeys of deep-set openings, an arched loading door per floor bay and the hoist beam
+K_ = CV.Kit(4411); K_.lit_p = 0.7
+op_ = K_.op
+whc = CP['wash_ochre']
+CV.box2(op_, -9.2, -11.2, -1.5, 9.2, 11.2, 1.6, CP['sandstone'], CV.PT['ashlar'])
+CV.box2(op_, -9.0, -11.0, 1.6, 9.0, 11.0, 10.6, whc, CV.PT['render'])
+for zc in (4.6, 7.8):
+    CV.box2(op_, -9.1, -11.1, zc, 9.1, 11.1, zc + 0.25, CP['lime'], 0)
+rise_ = CV.tiled_gable(op_, -9.0, -11.0, 9.0, 11.0, 10.6, 19.0, CP['tile_a'], 'y', ov=0.5, end_col=whc)
+CV.box2(op_, -9.3, -11.35, 10.35, 9.3, -10.9, 10.6, CP['lime'], 0)
+CV.meander(op_, (-9.0, -11.0), (9.0, -11.0), 9.4, 0.6, (0, -1, 0), ground=CP['poly_red'], key=CP['poly_ochre'])
+for zb_, hh in ((0.0, 3.8), (4.85, 2.7), (8.05, 2.2)):
+    CV.arch_door(K_, (0, -11.0, zb_ + (1.6 if zb_ == 0.0 else 0.0)), (0, -1, 0), 2.4 if zb_ == 0.0 else 1.8, hh, CP['oak_dark'], CP['lime'],
+                 step=False)
+for x in (-6.0, -3.2, 3.2, 6.0):
+    for zw in (3.0, 6.2, 9.0):
+        CV.plain_window(K_, (x, -11.0, zw), (0, -1, 0), 0.7, 1.0 if zw < 9 else 0.8, whc)
+for s in (-1, 1):
+    for y in (-7.5, -2.5, 2.5, 7.5):
+        CV.plain_window(K_, (s * 9.0, y, 7.6), (s, 0, 0), 0.6, 0.9, whc)
+        bay_door(op_, (s * 9.0, y, 1.6), (s, 0, 0), 1.8, 2.8, CP['oak_dark'], CP['lime'])
+CV.beam(op_, (0, -10.5, 10.6 + rise_ * 0.7), (0, -13.4, 10.6 + rise_ * 0.7), 0.3, 0.32, CP['oak_dark'])
+CV.beam(op_, (0, -13.2, 10.6 + rise_ * 0.7), (0, -13.2, 5.6), 0.05, 0.05, CP['oak_dark'])
+cl.kit_objects(K_, 'warehouse', wh_, family='landmark')
 collect_windows(wh_, 'warehouse')
 
 # P6 (D15): the Pharos is the Alexandria tower on its islet (public/harbour/lighthouse.glb, its own builder); the old headland
@@ -466,10 +670,10 @@ NAMED['storm_mast'] = sm
 b_ = bm_box2(-1.3, -1.3, -2.0, 1.3, 1.3, 0.6)
 obj('storm_mast_foot', b_, PAL['granite_light'], PT['ashlar'], parent=sm, family='landmark', bevel=0.05)
 pole = bm_cyl(0.34, 0.16, 24.0, 8, (0, 0, 0.6))
-obj('storm_mast_pole', pole, PAL['wall_white'], PT['plain'], parent=sm, family='landmark')
+obj('storm_mast_pole', pole, CP['oak_dark'], PT['boards'], parent=sm, family='landmark')
 yd = nl_kit.beam((0, -5.4, 19.6), (0, 5.4, 19.6), 0.24, 0.24)
 merge(yd, bm_cyl(0.6, 0.6, 0.2, 8, (0, 0, 21.4)))
-obj('storm_mast_yard', yd, PAL['tar'], PT['plain'], parent=sm, family='landmark')
+obj('storm_mast_yard', yd, CP['oak_dark'], PT['plain'], parent=sm, family='landmark')
 ln = bmesh.new()
 _smr = face_rz(LM['storm_mast']['face']); _smz = LM['storm_mast']['z']
 _dead = bmesh.new()
@@ -511,36 +715,41 @@ empty('tide_gauge_level', (0, -0.5, 0.0), parent=tg, family='landmark', size=0.5
 # (the Slipway is the Shipyard's launch slip: the shipyard model carries it)
 
 # ---------------------------------------------------------------- the windmill on its meadow knoll (decorative)
+# classical-town Q3: a Cycladic mill - a round whitewashed stone tower, a conical thatch cap, a ring of spars carrying
+# triangular cloth sails, each sheeted to the next spar's tip
 wmp = CJ['windmill']; wz = min(H(wmp[0] + dx, wmp[1] + dy) for dx in (-3, 3) for dy in (-3, 3))
-wm = empty('windmill', (wmp[0], wmp[1], wz), (0, 0, face_rz((-0.3, -1.0))), family='landmark')
-body = bm_cyl(3.6, 2.5, 10.5, 8, (0, 0, -1.5), rot=math.pi / 8)
-obj('windmill_body', body, PAL['stone_white'], PT['render'], parent=wm, family='landmark', bevel=0.03)
-obj('windmill_plinth', bm_cyl(3.9, 3.9, 1.6, 8, (0, 0, -1.2), rot=math.pi / 8), PAL['granite'], PT['ashlar'], parent=wm, family='landmark')
-cap = bm_cyl(2.9, 0.4, 3.0, 8, (0, 0, 9.0), rot=math.pi / 8); merge(cap, bm_sphere(0.35, (0, 0, 12.1), 6, 4))
-obj('windmill_cap', cap, PAL['roof_slate'], PT['slate'], parent=wm, family='landmark')
-gal = bm_cyl(3.4, 3.4, 0.2, 8, (0, 0, 6.2), rot=math.pi / 8)
-obj('windmill_gallery', gal, PAL['timber_dark'], PT['plain'], parent=wm, family='landmark')
-obj('windmill_door', bm_box2(-0.7, -3.25, 0.0, 0.7, -2.95, 2.3), PAL['door_green'], PT['boards'], parent=wm, family='landmark')
-trim = bmesh.new(); glass = bmesh.new(); gl = []
-add_window(trim, glass, Vector((0, -2.7, 5.0)), Vector((1, 0, 0)), Vector((0, -1, 0)), 0.7, 1.0, mull=True, rng=TRNG, lit_p=0.9, gl_list=gl)
-obj('windmill_wtrim', trim, PAL['trim'], PT['plain'], parent=wm, family='landmark')
-glass_obj('windmill_glass', glass, gl, wm, 'landmark')
-sails = bmesh.new(); slats = bmesh.new()
-hub = Vector((0, -3.3, 9.6))
-merge(sails, bm_cyl(0.5, 0.5, 0.9, 8, (0, 0, 0)))
-xf(sails, rx=math.pi / 2); xf(sails, loc=(hub.x, hub.y + 0.4, hub.z))
-for k in range(4):
-    blade = bm_box2(0.0, -0.11, -0.11, 9.6, 0.11, 0.11)
-    merge(blade, bm_box2(1.9, -0.05, 1.75, 9.6, 0.05, 1.85))                     # the outer stile
-    sl_ = bmesh.new()
-    for j in range(9):
-        x0 = 2.1 + j * 0.84
-        merge(sl_, bm_box2(x0, -0.03, 0.12, x0 + 0.62, 0.03, 1.75))
-    for bm_ in (blade, sl_):
-        xf(bm_, ry=-math.radians(20 + 90 * k)); xf(bm_, loc=tuple(hub))
-    merge(sails, blade); merge(slats, sl_)
-obj('windmill_sails', sails, PAL['timber_dark'], PT['plain'], parent=wm, family='landmark')
-obj('windmill_sailcloth', slats, PAL['canvas'], PT['plain'], parent=wm, family='landmark', jitter=0.06)
+wm = empty('windmill', (wmp[0], wmp[1], wz), (0, 0, face_rz((0.8, -1.0))), family='landmark')      # sails to the light and the camera
+obj('windmill_plinth', bm_cyl(4.0, 4.0, 1.6, 12, (0, 0, -1.2)), CP['lime_dark'], PT['ashlar'], parent=wm, family='landmark')
+body = bm_cyl(3.5, 3.1, 9.6, 12, (0, 0, -0.6)); merge(body, bm_cyl(3.3, 3.3, 0.3, 12, (0, 0, 9.0)))
+obj('windmill_body', body, CP['wash_white'], PT['render'], parent=wm, family='landmark', bevel=0.03)
+obj('windmill_cap', bm_cyl(3.45, 0.2, 3.6, 12, (0, 0, 9.3), cap=False), lin('#B89C62'), PT['plain'], parent=wm, family='landmark', jitter=0.08)
+obj('windmill_door', bm_box2(-0.65, -3.62, 0.0, 0.65, -3.3, 2.2), CP['shutter_blue'], PT['boards'], parent=wm, family='landmark')
+K_ = CV.Kit(5150); K_.lit_p = 1.0
+CV.plain_window(K_, (0, -3.05, 5.0), (0, -1, 0), 0.6, 0.8, CP['wash_white'], lit=0.9)
+CV.plain_window(K_, (3.15, 0, 4.0), (1, 0, 0), 0.5, 0.65, CP['wash_white'], lit=0.7)
+cl.kit_objects(K_, 'windmill', wm, family='landmark')
+sails = bmesh.new(); cloth = bmesh.new()
+hub = Vector((0, -3.7, 10.0))
+merge(sails, bm_cyl(0.45, 0.45, 1.3, 8, (0, 0, 0)))
+xf(sails, rx=math.pi / 2); xf(sails, loc=(hub.x, hub.y + 0.6, hub.z))
+NSP = 8
+tips = []
+for k in range(NSP):
+    a_ = 2 * math.pi * k / NSP + 0.2
+    d_ = Vector((math.cos(a_), 0, math.sin(a_)))
+    tip = hub + d_ * 7.6
+    tips.append(tip)
+    merge(sails, nl_kit.beam(tuple(hub), tuple(tip), 0.14, 0.14))
+for k in range(NSP):     # each sail: from the spar's root third to its tip, sheeted toward the next spar
+    sa = hub + (tips[k] - hub) * 0.15; sb = tips[k]; sc = hub + (tips[(k + 1) % NSP] - hub) * 0.82
+    f = bmesh.new()
+    vs = [f.verts.new(tuple(v + Vector((0, -0.05, 0)))) for v in (sa, sb, sc)]
+    f.faces.new(vs)
+    bmesh.ops.solidify(f, geom=f.faces[:], thickness=0.04)
+    merge(cloth, f)
+    merge(sails, nl_kit.line3(tuple(sb), tuple(tips[(k + 1) % NSP]), 0.02))
+obj('windmill_sails', sails, CP['oak_dark'], PT['plain'], parent=wm, family='landmark')
+obj('windmill_sailcloth', cloth, CP['linen'], PT['plain'], parent=wm, family='landmark', jitter=0.04)
 collect_windows(wm, 'windmill')
 
 print('TOWN built', len(BUILDINGS), 'houses', len(WINDOW_GROUPS), 'window groups')

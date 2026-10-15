@@ -954,6 +954,123 @@ def birch(bm_leaf, bm_trunk, p, h, rng):
         merge(bm_leaf, bm_ico(r, (x + o.x, y + o.y, z + h * (0.55 + 0.16 * k)), 1, (1, 1, 1.25), seed=rng.randint(0, 99), amp=0.25))
 
 
+# ------------------------------------------------------------------ Mediterranean trees (classical-town PLAN §4.6)
+# Low-poly: every crown lobe is one 20-face icosahedron, every limb a 3- or 4-sided open rod.
+def _lean(rng, lo, hi):
+    a = rng.uniform(0, 6.283); t = rng.uniform(lo, hi)
+    return Vector((math.cos(a) * t, math.sin(a) * t, 0.0))
+
+
+def umbrella_pine(bm_leaf, bm_trunk, p, h, rng):
+    """Pinus pinea: a bare, leaning, slightly bent trunk under a flat, broad crown of 2-3 overlapping pads."""
+    base = Vector(p)
+    lean = _lean(rng, 0.08, 0.3)
+    mid = base + Vector((0, 0, h * 0.42)) + lean * h * 0.3
+    top = base + Vector((0, 0, h * 0.78)) + lean * h * 0.85
+    rt = 0.028 * h
+    merge(bm_trunk, bm_rod(base, mid, rt, 3))
+    merge(bm_trunk, bm_rod(mid, top, rt * 0.75, 3))
+    R = h * rng.uniform(0.3, 0.36)
+    merge(bm_leaf, bm_ico(R, (top.x, top.y, top.z + R * 0.12), 1, (1.0, rng.uniform(0.82, 1.0), 0.3), seed=rng.randint(0, 999), amp=0.18))
+    a0 = rng.uniform(0, 6.283)
+    for k in range(1 if h < 10.0 else 2):
+        a = a0 + k * 2.4 + rng.uniform(-0.4, 0.4)
+        o = Vector((math.cos(a), math.sin(a), 0.0)) * R * rng.uniform(0.5, 0.7)
+        if k == 0 and h >= 9.5:                      # a fork limb out to the side pad (big trees)
+            merge(bm_trunk, bm_rod(mid + (top - mid) * 0.6, top + o * 0.8 - Vector((0, 0, R * 0.12)), rt * 0.5, 3))
+        merge(bm_leaf, bm_ico(R * rng.uniform(0.55, 0.7), (top.x + o.x, top.y + o.y, top.z - R * 0.08), 1, (1.0, 1.0, 0.36),
+                              seed=rng.randint(0, 999), amp=0.2))
+
+
+def cypress(bm_leaf, p, h, rng):
+    """Cupressus sempervirens: a dark, narrow spindle (no visible trunk)."""
+    x, y, z = p
+    r = h * rng.uniform(0.1, 0.13)
+    lo = bm_cyl(r * 0.7, r, h * 0.3, 6, (x, y, z), rot=rng.uniform(0, 1), cap=False)
+    hi = bm_cyl(r, 0.0, h * 0.7, 6, (x, y, z + h * 0.3), rot=rng.uniform(0, 1), cap=False)
+    tip = Vector((rng.uniform(-0.12, 0.12), rng.uniform(-0.12, 0.12), 0.0)) * h / 8
+    for v in hi.verts:                               # a slight wind lean toward the tip
+        v.co += tip * max(0.0, v.co.z - z - h * 0.3) / (h * 0.7)
+    merge(bm_leaf, lo); merge(bm_leaf, hi)
+
+
+def olive(bm_leaf, bm_trunk, p, h, rng):
+    """Olea europaea: a short, gnarled, split trunk under a broken crown of separate grey-green lobes."""
+    base = Vector(p)
+    rt = 0.05 * h
+    tops = []
+    for k in range(2):
+        d = _lean(rng, 0.25, 0.45) * h
+        q = base + Vector((d.x, d.y, h * rng.uniform(0.38, 0.5)))
+        knee = base + (q - base) * 0.45 + _lean(rng, 0.05, 0.12) * h
+        merge(bm_trunk, bm_rod(base, knee, rt if k == 0 else rt * 0.8, 4 if k == 0 else 3))
+        merge(bm_trunk, bm_rod(knee, q, rt * 0.6, 3))
+        tops.append(q)
+    a0 = rng.uniform(0, 6.283)
+    for k in range(rng.randint(3, 4)):
+        a = a0 + k * 1.75 + rng.uniform(-0.35, 0.35)
+        c = tops[k % 2] + Vector((math.cos(a), math.sin(a), 0.0)) * h * rng.uniform(0.12, 0.22)
+        rr = h * rng.uniform(0.19, 0.26)
+        merge(bm_leaf, bm_ico(rr, (c.x, c.y, c.z + h * rng.uniform(0.1, 0.24)), 1, (1.0, 1.0, 0.6), seed=rng.randint(0, 999), amp=0.3))
+
+
+def fig(bm_leaf, bm_trunk, p, h, rng):
+    """Ficus carica: low, broad and dense, a few smooth grey limbs under a rounded crown."""
+    base = Vector(p)
+    for k in range(2):
+        q = base + Vector((0, 0, h * 0.42)) + _lean(rng, 0.15, 0.3) * h
+        merge(bm_trunk, bm_rod(base, q, 0.035 * h, 3))
+    a0 = rng.uniform(0, 6.283)
+    r = h * 0.3
+    for k in range(3):
+        a = a0 + k * 2.1
+        o = Vector((math.cos(a), math.sin(a), 0.0)) * r * (0.0 if k == 0 else rng.uniform(0.6, 0.85))
+        merge(bm_leaf, bm_ico(r * (1.0 if k == 0 else 0.78), (base.x + o.x, base.y + o.y, base.z + h * (0.66 if k == 0 else 0.54)), 1,
+                              (1.0, 1.0, 0.72), seed=rng.randint(0, 999), amp=0.22))
+
+
+def pomegranate(bm_leaf, bm_trunk, p, h, rng):
+    """Punica granatum: a shrubby small tree, two thin stems, an upright, uneven crown."""
+    base = Vector(p)
+    for k in range(2):
+        q = base + Vector((0, 0, h * 0.5)) + _lean(rng, 0.08, 0.2) * h
+        merge(bm_trunk, bm_rod(base, q, 0.025 * h, 3))
+    for k in range(3):
+        o = _lean(rng, 0.08, 0.22) * h
+        merge(bm_leaf, bm_ico(h * rng.uniform(0.2, 0.26), (base.x + o.x, base.y + o.y, base.z + h * rng.uniform(0.58, 0.78)), 1,
+                              (0.9, 0.9, 1.1), seed=rng.randint(0, 999), amp=0.3))
+
+
+def plane_tree(bm_leaf, bm_trunk, p, h, rng):
+    """Platanus orientalis: a tall pale trunk forking into a broad, high crown of 4 lobes (the square's shade tree)."""
+    base = Vector(p)
+    fork = base + Vector((0, 0, h * 0.42)) + _lean(rng, 0.0, 0.05) * h
+    merge(bm_trunk, bm_rod(base, fork, 0.04 * h, 4))
+    a0 = rng.uniform(0, 6.283)
+    r = h * 0.24
+    for k in range(4):
+        a = a0 + k * 1.57 + rng.uniform(-0.3, 0.3)
+        o = Vector((math.cos(a), math.sin(a), 0.0)) * r * (rng.uniform(0.75, 0.95) if k else 0.2)
+        c = Vector((base.x + o.x, base.y + o.y, base.z + h * (0.74 if k == 0 else rng.uniform(0.58, 0.66))))
+        if k in (1, 2):
+            merge(bm_trunk, bm_rod(fork, c - Vector((0, 0, r * 0.4)), 0.022 * h, 3))
+        merge(bm_leaf, bm_ico(r * (1.05 if k == 0 else rng.uniform(0.78, 0.92)), c, 1, (1.0, 1.0, 0.8), seed=rng.randint(0, 999), amp=0.24))
+
+
+def almond(bm_leaf, bm_trunk, p, h, rng):
+    """Prunus dulcis: a small, dark, open tree, limbs splaying from low down, three light, flattened lobes."""
+    base = Vector(p)
+    fork = base + Vector((0, 0, h * 0.3)) + _lean(rng, 0.0, 0.08) * h
+    merge(bm_trunk, bm_rod(base, fork, 0.04 * h, 4))
+    a0 = rng.uniform(0, 6.283)
+    for k in range(3):
+        a = a0 + k * 2.1 + rng.uniform(-0.3, 0.3)
+        c = fork + Vector((math.cos(a), math.sin(a), 0.0)) * h * rng.uniform(0.22, 0.3) + Vector((0, 0, h * rng.uniform(0.32, 0.46)))
+        if k < 2:
+            merge(bm_trunk, bm_rod(fork, c - Vector((0, 0, h * 0.1)), 0.022 * h, 3))
+        merge(bm_leaf, bm_ico(h * rng.uniform(0.24, 0.3), c, 1, (1.0, 1.0, 0.62), seed=rng.randint(0, 999), amp=0.28))
+
+
 def crate(bm, p, s=1.0, rz=0.0):
     b = bm_box(1.0 * s, 0.8 * s, 0.75 * s, (0, 0, 0.375 * s)); xf(b, loc=p, rz=rz); merge(bm, b)
 

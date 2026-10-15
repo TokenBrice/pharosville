@@ -834,12 +834,12 @@ COVE_PIERS = {     # (fingers west, fingers east, side-quay alongside west, east
 COVE_BACK = {'pier-solana': 'we', 'pier-bsc': 'e'}      # a big hull alongside the back quay (that half of it)
 COVE_FIRST = {'pier-arbitrum': 8.0}                      # P7 (acceptance #11): fingers start further out of the narrow back
 COVE_CHARACTER = {   # what makes each hamlet itself (the Blender builder dresses by this)
-    'pier-hyperliquid-l1': 'deepwater stone jetty, beacon tower, mint-green doors',
-    'pier-polygon': 'boatyard: a hull on stocks, timber stacks, violet shutters',
-    'pier-arbitrum': 'rope-walk + chandlery, blue-painted sheds, coiled rope',
-    'pier-base': 'fishing hamlet: hjell drying racks, net lofts, blue trim',
-    'pier-solana': 'merchant wharf: crane, warehouse, purple awnings',
-    'pier-bsc': 'timber wharf: lumber stacks, gold-ochre sheds, hand crane',
+    'pier-hyperliquid-l1': 'deepwater stone jetty, a beacon column with a fire-bowl, sea-green limewash',
+    'pier-polygon': 'boatyard: a hull on stocks, timber stacks, rose limewash',
+    'pier-arbitrum': 'rope-walk under tiles, pale-blue limewashed houses, coiled rope',
+    'pier-base': 'fishing hamlet: fish-drying racks, net stores, blue doors',
+    'pier-solana': 'merchant wharf: timber derrick, horreum, sage limewash',
+    'pier-bsc': 'timber wharf: lumber stacks, ochre limewash, timber derrick',
 }
 for pid, c, n, hw, depth in COVES:
     I = COVE_INFO[pid]
@@ -1674,7 +1674,24 @@ for (p_uv, a) in FARMS:
     lot(W(*p_uv), 10.0, 7.2, None, norm(Wd(*f)), 'farmhouse')
     q = add(p_uv, rot((15.0, 7.0), a))
     lot(W(*q), 14.0, 9.0, None, norm(Wd(*rot(f, 1.57))), 'barn')
-WINDMILL = W(-226.0, -168.0)
+# P4: a lot standing between a civic plot and the camera (all presets look from yaw 45) and tall enough to cover the
+# building's middle is dropped (signal over filler); `seed` keeps every other house's look tied to its original index
+_CAM = (math.sqrt(0.5), -math.sqrt(0.5))
+
+
+def _hides_civic(l):
+    for cv in CIVIC:
+        vx, vy = l['c'][0] - cv['c'][0], l['c'][1] - cv['c'][1]
+        al = vx * _CAM[0] + vy * _CAM[1]; lat = abs(vx * _CAM[1] - vy * _CAM[0])
+        if 0 < al < 35 and lat < max(cv['w'], cv['d']) / 2 + l['w'] / 2 and l['z'] + 9.5 > cv['z'] + 6.0 + 0.55 * al:
+            return True
+    return False
+
+
+for _i, _l in enumerate(LOTS):
+    _l['seed'] = _i
+LOTS[:] = [_l for _l in LOTS if not _hides_civic(_l)]
+WINDMILL = W(-210.0, -176.0)          # P4: off the Polygon office plot (P6 put its pad over the old knoll)
 print('buildings', len(LOTS), '+ landmarks')
 
 # =====================================================================================================

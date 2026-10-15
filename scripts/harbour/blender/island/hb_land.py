@@ -393,10 +393,37 @@ for k in range(1, len(RINGS)):
         merge(lanes_bm, nl_kit.beam((a_[0], a_[1], z + 0.04), (b_[0], b_[1], z + 0.04), 3.2, 0.24))
 obj('town_lanes', lanes_bm, PAL['gravel'], PT['cobble'], family='town', jitter=0.03)
 STAIRS = []
-for (th, band) in TOWN['stairs']:
+
+
+def stair_clear(th, band):
+    """A flight at theta climbing onto `band` stays on both bands' arcs, off the civic pads and clear of every lot."""
     r0 = RINGS[band][0]; za = RINGS[band - 1][2]; zb = RINGS[band][2]
+    if any(not (TOWN_TH[k][1] + 2.0 < th < TOWN_TH[k][0] - 2.0) for k in (band - 1, band)):
+        return False
     if in_pad(*town_pt(th, r0 - 2.0), 3.0) or in_pad(*town_pt(th, r0 + 1.0), 3.0):
-        continue
+        return False
+    run = int((zb - za) / 0.3) * 0.34
+    for i in range(int((run + 5.1) / 0.5) + 1):            # the walked corridor: foot landing to head landing, 3.8 m wide
+        r = r0 - 3.4 - run + i * 0.5
+        for s in (-1.9, 0.0, 1.9):
+            x, y = town_pt(th + math.degrees(s / r), r)
+            for l in CJ['lots']:
+                fx, fy = l['face']; dx, dy = x - l['c'][0], y - l['c'][1]
+                if abs(dx * fx + dy * fy) < l['d'] / 2 + 0.2 and abs(dy * fx - dx * fy) < l['w'] / 2 + 0.2:
+                    return False
+    return True
+
+
+# P6 put civic plots over most of compose's stair thetas (and the battery strip over one): each flight slides to the
+# nearest clear theta (<= 30 deg, 10 deg from its band's other flights) so the terraces stay tied to the quays
+STAIR_AT = []
+for (th, band) in TOWN['stairs']:
+    for dth in [0.0] + [s * j * 0.5 for j in range(1, 61) for s in (1, -1)]:
+        if all(abs(th + dth - t) > 10.0 for t, b in STAIR_AT if b == band) and stair_clear(th + dth, band):
+            STAIR_AT.append((th + dth, band))
+            break
+for (th, band) in STAIR_AT:
+    r0 = RINGS[band][0]; za = RINGS[band - 1][2]; zb = RINGS[band][2]
     n = int((zb - za) / 0.3)
     run = n * 0.34
     radial = Vector(town_pt(th, r0 + 1)) - Vector(town_pt(th, r0)); radial.normalize()
@@ -676,6 +703,31 @@ for (x, y, z) in CJ['bollards']:
     nl_kit.bollard(bol, (x, y, z + (0.06 if z > 2 else 0.0)), 0.75 if z < 2 else 1.0)
 obj('bollards', bol, PAL['iron'], PT['metal'], family='quay')
 
+# ------------------------------------------------------------------ beacon columns (classical-town Q6): the harbour lights
+BEACON_RED, BEACON_GREEN = lin('#B8392B'), lin('#3E8C5C')
+
+
+def beacon_column(name, c, z0, z_fire, band, family, base_r=2.0):
+    """A stone beacon column: a stepped plinth, a plain shaft with two painted bands in `band` (port red / starboard
+    green / a chain colour), a Doric capital and a bronze fire-bowl whose flame (hb_emissive) burns round z_fire."""
+    x, y = c
+    st, bd, br = bmesh.new(), bmesh.new(), bmesh.new()
+    merge(st, bm_cyl(base_r, base_r, 0.5, 12, (x, y, z0)))
+    merge(st, bm_cyl(base_r * 0.7, base_r * 0.7, 0.6, 12, (x, y, z0 + 0.5)))
+    zs0, zs1 = z0 + 1.1, z_fire - 1.3
+    merge(st, bm_cyl(0.82, 0.7, zs1 - zs0, 12, (x, y, zs0), cap=False))
+    for f in (0.62, 0.8):
+        zb = zs0 + (zs1 - zs0) * f
+        merge(bd, bm_cyl(0.84, 0.82, 0.6, 12, (x, y, zb)))
+    merge(st, bm_cyl(0.72, 1.0, 0.35, 12, (x, y, zs1)))
+    merge(st, bm_cyl(1.12, 1.12, 0.22, 4, (x, y, zs1 + 0.35), rot=math.pi / 4))
+    merge(br, bm_cyl(0.3, 1.0, 0.55, 10, (x, y, zs1 + 0.57)))
+    obj(name + '_column', st, PAL['lime'], PT['ashlar'], family=family, bevel=0.03)
+    obj(name + '_bands', bd, band, PT['render'], family=family, jitter=0.0)
+    obj(name + '_bowl', br, lin('#9A6430'), PT['metal'], family=family)
+    obj(name + '_lamp', bm_cyl(0.85, 0.08, 1.7, 7, (x, y, z_fire - 0.55)), mat=M['lamp'], family=family, shadow=False)
+
+
 # ------------------------------------------------------------------ the breakwater (crown, seaward parapet, rubble apron, head light)
 set_coll(collection('breakwater', ROOTC))
 BW = [Vector(p) for p in CJ['bw_line']]
@@ -717,11 +769,7 @@ hp = BW[-1]
 hl = bm_cyl(4.2, 4.2, 6.6, 20, (hp.x, hp.y, SEA_FLOOR))
 obj('harbour_light_base', hl, face=lambda q: ((PAL['quay'], PT['plain']) if q.normal.z > 0.9 else (PAL['quay_dark'], PT['ashlar'])), family='breakwater', bevel=0.05)
 CIRCLES.append((hp.x, hp.y, 4.4))
-tw = bm_cyl(1.5, 1.2, 5.6, 12, (hp.x, hp.y, 2.6))
-obj('harbour_light_tower', tw, face=lambda q: ((PAL['hull_red'] if (q.center.z % 1.8) < 0.9 else PAL['wall_white']), PT['render']), family='breakwater')
-cp_ = bm_cyl(1.6, 1.6, 0.2, 12, (hp.x, hp.y, 8.2)); merge(cp_, bm_cyl(0.9, 0.12, 0.9, 12, (hp.x, hp.y, 9.6)))
-obj('harbour_light_cap', cp_, PAL['iron'], PT['metal'], family='breakwater')
-obj('harbour_light_lamp', bm_cyl(0.72, 0.72, 1.2, 10, (hp.x, hp.y, 8.4)), mat=M['lamp'], family='breakwater', shadow=False)
+beacon_column('harbour_light', (hp.x, hp.y), 2.6, 9.0, BEACON_RED, 'breakwater')
 HL_POS = Vector((hp.x, hp.y, 9.0))
 
 # ------------------------------------------------------------------ the marina's stone moles (v5): ashlar walls straight
@@ -729,7 +777,7 @@ HL_POS = Vector((hp.x, hp.y, 9.0))
 # middle (benches, little planted trees between the lamps), and a round pierhead bastion carrying a proper harbour
 # light (green: the Grand Mole, red: the Inner) with its gallery and lantern
 set_coll(collection('marina', ROOTC))
-mcrest, mcop, mband, mtw = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
+mcrest, mcop, mband = bmesh.new(), bmesh.new(), bmesh.new()
 mprom, mbench, mplant, mleaf, mtrunk = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
 MOLE_TOWERS = []
 ETH_BAND = lin(CJ['pennant']['pier-ethereum'])
@@ -738,9 +786,9 @@ _mrng = random.Random(41)
 
 def _bench(bm_, p, ang, z):
     b_ = bmesh.new()
-    merge(b_, bm_box2(-0.95, -0.25, 0.42, 0.95, 0.25, 0.52)); merge(b_, bm_box2(-0.95, 0.22, 0.52, 0.95, 0.3, 0.98))
-    for dx in (-0.8, 0.8):
-        merge(b_, bm_box2(dx - 0.06, -0.22, 0.0, dx + 0.06, 0.28, 0.42))
+    merge(b_, bm_box2(-0.95, -0.28, 0.38, 0.95, 0.28, 0.52)); merge(b_, bm_box2(-0.95, 0.2, 0.52, 0.95, 0.38, 0.92))   # a stone seat
+    for dx in (-0.7, 0.7):
+        merge(b_, bm_box2(dx - 0.18, -0.24, 0.0, dx + 0.18, 0.3, 0.38))
     xf(b_, rz=ang); xf(b_, loc=(p.x, p.y, z)); merge(bm_, b_)
 
 
@@ -793,40 +841,21 @@ for m in CJ.get('moles', []):
         _bench(mbench, pb, a_ - math.pi / 2, Z_SHORE + 0.16)
     STRUCT_POLYS.append(left + right[::-1])
     CIRCLES.append((h.x, h.y, hr + 0.3))
-    # the light: granite plinth, a banded tower, an iron gallery with its rail, the lantern and a domed cap
-    col = lin('#3E8C5C') if m['name'] == 'grand' else lin('#B8392B')
+    # the light: a beacon column with its fire-bowl (green: the Grand Mole, red: the Inner)
     zb = Z_SHORE + 0.16
-    merge(mtw, bm_cyl(2.5, 2.5, 0.3, 14, (h.x, h.y, zb)))
-    plinth = bm_cyl(2.2, 2.05, 1.3, 12, (h.x, h.y, zb + 0.3))
-    obj(f'mole_light_plinth_{m["name"]}', plinth, PAL['granite_light'], PT['ashlar'], family='marina', bevel=0.04)
-    tw = bmesh.new()                                 # six 1 m courses, banded colour / white
-    for k in range(6):
-        r0_, r1_ = 1.45 - 0.35 * k / 6, 1.45 - 0.35 * (k + 1) / 6
-        merge(tw, bm_cyl(r0_, r1_, 6.2 / 6, 14, (h.x, h.y, zb + 1.6 + k * 6.2 / 6), cap=(k == 5)))
-    obj(f'mole_light_tower_{m["name"]}', tw, face=lambda q, col=col, zb=zb: ((col if int((q.center.z - zb - 1.6) / (6.2 / 6)) % 2 == 1 else PAL['wall_white']), PT['render']),
-        family='marina')
     zg = zb + 7.8
-    merge(mtw, bm_cyl(1.9, 1.9, 0.18, 14, (h.x, h.y, zg)))                    # gallery deck
-    for k in range(14):                                                     # rail stanchions + top rail
-        a_ = 2 * math.pi * k / 14
-        merge(mtw, bm_cyl(0.04, 0.04, 0.8, 4, (h.x + math.cos(a_) * 1.8, h.y + math.sin(a_) * 1.8, zg + 0.18), cap=False))
-    merge(mtw, bm_cyl(1.82, 1.82, 0.06, 14, (h.x, h.y, zg + 0.95), cap=False))
-    merge(mtw, bm_cyl(1.0, 1.0, 0.2, 10, (h.x, h.y, zg + 0.18)))
-    obj(f'mole_light_lamp_{m["name"]}', bm_cyl(0.78, 0.78, 1.25, 10, (h.x, h.y, zg + 0.38)), mat=M['lamp'], family='marina', shadow=False)
-    cp_ = bm_cyl(1.05, 1.05, 0.16, 12, (h.x, h.y, zg + 1.63)); merge(cp_, bm_cyl(1.0, 0.1, 0.95, 12, (h.x, h.y, zg + 1.79)))
-    merge(cp_, bm_sphere(0.16, (h.x, h.y, zg + 2.85), 6, 4))
-    merge(mtw, cp_)
+    beacon_column(f'mole_light_{m["name"]}', (h.x, h.y), zb, zg + 0.98, BEACON_GREEN if m['name'] == 'grand' else BEACON_RED, 'marina',
+                  base_r=2.5)
     MOLE_TOWERS.append(Vector((h.x, h.y, zg + 1.0)))
 obj('mole_crest', mcrest, face=lambda q: ((PAL['quay'], PT['ashlar']) if q.normal.z > 0.9 else ((PAL['rock_wet'], PT['ashlar']) if q.center.z < 0.4 else (PAL['quay_dark'], PT['ashlar']))),
     family='quay', bevel=0.04)
 obj('mole_coping', mcop, PAL['quay'], PT['plain'], family='quay', jitter=0.08)
 obj('mole_promenade', mprom, face=lambda q: ((lin('#B2AA98'), PT['ashlar']) if q.normal.z > 0.9 else (PAL['granite'], PT['ashlar'])), family='quay', jitter=0.05)
-obj('mole_benches', mbench, PAL['timber'], PT['boards'], family='prop_bench')
+obj('mole_benches', mbench, PAL['lime'], PT['ashlar'], family='prop_bench', bevel=0.03)
 obj('mole_planters', mplant, PAL['granite'], PT['ashlar'], family='quay', jitter=0.05)
 obj('mole_tree_trunks', mtrunk, PAL['timber_dark'], PT['plain'], family='veg')
 obj('mole_tree_crowns', mleaf, face=lambda q: ((lin('#7D9A4A') if q.normal.z > 0.3 else lin('#5E7D3C')), PT['leaf']), family='veg', jitter=0.08)
 obj('mole_chain_band', mband, ETH_BAND, PT['plain'], family='quay', jitter=0.0)
-obj('mole_light_caps', mtw, PAL['iron'], PT['metal'], family='marina')
 
 # ------------------------------------------------------------------ P6: civic pads - granite retaining walls / parapets on every edge
 # where the level pad and the land beside it differ (the civic models stand on the pads; the walls make them read as

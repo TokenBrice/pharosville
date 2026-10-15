@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  bareOf, evergreenOf, ICICLE_WALL_PATTERNS, PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, patternIdOf, snowSlopeOf,
+  bareOf, evergreenOf, ICICLE_WALL_PATTERNS, leafSnowKeepOf, PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, patternIdOf, snowSlopeOf,
   windowKindOf, WINDOW_KIND,
 } from "./materials";
 
@@ -53,6 +53,12 @@ describe("snow by slope", () => {
   it("walls shed it, flat crowns are snowed", () => {
     expect(snowSlopeOf(0, 1, false)).toBe(0);
     expect(snowSlopeOf(1, 1, true)).toBe(1);
+  });
+  it("leaves keep less snow than ground, flat evergreen crowns less again (a winter wood stays dark)", () => {
+    expect(leafSnowKeepOf(0)).toBe(1);
+    expect(leafSnowKeepOf(PATTERN_LEAF)).toBeLessThan(1);
+    expect(leafSnowKeepOf(PATTERN_LEAF_EVERGREEN)).toBeGreaterThan(0);
+    expect(leafSnowKeepOf(PATTERN_LEAF_EVERGREEN)).toBeLessThan(leafSnowKeepOf(PATTERN_LEAF));
   });
   it("icicles grow under eaves on stucco, marble and plain walls, not on ashlar quays or terraces", () => {
     expect(ICICLE_WALL_PATTERNS).toEqual(expect.arrayContaining([0, 10]));
