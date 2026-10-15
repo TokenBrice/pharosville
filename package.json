@@ -41,6 +41,7 @@
     "agent:plan:new": "node scripts/pharosville/new-agent-plan.mjs",
     "validate:changed": "node scripts/pharosville/validate-changed.mjs",
     "validate:deploy-gate": "node scripts/pharosville/validate-deploy-gate.mjs",
+    "check:harbour-contracts": "node scripts/harbour/check-civic-contract.mjs",
     "check:runtime-media": "node scripts/pharosville/validate-runtime-media.mjs",
     "check:pharos-watch-sync": "node scripts/harbour/sync-check.mjs",
     "sync:pharos-watch": "node scripts/harbour/sync-pharos-watch.mjs",
@@ -62,7 +63,7 @@
     "check:release-admin": "npm run check:branch-protection && npm run check:release-credentials && npm run check:github-releases",
     "check:release-readiness": "npm run check:security-headers && npm run test:visual:cross-browser && npm run test:visual:dist:accessibility && npm run smoke:live -- --url https://pharosville.pharos.watch",
     "validate:docs": "npm run test:guard-scripts && npm run check:doc-paths-and-scripts && npm run check:release-contract && npm run check:runtime-facts && npm run check:viewport-gate && npm run check:security-headers:static && npm run check:pharos-watch-sync",
-    "validate": "npm run check:committed-secrets && npm run validate:docs && npm run check:runtime-media && npm run typecheck && npm run lint && npm test && npm run build && npm run check:bundle-size",
+    "validate": "npm run check:committed-secrets && npm run validate:docs && npm run check:runtime-media && npm run check:harbour-contracts && npm run typecheck && npm run lint && npm test && npm run build && npm run check:bundle-size",
     "validate:release": "npm run validate:deploy-gate && npm run lint && npm run check:viewport-gate",
     "deploy": "wrangler pages deploy dist --project-name=pharosville",
     "preview": "node scripts/harbour/shot.mjs"

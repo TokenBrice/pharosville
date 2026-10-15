@@ -65,12 +65,14 @@ export class MintWorks {
 
     // presses + a glint on each die (just in front of the press, at the bench)
     const glintAt: THREE.Vector3[] = [];
+    // the arcade opening sits 1.5 m behind the plot front (footprint depth / 2); without a footprint, 6.7 m in front of the presses
+    const arcadeZ = spec.footprint ? spec.footprint[1] / 2 - 1.5 : (nodes.get("press_0")?.position.z ?? 13.8) + 6.7;
     for (let i = 0; ; i++) {
       const node = nodes.get(`press_${i}`);
       if (!node) break;
       this.presses.push({ node, base: node.position.clone(), phase: i * 0.37, glint: 0, last: 0 });
       // the flash shows in the press's arch: at the arcade opening in front of the press (the die itself sits deep inside)
-      glintAt.push(toWorld(root, [node.position.x + 2.2, node.position.y - 2.6, 20.5]));
+      glintAt.push(toWorld(root, [node.position.x + 2.2, node.position.y - 2.6, arcadeZ]));
       this.pressLamps.push(toWorld(root, [node.position.x + 1.6, node.position.y - 0.4, node.position.z + 1.2]));
     }
     this.glints = new Glints(glintAt);
