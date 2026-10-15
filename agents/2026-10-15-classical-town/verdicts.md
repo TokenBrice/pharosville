@@ -28,3 +28,10 @@ Board: `p5/G4-board.jpg`. **Approve as is** (species mix, ~77% evergreen crown a
 
 Board: `p7a/G6a-board.jpg` (commit c43ad92b). **Approve; polish in P7b:** sculpt the hippos horse-head prow, enlarge the
 painted eyes, strengthen the brailed bundle on the LODs.
+
+## G3 · town and harbour furniture (2026-10-15)
+
+Board: `p4/G3-board.jpg` (commit 32d3c04e, with P5). **Approve; fix in integration** together with the G2 sightlines:
+pier beacons must not read as mini lighthouses (squat pedestal + bronze fire bowl, colour in the fire, band on the base
+only); warmer horreum roofs on shaded slopes; break the twin Cycladic cubes; windmill cap and body visible from the
+heart camera.
