@@ -399,13 +399,13 @@ def build_hull_stages(coll=None):
     chain(mb, NECK[:3], 0.26, 0.2, dark, 5)                                                         # ... curving up aft
     beam(mb, (H.x(0.72, H.zk(0.72)), 0, H.zk(0.72) + 0.25), st[2], 0.4, 0.42, tim)                 # stemson / apron knee
     beam(mb, (H.x(-0.7, H.zk(-0.7)), 0, H.zk(-0.7) + 0.25), sa.lerp(NECK[0], 0.45), 0.4, 0.42, tim)  # stern knee
-    for u in [-0.66 + 1.32 * k / 6 for k in range(7)]:   # floors + first futtocks
+    for u in [-0.7 + 1.4 * k / 10 for k in range(11)]:   # floors + first futtocks, fresh-sawn so they read from the camera
         port, stbd = frame_pts(u)
         a, b = port[-2] + Vector((0, 0, 0.12)), stbd[-2] + Vector((0, 0, 0.12))
-        beam(mb, a, b, 0.28, 0.34, tim)
+        beam(mb, a, b, 0.3, 0.36, fresh)
         for side in (port, stbd):
             p0, p1 = side[-2] + Vector((0, 0, 0.12)), side[-3]
-            rod(mb, p0, p0.lerp(p1, 0.85), 0.16, tim, 4, smooth=False)
+            rod(mb, p0, p0.lerp(p1, 0.95), 0.2, fresh, 4, smooth=False)
     for (p, q) in ((st[-2], Vector((xb + 2.6, 0, gz))), (NECK[2], Vector((xs - 2.4, 0, gz)))):
         beam(mb, p, q, 0.18, 0.18, PAL['timber_grey'])                                             # end shores
     for u in (-0.33, 0.33):
@@ -414,15 +414,20 @@ def build_hull_stages(coll=None):
             top = side[-2].lerp(side[-3], 0.85)
             beam(mb, top, Vector((top.x, sg * (H.B / 2 + 1.1), gz)), 0.16, 0.16, PAL['timber_grey'])  # side shores
     to_object(mb, 'keel_only', 'hb_opaque', parent=root, coll=coll)
-    # ribs: the frames up, ribbands sprung round them, the swan neck stepped
+    # ribs: the frames up, ribbands sprung round them, the swan neck stepped, the garboard strakes on (the hull's shape reads)
     mb = MB(401)
     backbone(mb)
+    n0 = len(mb.f)
+    loft(mb, H, SCH(bottom=mix(fresh, tim, 0.5)), 9, band=True, hole=lambda c, nm: nm != 'bottom', paint=False)
+    mb.backface(n0, dark=0.55)
+    for f in mb.f[n0:]:
+        f['brand'] = 0.0
     neck(mb, dark, head=False)
     for u in us:
         port, stbd = frame_pts(u)
         for side in (port, stbd):
             for a, b in zip(side[:-1], side[1:]):
-                rod(mb, a, b, 0.085, tim, 4, smooth=False)
+                rod(mb, a, b, 0.12, fresh, 4, smooth=False)
         beam(mb, port[0] + Vector((0, 0, -0.15)), stbd[0] + Vector((0, 0, -0.15)), 0.14, 0.16, fresh)   # cross spall
     for frac in (0.25, 0.7):       # ribbands
         for sgn in (1, -1):

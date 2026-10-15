@@ -2716,7 +2716,7 @@
   "hull-stages": {
    "file": "hull-stages.glb",
    "footprint": null,
-   "tris": 3856,
+   "tris": 4112,
    "budget": 6000,
    "nodes": [
     {
@@ -2727,7 +2727,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 426
+     "tris": 538
     },
     {
      "name": "painted",
@@ -2757,14 +2757,14 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1984
+     "tris": 2128
     }
    ],
    "loa_m": 13.0,
    "beam_m": 3.9,
    "keel_bottom_y": -1.34,
    "freeboard_m": 1.5,
-   "kb": 80.1
+   "kb": 85.7
   }
  }
 }

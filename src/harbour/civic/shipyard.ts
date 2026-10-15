@@ -27,8 +27,8 @@ const KIT = "/harbour/kit/";
 const STAGE_NODE: Record<Exclude<HullStage, "rigged">, string> = { keel: "keel_only", ribs: "ribs", planked: "planked", painted: "painted" };
 /** No canvas is bent on until she is launched (no sails, no covers): bare spars, dressed in flags. */
 const DROP = /^(sail_main|sail_jib|sail_2|sail_extra|sail_cover|sail_cover_2|flag)$/;
-/** Hull scale on a slip (the slips take ~34 m ships) and on a berth (≤ 10.5 m keels). */
-const SLIP_SCALE = 1.75, BERTH_SCALE = 0.8;
+/** Hull scale on a slip (the slips take ~34 m ships) and on a berth (13 m x 3.9 m: clear of the shed piers, which stand on the bay lines 7 m either side of the berth centre). */
+const SLIP_SCALE = 1.75, BERTH_SCALE = 1.0;
 /** Treadwheel radius of the cranes (cv_yard.py WHEEL_R): crane_N_wheel turns by slide / radius. */
 const WHEEL_R = 2.5;
 /** International code flags, a bright run for dressing overall (sRGB). */
