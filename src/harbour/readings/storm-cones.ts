@@ -26,14 +26,15 @@ export interface SignalRig { slots: ReadonlyArray<readonly [number, number, numb
 function shapeGeometry(kind: Shape): THREE.BufferGeometry {
   const g = kind === "cone" ? new THREE.ConeGeometry(CONE_R, CONE_H, 24, 1, false) : new THREE.CylinderGeometry(DRUM_R, DRUM_R, DRUM_H, 24, 1, false);
   const h = kind === "cone" ? CONE_H : DRUM_H;
-  // tarred canvas: near-black, a touch warm, kit pattern 0 (plain) in COLOR_0.a; a drum's top hoop catches the light
+  // woven wicker (PLAN Q5): weathered willow, darker toward the foot, kit pattern 1 (boards: the weave) in COLOR_0.a;
+  // a drum's top hoop is a lighter bound rim
   const n = g.attributes.position.count;
   const col = new Float32Array(n * 4);
   for (let i = 0; i < n; i++) {
     const y = g.attributes.position.getY(i);
     const ny = g.attributes.normal.getY(i);
-    const k = kind === "drum" && ny > 0.9 ? 0.07 : 0.016 + 0.01 * (y / h + 0.5);
-    col.set([k * 1.05, k, k * 0.92, 0], i * 4);
+    const k = kind === "drum" && ny > 0.9 ? 1.25 : 0.7 + 0.3 * (y / h + 0.5);
+    col.set([0.42 * k, 0.25 * k, 0.1 * k, 1 / 16], i * 4);
   }
   g.setAttribute("color", new THREE.BufferAttribute(col, 4));
   return g;

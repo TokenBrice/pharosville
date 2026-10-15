@@ -13,9 +13,10 @@ const kitDir = join(root, "public/harbour/kit");
 
 const range = (prefix, n) => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
 
-/** Required nodes per civic kind (manifest key). Only names the current assets carry:
- *  later phases add `frieze`, `grade_board`, `register_flag` (registry), `weather_board`,
- *  `signal` (storm station) and `mover_up|down` (harbourmaster) to these lists. */
+/** Required nodes per civic kind (manifest key). `anchors` are the painted boards and hoists
+ *  the runtime reads from the manifest entry's `anchors` (not GLB nodes): `frieze`,
+ *  `grade_board`, `register_flag` (registry), `weather_board`, `signal` (storm station) and
+ *  `mover_up|down` (harbourmaster). */
 const OFFICE = ["crest_panel", "awning", "flag_pole_top"];
 const CIVIC = {
   mint: { required: [...range("press_", 3), "furnace_glow", "wheel", "worker_path"], atLeastOne: /^chimney_\d+$/ },
@@ -24,7 +25,10 @@ const CIVIC = {
   "hull-stages": { required: ["keel_only", "ribs", "planked", "painted"] },
   customs: { required: ["flag_pole_top"] },
   // flag_pole_top is ~28 m from the Ethereum office and would be dressed as Ethereum's
-  registry: { required: ["bell"], forbidden: ["crest_panel", "awning", "flag_pole_top"] },
+  registry: { required: ["bell"], anchors: ["frieze", "grade_board", "register_flag"], forbidden: ["crest_panel", "awning", "flag_pole_top"] },
+  stormstation: { required: [], anchors: ["weather_board", "signal"] },
+  harbourmaster: { required: [], anchors: ["mover_up", "mover_down"] },
+  keeperslog: { required: ["vane"] },
 };
 for (const chain of ["ethereum", "tron", "bsc", "solana", "hyperliquid-l1", "base", "arbitrum", "polygon"]) {
   CIVIC[`harbour-office:${chain}`] = { required: OFFICE };
@@ -61,6 +65,8 @@ function checkCivic() {
     if (rule.atLeastOne && ![...names].some((n) => rule.atLeastOne.test(n))) {
       fail(kind, `${rel(file)} has no node matching ${rule.atLeastOne}`);
     }
+    const noAnchor = (rule.anchors ?? []).filter((a) => !spec.anchors?.[a]);
+    if (noAnchor.length) fail(kind, `manifest.json anchors missing: ${noAnchor.join(", ")}`);
     const present = (rule.forbidden ?? []).filter((n) => names.has(n));
     if (present.length) fail(kind, `${rel(file)} must NOT contain: ${present.join(", ")}`);
     // every manifest node entry must exist in the GLB (the runtime looks them up by manifest name)

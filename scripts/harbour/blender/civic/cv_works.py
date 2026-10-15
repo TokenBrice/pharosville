@@ -1,4 +1,4 @@
-"""Harbour civic kit - the Mint (coin works) and the Burn (furnace on a rocky point)."""
+"""Harbour civic kit - the Mint (temple-treasury of Moneta) and the Burn (fire altar on a rocky point)."""
 import math, random
 from mathutils import Vector
 from cv_lib import *
@@ -291,140 +291,121 @@ def rock_blob(mb, c, r, h, rng, n=7, col=None, z_base=-4.0):
 
 
 def build_burn(coll=None):
+    """The Burn as a fire altar (classical-town PLAN §4.1, concept A): a dressed octagonal platform on the rocky point, a
+    three-step krepis, an Ionic altar (meander frieze, volute cushions) whose hearth glows through a bronze grille, the
+    great bronze bowl on a lion-paw tripod with tall flames (fire_core), four bronze torch-stands, and the coin chute as
+    a bronze ramp from an offering pier down over the steps into the bowl."""
     root = empty('burn', coll=coll)
     K = Kit(21)
-    op, em = K.op, K.em
-    rng = random.Random(9)
+    op = K.op
+    rng = random.Random(11)
     PZ = 0.9   # platform top
-    # ---- the rocky point: a skirt of boulders, then a dressed octagonal platform
+    # ---- the rocky point: a skirt of warm limestone boulders, then a dressed octagonal platform with a landing stair
     for k in range(11):
         a = 2 * math.pi * k / 11 + 0.2
         rr = 11.9 + rng.uniform(-0.6, 0.5)
-        rock_blob(op, (rr * math.cos(a), rr * math.sin(a), -1.2), rng.uniform(2.6, 3.6), rng.uniform(1.6, 3.0), rng,
-                  col=mix(PAL['granite'], PAL['rock_dark'], rng.uniform(0, 0.5)))
-    for (x, y, r, h) in ((-11.5, -11.5, 3.2, 3.4), (11.6, -11.0, 2.8, 2.6), (-12.0, 9.0, 3.0, 4.2), (10.5, 11.8, 3.3, 3.6)):
-        rock_blob(op, (x, y, -0.6), r, h, rng, col=mix(PAL['granite'], PAL['rock_dark'], 0.6))
+        rock_blob(op, (rr * math.cos(a), rr * math.sin(a), -1.2), rng.uniform(2.6, 3.6), rng.uniform(1.4, 2.6), rng,
+                  col=mix(PAL['lime_dark'], PAL['rock_dark'], rng.uniform(0.2, 0.6)))
+    for (x, y, r, h) in ((-11.5, -11.5, 3.2, 3.0), (11.6, -11.0, 2.8, 2.4), (-12.0, 9.0, 3.0, 3.6), (10.5, 11.8, 3.3, 3.2)):
+        rock_blob(op, (x, y, -0.6), r, h, rng, col=mix(PAL['lime_dark'], PAL['rock_dark'], 0.5))
     oct_ = [Vector((11.0 * math.cos(math.pi / 8 + k * math.pi / 4), 11.0 * math.sin(math.pi / 8 + k * math.pi / 4), 0)) for k in range(8)]
     for k in range(8):
         a, b = oct_[k], oct_[(k + 1) % 8]
-        poly(op, ((a.x, a.y, -2.5), (b.x, b.y, -2.5), (b.x, b.y, PZ), (a.x, a.y, PZ)), PAL['granite'], PT['ashlar'], nrm=a + b)
-    # soot-darkened paving, darker toward the fire
-    ctr = Vector((-3.0, -6.0, 0))
-    for k in range(8):
-        a, b = oct_[k], oct_[(k + 1) % 8]
-        m = (a + b) / 2
-        t = 1 - min(1, (m - ctr).length / 14)
-        poly(op, ((0, 0, PZ), (a.x, a.y, PZ), (b.x, b.y, PZ)), mix(PAL['quay'], PAL['soot2'], 0.25 + 0.5 * t), PT['cobble'], nrm=(0, 0, 1))
-    for k in range(8):   # kerb
-        a, b = oct_[k], oct_[(k + 1) % 8]
-        beam(op, (a.x, a.y, PZ + 0.2), (b.x, b.y, PZ + 0.2), 0.6, 0.4, PAL['granite_light'])
-    # ---- the bottle kiln: brick, soot-blackened toward the neck, iron hoops
-    KC = (1.5, 5.0)
-    prof = [(6.0, PZ), (6.5, PZ + 3.0), (6.6, PZ + 6.0), (6.0, PZ + 9.0), (4.6, PZ + 12.0), (3.2, PZ + 15.0), (2.4, PZ + 17.6),
-            (2.2, PZ + 21.0), (2.75, PZ + 21.4), (2.75, PZ + 22.2), (2.0, PZ + 22.25), (1.9, PZ + 21.6)]
-    lathe(op, KC, prof, PAL['brick'], PT['ashlar'], 16, smooth=True, cap=False,
-          colfn=lambda z: mix(PAL['brick_dark'], PAL['soot'], sstep(PZ + 4.0, PZ + 15.0, z)))
-    poly(op, [(KC[0] + 1.9 * math.cos(2 * math.pi * k / 16), KC[1] + 1.9 * math.sin(2 * math.pi * k / 16), PZ + 21.6) for k in range(16)],
-         (0.012, 0.01, 0.01), 0, nrm=(0, 0, 1), jitter=0)
-    for z in (PZ + 2.2, PZ + 5.0, PZ + 7.8, PZ + 18.6):
-        rr = None
-        for (r0, z0_), (r1, z1_) in zip(prof[:-1], prof[1:]):
-            if z0_ <= z <= z1_:
-                rr = r0 + (r1 - r0) * (z - z0_) / (z1_ - z0_)
-        lathe(op, KC, [(rr + 0.1, z), (rr + 0.12, z + 0.35)], PAL['iron'], PT['metal'], 16, smooth=True, cap=False)
-    smoke = empty('smoke_emitter', (KC[0], KC[1], PZ + 22.4), parent=root, coll=coll)
-    smoke['anim'] = 'kiln smoke: column height/darkness ~ burn volume; dominates when the net trend is negative'
-    # firebox porch on the kiln's front with the glowing grate behind an iron grille
-    GY = KC[1] - 6.35
-    box2(op, KC[0] - 2.6, GY - 1.8, PZ, KC[0] + 2.6, GY + 0.6, PZ + 4.8, PAL['brick_dark'], PT['ashlar'], skip=('-y',))
-    gx0, gx1, gz0, gz1 = KC[0] - 1.4, KC[0] + 1.4, PZ + 0.5, PZ + 3.0
-    for (xa, xb, za, zb) in ((KC[0] - 2.6, gx0, PZ, PZ + 4.8), (gx1, KC[0] + 2.6, PZ, PZ + 4.8), (gx0, gx1, gz1, PZ + 4.8), (gx0, gx1, PZ, gz0)):
-        poly(op, ((xa, GY - 1.8, za), (xb, GY - 1.8, za), (xb, GY - 1.8, zb), (xa, GY - 1.8, zb)), PAL['brick_dark'], PT['ashlar'], nrm=(0, -1, 0))
+        poly(op, ((a.x, a.y, -2.5), (b.x, b.y, -2.5), (b.x, b.y, PZ), (a.x, a.y, PZ)), PAL['sandstone'], PT['ashlar'], nrm=a + b)
+        t = 1 - min(1, ((a + b) / 2).length / 14)
+        poly(op, ((0, 0, PZ), (a.x, a.y, PZ), (b.x, b.y, PZ)), mix(PAL['quay'], PAL['soot2'], 0.2 + 0.25 * t), PT['cobble'], nrm=(0, 0, 1))
+        beam(op, (a.x, a.y, PZ + 0.2), (b.x, b.y, PZ + 0.2), 0.6, 0.4, PAL['lime'])
+    stairs(op, -1.8, 1.8, -12.8, -1.6, PZ, 5, 0.55, PAL['lime'])
+    # ---- the krepis: three steps, alternating limestone and marble
+    z = PZ
+    for k, hw in enumerate((7.0, 6.0, 5.0)):
+        box2(op, -hw, -hw, z, hw, hw, z + 0.5, PAL['lime'] if k % 2 == 0 else PAL['marble'], PT['ashlar'], skip=('-z',))
+        z += 0.5
+    ZP = z
+    # ---- the Ionic altar: moulded plinth, the hearth (glowing behind a bronze grille), meander frieze, cornice, volutes
+    AX, AY = 3.2, 2.4
+    box2(op, -AX, -AY, ZP, AX, AY, ZP + 0.4, PAL['marble'], 0)
+    box2(op, -AX + 0.3, -AY + 0.3, ZP + 0.4, AX - 0.3, AY - 0.3, ZP + 2.2, PAL['marble'], PT['ashlar'])
+    meander(op, (-AX + 0.3, -AY + 0.3), (AX - 0.3, -AY + 0.3), ZP + 1.6, 0.5, (0, -1, 0), unit=0.75)
+    meander(op, (-AX + 0.3, AY - 0.3), (-AX + 0.3, -AY + 0.3), ZP + 1.6, 0.5, (-1, 0, 0), unit=0.75)
+    box2(op, -AX, -AY, ZP + 2.2, AX, AY, ZP + 2.55, PAL['marble'], 0)
     for s in (-1, 1):
-        x = KC[0] + s * 1.4
-        poly(op, ((x, GY - 1.8, gz0), (x, GY - 0.8, gz0), (x, GY - 0.8, gz1), (x, GY - 1.8, gz1)), PAL['soot'], 0, nrm=(-s, 0, 0))
-    poly(op, ((gx0, GY - 1.8, gz1), (gx1, GY - 1.8, gz1), (gx1, GY - 0.8, gz1), (gx0, GY - 0.8, gz1)), PAL['soot'], 0, nrm=(0, 0, -1))
-    box2(op, KC[0] - 2.9, GY - 2.1, PZ + 4.8, KC[0] + 2.9, GY + 0.6, PZ + 5.3, PAL['stone_dark'], 0)
+        rod(op, (s * (AX - 0.3), -AY - 0.05, ZP + 2.9), (s * (AX - 0.3), AY + 0.05, ZP + 2.9), 0.45, PAL['marble'], 8, cap=True)
+        disc(op, (s * (AX - 0.3), -AY - 0.05, ZP + 2.9), (0, -1, 0), 0.32, 0.06, PAL['poly_red'], 8)
     grate = MB(70)
-    poly(grate, ((gx0, GY - 0.8, gz0), (gx1, GY - 0.8, gz0), (gx1, GY - 0.8, gz1), (gx0, GY - 0.8, gz1)), (1.0, 0.45, 0.1), 0, nrm=(0, -1, 0), jitter=0)
-    for k in range(7):   # iron grille: verticals + two rails
-        x = gx0 + 0.2 + k * (gx1 - gx0 - 0.4) / 6
-        box2(op, x - 0.06, GY - 1.95, gz0, x + 0.06, GY - 1.83, gz1, PAL['iron'], 0, skip=('-z', '+z'))
-    for z in (gz0 + 0.8, gz0 + 1.8):
-        box2(op, gx0, GY - 2.0, z - 0.07, gx1, GY - 1.88, z + 0.07, PAL['iron'], 0)
-    # ---- the great fire bowl on a stone drum (front left)
-    BC = Vector((-3.4, -6.4, 0))
-    cyl(op, BC, 3.0, 2.7, PZ, PZ + 2.6, PAL['stone_dark'], PT['ashlar'], 12, top=True, col_top=PAL['soot2'])
-    box2(op, BC.x - 3.3, BC.y - 3.3, PZ, BC.x + 3.3, BC.y + 3.3, PZ + 0.5, PAL['granite_light'], PT['ashlar'], skip=('-z',))
-    # vent in the drum, glowing behind a grille
-    poly(grate, ((BC.x - 0.7, BC.y - 2.86, PZ + 0.8), (BC.x + 0.7, BC.y - 2.86, PZ + 0.8), (BC.x + 0.7, BC.y - 2.86, PZ + 1.9),
-                 (BC.x - 0.7, BC.y - 2.86, PZ + 1.9)), (1.0, 0.45, 0.1), 0, nrm=(0, -1, 0), jitter=0)
+    hy = -AY + 0.28
+    hx, hw_, hh = 0.0, 1.5, 1.05
+    poly(op, ((hx - hw_ / 2 - 0.2, hy - 0.02, ZP + 0.4), (hx + hw_ / 2 + 0.2, hy - 0.02, ZP + 0.4), (hx + hw_ / 2 + 0.2, hy - 0.02, ZP + 0.6 + hh),
+              (hx - hw_ / 2 - 0.2, hy - 0.02, ZP + 0.6 + hh)), PAL['bronze_dark'], PT['metal'], nrm=(0, -1, 0), jitter=0)
+    poly(grate, ((hx - hw_ / 2, hy - 0.05, ZP + 0.5), (hx + hw_ / 2, hy - 0.05, ZP + 0.5), (hx + hw_ / 2, hy - 0.05, ZP + 0.5 + hh),
+                 (hx - hw_ / 2, hy - 0.05, ZP + 0.5 + hh)), (1.0, 0.45, 0.1), 0, nrm=(0, -1, 0), jitter=0)
+    for k in range(6):
+        x = hx - hw_ / 2 + 0.12 + k * (hw_ - 0.24) / 5
+        box2(op, x - 0.05, hy - 0.2, ZP + 0.5, x + 0.05, hy - 0.08, ZP + 0.5 + hh, PAL['bronze'], 0, skip=('-z', '+z'))
+    for s in (-1, 1):    # side vents in the krepis risers: the fire's glow at the platform's feet
+        poly(grate, ((s * 7.02, -1.2, PZ + 0.1), (s * 7.02, 1.2, PZ + 0.1), (s * 7.02, 1.2, PZ + 0.4), (s * 7.02, -1.2, PZ + 0.4)), (1.0, 0.45, 0.1), 0,
+             nrm=(s, 0, 0), jitter=0)
+    # ---- the great bronze bowl on a lion-paw tripod, with a gilt rim and ring handles
+    BZ = ZP + 2.55
+    for k in range(3):
+        a = 2 * math.pi * k / 3 + math.pi / 2
+        beam(op, (2.2 * math.cos(a), 1.7 * math.sin(a), BZ), (0.9 * math.cos(a), 0.75 * math.sin(a), BZ + 1.8), 0.38, 0.38, PAL['bronze'], PT['metal'])
+        sphere(op, (2.2 * math.cos(a), 1.7 * math.sin(a), BZ + 0.22), 0.38, PAL['bronze_light'], 6, 3)
+    cyl(op, (0, 0), 0.5, 0.65, BZ, BZ + 1.8, PAL['bronze'], PT['metal'], 8)
+    bz = BZ + 1.7
+    lathe(op, (0, 0), [(0.65, bz), (2.3, bz + 0.35), (3.4, bz + 1.0), (3.85, bz + 1.6), (4.05, bz + 1.75)], PAL['bronze'], PT['metal'], 16, smooth=True,
+          cap=False, colfn=lambda zz: mix(PAL['bronze_dark'], PAL['bronze_light'], sstep(bz, bz + 1.7, zz)))
+    lathe(op, (0, 0), [(4.05, bz + 1.75), (4.25, bz + 1.92), (3.85, bz + 1.98)], PAL['gilt'], PT['metal'], 16, smooth=True, cap=False)
     for k in range(4):
-        x = BC.x - 0.5 + k * 0.33
-        box2(op, x - 0.05, BC.y - 3.0, PZ + 0.8, x + 0.05, BC.y - 2.9, PZ + 1.9, PAL['iron'], 0, skip=('-z', '+z'))
-    bz = PZ + 2.6
-    lathe(op, BC, [(1.6, bz), (3.4, bz + 0.6), (4.3, bz + 1.6), (4.55, bz + 2.15), (4.55, bz + 2.45), (4.15, bz + 2.5), (3.0, bz + 1.9),
-                   (1.4, bz + 1.55), (0.0, bz + 1.5)], PAL['iron'], PT['metal'], 18, smooth=True, cap=False,
-          colfn=lambda z: PAL['bronze'] if z > bz + 2.0 else PAL['iron'])
-    for k in range(18):   # bronze rim lugs
-        a = 2 * math.pi * k / 18
-        obox(op, Vector((BC.x + 4.6 * math.cos(a), BC.y + 4.6 * math.sin(a), bz + 2.3)), (-math.sin(a), math.cos(a), 0), (math.cos(a), math.sin(a), 0),
-             0.35, 0.25, 0.35, PAL['bronze_light'])
-    for k in range(3):    # brackets
-        a = 2 * math.pi * k / 3 - math.pi / 2
-        beam(op, (BC.x + 2.9 * math.cos(a), BC.y + 2.9 * math.sin(a), PZ + 2.2), (BC.x + 4.3 * math.cos(a), BC.y + 4.3 * math.sin(a), bz + 1.6),
-             0.35, 0.35, PAL['iron'], PT['metal'])
-    # embers bed + flames: fire_core (emissive, origin on the bed: scale with burn volume)
+        a = 2 * math.pi * k / 4 + math.pi / 4
+        disc(op, (3.8 * math.cos(a), 3.8 * math.sin(a), bz + 1.15), (math.cos(a), math.sin(a), 0), 0.38, 0.1, PAL['bronze_light'], 6)
+    # fire_core: ember bed + tall faceted flames, origin on the bed (the runtime scales it with burn volume)
     fire = MB(71)
-    fc = Vector((BC.x, BC.y, bz + 1.6))
-    lathe(fire, fc, [(3.6, fc.z + 0.3), (2.0, fc.z + 0.75), (0.0, fc.z + 0.9)], (1.0, 0.4, 0.1), 0, 10, smooth=False)
-    flames(fire, fc + Vector((0, 0, 0.5)), random.Random(3), 9, 2.6, 3.6, 6.5, col=(1.0, 0.62, 0.2))
+    fc = Vector((0, 0, bz + 1.5))
+    lathe(fire, fc, [(3.7, fc.z), (2.2, fc.z + 0.5), (0.0, fc.z + 0.7)], (1.0, 0.4, 0.1), 0, 12, smooth=False)
+    flames(fire, fc + Vector((0, 0, 0.4)), random.Random(5), 11, 2.8, 5.0, 9.0, col=(1.0, 0.62, 0.2))
     fob = to_object(fire, 'fire_core', 'hb_emissive', parent=root, origin=fc, coll=coll)
     fob['anim'] = 'flames: scale (y up) and emissive ~ burn volume; flicker'
-    fe = empty('fire_emitter', (fc.x, fc.y, fc.z + 2.6), parent=root, coll=coll)
-    fe['anim'] = 'sparks / embers / heat shimmer from the bowl'
-    to_object(grate, 'grate_glow', 'hb_emissive', parent=root, coll=coll)['anim'] = 'kiln grate + drum vent glow ~ burn volume'
-    # chain ring of iron posts around the bowl
-    for k in range(7):
-        a = 2 * math.pi * k / 7 + 0.3
-        p = BC + Vector((5.6 * math.cos(a), 5.6 * math.sin(a), 0))
-        if p.y > -1.5:
-            continue
-        cyl(op, p, 0.18, 0.14, PZ, PZ + 1.2, PAL['iron'], PT['metal'], 6)
-        sphere(op, (p.x, p.y, PZ + 1.3), 0.2, PAL['iron'], 6, 3)
-    # ---- loading tower + the coin chute down into the bowl
-    TX0, TX1, TY0, TY1, TZ = 5.6, 10.4, -7.6, -2.8, PZ + 8.0
-    box2(op, TX0, TY0, PZ, TX1, TY1, TZ, PAL['stone_dark'], PT['ashlar'])
-    box2(op, TX0 - 0.3, TY0 - 0.3, TZ, TX1 + 0.3, TY1 + 0.3, TZ + 0.45, PAL['stone_light'], 0)
-    rail(op, [(TX0 - 0.2, TY0 - 0.2, TZ + 0.45), (TX1 + 0.2, TY0 - 0.2, TZ + 0.45), (TX1 + 0.2, TY1 + 0.2, TZ + 0.45),
-              (TX0 - 0.2, TY1 + 0.2, TZ + 0.45)], 1.1, PAL['iron'], 1.2)
-    beam(op, (TX0 + 0.4, TY0 + 2.4, TZ + 0.45), (TX0 + 0.4, TY0 + 2.4, TZ + 4.4), 0.3, 0.3, PAL['timber_dark'])     # hoist gallows
-    beam(op, (TX0 + 0.4, TY0 + 2.4, TZ + 4.2), (TX0 - 1.4, TY0 + 2.4, TZ + 4.2), 0.3, 0.3, PAL['timber_dark'])
-    door(K, (8.0, TY0, PZ), (0, -1, 0), 1.6, 2.8, col=PAL['iron'], frame=PAL['stone_light'])
-    window(K, (8.0, TY0, PZ + 5.4), (0, -1, 0), 0.8, 1.4, frame=PAL['stone_light'], arch=True)
-    a_ = Vector((TX0 - 0.1, -5.6, TZ - 0.3)); b_ = Vector((BC.x + 2.3, BC.y + 0.9, bz + 3.1))
+    empty('fire_emitter', (0, 0, fc.z + 3.0), parent=root, coll=coll)['anim'] = 'sparks / embers / heat shimmer from the bowl'
+    smoke = empty('smoke_emitter', (0, 0, fc.z + 9.5), parent=root, coll=coll)
+    smoke['anim'] = 'smoke column above the flames: height/darkness ~ burn volume; dominates when the net trend is negative'
+    to_object(grate, 'grate_glow', 'hb_emissive', parent=root, coll=coll)['anim'] = 'altar hearth + krepis vents glow ~ burn volume'
+    # ---- four bronze torch-stands on the krepis corners
+    for (x, y) in ((-6.3, -6.3), (6.3, -6.3), (-6.3, 6.3), (6.3, 6.3)):
+        for k in range(3):
+            a = 2 * math.pi * k / 3 + 0.4
+            beam(op, (x + 0.5 * math.cos(a), y + 0.5 * math.sin(a), PZ + 0.5), (x, y, PZ + 1.6), 0.09, 0.09, PAL['bronze'])
+        cyl(op, (x, y), 0.13, 0.09, PZ + 0.5, PZ + 4.0, PAL['bronze'], 0, 6)
+        lathe(op, (x, y), [(0.1, PZ + 3.9), (0.55, PZ + 4.1), (0.6, PZ + 4.35)], PAL['bronze_light'], PT['metal'], 7, smooth=True, cap=False)
+        flames(K.em, (x, y, PZ + 4.3), random.Random(int(x * 7 + y)), 3, 0.38, 0.9, 1.5, col=(1.0, 0.6, 0.2), segs=4)
+    # ---- the offering pier (a stair-cased ashlar block with a bronze hopper) and the bronze chute down over the steps
+    QX0, QX1, QY0, QY1, QZ = 6.4, 9.6, -3.4, -0.2, PZ + 6.4
+    box2(op, QX0, QY0, PZ, QX1, QY1, QZ, PAL['sandstone'], PT['ashlar'])
+    box2(op, QX0 - 0.25, QY0 - 0.25, QZ, QX1 + 0.25, QY1 + 0.25, QZ + 0.4, PAL['marble'], 0)
+    frieze(op, (QX0, QY0 - 0.02), (QX1, QY0 - 0.02), QZ - 0.9, 0.6, (0, -1, 0))
+    stairs(op, QX0 + 0.3, QX1 - 0.3, QY1, PZ, QZ, 10, 0.55, PAL['lime'], ny=-1)
+    arch_door(K, ((QX0 + QX1) / 2, QY0, PZ), (0, -1, 0), 1.3, 2.6, PAL['bronze_dark'], PAL['marble'], step=False)
+    hx_, hy_ = QX0 + 0.9, (QY0 + QY1) / 2
+    lathe(op, (hx_, hy_), [(0.35, QZ + 0.4), (1.1, QZ + 1.6), (1.15, QZ + 1.75)], PAL['bronze'], PT['metal'], 8, smooth=False, cap=False)
+    a_ = Vector((hx_ - 0.4, hy_, QZ + 0.6)); b_ = Vector((2.9, -1.0, bz + 2.0))
     d_ = (b_ - a_).normalized(); s_ = d_.cross(Vector((0, 0, 1))).normalized()
-    # U-trough: floor + two cheeks, iron with bronze lip; trestle under its middle
-    beam(op, a_, b_, 1.5, 0.16, PAL['iron'], PT['metal'])
+    beam(op, a_, b_, 1.3, 0.16, PAL['bronze'], PT['metal'])
     for sd in (-1, 1):
-        beam(op, a_ + s_ * sd * 0.75 + Vector((0, 0, 0.35)), b_ + s_ * sd * 0.75 + Vector((0, 0, 0.35)), 0.14, 0.7, PAL['bronze_light'], PT['metal'])
+        beam(op, a_ + s_ * sd * 0.65 + Vector((0, 0, 0.3)), b_ + s_ * sd * 0.65 + Vector((0, 0, 0.3)), 0.12, 0.6, PAL['bronze_light'], PT['metal'])
     m_ = a_.lerp(b_, 0.5)
     for sd in (-1, 1):
-        beam(op, (m_.x + s_.x * sd * 0.6, m_.y + s_.y * sd * 0.6, PZ), (m_.x, m_.y, m_.z - 0.1), 0.25, 0.25, PAL['iron'])
-    lathe(op, (TX0 + 0.5, -5.6), [(0.4, TZ - 0.2), (1.2, TZ + 1.1)], PAL['iron'], PT['metal'], 6, smooth=False, cap=False)
-    cc = empty('coin_chute', tuple(a_ + Vector((0.4, 0, 0.9))), parent=root, coll=coll)
-    cc['anim'] = 'coins enter here (hopper) and slide down the trough to coin_chute_end; rate ~ burn volume'
+        beam(op, (m_.x + s_.x * sd * 0.6, m_.y + s_.y * sd * 0.6, ZP), (m_.x, m_.y, m_.z - 0.1), 0.22, 0.22, PAL['bronze_dark'])
+    cc = empty('coin_chute', tuple(a_ + Vector((0.3, 0, 0.9))), parent=root, coll=coll)
+    cc['anim'] = 'coins enter here (the offering hopper) and slide down the bronze trough to coin_chute_end; rate ~ burn volume'
     ce = empty('coin_chute_end', tuple(b_ + Vector((0, 0, 0.3))), parent=root, coll=coll)
     ce['anim'] = 'coins drop from here into the fire'
-    # coins waiting at the tower foot + tools + ash heaps
-    lathe(op, (11.5, -10.0), [(2.0, PZ), (1.2, PZ + 0.7), (0.0, PZ + 1.0)], PAL['gold'], PT['metal'], 9, smooth=False)
-    coin_crate(op, (9.0, -9.8, PZ)); coin_crate(op, (12.2, -7.4, PZ), 0.3)
-    for (x, y, r) in ((-8.5, -1.0, 1.8), (-9.0, -4.5, 1.2), (3.5, -10.5, 1.1)):
+    # ---- offerings at the pier foot: a gilt heap, coin chests, amphorae; ash swept to the platform edge
+    lathe(op, (8.8, -6.6), [(1.7, PZ), (1.0, PZ + 0.6), (0.0, PZ + 0.85)], PAL['gold'], PT['metal'], 9, smooth=False)
+    coin_crate(op, (6.4, -8.2, PZ)); coin_crate(op, (10.0, -4.6, PZ), 0.3)
+    for (x, y) in ((-8.6, -3.2), (-8.9, -2.3), (-8.1, -2.6)):
+        amphora(op, (x, y, PZ), 0.95)
+    for (x, y, r) in ((-8.5, 3.0, 1.5), (3.5, -9.6, 1.0)):
         lathe(op, (x, y), [(r, PZ), (r * 0.5, PZ + r * 0.35), (0.0, PZ + r * 0.45)], PAL['ash'], PT['rock'], 7, smooth=False)
-    for k in range(3):   # rakes leaning on the drum
-        a = -0.4 + k * 0.3
-        p = BC + Vector((3.1 * math.cos(a + 3.6), 3.1 * math.sin(a + 3.6), PZ))
-        beam(op, p, p + Vector((0.4, 0.2, 3.2)), 0.1, 0.1, PAL['timber_dark'])
     K.emit(root, 'burn_body', coll)
-    return root, dict(anchors=dict(platform_y=PZ, bowl_centre=[round(BC.x, 2), round(bz + 1.6, 2), round(-BC.y, 2)],
+    return root, dict(anchors=dict(platform_y=PZ, bowl_centre=[0.0, round(fc.z, 2), 0.0],
                                    chute=[[round(a_.x, 2), round(a_.z, 2), round(-a_.y, 2)], [round(b_.x, 2), round(b_.z, 2), round(-b_.y, 2)]]))

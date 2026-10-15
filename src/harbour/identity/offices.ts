@@ -23,8 +23,12 @@ export function nearestChain(plots: ReadonlyArray<{ chain: string; x: number; z:
 }
 
 const DRESSED = "__hbIdentity";
-/** Facade crest growth about its centre, and a drop (m, in the wall plane) to keep it in the wide part of a gable. */
-const PANEL_GROW: Record<string, { grow: number; drop: number }> = { tron: { grow: 1.95, drop: 0.25 } };
+/** Facade crest growth about its centre, and a drop (m, in the wall plane), tuned to each classical facade's frame
+ *  (PLAN §4.2): tablets between columns and attics under cornices have less room than the stoa's attic. */
+const PANEL_GROW: Record<string, { grow: number; drop: number }> = {
+  bsc: { grow: 1.2, drop: 0 }, "hyperliquid-l1": { grow: 1.3, drop: 0 }, base: { grow: 1.05, drop: 0 },
+  arbitrum: { grow: 1.1, drop: 0 }, polygon: { grow: 1.15, drop: 0 },
+};
 const PANEL_DEFAULT = { grow: 1.4, drop: 0 };
 
 /** A float copy of an attribute (glTF quantized positions are normalized int16: they cannot hold a grown value). */
