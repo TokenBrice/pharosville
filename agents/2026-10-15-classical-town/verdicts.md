@@ -11,3 +11,5 @@ Board: `p2/G1-board.jpg` (commit 3456985a).
   2. Mint: overview presence without factory stacks (gilt acroterion / tall bronze-capped flue).
   3. Night: brighter plain lit openings (shader) and one more window per house front.
   4. Ethereum flag must not cover the Customs House facade from the civic camera.
+
+- **G1 fix loop 1 (commit after 3456985a):** all four fixes applied; board `p2/G1-fix-board.jpg`. Mint smoke still crosses its roof thinly downwind (accepted, revisit at P3 if needed). Fan-out started.
