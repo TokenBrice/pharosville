@@ -418,7 +418,7 @@
     150,
     80
    ],
-   "tris": 14403,
+   "tris": 17444,
    "budget": 20000,
    "nodes": [
     {
@@ -794,17 +794,28 @@
     {
      "name": "crane_0",
      "origin": [
-      -61.0,
+      -61.25,
       0.0,
       6.0
      ],
      "material": "hb_opaque",
-     "tris": 726,
-     "anim": "gantry crane: may travel along local Z (glTF; rails run front-back, +/-18 m) over its two slips; trolley is baked",
+     "tris": 280,
+     "anim": "treadwheel crane on its sledge: may travel along local Z (glTF; rails run front-back, +/-12 m) beside its slips",
      "span_slips": [
       0,
       1
      ]
+    },
+    {
+     "name": "crane_0_wheel",
+     "origin": [
+      -62.0,
+      3.64,
+      6.0
+     ],
+     "material": "hb_opaque",
+     "tris": 716,
+     "anim": "treadwheel of crane_0: rides with it along local Z and turns about local X (axle) by slide / 2.5 rad (it rolls with the travel)"
     },
     {
      "name": "crane_1",
@@ -814,27 +825,49 @@
       2.0
      ],
      "material": "hb_opaque",
-     "tris": 726,
-     "anim": "gantry crane: may travel along local Z (glTF; rails run front-back, +/-18 m) over its two slips; trolley is baked",
+     "tris": 280,
+     "anim": "treadwheel crane on its sledge: may travel along local Z (glTF; rails run front-back, +/-12 m) beside its slips",
      "span_slips": [
       2,
       3
      ]
     },
     {
+     "name": "crane_1_wheel",
+     "origin": [
+      -37.0,
+      3.64,
+      2.0
+     ],
+     "material": "hb_opaque",
+     "tris": 716,
+     "anim": "treadwheel of crane_1: rides with it along local Z and turns about local X (axle) by slide / 2.5 rad (it rolls with the travel)"
+    },
+    {
      "name": "crane_2",
      "origin": [
-      -11.375,
+      -11.25,
       0.0,
       6.0
      ],
      "material": "hb_opaque",
-     "tris": 726,
-     "anim": "gantry crane: may travel along local Z (glTF; rails run front-back, +/-18 m) over its two slips; trolley is baked",
+     "tris": 280,
+     "anim": "treadwheel crane on its sledge: may travel along local Z (glTF; rails run front-back, +/-12 m) beside its slips",
      "span_slips": [
       4,
       5
      ]
+    },
+    {
+     "name": "crane_2_wheel",
+     "origin": [
+      -12.0,
+      3.64,
+      6.0
+     ],
+     "material": "hb_opaque",
+     "tris": 716,
+     "anim": "treadwheel of crane_2: rides with it along local Z and turns about local X (axle) by slide / 2.5 rad (it rolls with the travel)"
     },
     {
      "name": "shipyard_body",
@@ -844,7 +877,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 11981
+     "tris": 14176
     },
     {
      "name": "shipyard_body_lamps",
@@ -854,7 +887,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 228
+     "tris": 264
     },
     {
      "name": "shipyard_body_windows",
@@ -1447,14 +1480,16 @@
     {
      "name": "crane_0",
      "origin": [
-      -61.0,
+      -61.25,
       0.0,
       6.0
      ],
      "slips": [
       0,
       1
-     ]
+     ],
+     "wheel": "crane_0_wheel",
+     "wheel_radius_m": 2.5
     },
     {
      "name": "crane_1",
@@ -1466,22 +1501,26 @@
      "slips": [
       2,
       3
-     ]
+     ],
+     "wheel": "crane_1_wheel",
+     "wheel_radius_m": 2.5
     },
     {
      "name": "crane_2",
      "origin": [
-      -11.38,
+      -11.25,
       0.0,
       6.0
      ],
      "slips": [
       4,
       5
-     ]
+     ],
+     "wheel": "crane_2_wheel",
+     "wheel_radius_m": 2.5
     }
    ],
-   "kb": 225.6
+   "kb": 251.3
   },
   "customs": {
    "file": "customs.glb",
@@ -2677,7 +2716,7 @@
   "hull-stages": {
    "file": "hull-stages.glb",
    "footprint": null,
-   "tris": 3414,
+   "tris": 3856,
    "budget": 6000,
    "nodes": [
     {
@@ -2688,7 +2727,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 400
+     "tris": 426
     },
     {
      "name": "painted",
@@ -2698,7 +2737,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 390
+     "tris": 576
     },
     {
      "name": "planked",
@@ -2708,7 +2747,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 696
+     "tris": 870
     },
     {
      "name": "ribs",
@@ -2718,14 +2757,14 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1928
+     "tris": 1984
     }
    ],
    "loa_m": 13.0,
-   "beam_m": 3.51,
-   "keel_bottom_y": -1.21,
-   "freeboard_m": 1.24,
-   "kb": 69.3
+   "beam_m": 3.9,
+   "keel_bottom_y": -1.34,
+   "freeboard_m": 1.5,
+   "kb": 80.1
   }
  }
 }

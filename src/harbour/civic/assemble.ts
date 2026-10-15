@@ -24,7 +24,7 @@ export interface ManifestKind {
 export interface CivicManifest { kinds: Record<string, ManifestKind>; chains?: Record<string, string> }
 
 /** Mesh nodes that move: kept apart from the static merge and re-pivoted on their manifest origin. */
-const MOVING = /^(press_\d+|wheel|crane_\d+|fire_core)$/;
+const MOVING = /^(press_\d+|wheel|crane_\d+|crane_\d+_wheel|fire_core)$/;
 /** Mesh nodes another layer owns or tints (kept apart, untouched). */
 const KEEP = /^(crest_panel|furnace_glow|grate_glow|awning)$/;
 

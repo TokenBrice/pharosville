@@ -15,8 +15,8 @@ import { allocateYard, type HullStage, type PrelaunchCoin, type YardPlace } from
  * THE SHIPYARD (D20): the registry's pre-launch coins as hulls under construction. Keels, frames and planked
  * hulls on the building berths, painted ones beside the slips, and the launching-soon ships fully rigged on the
  * six big slipways, dressed overall in signal flags. Each hull has its name board (logo + symbol) at the head
- * of its berth, facing the harbour's camera side. Shipwrights hammer at the hulls, the gantry cranes run
- * slowly on their rails. A coin that appears live leaves the yard (the sim sails it out from the Slipway).
+ * of its berth, facing the harbour's camera side. Shipwrights hammer at the hulls, the treadwheel cranes
+ * run slowly on their rails. A coin that appears live leaves the yard (the sim sails it out from the Slipway).
  *
  * The whole yard is ONE merged kit mesh (rebuilt only when a coin launches); the name boards are painted into the
  * quarter's shared board atlas (boards.ts). A launched coin's hull, posts AND board leave together: its berth stays
@@ -29,6 +29,8 @@ const STAGE_NODE: Record<Exclude<HullStage, "rigged">, string> = { keel: "keel_o
 const DROP = /^(sail_main|sail_jib|sail_2|sail_extra|sail_cover|sail_cover_2|flag)$/;
 /** Hull scale on a slip (the slips take ~34 m ships) and on a berth (≤ 10.5 m keels). */
 const SLIP_SCALE = 1.75, BERTH_SCALE = 0.8;
+/** Treadwheel radius of the cranes (cv_yard.py WHEEL_R): crane_N_wheel turns by slide / radius. */
+const WHEEL_R = 2.5;
 /** International code flags, a bright run for dressing overall (sRGB). */
 const SIGNAL = ["#C8282E", "#F2C230", "#1F4EA0", "#F4F1E8", "#1C1C1C", "#2F7A3B", "#E07A1F"];
 
@@ -152,7 +154,7 @@ export class Shipyard {
   readonly group = new THREE.Group();
   readonly hulls: YardHull[] = [];
   private mesh: THREE.Mesh | null = null;
-  private readonly cranes: Array<{ node: THREE.Object3D; z: number; ph: number }> = [];
+  private readonly cranes: Array<{ node: THREE.Object3D; z: number; ph: number; wheel: { node: THREE.Object3D; z: number } | null }> = [];
   private placed: Placed[] = [];
   /** Sawdust where the frames are being faired (two hulls, decorative). */
   private readonly dust: Embers[] = [];
@@ -161,7 +163,11 @@ export class Shipyard {
 
   private constructor(p: LoadedPlot, private readonly mats: HarbourMaterials, private readonly boards: CivicBoards) {
     this.group.name = "shipyard";
-    p.nodes.forEach((n, name) => { if (/^crane_\d+$/.test(name)) this.cranes.push({ node: n, z: n.position.z, ph: this.cranes.length * 2.1 }); });
+    p.nodes.forEach((n, name) => {
+      if (!/^crane_\d+$/.test(name)) return;
+      const w = p.nodes.get(`${name}_wheel`);
+      this.cranes.push({ node: n, z: n.position.z, ph: this.cranes.length * 2.1, wheel: w ? { node: w, z: w.position.z } : null });
+    });
   }
 
   static async build(p: LoadedPlot, mats: HarbourMaterials, boards: CivicBoards, coins: readonly PrelaunchCoin[], stageSpec: ManifestKind,
@@ -398,9 +404,12 @@ export class Shipyard {
       d.u.uGain.value = 0.45 * (1 - night);
     }
     for (const c of this.cranes) {
-      // long, eased travels with pauses: a working gantry, not a pendulum
+      // long, eased travels with pauses: a working crane, not a pendulum
       const s = Math.sin(this.t * (2 * Math.PI / 95) + c.ph);
-      c.node.position.z = c.z + 12 * Math.sign(s) * Math.pow(Math.abs(s), 0.6);
+      const off = 12 * Math.sign(s) * Math.pow(Math.abs(s), 0.6);
+      c.node.position.z = c.z + off;
+      // the treadwheel rides along on the sledge and turns as if it drove it
+      if (c.wheel) { c.wheel.node.position.z = c.wheel.z + off; c.wheel.node.rotation.x = off / WHEEL_R; }
     }
   }
 
