@@ -7,6 +7,7 @@ Everything here is runtime-portable by construction:
     is computed from OBJECT-space position + normal, i.e. exactly what a GLSL/TSL fragment shader
     gets from a varying local position. No textures except a 256^2 tiling noise in the port.
   * glass/window: emissive, per-face lit factor in Col.R
+    (hb_window Col.B = window kind: 0 framed + cross mullion, 1 plain lit opening; runtime materials.ts WINDOW_KIND)
   * sail: UV emblem slot from a small atlas + per-object brand colour (= per-instance attribute)
 """
 import bpy, bmesh, math, random, os, sys, json
@@ -114,9 +115,43 @@ HEX = {
     'lantern': ('#FFE0A8', 'lighthouse lamp + beam'),
     'riding': ('#FFF2D6', 'masthead riding light'),
     'moon': ('#E3EBFF', 'moon'),
+    # "Ptolemaic harbour" (classical-town PLAN §3.1), mirrored from civic/cv_lib.py CLASSICAL (kit_gallery.py checks it)
+    'sandstone': ('#C9B48E', 'ashlar base course'),
+    'lime': ('#E4DAC4', 'lime plaster, stone surrounds, flags'),
+    'lime_dark': ('#B4A68C', 'lime plaster, shaded / worn'),
+    'wash_white': ('#F2EEE4', 'whitewash'),
+    'wash_cream': ('#EADCC0', 'cream wash'),
+    'wash_ochre': ('#E0B070', 'ochre wash'),
+    'wash_sienna': ('#CC8C62', 'sienna wash'),
+    'wash_rose': ('#DCAE98', 'faded rose wash'),
+    'wash_blue': ('#C3D3DC', 'pale blue limewash'),
+    'tile_a': ('#A35F45', 'terracotta roof'),
+    'tile_b': ('#93604F', 'terracotta roof, browner'),
+    'tile_c': ('#B97456', 'terracotta roof, lighter; antefixes'),
+    'tile_ridge': ('#6E4536', 'ridge / hip caps, roof fascia'),
+    'poly_red': ('#9E3B2C', 'polychromy: red ochre band'),
+    'poly_blue': ('#2E5A8A', 'polychromy: Egyptian blue band'),
+    'poly_ochre': ('#C9973C', 'polychromy: ochre key'),
+    'poly_black': ('#2C2622', 'polychromy: black fillet'),
+    'bronze_dark': ('#6E4824', 'bronze in shade'),
+    'oak_dark': ('#4A3324', 'oiled oak: doors, pergolas, cranes'),
+    'linen': ('#EFE6D2', 'undyed linen'),
+    'shutter_blue': ('#2F6F9A', 'board shutters / doors'),
+    'shutter_green': ('#4C7A52', 'board shutters / doors'),
+    'shutter_teal': ('#2F8582', 'board shutters / doors'),
+    'shutter_ox': ('#7E2F24', 'board shutters / doors'),
+    'clay': ('#C69B74', 'unfired clay, kilns'),
+    'terracotta': ('#B9663C', 'pots, amphorae'),
+    'vine': ('#5E7F35', 'vine canopy'),
+    'vine_light': ('#7A9845', 'vine canopy, lit'),
+    'bougain': ('#C2306E', 'bougainvillea'),
+    'bougain_light': ('#DA4F8C', 'bougainvillea, lit'),
+    'olive_leaf': ('#6E7D43', 'olive crown'),
+    'olive_dark': ('#4F5E33', 'olive crown, shade'),
 }
 PAL = {k: lin(v[0]) for k, v in HEX.items()}
 
+# 14 = leaf_evergreen (runtime materials.ts PATTERN_LEAF_EVERGREEN): leaf that never blossoms, colours or drops; snowed.
 PATTERN = dict(plain=0, boards=1, ashlar=2, planks_x=3, cobble=4, rock=5, grass=6, tiles=7, leaf=8,
                strakes=9, render=10, planks_y=11, metal=12, slate=13)
 
