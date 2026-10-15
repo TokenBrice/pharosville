@@ -39,7 +39,7 @@ PHAROS_ROAD = [(-97.0, 70.0), (-104.0, 82.0), (-122.0, 88.0), (-140.0, 98.0), (-
 # quay's north end -> up the headland past the Chart Room and the Keeper's Log -> the causeway abutment
 ROAD_CUT_W = 3.0
 _road = None          # (dense uv polyline, graded z per point, bbox)
-_flats = []           # integration G2: level aprons shared by civic plots [(poly, z, blend, bbox)] (world)
+_flats = []           # integration G2: level aprons shared by civic plots [(poly, z, blend, bbox, terrace)] (world)
 _pads = []            # P6 civic plots: level pads [(cx, cy, fx, fy, hw, hd, z, blend, bbox)] (world)
 
 
@@ -57,29 +57,47 @@ def set_pads(pads):
 
 def set_flats(flats):
     """Level aprons (world): dict(poly, z, blend) - a convex platform shared by neighbouring civic plots (the battery), so
-    no strip of hill stands walled between them; it eases back to the land over `blend` m (hb_land walls its edges)."""
+    no strip of hill stands walled between them; it eases back to the land over `blend` m (hb_land walls its edges).
+    Optional terrace=dict(edges, courses, slope) (P8): behind those edges the hill is cut in steps instead of one tall
+    wall - courses [(outer distance, rise above z)], each a level ledge, then a `slope` cut up to the hill."""
     global _flats
     _flats = []
     for f in flats:
         P = [tuple(q) for q in f['poly']]; b = f.get('blend', 2.5)
-        _flats.append((P, f['z'] - 0.08, b, (min(q[0] for q in P) - b, min(q[1] for q in P) - b, max(q[0] for q in P) + b, max(q[1] for q in P) + b)))
+        te = f.get('terrace')
+        r = max(b, te['courses'][-1][0] + 24.0) if te else b
+        _flats.append((P, f['z'] - 0.08, b, (min(q[0] for q in P) - r, min(q[1] for q in P) - r, max(q[0] for q in P) + r, max(q[1] for q in P) + r), te))
+
+
+def terrace_cap(te, d):
+    """Highest ground (above the flat) a terrace allows at outer distance d."""
+    for d_end, rise in te['courses']:
+        if d < d_end:
+            return rise
+    d_end, rise = te['courses'][-1]
+    return rise + te['slope'] * (d - d_end)
 
 
 def _flat_at(x, y):
-    """(z, outside distance, blend) of the flat covering (x, y) or within its blend, else None."""
-    for (P, z, b, bb) in _flats:
+    """(z, outside distance, blend, terrace or None) of the flat covering (x, y), within its blend or (on a terraced edge)
+    within its terrace reach, else None."""
+    for (P, z, b, bb, te) in _flats:
         if not (bb[0] <= x <= bb[2] and bb[1] <= y <= bb[3]):
             continue
-        n = len(P); inside = False; d = 1e9
+        n = len(P); inside = False; d = 1e9; ei = -1
         for i in range(n):
             (ax, ay), (bx, by) = P[i], P[(i + 1) % n]
             if (ay > y) != (by > y) and x < (bx - ax) * (y - ay) / (by - ay + 1e-12) + ax:
                 inside = not inside
-            d = min(d, _segd(x, y, (ax, ay), (bx, by)))
+            di = _segd(x, y, (ax, ay), (bx, by))
+            if di < d:
+                d, ei = di, i
         if inside:
-            return (z, 0.0, b)
+            return (z, 0.0, b, None)
+        if te and ei in te['edges']:
+            return (z, d, b, te)
         if d <= b:
-            return (z, d, b)
+            return (z, d, b, None)
     return None
 
 
@@ -303,7 +321,9 @@ def height(x, y, coves=(), pads=True, flats=True):
             h += kb * sstep(36.0, 44.0, dc) * (0.8 + 4.2 * max(0.0, fbm(x, y, 0.055, 2, 21) - 0.25))
     if _flats and flats:
         fl = _flat_at(x, y)
-        if fl is not None:
+        if fl is not None and fl[3] is not None:      # a terraced edge: level ledges and a cut slope, walled by hb_land
+            h = min(h, fl[0] + 0.08 + terrace_cap(fl[3], fl[1]))
+        elif fl is not None:
             k = 1.0 - sstep(0.0, fl[2], fl[1])
             h = h * (1 - k) + fl[0] * k
     if _pads and pads:               # P6 civic pads: dead level inside, a short easing outside (walled by hb_land)

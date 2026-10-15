@@ -12,17 +12,17 @@ import { SYNTHS, makeRng, type Clip, type ClipKind } from "./dsp";
  */
 const RATE: Record<ClipKind, number> = {
   shore: 24000, lap: 24000, reef: 12000, crackle: 24000, press: 24000, halyard: 24000, bell: 16000, gull: 24000, creak: 16000,
-  drizzle: 24000, rain: 24000, drip: 24000, thunder: 24000, rumble: 8000, bird: 24000, cricket: 24000, rustle: 24000, crunch: 24000,
+  drizzle: 24000, rain: 24000, drip: 24000, thunder: 24000, rumble: 8000, bird: 24000, cricket: 24000, cicada: 24000, rustle: 24000, crunch: 24000,
 };
 const PLAN: Record<ClipKind, number> = {
   shore: 6, lap: 8, reef: 3, crackle: 3, press: 2, halyard: 5, bell: 2, gull: 6, creak: 4,
-  drizzle: 2, rain: 3, drip: 4, thunder: 3, rumble: 4, bird: 7, cricket: 3, rustle: 5, crunch: 3,
+  drizzle: 2, rain: 3, drip: 4, thunder: 3, rumble: 4, bird: 7, cricket: 3, cicada: 3, rustle: 5, crunch: 3,
 };
 /**
  * Weather and season kinds are LAZY: synthesised only once the scene asks for them (want()), so a calm
  * summer noon never spends a millisecond or a megabyte on thunder or snow.
  */
-const LAZY = new Set<ClipKind>(["drizzle", "rain", "drip", "thunder", "rumble", "bird", "cricket", "rustle", "crunch"]);
+const LAZY = new Set<ClipKind>(["drizzle", "rain", "drip", "thunder", "rumble", "bird", "cricket", "cicada", "rustle", "crunch"]);
 /** the first of each kind comes first, so the scene is audible within a few hundred ms */
 const FIRST: ClipKind[] = ["shore", "lap", "reef", "shore", "lap", "halyard", "gull", "creak", "bell", "crackle", "press"];
 const REFRESH: ClipKind[] = ["shore", "lap", "reef", "shore", "gull", "lap", "halyard", "creak"];

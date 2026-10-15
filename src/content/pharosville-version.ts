@@ -36,6 +36,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   steadyLamp: "v0.20.1",
   theHarbour: "v1.0.0",
   seasonsAndStorms: "v1.1.0",
+  terracottaAndBronze: "v1.2.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.seasonsAndStorms;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.terracottaAndBronze;

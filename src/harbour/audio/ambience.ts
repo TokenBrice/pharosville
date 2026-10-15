@@ -38,6 +38,8 @@ export interface AmbienceInputs {
   fog: number;
   /** 0 day … 1 night */
   night: number;
+  /** world hour 0..24 */
+  hour: number;
   /** nearness 0..1 of the beaches / rocky shore, and the pan of the nearest stretch */
   shore: number;
   shorePan: number;
@@ -148,11 +150,23 @@ class LazyLoop {
   }
 }
 
+/** Cicadas sing on summer afternoons: 0..1 by summer weight, fading in 11–13h and out 17–19h (world hour). */
+export function cicadaLevel(summer: number, hour: number): number {
+  const h = ((hour % 24) + 24) % 24;
+  const up = Math.max(0, Math.min(1, (h - 11) / 2)), down = Math.max(0, Math.min(1, (19 - h) / 2));
+  return Math.max(0, Math.min(1, summer)) * Math.min(up, down);
+}
+
+/** Birdsong thins while the cicadas play: 1 = untouched … 0.35 under a full chorus. */
+export function birdThinning(cicada: number): number {
+  return 1 - 0.65 * Math.max(0, Math.min(1, cicada));
+}
+
 export class Ambience {
   private readonly out: GainNode;
   private readonly sources: AudioScheduledSourceNode[] = [];
   private readonly inputs: AmbienceInputs = {
-    zoom: 0.5, wind: 0.35, fog: 0, night: 0, shore: 0.5, shorePan: 0, harbour: 0.5, reef: 0.2, reefPan: -0.5,
+    zoom: 0.5, wind: 0.35, fog: 0, night: 0, hour: 9, shore: 0.5, shorePan: 0, harbour: 0.5, reef: 0.2, reefPan: -0.5,
     fire: 0, firePan: 0, mint: 0, mintPan: 0, mintRate: 0.5,
     rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
     town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false,
@@ -212,6 +226,7 @@ export class Ambience {
   // season
   private readonly birdBus: GainNode;
   private readonly cricketBus: GainNode;
+  private readonly cicadaBus: GainNode;
   private readonly rustleBus: GainNode;
   private readonly rustleLp: BiquadFilterNode;
   private readonly crunchBus: GainNode;
@@ -219,7 +234,7 @@ export class Ambience {
   private idle = 0;
   private next = {
     wave: 0, lap: 0, reef: 0, gull: 0, creak: 0, tap: 0, horn: 0, gust: 0, crackle: 0, press: 0, refresh: 0,
-    rainA: 0, rainB: 0, drip: 0, bird: 0, cricket: 0, crunch: 0,
+    rainA: 0, rainB: 0, drip: 0, bird: 0, cricket: 0, cicada: 0, crunch: 0,
   };
   private setLeft = 0;
   private pressN = 0;
@@ -355,6 +370,7 @@ export class Ambience {
     // ---- season colour
     this.birdBus = ac.createGain(); this.birdBus.gain.value = 0; this.birdBus.connect(this.out);
     this.cricketBus = ac.createGain(); this.cricketBus.gain.value = 0; this.cricketBus.connect(this.out);
+    this.cicadaBus = ac.createGain(); this.cicadaBus.gain.value = 0; this.cicadaBus.connect(this.out);
     this.rustleBus = ac.createGain(); this.rustleBus.gain.value = 0;
     this.rustleLp = this.filter("lowpass", 9000, 0.5);
     this.rustleLp.connect(this.rustleBus).connect(this.out);
@@ -369,7 +385,7 @@ export class Ambience {
     this.next = {
       wave: t + 0.2, lap: t + 0.6, reef: t + 1.5, gull: t + 3 + this.rnd() * 4, creak: t + 3, tap: t + 1.5, horn: t + 3, gust: t,
       crackle: t, press: t + 0.5, refresh: t + 20,
-      rainA: t, rainB: t + 1.7, drip: t + 1, bird: t + 1 + this.rnd() * 3, cricket: t, crunch: t + 4,
+      rainA: t, rainB: t + 1.7, drip: t + 1, bird: t + 1 + this.rnd() * 3, cricket: t, cicada: t, crunch: t + 4,
     };
     if (opts.manual) this.bank.buildAll();
     else {
@@ -480,11 +496,14 @@ export class Ambience {
     // ---- season colour (calendar): the weather silences it (no birdsong in a downpour)
     const day = 1 - night;
     const quiet = (1 - clamp01(rain * 1.6)) * (1 - 0.9 * storm) * (1 - snow);
-    const birds = (I.spring + 0.5 * I.summer + 0.2 * I.autumn + 0.04 * I.winter) * day * quiet;
+    const cic = cicadaLevel(I.summer, I.hour);
+    const birds = (I.spring + 0.5 * I.summer + 0.2 * I.autumn + 0.04 * I.winter) * day * quiet * birdThinning(cic);
     this.aim(this.birdBus.gain, birds * (0.05 + 0.5 * I.trees), 1);
     const dusk = clamp01((night - 0.2) / 0.4);
     const crickets = (I.summer + 0.3 * I.spring + 0.5 * I.autumn) * dusk * (1 - clamp01(rain * 2)) * (1 - 0.8 * storm);
     this.aim(this.cricketBus.gain, crickets * (0.04 + 0.4 * I.land), 1);
+    const cicadas = cic * day * quiet;
+    this.aim(this.cicadaBus.gain, cicadas * (0.03 + 0.25 * I.trees), 1);
     const leafy = I.autumn + 0.35 * (I.spring + I.summer) + 0.04 * I.winter;
     const rustle = Math.pow(wind, 1.2) * leafy * (1 - 0.7 * I.wet);
     this.aim(this.rustleBus.gain, rustle * (0.3 + 2 * I.land), 1);
@@ -498,6 +517,7 @@ export class Ambience {
     if (storm > 0.6) this.need("thunder", "rumble");
     if (birds > 0.01) this.need("bird");
     if (crickets > 0.01) this.need("cricket");
+    if (cicadas > 0.01) this.need("cicada");
     if (rustle > 0.01) this.need("rustle");
     if (crunch > 0.01) this.need("crunch");
 
@@ -606,6 +626,14 @@ export class Ambience {
         N.cricket = at + 3.45 + r() * 0.1;
       }
     } else N.cricket = Math.max(N.cricket, now);
+    // cicadas: overlapped 5 s clips, only on summer afternoons
+    if (cicadas > 0.01) {
+      if (N.cicada < ahead) {
+        const at = Math.max(N.cicada, now);
+        this.play("cicada", at, this.cicadaBus, 0.8, I.treesPan * 0.3 + r() * 0.6 - 0.3, 0.97 + r() * 0.06);
+        N.cicada = at + 4.45 + r() * 0.1;
+      }
+    } else N.cicada = Math.max(N.cicada, now);
     // footsteps in the snow, now and then, near the town
     if (crunch > 0.01) {
       if (N.crunch < ahead) {

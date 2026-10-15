@@ -24,9 +24,10 @@ an alternative source of runtime truth.
 
 ## Runtime summary
 
-PharosVille is The Harbour: a lighthouse harbour town where every stablecoin is
-a boat sailing a circuit between its chains' piers, docking longest where it
-holds the most supply. The lighthouse beam is the Pharos Stability Index; sea
+PharosVille is The Harbour: a classical Mediterranean harbour town under the
+Pharos of Alexandria, where every stablecoin is an ancient ship sailing a
+circuit between its chains' piers, docking longest where it holds the most
+supply. The lighthouse beam is the Pharos Stability Index; sea
 state, weather and fog carry off-peg share, stress signals and stale data.
 `src/harbour/` holds one three.js WebGL2 `Engine` (`engine/`), ordered world
 systems (`systems.ts`), the same-origin data feed, model and sim (`data/`,

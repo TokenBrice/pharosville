@@ -1327,7 +1327,23 @@ BATTERY_FLAT = _hull([tuple(q) for q in rect(_hm['c'], _hm['face'], _hm['d'] + 4
                       rect(add(_hm['c'], mul(_hm['face'], 9.0)), _hm['face'], _hm['d'], _hm['w']) +
                       # and toward the camera (yaw 45): the hill shoulder there walled the Harbourmaster's lower half
                       rect(add(_hm['c'], (7.0, -7.0)), (math.sqrt(0.5), -math.sqrt(0.5)), 20.0, 18.0)])
-FLATS = [dict(poly=[(round(q[0], 2), round(q[1], 2)) for q in BATTERY_FLAT], z=Z_SHORE, blend=2.5)]
+_bf = [(round(q[0], 2), round(q[1], 2)) for q in BATTERY_FLAT]
+_bc = (sum(q[0] for q in _bf) / len(_bf), sum(q[1] for q in _bf) / len(_bf))
+
+
+def _back_edge(i):
+    """The battery's back edges (outward normal up the hill, +y): the hill there stood as one tall wall over the Storm
+    Station (P8), so it is cut into terraces instead."""
+    a, b = _bf[i], _bf[(i + 1) % len(_bf)]
+    t = norm(sub(b, a)); n = (t[1], -t[0])
+    if dot(n, sub(_bc, a)) > 0:
+        n = (-n[0], -n[1])
+    return n[1] > 0.6
+
+
+# P8: two lower courses at the town's terrace step (5.55 m) with a planted ledge between, then a cut bank to the hill
+FLATS = [dict(poly=_bf, z=Z_SHORE, blend=2.5,
+              terrace=dict(edges=[i for i in range(len(_bf)) if _back_edge(i)], courses=[(3.4, 5.55), (6.8, 11.1)], slope=1.0))]
 _T.set_flats(FLATS)
 CW_DECK_A = max(2.6, _T.height(*CW_A) + 0.12)  # the causeway leaves the headland at its ground level ...
 

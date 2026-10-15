@@ -164,6 +164,23 @@ def build_heightfield():
             for p in _resample(ring, 2.2):
                 if inside(*p) and dcoast(*p) > 1.0:
                     pts.append(p)
+    # P8: the battery's terraced back edges - rows on both sides of each course so the ledges stay level to their walls
+    for fl in CJ.get('flats', []):
+        te = fl.get('terrace')
+        if not te:
+            continue
+        ring = [Vector(q) for q in fl['poly']]
+        cen = sum(ring, Vector((0.0, 0.0))) / len(ring)
+        for i in te['edges']:
+            a, b = ring[i], ring[(i + 1) % len(ring)]
+            t = (b - a).normalized(); nout = Vector((t.y, -t.x))
+            if (cen - a).dot(nout) > 0:
+                nout = -nout
+            offs = [0.95] + [o for d_end, _ in te['courses'] for o in (d_end - 0.2, d_end + 0.95)] + [te['courses'][-1][0] + 3.5]
+            for off in offs:
+                for p in _resample([tuple(a + nout * off), tuple(b + nout * off)], 2.0, closed=False):
+                    if inside(*p) and dcoast(*p) > 1.0:
+                        pts.append(p)
     # quay aprons: a row just inland of every quay line so the apron stays flat to its edge
     for L in QL.values():
         for p in _resample(L, 3.0, closed=False):
@@ -898,13 +915,37 @@ for fl in CJ.get('flats', []):           # integration G2: the battery platform'
         if (cen - a).dot(nout) > 0:
             nout = -nout
         n_ = max(1, int(L_ / 1.6))
+        te = fl.get('terrace') if i in (fl.get('terrace') or {}).get('edges', ()) else None
+        # P8: a terraced edge gets one course per ledge, each set back to its ledge's front and only as tall as its step
+        steps = [(0.0, 0.0, None)] if te is None else [(d0, r0, r1) for (d0, r0), (_, r1) in zip([(0.0, 0.0)] + te['courses'], te['courses'])]
         for k in range(n_):
             p0 = a + t * (L_ * k / n_); p1 = a + t * (L_ * (k + 1) / n_)
-            zo = [terrain.height(*(q + nout * 1.7), pads=False, flats=False) if point_in_poly(*(q + nout * 1.7), COAST) else -1.5 for q in (p0, p1, (p0 + p1) / 2)]
-            if min(zo) < zp + 0.55:              # only where the hill stands above the platform (the sea side stays open)
-                continue
-            lo = zp - 0.7; hi = max(zo) + 0.15
-            q0 = p0 + nout * 0.45; q1 = p1 + nout * 0.45
+            for (d0, r0, r1) in steps:
+                zo = [terrain.height(*(q + nout * (d0 + 1.7)), pads=False, flats=False) if point_in_poly(*(q + nout * (d0 + 1.7)), COAST) else -1.5
+                      for q in (p0, p1, (p0 + p1) / 2)]
+                if min(zo) < zp + r0 + 0.55:     # only where the hill stands above the platform / ledge (the sea side stays open)
+                    break
+                lo = zp + r0 - 0.7; hi = max(zo) + 0.15 if r1 is None else min(max(zo) + 0.15, zp + r1 + 0.15)
+                q0 = p0 + nout * (d0 + 0.45); q1 = p1 + nout * (d0 + 0.45)
+                merge(pw_, nl_kit.beam((q0.x, q0.y, (lo + hi) / 2), (q1.x, q1.y, (lo + hi) / 2), 0.9, hi - lo))
+                merge(pc_, nl_kit.beam((q0.x, q0.y, hi + 0.12), (q1.x, q1.y, hi + 0.12), 1.15, 0.26))
+    te = fl.get('terrace')
+    for i in (te or {}).get('edges', ()):       # P8: close each course round the corner between two terraced edges
+        j = (i + 1) % len(ring)
+        if j not in te['edges']:
+            continue
+        ns = []
+        for e in (i, j):
+            a, b = ring[e], ring[(e + 1) % len(ring)]
+            t = (b - a).normalized(); n_ = Vector((t.y, -t.x))
+            ns.append(-n_ if (cen - a).dot(n_) > 0 else n_)
+        v = ring[j]; nm = (ns[0] + ns[1]).normalized()
+        for (d0, r0), (_, r1) in zip([(0.0, 0.0)] + te['courses'], te['courses']):
+            zh = terrain.height(*(v + nm * (d0 + 1.7)), pads=False, flats=False)
+            if zh < zp + r0 + 0.55:
+                break
+            lo = zp + r0 - 0.7; hi = min(zh + 0.15, zp + r1 + 0.15)
+            q0 = v + ns[0] * (d0 + 0.45); q1 = v + ns[1] * (d0 + 0.45)
             merge(pw_, nl_kit.beam((q0.x, q0.y, (lo + hi) / 2), (q1.x, q1.y, (lo + hi) / 2), 0.9, hi - lo))
             merge(pc_, nl_kit.beam((q0.x, q0.y, hi + 0.12), (q1.x, q1.y, hi + 0.12), 1.15, 0.26))
 if len(pw_.faces):

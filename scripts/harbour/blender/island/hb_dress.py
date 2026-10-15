@@ -419,6 +419,34 @@ for (u, v) in OUTCROPS:
         merge(bould, bm_ico(rr, (q[0], q[1], zq + rr * 0.1), 1, (1.2, 1.0, 0.85 + DRNG.random() * 0.4), seed=DRNG.randint(0, 999), amp=0.32))
         if DRNG.random() < 0.7:
             merge(lich, bm_ico(rr * 0.45, (q[0], q[1], zq + rr * 0.9), 0, (1.3, 1.0, 0.25), seed=DRNG.randint(0, 99)))
+# P8: the battery's terraced back wall - a planted ledge (oleander, rosemary, lavender) on each course and a cypress row
+# on the upper ledge, so the cut reads as garden terraces rather than a stone mass (own rng: the island's scatter is kept)
+_TRNG = random.Random(808)
+for _fl in CJ.get('flats', []):
+    _te = _fl.get('terrace')
+    if not _te:
+        continue
+    _ring = [Vector(q) for q in _fl['poly']]
+    _cen = sum(_ring, Vector((0.0, 0.0))) / len(_ring)
+    for _i in _te['edges']:
+        _a, _b = _ring[_i], _ring[(_i + 1) % len(_ring)]
+        _t = (_b - _a); _L = _t.length; _t.normalize()
+        _n = Vector((_t.y, -_t.x))
+        if (_cen - _a).dot(_n) > 0:
+            _n = -_n
+        for _k, ((_d0, _r0), (_d1, _r1)) in enumerate(zip([(0.0, 0.0)] + [tuple(c) for c in _te['courses']], _te['courses'])):
+            _mid = (_d0 + 0.9 + _d1) / 2                  # the ledge between this course's wall and the next one's
+            _s = 1.3
+            while _s < _L - 1.3:
+                _p = _a + _t * (_s + _TRNG.uniform(-0.4, 0.4)) + _n * (_mid + _TRNG.uniform(-0.5, 0.5))
+                if abs(H(_p.x, _p.y) - (_fl['z'] + _r1)) < 0.3:       # only where the ledge is cut (the hill stood above it)
+                    if _k == 1 and _TRNG.random() < 0.3:
+                        place_cypress((_p.x, _p.y), _TRNG)
+                    else:
+                        _sp = ('oleander', 'rosemary', 'lavender', 'oleander')[_TRNG.randrange(4)]
+                        _r, _sc = MQ_SHAPE[_sp]; _r *= _TRNG.uniform(1.0, 1.4)
+                        merge(MQ[_sp], bm_ico(_r, (_p.x, _p.y, H(_p.x, _p.y) + _r * _sc[2] * 0.55), 1, _sc, seed=_TRNG.randint(0, 999), amp=0.3))
+                _s += _TRNG.uniform(1.4, 2.0)
 LEAF_COL = dict(pine=('#45612C', '#2F4824'), cypress=('#3E5530', '#2C4024'), fig=('#7FA046', '#5F8236'),
                 pomegranate=('#6E9638', '#527A2E'), plane=('#86A84C', '#6A8E3C'), almond=('#93AE58', '#77924A'))
 BARK = dict(pine='#7A5038', olive='#7E7568', fig='#8E8A80', pomegranate='#6A5640', plane='#B5AA90', almond='#4E3E30')

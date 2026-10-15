@@ -25,7 +25,7 @@ export type ClipKind = "shore" | "lap" | "reef" | "crackle" | "press" | "halyard
   // weather (DEWS): precipitation, thunder
   | "drizzle" | "rain" | "drip" | "thunder" | "rumble"
   // season colour (calendar, decorative)
-  | "bird" | "cricket" | "rustle" | "crunch";
+  | "bird" | "cricket" | "cicada" | "rustle" | "crunch";
 
 /** mulberry32: small, fast, seedable. */
 export function makeRng(seed: number): Rng {
@@ -829,6 +829,29 @@ export function* cricket(seed: number, sr: number): Generator<void, Clip> {
   return { sr, L, R };
 }
 
+/** Summer-afternoon cicadas in the groves: a few callers, each a ~4.8 kHz buzz in tymbal pulses that swells and ebbs, over a far chorus. 5 s, overlapped. */
+export function* cicada(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 5, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  for (let c = 0, m = 3 + Math.floor(r() * 3); c < m; c++) {
+    const bp = [new Svf(sr), new Svf(sr)];
+    bp[0].set(range(r, 4200, 5600), 4); bp[1].set(range(r, 4200, 5600), 4);
+    const rate = range(r, 120, 190), swellHz = range(r, 0.25, 0.5), ph0 = r() * TAU, amp = range(r, 0.05, 0.12);
+    const [gl, gr] = panGains(range(r, -0.9, 0.9));
+    for (let i = 0; i < n; i++) {
+      const tym = Math.pow(0.5 + 0.5 * Math.sin((TAU * rate * i) / sr), 2);
+      const swl = 0.35 + 0.65 * Math.pow(0.5 + 0.5 * Math.sin(TAU * swellHz * (i / sr) + ph0), 1.5);
+      const e = amp * tym * swl;
+      L[i] += (bp[0].run(N()), bp[0].bp / 4) * e * gl; R[i] += (bp[1].run(N()), bp[1].bp / 4) * e * gr;
+      if ((i % SLICE) === SLICE - 1) yield;
+    }
+  }
+  seal({ L, R }, sr, 0.5, 0.5);
+  limit({ L, R }, 0.5);
+  return { sr, L, R };
+}
+
 /**
  * A gust through dry leaves: a swell of tiny crisp ticks and a hiss, with a few leaves skittering over the
  * cobbles. The scheduler darkens it for green summer leaves. 2–3.5 s.
@@ -915,6 +938,7 @@ export const SYNTHS: Record<ClipKind, (seed: number, sr: number) => Generator<vo
   rumble,
   bird,
   cricket,
+  cicada,
   rustle,
   crunch,
 };

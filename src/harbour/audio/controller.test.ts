@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { weatherInputs } from "./controller";
+import { birdThinning, cicadaLevel } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {
   it("absent services read as fair weather with no season colour", () => {
@@ -20,5 +21,23 @@ describe("harbour sound: weather and season inputs", () => {
       { weights: [0, 0, 0.2, 0.8], snowCover: 0.9 }, 0.3, 0,
     );
     expect(i).toMatchObject({ rain: 0, snow: 0.62, wind: 0.8, wet: 0.7, autumn: 0.2, winter: 0.8, snowCover: 0.9 });
+  });
+});
+
+describe("harbour sound: summer cicadas", () => {
+  it("sing only in summer afternoons, fading at the edges", () => {
+    expect(cicadaLevel(1, 15)).toBe(1);
+    expect(cicadaLevel(1, 8)).toBe(0);
+    expect(cicadaLevel(1, 22)).toBe(0);
+    expect(cicadaLevel(1, 12)).toBeGreaterThan(0);
+    expect(cicadaLevel(1, 12)).toBeLessThan(1);
+    expect(cicadaLevel(0, 15)).toBe(0);
+    expect(cicadaLevel(0.5, 15)).toBeCloseTo(0.5);
+  });
+
+  it("thin the birdsong only while they play", () => {
+    expect(birdThinning(0)).toBe(1);
+    expect(birdThinning(1)).toBeLessThan(birdThinning(0.5));
+    expect(birdThinning(1)).toBeGreaterThan(0);
   });
 });

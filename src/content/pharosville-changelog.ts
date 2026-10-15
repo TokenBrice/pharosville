@@ -12,6 +12,23 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-10-15-terracotta-and-bronze",
+    version: PHAROSVILLE_RELEASE_VERSIONS.terracottaAndBronze,
+    date: "2026-10-15",
+    title: "Terracotta and Bronze",
+    summary: "The town around the Pharos now belongs to the Pharos's own age: a painted Mediterranean harbour of stoas, temple fronts, clay-tiled houses, umbrella pines and an ancient fleet, with every building and ship meaning exactly what it did before.",
+    bullets: [
+      "The civic quarter is Ptolemaic Alexandria: an Ionic Customs House with its Tower of the Winds, the Registry behind a temple front, the Ethereum office as a painted stoa, and the Mint of Moneta with a gilt acroterion and bronze-capped flues instead of factory stacks. The Burn is a fire altar, the Chart Room an exedra, the storm-signal station flies wicker cones, the Harbourmaster keeps a loggia and the Keeper's Log a tholos; the seven chain offices are classical, still flagged in their chain's colours and crests.",
+      "The town is a Mediterranean harbour town: courtyard and terrace houses in limewash and ochre with painted bands, shutters, outside stairs, pergolas and roof terraces under clay tiles, lit windows as plain warm openings at night, horrea on the quays, fire-bowl beacons on the pier heads, a Cycladic windmill, and terraced gardens where a stone wall stood behind the Storm Station.",
+      "Umbrella pines, cypresses, olives, figs, pomegranates, planes and almonds replace the spruce and birch, with lavender, rosemary and oleander on the slopes. The evergreens keep their colour through the year while the rest still blossom, turn and go bare, and winter snow still settles on roofs and crowns.",
+      "The Shipyard builds under tiled ship sheds with timber treadwheel cranes, and every pre-launch coin's hull stage stands on the new ancient hull.",
+      "The fleet is ancient: square-rigged coasters, corbitae and merchantmen for the dollar coins, Greek traders for the euro, biremes and triremes for gold, hippos boats for other currencies and sprit boats for the rest, with Syracusia-class grain ships for the titans and amphora wrecks in Wreck Cove. Logos stay legible on the larger square sails, a docked ship's brailed sail carries its roundel, and the panel names each ship's type.",
+      "The opt-in ambience adds cicadas on summer afternoons, thinning the birdsong while they sing; sound stays off by default.",
+      "The first-paint poster, the social card and the README screenshot show the new harbour. No data mapping changed: hull family still follows the peg currency, size the supply class, and every landmark reads the same signal.",
+    ],
+    source: "Collected from `restyle/classical` after v1.1.0 (P0-P8; see `agents/2026-10-15-classical-town/`).",
+  },
+  {
     id: "2026-10-15-seasons-and-storms",
     version: PHAROSVILLE_RELEASE_VERSIONS.seasonsAndStorms,
     date: "2026-10-15",
