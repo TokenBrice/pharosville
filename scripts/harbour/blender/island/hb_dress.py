@@ -37,6 +37,23 @@ for k, L in CJ['landmarks'].items():
     occ_poly([(L['p'][0] - r, L['p'][1] - r), (L['p'][0] + r, L['p'][1] - r), (L['p'][0] + r, L['p'][1] + r), (L['p'][0] - r, L['p'][1] + r)])
 for cv in CJ.get('civic', []):                                 # P6: the civic plots (+ a lane round each) stay clear
     occ_poly(plot_rect(cv, 2.5))
+for fl in CJ.get('flats', []):                                 # integration G2: the battery platform
+    occ_poly(fl['poly'])
+# integration G2: buildings that must read from the runtime views (all presets look from yaw 45 at ~26 deg pitch) keep a
+# forecourt, and no tree on the camera side may stand tall enough (~14 m crown top) to cover the building's middle
+_CAMD = Vector((math.sqrt(0.5), -math.sqrt(0.5)))
+for cv in CJ.get('civic', []):
+    if cv['id'] not in ('harbour-office-tron', 'harbourmaster', 'stormstation'):
+        continue
+    c_ = Vector(cv['c']); f_ = Vector(cv['face']); half = max(cv['w'], cv['d']) / 2
+    occ_poly([tuple(c_ + Vector((-f_.y, f_.x)) * a + f_ * b) for a, b in ((-cv['w'] / 2, cv['d'] / 2), (cv['w'] / 2, cv['d'] / 2),
+                                                                         (cv['w'] / 2, cv['d'] / 2 + 12.0), (-cv['w'] / 2, cv['d'] / 2 + 12.0))])
+    for yy in np.arange(c_.y - 80.0, c_.y + 10.0, OS):
+        for xx in np.arange(c_.x - 10.0, c_.x + 80.0, OS):
+            v_ = Vector((xx, yy)) - c_
+            al = v_.dot(_CAMD); lat = abs(v_.x * _CAMD.y - v_.y * _CAMD.x)
+            if 0.0 < al < 85.0 and lat < half + 4.0 and terrain.height(xx, yy) + 14.0 > cv['z'] + 3.0 + 0.49 * max(0.0, al - half):
+                od.point(o_to(xx, yy), fill=255)
 for name, L in QL.items():                                     # quay aprons
     depth = APRON.get(name, 3.0 if name.endswith(('-w', '-e')) else 7.0) + 1.5
     for a, b in zip(L, L[1:]):
@@ -675,8 +692,8 @@ def cove_rz(cv):
 
 
 cv = COVES['pier-hyperliquid-l1']; p = cove_pt(cv, cv['hw'] - 3, -3)
-beacon_column('hamlet_hyper_beacon', p, Z_SHORE, Z_SHORE + 8.5, lin('#5FD3BC'), 'hamlet', base_r=1.7)     # sea-green bands: the chain
-LAMP_PTS.append(Vector((p[0], p[1], Z_SHORE + 8.5))); LAMP_LIGHTS.append((p[0], p[1], Z_SHORE + 8.5, 'pierhead', '#5FD3BC'))
+beacon_column('hamlet_hyper_beacon', p, Z_SHORE, Z_SHORE + 3.4, lin('#5FD3BC'), 'hamlet', base_r=1.7, flame=lin('#5FD3BC'))  # sea-green: the chain
+LAMP_PTS.append(Vector((p[0], p[1], Z_SHORE + 3.9))); LAMP_LIGHTS.append((p[0], p[1], Z_SHORE + 3.9, 'pierhead', '#5FD3BC'))
 # Polygon: boatyard - a hull on stocks + timber stacks
 cv = COVES['pier-polygon']
 P_ = dict(br=0.3, fb=0.11, dr=0.06, bow=2.2, stern=0.6, sheer=(0.3, 0.15), bulwark=0.2)
@@ -859,23 +876,25 @@ for (x, y) in CJ['shoals']['buoys']:
     merge(cb, bm_cyl(0.0, 0.55, 0.8, 8, (x, y, 3.7)))
     merge(cb, bm_cyl(0.55, 0.0, 0.8, 8, (x, y, 4.5)))
 obj('shoals_buoys', cb, face=lambda q: ((PAL['hull_red'] if int((q.center.z + 0.3) / 0.75) % 2 == 0 else PAL['wall_white']), PT['plain']), family='shoals')
-# P6 (D18): the reef beacon - classical-town Q6: a stone daymark on the reef's biggest rock, a tapering pillar painted in
-# red and white bands (the hazard colours stay), a bronze brazier on top burning red
+# P6 (D18): the reef beacon - classical-town Q6 / integration G3: a squat stone daymark on the reef's biggest rock, a
+# broad drum painted in red and white bands (the hazard colours stay), a bronze fire-bowl on top burning red
 _bc = CJ['shoals']['beacon']
-bb_, bt_, bm_ = bmesh.new(), bmesh.new(), bmesh.new()
+bb_, bt_, bm_, bf_ = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
 merge(bb_, bm_cyl(3.6, 3.0, 2.2, 14, (_bc[0], _bc[1], -1.5)))
-for k in range(4):
-    merge(bt_, bm_cyl(1.7 - 0.12 * k, 1.7 - 0.12 * (k + 1), 1.45, 8, (_bc[0], _bc[1], 0.7 + k * 1.45), cap=(k == 3), rot=math.pi / 8))
-merge(bm_, bm_cyl(1.25, 1.25, 0.2, 8, (_bc[0], _bc[1], 6.5), rot=math.pi / 8))
-merge(bm_, bm_cyl(0.3, 1.0, 0.6, 10, (_bc[0], _bc[1], 6.7)))
-for k in range(3):
-    a_ = 2 * math.pi * k / 3
-    merge(bm_, nl_kit.beam((_bc[0] + math.cos(a_) * 0.95, _bc[1] + math.sin(a_) * 0.95, 6.6), (_bc[0] + math.cos(a_) * 0.6, _bc[1] + math.sin(a_) * 0.6, 7.3), 0.1, 0.1))
+for k in range(4):         # the lowest band sits in the reef rocks; three read above them
+    merge(bt_, bm_cyl(2.2 - 0.12 * k, 2.2 - 0.12 * (k + 1), 0.9, 10, (_bc[0], _bc[1], 0.7 + k * 0.9), cap=(k == 3), rot=math.pi / 10))
+merge(bm_, bm_cyl(1.9, 1.9, 0.2, 10, (_bc[0], _bc[1], 4.3), rot=math.pi / 10))
+merge(bm_, bm_cyl(0.32, 0.38, 0.3, 8, (_bc[0], _bc[1], 4.5)))
+merge(bm_, bm_cyl(0.42, 1.38, 0.62, 12, (_bc[0], _bc[1], 4.75)))
+for k in range(5):
+    a_ = 2 * math.pi * k / 5 + 0.3
+    merge(bf_, bm_cyl(0.34, 0.0, 0.95 + 0.25 * (k % 2), 5, (_bc[0] + math.cos(a_) * 0.62, _bc[1] + math.sin(a_) * 0.62, 5.33)))
 obj('shoals_beacon_base', bb_, face=lambda q: ((PAL['rock_wet'] if q.center.z < 0.3 else PAL['granite']), PT['rock']), family='shoals', jitter=0.06)
-obj('shoals_beacon_tower', bt_, face=lambda q: ((PAL['hull_red'] if int((q.center.z - 0.7) / 1.45) % 2 == 0 else PAL['wall_white']), PT['render']), family='shoals', bevel=0.03)
+obj('shoals_beacon_tower', bt_, face=lambda q: ((PAL['hull_red'] if int((q.center.z - 0.7) / 0.9) % 2 == 1 else PAL['wall_white']), PT['render']), family='shoals', bevel=0.03)
 obj('shoals_beacon_daymark', bm_, CP['bronze'], PT['metal'], family='shoals')
-obj('shoals_beacon_lamp', bm_cyl(0.8, 0.08, 1.6, 7, (_bc[0], _bc[1], 7.0)), mat=M['beacon_red'], family='shoals', shadow=False)
-LAMP_PTS.append(Vector((_bc[0], _bc[1], 7.8)))
+obj('shoals_beacon_flame', bf_, lin('#E8432C'), PT['plain'], family='shoals', jitter=0.0, shadow=False)
+obj('shoals_beacon_lamp', bm_cyl(0.8, 0.06, 1.5, 7, (_bc[0], _bc[1], 5.25)), mat=M['beacon_red'], family='shoals', shadow=False)
+LAMP_PTS.append(Vector((_bc[0], _bc[1], 5.95)))
 mb = bmesh.new()
 for m_ in CJ['moorings']:
     x, y = m_['buoy']

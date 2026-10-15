@@ -39,6 +39,7 @@ PHAROS_ROAD = [(-97.0, 70.0), (-104.0, 82.0), (-122.0, 88.0), (-140.0, 98.0), (-
 # quay's north end -> up the headland past the Chart Room and the Keeper's Log -> the causeway abutment
 ROAD_CUT_W = 3.0
 _road = None          # (dense uv polyline, graded z per point, bbox)
+_flats = []           # integration G2: level aprons shared by civic plots [(poly, z, blend, bbox)] (world)
 _pads = []            # P6 civic plots: level pads [(cx, cy, fx, fy, hw, hd, z, blend, bbox)] (world)
 
 
@@ -52,6 +53,34 @@ def set_pads(pads):
         r = math.hypot(hw, hd) + b
         # the ground sits 8 cm under the pad level: the civic model's own ground (at the pad level) never z-fights it
         _pads.append((cx, cy, fx, fy, hw, hd, p['z'] - 0.08, b, (cx - r, cy - r, cx + r, cy + r)))
+
+
+def set_flats(flats):
+    """Level aprons (world): dict(poly, z, blend) - a convex platform shared by neighbouring civic plots (the battery), so
+    no strip of hill stands walled between them; it eases back to the land over `blend` m (hb_land walls its edges)."""
+    global _flats
+    _flats = []
+    for f in flats:
+        P = [tuple(q) for q in f['poly']]; b = f.get('blend', 2.5)
+        _flats.append((P, f['z'] - 0.08, b, (min(q[0] for q in P) - b, min(q[1] for q in P) - b, max(q[0] for q in P) + b, max(q[1] for q in P) + b)))
+
+
+def _flat_at(x, y):
+    """(z, outside distance, blend) of the flat covering (x, y) or within its blend, else None."""
+    for (P, z, b, bb) in _flats:
+        if not (bb[0] <= x <= bb[2] and bb[1] <= y <= bb[3]):
+            continue
+        n = len(P); inside = False; d = 1e9
+        for i in range(n):
+            (ax, ay), (bx, by) = P[i], P[(i + 1) % n]
+            if (ay > y) != (by > y) and x < (bx - ax) * (y - ay) / (by - ay + 1e-12) + ax:
+                inside = not inside
+            d = min(d, _segd(x, y, (ax, ay), (bx, by)))
+        if inside:
+            return (z, 0.0, b)
+        if d <= b:
+            return (z, d, b)
+    return None
 
 
 def pad_at(x, y, margin=0.0):
@@ -239,7 +268,7 @@ def _quay_flat(x, y):
     return best
 
 
-def height(x, y, coves=(), pads=True):
+def height(x, y, coves=(), pads=True, flats=True):
     u, v = to_uv(x, y)
     n = natural(u, v)
     z, w = town_step(u, v)
@@ -272,6 +301,11 @@ def height(x, y, coves=(), pads=True):
         h = h * (1 - kb) + min(h, 0.22 + dc * (0.072 if _kind == 'sand' else 0.11)) * kb
         if _kind == 'sand' and dc > 36.0:          # P7: dune hummocks behind Wreck Cove's strand (marram grass on them)
             h += kb * sstep(36.0, 44.0, dc) * (0.8 + 4.2 * max(0.0, fbm(x, y, 0.055, 2, 21) - 0.25))
+    if _flats and flats:
+        fl = _flat_at(x, y)
+        if fl is not None:
+            k = 1.0 - sstep(0.0, fl[2], fl[1])
+            h = h * (1 - k) + fl[0] * k
     if _pads and pads:               # P6 civic pads: dead level inside, a short easing outside (walled by hb_land)
         pd = pad_at(x, y, 4.0)
         if pd is not None:

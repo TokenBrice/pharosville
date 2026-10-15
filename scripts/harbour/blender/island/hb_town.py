@@ -304,6 +304,16 @@ def courtyard_house(name, lot, rng, wash=None):
     return finish(K, name, root, top)
 
 
+def hamlet_rank(lot):
+    """The hamlet lot's order along its cove's back quay (0, 1, 2, ... by the cove's t axis)."""
+    cv_ = {c['pid']: c for c in CJ['coves']}.get(lot.get('pid'))
+    if cv_ is None:
+        return lot.get('seed', 0)
+    t_ = lambda l_: (l_['c'][0] - cv_['back'][0]) * cv_['t'][0] + (l_['c'][1] - cv_['back'][1]) * cv_['t'][1]
+    row = sorted((l_ for l_ in CJ['lots'] if l_['style'] == 'hamlet' and l_.get('pid') == lot['pid']), key=t_)
+    return next((i for i, l_ in enumerate(row) if l_['c'] == lot['c']), 0)
+
+
 def island_house(name, lot, rng):
     """Cove hamlets: a whitewashed cube (limewash-tinted per chain) with a flat roof behind a parapet, often a second
     cube set back on it, an outside stair to the roof, a painted door and shutters, a white flue."""
@@ -319,10 +329,21 @@ def island_house(name, lot, rng):
     E1 = B + rng.uniform(3.0, 3.4)
     CV.box2(op, -w / 2 - 0.1, -d / 2 - 0.1, -2.0, w / 2 + 0.1, d / 2 + 0.1, B, CP['lime'], CV.PT['ashlar'])
     CV.box2(op, -w / 2, -d / 2, B, w / 2, d / 2, E1, wash, CV.PT['render'])
-    upper = rng.random() < 0.6
-    us = rng.choice((-1, 1))
+    # integration G3: neighbours along the cove never twin - the roof alternates set-back cube / pergola / dome by the
+    # lot's rank along its cove, and the set-back side alternates with it
+    rank = hamlet_rank(lot)
+    upper = rank % 3 == 0
+    domed = rank % 3 == 2
+    us = -1 if rank % 2 == 0 else 1
+    rng.random(); rng.random()                 # keep the rest of the lot's draws where they were
     zf = CV.roof_terrace(op, -w / 2, -d / 2, w / 2, d / 2, E1, wash, parapet_h=0.6, cornice=wash,
-                         pergola_canopy=None if upper else rng.choice(('vine', 'bougain', 'bare')), rng=rng)
+                         pergola_canopy=None if (upper or domed) else rng.choice(('vine', 'bougain')), rng=rng)
+    if domed:      # a little limewashed drum and a Cycladic blue dome over the back of the terrace
+        dc = (us * w * 0.18, d * 0.12)
+        dr = min(w, d) * 0.24
+        CV.lathe(op, dc, [(dr, zf), (dr, zf + 1.1), (dr + 0.12, zf + 1.1), (dr + 0.12, zf + 1.28), (0.0, zf + 1.28)], wash, 0, 12, False)
+        CV.dome(op, dc, zf + 1.28, dr, dr * 0.85, CP['shutter_blue'], 0, segs=12, rings=4)
+        CV.box2(op, dc[0] - 0.06, dc[1] - 0.06, zf + 1.28 + dr * 0.85, dc[0] + 0.06, dc[1] + 0.06, zf + 1.28 + dr * 0.85 + 0.7, CP['lime'], 0)
     if upper:      # the second cube, set back from the street, on one side
         ux0, ux1 = (-w / 2 + 0.3, -w / 2 + 0.3 + w * 0.52) if us < 0 else (w / 2 - 0.3 - w * 0.52, w / 2 - 0.3)
         uy0 = -d / 2 + rng.uniform(1.4, 2.4)
@@ -363,7 +384,7 @@ def horreum(name, lot, rng):
     tron = lot.get('chain') == 'Tron'
     wall = CV.mix(CP['wash_sienna'], CP['poly_red'], 0.4) if tron else pick_wash(rng, ['stone', 'wash_cream', 'wash_ochre', 'lime',
                                                                                         'stone_rose'])
-    tile = CV.mix(CP['tile_c'] if tron else CP[rng.choice(TILES)], CP['terracotta'], 0.6)      # long shaded slopes: a warmer tile
+    tile = CV.mix(CV.mix(CP['tile_c'] if tron else CP[rng.choice(TILES)], CP['terracotta'], 0.45), CP['clay'], 0.75)   # long shaded slopes (in the east hill's shadow): a warm, light tile (G3)
     E = B + rng.uniform(6.4, 7.2)
     CV.box2(op, -w / 2 - 0.12, -d / 2 - 0.12, -2.0, w / 2 + 0.12, d / 2 + 0.12, B + 1.1, CP['sandstone'], CV.PT['ashlar'])
     CV.box2(op, -w / 2, -d / 2, B + 1.1, w / 2, d / 2, E, wall, CV.PT['render'])
@@ -640,7 +661,8 @@ CV.box2(op_, -9.2, -11.2, -1.5, 9.2, 11.2, 1.6, CP['sandstone'], CV.PT['ashlar']
 CV.box2(op_, -9.0, -11.0, 1.6, 9.0, 11.0, 10.6, whc, CV.PT['render'])
 for zc in (4.6, 7.8):
     CV.box2(op_, -9.1, -11.1, zc, 9.1, 11.1, zc + 0.25, CP['lime'], 0)
-rise_ = CV.tiled_gable(op_, -9.0, -11.0, 9.0, 11.0, 10.6, 19.0, CP['tile_a'], 'y', ov=0.5, end_col=whc)
+rise_ = CV.tiled_gable(op_, -9.0, -11.0, 9.0, 11.0, 10.6, 19.0, CV.mix(CV.mix(CP['tile_a'], CP['terracotta'], 0.45), CP['clay'], 0.75), 'y', ov=0.5,
+                      end_col=whc)      # the horreum tile (G3): warm and light enough to read on its shaded slope
 CV.box2(op_, -9.3, -11.35, 10.35, 9.3, -10.9, 10.6, CP['lime'], 0)
 CV.meander(op_, (-9.0, -11.0), (9.0, -11.0), 9.4, 0.6, (0, -1, 0), ground=CP['poly_red'], key=CP['poly_ochre'])
 for zb_, hh in ((0.0, 3.8), (4.85, 2.7), (8.05, 2.2)):
@@ -718,7 +740,9 @@ empty('tide_gauge_level', (0, -0.5, 0.0), parent=tg, family='landmark', size=0.5
 # classical-town Q3: a Cycladic mill - a round whitewashed stone tower, a conical thatch cap, a ring of spars carrying
 # triangular cloth sails, each sheeted to the next spar's tip
 wmp = CJ['windmill']; wz = min(H(wmp[0] + dx, wmp[1] + dy) for dx in (-3, 3) for dy in (-3, 3))
-wm = empty('windmill', (wmp[0], wmp[1], wz), (0, 0, face_rz((0.8, -1.0))), family='landmark')      # sails to the light and the camera
+# integration G3: the sail ring turned ~65 deg off the camera (seen obliquely, it no longer screens the round body and cap
+# from the heart view) and a little smaller
+wm = empty('windmill', (wmp[0], wmp[1], wz), (0, 0, face_rz((-0.34, -0.94))), family='landmark')
 obj('windmill_plinth', bm_cyl(4.0, 4.0, 1.6, 12, (0, 0, -1.2)), CP['lime_dark'], PT['ashlar'], parent=wm, family='landmark')
 body = bm_cyl(3.5, 3.1, 9.6, 12, (0, 0, -0.6)); merge(body, bm_cyl(3.3, 3.3, 0.3, 12, (0, 0, 9.0)))
 obj('windmill_body', body, CP['wash_white'], PT['render'], parent=wm, family='landmark', bevel=0.03)
@@ -737,7 +761,7 @@ tips = []
 for k in range(NSP):
     a_ = 2 * math.pi * k / NSP + 0.2
     d_ = Vector((math.cos(a_), 0, math.sin(a_)))
-    tip = hub + d_ * 7.6
+    tip = hub + d_ * 6.6
     tips.append(tip)
     merge(sails, nl_kit.beam(tuple(hub), tuple(tip), 0.14, 0.14))
 for k in range(NSP):     # each sail: from the spar's root third to its tip, sheeted toward the next spar

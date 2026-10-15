@@ -38,7 +38,7 @@ CLASSES = ['flagship', 'large', 'medium', 'small', 'boat', 'skiff']
 LOA = dict(flagship=26.0, large=18.0, medium=13.0, small=10.0, boat=7.5, skiff=5.0)
 BEAM = dict(flagship=6.6, large=5.2, medium=4.8, small=3.4, boat=3.2, skiff=2.2)
 SPRIT = dict(flagship=7.3, large=5.0, medium=2.9, small=2.2, boat=0.0, skiff=0.0)   # bowsprit beyond LOA
-MAST = dict(flagship=27.0, large=20.0, medium=15.0, small=13.0, boat=8.6, skiff=5.8)
+MAST = dict(flagship=22.0, large=15.0, medium=10.5, small=9.0, boat=6.8, skiff=4.7)   # P7 ancient fleet: ~0.9 x the kit masthead over the deck
 ALONG = {k: LOA[k] + SPRIT[k] + 3.5 for k in CLASSES}          # alongside berth length
 PITCH = dict(medium=6.0, small=4.5)                             # finger berth pitch along the main pier (beam + ~1.1 m)
 FINGER = dict(medium=9.0, small=7.0)                            # finger length
@@ -809,12 +809,12 @@ STORM = W(2.0, 112.0)                    # storm-signal mast on the battery tip,
 # it shelters the outer roads behind it and carries the sky card out past the Shoals (the frames see the reef)
 BW_W = 8.0
 BW_LINE = Wl([(8.0, 112.0), (11.0, 126.0), (15.0, 142.0), (18.0, 158.0), (17.0, 174.0)])
-HARBOUR_LIGHTS = [(BW_LINE[-1], 'red')]
+HARBOUR_LIGHTS = [(BW_LINE[-1], 'red', 6.5)]       # the flame of hb_land's squat fire-beacon (G3)
 for _k, _sd in ((0.3, 1), (0.62, -1), (0.92, 1)):          # P6: lamps along the Pharos causeway's parapets
     _q = lerp(CW_A, CW_B, _k)
     LAMPS.append((_q[0] + _sd * (CW_W / 2 - 0.35), _q[1], 6.0, 'lamp', None))
 for _m in MOLES:          # the marina: a light on each pierhead (green to starboard coming in, red to port) + crest lamps
-    HARBOUR_LIGHTS.append((_m['head'], 'green' if _m['name'] == 'grand' else 'red', Z_SHORE + 8.95))
+    HARBOUR_LIGHTS.append((_m['head'], 'green' if _m['name'] == 'grand' else 'red', Z_SHORE + 4.06))
     _tot = polyline_len(_m['line']); _s = 12.0
     while _s < _tot - _m['head_r'] - 8.0:
         _p, _t = along(_m['line'], _s)
@@ -1072,7 +1072,7 @@ SHOALS_POLY = ccw(blob(SH_C, 29, 10, rng, 18, 0.2, ang=SH_ANG))
 SHOALS_ROCKS = []
 SH_BEACON = add(SH_C, rot((-5.0, 1.5), SH_ANG))       # P6 (D18): the reef beacon stands on the reef's biggest rock
 SHOALS_ROCKS.append((SH_BEACON[0], SH_BEACON[1], 4.0))
-HARBOUR_LIGHTS.append((SH_BEACON, 'red', 7.8))
+HARBOUR_LIGHTS.append((SH_BEACON, 'red', 5.95))
 for k in range(26):
     a = rng.uniform(0, 6.28); r = math.sqrt(rng.uniform(0.05, 1))
     p = add(SH_C, rot((math.cos(a) * 27 * r, math.sin(a) * 8 * r), SH_ANG))
@@ -1280,8 +1280,10 @@ civic('chartroom', 'chartroom', (-118.0, 98.0), (0.35, -0.94), 18.0, 14.0, None)
 civic('keeperslog', 'keeperslog', add(CW_A_UV, (12.0, -14.0)), (0.5, -0.87), 12.0, 10.0, None)
 # the Shipyard (pre-launch hulls on slipways and building berths)
 civic('shipyard', 'shipyard', YARD_C_UV, YARD_F_UV, YARD_W, YARD_D, Z_SHORE)
-# Tron (P7): its office on the apron of its own harbour, between the jetties, facing out to the T-heads
-civic('harbour-office-tron', 'harbour-office:tron', tr_pt(67.0, -15.5), TR_N, 20.0, 16.0, Z_SHORE)
+# Tron (P7): its office on the apron of its own harbour; integration G2: at the quay's SE end, past the second jetty, where
+# the east hill has fallen away (between the jetties the hill stands ~20 m above the 26 deg sightline), fronting SE along
+# the apron (TR_T, ~26 deg off the camera) so the facade reads from the runtime views
+civic('harbour-office-tron', 'harbour-office:tron', tr_pt(138.0, -12.0), TR_T, 20.0, 16.0, Z_SHORE)
 # the coves: each chain's office at the head of its pier, behind the back quay, facing out along the pier
 for _pid, _c, _n, _hw, _dp in COVES:
     _I = COVE_INFO[_pid]
@@ -1302,6 +1304,31 @@ for _cv in CIVIC:            # pads that follow the land settle at the mean of t
         _g = _plot_ground(_cv)
         _cv['z'] = round(sum(_g) / len(_g), 2)
 _T.set_pads([dict(poly=cv['poly'], z=cv['z'], c=cv['c'], face=cv['face'], w=cv['w'], d=cv['d'], blend=2.5) for cv in CIVIC])
+
+
+def _hull(pts):
+    P = sorted(set(pts)); lo, hi = [], []
+    cr = lambda o, a, b: (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    for q in P:
+        while len(lo) > 1 and cr(lo[-2], lo[-1], q) <= 0:
+            lo.pop()
+        lo.append(q)
+    for q in reversed(P):
+        while len(hi) > 1 and cr(hi[-2], hi[-1], q) <= 0:
+            hi.pop()
+        hi.append(q)
+    return lo[:-1] + hi[:-1]
+
+
+# integration G2: the battery is ONE level platform at quay height under the Harbourmaster and the Storm Station (plus the
+# Harbourmaster's forecourt down to the quay): no walled strip of hill stands between them or in front of them
+_hm, _ss = CIVIC_BY['harbourmaster'], CIVIC_BY['stormstation']
+BATTERY_FLAT = _hull([tuple(q) for q in rect(_hm['c'], _hm['face'], _hm['d'] + 4.0, _hm['w'] + 4.0) + rect(_ss['c'], _ss['face'], _ss['d'] + 4.0, _ss['w'] + 4.0) +
+                      rect(add(_hm['c'], mul(_hm['face'], 9.0)), _hm['face'], _hm['d'], _hm['w']) +
+                      # and toward the camera (yaw 45): the hill shoulder there walled the Harbourmaster's lower half
+                      rect(add(_hm['c'], (7.0, -7.0)), (math.sqrt(0.5), -math.sqrt(0.5)), 20.0, 18.0)])
+FLATS = [dict(poly=[(round(q[0], 2), round(q[1], 2)) for q in BATTERY_FLAT], z=Z_SHORE, blend=2.5)]
+_T.set_flats(FLATS)
 CW_DECK_A = max(2.6, _T.height(*CW_A) + 0.12)  # the causeway leaves the headland at its ground level ...
 
 
@@ -1320,7 +1347,7 @@ _YARD_KEEP = [rect(cv['c'], cv['face'], cv['d'] + 8.0, cv['w'] + 8.0) for cv in 
 
 # ---------------------------------------------------------------- P7 (operator c): Wreck Cove, composed with the wreck kit v2
 # public/harbour/kit manifest 'wreck_kit' (scripts/harbour/blender/wrecks). 88 dead coins ranked by peak market cap:
-#   #1-2 great_hulk at the tide line (the second slewed), #3 schooner_sunk in the shallows, #4 stern_section transom to sea,
+#   #1-2 great_hulk at the tide line (the second slewed), #3 merchant_sunk in the shallows, #4 stern_section transom to sea,
 #   #5-10 two each of capsized / burned / rib_cage (0.8-1.0), #11-22 eight more of those (0.55-0.7) + four mast stumps
 #   at the waterline, #23-88 30 skiff + 24 dinghy + 6 mast_stump + 6 rib_cage (~0.45) in clusters of 3-6 among rocks.
 #   The top 20 get standalone epitaph posts in a gentle arc above the wrack line (2.2x, ~4.7 m apart), the bell in its
@@ -1330,14 +1357,14 @@ _YARD_KEEP = [rect(cv['c'], cv['face'], cv['d'] + 8.0, cv['w'] + 8.0) for cv in 
 # Kit axes (glTF): +x = bow, +z = FRONT (the epitaph's face). Layout headingRad = the bow (+x) along (sin h, 0, cos h); the
 # front then faces h - pi/2. Every front here faces between the sea and the camera, so the boards read from the default view.
 KIT_BOX = {      # local footprint (x0, x1, z0, z1) at scale 1 (raw GLB bounds)
-    'wreck_great_hulk': (-13.0, 20.4, -13.2, 7.2), 'wreck_schooner_sunk': (-10.5, 11.6, -7.8, 3.6), 'wreck_stern_section': (-10.8, 3.5, -4.5, 6.8),
+    'wreck_great_hulk': (-13.0, 20.4, -13.2, 7.2), 'wreck_merchant_sunk': (-10.5, 11.6, -7.8, 3.6), 'wreck_stern_section': (-10.8, 3.5, -4.5, 6.8),
     'wreck_capsized': (-7.2, 9.4, -3.5, 6.1), 'wreck_burned': (-9.6, 10.2, -5.3, 7.5), 'wreck_rib_cage': (-8.3, 11.1, -2.5, 6.1),
     'wreck_mast_stump': (-7.3, 7.3, -4.5, 4.5), 'wreck_skiff': (-2.5, 4.5, -3.1, 3.3), 'wreck_dinghy': (-1.8, 3.2, -1.6, 1.7),
     'wreck_cove_warden_hut': (-3.4, 3.0, -2.0, 3.5), 'wreck_cove_lobster_pots': (-1.6, 3.4, -1.7, 0.8), 'wreck_cove_driftwood': (-4.1, 3.4, -2.6, 2.5),
     'wreck_cove_lifeboat_station': (-2.8, 2.8, -8.3, 15.0), 'wreck_cove_tidepool': (-3.2, 3.0, -2.7, 2.5), 'wreck_cove_anchor': (-2.8, 2.4, -4.0, 1.0),
     'wreck_cove_flotsam': (-2.3, 2.1, -1.6, 2.2), 'wreck_cove_bell': (-1.2, 1.5, -0.7, 1.0), 'wreck_cove_pennants': (-2.1, 3.5, -1.8, 1.7),
     'wreck_cove_gull_perches': (-2.5, 2.7, -0.5, 2.0), 'wreck_cove_epitaph': (-0.5, 0.6, -0.3, 0.3)}
-WK_CLASS = {'wreck_great_hulk': 'flagship', 'wreck_schooner_sunk': 'large', 'wreck_stern_section': 'large', 'wreck_capsized': 'medium',
+WK_CLASS = {'wreck_great_hulk': 'flagship', 'wreck_merchant_sunk': 'large', 'wreck_stern_section': 'large', 'wreck_capsized': 'medium',
             'wreck_burned': 'medium', 'wreck_rib_cage': 'medium', 'wreck_mast_stump': 'small', 'wreck_skiff': 'boat', 'wreck_dinghy': 'skiff'}
 WRECK_PROPS = []          # (kit, centre world, bow dir world, scale, z): static, baked into island.glb
 WRECK_MEMORIAL = []       # (centre world, bow dir world, z): the top 20's standalone epitaph posts (runtime: names on the boards)
@@ -1452,7 +1479,7 @@ def _wreck_layout():
     # the heroes at the tide line
     near(1, 'wreck_great_hulk', 0.42, 7.0, 1.0, 0.05, sea=0.8)
     near(2, 'wreck_great_hulk', 0.72, 8.0, 1.0, -0.45, sea=0.8)
-    near(3, 'wreck_schooner_sunk', 0.565, -17.0, 1.0, -0.35, sea=0.15, sits='water')
+    near(3, 'wreck_merchant_sunk', 0.565, -17.0, 1.0, -0.35, sea=0.15, sits='water')
     near(4, 'wreck_stern_section', 0.235, 6.0, 1.0, 0.3, bow_inland=True)
     # #5-10: two each of capsized / burned / rib_cage, 0.8-1.0, in the gaps and just above the heroes
     tier2 = [('wreck_capsized', 0.165, 8.0), ('wreck_burned', 0.555, 13.0), ('wreck_rib_cage', 0.90, 9.0),
@@ -2200,6 +2227,7 @@ def write_compose(extra_lights):
         bay=[r2(W(*p)) for p in BAY_UV], windmill=r2(WINDMILL), farms=[r2(W(*p)) for p, a in FARMS],
         hull=dict(loa=LOA, beam=BEAM, sprit=SPRIT), wind_bow=WIND_BOW, extra_lights=extra_lights, sea_bounds=sea_bounds(),
         pharos=dict(p=PHAROS_P, z=PHAROS_Z, rot=PHAROS_ROT, half=PLAT_HALF, islet=ISLET, causeway=dict(a=CW_A, b=CW_B, width=CW_W, za=CW_DECK_A)),
+        flats=FLATS,
         civic=[dict(id=cv['id'], kind=cv['kind'], c=r2(cv['c']), face=r2(cv['face']), w=cv['w'], d=cv['d'], z=cv['z'],
                     poly=[r2(q) for q in cv['poly']]) for cv in CIVIC],
         sea_zones=[dict(id=z_['id'], name=z_['name'], kind=z_['kind'], poly=[r2(q) for q in z_['poly']], anchor=r2(z_['anchor']), angle=z_['angle'])

@@ -14,6 +14,7 @@ import terrain
 from scipy.spatial import Delaunay
 from geom import along, polyline_len, catmull
 terrain.init(COAST, QL, CJ.get('beaches'))
+terrain.set_flats(CJ.get('flats', []))      # integration G2: the battery platform
 terrain.set_pads([dict(c=cv['c'], face=cv['face'], w=cv['w'], d=cv['d'], z=cv['z'], blend=2.5) for cv in CJ.get('civic', [])])   # P6 civic pads
 SAND, SHINGLE, PEBBLE, WETSAND = lin('#D3BF96'), lin('#A49E90'), lin('#AFA593'), lin('#9E8D6E')
 TOWN = CJ['town']
@@ -705,27 +706,32 @@ obj('bollards', bol, PAL['iron'], PT['metal'], family='quay')
 
 # ------------------------------------------------------------------ beacon columns (classical-town Q6): the harbour lights
 BEACON_RED, BEACON_GREEN = lin('#B8392B'), lin('#3E8C5C')
+FLAME_RED, FLAME_GREEN = lin('#E8432C'), lin('#3FCB66')
 
 
-def beacon_column(name, c, z0, z_fire, band, family, base_r=2.0):
-    """A stone beacon column: a stepped plinth, a plain shaft with two painted bands in `band` (port red / starboard
-    green / a chain colour), a Doric capital and a bronze fire-bowl whose flame (hb_emissive) burns round z_fire."""
+def beacon_column(name, c, z0, z_fire, band, family, base_r=2.0, flame=None):
+    """A squat stone fire-beacon (integration G3: nothing but the Pharos may read as a lighthouse): a stepped plinth
+    whose lower course carries the painted band in `band` (port red / starboard green / a chain colour), a low square
+    altar pedestal with a moulded cornice, and a wide bronze fire-bowl whose flame (hb_emissive core + tongues in the
+    light's own colour) burns round z_fire."""
     x, y = c
-    st, bd, br = bmesh.new(), bmesh.new(), bmesh.new()
-    merge(st, bm_cyl(base_r, base_r, 0.5, 12, (x, y, z0)))
-    merge(st, bm_cyl(base_r * 0.7, base_r * 0.7, 0.6, 12, (x, y, z0 + 0.5)))
-    zs0, zs1 = z0 + 1.1, z_fire - 1.3
-    merge(st, bm_cyl(0.82, 0.7, zs1 - zs0, 12, (x, y, zs0), cap=False))
-    for f in (0.62, 0.8):
-        zb = zs0 + (zs1 - zs0) * f
-        merge(bd, bm_cyl(0.84, 0.82, 0.6, 12, (x, y, zb)))
-    merge(st, bm_cyl(0.72, 1.0, 0.35, 12, (x, y, zs1)))
-    merge(st, bm_cyl(1.12, 1.12, 0.22, 4, (x, y, zs1 + 0.35), rot=math.pi / 4))
-    merge(br, bm_cyl(0.3, 1.0, 0.55, 10, (x, y, zs1 + 0.57)))
+    st, bd, br, fl = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
+    merge(st, bm_cyl(base_r, base_r, 0.4, 12, (x, y, z0)))
+    merge(bd, bm_cyl(base_r * 0.74, base_r * 0.74, 0.45, 12, (x, y, z0 + 0.4)))          # the painted course
+    zp0, zp1 = z0 + 0.85, z_fire - 0.95
+    merge(st, bm_cyl(1.2, 1.2, 0.22, 4, (x, y, zp0), rot=math.pi / 4))
+    merge(st, bm_cyl(0.98, 0.98, zp1 - zp0 - 0.22, 4, (x, y, zp0 + 0.22), rot=math.pi / 4))
+    merge(st, bm_cyl(1.05, 1.28, 0.26, 4, (x, y, zp1 - 0.26), rot=math.pi / 4))
+    merge(br, bm_cyl(0.32, 0.38, 0.3, 8, (x, y, zp1)))
+    merge(br, bm_cyl(0.42, 1.38, 0.62, 12, (x, y, zp1 + 0.28)))
+    for k in range(5):
+        a_ = 2 * math.pi * k / 5 + 0.3
+        merge(fl, bm_cyl(0.34, 0.0, 0.95 + 0.25 * (k % 2), 5, (x + math.cos(a_) * 0.62, y + math.sin(a_) * 0.62, z_fire - 0.12)))
     obj(name + '_column', st, PAL['lime'], PT['ashlar'], family=family, bevel=0.03)
     obj(name + '_bands', bd, band, PT['render'], family=family, jitter=0.0)
     obj(name + '_bowl', br, lin('#9A6430'), PT['metal'], family=family)
-    obj(name + '_lamp', bm_cyl(0.85, 0.08, 1.7, 7, (x, y, z_fire - 0.55)), mat=M['lamp'], family=family, shadow=False)
+    obj(name + '_flame', fl, flame or band, PT['plain'], family=family, jitter=0.0, shadow=False)
+    obj(name + '_lamp', bm_cyl(0.8, 0.06, 1.5, 7, (x, y, z_fire - 0.2)), mat=M['lamp'], family=family, shadow=False)
 
 
 # ------------------------------------------------------------------ the breakwater (crown, seaward parapet, rubble apron, head light)
@@ -769,8 +775,8 @@ hp = BW[-1]
 hl = bm_cyl(4.2, 4.2, 6.6, 20, (hp.x, hp.y, SEA_FLOOR))
 obj('harbour_light_base', hl, face=lambda q: ((PAL['quay'], PT['plain']) if q.normal.z > 0.9 else (PAL['quay_dark'], PT['ashlar'])), family='breakwater', bevel=0.05)
 CIRCLES.append((hp.x, hp.y, 4.4))
-beacon_column('harbour_light', (hp.x, hp.y), 2.6, 9.0, BEACON_RED, 'breakwater')
-HL_POS = Vector((hp.x, hp.y, 9.0))
+beacon_column('harbour_light', (hp.x, hp.y), 2.6, 6.0, BEACON_RED, 'breakwater', flame=FLAME_RED)
+HL_POS = Vector((hp.x, hp.y, 6.5))
 
 # ------------------------------------------------------------------ the marina's stone moles (v5): ashlar walls straight
 # down to the sea floor (hulls lie bow-in along both faces), granite copings, a raised flagstone promenade down the
@@ -841,12 +847,12 @@ for m in CJ.get('moles', []):
         _bench(mbench, pb, a_ - math.pi / 2, Z_SHORE + 0.16)
     STRUCT_POLYS.append(left + right[::-1])
     CIRCLES.append((h.x, h.y, hr + 0.3))
-    # the light: a beacon column with its fire-bowl (green: the Grand Mole, red: the Inner)
+    # the light: a squat fire-beacon (green: the Grand Mole, red: the Inner)
     zb = Z_SHORE + 0.16
-    zg = zb + 7.8
-    beacon_column(f'mole_light_{m["name"]}', (h.x, h.y), zb, zg + 0.98, BEACON_GREEN if m['name'] == 'grand' else BEACON_RED, 'marina',
-                  base_r=2.5)
-    MOLE_TOWERS.append(Vector((h.x, h.y, zg + 1.0)))
+    zg = zb + 3.4
+    beacon_column(f'mole_light_{m["name"]}', (h.x, h.y), zb, zg, BEACON_GREEN if m['name'] == 'grand' else BEACON_RED, 'marina',
+                  base_r=2.5, flame=FLAME_GREEN if m['name'] == 'grand' else FLAME_RED)
+    MOLE_TOWERS.append(Vector((h.x, h.y, zg + 0.5)))
 obj('mole_crest', mcrest, face=lambda q: ((PAL['quay'], PT['ashlar']) if q.normal.z > 0.9 else ((PAL['rock_wet'], PT['ashlar']) if q.center.z < 0.4 else (PAL['quay_dark'], PT['ashlar']))),
     family='quay', bevel=0.04)
 obj('mole_coping', mcop, PAL['quay'], PT['plain'], family='quay', jitter=0.08)
@@ -879,6 +885,25 @@ for cv in CJ.get('civic', []):
             if dz < 0.55:
                 continue
             lo = min(min(zo), zp) - 0.7; hi = max(zp + (0.55 if min(zo) < zp - 0.4 else 0.0), max(zo) + 0.15)
+            q0 = p0 + nout * 0.45; q1 = p1 + nout * 0.45
+            merge(pw_, nl_kit.beam((q0.x, q0.y, (lo + hi) / 2), (q1.x, q1.y, (lo + hi) / 2), 0.9, hi - lo))
+            merge(pc_, nl_kit.beam((q0.x, q0.y, hi + 0.12), (q1.x, q1.y, hi + 0.12), 1.15, 0.26))
+for fl in CJ.get('flats', []):           # integration G2: the battery platform's edges hold back the hill behind it
+    zp = fl['z']; ring = [Vector(q) for q in fl['poly']]
+    cen = sum(ring, Vector((0.0, 0.0))) / len(ring)
+    for i in range(len(ring)):
+        a, b = ring[i], ring[(i + 1) % len(ring)]
+        t = (b - a); L_ = t.length; t.normalize()
+        nout = Vector((t.y, -t.x))
+        if (cen - a).dot(nout) > 0:
+            nout = -nout
+        n_ = max(1, int(L_ / 1.6))
+        for k in range(n_):
+            p0 = a + t * (L_ * k / n_); p1 = a + t * (L_ * (k + 1) / n_)
+            zo = [terrain.height(*(q + nout * 1.7), pads=False, flats=False) if point_in_poly(*(q + nout * 1.7), COAST) else -1.5 for q in (p0, p1, (p0 + p1) / 2)]
+            if min(zo) < zp + 0.55:              # only where the hill stands above the platform (the sea side stays open)
+                continue
+            lo = zp - 0.7; hi = max(zo) + 0.15
             q0 = p0 + nout * 0.45; q1 = p1 + nout * 0.45
             merge(pw_, nl_kit.beam((q0.x, q0.y, (lo + hi) / 2), (q1.x, q1.y, (lo + hi) / 2), 0.9, hi - lo))
             merge(pc_, nl_kit.beam((q0.x, q0.y, hi + 0.12), (q1.x, q1.y, hi + 0.12), 1.15, 0.26))
