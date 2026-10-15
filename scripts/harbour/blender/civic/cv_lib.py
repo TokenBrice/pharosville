@@ -821,18 +821,23 @@ def parapet(mb, x0, y0, x1, y1, z, h, th, col, pat=PT['render']):
         box2(mb, a0, b0, z, a1, b1, z + h, col, pat, skip=('-z',))
 
 
-def foliage(mb, rng, c, r, cols, n=3, squash=0.7):
-    """A clump of faceted leaf blobs (vine, bougainvillea, pot shrubs)."""
+LEAF_EVERGREEN = 14    # leaf pattern id the seasonal shader never strips (olive, cypress, pine, maquis); PT['leaf'] = 8 is deciduous
+
+
+def foliage(mb, rng, c, r, cols, n=3, squash=0.7, pat=PT['leaf']):
+    """A clump of faceted leaf blobs (vine, bougainvillea, pot shrubs); pat = PT['leaf'] (deciduous) or LEAF_EVERGREEN."""
     c = Vector(c)
     for k in range(n):
         o = Vector((rng.uniform(-r, r), rng.uniform(-r, r) * 0.6, rng.uniform(-r, r) * 0.3)) * 0.6
         rr = r * rng.uniform(0.55, 0.9)
         prof = ([(0.0, c.z + o.z - rr * squash)] + [(rr * math.sin(math.pi * i / 3), c.z + o.z - rr * squash * math.cos(math.pi * i / 3))
                                                       for i in (1, 2)] + [(0.0, c.z + o.z + rr * squash)])
-        lathe(mb, (c.x + o.x, c.y + o.y), prof, rng.choice(cols), PT['leaf'], 6, smooth=False, cap=False, rot=rng.uniform(0, 1))
+        lathe(mb, (c.x + o.x, c.y + o.y), prof, rng.choice(cols), pat, 6, smooth=False, cap=False, rot=rng.uniform(0, 1))
 
 
-CANOPY = {'vine': ('vine', 'vine_light', 'olive_leaf'), 'bougain': ('bougain', 'bougain_light', 'vine')}
+# canopy -> (palette keys, leaf pattern): vines are deciduous (the autumn band), bougainvillea and olive evergreen
+CANOPY = {'vine': (('vine', 'vine_light', 'olive_leaf'), PT['leaf']), 'bougain': (('bougain', 'bougain_light', 'vine'), LEAF_EVERGREEN),
+          'olive': (('olive_leaf', 'olive_dark'), LEAF_EVERGREEN)}
 
 
 def pergola(mb, x0, y0, x1, y1, z, h=2.4, post=None, rng=None, canopy='vine', rafters=6, clumps=3):
@@ -847,11 +852,12 @@ def pergola(mb, x0, y0, x1, y1, z, h=2.4, post=None, rng=None, canopy='vine', ra
         x = x0 + (x1 - x0) * k / (rafters - 1)
         box2(mb, x - 0.06, y0 - 0.45, z + h + 0.22, x + 0.06, y1 + 0.45, z + h + 0.36, PAL['timber'], 0)
     if canopy:
-        cols = [PAL[k] for k in CANOPY[canopy]]
+        keys, pat = CANOPY[canopy]
+        cols = [PAL[k] for k in keys]
         for k in range(clumps):
             u = (k + 0.5) / clumps
             foliage(mb, rng, (x0 + (x1 - x0) * u + rng.uniform(-0.4, 0.4), y0 + (y1 - y0) * rng.uniform(0.3, 0.7), z + h + 0.55),
-                    min(1.3, (x1 - x0) / clumps * 0.7), cols, 3, 0.45)
+                    min(1.3, (x1 - x0) / clumps * 0.7), cols, 3, 0.45, pat)
 
 
 def roof_terrace(mb, x0, y0, x1, y1, z, wall=None, parapet_h=0.8, th=0.3, floor=None, cornice=None, pergola_canopy=None, rng=None):
@@ -1002,7 +1008,8 @@ def amphora(mb, c, s=1.0, col=None):
 def pot_plant(mb, rng, c, canopy='vine'):
     c = Vector(c)
     cyl(mb, c, 0.32, 0.42, c.z, c.z + 0.6, PAL['terracotta'], 0, 6)
-    foliage(mb, rng, (c.x, c.y, c.z + 1.0), 0.6, [PAL[k] for k in CANOPY[canopy]], 2)
+    keys, pat = CANOPY[canopy]
+    foliage(mb, rng, (c.x, c.y, c.z + 1.0), 0.6, [PAL[k] for k in keys], 2, pat=pat)
 
 
 def tripod_lamp(K, c, h=1.7):

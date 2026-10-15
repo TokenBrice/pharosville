@@ -148,7 +148,7 @@ def g_terrace(coll=None):
         plain_window(K, (x, -4.0, P + 2.0), (0, -1, 0), 0.8, 1.1, ww, shutter=PAL['shutter_blue'])
         plain_window(K, (x, -4.0, P + 4.6), (0, -1, 0), 0.8, 1.1, ww, shutter=PAL['shutter_blue'])
     for (x, z) in ((1.3, zf - 0.4), (1.5, zf - 1.6)):
-        foliage(op, rng, (x, -4.2, z), 0.7, [PAL['bougain'], PAL['bougain_light'], PAL['vine']], 2, 0.8)
+        foliage(op, rng, (x, -4.2, z), 0.7, [PAL['bougain'], PAL['bougain_light'], PAL['vine']], 2, 0.8, LEAF_EVERGREEN)
     wr = PAL['wash_rose']
     block(op, 3.5, -2.5, 10.5, 4.0, P, P + 4.4, wr)
     roof_terrace(op, 3.5, -2.5, 10.5, 4.0, P + 4.4, wr, parapet_h=0.6, pergola_canopy='vine', rng=rng)
@@ -230,7 +230,7 @@ def g_house(coll=None):
     for x in (2.6, 4.6, 6.6):
         plain_window(K, (x, WY0, P + 4.2), (0, -1, 0), 0.75, 1.0, ww, shutter=PAL['shutter_blue'], arch=(x == 4.6))
     for (x, z) in ((WX1 - 0.2, zf - 0.3), (WX1 - 0.1, zf - 1.5)):
-        foliage(op, rng, (x, WY0 - 0.25, z), 0.7, [PAL['bougain'], PAL['bougain_light'], PAL['vine']], 2, 0.8)
+        foliage(op, rng, (x, WY0 - 0.25, z), 0.7, [PAL['bougain'], PAL['bougain_light'], PAL['vine']], 2, 0.8, LEAF_EVERGREEN)
     amphora(op, (WX0 + 1.0, WY0 + 1.0, zf), 0.75)
     # court wall with tile coping + vine, behind the gap
     box2(op, X1, 1.6, P, WX0, 2.0, P + 2.6, PAL['wash_rose'], PT['render'])
@@ -260,7 +260,7 @@ def g_stoa(coll=None, chain='ethereum'):
     block(op, X0, YW, X1, YB, ZS, ZW, PAL['wash_cream'])
     for s in (-1, 1):   # antae
         xa = X1 if s > 0 else X0
-        box2(op, min(xa, xa - s * 0.8), YC - 0.4, ZS, max(xa, xa - s * 0.8), YW, ZW, PAL['lime'], PT['ashlar'])
+        box2(op, min(xa, xa - s * 0.8), YC - 0.4, ZS, max(xa, xa - s * 0.8), YW, ZW, PAL['lime'], 0)
     poly(op, ((X0 + 0.8, YW - 0.03, ZS), (X1 - 0.8, YW - 0.03, ZS), (X1 - 0.8, YW - 0.03, ZS + 1.6), (X0 + 0.8, YW - 0.03, ZS + 1.6)),
          PAL['poly_red'], 0, nrm=(0, -1, 0), jitter=0.0)
     for x in (-5.0, 0.0, 5.0):

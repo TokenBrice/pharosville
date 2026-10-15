@@ -153,7 +153,7 @@ PAL = {k: lin(v[0]) for k, v in HEX.items()}
 
 # 14 = leaf_evergreen (runtime materials.ts PATTERN_LEAF_EVERGREEN): leaf that never blossoms, colours or drops; snowed.
 PATTERN = dict(plain=0, boards=1, ashlar=2, planks_x=3, cobble=4, rock=5, grass=6, tiles=7, leaf=8,
-               strakes=9, render=10, planks_y=11, metal=12, slate=13)
+               strakes=9, render=10, planks_y=11, metal=12, slate=13, leaf_evergreen=14)
 
 
 # ------------------------------------------------------------------ scene utils
@@ -452,7 +452,7 @@ def build_kit_material():
     f_slate = (1.0 + white(nt, comb(nt, (u / 0.4 + srow * 0.5).floor(), srow, 4.0)) * 0.24 - 0.12) * \
         (1.0 - line(u + srow * 0.2, 0.4, 0.06) * 0.3)
     fs = {0: one, 1: f_boards, 2: f_ashlar, 3: f_px, 4: f_cob, 5: f_rock, 6: f_grass, 7: f_tiles, 8: f_leaf,
-          9: f_strk, 10: f_rend, 11: f_py, 12: f_metal, 13: f_slate}
+          9: f_strk, 10: f_rend, 11: f_py, 12: f_metal, 13: f_slate, 14: f_leaf}   # 14 = evergreen leaf (shades as 8)
     acc = None
     for k, f in fs.items():
         t = pid.eq(k, 0.25) * f
