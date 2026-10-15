@@ -13,8 +13,8 @@ import type { HarbourLayout, Vec3 } from "./types";
  * is continuous at the threshold.
  */
 export const FIT_BELOW_ASPECT = 1.4;
-/** Fully centred at or below this aspect (portrait). */
-const CENTRE_AT_ASPECT = 1.0;
+/** Fully centred at or below this aspect (squarer than ~6:5: unfolded foldables, portrait tablets). */
+const CENTRE_AT_ASPECT = 1.2;
 /** Centred, the hero keeps this much of the half-width (NDC) clear of the edges. */
 const MARGIN_X = 0.7;
 /** The Pharos stands ≈100 m to its statue. */

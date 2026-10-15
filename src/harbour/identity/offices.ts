@@ -6,7 +6,7 @@ import type { CivicPlot, CrestAtlas } from "./types";
  * Harbour-office dressing (D17). Whoever places the civic GLBs (public/harbour/civic/harbour-office-*.glb)
  * leaves their named nodes in the scene; this finds them, tells the chain from the nearest
  * `harbour-office:<chain>` plot in layout.civic, and dresses them:
- *   crest_panel   → the chain's facade crest (UVs remapped into crests.png, one shared material)
+ *   crest_panel   → the chain's facade crest (UVs remapped into crests.webp, one shared material)
  *   awning        → hb_cover stripes tinted by the chain colour (vertex colours × chain field)
  *   flag_pole_top → returned as a flag site for the crest house flag
  */
@@ -103,8 +103,11 @@ export class OfficeDresser {
       o.userData[DRESSED] = true;
       const tint = new THREE.Color(c.color);
       for (const m of meshesOf(o)) {
-        const g = m.geometry.clone(), col = g.getAttribute("color") as THREE.BufferAttribute | undefined;
+        const g = m.geometry.clone(), src = g.getAttribute("color") as THREE.BufferAttribute | undefined;
+        // the tint needs float colours (glTF keeps them as normalized bytes: a tinted byte would round)
+        const col = src ? floatCopy(src) : undefined;
         if (col) {
+          g.setAttribute("color", col);
           for (let i = 0; i < col.count; i++) col.setXYZ(i, col.getX(i) * tint.r, col.getY(i) * tint.g, col.getZ(i) * tint.b);
           col.needsUpdate = true;
           m.geometry = g;

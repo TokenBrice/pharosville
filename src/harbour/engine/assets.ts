@@ -14,24 +14,46 @@ export class AssetStore {
   private readonly textureLoader = new THREE.TextureLoader();
   private readonly gltfs = new Map<string, Promise<GLTF>>();
   private readonly textures = new Map<string, Promise<THREE.Texture>>();
+  /** `.glb.gz` bytes fetched ahead of their parse (prefetch), handed over once to gltfGz. */
+  private readonly prefetched = new Map<string, Promise<ArrayBuffer | null>>();
+
+  private static gz(url: string): boolean {
+    return url.startsWith("/harbour/") && url.endsWith(".glb") && typeof DecompressionStream === "function";
+  }
 
   gltf(url: string): Promise<GLTF> {
     let p = this.gltfs.get(url);
     if (!p) {
-      const gz = url.startsWith("/harbour/") && url.endsWith(".glb") && typeof DecompressionStream === "function";
-      p = gz ? this.gltfGz(url) : this.gltfLoader.loadAsync(url);
+      p = AssetStore.gz(url) ? this.gltfGz(url) : this.gltfLoader.loadAsync(url);
       this.gltfs.set(url, p);
     }
     return p;
   }
 
+  /**
+   * Start fetching a shipped GLB's `.gz` bytes now; gltf() later parses them where it always did.
+   * Settles (never rejects) once the bytes are in; a failure is reported by gltfGz when it takes them.
+   */
+  prefetch(url: string): Promise<void> {
+    if (!AssetStore.gz(url) || this.gltfs.has(url) || this.prefetched.has(url)) return Promise.resolve();
+    const p = AssetStore.fetchGz(url);
+    this.prefetched.set(url, p);
+    return p.then(() => {}, () => {});
+  }
+
+  private static async fetchGz(url: string): Promise<ArrayBuffer | null> {
+    const res = await fetch(`${url}.gz`);
+    // Vite dev answers a missing file with index.html
+    return res.ok && !(res.headers.get("content-type") ?? "").includes("text/html") ? res.arrayBuffer() : null;
+  }
+
   private async gltfGz(url: string): Promise<GLTF> {
     let glb: ArrayBuffer | null = null;
+    const early = this.prefetched.get(url);
+    this.prefetched.delete(url);
     try {
-      const res = await fetch(`${url}.gz`);
-      // Vite dev answers a missing file with index.html
-      if (res.ok && !(res.headers.get("content-type") ?? "").includes("text/html")) {
-        const buf = await res.arrayBuffer();
+      const buf = await (early ?? AssetStore.fetchGz(url));
+      if (buf) {
         const b = new Uint8Array(buf, 0, Math.min(2, buf.byteLength));
         // a server that already decoded it (Content-Encoding: gzip) hands over the GLB itself
         glb = b[0] === 0x1f && b[1] === 0x8b

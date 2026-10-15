@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - World: The Harbour, one three.js WebGL2 Engine (`src/harbour/engine/`) mounted by `src/harbour/app/harbour-app.tsx`
 - Renderer failure fallback: the first-paint poster stays up with the arrival guide and Pharos links; no alternate renderer
 - Runtime media namespace: `/harbour/`
-- Latest app version: `v1.0.0` (`theHarbour`)
-- Latest changelog entry: `2026-10-14-the-harbour` / `v1.0.0` / 2026-10-14 / The Harbour
+- Latest app version: `v1.1.0` (`seasonsAndStorms`)
+- Latest changelog entry: `2026-10-15-seasons-and-storms` / `v1.1.0` / 2026-10-15 / Seasons and Storms
 
 ## Viewport Gate
 
@@ -32,7 +32,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 ## Runtime Media
 
-- Stablecoin emblems: one atlas, `/harbour/emblems.webp` + `/harbour/emblems.json`; panel and search medallions load same-origin `/logos/` and `/chains/` marks.
+- Stablecoin emblems: one atlas, `/harbour/emblems.avif` (`/harbour/emblems.webp` when AVIF fails) + `/harbour/emblems.json`; panel and search medallions load same-origin `/logos/` and `/chains/` marks.
+- Chain crests: one atlas, `/harbour/crests.webp` (lossless) + `/harbour/crests.json`, decoded once for the office crests and the movers' flags.
 - Static world GLB: `/harbour/island.glb`
 - Static world GLB: `/harbour/lighthouse.glb`
 - Boat hull kit: `/harbour/kit/manifest.json` and its GLBs; sea mask: `/harbour/sea-sdf.webp` (lossless); shipped GLBs are fetched as pre-gzipped `.glb.gz`.
@@ -45,10 +46,10 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 ## Bundle Budgets
 
 - entry chunk: raw <= 64 KiB, gzip <= 24 KiB
-- Harbour lazy chunk: raw <= 1,500 KiB, gzip <= 456 KiB
+- Harbour lazy chunk: raw <= 1,020 KiB, gzip <= 352 KiB
 - Three.js renderer chunk: raw <= 960 KiB, gzip <= 276 KiB
 - Harbour CSS: raw <= 28 KiB, gzip <= 7 KiB
-- Total JS: raw <= 2,720 KiB, gzip <= 820 KiB
+- Total JS: raw <= 2,260 KiB, gzip <= 724 KiB
 
 ## Workflow Gates
 

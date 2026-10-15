@@ -1,10 +1,7 @@
 import type { DeadStablecoin } from "../types";
 import deadStablecoinAsset from "../data/dead-stablecoins.json";
-import { parseDeadStablecoinAssets } from "./stablecoins/schema";
 
 export { CAUSE_HEX, CAUSE_META } from "./cause-of-death";
 
-export const DEAD_STABLECOINS: DeadStablecoin[] = parseDeadStablecoinAssets(
-  deadStablecoinAsset,
-  "shared/data/dead-stablecoins.json",
-);
+/** Validated against shared/'s strict schema by dead-stablecoins.test.ts (and at sync time), not at runtime: zod stays out of the bundle. */
+export const DEAD_STABLECOINS = deadStablecoinAsset as DeadStablecoin[];

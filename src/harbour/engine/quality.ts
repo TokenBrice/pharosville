@@ -14,6 +14,8 @@ export interface QualitySettings {
   readonly shadowMapSize: number;
   /** Seconds between shadow-map refreshes while nothing forces one (0 = every frame). */
   readonly shadowInterval: number;
+  /** ...and at least this many frames since the last one (a slow frame alone never re-renders the map). */
+  readonly shadowMinFrames: number;
   /** Real point lights promoted near the camera at night (the pools/sprites carry the rest). */
   readonly pointLights: number;
   /** Bloom mip levels (fewer = cheaper, slightly tighter halo). */
@@ -23,9 +25,9 @@ export interface QualitySettings {
 }
 
 export const TIERS: Record<QualityTier, QualitySettings> = {
-  high: { tier: "high", shadowMapSize: 4096, shadowInterval: 0, pointLights: 16, bloomLevels: 8, smaa: "high" },
-  medium: { tier: "medium", shadowMapSize: 2048, shadowInterval: 1 / 30, pointLights: 8, bloomLevels: 7, smaa: "medium" },
-  low: { tier: "low", shadowMapSize: 2048, shadowInterval: 1 / 15, pointLights: 4, bloomLevels: 6, smaa: "low" },
+  high: { tier: "high", shadowMapSize: 4096, shadowInterval: 0, shadowMinFrames: 1, pointLights: 16, bloomLevels: 8, smaa: "high" },
+  medium: { tier: "medium", shadowMapSize: 2048, shadowInterval: 1 / 30, shadowMinFrames: 2, pointLights: 8, bloomLevels: 7, smaa: "medium" },
+  low: { tier: "low", shadowMapSize: 2048, shadowInterval: 1 / 15, shadowMinFrames: 2, pointLights: 4, bloomLevels: 6, smaa: "low" },
 };
 
 export interface QualityRung { readonly tier: QualityTier; readonly dpr: number }

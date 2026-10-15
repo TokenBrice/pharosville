@@ -1,19 +1,23 @@
 #!/usr/bin/env node
 /**
  * Pre-compressed first-view assets (Cloudflare Pages serves model/gltf-binary uncompressed):
- *   public/harbour/ every .glb → <name>.glb.gz `gzip -9 -n` (no name, no mtime: deterministic bytes);
- *                                                the runtime fetches the .gz and inflates it (engine/assets.ts)
+ *   public/harbour/ every .glb → <name>.glb.gz `zopfli --gzip` when it is on PATH (~2 % smaller), else `gzip -9 -n`
+ *                                                (no name, no mtime: deterministic bytes); an existing .gz that already
+ *                                                inflates to the .glb is kept, so a runner without zopfli keeps the
+ *                                                committed zopfli files. The runtime fetches the .gz and inflates it
+ *                                                (engine/assets.ts)
  *   assets/harbour/sea-sdf.png → public/harbour/sea-sdf.webp   lossless WebP, `-exact` (the RGBA channels are data, not colour);
  *                                                re-encoded when missing or with --webp, and always verified
  *                                                pixel-exact against the PNG when `sharp` is installed
  *
  * Usage: npm run harbour:compress [-- --webp]   (also runs before every `npm run build`; only --webp needs `cwebp`)
  */
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+import { gunzipSync } from "node:zlib";
 
 const run = promisify(execFile);
 const ROOT = resolve(new URL("../..", import.meta.url).pathname);
@@ -29,16 +33,23 @@ async function* glbs(dir) {
   }
 }
 
+let zopfli = true;
+try { execFileSync("zopfli", ["-h"], { stdio: "ignore" }); } catch { zopfli = false; }
 let wrote = 0, kept = 0;
 for await (const glb of glbs(HARBOUR)) {
-  const { stdout } = await run("gzip", ["-9", "-n", "-c", glb], { encoding: "buffer", maxBuffer: 1 << 30 });
   const out = `${glb}.gz`;
-  if (existsSync(out) && Buffer.compare(await readFile(out), stdout) === 0) { kept++; continue; }
+  if (existsSync(out)) {
+    let same = false;
+    try { same = gunzipSync(await readFile(out)).equals(await readFile(glb)); } catch { /* not a valid gzip: rewrite it */ }
+    if (same) { kept++; continue; }
+  }
+  const [cmd, args] = zopfli ? ["zopfli", ["--gzip", "-c", glb]] : ["gzip", ["-9", "-n", "-c", glb]];
+  const { stdout } = await run(cmd, args, { encoding: "buffer", maxBuffer: 1 << 30 });
   await writeFile(out, stdout);
   wrote++;
   console.log(`gz  ${relative(ROOT, out)}  ${(stdout.length / 1024).toFixed(0)} KB`);
 }
-console.log(`glb.gz: ${wrote} written, ${kept} up to date`);
+console.log(`glb.gz: ${wrote} written (${zopfli ? "zopfli" : "gzip -9"}), ${kept} up to date`);
 
 if (process.argv.includes("--webp") || !existsSync(SDF_WEBP)) {
   await run("cwebp", ["-quiet", "-lossless", "-exact", "-z", "9", "-metadata", "none", SDF_PNG, "-o", SDF_WEBP]);

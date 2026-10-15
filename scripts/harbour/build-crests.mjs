@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
  * Builds the Harbour's chain-identity atlases (P6, D17/D18). No browser: ImageMagick 7 (`magick`),
- * `rsvg-convert` and python3 fontTools only.
+ * `rsvg-convert`, `cwebp` and python3 fontTools only.
  *
- *   public/harbour/crests.png   2048×512 sRGB+alpha. Row 0: eight 256² facade crests (a heater shield in
+ *   public/harbour/crests.webp  2048×512 sRGB+alpha, lossless WebP (`-exact`; composed as a PNG in a temp dir and
+ *                               verified pixel-exact against it when `sharp` is installed). Row 0: eight 256² facade crests (a heater shield in
  *                               the chain colour, a gilt rim, the chain mark in ivory, on a stone plaque) for
  *                               each harbour office's `crest_panel`. Row 1: eight 256×170 house-flag cloths
  *                               (chain field, ivory roundel, the mark in the field colour).
@@ -127,8 +128,16 @@ async function buildCrests() {
       flag: [u(x + 0.5), v(PANEL + FLAG_H - 0.5), u(x + FLAG_W - 0.5), v(PANEL + 0.5)],
     };
   }
-  args.push("-define", "png:compression-level=9", join(OUT, "crests.png"));
+  const png = join(tmp, "crests.png"), webp = join(OUT, "crests.webp");
+  args.push("-define", "png:compression-level=9", png);
   await run("magick", args);
+  await run("cwebp", ["-quiet", "-lossless", "-exact", "-z", "9", "-metadata", "none", png, "-o", webp]);
+  let sharp = null;
+  try { sharp = (await import("sharp")).default; } catch { /* optional: verification only */ }
+  if (sharp) {
+    const [a, b] = await Promise.all([png, webp].map((p) => sharp(p).ensureAlpha().raw().toBuffer()));
+    if (Buffer.compare(a, b) !== 0) throw new Error("crests.webp does not decode to the composed PNG's exact RGBA");
+  }
   await writeFile(join(OUT, "crests.json"), JSON.stringify({ version: 1, width: CREST_W, height: CREST_H, chains }, null, 1) + "\n");
 }
 
@@ -256,7 +265,7 @@ print(json.dumps(out))`;
 try {
   await buildCrests();
   await buildLettering();
-  console.log("crests.png/json + chart-lettering.png/json written to public/harbour/");
+  console.log("crests.webp/json + chart-lettering.png/json written to public/harbour/");
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }

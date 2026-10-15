@@ -8,7 +8,7 @@ import { OCEAN_FRAG, OCEAN_VERT, SEA_PALETTE } from "./ocean-material";
 import { buildSeaSdf, defaultSeaBounds, landMaskFromHeights, SDF_COAST_RANGE, seaSdfInputFromLayout, type Bounds4, type HeightField } from "./sea-sdf";
 import { acquireFxTextures, type FxTextures } from "./textures";
 import { WakeField, type WakeService } from "./wake";
-import { SEA_STATES, waveHeight } from "./waves";
+import { hullSwell, SEA_STATES, waveHeight } from "./waves";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { buildZoneMask, type SeaZoneLike } from "./zone-mask";
 import { loadSdfImage } from "./sdf-image";
@@ -29,6 +29,11 @@ export interface OceanService {
   readonly seaState: SeaState;
   /** Sea surface height (m) at world (x, z) now, for bobbing hulls. */
   heightAt(x: number, z: number): number;
+  /**
+   * heightAt at a hull's centre (x, z), bow / stern ± (bx, bz) and port / starboard ± (px, pz) into out[0..4],
+   * in one call. `cache` (waves.ts hullSwellCache, one per hull): for a hull at rest, 10 trig instead of 25.
+   */
+  hullHeights(x: number, z: number, bx: number, bz: number, px: number, pz: number, out: Float64Array, cache: Float64Array | null): void;
   /** P6 (identity): the sea's own clock, swell scale and SDF, so overlays on the water (chart lettering) ride the same swell. */
   /** P6 (identity): signed coast distance (m) at world (x, z) from the sea SDF; > 0 is open water. */
   coastAt(x: number, z: number): number;
@@ -37,6 +42,12 @@ export interface OceanService {
 
 const GRID_N = 256;
 const FAR_EXTENT = 7000;
+
+const coastOf = (r: number) => (r / 255 - 0.5) * SDF_COAST_RANGE;
+const DAMP_BY_BYTE = Float64Array.from({ length: 256 }, (_, r) => {
+  const coast = coastOf(r);
+  return THREE.MathUtils.smoothstep(coast, 0, 34) * 0.9 + 0.1 * THREE.MathUtils.smoothstep(coast, -2, 2);
+});
 
 function oceanGeometry(bounds: Bounds4): THREE.BufferGeometry {
   const cx = (bounds[0] + bounds[2]) / 2, cz = (bounds[1] + bounds[3]) / 2;
@@ -81,6 +92,11 @@ export class OceanSystem implements WorldSystem {
   private coastR!: Uint8Array;
   private sdfSize = 1024;
   private bounds!: Bounds4;
+  /** The SDF bounds as plain numbers (coastAt / dampAt run ~3k times a frame: no tuple unpacking there). */
+  private bx0 = 0;
+  private bz0 = 0;
+  private bw = 1;
+  private bh = 1;
   private fx!: FxTextures;
   private state: SeaState = 1;
   private readonly seaU = { value: new THREE.Vector4(SEA_STATES[1].amp, SEA_STATES[1].chop, SEA_STATES[1].caps, SEA_STATES[1].bands) };
@@ -98,6 +114,8 @@ export class OceanSystem implements WorldSystem {
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
     if (!layout) throw new Error("[harbour/ocean] needs the 'layout' service");
     this.bounds = (layout.sea?.bounds as Bounds4 | undefined) ?? defaultSeaBounds(layout);
+    this.bx0 = this.bounds[0]; this.bz0 = this.bounds[1];
+    this.bw = this.bounds[2] - this.bounds[0]; this.bh = this.bounds[3] - this.bounds[1];
     this.fx = acquireFxTextures(ctx);
 
     // sea SDF: the baked PNG when it exists, else generated now from the layout (same encoding)
@@ -184,6 +202,12 @@ export class OceanSystem implements WorldSystem {
       setSeaState: (s) => this.setSeaState(s),
       get seaState() { return getState(); },
       heightAt: (x, z) => waveHeight(x, z, this.time, this.seaU.value.x) * this.dampAt(x, z),
+      hullHeights: (x, z, bx, bz, px, pz, out, cache) => {
+        hullSwell(x, z, bx, bz, px, pz, this.time, this.seaU.value.x, out, cache);
+        out[0] *= this.dampAt(x, z);
+        out[1] *= this.dampAt(x + bx, z + bz); out[2] *= this.dampAt(x - bx, z - bz);
+        out[3] *= this.dampAt(x + px, z + pz); out[4] *= this.dampAt(x - px, z - pz);
+      },
       coastAt: (x, z) => this.coastAt(x, z),
       shared: { uTime: this.seaTime, uSea: this.seaU, uSdf: this.material.uniforms.uSdf, uSdfBounds: this.material.uniforms.uSdfBounds },
     };
@@ -198,22 +222,23 @@ export class OceanSystem implements WorldSystem {
     this.seaGoal.set(p.amp, p.chop, p.caps, p.bands);
   }
 
-  private coastAt(x: number, z: number): number {
-    const [x0, z0, x1, z1] = this.bounds;
-    const u = (x - x0) / (x1 - x0), v = (z - z0) / (z1 - z0);
-    if (u < 0 || u > 1 || v < 0 || v > 1) return 200;
+  /** Texel of the coast SDF under (x, z), or -1 off the SDF. */
+  private texel(x: number, z: number): number {
+    const u = (x - this.bx0) / this.bw, v = (z - this.bz0) / this.bh;
+    if (u < 0 || u > 1 || v < 0 || v > 1) return -1;
     const n = this.sdfSize;
-    const r = this.coastR[Math.min(n - 1, Math.floor(v * n)) * n + Math.min(n - 1, Math.floor(u * n))];
-    return (r / 255 - 0.5) * SDF_COAST_RANGE;
+    return Math.min(n - 1, Math.floor(v * n)) * n + Math.min(n - 1, Math.floor(u * n));
   }
 
+  private coastAt(x: number, z: number): number {
+    const i = this.texel(x, z);
+    return i < 0 ? 200 : coastOf(this.coastR[i]);
+  }
+
+  /** Swell damping toward the coast: a function of the SDF byte alone, so a 256-entry table (same values). */
   private dampAt(x: number, z: number): number {
-    const [x0, z0, x1, z1] = this.bounds;
-    const u = (x - x0) / (x1 - x0), v = (z - z0) / (z1 - z0);
-    if (u < 0 || u > 1 || v < 0 || v > 1) return 1;
-    const coast = this.coastAt(x, z);
-    const s = THREE.MathUtils.smoothstep(coast, 0, 34);
-    return s * 0.9 + 0.1 * THREE.MathUtils.smoothstep(coast, -2, 2);
+    const i = this.texel(x, z);
+    return i < 0 ? 1 : DAMP_BY_BYTE[this.coastR[i]];
   }
 
   private seedDebugMovers(layout: HarbourLayout): void {

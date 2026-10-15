@@ -4,6 +4,7 @@ import type { HarbourLayout, HullClass, Pier } from "../layout/types";
 import type { HarbourModel } from "../model/types";
 import type { OceanService } from "../ocean/ocean-system";
 import type { WakeService } from "../ocean/wake";
+import { hullSwellCache } from "../ocean/waves";
 import type { HarbourSim } from "../sim/sim";
 import { PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING } from "../sim/sim";
 import type { GroundService } from "../world/ground";
@@ -129,6 +130,8 @@ interface BoatRec {
   titan: boolean;
   /** Picking sphere (world). */
   cx: number; cy: number; cz: number; r: number; top: number;
+  /** Her sea-sampling cache (ocean.hullHeights at rest). */
+  swell: Float64Array;
 }
 
 export class FleetSystem implements WorldSystem {
@@ -209,6 +212,8 @@ export class FleetSystem implements WorldSystem {
   private ocean: OceanService | null = null;
   /** Sea height under (x, z): a method, not a per-frame closure. */
   private seaH(x: number, z: number): number { return this.ocean ? this.ocean.heightAt(x, z) : 0; }
+  /** Sea heights under a hull: centre, bow, stern, port, starboard. */
+  private readonly hullH = new Float64Array(5);
   /** A lamp's anchor in the current hull frame (this.m4) → world (this.v). Bound once, not per hull. */
   private readonly lampAt = (lx: number, ly: number, lz: number): THREE.Vector3 => this.v.set(lx, ly, lz).applyMatrix4(this.m4);
 
@@ -386,6 +391,7 @@ export class FleetSystem implements WorldSystem {
         phi: hash01(boat.id + "#bob") * Math.PI * 2,
         slot: this.atlas ? this.atlas.slotFor({ id: boat.id, symbol: boat.symbol, brandColor: boat.brandColor }) : -1,
         brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, struck: false, mastK: titan ? 2 : hash01(boat.id + "#mast"), titan: !!titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
+        swell: hullSwellCache(),
       };
       this.writePaint(rec.inst, wrecked || titan ? null : boat.id, variant.family, wrecked ? null : boat.brandColor);
       this.boats.push(rec);
@@ -699,8 +705,10 @@ export class FleetSystem implements WorldSystem {
       // swell: bob, pitch, roll from the sea surface under the hull (big hulls average more)
       const fx = Math.sin(h), fz = Math.cos(h);
       const half = b.loa * 0.4, hb = b.beam * 0.5;
-      const h0 = this.seaH(x, z), hBow = this.seaH(x + fx * half, z + fz * half), hSt = this.seaH(x - fx * half, z - fz * half);
-      const hPort = this.seaH(x + fz * hb, z - fx * hb), hStb = this.seaH(x - fz * hb, z + fx * hb);
+      const sea = this.hullH;
+      if (this.ocean) this.ocean.hullHeights(x, z, fx * half, fz * half, fz * hb, -fx * hb, sea, moving ? null : b.swell);
+      else sea.fill(0);
+      const h0 = sea[0], hBow = sea[1], hSt = sea[2], hPort = sea[3], hStb = sea[4];
       const resp = b.wrecked ? 0.12 : Math.min(1, Math.max(0.3, 9 / b.loa));
       const idle = moving ? 0.6 : 1;
       const bob = (h0 * 0.7 + (hBow + hSt) * 0.15) + Math.sin(time * 0.9 + b.phi) * 0.035 * resp * idle;

@@ -10,7 +10,9 @@
  * In order: logos (public/logos + data/logos.json, scripts/harbour/sync-logos.mjs) → brand colours
  * (data/brand-colors.json, sync-brand-colors.mjs) → the yard's order book (src/harbour/data/prelaunch.json,
  * sync-prelaunch.mjs) → the cemetery (shared/data/dead-stablecoins.json: Wreck Cove's names, causes, epitaphs and
- * obituaries, projected onto shared/'s strict schema; schema-gated by sync-schema.mjs). Everything is planned and
+ * obituaries, projected onto shared/'s strict schema; schema-gated by sync-schema.mjs) → the browser's slim registry
+ * (shared/data/stablecoins/runtime-slim.json: the pre-launch and frozen coins of this repo's coins.generated.json, in
+ * canonical order; sync-check.mjs fails when it is stale). Everything is planned and
  * validated in memory first: on any schema violation it prints them, writes NOTHING and exits 1.
  * Deterministic and idempotent: a second run against the same source changes no byte. The stamp
  * data/pharos-watch-sync.json (source commit, sync date) is rewritten only when data changed.
@@ -26,6 +28,7 @@ import { findMediaFileProblems } from "../pharosville/validate-runtime-media.mjs
 import { BRAND_ENTRY, planBrandColors } from "./sync-brand-colors.mjs";
 import { planLogos } from "./sync-logos.mjs";
 import { buildPrelaunchBook } from "./sync-prelaunch.mjs";
+import { buildRuntimeSlim, RUNTIME_SLIM } from "./sync-check.mjs";
 import { loadRedirects, loadRegistry, SOURCE_PATHS } from "./sync-source.mjs";
 
 const run = promisify(execFile);
@@ -39,6 +42,7 @@ const FILES = {
   brand: "data/brand-colors.json",
   prelaunch: "src/harbour/data/prelaunch.json",
   dead: "shared/data/dead-stablecoins.json",
+  slim: RUNTIME_SLIM,
 };
 /** shared/'s DeadStablecoinAssetSchema is strict: the source's extra fields (logo, mechanismArchetype, recordedAt, …) are dropped. */
 const DEAD_KEYS = new Set(["id", "name", "symbol", "llamaId", "pegCurrency", "causeOfDeath", "deathDate", "peakMcap", "epitaph", "obituary", "sourceUrl", "sourceLabel", "contracts"]);
@@ -152,6 +156,7 @@ try {
       [FILES.brand, `${JSON.stringify(B.colors, null, 1)}\n`],
       [FILES.prelaunch, `${JSON.stringify(P.book, null, 1)}\n`],
       [FILES.dead, deadText],
+      [FILES.slim, buildRuntimeSlim()],
     ];
     const changed = [];
     for (const [rel, text] of outputs) {

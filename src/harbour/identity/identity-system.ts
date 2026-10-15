@@ -91,7 +91,7 @@ export class IdentitySystem implements WorldSystem {
       json<ChartFont>("/harbour/chart-lettering.json"),
       json<CrestAtlas>("/harbour/crests.json"),
       ctx.assets.texture("/harbour/chart-lettering.png", false).catch(() => null),
-      ctx.assets.texture("/harbour/crests.png", true).catch(() => null),
+      ctx.assets.texture("/harbour/crests.webp", true).catch(() => null),
     ]);
 
     if (font && sdfTex && layout.seaZones?.length) {

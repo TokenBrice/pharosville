@@ -134,17 +134,50 @@ function desktopChunkModulePreload(): Plugin {
         throw new Error(`No modulepreload targets collected for ${pharosVilleDesktopChunkName}.`);
       }
 
-      return fileNames.map((fileName) => ({
+      const modulePreloads = fileNames.map((fileName) => ({
         tag: "link",
         attrs: {
           rel: "modulepreload",
           href: `/${fileName}`,
           media: pharosVilleDesktopQuery,
         },
-        injectTo: "head",
+        injectTo: "head" as const,
       }));
+      return [...modulePreloads, ...desktopFirstFramePreloads(bundle)];
     },
   };
+}
+
+const harbourLayoutSource = "src/harbour/data/layout.json";
+/** First-frame fetches the engine makes, besides the hashed layout (public/, in the order systems need them). */
+const harbourFirstFrameUrls = [
+  "/harbour/sea-sdf.webp",
+  "/harbour/island.glb.gz",
+  "/harbour/lighthouse.glb.gz",
+  "/harbour/civic/manifest.json",
+  "/harbour/kit/manifest.json",
+];
+/** The 2.6 MB island goes at low priority so it does not hold back the Harbour JS (faster under fast4g and cold). */
+const harbourLowPriorityPreload = "/harbour/island.glb.gz";
+
+/**
+ * The bytes the world's first frame waits on, requested at page entry on admitted viewports only (same
+ * media query as the modulepreloads). as=fetch + crossorigin (anonymous) matches a default fetch() (cors,
+ * same-origin credentials), so the engine's own fetches take these responses.
+ */
+function desktopFirstFramePreloads(bundle: OutputBundle) {
+  const layout = Object.values(bundle).find((entry) => (
+    entry.type === "asset" && entry.originalFileNames.some((name) => name.endsWith(harbourLayoutSource))
+  ));
+  if (!layout) throw new Error(`Missing ${harbourLayoutSource} asset for the first-frame preloads.`);
+  return [`/${layout.fileName}`, ...harbourFirstFrameUrls].map((href) => ({
+    tag: "link",
+    attrs: {
+      rel: "preload", as: "fetch", crossorigin: "anonymous", href, media: pharosVilleDesktopQuery,
+      ...(href === harbourLowPriorityPreload ? { fetchpriority: "low" } : {}),
+    },
+    injectTo: "head" as const,
+  }));
 }
 
 function isOutputChunk(entry: OutputBundle[string]): entry is OutputChunk {

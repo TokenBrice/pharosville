@@ -21,8 +21,11 @@ export const bundleBudgets = {
     // chain identity and chart lettering, procedural audio, Titan ships, Wreck
     // Cove v2, the 43-coin pre-launch book): measured 1,319.7 KiB raw /
     // 400.4 KiB gzip. Cap = measured + ~14%.
-    maxRawBytes: 1_500 * 1024,
-    maxGzipBytes: 456 * 1024,
+    // Tightened 2026-10-15 after the need-for-speed pass moved the registry,
+    // zod and the pre-launch book out of the chunk: measured 904.3 KiB raw /
+    // 312.9 KiB gzip. Cap = measured + ~12%.
+    maxRawBytes: 1_020 * 1024,
+    maxGzipBytes: 352 * 1024,
     required: true,
   },
   renderer: {
@@ -55,8 +58,10 @@ export const aggregateBudgets = {
   // remaining P3/P4 polish; the per-chunk caps above are enforced independently.
   // Re-baselined 2026-10-14 after P6-P8: measured 2,444.1 KiB raw / 736.9 KiB
   // gzip in total. Cap = measured + ~11%.
-  maxJsRawBytes: 2_720 * 1024,
-  maxJsGzipBytes: 820 * 1024,
+  // Tightened 2026-10-15 (need-for-speed): measured 2,055.2 KiB raw / 658.8 KiB
+  // gzip in total. Cap = measured + ~10%.
+  maxJsRawBytes: 2_260 * 1024,
+  maxJsGzipBytes: 724 * 1024,
 };
 
 export const forbiddenBundleChunks = [

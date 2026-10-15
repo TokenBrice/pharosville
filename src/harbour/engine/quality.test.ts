@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialRungFor, ladderFor, parseTier } from "./quality";
+import { TIERS, initialRungFor, ladderFor, parseTier } from "./quality";
 import { gradePixel } from "./post";
 import type { Grade } from "./time-of-day";
 
@@ -32,6 +32,13 @@ describe("quality ladder", () => {
     expect(l[l.length - 1].dpr).toBe(2);
     expect(parseTier("low")).toBe("low");
     expect(parseTier("ultra")).toBeNull();
+  });
+
+  it("refreshes interval-driven shadows at most every other frame below High", () => {
+    expect(TIERS.high.shadowInterval).toBe(0);
+    expect(TIERS.high.shadowMinFrames).toBe(1);
+    expect(TIERS.medium.shadowMinFrames).toBe(2);
+    expect(TIERS.low.shadowMinFrames).toBe(2);
   });
 });
 

@@ -12,10 +12,11 @@
  */
 import type { HullClass, Vec2 } from "../layout/types";
 import { u01 } from "../model/classify";
-import { routeNodes, type SimLayout } from "./layout-graph";
+import { CLASS_ORDER, routeNodes, type SimLayout } from "./layout-graph";
 import { clearance, hullClearance, openWaterFactor } from "./obstacles";
 import { buildPath, type PathRec } from "./path";
 import { legControlPoints } from "./routes";
+import { hypot } from "./math";
 
 /** Loop variants per gate, so hulls sharing a gate do not all sail one track: near loops (her own harbour's water)… */
 export const OUTING_VARIANTS = 3;
@@ -50,6 +51,14 @@ const FOOTPRINT = new WeakMap<Vec2[], number>();
 const OPEN_PARTS = new WeakMap<Vec2[], Vec2[][]>();
 const LANES = new WeakMap<SimLayout, { minX: number; minZ: number; nx: number; nz: number; d: Float32Array }>();
 const LANE_CELL = 4;
+/** The plan's per-boat questions, answered once per layout: scenic extra metres (out>in>v), outing metres (slot>cls>v). */
+const SCENIC_M = new WeakMap<SimLayout, Map<string, number>>();
+const OUTING_M = new WeakMap<SimLayout, Map<string, number>>();
+const memo = (w: WeakMap<SimLayout, Map<string, number>>, L: SimLayout): Map<string, number> => {
+  let m = w.get(L);
+  if (!m) w.set(L, (m = new Map()));
+  return m;
+};
 
 /** Distance (m) to the nearest lane (a straight run between lane nodes), on a coarse grid over the field. */
 function laneDistance(L: SimLayout, x: number, z: number): number {
@@ -95,7 +104,7 @@ function margin(L: SimLayout, x: number, z: number, nearGate: boolean, far = fal
 
 /** a → b in open water; `far`: keeping the offshore margins except within `near` metres of b (where it joins a lane). */
 function segmentClear(L: SimLayout, a: Vec2, b: Vec2, far = false, near = 0): boolean {
-  const len = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(len / 4));
+  const len = hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(len / 4));
   for (let k = 0; k <= n; k++) if (margin(L, a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n, false, far && (n - k) * (len / n) > near) < -3) return false;
   return true;
 }
@@ -158,7 +167,7 @@ function makeLoops(L: SimLayout, outNode: number): Vec2[][] {
       // past the Pharos: a loop whose far end runs near the light, when it is close
       if (L.pharos) {
         const ex = ox + ux * reach * 0.8, ez = oz + uz * reach * 0.8;
-        score += 150 * Math.max(0, 1 - Math.hypot(ex - L.pharos[0], ez - L.pharos[1]) / 320);
+        score += 150 * Math.max(0, 1 - hypot(ex - L.pharos[0], ez - L.pharos[1]) / 320);
       }
       score += 12 * Math.max(0, Math.cos(th - up)); // a beat out to windward is the prettier sail
       cands.push({ o, th, reach, score });
@@ -172,7 +181,7 @@ function makeLoops(L: SimLayout, outNode: number): Vec2[][] {
   const used: Array<{ o: number; th: number }> = [];
   for (const c of cands) {
     if (picks.length >= OUTING_VARIANTS) break;
-    if (used.some((p) => Math.hypot(g.x[p.o] - g.x[c.o], g.z[p.o] - g.z[c.o]) < 40 && Math.abs(Math.atan2(Math.sin(p.th - c.th), Math.cos(p.th - c.th))) < 0.5)) continue;
+    if (used.some((p) => hypot(g.x[p.o] - g.x[c.o], g.z[p.o] - g.z[c.o]) < 40 && Math.abs(Math.atan2(Math.sin(p.th - c.th), Math.cos(p.th - c.th))) < 0.5)) continue;
     used.push(c);
     const loop = ellipse(L, g.x[c.o], g.z[c.o], c.th, c.reach, `${g.ids[outNode]}#${picks.length}`);
     if (!loop) continue;
@@ -215,7 +224,7 @@ function makeFarLoops(L: SimLayout, outNode: number, occ: Uint8Array): { far: Ve
       let score = Math.min(reach, FAR_REACH_MAX) - 0.15 * out;
       if (L.pharos) {
         const ex = ox + ux * reach * 0.6, ez = oz + uz * reach * 0.6;
-        score += 50 * Math.max(0, 1 - Math.hypot(ex - L.pharos[0], ez - L.pharos[1]) / 420);
+        score += 50 * Math.max(0, 1 - hypot(ex - L.pharos[0], ez - L.pharos[1]) / 420);
       }
       score += 12 * Math.max(0, Math.cos(th - up));
       cands.push({ o, th, reach, score });
@@ -230,7 +239,7 @@ function makeFarLoops(L: SimLayout, outNode: number, occ: Uint8Array): { far: Ve
   let tried = 0;
   for (const c of cands) {
     if (picks.length >= OFFSHORE_VARIANTS || tried >= FAR_TRIES) break;
-    if (used.some((p) => Math.hypot(g.x[p.o] - g.x[c.o], g.z[p.o] - g.z[c.o]) < 90 && Math.abs(Math.atan2(Math.sin(p.th - c.th), Math.cos(p.th - c.th))) < 0.6)) continue;
+    if (used.some((p) => hypot(g.x[p.o] - g.x[c.o], g.z[p.o] - g.z[c.o]) < 90 && Math.abs(Math.atan2(Math.sin(p.th - c.th), Math.cos(p.th - c.th))) < 0.6)) continue;
     tried++;
     const ring = ellipse(L, g.x[c.o], g.z[c.o], c.th, c.reach, `${g.ids[outNode]}#far${picks.length}`, true);
     if (!ring) continue;
@@ -270,7 +279,7 @@ function makeFarLoops(L: SimLayout, outNode: number, occ: Uint8Array): { far: Ve
 function cellsOf(L: SimLayout, loop: readonly Vec2[]): number[] {
   const F = L.field!, out = new Set<number>();
   for (let k = 1; k < loop.length; k++) {
-    const a = loop[k - 1], b = loop[k], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 8));
+    const a = loop[k - 1], b = loop[k], n = Math.max(1, Math.ceil(hypot(b[0] - a[0], b[1] - a[1]) / 8));
     for (let s = 0; s <= n; s++) {
       const i = Math.floor((a[0] + ((b[0] - a[0]) * s) / n - F.minX) / OCC_CELL), j = Math.floor((a[1] + ((b[1] - a[1]) * s) / n - F.minZ) / OCC_CELL);
       if (i >= 0 && j >= 0 && i < OCC_N && j < OCC_N) out.add(j * OCC_N + i);
@@ -299,14 +308,14 @@ function homeFrom(L: SimLayout, gate: number, end: Vec2, maxLane = FAR_ORIGIN_MA
   const joins: Array<{ h: number; len: number }> = [];
   for (let h = 0; h < g.n; h++) {
     const lane = g.dist[h * g.n + gate];
-    if (lane <= maxLane) joins.push({ h, len: lane + Math.hypot(end[0] - g.x[h], end[1] - g.z[h]) });
+    if (lane <= maxLane) joins.push({ h, len: lane + hypot(end[0] - g.x[h], end[1] - g.z[h]) });
   }
   joins.sort((a, b) => a.len - b.len || a.h - b.h);
   let best: Vec2[] | null = null, bestLen = Infinity;
   for (const j of joins) {
     // a long run home keeps well off the coast and the moored fields until it nears its lane
     const p: Vec2 = [g.x[j.h], g.z[j.h]];
-    if (!segmentClear(L, end, p, Math.hypot(end[0] - p[0], end[1] - p[1]) > 120, 60)) continue;
+    if (!segmentClear(L, end, p, hypot(end[0] - p[0], end[1] - p[1]) > 120, 60)) continue;
     best = routeNodes(g, j.h, gate).map((k) => [g.x[k], g.z[k]] as Vec2);
     bestLen = j.len;
     break;
@@ -315,7 +324,7 @@ function homeFrom(L: SimLayout, gate: number, end: Vec2, maxLane = FAR_ORIGIN_MA
   const gx = g.x[gate], gz = g.z[gate];
   for (const r of [60, 90, 130]) for (let k = 0; k < 24; k++) {
     const th = (k / 24) * 2 * Math.PI, p: Vec2 = [gx + Math.sin(th) * r, gz + Math.cos(th) * r];
-    const len = Math.hypot(end[0] - p[0], end[1] - p[1]) + r;
+    const len = hypot(end[0] - p[0], end[1] - p[1]) + r;
     if (len >= bestLen || margin(L, p[0], p[1], false) < 0) continue;
     if (!segmentClear(L, end, p)) continue;
     // in to the gate: open water (the last stretch may run closer, as the fairway out does)
@@ -374,7 +383,7 @@ export function outingVariants(L: SimLayout, slotIdx: number): number[] {
 
 function polyLength(p: readonly Vec2[]): number {
   let m = 0;
-  for (let k = 1; k < p.length; k++) m += Math.hypot(p[k][0] - p[k - 1][0], p[k][1] - p[k - 1][1]);
+  for (let k = 1; k < p.length; k++) m += hypot(p[k][0] - p[k - 1][0], p[k][1] - p[k - 1][1]);
   return m;
 }
 
@@ -400,10 +409,10 @@ export function scenicClearOf(L: SimLayout, fromIdx: number, toIdx: number, v: n
 function partsClearOf(parts: readonly Vec2[][], near: ReadonlyArray<{ x: number; z: number }>, clear: number): boolean {
   if (!near.length) return true;
   for (const part of parts) for (let k = 1; k < part.length; k++) {
-    const a = part[k - 1], b = part[k], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 6));
+    const a = part[k - 1], b = part[k], n = Math.max(1, Math.ceil(hypot(b[0] - a[0], b[1] - a[1]) / 6));
     for (let j = 0; j <= n; j++) {
       const x = a[0] + ((b[0] - a[0]) * j) / n, z = a[1] + ((b[1] - a[1]) * j) / n;
-      for (const q of near) if (Math.abs(q.x - x) < clear && Math.abs(q.z - z) < clear && Math.hypot(q.x - x, q.z - z) < clear) return false;
+      for (const q of near) if (Math.abs(q.x - x) < clear && Math.abs(q.z - z) < clear && hypot(q.x - x, q.z - z) < clear) return false;
     }
   }
   return true;
@@ -418,18 +427,28 @@ export function outingTrack(L: SimLayout, slotIdx: number, v: number): { track: 
 
 /** Control-point metres (at harbour pace) of a slot's outing for a hull class (for the plan's timing); -1 when it has none. */
 export function outingMetres(L: SimLayout, slotIdx: number, cls: HullClass, v: number): number {
+  // (a berth's answer never changes; the index of a raft or an extra anchorage names another after a re-plan)
+  const kind = L.slots[slotIdx].kind;
+  if (kind !== "berth" && kind !== "mooring" && kind !== "far") return outingMetresOf(L, slotIdx, cls, v);
+  const memoM = memo(OUTING_M, L), key = slotIdx + ">" + cls + ">" + v;
+  let m = memoM.get(key);
+  if (m === undefined) memoM.set(key, (m = outingMetresOf(L, slotIdx, cls, v)));
+  return m;
+}
+
+function outingMetresOf(L: SimLayout, slotIdx: number, cls: HullClass, v: number): number {
   const s = L.slots[slotIdx];
   // a berth she cannot leave cleanly (warped off, the hull would touch the quay's corner) keeps her in
   if (s.warp && hullClearance(L.hard, s.x + s.warp[0], s.z + s.warp[1], s.heading, L.loa[cls], L.beam[cls]) < 0.2) return -1;
   const loop = outingLoop(L, s.outNode, v);
   if (!loop) return -1;
   const g = L.graph, gx = s.outNode >= 0 ? g.x[s.outNode] : s.x, gz = s.outNode >= 0 ? g.z[s.outNode] : s.z;
-  let m = Math.hypot(loop[0][0] - gx, loop[0][1] - gz) + Math.hypot(loop[loop.length - 1][0] - gx, loop[loop.length - 1][1] - gz);
+  let m = hypot(loop[0][0] - gx, loop[0][1] - gz) + hypot(loop[loop.length - 1][0] - gx, loop[loop.length - 1][1] - gz);
   // (open water is sailed faster: its metres count at harbour pace)
-  for (let k = 1; k < loop.length; k++) m += Math.hypot(loop[k][0] - loop[k - 1][0], loop[k][1] - loop[k - 1][1]) / openWaterFactor(L.field, (loop[k][0] + loop[k - 1][0]) / 2, (loop[k][1] + loop[k - 1][1]) / 2);
+  for (let k = 1; k < loop.length; k++) m += hypot(loop[k][0] - loop[k - 1][0], loop[k][1] - loop[k - 1][1]) / openWaterFactor(L.field, (loop[k][0] + loop[k - 1][0]) / 2, (loop[k][1] + loop[k - 1][1]) / 2);
   // and the run out of / back into the harbour, each way
   let ap = 0;
-  for (let k = 1; k < s.approach.length; k++) ap += Math.hypot(s.approach[k][0] - s.approach[k - 1][0], s.approach[k][1] - s.approach[k - 1][1]);
+  for (let k = 1; k < s.approach.length; k++) ap += hypot(s.approach[k][0] - s.approach[k - 1][0], s.approach[k][1] - s.approach[k - 1][1]);
   return m + 2 * ap;
 }
 
@@ -458,11 +477,18 @@ function scenicVia(L: SimLayout, outNode: number, inNode: number, v: number): Ve
  * lane run between them (for the plan's timing; open water counts at its faster pace), or -1: none.
  */
 export function scenicExtraMetres(L: SimLayout, outNode: number, inNode: number, v: number): number {
+  const memoM = memo(SCENIC_M, L), key = outNode + ">" + inNode + ">" + v;
+  let m = memoM.get(key);
+  if (m === undefined) memoM.set(key, (m = scenicExtraMetresOf(L, outNode, inNode, v)));
+  return m;
+}
+
+function scenicExtraMetresOf(L: SimLayout, outNode: number, inNode: number, v: number): number {
   const via = scenicVia(L, outNode, inNode, v);
   if (!via) return -1;
   const g = L.graph;
-  let m = Math.hypot(via[0][0] - g.x[outNode], via[0][1] - g.z[outNode]);
-  for (let k = 1; k < via.length; k++) m += Math.hypot(via[k][0] - via[k - 1][0], via[k][1] - via[k - 1][1]);
+  let m = hypot(via[0][0] - g.x[outNode], via[0][1] - g.z[outNode]);
+  for (let k = 1; k < via.length; k++) m += hypot(via[k][0] - via[k - 1][0], via[k][1] - via[k - 1][1]);
   const lane = g.dist[outNode * g.n + inNode];
   return Number.isFinite(lane) ? Math.max(0, m - lane) : -1;
 }
@@ -479,4 +505,51 @@ export function buildScenicPath(L: SimLayout, fromIdx: number, toIdx: number, cl
   const loa = L.loa[cls], beam = L.beam[cls];
   const c = legControlPoints(L, from, null, to, loa, beam, via);
   return buildPath(c.pts, loa, c.tail, L.field, beam, c.extras);
+}
+
+/**
+ * The layout-only answers above as plain data (structured-clonable: a worker computes them on its own
+ * copy of the layout while the main thread loads the world; seedOutings adopts them): every gate's loops
+ * with their footprints and open-water parts, the lane-distance grid, the scenic extra metres between
+ * every pair of gates and the outing metres of every hull class an authored slot may hold.
+ */
+export interface OutingSeed {
+  gates: Array<[number, GateLoops & { foot: Array<number | null>; parts: Array<Vec2[][] | null> }]>;
+  lanes: { minX: number; minZ: number; nx: number; nz: number; d: Float32Array } | null;
+  scenic: Array<[string, number]>;
+  outing: Array<[string, number]>;
+}
+
+export function outingSeed(L: SimLayout): OutingSeed {
+  for (const [a, ga] of L.gates) for (const [b, gb] of L.gates) if (a !== b) for (let v = 0; v < OFFSHORE_VARIANTS; v++) scenicExtraMetres(L, ga.outNode, gb.inNode, v);
+  for (const s of L.slots) {
+    if ((s.kind !== "berth" && s.kind !== "mooring" && s.kind !== "far") || s.outNode < 0) continue;
+    // (a hull lies in a berth of her own class or up to two sizes bigger: plan.ts ladder)
+    const ci = CLASS_ORDER.indexOf(s.cls), vs = outingVariants(L, s.index);
+    for (const cls of CLASS_ORDER.slice(ci, ci + 3)) for (const v of vs) outingMetres(L, s.index, cls, v);
+  }
+  const gates: OutingSeed["gates"] = [...(LOOPS.get(L) ?? [])].map(([gate, g]) => {
+    const tracks = [...g.near, ...g.far];
+    return [gate, { ...g, foot: tracks.map((t) => FOOTPRINT.get(t) ?? null), parts: tracks.map((t) => OPEN_PARTS.get(t) ?? null) }];
+  });
+  return { gates, lanes: LANES.get(L) ?? null, scenic: [...memo(SCENIC_M, L)], outing: [...memo(OUTING_M, L)] };
+}
+
+/** Adopt an outingSeed built on an identical layout (the same values this thread would compute; anything already computed here is kept). */
+export function seedOutings(L: SimLayout, seed: OutingSeed): void {
+  let cache = LOOPS.get(L);
+  if (!cache) LOOPS.set(L, (cache = new Map()));
+  // (gateLoops lays every gate's loops out together, or not at all)
+  if (!cache.size) for (const [gate, { near, far, open, foot, parts }] of seed.gates) {
+    [...near, ...far].forEach((t, k) => {
+      if (foot[k] != null) FOOTPRINT.set(t, foot[k]);
+      if (parts[k]) OPEN_PARTS.set(t, parts[k]);
+    });
+    cache.set(gate, { near, far, open });
+  }
+  if (seed.lanes && !LANES.has(L)) LANES.set(L, seed.lanes);
+  for (const [w, entries] of [[SCENIC_M, seed.scenic], [OUTING_M, seed.outing]] as const) {
+    const m = memo(w, L);
+    for (const [k, v] of entries) if (!m.has(k)) m.set(k, v);
+  }
 }

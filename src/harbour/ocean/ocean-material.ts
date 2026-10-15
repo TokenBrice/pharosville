@@ -217,12 +217,18 @@ void main() {
     vec3 bed = mix(sand, vec3(0.26, 0.30, 0.26) * (0.8 + 0.4 * nC.r), smoothstep(0.62, 0.78, rockN));
     vec3 absorb = exp(-bedDep * vec3(0.55, 0.17, 0.13));
     vec3 seen = bed * absorb * mix(vec3(1.0), uSunlitShoal * 1.6, 0.35);
-    float cs = 1.0 - smoothstep(180.0, 650.0, camD);
-    vec2 cuv = xz * 0.043;
-    float cA = texture2D(uNoise, cuv + t * vec2(0.011, 0.007)).g;
-    float cB = texture2D(uNoise, (rot * cuv) * 1.19 - t * vec2(0.006, -0.009) + 0.5).g;
-    float caus = hbNet(cA, cB, 0.06) * cs * (0.55 + 0.45 * smoothstep(0.3, 0.7, nC.g));
-    float cGain = sunUp * (1.0 - cover * 0.7) * (1.0 - smoothstep(0.2, 5.5, bedDep));
+    // caustics only ever appear scaled by cGain: with no sun (uniform, so the branch is coherent and the
+    // derivatives inside stay defined) they are exactly zero, so skip their taps
+    float cSun = sunUp * (1.0 - cover * 0.7);
+    float caus = 0.0;
+    if (cSun > 0.0) {
+      float cs = 1.0 - smoothstep(180.0, 650.0, camD);
+      vec2 cuv = xz * 0.043;
+      float cA = texture2D(uNoise, cuv + t * vec2(0.011, 0.007)).g;
+      float cB = texture2D(uNoise, (rot * cuv) * 1.19 - t * vec2(0.006, -0.009) + 0.5).g;
+      caus = hbNet(cA, cB, 0.06) * cs * (0.55 + 0.45 * smoothstep(0.3, 0.7, nC.g));
+    }
+    float cGain = cSun * (1.0 - smoothstep(0.2, 5.5, bedDep));
     seen *= 0.85 + 0.15 * smoothstep(0.35, 0.65, nC.g);
     seen += vec3(1.0, 0.97, 0.85) * uSunColor * caus * 0.05 * cGain;
     body = mix(body, seen * mix(0.95, 1.0, sunUp), seeBed * 0.62);
@@ -427,10 +433,14 @@ void main() {
     caps = max(caps, smoothstep(0.82 - 0.05 * uSea.z, 0.93, fl) * smoothstep(0.0, 0.6, uSea.z) * (1.0 - far01 * 0.5) * smoothstep(25.0, 90.0, coast));
   }
   // wind-driven foam streaks (spindrift lanes) in rough weather, aligned with the wind
-  vec2 wl = vec2(dot(xz, wdir), dot(xz, vec2(-wdir.y, wdir.x)));
-  float lane = texture2D(uNoise, vec2(wl.x * 0.0035 - t * 0.004, wl.y * 0.045)).g * 0.75 + texture2D(uNoise, vec2(wl.x * 0.011, wl.y * 0.13) + 0.41).b * 0.4;
-  float streaks = smoothstep(0.7, 0.88, lane) * max(smoothstep(0.35, 1.0, storm), windSea * 0.85) * smoothstep(20.0, 70.0, coast) * (0.35 + 0.65 * nC.r);
-  caps = max(caps, streaks * 0.75);
+  // (weighted by a uniform: a calm sea skips the taps; the result was exactly zero)
+  float laneK = max(smoothstep(0.35, 1.0, storm), windSea * 0.85);
+  if (laneK > 0.0) {
+    vec2 wl = vec2(dot(xz, wdir), dot(xz, vec2(-wdir.y, wdir.x)));
+    float lane = texture2D(uNoise, vec2(wl.x * 0.0035 - t * 0.004, wl.y * 0.045)).g * 0.75 + texture2D(uNoise, vec2(wl.x * 0.011, wl.y * 0.13) + 0.41).b * 0.4;
+    float streaks = smoothstep(0.7, 0.88, lane) * laneK * smoothstep(20.0, 70.0, coast) * (0.35 + 0.65 * nC.r);
+    caps = max(caps, streaks * 0.75);
+  }
   // wind-raised whitecaps (DEWS Warning / Danger), sparse, riding the crests, more in the open Roads
   if (windSea > 0.01) {
     float wf = texture2D(uNoise, xz * 0.041 - wdir * t * 0.02).a * 0.5 + nC.r * 0.45 + crestH * 0.45 + 0.08 * zm.a;
@@ -464,12 +474,15 @@ void main() {
   col = mix(col, foamLit, foam);
 
   // ---------------------------------------------------------------- horizon haze (meets the painted backdrop exactly)
-  float thV = degrees(wrapPi(atan(vd.x, -vd.z) - uFwdAz));
-  vec3 hazeC = band(thV, 0.15, 0.0);
   // gentle aerial perspective: the outer sea keeps its swell and colour, meeting the card exactly
   float hz = smoothstep(uHorizonDist * 0.62, uHorizonDist * 0.998, fwdD);
-  hz = pow(hz, 2.8);
-  col = mix(col, hazeC, clamp(hz, 0.0, 1.0));
+  // nearer water mixes in exactly nothing: skip the band lookup (explicit LOD, safe in a per-pixel branch)
+  if (hz > 0.0) {
+    float thV = degrees(wrapPi(atan(vd.x, -vd.z) - uFwdAz));
+    vec3 hazeC = band(thV, 0.15, 0.0);
+    hz = pow(hz, 2.8);
+    col = mix(col, hazeC, clamp(hz, 0.0, 1.0));
+  }
 
   if (uDebug > 0.5 && uDebug < 1.5) col = vec3(trail, live.r, live.g);
   if (uDebug > 1.5 && uDebug < 2.5) col = vec3(sdf.r, sdf.g, sdf.b);

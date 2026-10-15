@@ -9,6 +9,27 @@ import type { QualityService } from "../engine/quality";
 const MAX_POINT = 16;
 const POOL_RES = 2048;
 
+/**
+ * Dark point lights cost nothing: the promoted pool keeps a fixed count (toggling `visible` would change
+ * NUM_POINT_LIGHTS and recompile every lit program), so by day and for unpromoted slots the lights sit at
+ * intensity 0 (uniform colour 0). Patch three's point-light loop to skip those (a uniform branch) and to
+ * skip RE_Direct when the light is out of range (directLight.visible). Both contributed exactly zero.
+ * Applied at module scope, before any program compiles (the chunk is resolved at compile time); idempotent
+ * under HMR re-evaluation.
+ */
+const POINT_LOOP = /(pointLight = pointLights\[ i \];)([\s\S]*?)(RE_Direct\( directLight, [^;]*\);)(\s*\}\s*#pragma unroll_loop_end)/;
+const POINT_SKIP = "if ( pointLight.color != vec3( 0.0 ) ) {";
+{
+  const chunk = THREE.ShaderChunk.lights_fragment_begin;
+  if (!chunk.includes(POINT_SKIP)) {
+    if (POINT_LOOP.test(chunk)) {
+      THREE.ShaderChunk.lights_fragment_begin = chunk.replace(POINT_LOOP, `$1\n\t\t${POINT_SKIP}$2if ( directLight.visible ) $3\n\t\t}$4`);
+    } else if (import.meta.env.DEV) {
+      throw new Error("[harbour] lights_fragment_begin point-light loop changed (three upgrade?): update the dark-light skip");
+    }
+  }
+}
+
 const GLSL_HASH = /* glsl */ `
 float lhHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float lhNoise(vec2 p) { vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);

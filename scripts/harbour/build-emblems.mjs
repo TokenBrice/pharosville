@@ -2,7 +2,8 @@
 /**
  * Builds the sail-emblem atlas for the Harbour fleet:
  *   public/harbour/emblems.png  — 4096 px wide, rows of 128² slots (32 per row), sRGB + alpha
- *   public/harbour/emblems.webp — the same atlas, lossy RGB + lossless alpha (~40 % of the PNG; what the runtime loads)
+ *   public/harbour/emblems.avif — the same atlas, AVIF 4:4:4 q70 (what the runtime loads; premultiplied PSNR checked here)
+ *   public/harbour/emblems.webp — the same atlas, lossy RGB + lossless alpha (the runtime's fallback when AVIF fails)
  *   public/harbour/emblems.json — { slot, cols, width, height, ids: { coinId: slotIndex } }
  *
  * Every coin logo (data/logos.json → public/logos/*) is set on a WHITE ROUNDEL with a thin warm rim
@@ -75,6 +76,20 @@ const atlas = await sharp({ create: { width: WIDTH, height: rows * SLOT, channel
   .png().toBuffer();
 await sharp(atlas).png({ compressionLevel: 9 }).toFile(join(ROOT, "public/harbour/emblems.png"));
 await sharp(atlas).webp({ quality: 90, alphaQuality: 100, effort: 6 }).toFile(join(ROOT, "public/harbour/emblems.webp"));
+await sharp(atlas).avif({ quality: 70, effort: 6, chromaSubsampling: "4:4:4" }).toFile(join(ROOT, "public/harbour/emblems.avif"));
+// the lossy copies against the lossless atlas, on premultiplied RGBA (what the sail samples: colour under alpha 0 is moot)
+const ref = await sharp(atlas).ensureAlpha().raw().toBuffer();
+for (const ext of ["avif", "webp"]) {
+  const d = await sharp(join(ROOT, `public/harbour/emblems.${ext}`)).ensureAlpha().raw().toBuffer();
+  let se = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    for (let c = 0; c < 3; c++) { const e = (d[i + c] * d[i + 3] - ref[i + c] * ref[i + 3]) / 255; se += e * e; }
+    se += (d[i + 3] - ref[i + 3]) ** 2;
+  }
+  const psnr = 10 * Math.log10(255 * 255 / (se / d.length));
+  console.log(`[emblems] ${ext}: PSNR ${psnr.toFixed(2)} dB (premultiplied RGBA)`);
+  if (ext === "avif" && psnr < 40) { console.error("[emblems] emblems.avif PSNR below 40 dB: check the encoder"); process.exitCode = 1; }
+}
 const slotOf = new Map(kept.map(([p], i) => [p, i]));
 const map = Object.fromEntries(ids.filter((id) => slotOf.has(logos[id])).map((id) => [id, slotOf.get(logos[id])]));
 await writeFile(join(ROOT, "public/harbour/emblems.json"), JSON.stringify({ slot: SLOT, cols: COLS, width: WIDTH, height: rows * SLOT, ids: map }) + "\n");

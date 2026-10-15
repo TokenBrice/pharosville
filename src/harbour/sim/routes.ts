@@ -7,6 +7,7 @@ import type { HullClass, Vec2 } from "../layout/types";
 import { detourEdge, nearestNode, routeNodes, type SimLayout, type Slot } from "./layout-graph";
 import { hullClearance } from "./obstacles";
 import { buildPath, type PathExtras, type PathRec } from "./path";
+import { hypot } from "./math";
 
 const dirOf = (h: number): Vec2 => [Math.sin(h), Math.cos(h)];
 
@@ -17,7 +18,7 @@ export function slotPoint(s: Slot): Vec2 {
 
 const polyLen = (pts: readonly Vec2[]): number => {
   let s = 0;
-  for (let i = 1; i < pts.length; i++) s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  for (let i = 1; i < pts.length; i++) s += hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
   return s;
 };
 
@@ -56,7 +57,7 @@ function asternArc(L: SimLayout, start: Vec2, h: number, straight: number, loa: 
           }
           const hc = m - Math.PI;
           const [hx, hz] = dirOf(hc);
-          const tx = target[0] - px, tz = target[1] - pz, tl = Math.hypot(tx, tz) || 1;
+          const tx = target[0] - px, tz = target[1] - pz, tl = hypot(tx, tz) || 1;
           const align = (hx * tx + hz * tz) / tl;
           // room ahead of the bow once turned
           const ahead = Math.min(L.hard(px + hx * loa * 0.6, pz + hz * loa * 0.6), L.hard(px + hx * loa * 1.2, pz + hz * loa * 1.2)) - beam / 2;
@@ -165,7 +166,7 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
     // the berth's approach, reversed: the way out (alongside: minus the angled run-in; slips and
     // pontoons: minus the slip itself, which she backs out of)
     rest = from.mode === "alongside"
-      ? from.approach.slice(0, -1).reverse().filter((q) => Math.hypot(q[0] - from.x, q[1] - from.z) > loa * 1.7)
+      ? from.approach.slice(0, -1).reverse().filter((q) => hypot(q[0] - from.x, q[1] - from.z) > loa * 1.7)
       : from.approach.slice(0, -2).reverse();
     startNode = from.outNode;
   } else if (from) {
@@ -192,7 +193,7 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
   };
   if (to.mode === "alongside" && to.warp) {
     const q1: Vec2 = [to.x + to.warp[0], to.z + to.warp[1]];
-    const wl = Math.hypot(to.warp[0], to.warp[1]) || 1, ox = to.warp[0] / wl, oz = to.warp[1] / wl;
+    const wl = hypot(to.warp[0], to.warp[1]) || 1, ox = to.warp[0] / wl, oz = to.warp[1] / wl;
     // run in along the quay from astern; where the quay ends in land astern, come in at an angle
     let q0: Vec2 = [q1[0] - ex * loa * 1.6, q1[1] - ez * loa * 1.6], hIn = to.heading;
     for (const al of [0, 0.26, 0.45, 0.65, 0.85]) {
@@ -204,7 +205,7 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
     const [ix, iz] = dirOf(hIn);
     for (const q of to.approach.slice(0, -1)) {
       // keep what leads in from astern of the final run; drop the authored angled run-in
-      if (Math.hypot(q[0] - to.x, q[1] - to.z) < loa * 2) continue;
+      if (hypot(q[0] - to.x, q[1] - to.z) < loa * 2) continue;
       if ((q[0] - q0[0]) * ix + (q[1] - q0[1]) * iz > -loa * 0.3) continue;
       arrive.push(q);
     }
@@ -215,7 +216,7 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
     // final run is on the slot axis
     for (const q of to.approach.slice(0, -1)) arrive.push(q);
     const prev = arrive[arrive.length - 1];
-    const dx = prev ? end[0] - prev[0] : 0, dz = prev ? end[1] - prev[1] : 0, dl = Math.hypot(dx, dz);
+    const dx = prev ? end[0] - prev[0] : 0, dz = prev ? end[1] - prev[1] : 0, dl = hypot(dx, dz);
     if (!prev || dl < 0.5 || (dx * ex + dz * ez) / dl < 0.985) {
       const run = Math.min(loa * 1.5, Math.max(loa * 0.6, dl * 0.8 || loa * 1.5));
       const q0: Vec2 = [end[0] - ex * run, end[1] - ez * run];
@@ -223,7 +224,7 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
     }
     arrive.push(end);
   }
-  if (to.inNode >= 0 && arrive.length && Math.hypot(arrive[0][0] - g.x[to.inNode], arrive[0][1] - g.z[to.inNode]) > 1) arrive.unshift([g.x[to.inNode], g.z[to.inNode]]);
+  if (to.inNode >= 0 && arrive.length && hypot(arrive[0][0] - g.x[to.inNode], arrive[0][1] - g.z[to.inNode]) > 1) arrive.unshift([g.x[to.inNode], g.z[to.inNode]]);
 
   // ---- lanes between: leave the lane where it passes closest to the approach start, join it where
   // it passes closest to the way out, instead of running on to a gate node and doubling back
@@ -231,7 +232,7 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
     const dx = b[0] - a[0], dz = b[1] - a[1], l2 = dx * dx + dz * dz;
     const t = l2 > 0 ? Math.min(1, Math.max(0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / l2)) : 0;
     const q: Vec2 = [a[0] + dx * t, a[1] + dz * t];
-    return [Math.hypot(p[0] - q[0], p[1] - q[1]), q];
+    return [hypot(p[0] - q[0], p[1] - q[1]), q];
   };
   let rp: Vec2[] = via
     ? [...(startNode >= 0 ? [[g.x[startNode], g.z[startNode]] as Vec2] : []), ...via]
@@ -239,7 +240,7 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
   let arr = arrive;
   if (rp.length >= 2) {
     const a0 = arr.length > 1 ? arr[1] : arr[0];
-    let best = Math.hypot(a0[0] - rp[rp.length - 1][0], a0[1] - rp[rp.length - 1][1]) - 1, cut = -1, cq: Vec2 | null = null;
+    let best = hypot(a0[0] - rp[rp.length - 1][0], a0[1] - rp[rp.length - 1][1]) - 1, cut = -1, cq: Vec2 | null = null;
     for (let k = Math.max(0, rp.length - 4); k < rp.length - 1; k++) {
       const [d, q] = proj(a0, rp[k], rp[k + 1]);
       if (d < best) { best = d; cut = k; cq = q; }
@@ -248,7 +249,7 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
   }
   if (rp.length >= 2) {
     const j = rest.length ? rest[rest.length - 1] : p1;
-    let bestD = Math.hypot(j[0] - rp[0][0], j[1] - rp[0][1]) - 1, dcut = -1, dq: Vec2 | null = null;
+    let bestD = hypot(j[0] - rp[0][0], j[1] - rp[0][1]) - 1, dcut = -1, dq: Vec2 | null = null;
     for (let k = 0; k < Math.min(3, rp.length - 1); k++) {
       const [d, q] = proj(j, rp[k], rp[k + 1]);
       if (d < bestD) { bestD = d; dcut = k; dq = q; }
@@ -256,13 +257,13 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
     if (dq) rp = [dq, ...rp.slice(dcut + 1)];
   }
   // where the hull is bound once clear of the slot
-  const after = [...rp, ...arr].find((q) => Math.hypot(q[0] - p1[0], q[1] - p1[1]) > loa * 2.5) ?? arr[arr.length - 1];
-  const restFar = rest.find((q) => Math.hypot(q[0] - p1[0], q[1] - p1[1]) > loa * 2.5);
-  if (from?.mode === "alongside" && restFar && Math.hypot(restFar[0] - after[0], restFar[1] - after[1]) > Math.hypot(p1[0] - after[0], p1[1] - after[1]) + loa) rest = [];
+  const after = [...rp, ...arr].find((q) => hypot(q[0] - p1[0], q[1] - p1[1]) > loa * 2.5) ?? arr[arr.length - 1];
+  const restFar = rest.find((q) => hypot(q[0] - p1[0], q[1] - p1[1]) > loa * 2.5);
+  if (from?.mode === "alongside" && restFar && hypot(restFar[0] - after[0], restFar[1] - after[1]) > hypot(p1[0] - after[0], p1[1] - after[1]) + loa) rest = [];
   if (from?.mode === "alongside" && rest.length) {
     // the way on lies ahead along the quay and the water ahead is clear: sail straight off, never back
     // out down the way she came in and turn round (a flagship would loop round the headland)
-    const ax = after[0] - p1[0], az = after[1] - p1[1], al = Math.hypot(ax, az) || 1;
+    const ax = after[0] - p1[0], az = after[1] - p1[1], al = hypot(ax, az) || 1;
     let ahead = Infinity;
     for (let k = 1; k <= 4; k++) ahead = Math.min(ahead, hullClearance(L.hard, p1[0] + fx * loa * 0.4 * k, p1[1] + fz * loa * 0.4 * k, h0, loa, beam));
     if ((fx * ax + fz * az) / al > 0.3 && ahead > 0.8) rest = [];
@@ -272,7 +273,7 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
   // ---- departure head
   let head: Vec2[] | null = null;
   if (from && berthLike) {
-    const tx = target[0] - p1[0], tz = target[1] - p1[1], tl = Math.hypot(tx, tz) || 1;
+    const tx = target[0] - p1[0], tz = target[1] - p1[1], tl = hypot(tx, tz) || 1;
     const fwdOk = from.mode === "alongside" && (fx * tx + fz * tz) / tl > -0.25
       && L.hard(p1[0] + fx * loa * 0.7, p1[1] + fz * loa * 0.7) > beam / 2 + 0.6 && L.hard(p1[0] + fx * loa * 1.3, p1[1] + fz * loa * 1.3) > beam / 2 + 0.6;
     if (fwdOk) {
@@ -286,7 +287,7 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
       const ap = from.approach;
       if (from.mode !== "alongside" && ap.length >= 2) {
         const q = ap[ap.length - 2];
-        const dx = from.x - q[0], dz = from.z - q[1], dl = Math.hypot(dx, dz);
+        const dx = from.x - q[0], dz = from.z - q[1], dl = hypot(dx, dz);
         straight = dl > 0.5 && (dx * fx + dz * fz) / dl > 0.97 ? Math.min(loa * 1.6, Math.max(loa * 0.5, dl * 0.9)) : loa * 0.7;
       }
       // where she turns for from a cusp: the first fairway point not yet backed past, else the lanes
@@ -305,15 +306,15 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
   } else head = forwardArc(L, p1, h0, target, loa, beam).pts;
 
   let pts: Vec2[] = [...head, ...rest];
-  for (const q of rp) if (Math.hypot(q[0] - pts[pts.length - 1][0], q[1] - pts[pts.length - 1][1]) > 1) pts.push(q);
+  for (const q of rp) if (hypot(q[0] - pts[pts.length - 1][0], q[1] - pts[pts.length - 1][1]) > 1) pts.push(q);
   let nDep = pts.length;
   // a way point just past the departure that she would have to turn back for (a lane join she is
   // already level with) is skipped: no hairpin
   {
-    const e = head[head.length - 1], q = head[head.length - 2], ul = Math.hypot(e[0] - q[0], e[1] - q[1]) || 1;
+    const e = head[head.length - 1], q = head[head.length - 2], ul = hypot(e[0] - q[0], e[1] - q[1]) || 1;
     const ux = (e[0] - q[0]) / ul, uz = (e[1] - q[1]) / ul;
     while (head.length < nDep - 1) {
-      const p = pts[head.length], d = Math.hypot(p[0] - e[0], p[1] - e[1]);
+      const p = pts[head.length], d = hypot(p[0] - e[0], p[1] - e[1]);
       if (d > loa * 3 || (p[0] - e[0]) * ux + (p[1] - e[1]) * uz > 0.2 * d) break;
       pts.splice(head.length, 1); nDep--;
     }
@@ -340,7 +341,7 @@ export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: numbe
 function repairBlocked(L: SimLayout, pts: Vec2[], head: number, tail: number, beam: number): Vec2[] {
   if (!L.field) return pts;
   const blocked = (a: Vec2, b: Vec2): boolean => {
-    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const len = hypot(b[0] - a[0], b[1] - a[1]);
     for (let s = 2; s < len - 2; s += 1) if (L.hard(a[0] + ((b[0] - a[0]) * s) / len, a[1] + ((b[1] - a[1]) * s) / len) < beam / 2 + 0.3) return true;
     return false;
   };
@@ -370,7 +371,7 @@ function roundHairpins(L: SimLayout, pts: Vec2[], from: number, loa: number, axi
     const a = out[out.length - 1], v = pts[i], b = pts[i + 1];
     // (a berth's final run in stays on its axis)
     if (!b || (axisEnd && i === pts.length - 2)) { out.push(v); continue; }
-    const li = Math.hypot(v[0] - a[0], v[1] - a[1]), lo = Math.hypot(b[0] - v[0], b[1] - v[1]);
+    const li = hypot(v[0] - a[0], v[1] - a[1]), lo = hypot(b[0] - v[0], b[1] - v[1]);
     if (li < 1 || lo < 1) { out.push(v); continue; }
     const ux = (v[0] - a[0]) / li, uz = (v[1] - a[1]) / li, wx = (b[0] - v[0]) / lo, wz = (b[1] - v[1]) / lo;
     if (ux * wx + uz * wz > -0.8) { out.push(v); continue; }
@@ -387,7 +388,7 @@ function roundHairpins(L: SimLayout, pts: Vec2[], from: number, loa: number, axi
         for (const [p0, p1] of [[v, q1], [q1, q2]] as const) if (L.hard(p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t) < loa / 2 + 2) ok = false;
       }
       // and the way on from the loop: never across a pier head or a corner of land (it may run close in)
-      const lb = Math.hypot(b[0] - q2[0], b[1] - q2[1]);
+      const lb = hypot(b[0] - q2[0], b[1] - q2[1]);
       for (let s = 2; ok && s < lb - 2; s += 1) if (L.hard(q2[0] + ((b[0] - q2[0]) * s) / lb, q2[1] + ((b[1] - q2[1]) * s) / lb) < loa * 0.16 + 0.8) ok = false;
       if (!ok) continue;
       out.push(q1, q2);

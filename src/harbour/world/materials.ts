@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { EngineContext } from "../engine/types";
+import { decodeInto, setBounds } from "../engine/static-merge";
 import type { WorldUniforms } from "../engine/uniforms";
 import { CLOUD_SHADOW_GLSL, cloudShadowUniforms } from "../sky/cloud-shadow";
 
@@ -795,24 +796,26 @@ const baked = new WeakSet<THREE.BufferGeometry>();
  * matrix, so `position` is no longer in metres and the object-space patterns would be scaled wrong.
  * Bake the node's local matrix into a float copy of the geometry and reset the node: the vertex data
  * is then in the parent's (asset root's) metres, which is Blender's object space for kit exports.
+ * One pass per attribute (decoded and transformed together); colours keep their normalized bytes
+ * (exact, and a quarter of the memory). Normals stay unit float32: the facet jitter floors them.
  */
 export function dequantizeForPatterns(mesh: THREE.Mesh): void {
   const pos = mesh.geometry.attributes.position as THREE.BufferAttribute | undefined;
   if (!pos || (pos.array instanceof Float32Array && !pos.normalized)) return;
   let g = mesh.geometry;
   if (baked.has(g)) g = g.clone();
-  const toFloat = (a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute) => {
-    const out = new Float32Array(a.count * a.itemSize);
-    for (let i = 0; i < a.count; i++) for (let c = 0; c < a.itemSize; c++) out[i * a.itemSize + c] = a.getComponent(i, c);
-    return new THREE.BufferAttribute(out, a.itemSize);
-  };
-  for (const name of ["position", "normal", "uv", "color"]) {
-    const a = g.attributes[name];
-    if (a && (!(a.array instanceof Float32Array) || (a as THREE.BufferAttribute).normalized)) g.setAttribute(name, toFloat(a));
-  }
   mesh.updateMatrix();
-  g.applyMatrix4(mesh.matrix);
-  g.computeBoundingBox(); g.computeBoundingSphere();
+  for (const name of ["position", "normal", "uv"]) {
+    const a = g.attributes[name];
+    if (!a) continue;
+    const kind = name === "position" ? "point" : name === "normal" ? "normal" : null;
+    if (!kind && a.array instanceof Float32Array && !a.normalized) continue;
+    const out = new Float32Array(a.count * a.itemSize);
+    decodeInto(a, out, 0, kind ? mesh.matrix : null, kind);
+    g.setAttribute(name, new THREE.BufferAttribute(out, a.itemSize));
+  }
+  (g.attributes.tangent as THREE.BufferAttribute | undefined)?.transformDirection(mesh.matrix);
+  setBounds(g);
   baked.add(g);
   mesh.geometry = g;
   mesh.position.set(0, 0, 0); mesh.quaternion.identity(); mesh.scale.set(1, 1, 1);

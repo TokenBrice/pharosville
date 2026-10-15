@@ -10,6 +10,7 @@ import { addRaftSlot, CLASS_ORDER, type SimLayout } from "./layout-graph";
 import { ACCEL, cruiseSpeed, legTiming, newLegTiming } from "./path";
 import { OFFSHORE_VARIANTS, outingMetres, outingTrack, outingVariants, scenicExtraMetres, trackClearOf } from "./outings";
 import { buildLegPath } from "./routes";
+import { hypot } from "./math";
 
 export const CYCLE_S = 6 * 3600;
 /** Divisors of the cycle, minutes. */
@@ -164,8 +165,8 @@ function ladder(cls: HullClass): HullClass[] {
 }
 
 export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
-  const timelines = new Map<number, Timeline>();
-  const tl = (slot: number) => { let t = timelines.get(slot); if (!t) timelines.set(slot, (t = new Timeline())); return t; };
+  const timelines: Timeline[] = [];
+  const tl = (slot: number) => (timelines[slot] ??= new Timeline());
   const rafts = new Map<string, number[]>(); // where → raft slots
   let overflow = 0;
 
@@ -179,7 +180,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     for (const list of byCls.values()) for (const i of list) {
       const sl = L.slots[i], a = sl.approach;
       let len = 0;
-      for (let k = 1; k < a.length; k++) len += Math.hypot(a[k][0] - a[k - 1][0], a[k][1] - a[k - 1][1]);
+      for (let k = 1; k < a.length; k++) len += hypot(a[k][0] - a[k - 1][0], a[k][1] - a[k - 1][1]);
       lens.push(len);
       if (sl.inNode >= 0) ins.add(sl.inNode);
       if (sl.outNode >= 0) outs.add(sl.outNode);
@@ -200,7 +201,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
       if (Number.isFinite(d)) { sum += d; cnt++; mx = Math.max(mx, d); }
     }
     v = cnt ? (sum / cnt + mx) / 2 : -1;
-    if (v < 0) v = ga && gb ? Math.hypot(gb.x - ga.x, gb.z - ga.z) * 1.3 : 400;
+    if (v < 0) v = ga && gb ? hypot(gb.x - ga.x, gb.z - ga.z) * 1.3 : 400;
     laneCache.set(k, v);
     return v;
   };
@@ -237,6 +238,10 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
   const findSlot = (where: string, cls: HullClass, a: number, b: number, seed: string, avoid: ReadonlyArray<[number, number, number]>): number => {
     const byCls = L.pools.get(where);
     if (!byCls) return -1;
+    const avoided = (slot: number) => {
+      for (let k = 0; k < avoid.length; k++) { const v = avoid[k]; if (v[0] === slot && a < v[2] && v[1] < b) return true; }
+      return false;
+    };
     for (const k of ladder(cls)) {
       const list = byCls.get(k);
       if (!list || list.length === 0) continue;
@@ -244,10 +249,10 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
       for (let j = 0; j < list.length; j++) {
         const s = list[(start + j) % list.length];
         if (!tl(s).isFree(a, b)) continue;
-        if (avoid.some(([as, aa, ab]) => as === s && a < ab && aa < b)) continue;
+        if (avoided(s)) continue;
         // a neighbour whose hull would overlap this one's is busy then: skip
         const cf = L.slots[s].conflicts;
-        if (cf.length && cf.some((c) => !tl(c).isFree(a, b) || avoid.some(([as, aa, ab]) => as === c && a < ab && aa < b))) continue;
+        if (cf.length && cf.some((c) => !tl(c).isFree(a, b) || avoided(c))) continue;
         return s;
       }
     }
@@ -551,7 +556,7 @@ function repSlot(L: SimLayout, where: string): number {
   const byCls = L.pools.get(where);
   const list = (byCls?.get("medium")?.length ? byCls.get("medium")! : [...(byCls?.values() ?? [])].flat()).filter((i) => L.slots[i].kind !== "raft");
   if (!list.length) return -1;
-  const len = (i: number) => { const a = L.slots[i].approach; let t = 0; for (let k = 1; k < a.length; k++) t += Math.hypot(a[k][0] - a[k - 1][0], a[k][1] - a[k - 1][1]); return t; };
+  const len = (i: number) => { const a = L.slots[i].approach; let t = 0; for (let k = 1; k < a.length; k++) t += hypot(a[k][0] - a[k - 1][0], a[k][1] - a[k - 1][1]); return t; };
   const sorted = [...list].sort((x, y) => len(x) - len(y) || (L.slots[x].id < L.slots[y].id ? -1 : 1));
   return sorted[Math.floor(sorted.length / 2)];
 }

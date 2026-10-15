@@ -12,6 +12,9 @@
  *   standard  :9333   normal vsync
  *   uncapped  :9334   --disable-gpu-vsync --disable-frame-rate-limit
  *   webgpu    :9335   --enable-unsafe-webgpu --enable-features=Vulkan
+ *   igpu      :9336   headless ANGLE on GL/EGL instead of Vulkan: lands on the AMD Raphael iGPU (laptop-class
+ *                     proxy; shot.mjs --igpu refuses any other GPU string), normal vsync
+ *   igpu-uncapped :9337  the same, with the uncapped flags (shot.mjs --igpu --uncapped)
  *
  * The window carries WM_CLASS "harbour-capture" (XWayland) so a compositor rule can park it, e.g.
  * Hyprland: windowrulev2 = workspace special:harbour silent, class:^(harbour-capture)$
@@ -27,6 +30,8 @@ export const PROFILES = {
   standard: { port: 9333, flags: [] },
   uncapped: { port: 9334, flags: ["--disable-gpu-vsync", "--disable-frame-rate-limit"] },
   webgpu: { port: 9335, flags: ["--enable-unsafe-webgpu"] },
+  igpu: { port: 9336, flags: [], angle: "gl-egl" },
+  "igpu-uncapped": { port: 9337, flags: ["--disable-gpu-vsync", "--disable-frame-rate-limit"], angle: "gl-egl" },
 };
 const CHROME = process.platform === "darwin"
   ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -81,7 +86,7 @@ export async function connectShared(profileName = "standard") {
       `--user-data-dir=${ROOT}/profile-${profileName}`,
       "--no-first-run", "--no-default-browser-check", "--disable-session-crashed-bubble",
       "--class=harbour-capture", "--window-size=1720,1180",
-      ...HEADLESS_GPU,
+      ...(profile.angle ? HEADLESS_GPU.filter((f) => !/^--use-angle=|^--enable-features=Vulkan$/.test(f)).concat(HEADLESS_GPU.length ? [`--use-angle=${profile.angle}`] : []) : HEADLESS_GPU),
       "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling",
       ...profile.flags,
       "about:blank",

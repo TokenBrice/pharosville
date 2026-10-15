@@ -133,7 +133,7 @@ export function paintWeatherBoard(ctx: CanvasRenderingContext2D, s: BoardSlot, l
 }
 
 /**
- * A chain's crest flag copied out of the crest atlas (crests.png, rect [u0, v0, u1, v1] with v = 0 at the image
+ * A chain's crest flag copied out of the crest atlas (crests.webp, rect [u0, v0, u1, v1] with v = 0 at the image
  * bottom), with a coloured hoist stripe: green for the day's top gainer, red for the top loser.
  */
 export function paintCrestFlag(ctx: CanvasRenderingContext2D, s: BoardSlot, img: HTMLImageElement, rect: readonly number[], hoist: string): void {

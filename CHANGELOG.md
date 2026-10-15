@@ -2,6 +2,20 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v1.1.0 - 2026-10-15 - Seasons and Storms
+
+The harbour now lives through the year and through the market's weather: seasons follow your calendar, storms follow the stress signals, twice as many boats are out sailing, Wreck Cove tells each dead coin's story, and the world loads faster and runs on unfolded foldables and tablets.
+
+Collected from `reboot/harbour` after v1.0.0 (P9-P10, the need-for-speed pass and device support; see `agents/2026-10-13-pharosville-reboot/`).
+
+- Seasons follow the visitor's calendar and hemisphere and are decorative: spring blossom and fresh greens, deep summer, amber and red autumn with falling leaves, and winter snow on roofs and land with bare trees and icicles, under a seasonal sun path.
+- Storminess is data: the early-warning stress band sets the cloud deck, wind, rain or snow, lightning, wet ground and sea spray, from fair skies when calm to a full storm at Danger, and a rainbow marks a recovery from an alert. Fog still means stale data only. The opt-in ambience gains rain, thunder, gusts, the hush of snow and seasonal birdsong.
+- About twice as many boats are under way, around 31% of the fleet: single-chain boats take declared-decorative outings past the Pharos and along the outer coast, and multi-chain boats sail scenic legs, while time at each chain stays proportional to supply.
+- Docked boats stay recognisable: every boat at rest flies a brand-coloured burgee with its logo, titans fly great house flags, furled covers carry the logo, and sails are dyed in each coin's colour with a larger logo.
+- Wreck Cove tells stories: each wreck's form follows its cause of death, hovering an epitaph shows the coin, clicking opens its obituary with a link to pharos.watch, and the cove panel lists every dead coin.
+- Unfolded foldables and tablets now get the live harbour: the size gate is a single rule (shortest side at least 600 CSS px, longest at least 720), with touch pan, pinch zoom, tap and long-press, framing fitted to squarer screens and a bottom-sheet panel. Phones still get the welcome page and request no world data.
+- Faster: the cold first frame on a fast 4G connection dropped by about a quarter, the main script is 30% smaller, frames are cheaper on integrated GPUs, and the pre-launch book, logos, brand colours and dead coins now sync from pharos-watch through one command and a weekly pull request.
+
 ## v1.0.0 - 2026-10-14 - The Harbour
 
 PharosVille is reborn as a lantern-lit harbour island where every stablecoin is a boat: the Pharos of Alexandria keeps the market's watch, the sea and sky carry the readings, and the whole world is legible at a glance.
