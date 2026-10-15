@@ -16,12 +16,56 @@ import { CLOUD_SHADOW_GLSL, cloudShadowUniforms } from "../sky/cloud-shadow";
  *
  * Material names → port (Blender names on the left, P2 contract names on the right):
  *   M_kit / hb_opaque              → kit
- *   M_window / hb_window           → window  (COLOR_0.r = lit, .g = warmth; emissive × uWindowGlow)
+ *   M_window / hb_window           → window  (COLOR_0.r = lit, .g = warmth, .b = window kind; emissive × uWindowGlow)
  *   lamp / beacon_red / hb_emissive → emissive (× uLamp)
  *   lens                           → lens (× uLens × lit)
  *   lantern_glass / hb_glass       → glass
  *   M_sail / hb_sail / hb_cover    → kit (plain), double-sided — the fleet owns its instanced sail shader
+ *
+ * Encodings shared with the Blender side (scripts/harbour/blender/island/nl_common.py):
+ *   hb_window COLOR_0.b  window kind: 0 = framed (painted frame + cross mullion over glass, the original look),
+ *                        1 = plain lit opening (no frame or mullion, a warm recessed glow); read as b > 0.5.
+ *   hb_opaque pattern 14 leaf_evergreen: the leaf pattern, always evergreen (no blossom, no autumn colour, no
+ *                        winter leaf fall) and snowed like the conifers. Pattern 8 (leaf) still infers
+ *                        evergreen from its colour (hbConifer), so existing assets are unchanged.
  */
+
+/** hb_window COLOR_0.b → window kind (see the encodings above). */
+export const WINDOW_KIND = { framed: 0, plain: 1 } as const;
+export function windowKindOf(b: number): 0 | 1 {
+  return b > 0.5 ? WINDOW_KIND.plain : WINDOW_KIND.framed;
+}
+
+export const PATTERN_LEAF = 8;
+export const PATTERN_LEAF_EVERGREEN = 14;
+/** COLOR_0.a → pattern id (mirrors the kit shader's floor(a * 16 + 0.5)). */
+export function patternIdOf(alpha: number): number {
+  return Math.floor(alpha * 16 + 0.5);
+}
+/** 1 = keeps its leaves all year (mirrors hbEvergreen): pattern 14 always, pattern 8 by colour (hbConifer). */
+export function evergreenOf(pid: number, [, g, b]: readonly [number, number, number]): number {
+  if (Math.abs(pid - PATTERN_LEAF_EVERGREEN) <= 0.25) return 1;
+  const ss = THREE.MathUtils.smoothstep;
+  return Math.max(1 - ss(g, 0.045, 0.075), ss(b / Math.max(g, 1e-3), 0.26, 0.33));
+}
+/** Leaf-fall share of a fragment (mirrors hbFoliage's bare): only deciduous leaf (pattern 8) drops. */
+export function bareOf(pid: number, vc: readonly [number, number, number], fall: number): number {
+  return Math.abs(pid - PATTERN_LEAF) <= 0.25 ? fall * (1 - evergreenOf(pid, vc)) : 0;
+}
+
+/**
+ * Snow on a surface by its slope (mirrors hbWeather's upm): up = world normal y. Ground and roofs; leaves
+ * (patterns 8 and 14) are dusted on gentler thresholds. Flat terraces (up = 1) and low-pitch tiled roofs
+ * (18–24°, up ≥ 0.91) take full cover at any snow level; steep ground sheds it.
+ */
+export const SNOW_SLOPE = { lo: 0.42, hi: 0.74, leafLo: 0.34, leafHi: 0.62, give: 0.14 } as const;
+export function snowSlopeOf(up: number, snowCover: number, leaf: boolean): number {
+  const s = SNOW_SLOPE;
+  const lo = (leaf ? s.leafLo : s.lo) - s.give * snowCover, hi = (leaf ? s.leafHi : s.hi) - s.give * snowCover;
+  return THREE.MathUtils.smoothstep(up, lo, hi);
+}
+/** Wall patterns that grow icicles under a snowy eave: plain (marble, trim), boards, render (stucco, limewash). */
+export const ICICLE_WALL_PATTERNS = [0, 1, 10] as const;
 
 export type HarbourMaterialKind = "kit" | "window" | "emissive" | "lens" | "glass";
 
@@ -165,7 +209,7 @@ vec3 hbPattern(float pid, out float rough) {
     float fine = hbFine(du, 0.34);
     f = (1.0 + (hbWhite(vec3(floor(u / 0.34 + trow * 0.5), trow, 2.0)) * 0.18 - 0.09) * fine) *
         (1.0 - hbLine(u + trow * 0.17, 0.34, 0.07, du) * 0.35);
-  } else if (pid < 8.5) {            // 8 leaf: up-facing lift + clumps
+  } else if (pid < 8.5 || abs(pid - ${PATTERN_LEAF_EVERGREEN.toFixed(1)}) < 0.25) {   // 8 leaf, 14 leaf_evergreen: up-facing lift + clumps
     f = (0.78 + N.z * 0.28) * (0.9 + hbFbm(P * 0.9) * 0.2);
   } else if (pid < 9.5) {            // 9 strakes: hull planking lines
     f = 1.0 - hbLine(P.z, 0.36, 0.06, dP.z) * 0.22;
@@ -263,6 +307,9 @@ float hbLeafFall() {
 float hbConifer(vec3 vc) {
   return max(1.0 - smoothstep(0.045, 0.075, vc.g), smoothstep(0.26, 0.33, vc.b / max(vc.g, 1e-3)));
 }
+// leaf patterns: 8 leaf (evergreen by colour), 14 leaf_evergreen (always evergreen)
+float hbLeafPid(float pid) { return hbIs(pid, ${PATTERN_LEAF.toFixed(1)}) + hbIs(pid, ${PATTERN_LEAF_EVERGREEN.toFixed(1)}); }
+float hbEvergreen(float pid, vec3 vc) { return max(hbIs(pid, ${PATTERN_LEAF_EVERGREEN.toFixed(1)}), hbConifer(vc)); }
 `;
 
 /** Late-autumn / winter leaf fall at compile time (mirrors hbLeafFall): > 0 compiles the bare-crown discard in. */
@@ -285,7 +332,7 @@ float hbLuma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 // bare = how much of this fragment the leaf fall takes (deciduous only; the kit discards by it).
 vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
   bare = 0.0;
-  float leaf = hbIs(pid, 8.0), grass = hbIs(pid, 6.0);
+  float leaf = hbLeafPid(pid), grass = hbIs(pid, 6.0);
   if (leaf + grass < 0.5) return col;
   float sp = uFoliage.x, su = uFoliage.y, au = uFoliage.z, wi = uFoliage.w;
   float shade = hbLuma(col) / max(hbLuma(vc), 1e-4);     // the pattern's light and dark survive the recolour
@@ -310,7 +357,7 @@ vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
     vec3 dormant = mix(col, vec3(0.11, 0.1, 0.055) * shade, 0.65);
     return spring * sp + summer * su + mix(col, straw, 0.3 + 0.4 * patchN) * au + dormant * wi;
   }
-  float conifer = hbConifer(vc);
+  float conifer = hbEvergreen(pid, vc);
   float tree = hbWhite(floor(W * 0.17) + 31.0);           // ~6 m cells: roughly one value per crown
   // spring: fresh yellow-lime; pink or white blossom on over half the deciduous trees
   vec3 lime = col * vec3(1.1, 1.24, 0.38) + vec3(0.008, 0.012, 0.0);
@@ -346,15 +393,15 @@ void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, flo
   snow = 0.0; puddle = 0.0;
   float up = N.y;
   float dry = smoothstep(0.2, 0.75, W.y);                 // nothing lies at or under the water line
-  float leaf = hbIs(pid, 8.0);
+  float leaf = hbLeafPid(pid);
   if (uSnowCover > 0.002) {
     // trodden ground holds thinner snow: setts, deck planks, quay ashlar
     float trod = hbIs(pid, 4.0) * 0.5 + (hbIs(pid, 3.0) + hbIs(pid, 11.0)) * 0.42 + hbIs(pid, 2.0) * 0.22;
     float n1 = hbFbm(W * 0.42);
     float n2 = hbNoise(W * 2.6);
     // conifers are dusted (the snow sits on the tiers' tops), not buried
-    float lo = mix(0.42, 0.34, leaf), hi = mix(0.74, 0.62, leaf);
-    float upm = smoothstep(lo - 0.14 * uSnowCover, hi - 0.14 * uSnowCover, up + (n2 - 0.5) * 0.14 * hbFine(dW, 0.4));
+    float lo = mix(${SNOW_SLOPE.lo.toFixed(2)}, ${SNOW_SLOPE.leafLo.toFixed(2)}, leaf), hi = mix(${SNOW_SLOPE.hi.toFixed(2)}, ${SNOW_SLOPE.leafHi.toFixed(2)}, leaf);
+    float upm = smoothstep(lo - ${SNOW_SLOPE.give.toFixed(2)} * uSnowCover, hi - ${SNOW_SLOPE.give.toFixed(2)} * uSnowCover, up + (n2 - 0.5) * 0.14 * hbFine(dW, 0.4));
     float cover = uSnowCover * (1.0 - trod) * (1.0 - 0.45 * leaf);
     #ifdef USE_BATCHING
       cover *= 0.4;                                        // hulls under way shed it: a dusting on the decks
@@ -370,7 +417,7 @@ void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, flo
     rough = mix(rough, 0.6, snow);
     // icicles: under a snowy eave a fringe of ice teeth hangs down the house wall (the height field just inside
     // the wall is the roof above it); only on clad / rendered / plain house walls, not on quay or terrace stone
-    float wall = (1.0 - smoothstep(0.12, 0.3, abs(up))) * (hbIs(pid, 1.0) + hbIs(pid, 10.0) + hbIs(pid, 0.0));
+    float wall = (1.0 - smoothstep(0.12, 0.3, abs(up))) * (${ICICLE_WALL_PATTERNS.map((k) => `hbIs(pid, ${k.toFixed(1)})`).join(" + ")});
     if (wall > 0.5 && uAOBounds.z > 0.0) {
       vec2 nh = normalize(N.xz + vec2(1e-5));
       float gap = hbHeight(W.xz - nh * 0.7) - W.y;
@@ -568,7 +615,7 @@ export class HarbourMaterials {
         .replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>
   {
     float pid = floor(vHbCol.a * 16.0 + 0.5);
-    float bare = hbIs(pid, 8.0) * hbLeafFall() * (1.0 - hbConifer(vHbCol.rgb));
+    float bare = hbIs(pid, ${PATTERN_LEAF.toFixed(1)}) * hbLeafFall() * (1.0 - hbConifer(vHbCol.rgb));
     if (hbNoise(vHbWorld * 1.7) < bare * 0.84) discard;
   }`);
     };
@@ -582,7 +629,8 @@ export class HarbourMaterials {
    * (uWindowOcc, deterministic per window) glows, each with its own warmth (candle → cool lamp) and level,
    * brighter low in the room, and clamped so frames and mullions stay visible under bloom.
    * Needs the per-window attributes written by prepareWindowGeometry() (apply() does it).
-   * COLOR_0.r = authored lit factor (kept as a level hint), .g = warmth.
+   * COLOR_0.r = authored lit factor (kept as a level hint), .g = warmth, .b = window kind (WINDOW_KIND): the
+   * plain kind drops the frame and mullion for a dark warm reveal that glows warmer and dimmer at its edges.
    */
   window(): THREE.MeshStandardMaterial {
     const hit = this.cache.get("window");
@@ -606,9 +654,9 @@ export class HarbourMaterials {
       shader.fragmentShader = shader.fragmentShader
         .replace("#include <common>", `#include <common>\nuniform float uWindowGlow;\nuniform float uWindowOcc;\n${GLSL_NOISE}\n${GLSL_ENV}\nvarying vec3 vHbLocal;\nvarying vec3 vHbLocalN;\nvarying vec3 vHbWorld;\nvarying vec4 vHbWin;\nvarying vec3 vHbWinC;`)
         .replace("#include <color_fragment>", `
-  float hbLit = 1.0, hbWarm = 0.0;
+  float hbLit = 1.0, hbWarm = 0.0, hbPlain = 0.0;
   #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
-    hbLit = vColor.r; hbWarm = vColor.g;
+    hbLit = vColor.r; hbWarm = vColor.g; hbPlain = step(0.5, vColor.b);   // window kind: 1 = plain opening
   #endif
   // frame + cross mullion (metres in the window plane), faded to coverage when under ~2 px
   vec2 hbWm = max(vHbWin.zw, vec2(0.05));
@@ -619,15 +667,21 @@ export class HarbourMaterials {
   float hbBar = 1.0 - smoothstep(0.03 - hbAA.x, 0.03 + hbAA.x, min(abs(hbP.x - hbWm.x * 0.5), abs(hbP.y - hbWm.y * 0.6)));
   float hbWood = max(hbFrame, hbBar);
   hbWood = mix(hbWood, 0.3, smoothstep(0.03, 0.09, max(hbAA.x, hbAA.y)));
+  hbWood *= 1.0 - hbPlain;
   float hbGlass = 1.0 - hbWood;
-  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.6, 0.55), hbWood);`)
-        .replace("#include <roughnessmap_fragment>", "float roughnessFactor = mix(0.6, 0.08, hbGlass);")
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.6, 0.55), hbWood);
+  // plain opening: no glass, a deep reveal: dark warm room, shadowed toward its edges (mean when sub-pixel)
+  float hbRecess = mix(0.45 + 0.55 * smoothstep(0.0, 0.28, hbEdge), 0.8, smoothstep(0.03, 0.09, max(hbAA.x, hbAA.y)));
+  hbRecess = mix(1.0, hbRecess, hbPlain);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.045, 0.032, 0.024), hbPlain) * hbRecess;
+  float hbSheen = hbGlass * (1.0 - hbPlain);`)
+        .replace("#include <roughnessmap_fragment>", "float roughnessFactor = mix(0.6, 0.08, hbSheen) + 0.3 * hbPlain;")
         .replace("#include <emissivemap_fragment>", `
   {
     // one identity per window (its centre), stable across frames, instances and LOD
     vec3 hbId = floor(vHbWinC * 2.0);
     float on = step(hbWhite(hbId + 11.0), uWindowOcc);
-    float tint = fract(hbWhite(hbId + 29.0) + hbWarm * 0.35);
+    float tint = fract(hbWhite(hbId + 29.0) + hbWarm * 0.35) * mix(1.0, 0.7, hbPlain);   // plain: warmer
     vec3 candle = vec3(1.0, 0.26, 0.04);        // deep candle orange (linear)
     vec3 lamp = vec3(1.0, 0.50, 0.17);          // oil lamp
     vec3 cool = vec3(0.92, 0.72, 0.50);         // cooler electric lamp
@@ -636,16 +690,16 @@ export class HarbourMaterials {
     // lit room: brighter low and centre (the lamp on the table), darker top corners
     vec2 q = vHbWin.xy - vec2(0.5, 0.3);
     float room = 0.6 + 0.55 * exp(-q.x * q.x * 5.0 - q.y * q.y * 4.0);
-    totalEmissiveRadiance = col * on * level * room * uWindowGlow * ${WIN_MAX.toFixed(1)} * (hbGlass + 0.04);
+    totalEmissiveRadiance = col * on * level * room * uWindowGlow * ${WIN_MAX.toFixed(1)} * (hbGlass + 0.04) * hbRecess;
   }`)
         .replace("#include <opaque_fragment>", `
   {
     vec3 hbV = normalize(vViewPosition);
-    outgoingLight += hbEnvSpec(inverseTransformDirection(normal, viewMatrix), inverseTransformDirection(hbV, viewMatrix), 0.08, 0.06) * 1.4 * hbGlass;
+    outgoingLight += hbEnvSpec(inverseTransformDirection(normal, viewMatrix), inverseTransformDirection(hbV, viewMatrix), 0.08, 0.06) * 1.4 * hbSheen;
   }
   #include <opaque_fragment>`);
     };
-    m.customProgramCacheKey = () => "hb_window_v2";
+    m.customProgramCacheKey = () => "hb_window_v3";
     this.cache.set("window", m);
     return m;
   }
