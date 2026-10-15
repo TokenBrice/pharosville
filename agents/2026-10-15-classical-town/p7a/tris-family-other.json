@@ -1,0 +1,71 @@
+{
+ "other_sprit_skiff": {
+  "tris": 446,
+  "budget": 450,
+  "sections": 6,
+  "loa": 5.0,
+  "nodes": [
+   "_heel",
+   "boom",
+   "boom_spar",
+   "bow_cleat",
+   "deck",
+   "flag",
+   "gaff",
+   "hull",
+   "mast",
+   "masthead_light",
+   "rigging",
+   "sail_cover",
+   "sail_main",
+   "stern_cleat",
+   "wake_origin"
+  ]
+ },
+ "other_sprit_boat": {
+  "tris": 556,
+  "budget": 700,
+  "sections": 8,
+  "loa": 7.5,
+  "nodes": [
+   "_heel",
+   "boom",
+   "boom_spar",
+   "bow_cleat",
+   "deck",
+   "flag",
+   "gaff",
+   "hull",
+   "mast",
+   "masthead_light",
+   "rigging",
+   "sail_cover",
+   "sail_main",
+   "stern_cleat",
+   "wake_origin"
+  ]
+ },
+ "other_sprit_small": {
+  "tris": 604,
+  "budget": 700,
+  "sections": 9,
+  "loa": 10.0,
+  "nodes": [
+   "_heel",
+   "boom",
+   "boom_spar",
+   "bow_cleat",
+   "deck",
+   "flag",
+   "gaff",
+   "hull",
+   "mast",
+   "masthead_light",
+   "rigging",
+   "sail_cover",
+   "sail_main",
+   "stern_cleat",
+   "wake_origin"
+  ]
+ }
+}
