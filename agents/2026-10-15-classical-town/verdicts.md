@@ -35,3 +35,13 @@ Board: `p4/G3-board.jpg` (commit 32d3c04e, with P5). **Approve; fix in integrati
 pier beacons must not read as mini lighthouses (squat pedestal + bronze fire bowl, colour in the fire, band on the base
 only); warmer horreum roofs on shaded slopes; break the twin Cycladic cubes; windmill cap and body visible from the
 heart camera.
+
+## G5 · Shipyard (2026-10-15)
+
+Board: `p6/G5-board.jpg` (recaptured with the ancient fleet). **Approve; fuller berths:** make the berth rows read busier
+from the camera (larger berth hull scale and/or more visible stages under the sheds).
+
+## G6b · ancient fleet in the runtime (2026-10-15)
+
+Board: `p7/G6b-board.jpg` (commit 11bcb32f). **Approve; slim the bundles:** docked brailed bundles slimmer and within the
+hull's beam (no big coloured cylinders over the quay); restyle the modern lifeboat-station prop in Wreck Cove.
