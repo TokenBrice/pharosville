@@ -3,7 +3,9 @@ import { BloomEffect, EffectComposer, ToneMappingEffect } from "postprocessing";
 import { AssetStore } from "./assets";
 import { QualityGovernor } from "./governor";
 import { PostChain } from "./post";
+import { prefetchHarbour } from "./prefetch";
 import { CameraRig } from "./camera-rig";
+import { CameraInput } from "./input";
 import { TimeOfDay } from "./time-of-day";
 import { createWorldUniforms } from "./uniforms";
 import type { EngineContext, HarbourStats, WorldSystem } from "./types";
@@ -14,7 +16,11 @@ import type { EngineContext, HarbourStats, WorldSystem } from "./types";
  */
 const DEFERRED: ReadonlySet<string> = new Set(["life", "identity"]);
 
-declare global { interface Window { __harbourStats?: HarbourStats; __harbour?: Engine } }
+/** Dev profiling (`?prof=1`): per-system update() cost, summed since the last reset (window.__harbourProf). */
+interface FrameProfile { frames: number; ms: Record<string, number>; max: Record<string, number>; reset(): void }
+const PROF = typeof location !== "undefined" && new URLSearchParams(location.search).get("prof") === "1";
+
+declare global { interface Window { __harbourStats?: HarbourStats; __harbour?: Engine; __harbourProf?: FrameProfile } }
 
 /**
  * The Harbour runtime: one WebGLRenderer, one scene, one perspective camera on a bounded rig,
@@ -43,10 +49,21 @@ export class Engine {
     backend: "webgl2", drawCalls: 0, triangles: 0, textures: 0, programs: 0, hour: 0, systems: [], firstFrameMs: null, dpr: 1, gpuMs: null, quality: "high",
   };
   private readonly startMs = performance.now();
+  private readonly profile: FrameProfile | null = PROF ? {
+    frames: 0, ms: {}, max: {},
+    reset() { this.frames = 0; this.ms = {}; this.max = {}; },
+  } : null;
+  private lap(key: string, since: number): number {
+    const now = performance.now(), p = this.profile!, d = now - since;
+    p.ms[key] = (p.ms[key] ?? 0) + d;
+    if (d > (p.max[key] ?? 0)) p.max[key] = d;
+    return now;
+  }
   readonly bloom: BloomEffect;
   readonly toneMapping: ToneMappingEffect;
   readonly post: PostChain;
   readonly governor: QualityGovernor;
+  private readonly input: CameraInput;
   private readonly onResize = () => this.resize();
   private readonly onVisibility = () => { if (document.hidden) this.stop(); else this.start(); };
 
@@ -78,11 +95,13 @@ export class Engine {
     this.ctx.services.set("post", this.post);
     this.ctx.services.set("quality", this.governor);
     this.governor.publish();
-    this.attachInput();
+    this.input = new CameraInput(renderer.domElement, rig);
     addEventListener("resize", this.onResize);
     document.addEventListener("visibilitychange", this.onVisibility);
     this.resize();
     window.__harbour = this;
+    if (this.profile) window.__harbourProf = this.profile;
+    prefetchHarbour(this.ctx.assets);
   }
 
   /** Register a system; order of registration is update order. One added after boot (the UI's frame hook) runs once its init settles. */
@@ -161,6 +180,7 @@ export class Engine {
   stop(): void { this.running = false; cancelAnimationFrame(this.raf); }
 
   private frame(now: number): void {
+    if (this.profile && this.firstFrameMs !== null) { this.profiledFrame(now); return; }
     const { ctx } = this;
     const t0 = this.firstFrameMs === null ? performance.now() : 0;
     const delta = Math.min(0.1, Math.max(0, (now - this.clock.last) / 1000));
@@ -170,6 +190,7 @@ export class Engine {
     frame.elapsed = this.clock.elapsed; frame.delta = delta; frame.nowMs = Date.now();
     ctx.uniforms.uTime.value = frame.elapsed;
     ctx.timeOfDay.update(frame.nowMs, frame.elapsed, ctx.uniforms);
+    this.input.update(delta);
     ctx.rig.update(delta);
     ctx.uniforms.uCameraPos.value.copy(ctx.camera.position);
     ctx.renderer.info.reset();
@@ -204,6 +225,44 @@ export class Engine {
     window.__harbourStats = st;
   }
 
+  /** frame() with a lap around each stage (`?prof=1` only; same order, same work). */
+  private profiledFrame(now: number): void {
+    const { ctx } = this;
+    const p = this.profile!;
+    p.frames++;
+    const start = performance.now();
+    let t = start;
+    const delta = Math.min(0.1, Math.max(0, (now - this.clock.last) / 1000));
+    this.clock.last = now;
+    this.clock.elapsed += delta;
+    const frame = this.frameState;
+    frame.elapsed = this.clock.elapsed; frame.delta = delta; frame.nowMs = Date.now();
+    ctx.uniforms.uTime.value = frame.elapsed;
+    ctx.timeOfDay.update(frame.nowMs, frame.elapsed, ctx.uniforms);
+    this.input.update(delta);
+    ctx.rig.update(delta);
+    ctx.uniforms.uCameraPos.value.copy(ctx.camera.position);
+    ctx.renderer.info.reset();
+    this.governor.begin();
+    t = this.lap("pre", t);
+    for (const s of this.systems) if (this.ready.has(s)) { s.update(frame, ctx); t = this.lap(s.name, t); }
+    this.post.update(delta, ctx.timeOfDay, ctx.rig);
+    t = this.lap("post.update", t);
+    ctx.composer.render(delta);
+    t = this.lap("render", t);
+    this.governor.end(delta);
+    const st = this.stats, info = ctx.renderer.info;
+    st.drawCalls = info.render.calls;
+    st.triangles = info.render.triangles;
+    st.dpr = this.governor.dpr;
+    st.gpuMs = this.governor.gpuMs === null ? null : Math.round(this.governor.gpuMs * 100) / 100;
+    st.quality = this.governor.tier;
+    st.hour = Math.round(ctx.timeOfDay.hour * 100) / 100;
+    window.__harbourStats = st;
+    this.lap("tail", t);
+    this.lap("TOTAL", start);
+  }
+
   resize(): void {
     const w = this.container.clientWidth || innerWidth, h = this.container.clientHeight || innerHeight;
     const { renderer, camera, composer, uniforms } = this.ctx;
@@ -215,23 +274,10 @@ export class Engine {
     for (const s of this.systems) if (this.ready.has(s)) s.resize?.(w, h, this.ctx);
   }
 
-  private attachInput(): void {
-    const el = this.ctx.renderer.domElement;
-    let dragging = false, lx = 0, ly = 0;
-    el.addEventListener("pointerdown", (e) => { dragging = true; lx = e.clientX; ly = e.clientY; el.setPointerCapture(e.pointerId); });
-    el.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
-      const [dx, dz] = this.ctx.rig.dragToWorld(e.clientX - lx, e.clientY - ly, el.clientHeight || innerHeight);
-      this.ctx.rig.pan(dx, dz);
-      lx = e.clientX; ly = e.clientY;
-    });
-    el.addEventListener("pointerup", (e) => { dragging = false; el.releasePointerCapture(e.pointerId); });
-    el.addEventListener("wheel", (e) => { e.preventDefault(); this.ctx.rig.zoom(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
-  }
-
   dispose(): void {
     this.disposed = true;
     this.stop();
+    this.input.dispose();
     removeEventListener("resize", this.onResize);
     document.removeEventListener("visibilitychange", this.onVisibility);
     // a deferred system still initialising disposes itself when its init settles (initLater)

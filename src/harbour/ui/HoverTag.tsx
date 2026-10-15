@@ -1,5 +1,6 @@
 import { useRef } from "react";
-import { boatFact, harbourFact, landmarkFact } from "./facts";
+import { boatFact, harbourFact, landmarkFact, wreckFact } from "./facts";
+import { deadRecords, FAMILIES } from "../model/obituary";
 import { placeName } from "./places";
 import { expectedLabel, PHASE_NAME, yardCoins } from "./yard";
 import { useFrame, usePresence, useStore, useSticky, useUI } from "./hooks";
@@ -52,6 +53,13 @@ function Tag({ hit, shown, pinned }: { hit: PickHit; shown: boolean; pinned: boo
       fact = boatFact(b, w).slice(b.symbol.length + 3);
       swatch = b.brandColor;
       decorative = w.kind === "outing";
+    }
+  } else if (hit.kind === "wreck") {
+    const r = deadRecords().get(hit.id);
+    if (r) {
+      name = r.symbol;
+      fact = wreckFact(r.id);
+      swatch = FAMILIES[r.family].ink;
     }
   } else if (hit.kind === "yard") {
     const c = yardCoins(store.ctx).find((y) => y.id === hit.id);

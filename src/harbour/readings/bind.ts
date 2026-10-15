@@ -7,7 +7,7 @@
  *   PSI band   → the Pharos rhythm (PSI_SWEEP_DURATION), 3-step lamp colour, unlit when unknown
  *   PSI score  → beam reach + brightness, continuous (91 and 97 must look different)
  *   off-peg    → sea state, 4 declared steps of the supply-weighted share
- *   DEWS       → cloud cover + wind (no random weather) and the Storm-signal Station's mast: one shape per
+ *   DEWS       → the weather (src/harbour/weather: cloud, wind, rain/snow, lightning; no random weather) and the Storm-signal Station's mast: one shape per
  *                step of the SAME supply-weighted band (0 Calm … 4 Danger: cone, cone, drum, drum) plus a red
  *                pennant at Danger, so the mast and the sky always tell one story; the ALERT+ coins live in the panel
  *   7d supply  → the tide gauge, signed-sqrt against TIDE_FULL_SCALE_PCT
@@ -61,7 +61,8 @@ export interface WorldTargets {
   psi: { lit: boolean; sweepSec: number; reach: number; lamp: LampStep; band: ConditionBand | null; score: number | null };
   /** null = unknown: the sea is left as it is (never painted calm on purpose). */
   sea: SeaStep | null;
-  weather: { cloud: number; wind: number; band: DewsBand | null } | null;
+  /** The DEWS weather the director (src/harbour/weather) eases toward; `level` is the continuous supply-weighted 0..4. */
+  weather: { cloud: number; wind: number; band: DewsBand | null; level: number } | null;
   /** Hoisted cones = the supply-weighted DEWS level 0..4; null = no stress reading. */
   cones: number | null;
   /** The red pennant at the masthead: weather band DANGER. */
@@ -163,7 +164,9 @@ export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted }: D
       score: lit ? p.score : null,
     },
     sea: r.seaState.step,
-    weather: r.weather.cloudCover != null && r.weather.wind != null ? { cloud: r.weather.cloudCover, wind: r.weather.wind, band: r.weather.band } : null,
+    weather: weatherKnown && r.weather.cloudCover != null && r.weather.wind != null
+      ? { cloud: r.weather.cloudCover, wind: r.weather.wind, band: r.weather.band, level: r.weather.level ?? (r.weather.band ? DEWS_LEVEL[r.weather.band] : 0) }
+      : null,
     cones: mast.cones,
     pennant: mast.pennant,
     alerts: alertCoins(model),
@@ -178,10 +181,10 @@ export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted }: D
 
 /**
  * Dev-only reading overrides (never in production builds; the caller gates on import.meta.env.DEV):
- *   ?psi=TREMOR|none  ?psiScore=55  ?offpeg=0.06  ?dews=ALERT  ?cones=3 (5 = four + pennant)  ?tide=-0.8 (percent)
+ *   ?psi=TREMOR|none  ?psiScore=55  ?offpeg=0.06  ?dews=ALERT (alias ?weather=ALERT)  ?cones=3 (5 = four + pennant)  ?tide=-0.8 (percent)
  *   ?stale=1 (fleet stale → fog)  ?stale=mintBurn,chains (those landmarks stale)
  */
-export const DEV_OVERRIDE_KEYS = ["psi", "psiScore", "offpeg", "dews", "cones", "tide", "stale"] as const;
+export const DEV_OVERRIDE_KEYS = ["psi", "psiScore", "offpeg", "dews", "weather", "cones", "tide", "stale"] as const;
 
 export function applyDevOverrides(t: WorldTargets, q: URLSearchParams): WorldTargets {
   const out: WorldTargets = { ...t, psi: { ...t.psi }, landmarks: { ...t.landmarks }, flows: { ...t.flows } };
@@ -200,10 +203,10 @@ export function applyDevOverrides(t: WorldTargets, q: URLSearchParams): WorldTar
   if (q.has("psiScore") && Number.isFinite(score) && out.psi.lit) { out.psi.score = score; out.psi.reach = reachForScore(score); }
   const off = Number(q.get("offpeg"));
   if (q.has("offpeg") && Number.isFinite(off)) out.sea = seaStepForShare(off);
-  const dews = (q.get("dews") ?? "").toUpperCase();
+  const dews = (q.get("dews") ?? q.get("weather") ?? "").toUpperCase();
   if (dews in DEWS_LEVEL) {
     const lvl = DEWS_LEVEL[dews as DewsBand];
-    out.weather = { ...weatherForLevel(lvl), band: dews as DewsBand };
+    out.weather = { ...weatherForLevel(lvl), band: dews as DewsBand, level: lvl };
     const mast = mastForBand(dews as DewsBand);
     out.cones = mast.cones;
     out.pennant = mast.pennant;

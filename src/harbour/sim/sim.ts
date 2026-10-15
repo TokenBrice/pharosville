@@ -13,10 +13,11 @@ import { u01 } from "../model/classify";
 import type { HarbourModel } from "../model/types";
 import { buildSimLayout, nearestNode, PREVAILING_WIND_FROM, type SimLayout, type Slot } from "./layout-graph";
 import { clearance, hullClearance, type CoastGrid } from "./obstacles";
-import { buildOutingPath } from "./outings";
+import { buildOutingPath, buildScenicPath, scenicClearOf, seedOutings, type OutingSeed } from "./outings";
 import { buildLegPath, legControlPoints } from "./routes";
 import { buildPath, evalLeg, hullMargin, IO_LANE, IO_LOA, IO_SEP, IO_T, legTiming, LEG_APPROACH, LEG_CAST_OFF, LEG_HOLD, LEG_HOLD_END, LEG_TURN, newLegTiming, type LegTiming, type PathRec } from "./path";
-import { boatLocalTime, buildPlan, seedLegTimes, CYCLE_S, findSegment, MANOEUVRE_S, SEG_DOCK, SPEED, type BoatPlan, type Plan, type RepLeg } from "./plan";
+import { boatLocalTime, buildPlan, RAFT_CLEAR, seedLegTimes, CYCLE_S, findSegment, MANOEUVRE_S, SEG_DOCK, SPEED, type BoatPlan, type Plan, type RepLeg } from "./plan";
+import { hypot } from "./math";
 
 export const PHASES = ["docked", "casting-off", "sailing", "approaching", "moored", "anchored"] as const;
 export type Phase = (typeof PHASES)[number];
@@ -135,9 +136,52 @@ interface BoatRt {
   beam: number;
   shoals: boolean;
   wrecked: boolean;
+  /** Per-hull constants, hashed and derived once per model: the side she lists / rolls to (±1), her wreck list (0..1), surge and fender-bump scales. */
+  side: number;
+  list: number;
+  surge: number;
+  bumpK: number;
 }
 
 const newTiming = (): LegTiming => newLegTiming();
+
+/** A plan leg's path cache key: from>to>class, plus >s<loop> for an outing's or a scenic leg's loop. */
+export function pathKey(fromSlot: number, toSlot: number, cls: HullClass, loop: number): string {
+  return fromSlot + ">" + toSlot + ">" + cls + (loop ? ">s" + loop : "");
+}
+
+/** A plan leg to build: from slot, to slot, hull class, loop (plan.segLoop). */
+export type PathRequest = [number, number, HullClass, number];
+
+/** The whole hull stays clear of land and decks all along a path (and its astern prefix). */
+function pathClear(L: SimLayout, p: PathRec, loa: number, beam: number): boolean {
+  for (let k = 0; k < p.n; k++) {
+    const x = p.pts[k * 2], z = p.pts[k * 2 + 1];
+    if (L.field && clearance(L.field, x, z) > loa / 2 + 4) continue;
+    if (hullClearance(L.hard, x, z, p.hdg[k], loa, beam) < -0.15) return false;
+  }
+  if (p.rev) for (let k = 0; k < p.rev.n; k++) if (hullClearance(L.hard, p.rev.pts[k * 2], p.rev.pts[k * 2 + 1], p.rev.hdg[k] + Math.PI, loa, beam) < -0.15) return false;
+  return true;
+}
+
+/**
+ * The path of a plan leg on layout L, whose slots past `baseSlots` are the plan's rafts. `loop`: 0, or 1 +
+ * the loop variant the leg sails (plan.segLoop: an outing's loop, or a scenic leg's offshore loop). `bad`:
+ * an outing whose hull would touch land or a deck anywhere (e.g. backing out of a cramped slip) is never
+ * sailed: she stays in. A pure function of (layout, rafts, leg): sim/warm-legs workers build the same.
+ */
+export function buildPlanLegPath(L: SimLayout, baseSlots: number, fromSlot: number, toSlot: number, cls: HullClass, loop: number): { path: PathRec; bad: boolean } {
+  const loa = L.loa[cls], beam = L.beam[cls];
+  // from a slot back to itself: a harbour outing's loop
+  const out = fromSlot === toSlot && loop ? buildOutingPath(L, fromSlot, cls, loop - 1) : null;
+  const bad = !!out && !pathClear(L, out, loa, beam);
+  // a scenic leg by the departure gate's offshore loop (one that would touch land or a deck sails the plain leg)
+  // (nor one whose loop runs through the plan's overflow rafts)
+  const scenic = loop > 0 && fromSlot !== toSlot && scenicClearOf(L, fromSlot, toSlot, loop - 1, L.slots.slice(baseSlots).filter((s) => s.kind === "raft"), RAFT_CLEAR);
+  let sc = scenic ? buildScenicPath(L, fromSlot, toSlot, cls, loop - 1) : null;
+  if (sc && !pathClear(L, sc, loa, beam)) sc = null;
+  return { path: out ?? sc ?? buildLegPath(L, fromSlot, toSlot, cls), bad };
+}
 
 /** Leg-local time at which the hull comes to rest at the far end (before any spare time spent there). */
 function arrivalT(tm: LegTiming, path: PathRec): number {
@@ -174,7 +218,7 @@ export class HarbourSim {
   private index = new Map<string, number>();
   private pathCache = new Map<string, PathRec>();
   /** Next-leg paths to build ahead of time, one per frame, so a cast-off never pays for its path. */
-  private prefetch: Array<[number, number, number]> = [];
+  private prefetch: Array<[number, number, number, number]> = [];
   private prefetchKeys = new Set<string>();
   private builtThisFrame = 0;
   private shoalsOf = new Map<string, number>();
@@ -183,6 +227,9 @@ export class HarbourSim {
   private baseSlots = 0;
   private posed = false;
   private readonly tmp = new Float64Array(16);
+  /** Give-way scratch: the hull stations (heading × LOA × SEP_K) of hull i (x then z) and of the other hull j. */
+  private readonly stI = new Float64Array(10);
+  private readonly stJ = new Float64Array(10);
   /** Per hull, this frame: lane weight (0..1) of the leg being sailed, and the separation scratch. */
   private laneW = new Float32Array(0);
   private sepW = new Float32Array(0);
@@ -232,6 +279,50 @@ export class HarbourSim {
    * built when the plan needs it (the same value).
    */
   seedLegTimes(entries: ReadonlyArray<[string, RepLeg]>): void { seedLegTimes(this.layout, entries); }
+
+  /** The layout-only outing and scenic answers (gate loops, metres), warmed off the main thread likewise (outings.outingSeed). */
+  seedOutings(seed: OutingSeed): void { seedOutings(this.layout, seed); }
+
+  /** The plan's overflow rafts (the slots past the authored ones): a worker adds them to its own layout before building legs. */
+  rafts(): Slot[] { return this.layout.slots.slice(this.baseSlots); }
+
+  /**
+   * The plan legs poseAt(nowMs) will build (`now`) and those its look-ahead will queue next (`soon`), not built
+   * yet: sim/warm-legs builds them off the main thread after a re-plan. A leg missed here is simply built
+   * when it is needed (the same path).
+   */
+  pathRequests(nowMs: number): { now: PathRequest[]; soon: PathRequest[] } {
+    const t = nowMs / 1000, now = new Map<string, PathRequest>(), soon = new Map<string, PathRequest>();
+    const want = (m: Map<string, PathRequest>, plan: BoatPlan, seg: number, cls: HullClass) => {
+      const k = pathKey(plan.segFrom[seg], plan.segSlot[seg], cls, plan.segLoop[seg]);
+      if (!this.pathCache.has(k) && !now.has(k)) m.set(k, [plan.segFrom[seg], plan.segSlot[seg], cls, plan.segLoop[seg]]);
+    };
+    for (const r of this.rt) {
+      const plan = r.plan;
+      if (r.mode !== MODE_PLAN || plan.kind === "none" || (plan.kind === "static" && !plan.outing)) continue;
+      // (as evalBoat: a leg under way, or a dock window's neighbouring leg within its quarter, or the next one within PREFETCH_S)
+      const nSeg = plan.segStart.length, u = boatLocalTime(plan, t), c = findSegment(plan, u);
+      if (plan.segKind[c] !== SEG_DOCK) { want(now, plan, c, r.cls); continue; }
+      if (nSeg < 2) continue;
+      const into = u - plan.segStart[c], toEnd = plan.segEnd[c] - u, cap = 0.25 * (plan.segEnd[c] - plan.segStart[c]);
+      if (into < cap) want(now, plan, (c - 1 + nSeg) % nSeg, r.cls);
+      else if (toEnd < cap) want(now, plan, (c + 1) % nSeg, r.cls);
+      if (toEnd < PREFETCH_S) want(soon, plan, (c + 1) % nSeg, r.cls);
+    }
+    for (const k of now.keys()) soon.delete(k);
+    return { now: [...now.values()], soon: [...soon.values()] };
+  }
+
+  /** Plan leg paths built elsewhere for this very plan (sim/warm-legs): the same values legPathFor would build. */
+  seedPaths(plan: Plan, entries: ReadonlyArray<[string, PathRec, boolean]>): void {
+    if (plan !== this.plan) return;
+    for (const [k, p, bad] of entries) {
+      if (this.pathCache.has(k)) continue;
+      if (bad) this.badOuting.add(k);
+      if (this.pathCache.size > 1500) this.pathCache.delete(this.pathCache.keys().next().value!);
+      this.pathCache.set(k, p);
+    }
+  }
 
   indexOf(id: string): number { return this.index.get(id) ?? -1; }
   slotOf(i: number): Slot | null { const s = this.pose.slot[i]; return s >= 0 ? this.layout.slots[s] ?? null : null; }
@@ -298,6 +389,7 @@ export class HarbourSim {
         yawA: 0.24 + 0.18 * u01(b.id + "#yaw"), yawP: YAW_PERIODS[Math.floor(u01(b.id + "#yp") * YAW_PERIODS.length)], yawP2: YAW_PERIODS[Math.floor(u01(b.id + "#yp2") * YAW_PERIODS.length)],
         laneOff: (u01(b.id + "#lane") * 2 - 1) * LANE_JITTER, beam: this.layout.beam[b.hullClass],
         shoals: b.state === "shoals", wrecked: b.state === "wrecked",
+        side: u01(b.id + "#side") < 0.5 ? 1 : -1, list: u01(b.id + "#list"), surge: 0.16 + 0.004 * this.layout.loa[b.hullClass], bumpK: BUMP_A * Math.sqrt(this.layout.loa[b.hullClass] / 13),
       };
     });
     this.resizePose(n);
@@ -439,28 +531,15 @@ export class HarbourSim {
 
   // ------------------------------------------------------------------ voyages
 
-  /** The whole hull stays clear of land and decks all along a path (and its astern prefix). */
-  private pathClear(p: PathRec, r: BoatRt): boolean {
-    const L = this.layout;
-    for (let k = 0; k < p.n; k++) {
-      const x = p.pts[k * 2], z = p.pts[k * 2 + 1];
-      if (L.field && clearance(L.field, x, z) > r.loa / 2 + 4) continue;
-      if (hullClearance(L.hard, x, z, p.hdg[k], r.loa, r.beam) < -0.15) return false;
-    }
-    if (p.rev) for (let k = 0; k < p.rev.n; k++) if (hullClearance(L.hard, p.rev.pts[k * 2], p.rev.pts[k * 2 + 1], p.rev.hdg[k] + Math.PI, r.loa, r.beam) < -0.15) return false;
-    return true;
-  }
-
-  private legPathFor(fromSlot: number, toSlot: number, r: BoatRt): PathRec {
-    const key = fromSlot + ">" + toSlot + ">" + r.cls;
+  /** `loop`: 0, or 1 + the loop variant the leg sails (plan.segLoop: an outing's loop, or a scenic leg's offshore loop). */
+  private legPathFor(fromSlot: number, toSlot: number, r: BoatRt, loop = 0): PathRec {
+    const key = pathKey(fromSlot, toSlot, r.cls, loop);
     let p = this.pathCache.get(key);
     if (!p) {
       this.builtThisFrame++;
-      // from a slot back to itself: a harbour outing's loop (one whose hull would touch land or a deck
-      // anywhere, e.g. backing out of a cramped slip, is never sailed: she stays in)
-      const out = fromSlot === toSlot ? buildOutingPath(this.layout, fromSlot, r.cls) : null;
-      if (out && !this.pathClear(out, r)) this.badOuting.add(key);
-      p = out ?? buildLegPath(this.layout, fromSlot, toSlot, r.cls);
+      const b = buildPlanLegPath(this.layout, this.baseSlots, fromSlot, toSlot, r.cls, loop);
+      if (b.bad) this.badOuting.add(key);
+      p = b.path;
       if (this.pathCache.size > 1500) this.pathCache.delete(this.pathCache.keys().next().value!);
       this.pathCache.set(key, p);
     }
@@ -502,7 +581,7 @@ export class HarbourSim {
       let start = t + (p.segStart[k] - u), end = t + (p.segEnd[k] - u);
       if (end < t) { start += CYCLE_S; end += CYCLE_S; }
       const slot = L.slots[p.segSlot[k]];
-      const dist = Math.hypot(slot.x - at.x, slot.z - at.z) * 1.4 + 60;
+      const dist = hypot(slot.x - at.x, slot.z - at.z) * 1.4 + 60;
       const minD = dist / SPEED[r.cls] + MANOEUVRE_S;
       if (end - 45 < t + minD) continue;
       this.voyageTo(i, t, at, p.segSlot[k], EV_REJOIN, END_PLAN, PH_DOCKED, Math.max(start, t + minD));
@@ -529,7 +608,7 @@ export class HarbourSim {
     const p = this.pose;
     // (a raft index from the old plan can name a different raft now: same slot means same place)
     const same = !at.moving && p.slot[i] === at.slot && at.slot < this.baseSlots && (p.phase[i] === PH_DOCKED || p.phase[i] === PH_MOORED);
-    const close = Math.hypot(p.position[i * 3] - (at.x - (at.px ?? 0)), p.position[i * 3 + 2] - (at.z - (at.pz ?? 0))) < 1.5;
+    const close = hypot(p.position[i * 3] - (at.x - (at.px ?? 0)), p.position[i * 3 + 2] - (at.z - (at.pz ?? 0))) < 1.5;
     if (same || close) return;
     this.rejoin(i, t, at);
   }
@@ -630,12 +709,12 @@ export class HarbourSim {
     const u = tau + BUMP_T0;
     if (s.swing > 0 || !(u > 0 && u < BUMP_END)) return;
     const win = 1 - (u / BUMP_END) ** 4;
-    const b = BUMP_A * Math.sqrt(r.loa / 13) * Math.sin(BUMP_W * u) * Math.exp(-u / BUMP_DECAY) * win;
+    const b = r.bumpK * Math.sin(BUMP_W * u) * Math.exp(-u / BUMP_DECAY) * win;
     let dx = Math.sin(s.heading), dz = Math.cos(s.heading);
     if (s.mode === "alongside" && s.warp) {
-      const wl = Math.hypot(s.warp[0], s.warp[1]) || 1;
+      const wl = hypot(s.warp[0], s.warp[1]) || 1;
       dx = -s.warp[0] / wl; dz = -s.warp[1] / wl;
-      o[15] = (b / BUMP_A) * 0.035 * (u01(r.id + "#side") < 0.5 ? 1 : -1);
+      o[15] = (b / BUMP_A) * 0.035 * r.side;
     }
     o[13] = dx * b; o[14] = dz * b;
   }
@@ -655,7 +734,7 @@ export class HarbourSim {
     } else if (s.kind !== "wreck") {
       // alongside / in a slip: a little surge and yaw, held by the lines (they take up once made fast)
       const held = 0.35 + 0.65 * Math.min(1, Math.max(0, this.dockT / LINES_IN_S));
-      const su = w * held * (0.16 + 0.004 * r.loa) * Math.sin((TAU * t) / 24 + r.phi);
+      const su = w * held * r.surge * Math.sin((TAU * t) / 24 + r.phi);
       x += Math.sin(h) * su; z += Math.cos(h) * su;
       h += w * (s.mode === "pontoon" ? 0.04 : 0.012) * Math.sin((TAU * t) / r.yawP + r.phi * 0.7);
       this.bumpAt(s, r, this.dockT);
@@ -672,10 +751,10 @@ export class HarbourSim {
     let heel = 0;
     if (r.shoals && s.kind === "shoals") {
       // aground and pounding: an irregular roll on top of the list, the loose sail flogging
-      const side = u01(r.id + "#side") < 0.5 ? -1 : 1;
+      const side = -r.side;
       heel = side * (r.heelBase + 0.045 * Math.sin((TAU * t) / 7.2 + r.phi) + 0.025 * Math.sin((TAU * t) / 3.6 + r.phi * 2) + 0.015 * Math.sin((TAU * t) / 2.4 + r.phi * 3));
       p.sailState[i] = 0.22 + 0.08 * Math.sin((TAU * t) / 2.4 + r.phi);
-    } else if (r.wrecked) heel = (u01(r.id + "#side") < 0.5 ? -1 : 1) * (0.36 + 0.24 * u01(r.id + "#list")) + 0.012 * Math.sin((TAU * t) / 12 + r.phi);
+    } else if (r.wrecked) heel = -r.side * (0.36 + 0.24 * r.list) + 0.012 * Math.sin((TAU * t) / 12 + r.phi);
     else if (s.mode === "alongside") heel = this.tmp[15]; // the fender touch rolls her off the quay a little
     p.heel[i] = heel;
     this.laneW[i] = 0;
@@ -785,9 +864,9 @@ export class HarbourSim {
         }
       }
       if (toEnd < PREFETCH_S && nSeg > 1 && r.prefetchSeg !== (c + 1) % nSeg) {
-        const nxt = (c + 1) % nSeg, key = plan.segFrom[nxt] + ">" + plan.segSlot[nxt] + ">" + r.cls;
+        const nxt = (c + 1) % nSeg, sc = plan.segLoop[nxt], key = pathKey(plan.segFrom[nxt], plan.segSlot[nxt], r.cls, sc);
         r.prefetchSeg = nxt;
-        if (!this.pathCache.has(key) && !this.prefetchKeys.has(key)) { this.prefetchKeys.add(key); this.prefetch.push([i, plan.segFrom[nxt], plan.segSlot[nxt]]); }
+        if (!this.pathCache.has(key) && !this.prefetchKeys.has(key)) { this.prefetchKeys.add(key); this.prefetch.push([i, plan.segFrom[nxt], plan.segSlot[nxt], sc]); }
       }
       const lateOff = r.legSeg === (c - 1 + nSeg) % nSeg && !r.legStay ? r.legLate : 0, earlyOff = r.legSeg === (c + 1) % nSeg && !r.legStay ? r.legEarly : 0;
       if (nSeg > 1 && !r.legStay) {
@@ -814,7 +893,7 @@ export class HarbourSim {
   private ensureLeg(r: BoatRt, seg: number): void {
     if (r.legSeg === seg && r.legPath) return;
     const L = this.layout, plan = r.plan, nSeg = plan.segStart.length;
-    const path = this.legPathFor(plan.segFrom[seg], plan.segSlot[seg], r);
+    const path = this.legPathFor(plan.segFrom[seg], plan.segSlot[seg], r, plan.segLoop[seg]);
     const from = L.slots[plan.segFrom[seg]], to = L.slots[plan.segSlot[seg]];
     const D = plan.segEnd[seg] - plan.segStart[seg];
     const tm = legTiming(path, 1e9, r.loa, r.legTm, from.heading, to.heading);
@@ -827,7 +906,7 @@ export class HarbourSim {
     r.legD = D + r.legEarly + r.legLate;
     legTiming(path, r.legD, r.loa, r.legTm, from.heading, to.heading);
     r.legPath = path; r.legSeg = seg;
-    r.legStay = plan.segFrom[seg] === plan.segSlot[seg] && this.badOuting.has(plan.segFrom[seg] + ">" + plan.segSlot[seg] + ">" + r.cls);
+    r.legStay = plan.segFrom[seg] === plan.segSlot[seg] && this.badOuting.has(pathKey(plan.segFrom[seg], plan.segSlot[seg], r.cls, plan.segLoop[seg]));
   }
 
   private planLeg(i: number, r: BoatRt, seg: number): void {
@@ -893,6 +972,8 @@ export class HarbourSim {
         // each pass shoves her afresh from her lane position, against the others' latest
         const x0 = pos[i * 3] + lx[i], z0 = pos[i * 3 + 2] + lz[i], xi = x0, zi = z0;
         const ci = Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3] + O) / CELL))), cj = Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3 + 2] + O) / CELL)));
+        const sI = this.stI, sJ = this.stJ, fxl = fx * r.loa, fzl = fz * r.loa;
+        for (let u = 0; u < 5; u++) { sI[u] = fxl * SEP_K[u]; sI[u + 5] = fzl * SEP_K[u]; }
         let push = 0;
         for (let a = Math.max(0, ci - 1); a <= Math.min(G - 1, ci + 1); a++) for (let b = Math.max(0, cj - 1); b <= Math.min(G - 1, cj + 1); b++) {
           for (let j = head[a * G + b]; j >= 0; j = next[j]) {
@@ -903,12 +984,16 @@ export class HarbourSim {
             const reach = (r.loa + rj.loa) / 2 + gap + ramp;
             if (dx * dx + dz * dz > reach * reach) continue;
             const hj = p.heading[j], gx = Math.sin(hj), gz = Math.cos(hj);
-            let pen = -1e9;
+            // deepest overlap of the stations: the nearest pair (one square root, not 25: the same value)
+            const gxl = gx * rj.loa, gzl = gz * rj.loa;
+            for (let v = 0; v < 5; v++) { sJ[v] = gxl * SEP_K[v]; sJ[v + 5] = gzl * SEP_K[v]; }
+            let m2 = Infinity;
             for (let u = 0; u < 5; u++) for (let v = 0; v < 5; v++) {
-              const ex = dx + fx * r.loa * SEP_K[u] - gx * rj.loa * SEP_K[v], ez = dz + fz * r.loa * SEP_K[u] - gz * rj.loa * SEP_K[v];
-              const q = (r.beam + rj.beam) / 2 + gap + ramp - Math.sqrt(ex * ex + ez * ez);
-              if (q > pen) pen = q;
+              const ex = dx + sI[u] - sJ[v], ez = dz + sI[u + 5] - sJ[v + 5];
+              const d2 = ex * ex + ez * ez;
+              if (d2 < m2) m2 = d2;
             }
+            let pen = (r.beam + rj.beam) / 2 + gap + ramp - Math.sqrt(m2);
             if (pen <= 0) continue;
             pen = pen < ramp ? (pen * pen) / (2 * ramp) : pen - ramp / 2;
             const phj = p.phase[j];
@@ -982,7 +1067,7 @@ export class HarbourSim {
   private keepOffHard(i: number): void {
     const L = this.layout, p = this.pose, r = this.rt[i];
     const x = p.position[i * 3], z = p.position[i * 3 + 2], h = p.heading[i];
-    const ox = this.sepX[i], oz = this.sepZ[i], ol = Math.hypot(ox, oz);
+    const ox = this.sepX[i], oz = this.sepZ[i], ol = hypot(ox, oz);
     if (L.field && clearance(L.field, x, z) > r.loa / 2 + ol + 3) return;
     const c0 = hullClearance(L.hard, x, z, h, r.loa, r.beam);
     const want = Math.min(c0, hullMargin(r.loa) * 0.8);
@@ -1010,6 +1095,8 @@ export class HarbourSim {
       const r = rt[i], hi = p.heading[i], fx = Math.sin(hi), fz = Math.cos(hi);
       const xi = pos[i * 3], zi = pos[i * 3 + 2];
       const ci = Math.min(G - 1, Math.max(0, Math.floor((xi + O) / CELL))), cj = Math.min(G - 1, Math.max(0, Math.floor((zi + O) / CELL)));
+      const sI = this.stI, sJ = this.stJ, fxl = fx * r.loa, fzl = fz * r.loa;
+      for (let u = 0; u < 5; u++) { sI[u] = fxl * SEP_K[u]; sI[u + 5] = fzl * SEP_K[u]; }
       let px = 0, pz = 0;
       for (let a = Math.max(0, ci - 1); a <= Math.min(G - 1, ci + 1); a++) for (let b = Math.max(0, cj - 1); b <= Math.min(G - 1, cj + 1); b++) {
         for (let j = head[a * G + b]; j >= 0; j = next[j]) {
@@ -1020,19 +1107,25 @@ export class HarbourSim {
           const reach = (r.loa + rj.loa) / 2 + 2;
           if (dx * dx + dz * dz > reach * reach) continue;
           const hj = p.heading[j], gx = Math.sin(hj), gz = Math.cos(hj);
-          // deepest overlap between the two hulls' stations, and which way it pushes her
-          let pen = 0, nx = 0, nz = 0;
+          const gxl = gx * rj.loa, gzl = gz * rj.loa;
+          for (let v = 0; v < 5; v++) { sJ[v] = gxl * SEP_K[v]; sJ[v + 5] = gzl * SEP_K[v]; }
+          // deepest overlap between the two hulls' stations, and which way it pushes her (a pair no nearer than
+          // the deepest so far, or than the overlap reach, cannot be deeper: its square root is skipped)
+          const reachQ = (r.beam + rj.beam) / 2 + 0.8;
+          let pen = 0, nx = 0, nz = 0, best2 = reachQ * reachQ * (1 + 1e-9);
           for (let u = 0; u < 5; u++) for (let v = 0; v < 5; v++) {
-            const ex = dx + fx * r.loa * SEP_K[u] - gx * rj.loa * SEP_K[v], ez = dz + fz * r.loa * SEP_K[u] - gz * rj.loa * SEP_K[v];
-            const d = Math.sqrt(ex * ex + ez * ez), q = (r.beam + rj.beam) / 2 + 0.8 - d;
-            if (q > pen && d > 1e-3) { pen = q; nx = ex / d; nz = ez / d; }
+            const ex = dx + sI[u] - sJ[v], ez = dz + sI[u + 5] - sJ[v + 5];
+            const d2 = ex * ex + ez * ez;
+            if (d2 > best2) continue;
+            const d = Math.sqrt(d2), q = reachQ - d;
+            if (q > pen && d > 1e-3) { pen = q; nx = ex / d; nz = ez / d; best2 = d2; }
           }
           px += nx * pen; pz += nz * pen;
         }
       }
       if (px === 0 && pz === 0) continue;
       // swing round the buoy: the tangential part of the shove, as an angle on her rode
-      const bx = s.x, bz = s.z, rx = xi - bx, rz = zi - bz, rl = Math.hypot(rx, rz);
+      const bx = s.x, bz = s.z, rx = xi - bx, rz = zi - bz, rl = hypot(rx, rz);
       if (rl < 0.5) continue;
       const tx = -rz / rl, tz = rx / rl;
       // (one about to slip her mooring, or just picked it up, lies as her leg begins / ended: no sheer)
@@ -1091,10 +1184,10 @@ export class HarbourSim {
     this.separate();
     // at most one look-ahead path per frame, and none on a frame that already built one
     while (this.builtThisFrame === 0 && this.prefetch.length) {
-      const [bi, from, to] = this.prefetch.shift()!;
+      const [bi, from, to, sc] = this.prefetch.shift()!;
       const r = this.rt[bi];
-      this.prefetchKeys.delete(from + ">" + to + ">" + (r?.cls ?? ""));
-      if (r && from < this.layout.slots.length && to < this.layout.slots.length) this.legPathFor(from, to, r);
+      this.prefetchKeys.delete(r ? pathKey(from, to, r.cls, sc) : "");
+      if (r && from < this.layout.slots.length && to < this.layout.slots.length) this.legPathFor(from, to, r, sc);
     }
     this.posed = true;
     return this.pose;

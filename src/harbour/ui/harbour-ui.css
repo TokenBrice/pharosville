@@ -223,6 +223,34 @@
 
 .hb-epitaph { display: block; font-style: italic; color: var(--ink-2); font-size: 15px; padding: 0 0 7px; }
 .hb-wreck-meta { color: var(--ink-3); font-size: 14px; }
+
+/* Wreck Cove: cause-family chips, the sort, the list of the dead; the obituary */
+.hb-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.hb-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 8px; border-radius: 2px; font-size: 14.5px; color: var(--ink-2);
+  box-shadow: inset 0 0 0 0.5px var(--brass-soft); transition: background-color 150ms var(--ease), color 150ms var(--ease); }
+.hb-chip i { width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2); }
+.hb-chip b { font-weight: 400; color: var(--ink-3); font-size: 13.5px; }
+.hb-chip:hover { background: rgba(166, 130, 66, 0.12); color: var(--ink); }
+.hb-chip[aria-pressed="true"] { background: rgba(166, 130, 66, 0.2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--brass); }
+.hb-textbtn { font-style: italic; color: var(--sea); text-decoration: underline; text-decoration-color: var(--brass-soft); text-underline-offset: 3px; }
+.hb-sorts { display: flex; gap: 2px; margin: -2px 0 6px; font-size: 14px; }
+.hb-sorts button { padding: 2px 8px; border-radius: 2px; color: var(--ink-3); }
+.hb-sorts button:hover { color: var(--ink); background: rgba(166, 130, 66, 0.1); }
+.hb-sorts button[aria-pressed="true"] { color: var(--ink); box-shadow: inset 0 -1px 0 var(--brass); }
+.hb-wrecks .hb-row { grid-template-columns: 1fr auto; row-gap: 1px; }
+.hb-wreck-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hb-wreck-name b { flex: none; }
+.hb-wreck-name em { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-size: 14.5px; }
+.hb-wreck-line { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 10px; padding-left: 28px; font-size: 14px; color: var(--ink-2); }
+.hb-wreck-epitaph { font-style: italic; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-wreck-line .hb-wreck-meta { flex: none; }
+.hb-obit-epitaph { margin: 14px 0 0; font-style: italic; font-size: 21px; line-height: 1.25; color: var(--ink); text-align: center; padding: 10px 6px 12px;
+  border-top: 0.5px solid var(--brass-soft); border-bottom: 0.5px solid var(--brass-soft); }
+.hb-obit { margin: 0; font-size: 16px; line-height: 1.45; color: var(--ink-2); hyphens: auto; }
+.hb-obit-dl { grid-template-columns: auto 1fr; }
+.hb-obit-dl dt { white-space: nowrap; }
+.hb-obit-src { margin: 0; font-size: 15px; }
+.hb-obit-src a { color: var(--sea); text-decoration-color: var(--brass-soft); text-underline-offset: 3px; }
 .hb-empty { font-style: italic; color: var(--ink-2); margin: 4px 0; }
 .hb-foot { margin-top: 22px; padding-top: 9px; border-top: 0.5px solid var(--brass-soft); font-size: 13.5px; color: var(--ink-3); font-style: italic; display: flex; align-items: center; gap: 8px; }
 .hb-foot .hb-dot { top: 0; }
@@ -378,3 +406,42 @@
 .hb-scope .hb-crest { border-radius: 50%; box-shadow: 0 0 0 0.5px rgba(35, 32, 26, 0.35); }
 .hb-title[data-long="1"] { font-size: 29px; }
 .hb-title[data-long="2"] { font-size: 24px; overflow-wrap: anywhere; }
+
+/* ------------------------------------------------------------------ touch and smaller screens
+   Touch has no hover: the key strip stays open and its keyboard glyphs step aside; every control is a
+   44 px target. Under 900 px wide the panel is a bottom sheet of at most half the height (store.ts
+   SHEET_BELOW_PX / SHEET_FRACTION keep a flown-to selection clear of it). */
+@media (hover: none) {
+  .hb-mark-more { grid-template-columns: 1fr; opacity: 1; }
+  .hb-mark-btn { padding-right: 8px; }
+  .hb-keys kbd { display: none; }
+}
+@media (pointer: coarse) {
+  .hb-mark-btn, .hb-sound { min-height: 44px; }
+  .hb-sound { width: 44px; }
+  .hb-keys { margin-right: 0; }
+  .hb-keys button { min-height: 44px; min-width: 44px; padding: 0 9px; }
+  .hb-close { width: 44px; height: 44px; top: 6px; right: 6px; }
+  .hb-tab, .hb-table th button, .hb-chip, .hb-sorts button, .hb-result, .hb-list .hb-row { min-height: 44px; }
+  .hb-tab, .hb-table th button, .hb-sorts button { display: inline-flex; align-items: center; }
+  .hb-table th button { display: flex; }
+  .hb-table td button { min-height: 44px; padding: 0 2px; }
+  .hb-list .hb-row { align-items: center; }
+  .hb-textbtn { display: inline-block; min-height: 44px; line-height: 44px; }
+  .hb-filter input { min-height: 44px; }
+  .hb-panel-body, .hb-ledger-body { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+}
+@media (max-width: 899.98px) {
+  .hb-panel {
+    top: auto; left: 0; right: 0; bottom: 0; width: auto; max-width: none;
+    max-height: 50vh; max-height: 50dvh;
+    border-left: 0; border-right: 0; border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    transform: translateY(14px);
+  }
+  .hb-panel[data-shown="true"] { transform: none; }
+  .hb-panel-head { padding: 16px 60px 10px 20px; }
+  .hb-panel-body { padding: 0 20px 18px; overscroll-behavior: contain; }
+  .hb-title { font-size: 29px; }
+  .hb-chart-badge { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+}

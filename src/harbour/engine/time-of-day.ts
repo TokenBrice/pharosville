@@ -142,12 +142,45 @@ function lerpAngleDeg(a: number, b: number, f: number): number {
   return a + d * f;
 }
 
+/**
+ * The keyframes above are authored for a reference day (sun up ≈ 6.0, down ≈ 19.85, noon sun 58°). The season
+ * system (calendar, declared decorative) hands TimeOfDay the visitor's real day: the clock is remapped so dawn,
+ * golden hour, dusk and the blue hour land at the real sunrise / sunset (short winter days, long summer ones),
+ * and the day sun's height scales with the season's noon elevation. Night keys are untouched (the moon).
+ */
+export interface SeasonalDay {
+  sunrise: number;
+  sunset: number;
+  noonElevation: number;
+  /** Multiplier on the key light colour (autumn warm, winter pale); white = none. */
+  sunTint: THREE.Color;
+  /** Grade saturation multiplier (summer lush, winter muted). */
+  saturation: number;
+  /** 0..1 how much the day zenith pales toward the horizon (a thin winter sky). */
+  skyPale: number;
+}
+const REF_RISE = 6.0, REF_SET = 19.85, REF_NOON_EL = 58, REF_NOON_AZ = 160;
+
+/** Clock hour → keyframe hour for a seasonal day (piecewise linear: the day and the night each stretch). */
+export function seasonalKeyHour(hour: number, sunrise: number, sunset: number): number {
+  const day = Math.max(1, sunset - sunrise), refDay = REF_SET - REF_RISE;
+  const h = ((hour - sunrise) % 24 + 24) % 24; // hours since sunrise
+  if (h <= day) return REF_RISE + (h / day) * refDay;
+  const t = (h - day) / Math.max(1, 24 - day);
+  return (REF_SET + t * (24 - refDay)) % 24;
+}
+
 /** Night moon-fill colour (slate blue, desaturated so night reads blue-teal, not "blue filter"). */
 const NIGHT_LIFT = new THREE.Color("#93A6CF");
 
 export class TimeOfDay {
-  /** Current hour in [0, 24). */
+  /**
+   * Current LIGHT hour in [0, 24): the keyframe hour every hour-driven look reads (sky palette, moon,
+   * townsfolk, smoke). Equals clockHour unless the season system remaps it to the visitor's real day.
+   */
   hour = 12;
+  /** The wall clock (or the pinned `?t=`) hour in [0, 24). */
+  clockHour = 12;
   pinned: number | null;
   speed: number;
   keyframes: TimeKeyframe[] = DEFAULT_KEYFRAMES;
@@ -155,6 +188,8 @@ export class TimeOfDay {
   exposure = 0;
   bloomIntensity = 0.5;
   bloomThreshold = 1.5;
+  /** The visitor's seasonal day (season system); null = the authored reference day. */
+  season: SeasonalDay | null = null;
   /** Interpolated grade, rewritten IN PLACE every frame (others may scale it after TimeOfDay ran). */
   grade: Required<Grade> = { ...G0, lift: [1, 1, 1], gamma: [1, 1, 1], gain: [1, 1, 1], shadowSat: 1, blueSat: 1, warmSat: 1 };
   constructor() {
@@ -169,16 +204,19 @@ export class TimeOfDay {
 
   update(nowMs: number, elapsed: number, u: WorldUniforms): void {
     if (this.pinned !== null) {
-      this.hour = this.speed !== 1 ? (this.pinned + (elapsed * this.speed) / 3600) % 24 : this.pinned;
+      this.clockHour = this.speed !== 1 ? (this.pinned + (elapsed * this.speed) / 3600) % 24 : this.pinned;
     } else {
       const d = new Date(nowMs);
-      this.hour = (d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600 + (elapsed * (this.speed - 1)) / 3600) % 24;
+      this.clockHour = (d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600 + (elapsed * (this.speed - 1)) / 3600) % 24;
     }
+    const sd = this.season;
+    this.hour = sd ? seasonalKeyHour(this.clockHour, sd.sunrise, sd.sunset) : this.clockHour;
     this.apply(u);
   }
 
   /** Keyframe hex → parsed colour, cached (Color.set(string) runs a regex: garbage every frame). */
   private readonly parsed = new Map<string, THREE.Color>();
+  private readonly tinted = new THREE.Color();
   private col(hex: string): THREE.Color {
     let c = this.parsed.get(hex);
     if (!c) { c = new THREE.Color(hex); this.parsed.set(hex, c); }
@@ -192,18 +230,23 @@ export class TimeOfDay {
 
   apply(u: WorldUniforms): void {
     const k = this.keyframes;
+    const sd = this.season;
+    const kh = this.hour;
     let i = 0;
-    while (i < k.length - 2 && k[i + 1].hour <= this.hour) i++;
+    while (i < k.length - 2 && k[i + 1].hour <= kh) i++;
     const a = k[i], b = k[i + 1];
-    const lin = THREE.MathUtils.clamp((this.hour - a.hour) / Math.max(1e-6, b.hour - a.hour), 0, 1);
+    const lin = THREE.MathUtils.clamp((kh - a.hour) / Math.max(1e-6, b.hour - a.hour), 0, 1);
     const f = lin * lin * (3 - 2 * lin); // ease between keys: holds each look a little longer
     const L = THREE.MathUtils.lerp;
     this.mixC(u.uSunColor.value, a.sunColor, b.sunColor, f, L(a.sunIntensity, b.sunIntensity, f));
+    const night = L(a.night, b.night, f);
+    if (sd) u.uSunColor.value.lerp(this.tinted.copy(u.uSunColor.value).multiply(sd.sunTint), 1 - night);
     this.mixC(u.uZenith.value, a.zenith, b.zenith, f);
     this.mixC(u.uHorizon.value, a.horizon, b.horizon, f);
     this.mixC(u.uHaze.value, a.haze, b.haze, f);
+    if (sd && sd.skyPale > 0) u.uZenith.value.lerp(u.uHorizon.value, sd.skyPale * (1 - night));
     u.uFogDensity.value = L(a.fogDensity, b.fogDensity, f);
-    u.uNight.value = L(a.night, b.night, f);
+    u.uNight.value = night;
     u.uWindowGlow.value = L(a.windowGlow, b.windowGlow, f);
     u.uWindowOcc.value = L(a.windowOcc ?? 0.35 + 0.35 * a.windowGlow, b.windowOcc ?? 0.35 + 0.35 * b.windowGlow, f);
     u.uNightLift.value.copy(NIGHT_LIFT).multiplyScalar(L(a.nightLift ?? 0, b.nightLift ?? 0, f));
@@ -216,7 +259,15 @@ export class TimeOfDay {
     u.uLamp.value = L(a.lamp ?? 0.4 + 40 * a.windowGlow, b.lamp ?? 0.4 + 40 * b.windowGlow, f);
     u.uLens.value = L(a.lens ?? 5 + 75 * a.night, b.lens ?? 5 + 75 * b.night, f);
 
-    styleCDirection(lerpAngleDeg(a.sunAz ?? 200, b.sunAz ?? 200, f), L(a.sunEl ?? 30, b.sunEl ?? 30, f), u.uSunDir.value);
+    let az = lerpAngleDeg(a.sunAz ?? 200, b.sunAz ?? 200, f), el = L(a.sunEl ?? 30, b.sunEl ?? 30, f);
+    if (sd) {
+      // the day sun climbs higher in summer and stays low in winter; its arc swings wider on a long day
+      const day = 1 - night;
+      el *= L(1, THREE.MathUtils.clamp(sd.noonElevation / REF_NOON_EL, 0.45, 1.4), day);
+      const swing = THREE.MathUtils.clamp((sd.sunset - sd.sunrise) / (REF_SET - REF_RISE), 0.7, 1.12);
+      az = REF_NOON_AZ + ((((az - REF_NOON_AZ) % 360) + 540) % 360 - 180) * L(1, swing, day);
+    }
+    styleCDirection(az, el, u.uSunDir.value);
     styleCDirection(lerpAngleDeg(a.fillAz ?? 60, b.fillAz ?? 60, f), L(a.fillEl ?? 35, b.fillEl ?? 35, f), u.uFillDir.value);
 
     this.exposure = L(a.exposure ?? 0, b.exposure ?? 0, f);
@@ -230,7 +281,7 @@ export class TimeOfDay {
       g.gamma[c] = L(ga.gamma[c], gb.gamma[c], f);
       g.gain[c] = L(ga.gain[c], gb.gain[c], f);
     }
-    g.saturation = L(ga.saturation, gb.saturation, f);
+    g.saturation = L(ga.saturation, gb.saturation, f) * (sd ? sd.saturation : 1);
     g.contrast = L(ga.contrast, gb.contrast, f);
     g.shadowSat = L(ga.shadowSat ?? 1, gb.shadowSat ?? 1, f);
     g.blueSat = L(ga.blueSat ?? 1, gb.blueSat ?? 1, f);

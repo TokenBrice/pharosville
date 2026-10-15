@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { SoundToggle } from "../audio/SoundToggle";
 import { truthState } from "./bits";
-import { usePresence, useStore, useUISlice } from "./hooks";
+import { touchFirst, usePresence, useStore, useUISlice } from "./hooks";
 
 const INTRO_KEY = "harbour.intro.seen";
 
@@ -18,7 +18,8 @@ function wantsIntro(): boolean {
 
 /**
  * The only persistent chrome (D11): wordmark + one live dot. Hover or keyboard focus opens the state
- * word and the key strip, whose keys are real buttons (search, ledger, chart, home).
+ * word and the key strip, whose keys are real buttons (search, ledger, chart, home); on touch the strip
+ * stays open (harbour-ui.css).
  */
 export function CornerMark() {
   const store = useStore();
@@ -71,7 +72,9 @@ export function CornerMark() {
         <div className="hb-intro hb-paper hb-neat hb-fade" data-shown={introShown} role="status">
           <b>Every boat here is a stablecoin.</b>
           <span>It sails between the chains that hold it; the lighthouse, the sea and the sky are the market’s health.</span>
-          <span className="hb-intro-keys">Hover anything · <kbd>L</kbd> the legend · <kbd>/</kbd> find a coin</span>
+          {touchFirst()
+            ? <span className="hb-intro-keys">Tap anything · hold for its name · pinch to zoom · the ledger holds the legend</span>
+            : <span className="hb-intro-keys">Hover anything · <kbd>L</kbd> the legend · <kbd>/</kbd> find a coin</span>}
         </div>
       )}
     </div>

@@ -29,7 +29,7 @@
    ],
    "issuer": "United Arab Emirates",
    "logo": "/logos/aed-rakbank.png",
-   "brandColor": null,
+   "brandColor": "#fd2b2b",
    "llamaId": null,
    "geckoId": null
   },
@@ -95,7 +95,7 @@
    ],
    "issuer": "Israel",
    "logo": "/logos/bils-bitsofgold.png",
-   "brandColor": null,
+   "brandColor": "#011846",
    "llamaId": null,
    "geckoId": "bils"
   },
@@ -128,7 +128,7 @@
    ],
    "issuer": "Brazil",
    "logo": "/logos/brd-volpon.png",
-   "brandColor": null,
+   "brandColor": "#a1979b",
    "llamaId": null,
    "geckoId": null
   },
@@ -181,7 +181,7 @@
    ],
    "issuer": "Brazil",
    "logo": "/logos/brl-b3.png",
-   "brandColor": null,
+   "brandColor": "#091e3f",
    "llamaId": null,
    "geckoId": null
   },
@@ -219,7 +219,7 @@
    ],
    "issuer": "Brazil",
    "logo": "/logos/brl-itau.png",
-   "brandColor": null,
+   "brandColor": "#e65900",
    "llamaId": null,
    "geckoId": null
   },
@@ -257,7 +257,7 @@
    ],
    "issuer": null,
    "logo": "/logos/btd-alpen.png",
-   "brandColor": null,
+   "brandColor": "#414141",
    "llamaId": null,
    "geckoId": null
   },
@@ -280,7 +280,7 @@
    ],
    "issuer": "Czech Republic",
    "logo": "/logos/czkc-czkc.svg",
-   "brandColor": null,
+   "brandColor": "#00009a",
    "llamaId": null,
    "geckoId": null
   },
@@ -308,7 +308,7 @@
    ],
    "issuer": "Japan",
    "logo": "/logos/ejpy-jbfd.png",
-   "brandColor": null,
+   "brandColor": "#640e11",
    "llamaId": null,
    "geckoId": null
   },
@@ -386,7 +386,7 @@
    ],
    "issuer": "Netherlands",
    "logo": "/logos/eur-qivalis.png",
-   "brandColor": null,
+   "brandColor": "#151932",
    "llamaId": null,
    "geckoId": null
   },
@@ -435,7 +435,7 @@
    "issuer": "Luxembourg",
    "logo": null,
    "brandColor": null,
-   "llamaId": "436",
+   "llamaId": null,
    "geckoId": null
   },
   {
@@ -540,7 +540,7 @@
    ],
    "issuer": "United Kingdom",
    "logo": "/logos/gbp-vvtx.png",
-   "brandColor": null,
+   "brandColor": "#242424",
    "llamaId": null,
    "geckoId": null
   },
@@ -611,7 +611,7 @@
    ],
    "issuer": null,
    "logo": "/logos/gynusd-gyndore.svg",
-   "brandColor": null,
+   "brandColor": "#242424",
    "llamaId": null,
    "geckoId": null
   },
@@ -639,7 +639,7 @@
    ],
    "issuer": "Hong Kong",
    "logo": "/logos/hkd-hsbc.svg",
-   "brandColor": null,
+   "brandColor": "#851018",
    "llamaId": null,
    "geckoId": null
   },
@@ -722,8 +722,8 @@
    ],
    "issuer": "Hong Kong",
    "logo": "/logos/hkdap-anchorpoint.png",
-   "brandColor": null,
-   "llamaId": "437",
+   "brandColor": "#024389",
+   "llamaId": null,
    "geckoId": null
   },
   {
@@ -790,7 +790,7 @@
    ],
    "issuer": "Hong Kong",
    "logo": "/logos/hkdr-rd-technologies.png",
-   "brandColor": null,
+   "brandColor": "#4306b6",
    "llamaId": null,
    "geckoId": null
   },
@@ -846,7 +846,7 @@
    ],
    "issuer": "Japan",
    "logo": "/logos/jpydf-deltaforesight.png",
-   "brandColor": null,
+   "brandColor": "#09233e",
    "llamaId": null,
    "geckoId": null
   },
@@ -942,7 +942,7 @@
    ],
    "issuer": "South Korea",
    "logo": "/logos/krw-imbank.png",
-   "brandColor": null,
+   "brandColor": "#49f9da",
    "llamaId": null,
    "geckoId": null
   },
@@ -970,7 +970,7 @@
    ],
    "issuer": "South Korea",
    "logo": "/logos/krw-kb-kookmin.png",
-   "brandColor": null,
+   "brandColor": "#ad7501",
    "llamaId": null,
    "geckoId": null
   },
@@ -1088,8 +1088,8 @@
    ],
    "issuer": "South Korea",
    "logo": "/logos/krw1-bdacs.png",
-   "brandColor": null,
-   "llamaId": "429",
+   "brandColor": "#161a35",
+   "llamaId": null,
    "geckoId": null
   },
   {
@@ -1141,7 +1141,7 @@
    ],
    "issuer": null,
    "logo": "/logos/kusd-kerne.png",
-   "brandColor": null,
+   "brandColor": "#166255",
    "llamaId": "402",
    "geckoId": null
   },
@@ -1164,7 +1164,7 @@
    ],
    "issuer": null,
    "logo": "/logos/net-cloudflare.png",
-   "brandColor": null,
+   "brandColor": "#795d14",
    "llamaId": null,
    "geckoId": "net-dollar"
   },
@@ -1187,7 +1187,7 @@
    ],
    "issuer": "South Korea",
    "logo": "/logos/okrw-hashed.png",
-   "brandColor": null,
+   "brandColor": "#054851",
    "llamaId": null,
    "geckoId": null
   },
@@ -1278,7 +1278,7 @@
    ],
    "issuer": "Netherlands",
    "logo": "/logos/plnq-quantoz.svg",
-   "brandColor": null,
+   "brandColor": "#041b43",
    "llamaId": null,
    "geckoId": null
   },
@@ -1359,7 +1359,7 @@
    ],
    "issuer": null,
    "logo": "/logos/rd-rai-dollar.png",
-   "brandColor": null,
+   "brandColor": "#3d3228",
    "llamaId": null,
    "geckoId": null
   },
@@ -1518,7 +1518,7 @@
    ],
    "issuer": "United States",
    "logo": "/logos/roughrider-bnd.png",
-   "brandColor": "#443c31",
+   "brandColor": "#53483b",
    "llamaId": null,
    "geckoId": null
   },
@@ -1639,7 +1639,7 @@
    ],
    "issuer": "British Virgin Islands",
    "logo": "/logos/tgld-tenbin.png",
-   "brandColor": null,
+   "brandColor": "#af9113",
    "llamaId": null,
    "geckoId": "tenbin-gold"
   },
@@ -1667,7 +1667,7 @@
    ],
    "issuer": "Panama",
    "logo": "/logos/thgold-theo.jpg",
-   "brandColor": null,
+   "brandColor": "#746229",
    "llamaId": null,
    "geckoId": "thgold"
   },
@@ -1786,7 +1786,7 @@
    ],
    "issuer": "United States",
    "logo": "/logos/usdf-flipcash.png",
-   "brandColor": null,
+   "brandColor": "#242324",
    "llamaId": null,
    "geckoId": null
   },
@@ -1814,7 +1814,7 @@
    ],
    "issuer": "United States",
    "logo": "/logos/usdvb-versabank.png",
-   "brandColor": null,
+   "brandColor": "#121d47",
    "llamaId": null,
    "geckoId": null
   },
@@ -1837,7 +1837,7 @@
    ],
    "issuer": null,
    "logo": "/logos/ustx-tx.png",
-   "brandColor": null,
+   "brandColor": "#669202",
    "llamaId": null,
    "geckoId": null
   },
@@ -1870,7 +1870,7 @@
    ],
    "issuer": "Netherlands",
    "logo": "/logos/weur-aplauz.png",
-   "brandColor": null,
+   "brandColor": "#1b7a66",
    "llamaId": null,
    "geckoId": null
   }

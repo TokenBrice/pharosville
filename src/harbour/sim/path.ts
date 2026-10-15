@@ -5,6 +5,7 @@
  */
 import type { Vec2 } from "../layout/types";
 import { clearance, hullClearance, openWaterFactor, type ObstacleField } from "./obstacles";
+import { hypot } from "./math";
 
 export interface SubPath {
   /** Uniformly spaced samples, x,z interleaved. */
@@ -66,7 +67,7 @@ function dedupe(points: readonly Vec2[]): Vec2[] {
   const out: Vec2[] = [];
   for (const p of points) {
     const q = out[out.length - 1];
-    if (!q || Math.hypot(p[0] - q[0], p[1] - q[1]) > 0.3) out.push(p);
+    if (!q || hypot(p[0] - q[0], p[1] - q[1]) > 0.3) out.push(p);
   }
   return out;
 }
@@ -81,7 +82,7 @@ function mergeClose(pts: Vec2[], head: number, tail: number, minGap: number): Ve
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
     const q = out[out.length - 1];
-    if (q && i >= head && i < lastFree && out.length > head && Math.hypot(p[0] - q[0], p[1] - q[1]) < minGap) {
+    if (q && i >= head && i < lastFree && out.length > head && hypot(p[0] - q[0], p[1] - q[1]) < minGap) {
       out[out.length - 1] = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
       continue;
     }
@@ -105,7 +106,7 @@ function clearSegments(pts: Vec2[], head: number, tail: number, field: ObstacleF
     return keepOff ? Math.min(c, (clearance(keepOff, x, z) + 0.5) / needK) : c;
   };
   const fix = (a: Vec2, b: Vec2, depth: number): void => {
-    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const len = hypot(b[0] - a[0], b[1] - a[1]);
     const steps = Math.max(2, Math.ceil(len / 2));
     let worst = Infinity, wt = 0;
     for (let k = 1; k < steps; k++) {
@@ -120,7 +121,7 @@ function clearSegments(pts: Vec2[], head: number, tail: number, field: ObstacleF
       if (c >= 1.25) break;
       const gx = cl(px + 1, pz) - cl(px - 1, pz);
       const gz = cl(px, pz + 1) - cl(px, pz - 1);
-      const gl = Math.hypot(gx, gz);
+      const gl = hypot(gx, gz);
       if (gl < 1e-6) break;
       px += (gx / gl) * 1.5; pz += (gz / gl) * 1.5;
     }
@@ -137,7 +138,7 @@ function clearSegments(pts: Vec2[], head: number, tail: number, field: ObstacleF
 /** Uniform resample of a polyline (xs, zs) at ~`step` metres. */
 function resample(xs: ArrayLike<number>, zs: ArrayLike<number>, m: number, step: number, maxN: number): { x: Float64Array; z: Float64Array; n: number; ds: number; length: number } {
   const cum = new Float64Array(m);
-  for (let i = 1; i < m; i++) cum[i] = cum[i - 1] + Math.hypot(xs[i] - xs[i - 1], zs[i] - zs[i - 1]);
+  for (let i = 1; i < m; i++) cum[i] = cum[i - 1] + hypot(xs[i] - xs[i - 1], zs[i] - zs[i - 1]);
   const length = Math.max(cum[m - 1], 1e-3);
   const n = Math.min(maxN, Math.max(2, Math.ceil(length / step) + 1));
   const ds = length / (n - 1);
@@ -222,7 +223,7 @@ function relaxClear(x: Float64Array, z: Float64Array, n: number, ds: number, har
       const def = need[i] - c;
       if (def <= 0) continue;
       let gx = hard(px + 0.5, pz) - hard(px - 0.5, pz), gz = hard(px, pz + 0.5) - hard(px, pz - 0.5);
-      const gl = Math.hypot(gx, gz);
+      const gl = hypot(gx, gz);
       if (gl < 1e-6) continue;
       gx /= gl; gz /= gl;
       any = true;
@@ -265,7 +266,7 @@ export function buildPath(points: readonly Vec2[], loa: number, tailKeep = 2, fi
   const cornerR = Math.min(26, Math.max(7, loa * 1.4));
   let pts = dedupe(points);
   if (pts.length < 2) pts = [pts[0] ?? [0, 0], [(pts[0]?.[0] ?? 0) + 0.5, pts[0]?.[1] ?? 0]];
-  const ctrlLen = (() => { let s = 0; for (let i = 1; i < pts.length; i++) s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return s; })();
+  const ctrlLen = (() => { let s = 0; for (let i = 1; i < pts.length; i++) s += hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return s; })();
 
   const R = Math.max(6, loa * 1.2);
   // the first segment is the hull's own heading at the start: keep it
@@ -278,7 +279,7 @@ export function buildPath(points: readonly Vec2[], loa: number, tailKeep = 2, fi
   scratchX.push(pts[0][0]); scratchZ.push(pts[0][1]);
   for (let i = 1; i < pts.length - 1; i++) {
     const a = pts[i - 1], v = pts[i], b = pts[i + 1];
-    const lin = Math.hypot(v[0] - a[0], v[1] - a[1]), lout = Math.hypot(b[0] - v[0], b[1] - v[1]);
+    const lin = hypot(v[0] - a[0], v[1] - a[1]), lout = hypot(b[0] - v[0], b[1] - v[1]);
     const r = Math.min(cornerR, lin * 0.48, lout * 0.48);
     const uix = (v[0] - a[0]) / lin, uiz = (v[1] - a[1]) / lin, uox = (b[0] - v[0]) / lout, uoz = (b[1] - v[1]) / lout;
     const turn = Math.acos(Math.max(-1, Math.min(1, uix * uox + uiz * uoz)));
@@ -490,8 +491,8 @@ export const HOLD_OUT_MAX = 40, HOLD_IN_MAX = 22;
  */
 export function legTiming(p: PathRec, D: number, loa: number, out: LegTiming, startHeading?: number, endHeading?: number, hold = true): LegTiming {
   const vn = cruiseSpeed(loa);
-  const tW0 = p.w0 ? Math.max(12, Math.hypot(p.w0[2], p.w0[3]) / WARP_V) : 0;
-  const tW1 = p.w1 ? Math.max(12, Math.hypot(p.w1[0], p.w1[1]) / WARP_V) : 0;
+  const tW0 = p.w0 ? Math.max(12, hypot(p.w0[2], p.w0[3]) / WARP_V) : 0;
+  const tW1 = p.w1 ? Math.max(12, hypot(p.w1[0], p.w1[1]) / WARP_V) : 0;
   const vA = 0.35 + 0.45 * Math.sqrt(loa / 13);
   const tAstern = p.rev ? Math.max(10, (1.5 * p.rev.length) / vA) : 0;
   const hullStart = p.w0 ? p.w0[4] : p.rev ? p.rev.hdg[0] + Math.PI : p.hdg[0];
@@ -557,7 +558,7 @@ export function evalLeg(p: PathRec, tm: LegTiming, out: Float64Array): void {
       const u = Math.min(1, Math.max(0, (t - tm.tHold) / tm.tW0));
       const e = u * u * (3 - 2 * u);
       out[0] = p.w0[0] + p.w0[2] * e; out[1] = p.w0[1] + p.w0[3] * e; out[2] = p.w0[4];
-      out[3] = t < tm.tHold ? 0 : (Math.hypot(p.w0[2], p.w0[3]) * 6 * u * (1 - u)) / tm.tW0;
+      out[3] = t < tm.tHold ? 0 : (hypot(p.w0[2], p.w0[3]) * 6 * u * (1 - u)) / tm.tW0;
     } else out[3] = 0;
     if (t >= tm.tHold + tm.tW0) {
       const u = (t - tm.tHold - tm.tW0) / tm.tTurn;
@@ -589,7 +590,7 @@ export function evalLeg(p: PathRec, tm: LegTiming, out: Float64Array): void {
     const e = u * u * (3 - 2 * u);
     out[IO_S] = p.length; samplePath(p, out);
     out[0] += p.w1[0] * e; out[1] += p.w1[1] * e; out[2] = p.w1[2];
-    out[3] = (Math.hypot(p.w1[0], p.w1[1]) * 6 * u * (1 - u)) / tm.tW1;
+    out[3] = (hypot(p.w1[0], p.w1[1]) * 6 * u * (1 - u)) / tm.tW1;
     out[5] = LEG_APPROACH; out[6] = 0;
     return;
   }
@@ -611,8 +612,8 @@ export function evalLeg(p: PathRec, tm: LegTiming, out: Float64Array): void {
   // sail hoisted once she is clear of her berth (a hull already under way keeps hers set); lowered on the
   // run in, down for the last hull length or so (she glides in under bare poles). Distances count from the
   // berths themselves: the astern run and the warps are part of the way out / in.
-  const fromBerth = sq + (p.rev ? p.rev.length : 0) + (p.w0 ? Math.hypot(p.w0[2], p.w0[3]) : 0);
-  const toBerth = remaining + (p.w1 ? Math.hypot(p.w1[0], p.w1[1]) : 0);
+  const fromBerth = sq + (p.rev ? p.rev.length : 0) + (p.w0 ? hypot(p.w0[2], p.w0[3]) : 0);
+  const toBerth = remaining + (p.w1 ? hypot(p.w1[0], p.w1[1]) : 0);
   const set = p.underway ? 1 : Math.min(1, Math.max(0, (fromBerth - loa * SET_FROM_LOA) / (loa * (SET_FULL_LOA - SET_FROM_LOA))));
   const furl = Math.min(1, Math.max(0, (toBerth - loa * FURL_BY_LOA) / (loa * (FURL_FROM_LOA - FURL_BY_LOA))));
   const sail = Math.min(set, furl);

@@ -24,6 +24,8 @@ uniform sampler2D uSkyNoise;
 uniform vec4 uParallax;      // per-layer azimuth shift (deg): far hills, mid hills, near hills, clouds
 uniform vec3 uWeather;       // cloud cover, wind, cirrus drift (deg)
 uniform float uStorm;        // 0 fair … 1 storm deck (DEWS ALERT and above)
+uniform vec4 uPrecipSky;     // rain, snow, lightning flash, flash azimuth (deg) — the weather director
+uniform vec4 uPrecipSkyB;    // flash elevation (deg), curtain wind slant, -, -
 
 float sbHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float sbNoise1(float x, float seed) { float i = floor(x), f = fract(x); float u = f * f * (3.0 - 2.0 * f); return mix(sbHash(vec2(i, seed)), sbHash(vec2(i + 1.0, seed)), u); }
@@ -84,6 +86,18 @@ vec3 sbCloudBank(int i, float th, float e, float pxDeg, vec3 c, vec3 Lc) {
   // aerial perspective (far layers sink into the haze), and the base melts into it
   col = mix(col, mix(uHorizon, uHaze, 0.5), clamp(bi.z + baseDark * 0.18, 0.0, 1.0));
   return mix(c, col, s.a * bi.y);
+}
+
+// the night overcast (0 clear … 1 shut): closes with the cover at night (WATCH ≈ broken, ALERT+ shut); the breaks
+// drift with the clouds and fill in as the cover thickens
+float skyNightDeck(float th, float e) {
+  float cov = uWeather.x;
+  float closed = smoothstep(0.2, 0.36, cov) * smoothstep(0.25, 0.75, uNight);
+  if (closed < 0.002) return 0.0;
+  float thd = th + uWeather.z * 2.0;
+  float bn = texture2D(uSkyNoise, vec2(thd * 0.016 + 0.47, e * 0.07 + 0.29)).g * 0.75 + texture2D(uSkyNoise, vec2(thd * 0.05 + 0.13, e * 0.19 + 0.71)).r * 0.35;
+  float gap = smoothstep(0.7, 0.82, bn) * (1.0 - smoothstep(0.42, 0.58, cov));
+  return closed * (1.0 - gap);
 }
 
 vec3 skyBand(float th, float e, float pxDeg) {
@@ -165,19 +179,31 @@ vec3 skyBand(float th, float e, float pxDeg) {
     c = sbCloudBank(i, th, e, pxDeg, c, Lc);
   }
 #endif
-  // ---- storm deck: a low slate overcast rolling over the band, with rain veils hanging to the horizon
-  if (uStorm > 0.002) {
+  // ---- storm deck: a low slate overcast rolling over the band, with rain veils hanging to the horizon.
+  //      At night the deck closes (no moonlit cumulus under a starry sky while it rains): broken at WATCH, the
+  //      stars and the moon showing only through a few breaks, shut from ALERT up.
+  float nightDeck = skyNightDeck(th, e);
+  if (uStorm > 0.002 || nightDeck > 0.002) {
     float thd = th + uWeather.z * 2.0;
     float dn = texture2D(uSkyNoise, vec2(thd * 0.011, e * 0.05 + 0.13)).r * 0.7 + texture2D(uSkyNoise, vec2(thd * 0.034, e * 0.13) + 0.31).g * 0.4;
     float deckA = smoothstep(0.32, 0.7, dn + e * 0.05) * smoothstep(0.1, 1.4, e) * uStorm;
     vec3 deckC = mix(uCloudShade, uCloudMid, 0.2 + 0.45 * smoothstep(0.45, 0.95, dn));
     float ld = dot(deckC, vec3(0.299, 0.587, 0.114));
     deckC = mix(deckC, vec3(ld) * vec3(0.93, 0.97, 1.0), 0.65) * 0.82;
-    c = mix(c, deckC, deckA * 0.92);
+    // the closed night deck: the same slate, darker toward the zenith, a faint ragged base above the horizon
+    vec3 nightC = deckC * (0.78 + 0.3 * smoothstep(0.3, 0.9, dn)) * mix(1.0, 0.72, smoothstep(1.0, 7.0, e));
+    c = mix(c, mix(deckC, nightC, nightDeck), max(deckA * 0.92, nightDeck * smoothstep(0.0, 0.9, e + (dn - 0.5) * 0.8)));
     float vx = texture2D(uSkyNoise, vec2(thd * 0.021, 0.37)).g;
     float streak = texture2D(uSkyNoise, vec2(thd * 0.5 + e * 0.35, e * 0.03)).b;
     float veil = smoothstep(0.55, 0.78, vx) * (1.0 - smoothstep(0.2, 3.0, e)) * smoothstep(0.35, 0.9, uStorm);
     c = mix(c, deckC * 0.92, veil * (0.4 + 0.35 * streak));
+  }
+  // ---- lightning: the deck lit from inside around the strike, the whole band lifted a little
+  if (uPrecipSky.z > 0.002) {
+    float fd = length(vec2((th - uPrecipSky.w) / 9.0, (e - uPrecipSkyB.x) / 3.0));
+    float body = smoothstep(0.1, 1.2, e) * (0.35 + 0.65 * uStorm);
+    vec3 fc = vec3(0.78, 0.84, 1.0);
+    c += fc * uPrecipSky.z * (exp(-fd * 1.2) * 2.2 * body + exp(-fd * 0.35) * 0.35 + 0.12);
   }
   // ---- shakkei: three hill silhouettes with aerial perspective
   float dlh = sign(uLight.x - th + 1e-3);
@@ -200,6 +226,25 @@ vec3 skyBand(float th, float e, float pxDeg) {
     float baseFade = 1.0 - smoothstep(0.0, H * 0.9 + 0.05, e);
     mc = mix(mc, uHaze, clamp(hz + baseFade * 0.45, 0.0, 1.0));
     c = mix(c, mc, cov);
+  }
+  // ---- precipitation hanging from the deck: grey rain shafts slanting with the wind, soft white snow veils
+  {
+    float pr = uPrecipSky.x, ps = uPrecipSky.y;
+    if (pr + ps > 0.01) {
+      float thd = th + uWeather.z * 2.0;
+      float slant = uPrecipSkyB.y;
+      float shaftX = thd * 0.045 + e * slant * 0.08;
+      float cells = texture2D(uSkyNoise, vec2(shaftX, 0.71)).r * 0.75 + texture2D(uSkyNoise, vec2(shaftX * 2.7, 0.29)).g * 0.4;
+      float shaft = smoothstep(0.62 - 0.35 * max(pr, ps), 0.9 - 0.25 * max(pr, ps), cells);
+      float fine = texture2D(uSkyNoise, vec2(thd * 0.9 + e * slant * 1.6, e * 0.05 - uTime * 0.02)).b;
+      float hang = (1.0 - smoothstep(0.4, 4.5, e)) * smoothstep(-0.2, 0.2, e);
+      vec3 rainC = mix(c, mix(uCloudShade, uCloudMid, 0.35) * 0.85, 0.85);
+      c = mix(c, rainC, shaft * hang * pr * (0.55 + 0.25 * fine) * (0.45 + 0.55 * uStorm));
+      vec3 snowC = mix(uCloudLight, uHaze, 0.5) * mix(1.0, 0.45, uNight);
+      c = mix(c, snowC, shaft * hang * ps * (0.45 + 0.2 * fine));
+      // the heavier it falls, the more the distance greys out (visibility, not fog)
+      c = mix(c, mix(uHaze, uCloudMid, 0.3), (1.0 - smoothstep(0.0, 6.0, e)) * max(pr, ps) * 0.22);
+    }
   }
   // ---- horizon haze band (matches the sea fog) + the glow on it
   float hzb = 1.0 - smoothstep(-0.05, 0.75, e);

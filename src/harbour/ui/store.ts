@@ -28,8 +28,19 @@ export interface UIState {
 
 type FrameFn = (frame: FrameState) => void;
 
+/** Touch: hold this long (still) for the hover tag. */
+const LONG_PRESS_MS = 480;
+/** Touch: a finger that travels further than this is panning, not tapping. */
+const TAP_SLOP_PX = 10;
+/** Touch: a second tap on open water landing this soon (after the first lifts) and this close flies home. */
+const DOUBLE_TAP_MS = 300;
+const DOUBLE_TAP_SLOP_PX = 40;
+
 /** Right-hand panel footprint (width + margins) the camera keeps clear when it flies to a selection. */
 export const PANEL_CLEARANCE_PX = 392;
+/** Below this viewport width the panel is a bottom sheet (harbour-ui.css) of at most this share of the height. */
+export const SHEET_BELOW_PX = 900;
+export const SHEET_FRACTION = 0.5;
 
 export class HarbourUIStore {
   private state: UIState;
@@ -42,6 +53,12 @@ export class HarbourUIStore {
   private lastTick = 0;
   private dragging = false;
   private down: { x: number; y: number; t: number } | null = null;
+  private lastPointerType = "";
+  private readonly touch = {
+    ids: new Set<number>(), x: 0, y: 0, at: 0, moved: false, multi: false, long: false,
+    timer: 0 as ReturnType<typeof setTimeout> | 0,
+    lastTap: null as { x: number; y: number; at: number } | null,
+  };
   /** Where the pointer was first seen; hovering starts only once it has travelled from there. */
   private seen: { x: number; y: number } | null = null;
   private readonly cleanups: Array<() => void> = [];
@@ -137,6 +154,7 @@ export class HarbourUIStore {
 
   private attachPointer(el: HTMLCanvasElement): void {
     const move = (e: PointerEvent) => {
+      if (e.pointerType === "touch") { this.touchMove(e); return; }
       // Chrome sends pointermoves for a cursor that merely rests over the page at load (and on layout
       // changes; a resting hand jitters it by a pixel): only a pointer that has really travelled may hover.
       if (!this.pointer.inside) {
@@ -149,8 +167,13 @@ export class HarbourUIStore {
         this.setHover(null);
       }
     };
-    const down = (e: PointerEvent) => { if (e.button === 0) this.down = { x: e.clientX, y: e.clientY, t: performance.now() }; };
+    const down = (e: PointerEvent) => {
+      this.lastPointerType = e.pointerType;
+      if (e.pointerType === "touch") { this.touchDown(e); return; }
+      if (e.button === 0) this.down = { x: e.clientX, y: e.clientY, t: performance.now() };
+    };
     const up = (e: PointerEvent) => {
+      if (e.pointerType === "touch") { this.touchUp(e); return; }
       const d = this.down;
       this.down = null;
       const wasDrag = this.dragging;
@@ -161,21 +184,82 @@ export class HarbourUIStore {
       if (hit && this.isOpenable(hit)) this.select(hit);
       else if (!hit) this.select(null);
     };
-    const leave = () => { this.pointer.inside = false; this.seen = null; this.setHover(null); };
-    // double-click on open water: back to the landing framing
-    const dbl = (e: MouseEvent) => { if (!this.picking.pick(e.clientX, e.clientY)) this.goHome(); };
+    const cancel = (e: PointerEvent) => { if (e.pointerType === "touch") this.touchCancel(e); };
+    const leave = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return; // a lifted finger keeps the tag it asked for
+      this.pointer.inside = false; this.seen = null; this.setHover(null);
+    };
+    // double-click on open water: back to the landing framing (touch has its own double tap)
+    const dbl = (e: MouseEvent) => { if (this.lastPointerType !== "touch" && !this.picking.pick(e.clientX, e.clientY)) this.goHome(); };
     el.addEventListener("dblclick", dbl);
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", cancel);
     el.addEventListener("pointerleave", leave);
     this.cleanups.push(() => {
+      clearTimeout(this.touch.timer);
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerdown", down);
       el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", cancel);
       el.removeEventListener("pointerleave", leave);
       el.removeEventListener("dblclick", dbl);
     });
+  }
+
+  // ------------------------------------------------------------------ touch: tap, long press, double tap
+
+  /**
+   * Touch has no hover. A tap selects what it lands on (or shows the tag of a hover-only landmark); a
+   * long press shows the tag without opening anything; a double tap on open water flies home. Pans and
+   * pinches (engine/input.ts) are never taps: a gesture that moved or ever had two fingers down is not.
+   */
+  private touchDown(e: PointerEvent): void {
+    const t = this.touch;
+    t.ids.add(e.pointerId);
+    clearTimeout(t.timer);
+    if (t.ids.size > 1) { t.multi = true; return; }
+    t.multi = false; t.moved = false; t.long = false;
+    t.x = e.clientX; t.y = e.clientY; t.at = performance.now();
+    if (this.state.hover) this.setHover(null);
+    t.timer = setTimeout(() => {
+      if (t.multi || t.moved || !t.ids.size) return;
+      t.long = true;
+      this.setHover(this.picking.pick(t.x, t.y));
+    }, LONG_PRESS_MS);
+  }
+
+  private touchMove(e: PointerEvent): void {
+    const t = this.touch;
+    if (!t.ids.has(e.pointerId) || t.moved) return;
+    if (Math.hypot(e.clientX - t.x, e.clientY - t.y) > TAP_SLOP_PX) { t.moved = true; clearTimeout(t.timer); }
+  }
+
+  private touchUp(e: PointerEvent): void {
+    const t = this.touch;
+    if (!t.ids.delete(e.pointerId) || t.ids.size) return;
+    clearTimeout(t.timer);
+    if (t.multi || t.moved || t.long) return;
+    const now = performance.now();
+    const hit = this.picking.pick(e.clientX, e.clientY);
+    const prev = t.lastTap;
+    t.lastTap = hit ? null : { x: e.clientX, y: e.clientY, at: now };
+    if (!hit && prev && t.at - prev.at < DOUBLE_TAP_MS && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < DOUBLE_TAP_SLOP_PX) {
+      t.lastTap = null;
+      this.goHome();
+      return;
+    }
+    if (!hit) { this.select(null); return; }
+    if (this.isOpenable(hit)) this.select(hit);
+    else this.setHover(hit);
+  }
+
+  private touchCancel(e: PointerEvent): void {
+    const t = this.touch;
+    t.ids.delete(e.pointerId);
+    t.multi = true;
+    clearTimeout(t.timer);
   }
 
   // ------------------------------------------------------------------ actions
@@ -195,7 +279,7 @@ export class HarbourUIStore {
     const w = this.picking.worldPosition(hit);
     if (!w) return;
     const { rig, camera } = this.ctx;
-    const close = hit.kind === "boat" ? 210 : hit.kind === "yard" ? 170 : hit.kind === "harbour" ? 300
+    const close = hit.kind === "boat" ? 210 : hit.kind === "yard" ? 170 : hit.kind === "wreck" ? 160 : hit.kind === "harbour" ? 300
       : hit.id === "far-ports" || hit.id === "wreck-cove" || hit.id === "the-roads" ? 420 : hit.id === "slipway" ? 340 : hit.id === "pharos" ? 440 : 300;
     // the Pharos stands ~100 m to its statue: aim at its middle so the beacon and its tag stay in frame
     const ty = hit.kind === "landmark" && hit.id === "pharos" ? 45 : 0;
@@ -203,9 +287,18 @@ export class HarbourUIStore {
     const vh = this.ctx.renderer.domElement.clientHeight || innerHeight;
     const vw = this.ctx.renderer.domElement.clientWidth || innerWidth;
     const perPx = (2 * dist * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / vh;
-    const shift = vw > 900 ? (PANEL_CLEARANCE_PX / 2) * perPx : 0;
-    // screen-right on the ground plane is (cos yaw, 0, −sin yaw)
-    const tx = w[0] + Math.cos(rig.yaw) * shift, tz = w[2] - Math.sin(rig.yaw) * shift;
+    let tx = w[0], tz = w[2];
+    if (vw >= SHEET_BELOW_PX) {
+      // the side panel: aim right of the object so it sits in the clear left part; screen-right on the
+      // ground plane is (cos yaw, 0, −sin yaw)
+      const shift = (PANEL_CLEARANCE_PX / 2) * perPx;
+      tx += Math.cos(rig.yaw) * shift; tz -= Math.sin(rig.yaw) * shift;
+    } else {
+      // the bottom sheet: aim below the object so it sits in the clear top part; screen-down on the
+      // ground is (sin yaw, 0, cos yaw), foreshortened by the pitch
+      const down = ((SHEET_FRACTION * vh) / 2) * perPx / Math.sin(rig.pitch);
+      tx += Math.sin(rig.yaw) * down; tz += Math.cos(rig.yaw) * down;
+    }
     rig.applyPreset({
       target: [tx, ty, tz], distance: dist, fovDeg: camera.fov,
       pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
@@ -214,7 +307,9 @@ export class HarbourUIStore {
 
   /** Fly back to the framing the visitor landed on. */
   goHome(): void {
-    this.ctx.rig.applyPreset(this.home, this.state.reducedMotion);
+    // the layout's landing framing for the current aspect (a tablet may have turned round since)
+    const fitted = this.ctx.services.get("home-view") as (() => CameraPreset) | undefined;
+    this.ctx.rig.applyPreset(fitted?.() ?? this.home, this.state.reducedMotion);
   }
 
   // ------------------------------------------------------------------ reads

@@ -316,15 +316,20 @@ def rib_cage(coll=None):
 
 # =========================================================================== 4. capsized
 def capsized(coll=None):
-    """A 13 m coppered cutter turned turtle: green-streaked copper bottom to the sky, keel and rudder up,
-    barnacles thick along her old waterline, one gunwale buried in a drift, a hole stove in her bilge."""
+    """A 13 m cutter turned turtle: her bare bottom planking to the sky, sun-silvered to grey-brown timber
+    (the copper long stripped), keel and rudder up, barnacles thick along her old waterline and crusted in
+    clusters over the bottom, one gunwale buried in a drift, a hole stove in her bilge."""
     L = 13.0; H = Hull(L, FORMS['cutter']); rng = random.Random(404)
     mb = MB(404)
+    bottom = set()          # face indices of the bottom planking
 
     def colf(u, t, sd):
         if t < 0.4:
+            # weathered bottom planking: grey-brown timber, low-contrast plank-to-plank, darker where it stays damp
             v = vnoise((u * 3, t * 4, sd), 1.0, 4)
-            return (mix(PAL['copper'], PAL['verdigris'], smoothstep(0.35, 0.7, v)), PT['metal'])
+            c = mix(mix(PAL['timber_grey'], PAL['timber_dark'], 0.2 + 0.3 * v), PAL['timber_wet'], 0.35 * smoothstep(0.25, 0.4, t))
+            bottom.add(len(mb.f))   # shell() adds this face next
+            return c, PT['strakes']
         if t < 0.47:
             return PAL['paint_black'], PT['strakes']
         if t < 0.88:
@@ -334,9 +339,8 @@ def capsized(coll=None):
     def hole(u, t, sd):
         return sd > 0 and -0.2 < u < 0.15 and 0.05 < t < 0.42
     P = shell(mb, H, -1.0, 1.0, 10, 6, colf, hole)
-    for f in mb.f:
-        if f['pat'] == PT['metal']:
-            f['wk'] = 0.35; f['salt'] = False
+    for i in bottom:
+        mb.f[i]['wk'] = 0.55          # half the sun bleach: grey-brown, not silver on the sand
     transom(mb, P, -1.0, (0.2, 0.45, 0.7, 1.0), PAL['paint_blue'])
     mb.backface(0, dark=0.45)
     Q = inset(P, 0.1)
@@ -345,7 +349,7 @@ def capsized(coll=None):
     splinters(mb, P(-0.02, 0.24, 1), Vector((0, 1, -0.3)), 0.5, 0.6, PAL['bleach_light'], rng, 4)
     rod(mb, (H.x(-1, H.zk(-1)), 0, H.zk(-1) - 0.12), (H.x(1, 0), 0, H.zk(1) - 0.12), 0.14, PAL['timber_dark'], 4)
     sx = H.x(-1, 0)
-    box(mb, (sx - 0.35, 0, H.zk(-1) * 0.4), (0.7, 0.14, 1.9), PAL['copper'], PT['metal'])
+    box(mb, (sx - 0.35, 0, H.zk(-1) * 0.4), (0.7, 0.14, 1.9), PAL['timber_dark'], PT['strakes'])
     pts = []
     for k in range(34):
         u = rng.uniform(-0.85, 0.85); sd = rng.choice((1, -1))
@@ -353,6 +357,14 @@ def capsized(coll=None):
         p = P(u, t, sd)
         pts.append((p, Vector((0, sd, -0.3))))
     barnacles(mb, pts, rng, 0.11)
+    # crusts over the bottom: a few clusters of 5-7, the planking showing between them, greyed by the weather
+    crust = []
+    for k in range(7):
+        u0 = rng.uniform(-0.75, 0.75); t0 = rng.uniform(0.12, 0.36); sd = rng.choice((1, -1))
+        for j in range(rng.randint(5, 7)):
+            p = P(u0 + rng.uniform(-0.06, 0.06), min(0.39, max(0.05, t0 + rng.uniform(-0.05, 0.05))), sd)
+            crust.append((p, Vector((0, sd * 0.4, -1.0))))
+    barnacles(mb, crust, rng, 0.1, col=mix(PAL['barnacle'], PAL['rock_light'], 0.45))
     M = settle(mb, rot(180 - 13, 3, 0), 0.0)
     zs = (M @ P(0.0, 1.0, -1)).z
     xform(mb, Matrix.Translation((0, 0, -zs - 0.35)))

@@ -206,7 +206,7 @@ export class CivicSystem implements WorldSystem {
     // the painted boards and flags (one atlas, one draw)
     this.boards = new CivicBoards();
     this.group.add(this.boards.mesh);
-    this.placeBoards(byKind);
+    this.placeBoards(byKind, ctx);
 
     // the yard builds behind the first frame (its order book, the stage hulls, the kit hulls and the logos)
     const yp = byKind("shipyard"), stageSpec = manifest.kinds["hull-stages"];
@@ -326,7 +326,7 @@ export class CivicSystem implements WorldSystem {
   }
 
   /** Board / flag anchors of a civic kind (manifest anchors, plot frame) → world placements; first paint. */
-  private placeBoards(byKind: (k: string) => LoadedPlot | null): void {
+  private placeBoards(byKind: (k: string) => LoadedPlot | null, ctx: EngineContext): void {
     const boards = this.boards;
     if (!boards) return;
     type Wall = { centre: [number, number, number]; normal: [number, number, number]; size: [number, number] };
@@ -364,7 +364,8 @@ export class CivicSystem implements WorldSystem {
       // the crest atlas (the identity layer's heraldry): the flags are copied out of it
       void Promise.all([
         fetch("/harbour/crests.json").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        new Promise<HTMLImageElement | null>((res) => { const img = new Image(); img.onload = () => res(img); img.onerror = () => res(null); img.src = "/harbour/crests.png"; }),
+        // the identity layer's texture of the same atlas: one request, one decode
+        ctx.assets.texture("/harbour/crests.webp", true).then((t) => t.image as HTMLImageElement, () => null),
       ]).then(([atlas, img]) => {
         if (this.disposed || !img || !atlas?.chains) return;
         this.crests = { img, chains: atlas.chains };

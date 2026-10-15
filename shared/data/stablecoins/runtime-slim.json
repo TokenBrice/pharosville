@@ -1,0 +1,497 @@
+[
+ {
+  "id": "usr-resolv",
+  "name": "Resolv USD",
+  "symbol": "USR",
+  "status": "frozen",
+  "llamaId": "197",
+  "flags": {
+   "pegCurrency": "USD"
+  },
+  "obituary": {
+   "causeOfDeath": "counterparty-failure",
+   "deathDate": "2026-03",
+   "epitaph": "When one key minted eighty million",
+   "obituary": "On 22 March 2026, an attacker exploited Resolv's single-EOA minter — no oracle, no amount cap, no max-mint guard — depositing 100K USDC and receiving 50M USR in return, then iterating until 80M unbacked USR existed for ~$25M of extracted ETH. USR crashed to $0.025 in 17 minutes; the RLP insurance layer absorbed the bad debt and was wiped out, dragging Stream Finance's $17M position down with it. Resolv burned 46M of the unbacked supply via a blacklist freeze, but USR never recovered — by April it traded at $0.16 with $95M of collateral against $173M of liabilities. Delta-neutral collateral and Apostro-attested reserves were no defense against an operator-level privilege failure.",
+   "peakMcap": 586592926,
+   "sourceUrl": "https://www.theblock.co/post/394582/resolvs-usr-stablecoin-depegs-after-attacker-mints-80-million-unbacked-tokens-extracts-roughly-25-million",
+   "sourceLabel": "The Block"
+  },
+  "contracts": [
+   {
+    "chain": "ethereum",
+    "address": "0x66a1e37c9b0eaddca17d3662d6c05f4decf3e110",
+    "decimals": 18
+   },
+   {
+    "chain": "base",
+    "address": "0x35e5db674d8e93a03d814fa0ada70731efe8a4b9",
+    "decimals": 18
+   },
+   {
+    "chain": "bsc",
+    "address": "0x2492d0006411af6c8bbb1c8afc1b0197350a79e9",
+    "decimals": 18
+   },
+   {
+    "chain": "berachain",
+    "address": "0x2492d0006411af6c8bbb1c8afc1b0197350a79e9",
+    "decimals": 18
+   },
+   {
+    "chain": "hyperevm",
+    "address": "0x0ad339d66bf4aed5ce31c64bc37b3244b6394a77",
+    "decimals": 18
+   },
+   {
+    "chain": "arbitrum",
+    "address": "0x2492d0006411af6c8bbb1c8afc1b0197350a79e9",
+    "decimals": 18
+   },
+   {
+    "chain": "soneium",
+    "address": "0xb1b385542b6e80f77b94393ba8342c3af699f15c",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": "usdpt-western-union",
+  "name": "US Dollar Payment Token",
+  "symbol": "USDPT",
+  "status": "pre-launch",
+  "flags": {
+   "pegCurrency": "USD"
+  },
+  "launchPhase": "beta",
+  "launchPhaseDetail": "Crossmint wallet partnership live; CEO presented at Digital Asset Summit NYC (Mar 2026); U.S. Bank confirmed as reserve custodian via Anchorage Digital; Rain/Visa prepaid card partnership for inflation zones; CoinGecko preview listing (zero supply); token not yet deployed on Solana",
+  "expectedLaunchDate": "2026-Q2",
+  "milestones": [
+   {
+    "date": "2025-10-28",
+    "type": "announcement",
+    "title": "Western Union announces USDPT on Solana with Anchorage Digital",
+    "description": "USDPT to be issued by Anchorage Digital Bank, connecting on-chain dollar transfers to Western Union's cash network spanning 200+ countries.",
+    "sourceUrl": "https://ir.westernunion.com/news/archived-press-releases/press-release-details/2025/Western-Union-Announces-USDPT-Stablecoin-on-Solana-and-Digital-Asset-Network/default.aspx"
+   },
+   {
+    "date": "2025-10-28",
+    "type": "partnership",
+    "title": "Anchorage Digital Bank named as federally regulated issuer",
+    "sourceUrl": "https://www.coindesk.com/business/2025/10/28/western-union-to-launch-stablecoin-on-solana-with-anchorage-digital"
+   },
+   {
+    "date": "2026-03-05",
+    "type": "partnership",
+    "title": "Crossmint partnership for wallet infrastructure and payment APIs",
+    "description": "Crossmint integrates USDPT into wallet infrastructure, enabling fintech developers to build on Solana with cash-out through Western Union locations.",
+    "sourceUrl": "https://crypto.news/western-union-usdpt-stablecoin-solana-crossmint-2026/"
+   },
+   {
+    "date": "2026-03-24",
+    "type": "milestone",
+    "title": "CEO speaks at Digital Asset Summit NYC; U.S. Bank confirmed as reserve custodian",
+    "description": "McGranahan outlines float-revenue model, community bank onboarding vision, and dollar-denominated holdings for inflationary regions; confirms U.S. Bank as custodian via Anchorage Digital.",
+    "sourceUrl": "https://www.americanbanker.com/payments/news/western-union-has-big-plans-for-stablecoins"
+   }
+  ]
+ },
+ {
+  "id": "roughrider-bnd",
+  "name": "Roughrider Coin",
+  "symbol": "ROUGHRIDER",
+  "status": "pre-launch",
+  "flags": {
+   "pegCurrency": "USD"
+  },
+  "launchPhase": "beta",
+  "launchPhaseDetail": "IC unanimously approved bank-to-bank pilot March 25; risk rated low-to-moderate; 10 local banks interested; cost-neutral model; September 2026 on track; Fiserv contract entering finalization",
+  "expectedLaunchDate": "2026-09",
+  "milestones": [
+   {
+    "date": "2025-10-08",
+    "type": "announcement",
+    "title": "Bank of North Dakota announces Roughrider Coin",
+    "description": "North Dakota's first stablecoin, targeting bank-to-bank transactions for state banking system.",
+    "sourceUrl": "https://bnd.nd.gov/bank-of-north-dakota-and-fiserv-partner-to-launch-roughrider-coin/"
+   },
+   {
+    "date": "2025-10-08",
+    "type": "partnership",
+    "title": "Fiserv confirmed as technology and platform partner",
+    "sourceUrl": "https://investors.fiserv.com/newsroom/detail/2868/bank-of-north-dakota-and-fiserv-partner-to-launch-roughrider-coin-north-dakotas-first-stablecoin"
+   },
+   {
+    "date": "2026-03-09",
+    "type": "regulatory",
+    "title": "ND Industrial Commission to review stablecoin pilot at March 25 meeting",
+    "description": "Review includes utilization plan, risk assessment, safeguards, and cost projections. September 2026 launch pending approval.",
+    "sourceUrl": "https://northdakotamonitor.com/2026/03/09/next-steps-for-bank-of-north-dakota-stablecoin-to-be-reviewed-this-month/"
+   },
+   {
+    "date": "2026-03-25",
+    "type": "regulatory",
+    "title": "ND Industrial Commission unanimously approves bank-to-bank use case",
+    "description": "10 local banks express pilot interest; risk rated 'low to moderate'; project cost-neutral; September 2026 launch reaffirmed; Fiserv contract finalization underway.",
+    "sourceUrl": "https://www.kvrr.com/2026/03/26/north-dakota-moves-forward-with-stablecoin-as-local-banks-express-interest-in-pilot-project/"
+   }
+  ]
+ },
+ {
+  "id": "fiusd-fiserv",
+  "name": "Fiserv USD",
+  "symbol": "FIUSD",
+  "status": "pre-launch",
+  "flags": {
+   "pegCurrency": "USD"
+  },
+  "launchPhase": "beta",
+  "launchPhaseDetail": "Platform live; INDX cash settlement launched Feb 2026; StoneCastle acquired; Roughrider pilot approved by ND IC; bank onboarding continues",
+  "expectedLaunchDate": "2026",
+  "milestones": [
+   {
+    "date": "2025-06-23",
+    "type": "announcement",
+    "title": "Fiserv announces FIUSD stablecoin on Solana",
+    "description": "FIUSD built for 10,000 financial institution clients and 6 million merchant locations, leveraging Paxos and Circle infrastructure.",
+    "sourceUrl": "https://investors.fiserv.com/newsroom/detail/2848/fiserv-launches-new-fiusd-stablecoin-for-financial-institutions"
+   },
+   {
+    "date": "2025-06-23",
+    "type": "partnership",
+    "title": "Mastercard partnership to integrate FIUSD across 150M+ merchants",
+    "sourceUrl": "https://www.mastercard.com/us/en/news-and-trends/press/2025/june/mastercard-fiserv-stablecoin-adoption.html"
+   },
+   {
+    "date": "2025-06-23",
+    "type": "partnership",
+    "title": "PayPal partnership for FIUSD interoperability",
+    "sourceUrl": "https://investors.fiserv.com/newsroom/detail/2849/fiserv-and-paypal-expand-partnership-to-advance-stablecoin-payments"
+   },
+   {
+    "date": "2025-09-29",
+    "type": "partnership",
+    "title": "StoneCastle acquisition announced to help FIs retain funds from FIUSD issuance",
+    "sourceUrl": "https://investors.fiserv.com/news-releases/news-release-details/fiserv-completes-stonecastle-acquisition-extending-insured"
+   },
+   {
+    "date": "2025-10-08",
+    "type": "partnership",
+    "title": "Fiserv powers Roughrider Coin for Bank of North Dakota",
+    "sourceUrl": "https://investors.fiserv.com/newsroom/detail/2868/bank-of-north-dakota-and-fiserv-partner-to-launch-roughrider-coin-north-dakotas-first-stablecoin"
+   },
+   {
+    "date": "2025-12-17",
+    "type": "milestone",
+    "title": "StoneCastle acquisition completed",
+    "sourceUrl": "https://investors.fiserv.com/news-releases/news-release-details/fiserv-completes-stonecastle-acquisition-extending-insured"
+   },
+   {
+    "date": "2026-02-12",
+    "type": "milestone",
+    "title": "INDX real-time cash settlement platform launched for digital asset firms",
+    "description": "Up to $25M FDIC insurance, distributes across 1,100+ insured financial institutions.",
+    "sourceUrl": "https://investors.fiserv.com/news-releases/news-release-details/fiserv-introduces-indx-real-time-cash-settlement-platform"
+   }
+  ]
+ },
+ {
+  "id": "eur-qivalis",
+  "name": "Qivalis Euro",
+  "symbol": "QEUR",
+  "status": "pre-launch",
+  "flags": {
+   "pegCurrency": "EUR"
+  },
+  "launchPhase": "announced",
+  "launchPhaseDetail": "12-bank consortium (incl. ING, UniCredit, BNP Paribas, BBVA, CaixaBank); French Finance Minister Lescure publicly endorses project at Paris crypto conference (Apr 17) — sharp reversal from previous administration's hostility; EMI license application with Dutch Central Bank reportedly in final stages; advanced exchange/market-maker discussions (Bit2Me named); launching on Ethereum (primary), Polygon, Base with permissioned KYC layer",
+  "expectedLaunchDate": "2026-Q4",
+  "milestones": [
+   {
+    "date": "2025-09-15",
+    "type": "announcement",
+    "title": "CaixaBank and Qivalis announce euro stablecoin initiative",
+    "sourceUrl": "https://www.caixabank.com/comunicacion/noticia/caixabank-and-qivalis-partner-to-launch-a-euro-stablecoin_en.html"
+   },
+   {
+    "date": "2026-02-15",
+    "type": "partnership",
+    "title": "BNP Paribas joins consortium, bringing total to 12 European banks",
+    "description": "ING, UniCredit, BNP Paribas, CaixaBank, BBVA, Banca Sella, Danske Bank, DekaBank, DZ BANK, KBC, Raiffeisen Bank International, and SEB.",
+    "sourceUrl": "https://group.bnpparibas/en/press-release/bnp-paribas-joins-european-consortium-to-launch-euro-backed-stablecoin"
+   },
+   {
+    "date": "2026-03-02",
+    "type": "milestone",
+    "title": "Advanced talks with crypto exchanges for day-one liquidity",
+    "description": "Qivalis in discussions with exchanges, market makers, and liquidity providers for regulated platform listings.",
+    "sourceUrl": "https://www.coindesk.com/business/2026/03/02/eu-banks-euro-pegged-stablecoin-in-talks-with-crypto-exchanges-to-ensure-liquidity"
+   },
+   {
+    "date": "2026-03-31",
+    "type": "milestone",
+    "title": "CEO warns of 'digital dollarization' without euro stablecoin infrastructure",
+    "description": "Jan-Oliver Sell highlights euro's 0.2% on-chain share; EMI license described as in final stages; positions Qivalis as euro infrastructure layer, not just a token.",
+    "sourceUrl": "https://www.coindesk.com/business/2026/03/31/europe-faces-digital-dollarization-without-a-euro-stablecoin-of-its-own-warns-qivalis-ceo"
+   },
+   {
+    "date": "2026-04-17",
+    "type": "regulatory",
+    "title": "French Finance Minister Lescure publicly endorses Qivalis and euro stablecoins",
+    "description": "At a Paris crypto conference, Lescure called current euro stablecoin volumes 'not satisfactory' and urged EU banks to accelerate tokenized deposits — a sharp reversal from predecessor Bruno Le Maire's stance that private stablecoins had 'no place on European soil'.",
+    "sourceUrl": "https://www.coindesk.com/policy/2026/04/17/french-government-pivots-from-slamming-privately-issued-stablecoins-to-supporting-them"
+   }
+  ]
+ },
+ {
+  "id": "pusd-polaris",
+  "name": "Polaris USD",
+  "symbol": "pUSD",
+  "status": "pre-launch",
+  "flags": {
+   "pegCurrency": "USD"
+  },
+  "launchPhase": "testnet",
+  "launchPhaseDetail": "Private testnet live",
+  "expectedLaunchDate": "2026-Q4",
+  "milestones": [
+   {
+    "date": "2026-01-27",
+    "type": "announcement",
+    "title": "Polaris introduces self-scaling stablecoin operating system",
+    "description": "Three-token model (pETH, pUSD, POLAR) with immutable code design and uncorrelated yield from protocol revenues.",
+    "sourceUrl": "https://x.com/polarisfinance_/status/2016180350087549420"
+   },
+   {
+    "date": "2026-03-04",
+    "type": "testnet",
+    "title": "Private testnet goes live",
+    "sourceUrl": "https://x.com/polarisfinance_/status/2029136552564056238"
+   }
+  ]
+ },
+ {
+  "id": "pgold-polaris",
+  "name": "Polaris Gold",
+  "symbol": "pGOLD",
+  "status": "pre-launch",
+  "flags": {
+   "pegCurrency": "GOLD"
+  },
+  "launchPhase": "testnet",
+  "launchPhaseDetail": "Private testnet live (shared infrastructure with pUSD)",
+  "expectedLaunchDate": "2026-Q4",
+  "milestones": [
+   {
+    "date": "2026-01-27",
+    "type": "announcement",
+    "title": "Polaris reveals multi-asset stablecoin OS including pGOLD",
+    "description": "pGOLD part of the Stablecoin OS vision: tokenize any unit of value using pETH as common collateral.",
+    "sourceUrl": "https://x.com/polarisfinance_/status/2016180350087549420"
+   },
+   {
+    "date": "2026-02-24",
+    "type": "announcement",
+    "title": "pGOLD formally presented: Finishing what DigixDAO started",
+    "description": "Decentralized gold stablecoin without physical backing, using pETH collateral via CDP infrastructure.",
+    "sourceUrl": "https://polarisfinance.io/blog/pGOLD-finishing-what-digixdao-started/"
+   },
+   {
+    "date": "2026-03-04",
+    "type": "testnet",
+    "title": "Private testnet live (shared infrastructure with pUSD)",
+    "sourceUrl": "https://x.com/polarisfinance_/status/2029136552564056238"
+   }
+  ]
+ },
+ {
+  "id": "usg-tangent",
+  "name": "Tangent USD",
+  "symbol": "USG",
+  "status": "pre-launch",
+  "flags": {
+   "pegCurrency": "USD"
+  },
+  "launchPhase": "beta",
+  "launchPhaseDetail": "Four audits completed (Sherlock, Egis, Pashov x2 through Dec 2025); beta testing underway; mainnet launch pending",
+  "expectedLaunchDate": "2026-Q2",
+  "milestones": [
+   {
+    "date": "2025-09-11",
+    "type": "audit",
+    "title": "Sherlock audit contest completed ($50K USDC prize pool)",
+    "description": "Competitive audit covering lending mechanism, dynamic interest rate model, LP oracle, Curve/Convex/Pendle integrations. Led by Senior Watson Obsidian.",
+    "sourceUrl": "https://audits.sherlock.xyz/contests/1073"
+   },
+   {
+    "date": "2025-10-30",
+    "type": "audit",
+    "title": "Pashov Audit Group first security review completed",
+    "sourceUrl": "https://docs.tangent.finance/docs/faq/audits"
+   },
+   {
+    "date": "2025-12-08",
+    "type": "audit",
+    "title": "Pashov Audit Group second security review completed",
+    "sourceUrl": "https://docs.tangent.finance/docs/faq/audits"
+   },
+   {
+    "date": "2026-03-01",
+    "type": "announcement",
+    "title": "Tangent announces USG stablecoin backed by productive DeFi collateral",
+    "description": "0% interest borrowing, backed by Curve LP and Pendle PT positions. sUSG (ERC4626) as yield-bearing wrapper.",
+    "sourceUrl": "https://www.tangent.finance/"
+   }
+  ]
+ },
+ {
+  "id": "klarnausd-klarna",
+  "name": "KlarnaUSD",
+  "symbol": "KLARNAUSD",
+  "status": "pre-launch",
+  "flags": {
+   "pegCurrency": "USD"
+  },
+  "launchPhase": "testnet",
+  "launchPhaseDetail": "Tempo mainnet live since March 18; KlarnaUSD still on testnet; Bridge OCC charter approved Feb 2026; mainnet deployment could come at any time",
+  "expectedLaunchDate": "2026",
+  "milestones": [
+   {
+    "date": "2025-11-25",
+    "type": "announcement",
+    "title": "Klarna announces KlarnaUSD, first bank stablecoin on Tempo",
+    "description": "Built on Bridge (Stripe) Open Issuance infrastructure. 114M customers, $112B annual GMV as adoption base.",
+    "sourceUrl": "https://investors.klarna.com/News--Events/news/news-details/2025/Klarna-Launches-KlarnaUSD-as-Stablecoin-Transactions-Hit-27-Trillion-Annually/default.aspx"
+   },
+   {
+    "date": "2025-11-25",
+    "type": "partnership",
+    "title": "Built on Bridge (Stripe) Open Issuance; first bank token on Tempo blockchain",
+    "sourceUrl": "https://www.theblock.co/post/380365/bnpl-firm-klarna-announces-usd-stablecoin-on-stripe-paradigms-tempo-blockchain-to-cut-payment-costs"
+   },
+   {
+    "date": "2025-11-25",
+    "type": "testnet",
+    "title": "Live on Tempo testnet for early integration and prototyping",
+    "sourceUrl": "https://fintechobserve.com/klarnausd-stablecoin-launch/"
+   },
+   {
+    "date": "2026-02-17",
+    "type": "regulatory",
+    "title": "Bridge (Stripe subsidiary) receives conditional OCC national bank trust charter",
+    "description": "Approval enables Bridge to custody crypto assets, issue stablecoins, and manage reserves as a federally regulated entity.",
+    "sourceUrl": "https://www.coindesk.com/business/2026/02/17/stripe-s-stablecoin-firm-bridge-wins-initial-approval-of-national-bank-trust-charter/"
+   },
+   {
+    "date": "2026-03-18",
+    "type": "milestone",
+    "title": "Tempo mainnet launches; KlarnaUSD not yet migrated from testnet",
+    "description": "Tempo L1 goes live with sub-second finality, Machine Payments Protocol for AI agents, and partners including Anthropic, Mastercard, Visa, and Revolut. Klarna absent from mainnet launch partners.",
+    "sourceUrl": "https://www.coindesk.com/tech/2026/03/18/stripe-led-payments-blockchain-tempo-goes-live-with-protocol-for-ai-agents"
+   }
+  ]
+ },
+ {
+  "id": "bd-basedollar",
+  "name": "Base Dollar",
+  "symbol": "BD",
+  "status": "pre-launch",
+  "flags": {
+   "pegCurrency": "USD"
+  },
+  "launchPhase": "auditing",
+  "launchPhaseDetail": "Fork of Liquity V2 on Base; external security audit completed; high and medium severity fixes merged; not yet deployed to mainnet",
+  "expectedLaunchDate": "2026-Q2",
+  "milestones": [
+   {
+    "date": "2026-04-03",
+    "type": "announcement",
+    "title": "Base Dollar announced as Liquity V2 fork on Base L2",
+    "description": "LP-collateralized stablecoin with yield from AERO farming; revenue shared between users, POL treasury, and BD stakers.",
+    "sourceUrl": "https://docs.basedollar.org/"
+   },
+   {
+    "date": "2026-04-03",
+    "type": "audit",
+    "title": "External security audit remediation: high and medium severity fixes merged",
+    "description": "Merged fixes for LP token price manipulation vulnerability (H01) and timelock bypass bug (M02); fuzz tests added for Aero LP pricing.",
+    "sourceUrl": "https://github.com/basedollar/basedollar/pull/98"
+   }
+  ]
+ },
+ {
+  "id": "trusd-tori",
+  "name": "Tori trUSD",
+  "symbol": "trUSD",
+  "status": "pre-launch",
+  "flags": {
+   "pegCurrency": "USD"
+  },
+  "launchPhase": "beta",
+  "launchPhaseDetail": "Dual audits completed (Sherlock Jan 2026, Nethermind Mar 2026); seed round led by Delphi Ventures announced Mar 25; contract addresses still TBA in docs; app not yet live; not tracked on DefiLlama or CoinGecko",
+  "milestones": [
+   {
+    "date": "2026-01-22",
+    "type": "audit",
+    "title": "Sherlock collaborative audit completed",
+    "description": "Full protocol scope audit covering core protocol, trUSD token, strUSD staking, access control, and oracle integration.",
+    "sourceUrl": "https://github.com/sherlock-protocol/sherlock-reports/blob/main/audits/2026.02.10%20-%20Final%20-%20Tori%20Finance%20Collaborative%20Audit%20Report%201770734349.pdf"
+   },
+   {
+    "date": "2026-03-24",
+    "type": "announcement",
+    "title": "Tori Finance announces trUSD launch on X",
+    "description": "Launch announcement for trUSD and strUSD with mint/redeem via USDC and USDT; ~15% advertised APY from delta-neutral strategies; contracts not yet deployed as of early April.",
+    "sourceUrl": "https://x.com/tori_finance/status/2036533806774231309"
+   },
+   {
+    "date": "2026-03-25",
+    "type": "partnership",
+    "title": "Delphi Ventures leads seed round; QInvest, CMCC Global, Bering Waters also participate",
+    "sourceUrl": "https://cryip.co/tori-secures-backing-from-delphi-ventures-for-on-chain-yield-protocol/"
+   },
+   {
+    "date": "2026-03-26",
+    "type": "audit",
+    "title": "Nethermind security review completed",
+    "description": "Full protocol scope security review; all findings addressed.",
+    "sourceUrl": "https://github.com/NethermindEth/PublicAuditReports/blob/main/NM_0854_Tori.pdf"
+   }
+  ]
+ },
+ {
+  "id": "rgbp-revolut",
+  "name": "Revolut GBP Stablecoin",
+  "symbol": "RGBP",
+  "status": "pre-launch",
+  "flags": {
+   "pegCurrency": "GBP"
+  },
+  "launchPhase": "announced",
+  "launchPhaseDetail": "Selected as one of four firms for FCA Regulatory Sandbox stablecoin cohort (Feb 25); testing began Q1 2026; full UK banking licence granted Mar 11, but GBP stablecoin would be issued from Revolut Ltd (e-money entity), not Revolut Bank UK, per BoE proposed rule on subsidiary issuance; Head of UK Policy Rory Tanner outlined proposition to House of Lords (Mar 25), flagging UK→India remittance corridor as priority use case; ticker not publicly confirmed; Bank of England's proposed ban on 'branded' stablecoins and 40% unremunerated-reserve requirement remain open commercial risks; UK full authorisation regime not active until October 2027",
+  "expectedLaunchDate": "2027",
+  "milestones": [
+   {
+    "date": "2026-02-25",
+    "type": "regulatory",
+    "title": "FCA selects Revolut for UK Regulatory Sandbox stablecoin cohort",
+    "description": "Revolut chosen alongside Monee Financial Technologies, ReStabilise, and VVTX from a pool of 20 applicants to test stablecoin issuance under proposed UK rules; testing began Q1 2026.",
+    "sourceUrl": "https://www.theblock.co/post/391237/revolut-firms-picked-uk-fca-test-stablecoin-sandbox"
+   },
+   {
+    "date": "2026-03-11",
+    "type": "regulatory",
+    "title": "Revolut granted full UK banking licence by PRA",
+    "description": "PRA and FCA lift mobilisation restrictions after a 20-month phase; banking services move to Revolut Bank UK Ltd, but any GBP stablecoin would be issued from Revolut Ltd (the e-money entity) per BoE's proposed rule prohibiting the same group from issuing stablecoins across affiliated subsidiaries.",
+    "sourceUrl": "https://www.coindesk.com/policy/2026/03/11/crypto-friendly-fintech-revolut-gains-full-uk-banking-license"
+   },
+   {
+    "date": "2026-03-25",
+    "type": "milestone",
+    "title": "Revolut UK Head of Policy testifies to House of Lords on GBP stablecoin strategy",
+    "description": "Rory Tanner tells peers the UK is 'already behind' the US and EU; outlines UK→India remittance corridor (seventh-largest globally) as priority B2B use case; flags Bank of England's proposed 'branded stablecoin' ban as a commercial blocker.",
+    "sourceUrl": "https://paymentexpert.com/2026/03/25/revolut-uk-legal-head-gbp-stablecoin/"
+   }
+  ]
+ }
+]

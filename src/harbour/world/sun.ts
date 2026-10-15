@@ -25,6 +25,7 @@ export class SunRig {
   private mapSize: number;
   private quality: QualitySettings | null = null;
   private sinceShadow = 1e9;
+  private framesSinceShadow = 1e9;
   private readonly heldSun = new THREE.Vector3(0, 1, 0);
   /** half extent, centre x/y, depth range, sun direction of the last fit */
   private readonly lastFit = new Float64Array(7);
@@ -52,7 +53,8 @@ export class SunRig {
   /**
    * Shadow-map caching: the map is re-rendered only when the fitted light frustum moved (pan/zoom, sun
    * drift beyond ~0.1°), when the quality tier changed, or on the tier's refresh interval (moving boats).
-   * High refreshes every frame; Medium/Low at 30/15 Hz while the camera is still.
+   * High refreshes every frame; Medium/Low at 30/15 Hz while the camera is still, and never two frames
+   * running on the interval alone (at 15-30 fps the interval would otherwise elapse every frame).
    */
   update(ctx: EngineContext, delta = 0): void {
     const u = ctx.uniforms;
@@ -80,12 +82,13 @@ export class SunRig {
     // hold the shadow sun until it drifted ~0.1° (or a refresh is due): a running clock must not force a re-render
     const interval = q?.shadowInterval ?? 0;
     this.sinceShadow += delta;
-    const due = force || this.sinceShadow >= interval;
+    this.framesSinceShadow++;
+    const due = force || (this.sinceShadow >= interval && (interval <= 0 || this.framesSinceShadow >= (q?.shadowMinFrames ?? 1)));
     if (due || this.heldSun.angleTo(u.uSunDir.value) > 0.002) this.heldSun.copy(u.uSunDir.value);
     const moved = this.fitShadow(ctx.camera, this.heldSun);
     const sm = ctx.renderer.shadowMap;
     sm.autoUpdate = false;
-    if (due || moved) { sm.needsUpdate = true; this.sinceShadow = 0; }
+    if (due || moved) { sm.needsUpdate = true; this.sinceShadow = 0; this.framesSinceShadow = 0; }
   }
 
   /** Fits the shadow camera; returns true when the light frustum changed (the cached map is stale). */

@@ -2,7 +2,8 @@ import layoutUrl from "../data/layout.json?url";
 import type { CameraPreset } from "../engine/camera-rig";
 import type { PostChain } from "../engine/post";
 import type { EngineContext, WorldSystem } from "../engine/types";
-import type { HarbourLayout, LayoutCameraPreset } from "./types";
+import { fitPresetToAspect, heroPoints } from "./framing";
+import type { HarbourLayout, LayoutCameraPreset, Vec3 } from "./types";
 
 /** Preset used on first paint: "heart" (v2 default framing) when present, else "overview". */
 export function defaultPresetName(layout: HarbourLayout): string {
@@ -16,9 +17,18 @@ export function toCameraPreset(p: LayoutCameraPreset): CameraPreset {
 /**
  * Loads src/harbour/data/layout.json, registers it as the 'layout' service, applies the default
  * camera preset (or `?view=<preset>`) and the pan clamp. Runs first so every later system can read it.
+ * On screens squarer than 16:10 the preset is refitted to the aspect (framing.ts); the 'home-view'
+ * service hands the UI that framing for the current aspect, and a resize (a tablet turned round)
+ * refits it while the visitor has not moved the camera.
  */
 export class LayoutSystem implements WorldSystem {
   readonly name = "layout";
+  private base: CameraPreset | null = null;
+  private hero: Vec3[] = [];
+  private fit = true;
+  private applied: CameraPreset | null = null;
+  private heartDistance = 0;
+  private overviewDistance = 0;
 
   async init(ctx: EngineContext): Promise<void> {
     const res = await fetch(layoutUrl);
@@ -45,18 +55,42 @@ export class LayoutSystem implements WorldSystem {
       preset.distance = cam[3];
       if (cam.length >= 5) preset.pitchDeg = cam[4];
     }
-    rig.applyPreset(preset, true);
+    this.base = preset;
+    this.fit = !(cam.length >= 4 && cam.every(Number.isFinite)); // an explicit ?cam= framing is taken as given
+    this.hero = heroPoints(layout);
+    this.heartDistance = presets.heart?.distance ?? presets.overview.distance * 0.45;
+    this.overviewDistance = presets.overview.distance;
+    ctx.services.set("home-view", () => (this.applied = this.home(ctx)));
+    this.applied = this.home(ctx);
+    rig.applyPreset(this.applied, true);
+  }
 
-    // tilt-shift: none at the default (heart) framing, full only out at the overview
+  /** The landing framing for the current aspect; also keeps the zoom limit and the tilt-shift range in step. */
+  private home(ctx: EngineContext): CameraPreset {
+    const base = this.base!;
+    const p = this.fit ? fitPresetToAspect(base, ctx.camera.aspect, this.hero) : base;
+    const rig = ctx.rig;
+    if (p.distance * 1.15 > rig.maxDistance) rig.maxDistance = p.distance * 1.15;
+    // tilt-shift: none at the landing (heart) framing, full only out at the overview; a refit landing
+    // that stands further back pushes the range out with it
     const post = ctx.services.get("post") as PostChain | undefined;
     if (post) {
-      const near = presets.heart?.distance ?? presets.overview.distance * 0.45;
+      const near = this.heartDistance * (p.distance / base.distance);
       post.tiltNear = near * 1.1;
-      post.tiltFar = Math.max(near * 1.5, presets.overview.distance);
+      post.tiltFar = Math.max(near * 1.5, this.overviewDistance * (p.distance / base.distance));
     }
+    return p;
   }
 
   update(): void {}
 
-  dispose(ctx: EngineContext): void { ctx.services.delete("layout"); }
+  resize(_w: number, _h: number, ctx: EngineContext): void {
+    if (!this.applied || !ctx.rig.isAt(this.applied)) return;
+    const next = this.home(ctx);
+    if (ctx.rig.isAt(next)) return;
+    this.applied = next;
+    ctx.rig.applyPreset(next, true);
+  }
+
+  dispose(ctx: EngineContext): void { ctx.services.delete("layout"); ctx.services.delete("home-view"); }
 }

@@ -7,7 +7,8 @@
  * registry snapshot (`status: "pre-launch"`). Rows are read structurally and every field is guarded.
  */
 import type { LaunchMilestone, LaunchPhase } from "@shared/types/core";
-import { RUNTIME_TRACKED_STABLECOINS } from "@shared/lib/stablecoins/runtime-registry";
+// the slim cut of the registry (scripts/harbour/sync-check.mjs), not runtime-registry: the full registry stays server-side
+import runtimeSlim from "@shared/data/stablecoins/runtime-slim.json";
 import prelaunchBook from "../data/prelaunch.json";
 import { logosById } from "../../lib/logos";
 import type { EngineContext } from "../engine/types";
@@ -129,7 +130,7 @@ export function groupYard(coins: readonly YardCoin[]): Array<{ phase: LaunchPhas
 }
 
 const fromRows = (rows: readonly unknown[]) => rows.map(toYardCoin).filter((c): c is YardCoin => c != null);
-const SNAPSHOT = fromRows(RUNTIME_TRACKED_STABLECOINS.filter((c) => c.status === "pre-launch"));
+const SNAPSHOT = fromRows(runtimeSlim.filter((c) => c.status === "pre-launch"));
 const BOOK = fromRows(((prelaunchBook as { coins?: unknown[] }).coins) ?? []);
 
 /** The pre-launch book (the synced pharos-watch list); the repo's registry snapshot only when the book is empty. */

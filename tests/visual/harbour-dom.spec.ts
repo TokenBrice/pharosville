@@ -36,7 +36,11 @@ test.describe("small screen", () => {
   });
 });
 
-test.describe("desktop", () => {
+// [name, viewport width, viewport height, screen height]: the foldable's browser chrome trims its 750 px screen to 680
+const ADMITTED = [["desktop", 1440, 960, 960], ["tablet", 744, 1133, 1133], ["unfolded foldable", 832, 680, 750]] as const;
+for (const [name, width, height, screenHeight] of ADMITTED) test.describe(name, () => {
+  if (name !== "desktop") test.use({ viewport: { width, height }, contextOptions: { screen: { width, height: screenHeight } } });
+
   test("mounts the world, or keeps the poster with an honest failure and the links @visual-dom", async ({ page }) => {
     await page.goto("/");
     const canvas = page.locator(".pv-world canvas");

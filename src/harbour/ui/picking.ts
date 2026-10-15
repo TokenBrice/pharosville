@@ -9,13 +9,15 @@ import type { EngineContext } from "../engine/types";
 import type { HarbourLayout, Vec2 } from "../layout/types";
 import { pierIdFor } from "../model/classify";
 import { CIVIC_PANEL_ID, civicPlots, civicTop, inPlot, inPoly, officeChain, plotFor, seaZones, ZONE_PANEL, type CivicPlot } from "./places";
-import { getGround, getLayout, getSim, getWorldPicking, type GroundLike, type PickHit, type PickingService, type ScreenPoint } from "./services";
+import { getCove, getGround, getLayout, getSim, getWorldPicking, type GroundLike, type PickHit, type PickingService, type ScreenPoint } from "./services";
 import { yardCoins, yardHullPosition } from "./yard";
 
 /** Landmarks read as areas on the water (polygon / footprint hit), not as buildings. */
 const AREA_ZONE: Record<string, string> = { shoals: "shoals", "wreck-cove": "wreckCove", "far-ports": "farPorts" };
 /** Purely decorative landmarks are not offered for picking at all (they would only add noise). */
 const SKIP = new Set(["breakwater", "tide-gauge"]);
+/** Wrecks answer the pointer only from this close (px per m at the cove): further out, the cove zone does. */
+const WRECK_MIN_PPM = 3.6;
 /** A yard hull's tag height above its cradle (m): small keels, no rig yet. */
 const YARD_TOP = 7;
 
@@ -129,6 +131,22 @@ export class AnalyticPicking implements PickingService {
         if (score < yScore) { yScore = score; yBest = c.id; }
       }
       if (yBest) return { kind: "yard", id: yBest };
+    }
+
+    // Wreck Cove: each dead coin's wreck and memorial post (once the cove is near enough to point at one)
+    const cove = boats ? getCove(this.ctx) : null;
+    if (cove) {
+      let wBest: string | null = null, wScore = 1;
+      for (const m of cove.marks) {
+        this.project(m.x, m.y + m.top * 0.45, m.z, a);
+        if (!a.visible) continue;
+        const ppm = this.ppm(m.x, m.y, m.z);
+        if (ppm < WRECK_MIN_PPM) continue; // that far out, the cove itself answers
+        const r = Math.max(7, (m.memorial ? Math.max(1.4, m.top * 0.4) : Math.max(m.len * 0.42, m.top * 0.6)) * ppm);
+        const score = Math.hypot(clientX - a.x, clientY - a.y) / r;
+        if (score < wScore) { wScore = score; wBest = m.id; }
+      }
+      if (wBest) return { kind: "wreck", id: wBest };
     }
 
     // buildings: projected base→roof segment
@@ -321,6 +339,11 @@ export class AnalyticPicking implements PickingService {
       const yard = plotFor(L, "slipway");
       return yard ? [yard.position[0], 0, yard.position[2]] : null;
     }
+    if (hit.kind === "wreck") {
+      const m = getCove(this.ctx)?.mark(hit.id);
+      if (m) return [m.x, 0, m.z];
+      return this.worldPosition({ kind: "landmark", id: "wreck-cove" });
+    }
     if (hit.kind === "landmark") {
       const place = this.placeOf(hit.id);
       if (place) return place.ground;
@@ -353,6 +376,10 @@ export class AnalyticPicking implements PickingService {
       if (anchor) return this.project(anchor[0], anchor[1], anchor[2], out);
       const lm = L.landmarks.find((l) => l.id === hit.id);
       return lm ? this.project(lm.position[0], lm.position[1] + 10, lm.position[2], out) : null;
+    }
+    if (hit.kind === "wreck") {
+      const m = getCove(this.ctx)?.mark(hit.id);
+      return m ? this.project(m.x, m.y + m.top + 1, m.z, out) : this.screenPosition({ kind: "landmark", id: "wreck-cove" }, out);
     }
     if (hit.kind === "yard") {
       const w = yardHullPosition(this.ctx, hit.id);
@@ -399,6 +426,16 @@ export class UIPicking implements PickingService {
   waterline(id: string, out?: ScreenPoint): ScreenPoint | null { return this.own.waterline(id, out); }
   hidden(id: string): boolean { return this.own.hidden(id); }
 
-  setHover(hit: PickHit | null): void { getWorldPicking(this.ctx)?.setHover(hit?.kind === "boat" ? hit.id : null); }
-  setSelected(hit: PickHit | null): void { getWorldPicking(this.ctx)?.setSelected(hit?.kind === "boat" ? hit.id : null); }
+  private wreckHover: string | null = null;
+  private wreckSelected: string | null = null;
+  setHover(hit: PickHit | null): void {
+    getWorldPicking(this.ctx)?.setHover(hit?.kind === "boat" ? hit.id : null);
+    this.wreckHover = hit?.kind === "wreck" ? hit.id : null;
+    getCove(this.ctx)?.focus(this.wreckHover, this.wreckSelected);
+  }
+  setSelected(hit: PickHit | null): void {
+    getWorldPicking(this.ctx)?.setSelected(hit?.kind === "boat" ? hit.id : null);
+    this.wreckSelected = hit?.kind === "wreck" ? hit.id : null;
+    getCove(this.ctx)?.focus(this.wreckHover, this.wreckSelected);
+  }
 }

@@ -8,11 +8,12 @@ import type { HarbourLayout } from "../layout/types";
 import type { HarbourModel } from "../model/types";
 import type { HarbourSim } from "../sim/sim";
 
-export type PickKind = "boat" | "landmark" | "harbour" | "yard";
+export type PickKind = "boat" | "landmark" | "harbour" | "yard" | "wreck";
 
 /**
  * What the pointer is over. boat → coin id; landmark → layout landmark / civic panel / sea-zone id;
- * harbour → chain name; yard → a pre-launch coin id (a hull on the Shipyard's slips).
+ * harbour → chain name; yard → a pre-launch coin id (a hull on the Shipyard's slips); wreck → a dead coin id (its
+ * wreck or memorial post in Wreck Cove).
  * `at`: the world point the pointer found it at (a pier is long; its tag hangs where you pointed).
  * Identity (sameHit) ignores `at`.
  */
@@ -102,6 +103,15 @@ export const getWorldPicking = (ctx: EngineContext) => (ctx.services.get("pickin
 /** The island's top-down height field (src/harbour/world/ground.ts), read structurally. */
 export interface GroundLike { heightAt(x: number, z: number): number }
 export const getGround = (ctx: EngineContext) => (ctx.services.get("ground") as GroundLike | undefined) ?? null;
+
+/** The fleet's 'cove' service (src/harbour/fleet/wreck-cove.ts CoveService), read structurally. */
+export interface CoveMarkLike { id: string; x: number; y: number; z: number; top: number; len: number; memorial: boolean; lamp: [number, number, number] | null }
+export interface CoveLike {
+  readonly marks: readonly CoveMarkLike[];
+  mark(id: string): CoveMarkLike | null;
+  focus(hover: string | null, selected: string | null): void;
+}
+export const getCove = (ctx: EngineContext) => (ctx.services.get("cove") as CoveLike | undefined) ?? null;
 
 export interface LighthouseLike { readonly period: number; readonly lit: boolean }
 export const getLighthouse = (ctx: EngineContext) => (ctx.services.get("lighthouse") as LighthouseLike | undefined) ?? null;

@@ -12,7 +12,9 @@ import { u01 } from "../model/classify";
 import { buildSimLayout, routeNodes } from "./layout-graph";
 import { clearance, coastDistance, type CoastGrid } from "./obstacles";
 import { buildLegPath } from "./routes";
-import { HarbourSim, PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "./sim";
+import { outingSeed } from "./outings";
+import type { PathRec } from "./path";
+import { buildPlanLegPath, HarbourSim, pathKey, PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "./sim";
 import { makePayloads, T0_MS } from "./test-fixtures";
 
 const layout = layoutJson as unknown as HarbourLayout;
@@ -96,7 +98,10 @@ describe("the sim in the real harbour", () => {
     expect(endsOnLand / samples).toBeLessThan(0.002);
   });
 
-  it("D22: 12-18% of hulls under way, 10-15 dockings a minute, harbour outings among them", () => {
+  // D22, busier (operator, 2026-10-14): the real fleet runs ~30% under way at ~13 dockings a minute. This
+  // synthetic fleet overflows into rafts off the gates, which the offshore outings keep clear of: it runs
+  // lower, with longer, rarer outings.
+  it("D22: a busy harbour, ~17-38% of hulls under way, 7-16 dockings a minute, harbour outings among them", () => {
     const model = buildHarbourModel(makePayloads(), T0_MS, { pieredChains: layout.piers.map((p) => p.chain), dead: [] });
     const sim = new HarbourSim(model, layout, T0_MS, coast);
     const n = model.boats.length, minutes = 90;
@@ -108,10 +113,10 @@ describe("the sim in the real harbour", () => {
       uw += sim.stats.underWay; out += sim.stats.outings; samples++;
     }
     const perMin = (sim.stats.dockings - d0) / minutes;
-    expect(uw / samples / n).toBeGreaterThanOrEqual(0.12);
-    expect(uw / samples / n).toBeLessThanOrEqual(0.18);
-    expect(perMin).toBeGreaterThanOrEqual(10);
-    expect(perMin).toBeLessThanOrEqual(15);
+    expect(uw / samples / n).toBeGreaterThanOrEqual(0.17);
+    expect(uw / samples / n).toBeLessThanOrEqual(0.38);
+    expect(perMin).toBeGreaterThanOrEqual(7);
+    expect(perMin).toBeLessThanOrEqual(16);
     expect(out / samples).toBeGreaterThan(uw / samples * 0.2);
   }, 60_000);
 
@@ -175,4 +180,26 @@ describe("the sim in the real harbour", () => {
     // fleet, which sends far more traffic to the Far Ports than today's; the critic's run had ~4x)
     expect(underWay / uwSamples).toBeLessThan(0.06);
   });
+
+  it("plans and poses the same harbour with the boot work done by workers (outing answers, leg paths), bit for bit", () => {
+    const opts = { pieredChains: layout.piers.map((p) => p.chain), dead: [] };
+    const model = buildHarbourModel(makePayloads(), T0_MS, opts);
+    const a = new HarbourSim(model, layout, T0_MS, coast);
+    // as at boot: an empty sim, the workers' answers adopted, then the first payloads (structuredClone stands in for postMessage)
+    const b = new HarbourSim(buildHarbourModel({}, T0_MS, opts), layout, T0_MS, coast);
+    const W = buildSimLayout(layout, coast), base = W.slots.length;
+    b.seedOutings(structuredClone(outingSeed(W)));
+    b.setModel(model, T0_MS);
+    expect(b.plan.boats.map((p) => [p.offset, ...p.segSlot, ...p.segLoop])).toEqual(a.plan.boats.map((p) => [p.offset, ...p.segSlot, ...p.segLoop]));
+    W.slots.push(...structuredClone(b.rafts()));
+    const { now } = b.pathRequests(T0_MS);
+    expect(now.some(([f, t, , l]) => l > 0 && f !== t)).toBe(true); // scenic legs among them
+    expect(now.some(([f, t, , l]) => l > 0 && f === t)).toBe(true); // and outings
+    b.seedPaths(b.plan, structuredClone(now.map(([f, t, c, l]): [string, PathRec, boolean] => { const r = buildPlanLegPath(W, base, f, t, c, l); return [pathKey(f, t, c, l), r.path, r.bad]; })));
+    for (let k = 0; k < 40; k++) {
+      const t = T0_MS + k * 3_000, pa = a.poseAt(t), pb = b.poseAt(t);
+      expect(pb.position).toStrictEqual(pa.position);
+      expect(pb.heading).toStrictEqual(pa.heading);
+    }
+  }, 60_000);
 });

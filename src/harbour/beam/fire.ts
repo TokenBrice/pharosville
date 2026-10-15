@@ -212,37 +212,6 @@ void main() {
   gl_FragColor = vec4(col, a * vAlpha * uOpacity * (1.0 - 0.5 * vLife));
 }`;
 
-/** The fire on the sea: a glitter streak on a sea-level quad (depth-tested, so land and hulls hide it). */
-const REFLECT_VERT = /* glsl */ `
-varying vec3 vW;
-void main() {
-  vec4 w = modelMatrix * vec4(position, 1.0);
-  vW = w.xyz;
-  gl_Position = projectionMatrix * viewMatrix * w;
-}`;
-
-const REFLECT_FRAG = /* glsl */ `
-uniform sampler2D uNoise;
-uniform vec3 uLantern;
-uniform vec3 uCol;
-uniform float uT;
-varying vec3 vW;
-void main() {
-  vec3 V = normalize(vW - cameraPosition);
-  vec2 n1 = texture2D(uNoise, vW.xz * 0.011 + vec2(uT * 0.004, uT * 0.007)).rg - 0.5;
-  vec2 n2 = texture2D(uNoise, vW.xz * 0.043 - vec2(uT * 0.011, -uT * 0.006)).ba - 0.5;
-  vec3 N = normalize(vec3((n1.x + n2.x * 0.7) * 0.42, 1.0, (n1.y + n2.y * 0.7) * 0.42));
-  vec3 Ne = normalize(vec3(n1.x * 0.14, 1.0, n1.y * 0.14));   // calm envelope: a reflection column, not a spray
-  vec3 L = normalize(uLantern - vW);
-  float lr = max(dot(reflect(V, N), L), 0.0);
-  float le = max(dot(reflect(V, Ne), L), 0.0);
-  float glit = min(pow(lr, 320.0) * 4.0, 1.3) * smoothstep(0.02, 0.6, pow(le, 50.0)) + pow(le, 200.0) * 0.14 + pow(lr, 70.0) * 0.035;
-  // fade out at the quad's rim
-  vec2 d = (vW.xz - uLantern.xz) / 520.0;
-  float rim = 1.0 - smoothstep(0.6, 1.0, length(d));
-  gl_FragColor = vec4(uCol * glit * rim, 1.0);
-}`;
-
 export interface FireState {
   /** 0..1 the lantern level (PSI lit, eased). */
   level: number;
@@ -279,13 +248,11 @@ export class PharosFire {
   private readonly embers: THREE.Points;
   private readonly glow: THREE.Mesh;
   private readonly plume: THREE.Mesh;
-  private readonly reflect: THREE.Mesh;
-  private readonly ru = { uNoise: this.fu.uNoise, uLantern: { value: new THREE.Vector3() }, uCol: { value: new THREE.Color() }, uT: this.fu.uFireT };
   private readonly tmp = new THREE.Color();
   private readonly lightBase = new THREE.Vector3();
 
   /** `light` is created by the caller before the first frame (a light added later recompiles every material). */
-  constructor(emitter: THREE.Vector3, smoke: THREE.Vector3, glowAt: THREE.Vector3, noise: THREE.Texture, light: THREE.PointLight, seaY = 0) {
+  constructor(emitter: THREE.Vector3, smoke: THREE.Vector3, glowAt: THREE.Vector3, noise: THREE.Texture, light: THREE.PointLight) {
     this.fu.uNoise.value = noise;
     this.fu.uOrigin.value.copy(emitter);
     this.pu.uOrigin.value.copy(smoke);
@@ -371,22 +338,8 @@ export class PharosFire {
     this.light.position.copy(emitter).add(new THREE.Vector3(0, 2.5, 0));
     this.lightBase.copy(this.light.position);
 
-    // ---- the fire's reflection on the sea (night)
-    this.ru.uLantern.value.copy(glowAt);
-    const rg = new THREE.PlaneGeometry(1040, 1040, 1, 1).rotateX(-Math.PI / 2);
-    const reflectMat = new THREE.ShaderMaterial({
-      vertexShader: REFLECT_VERT, fragmentShader: REFLECT_FRAG, uniforms: this.ru,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
-      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-    });
-    reflectMat.name = "hb_pharos_reflection";
-    this.reflect = new THREE.Mesh(rg, reflectMat);
-    this.reflect.position.set(glowAt.x, seaY + 0.35, glowAt.z);
-    this.reflect.renderOrder = 4;
-    this.reflect.name = "pharos-fire-reflection";
-
     this.group.name = "pharos-fire";
-    this.group.add(this.flames, this.embers, this.glow, this.plume, this.reflect);
+    this.group.add(this.flames, this.embers, this.glow, this.plume);
   }
 
   /** Per frame. Returns nothing; read `flicker` after. */
@@ -432,14 +385,10 @@ export class PharosFire {
     this.pu.uFireUnder.value.setRGB(1.0, 0.42, 0.12).multiply(this.tint).multiplyScalar(lvl * fl * night * 1.25);
     this.pu.uOpacity.value = lvl * (0.42 - 0.2 * night);
     this.plume.visible = lvl > 0.01;
-
-    // the fire on the water: a night read (by day the sun glitter owns the sea)
-    this.ru.uCol.value.setRGB(1.0, 0.5, 0.16).multiply(this.tint).multiplyScalar(lvl * fl * night * 1.1);
-    this.reflect.visible = lvl * night > 0.02;
   }
 
   dispose(): void {
-    for (const o of [this.flames, this.embers, this.glow, this.plume, this.reflect]) {
+    for (const o of [this.flames, this.embers, this.glow, this.plume]) {
       o.geometry.dispose();
       (o.material as THREE.Material).dispose();
     }

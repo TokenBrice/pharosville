@@ -8,26 +8,43 @@ import { u01 } from "../model/classify";
 import type { Boat, HarbourModel, HullClass } from "../model/types";
 import { addRaftSlot, CLASS_ORDER, type SimLayout } from "./layout-graph";
 import { ACCEL, cruiseSpeed, legTiming, newLegTiming } from "./path";
-import { outingMetres } from "./outings";
+import { OFFSHORE_VARIANTS, outingMetres, outingTrack, outingVariants, scenicExtraMetres, trackClearOf } from "./outings";
 import { buildLegPath } from "./routes";
+import { hypot } from "./math";
 
 export const CYCLE_S = 6 * 3600;
 /** Divisors of the cycle, minutes. */
-const ALLOWED_PERIODS_MIN = [20, 24, 30, 36, 40, 45, 60, 72, 90, 120, 180, 360];
+const ALLOWED_PERIODS_MIN = [18, 20, 24, 30, 36, 40, 45, 60, 72, 90, 120, 180, 360];
 /** Calm tuning, not data: big ships move rarely, the mid-fleet carries the motion. */
 export const PERIOD_MIN: Record<HullClass, number> = { flagship: 24, large: 30, medium: 40, small: 60, boat: 60, skiff: 60 };
 /**
  * Harbour outings (D22, DECLARED-DECORATIVE, outings.ts): a single-chain hull sails a loop out of her
- * harbour and back to her own berth once per this many minutes (divisors of the cycle). Tuning, not
- * data: the small fry go out most, the big ships seldom.
+ * harbour and back to her own berth at most once per this many minutes (divisors of the cycle; a long
+ * offshore sail, a busy gate or a full track make it rarer). Tuning, not data: the small fry go out
+ * most, the big ships seldom.
  */
-export const OUTING_PERIOD_MIN: Record<HullClass, number> = { flagship: 180, large: 120, medium: 72, small: 45, boat: 45, skiff: 36 };
+export const OUTING_PERIOD_MIN: Record<HullClass, number> = { flagship: 180, large: 120, medium: 40, small: 20, boat: 20, skiff: 18 };
+/** Hulls berthed in a basin (not on a mooring or in the Far Ports) go out this many times less often. */
+const OUTING_BERTH_FACTOR = 2.5;
+/** An outing hull is out at most this share of her period: a long (offshore) loop stretches the period. */
+export const OUTING_MAX_FRAC = 0.75;
 /** Share of single-chain hulls that ever go out (hash-picked by id): the rest lie still all day. */
 export const OUTING_SHARE = 0.95;
 /** Harbour cruising speed by class (m/s; ×OPEN_WATER_MAX offshore): ~3 m/s for a 13 m hull, ∝ √LOA. */
 export const SPEED: Record<HullClass, number> = { flagship: cruiseSpeed(26), large: cruiseSpeed(18), medium: cruiseSpeed(13), small: cruiseSpeed(10), boat: cruiseSpeed(7.5), skiff: cruiseSpeed(5) };
 /** A hull spends at most this share of its circuit under way; long circuits stretch the period. */
 export const MAX_SAIL_FRAC = 0.56;
+/**
+ * Scenic legs (D22): this share of the mid-size and smaller circuit hulls sail legs of their round by
+ * their departure gate's offshore loop (still bound for the next chain: the loop is on the way there),
+ * when their period has the slack, up to SCENIC_SAIL_FRAC of it under way. Dock time at each stop stays
+ * ∝ its share. Tuning, not data; the big ships keep to the lanes.
+ */
+export const SCENIC_SHARE = 0.85;
+export const SCENIC_SAIL_FRAC = 0.8;
+const SCENIC_CLASSES: ReadonlySet<HullClass> = new Set<HullClass>(["medium", "small", "boat", "skiff"]);
+/** Offshore a hull makes up to OPEN_WATER_MAX × her harbour speed: a scenic loop's metres count at this pace. */
+const SCENIC_PACE = 1.35;
 /** Unberthing (astern + pivot) and berthing, on top of the lane distance. */
 export const MANOEUVRE_S = 55;
 /** A berth is reserved this long before arrival and after departure (approach/exit fairway). */
@@ -37,10 +54,18 @@ export const RESERVE_OUT_S = 50;
 const GATE_BUCKET_S = 20;
 const OFFSET_TRIES = 72;
 /** Above this many hulls under way in a minute, phase offsets that add more are penalised. */
-const UNDER_WAY_SOFT_CAP = 64;
+const UNDER_WAY_SOFT_CAP = 84;
 /** Outings: above this many on outings in a minute, phase offsets that add more are penalised. */
-const OUTING_SOFT_CAP = 44;
+const OUTING_SOFT_CAP = 120;
 const OUTING_OFFSET_TRIES = 48;
+/** An outing hull at a busy gate tries this many periods (each the next longer divisor of the cycle). */
+const OUTING_PERIOD_TRIES = 4;
+/** An outing track's loops keep this far (m) from the plan's rafts (a large hull rafted, plus water). */
+export const RAFT_CLEAR = 16;
+/** Outings spread along a track: at most one hull out per this many metres of the water it covers. */
+const TRACK_SPACING = 80;
+/** Share of an outing hull's casts-off and berthings that may contest her gate (else a longer period, or she stays in). */
+const OUTING_CONTEST = 0.6;
 
 export const SEG_DOCK = 0, SEG_LEG = 1;
 
@@ -63,6 +88,8 @@ export interface BoatPlan {
   segSlot: Int32Array;
   /** Leg: departure slot (dock: same as segSlot). */
   segFrom: Int32Array;
+  /** Leg: 0, or 1 + the loop variant it sails (an outing's loop; a scenic leg's offshore loop out of her departure gate). */
+  segLoop: Uint8Array;
   staticSlot: number;
   /** A static hull with harbour outings: her legs run from staticSlot round a loop back to it (decorative). */
   outing: boolean;
@@ -138,8 +165,8 @@ function ladder(cls: HullClass): HullClass[] {
 }
 
 export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
-  const timelines = new Map<number, Timeline>();
-  const tl = (slot: number) => { let t = timelines.get(slot); if (!t) timelines.set(slot, (t = new Timeline())); return t; };
+  const timelines: Timeline[] = [];
+  const tl = (slot: number) => (timelines[slot] ??= new Timeline());
   const rafts = new Map<string, number[]>(); // where → raft slots
   let overflow = 0;
 
@@ -153,7 +180,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     for (const list of byCls.values()) for (const i of list) {
       const sl = L.slots[i], a = sl.approach;
       let len = 0;
-      for (let k = 1; k < a.length; k++) len += Math.hypot(a[k][0] - a[k - 1][0], a[k][1] - a[k - 1][1]);
+      for (let k = 1; k < a.length; k++) len += hypot(a[k][0] - a[k - 1][0], a[k][1] - a[k - 1][1]);
       lens.push(len);
       if (sl.inNode >= 0) ins.add(sl.inNode);
       if (sl.outNode >= 0) outs.add(sl.outNode);
@@ -174,7 +201,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
       if (Number.isFinite(d)) { sum += d; cnt++; mx = Math.max(mx, d); }
     }
     v = cnt ? (sum / cnt + mx) / 2 : -1;
-    if (v < 0) v = ga && gb ? Math.hypot(gb.x - ga.x, gb.z - ga.z) * 1.3 : 400;
+    if (v < 0) v = ga && gb ? hypot(gb.x - ga.x, gb.z - ga.z) * 1.3 : 400;
     laneCache.set(k, v);
     return v;
   };
@@ -184,6 +211,13 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     if (!r) return (laneMetres(from, to) + (approachLong.get(from) ?? 40) + (approachLong.get(to) ?? 40)) / SPEED[cls] + MANOEUVRE_S;
     const v = SPEED[cls];
     return r.travel / v + v / ACCEL + r.manoeuvre * Math.sqrt(L.loa[cls] / L.loa.medium) + 10;
+  };
+
+  // a scenic leg's time: the plain leg's, plus the loop's extra metres at an offshore pace (-1: none)
+  const scenicSeconds = (from: string, to: string, cls: HullClass, v: number): number => {
+    const ga = L.gates.get(from), gb = L.gates.get(to);
+    const m = ga && gb ? scenicExtraMetres(L, ga.outNode, gb.inNode, v) : -1;
+    return m < 0 ? -1 : legSeconds(from, to, cls) + m / (SPEED[cls] * SCENIC_PACE);
   };
 
   const whereOfStop = (chain: string | null) => {
@@ -204,6 +238,10 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
   const findSlot = (where: string, cls: HullClass, a: number, b: number, seed: string, avoid: ReadonlyArray<[number, number, number]>): number => {
     const byCls = L.pools.get(where);
     if (!byCls) return -1;
+    const avoided = (slot: number) => {
+      for (let k = 0; k < avoid.length; k++) { const v = avoid[k]; if (v[0] === slot && a < v[2] && v[1] < b) return true; }
+      return false;
+    };
     for (const k of ladder(cls)) {
       const list = byCls.get(k);
       if (!list || list.length === 0) continue;
@@ -211,10 +249,10 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
       for (let j = 0; j < list.length; j++) {
         const s = list[(start + j) % list.length];
         if (!tl(s).isFree(a, b)) continue;
-        if (avoid.some(([as, aa, ab]) => as === s && a < ab && aa < b)) continue;
+        if (avoided(s)) continue;
         // a neighbour whose hull would overlap this one's is busy then: skip
         const cf = L.slots[s].conflicts;
-        if (cf.length && cf.some((c) => !tl(c).isFree(a, b) || avoid.some(([as, aa, ab]) => as === c && a < ab && aa < b))) continue;
+        if (cf.length && cf.some((c) => !tl(c).isFree(a, b) || avoided(c))) continue;
         return s;
       }
     }
@@ -227,7 +265,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
   const plans = new Map<string, BoatPlan>();
   const empty = (b: Boat, kind: BoatPlan["kind"]): BoatPlan => ({
     id: b.id, cls: b.hullClass, kind, period: CYCLE_S, offset: 0,
-    segStart: new Float64Array(0), segEnd: new Float64Array(0), segKind: new Uint8Array(0), segSlot: new Int32Array(0), segFrom: new Int32Array(0),
+    segStart: new Float64Array(0), segEnd: new Float64Array(0), segKind: new Uint8Array(0), segSlot: new Int32Array(0), segFrom: new Int32Array(0), segLoop: new Uint8Array(0),
     staticSlot: -1, outing: false, dwell: new Map(), legSeconds: 0,
   });
 
@@ -256,6 +294,11 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
   const NB = CYCLE_S / GATE_BUCKET_S;
   const nodeB = (node: number) => { let g = nodeBuckets.get(node); if (!g) nodeBuckets.set(node, (g = new Uint8Array(NB))); return g; };
   const bucketOf = (g: number) => Math.floor((((g % CYCLE_S) + CYCLE_S) % CYCLE_S) / GATE_BUCKET_S) % NB;
+  // departures per lane node: an outing leaves at least a bucket after/before any other departure from
+  // her gate (two off together would sail out as twins, and a scenic leg sails the same loops)
+  const outDep = new Map<number, Uint8Array>();
+  const depB = (node: number) => { let d = outDep.get(node); if (!d) outDep.set(node, (d = new Uint8Array(NB))); return d; };
+  const depClear = (node: number, g: number) => { const d = depB(node), i = bucketOf(g); return d[i] === 0 && d[(i + 1) % NB] === 0 && d[(i + NB - 1) % NB] === 0; };
   const gateClear = (where: string, g: number) => {
     const bk = buckets(where), i = bucketOf(g);
     return bk[i] === 0 && bk[(i + 1) % NB] === 0 && bk[(i + NB - 1) % NB] === 0;
@@ -308,8 +351,18 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     }
     const n = merged.length;
     const legs = merged.map((s, i) => legSeconds(s.where, merged[(i + 1) % n].where, b.hullClass));
-    const sail = legs.reduce((a, v) => a + v, 0);
+    let sail = legs.reduce((a, v) => a + v, 0);
     const T = snapPeriod(Math.max(PERIOD_MIN[b.hullClass] * 60, sail / MAX_SAIL_FRAC));
+    // scenic legs, first out of the stop she lies at longest, while the period has room for them
+    const scenic = new Uint8Array(n);
+    if (SCENIC_CLASSES.has(b.hullClass) && u01(b.id + "#scenic") < SCENIC_SHARE) {
+      const v = Math.floor(u01(b.id + "#scenic-v") * OFFSHORE_VARIANTS);
+      const order = merged.map((_, i) => i).sort((x, y) => merged[y].share - merged[x].share || x - y);
+      for (const i of order) {
+        const sc = scenicSeconds(merged[i].where, merged[(i + 1) % n].where, b.hullClass, v);
+        if (sc > legs[i] && sail + sc - legs[i] <= SCENIC_SAIL_FRAC * T) { sail += sc - legs[i]; legs[i] = sc; scenic[i] = v + 1; }
+      }
+    }
     const dockTotal = T - sail;
     const dwell = merged.map((s) => s.share * dockTotal);
     const reps = CYCLE_S / T;
@@ -356,9 +409,9 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     const slots = best!.slots;
     // commit: reservations, gate events, overflow rafts
     let si = 0;
-    const segs: Array<{ kind: number; a: number; e: number; slot: number; from: number }> = [];
+    const segs: Array<{ kind: number; a: number; e: number; slot: number; from: number; scenic: number }> = [];
     for (let r = 0; r < reps; r++) for (const sgm of local) {
-      if (sgm.kind !== SEG_DOCK) { segs.push({ kind: SEG_LEG, a: r * T + sgm.a, e: r * T + sgm.e, slot: -1, from: -1 }); continue; }
+      if (sgm.kind !== SEG_DOCK) { segs.push({ kind: SEG_LEG, a: r * T + sgm.a, e: r * T + sgm.e, slot: -1, from: -1, scenic: scenic[sgm.stop] }); continue; }
       const w = merged[sgm.stop].where;
       const a = r * T + sgm.a - offset - RESERVE_IN_S, e = r * T + sgm.e - offset + RESERVE_OUT_S;
       let s = slots[si++];
@@ -367,8 +420,8 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
       buckets(w)[bucketOf(r * T + sgm.a - offset)] = 1;
       buckets(w)[bucketOf(r * T + sgm.e - offset)] = 1;
       if (L.slots[s].inNode >= 0) nodeB(L.slots[s].inNode)[bucketOf(r * T + sgm.a - offset)]++;
-      if (L.slots[s].outNode >= 0) nodeB(L.slots[s].outNode)[bucketOf(r * T + sgm.e - offset)]++;
-      segs.push({ kind: SEG_DOCK, a: r * T + sgm.a, e: r * T + sgm.e, slot: s, from: s });
+      if (L.slots[s].outNode >= 0) { nodeB(L.slots[s].outNode)[bucketOf(r * T + sgm.e - offset)]++; depB(L.slots[s].outNode)[bucketOf(r * T + sgm.e - offset)]++; }
+      segs.push({ kind: SEG_DOCK, a: r * T + sgm.a, e: r * T + sgm.e, slot: s, from: s, scenic: 0 });
     }
     for (let r = 0; r < reps; r++) for (const lg of legsLocal) for (let t = lg.a; t < lg.e; t += 60) {
       uwMin[Math.floor((((r * T + t - offset) % CYCLE_S) + CYCLE_S) % CYCLE_S / 60)]++;
@@ -385,6 +438,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     p.segKind = Uint8Array.from(segs, (s) => s.kind);
     p.segSlot = Int32Array.from(segs, (s) => s.slot);
     p.segFrom = Int32Array.from(segs, (s) => s.from);
+    p.segLoop = Uint8Array.from(segs, (s) => s.scenic);
     merged.forEach((s, i) => p.dwell.set(s.where, (p.dwell.get(s.where) ?? 0) + dwell[i]));
     plans.set(b.id, p);
     nCircuit++;
@@ -398,6 +452,10 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
   //    arrivals at one gate apart and spread the outings over the cycle.
   let nOuting = 0, expOuting = 0;
   const owMin = new Uint16Array(CYCLE_S / 60);
+  const trackMin = new Map<unknown, Uint16Array>();
+  // the plan's overflow rafts lie off the gates in open water: a track whose loops run through them is not sailed
+  const raftSlots = L.slots.filter((sl) => sl.kind === "raft");
+  const raftFree = new Map<unknown, boolean>();
   // (an outing keeps a bucket clear of other events at a basin's gate, hulls ~60 m apart in its
   // fairway; a mooring field's or the Far Ports' lane node lies in open water and takes two)
   const nodeClear = (node: number, g: number, cap: number) => nodeB(node)[bucketOf(g)] < cap;
@@ -406,37 +464,68 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     if (p.kind !== "static" || p.staticSlot < 0) continue;
     const slot = L.slots[p.staticSlot];
     if (slot.kind === "raft" || u01(b.id + "#outing") >= OUTING_SHARE) continue;
-    const m = outingMetres(L, p.staticSlot, b.hullClass);
-    if (m < 0) continue;
-    const T = OUTING_PERIOD_MIN[b.hullClass] * 60;
-    const D = Math.round(m / SPEED[b.hullClass] + MANOEUVRE_S * Math.sqrt(L.loa[b.hullClass] / L.loa.medium) + 20);
-    if (D > T * 0.5) continue;
-    const dock = T - D, reps = CYCLE_S / T;
     const where = slot.where, outN = slot.outNode, inN = slot.inNode, cap = slot.kind === "berth" ? 1 : 2;
-    const base = u01(b.id + "#outing-phase") * T;
+    // her gate's tracks, the least sailed first: hulls out on one track at once, about one per
+    // TRACK_SPACING metres of the water it covers
+    const tracks = outingVariants(L, p.staticSlot).filter((v) => {
+      const tr = outingTrack(L, p.staticSlot, v)!;
+      let ok = raftFree.get(tr.track);
+      if (ok == null) raftFree.set(tr.track, (ok = trackClearOf(tr.track, raftSlots, RAFT_CLEAR)));
+      return ok;
+    }).map((v) => {
+      const tr = outingTrack(L, p.staticSlot, v)!;
+      let on = trackMin.get(tr.track);
+      if (!on) trackMin.set(tr.track, (on = new Uint16Array(CYCLE_S / 60)));
+      let load = 0;
+      for (let k = 0; k < on.length; k++) load += on[k];
+      const full = Math.max(2, Math.floor(tr.metres / TRACK_SPACING));
+      return { v, on, full, load: load / full };
+    }).sort((a, b) => a.load - b.load || a.v - b.v);
     // a gate takes one event (out or home, circuit or outing) at a time: when most of her outings would
-    // contest one whatever the phase, the hull stays in (a busy basin's fairway never fills up)
-    let best = { offset: base, score: Infinity };
-    for (let k = 0; k < OUTING_OFFSET_TRIES && best.score > 0; k++) {
-      const offset = (base + (k * T) / OUTING_OFFSET_TRIES) % T;
-      let score = 0;
-      for (let r = 0; r < reps; r++) {
-        const dep = r * T + dock - offset, arr = r * T + T - offset;
-        if (outN >= 0 && !nodeClear(outN, dep, cap)) score += 1;
-        if (inN >= 0 && !nodeClear(inN, arr, cap)) score += 1;
-        for (let t = dep; t < arr; t += 60) if (owMin[Math.floor((((t % CYCLE_S) + CYCLE_S) % CYCLE_S) / 60)] >= OUTING_SOFT_CAP) score += 0.25;
+    // contest one whatever the phase, she goes out less often (a busy gate's later hulls take longer
+    // periods) or on another track, and failing that stays in (a busy basin's fairway never fills up)
+    // (the outings are spread over the cycle too: each rep's share of minutes already at the soft cap)
+    let pick: { v: number; on: Uint16Array; T: number; D: number; offset: number } | null = null;
+    for (const tk of tracks) {
+      const m = outingMetres(L, p.staticSlot, b.hullClass, tk.v);
+      if (m < 0) continue;
+      const D = Math.round(m / SPEED[b.hullClass] + MANOEUVRE_S * Math.sqrt(L.loa[b.hullClass] / L.loa.medium) + 20);
+      // (a basin's fairway is shared with the circuits that berth there: its hulls go out less often)
+      const T0 = snapPeriod(Math.max(OUTING_PERIOD_MIN[b.hullClass] * 60 * (slot.kind === "berth" ? OUTING_BERTH_FACTOR : 1), D / OUTING_MAX_FRAC));
+      for (let pi = ALLOWED_PERIODS_MIN.indexOf(T0 / 60), tries = 0; pi >= 0 && pi < ALLOWED_PERIODS_MIN.length && tries < OUTING_PERIOD_TRIES; pi++, tries++) {
+        const T = ALLOWED_PERIODS_MIN[pi] * 60, dock = T - D, reps = CYCLE_S / T;
+        const base = u01(b.id + "#outing-phase") * T;
+        let best = { offset: base, score: Infinity, gate: Infinity };
+        for (let k = 0; k < OUTING_OFFSET_TRIES && best.score > 0; k++) {
+          const offset = (base + (k * T) / OUTING_OFFSET_TRIES) % T;
+          let gate = 0, over = 0;
+          for (let r = 0; r < reps && gate + (over * 60) / D < best.score; r++) {
+            const dep = r * T + dock - offset, arr = r * T + T - offset;
+            if (outN >= 0 && (!nodeClear(outN, dep, cap) || !depClear(outN, dep))) gate += 1;
+            if (inN >= 0 && !nodeClear(inN, arr, cap)) gate += 1;
+            for (let t = dep; t < arr; t += 60) {
+              const mi = Math.floor((((t % CYCLE_S) + CYCLE_S) % CYCLE_S) / 60);
+              if (owMin[mi] >= OUTING_SOFT_CAP) over++;
+              // a full track counts as a contested gate, by the share of the outing spent on it
+              if (tk.on[mi] >= tk.full) gate += 60 / D;
+            }
+          }
+          const score = gate + (over * 60) / D;
+          if (score < best.score) best = { offset, score, gate };
+        }
+        if (best.gate <= reps * OUTING_CONTEST + 0.5) { pick = { v: tk.v, on: tk.on, T, D, offset: best.offset }; break; }
       }
-      if (score < best.score) best = { offset, score };
+      if (pick) break;
     }
-    if (best.score > reps * 0.4 + 0.5) continue;
-    const offset = best.offset;
+    if (!pick) continue;
+    const { T, D, offset } = pick, dock = T - D, reps = CYCLE_S / T;
     const segs: Array<{ kind: number; a: number; e: number }> = [];
     for (let r = 0; r < reps; r++) {
       segs.push({ kind: SEG_DOCK, a: r * T, e: r * T + dock }, { kind: SEG_LEG, a: r * T + dock, e: (r + 1) * T });
       const dep = r * T + dock - offset, arr = r * T + T - offset;
-      if (outN >= 0) nodeB(outN)[bucketOf(dep)]++;
+      if (outN >= 0) { nodeB(outN)[bucketOf(dep)]++; depB(outN)[bucketOf(dep)]++; }
       if (inN >= 0) nodeB(inN)[bucketOf(arr)]++;
-      for (let t = dep; t < arr; t += 60) owMin[Math.floor((((t % CYCLE_S) + CYCLE_S) % CYCLE_S) / 60)]++;
+      for (let t = dep; t < arr; t += 60) { const mi = Math.floor((((t % CYCLE_S) + CYCLE_S) % CYCLE_S) / 60); owMin[mi]++; pick.on[mi]++; }
     }
     p.outing = true; p.period = T; p.offset = offset; p.legSeconds = D;
     p.segStart = Float64Array.from(segs, (q) => q.a);
@@ -444,6 +533,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     p.segKind = Uint8Array.from(segs, (q) => q.kind);
     p.segSlot = new Int32Array(segs.length).fill(p.staticSlot);
     p.segFrom = new Int32Array(segs.length).fill(p.staticSlot);
+    p.segLoop = Uint8Array.from(segs, (q) => (q.kind === SEG_LEG ? pick.v + 1 : 0));
     p.dwell.set(where, dock * reps);
     nOuting++;
     expOuting += D / T;
@@ -466,7 +556,7 @@ function repSlot(L: SimLayout, where: string): number {
   const byCls = L.pools.get(where);
   const list = (byCls?.get("medium")?.length ? byCls.get("medium")! : [...(byCls?.values() ?? [])].flat()).filter((i) => L.slots[i].kind !== "raft");
   if (!list.length) return -1;
-  const len = (i: number) => { const a = L.slots[i].approach; let t = 0; for (let k = 1; k < a.length; k++) t += Math.hypot(a[k][0] - a[k - 1][0], a[k][1] - a[k - 1][1]); return t; };
+  const len = (i: number) => { const a = L.slots[i].approach; let t = 0; for (let k = 1; k < a.length; k++) t += hypot(a[k][0] - a[k - 1][0], a[k][1] - a[k - 1][1]); return t; };
   const sorted = [...list].sort((x, y) => len(x) - len(y) || (L.slots[x].id < L.slots[y].id ? -1 : 1));
   return sorted[Math.floor(sorted.length / 2)];
 }

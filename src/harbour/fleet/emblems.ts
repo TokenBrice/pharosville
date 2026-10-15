@@ -2,16 +2,19 @@ import * as THREE from "three";
 
 /**
  * Sail-emblem atlas at runtime: the prebuilt logo atlas (scripts/harbour/build-emblems.mjs →
- * public/harbour/emblems.{webp,json}, every logo on a white roundel) copied into a canvas, plus a
- * generated MONOGRAM roundel (symbol letters on the coin's brand colour) for every boat without a logo,
- * in the free slots after the logos. One CanvasTexture, premultiplied (clean mip edges), sRGB.
+ * public/harbour/emblems.{avif,json}, the .webp when AVIF fails; every logo on a white roundel) copied
+ * into a canvas, plus a generated MONOGRAM roundel (symbol letters on the coin's brand colour) for every
+ * boat without a logo, in the free slots after the logos. One CanvasTexture, premultiplied (clean mip
+ * edges), sRGB. The canvas holds the rows in use plus one spare row and grows a row at a time (slots
+ * never move; `grid` is live, so every UV follows the height).
  *
  * The logo image (~1 MB) is not first-view weight: `load` reads only the slot map, logo slots show a
  * plain brand-colour roundel, and the fleet calls `loadLogos` after the first frame to paint the logos
  * in (monograms instead if the image never arrives).
  */
 export const EMBLEMS_JSON = "/harbour/emblems.json";
-export const EMBLEMS_IMG = "/harbour/emblems.webp";
+export const EMBLEMS_IMG = "/harbour/emblems.avif";
+export const EMBLEMS_IMG_FALLBACK = "/harbour/emblems.webp";
 
 interface AtlasMeta { slot: number; cols: number; width: number; height: number; ids: Record<string, number> }
 
@@ -21,11 +24,13 @@ export class EmblemAtlas {
   readonly texture: THREE.CanvasTexture;
   /** (cols, rows, 1/cols, 1/rows) for the shader. */
   readonly grid = new THREE.Vector4(32, 1, 1 / 32, 1);
-  private readonly canvas: HTMLCanvasElement;
-  private readonly g: CanvasRenderingContext2D;
+  private canvas: HTMLCanvasElement;
+  private g: CanvasRenderingContext2D;
   private readonly slots = new Map<string, number>();
   private nextFree: number;
-  private capacity: number;
+  /** Most slots the atlas may grow to (logos + the monogram allowance); the canvas holds `rows` of them. */
+  private readonly capacity: number;
+  private rows: number;
   /** Logo slots holding a placeholder roundel until the logo image lands. */
   private readonly pending = new Map<number, EmblemCoin>();
   private logos: "wait" | "loading" | "done" = "wait";
@@ -33,15 +38,15 @@ export class EmblemAtlas {
 
   private constructor(private readonly meta: AtlasMeta, extraSlots: number) {
     const rowsLogos = logoRows(meta);
-    const rows = Math.max(1, Math.min(meta.cols, rowsLogos + Math.ceil(extraSlots / meta.cols) + 1));
-    this.capacity = rows * meta.cols;
+    this.capacity = Math.max(1, Math.min(meta.cols, rowsLogos + Math.ceil(extraSlots / meta.cols) + 1)) * meta.cols;
+    this.rows = Math.min(this.capacity / meta.cols, rowsLogos + 1); // the logos and one spare row
     this.canvas = document.createElement("canvas");
     this.canvas.width = meta.width;
-    this.canvas.height = rows * meta.slot;
+    this.canvas.height = this.rows * meta.slot;
     this.g = this.canvas.getContext("2d", { willReadFrequently: false })!;
     for (const [id, s] of Object.entries(meta.ids)) this.slots.set(id, s);
     this.nextFree = rowsLogos * meta.cols; // monograms start on a fresh row (logos may be re-built)
-    this.grid.set(meta.cols, rows, 1 / meta.cols, 1 / rows);
+    this.grid.set(meta.cols, this.rows, 1 / meta.cols, 1 / this.rows);
     const t = new THREE.CanvasTexture(this.canvas);
     t.colorSpace = THREE.SRGBColorSpace;
     t.premultiplyAlpha = true;
@@ -67,10 +72,13 @@ export class EmblemAtlas {
     if (this.logos !== "wait") return;
     this.logos = "loading";
     let img: ImageBitmap | null = null;
-    try {
-      const ri = await fetch(EMBLEMS_IMG);
-      if (ri.ok && (ri.headers.get("content-type") ?? "").includes("image")) img = await createImageBitmap(await ri.blob(), { premultiplyAlpha: "none" });
-    } catch (e) { console.warn("[harbour] fleet: emblem logos unavailable, monograms instead", e); }
+    for (const url of [EMBLEMS_IMG, EMBLEMS_IMG_FALLBACK]) {
+      try {
+        const ri = await fetch(url);
+        if (ri.ok && (ri.headers.get("content-type") ?? "").includes("image")) img = await createImageBitmap(await ri.blob(), { premultiplyAlpha: "none" });
+      } catch (e) { console.warn(`[harbour] fleet: emblem logos unavailable from ${url}`, e); }
+      if (img) break;
+    }
     this.logos = "done";
     if (this.disposed) { img?.close(); return; }
     if (img) {
@@ -97,10 +105,27 @@ export class EmblemAtlas {
     }
     if (this.nextFree >= this.capacity) return -1;
     const s = this.nextFree++;
+    if (s >= this.rows * this.meta.cols) this.grow(Math.floor(s / this.meta.cols) + 2);
     this.drawRoundel(s, c, true);
     this.slots.set(c.id, s);
     this.texture.needsUpdate = true;
     return s;
+  }
+
+  /** A taller canvas (the new row and a spare) with the old rows copied across; the texture re-uploads whole. */
+  private grow(want: number): void {
+    const rows = Math.min(this.capacity / this.meta.cols, want);
+    const canvas = document.createElement("canvas");
+    canvas.width = this.canvas.width;
+    canvas.height = rows * this.meta.slot;
+    const g = canvas.getContext("2d", { willReadFrequently: false })!;
+    g.drawImage(this.canvas, 0, 0); // canvas to canvas: premultiplied both sides, no round trip
+    this.canvas.width = this.canvas.height = 0; // release the old backing store now
+    this.canvas = canvas; this.g = g; this.rows = rows;
+    this.grid.set(this.meta.cols, rows, 1 / this.meta.cols, 1 / rows);
+    this.texture.dispose(); // the GL texture was allocated at the old size: the next upload allocates afresh
+    this.texture.image = canvas;
+    this.texture.needsUpdate = true;
   }
 
   /** The coin's brand-colour roundel, lettered with its monogram or (a placeholder) plain. */

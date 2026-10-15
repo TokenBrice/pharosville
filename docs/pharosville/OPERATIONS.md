@@ -347,6 +347,41 @@ homepage unless it carries `sel=` itself. This route still reads only `sel`.
 4. Revoke the old upstream key only after verification.
 5. Remove any ignored local copy that was used during rotation.
 
+## Sync pharos-watch data
+
+The pre-launch book (`src/harbour/data/prelaunch.json`), the logo book
+(`public/logos/` + `data/logos.json`), brand colours (`data/brand-colors.json`)
+and the cemetery behind Wreck Cove (`shared/data/dead-stablecoins.json`) are
+vendored from `TokenBrice/pharos-watch`. One command refreshes all four:
+
+```bash
+npm run sync:pharos-watch -- --source /path/to/pharos-watch
+npm run sync:pharos-watch -- --repo git@github.com:TokenBrice/pharos-watch.git --ref main
+```
+
+It reads authored, tracked upstream files only, plans everything in memory,
+and on any schema violation (shared/'s strict cemetery schema, a broken
+logo, a malformed launch date) writes nothing and exits 1. A second run
+changes no byte. It prints a per-file summary; when logo files changed,
+rebuild the sail atlas with `node scripts/harbour/build-emblems.mjs`.
+`data/pharos-watch-sync.json` stamps the source commit; `npm run
+check:pharos-watch-sync` (in `validate:docs`) fails on missing referenced
+files and warns once the stamp is older than 30 days.
+
+`.github/workflows/sync-pharos-data.yml` runs it weekly (and on demand) and
+opens or refreshes one pull request from `sync/pharos-watch`. It never
+deploys or pushes to `main`. Operator setup, once:
+
+1. Create a fine-grained personal access token: resource owner TokenBrice,
+   repository access only `pharos-watch`, permission Contents: Read-only.
+2. Store it as the repository secret `PHAROS_WATCH_READ_TOKEN`:
+   `gh secret set PHAROS_WATCH_READ_TOKEN --repo TokenBrice/pharosville`.
+3. Settings → Actions → General → Workflow permissions: enable "Allow GitHub
+   Actions to create and approve pull requests".
+
+A pull request opened with `GITHUB_TOKEN` does not start other workflows:
+close and reopen it (or push to its branch) to run the deploy validation.
+
 ## References
 
 - https://developers.cloudflare.com/pages/

@@ -4,7 +4,7 @@ export interface CameraPreset { target: [number, number, number]; distance: numb
 
 /**
  * Bounded diorama camera: fixed pitch/yaw (isometric-like perspective), pan in the ground plane,
- * zoom by distance. Smoothly damped. Pointer/wheel handling is wired by the Engine (attach()).
+ * zoom by distance. Smoothly damped. Pointer, wheel and touch handling live in input.ts (CameraInput).
  */
 export class CameraRig {
   readonly target = new THREE.Vector3();
@@ -38,6 +38,26 @@ export class CameraRig {
 
   zoom(factor: number): void {
     this.goalDistance = THREE.MathUtils.clamp(this.goalDistance * factor, this.minDistance, this.maxDistance);
+  }
+
+  /**
+   * Zoom about a screen point (px from the viewport centre): the ground under it stays put, as under
+   * a pinch. The target moves by (1 − f) of the point's offset, f being the clamped distance ratio.
+   */
+  zoomAt(factor: number, dxPx: number, dyPx: number, viewportHeight: number): void {
+    const before = this.goalDistance;
+    this.zoom(factor);
+    const f = this.goalDistance / before;
+    if (f === 1) return;
+    const [wx, wz] = this.dragToWorld(dxPx, dyPx, viewportHeight);
+    // dragToWorld is the pan that drags content BY that offset: the point's own ground offset is its negative
+    this.pan((f - 1) * wx, (f - 1) * wz);
+  }
+
+  /** Is the rig headed for (or resting at) this framing? */
+  isAt(p: CameraPreset): boolean {
+    return Math.abs(this.goalDistance - p.distance) < 0.5
+      && Math.abs(this.goalTarget.x - p.target[0]) < 0.5 && Math.abs(this.goalTarget.z - p.target[2]) < 0.5;
   }
 
   /** World units per screen pixel at the target (for pan speed). */

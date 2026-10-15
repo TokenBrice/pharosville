@@ -20,7 +20,7 @@ import type { HarbourModel } from "../model/types";
 import { HarbourSim, PH_APPROACHING, PH_DOCKED, PH_MOORED } from "./sim";
 import type { CoastGrid } from "./obstacles";
 import { SimDebugMarkers } from "./debug-markers";
-import { warmLegsOffThread } from "./warm-legs";
+import { warmLegsOffThread, type WarmLegs } from "./warm-legs";
 import { loadSdfImage } from "../ocean/sdf-image";
 import { ensureMotionService } from "../ui/services";
 
@@ -57,7 +57,9 @@ export class DataSystem implements WorldSystem {
   private heldAt: number | null = null;
   private motionLag = 0;
   private unsubMotion: (() => void) | null = null;
-  private stopWarm: (() => void) | null = null;
+  private warm: WarmLegs | null = null;
+  /** The first install has been queued (the eager one, built ahead of the first frames). */
+  private eager = false;
 
   async init(ctx: EngineContext): Promise<void> {
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
@@ -82,20 +84,47 @@ export class DataSystem implements WorldSystem {
     };
     hold(motion.reduced);
     this.unsubMotion = motion.subscribe(hold);
+    // the payloads are asked for first: the round trip overlaps the SDF decode and everything after it
+    const feed = this.feed = new HarbourFeed();
+    feed.subscribe(() => { this.dirty = true; });
+    ctx.services.set("feed", feed);
+    const landed = feed.start();
     // the island's real coastline, from the baked sea SDF (the same bytes for every viewer)
-    const coast = await loadCoast(ctx, layout);
-    // the first real plan's leg times, built by workers meanwhile (the sim adopts them as they land)
-    this.stopWarm = warmLegsOffThread(layout, coast, (entries) => this.sim?.seedLegTimes(entries));
+    const coasting = loadCoast(ctx, layout);
+    // the first real plan's leg times and outing answers, built by workers meanwhile (they load now, start
+    // on the coast; the sim adopts their answers as they land)
+    const warm = this.warm = warmLegsOffThread(layout, coasting, (entries) => this.sim?.seedLegTimes(entries), (seed) => this.sim?.seedOutings(seed));
+    const coast = await coasting;
+    if (this.feed !== feed) return; // disposed meanwhile
     const now = this.simNow(Date.now());
     // AWAITING DATA: an empty, unavailable model until the first payloads land — never a fixture fleet
     const empty = buildHarbourModel({}, now, { pieredChains: layout.piers.map((p) => p.chain) });
     this.sim = new HarbourSim(empty, layout, this.simClock(Date.now()), coast);
     ctx.services.set("model", empty);
     ctx.services.set("sim", this.sim);
-    this.feed = new HarbourFeed();
-    this.feed.subscribe(() => { this.dirty = true; });
-    ctx.services.set("feed", this.feed);
-    void this.feed.start();
+    // once the first round of payloads is in and the workers are warm: install it in a task of its own,
+    // while the rest of the world is still loading, rather than in a frame
+    void Promise.all([landed, warm.done]).then(() => setTimeout(() => { void this.installEarly(ctx); }, 0));
+  }
+
+  /**
+   * The first install, ahead of the frames: the model and plan, then the legs the first poses sail (built
+   * by the workers), then those poses. The first update() finds the model installed and the paths cached. If
+   * frames already consumed the payloads (the world was up first), there is nothing left to do here.
+   */
+  private async installEarly(ctx: EngineContext): Promise<void> {
+    const sim = this.sim, warm = this.warm;
+    if (this.eager || !sim || !warm) return;
+    this.eager = true;
+    if (!this.dirty) { warm.stop(); return; }
+    this.dirty = false;
+    const wall = Date.now();
+    this.lastBuild = wall;
+    const model = this.rebuild(ctx, this.simNow(wall), this.simClock(wall));
+    if (model) this.truthSig = Object.values(model.truth).map((t) => t.state).join();
+    const plan = sim.plan, req = sim.pathRequests(this.simClock(Date.now()));
+    await warm.paths(sim.rafts(), req.now, req.soon, (entries) => sim.seedPaths(plan, entries));
+    if (this.sim === sim) sim.poseAt(this.simClock(Date.now()));
   }
 
   /** The model's clock: wall time (dev: scaled / offset). */
@@ -155,7 +184,7 @@ export class DataSystem implements WorldSystem {
 
   dispose(ctx: EngineContext): void {
     this.feed?.stop();
-    this.stopWarm?.(); this.stopWarm = null;
+    this.warm?.stop(); this.warm = null;
     this.unsubMotion?.(); this.unsubMotion = null;
     this.markers?.dispose();
     this.feed = null;

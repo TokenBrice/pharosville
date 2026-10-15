@@ -131,7 +131,7 @@ export class LighthouseSystem implements WorldSystem {
     if (still.length === 2 && still[0].parent === still[1].parent && still[0].parent) mergeStaticMeshes(still, still[0].parent, "pharos");
 
     this.fx = acquireFxTextures(ctx);
-    this.fire = new PharosFire(at("fire_emitter", 87.5), at("smoke_emitter", 96), this.lantern, this.fx.noise, this.light, layout?.seaLevel ?? 0);
+    this.fire = new PharosFire(at("fire_emitter", 87.5), at("smoke_emitter", 96), this.lantern, this.fx.noise, this.light);
     ctx.scene.add(this.fire.group);
   }
 

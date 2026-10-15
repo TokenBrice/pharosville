@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import runtimeSlim from "@shared/data/stablecoins/runtime-slim.json";
+import { RUNTIME_TRACKED_STABLECOINS } from "@shared/lib/stablecoins/runtime-registry";
 import layout from "../data/layout.json";
 import type { HarbourLayout } from "../layout/types";
 import { landmarkFact, PANEL_LANDMARKS } from "./facts";
@@ -12,6 +14,12 @@ describe("the Shipyard's book", () => {
     expect(REGISTRY_YARD.length).toBeGreaterThanOrEqual(43);
     expect(new Set(REGISTRY_YARD.map((c) => c.id)).size).toBe(REGISTRY_YARD.length);
     for (const c of REGISTRY_YARD) expect(["keel", "ribs", "planked", "painted", "rigged"]).toContain(c.stage);
+  });
+
+  it("reads the same pre-launch coins from the slim registry as from the full one", () => {
+    const full = RUNTIME_TRACKED_STABLECOINS.filter((c) => c.status === "pre-launch").map(toYardCoin);
+    expect(full.length).toBeGreaterThan(0);
+    expect(runtimeSlim.filter((c) => c.status === "pre-launch").map(toYardCoin)).toEqual(full);
   });
 
   it("normalises phase labels and guards missing fields", () => {

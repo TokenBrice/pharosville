@@ -4,6 +4,7 @@
  */
 import deadJson from "@shared/data/dead-stablecoins.json";
 import type { Boat, HarbourModel } from "../model/types";
+import { deadRecords, FAMILIES } from "../model/obituary";
 import { bps, money, monthYear, share, titleCase } from "./format";
 
 export type WhereKind = "alongside" | "moored" | "casting-off" | "sailing" | "outing" | "shoals" | "wreck" | "far" | "unknown";
@@ -179,3 +180,13 @@ export const PANEL_LANDMARKS = new Set(["pharos", "shoals", "customs-house", "ti
   "mint", "burn", "chartroom", "keeperslog", "the-roads"]);
 
 export const wreckDate = (d: string) => monthYear(d);
+
+/** A dead coin's tag line: its cause family and the year it died ("Death spiral · † 2022"). */
+export function wreckFact(id: string): string {
+  const r = deadRecords().get(id);
+  if (!r) return "wrecked";
+  return [FAMILIES[r.family].name, /^\d{4}/.test(r.deathDate) ? `† ${r.deathDate.slice(0, 4)}` : ""].filter(Boolean).join(" · ");
+}
+
+/** The obituary as the panel prints it: the register's own housekeeping notes left out. */
+export const obituaryText = (s: string) => s.replace(/\s*\((?:Excluded from|Note:)[^)]*\)/g, "").trim();

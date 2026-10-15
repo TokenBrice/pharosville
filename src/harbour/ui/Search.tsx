@@ -3,11 +3,12 @@ import type { HarbourModel } from "../model/types";
 import { chainLogo, Logo } from "./bits";
 import { PANEL_LANDMARKS } from "./facts";
 import { money } from "./format";
-import { usePresence, useStore, useUISlice } from "./hooks";
+import { touchFirst, usePresence, useStore, useUISlice } from "./hooks";
 import { searchCoins, type Searchable } from "./search";
 import { placeName, plotFor, seaZones, ZONE_PANEL } from "./places";
 import { getLayout, type PickHit } from "./services";
 import { PHASE_NAME, yardCoins } from "./yard";
+import { deadRecords } from "../model/obituary";
 
 interface Item extends Searchable { hit: PickHit; logo: string | null; color: string; note: string }
 
@@ -39,6 +40,14 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
       if (live.has(c.id)) continue;
       out.push({ id: c.id, symbol: c.symbol, name: c.name, supply: 0, hit: { kind: "yard", id: c.id }, logo: c.logo, color: "#7a5a22",
         note: `pre-launch · ${c.phase ? PHASE_NAME[c.phase].toLowerCase() : "shipyard"}` });
+    }
+    // the dead: each lies in Wreck Cove (a live hull in the dead list is already here as a boat); never outranks a
+    // live coin of the same name (supply 0)
+    for (const w of model?.readings.wrecks ?? []) {
+      if (live.has(w.id)) continue;
+      const r = deadRecords().get(w.id);
+      out.push({ id: w.id, symbol: w.symbol, name: w.name, supply: 0, hit: { kind: "wreck", id: w.id }, logo: r?.logo ?? null, color: "#8a7d66",
+        note: `wreck · † ${w.deathDate.slice(0, 4)}` });
     }
     const L = getLayout(store.ctx);
     const zoneIds = new Set(seaZones(L).map((z) => ZONE_PANEL[z.kind]).filter(Boolean));
@@ -90,13 +99,13 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
               {r.hit.kind === "landmark" ? <span className="hb-logo hb-lm-glyph" aria-hidden="true" /> : <Logo src={r.logo} label={r.symbol} color={r.color} />}
               <b>{r.symbol}</b>
               <em>{r.hit.kind === "landmark" ? "" : r.name}</em>
-              <span className={r.hit.kind === "landmark" || r.hit.kind === "yard" ? "hb-result-kind" : "hb-num"}>{r.note}</span>
+              <span className={r.hit.kind === "landmark" || r.hit.kind === "yard" || r.hit.kind === "wreck" ? "hb-result-kind" : "hb-num"}>{r.note}</span>
             </li>
           ))}
         </ul>
       )}
       {q.trim() && results.length === 0 && <div className="hb-search-hint">Nothing in the harbour answers to “{q.trim()}”.</div>}
-      {!q.trim() && <div className="hb-search-hint">A ticker, a chain or a place · Enter sails there · Esc closes</div>}
+      {!q.trim() && <div className="hb-search-hint">{touchFirst() ? "A ticker, a chain or a place · tap a match to sail there" : "A ticker, a chain or a place · Enter sails there · Esc closes"}</div>}
     </div>
   );
 }

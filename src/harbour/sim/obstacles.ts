@@ -5,6 +5,7 @@
  * viewer. Used to pick the open-water side of a turn and to ease paths off structures.
  */
 import type { HarbourLayout, Vec2 } from "../layout/types";
+import { hypot } from "./math";
 
 export interface ObstacleField {
   minX: number; minZ: number; cell: number; nx: number; nz: number;
@@ -62,7 +63,7 @@ function stampCapsule(mask: Uint8Array, f: ObstacleField, a: Vec2, b: Vec2, radi
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const cx = i + 0.5, cz = j + 0.5;
     const t = l2 > 0 ? Math.min(1, Math.max(0, ((cx - ax) * dx + (cz - az) * dz) / l2)) : 0;
-    if (Math.hypot(cx - ax - dx * t, cz - az - dz * t) <= r + 0.35) mask[j * f.nx + i] = 1;
+    if (hypot(cx - ax - dx * t, cz - az - dz * t) <= r + 0.35) mask[j * f.nx + i] = 1;
   }
 }
 

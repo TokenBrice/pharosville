@@ -124,7 +124,7 @@ export class Gulls {
   private readonly gulls: Gull[] = [];
   private readonly wing: THREE.InstancedBufferAttribute;
   readonly uniforms = { uLifeT: { value: 0 } };
-  private readonly taken: Int8Array;
+  private taken: Int8Array;
   private readonly m4 = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly e = new THREE.Euler(0, 0, 0, "YXZ");
@@ -160,6 +160,24 @@ export class Gulls {
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
+  }
+
+  /**
+   * More perches once their owner has placed them (Wreck Cove's hulks load after the first frame); `seat` gulls
+   * still on the wing are settled on them straight away.
+   */
+  addPerches(points: readonly THREE.Vector3[], seat = 0): void {
+    const at = this.sites.perches.length;
+    this.sites.perches.push(...points);
+    const taken = new Int8Array(this.sites.perches.length);
+    taken.set(this.taken);
+    this.taken = taken;
+    for (let i = 0, k = 0; i < this.gulls.length && k < Math.min(seat, points.length); i++) {
+      const g = this.gulls[i];
+      if (g.mode === "perch") continue;
+      g.perch = at + k; this.taken[at + k] = 1; k++;
+      g.mode = "perch"; g.t = 60 + g.r01() * 90; g.pos.copy(this.sites.perches[g.perch]); g.prev.copy(g.pos); g.fold = 1; g.flap = 0;
+    }
   }
 
   private perchAt(g: Gull): boolean {

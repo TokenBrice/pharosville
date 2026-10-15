@@ -14,6 +14,8 @@ export interface QualitySettings {
   readonly shadowMapSize: number;
   /** Seconds between shadow-map refreshes while nothing forces one (0 = every frame). */
   readonly shadowInterval: number;
+  /** ...and at least this many frames since the last one (a slow frame alone never re-renders the map). */
+  readonly shadowMinFrames: number;
   /** Real point lights promoted near the camera at night (the pools/sprites carry the rest). */
   readonly pointLights: number;
   /** Bloom mip levels (fewer = cheaper, slightly tighter halo). */
@@ -23,9 +25,9 @@ export interface QualitySettings {
 }
 
 export const TIERS: Record<QualityTier, QualitySettings> = {
-  high: { tier: "high", shadowMapSize: 4096, shadowInterval: 0, pointLights: 16, bloomLevels: 8, smaa: "high" },
-  medium: { tier: "medium", shadowMapSize: 2048, shadowInterval: 1 / 30, pointLights: 8, bloomLevels: 7, smaa: "medium" },
-  low: { tier: "low", shadowMapSize: 2048, shadowInterval: 1 / 15, pointLights: 4, bloomLevels: 6, smaa: "low" },
+  high: { tier: "high", shadowMapSize: 4096, shadowInterval: 0, shadowMinFrames: 1, pointLights: 16, bloomLevels: 8, smaa: "high" },
+  medium: { tier: "medium", shadowMapSize: 2048, shadowInterval: 1 / 30, shadowMinFrames: 2, pointLights: 8, bloomLevels: 7, smaa: "medium" },
+  low: { tier: "low", shadowMapSize: 2048, shadowInterval: 1 / 15, shadowMinFrames: 2, pointLights: 4, bloomLevels: 6, smaa: "low" },
 };
 
 export interface QualityRung { readonly tier: QualityTier; readonly dpr: number }
@@ -56,11 +58,17 @@ export function ladderFor(deviceDpr: number): QualityRung[] {
   return out;
 }
 
+/** Phone and tablet GPUs by WEBGL_debug_renderer_info name (Android ANGLE strings carry the same names). */
+const MOBILE_GPU = /adreno|mali|immortalis|powervr|apple gpu|xclipse|maleoon|videocore/;
+
 /**
  * Starting rung from the GPU's name (WEBGL_debug_renderer_info). Integrated GPUs start one tier down and
- * may climb; discrete GPUs start at the top and may fall. Unknown starts at Medium 1.5.
+ * may climb; discrete GPUs start at the top and may fall. Unknown starts at Medium 1.5. Phone and tablet
+ * GPUs (by name, or any GPU behind a coarse primary pointer) start at Medium 1.5 whatever their name, and
+ * the governor climbs from there if frames allow: they share a battery and a thermal budget with a high-DPR
+ * panel (the ladder caps the ratio at 2).
  */
-export function initialRungFor(renderer: string, ladder: readonly QualityRung[]): number {
+export function initialRungFor(renderer: string, ladder: readonly QualityRung[], coarsePointer = false): number {
   const r = renderer.toLowerCase();
   const top = ladder.length - 1;
   /** richest rung of `tier` whose pixel ratio is ≤ dpr */
@@ -70,6 +78,7 @@ export function initialRungFor(renderer: string, ladder: readonly QualityRung[])
     return best < 0 ? top : best;
   };
   if (/swiftshader|llvmpipe|software|microsoft basic/.test(r)) return 0;
+  if (coarsePointer || MOBILE_GPU.test(r)) return at("medium", 1.5);
   if (/nvidia|geforce|quadro|rtx|radeon (rx|pro)|\brx \d/.test(r)) return top;
   if (/apple m\d (max|ultra)/.test(r)) return at("high", 1.5);
   return at("medium", 1.5);   // Apple / Intel / integrated Radeon / mobile / unknown

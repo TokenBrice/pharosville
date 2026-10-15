@@ -11,6 +11,8 @@ import { LandFlags } from "./flags";
 import { Townsfolk, type FolkGround } from "./folk";
 import { Gulls } from "./gulls";
 import { ChimneySmoke } from "./smoke";
+import { SeasonalDrift } from "./drift";
+import type { SeasonService } from "../season/season-system";
 import { smokeAmount, townDensity, type Walkways } from "./walkways";
 
 export const WALKWAYS_URL = "/harbour/walkways.json";
@@ -34,7 +36,7 @@ interface WindSource { wind?: { fromRad: number; strength: number } }
 /**
  * LIFE — the declared-decorative inhabitants of the island: townsfolk, gulls, chimney smoke, flags and
  * bunting. Nothing here carries or implies data. Budget: ≤ 6 draw calls (folk + its shadow, gulls, smoke,
- * flags = 5), ≤ 0.4 ms CPU per frame. Honours reduced motion (people stand, gulls perch, smoke holds still)
+ * flags, seasonal drift = 6), ≤ 0.4 ms CPU per frame. Honours reduced motion (people stand, gulls perch, smoke holds still)
  * and the quality tier (fewer actors on Low).
  */
 export class LifeSystem implements WorldSystem {
@@ -43,6 +45,7 @@ export class LifeSystem implements WorldSystem {
   private gulls: Gulls | null = null;
   private smoke: ChimneySmoke | null = null;
   private flags: LandFlags | null = null;
+  private drift: SeasonalDrift | null = null;
   private motion: MotionService | null = null;
   private quality: QualityService | null = null;
   readonly group = new THREE.Group();
@@ -51,6 +54,7 @@ export class LifeSystem implements WorldSystem {
   private readonly windTo: [number, number] = [0.84, -0.54];
   private wind = 0.35;
   private bustle = 0;
+  private covePerched = false;
 
   async init(ctx: EngineContext): Promise<void> {
     this.group.name = "life";
@@ -118,6 +122,9 @@ export class LifeSystem implements WorldSystem {
     this.smoke = new ChimneySmoke(chimneys);
     this.group.add(this.smoke.mesh);
 
+    this.drift = new SeasonalDrift(mats.ao);
+    this.group.add(this.drift.mesh);
+
     if (walk.flagpoles.length || walk.bunting.length) {
       this.flags = new LandFlags(walk, mats);
       this.group.add(this.flags.mesh);
@@ -139,17 +146,30 @@ export class LifeSystem implements WorldSystem {
     this.wind = sky?.shared.uWeatherSea.value.y ?? sim?.wind?.strength ?? 0.35;
     if (sim?.wind) { const to = sim.wind.fromRad + Math.PI; this.windTo[0] = Math.sin(to); this.windTo[1] = Math.cos(to); }
 
-    this.bustle = townDensity(hour) * share;
+    // the calendar (declared decorative): fewer folk out in the cold, every hearth lit in winter
+    const season = ctx.services.get("season") as SeasonService | undefined;
+    const [spring, , autumn, winter] = season?.weights ?? [0, 1, 0, 0];
+    this.bustle = townDensity(hour) * share * (1 - 0.35 * winter);
     this.folk.update(dt, this.bustle, u.uNight.value, u.uLamp.value * 0.22, moving);
+    // gulls stand on the big hulks of Wreck Cove (the fleet's 'cove' service, once its kit has landed)
+    if (!this.covePerched && this.gulls) {
+      const marks = (ctx.services.get("cove") as { marks?: ReadonlyArray<{ perch: [number, number, number] | null; len: number }> } | undefined)?.marks ?? [];
+      const pts = marks.filter((m) => m.perch).sort((a, b) => b.len - a.len).slice(0, 7).map((m) => new THREE.Vector3(...m.perch!));
+      if (pts.length) { this.gulls.addPerches(pts, 4); this.covePerched = true; }
+    }
     this.gulls?.update(dt, moving, share > 0.5 ? 1 : 0.5, u.uNight.value);
-    this.smoke?.update(dt, moving, smokeAmount(hour) * (0.6 + 0.4 * share), this.windTo, this.wind, u);
+    const hearth = 1 + 1.1 * winter + 0.3 * autumn;
+    if (this.smoke) this.smoke.uniforms.uSmokeOpacity.value = 0.26 * (1 + 0.35 * winter);
+    this.smoke?.update(dt, moving, smokeAmount(hour) * hearth * (0.6 + 0.4 * share), this.windTo, this.wind, u);
+    this.drift?.update(dt, moving, autumn, spring, share, ctx.camera, ctx.rig.target, ctx.rig.distance, u);
     this.flags?.update(dt, moving, this.windTo, this.wind);
   }
 
   dispose(ctx: EngineContext): void {
     ctx.scene.remove(this.group);
     ctx.services.delete("life");
-    this.folk?.dispose(); this.gulls?.dispose(); this.smoke?.dispose(); this.flags?.dispose();
+    this.folk?.dispose(); this.gulls?.dispose(); this.smoke?.dispose(); this.flags?.dispose(); this.drift?.dispose();
     this.folk = this.gulls = this.smoke = this.flags = null;
+    this.drift = null;
   }
 }

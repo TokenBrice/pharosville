@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SYNTHS, renderNow, shoreWash, type ClipKind } from "./dsp";
+import { SYNTHS, renderNow, rumble, shoreWash, thunder, type ClipKind } from "./dsp";
 
 const SR = 48000;
 
@@ -52,5 +52,18 @@ describe("harbour sound DSP", () => {
     const corr = lr / Math.sqrt(ll * rr);
     expect(corr).toBeGreaterThan(-0.2);
     expect(corr).toBeLessThan(0.8);
+  });
+
+  /** Energy above ~1.5 kHz (first difference ≈ a highpass) vs total, over [a, b) seconds. */
+  function brightness(x: Float32Array, sr: number, a: number, b: number) {
+    let hi = 0, all = 0;
+    for (let i = Math.max(1, Math.floor(a * sr)); i < Math.min(x.length, b * sr); i++) { const d = x[i] - x[i - 1]; hi += d * d; all += x[i] * x[i]; }
+    return hi / (all + 1e-12);
+  }
+
+  it("near thunder tears first (bright), then rolls (dark); far thunder is only the low roll", () => {
+    const sr = 24000, near = renderNow(thunder(11, sr)), far = renderNow(rumble(12, sr));
+    expect(brightness(near.L, sr, 0, 0.4)).toBeGreaterThan(5 * brightness(near.L, sr, 2, 6));
+    expect(brightness(far.L, sr, 0, far.L.length / sr)).toBeLessThan(brightness(near.L, sr, 0, 0.4) / 5);
   });
 });

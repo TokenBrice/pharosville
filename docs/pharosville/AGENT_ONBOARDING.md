@@ -32,7 +32,7 @@ read only the docs needed for the change in front of you.
 - Work only in this repository unless explicitly authorized.
 - Browser must use same-origin `/api/*` (no client cross-origin API calls).
 - Keep `PHAROS_API_KEY` server-side only.
-- Keep world runtime unmounted unless both the device screen and the current VIEWPORT satisfy either the standard `900×720` size profile or the wide-laptop `1200×640` profile. Dimensions are sorted; do not gate on `(orientation: portrait)`, because CSS orientation is a viewport aspect test that blocks tall desktop windows with more room than wide ones it allows.
+- Keep world runtime unmounted unless both the device screen and the current VIEWPORT satisfy the `720×600` size profile (long side × short side). Dimensions are sorted; do not gate on `(orientation: portrait)`, because CSS orientation is a viewport aspect test that blocks tall desktop windows with more room than wide ones it allows.
 - Use `agents/` for plans and handoff artifacts.
 - Use `outputs/` for temporary screenshots, renders, and generation scratch files.
 

@@ -53,6 +53,7 @@ uniform vec4 uSkyBandRange;
 uniform float uFwdAz, uHorizonDist, uHorizonDepr;
 uniform vec3 uGlintDir, uGlintCol;
 uniform vec4 uWeatherSea;     // cover, wind, wind dir x, wind dir z
+uniform vec2 uPrecip;         // rain, snow intensity (weather director)
 // beam (shared from the beam system)
 uniform vec3 uBeamPos, uBeamCol;
 uniform float uBeamAngle;
@@ -79,6 +80,25 @@ vec3 band(float th, float e, float lod) {
   return mix(c, uZenith, smoothstep(uSkyBandRange.w - 2.0, uSkyBandRange.w + 18.0, e));
 }
 float wrapPi(float a) { return atan(sin(a), cos(a)); }
+// rain on the water: rings spreading from random drops on two offset lattices (slope xy, z = fresh drop)
+vec3 rainRings(vec2 xz, float t, float cell) {
+  vec3 acc = vec3(0.0);
+  for (int l = 0; l < 2; l++) {
+    vec2 p = xz / cell + float(l) * vec2(0.37, 0.71);
+    vec2 id = floor(p), f = fract(p) - 0.5;
+    float h = fract(sin(dot(id + float(l) * 17.0, vec2(12.9898, 78.233))) * 43758.5453);
+    float h2 = fract(h * 91.7);
+    float ph = fract(t * (0.9 + 0.5 * h2) + h);
+    vec2 c = (vec2(h, h2) - 0.5) * 0.5;
+    vec2 d = f - c;
+    float r = length(d);
+    float rad = ph * 0.48;
+    float ring = sin((r - rad) * 40.0) * exp(-pow((r - rad) / 0.07, 2.0)) * (1.0 - ph) * (1.0 - ph);
+    acc.xy += d / max(r, 1e-3) * ring;
+    acc.z += (1.0 - smoothstep(0.0, 0.05, r)) * (1.0 - smoothstep(0.0, 0.2, ph));
+  }
+  return acc;
+}
 // anti-aliased thin network where two drifting fields cross (caustics on the bed, lace in the foam)
 float hbNet(float a, float b, float w) {
   float d = a - b;
@@ -120,6 +140,10 @@ void main() {
   vec2 pawUv = xz * 0.0019 - wdir * t * (0.004 + 0.012 * wind);
   float paws = smoothstep(0.38, 0.7, texture2D(uNoise, pawUv).g * 0.7 + texture2D(uNoise, pawUv * 2.7 + 0.3).b * 0.45);
   float rough = mix(0.35, 1.0, paws) * (0.75 + 0.5 * wind);
+  // a rain-pitted sea loses its mirror
+  rough *= 1.0 + 0.6 * uPrecip.x;
+  // the wind sea (DEWS): from Warning up the wind raises whitecaps and spindrift of its own
+  float windSea = smoothstep(0.6, 1.0, wind);
   // zones: the harbours lie in the lee (calmer, glassier); the Roads catch the open-sea wind
   rough *= (1.0 - 0.38 * zm.b) * (1.0 + 0.3 * zm.a);
 
@@ -147,6 +171,14 @@ void main() {
   vec2 dn = (d1 * (1.0 - far01 * 0.7) + d2 * 0.75 * (1.0 - far01) + d3 * (0.45 + 0.5 * far01)) * dk;
   // wakes rough up the surface
   dn += (d2 - d1) * 0.25 * clamp(trail + live.r, 0.0, 1.0);
+  // rain rings (and snowflakes landing): near the camera only, where a ring is a few pixels wide
+  float rainK = uPrecip.x * (1.0 - smoothstep(380.0, 900.0, camD)) * step(0.0, coast);
+  float snowSpeck = 0.0;
+  if (rainK + uPrecip.y > 0.01) {
+    vec3 rr = rainRings(xz, t * 1.6, 2.3);
+    dn += rr.xy * 0.55 * rainK;
+    snowSpeck = rr.z * uPrecip.y * (1.0 - smoothstep(300.0, 700.0, camD)) * step(0.0, coast);
+  }
   vec3 N = normalize(vec3(gN.x + dn.x, gN.y, gN.z + dn.y));
   vec3 Nsp = normalize(vec3(gN.x + (d1.x + d2.x * 1.4) * 0.5, 1.0, gN.z + (d1.y + d2.y * 1.4) * 0.5)); // sharp, for sparkle
 
@@ -185,12 +217,18 @@ void main() {
     vec3 bed = mix(sand, vec3(0.26, 0.30, 0.26) * (0.8 + 0.4 * nC.r), smoothstep(0.62, 0.78, rockN));
     vec3 absorb = exp(-bedDep * vec3(0.55, 0.17, 0.13));
     vec3 seen = bed * absorb * mix(vec3(1.0), uSunlitShoal * 1.6, 0.35);
-    float cs = 1.0 - smoothstep(180.0, 650.0, camD);
-    vec2 cuv = xz * 0.043;
-    float cA = texture2D(uNoise, cuv + t * vec2(0.011, 0.007)).g;
-    float cB = texture2D(uNoise, (rot * cuv) * 1.19 - t * vec2(0.006, -0.009) + 0.5).g;
-    float caus = hbNet(cA, cB, 0.06) * cs * (0.55 + 0.45 * smoothstep(0.3, 0.7, nC.g));
-    float cGain = sunUp * (1.0 - cover * 0.7) * (1.0 - smoothstep(0.2, 5.5, bedDep));
+    // caustics only ever appear scaled by cGain: with no sun (uniform, so the branch is coherent and the
+    // derivatives inside stay defined) they are exactly zero, so skip their taps
+    float cSun = sunUp * (1.0 - cover * 0.7);
+    float caus = 0.0;
+    if (cSun > 0.0) {
+      float cs = 1.0 - smoothstep(180.0, 650.0, camD);
+      vec2 cuv = xz * 0.043;
+      float cA = texture2D(uNoise, cuv + t * vec2(0.011, 0.007)).g;
+      float cB = texture2D(uNoise, (rot * cuv) * 1.19 - t * vec2(0.006, -0.009) + 0.5).g;
+      caus = hbNet(cA, cB, 0.06) * cs * (0.55 + 0.45 * smoothstep(0.3, 0.7, nC.g));
+    }
+    float cGain = cSun * (1.0 - smoothstep(0.2, 5.5, bedDep));
     seen *= 0.85 + 0.15 * smoothstep(0.35, 0.65, nC.g);
     seen += vec3(1.0, 0.97, 0.85) * uSunColor * caus * 0.05 * cGain;
     body = mix(body, seen * mix(0.95, 1.0, sunUp), seeBed * 0.62);
@@ -255,7 +293,8 @@ void main() {
     // keep each pool's core (a column, not a round blob), broken into ripple-lit dashes
     acc *= smoothstep(0.03, 0.32, dot(acc, vec3(0.333))) * 1.5;
     float shim = 0.15 + 1.9 * smoothstep(0.42, 0.8, r2.a * 0.6 + r1.a * 0.5 + 0.1 * sin(dot(xz, away) * 2.2 - t * 1.3));
-    float calmK = mix(1.0, 1.35, zm.b) * (1.0 - 0.5 * storm);
+    // a rain-pitted surface scatters the mirrored lights into a dimmer, broken shimmer
+    float calmK = mix(1.0, 1.35, zm.b) * (1.0 - 0.5 * storm) * (1.0 - 0.5 * uPrecip.x);
     float fadeD = 1.0 - 0.55 * smoothstep(300.0, 1100.0, camD);
     col += acc * smoothstep(0.02, 0.55, uWindowGlow) * shim * calmK * fadeD * (0.28 + 0.6 * F) * step(0.0, coast);
   }
@@ -336,7 +375,8 @@ void main() {
     float lrE = max(dot(reflect(vd, Nenv), Lb), 0.0);
     float lr = max(dot(R, Lb), 0.0);
     float lTw = min(pow(lr, 900.0) * 3.0 * sparkMask, 1.0) * smoothstep(0.05, 0.7, pow(lrE, 70.0));
-    beam += uBeamCol * (lTw * 0.85 + pow(lrE, 260.0) * 0.17 + pow(lr, 160.0) * 0.06) * (0.25 + 0.6 * min(uBeamShape.w, 2.5));
+    // a rain-pitted sea breaks the column up: the sharp core and twinkles scatter
+    beam += uBeamCol * (lTw * 0.85 * (1.0 - 0.55 * uPrecip.x) + pow(lrE, 260.0) * 0.17 * (1.0 - 0.45 * uPrecip.x) + pow(lr, 160.0) * 0.06) * (0.25 + 0.6 * min(uBeamShape.w, 2.5));
   }
 
   // ---------------------------------------------------------------- foam
@@ -377,6 +417,8 @@ void main() {
     float eddyK = (1.0 - smoothstep(0.5, 3.6, sdN)) * smoothstep(0.0, 0.25, sdN);
     fStruct = max(fStruct, max(scum * 0.5, lace * 0.45) * eddyK);
   }
+  // calm water keeps only a faint contact line round piles, buoys and quays; the foam builds with sea state and rain
+  fStruct *= mix(0.35, 1.0, max(storm, uPrecip.x));
   // broken, translucent foam: noise eats the wake so it reads as lines of bubbles, not ribbons
   float fTrail = smoothstep(0.25, 0.85, trail * (0.2 + 1.3 * nC.g * nB.b * 1.6)) * (0.4 + 0.35 * smoothstep(0.4, 1.0, trail));
   // as a wake ages it breaks into lace threads and drifting patches before it is gone
@@ -391,10 +433,21 @@ void main() {
     caps = max(caps, smoothstep(0.82 - 0.05 * uSea.z, 0.93, fl) * smoothstep(0.0, 0.6, uSea.z) * (1.0 - far01 * 0.5) * smoothstep(25.0, 90.0, coast));
   }
   // wind-driven foam streaks (spindrift lanes) in rough weather, aligned with the wind
-  vec2 wl = vec2(dot(xz, wdir), dot(xz, vec2(-wdir.y, wdir.x)));
-  float lane = texture2D(uNoise, vec2(wl.x * 0.0035 - t * 0.004, wl.y * 0.045)).g * 0.75 + texture2D(uNoise, vec2(wl.x * 0.011, wl.y * 0.13) + 0.41).b * 0.4;
-  float streaks = smoothstep(0.7, 0.88, lane) * smoothstep(0.35, 1.0, storm) * smoothstep(20.0, 70.0, coast) * (0.35 + 0.65 * nC.r);
-  caps = max(caps, streaks * 0.75);
+  // (weighted by a uniform: a calm sea skips the taps; the result was exactly zero)
+  float laneK = max(smoothstep(0.35, 1.0, storm), windSea * 0.85);
+  if (laneK > 0.0) {
+    vec2 wl = vec2(dot(xz, wdir), dot(xz, vec2(-wdir.y, wdir.x)));
+    float lane = texture2D(uNoise, vec2(wl.x * 0.0035 - t * 0.004, wl.y * 0.045)).g * 0.75 + texture2D(uNoise, vec2(wl.x * 0.011, wl.y * 0.13) + 0.41).b * 0.4;
+    float streaks = smoothstep(0.7, 0.88, lane) * laneK * smoothstep(20.0, 70.0, coast) * (0.35 + 0.65 * nC.r);
+    caps = max(caps, streaks * 0.75);
+  }
+  // wind-raised whitecaps (DEWS Warning / Danger), sparse, riding the crests, more in the open Roads
+  if (windSea > 0.01) {
+    float wf = texture2D(uNoise, xz * 0.041 - wdir * t * 0.02).a * 0.5 + nC.r * 0.45 + crestH * 0.45 + 0.08 * zm.a;
+    caps = max(caps, smoothstep(0.86 - 0.08 * windSea, 0.95, wf) * windSea * (1.0 - far01 * 0.5) * smoothstep(15.0, 60.0, coast) * (1.0 - 0.6 * zm.b));
+  }
+  // snowflakes melt the instant they land: a white speck that is gone
+  caps = max(caps, snowSpeck * 0.8);
   // the Shoals: lines of surf breaking across the reef, rolling in with the swell
   {
     float sPh = dot(xz, SWELL) * 0.15 - t * 0.85 + (nA.b - 0.5) * 5.0;
@@ -421,12 +474,15 @@ void main() {
   col = mix(col, foamLit, foam);
 
   // ---------------------------------------------------------------- horizon haze (meets the painted backdrop exactly)
-  float thV = degrees(wrapPi(atan(vd.x, -vd.z) - uFwdAz));
-  vec3 hazeC = band(thV, 0.15, 0.0);
   // gentle aerial perspective: the outer sea keeps its swell and colour, meeting the card exactly
   float hz = smoothstep(uHorizonDist * 0.62, uHorizonDist * 0.998, fwdD);
-  hz = pow(hz, 2.8);
-  col = mix(col, hazeC, clamp(hz, 0.0, 1.0));
+  // nearer water mixes in exactly nothing: skip the band lookup (explicit LOD, safe in a per-pixel branch)
+  if (hz > 0.0) {
+    float thV = degrees(wrapPi(atan(vd.x, -vd.z) - uFwdAz));
+    vec3 hazeC = band(thV, 0.15, 0.0);
+    hz = pow(hz, 2.8);
+    col = mix(col, hazeC, clamp(hz, 0.0, 1.0));
+  }
 
   if (uDebug > 0.5 && uDebug < 1.5) col = vec3(trail, live.r, live.g);
   if (uDebug > 1.5 && uDebug < 2.5) col = vec3(sdf.r, sdf.g, sdf.b);

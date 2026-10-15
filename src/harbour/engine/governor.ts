@@ -7,6 +7,8 @@ import { TIERS, initialRungFor, ladderFor, parseTier, type QualityRung, type Qua
  *    otherwise rAF deltas: missed vsyncs step DOWN, and long clean stretches PROBE one rung up. A probe
  *    that misses frames is reverted and that rung becomes the ceiling (retried later, ever more rarely).
  *    This is the path Safari and Chrome-on-Mac take (no timer queries there).
+ *  - With a GPU timer, a slow window steps down only when the GPU time is ≥ 60 % of the frame interval;
+ *    a CPU-bound frame holds the rung (cheaper effects would not help, the recompile would hitch).
  *  - One rung per decision, hysteresis, and a cool-down after every change (which also swallows the
  *    shader recompiles a tier change may cause) so it never oscillates.
  *  - `?dpr=<x>` pins the pixel ratio, `?quality=high|medium|low` pins the tier (gate captures).
@@ -48,7 +50,8 @@ export class QualityGovernor implements QualityService {
     this.ceiling = this.ladder.length - 1;
     const dbg = gl.getExtension("WEBGL_debug_renderer_info");
     const name = String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
-    this.rung = initialRungFor(name, this.ladder);
+    const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+    this.rung = initialRungFor(name, this.ladder, coarse);
     if (this.pinnedTier) this.rung = this.richest(this.pinnedTier);
     else if (this.pinnedDpr !== null) this.rung = this.ladder.length - 1;
     this.ext = gl.getExtension("EXT_disjoint_timer_query_webgl2") as { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null;
@@ -134,10 +137,14 @@ export class QualityGovernor implements QualityService {
     if (this.frames < 90 && this.windowTime < 1.5) return;
     const slowShare = this.slowFrames / this.frames;
     const gpu = this.gpuN > 20 ? this.lowTail() : null;
-    const windowSecs = this.windowTime;
+    const windowSecs = this.windowTime, frames = this.frames;
     this.resetWindow();
 
-    if (slowShare > 0.06 || (gpu !== null && gpu > 13)) {
+    // with a GPU timer, step down only when the GPU is the bottleneck (≥ 60 % of the frame interval): a
+    // CPU-bound frame gains nothing from cheaper effects, it only pays the tier change's recompile hitch
+    const slow = slowShare > 0.06 || (gpu !== null && gpu > 13);
+    const gpuBound = gpu === null || gpu >= 0.6 * (windowSecs * 1000 / frames);
+    if (slow && gpuBound) {
       if (this.probing) {
         // the probe failed: this rung is too rich for now; back off and retry much later
         this.ceiling = this.rung - 1;
@@ -149,6 +156,7 @@ export class QualityGovernor implements QualityService {
       return;
     }
     this.probing = false;
+    if (slow) return;   // CPU-bound: hold the rung
     if (this.rung >= Math.min(this.ceiling, this.ladder.length - 1)) return;
     const next = this.ladder[this.rung + 1];
     if (gpu !== null) {
