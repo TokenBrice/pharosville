@@ -117,6 +117,23 @@ class AncientRig(Rig):
         s.lod['masts'].append((base.copy(), top.copy()))
         return base, top
 
+    ROLL_SLIM = 0.3
+
+    def square(s, mb, mx, zy, span, zb, span_b, **kw):
+        """Rig.square, its furled roll slimmed to ROLL_SLIM of its section (G6b): docked, the brailed bundle carries the
+        cloth (and the roundel); a full-size dyed roll on every yard read as a fat coloured cylinder over the quay."""
+        n0 = len(mb.v)
+        super().square(mb, mx, zy, span, zb, span_b, **kw)
+        ax = Matrix.Rotation(s.BRACE, 3, 'Z') @ Vector((0, 1, 0))
+        pts = mb.vf[n0:]
+        if not pts:
+            return
+        c = sum(pts, Vector()) / len(pts)
+        for i in range(n0, len(mb.vf)):
+            d = mb.vf[i] - c
+            al = d.dot(ax)
+            mb.vf[i] = c + ax * al + (d - ax * al) * s.ROLL_SLIM
+
     def course(s, mx, zy, span, zb, span_b, emblem=True, belly=0.06, nu=3, nv=3, cover=True):
         """The main square sail on a braced yard (+ the brailed bundle). emblem=False: a component without emblem UVs."""
         s.yard(mx, zy, span, s.r_mast * 0.5)

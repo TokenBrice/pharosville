@@ -5202,7 +5202,7 @@
     "file": "wreck_cove_lifeboat_station.glb",
     "kind": "cove",
     "size_class": "lifeboat",
-    "tris": 348,
+    "tris": 410,
     "budget": 600,
     "nodes": [
      {
@@ -5214,15 +5214,15 @@
        -0.0
       ],
       "material": "hb_opaque",
-      "tris": 316
+      "tris": 378
      },
      {
       "name": "lamp_light",
       "parent": "wreck_cove_lifeboat_station",
       "origin": [
        0.0,
-       2.95,
-       0.45
+       2.75,
+       0.35
       ],
       "empty": true,
       "anim": "lantern centre: point light / glow sprite"
@@ -5263,7 +5263,7 @@
       "anim": "hb_window panes (r = lit, g = warmth)"
      }
     ],
-    "kb": 12.5
+    "kb": 13.8
    },
    {
     "id": "wreck_cove_tidepool",

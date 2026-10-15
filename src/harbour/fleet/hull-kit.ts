@@ -79,7 +79,7 @@ function nodeOrigin(nodes: ManifestNode[], name: string): THREE.Vector3 | null {
 }
 
 /** Flatten one GLB into the fleet attribute layout. `pivots` comes from the manifest (Blender object origins). */
-export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean; loa?: number; wreck?: boolean; skip?: ReadonlySet<string>; cloth?: [number, number, number] | null } = {}): THREE.BufferGeometry {
+export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean; loa?: number; beam?: number; wreck?: boolean; skip?: ReadonlySet<string>; cloth?: [number, number, number] | null } = {}): THREE.BufferGeometry {
   const halfLoa = (opts.loa ?? 10) / 2;
   const boom = nodeOrigin(nodes, "boom") ?? new THREE.Vector3();
   const boom2 = nodeOrigin(nodes, "boom_2") ?? new THREE.Vector3();
@@ -143,7 +143,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
         Pf[vi * 3] = B[vi * 3] + tmpV.x; Pf[vi * 3 + 1] = B[vi * 3 + 1] + tmpV.y; Pf[vi * 3 + 2] = B[vi * 3 + 2] + tmpV.z;
       }
       furlAdj = new Float32Array(nv * 3);
-      if (yardCover) yardBundle(nv, B, Pf, furlAdj, coverUV = new Float32Array(nv * 2), coverEmb = new Float32Array(nv * 2));
+      if (yardCover) yardBundle(nv, B, Pf, furlAdj, coverUV = new Float32Array(nv * 2), coverEmb = new Float32Array(nv * 2), opts.beam ?? halfLoa * 0.6);
       else if (isCover) {
         // centre line y(x), z(x) by least squares, then a slimmer, lower section
         let sx = 0, sxx = 0, sy = 0, sxy = 0, sz = 0, sxz = 0, x0 = Infinity, x1 = -Infinity;
@@ -253,19 +253,22 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
   return g;
 }
 
-/** Brailed bundle: fore-aft depth kept, and how far its festoons hang (× authored): a flatter, deeper face under the yard. */
-const BUNDLE_DEPTH = 0.6, BUNDLE_DROP = 1.6;
+/**
+ * Brailed bundle: fore-aft depth kept, how far its festoons hang (× authored), and the share of the beam it may reach
+ * out to either side (G6b: docked, the sail is brailed in to the middle of the yard, never a cylinder over the quay).
+ */
+const BUNDLE_DEPTH = 0.45, BUNDLE_DROP = 1.4, BUNDLE_BEAM = 0.9;
 
 /**
  * A square rig's brailed-sail bundle (sail_cover parented to _heel, braced with the yard): its axis is the yard, not
  * +x. Measured on the furled shape: the yard axis a (principal axis, horizontal, oriented +z so that u runs to the
  * viewer's right on the aft / +z face, as the boom cover's u along +x does), the bundle is squashed fore-aft
- * (BUNDLE_DEPTH) about its own middle and let down from the yard (BUNDLE_DROP) so the forward and aft faces read as
- * a deep, flat bag (as COVER_TALL does for the boom cover), and the roundel is printed on them:
+ * (BUNDLE_DEPTH) about its own middle, gathered along the yard so it stays inside the hull's beam (BUNDLE_BEAM) and let
+ * down from the yard (BUNDLE_DROP) so the forward and aft faces read as a slim, flat bag, and the roundel is printed on them:
  * u along a, v head → foot, the circle as big as the bundle is deep, centred mid-yard. coverUV.y runs foot 0 → yard 1
  * (the lacing band sits under the yard).
  */
-function yardBundle(nv: number, B: Float32Array, Pf: Float32Array, adj: Float32Array, uv: Float32Array, emb: Float32Array): void {
+function yardBundle(nv: number, B: Float32Array, Pf: Float32Array, adj: Float32Array, uv: Float32Array, emb: Float32Array, beam: number): void {
   let cx = 0, cz = 0;
   for (let i = 0; i < nv; i++) { cx += Pf[i * 3]; cz += Pf[i * 3 + 2]; }
   cx /= nv || 1; cz /= nv || 1;
@@ -281,12 +284,15 @@ function yardBundle(nv: number, B: Float32Array, Pf: Float32Array, adj: Float32A
     const t = (Pf[i * 3] - cx) * ax + (Pf[i * 3 + 2] - cz) * az;
     t0 = Math.min(t0, t); t1 = Math.max(t1, t); lo = Math.min(lo, Pf[i * 3 + 1]); hi = Math.max(hi, Pf[i * 3 + 1]);
   }
-  const top = hi;
+  const top = hi, tm = (t0 + t1) / 2;
+  // gathered along the yard: its athwartships reach (|a.z| of the half-length) within the beam
+  const g = Math.min(1, (beam * 0.5 * BUNDLE_BEAM) / Math.max(1e-3, ((t1 - t0) / 2) * Math.abs(az)));
+  t0 = tm + (t0 - tm) * g; t1 = tm + (t1 - tm) * g;
   lo = hi - (hi - lo) * BUNDLE_DROP;
-  const h = Math.max(1e-3, hi - lo), D = Math.min(h, (t1 - t0) * 0.8), ym = lo + 0.5 * h, tm = (t0 + t1) / 2;
+  const h = Math.max(1e-3, hi - lo), D = Math.min(h * 1.1, (t1 - t0) * 0.9), ym = lo + 0.5 * h;
   for (let i = 0; i < nv; i++) {
     const dx = Pf[i * 3] - cx, dz = Pf[i * 3 + 2] - cz;
-    const t = dx * ax + dz * az, f = dx * fx + dz * fz;
+    const t = tm + (dx * ax + dz * az - tm) * g, f = dx * fx + dz * fz;
     const nx = cx + ax * t + fx * f * BUNDLE_DEPTH, nz = cz + az * t + fz * f * BUNDLE_DEPTH, y = top - (top - Pf[i * 3 + 1]) * BUNDLE_DROP;
     adj[i * 3] = nx - B[i * 3]; adj[i * 3 + 1] = y - B[i * 3 + 1]; adj[i * 3 + 2] = nz - B[i * 3 + 2];
     uv[i * 2] = (t - t0) / Math.max(1e-3, t1 - t0); uv[i * 2 + 1] = (y - lo) / h;
@@ -330,7 +336,7 @@ export async function loadKit(assets: AssetStore): Promise<Kit> {
         assets.gltf(KIT_BASE + h.file),
         h.lod ? assets.gltf(KIT_BASE + h.lod).catch(() => null) : Promise.resolve(null),
       ]);
-      const fg = bakeGltf(full, h.nodes, { loa: h.loa_m });
+      const fg = bakeGltf(full, h.nodes, { loa: h.loa_m, beam: h.beam_m });
       const lg = lod ? bakeGltf(lod, [], { lod: true, loa: h.loa_m, cloth: fg.userData.cloth as [number, number, number] | null }) : null;
       const anchor = (name: string, fb: [number, number, number]) => nodeOrigin(h.nodes, name) ?? new THREE.Vector3(...fb);
       hulls.set(h.id, {

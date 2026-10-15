@@ -191,41 +191,50 @@ def warden_hut(coll=None):
 
 # ------------------------------------------------------------------ 4. lifeboat station
 def lifeboat_station(coll=None):
-    """A boathouse gable-on to the sea, doors open, the lifeboat on her carriage at the head of a timber slipway
-    that runs down into the water on piles. Origin = the boathouse floor; the slip foot is ~1.6 m below it."""
+    """The rescue boatshed (classical restyle G6b): a whitewashed ashlar shed gable-on to the sea, its front open between
+    two Doric columns under a low terracotta pediment, the station's oared boat (an ochre-red double-ender with a stern
+    curl and painted eyes) on a timber cradle at the head of a timber slipway that runs down into the water on piles.
+    Origin = the shed floor; the slip foot is ~1.6 m below it. Same nodes as before (station_windows, station_lamp,
+    lamp_light, slip_foot)."""
+    lin = hb_lib.lin
+    WASH, ASHLAR, TILE, OCHRE = lin('#E6DDCB'), lin('#CFC2A8'), lin('#A9573A'), lin('#9E3B2C')
+    BOAT_TOP, PITCH, BRONZE = lin('#B08A5E'), lin('#2B2521'), lin('#A0703A')
     rng = random.Random(1006)
     op, win, em = MB(1006), MB(1007), MB(1008)
-    W, D, Hh = 4.8, 8.0, 3.2
+    W, D, Hh = 4.8, 8.0, 3.0
     y0 = 0.0
-    box2(op, -W / 2 - 0.1, y0, -0.8, W / 2 + 0.1, y0 + D, 0.15, PAL['rock'], PT['ashlar'], skip=('-z',))
-    box2(op, -W / 2, y0, 0.15, W / 2, y0 + D, Hh, PAL['paint_white'], PT['boards'], skip=('-z', '+z', '-y'))
-    # front wall with the open doorway
-    for (x0, x1) in ((-W / 2, -1.7), (1.7, W / 2)):
-        box2(op, x0, y0 - 0.05, 0.15, x1, y0 + 0.05, Hh, PAL['paint_white'], PT['boards'], skip=('+y', '-z'))
-    box2(op, -1.7, y0 - 0.05, 2.75, 1.7, y0 + 0.05, Hh, PAL['paint_white'], PT['boards'], skip=('+y', '-z'))
-    box2(op, -1.7, y0 + 0.08, 0.16, 1.7, y0 + 0.1, 2.75, PAL['interior'], 0, skip=('+y',))
-    for sx in (-1, 1):   # doors swung open
-        box(op, (sx * 2.45, y0 - 0.7, 1.45), (0.08, 1.6, 2.6), PAL['lifeboat_blue'], PT['boards'], axes=zrot(sx * 0.25))
-    rz = Hh + 1.9
-    for yy in (y0, y0 + D):
-        ids = [op.vert((-W / 2, yy, Hh)), op.vert((W / 2, yy, Hh)), op.vert((0, yy, rz))]
-        op.face(ids if yy == y0 else ids[::-1], PAL['paint_white'], PT['boards'])
+    box2(op, -W / 2 - 0.15, y0 - 0.3, -0.8, W / 2 + 0.15, y0 + D, 0.15, PAL['rock'], PT['ashlar'], skip=('-z',))   # stylobate
+    # side and back walls: whitewashed ashlar
+    box2(op, -W / 2, y0 + 0.5, 0.15, W / 2, y0 + D, Hh, WASH, PT['ashlar'], skip=('-z', '+z', '-y'))
+    # the open front: two antae and two Doric columns, a plain architrave
     for sx in (-1, 1):
-        p = [(sx * (W / 2 + 0.35), y0 - 0.4, Hh - 0.25), (sx * (W / 2 + 0.35), y0 + D + 0.3, Hh - 0.25), (0, y0 + D + 0.3, rz + 0.05), (0, y0 - 0.4, rz + 0.05)]
-        ids = [op.vert(x) for x in p]
-        op.face(ids if sx < 0 else ids[::-1], PAL['roof_red'], PT['slate'])
-    box(op, (0, y0 - 0.12, Hh + 0.6), (2.4, 0.06, 0.45), PAL['lifeboat_blue'], 0)       # the station board
-    box(op, (0, y0 - 0.16, Hh + 0.6), (2.0, 0.04, 0.12), PAL['paint_white'], 0)
-    lp = Vector((0, y0 - 0.45, 2.95))
-    rod(op, (0, y0, 3.05), lp + Vector((0, 0, 0.35)), 0.03, PAL['iron'], 3)
+        box2(op, sx * W / 2 - (0.5 if sx > 0 else 0), y0 + 0.1, 0.15, sx * W / 2 + (0.5 if sx < 0 else 0), y0 + 0.6, Hh, ASHLAR, PT['ashlar'], skip=('-z', '+z'))
+        cyl(op, (sx * 0.85, y0 + 0.35, 0.15), 0.22, Hh - 0.35, WASH, segs=6, caps=(False, False))
+        box(op, (sx * 0.85, y0 + 0.35, Hh - 0.12), (0.55, 0.55, 0.22), ASHLAR, 0, skip=('-z',))                  # capital
+    box2(op, -W / 2, y0 + 0.08, Hh, W / 2, y0 + 0.62, Hh + 0.45, ASHLAR, PT['ashlar'], skip=('-z',))              # architrave
+    box2(op, -1.4, y0 + 0.62, 0.16, 1.4, y0 + 0.66, Hh, PAL['interior'], 0, skip=('-y',))                          # dark inside
+    # low-pitched pediment and a terracotta tiled roof
+    rz = Hh + 0.45 + 1.0
+    for yy in (y0 + 0.08, y0 + D):
+        ids = [op.vert((-W / 2 - 0.1, yy, Hh + 0.45)), op.vert((W / 2 + 0.1, yy, Hh + 0.45)), op.vert((0, yy, rz))]
+        op.face(ids if yy < 1 else ids[::-1], WASH if yy < 1 else ASHLAR, PT['ashlar'])
+    for sx in (-1, 1):
+        q = [(sx * (W / 2 + 0.4), y0 - 0.15, Hh + 0.3), (sx * (W / 2 + 0.4), y0 + D + 0.3, Hh + 0.3), (0, y0 + D + 0.3, rz + 0.08), (0, y0 - 0.15, rz + 0.08)]
+        ids = [op.vert(x) for x in q]
+        op.face(ids[::-1] if sx < 0 else ids, TILE, PT['tiles'])                                                     # wound outward (up)
+    box(op, (0, y0 - 0.14, rz + 0.25), (0.3, 0.12, 0.45), TILE, 0)                                                # acroterion
+    box(op, (0, y0 + 0.06, Hh + 0.22), (2.2, 0.06, 0.3), OCHRE, 0)                                                 # painted frieze board
+    # a bronze lamp hung from the architrave
+    lp = Vector((0, y0 - 0.35, 2.75))
+    rod(op, (0, y0 + 0.08, Hh + 0.1), lp + Vector((0, 0, 0.35)), 0.03, BRONZE, 3)
     lantern(op, em, lp, 0.22)
-    box(win, (-W / 2 - 0.06, y0 + 3.0, 1.7), (0.04, 0.8, 0.9), (0.85, 0.8, 0.0), 0, skip=('+x',))
-    box(win, (-W / 2 - 0.06, y0 + 5.6, 1.7), (0.04, 0.8, 0.9), (0.4, 0.8, 0.0), 0, skip=('+x',))
-    # the slipway: from the doors down to the sea on piles
+    box(win, (-W / 2 - 0.06, y0 + 3.0, 1.7), (0.04, 0.7, 0.8), (0.85, 0.8, 0.0), 0, skip=('+x',))
+    box(win, (-W / 2 - 0.06, y0 + 5.6, 1.7), (0.04, 0.7, 0.8), (0.4, 0.8, 0.0), 0, skip=('+x',))
+    # the slipway: timber ways from the shed down to the sea on piles
     s0, s1 = Vector((0, y0 + 1.0, 0.15)), Vector((0, y0 - 15.0, -1.7))
     d = (s1 - s0)
     for sx in (-1, 1):
-        rod(op, s0 + Vector((sx * 0.75, 0, 0.12)), s1 + Vector((sx * 0.75, 0, 0.12)), 0.09, PAL['iron'], 4)
+        rod(op, s0 + Vector((sx * 0.75, 0, 0.1)), s1 + Vector((sx * 0.75, 0, 0.1)), 0.11, PAL['timber_dark'], 4)
     ids = [op.vert(s0 + Vector((-1.2, 0, 0))), op.vert(s1 + Vector((-1.2, 0, 0))), op.vert(s1 + Vector((1.2, 0, 0))), op.vert(s0 + Vector((1.2, 0, 0)))]
     op.face(ids, PAL['timber_grey'], PT['planks_x'])
     ids = [op.vert(s0 + Vector((-1.2, 0, -0.3))), op.vert(s0 + Vector((1.2, 0, -0.3))), op.vert(s1 + Vector((1.2, 0, -0.3))), op.vert(s1 + Vector((-1.2, 0, -0.3)))]
@@ -234,25 +243,37 @@ def lifeboat_station(coll=None):
         p = s0 + d * (k / 4.5)
         for sx in (-1, 1):
             rod(op, p + Vector((sx * 1.05, 0, -0.3)), p + Vector((sx * 1.05, 0, -2.8)), 0.13, PAL['timber_dark'], 4)
-    # the lifeboat on her carriage at the head of the slip
-    H = Hull(6.0, FORMS['work'])
+    # the station boat on her cradle: an oared double-ender
+    H = Hull(6.0, FORMS.get('fisher') or FORMS['work'])
     lb = MB(1009)
 
     def colf(u, t, sd):
-        return (PAL['lifeboat_blue'] if t < 0.55 else PAL['lifeboat_white'] if t < 0.88 else PAL['flag_red']), PT['strakes']
+        return (PITCH if t < 0.4 else OCHRE if t < 0.55 else BOAT_TOP if t < 0.9 else OCHRE), PT['strakes']
     P = shell(lb, H, -1.0, 1.0, 5, 3, colf)
     ids = [lb.vert(P(-1.0, t, 1)) for t in (0.33, 0.66, 1.0)] + [lb.vert(P(-1.0, t, -1)) for t in (1.0, 0.66, 0.33)]
-    lb.face(ids, PAL['lifeboat_white'], PT['strakes'])
+    lb.face(ids, BOAT_TOP, PT['strakes'])
     deck = [lb.vert(P(u, 1.0, sd)) for u, sd in ((-1, 1), (1, 1), (1, -1), (-1, -1))]
     lb.face(deck[::-1], PAL['varnish'], PT['planks_y'])
+    st = P(-1.0, 1.0, 1).lerp(P(-1.0, 1.0, -1), 0.5)
+    rod(lb, st, st + Vector((0.15, 0, 0.6)), 0.07, BOAT_TOP, 4)                                                     # stern curl
+    rod(lb, st + Vector((0.15, 0, 0.6)), st + Vector((0.45, 0, 0.75)), 0.06, BOAT_TOP, 4, r2=0.04, cap=True)
+    for sd in (-1, 1):                                                                                              # eyes
+        c = P(0.72, 0.72, sd)
+        n = Vector((0, sd, 0))
+        q = [c + n * 0.03 + Vector((dx * 0.22, 0, dz * 0.1)) for dx, dz in ((-1, 0), (0, -1), (1, 0), (0, 1))]
+        ids = [lb.vert(x) for x in q]
+        lb.face(ids if sd > 0 else ids[::-1], PAL['bleach_light'] if 'bleach_light' in PAL else WASH, 0)
+    for sd in (-0.35, 0.35):
+        rod(lb, P(-0.7, 1.0, 1).lerp(P(-0.7, 1.0, -1), 0.5 + sd) + Vector((0, 0, 0.12)),
+            P(0.7, 1.0, 1).lerp(P(0.7, 1.0, -1), 0.5 + sd) + Vector((0, 0, 0.12)), 0.04, PAL['timber'], 3)          # oars
     tag(lb, 0, wk=0.15)
     Mlb = Matrix.Translation(s0.lerp(s1, 0.28) + Vector((0, 0, 0.75 + H.dr))) @ Matrix.Rotation(math.atan2(-d.z, -d.y), 4, 'X') @ Matrix.Rotation(R(-90), 4, 'Z')
     xform(lb, Mlb)
     op.extend(lb)
     cc = s0.lerp(s1, 0.28)
-    box(op, cc + Vector((0, 0, 0.25)), (1.5, 3.4, 0.25), PAL['iron'], PT['metal'], axes=(X, d.normalized(), d.normalized().cross(X)))
-    # winch post and a coil
-    box(op, (0, y0 + D - 0.8, 0.7), (0.6, 0.6, 1.1), PAL['iron'], PT['metal'])
+    box(op, cc + Vector((0, 0, 0.25)), (1.5, 3.4, 0.25), PAL['timber_dark'], PT['boards'], axes=(X, d.normalized(), d.normalized().cross(X)))  # cradle
+    # a timber capstan for the haul-up
+    cyl(op, (0, y0 + D - 0.8, 0.15), 0.32, 1.0, PAL['timber'], segs=6, caps=(False, True))
     root = root_of('wreck_cove_lifeboat_station', 'lifeboat', coll)
     out(root, op, coll, 4)
     hb_lib.to_object(win, 'station_windows', 'hb_window', parent=root, coll=coll)
