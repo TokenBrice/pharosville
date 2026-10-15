@@ -78,7 +78,7 @@ const WRECK_KITS = ["wreck_a", "wreck_b", "wreck_c"];
 /** The dead coins with the biggest peak cap get full-size, detailed hulks; the rest lie smaller. */
 const DETAILED_WRECKS = 16;
 /** Wreck kit v2 (manifest `wreck_kit`): Wreck Cove's wrecks and its memorial furniture (wreck-cove.ts). */
-const COVE_ITEMS = ["wreck_great_hulk", "wreck_schooner_sunk", "wreck_stern_section", "wreck_capsized", "wreck_burned", "wreck_rib_cage",
+const COVE_ITEMS = ["wreck_great_hulk", "wreck_merchant_sunk", "wreck_stern_section", "wreck_capsized", "wreck_burned", "wreck_rib_cage",
   "wreck_mast_stump", "wreck_skiff", "wreck_dinghy", "wreck_cove_epitaph", "wreck_cove_bell", "wreck_cove_pennants"];
 const COVE_LAMP = new THREE.Color("#FFB36B");
 const BUOY_KIT = "mooring_buoy";

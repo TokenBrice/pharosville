@@ -13,7 +13,7 @@ describe("Wreck Cove v2 composition", () => {
   it("follows the kit author's guide, rank by rank", () => {
     const plan = tierPlan(88).map((p) => p.item);
     expect(plan.slice(0, 2)).toEqual(["wreck_great_hulk", "wreck_great_hulk"]);
-    expect(plan.slice(2, 4)).toEqual(["wreck_schooner_sunk", "wreck_stern_section"]);
+    expect(plan.slice(2, 4)).toEqual(["wreck_merchant_sunk", "wreck_stern_section"]);
     expect(count(plan.slice(4, 10))).toEqual({ wreck_capsized: 2, wreck_burned: 2, wreck_rib_cage: 2 });
     expect(count(plan.slice(10, 22))).toEqual({ wreck_capsized: 3, wreck_burned: 3, wreck_rib_cage: 2, wreck_mast_stump: 4 });
     expect(count(plan.slice(22))).toEqual({ wreck_skiff: 30, wreck_dinghy: 24, wreck_mast_stump: 6, wreck_rib_cage: 6 });
@@ -50,10 +50,10 @@ describe("Wreck Cove v2 composition", () => {
     for (let i = 1; i < xs.length; i++) if (xs[i] - xs[i - 1] < 9) expect(xs[i] - xs[i - 1]).toBeGreaterThan(4.5);
     expect(pieces.filter((p) => p.item === "wreck_cove_bell").length).toBe(1);
     expect(pieces.filter((p) => p.item === "wreck_cove_pennants").length).toBe(2);
-    // the sunk schooner lies in the water, not on the sand
-    const schooner = pieces.find((p) => p.item === "wreck_schooner_sunk")!;
-    expect(schooner.water).toBe(true);
-    expect(schooner.z).toBeGreaterThan(5);
+    // the sunk merchantman lies in the water, not on the sand
+    const sunk = pieces.find((p) => p.item === "wreck_merchant_sunk")!;
+    expect(sunk.water).toBe(true);
+    expect(sunk.z).toBeGreaterThan(5);
   });
 
   it("takes the island's authored cove as it is: rank r in its kit, tier scale × the log-cap spread, its memorial arc", () => {
@@ -80,7 +80,7 @@ describe("Wreck Cove stories", () => {
   // the island's authored cove: rank, kit, scale per slot (layout zones.wreckCove)
   const authored: CoveSlot[] = [
     { id: "s1", cls: "flagship", x: 0, z: 0, h: 0, rank: 1, kit: "wreck_great_hulk", scale: 1, sits: "sand" },
-    { id: "s2", cls: "large", x: 40, z: 0, h: 0, rank: 2, kit: "wreck_schooner_sunk", scale: 1, sits: "water" },
+    { id: "s2", cls: "large", x: 40, z: 0, h: 0, rank: 2, kit: "wreck_merchant_sunk", scale: 1, sits: "water" },
     ...Array.from({ length: 24 }, (_, i): CoveSlot => ({ id: `t${i}`, cls: "boat", x: 80 + i * 6, z: 0, h: 0, rank: 3 + i, kit: "wreck_skiff", scale: 0.45, sits: "sand" })),
   ];
   const fam = (family: string, i: number): CoveDead => ({ id: `${family}-${i}`, name: family, symbol: family, deathDate: "2023-01", peakMcap: 10 ** (10 - i * 0.1), family });
@@ -96,8 +96,8 @@ describe("Wreck Cove stories", () => {
     expect(formFor("spiral", "wreck_skiff", 0.45, false)[0]).toBe("wreck_dinghy");
     expect(formFor("wind-down", "wreck_dinghy", 0.45, false)[0]).toBe("wreck_skiff");
     expect(formFor("exploit", "wreck_skiff", 0.45, false)[1]).toBeGreaterThanOrEqual(0.22);
-    // drained, in the shallows: the schooner gone down there; no family: the authored wreck
-    expect(formFor("run", "wreck_schooner_sunk", 1, true)).toEqual(["wreck_schooner_sunk", 1]);
+    // drained, in the shallows: the merchantman gone down there; no family: the authored wreck
+    expect(formFor("run", "wreck_merchant_sunk", 1, true)).toEqual(["wreck_merchant_sunk", 1]);
     expect(formFor(undefined, "wreck_skiff", 0.45, false)).toEqual(["wreck_skiff", 0.45]);
   });
 

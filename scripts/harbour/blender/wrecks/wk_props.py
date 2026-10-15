@@ -298,20 +298,16 @@ def anchor_chain(coll=None):
     from wk_wrecks import anchor_shape
     rng = random.Random(1011)
     mb = MB(1011)
-    anchor_shape(mb, Vector((0, 0, -0.5)), 3.0, rot_z=0.3, lie=0.42)
-    # chain: alternating links snaking off across the sand, half-buried
-    p = Vector((-1.2, 0.4, 0.05)); a = 2.6
-    for k in range(13):
-        a += rng.uniform(-0.35, 0.35)
-        d = Vector((math.cos(a), math.sin(a), 0))
-        c = p + d * 0.2
-        if k % 2 == 0:
-            box(mb, c + Vector((0, 0, 0.02)), (0.36, 0.16, 0.06), PAL['rust_dark'], PT['metal'], axes=zrot(a))
-        else:
-            box(mb, c + Vector((0, 0, 0.07)), (0.36, 0.06, 0.16), PAL['rust'], PT['metal'], axes=zrot(a))
-        p = p + d * 0.3
+    ring = anchor_shape(mb, Vector((0, 0, -0.5)), 3.0, rot_z=0.3, lie=0.42)
+    # its hemp cable snaking off across the sand, half-buried (P7b: was an iron chain under an admiralty anchor)
+    p = Vector((-1.2, 0.4, 0.06)); a = 2.6
+    sag_line(mb, ring, p, 0.3, 0.08, PAL['rope'], n=3, floor=0.06)
+    for k in range(7):
+        a += rng.uniform(-0.45, 0.45)
+        q = p + Vector((math.cos(a), math.sin(a), 0)) * 0.6
+        rod(mb, p, q, 0.08, PAL['rope'], 4)
+        p = q
     drift(mb, (0.4, 0.0, 0.0), 1.6, 1.0, 0.35, skew=(0.2, 0), seed=7)
-    rust_streak(mb, Vector((0.0, -0.06, 0.6)), Vector((0, -1, 0)), 0.3, 0.05)
     root = root_of('wreck_cove_anchor', 'anchor', coll)
     out(root, mb, coll, 6)
     return info(root, [mb])

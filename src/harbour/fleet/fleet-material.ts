@@ -302,14 +302,19 @@ void hbFleetColor(inout vec3 c) {
   float bl = dot(brand, vec3(0.2126, 0.7152, 0.0722));
   vec3 dyed = mix(vec3(bl), brand, 0.7) * 0.74;          // dyed canvas: muted, a shade darker, never plastic
   if (kind > 1.5) {
-    // brand sail cover: flaked low on the boom, a pale lacing band along its top, lacing ties
+    // brand sail cover (flaked low on the boom, or a square rig's brailed bundle under its yard): a pale lacing band
+    // along its top, lacing ties
     float band = 1.0 - smoothstep(0.035, 0.08, abs(su.y - 0.9));
     float ties = (1.0 - smoothstep(0.025, 0.05, abs(fract(su.x * 7.0) - 0.5))) * smoothstep(0.3, 0.6, su.y);
     c *= mix(dyed, vec3(0.8, 0.76, 0.66), band * 0.65) * (1.0 - ties * 0.22);
-    // the coin's roundel printed on each side of the furled cover (hull-kit bakes it in the side plane, u along +x):
-    // read the right way round from either side, faded off the crest and while the sail is still coming down
+    // the coin's roundel printed on each side of the furled cover (hull-kit bakes it in the side plane, u along +x; on
+    // a brailed bundle on its forward and aft faces, u along the yard, which faces +z aft): read the right way round
+    // from either side (the side is the posed normal's z), faded off the crest and while the sail is still coming down
     float side = vFleetRig.w;
-    float show = smoothstep(0.55, 0.9, vFleetRig.x) * smoothstep(0.25, 0.55, abs(side));
+    // (a brailed bundle, node 1, faces fore and aft of a yard braced 30°: its faces are only ~0.5 along z, so a lower
+    // threshold; a boom cover's flat side is ~1 and its crest ~0)
+    bool bundle = abs(vFleetRig.y - 1.0) < 0.5;
+    float show = smoothstep(0.55, 0.9, vFleetRig.x) * (bundle ? smoothstep(0.08, 0.3, abs(side)) : smoothstep(0.25, 0.55, abs(side)));
     if (vFleetBrand.a >= 0.0 && show > 0.0 && e.x >= 0.0 && e.x <= 1.0 && e.y >= 0.0 && e.y <= 1.0) {
       float sx = side < 0.0 ? -1.0 : 1.0;
       vec2 q = vec2(side < 0.0 ? 1.0 - e.x : e.x, e.y);
@@ -325,10 +330,13 @@ void hbFleetColor(inout vec3 c) {
     if (dye.w > 0.5) {
       // Brand-dyed canvas by sail-plan role (aMeta.z): the body dyed · headsails a light tint with a brand band at
       // foot and leech · upper sails lighter · a titan's head band a deeper shade. A near-white brand (mode 2)
-      // keeps the canvas and bands it. The family cloth (cream, tanbark …) shows through a little.
+      // keeps the canvas and bands it. The family cloth (cream, tanbark …) shows through a little. Square sails
+      // (node 1: hung from _heel / the yards, both side edges alike) take the band along the foot only, a little deeper.
       float role = vFleetMisc.w;
       vec3 cloth = c, pig = dye.rgb, body = mix(pig, cloth, 0.1);
-      float edge = max(smoothstep(0.93 - sw.x, 0.93 + sw.x, su.x), 1.0 - smoothstep(0.07 - sw.y, 0.07 + sw.y, su.y));
+      bool squareSail = abs(vFleetRig.y - 1.0) < 0.5;
+      float foot = 1.0 - smoothstep((squareSail ? 0.1 : 0.07) - sw.y, (squareSail ? 0.1 : 0.07) + sw.y, su.y);
+      float edge = squareSail ? foot : max(smoothstep(0.93 - sw.x, 0.93 + sw.x, su.x), foot);
       vec3 base;
       if (dye.w > 1.5) base = role > 2.5 ? pig : mix(cloth, pig, edge);
       else if (role > 2.5) base = pig * 0.5;
@@ -417,7 +425,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   }
   #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => "hb_fleet_v6";
+  m.customProgramCacheKey = () => "hb_fleet_v7";
 
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";

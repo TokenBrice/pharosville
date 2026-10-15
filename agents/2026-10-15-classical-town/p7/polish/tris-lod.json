@@ -1,0 +1,78 @@
+{
+ "usd_fisher_skiff_lod": {
+  "tris": 121,
+  "budget": 150
+ },
+ "usd_coaster_boat_lod": {
+  "tris": 135,
+  "budget": 150
+ },
+ "usd_coaster_small_lod": {
+  "tris": 135,
+  "budget": 150
+ },
+ "usd_corbita_medium_lod": {
+  "tris": 131,
+  "budget": 150
+ },
+ "usd_merchant_large_lod": {
+  "tris": 135,
+  "budget": 150
+ },
+ "usd_grain_flagship_lod": {
+  "tris": 149,
+  "budget": 150
+ },
+ "eur_greek_boat_lod": {
+  "tris": 135,
+  "budget": 150
+ },
+ "eur_greek_small_lod": {
+  "tris": 135,
+  "budget": 150
+ },
+ "eur_greek_medium_lod": {
+  "tris": 135,
+  "budget": 150
+ },
+ "eur_greek_large_lod": {
+  "tris": 135,
+  "budget": 150
+ },
+ "gold_bireme_medium_lod": {
+  "tris": 145,
+  "budget": 150
+ },
+ "gold_trireme_large_lod": {
+  "tris": 149,
+  "budget": 150
+ },
+ "fiat_hippos_boat_lod": {
+  "tris": 149,
+  "budget": 150
+ },
+ "fiat_hippos_small_lod": {
+  "tris": 149,
+  "budget": 150
+ },
+ "fiat_hippos_medium_lod": {
+  "tris": 149,
+  "budget": 150
+ },
+ "other_sprit_skiff_lod": {
+  "tris": 107,
+  "budget": 150
+ },
+ "other_sprit_boat_lod": {
+  "tris": 121,
+  "budget": 150
+ },
+ "other_sprit_small_lod": {
+  "tris": 121,
+  "budget": 150
+ },
+ "titan_syracusia_lod": {
+  "tris": 189,
+  "budget": 220
+ }
+}

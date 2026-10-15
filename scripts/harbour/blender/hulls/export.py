@@ -1,6 +1,7 @@
 """Harbour hulls - build and export every runtime boat GLB + LODs + wrecks/buoy/dinghy, then meshopt them.
+The fleet is the classical one (hb_ancient.ANCIENT_VARIANTS, restyle P7b); hb_hulls.VARIANTS stays for the old lookdev.
 
-    blender -b --factory-startup -P scripts/harbour/blender/hulls/export.py [-- --only usd_cat_skiff,...] [--no-compress]
+    blender -b --factory-startup -P scripts/harbour/blender/hulls/export.py [-- --only usd_fisher_skiff,...] [--no-compress]
 
 Raw GLBs  -> outputs/harbour/hulls/raw/   (scratch, also used by the lineup renders)
 Runtime   -> public/harbour/kit/<file>.glb (EXT_meshopt_compression) + public/harbour/kit/manifest.json
@@ -12,8 +13,10 @@ sys.path.insert(0, HERE)
 import importlib
 import hb_lib; importlib.reload(hb_lib)
 import hb_hulls; importlib.reload(hb_hulls)
+import hb_ancient; importlib.reload(hb_ancient)
 from hb_lib import *
 from hb_hulls import *
+from hb_ancient import ANCIENT_VARIANTS, build_ancient_budget, build_ancient_lod
 
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..', '..', '..'))
 RAW = os.path.join(ROOT, 'outputs', 'harbour', 'hulls', 'raw')
@@ -70,7 +73,7 @@ def fresh():
 
 MANIFEST = dict(
     version=1,
-    style='C Northern Light',
+    style='Classical (ancient fleet, restyle P7b)',
     generator='scripts/harbour/blender/hulls/export.py',
     axes='glTF: +x bow, +y up, +z starboard, origin midships on the waterline (sea level y = 0); metres',
     materials=dict(
@@ -82,11 +85,13 @@ MANIFEST = dict(
                 'FRONT face (fore-and-aft sails: starboard face; square sails: forward face); flip u on back faces '
                 'For mirrored nodes (port tack, det < 0) the rule generalises to: if (gl_FrontFacing == isMirrored) uv1.x = 1.0 - uv1.x. '
                 'Only sail_main has emblem UVs inside [0,1].',
-        hb_cover='COLOR_0.rgb = shade (near white, darker underneath); final colour = instance brand colour * COLOR_0.rgb.'),
+        hb_cover='COLOR_0.rgb = shade (near white, darker underneath); final colour = instance brand colour * COLOR_0.rgb. '
+                 'Under a boom group: the sail cover on the boom. Child of _heel (square rigs): the BRAILED-SAIL bundle on '
+                 'the main yard (furl 0 = inside the yard, 1 = festoons hanging from it), braced with the yard.'),
     morphs=dict(
         furl='Every mesh with a morph target named "furl": weight 0 = sail set / spar aloft / cover collapsed inside the boom, '
              '1 = sail furled (flaked on the boom, rolled on the yard or the stay) / gaff+yard lowered / brand cover on. '
-             'Drive all of them from one per-boat value. Default weight 0.'),
+             'Drive all of them from one per-boat value. Default weight 0. oars (galleys): 0 = out mid-stroke, 1 = raked up.'),
     pose=dict(
         set_shape='Set sails are modelled for wind from STARBOARD: camber to port (-z), jib clew slightly to port.',
         starboard_tack='wind from starboard: boom and boom_2 rotation.y = -swing (boom out to port), sail_jib rotates -0.6*swing about '
@@ -94,7 +99,8 @@ MANIFEST = dict(
         port_tack='wind from port: scale.z = -1 on every node listed in mirror_nodes (mirrors camber and yard bracing about the '
                   'centreline), boom and boom_2 rotation.y = +swing, jib +0.6*swing about its stay_axis, _heel.rotation.x = +heel. '
                   'LOD: scale.z = -1 on the whole lod root.',
-        mirror_nodes=['boom', 'boom_2', 'yards', 'sail_extra', 'sail_jib', 'sail_main (only when its parent is _heel, i.e. the ship)'],
+        mirror_nodes=['boom', 'boom_2', 'yards', 'sail_extra', 'sail_jib', 'oars',
+                      'sail_main and sail_cover (only when their parent is _heel: the square rigs, braced with the yard)'],
         ranges='swing 0.25..0.9 rad (close-hauled..running), heel 0.08..0.2 rad. Docked: furl 1, swing 0, heel 0. '
                'Square sails (sail_main on the ship, sail_extra) do not swing: yards are braced 30 deg in the model.',
         groups='boom (boom_spar, gaff, sail_main|sail_spanker, sail_cover) and boom_2 (boom_2_spar, gaff_2, sail_2, sail_cover_2) '
@@ -115,16 +121,12 @@ def compress(src, dst):
 
 
 report = []
-for (vid, fam, rig, cls, sch) in VARIANTS:
+for (vid, fam, rig, cls, sch) in ANCIENT_VARIANTS:
     if ONLY and vid not in ONLY:
         continue
-    n_sec = SECTIONS[cls]
-    while True:   # budget guard: drop hull sections until the boat fits its class budget
-        fresh()
-        root, objs, R = build_boat(vid, fam, rig, cls, sch, n_sec=n_sec)
-        if tri_count(descendants(root)) <= BUDGET[cls] or n_sec <= 5:
-            break
-        n_sec -= 1
+    fresh()
+    # budget guard: drop hull sections until the boat fits its class budget
+    root, objs, R, _, n_sec = build_ancient_budget(vid, fam, rig, cls, sch, remove=lambda o: bpy.data.objects.remove(o, do_unlink=True))
     fname = f'hull_{vid}.glb'
     path, tris = export(root, fname)
     budget = BUDGET[cls]
@@ -132,7 +134,7 @@ for (vid, fam, rig, cls, sch) in VARIANTS:
     if R.emblem:
         c, sz = R.emblem
         em = dict(node='sail_main', uv='TEXCOORD_1', rect=[0, 0, 1, 1], centre_m=gl(c), size_m=round(sz, 3),
-                  reads_from='ahead' if rig == 'ship' else 'starboard')
+                  reads_from='starboard' if rig == 'sprit' else 'ahead')
     e = dict(id=vid, file=fname, hull_sections=n_sec, family=fam, rig=rig, cls=cls, loa_m=R.L, beam_m=round(R.H.B, 2),
              freeboard_m=round(R.H.fb, 2), tris=tris, budget=budget, emblem=em, nodes=node_info(root))
     e['class'] = e.pop('cls')
@@ -140,7 +142,7 @@ for (vid, fam, rig, cls, sch) in VARIANTS:
     report.append((fname, tris, budget))
     # LOD
     fresh()
-    lroot, lob, lt = build_lod(vid, fam, rig, cls, sch)
+    lroot, lob, lt = build_ancient_lod(R)
     lname = f'hull_{vid}_lod.glb'
     _, ltris = export(lroot, lname)
     MANIFEST['lods'].append(dict(id=vid, file=lname, tris=ltris, budget=150))

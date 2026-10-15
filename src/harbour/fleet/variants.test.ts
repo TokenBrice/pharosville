@@ -2,28 +2,28 @@ import { describe, expect, it } from "vitest";
 import { approach, indexVariants, MOORED_LIT, pickVariant, sternLampLit, targetSwing, wreckScale } from "./variants";
 
 const HULLS = [
-  { id: "usd_cat_skiff", family: "usd", class: "skiff" },
-  { id: "usd_sloop_boat", family: "usd", class: "boat" },
-  { id: "usd_ship_flagship", family: "usd", class: "flagship" },
-  { id: "eur_botter_boat", family: "eur", class: "boat" },
-  { id: "eur_botter_large", family: "eur", class: "large" },
-  { id: "gold_brig_medium", family: "gold", class: "medium" },
-  { id: "other_work_skiff", family: "other", class: "skiff" },
+  { id: "usd_fisher_skiff", family: "usd", class: "skiff" },
+  { id: "usd_coaster_boat", family: "usd", class: "boat" },
+  { id: "usd_grain_flagship", family: "usd", class: "flagship" },
+  { id: "eur_greek_boat", family: "eur", class: "boat" },
+  { id: "eur_greek_large", family: "eur", class: "large" },
+  { id: "gold_bireme_medium", family: "gold", class: "medium" },
+  { id: "other_sprit_skiff", family: "other", class: "skiff" },
 ];
 
 describe("pickVariant", () => {
   const idx = indexVariants(HULLS);
   it("uses the family's own class when present", () => {
-    expect(pickVariant(idx, "eur", "boat")).toBe("eur_botter_boat");
-    expect(pickVariant(idx, "usd", "flagship")).toBe("usd_ship_flagship");
+    expect(pickVariant(idx, "eur", "boat")).toBe("eur_greek_boat");
+    expect(pickVariant(idx, "usd", "flagship")).toBe("usd_grain_flagship");
   });
   it("keeps the family silhouette at the nearest class", () => {
-    expect(pickVariant(idx, "eur", "flagship")).toBe("eur_botter_large");
-    expect(pickVariant(idx, "eur", "skiff")).toBe("eur_botter_boat");
-    expect(pickVariant(idx, "gold", "skiff")).toBe("gold_brig_medium");
+    expect(pickVariant(idx, "eur", "flagship")).toBe("eur_greek_large");
+    expect(pickVariant(idx, "eur", "skiff")).toBe("eur_greek_boat");
+    expect(pickVariant(idx, "gold", "skiff")).toBe("gold_bireme_medium");
   });
   it("unknown families fall back to the workboat", () => {
-    expect(pickVariant(idx, "martian", "skiff")).toBe("other_work_skiff");
+    expect(pickVariant(idx, "martian", "skiff")).toBe("other_sprit_skiff");
   });
 });
 

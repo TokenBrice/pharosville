@@ -946,7 +946,8 @@ def build_wreck(kind, coll=None):
               bottom='weed', boot='wreck_dark', transom='wreck', spar='wreck_dark')
     rng = random.Random({'a': 3, 'b': 5, 'c': 9}[kind])
     L = {'a': 15.0, 'b': 17.0, 'c': 12.0}[kind]
-    H = Hull(L, FORMS['schooner' if kind != 'c' else 'brig'])
+    # classical restyle: ancient forms once hb_ancient has registered them (export.py imports it)
+    H = Hull(L, FORMS.get('merchant' if kind != 'c' else 'corbita') or FORMS['schooner' if kind != 'c' else 'brig'])
     mb = MB(11)
 
     def hole(c, nm):

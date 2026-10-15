@@ -91,7 +91,7 @@ def compress(src, dst):
 
 
 SIZE = {  # size class, tier note
-    'great_hulk': ('great', 2500), 'schooner_sunk': ('large', 1200), 'stern_section': ('large', 1200),
+    'great_hulk': ('great', 2500), 'merchant_sunk': ('large', 1200), 'stern_section': ('large', 1200),
     'capsized': ('medium', 1200), 'burned': ('medium', 1200), 'rib_cage': ('medium', 1200),
     'mast_stump': ('small', 1200), 'skiff': ('small', 1200), 'dinghy': ('tiny', 1200),
 }

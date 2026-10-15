@@ -237,18 +237,21 @@ class AncientRig(Rig):
     def eyes(s, u=0.8, size=None):
         """Painted ophthalmoi on both bows: white almond + dark iris, a hair proud of the planking."""
         H, L = s.H, s.L
-        size = size or 0.05 * L
+        # G6a polish: 1.5x the study's eyes, capped so the almond stays on the topsides (boot-top .. sheer)
+        size = min((size or 0.05 * L) * 1.5, (H.zt(u) - H.boot) * 0.9 / 0.42)
         zc = H.boot + (H.zt(u) - H.boot) * 0.55
         xc = H.x(u, zc)
         alm = [(-1.0, 0.0), (-0.45, 0.42), (0.35, 0.4), (1.0, 0.0), (0.35, -0.3), (-0.45, -0.32)]
         iris = [(-0.12, -0.25), (0.32, -0.25), (0.32, 0.27), (-0.12, 0.27)]
         for sd in (-1, 1):
-            for pts, col, off in ((alm, PAL['eye_white'], 0.02), (iris, PAL['eye_black'], 0.035)):
+            for pts, col, off in ((alm, PAL['eye_white'], 0.02 + 0.04 * size), (iris, PAL['eye_black'], 0.035 + 0.05 * size)):  # clear of the bow's curve
                 ids = []
                 for px, pz in pts:
                     x = xc + px * size * 0.5; z = zc + pz * size * 0.5
                     ids.append(s.hull.vert((x, sd * (H.w(H.u_at(x)) * 0.99 + off), z)))
-                s.hull.face(ids if sd < 0 else ids[::-1], col, 0, jitter=0.0)
+                v = [s.hull.v[i] for i in ids[:3]]
+                outward = ((v[1] - v[0]).cross(v[2] - v[0])).y * sd > 0     # G6a fix: the almond was wound inward (culled)
+                s.hull.face(ids if outward else ids[::-1], col, 0, jitter=0.0)
 
     def amphorae(s, xs, ys, h):
         for x in xs:
@@ -429,26 +432,44 @@ def build_ancient(vid, family, rig, cls, sch, coll=None, seed=0, n_sec=None, L=N
                 rod(R.deck, (xx, sd * B * 0.3, dz(xx)), (xx, sd * B * 0.3, dz(xx) + 0.9 * S), 0.03, PAL['timber_dark'], 3)
     elif rig == 'hippos':
         mx, top = square_main(0.02, 0.8, 0.72, 0.1)
-        # horse-head prow: a neck rising from the stem, the head looking forward, two ears
+        # horse-head prow (G6a polish: sculpted): an arched neck off the stem, a modelled head (skull, cheek, muzzle,
+        # open jaw), pricked ears, a crest of painted mane, eyes, a gilt collar. Small hulls get a relatively bigger head.
         bw2 = bw + Vector((-0.01 * L, 0, -0.01 * L))
-        hk = 1.0 + 3.0 / L                     # small hulls get a relatively bigger head (it must read at harbour zoom)
-        neck = [bw2, bw2 + Vector((0.035 * L, 0, 0.1 * L * hk)), bw2 + Vector((0.07 * L, 0, 0.19 * L * hk))]
-        R.post(neck, 0.03 * L * hk + 0.03, 0.024 * L * hk + 0.03, sch['spar'], 5)
-        d = Vector((math.cos(math.radians(-40)), 0, math.sin(math.radians(-40))))
-        poll = neck[-1] + Vector((0.01 * L * hk, 0, 0.012 * L * hk))
-        rod(R.hull, poll, poll + d * 0.13 * L * hk, 0.03 * L * hk, sch['spar'], 4, r2=0.017 * L * hk, cap=True)     # head, muzzle down
+        hk = 1.0 + 3.0 / L
+        k = 0.01 * L * hk                              # 1 % of the hull, scaled
+        neck = [bw2, bw2 + Vector((2.2 * k, 0, 6.0 * k)), bw2 + Vector((5.0 * k, 0, 11.0 * k)), bw2 + Vector((6.2 * k, 0, 15.5 * k)),
+                bw2 + Vector((5.6 * k, 0, 19.0 * k))]
+        sg = 6 if L >= 11 else 4
+        R.post(neck, 3.4 * k + 0.03, 2.3 * k + 0.03, sch['spar'], sg)
+        poll = neck[-1]
+        d = Vector((math.cos(math.radians(-38)), 0, math.sin(math.radians(-38))))
+        skull = poll + d * 4.5 * k
+        muz = poll + d * 11.0 * k
+        chain(R.hull, [poll - d * 0.8 * k, skull, poll + d * 8.0 * k, muz] if L >= 11 else [poll - d * 0.8 * k, skull, muz], 2.9 * k + 0.02, 1.7 * k + 0.015, sch['spar'], sg)
+        box(R.hull, muz + d * 0.4 * k, (2.4 * k, 3.4 * k, 2.2 * k), sch['spar'], axes=(d, Vector((0, 1, 0)), d.cross(Vector((0, 1, 0)))), skip=('-x',))  # muzzle
+        dn = Vector((d.z, 0, -d.x))                    # below the head line
+        rod(R.hull, skull + dn * 1.6 * k, muz + dn * 1.9 * k - d * 1.2 * k, 1.5 * k, sch['spar'], 4 if L >= 11 else 3, r2=0.9 * k, cap=True)  # jaw
         for sd in (-1, 1):
-            box(R.hull, neck[-1] + Vector((0.006 * L, sd * 0.013 * L * hk, 0.045 * L * hk)), (0.017 * L * hk, 0.011 * L * hk, 0.045 * L * hk), sch['spar'])
-        box(R.hull, neck[1] + Vector((-0.026 * L * hk, 0, 0.0)), (0.017 * L, 0.017 * L, 0.11 * L * hk), PAL['ochre_red'])     # mane
+            e0 = poll + Vector((0, sd * 1.4 * k, 0)) - d * 0.5 * k
+            rod(R.hull, e0, e0 + Vector((-1.6 * k, sd * 0.6 * k, 4.2 * k)), 0.9 * k, sch['spar'], 4 if L >= 11 else 3, r2=0.15 * k)  # ears
+            ec = skull + Vector((0, sd * 2.95 * k, 0.6 * k))
+            ids = [R.hull.vert(ec + Vector((px * 0.8 * k, 0, pz * 0.5 * k))) for px, pz in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+            R.hull.face(ids if sd < 0 else ids[::-1], PAL['eye_black'], 0, jitter=0.0)                        # eyes
+        for j in range(3 if L >= 11 else 2):           # mane: red tufts along the arch of the neck
+            c = neck[1].lerp(neck[3], 0.15 + (0.35 if L >= 11 else 0.6) * j)
+            box(R.hull, c + Vector((-2.6 * k, 0, 0.6 * k)), (1.8 * k, 1.2 * k, 3.0 * k), PAL['ochre_red'], skip=('-z', '+x'))
+        if L >= 11:
+            rod(R.hull, neck[1] + Vector((0, 0, -0.5 * k)), neck[1] + Vector((0, 0, 0.9 * k)), 3.9 * k + 0.03, PAL['gilt'], sg)  # collar
+        R.lod['posts'].append(([poll, skull, muz], 2.6 * k + 0.03, sch['spar']))
         # fish-tail stern
         R.stern_curl(sch['spar'], 0.045 * L, 160)
         stt = R.lod['posts'][-1][0][-1]
         for sd in (-1, 1):
-            rod(R.hull, stt, stt + Vector((0.01 * L, sd * 0.03 * L, 0.03 * L)), 0.008 * L + 0.02, sch['spar'], 4, r2=0.02, cap=True)
+            rod(R.hull, stt, stt + Vector((0.01 * L, sd * 0.03 * L, 0.03 * L)), 0.008 * L + 0.02, sch['spar'], 4 if L >= 11 else 3, r2=0.02, cap=True)
         R.steering_oars()
         R.house(st.x + 0.1 * L, st.x + 0.22 * L, 0.55, 0.3 * S + 0.25, roof=PAL['tyrian'])
-        R.crates([(H.x0 + 0.14 * L, B * 0.18, 0.3 * S + 0.12, PAL['tyrian']), (H.x0 + 0.14 * L, -B * 0.16, 0.26 * S + 0.12, PAL['timber']),
-                  (H.x0 - 0.12 * L, 0.0, 0.3 * S + 0.12, PAL['ochre_yel'])])
+        R.crates([(H.x0 + 0.14 * L, B * 0.18, 0.3 * S + 0.12, PAL['tyrian']), (H.x0 - 0.12 * L, 0.0, 0.3 * S + 0.12, PAL['ochre_yel'])]
+                 + ([(H.x0 + 0.14 * L, -B * 0.16, 0.26 * S + 0.12, PAL['timber'])] if L >= 11 else []))
     elif rig == 'sprit':
         mx = H.x0 + 0.2 * L
         mh = 0.95 * L
@@ -601,13 +622,22 @@ def build_ancient_lod(R, coll=None, sch=None):
     mb.paint = 0.0
     # brand cover: a strip that hangs from the main yard (square rigs) or lies on the boom (sprit) when furled
     if R.lod['cover']:
+        # the brailed bundle (G6a polish: it must read docked at LOD): a deep front face under the yard with a festooned
+        # foot (brails high, cloth sagging between), plus a top face back to the yard. Set: collapsed into the yard.
         x, zy, span, rf = R.lod['cover']
         b_ = lambda p: Vector((x, 0, 0)) + Rb @ (p - Vector((x, 0, 0)))
-        h = rf * 2.2 + 0.1
-        a = [b_(Vector((x + 0.1, -span * 0.46, zy))), b_(Vector((x + 0.1, span * 0.46, zy))), b_(Vector((x + 0.1, span * 0.46, zy))), b_(Vector((x + 0.1, -span * 0.46, zy)))]
-        af = [b_(Vector((x + rf, -span * 0.46, zy + 0.1))), b_(Vector((x + rf, span * 0.46, zy + 0.1))), b_(Vector((x + rf, span * 0.4, zy - h))),
-              b_(Vector((x + rf, -span * 0.4, zy - h)))]
-        tri2(a, af, PAL['brand_default'], 1.0, paint=0.0)
+        h = rf * 2.6 + 0.25
+        nf = 2 if R.rig == 'galley' else 4
+        hw = span * 0.46
+        foot = []
+        for i in range(2 * nf + 1):
+            t = i / (2 * nf)
+            sag = 1.0 if i % 2 else 0.55
+            foot.append((x + rf * 1.15, -hw + 2 * hw * t, zy - h * sag))
+        front = [(x + rf * 1.15, hw, zy + 0.1), (x + rf * 1.15, -hw, zy + 0.1)] + foot
+        tri2([b_(Vector((x + 0.1, p[1], zy))) for p in front], [b_(Vector(p)) for p in front], PAL['brand_default'], 1.0, paint=0.0)
+        top = [(x + rf * 1.15, -hw, zy + 0.1), (x + rf * 1.15, hw, zy + 0.1), (x, hw * 0.95, zy + 0.15), (x, -hw * 0.95, zy + 0.15)]
+        tri2([b_(Vector((x + 0.1, p[1], zy))) for p in top], [b_(Vector(p)) for p in top], PAL['brand_default'], 1.0, paint=0.0)
     elif R.lod['gaff']:
         x, zb, blen = R.lod['gaff'][:3]
         G = Vector((x, 0, zb)); E = G + Vector((-blen, 0, 0))

@@ -4,8 +4,8 @@
  *  - EMBLEMS. The kit's TEXCOORD_1 puts a modest emblem square on sail_main. Its linear fit gives the emblem
  *    plane's axes (u along the sail, v head → foot, read on the front face); the roundel is then re-sized to the
  *    largest circle inscribed in the sail's outline (small margin), and a second, slightly smaller roundel goes on
- *    the next biggest lower sail (schooner foresail, brig / ship fore course, lugger mizzen; every course of a
- *    barque or clipper), wound to read the same way. The emblem square is sized so the LOGO (LOGO_R) fills that circle: the white disc and its brand ring
+ *    the next biggest lower sail (a titan's fore and mizzen courses; never the artemon or a small or raked sail),
+ *    wound to read the same way. The emblem square is sized so the LOGO (LOGO_R) fills that circle: the white disc and its brand ring
  *    are bigger than the circle, so the shader clamps them to the sail outline with a small margin (fleet-material).
  *  - ROLES (aMeta.z on sail corners): how the brand dye takes on each cloth (fleet-material):
  *    body (dyed), headsail (jib / staysails: a light tint with a brand edge band), upper sail (topsails: lighter),
@@ -34,6 +34,12 @@ export interface SailMeshOut { emb: Float32Array; role: Float32Array }
 interface Comp { mesh: number; verts: number[]; tris: number[]; area: number; minX: number; maxX: number; minY: number; maxY: number; band: boolean; upper: boolean }
 
 const SKIP_SECOND = new Set(["sail_main", "sail_jib", "sail_spanker"]);
+/**
+ * A second roundel needs a real course: at least this share of the main's area, and its plane within SECOND_TILT of
+ * the main's (cos). An ancient rig's artemon (small, raked steeply over the bow) or a raked secondary sail gets none:
+ * the roundel is laid out in the main's plane and would smear across a tilted sail.
+ */
+const SECOND_MIN_AREA = 0.35, SECOND_TILT = Math.cos((25 * Math.PI) / 180);
 
 export function planSails(meshes: SailMeshIn[]): SailMeshOut[] {
   const out = meshes.map((m) => {
@@ -85,8 +91,10 @@ export function planSails(meshes: SailMeshIn[]): SailMeshOut[] {
   if (!mainComp) return out;
   const wind = (c: Comp) => Math.sign(dot(windingNormal(meshes[c.mesh], c), nrm)) || 1;
   const mainWind = wind(mainComp);
-  // the second sail, and its twins (a barque's or clipper's other courses, as big): all carry the roundel
-  const lower = rig.filter((c) => !c.upper && !SKIP_SECOND.has(meshes[c.mesh].name)).sort((a, b) => b.area - a.area);
+  // the second sail, and its twins (a titan's other courses, as big): all carry the roundel
+  const parallel = (c: Comp) => { const w = unit(windingNormal(meshes[c.mesh], c)); return Math.abs(dot(w, nrm)) >= SECOND_TILT; };
+  const lower = rig.filter((c) => !c.upper && !SKIP_SECOND.has(meshes[c.mesh].name) && c.area >= mainComp.area * SECOND_MIN_AREA && parallel(c))
+    .sort((a, b) => b.area - a.area);
   const seconds = lower.filter((c) => c.area >= lower[0].area * 0.8);
   for (const [c, fill] of [[mainComp, FILL_MAIN] as const, ...seconds.map((x) => [x, FILL_SECOND] as const)]) {
     const m = meshes[c.mesh];

@@ -9,7 +9,7 @@ import { daysSinceDeath } from "../model/obituary";
  * wreck kit v2 (public/harbour/kit, manifest `wreck_kit`) on the cove's strand, after its author's guide:
  *
  *   #1-2     great_hulk, full size (the second turned), near the tide line
- *   #3-4     schooner_sunk in the shallows; stern_section with her transom to the sea
+ *   #3-4     merchant_sunk in the shallows; stern_section with her transom to the sea
  *   #5-10    capsized, burned, rib_cage ×2 each, 0.8-1.0
  *   #11-22   8 more of those at 0.55-0.7, and 4 mast stumps
  *   #23-88   skiffs, dinghies, mast stumps and rib cages at ~0.6 (the guide's 0.45 reads as debris), in the cove's clusters
@@ -61,7 +61,7 @@ export const MEMORIAL_SCALE = 2.2;
 const MEMORIAL_GAP = 5.2;
 
 /** The kit's lengths (m, manifest loa_m): footprints for keeping the memorial clear of the wrecks. */
-const ITEM_LOA: Record<string, number> = { wreck_great_hulk: 26, wreck_schooner_sunk: 18, wreck_stern_section: 8.5, wreck_capsized: 13, wreck_burned: 15, wreck_rib_cage: 16, wreck_mast_stump: 14, wreck_skiff: 5, wreck_dinghy: 3.4 };
+const ITEM_LOA: Record<string, number> = { wreck_great_hulk: 26, wreck_merchant_sunk: 18, wreck_stern_section: 8.5, wreck_capsized: 13, wreck_burned: 15, wreck_rib_cage: 16, wreck_mast_stump: 14, wreck_skiff: 5, wreck_dinghy: 3.4 };
 const SIZE_RANK: Record<string, number> = { flagship: 0, large: 1, medium: 2, small: 3, boat: 4, skiff: 5 };
 
 /**
@@ -70,7 +70,7 @@ const SIZE_RANK: Record<string, number> = { flagship: 0, large: 1, medium: 2, sm
  * swallowed by the sand to her mast, a wind-down left to rot to her ribs, and a coin killed by decree laid up whole
  * (the great hulk). Where the slot is a small boat's (the long tail), the turned-over and the left-to-rot forms
  * take the small boats' own models (the dinghy keel-up, the skiff stove in and sanded up); in the shallows a
- * drained coin is the schooner gone down there. The size stays the slot's (the peak-cap rank).
+ * drained coin is the merchantman gone down there. The size stays the slot's (the peak-cap rank).
  */
 export const FAMILY_KIT: Record<string, string> = {
   spiral: "wreck_capsized", exploit: "wreck_burned", counterparty: "wreck_stern_section",
@@ -81,7 +81,7 @@ const SMALL_KIT: Record<string, string> = { spiral: "wreck_dinghy", "wind-down":
 const SMALL_SLOT_M = 3.5;
 /** The least scale a form may shrink to (its nameboard and its shape still read). */
 const FORM_FLOOR: Record<string, number> = {
-  wreck_great_hulk: 0.3, wreck_schooner_sunk: 0.4, wreck_stern_section: 0.36, wreck_capsized: 0.22, wreck_burned: 0.26,
+  wreck_great_hulk: 0.3, wreck_merchant_sunk: 0.4, wreck_stern_section: 0.36, wreck_capsized: 0.22, wreck_burned: 0.26,
   wreck_rib_cage: 0.2, wreck_mast_stump: 0.3, wreck_skiff: 0.3, wreck_dinghy: 0.3,
 };
 
@@ -96,7 +96,7 @@ export function formFor(family: string | undefined, kit: string, scale: number, 
   const want = family && FAMILY_KIT[family];
   if (!want || !ITEM_LOA[kit]) return [kit, scale];
   const len = ITEM_LOA[kit] * scale;
-  const item = water && family === "run" ? "wreck_schooner_sunk" : (len < SMALL_SLOT_M && SMALL_KIT[family!]) || want;
+  const item = water && family === "run" ? "wreck_merchant_sunk" : (len < SMALL_SLOT_M && SMALL_KIT[family!]) || want;
   if (item === kit) return [kit, scale];
   return [item, Math.min(FORM_CEIL[item] ?? 2.2, Math.max(FORM_FLOOR[item] ?? 0.2, len / ITEM_LOA[item]))];
 }
@@ -108,7 +108,7 @@ export function tierPlan(n: number): Array<{ item: string; lo: number; hi: numbe
   const out: Array<{ item: string; lo: number; hi: number; tier: number }> = [];
   const tiers: Tier[] = [
     { items: ["wreck_great_hulk", "wreck_great_hulk"], lo: 0.94, hi: 1.06 },
-    { items: ["wreck_schooner_sunk", "wreck_stern_section"], lo: 0.92, hi: 1.04 },
+    { items: ["wreck_merchant_sunk", "wreck_stern_section"], lo: 0.92, hi: 1.04 },
     { items: [...MID, ...MID], lo: 0.8, hi: 1.0 },
     { items: [...MID, "wreck_mast_stump", ...MID, "wreck_mast_stump", "wreck_capsized", "wreck_mast_stump", "wreck_burned", "wreck_mast_stump"], lo: 0.55, hi: 0.7 },
   ];
@@ -158,7 +158,7 @@ export function composeCove(deadIn: readonly CoveDead[], slotsIn: readonly CoveS
     let x = s.x, z = s.z, h = s.h, water = false;
     if (p.item === "wreck_great_hulk" && i === 1) h += 2.4; // the second lies the other way round
     if (p.item === "wreck_stern_section") h = up(x, z, h) + (hash01(c.id + "#h") - 0.5) * 0.5; // transom to the sea
-    if (p.item === "wreck_schooner_sunk" && env) {
+    if (p.item === "wreck_merchant_sunk" && env) {
       // sunk in the shallows: walk down the beach from her slot into 2-6 m of water
       const hu = up(x, z, h), dx = -Math.sin(hu), dz = -Math.cos(hu);
       for (let d = 0; d < 60; d += 1.5) {
@@ -529,4 +529,4 @@ export function topVertex(g: THREE.BufferGeometry): THREE.Vector3 {
   return t;
 }
 /** Wrecks a gull may stand on (big enough, and with a high point that is hull or spar, not rag). */
-export const PERCH_ITEMS = new Set(["wreck_great_hulk", "wreck_capsized", "wreck_stern_section", "wreck_burned", "wreck_schooner_sunk", "wreck_mast_stump"]);
+export const PERCH_ITEMS = new Set(["wreck_great_hulk", "wreck_capsized", "wreck_stern_section", "wreck_burned", "wreck_merchant_sunk", "wreck_mast_stump"]);

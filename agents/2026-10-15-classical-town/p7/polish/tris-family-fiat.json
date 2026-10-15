@@ -1,0 +1,65 @@
+{
+ "fiat_hippos_boat": {
+  "tris": 660,
+  "budget": 700,
+  "sections": 5,
+  "loa": 7.5,
+  "nodes": [
+   "_heel",
+   "bow_cleat",
+   "deck",
+   "flag",
+   "hull",
+   "mast",
+   "masthead_light",
+   "rigging",
+   "sail_cover",
+   "sail_main",
+   "stern_cleat",
+   "wake_origin",
+   "yards"
+  ]
+ },
+ "fiat_hippos_small": {
+  "tris": 698,
+  "budget": 700,
+  "sections": 5,
+  "loa": 10.0,
+  "nodes": [
+   "_heel",
+   "bow_cleat",
+   "deck",
+   "flag",
+   "hull",
+   "mast",
+   "masthead_light",
+   "rigging",
+   "sail_cover",
+   "sail_main",
+   "stern_cleat",
+   "wake_origin",
+   "yards"
+  ]
+ },
+ "fiat_hippos_medium": {
+  "tris": 884,
+  "budget": 900,
+  "sections": 7,
+  "loa": 13.0,
+  "nodes": [
+   "_heel",
+   "bow_cleat",
+   "deck",
+   "flag",
+   "hull",
+   "mast",
+   "masthead_light",
+   "rigging",
+   "sail_cover",
+   "sail_main",
+   "stern_cleat",
+   "wake_origin",
+   "yards"
+  ]
+ }
+}

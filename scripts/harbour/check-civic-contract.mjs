@@ -38,6 +38,9 @@ const HULL = {
   nodes: ["sail_main", "bow_cleat", "stern_cleat", "masthead_light", "_heel"],
   // the emblem is mapped onto sail_main (TEXCOORD_0 = sail cloth, TEXCOORD_1 = emblem)
   sailAttributes: ["TEXCOORD_0", "TEXCOORD_1"],
+  // docked, the brand rides the cover (boom cover, or a square rig's brailed bundle on the yard): both carry the furl
+  // morph the runtime drives (hull-kit.ts), and so does sail_main
+  furled: ["sail_main", "sail_cover"],
 };
 
 function readGltf(file) {
@@ -85,12 +88,22 @@ function checkHull(file) {
   const attrs = new Set(prims.flatMap((p) => Object.keys(p.attributes)));
   const noUv = HULL.sailAttributes.filter((a) => !attrs.has(a));
   if (node && noUv.length) fail(rel(file), `sail_main lacks attributes: ${noUv.join(", ")}`);
+  for (const name of HULL.furled) {
+    const n = (gltf.nodes ?? []).find((x) => x.name === name);
+    if (!n) { fail(rel(file), `missing node: ${name}`); continue; }
+    const mesh = n.mesh !== undefined ? gltf.meshes[n.mesh] : null;
+    if (!mesh?.extras?.targetNames?.includes("furl")) fail(rel(file), `${name} lacks the "furl" morph`);
+  }
 }
 
 checkCivic();
 const hulls = readdirSync(kitDir).filter((f) => /^(hull|titan)_.*\.glb$/.test(f) && !f.endsWith("_lod.glb"));
 if (hulls.length === 0) fail("hulls", "no hull_*/titan_* GLBs found in public/harbour/kit");
 for (const f of hulls) checkHull(join(kitDir, f));
+// every hull GLB on disk is in the manifest (a renamed variant leaves no stale file behind)
+const kitManifest = JSON.parse(readFileSync(join(kitDir, "manifest.json"), "utf8"));
+const listed = new Set([...(kitManifest.hulls ?? []), ...(kitManifest.lods ?? [])].map((h) => h.file));
+for (const f of readdirSync(kitDir).filter((x) => /^(hull|titan)_.*\.glb$/.test(x))) if (!listed.has(f)) fail(f, "not listed in kit manifest.json (stale variant?)");
 
 if (failures.length) {
   console.error(`check-civic-contract: ${failures.length} failure(s)\n  ${failures.join("\n  ")}`);
