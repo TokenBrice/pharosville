@@ -1,0 +1,86 @@
+{
+ "eur_greek_boat": {
+  "tris": 664,
+  "budget": 700,
+  "sections": 6,
+  "loa": 7.5,
+  "nodes": [
+   "_heel",
+   "bow_cleat",
+   "deck",
+   "flag",
+   "hull",
+   "mast",
+   "masthead_light",
+   "rigging",
+   "sail_cover",
+   "sail_main",
+   "stern_cleat",
+   "wake_origin",
+   "yards"
+  ]
+ },
+ "eur_greek_small": {
+  "tris": 660,
+  "budget": 700,
+  "sections": 5,
+  "loa": 10.0,
+  "nodes": [
+   "_heel",
+   "bow_cleat",
+   "deck",
+   "flag",
+   "hull",
+   "mast",
+   "masthead_light",
+   "rigging",
+   "sail_cover",
+   "sail_main",
+   "stern_cleat",
+   "wake_origin",
+   "yards"
+  ]
+ },
+ "eur_greek_medium": {
+  "tris": 840,
+  "budget": 900,
+  "sections": 9,
+  "loa": 13.0,
+  "nodes": [
+   "_heel",
+   "bow_cleat",
+   "deck",
+   "flag",
+   "hull",
+   "mast",
+   "masthead_light",
+   "rigging",
+   "sail_cover",
+   "sail_main",
+   "stern_cleat",
+   "wake_origin",
+   "yards"
+  ]
+ },
+ "eur_greek_large": {
+  "tris": 924,
+  "budget": 1400,
+  "sections": 11,
+  "loa": 18.0,
+  "nodes": [
+   "_heel",
+   "bow_cleat",
+   "deck",
+   "flag",
+   "hull",
+   "mast",
+   "masthead_light",
+   "rigging",
+   "sail_cover",
+   "sail_main",
+   "stern_cleat",
+   "wake_origin",
+   "yards"
+  ]
+ }
+}

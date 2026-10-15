@@ -65,12 +65,14 @@ export class MintWorks {
 
     // presses + a glint on each die (just in front of the press, at the bench)
     const glintAt: THREE.Vector3[] = [];
+    // the arcade opening sits 1.5 m behind the plot front (footprint depth / 2); without a footprint, 6.7 m in front of the presses
+    const arcadeZ = spec.footprint ? spec.footprint[1] / 2 - 1.5 : (nodes.get("press_0")?.position.z ?? 13.8) + 6.7;
     for (let i = 0; ; i++) {
       const node = nodes.get(`press_${i}`);
       if (!node) break;
       this.presses.push({ node, base: node.position.clone(), phase: i * 0.37, glint: 0, last: 0 });
       // the flash shows in the press's arch: at the arcade opening in front of the press (the die itself sits deep inside)
-      glintAt.push(toWorld(root, [node.position.x + 2.2, node.position.y - 2.6, 20.5]));
+      glintAt.push(toWorld(root, [node.position.x + 2.2, node.position.y - 2.6, arcadeZ]));
       this.pressLamps.push(toWorld(root, [node.position.x + 1.6, node.position.y - 0.4, node.position.z + 1.2]));
     }
     this.glints = new Glints(glintAt);
@@ -102,11 +104,12 @@ export class MintWorks {
     const fl = moving ? 1 + 0.12 * Math.sin(this.t * 7.1) + 0.07 * Math.sin(this.t * 12.7 + 1.1) + 0.05 * Math.sin(this.t * 3.3) : 1;
     this.glow.value = (banked ? 0.25 : 0.6 + 2.6 * L) * (0.7 + 1.1 * night) * fl;
 
-    // chimneys
+    // kiln flues (10-16 m, not 30 m stacks): slim plumes that climb steeply, so they clear the treasury's roof instead
+    // of rolling over it
     const s = Math.min(L, 1.4);
     this.smoke.update(moving ? dt : 0, {
-      rate: 0.05 + 0.08 * s, rise: 12 + 20 * s, size0: 2.0 + 0.8 * s, size1: 7 + 8 * s, drift: 26 + 16 * s,
-      opacity: banked ? 0 : 0.2 + 0.42 * Math.min(1, s), darkness: 0.5 + 0.22 * Math.min(1, s),
+      rate: 0.05 + 0.08 * s, rise: 26 + 22 * s, size0: 1.2 + 0.4 * s, size1: 3.5 + 4 * s, drift: 16 + 10 * s,
+      opacity: banked ? 0 : 0.14 + 0.3 * Math.min(1, s), darkness: 0.45 + 0.2 * Math.min(1, s),
       under: this.under.setRGB(1.0, 0.45, 0.15).multiplyScalar(0.12 * night * Math.min(1, s)),
     }, windTo, wind, u);
 

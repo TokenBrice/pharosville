@@ -12,7 +12,8 @@ import { planSails, ROLE_BODY, type SailMeshOut } from "./sail-plan";
  *   position, normal, color (vec4: rgb albedo, a = pattern id / 16)
  *   aSailUV  (TEXCOORD_0, sail space) · aEmbUV (emblem square [0,1]², else -1: re-measured by sail-plan.ts
  *     from TEXCOORD_1, a bigger roundel on sail_main plus one on the second sail; on a furled cover, the roundel
- *     printed on each side of it, in the hull's side plane (u along +x: the shader flips it on the -z side))
+ *     printed on each side of it, in the hull's side plane (u along +x: the shader flips it on the -z side); on a square
+ *     rig's brailed bundle (sail_cover under _heel) the roundel on its faces, u along the yard (yardBundle))
  *   aFurl / aFurlN: the "furl" morph deltas (0 = set … 1 = furled / cover on)
  *   aMeta = (kind 0 opaque | 1 sail | 2 cover, node, brand 0..1 (opaque) | sail role (sail-plan ROLE_*), flag 0..1)
  *     LOD sails (hb_opaque in the kit: rig paint 8 in the full hull's cloth colour) bake as kind 1 so they take the dye.
@@ -63,7 +64,9 @@ export interface Kit {
 const KIND: Record<string, number> = { hb_opaque: 0, hb_sail: 1, hb_cover: 2 };
 /** Wreck kit v2 kinds: the epitaph nameboard (TEXCOORD_0 = board space) and lantern glass (hb_emissive × uLamp). */
 export const KIND_BOARD = 3, KIND_LAMP = 4;
-const MIRROR_RIGID = new Set(["yards", "sail_extra"]);
+const MIRROR_RIGID = new Set(["yards", "sail_extra", "oars", "yard_artemon", "steering_oar"]);
+/** Square rigs hang these from _heel, braced with the yard: mirrored on port tack like the yards. */
+const HEEL_MIRROR = new Set(["sail_main", "sail_cover"]);
 const SPAR_NODES = new Set(["mast", "yards", "boom_spar", "boom_2_spar", "gaff", "gaff_2"]);
 const PAINT_SPAR = 8, PAINT_RIGGING = 10;
 const tmpV = new THREE.Vector3();
@@ -76,7 +79,7 @@ function nodeOrigin(nodes: ManifestNode[], name: string): THREE.Vector3 | null {
 }
 
 /** Flatten one GLB into the fleet attribute layout. `pivots` comes from the manifest (Blender object origins). */
-export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean; loa?: number; wreck?: boolean; skip?: ReadonlySet<string>; cloth?: [number, number, number] | null } = {}): THREE.BufferGeometry {
+export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean; loa?: number; beam?: number; wreck?: boolean; skip?: ReadonlySet<string>; cloth?: [number, number, number] | null } = {}): THREE.BufferGeometry {
   const halfLoa = (opts.loa ?? 10) / 2;
   const boom = nodeOrigin(nodes, "boom") ?? new THREE.Vector3();
   const boom2 = nodeOrigin(nodes, "boom_2") ?? new THREE.Vector3();
@@ -107,7 +110,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     else if (ancestors.includes("boom_2")) { node = 3; pivot = boom2; }
     else if (ancestors.includes("boom")) { node = 2; pivot = boom; }
     else if (mesh.name === "sail_jib") { node = 4; pivot = jib; axis = jibAxis; }
-    else if (MIRROR_RIGID.has(mesh.name) || (mesh.name === "sail_main" && parentName === "_heel")) node = 1;
+    else if (MIRROR_RIGID.has(mesh.name) || (HEEL_MIRROR.has(mesh.name) && parentName === "_heel")) node = 1;
     const flag = mesh.name === "flag" ? 1 : 0;
     const pos = geo.attributes.position, nrm = geo.attributes.normal, col = geo.attributes.color;
     const uv0 = geo.attributes.uv, uv1 = geo.attributes.uv1, brand = geo.attributes._brand, paint = geo.attributes._paint;
@@ -125,6 +128,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     // Furled canvas, slimmed: the brand cover lies flaked low on the boom (not a fat tube) and the
     // rolled jib is a slim roll on its stay. The furl morph's end shape is pulled toward its axis.
     const isCover = mats.some((m) => m.name === "hb_cover");
+    const yardCover = isCover && parentName === "_heel";
     const isJib = mesh.name === "sail_jib";
     let furlAdj: Float32Array | null = null, coverUV: Float32Array | null = null, coverEmb: Float32Array | null = null;
     if (mp && (isCover || isJib) && !opts.lod) {
@@ -139,7 +143,8 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
         Pf[vi * 3] = B[vi * 3] + tmpV.x; Pf[vi * 3 + 1] = B[vi * 3 + 1] + tmpV.y; Pf[vi * 3 + 2] = B[vi * 3 + 2] + tmpV.z;
       }
       furlAdj = new Float32Array(nv * 3);
-      if (isCover) {
+      if (yardCover) yardBundle(nv, B, Pf, furlAdj, coverUV = new Float32Array(nv * 2), coverEmb = new Float32Array(nv * 2), opts.beam ?? halfLoa * 0.6);
+      else if (isCover) {
         // centre line y(x), z(x) by least squares, then a slimmer, lower section
         let sx = 0, sxx = 0, sy = 0, sxy = 0, sz = 0, sxz = 0, x0 = Infinity, x1 = -Infinity;
         for (let vi = 0; vi < nv; vi++) {
@@ -248,6 +253,53 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
   return g;
 }
 
+/**
+ * Brailed bundle: fore-aft depth kept, how far its festoons hang (× authored), and the share of the beam it may reach
+ * out to either side (G6b: docked, the sail is brailed in to the middle of the yard, never a cylinder over the quay).
+ */
+const BUNDLE_DEPTH = 0.45, BUNDLE_DROP = 1.4, BUNDLE_BEAM = 0.9;
+
+/**
+ * A square rig's brailed-sail bundle (sail_cover parented to _heel, braced with the yard): its axis is the yard, not
+ * +x. Measured on the furled shape: the yard axis a (principal axis, horizontal, oriented +z so that u runs to the
+ * viewer's right on the aft / +z face, as the boom cover's u along +x does), the bundle is squashed fore-aft
+ * (BUNDLE_DEPTH) about its own middle, gathered along the yard so it stays inside the hull's beam (BUNDLE_BEAM) and let
+ * down from the yard (BUNDLE_DROP) so the forward and aft faces read as a slim, flat bag, and the roundel is printed on them:
+ * u along a, v head → foot, the circle as big as the bundle is deep, centred mid-yard. coverUV.y runs foot 0 → yard 1
+ * (the lacing band sits under the yard).
+ */
+function yardBundle(nv: number, B: Float32Array, Pf: Float32Array, adj: Float32Array, uv: Float32Array, emb: Float32Array, beam: number): void {
+  let cx = 0, cz = 0;
+  for (let i = 0; i < nv; i++) { cx += Pf[i * 3]; cz += Pf[i * 3 + 2]; }
+  cx /= nv || 1; cz /= nv || 1;
+  // horizontal principal axis (2x2 covariance in x-z)
+  let sxx = 0, sxz = 0, szz = 0;
+  for (let i = 0; i < nv; i++) { const dx = Pf[i * 3] - cx, dz = Pf[i * 3 + 2] - cz; sxx += dx * dx; sxz += dx * dz; szz += dz * dz; }
+  const th = 0.5 * Math.atan2(2 * sxz, sxx - szz);
+  let ax = Math.cos(th), az = Math.sin(th);
+  if (az < 0) { ax = -ax; az = -az; }
+  const fx = az, fz = -ax;                                  // across the yard (horizontal)
+  let t0 = Infinity, t1 = -Infinity, lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < nv; i++) {
+    const t = (Pf[i * 3] - cx) * ax + (Pf[i * 3 + 2] - cz) * az;
+    t0 = Math.min(t0, t); t1 = Math.max(t1, t); lo = Math.min(lo, Pf[i * 3 + 1]); hi = Math.max(hi, Pf[i * 3 + 1]);
+  }
+  const top = hi, tm = (t0 + t1) / 2;
+  // gathered along the yard: its athwartships reach (|a.z| of the half-length) within the beam
+  const g = Math.min(1, (beam * 0.5 * BUNDLE_BEAM) / Math.max(1e-3, ((t1 - t0) / 2) * Math.abs(az)));
+  t0 = tm + (t0 - tm) * g; t1 = tm + (t1 - tm) * g;
+  lo = hi - (hi - lo) * BUNDLE_DROP;
+  const h = Math.max(1e-3, hi - lo), D = Math.min(h * 1.1, (t1 - t0) * 0.9), ym = lo + 0.5 * h;
+  for (let i = 0; i < nv; i++) {
+    const dx = Pf[i * 3] - cx, dz = Pf[i * 3 + 2] - cz;
+    const t = tm + (dx * ax + dz * az - tm) * g, f = dx * fx + dz * fz;
+    const nx = cx + ax * t + fx * f * BUNDLE_DEPTH, nz = cz + az * t + fz * f * BUNDLE_DEPTH, y = top - (top - Pf[i * 3 + 1]) * BUNDLE_DROP;
+    adj[i * 3] = nx - B[i * 3]; adj[i * 3 + 1] = y - B[i * 3 + 1]; adj[i * 3 + 2] = nz - B[i * 3 + 2];
+    uv[i * 2] = (t - t0) / Math.max(1e-3, t1 - t0); uv[i * 2 + 1] = (y - lo) / h;
+    emb[i * 2] = (t - tm) / D + 0.5; emb[i * 2 + 1] = 0.5 - (y - ym) / D;
+  }
+}
+
 /** The hull's sails (hb_sail meshes, set shape in the GLB root frame) through sail-plan: emblem UVs and dye roles. */
 function planHullSails(gltf: GLTF): Map<THREE.Mesh, SailMeshOut> {
   const meshes: THREE.Mesh[] = [];
@@ -284,7 +336,7 @@ export async function loadKit(assets: AssetStore): Promise<Kit> {
         assets.gltf(KIT_BASE + h.file),
         h.lod ? assets.gltf(KIT_BASE + h.lod).catch(() => null) : Promise.resolve(null),
       ]);
-      const fg = bakeGltf(full, h.nodes, { loa: h.loa_m });
+      const fg = bakeGltf(full, h.nodes, { loa: h.loa_m, beam: h.beam_m });
       const lg = lod ? bakeGltf(lod, [], { lod: true, loa: h.loa_m, cloth: fg.userData.cloth as [number, number, number] | null }) : null;
       const anchor = (name: string, fb: [number, number, number]) => nodeOrigin(h.nodes, name) ?? new THREE.Vector3(...fb);
       hulls.set(h.id, {

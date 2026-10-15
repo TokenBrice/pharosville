@@ -88,7 +88,7 @@ function gatherSources(L: HarbourLayout & CivicLayout & LitLayout): Sources {
     berths: (L.piers ?? []).flatMap((p) => p.berths.map((b) => [b.position[0], b.position[2]] as Vec2)),
     reef, fire, mint: m ? [m[0], m[1] + 12, m[2]] : null,
     town: (L.lights ?? []).filter((l) => l.kind === "window").map((l) => [l.position[0], l.position[2]] as Vec2),
-    // the hamlets sit among the island's trees
+    // the cove hamlets sit among the island's groves
     trees: (L.landmarks ?? []).filter((l) => l.id.startsWith("hamlet")).map((l) => [l.position[0], l.position[2]] as Vec2),
   };
 }
@@ -210,7 +210,7 @@ class Controller implements SoundController {
     const weather = ctx.services.get("weather") as WeatherLike | undefined;
     const wetU = (ctx.uniforms as unknown as { uWetness?: { value: number } }).uWetness?.value ?? 0;
     const inputs: Partial<AmbienceInputs> = {
-      zoom: Math.sqrt(zoom), fog, night: ctx.uniforms.uNight.value,
+      zoom: Math.sqrt(zoom), fog, night: ctx.uniforms.uNight.value, hour: ctx.timeOfDay.hour,
       ...weatherInputs(weather, ctx.services.get("season") as SeasonLike | undefined, wind, wetU),
       reduced: !!(ctx.services.get("motion") as Motion | undefined)?.reduced,
       lean: (ctx.services.get("quality") as Quality | undefined)?.tier === "low",

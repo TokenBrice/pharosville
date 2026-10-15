@@ -66,12 +66,19 @@ export function pegName(pegType: string): string {
 }
 
 export const RIG_NAME: Record<string, string> = {
-  usd: "dollar rig", eur: "Dutch botter", gold: "brig", fiat: "lugger", other: "gaff workboat",
+  usd: "square rig", eur: "Greek merchantman", gold: "galley", fiat: "hippos", other: "sprit boat",
 };
 
 export const HULL_NAME: Record<string, string> = {
-  flagship: "full-rigged ship", large: "schooner", medium: "cutter", small: "sloop", boat: "sloop", skiff: "catboat",
+  flagship: "grain ship", large: "merchantman", medium: "corbita", small: "coaster", boat: "coaster", skiff: "fishing skiff",
 };
+
+/** What a boat sails as: the peg family picks the silhouette (fleet/variants.ts), the supply class its size. */
+export function vesselKind(rig: string, hullClass: string): string {
+  if (rig === "gold") return hullClass === "large" || hullClass === "flagship" ? "trireme" : "bireme";
+  if (rig !== "usd" && RIG_NAME[rig]) return RIG_NAME[rig];
+  return HULL_NAME[hullClass] ?? hullClass;
+}
 
 /** "2022-05" → "May 2022". */
 export function monthYear(s: string): string {

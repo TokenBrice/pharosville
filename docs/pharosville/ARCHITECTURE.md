@@ -1,6 +1,6 @@
 # PharosVille Architecture
 
-Last updated: 2026-10-14
+Last updated: 2026-10-15
 
 PharosVille is The Harbour: a desktop-gated React shell around one imperative
 three.js WebGL2 world (`src/harbour/`). Every stablecoin is one boat sailing a
@@ -9,6 +9,11 @@ supply; the lighthouse beam is the Pharos Stability Index; sea state, weather
 and fog carry off-peg share, stress signals and stale data. The world carries
 the meaning; text appears only on demand (hover tag, side panel, ledger).
 Decisions D1-D14 live in `agents/2026-10-13-pharosville-reboot/PLAN.md`.
+Since v1.2.0 the town, civic buildings and fleet share the Pharos's era (a
+Ptolemaic Mediterranean harbour, ancient hulls); that restyle changed art only,
+no data mapping (`agents/2026-10-15-classical-town/PLAN.md`). The civic and
+hull GLB node names the runtime relies on are checked by
+`npm run check:harbour-contracts`.
 
 ## Request and loading boundary
 

@@ -1,0 +1,24 @@
+{
+ "titan_syracusia": {
+  "tris": 1538,
+  "budget": 3000,
+  "sections": 13,
+  "loa": 32.0,
+  "nodes": [
+   "_heel",
+   "bow_cleat",
+   "deck",
+   "flag",
+   "hull",
+   "mast",
+   "masthead_light",
+   "rigging",
+   "sail_cover",
+   "sail_extra",
+   "sail_main",
+   "stern_cleat",
+   "wake_origin",
+   "yards"
+  ]
+ }
+}

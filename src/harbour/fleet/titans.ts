@@ -1,8 +1,9 @@
 /**
  * Titan-class flagships: the four majors sail a unique hero ship each (public/harbour/kit/titan_*.glb, built by
  * scripts/harbour/blender/titans/), whatever their supply class, so the big guys read at a glance:
- *   USDT  emerald-and-white four-masted barque · USDC  navy-and-white clipper ·
- *   USDe  dark modern staysail schooner · USDS  sky-blue-and-cream paddle frigate.
+ *   Syracusia-class grain giants (classical restyle), each with one deck feature: USDT emerald-and-white, a gilt temple
+ *   of Aphrodite aft · USDC navy-and-white, Archimedes' stone-thrower · USDe charcoal-and-silver, a deck garden ·
+ *   USDS sky-blue-and-cream, a signal tower with a brazier.
  * The hull is identity (decorative); the size keeps the supply ladder's order (USDT > USDC > the 26 m flagships >
  * USDS ≈ USDe > the 18 m large hulls) with a declared flourish over the class LOA: each GLB is built at its drawn
  * size (USDT 32 m, USDC 30 m, USDe and USDS 22 m), so the fleet draws a titan at scale 1 (its manifest loa_m).

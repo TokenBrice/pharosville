@@ -12,6 +12,7 @@ import type { HarbourMaterials } from "./materials";
  * Not art: it exists so the material/light/post port can be judged on the real kit before island.glb.
  */
 
+const STYLE_B_GLB = "/agents/2026-10-13-pharosville-reboot/p1/style-b/glb";
 export const STYLE_C_GLB = "/agents/2026-10-13-pharosville-reboot/p1/style-c/glb";
 
 // ------------------------------------------------------------------ small deterministic helpers
@@ -145,10 +146,9 @@ function buildTerrain(layout: HarbourLayout, H: ReturnType<typeof makeTerrainHei
 
 // ------------------------------------------------------------------ placements
 interface Placement { kit: string; m: THREE.Matrix4 }
-const KITS = ["house_a_falu_gable", "house_b_ochre_slate_tall", "house_c_white_render", "house_d_blue_tar", "house_e_turf_cottage",
-  "house_f_warehouse", "lighthouse_keeper_cottage", "lighthouse_oil_store", "lighthouse_signal_mast", "pier_finger_16m", "pier_main_10m",
+const KITS = ["house_c_white_render", "house_f_warehouse", "lighthouse_keeper_cottage", "lighthouse_oil_store", "lighthouse_signal_mast", "pier_finger_16m", "pier_main_10m",
   "pier_thead_20m", "prop_barrels", "prop_crates", "prop_nets", "prop_lamp_post", "prop_fence_picket", "prop_hand_crane",
-  "prop_hjell_rack", "prop_dinghy", "quay_bollard", "quay_wall_10m", "tree_birch", "tree_spruce"] as const;
+  "prop_dinghy", "quay_bollard", "quay_wall_10m", "tree_cypress"] as const;
 const HOUSES = KITS.filter((k) => k.startsWith("house_"));
 /** Small props whose shadows are sub-pixel at harbour zoom: skip the shadow pass (draw calls). */
 const NO_SHADOW = new Set(["quay_bollard", "prop_barrels", "prop_crates", "prop_nets", "prop_fence_picket", "prop_dinghy"]);
@@ -181,7 +181,7 @@ export async function buildStandIn(ctx: EngineContext, layout: HarbourLayout, ma
 
   const kits = new Map<string, KitPiece>();
   await Promise.all(KITS.map(async (k) => {
-    try { kits.set(k, flattenKit(k, await ctx.assets.gltf(`${STYLE_C_GLB}/${k}.glb`))); } catch (err) { console.warn("[harbour] stand-in kit missing", k, err); }
+    try { kits.set(k, flattenKit(k, await ctx.assets.gltf(`${k === "tree_cypress" ? STYLE_B_GLB : STYLE_C_GLB}/${k}.glb`))); } catch (err) { console.warn("[harbour] stand-in kit missing", k, err); }
   }));
 
   const P: Placement[] = [];
@@ -356,9 +356,8 @@ export async function buildStandIn(ctx: EngineContext, layout: HarbourLayout, ma
       const cl = vnoise(x * 0.02, z * 0.02, 33);
       if (cl < (r.dBay > 125 ? 0.42 : 0.66)) continue;
       if (houseSpots.some(([hx, hz]) => Math.abs(hx - x) < 8 && Math.abs(hz - z) < 8)) continue;
-      const birch = vnoise(x * 0.03, z * 0.03, 44) > 0.6;
       const s = 0.8 + rnd() * 0.55;
-      P.push({ kit: birch ? "tree_birch" : "tree_spruce", m: place(x, r.h - 0.2, z, rnd() * 6.28, s, s * (0.9 + rnd() * 0.3), s) });
+      P.push({ kit: "tree_cypress", m: place(x, r.h - 0.2, z, rnd() * 6.28, s, s * (0.9 + rnd() * 0.3), s) });
       trees++;
     }
   }

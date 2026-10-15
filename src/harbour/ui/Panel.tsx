@@ -6,7 +6,7 @@ import type { Boat, HarbourModel } from "../model/types";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { ChainSplit, chainLogo, Crest, DEWS_INK, FlowBars, Freshness, Logo, PSI_INK, Sparkline, TideBars } from "./bits";
 import { circuitStops, flowTotals, obituaryText, quoted, whereLine, whyHere, wreckDate } from "./facts";
-import { age, bps, causeName, HULL_NAME, MINUS, money, pctChange, pegName, share, titleCase } from "./format";
+import { age, bps, causeName, MINUS, money, pctChange, pegName, share, titleCase, vesselKind } from "./format";
 import { CHAIN_COLOR, placeName, scopeName } from "./places";
 import { expectedLabel, groupYard, launchedFromYard, PHASE_NAME, PHASES, STAGE_NAME, STAGE_OF, UPCOMING_URL, yardCoins, type YardCoin } from "./yard";
 
@@ -120,7 +120,7 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
   const cov = mint?.coverage as { status?: string } | undefined;
   const mintTracked = mint && cov?.status !== "unavailable";
   const truth = store.getSnapshot().model?.truth.stablecoins;
-  const sub = `${b.name} · ${HULL_NAME[b.hullClass] ?? b.hullClass}`;
+  const sub = `${b.name} · ${vesselKind(b.rig, b.hullClass)}`;
   const ch = (v: number | null) => <b className={v == null ? "" : v > 0.0005 ? "hb-up" : v < -0.0005 ? "hb-down" : ""}>{pctChange(v)}</b>;
   return (
     <>

@@ -1,6 +1,6 @@
 # PharosVille GitHub Media
 
-Last updated: 2026-10-14
+Last updated: 2026-10-15
 
 Use this file to keep GitHub, README, and social-preview media consistent.
 
@@ -40,10 +40,12 @@ for scratch captures before promoting anything into docs.
 
 ## Provenance Rules
 
-The key art comes from the Harbour reboot's real-GPU renders
-(`agents/2026-10-13-pharosville-reboot/p2/island-v3/key-heart-golden.jpg`).
-The poster and the OG card are offline crops and encodes of it (ImageMagick,
-cwebp, avifenc, pngquant); never bake numerical readings, token names or chain
+The key art is a real-GPU runtime capture of the classical harbour
+(`agents/2026-10-15-classical-town/p8/key-heart-golden.jpg`: `shot.mjs` on the
+heart view, `?t=18.5&season=summer&dews=CALM`, with the DOM overlay hidden so
+only the canvas shows). The poster and the OG card are offline crops and
+encodes of it (ImageMagick, cwebp, avifenc, pngquant); never bake numerical
+readings, token names or chain
 names into promotional art, and keep the alt text saying "Illustration, not
 live readings".
 

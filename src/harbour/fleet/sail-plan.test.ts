@@ -59,4 +59,26 @@ describe("planSails", () => {
     expect(m.role[4]).toBe(ROLE_BAND);
     expect(m.role[0]).toBe(ROLE_BODY);
   });
+
+  it("gives no second roundel to a small or steeply raked sail (an ancient artemon)", () => {
+    const sq = sail("sail_main", [[-3, 1], [3, 1], [3, 7], [-3, 7]], { emblem: 2 });
+    // the artemon: a small square sail raked 40° over the bow (out of the main's plane)
+    const k = Math.cos((40 * Math.PI) / 180), z = Math.sin((40 * Math.PI) / 180);
+    const art = sail("sail_extra", [[5, 1], [7, 1], [7, 3], [5, 3]]);
+    const p = art.pos as number[];
+    for (let i = 0; i < p.length; i += 3) { const y = p[i + 1] - 1; p[i + 1] = 1 + y * k; p[i + 2] = y * z; }
+    // a big course raked the same way as the artemon (a raked secondary sail): still no roundel
+    const raked = sail("sail_extra", [[8, 1], [13, 1], [13, 6], [8, 6]]);
+    const q = raked.pos as number[];
+    for (let i = 0; i < q.length; i += 3) { const y = q[i + 1] - 1; q[i + 1] = 1 + y * k; q[i + 2] = y * z; }
+    const out = planSails([sq, art, raked]);
+    expect(Array.from(out[1].emb).every((v) => v === -1)).toBe(true);
+    expect(Array.from(out[2].emb).every((v) => v === -1)).toBe(true);
+    // a tiny parallel sail: too small for a roundel
+    const tiny = sail("sail_extra", [[5, 1], [6, 1], [6, 2], [5, 2]]);
+    expect(Array.from(planSails([sq, tiny])[1].emb).every((v) => v === -1)).toBe(true);
+    // a parallel fore course as big as the main keeps its roundel
+    const fore = sail("sail_extra", [[5, 1], [10, 1], [10, 6], [5, 6]]);
+    expect(Array.from(planSails([sq, fore])[1].emb).every((v) => v !== -1)).toBe(true);
+  });
 });

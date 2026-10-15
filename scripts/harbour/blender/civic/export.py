@@ -97,7 +97,7 @@ def compress(src, dst):
 MAN_PATH = os.path.join(OUT, 'manifest.json')
 MANIFEST = json.load(open(MAN_PATH)) if (ONLY and os.path.exists(MAN_PATH)) else dict(
     version=1,
-    style='C Northern Light - civic kit (neoclassical / maritime stone bridging the Nordic town and the Pharos)',
+    style='Classical harbour - civic kit (Ptolemaic Alexandria: stoas, temple fronts, terracotta, painted polychromy, bronze)',
     generator='scripts/harbour/blender/civic/export.py (lookdev: scripts/harbour/blender/civic/lineup.py)',
     axes='glTF: +x right, +y up, +z FRONT (the water / camera side); origin at the plot centre on the plot ground (y = 0 is the '
          'terrain the plot sits on; each plot has a 1.5-2.6 m ashlar skirt below y = 0 for uneven ground); metres. '

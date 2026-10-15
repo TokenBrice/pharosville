@@ -66,8 +66,13 @@ def build_atlas():
     tmp = os.path.join(SCRATCH, 'logo_tmp.png')
     for k, (vid, (fn, _)) in enumerate(COINS.items()):
         src = os.path.join(ROOT, 'public', 'logos', fn)
-        subprocess.run(['rsvg-convert', '-w', str(int(S * 0.74)), '-h', str(int(S * 0.74)), '--keep-aspect-ratio', src, '-o', tmp], check=True)
-        lg = Image.open(tmp).convert('RGBA')
+        png = os.path.join(ROOT, 'public', 'logos', {'gold-xaut.svg': 'xaut-tether.png'}.get(fn, fn[:-4] + '.png'))
+        if os.path.exists(src):
+            subprocess.run(['rsvg-convert', '-w', str(int(S * 0.74)), '-h', str(int(S * 0.74)), '--keep-aspect-ratio', src, '-o', tmp], check=True)
+            lg = Image.open(tmp).convert('RGBA')
+        else:   # the logo set moved to raster for some coins
+            lg = Image.open(png).convert('RGBA')
+            lg.thumbnail((int(S * 0.74), int(S * 0.74)), Image.LANCZOS)
         a = np.asarray(lg).astype(np.float32) / 255
         m = (a[..., 3] > 0.6)
         rgb = a[..., :3][m]

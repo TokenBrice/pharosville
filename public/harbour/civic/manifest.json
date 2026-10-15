@@ -1,6 +1,6 @@
 {
  "version": 1,
- "style": "C Northern Light - civic kit (neoclassical / maritime stone bridging the Nordic town and the Pharos)",
+ "style": "Classical harbour - civic kit (Ptolemaic Alexandria: stoas, temple fronts, terracotta, painted polychromy, bronze)",
  "generator": "scripts/harbour/blender/civic/export.py (lookdev: scripts/harbour/blender/civic/lineup.py)",
  "axes": "glTF: +x right, +y up, +z FRONT (the water / camera side); origin at the plot centre on the plot ground (y = 0 is the terrain the plot sits on; each plot has a 1.5-2.6 m ashlar skirt below y = 0 for uneven ground); metres. Waterfront plots (shipyard, burn) assume sea level y = -2.4 (layout quayY 2.4).",
  "materials": {
@@ -27,48 +27,38 @@
     64,
     44
    ],
-   "tris": 8633,
+   "tris": 8112,
    "budget": 12000,
    "nodes": [
     {
      "name": "chimney_0",
      "origin": [
-      -25.5,
-      31.7,
-      -1.8
+      14.5,
+      10.45,
+      12.6
      ],
      "empty": true,
-     "anim": "smoke emitter at the chimney mouth; puff rate/darkness ~ mint volume"
+     "anim": "smoke emitter at the kiln flue; puff rate/darkness ~ mint volume"
     },
     {
      "name": "chimney_1",
      "origin": [
-      -15.5,
-      33.2,
-      -1.8
+      19.6,
+      16.45,
+      12.6
      ],
      "empty": true,
-     "anim": "smoke emitter at the chimney mouth; puff rate/darkness ~ mint volume"
+     "anim": "smoke emitter at the kiln flue; puff rate/darkness ~ mint volume"
     },
     {
      "name": "chimney_2",
      "origin": [
-      -5.5,
-      33.2,
-      -1.8
+      24.7,
+      10.45,
+      12.6
      ],
      "empty": true,
-     "anim": "smoke emitter at the chimney mouth; puff rate/darkness ~ mint volume"
-    },
-    {
-     "name": "chimney_3",
-     "origin": [
-      4.5,
-      31.7,
-      -1.8
-     ],
-     "empty": true,
-     "anim": "smoke emitter at the chimney mouth; puff rate/darkness ~ mint volume"
+     "anim": "smoke emitter at the kiln flue; puff rate/darkness ~ mint volume"
     },
     {
      "name": "furnace_glow",
@@ -78,8 +68,8 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 124,
-     "anim": "furnace mouths + coal beds + crucibles: emissive strength ~ mint volume (flicker)"
+     "tris": 57,
+     "anim": "kiln mouths, ember spills + the workshop hearths: emissive strength ~ mint volume (flicker)"
     },
     {
      "name": "mint_body",
@@ -89,7 +79,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 7143
+     "tris": 6964
     },
     {
      "name": "mint_body_lamps",
@@ -99,7 +89,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 72
+     "tris": 110
     },
     {
      "name": "mint_body_windows",
@@ -109,39 +99,39 @@
       -0.0
      ],
      "material": "hb_window",
-     "tris": 90
+     "tris": 29
     },
     {
      "name": "press_0",
      "origin": [
-      -25.025,
-      6.3,
-      13.8
+      -27.6,
+      5.0,
+      19.9
      ],
      "material": "hb_opaque",
-     "tris": 136,
+     "tris": 52,
      "anim": "screw press: rotate about local +Y (glTF) +/-0.7 rad and drop 0.3 m on each strike; rate ~ mint volume"
     },
     {
      "name": "press_1",
      "origin": [
-      -15.675,
-      6.3,
-      13.8
+      -22.0,
+      5.0,
+      19.9
      ],
      "material": "hb_opaque",
-     "tris": 136,
+     "tris": 52,
      "anim": "screw press: rotate about local +Y (glTF) +/-0.7 rad and drop 0.3 m on each strike; rate ~ mint volume"
     },
     {
      "name": "press_2",
      "origin": [
-      -6.325,
-      6.3,
-      13.8
+      -16.4,
+      5.0,
+      19.9
      ],
      "material": "hb_opaque",
-     "tris": 136,
+     "tris": 52,
      "anim": "screw press: rotate about local +Y (glTF) +/-0.7 rad and drop 0.3 m on each strike; rate ~ mint volume"
     },
     {
@@ -165,110 +155,148 @@
      "empty": true,
      "anim": "closed walking loop for mint workers (glTF x,y,z triplets in the mint frame); crowd ~ mint volume",
      "points_gltf": [
-      21.0,
+      0.0,
       0.4,
-      21.2,
-      17.0,
+      20.8,
+      -14.0,
       0.4,
-      13.0,
-      10.4,
+      21.3,
+      -27.0,
       0.4,
-      10.5,
+      21.3,
+      -24.0,
+      0.4,
       16.5,
+      -11.0,
       0.4,
-      6.5,
-      22.0,
+      12.0,
+      -4.0,
       0.4,
+      10.6,
       4.0,
-      26.5,
       0.4,
-      -0.0,
-      26.5,
+      11.0,
+      11.0,
       0.4,
-      -5.4,
-      24.0,
-      0.4,
-      2.5,
-      27.0,
-      0.4,
-      10.0,
+      16.8,
       21.0,
       0.4,
-      21.2
+      17.4,
+      28.5,
+      0.4,
+      15.0,
+      28.5,
+      0.4,
+      6.0,
+      21.0,
+      0.4,
+      0.6,
+      11.5,
+      0.4,
+      1.5,
+      9.0,
+      0.4,
+      9.0,
+      4.5,
+      0.4,
+      15.5,
+      0.0,
+      0.4,
+      20.8
      ]
     }
    ],
    "anchors": {
     "worker_path": [
      [
-      21.0,
+      0.0,
       0.4,
-      21.2
+      20.8
      ],
      [
-      17.0,
+      -14.0,
       0.4,
-      13.0
+      21.3
      ],
      [
-      10.4,
+      -27.0,
       0.4,
-      10.5
+      21.3
      ],
      [
-      16.5,
+      -24.0,
       0.4,
-      6.5
+      16.5
      ],
      [
-      22.0,
+      -11.0,
       0.4,
-      4.0
+      12.0
      ],
      [
-      26.5,
+      -4.0,
       0.4,
-      -0.0
+      10.6
      ],
      [
-      26.5,
+      4.0,
       0.4,
-      -5.4
+      11.0
      ],
      [
-      24.0,
+      11.0,
       0.4,
-      2.5
-     ],
-     [
-      27.0,
-      0.4,
-      10.0
+      16.8
      ],
      [
       21.0,
       0.4,
-      21.2
+      17.4
+     ],
+     [
+      28.5,
+      0.4,
+      15.0
+     ],
+     [
+      28.5,
+      0.4,
+      6.0
+     ],
+     [
+      21.0,
+      0.4,
+      0.6
+     ],
+     [
+      11.5,
+      0.4,
+      1.5
+     ],
+     [
+      9.0,
+      0.4,
+      9.0
+     ],
+     [
+      4.5,
+      0.4,
+      15.5
+     ],
+     [
+      0.0,
+      0.4,
+      20.8
      ]
     ],
     "ground_y": 0.4,
-    "gate": [
-     21.0,
-     0.4,
-     22.0
-    ],
     "coin_emblem": [
-     -11.0,
-     14.85,
-     21.0
-    ],
-    "gate_coin": [
-     21.0,
-     12.5,
-     23.5
+     0.0,
+     12.69,
+     4.8
     ]
    },
-   "kb": 140.3
+   "kb": 139.6
   },
   "burn": {
    "file": "burn.glb",
@@ -276,7 +304,7 @@
     30,
     30
    ],
-   "tris": 2893,
+   "tris": 2708,
    "budget": 6000,
    "nodes": [
     {
@@ -287,34 +315,34 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 2717
+     "tris": 2357
     },
     {
-     "name": "burn_body_windows",
+     "name": "burn_body_lamps",
      "origin": [
       0.0,
       0.0,
       -0.0
      ],
-     "material": "hb_window",
-     "tris": 7
+     "material": "hb_emissive",
+     "tris": 144
     },
     {
      "name": "coin_chute",
      "origin": [
-      5.9,
-      9.5,
-      5.6
+      7.2,
+      8.8,
+      1.8
      ],
      "empty": true,
-     "anim": "coins enter here (hopper) and slide down the trough to coin_chute_end; rate ~ burn volume"
+     "anim": "coins enter here (the offering hopper) and slide down the bronze trough to coin_chute_end; rate ~ burn volume"
     },
     {
      "name": "coin_chute_end",
      "origin": [
-      -1.1,
-      6.9,
-      5.5
+      2.9,
+      8.95,
+      1.0
      ],
      "empty": true,
      "anim": "coins drop from here into the fire"
@@ -322,20 +350,20 @@
     {
      "name": "fire_core",
      "origin": [
-      -3.4,
-      5.1,
-      6.4
+      0.0,
+      8.15,
+      -0.0
      ],
      "material": "hb_emissive",
-     "tris": 165,
+     "tris": 201,
      "anim": "flames: scale (y up) and emissive ~ burn volume; flicker"
     },
     {
      "name": "fire_emitter",
      "origin": [
-      -3.4,
-      7.7,
-      6.4
+      0.0,
+      11.15,
+      -0.0
      ],
      "empty": true,
      "anim": "sparks / embers / heat shimmer from the bowl"
@@ -348,41 +376,41 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 4,
-     "anim": "kiln grate + drum vent glow ~ burn volume"
+     "tris": 6,
+     "anim": "altar hearth + krepis vents glow ~ burn volume"
     },
     {
      "name": "smoke_emitter",
      "origin": [
-      1.5,
-      23.3,
-      -5.0
+      0.0,
+      17.65,
+      -0.0
      ],
      "empty": true,
-     "anim": "kiln smoke: column height/darkness ~ burn volume; dominates when the net trend is negative"
+     "anim": "smoke column above the flames: height/darkness ~ burn volume; dominates when the net trend is negative"
     }
    ],
    "anchors": {
     "platform_y": 0.9,
     "bowl_centre": [
-     -3.4,
-     5.1,
-     6.4
+     0.0,
+     8.15,
+     0.0
     ],
     "chute": [
      [
-      5.5,
-      8.6,
-      5.6
+      6.9,
+      7.9,
+      1.8
      ],
      [
-      -1.1,
-      6.6,
-      5.5
+      2.9,
+      8.65,
+      1.0
      ]
     ]
    },
-   "kb": 63.9
+   "kb": 61.0
   },
   "shipyard": {
    "file": "shipyard.glb",
@@ -390,7 +418,7 @@
     150,
     80
    ],
-   "tris": 14403,
+   "tris": 17444,
    "budget": 20000,
    "nodes": [
     {
@@ -766,17 +794,28 @@
     {
      "name": "crane_0",
      "origin": [
-      -61.0,
+      -61.25,
       0.0,
       6.0
      ],
      "material": "hb_opaque",
-     "tris": 726,
-     "anim": "gantry crane: may travel along local Z (glTF; rails run front-back, +/-18 m) over its two slips; trolley is baked",
+     "tris": 280,
+     "anim": "treadwheel crane on its sledge: may travel along local Z (glTF; rails run front-back, +/-12 m) beside its slips",
      "span_slips": [
       0,
       1
      ]
+    },
+    {
+     "name": "crane_0_wheel",
+     "origin": [
+      -62.0,
+      3.64,
+      6.0
+     ],
+     "material": "hb_opaque",
+     "tris": 716,
+     "anim": "treadwheel of crane_0: rides with it along local Z and turns about local X (axle) by slide / 2.5 rad (it rolls with the travel)"
     },
     {
      "name": "crane_1",
@@ -786,27 +825,49 @@
       2.0
      ],
      "material": "hb_opaque",
-     "tris": 726,
-     "anim": "gantry crane: may travel along local Z (glTF; rails run front-back, +/-18 m) over its two slips; trolley is baked",
+     "tris": 280,
+     "anim": "treadwheel crane on its sledge: may travel along local Z (glTF; rails run front-back, +/-12 m) beside its slips",
      "span_slips": [
       2,
       3
      ]
     },
     {
+     "name": "crane_1_wheel",
+     "origin": [
+      -37.0,
+      3.64,
+      2.0
+     ],
+     "material": "hb_opaque",
+     "tris": 716,
+     "anim": "treadwheel of crane_1: rides with it along local Z and turns about local X (axle) by slide / 2.5 rad (it rolls with the travel)"
+    },
+    {
      "name": "crane_2",
      "origin": [
-      -11.375,
+      -11.25,
       0.0,
       6.0
      ],
      "material": "hb_opaque",
-     "tris": 726,
-     "anim": "gantry crane: may travel along local Z (glTF; rails run front-back, +/-18 m) over its two slips; trolley is baked",
+     "tris": 280,
+     "anim": "treadwheel crane on its sledge: may travel along local Z (glTF; rails run front-back, +/-12 m) beside its slips",
      "span_slips": [
       4,
       5
      ]
+    },
+    {
+     "name": "crane_2_wheel",
+     "origin": [
+      -12.0,
+      3.64,
+      6.0
+     ],
+     "material": "hb_opaque",
+     "tris": 716,
+     "anim": "treadwheel of crane_2: rides with it along local Z and turns about local X (axle) by slide / 2.5 rad (it rolls with the travel)"
     },
     {
      "name": "shipyard_body",
@@ -816,7 +877,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 11981
+     "tris": 14176
     },
     {
      "name": "shipyard_body_lamps",
@@ -826,7 +887,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 228
+     "tris": 264
     },
     {
      "name": "shipyard_body_windows",
@@ -1419,14 +1480,16 @@
     {
      "name": "crane_0",
      "origin": [
-      -61.0,
+      -61.25,
       0.0,
       6.0
      ],
      "slips": [
       0,
       1
-     ]
+     ],
+     "wheel": "crane_0_wheel",
+     "wheel_radius_m": 2.5
     },
     {
      "name": "crane_1",
@@ -1438,22 +1501,26 @@
      "slips": [
       2,
       3
-     ]
+     ],
+     "wheel": "crane_1_wheel",
+     "wheel_radius_m": 2.5
     },
     {
      "name": "crane_2",
      "origin": [
-      -11.38,
+      -11.25,
       0.0,
       6.0
      ],
      "slips": [
       4,
       5
-     ]
+     ],
+     "wheel": "crane_2_wheel",
+     "wheel_radius_m": 2.5
     }
    ],
-   "kb": 225.6
+   "kb": 251.3
   },
   "customs": {
    "file": "customs.glb",
@@ -1461,7 +1528,7 @@
     42,
     30
    ],
-   "tris": 4968,
+   "tris": 4914,
    "budget": 6000,
    "nodes": [
     {
@@ -1472,7 +1539,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 4789
+     "tris": 4743
     },
     {
      "name": "customs_body_lamps",
@@ -1482,7 +1549,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 40
+     "tris": 44
     },
     {
      "name": "customs_body_windows",
@@ -1492,14 +1559,14 @@
       -0.0
      ],
      "material": "hb_window",
-     "tris": 139
+     "tris": 127
     },
     {
      "name": "flag_pole_top",
      "origin": [
       0.0,
-      35.8,
-      -3.0
+      23.542,
+      -3.5
      ],
      "empty": true,
      "anim": "customs ensign: the runtime hangs a waving flag here (hoist at this point, flying downwind)"
@@ -1513,12 +1580,12 @@
     ],
     "clock": [
      0.0,
-     18.9,
-     0.4
+     16.4,
+     -1.2
     ],
     "podium_y": 1.6
    },
-   "kb": 81.5
+   "kb": 75.6
   },
   "registry": {
    "file": "registry.glb",
@@ -1526,7 +1593,7 @@
     26,
     20
    ],
-   "tris": 1908,
+   "tris": 2395,
    "budget": 6000,
    "nodes": [
     {
@@ -1547,7 +1614,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1842
+     "tris": 2301
     },
     {
      "name": "registry_body_lamps",
@@ -1557,7 +1624,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 48
+     "tris": 68
     },
     {
      "name": "registry_body_windows",
@@ -1567,7 +1634,7 @@
       -0.0
      ],
      "material": "hb_window",
-     "tris": 18
+     "tris": 26
     }
    ],
    "anchors": {
@@ -1625,7 +1692,7 @@
      ]
     }
    },
-   "kb": 37.0
+   "kb": 43.7
   },
   "chartroom": {
    "file": "chartroom.glb",
@@ -1633,7 +1700,7 @@
     18,
     14
    ],
-   "tris": 1974,
+   "tris": 2629,
    "budget": 6000,
    "nodes": [
     {
@@ -1644,7 +1711,17 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1926
+     "tris": 2571
+    },
+    {
+     "name": "chartroom_body_lamps",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 44
     },
     {
      "name": "chartroom_body_windows",
@@ -1654,22 +1731,22 @@
       -0.0
      ],
      "material": "hb_window",
-     "tris": 48
+     "tris": 14
     }
    ],
    "anchors": {
     "entrance": [
-     -1.0,
+     -2.4,
      0.0,
-     3.0
+     6.0
     ],
     "telescope_tip": [
-     0.75,
-     12.39,
-     3.2
+     -2.4,
+     6.65,
+     -0.6
     ]
    },
-   "kb": 38.1
+   "kb": 49.5
   },
   "stormstation": {
    "file": "stormstation.glb",
@@ -1677,7 +1754,7 @@
     14,
     14
    ],
-   "tris": 813,
+   "tris": 1172,
    "budget": 6000,
    "nodes": [
     {
@@ -1688,7 +1765,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 783
+     "tris": 1132
     },
     {
      "name": "stormstation_body_lamps",
@@ -1698,7 +1775,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 24
+     "tris": 34
     },
     {
      "name": "stormstation_body_windows",
@@ -1763,7 +1840,7 @@
      ]
     }
    },
-   "kb": 18.9
+   "kb": 23.5
   },
   "harbourmaster": {
    "file": "harbourmaster.glb",
@@ -1771,7 +1848,7 @@
     20,
     16
    ],
-   "tris": 2220,
+   "tris": 2892,
    "budget": 6000,
    "nodes": [
     {
@@ -1782,7 +1859,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 2132
+     "tris": 2832
     },
     {
      "name": "harbourmaster_body_lamps",
@@ -1792,7 +1869,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 24
+     "tris": 22
     },
     {
      "name": "harbourmaster_body_windows",
@@ -1802,13 +1879,13 @@
       -0.0
      ],
      "material": "hb_window",
-     "tris": 64
+     "tris": 38
     }
    ],
    "anchors": {
     "balcony": [
-     5.6,
-     15.95,
+     5.7,
+     9.95,
      -0.0
     ],
     "entrance": [
@@ -1818,8 +1895,8 @@
     ],
     "mover_up": {
      "hoist": [
-      5.6,
-      27.25,
+      5.7,
+      22.08,
       4.6
      ],
      "size": [
@@ -1829,8 +1906,8 @@
     },
     "mover_down": {
      "hoist": [
-      5.6,
-      27.25,
+      5.7,
+      22.08,
       -4.6
      ],
      "size": [
@@ -1839,7 +1916,7 @@
      ]
     }
    },
-   "kb": 37.4
+   "kb": 48.5
   },
   "keeperslog": {
    "file": "keeperslog.glb",
@@ -1847,7 +1924,7 @@
     12,
     10
    ],
-   "tris": 700,
+   "tris": 1305,
    "budget": 6000,
    "nodes": [
     {
@@ -1858,7 +1935,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 646
+     "tris": 1253
     },
     {
      "name": "keeperslog_body_lamps",
@@ -1868,7 +1945,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 40
+     "tris": 44
     },
     {
      "name": "keeperslog_body_windows",
@@ -1878,14 +1955,14 @@
       -0.0
      ],
      "material": "hb_window",
-     "tris": 14
+     "tris": 8
     },
     {
      "name": "vane",
      "origin": [
-      0.4,
-      10.0,
-      -0.6
+      0.0,
+      10.058,
+      -0.3
      ],
      "empty": true,
      "anim": "hourglass vane: turns (about local +Y) once per data refresh"
@@ -1893,17 +1970,17 @@
    ],
    "anchors": {
     "entrance": [
-     0.4000000059604645,
+     0.0,
      0.4,
-     2.5
+     2.4
     ],
     "lantern": [
-     0.4000000059604645,
-     8.0,
-     -0.6
+     0.0,
+     7.76,
+     -0.3
     ]
    },
-   "kb": 17.0
+   "kb": 28.8
   },
   "harbour-office:ethereum": {
    "file": "harbour-office-ethereum.glb",
@@ -1911,7 +1988,7 @@
     20,
     16
    ],
-   "tris": 1360,
+   "tris": 2526,
    "budget": 6000,
    "nodes": [
     {
@@ -1922,8 +1999,8 @@
       -0.0
      ],
      "material": "hb_cover",
-     "tris": 20,
-     "anim": "awning: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
+     "tris": 60,
+     "anim": "velaria: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
     },
     {
      "name": "crest_panel",
@@ -1939,7 +2016,7 @@
     {
      "name": "flag_pole_top",
      "origin": [
-      8.9,
+      -8.9,
       15.3,
       7.0
      ],
@@ -1954,7 +2031,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1299
+     "tris": 2394
     },
     {
      "name": "office_body_lamps",
@@ -1964,7 +2041,108 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 12
+     "tris": 44
+    },
+    {
+     "name": "office_body_windows",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_window",
+     "tris": 26
+    }
+   ],
+   "chain": "ethereum",
+   "accent": "#627EEA",
+   "roof": "stoa",
+   "anchors": {
+    "crest_centre": [
+     0.0,
+     9.8,
+     4.45
+    ],
+    "crest_size_m": 2.6,
+    "flag_pole_top": [
+     -8.9,
+     15.3,
+     7.0
+    ]
+   },
+   "kb": 53.6
+  },
+  "harbour-office:tron": {
+   "file": "harbour-office-tron.glb",
+   "footprint": [
+    20,
+    16
+   ],
+   "tris": 3175,
+   "budget": 6000,
+   "nodes": [
+    {
+     "name": "awning",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 60,
+     "anim": "velaria: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
+    },
+    {
+     "name": "crest_panel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_crest",
+     "tris": 2,
+     "crest": "TEXCOORD_0 = crest square [0,1]^2, upright, readable from the front; size_m=2.40"
+    },
+    {
+     "name": "crest_panel.001",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_crest",
+     "tris": 2,
+     "crest": "TEXCOORD_0 = crest square [0,1]^2, upright, readable from the front; size_m=2.40"
+    },
+    {
+     "name": "flag_pole_top",
+     "origin": [
+      -9.0,
+      15.3,
+      7.0
+     ],
+     "empty": true,
+     "anim": "chain house flag (crest on the chain colour): the runtime hangs a waving flag here (hoist at this point, flying downwind)"
+    },
+    {
+     "name": "office_body",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 3040
+    },
+    {
+     "name": "office_body_lamps",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 44
     },
     {
      "name": "office_body_windows",
@@ -1977,113 +2155,23 @@
      "tris": 27
     }
    ],
-   "chain": "ethereum",
-   "accent": "#627EEA",
-   "roof": "pediment",
-   "anchors": {
-    "crest_centre": [
-     0.0,
-     10.61,
-     4.9
-    ],
-    "crest_size_m": 2.6,
-    "flag_pole_top": [
-     8.9,
-     15.3,
-     7.0
-    ]
-   },
-   "kb": 31.3
-  },
-  "harbour-office:tron": {
-   "file": "harbour-office-tron.glb",
-   "footprint": [
-    20,
-    16
-   ],
-   "tris": 1631,
-   "budget": 6000,
-   "nodes": [
-    {
-     "name": "awning",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_cover",
-     "tris": 30,
-     "anim": "awning: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
-    },
-    {
-     "name": "crest_panel",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_crest",
-     "tris": 2,
-     "crest": "TEXCOORD_0 = crest square [0,1]^2, upright, readable from the front; size_m=2.70"
-    },
-    {
-     "name": "flag_pole_top",
-     "origin": [
-      8.9,
-      15.3,
-      7.0
-     ],
-     "empty": true,
-     "anim": "chain house flag (crest on the chain colour): the runtime hangs a waving flag here (hoist at this point, flying downwind)"
-    },
-    {
-     "name": "office_body",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_opaque",
-     "tris": 1556
-    },
-    {
-     "name": "office_body_lamps",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_emissive",
-     "tris": 12
-    },
-    {
-     "name": "office_body_windows",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_window",
-     "tris": 31
-    }
-   ],
    "chain": "tron",
    "accent": "#D8322B",
-   "roof": "step",
+   "roof": "stoa-warehouse",
    "anchors": {
     "crest_centre": [
      0.0,
-     12.41,
-     4.9
+     9.05,
+     4.24
     ],
-    "crest_size_m": 2.7,
+    "crest_size_m": 2.4,
     "flag_pole_top": [
-     8.9,
+     -9.0,
      15.3,
      7.0
     ]
    },
-   "kb": 35.1
+   "kb": 62.2
   },
   "harbour-office:bsc": {
    "file": "harbour-office-bsc.glb",
@@ -2091,7 +2179,7 @@
     20,
     16
    ],
-   "tris": 1663,
+   "tris": 2168,
    "budget": 6000,
    "nodes": [
     {
@@ -2102,458 +2190,8 @@
       -0.0
      ],
      "material": "hb_cover",
-     "tris": 30,
-     "anim": "awning: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
-    },
-    {
-     "name": "crest_panel",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_crest",
-     "tris": 2,
-     "crest": "TEXCOORD_0 = crest square [0,1]^2, upright, readable from the front; size_m=3.40"
-    },
-    {
-     "name": "flag_pole_top",
-     "origin": [
-      8.9,
-      15.3,
-      7.0
-     ],
-     "empty": true,
-     "anim": "chain house flag (crest on the chain colour): the runtime hangs a waving flag here (hoist at this point, flying downwind)"
-    },
-    {
-     "name": "office_body",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_opaque",
-     "tris": 1578
-    },
-    {
-     "name": "office_body_lamps",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_emissive",
-     "tris": 12
-    },
-    {
-     "name": "office_body_windows",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_window",
-     "tris": 41
-    }
-   ],
-   "chain": "bsc",
-   "accent": "#F0B90B",
-   "roof": "bell",
-   "anchors": {
-    "crest_centre": [
-     0.0,
-     12.12,
-     4.9
-    ],
-    "crest_size_m": 3.4,
-    "flag_pole_top": [
-     8.9,
-     15.3,
-     7.0
-    ]
-   },
-   "kb": 36.5
-  },
-  "harbour-office:solana": {
-   "file": "harbour-office-solana.glb",
-   "footprint": [
-    20,
-    16
-   ],
-   "tris": 1189,
-   "budget": 6000,
-   "nodes": [
-    {
-     "name": "awning",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_cover",
-     "tris": 30,
-     "anim": "awning: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
-    },
-    {
-     "name": "crest_panel",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_crest",
-     "tris": 2,
-     "crest": "TEXCOORD_0 = crest square [0,1]^2, upright, readable from the front; size_m=3.40"
-    },
-    {
-     "name": "flag_pole_top",
-     "origin": [
-      8.9,
-      15.3,
-      7.0
-     ],
-     "empty": true,
-     "anim": "chain house flag (crest on the chain colour): the runtime hangs a waving flag here (hoist at this point, flying downwind)"
-    },
-    {
-     "name": "office_body",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_opaque",
-     "tris": 1114
-    },
-    {
-     "name": "office_body_lamps",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_emissive",
-     "tris": 12
-    },
-    {
-     "name": "office_body_windows",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_window",
-     "tris": 31
-    }
-   ],
-   "chain": "solana",
-   "accent": "#9945FF",
-   "roof": "steep",
-   "anchors": {
-    "crest_centre": [
-     0.0,
-     11.14,
-     4.9
-    ],
-    "crest_size_m": 3.4,
-    "flag_pole_top": [
-     8.9,
-     15.3,
-     7.0
-    ]
-   },
-   "kb": 28.4
-  },
-  "harbour-office:hyperliquid-l1": {
-   "file": "harbour-office-hyperliquid-l1.glb",
-   "footprint": [
-    20,
-    16
-   ],
-   "tris": 1364,
-   "budget": 6000,
-   "nodes": [
-    {
-     "name": "awning",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_cover",
-     "tris": 30,
-     "anim": "awning: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
-    },
-    {
-     "name": "crest_panel",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_crest",
-     "tris": 2,
-     "crest": "TEXCOORD_0 = crest square [0,1]^2, upright, readable from the front; size_m=2.80"
-    },
-    {
-     "name": "flag_pole_top",
-     "origin": [
-      8.9,
-      15.3,
-      7.0
-     ],
-     "empty": true,
-     "anim": "chain house flag (crest on the chain colour): the runtime hangs a waving flag here (hoist at this point, flying downwind)"
-    },
-    {
-     "name": "office_body",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_opaque",
-     "tris": 1285
-    },
-    {
-     "name": "office_body_lamps",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_emissive",
-     "tris": 12
-    },
-    {
-     "name": "office_body_windows",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_window",
-     "tris": 35
-    }
-   ],
-   "chain": "hyperliquid-l1",
-   "accent": "#3FC1AE",
-   "roof": "mansard",
-   "anchors": {
-    "crest_centre": [
-     0.0,
-     10.6,
-     5.8
-    ],
-    "crest_size_m": 2.8,
-    "flag_pole_top": [
-     8.9,
-     15.3,
-     7.0
-    ]
-   },
-   "kb": 31.3
-  },
-  "harbour-office:base": {
-   "file": "harbour-office-base.glb",
-   "footprint": [
-    20,
-    16
-   ],
-   "tris": 1213,
-   "budget": 6000,
-   "nodes": [
-    {
-     "name": "awning",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_cover",
-     "tris": 30,
-     "anim": "awning: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
-    },
-    {
-     "name": "crest_panel",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_crest",
-     "tris": 2,
-     "crest": "TEXCOORD_0 = crest square [0,1]^2, upright, readable from the front; size_m=3.40"
-    },
-    {
-     "name": "flag_pole_top",
-     "origin": [
-      8.9,
-      15.3,
-      7.0
-     ],
-     "empty": true,
-     "anim": "chain house flag (crest on the chain colour): the runtime hangs a waving flag here (hoist at this point, flying downwind)"
-    },
-    {
-     "name": "office_body",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_opaque",
-     "tris": 1138
-    },
-    {
-     "name": "office_body_lamps",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_emissive",
-     "tris": 12
-    },
-    {
-     "name": "office_body_windows",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_window",
-     "tris": 31
-    }
-   ],
-   "chain": "base",
-   "accent": "#0052FF",
-   "roof": "gambrel",
-   "anchors": {
-    "crest_centre": [
-     0.0,
-     10.02,
-     4.9
-    ],
-    "crest_size_m": 3.4,
-    "flag_pole_top": [
-     8.9,
-     15.3,
-     7.0
-    ]
-   },
-   "kb": 29.0
-  },
-  "harbour-office:arbitrum": {
-   "file": "harbour-office-arbitrum.glb",
-   "footprint": [
-    20,
-    16
-   ],
-   "tris": 1431,
-   "budget": 6000,
-   "nodes": [
-    {
-     "name": "awning",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_cover",
-     "tris": 30,
-     "anim": "awning: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
-    },
-    {
-     "name": "crest_panel",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_crest",
-     "tris": 2,
-     "crest": "TEXCOORD_0 = crest square [0,1]^2, upright, readable from the front; size_m=2.80"
-    },
-    {
-     "name": "flag_pole_top",
-     "origin": [
-      8.9,
-      15.3,
-      7.0
-     ],
-     "empty": true,
-     "anim": "chain house flag (crest on the chain colour): the runtime hangs a waving flag here (hoist at this point, flying downwind)"
-    },
-    {
-     "name": "office_body",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_opaque",
-     "tris": 1342
-    },
-    {
-     "name": "office_body_lamps",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_emissive",
-     "tris": 12
-    },
-    {
-     "name": "office_body_windows",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_window",
-     "tris": 45
-    }
-   ],
-   "chain": "arbitrum",
-   "accent": "#28A0F0",
-   "roof": "hipcross",
-   "anchors": {
-    "crest_centre": [
-     0.0,
-     11.03,
-     4.9
-    ],
-    "crest_size_m": 2.8,
-    "flag_pole_top": [
-     8.9,
-     15.3,
-     7.0
-    ]
-   },
-   "kb": 32.3
-  },
-  "harbour-office:polygon": {
-   "file": "harbour-office-polygon.glb",
-   "footprint": [
-    20,
-    16
-   ],
-   "tris": 1557,
-   "budget": 6000,
-   "nodes": [
-    {
-     "name": "awning",
-     "origin": [
-      0.0,
-      0.0,
-      -0.0
-     ],
-     "material": "hb_cover",
-     "tris": 30,
-     "anim": "awning: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
+     "tris": 60,
+     "anim": "velaria: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
     },
     {
      "name": "crest_panel",
@@ -2569,7 +2207,187 @@
     {
      "name": "flag_pole_top",
      "origin": [
-      8.9,
+      9.2,
+      15.3,
+      7.3
+     ],
+     "empty": true,
+     "anim": "chain house flag (crest on the chain colour): the runtime hangs a waving flag here (hoist at this point, flying downwind)"
+    },
+    {
+     "name": "office_body",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 2040
+    },
+    {
+     "name": "office_body_lamps",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 44
+    },
+    {
+     "name": "office_body_windows",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_window",
+     "tris": 22
+    }
+   ],
+   "chain": "bsc",
+   "accent": "#F0B90B",
+   "roof": "basilica",
+   "anchors": {
+    "crest_centre": [
+     0.0,
+     10.2,
+     4.84
+    ],
+    "crest_size_m": 2.6,
+    "flag_pole_top": [
+     9.2,
+     15.3,
+     7.3
+    ]
+   },
+   "kb": 46.3
+  },
+  "harbour-office:solana": {
+   "file": "harbour-office-solana.glb",
+   "footprint": [
+    20,
+    16
+   ],
+   "tris": 1427,
+   "budget": 6000,
+   "nodes": [
+    {
+     "name": "awning",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 60,
+     "anim": "velaria: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
+    },
+    {
+     "name": "crest_panel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_crest",
+     "tris": 2,
+     "crest": "TEXCOORD_0 = crest square [0,1]^2, upright, readable from the front; size_m=2.40"
+    },
+    {
+     "name": "flag_pole_top",
+     "origin": [
+      -7.2,
+      15.8,
+      4.8
+     ],
+     "empty": true,
+     "anim": "chain house flag (crest on the chain colour): the runtime hangs a waving flag here (hoist at this point, flying downwind)"
+    },
+    {
+     "name": "office_body",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 1313
+    },
+    {
+     "name": "office_body_lamps",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 44
+    },
+    {
+     "name": "office_body_windows",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_window",
+     "tris": 8
+    }
+   ],
+   "chain": "solana",
+   "accent": "#9945FF",
+   "roof": "pylon",
+   "anchors": {
+    "crest_centre": [
+     0.0,
+     6.6,
+     4.34
+    ],
+    "crest_size_m": 2.4,
+    "flag_pole_top": [
+     -7.199999999999999,
+     15.8,
+     4.8
+    ]
+   },
+   "kb": 35.2
+  },
+  "harbour-office:hyperliquid-l1": {
+   "file": "harbour-office-hyperliquid-l1.glb",
+   "footprint": [
+    20,
+    16
+   ],
+   "tris": 4488,
+   "budget": 6000,
+   "nodes": [
+    {
+     "name": "awning",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 60,
+     "anim": "velaria: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
+    },
+    {
+     "name": "crest_panel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_crest",
+     "tris": 2,
+     "crest": "TEXCOORD_0 = crest square [0,1]^2, upright, readable from the front; size_m=2.60"
+    },
+    {
+     "name": "flag_pole_top",
+     "origin": [
+      9.3,
       15.3,
       7.0
      ],
@@ -2584,7 +2402,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1482
+     "tris": 4364
     },
     {
      "name": "office_body_lamps",
@@ -2594,7 +2412,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 12
+     "tris": 44
     },
     {
      "name": "office_body_windows",
@@ -2604,31 +2422,301 @@
       -0.0
      ],
      "material": "hb_window",
-     "tris": 31
+     "tris": 18
     }
    ],
-   "chain": "polygon",
-   "accent": "#8247E5",
-   "roof": "tudor",
+   "chain": "hyperliquid-l1",
+   "accent": "#3FC1AE",
+   "roof": "two-storey-stoa",
    "anchors": {
     "crest_centre": [
-     0.0,
-     11.2,
-     5.7
+     0.4,
+     9.25,
+     4.19
     ],
     "crest_size_m": 2.6,
     "flag_pole_top": [
-     8.9,
+     9.3,
      15.3,
      7.0
     ]
    },
-   "kb": 33.1
+   "kb": 82.6
+  },
+  "harbour-office:base": {
+   "file": "harbour-office-base.glb",
+   "footprint": [
+    20,
+    16
+   ],
+   "tris": 2956,
+   "budget": 6000,
+   "nodes": [
+    {
+     "name": "awning",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 60,
+     "anim": "velaria: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
+    },
+    {
+     "name": "crest_panel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_crest",
+     "tris": 2,
+     "crest": "TEXCOORD_0 = crest square [0,1]^2, upright, readable from the front; size_m=2.20"
+    },
+    {
+     "name": "flag_pole_top",
+     "origin": [
+      9.2,
+      15.3,
+      7.4
+     ],
+     "empty": true,
+     "anim": "chain house flag (crest on the chain colour): the runtime hangs a waving flag here (hoist at this point, flying downwind)"
+    },
+    {
+     "name": "office_body",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 2829
+    },
+    {
+     "name": "office_body_lamps",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 44
+    },
+    {
+     "name": "office_body_windows",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_window",
+     "tris": 21
+    }
+   ],
+   "chain": "base",
+   "accent": "#0052FF",
+   "roof": "podium-temple",
+   "anchors": {
+    "crest_centre": [
+     0.0,
+     7.55,
+     5.5
+    ],
+    "crest_size_m": 2.2,
+    "flag_pole_top": [
+     9.2,
+     15.3,
+     7.4
+    ]
+   },
+   "kb": 61.1
+  },
+  "harbour-office:arbitrum": {
+   "file": "harbour-office-arbitrum.glb",
+   "footprint": [
+    20,
+    16
+   ],
+   "tris": 2127,
+   "budget": 6000,
+   "nodes": [
+    {
+     "name": "awning",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 70,
+     "anim": "velaria: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
+    },
+    {
+     "name": "crest_panel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_crest",
+     "tris": 2,
+     "crest": "TEXCOORD_0 = crest square [0,1]^2, upright, readable from the front; size_m=2.20"
+    },
+    {
+     "name": "flag_pole_top",
+     "origin": [
+      -9.0,
+      15.3,
+      7.2
+     ],
+     "empty": true,
+     "anim": "chain house flag (crest on the chain colour): the runtime hangs a waving flag here (hoist at this point, flying downwind)"
+    },
+    {
+     "name": "office_body",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 1994
+    },
+    {
+     "name": "office_body_lamps",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 44
+    },
+    {
+     "name": "office_body_windows",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_window",
+     "tris": 17
+    }
+   ],
+   "chain": "arbitrum",
+   "accent": "#28A0F0",
+   "roof": "tholos",
+   "anchors": {
+    "crest_centre": [
+     0.0,
+     9.25,
+     2.97
+    ],
+    "crest_size_m": 2.2,
+    "flag_pole_top": [
+     -9.0,
+     15.3,
+     7.2
+    ]
+   },
+   "kb": 49.2
+  },
+  "harbour-office:polygon": {
+   "file": "harbour-office-polygon.glb",
+   "footprint": [
+    20,
+    16
+   ],
+   "tris": 2027,
+   "budget": 6000,
+   "nodes": [
+    {
+     "name": "awning",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_cover",
+     "tris": 60,
+     "anim": "velaria: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
+    },
+    {
+     "name": "crest_panel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_crest",
+     "tris": 2,
+     "crest": "TEXCOORD_0 = crest square [0,1]^2, upright, readable from the front; size_m=2.60"
+    },
+    {
+     "name": "flag_pole_top",
+     "origin": [
+      9.2,
+      15.3,
+      7.2
+     ],
+     "empty": true,
+     "anim": "chain house flag (crest on the chain colour): the runtime hangs a waving flag here (hoist at this point, flying downwind)"
+    },
+    {
+     "name": "office_body",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 1907
+    },
+    {
+     "name": "office_body_lamps",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 44
+    },
+    {
+     "name": "office_body_windows",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_window",
+     "tris": 14
+    }
+   ],
+   "chain": "polygon",
+   "accent": "#8247E5",
+   "roof": "pier-loggia",
+   "anchors": {
+    "crest_centre": [
+     0.0,
+     7.8,
+     4.44
+    ],
+    "crest_size_m": 2.6,
+    "flag_pole_top": [
+     9.2,
+     15.3,
+     7.2
+    ]
+   },
+   "kb": 42.1
   },
   "hull-stages": {
    "file": "hull-stages.glb",
    "footprint": null,
-   "tris": 3414,
+   "tris": 4112,
    "budget": 6000,
    "nodes": [
     {
@@ -2639,7 +2727,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 400
+     "tris": 538
     },
     {
      "name": "painted",
@@ -2649,7 +2737,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 390
+     "tris": 576
     },
     {
      "name": "planked",
@@ -2659,7 +2747,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 696
+     "tris": 870
     },
     {
      "name": "ribs",
@@ -2669,14 +2757,14 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1928
+     "tris": 2128
     }
    ],
    "loa_m": 13.0,
-   "beam_m": 3.51,
-   "keel_bottom_y": -1.21,
-   "freeboard_m": 1.24,
-   "kb": 69.3
+   "beam_m": 3.9,
+   "keel_bottom_y": -1.34,
+   "freeboard_m": 1.5,
+   "kb": 85.7
   }
  }
 }

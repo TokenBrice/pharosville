@@ -45,12 +45,12 @@ FAM_OF_RIG = {'botter': 'eur', 'brig': 'gold', 'lugger': 'fiat'}
 
 
 def kit_id(fam, cls):
-    tbl = {'usd': {'skiff': 'usd_cat_skiff', 'boat': 'usd_sloop_boat', 'small': 'usd_sloop_small', 'medium': 'usd_cutter_medium',
-                   'large': 'usd_schooner_large', 'flagship': 'usd_ship_flagship'},
-           'eur': {'boat': 'eur_botter_boat', 'small': 'eur_botter_small', 'medium': 'eur_botter_medium', 'large': 'eur_botter_large'},
-           'gold': {'medium': 'gold_brig_medium', 'large': 'gold_brig_large', 'flagship': 'gold_brig_large'},
-           'fiat': {'boat': 'fiat_lugger_boat', 'small': 'fiat_lugger_small', 'medium': 'fiat_lugger_medium'},
-           'other': {'skiff': 'other_work_skiff', 'boat': 'other_work_boat', 'small': 'other_work_small'}}
+    tbl = {'usd': {'skiff': 'usd_fisher_skiff', 'boat': 'usd_coaster_boat', 'small': 'usd_coaster_small', 'medium': 'usd_corbita_medium',
+                   'large': 'usd_merchant_large', 'flagship': 'usd_grain_flagship'},
+           'eur': {'boat': 'eur_greek_boat', 'small': 'eur_greek_small', 'medium': 'eur_greek_medium', 'large': 'eur_greek_large'},
+           'gold': {'medium': 'gold_bireme_medium', 'large': 'gold_trireme_large', 'flagship': 'gold_trireme_large'},
+           'fiat': {'boat': 'fiat_hippos_boat', 'small': 'fiat_hippos_small', 'medium': 'fiat_hippos_medium'},
+           'other': {'skiff': 'other_sprit_skiff', 'boat': 'other_sprit_boat', 'small': 'other_sprit_small'}}
     hid = tbl.get(fam, {}).get(cls) or tbl['usd'][cls]
     return hid if hid in KIT_IDS else None
 

@@ -2,7 +2,7 @@
 from functools import partial
 import cv_works, cv_yard, cv_civic
 
-OFFICE_CHAINS = ('ethereum', 'tron', 'bsc', 'solana', 'hyperliquid-l1', 'base', 'arbitrum', 'polygon')
+OFFICE_CHAINS = cv_civic.OFFICE_CHAINS
 FOOT = {'mint': (64, 44), 'burn': (30, 30), 'shipyard': (150, 80), 'customs': (42, 30), 'registry': (26, 20), 'chartroom': (18, 14),
         'stormstation': (14, 14), 'harbourmaster': (20, 16), 'keeperslog': (12, 10), 'hull-stages': (60, 14)}
 BUILDERS = {'mint': cv_works.build_mint, 'burn': cv_works.build_burn, 'shipyard': cv_yard.build_shipyard,

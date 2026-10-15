@@ -1,6 +1,6 @@
 """The Harbour v3 - dressing: roads (the winding road to the Pharos, the coast road over the south ridge), walled
-meadows, vegetation (spruce crests on the spines and behind the amphitheatre, lush A-graft trees in the town gardens,
-birches, meadow + headland dressing, rock outcrops), quay life along the curved quays (lamps, bunting, stalls,
+meadows and vine rows, vegetation (umbrella pines and cypresses on the spines and behind the amphitheatre, olives, figs
+and pomegranates in the town gardens, planes and almonds, maquis + headland garrigue, rock outcrops), quay life along the curved quays (lamps, bunting, stalls,
 crates, nets, cranes), hamlet characters, skerries, the Shoals, buoys, the Far Ports rafts, folk, gulls, the mainland.
 exec'd into build_island's namespace (after land + town)."""
 from PIL import Image, ImageDraw
@@ -37,6 +37,23 @@ for k, L in CJ['landmarks'].items():
     occ_poly([(L['p'][0] - r, L['p'][1] - r), (L['p'][0] + r, L['p'][1] - r), (L['p'][0] + r, L['p'][1] + r), (L['p'][0] - r, L['p'][1] + r)])
 for cv in CJ.get('civic', []):                                 # P6: the civic plots (+ a lane round each) stay clear
     occ_poly(plot_rect(cv, 2.5))
+for fl in CJ.get('flats', []):                                 # integration G2: the battery platform
+    occ_poly(fl['poly'])
+# integration G2: buildings that must read from the runtime views (all presets look from yaw 45 at ~26 deg pitch) keep a
+# forecourt, and no tree on the camera side may stand tall enough (~14 m crown top) to cover the building's middle
+_CAMD = Vector((math.sqrt(0.5), -math.sqrt(0.5)))
+for cv in CJ.get('civic', []):
+    if cv['id'] not in ('harbour-office-tron', 'harbourmaster', 'stormstation'):
+        continue
+    c_ = Vector(cv['c']); f_ = Vector(cv['face']); half = max(cv['w'], cv['d']) / 2
+    occ_poly([tuple(c_ + Vector((-f_.y, f_.x)) * a + f_ * b) for a, b in ((-cv['w'] / 2, cv['d'] / 2), (cv['w'] / 2, cv['d'] / 2),
+                                                                         (cv['w'] / 2, cv['d'] / 2 + 12.0), (-cv['w'] / 2, cv['d'] / 2 + 12.0))])
+    for yy in np.arange(c_.y - 80.0, c_.y + 10.0, OS):
+        for xx in np.arange(c_.x - 10.0, c_.x + 80.0, OS):
+            v_ = Vector((xx, yy)) - c_
+            al = v_.dot(_CAMD); lat = abs(v_.x * _CAMD.y - v_.y * _CAMD.x)
+            if 0.0 < al < 85.0 and lat < half + 4.0 and terrain.height(xx, yy) + 14.0 > cv['z'] + 3.0 + 0.49 * max(0.0, al - half):
+                od.point(o_to(xx, yy), fill=255)
 for name, L in QL.items():                                     # quay aprons
     depth = APRON.get(name, 3.0 if name.endswith(('-w', '-e')) else 7.0) + 1.5
     for a, b in zip(L, L[1:]):
@@ -144,17 +161,28 @@ walls = bmesh.new(); hedge = bmesh.new(); sheep = bmesh.new(); sheep_h = bmesh.n
 for fi, f in enumerate(terrain.FIELDS):
     p = f['poly'] + f['poly'][:1]
     for ei, (a, b) in enumerate(zip(p, p[1:])):
-        # pastures and hay fields are bounded by hedgerows on some sides, dry-stone walls on the rest
+        # pastures and hay fields have vine rows along some sides (P5: they replace the hedgerows), dry-stone walls on the rest
         is_hedge = f['kind'] != 'plough' and (ei + fi) % 3 == 0
         n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / (1.6 if is_hedge else 3.0)))
+        if is_hedge:                     # two rows, set into the field parallel to its side
+            ang = math.atan2(b[1] - a[1], b[0] - a[0])
+            nin = Vector((-math.sin(ang), math.cos(ang)))
+            fc = Vector((sum(q[0] for q in f['poly']) / len(f['poly']), sum(q[1] for q in f['poly']) / len(f['poly'])))
+            if nin.dot(fc - Vector(a)) < 0:
+                nin = -nin
         for k in range(n):
             q0 = (a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n)
             q1 = (a[0] + (b[0] - a[0]) * (k + 1) / n, a[1] + (b[1] - a[1]) * (k + 1) / n)
             if not on_land(*q0) or not on_land(*q1) or DRNG.random() < 0.06:
                 continue
             if is_hedge:
-                r_ = DRNG.uniform(0.9, 1.5)
-                merge(hedge, bm_ico(r_, (q0[0], q0[1], H(*q0) + r_ * 0.55), 1, (1.25, 1.0, 0.95), seed=DRNG.randint(0, 999), amp=0.3))
+                for inset in (1.4, 3.6):
+                    v = Vector(q0) + nin * inset
+                    if not point_in_poly(v.x, v.y, f['poly']) or not on_land(v.x, v.y):
+                        continue
+                    vb = bm_ico(0.55, (0, 0, 0), 1, (1.45, 0.55, 0.75), seed=DRNG.randint(0, 999), amp=0.25)
+                    merge(hedge, xf(vb, loc=(v.x, v.y, H(v.x, v.y) + 0.5), rz=ang))
+                    od.point(o_to(v.x, v.y), fill=255)
             else:
                 merge(walls, nl_kit.beam((q0[0], q0[1], H(*q0) + 0.32), (q1[0], q1[1], H(*q1) + 0.32), 0.6, 0.85))
             od.line([o_to(*q0), o_to(*q1)], fill=255, width=2)
@@ -172,45 +200,32 @@ for fi, f in enumerate(terrain.FIELDS):
                 merge(sheep_h, bm_cyl(0.07, 0.07, 0.4, 4, (q[0] + lx * math.cos(a_), q[1] + lx * math.sin(a_), z_)))
 refresh_occ()
 obj('field_walls', walls, PAL['rock'], PT['ashlar'], family='prop_wall', jitter=0.12)
-obj('field_hedges', hedge, face=lambda q: ((lin('#5E8238') if q.normal.z > 0.3 else lin('#4A6A2E')), PT['leaf']), family='veg', jitter=0.1)
+obj('field_vines', hedge, face=lambda q: ((PAL['vine_light'] if q.normal.z > 0.3 else PAL['vine']), PT['leaf']), family='veg', jitter=0.1)
 obj('field_sheep', sheep, lin('#EEE9DD'), PT['plain'], family='veg', jitter=0.04)
 obj('field_sheep_heads', sheep_h, lin('#2E2B29'), PT['plain'], family='veg')
 
-# ------------------------------------------------------------------ VEGETATION
-leafS, trunkS = bmesh.new(), bmesh.new()
-leafR, trunkR = bmesh.new(), bmesh.new()
-leafB, trunkB = bmesh.new(), bmesh.new()
-shrub, tuft, flw, heath, bould, lich = (bmesh.new() for _ in range(6))
-TREES = {'spruce': 0, 'round': 0, 'birch': 0}
+# ------------------------------------------------------------------ VEGETATION (classical-town P5, PLAN §4.6)
+# Umbrella pines and cypresses on the crest and spines, cypress rows along the roads and the town edge, olives, figs
+# and pomegranates in the gardens and coves, planes and almonds on the slopes. Evergreens are painted leaf_evergreen
+# (never blossom, colour or drop; snowed on their flat crowns); the deciduous minority keeps pattern leaf in the
+# deciduous colour band (materials.ts hbConifer), so it blossoms, colours and goes bare.
+SPECIES = ('pine', 'cypress', 'olive', 'fig', 'pomegranate', 'plane', 'almond')
+LEAF = {k: bmesh.new() for k in SPECIES}
+TRUNK = {k: bmesh.new() for k in SPECIES}
+tuft, flw, heath, bould, lich = (bmesh.new() for _ in range(5))
+MAQUIS = ('lavender', 'rosemary', 'broom', 'oleander', 'acanthus', 'agave')
+MQ = {k: bmesh.new() for k in MAQUIS}
+TREES = dict.fromkeys(SPECIES, 0)
+TREE_GRID = {}              # every tree so far, (x, y, spacing) in 10 m cells: separate scatters keep apart
 
 
-ROUND_TINTS = [lin('#7FA348'), lin('#6C9440'), lin('#8DAA52'), lin('#5F8A3C'), lin('#9AA24C')]
-ROUND_TINT_AT = []          # (x, y, r2, tint) per tree: the leaf faces take their tree's tint
-
-
-def round_tree(p, h, rng):
-    """A clustered, multi-lobe canopy (3-5 lobes of different sizes round a main crown), one of five tints per tree."""
-    x, y, z = p
-    merge(trunkR, bm_cyl(0.22 * h / 8, 0.14 * h / 8, h * 0.55, 5, (x, y, z - 0.3)))
-    r = h * 0.3
-    lobes = [(0.0, 0.0, h * 0.64, r)]
-    a0 = rng.uniform(0, 6.28)
-    for k in range(rng.randint(2, 4)):
-        a = a0 + k * 2.1 + rng.uniform(-0.4, 0.4)
-        d = r * rng.uniform(0.55, 0.85)
-        lobes.append((math.cos(a) * d, math.sin(a) * d, h * rng.uniform(0.46, 0.66), r * rng.uniform(0.55, 0.78)))
-    if rng.random() < 0.6:
-        lobes.append((rng.uniform(-0.3, 0.3) * r, rng.uniform(-0.3, 0.3) * r, h * 0.84, r * 0.5))
-    for (ox, oy, oz, rr) in lobes:
-        merge(leafR, bm_ico(rr, (x + ox, y + oy, z + oz), 1, (1.0, 1.0, rng.uniform(0.78, 0.9)), seed=rng.randint(0, 999), amp=0.24))
-    ROUND_TINT_AT.append((x, y, (r * 2.2) ** 2, rng.choice(ROUND_TINTS) if rng.random() > 0.06 else lin('#B49A4A')))
-
-
-def scatter(n, sampler, place, min_d, rng, max_try=None, allow_crop=False):
+def scatter(n, sampler, place, min_d, rng, max_try=None, allow_crop=False, grid=None):
+    """grid: a shared {cell: [(x, y, d)]} (10 m cells); two points keep apart by the mean of their spacings."""
     placed = []
     tries = 0
-    grid = {}
-    cell = max(min_d, 1.0)
+    own = grid is None
+    grid = {} if own else grid
+    cell = max(min_d, 1.0) if own else 10.0
     while len(placed) < n and tries < (max_try or n * 30):
         tries += 1
         p = sampler(rng)
@@ -221,11 +236,12 @@ def scatter(n, sampler, place, min_d, rng, max_try=None, allow_crop=False):
         for i in (-1, 0, 1):
             for j in (-1, 0, 1):
                 for q in grid.get((key[0] + i, key[1] + j), ()):
-                    if (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 < min_d * min_d:
+                    d = (min_d + q[2]) / 2
+                    if (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 < d * d:
                         ok = False; break
         if not ok:
             continue
-        grid.setdefault(key, []).append(p)
+        grid.setdefault(key, []).append((p[0], p[1], min_d))
         placed.append(p)
         place(p, rng)
     return placed
@@ -241,47 +257,93 @@ def line_sampler(pts_uv, spread):
     return s
 
 
-def place_spruce(p, rng):
+def crown_clear(sampler, r):
+    """A big crown must not overhang a roof, a lane or a quay: its rim stays off the occupancy raster."""
+    def s(rng):
+        p = sampler(rng)
+        if p is None or any(occupied(p[0] + dx * r, p[1] + dy * r) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+            return None
+        return p
+    return s
+
+
+def roadside(names, off):
+    """A point beside one of the ROADS, `off` metres from its centre line (cypress rows)."""
+    pts = [(nm, i) for nm in names for i in range(len(ROADS[nm]) - 1)]
+
+    def s(rng):
+        nm, i = pts[rng.randrange(len(pts))]
+        a, b = Vector(ROADS[nm][i]), Vector(ROADS[nm][i + 1])
+        t = (b - a)
+        if t.length < 1e-3:
+            return None
+        t.normalize()
+        q = a + (b - a) * rng.random() + Vector((-t.y, t.x)) * off * rng.choice((-1, 1))
+        return (q.x, q.y)
+    return s
+
+
+BUILD = dict(olive=nl_kit.olive, fig=nl_kit.fig, pomegranate=nl_kit.pomegranate, plane=nl_kit.plane_tree, almond=nl_kit.almond)
+HEIGHT = dict(olive=(4.5, 6.5), fig=(4.0, 5.8), pomegranate=(3.4, 4.6), plane=(9.0, 12.0), almond=(4.2, 6.0))
+
+
+def place_pine(p, rng):
     z = H(*p)
-    h = rng.uniform(7.5, 12.5) * (1.0 if z > 12 else 0.85)
-    nl_kit.spruce(leafS, trunkS, (p[0], p[1], z - 0.3), h, rng)
-    TREES['spruce'] += 1
+    nl_kit.umbrella_pine(LEAF['pine'], TRUNK['pine'], (p[0], p[1], z - 0.3), rng.uniform(8.5, 12.5) * (1.0 if z > 12 else 0.85), rng)
+    TREES['pine'] += 1
 
 
-def place_round(p, rng):
-    round_tree((p[0], p[1], H(*p)), rng.uniform(6.5, 9.5), rng)
-    TREES['round'] += 1
+def place_cypress(p, rng):
+    nl_kit.cypress(LEAF['cypress'], (p[0], p[1], H(*p) - 0.3), rng.uniform(7.0, 11.0), rng)
+    TREES['cypress'] += 1
 
 
-def place_birch(p, rng):
-    nl_kit.birch(leafB, trunkB, (p[0], p[1], H(*p) - 0.2), rng.uniform(6.0, 8.5), rng)
-    TREES['birch'] += 1
+def placer(*mix):
+    """place(p, rng) for a species mix: placer(('olive', 0.6), ('fig', 0.4))."""
+    def place(p, rng):
+        k, acc = rng.random(), 0.0
+        for sp, w in mix:
+            acc += w
+            if k < acc:
+                break
+        BUILD[sp](LEAF[sp], TRUNK[sp], (p[0], p[1], H(*p) - 0.2), rng.uniform(*HEIGHT[sp]), rng)
+        TREES[sp] += 1
+    return place
 
 
-# the crest behind the amphitheatre: a dark spruce band against the sky (r 124..142 round the Vagen)
-CREST = [(CT_UV[0] + math.cos(math.radians(a)) * 133.0, CT_UV[1] + math.sin(math.radians(a)) * 133.0) for a in range(166, 8, -6)]
-scatter(260, line_sampler(CREST, 6.5), place_spruce, 4.4, DRNG)
-scatter(200, line_sampler(terrain.WEST_SPINE, 13.0), place_spruce, 4.6, DRNG)
-scatter(180, line_sampler(terrain.EAST_SPINE, 12.0), place_spruce, 4.6, DRNG)
-COPSES = [((-150.0, -40.0), 10, 14), ((-180.0, 20.0), 12, 16), ((-250.0, -190.0), 12, 14), ((-90.0, -250.0), 9, 8), ((100.0, -250.0), 9, 8),
-          ((230.0, -40.0), 10, 12), ((210.0, 40.0), 12, 14), ((-60.0, 120.0), 7, 5), ((-150.0, 60.0), 9, 7), ((150.0, -210.0), 8, 8)]
-for (c, sp, n) in COPSES:
-    scatter(n, lambda r, c=c, sp=sp: wpt(c[0] + r.gauss(0, sp), c[1] + r.gauss(0, sp)), place_spruce, 4.8, DRNG, max_try=n * 30)
-# lush round-crowned trees in the town gardens: between the terraces' houses, behind them, round the squares
+# the town gardens: olives between and behind the terrace houses, figs and pomegranates in the courtyards, a few planes
 TOWN_SPOTS = []
 for k, (r0, r1, z) in enumerate(RINGS):
     th0, th1 = TOWN_TH[k]
-    for i in range(60):
+    for i in range(240):                 # dense candidates: the courtyard lots leave only small gardens free
         TOWN_SPOTS.append(town_pt(DRNG.uniform(th1, th0), DRNG.uniform(r0 + 2, r1 + 1)))
-scatter(130, lambda r: TOWN_SPOTS[r.randrange(len(TOWN_SPOTS))], place_round, 6.0, DRNG, max_try=5000)
+scatter(130, lambda r: TOWN_SPOTS[r.randrange(len(TOWN_SPOTS))], placer(('olive', 0.5), ('fig', 0.22), ('pomegranate', 0.18), ('plane', 0.1)),
+        6.0, DRNG, max_try=5000, grid=TREE_GRID)
 for pid, cv in COVES.items():
     b = Vector(cv['back']); n_ = Vector(cv['n']); t_ = Vector(cv['t'])
-    scatter(5, lambda r, b=b, n_=n_, t_=t_, hw=cv['hw']: tuple(b - n_ * r.uniform(14, 34) + t_ * r.uniform(-hw - 10, hw + 10)), place_round, 7.0, DRNG, max_try=300)
-scatter(36, lambda r: wpt(r.uniform(-200, 220), r.uniform(-250, -200)), place_round, 9.0, DRNG, max_try=2000)
-scatter(30, lambda r: wpt(r.uniform(-240, -150), r.uniform(-200, -40)), place_round, 10.0, DRNG, max_try=2000)
-scatter(60, line_sampler(terrain.WEST_SPINE + [(-150.0, 40.0)], 40.0), place_birch, 8.0, DRNG, max_try=3000)
-scatter(40, line_sampler(terrain.EAST_SPINE, 34.0), place_birch, 8.0, DRNG, max_try=2000)
-scatter(30, line_sampler(CREST, 16.0), place_birch, 8.0, DRNG, max_try=2000)
+    scatter(5, lambda r, b=b, n_=n_, t_=t_, hw=cv['hw']: tuple(b - n_ * r.uniform(14, 34) + t_ * r.uniform(-hw - 10, hw + 10)),
+            placer(('olive', 0.7), ('fig', 0.3)), 7.0, DRNG, max_try=300, grid=TREE_GRID)
+# the crest behind the amphitheatre: a band of umbrella pines against the sky, cypress spires among them
+CREST = [(CT_UV[0] + math.cos(math.radians(a)) * 133.0, CT_UV[1] + math.sin(math.radians(a)) * 133.0) for a in range(166, 8, -6)]
+scatter(120, crown_clear(line_sampler(CREST, 7.5), 1.5), place_pine, 4.6, DRNG, max_try=8000, grid=TREE_GRID)
+scatter(40, line_sampler(CREST, 9.0), place_cypress, 3.4, DRNG, max_try=2000, grid=TREE_GRID)
+scatter(80, crown_clear(line_sampler(terrain.WEST_SPINE, 9.0), 2.0), place_pine, 4.6, DRNG, max_try=8000, grid=TREE_GRID)
+scatter(70, crown_clear(line_sampler(terrain.EAST_SPINE, 8.5), 3.5), place_pine, 5.2, DRNG, max_try=5000, grid=TREE_GRID)
+COPSES = [((-150.0, -40.0), 10, 14), ((-180.0, 20.0), 12, 16), ((-250.0, -190.0), 12, 14), ((-90.0, -250.0), 9, 8), ((100.0, -250.0), 9, 8),
+          ((230.0, -40.0), 10, 12), ((210.0, 40.0), 12, 14), ((-60.0, 120.0), 7, 5), ((-150.0, 60.0), 9, 7), ((150.0, -210.0), 8, 8)]
+for (c, sp, n) in COPSES:
+    scatter((n * 2) // 3, lambda r, c=c, sp=sp: wpt(c[0] + r.gauss(0, sp), c[1] + r.gauss(0, sp)), place_pine, 5.4, DRNG, max_try=n * 30, grid=TREE_GRID)
+# cypress rows along the roads (the Pharos road first) and round the town's outer edge
+scatter(36, roadside(['pharos'], 4.2), place_cypress, 6.0, DRNG, max_try=2000, grid=TREE_GRID)
+scatter(40, roadside(['west', 'south', 'east'], 3.8), place_cypress, 7.0, DRNG, max_try=3000, grid=TREE_GRID)
+_R_EDGE = RINGS[-1][1]
+scatter(30, lambda r: town_pt(r.uniform(TOWN_TH[-1][1], TOWN_TH[-1][0]), _R_EDGE + r.uniform(6.0, 16.0)), place_cypress, 5.0, DRNG,
+        max_try=1500, grid=TREE_GRID)
+scatter(60, lambda r: wpt(r.uniform(-200, 220), r.uniform(-250, -200)), placer(('almond', 1.0)), 8.0, DRNG, max_try=2000, grid=TREE_GRID)   # the south slopes
+scatter(30, lambda r: wpt(r.uniform(-240, -150), r.uniform(-200, -40)), placer(('olive', 1.0)), 8.0, DRNG, max_try=2000, grid=TREE_GRID)   # the west grove
+scatter(40, line_sampler(terrain.WEST_SPINE + [(-150.0, 40.0)], 40.0), placer(('almond', 0.75), ('olive', 0.25)), 8.0, DRNG, max_try=3000, grid=TREE_GRID)
+scatter(60, line_sampler(terrain.EAST_SPINE, 34.0), placer(('almond', 0.4), ('plane', 0.6)), 8.0, DRNG, max_try=2000, grid=TREE_GRID)
+scatter(24, crown_clear(line_sampler(CREST, 16.0), 2.0), placer(('plane', 1.0)), 8.0, DRNG, max_try=2000, grid=TREE_GRID)
 print('TREES', TREES)
 
 
@@ -289,6 +351,11 @@ print('TREES', TREES)
 def seat_z(p, r):
     """Lowest ground under a round prop of radius r: seated there it never floats off the downhill side."""
     return min(H(p[0] + dx, p[1] + dy) for dx, dy in ((0, 0), (r, 0), (-r, 0), (0, r), (0, -r)))
+
+
+MQ_MIX = (('lavender', 0.25), ('rosemary', 0.25), ('broom', 0.15), ('oleander', 0.15), ('acanthus', 0.2))
+MQ_SHAPE = dict(lavender=(0.6, (1.4, 1.1, 0.55)), rosemary=(0.7, (1.25, 1.0, 0.7)), broom=(0.75, (1.0, 1.0, 1.15)),
+                oleander=(0.9, (1.1, 1.0, 1.05)), acanthus=(0.6, (1.35, 1.25, 0.45)))
 
 
 def place_meadow(p, rng):
@@ -307,8 +374,19 @@ def place_meadow(p, rng):
             rr = rng.uniform(0.8, 1.8)
             merge(bould, bm_ico(rr, (p[0], p[1], seat_z(p, rr * 1.2) + 0.05), 1, (1.25, 1.0, 0.7), seed=rng.randint(0, 999), amp=0.35))
         return
-    if kind < 0.3:
-        merge(shrub, bm_ico(rng.uniform(0.7, 1.3), (p[0], p[1], z + 0.4), 1, (1.2, 1.0, 0.85), seed=rng.randint(0, 999), amp=0.3))
+    if kind < 0.3:                       # maquis (P5): lavender, rosemary, broom, oleander and acanthus clumps
+        k_, acc = rng.random(), 0.0
+        for sp, w in MQ_MIX:
+            acc += w
+            if k_ < acc:
+                break
+        r0, sc = MQ_SHAPE[sp]
+        rr = r0 * rng.uniform(0.8, 1.25)
+        merge(MQ[sp], bm_ico(rr, (p[0], p[1], seat_z(p, rr) + rr * sc[2] * 0.55), 1, sc, seed=rng.randint(0, 999), amp=0.3))
+    elif kind < 0.4:                     # an agave: a rosette of stiff, splayed blades
+        a0 = rng.uniform(0, 6.28); s_ = rng.uniform(0.8, 1.2)
+        for k_ in range(4):
+            merge(MQ['agave'], xf(bm_cyl(0.14 * s_, 0.0, 0.8 * s_, 3), loc=(p[0], p[1], z - 0.05), rz=a0 + k_ * 1.57, rx=0.7))
     elif kind < 0.62:
         for q in range(3):
             a = rng.uniform(0, 6.28); h = rng.uniform(0.5, 1.0)
@@ -324,7 +402,7 @@ def place_meadow(p, rng):
             merge(lich, bm_ico(rr * 0.5, (p[0] + rr * 0.1, p[1], z + 0.1 + rr * 0.55), 0, (1.3, 1.0, 0.25), seed=rng.randint(0, 99)))
 
 
-scatter(1700, lambda r: (r.uniform(OX0, OX1), r.uniform(OY0, OY1)), place_meadow, 3.2, DRNG, max_try=60000)
+scatter(1680, lambda r: (r.uniform(OX0, OX1), r.uniform(OY0, OY1)), place_meadow, 3.2, DRNG, max_try=60000)
 # rock outcrops: clustered granite tors on the slopes (charm + breakup of the green)
 OUTCROPS = [(-170.0, -70.0), (-240.0, -120.0), (-158.0, 52.0), (250.0, -90.0), (230.0, -150.0), (-30.0, -232.0), (120.0, -226.0),
             (-270.0, -170.0), (220.0, 20.0), (-200.0, 10.0), (60.0, 132.0), (-160.0, -200.0)]
@@ -341,54 +419,104 @@ for (u, v) in OUTCROPS:
         merge(bould, bm_ico(rr, (q[0], q[1], zq + rr * 0.1), 1, (1.2, 1.0, 0.85 + DRNG.random() * 0.4), seed=DRNG.randint(0, 999), amp=0.32))
         if DRNG.random() < 0.7:
             merge(lich, bm_ico(rr * 0.45, (q[0], q[1], zq + rr * 0.9), 0, (1.3, 1.0, 0.25), seed=DRNG.randint(0, 99)))
-obj('trees_spruce', leafS, face=lambda q: ((PAL['spruce_light'] if q.normal.z > 0.35 else PAL['spruce']), PT['leaf']), family='tree_spruce', jitter=0.1, seed=3)
-obj('trees_spruce_trunk', trunkS, PAL['timber_dark'], PT['plain'], family='tree_spruce')
-_RT_GRID = {}
-for (x_, y_, r2_, t_) in ROUND_TINT_AT:
-    _RT_GRID.setdefault((int(x_ // 16), int(y_ // 16)), []).append((x_, y_, r2_, t_))
+# P8: the battery's terraced back wall - a planted ledge (oleander, rosemary, lavender) on each course and a cypress row
+# on the upper ledge, so the cut reads as garden terraces rather than a stone mass (own rng: the island's scatter is kept)
+_TRNG = random.Random(808)
+for _fl in CJ.get('flats', []):
+    _te = _fl.get('terrace')
+    if not _te:
+        continue
+    _ring = [Vector(q) for q in _fl['poly']]
+    _cen = sum(_ring, Vector((0.0, 0.0))) / len(_ring)
+    for _i in _te['edges']:
+        _a, _b = _ring[_i], _ring[(_i + 1) % len(_ring)]
+        _t = (_b - _a); _L = _t.length; _t.normalize()
+        _n = Vector((_t.y, -_t.x))
+        if (_cen - _a).dot(_n) > 0:
+            _n = -_n
+        for _k, ((_d0, _r0), (_d1, _r1)) in enumerate(zip([(0.0, 0.0)] + [tuple(c) for c in _te['courses']], _te['courses'])):
+            _mid = (_d0 + 0.9 + _d1) / 2                  # the ledge between this course's wall and the next one's
+            _s = 1.3
+            while _s < _L - 1.3:
+                _p = _a + _t * (_s + _TRNG.uniform(-0.4, 0.4)) + _n * (_mid + _TRNG.uniform(-0.5, 0.5))
+                if abs(H(_p.x, _p.y) - (_fl['z'] + _r1)) < 0.3:       # only where the ledge is cut (the hill stood above it)
+                    if _k == 1 and _TRNG.random() < 0.3:
+                        place_cypress((_p.x, _p.y), _TRNG)
+                    else:
+                        _sp = ('oleander', 'rosemary', 'lavender', 'oleander')[_TRNG.randrange(4)]
+                        _r, _sc = MQ_SHAPE[_sp]; _r *= _TRNG.uniform(1.0, 1.4)
+                        merge(MQ[_sp], bm_ico(_r, (_p.x, _p.y, H(_p.x, _p.y) + _r * _sc[2] * 0.55), 1, _sc, seed=_TRNG.randint(0, 999), amp=0.3))
+                _s += _TRNG.uniform(1.4, 2.0)
+LEAF_COL = dict(pine=('#45612C', '#2F4824'), cypress=('#3E5530', '#2C4024'), fig=('#7FA046', '#5F8236'),
+                pomegranate=('#6E9638', '#527A2E'), plane=('#86A84C', '#6A8E3C'), almond=('#93AE58', '#77924A'))
+BARK = dict(pine='#7A5038', olive='#7E7568', fig='#8E8A80', pomegranate='#6A5640', plane='#B5AA90', almond='#4E3E30')
+EVERGREEN = ('pine', 'cypress', 'olive')
 
 
-def _round_face(q):
-    c = q.center
-    best, tint = 1e9, ROUND_TINTS[0]
-    for i in (-1, 0, 1):
-        for j in (-1, 0, 1):
-            for (x_, y_, r2_, t_) in _RT_GRID.get((int(c.x // 16) + i, int(c.y // 16) + j), ()):
-                d2 = (c.x - x_) ** 2 + (c.y - y_) ** 2
-                if d2 < best:
-                    best, tint = d2, t_
-    k = 1.08 if q.normal.z > 0.45 else (0.94 if q.normal.z > -0.1 else 0.72)      # sunlit crowns, shaded undersides
-    return (tuple(ch * k for ch in tint), PT['leaf'])
+def _olive_face(q):        # silver-grey and olive-green leaf, by patch; shaded undersides
+    if q.normal.z < 0.3:
+        return (PAL['olive_dark'], PT['leaf_evergreen'])
+    return ((lin('#8A9470') if noise.noise(q.center * 0.4) > 0.0 else PAL['olive_leaf']), PT['leaf_evergreen'])
 
 
-obj('trees_round', leafR, face=_round_face, family='tree_round', jitter=0.07, seed=4)
-obj('trees_round_trunk', trunkR, PAL['timber_dark'], PT['plain'], family='tree_round')
-obj('trees_birch', leafB, face=lambda q: ((PAL['birch_leaf2'] if noise.noise(q.center * 0.15) > 0.15 else PAL['birch_leaf']), PT['leaf']), family='tree_birch', jitter=0.08, seed=5)
-obj('trees_birch_trunk', trunkB, PAL['birch_bark'], PT['plain'], family='tree_birch')
-obj('veg_shrubs', shrub, face=lambda q: ((PAL['spruce_light'] if q.normal.z > 0.3 else PAL['grass_dark']), PT['leaf']), family='veg', jitter=0.08)
+for sp in SPECIES:
+    pt_ = PT['leaf_evergreen'] if sp in EVERGREEN else PT['leaf']
+    if sp == 'olive':
+        face_ = _olive_face
+    else:
+        face_ = lambda q, c=LEAF_COL[sp], pt_=pt_: ((lin(c[0]) if q.normal.z > 0.35 else lin(c[1])), pt_)
+    obj('trees_' + sp, LEAF[sp], face=face_, family='tree_' + sp, jitter=0.08, seed=3)
+    if sp in BARK:
+        obj('trees_' + sp + '_trunk', TRUNK[sp], lin(BARK[sp]), PT['plain'], family='tree_' + sp)
+    else:
+        TRUNK[sp].free()
+MQ_COL = dict(lavender=('#8F84AE', '#6E7A5C'), rosemary=('#6F7F5A', '#4F5E42'), acanthus=('#4E7036', '#3C5A2C'), agave=('#8AA39A', '#6C8880'))
+
+
+def _mq_face(sp):
+    if sp == 'broom':            # yellow flowering tips over olive-green
+        return lambda q: ((lin('#D2B640') if q.normal.z > 0.3 and q.index % 3 == 0 else lin('#6E8236')), PT['leaf_evergreen'])
+    if sp == 'oleander':         # pink flowers in dark leaf
+        return lambda q: ((lin('#D46A8C') if q.index % 4 == 0 else lin('#4F6E36') if q.normal.z > 0.3 else lin('#3E5A2C')), PT['leaf_evergreen'])
+    c = MQ_COL[sp]
+    return lambda q: ((lin(c[0]) if q.normal.z > 0.3 else lin(c[1])), PT['leaf_evergreen'])
+
+
+for sp in MAQUIS:
+    obj('veg_maquis_' + sp, MQ[sp], face=_mq_face(sp), family='veg', jitter=0.08)
 obj('veg_tufts', tuft, face=lambda q: ((PAL['grass_light'] if q.index % 3 == 0 else PAL['grass_dark']), PT['leaf']), family='veg', jitter=0.1)
 obj('veg_flowers', flw, face=lambda q: ((PAL['flower_y'], PAL['flower_w'], PAL['flower_p'], PAL['rowan_berry'])[(q.index // 25) % 4], 0), family='veg')
-obj('veg_heather', heath, face=lambda q: ((PAL['heather'] if q.normal.z > 0.3 else lin('#5E4A5C')), PT['leaf']), family='veg', jitter=0.1)
+obj('veg_garrigue', heath, face=lambda q: ((lin('#8A80A0') if q.normal.z > 0.3 else lin('#5E6650')), PT['leaf_evergreen']), family='veg', jitter=0.1)
 obj('land_boulders', bould, face=lambda q: ((PAL['rock_light'] if q.normal.z > 0.5 else PAL['rock']), PT['rock']), family='rock', jitter=0.08)
 obj('land_lichen', lich, PAL['lichen'], PT['rock'], family='rock', jitter=0.1)
+DRNG.seed(9090)          # P5: what follows no longer shifts whenever the vegetation above draws differently
 
 # ------------------------------------------------------------------ QUAY LIFE
 LAMP_PTS = []
 LAMP_LIGHTS = []         # (x, y, z, kind, colour) -> layout lights
-lampb = bmesh.new(); lglass = bmesh.new(); pennb = bmesh.new()
+lampb = bmesh.new(); lstone = bmesh.new(); lglass = bmesh.new(); pennb = bmesh.new()
 PENN_COLS = []
 
 
-def lamp(p, z, h=3.6, pennant=None, kind='lamp'):
+def lamp(p, z, h=3.6, pennant=None, kind='lamp', stand='tripod'):
+    """A bronze tripod lamp stand on the quays and piers, a stone lamp pillar on the lanes and moles: a bronze oil bowl
+    with its flame (hb_emissive) at the same height as the old lantern (the `lamps` light contract)."""
     x, y = p
-    merge(lampb, bm_cyl(0.18, 0.18, 0.5, 6, (x, y, z), cap=False))
-    merge(lampb, bm_cyl(0.09, 0.06, h, 4, (x, y, z + 0.4), cap=False))
-    merge(lampb, bm_cyl(0.32, 0.05, 0.3, 6, (x, y, z + h + 0.75)))
-    merge(lglass, bm_cyl(0.2, 0.26, 0.55, 6, (x, y, z + h + 0.2)))
+    if stand == 'pillar':
+        merge(lstone, bm_box2(x - 0.34, y - 0.34, z, x + 0.34, y + 0.34, z + 0.4))
+        merge(lstone, bm_box2(x - 0.22, y - 0.22, z + 0.4, x + 0.22, y + 0.22, z + h + 0.05))
+    else:
+        for k in range(3):
+            a = 2 * math.pi * k / 3 + 0.4
+            merge(lampb, nl_kit.beam((x + 0.55 * math.cos(a), y + 0.55 * math.sin(a), z), (x, y, z + h * 0.62), 0.07, 0.07))
+        merge(lampb, bm_cyl(0.07, 0.05, h * 0.38 + 0.05, 4, (x, y, z + h * 0.62), cap=False))
+    merge(lampb, bm_cyl(0.1, 0.42, 0.3, 6, (x, y, z + h + 0.05), cap=False))
+    merge(lglass, bm_cyl(0.3, 0.06, 0.62, 5, (x, y, z + h + 0.22), cap=False))
     LAMP_PTS.append(Vector((x, y, z + h + 0.45)))
     LAMP_LIGHTS.append((x, y, z + h + 0.45, kind, pennant))
-    if pennant:
-        merge(lampb, bm_cyl(0.04, 0.03, 1.6, 4, (x, y, z + h + 1.2)))
+    if pennant:      # the chain pennant on its own staff beside the flame
+        x += 0.45
+        merge(lampb, bm_cyl(0.04, 0.03, 2.6, 4, (x, y, z + h + 0.2)))
         f = bmesh.new()
         vs = [f.verts.new(v) for v in ((x, y, z + h + 2.7), (x + 1.3, y + 0.2, z + h + 2.55), (x + 0.95, y + 0.15, z + h + 2.38),
                                         (x + 1.3, y + 0.2, z + h + 2.2), (x, y, z + h + 2.1))]
@@ -420,19 +548,22 @@ for name, L in QL.items():
 for (k, pts, z) in LANES:
     for i in range(3, len(pts) - 2, 9):
         if not in_pad(*pts[i], 1.5):
-            lamp(pts[i], z + 0.04)
-for (x, y, z, kind, col) in CJ['lamps']:
-    lamp((x, y), z, 3.0 if z < 2 else 3.4, pennant=col if kind == 'pierhead' else None, kind=kind)
-obj('lamps_posts', lampb, PAL['iron'], PT['metal'], family='prop_lamp')
+            lamp(pts[i], z + 0.04, stand='pillar')
+for (x, y, z, kind, col) in CJ['lamps']:      # piers: tripods; the moles' and the causeway's crest lamps: stone pillars
+    lamp((x, y), z, 3.0 if z < 2 else 3.4, pennant=col if kind == 'pierhead' else None, kind=kind,
+         stand='pillar' if kind == 'lamp' and z >= Z_SHORE - 0.01 else 'tripod')
+obj('lamps_posts', lampb, CP['bronze'], PT['metal'], family='prop_lamp')
+obj('lamps_pillars', lstone, CP['lime'], PT['ashlar'], family='prop_lamp', bevel=0.03)
 obj('lamps_glass', lglass, mat=M['lamp'], family='prop_lamp', shadow=False)
 if len(pennb.faces):
     obj('lamps_pennants', pennb, face=lambda q: (next((c for (a, b, c) in PENN_COLS if a <= q.index < b), PAL['trim']), PT['plain']), family='prop_lamp', jitter=0.0)
 else:
     pennb.free()
 
-# bunting (A graft): catenary strings of little flags along the Vagen promenade and across the hamlet coves
-bunt_line = bmesh.new(); bunt = bmesh.new()
-BCOLS = [PAL['hull_red'], PAL['flower_w'], PAL['wall_ochre'], PAL['hull_blue'], PAL['door_green'], PAL['flower_y']]
+# festival strings (A graft) along the Vagen promenade and across the hamlet coves: long pennants in the
+# polychromy colours on a hemp line, a laurel knot every fifth place
+bunt_line = bmesh.new(); bunt = bmesh.new(); bunt_gar = bmesh.new()
+BCOLS = [CP['poly_red'], CP['linen'], CP['poly_ochre'], CP['poly_blue'], CP['linen'], CP['shutter_green']]
 
 
 def bunting(a, b, sag):
@@ -444,8 +575,11 @@ def bunting(a, b, sag):
     for k in range(1, n):
         u_ = k / n
         p = a.lerp(b, u_); p.z -= sag * 4 * u_ * (1 - u_)
-        f = bmesh.new()
-        vs = [f.verts.new(v) for v in (tuple(p - t * 0.32), tuple(p + t * 0.32), (p.x, p.y, p.z - 0.62))]
+        if k % 5 == 0:      # a laurel knot: a little double cone
+            merge(bunt_gar, bm_cyl(0.0, 0.3, 0.3, 4, (p.x, p.y, p.z - 0.65))); merge(bunt_gar, bm_cyl(0.3, 0.0, 0.3, 4, (p.x, p.y, p.z - 0.35)))
+            continue
+        f = bmesh.new()      # a long pennant
+        vs = [f.verts.new(v) for v in (tuple(p - t * 0.2), tuple(p + t * 0.2), (p.x, p.y, p.z - 1.0))]
         f.faces.new(vs)
         merge(bunt, f)
 
@@ -457,8 +591,10 @@ for pid, cv in COVES.items():
     qa, qb = Vector(cv['qa']), Vector(cv['qb']); n_ = Vector(cv['n'])
     a = qa - n_ * 1.6; b = qb - n_ * 1.6
     bunting(Vector((a.x, a.y, Z_SHORE + 4.0)), Vector((b.x, b.y, Z_SHORE + 4.0)), 1.2)
-obj('bunting_lines', bunt_line, PAL['tar'], PT['plain'], family='prop_bunting')
+obj('bunting_lines', bunt_line, PAL['rope'], PT['plain'], family='prop_bunting')
 obj('bunting_flags', bunt, face=lambda q: (BCOLS[q.index % len(BCOLS)], PT['plain']), family='prop_bunting', jitter=0.0)
+obj('bunting_garlands', bunt_gar, face=lambda q: ((CP['olive_leaf'] if q.normal.z > 0.2 else CP['olive_dark']), CV.LEAF_EVERGREEN),
+    family='prop_bunting', jitter=0.08)
 
 # market stalls with striped awnings on the Customs square + the promenade (A graft) + fish boxes
 stall = bmesh.new(); awn = bmesh.new(); awn_cols = []; boxes = bmesh.new()
@@ -472,7 +608,7 @@ for i, (th, dr) in enumerate(STALLS):
         for dy in (-1.3, 0.5):
             merge(sb, bm_box2(dx - 0.06, dy - 0.06, Z_SHORE, dx + 0.06, dy + 0.06, Z_SHORE + 2.6))
     xf(sb, rz=ang + math.pi); xf(sb, loc=(p.x, p.y, 0)); merge(stall, sb)
-    col = (PAL['hull_red'], PAL['hull_blue'], PAL['door_green'], PAL['wall_ochre'], PAL['hull_red'])[i % 5]
+    col = (CP['poly_red'], CP['poly_blue'], CP['shutter_green'], CP['poly_ochre'], CP['poly_red'])[i % 5]     # linen + one dyed panel
     for k in range(8):
         x0 = -2.2 + k * 0.55
         b = bm_box2(x0, -1.7, -0.03, x0 + 0.55, 0.7, 0.03)
@@ -480,14 +616,14 @@ for i, (th, dr) in enumerate(STALLS):
             v.co.z += Z_SHORE + 2.6 + (v.co.y - 0.7) * -0.35
         xf(b, rz=ang + math.pi); xf(b, loc=(p.x, p.y, 0))
         n0 = len(awn.faces); merge(awn, b)
-        awn_cols.append((n0, len(awn.faces), col if k % 2 == 0 else PAL['trim']))
+        awn_cols.append((n0, len(awn.faces), col if k % 2 == 0 else CP['linen']))
     bx = bmesh.new()
     for k in range(6):
         merge(bx, bm_box2(-1.8 + k * 0.62, -0.5, Z_SHORE + 1.0, -1.25 + k * 0.62, 0.5, Z_SHORE + 1.25))
     xf(bx, rz=ang + math.pi); xf(bx, loc=(p.x, p.y, 0)); merge(boxes, bx)
 obj('quay_stalls', stall, PAL['timber'], PT['boards'], family='prop_stall')
 obj('quay_awnings', awn, face=lambda q: (next((c for (a, b, c) in awn_cols if a <= q.index < b), PAL['trim']), PT['plain']), family='prop_stall', jitter=0.0)
-obj('quay_fishboxes', boxes, face=lambda q: ((PAL['brand_usdc'] if int(q.center.x * 10) % 3 else PAL['wall_white']), 0), family='prop_stall')
+obj('quay_fishboxes', boxes, face=lambda q: ((CP['timber_grey'] if int(q.center.x * 10) % 3 else CP['clay']), PT['boards']), family='prop_stall')
 
 # crates, barrels, nets, coils along the aprons
 cr, br, nets, corks, coils = (bmesh.new() for _ in range(5))
@@ -522,29 +658,44 @@ obj('props_nets', nets, lin('#596B52'), PT['leaf'], family='prop_nets', jitter=0
 obj('props_corks', corks, face=lambda q: ((PAL['wall_ochre'] if q.index % 40 < 20 else PAL['brand_red']), 0), family='prop_nets')
 obj('props_coils', coils, PAL['rope'], PT['plain'], family='prop_rope', jitter=0.05)
 
-# benches on the squares + lanes
+# benches on the squares + lanes: stone exedra seats (a slab on two blocks, a low back)
 bench = bmesh.new()
 for (th, r_, k) in ((126.0, 60.0, 2), (62.0, 60.0, 2), (134.0, 14.0, 0)):
     p = Vector(town_pt(th, TOWN['r_quay'] + r_)); z = RINGS[k][2]
     fdir = (Vector(town_pt(th, 0)) - p).normalized(); ang = math.atan2(fdir.y, fdir.x) + math.pi / 2
     b = bmesh.new()
-    merge(b, bm_box2(-0.9, -0.25, 0.45, 0.9, 0.25, 0.55)); merge(b, bm_box2(-0.9, 0.2, 0.55, 0.9, 0.28, 1.0))
-    for dx in (-0.75, 0.75):
-        merge(b, bm_box2(dx - 0.05, -0.2, 0, dx + 0.05, 0.2, 0.45))
+    merge(b, bm_box2(-1.1, -0.3, 0.38, 1.1, 0.3, 0.52)); merge(b, bm_box2(-1.1, 0.22, 0.52, 1.1, 0.42, 0.95))
+    for dx in (-0.8, 0.8):
+        merge(b, bm_box2(dx - 0.2, -0.25, 0, dx + 0.2, 0.25, 0.38))
     xf(b, rz=ang); xf(b, loc=(p.x, p.y, z)); merge(bench, b)
-obj('props_benches', bench, PAL['timber'], PT['boards'], family='prop_bench')
+obj('props_benches', bench, CP['lime'], PT['ashlar'], family='prop_bench', bevel=0.03)
 
 
 def hand_crane(name, cx_, cy_, z, rz=0.0, col='hull_red'):
-    cn = bmesh.new()
-    merge(cn, bm_box2(-0.8, -0.8, 0, 0.8, 0.8, 0.6))
-    merge(cn, bm_cyl(0.28, 0.22, 5.5, 8, (0, 0, 0.6)))
-    merge(cn, nl_kit.beam((0, 0, 1.8), (-1.0, -5.0, 6.6), 0.3, 0.3))
-    merge(cn, nl_kit.beam((0, 0, 6.1), (-1.0, -5.0, 6.6), 0.16, 0.16))
-    merge(cn, nl_kit.line3((-1.0, -5.0, 6.6), (-1.0, -5.0, 2.2), 0.03))
-    merge(cn, bm_box2(-1.4, -5.4, 1.4, -0.6, -4.6, 2.2))
-    xf(cn, rz=rz); xf(cn, loc=(cx_, cy_, z))
-    obj(name, cn, face=lambda q: ((PAL[col] if q.center.z > z + 0.7 else PAL['iron']), PT['metal']), family='prop_crane')
+    """A timber A-frame derrick on a stone sill: two raked legs leaning out over the water (local -y), a back-stay to a
+    stone anchor, a windlass between the feet, the fall and its block; a pennant in `col` at the head."""
+    tim, stn, rope, pen = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
+    apex = (0.0, -3.6, 7.2)
+    merge(stn, bm_box2(-1.7, -0.6, 0, 1.7, 0.9, 0.45)); merge(stn, bm_box2(-0.5, 3.6, 0, 0.5, 4.4, 0.8))
+    for s in (-1, 1):
+        merge(tim, nl_kit.beam((s * 1.35, 0.15, 0.45), apex, 0.26, 0.26))
+    merge(tim, nl_kit.beam((-1.15, 0.15, 1.05), (1.15, 0.15, 1.05), 0.36, 0.36))             # the windlass drum
+    for s in (-1, 1):
+        merge(tim, nl_kit.beam((s * 1.2, 0.15, 1.05), (s * 1.2, 0.15 + 0.5, 1.55), 0.08, 0.08))  # its handspikes
+    merge(tim, nl_kit.beam((-0.9, -1.9, 4.0), (0.9, -1.9, 4.0), 0.14, 0.14))                # the cross-tie
+    merge(rope, nl_kit.line3(apex, (0.0, 4.0, 0.8), 0.04))
+    merge(rope, nl_kit.line3(apex, (0.0, -3.6, 2.4), 0.035))
+    merge(rope, nl_kit.line3((0.0, 0.15, 1.05), apex, 0.03))
+    merge(tim, bm_box2(-0.25, -3.85, 1.9, 0.25, -3.35, 2.45))
+    vs = [pen.verts.new(v) for v in ((0.0, -3.6, 7.3), (0.0, -3.6, 8.3), (1.4, -3.5, 7.95), (0.0, -3.6, 7.65))]
+    pen.faces.new(vs)
+    merge(tim, bm_cyl(0.04, 0.04, 1.1, 4, apex))
+    for bm_ in (tim, stn, rope, pen):
+        xf(bm_, rz=rz); xf(bm_, loc=(cx_, cy_, z))
+    obj(name, tim, CP['oak_dark'], PT['boards'], family='prop_crane')
+    obj(name + '_sill', stn, CP['lime'], PT['ashlar'], family='prop_crane')
+    obj(name + '_rope', rope, PAL['rope'], PT['plain'], family='prop_crane')
+    obj(name + '_pennant', pen, PAL[col] if col in PAL else CP[col], PT['plain'], family='prop_crane', jitter=0.0)
 
 
 def crane_on(line, s_, name, col='hull_red'):
@@ -554,9 +705,9 @@ def crane_on(line, s_, name, col='hull_red'):
     hand_crane(name, c[0], c[1], Z_SHORE, rz=math.atan2(-nl[0], nl[1]), col=col)      # jib (local -y) out over the water
 
 
-crane_on(QL['grand'], 0.82, 'crane_vagen')
+crane_on(QL['grand'], 0.82, 'crane_vagen', 'poly_red')
 crane_on(QL['wharf'], 0.55, 'crane_wharf', 'wall_ochre')
-crane_on(QL['long'], 0.15, 'crane_longquay')
+crane_on(QL['long'], 0.15, 'crane_longquay', 'poly_blue')
 
 # ------------------------------------------------------------------ HAMLET CHARACTERS (in each cove's own frame)
 def cove_pt(cv, along_t, out_n):
@@ -569,10 +720,8 @@ def cove_rz(cv):
 
 
 cv = COVES['pier-hyperliquid-l1']; p = cove_pt(cv, cv['hw'] - 3, -3)
-obj('hamlet_hyper_beacon', bm_cyl(1.6, 1.3, 9.0, 12, (p[0], p[1], Z_SHORE)), face=lambda q: ((lin('#5FD3BC') if (q.center.z % 2.2) < 1.1 else PAL['wall_white']), PT['render']), family='hamlet')
-obj('hamlet_hyper_beacon_cap', bm_cyl(1.5, 0.2, 1.3, 12, (p[0], p[1], Z_SHORE + 9.0)), PAL['iron'], PT['metal'], family='hamlet')
-obj('hamlet_hyper_beacon_lamp', bm_cyl(0.9, 0.9, 1.0, 10, (p[0], p[1], Z_SHORE + 8.0)), mat=M['lamp'], family='hamlet', shadow=False)
-LAMP_PTS.append(Vector((p[0], p[1], Z_SHORE + 8.5))); LAMP_LIGHTS.append((p[0], p[1], Z_SHORE + 8.5, 'pierhead', '#5FD3BC'))
+beacon_column('hamlet_hyper_beacon', p, Z_SHORE, Z_SHORE + 3.4, lin('#5FD3BC'), 'hamlet', base_r=1.7, flame=lin('#5FD3BC'))  # sea-green: the chain
+LAMP_PTS.append(Vector((p[0], p[1], Z_SHORE + 3.9))); LAMP_LIGHTS.append((p[0], p[1], Z_SHORE + 3.9, 'pierhead', '#5FD3BC'))
 # Polygon: boatyard - a hull on stocks + timber stacks
 cv = COVES['pier-polygon']
 P_ = dict(br=0.3, fb=0.11, dr=0.06, bow=2.2, stern=0.6, sheer=(0.3, 0.15), bulwark=0.2)
@@ -592,12 +741,12 @@ obj('hamlet_polygon_stocks', stk, PAL['timber_dark'], PT['boards'], family='haml
 cv = COVES['pier-arbitrum']
 p = cove_pt(cv, 0, -30); rz_ = cove_rz(cv); zr = H(*p)
 rw = bm_box2(-14, -2.25, -1.5, 14, 2.25, 2.6); xf(rw, rz=rz_); xf(rw, loc=(p[0], p[1], zr))
-obj('hamlet_arbitrum_ropewalk', rw, PAL['wall_blue'], PT['boards'], family='hamlet', bevel=0.04)
+obj('hamlet_arbitrum_ropewalk', rw, CV.mix(CP['wash_white'], PAL['wall_blue'], 0.6), PT['render'], family='hamlet', bevel=0.04)
 rr_ = bmesh.new()
 vs = [rr_.verts.new(v) for v in ((-14.3, -2.65, 2.6), (14.3, -2.65, 2.6), (14.3, 0, 3.8), (-14.3, 0, 3.8), (-14.3, 2.65, 2.6), (14.3, 2.65, 2.6))]
 rr_.faces.new((vs[0], vs[1], vs[2], vs[3])); rr_.faces.new((vs[3], vs[2], vs[5], vs[4]))
 xf(rr_, rz=rz_); xf(rr_, loc=(p[0], p[1], zr))
-obj('hamlet_arbitrum_ropewalk_roof', rr_, PAL['roof_tar'], PT['boards'], family='hamlet')
+obj('hamlet_arbitrum_ropewalk_roof', rr_, CP['tile_b'], PT['tiles'], family='hamlet')
 coils2 = bmesh.new()
 for k in range(5):
     q = cove_pt(cv, -10 + k * 4.5, -24)
@@ -711,7 +860,7 @@ obj('strand_dinghies_red', dinghy_in, face=lambda q: ((PAL['hull_red'] if q.norm
 obj('strand_marram', marram, face=lambda q: ((lin('#A7A65A') if q.index % 3 else lin('#7F8C47')), PT['leaf']), family='veg', jitter=0.1)
 obj('cove_rocks', crock, face=lambda q: ((PAL['rock_wet'] if q.center.z < 0.35 else (PAL['rock_light'] if q.normal.z > 0.5 else PAL['rock'])), PT['rock']), family='rock', jitter=0.08)
 
-# ------------------------------------------------------------------ SKERRIES: granite humps, a grass cap, a few wind-bent spruces
+# ------------------------------------------------------------------ SKERRIES: granite humps, a grass cap, a few wind-bent pines
 from mathutils.geometry import tessellate_polygon
 skL, skT = bmesh.new(), bmesh.new()
 for i, sk in enumerate(CJ['skerries']):
@@ -738,10 +887,10 @@ for i, sk in enumerate(CJ['skerries']):
     if g_:
         for k in range(3):
             sp = (cx_ + DRNG.uniform(-5, 5), cy_ + DRNG.uniform(-3, 3))
-            nl_kit.spruce(skL, skT, (sp[0], sp[1], top - 0.4), DRNG.uniform(5.0, 7.5), DRNG)
+            nl_kit.umbrella_pine(skL, skT, (sp[0], sp[1], top - 0.4), DRNG.uniform(5.0, 7.5), random.Random(i * 31 + k))
     CIRCLES_EXTRA.append((cx_, cy_, 1.0))
-obj('skerry_spruce', skL, face=lambda q: ((PAL['spruce_light'] if q.normal.z > 0.35 else PAL['spruce']), PT['leaf']), family='tree_spruce', jitter=0.1)
-obj('skerry_spruce_trunk', skT, PAL['timber_dark'], PT['plain'], family='tree_spruce')
+obj('skerry_pine', skL, face=lambda q: ((lin(LEAF_COL['pine'][0]) if q.normal.z > 0.35 else lin(LEAF_COL['pine'][1])), PT['leaf_evergreen']), family='tree_pine', jitter=0.1)
+obj('skerry_pine_trunk', skT, lin(BARK['pine']), PT['plain'], family='tree_pine')
 
 # ------------------------------------------------------------------ SHOALS reef: rocks + cardinal buoys; MOORING buoys; FAR PORTS rafts
 rk = bmesh.new()
@@ -755,22 +904,25 @@ for (x, y) in CJ['shoals']['buoys']:
     merge(cb, bm_cyl(0.0, 0.55, 0.8, 8, (x, y, 3.7)))
     merge(cb, bm_cyl(0.55, 0.0, 0.8, 8, (x, y, 4.5)))
 obj('shoals_buoys', cb, face=lambda q: ((PAL['hull_red'] if int((q.center.z + 0.3) / 0.75) % 2 == 0 else PAL['wall_white']), PT['plain']), family='shoals')
-# P6 (D18): the reef beacon - a squat granite tower on the reef's biggest rock, red-and-white day-mark cage, a red light
+# P6 (D18): the reef beacon - classical-town Q6 / integration G3: a squat stone daymark on the reef's biggest rock, a
+# broad drum painted in red and white bands (the hazard colours stay), a bronze fire-bowl on top burning red
 _bc = CJ['shoals']['beacon']
-bb_, bt_, bm_ = bmesh.new(), bmesh.new(), bmesh.new()
+bb_, bt_, bm_, bf_ = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
 merge(bb_, bm_cyl(3.6, 3.0, 2.2, 14, (_bc[0], _bc[1], -1.5)))
-for k in range(4):
-    merge(bt_, bm_cyl(2.3 - 0.18 * k, 2.3 - 0.18 * (k + 1), 1.6, 12, (_bc[0], _bc[1], 0.7 + k * 1.6), cap=(k == 3)))
-merge(bm_, bm_cyl(2.0, 2.0, 0.2, 12, (_bc[0], _bc[1], 7.1)))
-for k in range(8):
-    a_ = 2 * math.pi * k / 8
-    merge(bm_, nl_kit.beam((_bc[0] + math.cos(a_) * 1.4, _bc[1] + math.sin(a_) * 1.4, 7.2), (_bc[0] + math.cos(a_) * 0.2, _bc[1] + math.sin(a_) * 0.2, 10.4), 0.16, 0.16))
-merge(bm_, bm_sphere(0.9, (_bc[0], _bc[1], 10.8), 10, 6))
+for k in range(4):         # the lowest band sits in the reef rocks; three read above them
+    merge(bt_, bm_cyl(2.2 - 0.12 * k, 2.2 - 0.12 * (k + 1), 0.9, 10, (_bc[0], _bc[1], 0.7 + k * 0.9), cap=(k == 3), rot=math.pi / 10))
+merge(bm_, bm_cyl(1.9, 1.9, 0.2, 10, (_bc[0], _bc[1], 4.3), rot=math.pi / 10))
+merge(bm_, bm_cyl(0.32, 0.38, 0.3, 8, (_bc[0], _bc[1], 4.5)))
+merge(bm_, bm_cyl(0.42, 1.38, 0.62, 12, (_bc[0], _bc[1], 4.75)))
+for k in range(5):
+    a_ = 2 * math.pi * k / 5 + 0.3
+    merge(bf_, bm_cyl(0.34, 0.0, 0.95 + 0.25 * (k % 2), 5, (_bc[0] + math.cos(a_) * 0.62, _bc[1] + math.sin(a_) * 0.62, 5.33)))
 obj('shoals_beacon_base', bb_, face=lambda q: ((PAL['rock_wet'] if q.center.z < 0.3 else PAL['granite']), PT['rock']), family='shoals', jitter=0.06)
-obj('shoals_beacon_tower', bt_, face=lambda q: ((PAL['hull_red'] if int((q.center.z - 0.7) / 1.6) % 2 == 0 else PAL['wall_white']), PT['ashlar']), family='shoals', bevel=0.03)
-obj('shoals_beacon_daymark', bm_, PAL['iron'], PT['metal'], family='shoals')
-obj('shoals_beacon_lamp', bm_cyl(0.75, 0.75, 1.0, 10, (_bc[0], _bc[1], 7.3)), mat=M['beacon_red'], family='shoals', shadow=False)
-LAMP_PTS.append(Vector((_bc[0], _bc[1], 7.8)))
+obj('shoals_beacon_tower', bt_, face=lambda q: ((PAL['hull_red'] if int((q.center.z - 0.7) / 0.9) % 2 == 1 else PAL['wall_white']), PT['render']), family='shoals', bevel=0.03)
+obj('shoals_beacon_daymark', bm_, CP['bronze'], PT['metal'], family='shoals')
+obj('shoals_beacon_flame', bf_, lin('#E8432C'), PT['plain'], family='shoals', jitter=0.0, shadow=False)
+obj('shoals_beacon_lamp', bm_cyl(0.8, 0.06, 1.5, 7, (_bc[0], _bc[1], 5.25)), mat=M['beacon_red'], family='shoals', shadow=False)
+LAMP_PTS.append(Vector((_bc[0], _bc[1], 5.95)))
 mb = bmesh.new()
 for m_ in CJ['moorings']:
     x, y = m_['buoy']

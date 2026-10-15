@@ -18,6 +18,7 @@ const DEPLOY_GATE_COMMANDS = [
   ["npm", ["run", "check:viewport-gate"]],
   ["npm", ["run", "check:security-headers:static"]],
   ["npm", ["run", "check:runtime-media"]],
+  ["npm", ["run", "check:harbour-contracts"]],
   ["npm", ["run", "build"]],
   ["npm", ["run", "check:bundle-size"]],
   ["npm", ["run", "test:visual:dist"]],

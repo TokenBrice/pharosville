@@ -21,7 +21,7 @@ MODE = arg('--mode', 'sailing')
 HEADING = float(arg('--heading', '-24'))
 TAG = arg('--tag', '')
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..', '..', '..'))
-OUT = arg('--out', os.path.join(ROOT, 'agents', '2026-10-13-pharosville-reboot', 'p7', 'titans'))
+OUT = arg('--out', os.path.join(ROOT, 'agents', '2026-10-15-classical-town', 'p7'))
 os.makedirs(OUT, exist_ok=True)
 # the kit lineup module builds its preview materials at import; a mode it does not know renders nothing
 sys.argv = sys.argv[:sys.argv.index('--') + 1 if '--' in sys.argv else len(sys.argv)] + ['--mode', 'titan-import', '--samples', arg('--samples', '48'),
@@ -38,7 +38,7 @@ from hb_lib import descendants, tri_count, PAL
 import hb_hulls
 
 scene = K.scene
-LOGOS = {'titan_usdt': '1-usdt.svg', 'titan_usdc': '2-usdc.svg', 'titan_usde': '146-usde.svg', 'titan_usds': '209-usds.svg',
+LOGOS = {'titan_usdt': '1-usdt.svg', 'titan_usdc': '2-usdc.svg', 'titan_usde': '146-usde.svg', 'titan_usds': '233-usds.svg',
          'usd_ship_flagship': '5-dai.svg', 'usd_schooner_large': '118-gho.svg'}
 BRAND = {'titan_usdt': '#33705f', 'titan_usdc': '#274a81', 'titan_usde': '#242424', 'titan_usds': '#b5720d',
          'usd_ship_flagship': '#f5ac37', 'usd_schooner_large': '#9e85d9'}
@@ -52,9 +52,13 @@ def atlas():
     tmp = os.path.join(K.SCRATCH, 'titan_logo_tmp.png')
     for vid, fn in LOGOS.items():
         k = SLOT[vid]
-        subprocess.run(['rsvg-convert', '-w', str(int(S * 0.74)), '-h', str(int(S * 0.74)), '--keep-aspect-ratio',
-                        os.path.join(ROOT, 'public', 'logos', fn), '-o', tmp], check=True)
-        lg = Image.open(tmp).convert('RGBA')
+        src = os.path.join(ROOT, 'public', 'logos', fn)
+        if os.path.exists(src):
+            subprocess.run(['rsvg-convert', '-w', str(int(S * 0.74)), '-h', str(int(S * 0.74)), '--keep-aspect-ratio', src, '-o', tmp], check=True)
+            lg = Image.open(tmp).convert('RGBA')
+        else:   # the logo set moved to raster for some coins
+            lg = Image.open(src[:-4] + '.png').convert('RGBA')
+            lg.thumbnail((int(S * 0.74), int(S * 0.74)), Image.LANCZOS)
         tile = Image.new('RGBA', (S, S), (0, 0, 0, 0))
         ImageDraw.Draw(tile).ellipse((6, 6, S - 6, S - 6), fill=(250, 248, 242, 255))
         tile.alpha_composite(lg, ((S - lg.width) // 2, (S - lg.height) // 2))
@@ -85,7 +89,7 @@ def pose(root, furl, swing=0.0, heel=0.0, tack=1):
         if o.type == 'MESH' and o.data.shape_keys:
             o.data.shape_keys.key_blocks['furl'].value = furl
         base = o.name.split('.')[0]
-        mir = base in MIRROR or (base == 'sail_main' and o.parent and o.parent.name.split('.')[0] == '_heel')
+        mir = base in MIRROR or (base in ('sail_main', 'sail_cover') and o.parent and o.parent.name.split('.')[0] == '_heel')
         if mir:
             o.scale.y = 1 if tack > 0 else -1
         if base in ('boom', 'boom_2'):
@@ -129,8 +133,8 @@ def place(vid, pos, hd, furl, swing=0.0, heel=0.0, tack=1, sail=False):
 
 
 ORDER = ['usd_schooner_large', 'titan_usde', 'titan_usds', 'usd_ship_flagship', 'titan_usdc', 'titan_usdt']
-NAMES = {'titan_usdt': 'USDT · four-masted barque', 'titan_usdc': 'USDC · clipper', 'titan_usde': 'USDe · staysail schooner',
-         'titan_usds': 'USDS · paddle frigate', 'usd_ship_flagship': 'kit flagship (26 m)', 'usd_schooner_large': 'kit large (18 m)'}
+NAMES = {'titan_usdt': 'USDT · temple of Aphrodite', 'titan_usdc': "USDC · Archimedes' engine", 'titan_usde': 'USDe · deck garden',
+         'titan_usds': 'USDS · signal tower', 'usd_ship_flagship': 'kit flagship (26 m)', 'usd_schooner_large': 'kit large (18 m)'}
 
 if MODE in ('sailing', 'docked'):
     scene.render.resolution_x, scene.render.resolution_y = 2400, 1300
@@ -157,6 +161,61 @@ if MODE in ('sailing', 'docked'):
     path = os.path.join(OUT, f'titans-{MODE}{TAG}.png')
     K.render(path)
     K.label(path, labels, 'Titan-class flagships · ' + ('sailing, port tack: furl 0, swing 0.45, heel 9°' if sail else 'at rest: furl 1, brand covers'))
+
+if MODE == 'board':    # the four titans: sailing (port tack) · docked (brailed) · LOD set · LOD furled
+    scene.render.resolution_x, scene.render.resolution_y = 2400, 1900
+    roots, labels = [], []
+    rows = [(150.0, 'sail'), (100.0, 'dock'), (50.0, 'lod0'), (0.0, 'lod1')]
+    for ry, kind in rows:
+        x = 0.0
+        for vid, *_r in T.TITANS:
+            L = {'titan_usdt': 32, 'titan_usdc': 30, 'titan_usde': 22, 'titan_usds': 22}[vid]
+            x += 18.0
+            if kind in ('sail', 'dock'):
+                sail = kind == 'sail'
+                root, R = place(vid, (x, ry, 0.0), HEADING, 0.0 if sail else 1.0, swing=0.45 if sail else 0.0,
+                                heel=math.radians(9) if sail else 0.0, tack=-1 if sail else 1, sail=sail)
+                tr = tri_count(descendants(root))
+                l2 = f'{L:g} m · {tr} tris · ' + ('sailing' if sail else 'docked')
+            else:
+                root, _, R = T.build(vid)
+                for o in descendants(root):
+                    bpy.data.objects.remove(o, do_unlink=True)
+                root, ob, tr = T.build_titan_lod(R)
+                root.location = (x, ry, 0); root.rotation_euler = (0, 0, math.radians(HEADING))
+                dress(root, vid)
+                ob.data.shape_keys.key_blocks['furl'].value = 1.0 if kind == 'lod1' else 0.0
+                if kind == 'lod0':
+                    root.scale.y = -1           # set: port tack, like the sailing row
+                l2 = f'LOD · {tr} tris · ' + ('furled' if kind == 'lod1' else 'set')
+            roots.append(root)
+            labels.append((Vector((x, ry - 4.0 - 0.3 * L, 0)), NAMES[vid], l2))
+            x += 18.0 + 8.0
+    bpy.context.view_layer.update()
+    pts = sum((K.bbox_pts(r) for r in roots), [])
+    b = (min(p.x for p in pts) - 60, min(p.y for p in pts) - 60, max(p.x for p in pts) + 60, max(p.y for p in pts) + 80)
+    sdf, sb = K.build_sdf(b)
+    sea = K.sea_plane(b); sea.data.materials.append(K.build_sea(sdf, sb))
+    K.setup_world()
+    cam = K.camera(32.0, 0.0)
+    K.fit(cam, pts + [p + Vector((0, -10, 0)) for p in pts if p.z < 1], margin=0.03)
+    path = os.path.join(OUT, f'titans-lineup{TAG}.png')
+    K.render(path)
+    K.label(path, labels, 'Syracusia-class titans · rows: sailing (port tack) · docked (brailed cover) · LOD set · LOD furled')
+
+if MODE == 'one':     # close-up of one titan: docked beside sailing (port tack)
+    vid = arg('--vid', 'titan_usdt')
+    scene.render.resolution_x, scene.render.resolution_y = 1600, 1000
+    r1, R = place(vid, (0, 0, 0), HEADING, 1.0)
+    r2, _ = place(vid, (R.L * 1.3, R.L * 0.5, 0), HEADING, 0.0, swing=0.45, heel=math.radians(9), tack=-1, sail=True)
+    pts = K.bbox_pts(r1) + K.bbox_pts(r2)
+    b = (min(p.x for p in pts) - 40, min(p.y for p in pts) - 40, max(p.x for p in pts) + 40, max(p.y for p in pts) + 60)
+    sdf, sb = K.build_sdf(b)
+    sea = K.sea_plane(b); sea.data.materials.append(K.build_sea(sdf, sb))
+    K.setup_world()
+    cam = K.camera(float(arg('--pitch', '28')), float(arg('--yaw', '20')))
+    K.fit(cam, pts, margin=0.05)
+    K.render(os.path.join(OUT, f'one-{vid}.png'))
 
 if MODE == 'lod':
     scene.render.resolution_x, scene.render.resolution_y = 2000, 900

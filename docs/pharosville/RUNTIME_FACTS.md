@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - World: The Harbour, one three.js WebGL2 Engine (`src/harbour/engine/`) mounted by `src/harbour/app/harbour-app.tsx`
 - Renderer failure fallback: the first-paint poster stays up with the arrival guide and Pharos links; no alternate renderer
 - Runtime media namespace: `/harbour/`
-- Latest app version: `v1.1.0` (`seasonsAndStorms`)
-- Latest changelog entry: `2026-10-15-seasons-and-storms` / `v1.1.0` / 2026-10-15 / Seasons and Storms
+- Latest app version: `v1.2.0` (`terracottaAndBronze`)
+- Latest changelog entry: `2026-10-15-terracotta-and-bronze` / `v1.2.0` / 2026-10-15 / Terracotta and Bronze
 
 ## Viewport Gate
 

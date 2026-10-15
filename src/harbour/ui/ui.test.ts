@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Boat } from "../model/types";
 import { cullLabels } from "./cull";
 import { boatFact, circuitStops, landmarkFact, whereabouts, whyHere } from "./facts";
-import { bps, money, pctChange, pegName, share } from "./format";
+import { bps, money, pctChange, pegName, share, vesselKind } from "./format";
 import { searchCoins } from "./search";
 
 const coin = (symbol: string, name: string, supply: number) => ({ id: symbol.toLowerCase(), symbol, name, supply });
@@ -41,6 +41,13 @@ describe("format", () => {
     expect(pctChange(0.1234)).toBe("+12.3%");
     expect(share(0.583)).toBe("58%");
     expect(share(0.0004)).toBe("<0.1%");
+  });
+  it("vessel kind follows the family silhouette, then the class", () => {
+    expect(vesselKind("gold", "large")).toBe("trireme");
+    expect(vesselKind("gold", "small")).toBe("bireme");
+    expect(vesselKind("eur", "medium")).toBe("Greek merchantman");
+    expect(vesselKind("usd", "flagship")).toBe("grain ship");
+    expect(vesselKind("usd", "odd")).toBe("odd");
   });
   it("peg names", () => { expect(pegName("peggedUSD")).toBe("US dollar"); expect(pegName("peggedXYZ")).toBe("XYZ"); });
 });

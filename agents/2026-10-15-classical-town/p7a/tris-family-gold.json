@@ -1,0 +1,46 @@
+{
+ "gold_bireme_medium": {
+  "tris": 888,
+  "budget": 900,
+  "sections": 5,
+  "loa": 13.0,
+  "nodes": [
+   "_heel",
+   "bow_cleat",
+   "deck",
+   "flag",
+   "hull",
+   "mast",
+   "masthead_light",
+   "oars",
+   "rigging",
+   "sail_cover",
+   "sail_main",
+   "stern_cleat",
+   "wake_origin",
+   "yards"
+  ]
+ },
+ "gold_trireme_large": {
+  "tris": 1284,
+  "budget": 1400,
+  "sections": 11,
+  "loa": 18.0,
+  "nodes": [
+   "_heel",
+   "bow_cleat",
+   "deck",
+   "flag",
+   "hull",
+   "mast",
+   "masthead_light",
+   "oars",
+   "rigging",
+   "sail_cover",
+   "sail_main",
+   "stern_cleat",
+   "wake_origin",
+   "yards"
+  ]
+ }
+}

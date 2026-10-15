@@ -397,7 +397,7 @@ if MODE == 'wrecks':
         (wk_wrecks.great_hulk, (-2, 34), 12), (wk_wrecks.stern_section, (30, 36), 70), (wk_wrecks.capsized, (52, 34), -15),
         (wk_wrecks.burned, (-8, 10), 8), (wk_wrecks.rib_cage, (16, 10), -10), (wk_wrecks.mast_stump, (38, 10), 0),
         (wk_wrecks.skiff, (-6, -6), 20), (wk_wrecks.dinghy, (4, -6), -10), (wk_props.epitaph_post, (12, -6), 0),
-        (wk_wrecks.schooner_sunk, (42, -18), 120),
+        (wk_wrecks.merchant_sunk, (42, -18), 120),
     ]
     hf = lambda x, y: 0.0 if y > -9 else max(-3.5, (y + 9) * 0.25)
     roots, labels = [], []
@@ -442,7 +442,7 @@ if MODE == 'props':
 
 if MODE == 'detail':
     from PIL import Image
-    items = [wk_wrecks.great_hulk, wk_wrecks.schooner_sunk, wk_wrecks.stern_section, wk_wrecks.capsized, wk_wrecks.burned,
+    items = [wk_wrecks.great_hulk, wk_wrecks.merchant_sunk, wk_wrecks.stern_section, wk_wrecks.capsized, wk_wrecks.burned,
              wk_wrecks.rib_cage, wk_wrecks.mast_stump, wk_wrecks.skiff, wk_wrecks.dinghy]
     only = arg('--only', None)
     if only:
@@ -452,9 +452,9 @@ if MODE == 'detail':
     tiles = []
     for i, fn in enumerate(items):
         x0 = i * 220.0
-        water = fn.__name__ == 'schooner_sunk'
+        water = fn.__name__ == 'merchant_sunk'
         y0 = -16.0 if water else 0.0
-        r, inf = place(fn, (x0, y0, 0.0), {'stern_section': 110.0, 'schooner_sunk': 150.0}.get(fn.__name__, -20.0))
+        r, inf = place(fn, (x0, y0, 0.0), {'stern_section': 110.0, 'merchant_sunk': 150.0}.get(fn.__name__, -20.0))
         hf = lambda x, y, x0=x0: 0.05 if y > -9 else max(-3.5, (y + 9) * 0.25)
         ground(hf, lambda x, y, z: sand_col(x, y, z + 0.6), (x0 - 45, -50, x0 + 45, 40), 1.0)
         tiles.append((fn.__name__, r, inf))
@@ -463,7 +463,7 @@ if MODE == 'detail':
     paths = []
     for i, (nm, r, inf) in enumerate(tiles):
         L = r.get('loa_m', 4.0)
-        tgt = Vector((i * 220.0, -16.0 if nm == 'schooner_sunk' else 0.0, 2.0 + 0.08 * L))
+        tgt = Vector((i * 220.0, -16.0 if nm == 'merchant_sunk' else 0.0, 2.0 + 0.08 * L))
         cam.location = tgt - (cam.rotation_euler.to_matrix() @ Vector((0, 0, -1))) * (L * 2.3 + 14.0)
         pth = os.path.join(SCRATCH, f'detail-{nm}-{TIME}.png')
         render(pth)
@@ -525,7 +525,7 @@ if MODE in ('cove', 'hero'):
     # heroes at the tide line
     P(-14, 5.0, 28, W.great_hulk, ep=True)
     P(24, 7.0, 74, W.stern_section, ep=True)
-    P(6, -17.0, 128, W.schooner_sunk, water=True)
+    P(6, -17.0, 128, W.merchant_sunk, water=True)
     P(-42, 6.0, -18, W.capsized)
     P(44, 4.5, 14, W.burned)
     P(-60, 2.0, 0, W.mast_stump)
