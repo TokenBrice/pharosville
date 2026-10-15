@@ -27,101 +27,130 @@ def clock(K, c, n, r):
 
 
 # =================================================================== CUSTOMS HOUSE  42 x 30
+def tower_of_winds(K, root, c, z0, z1, ap, coll=None):
+    """The horologion (Tower of the Winds): an octagonal marble drum from z0 to z1 (apothem ap) with sundial faces on
+    the three front sides, a painted winds frieze, a low tiled cone and a bronze Triton vane. Returns the vane-mast top."""
+    op = K.op
+    c = Vector((c[0], c[1], 0))
+    R = ap / math.cos(math.pi / 8)
+    cyl(op, c, R + 0.25, R + 0.25, z0, z0 + 0.6, PAL['lime'], PT['ashlar'], 8, rot=math.pi / 8)
+    cyl(op, c, R, R, z0 + 0.6, z1, PAL['marble'], 0, 8, top=False, rot=math.pi / 8)
+    cyl(op, c, R + 0.04, R + 0.04, z1 - 1.5, z1 - 0.6, PAL['poly_blue'], 0, 8, top=False, rot=math.pi / 8)
+    cyl(op, c, R + 0.3, R + 0.3, z1 - 0.6, z1, PAL['lime'], 0, 8, rot=math.pi / 8)
+    for k in range(8):     # the winds frieze: one ochre figure-panel per face on the blue band
+        a = 2 * math.pi * k / 8
+        n = Vector((math.cos(a), math.sin(a), 0))
+        t = Vector((-n.y, n.x, 0))
+        p = c + n * (ap + 0.08) + Vector((0, 0, z1 - 1.05))
+        obox(op, p, t, n, ap * 0.55, 0.06, 0.5, PAL['poly_ochre'], skip=('-y',), jitter=0.0)
+    zd = (z0 + 0.6 + z1 - 1.5) / 2 + 0.3
+    for k in (5, 6, 7):    # dials on the faces toward the front (-y) and the camera side: hour lines fanning from the gnomon
+        a = 2 * math.pi * k / 8
+        n = Vector((math.cos(a), math.sin(a), 0))
+        t = Vector((-n.y, n.x, 0))
+        g = c + n * (ap + 0.04) + Vector((0, 0, zd + 0.9))
+        for j in range(7):
+            u = math.radians(-60 + 20 * j)
+            d = t * math.sin(u) - Vector((0, 0, 1)) * math.cos(u)
+            beam(op, g + d * 0.25, g + d * (1.7 if j % 3 == 0 else 1.35), 0.07, 0.03, PAL['poly_black'], up=n)
+        beam(op, g, g + n * 0.9 - Vector((0, 0, 0.35)), 0.08, 0.08, PAL['bronze'])
+    rise = rise_for(R + 0.3, 24.0)
+    lathe(op, c, [(R + 0.55, z1 - 0.05), (0.0, z1 + rise)], PAL['tile_a'], PT['tiles'], 8, smooth=False, rot=math.pi / 8)
+    zt = z1 + rise
+    cyl(op, c, 0.3, 0.16, zt - 0.2, zt + 0.5, PAL['bronze'], PT['metal'], 6)
+    cyl(op, c, 0.07, 0.07, zt + 0.5, zt + 3.4, PAL['bronze_dark'], PT['metal'], 4)
+    # the Triton: a bronze body with a fish tail and a pointing wand, turned to the wind
+    vz = zt + 1.6
+    beam(op, (c.x - 0.2, c.y, vz), (c.x + 0.9, c.y, vz + 0.2), 0.42, 0.6, PAL['bronze_light'])
+    sphere(op, (c.x + 1.0, c.y, vz + 0.65), 0.22, PAL['bronze_light'], 6, 3)
+    poly(op, ((c.x - 0.2, c.y, vz - 0.1), (c.x - 1.3, c.y, vz + 0.4), (c.x - 1.0, c.y, vz - 0.4)), PAL['bronze'], 0, nrm=(0, -1, 0), jitter=0.0)
+    beam(op, (c.x + 0.9, c.y, vz + 0.4), (c.x + 2.0, c.y, vz + 1.0), 0.07, 0.07, PAL['bronze'])
+    return Vector((c.x, c.y, zt + 3.3))
+
+
 def build_customs(coll=None):
+    """The Customs House as an Ionic hall: a sandstone podium and steps, a rusticated ground storey and a cream upper
+    storey under a low terracotta hip with antefixes, a hexastyle Ionic portico whose blue pediment carries the gilt
+    anchor, and on the roof the octagonal Tower of the Winds (sundials, Triton vane) - the old clock tower's time cue."""
     root = empty('customs', coll=coll)
     K = Kit(41)
     op = K.op
     P = 1.6
-    box2(op, -20.5, -13.0, -2.0, 20.5, 14.5, P, PAL['granite_light'], PT['ashlar'])
-    stairs(op, -9.5, 9.5, -15.0, 0.0, P, 5, 0.4, PAL['stone_light'])
-    for s in (-1, 1):   # cheek blocks with lamps
-        box2(op, s * 10.2 - 0.9, -15.0, -0.5, s * 10.2 + 0.9, -13.0, P + 0.9, PAL['granite_light'], PT['ashlar'])
-        cyl(op, (s * 10.2, -14.0), 0.16, 0.12, P + 0.9, P + 4.2, PAL['iron'], PT['metal'], 6)
-        box2(K.em, s * 10.2 - 0.3, -14.3, P + 4.2, s * 10.2 + 0.3, -13.7, P + 4.9, PAL['iron'], 0)
-        box2(op, s * 10.2 - 0.4, -14.4, P + 4.9, s * 10.2 + 0.4, -13.6, P + 5.05, PAL['iron'], PT['metal'])
-    X0, X1, Y0, Y1, E = -18.0, 18.0, -10.0, 13.0, P + 12.0
-    box2(op, X0, Y0, P, X1, Y1, E, PAL['stone'], PT['ashlar'])
-    box2(op, X0 - 0.2, Y0 - 0.2, P, X1 + 0.2, Y1 + 0.2, P + 4.6, PAL['stone_light'], PT['ashlar'])   # rusticated ground storey
-    box2(op, X0 - 0.3, Y0 - 0.3, P + 4.6, X1 + 0.3, Y1 + 0.3, P + 5.0, PAL['stone_light'], 0)
-    box2(op, X0 - 0.5, Y0 - 0.5, E, X1 + 0.5, Y1 + 0.5, E + 0.7, PAL['stone_light'], 0)              # cornice
-    hip_roof(op, X0, Y0, X1, Y1, E + 0.7, 4.0, PAL['slate'], PT['slate'], ov=0.2)
-    # balustrade on the cornice (front)
-    for x in [X0 + 0.4 + k * 1.2 for k in range(31)]:
-        if abs(x) < 10.5:
-            continue
-        box2(op, x - 0.17, Y0 - 0.37, E + 0.7, x + 0.17, Y0 - 0.03, E + 1.6, PAL['stone_light'], 0, skip=('-z', '+z', '+y'))
-    for s in (-1, 1):
-        box2(op, s * 10.6 if s > 0 else X0 - 0.2, Y0 - 0.45, E + 1.6, X1 + 0.2 if s > 0 else -10.6, Y0 + 0.05, E + 1.9, PAL['stone_light'], 0)
-    # windows: ground arches + piano nobile with heads, three per wing bay x two wings
-    for x in (-16.0, -13.5, -11.0, 11.0, 13.5, 16.0):
-        window(K, (x, Y0 - 0.2, P + 2.4), (0, -1, 0), 1.3, 2.4, arch=True, frame=PAL['stone_light'])
-        window(K, (x, Y0, P + 7.6), (0, -1, 0), 1.3, 2.6, frame=PAL['stone_light'], head=PAL['stone_light'])
-        window(K, (x, Y0, P + 10.6), (0, -1, 0), 1.1, 1.2, frame=PAL['stone_light'])
+    box2(op, -20.5, -13.0, -2.0, 20.5, 14.5, P, PAL['sandstone'], PT['ashlar'])
+    box2(op, -20.7, -13.2, P - 0.3, 20.7, 14.7, P, PAL['lime'], 0, skip=('-z',))
+    stairs(op, -9.5, 9.5, -15.0, 0.0, P, 5, 0.4, PAL['lime'])
+    for s in (-1, 1):   # cheek blocks with bronze tripod lamps
+        box2(op, s * 10.2 - 0.9, -15.0, -0.5, s * 10.2 + 0.9, -13.0, P + 0.9, PAL['lime'], PT['ashlar'])
+        tripod_lamp(K, (s * 10.2, -14.0, P + 0.9), 1.5)
+    X0, X1, Y0, Y1, E = -18.0, 18.0, -10.0, 13.0, P + 9.8
+    G = P + 4.4
+    box2(op, X0 - 0.2, Y0 - 0.2, P, X1 + 0.2, Y1 + 0.2, G, PAL['lime'], PT['ashlar'])            # rusticated ground storey
+    box2(op, X0, Y0, G, X1, Y1, E, PAL['wash_cream'], PT['render'])
+    box2(op, X0 - 0.3, Y0 - 0.3, G, X1 + 0.3, Y1 + 0.3, G + 0.35, PAL['marble'], 0)                  # string course
+    for (a, b, n) in (((X0, Y0), (X1, Y0), (0, -1, 0)), ((X1, Y0), (X1, Y1), (1, 0, 0)), ((X0, Y1), (X0, Y0), (-1, 0, 0))):
+        frieze(op, a, b, E - 1.95, 0.6, n)
+    box2(op, X0 - 0.45, Y0 - 0.45, E, X1 + 0.45, Y1 + 0.45, E + 0.55, PAL['marble'], 0)              # cornice
+    tiled_hip(op, X0, Y0, X1, Y1, E + 0.55, 21.0, PAL['tile_a'], ov=0.35, antefix='all')
+    # windows: ground arches + upper plain openings (no shutters on the senior building), sides alike
+    for x in (-16.0, -13.2, -10.4, 10.4, 13.2, 16.0):
+        plain_window(K, (x, Y0 - 0.2, P + 1.8), (0, -1, 0), 1.2, 1.7, PAL['lime'], arch=True)
+        plain_window(K, (x, Y0, G + 2.4), (0, -1, 0), 1.1, 1.9, PAL['wash_cream'])
     for y in (-5.0, 1.5, 8.0):
         for s in (-1, 1):
-            window(K, (s * X1, y, P + 7.6), (s, 0, 0), 1.3, 2.6, frame=PAL['stone_light'], head=PAL['stone_light'])
-            window(K, (s * (X1 + 0.2), y, P + 2.4), (s, 0, 0), 1.3, 2.4, arch=True, frame=PAL['stone_light'])
-    # the portico: six giant columns, entablature, pediment with a gilt crown-and-anchor
-    xs = colonnade(op, -8.2, 8.2, -12.0, P, 10.6, 6, 0.62, PAL['marble'], cap_col=PAL['stone_light'])
-    box2(op, -9.4, -13.0, P + 10.6, 9.4, Y0, P + 11.8, PAL['stone_light'], 0)
-    box2(op, -9.6, -13.2, P + 11.8, 9.6, Y0, P + 12.4, PAL['marble'], 0)
-    pediment(op, -9.6, 9.6, -13.2, Y0, P + 12.4, 3.8, PAL['marble'], tymp=PAL['stone_dark'])
-    gable_roof(op, -9.6, -13.2, 9.6, Y0 + 2.0, P + 12.4, 3.8, PAL['slate'], PT['slate'], ov=0.0, axis='y', ends=False)
-    az = P + 13.6
-    beam(op, (0, -13.05, az), (0, -13.05, az + 2.2), 0.28, 0.3, PAL['gold'])                        # anchor shank
-    beam(op, (-0.9, -13.05, az + 1.7), (0.9, -13.05, az + 1.7), 0.2, 0.3, PAL['gold'])                # stock
+            plain_window(K, (s * (X1 + 0.2), y, P + 1.8), (s, 0, 0), 1.2, 1.7, PAL['lime'], arch=True)
+            plain_window(K, (s * X1, y, G + 2.4), (s, 0, 0), 1.1, 1.9, PAL['wash_cream'])
+    # the portico: six Ionic columns, an entablature with a painted frieze, the pediment with the gilt anchor
+    ZC = P + 9.0
+    ionic_colonnade(op, -8.2, 8.2, -12.0, P, ZC - P, 6, 0.6, PAL['marble'], PAL['lime'])
+    zt = entablature(op, -9.4, 9.4, -13.0, Y0, ZC, kind='meander')
+    PR = rise_for(9.6, 21.0)
+    pediment(op, -9.6, 9.6, -13.3, Y0, zt + 0.5, PR, PAL['marble'], tymp=PAL['poly_blue'], cornice=0.45)
+    tiled_gable(op, -9.6, -13.3, 9.6, Y0 + 3.0, zt + 0.5, 21.0, PAL['tile_a'], 'y', ov=0.0, ends=False, antefix=None)
+    for (x, z, h) in ((0.0, zt + 0.5 + PR + 0.25, 1.3), (-9.9, zt + 0.45, 0.9), (9.9, zt + 0.45, 0.9)):    # gilt acroteria
+        poly(op, ((x - 0.45, -13.75, z), (x + 0.45, -13.75, z), (x + 0.22, -13.75, z + h * 0.6), (x, -13.75, z + h),
+                  (x - 0.22, -13.75, z + h * 0.6)), PAL['gilt'], 0, nrm=(0, -1, 0), jitter=0.0)
+    az = zt + 0.9
+    yr = -13.15
+    beam(op, (0, yr, az), (0, yr, az + 2.0), 0.26, 0.28, PAL['gold'], PT['metal'])                 # anchor shank
+    beam(op, (-0.85, yr, az + 1.55), (0.85, yr, az + 1.55), 0.2, 0.28, PAL['gold'], PT['metal'])    # stock
     for s in (-1, 1):
-        beam(op, (0, -13.05, az), (s * 1.3, -13.05, az + 0.8), 0.25, 0.3, PAL['gold'])                 # arms
-    disc(op, (0, -12.95, az + 2.55), (0, -1, 0), 0.32, 0.1, PAL['gold'], 10)
-    door(K, (0, Y0, P), (0, -1, 0), 2.8, 5.0, col=PAL['door_blue'], frame=PAL['stone_light'], arch=True)
+        beam(op, (0, yr, az + 0.05), (s * 1.25, yr, az + 0.75), 0.24, 0.28, PAL['gold'], PT['metal'])   # arms
+    disc(op, (0, yr + 0.1, az + 2.35), (0, -1, 0), 0.3, 0.1, PAL['gold'], 8)
+    box2(op, -9.0, -12.2, P, 9.0, Y0, P + 0.05, PAL['marble'], 0, skip=('-z',))                       # pronaos floor
+    arch_door(K, (0.0, Y0, P), (0, -1, 0), 2.6, 5.2, PAL['bronze'], PAL['marble'], step=False, fanlight=True)
     for x in (-5.0, 5.0):
-        window(K, (x, Y0, P + 3.2), (0, -1, 0), 1.6, 3.2, arch=True, frame=PAL['stone_light'])
-    # clock tower behind the portico: drum -> clock stage -> open lantern -> copper dome -> flagstaff
-    TX, TY, TH = 0.0, 3.0, 3.4
-    tz0 = E + 0.7
-    box2(op, TX - TH, TY - TH, tz0, TX + TH, TY + TH, tz0 + 7.6, PAL['stone'], PT['ashlar'])
-    box2(op, TX - TH - 0.25, TY - TH - 0.25, tz0 + 7.6, TX + TH + 0.25, TY + TH + 0.25, tz0 + 8.2, PAL['stone_light'], 0)
-    for s in (-1, 1):
-        box2(op, TX + s * TH - 0.35, TY - TH - 0.3, tz0, TX + s * TH + 0.35, TY - TH + 0.2, tz0 + 7.6, PAL['stone_light'], 0)   # corner pilasters
-    clock(K, (TX, TY - TH, tz0 + 4.6), (0, -1, 0), 2.0)
-    clock(K, (TX + TH, TY, tz0 + 4.6), (1, 0, 0), 2.0)
-    clock(K, (TX - TH, TY, tz0 + 4.6), (-1, 0, 0), 2.0)
-    lz = tz0 + 8.2
-    for k in range(8):
-        a = 2 * math.pi * (k + 0.5) / 8
-        cyl(op, (TX + 2.4 * math.cos(a), TY + 2.4 * math.sin(a)), 0.22, 0.18, lz, lz + 3.2, PAL['marble'], 0, 6, top=False)
-    cyl(op, (TX, TY), 2.1, 2.1, lz, lz + 0.3, PAL['stone_light'], 0, 8)
-    cyl(K.em, (TX, TY), 0.45, 0.45, lz + 0.3, lz + 1.4, PAL['brass'], 0, 6)          # bell lamp inside the lantern
-    cyl(op, (TX, TY), 2.9, 2.9, lz + 3.2, lz + 3.7, PAL['stone_light'], 0, 8)
-    dome(op, (TX, TY), lz + 3.7, 2.7, 3.2, PAL['copper'], 0, 12, 5, ribs=PAL['copper_dark'])
-    cyl(op, (TX, TY), 0.18, 0.08, lz + 6.8, lz + 13.5, PAL['trim'], 0, 6)
-    sphere(op, (TX, TY, lz + 13.6), 0.28, PAL['gold'], 6, 3)
-    flag_node(root, (TX, TY, lz + 13.3), coll, 'customs ensign')
+        plain_window(K, (x, Y0, P + 3.4), (0, -1, 0), 1.4, 2.6, PAL['lime'], arch=True)
+    # the Tower of the Winds on the ridge (the ridge runs along x at y = (Y0 + Y1) / 2)
+    TC = (0.0, (Y0 + Y1) / 2 + 2.0)
+    top = tower_of_winds(K, root, TC, E + 2.0, E + 7.6, 2.3, coll)
+    flag_node(root, tuple(top), coll, 'customs ensign')
     K.emit(root, 'customs_body', coll)
-    return root, dict(anchors=dict(entrance=[0.0, 0.0, 15.0], clock=[TX, round(tz0 + 4.6, 2), round(-(TY - TH), 2)], podium_y=P))
+    return root, dict(anchors=dict(entrance=[0.0, 0.0, 15.0], clock=[TC[0], round(E + 5.0, 2), round(-(TC[1] - 2.3), 2)], podium_y=P))
 
 
 # =================================================================== THE REGISTRY  26 x 20  (a register of shipping: ledger hall, grade board, flag)
 def build_registry(coll=None):
     """A classification society's hall (Lloyd's Register, not a chapel): a columned exchange with a gilt anchor-and-ledger
-    relief in the pediment, the society's name on the frieze, a tall flagstaff, the Lutine bell in a free-standing iron
-    frame on the podium, and the grade board (painted shields A-F with counts) on the side wall the camera sees.
+    relief in the pediment, the society's name on the frieze, a tall flagstaff, the Lutine bell (a bronze tintinnabulum)
+    in a free-standing timber frame on the podium, and the grade board (painted shields A-F with counts) on the side wall the camera sees.
     The runtime paints the frieze, the flag and the board (anchors frieze / register_flag / grade_board)."""
     root = empty('registry', coll=coll)
     K = Kit(42)
     op = K.op
     P = 1.2
-    box2(op, -12.5, -7.6, -2.0, 12.5, 9.6, P, PAL['granite_light'], PT['ashlar'])
-    stairs(op, -8.0, 8.0, -10.0, 0.0, P, 4, 0.6, PAL['stone_light'])
+    box2(op, -12.5, -7.6, -2.0, 12.5, 9.6, P, PAL['sandstone'], PT['ashlar'])
+    stairs(op, -8.0, 8.0, -10.0, 0.0, P, 4, 0.6, PAL['lime'])
     X0, X1, Y0, Y1, E = -10.5, 10.5, -5.0, 9.0, P + 9.8
-    box2(op, X0, Y0, P, X1, Y1, E, PAL['stone_light'], PT['ashlar'])
+    box2(op, X0, Y0, P, X1, Y1, E, PAL['wash_cream'], PT['render'])
     box2(op, X0 - 0.4, Y0 - 0.4, E, X1 + 0.4, Y1 + 0.4, E + 0.7, PAL['marble'], 0)
-    # rusticated base course + a string course: a counting house, not a nave
-    box2(op, X0 - 0.15, Y0 - 0.15, P, X1 + 0.15, Y1 + 0.15, P + 1.4, PAL['stone_dark'], PT['ashlar'])
+    # sandstone base course + a string course: a counting house, not a nave; the painted band under the far eave
+    box2(op, X0 - 0.15, Y0 - 0.15, P, X1 + 0.15, Y1 + 0.15, P + 1.4, PAL['sandstone'], PT['ashlar'])
     box2(op, X0 - 0.2, Y0 - 0.2, P + 5.6, X1 + 0.2, Y1 + 0.2, P + 5.9, PAL['marble'], 0)
-    for y in (-1.5, 2.5, 6.5):   # square-headed sash windows, two storeys (the far side; the near side carries the board)
-        for z in (P + 3.3, P + 7.7):
-            window(K, (X1, y, z), (1, 0, 0), 1.4, 2.6, frame=PAL['marble'], mullion=True)
+    frieze(op, (X1, Y0), (X1, Y1), E - 1.9, 0.55, (1, 0, 0))
+    frieze(op, (X1, Y1), (X0, Y1), E - 1.9, 0.55, (0, 1, 0))
+    for y in (-1.5, 2.5, 6.5):   # deep-set plain openings, two storeys (the far side; the near side carries the board)
+        for z in (P + 3.3, P + 7.4):
+            plain_window(K, (X1, y, z), (1, 0, 0), 1.2, 2.2, PAL['wash_cream'])
     # the grade board's frame on the near side wall (the runtime paints the shields inside it)
     GB_Y, GB_Z, GB_W, GB_H = 2.0, P + 5.0, 12.0, 4.6
     t, n, up = frame3((-1, 0, 0))
@@ -132,16 +161,16 @@ def build_registry(coll=None):
         obox(op, gc + t * dx + up * dz + n * 0.22, t, n, w, 0.44, h, PAL['gilt'], PT['metal'])
     obox(op, gc + up * (GB_H / 2 + 0.75) + n * 0.3, t, n, GB_W + 1.2, 0.6, 0.35, PAL['marble'])        # hood moulding
     for s in (-1, 1):   # lamps either side of the board
-        box2(K.em, X0 - 0.75, GB_Y + s * (GB_W / 2 + 0.9) - 0.25, GB_Z + 0.6, X0 - 0.25, GB_Y + s * (GB_W / 2 + 0.9) + 0.25, GB_Z + 1.3, PAL['iron'], 0)
-        beam(op, (X0, GB_Y + s * (GB_W / 2 + 0.9), GB_Z + 0.4), (X0 - 0.5, GB_Y + s * (GB_W / 2 + 0.9), GB_Z + 0.6), 0.08, 0.08, PAL['iron'])
+        box2(K.em, X0 - 0.75, GB_Y + s * (GB_W / 2 + 0.9) - 0.25, GB_Z + 0.6, X0 - 0.25, GB_Y + s * (GB_W / 2 + 0.9) + 0.25, GB_Z + 1.3, PAL['bronze'], 0)
+        beam(op, (X0, GB_Y + s * (GB_W / 2 + 0.9), GB_Z + 0.4), (X0 - 0.5, GB_Y + s * (GB_W / 2 + 0.9), GB_Z + 0.6), 0.08, 0.08, PAL['bronze'])
     # portico: six columns, an entablature carrying the society's name (the runtime letters it), the pediment
     colonnade(op, -8.6, 8.6, -7.0, P, 8.9, 6, 0.55, PAL['marble'], cap_col=PAL['gilt'])
     box2(op, -9.6, -8.0, P + 8.9, 9.6, Y0, P + 9.9, PAL['marble'], 0)
-    for x in (-5.2, 0.0, 5.2):
-        window(K, (x, Y0, P + 5.2), (0, -1, 0), 1.8, 3.2, frame=PAL['marble'], mullion=True)
-    pediment(op, -9.8, 9.8, -8.2, Y0, P + 10.2, 3.4, PAL['marble'], tymp=PAL['door_blue'])
+    for x in (-5.2, 5.2):
+        plain_window(K, (x, Y0, P + 5.6), (0, -1, 0), 1.5, 2.6, PAL['wash_cream'], arch=True)
+    pediment(op, -9.8, 9.8, -8.2, Y0, P + 10.2, 3.4, PAL['marble'], tymp=PAL['poly_blue'])
     box2(op, -9.8, -8.2, P + 9.9, 9.8, Y0, P + 10.2, PAL['marble'], 0)
-    gable_roof(op, X0, -8.2, X1, Y1, E + 0.7, 3.4, PAL['lead'], PT['slate'], ov=0.3, axis='y', ends=False)
+    tiled_gable(op, X0, -8.2, X1, Y1, E + 0.7, math.degrees(math.atan2(3.4, (X1 - X0) / 2)), PAL['tile_b'], 'y', ov=0.3, ends=False)
     poly(op, ((X0, Y1 + 0.3, E + 0.7), (X1, Y1 + 0.3, E + 0.7), (0, Y1 + 0.3, E + 4.1)), PAL['stone_light'], PT['ashlar'], nrm=(0, 1, 0))
     # the relief: a great fouled anchor over an open ledger, gilt on the blue tympanum
     yr = -8.0          # proud of the tympanum (at yf + 0.25 = -7.95)
@@ -169,13 +198,15 @@ def build_registry(coll=None):
             beam(op, a_, b_, 0.24, 0.24, G, PT['metal'], up=nb)
         tip = pts[-1]
         poly(op, (tip + Vector((0, -0.14, -0.05)), tip + Vector((-s * 0.55, -0.14, 0.15)), tip + Vector((s * 0.15, -0.14, 0.7))), G, PT['metal'], nrm=nb)
-    door(K, (0, Y0, P), (0, -1, 0), 2.4, 3.8, col=PAL['door_blue'], frame=PAL['marble'])
-    # the Lutine bell: a free-standing gilt-iron frame on the podium, right of the steps (rung for a new listing / a loss)
+    arch_door(K, (0, Y0, P), (0, -1, 0), 2.4, 4.6, PAL['bronze'], PAL['marble'], step=False)
+    # the tintinnabulum: a bronze bell in a free-standing oak frame under a little tiled roof on the podium, right of the
+    # steps (rung for a new listing / a loss)
     bx, by = 10.6, -6.6
     for s in (-1, 1):
-        beam(op, (bx + s * 1.25, by, P), (bx + s * 0.95, by, P + 4.4), 0.2, 0.2, PAL['iron'], PT['metal'])
-    beam(op, (bx - 1.25, by, P + 4.4), (bx + 1.25, by, P + 4.4), 0.26, 0.3, PAL['oak'])
-    pyramid_roof(op, bx, by, 1.5, P + 4.55, 0.9, PAL['copper'], 0, ov=0.1)
+        beam(op, (bx + s * 1.25, by, P), (bx + s * 0.95, by, P + 4.4), 0.26, 0.26, PAL['oak_dark'], PT['boards'])
+        beam(op, (bx + s * 1.25, by, P + 0.9), (bx + s * 0.4, by, P + 4.35), 0.12, 0.12, PAL['oak_dark'])
+    beam(op, (bx - 1.45, by, P + 4.4), (bx + 1.45, by, P + 4.4), 0.3, 0.34, PAL['oak_dark'], PT['boards'])
+    tiled_gable(op, bx - 1.5, by - 0.7, bx + 1.5, by + 0.7, P + 4.6, 22.0, PAL['tile_a'], 'x', ov=0.2, ends=False, antefix=None)
     bz = P + 2.05
     lathe(op, (bx, by), [(0.95, bz), (0.88, bz + 0.18), (0.66, bz + 0.7), (0.56, bz + 1.5), (0.4, bz + 1.9), (0.0, bz + 2.05)], PAL['bronze_light'],
           PT['metal'], 14, smooth=True)
@@ -186,14 +217,14 @@ def build_registry(coll=None):
     # the society's flagstaff: a tall white mast with a yard on the podium's right corner (the runtime flies the register flag)
     fx, fy = 11.3, 8.4
     box2(op, fx - 0.7, fy - 0.7, P, fx + 0.7, fy + 0.7, P + 0.8, PAL['granite'], PT['ashlar'])
-    cyl(op, (fx, fy), 0.2, 0.09, P + 0.8, P + 21.0, PAL['wall_white'], 0, 8)
+    box2(op, fx - 0.5, fy - 0.5, P + 0.8, fx + 0.5, fy + 0.5, P + 1.3, PAL['bronze'], PT['metal'])
+    cyl(op, (fx, fy), 0.2, 0.09, P + 1.3, P + 21.0, PAL['oak_dark'], 0, 8)
     sphere(op, (fx, fy, P + 21.15), 0.22, PAL['gilt'], 6, 3)
-    beam(op, (fx - 1.6, fy, P + 16.5), (fx + 1.6, fy, P + 16.5), 0.1, 0.12, PAL['wall_white'])
+    beam(op, (fx - 1.6, fy, P + 16.5), (fx + 1.6, fy, P + 16.5), 0.1, 0.12, PAL['oak_dark'])
     for p in ((fx - 3.0, fy + 1.0, P), (fx + 0.8, fy - 3.4, P)):
         beam(op, (fx, fy, P + 16.4), p, 0.04, 0.04, PAL['tar'])
-    for s in (-1, 1):   # gilt lamps on the stair cheeks
-        cyl(op, (s * 8.6, -9.4), 0.14, 0.1, 0.0, 3.2, PAL['iron'], PT['metal'], 6)
-        box2(K.em, s * 8.6 - 0.26, -9.66, 3.2, s * 8.6 + 0.26, -9.14, 3.8, PAL['iron'], 0)
+    for s in (-1, 1):   # bronze tripod lamps on the stair cheeks
+        tripod_lamp(K, (s * 8.6, -9.4, 0.0), 1.6)
     K.emit(root, 'registry_body', coll)
     gl = lambda v: [round(v[0], 2), round(v[2], 2), round(-v[1], 2)]
     return root, dict(anchors=dict(
@@ -500,7 +531,86 @@ OFFICE = {
 }
 
 
+def build_stoa_office(chain, coll=None):
+    """Classical harbour office (PLAN §4.2 common base, concept A): a Doric stoa on a stepped stylobate with the crest on
+    a red-framed attic under a small blue pediment, a low tiled gable with pedimented ends, two velaria (the chain colour)
+    split round the steps on their own poles, bronze tripod lamps and a flag mast on a bronze-shod base."""
+    root = empty(f'harbour-office:{chain}', coll=coll)
+    K = Kit(60 + list(OFFICE).index(chain))
+    op = K.op
+    P = 0.5
+    box2(op, -10.0, -8.0, -1.5, 10.0, 8.0, P, PAL['sandstone'], PT['ashlar'], skip=('+z',))
+    poly(op, ((-10, -8, P), (10, -8, P), (10, 8, P), (-10, 8, P)), PAL['quay'], PT['cobble'], nrm=(0, 0, 1))
+    X0, X1 = -8.4, 8.4
+    YS, YC, YW, YB = -4.6, -3.6, -0.4, 4.8       # stylobate front, column line, inner (rooms) wall, back wall
+    ZS = P + 0.6
+    stairs(op, X0 - 0.3, X1 + 0.3, YS - 0.9, P, ZS, 2, 0.45, PAL['lime'])
+    box2(op, X0 - 0.3, YS, P, X1 + 0.3, YB + 0.3, ZS, PAL['lime'], PT['ashlar'], skip=('-z',))
+    ZW = ZS + 5.0
+    box2(op, X0, YW, ZS, X1, YB, ZW, PAL['wash_cream'], PT['render'])
+    for s in (-1, 1):   # antae
+        xa = X1 if s > 0 else X0
+        box2(op, min(xa, xa - s * 0.8), YC - 0.4, ZS, max(xa, xa - s * 0.8), YW, ZW, PAL['lime'], 0)
+    poly(op, ((X0 + 0.8, YW - 0.03, ZS), (X1 - 0.8, YW - 0.03, ZS), (X1 - 0.8, YW - 0.03, ZS + 1.6), (X0 + 0.8, YW - 0.03, ZS + 1.6)),
+         PAL['poly_red'], 0, nrm=(0, -1, 0), jitter=0.0)
+    for x in (-5.0, 0.0, 5.0):
+        arch_door(K, (x, YW - 0.04, ZS), (0, -1, 0), 1.6 if x else 2.2, 3.2 if x else 3.8, PAL['bronze'] if not x else PAL['oak_dark'],
+                  PAL['marble'], step=False, fanlight=bool(x))
+    for x in (-6.8, -2.6, 2.6, 6.8):
+        plain_window(K, (x, YW - 0.04, ZS + 3.9), (0, -1, 0), 0.75, 0.75, PAL['wash_cream'], sill=False)
+    for y in (0.9, 3.4):
+        for s in (-1, 1):
+            plain_window(K, (s * X1, y, ZS + 3.4), (s, 0, 0), 0.8, 1.0, PAL['wash_cream'])
+    xs = colonnade(op, X0 + 0.5, X1 - 0.5, YC, ZS, 5.0, 7, 0.42, PAL['marble'], cap_col=PAL['lime'])
+    for x in xs:
+        cyl(op, (x, YC), 0.39, 0.39, ZS + 4.35, ZS + 4.55, PAL['poly_red'], 0, 8, top=False)
+    zt = entablature(op, X0 - 0.2, X1 + 0.2, YC - 0.5, YB + 0.2, ZS + 5.0)
+    RS = tiled_gable(op, X0 - 0.2, YC - 0.5, X1 + 0.2, YB + 0.2, zt, 21.0, PAL['tile_a'], 'x', ov=0.5, end_col=PAL['marble'], end_pat=0)
+    ym = (YC - 0.5 + YB + 0.2) / 2
+    for s in (-1, 1):   # blue tympana on the end pediments
+        xa = s * (X1 + 0.25)
+        poly(op, ((xa, YC + 0.2, zt + 0.05), (xa, YB - 0.5, zt + 0.05), (xa, ym, zt + RS - 0.45)), PAL['poly_blue'], 0, nrm=(s, 0, 0), jitter=0.0)
+    # central attic + pediment carrying the crest
+    AX0, AX1, AY0, AY1, AZ1 = -2.9, 2.9, YC - 0.55, YC + 2.4, zt + 3.6
+    box2(op, AX0, AY0, zt - 0.2, AX1, AY1, AZ1, PAL['wash_white'], PT['render'])
+    for (a, b, c_, d) in ((AX0, zt, AX1, zt + 0.3), (AX0, AZ1 - 0.3, AX1, AZ1), (AX0, zt, AX0 + 0.3, AZ1), (AX1 - 0.3, zt, AX1, AZ1)):
+        poly(op, ((a, AY0 - 0.03, b), (c_, AY0 - 0.03, b), (c_, AY0 - 0.03, d), (a, AY0 - 0.03, d)), PAL['poly_red'], 0, nrm=(0, -1, 0), jitter=0.0)
+    pr = rise_for((AX1 - AX0) / 2 + 0.1, 24.0)
+    pediment(op, AX0 - 0.1, AX1 + 0.1, AY0 - 0.2, AY1, AZ1 + 0.55, pr, PAL['marble'], tymp=PAL['poly_blue'], cornice=0.35)
+    gable_roof(op, AX0 - 0.1, AY0 - 0.2, AX1 + 0.1, AY1, AZ1 + 0.55, pr, PAL['tile_a'], PT['tiles'], ov=0.0, axis='y', ends=False,
+               th=0.2, fascia=PAL['tile_ridge'])
+    ridge_cap(op, (0.0, AY0 - 0.2, AZ1 + 0.6 + pr), (0.0, AY1, AZ1 + 0.6 + pr))
+    poly(op, ((AX0 - 0.1, AY1, AZ1 + 0.55), (AX1 + 0.1, AY1, AZ1 + 0.55), (0, AY1, AZ1 + 0.55 + pr)), PAL['wash_white'], PT['render'], nrm=(0, 1, 0))
+    for (x, z, h) in ((0.0, AZ1 + 0.6 + pr + 0.2, 1.1), (AX0 - 0.35, AZ1 + 0.5, 0.75), (AX1 + 0.35, AZ1 + 0.5, 0.75)):   # gilt acroteria
+        poly(op, ((x - 0.4, AY0 - 0.45, z), (x + 0.4, AY0 - 0.45, z), (x + 0.2, AY0 - 0.45, z + h * 0.6), (x, AY0 - 0.45, z + h),
+                  (x - 0.2, AY0 - 0.45, z + h * 0.6)), PAL['gilt'], 0, nrm=(0, -1, 0), jitter=0.0)
+    cz, cs = (zt + AZ1) / 2, 2.6
+    crest_panel(K, root, (0.0, AY0 - 0.02, cz), cs, PAL['gilt'], coll)
+    velarium(K, (X0 - 0.2, YS - 1.0), (-2.0, YS - 1.0), 2.7, P + 3.7, P + 3.3, ground=P)
+    velarium(K, (2.0, YS - 1.0), (X1 + 0.2, YS - 1.0), 2.7, P + 3.7, P + 3.3, ground=P)
+    for x in (-1.3, 1.3):
+        tripod_lamp(K, (x, YS - 1.9, P))
+    for (x, y) in ((-8.8, -6.4), (-8.2, -6.9), (-8.6, -5.7)):
+        amphora(op, (x, y, P), 0.95)
+    fx, fy_ = 8.9, -7.0
+    box2(op, fx - 0.6, fy_ - 0.6, P, fx + 0.6, fy_ + 0.6, P + 0.5, PAL['lime'], PT['ashlar'])
+    box2(op, fx - 0.42, fy_ - 0.42, P + 0.5, fx + 0.42, fy_ + 0.42, P + 1.0, PAL['bronze'], PT['metal'])
+    cyl(op, (fx, fy_), 0.15, 0.08, P + 1.0, P + 15.0, PAL['oak_dark'], 0, 6)
+    sphere(op, (fx, fy_, P + 15.1), 0.22, PAL['gilt'], 6, 3)
+    flag_node(root, (fx, fy_, P + 14.8), coll, 'chain house flag (crest on the chain colour)')
+    made = K.emit(root, 'office_body', coll)
+    made['cover'].name = 'awning'
+    made['cover']['anim'] = 'velaria: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)'
+    return root, dict(chain=chain, accent=CHAINS[chain], roof='stoa',
+                      anchors=dict(crest_centre=[0.0, round(cz, 2), round(-AY0 + 0.3, 2)], crest_size_m=cs, flag_pole_top=[fx, round(P + 14.8, 2), -fy_]))
+
+
+STOA_OFFICES = ('ethereum',)      # P2 pilot: the stoa; the other offices keep their P6 builders until P3
+
+
 def build_office(chain, coll=None):
+    if chain in STOA_OFFICES:
+        return build_stoa_office(chain, coll)
     S = OFFICE[chain]
     root = empty(f'harbour-office:{chain}', coll=coll)
     K = Kit(60 + list(OFFICE).index(chain))

@@ -44,7 +44,7 @@ CLASSICAL = {
     'wash_white': '#F2EEE4', 'wash_cream': '#EADCC0', 'wash_ochre': '#E0B070', 'wash_sienna': '#CC8C62',
     'wash_rose': '#DCAE98', 'wash_blue': '#C3D3DC',
     # terracotta roof, three desaturated tints + ridge / hip caps
-    'tile_a': '#A35F45', 'tile_b': '#93604F', 'tile_c': '#B97456', 'tile_ridge': '#6E4536',
+    'tile_a': '#9A6A58', 'tile_b': '#8A6A60', 'tile_c': '#A97B66', 'tile_ridge': '#6A4D42',
     # Greek polychromy, thin bands only
     'poly_red': '#9E3B2C', 'poly_blue': '#2E5A8A', 'poly_ochre': '#C9973C', 'poly_black': '#2C2622',
     # metal (bronze / bronze_light / gilt / gold above), timber (oak_dark oiled oak; timber_grey sheds), cloth
@@ -722,6 +722,23 @@ def entablature(mb, x0, x1, yf, yb, z, col=None, cornice=None, kind='triglyph'):
     frieze(mb, (x0 + 0.3, yf + 0.1), (x1 - 0.3, yf + 0.1), z + 0.75, 0.8, (0, -1, 0), kind)
     box2(mb, x0 - 0.35, yf - 0.35, z + 1.55, x1 + 0.35, yb, z + 1.9, cornice or PAL['marble'], 0)
     return z + 1.9
+
+
+def ionic_colonnade(mb, x0, x1, y, z0, h, n, r, col=None, cap_col=None, segs=8):
+    """Ionic columns (the senior order): a moulded base, a slender shaft and a cushion capital whose volutes are short
+    cylinders along y either side of the abacus, so the scrolls read from the front. Returns the x positions."""
+    col, cap_col = col or PAL['marble'], cap_col or PAL['lime']
+    xs = [x0 + (x1 - x0) * i / (n - 1) for i in range(n)]
+    for x in xs:
+        cyl(mb, (x, y), r * 1.35, r * 1.35, z0, z0 + r * 0.45, col, 0, segs)
+        cyl(mb, (x, y), r * 1.15, r * 1.0, z0 + r * 0.45, z0 + r * 0.8, col, 0, segs, top=False)
+        cyl(mb, (x, y), r, r * 0.88, z0 + r * 0.8, z0 + h - r * 0.75, col, 0, segs, top=False, smooth=True, rot=math.pi / segs)
+        cyl(mb, (x, y), r * 0.92, r * 1.1, z0 + h - r * 0.75, z0 + h - r * 0.4, cap_col, 0, segs, top=False)
+        box2(mb, x - r * 1.25, y - r * 0.95, z0 + h - r * 0.4, x + r * 1.25, y + r * 0.95, z0 + h - r * 0.05, cap_col, 0)
+        for s in (-1, 1):
+            disc(mb, (x + s * r * 1.12, y + r * 0.95, z0 + h - r * 0.42), (0, -1, 0), r * 0.42, r * 1.9, cap_col, 8)
+        box2(mb, x - r * 1.3, y - r * 1.3, z0 + h - r * 0.05, x + r * 1.3, y + r * 1.3, z0 + h, cap_col, 0)
+    return xs
 
 
 def socle(mb, x0, y0, x1, y1, z, h=0.9, col=None, proud=0.12):

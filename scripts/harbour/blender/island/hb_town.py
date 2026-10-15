@@ -208,6 +208,136 @@ def house2(name, lot, rng, extra=None):
     return root
 
 
+# =================================================================== P2 pilot: classical town houses (A + C)
+# The terrace lots in front of the civic quarter (classical-town PLAN §4.4, P2): stucco town houses of 2-3 storeys under
+# low tiled hips or gables (or a roof terrace with a pergola, ~1 in 4), a painted band >= 1.3 m under the eave, board
+# shutters on plain deep-set windows, a kitchen flue (chimney_top); quay-front shops open as arched tabernae with a
+# counter and a linen velarium on free poles. The other lots keep their Nordic house until P4.
+import nl_classical as cl
+CV, CP = cl.cv, cl.cv.PAL
+CLASSICAL_NEAR = ('customs', 'mint', 'registry', 'harbour-office-ethereum')
+CLASSICAL_R = 65.0
+WASHES = ['wash_white', 'wash_cream', 'wash_ochre', 'wash_sienna', 'wash_rose', 'wash_cream', 'wash_white', 'wash_blue']
+BANDS = [('poly_red', 'poly_ochre'), ('poly_blue', 'wash_white'), ('poly_red', 'wash_white')]
+SHUTTERS = ['shutter_blue', 'shutter_green', 'shutter_teal', 'shutter_ox']
+TILES = ['tile_a', 'tile_a', 'tile_b', 'tile_c']
+_CIV_C = [Vector(cv_['c']) for cv_ in CJ['civic'] if cv_['id'] in CLASSICAL_NEAR]
+_LAST_WASH = [None]
+
+
+def is_classical(lot):
+    return lot['style'] == 'terrace' and lot.get('band', 9) <= 1 and \
+        min((Vector(lot['c']) - c).length for c in _CIV_C) < CLASSICAL_R
+
+
+def lot_rz(lot):
+    face = lot.get('face', (0, -1))
+    rz = math.atan2(-face[0], face[1]) + math.pi if tuple(face) != (0, -1) else 0.0
+    if tuple(face) == (1, 0):
+        rz = math.pi / 2
+    if tuple(face) == (-1, 0):
+        rz = -math.pi / 2
+    return rz
+
+
+def classical_house(name, lot, rng):
+    w, d = lot['w'], lot['d']
+    root = empty(name, (lot['c'][0], lot['c'][1], lot['z']), (0, 0, lot_rz(lot)), family='house')
+    K = CV.Kit(rng.randint(0, 10 ** 6))
+    K.lit_p = 0.85        # small openings: light more of them so the night quarter stays as lit as the town
+    op = K.op
+    B = 0.6
+    floors = rng.choice((2, 2, 3)) if w < 9.2 else rng.choice((2, 3))
+    fh = rng.uniform(2.9, 3.2)
+    E = B + floors * fh
+    wk = rng.choice([k for k in WASHES if k != _LAST_WASH[0]])
+    _LAST_WASH[0] = wk
+    wash = CP[wk]
+    sh = CP[rng.choice(SHUTTERS)]
+    shop = bool(lot.get('shop'))
+    sides = [s for s, k in ((-1, 'nb_w'), (1, 'nb_e')) if not lot.get(k)]
+    CV.box2(op, -w / 2 - 0.08, -d / 2 - 0.08, -2.0, w / 2 + 0.08, d / 2 + 0.08, B, CP['sandstone'], CV.PT['ashlar'])
+    CV.box2(op, -w / 2, -d / 2, B, w / 2, d / 2, E, wash, CV.PT['render'])
+    # the painted band: its top >= 1.3 m under the eave (the eave shadow and the icicles leave it legible)
+    g, k = BANDS[rng.randrange(len(BANDS))]
+    zb = E - 1.3 - 0.55
+    CV.meander(op, (-w / 2, -d / 2), (w / 2, -d / 2), zb, 0.55, (0, -1, 0), ground=CP[g], key=CP[k])
+    for s in sides:
+        CV.meander(op, (s * w / 2, -d / 2), (s * w / 2, d / 2), zb, 0.55, (s, 0, 0), ground=CP[g], key=CP[k])
+    # roof: a low hip, a gable along the street, or a roof terrace with a pergola (~1 in 4)
+    kind = 'terrace' if rng.random() < 0.25 else ('hip' if rng.random() < 0.55 else 'gable')
+    tile = CP[rng.choice(TILES)]
+    fx, fy = rng.choice((-1, 1)) * w * 0.26, d * 0.2
+    if kind == 'terrace':
+        zf = CV.roof_terrace(op, -w / 2, -d / 2, w / 2, d / 2, E, wash, parapet_h=0.75, pergola_canopy=rng.choice(('vine', 'bougain')),
+                             rng=rng)
+        fz = zf + 0.5
+    else:
+        CV.box2(op, -w / 2 - 0.15, -d / 2 - 0.15, E - 0.22, w / 2 + 0.15, d / 2 + 0.15, E, CP['lime'], 0)
+        if kind == 'hip':
+            rise = CV.tiled_hip(op, -w / 2, -d / 2, w / 2, d / 2, E, rng.uniform(20.0, 24.0), tile, ov=0.4)
+            fz = E + rise * min(d / 2 - abs(fy), w / 2 - abs(fx)) / (min(w, d) / 2)
+        else:
+            rise = CV.tiled_gable(op, -w / 2, -d / 2, w / 2, d / 2, E, rng.uniform(20.0, 24.0), tile, 'x', ov=0.4, end_col=wash)
+            fz = E + rise * (1 - abs(fy) / (d / 2))
+    top = CV.flue(op, fx, fy, fz, h=1.1, col=wash)
+    root['chimney_top'] = tuple(top)
+    # the street front
+    nwin = max(2, int((w - 0.8) / 2.1))
+    xs = [(i + 0.5) / nwin * w - w / 2 for i in range(nwin)]
+    if shop:      # tabernae: one or two open arches with a counter, glowing at night
+        nsh = 2 if w > 8.2 else 1
+        for i in range(nsh):
+            x = ((i + 0.5) / nsh - 0.5) * w * 0.92
+            ow = 2.3 if nsh == 2 else 3.0
+            hs = B + 2.2
+            pts = [(x - ow / 2, -d / 2 - 0.07, B + 0.05), (x + ow / 2, -d / 2 - 0.07, B + 0.05)] + \
+                [(x + ow / 2 * math.cos(math.pi * j / 6), -d / 2 - 0.07, hs + ow / 2 * math.sin(math.pi * j / 6)) for j in range(7)]
+            CV.lit_opening(K, pts, (0, -1, 0), lit=rng.uniform(0.75, 1.0), warm=rng.uniform(0.4, 0.7))
+            CV.arch_door(K, (x, -d / 2, B), (0, -1, 0), ow, hs - B + ow / 2, CP['interior'], CP['lime'], step=False)
+            CV.box2(op, x - ow / 2 + 0.1, -d / 2 - 0.75, B, x + ow / 2 - 0.1, -d / 2 - 0.1, B + 1.0, CP['lime'], CV.PT['ashlar'])
+            for j in range(3):
+                CV.amphora(op, (x - 0.6 + j * 0.6, -d / 2 - 0.45, B + 1.0), 0.45)
+        CV.velarium(K, (-w / 2 + 0.3, -d / 2 - 1.0), (w / 2 - 0.3, -d / 2 - 1.0), 2.6, B + 3.0, B + 2.6, ground=0.0,
+                    panels=max(3, round(w / 1.5)))
+    else:
+        xd = xs[len(xs) // 2] if nwin > 1 else 0.0
+        CV.arch_door(K, (xd, -d / 2, B), (0, -1, 0), 1.3, 2.8, sh, CP['lime'])
+        for x in xs:
+            if abs(x - xd) > 0.9:
+                CV.plain_window(K, (x, -d / 2, B + 1.7), (0, -1, 0), 0.75, 1.0, wash, shutter=sh, closed=rng.random() < 0.12)
+    for f in range(1, floors):
+        z = B + f * fh + 1.5
+        top_floor = f == floors - 1 and floors == 3
+        for x in xs:
+            if top_floor:
+                CV.plain_window(K, (x, -d / 2, z - 0.2), (0, -1, 0), 0.7, 0.8, wash)
+            else:
+                CV.plain_window(K, (x, -d / 2, z), (0, -1, 0), 0.85, 1.2, wash, shutter=sh, closed=rng.random() < 0.1)
+        for s in sides:
+            CV.plain_window(K, (s * w / 2, d * 0.12, z), (s, 0, 0), 0.75, 1.05, wash, shutter=sh)
+    if floors == 3 and not shop and rng.random() < 0.5:      # a timber balcony on beams at the first floor
+        bx = xs[len(xs) // 2] if nwin > 1 else 0.0
+        CV.box2(op, bx - 1.3, -d / 2 - 0.95, B + fh, bx + 1.3, -d / 2, B + fh + 0.18, CP['oak_dark'], CV.PT['planks_x'])
+        for x in (bx - 1.1, bx + 1.1):
+            CV.beam(op, (x, -d / 2, B + fh - 0.4), (x, -d / 2 - 0.85, B + fh), 0.16, 0.18, CP['oak_dark'])
+        CV.rail(op, [(bx - 1.25, -d / 2 - 0.9, B + fh + 0.18), (bx + 1.25, -d / 2 - 0.9, B + fh + 0.18)], 0.9, CP['oak_dark'], post_every=0.5,
+                r=0.04)
+    if not shop and rng.random() < 0.5:
+        CV.pot_plant(op, rng, (rng.choice((-1, 1)) * (w / 2 - 0.6), -d / 2 - 0.6, 0.0), rng.choice(('vine', 'bougain')))
+    cl.kit_objects(K, name, root, family='house')
+    CHIMNEYS.append(Matrix.Translation(root.location) @ Matrix.Rotation(root.rotation_euler.z, 4, 'Z') @ Vector(root['chimney_top']))
+    return root
+
+
+def drop_tree(root):
+    for o in reversed(descendants(root)):
+        me = o.data if o.type == 'MESH' else None
+        bpy.data.objects.remove(o, do_unlink=True)
+        if me is not None and me.users == 0:
+            bpy.data.meshes.remove(me)
+
+
 CHIMNEYS = []
 BUILDINGS = []
 # party walls: a house with a neighbour flush against a side shows no windows on that side (any heading)
@@ -231,6 +361,11 @@ for i, lot in enumerate(LOTS_):
         if lot['style'] != 'loft' and TRNG.random() < 0.45:
             extra['wall'] = TRNG.choice(WALLS)
     root = house2(nm, lot, TRNG, extra)
+    if is_classical(lot):      # the Nordic house still draws from TRNG, so every other lot keeps its look
+        if 'chimney_top' in root:
+            CHIMNEYS.pop()
+        drop_tree(root)
+        root = classical_house(nm, lot, random.Random(7000 + i))
     BUILDINGS.append((nm, root))
     bpy.context.view_layer.update()
     collect_windows(root, nm)

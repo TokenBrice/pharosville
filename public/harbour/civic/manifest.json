@@ -27,48 +27,38 @@
     64,
     44
    ],
-   "tris": 8633,
+   "tris": 6786,
    "budget": 12000,
    "nodes": [
     {
      "name": "chimney_0",
      "origin": [
-      -25.5,
-      31.7,
-      -1.8
+      14.5,
+      5.9,
+      12.6
      ],
      "empty": true,
-     "anim": "smoke emitter at the chimney mouth; puff rate/darkness ~ mint volume"
+     "anim": "smoke emitter at the kiln flue; puff rate/darkness ~ mint volume"
     },
     {
      "name": "chimney_1",
      "origin": [
-      -15.5,
-      33.2,
-      -1.8
+      19.6,
+      5.9,
+      12.6
      ],
      "empty": true,
-     "anim": "smoke emitter at the chimney mouth; puff rate/darkness ~ mint volume"
+     "anim": "smoke emitter at the kiln flue; puff rate/darkness ~ mint volume"
     },
     {
      "name": "chimney_2",
      "origin": [
-      -5.5,
-      33.2,
-      -1.8
+      24.7,
+      5.9,
+      12.6
      ],
      "empty": true,
-     "anim": "smoke emitter at the chimney mouth; puff rate/darkness ~ mint volume"
-    },
-    {
-     "name": "chimney_3",
-     "origin": [
-      4.5,
-      31.7,
-      -1.8
-     ],
-     "empty": true,
-     "anim": "smoke emitter at the chimney mouth; puff rate/darkness ~ mint volume"
+     "anim": "smoke emitter at the kiln flue; puff rate/darkness ~ mint volume"
     },
     {
      "name": "furnace_glow",
@@ -78,8 +68,8 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 124,
-     "anim": "furnace mouths + coal beds + crucibles: emissive strength ~ mint volume (flicker)"
+     "tris": 57,
+     "anim": "kiln mouths, ember spills + the workshop hearths: emissive strength ~ mint volume (flicker)"
     },
     {
      "name": "mint_body",
@@ -89,7 +79,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 7143
+     "tris": 5660
     },
     {
      "name": "mint_body_lamps",
@@ -99,7 +89,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 72
+     "tris": 88
     },
     {
      "name": "mint_body_windows",
@@ -109,39 +99,39 @@
       -0.0
      ],
      "material": "hb_window",
-     "tris": 90
+     "tris": 29
     },
     {
      "name": "press_0",
      "origin": [
-      -25.025,
-      6.3,
-      13.8
+      -27.6,
+      5.0,
+      19.9
      ],
      "material": "hb_opaque",
-     "tris": 136,
+     "tris": 52,
      "anim": "screw press: rotate about local +Y (glTF) +/-0.7 rad and drop 0.3 m on each strike; rate ~ mint volume"
     },
     {
      "name": "press_1",
      "origin": [
-      -15.675,
-      6.3,
-      13.8
+      -22.0,
+      5.0,
+      19.9
      ],
      "material": "hb_opaque",
-     "tris": 136,
+     "tris": 52,
      "anim": "screw press: rotate about local +Y (glTF) +/-0.7 rad and drop 0.3 m on each strike; rate ~ mint volume"
     },
     {
      "name": "press_2",
      "origin": [
-      -6.325,
-      6.3,
-      13.8
+      -16.4,
+      5.0,
+      19.9
      ],
      "material": "hb_opaque",
-     "tris": 136,
+     "tris": 52,
      "anim": "screw press: rotate about local +Y (glTF) +/-0.7 rad and drop 0.3 m on each strike; rate ~ mint volume"
     },
     {
@@ -165,110 +155,148 @@
      "empty": true,
      "anim": "closed walking loop for mint workers (glTF x,y,z triplets in the mint frame); crowd ~ mint volume",
      "points_gltf": [
-      21.0,
+      0.0,
       0.4,
-      21.2,
-      17.0,
+      20.8,
+      -14.0,
       0.4,
-      13.0,
-      10.4,
+      21.3,
+      -27.0,
       0.4,
-      10.5,
+      21.3,
+      -24.0,
+      0.4,
       16.5,
+      -11.0,
       0.4,
-      6.5,
-      22.0,
+      12.0,
+      -4.0,
       0.4,
+      10.6,
       4.0,
-      26.5,
       0.4,
-      -0.0,
-      26.5,
+      11.0,
+      11.0,
       0.4,
-      -5.4,
-      24.0,
-      0.4,
-      2.5,
-      27.0,
-      0.4,
-      10.0,
+      16.8,
       21.0,
       0.4,
-      21.2
+      17.4,
+      28.5,
+      0.4,
+      15.0,
+      28.5,
+      0.4,
+      6.0,
+      21.0,
+      0.4,
+      0.6,
+      11.5,
+      0.4,
+      1.5,
+      9.0,
+      0.4,
+      9.0,
+      4.5,
+      0.4,
+      15.5,
+      0.0,
+      0.4,
+      20.8
      ]
     }
    ],
    "anchors": {
     "worker_path": [
      [
-      21.0,
+      0.0,
       0.4,
-      21.2
+      20.8
      ],
      [
-      17.0,
+      -14.0,
       0.4,
-      13.0
+      21.3
      ],
      [
-      10.4,
+      -27.0,
       0.4,
-      10.5
+      21.3
      ],
      [
-      16.5,
+      -24.0,
       0.4,
-      6.5
+      16.5
      ],
      [
-      22.0,
+      -11.0,
       0.4,
-      4.0
+      12.0
      ],
      [
-      26.5,
+      -4.0,
       0.4,
-      -0.0
+      10.6
      ],
      [
-      26.5,
+      4.0,
       0.4,
-      -5.4
+      11.0
      ],
      [
-      24.0,
+      11.0,
       0.4,
-      2.5
-     ],
-     [
-      27.0,
-      0.4,
-      10.0
+      16.8
      ],
      [
       21.0,
       0.4,
-      21.2
+      17.4
+     ],
+     [
+      28.5,
+      0.4,
+      15.0
+     ],
+     [
+      28.5,
+      0.4,
+      6.0
+     ],
+     [
+      21.0,
+      0.4,
+      0.6
+     ],
+     [
+      11.5,
+      0.4,
+      1.5
+     ],
+     [
+      9.0,
+      0.4,
+      9.0
+     ],
+     [
+      4.5,
+      0.4,
+      15.5
+     ],
+     [
+      0.0,
+      0.4,
+      20.8
      ]
     ],
     "ground_y": 0.4,
-    "gate": [
-     21.0,
-     0.4,
-     22.0
-    ],
     "coin_emblem": [
-     -11.0,
-     14.85,
-     21.0
-    ],
-    "gate_coin": [
-     21.0,
-     12.5,
-     23.5
+     0.0,
+     12.69,
+     4.8
     ]
    },
-   "kb": 140.3
+   "kb": 117.0
   },
   "burn": {
    "file": "burn.glb",
@@ -1461,7 +1489,7 @@
     42,
     30
    ],
-   "tris": 4968,
+   "tris": 4914,
    "budget": 6000,
    "nodes": [
     {
@@ -1472,7 +1500,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 4789
+     "tris": 4743
     },
     {
      "name": "customs_body_lamps",
@@ -1482,7 +1510,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 40
+     "tris": 44
     },
     {
      "name": "customs_body_windows",
@@ -1492,14 +1520,14 @@
       -0.0
      ],
      "material": "hb_window",
-     "tris": 139
+     "tris": 127
     },
     {
      "name": "flag_pole_top",
      "origin": [
       0.0,
-      35.8,
-      -3.0
+      23.542,
+      -3.5
      ],
      "empty": true,
      "anim": "customs ensign: the runtime hangs a waving flag here (hoist at this point, flying downwind)"
@@ -1513,12 +1541,12 @@
     ],
     "clock": [
      0.0,
-     18.9,
-     0.4
+     16.4,
+     -1.2
     ],
     "podium_y": 1.6
    },
-   "kb": 81.5
+   "kb": 75.6
   },
   "registry": {
    "file": "registry.glb",
@@ -1526,7 +1554,7 @@
     26,
     20
    ],
-   "tris": 1908,
+   "tris": 2395,
    "budget": 6000,
    "nodes": [
     {
@@ -1547,7 +1575,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1842
+     "tris": 2301
     },
     {
      "name": "registry_body_lamps",
@@ -1557,7 +1585,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 48
+     "tris": 68
     },
     {
      "name": "registry_body_windows",
@@ -1567,7 +1595,7 @@
       -0.0
      ],
      "material": "hb_window",
-     "tris": 18
+     "tris": 26
     }
    ],
    "anchors": {
@@ -1625,7 +1653,7 @@
      ]
     }
    },
-   "kb": 37.0
+   "kb": 43.7
   },
   "chartroom": {
    "file": "chartroom.glb",
@@ -1911,7 +1939,7 @@
     20,
     16
    ],
-   "tris": 1360,
+   "tris": 2526,
    "budget": 6000,
    "nodes": [
     {
@@ -1922,8 +1950,8 @@
       -0.0
      ],
      "material": "hb_cover",
-     "tris": 20,
-     "anim": "awning: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
+     "tris": 60,
+     "anim": "velaria: hb_cover, tinted by the chain colour (COLOR_0 = stripe shade)"
     },
     {
      "name": "crest_panel",
@@ -1954,7 +1982,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1299
+     "tris": 2394
     },
     {
      "name": "office_body_lamps",
@@ -1964,7 +1992,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 12
+     "tris": 44
     },
     {
      "name": "office_body_windows",
@@ -1974,17 +2002,17 @@
       -0.0
      ],
      "material": "hb_window",
-     "tris": 27
+     "tris": 26
     }
    ],
    "chain": "ethereum",
    "accent": "#627EEA",
-   "roof": "pediment",
+   "roof": "stoa",
    "anchors": {
     "crest_centre": [
      0.0,
-     10.61,
-     4.9
+     9.8,
+     4.45
     ],
     "crest_size_m": 2.6,
     "flag_pole_top": [
@@ -1993,7 +2021,7 @@
      7.0
     ]
    },
-   "kb": 31.3
+   "kb": 53.6
   },
   "harbour-office:tron": {
    "file": "harbour-office-tron.glb",
