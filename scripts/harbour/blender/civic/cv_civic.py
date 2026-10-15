@@ -590,9 +590,10 @@ def build_stoa_office(chain, coll=None):
     velarium(K, (2.0, YS - 1.0), (X1 + 0.2, YS - 1.0), 2.7, P + 3.7, P + 3.3, ground=P)
     for x in (-1.3, 1.3):
         tripod_lamp(K, (x, YS - 1.9, P))
-    for (x, y) in ((-8.8, -6.4), (-8.2, -6.9), (-8.6, -5.7)):
+    for (x, y) in ((8.8, -6.4), (8.2, -6.9), (8.6, -5.7)):
         amphora(op, (x, y, P), 0.95)
-    fx, fy_ = 8.9, -7.0
+    # the flag mast on the -x corner: from the civic camera the big house flag then flies clear of the Customs House
+    fx, fy_ = -8.9, -7.0
     box2(op, fx - 0.6, fy_ - 0.6, P, fx + 0.6, fy_ + 0.6, P + 0.5, PAL['lime'], PT['ashlar'])
     box2(op, fx - 0.42, fy_ - 0.42, P + 0.5, fx + 0.42, fy_ + 0.42, P + 1.0, PAL['bronze'], PT['metal'])
     cyl(op, (fx, fy_), 0.15, 0.08, P + 1.0, P + 15.0, PAL['oak_dark'], 0, 6)

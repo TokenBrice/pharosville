@@ -109,7 +109,13 @@ def build_mint(coll=None):
     for k in range(12):
         a = 2 * math.pi * k / 12
         obox(op, Vector((1.1 * math.cos(a), TY0 - 0.6, mcz + 1.1 * math.sin(a))), (1, 0, 0), (0, 1, 0), 0.14, 0.12, 0.14, PAL['gold'])
-    for (x, z, h) in ((0.0, zt + 0.55 + PR + 0.3, 1.5), (TX0 - 0.4, zt + 0.5, 0.95), (TX1 + 0.4, zt + 0.5, 0.95)):   # gilt acroteria
+    # the Mint's sign at overview: a great gilt coin standing on the apex as the central acroterion
+    za = zt + 0.55 + PR + 0.15
+    box2(op, -0.7, TY0 - 0.8, za - 0.3, 0.7, TY0 + 0.2, za + 0.35, PAL['marble'], 0)
+    disc(op, (0.0, TY0 + 0.05, za + 1.95), (0, -1, 0), 1.6, 0.4, PAL['gold'], 16, PT['metal'], col_side=PAL['gilt'])
+    disc(op, (0.0, TY0 - 0.4, za + 1.95), (0, -1, 0), 1.2, 0.06, PAL['gilt'], 16, PT['metal'])
+    disc(op, (0.0, TY0 + 0.05, za + 1.95), (0, 1, 0), 1.6, 0.06, PAL['gold'], 16, PT['metal'])
+    for (x, z, h) in ((TX0 - 0.4, zt + 0.5, 0.95), (TX1 + 0.4, zt + 0.5, 0.95)):   # gilt corner acroteria
         poly(op, ((x - 0.5, TY0 - 1.0, z), (x + 0.5, TY0 - 1.0, z), (x + 0.25, TY0 - 1.0, z + h * 0.6), (x, TY0 - 1.0, z + h),
                   (x - 0.25, TY0 - 1.0, z + h * 0.6)), PAL['gilt'], 0, nrm=(0, -1, 0), jitter=0.0)
 
@@ -139,11 +145,20 @@ def build_mint(coll=None):
         ky = -12.6
         lathe(op, (kx, ky), [(2.1, Z0), (2.15, Z0 + 1.2), (1.85, Z0 + 2.4), (1.2, Z0 + 3.3), (0.6, Z0 + 3.7)], PAL['clay'], PT['render'], 9,
               smooth=True, cap=False, colfn=lambda z: mix(PAL['clay'], PAL['soot2'], sstep(Z0 + 1.6, Z0 + 3.9, z)))
-        box2(op, kx - 0.55, ky - 0.55, Z0 + 3.5, kx + 0.55, ky + 0.55, Z0 + 5.0, PAL['lime_dark'], PT['ashlar'])
-        box2(op, kx - 0.7, ky - 0.7, Z0 + 5.0, kx + 0.7, ky + 0.7, Z0 + 5.3, PAL['soot2'], 0)
-        poly(op, ((kx - 0.4, ky - 0.4, Z0 + 5.31), (kx + 0.4, ky - 0.4, Z0 + 5.31), (kx + 0.4, ky + 0.4, Z0 + 5.31), (kx - 0.4, ky + 0.4, Z0 + 5.31)),
+        # stone flues tall enough that the smoke clears the treasury's roof; the middle one taller, bronze-capped
+        FH = Z0 + (15.5 if i == 1 else 9.5)
+        box2(op, kx - 0.6, ky - 0.6, Z0 + 3.5, kx + 0.6, ky + 0.6, FH, PAL['lime_dark'], PT['ashlar'])
+        for zz in (Z0 + 6.0, FH - 3.0) if i == 1 else (Z0 + 6.0,):
+            box2(op, kx - 0.72, ky - 0.72, zz, kx + 0.72, ky + 0.72, zz + 0.35, PAL['sandstone'], 0)
+        box2(op, kx - 0.75, ky - 0.75, FH, kx + 0.75, ky + 0.75, FH + 0.35, PAL['bronze'] if i == 1 else PAL['soot2'], PT['metal'] if i == 1 else 0)
+        poly(op, ((kx - 0.45, ky - 0.45, FH + 0.36), (kx + 0.45, ky - 0.45, FH + 0.36), (kx + 0.45, ky + 0.45, FH + 0.36), (kx - 0.45, ky + 0.45, FH + 0.36)),
              (0.01, 0.01, 0.01), 0, nrm=(0, 0, 1), jitter=0.0)
-        e = empty(f'chimney_{i}', (kx, ky, Z0 + 5.5), parent=root, coll=coll)
+        if i == 1:
+            for (dx, dy) in ((-0.6, -0.6), (0.6, -0.6), (0.6, 0.6), (-0.6, 0.6)):
+                box2(op, kx + dx - 0.07, ky + dy - 0.07, FH + 0.35, kx + dx + 0.07, ky + dy + 0.07, FH + 1.2, PAL['bronze'], PT['metal'])
+            lathe(op, (kx, ky), [(1.05, FH + 1.15), (0.0, FH + 1.9)], PAL['bronze_light'], PT['metal'], 8, smooth=False)
+            sphere(op, (kx, ky, FH + 2.05), 0.22, PAL['gilt'], 6, 3)
+        e = empty(f'chimney_{i}', (kx, ky, FH + 0.55), parent=root, coll=coll)
         e['anim'] = 'smoke emitter at the kiln flue; puff rate/darkness ~ mint volume'
         fy = ky - 2.6
         box2(op, kx - 1.0, fy, Z0, kx + 1.0, ky - 1.2, Z0 + 2.1, PAL['lime'], PT['ashlar'])
@@ -212,7 +227,31 @@ def build_mint(coll=None):
         foliage(op, rng, (x, y, Z0 + 2.9), 1.5, [PAL['olive_leaf'], PAL['olive_dark']], 3, 0.6, LEAF_EVERGREEN)
     ingot_stack(op, (14.0, -5.5, Z0), 4, 3, 3)
     ingot_stack(op, (26.5, -4.0, Z0), 3, 3, 3)
-    ingot_stack(op, (-8.5, -15.0, Z0), 3, 2, 2)
+    # the counting yard in the forecourt: a linen workers' velarium over a counting table and an ingot stack, coin
+    # carts, a small fire altar, amphorae (clear of the press arches and of the worker path)
+    cloth = Kit(13)
+    velarium(cloth, (-10.5, -13.4), (-1.5, -13.4), 3.8, Z0 + 3.4, Z0 + 3.0, n_out=(0, -1, 0), ground=Z0, panels=6)
+    for f in cloth.cover.f:
+        poly(op, [cloth.cover.v[i] for i in f['i']], tuple(c * k for c, k in zip(PAL['linen'], f['col'])), 0, jitter=0.0)
+    for f in cloth.op.f:
+        poly(op, [cloth.op.v[i] for i in f['i']], f['col'], f['pat'], jitter=0.0)
+    box2(op, -6.6, -16.2, Z0, -3.0, -15.0, Z0 + 0.95, PAL['oak'], PT['planks_x'])
+    for k in range(5):
+        cyl(op, (-6.2 + k * 0.8, -15.6), 0.3, 0.3, Z0 + 0.95, Z0 + 1.1 + 0.12 * (k % 3), PAL['gold'], PT['metal'], 7)
+    ingot_stack(op, (-8.8, -15.4, Z0), 3, 2, 2)
+    for (cx_, cy_, a_) in ((-4.0, -19.0, 0.0), (18.0, -6.8, 0.4)):      # coin carts: a tray of ingots on two wheels
+        t_ = Vector((math.cos(a_), math.sin(a_), 0)); n_ = Vector((-t_.y, t_.x, 0)); c_ = Vector((cx_, cy_, Z0 + 0.8))
+        obox(op, c_, t_, n_, 2.2, 1.3, 0.2, PAL['timber'], PT['planks_x'])
+        for s_ in (-1, 1):
+            disc(op, c_ + n_ * s_ * 0.66 - Vector((0, 0, 0.2)), n_ * s_, 0.6, 0.12, PAL['oak_dark'], 8)
+        beam(op, c_ + t_ * 1.1, c_ + t_ * 2.6 - Vector((0, 0, 0.6)), 0.1, 0.1, PAL['timber'])
+        ingot_stack(op, (c_.x, c_.y, c_.z + 0.1), 2, 2, 2)
+    box2(op, -9.2, -9.4, Z0, -7.6, -7.8, Z0 + 1.1, PAL['marble'], 0)                 # the small fire altar
+    box2(op, -9.4, -9.6, Z0 + 1.1, -7.4, -7.6, Z0 + 1.3, PAL['poly_red'], 0)
+    lathe(op, (-8.4, -8.6), [(0.2, Z0 + 1.3), (0.6, Z0 + 1.45), (0.65, Z0 + 1.7)], PAL['bronze_light'], PT['metal'], 8, smooth=True, cap=False)
+    cyl(em, (-8.4, -8.6), 0.55, 0.55, Z0 + 1.6, Z0 + 1.65, (1.0, 0.6, 0.2), 0, 8)
+    for (x, y) in ((-2.0, -17.0), (-1.3, -17.4), (-1.8, -16.2), (23.5, -7.6), (24.2, -7.9), (6.8, -19.2)):
+        amphora(op, (x, y, Z0), 1.0)
     for k, (x, y) in enumerate(((24.0, -19.0), (25.3, -19.0), (26.6, -19.0), (6.0, -16.5), (7.3, -16.5))):
         coin_crate(op, (x, y, Z0), rz=0.05 * (k % 3))
     for (x, y) in ((28.5, -19.5), (29.2, -19.0), (28.8, -18.2), (-28.5, -4.0), (-27.8, -4.4)):

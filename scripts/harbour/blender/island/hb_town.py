@@ -283,7 +283,8 @@ def classical_house(name, lot, rng):
     top = CV.flue(op, fx, fy, fz, h=1.1, col=wash)
     root['chimney_top'] = tuple(top)
     # the street front
-    nwin = max(2, int((w - 0.8) / 2.1))
+    nwin = int((w - 0.8) / 2.1) + 1        # G1: one more opening per front than the first pilot
+    shut = w / nwin >= 2.05                # board shutters only where they fold open clear of the next opening
     xs = [(i + 0.5) / nwin * w - w / 2 for i in range(nwin)]
     if shop:      # tabernae: one or two open arches with a counter, glowing at night
         nsh = 2 if w > 8.2 else 1
@@ -304,8 +305,9 @@ def classical_house(name, lot, rng):
         xd = xs[len(xs) // 2] if nwin > 1 else 0.0
         CV.arch_door(K, (xd, -d / 2, B), (0, -1, 0), 1.3, 2.8, sh, CP['lime'])
         for x in xs:
-            if abs(x - xd) > 0.9:
-                CV.plain_window(K, (x, -d / 2, B + 1.7), (0, -1, 0), 0.75, 1.0, wash, shutter=sh, closed=rng.random() < 0.12)
+            if abs(x - xd) > 1.5:
+                CV.plain_window(K, (x, -d / 2, B + 1.7), (0, -1, 0), 0.75, 1.0, wash, shutter=sh if shut else None,
+                                closed=shut and rng.random() < 0.12)
     for f in range(1, floors):
         z = B + f * fh + 1.5
         top_floor = f == floors - 1 and floors == 3
@@ -313,7 +315,8 @@ def classical_house(name, lot, rng):
             if top_floor:
                 CV.plain_window(K, (x, -d / 2, z - 0.2), (0, -1, 0), 0.7, 0.8, wash)
             else:
-                CV.plain_window(K, (x, -d / 2, z), (0, -1, 0), 0.85, 1.2, wash, shutter=sh, closed=rng.random() < 0.1)
+                CV.plain_window(K, (x, -d / 2, z), (0, -1, 0), 0.85, 1.2, wash, shutter=sh if shut else None,
+                                closed=shut and rng.random() < 0.1)
         for s in sides:
             CV.plain_window(K, (s * w / 2, d * 0.12, z), (s, 0, 0), 0.75, 1.05, wash, shutter=sh)
     if floors == 3 and not shop and rng.random() < 0.5:      # a timber balcony on beams at the first floor

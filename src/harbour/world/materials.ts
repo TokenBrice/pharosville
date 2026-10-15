@@ -474,6 +474,8 @@ function injectVaryings(shader: Shader): void {
 
 /** Peak window radiance: bright enough to bloom softly, low enough that frames and mullions survive it. */
 const WIN_MAX = 2.6;
+/** Emissive gain of the plain window kind (kind 1 only): its openings are smaller and deeper than framed panes. */
+const PLAIN_GAIN = 1.8;
 
 export class HarbourMaterials {
   readonly pool: PoolUniforms;
@@ -690,7 +692,8 @@ export class HarbourMaterials {
     // lit room: brighter low and centre (the lamp on the table), darker top corners
     vec2 q = vHbWin.xy - vec2(0.5, 0.3);
     float room = 0.6 + 0.55 * exp(-q.x * q.x * 5.0 - q.y * q.y * 4.0);
-    totalEmissiveRadiance = col * on * level * room * uWindowGlow * ${WIN_MAX.toFixed(1)} * (hbGlass + 0.04) * hbRecess;
+    // plain openings are small and deep: a brighter lamp keeps the classical night quarter as lit as the framed town
+    totalEmissiveRadiance = col * on * level * room * uWindowGlow * ${WIN_MAX.toFixed(1)} * (hbGlass + 0.04) * hbRecess * mix(1.0, ${PLAIN_GAIN.toFixed(2)}, hbPlain);
   }`)
         .replace("#include <opaque_fragment>", `
   {
@@ -699,7 +702,7 @@ export class HarbourMaterials {
   }
   #include <opaque_fragment>`);
     };
-    m.customProgramCacheKey = () => "hb_window_v3";
+    m.customProgramCacheKey = () => "hb_window_v4";
     this.cache.set("window", m);
     return m;
   }

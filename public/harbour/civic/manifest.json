@@ -27,14 +27,14 @@
     64,
     44
    ],
-   "tris": 6786,
+   "tris": 8112,
    "budget": 12000,
    "nodes": [
     {
      "name": "chimney_0",
      "origin": [
       14.5,
-      5.9,
+      10.45,
       12.6
      ],
      "empty": true,
@@ -44,7 +44,7 @@
      "name": "chimney_1",
      "origin": [
       19.6,
-      5.9,
+      16.45,
       12.6
      ],
      "empty": true,
@@ -54,7 +54,7 @@
      "name": "chimney_2",
      "origin": [
       24.7,
-      5.9,
+      10.45,
       12.6
      ],
      "empty": true,
@@ -79,7 +79,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 5660
+     "tris": 6964
     },
     {
      "name": "mint_body_lamps",
@@ -89,7 +89,7 @@
       -0.0
      ],
      "material": "hb_emissive",
-     "tris": 88
+     "tris": 110
     },
     {
      "name": "mint_body_windows",
@@ -296,7 +296,7 @@
      4.8
     ]
    },
-   "kb": 117.0
+   "kb": 139.6
   },
   "burn": {
    "file": "burn.glb",
@@ -1967,7 +1967,7 @@
     {
      "name": "flag_pole_top",
      "origin": [
-      8.9,
+      -8.9,
       15.3,
       7.0
      ],
@@ -2016,7 +2016,7 @@
     ],
     "crest_size_m": 2.6,
     "flag_pole_top": [
-     8.9,
+     -8.9,
      15.3,
      7.0
     ]

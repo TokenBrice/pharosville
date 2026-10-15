@@ -104,11 +104,11 @@ export class MintWorks {
     const fl = moving ? 1 + 0.12 * Math.sin(this.t * 7.1) + 0.07 * Math.sin(this.t * 12.7 + 1.1) + 0.05 * Math.sin(this.t * 3.3) : 1;
     this.glow.value = (banked ? 0.25 : 0.6 + 2.6 * L) * (0.7 + 1.1 * night) * fl;
 
-    // kiln flues: they stand ~6 m above the yard (not 30 m stacks), so the plumes stay slimmer and thinner and climb
-    // clear of the treasury's pediment instead of rolling over it
+    // kiln flues (10-16 m, not 30 m stacks): slim plumes that climb steeply, so they clear the treasury's roof instead
+    // of rolling over it
     const s = Math.min(L, 1.4);
     this.smoke.update(moving ? dt : 0, {
-      rate: 0.05 + 0.08 * s, rise: 16 + 20 * s, size0: 1.3 + 0.5 * s, size1: 4.5 + 5 * s, drift: 22 + 14 * s,
+      rate: 0.05 + 0.08 * s, rise: 26 + 22 * s, size0: 1.2 + 0.4 * s, size1: 3.5 + 4 * s, drift: 16 + 10 * s,
       opacity: banked ? 0 : 0.14 + 0.3 * Math.min(1, s), darkness: 0.45 + 0.2 * Math.min(1, s),
       under: this.under.setRGB(1.0, 0.45, 0.15).multiplyScalar(0.12 * night * Math.min(1, s)),
     }, windTo, wind, u);
