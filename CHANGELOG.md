@@ -2,6 +2,15 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v1.2.1 - 2026-10-19 - Canvas Up
+
+Two fixes: the detail panel's close button works again, and ships keep their sails set everywhere except at a berth.
+
+Collected from `main` after v1.2.0.
+
+- The X on the detail panel closes it again; the panel's header had been sitting over the button and catching the click.
+- Sails are furled only when a ship is docked at a berth or pontoon. Ships at a mooring buoy, rafted up in open water or holding at sea now lie with their canvas set, and keep it set on the way to and from those spots; the Shoals' flogging sails are unchanged.
+
 ## v1.2.0 - 2026-10-15 - Terracotta and Bronze
 
 The town around the Pharos now belongs to the Pharos's own age: a painted Mediterranean harbour of stoas, temple fronts, clay-tiled houses, umbrella pines and an ancient fleet, with every building and ship meaning exactly what it did before.

@@ -40,6 +40,9 @@ export interface PathRec extends SubPath {
   laneB: number;
   /** The leg starts from a hull already under way (a voyage): no cast-off phase. */
   underway?: boolean;
+  /** Sail stays set at the start / end of the leg: the hull leaves / makes a mooring or raft, not a berth (sailSetAt). */
+  setFrom?: boolean;
+  setTo?: boolean;
 }
 
 /** Harbour cruising speed (m/s) for a hull: ~3 m/s for a 13 m cutter, scaled by √LOA (no toy boats). */
@@ -548,7 +551,7 @@ export function evalLeg(p: PathRec, tm: LegTiming, out: Float64Array): void {
   const loa = out[IO_LOA];
   out[IO_LANE] = 0;
   out[IO_SEP] = 0;
-  out[4] = 0;
+  out[4] = p.setFrom ? 1 : 0;
   // where the forward/astern part begins, and the hull's heading there
   if (t < tm.tHold + tm.tW0 + tm.tTurn) {
     if (p.rev) { out[IO_S] = 0; samplePath(p.rev, out); out[2] = tm.h0; }
@@ -614,8 +617,8 @@ export function evalLeg(p: PathRec, tm: LegTiming, out: Float64Array): void {
   // berths themselves: the astern run and the warps are part of the way out / in.
   const fromBerth = sq + (p.rev ? p.rev.length : 0) + (p.w0 ? hypot(p.w0[2], p.w0[3]) : 0);
   const toBerth = remaining + (p.w1 ? hypot(p.w1[0], p.w1[1]) : 0);
-  const set = p.underway ? 1 : Math.min(1, Math.max(0, (fromBerth - loa * SET_FROM_LOA) / (loa * (SET_FULL_LOA - SET_FROM_LOA))));
-  const furl = Math.min(1, Math.max(0, (toBerth - loa * FURL_BY_LOA) / (loa * (FURL_FROM_LOA - FURL_BY_LOA))));
+  const set = p.underway || p.setFrom ? 1 : Math.min(1, Math.max(0, (fromBerth - loa * SET_FROM_LOA) / (loa * (SET_FULL_LOA - SET_FROM_LOA))));
+  const furl = p.setTo ? 1 : Math.min(1, Math.max(0, (toBerth - loa * FURL_BY_LOA) / (loa * (FURL_FROM_LOA - FURL_BY_LOA))));
   const sail = Math.min(set, furl);
   out[4] = sail * sail * (3 - 2 * sail);
   out[5] = !p.underway && fromBerth < loa * CAST_OFF_LOA ? LEG_CAST_OFF : remaining < loa * 3 || p.w1 && remaining < loa * 4 ? LEG_APPROACH : LEG_SAIL;

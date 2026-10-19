@@ -180,7 +180,14 @@ export function buildPlanLegPath(L: SimLayout, baseSlots: number, fromSlot: numb
   const scenic = loop > 0 && fromSlot !== toSlot && scenicClearOf(L, fromSlot, toSlot, loop - 1, L.slots.slice(baseSlots).filter((s) => s.kind === "raft"), RAFT_CLEAR);
   let sc = scenic ? buildScenicPath(L, fromSlot, toSlot, cls, loop - 1) : null;
   if (sc && !pathClear(L, sc, loa, beam)) sc = null;
-  return { path: out ?? sc ?? buildLegPath(L, fromSlot, toSlot, cls), bad };
+  const path = out ?? sc ?? buildLegPath(L, fromSlot, toSlot, cls);
+  path.setFrom = sailSetAt(L.slots[fromSlot]); path.setTo = sailSetAt(L.slots[toSlot]);
+  return { path, bad };
+}
+
+/** Sails are furled only when docked (berth, pontoon): at a swinging mooring or in a raft she lies with them set. */
+export function sailSetAt(s: Slot | undefined): boolean {
+  return s?.mode === "swing" || s?.mode === "raft";
 }
 
 /** Leg-local time at which the hull comes to rest at the far end (before any spare time spent there). */
@@ -555,6 +562,7 @@ export class HarbourSim {
     if (from && from.swing > 0) c.pts[0] = [at.x, at.z];
     const path = buildPath(c.pts, r.loa, c.tail, L.field, r.beam, c.extras);
     path.underway = at.moving;
+    path.setFrom = sailSetAt(from ?? undefined); path.setTo = sailSetAt(L.slots[toSlot]);
     const startH = from ? (from.swing > 0 ? at.h : from.heading) : at.h;
     const nom = legTiming(path, 1e9, r.loa, newTiming(), startH, L.slots[toSlot].heading, false);
     let D = kind === EV_TOW ? nom.tNom * 1.8 : nom.tNom;
@@ -741,7 +749,7 @@ export class HarbourSim {
       x += this.tmp[13]; z += this.tmp[14];
     }
     p.position[i * 3] = x; p.position[i * 3 + 1] = 0; p.position[i * 3 + 2] = z;
-    p.heading[i] = h; p.speed[i] = 0; p.sailState[i] = 0;
+    p.heading[i] = h; p.speed[i] = 0; p.sailState[i] = sailSetAt(s) ? 1 : 0;
     this.settled[i] = w;
     p.phase[i] = phase === PH_DOCKED && s.swing > 0 ? (s.kind === "shoals" ? PH_ANCHORED : PH_MOORED) : phase;
     p.slot[i] = s.index;
@@ -829,7 +837,7 @@ export class HarbourSim {
       }
     }
     if (r.mode === MODE_HOLD) {
-      if (r.holdSlot < 0) { p.speed[i] = 0; p.sailState[i] = 0; p.phase[i] = PH_ANCHORED; p.lines[i] = 0; return; }
+      if (r.holdSlot < 0) { p.speed[i] = 0; p.sailState[i] = 1; p.phase[i] = PH_ANCHORED; p.lines[i] = 0; return; }
       this.blend = 1;
       this.dockT = t - r.holdSince;
       this.restPose(i, r, L.slots[r.holdSlot], r.holdPhase);
