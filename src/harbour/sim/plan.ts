@@ -121,6 +121,63 @@ export interface Plan {
   laneMetres(from: string, to: string): number;
 }
 
+/** Cloneable plan data; methods are reconstructed against the receiving realm's identical layout. */
+export type PlanData = Pick<Plan, "key" | "boats" | "stats">;
+
+export function hydratePlan(data: PlanData, L: SimLayout): Plan {
+  return { ...data, byId: new Map(data.boats.map((b) => [b.id, b])), ...planTiming(L) };
+}
+
+export function emptyPlan(key: string, L: SimLayout): Plan {
+  return hydratePlan({ key, boats: [], stats: { circuitBoats: 0, staticBoats: 0, outingBoats: 0, expectedOutings: 0, expectedUnderWay: 0, expectedDockingsPerMin: 0, overflow: 0, periodsMin: {} } }, L);
+}
+
+function planTiming(L: SimLayout): Pick<Plan, "legSeconds" | "laneMetres"> {
+  // Leg length between harbours: between the mean and the longest gate-to-gate lane run, plus a long
+  // (p75) approach each end, so hulls on short approaches ease off rather than any hull racing.
+  const approachLong = new Map<string, number>();
+  const gateNodes = new Map<string, { ins: number[]; outs: number[] }>();
+  for (const [where, byCls] of L.pools) {
+    const lens: number[] = [];
+    const ins = new Set<number>(), outs = new Set<number>();
+    for (const list of byCls.values()) for (const i of list) {
+      const sl = L.slots[i], a = sl.approach;
+      let len = 0;
+      for (let k = 1; k < a.length; k++) len += hypot(a[k][0] - a[k - 1][0], a[k][1] - a[k - 1][1]);
+      lens.push(len);
+      if (sl.inNode >= 0) ins.add(sl.inNode);
+      if (sl.outNode >= 0) outs.add(sl.outNode);
+    }
+    lens.sort((x, y) => x - y);
+    approachLong.set(where, lens.length ? lens[Math.min(lens.length - 1, Math.floor(lens.length * 0.75))] : 40);
+    gateNodes.set(where, { ins: [...ins], outs: [...outs] });
+  }
+  const laneCache = new Map<string, number>();
+  const laneMetres = (from: string, to: string): number => {
+    const k = from + ">" + to;
+    let v = laneCache.get(k);
+    if (v != null) return v;
+    const a = gateNodes.get(from), b = gateNodes.get(to), ga = L.gates.get(from), gb = L.gates.get(to);
+    let sum = 0, cnt = 0, mx = 0;
+    if (a && b) for (const o of a.outs) for (const i of b.ins) {
+      const d = L.graph.tdist[o * L.graph.n + i];
+      if (Number.isFinite(d)) { sum += d; cnt++; mx = Math.max(mx, d); }
+    }
+    v = cnt ? (sum / cnt + mx) / 2 : -1;
+    if (v < 0) v = ga && gb ? hypot(gb.x - ga.x, gb.z - ga.z) * 1.3 : 400;
+    laneCache.set(k, v);
+    return v;
+  };
+  const repLeg = (from: string, to: string) => representativeLeg(L, from, to);
+  const legSeconds = (from: string, to: string, cls: HullClass): number => {
+    const r = repLeg(from, to);
+    if (!r) return (laneMetres(from, to) + (approachLong.get(from) ?? 40) + (approachLong.get(to) ?? 40)) / SPEED[cls] + MANOEUVRE_S;
+    const v = SPEED[cls];
+    return r.travel / v + v / ACCEL + r.manoeuvre * Math.sqrt(L.loa[cls] / L.loa.medium) + 10;
+  };
+  return { legSeconds, laneMetres };
+}
+
 /** Interval set on the cycle circle, per slot. */
 class Timeline {
   private s: number[] = [];
@@ -169,49 +226,8 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
   const tl = (slot: number) => (timelines[slot] ??= new Timeline());
   const rafts = new Map<string, number[]>(); // where → raft slots
   let overflow = 0;
+  const { legSeconds, laneMetres } = planTiming(L);
 
-  // Leg length between harbours: between the mean and the longest gate-to-gate lane run, plus a long
-  // (p75) approach each end, so hulls on short approaches ease off rather than any hull racing.
-  const approachLong = new Map<string, number>();
-  const gateNodes = new Map<string, { ins: number[]; outs: number[] }>();
-  for (const [where, byCls] of L.pools) {
-    const lens: number[] = [];
-    const ins = new Set<number>(), outs = new Set<number>();
-    for (const list of byCls.values()) for (const i of list) {
-      const sl = L.slots[i], a = sl.approach;
-      let len = 0;
-      for (let k = 1; k < a.length; k++) len += hypot(a[k][0] - a[k - 1][0], a[k][1] - a[k - 1][1]);
-      lens.push(len);
-      if (sl.inNode >= 0) ins.add(sl.inNode);
-      if (sl.outNode >= 0) outs.add(sl.outNode);
-    }
-    lens.sort((x, y) => x - y);
-    approachLong.set(where, lens.length ? lens[Math.min(lens.length - 1, Math.floor(lens.length * 0.75))] : 40);
-    gateNodes.set(where, { ins: [...ins], outs: [...outs] });
-  }
-  const laneCache = new Map<string, number>();
-  const laneMetres = (from: string, to: string): number => {
-    const k = from + ">" + to;
-    let v = laneCache.get(k);
-    if (v != null) return v;
-    const a = gateNodes.get(from), b = gateNodes.get(to), ga = L.gates.get(from), gb = L.gates.get(to);
-    let sum = 0, cnt = 0, mx = 0;
-    if (a && b) for (const o of a.outs) for (const i of b.ins) {
-      const d = L.graph.tdist[o * L.graph.n + i];
-      if (Number.isFinite(d)) { sum += d; cnt++; mx = Math.max(mx, d); }
-    }
-    v = cnt ? (sum / cnt + mx) / 2 : -1;
-    if (v < 0) v = ga && gb ? hypot(gb.x - ga.x, gb.z - ga.z) * 1.3 : 400;
-    laneCache.set(k, v);
-    return v;
-  };
-  const repLeg = (from: string, to: string) => representativeLeg(L, from, to);
-  const legSeconds = (from: string, to: string, cls: HullClass): number => {
-    const r = repLeg(from, to);
-    if (!r) return (laneMetres(from, to) + (approachLong.get(from) ?? 40) + (approachLong.get(to) ?? 40)) / SPEED[cls] + MANOEUVRE_S;
-    const v = SPEED[cls];
-    return r.travel / v + v / ACCEL + r.manoeuvre * Math.sqrt(L.loa[cls] / L.loa.medium) + 10;
-  };
 
   // a scenic leg's time: the plain leg's, plus the loop's extra metres at an offshore pace (-1: none)
   const scenicSeconds = (from: string, to: string, cls: HullClass, v: number): number => {

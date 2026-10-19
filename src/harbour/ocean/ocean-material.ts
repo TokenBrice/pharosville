@@ -58,7 +58,6 @@ uniform vec2 uPrecip;         // rain, snow intensity (weather director)
 uniform vec3 uBeamPos, uBeamCol;
 uniform float uBeamAngle;
 uniform vec4 uBeamShape;
-uniform float uBeamBack;
 uniform float uDebug;
 // town lights (lights system's top-down pool RT): reflected in the water at night
 uniform sampler2D uPoolTex;
@@ -361,15 +360,14 @@ void main() {
     vec3 Lb = normalize(uBeamPos - vWorld);
     vec3 Hb = normalize(Lb + V);
     float bspec = pow(max(dot(Nsp, Hb), 0.0), 260.0);
-    for (int k = 0; k < 2; k++) {
-      float a = uBeamAngle + float(k) * 3.14159265;
-      vec2 bd = vec2(cos(a), sin(a));
-      float along = dot(rel, bd);
-      float lat = abs(rel.x * bd.y - rel.y * bd.x);
-      float w = 2.0 + along * tan(uBeamShape.y) * 1.25;
-      float foot = exp(-pow(lat / w, 2.0) * 1.6) * smoothstep(0.0, 40.0, along) * exp(-along / (uBeamShape.x * 0.55));
-      beam += uBeamCol * foot * (0.05 + bspec * 7.0 * sparkMask) * (k == 0 ? 1.0 : uBeamBack);
-    }
+    // The Pharos has one mirror/one forward beam; no opposite sea foot is emitted.
+    float a = uBeamAngle;
+    vec2 bd = vec2(cos(a), sin(a));
+    float along = dot(rel, bd);
+    float lat = abs(rel.x * bd.y - rel.y * bd.x);
+    float w = 2.0 + along * tan(uBeamShape.y) * 1.25;
+    float foot = exp(-pow(lat / w, 2.0) * 1.6) * smoothstep(0.0, 40.0, along) * exp(-along / (uBeamShape.x * 0.55));
+    beam += uBeamCol * foot * (0.05 + bspec * 7.0 * sparkMask);
     // the fire's own reflection: a soft column under the lantern (through the calm envelope normal) with a few
     // capped ripple twinkles inside it, not a wide spray of sparks across the basin; it swells on the mirror's flash
     float lrE = max(dot(reflect(vd, Nenv), Lb), 0.0);

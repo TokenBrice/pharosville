@@ -12,16 +12,6 @@ const numbers = (value: unknown): boolean => record(value) && Object.values(valu
 const fields = (value: Record<string, unknown>, keys: string[], check = finite): boolean => keys.every((key) => check(value[key]));
 const nonnegative = (value: unknown): boolean => finite(value) && (value as number) >= 0;
 const count = (value: unknown): boolean => nonnegative(value) && Number.isInteger(value);
-const completeness = (value: unknown): boolean => value === "complete" || value === "partial" || value === "unknown";
-const valuation = (value: unknown): boolean => record(value)
-  && fields(value, ["completeness", "mintCompleteness", "burnCompleteness"], completeness)
-  && fields(value, ["unpricedMintEventCount", "unpricedBurnEventCount"], count);
-const coinValuation = (value: unknown): boolean => record(value) && valuation(value.window24h)
-  && fields(value, ["baseline", "netFlow7d", "netFlow30d", "netFlow90d"], completeness);
-const coverage = (value: unknown): boolean => record(value)
-  && ["full", "partial-history", "lagging", "bootstrapping", "unknown", "disabled"].includes(value.status as string)
-  && fields(value, ["has24hWindow", "has30dWindow", "has90dWindow", "isPartial"], (v) => typeof v === "boolean")
-  && finite(value.startBlock) && fields(value, ["lastSyncedBlock", "lagBlocks", "historyStartAt"], nullableFinite);
 
 /** Small structural guards for the collections and numbers consumed by world construction.
  * Full semantic/schema audits remain off the production startup path.
@@ -31,54 +21,35 @@ export function isRenderableWorldPayload(key: PharosVilleApiEndpointKey, data: u
   switch (key) {
     case "stablecoins":
       return rows(data.peggedAssets, (asset) => fields(asset, ["id", "name", "symbol", "pegType"], (v) => typeof v === "string")
-        && nullableFinite(asset.price) && numbers(asset.circulating) && strings(asset.chains)
+        && record(asset.circulating) && Object.values(asset.circulating).every(nullableFinite) && strings(asset.chains)
         && ["circulatingPrevDay", "circulatingPrevWeek", "circulatingPrevMonth"].every((k) => asset[k] == null || numbers(asset[k]))
-        && record(asset.chainCirculating) && Object.values(asset.chainCirculating).every((chain) => record(chain)
-          && nullableFinite(chain.current) && ["circulatingPrevDay", "circulatingPrevWeek", "circulatingPrevMonth"].every((k) => chain[k] == null || finite(chain[k]))));
+        && record(asset.chainCirculating) && Object.values(asset.chainCirculating).every((chain) => chain === null || (record(chain) && nullableFinite(chain.current))));
     case "chains":
-      return fields(data, ["globalTotalUsd", "updatedAt"])
+      return finite(data.globalChange7dPct)
         && rows(data.chains, (chain) => fields(chain, ["id", "name"], (v) => typeof v === "string")
-          && fields(chain, ["totalUsd", "dominanceShare"])
-          && fields(chain, ["change24hPct", "change7dPct", "change30dPct"], nullableFinite)
-          && nullableFinite(chain.healthScore) && record(chain.healthFactors)
-          && Object.values(chain.healthFactors).every(nullableFinite)
-          && record(chain.dominantStablecoin) && finite(chain.dominantStablecoin.share)
-          && (chain.topStablecoins === undefined || rows(chain.topStablecoins, (coin) => typeof coin.id === "string" && fields(coin, ["share", "supplyUsd"]))));
+          && finite(chain.totalUsd) && nullableFinite(chain.healthScore)
+          && fields(chain, ["change24hPct", "change7dPct", "change30dPct"], nullableFinite));
     case "stability":
       return rows(data.history, (point) => fields(point, ["date", "score"]))
-        && (data.current === null || (record(data.current) && fields(data.current, ["score", "computedAt"])
+        && (data.current === null || (record(data.current) && finite(data.current.score)
           && typeof data.current.band === "string" && numbers(data.current.components)
-          && (data.current.contributors === undefined || rows(data.current.contributors, (coin) => typeof coin.id === "string" && fields(coin, ["bps", "mcapUsd", "ageDays", "factor"])) )));
+          && (data.current.avg24h === undefined || finite(data.current.avg24h))));
     case "pegSummary":
       return rows(data.coins, (coin) => typeof coin.id === "string"
-        && fields(coin, ["currentDeviationBps", "pegScore"], nullableFinite) && typeof coin.activeDepeg === "boolean")
-        && (data.summary === null || (record(data.summary) && fields(data.summary, ["activeDepegCount", "medianDeviationBps", "coinsAtPeg", "totalTracked"])));
+        && fields(coin, ["currentDeviationBps", "pegScore"], nullableFinite) && typeof coin.activeDepeg === "boolean"
+        && (coin.pegReference == null || (record(coin.pegReference) && nullableFinite(coin.pegReference.valueUsd))));
     case "stress":
-      return finite(data.updatedAt) && record(data.signals) && Object.values(data.signals).every((signal) => record(signal)
-        && fields(signal, ["score", "computedAt"]) && typeof signal.band === "string" && record(signal.signals)
-        && Object.values(signal.signals).every((detail) => record(detail) && finite(detail.value) && typeof detail.available === "boolean"));
+      return record(data.signals) && Object.values(data.signals).every((signal) => signal === null || (record(signal)
+        && finite(signal.score) && typeof signal.band === "string"));
     case "safetyGrades":
-      return finite(data.updatedAt) && rows(data.grades, (grade) => typeof grade.id === "string"
-        && nullableFinite(grade.score) && typeof grade.grade === "string");
+      return rows(data.grades, (grade) => typeof grade.id === "string" && typeof grade.grade === "string");
     case "mintBurn":
-      return finite(data.updatedAt) && record(data.gauge) && nullableFinite(data.gauge.score)
-        && nullableFinite(data.gauge.flightIntensity)
-        && (data.gauge.flightToQuality === null || typeof data.gauge.flightToQuality === "boolean")
-        && fields(data.gauge, ["trackedCoins"], count) && nonnegative(data.gauge.trackedMcapUsd)
-        && (data.gauge.classificationSource === undefined || ["safety-score-v9-publication", "report-card-cache", "unavailable"].includes(data.gauge.classificationSource as string))
+      return (data.scope === undefined || (record(data.scope) && strings(data.scope.chainIds)))
         && rows(data.coins, (coin) => typeof coin.stablecoinId === "string"
-          && (coin.flowIntensity === undefined || nullableFinite(coin.flowIntensity))
-          && (coin.valuation === undefined || coinValuation(coin.valuation))
-          && (coin.coverage === undefined || coverage(coin.coverage))
-          && (coin.netFlowDirection24h == null || ["minting", "burning", "flat", "inactive"].includes(coin.netFlowDirection24h as string))
-          && nullableFinite(coin.netFlow24hUsd)
-          && (coin.netFlow24hUsd !== null || (record(coin.valuation) && record(coin.valuation.window24h) && coin.valuation.window24h.completeness === "partial"))
+          && fields(coin, ["netFlow24hUsd", "netFlow7dUsd"], nullableFinite)
           && fields(coin, ["mintVolume24hUsd", "burnVolume24hUsd"], nonnegative)
-          && fields(coin, ["mintCount24h", "burnCount24h"], count)
-          && fields(coin, ["netFlow7dUsd", "netFlow30dUsd", "netFlow90dUsd"], nullableFinite))
+          && (coin.coverage === undefined || (record(coin.coverage) && typeof coin.coverage.status === "string")))
         && rows(data.hourly, (hour) => count(hour.hourTs) && nullableFinite(hour.netFlowUsd)
-          && (hour.netFlowUsd !== null || hour.valuation === "partial")
-          && (hour.valuation === undefined || completeness(hour.valuation))
           && fields(hour, ["mintVolumeUsd", "burnVolumeUsd"], nonnegative));
   }
 }

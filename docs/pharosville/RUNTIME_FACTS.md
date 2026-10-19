@@ -10,15 +10,15 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - World: The Harbour, one three.js WebGL2 Engine (`src/harbour/engine/`) mounted by `src/harbour/app/harbour-app.tsx`
 - Renderer failure fallback: the first-paint poster stays up with the arrival guide and Pharos links; no alternate renderer
 - Runtime media namespace: `/harbour/`
-- Latest app version: `v1.2.1` (`canvasUp`)
-- Latest changelog entry: `2026-10-19-canvas-up` / `v1.2.1` / 2026-10-19 / Canvas Up
+- Latest app version: `v1.3.0` (`fairWind`)
+- Latest changelog entry: `2026-10-19-fair-wind` / `v1.3.0` / 2026-10-19 / Fair Wind
 
 ## Viewport Gate
 
 - Size profile: `720×600px` (long side × short side)
 - Device capability and current-viewport readiness independently sort their own dimensions and must satisfy that profile. It admits desktop and laptop windows, unfolded foldables and tablets either way up; phones and folded foldables get the welcome page.
 - Orientation and aspect ratio are not gates: an 832×680 unfolded foldable, a 744×1133 portrait tablet, a 1200×640 laptop viewport, and a 2560×720 ultrawide viewport all pass.
-- `src/client.tsx` lazy-loads the Harbour chunk (`src/harbour/app/harbour-app.tsx`: Engine, systems, data feed) only after that gate; `npm run check:viewport-gate` guards the boundary.
+- `src/main.tsx` evaluates the gate before importing React; only an admitted viewport imports `src/harbour/app/react-entry.tsx` and, through `src/client.tsx`, lazy-loads the Harbour chunk (`src/harbour/app/harbour-app.tsx`: Engine, systems, data feed); `npm run check:viewport-gate` guards the boundary.
 
 ## API Allowlist
 
@@ -36,17 +36,17 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Chain crests: one atlas, `/harbour/crests.webp` (lossless) + `/harbour/crests.json`, decoded once for the office crests and the movers' flags.
 - Static world GLB: `/harbour/island.glb`
 - Static world GLB: `/harbour/lighthouse.glb`
-- Boat hull kit: `/harbour/kit/manifest.json` and its GLBs; sea mask: `/harbour/sea-sdf.webp` (lossless); shipped GLBs are fetched as pre-gzipped `.glb.gz`.
+- Boat hull kit: `/harbour/kit/manifest.json` and its GLBs; sea mask: `/harbour/sea-sdf.webp` (lossless, shipped as an exact planar-delta transport). Production builds publish first-view media under content-hashed `/harbour/_immutable/` paths (`scripts/harbour/build-asset-registry.mjs`): eager kit and civic GLBs in two indexed packs, Brotli-encoded over HTTP, cached immutable, with the previous release's files retained.
 - First paint: `/harbour/poster-{960,1600}.{avif,webp}` (an illustration, no live numbers), crossfaded into the first live frame.
 
 ## World Systems
 
-- Registration (= update) order: `SeasonSystem` → `LayoutSystem` → `DataSystem` → `ReadingsSystem` → `WeatherSystem` → `SkySystem` → `OceanSystem` → `IslandSystem` → `LighthouseSystem` → `CivicSystem` → `FleetSystem` → `LifeSystem` → `IdentitySystem` → `LightsSystem` → `BeamSystem`
+- Registration (= update) order: `SeasonSystem` → `LayoutSystem` → `DataSystem` → `ReadingsSystem` → `WeatherSystem` → `SkySystem` → `OceanSystem` → `IslandSystem` → `LighthouseSystem` → `CivicSystem` → `FleetSystem` → `LazyLifeSystem` → `LazyIdentitySystem` → `LightsSystem` → `BeamSystem`
 
 ## Bundle Budgets
 
-- entry chunk: raw <= 64 KiB, gzip <= 24 KiB
-- Harbour lazy chunk: raw <= 1,020 KiB, gzip <= 352 KiB
+- entry chunk: raw <= 10 KiB, gzip <= 4 KiB
+- Harbour lazy chunk: raw <= 832 KiB, gzip <= 281 KiB
 - Three.js renderer chunk: raw <= 960 KiB, gzip <= 276 KiB
 - Harbour CSS: raw <= 28 KiB, gzip <= 7 KiB
 - Total JS: raw <= 2,260 KiB, gzip <= 724 KiB

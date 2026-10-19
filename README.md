@@ -44,12 +44,13 @@ The browser calls same-origin `/api/*` paths only. `functions/api/[[path]].ts` p
 
 At a high level:
 
-1. The React route gates unsupported viewports before world data is mounted.
+1. A tiny same-origin bootstrap checks the screen and window before importing React or the world; unsupported viewports keep the welcome page and request no live feeds.
 2. The browser requests same-origin `/api/*` endpoints.
 3. Cloudflare Pages Functions proxy only the allowed PharosVille read paths.
 4. `src/harbour/` turns that data into The Harbour: a three.js WebGL2 world where every stablecoin is a boat sailing between chain harbours in proportion to its supply, the lighthouse beam is the Stability Index, and sea, weather and fog carry peg, stress and staleness.
-5. `src/harbour/app/` mounts the Engine, its world systems and the chart-paper UI from a lazily loaded chunk; a poster of the harbour paints first and crossfades into the first live frame.
-6. Runtime media is limited to same-origin stablecoin and chain marks and the checked files under `public/harbour/`; if WebGL2 cannot start, the poster stays up with the guide and Pharos links.
+5. `src/harbour/app/` mounts the Engine, its world systems and the chart-paper UI from a lazily loaded chunk; a poster paints first and crossfades only after the reveal policy has a rendered world or complete fleet revision.
+6. A generated asset registry maps runtime media, fonts and shell CSS to content-hashed immutable paths; lossless Brotli packs reduce geometry requests. Production retains the current and preceding release's assets for old tabs and supported rollback.
+7. Runtime media stays same-origin; if WebGL2 cannot start, the poster stays up with the guide and Pharos links. Slow fresh data may reveal an empty harbour before the complete fleet arrives; an unavailable fleet is never replaced with invented boats.
 
 For the full implementation map, see [Architecture](./docs/pharosville/ARCHITECTURE.md).
 

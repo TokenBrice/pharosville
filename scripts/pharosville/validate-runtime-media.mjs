@@ -35,12 +35,13 @@ const JPEG_EOI = Buffer.from([0xff, 0xd9]);
  * that renders blank in the browser — truncation above all.
  */
 export function findMediaFileProblems(mediaPath, bytes) {
+  const extension = extname(mediaPath).toLowerCase();
+  // The logo sync also plans its JSON URL manifest; it is not an image.
+  if (extension === ".json") return [];
   if (bytes.length === 0) return ["file is empty"];
   if (bytes.length < MIN_MEDIA_BYTES) {
     return [`file is only ${bytes.length} bytes, too small to hold an image`];
   }
-
-  const extension = extname(mediaPath).toLowerCase();
   const declared = DECLARED_FORMATS.get(extension);
   if (!declared) return [];
 
@@ -282,9 +283,33 @@ function validateStablecoinLogos() {
     referencedLogos.add(mediaPath.slice("/logos/".length));
   }
 
+  // Original logo bytes remain registered build sources. The runtime map may
+  // name an additional exact, smaller WebP, but never an unregistered source.
+  const runtimeMapPath = resolve(logosRoot, "lossless.json");
+  const runtimeMap = JSON.parse(readFileSync(runtimeMapPath, "utf8"));
+  if (!runtimeMap || typeof runtimeMap !== "object" || Array.isArray(runtimeMap)) {
+    errors.push("public/logos/lossless.json must be an object.");
+  } else {
+    for (const [source, target] of Object.entries(runtimeMap)) {
+      if (!source.startsWith("/logos/") || !referencedLogos.has(source.slice("/logos/".length))) {
+        errors.push(`lossless.json source is not registered in data/logos.json: ${source}`);
+        continue;
+      }
+      if (typeof target !== "string" || target !== `${source}.lossless.webp`) {
+        errors.push(`lossless.json must reference a top-level WebP: ${String(target)}`);
+        continue;
+      }
+      if (validatePublicPath(target, `lossless.json ${source}`)) {
+        referencedLogos.add(target.slice("/logos/".length));
+        if (readFileSync(join(publicRoot, target.slice(1))).length >= readFileSync(join(publicRoot, source.slice(1))).length) errors.push(`lossless.json alternate is not smaller: ${target}`);
+      }
+    }
+  }
+
   for (const fileName of readdirSync(logosRoot, { withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => entry.name)) {
+    if (fileName === "lossless.json") continue;
     if (!referencedLogos.has(fileName)) {
       errors.push(`Top-level stablecoin logo is not referenced by data/logos.json: ${fileName}`);
     }
@@ -322,9 +347,10 @@ function validateHarbourMedia() {
   for (const required of ["/harbour/island.glb", "/harbour/lighthouse.glb", "/harbour/kit/manifest.json"]) {
     if (!referencedHarbourMedia.has(required) && validatePublicFileExists(required, "Harbour runtime")) referencedHarbourMedia.add(required);
   }
-  // bake sources stay out of the deploy: the runtime loads sea-sdf.webp, the PNG lives in assets/harbour/
+  // Authoring/development inventory: production transports are generated and roundtrip-checked by
+  // build-asset-registry.mjs; verify-asset-registry.mjs additionally checks the built representation.
   if (existsSync(join(publicRoot, "harbour/sea-sdf.png"))) errors.push("public/harbour/sea-sdf.png would deploy unused: it belongs in assets/harbour/");
-  // the runtime fetches every /harbour/ GLB as its pre-gzipped sibling (scripts/harbour/compress-assets.mjs)
+  // Unbuilt development fetches each GLB's gzip sibling; keep that exact fallback inventory valid.
   const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
   for (const glb of walk(join(publicRoot, "harbour")).filter((f) => f.endsWith(".glb"))) {
     const gz = `${glb}.gz`, name = relative(publicRoot, gz);

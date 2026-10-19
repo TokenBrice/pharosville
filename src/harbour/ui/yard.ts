@@ -9,8 +9,8 @@
 import type { LaunchMilestone, LaunchPhase } from "@shared/types/core";
 // the slim cut of the registry (scripts/harbour/sync-check.mjs), not runtime-registry: the full registry stays server-side
 import runtimeSlim from "@shared/data/stablecoins/runtime-slim.json";
-import prelaunchBook from "../data/prelaunch.json";
-import { logosById } from "../../lib/logos";
+import prelaunchBook from "virtual:pharosville-prelaunch";
+import { logosById, runtimeLogoPath } from "../../lib/logos";
 import type { EngineContext } from "../engine/types";
 
 export const UPCOMING_URL = "https://pharos.watch/upcoming/";
@@ -80,7 +80,7 @@ export function toYardCoin(r: unknown): YardCoin | null {
     phaseDetail: str(o.launchPhaseDetail) ?? str(o.phaseDetail),
     expected: str(o.expectedLaunchDate) ?? str(o.expected),
     milestones: milestonesOf(o.milestones),
-    logo: str(o.logo) ?? logosById[id] ?? null,
+    logo: str(o.logo) ? runtimeLogoPath(str(o.logo)!) : logosById[id] ?? null,
     stage: phase ? STAGE_OF[phase] : "keel",
     peg: pegCurrency,
     llamaId: str(o.llamaId),
@@ -134,17 +134,20 @@ const SNAPSHOT = fromRows(runtimeSlim.filter((c) => c.status === "pre-launch"));
 const BOOK = fromRows(((prelaunchBook as { coins?: unknown[] }).coins) ?? []);
 
 /** The pre-launch book (the synced pharos-watch list); the repo's registry snapshot only when the book is empty. */
-export const REGISTRY_YARD: YardCoin[] = (() => {
-  if (!BOOK.length) return SNAPSHOT;
-  // the snapshot's milestones carry source links the synced book drops: keep them where the coin is in both
+export let REGISTRY_YARD: YardCoin[] = BOOK.length ? BOOK : SNAPSHOT;
+
+/** Full narratives arrive with the detail UI; retain the snapshot's milestone source-link merge. */
+export function installYardBook(rows: readonly unknown[]): void {
+  const book = fromRows(rows);
   const snap = new Map(SNAPSHOT.map((c) => [c.id, c]));
-  return BOOK.map((c) => {
+  REGISTRY_YARD = book.length ? book.map((c) => {
     const old = snap.get(c.id);
     if (!old) return c;
     const src = new Map(old.milestones.filter((m) => m.sourceUrl).map((m) => [`${m.date}|${m.title}`, m.sourceUrl]));
     return { ...c, milestones: c.milestones.map((m) => (m.sourceUrl || !src.get(`${m.date}|${m.title}`) ? m : { ...m, sourceUrl: src.get(`${m.date}|${m.title}`) })) };
-  });
-})();
+  }) : SNAPSHOT;
+  civicSrc = null;
+}
 
 /**
  * The 'civic' service, read structurally (src/harbour/civic). Any of these may be absent; the UI never

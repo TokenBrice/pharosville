@@ -22,6 +22,8 @@ export interface SoundController {
   subscribe(fn: () => void): () => void;
   /** Stop and release the audio (the choice stays). */
   stop(): void;
+  /** Engine-owned teardown: removes listeners and releases audio immediately, without changing the choice. */
+  dispose(): void;
 }
 
 interface Readings { fog?: number }
@@ -135,6 +137,9 @@ class Controller implements SoundController {
   private ac: AudioContext | null = null;
   private poll = 0;
   private starting = false;
+  private contextTask: Promise<void> = Promise.resolve();
+  private disposed = false;
+  private readonly retiring = new Set<Ambience>();
   private src: Sources | null = null;
   private srcFor: unknown = null;
   private unsubStrike: (() => void) | null = null;
@@ -143,8 +148,24 @@ class Controller implements SoundController {
   private readonly listeners = new Set<() => void>();
   private readonly onGesture = () => { this.disarm(); if (this.on) this.start(); };
   private readonly onVisibility = () => {
-    if (!this.ac) return;
-    if (document.hidden) void this.ac.suspend(); else if (this.on) void this.ac.resume();
+    if (this.disposed) return;
+    if (document.hidden) {
+      this.pausePolling();
+      this.amb?.pause();
+      for (const amb of this.retiring) void amb.dispose(false);
+    } else if (this.on && this.ac) {
+      this.feed();
+      this.amb?.resume();
+      this.startPolling();
+    }
+    const ac = this.ac;
+    if (!ac) return;
+    // Serialize native transitions too: a rapid hide/show must not let a late suspend win over resume.
+    this.contextTask = this.contextTask.then(async () => {
+      if (this.disposed || this.ac !== ac) return;
+      if (document.hidden) await ac.suspend();
+      else if (this.on) await ac.resume();
+    }).catch(() => undefined);
   };
 
   constructor(private readonly ctx: EngineContext) {
@@ -158,6 +179,7 @@ class Controller implements SoundController {
   private emit(): void { for (const fn of this.listeners) fn(); }
 
   toggle(): void {
+    if (this.disposed) return;
     this.on = !this.on;
     writeChoice(this.on);
     if (this.on) { this.disarm(); this.start(); } else this.stop();
@@ -176,21 +198,37 @@ class Controller implements SoundController {
 
   /** Must run inside a user gesture: the context is created and resumed synchronously here. */
   private start(): void {
-    if (this.amb || this.starting) return;
+    if (this.disposed || this.amb || this.starting) return;
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return;
     const ac = new Ctor({ latencyHint: "playback" });
-    void ac.resume();
+    this.contextTask = (document.hidden ? ac.suspend() : ac.resume()).catch(() => undefined);
     this.ac = ac;
     this.starting = true;
     void import("./ambience").then(({ Ambience }) => {
+      if (this.ac !== ac) return;
       this.starting = false;
-      if (!this.on || this.ac !== ac) { void ac.close(); return; }
-      this.amb = new Ambience(ac);
+      if (this.disposed || !this.on) { this.stop(); return; }
+      this.amb = new Ambience(ac, { paused: document.hidden });
       this.feed();
-      this.poll = window.setInterval(() => this.feed(), 250);
+      this.startPolling();
       this.emit();
-    }).catch(() => { this.starting = false; });
+    }).catch(() => {
+      if (this.ac !== ac) return;
+      this.starting = false;
+      this.ac = null;
+      void ac.close().catch(() => undefined);
+    });
+  }
+
+  private startPolling(): void {
+    if (!this.disposed && this.on && this.amb && !document.hidden && !this.poll) {
+      this.poll = window.setInterval(() => this.feed(), 250);
+    }
+  }
+
+  private pausePolling(): void {
+    clearInterval(this.poll); this.poll = 0;
   }
 
   /**
@@ -200,7 +238,7 @@ class Controller implements SoundController {
    */
   private feed(): void {
     const amb = this.amb;
-    if (!amb) return;
+    if (!amb || this.disposed || document.hidden) return;
     const { ctx } = this;
     const L = ctx.services.get("layout") as (HarbourLayout & CivicLayout) | undefined;
     const lo = L?.camera.minDistance ?? 90, hi = L?.camera.maxDistance ?? 1150;
@@ -255,7 +293,7 @@ class Controller implements SoundController {
   /** A lightning strike: its thunder, delayed by its distance, from where it struck (azimuth 0 = -z, +π/2 = +x). */
   private strike(e: StrikeLike): void {
     const amb = this.amb;
-    if (!amb) return;
+    if (!amb || this.disposed || document.hidden) return;
     const az = e.azimuth ?? 0, dx = Math.sin(az), dz = -Math.cos(az);
     const pan = Math.max(-1, Math.min(1, dx * this.right[0] + dz * this.right[1]));
     const km = e.distanceKm ?? 10;
@@ -263,12 +301,28 @@ class Controller implements SoundController {
   }
 
   stop(): void {
-    clearInterval(this.poll);
+    this.pausePolling();
     this.unsubStrike?.(); this.unsubStrike = null;
     const amb = this.amb, ac = this.ac;
     this.amb = null; this.ac = null;
-    if (amb) void amb.dispose(); else if (ac) void ac.close().catch(() => undefined);
+    this.starting = false;
+    this.src = null; this.srcFor = null;
+    if (amb) {
+      this.retiring.add(amb);
+      void amb.dispose(!this.disposed && !document.hidden).finally(() => this.retiring.delete(amb));
+    } else if (ac) void ac.close().catch(() => undefined);
     this.emit();
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.disarm();
+    document.removeEventListener("visibilitychange", this.onVisibility);
+    this.stop();
+    for (const amb of this.retiring) void amb.dispose(false);
+    this.listeners.clear();
+    if (this.ctx.services.get("sound") === this) this.ctx.services.delete("sound");
   }
 }
 

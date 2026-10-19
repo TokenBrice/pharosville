@@ -1,7 +1,8 @@
 import * as THREE from "three";
-import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
 import type { SeasonalDay } from "../engine/time-of-day";
 import { getHarbourMaterials, leafFallAt } from "../world/materials";
+import { isPreparationAbort } from "../engine/prepare";
 import {
   NOMINAL_LATITUDE, dayOfYear, dominantSeason, isSouthernZone, northernDay, overrideDay, parseSeasonOverride,
   seasonWeights, snowShareFor, solarDay, temperatureFor, type SeasonName, type SeasonWeights,
@@ -75,8 +76,10 @@ export class SeasonSystem implements WorldSystem {
   private fresh = 0;
   private snowCover = 0;
   private recheck = 0;
-  private depthScan = 0;
+  private resolved = false;
+  private pendingSeason = false;
   private readonly day: SeasonalDay = { sunrise: 6, sunset: 19.85, noonElevation: 58, sunTint: new THREE.Color(1, 1, 1), saturation: 1, skyPale: 0 };
+  private readonly dayGrade = { contrast: 0, lift: 0, warm: 0, gain: [0, 0, 0] };
 
   init(ctx: EngineContext): void {
     const now = new Date();
@@ -117,8 +120,28 @@ export class SeasonSystem implements WorldSystem {
     this.baseSnow = 0.78 * THREE.MathUtils.smoothstep(this.weights[3], 0.2, 0.85);
 
     const u = ctx.uniforms;
-    u.uFoliage.value.set(this.weights[0], this.weights[1], this.weights[2], this.weights[3]);
-    u.uSeasonPhase.value = (this.nDay - 1) / 365;
+    const foliage = new THREE.Vector4(...this.weights), phase = (this.nDay - 1) / 365;
+    const previousFoliage = u.uFoliage.value.clone(), previousPhase = u.uSeasonPhase.value;
+    const wasBare = leafFallAt(u) > 0.001;
+    u.uFoliage.value.copy(foliage); u.uSeasonPhase.value = phase;
+    const bare = leafFallAt(u) > 0.001;
+    const preparation = ctx.services.get("preparation") as PreparationService | undefined;
+    if (this.resolved && (wasBare !== bare || this.pendingSeason) && preparation) {
+      this.pendingSeason = true;
+      u.uFoliage.value.copy(previousFoliage); u.uSeasonPhase.value = previousPhase;
+      const scope = () => {
+        const oldFoliage = u.uFoliage.value.clone(), oldPhase = u.uSeasonPhase.value;
+        u.uFoliage.value.copy(foliage); u.uSeasonPhase.value = phase;
+        return () => { u.uFoliage.value.copy(oldFoliage); u.uSeasonPhase.value = oldPhase; };
+      };
+      void preparation.prepareSeason(scope, () => {
+        u.uFoliage.value.copy(foliage); u.uSeasonPhase.value = phase;
+        getHarbourMaterials(ctx).invalidateSeason(ctx.scene);
+        ctx.renderer.shadowMap.needsUpdate = true;
+        this.pendingSeason = false;
+      }).catch((error: unknown) => { if (!isPreparationAbort(error)) console.error("[harbour] season preparation failed", error); });
+    }
+    this.resolved = true;
     const d = this.day;
     d.sunrise = sd.sunrise; d.sunset = sd.sunset; d.noonElevation = sd.noonElevation;
     d.sunTint.setRGB(0, 0, 0); d.saturation = 0;
@@ -127,6 +150,14 @@ export class SeasonSystem implements WorldSystem {
       d.sunTint.r += SUN_TINT[s].r * this.weights[i]; d.sunTint.g += SUN_TINT[s].g * this.weights[i]; d.sunTint.b += SUN_TINT[s].b * this.weights[i];
       d.saturation += SATURATION[s] * this.weights[i];
     });
+    // Calendar-only sums retain the same season/component order, but need resolving only with the weights.
+    const grade = this.dayGrade;
+    grade.contrast = 0; grade.lift = 0; grade.warm = 0; grade.gain.fill(0);
+    for (let i = 0; i < SEASONS_ORDER.length; i++) {
+      const w = this.weights[i], k = GRADE[SEASONS_ORDER[i]];
+      grade.contrast += k.contrast * w; grade.lift += k.lift * w; grade.warm += k.warmSat * w;
+      for (let c = 0; c < 3; c++) grade.gain[c] += k.gain[c] * w;
+    }
     ctx.timeOfDay.season = d;
     if (this.snowCover === 0) this.snowCover = this.baseSnow;
     u.uSnowCover.value = this.snowCover;
@@ -146,21 +177,6 @@ export class SeasonSystem implements WorldSystem {
     u.uSnowCover.value = this.snowCover;
     this.grade(ctx);
 
-    // bare crowns cast twig shadows: hand the kit's shadow-depth twin to kit meshes that loaded since
-    // (systems finish at different times; scan a few times early, then rarely)
-    if (leafFallAt(u) > 0.001) {
-      this.depthScan -= dt;
-      if (this.depthScan <= 0) {
-        this.depthScan = frame.elapsed < 30 ? 2 : 30;
-        const depth = getHarbourMaterials(ctx).kitDepth();
-        ctx.scene.traverse((o) => {
-          const m = o as THREE.Mesh;
-          if (!m.isMesh || m.customDepthMaterial || !m.castShadow) return;
-          const mat = m.material as THREE.Material;
-          if (!Array.isArray(m.material) && mat.name === "hb_kit") m.customDepthMaterial = depth;
-        });
-      }
-    }
   }
 
   /** The season's day grade, after TimeOfDay wrote the hour's (it runs before the systems each frame). */
@@ -168,18 +184,14 @@ export class SeasonSystem implements WorldSystem {
     const day = 1 - ctx.uniforms.uNight.value;
     if (day <= 0) return;
     const g = ctx.timeOfDay.grade;
-    let contrast = 0, lift = 0, warm = 0;
-    const gain = [0, 0, 0];
-    SEASONS_ORDER.forEach((s, i) => {
-      const w = this.weights[i], k = GRADE[s];
-      contrast += k.contrast * w; lift += k.lift * w; warm += k.warmSat * w;
-      for (let c = 0; c < 3; c++) gain[c] += k.gain[c] * w;
-    });
+    const { contrast, lift, warm, gain } = this.dayGrade;
     g.contrast = 1 + (g.contrast - 1) * THREE.MathUtils.lerp(1, contrast, day);
     g.warmSat = (g.warmSat ?? 1) * THREE.MathUtils.lerp(1, warm, day);
     const lk = 1 + lift * day;
-    g.lift = [g.lift[0] * lk, g.lift[1] * lk, g.lift[2] * lk];
-    g.gain = [g.gain[0] * THREE.MathUtils.lerp(1, gain[0], day), g.gain[1] * THREE.MathUtils.lerp(1, gain[1], day), g.gain[2] * THREE.MathUtils.lerp(1, gain[2], day)];
+    for (let c = 0; c < 3; c++) {
+      g.lift[c] *= lk;
+      g.gain[c] *= THREE.MathUtils.lerp(1, gain[c], day);
+    }
   }
 
   dispose(ctx: EngineContext): void {

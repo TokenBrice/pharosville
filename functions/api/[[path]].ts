@@ -17,7 +17,7 @@ import {
   type PagesContextWithWaitUntil,
 } from "../_shared";
 import type { PharosVilleApiEndpointKey } from "../../shared/types/pharosville-endpoint-keys";
-import { endpointProjector } from "./_project";
+import { endpointProjector, type ProjectionJson } from "./_project";
 
 interface Env {
   PHAROS_API_BASE?: string;
@@ -33,6 +33,7 @@ interface PagesContext extends PagesContextWithWaitUntil {
 }
 
 const FORWARDED_RESPONSE_HEADERS = [
+  "age",
   "cache-control",
   "content-type",
   "etag",
@@ -99,22 +100,52 @@ function prepareProxyResponseForCache(response: Response, maxAgeSec: number): Re
   return withDefaultJsonCacheControl(response, maxAgeSec);
 }
 
+/** GET validators use weak comparison, including lists and the wildcard. */
+function conditionalResponse(request: Request, response: Response): Response {
+  const condition = request.headers.get("if-none-match");
+  const etag = response.headers.get("etag");
+  if (response.status !== 200 || !condition || !etag) return response;
+  const tags = condition.match(/(?:W\/)?"[^"]*"|\*/g) ?? [];
+  if (!tags.some((tag) => tag === "*" || tag.replace(/^W\//, "") === etag.replace(/^W\//, ""))) return response;
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  return new Response(null, { status: 304, statusText: "Not Modified", headers });
+}
+
+async function projectedResponse(response: Response, key: PharosVilleApiEndpointKey): Promise<Response> {
+  if (response.status !== 200 || !isJsonResponse(response)) return response;
+  const body = JSON.stringify(endpointProjector(key)(await response.json() as ProjectionJson));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const headers = new Headers(response.headers);
+  // Upstream validators/encoding describe a different representation.
+  // pv1 is the projection epoch; bump it when changing the projector contract.
+  headers.set("etag", `"pv1-${hash}"`);
+  headers.delete("content-length");
+  headers.delete("content-encoding");
+  return new Response(body, { status: response.status, statusText: response.statusText, headers });
+}
+
 /**
  * Serves the long-TTL last-good copy in place of a 502 when the upstream API is
  * down, marked so the client tells the truth about it. `Warning: 110` is the
  * marker `src/lib/api.ts` already reads to demote a payload out of `fresh`, and
  * `x-data-age` carries the copy's own age plus the time it sat in the cache.
  * `no-store` keeps browsers from pinning the stale body past the outage.
+ * Always send the body with that warning, even for matching browser validators;
+ * stale demotion must not depend on a browser merging 304 freshness headers.
  */
-function staleLastGoodResponse(entry: LastGoodEdgeEntry): Response {
-  const headers = copyForwardedHeaders(entry.response);
+async function staleLastGoodResponse(entry: LastGoodEdgeEntry, key: PharosVilleApiEndpointKey): Promise<Response> {
+  const response = entry.response.headers.get("etag")?.startsWith('"pv1-') ? entry.response : await projectedResponse(entry.response, key);
+  const headers = copyForwardedHeaders(response);
   const upstreamAge = Number(headers.get("x-data-age"));
   const baseAge = Number.isFinite(upstreamAge) && upstreamAge >= 0 ? upstreamAge : 0;
-  headers.set("x-data-age", String(baseAge + entry.storedAgeSeconds));
+  const cacheAge = Math.max(0, Number(headers.get("age")) || 0);
+  headers.set("x-data-age", String(baseAge + Math.max(0, entry.baseCacheAgeSeconds + entry.storedAgeSeconds - cacheAge)));
   headers.set("warning", '110 - "Response is stale"');
   headers.set("cache-control", "no-store");
   return withSecurityHeaders(
-    new Response(entry.response.body, { status: 200, statusText: "OK", headers }),
+    new Response(response.body, { status: 200, statusText: "OK", headers }),
     API_SECURITY_RESPONSE_HEADERS,
   );
 }
@@ -152,13 +183,8 @@ async function fetchUpstream(url: string, apiKey: string, key: PharosVilleApiEnd
       });
       // Consume under the same deadline: a successful header is not a complete response.
       const text = await upstream.text();
-      let body = text;
-      if (upstream.ok && isJsonResponse(upstream)) {
-        const json: unknown = JSON.parse(text);
-        const project = endpointProjector(key);
-        if (project) body = JSON.stringify(project(json));
-      }
-      return new Response(body || null, { status: upstream.status, statusText: upstream.statusText, headers: upstream.headers });
+      const response = new Response(text || null, { status: upstream.status, statusText: upstream.statusText, headers: upstream.headers });
+      return projectedResponse(response, key);
     })();
     const response = await Promise.race([
       request,
@@ -223,7 +249,12 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     reportEdgeCacheFailure("normal-read", error);
     return undefined;
   });
-  if (cached) return withSecurityHeaders(cached, API_SECURITY_RESPONSE_HEADERS);
+  if (cached) {
+    // Upgrade pre-cutover cache objects once; subsequent hits reuse the digest.
+    const projected = cached.headers.get("etag")?.startsWith('"pv1-') ? cached : await projectedResponse(cached, endpoint.key);
+    if (projected !== cached) maybeStoreEdgeCache(context, cache, cacheKey, projected);
+    return withSecurityHeaders(conditionalResponse(context.request, projected), API_SECURITY_RESPONSE_HEADERS);
+  }
 
   const lastGoodCacheKey = buildLastGoodCacheKey(url, CACHE_KEY_ORIGIN);
   const upstream = await fetchUpstream(buildUpstreamUrl(base, url), apiKey, endpoint.key);
@@ -231,7 +262,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     logUpstreamFailure(context, endpoint.path, upstream);
     const lastGood = await readLastGoodEdgeCache(cache, lastGoodCacheKey);
     return lastGood
-      ? staleLastGoodResponse(lastGood)
+      ? await staleLastGoodResponse(lastGood, endpoint.key)
       : jsonError("PharosVille API upstream request failed", 502);
   }
 
@@ -239,7 +270,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   // that is an answer about the request, and forwarding it stays honest.
   if (upstream.response.status >= 500) {
     const lastGood = await readLastGoodEdgeCache(cache, lastGoodCacheKey);
-    if (lastGood) return staleLastGoodResponse(lastGood);
+    if (lastGood) return staleLastGoodResponse(lastGood, endpoint.key);
   }
 
   const body = upstream.response.body;
@@ -250,5 +281,5 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   }), endpoint.metaMaxAgeSec);
   maybeStoreEdgeCache(context, cache, cacheKey, response);
   maybeStoreLastGoodEdgeCache(context, cache, lastGoodCacheKey, response);
-  return withSecurityHeaders(response, API_SECURITY_RESPONSE_HEADERS);
+  return withSecurityHeaders(conditionalResponse(context.request, response), API_SECURITY_RESPONSE_HEADERS);
 }

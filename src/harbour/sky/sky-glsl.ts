@@ -110,6 +110,9 @@ vec3 skyBand(float th, float e, float pxDeg) {
   float glowSun = exp(-dg / 24.0) * exp(-max(e, 0.0) / 4.5) * uSunDisc.w;
   float dm = abs(th - uMoonDisc.x);
   float glowMoon = exp(-dm / 16.0) * exp(-max(e, 0.0) / 3.5) * uMoonDisc.w * 0.6;
+  // Below the strict horizon boundary the final result was always exactly hazeC; no hidden layer contributes.
+  vec3 hazeC = uHaze + uGlowCol * (glowSun + glowMoon) * uSkyK.x * 0.35;
+  if (e < 0.0) return hazeC;
   c += uGlowCol * (glowSun + glowMoon) * uSkyK.x * 0.55;
   // overcast greys the sky
   float lum = dot(c, vec3(0.299, 0.587, 0.114));
@@ -212,6 +215,8 @@ vec3 skyBand(float th, float e, float pxDeg) {
     float sh = k == 0 ? uParallax.x : (k == 1 ? uParallax.y : uParallax.z);
     float tth = th + sh;
     float hmax = k == 0 ? 1.75 : (k == 1 ? 1.05 : 0.6);
+    // Ridge and envelope are in [0, 1], so H <= hmax; coverage above this AA bound is exactly zero.
+    if (e > hmax + pxDeg) continue;
     float fr = k == 0 ? 0.06 : (k == 1 ? 0.09 : 0.15);
     float seed = 3.0 + fk * 11.0;
     float H = sbHill(tth, seed, hmax, fr);
@@ -248,9 +253,7 @@ vec3 skyBand(float th, float e, float pxDeg) {
   }
   // ---- horizon haze band (matches the sea fog) + the glow on it
   float hzb = 1.0 - smoothstep(-0.05, 0.75, e);
-  vec3 hazeC = uHaze + uGlowCol * (glowSun + glowMoon) * uSkyK.x * 0.35;
   c = mix(c, hazeC, hzb * 0.85);
-  if (e < 0.0) c = hazeC;
   return c;
 }
 `;

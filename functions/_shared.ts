@@ -118,6 +118,7 @@ export function maybeStoreJsonEdgeCache(
 export const LAST_GOOD_MAX_AGE_SEC = 24 * 60 * 60;
 
 const LAST_GOOD_STORED_AT_HEADER = "x-pharosville-last-good-stored-at";
+const LAST_GOOD_BASE_AGE_HEADER = "x-pharosville-last-good-base-age";
 
 /**
  * Reserved prefix for the long-TTL copy, on the app's own origin. `caches.default`
@@ -174,6 +175,7 @@ async function storeParseableJson(
   const headers = new Headers(response.headers);
   headers.set("cache-control", `public, max-age=${LAST_GOOD_MAX_AGE_SEC}`);
   headers.set(LAST_GOOD_STORED_AT_HEADER, String(Math.floor(Date.now() / 1000)));
+  headers.set(LAST_GOOD_BASE_AGE_HEADER, String(Math.max(0, Number(response.headers.get("age")) || 0)));
   await cache.put(cacheKey, new Response(text, {
     status: response.status,
     statusText: response.statusText,
@@ -184,6 +186,7 @@ async function storeParseableJson(
 export interface LastGoodEdgeEntry {
   response: Response;
   storedAgeSeconds: number;
+  baseCacheAgeSeconds: number;
 }
 
 /**
@@ -204,5 +207,6 @@ export async function readLastGoodEdgeCache(
   if (!Number.isFinite(storedAt) || storedAt <= 0) return null;
   const storedAgeSeconds = Math.max(0, Math.floor(Date.now() / 1000) - storedAt);
   if (storedAgeSeconds > LAST_GOOD_MAX_AGE_SEC) return null;
-  return { response, storedAgeSeconds };
+  const baseCacheAgeSeconds = Math.max(0, Number(response.headers.get(LAST_GOOD_BASE_AGE_HEADER)) || 0);
+  return { response, storedAgeSeconds, baseCacheAgeSeconds };
 }

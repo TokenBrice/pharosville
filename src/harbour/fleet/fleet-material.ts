@@ -128,6 +128,7 @@ void hbFleetPose(vec3 p, vec3 n) {
   #endif
   vec4 a = hbFleetTexel(idx, 0);
   vec4 b = hbFleetTexel(idx, 1);
+  float phase = hbPaintTexel(idx, 2).w;
   float furl = a.x, swing = a.y;
   p += aFurl * furl;
   vec3 nn = n + aFurlN * furl;
@@ -138,14 +139,14 @@ void hbFleetPose(vec3 p, vec3 n) {
   if (node > 1.5) {
     float ang = node < 3.5 ? swing : 0.6 * swing;
     // a little life in the set sail: the boom works with the swell
-    ang += sin(uTime * 0.9 + float(idx) * 1.7) * 0.025 * (1.0 - furl);
+    ang += sin(uTime * 0.9 + phase * 1.7) * 0.025 * (1.0 - furl);
     mat3 R = hbRotAxis(aAxis, ang);
     p = aPivot + R * (p - aPivot);
     n = R * n;
   }
   if (aMeta.w > 0.5) {
     // ensign flutter: a travelling wave that grows away from the hoist (+x/-x unknown: use |local x| from the flag's mean)
-    float ph = uTime * (6.0 + 3.0 * uWind) + float(idx) * 2.3;
+    float ph = uTime * (6.0 + 3.0 * uWind) + phase * 2.3;
     p.z += sin(ph + p.x * 3.0 + p.y) * (0.05 + 0.08 * uWind) * (1.0 - furl * 0.5);
   }
   if (aMeta.w > 0.5 && a.w < 0.5) p = vec3(0.0); // pennant struck (small hulls seen from afar)
@@ -167,11 +168,17 @@ attribute vec3 aAxis;
 attribute vec3 aFurl;
 attribute vec2 aPaint;
 uniform highp sampler2D uFleetData;
+uniform highp sampler2D uFleetPaint;
 uniform float uTime;
 vec4 hbFleetTexel(int idx, int k) {
   int size = textureSize(uFleetData, 0).x;
   int j = idx * 2 + k;
   return texelFetch(uFleetData, ivec2(j % size, j / size), 0);
+}
+float hbFleetPhase(int idx) {
+  int size = textureSize(uFleetPaint, 0).x;
+  int j = idx * 5 + 2;
+  return texelFetch(uFleetPaint, ivec2(j % size, j / size), 0).w;
 }
 mat3 hbRotAxis(vec3 a, float ang) {
   float c = cos(ang), s = sin(ang), t = 1.0 - c;
@@ -190,7 +197,7 @@ vec3 hbFleetPoseP(vec3 p) {
   float node = aMeta.y;
   if (node > 0.5 && swing > 0.0) p.z = -p.z;
   if (node > 1.5) {
-    float ang = (node < 3.5 ? swing : 0.6 * swing) + sin(uTime * 0.9 + float(idx) * 1.7) * 0.025 * (1.0 - furl);
+    float ang = (node < 3.5 ? swing : 0.6 * swing) + sin(uTime * 0.9 + hbFleetPhase(idx) * 1.7) * 0.025 * (1.0 - furl);
     p = aPivot + hbRotAxis(aAxis, ang) * (p - aPivot);
   }
   return p;
@@ -425,16 +432,16 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   }
   #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => "hb_fleet_v7";
+  m.customProgramCacheKey = () => `hb_fleet_v9_${kit.customProgramCacheKey()}`;
 
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";
   depth.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, { uFleetData: fleet.uFleetData, uTime: fleet.uFleetTime });
+    Object.assign(shader.uniforms, { uFleetData: fleet.uFleetData, uFleetPaint: fleet.uFleetPaint, uTime: fleet.uFleetTime });
     shader.vertexShader = shader.vertexShader
       .replace("#include <batching_pars_vertex>", `#include <batching_pars_vertex>\n${DEPTH_VERT_PARS}`)
       .replace("#include <begin_vertex>", "vec3 transformed = hbFleetPoseP(position);");
   };
-  depth.customProgramCacheKey = () => "hb_fleet_depth_v3";
+  depth.customProgramCacheKey = () => "hb_fleet_depth_v4";
   return { material: m, depth };
 }

@@ -48,6 +48,7 @@ import {
   buildRuntimeFactsMarkdown,
 } from "./pharosville/generate-runtime-facts.mjs";
 import {
+  evaluateHarbourLoad,
   formatGateVerdict,
 } from "./pharosville/validate-deploy-gate.mjs";
 import {
@@ -369,6 +370,20 @@ assert.match(formatGateVerdict("skipped"), /^PHAROSVILLE_DEPLOY_GATE: PASS_PERF_
 assert.match(formatGateVerdict("measured"), /^PHAROSVILLE_DEPLOY_GATE: PASS\b/);
 assert.doesNotMatch(formatGateVerdict("measured"), /SKIP/);
 assert.equal(formatGateVerdict("skipped").includes("NOT measured"), true);
+
+const loadGroup = (median, n = 3) => ({
+  status: "PASS",
+  groups: [{ label: "A", config: "fast4g", arm: "cold", n,
+    metrics: { firstFleetFrameMs: { n, median } } }],
+});
+assert.equal(evaluateHarbourLoad(loadGroup(1150), loadGroup(1000, 5)).pass, true);
+assert.equal(evaluateHarbourLoad(loadGroup(1151), loadGroup(1000, 5)).pass, false);
+assert.equal(evaluateHarbourLoad(loadGroup(900), loadGroup(1000, 5)).deltaPercent.toFixed(1), "-10.0");
+assert.throws(() => evaluateHarbourLoad(loadGroup(1000, 2), loadGroup(1000, 5)), /three valid/);
+assert.throws(() => evaluateHarbourLoad({ ...loadGroup(1000), status: "SKIP" }, loadGroup(1000, 5)), /three valid/);
+assert.throws(() => evaluateHarbourLoad(loadGroup(NaN), loadGroup(1000, 5)), /three valid/);
+assert.throws(() => evaluateHarbourLoad(loadGroup(1000), loadGroup(0, 5)), /baseline/);
+assert.throws(() => evaluateHarbourLoad(loadGroup(1000), { status: "PASS", groups: [] }), /baseline/);
 
 const deployWorkflowSource = readFileSync(resolve(".github/workflows/deploy-cloudflare.yml"), "utf8");
 assert.match(deployWorkflowSource, /npm run validate/);
@@ -911,35 +926,33 @@ withGithubActions("true", () => {
   assert.equal(annotatedLog.includes("::error::/api/chains is stale"), true);
 });
 
-// A mint-burn payload the response schema permits — `scope` is optional and
-// `coins` has no minimum — must pass the gate. If it failed, the deploy smoke
-// would exhaust its retries and the canary would email admins twice an hour
-// over a payload nothing is wrong with.
+// The standalone projected contract keeps hourly flows and per-coin panel
+// readings; scope is optional and coins has no minimum. Legal empty coverage
+// remains a warning, never an outage caused by dropped upstream-only fields.
 const mintBurnCheck = smokeEndpointChecks.find((check) => check.path === "/api/mint-burn-flows");
 assert.ok(mintBurnCheck, "the smoke allowlist must still cover /api/mint-burn-flows");
 assert.deepEqual(
   mintBurnCheck.validate({
-    gauge: { score: 4 },
-    coins: [{ symbol: "USDC" }],
-    updatedAt: 1_785_060_000,
-    scope: { chainIds: ["1"], label: "all chains" },
+    hourly: [{ hourTs: 1_785_060_000, netFlowUsd: null, mintVolumeUsd: 4, burnVolumeUsd: 0 }],
+    coins: [{ stablecoinId: "usdc-circle", mintVolume24hUsd: 4, burnVolume24hUsd: 0, netFlow24hUsd: null, netFlow7dUsd: 4, coverage: { status: "partial-history" } }],
+    scope: { chainIds: ["1"] },
   }),
   [],
 );
 
-const mintBurnWarnings = mintBurnCheck.validate({ gauge: {}, coins: [], updatedAt: 1_785_060_000 });
+const mintBurnWarnings = mintBurnCheck.validate({ hourly: [], coins: [] });
 assert.equal(mintBurnWarnings.length, 2);
 assert.equal(mintBurnWarnings.some((warning) => warning.includes("no coins")), true);
 assert.equal(mintBurnWarnings.some((warning) => warning.includes("scope.chainIds")), true);
 
 // What the schema does guarantee stays a hard failure.
 assert.throws(
-  () => mintBurnCheck.validate({ coins: [], updatedAt: 1 }),
-  /gauge must be an object/,
+  () => mintBurnCheck.validate({ coins: [] }),
+  /hourly must be an array/,
 );
 assert.throws(
-  () => mintBurnCheck.validate({ gauge: {}, coins: [] }),
-  /updatedAt must be a finite number/,
+  () => mintBurnCheck.validate({ hourly: [] }),
+  /coins must be an array/,
 );
 
 const payloadWarningLog = [];

@@ -75,6 +75,7 @@ async function lock(name, timeoutMs) {
 /** Connect to the profile's persistent browser, starting it once if needed. */
 export async function connectShared(profileName = "standard") {
   const profile = PROFILES[profileName];
+  if (!profile) throw new Error(`unknown capture profile: ${profileName}`);
   let browser = await tryConnect(profile.port);
   if (browser) return browser;
   const release = await lock(`start-${profileName}`, 60_000);
@@ -100,18 +101,22 @@ export async function connectShared(profileName = "standard") {
 
 /** Serialise captures across all agents/processes (one foreground tab, honest frame timings). */
 export async function captureLock(profileName = "standard") {
+  if (!PROFILES[profileName]) throw new Error(`unknown capture profile: ${profileName}`);
   // ONE capture at a time: background tabs get throttled (1 fps, ghosted frames), measured 2026-10-14.
   const slots = 1;
   const deadline = Date.now() + 15 * 60_000;
   for (;;) {
     for (let i = 0; i < slots; i++) {
-      try { return await lock(`capture-${profileName}-${i}`, 0); } catch { /* slot busy */ }
+      try { return await lock(`capture-global-${i}`, 0); } catch { /* slot busy */ }
     }
     if (Date.now() > deadline) throw new Error(`timed out waiting for a ${profileName} capture slot`);
     await sleep(300 + Math.random() * 300);
   }
 }
 
+if (process.argv[1]?.endsWith("shared-browser.mjs") && process.argv.includes("--help")) {
+  console.log("Usage: node scripts/harbour/shared-browser.mjs stop\nLibrary: captureLock(profile), connectShared(profile). One global real-GPU capture lock across all profiles.");
+}
 if (process.argv[1]?.endsWith("shared-browser.mjs") && process.argv[2] === "stop") {
   for (const [name, p] of Object.entries(PROFILES)) {
     const b = await tryConnect(p.port);

@@ -23,6 +23,7 @@ export class Fenders {
     this.mesh = new THREE.InstancedMesh(g, mat, MAX);
     this.mesh.name = "harbour-fenders";
     this.mesh.count = 0;
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = true;
@@ -54,7 +55,11 @@ export class Fenders {
 
   end(): void {
     this.mesh.count = this.n;
-    if (this.n) this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.n) {
+      this.mesh.instanceMatrix.clearUpdateRanges();
+      this.mesh.instanceMatrix.addUpdateRange(0, this.n * 16); // 64 bytes per active matrix
+      this.mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   dispose(): void { this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); }

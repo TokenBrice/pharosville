@@ -19,6 +19,7 @@ uniform mat4 uInvProj;
 uniform float uTime;
 uniform sampler2D uNoise;
 uniform float uFocus;          // camera distance to the framed water (m): fog starts beyond the near foreground
+uniform float uCameraDensity;  // exp(-max(camera world y, 0) / H), constant over the entire pass
 const float H = 16.0;          // scale height of the bank (m)
 const float A = 0.03;          // density at the sea surface (1/m)
 void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
@@ -30,8 +31,8 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   vec3 wp = (uCamWorld * vec4(vp, 1.0)).xyz;
   float L = length(wp - cp);
   float dy = wp.y - cp.y;
-  float e0 = exp(-max(cp.y, 0.0) / H), e1 = exp(-max(wp.y, 0.0) / H);
-  float od = abs(dy) > 0.5 ? A * L * H * (e1 - e0) / -dy : A * L * e0;
+  float e1 = exp(-max(wp.y, 0.0) / H);
+  float od = abs(dy) > 0.5 ? A * L * H * (e1 - uCameraDensity) / -dy : A * L * uCameraDensity;
   // drifting banks: two octaves of the shared fbm, sampled along the ray near the water, moving with
   // the onshore breeze; clear lanes open between them
   vec3 qp = mix(cp, wp, clamp((cp.y - 6.0) / max(cp.y - wp.y, 1.0), 0.0, 1.0));
@@ -61,6 +62,7 @@ export class StaleFogEffect extends Effect {
         ["uTime", time as THREE.Uniform],
         ["uNoise", new THREE.Uniform(noise)],
         ["uFocus", new THREE.Uniform(300)],
+        ["uCameraDensity", new THREE.Uniform(1)],
       ]),
     });
   }
@@ -95,6 +97,7 @@ export class StaleFog {
     const u = this.effect.uniforms;
     u.get("uAmount")!.value = amount;
     (u.get("uCamWorld")!.value as THREE.Matrix4).copy(this.camera.matrixWorld);
+    u.get("uCameraDensity")!.value = Math.exp(-Math.max(this.camera.matrixWorld.elements[13], 0) / 16);
     (u.get("uInvProj")!.value as THREE.Matrix4).copy(this.camera.projectionMatrixInverse);
     // distance from the camera to the water along the view axis (the framed subject)
     const d = this.camera.getWorldDirection(this.dir);

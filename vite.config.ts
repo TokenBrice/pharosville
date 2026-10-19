@@ -1,18 +1,18 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import MagicString from "magic-string";
 import { fileURLToPath, URL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, realpathSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
+import { tmpdir } from "node:os";
 import type { OutputBundle, OutputChunk } from "rollup";
 import { onRequest as pharosVilleApiProxy } from "./functions/api/[[path]]";
 import { loadWorktreeSharedPharosEnv } from "./scripts/pharosville/local-api-env.mjs";
-import { MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX } from "./src/systems/viewport-gate";
+import { staticDataProjections } from "./scripts/vite/static-data-plugin";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
-// The gate's sorted size profile as a media query (either way up): admitted viewports preload the Harbour chunk.
-const pharosVilleDesktopQuery = `(min-width: ${MIN_LONG_SIDE_PX}px) and (min-height: ${MIN_SHORT_SIDE_PX}px), (min-width: ${MIN_SHORT_SIDE_PX}px) and (min-height: ${MIN_LONG_SIDE_PX}px)`;
 const pharosVilleDesktopChunkName = "harbour-app";
 
 function localPharosVilleApiProxy(env: { PHAROS_API_BASE?: string; PHAROS_API_KEY?: string }): Plugin {
@@ -113,10 +113,47 @@ function localCheckoutIdentity(): Plugin {
 }
 
 function desktopChunkModulePreload(): Plugin {
+  type Registry = {
+    urls: Record<string, string>;
+    models: Record<string, { url: string; entry?: string }>;
+    files: { url: string }[];
+    preloads: { url: string; fetchpriority?: string }[];
+  };
+  let staging = "";
+  let registry: Registry = { urls: {}, models: {}, preloads: [], files: [] };
+  const rewrite = (source: string) => {
+    for (const [from, to] of Object.entries(registry.urls)) source = source.replaceAll(from, to);
+    return source;
+  };
   return {
     name: "pharosville-desktop-chunk-modulepreload",
     apply: "build",
-    transformIndexHtml(_html, context) {
+    enforce: "pre",
+    config() {
+      staging = mkdtempSync(resolve(tmpdir(), "pv-assets-"));
+      execFileSync(process.execPath, [resolve(root, "scripts/harbour/build-asset-registry.mjs"), "--output", staging], { stdio: "inherit" });
+      registry = JSON.parse(readFileSync(resolve(staging, "asset-registry.json"), "utf8")) as Registry;
+      return { define: { __PV_ASSET_REGISTRY__: JSON.stringify({ urls: registry.urls, models: registry.models }) } };
+    },
+    buildStart() {
+      for (const file of registry.files) this.emitFile({
+        type: "asset", fileName: file.url.slice(1), source: readFileSync(resolve(staging, `.${file.url}`)),
+      });
+      this.emitFile({ type: "asset", fileName: "asset-registry.json", source: readFileSync(resolve(staging, "asset-registry.json")) });
+    },
+    transform(source, id) {
+      // Direct texture/JSON/poster/font consumers use the very same generated URL table as AssetStore.
+      // GLB keys are deliberately not rewritten: they identify intact entries in the scoped packs.
+      if (!id.startsWith(resolve(root, "src") + "/") || !/\.(?:tsx?|css)$/.test(id)) return null;
+      const code = new MagicString(source);
+      for (const [from, to] of Object.entries(registry.urls)) code.replaceAll(from, to);
+      return code.hasChanged() ? {
+        code: code.toString(),
+        map: code.generateMap({ source: id, includeContent: true, hires: true }),
+      } : null;
+    },
+    closeBundle() { if (staging) rmSync(staging, { recursive: true, force: true }); },
+    transformIndexHtml: { order: "post", handler(_html, context) {
       const bundle = context.bundle;
       if (!bundle) return [];
 
@@ -129,7 +166,11 @@ function desktopChunkModulePreload(): Plugin {
         throw new Error(`Missing dynamic ${pharosVilleDesktopChunkName} chunk for desktop modulepreload.`);
       }
 
-      const fileNames = desktopModulePreloadFileNames(bundle, desktopChunk);
+      const reactEntry = Object.values(bundle).find((entry): entry is OutputChunk => (
+        isOutputChunk(entry) && entry.isDynamicEntry && entry.name === "react-entry"
+      ));
+      if (!reactEntry) throw new Error("Missing admitted React entry for desktop modulepreload.");
+      const fileNames = desktopModulePreloadFileNames(bundle, desktopChunk, reactEntry);
       if (fileNames.length === 0) {
         throw new Error(`No modulepreload targets collected for ${pharosVilleDesktopChunkName}.`);
       }
@@ -137,44 +178,34 @@ function desktopChunkModulePreload(): Plugin {
       const modulePreloads = fileNames.map((fileName) => ({
         tag: "link",
         attrs: {
-          rel: "modulepreload",
+          "data-pv-preload": "modulepreload",
           href: `/${fileName}`,
-          media: pharosVilleDesktopQuery,
         },
         injectTo: "head" as const,
       }));
-      return [...modulePreloads, ...desktopFirstFramePreloads(bundle)];
-    },
+      return { html: rewrite(_html), tags: [...modulePreloads, ...desktopFirstFramePreloads(bundle, registry)] };
+    } },
   };
 }
 
 const harbourLayoutSource = "src/harbour/data/layout.json";
-/** First-frame fetches the engine makes, besides the hashed layout (public/, in the order systems need them). */
-const harbourFirstFrameUrls = [
-  "/harbour/sea-sdf.webp",
-  "/harbour/island.glb.gz",
-  "/harbour/lighthouse.glb.gz",
-  "/harbour/civic/manifest.json",
-  "/harbour/kit/manifest.json",
-];
-/** The 2.6 MB island goes at low priority so it does not hold back the Harbour JS (faster under fast4g and cold). */
-const harbourLowPriorityPreload = "/harbour/island.glb.gz";
 
 /**
- * The bytes the world's first frame waits on, requested at page entry on admitted viewports only (same
- * media query as the modulepreloads). as=fetch + crossorigin (anonymous) matches a default fetch() (cors,
- * same-origin credentials), so the engine's own fetches take these responses.
+ * The bytes the world's first frame waits on. The React-free bootstrap activates these hints only
+ * after physical-screen AND viewport admission; CSS media alone can leak world requests under zoom.
+ * as=fetch + crossorigin (anonymous) matches the engine's default fetch().
  */
-function desktopFirstFramePreloads(bundle: OutputBundle) {
+function desktopFirstFramePreloads(bundle: OutputBundle, registry: { preloads: { url: string; fetchpriority?: string }[] }) {
   const layout = Object.values(bundle).find((entry) => (
     entry.type === "asset" && entry.originalFileNames.some((name) => name.endsWith(harbourLayoutSource))
   ));
   if (!layout) throw new Error(`Missing ${harbourLayoutSource} asset for the first-frame preloads.`);
-  return [`/${layout.fileName}`, ...harbourFirstFrameUrls].map((href) => ({
+  return [{ url: `/${layout.fileName}` }, ...registry.preloads].map((entry) => ({
     tag: "link",
     attrs: {
-      rel: "preload", as: "fetch", crossorigin: "anonymous", href, media: pharosVilleDesktopQuery,
-      ...(href === harbourLowPriorityPreload ? { fetchpriority: "low" } : {}),
+      "data-pv-preload": "preload", as: "fetch", crossorigin: "anonymous",
+      href: entry.url,
+      ...("fetchpriority" in entry ? { fetchpriority: entry.fetchpriority } : {}),
     },
     injectTo: "head" as const,
   }));
@@ -184,7 +215,7 @@ function isOutputChunk(entry: OutputBundle[string]): entry is OutputChunk {
   return entry.type === "chunk";
 }
 
-function desktopModulePreloadFileNames(bundle: OutputBundle, desktopChunk: OutputChunk): string[] {
+function desktopModulePreloadFileNames(bundle: OutputBundle, ...chunks: OutputChunk[]): string[] {
   const fileNames: string[] = [];
   const seen = new Set<string>();
   const visit = (fileName: string) => {
@@ -195,7 +226,7 @@ function desktopModulePreloadFileNames(bundle: OutputBundle, desktopChunk: Outpu
     fileNames.push(fileName);
     for (const importedFileName of entry.imports) visit(importedFileName);
   };
-  visit(desktopChunk.fileName);
+  for (const chunk of chunks) visit(chunk.fileName);
   return fileNames;
 }
 
@@ -208,6 +239,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [
+      staticDataProjections(),
       localCheckoutIdentity(),
       localPharosVilleApiProxy({
         PHAROS_API_BASE: env.PHAROS_API_BASE ?? "https://api.pharos.watch",

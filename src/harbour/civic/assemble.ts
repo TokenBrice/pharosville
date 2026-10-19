@@ -1,6 +1,7 @@
 import * as THREE from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import type { HarbourMaterials } from "../world/materials";
+import { dequantizeForPatterns, type HarbourMaterials } from "../world/materials";
+import { replaceStaticDepth } from "../world/depth-prepass";
+import { decodeMeshAttribute, setBounds } from "../engine/static-merge";
 
 /**
  * Civic GLB plumbing: the manifest contract, the per-plot load (harbour material port, animated nodes re-pivoted
@@ -39,7 +40,7 @@ export interface LoadedPlot {
 export async function loadPlot(load: (url: string) => Promise<{ scene: THREE.Group }>, mats: HarbourMaterials, plot: CivicPlot, spec: ManifestKind): Promise<LoadedPlot> {
   const gltf = await load(CIVIC_BASE + spec.file);
   const scene = gltf.scene;
-  mats.apply(scene);
+  mats.apply(scene, { deferStatic: isStatic });
   const origin = new Map(spec.nodes.map((n) => [n.name, n.origin]));
   const nodes = new Map<string, THREE.Object3D>();
   scene.traverse((o) => {
@@ -60,6 +61,7 @@ export async function loadPlot(load: (url: string) => Promise<{ scene: THREE.Gro
   root.rotation.y = plot.rotationY;
   root.add(scene);
   root.updateMatrixWorld(true);
+  root.traverse((o) => { if (isStatic(o)) mats.staticDepth.add(o as THREE.Mesh); });
   return { plot, spec, root, nodes };
 }
 
@@ -106,32 +108,63 @@ export function worldGeometry(mesh: THREE.Mesh, extra: readonly string[] = []): 
  * originals. Returns the merged meshes (world space, identity transform), shadows set like the port does.
  */
 export function mergeStatic(roots: readonly THREE.Object3D[], filter: (m: THREE.Mesh) => boolean = isStatic): THREE.Mesh[] {
-  const groups = new Map<THREE.Material, { geos: THREE.BufferGeometry[]; meshes: THREE.Mesh[] }>();
+  const groups = new Map<THREE.Material, THREE.Mesh[]>();
   for (const root of roots) {
     root.updateMatrixWorld(true);
     root.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (!m.isMesh || !filter(m)) return;
+      if (!m.isMesh) return;
+      if (!filter(m)) { dequantizeForPatterns(m); return; }
       const mat = m.material as THREE.Material;
       if (!["hb_kit", "hb_window", "hb_emissive"].includes(mat.name)) return;
       let gr = groups.get(mat);
-      if (!gr) { gr = { geos: [], meshes: [] }; groups.set(mat, gr); }
-      gr.geos.push(worldGeometry(m, mat.name === "hb_window" ? ["hbWin", "hbWinC"] : []));
-      gr.meshes.push(m);
+      if (!gr) { gr = []; groups.set(mat, gr); }
+      gr.push(m);
     });
   }
   const out: THREE.Mesh[] = [];
   for (const [mat, gr] of groups) {
-    const geo = mergeGeometries(gr.geos, false);
-    for (const g of gr.geos) g.dispose();
-    if (!geo) continue;
-    geo.computeBoundingSphere();
+    const attrs = mat.name === "hb_window" ? [...ATTRS, "hbWin", "hbWinC"] : ATTRS;
+    const total = gr.reduce((n, m) => n + m.geometry.attributes.position.count, 0);
+    const geo = new THREE.BufferGeometry();
+    for (const name of attrs) {
+      const size = name === "color" || name === "hbWin" ? 4 : 3;
+      const data = new Float32Array(total * size);
+      let at = 0;
+      for (const source of gr) {
+        const attribute = source.geometry.attributes[name], count = source.geometry.attributes.position.count;
+        if (name === "color" && (!attribute || attribute.itemSize === 3)) {
+          for (let i = 0; i < count; i++) {
+            data[(at + i) * 4] = attribute?.getX(i) ?? 1;
+            data[(at + i) * 4 + 1] = attribute?.getY(i) ?? 1;
+            data[(at + i) * 4 + 2] = attribute?.getZ(i) ?? 1;
+            data[(at + i) * 4 + 3] = attribute ? 0 : 1;
+          }
+        } else if (attribute) decodeMeshAttribute(source, name, data, at, source.matrixWorld);
+        at += count;
+      }
+      geo.setAttribute(name, new THREE.BufferAttribute(data, size));
+    }
+    const indices = gr.reduce((n, m) => n + (m.geometry.index?.count ?? m.geometry.attributes.position.count), 0);
+    const index = total > 65535 ? new Uint32Array(indices) : new Uint16Array(indices);
+    let offset = 0, base = 0;
+    for (const source of gr) {
+      const g = source.geometry, count = g.index?.count ?? g.attributes.position.count;
+      for (let i = 0; i < count; i++) index[offset++] = base + (g.index ? g.index.getX(i) : i);
+      base += g.attributes.position.count;
+    }
+    geo.setIndex(new THREE.BufferAttribute(index, 1));
+    setBounds(geo);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.name = `civic-merged-${mat.name}`;
     mesh.castShadow = mat.name === "hb_kit";
     mesh.receiveShadow = true;
+    // Only the new childless merged output is fixed; presses, cranes and their ancestors stay live.
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     out.push(mesh);
-    for (const m of gr.meshes) m.removeFromParent();
+    replaceStaticDepth(gr, mesh);
+    for (const m of gr) m.removeFromParent();
   }
   return out;
 }

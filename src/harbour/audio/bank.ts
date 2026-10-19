@@ -98,4 +98,12 @@ export class ClipBank {
 
   /** Everything at once (offline rendering, tests). */
   buildAll(): void { while (this.work(1e9)) { /* drain */ } }
+
+  /** Drop cached PCM and any partially synthesised clip after playback is torn down. */
+  dispose(): void {
+    this.job = null;
+    this.queue.length = 0;
+    this.wanted.length = 0;
+    for (const kind of Object.keys(PLAN) as ClipKind[]) this.clips[kind].length = 0;
+  }
 }

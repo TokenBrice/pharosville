@@ -1,0 +1,1824 @@
+{
+ "schemaVersion": 1,
+ "tool": "load",
+ "date": "2026-10-19T16:39:22.077Z",
+ "status": "PASS",
+ "meta": {
+  "urls": [
+   {
+    "label": "A",
+    "url": "http://127.0.0.1:4191/?t=12&view=heart&intro=0"
+   }
+  ],
+  "configs": [
+   "none",
+   "cable",
+   "fast4g",
+   "fast4g+cpu4",
+   "igpu"
+  ],
+  "arms": [
+   "cold",
+   "repeat"
+  ],
+  "runsByArm": {
+   "cold": {
+    "none": 5,
+    "cable": 5,
+    "fast4g": 5,
+    "fast4g+cpu4": 5,
+    "igpu": 3
+   },
+   "repeat": {
+    "none": 3,
+    "fast4g": 3
+   }
+  },
+  "viewport": {
+   "width": 1600,
+   "height": 1000,
+   "dpr": 1
+  },
+  "machine": {
+   "platform": "linux",
+   "arch": "x64",
+   "cpu": "AMD Ryzen 7 7800X3D 8-Core Processor",
+   "logicalCpus": 16,
+   "maxLoad": 4,
+   "loadavgStart": [
+    19.65,
+    14.53,
+    7.89
+   ],
+   "contended": true,
+   "loadavgEnd": [
+    4.76,
+    5.28,
+    6.73
+   ],
+   "classification": "contended",
+   "caveat": "Load averages are a contention heuristic, not proof of GPU/thermal isolation."
+  },
+  "hardware": {
+   "date": "2026-10-19",
+   "os": "Linux x64",
+   "gpuObservedViaNvidiaSmi": "NVIDIA GeForce RTX 5070 Ti",
+   "driverVersion": "610.57.04",
+   "temperatureCAtStart": 39,
+   "pstateAtStart": "P0",
+   "powerDrawWattsAtStart": 94.39,
+   "thermalPlateau": "not established",
+   "powerState": "desktop AC; battery not applicable",
+   "viewport": {
+    "width": 1600,
+    "height": 1000,
+    "dpr": 1
+   },
+   "browser": "existing real-GPU shared capture Chrome; exact GPU string in per-run reports",
+   "contention": "Two integration verification agents interleave through one global capture lock. Other system work is not excluded. Per-sample os.loadavg classifications recorded by load.mjs; no quiet-machine claim."
+  },
+  "release": {
+   "name": "branch",
+   "revision": "8ea6f27c"
+  },
+  "sourceSummaries": [
+   "/home/ahirice/Documents/git/pharosville/outputs/need-for-speed/integration/cold-load.json",
+   "/home/ahirice/Documents/git/pharosville/outputs/need-for-speed/integration/repeat-load.json",
+   "/home/ahirice/Documents/git/pharosville/outputs/need-for-speed/integration/igpu-load.json"
+  ],
+  "byteAccounting": "CDP page-target completed responses including headers. Excludes partial in-flight bodies and unattached worker traffic; not an immutable dependency ledger. See first-frame-bytes.mjs. Local HTTP/1.1 is not CDN transport truth.",
+  "measurementMethod": "Native pv:first-frame and pv:first-fleet-frame performance marks; renderedRevision>0 and renderedBoats>0; independent DOM crossfade/removal observation.",
+  "limits": [
+   "HTTP-cold is not shader/GPU-driver cold.",
+   "Local HTTP/1.1 origin is not CDN compression/cache truth.",
+   "Shared machine; os.loadavg does not establish GPU or thermal isolation.",
+   "Wire accounting ends after harness evaluation and timing: variable observation boundary, not immutable eager dependency bytes.",
+   "Main first-fleet uses visible bounding-sphere count, branch uses coherent complete-fleet rendered revision; timing methods are not identical."
+  ]
+ },
+ "groups": [
+  {
+   "label": "A",
+   "url": "http://127.0.0.1:4191/?t=12&view=heart&intro=0",
+   "config": "none",
+   "arm": "cold",
+   "n": 5,
+   "metrics": {
+    "firstFrameMs": {
+     "n": 5,
+     "median": 1302.4000000059605,
+     "min": 1250.8999999761581,
+     "max": 1435.8999999761581
+    },
+    "firstFleetFrameMs": {
+     "n": 5,
+     "median": 2471.800000011921,
+     "min": 2447.199999988079,
+     "max": 3416.7999999821186
+    },
+    "crossfadeStartMs": {
+     "n": 5,
+     "median": 2473.300000011921,
+     "min": 2448.5,
+     "max": 3418.399999976158
+    },
+    "posterRemovedMs": {
+     "n": 5,
+     "median": 3594.7000000178814,
+     "min": 3566,
+     "max": 4549
+    },
+    "wireBytes": {
+     "n": 5,
+     "median": 6833359,
+     "min": 6833289,
+     "max": 6833366
+    },
+    "requests": {
+     "n": 5,
+     "median": 83,
+     "min": 83,
+     "max": 83
+    },
+    "true304Count": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    }
+   },
+   "boot": {
+    "season": {
+     "n": 5,
+     "median": 3,
+     "min": 3,
+     "max": 4
+    },
+    "layout": {
+     "n": 5,
+     "median": 23,
+     "min": 21,
+     "max": 25
+    },
+    "data": {
+     "n": 5,
+     "median": 119,
+     "min": 118,
+     "max": 120
+    },
+    "readings": {
+     "n": 5,
+     "median": 12,
+     "min": 12,
+     "max": 13
+    },
+    "weather": {
+     "n": 5,
+     "median": 2,
+     "min": 2,
+     "max": 3
+    },
+    "sky": {
+     "n": 5,
+     "median": 4,
+     "min": 3,
+     "max": 4
+    },
+    "ocean": {
+     "n": 5,
+     "median": 34,
+     "min": 34,
+     "max": 38
+    },
+    "island": {
+     "n": 5,
+     "median": 118,
+     "min": 116,
+     "max": 124
+    },
+    "lighthouse": {
+     "n": 5,
+     "median": 7,
+     "min": 6,
+     "max": 7
+    },
+    "civic": {
+     "n": 5,
+     "median": 64,
+     "min": 60,
+     "max": 73
+    },
+    "fleet": {
+     "n": 5,
+     "median": 158,
+     "min": 118,
+     "max": 336
+    },
+    "lights": {
+     "n": 5,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "beam": {
+     "n": 5,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "compile": {
+     "n": 5,
+     "median": 231,
+     "min": 211,
+     "max": 270
+    },
+    "u:season": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:layout": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:data": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:readings": {
+     "n": 5,
+     "median": 2,
+     "min": 2,
+     "max": 3
+    },
+    "u:weather": {
+     "n": 5,
+     "median": 6,
+     "min": 5,
+     "max": 7
+    },
+    "u:sky": {
+     "n": 5,
+     "median": 1,
+     "min": 1,
+     "max": 2
+    },
+    "u:ocean": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 1
+    },
+    "u:island": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:lighthouse": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:civic": {
+     "n": 5,
+     "median": 2,
+     "min": 2,
+     "max": 3
+    },
+    "u:fleet": {
+     "n": 5,
+     "median": 5,
+     "min": 4,
+     "max": 7
+    },
+    "u:lights": {
+     "n": 5,
+     "median": 2,
+     "min": 2,
+     "max": 4
+    },
+    "u:beam": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:ui": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 1
+    },
+    "u:render": {
+     "n": 5,
+     "median": 46,
+     "min": 43,
+     "max": 53
+    },
+    "firstRender": {
+     "n": 5,
+     "median": 80,
+     "min": 70,
+     "max": 85
+    },
+    "life": {
+     "n": 5,
+     "median": 262,
+     "min": 242,
+     "max": 293
+    },
+    "identity": {
+     "n": 5,
+     "median": 204,
+     "min": 182,
+     "max": 231
+    }
+   },
+   "sourceLabel": "B"
+  },
+  {
+   "label": "A",
+   "url": "http://127.0.0.1:4191/?t=12&view=heart&intro=0",
+   "config": "cable",
+   "arm": "cold",
+   "n": 5,
+   "metrics": {
+    "firstFrameMs": {
+     "n": 5,
+     "median": 2533.199999988079,
+     "min": 2507.9000000059605,
+     "max": 2653.5999999940395
+    },
+    "firstFleetFrameMs": {
+     "n": 5,
+     "median": 2668.800000011921,
+     "min": 2644.800000011921,
+     "max": 7228.600000023842
+    },
+    "crossfadeStartMs": {
+     "n": 5,
+     "median": 2670.699999988079,
+     "min": 2646.300000011921,
+     "max": 7230
+    },
+    "posterRemovedMs": {
+     "n": 5,
+     "median": 3811.800000011921,
+     "min": 3772.100000023842,
+     "max": 8362.300000011921
+    },
+    "wireBytes": {
+     "n": 5,
+     "median": 6833359,
+     "min": 6833340,
+     "max": 6833373
+    },
+    "requests": {
+     "n": 5,
+     "median": 83,
+     "min": 83,
+     "max": 83
+    },
+    "true304Count": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    }
+   },
+   "boot": {
+    "season": {
+     "n": 5,
+     "median": 3,
+     "min": 3,
+     "max": 4
+    },
+    "layout": {
+     "n": 5,
+     "median": 20,
+     "min": 19,
+     "max": 22
+    },
+    "data": {
+     "n": 5,
+     "median": 382,
+     "min": 372,
+     "max": 411
+    },
+    "readings": {
+     "n": 5,
+     "median": 12,
+     "min": 11,
+     "max": 13
+    },
+    "weather": {
+     "n": 5,
+     "median": 2,
+     "min": 2,
+     "max": 4
+    },
+    "sky": {
+     "n": 5,
+     "median": 4,
+     "min": 4,
+     "max": 4
+    },
+    "ocean": {
+     "n": 5,
+     "median": 38,
+     "min": 35,
+     "max": 41
+    },
+    "island": {
+     "n": 5,
+     "median": 764,
+     "min": 741,
+     "max": 783
+    },
+    "lighthouse": {
+     "n": 5,
+     "median": 6,
+     "min": 6,
+     "max": 7
+    },
+    "civic": {
+     "n": 5,
+     "median": 235,
+     "min": 231,
+     "max": 236
+    },
+    "fleet": {
+     "n": 5,
+     "median": 140,
+     "min": 132,
+     "max": 144
+    },
+    "lights": {
+     "n": 5,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "beam": {
+     "n": 5,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "compile": {
+     "n": 5,
+     "median": 244,
+     "min": 188,
+     "max": 255
+    },
+    "u:season": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:layout": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:data": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:readings": {
+     "n": 5,
+     "median": 2,
+     "min": 2,
+     "max": 2
+    },
+    "u:weather": {
+     "n": 5,
+     "median": 5,
+     "min": 5,
+     "max": 5
+    },
+    "u:sky": {
+     "n": 5,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "u:ocean": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:island": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:lighthouse": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:civic": {
+     "n": 5,
+     "median": 2,
+     "min": 2,
+     "max": 11
+    },
+    "u:fleet": {
+     "n": 5,
+     "median": 4,
+     "min": 4,
+     "max": 24
+    },
+    "u:lights": {
+     "n": 5,
+     "median": 2,
+     "min": 2,
+     "max": 2
+    },
+    "u:beam": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:ui": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:render": {
+     "n": 5,
+     "median": 44,
+     "min": 40,
+     "max": 101
+    },
+    "firstRender": {
+     "n": 5,
+     "median": 72,
+     "min": 68,
+     "max": 159
+    },
+    "life": {
+     "n": 5,
+     "median": 439,
+     "min": 125,
+     "max": 474
+    },
+    "identity": {
+     "n": 5,
+     "median": 351,
+     "min": 333,
+     "max": 385
+    }
+   },
+   "sourceLabel": "B"
+  },
+  {
+   "label": "A",
+   "url": "http://127.0.0.1:4191/?t=12&view=heart&intro=0",
+   "config": "fast4g",
+   "arm": "cold",
+   "n": 5,
+   "metrics": {
+    "firstFrameMs": {
+     "n": 5,
+     "median": 4903.5,
+     "min": 4900.5999999940395,
+     "max": 4998.5999999940395
+    },
+    "firstFleetFrameMs": {
+     "n": 5,
+     "median": 4903.5999999940395,
+     "min": 4900.699999988079,
+     "max": 4998.699999988079
+    },
+    "crossfadeStartMs": {
+     "n": 5,
+     "median": 4905.299999982119,
+     "min": 4902.699999988079,
+     "max": 5000.5
+    },
+    "posterRemovedMs": {
+     "n": 5,
+     "median": 6044.4000000059605,
+     "min": 6026.5999999940395,
+     "max": 6130.199999988079
+    },
+    "wireBytes": {
+     "n": 5,
+     "median": 6833359,
+     "min": 6833347,
+     "max": 6833401
+    },
+    "requests": {
+     "n": 5,
+     "median": 83,
+     "min": 83,
+     "max": 83
+    },
+    "true304Count": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    }
+   },
+   "boot": {
+    "season": {
+     "n": 5,
+     "median": 3,
+     "min": 3,
+     "max": 4
+    },
+    "layout": {
+     "n": 5,
+     "median": 19,
+     "min": 18,
+     "max": 20
+    },
+    "data": {
+     "n": 5,
+     "median": 851,
+     "min": 845,
+     "max": 863
+    },
+    "readings": {
+     "n": 5,
+     "median": 14,
+     "min": 13,
+     "max": 15
+    },
+    "weather": {
+     "n": 5,
+     "median": 3,
+     "min": 2,
+     "max": 3
+    },
+    "sky": {
+     "n": 5,
+     "median": 5,
+     "min": 4,
+     "max": 5
+    },
+    "ocean": {
+     "n": 5,
+     "median": 35,
+     "min": 35,
+     "max": 39
+    },
+    "island": {
+     "n": 5,
+     "median": 1659,
+     "min": 1639,
+     "max": 1663
+    },
+    "lighthouse": {
+     "n": 5,
+     "median": 6,
+     "min": 6,
+     "max": 9
+    },
+    "civic": {
+     "n": 5,
+     "median": 583,
+     "min": 577,
+     "max": 633
+    },
+    "fleet": {
+     "n": 5,
+     "median": 77,
+     "min": 76,
+     "max": 90
+    },
+    "lights": {
+     "n": 5,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "beam": {
+     "n": 5,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "compile": {
+     "n": 5,
+     "median": 216,
+     "min": 210,
+     "max": 285
+    },
+    "u:season": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:layout": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:data": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:readings": {
+     "n": 5,
+     "median": 2,
+     "min": 2,
+     "max": 3
+    },
+    "u:weather": {
+     "n": 5,
+     "median": 5,
+     "min": 4,
+     "max": 5
+    },
+    "u:sky": {
+     "n": 5,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "u:ocean": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:island": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:lighthouse": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:civic": {
+     "n": 5,
+     "median": 9,
+     "min": 9,
+     "max": 12
+    },
+    "u:fleet": {
+     "n": 5,
+     "median": 26,
+     "min": 25,
+     "max": 27
+    },
+    "u:lights": {
+     "n": 5,
+     "median": 2,
+     "min": 2,
+     "max": 2
+    },
+    "u:beam": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:ui": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:render": {
+     "n": 5,
+     "median": 100,
+     "min": 96,
+     "max": 109
+    },
+    "firstRender": {
+     "n": 5,
+     "median": 158,
+     "min": 153,
+     "max": 170
+    },
+    "life": {
+     "n": 5,
+     "median": 522,
+     "min": 520,
+     "max": 645
+    },
+    "identity": {
+     "n": 5,
+     "median": 421,
+     "min": 402,
+     "max": 599
+    }
+   },
+   "sourceLabel": "B"
+  },
+  {
+   "label": "A",
+   "url": "http://127.0.0.1:4191/?t=12&view=heart&intro=0",
+   "config": "fast4g+cpu4",
+   "arm": "cold",
+   "n": 5,
+   "metrics": {
+    "firstFrameMs": {
+     "n": 5,
+     "median": 6475.4000000059605,
+     "min": 6444.5999999940395,
+     "max": 6569
+    },
+    "firstFleetFrameMs": {
+     "n": 5,
+     "median": 6475.4000000059605,
+     "min": 6445.299999982119,
+     "max": 6569
+    },
+    "crossfadeStartMs": {
+     "n": 5,
+     "median": 6482.199999988079,
+     "min": 6451.699999988079,
+     "max": 6576.399999976158
+    },
+    "posterRemovedMs": {
+     "n": 5,
+     "median": 7649,
+     "min": 7607.799999982119,
+     "max": 7737.899999976158
+    },
+    "wireBytes": {
+     "n": 5,
+     "median": 6833359,
+     "min": 6833347,
+     "max": 6833408
+    },
+    "requests": {
+     "n": 5,
+     "median": 83,
+     "min": 83,
+     "max": 83
+    },
+    "true304Count": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    }
+   },
+   "boot": {
+    "season": {
+     "n": 5,
+     "median": 12,
+     "min": 11,
+     "max": 13
+    },
+    "layout": {
+     "n": 5,
+     "median": 54,
+     "min": 51,
+     "max": 57
+    },
+    "data": {
+     "n": 5,
+     "median": 1034,
+     "min": 1020,
+     "max": 1057
+    },
+    "readings": {
+     "n": 5,
+     "median": 32,
+     "min": 32,
+     "max": 34
+    },
+    "weather": {
+     "n": 5,
+     "median": 9,
+     "min": 9,
+     "max": 10
+    },
+    "sky": {
+     "n": 5,
+     "median": 14,
+     "min": 13,
+     "max": 15
+    },
+    "ocean": {
+     "n": 5,
+     "median": 147,
+     "min": 140,
+     "max": 170
+    },
+    "island": {
+     "n": 5,
+     "median": 1498,
+     "min": 1474,
+     "max": 1523
+    },
+    "lighthouse": {
+     "n": 5,
+     "median": 28,
+     "min": 26,
+     "max": 32
+    },
+    "civic": {
+     "n": 5,
+     "median": 459,
+     "min": 429,
+     "max": 473
+    },
+    "fleet": {
+     "n": 5,
+     "median": 515,
+     "min": 483,
+     "max": 538
+    },
+    "lights": {
+     "n": 5,
+     "median": 4,
+     "min": 4,
+     "max": 5
+    },
+    "beam": {
+     "n": 5,
+     "median": 4,
+     "min": 4,
+     "max": 5
+    },
+    "compile": {
+     "n": 5,
+     "median": 763,
+     "min": 739,
+     "max": 778
+    },
+    "u:season": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:layout": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:data": {
+     "n": 5,
+     "median": 0,
+     "min": 0,
+     "max": 1
+    },
+    "u:readings": {
+     "n": 5,
+     "median": 9,
+     "min": 9,
+     "max": 12
+    },
+    "u:weather": {
+     "n": 5,
+     "median": 15,
+     "min": 13,
+     "max": 19
+    },
+    "u:sky": {
+     "n": 5,
+     "median": 5,
+     "min": 5,
+     "max": 7
+    },
+    "u:ocean": {
+     "n": 5,
+     "median": 1,
+     "min": 1,
+     "max": 2
+    },
+    "u:island": {
+     "n": 5,
+     "median": 1,
+     "min": 1,
+     "max": 2
+    },
+    "u:lighthouse": {
+     "n": 5,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "u:civic": {
+     "n": 5,
+     "median": 40,
+     "min": 36,
+     "max": 48
+    },
+    "u:fleet": {
+     "n": 5,
+     "median": 102,
+     "min": 92,
+     "max": 109
+    },
+    "u:lights": {
+     "n": 5,
+     "median": 7,
+     "min": 7,
+     "max": 8
+    },
+    "u:beam": {
+     "n": 5,
+     "median": 1,
+     "min": 0,
+     "max": 2
+    },
+    "u:ui": {
+     "n": 5,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "u:render": {
+     "n": 5,
+     "median": 300,
+     "min": 287,
+     "max": 310
+    },
+    "firstRender": {
+     "n": 5,
+     "median": 525,
+     "min": 493,
+     "max": 553
+    },
+    "life": {
+     "n": 5,
+     "median": 1516,
+     "min": 1431,
+     "max": 1542
+    },
+    "identity": {
+     "n": 5,
+     "median": 1556,
+     "min": 1470,
+     "max": 1792
+    }
+   },
+   "sourceLabel": "B"
+  },
+  {
+   "label": "A",
+   "url": "http://127.0.0.1:4191/?t=12&view=heart&intro=0",
+   "config": "none",
+   "arm": "repeat",
+   "n": 3,
+   "metrics": {
+    "firstFrameMs": {
+     "n": 3,
+     "median": 1281.0999999940395,
+     "min": 1269,
+     "max": 1287.5999999940395
+    },
+    "firstFleetFrameMs": {
+     "n": 3,
+     "median": 2380.899999976158,
+     "min": 2353.5999999940395,
+     "max": 2396.4000000059605
+    },
+    "crossfadeStartMs": {
+     "n": 3,
+     "median": 2382.699999988079,
+     "min": 2354.9000000059605,
+     "max": 2398.300000011921
+    },
+    "posterRemovedMs": {
+     "n": 3,
+     "median": 3508.2999999821186,
+     "min": 3490.7999999821186,
+     "max": 3534.800000011921
+    },
+    "wireBytes": {
+     "n": 3,
+     "median": 7886,
+     "min": 2915,
+     "max": 43850
+    },
+    "requests": {
+     "n": 3,
+     "median": 82,
+     "min": 82,
+     "max": 85
+    },
+    "true304Count": {
+     "n": 3,
+     "median": 2,
+     "min": 2,
+     "max": 9
+    }
+   },
+   "boot": {
+    "season": {
+     "n": 3,
+     "median": 3,
+     "min": 3,
+     "max": 3
+    },
+    "layout": {
+     "n": 3,
+     "median": 25,
+     "min": 24,
+     "max": 26
+    },
+    "data": {
+     "n": 3,
+     "median": 120,
+     "min": 120,
+     "max": 125
+    },
+    "readings": {
+     "n": 3,
+     "median": 13,
+     "min": 12,
+     "max": 13
+    },
+    "weather": {
+     "n": 3,
+     "median": 2,
+     "min": 2,
+     "max": 2
+    },
+    "sky": {
+     "n": 3,
+     "median": 4,
+     "min": 3,
+     "max": 4
+    },
+    "ocean": {
+     "n": 3,
+     "median": 34,
+     "min": 34,
+     "max": 34
+    },
+    "island": {
+     "n": 3,
+     "median": 117,
+     "min": 117,
+     "max": 118
+    },
+    "lighthouse": {
+     "n": 3,
+     "median": 6,
+     "min": 6,
+     "max": 7
+    },
+    "civic": {
+     "n": 3,
+     "median": 79,
+     "min": 70,
+     "max": 81
+    },
+    "fleet": {
+     "n": 3,
+     "median": 166,
+     "min": 155,
+     "max": 175
+    },
+    "lights": {
+     "n": 3,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "beam": {
+     "n": 3,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "compile": {
+     "n": 3,
+     "median": 212,
+     "min": 206,
+     "max": 215
+    },
+    "u:season": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:layout": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:data": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:readings": {
+     "n": 3,
+     "median": 2,
+     "min": 2,
+     "max": 3
+    },
+    "u:weather": {
+     "n": 3,
+     "median": 6,
+     "min": 4,
+     "max": 7
+    },
+    "u:sky": {
+     "n": 3,
+     "median": 2,
+     "min": 1,
+     "max": 2
+    },
+    "u:ocean": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:island": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 1
+    },
+    "u:lighthouse": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:civic": {
+     "n": 3,
+     "median": 2,
+     "min": 2,
+     "max": 2
+    },
+    "u:fleet": {
+     "n": 3,
+     "median": 5,
+     "min": 4,
+     "max": 7
+    },
+    "u:lights": {
+     "n": 3,
+     "median": 2,
+     "min": 2,
+     "max": 2
+    },
+    "u:beam": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:ui": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:render": {
+     "n": 3,
+     "median": 43,
+     "min": 42,
+     "max": 49
+    },
+    "firstRender": {
+     "n": 3,
+     "median": 79,
+     "min": 78,
+     "max": 81
+    },
+    "life": {
+     "n": 3,
+     "median": 250,
+     "min": 216,
+     "max": 250
+    },
+    "identity": {
+     "n": 3,
+     "median": 200,
+     "min": 198,
+     "max": 235
+    }
+   },
+   "sourceLabel": "B"
+  },
+  {
+   "label": "A",
+   "url": "http://127.0.0.1:4191/?t=12&view=heart&intro=0",
+   "config": "fast4g",
+   "arm": "repeat",
+   "n": 3,
+   "metrics": {
+    "firstFrameMs": {
+     "n": 3,
+     "median": 1303,
+     "min": 1283.9000000059605,
+     "max": 1316.5
+    },
+    "firstFleetFrameMs": {
+     "n": 3,
+     "median": 2444.800000011921,
+     "min": 2371.800000011921,
+     "max": 2463.5999999940395
+    },
+    "crossfadeStartMs": {
+     "n": 3,
+     "median": 2446.4000000059605,
+     "min": 2373.0999999940395,
+     "max": 2465
+    },
+    "posterRemovedMs": {
+     "n": 3,
+     "median": 3576.300000011921,
+     "min": 3500.699999988079,
+     "max": 3595.0999999940395
+    },
+    "wireBytes": {
+     "n": 3,
+     "median": 7890,
+     "min": 2915,
+     "max": 7891
+    },
+    "requests": {
+     "n": 3,
+     "median": 85,
+     "min": 82,
+     "max": 85
+    },
+    "true304Count": {
+     "n": 3,
+     "median": 9,
+     "min": 2,
+     "max": 9
+    }
+   },
+   "boot": {
+    "season": {
+     "n": 3,
+     "median": 3,
+     "min": 3,
+     "max": 4
+    },
+    "layout": {
+     "n": 3,
+     "median": 23,
+     "min": 21,
+     "max": 24
+    },
+    "data": {
+     "n": 3,
+     "median": 116,
+     "min": 114,
+     "max": 119
+    },
+    "readings": {
+     "n": 3,
+     "median": 13,
+     "min": 11,
+     "max": 13
+    },
+    "weather": {
+     "n": 3,
+     "median": 3,
+     "min": 2,
+     "max": 3
+    },
+    "sky": {
+     "n": 3,
+     "median": 4,
+     "min": 4,
+     "max": 4
+    },
+    "ocean": {
+     "n": 3,
+     "median": 34,
+     "min": 34,
+     "max": 36
+    },
+    "island": {
+     "n": 3,
+     "median": 122,
+     "min": 119,
+     "max": 124
+    },
+    "lighthouse": {
+     "n": 3,
+     "median": 7,
+     "min": 6,
+     "max": 9
+    },
+    "civic": {
+     "n": 3,
+     "median": 67,
+     "min": 63,
+     "max": 73
+    },
+    "fleet": {
+     "n": 3,
+     "median": 148,
+     "min": 139,
+     "max": 161
+    },
+    "lights": {
+     "n": 3,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "beam": {
+     "n": 3,
+     "median": 1,
+     "min": 1,
+     "max": 1
+    },
+    "compile": {
+     "n": 3,
+     "median": 221,
+     "min": 193,
+     "max": 257
+    },
+    "u:season": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:layout": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:data": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:readings": {
+     "n": 3,
+     "median": 2,
+     "min": 2,
+     "max": 2
+    },
+    "u:weather": {
+     "n": 3,
+     "median": 5,
+     "min": 4,
+     "max": 5
+    },
+    "u:sky": {
+     "n": 3,
+     "median": 1,
+     "min": 1,
+     "max": 2
+    },
+    "u:ocean": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 1
+    },
+    "u:island": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:lighthouse": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:civic": {
+     "n": 3,
+     "median": 2,
+     "min": 2,
+     "max": 2
+    },
+    "u:fleet": {
+     "n": 3,
+     "median": 4,
+     "min": 4,
+     "max": 6
+    },
+    "u:lights": {
+     "n": 3,
+     "median": 2,
+     "min": 2,
+     "max": 2
+    },
+    "u:beam": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:ui": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:render": {
+     "n": 3,
+     "median": 42,
+     "min": 38,
+     "max": 44
+    },
+    "firstRender": {
+     "n": 3,
+     "median": 72,
+     "min": 66,
+     "max": 77
+    },
+    "life": {
+     "n": 3,
+     "median": 199,
+     "min": 182,
+     "max": 221
+    },
+    "identity": {
+     "n": 3,
+     "median": 234,
+     "min": 229,
+     "max": 252
+    }
+   },
+   "sourceLabel": "B"
+  },
+  {
+   "label": "A",
+   "url": "http://127.0.0.1:4191/?t=12&view=heart&intro=0",
+   "config": "igpu",
+   "arm": "cold",
+   "n": 3,
+   "metrics": {
+    "firstFrameMs": {
+     "n": 3,
+     "median": 2095.9000000059605,
+     "min": 1980.5,
+     "max": 7517.700000017881
+    },
+    "firstFleetFrameMs": {
+     "n": 3,
+     "median": 3326.9000000059605,
+     "min": 2826.5,
+     "max": 8142.800000011921
+    },
+    "crossfadeStartMs": {
+     "n": 3,
+     "median": 3328.7000000178814,
+     "min": 2828,
+     "max": 8150.5
+    },
+    "posterRemovedMs": {
+     "n": 3,
+     "median": 4497.600000023842,
+     "min": 3964.9000000059605,
+     "max": 10672.800000011921
+    },
+    "wireBytes": {
+     "n": 3,
+     "median": 6833371,
+     "min": 6833347,
+     "max": 6833371
+    },
+    "requests": {
+     "n": 3,
+     "median": 83,
+     "min": 83,
+     "max": 83
+    },
+    "true304Count": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    }
+   },
+   "boot": {
+    "season": {
+     "n": 3,
+     "median": 5,
+     "min": 3,
+     "max": 13
+    },
+    "layout": {
+     "n": 3,
+     "median": 19,
+     "min": 12,
+     "max": 60
+    },
+    "data": {
+     "n": 3,
+     "median": 182,
+     "min": 118,
+     "max": 462
+    },
+    "readings": {
+     "n": 3,
+     "median": 12,
+     "min": 9,
+     "max": 34
+    },
+    "weather": {
+     "n": 3,
+     "median": 3,
+     "min": 2,
+     "max": 8
+    },
+    "sky": {
+     "n": 3,
+     "median": 11,
+     "min": 9,
+     "max": 19
+    },
+    "ocean": {
+     "n": 3,
+     "median": 41,
+     "min": 34,
+     "max": 77
+    },
+    "island": {
+     "n": 3,
+     "median": 429,
+     "min": 376,
+     "max": 878
+    },
+    "lighthouse": {
+     "n": 3,
+     "median": 10,
+     "min": 7,
+     "max": 13
+    },
+    "civic": {
+     "n": 3,
+     "median": 76,
+     "min": 60,
+     "max": 166
+    },
+    "fleet": {
+     "n": 3,
+     "median": 178,
+     "min": 147,
+     "max": 618
+    },
+    "lights": {
+     "n": 3,
+     "median": 1,
+     "min": 1,
+     "max": 7
+    },
+    "beam": {
+     "n": 3,
+     "median": 2,
+     "min": 1,
+     "max": 6
+    },
+    "compile": {
+     "n": 3,
+     "median": 777,
+     "min": 230,
+     "max": 3827
+    },
+    "u:season": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:layout": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:data": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:readings": {
+     "n": 3,
+     "median": 2,
+     "min": 2,
+     "max": 8
+    },
+    "u:weather": {
+     "n": 3,
+     "median": 6,
+     "min": 4,
+     "max": 22
+    },
+    "u:sky": {
+     "n": 3,
+     "median": 2,
+     "min": 1,
+     "max": 3
+    },
+    "u:ocean": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 1
+    },
+    "u:island": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:lighthouse": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:civic": {
+     "n": 3,
+     "median": 2,
+     "min": 2,
+     "max": 7
+    },
+    "u:fleet": {
+     "n": 3,
+     "median": 5,
+     "min": 4,
+     "max": 18
+    },
+    "u:lights": {
+     "n": 3,
+     "median": 2,
+     "min": 2,
+     "max": 9
+    },
+    "u:beam": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:ui": {
+     "n": 3,
+     "median": 0,
+     "min": 0,
+     "max": 0
+    },
+    "u:render": {
+     "n": 3,
+     "median": 107,
+     "min": 89,
+     "max": 240
+    },
+    "firstRender": {
+     "n": 3,
+     "median": 135,
+     "min": 123,
+     "max": 334
+    },
+    "life": {
+     "n": 3,
+     "median": 1293,
+     "min": 1137,
+     "max": 5546
+    },
+    "identity": {
+     "n": 2,
+     "median": 1527.5,
+     "min": 1286,
+     "max": 1769
+    }
+   },
+   "sourceLabel": "B"
+  }
+ ],
+ "samplesNote": "29 raw samples omitted from the committed baseline; groups hold the distributions."
+}

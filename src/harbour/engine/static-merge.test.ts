@@ -136,4 +136,32 @@ describe("mergeStaticMeshes attribute types", () => {
     expect(c.getX(0)).toBeCloseTo(0.2, 6);
     expect(c.getX(n)).toBe(0.5);
   });
+
+  it.each([false, true])("transforms window centres and tangents consistently with mixed storage = %s", (mixed) => {
+    const mat = new THREE.MeshBasicMaterial(), root = new THREE.Group();
+    root.position.set(11, 3, -7); root.rotation.y = 0.29;
+    const parts = [0, 1].map((i) => {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
+      geometry.setAttribute("hbWinC", new THREE.BufferAttribute(mixed && i ? new Int8Array([-127, 0, 127, 0, 127, 0, 127, 0, -127]) : new Float32Array([-1, 0, 1, 0, 1, 0, 1, 0, -1]), 3, mixed && !!i));
+      geometry.setAttribute("tangent", new THREE.BufferAttribute(mixed && i ? new Int8Array([127, 0, 0, -127, 0, 127, 0, 127, 0, 0, 127, -127]) : new Float32Array([1, 0, 0, -1, 0, 1, 0, 1, 0, 0, 1, -1]), 4, mixed && !!i));
+      const mesh = new THREE.Mesh(geometry, mat);
+      mesh.position.set(i + 2, 4, -3); mesh.rotation.set(0.4, 0.7, -0.2); mesh.scale.set(2, 3, 0.5);
+      root.add(mesh);
+      return mesh;
+    });
+    root.updateMatrixWorld(true);
+    const toLocal = root.matrixWorld.clone().invert();
+    const expected = parts.map((mesh) => {
+      const transform = new THREE.Matrix4().multiplyMatrices(toLocal, mesh.matrixWorld);
+      const geometry = reference(mesh.geometry, transform);
+      geometry.attributes.hbWinC.applyMatrix4(transform);
+      return geometry;
+    });
+    const [merged] = mergeStaticMeshes(parts, root, "t");
+    for (const name of ["hbWinC", "tangent"]) {
+      expect(merged.geometry.attributes[name].normalized).toBe(false);
+      expect(merged.geometry.attributes[name].array).toEqual(new Float32Array(expected.flatMap((g) => Array.from(g.attributes[name].array))));
+    }
+  });
 });

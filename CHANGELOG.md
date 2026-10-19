@@ -2,6 +2,20 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v1.3.0 - 2026-10-19 - Fair Wind
+
+The same harbour arrives with less to download, keeps its work off the sailing frame, and welcomes smaller screens without loading the world.
+
+Collected from `perf/need-for-speed` after v1.2.1 (`main..HEAD` and the integrated phase-3 work; see `agents/2026-10-19-need-for-speed/impl/STATUS.md`).
+
+- Faster arrival: lossless asset packs use Brotli compression, unchanged files stay cached at immutable content-hashed addresses, and the live feeds send only the fields the harbour and its records need. The scenery and the readings keep their detail.
+- Steadier frames: quality and weather changes prepare shaders ahead of taking over instead of doing all that work in one sailing frame. A depth prepass makes the island and civic quarter cheaper to shade, and the sky and ocean skip redundant work. Browsers without parallel shader compilation, or a preparation that stalls, can still pause on shader work; scenery is never discarded to hide the delay.
+- A lighter welcome on small screens: the guide and links work without downloading React, the world or its live feeds. Resizing back into the harbour restores the arrival poster.
+- Smoother refreshes: route planning stays in its worker, existing ships keep their identity when fresh data arrives, and a fleet is shown only after its complete pose has reached the screen. A planning failure says the fleet is unavailable rather than inventing one.
+- An approved arrival trial lets the world appear without boats when fresh data is slow; once ready, the boats arrive together; only if some hulls cannot be shown for more than three seconds does the harbour open with an honest note saying so. Fog still means stale data, not waiting.
+- A second approved trial loads people, gulls and sea labels slightly later. Panels, search and the ledger are warmed after the harbour appears so they need not weigh down arrival.
+- Measured on the development machine against v1.2.1 (shared machine, 3–5 runs each): on a fast 4G connection the first frame with boats arrives in 4.9 s instead of 6.0 s, and in 6.5 s instead of 9.4 s on a four-times-slower CPU; on a weak integrated GPU each frame costs 15–20% less GPU time (53 → 45 ms at noon, 66 → 53 ms at night) with 69 resident shader programs instead of 98, and a quality change compiles no new shaders (longest pause 2.9 s → 1.5 s).
+
 ## v1.2.1 - 2026-10-19 - Canvas Up
 
 Two fixes: the detail panel's close button works again, and ships keep their sails set everywhere except at a berth.

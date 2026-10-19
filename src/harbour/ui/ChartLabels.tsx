@@ -1,8 +1,9 @@
 import { useMemo, useRef } from "react";
 import type { HarbourLayout } from "../layout/types";
 import { cullLabels, type LabelBox } from "./cull";
-import { useFrame, usePresence, useStore, useUISlice } from "./hooks";
+import { useFrame, useFrameWrite, usePresence, useStore, useUISlice } from "./hooks";
 import { sameHit, type PickHit, type ScreenPoint } from "./services";
+import { setStyle, useMeasurements } from "./measurements";
 
 interface ChartLabel { key: string; text: string; kind: "landmark" | "pier" | "boat"; hit: PickHit }
 
@@ -32,6 +33,8 @@ export function ChartLabels() {
   const pts = useRef<ScreenPoint[]>([]);
   const feet = useRef<ScreenPoint[]>([]);
   const boxes = useRef<LabelBox[]>([]);
+  const measurements = useMeasurements();
+  const kept = useRef<boolean[]>([]);
 
   useFrame(() => {
     if (!mounted) return;
@@ -41,7 +44,7 @@ export function ChartLabels() {
       const l = labels[i], el = refs.current[i];
       const pt = (pts.current[i] ??= { x: 0, y: 0, visible: false });
       const p = store.picking.screenPosition(l.hit, pt);
-      const w = el?.offsetWidth ?? 0, h = el?.offsetHeight ?? 0;
+      const { w, h } = measurements.get(el);
       const box = (boxes.current[i] ??= { x: 0, y: 0, w: 0, h: 0, visible: false });
       // the hover tag already names this target: one name per object
       let visible = !!p?.visible && w > 0 && !sameHit(l.hit, hover) && !sameHit(l.hit, selected);
@@ -53,14 +56,19 @@ export function ChartLabels() {
       box.w = w; box.h = h; box.visible = visible;
       box.x = (p?.x ?? 0) - w / 2; box.y = (p?.y ?? 0) - h - (l.kind === "boat" ? 10 : 0);
     }
-    const keep = cullLabels(boxes.current.slice(0, labels.length), 6, vp);
+    kept.current = cullLabels(boxes.current.slice(0, labels.length), 6, vp);
+  });
+
+  useFrameWrite(() => {
+    if (!mounted) return;
+    const keep = kept.current;
     for (let i = 0; i < labels.length; i++) {
       const el = refs.current[i], b = boxes.current[i];
       if (!el) continue;
-      el.style.opacity = keep[i] ? "1" : "0";
-      el.style.transform = `translate3d(${b.x.toFixed(1)}px, ${b.y.toFixed(1)}px, 0)`;
+      setStyle(el, "opacity", keep[i] ? "1" : "0");
+      setStyle(el, "transform", `translate3d(${b.x.toFixed(1)}px, ${b.y.toFixed(1)}px, 0)`);
       const lead = leaders.current[i], foot = feet.current[i];
-      if (lead && foot) lead.style.height = `${Math.max(0, foot.y - (b.y + b.h)).toFixed(1)}px`;
+      if (lead && foot) setStyle(lead, "height", `${Math.max(0, foot.y - (b.y + b.h)).toFixed(1)}px`);
     }
   });
 
@@ -68,7 +76,10 @@ export function ChartLabels() {
   return (
     <div className="hb-labels hb-fade" data-shown={shown} aria-hidden="true">
       {labels.map((l, i) => (
-        <span key={l.key} ref={(el) => { refs.current[i] = el; }} className="hb-label" data-kind={l.kind} style={{ opacity: 0 }}>
+        <span key={l.key} ref={(el) => {
+          if (refs.current[i] !== el) measurements.forget(refs.current[i]);
+          refs.current[i] = el;
+        }} className="hb-label" data-kind={l.kind} style={{ opacity: 0 }}>
           {l.text}
           {l.kind === "boat" && <i className="hb-label-leader" ref={(el) => { leaders.current[i] = el; }} />}
         </span>

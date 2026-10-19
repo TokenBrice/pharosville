@@ -170,6 +170,9 @@ export class ChartLettering {
     g.computeBoundingSphere();
 
     atlas.colorSpace = THREE.NoColorSpace;
+    // The SDF shader samples only .r. DOM-source RED uploads retain the same bytes, orientation and mips.
+    atlas.format = THREE.RedFormat;
+    atlas.internalFormat = "R8";
     atlas.minFilter = THREE.LinearMipmapLinearFilter;
     atlas.magFilter = THREE.LinearFilter;
     atlas.anisotropy = 8;

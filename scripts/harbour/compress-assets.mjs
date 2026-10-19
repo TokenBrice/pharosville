@@ -9,6 +9,9 @@
  *   assets/harbour/sea-sdf.png → public/harbour/sea-sdf.webp   lossless WebP, `-exact` (the RGBA channels are data, not colour);
  *                                                re-encoded when missing or with --webp, and always verified
  *                                                pixel-exact against the PNG when `sharp` is installed
+ *   Vite's asset/preload plugin then runs build-asset-registry.mjs: intact 49/17 scoped GLB packs,
+ *   exact NSD1 sea transport and content-addressed media/fonts/shell CSS, with native HTTP Brotli.
+ *   The gzip siblings remain the unbuilt-development transport; no JS Brotli decoder is shipped.
  *
  * Usage: npm run harbour:compress [-- --webp]   (also runs before every `npm run build`; only --webp needs `cwebp`)
  */

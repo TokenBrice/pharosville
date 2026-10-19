@@ -1,6 +1,7 @@
 import * as THREE from "three";
-import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { runtimeLogoPath } from "../../lib/logos";
+import type { AssetStore } from "../engine/assets";
 import { DECK, liveryFor, TOPSIDE, TRIM } from "../fleet/livery";
 import { indexVariants, pickVariant } from "../fleet/variants";
 import { hashColor, rigFor } from "../model/classify";
@@ -171,7 +172,7 @@ export class Shipyard {
   }
 
   static async build(p: LoadedPlot, mats: HarbourMaterials, boards: CivicBoards, coins: readonly PrelaunchCoin[], stageSpec: ManifestKind,
-    load: (url: string) => Promise<GLTF>, launchAt: [number, number] | null): Promise<Shipyard> {
+    assets: AssetStore, launchAt: [number, number] | null): Promise<Shipyard> {
     const y = new Shipyard(p, mats, boards);
     const spec = p.spec;
     const slips = spec.slips ?? [], berths = spec.berths ?? [];
@@ -182,7 +183,7 @@ export class Shipyard {
     const plan = allocateYard(coins, slipOrder, berthOrder);
 
     // the stage hulls (keel / ribs / planked / painted) and the kit hulls the rigged ones need
-    const stagesGltf = await load(CIVIC_BASE + stageSpec.file);
+    const stagesGltf = await assets.gltf(CIVIC_BASE + stageSpec.file);
     const stages = cloneDeep(stagesGltf.scene);
     mats.apply(stages);
     stages.updateMatrixWorld(true);
@@ -191,7 +192,7 @@ export class Shipyard {
     const keelBottom = stageSpec.keel_bottom_y ?? -1.2;
 
     let kit: { hulls: KitHullManifest[] } = { hulls: [] };
-    try { kit = await (await fetch(KIT + "manifest.json")).json(); } catch { /* rigged hulls fall back to painted */ }
+    try { kit = await assets.json<{ hulls: KitHullManifest[] }>(KIT + "manifest.json"); } catch { /* rigged hulls fall back to painted */ }
     const index = indexVariants(kit.hulls);
     const kitCache = new Map<string, Promise<{ root: THREE.Object3D; man: KitHullManifest; keel: number } | null>>();
     const kitHull = (family: string) => {
@@ -200,7 +201,7 @@ export class Shipyard {
       if (!id || !man) return Promise.resolve(null);
       let pr = kitCache.get(id);
       if (!pr) {
-        pr = load(KIT + man.file).then((g) => {
+        pr = assets.gltf(KIT + man.file).then((g) => {
           const root = cloneDeep(g.scene);
           root.traverse((o) => { if (DROP.test(o.name)) o.visible = false; });
           mats.apply(root);
@@ -318,6 +319,8 @@ export class Shipyard {
     this.mesh.name = "shipyard-hulls";
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
+    this.mesh.matrixAutoUpdate = false;
+    this.mesh.updateMatrix();
     this.group.add(this.mesh);
   }
 
@@ -379,7 +382,7 @@ export class Shipyard {
       done();
     };
     img.onerror = monogram;
-    img.src = c.logo;
+    img.src = runtimeLogoPath(c.logo);
   }
 
   /** Coins live in the payload leave the yard. */
@@ -391,6 +394,7 @@ export class Shipyard {
     }
     if (!changed) return;
     this.launched = new Set(this.hulls.filter((h) => h.launched).map((h) => h.coin.id));
+    this.gangDirty = true;
     for (const pl of this.placed) this.boards.show(`yard:${pl.place.coin.id}`, !this.launched.has(pl.place.coin.id));
     this.rebuild();
   }
@@ -415,7 +419,7 @@ export class Shipyard {
 
   /** The gang's stations (static; recomputed when a hull leaves the yard). */
   private gang: WorkerSlot[] = [];
-  private gangFor = "";
+  private gangDirty = true;
 
   private stations(): WorkerSlot[] {
     const building = this.placed.filter((pl) => !this.launched.has(pl.place.coin.id));
@@ -440,8 +444,7 @@ export class Shipyard {
 
   /** Fill worker slots: shipwrights hammering beside the hulls still building. */
   workers(out: WorkerSlot[]): void {
-    const key = [...this.launched].join(",");
-    if (key !== this.gangFor || !this.gang.length) { this.gangFor = key; this.gang = this.stations(); }
+    if (this.gangDirty) { this.gang = this.stations(); this.gangDirty = false; }
     for (let k = 0; k < out.length; k++) {
       const g = this.gang[k], w = out[k];
       if (!g) { w.visible = false; continue; }

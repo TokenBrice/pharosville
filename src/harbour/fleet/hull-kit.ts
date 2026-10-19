@@ -325,9 +325,7 @@ function planHullSails(gltf: GLTF): Map<THREE.Mesh, SailMeshOut> {
 
 /** Load the manifest and every GLB it lists, in parallel. */
 export async function loadKit(assets: AssetStore): Promise<Kit> {
-  const res = await fetch(`${KIT_BASE}manifest.json`);
-  if (!res.ok) throw new Error(`kit manifest: HTTP ${res.status}`);
-  const manifest = await res.json() as KitManifest;
+  const manifest = await assets.json<KitManifest>(`${KIT_BASE}manifest.json`);
   const hulls = new Map<string, HullVariant>();
   const props: Kit["props"] = new Map();
   await Promise.all([

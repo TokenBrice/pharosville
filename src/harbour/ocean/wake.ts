@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { FullscreenPass } from "./gpu-bake";
 import type { Bounds4 } from "./sea-sdf";
+import type { PreparationEntry } from "../engine/types";
 
 /**
  * WAKE service ('wake'): a world-space wake/foam field over the sea bounds that every hull stamps into.
@@ -152,6 +153,15 @@ export class WakeField implements WakeService {
     });
   }
 
+  preparationEntries(): PreparationEntry[] {
+    // Separate proxies retain both stamp materials without touching history, count or the ping-pong index.
+    return [
+      this.decay.preparationEntry(() => this.hist[1 - this.idx]),
+      { root: new THREE.Mesh(this.geo, this.trailMat), camera: this.cam, target: () => this.hist[1 - this.idx] },
+      { root: new THREE.Mesh(this.geo, this.liveMat), camera: this.cam, target: () => this.liveRT },
+    ];
+  }
+
   get texture(): THREE.Texture { return this.hist[this.idx].texture; }
   get live(): THREE.Texture { return this.liveRT.texture; }
 
@@ -172,7 +182,8 @@ export class WakeField implements WakeService {
     u.uPrev.value = src.texture;
     u.uDecay.value = Math.exp(-dt / 6.5);
     u.uSpread.value = Math.min(1, dt * 7);
-    this.decay.render(renderer, dst);
+    // The decay triangle writes every history texel (no discard/blending); initialization/live clears stay intact.
+    this.decay.render(renderer, dst, false);
 
     this.geo.instanceCount = this.count;
     if (this.count > 0) {

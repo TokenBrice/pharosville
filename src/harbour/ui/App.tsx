@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ChartLabels } from "./ChartLabels";
 import { CornerMark } from "./CornerMark";
 import { useStore, useUISlice } from "./hooks";
 import { HoverTag } from "./HoverTag";
-import { Ledger } from "./Ledger";
-import { SidePanel } from "./Panel";
-import { Search } from "./Search";
+import { preloadDetails } from "./details";
+import { DetailFallback } from "./DetailFallback";
+
+const DetailPanels = lazy(preloadDetails);
 
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 
@@ -15,6 +16,10 @@ export function HarbourUI() {
   const selected = useUISlice((s) => s.selected);
   const chartMode = useUISlice((s) => s.chartMode);
   const reducedMotion = useUISlice((s) => s.reducedMotion);
+  const ledgerOpen = useUISlice((s) => s.ledgerOpen);
+  // Keep mounted after first use so each panel retains its existing close/presence semantics.
+  const [detailsStarted, setDetailsStarted] = useState(false);
+  if (!detailsStarted && (ledgerOpen || searchOpen || selected)) setDetailsStarted(true);
   // focus to return to when the topmost layer closes
   const returnTo = useRef<HTMLElement | null>(null);
   const remember = () => {
@@ -82,9 +87,9 @@ export function HarbourUI() {
       <ChartLabels />
       <HoverTag />
       <CornerMark />
-      <Ledger onClose={closeLedger} />
-      <SidePanel onClose={closePanel} />
-      <Search onClose={closeSearch} />
+      {detailsStarted && <Suspense fallback={<DetailFallback closeLedger={closeLedger} closePanel={closePanel} closeSearch={closeSearch} />}>
+        <DetailPanels closeLedger={closeLedger} closePanel={closePanel} closeSearch={closeSearch} />
+      </Suspense>}
       <div className="hb-sr" aria-live="polite">{chartMode ? "Chart mode on: names shown." : ""}{searchOpen ? "Search open." : ""}</div>
     </div>
   );

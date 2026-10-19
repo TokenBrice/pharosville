@@ -16,7 +16,7 @@ import type { HarbourLayout } from "../layout/types";
 import { HarbourFeed } from "../data/fetch";
 import { buildHarbourModel } from "../model/build";
 import { allTruth } from "../model/truth";
-import type { HarbourModel } from "../model/types";
+import type { HarbourPayloads } from "../model/types";
 import { HarbourSim, PH_APPROACHING, PH_DOCKED, PH_MOORED } from "./sim";
 import type { CoastGrid } from "./obstacles";
 import { SimDebugMarkers } from "./debug-markers";
@@ -58,12 +58,32 @@ export class DataSystem implements WorldSystem {
   private motionLag = 0;
   private unsubMotion: (() => void) | null = null;
   private warm: WarmLegs | null = null;
-  /** The first install has been queued (the eager one, built ahead of the first frames). */
-  private eager = false;
+  /** One task owns preparation; frames only consume an already installed coherent revision. */
+  private queued: number | undefined;
+  private preparing = false;
+  private warmed = false;
+  private workerFailed = false;
+  private failedSnapshot: HarbourPayloads["stablecoins"] | undefined;
+  private restartWarm: (() => void) | null = null;
+  readonly status = { unavailable: false };
+  /** Last installed snapshots retain their original ages if the worker becomes unavailable. */
+  private installedPayloads: HarbourPayloads | null = null;
+  private revision = 0;
+  private consumedRevision = 0;
+  private preparedPose = false;
+  readonly readiness = { revision: 0, boats: 0, prepared: false };
 
   async init(ctx: EngineContext): Promise<void> {
+    ctx.services.set("readiness", this.readiness);
+    ctx.services.set("simulation-status", this.status);
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
-    if (!layout) { console.warn("[harbour] data: no layout service; the fleet stays empty"); return; }
+    if (!layout) {
+      // Publish a terminal empty world too: reveal must never wait for a service this path cannot install.
+      ctx.services.set("model", buildHarbourModel({}, Date.now()));
+      this.status.unavailable = true;
+      console.warn("[harbour] data: no layout service; the fleet stays empty");
+      return;
+    }
     this.layout = layout;
     const q = new URLSearchParams(location.search);
     if (import.meta.env.DEV) {
@@ -86,14 +106,25 @@ export class DataSystem implements WorldSystem {
     this.unsubMotion = motion.subscribe(hold);
     // the payloads are asked for first: the round trip overlaps the SDF decode and everything after it
     const feed = this.feed = new HarbourFeed();
-    feed.subscribe(() => { this.dirty = true; });
+    feed.subscribe(() => { this.dirty = true; this.revision++; this.queuePreparation(ctx); });
     ctx.services.set("feed", feed);
-    const landed = feed.start();
+    void feed.start();
     // the island's real coastline, from the baked sea SDF (the same bytes for every viewer)
     const coasting = loadCoast(ctx, layout);
-    // the first real plan's leg times and outing answers, built by workers meanwhile (they load now, start
-    // on the coast; the sim adopts their answers as they land)
-    const warm = this.warm = warmLegsOffThread(layout, coasting, (entries) => this.sim?.seedLegTimes(entries), (seed) => this.sim?.seedOutings(seed));
+    // One persistent owner starts alongside the coast/API requests; no partial public installs.
+    const startWarm = this.restartWarm = () => {
+      this.warm?.stop();
+      this.warmed = false; this.workerFailed = false;
+      const warm = this.warm = warmLegsOffThread(layout, coasting,
+        (entries) => this.sim?.seedLegTimes(entries),
+        (seed) => this.sim?.seedOutings(seed),
+        (error) => this.workerUnavailable(ctx, feed, error));
+      void warm.done.then(() => {
+        if (this.feed !== feed || this.warm !== warm) return;
+        this.warmed = true; this.queuePreparation(ctx);
+      }, () => { if (this.feed === feed && this.warm === warm) this.warmed = false; });
+    };
+    startWarm();
     const coast = await coasting;
     if (this.feed !== feed) return; // disposed meanwhile
     const now = this.simNow(Date.now());
@@ -102,29 +133,82 @@ export class DataSystem implements WorldSystem {
     this.sim = new HarbourSim(empty, layout, this.simClock(Date.now()), coast);
     ctx.services.set("model", empty);
     ctx.services.set("sim", this.sim);
-    // once the first round of payloads is in and the workers are warm: install it in a task of its own,
-    // while the rest of the world is still loading, rather than in a frame
-    void Promise.all([landed, warm.done]).then(() => setTimeout(() => { void this.installEarly(ctx); }, 0));
+    this.queuePreparation(ctx);
   }
 
-  /**
-   * The first install, ahead of the frames: the model and plan, then the legs the first poses sail (built
-   * by the workers), then those poses. The first update() finds the model installed and the paths cached. If
-   * frames already consumed the payloads (the world was up first), there is nothing left to do here.
-   */
-  private async installEarly(ctx: EngineContext): Promise<void> {
-    const sim = this.sim, warm = this.warm;
-    if (this.eager || !sim || !warm) return;
-    this.eager = true;
-    if (!this.dirty) { warm.stop(); return; }
+  private workerUnavailable(ctx: EngineContext, feed: HarbourFeed, error: unknown): void {
+    if (this.feed !== feed || this.workerFailed) return;
+    this.warmed = false; this.workerFailed = true; this.dirty = true;
+    this.failedSnapshot = feed.payloads.stablecoins;
+    // Route allocation is synchronous, so a task-only fallback could still stall a frame.
+    // Keep the real awaiting model and reveal it honestly instead of planning on the main thread.
+    this.status.unavailable = this.installedPayloads === null;
+    console.warn("[harbour] simulation preparation unavailable", error);
+    this.queuePreparation(ctx);
+  }
+
+  private queuePreparation(ctx: EngineContext): void {
+    if (!this.sim || !this.feed || (!this.warmed && !this.workerFailed) || this.preparing || this.queued !== undefined || !this.dirty) return;
+    // Only eligibility + depeg state gate the first fleet. Error snapshots count as settled.
+    if (!this.feed.payloads.stablecoins || !this.feed.payloads.pegSummary) return;
+    this.queued = window.setTimeout(() => {
+      this.queued = undefined;
+      void this.prepare(ctx);
+    }, 0);
+  }
+
+  private async prepare(ctx: EngineContext): Promise<void> {
+    const sim = this.sim, feed = this.feed, layout = this.layout, warm = this.warm;
+    if (!sim || !feed || !layout || !warm || this.preparing) return;
+    if (this.workerFailed && !this.installedPayloads) {
+      this.dirty = false;
+      // A later register refresh can recover startup, without retrying on every optional arrival.
+      if (feed.payloads.stablecoins !== this.failedSnapshot) {
+        this.dirty = true;
+        this.restartWarm?.();
+      }
+      return;
+    }
+    this.preparing = true;
     this.dirty = false;
-    const wall = Date.now();
-    this.lastBuild = wall;
-    const model = this.rebuild(ctx, this.simNow(wall), this.simClock(wall));
-    if (model) this.truthSig = Object.values(model.truth).map((t) => t.state).join();
-    const plan = sim.plan, req = sim.pathRequests(this.simClock(Date.now()));
-    await warm.paths(sim.rafts(), req.now, req.soon, (entries) => sim.seedPaths(plan, entries));
-    if (this.sim === sim) sim.poseAt(this.simClock(Date.now()));
+    let revision = this.revision;
+    // Worker loss holds the last coherent fleet, but its original snapshots must still age.
+    // This is freshness-only playback, never a replacement main-thread planning fallback.
+    const payloads = this.workerFailed ? this.installedPayloads! : feed.payloads;
+    const modelAt = () => buildHarbourModel(payloads, this.simNow(Date.now()), { pieredChains: layout.piers.map((p) => p.chain) });
+    let model = modelAt();
+    try {
+      const prepared = model.planKey !== sim.plan.key
+        ? await warm.prepare(model, this.simClock(Date.now()), sim.knownPlainPaths())
+        : undefined;
+      if (this.feed !== feed || this.sim !== sim || revision < this.consumedRevision) return;
+      // Never publish an unseen intermediate structural model or replay its transitions.
+      // Optional arrivals with identical planning inputs coalesce without restarting allocation.
+      const latest = modelAt();
+      if (latest.planKey !== model.planKey) { this.dirty = true; return; }
+      model = latest;
+      revision = this.revision;
+      sim.setModel(model, this.simClock(Date.now()), prepared);
+      sim.poseAt(this.simClock(Date.now())); // boundary misses/transition paths are owned by this task
+      this.preparedPose = true;
+      this.consumedRevision = revision;
+      this.dirty = false;
+      this.installedPayloads = { ...payloads };
+      this.lastBuild = Date.now();
+      this.truthSig = Object.values(model.truth).map((t) => t.state).join();
+      ctx.services.set("model", model);
+      this.readiness.revision++;
+      this.readiness.boats = model.boats.length;
+      this.readiness.prepared = true;
+      this.status.unavailable = false;
+    } catch (error) {
+      this.workerUnavailable(ctx, feed, error);
+    } finally {
+      if (this.feed === feed) {
+        this.preparing = false;
+        this.queuePreparation(ctx);
+      }
+    }
   }
 
   /** The model's clock: wall time (dev: scaled / offset). */
@@ -137,31 +221,22 @@ export class DataSystem implements WorldSystem {
     return this.heldAt ?? this.simNow(nowMs) - this.motionLag;
   }
 
-  private rebuild(ctx: EngineContext, now: number, simT: number): HarbourModel | null {
-    if (!this.feed || !this.sim || !this.layout) return null;
-    const model = buildHarbourModel(this.feed.payloads, now, { pieredChains: this.layout.piers.map((p) => p.chain) });
-    this.sim.setModel(model, simT);
-    ctx.services.set("model", model);
-    return model;
-  }
+  // Installation deliberately has no animation-frame entry point.
 
   update(frame: FrameState, ctx: EngineContext): void {
     const sim = this.sim;
     if (!sim) return;
     const now = this.simNow(frame.nowMs);
-    if (!this.dirty && frame.nowMs - this.lastBuild > TRUTH_RECHECK_MS && this.feed) {
+    if (this.readiness.prepared && !this.dirty && frame.nowMs - this.lastBuild > TRUTH_RECHECK_MS && this.feed) {
       // a silent feed must still age into stale: re-check freshness (cheap), rebuild only on a change
       this.lastBuild = frame.nowMs;
-      const sig = Object.values(allTruth(this.feed.payloads, now)).map((t) => t.state).join();
-      if (sig !== this.truthSig) this.dirty = true;
+      const payloads = this.workerFailed ? this.installedPayloads ?? this.feed.payloads : this.feed.payloads;
+      const sig = Object.values(allTruth(payloads, now)).map((t) => t.state).join();
+      if (sig !== this.truthSig) { this.dirty = true; this.revision++; }
     }
-    if (this.dirty) {
-      this.dirty = false;
-      this.lastBuild = frame.nowMs;
-      const model = this.rebuild(ctx, now, this.simClock(frame.nowMs));
-      if (model) this.truthSig = Object.values(model.truth).map((t) => t.state).join();
-    }
-    const pose = sim.poseAt(this.simClock(frame.nowMs));
+    if (this.dirty) this.queuePreparation(ctx);
+    const pose = !this.readiness.prepared || this.preparedPose ? sim.pose : sim.poseAt(this.simClock(frame.nowMs));
+    this.preparedPose = false;
     this.markers?.update(sim);
     if (this.logEvery) {
       if (this.prevPhase.length !== pose.count) this.prevPhase = new Uint8Array(pose.count);
@@ -183,14 +258,24 @@ export class DataSystem implements WorldSystem {
   }
 
   dispose(ctx: EngineContext): void {
+    clearTimeout(this.queued);
+    this.queued = undefined;
     this.feed?.stop();
     this.warm?.stop(); this.warm = null;
     this.unsubMotion?.(); this.unsubMotion = null;
     this.markers?.dispose();
     this.feed = null;
     this.sim = null;
+    this.warmed = false; this.preparing = false; this.dirty = false; this.preparedPose = false;
+    this.workerFailed = false; this.installedPayloads = null;
+    this.failedSnapshot = undefined; this.restartWarm = null; this.status.unavailable = false;
+    this.readiness.prepared = false; this.readiness.boats = 0; this.readiness.revision = 0;
+    this.revision = 0; this.consumedRevision = 0;
+    ctx.services.delete("feed");
     ctx.services.delete("sim");
     ctx.services.delete("model");
     ctx.services.delete("simclock");
+    ctx.services.delete("readiness");
+    ctx.services.delete("simulation-status");
   }
 }

@@ -13,11 +13,12 @@ import { u01 } from "../model/classify";
 import type { HarbourModel } from "../model/types";
 import { buildSimLayout, nearestNode, PREVAILING_WIND_FROM, type SimLayout, type Slot } from "./layout-graph";
 import { clearance, hullClearance, type CoastGrid } from "./obstacles";
-import { buildOutingPath, buildScenicPath, scenicClearOf, seedOutings, type OutingSeed } from "./outings";
-import { buildLegPath, legControlPoints } from "./routes";
+import { seedOutings, type OutingSeed } from "./outings";
+import { legControlPoints } from "./routes";
 import { buildPath, evalLeg, hullMargin, IO_LANE, IO_LOA, IO_SEP, IO_T, legTiming, LEG_APPROACH, LEG_CAST_OFF, LEG_HOLD, LEG_HOLD_END, LEG_TURN, newLegTiming, type LegTiming, type PathRec } from "./path";
-import { boatLocalTime, buildPlan, RAFT_CLEAR, seedLegTimes, CYCLE_S, findSegment, MANOEUVRE_S, SEG_DOCK, SPEED, type BoatPlan, type Plan, type RepLeg } from "./plan";
+import { boatLocalTime, emptyPlan, hydratePlan, seedLegTimes, CYCLE_S, findSegment, MANOEUVRE_S, SEG_DOCK, SPEED, type BoatPlan, type Plan, type RepLeg } from "./plan";
 import { hypot } from "./math";
+import { buildPlanLegPath, pathKey, planPathRequests, PREFETCH_S, sailSetAt, type PathRequest, type PreparedPlan } from "./plan-paths";
 
 export const PHASES = ["docked", "casting-off", "sailing", "approaching", "moored", "anchored"] as const;
 export type Phase = (typeof PHASES)[number];
@@ -63,7 +64,6 @@ const SETTLE_S = 25;
 const LINES_IN_S = 7, LINES_OUT_S = 4;
 /** The fender bump: she carries a little way into the fenders, rebounds, settles (s, rad/s, m). */
 const BUMP_T0 = 0.8, BUMP_W = (2 * Math.PI) / 4, BUMP_DECAY = 1.6, BUMP_END = 7, BUMP_A = 0.2;
-const PREFETCH_S = 240;
 const SHOALS_RING = 14;
 /** Hulls under way spread across a lane this wide (± metres): by the speed they make, slow to starboard. */
 const LANE_HALF = 7;
@@ -145,50 +145,6 @@ interface BoatRt {
 
 const newTiming = (): LegTiming => newLegTiming();
 
-/** A plan leg's path cache key: from>to>class, plus >s<loop> for an outing's or a scenic leg's loop. */
-export function pathKey(fromSlot: number, toSlot: number, cls: HullClass, loop: number): string {
-  return fromSlot + ">" + toSlot + ">" + cls + (loop ? ">s" + loop : "");
-}
-
-/** A plan leg to build: from slot, to slot, hull class, loop (plan.segLoop). */
-export type PathRequest = [number, number, HullClass, number];
-
-/** The whole hull stays clear of land and decks all along a path (and its astern prefix). */
-function pathClear(L: SimLayout, p: PathRec, loa: number, beam: number): boolean {
-  for (let k = 0; k < p.n; k++) {
-    const x = p.pts[k * 2], z = p.pts[k * 2 + 1];
-    if (L.field && clearance(L.field, x, z) > loa / 2 + 4) continue;
-    if (hullClearance(L.hard, x, z, p.hdg[k], loa, beam) < -0.15) return false;
-  }
-  if (p.rev) for (let k = 0; k < p.rev.n; k++) if (hullClearance(L.hard, p.rev.pts[k * 2], p.rev.pts[k * 2 + 1], p.rev.hdg[k] + Math.PI, loa, beam) < -0.15) return false;
-  return true;
-}
-
-/**
- * The path of a plan leg on layout L, whose slots past `baseSlots` are the plan's rafts. `loop`: 0, or 1 +
- * the loop variant the leg sails (plan.segLoop: an outing's loop, or a scenic leg's offshore loop). `bad`:
- * an outing whose hull would touch land or a deck anywhere (e.g. backing out of a cramped slip) is never
- * sailed: she stays in. A pure function of (layout, rafts, leg): sim/warm-legs workers build the same.
- */
-export function buildPlanLegPath(L: SimLayout, baseSlots: number, fromSlot: number, toSlot: number, cls: HullClass, loop: number): { path: PathRec; bad: boolean } {
-  const loa = L.loa[cls], beam = L.beam[cls];
-  // from a slot back to itself: a harbour outing's loop
-  const out = fromSlot === toSlot && loop ? buildOutingPath(L, fromSlot, cls, loop - 1) : null;
-  const bad = !!out && !pathClear(L, out, loa, beam);
-  // a scenic leg by the departure gate's offshore loop (one that would touch land or a deck sails the plain leg)
-  // (nor one whose loop runs through the plan's overflow rafts)
-  const scenic = loop > 0 && fromSlot !== toSlot && scenicClearOf(L, fromSlot, toSlot, loop - 1, L.slots.slice(baseSlots).filter((s) => s.kind === "raft"), RAFT_CLEAR);
-  let sc = scenic ? buildScenicPath(L, fromSlot, toSlot, cls, loop - 1) : null;
-  if (sc && !pathClear(L, sc, loa, beam)) sc = null;
-  const path = out ?? sc ?? buildLegPath(L, fromSlot, toSlot, cls);
-  path.setFrom = sailSetAt(L.slots[fromSlot]); path.setTo = sailSetAt(L.slots[toSlot]);
-  return { path, bad };
-}
-
-/** Sails are furled only when docked (berth, pontoon): at a swinging mooring or in a raft she lies with them set. */
-export function sailSetAt(s: Slot | undefined): boolean {
-  return s?.mode === "swing" || s?.mode === "raft";
-}
 
 /** Leg-local time at which the hull comes to rest at the far end (before any spare time spent there). */
 function arrivalT(tm: LegTiming, path: PathRec): number {
@@ -270,28 +226,37 @@ export class HarbourSim {
   /** Seconds since she arrived at the slot she lies at / until she casts off from it (1e9: long ago / not soon). */
   private dockT = 1e9;
   private castT = 1e9;
+  private poseVersion = 0;
+  private posedVersion = -1;
+  private posedAt = NaN;
+  private posedWindFrom = NaN;
+  private posedWindStrength = NaN;
 
   /** @param coast the baked sea SDF's coast channel: hulls then keep off the island's real coastline */
-  constructor(model: HarbourModel, layout: HarbourLayout, nowMs = Date.now(), coast: CoastGrid | null = null) {
-    this.layout = buildSimLayout(layout, coast);
+  constructor(model: HarbourModel, layout: HarbourLayout | SimLayout, nowMs = Date.now(), coast: CoastGrid | null = null, private readonly planner?: (model: HarbourModel, layout: SimLayout) => Plan) {
+    this.layout = "graph" in layout ? layout : buildSimLayout(layout, coast);
     this.baseSlots = this.layout.slots.length;
     this.wind.fromRad = this.layout.windFrom;
     this.pose = { count: 0, ids: [], position: new Float32Array(0), heading: new Float32Array(0), heel: new Float32Array(0), sailState: new Float32Array(0), speed: new Float32Array(0), phase: new Uint8Array(0), slot: new Int32Array(0), event: new Uint8Array(0), lines: new Float32Array(0), outing: new Uint8Array(0) };
     this.install(model, nowMs, true);
   }
 
-  /**
-   * Representative leg times warmed off the main thread while the data is awaited (sim/warm-legs: workers
-   * on the same layout and coast), so the first real plan is quick. A leg not seeded in time is simply
-   * built when the plan needs it (the same value).
-   */
-  seedLegTimes(entries: ReadonlyArray<[string, RepLeg]>): void { seedLegTimes(this.layout, entries); }
+  /** Exact immutable timing answers used by hydrated plan methods, not a main-thread allocator. */
+  seedLegTimes(entries: ReadonlyArray<[string, RepLeg]>): void { seedLegTimes(this.layout, entries); this.poseVersion++; }
 
   /** The layout-only outing and scenic answers (gate loops, metres), warmed off the main thread likewise (outings.outingSeed). */
-  seedOutings(seed: OutingSeed): void { seedOutings(this.layout, seed); }
+  seedOutings(seed: OutingSeed): void { seedOutings(this.layout, seed); this.poseVersion++; }
 
   /** The plan's overflow rafts (the slots past the authored ones): a worker adds them to its own layout before building legs. */
   rafts(): Slot[] { return this.layout.slots.slice(this.baseSlots); }
+
+
+  knownPlainPaths(): string[] {
+    return [...this.pathCache.keys()].filter((key) => {
+      const [from, to, , loop] = key.split(">");
+      return !loop && +from < this.baseSlots && +to < this.baseSlots;
+    });
+  }
 
   /**
    * The plan legs poseAt(nowMs) will build (`now`) and those its look-ahead will queue next (`soon`), not built
@@ -299,25 +264,11 @@ export class HarbourSim {
    * when it is needed (the same path).
    */
   pathRequests(nowMs: number): { now: PathRequest[]; soon: PathRequest[] } {
-    const t = nowMs / 1000, now = new Map<string, PathRequest>(), soon = new Map<string, PathRequest>();
-    const want = (m: Map<string, PathRequest>, plan: BoatPlan, seg: number, cls: HullClass) => {
-      const k = pathKey(plan.segFrom[seg], plan.segSlot[seg], cls, plan.segLoop[seg]);
-      if (!this.pathCache.has(k) && !now.has(k)) m.set(k, [plan.segFrom[seg], plan.segSlot[seg], cls, plan.segLoop[seg]]);
-    };
-    for (const r of this.rt) {
-      const plan = r.plan;
-      if (r.mode !== MODE_PLAN || plan.kind === "none" || (plan.kind === "static" && !plan.outing)) continue;
-      // (as evalBoat: a leg under way, or a dock window's neighbouring leg within its quarter, or the next one within PREFETCH_S)
-      const nSeg = plan.segStart.length, u = boatLocalTime(plan, t), c = findSegment(plan, u);
-      if (plan.segKind[c] !== SEG_DOCK) { want(now, plan, c, r.cls); continue; }
-      if (nSeg < 2) continue;
-      const into = u - plan.segStart[c], toEnd = plan.segEnd[c] - u, cap = 0.25 * (plan.segEnd[c] - plan.segStart[c]);
-      if (into < cap) want(now, plan, (c - 1 + nSeg) % nSeg, r.cls);
-      else if (toEnd < cap) want(now, plan, (c + 1) % nSeg, r.cls);
-      if (toEnd < PREFETCH_S) want(soon, plan, (c + 1) % nSeg, r.cls);
-    }
-    for (const k of now.keys()) soon.delete(k);
-    return { now: [...now.values()], soon: [...soon.values()] };
+    return planPathRequests(this.plannedBoats(), nowMs, (key) => this.pathCache.has(key));
+  }
+
+  private *plannedBoats(): Iterable<BoatPlan> {
+    for (const r of this.rt) if (r.mode === MODE_PLAN) yield r.plan;
   }
 
   /** Plan leg paths built elsewhere for this very plan (sim/warm-legs): the same values legPathFor would build. */
@@ -328,6 +279,7 @@ export class HarbourSim {
       if (bad) this.badOuting.add(k);
       if (this.pathCache.size > 1500) this.pathCache.delete(this.pathCache.keys().next().value!);
       this.pathCache.set(k, p);
+      this.poseVersion++;
     }
   }
 
@@ -336,8 +288,8 @@ export class HarbourSim {
   berthId(i: number): string | null { return this.slotOf(i)?.id ?? null; }
 
   /** New snapshot. Diffs against the previous model start one-off voyages; first load never does. */
-  setModel(model: HarbourModel, nowMs: number): void {
-    this.install(model, nowMs, false);
+  setModel(model: HarbourModel, nowMs: number, prepared?: PreparedPlan): void {
+    this.install(model, nowMs, false, prepared);
   }
 
   /** Data freshness switch (also driven by model.truth.stablecoins in setModel). */
@@ -350,11 +302,23 @@ export class HarbourSim {
 
   // ------------------------------------------------------------------ model install & diffs
 
-  private install(model: HarbourModel, nowMs: number, first: boolean): void {
+  private install(model: HarbourModel, nowMs: number, first: boolean, prepared?: PreparedPlan): void {
+    if (prepared && prepared.plan.key !== model.planKey) throw new Error("Prepared plan/model mismatch");
     const t = nowMs / 1000;
     const prev = this.model;
     const prevRt = this.rt;
     const prevIndex = this.index;
+    // Enricher/identical refreshes keep cursor, timing, voyage and separation state intact.
+    // Shoals/death/freshness changes still take the ordinary transition path below.
+    if (!first && this.plan.key === model.planKey && prev.boats.length === model.boats.length &&
+      model.boats.every((b, i) => b.id === prev.boats[i].id && b.hullClass === prev.boats[i].hullClass && b.state === prev.boats[i].state) &&
+      (model.truth.stablecoins.state !== "current" && model.hasFleet) === this.frozen) {
+      this.model = model;
+      this.wind.strength = model.readings.weather.wind ?? 0.35;
+      for (let i = 0; i < this.rt.length; i++) this.rt[i].heelBase = Math.min(0.27, 0.13 + 0.035 * Math.log(1 + Math.abs(model.boats[i].pegDeviationBps ?? 0) / 50));
+      this.poseVersion++;
+      return;
+    }
     if (!first && this.posed) this.poseAt(nowMs); // current poses under the old model
     const oldPose = first ? null : this.snapshotPose();
     // the lane offset + give-way shove each hull was shown with (a re-plan moves her neighbours: the
@@ -364,12 +328,25 @@ export class HarbourSim {
 
     const replan = first || !this.plan || this.plan.key !== model.planKey;
     this.model = model;
+    this.poseVersion++;
     if (replan) {
       // drop rafts and extra anchorages made for the previous plan (and forget who was on them)
       this.layout.slots.length = this.baseSlots;
       for (const m of [this.shoalsOf, this.wreckOf]) for (const [id, sl] of [...m]) if (sl >= this.baseSlots) m.delete(id);
-      this.plan = buildPlan(model, this.layout);
-      this.pathCache.clear();
+      if (prepared) {
+        this.layout.slots.push(...prepared.rafts);
+        this.plan = hydratePlan(prepared.plan, this.layout);
+      } else if (this.planner) this.plan = this.planner(model, this.layout);
+      else if (!model.boats.length) this.plan = emptyPlan(model.planKey, this.layout);
+      else throw new Error("A populated simulation requires a prepared plan");
+      // Authored plain legs depend only on this immutable layout and their endpoint/class content.
+      // Raft endpoints and scenic choices depend on the new plan's complete raft-clearance set.
+      for (const k of this.pathCache.keys()) {
+        const [from, to, , loop] = k.split(">");
+        if (+from >= this.baseSlots || +to >= this.baseSlots || loop) this.pathCache.delete(k);
+      }
+      this.badOuting.clear();
+      if (prepared) this.seedPaths(this.plan, prepared.paths);
       this.prefetch.length = 0; this.prefetchKeys.clear();
     }
     this.stats.overflow = this.plan.stats.overflow;
@@ -549,6 +526,7 @@ export class HarbourSim {
       p = b.path;
       if (this.pathCache.size > 1500) this.pathCache.delete(this.pathCache.keys().next().value!);
       this.pathCache.set(key, p);
+      this.poseVersion++;
     }
     return p;
   }
@@ -644,6 +622,7 @@ export class HarbourSim {
 
   /** Stale: nobody casts off; hulls under way finish their leg (or divert to a free berth) and hold. */
   private freeze(t: number): void {
+    this.poseVersion++;
     this.frozen = true;
     const p = this.pose;
     const held = new Set<number>();
@@ -680,6 +659,7 @@ export class HarbourSim {
   }
 
   private unfreeze(t: number): void {
+    this.poseVersion++;
     this.frozen = false;
     const at = this.snapshotPose();
     for (let i = 0; i < this.rt.length; i++) {
@@ -1171,6 +1151,12 @@ export class HarbourSim {
 
   /** Poses for every boat at wall-clock nowMs. Returns the shared buffer (overwritten each call). */
   poseAt(nowMs: number): PoseBuffer {
+    if (nowMs === this.posedAt && this.posedVersion === this.poseVersion &&
+      this.posedWindFrom === this.wind.fromRad && this.posedWindStrength === this.wind.strength) {
+      this.builtThisFrame = 0;
+      this.drainLookahead();
+      return this.pose;
+    }
     const t = nowMs / 1000;
     const n = this.rt.length;
     const st = this.stats;
@@ -1190,14 +1176,22 @@ export class HarbourSim {
       if (this.pose.event[i] !== EV_NONE) st.voyages++;
     }
     this.separate();
-    // at most one look-ahead path per frame, and none on a frame that already built one
+    this.drainLookahead();
+    this.posedAt = nowMs;
+    this.posedVersion = this.poseVersion;
+    this.posedWindFrom = this.wind.fromRad;
+    this.posedWindStrength = this.wind.strength;
+    this.posed = true;
+    return this.pose;
+  }
+
+  /** Independent of pose caching: held clocks must not starve queued paths. */
+  private drainLookahead(): void {
     while (this.builtThisFrame === 0 && this.prefetch.length) {
       const [bi, from, to, sc] = this.prefetch.shift()!;
       const r = this.rt[bi];
       this.prefetchKeys.delete(r ? pathKey(from, to, r.cls, sc) : "");
       if (r && from < this.layout.slots.length && to < this.layout.slots.length) this.legPathFor(from, to, r, sc);
     }
-    this.posed = true;
-    return this.pose;
   }
 }

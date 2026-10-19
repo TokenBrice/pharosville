@@ -1,5 +1,39 @@
 import * as THREE from "three";
 
+/** Deferred local quantization bake: consumed directly into the final static geometry buffers. */
+const patternTransforms = new WeakMap<THREE.Mesh, THREE.Matrix4>();
+export function deferPatternDecode(mesh: THREE.Mesh): void {
+  const position = mesh.geometry.attributes.position;
+  if (!position || (position.array instanceof Float32Array && !position.normalized)) return;
+  mesh.updateMatrix();
+  patternTransforms.set(mesh, mesh.matrix.clone());
+  mesh.position.set(0, 0, 0); mesh.quaternion.identity(); mesh.scale.set(1, 1, 1);
+  mesh.updateMatrix();
+}
+
+export function takePatternTransform(mesh: THREE.Mesh): THREE.Matrix4 | undefined {
+  const transform = patternTransforms.get(mesh);
+  patternTransforms.delete(mesh);
+  return transform;
+}
+
+type TransformKind = "point" | "normal" | "tangent" | null;
+const transformKind = (name: string): TransformKind => name === "position" || name === "hbWinC" ? "point" : name === "normal" ? "normal" : name === "tangent" ? "tangent" : null;
+
+/** Keep the intermediate float32 rounding and normalization, without an intermediate geometry/copy. */
+export function decodeMeshAttribute(mesh: THREE.Mesh, name: string, out: Float32Array, at: number, transform: THREE.Matrix4 | null): void {
+  const a = mesh.geometry.attributes[name];
+  const kind = transformKind(name);
+  const local = kind && name !== "hbWinC" ? patternTransforms.get(mesh) : undefined;
+  decodeInto(a, out, at, local ?? transform, kind);
+  if (local && transform && kind) {
+    const view = new THREE.BufferAttribute(out.subarray(at * a.itemSize, (at + a.count) * a.itemSize), a.itemSize);
+    if (kind === "point") view.applyMatrix4(transform);
+    else if (kind === "normal") view.applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(transform));
+    else view.transformDirection(transform);
+  }
+}
+
 /**
  * Post-load static merge, opt-in: a system hands over meshes that will never move, change material or hide
  * again, and gets back one mesh per (material, attribute layout, shadow flags) in world space. One draw per
@@ -10,8 +44,8 @@ import * as THREE from "three";
  * The merged meshes are added to `into` (its world transform is honoured); the sources are removed from
  * the scene. Source geometries are disposed unless `keepSources` (they may be shared).
  * Attributes keep their source array type (normalized bytes stay bytes) when every source shares it and the
- * transform does not touch them; positions and normals come out float32, through the transform only when it is
- * not the identity (a transform already baked into the vertices is not applied twice).
+ * transform does not touch them; transformed points, normals and tangents come out float32, through the
+ * transform only when it is not the identity (a transform already baked into the vertices is not applied twice).
  */
 export function mergeStaticMeshes(meshes: readonly THREE.Mesh[], into: THREE.Object3D, name: string, keepSources = false): THREE.Mesh[] {
   const groups = new Map<string, THREE.Mesh[]>();
@@ -41,6 +75,7 @@ export function mergeStaticMeshes(meshes: readonly THREE.Mesh[], into: THREE.Obj
     merged.renderOrder = first.renderOrder;
     merged.layers.mask = first.layers.mask;
     merged.matrixAutoUpdate = false;
+    merged.updateMatrix();
     into.add(merged);
     merged.updateMatrixWorld(true);
     for (const m of gr) {
@@ -84,10 +119,10 @@ function decoding(a: Attr): { div: number; signed: boolean } {
 
 /**
  * The decoded values of `a` (three's denormalize) as float32 into `out` from vertex `at`, in one pass over the
- * typed array. `point` carries them through the affine `m`, `normal` through m's normal matrix, renormalised:
- * the same arithmetic as BufferGeometry.applyMatrix4 on a float copy, so the floats match it bit for bit.
+ * typed array. `point` carries them through the affine `m`, `normal` through m's normal matrix, renormalised;
+ * `tangent` transforms the xyz direction and preserves handedness (w), as BufferGeometry.applyMatrix4 does.
  */
-export function decodeInto(a: Attr, out: Float32Array, at: number, m: THREE.Matrix4 | null = null, kind: "point" | "normal" | null = null): void {
+export function decodeInto(a: Attr, out: Float32Array, at: number, m: THREE.Matrix4 | null = null, kind: TransformKind = null): void {
   const { arr, stride, off } = strided(a), { div, signed } = decoding(a), n = a.itemSize, count = a.count;
   const f = Math.fround;
   const dec = div === 1 ? (v: number) => v : signed ? (v: number) => f(Math.max(v / div, -1)) : (v: number) => f(v / div);
@@ -108,6 +143,16 @@ export function decodeInto(a: Attr, out: Float32Array, at: number, m: THREE.Matr
       const nx = e[0] * x + e[3] * y + e[6] * z, ny = e[1] * x + e[4] * y + e[7] * z, nz = e[2] * x + e[5] * y + e[8] * z;
       const k = 1 / (Math.sqrt(nx * nx + ny * ny + nz * nz) || 1);
       out[o] = nx * k; out[o + 1] = ny * k; out[o + 2] = nz * k;
+    }
+    return;
+  }
+  if (m && kind === "tangent" && n === 4) {
+    const e = m.elements;
+    for (let i = 0, s = off, o = at * 4; i < count; i++, s += stride, o += 4) {
+      const x = dec(arr[s]!), y = dec(arr[s + 1]!), z = dec(arr[s + 2]!);
+      const tx = e[0] * x + e[4] * y + e[8] * z, ty = e[1] * x + e[5] * y + e[9] * z, tz = e[2] * x + e[6] * y + e[10] * z;
+      const k = 1 / (Math.sqrt(tx * tx + ty * ty + tz * tz) || 1);
+      out[o] = tx * k; out[o + 1] = ty * k; out[o + 2] = tz * k; out[o + 3] = dec(arr[s + 3]!);
     }
     return;
   }
@@ -140,10 +185,10 @@ function mergeInto(gr: readonly THREE.Mesh[], toLocal: THREE.Matrix4): THREE.Buf
   const g = new THREE.BufferGeometry();
   for (const [k, a0] of Object.entries(geos[0].attributes)) {
     const srcs = geos.map((s) => s.attributes[k]), n = a0.itemSize;
-    const kind = k === "position" ? "point" : k === "normal" ? "normal" : null;
+    const kind = transformKind(k);
     const Ctor = strided(a0).arr.constructor as new (n: number) => Typed;
     const same = srcs.every((a) => strided(a).arr.constructor === Ctor && a.normalized === a0.normalized);
-    if (same && (!kind || (Ctor === Float32Array && !a0.normalized && mats.every((m) => !m)))) {
+    if (same && (!kind || (Ctor === Float32Array && !a0.normalized && mats.every((m) => !m) && gr.every((m) => !patternTransforms.has(m))))) {
       // copied as stored (de-interleaved): bytes stay bytes
       const dst = new Ctor(total * n);
       let o = 0;
@@ -156,7 +201,7 @@ function mergeInto(gr: readonly THREE.Mesh[], toLocal: THREE.Matrix4): THREE.Buf
     } else {
       const dst = new Float32Array(total * n);
       let at = 0;
-      srcs.forEach((a, i) => { decodeInto(a, dst, at, mats[i], kind); at += a.count; });
+      srcs.forEach((a, i) => { decodeMeshAttribute(gr[i], k, dst, at, mats[i]); at += a.count; });
       g.setAttribute(k, new THREE.BufferAttribute(dst, n));
     }
   }
@@ -173,7 +218,7 @@ function mergeInto(gr: readonly THREE.Mesh[], toLocal: THREE.Matrix4): THREE.Buf
   });
   g.setIndex(new THREE.BufferAttribute(ix, 1));
   // untransformed sources keep their bounds: the merged box is their union (no pass over the vertices)
-  const boxes = geos.map((s, i) => (mats[i] ? null : s.boundingBox));
+  const boxes = geos.map((s, i) => (mats[i] || patternTransforms.has(gr[i]) ? null : s.boundingBox));
   setBounds(g, boxes.every((b) => b) ? boxes.reduce<THREE.Box3>((u, b) => u.union(b!), new THREE.Box3()) : undefined);
   return g;
 }
