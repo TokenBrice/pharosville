@@ -42,7 +42,8 @@ function projectStability(payload: ProjectionJson): ProjectionJson {
   const out = pick(payload, ["_meta", "current"]) as JsonObject;
   const current = payload.current;
   if (current !== null && typeof current === "object" && !Array.isArray(current)) {
-    const projected = pick(current, ["score", "band", "avg24h", "components"]) as JsonObject;
+    // computedAt is the publication time live smoke age-checks; kept so the projection stays observable.
+    const projected = pick(current, ["score", "band", "avg24h", "components", "computedAt"]) as JsonObject;
     if (Object.hasOwn(current, "components")) projected.components = pick(current.components, ["severity", "breadth", "stressBreadth", "trend"]);
     out.current = projected;
   }
@@ -54,7 +55,12 @@ function projectStability(payload: ProjectionJson): ProjectionJson {
 
 function projectPegSummary(payload: ProjectionJson): ProjectionJson {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload) || !Array.isArray(payload.coins)) return payload;
-  return { ...pick(payload, ["_meta"]) as JsonObject, coins: payload.coins.map((row) => {
+  const out = pick(payload, ["_meta"]) as JsonObject;
+  // methodology.asOf is the publication time live smoke age-checks; the rest of methodology stays dropped.
+  if (payload.methodology !== null && typeof payload.methodology === "object" && !Array.isArray(payload.methodology) && Object.hasOwn(payload.methodology, "asOf")) {
+    out.methodology = pick(payload.methodology, ["asOf"]);
+  }
+  return { ...out, coins: payload.coins.map((row) => {
     if (row === null || typeof row !== "object" || Array.isArray(row)) return row;
     const coin = pick(row, ["id", "currentDeviationBps", "activeDepeg", "pegScore", "pegReference"]) as JsonObject;
     if (Object.hasOwn(row, "pegReference")) coin.pegReference = pick(row.pegReference, ["valueUsd", "source", "contributorCount"]);
@@ -64,12 +70,13 @@ function projectPegSummary(payload: ProjectionJson): ProjectionJson {
 
 function projectStress(payload: ProjectionJson): ProjectionJson {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload) || !Object.hasOwn(payload, "signals")) return payload;
-  return { ...pick(payload, ["_meta"]) as JsonObject, signals: dictionary(payload.signals, ["score", "band"]) };
+  // updatedAt (publication time) stays so live smoke can age-check the projected body.
+  return { ...pick(payload, ["_meta", "updatedAt"]) as JsonObject, signals: dictionary(payload.signals, ["score", "band"]) };
 }
 
 function projectSafetyGrades(payload: ProjectionJson): ProjectionJson {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload) || !Array.isArray(payload.grades)) return payload;
-  return { ...pick(payload, ["_meta"]) as JsonObject, grades: payload.grades
+  return { ...pick(payload, ["_meta", "updatedAt"]) as JsonObject, grades: payload.grades
     .filter((row): row is JsonObject => row !== null && typeof row === "object" && !Array.isArray(row) && typeof row.id === "string" && RUNTIME_ACTIVE_IDS.has(row.id))
     .map((row) => pick(row, ["id", "grade"])) };
 }

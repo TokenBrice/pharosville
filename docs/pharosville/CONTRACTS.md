@@ -101,17 +101,18 @@ filtered out. The existing active-ID safety-grade filter is unchanged.
 |---|---|
 | `/api/stablecoins` | Every `peggedAssets` row: `id`, `name`, `symbol`, `pegType`, `chains`, `circulating`, `circulatingPrevDay/Week/Month`, each `chainCirculating.*.current` |
 | `/api/chains` | Every row's `id`, `name`, `totalUsd`, `healthScore`, `change24hPct`, `change7dPct`, `change30dPct`; top-level `globalChange7dPct` |
-| `/api/stability-index?detail=true` | `current.score`, `band`, `avg24h`, components `severity`, `breadth`, `stressBreadth`, `trend`; `history` retains the panel's last 30 finite-score rows sorted by ascending date, each `date` and `score` |
-| `/api/peg-summary` | Every coin's `id`, `currentDeviationBps`, `activeDepeg`, `pegScore`, and `pegReference.valueUsd/source/contributorCount` |
-| `/api/stress-signals` | Every signal ID and its `score`, `band` |
-| `/api/safety-grades` | Existing runtime-active rows, each `id`, `grade` |
+| `/api/stability-index?detail=true` | `current.score`, `band`, `avg24h`, `computedAt`, components `severity`, `breadth`, `stressBreadth`, `trend`; `history` retains the panel's last 30 finite-score rows sorted by ascending date, each `date` and `score` |
+| `/api/peg-summary` | Every coin's `id`, `currentDeviationBps`, `activeDepeg`, `pegScore`, and `pegReference.valueUsd/source/contributorCount`; `methodology.asOf` only |
+| `/api/stress-signals` | Every signal ID and its `score`, `band`; top-level `updatedAt` |
+| `/api/safety-grades` | Existing runtime-active rows, each `id`, `grade`; top-level `updatedAt` |
 | `/api/mint-burn-flows` | Every hourly row's `hourTs`, `netFlowUsd`, `mintVolumeUsd`, `burnVolumeUsd`; `scope.chainIds`; every coin's `stablecoinId`, `mintVolume24hUsd`, `burnVolume24hUsd`, `netFlow24hUsd`, `netFlow7dUsd`, `coverage.status` |
 
-Deliberately dropped upstream extras include stablecoin `price`; chains'
-`globalTotalUsd`, `unattributedTotalUsd`, row `dominanceShare` and `healthBand`;
-stability `current.computedAt` and stress signal `computedAt`; and mint/burn
-`gauge`. These are not available to world/UI consumers; new uses must explicitly
-extend the projector and standalone contract first.
+Publication timestamps (`_meta`, `computedAt`, `methodology.asOf`, `updatedAt`) are kept so
+`npm run smoke:live` can age-check every projected body. Deliberately dropped upstream extras
+include stablecoin `price`; chains' `globalTotalUsd`, `unattributedTotalUsd`, row
+`dominanceShare` and `healthBand`; stress signal `computedAt`; the rest of peg `methodology`; and
+mint/burn `gauge`. These are not available to world/UI consumers; new uses must explicitly extend
+the projector and standalone contract first.
 
 Cache policy, `X-Data-Age`, `Age`, and `Warning` remain freshness evidence.
 The ETag is a SHA-256 digest of the serialized **projected** representation,
