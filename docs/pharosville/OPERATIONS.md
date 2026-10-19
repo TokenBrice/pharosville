@@ -80,7 +80,10 @@ own** hashed files into the new artifact, verifies each stored-body hash and siz
 previous release in the new registry. It does not traverse `previous.previous`: production retains the
 current and immediately preceding release, not an ever-growing history. A missing registry/HTML fallback
 is accepted only for the initial migration; malformed registries, missing objects and hash mismatches fail
-the deployment. An unchanged asset generation needs no copies. The registry's `files` always describes
+the deployment. Redeploying the live asset generation (a fresh build of release B over live B, e.g. a
+code-only change) copies live B's own retained previous generation instead, so A tabs keep their A-only
+lazy assets; the fixture in `node scripts/harbour/verify-asset-registry.mjs dist` exercises A→B→B. The
+registry's `files` always describes
 only its own release, never the retained union.
 
 Production `.glb.br`, `.pack.br` and `.bin.br` objects carry real `Content-Encoding: br` and the appropriate

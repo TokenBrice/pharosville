@@ -81,6 +81,13 @@ try {
   live = a.registry; await retainAssets(b.dir, origin);
   assert.ok((await readFile(resolve(b.dir, `.${a.registry.files[0].url}`))).equals(bodies.get(a.registry.files[0].url)));
   live = JSON.parse(await readFile(resolve(b.dir, "asset-registry.json"), "utf8"));
+  // Fresh artifact of B redeployed over live B (A→B→B): A stays retained and A-only lazy assets stay served.
+  const b2 = await makeRelease("b");
+  await retainAssets(b2.dir, origin);
+  const redeployed = JSON.parse(await readFile(resolve(b2.dir, "asset-registry.json"), "utf8"));
+  assert.equal(redeployed.previous.release, a.registry.release); assert.equal(redeployed.previous.previous, undefined);
+  assert.ok((await readFile(resolve(b2.dir, `.${a.registry.files[0].url}`))).equals(bodies.get(a.registry.files[0].url)));
+  live = redeployed;
   await retainAssets(c.dir, origin);
   const third = JSON.parse(await readFile(resolve(c.dir, "asset-registry.json"), "utf8"));
   assert.equal(third.previous.release, b.registry.release); assert.equal(third.previous.previous, undefined);
