@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { WorldUniforms } from "../engine/uniforms";
+import type { EmblemAtlas } from "./emblems";
 
 /**
  * House flags: the coin's colours flown by every hull at rest (docked, moored, at anchor), so a furled fleet
@@ -108,12 +109,15 @@ export class HouseFlags {
   private readonly s = new THREE.Vector3();
   private readonly p = new THREE.Vector3();
 
-  constructor(u: WorldUniforms, emblems: THREE.Texture, grid: THREE.Vector4, max = 1024) {
+  constructor(u: WorldUniforms, atlas: EmblemAtlas, max = 1024) {
     // a unit flag in its own xy plane, hoist on the local origin, flying along +x
     const g = new THREE.PlaneGeometry(1, 0.72, 10, 3);
     g.translate(0.5, -0.36, 0);
     this.mat = new THREE.ShaderMaterial({
-      uniforms: { uTime: u.uTime, uWind: { value: 0.35 }, uEmblems: { value: emblems }, uEmblemGrid: { value: grid }, uLight: { value: new THREE.Color(1, 1, 1) } },
+      uniforms: {
+        uTime: u.uTime, uWind: { value: 0.35 }, uEmblems: { value: atlas.texture }, uEmblemGrid: { value: atlas.grid },
+        uLight: { value: new THREE.Color(1, 1, 1) },
+      },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide,
     });
     this.mesh = new THREE.InstancedMesh(g, this.mat, max);

@@ -76,6 +76,8 @@ jobs:
         with:
           name: pharosville-dist
           path: dist
+      - name: Retain previous release's immutable assets
+        run: node scripts/harbour/retain-assets.mjs dist https://pharosville.pharos.watch
       - name: Deploy Pages
         id: pages
         uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
@@ -102,3 +104,24 @@ jobs:
           done
           echo "Pages deployment did not become ready within the propagation window." >&2
           exit 1
+      - name: Verify production immutable asset delivery
+        run: |
+          npx playwright install --with-deps chromium
+          node --input-type=module <<'NODE'
+          import { chromium } from "playwright";
+          import { spawn } from "node:child_process";
+
+          // Transport needs HTTP decoding, not a GPU. Give the checker one shared CDP browser.
+          const browser = await chromium.launch({ headless: true, args: ["--remote-debugging-port=9333"] });
+          try {
+            const check = spawn(process.execPath, [
+              "scripts/harbour/check-asset-delivery.mjs", "dist", "https://pharosville.pharos.watch",
+            ], { stdio: "inherit" });
+            process.exitCode = await new Promise((resolve, reject) => {
+              check.once("error", reject);
+              check.once("exit", (code) => resolve(code ?? 1));
+            });
+          } finally {
+            await browser.close();
+          }
+          NODE

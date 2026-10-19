@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { fillGradeLUT, gradePixel } from "./post";
+import * as THREE from "three";
+import { BloomEffect, EdgeDetectionMaterial, SMAAEffect, SMAAPreset, SMAAWeightsMaterial } from "postprocessing";
+import { describe, expect, it, vi } from "vitest";
+import { fillGradeLUT, gradePixel, PostChain } from "./post";
 import { DEFAULT_KEYFRAMES, styleCDirection } from "./time-of-day";
+import { TIERS } from "./quality";
 
 import type { Grade } from "./time-of-day";
 
@@ -44,5 +47,85 @@ describe("time of day", () => {
     const ang = Math.acos((g.x * Math.SQRT1_2 + g.z * Math.SQRT1_2) / Math.hypot(g.x, g.z)) * 180 / Math.PI;
     expect(ang).toBeCloseTo(63, 3);
     expect(Math.asin(g.y) * 180 / Math.PI).toBeCloseTo(9, 3);
+  });
+});
+
+describe("bloom mip ownership", () => {
+  it("resizes only targets through 8→6→8→7→8 without disposing blur materials", () => {
+    const bloom = new BloomEffect({ mipmapBlur: true, levels: 8, radius: 0.72 });
+    const pass = bloom.mipmapBlurPass;
+    const mip = pass as typeof pass & {
+      downsamplingMaterial: THREE.ShaderMaterial;
+      upsamplingMaterial: THREE.ShaderMaterial;
+      downsamplingMipmaps: THREE.WebGLRenderTarget[];
+      upsamplingMipmaps: THREE.WebGLRenderTarget[];
+    };
+    const down = mip.downsamplingMaterial, up = mip.upsamplingMaterial;
+    const disposed = vi.fn();
+    down.addEventListener("dispose", disposed);
+    up.addEventListener("dispose", disposed);
+    pass.setSize(1600, 1000);
+    const chain = Object.assign(Object.create(PostChain.prototype) as PostChain, {
+      bloom, smaa: { applyPreset: vi.fn() },
+    });
+    const output = pass.texture;
+    for (const tier of ["low", "high", "medium", "high"] as const) {
+      const oldTargets = [...mip.downsamplingMipmaps, ...mip.upsamplingMipmaps];
+      const targetDisposed = vi.fn();
+      for (const target of oldTargets) target.addEventListener("dispose", targetDisposed);
+      chain.setQuality(TIERS[tier]);
+      expect(targetDisposed).toHaveBeenCalledTimes(oldTargets.length);
+      // The output object is also sampled by BloomEffect's uniform: its identity must not change.
+      expect(pass.texture).toBe(output);
+      expect(pass.levels).toBe(TIERS[tier].bloomLevels);
+      expect(pass.radius).toBe(0.72);
+      expect(mip.downsamplingMaterial).toBe(down);
+      expect(mip.upsamplingMaterial).toBe(up);
+      expect(disposed).not.toHaveBeenCalled();
+      let w = 1600, h = 1000;
+      for (const target of mip.downsamplingMipmaps) {
+        w = Math.round(w * 0.5); h = Math.round(h * 0.5);
+        expect([target.width, target.height]).toEqual([w, h]);
+      }
+      const unchanged = vi.fn();
+      for (const target of [...mip.downsamplingMipmaps, ...mip.upsamplingMipmaps]) target.addEventListener("dispose", unchanged);
+      chain.setQuality(TIERS[tier]);
+      expect(unchanged).not.toHaveBeenCalled();
+    }
+    bloom.dispose();
+    expect(disposed).toHaveBeenCalled();
+  });
+});
+
+describe("quality preset preparation", () => {
+  it("prepares only the two changing SMAA surfaces, preserving live defines and per-tier presets", () => {
+    const edge = new EdgeDetectionMaterial(), weights = new SMAAWeightsMaterial();
+    const scene = new THREE.Scene(), camera = new THREE.Camera();
+    const smaa = {
+      edgeDetectionMaterial: edge, weightsMaterial: weights,
+      edgeDetectionPass: { scene, camera }, weightsPass: { scene, camera },
+      renderTargetEdges: new THREE.WebGLRenderTarget(), renderTargetWeights: new THREE.WebGLRenderTarget(),
+    };
+    const chain = Object.assign(Object.create(PostChain.prototype) as PostChain, { smaa });
+    const liveEdge = { ...edge.defines }, liveWeights = { ...weights.defines };
+    for (const tier of ["low", "medium", "high"] as const) {
+      const prepared = chain.preparationEntries(TIERS[tier]);
+      expect(prepared.entries).toHaveLength(2);
+      const expectedEdge = new EdgeDetectionMaterial(), expectedWeights = new SMAAWeightsMaterial();
+      SMAAEffect.prototype.applyPreset.call({ edgeDetectionMaterial: expectedEdge, weightsMaterial: expectedWeights } as SMAAEffect,
+        tier === "low" ? SMAAPreset.LOW : tier === "medium" ? SMAAPreset.MEDIUM : SMAAPreset.HIGH);
+      const materials = prepared.entries.map((entry) => (entry.root as THREE.Mesh).material as THREE.ShaderMaterial);
+      expect(materials[0].defines).toEqual(expectedEdge.defines);
+      expect(materials[1].defines).toEqual(expectedWeights.defines);
+      expect(edge.defines).toEqual(liveEdge);
+      expect(weights.defines).toEqual(liveWeights);
+      expect(prepared.entries.map((entry) => entry.target())).toEqual([smaa.renderTargetEdges, smaa.renderTargetWeights]);
+      const disposed = vi.fn();
+      for (const material of materials) material.addEventListener("dispose", disposed);
+      prepared.dispose();
+      expect(disposed).toHaveBeenCalledTimes(2);
+      expectedEdge.dispose(); expectedWeights.dispose();
+    }
+    edge.dispose(); weights.dispose(); smaa.renderTargetEdges.dispose(); smaa.renderTargetWeights.dispose();
   });
 });

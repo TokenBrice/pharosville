@@ -68,7 +68,7 @@ export type HarbourPayloads = { [K in EndpointKey]?: EndpointSnapshot<PayloadByK
 export interface BuildOptions {
   /** Chains that own a pier, in layout order (layout.piers[].chain). Default: top 8 by supply. */
   pieredChains?: readonly string[];
-  /** Dead-coin list; default shared/data/dead-stablecoins.json. */
+  /** Optional full dead-coin override; default is the exact build-time cemetery scenery projection. */
   dead?: readonly DeadStablecoin[];
 }
 

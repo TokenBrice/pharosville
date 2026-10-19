@@ -18,6 +18,8 @@ export interface EngineContext {
   readonly assets: AssetStore;
   /** Free-form registry so systems can expose services to each other (e.g. "wake", "layout", "model"). */
   readonly services: Map<string, unknown>;
+  /** Engine lifetime; optional for standalone system fixtures. */
+  readonly signal?: AbortSignal;
 }
 
 export interface FrameState {
@@ -40,7 +42,45 @@ export interface WorldSystem {
   update(frame: FrameState, ctx: EngineContext): void;
   /** Called after the camera rig resized/moved; optional. */
   resize?(width: number, height: number, ctx: EngineContext): void;
+  /** Noncritical future-state programs, prepared in idle turns after the first completed frame. */
+  prepareIdle?(ctx: EngineContext): Promise<void>;
   dispose(ctx: EngineContext): void;
+}
+
+/** Explicit private-pass preparation; target is resolved at issuance (resize may replace it). */
+export interface PreparationEntry {
+  readonly root: THREE.Object3D;
+  readonly camera: THREE.Camera;
+  readonly target: () => THREE.WebGLRenderTarget | null;
+  readonly scene?: THREE.Scene;
+}
+
+export interface PreparationService {
+  register(entry: PreparationEntry): () => void;
+  /** Detached additions must await this before publication. Rejects on engine disposal. */
+  prepareGroup(root: THREE.Object3D): Promise<void>;
+  /** Prepare a calendar classification before publishing colour/depth versions and uniforms. */
+  prepareSeason(scope: () => () => void, commit: () => void): Promise<void>;
+  /** One idle upload per task; render-target attachments are never uploaded as CPU textures. */
+  stageTextures(root: THREE.Object3D): void;
+}
+
+/** Installed simulation model/plan readiness; DataSystem mutates this service in place. */
+export interface ReadinessState {
+  revision: number;
+  boats: number;
+  prepared: boolean;
+}
+
+/** Startup planning failure; the awaiting world is real, but it cannot claim live fleet readings. */
+export interface SimulationStatus {
+  unavailable: boolean;
+}
+
+/** FleetSystem's posed/submitted revision and boat count, copied after a completed composer render. */
+export interface RenderedFleetState {
+  readonly revision: number;
+  readonly boats: number;
 }
 
 export interface HarbourStats {
@@ -52,10 +92,22 @@ export interface HarbourStats {
   hour: number;
   systems: string[];
   firstFrameMs: number | null;
+  firstFleetFrameMs: number | null;
+  renderedRevision: number;
+  renderedBoats: number;
   /** Render pixel ratio chosen by the quality governor. */
   dpr?: number;
-  /** Last measured GPU frame time (EXT_disjoint_timer_query_webgl2), if available. */
+  /** p10 of completed current-state GPU samples, retained as the compact stats alias. */
   gpuMs?: number | null;
+  gpuP10Ms?: number | null;
+  gpuP50Ms?: number | null;
+  /** Bounded current-state population behind p10/p50. */
+  gpuSamples?: number;
+  /** Cumulative non-disjoint completions (including prior states), pending and rejected queries. */
+  gpuCompletedSamples?: number;
+  gpuPendingQueries?: number;
+  gpuDisjointSamples?: number;
+  gpuSkippedQueries?: number;
   /** Quality tier chosen by the governor ('quality' service). */
   quality?: "high" | "medium" | "low";
   /** Boot profile (ms): each system's init, then the first frame's render. */

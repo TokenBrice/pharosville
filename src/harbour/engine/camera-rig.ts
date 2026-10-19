@@ -18,6 +18,10 @@ export class CameraRig {
   private readonly goalTarget = new THREE.Vector3();
   private goalDistance = 720;
   private readonly offset = new THREE.Vector3();
+  private readonly syncedTarget = new THREE.Vector3(NaN, NaN, NaN);
+  private syncedDistance = NaN;
+  private syncedPitch = NaN;
+  private syncedYaw = NaN;
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
@@ -26,8 +30,7 @@ export class CameraRig {
     this.goalDistance = p.distance;
     this.pitch = THREE.MathUtils.degToRad(p.pitchDeg);
     this.yaw = THREE.MathUtils.degToRad(p.yawDeg);
-    this.camera.fov = p.fovDeg;
-    this.camera.updateProjectionMatrix();
+    if (this.camera.fov !== p.fovDeg) { this.camera.fov = p.fovDeg; this.camera.updateProjectionMatrix(); }
     if (immediate) { this.target.copy(this.goalTarget); this.distance = this.goalDistance; this.sync(); }
   }
 
@@ -83,12 +86,21 @@ export class CameraRig {
   }
 
   private sync(): void {
+    if (this.syncedDistance === this.distance && this.syncedPitch === this.pitch
+      && this.syncedYaw === this.yaw && this.syncedTarget.equals(this.target)) return;
+    this.syncedDistance = this.distance;
+    this.syncedPitch = this.pitch;
+    this.syncedYaw = this.yaw;
+    this.syncedTarget.copy(this.target);
     const cp = Math.cos(this.pitch);
     this.offset.set(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp).multiplyScalar(this.distance);
     this.camera.position.copy(this.target).add(this.offset);
     this.camera.lookAt(this.target);
-    this.camera.near = Math.max(1, this.distance * 0.05);
-    this.camera.far = this.distance * 12;
-    this.camera.updateProjectionMatrix();
+    const near = Math.max(1, this.distance * 0.05), far = this.distance * 12;
+    if (this.camera.near !== near || this.camera.far !== far) {
+      this.camera.near = near;
+      this.camera.far = far;
+      this.camera.updateProjectionMatrix();
+    }
   }
 }

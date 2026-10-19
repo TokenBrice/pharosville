@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
 import { getLightsStore } from "../lights/lights-service";
 import type { GroundService } from "../world/ground";
 import type { OceanService } from "../ocean/ocean-system";
@@ -31,13 +31,6 @@ const FLAG_SCALE: Record<string, number> = { ethereum: 1.65 };
 const CIVIC_HEIGHT: Record<string, number> = { customs: 26, mint: 30, burn: 26, shipyard: 14, registry: 20, stormstation: 22 };
 
 interface LifeWind { readonly wind: number; readonly windTo: readonly [number, number] }
-
-async function json<T>(url: string): Promise<T | null> {
-  try {
-    const r = await fetch(url);
-    return r.ok && (r.headers.get("content-type") ?? "").includes("json") ? ((await r.json()) as T) : null;
-  } catch { return null; }
-}
 
 /** Metres added to dry land in the sight grid for trees (not in the island's height field). */
 const TREE_ALLOWANCE = 11;
@@ -80,6 +73,8 @@ export class IdentitySystem implements WorldSystem {
   private motion: MotionService | null = null;
   private scanIn = 0;
   private scans = 0;
+  private scanning = false;
+  private disposed = false;
   private readonly light = new THREE.Color();
   private labels: LabelSpec[] = [];
 
@@ -88,9 +83,9 @@ export class IdentitySystem implements WorldSystem {
     if (!layout) return;
     this.motion = ensureMotionService(ctx);
     const [font, atlas, sdfTex, crestTex] = await Promise.all([
-      json<ChartFont>("/harbour/chart-lettering.json"),
-      json<CrestAtlas>("/harbour/crests.json"),
-      ctx.assets.texture("/harbour/chart-lettering.png", false).catch(() => null),
+      ctx.assets.json<ChartFont>("/harbour/chart-lettering.json").catch(() => null),
+      ctx.assets.json<CrestAtlas>("/harbour/crests.json").catch(() => null),
+      ctx.assets.texture("/harbour/chart-lettering.webp", false).catch(() => null),
       ctx.assets.texture("/harbour/crests.webp", true).catch(() => null),
     ]);
 
@@ -146,13 +141,17 @@ export class IdentitySystem implements WorldSystem {
   update(frame: FrameState, ctx: EngineContext): void {
     if (this.lettering) this.lettering.camDist.value = ctx.rig.distance;
     const u = ctx.uniforms;
-    if (this.dresser && !this.dresser.complete && (this.scanIn -= frame.delta) <= 0) {
+    if (this.dresser && !this.scanning && !this.dresser.complete && (this.scanIn -= frame.delta) <= 0) {
       // the offices arrive whenever their placer has loaded them: look twice a second, then less often
       this.scanIn = this.scans++ < 60 ? 0.5 : 3;
-      for (const s of this.dresser.scan(ctx.scene)) {
-        const c = this.atlas!.chains[s.chain];
-        this.flags?.add({ x: s.top.x, y: s.top.y, z: s.top.z, rect: c.flag, phase: s.chain.length * 1.7 + s.top.x * 0.01, scale: FLAG_SCALE[s.chain] });
-      }
+      this.scanning = true;
+      void this.dresser.scan(ctx.scene, ctx.services.get("preparation") as PreparationService | undefined).then((sites) => {
+        if (this.disposed) return;
+        for (const s of sites) {
+          const c = this.atlas!.chains[s.chain];
+          this.flags?.add({ x: s.top.x, y: s.top.y, z: s.top.z, rect: c.flag, phase: s.chain.length * 1.7 + s.top.x * 0.01, scale: FLAG_SCALE[s.chain] });
+        }
+      }).catch((error: unknown) => console.error("[harbour] office dressing failed", error)).finally(() => { this.scanning = false; });
     }
     this.dresser?.setGlow(0.28 * u.uWindowGlow.value);
     if (this.flags) {
@@ -190,11 +189,16 @@ export class IdentitySystem implements WorldSystem {
       cam.position.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(p.distance).add(t);
       cam.lookAt(t);
       cam.updateMatrixWorld(true);
-      const v = new THREE.Vector3();
+      const v = new THREE.Vector3(), projected: [number, number] = [0, 0];
       return {
         eye: [cam.position.x, cam.position.y, cam.position.z],
         want,
-        project: (x, y, z) => { v.set(x, y, z).project(cam); return v.z > 1 ? null : [v.x, v.y]; },
+        project: (x, y, z) => {
+          v.set(x, y, z).project(cam);
+          if (v.z > 1) return null;
+          projected[0] = v.x; projected[1] = v.y;
+          return projected;
+        },
       };
     };
     const views: PlaceView[] = [];
@@ -224,6 +228,7 @@ export class IdentitySystem implements WorldSystem {
   }
 
   dispose(ctx: EngineContext): void {
+    this.disposed = true;
     if (this.lettering) { ctx.scene.remove(this.lettering.mesh); this.lettering.dispose(); }
     if (this.flags) { ctx.scene.remove(this.flags.group); this.flags.dispose(); }
     this.dresser?.dispose();

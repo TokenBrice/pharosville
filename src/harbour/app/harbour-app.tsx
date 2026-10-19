@@ -1,19 +1,32 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrivalModuleFailure, ArrivalShell } from "@/components/arrival-shell";
 import { reportClientError } from "@/error-reporter";
+import { installGoogleAnalytics } from "@/google-analytics";
+import { preloadDetails } from "../ui/details";
 import { Engine } from "../engine/engine";
 import { SYSTEMS } from "../systems";
 import { mountHarbourUI } from "../ui/mount";
 import type { HarbourFeed } from "../data/fetch";
+import type { ReadinessState, RenderedFleetState, SimulationStatus } from "../engine/types";
+import type { HarbourModel } from "../model/types";
 import { dismissPoster, resetPosterState } from "./poster";
 import "./harbour-app.css";
 
-/** Crossfade without data after this long: an honest "awaiting data" harbour beats a frozen poster. */
-const DATA_WAIT_MS = 8000;
-/** Frames to let the fleet place its boats after the first payloads land. */
-const SETTLE_FRAMES = 4;
+/** Pending-only hold, measured from this mount's first composer-completed frame, not navigation/init. */
+const DATA_WAIT_MS = 2000;
+/** A prepared revision with an incomplete rendered fleet must not strand the poster indefinitely. */
+const FLEET_WAIT_MS = 3000;
 
-type Stage = "loading" | "live" | "failed";
+type Stage = "loading" | "waiting" | "live" | "empty" | "partial" | "unavailable" | "failed";
+
+const STAGE_TEXT: Record<Exclude<Stage, "failed">, string> = {
+  loading: "Raising the harbour.",
+  waiting: "Waiting for the fleet’s readings.",
+  live: "The harbour is live.",
+  empty: "The harbour is ready. No boats in the current readings.",
+  partial: "Harbour ready; some boats could not be displayed.",
+  unavailable: "Harbour ready; live readings unavailable.",
+};
 
 /**
  * Production mount of the Harbour: the same Engine + SYSTEMS + overlay UI as the dev entry
@@ -34,36 +47,73 @@ export function HarbourApp() {
     let cancelled = false;
     let engine: Engine | null = null;
     let unmountUI: (() => void) | null = null;
-    let raf = 0;
+    let stopWatching: (() => void) | undefined;
     let shellTimer = 0;
 
+    resetPosterState();
     const boot = async () => {
       engine = new Engine(world);
       for (const make of SYSTEMS) engine.add(make());
       await engine.init();
       if (cancelled) return;
       delete window.__harbourStats; // a previous mount's stats must not count as this world's first frame
-      engine.start();
-      unmountUI = mountHarbourUI(engine, ui);
-
       const feed = engine.ctx.services.get("feed") as HarbourFeed | undefined;
-      const t0 = performance.now();
-      let settle = -1;
-      const watch = () => {
+      const readiness = engine.ctx.services.get("readiness") as ReadinessState | undefined;
+      let firstRenderedAt: number | undefined;
+      let incompleteSince: number | undefined;
+      let incompleteRevision: number | undefined;
+      const simulation = engine.ctx.services.get("simulation-status") as SimulationStatus | undefined;
+      let revealed = false;
+      const reveal = (next: Exclude<Stage, "loading" | "failed">) => {
+        setStage(next);
+        if (next !== "waiting" && !(next === "unavailable" && simulation?.unavailable)) stopWatching?.();
+        if (revealed) return;
+        revealed = true;
+        dismissPoster("crossfade");
+        void preloadDetails().catch(() => { /* A later interaction may retry a failed warmup. */ });
+        shellTimer = window.setTimeout(() => {
+          setShellGone(true);
+          installGoogleAnalytics();
+        }, 1200);
+      };
+      stopWatching = engine.onRendered((rendered: RenderedFleetState) => {
         if (cancelled) return;
-        const drawn = window.__harbourStats?.firstFrameMs != null;
-        const dataIn = !feed || feed.payloads.stablecoins !== undefined || performance.now() - t0 > DATA_WAIT_MS;
-        if (drawn && dataIn && settle < 0) settle = SETTLE_FRAMES;
-        if (settle > 0) settle--;
-        if (settle === 0) {
-          setStage("live");
-          dismissPoster("crossfade");
-          shellTimer = window.setTimeout(() => setShellGone(true), 1200);
+        const now = performance.now();
+        firstRenderedAt ??= now;
+        const model = engine?.ctx.services.get("model") as HarbourModel | undefined;
+        // A snapshot alone is not proof: the committed revision's entire fleet must have drawn.
+        const complete = model?.hasFleet && readiness?.prepared && readiness.revision > 0
+          && rendered.revision === readiness.revision && rendered.boats === readiness.boats;
+        if (complete) {
+          reveal(readiness.boats === 0 ? "empty" : "live");
           return;
         }
-        raf = requestAnimationFrame(watch);
-      };
-      raf = requestAnimationFrame(watch);
+        const incomplete = readiness?.prepared && rendered.revision === readiness.revision && rendered.boats < readiness.boats;
+        if (incomplete) {
+          if (incompleteRevision !== readiness.revision) incompleteSince = undefined;
+          incompleteRevision = readiness.revision;
+          incompleteSince ??= now;
+          if (now - incompleteSince > FLEET_WAIT_MS) {
+            console.warn("[harbour] revealing incomplete fleet", { revision: readiness.revision, rendered: rendered.boats, expected: readiness.boats });
+            reveal("partial");
+            return;
+          }
+        } else {
+          incompleteSince = undefined;
+          incompleteRevision = undefined;
+        }
+        const snapshot = feed?.payloads.stablecoins;
+        const boatless = model?.boats.length === 0 && rendered.boats === 0;
+        if (boatless && (snapshot?.data === null || simulation?.unavailable)) {
+          reveal("unavailable");
+        } else if (!revealed && boatless && snapshot === undefined && now - firstRenderedAt >= DATA_WAIT_MS) {
+          // Pending is not stale: retain the real empty awaiting model, without inventing fog or boats.
+          // DataSystem later commits a prepared model+pose atomically; Fleet draws it in one step.
+          reveal("waiting");
+        }
+      });
+      engine.start();
+      unmountUI = mountHarbourUI(engine, ui);
     };
 
     const settled = boot().catch((error: unknown) => {
@@ -77,7 +127,7 @@ export function HarbourApp() {
     return () => {
       cancelled = true;
       engine?.abort(); // a mount torn down mid-boot (React's dev double-mount) stops booting at once
-      cancelAnimationFrame(raf);
+      stopWatching?.();
       clearTimeout(shellTimer);
       resetPosterState();
       // dispose only after init settles: systems must not be torn down mid-load
@@ -93,7 +143,7 @@ export function HarbourApp() {
       <div ref={uiRef} />
       {stage === "failed"
         ? <ArrivalModuleFailure reason="This browser could not start the WebGL2 harbour." />
-        : !shellGone && <ArrivalShell stage={stage === "live" ? "The harbour is live." : "Raising the harbour."} />}
+        : !shellGone && <ArrivalShell stage={STAGE_TEXT[stage]} />}
     </>
   );
 }

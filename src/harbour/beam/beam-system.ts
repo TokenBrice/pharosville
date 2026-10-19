@@ -351,7 +351,6 @@ export class BeamSystem implements WorldSystem {
     this.bu.uBeamAngle.value = angle;
     this.bu.uBeamCol.value.copy(this.colorS).multiplyScalar((0.1 + 0.15 * dayAlert + 0.9 * nightK) * (0.4 + 0.6 * this.reachS) * 1.3 * (lit ? 1 : 0) * swell * breath);
     this.bu.uBeamShape.value.set(L, HALF, TILT, flash * (1.5 + 2.5 * day));
-    this.bu.uBeamBack.value = 0;
   }
 
   dispose(ctx: EngineContext): void {

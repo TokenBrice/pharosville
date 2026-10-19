@@ -1,10 +1,11 @@
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { boatFact, harbourFact, landmarkFact, wreckFact } from "./facts";
-import { deadRecords, FAMILIES } from "../model/obituary";
+import { deadSummaries, FAMILIES } from "../model/obituary";
 import { placeName } from "./places";
 import { expectedLabel, PHASE_NAME, yardCoins } from "./yard";
-import { useFrame, usePresence, useStore, useSticky, useUI } from "./hooks";
+import { useFrame, useFrameWrite, usePresence, useStore, useSticky, useUI } from "./hooks";
 import { getLayout, sameHit, type PickHit, type ScreenPoint } from "./services";
+import { setStyle, useMeasurements } from "./measurements";
 
 /**
  * The chart-paper tag: name + one fact, hung from a brass leader at the object's anchor. Follows the
@@ -25,23 +26,35 @@ function Tag({ hit, shown, pinned }: { hit: PickHit; shown: boolean; pinned: boo
   const { model } = useUI();
   const ref = useRef<HTMLDivElement>(null);
   const pt = useRef<ScreenPoint>({ x: 0, y: 0, visible: false });
+  const measurements = useMeasurements();
+  const placement = useRef({ visible: false, below: false, anchor: "", tag: "" });
 
   useFrame(() => {
     const el = ref.current;
     if (!el) return;
     const p = store.picking.screenPosition(hit, pt.current);
-    if (!p || !p.visible) { el.style.visibility = "hidden"; return; }
-    el.style.visibility = "";
-    const below = p.y < 64;
-    el.dataset.below = String(below);
-    // keep the tag inside the viewport horizontally (the leader stays on the anchor)
+    const next = placement.current;
+    next.visible = !!p?.visible;
+    if (!p?.visible) return;
+    next.below = p.y < 64;
+    // Read the cached tag dimensions before ANY overlay writes in this engine frame.
     const tag = el.firstElementChild as HTMLElement | null;
-    if (tag) {
-      const half = tag.offsetWidth / 2, maxX = innerWidth - 12;
-      const shift = Math.min(0, maxX - (p.x + half)) + Math.max(0, 12 - (p.x - half));
-      tag.style.transform = `translateX(calc(-50% + ${shift.toFixed(1)}px))`;
-    }
-    el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`;
+    const half = measurements.get(tag).w / 2, maxX = innerWidth - 12;
+    const shift = Math.min(0, maxX - (p.x + half)) + Math.max(0, 12 - (p.x - half));
+    next.tag = `translateX(calc(-50% + ${shift.toFixed(1)}px))`;
+    next.anchor = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`;
+  });
+
+  useFrameWrite(() => {
+    const el = ref.current, next = placement.current;
+    if (!el) return;
+    setStyle(el, "visibility", next.visible ? "" : "hidden");
+    if (!next.visible) return;
+    const below = String(next.below);
+    if (el.dataset.below !== below) el.dataset.below = below;
+    const tag = el.firstElementChild as HTMLElement | null;
+    if (tag) setStyle(tag, "transform", next.tag);
+    setStyle(el, "transform", next.anchor);
   });
 
   let name = "", fact = "", decorative = false, swatch: string | null = null;
@@ -55,7 +68,7 @@ function Tag({ hit, shown, pinned }: { hit: PickHit; shown: boolean; pinned: boo
       decorative = w.kind === "outing";
     }
   } else if (hit.kind === "wreck") {
-    const r = deadRecords().get(hit.id);
+    const r = deadSummaries().get(hit.id);
     if (r) {
       name = r.symbol;
       fact = wreckFact(r.id);
@@ -78,6 +91,9 @@ function Tag({ hit, shown, pinned }: { hit: PickHit; shown: boolean; pinned: boo
     name = `${hit.id} harbour`;
     fact = harbourFact(hit.id, model);
   }
+  useLayoutEffect(() => {
+    measurements.invalidate(ref.current?.firstElementChild as HTMLElement | null);
+  }, [measurements, name, fact, swatch]);
   if (!name) return null;
 
   return (

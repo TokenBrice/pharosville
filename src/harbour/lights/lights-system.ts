@@ -1,17 +1,17 @@
 import * as THREE from "three";
-import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { getLightsStore, type LightsStore } from "./lights-service";
-import type { QualityService } from "../engine/quality";
+import type { QualityService, QualitySettings } from "../engine/quality";
 
 const MAX_POINT = 16;
 const POOL_RES = 2048;
 
 /**
- * Dark point lights cost nothing: the promoted pool keeps a fixed count (toggling `visible` would change
- * NUM_POINT_LIGHTS and recompile every lit program), so by day and for unpromoted slots the lights sit at
+ * All tiers keep sixteen shader slots (changing `visible` changes NUM_POINT_LIGHTS and recompiles
+ * every lit program). By day and beyond the tier's promotion budget the lights sit at
  * intensity 0 (uniform colour 0). Patch three's point-light loop to skip those (a uniform branch) and to
  * skip RE_Direct when the light is out of range (directLight.visible). Both contributed exactly zero.
  * Applied at module scope, before any program compiles (the chunk is resolved at compile time); idempotent
@@ -82,6 +82,8 @@ export class LightsSystem implements WorldSystem {
   /** Metres from the light to open water along the (fixed-yaw) view direction: the pillar starts there. */
   private iWet!: THREE.InstancedBufferAttribute;
   private wetYaw = NaN;
+  private offQuality: (() => void) | undefined;
+  private offPreparation: (() => void) | undefined;
 
   init(ctx: EngineContext): void {
     this.store = getLightsStore(ctx);
@@ -217,7 +219,7 @@ export class LightsSystem implements WorldSystem {
     this.pillars.name = "harbour-light-pillars";
     ctx.scene.add(this.sprites, this.pillars);
 
-    // ---- real point lights (fixed count: no shader recompiles)
+    // ---- real point lights (fixed shader count across every tier)
     for (let i = 0; i < MAX_POINT; i++) {
       const p = new THREE.PointLight(0xffae57, 0, 18, 2);
       p.castShadow = false;
@@ -225,6 +227,25 @@ export class LightsSystem implements WorldSystem {
       ctx.scene.add(p);
     }
     this.ensureCapacity(Math.max(256, this.store.lights.length));
+    this.offPreparation = (ctx.services.get("preparation") as PreparationService | undefined)?.register({
+      root: this.poolScene, camera: this.poolCam, target: () => this.poolRT,
+    });
+    const quality = ctx.services.get("quality") as QualityService | undefined;
+    if (quality) {
+      this.applyQuality(quality.settings);
+      this.offQuality = quality.onChange((settings) => this.applyQuality(settings));
+    }
+  }
+
+  private applyQuality(settings: QualitySettings): void {
+    const want = Math.min(MAX_POINT, settings.pointLights);
+    if (want === this.pointCount) return;
+    this.pointCount = want;
+    for (let k = want; k < MAX_POINT; k++) {
+      this.points[k].intensity = 0;
+      this.points[k].userData.base = 0;
+    }
+    this.pickTimer = 0;
   }
 
   private ensureCapacity(n: number): void {
@@ -309,6 +330,9 @@ export class LightsSystem implements WorldSystem {
     this.pickTimer -= frame.delta;
     if (this.pickTimer <= 0) { this.pickTimer = 0.2; this.pickPoints(ctx); }
     const glow = THREE.MathUtils.smoothstep(ctx.uniforms.uWindowGlow.value, 0.02, 0.55);
+    // Zero RGB under additive blending and no depth writes; post clamps the opaque scene's alpha.
+    // Never threshold a small glow: dawn/dusk contributions and all other lighting stay unchanged.
+    this.sprites.visible = this.pillars.visible = ctx.uniforms.uWindowGlow.value !== 0;
     for (let k = 0; k < MAX_POINT; k++) { const p = this.points[k]; p.intensity = ((p.userData.base as number | undefined) ?? 0) * glow; }
   }
 
@@ -325,16 +349,11 @@ export class LightsSystem implements WorldSystem {
   }
 
   /**
-   * Promote the N lights nearest the camera focus to real point lights (N by quality tier; changing N
-   * recompiles lit programs once, so it only follows the tier). Allocation-free top-N selection.
+   * Promote the N lights nearest the camera focus to real point lights (N by quality tier).
+   * Unpromoted slots remain exactly dark. Allocation-free top-N selection.
    */
   private pickPoints(ctx: EngineContext): void {
-    const q = (ctx.services.get("quality") as QualityService | undefined)?.settings;
-    const want = Math.min(MAX_POINT, q?.pointLights ?? MAX_POINT);
-    if (want !== this.pointCount) {
-      this.pointCount = want;
-      for (let k = 0; k < MAX_POINT; k++) this.points[k].visible = k < want;
-    }
+    const want = this.pointCount;
     const focus = ctx.rig.target;
     const camPos = ctx.camera.position;
     const L = this.store.lights;
@@ -361,10 +380,14 @@ export class LightsSystem implements WorldSystem {
   }
 
   dispose(ctx: EngineContext): void {
+    this.offQuality?.();
+    this.offPreparation?.();
     ctx.scene.remove(this.sprites, this.pillars, ...this.points);
     this.poolRT.dispose();
     for (const g of [this.poolGeo, this.spriteGeo, this.pillarGeo]) g.dispose();
     (this.sprites.material as THREE.Material).dispose();
     (this.pillars.material as THREE.Material).dispose();
+    // The ground target belongs to IslandSystem and outlives this pillar material.
+    this.ground = undefined;
   }
 }

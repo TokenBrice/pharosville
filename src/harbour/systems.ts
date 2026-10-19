@@ -9,8 +9,8 @@ import { LighthouseSystem } from "./world/lighthouse-system";
 import { LightsSystem } from "./lights/lights-system";
 import { FleetSystem } from "./fleet/fleet-system";
 import { ReadingsSystem } from "./readings/readings-system";
-import { LifeSystem } from "./life/life-system";
-import { IdentitySystem } from "./identity/identity-system";
+import { LazyLifeSystem } from "./life/lazy-system";
+import { LazyIdentitySystem } from "./identity/lazy-system";
 import { CivicSystem } from "./civic/civic-system";
 import { WeatherSystem } from "./weather/weather-system";
 import { SeasonSystem } from "./season/season-system";
@@ -31,8 +31,8 @@ export const SYSTEMS: Array<() => WorldSystem> = [
   () => new LighthouseSystem(),
   () => new CivicSystem(),
   () => new FleetSystem(),
-  () => new LifeSystem(),
-  () => new IdentitySystem(),
+  () => new LazyLifeSystem(),
+  () => new LazyIdentitySystem(),
   () => new LightsSystem(),
   () => new BeamSystem(),
 ];

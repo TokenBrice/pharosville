@@ -2,20 +2,16 @@
  * The one-fact lines and the "why it is here" sentences. Pure functions of (model, whereabouts),
  * so the hover tag, the panel and the tests all read the same words.
  */
-import deadJson from "@shared/data/dead-stablecoins.json";
 import type { Boat, HarbourModel } from "../model/types";
-import { deadRecords, FAMILIES } from "../model/obituary";
+import { deadSummaries, FAMILIES } from "../model/obituary";
 import { bps, money, monthYear, share, titleCase } from "./format";
 
 export type WhereKind = "alongside" | "moored" | "casting-off" | "sailing" | "outing" | "shoals" | "wreck" | "far" | "unknown";
 export interface Whereabouts { kind: WhereKind; /** Chain name, "the Far Ports", or null. */ place: string | null }
 
-interface DeadRow { id: string; epitaph?: string; obituary?: string; causeOfDeath?: string; deathDate?: string }
-const DEAD = new Map((deadJson as DeadRow[]).map((d) => [d.id, d]));
-export const epitaphOf = (id: string): string | null => DEAD.get(id)?.epitaph ?? null;
+export const epitaphOf = (id: string): string | null => deadSummaries().get(id)?.epitaph ?? null;
 /** “Epitaph.” with exactly one closing stop. */
 export const quoted = (s: string) => `“${s}${/[.!?…]$/.test(s) ? "" : "."}”`;
-export const obituaryOf = (id: string): string | null => DEAD.get(id)?.obituary ?? null;
 
 const FAR_PORTS = "the Far Ports";
 
@@ -183,7 +179,7 @@ export const wreckDate = (d: string) => monthYear(d);
 
 /** A dead coin's tag line: its cause family and the year it died ("Death spiral · † 2022"). */
 export function wreckFact(id: string): string {
-  const r = deadRecords().get(id);
+  const r = deadSummaries().get(id);
   if (!r) return "wrecked";
   return [FAMILIES[r.family].name, /^\d{4}/.test(r.deathDate) ? `† ${r.deathDate.slice(0, 4)}` : ""].filter(Boolean).join(" · ");
 }

@@ -111,6 +111,7 @@ export class HarbourFeed {
   private listeners = new Set<(payloads: HarbourPayloads, key: PharosVilleApiEndpointKey) => void>();
   private abort = new AbortController();
   private running = false;
+  private requests = new Map<PharosVilleApiEndpointKey, number>();
 
   constructor(opts: FeedOptions = {}) {
     this.fetcher = opts.fetcher ?? defaultFetcher;
@@ -143,17 +144,20 @@ export class HarbourFeed {
 
   async refresh(key: PharosVilleApiEndpointKey): Promise<void> {
     const entry = PHAROSVILLE_ENDPOINT_REGISTRY[key];
+    const request = (this.requests.get(key) ?? 0) + 1;
+    this.requests.set(key, request);
+    const abort = this.abort;
     const prev = this.payloads[key] as EndpointSnapshot<unknown> | undefined;
     let delay: number;
     try {
-      const { data: raw, meta } = await this.fetcher(entry.path, entry.metaMaxAgeSec, this.abort.signal);
-      if (!this.running) return;
+      const { data: raw, meta } = await this.fetcher(entry.path, entry.metaMaxAgeSec, abort.signal);
+      if (!this.running || this.abort !== abort || this.requests.get(key) !== request) return;
       const data = sanitizePayload(key, raw);
       (this.payloads as Record<string, EndpointSnapshot<unknown>>)[key] = { data, meta, fetchedAtMs: this.now(), error: null };
       this.errors.delete(key);
       delay = nextRefreshDelayMs(key, meta);
     } catch (err) {
-      if (!this.running) return;
+      if (!this.running || this.abort !== abort || this.requests.get(key) !== request) return;
       const n = this.errors.get(key) ?? 0;
       this.errors.set(key, n + 1);
       // keep the last good payload; record the failure

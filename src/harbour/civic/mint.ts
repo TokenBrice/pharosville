@@ -34,6 +34,7 @@ export class MintWorks {
   private readonly wheel: THREE.Object3D | null;
   private readonly path: THREE.Vector3[] = [];
   private readonly pathLen: number[] = [];
+  private readonly benches: Array<THREE.Vector3 | undefined> = [];
   private total = 0;
   private level = 0;
   private primed = false;
@@ -44,7 +45,7 @@ export class MintWorks {
   private readonly under = new THREE.Color();
   private readonly tmp = new THREE.Vector3();
 
-  constructor(private readonly p: LoadedPlot, noise: THREE.Texture) {
+  constructor(p: LoadedPlot, noise: THREE.Texture) {
     const { root, nodes, spec } = p;
     this.heading = p.plot.rotationY;
     // chimneys: emitters a little above each mouth
@@ -85,6 +86,12 @@ export class MintWorks {
     for (let i = 0; i < this.path.length; i++) {
       this.pathLen.push(this.total);
       if (i + 1 < this.path.length) this.total += this.path[i].distanceTo(this.path[i + 1]);
+    }
+    // Bench stations and the plot frame are fixed; only tempo/visibility follow incoming readings.
+    for (let i = 0; i < MINT_WORKERS; i++) {
+      if (i % 3 !== 2 || !this.presses[i % this.presses.length]) continue;
+      const pr = this.presses[(i / 3 | 0) % this.presses.length];
+      this.benches[i] = toWorld(root, [pr.base.x + ((i * 0.7) % 1.6) - 0.8, 0.3, pr.base.z + 2.2]);
     }
     this.group.name = "mint-fx";
     this.group.add(this.smoke.mesh, this.glints.mesh);
@@ -144,10 +151,9 @@ export class MintWorks {
       w.visible = this.total > 0 && i < busy;
       if (!w.visible) continue;
       // half walk the loop, half work at the bench in front of the presses
-      if (i % 3 === 2 && this.presses[i % this.presses.length]) {
-        const pr = this.presses[(i / 3 | 0) % this.presses.length];
-        toWorld(this.p.root, [pr.base.x + ((i * 0.7) % 1.6) - 0.8, 0.3, pr.base.z + 2.2], tmp);
-        w.x = tmp.x; w.y = tmp.y; w.z = tmp.z; w.h = this.heading + Math.PI; w.gait = 0; w.hammer = 1; w.tempo = 0.25 + 0.7 * Math.min(1, this.level);
+      const bench = this.benches[i];
+      if (bench) {
+        w.x = bench.x; w.y = bench.y; w.z = bench.z; w.h = this.heading + Math.PI; w.gait = 0; w.hammer = 1; w.tempo = 0.25 + 0.7 * Math.min(1, this.level);
         continue;
       }
       const speed = 1.1 + 0.5 * Math.min(1, this.level);

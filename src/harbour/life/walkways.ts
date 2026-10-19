@@ -20,6 +20,9 @@ export interface Walkways {
   bunting: Array<{ a: V3; b: V3; sag: number }>;
 }
 
+/** Computed from the graph's Float32 positions, just like the original per-frame arithmetic. */
+interface WalkEdge { length: number; dx: number; dy: number; dz: number; rightX: number; rightZ: number; yaw: number }
+
 export interface WalkGraph {
   /** node positions, xyz interleaved */
   readonly pos: Float32Array;
@@ -27,6 +30,8 @@ export interface WalkGraph {
   readonly adj: number[][];
   /** half-width of the walkable strip at each node (lateral offset range) */
   readonly halfW: Float32Array;
+  /** Static directed-edge geometry, including the joins between paths. */
+  readonly edges: ReadonlyMap<number, WalkEdge>[];
   /** spawn table: directed edges (a → b) with cumulative weight */
   readonly spawnA: Int32Array;
   readonly spawnB: Int32Array;
@@ -97,8 +102,18 @@ export function buildWalkGraph(paths: readonly WalkPath[], opts: WalkGraphOption
     cum += w * near * Math.hypot(pos[b * 3] - pos[a * 3], pos[b * 3 + 2] - pos[a * 3 + 2]);
     sa.push(a); sb.push(b); sc.push(cum);
   }
+  const positions = Float32Array.from(pos);
+  const geometry = adj.map((nb, a) => {
+    const out = new Map<number, WalkEdge>();
+    for (const b of nb) {
+      const dx = positions[b * 3] - positions[a * 3], dy = positions[b * 3 + 1] - positions[a * 3 + 1], dz = positions[b * 3 + 2] - positions[a * 3 + 2];
+      const length = Math.hypot(dx, dy, dz), L = length || 1;
+      out.set(b, { length, dx, dy, dz, rightX: dx / L, rightZ: dz / L, yaw: Math.atan2(dx, dz) });
+    }
+    return out;
+  });
   return {
-    pos: Float32Array.from(pos), adj, halfW: Float32Array.from(halfW),
+    pos: positions, adj, halfW: Float32Array.from(halfW), edges: geometry,
     spawnA: Int32Array.from(sa), spawnB: Int32Array.from(sb), spawnCum: Float32Array.from(sc),
   };
 }
@@ -146,18 +161,12 @@ export function spawnWalker(g: WalkGraph, r: () => number): Walker {
     pause: 0, yaw: 0, gait: 1, x: 0, y: 0, z: 0,
   };
   place(g, w);
-  w.yaw = targetYaw(g, w);
+  w.yaw = g.edges[w.a].get(w.b)!.yaw;
   return w;
 }
 
 export function edgeLen(g: WalkGraph, a: number, b: number): number {
-  const p = g.pos;
-  return Math.hypot(p[b * 3] - p[a * 3], p[b * 3 + 1] - p[a * 3 + 1], p[b * 3 + 2] - p[a * 3 + 2]);
-}
-
-function targetYaw(g: WalkGraph, w: Walker): number {
-  const p = g.pos;
-  return Math.atan2(p[w.b * 3] - p[w.a * 3], p[w.b * 3 + 2] - p[w.a * 3 + 2]);
+  return g.edges[a].get(b)!.length;
 }
 
 /** Next node after arriving at `b` from `a`: mostly straight on, sometimes a turn, back only at dead ends. */
@@ -184,16 +193,16 @@ export function chooseNext(g: WalkGraph, a: number, b: number, r: () => number):
 }
 
 function place(g: WalkGraph, w: Walker): void {
-  const p = g.pos, a = w.a * 3, b = w.b * 3;
-  const L = edgeLen(g, w.a, w.b) || 1;
+  const p = g.pos, a = w.a * 3, e = g.edges[w.a].get(w.b)!;
+  const L = e.length || 1;
   const t = Math.min(1, Math.max(0, w.s / L));
-  const dx = (p[b] - p[a]) / L, dz = (p[b + 2] - p[a + 2]) / L;
+  const dx = e.rightX, dz = e.rightZ;
   const hw = g.halfW[w.a] + (g.halfW[w.b] - g.halfW[w.a]) * t;
   // keep to the right of travel (perp = (-dz, dx) is the left)
   const off = -w.lane * hw;
-  w.x = p[a] + (p[b] - p[a]) * t - dz * off;
-  w.y = p[a + 1] + (p[b + 1] - p[a + 1]) * t;
-  w.z = p[a + 2] + (p[b + 2] - p[a + 2]) * t + dx * off;
+  w.x = p[a] + e.dx * t - dz * off;
+  w.y = p[a + 1] + e.dy * t;
+  w.z = p[a + 2] + e.dz * t + dx * off;
 }
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -218,7 +227,7 @@ export function stepWalker(g: WalkGraph, w: Walker, dt: number, r: () => number)
     if (L <= 0) w.s = 0;
   }
   place(g, w);
-  const ty = targetYaw(g, w);
+  const ty = g.edges[w.a].get(w.b)!.yaw;
   w.yaw = wrap(w.yaw + wrap(ty - w.yaw) * Math.min(1, dt * 4));
 }
 

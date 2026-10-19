@@ -1,9 +1,9 @@
 import * as THREE from "three";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
-import { aoHeightTexture, renderGround } from "./ground";
+import { aoHeightTexture, renderGround, type GroundService } from "./ground";
 import { getLightsStore } from "../lights/lights-service";
-import { getHarbourMaterials } from "./materials";
+import { dequantizeForPatterns, getHarbourMaterials } from "./materials";
 import { SunRig } from "./sun";
 import { mergeStaticMeshes } from "../engine/static-merge";
 
@@ -20,6 +20,7 @@ export class IslandSystem implements WorldSystem {
   private root: THREE.Object3D | null = null;
   private fallbackSea: THREE.Mesh | null = null;
   private readonly fallbackBg = new THREE.Color();
+  private ground: GroundService | null = null;
 
   async init(ctx: EngineContext): Promise<void> {
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
@@ -30,10 +31,11 @@ export class IslandSystem implements WorldSystem {
     this.sun.bounds.set(min[0], min[2], max[0], max[2]);
     this.sun.topY = Math.min(60, max[1]);
     ctx.scene.add(this.sun.group);
+    ctx.services.set("sun", this.sun);
 
     try {
       const gltf = await ctx.assets.gltf(ISLAND_URL);
-      mats.apply(gltf.scene);
+      mats.apply(gltf.scene, { deferStatic: (mesh) => mesh.name.startsWith("island_") });
       this.root = gltf.scene;
     } catch (e) {
       if (!import.meta.env.DEV) throw e;
@@ -48,14 +50,19 @@ export class IslandSystem implements WorldSystem {
     const chunks: THREE.Mesh[] = [];
     this.root.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.name.startsWith("island_")) chunks.push(o as THREE.Mesh); });
     mergeStaticMeshes(chunks, this.root, "island");
+    // A source rejected by the merger (for example a singleton fallback chunk) still needs its bake.
+    this.root.traverse((o) => { if ((o as THREE.Mesh).isMesh) dequantizeForPatterns(o as THREE.Mesh); });
     // shadow-caster budget: the far backdrop hills (shakkei) lie outside the fitted shadow box anyway
     this.root.traverse((o) => { if (o.name === "shakkei") o.castShadow = false; });
     ctx.scene.add(this.root);
     this.root.updateMatrixWorld(true);
     const ground = renderGround(ctx.renderer, this.root, [min[0], min[2], max[0], max[2]], 1024);
+    this.ground = ground;
     ctx.services.set("ground", ground);
     mats.ao.uAOTex.value = aoHeightTexture(ground, 512);
     mats.ao.uAOBounds.value.set(min[0], max[2], 1 / (max[0] - min[0]), 1 / (max[2] - min[2]));
+    // All island renderables are classified; only static opaque kit geometry contributes depth.
+    this.root.traverse((o) => { if ((o as THREE.Mesh).isMesh) mats.staticDepth.add(o as THREE.Mesh); });
 
     // Dev scaffolding only: when no ocean system registered its wake service, show a flat style C sea
     // so the shell can be judged on its own. Removed automatically once the ocean lands.
@@ -76,8 +83,12 @@ export class IslandSystem implements WorldSystem {
 
   dispose(ctx: EngineContext): void {
     this.sun.dispose();
+    ctx.services.delete("sun");
     if (this.root) ctx.scene.remove(this.root);
     if (this.fallbackSea) { ctx.scene.remove(this.fallbackSea); this.fallbackSea.geometry.dispose(); }
+    // Engine disposes systems in reverse registration order: lights has released its pillar sampler.
+    this.ground?.dispose();
+    this.ground = null;
     ctx.services.delete("ground");
   }
 }

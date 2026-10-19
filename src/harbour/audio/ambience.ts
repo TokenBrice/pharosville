@@ -85,6 +85,8 @@ export interface AmbienceInputs {
 export interface AmbienceOptions {
   /** no timers: the caller drives step() (offline rendering) and the bank is built at once */
   manual?: boolean;
+  /** Start with JS scheduling paused (the owner also suspends the audio clock). */
+  paused?: boolean;
   seed?: number;
 }
 
@@ -131,9 +133,9 @@ function softClipCurve(): Float32Array<ArrayBuffer> {
 class LazyLoop {
   private src: AudioBufferSourceNode | null = null;
   private idle = 0;
-  constructor(private readonly ac: BaseAudioContext, private readonly buf: AudioBuffer, private readonly to: AudioNode) {}
+  constructor(private readonly ac: BaseAudioContext, private buf: AudioBuffer | null, private readonly to: AudioNode) {}
   update(on: boolean, off: boolean, now: number, rnd: () => number): void {
-    if (on && !this.src) {
+    if (on && !this.src && this.buf) {
       const s = this.src = this.ac.createBufferSource();
       s.buffer = this.buf; s.loop = true;
       s.connect(this.to); s.start(now, rnd() * this.buf.duration);
@@ -148,6 +150,7 @@ class LazyLoop {
     try { this.src.stop(); } catch { /* already stopped */ }
     this.src.disconnect(); this.src = null; this.idle = 0;
   }
+  dispose(): void { this.stop(); this.buf = null; }
 }
 
 /** Cicadas sing on summer afternoons: 0..1 by summer weight, fading in 11–13h and out 17–19h (world hour). */
@@ -164,7 +167,7 @@ export function birdThinning(cicada: number): number {
 
 export class Ambience {
   private readonly out: GainNode;
-  private readonly sources: AudioScheduledSourceNode[] = [];
+  private readonly sources: AudioBufferSourceNode[] = [];
   private readonly inputs: AmbienceInputs = {
     zoom: 0.5, wind: 0.35, fog: 0, night: 0, hour: 9, shore: 0.5, shorePan: 0, harbour: 0.5, reef: 0.2, reefPan: -0.5,
     fire: 0, firePan: 0, mint: 0, mintPan: 0, mintRate: 0.5,
@@ -173,7 +176,6 @@ export class Ambience {
   };
   private readonly rnd: () => number;
   private readonly bank: ClipBank;
-  private readonly white: AudioBuffer;
   // the sea
   private readonly shoreBus: GainNode;
   private readonly shoreLp: BiquadFilterNode;
@@ -231,7 +233,13 @@ export class Ambience {
   private readonly rustleLp: BiquadFilterNode;
   private readonly crunchBus: GainNode;
   private timer = 0;
-  private idle = 0;
+  private idle: number | null = null;
+  private idleCallback = false;
+  private pumpEpoch = 0;
+  private paused: boolean;
+  private readonly manual: boolean;
+  private disposal: Promise<void> | null = null;
+  private finishFade: (() => void) | null = null;
   private next = {
     wave: 0, lap: 0, reef: 0, gull: 0, creak: 0, tap: 0, horn: 0, gust: 0, crackle: 0, press: 0, refresh: 0,
     rainA: 0, rainB: 0, drip: 0, bird: 0, cricket: 0, cicada: 0, crunch: 0,
@@ -243,6 +251,8 @@ export class Ambience {
   private readonly aims = new Map<AudioParam, number>();
 
   constructor(readonly ac: BaseAudioContext, opts: AmbienceOptions = {}) {
+    this.manual = !!opts.manual;
+    this.paused = !!opts.paused;
     this.rnd = makeRng(opts.seed ?? Math.floor(Math.random() * 2 ** 31));
     this.bank = new ClipBank(ac, Math.floor(this.rnd() * 2 ** 31));
     const now = ac.currentTime;
@@ -272,7 +282,7 @@ export class Ambience {
     const echoOut = ac.createGain(); echoOut.gain.value = 0.45;
     damp.connect(echoOut).connect(this.out);
 
-    this.white = noiseBuffer(ac, 8.7, "white", this.rnd);
+    const white = noiseBuffer(ac, 8.7, "white", this.rnd);
     const pink = noiseBuffer(ac, 9.3, "pink", this.rnd);
 
     // ---- the shore: wave clips → distance lowpass → bus
@@ -307,7 +317,7 @@ export class Ambience {
     const windLoBp = this.filter("bandpass", 360, 0.7), windHiBp = this.filter("bandpass", 1050, 0.8);
     this.windLo = ac.createGain(); this.windLo.gain.value = 0.7;
     this.windHi = ac.createGain(); this.windHi.gain.value = 0.3;
-    this.loop(this.white, windLoBp); this.loop(this.white, windHiBp);
+    this.loop(white, windLoBp); this.loop(white, windHiBp);
     windLoBp.connect(this.windLo).connect(this.windGust);
     windHiBp.connect(this.windHi).connect(this.windGust);
     this.windGust.connect(this.windGain).connect(this.duck);
@@ -317,7 +327,7 @@ export class Ambience {
     windLp.connect(this.windLow).connect(this.windGust);
     this.whistle = ac.createGain(); this.whistle.gain.value = 0;
     const whistleBp = this.filter("bandpass", 1350, 16);
-    this.whistleLoop = new LazyLoop(ac, this.white, whistleBp);
+    this.whistleLoop = new LazyLoop(ac, white, whistleBp);
     whistleBp.connect(this.whistle).connect(this.windGust);
 
     // ---- the Pharos fire: overlapped clips of flickering roar and crackle
@@ -340,7 +350,7 @@ export class Ambience {
     rainIn.connect(this.filter("bandpass", 6500, 0.5)).connect(this.rainFine).connect(this.rainGust);
     rainIn.connect(this.filter("bandpass", 1500, 0.6)).connect(this.rainBody).connect(this.rainGust);
     this.rainGust.connect(this.duck);
-    this.rainLoop = new LazyLoop(ac, this.white, rainIn);
+    this.rainLoop = new LazyLoop(ac, white, rainIn);
     this.patterBus = ac.createGain(); this.patterBus.gain.value = 0;
     this.patterLp = this.filter("lowpass", 6000, 0.5);
     this.patterLp.connect(this.patterBus).connect(this.duck);
@@ -350,7 +360,7 @@ export class Ambience {
     this.spray = ac.createGain(); this.spray.gain.value = 0.15;
     this.sprayBus = ac.createGain(); this.sprayBus.gain.value = 0;
     const sprayHp = this.filter("highpass", 1800, 0.5);
-    this.sprayLoop = new LazyLoop(ac, this.white, sprayHp);
+    this.sprayLoop = new LazyLoop(ac, white, sprayHp);
     sprayHp.connect(this.spray).connect(this.sprayBus).connect(this.duck);
 
     // ---- the howl of a storm round the buildings: three narrow bands crossfaded by the gusts (a moaning glide
@@ -362,7 +372,7 @@ export class Ambience {
       howlIn.connect(this.filter("bandpass", f, 9)).connect(g).connect(this.howlBus);
       return g;
     });
-    this.howlLoop = new LazyLoop(ac, this.white, howlIn);
+    this.howlLoop = new LazyLoop(ac, white, howlIn);
 
     // ---- thunder (clips placed by the controller after each flash)
     this.thunderBus = ac.createGain(); this.thunderBus.gain.value = 1.5; this.thunderBus.connect(this.out);
@@ -388,18 +398,53 @@ export class Ambience {
       rainA: t, rainB: t + 1.7, drip: t + 1, bird: t + 1 + this.rnd() * 3, cricket: t, cicada: t, crunch: t + 4,
     };
     if (opts.manual) this.bank.buildAll();
-    else {
+    else if (!this.paused) {
       this.pump();
       this.timer = window.setInterval(() => this.step(), TICK_MS);
     }
   }
 
-  /** Synthesise the bank in idle slices, a few ms at a time, never a long task. */
+  /** Pause JS work without touching beds or deadlines: all are on the owner's frozen audio clock. */
+  pause(): void {
+    this.paused = true;
+    clearInterval(this.timer); this.timer = 0;
+    this.pumpEpoch++;
+    if (this.idle !== null) {
+      if (this.idleCallback) cancelIdleCallback(this.idle);
+      else clearTimeout(this.idle);
+      this.idle = null;
+    }
+  }
+
+  /** Resume once, preserving queued sounds, partially synthesised clips and continuous beds. */
+  resume(): void {
+    if (this.disposed || !this.paused) return;
+    this.paused = false;
+    if (this.manual) return;
+    this.timer = window.setInterval(() => this.step(), TICK_MS);
+    // The 300 ms lookahead still covers the next tick. An extra step at frozen time would advance RNG state.
+    this.pump();
+  }
+
+  /** Synthesise the bank in idle slices, retaining cancellable handles for both scheduling paths. */
   private pump = (): void => {
-    if (this.disposed) return;
-    const ric = (globalThis as { requestIdleCallback?: (cb: (d: { timeRemaining(): number }) => void, o?: { timeout: number }) => number }).requestIdleCallback;
-    const go = (budget: number) => { if (this.bank.work(budget)) this.idle = window.setTimeout(this.pump, 0); };
-    if (ric) ric((d) => go(Math.max(2, Math.min(6, d.timeRemaining()))), { timeout: 250 });
+    if (this.disposed || this.paused || this.manual || this.idle !== null || !this.bank.pending) return;
+    const epoch = this.pumpEpoch;
+    const ric = globalThis.requestIdleCallback;
+    const go = (budget: number) => {
+      if (this.disposed || this.paused || epoch !== this.pumpEpoch) return;
+      this.idle = null;
+      if (this.bank.work(budget)) {
+        this.idleCallback = false;
+        this.idle = window.setTimeout(() => {
+          if (epoch !== this.pumpEpoch) return;
+          this.idle = null;
+          this.pump();
+        }, 0);
+      }
+    };
+    this.idleCallback = !!ric;
+    if (ric) this.idle = ric((d) => go(Math.max(2, Math.min(6, d.timeRemaining()))), { timeout: 250 });
     else this.idle = window.setTimeout(() => go(4), 16);
   };
 
@@ -447,7 +492,7 @@ export class Ambience {
 
   /** Scheduler: levels follow the inputs; events are queued a little ahead of the audio clock. */
   step(): void {
-    if (this.disposed) return;
+    if (this.disposed || this.paused) return;
     const ac = this.ac, now = ac.currentTime, ahead = now + 0.3, r = this.rnd;
     const I = this.inputs, { zoom, wind, fog, night, rain, snow, storm, gust } = I;
     const near = Math.max(0, Math.min(1, 1 - zoom));
@@ -684,7 +729,7 @@ export class Ambience {
     if (N.refresh < now) {
       const busy = this.bank.pending;
       this.bank.refresh();
-      if (!this.timer) this.bank.buildAll();
+      if (this.manual) this.bank.buildAll();
       else if (!busy) this.pump();
       N.refresh = now + 20;
     }
@@ -696,7 +741,7 @@ export class Ambience {
     let added = false;
     for (const k of kinds) added = this.bank.want(k) || added;
     if (!added) return;
-    if (!this.timer) this.bank.buildAll();
+    if (this.manual) this.bank.buildAll();
     else if (!busy) this.pump();
   }
 
@@ -708,7 +753,7 @@ export class Ambience {
    * never a crack, and softer.
    */
   thunder(km: number, intensity = 1, pan = 0, delaySec = (km * 1000) / 343): void {
-    if (this.disposed) return;
+    if (this.disposed || this.paused) return;
     const now = this.ac.currentTime;
     this.thunders = this.thunders.filter((t) => t > now);
     if (this.thunders.length >= 3) return;
@@ -762,20 +807,38 @@ export class Ambience {
     }
   }
 
-  /** Fade out, then release everything. */
-  async dispose(): Promise<void> {
-    if (this.disposed) return;
+  /** Release PCM, timers and context once. Toggle-off fades; teardown can interrupt that fade immediately. */
+  dispose(fade = true): Promise<void> {
+    if (this.disposal) {
+      if (!fade) this.finishFade?.();
+      return this.disposal;
+    }
     this.disposed = true;
-    clearInterval(this.timer);
-    clearTimeout(this.idle);
-    const now = this.ac.currentTime;
-    this.out.gain.cancelScheduledValues(now);
-    this.out.gain.setValueAtTime(this.out.gain.value, now);
-    this.out.gain.linearRampToValueAtTime(0, now + 0.6);
-    await new Promise((r) => setTimeout(r, 680));
-    for (const s of this.sources) { try { s.stop(); } catch { /* already stopped */ } }
-    this.whistleLoop.stop();
-    for (const l of [this.rainLoop, this.sprayLoop, this.howlLoop]) l.stop();
+    this.pause();
+    this.bank.dispose();
+    this.disposal = this.release(fade);
+    return this.disposal;
+  }
+
+  private async release(fade: boolean): Promise<void> {
+    if (fade && this.ac.state === "running") {
+      const now = this.ac.currentTime;
+      this.out.gain.cancelScheduledValues(now);
+      this.out.gain.setValueAtTime(this.out.gain.value, now);
+      this.out.gain.linearRampToValueAtTime(0, now + 0.6);
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => this.finishFade?.(), 680);
+        this.finishFade = () => { clearTimeout(timer); this.finishFade = null; resolve(); };
+      });
+    }
+    for (const s of this.sources) {
+      try { s.stop(); } catch { /* already stopped */ }
+      s.disconnect(); s.buffer = null;
+    }
+    this.sources.length = 0;
+    this.whistleLoop.dispose();
+    for (const l of [this.rainLoop, this.sprayLoop, this.howlLoop]) l.dispose();
+    this.lanes.clear(); this.aims.clear(); this.thunders.length = 0;
     this.out.disconnect();
     if ("close" in this.ac) await (this.ac as AudioContext).close().catch(() => undefined);
   }

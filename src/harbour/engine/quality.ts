@@ -3,8 +3,8 @@
  * drop effect cost: pixel ratio, shadow-map size / refresh rate / softness, real point lights, bloom depth,
  * anti-aliasing preset.
  *
- * The governor walks one ladder of (tier, pixel ratio) rungs, so a slow GPU first loses pixels at High,
- * then effects at Medium, and so on. See governor.ts.
+ * The governor selects quantized (tier, pixel ratio) rungs with one hysteresis policy. Resolution-only
+ * changes publish without shader preparation; effect changes await resident SMAA preset programs.
  */
 export type QualityTier = "high" | "medium" | "low";
 
@@ -16,7 +16,7 @@ export interface QualitySettings {
   readonly shadowInterval: number;
   /** ...and at least this many frames since the last one (a slow frame alone never re-renders the map). */
   readonly shadowMinFrames: number;
-  /** Real point lights promoted near the camera at night (the pools/sprites carry the rest). */
+  /** Real point lights promoted near the camera at night; all tiers retain sixteen shader slots. */
   readonly pointLights: number;
   /** Bloom mip levels (fewer = cheaper, slightly tighter halo). */
   readonly bloomLevels: number;
@@ -89,6 +89,16 @@ export function parseTier(v: string | null | undefined): QualityTier | null {
   return v === "high" || v === "medium" || v === "low" ? v : null;
 }
 
+/** A completed, non-disjoint GPU query, tagged with the state that issued it. */
+export interface CompletedGpuSample {
+  frame: number;
+  state: number;
+  rung: number;
+  tier: QualityTier;
+  dpr: number;
+  ms: number;
+}
+
 /**
  * 'quality' service: what the renderer is spending, and the switch for it.
  * Listeners fire on any change (tier or pixel ratio), never per frame.
@@ -99,7 +109,7 @@ export interface QualityService {
   readonly dpr: number;
   /** True while the governor may move the rung. */
   readonly auto: boolean;
-  /** Last measured GPU frame time (ms), when the timer-query extension is available. */
+  /** p10 of the bounded completed-sample population for the current state (ms), not the latest query. */
   readonly gpuMs: number | null;
   /** Pin a tier ('auto' hands control back to the governor). */
   set(tier: QualityTier | "auto"): void;

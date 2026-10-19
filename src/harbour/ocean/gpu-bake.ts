@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { PreparationEntry } from "../engine/types";
 
 /**
  * One-off GPU bakes (procedural textures, cloud atlas) and reusable fullscreen passes.
@@ -22,6 +23,10 @@ export class FullscreenPass {
     this.mesh = new THREE.Mesh(g, this.material);
     this.mesh.frustumCulled = false;
     this.scene.add(this.mesh);
+  }
+
+  preparationEntry(target: () => THREE.WebGLRenderTarget | null): PreparationEntry {
+    return { root: this.scene, camera: this.camera, target };
   }
 
   render(renderer: THREE.WebGLRenderer, target: THREE.WebGLRenderTarget | null, clear = true, viewport?: THREE.Vector4): void {

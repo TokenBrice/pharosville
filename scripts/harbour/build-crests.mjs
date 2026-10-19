@@ -11,7 +11,8 @@
  *   public/harbour/crests.json  { chains: { slug: { color, rim, ink, panel:[u0,v0,u1,v1], flag:[u0,v0,u1,v1] } } }
  *                               UVs in three's convention (v = 0 at the bottom row of the image).
  *
- *   public/harbour/chart-lettering.png   1024×1120 single-channel signed-distance atlas (R = 0.5 + d / 2·spread)
+ *   public/harbour/chart-lettering.webp  1024×1120 lossless signed-distance atlas (R = 0.5 + d / 2·spread)
+ *   public/harbour/chart-lettering.png   single-channel build reference, pixel-exact with the runtime WebP
  *   public/harbour/chart-lettering.json  glyph cells + advances for the chart lettering laid on the sea:
  *                               EB Garamond 600 upright caps (harbour names) and 400 italic caps (water features,
  *                               the classic hydrographic convention), plus a four-point compass star.
@@ -251,7 +252,15 @@ print(json.dumps(out))`;
   const star = { slot: place(sdfCell(await rasterStar(EM * metrics[faces[0].ttf].cap))), adv: 1.1 };
   const raw = join(tmp, "atlas.gray");
   await writeFile(raw, atlas);
-  await run("magick", ["-size", `${ATLAS}x${ATLAS_H}`, "-depth", "8", `gray:${raw}`, "-define", "png:compression-level=9", join(OUT, "chart-lettering.png")]);
+  const png = join(OUT, "chart-lettering.png"), webp = join(OUT, "chart-lettering.webp");
+  await run("magick", ["-size", `${ATLAS}x${ATLAS_H}`, "-depth", "8", `gray:${raw}`, "-define", "png:compression-level=9", png]);
+  await run("cwebp", ["-quiet", "-lossless", "-exact", "-z", "9", "-metadata", "none", png, "-o", webp]);
+  let sharp = null;
+  try { sharp = (await import("sharp")).default; } catch { /* optional: verification only */ }
+  if (sharp) {
+    const [a, b] = await Promise.all([png, webp].map((p) => sharp(p).ensureAlpha().raw().toBuffer()));
+    if (Buffer.compare(a, b) !== 0) throw new Error("chart-lettering.webp does not decode to the SDF PNG's exact RGBA");
+  }
   // cell geometry in em units (glyph origin on the baseline): the quad spans [x0, x1] × [y0, y1]
   const em = EM / DOWN, cell = CELL;
   const json = {
@@ -265,7 +274,7 @@ print(json.dumps(out))`;
 try {
   await buildCrests();
   await buildLettering();
-  console.log("crests.webp/json + chart-lettering.png/json written to public/harbour/");
+  console.log("crests.webp/json + chart-lettering.webp/png/json written to public/harbour/");
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }

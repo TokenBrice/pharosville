@@ -14,7 +14,9 @@ import { clearance, coastDistance, type CoastGrid } from "./obstacles";
 import { buildLegPath } from "./routes";
 import { outingSeed } from "./outings";
 import type { PathRec } from "./path";
-import { buildPlanLegPath, HarbourSim, pathKey, PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "./sim";
+import { buildPlan } from "./plan";
+import { HarbourSim, PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "./sim";
+import { buildPlanLegPath, pathKey } from "./plan-paths";
 import { makePayloads, T0_MS } from "./test-fixtures";
 
 const layout = layoutJson as unknown as HarbourLayout;
@@ -103,7 +105,7 @@ describe("the sim in the real harbour", () => {
   // lower, with longer, rarer outings.
   it("D22: a busy harbour, ~17-38% of hulls under way, 7-16 dockings a minute, harbour outings among them", () => {
     const model = buildHarbourModel(makePayloads(), T0_MS, { pieredChains: layout.piers.map((p) => p.chain), dead: [] });
-    const sim = new HarbourSim(model, layout, T0_MS, coast);
+    const sim = new HarbourSim(model, layout, T0_MS, coast, buildPlan);
     const n = model.boats.length, minutes = 90;
     let uw = 0, out = 0, samples = 0;
     sim.poseAt(T0_MS - 2_000);
@@ -122,7 +124,7 @@ describe("the sim in the real harbour", () => {
 
   it("sails with her canvas set whenever she is under way clear of the berths (2 h sweep)", () => {
     const model = buildHarbourModel(makePayloads(), T0_MS, { pieredChains: layout.piers.map((p) => p.chain), dead: [] });
-    const sim = new HarbourSim(model, layout, T0_MS, coast);
+    const sim = new HarbourSim(model, layout, T0_MS, coast, buildPlan);
     const n = model.boats.length;
     const loa = model.boats.map((b) => sim.layout.loa[b.hullClass]);
     const from = new Int32Array(n).fill(-1); // the berth she last lay at (-1: under way since the sweep began)
@@ -150,7 +152,7 @@ describe("the sim in the real harbour", () => {
 
   it("keeps still hulls apart, and hulls under way rarely brush another", () => {
     const model = buildHarbourModel(makePayloads(), T0_MS, { pieredChains: layout.piers.map((p) => p.chain), dead: [] });
-    const sim = new HarbourSim(model, layout, T0_MS, coast);
+    const sim = new HarbourSim(model, layout, T0_MS, coast, buildPlan);
     const n = model.boats.length;
     const loa = model.boats.map((b) => sim.layout.loa[b.hullClass]), beam = model.boats.map((b) => sim.layout.beam[b.hullClass]);
     const moving = (ph: number) => ph === PH_CASTING_OFF || ph === PH_SAILING || ph === PH_APPROACHING;
@@ -184,9 +186,9 @@ describe("the sim in the real harbour", () => {
   it("plans and poses the same harbour with the boot work done by workers (outing answers, leg paths), bit for bit", () => {
     const opts = { pieredChains: layout.piers.map((p) => p.chain), dead: [] };
     const model = buildHarbourModel(makePayloads(), T0_MS, opts);
-    const a = new HarbourSim(model, layout, T0_MS, coast);
+    const a = new HarbourSim(model, layout, T0_MS, coast, buildPlan);
     // as at boot: an empty sim, the workers' answers adopted, then the first payloads (structuredClone stands in for postMessage)
-    const b = new HarbourSim(buildHarbourModel({}, T0_MS, opts), layout, T0_MS, coast);
+    const b = new HarbourSim(buildHarbourModel({}, T0_MS, opts), layout, T0_MS, coast, buildPlan);
     const W = buildSimLayout(layout, coast), base = W.slots.length;
     b.seedOutings(structuredClone(outingSeed(W)));
     b.setModel(model, T0_MS);

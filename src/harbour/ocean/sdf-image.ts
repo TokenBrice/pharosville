@@ -1,12 +1,14 @@
 import type { EngineContext } from "../engine/types";
+import { assetUrl } from "../engine/assets";
+import { decodeSdfBytes } from "./sdf-codec";
 
 /** The baked sea SDF image, rows from minZ: RGBA bytes, and its R (coast distance) channel alone. */
 export interface SdfImage { readonly data: Uint8Array; readonly coast: Uint8Array; readonly width: number; readonly height: number }
 
 /**
- * The baked sea SDF (lossless WebP, data channels) decoded ONCE per engine and shared: the sim reads its
- * coast channel, the ocean uploads it. A CPU 2D canvas (willReadFrequently: no GPU readback), no colour
- * conversion, no premultiplication. null when the file is missing or not an image. Callers only read it.
+ * The exact baked sea field decoded ONCE per engine: the sim reads coast, the ocean uploads RGBA.
+ * Production NSD1 reconstructs into the final arrays (12 MiB encoded + 20 MiB output maximum).
+ * Development retains the authored lossless WebP. Callers only read the shared result.
  */
 export function loadSdfImage(ctx: EngineContext, url: string): Promise<SdfImage | null> {
   const key = `sdf-image:${url}`;
@@ -17,8 +19,11 @@ export function loadSdfImage(ctx: EngineContext, url: string): Promise<SdfImage 
 
 async function decode(url: string): Promise<SdfImage | null> {
   try {
+    url = assetUrl(url);
     const res = await fetch(url);
-    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("image")) return null;
+    if (!res.ok) return null;
+    if (url.endsWith(".bin.br")) return decodeSdfBytes(await res.arrayBuffer());
+    if (!(res.headers.get("content-type") ?? "").includes("image")) return null;
     const bmp = await createImageBitmap(await res.blob(), { colorSpaceConversion: "none", premultiplyAlpha: "none" });
     const w = bmp.width, h = bmp.height;
     const c2 = new OffscreenCanvas(w, h).getContext("2d", { willReadFrequently: true });

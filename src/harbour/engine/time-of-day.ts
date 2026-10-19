@@ -192,6 +192,9 @@ export class TimeOfDay {
   season: SeasonalDay | null = null;
   /** Interpolated grade, rewritten IN PLACE every frame (others may scale it after TimeOfDay ran). */
   grade: Required<Grade> = { ...G0, lift: [1, 1, 1], gamma: [1, 1, 1], gain: [1, 1, 1], shadowSat: 1, blueSat: 1, warmSat: 1 };
+  private readonly localDate = new Date();
+  private localSecond = NaN;
+  private localHour = 12;
   constructor() {
     const t = Number.parseFloat(readParam("t") ?? "");
     this.pinned = Number.isFinite(t) ? ((t % 24) + 24) % 24 : null;
@@ -206,11 +209,17 @@ export class TimeOfDay {
     if (this.pinned !== null) {
       this.clockHour = this.speed !== 1 ? (this.pinned + (elapsed * this.speed) / 3600) % 24 : this.pinned;
     } else {
-      const d = new Date(nowMs);
-      this.clockHour = (d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600 + (elapsed * (this.speed - 1)) / 3600) % 24;
+      const second = Math.floor(nowMs / 1000);
+      if (second !== this.localSecond) {
+        this.localSecond = second;
+        this.localDate.setTime(nowMs);
+        this.localHour = this.localDate.getHours() + this.localDate.getMinutes() / 60 + this.localDate.getSeconds() / 3600;
+      }
+      this.clockHour = (this.localHour + (elapsed * (this.speed - 1)) / 3600) % 24;
     }
     const sd = this.season;
     this.hour = sd ? seasonalKeyHour(this.clockHour, sd.sunrise, sd.sunset) : this.clockHour;
+    // Always reapply the baseline: weather/season/sky mutate these outputs later in each frame.
     this.apply(u);
   }
 

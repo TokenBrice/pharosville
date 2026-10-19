@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import runtimeSlim from "@shared/data/stablecoins/runtime-slim.json";
 import { RUNTIME_TRACKED_STABLECOINS } from "@shared/lib/stablecoins/runtime-registry";
 import layout from "../data/layout.json";
+import prelaunch from "../data/prelaunch.json";
+import scenery from "virtual:pharosville-prelaunch";
 import type { HarbourLayout } from "../layout/types";
 import { landmarkFact, PANEL_LANDMARKS } from "./facts";
 import { civicPlots, inPlot, officeChain, placeName, seaZones } from "./places";
-import { expectedKey, expectedLabel, groupYard, REGISTRY_YARD, sortYard, toYardCoin } from "./yard";
+import { expectedKey, expectedLabel, groupYard, installYardBook, REGISTRY_YARD, sortYard, toYardCoin } from "./yard";
 
 const L = layout as unknown as HarbourLayout;
 
@@ -44,6 +46,28 @@ describe("the Shipyard's book", () => {
     const coins = ["announced", "beta", null, "launching-soon"].map((p, i) => toYardCoin({ id: `c${i}`, launchPhase: p })!);
     expect(groupYard(coins).map((g) => g.label)).toEqual(["Launching soon", "Beta", "Announced", "Phase not stated"]);
     expect(sortYard(coins)[0].phase).toBe("launching-soon");
+  });
+
+  it("keeps every scenery and hover field exact when the narrative book is deferred", () => {
+    const fields = (row: unknown) => {
+      const { phaseDetail: _detail, milestones: _milestones, issuer: _issuer, ...visible } = toYardCoin(row)!;
+      return visible;
+    };
+    expect(scenery.coins.map(fields)).toEqual(prelaunch.coins.map(fields));
+    expect(scenery.coins.every((c) => !("milestones" in c) && !("launchPhaseDetail" in c))).toBe(true);
+  });
+
+  it("restores full descriptions and snapshot milestone sources before details mount", () => {
+    installYardBook(prelaunch.coins);
+    for (const row of prelaunch.coins) {
+      const actual = REGISTRY_YARD.find((c) => c.id === row.id)!;
+      expect(actual.phaseDetail).toBe(toYardCoin(row)!.phaseDetail);
+      const snapshot = runtimeSlim.find((c) => c.id === row.id);
+      const sources = new Map(toYardCoin(snapshot)?.milestones.map((m) => [`${m.date}|${m.title}`, m.sourceUrl]) ?? []);
+      expect(actual.milestones).toEqual(toYardCoin(row)!.milestones.map((m) => ({
+        ...m, ...(m.sourceUrl || !sources.get(`${m.date}|${m.title}`) ? {} : { sourceUrl: sources.get(`${m.date}|${m.title}`) }),
+      })));
+    }
   });
 });
 

@@ -8,14 +8,14 @@ import type { HarbourModel } from "../model/types";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import type { ReadingsService } from "../readings/readings-system";
 import { ensureMotionService, type MotionService } from "../ui/services";
-import { getHarbourMaterials } from "../world/materials";
+import { getHarbourMaterials, type HarbourMaterials } from "../world/materials";
 import { CIVIC_BASE, loadPlot, mergeStatic, pieceCentres, toWorld, type CivicManifest, type CivicPlot, type LoadedPlot } from "./assemble";
 import { CivicBoards, flagPlace, wallPlace, type BoardSlot } from "./boards";
 import { BurnFurnace, plumeLee } from "./burn";
 import { applyFlowOverrides, civicFlows, workLevels, type CivicFlows, type FlowSide } from "./flows";
 import { MINT_WORKERS, MintWorks } from "./mint";
 import { Shipyard } from "./shipyard";
-import { Workers } from "./workers";
+import { Workers, type WorkerSlot } from "./workers";
 import { gradeTally, launchedIds, topMovers, type ChainMove, type HullStage, type PrelaunchBook, type PrelaunchCoin } from "./yard";
 import { paintCrestFlag, paintFrieze, paintGradeBoard, paintRegisterFlag, paintWeatherBoard } from "./paint";
 
@@ -80,6 +80,8 @@ export class CivicSystem implements WorldSystem {
   private burn: BurnFurnace | null = null;
   private yard: Shipyard | null = null;
   private workers: Workers | null = null;
+  private mintSlots: WorkerSlot[] = [];
+  private yardSlots: WorkerSlot[] = [];
   private motion: MotionService | null = null;
   private flows: CivicFlows = civicFlows(null);
   private model: HarbourModel | null = null;
@@ -133,9 +135,7 @@ export class CivicSystem implements WorldSystem {
 
     let manifest: CivicManifest;
     try {
-      const r = await fetch(CIVIC_BASE + "manifest.json");
-      if (!r.ok || !(r.headers.get("content-type") ?? "").includes("json")) throw new Error(`manifest ${r.status}`);
-      manifest = (await r.json()) as CivicManifest;
+      manifest = await ctx.assets.json<CivicManifest>(CIVIC_BASE + "manifest.json");
     } catch (e) { console.warn("[harbour] civic manifest unavailable", e); return; }
 
     const load = (url: string) => ctx.assets.gltf(url);
@@ -202,27 +202,30 @@ export class CivicSystem implements WorldSystem {
 
     this.workers = new Workers(mats, WORKERS, 17);
     this.group.add(this.workers.mesh);
+    this.mintSlots = this.workers.slots.slice(0, MINT_WORKERS);
+    this.yardSlots = this.workers.slots.slice(MINT_WORKERS);
 
     // the painted boards and flags (one atlas, one draw)
     this.boards = new CivicBoards();
     this.group.add(this.boards.mesh);
     this.placeBoards(byKind, ctx);
 
-    // the yard builds behind the first frame (its order book, the stage hulls, the kit hulls and the logos)
+    // Start the yard now: its hulls and boards can be visible on the first frame. A later boundary would
+    // also have to move the hull-stages prefetch and guarantee identical first-visible content.
     const yp = byKind("shipyard"), stageSpec = manifest.kinds["hull-stages"];
-    if (yp && stageSpec) void this.buildYard(yp, stageSpec, layout, mats, load);
+    if (yp && stageSpec) void this.buildYard(yp, stageSpec, layout, mats, ctx.assets);
     this.buildPickables();
     this.version++;
   }
 
   private async buildYard(yp: LoadedPlot, stageSpec: CivicManifest["kinds"][string], layout: HarbourLayout,
-    mats: ReturnType<typeof getHarbourMaterials>, load: (url: string) => ReturnType<EngineContext["assets"]["gltf"]>): Promise<void> {
+    mats: HarbourMaterials, assets: EngineContext["assets"]): Promise<void> {
     try {
       const bookMod = (await import("../data/prelaunch.json")) as unknown as { default?: PrelaunchBook } & PrelaunchBook;
       this.book = (bookMod.default ?? bookMod).coins ?? [];
       const lp = (layout.zones as { slipway?: { launchPath?: number[][] } }).slipway?.launchPath?.[0];
       if (!this.boards) return;
-      const yard = await Shipyard.build(yp, mats, this.boards, this.book, stageSpec, load, lp ? [lp[0], lp[1]] : null);
+      const yard = await Shipyard.build(yp, mats, this.boards, this.book, stageSpec, assets, lp ? [lp[0], lp[1]] : null);
       if (this.disposed) { yard.dispose(); return; }
       this.yard = yard;
       this.group.add(yard.group);
@@ -314,8 +317,7 @@ export class CivicSystem implements WorldSystem {
 
     if (this.workers) {
       const tier = (ctx.services.get("quality") as QualityService | undefined)?.tier ?? "high";
-      const slots = this.workers.slots;
-      const mintSlots = slots.slice(0, MINT_WORKERS), yardSlots = slots.slice(MINT_WORKERS);
+      const slots = this.workers.slots, mintSlots = this.mintSlots, yardSlots = this.yardSlots;
       if (this.mint) this.mint.workers(mintSlots, dt, moving); else mintSlots.forEach((s) => { s.visible = false; });
       if (this.yard) this.yard.workers(yardSlots); else yardSlots.forEach((s) => { s.visible = false; });
       if (tier === "low") slots.forEach((s, i) => { if (i % 2) s.visible = false; });
@@ -363,7 +365,7 @@ export class CivicSystem implements WorldSystem {
       if (up && down) this.movers = { up, down, hoist: { up: toWorld(hm.root, mu.hoist), down: toWorld(hm.root, md.hoist) }, size: mu.size };
       // the crest atlas (the identity layer's heraldry): the flags are copied out of it
       void Promise.all([
-        fetch("/harbour/crests.json").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        ctx.assets.json<{ chains: Record<string, { flag: [number, number, number, number] }> }>("/harbour/crests.json").catch(() => null),
         // the identity layer's texture of the same atlas: one request, one decode
         ctx.assets.texture("/harbour/crests.webp", true).then((t) => t.image as HTMLImageElement, () => null),
       ]).then(([atlas, img]) => {

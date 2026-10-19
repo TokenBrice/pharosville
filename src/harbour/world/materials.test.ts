@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import * as THREE from "three";
+import { createWorldUniforms } from "../engine/uniforms";
+import { chainedKitMaterial } from "../life/figure-kit";
 import {
-  bareOf, evergreenOf, ICICLE_WALL_PATTERNS, leafSnowKeepOf, PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, patternIdOf, snowSlopeOf,
+  bareOf, evergreenOf, HarbourMaterials, ICICLE_WALL_PATTERNS, leafSnowKeepOf, PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, patternIdOf, snowSlopeOf,
   windowKindOf, WINDOW_KIND,
 } from "./materials";
 
@@ -63,5 +66,31 @@ describe("snow by slope", () => {
   it("icicles grow under eaves on stucco, marble and plain walls, not on ashlar quays or terraces", () => {
     expect(ICICLE_WALL_PATTERNS).toEqual(expect.arrayContaining([0, 10]));
     expect(ICICLE_WALL_PATTERNS).not.toContain(2);
+  });
+});
+
+describe("seasonal colour/depth publication", () => {
+  it("keys derived life materials by the same bare classification and invalidates both twins", () => {
+    const uniforms = createWorldUniforms();
+    uniforms.uFoliage.value.set(0, 1, 0, 0);
+    const materials = new HarbourMaterials(uniforms);
+    const kit = materials.kit();
+    const life = chainedKitMaterial(materials, "test", { vertexHead: "", vertexPose: "", uniforms: {} });
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), kit); mesh.castShadow = true;
+    const actor = new THREE.Mesh(mesh.geometry, life); actor.customDepthMaterial = new THREE.MeshDepthMaterial();
+    const scene = new THREE.Scene(); scene.add(mesh, actor);
+    materials.prepareSeasonDepth(scene);
+    const depth = mesh.customDepthMaterial!;
+    expect(depth).toBe(materials.kitDepth());
+    const leaf = [kit.customProgramCacheKey(), life.customProgramCacheKey(), depth.customProgramCacheKey()];
+    const versions = [kit.version, life.version, depth.version, actor.customDepthMaterial.version];
+    uniforms.uFoliage.value.set(0, 0, 0, 1);
+    expect([kit.customProgramCacheKey(), life.customProgramCacheKey(), depth.customProgramCacheKey()]).not.toEqual(leaf);
+    expect(kit.version).toBe(versions[0]);
+    materials.invalidateSeason(scene);
+    expect([kit.version, life.version, depth.version, actor.customDepthMaterial.version]).toEqual(versions.map((version) => version + 1));
+    uniforms.uFoliage.value.set(0, 1, 0, 0);
+    expect([kit.customProgramCacheKey(), life.customProgramCacheKey(), depth.customProgramCacheKey()]).toEqual(leaf);
+    materials.dispose(); life.dispose(); actor.customDepthMaterial.dispose(); mesh.geometry.dispose();
   });
 });

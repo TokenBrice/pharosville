@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { getBeamUniforms } from "../beam/uniforms";
 import type { QualityService } from "../engine/quality";
-import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import type { OceanService } from "../ocean/ocean-system";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
@@ -10,7 +10,7 @@ import type { SkyService } from "../sky/sky-system";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { getHarbourMaterials } from "../world/materials";
 import {
-  seasonForMonth, snowShare, weightsForSeason, WeatherDirector, type Season, type SeasonWeights, type WeatherBand, type WeatherState,
+  seasonForMonth, snowShare, weightsForSeason, WeatherDirector, type DirectorInput, type Season, type SeasonWeights, type WeatherBand, type WeatherState,
 } from "./director";
 import { Lightning, type StrikeEvent } from "./lightning";
 import { MAX_SPRAY, PRECIP_BUDGET, Precipitation } from "./precip";
@@ -83,6 +83,7 @@ export class WeatherSystem implements WorldSystem {
   private readonly target = new THREE.Vector3();
   private readonly viewport = new THREE.Vector2();
   private readonly flash = { azimuth: 0, elevation: 2 };
+  private readonly input: DirectorInput = { level: null, band: null, snowShare: 0, sunUp: 0, time: 0 };
 
   init(ctx: EngineContext): void {
     this.fx = acquireFxTextures(ctx);
@@ -111,6 +112,13 @@ export class WeatherSystem implements WorldSystem {
       onLightning: (cb) => this.lightning.onStrike(cb),
     };
     ctx.services.set("weather", svc);
+  }
+
+  async prepareIdle(ctx: EngineContext): Promise<void> {
+    // Uniform-only rain/snow/flash/recovery transitions share these four programs. No weather is advanced.
+    const root = new THREE.Group();
+    root.children = [this.precip.fall, this.precip.ground, this.lightning.mesh, this.rainbow.mesh];
+    await (ctx.services.get("preparation") as PreparationService | undefined)?.prepareGroup(root);
   }
 
   /** Spray anchors along the surf: the outer coast, the breakwater and mole, the islets, the Shoals reef. */
@@ -173,10 +181,10 @@ export class WeatherSystem implements WorldSystem {
     const season = ctx.services.get("season") as SeasonLike | undefined;
     const share = season?.snowShare ?? snowShare(season?.weights ?? this.fallbackWeights);
     const sunUp = THREE.MathUtils.smoothstep(U.uSunDir.value.y, 0.03, 0.25) * (1 - U.uNight.value);
-    const input = {
-      level: w ? w.level : null, band: w?.band ?? null, snowShare: share, sunUp, time: this.elapsed,
-      forceRainbow: this.q.get("rainbow") === "1",
-    };
+    const input = this.input;
+    input.level = w ? w.level : null; input.band = w?.band ?? null;
+    input.snowShare = share; input.sunUp = sunUp; input.time = this.elapsed;
+    input.forceRainbow = this.q.get("rainbow") === "1";
     // dev overrides (and the first reading) take effect at once, not over a minute
     const overridden = !!readings?.overridden && w != null;
     let snapNow = overridden;
@@ -210,8 +218,8 @@ export class WeatherSystem implements WorldSystem {
     const cool = THREE.MathUtils.smoothstep(cover, 0.3, 0.8) * (1 - U.uNight.value);
     if (cool > 1e-3) {
       const g = ctx.timeOfDay.grade;
-      g.gain = [g.gain[0] * (1 - 0.13 * cool), g.gain[1] * (1 - 0.07 * cool), g.gain[2] * (1 + 0.02 * cool)];
-      g.lift = [g.lift[0] * (1 - 0.012 * cool), g.lift[1], g.lift[2] * (1 + 0.02 * cool)];
+      g.gain[0] *= 1 - 0.13 * cool; g.gain[1] *= 1 - 0.07 * cool; g.gain[2] *= 1 + 0.02 * cool;
+      g.lift[0] *= 1 - 0.012 * cool; g.lift[2] *= 1 + 0.02 * cool;
       g.warmSat *= 1 - 0.12 * cool;
     }
 

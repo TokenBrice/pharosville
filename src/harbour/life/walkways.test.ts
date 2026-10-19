@@ -38,6 +38,18 @@ describe("walk graph", () => {
     }
   });
 
+  it("preserves the recorded seeded paths and poses exactly with cached edge geometry", () => {
+    const g = buildWalkGraph([lane, stair, quay]);
+    const r = rng(9);
+    const ws = Array.from({ length: 3 }, () => spawnWalker(g, r));
+    for (let f = 0; f < 3000; f++) for (const w of ws) stepWalker(g, w, 1 / 30, r);
+    expect(ws).toEqual([
+      { a: 0, b: 1, s: 9.438272935039034, speed: 1.3608358586672693, lane: 0.7288738855742849, pause: 0, yaw: 1.5707963267952187, gait: 1, x: 9.438272935039034, y: 8, z: -0.7288738855742849 },
+      { a: 0, b: 1, s: 8.037548343730098, speed: 1.2661452601198107, lane: 0.673006965208333, pause: -0.0009409147935523082, yaw: 1.5707963267991318, gait: 1, x: 8.037548343730098, y: 8, z: -0.673006965208333 },
+      { a: 9, b: 8, s: 0.3523032375043684, speed: 1.3151356541085988, lane: 0.551815199572593, pause: 0, yaw: -2.5370650336735885, gait: 1, x: 19.61100981190747, y: 2.4000000953674316, z: 12.349298163088188 },
+    ]);
+  });
+
   it("the exported walkways tie every town stair to the quays (one town network)", () => {
     const w = JSON.parse(readFileSync(resolve(__dirname, "../../../public/harbour/walkways.json"), "utf8")) as Walkways;
     const g = buildWalkGraph(w.paths);

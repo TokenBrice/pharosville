@@ -35,6 +35,20 @@ Opt-in sound adds no header source. Its `AudioContext` is created inside the Sou
 
 The optional `VITE_GA_ID` flow still requires `www.googletagmanager.com` for the loader and exact Google Analytics hosts for beacon traffic, but the static policy should not use `*.google-analytics.com`, `*.analytics.google.com`, or `*.googletagmanager.com` wildcards while analytics is inactive by default. Cloudflare Pages `_headers` is a static file, so the pragmatic closure for repo-review item #35 is to keep analytics runtime-gated by `VITE_GA_ID`, allow only the exact hosts required by that optional path, and reject wildcard CSP sources in static validation.
 
+Content-addressed media, fonts and shell CSS under `/harbour/_immutable/*` use
+`Cache-Control: public, max-age=31536000, immutable`; `/asset-registry.json` and unhashed shell/font
+entry points retain revalidation. Never apply immutable caching to stable `/harbour/*` names.
+The build's single generated registry selects all hashed references and the deployment retains exactly
+the current and previous release's objects (see `OPERATIONS.md`).
+
+Addressed `.glb.br` objects use `Content-Type: model/gltf-binary`; `.pack.br` and `.bin.br` use
+`application/octet-stream`. All three carry `Content-Encoding: br`, so the browser's HTTP stack
+delivers decoded bytes to the runtime. These are explicit encoded URLs, not `_headers`-based content
+negotiation: there is no JS Brotli inflater and no double-decode branch. Legacy development `.glb.gz`
+objects remain gzip files inflated in JS only when gzip magic is present. MIME/nosniff, encoding,
+ETags/304s and decoded hashes must be checked on Pages for Chrome/Edge, Firefox and Safari before release.
+The scene, worker and WASM CSP is unchanged.
+
 ### API responses (`/api/*`)
 
 - Use the API CSP from `functions/api/[[path]].ts`: `default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' https://api.pharos.watch; frame-ancestors 'none'; form-action 'self'`.

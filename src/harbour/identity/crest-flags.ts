@@ -62,6 +62,13 @@ export class CrestFlags {
   private readonly p = new THREE.Vector3();
   private readonly e = new THREE.Euler(0, 0, 0, "YXZ");
   private t = 0;
+  private placementDirty = true;
+  private lastCamX = NaN;
+  private lastCamZ = NaN;
+  private lastWindX = NaN;
+  private lastWindZ = NaN;
+  private lastWind = NaN;
+  private lastScale = NaN;
   /** 1 close in … ~1.6 at the overview (set by the owner from the camera distance). */
   farScale = 1;
 
@@ -96,6 +103,7 @@ export class CrestFlags {
     const i = this.sites.length;
     if (i >= this.flags.instanceMatrix.count) return;
     this.sites.push(site);
+    this.placementDirty = true;
     this.rect.setXYZW(i, ...site.rect);
     this.phase.setX(i, site.phase);
     this.rect.needsUpdate = this.phase.needsUpdate = true;
@@ -114,6 +122,15 @@ export class CrestFlags {
     u.uWind.value = wind;
     (u.uLight.value as THREE.Color).copy(light);
     u.uGlow.value = glow;
+    // Flutter lives entirely in uniforms; only camera/wind/scale/site changes affect instance placement.
+    // This also leaves reduced-motion poses still without recurring matrix uploads.
+    if (!this.placementDirty && this.lastCamX === cam.x && this.lastCamZ === cam.z
+      && this.lastWindX === windTo[0] && this.lastWindZ === windTo[1]
+      && this.lastWind === wind && this.lastScale === this.farScale) return;
+    this.placementDirty = false;
+    this.lastCamX = cam.x; this.lastCamZ = cam.z;
+    this.lastWindX = windTo[0]; this.lastWindZ = windTo[1];
+    this.lastWind = wind; this.lastScale = this.farScale;
     // the fly streams downwind: local +x → windTo, eased a little toward the viewer so the crest reads
     const down = Math.atan2(windTo[0], windTo[1]);
     for (let i = 0; i < this.sites.length; i++) {
