@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-/** Retain exactly the current live generation, never its inherited previous generation. */
+/** Retain exactly one generation besides the deployed one: the live release, or — when redeploying the same
+ *  release — the live release's own retained previous generation. Never an older inherited generation. */
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -18,11 +19,17 @@ export async function retainAssets(dist, origin, fetcher = fetch) {
     console.log("No live asset registry yet; initial immutable deployment"); return;
   }
   if (!res.ok) throw new Error(`Live asset registry: HTTP ${res.status}`);
-  const previous = await res.json();
-  if (previous.version !== 1 || !/^[a-f0-9]{24}$/.test(previous.release) || !Array.isArray(previous.files) || previous.files.length > 2048) {
-    throw new Error("Invalid live asset registry");
-  }
-  if (previous.release === current.release) { console.log("Live asset generation unchanged"); return; }
+  const live = await res.json();
+  const validGeneration = (g) => g !== null && typeof g === "object" && /^[a-f0-9]{24}$/.test(g.release)
+    && Array.isArray(g.files) && g.files.length <= 2048;
+  if (live.version !== 1 || !validGeneration(live)) throw new Error("Invalid live asset registry");
+  // A fresh artifact of the live release (A→B, then B again) must keep carrying B's retained A, or A-only
+  // lazy assets vanish for A tabs still open. A different live release is itself the generation to retain.
+  let previous;
+  if (live.release !== current.release) previous = { release: live.release, files: live.files };
+  else if (live.previous === undefined) { console.log("Live asset generation unchanged; no previous generation to carry"); return; }
+  else if (!validGeneration(live.previous) || live.previous.release === current.release) throw new Error("Invalid live previous generation");
+  else previous = { release: live.previous.release, files: live.previous.files };
   const own = new Set(current.files.map((file) => file.url));
   let copied = 0;
   for (const file of previous.files) {
@@ -56,8 +63,8 @@ export async function retainAssets(dist, origin, fetcher = fetch) {
     const target = resolve(dist, `.${file.url}`);
     await mkdir(dirname(target), { recursive: true }); await writeFile(target, bytes); copied++;
   }
-  // Snapshot only the previous release's own files. Never recursively import previous.previous.
-  current.previous = { release: previous.release, files: previous.files };
+  // Snapshot only the retained generation's own files. Never recursively import previous.previous.
+  current.previous = previous;
   await writeFile(localPath, JSON.stringify(current));
   console.log(`Retained ${copied} objects from ${previous.release}; current + previous only`);
 }
