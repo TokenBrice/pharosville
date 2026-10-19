@@ -12,6 +12,18 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-10-19-canvas-up",
+    version: PHAROSVILLE_RELEASE_VERSIONS.canvasUp,
+    date: "2026-10-19",
+    title: "Canvas Up",
+    summary: "Two fixes: the detail panel's close button works again, and ships keep their sails set everywhere except at a berth.",
+    bullets: [
+      "The X on the detail panel closes it again; the panel's header had been sitting over the button and catching the click.",
+      "Sails are furled only when a ship is docked at a berth or pontoon. Ships at a mooring buoy, rafted up in open water or holding at sea now lie with their canvas set, and keep it set on the way to and from those spots; the Shoals' flogging sails are unchanged.",
+    ],
+    source: "Collected from `main` after v1.2.0.",
+  },
+  {
     id: "2026-10-15-terracotta-and-bronze",
     version: PHAROSVILLE_RELEASE_VERSIONS.terracottaAndBronze,
     date: "2026-10-15",
