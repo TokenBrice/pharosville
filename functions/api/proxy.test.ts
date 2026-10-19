@@ -86,7 +86,7 @@ const projectionFixtures: Array<{ key: PharosVilleApiEndpointKey; input: Project
   {
     key: "stability",
     input: { _meta: projectionMeta, current: { score: 80, band: "STEADY", avg24h: 79, components: { severity: 5, breadth: 3, stressBreadth: 2, trend: -10, extra: 999 }, contributors: [], computedAt: 100 }, history: [...Array.from({ length: 40 }, (_, i) => ({ date: 40 - i, score: 80 + i / 10, band: "STEADY", methodologyVersion: "v9" })), { date: 100, score: null }], methodology: {} },
-    expected: { _meta: projectionMeta, current: { score: 80, band: "STEADY", avg24h: 79, components: { severity: 5, breadth: 3, stressBreadth: 2, trend: -10 } }, history: Array.from({ length: 30 }, (_, i) => ({ date: i + 11, score: 80 + (29 - i) / 10 })) },
+    expected: { _meta: projectionMeta, current: { score: 80, band: "STEADY", avg24h: 79, components: { severity: 5, breadth: 3, stressBreadth: 2, trend: -10 }, computedAt: 100 }, history: Array.from({ length: 30 }, (_, i) => ({ date: i + 11, score: 80 + (29 - i) / 10 })) },
   },
   {
     key: "pegSummary",
@@ -96,7 +96,7 @@ const projectionFixtures: Array<{ key: PharosVilleApiEndpointKey; input: Project
   {
     key: "stress",
     input: { _meta: projectionMeta, updatedAt: 100, signals: { fixture: { score: 0, band: "UNKNOWN", computedAt: 100, signals: {} }, missing: null } },
-    expected: { _meta: projectionMeta, signals: { fixture: { score: 0, band: "UNKNOWN" }, missing: null } },
+    expected: { _meta: projectionMeta, updatedAt: 100, signals: { fixture: { score: 0, band: "UNKNOWN" }, missing: null } },
   },
   {
     key: "mintBurn",
@@ -588,7 +588,7 @@ describe("PharosVille API proxy", () => {
     expect(body.grades).toHaveLength(1);
     expect(body.grades[0]?.id).toBe(activeId);
     expect(body.grades[0]).toEqual({ id: activeId, grade: "A-" });
-    expect(body.updatedAt).toBeUndefined();
+    expect(body.updatedAt).toBe(1_700_000_000);
     expect(body.model).toBeUndefined();
     expect(body.methodologyVersion).toBeUndefined();
     expect(body._meta).toEqual({ updatedAt: 1_700_000_000, ageSeconds: 5, status: "fresh" });

@@ -234,16 +234,19 @@ const producerIntervalsByKey = parseProducerIntervalsByKey(
   CRON_INTERVALS_CLIENT,
 );
 
-// Where each payload carries its publication time. Only the endpoints that ship
+// Where each payload carries its publication time. The Pages Function projects responses
+// (docs/pharosville/CONTRACTS.md) and keeps `_meta`, so `_meta.updatedAt` is the fallback when a
+// projected body no longer carries the upstream top-level timestamp. Only the endpoints that ship
 // an `_meta` envelope get the status/ageSeconds half of the check.
+const metaUpdatedAt = (json) => json._meta?.updatedAt;
 const freshnessSourcesByPath = {
-  "/api/stablecoins": { key: "stablecoins", readUpdatedAt: (json) => json._meta?.updatedAt },
-  "/api/chains": { key: "chains", readUpdatedAt: (json) => json.updatedAt },
-  "/api/stability-index?detail=true": { key: "stability", readUpdatedAt: (json) => json.current?.computedAt },
-  "/api/peg-summary": { key: "pegSummary", readUpdatedAt: (json) => json.methodology?.asOf },
-  "/api/stress-signals": { key: "stress", readUpdatedAt: (json) => json.updatedAt },
-  "/api/safety-grades": { key: "safetyGrades", readUpdatedAt: (json) => json.updatedAt },
-  "/api/mint-burn-flows": { key: "mintBurn", readUpdatedAt: (json) => json.updatedAt },
+  "/api/stablecoins": { key: "stablecoins", readUpdatedAt: metaUpdatedAt },
+  "/api/chains": { key: "chains", readUpdatedAt: (json) => json.updatedAt ?? metaUpdatedAt(json) },
+  "/api/stability-index?detail=true": { key: "stability", readUpdatedAt: (json) => json.current?.computedAt ?? metaUpdatedAt(json) },
+  "/api/peg-summary": { key: "pegSummary", readUpdatedAt: (json) => json.methodology?.asOf ?? metaUpdatedAt(json) },
+  "/api/stress-signals": { key: "stress", readUpdatedAt: (json) => json.updatedAt ?? metaUpdatedAt(json) },
+  "/api/safety-grades": { key: "safetyGrades", readUpdatedAt: (json) => json.updatedAt ?? metaUpdatedAt(json) },
+  "/api/mint-burn-flows": { key: "mintBurn", readUpdatedAt: (json) => json.updatedAt ?? metaUpdatedAt(json) },
 };
 
 export function findFreshnessProblems(path, json, freshness, nowSec) {
