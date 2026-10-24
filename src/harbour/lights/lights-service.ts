@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { EngineContext } from "../engine/types";
+import { lampJitter, lampRank, type LampWaveParams } from "./lamp-wave";
 
 /**
  * 'lights' service: the harbour's many small lights (windows, quay lamps, pier heads, harbour lights,
@@ -18,6 +19,11 @@ export interface LightsService {
   remove(id: number): void;
   /** Move a light (riding lights on moving boats). Cheap; pools are not re-projected for moving kinds. */
   setPosition(id: number, position: THREE.Vector3Like | [number, number, number]): void;
+  /**
+   * The light's place in the lamplighting wave (05-P3): 0 lit first at dusk (the Pharos) … 1 last (the town
+   * edge); at dawn they go out in reverse. A lamplighter can walk the lights in this order. -1 = unknown id.
+   */
+  rankOf?(id: number): number;
 }
 
 export interface KindSpec {
@@ -63,6 +69,17 @@ export class LightsStore implements LightsService {
   version = 0;
   /** Bumped on setPosition only (attributes re-upload, pools untouched). */
   moveVersion = 0;
+  /** The lamplighting wave's parameters (the lights system keeps them current). */
+  readonly wave: LampWaveParams = { x: 0, z: 0, footY: 0, rMin: 20, rMax: 400, hTop: 92, spread: 0, fromEdge: 0 };
+
+  rankOf(id: number): number {
+    const l = this.lights[id];
+    return l && l.alive ? this.rankAt(l.position) : -1;
+  }
+
+  rankAt(p: THREE.Vector3Like): number {
+    return lampRank(p.x, p.y, p.z, lampJitter(p.x, p.z), this.wave);
+  }
 
   add(kind: LightKind, position: THREE.Vector3Like | [number, number, number], color?: string | THREE.Color, radius?: number): number {
     const spec = KINDS[kind] ?? DEFAULT_KIND;

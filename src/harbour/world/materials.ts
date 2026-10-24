@@ -5,6 +5,7 @@ import type { WorldUniforms } from "../engine/uniforms";
 import { CLOUD_SHADOW_GLSL, cloudShadowUniforms } from "../sky/cloud-shadow";
 import { BEAM_LIGHT_GLSL, beamLightUniforms } from "../beam/beam-light-glsl";
 import { getBeamUniforms } from "../beam/uniforms";
+import { LAMP_WAVE_GLSL, lampWaveUniforms } from "../lights/lamp-wave";
 
 /**
  * THE HARBOUR MATERIAL PORT — style C "Northern Light" (p1/style-c/nl_common.py build_kit_material,
@@ -271,6 +272,7 @@ vec3 hbEnvSpec(vec3 n, vec3 v, float rough, float f0) {
 `;
 
 const GLSL_POOL = /* glsl */ `
+${LAMP_WAVE_GLSL}
 uniform sampler2D uPoolTex;
 uniform vec4 uPoolBounds;
 uniform float uWindowGlow;
@@ -283,7 +285,8 @@ vec3 hbPool(vec3 worldPos, vec3 worldN) {
   float upw = smoothstep(0.2, 0.85, worldN.y);
   float below = smoothstep(p.a + 0.6, p.a - 0.4, worldPos.y);      // floors: only under the source
   float band = exp(-pow((worldPos.y - p.a) / 2.6, 2.0));           // walls: around the source height
-  return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, uWindowGlow);
+  // the lamplighting wave (05-P3): a pool lies by its lamp, so the fragment's own rank stands in for the lamp's
+  return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, hbLampGlow(uWindowGlow, hbLampRank(worldPos, 0.5)));
 }
 `;
 
@@ -517,7 +520,7 @@ export class HarbourMaterials {
       uAOTex: this.ao.uAOTex, uAOBounds: this.ao.uAOBounds,
       uSnowCover: u.uSnowCover, uWetness: u.uWetness, uFoliage: u.uFoliage, uSeasonPhase: u.uSeasonPhase,
       uHbSunDir: u.uSunDir, uHbSunColor: u.uSunColor,
-      ...this.beam,
+      ...this.beam, ...lampWaveUniforms,
     };
   }
 
@@ -673,7 +676,7 @@ export class HarbourMaterials {
     vHbWinC = (modelMatrix * c).xyz;
   }`);
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>\nuniform float uWindowGlow;\nuniform float uWindowOcc;\n${GLSL_NOISE}\n${GLSL_ENV}\nvarying vec3 vHbLocal;\nvarying vec3 vHbLocalN;\nvarying vec3 vHbWorld;\nvarying vec4 vHbWin;\nvarying vec3 vHbWinC;`)
+        .replace("#include <common>", `#include <common>\nuniform float uWindowGlow;\nuniform float uWindowOcc;\n${GLSL_NOISE}\n${GLSL_ENV}\n${LAMP_WAVE_GLSL}\nvarying vec3 vHbLocal;\nvarying vec3 vHbLocalN;\nvarying vec3 vHbWorld;\nvarying vec4 vHbWin;\nvarying vec3 vHbWinC;`)
         .replace("#include <color_fragment>", `
   float hbLit = 1.0, hbWarm = 0.0, hbPlain = 0.0;
   #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
@@ -712,7 +715,9 @@ export class HarbourMaterials {
     vec2 q = vHbWin.xy - vec2(0.5, 0.3);
     float room = 0.6 + 0.55 * exp(-q.x * q.x * 5.0 - q.y * q.y * 4.0);
     // plain openings are small and deep: a brighter lamp keeps the classical night quarter as lit as the framed town
-    totalEmissiveRadiance = col * on * level * room * uWindowGlow * ${WIN_MAX.toFixed(1)} * (hbGlass + 0.04) * hbRecess * mix(1.0, ${PLAIN_GAIN.toFixed(2)}, hbPlain);
+    // the lamplighting wave (05-P3): the window's own moment (the Pharos's tower windows first, top-down)
+    float hbWg = hbLampGlow(uWindowGlow, hbLampRank(vHbWinC, hbWhite(hbId + 61.0)));
+    totalEmissiveRadiance = col * on * level * room * hbWg * ${WIN_MAX.toFixed(1)} * (hbGlass + 0.04) * hbRecess * mix(1.0, ${PLAIN_GAIN.toFixed(2)}, hbPlain);
   }`)
         .replace("#include <opaque_fragment>", `
   {
@@ -735,11 +740,25 @@ export class HarbourMaterials {
     m.name = "hb_emissive";
     m.onBeforeCompile = (shader) => {
       shader.uniforms.uLamp = this.uniforms.uLamp;
+      Object.assign(shader.uniforms, { uWindowGlow: this.uniforms.uWindowGlow }, lampWaveUniforms);
+      // the lamplighting wave (05-P3): the glass lights with its own lamp's moment, not the global clock
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying vec3 vHbLw;")
+        .replace("#include <worldpos_vertex>", `#include <worldpos_vertex>
+  {
+    vec4 hbW = vec4(transformed, 1.0);
+    #ifdef USE_INSTANCING
+      hbW = instanceMatrix * hbW;
+    #endif
+    vHbLw = (modelMatrix * hbW).xyz;
+  }`);
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", "#include <common>\nuniform float uLamp;")
-        .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance *= uLamp;");
+        .replace("#include <common>", `#include <common>\nuniform float uLamp;\nuniform float uWindowGlow;\nvarying vec3 vHbLw;\n${LAMP_WAVE_GLSL}`)
+        .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+totalEmissiveRadiance *= uLamp;
+if (uWindowGlow > 1e-3) totalEmissiveRadiance *= mix(1.0, hbLampGlow(uWindowGlow, hbLampRank(vHbLw, hbLampJitter(vHbLw.xz))) / uWindowGlow, smoothstep(0.0, 0.05, uWindowGlow));`);
     };
-    m.customProgramCacheKey = () => "hb_emissive";
+    m.customProgramCacheKey = () => "hb_emissive_w1";
     this.cache.set(key, m);
     return m;
   }
