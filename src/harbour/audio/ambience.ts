@@ -62,6 +62,9 @@ export interface AmbienceInputs {
   burnPan: number;
   burnBack: number;
   burnRate: number;
+  /** nearness 0..1 of Wreck Cove (the hush: thinner gulls, darker laps, the wind in the ribs), and its pan */
+  cove: number;
+  covePan: number;
   /** nearness 0..1 of the Shipyard's slipways (0 when there is none), and its pan */
   ship: number;
   shipPan: number;
@@ -239,7 +242,7 @@ export class Ambience {
     rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
     town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false, attention: 1,
     shoreBack: 0, reefBack: 0, mintBack: 0, townBack: 0, ship: 0, shipPan: 0, shipBack: 0,
-    burn: 0, burnPan: 0, burnBack: 0, burnRate: 0,
+    burn: 0, burnPan: 0, burnBack: 0, burnRate: 0, cove: 0, covePan: 0,
   };
   private readonly rnd: () => number;
   private readonly bank: ClipBank;
@@ -317,6 +320,11 @@ export class Ambience {
   private readonly tollLp: BiquadFilterNode;
   private lastHour = -1;
   private readonly cueBus: GainNode;
+  private readonly ribs: GainNode;
+  private readonly ribsPan: StereoPannerNode;
+  private readonly ribsLoop: LazyLoop;
+  /** the anniversary bell, waiting for its clips */
+  private knell: { level: number; pan: number } | null = null;
   // the ten-minute settle (and the slow breathing of the whole mix), and the one-shots now sounding
   private readonly settle: GainNode;
   private readonly breathPhase: number;
@@ -490,6 +498,12 @@ export class Ambience {
     this.rustleLp.connect(this.rustleBus).connect(this.out);
     this.crunchBus = ac.createGain(); this.crunchBus.gain.value = 0; this.crunchBus.connect(this.out);
     this.nightBus = ac.createGain(); this.nightBus.gain.value = 0; this.nightBus.connect(this.out); this.nightBus.connect(this.echo);
+    // Wreck Cove: a hollow wind through the hulks' ribs (a narrow band of noise), placed at the cove
+    this.ribs = ac.createGain(); this.ribs.gain.value = 0;
+    this.ribsPan = ac.createStereoPanner();
+    const ribsBp = this.filter("bandpass", 240, 6);
+    this.ribsLoop = new LazyLoop(ac, this.white, ribsBp);
+    ribsBp.connect(this.ribs).connect(this.ribsPan).connect(this.duck);
     this.cueBus = ac.createGain(); this.cueBus.gain.value = CUE_GAIN; this.cueBus.connect(this.out);
     // the hour bell: soft and far (dark, through the harbour walls' slap-back), from the town
     const tollBus = ac.createGain(); tollBus.gain.value = 0.07;
@@ -538,14 +552,14 @@ export class Ambience {
   }
 
   /** Play a bank clip into `to` (a one-shot; it ends at exact silence, so no click). */
-  private play(kind: ClipKind, at: number, to: AudioNode, level: number, pan = 0, rate = 1): void {
+  private play(kind: ClipKind, at: number, to: AudioNode, level: number, pan = 0, rate = 1): boolean {
     const buf = this.bank.pick(kind, this.rnd);
-    if (!buf) return;      // still being synthesised: the beds carry the scene meanwhile
+    if (!buf) return false;      // still being synthesised: the beds carry the scene meanwhile
     // a global cap on the one-shot events: a busy moment never piles up into a wall of clips
     const now = this.ac.currentTime;
     if (this.voices.length >= VOICES) this.voices = this.voices.filter((e) => e > now);
     if (!ALWAYS.has(kind)) {
-      if (this.voices.length >= VOICES) return;
+      if (this.voices.length >= VOICES) return false;
       this.voices.push(at + buf.duration / rate);
     }
     const s = this.ac.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate;
@@ -553,6 +567,7 @@ export class Ambience {
     const g = this.ac.createGain(); g.gain.value = buf.numberOfChannels === 1 ? level * Math.SQRT2 : level;
     s.connect(g).connect(this.lane(to, pan));
     s.start(at);
+    return true;
   }
 
   /** Five fixed pan lanes per destination: a placed one-shot costs two nodes, not three. */
@@ -597,7 +612,12 @@ export class Ambience {
     this.aim(this.bedGain.gain, (0.16 + 0.16 * zoom + 0.05 * wind + 0.14 * storm) * (1 - 0.5 * I.shore * near) * (1 - 0.2 * I.snowCover), tc);   // a near wave masks the far sea
     this.aim(this.bedLp.frequency, air(1 - zoom, 420, 900), tc);
     this.aim(this.lapBus.gain, (0.06 + 1.1 * I.harbour * I.harbour) * point, tc);
-    this.aim(this.lapLp.frequency, air(I.harbour, 1200, 12000), tc);
+    // Wreck Cove's hush: the laps there are darker, the gulls keep away, the wind hollows through the ribs
+    const cove = clamp01(I.cove);
+    this.aim(this.lapLp.frequency, air(I.harbour, 1200, 12000) * (1 - 0.5 * cove), tc);
+    this.ribsLoop.update(cove > 0.03, cove < 0.02, now, r);
+    this.aim(this.ribs.gain, 0.2 * cove * (0.4 + 0.6 * wind), tc);
+    this.aim(this.ribsPan.pan, I.covePan * 0.7, tc);
     this.aim(this.reefBus.gain, (0.12 + 0.55 * I.reef) * (0.7 + 0.5 * wind) * (1 + 0.6 * storm), tc);
     this.aim(this.reefLp.frequency, air(I.reef, 380, 2600) * behind(I.reefBack, 0.4), tc);
     this.aim(this.reefPan.pan, I.reefPan * 0.8, tc);
@@ -610,7 +630,7 @@ export class Ambience {
     this.aim(this.highAir.gain, 0.015 * alt, tc);
     this.aim(this.harbourBus.gain, (0.08 + 1.1 * I.harbour * I.harbour) * (1 - 0.3 * snow) * point, tc);
     // gulls shelter from a storm and the rain, and snow softens them
-    this.aim(this.gullBus.gain, (0.12 + 0.3 * near) * (1 - 0.8 * night) * (1 - 0.5 * fog) * (1 - 0.7 * storm) * (1 - 0.5 * rain) * (1 - 0.5 * snow), tc);
+    this.aim(this.gullBus.gain, (0.12 + 0.3 * near) * (1 - 0.8 * night) * (1 - 0.5 * fog) * (1 - 0.7 * storm) * (1 - 0.5 * rain) * (1 - 0.5 * snow) * (1 - 0.7 * cove) * (1 - 0.25 * dayClock(I.hour).hush), tc);
     this.aim(this.fireBus.gain, 0.5 * I.fire * I.fire * point, 0.5);
     this.aim(this.firePan.pan, I.firePan * 0.8, 0.5);
     this.aim(this.mintBus.gain, 0.16 * I.mint * I.mint * point, 0.5);
@@ -793,6 +813,11 @@ export class Ambience {
         N.nightjar = at + (40 + r() * 80) / thin;
       }
     } else N.nightjar = Math.max(N.nightjar, now + 10 + r() * 20);
+    // the anniversary bell, once its clips are ready
+    if (this.knell) {
+      this.need("tolling");
+      if (this.play("tolling", now + 0.2, this.tollLp, this.knell.level, this.knell.pan, 0.6)) this.knell = null;
+    }
     // the hour bell: one soft strike as the clock enters each hour from 06 to 22 h (three at noon)
     const hf = Math.floor(((I.clock % 24) + 24) % 24);
     if (this.lastHour < 0) this.lastHour = hf;
@@ -983,6 +1008,15 @@ export class Ambience {
     }
   }
 
+  /**
+   * A dead coin's anniversary (deathDate, D11: the Wreck Cove panel says "anniversary today"): one low bronze
+   * bell from the cove, the hour bell slowed to 0.6. The controller rings it at most once per visit.
+   */
+  anniversary(level: number, pan: number): void {
+    if (this.disposed) return;
+    this.knell = { level: Math.max(0, Math.min(1, level)), pan };
+  }
+
   /** A UI cue: one tiny paper-or-wood sound, centred, dry (no echo, no distance). */
   cue(name: CueName): void {
     if (this.disposed || !CUE_KIND[name]) return;
@@ -1022,7 +1056,7 @@ export class Ambience {
     await new Promise((r) => setTimeout(r, 680));
     for (const s of this.sources) { try { s.stop(); } catch { /* already stopped */ } }
     this.whistleLoop.stop();
-    for (const l of [this.bellowsLoop, this.highAirLoop, this.rainLoop, this.sprayLoop, this.howlLoop]) l.stop();
+    for (const l of [this.ribsLoop, this.bellowsLoop, this.highAirLoop, this.rainLoop, this.sprayLoop, this.howlLoop]) l.stop();
     this.out.disconnect();
     if ("close" in this.ac) await (this.ac as AudioContext).close().catch(() => undefined);
   }

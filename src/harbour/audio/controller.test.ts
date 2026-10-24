@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { anniversaryToday } from "../model/anniversary";
 import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, weatherInputs } from "./controller";
 import { birdThinning, cicadaLevel, dayClock, hourStrikes, settleDb, settleRate } from "./ambience";
 
@@ -121,5 +122,20 @@ describe("harbour sound: the day clock", () => {
     expect(hourStrikes(22)).toBe(1);
     expect(hourStrikes(23)).toBe(0);
     expect(hourStrikes(0)).toBe(0);
+  });
+});
+
+describe("harbour sound: Wreck Cove's anniversary bell (deathDate)", () => {
+  const today = new Date(2026, 3, 22, 12);   // 22 April 2026, local
+  it("is the same month and day as a full death date from an earlier year", () => {
+    expect(anniversaryToday("2024-04-22", today)).toBe(true);
+    expect(anniversaryToday("2024-04-21", today)).toBe(false);
+    expect(anniversaryToday("2024-05-22", today)).toBe(false);
+    expect(anniversaryToday("2026-04-22", today)).toBe(false);   // died today: not yet an anniversary
+  });
+  it("a month-only date has no day, so never an anniversary", () => {
+    expect(anniversaryToday("2024-04", today)).toBe(false);
+    expect(anniversaryToday("", today)).toBe(false);
+    expect(anniversaryToday(undefined, today)).toBe(false);
   });
 });

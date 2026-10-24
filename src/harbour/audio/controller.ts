@@ -1,5 +1,6 @@
 import type { EngineContext } from "../engine/types";
 import type { HarbourLayout, Vec2, Vec3 } from "../layout/types";
+import { anniversaryToday, worldToday } from "../model/anniversary";
 import type { Ambience, AmbienceInputs, CueName } from "./ambience";
 
 /**
@@ -55,6 +56,8 @@ interface LighthouseLike { readonly lanternPosition?: Vec3Like; sweepAngle?(): n
 interface Vec3Like { readonly x: number; readonly z: number }
 /** The 'beam' service: a reach() getter (0..1, the PSI beam) when the beam layer publishes one. */
 interface BeamLike { reach?(): number }
+/** The 'model' service: the dead coins (Wreck Cove), read structurally. */
+interface WreckModel { readonly readings?: { readonly wrecks?: ReadonlyArray<{ readonly deathDate?: string }> } }
 interface PsiReadings { readonly psi?: { readonly lit?: boolean; readonly reach?: number } }
 
 const BAND_LEVEL: Record<string, number> = { CALM: 0, WATCH: 1, ALERT: 2, WARNING: 3, DANGER: 4 };
@@ -80,10 +83,10 @@ export function weatherInputs(w: WeatherLike | undefined, s: SeasonLike | undefi
 }
 
 /** Where the sound sources sit, gathered once per layout. */
-interface Sources { coast: Vec2[]; berths: Vec2[]; reef: Vec2 | null; fire: Vec3 | null; mint: Vec3 | null; burn: Vec3 | null; ship: Vec3 | null; town: Vec2[]; trees: Vec2[] }
+interface Sources { coast: Vec2[]; berths: Vec2[]; reef: Vec2 | null; fire: Vec3 | null; mint: Vec3 | null; burn: Vec3 | null; ship: Vec3 | null; cove: Vec2 | null; town: Vec2[]; trees: Vec2[] }
 
 function gatherSources(L: HarbourLayout & CivicLayout & LitLayout): Sources {
-  const shoals = L.zones?.shoals?.polygon;
+  const shoals = L.zones?.shoals?.polygon, wc = L.zones?.wreckCove?.polygon;
   const reef: Vec2 | null = shoals?.length
     ? [shoals.reduce((a, p) => a + p[0], 0) / shoals.length, shoals.reduce((a, p) => a + p[1], 0) / shoals.length]
     : null;
@@ -96,6 +99,7 @@ function gatherSources(L: HarbourLayout & CivicLayout & LitLayout): Sources {
   return {
     coast: L.island?.coast ?? [],
     berths: (L.piers ?? []).flatMap((p) => p.berths.map((b) => [b.position[0], b.position[2]] as Vec2)),
+    cove: wc?.length ? [wc.reduce((a, p) => a + p[0], 0) / wc.length, wc.reduce((a, p) => a + p[1], 0) / wc.length] : null,
     reef, fire, mint: m ? [m[0], m[1] + 12, m[2]] : null, ship: y ? [y[0], y[1] + 4, y[2]] : null, burn: bu ? [bu[0], bu[1] + 8, bu[2]] : null,
     town: (L.lights ?? []).filter((l) => l.kind === "window").map((l) => [l.position[0], l.position[2]] as Vec2),
     // the cove hamlets sit among the island's groves
@@ -191,6 +195,9 @@ class Controller implements SoundController {
   private unsubStrike: (() => void) | null = null;
   /** the beam's heading minus the camera's bearing from the tower, last reading; and the last breath's time */
   private beamDelta = Number.NaN;
+  /** the anniversary bell rings at most once per visit; it waits until the sound has played a while */
+  private rang = false;
+  private startedAt = 0;
   private beamAt = 0;
   /** the camera's right on the ground, kept for placing thunder */
   private readonly right: Vec2 = [1, 0];
@@ -245,7 +252,7 @@ class Controller implements SoundController {
       this.starting = false;
       if (!this.on || this.ac !== ac) { void ac.close(); return; }
       this.amb = new Ambience(ac);
-      this.lastInput = performance.now();
+      this.lastInput = this.startedAt = performance.now();
       for (const t of ATTENTION_EVENTS) addEventListener(t, this.onInput, { capture: true, passive: true });
       this.feed();
       this.poll = window.setInterval(() => this.feed(), 250);
@@ -315,6 +322,8 @@ class Controller implements SoundController {
         inputs.burnPan = pan(S.burn[0], S.burn[2]); inputs.burnBack = back(S.burn[0], S.burn[2]);
         inputs.burnRate = burnRateOf(civic);
       } else inputs.burn = 0;
+      if (S.cove) { inputs.cove = near(Math.hypot(S.cove[0] - lx, S.cove[1] - lz), ly, 120); inputs.covePan = pan(S.cove[0], S.cove[1]); }
+      this.knell(amb, inputs);
       if (S.ship) {
         inputs.ship = near(Math.hypot(S.ship[0] - lx, S.ship[2] - lz), ly - S.ship[1], 80);
         inputs.shipPan = pan(S.ship[0], S.ship[2]); inputs.shipBack = back(S.ship[0], S.ship[2]);
@@ -327,6 +336,17 @@ class Controller implements SoundController {
     }
     amb.set(inputs);
     this.beam(amb, inputs);
+  }
+
+  /** A dead coin's anniversary today (the panel's "anniversary today"): the cove's bell, once per visit. */
+  private knell(amb: Ambience, inputs: Partial<AmbienceInputs>): void {
+    if (this.rang || performance.now() - this.startedAt < 12_000) return;
+    const wrecks = (this.ctx.services.get("model") as WreckModel | undefined)?.readings?.wrecks;
+    if (!wrecks?.length) return;
+    this.rang = true;
+    const today = worldToday();
+    if (!wrecks.some((w) => anniversaryToday(w.deathDate, today))) return;
+    amb.anniversary(0.55 + 0.45 * (inputs.cove ?? 0), (inputs.covePan ?? 0) * 0.6);
   }
 
   /** The beam's passing: one breath each time the sweep crosses the camera (never when held: reduced motion). */
