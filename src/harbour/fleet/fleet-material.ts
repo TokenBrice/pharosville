@@ -409,6 +409,8 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>\n${FRAG_PARS}`)
       .replace("float hbRough;", "hbFleetColor(diffuseColor.rgb);\n  float hbRough;")
+      // distance tint: the hovered / selected hull and the pennant keep their colour (world/aerial.ts)
+      .replace("hbAerial(outgoingLight, vHbWorld, 0.0);", "hbAerial(outgoingLight, vHbWorld, max(smoothstep(0.05, 0.5, vFleetMisc.x), step(0.5, vFleetRig.z) * step(vFleetMisc.z, 0.5)));")
       .replace("#include <normal_fragment_begin>", THREE.ShaderChunk.normal_fragment_begin.replace("gl_FrontFacing ? 1.0 : - 1.0", "(gl_FrontFacing != (vFleetMisc.y > 0.5)) ? 1.0 : - 1.0"))
       .replace("#include <opaque_fragment>", `
   {

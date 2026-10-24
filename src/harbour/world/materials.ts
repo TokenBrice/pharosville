@@ -3,6 +3,7 @@ import type { EngineContext } from "../engine/types";
 import { decodeInto, setBounds } from "../engine/static-merge";
 import type { WorldUniforms } from "../engine/uniforms";
 import { CLOUD_SHADOW_GLSL, cloudShadowUniforms } from "../sky/cloud-shadow";
+import { AERIAL_GLSL, aerialUniforms } from "./aerial";
 
 /**
  * THE HARBOUR MATERIAL PORT — style C "Northern Light" (p1/style-c/nl_common.py build_kit_material,
@@ -526,12 +527,12 @@ export class HarbourMaterials {
     m.name = "hb_kit";
     const fallbackPid = (opts.pattern ?? 0).toFixed(1);
     m.onBeforeCompile = (shader) => {
-      Object.assign(shader.uniforms, this.shared(), cloudShadowUniforms);
+      Object.assign(shader.uniforms, this.shared(), cloudShadowUniforms, aerialUniforms, { uAerialDensity: this.uniforms.uFogDensity, uAerialHaze: this.uniforms.uHaze });
       injectVaryings(shader);
       // winter / late-autumn bare crowns discard: compiled in only when the calendar can need it
       if (leafFallAt(this.uniforms) > 0.001) shader.defines = { ...shader.defines, HB_BARE: "" };
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}`)
+        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}\n${AERIAL_GLSL}`)
         .replace("#include <color_fragment>", `
   vec3 hbVc = vec3(1.0);
   #if defined( USE_COLOR_ALPHA )
@@ -596,6 +597,7 @@ export class HarbourMaterials {
       outgoingLight += uHbSunColor * g * spec * hbSnow * hbCs * 0.5;
     }
   }
+  hbAerial(outgoingLight, vHbWorld, 0.0);   // distance (decorative, world/aerial.ts)
   #include <opaque_fragment>`);
     };
     m.customProgramCacheKey = () => `hb_kit_${fallbackPid}_${leafFallAt(this.uniforms) > 0.001 ? "bare" : "leaf"}`;
