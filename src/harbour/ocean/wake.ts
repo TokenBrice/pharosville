@@ -139,6 +139,10 @@ export class WakeField implements WakeService {
   private readonly liveRT: THREE.WebGLRenderTarget;
   private idx = 0;
   private count = 0;
+  /** PERF: the history decays/diffuses every other frame (on the summed dt); stamps still land every frame */
+  private decayDt = 0;
+  private frameN = 0;
+  private readonly prevClear = new THREE.Color();
   private readonly attrA: THREE.InstancedBufferAttribute;
   private readonly attrB: THREE.InstancedBufferAttribute;
   private readonly geo: THREE.InstancedBufferGeometry;
@@ -202,14 +206,23 @@ export class WakeField implements WakeService {
     this.bufB[i * 4] = halfWidth; this.bufB[i * 4 + 1] = spd; this.bufB[i * 4 + 2] = strength; this.bufB[i * 4 + 3] = 0;
   }
 
-  /** Advance the field: decay+diffuse history, add trail stamps, rebuild the live layer. */
+  /**
+   * Advance the field: decay+diffuse history, add trail stamps, rebuild the live layer. PERF: the full-field decay
+   * pass (the field's every texel, 5 taps) runs every other frame on the summed dt (a ~6.5 s decay and a slow
+   * spread: indistinguishable); between, the trail stamps add into the current history in place.
+   */
   update(renderer: THREE.WebGLRenderer, dt: number): void {
-    const src = this.hist[this.idx], dst = this.hist[1 - this.idx];
-    const u = this.decay.material.uniforms;
-    u.uPrev.value = src.texture;
-    u.uDecay.value = Math.exp(-dt / 6.5);
-    u.uSpread.value = Math.min(1, dt * 7);
-    this.decay.render(renderer, dst);
+    this.decayDt += dt;
+    const decayNow = (++this.frameN & 1) === 0 || this.decayDt > 0.2;
+    const src = this.hist[this.idx], dst = decayNow ? this.hist[1 - this.idx] : src;
+    if (decayNow) {
+      const u = this.decay.material.uniforms;
+      u.uPrev.value = src.texture;
+      u.uDecay.value = Math.exp(-this.decayDt / 6.5);
+      u.uSpread.value = Math.min(1, this.decayDt * 7);
+      this.decay.render(renderer, dst);
+      this.decayDt = 0;
+    }
 
     this.geo.instanceCount = this.count;
     if (this.count > 0) {
@@ -217,7 +230,7 @@ export class WakeField implements WakeService {
       this.attrB.clearUpdateRanges(); this.attrB.addUpdateRange(0, this.count * 4); this.attrB.needsUpdate = true;
     }
     const prevTarget = renderer.getRenderTarget(), prevAuto = renderer.autoClear;
-    const prevClear = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
+    const prevClear = renderer.getClearColor(this.prevClear), prevAlpha = renderer.getClearAlpha();
     renderer.autoClear = false;
     if (this.count > 0) {
       this.trailMat.uniforms.uDt.value = dt;
@@ -235,7 +248,7 @@ export class WakeField implements WakeService {
     renderer.setClearColor(prevClear, prevAlpha);
     renderer.autoClear = prevAuto;
     renderer.setRenderTarget(prevTarget);
-    this.idx = 1 - this.idx;
+    if (decayNow) this.idx = 1 - this.idx;
     this.count = 0;
   }
 
