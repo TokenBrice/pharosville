@@ -33,11 +33,13 @@ vec2 hbBeamFrame(vec3 p) {
 // irradiance-like multiplier for albedo (add diffuse * this). n: world normal.
 vec3 hbBeamLight(vec3 p, vec3 n) {
   vec3 o = vec3(0.0);
-  if (uBeamPos.y < -100.0) return o;
+  // (uniform early-outs first: by day the swath is dark and the coin lights only its own ellipse)
+  bool swath = dot(uBeamLight, vec3(1.0)) > 1e-4, sun = dot(uBeamSun.rgb, vec3(1.0)) > 1e-4;
+  if (uBeamPos.y < -100.0 || !(swath || sun)) return o;
   vec2 f = hbBeamFrame(p);
-  vec3 toL = normalize(uBeamPos - p);
-  float wrap = clamp(dot(n, toL) * 0.6 + 0.4, 0.0, 1.0);
-  if (dot(uBeamLight, vec3(1.0)) > 1e-4) {
+  if (swath) {
+    vec3 toL = normalize(uBeamPos - p);
+    float wrap = clamp(dot(n, toL) * 0.6 + 0.4, 0.0, 1.0);
     float L = uBeamShape.x;
     // scattered swath: wider and softer than the shaft (the mist spreads the light as it falls)
     float w = (uBeamFall.y + max(f.x, 0.0) * uBeamFall.z) * 2.2 + 4.0;
@@ -50,12 +52,15 @@ vec3 hbBeamLight(vec3 p, vec3 n) {
     float vert = 0.3 + 0.7 * exp(-max(shaftY - p.y, 0.0) / 80.0);
     o += uBeamLight * lat * fall * vert * wrap;
   }
-  if (dot(uBeamSun.rgb, vec3(1.0)) > 1e-4) {
+  if (sun) {
     // the heliograph's coin: a soft ellipse, long along the heading, no volume
     float a = (f.x - uBeamSun.w) / (16.0 + uBeamSun.w * 0.14);
     float b = f.y / (7.0 + uBeamSun.w * 0.05);
-    float coin = exp(-(a * a + b * b) * 1.6) * step(0.0, f.x);
-    o += uBeamSun.rgb * coin * clamp(dot(n, toL) * 0.75 + 0.25, 0.0, 1.0);
+    float e2 = a * a + b * b;
+    if (e2 < 6.0 && f.x >= 0.0) {   // (exp(-1.6 e2) < 1e-4 outside: the coin's own ellipse only)
+      float coin = exp(-e2 * 1.6);
+      o += uBeamSun.rgb * coin * clamp(dot(n, normalize(uBeamPos - p)) * 0.75 + 0.25, 0.0, 1.0);
+    }
   }
   return o;
 }

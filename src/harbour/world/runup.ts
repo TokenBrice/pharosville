@@ -16,8 +16,9 @@ export const runupUniforms = {
 export const RUNUP_GLSL = /* glsl */ `
 uniform vec2 uRunup;
 void hbRunup(inout vec3 alb, inout float rough, vec3 W, vec3 N, float pid) {
+  if (W.y > 2.0 || W.y < -0.6) return;   // (the height band first: it rejects almost every fragment)
   float stone = hbIs(pid, 2.0) + hbIs(pid, 5.0) + hbIs(pid, 10.0) + hbIs(pid, 0.0) * 0.6;
-  if (stone <= 0.0 || W.y > 2.0 || W.y < -0.6) return;
+  if (stone <= 0.0) return;
   float steep = 1.0 - smoothstep(0.45, 0.8, N.y);
   vec2 cell = floor(W.xz / 7.0);
   float ph = fract(uRunup.y * 0.105 + fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453) * 0.35 + dot(W.xz, vec2(0.011, 0.007)));
