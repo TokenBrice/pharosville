@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attentionFor, behindOf, weatherInputs } from "./controller";
+import { attentionFor, behindOf, burnRateOf, weatherInputs } from "./controller";
 import { birdThinning, cicadaLevel, settleDb, settleRate } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {
@@ -69,5 +69,15 @@ describe("harbour sound: front/back cue", () => {
     expect(behindOf(500, 0, 0, -1)).toBe(0);        // beside
     expect(behindOf(0, 500, 0, -1)).toBeGreaterThan(0.9);
     expect(behindOf(0, 20, 0, -1)).toBeLessThan(0.4); // at the listener's feet: barely
+  });
+});
+
+describe("harbour sound: the Burn's furnace", () => {
+  it("follows the burn activity, and is silent when the reading is stale, banked or missing", () => {
+    expect(burnRateOf({ burnRate: 0.6, banked: false })).toBeCloseTo(0.6);
+    expect(burnRateOf({ burnRate: 0.6, banked: true })).toBe(0);
+    expect(burnRateOf({ banked: false })).toBe(0);
+    expect(burnRateOf(undefined)).toBe(0);
+    expect(burnRateOf({ burnRate: Number.NaN })).toBe(0);
   });
 });

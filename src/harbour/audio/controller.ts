@@ -29,7 +29,7 @@ interface Life { wind?: number }
 /** P6 layout additions read here, all optional (older layouts simply have no Mint / no pharos block). */
 interface CivicLayout { pharos?: { position: Vec3 }; civic?: Array<{ kind: string; position: Vec3 }> }
 /** Optional civic service: the Mint's activity 0..1, when the civic layer publishes it. */
-interface Civic { mintRate?: number }
+interface Civic { mintRate?: number; burnRate?: number; banked?: boolean }
 /** Lights in the layout: the town's windows say where its roofs and quays are. */
 interface LitLayout { lights?: Array<{ kind: string; position: Vec3 }> }
 
@@ -72,7 +72,7 @@ export function weatherInputs(w: WeatherLike | undefined, s: SeasonLike | undefi
 }
 
 /** Where the sound sources sit, gathered once per layout. */
-interface Sources { coast: Vec2[]; berths: Vec2[]; reef: Vec2 | null; fire: Vec3 | null; mint: Vec3 | null; ship: Vec3 | null; town: Vec2[]; trees: Vec2[] }
+interface Sources { coast: Vec2[]; berths: Vec2[]; reef: Vec2 | null; fire: Vec3 | null; mint: Vec3 | null; burn: Vec3 | null; ship: Vec3 | null; town: Vec2[]; trees: Vec2[] }
 
 function gatherSources(L: HarbourLayout & CivicLayout & LitLayout): Sources {
   const shoals = L.zones?.shoals?.polygon;
@@ -84,10 +84,11 @@ function gatherSources(L: HarbourLayout & CivicLayout & LitLayout): Sources {
   const fire: Vec3 | null = ph ? [ph[0], ph[1] + (L.pharos ? 82 : 30), ph[2]] : null;
   const m = L.civic?.find((c) => c.kind === "mint")?.position ?? null;
   const y = L.civic?.find((c) => c.kind === "shipyard")?.position ?? null;
+  const bu = L.civic?.find((c) => c.kind === "burn")?.position ?? null;
   return {
     coast: L.island?.coast ?? [],
     berths: (L.piers ?? []).flatMap((p) => p.berths.map((b) => [b.position[0], b.position[2]] as Vec2)),
-    reef, fire, mint: m ? [m[0], m[1] + 12, m[2]] : null, ship: y ? [y[0], y[1] + 4, y[2]] : null,
+    reef, fire, mint: m ? [m[0], m[1] + 12, m[2]] : null, ship: y ? [y[0], y[1] + 4, y[2]] : null, burn: bu ? [bu[0], bu[1] + 8, bu[2]] : null,
     town: (L.lights ?? []).filter((l) => l.kind === "window").map((l) => [l.position[0], l.position[2]] as Vec2),
     // the cove hamlets sit among the island's groves
     trees: (L.landmarks ?? []).filter((l) => l.id.startsWith("hamlet")).map((l) => [l.position[0], l.position[2]] as Vec2),
@@ -121,6 +122,12 @@ function nearest(x: number, z: number, pts: Vec2[]): number {
     if (e < d) { d = e; hit[0] = p[0]; hit[1] = p[1]; }
   }
   return d;
+}
+
+/** The Burn's activity for the furnace's voice: 0 when the civic layer is absent, banked or stale. */
+export function burnRateOf(c: { burnRate?: number; banked?: boolean } | undefined): number {
+  if (!c || c.banked || !Number.isFinite(c.burnRate)) return 0;
+  return clamp01(c.burnRate ?? 0);
 }
 
 /** How far behind a look along (fx, fz) the offset (dx, dz) lies: 0 ahead or beside … →1 straight behind (soft near the listener). */
@@ -265,6 +272,14 @@ class Controller implements SoundController {
         inputs.mintPan = pan(S.mint[0], S.mint[2]); inputs.mintBack = back(S.mint[0], S.mint[2]);
         inputs.mintRate = (ctx.services.get("civic") as Civic | undefined)?.mintRate ?? 0.5;
       } else inputs.mint = 0;
+      // the Burn's furnace answers the Mint: its roar follows the burn activity, and it is silent (embers drawn
+      // apart) whenever the mint-burn reading is stale or missing: never a faked fire
+      if (S.burn) {
+        const civic = ctx.services.get("civic") as Civic | undefined;
+        inputs.burn = near(Math.hypot(S.burn[0] - lx, S.burn[2] - lz), ly - S.burn[1], 70);
+        inputs.burnPan = pan(S.burn[0], S.burn[2]); inputs.burnBack = back(S.burn[0], S.burn[2]);
+        inputs.burnRate = burnRateOf(civic);
+      } else inputs.burn = 0;
       if (S.ship) {
         inputs.ship = near(Math.hypot(S.ship[0] - lx, S.ship[2] - lz), ly - S.ship[1], 80);
         inputs.shipPan = pan(S.ship[0], S.ship[2]); inputs.shipBack = back(S.ship[0], S.ship[2]);

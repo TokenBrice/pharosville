@@ -55,6 +55,11 @@ export interface AmbienceInputs {
   mint: number;
   mintPan: number;
   mintRate: number;
+  /** nearness 0..1 of the Burn's furnace (0 when there is none), its pan, and the burn activity 0..1 (0 = stale) */
+  burn: number;
+  burnPan: number;
+  burnBack: number;
+  burnRate: number;
   /** nearness 0..1 of the Shipyard's slipways (0 when there is none), and its pan */
   ship: number;
   shipPan: number;
@@ -202,6 +207,7 @@ export class Ambience {
     rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
     town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false, attention: 1,
     shoreBack: 0, reefBack: 0, mintBack: 0, townBack: 0, ship: 0, shipPan: 0, shipBack: 0,
+    burn: 0, burnPan: 0, burnBack: 0, burnRate: 0,
   };
   private readonly rnd: () => number;
   private readonly bank: ClipBank;
@@ -233,6 +239,11 @@ export class Ambience {
   private readonly mintBus: GainNode;
   private readonly mintLp: BiquadFilterNode;
   private readonly mintPan: StereoPannerNode;
+  private readonly burnBus: GainNode;
+  private readonly burnLp: BiquadFilterNode;
+  private readonly burnPan: StereoPannerNode;
+  private readonly bellows: GainNode;
+  private readonly bellowsLoop: LazyLoop;
   private readonly shipBus: GainNode;
   private readonly shipLp: BiquadFilterNode;
   private readonly shipPan: StereoPannerNode;
@@ -277,7 +288,7 @@ export class Ambience {
   private idle = 0;
   private next = {
     wave: 0, lap: 0, reef: 0, gull: 0, creak: 0, tap: 0, horn: 0, gust: 0, crackle: 0, press: 0, refresh: 0,
-    rainA: 0, rainB: 0, drip: 0, bird: 0, cricket: 0, cicada: 0, crunch: 0, ship: 0, groan: 0,
+    rainA: 0, rainB: 0, drip: 0, bird: 0, cricket: 0, cicada: 0, crunch: 0, ship: 0, groan: 0, burn: 0, bellows: 0,
   };
   private setLeft = 0;
   private pressN = 0;
@@ -381,6 +392,16 @@ export class Ambience {
     this.mintPan = ac.createStereoPanner();
     this.mintLp.connect(this.mintPan).connect(this.mintBus).connect(this.out);
 
+    // ---- the Burn's furnace: a deeper roar of the same fire clips, and the bellows breathing into it
+    this.burnBus = ac.createGain(); this.burnBus.gain.value = 0;
+    this.burnLp = this.filter("lowpass", 2500, 0.5);
+    this.burnPan = ac.createStereoPanner();
+    this.burnLp.connect(this.burnPan).connect(this.burnBus).connect(this.out);
+    this.bellows = ac.createGain(); this.bellows.gain.value = 0;
+    const bellowsBp = this.filter("bandpass", 300, 0.7);
+    this.bellowsLoop = new LazyLoop(ac, this.white, bellowsBp);
+    bellowsBp.connect(this.bellows).connect(this.burnLp);
+
     // ---- the Shipyard: mallets, adzes and a pit saw on oak, a treadwheel crane's groan (by day only)
     this.shipBus = ac.createGain(); this.shipBus.gain.value = 0;
     this.shipLp = this.filter("lowpass", 2500, 0.6);
@@ -442,7 +463,7 @@ export class Ambience {
       wave: t + 0.2, lap: t + 0.6, reef: t + 1.5, gull: t + 3 + this.rnd() * 4, creak: t + 3, tap: t + 1.5, horn: t + 3, gust: t,
       crackle: t, press: t + 0.5, refresh: t + 20,
       rainA: t, rainB: t + 1.7, drip: t + 1, bird: t + 1 + this.rnd() * 3, cricket: t, cicada: t, crunch: t + 4,
-      ship: t + 2, groan: t + 6,
+      ship: t + 2, groan: t + 6, burn: t, bellows: t + 2,
     };
     if (opts.manual) this.bank.buildAll();
     else {
@@ -551,6 +572,11 @@ export class Ambience {
     this.aim(this.mintBus.gain, 0.16 * I.mint * I.mint * point, 0.5);
     this.aim(this.mintLp.frequency, air(I.mint, 700, 6000) * behind(I.mintBack, 0.5), 0.5);
     this.aim(this.mintPan.pan, I.mintPan * 0.8, 0.5);
+    const furnace = I.burn * clamp01(I.burnRate);
+    this.aim(this.burnBus.gain, 0.4 * I.burn * furnace * point, 0.8);
+    this.aim(this.burnLp.frequency, air(I.burn, 500, 4000) * behind(I.burnBack, 0.5), 0.8);
+    this.aim(this.burnPan.pan, I.burnPan * 0.8, 0.8);
+    this.bellowsLoop.update(furnace > 0.03, furnace < 0.02, now, r);
     // the yard works by day; the shipwrights down tools in the rain and in a storm, and the yard is shut at night
     const yard = I.ship * (1 - clamp01((night - 0.4) / 0.2)) * (1 - clamp01(rain * 1.5)) * (1 - 0.8 * storm);
     this.aim(this.shipBus.gain, 0.55 * yard * I.ship * point, 0.5);
@@ -729,6 +755,21 @@ export class Ambience {
         N.crackle = at + 3.45 + r() * 0.1;     // 4 s clips, half-second fades: a seamless overlap
       }
     } else N.crackle = Math.max(N.crackle, now);
+    // the Burn: overlapped fire clips slowed to a deeper roar (5.3 s at 0.75, faded 0.67 s), and a bellows
+    // breath every few seconds, quicker as the burn grows
+    if (furnace > 0.03) {
+      if (N.burn < ahead) {
+        const at = Math.max(N.burn, now);
+        this.play("crackle", at, this.burnLp, 0.5, r() * 0.3 - 0.15, 0.75);
+        N.burn = at + 4.6 + r() * 0.1;
+      }
+      if (N.bellows < ahead) {
+        const at = Math.max(N.bellows, now), g = this.bellows.gain;
+        g.setTargetAtTime(0.8 * (0.6 + 0.4 * r()), at, 0.25);
+        g.setTargetAtTime(0, at + 0.7, 0.35);
+        N.bellows = at + (3 + r() * 2) / (0.7 + 0.6 * clamp01(I.burnRate));
+      }
+    } else { N.burn = Math.max(N.burn, now); N.bellows = Math.max(N.bellows, now + 1); }
     // the Mint: three presses in a steady rhythm that quickens with the minting
     if (I.mint > 0.03) {
       if (N.press < ahead) {
@@ -878,7 +919,7 @@ export class Ambience {
     await new Promise((r) => setTimeout(r, 680));
     for (const s of this.sources) { try { s.stop(); } catch { /* already stopped */ } }
     this.whistleLoop.stop();
-    for (const l of [this.highAirLoop, this.rainLoop, this.sprayLoop, this.howlLoop]) l.stop();
+    for (const l of [this.bellowsLoop, this.highAirLoop, this.rainLoop, this.sprayLoop, this.howlLoop]) l.stop();
     this.out.disconnect();
     if ("close" in this.ac) await (this.ac as AudioContext).close().catch(() => undefined);
   }
