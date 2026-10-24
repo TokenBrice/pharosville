@@ -14,7 +14,8 @@ import { BEASTS_URL, beastGeometry, Herds } from "./herds";
 import type { OceanService } from "../ocean/ocean-system";
 import type { WakeService } from "../ocean/wake";
 import type { WeatherService } from "../weather/weather-system";
-import { Gulls } from "./gulls";
+import { Gulls, type GullShips } from "./gulls";
+import type { MastheadService } from "../fleet/mastheads";
 import { ChimneySmoke } from "./smoke";
 import { SeasonalDrift } from "./drift";
 import type { SeasonService } from "../season/season-system";
@@ -37,7 +38,7 @@ export interface LifeService {
   readonly bustle: number;
 }
 
-interface WindSource { wind?: { fromRad: number; strength: number } }
+interface WindSource { wind?: { fromRad: number; strength: number }; pose?: GullShips }
 
 /**
  * LIFE — the declared-decorative inhabitants of the island: townsfolk, gulls, chimney smoke, flags and
@@ -106,7 +107,7 @@ export class LifeSystem implements WorldSystem {
     this.folk = new Townsfolk(walk, mats, { walkers: 150, standers: 34 }, folkGround, ht ? [ht[0], ht[2]] : undefined, lights);
     this.group.add(this.folk.mesh);
     // dev captures: the cast by role (window.__harbourLife)
-    if (import.meta.env.DEV) (window as unknown as { __harbourLife?: unknown }).__harbourLife = { roles: this.folk.roleCounts(), life: this };
+    if (import.meta.env.DEV) (window as unknown as { __harbourLife?: unknown }).__harbourLife = { roles: this.folk.roleCounts(), life: this, rig: ctx.rig };
 
     const V = (p: readonly number[], dy = 0) => new THREE.Vector3(p[0], p[1] + dy, p[2]);
     const lm = (id: string) => layout.landmarks.find((l) => l.id === id)?.position;
@@ -127,6 +128,7 @@ export class LifeSystem implements WorldSystem {
       if (l.kind === "pierhead" || l.kind === "harbourlight") perches.push(V(l.position, 0.42));
     }
     this.gulls = new Gulls({ circles, perches }, mats, GULLS);
+    this.gulls.busy = new URLSearchParams(location.search).get("gulls") === "busy";
     this.group.add(this.gulls.mesh);
 
     this.smoke = new ChimneySmoke(chimneys);
@@ -190,6 +192,8 @@ export class LifeSystem implements WorldSystem {
       const pts = marks.filter((m) => m.perch).sort((a, b) => b.len - a.len).slice(0, 7).map((m) => new THREE.Vector3(...m.perch!));
       if (pts.length) { this.gulls.addPerches(pts, 4); this.covePerched = true; }
     }
+    // 09-L6: the fleet for the gulls (hulls casting off to trail, mastheads to stand on)
+    this.gulls?.setShips(sim?.pose ?? null, (ctx.services.get("mastheads") as MastheadService | undefined) ?? null);
     this.gulls?.update(dt, moving, share > 0.5 ? 1 : 0.5, u.uNight.value);
     const hearth = 1 + 1.1 * winter + 0.3 * autumn;
     if (this.smoke) this.smoke.uniforms.uSmokeOpacity.value = 0.26 * (1 + 0.35 * winter);
