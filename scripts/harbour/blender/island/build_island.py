@@ -55,7 +55,9 @@ ROOTC = collection('HB')
 set_coll(ROOTC)
 
 # ------------------------------------------------------------------ materials (style C contract)
-atlas = bpy.data.images.load(os.path.join(P1C, 'emblem-atlas.png'), check_existing=False)
+_atlas_p = os.path.join(P1C, 'emblem-atlas.png')      # key-art sails only (boats are never exported): blank if absent
+atlas = (bpy.data.images.load(_atlas_p, check_existing=False) if os.path.exists(_atlas_p)
+         else bpy.data.images.new('emblem-atlas', 64, 64, alpha=True))
 atlas.alpha_mode = 'STRAIGHT'
 NSLOT = 4
 build_kit_material(); build_glass_material(); build_sail_material(atlas, float(NSLOT))

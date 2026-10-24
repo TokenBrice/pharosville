@@ -6,6 +6,7 @@ import { getLightsStore } from "../lights/lights-service";
 import { getHarbourMaterials } from "./materials";
 import { SunRig } from "./sun";
 import { mergeStaticMeshes } from "../engine/static-merge";
+import { updateSway } from "./sway";
 
 export const ISLAND_URL = "/harbour/island.glb";
 
@@ -70,6 +71,7 @@ export class IslandSystem implements WorldSystem {
 
   update(frame: FrameState, ctx: EngineContext): void {
     this.sun.update(ctx, frame.delta);
+    updateSway(ctx); // 08-T3: reduced motion stills the leaf / cloth sway
     if (ctx.scene.background === this.fallbackBg) this.fallbackBg.copy(ctx.uniforms.uHorizon.value).lerp(ctx.uniforms.uZenith.value, 0.25);
     if (this.fallbackSea) (this.fallbackSea.material as THREE.MeshBasicMaterial).color.set("#143F55").multiplyScalar(1 - 0.75 * ctx.uniforms.uNight.value);
   }

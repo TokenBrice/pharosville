@@ -11,7 +11,7 @@ import { lampJitter, lampRank, type LampWaveParams } from "./lamp-wave";
  * Pure data store; the LightsSystem owns the GPU side. Registered early (by the island system) so any
  * later system (fleet riding lights) can add lights during its own init.
  */
-export type LightKind = "window" | "lamp" | "pierhead" | "harbourlight" | "riding" | (string & {});
+export type LightKind = "window" | "lamp" | "pierhead" | "harbourlight" | "riding" | "hearth" | (string & {});
 
 export interface LightsService {
   add(kind: LightKind, position: THREE.Vector3Like | [number, number, number], color?: string | THREE.Color, radius?: number): number;
@@ -49,6 +49,9 @@ export const KINDS: Record<string, KindSpec> = {
   riding: { color: "#FFF2D6", pool: 0, poolK: 0, sprite: 0.32, spriteK: 18, point: 0, mount: 0 },
   /** The Pharos keeper's vigil lamp (05-P4): a tiny cool pinprick while the fire is banked (PSI unlit). */
   vigil: { color: "#DCE6F2", pool: 0, poolK: 0, sprite: 0.16, spriteK: 22, point: 0, mount: 0 },
+  // 08-T9: hinterland hearths (farm doors, the windmill, the hill sanctuary, wayside lamps): warm, small and dim —
+  // well under the town's lamps, never promoted to a point light
+  hearth: { color: "#FF9A48", pool: 3.2, poolK: 0.16, sprite: 0.34, spriteK: 8, point: 0, mount: 1.8 },
 };
 const DEFAULT_KIND = KINDS.lamp;
 

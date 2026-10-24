@@ -89,6 +89,8 @@ for (th, r_, k) in ((80.0, 24.0, 0), (110.0, 24.0, 0), (126.0, 60.0, 2), (62.0, 
 for th in range(80, 104, 6):
     p = town_pt(th, TOWN['r_quay'] + 18.0)
     spots.append({'kind': 'square', 'p': gl(p[0], p[1], Z_SHORE + 0.06), 'h': 0.0})
+for (p, z) in G.get('SANCT_SPOTS', []):          # 08-T4: the hill sanctuary's temenos (folk climb the processional path)
+    spots.append({'kind': 'square', 'p': gl(p[0], p[1], z), 'h': 0.0})
 for (th, band, r_) in TOWN['squares']:
     p = town_pt(th, TOWN['r_quay'] + r_)
     spots.append({'kind': 'square', 'p': gl(p[0], p[1], RINGS[band][2] + 0.16), 'h': 0.0})
