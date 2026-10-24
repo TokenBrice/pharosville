@@ -10,11 +10,12 @@ import type { SkyService } from "../sky/sky-system";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { getHarbourMaterials } from "../world/materials";
 import {
-  DEWS_LEVELS, seasonForMonth, snowShare, targetsForLevel, weightsForSeason, WeatherDirector, type Season, type SeasonWeights, type WeatherBand, type WeatherState,
+  DEWS_LEVELS, moonbowLight, recoveryLine, seasonForMonth, snowShare, targetsForLevel, weightsForSeason, WeatherDirector, type Season, type SeasonWeights, type WeatherBand, type WeatherState,
 } from "./director";
 import { Lightning, type StrikeEvent } from "./lightning";
 import { MAX_SPRAY, PRECIP_BUDGET, Precipitation } from "./precip";
 import { Rainbow } from "./rainbow";
+import { moonAge, moonIllumination, parseMoonOverride } from "../season/calendar";
 
 /**
  * WEATHER: the director that turns the supply-weighted DEWS band (readings) and the calendar season
@@ -46,6 +47,8 @@ export interface WeatherService {
   readonly flash: { readonly azimuth: number; readonly elevation: number };
   /** Wind on the ground plane (x, z) incl. gusts — same as uWindVec. */
   readonly wind: THREE.Vector2;
+  /** W07 / D11: "Recovered from Alert 3 min ago" while the recovery bow's window lasts, else null. */
+  readonly recoveryLine: string | null;
   /** A lightning strike (for thunder: play it `thunderDelaySec` later). Returns an unsubscribe. */
   onLightning(cb: (e: StrikeEvent) => void): () => void;
 }
@@ -84,6 +87,8 @@ export class WeatherSystem implements WorldSystem {
   private readonly target = new THREE.Vector3();
   private readonly viewport = new THREE.Vector2();
   private readonly flash = { azimuth: 0, elevation: 2 };
+  private moonAt = -1;
+  private moonIllum = 1;
 
   init(ctx: EngineContext): void {
     this.fx = acquireFxTextures(ctx);
@@ -109,6 +114,7 @@ export class WeatherSystem implements WorldSystem {
       get gloom() { return sys.director.state.gloom; },
       get flash() { return sys.flash; },
       get wind() { return sys.windVec; },
+      get recoveryLine() { return recoveryLine(sys.director.state.recovery, sys.elapsed); },
       onLightning: (cb) => this.lightning.onStrike(cb),
     };
     ctx.services.set("weather", svc);
@@ -174,6 +180,12 @@ export class WeatherSystem implements WorldSystem {
     const season = ctx.services.get("season") as SeasonLike | undefined;
     const share = season?.snowShare ?? snowShare(season?.weights ?? this.fallbackWeights);
     const sunUp = THREE.MathUtils.smoothstep(U.uSunDir.value.y, 0.03, 0.25) * (1 - U.uNight.value);
+    // W07: tonight's moon (decorative calendar, ?moon= in dev) can hang the recovery as a moonbow
+    if (this.elapsed - this.moonAt > 60 || this.moonAt < 0) {
+      this.moonAt = this.elapsed;
+      this.moonIllum = moonIllumination(parseMoonOverride((k) => this.q.get(k)) ?? moonAge(Date.now()));
+    }
+    const moonUp = moonbowLight(this.moonIllum, U.uNight.value);
     // dev ?front=<band>[&frontAt=0..1]: load on the current weather, then 2.5 s later a reading at <band> arrives
     //  (frontAt holds the front at that point of its sweep, for captures)
     const fq = (this.q.get("front") ?? "").toUpperCase();
@@ -181,7 +193,7 @@ export class WeatherSystem implements WorldSystem {
     const fAt = this.q.get("frontAt");
     this.clock ??= new MotionClock(ensureMotionService(ctx));
     const input = {
-      level: fLevel ?? (w ? w.level : null), band: fLevel != null ? (fq as WeatherBand) : w?.band ?? null, snowShare: share, sunUp, time: this.elapsed,
+      level: fLevel ?? (w ? w.level : null), band: fLevel != null ? (fq as WeatherBand) : w?.band ?? null, snowShare: share, sunUp, moonUp, time: this.elapsed,
       forceRainbow: this.q.get("rainbow") === "1",
       still: this.clock.live < 0.5,
       frontPin: fLevel != null && fAt != null && Number.isFinite(Number(fAt)) ? Number(fAt) : undefined,
@@ -271,7 +283,7 @@ export class WeatherSystem implements WorldSystem {
     });
 
     // ---- the recovery rainbow
-    this.rainbow.update(s.rainbow, cam, U.uSunDir.value, U.uSunColor.value, rig.distance, horizon);
+    this.rainbow.update(s.rainbow, cam, U.uSunDir.value, U.uSunColor.value, rig.distance, horizon, sunUp > 0.15 ? 0 : 1);
   }
 
   dispose(ctx: EngineContext): void {

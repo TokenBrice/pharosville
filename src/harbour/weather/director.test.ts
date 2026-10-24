@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildBolt, jagged } from "./lightning";
 import {
-  FRONT_MIN, FRONT_SEC, RAINBOW_SEC, seasonForMonth, stormTrend, showerEnvelope, snowShare, targetsForLevel, WeatherDirector, weightsForSeason, type DirectorInput,
+  FRONT_MIN, FRONT_SEC, moonbowLight, RAINBOW_SEC, recoveryLine, seasonForMonth, stormTrend, showerEnvelope, snowShare, targetsForLevel, WeatherDirector, weightsForSeason, type DirectorInput,
 } from "./director";
 
 const input = (level: number | null, band: DirectorInput["band"], extra: Partial<DirectorInput> = {}): DirectorInput =>
@@ -183,6 +183,25 @@ describe("W03 sunbreaks and W09 squalls", () => {
       const env = showerEnvelope(t, targetsForLevel(2).showerOn);
       expect(Math.abs(d.state.squall.pos - 1)).toBeCloseTo(1 - env, 5);
     }
+  });
+});
+
+describe("W07 moonbow and the recovery line", () => {
+  it("a night recovery hangs a moonbow only under a bright moon", () => {
+    expect(moonbowLight(0.1, 1)).toBe(0);
+    expect(moonbowLight(0.9, 1)).toBe(1);
+    expect(moonbowLight(0.9, 0)).toBe(0);
+    const d = new WeatherDirector();
+    run(d, 2, input(3, "WARNING", { sunUp: 0, moonUp: 1, still: true }));
+    run(d, 150, input(0, "CALM", { sunUp: 0, moonUp: 1, still: true }));
+    expect(d.state.rainbow).toBeGreaterThan(0.5);
+  });
+
+  it("says when and from what it recovered, for as long as the bow may hang", () => {
+    expect(recoveryLine(null, 10)).toBeNull();
+    expect(recoveryLine({ fromBand: "ALERT", atSec: 100 }, 120)).toBe("Recovered from Alert just now");
+    expect(recoveryLine({ fromBand: "WARNING", atSec: 100 }, 100 + 185)).toBe("Recovered from Warning 3 min ago");
+    expect(recoveryLine({ fromBand: "ALERT", atSec: 100 }, 101 + RAINBOW_SEC)).toBeNull();
   });
 });
 

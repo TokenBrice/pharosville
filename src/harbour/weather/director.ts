@@ -125,7 +125,7 @@ export interface WeatherState {
   gloom: number;
   /** Surfaces' wetness 0..1: rises in rain, dries slowly. */
   wetness: number;
-  /** Rainbow strength 0..1 (recovery, daylight only). */
+  /** Rainbow strength 0..1 (recovery; by day, or a moonbow under a bright moon). */
   rainbow: number;
   /**
    * W01 the weather front crossing the bay (null when none): the DEWS level it brings (`to`), the level it
@@ -162,6 +162,21 @@ export const FRONT_HERE: readonly [number, number] = [0.32, 0.72];
 export const bandOfLevel = (level: number): WeatherBand =>
   (["CALM", "WATCH", "ALERT", "WARNING", "DANGER"] as const)[Math.min(4, Math.max(0, Math.round(level)))];
 
+/** W07 moonbow gate: the moon's illuminated fraction × night (a moonbow needs a bright moon, ≥ ~40 %). */
+export const moonbowLight = (illumination: number, night: number): number => smoothstep(0.35, 0.5, illumination) * smoothstep(0.5, 0.9, night);
+
+/**
+ * The DOM twin of the recovery rainbow / moonbow (same window, same words): "Recovered from Alert 3 min ago"
+ * while the recovery window lasts (RAINBOW_SEC), null otherwise.
+ */
+export function recoveryLine(rec: { fromBand: WeatherBand; atSec: number } | null, nowSec: number): string | null {
+  if (!rec) return null;
+  const ago = nowSec - rec.atSec;
+  if (ago < 0 || ago > RAINBOW_SEC) return null;
+  const min = Math.round(ago / 60);
+  return `Recovered from ${rec.fromBand[0]}${rec.fromBand.slice(1).toLowerCase()} ${min < 1 ? "just now" : `${min} min ago`}`;
+}
+
 /**
  * The Storm panel's trend line (the DOM twin of the visible front, same words): "rising toward Alert" while
  * a storm front crosses, "easing toward Watch" while a clearing line does; null when the weather is settled.
@@ -182,6 +197,8 @@ export interface DirectorInput {
   sunUp: number;
   /** Seconds since start (for shower and gust cells). */
   time: number;
+  /** W07: 0 … 1 a bright moon up at night (illumination gated): a recovery at night hangs a moonbow. */
+  moonUp?: number;
   /** ?rainbow=1 */
   forceRainbow?: boolean;
   /** Reduced motion: no sweeping front, the weather eases in place. */
@@ -298,7 +315,7 @@ export class WeatherDirector {
     this.split(input);
     // rainbow: the recovery window (or the dev switch), daylight only, once the rain has thinned
     this.rainbowLeft = Math.max(0, this.rainbowLeft - dt);
-    const want = (input.forceRainbow || this.rainbowLeft > 0 ? 1 : 0) * smoothstep(0.15, 0.5, input.sunUp) *
+    const want = (input.forceRainbow || this.rainbowLeft > 0 ? 1 : 0) * Math.max(smoothstep(0.15, 0.5, input.sunUp), input.moonUp ?? 0) *
       (input.forceRainbow ? 1 : 1 - smoothstep(0.25, 0.5, s.precip)) * (1 - smoothstep(0.55, 0.75, s.cloud));
     s.rainbow = ease(s.rainbow, want, dt, want > s.rainbow ? TAU.rainbowIn : TAU.rainbowOut);
     if (s.rainbow < 1e-3 && want === 0) s.rainbow = 0;

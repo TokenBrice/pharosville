@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  moonAge, moonIllumination, parseMoonOverride, SYNODIC_DAYS,
   dayOfYear, dominantSeason, isSouthernZone, northernDay, overrideDay, parseSeasonOverride, seasonWeights, snowShareFor,
   solarDay,
 } from "./calendar";
@@ -85,5 +86,24 @@ describe("seasonal day remap", () => {
 
   it("is the identity on the reference day", () => {
     for (const h of [0, 3, 6, 9, 12, 18.5, 21]) expect(seasonalKeyHour(h, 6.0, 19.85)).toBeCloseTo(h, 5);
+  });
+});
+
+describe("W04 moon phase", () => {
+  it("is new and full on real dates (within a day)", () => {
+    const near = (a: number, b: number) => Math.min(Math.abs(a - b), SYNODIC_DAYS - Math.abs(a - b));
+    expect(near(moonAge(Date.UTC(2024, 3, 8, 18, 21)), 0)).toBeLessThan(1);      // the April 2024 eclipse
+    expect(near(moonAge(Date.UTC(2024, 3, 23, 23, 49)), SYNODIC_DAYS / 2)).toBeLessThan(1);
+    expect(near(moonAge(Date.UTC(2026, 0, 3, 10, 3)), SYNODIC_DAYS / 2)).toBeLessThan(1);  // full moon 3 Jan 2026
+    expect(moonIllumination(moonAge(Date.UTC(2024, 3, 8, 18, 21)))).toBeLessThan(0.02);
+    expect(moonIllumination(SYNODIC_DAYS / 2)).toBeCloseTo(1);
+    expect(moonIllumination(SYNODIC_DAYS / 4)).toBeCloseTo(0.5);
+  });
+
+  it("reads ?moon=", () => {
+    const get = (q: string) => (k: string) => new URLSearchParams(q).get(k);
+    expect(parseMoonOverride(get("moon=7.4"))).toBeCloseTo(7.4);
+    expect(parseMoonOverride(get(""))).toBeNull();
+    expect(parseMoonOverride(get("moon=x"))).toBeNull();
   });
 });

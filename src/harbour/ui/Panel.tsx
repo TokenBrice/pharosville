@@ -330,12 +330,14 @@ function CustomsPanel({ model, titleRef }: P) {
 }
 
 /** What the Storm panel reads from the weather service (src/harbour/weather), structurally. */
-interface WeatherLike { readonly state: { readonly front: FrontState | null; readonly recovery: { fromBand: string; atSec: number } | null } }
+interface WeatherLike { readonly state: { readonly front: FrontState | null }; readonly recoveryLine?: string | null }
 
 function StormPanel({ model, titleRef }: P) {
   const store = useStore();
   useUI(); // re-render on tick: the front crosses in about a minute
-  const trend = stormTrend((store.ctx.services.get("weather") as WeatherLike | undefined)?.state.front ?? null);
+  const wx = store.ctx.services.get("weather") as WeatherLike | undefined;
+  const trend = stormTrend(wx?.state.front ?? null);
+  const recovered = wx?.recoveryLine ?? null;
   const c = model?.readings.stormCones;
   const alerts = (model?.boats ?? []).filter((b) => b.state !== "wrecked" && (b.dews === "ALERT" || b.dews === "WARNING" || b.dews === "DANGER"))
     .sort((a, b) => (b.dewsScore ?? 0) - (a.dewsScore ?? 0));
@@ -345,7 +347,7 @@ function StormPanel({ model, titleRef }: P) {
       <Head kicker="Landmark" title="Storm-signal Station" sub={!c ? "no stress reading" : c.count === 0 ? "no cones hoisted" : `${c.count} ${c.count === 1 ? "cone" : "cones"} hoisted`} titleRef={titleRef} />
       <div className="hb-panel-body">
         <p className="hb-why">One cone on the mast for each coin at early-warning Alert or worse, up to five{c && c.extra > 0 ? `; ${c.extra} more are not shown` : ""}. The weather over the bay is the same stress, weighted by supply.</p>
-        {w?.band && <p className="hb-caption">Weather: {titleCase(w.band)}, over {share(w.coverage)} of supply.{trend ? ` ${trend.text.charAt(0).toUpperCase()}${trend.text.slice(1)}.` : ""}</p>}
+        {w?.band && <p className="hb-caption">Weather: {titleCase(w.band)}, over {share(w.coverage)} of supply.{trend ? ` ${trend.text.charAt(0).toUpperCase()}${trend.text.slice(1)}.` : ""}{recovered ? ` ${recovered}.` : ""}</p>}
         <Sec title="Alerts">
           {alerts.length ? <BoatList rows={alerts.map((b) => ({ id: b.id, label: <><b>{b.symbol}</b> <em>{money(b.supply)}</em></>, value: <span className="hb-band" style={{ "--band": DEWS_INK[b.dews!] } as React.CSSProperties}>{titleCase(b.dews!)} {Math.round(b.dewsScore ?? 0)}</span> }))} />
             : <p className="hb-empty">Calm. No coin is at Alert or worse.</p>}

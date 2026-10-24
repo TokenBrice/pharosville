@@ -9,10 +9,15 @@
 - Sunbreaks: as rain eases off, or just after a recovery, the land and sea fall into cloud shadow with a few large sunlit patches drifting across, and faint shafts fan down from the sun through the gaps.
 - Passing squalls at Watch and Alert: the passing shower is now a place — one darker cloud with its own rain curtain and shadow walks in from upwind, rains on the harbour at its crest and moves on.
 - Lightning has a direction: a strike lights the faces of the town that look toward it, the lee sides stay dark (no brighter than before).
+- Tonight's moon: the moon now shows its real phase for your date (crescent, half, gibbous, full; mirrored south of the equator), with faint earthshine on the dark limb. Its glow, its path on the sea and its light on the town follow the phase; on dark new-moon nights the stars come out and the harbour lamps carry the night.
+- Moonbow: a recovery you watch at night, under a bright moon, hangs a faint silver moonbow over the harbour. The Storm-signal panel now records every recovery in words — "Recovered from Alert 3 min ago" — by day or night.
 
 ## Legend lines
 
 - Weather front (sky sweeping in from one side): the DEWS stress reading moved by ≥ 0.35 of a band since the weather shown; Storm-signal panel "Rising toward <band>" / "Easing toward <band>".
+
+- Rainbow / moonbow (recovery): the DEWS weather improved from Alert or worse to Watch or better during your visit; Storm-signal panel "Recovered from <band> N min ago" for the same 3.5 minutes.
+- Moon (decorative): tonight's real phase.
 
 ## Hooks wanted from other lanes
 

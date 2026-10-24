@@ -129,3 +129,28 @@ export function temperatureFor(nDay: number): number {
   // coldest ≈ 20 Jan, warmest ≈ 22 Jul
   return 12 - 11 * Math.cos((2 * Math.PI * (nDay - 20)) / 365);
 }
+
+/** Mean synodic month (days). */
+export const SYNODIC_DAYS = 29.530588853;
+
+/**
+ * W04 the moon's age (days since new moon, 0..29.53) at an instant: the mean synodic month from a reference new
+ * moon (2000-01-06 18:14 UTC, JD 2451550.26). Good to about half a day, plenty for a painted disc. Decorative.
+ */
+export function moonAge(ms: number): number {
+  const jd = ms / 86_400_000 + 2440587.5;
+  return ((((jd - 2451550.26) % SYNODIC_DAYS) + SYNODIC_DAYS) % SYNODIC_DAYS);
+}
+
+/** Illuminated fraction of the disc (0 new … 1 full) for a moon age in days. */
+export function moonIllumination(age: number): number {
+  return (1 - Math.cos((2 * Math.PI * age) / SYNODIC_DAYS)) / 2;
+}
+
+/** `?moon=<age days>` dev override (0..29.53), or null. */
+export function parseMoonOverride(get: (k: string) => string | null): number | null {
+  const v = get("moon");
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? ((n % SYNODIC_DAYS) + SYNODIC_DAYS) % SYNODIC_DAYS : null;
+}

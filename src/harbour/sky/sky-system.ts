@@ -9,6 +9,7 @@ import { cloudShadowUniforms } from "./cloud-shadow";
 import { applySkyPalette, createSkyPaletteUniforms } from "./palette";
 import { MAX_BANKS, SKY_BAND_GLSL } from "./sky-glsl";
 import { ensureMotionService, MotionClock } from "../ui/services";
+import { moonAge, moonIllumination, parseMoonOverride, SYNODIC_DAYS } from "../season/calendar";
 
 /**
  * SKY: a camera-attached painted backdrop (a flat card facing the camera, so the pretend horizon is a
@@ -139,6 +140,7 @@ export class SkySystem implements WorldSystem {
     ...createSkyPaletteUniforms(),
     uSunDisc: { value: new THREE.Vector4() },
     uMoonDisc: { value: new THREE.Vector4() },
+    uMoonPhase: { value: new THREE.Vector4(Math.PI, 1, 1, 0) },
     uLight: { value: new THREE.Vector4() },
     uBanks: { value: Array.from({ length: MAX_BANKS }, () => new THREE.Vector4()) },
     uBankB: { value: Array.from({ length: MAX_BANKS }, () => new THREE.Vector4()) },
@@ -170,6 +172,10 @@ export class SkySystem implements WorldSystem {
   private readonly strikeDir = new THREE.Vector3();
   private readonly tmpC = new THREE.Color();
   private shadowDrift = (Date.now() / 1000) % 5000;
+  /** W04: tonight's moon (age days, illuminated fraction); recomputed once a minute */
+  private moonOverride: number | null = null;
+  private moonAt = -1e9;
+  private moonIllum = 1;
 
   init(ctx: EngineContext): void {
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
@@ -224,6 +230,17 @@ export class SkySystem implements WorldSystem {
     if (q.has("cloud")) svc.setCloudCover(Number(q.get("cloud")));
     if (q.has("wind")) svc.setWind(Number(q.get("wind")));
     this.coverS = this.cover; this.windS = this.wind;
+    this.moonOverride = parseMoonOverride((k) => q.get(k));
+  }
+
+  /** W04: the real moon phase (decorative, like the clock); the lit limb mirrors in the southern hemisphere. */
+  private updateMoon(ctx: EngineContext, nowMs: number): void {
+    if (nowMs - this.moonAt < 60_000) return;
+    this.moonAt = nowMs;
+    const age = this.moonOverride ?? moonAge(nowMs);
+    this.moonIllum = moonIllumination(age);
+    const southern = (ctx.services.get("season") as { southern?: boolean } | undefined)?.southern ?? false;
+    this.u.uMoonPhase.value.set((2 * Math.PI * age) / SYNODIC_DAYS, southern ? -1 : 1, this.moonIllum, 0);
   }
 
   private seedBanks(): void {
@@ -255,6 +272,13 @@ export class SkySystem implements WorldSystem {
     this.coverS += (this.cover - this.coverS) * (1 - Math.exp(-dt * 0.5));
     this.windS += (this.wind - this.windS) * (1 - Math.exp(-dt * 0.5));
     applySkyPalette(ctx.timeOfDay.hour, this.u);
+    this.updateMoon(ctx, frame.nowMs);
+    // W04: a dark (new-moon) night shows more stars; a thin moon lights the world less — with a floor, so the
+    // harbour stays legible and the lamps carry the night
+    const illum = this.moonIllum, nightK = W.uNight.value;
+    this.u.uSkyK.value.w *= 1 + 0.45 * (1 - illum);
+    W.uNightLift.value.multiplyScalar(0.7 + 0.3 * illum);
+    W.uSunColor.value.multiplyScalar(1 - nightK * 0.25 * (1 - illum));
 
     // ---- camera frame
     const fwd = camera.getWorldDirection(this.tmp);
@@ -338,7 +362,7 @@ export class SkySystem implements WorldSystem {
     if (moonW > sunW) {
       this.shared.uGlintDir.value.copy(glintOf(moonTh / COMP, discE(moonEl) + 0.35, moonEl));
       // through a broken night deck the moon's path on the sea comes and goes: keep a little of it
-      this.shared.uGlintCol.value.setRGB(0.78, 0.85, 1.0).multiplyScalar(0.85 * moonW * deck * (1 - nightClosed * (1 - 0.35 * nightGaps)));
+      this.shared.uGlintCol.value.setRGB(0.78, 0.85, 1.0).multiplyScalar(0.85 * moonW * deck * (1 - nightClosed * (1 - 0.35 * nightGaps)) * (0.1 + 0.9 * Math.pow(this.moonIllum, 0.8)));
     } else {
       this.shared.uGlintDir.value.copy(glintOf(sunAz, discE(sunEl), sunEl));
       this.shared.uGlintCol.value.copy(W.uSunColor.value).multiplyScalar((1.2 / keyLum) * sunW * deck);

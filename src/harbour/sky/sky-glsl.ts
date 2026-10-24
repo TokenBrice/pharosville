@@ -16,6 +16,7 @@ uniform vec4 uSkyK;          // glowK, rimK, snow, stars
 uniform vec2 uDiscK;         // sun, moon
 uniform vec4 uSunDisc;       // th, e, radius (deg), visibility
 uniform vec4 uMoonDisc;      // th, e, radius (deg), visibility
+uniform vec4 uMoonPhase;     // W04: phase angle (rad, 0 new, pi full), lit-limb sign (+1 right), illuminated fraction, -
 uniform vec4 uLight;         // key light for clouds/hills: th (deg, true azimuth), elevation (rad), -, -
 uniform vec4 uBanks[${MAX_BANKS}];   // th centre, e base, width, height (deg)
 uniform vec4 uBankB[${MAX_BANKS}];   // atlas cell, alpha, haze, mirror
@@ -171,8 +172,13 @@ vec3 skyBand(float th, float e, float pxDeg) {
     vec2 mu = md / r;
     float maria = texture2D(uSkyNoise, mu * 0.22 + 0.31).g;
     float shade = 0.82 + 0.18 * smoothstep(0.35, 0.65, maria) - 0.06 * dot(mu, vec2(0.6, -0.4));
-    c += vec3(0.62, 0.7, 0.95) * (exp(-d / (r * 1.6)) * 0.4 + exp(-d / (r * 5.0)) * 0.2 + exp(-d / 2.6) * 0.1) * uMoonDisc.w * uDiscK.y * (1.0 - 0.7 * gStorm);
-    c = mix(c, vec3(1.55, 1.6, 1.7) * shade, disc * uMoonDisc.w * uDiscK.y * (1.0 - 0.85 * gStorm));
+    // W04 tonight's phase: a soft terminator (the lit limb mirrors south of the equator) and faint earthshine
+    vec3 mN = vec3(mu, sqrt(max(0.0, 1.0 - dot(mu, mu))));
+    float lit = smoothstep(-0.06, 0.12, dot(mN, vec3(sin(uMoonPhase.x) * uMoonPhase.y, 0.0, -cos(uMoonPhase.x))));
+    float illum = uMoonPhase.z;
+    c += vec3(0.62, 0.7, 0.95) * (exp(-d / (r * 1.6)) * 0.4 + exp(-d / (r * 5.0)) * 0.2 + exp(-d / 2.6) * 0.1) * uMoonDisc.w * uDiscK.y * (1.0 - 0.7 * gStorm) * (0.12 + 0.88 * illum);
+    vec3 dark = c * 0.82 + vec3(0.2, 0.23, 0.3) * 0.2 * (1.0 - illum) * shade;
+    c = mix(c, mix(dark, vec3(1.55, 1.6, 1.7) * shade, lit), disc * uMoonDisc.w * uDiscK.y * (1.0 - 0.85 * gStorm));
   }
 #endif
   // ---- cirrus wisps (high, thin, stretched along the horizon); not mirrored by the sea
