@@ -43,7 +43,7 @@ export const KINDS: Record<string, KindSpec> = {
   riding: { color: "#FFF2D6", pool: 0, poolK: 0, sprite: 0.32, spriteK: 18, point: 0, mount: 0 },
   // 08-T9: hinterland hearths (farm doors, the windmill, the hill sanctuary, wayside lamps): warm, small and dim —
   // well under the town's lamps, never promoted to a point light
-  hearth: { color: "#FF9A48", pool: 3.2, poolK: 0.16, sprite: 0.3, spriteK: 7, point: 0, mount: 1.8 },
+  hearth: { color: "#FF9A48", pool: 3.2, poolK: 0.16, sprite: 0.34, spriteK: 8, point: 0, mount: 1.8 },
 };
 const DEFAULT_KIND = KINDS.lamp;
 

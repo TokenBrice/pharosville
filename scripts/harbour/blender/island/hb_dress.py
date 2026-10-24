@@ -886,17 +886,31 @@ for (x, y, z, kind, col) in CJ['lamps']:      # piers: tripods; the moles' and t
     lamp((x, y), z, 3.0 if z < 2 else 3.4, pennant=col if kind == 'pierhead' else None, kind=kind,
          stand='pillar' if kind == 'lamp' and z >= Z_SHORE - 0.01 else 'tripod')
 def hearth_lamp(p, z, h=1.7):
-    """08-T4/T9: a small bronze fire-bowl on a tripod with a low flame: a hinterland 'hearth' light (dim layout kind)."""
+    """08-T4/T9: a small bronze fire-bowl on a tripod: a hinterland 'hearth' light (dim layout kind)."""
     x, y = p
     for k in range(3):
         a = 2 * math.pi * k / 3 + 0.4
         merge(lampb, nl_kit.beam((x + 0.35 * math.cos(a), y + 0.35 * math.sin(a), z), (x, y, z + h), 0.05, 0.05))
     merge(lampb, bm_cyl(0.08, 0.3, 0.2, 6, (x, y, z + h), cap=False))
-    merge(lglass, bm_cyl(0.16, 0.03, 0.32, 5, (x, y, z + h + 0.12), cap=False))
+    # no flame mesh: the shared lamp emissive would glow at the town's level; the dim 'hearth' sprite is the fire
     LAMP_LIGHTS.append((x, y, z + h + 0.3, 'hearth', None))
 
 
 hearth_lamp(SANCT_LAMP[0], SANCT_LAMP[1])      # 08-T4: the sanctuary's one lamp at dusk
+# 08-T9 (prettier): hinterland hearths - a dim warm point at each farmstead door, the windmill's door, and a wayside
+# lantern at two forks of the west road (layout kind 'hearth': under the town lamps, far under the beam)
+HEARTHS = 0
+for lot in CJ['lots']:
+    if lot['style'] in ('farmhouse', 'barn'):
+        f_ = Vector(lot['face']); c_ = Vector(lot['c']) + f_ * (lot['d'] / 2 + 0.9)
+        LAMP_LIGHTS.append((c_.x, c_.y, lot['z'] + 2.1, 'hearth', None)); HEARTHS += 1
+_wf = Vector((-0.34, -0.94)).normalized()
+_wd = Vector(CJ['windmill']) + _wf * 4.4
+LAMP_LIGHTS.append((_wd.x, _wd.y, H(_wd.x, _wd.y) + 1.9, 'hearth', None)); HEARTHS += 1
+for (u_, v_) in ((-202.0, -78.0), (-186.0, -149.0)):          # beside the forks (the footpath to the coast; the south road)
+    q_ = wpt(u_, v_)
+    hearth_lamp(q_, H(*q_)); HEARTHS += 1
+print('HEARTHS', HEARTHS + 1)
 obj('lamps_posts', lampb, CP['bronze'], PT['metal'], family='prop_lamp')
 obj('lamps_pillars', lstone, CP['lime'], PT['ashlar'], family='prop_lamp', bevel=0.03)
 obj('lamps_glass', lglass, mat=M['lamp'], family='prop_lamp', shadow=False)
