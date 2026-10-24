@@ -184,11 +184,13 @@ def build_heightfield():
                             px, py = wpt(c[0] - rr + (i + di * t) * g, c[1] - rr + (j + dj * t) * g)
                             if inside(px, py) and dcoast(px, py) > 2.2:
                                 pts.append((px, py))
-    _vpoly = terrain.vineyard()[3]                  # the vineyard's soil: crisp rows hugging its rectangle
-    for off in (-0.45, 0.45):
-        for p in _resample(offset_poly(_vpoly, off) if off else _vpoly, 1.8):
-            if inside(*p) and dcoast(*p) > 2.2:
-                pts.append(p)
+    # the vineyard's soil and every walled field (08-T11 fields now change colour through the year): crisp rows
+    # hugging each outline, so the crop stops at its wall instead of in a saw-tooth of triangles
+    for _poly in [terrain.vineyard()[3]] + [f['poly'] for f in terrain.FIELDS]:
+        for off in (-0.45, 0.45):
+            for p in _resample(offset_poly(_poly, off), 1.8):
+                if inside(*p) and dcoast(*p) > 2.2:
+                    pts.append(p)
     for (cuv, r, b) in ((terrain.THRESHING_UV, terrain.THRESHING_R, 3.0), (terrain.SANCTUARY_UV, terrain.SANCTUARY_R, 4.0)):
         cx_, cy_ = wpt(*cuv)
         for k in range(int((r + b) / 1.6) + 1):
@@ -304,7 +306,7 @@ def hf_face(q):
     if fl is not None:
         fc = lin(terrain.FIELD_COL[fl['kind']])
         stripe = int((u * 0.9 + v * 0.3) / 2.6) % 2 if fl['kind'] in ('plough', 'hay') else 0
-        return (jitter_col(fc, 0.93 if stripe else 1.03), PT['grass'] if fl['kind'] != 'plough' else PT['plain'])
+        return (jitter_col(fc, 0.93 if stripe else 1.03), PT['crop'] if fl['kind'] in ('hay', 'plough') else PT['grass'])   # 08-T11
     base = PAL['grass']
     hd = terrain.head_d(u, v)
     if hd < 1.1:

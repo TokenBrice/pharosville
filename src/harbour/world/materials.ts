@@ -39,6 +39,8 @@ export function windowKindOf(b: number): 0 | 1 {
 
 export const PATTERN_LEAF = 8;
 export const PATTERN_LEAF_EVERGREEN = 14;
+/** 08-T11: arable fields (hay, plough) whose colour follows the farm year (hbCrop). Decorative (calendar only). */
+export const PATTERN_CROP = 15;
 /** COLOR_0.a → pattern id (mirrors the kit shader's floor(a * 16 + 0.5)). */
 export function patternIdOf(alpha: number): number {
   return Math.floor(alpha * 16 + 0.5);
@@ -355,12 +357,47 @@ void hbGrassTerrain(vec3 W, out float dry, out float lush) {
   lush = clamp(smoothstep(0.3, 1.4, -conv) * (1.0 - smoothstep(12.0, 18.0, W.y)), 0.0, 1.0) * (1.0 - dry);
 }
 
+// 08-T11: the farm year on the arable fields (pid 15), by the calendar phase (0 = 1 Jan, northern-equivalent):
+// winter brown furrows -> spring green shoots -> early-summer gold -> the July harvest: pale stubble with stooks ->
+// autumn ploughing. Each field drifts a few days from its neighbours; furrows curve slowly with the land.
+vec3 hbCrop(vec3 col, vec3 vc, vec3 W, float dW) {
+  float shade = clamp(hbLuma(col) / max(hbLuma(vc), 1e-4), 0.6, 1.4);
+  float p = fract(uSeasonPhase + (hbNoise(W * 0.012) - 0.5) * 0.05);
+  float ang = hbNoise(W * 0.006 + 5.0) * 3.1416;
+  float c = dot(W.xz, vec2(cos(ang), sin(ang)));
+  float row = 0.5 + 0.5 * sin(c * 6.2832 / 1.3);
+  float rowK = 1.0 - smoothstep(0.25, 0.6, dW / 1.3);            // sub-pixel rows fade to their mean
+  vec3 soil = vec3(0.17, 0.105, 0.055), soilDark = vec3(0.11, 0.07, 0.04);
+  vec3 furrow = mix(soil, soilDark, row * rowK * 0.8 + (1.0 - rowK) * 0.4);
+  vec3 shoots = mix(furrow, vec3(0.16, 0.27, 0.05), 0.55 + 0.35 * (1.0 - row * rowK));
+  vec3 green = vec3(0.2, 0.33, 0.07) * (0.92 + 0.16 * hbNoise(W * 0.3));
+  vec3 gold = vec3(0.5, 0.37, 0.1) * (0.9 + 0.2 * hbNoise(W * 0.25));
+  vec3 stubble = vec3(0.47, 0.4, 0.22) * (0.95 + 0.1 * row * rowK);
+  vec3 o = furrow;
+  o = mix(o, shoots, smoothstep(0.1, 0.22, p));
+  o = mix(o, green, smoothstep(0.24, 0.33, p));
+  o = mix(o, gold, smoothstep(0.38, 0.47, p));
+  float cut = smoothstep(0.5, 0.53, p);
+  o = mix(o, stubble, cut);
+  // stooks: sheaves stood up on the stubble until carted in (late Jul - Sep); ~3.5 m apart, sub-pixel -> mean tint
+  vec2 cell = floor(W.xz / 3.5), cf = fract(W.xz / 3.5) - 0.5;
+  vec2 jit = vec2(hbWhite(vec3(cell, 81.0)), hbWhite(vec3(cell, 83.0))) - 0.5;
+  float stook = (1.0 - smoothstep(0.1, 0.15, length(cf - jit * 0.5))) * step(0.35, hbWhite(vec3(cell, 87.0)));
+  float shadeSide = smoothstep(0.0, 0.1, dot(cf - jit * 0.5, vec2(0.7, 0.7)));
+  float stookK = cut * (1.0 - smoothstep(0.66, 0.7, p));
+  float sub = smoothstep(0.3, 0.7, dW / 0.6);
+  o = mix(o, mix(vec3(0.56, 0.42, 0.13) * (1.0 - 0.45 * shadeSide), o * 0.97, sub), stook * stookK * (1.0 - sub * 0.9));
+  o = mix(o, furrow, smoothstep(0.7, 0.78, p));               // autumn ploughing
+  return o * shade;
+}
+
 // SEASON ON VEGETATION. pid 8 leaf (trees, shrubs, hedges, ivy), 6 grass (meadows, verges).
 // col = patterned albedo, vc = authored vertex albedo; W = world position; dW = its screen footprint.
 // bare = how much of this fragment the leaf fall takes (deciduous only; the kit discards by it).
 vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
   bare = 0.0;
   float leaf = hbLeafPid(pid), grass = hbIs(pid, 6.0);
+  if (hbIs(pid, ${PATTERN_CROP.toFixed(1)}) > 0.5) return hbCrop(col, vc, W, dW);
   if (leaf + grass < 0.5) return col;
   float sp = uFoliage.x, su = uFoliage.y, au = uFoliage.z, wi = uFoliage.w;
   float shade = hbLuma(col) / max(hbLuma(vc), 1e-4);     // the pattern's light and dark survive the recolour
