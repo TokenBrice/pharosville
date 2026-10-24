@@ -280,6 +280,8 @@ export class OceanSystem implements WorldSystem {
       const vx = -Math.sin(a) * m.r * m.w, vz = Math.cos(a) * m.r * m.w;
       this.wake.stamp(x, z, vx, vz, m.hw, 1);
     }
+    const ws = this.material.uniforms.uWeatherSea.value as THREE.Vector4;
+    if (ws.z * ws.z + ws.w * ws.w > 1e-6) this.wake.lee.set(ws.z, ws.w).normalize();
     this.wake.update(ctx.renderer, frame.delta);
     const u = this.material.uniforms;
     u.uWake.value = this.wake.texture;

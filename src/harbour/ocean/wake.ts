@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { FullscreenPass } from "./gpu-bake";
 import type { Bounds4 } from "./sea-sdf";
+import { SWELL_DIR } from "./waves";
 
 /**
  * WAKE service ('wake'): a world-space wake/foam field over the sea bounds that every hull stamps into.
@@ -8,7 +9,10 @@ import type { Bounds4 } from "./sea-sdf";
  *  - `texture` (history, R16F ping-pong): turbulent trail left behind moving hulls; diffuses and decays
  *    (~4.5 s half-life), so a turning boat leaves a curved foam trail.
  *  - `live` (RGBA8, rebuilt every frame): R = Kelvin wedge arms + bow wave, G = hull contact ring,
- *    B = hull occlusion (darker water under the hull).
+ *    B = hull occlusion (darker water under the hull) + a thin dark waterline meniscus round a still hull,
+ *    A = lee slick (03-O4, decorative): a glassy satin patch trailing downwind (`lee`) of every still hull, where the
+ *    ocean drops its ripple roughness; G also carries a thin bright lip on the swell-facing side of a still hull.
+ *    A storm (contact strength ≥ ~1) or a hull aground keeps only the rings: no slick, no lip.
  *
  * Callers stamp every frame they want to be seen: stamp(x, z, vx, vz, halfWidth, strength[, halfLength]).
  * Zero velocity = moored hull (contact ring + occlusion only). Stamps queued during frame N are drawn at
@@ -28,7 +32,7 @@ const STAMP_VERT = /* glsl */ `
 attribute vec4 sA; // x, z, heading (rad, bow along (sin h, cos h)), halfLength
 attribute vec4 sB; // halfBeam, speed (m/s), strength, -
 uniform vec4 uBounds; uniform float uTrail;
-varying vec2 vL; varying vec4 vS;
+varying vec2 vL; varying vec4 vS; varying vec2 vW;
 void main() {
   float hl = sA.w, hb = sB.x, spd = sB.y;
   float moving = step(0.25, spd);
@@ -36,12 +40,13 @@ void main() {
   vec2 lo, hi;
   if (uTrail > 0.5) { lo = vec2(-hl * 1.6, -hb * 1.6); hi = vec2(hl * 1.2, hb * 1.6); }
   else if (moving > 0.5) { lo = vec2(-hl - wl * 1.1, -(wl * 0.42 + hb * 2.0)); hi = vec2(hl * 1.3, wl * 0.42 + hb * 2.0); }
-  else { lo = vec2(-hl * 1.5, -hb * 2.2); hi = vec2(hl * 1.5, hb * 2.2); }
+  else { float r = max(hl * 1.5, hb * 2.2) * 2.0; lo = vec2(-r); hi = vec2(r); } // still: room for the lee slick
   vec2 t = position.xy * 0.5 + 0.5;
   vec2 l = mix(lo, hi, t);
   vL = l; vS = vec4(hl, hb, spd, sB.z);
   float s = sin(sA.z), c = cos(sA.z);
   vec2 w = sA.xy + vec2(s, c) * l.x + vec2(c, -s) * l.y;               // l.x along bow, l.y to starboard
+  vW = w - sA.xy;
   vec2 uv = (w - uBounds.xy) / (uBounds.zw - uBounds.xy);
   gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
   if (uTrail > 0.5 && moving < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // moored hulls leave no trail
@@ -49,7 +54,8 @@ void main() {
 
 const STAMP_FRAG = /* glsl */ `
 uniform float uTrail, uDt;
-varying vec2 vL; varying vec4 vS;
+uniform vec2 uLee, uSwell;
+varying vec2 vL; varying vec4 vS; varying vec2 vW;
 void main() {
   float hl = vS.x, hb = vS.y, spd = vS.z, k = vS.w;
   vec2 q = vL;
@@ -86,7 +92,21 @@ void main() {
     float bow = exp(-(pow((q.x - hl * 0.9) / (hl * 0.12), 2.0) + pow(q.y / (hb * 1.05), 2.0)));
     kel = (kel + bow * 0.45) * sp;
   }
-  gl_FragColor = vec4(kel * k, ring * k * (spd > 0.25 ? 0.45 : 0.7), occl * min(k, 1.0), 1.0);
+  // a still hull sits IN the water: a dark meniscus at the waterline, a thin bright lip where the swell meets her,
+  // and a glassy lee slick trailing downwind (fades out as contact strength rises toward storm / aground)
+  float meni = 0.0, lip = 0.0, slick = 0.0;
+  if (spd <= 0.25) {
+    float calm = 1.0 - smoothstep(0.5, 1.0, k);
+    meni = exp(-pow((e - 1.0) / 0.09, 2.0)) * 0.55;
+    float rw = length(vW) + 1e-4;
+    float face = smoothstep(0.0, 0.7, dot(vW / rw, -uSwell));
+    lip = exp(-pow((e - 1.13) / 0.1, 2.0)) * face * 0.75 * calm;
+    float along = dot(vW, uLee), lat = abs(vW.x * uLee.y - vW.y * uLee.x);
+    float len = hl * 2.6;
+    slick = exp(-pow(lat / (hb * 1.5 + max(along, 0.0) * 0.18), 2.0)) * smoothstep(-hl * 0.6, hl * 0.2, along)
+          * (1.0 - smoothstep(len * 0.4, len, along)) * calm;
+  }
+  gl_FragColor = vec4(kel * k, ring * k * (spd > 0.25 ? 0.45 : 0.7) + lip, occl * min(k, 1.0) + meni, slick);
 }`;
 
 const DECAY_FRAG = /* glsl */ `
@@ -117,6 +137,8 @@ export class WakeField implements WakeService {
   private readonly decay: FullscreenPass;
   private readonly bufA: Float32Array;
   private readonly bufB: Float32Array;
+  /** Downwind direction (world xz, unit) for the lee slicks; the ocean system sets it from the weather. */
+  readonly lee = new THREE.Vector2(0.8, -0.6);
 
   constructor(bounds: Bounds4, histRes = 2048, liveRes = 2048) {
     this.bounds = bounds;
@@ -143,7 +165,9 @@ export class WakeField implements WakeService {
       blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
     } as const;
     this.trailMat = new THREE.ShaderMaterial({ ...common, uniforms: { uBounds, uTrail: { value: 1 }, uDt: { value: 0.016 } } });
-    this.liveMat = new THREE.ShaderMaterial({ ...common, uniforms: { uBounds, uTrail: { value: 0 }, uDt: { value: 0.016 } } });
+    this.liveMat = new THREE.ShaderMaterial({ ...common, uniforms: {
+      uBounds, uTrail: { value: 0 }, uDt: { value: 0.016 }, uLee: { value: this.lee }, uSwell: { value: new THREE.Vector2(SWELL_DIR[0], SWELL_DIR[1]).normalize() },
+    } });
     this.mesh = new THREE.Mesh(this.geo, this.trailMat);
     this.mesh.frustumCulled = false;
     this.scene.add(this.mesh);

@@ -146,6 +146,9 @@ void main() {
   float windSea = smoothstep(0.6, 1.0, wind);
   // zones: the harbours lie in the lee (calmer, glassier); the Roads catch the open-sea wind
   rough *= (1.0 - 0.38 * zm.b) * (1.0 + 0.3 * zm.a);
+  // lee slicks behind still hulls (wake live A, decorative): glassy satin water, the ripple drops away
+  float slick = live.a;
+  rough *= 1.0 - 0.7 * slick;
 
   // ---------------------------------------------------------------- normals
   float far01 = smoothstep(250.0, 1300.0, camD);
@@ -242,8 +245,8 @@ void main() {
   }
   // churned wake water is lighter and greener
   body = mix(body, uShoal * 1.35 * mix(1.0, 0.45, uNight), clamp(trail * 0.25 + live.r * 0.2, 0.0, 0.35));
-  // hull occlusion
-  body *= 1.0 - live.b * 0.4;
+  // hull occlusion (+ the waterline meniscus), and the lee slick's satin: a touch darker, a cleaner mirror below
+  body *= (1.0 - min(live.b, 1.0) * 0.4) * (1.0 - 0.12 * slick);
   // swell and ripple relief: facets tilted toward the key light read lighter (zero-mean, so the tint holds)
   {
     vec3 Lk = normalize(uSunDir + vec3(0.0, 0.6, 0.0));
@@ -415,7 +418,8 @@ void main() {
     vec2 sw2 = vec2(sin(t * 0.05 + nA.g * 6.2831), cos(t * 0.041 + nA.b * 6.2831)) * 0.05;
     float scum = smoothstep(0.58, 0.8, texture2D(uNoise, xz * 0.09 + sw2).g * 0.8 + nC.a * 0.35);
     float eddyK = (1.0 - smoothstep(0.5, 3.6, sdN)) * smoothstep(0.0, 0.25, sdN);
-    fStruct = max(fStruct, max(scum * 0.5, lace * 0.45) * eddyK);
+    // (open water off the coast: a mooring buoy keeps a thin contact ring, not a cotton-wool blotch of eddy scum)
+    fStruct = max(fStruct, max(scum * 0.5, lace * 0.45) * eddyK * (1.0 - 0.92 * smoothstep(18.0, 50.0, coast)));
   }
   // calm water keeps only a faint contact line round piles, buoys and quays; the foam builds with sea state and rain
   fStruct *= mix(0.35, 1.0, max(storm, uPrecip.x));
@@ -490,5 +494,6 @@ void main() {
   if (uDebug > 3.5 && uDebug < 4.5) col = sky;
   if (uDebug > 4.5 && uDebug < 5.5) col = vec3(F * 4.0, hz, foam);
   if (uDebug > 5.5 && uDebug < 6.5) col = glint + beam;
+  if (uDebug > 6.5 && uDebug < 7.5) col = vec3(live.a, live.b, zm.a);
   gl_FragColor = vec4(col, 1.0);
 }`;
