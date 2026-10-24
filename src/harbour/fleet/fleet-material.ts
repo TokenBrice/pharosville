@@ -88,6 +88,7 @@ varying vec4 vFleetMisc;    // highlight, flip (mirrored node now), kind, brand 
 varying vec4 vFleetUV;      // sail uv, emblem uv
 varying vec4 vFleetRig;     // furl, node, flag, side (posed object-space normal z: covers print their roundel on ±z)
 varying vec4 vSailDye;      // sails: dye rgb, mode (uFleetPaint texel 4)
+varying float vFleetLamp;   // 06-F6: the stern lantern lit 0|1 (texel 2.z)
 vec4 hbFleetTexel(int idx, int k) {
   int size = textureSize(uFleetData, 0).x;
   int j = idx * FLEET_TEXELS + k;
@@ -173,6 +174,7 @@ void hbFleetPose(vec3 p, vec3 n) {
   vFleetMisc = vec4(a.z, flip, aMeta.x, aMeta.z);
   vFleetUV = vec4(aSailUV, aEmbUV);
   vFleetRig = vec4(furl, node, aMeta.w, n.z);
+  vFleetLamp = mo.z;
 }
 `;
 
@@ -233,6 +235,7 @@ varying vec4 vFleetMisc;
 varying vec4 vFleetUV;
 varying vec4 vFleetRig;
 varying vec4 vSailDye;
+varying float vFleetLamp;
 varying vec4 vPaintA;
 varying vec4 vPaintB;
 varying vec3 vPaintC;
@@ -455,7 +458,11 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
     if (vFleetMisc.z > 3.5) {
       float fl = 0.86 + 0.08 * sin(uTime * 5.3 + vHbWorld.x * 1.7) + 0.06 * sin(uTime * 11.9 + vHbWorld.z * 2.3);
       // (a selected wreck's lantern, 'cove' focus hi = 1, burns bright day or night: her memorial light)
-      outgoingLight += vec3(1.0, 0.42, 0.095) * (uLamp * vFleetRig.x + smoothstep(0.7, 1.0, vFleetMisc.x) * (1.6 + 1.4 * uLamp)) * fl;
+      if (vFleetBrand.a < -8.5) outgoingLight += vec3(1.0, 0.42, 0.095) * (uLamp * vFleetRig.x + smoothstep(0.7, 1.0, vFleetMisc.x) * (1.6 + 1.4 * uLamp)) * fl;
+      // 06-F6 a hull's stern lantern: lit exactly when her stern lamp is (sternLampLit, texel 2.z), else a dark lantern
+      else if (vFleetMisc.z < 4.5) outgoingLight += vec3(1.0, 0.42, 0.095) * uLamp * 0.3 * vFleetLamp * fl;
+      // 06-F7b a titan's stern-gallery windows: warm from dusk (decorative, like the town's windows)
+      else outgoingLight += vec3(1.0, 0.45, 0.14) * smoothstep(2.0, 22.0, uLamp) * 1.1 * (0.94 + 0.06 * fl);
     }
     // sail cloth glows when the low sun is behind it
     // (02-L2: view- and elevation-dependent, brightest against a low sun; 06-F12 seams and roundel in silhouette)
@@ -472,7 +479,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   }
   #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => "hb_fleet_v9g";
+  m.customProgramCacheKey = () => "hb_fleet_v9g2";
 
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";

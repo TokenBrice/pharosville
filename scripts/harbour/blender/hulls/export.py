@@ -106,7 +106,8 @@ MANIFEST = dict(
         groups='boom (boom_spar, gaff, sail_main|sail_spanker, sail_cover) and boom_2 (boom_2_spar, gaff_2, sail_2, sail_cover_2) '
                'are empty pivots at the gooseneck; rotate/mirror the pivot, never the children.'),
     anchors='bow_cleat / stern_cleat: mooring-line ends; masthead_light: riding light; wake_origin: stern on the waterline '
-            '(not heeled); mooring_buoy.ring: buoy line end; dinghy.bow_cleat: painter.',
+            '(not heeled); stern_lantern: the stern lantern\'s glass centre (stern / moored riding light); mooring_buoy.ring: buoy '
+            'line end; dinghy.bow_cleat: painter.',
     lod='<id>_lod.glb: single mesh "lod" (hb_opaque, _BRAND boot + cover strip, morph furl collapses the sails), <= 150 tris.',
     hulls=[], lods=[], props=[],
 )
@@ -129,7 +130,7 @@ for (vid, fam, rig, cls, sch) in ANCIENT_VARIANTS:
     root, objs, R, _, n_sec = build_ancient_budget(vid, fam, rig, cls, sch, remove=lambda o: bpy.data.objects.remove(o, do_unlink=True))
     fname = f'hull_{vid}.glb'
     path, tris = export(root, fname)
-    budget = BUDGET[cls]
+    budget = BUDGET[cls] + hb_ancient.AncientRig.LANTERN_TRIS
     em = None
     if R.emblem:
         c, sz = R.emblem
@@ -181,3 +182,15 @@ if not ONLY:
     with open(os.path.join(KIT, 'manifest.json'), 'w') as f:
         json.dump(MANIFEST, f, indent=1)
     print('manifest written', os.path.join(KIT, 'manifest.json'))
+elif COMPRESS:
+    # --only: merge the rebuilt hull / LOD entries into the existing manifest (titans, props and the wreck kit untouched)
+    mp = os.path.join(KIT, 'manifest.json')
+    with open(mp) as f:
+        cur = json.load(f)
+    for sec in ('hulls', 'lods'):
+        new = {e['id']: e for e in MANIFEST[sec]}
+        cur[sec] = [new.pop(e['id'], e) for e in cur[sec]] + list(new.values())
+    cur['anchors'] = MANIFEST['anchors']
+    with open(mp, 'w') as f:
+        json.dump(cur, f, indent=1)
+    print('manifest merged', mp)
