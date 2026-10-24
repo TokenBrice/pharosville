@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildHarbourModel } from "../model/build";
-import { CYCLE_S } from "./plan";
+import { buildPlan, CYCLE_S } from "./plan";
 import { DEAD_STABLECOINS } from "@shared/lib/dead-stablecoins";
 import { EV_REJOIN, EV_TO_SHOALS, EV_TOW, HarbourSim, PH_SAILING, windVeer, type SimEvent } from "./sim";
 import { makeLayout, makePayloads, PIERED, T0_MS } from "./test-fixtures";
@@ -23,7 +23,7 @@ describe("lane MOTION sim hooks", () => {
   });
 
   it("07-M8 drift: only hulls under way carry a lane / give-way offset; still hulls none", () => {
-    const sim = new HarbourSim(model(), layout, T0_MS);
+    const sim = new HarbourSim(model(), layout, T0_MS, null, buildPlan);
     let moving = 0, withDrift = 0;
     for (let s = 0; s < 900; s += 5) {
       const p = sim.poseAt(T0_MS + s * 1000);
@@ -41,7 +41,7 @@ describe("lane MOTION sim hooks", () => {
     const opts = { pieredChains: PIERED, dead: [] };
     const first = buildHarbourModel(makePayloads(), T0_MS, opts);
     const victim = first.boats.find((b) => b.state === "circuit" && b.hullClass === "medium")!.id;
-    const sim = new HarbourSim(first, layout, T0_MS);
+    const sim = new HarbourSim(first, layout, T0_MS, null, buildPlan);
     const events: SimEvent[] = [];
     sim.onEvent((e) => events.push(e));
     const t1 = T0_MS + 300_000;
@@ -78,7 +78,7 @@ describe("lane MOTION sim hooks", () => {
     const opts = { pieredChains: PIERED, dead: [] };
     const first = buildHarbourModel(makePayloads(), T0_MS, opts);
     const victim = first.boats.find((b) => b.state === "circuit" && b.hullClass === "small")!.id;
-    const sim = new HarbourSim(first, layout, T0_MS);
+    const sim = new HarbourSim(first, layout, T0_MS, null, buildPlan);
     const t1 = T0_MS + 120_000;
     sim.poseAt(t1);
     sim.setModel(buildHarbourModel(makePayloads({ depegIds: [victim], nowMs: t1 }), t1, opts), t1);

@@ -37,8 +37,8 @@ export function dismissPoster(how: "crossfade" | "now", scale = 1): void {
     poster.remove();
     cleanup();
   };
-  // the transform (scale) ends first: only the opacity fade's end removes the poster
-  const onEnd = (e: TransitionEvent) => { if (e.propertyName === "opacity") done(); };
+  // with the wake's scale the transform ends first: only the opacity fade's end removes the poster
+  const onEnd = (e: TransitionEvent) => { if (scale === 1 || e.propertyName === "opacity") done(); };
   const cleanup = () => {
     clearTimeout(timer);
     poster.removeEventListener("transitionend", onEnd);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildPath, legTiming, newLegTiming, polar } from "./path";
+import { buildPlan } from "./plan";
 import { HarbourSim } from "./sim";
 import { buildHarbourModel } from "../model/build";
 import { makeLayout, makePayloads, PIERED, T0_MS } from "./test-fixtures";
@@ -35,7 +36,7 @@ describe("points of sail (07-M1)", () => {
 
   it("heel peaks on a beam reach and is continuous through head to wind", () => {
     const model = buildHarbourModel(makePayloads(), T0_MS, { pieredChains: PIERED });
-    const sim = new HarbourSim(model, makeLayout(), T0_MS);
+    const sim = new HarbourSim(model, makeLayout(), T0_MS, null, buildPlan);
     let maxH = 0;
     for (let s = 0; s < 1800; s += 3) {
       const p = sim.poseAt(T0_MS + s * 1000);

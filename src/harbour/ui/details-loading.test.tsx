@@ -14,10 +14,11 @@ const harness = vi.hoisted(() => {
 });
 vi.mock("./ChartLabels", () => ({ ChartLabels: () => null }));
 vi.mock("./HoverTag", () => ({ HoverTag: () => null }));
+vi.mock("./Postcard", () => ({ Postcard: () => null }));
 vi.mock("./CornerMark", () => ({ CornerMark: () => <button className="hb-mark-btn">PharosVille</button> }));
 vi.mock("./details", () => ({ preloadDetails: harness.preload }));
 vi.mock("./hooks", () => ({
-  useStore: () => ({ getSnapshot: () => harness.state, set: harness.set, select: harness.select }),
+  useStore: () => ({ getSnapshot: () => harness.state, set: harness.set, select: harness.select, noteInput: vi.fn(), stopWatch: vi.fn() }),
   useUISlice: (select: (s: UIState) => unknown) => select(harness.state),
 }));
 afterEach(cleanup);

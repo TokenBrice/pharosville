@@ -872,7 +872,7 @@ export class HarbourMaterials {
   }
   #endif`);
     };
-    m.customProgramCacheKey = () => `hb_kit_${prepass ? "predepth" : "depth"}_v4_${leafFallAt(this.uniforms) > 0.001 ? "bare" : "leaf"}${prepass ? `_sw${this.kitKey()}` : ""}`;
+    m.customProgramCacheKey = () => `hb_kit_${prepass ? `predepth_v4_sw${this.kitKey()}` : "depth_v3"}_${leafFallAt(this.uniforms) > 0.001 ? "bare" : "leaf"}`;
     this.cache.set(key, m);
     return m;
   }
