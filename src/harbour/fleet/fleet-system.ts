@@ -95,6 +95,8 @@ const PAINT_TEXELS = 5;
 const SPAR_NEAR = 70, SPAR_FAR = 34, STRIKE_SHARE = 0.8;
 /** 07-M2: a galley under oars inside the moles keeps this share of her canvas brailed up. */
 const GALLEY_BRAIL = 0.7;
+/** 07-M8: the most a hull yaws into a give-way or lane change (rad). */
+const GIVE_WAY_YAW = 0.15;
 const CLASS_LOA_FALLBACK: Record<HullClass, number> = { flagship: 26, large: 18, medium: 13, small: 10, boat: 7.5, skiff: 5 };
 
 interface BoatRec {
@@ -136,6 +138,8 @@ interface BoatRec {
   flog: number;
   row: number;
   brail: number;
+  /** 07-M8: last frame's sim drift (lane offset + shove) and the eased give-way yaw. */
+  dox: number; doz: number; gyaw: number;
   /** Picking sphere (world). */
   cx: number; cy: number; cz: number; r: number; top: number;
   /** Her sea-sampling cache (ocean.hullHeights at rest). */
@@ -398,7 +402,7 @@ export class FleetSystem implements WorldSystem {
         swing: prev?.swing ?? 0, heel: prev?.heel ?? 0, hi: 0, px: prev?.px ?? 0, pz: prev?.pz ?? 0, vx: 0, vz: 0, seen: !!prev?.seen,
         phi: hash01(boat.id + "#bob") * Math.PI * 2,
         slot: this.atlas ? this.atlas.slotFor({ id: boat.id, symbol: boat.symbol, brandColor: boat.brandColor }) : -1,
-        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, flog: 0, row: 0, brail: 0, struck: false, mastK: titan ? 2 : hash01(boat.id + "#mast"), titan: !!titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
+        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, flog: 0, row: 0, brail: 0, dox: 0, doz: 0, gyaw: 0, struck: false, mastK: titan ? 2 : hash01(boat.id + "#mast"), titan: !!titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
         swell: hullSwellCache(),
       };
       this.writePaint(rec.inst, wrecked || titan ? null : boat.id, variant.family, wrecked ? null : boat.brandColor);
@@ -736,6 +740,15 @@ export class FleetSystem implements WorldSystem {
       let sx = x, sz = z, sh = h;
       // a cat's-paw (07-M4): under way she surges ahead; on a mooring she drops back on her rode and sheers
       if (!b.wrecked) { sx += fx * mo.surge; sz += fz * mo.surge; sh += mo.yaw; }
+      // she steers round a neighbour rather than crabbing (07-M8): yaw into the sideways rate of her lane offset
+      // and give-way shove (sim pose.drift), forward under way only, at most GIVE_WAY_YAW
+      const dox = pose!.drift[i * 2], doz = pose!.drift[i * 2 + 1];
+      const lat = ((dox - b.dox) * -fz + (doz - b.doz) * fx) / dt;
+      b.dox = dox; b.doz = doz;
+      const fwdV = b.vx * fx + b.vz * fz;
+      const yawT = moving && ph === PH_SAILING && fwdV > 0.5 && Math.abs(lat) < 5 ? THREE.MathUtils.clamp(-Math.atan2(lat, fwdV), -GIVE_WAY_YAW, GIVE_WAY_YAW) : 0;
+      b.gyaw += (yawT - b.gyaw) * (1 - Math.exp(-dt * 2));
+      sh += b.gyaw;
       if (storm > 0.01 && !b.wrecked) {
         const k = storm * resp;
         if (moving) {
