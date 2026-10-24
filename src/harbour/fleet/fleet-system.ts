@@ -18,7 +18,7 @@ import { HoverLantern } from "./hover-lantern";
 import { bollardFor, MooringLines } from "./mooring-lines";
 import { RidingLights } from "./riding-lights";
 import { Fenders } from "./fenders";
-import { FLAG_BURGEE, FLAG_DISTRESS, FLAG_HOUSE, HouseFlags } from "./house-flags";
+import { FLAG_BURGEE, FLAG_DISTRESS, FLAG_HOUSE, FLAG_STREAMER, HouseFlags } from "./house-flags";
 import { coastDistance } from "../sim/obstacles";
 import type { QualityService, QualityTier } from "../engine/quality";
 import { approach, hash01, indexVariants, pickVariant, sternLampLit, targetSwing, wrapAngle, wreckScale, type VariantIndex } from "./variants";
@@ -885,6 +885,10 @@ export class FleetSystem implements WorldSystem {
         else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += 0.3; }
         this.flags.add(this.v.x, this.v.y, this.v.z, size, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), b.slot, b.phi * 3, b.brand,
           distress ? FLAG_DISTRESS : b.titan ? FLAG_HOUSE : FLAG_BURGEE);
+        // 06-F7c a titan flies a long vexillum from the truck, above her house flag (decorative)
+        if (b.titan && !distress && !b.struck) {
+          this.flags.add(this.v.x, this.v.y + 0.9, this.v.z, b.loa * 0.34, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 1.3, b.brand, FLAG_STREAMER);
+        }
         b.flag = 0;
       }
       this.writeData(b.inst, b.wrecked ? 0 : 1 - sail, b.wrecked ? 0 : b.swing, b.hi, b.brand.r, b.brand.g, b.brand.b, b.wrecked ? -2 : b.slot, b.wrecked ? 0 : b.flag, far, b.struck);

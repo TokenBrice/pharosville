@@ -11,6 +11,8 @@ import type { WorldUniforms } from "../engine/uniforms";
  * overview) the roundel melts away and the brand field remains: a dot of the coin's colour over its hull.
  */
 export const FLAG_BURGEE = 0, FLAG_HOUSE = 1, FLAG_DISTRESS = 2;
+/** 06-F7c a titan's vexillum: a long tapering masthead streamer in her colours, above the house flag (decorative). */
+export const FLAG_STREAMER = 5;
 
 const VERT = /* glsl */ `
 attribute float aSlot;
@@ -30,6 +32,11 @@ void main() {
   float fly = uv.x;                       // 0 at the hoist … 1 at the fly
   float w = clamp(uWind, 0.0, 1.4);
   float ph = uTime * (4.0 + 4.5 * w) + aPhase;
+  if (aBrand.w > 4.5) {
+    // streamer: a narrow ribbon tapering to a point, a slower wave running down its length
+    p.y *= 0.12 * (1.0 - 0.9 * fly);
+    p.z += sin(ph * 0.8 + fly * 8.0) * (0.006 + 0.012 * w) * fly;
+  }
   p.z += sin(ph + fly * 5.0) * (0.03 + 0.08 * w) * fly;
   p.y += sin(ph * 0.7 + fly * 3.0) * 0.02 * fly;
   // light airs: the fly droops toward the staff
@@ -63,6 +70,13 @@ void main() {
   }
   vec3 c;
   vec3 brand = vBrand.rgb;
+  if (style > 4.5) {
+    // streamer: the brand ribbon with a cream heading (too thin for a hem or a roundel)
+    float lumS = dot(brand, vec3(0.2126, 0.7152, 0.0722));
+    c = mix(mix(vec3(lumS), brand, 0.9) * 0.92, CLOTH * 0.9, 1.0 - smoothstep(0.03 - ax, 0.03 + ax, x));
+    gl_FragColor = vec4(c * uLight * vShade, 1.0);
+    return;
+  }
   float lum = dot(brand, vec3(0.2126, 0.7152, 0.0722));
   if (style > 1.5) {
     // distress: a red-and-white chequered signal flag
