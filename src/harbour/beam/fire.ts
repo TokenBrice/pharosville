@@ -169,6 +169,7 @@ varying vec2 vUv;
 varying float vAlpha;
 varying float vLife;
 varying vec2 vSeed;
+varying vec3 vWp;
 void main() {
   vSeed = aSeed.yw;
   float life = fract(uSmokeT * 0.028 + aSeed.x);
@@ -185,6 +186,7 @@ void main() {
   vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
   vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
   vec3 wp = c + (right * position.x + up * position.y) * size;
+  vWp = wp;
   vUv = position.xy;
   vLife = life;
   vAlpha = smoothstep(0.0, 0.06, life) * (1.0 - smoothstep(0.35, 1.0, life));
@@ -197,10 +199,24 @@ uniform vec3 uShade;
 uniform vec3 uFireUnder;
 uniform float uOpacity;
 uniform sampler2D uNoise;
+uniform vec3 uBeamPos;
+uniform float uBeamAngle;
+uniform vec3 uBeamLight;
 varying vec2 vUv;
 varying float vAlpha;
 varying float vLife;
 varying vec2 vSeed;
+varying vec3 vWp;
+// 05-P7a the beam lights the smoke as it swings under the drifting column: a soft lamp-coloured flare on
+// the puffs above the shaft's ground track, fading with height over it (night only: uBeamLight is 0 by day)
+float plumeBeam(vec3 p) {
+  vec2 rel = p.xz - uBeamPos.xz;
+  vec2 bd = vec2(cos(uBeamAngle), sin(uBeamAngle));
+  float along = dot(rel, bd);
+  float lat = abs(rel.x * bd.y - rel.y * bd.x);
+  float w = 5.0 + max(along, 0.0) * 0.12;
+  return exp(-lat * lat / (w * w)) * smoothstep(-2.0, 10.0, along) * exp(-max(p.y - uBeamPos.y, 0.0) / 45.0);
+}
 void main() {
   float r = length(vUv);
   if (r > 1.0) discard;
@@ -211,6 +227,7 @@ void main() {
   // the fire lights the smoke from below (the night read: a glowing column over the lantern, the underside
   // of each puff warm, fading as the column climbs out of the firelight)
   col += uFireUnder * (1.0 - smoothstep(0.0, 0.5, vLife)) * clamp(0.75 - 0.65 * vUv.y, 0.0, 1.0);
+  if (dot(uBeamLight, vec3(1.0)) > 1e-4) col += uBeamLight * plumeBeam(vWp) * clamp(0.8 - 0.5 * vUv.y, 0.2, 1.0) * 0.9;
   gl_FragColor = vec4(col, a * vAlpha * uOpacity * (1.0 - 0.5 * vLife));
 }`;
 
@@ -247,7 +264,9 @@ export class PharosFire {
     uOrigin: { value: new THREE.Vector3() }, uSmokeT: { value: 0 }, uWind: this.fu.uWind,
     uLit: { value: new THREE.Color() }, uShade: { value: new THREE.Color() }, uFireUnder: { value: new THREE.Color() },
     uOpacity: { value: 0.3 }, uNoise: this.fu.uNoise, uPlumeScale: { value: 1 },
-  };
+    // the beam's shared uniforms (bindBeam); placeholders keep the shader valid without a beam
+    uBeamPos: { value: new THREE.Vector3(0, -1000, 0) }, uBeamAngle: { value: 0 }, uBeamLight: { value: new THREE.Color(0, 0, 0) },
+  } as Record<string, THREE.IUniform>;
   private readonly flames: THREE.Mesh;
   private readonly embers: THREE.Points;
   private readonly glow: THREE.Mesh;
@@ -344,6 +363,11 @@ export class PharosFire {
 
     this.group.name = "pharos-fire";
     this.group.add(this.flames, this.embers, this.glow, this.plume);
+  }
+
+  /** Share the beam's uniforms with the plume (05-P7a): the shaft lights the smoke it passes under. */
+  bindBeam(u: { uBeamPos: THREE.IUniform<THREE.Vector3>; uBeamAngle: THREE.IUniform<number>; uBeamLight: THREE.IUniform<THREE.Color> }): void {
+    this.pu.uBeamPos = u.uBeamPos; this.pu.uBeamAngle = u.uBeamAngle; this.pu.uBeamLight = u.uBeamLight;
   }
 
   /** Per frame. Returns nothing; read `flicker` after. */

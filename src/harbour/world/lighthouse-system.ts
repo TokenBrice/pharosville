@@ -149,6 +149,7 @@ export class LighthouseSystem implements WorldSystem {
 
     this.fx = acquireFxTextures(ctx);
     this.fire = new PharosFire(at("fire_emitter", 87.5), at("smoke_emitter", 96), this.lantern, this.fx.noise, this.light);
+    this.fire.bindBeam(getBeamUniforms(ctx));
     ctx.scene.add(this.fire.group);
   }
 
