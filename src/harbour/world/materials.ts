@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { LANDMARK_HOVER_GLSL, landmarkHover } from "./landmark-hover";
 import type { EngineContext } from "../engine/types";
 import { decodeInto, setBounds } from "../engine/static-merge";
 import type { WorldUniforms } from "../engine/uniforms";
@@ -513,6 +514,7 @@ export class HarbourMaterials {
       uAOTex: this.ao.uAOTex, uAOBounds: this.ao.uAOBounds,
       uSnowCover: u.uSnowCover, uWetness: u.uWetness, uFoliage: u.uFoliage, uSeasonPhase: u.uSeasonPhase,
       uHbSunDir: u.uSunDir, uHbSunColor: u.uSunColor,
+      ...landmarkHover(u).uniforms,
     };
   }
 
@@ -531,7 +533,7 @@ export class HarbourMaterials {
       // winter / late-autumn bare crowns discard: compiled in only when the calendar can need it
       if (leafFallAt(this.uniforms) > 0.001) shader.defines = { ...shader.defines, HB_BARE: "" };
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}`)
+        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}\n${LANDMARK_HOVER_GLSL}`)
         .replace("#include <color_fragment>", `
   vec3 hbVc = vec3(1.0);
   #if defined( USE_COLOR_ALPHA )
@@ -595,6 +597,7 @@ export class HarbourMaterials {
       float spec = pow(max(dot(reflect(-hbVw, hbNw), uHbSunDir), 0.0), 4.0);
       outgoingLight += uHbSunColor * g * spec * hbSnow * hbCs * 0.5;
     }
+    outgoingLight += hbLmHoverRim(vHbWorld, hbNw, hbVw, outgoingLight);
   }
   #include <opaque_fragment>`);
     };
@@ -667,7 +670,7 @@ export class HarbourMaterials {
     vHbWinC = (modelMatrix * c).xyz;
   }`);
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>\nuniform float uWindowGlow;\nuniform float uWindowOcc;\n${GLSL_NOISE}\n${GLSL_ENV}\nvarying vec3 vHbLocal;\nvarying vec3 vHbLocalN;\nvarying vec3 vHbWorld;\nvarying vec4 vHbWin;\nvarying vec3 vHbWinC;`)
+        .replace("#include <common>", `#include <common>\nuniform float uWindowGlow;\nuniform float uWindowOcc;\n${LANDMARK_HOVER_GLSL}\n${GLSL_NOISE}\n${GLSL_ENV}\nvarying vec3 vHbLocal;\nvarying vec3 vHbLocalN;\nvarying vec3 vHbWorld;\nvarying vec4 vHbWin;\nvarying vec3 vHbWinC;`)
         .replace("#include <color_fragment>", `
   float hbLit = 1.0, hbWarm = 0.0, hbPlain = 0.0;
   #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
@@ -707,6 +710,7 @@ export class HarbourMaterials {
     float room = 0.6 + 0.55 * exp(-q.x * q.x * 5.0 - q.y * q.y * 4.0);
     // plain openings are small and deep: a brighter lamp keeps the classical night quarter as lit as the framed town
     totalEmissiveRadiance = col * on * level * room * uWindowGlow * ${WIN_MAX.toFixed(1)} * (hbGlass + 0.04) * hbRecess * mix(1.0, ${PLAIN_GAIN.toFixed(2)}, hbPlain);
+    totalEmissiveRadiance *= 1.0 + 0.3 * hbLmHoverIn(vHbWorld);
   }`)
         .replace("#include <opaque_fragment>", `
   {

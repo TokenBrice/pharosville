@@ -10,6 +10,7 @@ import type { HarbourLayout, Vec2 } from "../layout/types";
 import { pierIdFor } from "../model/classify";
 import { CIVIC_PANEL_ID, civicPlots, civicTop, inPlot, inPoly, officeChain, plotFor, seaZones, ZONE_PANEL, type CivicPlot } from "./places";
 import { getCove, getGround, getLayout, getSim, getWorldPicking, type GroundLike, type PickHit, type PickingService, type ScreenPoint } from "./services";
+import { landmarkHover } from "../world/landmark-hover";
 import { yardCoins, yardHullPosition } from "./yard";
 
 /** Landmarks read as areas on the water (polygon / footprint hit), not as buildings. */
@@ -320,6 +321,26 @@ export class AnalyticPicking implements PickingService {
     return best;
   }
 
+  /**
+   * The sphere (centre xyz, radius m) a hovered building answers inside (in-world hover), or null for
+   * areas on the water (zones, the Shoals, the Far Ports) which have no walls to light.
+   */
+  hoverSphere(hit: PickHit): [number, number, number, number] | null {
+    if (hit.kind !== "landmark") return null;
+    const L = this.layout;
+    const pl = plotFor(L, hit.id);
+    if (pl) {
+      const top = civicTop(pl.kind), r = Math.max(pl.footprint[0], pl.footprint[1]) * 0.6;
+      return [pl.position[0], pl.position[1] + top * 0.5, pl.position[2], Math.max(r, top * 0.6) + 2];
+    }
+    if (AREA_ZONE[hit.id] || seaZones(L).some((z) => z.id === hit.id)) return null;
+    const lm = L?.landmarks.find((l) => l.id === hit.id);
+    if (!lm || lm.footprint > 70) return null;
+    // the Pharos: the whole tower, from the island to the lantern
+    if (hit.id === "pharos") return [lm.position[0], lm.position[1] + 45, lm.position[2], 62];
+    return [lm.position[0], lm.position[1] + lm.footprint * 0.35, lm.position[2], lm.footprint * 0.75 + 2];
+  }
+
   private anchorOf(landmarkId: string): [number, number, number] | null {
     const lab = this.layout?.labels?.find((l) => l.id === landmarkId);
     return lab ? lab.anchor : null;
@@ -430,6 +451,7 @@ export class UIPicking implements PickingService {
   private wreckSelected: string | null = null;
   setHover(hit: PickHit | null): void {
     getWorldPicking(this.ctx)?.setHover(hit?.kind === "boat" ? hit.id : null);
+    landmarkHover(this.ctx.uniforms).set(hit ? this.own.hoverSphere(hit) : null);
     this.wreckHover = hit?.kind === "wreck" ? hit.id : null;
     getCove(this.ctx)?.focus(this.wreckHover, this.wreckSelected);
   }

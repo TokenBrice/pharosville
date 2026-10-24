@@ -384,6 +384,14 @@ void hbFleetColor(inout vec3 c) {
 }
 `;
 
+/** Physical hover (12-M5): a soft sun-coloured sheen on the sail cloth only, by day (uLamp fades it at dusk). */
+const HOVER_SHEEN = /* glsl */ `
+vec3 hbHoverSheen(vec3 base, float kind, float hi) {
+  if (kind < 0.5 || kind > 1.5) return vec3(0.0);
+  return base * uSunColor * 0.14 * hi * (1.0 - uLamp);
+}
+`;
+
 export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, fleet: FleetUniforms): { material: THREE.MeshStandardMaterial; depth: THREE.MeshDepthMaterial } {
   const kit = mats.kit();
   const baseHook = kit.onBeforeCompile.bind(kit);
@@ -399,7 +407,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
       // the kit port derives vHbWorld from instanceMatrix only: add the batch matrix
       .replace("hbW = instanceMatrix * hbW;\n    #endif", "hbW = instanceMatrix * hbW;\n    #endif\n    #ifdef USE_BATCHING\n      hbW = batchingMatrix * hbW;\n    #endif");
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>\n${FRAG_PARS}`)
+      .replace("#include <common>", `#include <common>\n${FRAG_PARS}\n${HOVER_SHEEN}`)
       .replace("float hbRough;", "hbFleetColor(diffuseColor.rgb);\n  float hbRough;")
       .replace("#include <normal_fragment_begin>", THREE.ShaderChunk.normal_fragment_begin.replace("gl_FrontFacing ? 1.0 : - 1.0", "(gl_FrontFacing != (vFleetMisc.y > 0.5)) ? 1.0 : - 1.0"))
       .replace("#include <opaque_fragment>", `
@@ -420,7 +428,8 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
       float rim = pow(1.0 - clamp(abs(dot(fN, fV)), 0.0, 1.0), 3.0);
       float lum = max(dot(outgoingLight, vec3(0.2126, 0.7152, 0.0722)), 0.02);
       // relative to the scene's own exposure, so it reads the same at noon and at night
-      outgoingLight += (vec3(1.0, 0.84, 0.6) * rim * 0.8 * lum * 3.0 + outgoingLight * 0.10) * hi;
+      outgoingLight += (vec3(1.0, 0.84, 0.6) * rim * 0.4 * lum * 3.0 + outgoingLight * 0.10) * hi;
+      outgoingLight += hbHoverSheen(diffuseColor.rgb, vFleetMisc.z, hi);
     }
   }
   #include <opaque_fragment>`);

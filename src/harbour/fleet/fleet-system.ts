@@ -14,6 +14,7 @@ import { createFleetMaterials, type FleetUniforms } from "./fleet-material";
 import { loadKit, loadWreckKit, type HullVariant, type Kit, type WreckItem } from "./hull-kit";
 import { buildWreath, composeCove, CoveService, EpitaphBoards, freshDeath, PERCH_ITEMS, topVertex, type CoveDead, type CoveMark, type CovePiece, type CoveSlot } from "./wreck-cove";
 import type { LightsService } from "../lights/lights-service";
+import { HoverLantern } from "./hover-lantern";
 import { bollardFor, MooringLines } from "./mooring-lines";
 import { RidingLights } from "./riding-lights";
 import { Fenders } from "./fenders";
@@ -183,6 +184,7 @@ export class FleetSystem implements WorldSystem {
   private selected: string | null = null;
   private ring: THREE.Mesh | null = null;
   private ringK = 0;
+  private readonly hoverLantern = new HoverLantern();
   private debug: HTMLDivElement | null = null;
   private debugTimer = 0;
   private audit = { land: 0, hull: 0, worst: "" };
@@ -868,6 +870,7 @@ export class FleetSystem implements WorldSystem {
     this.uniforms.uFleetData.value.needsUpdate = true;
 
     this.updateRing(frame, ctx);
+    this.hoverLantern.update(ctx, this.hover ? this.byId.get(this.hover) : undefined);
     this.cpuMs += (performance.now() - t0 - this.cpuMs) * 0.1;
     if (this.debug) this.updateDebug(frame, ctx, sim);
   }

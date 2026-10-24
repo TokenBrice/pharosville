@@ -12,6 +12,7 @@ import type { Boat, HarbourModel } from "../model/types";
 import { PANEL_LANDMARKS, whereabouts, type Whereabouts } from "./facts";
 import { UIPicking } from "./picking";
 import { inPoly, seaZones } from "./places";
+import { landmarkHover } from "../world/landmark-hover";
 import { PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "../sim/sim";
 import { ensureMotionService, getLayout, getModel, getSim, sameHit, type MotionService, type PickHit, type PickingService } from "./services";
 
@@ -143,6 +144,7 @@ export class HarbourUIStore {
       const hit = this.picking.pick(this.pointer.x, this.pointer.y);
       this.setHover(hit);
     }
+    landmarkHover(this.ctx.uniforms).step(frame.delta, this.ctx.uniforms.uNight.value);
     this.keyPanFrame(frame.delta);
     this.followFrame(frame.delta);
     for (const fn of this.frameFns) fn(frame);
