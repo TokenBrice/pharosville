@@ -298,7 +298,7 @@ export class LightsSystem implements WorldSystem {
       const on = l.alive && l.on;
       if (on && this.nearWater[i] === 0) this.nearWater[i] = this.isNearWater(l.position.x, l.position.z, l.position.y) ? 2 : 1;
       (this.iWet.array as Float32Array)[i] = this.nearWater[i] === 2 ? this.wetDistance(l.position.x, l.position.z) : 0;
-      C[i * 4] = l.color.r; C[i * 4 + 1] = l.color.g; C[i * 4 + 2] = l.color.b;
+      C[i * 4] = l.color.r * l.k; C[i * 4 + 1] = l.color.g * l.k; C[i * 4 + 2] = l.color.b * l.k;
       C[i * 4 + 3] = on ? Math.max(l.spec.spriteK, 0.001) : 0;
       Q[i * 4] = l.spec.sprite;
       // y: mounting height; negative = window (follows uWindowGlow), positive = lamp-like
@@ -345,7 +345,8 @@ export class LightsSystem implements WorldSystem {
     for (let k = 0; k < MAX_POINT; k++) {
       const p = this.points[k];
       const glow = THREE.MathUtils.smoothstep(lampGlow(g, this.store.rankAt(p.position), w.spread), 0.02, 0.55);
-      p.intensity = ((p.userData.base as number | undefined) ?? 0) * glow;
+      const base = (p.userData.base as number | undefined) ?? 0;
+      p.intensity = base > 0 ? base * glow * (this.store.lights[this.bestI[k]]?.k ?? 1) : 0;
     }
   }
 
