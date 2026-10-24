@@ -16,18 +16,20 @@ const RATE: Record<ClipKind, number> = {
   shore: 20000, lap: 16000, reef: 8000, crackle: 16000, press: 16000, halyard: 24000, bell: 12000, gull: 16000, creak: 16000,
   drizzle: 24000, rain: 24000, drip: 24000, thunder: 24000, rumble: 8000, bird: 24000, cricket: 24000, cicada: 24000, rustle: 24000, crunch: 24000,
   mallet: 12000, adze: 16000, saw: 16000, owl: 8000, nightjar: 8000, tolling: 8000,
+  unroll: 16000, latch: 16000, flick: 16000,
 };
 const PLAN: Record<ClipKind, number> = {
   shore: 4, lap: 6, reef: 3, crackle: 3, press: 2, halyard: 4, bell: 2, gull: 5, creak: 3,
   drizzle: 2, rain: 3, drip: 4, thunder: 2, rumble: 3, bird: 6, cricket: 3, cicada: 3, rustle: 4, crunch: 3,
   mallet: 3, adze: 3, saw: 2, owl: 3, nightjar: 2, tolling: 2,
+  unroll: 2, latch: 2, flick: 2,
 };
 /**
  * Stored as ONE channel ((L + R) / 2, so the PCM stays below full scale; the player gains a mono clip by √2,
  * which puts it at the stereo clip's level through the lane's panner): kinds that are a single
  * placed source anyway, whose stereo width comes from the pan lane they are played into, not the clip.
  */
-const MONO = new Set<ClipKind>(["lap", "reef", "crackle", "press", "halyard", "bell", "gull", "creak", "drip", "rumble", "bird", "crunch", "mallet", "adze", "saw", "owl", "nightjar", "tolling"]);
+const MONO = new Set<ClipKind>(["lap", "reef", "crackle", "press", "halyard", "bell", "gull", "creak", "drip", "rumble", "bird", "crunch", "mallet", "adze", "saw", "owl", "nightjar", "tolling", "unroll", "latch", "flick"]);
 /**
  * Weather and season kinds are LAZY: synthesised only once the scene asks for them (want()), so a calm
  * summer noon never spends a millisecond or a megabyte on thunder or snow.

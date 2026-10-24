@@ -1,6 +1,6 @@
 import type { EngineContext } from "../engine/types";
 import type { HarbourLayout, Vec2, Vec3 } from "../layout/types";
-import type { Ambience, AmbienceInputs } from "./ambience";
+import type { Ambience, AmbienceInputs, CueName } from "./ambience";
 
 /**
  * The opt-in sound switch (D13). Off by default; the visitor's choice is remembered per browser.
@@ -22,6 +22,8 @@ export interface SoundController {
   subscribe(fn: () => void): () => void;
   /** Stop and release the audio (the choice stays). */
   stop(): void;
+  /** A UI foley cue (panel open/close, ledger page): a no-op unless the sound is playing. */
+  cue(name: CueName): void;
 }
 
 interface Readings { fog?: number }
@@ -217,6 +219,8 @@ class Controller implements SoundController {
     if (this.on) { this.disarm(); this.start(); } else this.stop();
     this.emit();
   }
+
+  cue(name: CueName): void { this.amb?.cue(name); }
 
   /** Remembered "on": wait for the first gesture of this visit. */
   private arm(): void {

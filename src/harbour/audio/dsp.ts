@@ -29,7 +29,9 @@ export type ClipKind = "shore" | "lap" | "reef" | "crackle" | "press" | "halyard
   // the Shipyard's tools (decorative, by day)
   | "mallet" | "adze" | "saw"
   // the day clock (decorative): night birds, the harbour's hour bell
-  | "owl" | "nightjar" | "tolling";
+  | "owl" | "nightjar" | "tolling"
+  // paper-and-wood UI foley (only while the sound is on)
+  | "unroll" | "latch" | "flick";
 
 /** mulberry32: small, fast, seedable. */
 export function makeRng(seed: number): Rng {
@@ -1115,6 +1117,67 @@ export function* tolling(seed: number, sr: number): Generator<void, Clip> {
   return { sr, L, R };
 }
 
+// ---------------------------------------------------------------------------------------------------------
+// UI foley: the chart table (paper and wood), tiny and soft
+// ---------------------------------------------------------------------------------------------------------
+
+/** A panel opening: a sheet of parchment unrolled — a rising band of noise with a few fibre crackles. 0.16 s. */
+export function* unroll(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 0.16, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const bp = new Svf(sr), f0 = range(r, 600, 800), f1 = range(r, 2000, 2800);
+  for (let i = 0; i < n; i++) {
+    const x = i / n;
+    if ((i & 15) === 0) bp.set(f0 * Math.pow(f1 / f0, x), 1.2);
+    bp.run(N() * smooth(x / 0.25) * Math.pow(1 - x, 1.5) * 0.25);
+    L[i] = bp.bp; R[i] = bp.bp;
+  }
+  for (let k = 0, m = 3 + Math.floor(r() * 4); k < m; k++) tick(L, R, sr, range(r, 0.02, 0.12), logRange(r, 1800, 4500), 2, 0.0006, range(r, 0.04, 0.1), 0, N);
+  yield;
+  seal({ L, R }, sr, 0.003, 0.03);
+  limit({ L, R }, 0.6);
+  return { sr, L, R };
+}
+
+/** A panel closing: a small wooden latch dropping home — a high knock on two resonances. 0.09 s. */
+export function* latch(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 0.09, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const a = new Svf(sr), b = new Svf(sr);
+  a.set(range(r, 800, 1050), 8); b.set(range(r, 1900, 2500), 7);
+  for (let i = 0; i < n; i++) {
+    const ex = N() * (i < 4 ? (i + 1) / 5 : Math.exp(-i / (0.0012 * sr)));
+    a.run(ex); b.run(ex);
+    const v = (a.bp / 8) * 1.6 + (b.bp / 7) * 0.9;
+    L[i] = v; R[i] = v;
+  }
+  yield;
+  seal({ L, R }, sr, 0.0005, 0.03);
+  limit({ L, R }, 0.6);
+  return { sr, L, R };
+}
+
+/** A page of the ledger turned: a quick swish of paper through the air and its edge settling. 0.12 s. */
+export function* flick(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 0.12, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const bp = new Svf(sr), f0 = range(r, 1400, 1900), f1 = range(r, 3200, 4400);
+  for (let i = 0; i < n; i++) {
+    const x = i / n;
+    if ((i & 15) === 0) bp.set(f0 * Math.pow(f1 / f0, smooth(x)), 0.9);
+    bp.run(N() * Math.sin(Math.PI * Math.min(1, x / 0.85)) * 0.18);
+    L[i] = bp.bp; R[i] = bp.bp;
+  }
+  tick(L, R, sr, T * range(r, 0.7, 0.8), logRange(r, 2500, 4000), 2, 0.0008, 0.12, 0, N);
+  yield;
+  seal({ L, R }, sr, 0.004, 0.02);
+  limit({ L, R }, 0.6);
+  return { sr, L, R };
+}
+
 export const SYNTHS: Record<ClipKind, (seed: number, sr: number) => Generator<void, Clip>> = {
   shore: (s, sr) => shoreWash(s, sr, { stone: (s & 3) === 3 }),
   lap,
@@ -1141,6 +1204,9 @@ export const SYNTHS: Record<ClipKind, (seed: number, sr: number) => Generator<vo
   owl,
   nightjar,
   tolling,
+  unroll,
+  latch,
+  flick,
 };
 
 /** Run a synthesiser to completion (Node, tests). */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SYNTHS, renderNow, rumble, shoreWash, thunder, type ClipKind } from "./dsp";
+import { CUE_GAIN } from "./ambience";
 
 const SR = 48000;
 
@@ -91,6 +92,19 @@ describe("harbour sound: the new kinds sit under the mix they join", () => {
       expect(s.dc).toBeLessThan(1e-3);
       expect(s.tail).toBeLessThan(0.05 * s.loud);
       expect(s.loud).toBeLessThan(0.5 * press);
+    }
+  });
+});
+
+describe("harbour sound: UI foley", () => {
+  it.each(["unroll", "latch", "flick"] as ClipKind[])("%s: tiny, short, and under −24 dBFS after the cue bus and master", (kind) => {
+    for (const seed of [1, 2, 3]) {
+      const c = renderNow(SYNTHS[kind](seed, 16000));
+      expect(c.L.length / 16000).toBeLessThan(0.2);
+      let peak = 0;
+      for (const v of c.L) peak = Math.max(peak, Math.abs(v));
+      expect(peak * CUE_GAIN * 0.7).toBeLessThan(10 ** (-24 / 20));
+      expect(shape(kind, seed).dc).toBeLessThan(1e-3);
     }
   });
 });

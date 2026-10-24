@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { useStore } from "../ui/hooks";
 import { getSoundController } from "./controller";
 import "./sound-toggle.css";
@@ -11,6 +11,17 @@ export function SoundToggle() {
   const store = useStore();
   const ctl = useMemo(() => getSoundController(store.ctx), [store]);
   const on = useSyncExternalStore(ctl.subscribe, () => ctl.on, () => false);
+  // the chart table's foley: a panel opened / closed / turned to another place, the ledger opened / closed
+  // (watched here, so no UI file carries a sound hook; cue() is a no-op unless the sound is playing)
+  useEffect(() => {
+    let prev = store.getSnapshot();
+    return store.subscribe(() => {
+      const s = store.getSnapshot(), p = prev;
+      prev = s;
+      if (s.selected !== p.selected) ctl.cue(!p.selected ? "open" : !s.selected ? "close" : "page");
+      if (s.ledgerOpen !== p.ledgerOpen) ctl.cue(s.ledgerOpen ? "page" : "close");
+    });
+  }, [store, ctl]);
   const label = on ? "Ambient sound: on. Turn it off." : "Ambient sound: off. Turn it on.";
   return (
     <button type="button" className="hb-sound" aria-pressed={on} aria-label={label} title={on ? "Sound on" : "Sound off"} onClick={() => ctl.toggle()}>

@@ -114,7 +114,12 @@ const TICK_MS = 120;
 /** at most this many one-shot events sound at once (the continuous beds and the data kinds always play) */
 const VOICES = 24;
 /** kinds that are a bed (overlapped clips), the swell itself, or data: never dropped by the voice cap */
-const ALWAYS = new Set<ClipKind>(["shore", "crackle", "drizzle", "rain", "cricket", "cicada", "thunder", "rumble"]);
+const ALWAYS = new Set<ClipKind>(["shore", "crackle", "drizzle", "rain", "cricket", "cicada", "thunder", "rumble", "unroll", "latch", "flick"]);
+/** The UI foley's bus gain: a cue's peak (≤ 0.6 in the clip) lands under −24 dBFS after the master. */
+export const CUE_GAIN = 0.12;
+/** The chart table's foley: a panel opened, a panel closed, a ledger page. */
+export type CueName = "open" | "close" | "page";
+const CUE_KIND: Record<CueName, ClipKind> = { open: "unroll", close: "latch", page: "flick" };
 
 /**
  * The ten-minute settle: after a while unwatched the whole mix eases down 3 dB, and it always breathes a
@@ -311,6 +316,7 @@ export class Ambience {
   private readonly nightBus: GainNode;
   private readonly tollLp: BiquadFilterNode;
   private lastHour = -1;
+  private readonly cueBus: GainNode;
   // the ten-minute settle (and the slow breathing of the whole mix), and the one-shots now sounding
   private readonly settle: GainNode;
   private readonly breathPhase: number;
@@ -484,6 +490,7 @@ export class Ambience {
     this.rustleLp.connect(this.rustleBus).connect(this.out);
     this.crunchBus = ac.createGain(); this.crunchBus.gain.value = 0; this.crunchBus.connect(this.out);
     this.nightBus = ac.createGain(); this.nightBus.gain.value = 0; this.nightBus.connect(this.out); this.nightBus.connect(this.echo);
+    this.cueBus = ac.createGain(); this.cueBus.gain.value = CUE_GAIN; this.cueBus.connect(this.out);
     // the hour bell: soft and far (dark, through the harbour walls' slap-back), from the town
     const tollBus = ac.createGain(); tollBus.gain.value = 0.07;
     this.tollLp = this.filter("lowpass", 2000, 0.5);
@@ -974,6 +981,12 @@ export class Ambience {
       o.connect(og).connect(lp);
       o.start(at); o.stop(at + dur + 1.5);
     }
+  }
+
+  /** A UI cue: one tiny paper-or-wood sound, centred, dry (no echo, no distance). */
+  cue(name: CueName): void {
+    if (this.disposed || !CUE_KIND[name]) return;
+    this.play(CUE_KIND[name], this.ac.currentTime + 0.01, this.cueBus, 1, 0, 0.97 + this.rnd() * 0.06);
   }
 
   /**
