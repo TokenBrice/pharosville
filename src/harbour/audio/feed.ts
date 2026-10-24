@@ -1,6 +1,7 @@
 import type { EngineContext } from "../engine/types";
 import type { HarbourLayout, Vec2, Vec3 } from "../layout/types";
 import { anniversaryToday, worldToday } from "../model/anniversary";
+import { FRONT_HERE, FRONT_MIN, targetsForLevel } from "../weather/director";
 import type { Ambience, AmbienceInputs } from "./ambience";
 
 /**
@@ -24,11 +25,13 @@ interface LitLayout { lights?: Array<{ kind: string; position: Vec3 }> }
  * must never depend on it being there. DEWS level 0..4 (continuous), eased by the director.
  */
 export interface WeatherLike {
-  readonly state?: { readonly level?: number | null; readonly wind?: number; readonly rain?: number; readonly snow?: number; readonly wetness?: number };
+  readonly state?: { readonly front?: FrontLike | null; readonly level?: number | null; readonly wind?: number; readonly rain?: number; readonly snow?: number; readonly wetness?: number };
   readonly band?: string | null;
   readonly precip?: { readonly rain?: number; readonly snow?: number };
   onLightning?(cb: (e: StrikeLike) => void): (() => void) | void;
 }
+/** The weather director's W01 front (sky lane): from/to DEWS levels and its sweep 0 (upwind horizon) … 1. */
+export interface FrontLike { readonly from: number; readonly to: number; readonly progress: number }
 export interface StrikeLike { distanceKm?: number; thunderDelaySec?: number; intensity?: number; azimuth?: number }
 /** The 'season' service (calendar): weights in contract order spring, summer, autumn, winter. */
 export interface SeasonLike { readonly weights?: readonly number[]; readonly snowCover?: number }
@@ -42,7 +45,7 @@ interface BeamLike { reach?(): number }
 /** The 'model' service: the dead coins (Wreck Cove), read structurally. */
 interface WreckModel { readonly readings?: { readonly wrecks?: ReadonlyArray<{ readonly deathDate?: string }> } }
 /** The shared gust field (weather/gust.ts, service 'gust'): the field now at (x, z), 0..1 unscaled. */
-interface GustLike { at?(x: number, z: number): number }
+interface GustLike { at?(x: number, z: number): number; readonly dirX?: number; readonly dirZ?: number }
 interface PsiReadings { readonly psi?: { readonly lit?: boolean; readonly reach?: number } }
 
 const BAND_LEVEL: Record<string, number> = { CALM: 0, WATCH: 1, ALERT: 2, WARNING: 3, DANGER: 4 };
@@ -154,6 +157,20 @@ export function behindOf(dx: number, dz: number, fx: number, fz: number): number
   return Math.max(0, Math.min(1, -(dx * fx + dz * fz) / (Math.hypot(dx, dz) + 40)));
 }
 
+/** Where in a rising front's sweep its far thunder rolls: two, while it is still out over the upwind sea. */
+export const FRONT_ROLLS = [0.07, 0.21] as const;
+
+/**
+ * Thunder ahead of a storm front: how many far rolls are due by now (0..2), or -1 when there are none to come
+ * — no front, an easing (clearing) front, a jump under FRONT_MIN, a front that brings no lightning (below
+ * Warning: the same `strikesPerMin` the sky's lightning uses), or one already overhead (the local storm then
+ * speaks for itself). The director never sends a front on the first reading or under reduced motion.
+ */
+export function frontThunderDue(f: FrontLike | null | undefined): number {
+  if (!f || !(f.to - f.from >= FRONT_MIN) || !(targetsForLevel(f.to).strikesPerMin > 0) || !(f.progress < FRONT_HERE[0])) return -1;
+  return FRONT_ROLLS.filter((p) => f.progress >= p).length;
+}
+
 /** The visitor's attention from the seconds since their last input: 1 for 3 min, then down to 0 over 60 s. */
 export function attentionFor(idleSec: number): number {
   return idleSec < 180 ? 1 : Math.max(0, 1 - (idleSec - 180) / 60);
@@ -169,6 +186,9 @@ export class Feeder {
   /** the anniversary bell rings at most once per visit; it waits until the sound has played a while */
   private rang = false;
   private readonly startedAt = performance.now();
+  /** the rising front being heard, and how many of its far rolls have sounded */
+  private front: FrontLike | null = null;
+  private frontRolled = 0;
   /** the camera's right on the ground, kept for placing thunder */
   private readonly right: Vec2 = [1, 0];
 
@@ -252,7 +272,23 @@ export class Feeder {
     }
     amb.set(inputs);
     this.beam(amb, inputs);
+    this.frontThunder(amb, weather?.state?.front);
     return inputs;
+  }
+
+  /** A storm front rising over the upwind horizon: two far, low rolls from that side before its rain arrives. */
+  private frontThunder(amb: Ambience, f: FrontLike | null | undefined): void {
+    const due = frontThunderDue(f);
+    if (due < 0 || !f) { this.front = null; return; }
+    // a new front (the director's object): heard from now on, at most one roll at once if it is already under way
+    if (f !== this.front) { this.front = f; this.frontRolled = Math.max(0, due - 1); amb.prepare("rumble"); }
+    if (due <= this.frontRolled) return;
+    this.frontRolled = due;
+    // from upwind: against the gust field's downwind direction, across the camera's right
+    const g = this.ctx.services.get("gust") as GustLike | undefined;
+    const ux = -(g?.dirX ?? 0), uz = -(g?.dirZ ?? 0);
+    const pan = Math.max(-1, Math.min(1, ux * this.right[0] + uz * this.right[1]));
+    amb.thunder(20 + 8 * due, 0.3, pan * 0.8, 0.4);
   }
 
   /** A dead coin's anniversary today (the panel's "anniversary today"): the cove's bell, once per visit. */

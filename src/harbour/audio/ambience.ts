@@ -953,6 +953,9 @@ export class Ambience {
     }
   }
 
+  /** Have a lazy kind ready ahead of a cue the controller knows is coming (e.g. a front's far thunder). */
+  prepare(kind: ClipKind): void { if (!this.disposed) this.need(kind); }
+
   /** Ask the bank for lazy kinds; start synthesising if it was idle. */
   private need(...kinds: ClipKind[]): void {
     const busy = this.bank.pending;

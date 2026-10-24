@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { anniversaryToday } from "../model/anniversary";
-import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, weatherInputs } from "./feed";
+import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, frontThunderDue, weatherInputs } from "./feed";
 import { birdThinning, cicadaLevel, dayClock, hourStrikes, settleDb, settleRate, gustSwell } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {
@@ -149,5 +149,19 @@ describe("harbour sound: the shared gust field", () => {
     expect(gustSwell(1, 1, 0.5, 0.5) - gustSwell(0, 1, 0.5, 0.5)).toBeGreaterThan(3 * (gustSwell(1, 0, 0.5, 0.5) - gustSwell(0, 0, 0.5, 0.5)));
     expect(gustSwell(1, 1, 1, 1)).toBeLessThanOrEqual(0.35 + 0.5 + 0.6 + 0.4);
     expect(Number.isFinite(gustSwell(Number.NaN, 0.3, 0.3, 0.3))).toBe(true);
+  });
+});
+
+describe("harbour sound: thunder ahead of a storm front", () => {
+  it("two far rolls while a rising front that brings lightning is still upwind; none otherwise", () => {
+    const f = (from: number, to: number, progress: number) => ({ from, to, progress });
+    expect(frontThunderDue(null)).toBe(-1);
+    expect(frontThunderDue(f(1, 3, 0))).toBe(0);
+    expect(frontThunderDue(f(1, 3, 0.1))).toBe(1);
+    expect(frontThunderDue(f(1, 3, 0.25))).toBe(2);
+    expect(frontThunderDue(f(1, 3, 0.4))).toBe(-1);     // overhead: the local storm speaks
+    expect(frontThunderDue(f(3, 1, 0.1))).toBe(-1);     // a clearing line: no thunder
+    expect(frontThunderDue(f(0, 2, 0.1))).toBe(-1);     // toward Alert: no lightning in that band, no thunder
+    expect(frontThunderDue(f(2.9, 3.1, 0.1))).toBe(-1); // a small move eases in place
   });
 });
