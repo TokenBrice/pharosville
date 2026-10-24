@@ -27,3 +27,10 @@
 ## Hooks wanted from other lanes
 
 - MOTION: `weather/gust.ts` — sky-system reads `windNow - wind` as the gust share for now (TODO(motion) in `sky/sky-system.ts`); swap to the shared gust field when it lands.
+- OCEAN (FRAME, ocean-material.ts — not edited by SKY): (1) W08 cat's-paws: darken ripple patches downwind in gust cells (read uWindVec + the gust field); (2) W09 squall: the squall shadow already reaches the sea through `hbCloudShadow` (new `uCloudShadowS`); a local rain-ring/roughened patch under it would help; (3) W03: sunlit sea patches already come through `hbCloudShadow`; a warm glitter boost where it returns 1 would sell them.
+- Ocean binds `...cloudShadowUniforms` at material creation, so the new uniforms (`uCloudShadowF/G/S`) are bound with no ocean edit. Merge hazard: if FRAME re-declares or copies the cloud-shadow uniforms explicitly, it must include the new keys.
+- AUDIO: thunder ahead of a W01 front could key off `weather.state.front` (rising, progress < 0.3).
+
+## Dev URL params added
+
+`?front=<band>[&frontAt=0..1]`, `?breaks=1`, `?squall=0..2`, `?moon=<age days>`, `?meteors=<shower>` (quadrantids, lyrids, eta-aquariids, perseids, orionids, leonids, geminids).
