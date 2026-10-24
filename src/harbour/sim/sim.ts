@@ -54,6 +54,11 @@ export interface PoseBuffer {
    * back to her own berth that carries no data ("out for a sail", never "sailing to <chain>").
    */
   outing: Uint8Array;
+  /**
+   * The lane offset + give-way shove applied this frame (x, z per boat, m; 0 when none): the renderer yaws the
+   * hull into its rate of change so she steers round a neighbour instead of crabbing sideways (07-M8).
+   */
+  drift: Float32Array;
 }
 
 const MODE_PLAN = 0, MODE_VOYAGE = 1, MODE_HOLD = 2;
@@ -87,6 +92,17 @@ const SEP_RAMP = 6;
 const TWIN_TIE = 1.0;
 /** Mooring yaw periods (s): each divides the 6 h cycle, so the whole harbour still repeats exactly. */
 const YAW_PERIODS = [40, 45, 48, 50, 54, 60, 72, 75, 80, 90, 96, 100, 108, 120, 135, 144, 150];
+
+/**
+ * 07-M5: a slow decorative veer of the wind (rad, ±~13°; periods 1350 s and 540 s divide the 6 h cycle, so the
+ * harbour still repeats exactly). It turns the swinging hulls (each a little behind, by her own lag: the
+ * anchorage wheels as one, raggedly) and the render wind (flags, gusts); paths, plan and heel under way keep
+ * the layout wind. Decorative only: never data.
+ */
+export function windVeer(t: number): number {
+  const TAU = 2 * Math.PI;
+  return 0.17 * Math.sin((TAU * t) / 1350 + 0.7) + 0.06 * Math.sin((TAU * t) / 540 + 2.1);
+}
 
 interface Voyage {
   path: PathRec;
@@ -217,7 +233,7 @@ export class HarbourSim {
   model!: HarbourModel;
   readonly pose: PoseBuffer;
   /** Wind the hulls lie to: bow heading into the wind (radians) and 0..1 strength (DEWS weather). */
-  readonly wind = { fromRad: PREVAILING_WIND_FROM, strength: 0.35 };
+  readonly wind = { fromRad: PREVAILING_WIND_FROM, strength: 0.35, /** decorative veer now (07-M5, rad): render wind only */ veer: 0 };
   readonly stats: SimStats = { underWay: 0, docked: 0, moored: 0, anchored: 0, voyages: 0, overflow: 0, outings: 0, dockings: 0, expectedUnderWay: 0, expectedDockingsPerMin: 0 };
   frozen = false;
 
@@ -276,7 +292,7 @@ export class HarbourSim {
     this.layout = buildSimLayout(layout, coast);
     this.baseSlots = this.layout.slots.length;
     this.wind.fromRad = this.layout.windFrom;
-    this.pose = { count: 0, ids: [], position: new Float32Array(0), heading: new Float32Array(0), heel: new Float32Array(0), sailState: new Float32Array(0), speed: new Float32Array(0), phase: new Uint8Array(0), slot: new Int32Array(0), event: new Uint8Array(0), lines: new Float32Array(0), outing: new Uint8Array(0) };
+    this.pose = { count: 0, ids: [], position: new Float32Array(0), heading: new Float32Array(0), heel: new Float32Array(0), sailState: new Float32Array(0), speed: new Float32Array(0), phase: new Uint8Array(0), slot: new Int32Array(0), event: new Uint8Array(0), lines: new Float32Array(0), outing: new Uint8Array(0), drift: new Float32Array(0) };
     this.install(model, nowMs, true);
   }
 
@@ -454,7 +470,7 @@ export class HarbourSim {
     if (p.heading.length !== n) {
       p.position = new Float32Array(n * 3); p.heading = new Float32Array(n); p.heel = new Float32Array(n);
       p.sailState = new Float32Array(n); p.speed = new Float32Array(n); p.phase = new Uint8Array(n);
-      p.slot = new Int32Array(n).fill(-1); p.event = new Uint8Array(n); p.lines = new Float32Array(n); p.outing = new Uint8Array(n);
+      p.slot = new Int32Array(n).fill(-1); p.event = new Uint8Array(n); p.lines = new Float32Array(n); p.outing = new Uint8Array(n); p.drift = new Float32Array(n * 2);
       this.prevPhase = new Uint8Array(n).fill(255);
     }
     if (this.laneW.length !== n) {
@@ -701,7 +717,7 @@ export class HarbourSim {
     const t = this.t, TAU = 2 * Math.PI;
     const tide = 0.22 * Math.sin(s.x / 95 + 0.4) + 0.16 * Math.cos(s.z / 70 - s.x / 160)
       + 0.24 * Math.sin((TAU * t) / 1800 + s.x / 130 + s.z / 170);
-    this.tmp[10] = this.layout.windFrom + tide + 0.1 * Math.sin((TAU * t) / 432)
+    this.tmp[10] = this.layout.windFrom + windVeer(t - r.lag) + tide + 0.1 * Math.sin((TAU * t) / 432)
       + r.yawA * Math.sin((TAU * t) / r.yawP + r.phi) + 0.07 * Math.sin((TAU * t) / r.yawP2 + r.phi * 2.3);
   }
 
@@ -941,6 +957,7 @@ export class HarbourSim {
     const G = 36, CELL = 36, O = 640; // a cell spans the longest give-way reach
     const head = this.cellHead, next = this.cellNext;
     head.fill(-1);
+    p.drift.fill(0);
     let movers = 0;
     for (let i = 0; i < n; i++) {
       const c = Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3] + O) / CELL))) * G + Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3 + 2] + O) / CELL)));
@@ -1055,6 +1072,7 @@ export class HarbourSim {
       }
     }
     const cw = Math.min(1, Math.max(0, (this.t - this.carryT0) / PUSH_FADE_S)), carry = cw < 1 ? 1 - cw * cw * (3 - 2 * cw) : 0;
+    const drift = p.drift;
     for (let i = 0; i < n; i++) {
       if (carry > 0 && (this.carryX[i] !== 0 || this.carryZ[i] !== 0)) {
         const ph = p.phase[i];
@@ -1065,6 +1083,7 @@ export class HarbourSim {
       if (sx[i] === 0 && sz[i] === 0) continue;
       this.keepOffHard(i);
       pos[i * 3] += sx[i]; pos[i * 3 + 2] += sz[i];
+      drift[i * 2] = sx[i]; drift[i * 2 + 1] = sz[i];
     }
     this.mooredYield();
   }
@@ -1180,6 +1199,7 @@ export class HarbourSim {
     st.underWay = 0; st.docked = 0; st.moored = 0; st.anchored = 0; st.voyages = 0; st.outings = 0;
     const prev = this.prevPhase;
     this.t = t;
+    this.wind.veer = windVeer(t);
     for (let i = 0; i < n; i++) {
       this.evalBoat(i);
       const ph = this.pose.phase[i];
