@@ -10,9 +10,18 @@ import { rng } from "./walkways";
  *
  * Gulls are drawn a little larger than life (≈ 2.4 m span) so they read as birds at harbour zoom, the same
  * licence the key art took.
+ *
+ * 09-L6: now and then two or three peel off and trail a hull that is casting off, for 20–40 s, then go back to
+ * wheeling. The hull is chosen UNIFORMLY AT RANDOM among those casting off (never by size, supply or flow), so it
+ * says nothing about the coin. Some also stand on the masthead of a hull at rest (the fleet's 'mastheads' service:
+ * never a titan's, whose house flag must stay clear) and take off when she gets under way.
  */
+import type { MastheadService } from "../fleet/mastheads";
 
-const P_BODY = 0, P_WING_IN_L = 1, P_WING_OUT_L = 2, P_WING_IN_R = 3, P_WING_OUT_R = 4;
+const P_BODY = 0, P_WING_IN_L = 1, P_WING_OUT_L = 2, P_WING_IN_R = 3, P_WING_OUT_R = 4, P_FORK = 5;
+/** 09-L7 swallows over the squares at dusk (spring / summer): the same draw, small, dark, a forked tail. */
+const SWALLOWS = 16;
+const SWALLOW_SCALE = 0.3;
 const SPAN_IN = 0.55, SPAN_OUT = 1.2;
 /** Drawn larger than life so a gull reads as a bird, not a speck, at harbour zoom (key-art licence). */
 const GULL_SCALE = 1.35;
@@ -51,6 +60,8 @@ function gullGeometry(): THREE.BufferGeometry {
     push(e0, e1, t1, "#AEB6BD", outer); push(e0, t1, t0, "#AEB6BD", outer);
     push(t0, t1, tip, "#2E3237", outer);
   }
+  // a swallow's forked tail (collapsed on gulls)
+  for (const s of [-1, 1]) push(V(s * 0.03, 0.03, -0.36), V(s * 0.2, 0.03, -0.95), V(s * 0.02, 0.03, -0.5), "#F2EFE8", P_FORK);
   // single-sided wings would vanish from below: duplicate wing triangles with flipped winding
   const n0 = m.pos.length / 3;
   for (let v = 0; v < n0; v += 3) {
@@ -67,11 +78,13 @@ function gullGeometry(): THREE.BufferGeometry {
 const VERTEX_HEAD = /* glsl */ `
 attribute float aPart;
 attribute vec4 aWing;   // x flap amplitude, y phase, z fold 0..1, w flap rate
+attribute float aKind;  // 0 gull, 1 swallow
 uniform float uLifeT;
 vec3 gRotZ(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(p.x * c - p.y * s, p.x * s + p.y * c, p.z); }
 vec3 gullPose(vec3 p, float dir) {
   float part = aPart;
   if (part < 0.5) return p;
+  if (part > 4.5) return (aKind > 0.5 || dir > 0.5) ? p : vec3(0.0);
   float s = (part < 2.5) ? -1.0 : 1.0;
   bool outer = part > 1.5 && part < 2.5 || part > 3.5;
   float ph = uLifeT * aWing.w + aWing.y;
@@ -96,7 +109,18 @@ vec3 gullPose(vec3 p, float dir) {
 }
 `;
 
-type Mode = "circle" | "transit" | "perch";
+type Mode = "circle" | "transit" | "perch" | "follow";
+
+/** The fleet as the gulls see it (the sim's pose buffer: ids, positions, headings, phases). */
+export interface GullShips {
+  readonly count: number;
+  readonly ids: readonly string[];
+  readonly position: Float32Array;
+  readonly heading: Float32Array;
+  readonly phase: Uint8Array;
+}
+/** PHASES index of "casting-off" (sim/sim.ts). */
+const PH_CASTING_OFF = 1;
 interface Gull {
   mode: Mode;
   t: number;          // seconds left in this mode
@@ -105,6 +129,10 @@ interface Gull {
   // transit (quadratic bezier p0 → c → p1)
   p0: THREE.Vector3; c: THREE.Vector3; p1: THREE.Vector3; dur: number; u: number; next: Mode;
   perch: number;      // perch index (when perched)
+  /** standing on a hull's masthead: pose index + id (-1 = not) */
+  mast: number; mastId: string;
+  /** following a hull: pose index + id, and where off her stern (back, side, height) */
+  fi: number; fid: string; fb: number; fs: number; fh: number;
   pos: THREE.Vector3; prev: THREE.Vector3;
   yaw: number; roll: number; pitch: number;
   flap: number; fold: number; rate: number; phase: number;
@@ -112,16 +140,21 @@ interface Gull {
   visible: boolean;
 }
 
+interface Swallow { c: THREE.Vector3; rx: number; rz: number; wx: number; wz: number; wy: number; p1: number; p2: number; h: number; rank: number; pos: THREE.Vector3; prev: THREE.Vector3; yaw: number; roll: number }
+
 export interface GullSites {
   /** wheel centres (x, y, z): the mouth, the Pharos, the bay */
   circles: THREE.Vector3[];
   /** perches (top surface point) */
   perches: THREE.Vector3[];
+  /** open squares the swallows hawk over at dusk */
+  squares?: THREE.Vector3[];
 }
 
 export class Gulls {
   readonly mesh: THREE.InstancedMesh;
   private readonly gulls: Gull[] = [];
+  private readonly swallows: Swallow[] = [];
   private readonly wing: THREE.InstancedBufferAttribute;
   readonly uniforms = { uLifeT: { value: 0 } };
   private taken: Int8Array;
@@ -138,12 +171,24 @@ export class Gulls {
     this.wing = new THREE.InstancedBufferAttribute(wing, 4);
     this.wing.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute("aWing", this.wing);
+    const sq = sites.squares?.length ? sites.squares : [];
+    const ns = sq.length ? SWALLOWS : 0;
+    const kind = new Float32Array(n + ns);
+    for (let k = 0; k < ns; k++) {
+      kind[n + k] = 1;
+      const sr = rng(seed * 389 + k * 41);
+      this.swallows.push({
+        c: sq[k % sq.length], rx: 7 + sr() * 9, rz: 7 + sr() * 9, wx: 0.8 + sr() * 0.5, wz: 0.8 + sr() * 0.5, wy: 0.5 + sr() * 0.4,
+        p1: sr() * 6.28, p2: sr() * 6.28, h: 3 + sr() * 4, rank: sr(), pos: new THREE.Vector3(), prev: new THREE.Vector3(), yaw: 0, roll: 0,
+      });
+    }
+    geo.setAttribute("aKind", new THREE.InstancedBufferAttribute(kind, 1));
     for (let i = 0; i < n; i++) {
       const gr = rng(seed * 733 + i * 97);
       const g: Gull = {
         mode: "circle", t: 0, cx: 0, cz: 0, cy: 0, r: 0, ang: gr() * Math.PI * 2, dir: gr() < 0.5 ? -1 : 1,
         p0: new THREE.Vector3(), c: new THREE.Vector3(), p1: new THREE.Vector3(), dur: 1, u: 0, next: "circle",
-        perch: -1, pos: new THREE.Vector3(), prev: new THREE.Vector3(), yaw: 0, roll: 0, pitch: 0,
+        perch: -1, mast: -1, mastId: "", fi: -1, fid: "", fb: 0, fs: 0, fh: 0, pos: new THREE.Vector3(), prev: new THREE.Vector3(), yaw: 0, roll: 0, pitch: 0,
         flap: 0, fold: 0, rate: 7 + gr() * 2, phase: gr() * 6.28, r01: gr, visible: true,
       };
       // a third start perched, the rest on the wing
@@ -153,8 +198,11 @@ export class Gulls {
       this.gulls.push(g);
     }
     void r;
-    const mat = chainedKitMaterial(mats, "gull", { vertexHead: VERTEX_HEAD, vertexPose: "transformed = gullPose(transformed, 0.0);", normalPose: "objectNormal = normalize(gullPose(objectNormal, 1.0));", uniforms: this.uniforms }, THREE.FrontSide);
-    this.mesh = new THREE.InstancedMesh(geo, mat, n);
+    const mat = chainedKitMaterial(mats, "gull", {
+      vertexHead: VERTEX_HEAD, vertexPose: "transformed = gullPose(transformed, 0.0);", normalPose: "objectNormal = normalize(gullPose(objectNormal, 1.0));",
+      colorPose: "#ifdef USE_COLOR\n  if (aKind > 0.5) vColor.rgb *= vec3(0.16, 0.17, 0.25);\n#endif", uniforms: this.uniforms,
+    }, THREE.FrontSide);
+    this.mesh = new THREE.InstancedMesh(geo, mat, n + ns);
     this.mesh.name = "life-gulls";
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
@@ -211,21 +259,69 @@ export class Gulls {
   }
 
   private night = 0;
+  private ships: GullShips | null = null;
+  private masts: MastheadService | null = null;
+  /** seconds to the next look for a hull casting off */
+  private followWait = 20;
+  private readonly fr = rng(977);
+  /** dev `?gulls=busy`: follow a hull every few seconds and favour mastheads (captures) */
+  busy = false;
 
-  /** @param night 0 day … 1 night: by night most gulls settle and stay settled */
-  update(dt: number, moving: boolean, visibleShare: number, night = 0): void {
+  /** The fleet this frame (call before update). */
+  setShips(ships: GullShips | null, masts: MastheadService | null): void { this.ships = ships; this.masts = masts; }
+
+  /** Every so often, two or three wheeling gulls trail a hull casting off (chosen uniformly at random). */
+  private maybeFollow(dt: number): void {
+    const S = this.ships;
+    this.followWait -= dt;
+    if (this.followWait > 0 || !S) return;
+    this.followWait = this.busy ? 4 : 30 + this.fr() * 40;
+    const casting: number[] = [];
+    for (let i = 0; i < S.count; i++) if (S.phase[i] === PH_CASTING_OFF) casting.push(i);
+    if (!casting.length) { this.followWait = 8; return; }
+    const hi = casting[Math.floor(this.fr() * casting.length)];
+    const free = this.gulls.filter((g) => g.visible && g.mode === "circle");
+    const n = Math.min(free.length, 2 + (this.fr() < 0.5 ? 1 : 0));
+    for (let k = 0; k < n; k++) {
+      const g = free.splice(Math.floor(this.fr() * free.length), 1)[0];
+      g.mode = "follow"; g.fi = hi; g.fid = S.ids[hi]; g.t = 20 + this.fr() * 20;
+      g.fb = 7 + this.fr() * 9; g.fs = (this.fr() - 0.5) * 9; g.fh = 7 + this.fr() * 6;
+    }
+  }
+
+  /** A hull at rest whose masthead is free, near the gull (index into the mastheads), or -1. */
+  private pickMast(g: Gull): number {
+    const M = this.masts;
+    if (!M) return -1;
+    const n = M.xyz.length / 3;
+    for (let k = 0; k < 10; k++) {
+      const i = Math.floor(g.r01() * n);
+      const x = M.xyz[i * 3];
+      if (!Number.isFinite(x) || Math.hypot(x - g.pos.x, M.xyz[i * 3 + 2] - g.pos.z) > 260) continue;
+      if (this.gulls.some((o) => o.mast === i)) continue;
+      return i;
+    }
+    return -1;
+  }
+
+  /**
+   * @param night 0 day … 1 night: by night most gulls settle and stay settled
+   * @param swallows share of the swallows out (season × the dusk hours; 0 = none)
+   */
+  update(dt: number, moving: boolean, visibleShare: number, night = 0, swallows = 0): void {
     this.night = night;
     if (moving) this.uniforms.uLifeT.value += dt;
     const w = this.wing.array as Float32Array;
     const e = this.mesh.instanceMatrix.array as Float32Array;
     const T = this.uniforms.uLifeT.value;
+    if (moving) this.maybeFollow(dt);
     for (let i = 0; i < this.gulls.length; i++) {
       const g = this.gulls[i];
       g.visible = i < Math.ceil(this.gulls.length * visibleShare);
       if (moving && g.visible) this.step(g, dt, T);
       if (!moving) {
         // reduced motion: everyone perches (the ones without a free perch rest where they are, wings folded)
-        if (g.mode !== "perch") { if (g.perch < 0) this.perchAt(g); if (g.perch >= 0) { g.pos.copy(this.sites.perches[g.perch]); g.mode = "perch"; g.t = 30; } }
+        if (g.mode !== "perch" || (g.mast >= 0 && !this.mastAt(g))) { g.mast = -1; g.fi = -1; if (g.perch < 0) this.perchAt(g); if (g.perch >= 0) { g.pos.copy(this.sites.perches[g.perch]); g.mode = "perch"; g.t = 30; } }
         g.fold = 1; g.flap = 0; g.roll = 0; g.pitch = 0;
       }
       w[i * 4] = g.flap; w[i * 4 + 1] = g.phase; w[i * 4 + 2] = g.fold; w[i * 4 + 3] = g.rate;
@@ -236,8 +332,36 @@ export class Gulls {
       this.m4.compose(g.pos, this.q, this.s);
       this.m4.toArray(e, i * 16);
     }
+    this.updateSwallows(T, moving ? swallows : 0, w, e);
     this.wing.needsUpdate = true;
     this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Swallows hawking low over the squares: fast swooping loops (a Lissajous figure each), wings a-flicker. */
+  private updateSwallows(T: number, share: number, w: Float32Array, e: Float32Array): void {
+    const n = this.gulls.length;
+    for (let k = 0; k < this.swallows.length; k++) {
+      const b = this.swallows[k], i = n + k;
+      const on = b.rank < share;
+      if (on) {
+        b.prev.copy(b.pos);
+        b.pos.set(b.c.x + b.rx * Math.sin(T * b.wx + b.p1), b.c.y + b.h + 1.6 * Math.sin(T * b.wy + b.p2), b.c.z + b.rz * Math.sin(T * b.wz + b.p2));
+        const dx = b.pos.x - b.prev.x, dz = b.pos.z - b.prev.z;
+        if (dx * dx + dz * dz > 1e-6) {
+          const ty = Math.atan2(dx, dz), turn = Math.atan2(Math.sin(ty - b.yaw), Math.cos(ty - b.yaw));
+          b.yaw = ty; b.roll += (Math.max(-0.9, Math.min(0.9, -turn * 12)) - b.roll) * 0.2;
+        }
+      }
+      // short bursts of fast beats between glides
+      const burst = Math.max(0, Math.sin(T * 1.7 + b.p1 * 3)) ** 3;
+      w[i * 4] = 0.15 + 0.45 * burst; w[i * 4 + 1] = b.p2; w[i * 4 + 2] = 0; w[i * 4 + 3] = 22;
+      const sc = on ? SWALLOW_SCALE : 0;
+      this.e.set(0, b.yaw, b.roll, "YXZ");
+      this.q.setFromEuler(this.e);
+      this.s.set(sc, sc, sc);
+      this.m4.compose(b.pos, this.q, this.s);
+      this.m4.toArray(e, i * 16);
+    }
   }
 
   private step(g: Gull, dt: number, T: number): void {
@@ -256,10 +380,30 @@ export class Gulls {
       g.roll += ((g.dir * 0.32) - g.roll) * Math.min(1, dt * 2);
       if (g.t <= 0) {
         const roll = g.r01();
-        if (roll < 0.45 + 0.45 * this.night && this.perchAt(g)) this.transit(g, this.sites.perches[g.perch], "perch");
+        const mi = roll < 0.45 && g.r01() < (this.busy ? 0.9 : 0.35) ? this.pickMast(g) : -1;
+        if (mi >= 0 && this.masts) {
+          g.mast = mi; g.mastId = this.masts.ids[mi] ?? "";
+          this.transit(g, new THREE.Vector3(this.masts.xyz[mi * 3], this.masts.xyz[mi * 3 + 1] + 0.12, this.masts.xyz[mi * 3 + 2]), "perch");
+        } else if (roll < 0.45 + 0.45 * this.night && this.perchAt(g)) this.transit(g, this.sites.perches[g.perch], "perch");
         else if (roll < 0.75) { const from = g.pos.clone(); this.startCircle(g, false); const to = new THREE.Vector3(g.cx + Math.cos(g.ang) * g.r, g.cy, g.cz + Math.sin(g.ang) * g.r); g.pos.copy(from); this.transit(g, to, "circle"); }
         else g.t = 10 + g.r01() * 20;
       }
+    } else if (g.mode === "follow") {
+      const S = this.ships;
+      let i = g.fi;
+      if (S && S.ids[i] !== g.fid) i = g.fi = S.ids.indexOf(g.fid);
+      if (!S || i < 0 || g.t <= 0) { g.fi = -1; this.leave(g); return; }
+      // off her stern quarter, weaving a little, gliding with now and then a few beats
+      const h = S.heading[i], fx = Math.sin(h), fz = Math.cos(h);
+      const w = Math.sin(T * 0.5 + g.phase) * 3;
+      const tx = S.position[i * 3] - fx * g.fb + fz * (g.fs + w), tz = S.position[i * 3 + 2] - fz * g.fb - fx * (g.fs + w);
+      const ty = g.fh + 1.5 * Math.sin(T * 0.33 + g.phase * 2);
+      const k = Math.min(1, dt * 0.9);
+      g.pos.set(g.pos.x + (tx - g.pos.x) * k, g.pos.y + (ty - g.pos.y) * k, g.pos.z + (tz - g.pos.z) * k);
+      const burst = Math.max(0, Math.sin(T * 0.6 + g.phase * 3)) ** 4;
+      g.flap += ((0.12 + 0.5 * burst) - g.flap) * Math.min(1, dt * 3);
+      g.fold += (0 - g.fold) * Math.min(1, dt * 4);
+      g.roll += (Math.max(-0.35, Math.min(0.35, (tx - g.pos.x) * fz - (tz - g.pos.z) * fx)) * 0.1 - g.roll) * Math.min(1, dt * 2);
     } else if (g.mode === "transit") {
       g.u = Math.min(1, g.u + dt / g.dur);
       const u = g.u, a = (1 - u) * (1 - u), b = 2 * u * (1 - u), c = u * u;
@@ -280,14 +424,9 @@ export class Gulls {
       g.pitch *= 1 - Math.min(1, dt * 4);
       // a perched gull turns its body now and then
       if (g.r01() < dt * 0.15) g.yaw += (g.r01() - 0.5) * 1.6;
-      if (g.t <= 0) {
-        if (g.perch >= 0) this.taken[g.perch] = 0;
-        g.perch = -1;
-        const from = g.pos.clone();
-        this.startCircle(g, false);
-        g.pos.copy(from);
-        this.transit(g, new THREE.Vector3(g.cx + Math.cos(g.ang) * g.r, g.cy, g.cz + Math.sin(g.ang) * g.r), "circle");
-      }
+      // on a masthead: rides her as she rolls; off as soon as she gets under way
+      if (g.mast >= 0 && !this.mastAt(g)) g.t = 0;
+      if (g.t <= 0) this.leave(g);
       return;
     }
     const dx = g.pos.x - g.prev.x, dz = g.pos.z - g.prev.z, dy = g.pos.y - g.prev.y;
@@ -297,6 +436,27 @@ export class Gulls {
       g.yaw += Math.atan2(Math.sin(ty - g.yaw), Math.cos(ty - g.yaw)) * Math.min(1, dt * 6);
       g.pitch += (-Math.atan2(dy, h) * 0.8 - g.pitch) * Math.min(1, dt * 3);
     }
+  }
+
+  /** Keep a masthead-perched gull on her masthead; false when the perch is gone (under way, struck, out of view). */
+  private mastAt(g: Gull): boolean {
+    const M = this.masts;
+    if (!M) return false;
+    let i = g.mast;
+    if (M.ids[i] !== g.mastId) i = g.mast = M.ids.indexOf(g.mastId);
+    if (i < 0 || !Number.isFinite(M.xyz[i * 3])) return false;
+    g.pos.set(M.xyz[i * 3], M.xyz[i * 3 + 1] + 0.12, M.xyz[i * 3 + 2]);
+    return true;
+  }
+
+  /** Off the perch (or done following): out to a new circle. */
+  private leave(g: Gull): void {
+    if (g.perch >= 0) this.taken[g.perch] = 0;
+    g.perch = -1; g.mast = -1;
+    const from = g.pos.clone();
+    this.startCircle(g, false);
+    g.pos.copy(from);
+    this.transit(g, new THREE.Vector3(g.cx + Math.cos(g.ang) * g.r, g.cy, g.cz + Math.sin(g.ang) * g.r), "circle");
   }
 
   dispose(): void {

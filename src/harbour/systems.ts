@@ -12,6 +12,8 @@ import { ReadingsSystem } from "./readings/readings-system";
 import { LazyLifeSystem } from "./life/lazy-system";
 import { LazyIdentitySystem } from "./identity/lazy-system";
 import { CivicSystem } from "./civic/civic-system";
+import { OfficeWorksSystem } from "./civic/office-works";
+import { MomentsStage } from "./life/moments-stage";
 import { WeatherSystem } from "./weather/weather-system";
 import { SeasonSystem } from "./season/season-system";
 
@@ -33,6 +35,8 @@ export const SYSTEMS: Array<() => WorldSystem> = [
   () => new FleetSystem(),
   () => new LazyLifeSystem(),
   () => new LazyIdentitySystem(),
+  () => new OfficeWorksSystem(), // T6: after identity (it rolls the awnings the identity layer dressed)
+  () => new MomentsStage(), // staged data moments (events service): launch dressing, the reef beacon's flare
   () => new LightsSystem(),
   () => new BeamSystem(),
 ];

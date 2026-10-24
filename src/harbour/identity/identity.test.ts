@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import layout from "../data/layout.json";
 import crests from "../../../public/harbour/crests.json";
-import { nearestChain, officePlots } from "./offices";
+import { furlAwning, FURL_DEPTH, nearestChain, officePlots } from "./offices";
 import { chainSlug, markSites, type MarkPier } from "./pier-marks";
 import type { CivicPlot, CrestAtlas } from "./types";
 
@@ -38,5 +38,19 @@ describe("harbour heraldry", () => {
       if (!p.segments.some((s) => s.kind === "thead")) expect(mine.some((s) => s.beacon), p.chain).toBe(true);
       expect(mine.filter((s) => !s.beacon).length, p.chain).toBeGreaterThan(3);
     }
+  });
+});
+
+describe("T6 furled awning", () => {
+  it("rolls the awning back toward its wall to FURL_DEPTH, about the back-top edge, in the plot frame", () => {
+    // a plot at (10, 0, 20) turned a quarter: local +z (the front) is world +x
+    const rest = new Float32Array([10, 5, 20, /* back-top */ 14, 3, 20 /* 4 m out, 2 m down */]);
+    const out = new Float32Array(6);
+    furlAwning(rest, out, 0, 2, 10, 20, Math.PI / 2, 1);
+    expect(out[3]).toBeCloseTo(10 + 4 * FURL_DEPTH, 5);
+    expect(out[4]).toBeCloseTo(5 - 2 * FURL_DEPTH, 5);
+    expect(out[5]).toBeCloseTo(20, 5);
+    furlAwning(rest, out, 0, 2, 10, 20, Math.PI / 2, 0);
+    expect(Array.from(out)).toEqual(Array.from(rest).map((v) => expect.closeTo(v, 5)));
   });
 });

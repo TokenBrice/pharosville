@@ -51,8 +51,12 @@ export interface HullVariant {
   bowCleat: THREE.Vector3;
   sternCleat: THREE.Vector3;
   masthead: THREE.Vector3;
+  /** The stern lantern's glass centre (06-F6; older kits: above the stern cleat). */
+  sternLantern: THREE.Vector3;
   /** Highest point (m above the waterline) for picking spheres / labels. */
   top: number;
+  /** A galley: her full mesh carries oar banks that row (06-F3, node NODE_OARS). */
+  oars: boolean;
 }
 
 export interface Kit {
@@ -64,7 +68,16 @@ export interface Kit {
 const KIND: Record<string, number> = { hb_opaque: 0, hb_sail: 1, hb_cover: 2 };
 /** Wreck kit v2 kinds: the epitaph nameboard (TEXCOORD_0 = board space) and lantern glass (hb_emissive × uLamp). */
 export const KIND_BOARD = 3, KIND_LAMP = 4;
+/** Hull kinds (06-F6/F7): the stern lantern's glass (hb_emissive: KIND_LAMP, lit by the hull's stern-lamp flag) and a
+ *  titan's stern-gallery windows (hb_fleet_window, warm at dusk, decorative). */
+export const KIND_WINDOW = 5;
 const MIRROR_RIGID = new Set(["yards", "sail_extra", "oars", "yard_artemon", "steering_oar"]);
+/**
+ * Oar banks (06-F3): node 5, each oar pivoting about its own thole pin (aPivot = the oar's inboard end, found by
+ * a connected-component scan; aAxis unused). Symmetric port/starboard, so never mirrored on a tack. LOD hulls
+ * keep them rigid (node 1): far away the strip just holds its pose.
+ */
+export const NODE_OARS = 5;
 /** Square rigs hang these from _heel, braced with the yard: mirrored on port tack like the yards. */
 const HEEL_MIRROR = new Set(["sail_main", "sail_cover"]);
 const SPAR_NODES = new Set(["mast", "yards", "boom_spar", "boom_2_spar", "gaff", "gaff_2"]);
@@ -110,6 +123,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     else if (ancestors.includes("boom_2")) { node = 3; pivot = boom2; }
     else if (ancestors.includes("boom")) { node = 2; pivot = boom; }
     else if (mesh.name === "sail_jib") { node = 4; pivot = jib; axis = jibAxis; }
+    else if (mesh.name === "oars") node = NODE_OARS;
     else if (MIRROR_RIGID.has(mesh.name) || (HEEL_MIRROR.has(mesh.name) && parentName === "_heel")) node = 1;
     const flag = mesh.name === "flag" ? 1 : 0;
     const pos = geo.attributes.position, nrm = geo.attributes.normal, col = geo.attributes.color;
@@ -125,6 +139,10 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     const linear = new THREE.Matrix4().copy(mw).setPosition(0, 0, 0);
     tmpN.getNormalMatrix(mw);
     const base = P.length / 3;
+    const tholes = node === NODE_OARS ? oarTholes(geo, mw) : null;
+    // sails (06-F2): the cloth's size (m) rides in aPaint.x as a negative number (sails paint no livery region):
+    // the vertex shader scales the belly and the luff ripple by it. 0 = no breathing (LOD sails).
+    const sailSize = !opts.lod && !opts.wreck && plan ? sailExtent(geo, mw) : 0;
     // Furled canvas, slimmed: the brand cover lies flaked low on the boom (not a fat tube) and the
     // rolled jib is a slim roll on its stay. The furl morph's end shape is pulled toward its axis.
     const isCover = mats.some((m) => m.name === "hb_cover");
@@ -184,7 +202,8 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     }
     for (const g of groups) {
       const mat = mats[g.materialIndex ?? 0];
-      const gk = opts.wreck && mat.name === "hb_emissive" ? KIND_LAMP : epitaph && (KIND[mat.name] ?? 0) === 0 ? KIND_BOARD : KIND[mat.name] ?? 0;
+      const gk = mat.name === "hb_emissive" ? KIND_LAMP : !opts.wreck && mat.name === "hb_fleet_window" ? KIND_WINDOW
+        : epitaph && (KIND[mat.name] ?? 0) === 0 ? KIND_BOARD : KIND[mat.name] ?? 0;
       const used = new Map<number, number>();
       const end = g.start + g.count;
       for (let k = g.start; k < end; k++) {
@@ -219,11 +238,11 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
           } else F.push(0, 0, 0);
           if (mn) { tmpV.fromBufferAttribute(mn, vi); if (!relative && nrm) tmpV.sub(tmpP.fromBufferAttribute(nrm, vi)); FN.push(tmpV.x, tmpV.y, tmpV.z); } else FN.push(0, 0, 0);
           M.push(kind, node, kind === 1 ? plan?.role[vi] ?? ROLE_BODY : brand ? brand.getX(vi) : 0, flag);
-          let pc = kind === 0 ? (paint ? paint.getX(vi) : nodePaint) : 0;
+          let pc = kind === 0 ? (paint ? paint.getX(vi) : nodePaint) : kind === 1 ? -sailSize : 0;
           if (opts.lod && pc >= 1 && pc < 2.5) pc += 10; // LOD topsides: the stripe is painted in the shader
           else if (opts.lod && pc > 7.5 && pc < 8.5) pc = 9; // LOD rig: may be struck far away when furled
           PA.push(pc, P[P.length - 3] / halfLoa);
-          PV.push(pivot.x, pivot.y, pivot.z);
+          if (tholes) PV.push(tholes[vi * 3], tholes[vi * 3 + 1], tholes[vi * 3 + 2]); else PV.push(pivot.x, pivot.y, pivot.z);
           AX.push(axis.x, axis.y, axis.z);
         }
         I.push(base + out);
@@ -323,6 +342,50 @@ function planHullSails(gltf: GLTF): Map<THREE.Mesh, SailMeshOut> {
   return new Map(meshes.map((m, i) => [m, out[i]]));
 }
 
+/**
+ * Per vertex of an oar-bank mesh: its oar's thole pin (kit frame), the inboard end (nearest the centre line) of
+ * the connected oar. Vertices are joined by the index and by shared positions (an export may split them).
+ */
+function oarTholes(geo: THREE.BufferGeometry, mw: THREE.Matrix4): Float32Array {
+  const pos = geo.attributes.position, nv = pos.count;
+  const parent = new Int32Array(nv).map((_, i) => i);
+  const find = (a: number): number => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+  const join = (a: number, b: number) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+  const W = new Float32Array(nv * 3), seen = new Map<string, number>();
+  for (let vi = 0; vi < nv; vi++) {
+    tmpV.fromBufferAttribute(pos, vi).applyMatrix4(mw);
+    W[vi * 3] = tmpV.x; W[vi * 3 + 1] = tmpV.y; W[vi * 3 + 2] = tmpV.z;
+    const k = `${Math.round(tmpV.x * 500)},${Math.round(tmpV.y * 500)},${Math.round(tmpV.z * 500)}`;
+    const o = seen.get(k);
+    if (o != null) join(vi, o); else seen.set(k, vi);
+  }
+  const idx = geo.index;
+  const ni = idx ? idx.count : nv;
+  for (let k = 0; k + 2 < ni; k += 3) {
+    const a = idx ? idx.getX(k) : k, b = idx ? idx.getX(k + 1) : k + 1, c = idx ? idx.getX(k + 2) : k + 2;
+    join(a, b); join(b, c);
+  }
+  const best = new Map<number, number>();
+  for (let vi = 0; vi < nv; vi++) {
+    const r = find(vi), o = best.get(r);
+    if (o == null || Math.abs(W[vi * 3 + 2]) < Math.abs(W[o * 3 + 2])) best.set(r, vi);
+  }
+  const out = new Float32Array(nv * 3);
+  for (let vi = 0; vi < nv; vi++) { const t = best.get(find(vi))!; out[vi * 3] = W[t * 3]; out[vi * 3 + 1] = W[t * 3 + 1]; out[vi * 3 + 2] = W[t * 3 + 2]; }
+  return out;
+}
+
+/** A sail mesh's working size (m): its height or its widest horizontal reach, whichever is less. */
+function sailExtent(geo: THREE.BufferGeometry, mw: THREE.Matrix4): number {
+  const pos = geo.attributes.position;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (let vi = 0; vi < pos.count; vi++) {
+    tmpV.fromBufferAttribute(pos, vi).applyMatrix4(mw);
+    x0 = Math.min(x0, tmpV.x); x1 = Math.max(x1, tmpV.x); y0 = Math.min(y0, tmpV.y); y1 = Math.max(y1, tmpV.y); z0 = Math.min(z0, tmpV.z); z1 = Math.max(z1, tmpV.z);
+  }
+  return Math.max(0, Math.min(y1 - y0, Math.max(x1 - x0, z1 - z0)));
+}
+
 /** Load the manifest and every GLB it lists, in parallel. */
 export async function loadKit(assets: AssetStore): Promise<Kit> {
   const manifest = await assets.json<KitManifest>(`${KIT_BASE}manifest.json`);
@@ -342,7 +405,9 @@ export async function loadKit(assets: AssetStore): Promise<Kit> {
         bowCleat: anchor("bow_cleat", [h.loa_m * 0.42, 1, 0]),
         sternCleat: anchor("stern_cleat", [-h.loa_m * 0.42, 1, 0]),
         masthead: anchor("masthead_light", [0, h.loa_m, 0]),
+        sternLantern: nodeOrigin(h.nodes, "stern_lantern") ?? anchor("stern_cleat", [-h.loa_m * 0.42, 1, 0]).add(new THREE.Vector3(0, 0.9, 0)),
         top: fg.boundingBox!.max.y,
+        oars: h.nodes.some((n) => n.name === "oars"),
       });
     }),
     ...manifest.props.map(async (p) => {

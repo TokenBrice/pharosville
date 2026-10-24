@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { FullscreenPass } from "./gpu-bake";
 import type { Bounds4 } from "./sea-sdf";
+import { SWELL_DIR } from "./waves";
 import type { PreparationEntry } from "../engine/types";
 
 /**
@@ -9,7 +10,10 @@ import type { PreparationEntry } from "../engine/types";
  *  - `texture` (history, R16F ping-pong): turbulent trail left behind moving hulls; diffuses and decays
  *    (~4.5 s half-life), so a turning boat leaves a curved foam trail.
  *  - `live` (RGBA8, rebuilt every frame): R = Kelvin wedge arms + bow wave, G = hull contact ring,
- *    B = hull occlusion (darker water under the hull).
+ *    B = hull occlusion (darker water under the hull) + a thin dark waterline meniscus round a still hull,
+ *    A = lee slick (03-O4, decorative): a glassy satin patch trailing downwind (`lee`) of every still hull, where the
+ *    ocean drops its ripple roughness; G also carries a thin bright lip on the swell-facing side of a still hull.
+ *    A storm (contact strength ≥ ~1) or a hull aground keeps only the rings: no slick, no lip.
  *
  * Callers stamp every frame they want to be seen: stamp(x, z, vx, vz, halfWidth, strength[, halfLength]).
  * Zero velocity = moored hull (contact ring + occlusion only). Stamps queued during frame N are drawn at
@@ -28,21 +32,35 @@ const MAX_STAMPS = 2048;
 const STAMP_VERT = /* glsl */ `
 attribute vec4 sA; // x, z, heading (rad, bow along (sin h, cos h)), halfLength
 attribute vec4 sB; // halfBeam, speed (m/s), strength, -
-uniform vec4 uBounds; uniform float uTrail;
-varying vec2 vL; varying vec4 vS;
+uniform vec4 uBounds; uniform float uTrail; uniform vec2 uLee;
+varying vec2 vL; varying vec4 vS; varying vec2 vW;
 void main() {
   float hl = sA.w, hb = sB.x, spd = sB.y;
   float moving = step(0.25, spd);
   float wl = hl * (3.0 + 4.0 * smoothstep(1.2, 6.0, spd));         // Kelvin wedge length behind the stern
   vec2 lo, hi;
   if (uTrail > 0.5) { lo = vec2(-hl * 1.6, -hb * 1.6); hi = vec2(hl * 1.2, hb * 1.6); }
-  else if (moving > 0.5) { lo = vec2(-hl - wl * 1.1, -(wl * 0.42 + hb * 2.0)); hi = vec2(hl * 1.3, wl * 0.42 + hb * 2.0); }
-  else { lo = vec2(-hl * 1.5, -hb * 2.2); hi = vec2(hl * 1.5, hb * 2.2); }
+  else { lo = vec2(-hl - wl * 1.1, -(wl * 0.42 + hb * 2.0)); hi = vec2(hl * 1.3, wl * 0.42 + hb * 2.0); }
   vec2 t = position.xy * 0.5 + 0.5;
-  vec2 l = mix(lo, hi, t);
-  vL = l; vS = vec4(hl, hb, spd, sB.z);
   float s = sin(sA.z), c = cos(sA.z);
-  vec2 w = sA.xy + vec2(s, c) * l.x + vec2(c, -s) * l.y;               // l.x along bow, l.y to starboard
+  vec2 l, w;
+  if (uTrail < 0.5 && moving < 0.5) {
+    // still: a quad in the LEE frame (along uLee, across it) holding the hull's rings (any heading) and the
+    // slick lobe trailing downwind (zero past 2.6 hl, lateral gaussian ~e^-4 at the edge): ~2.5x fewer
+    // fragments than a square round the hull
+    float r0 = max(hl, hb) * 1.45;
+    float wd = max(r0, 2.0 * (hb * 1.5 + hl * 2.6 * 0.18));
+    vec2 a = mix(vec2(-r0, -wd), vec2(max(r0, hl * 2.6), wd), t);
+    vec2 lp = vec2(-uLee.y, uLee.x);
+    w = sA.xy + uLee * a.x + lp * a.y;
+    vec2 d = w - sA.xy;
+    l = vec2(dot(d, vec2(s, c)), dot(d, vec2(c, -s)));
+  } else {
+    l = mix(lo, hi, t);
+    w = sA.xy + vec2(s, c) * l.x + vec2(c, -s) * l.y;                 // l.x along bow, l.y to starboard
+  }
+  vL = l; vS = vec4(hl, hb, spd, sB.z);
+  vW = w - sA.xy;
   vec2 uv = (w - uBounds.xy) / (uBounds.zw - uBounds.xy);
   gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
   if (uTrail > 0.5 && moving < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // moored hulls leave no trail
@@ -50,7 +68,8 @@ void main() {
 
 const STAMP_FRAG = /* glsl */ `
 uniform float uTrail, uDt;
-varying vec2 vL; varying vec4 vS;
+uniform vec2 uLee, uSwell;
+varying vec2 vL; varying vec4 vS; varying vec2 vW;
 void main() {
   float hl = vS.x, hb = vS.y, spd = vS.z, k = vS.w;
   vec2 q = vL;
@@ -87,7 +106,21 @@ void main() {
     float bow = exp(-(pow((q.x - hl * 0.9) / (hl * 0.12), 2.0) + pow(q.y / (hb * 1.05), 2.0)));
     kel = (kel + bow * 0.45) * sp;
   }
-  gl_FragColor = vec4(kel * k, ring * k * (spd > 0.25 ? 0.45 : 0.7), occl * min(k, 1.0), 1.0);
+  // a still hull sits IN the water: a dark meniscus at the waterline, a thin bright lip where the swell meets her,
+  // and a glassy lee slick trailing downwind (fades out as contact strength rises toward storm / aground)
+  float meni = 0.0, lip = 0.0, slick = 0.0;
+  if (spd <= 0.25) {
+    float calm = 1.0 - smoothstep(0.5, 1.0, k);
+    meni = exp(-pow((e - 1.0) / 0.09, 2.0)) * 0.55;
+    float rw = length(vW) + 1e-4;
+    float face = smoothstep(0.0, 0.7, dot(vW / rw, -uSwell));
+    lip = exp(-pow((e - 1.13) / 0.1, 2.0)) * face * 0.75 * calm;
+    float along = dot(vW, uLee), lat = abs(vW.x * uLee.y - vW.y * uLee.x);
+    float len = hl * 2.6;
+    slick = exp(-pow(lat / (hb * 1.5 + max(along, 0.0) * 0.18), 2.0)) * smoothstep(-hl * 0.6, hl * 0.2, along)
+          * (1.0 - smoothstep(len * 0.4, len, along)) * calm;
+  }
+  gl_FragColor = vec4(kel * k, ring * k * (spd > 0.25 ? 0.45 : 0.7) + lip, occl * min(k, 1.0) + meni, slick);
 }`;
 
 const DECAY_FRAG = /* glsl */ `
@@ -107,6 +140,10 @@ export class WakeField implements WakeService {
   private readonly liveRT: THREE.WebGLRenderTarget;
   private idx = 0;
   private count = 0;
+  /** PERF: the history decays/diffuses every other frame (on the summed dt); stamps still land every frame */
+  private decayDt = 0;
+  private frameN = 0;
+  private readonly prevClear = new THREE.Color();
   private readonly attrA: THREE.InstancedBufferAttribute;
   private readonly attrB: THREE.InstancedBufferAttribute;
   private readonly geo: THREE.InstancedBufferGeometry;
@@ -118,6 +155,8 @@ export class WakeField implements WakeService {
   private readonly decay: FullscreenPass;
   private readonly bufA: Float32Array;
   private readonly bufB: Float32Array;
+  /** Downwind direction (world xz, unit) for the lee slicks; the ocean system sets it from the weather. */
+  readonly lee = new THREE.Vector2(0.8, -0.6);
 
   constructor(bounds: Bounds4, histRes = 2048, liveRes = 2048) {
     this.bounds = bounds;
@@ -144,7 +183,9 @@ export class WakeField implements WakeService {
       blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
     } as const;
     this.trailMat = new THREE.ShaderMaterial({ ...common, uniforms: { uBounds, uTrail: { value: 1 }, uDt: { value: 0.016 } } });
-    this.liveMat = new THREE.ShaderMaterial({ ...common, uniforms: { uBounds, uTrail: { value: 0 }, uDt: { value: 0.016 } } });
+    this.liveMat = new THREE.ShaderMaterial({ ...common, uniforms: {
+      uBounds, uTrail: { value: 0 }, uDt: { value: 0.016 }, uLee: { value: this.lee }, uSwell: { value: new THREE.Vector2(SWELL_DIR[0], SWELL_DIR[1]).normalize() },
+    } });
     this.mesh = new THREE.Mesh(this.geo, this.trailMat);
     this.mesh.frustumCulled = false;
     this.scene.add(this.mesh);
@@ -175,15 +216,24 @@ export class WakeField implements WakeService {
     this.bufB[i * 4] = halfWidth; this.bufB[i * 4 + 1] = spd; this.bufB[i * 4 + 2] = strength; this.bufB[i * 4 + 3] = 0;
   }
 
-  /** Advance the field: decay+diffuse history, add trail stamps, rebuild the live layer. */
+  /**
+   * Advance the field: decay+diffuse history, add trail stamps, rebuild the live layer. PERF: the full-field decay
+   * pass (the field's every texel, 5 taps) runs every other frame on the summed dt (a ~6.5 s decay and a slow
+   * spread: indistinguishable); between, the trail stamps add into the current history in place.
+   */
   update(renderer: THREE.WebGLRenderer, dt: number): void {
-    const src = this.hist[this.idx], dst = this.hist[1 - this.idx];
-    const u = this.decay.material.uniforms;
-    u.uPrev.value = src.texture;
-    u.uDecay.value = Math.exp(-dt / 6.5);
-    u.uSpread.value = Math.min(1, dt * 7);
-    // The decay triangle writes every history texel (no discard/blending); initialization/live clears stay intact.
-    this.decay.render(renderer, dst, false);
+    this.decayDt += dt;
+    const decayNow = (++this.frameN & 1) === 0 || this.decayDt > 0.2;
+    const src = this.hist[this.idx], dst = decayNow ? this.hist[1 - this.idx] : src;
+    if (decayNow) {
+      const u = this.decay.material.uniforms;
+      u.uPrev.value = src.texture;
+      u.uDecay.value = Math.exp(-this.decayDt / 6.5);
+      u.uSpread.value = Math.min(1, this.decayDt * 7);
+      // The decay triangle writes every history texel (no discard/blending); initialization/live clears stay intact.
+      this.decay.render(renderer, dst, false);
+      this.decayDt = 0;
+    }
 
     this.geo.instanceCount = this.count;
     if (this.count > 0) {
@@ -191,7 +241,7 @@ export class WakeField implements WakeService {
       this.attrB.clearUpdateRanges(); this.attrB.addUpdateRange(0, this.count * 4); this.attrB.needsUpdate = true;
     }
     const prevTarget = renderer.getRenderTarget(), prevAuto = renderer.autoClear;
-    const prevClear = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
+    const prevClear = renderer.getClearColor(this.prevClear), prevAlpha = renderer.getClearAlpha();
     renderer.autoClear = false;
     if (this.count > 0) {
       this.trailMat.uniforms.uDt.value = dt;
@@ -209,7 +259,7 @@ export class WakeField implements WakeService {
     renderer.setClearColor(prevClear, prevAlpha);
     renderer.autoClear = prevAuto;
     renderer.setRenderTarget(prevTarget);
-    this.idx = 1 - this.idx;
+    if (decayNow) this.idx = 1 - this.idx;
     this.count = 0;
   }
 

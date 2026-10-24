@@ -10,11 +10,13 @@ import type { SkyService } from "../sky/sky-system";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { getHarbourMaterials } from "../world/materials";
 import {
-  seasonForMonth, snowShare, weightsForSeason, WeatherDirector, type DirectorInput, type Season, type SeasonWeights, type WeatherBand, type WeatherState,
+  DEWS_LEVELS, moonbowLight, recoveryLine, seasonForMonth, snowShare, targetsForLevel, weightsForSeason, WeatherDirector, type DirectorInput, type Season, type SeasonWeights, type WeatherBand, type WeatherState,
 } from "./director";
 import { Lightning, type StrikeEvent } from "./lightning";
 import { MAX_SPRAY, PRECIP_BUDGET, Precipitation } from "./precip";
 import { Rainbow } from "./rainbow";
+import { dewRime, dewUniforms } from "./dew";
+import { moonAge, moonIllumination, parseMoonOverride } from "../season/calendar";
 
 /**
  * WEATHER: the director that turns the supply-weighted DEWS band (readings) and the calendar season
@@ -28,7 +30,8 @@ import { Rainbow } from "./rainbow";
  * sea and the island read this frame's weather.
  *
  * Dev: ?dews= / ?weather=CALM|WATCH|ALERT|WARNING|DANGER (readings) apply at once; ?rainbow=1 hangs the
- * bow; ?strike=1 forces frequent lightning (any band); ?season= / ?month= when no season system runs.
+ * bow; ?strike=1 forces frequent lightning (any band); ?season= / ?month= when no season system runs;
+ * ?front=<band>[&frontAt=0..1] sends a front 2.5 s after load; ?breaks=1 opens sunbreaks; ?squall=0..2 holds the squall.
  */
 export interface WeatherService {
   readonly state: Readonly<WeatherState>;
@@ -45,12 +48,14 @@ export interface WeatherService {
   readonly flash: { readonly azimuth: number; readonly elevation: number };
   /** Wind on the ground plane (x, z) incl. gusts — same as uWindVec. */
   readonly wind: THREE.Vector2;
+  /** W07 / D11: "Recovered from Alert 3 min ago" while the recovery bow's window lasts, else null. */
+  readonly recoveryLine: string | null;
   /** A lightning strike (for thunder: play it `thunderDelaySec` later). Returns an unsubscribe. */
   onLightning(cb: (e: StrikeEvent) => void): () => void;
 }
 
-interface SeasonLike { readonly weights?: SeasonWeights; readonly snowShare?: number }
-interface SimLike { readonly wind?: { fromRad: number } }
+interface SeasonLike { readonly weights?: SeasonWeights; readonly snowShare?: number; readonly sunrise?: number; readonly temperatureC?: number }
+interface SimLike { readonly wind?: { fromRad: number; veer?: number } }
 
 function calendarSeason(q: URLSearchParams): Season {
   const s = q.get("season");
@@ -83,6 +88,8 @@ export class WeatherSystem implements WorldSystem {
   private readonly target = new THREE.Vector3();
   private readonly viewport = new THREE.Vector2();
   private readonly flash = { azimuth: 0, elevation: 2 };
+  private moonAt = -1;
+  private moonIllum = 1;
   private readonly input: DirectorInput = { level: null, band: null, snowShare: 0, sunUp: 0, time: 0 };
 
   init(ctx: EngineContext): void {
@@ -109,6 +116,7 @@ export class WeatherSystem implements WorldSystem {
       get gloom() { return sys.director.state.gloom; },
       get flash() { return sys.flash; },
       get wind() { return sys.windVec; },
+      get recoveryLine() { return recoveryLine(sys.director.state.recovery, sys.elapsed); },
       onLightning: (cb) => this.lightning.onStrike(cb),
     };
     ctx.services.set("weather", svc);
@@ -181,10 +189,26 @@ export class WeatherSystem implements WorldSystem {
     const season = ctx.services.get("season") as SeasonLike | undefined;
     const share = season?.snowShare ?? snowShare(season?.weights ?? this.fallbackWeights);
     const sunUp = THREE.MathUtils.smoothstep(U.uSunDir.value.y, 0.03, 0.25) * (1 - U.uNight.value);
+    // W07: tonight's moon (decorative calendar, ?moon= in dev) can hang the recovery as a moonbow
+    if (this.elapsed - this.moonAt > 60 || this.moonAt < 0) {
+      this.moonAt = this.elapsed;
+      this.moonIllum = moonIllumination(parseMoonOverride((k) => this.q.get(k)) ?? moonAge(Date.now()));
+    }
+    const moonUp = moonbowLight(this.moonIllum, U.uNight.value);
+    // dev ?front=<band>[&frontAt=0..1]: load on the current weather, then 2.5 s later a reading at <band> arrives
+    //  (frontAt holds the front at that point of its sweep, for captures)
+    const fq = (this.q.get("front") ?? "").toUpperCase();
+    const fLevel = fq in DEWS_LEVELS && this.elapsed > 2.5 ? DEWS_LEVELS[fq as WeatherBand] : null;
+    const fAt = this.q.get("frontAt");
+    this.clock ??= new MotionClock(ensureMotionService(ctx));
     const input = this.input;
-    input.level = w ? w.level : null; input.band = w?.band ?? null;
-    input.snowShare = share; input.sunUp = sunUp; input.time = this.elapsed;
+    input.level = fLevel ?? (w ? w.level : null); input.band = fLevel != null ? (fq as WeatherBand) : w?.band ?? null;
+    input.snowShare = share; input.sunUp = sunUp; input.moonUp = moonUp; input.time = this.elapsed;
     input.forceRainbow = this.q.get("rainbow") === "1";
+    input.still = this.clock.live < 0.5;
+    input.frontPin = fLevel != null && fAt != null && Number.isFinite(Number(fAt)) ? Number(fAt) : undefined;
+    input.forceBreaks = this.q.get("breaks") === "1";
+    input.squallPin = this.q.has("squall") && Number.isFinite(Number(this.q.get("squall"))) ? Number(this.q.get("squall")) : undefined;
     // dev overrides (and the first reading) take effect at once, not over a minute
     const overridden = !!readings?.overridden && w != null;
     let snapNow = overridden;
@@ -193,10 +217,15 @@ export class WeatherSystem implements WorldSystem {
 
     // ---- wind: the prevailing direction (the hulls lie to it) × DEWS strength incl. gusts
     const sim = ctx.services.get("sim") as SimLike | undefined;
-    if (sim?.wind) { const to = sim.wind.fromRad + Math.PI; this.windTo.set(Math.sin(to), Math.cos(to)); }
+    // (+ the sim's slow decorative veer, 07-M5: flags, gusts and the anchorage turn together)
+    if (sim?.wind) { const to = sim.wind.fromRad + (sim.wind.veer ?? 0) + Math.PI; this.windTo.set(Math.sin(to), Math.cos(to)); }
     this.windVec.copy(this.windTo).multiplyScalar(s.windNow);
     U.uWindVec.value.copy(this.windVec);
     U.uWetness.value = s.wetness;
+    // W12 dew (spring/autumn dawns) and rime (cold winter dawns): decorative calendar + hour, never mist
+    const [dew, rime] = dewRime(season?.weights ?? this.fallbackWeights, U.uSunDir.value.y, ctx.timeOfDay.hour, season?.sunrise ?? 6.5,
+      season?.temperatureC ?? 12, s.precip);
+    dewUniforms.uHbDew.value.set(dew * (1 - U.uNight.value), rime);
     U.uPrecip.value.set(s.rain, s.snow);
 
     // ---- the sky: deck + wind (unless the engine's own ?cloud= / ?wind= pin them)
@@ -204,6 +233,12 @@ export class WeatherSystem implements WorldSystem {
     if (sky && this.snapped) {
       if (!this.q.has("cloud")) sky.setCloudCover(s.cloud, snapNow);
       if (!this.q.has("wind")) sky.setWind(s.windNow, snapNow);
+      // W01: the front's deck and rain, ahead of the local weather (rain over the sea first)
+      const f = s.front;
+      if (f && !this.q.has("cloud")) {
+        const a = targetsForLevel(f.from), b = targetsForLevel(f.to);
+        sky.setFront({ coverFrom: a.cloud, coverTo: b.cloud, rainTo: Math.min(1, b.steady + b.shower * 0.6), progress: f.progress });
+      } else sky.setFront(null);
     }
     // overcast mutes and greys the key light; under the deck the day grades darker and cooler (a clear
     // sky stays warm). Runs after TimeOfDay, before the sky's storm grade and the island's lights.
@@ -224,7 +259,6 @@ export class WeatherSystem implements WorldSystem {
     }
 
     // ---- motion + quality
-    this.clock ??= new MotionClock(ensureMotionService(ctx));
     const ptime = this.clock.step(dt);
     const reduced = this.clock.live < 0.5;
     const tier = (ctx.services.get("quality") as QualityService | undefined)?.settings.tier ?? "high";
@@ -263,7 +297,7 @@ export class WeatherSystem implements WorldSystem {
     });
 
     // ---- the recovery rainbow
-    this.rainbow.update(s.rainbow, cam, U.uSunDir.value, U.uSunColor.value, rig.distance, horizon);
+    this.rainbow.update(s.rainbow, cam, U.uSunDir.value, U.uSunColor.value, rig.distance, horizon, sunUp > 0.15 ? 0 : 1);
   }
 
   dispose(ctx: EngineContext): void {

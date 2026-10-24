@@ -54,6 +54,19 @@ describe("readings → world targets", () => {
     expect(t.psi.reach).toBe(0);
   });
 
+  it("PSI (DA-09): qualified when either early-warning input is unavailable, and only while lit", () => {
+    const deg = (dews: boolean, depeg: boolean, current: object = { score: 91.2, band: "BEDROCK" }) => derive(payloads({
+      stability: snap({ current: { ...current, inputDegradation: { dewsUnavailable: dews, dewsFailureReason: null, depegEventsUnavailable: depeg, depegEventsFailureReason: null } } }) as NonNullable<HarbourPayloads["stability"]>,
+    })).psi.qualified;
+    expect(derive(payloads()).psi.qualified).toBe(false);          // no inputDegradation block
+    expect(deg(false, false)).toBe(false);
+    expect(deg(true, false)).toBe(true);
+    expect(deg(false, true)).toBe(true);
+    expect(deg(true, true, { score: 91.2, band: "WHATEVER" })).toBe(false);   // unlit: no shutter on a dark lantern
+    expect(applyDevOverrides(derive(payloads()), new URLSearchParams("psiQualified=1")).psi.qualified).toBe(true);
+    expect(applyDevOverrides(derive(payloads()), new URLSearchParams("psi=none&psiQualified=1")).psi.qualified).toBe(false);
+  });
+
   it("sea state: 4 declared steps of the supply-weighted off-peg share", () => {
     expect([0.001, 0.005, 0.019, 0.02, 0.099, 0.1, 0.5].map(seaStepForShare)).toEqual([0, 1, 1, 2, 2, 3, 3]);
     expect(derive(payloads()).sea).toBe(2); // ~5 % of supply on the Shoals

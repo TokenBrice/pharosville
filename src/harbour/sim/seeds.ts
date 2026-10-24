@@ -3,8 +3,8 @@ import type { CoastGrid } from "./obstacles";
 import type { OutingSeed } from "./outings";
 import type { RepLeg } from "./plan";
 
-/** Bump when geometry/timing/outing semantics change, then run build-sim-seeds.mjs. */
-export const SIM_SEED_VERSION = 1;
+/** Bump when geometry/timing/outing semantics change, then run build-sim-seeds.mjs. 2: Living Harbour points of sail (07-M1). */
+export const SIM_SEED_VERSION = 2;
 export interface SimSeeds {
   version: number;
   key: string;

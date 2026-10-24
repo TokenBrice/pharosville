@@ -110,8 +110,17 @@ export function linear(hex: string): [number, number, number] {
 }
 
 /**
+/**
+ * Earth pigments (01-A3, decorative): the dye's chroma is capped against the built palette (limewash, terracotta,
+ * olive), so the fleet and the town read as one painting; the hue is kept, so the brand stays the brand. The
+ * hovered / selected hull is shown at full chroma by the fleet shader (fleet-far.ts hbDyeChroma).
+ */
+export const DYE_MAX_SAT = 0.5;
+const DYE_L: [number, number] = [0.38, 0.62];
+
+/**
  * The sails' dye from the coin's brand colour (sRGB hex) → linear rgb + mode for the fleet shader:
- *   1 = dyed canvas: the brand hue, never neon, and lifted when very dark so the sails still read at night and
+ *   1 = dyed canvas: the brand hue at earth-pigment chroma (DYE_MAX_SAT), never neon, and lifted when very dark so the sails still read at night and
  *       in shadow (the lift is toward a lighter shade of the same hue, so it stays the brand);
  *   2 = a near-white brand: the canvas stays, banded in a deeper shade of the brand at the foot and leech.
  */
@@ -120,9 +129,9 @@ export function sailDye(hex: string): { rgb: [number, number, number]; mode: 1 |
   new THREE.Color(hex).getHSL(hsl, THREE.SRGBColorSpace);
   const out = new THREE.Color();
   if (hsl.l > 0.8) {
-    out.setHSL(hsl.h, Math.min(hsl.s, 0.6), 0.42, THREE.SRGBColorSpace);
+    out.setHSL(hsl.h, Math.min(hsl.s, DYE_MAX_SAT), 0.42, THREE.SRGBColorSpace);
     return { rgb: [out.r, out.g, out.b], mode: 2 };
   }
-  out.setHSL(hsl.h, Math.min(hsl.s, 0.72), THREE.MathUtils.clamp(hsl.l, 0.36, 0.66), THREE.SRGBColorSpace);
+  out.setHSL(hsl.h, Math.min(hsl.s, DYE_MAX_SAT), THREE.MathUtils.clamp(hsl.l, DYE_L[0], DYE_L[1]), THREE.SRGBColorSpace);
   return { rgb: [out.r, out.g, out.b], mode: 1 };
 }

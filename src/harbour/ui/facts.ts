@@ -2,9 +2,10 @@
  * The one-fact lines and the "why it is here" sentences. Pure functions of (model, whereabouts),
  * so the hover tag, the panel and the tests all read the same words.
  */
-import type { Boat, HarbourModel } from "../model/types";
+import type { Boat, HarbourModel, StormSignalShape } from "../model/types";
+import type { OfficeState } from "../readings/bind";
 import { deadSummaries, FAMILIES } from "../model/obituary";
-import { bps, money, monthYear, share, titleCase } from "./format";
+import { bps, money, monthYear, pctChange, share, titleCase } from "./format";
 
 export type WhereKind = "alongside" | "moored" | "casting-off" | "sailing" | "outing" | "shoals" | "wreck" | "far" | "unknown";
 export interface Whereabouts { kind: WhereKind; /** Chain name, "the Far Ports", or null. */ place: string | null }
@@ -48,9 +49,41 @@ export function whereLine(b: Boat, w: Whereabouts): string {
   }
 }
 
-/** "USDT · $184.0B · alongside Tron". */
+/** DA-04: the words for a hoisted masthead signal (hover and panel say the same). */
+export const SIGNAL_HOISTED = "signal hoisted: early warning, not a depeg";
+/** A signal on a coin that IS off peg: the depeg is told by the Shoals, never by the signal. */
+export const SIGNAL_HOISTED_DEPEG = "signal hoisted: early warning; the Shoals tell the depeg";
+const signalWords = (b: Boat) => (b.activeDepeg ? SIGNAL_HOISTED_DEPEG : SIGNAL_HOISTED);
+const SHAPE_WORDS: Record<StormSignalShape, string> = { cone: "a cone", drum: "a drum", "cone+drum": "a cone and a drum" };
+
+/** Shoals panel line for the depeg moment (life/moments-stage.ts). */
+export const REEF_FLARE_LINE = "The beacon\u2019s fire flares three times when a coin is confirmed off its peg (two readings in a row); the Day book records it.";
+
+/** DA-07 Boat panel line. */
+export const MAIDEN_LINE = "new to the register this week";
+/** DA-07 hover: the bunting she is dressed in, in the panel's words. */
+export const MAIDEN_HOVER = `dressed overall: ${MAIDEN_LINE}`;
+/** Hover for a coin launched during this visit, dressed for her first circuit (M8d: "launched today"). */
+export const LAUNCH_HOVER = "dressed overall: launched today";
+
+/** "USDT · $184.0B · alongside Tron" (+ " · signal hoisted: early warning, not a depeg" under a DA-04 signal). */
 export function boatFact(b: Boat, w: Whereabouts): string {
-  return [b.symbol, money(b.supply), whereLine(b, w)].filter(Boolean).join(" · ");
+  return [b.symbol, money(b.supply), whereLine(b, w), b.stormSignal ? signalWords(b) : "", b.maiden ? MAIDEN_HOVER : ""].filter(Boolean).join(" · ");
+}
+
+/** DA-04 Boat panel line, or null when she flies no signal and is not at Alert or worse. */
+export function stormSignalLine(b: Boat, stressCurrent: boolean): string | null {
+  if (b.stormSignal) return `${SHAPE_WORDS[b.stormSignal]} at the masthead, ${signalWords(b)}`;
+  if (stressCurrent && (b.dews === "ALERT" || b.dews === "WARNING" || b.dews === "DANGER")) return "none at the masthead: only the five worst early-warning scores hoist one";
+  return null;
+}
+
+
+/** T6 chain panel line for an office state, from the same 30-day figure (a fraction), or null when neutral. */
+export function officeLine(state: OfficeState | undefined, change30d: number | null | undefined): string | null {
+  if (state === "works") return `Office under works: supply ${pctChange(change30d, 1)} over 30 d`;
+  if (state === "furled") return `Awnings furled: ${pctChange(change30d, 1)} over 30 d`;
+  return null;
 }
 
 /** The single sentence that explains the boat's position from the data. */
@@ -113,6 +146,7 @@ export interface PlaceCounts { yard?: number | undefined; roads?: number | undef
 export function landmarkFact(id: string, m: HarbourModel | null, underWay: number | null, counts: PlaceCounts = {}): { fact: string; decorative?: boolean } {
   const r = m?.readings;
   switch (id) {
+    case "harbour-tug": return { fact: "tows the dead to Wreck Cove · carries no data", decorative: true };
     case "mint": {
       const t = flowTotals(m);
       return { fact: t ? `${money(t.mint)} minted in 24 h` : "fires banked · no flow reading" };
@@ -149,6 +183,7 @@ export function landmarkFact(id: string, m: HarbourModel | null, underWay: numbe
       if (!c) return { fact: "no stress reading" };
       return { fact: c.count === 0 ? "no cones hoisted" : `${c.count} ${c.count === 1 ? "cone" : "cones"} · early-warning alerts` };
     }
+    case "tide-gauge": return { fact: tideFact(m) };
     case "wreck-cove": return { fact: `${r?.wrecks.length ?? 0} wrecks, with epitaphs` };
     case "far-ports": {
       const far = m?.harbours.filter((h) => !h.piered) ?? [];
@@ -165,15 +200,24 @@ export function landmarkFact(id: string, m: HarbourModel | null, underWay: numbe
   }
 }
 
-export function harbourFact(chain: string, m: HarbourModel | null): string {
+/** The tide gauge's line: the 7-day change of all stablecoin supply (/api/chains globalChange7dPct, a fraction). */
+export function tideFact(m: HarbourModel | null): string {
+  const t = m?.readings.tide;
+  if (!t?.available || t.change7d == null) return "no supply reading";
+  return `all supply ${pctChange(t.change7d)} over 7 d${t.stale ? " · stale" : ""}`;
+}
+
+/** The harbour's hover; a T6 office state appends the chain panel's own line ("office under works: supply +12.0% over 30 d"). */
+export function harbourFact(chain: string, m: HarbourModel | null, office?: OfficeState, change30d?: number | null): string {
   const h = m?.harbours.find((x) => x.chain === chain);
   if (!h) return "harbour";
-  return `${money(h.supplyUsd)} · ${h.visitors} ${h.visitors === 1 ? "boat calls" : "boats call"}`;
+  const line = officeLine(office, change30d);
+  return [`${money(h.supplyUsd)} · ${h.visitors} ${h.visitors === 1 ? "boat calls" : "boats call"}`, line ? line[0].toLowerCase() + line.slice(1) : ""].filter(Boolean).join(" · ");
 }
 
 /** Landmarks that open a panel on click (the rest are hover-only). */
 export const PANEL_LANDMARKS = new Set(["pharos", "shoals", "customs-house", "tide-board", "storm-mast", "wreck-cove", "far-ports", "registry", "harbourmaster", "slipway",
-  "mint", "burn", "chartroom", "keeperslog", "the-roads"]);
+  "tide-gauge", "mint", "burn", "chartroom", "keeperslog", "the-roads"]);
 
 export const wreckDate = (d: string) => monthYear(d);
 

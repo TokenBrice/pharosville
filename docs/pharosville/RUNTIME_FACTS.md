@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - World: The Harbour, one three.js WebGL2 Engine (`src/harbour/engine/`) mounted by `src/harbour/app/harbour-app.tsx`
 - Renderer failure fallback: the first-paint poster stays up with the arrival guide and Pharos links; no alternate renderer
 - Runtime media namespace: `/harbour/`
-- Latest app version: `v1.3.0` (`fairWind`)
-- Latest changelog entry: `2026-10-19-fair-wind` / `v1.3.0` / 2026-10-19 / Fair Wind
+- Latest app version: `v1.4.0` (`livingHarbour`)
+- Latest changelog entry: `2026-10-25-living-harbour` / `v1.4.0` / 2026-10-25 / Living Harbour
 
 ## Viewport Gate
 
@@ -41,15 +41,15 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 ## World Systems
 
-- Registration (= update) order: `SeasonSystem` → `LayoutSystem` → `DataSystem` → `ReadingsSystem` → `WeatherSystem` → `SkySystem` → `OceanSystem` → `IslandSystem` → `LighthouseSystem` → `CivicSystem` → `FleetSystem` → `LazyLifeSystem` → `LazyIdentitySystem` → `LightsSystem` → `BeamSystem`
+- Registration (= update) order: `SeasonSystem` → `LayoutSystem` → `DataSystem` → `ReadingsSystem` → `WeatherSystem` → `SkySystem` → `OceanSystem` → `IslandSystem` → `LighthouseSystem` → `CivicSystem` → `FleetSystem` → `LazyLifeSystem` → `LazyIdentitySystem` → `OfficeWorksSystem` → `MomentsStage` → `LightsSystem` → `BeamSystem`
 
 ## Bundle Budgets
 
 - entry chunk: raw <= 10 KiB, gzip <= 4 KiB
-- Harbour lazy chunk: raw <= 832 KiB, gzip <= 281 KiB
+- Harbour lazy chunk: raw <= 986 KiB, gzip <= 336 KiB
 - Three.js renderer chunk: raw <= 960 KiB, gzip <= 276 KiB
-- Harbour CSS: raw <= 28 KiB, gzip <= 7 KiB
-- Total JS: raw <= 2,260 KiB, gzip <= 724 KiB
+- Harbour CSS: raw <= 34 KiB, gzip <= 9 KiB
+- Total JS: raw <= 2,650 KiB, gzip <= 852 KiB
 
 ## Workflow Gates
 

@@ -56,6 +56,8 @@ export interface CivicService {
   readonly banked: boolean;
   /** The Mint's activity 0..1 (the audio layer's mint rate). */
   readonly mintRate: number;
+  /** The Burn's activity 0..1 (the audio layer's furnace; 0 while banked / stale). */
+  readonly burnRate: number;
   readonly shipyard: ReadonlyArray<{ id: string; symbol: string; name: string; phase: string | null; expectedLaunchDate: string | null; milestones: PrelaunchCoin["milestones"]; slot: string | null; stage: HullStage; launched: boolean }>;
   /** The UI's yard book (ui/yard.ts reads coins + hullPosition). */
   readonly yard: { coins: unknown[]; hullPosition(id: string): readonly [number, number, number] | null };
@@ -119,6 +121,7 @@ export class CivicSystem implements WorldSystem {
       get dominance() { return sys.flows.dominance; },
       get banked() { return sys.flows.banked; },
       get mintRate() { return sys.flows.mint.activity; },
+      get burnRate() { return sys.flows.burn.activity; },
       get shipyard() { return sys.shipyardRows(); },
       get yard() { return sys.yardBook(); },
       get pickables() { return sys.pickables; },

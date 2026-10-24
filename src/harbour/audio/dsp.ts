@@ -25,7 +25,17 @@ export type ClipKind = "shore" | "lap" | "reef" | "crackle" | "press" | "halyard
   // weather (DEWS): precipitation, thunder
   | "drizzle" | "rain" | "drip" | "thunder" | "rumble"
   // season colour (calendar, decorative)
-  | "bird" | "cricket" | "cicada" | "rustle" | "crunch";
+  | "bird" | "cricket" | "cicada" | "rustle" | "crunch"
+  // the Shipyard's tools (decorative, by day)
+  | "mallet" | "adze" | "saw"
+  // the day clock (decorative): night birds, the harbour's hour bell
+  | "owl" | "nightjar" | "tolling"
+  // paper-and-wood UI foley (only while the sound is on)
+  | "unroll" | "latch" | "flick"
+  // event cues (staged moments, a titan home, the evening gun): rare, far and soft
+  | "conch" | "gun"
+  // a ship under way passing the listener (decorative mirror of the sim's motion)
+  | "swish" | "flap";
 
 /** mulberry32: small, fast, seedable. */
 export function makeRng(seed: number): Rng {
@@ -921,6 +931,376 @@ export function* crunch(seed: number, sr: number): Generator<void, Clip> {
   return { sr, L, R };
 }
 
+// ---------------------------------------------------------------------------------------------------------
+// The Shipyard: shipwrights' tools on oak (decorative mirror of the yard's visible work)
+// ---------------------------------------------------------------------------------------------------------
+
+/**
+ * A caulking mallet on a trenail or a chisel: a wooden "thock" — a 1–2 ms knock of noise exciting two body
+ * resonances (the mallet head ~150–220 Hz, the struck timber ~520–760 Hz), a dull thump under it. 0.4 s.
+ */
+export function* mallet(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 0.4, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const lo = new Svf(sr), hi = new Svf(sr), kT = onePole(140, sr);
+  const qLo = range(r, 5, 8), qHi = range(r, 6, 10);
+  lo.set(range(r, 150, 220), qLo); hi.set(range(r, 520, 760), qHi);
+  const tauX = range(r, 0.0012, 0.0024), aHi = range(r, 0.45, 0.8);
+  let th = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const ex = N() * (i < 6 ? (i + 1) / 7 : Math.exp(-(t - 6 / sr) / tauX));
+    lo.run(ex); hi.run(ex);
+    th += kT * (ex - th);
+    // /Q: unity gain at each resonance
+    const v = (lo.bp / qLo) * 2.2 + (hi.bp / qHi) * 1.6 * aHi + th * 1.2 * Math.exp(-t / 0.03);
+    L[i] = v; R[i] = v;
+  }
+  yield;
+  seal({ L, R }, sr, 0.0005, 0.08);
+  limit({ L, R }, 0.5);
+  return { sr, L, R };
+}
+
+/** An adze dressing a plank: a brighter bite into the grain and a few splinter ticks. 0.3 s. */
+export function* adze(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 0.3, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const bite = new Svf(sr), body = new Svf(sr);
+  const qB = range(r, 2, 3.5);
+  bite.set(range(r, 1400, 2400), qB); body.set(range(r, 380, 520), 6);
+  const tau = range(r, 0.006, 0.014);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const ex = N() * smooth(t / 0.002) * Math.exp(-t / tau);
+    bite.run(ex); body.run(ex);
+    const v = (bite.bp / qB) * 0.9 + (body.bp / 6) * 1.4;
+    L[i] = v; R[i] = v;
+  }
+  for (let k = 0, m = 2 + Math.floor(r() * 4); k < m; k++) {
+    tick(L, R, sr, range(r, 0.008, 0.08), logRange(r, 2200, 5200), 2.5, range(r, 0.0004, 0.001), range(r, 0.06, 0.16), 0, N);
+  }
+  yield;
+  seal({ L, R }, sr, 0.0005, 0.06);
+  limit({ L, R }, 0.45);
+  return { sr, L, R };
+}
+
+/**
+ * A pit saw through oak: one push and one pull (the pull a little lower and softer), each a breathy band of
+ * noise chattered by the teeth (~55–95 strokes of a tooth per second) under an arched envelope. ~1.1–1.5 s.
+ */
+export function* saw(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const d1 = range(r, 0.38, 0.55), gap = range(r, 0.06, 0.14), d2 = range(r, 0.36, 0.52);
+  const T = 0.02 + d1 + gap + d2 + 0.12, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const bp = new Svf(sr), kTooth = range(r, 55, 95);
+  const strokes: Array<[number, number, number, number]> = [[0.02, d1, range(r, 2400, 3400), 1], [0.02 + d1 + gap, d2, range(r, 1900, 2700), 0.75]];
+  let ph = 0;
+  for (const [at, d, fc, a] of strokes) {
+    bp.set(fc, 1.6);
+    const i0 = Math.floor(at * sr), m = Math.ceil(d * sr);
+    for (let i = 0; i < m && i0 + i < n; i++) {
+      const x = i / m;
+      ph += kTooth * (0.8 + 0.4 * Math.sin(Math.PI * x)) / sr; ph -= Math.floor(ph);
+      const teeth = 0.35 + 0.65 * Math.pow(1 - ph, 3);
+      const e = smooth(x / 0.18) * smooth((1 - x) / 0.25) * a;
+      bp.run(N() * teeth * e);
+      const v = (bp.bp / 1.6) * 0.32;
+      L[i0 + i] += v; R[i0 + i] += v;
+      if (((i0 + i) % SLICE) === SLICE - 1) yield;
+    }
+  }
+  seal({ L, R }, sr, 0.005, 0.08);
+  limit({ L, R }, 0.4);
+  return { sr, L, R };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// The day clock (decorative): night birds and the hour bell
+// ---------------------------------------------------------------------------------------------------------
+
+/**
+ * A tawny owl from the groves: a long "hooo", a pause, then a short note and a long quavering one, all near
+ * 380–430 Hz, gliding down a little, with breath in it. ~3–4.5 s.
+ */
+export function* owl(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const f0 = range(r, 380, 430), gap = range(r, 0.7, 1.6);
+  const notes: Array<[number, number, number, number, number]> = [   // at, dur, f, glide, quaver depth
+    [0.03, range(r, 0.38, 0.55), f0, 0.94, 0],
+  ];
+  const t2 = notes[0][0] + notes[0][1] + gap;
+  notes.push([t2, range(r, 0.1, 0.16), f0 * 1.03, 0.97, 0]);
+  notes.push([t2 + range(r, 0.24, 0.32), range(r, 0.8, 1.2), f0 * 1.01, 0.9, range(r, 0.35, 0.6)]);
+  const last = notes[notes.length - 1], T = last[0] + last[1] + 0.25, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const quaver = range(r, 7, 10), kb = onePole(900, sr);
+  let ph = 0, b = 0;
+  for (const [at, d, f, glide, q] of notes) {
+    const i0 = Math.floor(at * sr), m = Math.ceil(d * sr);
+    for (let i = 0; i < m && i0 + i < n; i++) {
+      const x = i / m, u = i / sr;
+      ph += (TAU * f * lerp(1, glide, x)) / sr;
+      const trem = 1 - q * (0.5 + 0.5 * Math.sin(TAU * quaver * u)) * smooth(x / 0.3);
+      const e = smooth(x / 0.2) * smooth((1 - x) / 0.35) * trem * 0.22;
+      b += kb * (N() - b);
+      const v = (Math.sin(ph) + 0.06 * Math.sin(2 * ph)) * e + b * e * 0.25;
+      L[i0 + i] += v; R[i0 + i] += v;
+    }
+  }
+  yield;
+  seal({ L, R }, sr, 0.01, 0.15);
+  limit({ L, R }, 0.4);
+  return { sr, L, R };
+}
+
+/**
+ * A nightjar churring on a summer night: a long mechanical trill (a tone near 1 kHz in pulses at 28–42 a
+ * second) that shifts between two rates now and then, swelling in and dying away. 5–7 s.
+ */
+export function* nightjar(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed);
+  const T = range(r, 5, 7), n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const fA = range(r, 900, 1250), rA = range(r, 28, 34), rB = range(r, 36, 42), fB = fA * range(r, 1.06, 1.14);
+  const shifts: number[] = [];
+  for (let t = range(r, 0.8, 2); t < T; t += range(r, 1, 2.8)) shifts.push(t);
+  let ph = 0, pp = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    let k = 0;
+    for (const s of shifts) if (t > s) k ^= 1;
+    const f = k ? fB : fA, rate = k ? rB : rA;
+    ph += (TAU * f) / sr; pp += rate / sr; pp -= Math.floor(pp);
+    const pulse = Math.pow(Math.sin(Math.PI * pp), 2);
+    const e = smooth(t / 0.8) * smooth((T - t) / 0.6) * 0.07;
+    const v = (Math.sin(ph) + 0.15 * Math.sin(2 * ph)) * pulse * e;
+    L[i] = v; R[i] = v;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  seal({ L, R }, sr, 0.01, 0.1);
+  limit({ L, R }, 0.3);
+  return { sr, L, R };
+}
+
+/**
+ * The harbour's hour bell: a bronze bell struck soft (a wooden striker, no clank), its hum, prime, tierce-ish
+ * and nominal partials (0.5, 1, 2.0, 2.76, 5.4) on a long decay. ~220 Hz, 8 s.
+ */
+export function* tolling(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 8, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const f0 = 220 * range(r, 0.97, 1.03);
+  for (const [ratio, a, d] of [[0.5, 0.45, 6.5], [1, 1, 5.5], [2.0, 0.5, 3.6], [2.76, 0.32, 2.4], [5.4, 0.1, 1.1]] as const) {
+    const f = f0 * ratio * range(r, 0.998, 1.002), beat = range(r, 0.3, 0.9), ph = r() * TAU;
+    if (f > sr * 0.45) continue;
+    const decay = Math.exp(-1 / ((d / 4.6) * sr)), w = (TAU * f) / sr;
+    let e = a * 0.32;
+    for (let i = 0; i < n; i++) {
+      const b = 1 - 0.15 * (1 + Math.sin(TAU * beat * (i / sr))) * 0.5;
+      L[i] += Math.sin(ph + w * i) * e * b * (i < 400 ? i / 400 : 1);
+      e *= decay;
+      if (e < 1e-5) break;
+    }
+    yield;
+  }
+  // the striker: a soft, dark thud on the strike
+  const th = new Svf(sr); th.set(500, 0.9);
+  for (let i = 0, m = Math.ceil(0.06 * sr); i < m; i++) {
+    th.run(N() * 0.1 * Math.exp(-i / (0.012 * sr)) * (i < 24 ? i / 24 : 1));
+    L[i] += th.lp;
+  }
+  R.set(L);
+  seal({ L, R }, sr, 0.001, 0.6);
+  limit({ L, R }, 0.6);
+  return { sr, L, R };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// UI foley: the chart table (paper and wood), tiny and soft
+// ---------------------------------------------------------------------------------------------------------
+
+/** A panel opening: a sheet of parchment unrolled — a rising band of noise with a few fibre crackles. 0.16 s. */
+export function* unroll(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 0.16, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const bp = new Svf(sr), f0 = range(r, 600, 800), f1 = range(r, 2000, 2800);
+  for (let i = 0; i < n; i++) {
+    const x = i / n;
+    if ((i & 15) === 0) bp.set(f0 * Math.pow(f1 / f0, x), 1.2);
+    bp.run(N() * smooth(x / 0.25) * Math.pow(1 - x, 1.5) * 0.25);
+    L[i] = bp.bp; R[i] = bp.bp;
+  }
+  for (let k = 0, m = 3 + Math.floor(r() * 4); k < m; k++) tick(L, R, sr, range(r, 0.02, 0.12), logRange(r, 1800, 4500), 2, 0.0006, range(r, 0.04, 0.1), 0, N);
+  yield;
+  seal({ L, R }, sr, 0.003, 0.03);
+  limit({ L, R }, 0.6);
+  return { sr, L, R };
+}
+
+/** A panel closing: a small wooden latch dropping home — a high knock on two resonances. 0.09 s. */
+export function* latch(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 0.09, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const a = new Svf(sr), b = new Svf(sr);
+  a.set(range(r, 800, 1050), 8); b.set(range(r, 1900, 2500), 7);
+  for (let i = 0; i < n; i++) {
+    const ex = N() * (i < 4 ? (i + 1) / 5 : Math.exp(-i / (0.0012 * sr)));
+    a.run(ex); b.run(ex);
+    const v = (a.bp / 8) * 1.6 + (b.bp / 7) * 0.9;
+    L[i] = v; R[i] = v;
+  }
+  yield;
+  seal({ L, R }, sr, 0.0005, 0.03);
+  limit({ L, R }, 0.6);
+  return { sr, L, R };
+}
+
+/** A page of the ledger turned: a quick swish of paper through the air and its edge settling. 0.12 s. */
+export function* flick(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 0.12, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const bp = new Svf(sr), f0 = range(r, 1400, 1900), f1 = range(r, 3200, 4400);
+  for (let i = 0; i < n; i++) {
+    const x = i / n;
+    if ((i & 15) === 0) bp.set(f0 * Math.pow(f1 / f0, smooth(x)), 0.9);
+    bp.run(N() * Math.sin(Math.PI * Math.min(1, x / 0.85)) * 0.18);
+    L[i] = bp.bp; R[i] = bp.bp;
+  }
+  tick(L, R, sr, T * range(r, 0.7, 0.8), logRange(r, 2500, 4000), 2, 0.0008, 0.12, 0, N);
+  yield;
+  seal({ L, R }, sr, 0.004, 0.02);
+  limit({ L, R }, 0.6);
+  return { sr, L, R };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Event cues: rare, far, soft — never a "ding"
+// ---------------------------------------------------------------------------------------------------------
+
+/**
+ * A titan comes home: a conch blown far off — a hollow, breathy tone near B♭3 that scoops up into pitch,
+ * swells once and falls away at its end, heard through distance (dark). 3.8 s.
+ */
+export function* conch(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 3.8, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const f0 = 233 * range(r, 0.97, 1.03), vib = range(r, 4, 5.2), vph = r() * TAU;
+  const breath = new Svf(sr), dark = new Svf(sr);
+  breath.set(f0 * 2, 3); dark.set(1100, 0.6);
+  const parts: ReadonlyArray<readonly [number, number]> = [[1, 1], [2, 0.32], [3, 0.12], [4, 0.04]];
+  const ph = parts.map(() => r() * TAU);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    // a slow breath: 0.4 s in, a swell at ~1.3 s, the lip tiring after 2.3 s
+    const env = smooth(t / 0.4) * (0.85 + 0.15 * Math.sin(Math.PI * Math.min(1, t / 2.6))) * (1 - smooth((t - 2.3) / 0.85));
+    // the scoop up into pitch, a little vibrato, and the fall at the end
+    const bend = 1 - 0.035 * Math.exp(-t / 0.12) + 0.003 * Math.sin(TAU * vib * t + vph) - 0.04 * smooth((t - 2.5) / 0.7);
+    let v = 0;
+    for (let k = 0; k < parts.length; k++) {
+      ph[k] += (TAU * f0 * parts[k][0] * bend) / sr;
+      v += Math.sin(ph[k]) * parts[k][1];
+    }
+    breath.run(N());
+    dark.run(v * 0.3 * env + breath.bp * 0.05 * env);
+    L[i] = dark.lp;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  R.set(L);
+  seal({ L, R }, sr, 0.01, 0.2);
+  limit({ L, R }, 0.5);
+  return { sr, L, R };
+}
+
+/**
+ * The evening gun from across the bay: a dull report (a low thump with no crack: the distance has eaten
+ * it), the air's short boom, and its echo rolling back off the hills. 3.5 s.
+ */
+export function* gun(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 3.5, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const thump = new Svf(sr), roll = new Svf(sr);
+  const fT = range(r, 120, 170), fR = range(r, 80, 110);
+  thump.set(fT, 0.8); roll.set(fR, 0.7);
+  const kT = 0.35 / lpRms(fT, sr), kR = 0.12 / lpRms(fR, sr);
+  const echo = range(r, 0.55, 0.9), echo2 = echo + range(r, 0.6, 0.9), ph = r() * TAU, f = range(r, 44, 52);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr, u = t - 0.02;
+    const e = u < 0 ? 0 : smooth(u / 0.012) * Math.exp(-u / 0.18);
+    const boom = u < 0 ? 0 : Math.sin(ph + TAU * f * u) * smooth(u / 0.02) * Math.exp(-u / 0.35) * 0.18;
+    const re = swell(t, echo, 0.45) * 0.55 + swell(t, echo2, 0.6) * 0.25;
+    thump.run(N()); roll.run(N());
+    L[i] = thump.lp * kT * e + boom + roll.lp * kR * re;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  R.set(L);
+  seal({ L, R }, sr, 0.004, 0.6);
+  limit({ L, R }, 0.6);
+  return { sr, L, R };
+}
+
+/**
+ * A hull under way slides past: the bow wave's hiss swelling and falling (a band of noise that brightens as
+ * she comes abeam), a few bubbles in her wake, and the low slop of the wash. 2.4 s.
+ */
+export function* swish(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 2.4, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const hiss = new Svf(sr), slop = new Svf(sr), peakAt = range(r, 0.9, 1.2), f0 = range(r, 500, 700), f1 = range(r, 1500, 2100);
+  const kS = 0.2 / lpRms(160, sr);
+  slop.set(160, 0.7);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr, e = swell(t, peakAt, 0.55);
+    if ((i & 15) === 0) hiss.set(f0 * Math.pow(f1 / f0, e), 0.8);
+    hiss.run(N()); slop.run(N());
+    const v = hiss.bp * 0.16 * e + slop.lp * kS * 0.12 * swell(t, peakAt + 0.25, 0.7);
+    L[i] = v; R[i] = v;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  for (let k = 0, m = 4 + Math.floor(r() * 6); k < m; k++) {
+    const f = logRange(r, 500, 1800);
+    grain(L, R, sr, peakAt + range(r, 0, 0.9), f, range(r, 6, 12) / f, 0.01 + 0.02 * r(), 0, 0.3, r() * TAU);
+  }
+  seal({ L, R }, sr, 0.05, 0.3);
+  limit({ L, R }, 0.5);
+  return { sr, L, R };
+}
+
+/** Her canvas shakes once as she passes: three to five soft flogs of sailcloth, quickly dying. 0.9 s. */
+export function* flap(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 0.9, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const body = new Svf(sr), cloth = new Svf(sr);
+  body.set(range(r, 180, 320), 1.2); cloth.set(range(r, 900, 1400), 0.9);
+  const hits: number[] = [];
+  for (let t = 0.02, k = 0, m = 3 + Math.floor(r() * 3); k < m; k++, t += range(r, 0.09, 0.14)) hits.push(t);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    let e = 0;
+    for (let k = 0; k < hits.length; k++) { const u = t - hits[k]; if (u > 0) e += Math.pow(0.7, k) * smooth(u / 0.006) * Math.exp(-u / 0.035); }
+    const w = N() * e;
+    body.run(w); cloth.run(w);
+    const v = body.bp * 0.22 + cloth.bp * 0.06;
+    L[i] = v; R[i] = v;
+  }
+  yield;
+  seal({ L, R }, sr, 0.002, 0.2);
+  limit({ L, R }, 0.5);
+  return { sr, L, R };
+}
+
 export const SYNTHS: Record<ClipKind, (seed: number, sr: number) => Generator<void, Clip>> = {
   shore: (s, sr) => shoreWash(s, sr, { stone: (s & 3) === 3 }),
   lap,
@@ -941,6 +1321,19 @@ export const SYNTHS: Record<ClipKind, (seed: number, sr: number) => Generator<vo
   cicada,
   rustle,
   crunch,
+  mallet,
+  adze,
+  saw,
+  owl,
+  nightjar,
+  tolling,
+  unroll,
+  latch,
+  flick,
+  conch,
+  gun,
+  swish,
+  flap,
 };
 
 /** Run a synthesiser to completion (Node, tests). */

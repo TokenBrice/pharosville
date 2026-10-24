@@ -56,7 +56,7 @@ const boat = (over: Partial<Boat> = {}): Boat => ({
   id: "usdt", symbol: "USDT", name: "Tether", supply: 184.1e9, hullClass: "flagship", rig: "usd", pegType: "peggedUSD",
   brandColor: "#26a17b", logo: null, chainShares: [{ chain: "Tron", share: 0.51, usd: 93e9 }, { chain: "Ethereum", share: 0.4, usd: 73e9 }],
   circuit: [{ chain: "Tron", where: "pier-tron", share: 0.55, rawShare: 0.51 }, { chain: "Ethereum", where: "pier-ethereum", share: 0.45, rawShare: 0.4 }],
-  home: "pier-tron", pegDeviationBps: -8, activeDepeg: false, nullPeg: false, dews: "CALM", dewsScore: 15, grade: "A-", state: "circuit", ...over,
+  home: "pier-tron", pegDeviationBps: -8, activeDepeg: false, nullPeg: false, dews: "CALM", dewsScore: 15, grade: "A-", state: "circuit", maiden: false, stormSignal: null, ...over,
 });
 
 describe("facts", () => {
@@ -67,6 +67,7 @@ describe("facts", () => {
     expect(boatFact(boat(), whereabouts(2, "berth", "Ethereum", true))).toBe("USDT · $184.1B · out for a sail");
     expect(whereabouts(0, "berth", "Ethereum", true).kind).toBe("alongside");
     expect(boatFact(boat({ pegDeviationBps: -35, state: "shoals" }), whereabouts(5, "shoals", null))).toBe("USDT · $184.1B · on the Shoals −35 bps");
+    expect(boatFact(boat({ maiden: true }), whereabouts(0, "berth", "Tron"))).toBe("USDT · $184.1B · alongside Tron · dressed overall: new to the register this week");
   });
   it("explains the position from the data", () => {
     expect(whyHere(boat(), whereabouts(0, "berth", "Tron"))).toMatch(/circuit of 2 stops, Tron and Ethereum,.*longest at Tron, where 51% of its supply sits/);

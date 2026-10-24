@@ -5,14 +5,18 @@
  * the sim have advanced and before the composer renders, so DOM tags never lag the hulls.
  */
 import * as THREE from "three";
-import type { CameraPreset } from "../engine/camera-rig";
+import { glideSeconds, glideTravel, type CameraPreset } from "../engine/camera-rig";
 import type { Engine } from "../engine/engine";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { Boat, HarbourModel } from "../model/types";
 import { PANEL_LANDMARKS, whereabouts, type Whereabouts } from "./facts";
 import { UIPicking } from "./picking";
 import { inPoly, seaZones } from "./places";
-import { ensureMotionService, getLayout, getModel, getSim, sameHit, type MotionService, type PickHit, type PickingService } from "./services";
+import { idleBreath, rankWatch, WATCH_DWELL_S, type WatchCoin, type WatchStop } from "./watch";
+import { RouteLine } from "../fleet/route-line";
+import { landmarkHover } from "../world/landmark-hover";
+import { PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "../sim/sim";
+import { ensureMotionService, getFeed, getLayout, getModel, getSim, sameHit, type MotionService, type PickHit, type PickingService } from "./services";
 
 export interface UIState {
   model: HarbourModel | null;
@@ -24,6 +28,14 @@ export interface UIState {
   reducedMotion: boolean;
   /** Slow clock (1 Hz) for text that changes as boats sail. */
   tick: number;
+  /** The boat the camera is following (F), if any. */
+  follow: string | null;
+  /** The screen-reader live line for keyboard moves ([ / ] stepping, follow). */
+  announce: string;
+  /** A postcard frame is being taken: the overlay UI steps aside. */
+  capturing: boolean;
+  /** The harbourmaster's watch (W): the current stop's coin and why it is shown, or null. */
+  watch: { symbol: string; line: string } | null;
 }
 
 type FrameFn = (frame: FrameState) => void;
@@ -41,6 +53,23 @@ export const PANEL_CLEARANCE_PX = 392;
 /** Below this viewport width the panel is a bottom sheet (harbour-ui.css) of at most this share of the height. */
 export const SHEET_BELOW_PX = 900;
 export const SHEET_FRACTION = 0.5;
+
+/** Arrow / WASD pan speed (screen px/s) and the +/− zoom step. */
+const KEY_PAN_PX_S = 520;
+const KEY_ZOOM = 1.25;
+/** Follow spring stiffness (1/s): a critically damped spring lags about 2/ω ≈ 1.2 s behind a steady sail. */
+export const FOLLOW_OMEGA = 1.7;
+/** The watch frames each subject from this far (m). */
+const WATCH_DIST = 260;
+
+/** One step of a critically damped spring toward (gx, gz) (semi-implicit; stable for dt ≤ 0.1). */
+export function springStep(p: { x: number; z: number; vx: number; vz: number }, gx: number, gz: number, omega: number, dt: number): void {
+  const w2 = omega * omega, c = 2 * omega;
+  p.vx += (w2 * (gx - p.x) - c * p.vx) * dt;
+  p.vz += (w2 * (gz - p.z) - c * p.vz) * dt;
+  p.x += p.vx * dt;
+  p.z += p.vz * dt;
+}
 
 export class HarbourUIStore {
   private state: UIState;
@@ -63,6 +92,7 @@ export class HarbourUIStore {
   /** Where the pointer was first seen; hovering starts only once it has travelled from there. */
   private seen: { x: number; y: number } | null = null;
   private readonly cleanups: Array<() => void> = [];
+  private readonly route: RouteLine;
   /** The framing the visitor landed on: Home / double-click on open water flies back to it. */
   private readonly home: CameraPreset;
   private readonly devStale = import.meta.env.DEV ? new URLSearchParams(location.search).get("stale") : null;
@@ -80,10 +110,12 @@ export class HarbourUIStore {
     };
     this.state = {
       model: this.readModel(), hover: null, selected: null, searchOpen: false, ledgerOpen: false, chartMode: false,
-      reducedMotion: this.motion.reduced, tick: 0,
+      reducedMotion: this.motion.reduced, tick: 0, follow: null, announce: "", capturing: false, watch: null,
     };
-    this.cleanups.push(this.motion.subscribe((reduced) => this.set({ reducedMotion: reduced })));
+    this.cleanups.push(this.motion.subscribe((reduced) => { this.set({ reducedMotion: reduced }); if (reduced) this.setFollow(null); }));
     this.attachPointer(ctx.renderer.domElement);
+    this.route = new RouteLine(ctx, (id) => getSim(this.ctx)?.itineraryOf?.(id) ?? null);
+    this.cleanups.push(() => this.route.dispose());
     engine.add(this.system());
   }
 
@@ -120,13 +152,20 @@ export class HarbourUIStore {
     if (model !== this.state.model) this.set({ model });
     if (frame.nowMs - this.lastTick >= 1000) { this.lastTick = frame.nowMs; this.set({ tick: this.state.tick + 1 }); }
     // hover: re-pick on pointer motion, and every 120 ms while still (boats sail out from under it)
-    if (this.pointer.inside && !this.dragging && (this.pointer.dirty || frame.nowMs - this.lastPickAt > 120)) {
+    if (this.pointer.inside && !this.dragging && !this.state.capturing && !this.state.watch && (this.pointer.dirty || frame.nowMs - this.lastPickAt > 120)) {
       this.pointer.dirty = false;
       this.lastPickAt = frame.nowMs;
       const hit = this.picking.pick(this.pointer.x, this.pointer.y);
       this.setHover(hit);
     }
     try {
+      landmarkHover(this.ctx.uniforms).step(frame.delta, this.ctx.uniforms.uNight.value);
+      if (this.ctx.rig.inputEpoch !== this.seenEpoch) { this.seenEpoch = this.ctx.rig.inputEpoch; this.noteInput(); }
+      this.watchFrame(frame.delta);
+      this.breathFrame(frame.delta);
+      this.routeFrame(frame.delta);
+      this.keyPanFrame(frame.delta);
+      this.followFrame(frame.delta);
       for (const fn of this.frameFns) fn(frame);
       // All overlay reads/projections finish before the first style write.
       for (const fn of this.frameWrites) fn(frame);
@@ -171,6 +210,7 @@ export class HarbourUIStore {
         if (Math.hypot(e.clientX - this.seen.x, e.clientY - this.seen.y) < 6) return;
       }
       this.pointer.x = e.clientX; this.pointer.y = e.clientY; this.pointer.dirty = true; this.pointer.inside = true;
+      this.noteInput();
       if (this.down && Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y) > 5) {
         this.dragging = true;
         this.setHover(null);
@@ -178,6 +218,8 @@ export class HarbourUIStore {
     };
     const down = (e: PointerEvent) => {
       this.lastPointerType = e.pointerType;
+      this.noteInput();
+      if (this.state.watch) this.stopWatch();
       if (e.pointerType === "touch") { this.touchDown(e); return; }
       if (e.button === 0) this.down = { x: e.clientX, y: e.clientY, t: performance.now() };
     };
@@ -278,12 +320,15 @@ export class HarbourUIStore {
   }
 
   select(hit: PickHit | null, opts: { fly?: boolean } = {}): void {
+    if (this.state.watch) this.stopWatch();
+    if (!sameHit(hit, this.state.selected) || !hit) this.setFollow(null);
     this.picking.setSelected(hit);
+    this.route.show(hit?.kind === "boat" ? hit.id : null);
     this.set({ selected: hit, searchOpen: false });
     if (hit && opts.fly !== false) this.flyTo(hit);
   }
 
-  /** Damped camera flight (CameraRig goal), keeping the selection clear of the side panel. */
+  /** Camera flight (a minimum-jerk glide; a cut under reduced motion), keeping the selection clear of the side panel. */
   flyTo(hit: PickHit): void {
     const w = this.picking.worldPosition(hit);
     if (!w) return;
@@ -293,10 +338,20 @@ export class HarbourUIStore {
     // the Pharos stands ~100 m to its statue: aim at its middle so the beacon and its tag stay in frame
     const ty = hit.kind === "landmark" && hit.id === "pharos" ? 45 : 0;
     const dist = Math.min(Math.max(rig.distance, close * 0.75), close);
+    const [tx, tz] = this.framed(w[0], w[2], dist);
+    this.moveTo({
+      target: [tx, ty, tz], distance: dist, fovDeg: camera.fov,
+      pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
+    });
+  }
+
+  /** The rig target that frames a ground point clear of the side panel (or above the bottom sheet) at `dist`. */
+  private framed(x: number, z: number, dist: number): [number, number] {
+    const { rig, camera } = this.ctx;
     const vh = this.ctx.renderer.domElement.clientHeight || innerHeight;
     const vw = this.ctx.renderer.domElement.clientWidth || innerWidth;
     const perPx = (2 * dist * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / vh;
-    let tx = w[0], tz = w[2];
+    let tx = x, tz = z;
     if (vw >= SHEET_BELOW_PX) {
       // the side panel: aim right of the object so it sits in the clear left part; screen-right on the
       // ground plane is (cos yaw, 0, −sin yaw)
@@ -308,17 +363,287 @@ export class HarbourUIStore {
       const down = ((SHEET_FRACTION * vh) / 2) * perPx / Math.sin(rig.pitch);
       tx += Math.sin(rig.yaw) * down; tz += Math.cos(rig.yaw) * down;
     }
-    rig.applyPreset({
-      target: [tx, ty, tz], distance: dist, fovDeg: camera.fov,
-      pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
-    }, this.state.reducedMotion);
+    return [tx, tz];
   }
 
-  /** Fly back to the framing the visitor landed on. */
-  goHome(): void {
-    // the layout's landing framing for the current aspect (a tablet may have turned round since)
+  /** A programmatic camera move: a glide, or a cut under reduced motion. */
+  moveTo(p: CameraPreset, opts?: { ms?: number; lift?: number }): void {
+    if (this.state.reducedMotion) this.ctx.rig.applyPreset(p, true);
+    else this.ctx.rig.glideTo(p, opts);
+  }
+
+  /** The landing framing for the current aspect (a tablet may have turned round since). */
+  homeView(): CameraPreset {
     const fitted = this.ctx.services.get("home-view") as (() => CameraPreset) | undefined;
-    this.ctx.rig.applyPreset(fitted?.() ?? this.home, this.state.reducedMotion);
+    return fitted?.() ?? this.home;
+  }
+
+  /**
+   * Fly back to the framing the visitor landed on: an unhurried glide (at least 1.6 s, the crane lift
+   * on long hops). Already home, it answers with a breath: a 4 % push-in and back ("here you are").
+   */
+  goHome(): void {
+    this.setFollow(null);
+    const p = this.homeView(), rig = this.ctx.rig;
+    if (this.state.reducedMotion) { rig.applyPreset(p, true); return; }
+    const settled = !rig.gliding && Math.abs(rig.distance - p.distance) < 1
+      && Math.abs(rig.target.x - p.target[0]) < 1 && Math.abs(rig.target.z - p.target[2]) < 1;
+    if (settled) { rig.glideTo(p, { ms: 1600, lift: -0.04 }); return; }
+    const travel = glideTravel(rig.target.x, rig.target.z, rig.distance, p.target[0], p.target[2], p.distance);
+    rig.glideTo(p, { ms: Math.max(1600, glideSeconds(travel) * 1000) });
+  }
+
+  /** The selected boat's rounds on the water (fleet/route-line.ts). */
+  private routeFrame(dt: number): void {
+    const sel = this.state.selected, sim = getSim(this.ctx);
+    const i = sel?.kind === "boat" && sim ? sim.pose.ids.indexOf(sel.id) : -1;
+    const at: [number, number] | null = i >= 0 && sim ? [sim.pose.position[i * 3], sim.pose.position[i * 3 + 2]] : null;
+    this.route.update(dt, !this.ctx.rig.gliding, this.state.reducedMotion, at);
+  }
+
+  // ------------------------------------------------------------------ idle breath and the watch (W)
+
+  private lastInputAt = performance.now();
+  private seenEpoch = 0;
+  private readonly breathGoal = { k: 0, dx: 0, dz: 0 };
+
+  /** Any visitor input: the idle clock restarts (and a breath under way eases out). */
+  noteInput(): void { this.lastInputAt = performance.now(); }
+
+  /**
+   * Idle breath (12-M7a): after 3 min with no input and nothing open, the view breathes ±3 % and a few
+   * metres round where it rests over a 90 s sine; any input lets it ease back out. Render-only (the rig's
+   * breath offset): it never travels and never moves the goal. Still under reduced motion.
+   */
+  private breathFrame(dt: number): void {
+    const s = this.state, rig = this.ctx.rig;
+    const active = !s.reducedMotion && !s.selected && !s.follow && !s.watch && !s.searchOpen && !s.ledgerOpen && !rig.gliding;
+    const g = this.breathGoal;
+    if (active) idleBreath((performance.now() - this.lastInputAt) / 1000, g); else g.k = g.dx = g.dz = 0;
+    const b = rig.breath, k = s.reducedMotion ? 1 : 1 - Math.exp(-dt * 2.5);
+    b.k += (g.k - b.k) * k; b.dx += (g.dx - b.dx) * k; b.dz += (g.dz - b.dz) * k;
+    if (Math.abs(b.k) < 1e-5 && Math.abs(b.dx) < 1e-3 && Math.abs(b.dz) < 1e-3) b.k = b.dx = b.dz = 0;
+  }
+
+  private watchRun: { stops: WatchStop[]; i: number; dwell: number; epoch: number; spring: { x: number; z: number; vx: number; vz: number } } | null = null;
+
+  /** The coins as the watch ranks them: model fields plus the 24 h / 7 d supply buckets from the feed. */
+  private watchCoins(): WatchCoin[] {
+    const m = this.state.model;
+    if (!m) return [];
+    const feed = getFeed(this.ctx);
+    const assets = ((feed?.payloads as Record<string, { data?: { peggedAssets?: Array<Record<string, unknown>> } } | undefined> | undefined)?.stablecoins?.data?.peggedAssets) ?? [];
+    const sum = (o: unknown): number | null => (o && typeof o === "object" ? Object.values(o as Record<string, unknown>).reduce<number>((a, v) => a + (typeof v === "number" && Number.isFinite(v) ? v : 0), 0) : null);
+    const byId = new Map(assets.map((a) => [a.id as string, a]));
+    return m.boats.filter((b) => b.state !== "wrecked").map((b) => {
+      const a = byId.get(b.id);
+      return { id: b.id, symbol: b.symbol, supply: b.supply, activeDepeg: b.activeDepeg, pegDeviationBps: b.pegDeviationBps, prevDay: a ? sum(a.circulatingPrevDay) : null, prevWeek: a ? sum(a.circulatingPrevWeek) : null };
+    });
+  }
+
+  toggleWatch(): void { if (this.state.watch) this.stopWatch(); else this.startWatch(); }
+
+  /** W: glide between the day's data-ranked subjects, ~20 s at each, pinning the hover tag. Opt-in only. */
+  startWatch(): void {
+    const stops = rankWatch(this.watchCoins());
+    if (!stops.length) { this.set({ announce: "Nothing notable to watch right now." }); return; }
+    if (this.state.selected) this.select(null);
+    this.setFollow(null);
+    const rig = this.ctx.rig;
+    this.watchRun = { stops, i: -1, dwell: 0, epoch: rig.inputEpoch, spring: { x: rig.target.x, z: rig.target.z, vx: 0, vz: 0 } };
+    this.watchNext();
+  }
+
+  stopWatch(): void {
+    if (!this.watchRun) return;
+    this.watchRun = null;
+    this.setHover(null);
+    this.set({ watch: null, announce: "Watch ended." });
+  }
+
+  private watchNext(): void {
+    const w = this.watchRun;
+    if (!w) return;
+    w.i = (w.i + 1) % w.stops.length;
+    w.dwell = 0;
+    const stop = w.stops[w.i], b = this.boat(stop.id);
+    const pos = this.picking.worldPosition({ kind: "boat", id: stop.id });
+    if (!b || !pos) { this.stopWatch(); return; }
+    const { rig, camera } = this.ctx;
+    this.moveTo({
+      target: [pos[0], 0, pos[2]], distance: THREE.MathUtils.clamp(WATCH_DIST, rig.minDistance, rig.maxDistance), fovDeg: camera.fov,
+      pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
+    });
+    const hit: PickHit = { kind: "boat", id: stop.id };
+    this.picking.setHover(hit);
+    this.set({ hover: hit, watch: { symbol: b.symbol, line: stop.line }, announce: `Watch: ${b.symbol}, ${stop.line}.` });
+  }
+
+  private watchFrame(dt: number): void {
+    const w = this.watchRun, rig = this.ctx.rig;
+    if (!w) return;
+    if (rig.inputEpoch !== w.epoch) { this.stopWatch(); return; }
+    if (rig.gliding) { Object.assign(w.spring, { x: rig.target.x, z: rig.target.z, vx: 0, vz: 0 }); return; }
+    w.dwell += dt;
+    if (w.dwell >= WATCH_DWELL_S) { this.watchNext(); return; }
+    // keep her in view while she sails (the follow spring, no panel to clear)
+    if (this.state.reducedMotion) return;
+    const p = this.picking.worldPosition({ kind: "boat", id: w.stops[w.i].id });
+    if (!p) return;
+    springStep(w.spring, p[0], p[2], FOLLOW_OMEGA, dt);
+    rig.steer(w.spring.x, w.spring.z);
+  }
+
+  // ------------------------------------------------------------------ postcard (P)
+
+  private readonly postcardFns = new Set<() => void>();
+  onPostcard(fn: () => void): () => void { this.postcardFns.add(fn); return () => this.postcardFns.delete(fn); }
+  requestPostcard(): void { for (const fn of this.postcardFns) fn(); }
+
+  /**
+   * The next rendered frame, copied at display resolution. The overlay UI and the hover step aside for
+   * it (`capturing`); the copy is taken in a rAF callback queued after the engine's own, so the drawing
+   * buffer still holds the frame just rendered (no preserveDrawingBuffer needed).
+   */
+  async captureFrame(): Promise<HTMLCanvasElement> {
+    this.setHover(null);
+    this.set({ capturing: true });
+    try {
+      // let the hover lift fade from the hulls (~250 ms) before the shutter
+      await new Promise((r) => setTimeout(r, 320));
+      return await new Promise<HTMLCanvasElement>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const src = this.ctx.renderer.domElement;
+        const c = document.createElement("canvas");
+        c.width = src.width; c.height = src.height;
+        c.getContext("2d")!.drawImage(src, 0, 0);
+        resolve(c);
+      })));
+    } finally { this.set({ capturing: false }); }
+  }
+
+  // ------------------------------------------------------------------ keyboard camera
+
+  private readonly keyDirs = new Set<string>();
+  private readonly keyVel = { x: 0, y: 0 };
+
+  /** Arrows / WASD held: pan at a steady screen speed, eased in and out (one pan per frame). */
+  keyPan(dir: "up" | "down" | "left" | "right", held: boolean): void {
+    if (held) this.keyDirs.add(dir); else this.keyDirs.delete(dir);
+  }
+
+  private keyPanFrame(dt: number): void {
+    const d = this.keyDirs, v = this.keyVel;
+    const tx = (d.has("left") ? 1 : 0) - (d.has("right") ? 1 : 0);
+    const ty = (d.has("up") ? 1 : 0) - (d.has("down") ? 1 : 0);
+    if (!tx && !ty && Math.abs(v.x) < 1 && Math.abs(v.y) < 1) { v.x = v.y = 0; return; }
+    const k = this.state.reducedMotion ? 1 : 1 - Math.exp(-dt * 8);
+    v.x += (tx * KEY_PAN_PX_S - v.x) * k; v.y += (ty * KEY_PAN_PX_S - v.y) * k;
+    const vh = this.ctx.renderer.domElement.clientHeight || innerHeight;
+    const [wx, wz] = this.ctx.rig.dragToWorld(v.x * dt, v.y * dt, vh);
+    this.ctx.rig.pan(wx, wz);
+  }
+
+  /** + / −: a short glide in or out by one step (counts as a user zoom: follow and watch let go). */
+  keyZoom(dir: 1 | -1): void {
+    const rig = this.ctx.rig;
+    rig.inputEpoch++;
+    const p = this.currentGoal();
+    p.distance = THREE.MathUtils.clamp(p.distance * (dir > 0 ? 1 / KEY_ZOOM : KEY_ZOOM), rig.minDistance, rig.maxDistance);
+    this.moveTo(p, { ms: 700 });
+  }
+
+  /** The rig's pose as a preset (where it is now). */
+  private currentGoal(): CameraPreset {
+    const { rig, camera } = this.ctx;
+    return {
+      target: [rig.target.x, rig.target.y, rig.target.z], distance: rig.distance, fovDeg: camera.fov,
+      pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
+    };
+  }
+
+  private stepList: string[] = [];
+  private stepAt = 0;
+  private stepEpoch = -1;
+
+  /**
+   * [ / ]: step through the hulls in view, largest first. The list is taken on the first press and kept
+   * while the visitor keeps stepping (the camera moves with each step); a pan, zoom or a pause of 15 s
+   * takes a fresh one.
+   */
+  stepHull(dir: 1 | -1): void {
+    const now = performance.now(), rig = this.ctx.rig;
+    if (!this.stepList.length || now - this.stepAt > 15000 || rig.inputEpoch !== this.stepEpoch) this.stepList = this.hullsInView();
+    this.stepAt = now;
+    this.stepEpoch = rig.inputEpoch;
+    const list = this.stepList;
+    if (!list.length) { this.set({ announce: "No ships in view." }); return; }
+    const cur = this.state.selected?.kind === "boat" ? list.indexOf(this.state.selected.id) : -1;
+    const i = cur < 0 ? (dir > 0 ? 0 : list.length - 1) : (cur + dir + list.length) % list.length;
+    const b = this.boat(list[i]);
+    this.select({ kind: "boat", id: list[i] });
+    if (b) this.set({ announce: `${b.symbol}, ${i + 1} of ${list.length} in view.` });
+  }
+
+  /** Boats whose hull is on screen and not hidden behind the island, biggest supply first. */
+  hullsInView(): string[] {
+    const sim = getSim(this.ctx);
+    if (!sim) return [];
+    const cam = this.ctx.camera;
+    cam.updateMatrixWorld();
+    const v = new THREE.Vector3(), out: Array<{ id: string; s: number }> = [];
+    for (let i = 0; i < sim.pose.count; i++) {
+      v.set(sim.pose.position[i * 3], 1, sim.pose.position[i * 3 + 2]).project(cam);
+      if (v.z >= 1 || Math.abs(v.x) > 0.95 || Math.abs(v.y) > 0.95) continue;
+      const id = sim.pose.ids[i];
+      if (this.picking.hidden(id)) continue;
+      out.push({ id, s: this.boat(id)?.supply ?? 0 });
+    }
+    return out.sort((a, b) => b.s - a.s).map((o) => o.id);
+  }
+
+  // ------------------------------------------------------------------ follow (F)
+
+  private readonly fol = { x: 0, z: 0, vx: 0, vz: 0, epoch: 0, still: 0 };
+
+  /** Start or stop following a boat. Hidden under reduced motion (the world is still). */
+  setFollow(id: string | null): void {
+    if (id && this.state.reducedMotion) return;
+    if (id === this.state.follow) return;
+    if (id) {
+      const rig = this.ctx.rig;
+      Object.assign(this.fol, { x: rig.target.x, z: rig.target.z, vx: 0, vz: 0, epoch: rig.inputEpoch, still: 0 });
+    }
+    const b = id ? this.boat(id) : null;
+    this.set({ follow: id, announce: b ? `Following ${b.symbol}.` : this.state.follow ? "Stopped following." : this.state.announce });
+  }
+
+  toggleFollow(): void {
+    const sel = this.state.selected;
+    if (this.state.follow) this.setFollow(null);
+    else if (sel?.kind === "boat") this.setFollow(sel.id);
+  }
+
+  /**
+   * A critically damped spring (ω = FOLLOW_OMEGA, ~1.2 s lag) toward the boat's framed point, so heel
+   * and bob never shake the view. Any pan or zoom lets go; so does a boat that has lain still at a
+   * berth for 2 s (the view settles there).
+   */
+  private followFrame(dt: number): void {
+    const id = this.state.follow;
+    if (!id || dt <= 0) return;
+    const rig = this.ctx.rig, f = this.fol;
+    if (rig.inputEpoch !== f.epoch) { this.setFollow(null); return; }
+    const sim = getSim(this.ctx);
+    const i = sim ? sim.pose.ids.indexOf(id) : -1;
+    if (!sim || i < 0) { this.setFollow(null); return; }
+    const ph = sim.pose.phase[i];
+    f.still = ph === PH_SAILING || ph === PH_CASTING_OFF || ph === PH_APPROACHING ? 0 : f.still + dt;
+    if (f.still > 2) { this.setFollow(null); return; }
+    // let a fly-to land first; the spring picks up from wherever the camera is
+    if (rig.gliding) { Object.assign(f, { x: rig.target.x, z: rig.target.z, vx: 0, vz: 0 }); return; }
+    const [gx, gz] = this.framed(sim.pose.position[i * 3], sim.pose.position[i * 3 + 2], rig.distance);
+    springStep(f, gx, gz, FOLLOW_OMEGA, dt);
+    rig.steer(f.x, f.z);
   }
 
   // ------------------------------------------------------------------ reads

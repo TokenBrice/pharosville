@@ -7,13 +7,14 @@ import { preloadDetails } from "./details";
 
 const { imported, state } = vi.hoisted(() => ({
   imported: vi.fn(),
-  state: { model: null, hover: null, selected: null, searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: false, tick: 0 },
+  state: { model: null, hover: null, selected: null, searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: false, tick: 0, follow: null, announce: "", capturing: false, watch: null },
 }));
 vi.mock("./ChartLabels", () => ({ ChartLabels: () => null }));
 vi.mock("./HoverTag", () => ({ HoverTag: () => null }));
+vi.mock("./Postcard", () => ({ Postcard: () => null }));
 vi.mock("./CornerMark", () => ({ CornerMark: () => <button className="hb-mark-btn">PharosVille</button> }));
 vi.mock("./hooks", () => ({
-  useStore: () => ({ getSnapshot: () => state, set: vi.fn(), select: vi.fn() }),
+  useStore: () => ({ getSnapshot: () => state, set: vi.fn(), select: vi.fn(), noteInput: vi.fn(), stopWatch: vi.fn() }),
   useUISlice: (select: (s: UIState) => unknown) => select(state),
 }));
 vi.mock("./DetailPanels", () => {

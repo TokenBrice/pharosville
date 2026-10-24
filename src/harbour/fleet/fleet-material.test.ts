@@ -17,7 +17,7 @@ describe("fleet material atlas/season ownership", () => {
     const system = new FleetSystem() as unknown as FleetHarness;
     const fleet = system.uniforms;
     const world = {} as WorldUniforms;
-    const { material, depth } = createFleetMaterials({ kit: () => kit } as HarbourMaterials, world, fleet);
+    const { material, depth } = createFleetMaterials({ kit: () => kit, kitKey: () => "", track: () => undefined } as unknown as HarbourMaterials, world, fleet);
     const key = material.customProgramCacheKey(), depthKey = depth.customProgramCacheKey();
     // Three's callback type also carries renderer internals unused by this source-only hook.
     const shader = { ...THREE.ShaderLib.standard, uniforms: {} } as THREE.WebGLProgramParametersWithUniforms;
@@ -35,7 +35,8 @@ describe("fleet material atlas/season ownership", () => {
     const depthShader = { ...THREE.ShaderLib.depth, uniforms: {} } as THREE.WebGLProgramParametersWithUniforms;
     depth.onBeforeCompile(depthShader, {} as THREE.WebGLRenderer);
     expect(depthShader.uniforms.uFleetPaint).toBe(fleet.uFleetPaint);
-    expect(depthShader.vertexShader).toContain("hbFleetPhase(idx) * 1.7");
+    expect(depthShader.vertexShader).toContain("float phase = hbFleetPhase(idx)");
+    expect(depthShader.vertexShader).toContain("phase * 1.7");
     expect(depthShader.vertexShader).not.toContain("float(idx) * 1.7");
     season = "bare";
     expect(material.customProgramCacheKey()).not.toBe(key);

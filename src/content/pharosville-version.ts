@@ -39,6 +39,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   terracottaAndBronze: "v1.2.0",
   canvasUp: "v1.2.1",
   fairWind: "v1.3.0",
+  livingHarbour: "v1.4.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.fairWind;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.livingHarbour;

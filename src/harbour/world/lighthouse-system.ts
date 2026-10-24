@@ -4,8 +4,10 @@ import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import { PharosFire } from "../beam/fire";
+import { getBeamUniforms, type BeamUniforms } from "../beam/uniforms";
 import type { GroundService } from "./ground";
 import { getHarbourMaterials } from "./materials";
+import { getLightsStore, type LightsService } from "../lights/lights-service";
 
 export const LIGHTHOUSE_URL = "/harbour/lighthouse.glb";
 
@@ -67,6 +69,13 @@ export class LighthouseSystem implements WorldSystem {
   private readonly position = new THREE.Vector3();
   private readonly lantern = new THREE.Vector3();
   private readonly tmp = new THREE.Vector3();
+  private bu: BeamUniforms | null = null;
+  /** 05-P4 the banked fire: the mirror's resting heading, its authored tilt, the keeper's vigil lamp. */
+  private restH: number | null = null;
+  private mirrorTilt0 = 0;
+  private vigil = -1;
+  private vigilOn = false;
+  private emberT = 0;
 
   async init(ctx: EngineContext): Promise<void> {
     // the fire's light joins the scene before the first frame, so no material recompiles when the tower lands
@@ -97,14 +106,22 @@ export class LighthouseSystem implements WorldSystem {
     root.updateMatrixWorld(true);
     this.root = root;
     this.position.set(x, y, z);
+    this.bu = getBeamUniforms(ctx);
+    this.bu.uPharosAxis.value.set(x, y, z, 0);
 
     const node = (n: string) => root.getObjectByName(n);
     this.mirror = node("mirror") ?? null;
+    this.mirrorTilt0 = this.mirror?.rotation.x ?? 0;
     const at = (n: string, fallbackY: number) => {
       const o = node(n);
       return o ? o.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(x, y + fallbackY, z);
     };
     this.lantern.copy(at("lantern", 88));
+    // the keeper's vigil lamp (05-P4): a cool pinprick low in the lantern, lit only while the fire is banked
+    const lights = getLightsStore(ctx);
+    // on a hook beside the brazier, on the side the overview looks from (+x, +z)
+    this.vigil = lights.add("vigil", [this.lantern.x + 1.8, this.lantern.y + 1.1, this.lantern.z + 2.4]);
+    lights.setOn(this.vigil, false);
     this.statueAt.copy(at("smoke_emitter", 96));
 
     // ember bed + polished mirror: own materials (the port leaves unknown names alone)
@@ -132,6 +149,7 @@ export class LighthouseSystem implements WorldSystem {
 
     this.fx = acquireFxTextures(ctx);
     this.fire = new PharosFire(at("fire_emitter", 87.5), at("smoke_emitter", 96), this.lantern, this.fx.noise, this.light);
+    this.fire.bindBeam(getBeamUniforms(ctx));
     ctx.scene.add(this.fire.group);
   }
 
@@ -156,15 +174,30 @@ export class LighthouseSystem implements WorldSystem {
     this.phase = this.held != null ? (((this.held / (Math.PI * 2)) % 1) + 1) % 1 : (this.phase + frame.delta / this.period) % 1;
     const h = this.phase * Math.PI * 2;
     if (!this.root) return;
+    // banked (05-P4): the PSI is unlit (only ever set by the readings binder after the PSI was tried, so the
+    // boot SYNCING state keeps its lit default): the mirror comes to rest, turned down, and stops sweeping
+    const banked = 1 - this.level;
+    if (banked > 0.02 && this.restH == null) this.restH = h;
+    else if (banked <= 0.02) this.restH = null;
+    const mh = this.restH == null ? h : h + banked * Math.atan2(Math.sin(this.restH - h), Math.cos(this.restH - h));
     // the mirror throws the beam along world heading h (its node sits under the tower's own rotation)
-    if (this.mirror) this.mirror.rotation.y = h - this.root.rotation.y;
+    if (this.mirror) {
+      this.mirror.rotation.y = mh - this.root.rotation.y;
+      this.mirror.rotation.x = this.mirrorTilt0 + 0.3 * banked;
+    }
+    const lightsSvc = ctx.services.get("lights") as LightsService | undefined;
+    const vigilOn = banked > 0.6;
+    if (lightsSvc && this.vigil >= 0 && vigilOn !== this.vigilOn) { this.vigilOn = vigilOn; lightsSvc.setOn(this.vigil, vigilOn); }
 
     const life = ctx.services.get("life") as LifeLike | undefined;
     const reduced = (ctx.services.get("motion") as MotionLike | undefined)?.reduced ?? false;
     const night = ctx.uniforms.uNight.value;
+    // arrival kindling (camera lane, via the beam service): the fire grows to its true level
+    const intro = (ctx.services.get("beam") as { introScale?: number } | undefined)?.introScale ?? 1;
+    const level = this.level * intro;
     if (this.fire) {
       const vh = ctx.renderer.domElement.height || 1000;
-      this.fire.update(frame.delta, { level: this.level, lamp: this.lampCol, windTo: life?.windTo ?? [0.84, -0.54], wind: life?.wind ?? 0.35, reduced }, ctx.uniforms, ctx.camera, vh);
+      this.fire.update(frame.delta, { level, banked, lamp: this.lampCol, windTo: life?.windTo ?? [0.84, -0.54], wind: life?.wind ?? 0.35, reduced }, ctx.uniforms, ctx.camera, vh);
     }
     const fl = this.fire?.flicker ?? 1;
     const tint = this.tmp.set(this.lampCol.r / STEADY_LAMP.r, this.lampCol.g / STEADY_LAMP.g, this.lampCol.b / STEADY_LAMP.b);
@@ -174,9 +207,23 @@ export class LighthouseSystem implements WorldSystem {
       const dx = cam.x - this.statueAt.x, dz = cam.z - this.statueAt.z, l = Math.hypot(dx, dz) || 1;
       this.upLight.position.set(this.statueAt.x + (dx / l) * 5.5, this.statueAt.y + 0.5, this.statueAt.z + (dz / l) * 5.5);
       this.upLight.color.setRGB(1.0, 0.58 * tint.y, 0.24 * tint.z);
-      this.upLight.intensity = this.level * fl * 60 * night;
+      this.upLight.intensity = level * fl * 60 * night;
     }
-    if (this.ember) this.ember.color.setRGB(3 * tint.x, 0.85 * tint.y, 0.14 * tint.z).multiplyScalar(this.level * fl * (0.6 + 0.6 * night));
+    if (this.ember) {
+      this.ember.color.setRGB(3 * tint.x, 0.85 * tint.y, 0.14 * tint.z).multiplyScalar(level * fl * (0.6 + 0.6 * night));
+      // the banked ember bed: a dull brown-grey glow with a whisper of warmth (never the red alarm hue),
+      // breathing slowly; reduced motion holds it
+      if (!reduced) this.emberT += frame.delta;
+      const breathe = reduced ? 1 : 0.85 + 0.15 * Math.sin(this.emberT * 0.9);
+      const eb = banked * breathe * (0.35 + 0.65 * night);
+      this.ember.color.r += 0.13 * eb; this.ember.color.g += 0.07 * eb; this.ember.color.b += 0.045 * eb;
+    }
+    // 05-P5 firelight down the tower, triton and Helios flares (kit shader, beam-light-glsl.ts hbPharosFire)
+    if (this.bu) {
+      this.bu.uPharosFire.value.set(1.0 * tint.x, 0.6 * tint.y, 0.26 * tint.z, THREE.MathUtils.smoothstep(night, 0.15, 0.8));
+      const k = level * fl;
+      this.bu.uPharosFire.value.x *= k; this.bu.uPharosFire.value.y *= k; this.bu.uPharosFire.value.z *= k;
+    }
 
     // the mirror: it glows with the fire it gathers, and flashes when it swings to face the viewer (the
     // day read of the rhythm: a sun glint once per revolution)
@@ -188,7 +235,7 @@ export class LighthouseSystem implements WorldSystem {
       const glint = Math.pow(facing, 24);
       this.mirrorMat.emissive.setRGB(1.0, 0.45 * tint.y, 0.14 * tint.z);
       // polished bronze catching the fire (warm, flickering), not a lit white disc
-      this.mirrorMat.emissiveIntensity = this.level * (fl * fl * (0.15 + 0.5 * night) + glint * (6 + 6 * (1 - night)));
+      this.mirrorMat.emissiveIntensity = level * (fl * fl * (0.15 + 0.5 * night) + glint * (6 + 6 * (1 - night)));
     }
   }
 

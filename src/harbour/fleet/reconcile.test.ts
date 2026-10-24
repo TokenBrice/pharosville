@@ -31,7 +31,7 @@ afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
 const coin = (id: string, patch: Partial<Boat> = {}): Boat => ({
   id, name: id, symbol: id.toUpperCase(), supply: 1000, hullClass: "boat", rig: "usd", pegType: "peggedUSD",
   brandColor: "#5588AA", logo: null, chainShares: [], circuit: [], home: "far", pegDeviationBps: 0,
-  activeDepeg: false, nullPeg: false, dews: "CALM", dewsScore: 0, grade: null, state: "moored", ...patch,
+  activeDepeg: false, nullPeg: false, dews: "CALM", dewsScore: 0, grade: null, state: "moored", maiden: false, stormSignal: null, ...patch,
 });
 function model(boats: Boat[], wrecks: HarbourModel["readings"]["wrecks"] = []): HarbourModel {
   return { boats, hasFleet: true, readings: { wrecks } } as HarbourModel;
@@ -41,6 +41,7 @@ function fixture() {
   const variant = (id: string, family: string, cls: string, loa: number): HullVariant => ({
     id, family, cls, loa, beam: 2, full: geometry, lod: geometry, top: 8,
     bowCleat: new THREE.Vector3(4, 1, 0), sternCleat: new THREE.Vector3(-4, 1, 0), masthead: new THREE.Vector3(0, 8, 0),
+    sternLantern: new THREE.Vector3(-4, 2, 0), oars: false,
   });
   const usd = variant("usd_boat", "usd", "boat", 10), eur = variant("eur_large", "eur", "large", 18);
   const kit: Kit = {

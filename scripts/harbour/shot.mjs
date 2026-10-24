@@ -36,6 +36,8 @@
  *   world frame, as seen by a rAF poll), the engine's own `firstFrameMs` (engine construction -> first frame),
  *   the Navigation Timing marks (ttfb, domContentLoaded, load), and `wireBytes` / `wireBytesAtFirstFrame`
  *   (CDP encodedDataLength summed over the page target: on-the-wire bytes incl. headers; cache hits count ~0).
+ *     [--human]             do not report automation (navigator.webdriver stays false): the arrival drift-in and
+ *                           intro card play as for a visitor. By default captures report it, so they skip both.
  *     [--init-script "js"] page.addInitScript before navigation (observers for --eval to read back)
  *     [--init-script-file path] read a large init script from disk (e.g. embedded immutable API snapshot)
  *     [--profile f.cpuprofile] V8 CPU profile (Profiler domain) of the main thread, navigation -> first frame + --wait;
@@ -211,6 +213,11 @@ if (args["log-requests"]) {
 // --init-script "js": runs in the page before any of its own scripts (page.addInitScript), e.g. to install a
 // MutationObserver / PerformanceObserver whose results a later --eval reads back
 if (args["init-script"]) await page.addInitScript(String(args["init-script"]));
+// The shared browser is a normal Chrome driven over CDP, so navigator.webdriver reads false and the page would
+// play its first-visit theatre (the arrival drift-in with the fire kindling, the intro card) into the capture.
+// Report the automation so captures are deterministic; `--human` keeps the visitor's arrival (or force it per
+// page with ?wake=1 / ?intro=1).
+if (!args.human) await page.addInitScript(() => { Object.defineProperty(Navigator.prototype, "webdriver", { get: () => true, configurable: true }); });
 if (args["init-script-file"]) await page.addInitScript({ path: resolve(args["init-script-file"]) });
 if (args["warm-seed"]) {
   await page.goto(url, { waitUntil: "load", timeout: Number(args["ready-timeout"] ?? 60) * 1000 });

@@ -27,7 +27,7 @@
   "ranges": "swing 0.25..0.9 rad (close-hauled..running), heel 0.08..0.2 rad. Docked: furl 1, swing 0, heel 0. Square sails (sail_main on the ship, sail_extra) do not swing: yards are braced 30 deg in the model.",
   "groups": "boom (boom_spar, gaff, sail_main|sail_spanker, sail_cover) and boom_2 (boom_2_spar, gaff_2, sail_2, sail_cover_2) are empty pivots at the gooseneck; rotate/mirror the pivot, never the children."
  },
- "anchors": "bow_cleat / stern_cleat: mooring-line ends; masthead_light: riding light; wake_origin: stern on the waterline (not heeled); mooring_buoy.ring: buoy line end; dinghy.bow_cleat: painter.",
+ "anchors": "bow_cleat / stern_cleat: mooring-line ends; masthead_light: riding light; wake_origin: stern on the waterline (not heeled); stern_lantern: the stern lantern's glass centre (stern / moored riding light); mooring_buoy.ring: buoy line end; dinghy.bow_cleat: painter.",
  "lod": "<id>_lod.glb: single mesh \"lod\" (hb_opaque, _BRAND boot + cover strip, morph furl collapses the sails), <= 150 tris.",
  "hulls": [
   {
@@ -39,8 +39,8 @@
    "loa_m": 5.0,
    "beam_m": 1.9,
    "freeboard_m": 0.65,
-   "tris": 434,
-   "budget": 450,
+   "tris": 454,
+   "budget": 470,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -88,7 +88,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 40
+     "tris": 52
     },
     {
      "name": "flag",
@@ -185,6 +185,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -2.28,
+      1.688,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -208,7 +229,7 @@
    ],
    "class": "skiff",
    "lod": "hull_usd_fisher_skiff_lod.glb",
-   "kb": 27.1
+   "kb": 29.2
   },
   {
    "id": "usd_coaster_boat",
@@ -219,8 +240,8 @@
    "loa_m": 7.5,
    "beam_m": 2.48,
    "freeboard_m": 0.9,
-   "tris": 670,
-   "budget": 700,
+   "tris": 690,
+   "budget": 720,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -268,7 +289,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 108
+     "tris": 120
     },
     {
      "name": "flag",
@@ -365,6 +386,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -3.42,
+      2.258,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -388,7 +430,7 @@
    ],
    "class": "boat",
    "lod": "hull_usd_coaster_boat_lod.glb",
-   "kb": 32.9
+   "kb": 35.0
   },
   {
    "id": "usd_coaster_small",
@@ -399,8 +441,8 @@
    "loa_m": 10.0,
    "beam_m": 3.3,
    "freeboard_m": 1.2,
-   "tris": 666,
-   "budget": 700,
+   "tris": 686,
+   "budget": 720,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -448,7 +490,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 108
+     "tris": 120
     },
     {
      "name": "flag",
@@ -545,6 +587,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -4.56,
+      2.801,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -568,7 +631,7 @@
    ],
    "class": "small",
    "lod": "hull_usd_coaster_small_lod.glb",
-   "kb": 32.7
+   "kb": 34.8
   },
   {
    "id": "usd_corbita_medium",
@@ -579,8 +642,8 @@
    "loa_m": 13.0,
    "beam_m": 3.9,
    "freeboard_m": 1.5,
-   "tris": 862,
-   "budget": 900,
+   "tris": 882,
+   "budget": 920,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -628,7 +691,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 118
+     "tris": 130
     },
     {
      "name": "flag",
@@ -725,6 +788,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -5.928,
+      3.445,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -748,7 +832,7 @@
    ],
    "class": "medium",
    "lod": "hull_usd_corbita_medium_lod.glb",
-   "kb": 37.5
+   "kb": 39.6
   },
   {
    "id": "usd_merchant_large",
@@ -759,8 +843,8 @@
    "loa_m": 18.0,
    "beam_m": 5.22,
    "freeboard_m": 2.07,
-   "tris": 952,
-   "budget": 1400,
+   "tris": 972,
+   "budget": 1420,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -808,7 +892,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 118
+     "tris": 130
     },
     {
      "name": "flag",
@@ -919,6 +1003,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -8.208,
+      4.492,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -942,7 +1047,7 @@
    ],
    "class": "large",
    "lod": "hull_usd_merchant_large_lod.glb",
-   "kb": 42.8
+   "kb": 44.9
   },
   {
    "id": "usd_grain_flagship",
@@ -953,8 +1058,8 @@
    "loa_m": 30.0,
    "beam_m": 8.1,
    "freeboard_m": 3.6,
-   "tris": 1180,
-   "budget": 2500,
+   "tris": 1200,
+   "budget": 2520,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -1002,7 +1107,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 242
+     "tris": 254
     },
     {
      "name": "flag",
@@ -1113,6 +1218,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -13.68,
+      7.141,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -1136,7 +1262,7 @@
    ],
    "class": "flagship",
    "lod": "hull_usd_grain_flagship_lod.glb",
-   "kb": 47.4
+   "kb": 49.4
   },
   {
    "id": "eur_greek_boat",
@@ -1147,8 +1273,8 @@
    "loa_m": 7.5,
    "beam_m": 2.33,
    "freeboard_m": 0.86,
-   "tris": 664,
-   "budget": 700,
+   "tris": 684,
+   "budget": 720,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -1196,7 +1322,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 132
+     "tris": 144
     },
     {
      "name": "flag",
@@ -1293,6 +1419,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -3.42,
+      2.241,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -1316,7 +1463,7 @@
    ],
    "class": "boat",
    "lod": "hull_eur_greek_boat_lod.glb",
-   "kb": 32.5
+   "kb": 34.6
   },
   {
    "id": "eur_greek_small",
@@ -1327,8 +1474,8 @@
    "loa_m": 10.0,
    "beam_m": 3.1,
    "freeboard_m": 1.15,
-   "tris": 660,
-   "budget": 700,
+   "tris": 680,
+   "budget": 720,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -1376,7 +1523,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 132
+     "tris": 144
     },
     {
      "name": "flag",
@@ -1473,6 +1620,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -4.56,
+      2.778,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -1496,7 +1664,7 @@
    ],
    "class": "small",
    "lod": "hull_eur_greek_small_lod.glb",
-   "kb": 32.2
+   "kb": 34.3
   },
   {
    "id": "eur_greek_medium",
@@ -1507,8 +1675,8 @@
    "loa_m": 13.0,
    "beam_m": 4.03,
    "freeboard_m": 1.5,
-   "tris": 840,
-   "budget": 900,
+   "tris": 860,
+   "budget": 920,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -1556,7 +1724,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 132
+     "tris": 144
     },
     {
      "name": "flag",
@@ -1653,6 +1821,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -5.928,
+      3.422,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -1676,7 +1865,7 @@
    ],
    "class": "medium",
    "lod": "hull_eur_greek_medium_lod.glb",
-   "kb": 36.8
+   "kb": 38.9
   },
   {
    "id": "eur_greek_large",
@@ -1687,8 +1876,8 @@
    "loa_m": 18.0,
    "beam_m": 5.58,
    "freeboard_m": 2.07,
-   "tris": 924,
-   "budget": 1400,
+   "tris": 944,
+   "budget": 1420,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -1736,7 +1925,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 132
+     "tris": 144
     },
     {
      "name": "flag",
@@ -1833,6 +2022,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -8.208,
+      4.496,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -1856,7 +2066,7 @@
    ],
    "class": "large",
    "lod": "hull_eur_greek_large_lod.glb",
-   "kb": 38.9
+   "kb": 40.9
   },
   {
    "id": "gold_bireme_medium",
@@ -1867,8 +2077,8 @@
    "loa_m": 13.0,
    "beam_m": 1.82,
    "freeboard_m": 0.97,
-   "tris": 888,
-   "budget": 900,
+   "tris": 908,
+   "budget": 920,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -1916,7 +2126,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 76
+     "tris": 88
     },
     {
      "name": "flag",
@@ -2027,6 +2237,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -5.928,
+      2.86,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -2050,7 +2281,7 @@
    ],
    "class": "medium",
    "lod": "hull_gold_bireme_medium_lod.glb",
-   "kb": 39.9
+   "kb": 42.0
   },
   {
    "id": "gold_trireme_large",
@@ -2061,8 +2292,8 @@
    "loa_m": 18.0,
    "beam_m": 2.52,
    "freeboard_m": 1.35,
-   "tris": 1284,
-   "budget": 1400,
+   "tris": 1304,
+   "budget": 1420,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -2110,7 +2341,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 76
+     "tris": 88
     },
     {
      "name": "flag",
@@ -2221,6 +2452,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -8.208,
+      3.718,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -2244,7 +2496,7 @@
    ],
    "class": "large",
    "lod": "hull_gold_trireme_large_lod.glb",
-   "kb": 49.5
+   "kb": 51.6
   },
   {
    "id": "fiat_hippos_boat",
@@ -2255,8 +2507,8 @@
    "loa_m": 7.5,
    "beam_m": 2.93,
    "freeboard_m": 0.98,
-   "tris": 660,
-   "budget": 700,
+   "tris": 680,
+   "budget": 720,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -2304,7 +2556,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 80
+     "tris": 92
     },
     {
      "name": "flag",
@@ -2401,6 +2653,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -3.42,
+      2.275,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -2424,7 +2697,7 @@
    ],
    "class": "boat",
    "lod": "hull_fiat_hippos_boat_lod.glb",
-   "kb": 32.5
+   "kb": 34.6
   },
   {
    "id": "fiat_hippos_small",
@@ -2435,8 +2708,8 @@
    "loa_m": 10.0,
    "beam_m": 3.9,
    "freeboard_m": 1.3,
-   "tris": 698,
-   "budget": 700,
+   "tris": 718,
+   "budget": 720,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -2484,7 +2757,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 80
+     "tris": 92
     },
     {
      "name": "flag",
@@ -2581,6 +2854,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -4.56,
+      2.823,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -2604,7 +2898,7 @@
    ],
    "class": "small",
    "lod": "hull_fiat_hippos_small_lod.glb",
-   "kb": 33.2
+   "kb": 35.3
   },
   {
    "id": "fiat_hippos_medium",
@@ -2615,8 +2909,8 @@
    "loa_m": 13.0,
    "beam_m": 5.07,
    "freeboard_m": 1.69,
-   "tris": 884,
-   "budget": 900,
+   "tris": 904,
+   "budget": 920,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -2664,7 +2958,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 90
+     "tris": 102
     },
     {
      "name": "flag",
@@ -2761,6 +3055,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -5.928,
+      3.481,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -2784,7 +3099,7 @@
    ],
    "class": "medium",
    "lod": "hull_fiat_hippos_medium_lod.glb",
-   "kb": 37.2
+   "kb": 39.3
   },
   {
    "id": "other_sprit_skiff",
@@ -2795,8 +3110,8 @@
    "loa_m": 5.0,
    "beam_m": 1.55,
    "freeboard_m": 0.5,
-   "tris": 446,
-   "budget": 450,
+   "tris": 466,
+   "budget": 470,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -2907,7 +3222,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 50
+     "tris": 62
     },
     {
      "name": "flag",
@@ -2976,6 +3291,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -2.28,
+      1.811,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "wake_origin",
      "parent": "other_sprit_skiff",
      "origin": [
@@ -2988,7 +3324,7 @@
    ],
    "class": "skiff",
    "lod": "hull_other_sprit_skiff_lod.glb",
-   "kb": 30.0
+   "kb": 32.1
   },
   {
    "id": "other_sprit_boat",
@@ -2999,8 +3335,8 @@
    "loa_m": 7.5,
    "beam_m": 2.33,
    "freeboard_m": 0.75,
-   "tris": 556,
-   "budget": 700,
+   "tris": 576,
+   "budget": 720,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -3111,7 +3447,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 70
+     "tris": 82
     },
     {
      "name": "flag",
@@ -3180,6 +3516,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -3.42,
+      2.401,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "wake_origin",
      "parent": "other_sprit_boat",
      "origin": [
@@ -3192,7 +3549,7 @@
    ],
    "class": "boat",
    "lod": "hull_other_sprit_boat_lod.glb",
-   "kb": 32.6
+   "kb": 34.7
   },
   {
    "id": "other_sprit_small",
@@ -3203,8 +3560,8 @@
    "loa_m": 10.0,
    "beam_m": 3.1,
    "freeboard_m": 1.0,
-   "tris": 604,
-   "budget": 700,
+   "tris": 624,
+   "budget": 720,
    "emblem": {
     "node": "sail_main",
     "uv": "TEXCOORD_1",
@@ -3315,7 +3672,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 70
+     "tris": 82
     },
     {
      "name": "flag",
@@ -3384,6 +3741,27 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -4.56,
+      2.991,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
      "name": "wake_origin",
      "parent": "other_sprit_small",
      "origin": [
@@ -3396,7 +3774,7 @@
    ],
    "class": "small",
    "lod": "hull_other_sprit_small_lod.glb",
-   "kb": 33.5
+   "kb": 35.7
   },
   {
    "id": "titan_usdt",
@@ -3406,7 +3784,7 @@
    "loa_m": 32.0,
    "beam_m": 8.64,
    "freeboard_m": 4.48,
-   "tris": 1662,
+   "tris": 1694,
    "budget": 3000,
    "emblem": {
     "node": "sail_main",
@@ -3455,7 +3833,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 370
+     "tris": 382
     },
     {
      "name": "flag",
@@ -3565,6 +3943,38 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -14.592,
+      8.151,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
+     "name": "stern_windows",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_fleet_window",
+     "tris": 12
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -3590,7 +4000,7 @@
    "look": "emerald-and-white Syracusia: three masts + artemon, fighting tower, gilt temple of Aphrodite aft",
    "class": "flagship",
    "lod": "titan_usdt_lod.glb",
-   "kb": 53.1
+   "kb": 57.0
   },
   {
    "id": "titan_usdc",
@@ -3600,7 +4010,7 @@
    "loa_m": 30.0,
    "beam_m": 7.8,
    "freeboard_m": 4.2,
-   "tris": 1570,
+   "tris": 1602,
    "budget": 3000,
    "emblem": {
     "node": "sail_main",
@@ -3649,7 +4059,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 370
+     "tris": 382
     },
     {
      "name": "flag",
@@ -3759,6 +4169,38 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -13.68,
+      7.891,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
+     "name": "stern_windows",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_fleet_window",
+     "tris": 12
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -3784,7 +4226,7 @@
    "look": "navy-and-white Syracusia: two masts + artemon, Archimedes' great stone-thrower forward",
    "class": "flagship",
    "lod": "titan_usdc_lod.glb",
-   "kb": 51.3
+   "kb": 55.2
   },
   {
    "id": "titan_usde",
@@ -3794,7 +4236,7 @@
    "loa_m": 22.0,
    "beam_m": 6.16,
    "freeboard_m": 2.97,
-   "tris": 1524,
+   "tris": 1556,
    "budget": 3000,
    "emblem": {
     "node": "sail_main",
@@ -3843,7 +4285,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 352
+     "tris": 364
     },
     {
      "name": "flag",
@@ -3953,6 +4395,38 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -10.032,
+      5.922,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
+     "name": "stern_windows",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_fleet_window",
+     "tris": 12
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -3978,7 +4452,7 @@
    "look": "charcoal-and-silver Syracusia: two masts + artemon, a deck garden of pines, cypresses and vines",
    "class": "flagship",
    "lod": "titan_usde_lod.glb",
-   "kb": 50.6
+   "kb": 54.5
   },
   {
    "id": "titan_usds",
@@ -3988,7 +4462,7 @@
    "loa_m": 22.0,
    "beam_m": 6.38,
    "freeboard_m": 2.97,
-   "tris": 1362,
+   "tris": 1394,
    "budget": 3000,
    "emblem": {
     "node": "sail_main",
@@ -4037,7 +4511,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 266
+     "tris": 278
     },
     {
      "name": "flag",
@@ -4147,6 +4621,38 @@
      "empty": true
     },
     {
+     "name": "stern_lantern",
+     "parent": "_heel",
+     "origin": [
+      -10.032,
+      6.07,
+      -0.0
+     ],
+     "empty": true
+    },
+    {
+     "name": "stern_lantern_glass",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_emissive",
+     "tris": 8
+    },
+    {
+     "name": "stern_windows",
+     "parent": "_heel",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_fleet_window",
+     "tris": 12
+    },
+    {
      "name": "yards",
      "parent": "_heel",
      "origin": [
@@ -4172,7 +4678,7 @@
    "look": "sky-blue-and-cream Syracusia: one great mast + artemon, a signal tower with a burning brazier",
    "class": "flagship",
    "lod": "titan_usds_lod.glb",
-   "kb": 47.7
+   "kb": 51.6
   }
  ],
  "lods": [

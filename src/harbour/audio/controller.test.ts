@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { weatherInputs } from "./controller";
-import { birdThinning, cicadaLevel } from "./ambience";
+import { anniversaryToday } from "../model/anniversary";
+import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, CONCH_GAP_SEC, conchDue, frontThunderDue, momentCue, passAllowed, weatherInputs } from "./feed";
+import { birdThinning, cicadaLevel, dayClock, hourStrikes, settleDb, settleRate, gustSwell } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {
   it("absent services read as fair weather with no season colour", () => {
@@ -39,5 +40,156 @@ describe("harbour sound: summer cicadas", () => {
     expect(birdThinning(0)).toBe(1);
     expect(birdThinning(1)).toBeLessThan(birdThinning(0.5));
     expect(birdThinning(1)).toBeGreaterThan(0);
+  });
+});
+
+describe("harbour sound: the ten-minute settle", () => {
+  it("attention holds for three idle minutes, then eases to zero over one", () => {
+    expect(attentionFor(0)).toBe(1);
+    expect(attentionFor(179)).toBe(1);
+    expect(attentionFor(210)).toBeCloseTo(0.5);
+    expect(attentionFor(240)).toBe(0);
+    expect(attentionFor(3600)).toBe(0);
+  });
+
+  it("settled: 3 dB down and ~30 % sparser; the breathing never exceeds ±1.5 dB", () => {
+    let lo = Infinity, hi = -Infinity;
+    for (let t = 0; t < 3600; t += 1.3) { const d = settleDb(1, t, 0.7); lo = Math.min(lo, d); hi = Math.max(hi, d); }
+    expect(hi).toBeLessThanOrEqual(1.5 + 1e-9);
+    expect(lo).toBeGreaterThanOrEqual(-1.5 - 1e-9);
+    expect(hi - lo).toBeGreaterThan(2);          // it does breathe
+    for (const t of [0, 77, 400]) expect(settleDb(0, t, 0.7) - settleDb(1, t, 0.7)).toBeCloseTo(-3);
+    expect(settleRate(1)).toBe(1);
+    expect(settleRate(0)).toBeCloseTo(0.7);
+  });
+});
+
+describe("harbour sound: front/back cue", () => {
+  it("only sources behind the look are darkened, most when straight behind and far", () => {
+    expect(behindOf(0, -500, 0, -1)).toBe(0);       // ahead
+    expect(behindOf(500, 0, 0, -1)).toBe(0);        // beside
+    expect(behindOf(0, 500, 0, -1)).toBeGreaterThan(0.9);
+    expect(behindOf(0, 20, 0, -1)).toBeLessThan(0.4); // at the listener's feet: barely
+  });
+});
+
+describe("harbour sound: the Burn's furnace", () => {
+  it("follows the burn activity, and is silent when the reading is stale, banked or missing", () => {
+    expect(burnRateOf({ burnRate: 0.6, banked: false })).toBeCloseTo(0.6);
+    expect(burnRateOf({ burnRate: 0.6, banked: true })).toBe(0);
+    expect(burnRateOf({ banked: false })).toBe(0);
+    expect(burnRateOf(undefined)).toBe(0);
+    expect(burnRateOf({ burnRate: Number.NaN })).toBe(0);
+  });
+});
+
+describe("harbour sound: the beam's passing", () => {
+  it("is heard once, as the sweep crosses the camera's bearing (not at the far side)", () => {
+    expect(beamCrossed(-0.1, 0.05)).toBe(true);
+    expect(beamCrossed(0.1, -0.05)).toBe(true);
+    expect(beamCrossed(-0.3, -0.1)).toBe(false);
+    expect(beamCrossed(3.1, -3.1)).toBe(false);
+    expect(beamCrossed(Number.NaN, 0.1)).toBe(false);
+  });
+
+  it("follows the beam's reach, is nothing unlit, mutes under stale fog, never above −30 dBFS", () => {
+    expect(beamBreathPeak(0.8, false, 1, 0)).toBe(0);
+    expect(beamBreathPeak(0.8, true, 1, 0.5)).toBe(0);
+    expect(beamBreathPeak(1, true, 1, 0)).toBeLessThanOrEqual(0.045);
+    expect(beamBreathPeak(1, true, 1, 0) * 0.7).toBeLessThan(10 ** (-30 / 20) + 1e-9);
+    expect(beamBreathPeak(0.9, true, 1, 0)).toBeGreaterThan(beamBreathPeak(0.2, true, 1, 0));
+    expect(beamBreathPeak(0.9, true, 0, 0)).toBeLessThan(beamBreathPeak(0.9, true, 1, 0));
+  });
+});
+
+describe("harbour sound: the day clock", () => {
+  it("the dawn chorus, the noon hush and the deep night each hold their hours", () => {
+    expect(dayClock(6).chorus).toBe(1);
+    expect(dayClock(9).chorus).toBe(0);
+    expect(dayClock(13).hush).toBe(1);
+    expect(dayClock(17).hush).toBe(0);
+    expect(dayClock(23.5).deep).toBe(1);
+    expect(dayClock(2).deep).toBe(1);
+    expect(dayClock(12).deep).toBe(0);
+    expect(dayClock(19).deep).toBe(0);
+  });
+
+  it("the hour bell strikes once per hour 06–22, three times at noon, never at night, never a peal", () => {
+    expect(hourStrikes(5)).toBe(0);
+    expect(hourStrikes(6)).toBe(1);
+    expect(hourStrikes(12)).toBe(3);
+    expect(hourStrikes(16)).toBe(1);
+    expect(hourStrikes(22)).toBe(1);
+    expect(hourStrikes(23)).toBe(0);
+    expect(hourStrikes(0)).toBe(0);
+  });
+});
+
+describe("harbour sound: Wreck Cove's anniversary bell (deathDate)", () => {
+  const today = new Date(2026, 3, 22, 12);   // 22 April 2026, local
+  it("is the same month and day as a full death date from an earlier year", () => {
+    expect(anniversaryToday("2024-04-22", today)).toBe(true);
+    expect(anniversaryToday("2024-04-21", today)).toBe(false);
+    expect(anniversaryToday("2024-05-22", today)).toBe(false);
+    expect(anniversaryToday("2026-04-22", today)).toBe(false);   // died today: not yet an anniversary
+  });
+  it("a month-only date has no day, so never an anniversary", () => {
+    expect(anniversaryToday("2024-04", today)).toBe(false);
+    expect(anniversaryToday("", today)).toBe(false);
+    expect(anniversaryToday(undefined, today)).toBe(false);
+  });
+});
+
+describe("harbour sound: the shared gust field", () => {
+  it("the swell follows the paw; its size is the wind strength only, never above the free-running gusts' ceiling", () => {
+    for (const wind of [0, 0.3, 1]) {
+      expect(gustSwell(1, wind, 0.5, 0.5)).toBeGreaterThan(gustSwell(0, wind, 0.5, 0.5));
+      expect(gustSwell(0, wind, 0.5, 1)).toBeLessThanOrEqual(0.5);   // a lull is a lull in any wind
+    }
+    expect(gustSwell(1, 1, 0.5, 0.5) - gustSwell(0, 1, 0.5, 0.5)).toBeGreaterThan(3 * (gustSwell(1, 0, 0.5, 0.5) - gustSwell(0, 0, 0.5, 0.5)));
+    expect(gustSwell(1, 1, 1, 1)).toBeLessThanOrEqual(0.35 + 0.5 + 0.6 + 0.4);
+    expect(Number.isFinite(gustSwell(Number.NaN, 0.3, 0.3, 0.3))).toBe(true);
+  });
+});
+
+describe("harbour sound: thunder ahead of a storm front", () => {
+  it("two far rolls while a rising front that brings lightning is still upwind; none otherwise", () => {
+    const f = (from: number, to: number, progress: number) => ({ from, to, progress });
+    expect(frontThunderDue(null)).toBe(-1);
+    expect(frontThunderDue(f(1, 3, 0))).toBe(0);
+    expect(frontThunderDue(f(1, 3, 0.1))).toBe(1);
+    expect(frontThunderDue(f(1, 3, 0.25))).toBe(2);
+    expect(frontThunderDue(f(1, 3, 0.4))).toBe(-1);     // overhead: the local storm speaks
+    expect(frontThunderDue(f(3, 1, 0.1))).toBe(-1);     // a clearing line: no thunder
+    expect(frontThunderDue(f(0, 2, 0.1))).toBe(-1);     // toward Alert: no lightning in that band, no thunder
+    expect(frontThunderDue(f(2.9, 3.1, 0.1))).toBe(-1); // a small move eases in place
+  });
+});
+
+describe("harbour sound: event cues", () => {
+  it("a staged launch rings the buoy, a staged death the cove's bell; depeg, recovery and the rest stay silent", () => {
+    expect(momentCue("launch")).toBe("launch-bell");
+    expect(momentCue("death")).toBe("cove-bell");
+    for (const k of ["depeg", "recovery", "psi-band", "dews-band", "flow-hour", "hull-class", "grade"]) expect(momentCue(k)).toBeNull();
+  });
+  it("the conch: only the four titans, at most one per three minutes, never over a staged moment", () => {
+    expect(conchDue("usdt-tether", 1000, -Infinity, false)).toBe(true);
+    expect(conchDue("usds-sky", 1000, -Infinity, false)).toBe(true);
+    expect(conchDue("dai-makerdao", 1000, -Infinity, false)).toBe(false);
+    expect(conchDue("usdc-circle", 1000, 1000 - CONCH_GAP_SEC + 1, false)).toBe(false);
+    expect(conchDue("usdc-circle", 1000, 1000 - CONCH_GAP_SEC, false)).toBe(true);
+    expect(conchDue("usde-ethena", 1000, -Infinity, true)).toBe(false);
+  });
+});
+
+describe("harbour sound: passing hulls", () => {
+  it("at most two in any ten seconds", () => {
+    const recent: number[] = [];
+    let heard = 0;
+    for (let t = 0; t < 60; t += 0.25) if (passAllowed(recent, t)) { recent.push(t); heard++; }
+    expect(heard).toBe(12);
+    const r2 = [0, 1];
+    expect(passAllowed(r2, 9.9)).toBe(false);
+    expect(passAllowed(r2, 10)).toBe(true);
   });
 });

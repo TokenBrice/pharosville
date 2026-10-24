@@ -81,16 +81,20 @@ export interface GlyphQuad {
   slot: number;
 }
 
+/** Clear space between stacked lines, × the upper line's cap height (the swell lifts each line on its own). */
+export const LINE_GAP = 0.6;
 /** Keep the two rotated contributions separate: anchor + along + across must retain its rounding order. */
 interface LocalGlyphQuad { c: Array<[number, number, number, number]>; slot: number }
 
 /** Baselines (label-local v, before the stretch), top line first: the main line's mid cap sits on the anchor. */
-function lineBases(spec: LabelSpec): number[] {
+export function lineBases(spec: LabelSpec): number[] {
   const n = spec.lines.length;
   let base = -spec.lines[n - 1].cap / 2;
   const bases: number[] = new Array(n);
   bases[n - 1] = base;
-  for (let i = n - 2; i >= 0; i--) { base += spec.lines[i + 1].cap * 0.55 + spec.lines[i].cap * 1.0; bases[i] = base; }
+  // the upper line's baseline sits a clear gap above the lower line's cap height: the Gerstner swell displaces
+  // the two lines differently (more so on screen at the low view), and a hairline gap let "THE" sink into the word
+  for (let i = n - 2; i >= 0; i--) { base += spec.lines[i + 1].cap + spec.lines[i].cap * LINE_GAP; bases[i] = base; }
   return bases;
 }
 

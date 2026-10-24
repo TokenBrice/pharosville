@@ -5,6 +5,9 @@ import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { getLightsStore, type LightsStore } from "./lights-service";
 import type { QualityService, QualitySettings } from "../engine/quality";
+import { BEAM_LIGHT_GLSL, beamLightUniforms } from "../beam/beam-light-glsl";
+import { getBeamUniforms } from "../beam/uniforms";
+import { LAMP_WAVE_GLSL, LAMP_WAVE_SPREAD, lampGlow, lampWaveUniforms, setLampWave } from "./lamp-wave";
 
 const MAX_POINT = 16;
 const POOL_RES = 2048;
@@ -36,10 +39,17 @@ float lhNoise(vec2 p) { vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 -
   return mix(mix(lhHash(i), lhHash(i + vec2(1, 0)), u.x), mix(lhHash(i + vec2(0, 1)), lhHash(i + vec2(1, 1)), u.x), u.y); }
 `;
 
-/** Light glow per kind from the shared clock: windows follow uWindowGlow; lamps come on a little earlier. */
+/**
+ * Light glow per kind from the shared clock: windows follow uWindowGlow; lamps come on a little earlier.
+ * Each light sees the clock through the lamplighting wave (lamp-wave.ts): later the further from the Pharos.
+ */
 const GLSL_GLOW = /* glsl */ `
 uniform float uWindowGlow;
-float lhGlow(float kind) { return kind < 0.0 ? uWindowGlow : smoothstep(0.02, 0.55, uWindowGlow); }
+${LAMP_WAVE_GLSL}
+float lhGlowAt(float kind, vec3 pos) {
+  float g = hbLampGlow(uWindowGlow, hbLampRank(pos, hbLampJitter(pos.xz)));
+  return kind < 0.0 ? g : smoothstep(0.02, 0.55, g);
+}
 `;
 
 function quad(): THREE.InstancedBufferGeometry {
@@ -90,6 +100,12 @@ export class LightsSystem implements WorldSystem {
     this.ground = ctx.services.get("ground") as GroundService | undefined;
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
     for (const l of layout?.lights ?? []) this.store.add(l.kind, l.position, l.color);
+    // the lamplighting wave (05-P3): ranked by distance from the Pharos out to the furthest layout light
+    const ph = layout?.landmarks?.find((l) => l.id === "pharos")?.position ?? [0, 0, 0];
+    let rMax = 300;
+    for (const l of layout?.lights ?? []) rMax = Math.max(rMax, Math.hypot(l.position[0] - ph[0], l.position[2] - ph[2]));
+    Object.assign(this.store.wave, { x: ph[0], z: ph[2], footY: ph[1], rMin: 20, rMax: rMax * 0.95, hTop: 92 });
+    setLampWave(this.store.wave);
 
     const mats = getHarbourMaterials(ctx);
     const b = layout?.bounds;
@@ -134,29 +150,37 @@ export class LightsSystem implements WorldSystem {
 
     // ---- sprites
     const spriteMat = new THREE.ShaderMaterial({
-      uniforms: { uWindowGlow: u.uWindowGlow, uNight: u.uNight, uPx: this.uPx },
+      uniforms: { uWindowGlow: u.uWindowGlow, uNight: u.uNight, uPx: this.uPx, ...beamLightUniforms(getBeamUniforms(ctx)), ...lampWaveUniforms },
       vertexShader: /* glsl */ `
         ${GLSL_GLOW}
+        ${BEAM_LIGHT_GLSL}
         uniform float uPx;
         attribute vec3 iPos; attribute vec4 iCol; attribute vec4 iPar;
-        varying vec2 vQ; varying vec3 vC;
+        varying vec2 vQ; varying vec3 vC; varying float vHalo;
         void main() {
           vQ = position.xy * 2.0;
           vec4 mv = viewMatrix * vec4(iPos, 1.0);
           float d = -mv.z;
           float size = max(iPar.x, d * uPx * 2.4) * 2.0;
           float k = iPar.x / size;                 // shrink brightness as the min-pixel clamp grows it
+          // at overview distance the min-pixel clamp and the halo made a string of pearls along every quay (bloom
+          // grew it further): far lamps keep a small point, a faint halo and a little less light
+          float far = smoothstep(560.0, 1000.0, d);
+          size = max(iPar.x, d * uPx * mix(2.4, 1.3, far)) * 2.0;
+          vHalo = mix(0.10, 0.03, far);
           mv.xy += position.xy * size * 3.0;
           mv.z += 0.6;
-          vC = iCol.rgb * iCol.a * lhGlow(iPar.y) * (0.35 + 0.65 * k);
+          vC = iCol.rgb * iCol.a * lhGlowAt(iPar.y, iPos) * (0.35 + 0.65 * k) * (1.0 - 0.5 * far);
+          // the quay lamps answer the beam as it passes over them (05-P1)
+          vC *= 1.0 + 0.8 * dot(hbBeamLight(iPos, vec3(0.0, 1.0, 0.0)), vec3(0.3333));
           gl_Position = iPar.x > 0.0 && iCol.a > 0.0 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
         }`,
       fragmentShader: /* glsl */ `
-        varying vec2 vQ; varying vec3 vC;
+        varying vec2 vQ; varying vec3 vC; varying float vHalo;
         void main() {
           float r2 = dot(vQ, vQ) * 9.0;
           float core = exp(-r2 * 6.0);
-          float halo = exp(-r2 * 1.1) * 0.10;
+          float halo = exp(-r2 * 1.1) * vHalo;
           gl_FragColor = vec4(vC * (core + halo), 1.0);
         }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
@@ -170,7 +194,7 @@ export class LightsSystem implements WorldSystem {
     const g = this.ground;
     const pillarMat = new THREE.ShaderMaterial({
       uniforms: {
-        uWindowGlow: u.uWindowGlow, uNight: u.uNight, uTime: u.uTime,
+        uWindowGlow: u.uWindowGlow, uNight: u.uNight, uTime: u.uTime, ...lampWaveUniforms,
         uGround: { value: g?.texture ?? null }, uGroundB: { value: g ? new THREE.Vector4(g.bounds[0], g.bounds[3], 1 / (g.bounds[2] - g.bounds[0]), 1 / (g.bounds[3] - g.bounds[1])) : new THREE.Vector4() },
         uHasGround: { value: g ? 1 : 0 },
       },
@@ -190,7 +214,7 @@ export class LightsSystem implements WorldSystem {
           vL = vec2(position.x * wid, t * len + iPos.x * 0.37 + iPos.z * 0.61);   // pillar frame (m), per-light phase
           // fade with distance (the overview keeps a hint), and riding lights (small sprites) stay modest
           float camD = distance(cameraPosition, iPos);
-          vC = iCol.rgb * lhGlow(iPar.y) * 0.85 * mix(1.0, 0.3, smoothstep(220.0, 900.0, camD)) * (iPar.x < 0.4 ? 0.5 : 1.0);
+          vC = iCol.rgb * lhGlowAt(iPar.y, iPos) * 0.85 * mix(1.0, 0.3, smoothstep(220.0, 900.0, camD)) * (iPar.x < 0.4 ? 0.5 : 1.0);
           bool show = iCol.a > 0.0 && iPar.w < 0.0;
           gl_Position = show ? projectionMatrix * viewMatrix * vec4(p.x, 1.1, p.y, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);   // above the swell crests
         }`,
@@ -295,7 +319,7 @@ export class LightsSystem implements WorldSystem {
       const on = l.alive && l.on;
       if (on && this.nearWater[i] === 0) this.nearWater[i] = this.isNearWater(l.position.x, l.position.z, l.position.y) ? 2 : 1;
       (this.iWet.array as Float32Array)[i] = this.nearWater[i] === 2 ? this.wetDistance(l.position.x, l.position.z) : 0;
-      C[i * 4] = l.color.r; C[i * 4 + 1] = l.color.g; C[i * 4 + 2] = l.color.b;
+      C[i * 4] = l.color.r * l.k; C[i * 4 + 1] = l.color.g * l.k; C[i * 4 + 2] = l.color.b * l.k;
       C[i * 4 + 3] = on ? Math.max(l.spec.spriteK, 0.001) : 0;
       Q[i * 4] = l.spec.sprite;
       // y: mounting height; negative = window (follows uWindowGlow), positive = lamp-like
@@ -329,11 +353,25 @@ export class LightsSystem implements WorldSystem {
     this.uPx.value = (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) / Math.max(1, ctx.renderer.domElement.height);
     this.pickTimer -= frame.delta;
     if (this.pickTimer <= 0) { this.pickTimer = 0.2; this.pickPoints(ctx); }
-    const glow = THREE.MathUtils.smoothstep(ctx.uniforms.uWindowGlow.value, 0.02, 0.55);
+    // the wave: reduced motion → today's global step; an unlit Pharos → it starts from the town edge
+    const w = this.store.wave;
+    const reduced = (ctx.services.get("motion") as { reduced?: boolean } | undefined)?.reduced ?? false;
+    w.spread = reduced ? 0 : LAMP_WAVE_SPREAD;
+    const lh = ctx.services.get("lighthouse") as { lit?: boolean; position?: THREE.Vector3 } | undefined;
+    if (lh?.position && lh.position.lengthSq() > 0) { w.x = lh.position.x; w.z = lh.position.z; w.footY = lh.position.y; }
+    const edge = lh?.lit === false ? 1 : 0;
+    w.fromEdge += (edge - w.fromEdge) * (1 - Math.exp(-frame.delta / 3));
+    setLampWave(w);
+    const g = ctx.uniforms.uWindowGlow.value;
     // Zero RGB under additive blending and no depth writes; post clamps the opaque scene's alpha.
     // Never threshold a small glow: dawn/dusk contributions and all other lighting stay unchanged.
-    this.sprites.visible = this.pillars.visible = ctx.uniforms.uWindowGlow.value !== 0;
-    for (let k = 0; k < MAX_POINT; k++) { const p = this.points[k]; p.intensity = ((p.userData.base as number | undefined) ?? 0) * glow; }
+    this.sprites.visible = this.pillars.visible = g !== 0;
+    for (let k = 0; k < MAX_POINT; k++) {
+      const p = this.points[k];
+      const glow = THREE.MathUtils.smoothstep(lampGlow(g, this.store.rankAt(p.position), w.spread), 0.02, 0.55);
+      const base = (p.userData.base as number | undefined) ?? 0;
+      p.intensity = base > 0 ? base * glow * (this.store.lights[this.bestI[k]]?.k ?? 1) : 0;
+    }
   }
 
   private renderPools(ctx: EngineContext): void {

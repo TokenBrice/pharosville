@@ -50,6 +50,20 @@ export function prism(m: PartMesh, cx: number, cz: number, y0: number, y1: numbe
   }
 }
 
+/** A thin square-section stick from a to b (four sides, no caps: 8 triangles): rods, poles, lines. */
+export function stick(m: PartMesh, a: readonly number[], b: readonly number[], r: number, hex: string, part: number): void {
+  const col = linear(hex);
+  const A = new THREE.Vector3(a[0], a[1], a[2]), B = new THREE.Vector3(b[0], b[1], b[2]);
+  const d = new THREE.Vector3().subVectors(B, A).normalize();
+  const u = new THREE.Vector3(Math.abs(d.y) < 0.9 ? 0 : 1, Math.abs(d.y) < 0.9 ? 1 : 0, 0).cross(d).normalize().multiplyScalar(r);
+  const v = new THREE.Vector3().crossVectors(d, u).normalize().multiplyScalar(r);
+  const c = [u.clone().add(v), u.clone().sub(v), u.clone().negate().sub(v), u.clone().negate().add(v)];
+  for (let k = 0; k < 4; k++) {
+    const p = c[k], q = c[(k + 1) % 4];
+    quad(m, A.clone().add(q), A.clone().add(p), B.clone().add(p), B.clone().add(q), col, part); // outward-facing
+  }
+}
+
 /** Low-poly ball (icosahedron, detail 0), flat-shaded. */
 export function ball(m: PartMesh, cx: number, cy: number, cz: number, r: number, hex: string, part: number, sy = 1): void {
   const g = new THREE.IcosahedronGeometry(r, 0); // polyhedra are non-indexed already

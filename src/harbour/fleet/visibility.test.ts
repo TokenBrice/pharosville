@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import type { EngineContext, FrameState } from "../engine/types";
@@ -21,11 +22,13 @@ function fixture(shadows: boolean) {
     wrecked: false, swing: 0, heel: 0, hi: 0, px: 1000000, pz: 0, vx: 0, vz: 0, seen: true, phi: 0.5, slot: 0,
     brand: new THREE.Color("#5588AA"), visible: false, posed: true, visualRadius: 20, dist: 0, reading: true, lit: false,
     flag: 1, struck: false, mastK: 0, titan: false, cx: 0, cy: 0, cz: 0, r: 5, top: 10, swell: new Float64Array(30),
+    // Living Harbour motion state (07-M2/M6/M8)
+    dead: false, flog: 0, row: 0, brail: 0, dox: 0, doz: 0, gyaw: 0,
   };
   const model = { boats: [{ id: "coin" }] };
   const ocean = { hullHeights: vi.fn((_x: number, _z: number, _bx: number, _bz: number, _px: number, _pz: number, out: Float64Array) => { out.set([0.1, 0.2, 0.3, 0.4, 0.5]); }) };
   const wake = { stamp: vi.fn() };
-  const sim = { pose: { count: 1, ids: ["coin"], position: [1000000, 0, 0], heading: [0], phase: [PH_DOCKED], sailState: [0], heel: [0.1], slot: [-1], lines: [0] }, wind: { fromRad: -1, strength: 0.35 }, layout: { slots: [] } };
+  const sim = { pose: { count: 1, ids: ["coin"], position: [1000000, 0, 0], heading: [0], phase: [PH_DOCKED], sailState: [0], heel: [0.1], slot: [-1], lines: [0], event: [0], drift: [0, 0], pitch: [0], outing: [0] }, wind: { fromRad: -1, strength: 0.35 }, layout: { slots: [] } };
   const context = {
     camera, renderer: { domElement: { clientHeight: 600 } }, rig: { distance: shadows ? 100 : 1000 },
     services: new Map<string, unknown>([["model", model], ["sim", sim], ["ocean", ocean], ["wake", wake], ["sun", sun], ["readiness", { revision: 7, boats: 1, prepared: true }]]),
@@ -102,7 +105,7 @@ describe("conservative fleet visual culling", () => {
   it.each(["selected", "hover", "highlighted", "wrecked", "debug"])("keeps offscreen %s hulls exact", (reason) => {
     const f = fixture(false);
     if (reason === "highlighted") f.boat.hi = 0.5;
-    else if (reason === "wrecked") f.boat.wrecked = true;
+    else if (reason === "wrecked") { f.boat.wrecked = true; f.boat.dead = true; } // dead: the coin's state, wrecked: drawn this frame (07-M6)
     else if (reason === "debug") Object.assign(f.system, { debug: {}, updateDebug: vi.fn() });
     else Object.assign(f.system, { [reason]: f.boat.id });
     f.system.update(frame, f.context);

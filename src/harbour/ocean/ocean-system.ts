@@ -1,13 +1,18 @@
+import { ensureGustService } from "../weather/gust";
 import * as THREE from "three";
 import { getBeamUniforms } from "../beam/uniforms";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import type { QualityService } from "../engine/quality";
 import type { HarbourLayout } from "../layout/types";
 import type { SkyService, SkyShared } from "../sky/sky-system";
 import { cloudShadowUniforms } from "../sky/cloud-shadow";
+import { sunShadowUniforms } from "../world/sun-shadow";
 import { OCEAN_FRAG, OCEAN_VERT, SEA_PALETTE } from "./ocean-material";
 import { buildSeaSdf, defaultSeaBounds, landMaskFromHeights, SDF_COAST_RANGE, seaSdfInputFromLayout, type Bounds4, type HeightField } from "./sea-sdf";
 import { acquireFxTextures, type FxTextures } from "./textures";
 import { WakeField, type WakeService } from "./wake";
+import { updateAerial } from "../world/aerial";
+import { runupUniforms } from "../world/runup";
 import { hullSwell, SEA_STATES, waveHeight } from "./waves";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { buildZoneMask, type SeaZoneLike } from "./zone-mask";
@@ -88,6 +93,7 @@ export class OceanSystem implements WorldSystem {
   private mesh!: THREE.Mesh;
   private material!: THREE.ShaderMaterial;
   private wake!: WakeField;
+  private unsubQuality: (() => void) | null = null;
   private sdfTex!: THREE.Texture;
   private coastR!: Uint8Array;
   private sdfSize = 1024;
@@ -170,7 +176,10 @@ export class OceanSystem implements WorldSystem {
         ...skyShared,
         ...getBeamUniforms(ctx),
         ...cloudShadowUniforms,
+        ...sunShadowUniforms,
+        uFoliage: W.uFoliage,
         uDebug: { value: 0 },
+        uGust: ensureGustService(ctx).uniform,
         // the lights system's top-down pool RT, read back along the view ray as the town's reflection
         uPoolTex: getHarbourMaterials(ctx).pool.uPoolTex, uPoolBounds: getHarbourMaterials(ctx).pool.uPoolBounds,
         uWindowGlow: W.uWindowGlow,
@@ -180,7 +189,21 @@ export class OceanSystem implements WorldSystem {
         uSceneRadius: { value: Math.hypot(layout.bounds.max[0] - layout.bounds.min[0], layout.bounds.max[2] - layout.bounds.min[2]) / 2 },
       },
       fog: false,
+      // the calendar is set before anything compiles (season system first): summer nights' glow only when it can show
+      defines: W.uFoliage.value.y > 0.001 ? { HB_BIOLUM: "" } : {},
     });
+    // PERF: the Low tier's lighter sea (sea-tone.ts HB_LITE)
+    const quality = ctx.services.get("quality") as QualityService | undefined;
+    if (quality) {
+      const lite = (tier: string) => {
+        const on = tier === "low";
+        if (on === "HB_LITE" in this.material.defines) return;
+        if (on) this.material.defines.HB_LITE = ""; else delete this.material.defines.HB_LITE;
+        this.material.needsUpdate = true;
+      };
+      lite(quality.tier);
+      this.unsubQuality = quality.onChange((q) => lite(q.tier));
+    }
     this.mesh = new THREE.Mesh(oceanGeometry(this.bounds), this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 60;               // after land (0) and the sky card (50): hidden water is rejected early
@@ -273,13 +296,20 @@ export class OceanSystem implements WorldSystem {
     }
     this.clock ??= new MotionClock(ensureMotionService(ctx));
     this.time = this.seaTime.value = this.clock.step(frame.delta);
+    ensureGustService(ctx).tick(ctx, frame);
     this.seaU.value.lerp(this.seaGoal, 1 - Math.exp(-frame.delta * 0.4));
+    runupUniforms.uRunup.value.set(this.seaU.value.x, this.time);
     for (const m of this.debugMovers) {
       const a = m.ph + this.time * m.w;
       const x = m.cx + Math.cos(a) * m.r, z = m.cz + Math.sin(a) * m.r;
       const vx = -Math.sin(a) * m.r * m.w, vz = Math.cos(a) * m.r * m.w;
       this.wake.stamp(x, z, vx, vz, m.hw, 1);
     }
+    // aerial distance tint (decorative): zero inside the harbour radius, full ramp a little past the scene's edge
+    const sc = this.material.uniforms.uSceneCenter.value as THREE.Vector2, sr = this.material.uniforms.uSceneRadius.value as number;
+    updateAerial(sc.x, sc.y, sr * 0.62, sr * 1.2, ctx.uniforms.uNight.value);
+    const ws = this.material.uniforms.uWeatherSea.value as THREE.Vector4;
+    if (ws.z * ws.z + ws.w * ws.w > 1e-6) this.wake.lee.set(ws.z, ws.w).normalize();
     this.wake.update(ctx.renderer, frame.delta);
     const u = this.material.uniforms;
     u.uWake.value = this.wake.texture;
@@ -287,6 +317,7 @@ export class OceanSystem implements WorldSystem {
   }
 
   dispose(ctx: EngineContext): void {
+    this.unsubQuality?.();
     ctx.scene.remove(this.mesh);
     this.mesh.geometry.dispose();
     this.material.dispose();

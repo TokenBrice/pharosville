@@ -8,7 +8,12 @@ import { bakeCloudAtlas, CLOUD_CELLS } from "./clouds";
 import { cloudShadowUniforms } from "./cloud-shadow";
 import { applySkyPalette, createSkyPaletteUniforms } from "./palette";
 import { MAX_BANKS, SKY_BAND_GLSL } from "./sky-glsl";
+import { bankReveal, seasonBankShape, seasonHighCloud, type SkySeasonWeights } from "./season-sky";
 import { ensureMotionService, MotionClock } from "../ui/services";
+import {
+  dayOfYear, METEOR_SHOWERS, meteorIntervalSec, meteorShowerOn, moonAge, moonIllumination, parseMoonOverride, SYNODIC_DAYS,
+  type MeteorShower,
+} from "../season/calendar";
 
 /**
  * SKY: a camera-attached painted backdrop (a flat card facing the camera, so the pretend horizon is a
@@ -45,13 +50,27 @@ export interface SkyService {
   /** immediate: jump there (first reading, dev overrides) instead of easing. */
   setCloudCover(v: number, immediate?: boolean): void;
   setWind(v: number, immediate?: boolean): void;
+  /** W01: a weather front crossing (cover it replaces → cover it brings, rain it brings, sweep 0..1), or null. */
+  setFront(f: SkyFront | null): void;
   readonly shared: SkyShared;
   /** Horizontal distance (m) from the camera to the painted horizon; content beyond it is hidden. */
   horizonDistance(): number;
 }
 
+export interface SkyFront { coverFrom: number; coverTo: number; rainTo: number; progress: number }
+
+/** Storm grade of a cloud cover (the deck, slate tint and dimming: DEWS ALERT and above). */
+const stormOf = (cover: number) => THREE.MathUtils.smoothstep(cover, 0.38, 0.75);
+
 /** What the sky reads from the weather director's service (src/harbour/weather). */
-interface WeatherSkyLike { readonly gloom: number; readonly flash: { readonly azimuth: number; readonly elevation: number } }
+interface WeatherSkyLike {
+  readonly gloom: number;
+  readonly flash: { readonly azimuth: number; readonly elevation: number };
+  readonly state?: {
+    readonly wind: number; readonly windNow: number; readonly breaks: number;
+    readonly squall: { readonly pos: number; readonly k: number };
+  };
+}
 
 const BAND_FRAC = 0.2;               // pretend horizon sits this fraction of the frame below the top
 const BAND_TH = 48, BAND_E0 = -1.5, BAND_E1 = 14;
@@ -91,7 +110,7 @@ void main() {
   gl_FragColor = vec4(skyBand(th, e, 0.25), 1.0);
 }`;
 
-interface Bank { th: number; e: number; h: number; w: number; cell: number; mirror: number; slot: number; drift: number; dist: number; haze: number }
+interface Bank { th: number; e: number; h: number; w: number; h0: number; w0: number; cell: number; mirror: number; slot: number; drift: number; dist: number; haze: number }
 
 export class SkySystem implements WorldSystem {
   readonly name = "sky";
@@ -137,6 +156,10 @@ export class SkySystem implements WorldSystem {
     ...createSkyPaletteUniforms(),
     uSunDisc: { value: new THREE.Vector4() },
     uMoonDisc: { value: new THREE.Vector4() },
+    uMoonPhase: { value: new THREE.Vector4(Math.PI, 1, 1, 0) },
+    uNightSky: { value: new THREE.Vector4() },
+    uMeteor: { value: new THREE.Vector4() },
+    uMeteorB: { value: new THREE.Vector4() },
     uLight: { value: new THREE.Vector4() },
     uBanks: { value: Array.from({ length: MAX_BANKS }, () => new THREE.Vector4()) },
     uBankB: { value: Array.from({ length: MAX_BANKS }, () => new THREE.Vector4()) },
@@ -149,7 +172,16 @@ export class SkySystem implements WorldSystem {
     uPrecipSky: { value: new THREE.Vector4() },
     /** flash elevation (deg), wind slant of the curtains, -, - */
     uPrecipSkyB: { value: new THREE.Vector4() },
+    uFrontA: { value: new THREE.Vector4() },
+    uClearZen: { value: new THREE.Color() },
+    uSquall: { value: new THREE.Vector4() },
+    uSeasonSky: { value: new THREE.Vector4(1, 0, 0, 0) },
+    uClearHor: { value: new THREE.Color() },
+    uFrontB: { value: new THREE.Vector4() },
   };
+  private front: SkyFront | null = null;
+  /** +1: the front travels toward +th (it comes from the left of the view); fixed when it starts */
+  private frontSide = 1;
   private readonly bd = {
     uCam: { value: new THREE.Vector3() }, uFwdAzV: { value: 0 }, uR: { value: 1500 }, uSpan: { value: 0.5 },
     uYBot: { value: -3 }, uYTop: { value: 100 }, uPxDeg: { value: 0.025 },
@@ -157,8 +189,21 @@ export class SkySystem implements WorldSystem {
   private readonly tmp = new THREE.Vector3();
   private readonly moonDir = new THREE.Vector3();
   private readonly glint = new THREE.Vector3();
+  private readonly strikeDir = new THREE.Vector3();
   private readonly tmpC = new THREE.Color();
   private shadowDrift = (Date.now() / 1000) % 5000;
+  /** W04: tonight's moon (age days, illuminated fraction); recomputed once a minute */
+  private moonOverride: number | null = null;
+  private moonAt = -1e9;
+  private moonIllum = 1;
+  /** W06: tonight's shower (real date, ?meteors=<name> in dev), the next streak's countdown and the live one */
+  private shower: { shower: MeteorShower; strength: number } | null = null;
+  private meteorForced = false;
+  private meteorIn = 20;
+  private meteorAge = -1;
+  private meteorDur = 0.55;
+  /** W10: the season weights the bank shapes were last made for */
+  private seasonKey = "";
 
   init(ctx: EngineContext): void {
     this.syncLayout(ctx.services.get("layout") as HarbourLayout | undefined);
@@ -194,6 +239,8 @@ export class SkySystem implements WorldSystem {
       W.uNight, W.uZenith, W.uHorizon, W.uHaze, this.u.uGlowCol, this.u.uCloudLight, this.u.uCloudMid,
       this.u.uCloudShade, this.u.uMount, this.u.uMountLit, this.u.uSkyK, this.u.uSunDisc, this.u.uMoonDisc,
       this.u.uLight, this.u.uParallax, this.u.uStorm, this.u.uPrecipSky, this.u.uPrecipSkyB, this.shared.uSkyBandRange,
+      // Living Harbour: the clearing haze tint and storm strip (uSunColor), the W01 front and the W09 squall
+      W.uSunColor, this.u.uClearZen, this.u.uClearHor, this.u.uFrontA, this.u.uFrontB, this.u.uSquall,
     ];
     this.bandNext = new Array<number>(4 + this.bandInputs.length * 4).fill(0);
     this.bandState = new Array<number>(this.bandNext.length).fill(NaN);
@@ -203,6 +250,7 @@ export class SkySystem implements WorldSystem {
     const svc: SkyService = {
       setCloudCover: (v, now) => { this.cover = THREE.MathUtils.clamp(v, 0, 1); if (now) this.coverS = this.cover; },
       setWind: (v, now) => { this.wind = THREE.MathUtils.clamp(v, 0, 1); if (now) this.windS = this.wind; },
+      setFront: (f) => { if (f && !this.front) this.frontSide = 0; this.front = f; },
       shared: this.shared,
       horizonDistance: () => this.horizon,
     };
@@ -211,9 +259,68 @@ export class SkySystem implements WorldSystem {
     if (q.has("cloud")) svc.setCloudCover(Number(q.get("cloud")));
     if (q.has("wind")) svc.setWind(Number(q.get("wind")));
     this.coverS = this.cover; this.windS = this.wind;
+    this.moonOverride = parseMoonOverride((k) => q.get(k));
+    // dev: ?skyT0=<s> pins the bank composition (it otherwise drifts with the wall clock) for A/B captures
+    if (q.has("skyT0")) this.seedBanks(Number(q.get("skyT0")));
+    const forced = METEOR_SHOWERS.find((m) => m.name === q.get("meteors"));
+    if (forced) { this.shower = { shower: forced, strength: 1 }; this.meteorForced = true; this.meteorIn = 2; }
   }
 
-  private seedBanks(): void {
+  /** W04: the real moon phase (decorative, like the clock); the lit limb mirrors in the southern hemisphere. */
+  private updateMoon(ctx: EngineContext, nowMs: number): void {
+    if (nowMs - this.moonAt < 60_000) return;
+    this.moonAt = nowMs;
+    const age = this.moonOverride ?? moonAge(nowMs);
+    this.moonIllum = moonIllumination(age);
+    const southern = (ctx.services.get("season") as { southern?: boolean } | undefined)?.southern ?? false;
+    this.u.uMoonPhase.value.set((2 * Math.PI * age) / SYNODIC_DAYS, southern ? -1 : 1, this.moonIllum, 0);
+    if (!this.meteorForced) {
+      const d = new Date(nowMs);
+      this.shower = meteorShowerOn(dayOfYear(d.getFullYear(), d.getMonth() + 1, d.getDate()), southern);
+    }
+  }
+
+  /**
+   * W05 Milky Way + W06 meteors: decorative real sky, only on clear (CALM) dark nights. Meteors radiate from the
+   * shower's radiant, thin and warm, under a second each, at most one at a time; none under reduced motion.
+   */
+  private updateNightSky(dt: number, live: number, starT: number, fwdAz: number, halfDeg: number, ctx: EngineContext): void {
+    const night = ctx.uniforms.uNight.value;
+    const clear = 1 - THREE.MathUtils.smoothstep(this.coverS, 0.2, 0.3);
+    const dark = THREE.MathUtils.smoothstep(night, 0.6, 0.95) * clear;
+    const w = (ctx.services.get("season") as { weights?: readonly number[] } | undefined)?.weights ?? [0, 1, 0, 0];
+    const seasonK = 0.7 * w[0] + 1 * w[1] + 0.7 * w[2] + 0.45 * w[3];
+    const mw = dark * (1 - THREE.MathUtils.smoothstep(this.moonIllum, 0.15, 0.45)) * seasonK;
+    // the band keeps its place in the world (az 200), the view moves across it
+    let off = 200 - fwdAz / D2R;
+    off = ((off + 180) % 360 + 360) % 360 - 180;
+    this.u.uNightSky.value.set(mw, starT, off, w[1]);
+    const mb = this.u.uMeteorB.value;
+    if (this.meteorAge >= 0) {
+      this.meteorAge += dt;
+      mb.x = this.meteorAge / this.meteorDur;
+      if (mb.x >= 1) { this.meteorAge = -1; mb.x = 0; }
+      return;
+    }
+    mb.x = 0;
+    if (dark < 0.5 || live < 0.99) return;
+    this.meteorIn -= dt;
+    if (this.meteorIn > 0) return;
+    const mean = this.meteorForced ? 2 : meteorIntervalSec(this.shower);
+    this.meteorIn = -Math.log(1 - Math.random() * 0.98) * mean;
+    // start somewhere in the visible band; travel away from the radiant (high in the sky at its azimuth)
+    const th0 = (Math.random() * 2 - 1) * halfDeg * 0.8, e0 = 3.5 + Math.random() * 5;
+    let rth = (this.shower?.shower.radiantAz ?? Math.random() * 360) - fwdAz / D2R;
+    rth = ((rth + 180) % 360 + 360) % 360 - 180;
+    let dx = th0 - THREE.MathUtils.clamp(rth, -halfDeg * 1.5, halfDeg * 1.5), dy = e0 - 14;
+    const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+    this.meteorDur = 0.35 + Math.random() * 0.3;
+    this.meteorAge = 0;
+    this.u.uMeteor.value.set(th0, e0, dx, dy);
+    mb.set(0, 2.5 + Math.random() * 3, 0.5 + Math.random() * 0.5, 0);
+  }
+
+  private seedBanks(t0Override?: number): void {
     // hand-placed composition in three depth layers (far to near): th, e base, height (deg), cell, slot,
     // distance (m, drives parallax) and aerial haze. Far banks sit low, small and hazy on the horizon;
     // near banks are big, lifted and crop at the frame top like style C. Cover reveals them in slot order.
@@ -229,11 +336,11 @@ export class SkySystem implements WorldSystem {
       [ -4,  2.6,  5.6,  5, 7, 4200,  0.05],
     ];
     // the composition drifts with the wall clock, so each visit (and each hour) frames it differently
-    const t0 = (Date.now() / 1000) % 1e6;
-    this.banks = spec.map(([th, e, h, cell, slot, dist, haze], i) => ({
-      th, e, h, w: h * 4 * (0.9 + 0.2 * ((i * 37) % 7) / 7), cell: cell % CLOUD_CELLS, mirror: i % 2, slot,
-      drift: t0 * 0.012 * (3000 / dist), dist, haze,
-    }));
+    const t0 = t0Override ?? (Date.now() / 1000) % 1e6;
+    this.banks = spec.map(([th, e, h, cell, slot, dist, haze], i) => {
+      const w = h * 4 * (0.9 + 0.2 * ((i * 37) % 7) / 7);
+      return { th, e, h, w, h0: h, w0: w, cell: cell % CLOUD_CELLS, mirror: i % 2, slot, drift: t0 * 0.012 * (3000 / dist), dist, haze };
+    });
   }
 
   private syncLayout(layout: HarbourLayout | undefined): void {
@@ -331,6 +438,13 @@ export class SkySystem implements WorldSystem {
     this.coverS += (this.cover - this.coverS) * (1 - Math.exp(-dt * 0.5));
     this.windS += (this.wind - this.windS) * (1 - Math.exp(-dt * 0.5));
     applySkyPalette(ctx.timeOfDay.hour, this.u);
+    this.updateMoon(ctx, frame.nowMs);
+    // W04: a dark (new-moon) night shows more stars; a thin moon lights the world less — with a floor, so the
+    // harbour stays legible and the lamps carry the night
+    const illum = this.moonIllum, nightK = W.uNight.value;
+    this.u.uSkyK.value.w *= 1 + 0.45 * (1 - illum);
+    W.uNightLift.value.multiplyScalar(0.7 + 0.3 * illum);
+    W.uSunColor.value.multiplyScalar(1 - nightK * 0.25 * (1 - illum));
 
     // Only the card/horizon geometry is cached; all hour/weather/glint/cloud work below stays live.
     this.cameraFrame(ctx);
@@ -360,9 +474,13 @@ export class SkySystem implements WorldSystem {
     this.u.uSunDisc.value.set(sunAz * COMP, discE(sunEl), 0.62, sunVis);
     // the moon keeps a fixed station left of the harbour mouth (not on the beam's axis), small, with a halo
     const moonTh = -12 + 1.2 * Math.sin(hour * 0.26);
-    this.u.uMoonDisc.value.set(moonTh, discE(moonEl) + 0.35, 0.3, moonVis);
+    // 01-A8: no painted moon beside a sun that is still up near it (the dusk frame keeps one disc)
+    const moonShown = moonVis * (1 - sunVis * (1 - THREE.MathUtils.smoothstep(Math.abs(sunAz * COMP - moonTh), 18, 45)));
+    this.u.uMoonDisc.value.set(moonTh, discE(moonEl) + 0.35, 0.3, moonShown);
     // clouds/hills are lit by the key light (true azimuth)
-    this.u.uLight.value.set(relAz(sunDir), Math.max(0.05, sunEl), 0, 0);
+    // at night they take their light from the painted moon, so the moonlit rims face the disc you see
+    const moonKey = THREE.MathUtils.smoothstep(night, 0.3, 0.8) * moonVis;
+    this.u.uLight.value.set(THREE.MathUtils.lerp(relAz(sunDir), moonTh, moonKey), Math.max(0.05, THREE.MathUtils.lerp(sunEl, moonEl, moonKey)), 0, 0);
 
     // ---- glint: a virtual light whose mirror image sits under the painted disc
     // when the band is out of frame (close zooms) the glint follows the true elevation instead
@@ -373,14 +491,14 @@ export class SkySystem implements WorldSystem {
       return this.glint.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
     };
     const sunW = sunVis * this.u.uDiscK.value.x;
-    const moonW = moonVis * this.u.uDiscK.value.y;
+    const moonW = moonShown * this.u.uDiscK.value.y;
     const keyLum = Math.max(0.05, W.uSunColor.value.r * 0.3 + W.uSunColor.value.g * 0.59 + W.uSunColor.value.b * 0.11);
     // the storm deck hides the moon and the sun: their glitter on the sea goes with them
     const deck = 1 - 0.92 * THREE.MathUtils.smoothstep(this.coverS, 0.45, 0.85);
     if (moonW > sunW) {
       this.shared.uGlintDir.value.copy(glintOf(moonTh / COMP, discE(moonEl) + 0.35, moonEl));
       // through a broken night deck the moon's path on the sea comes and goes: keep a little of it
-      this.shared.uGlintCol.value.setRGB(0.78, 0.85, 1.0).multiplyScalar(0.85 * moonW * deck * (1 - nightClosed * (1 - 0.35 * nightGaps)));
+      this.shared.uGlintCol.value.setRGB(0.78, 0.85, 1.0).multiplyScalar(0.85 * moonW * deck * (1 - nightClosed * (1 - 0.35 * nightGaps)) * (0.1 + 0.9 * Math.pow(this.moonIllum, 0.8)));
     } else {
       this.shared.uGlintDir.value.copy(glintOf(sunAz, discE(sunEl), sunEl));
       this.shared.uGlintCol.value.copy(W.uSunColor.value).multiplyScalar((1.2 / keyLum) * sunW * deck);
@@ -392,32 +510,65 @@ export class SkySystem implements WorldSystem {
     // ---- clouds: cover reveals banks, wind drifts them (near layers faster); wrap at the band edge with a fade
     this.clock ??= new MotionClock(ensureMotionService(ctx));
     const driftT = this.clock.step(dt), live = this.clock.live;
-    const driftDeg = (0.004 + 0.05 * this.windS) * dt * live;
+    // W08 one wind: the banks and cirrus drift the way the wind blows across the view (the same direction as
+    // the cloud shadows, smoke and flags); a wind straight along the view still creeps, with its own sign
+    const wv0 = W.uWindVec.value;
+    const wdA = (wv0.lengthSq() > 1e-6 ? Math.atan2(wv0.y, wv0.x) : -0.6) + 0.15 * Math.sin(driftT * 0.01);
+    const across = Math.cos(wdA) * rightX + Math.sin(wdA) * rightZ;
+    const lat = 0.75 * across + 0.25 * Math.tanh(across * 6);
+    const driftDeg = (0.004 + 0.05 * this.windS) * dt * live * lat;
     this.cirrusDrift += driftDeg * 0.6;
+    // gusts briefly hurry the near banks (and the cirrus a little): the gust share of the wind now
+    // TODO(motion): read the shared gust field (weather/gust.ts) here once it lands, instead of windNow - wind
+    const wxs = (ctx.services.get("weather") as WeatherSkyLike | undefined)?.state;
+    const gust = wxs ? THREE.MathUtils.clamp((wxs.windNow - wxs.wind) / 0.25, 0, 1) : 0;
+    this.cirrusDrift += driftDeg * 0.3 * gust;
+    // ---- W01 the front: it comes from the upwind side of the view and sweeps across the band
+    const fr = this.front;
+    if (fr && this.frontSide === 0) this.frontSide = across >= 0 ? 1 : -1;
+    const fL = halfH / D2R + 14;
+    const lineTh = fr ? this.frontSide * (-fL + 2 * fL * fr.progress) : 0;
+    const coverAt = (th: number) => !fr ? this.coverS
+      : THREE.MathUtils.lerp(fr.coverFrom, fr.coverTo, 1 - THREE.MathUtils.smoothstep(this.frontSide * (th - lineTh), -3, 3));
+    if (fr) {
+      this.u.uFrontA.value.set(fr.coverFrom, fr.coverTo, stormOf(fr.coverFrom), stormOf(fr.coverTo));
+      this.u.uFrontB.value.set(lineTh, this.frontSide, fr.rainTo, 1);
+    } else this.u.uFrontB.value.w = 0;
+    // W10: the season picks the cloud shapes (area kept, so never the amount)
+    const sw = (ctx.services.get("season") as { weights?: SkySeasonWeights } | undefined)?.weights;
+    // calm (from the DEWS cover only) settles the autumn's long low banks
+    const calm = Math.round((1 - THREE.MathUtils.smoothstep(this.coverS, 0.2, 0.5)) * 20) / 20;
+    const sKey = sw ? sw.map((x) => x.toFixed(2)).join() + calm : "";
+    if (sw && sKey !== this.seasonKey) {
+      this.seasonKey = sKey;
+      for (const b of this.banks) { const sh = seasonBankShape({ w: b.w0, h: b.h0 }, sw, THREE.MathUtils.smoothstep(9000 - b.dist, 0, 4000), calm); b.w = sh.w; b.h = sh.h; }
+      const [cirrus, mackerel] = seasonHighCloud(sw);
+      this.u.uSeasonSky.value.set(cirrus, mackerel, 0, 0);
+    }
     // fair-weather cumulus even when calm (2-3 banks), the full sky at ALERT and above
-    const vis = 5 + this.coverS * MAX_BANKS;
     this.banks.forEach((b, i) => {
-      b.drift += driftDeg * (3000 / b.dist) * 1.6;
+      b.drift += driftDeg * (3000 / b.dist) * 1.6 * (1 + 1.2 * gust * THREE.MathUtils.smoothstep(9000 - b.dist, 0, 4000));
       const grow = 0.85 + 0.3 * this.coverS;
       // each bank cycles just beyond the frame edge, fading only while (mostly) out of view
       const lim = halfH / D2R + b.w * grow * 0.5 + 3;
       let th = b.th + b.drift + lateralDeg / b.dist;
       th = ((th + lim) % (2 * lim) + 2 * lim) % (2 * lim) - lim;
       const edge = THREE.MathUtils.smoothstep(lim - Math.abs(th), 0, 6);
-      const a = THREE.MathUtils.clamp(vis - b.slot, 0, 1) * edge;
+      const a = bankReveal(coverAt(th), b.slot, MAX_BANKS) * edge;
       this.u.uBanks.value[i].set(th, b.e, b.w * grow, b.h * grow);
       this.u.uBankB.value[i].set(b.cell, a, b.haze, b.mirror);
     });
     this.u.uWeather.value.set(this.coverS, this.windS, this.cirrusDrift);
+    this.updateNightSky(dt, live, driftT, fwdAz, halfH / D2R, ctx);
     // one wind field: the weather director's direction (uWindVec, the way the hulls lie) with a slow wobble
-    const wv0 = W.uWindVec.value;
-    const wdA = (wv0.lengthSq() > 1e-6 ? Math.atan2(wv0.y, wv0.x) : -0.6) + 0.15 * Math.sin(driftT * 0.01);
     this.shared.uWeatherSea.value.set(this.coverS, this.windS, Math.cos(wdA), Math.sin(wdA));
 
     // ---- storm grade (ALERT and above): slate sky, dimmer duller key light, greyer world, flatter grade.
     //      Runs after TimeOfDay and the readings binder wrote the uniforms, before the island copies them.
-    const storm = THREE.MathUtils.smoothstep(this.coverS, 0.38, 0.75);
+    const storm = stormOf(this.coverS);
     this.u.uStorm.value = storm;
+    this.u.uClearZen.value.copy(W.uZenith.value);
+    this.u.uClearHor.value.copy(W.uHorizon.value);
     if (storm > 1e-3) {
       const greyOf = (c: THREE.Color, k: number, mul: number) => {
         const l = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
@@ -445,7 +596,8 @@ export class SkySystem implements WorldSystem {
       this.u.uPrecipSky.value.set(W.uPrecip.value.x, W.uPrecip.value.y, flash, fth);
       const wv = W.uWindVec.value;
       // curtains lean downwind: + when the wind blows to the view's right
-      this.u.uPrecipSkyB.value.set(wx.flash.elevation, (wv.x * rightX + wv.y * rightZ) * 0.6, 0, 0);
+      const pp = W.uPrecip.value;
+      this.u.uPrecipSkyB.value.set(wx.flash.elevation, (wv.x * rightX + wv.y * rightZ) * 0.6, pp.x + pp.y > 0.02 ? pp.y / (pp.x + pp.y) : this.u.uPrecipSkyB.value.z, 0);
       const gloom = wx.gloom * (1 - 0.6 * night);
       if (gloom > 1e-3) {
         W.uSunColor.value.multiplyScalar(1 - 0.38 * gloom);
@@ -457,10 +609,15 @@ export class SkySystem implements WorldSystem {
         g.gain[0] *= 1 - 0.06 * gloom; g.gain[1] *= 1 - 0.05 * gloom; g.gain[2] *= 1 - 0.02 * gloom;
       }
       if (flash > 1e-3) {
-        // a cold blue-white flash on everything the sky lights (the hemisphere and fill lights copy these next)
+        // a cold blue-white flash on everything the sky lights (the hemisphere and fill lights copy these next).
+        // L7: most of it comes FROM the strike — the shadowless fill light turns toward its azimuth at ~25°, so the
+        // faces toward the storm flare and the lee sides stay dark; the hemisphere keeps a little (peak below v1.2).
         const fk = flash * (0.55 + 0.9 * night);
-        W.uHemiSky.value.r += 0.55 * fk; W.uHemiSky.value.g += 0.6 * fk; W.uHemiSky.value.b += 0.78 * fk;
+        W.uHemiSky.value.r += 0.25 * fk; W.uHemiSky.value.g += 0.27 * fk; W.uHemiSky.value.b += 0.35 * fk;
         W.uFillColor.value.r += 0.9 * fk; W.uFillColor.value.g += 1.0 * fk; W.uFillColor.value.b += 1.25 * fk;
+        const el = 25 * D2R, k = THREE.MathUtils.smoothstep(flash, 0, 0.35);
+        const sd = this.strikeDir.set(Math.sin(wx.flash.azimuth) * Math.cos(el), Math.sin(el), -Math.cos(wx.flash.azimuth) * Math.cos(el));
+        W.uFillDir.value.lerp(sd, k).normalize();
         W.uAmbient.value.r += 0.25 * fk; W.uAmbient.value.g += 0.28 * fk; W.uAmbient.value.b += 0.36 * fk;
       }
     } else this.u.uPrecipSky.value.set(0, 0, 0, 0);
@@ -479,6 +636,22 @@ export class SkySystem implements WorldSystem {
       (0.42 + 0.2 * storm) * sunUp * THREE.MathUtils.smoothstep(this.coverS, 0.12, 0.45) * (1 - 0.7 * night),
     );
     cs.uCloudShadowK.value.set(0.66 - 0.3 * this.coverS, 0.16);
+    // W01: the shadow line crosses the sea toward the island, travelling with the wind (ahead: the old sky)
+    if (fr) {
+      const shadowW = (cov: number) => (0.42 + 0.2 * stormOf(cov)) * sunUp * THREE.MathUtils.smoothstep(cov, 0.12, 0.45) * (1 - 0.7 * night);
+      cs.uCloudShadow.value.w = shadowW(fr.coverFrom);
+      cs.uCloudShadowK.value.x = 0.66 - 0.3 * fr.coverFrom;
+      cs.uCloudShadowG.value.set(0.66 - 0.3 * fr.coverTo, shadowW(fr.coverTo), 0);
+      cs.uCloudShadowF.value.set(wind.z, wind.w, -1100 + 2200 * fr.progress, 1);
+    } else cs.uCloudShadowF.value.w = 0;
+    // W03 sunbreaks (by day) and the W09 squall's shadow, walking along the wind
+    const brk = (wxs?.breaks ?? 0) * sunUp * (1 - night);
+    const sq = wxs?.squall;
+    const sqK = sq ? sq.k * (1 - 0.5 * night) : 0;
+    const sqSide = across >= 0 ? 1 : -1;
+    this.u.uSquall.value.set(sq ? sqSide * fL * (sq.pos - 1) : 0, sqK, brk, 0);
+    cs.uCloudShadowG.value.z = brk;
+    cs.uCloudShadowS.value.set(wind.z * ((sq?.pos ?? 0) - 1) * 1100, wind.w * ((sq?.pos ?? 0) - 1) * 1100, 1 / 260, 0.32 * sqK * sunUp * (1 - 0.7 * night));
 
     // ---- band texture for the sea (cheap: 512 x 128)
     this.renderBand(ctx);

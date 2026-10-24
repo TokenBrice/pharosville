@@ -123,8 +123,9 @@ def head_d(u, v):
 
 def init(coast, quay_lines=None, beaches=None):
     """Rasterise the coast (world coords) into a distance-inside field; remember the quay lines and beaches (world)."""
-    global _grid, _quays, _beaches, _road
+    global _grid, _quays, _beaches, _road, _discs, _vine
     _beaches = []
+    _discs = None; _vine = None
     for b in (beaches or []):
         L = list(map(tuple, b['line'])); m = b['depth'] + 30.0
         box = (min(p[0] for p in L) - m, min(p[1] for p in L) - m, max(p[0] for p in L) + m, max(p[1] for p in L) + m)
@@ -274,6 +275,98 @@ def town_step(u, v):
     return None, 0.0
 
 
+# ------------------------------------------------------------------ 08-T1/T4 (prettier): the cultivated west lobe
+# Contour olive terraces on the spine's east flank (screen plan: centre, radii u/v, angle; soft-edged blobs). The ground is
+# quantised into level benches TERRACE_STEP apart with a steep dry-stone riser (the top TERRACE_RISER share of each step's
+# natural rise), so the benches follow the land's own contours; hb_land rows the mesh there, hb_dress lips + plants them.
+TERRACES = [((-163.0, -90.0), 21.0, 15.0, 0.25), ((-160.0, -47.0), 19.0, 14.0, 0.2)]
+TERRACE_STEP, TERRACE_RISER = 1.6, 0.3      # REVIEW #4: a battered bank, not an upright blade
+# level discs (screen plan centre, radius, blend): the threshing floor by the windmill; the hill sanctuary's temenos on the
+# spine's north knoll (z = the knoll's own height at the centre)
+THRESHING_UV, THRESHING_R = (-196.0, -186.0), 5.2
+# REVIEW #9: off the shipyard's back wall onto the open knoll east of the west road (along the spine, Wreck Cove's strand
+# leaves no room for a cypress ring), ~34 m from its first site
+SANCTUARY_UV, SANCTUARY_R = (-155.0, -15.0), 9.5
+_discs = None      # [(x, y, r, blend, z)] world, built on first use
+# the vineyard (screen plan centre; half-size along the fall line, across): its rows run straight down the slope
+VINE_UV, VINE_HALF = (-162.0, -165.0), (12.0, 11.0)
+_vine = None
+
+
+def vineyard():
+    """(centre, fall-line unit vector, across unit vector, world polygon) of the vineyard (world coords)."""
+    global _vine
+    if _vine is None:
+        cx, cy = from_uv(*VINE_UV)
+        gx = (height(cx + 2, cy) - height(cx - 2, cy)) / 4; gy = (height(cx, cy + 2) - height(cx, cy - 2)) / 4
+        gl = math.hypot(gx, gy)
+        d = (-gx / gl, -gy / gl) if gl > 1e-4 else (1.0, 0.0)
+        a = (-d[1], d[0])
+        poly = [(cx + d[0] * i * VINE_HALF[0] + a[0] * j * VINE_HALF[1], cy + d[1] * i * VINE_HALF[0] + a[1] * j * VINE_HALF[1])
+                for i, j in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+        _vine = ((cx, cy), d, a, poly)
+    return _vine
+
+
+def in_vineyard(x, y, grow=0.0):
+    (cx, cy), d, a, _p = vineyard()
+    dx, dy = x - cx, y - cy
+    return abs(dx * d[0] + dy * d[1]) < VINE_HALF[0] + grow and abs(dx * a[0] + dy * a[1]) < VINE_HALF[1] + grow
+
+
+def terrace_w(u, v):
+    """0..1 terrace weight at a screen-plan point (1 inside a terraced hillside, soft at its rim)."""
+    w = 0.0
+    for (c, ru, rv, a) in TERRACES:
+        du, dv = u - c[0], v - c[1]
+        ca, sa = math.cos(a), math.sin(a)
+        d = math.hypot((du * ca + dv * sa) / ru, (-du * sa + dv * ca) / rv)
+        if d < 1.0:
+            w = max(w, 1.0 - sstep(0.72, 1.0, d))
+    return w
+
+
+def terraced(h, w):
+    """Quantise a natural height into benches + risers, weighted by w."""
+    if w <= 0.0:
+        return h
+    k = h / TERRACE_STEP
+    f = k - math.floor(k)
+    q = (math.floor(k) + sstep(1.0 - TERRACE_RISER, 1.0, f)) * TERRACE_STEP
+    return h + (q - h) * w
+
+
+def terrace_info(x, y):
+    """(weight, step fraction of the natural height) at a world point: fraction > 1 - RISER is a riser face."""
+    u, v = to_uv(x, y)
+    w = terrace_w(u, v)
+    if w <= 0.0:
+        return 0.0, 0.0
+    h = height(x, y, terraces=False)
+    k = h / TERRACE_STEP
+    return w, k - math.floor(k)
+
+
+def _disc_list():
+    global _discs
+    if _discs is None:
+        _discs = []
+        for (cuv, r, b) in ((THRESHING_UV, THRESHING_R, 3.0), (SANCTUARY_UV, SANCTUARY_R, 4.0)):
+            x, y = from_uv(*cuv)
+            _discs = _discs + [(x, y, r, b, None)]
+        _discs = [(x, y, r, b, height(x, y, discs=False)) for (x, y, r, b, _z) in _discs]
+    return _discs
+
+
+def disc_at(x, y):
+    """(z, weight) of a level disc covering (x, y), else None."""
+    for (cx, cy, r, b, z) in _disc_list():
+        d = math.hypot(x - cx, y - cy)
+        if d < r + b:
+            return z, 1.0 - sstep(r, r + b, d)
+    return None
+
+
 def _quay_flat(x, y):
     """Distance (m) to the nearest quay line and its apron depth, for the shore-level flats."""
     best = (1e9, 0.0)
@@ -286,11 +379,17 @@ def _quay_flat(x, y):
     return best
 
 
-def height(x, y, coves=(), pads=True, flats=True):
+def height(x, y, coves=(), pads=True, flats=True, terraces=True, discs=True):
     u, v = to_uv(x, y)
     n = natural(u, v)
     z, w = town_step(u, v)
     h = n if z is None else n * (1 - w) + z * w
+    if terraces and _grid is not None:
+        h = terraced(h, terrace_w(u, v))
+    if discs and _grid is not None:
+        dk = disc_at(x, y)
+        if dk is not None:
+            h = h * (1 - dk[1]) + dk[0] * dk[1]
     # quay aprons: exactly at quay level, easing into the slope behind
     d, ap = _quay_flat(x, y)
     if d < ap + 14.0:
@@ -385,7 +484,7 @@ def _meadows():
 
 
 FIELDS = _meadows()
-FIELD_COL = {'hay': '#B9B262', 'pasture': '#87A457', 'plough': '#8E7556'}
+FIELD_COL = {'hay': '#C6B256', 'pasture': '#7C9C4C', 'plough': '#7D6247'}     # 08-T1: stronger tonal contrast
 
 
 def field_at(x, y):

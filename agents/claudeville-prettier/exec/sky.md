@@ -1,0 +1,36 @@
+# Lane SKY — changelog bullets, legend lines, hooks
+
+## Changelog bullets (user-facing)
+
+- One wind: the painted cloud banks and the high cirrus now drift the way the wind blows, the same way as the cloud shadows, smoke and flags; gusts briefly hurry the near banks.
+
+- Storm decks are sculpted now: cold slate cells and rolls instead of a flat grey wash, with a pale strip of sunlit sky under the deck at the far horizon until Danger closes it. Heavy rain greys the distance in cold slate, heaviest on the side the weather comes from — never the warm white of the stale-data fog.
+- Weather you can see coming: when the stress reading jumps, the new weather sweeps in from the upwind horizon — a storm front with a dark shelf-cloud lip, rain over the open sea first, and a cloud-shadow line crossing the water toward the island; when it eases, a clearing line opens the sky behind it. The Storm-signal panel says the same: "Rising toward Alert." / "Easing toward Watch.". No front on first load; reduced motion eases the weather in place.
+- Sunbreaks: as rain eases off, or just after a recovery, the land and sea fall into cloud shadow with a few large sunlit patches drifting across, and faint shafts fan down from the sun through the gaps.
+- Passing squalls at Watch and Alert: the passing shower is now a place — one darker cloud with its own rain curtain and shadow walks in from upwind, rains on the harbour at its crest and moves on.
+- Lightning has a direction: a strike lights the faces of the town that look toward it, the lee sides stay dark (no brighter than before).
+- Tonight's moon: the moon now shows its real phase for your date (crescent, half, gibbous, full; mirrored south of the equator), with faint earthshine on the dark limb. Its glow, its path on the sea and its light on the town follow the phase; on dark new-moon nights the stars come out and the harbour lamps carry the night.
+- Moonbow: a recovery you watch at night, under a bright moon, hangs a faint silver moonbow over the harbour. The Storm-signal panel now records every recovery in words — "Recovered from Alert 3 min ago" — by day or night.
+- A real night sky: stars now have magnitudes and colours (a few warm, a few blue), twinkling more low down; on clear, dark nights (calm weather, little moon) a faint Milky Way arcs over the harbour, brightest in summer.
+- Meteor showers on their real dates — Quadrantids, Lyrids, η-Aquariids, Perseids, Orionids, Leonids, Geminids — as thin warm streaks on clear nights (one every 15–40 s at a peak, the odd sporadic otherwise). Never a flash; none with reduced motion.
+- Each season has its own sky: tall summer cumulus, long low autumn banks with a mackerel sky, flat pale winter stratocumulus, small spring fair-weather clouds and more cirrus. The amount of cloud is still the stress weather, identical in every season.
+- Dew and rime: spring and autumn dawns glitter with dew on the grass and leaves until the sun climbs; cold winter dawns frost the grass and roof tiles until mid-morning. Neither is mist — fog still means stale data only.
+
+## Legend lines
+
+- Weather front (sky sweeping in from one side): the DEWS stress reading moved by ≥ 0.35 of a band since the weather shown; Storm-signal panel "Rising toward <band>" / "Easing toward <band>".
+
+- Rainbow / moonbow (recovery): the DEWS weather improved from Alert or worse to Watch or better during your visit; Storm-signal panel "Recovered from <band> N min ago" for the same 3.5 minutes.
+- Moon (decorative): tonight's real phase.
+- Stars, Milky Way and meteors (decorative): the real night sky for your date; shown only on clear nights.
+
+## Hooks wanted from other lanes
+
+- MOTION: `weather/gust.ts` — sky-system reads `windNow - wind` as the gust share for now (TODO(motion) in `sky/sky-system.ts`); swap to the shared gust field when it lands.
+- OCEAN (FRAME, ocean-material.ts — not edited by SKY): (1) W08 cat's-paws: darken ripple patches downwind in gust cells (read uWindVec + the gust field); (2) W09 squall: the squall shadow already reaches the sea through `hbCloudShadow` (new `uCloudShadowS`); a local rain-ring/roughened patch under it would help; (3) W03: sunlit sea patches already come through `hbCloudShadow`; a warm glitter boost where it returns 1 would sell them.
+- Ocean binds `...cloudShadowUniforms` at material creation, so the new uniforms (`uCloudShadowF/G/S`) are bound with no ocean edit. Merge hazard: if FRAME re-declares or copies the cloud-shadow uniforms explicitly, it must include the new keys.
+- AUDIO: thunder ahead of a W01 front could key off `weather.state.front` (rising, progress < 0.3).
+
+## Dev URL params added
+
+`?front=<band>[&frontAt=0..1]`, `?breaks=1`, `?squall=0..2`, `?moon=<age days>`, `?meteors=<shower>` (quadrantids, lyrids, eta-aquariids, perseids, orionids, leonids, geminids).

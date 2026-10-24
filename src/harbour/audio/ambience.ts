@@ -38,8 +38,10 @@ export interface AmbienceInputs {
   fog: number;
   /** 0 day … 1 night */
   night: number;
-  /** world hour 0..24 */
+  /** world hour 0..24 (the LIGHT hour: dawn, dusk and night as the sky shows them) */
   hour: number;
+  /** the world's clock hour 0..24 (wall clock or the pinned ?t=): the hour bell strikes it */
+  clock: number;
   /** nearness 0..1 of the beaches / rocky shore, and the pan of the nearest stretch */
   shore: number;
   shorePan: number;
@@ -55,6 +57,18 @@ export interface AmbienceInputs {
   mint: number;
   mintPan: number;
   mintRate: number;
+  /** nearness 0..1 of the Burn's furnace (0 when there is none), its pan, and the burn activity 0..1 (0 = stale) */
+  burn: number;
+  burnPan: number;
+  burnBack: number;
+  burnRate: number;
+  /** nearness 0..1 of Wreck Cove (the hush: thinner gulls, darker laps, the wind in the ribs), and its pan */
+  cove: number;
+  covePan: number;
+  /** nearness 0..1 of the Shipyard's slipways (0 when there is none), and its pan */
+  ship: number;
+  shipPan: number;
+  shipBack: number;
   /** precipitation intensity 0..1, rain and snow (the TYPE follows the season, the INTENSITY the DEWS band) */
   rain: number;
   snow: number;
@@ -64,6 +78,11 @@ export interface AmbienceInputs {
   storm: number;
   /** gustiness 0..1 */
   gust: number;
+  /**
+   * the shared gust field at the listener (weather/gust.ts: the cat's-paws that heel the fleet and darken the
+   * water), 0 in a lull … 1 in a paw, unscaled; -1 when there is no field (the gusts are then free-running)
+   */
+  paw: number;
   /** calendar season weights (sum ≈ 1) and the snow lying on the land 0..1 */
   spring: number;
   summer: number;
@@ -80,6 +99,16 @@ export interface AmbienceInputs {
   reduced: boolean;
   /** low quality tier (a weaker machine): skip the costlier storm layers (howl, spray, the second rain stream) */
   lean: boolean;
+  /**
+   * how far BEHIND the listener's look each placed source lies, 0 (ahead or beside) … 1 (straight behind):
+   * a pseudo front/back cue, a darker sound from behind, without HRTF panners
+   */
+  shoreBack: number;
+  reefBack: number;
+  mintBack: number;
+  townBack: number;
+  /** the visitor's attention 1 … 0 after a few idle minutes (the ten-minute settle: quieter, sparser) */
+  attention: number;
 }
 
 export interface AmbienceOptions {
@@ -92,6 +121,74 @@ export interface AmbienceOptions {
 
 const MASTER = 0.7;
 const TICK_MS = 120;
+/** at most this many one-shot events sound at once (the continuous beds and the data kinds always play) */
+const VOICES = 24;
+/** kinds that are a bed (overlapped clips), the swell itself, or data: never dropped by the voice cap */
+const ALWAYS = new Set<ClipKind>(["shore", "crackle", "drizzle", "rain", "cricket", "cicada", "thunder", "rumble", "unroll", "latch", "flick"]);
+/** The UI foley's bus gain: a cue's peak (≤ 0.6 in the clip) lands under −24 dBFS after the master. */
+export const CUE_GAIN = 0.12;
+/**
+ * The chart table's foley: a panel opened, a panel closed, a ledger page; and "evening-gun", the decorative
+ * sunset gun's dull report, played EVENING_GUN_DELAY after the call (the call is the visual puff).
+ */
+export type CueName = "open" | "close" | "page" | "evening-gun";
+const CUE_KIND: Partial<Record<CueName, ClipKind>> = { open: "unroll", close: "latch", page: "flick" };
+/** The evening gun is heard this long after its puff is seen (sound from ~400 m across the bay). */
+export const EVENING_GUN_DELAY = 1.2;
+/**
+ * The far event cues' bus (a titan's conch, the evening gun): with the clip peaks ≤ 0.5 / 0.6 this keeps the
+ * conch under the bell buoy and the gun under a far roll of thunder (dsp.test.ts checks both).
+ */
+export const FAR_GAIN = 0.1;
+/** The passing hulls' bus (bow wash and a sail's flog): under a near lap (dsp.test.ts). */
+export const PASS_GAIN = 0.5;
+
+/**
+ * The ten-minute settle: after a while unwatched the whole mix eases down 3 dB, and it always breathes a
+ * slow ±1.5 dB (two incommensurate swells, 2.5 and ~3.9 min) so the scene never sits stationary. In dB.
+ */
+export function settleDb(attention: number, t: number, phase = 0): number {
+  const a = Math.max(0, Math.min(1, attention));
+  const breath = 0.6 * Math.sin((2 * Math.PI * t) / 150 + phase) + 0.4 * Math.sin((2 * Math.PI * t) / 233 + 2.1 * phase + 1);
+  return -3 * (1 - a) + 1.5 * breath;
+}
+
+/** 0 → 1 over [a, b], 1 until c, → 0 over [c, d] (hours). */
+const trap = (h: number, a: number, b: number, c: number, d: number) =>
+  Math.max(0, Math.min(1, (h - a) / (b - a), (d - h) / (d - c)));
+
+/**
+ * The day clock (time of day is decorative): the dawn chorus 05–07 h, the noon hush 12–14 h, and the deep
+ * night 22–04 h when the owls call. Each 0..1, fading over the hour at its edges. `hour` = the light hour.
+ */
+export function dayClock(hour: number): { chorus: number; hush: number; deep: number } {
+  const h = ((hour % 24) + 24) % 24;
+  return {
+    chorus: trap(h, 4.6, 5.3, 7, 7.8),
+    hush: trap(h, 11.3, 12.2, 13.8, 14.6),
+    deep: Math.max(trap(h, 21.4, 22.4, 24.5, 25), trap(h, -1, -0.5, 3.6, 4.5)),
+  };
+}
+
+/**
+ * Strikes of the harbour bell as the clock enters hour `h`: one, from 06 to 22 h, three at noon at most;
+ * never a counting peal (sixteen tolls at 16 h would be a jolt), never at night.
+ */
+export function hourStrikes(h: number): number {
+  return h >= 6 && h <= 22 ? (h === 12 ? 3 : 1) : 0;
+}
+
+/**
+ * The wind's swell at the listener from the shared gust field: a lull 0.35–0.5, a full paw up to ~1.85 in a
+ * DEWS blow (the field's shape decides WHEN, only the wind strength decides HOW MUCH). `flutter` 0..1.
+ */
+export function gustSwell(paw: number, wind: number, gust: number, flutter: number): number {
+  const c = (x: number) => (x > 0 ? (x < 1 ? x : 1) : 0);
+  return 0.35 + 0.15 * c(flutter) + c(paw) * (0.25 + 0.85 * c(wind) + 0.25 * c(gust));
+}
+
+/** Event-rate multiplier of the settle: 1 while watched … 0.7 (~30 % sparser) when settled. */
+export const settleRate = (attention: number) => 0.7 + 0.3 * Math.max(0, Math.min(1, attention));
 
 /** A stereo noise buffer with independent channels (width without phasiness) and a crossfaded seam. */
 function noiseBuffer(ac: BaseAudioContext, seconds: number, color: "white" | "pink", rnd: () => number): AudioBuffer {
@@ -169,10 +266,12 @@ export class Ambience {
   private readonly out: GainNode;
   private readonly sources: AudioBufferSourceNode[] = [];
   private readonly inputs: AmbienceInputs = {
-    zoom: 0.5, wind: 0.35, fog: 0, night: 0, hour: 9, shore: 0.5, shorePan: 0, harbour: 0.5, reef: 0.2, reefPan: -0.5,
+    zoom: 0.5, wind: 0.35, fog: 0, night: 0, hour: 9, clock: 9, shore: 0.5, shorePan: 0, harbour: 0.5, reef: 0.2, reefPan: -0.5,
     fire: 0, firePan: 0, mint: 0, mintPan: 0, mintRate: 0.5,
-    rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
-    town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false,
+    rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, paw: -1, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
+    town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false, attention: 1,
+    shoreBack: 0, reefBack: 0, mintBack: 0, townBack: 0, ship: 0, shipPan: 0, shipBack: 0,
+    burn: 0, burnPan: 0, burnBack: 0, burnRate: 0, cove: 0, covePan: 0,
   };
   private readonly rnd: () => number;
   private readonly bank: ClipBank;
@@ -195,12 +294,24 @@ export class Ambience {
   private readonly windLow: GainNode;
   private readonly whistle: GainNode;
   private readonly whistleLoop: LazyLoop;
+  private readonly highAir: GainNode;
+  private readonly highAirLoop: LazyLoop;
   // civic
   private readonly fireBus: GainNode;
   private readonly firePan: StereoPannerNode;
   private readonly mintBus: GainNode;
   private readonly mintLp: BiquadFilterNode;
   private readonly mintPan: StereoPannerNode;
+  private readonly burnBus: GainNode;
+  private readonly burnLp: BiquadFilterNode;
+  private readonly burnPan: StereoPannerNode;
+  private readonly bellows: GainNode;
+  private readonly bellowsLoop: LazyLoop;
+  private readonly shipBus: GainNode;
+  private readonly shipLp: BiquadFilterNode;
+  private readonly shipPan: StereoPannerNode;
+  /** the yard's work: strokes left in this run, the tool, its beat, where on the slip the shipwright stands */
+  private ship = { left: 0, tool: "mallet" as ClipKind, beat: 0.6, at: 0 };
   // event buses
   private readonly harbourBus: GainNode;    // creaks, taps (near)
   private readonly gullBus: GainNode;
@@ -232,6 +343,24 @@ export class Ambience {
   private readonly rustleBus: GainNode;
   private readonly rustleLp: BiquadFilterNode;
   private readonly crunchBus: GainNode;
+  // the day clock: night birds, the hour bell
+  private readonly nightBus: GainNode;
+  private readonly tollLp: BiquadFilterNode;
+  private lastHour = -1;
+  private readonly cueBus: GainNode;
+  private readonly ribs: GainNode;
+  private readonly ribsPan: StereoPannerNode;
+  private readonly ribsLoop: LazyLoop;
+  /** the anniversary bell, waiting for its clips */
+  private knell: { level: number; pan: number } | null = null;
+  /** lazy event clips waiting for their synthesis (played when ready, dropped if more than 2 s late) */
+  private pending: Array<{ kind: ClipKind; at: number; level: number; pan: number }> = [];
+  private readonly farBus: GainNode;
+  private readonly passBus: GainNode;
+  // the ten-minute settle (and the slow breathing of the whole mix), and the one-shots now sounding
+  private readonly settle: GainNode;
+  private readonly breathPhase: number;
+  private voices: number[] = [];
   private timer = 0;
   private idle: number | null = null;
   private idleCallback = false;
@@ -242,7 +371,7 @@ export class Ambience {
   private finishFade: (() => void) | null = null;
   private next = {
     wave: 0, lap: 0, reef: 0, gull: 0, creak: 0, tap: 0, horn: 0, gust: 0, crackle: 0, press: 0, refresh: 0,
-    rainA: 0, rainB: 0, drip: 0, bird: 0, cricket: 0, cicada: 0, crunch: 0,
+    rainA: 0, rainB: 0, drip: 0, bird: 0, cricket: 0, cicada: 0, crunch: 0, ship: 0, groan: 0, burn: 0, bellows: 0, owl: 0, nightjar: 0,
   };
   private setLeft = 0;
   private pressN = 0;
@@ -268,7 +397,9 @@ export class Ambience {
     // thunder over a storm surf can never clip, at the cost of a table lookup per sample
     const safety = ac.createWaveShaper();
     safety.curve = softClipCurve();
-    this.out.connect(this.hush).connect(comp).connect(safety).connect(ac.destination);
+    this.settle = ac.createGain();
+    this.breathPhase = this.rnd() * Math.PI * 2;
+    this.out.connect(this.settle).connect(this.hush).connect(comp).connect(safety).connect(ac.destination);
     // the weather beds (wind, rain, spray, howl) pass through a duck that dips under a near thunderclap, so
     // the clap stands out of a downpour without pushing the mix toward full scale
     this.duck = ac.createGain(); this.duck.connect(this.out);
@@ -329,6 +460,11 @@ export class Ambience {
     const whistleBp = this.filter("bandpass", 1350, 16);
     this.whistleLoop = new LazyLoop(ac, white, whistleBp);
     whistleBp.connect(this.whistle).connect(this.windGust);
+    // the high air of the overview: a thin, broad, very quiet wind that only the farthest zoom hears
+    this.highAir = ac.createGain(); this.highAir.gain.value = 0;
+    const airBp = this.filter("bandpass", 2500, 0.5);
+    this.highAirLoop = new LazyLoop(ac, white, airBp);
+    airBp.connect(this.highAir).connect(this.windGust);
 
     // ---- the Pharos fire: overlapped clips of flickering roar and crackle
     this.fireBus = ac.createGain(); this.fireBus.gain.value = 0;
@@ -340,6 +476,22 @@ export class Ambience {
     this.mintLp = this.filter("lowpass", 2500, 0.6);
     this.mintPan = ac.createStereoPanner();
     this.mintLp.connect(this.mintPan).connect(this.mintBus).connect(this.out);
+
+    // ---- the Burn's furnace: a deeper roar of the same fire clips, and the bellows breathing into it
+    this.burnBus = ac.createGain(); this.burnBus.gain.value = 0;
+    this.burnLp = this.filter("lowpass", 2500, 0.5);
+    this.burnPan = ac.createStereoPanner();
+    this.burnLp.connect(this.burnPan).connect(this.burnBus).connect(this.out);
+    this.bellows = ac.createGain(); this.bellows.gain.value = 0;
+    const bellowsBp = this.filter("bandpass", 300, 0.7);
+    this.bellowsLoop = new LazyLoop(ac, white, bellowsBp);
+    bellowsBp.connect(this.bellows).connect(this.burnLp);
+
+    // ---- the Shipyard: mallets, adzes and a pit saw on oak, a treadwheel crane's groan (by day only)
+    this.shipBus = ac.createGain(); this.shipBus.gain.value = 0;
+    this.shipLp = this.filter("lowpass", 2500, 0.6);
+    this.shipPan = ac.createStereoPanner();
+    this.shipLp.connect(this.shipPan).connect(this.shipBus).connect(this.out);
 
     // ---- rain: the fine hiss of drops on the open sea and a heavier body in a downpour, driven by the gusts;
     // the patter of drops on roofs and quays (clips), louder and brighter near the town; eaves dripping
@@ -385,6 +537,22 @@ export class Ambience {
     this.rustleLp = this.filter("lowpass", 9000, 0.5);
     this.rustleLp.connect(this.rustleBus).connect(this.out);
     this.crunchBus = ac.createGain(); this.crunchBus.gain.value = 0; this.crunchBus.connect(this.out);
+    this.nightBus = ac.createGain(); this.nightBus.gain.value = 0; this.nightBus.connect(this.out); this.nightBus.connect(this.echo);
+    // Wreck Cove: a hollow wind through the hulks' ribs (a narrow band of noise), placed at the cove
+    this.ribs = ac.createGain(); this.ribs.gain.value = 0;
+    this.ribsPan = ac.createStereoPanner();
+    const ribsBp = this.filter("bandpass", 240, 6);
+    this.ribsLoop = new LazyLoop(ac, white, ribsBp);
+    ribsBp.connect(this.ribs).connect(this.ribsPan).connect(this.duck);
+    this.cueBus = ac.createGain(); this.cueBus.gain.value = CUE_GAIN; this.cueBus.connect(this.out);
+    // the far event cues (conch, evening gun): soft, through the harbour walls' slap-back
+    this.farBus = ac.createGain(); this.farBus.gain.value = FAR_GAIN; this.farBus.connect(this.out); this.farBus.connect(this.echo);
+    // ships passing the listener: dry and close
+    this.passBus = ac.createGain(); this.passBus.gain.value = PASS_GAIN; this.passBus.connect(this.out);
+    // the hour bell: soft and far (dark, through the harbour walls' slap-back), from the town
+    const tollBus = ac.createGain(); tollBus.gain.value = 0.07;
+    this.tollLp = this.filter("lowpass", 2000, 0.5);
+    this.tollLp.connect(tollBus); tollBus.connect(this.out); tollBus.connect(this.echo);
 
     this.harbourBus = ac.createGain(); this.harbourBus.gain.value = 0; this.harbourBus.connect(this.out);
     this.gullBus = ac.createGain(); this.gullBus.gain.value = 0; this.gullBus.connect(this.out); this.gullBus.connect(this.echo);
@@ -396,6 +564,8 @@ export class Ambience {
       wave: t + 0.2, lap: t + 0.6, reef: t + 1.5, gull: t + 3 + this.rnd() * 4, creak: t + 3, tap: t + 1.5, horn: t + 3, gust: t,
       crackle: t, press: t + 0.5, refresh: t + 20,
       rainA: t, rainB: t + 1.7, drip: t + 1, bird: t + 1 + this.rnd() * 3, cricket: t, cicada: t, crunch: t + 4,
+      ship: t + 2, groan: t + 6, burn: t, bellows: t + 2,
+      owl: t + 20 + this.rnd() * 40, nightjar: t + 10 + this.rnd() * 30,
     };
     if (opts.manual) this.bank.buildAll();
     else if (!this.paused) {
@@ -461,13 +631,22 @@ export class Ambience {
   }
 
   /** Play a bank clip into `to` (a one-shot; it ends at exact silence, so no click). */
-  private play(kind: ClipKind, at: number, to: AudioNode, level: number, pan = 0, rate = 1): void {
+  private play(kind: ClipKind, at: number, to: AudioNode, level: number, pan = 0, rate = 1): boolean {
     const buf = this.bank.pick(kind, this.rnd);
-    if (!buf) return;      // still being synthesised: the beds carry the scene meanwhile
+    if (!buf) return false;      // still being synthesised: the beds carry the scene meanwhile
+    // a global cap on the one-shot events: a busy moment never piles up into a wall of clips
+    const now = this.ac.currentTime;
+    if (this.voices.length >= VOICES) this.voices = this.voices.filter((e) => e > now);
+    if (!ALWAYS.has(kind)) {
+      if (this.voices.length >= VOICES) return false;
+      this.voices.push(at + buf.duration / rate);
+    }
     const s = this.ac.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate;
-    const g = this.ac.createGain(); g.gain.value = level;
+    // a mono clip holds (L + R) / 2: √2 puts it back at the stereo clip's level through the panner
+    const g = this.ac.createGain(); g.gain.value = buf.numberOfChannels === 1 ? level * Math.SQRT2 : level;
     s.connect(g).connect(this.lane(to, pan));
     s.start(at);
+    return true;
   }
 
   /** Five fixed pan lanes per destination: a placed one-shot costs two nodes, not three. */
@@ -499,30 +678,53 @@ export class Ambience {
     const tc = 0.8;
     const air = (d: number, lo: number, hi: number) => lo * Math.pow(hi / lo, Math.max(0, Math.min(1, d)));
     const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+    // the settle: the mix eases down and thins after a few idle minutes; any input brings it back in ~2 s
+    const att = clamp01(I.attention), thin = settleRate(att);
+    // altitude: from the overview the sea breathes and the quay's detail falls away; a source behind is darker
+    const alt = clamp01((zoom - 0.8) / 0.2), point = 1 - 0.5 * alt;
+    const behind = (b: number, k: number) => 1 - k * clamp01(b);
+    this.aim(this.settle.gain, Math.pow(10, settleDb(att, now, this.breathPhase) / 20), att > 0.99 ? 0.5 : 2);
 
     // ---- levels: nearer is louder AND brighter; a storm heavies the whole sea
     this.aim(this.shoreBus.gain, 0.5 * (0.3 + 0.7 * I.shore) * (1 - 0.3 * zoom) * (1 + 0.5 * storm), tc);
-    this.aim(this.shoreLp.frequency, air(I.shore * (1 - 0.4 * zoom), 900, 14000), tc);
+    this.aim(this.shoreLp.frequency, air(I.shore * (1 - 0.4 * zoom), 900, 14000) * behind(I.shoreBack, 0.55), tc);
     this.aim(this.bedGain.gain, (0.16 + 0.16 * zoom + 0.05 * wind + 0.14 * storm) * (1 - 0.5 * I.shore * near) * (1 - 0.2 * I.snowCover), tc);   // a near wave masks the far sea
     this.aim(this.bedLp.frequency, air(1 - zoom, 420, 900), tc);
-    this.aim(this.lapBus.gain, 0.06 + 1.1 * I.harbour * I.harbour, tc);
-    this.aim(this.lapLp.frequency, air(I.harbour, 1200, 12000), tc);
+    this.aim(this.lapBus.gain, (0.06 + 1.1 * I.harbour * I.harbour) * point, tc);
+    // Wreck Cove's hush: the laps there are darker, the gulls keep away, the wind hollows through the ribs
+    const cove = clamp01(I.cove);
+    this.aim(this.lapLp.frequency, air(I.harbour, 1200, 12000) * (1 - 0.5 * cove), tc);
+    this.ribsLoop.update(cove > 0.03, cove < 0.02, now, r);
+    this.aim(this.ribs.gain, 0.2 * cove * (0.4 + 0.6 * wind), tc);
+    this.aim(this.ribsPan.pan, I.covePan * 0.7, tc);
     this.aim(this.reefBus.gain, (0.12 + 0.55 * I.reef) * (0.7 + 0.5 * wind) * (1 + 0.6 * storm), tc);
-    this.aim(this.reefLp.frequency, air(I.reef, 380, 2600), tc);
+    this.aim(this.reefLp.frequency, air(I.reef, 380, 2600) * behind(I.reefBack, 0.4), tc);
     this.aim(this.reefPan.pan, I.reefPan * 0.8, tc);
     this.aim(this.windGain.gain, (0.05 + 0.42 * wind * wind) * (0.7 + 0.3 * zoom), tc);
     this.aim(this.windLow.gain, 1.1 * wind * wind, tc);
     // the rigging sings in a blow, and in any storm from WARNING up
     const blow = Math.max(wind, storm > 0.6 ? 0.45 + 0.45 * storm : 0);
     this.whistleLoop.update(blow > 0.56, blow < 0.55, now, r);
-    this.aim(this.harbourBus.gain, (0.08 + 1.1 * I.harbour * I.harbour) * (1 - 0.3 * snow), tc);
+    this.highAirLoop.update(alt > 0.02, alt < 0.01, now, r);
+    this.aim(this.highAir.gain, 0.015 * alt, tc);
+    this.aim(this.harbourBus.gain, (0.08 + 1.1 * I.harbour * I.harbour) * (1 - 0.3 * snow) * point, tc);
     // gulls shelter from a storm and the rain, and snow softens them
-    this.aim(this.gullBus.gain, (0.12 + 0.3 * near) * (1 - 0.8 * night) * (1 - 0.5 * fog) * (1 - 0.7 * storm) * (1 - 0.5 * rain) * (1 - 0.5 * snow), tc);
-    this.aim(this.fireBus.gain, 0.5 * I.fire * I.fire, 0.5);
+    this.aim(this.gullBus.gain, (0.12 + 0.3 * near) * (1 - 0.8 * night) * (1 - 0.5 * fog) * (1 - 0.7 * storm) * (1 - 0.5 * rain) * (1 - 0.5 * snow) * (1 - 0.7 * cove) * (1 - 0.25 * dayClock(I.hour).hush), tc);
+    this.aim(this.fireBus.gain, 0.5 * I.fire * I.fire * point, 0.5);
     this.aim(this.firePan.pan, I.firePan * 0.8, 0.5);
-    this.aim(this.mintBus.gain, 0.16 * I.mint * I.mint, 0.5);
-    this.aim(this.mintLp.frequency, air(I.mint, 700, 6000), 0.5);
+    this.aim(this.mintBus.gain, 0.16 * I.mint * I.mint * point, 0.5);
+    this.aim(this.mintLp.frequency, air(I.mint, 700, 6000) * behind(I.mintBack, 0.5), 0.5);
     this.aim(this.mintPan.pan, I.mintPan * 0.8, 0.5);
+    const furnace = I.burn * clamp01(I.burnRate);
+    this.aim(this.burnBus.gain, 0.4 * I.burn * furnace * point, 0.8);
+    this.aim(this.burnLp.frequency, air(I.burn, 500, 4000) * behind(I.burnBack, 0.5), 0.8);
+    this.aim(this.burnPan.pan, I.burnPan * 0.8, 0.8);
+    this.bellowsLoop.update(furnace > 0.03, furnace < 0.02, now, r);
+    // the yard works by day; the shipwrights down tools in the rain and in a storm, and the yard is shut at night
+    const yard = I.ship * (1 - clamp01((night - 0.4) / 0.2)) * (1 - clamp01(rain * 1.5)) * (1 - 0.8 * storm);
+    this.aim(this.shipBus.gain, 0.55 * yard * I.ship * point, 0.5);
+    this.aim(this.shipLp.frequency, air(I.ship, 600, 5000) * behind(I.shipBack, 0.5), 0.5);
+    this.aim(this.shipPan.pan, I.shipPan * 0.8, 0.5);
 
     // ---- weather (data): snow's hush, rain on the sea and the roofs, drips, spray, the howl
     this.aim(this.hush.gain, -(11 * snow + 4 * I.snowCover), 1.5);
@@ -530,7 +732,7 @@ export class Ambience {
     this.aim(this.rainFine.gain, 0.28 * Math.pow(rain, 0.7) * (0.8 + 0.2 * zoom), 1);
     this.aim(this.rainBody.gain, 0.4 * rain * rain, 1);
     this.aim(this.patterBus.gain, (0.25 + 0.75 * I.town) * clamp01(rain * 2.5), 1);
-    this.aim(this.patterLp.frequency, air(I.town * (1 - 0.4 * zoom), 2200, 12000), 1);
+    this.aim(this.patterLp.frequency, air(I.town * (1 - 0.4 * zoom), 2200, 12000) * behind(I.townBack, 0.5), 1);
     this.aim(this.dripBus.gain, 0.5 * I.wet * (1 - snow) * (0.15 + 0.85 * I.town), 1);
     this.sprayLoop.update(storm > 0.4 && !I.lean, storm < 0.35 || I.lean, now, r);
     this.aim(this.sprayBus.gain, 0.4 * storm * storm * (0.3 + 0.7 * I.shore), 1);
@@ -542,8 +744,15 @@ export class Ambience {
     const day = 1 - night;
     const quiet = (1 - clamp01(rain * 1.6)) * (1 - 0.9 * storm) * (1 - snow);
     const cic = cicadaLevel(I.summer, I.hour);
-    const birds = (I.spring + 0.5 * I.summer + 0.2 * I.autumn + 0.04 * I.winter) * day * quiet * birdThinning(cic);
-    this.aim(this.birdBus.gain, birds * (0.05 + 0.5 * I.trees), 1);
+    // the day clock: a fuller dawn chorus in spring and summer (more singers, barely louder), a noon hush
+    const clock = dayClock(I.hour), chorus = clock.chorus * clamp01(I.spring + I.summer);
+    const birds = (I.spring + 0.5 * I.summer + 0.2 * I.autumn + 0.04 * I.winter) * Math.max(day, 0.8 * chorus) * quiet * birdThinning(cic) * (1 - 0.5 * clock.hush);
+    const birdRate = 1 + 1.5 * chorus;
+    this.aim(this.birdBus.gain, birds * (0.05 + 0.5 * I.trees) * (1 + 0.25 * chorus), 1);
+    // owls in the deep night (any season), a nightjar churring on summer nights; the rain silences them
+    const owls = clock.deep * (1 - clamp01(rain * 2)) * (1 - 0.9 * storm);
+    const jars = I.summer * clamp01((night - 0.5) / 0.3) * (1 - clamp01(rain * 2)) * (1 - 0.9 * storm);
+    this.aim(this.nightBus.gain, (0.03 + 0.25 * I.trees) * point, 1);
     const dusk = clamp01((night - 0.2) / 0.4);
     const crickets = (I.summer + 0.3 * I.spring + 0.5 * I.autumn) * dusk * (1 - clamp01(rain * 2)) * (1 - 0.8 * storm);
     this.aim(this.cricketBus.gain, crickets * (0.04 + 0.4 * I.land), 1);
@@ -565,6 +774,10 @@ export class Ambience {
     if (cicadas > 0.01) this.need("cicada");
     if (rustle > 0.01) this.need("rustle");
     if (crunch > 0.01) this.need("crunch");
+    if (yard > 0.02) this.need("mallet", "adze", "saw");
+    if (owls > 0.01) this.need("owl");
+    if (jars > 0.01) this.need("nightjar");
+    if (I.clock > 5.5 && I.clock < 22.5) this.need("tolling");
 
     const N = this.next;
     // ---- the swell: one wave per period, in sets; the shore, the bed, the laps and the bell answer it
@@ -594,7 +807,7 @@ export class Ambience {
       const laps = 2 + Math.floor(r() * 3);
       for (let k = 0; k < laps; k++) this.play("lap", at + 0.9 + k * (0.22 + r() * 0.5), this.lapLp, (0.5 + 0.5 * r()) * size, r() * 1.6 - 0.8, 0.85 + r() * 0.3);
       // the bell buoy rolls with the same swell
-      if (r() < 0.3) {
+      if (r() < 0.3 * thin) {
         this.play("bell", at + 1 + r(), this.bellBus, 1, -0.4, 0.99 + r() * 0.02);
         if (r() < 0.35) this.play("bell", at + 2.2 + r() * 0.6, this.bellBus, 0.55, -0.4, 0.99 + r() * 0.02);
       }
@@ -604,7 +817,7 @@ export class Ambience {
     if (N.lap < ahead) {
       const at = Math.max(N.lap, now);
       this.play("lap", at, this.lapLp, 0.25 + 0.4 * r(), r() * 1.8 - 0.9, 0.8 + r() * 0.4);
-      N.lap = at + 0.7 + r() * (2.6 - wind * 1.2);
+      N.lap = at + (0.7 + r() * (2.6 - wind * 1.2)) / thin;
     }
     if (N.reef < ahead) {
       const at = Math.max(N.reef, now);
@@ -614,10 +827,13 @@ export class Ambience {
     // gusts: the wind band wanders and swells
     if (N.gust < ahead) {
       const at = Math.max(N.gust, now), d = (1.2 + r() * 2.8) * (1 - 0.35 * gust);
-      const hi = Math.min(1, r() * (0.5 + wind * 0.7 + 0.3 * gust));
+      // with the shared field the swell IS the paw passing over the listener (its shape decorative, its
+      // strength the DEWS wind), a small flutter on top; without it, the gusts run free as before
+      const paw = I.paw >= 0 ? clamp01(I.paw) : -1;
+      const hi = paw < 0 ? Math.min(1, r() * (0.5 + wind * 0.7 + 0.3 * gust)) : Math.min(1, (0.15 + 0.2 * r()) * (0.5 + wind) + paw * (0.3 + 0.6 * wind));
       this.windLo.gain.setTargetAtTime(1 - hi * 0.7, at, d * 0.4);
       this.windHi.gain.setTargetAtTime(hi, at, d * 0.4);
-      this.windGust.gain.setTargetAtTime(0.35 + r() * (0.5 + wind * 0.6 + 0.4 * gust), at, d * 0.35);
+      this.windGust.gain.setTargetAtTime(paw < 0 ? 0.35 + r() * (0.5 + wind * 0.6 + 0.4 * gust) : gustSwell(paw, wind, gust, r()), at, d * 0.35);
       // the whistle sings in some gusts of a blow, never as a steady tone
       this.whistle.gain.setTargetAtTime(blow > 0.55 && r() < 0.55 ? (blow - 0.55) * (0.3 + 0.5 * r()) : 0, at, d * 0.3);
       // driving rain: sheets of it come with the gusts
@@ -660,9 +876,44 @@ export class Ambience {
         const at = Math.max(N.bird, now), pan = I.treesPan * 0.5 + r() * 1.2 - 0.6;
         this.play("bird", at, this.birdBus, 0.5 + 0.5 * r(), pan, 0.94 + r() * 0.12);
         if (r() < 0.3) this.play("bird", at + 1 + r() * 1.5, this.birdBus, 0.35 + 0.3 * r(), -pan, 0.92 + r() * 0.16);
-        N.bird = at + (1.5 + r() * 5) / (0.4 + Math.min(1, birds));
+        N.bird = at + (1.5 + r() * 5) / (0.4 + Math.min(1, birds)) / birdRate / thin;
       }
     } else N.bird = Math.max(N.bird, now + r() * 2);
+    // an owl now and then (about one call in 90 s), sometimes answered from another grove
+    if (owls > 0.01) {
+      if (N.owl < ahead) {
+        const at = Math.max(N.owl, now), pan = I.treesPan * 0.5 + r() * 1.0 - 0.5;
+        this.play("owl", at, this.nightBus, 0.8 * owls, pan, 0.96 + r() * 0.08);
+        if (r() < 0.3) this.play("owl", at + 4 + r() * 3, this.nightBus, 0.4 * owls, -pan, 1.02 + r() * 0.06);
+        N.owl = at + (60 + r() * 60) / thin;
+      }
+    } else N.owl = Math.max(N.owl, now + 20 + r() * 30);
+    if (jars > 0.01) {
+      if (N.nightjar < ahead) {
+        const at = Math.max(N.nightjar, now);
+        this.play("nightjar", at, this.nightBus, 0.7 * jars, I.treesPan * 0.4 + r() * 0.8 - 0.4, 0.97 + r() * 0.06);
+        N.nightjar = at + (40 + r() * 80) / thin;
+      }
+    } else N.nightjar = Math.max(N.nightjar, now + 10 + r() * 20);
+    // event clips that waited for their synthesis
+    if (this.pending.length) {
+      this.pending = this.pending.filter((p) => {
+        if (now > p.at + 2) return false;
+        return !this.play(p.kind, Math.max(p.at, now + 0.05), this.farBus, p.level, p.pan);
+      });
+    }
+    // the anniversary bell (and a death's bell), once its clips are ready
+    if (this.knell) {
+      this.need("tolling");
+      if (this.play("tolling", now + 0.2, this.tollLp, this.knell.level, this.knell.pan, 0.6)) this.knell = null;
+    }
+    // the hour bell: one soft strike as the clock enters each hour from 06 to 22 h (three at noon)
+    const hf = Math.floor(((I.clock % 24) + 24) % 24);
+    if (this.lastHour < 0) this.lastHour = hf;
+    else if (hf !== this.lastHour) {
+      this.lastHour = hf;
+      for (let k = 0, m = hourStrikes(hf); k < m; k++) this.play("tolling", now + 0.2 + k * 3.4, this.tollLp, 1 - 0.5 * storm, I.townPan * 0.6, 0.995 + r() * 0.01);
+    }
     // crickets: overlapped 4 s clips like the fire
     if (crickets > 0.01) {
       if (N.cricket < ahead) {
@@ -695,6 +946,21 @@ export class Ambience {
         N.crackle = at + 3.45 + r() * 0.1;     // 4 s clips, half-second fades: a seamless overlap
       }
     } else N.crackle = Math.max(N.crackle, now);
+    // the Burn: overlapped fire clips slowed to a deeper roar (5.3 s at 0.75, faded 0.67 s), and a bellows
+    // breath every few seconds, quicker as the burn grows
+    if (furnace > 0.03) {
+      if (N.burn < ahead) {
+        const at = Math.max(N.burn, now);
+        this.play("crackle", at, this.burnLp, 0.5, r() * 0.3 - 0.15, 0.75);
+        N.burn = at + 4.6 + r() * 0.1;
+      }
+      if (N.bellows < ahead) {
+        const at = Math.max(N.bellows, now), g = this.bellows.gain;
+        g.setTargetAtTime(0.8 * (0.6 + 0.4 * r()), at, 0.25);
+        g.setTargetAtTime(0, at + 0.7, 0.35);
+        N.bellows = at + (3 + r() * 2) / (0.7 + 0.6 * clamp01(I.burnRate));
+      }
+    } else { N.burn = Math.max(N.burn, now); N.bellows = Math.max(N.bellows, now + 1); }
     // the Mint: three presses in a steady rhythm that quickens with the minting
     if (I.mint > 0.03) {
       if (N.press < ahead) {
@@ -704,20 +970,44 @@ export class Ambience {
         N.press = at + (this.pressN % 3 === 0 ? 1.1 : 0.62) / (0.6 + 0.8 * I.mintRate);
       }
     } else N.press = Math.max(N.press, now);
+    // the Shipyard: runs of two to five strokes at a human (uneven) beat, then a pause; now and then the crane
+    if (yard > 0.02) {
+      const Y = this.ship;
+      if (N.ship < ahead) {
+        const at = Math.max(N.ship, now);
+        if (Y.left <= 0) {
+          const k = r();
+          Y.tool = k < 0.5 ? "mallet" : k < 0.8 ? "adze" : "saw";
+          Y.left = Y.tool === "saw" ? 1 + Math.floor(r() * 3) : 2 + Math.floor(r() * 4);
+          Y.beat = Y.tool === "mallet" ? 0.5 + r() * 0.25 : Y.tool === "adze" ? 0.6 + r() * 0.3 : 1.3 + r() * 0.25;
+          Y.at = r() * 0.6 - 0.3;
+        }
+        const lvl = Y.tool === "mallet" ? 0.7 : Y.tool === "adze" ? 0.45 : 0.35;
+        this.play(Y.tool, at, this.shipLp, lvl * (0.8 + 0.4 * r()), I.shipPan * 0.6 + Y.at, 0.95 + r() * 0.1);
+        Y.left--;
+        N.ship = at + (Y.left > 0 ? Y.beat * (0.82 + 0.36 * r()) : (2 + r() * 5) / thin);
+      }
+      if (N.groan < ahead) {
+        const at = Math.max(N.groan, now);
+        this.play("creak", at, this.shipLp, 0.8, I.shipPan * 0.6 + 0.2, 0.62 + r() * 0.1);
+        if (r() < 0.5) this.play("creak", at + 1.1 + r() * 0.5, this.shipLp, 0.6, I.shipPan * 0.6 + 0.2, 0.6 + r() * 0.1);
+        N.groan = at + (9 + r() * 11) / thin;
+      }
+    } else { N.ship = Math.max(N.ship, now + 1); N.groan = Math.max(N.groan, now + 4); }
     if (N.gull < ahead) {
       const at = Math.max(N.gull, now);
       if (r() < 1 - 0.75 * night) this.play("gull", at, this.gullBus, 0.5 + 0.35 * r(), r() * 1.2 - 0.6, 0.92 + r() * 0.16);
-      N.gull = at + 4 + r() * 10 + night * 10;
+      N.gull = at + (4 + r() * 10 + night * 10) / thin;
     }
     if (N.creak < ahead) {
       const at = Math.max(N.creak, now);
       this.play("creak", at, this.harbourBus, 0.7 + 0.5 * r(), r() * 1.2 - 0.6, 0.85 + r() * 0.3);
-      N.creak = at + 2.5 + r() * 6 - wind * 1.5;
+      N.creak = at + (2.5 + r() * 6 - wind * 1.5) / thin;
     }
     if (N.tap < ahead) {
       const at = Math.max(N.tap, now);
       this.play("halyard", at, this.harbourBus, 0.6 + 0.6 * r() * (0.5 + wind), r() * 1.4 - 0.7, 0.9 + r() * 0.2);
-      N.tap = at + 1.2 + r() * (5 - wind * 3.5);
+      N.tap = at + (1.2 + r() * (5 - wind * 3.5)) / thin;
     }
     // the foghorn: stale data only
     if (fog > 0.5 && N.horn < ahead) {
@@ -734,6 +1024,9 @@ export class Ambience {
       N.refresh = now + 20;
     }
   }
+
+  /** Have a lazy kind ready ahead of a cue the controller knows is coming (e.g. a front's far thunder). */
+  prepare(kind: ClipKind): void { if (!this.disposed) this.need(kind); }
 
   /** Ask the bank for lazy kinds; start synthesising if it was idle. */
   private need(...kinds: ClipKind[]): void {
@@ -807,6 +1100,96 @@ export class Ambience {
     }
   }
 
+  /**
+   * A dead coin's anniversary (deathDate, D11: the Wreck Cove panel says "anniversary today"): one low bronze
+   * bell from the cove, the hour bell slowed to 0.6. The controller rings it at most once per visit.
+   */
+  anniversary(level: number, pan: number): void { this.coveBell(level, pan); }
+
+  /** One low bronze bell from Wreck Cove (an anniversary, or a death staged as a moment). */
+  coveBell(level: number, pan: number): void {
+    if (this.disposed || this.paused) return;
+    this.knell = { level: Math.max(0, Math.min(1, level)), pan };
+  }
+
+  /** A launch (staged moment): the bell buoy struck twice, softly, a slow breath apart. */
+  launchBell(pan: number): void {
+    if (this.disposed || this.paused) return;
+    const at = this.ac.currentTime + 0.4, p = Math.max(-0.8, Math.min(0.8, pan));
+    this.play("bell", at, this.bellBus, 0.55, p, 1);
+    this.play("bell", at + 1.9, this.bellBus, 0.42, p, 0.995);
+  }
+
+  /** A far event clip (the conch, the gun) `delay` s from now, once synthesised. */
+  private far(kind: ClipKind, delay: number, level: number, pan: number): void {
+    if (this.disposed || this.paused) return;
+    this.need(kind);
+    this.pending.push({ kind, at: this.ac.currentTime + delay, level: Math.max(0, Math.min(1, level)) * settleRate(this.inputs.attention), pan: Math.max(-0.8, Math.min(0.8, pan)) });
+  }
+
+  /**
+   * A ship under way slides past the listener: her bow wash swept from `pan0` to `pan1` over ~2 s, and her
+   * canvas shaking once as she comes abeam. The caller limits the rate; nothing under reduced motion.
+   */
+  passing(level: number, pan0: number, pan1: number): void {
+    if (this.disposed || this.paused || this.inputs.reduced || !(level > 1e-3)) return;
+    this.need("swish", "flap");
+    const buf = this.bank.pick("swish", this.rnd);
+    if (!buf) return;
+    const ac = this.ac, at = ac.currentTime + 0.05, lv = Math.min(1, level) * settleRate(this.inputs.attention);
+    const c = (p: number) => Math.max(-0.85, Math.min(0.85, p));
+    const s = ac.createBufferSource(); s.buffer = buf; s.playbackRate.value = 0.94 + this.rnd() * 0.12;
+    const g = ac.createGain(); g.gain.value = lv * (buf.numberOfChannels === 1 ? Math.SQRT2 : 1);
+    const p = ac.createStereoPanner();
+    p.pan.setValueAtTime(c(pan0), at); p.pan.linearRampToValueAtTime(c(pan1), at + buf.duration);
+    s.connect(g).connect(p).connect(this.passBus);
+    s.start(at);
+    this.play("flap", at + 0.7 + this.rnd() * 0.4, this.passBus, 0.6 * lv, c((pan0 + pan1) / 2), 0.95 + this.rnd() * 0.1);
+  }
+
+  /** A titan home at her berth: a soft, distant conch from where she lies. */
+  conch(level: number, pan: number): void { this.far("conch", 0.3, level, pan); }
+
+  private music: GainNode | null = null;
+  /** Where the (separately loaded) music joins the mix: after the settle and the snow hush, with a little of the slap-back. */
+  musicIn(): AudioNode {
+    if (!this.music) {
+      this.music = this.ac.createGain();
+      this.music.connect(this.out);
+      const send = this.ac.createGain(); send.gain.value = 0.25;
+      this.music.connect(send).connect(this.echo);
+    }
+    return this.music;
+  }
+
+  /** A UI cue: one tiny paper-or-wood sound, centred, dry (no echo, no distance). */
+  cue(name: CueName): void {
+    if (this.disposed) return;
+    if (name === "evening-gun") { this.far("gun", EVENING_GUN_DELAY, 1 - 0.5 * this.inputs.storm, this.inputs.firePan * 0.4); return; }
+    const kind = CUE_KIND[name];
+    if (kind) this.play(kind, this.ac.currentTime + 0.01, this.cueBus, 1, 0, 0.97 + this.rnd() * 0.06);
+  }
+
+  /**
+   * The beam passes over the listener: one breath, a sine and its octave near A2 (no pitch follows the score),
+   * a 1.5 s swell and a 4 s release, lowpassed and sent through the harbour walls' slap-back.
+   */
+  beamPass(peak: number, pan = 0): void {
+    if (this.disposed || this.paused || !(peak > 1e-4)) return;
+    const ac = this.ac, at = ac.currentTime + 0.05;
+    const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 420; lp.Q.value = 0.5;
+    const g = this.env(at, 1.5, 0.4, 4, Math.min(0.045, peak) * settleRate(this.inputs.attention));
+    const p = this.pan(Math.max(-0.6, Math.min(0.6, pan)));
+    lp.connect(g).connect(p);
+    p.connect(this.out); p.connect(this.echo);
+    for (const [f, a] of [[110, 1], [220.6, 0.3]] as const) {
+      const o = ac.createOscillator(); o.frequency.value = f * (0.995 + this.rnd() * 0.01);
+      const og = ac.createGain(); og.gain.value = a;
+      o.connect(og).connect(lp);
+      o.start(at); o.stop(at + 6.2);
+    }
+  }
+
   /** Release PCM, timers and context once. Toggle-off fades; teardown can interrupt that fade immediately. */
   dispose(fade = true): Promise<void> {
     if (this.disposal) {
@@ -837,7 +1220,7 @@ export class Ambience {
     }
     this.sources.length = 0;
     this.whistleLoop.dispose();
-    for (const l of [this.rainLoop, this.sprayLoop, this.howlLoop]) l.dispose();
+    for (const l of [this.ribsLoop, this.bellowsLoop, this.highAirLoop, this.rainLoop, this.sprayLoop, this.howlLoop]) l.dispose();
     this.lanes.clear(); this.aims.clear(); this.thunders.length = 0;
     this.out.disconnect();
     if ("close" in this.ac) await (this.ac as AudioContext).close().catch(() => undefined);

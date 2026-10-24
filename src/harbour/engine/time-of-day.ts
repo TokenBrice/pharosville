@@ -73,33 +73,43 @@ const NIGHT: Omit<TimeKeyframe, "hour"> = {
 export const DEFAULT_KEYFRAMES: TimeKeyframe[] = [
   { hour: 0, ...NIGHT, windowOcc: 0.2 },
   { hour: 4.6, ...NIGHT, night: 0.95, windowGlow: 0.85, windowOcc: 0.12 },
-  // dawn: low pink sun behind the island (back light), cool lavender world
-  { hour: 6.4, sunColor: "#FFB48A", sunIntensity: 3.6, sunAz: 62, sunEl: 5,
-    fillColor: "#8E9BD8", fillIntensity: 0.35, fillAz: 200, fillEl: 35,
-    hemiSky: "#8A93BE", hemiGround: "#C6A6A8", worldK: 0.62,
-    ambient: "#8A93BE", zenith: "#5C6EA4", horizon: "#F6CDB4", haze: "#CBB0B4",
+  // polish #6 first light (~35 min before sunrise): the mirror of dusk, a rose-peach band on the horizon under a
+  // clear blue zenith, the sun's glow just warming the tower tops, lamps still lit; cool blue shade, not lavender-grey
+  { hour: 5.5, sunColor: "#FF8C62", sunIntensity: 1.5, sunAz: 60, sunEl: 1.5,
+    fillColor: "#6E82C4", fillIntensity: 0.3, fillAz: 200, fillEl: 35,
+    hemiSky: "#5A6EA8", hemiGround: "#A08A88", worldK: 0.72,
+    ambient: "#5A6EA8", zenith: "#3A4C8A", horizon: "#F4A88A", haze: "#9C8A9A",
+    fogDensity: 0.0011, night: 0.5, windowGlow: 0.62, exposure: 0.36, bloom: [0.85, 1.05], lamp: 18, lens: 9,
+    windowOcc: 0.42, nightLift: 0.03,
+    grade: { lift: [0.99, 0.99, 1.05], gamma: [1, 1, 1.02], gain: [1.05, 1.0, 0.95], saturation: 1.16, contrast: 1.3, shadowSat: 0.85, blueSat: 0.92, warmSat: 1.1 } },
+  // dawn: low warm sun behind the island (back light). Polish #6: the golden hour's warm/cool split at the other end
+  // of the day: a peach key and warm sunlit side against clear cool-blue shade and sky, no lavender-grey wash
+  { hour: 6.4, sunColor: "#FFA878", sunIntensity: 4.0, sunAz: 62, sunEl: 5,
+    fillColor: "#8299D6", fillIntensity: 0.35, fillAz: 200, fillEl: 35,
+    hemiSky: "#7F95C6", hemiGround: "#CCA696", worldK: 0.62,
+    ambient: "#7F95C6", zenith: "#5874B0", horizon: "#FAC8A4", haze: "#D4B4A6",
     fogDensity: 0.0011, night: 0.25, windowGlow: 0.35, exposure: 0.3, bloom: [0.7, 1.2], lamp: 6, lens: 6,
     windowOcc: 0.3, nightLift: 0.012,
-    grade: { lift: [1.0, 0.99, 1.04], gamma: [1, 1, 1.01], gain: [1.04, 1.0, 0.97], saturation: 1.18, contrast: 1.28, blueSat: 0.9, warmSat: 1.06 } },
+    grade: { lift: [0.99, 1.0, 1.04], gamma: [1, 1, 1], gain: [1.05, 1.0, 0.95], saturation: 1.22, contrast: 1.28, blueSat: 0.9, warmSat: 1.08 } },
   { hour: 8.5, sunColor: "#FFE2C4", sunIntensity: 4.4, sunAz: 110, sunEl: 30,
     fillColor: "#A9C4EE", fillIntensity: 0.4, fillAz: 250, fillEl: 40,
     hemiSky: "#8AAAC8", hemiGround: "#CBCBC2", worldK: 0.6,
     ambient: "#8AAAC8", zenith: "#5A8FCC", horizon: "#E6EEF0", haze: "#C2D3DC",
     fogDensity: 0.0008, night: 0, windowGlow: 0, exposure: 0.05, bloom: [0.35, 1.9], lamp: 0.4, lens: 3,
-    grade: { lift: [0.99, 0.99, 1.0], gamma: [1, 1, 1], gain: [1.015, 1, 0.985], saturation: 1.12, contrast: 1.32, blueSat: 0.82, warmSat: 1.14 } },
+    grade: { lift: [0.99, 0.99, 1.0], gamma: [1, 1, 1], gain: [1.015, 1, 0.985], saturation: 1.12, contrast: 1.32, blueSat: 0.82, warmSat: 1.08 } },
   // noon (palette.json time_of_day.noon) — warmer key, firmer S-curve; the sea recedes, roofs/sails carry colour
   { hour: 12, sunColor: "#FFEDD6", sunIntensity: 4.5, sunAz: 160, sunEl: 58,
     fillColor: "#A9C4EE", fillIntensity: 0.35, fillAz: 30, fillEl: 40,
     hemiSky: "#8CA9C6", hemiGround: "#CECCBE", worldK: 0.58,
     ambient: "#8CA9C6", zenith: "#5A8FCC", horizon: "#E8F1F4", haze: "#BCD3DF",
     fogDensity: 0.0007, night: 0, windowGlow: 0, exposure: 0, bloom: [0.3, 2.0], lamp: 0.4, lens: 3,
-    grade: { lift: [0.985, 0.985, 0.995], gamma: [1, 1, 1], gain: [1.01, 1, 0.99], saturation: 1.1, contrast: 1.36, blueSat: 0.8, warmSat: 1.12 } },
+    grade: { lift: [0.985, 0.985, 0.995], gamma: [1, 1, 1], gain: [1.01, 1, 0.99], saturation: 1.1, contrast: 1.36, blueSat: 0.8, warmSat: 1.06 } },
   { hour: 16, sunColor: "#FFE0B8", sunIntensity: 4.8, sunAz: 240, sunEl: 30,
     fillColor: "#93A9DE", fillIntensity: 0.32, fillAz: 80, fillEl: 38,
     hemiSky: "#8AA0C4", hemiGround: "#CCC6BC", worldK: 0.59,
     ambient: "#8AA0C4", zenith: "#5880BE", horizon: "#F2E6D6", haze: "#C9C6C8",
     fogDensity: 0.0008, night: 0, windowGlow: 0, exposure: 0.1, bloom: [0.4, 1.7], lamp: 0.8, lens: 3.5,
-    grade: { lift: [0.985, 0.99, 1.01], gamma: [1, 1, 1], gain: [1.03, 1, 0.97], saturation: 1.14, contrast: 1.34, blueSat: 0.84, warmSat: 1.14 } },
+    grade: { lift: [0.985, 0.99, 1.01], gamma: [1, 1, 1], gain: [1.03, 1, 0.97], saturation: 1.14, contrast: 1.34, blueSat: 0.84, warmSat: 1.08 } },
   // golden (palette.json time_of_day.golden)
   { hour: 18.5, sunColor: "#FFA257", sunIntensity: 5.6, sunAz: 288, sunEl: 9,
     fillColor: "#7F98D6", fillIntensity: 0.3, fillAz: 110, fillEl: 35,
@@ -107,15 +117,25 @@ export const DEFAULT_KEYFRAMES: TimeKeyframe[] = [
     ambient: "#8C9AC0", zenith: "#55689C", horizon: "#FFD8A8", haze: "#D2B2A6",
     fogDensity: 0.0009, night: 0.05, windowGlow: 0.2, exposure: 0.25, bloom: [0.55, 1.3], lamp: 4, lens: 5,
     windowOcc: 0.5,
-    grade: { lift: [0.99, 1.0, 1.04], gamma: [1, 1, 1], gain: [1.05, 1.0, 0.94], saturation: 1.20, contrast: 1.28, blueSat: 0.9, warmSat: 1.04 } },
-  // dusk: sun on the horizon, red-violet world, windows coming on
-  { hour: 19.7, sunColor: "#FF7448", sunIntensity: 1.6, sunAz: 298, sunEl: 1.5,
-    fillColor: "#6A78C0", fillIntensity: 0.3, fillAz: 120, fillEl: 35,
-    hemiSky: "#5E6496", hemiGround: "#A7808A", worldK: 0.75,
-    ambient: "#5E6496", zenith: "#2F3D78", horizon: "#F09A78", haze: "#8E6E86",
+    grade: { lift: [0.99, 1.0, 1.04], gamma: [1, 1, 1], gain: [1.05, 1.0, 0.94], saturation: 1.20, contrast: 1.28, blueSat: 0.86, warmSat: 1.04 } },
+  // 01-A8 golden hold: the warm key lasts until ~40 min before sunset, the sun lower and deeper (real hours: see
+  // seasonalKeyHour), so the most screenshot-worthy light is a window, not an instant
+  { hour: 19.2, sunColor: "#FF9550", sunIntensity: 4.8, sunAz: 293, sunEl: 5,
+    fillColor: "#7A90D0", fillIntensity: 0.3, fillAz: 115, fillEl: 35,
+    hemiSky: "#8090BC", hemiGround: "#C2A094", worldK: 0.62,
+    ambient: "#8090BC", zenith: "#4F6298", horizon: "#FFCB98", haze: "#CDA8A0",
+    fogDensity: 0.001, night: 0.1, windowGlow: 0.32, exposure: 0.27, bloom: [0.6, 1.25], lamp: 7, lens: 6,
+    windowOcc: 0.56,
+    grade: { lift: [0.99, 1.0, 1.04], gamma: [1, 1, 1], gain: [1.05, 1.0, 0.94], saturation: 1.18, contrast: 1.28, blueSat: 0.86, warmSat: 1.04 } },
+  // dusk: sun on the horizon, windows coming on. 01-A8 warm/cool split: the lit limewash stays warm under a
+  // stronger low key, the shade and sky light go cool blue rather than violet, so the frame is not one magenta
+  { hour: 19.7, sunColor: "#FF7448", sunIntensity: 2.1, sunAz: 298, sunEl: 1.5,
+    fillColor: "#6A7CC0", fillIntensity: 0.3, fillAz: 120, fillEl: 35,
+    hemiSky: "#56689E", hemiGround: "#9A8482", worldK: 0.75,
+    ambient: "#56689E", zenith: "#2F3D78", horizon: "#F09A78", haze: "#857288",
     fogDensity: 0.0011, night: 0.45, windowGlow: 0.7, exposure: 0.35, bloom: [0.9, 1.0], lamp: 22, lens: 10,
     windowOcc: 0.74, nightLift: 0.025,
-    grade: { lift: [0.99, 0.99, 1.05], gamma: [1, 1, 1.02], gain: [1.04, 1.0, 0.96], saturation: 1.16, contrast: 1.3, shadowSat: 0.85, blueSat: 0.9, warmSat: 1.05 } },
+    grade: { lift: [0.99, 0.99, 1.05], gamma: [1, 1, 1.02], gain: [1.04, 1.0, 0.96], saturation: 1.1, contrast: 1.3, shadowSat: 0.82, blueSat: 0.9, warmSat: 1.06 } },
   // blue hour: the moon takes over as key
   { hour: 20.7, ...NIGHT, sunIntensity: 1.0, hemiSky: "#26355E", hemiGround: "#353F66", horizon: "#33406A", zenith: "#0A1130",
     haze: "#222C4C", night: 0.85, windowGlow: 0.95, exposure: 0.4, windowOcc: 0.68 },
@@ -161,13 +181,26 @@ export interface SeasonalDay {
 }
 const REF_RISE = 6.0, REF_SET = 19.85, REF_NOON_EL = 58, REF_NOON_AZ = 160;
 
-/** Clock hour → keyframe hour for a seasonal day (piecewise linear: the day and the night each stretch). */
+/**
+ * 01-A8 solar windows: around sunrise (−1.4 h … +1.5 h) and sunset (−2.0 h … +1.2 h) the keys run in REAL hours,
+ * so dawn, the golden hour, dusk and the blue hour keep their true length on a short winter day as on a long summer
+ * one (the golden key sits 1.35 h before sunset whatever the season); only the middle of the day and the night
+ * stretch. On a very short day the windows shrink with it.
+ */
+const RISE_PRE = 1.4, RISE_POST = 1.5, SET_PRE = 2.0, SET_POST = 1.2;
+
+/** Clock hour → keyframe hour for a seasonal day (piecewise linear: real-hour solar windows, stretched day and night). */
 export function seasonalKeyHour(hour: number, sunrise: number, sunset: number): number {
-  const day = Math.max(1, sunset - sunrise), refDay = REF_SET - REF_RISE;
+  const day = Math.max(1, sunset - sunrise), night = 24 - day;
+  const kd = Math.min(1, (day * 0.75) / (RISE_POST + SET_PRE)), kn = Math.min(1, (night * 0.75) / (SET_POST + RISE_PRE));
+  // anchors in hours since sunrise (clock) and in reference-day key hours, from sunrise round to the next sunrise
+  const c = [0, RISE_POST * kd, day - SET_PRE * kd, day, day + SET_POST * kn, 24 - RISE_PRE * kn, 24];
+  const r = [REF_RISE, REF_RISE + RISE_POST * kd, REF_SET - SET_PRE * kd, REF_SET, REF_SET + SET_POST * kn, REF_RISE + 24 - RISE_PRE * kn, REF_RISE + 24];
   const h = ((hour - sunrise) % 24 + 24) % 24; // hours since sunrise
-  if (h <= day) return REF_RISE + (h / day) * refDay;
-  const t = (h - day) / Math.max(1, 24 - day);
-  return (REF_SET + t * (24 - refDay)) % 24;
+  let i = 0;
+  while (i < c.length - 2 && h > c[i + 1]) i++;
+  const f = (h - c[i]) / Math.max(1e-6, c[i + 1] - c[i]);
+  return (r[i] + f * (r[i + 1] - r[i])) % 24;
 }
 
 /** Night moon-fill colour (slate blue, desaturated so night reads blue-teal, not "blue filter"). */

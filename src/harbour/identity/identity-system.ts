@@ -22,7 +22,11 @@ import type { ChartFont, CrestAtlas, IdentityLayout } from "./types";
  *
  * Service 'identity': { chains } (chain → field/rim/ink colours) for any system that wants the heraldry.
  */
-export interface IdentityService { readonly chains: CrestAtlas["chains"]; readonly labels: readonly LabelSpec[] }
+export interface IdentityService {
+  readonly chains: CrestAtlas["chains"]; readonly labels: readonly LabelSpec[];
+  /** T6: roll a harbour office's awning (chain slug, k 0 … 1 furled); civic/office-works.ts drives it. */
+  furl(chain: string, k: number): void;
+}
 
 /** The dominant harbour's house flag reads first: larger cloth on a taller topmast. */
 const FLAG_SCALE: Record<string, number> = { ethereum: 1.65 };
@@ -118,7 +122,8 @@ export class IdentitySystem implements WorldSystem {
         if (sites.length) { this.marks = new PierMarks(sites, atlas.chains); ctx.scene.add(this.marks.mesh); }
       }
       const labels = () => this.labels;
-      ctx.services.set("identity", { chains: atlas.chains, get labels() { return labels(); } } satisfies IdentityService);
+      const dresser = this.dresser;
+      ctx.services.set("identity", { chains: atlas.chains, get labels() { return labels(); }, furl: (chain, k) => dresser.setFurl(chain, k) } satisfies IdentityService);
     }
 
     // the Far Ports: a buoyed anchorage, its buoys lit at night (steady amber, the island owns the raft-end marks)

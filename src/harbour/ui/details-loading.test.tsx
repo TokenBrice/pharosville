@@ -8,16 +8,17 @@ const harness = vi.hoisted(() => {
   let resolve!: (value: { default: () => React.ReactNode }) => void;
   const pending = new Promise<{ default: () => React.ReactNode }>((done) => { resolve = done; });
   return {
-    state: { model: null, hover: null, selected: null as UIState["selected"], searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: false, tick: 0 },
+    state: { model: null, hover: null, selected: null as UIState["selected"], searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: false, tick: 0, follow: null, announce: "", capturing: false, watch: null },
     set: vi.fn(), select: vi.fn(), preload: vi.fn(() => pending), resolve,
   };
 });
 vi.mock("./ChartLabels", () => ({ ChartLabels: () => null }));
 vi.mock("./HoverTag", () => ({ HoverTag: () => null }));
+vi.mock("./Postcard", () => ({ Postcard: () => null }));
 vi.mock("./CornerMark", () => ({ CornerMark: () => <button className="hb-mark-btn">PharosVille</button> }));
 vi.mock("./details", () => ({ preloadDetails: harness.preload }));
 vi.mock("./hooks", () => ({
-  useStore: () => ({ getSnapshot: () => harness.state, set: harness.set, select: harness.select }),
+  useStore: () => ({ getSnapshot: () => harness.state, set: harness.set, select: harness.select, noteInput: vi.fn(), stopWatch: vi.fn() }),
   useUISlice: (select: (s: UIState) => unknown) => select(harness.state),
 }));
 afterEach(cleanup);

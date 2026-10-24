@@ -89,6 +89,8 @@ for (th, r_, k) in ((80.0, 24.0, 0), (110.0, 24.0, 0), (126.0, 60.0, 2), (62.0, 
 for th in range(80, 104, 6):
     p = town_pt(th, TOWN['r_quay'] + 18.0)
     spots.append({'kind': 'square', 'p': gl(p[0], p[1], Z_SHORE + 0.06), 'h': 0.0})
+for (p, z) in G.get('SANCT_SPOTS', []):          # 08-T4: the hill sanctuary's temenos (folk climb the processional path)
+    spots.append({'kind': 'square', 'p': gl(p[0], p[1], z), 'h': 0.0})
 for (th, band, r_) in TOWN['squares']:
     p = town_pt(th, TOWN['r_quay'] + r_)
     spots.append({'kind': 'square', 'p': gl(p[0], p[1], RINGS[band][2] + 0.16), 'h': 0.0})
@@ -118,9 +120,60 @@ for nm in ('customs_house_flagpole', 'harbourmaster_mast'):
     top = max(ws, key=lambda v: v.z)
     flagpoles.append({'p': gl(top.x, top.y, top.z - 0.35), 'h': 0.0})
 
+# 09-L1 (prettier): the moles' flagstone promenades (between the kerbs, short of the pierhead bastion; the benches and
+# planted tubs stand on the centre line, so the walkers' lanes keep to either side): the dusk promenade
+_resample = G['_resample']
+for m in CJ.get('moles', []):
+    h_ = Vector(m['head'])
+    pts = [p for p in (Vector(q) for q in _resample([tuple(p) for p in m['line']], 6.0, closed=False)) if (p - h_).length > m['head_r'] + 1.0]
+    if len(pts) >= 2:
+        paths.append({'kind': 'mole', 'w': 4.4, 'pts': [gl(p.x, p.y, Z_SHORE + 0.2) for p in pts]})
+
+# 09-L1: a vendor's place at each end of a market stall's counter, just under the awning's edge, facing the front (same
+# recipe as hb_dress.py STALLS: the stall is turned by ang + pi; its awning and back posts are on local -y). Behind the
+# counter the awning hides a vendor from the harbour's own viewpoint.
+for (th, dr) in G['STALLS']:
+    p = Vector(town_pt(th, TOWN['r_quay'] + dr)); fdir = (Vector(town_pt(th, 0)) - p).normalized(); sd = Vector((-fdir.y, fdir.x))
+    a_ = math.atan2(sd.y, sd.x) + math.pi
+    rot = lambda v: Vector((v[0] * math.cos(a_) - v[1] * math.sin(a_), v[0] * math.sin(a_) + v[1] * math.cos(a_)))
+    for lx in (-2.45, 2.45):
+        q = p + rot((lx, -0.35)); f = rot((-0.35 * lx / abs(lx), 1.0))
+        spots.append({'kind': 'stall', 'p': gl(q.x, q.y, Z_SHORE + 0.06), 'h': heading(f.x, f.y)})
+
+# 09-L2: the Pharos causeway (hb_land.py P6): from the landing on the headland over the arches to the islet pavement
+PHJ = CJ['pharos']; CWJ = PHJ['causeway']
+CA, CB = Vector(CWJ['a']), Vector(CWJ['b']); cd_ = (CB - CA); CL = cd_.length; cd_.normalize()
+deck_z = G['deck_z']
+L0 = CA - cd_ * 6.0
+causeway = [gl(L0.x, L0.y, H(L0.x, L0.y) + 0.05)]
+for k in range(int(CL / 4.0) + 1):
+    s_ = min(CL, k * 4.0); q = CA + cd_ * s_
+    causeway.append(gl(q.x, q.y, deck_z(s_) + 0.02))
+q = CB + cd_ * 7.0
+causeway.append(gl(q.x, q.y, PHJ['z'] + 0.02))
+
+# 09-L3: where the goats graze (plan polygons; the runtime reads the ground height and keeps them off steep or built
+# ground): the open meadow on the Pharos headland between the causeway and the Burn (no field there, a soft ellipse), then
+# the two terrain.FIELDS pastures nearest the west-lobe farm
+terrain_ = G['terrain']
+HEADLAND_MEADOW = (-204.0, 54.0, 6.5, 13.0, 0.15)         # plan centre x, y (Blender), radii, angle: the knoll above the causeway
+cx_, cy_, ra_, rb_, an_ = HEADLAND_MEADOW
+pastures = [[[round(cx_ + math.cos(t) * ra_ * math.cos(an_) - math.sin(t) * rb_ * math.sin(an_), 2),
+              round(-(cy_ + math.cos(t) * ra_ * math.sin(an_) + math.sin(t) * rb_ * math.cos(an_)), 2)]
+             for t in (2 * math.pi * k / 10 for k in range(10))]]
+farm0 = Vector(CJ['farms'][0])
+fields = sorted((f for f in terrain_.FIELDS if f['kind'] == 'pasture'),
+                key=lambda f: (Vector((sum(x for x, _ in f['poly']) / len(f['poly']), sum(y for _, y in f['poly']) / len(f['poly']))) - farm0).length)
+pastures += [[[round(x, 2), round(-y, 2)] for (x, y) in f['poly']] for f in fields[:2]]
+
+# 08-T5 / 09-L9: the hay cart's road: the west road's run through the west lobe's farms (gl x < -70, between the
+# headland and the farm bend); it never reaches a chain hamlet, the Mint or the Burn
+cartway = [gl(p[0], p[1], H(p[0], p[1]) + 0.12) for p in ROADS['west'] if point_in_poly(p[0], p[1], COAST) and p[0] < -70.0 and -175.0 < p[1] < -25.0]
+
 chim = [gl(c.x, c.y, c.z) for c in CHIMNEYS]
 out = {'version': 1, 'source': 'src/harbour/life/tools/export_walkways.py', 'paths': paths, 'benches': benches,
-       'spots': spots, 'chimneys': chim, 'flagpoles': flagpoles, 'bunting': bunting}
+       'spots': spots, 'chimneys': chim, 'flagpoles': flagpoles, 'bunting': bunting,
+       'causeway': causeway, 'pastures': pastures, 'cartway': cartway}
 dst = os.path.join(ROOT, 'public/harbour/walkways.json')
 json.dump(out, open(dst, 'w'), separators=(',', ':'))
 print('WALKWAYS', dst, {k: len(v) for k, v in out.items() if isinstance(v, list)})

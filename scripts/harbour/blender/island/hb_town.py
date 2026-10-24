@@ -90,6 +90,7 @@ def classical_house(name, lot, rng):
         zf = CV.roof_terrace(op, -w / 2, -d / 2, w / 2, d / 2, E, wash, parapet_h=0.75, pergola_canopy=rng.choice(('vine', 'bougain')),
                              rng=rng)
         fz = zf + 0.5
+        root['t8_roof'] = (zf, 1, 0)       # 08-T8: roof-terrace life (floor z, pergola, upper cube)
     else:
         CV.box2(op, -w / 2 - 0.15, -d / 2 - 0.15, E - 0.22, w / 2 + 0.15, d / 2 + 0.15, E, CP['lime'], 0)
         if kind == 'hip':
@@ -338,6 +339,7 @@ def island_house(name, lot, rng):
     rng.random(); rng.random()                 # keep the rest of the lot's draws where they were
     zf = CV.roof_terrace(op, -w / 2, -d / 2, w / 2, d / 2, E1, wash, parapet_h=0.6, cornice=wash,
                          pergola_canopy=None if (upper or domed) else rng.choice(('vine', 'bougain')), rng=rng)
+    root['t8_roof'] = (zf, 0 if (upper or domed) else 1, 1 if upper else 0)      # 08-T8: roof-terrace life
     if domed:      # a little limewashed drum and a Cycladic blue dome over the back of the terrace
         dc = (us * w * 0.18, d * 0.12)
         dr = min(w, d) * 0.24
@@ -610,6 +612,110 @@ for i, lot in enumerate(LOTS_):
     bpy.context.view_layer.update()
     collect_windows(root, nm)
 
+bpy.context.view_layer.update()
+
+# ------------------------------------------------------------------- 08-T8 (prettier): laundry, nets, reed blinds, roof pots
+# Residential quarter only (never the civic buildings), undyed cloth with the odd madder or saffron piece (no chain colours:
+# those belong to the offices and piers). Cloth and nets carry the T3 sway ('hang': each piece swings from its line).
+T8RNG = random.Random(8808)
+CLOTH = [lin(c) for c in ('#E8DFC9', '#F0ECE2', '#E3D5B6', '#D3CAB4', '#E8DFC9', '#EDE6D6', '#A8483A', '#D2A23C')]
+CLOTH_W = [0.2, 0.18, 0.16, 0.14, 0.1, 0.1, 0.06, 0.06]
+_VC = Vector((math.sin(math.radians(45)), -math.cos(math.radians(45))))   # toward the camera (plan)
+T8 = dict(laundry=0, blinds=0, pots=0, nets=0)
+
+
+def _cloth_col(rng):
+    k, acc = rng.random(), 0.0
+    for c, w_ in zip(CLOTH, CLOTH_W):
+        acc += w_
+        if k < acc:
+            return c
+    return CLOTH[0]
+
+
+def _hang_cloths(cloth_bm, cols, a, b, sag, rng, mw):
+    """Cloth quads pegged under the line a-b (local coords), each facing the camera side (mw: the root's matrix)."""
+    pts = nl_kit.catenary(a, b, sag, 8)
+    n = len(pts)
+    i = 1
+    while i < n - 1:
+        p = pts[i]
+        cw, ch = rng.uniform(0.45, 0.8), rng.uniform(0.5, 0.95)
+        t = (b - a).normalized()
+        q = bmesh.new()
+        vs = [q.verts.new(p + t * dx - Vector((0, 0, dz))) for dx, dz in ((-cw / 2, 0.02), (cw / 2, 0.02), (cw / 2, ch), (-cw / 2, ch))]
+        f = q.faces.new(vs); q.normal_update()
+        nw = (mw.to_3x3() @ f.normal)
+        if Vector((nw.x, nw.y)).dot(_VC) < 0:
+            f.normal_flip()
+        c = _cloth_col(rng)
+        cols.extend([c] * len(q.faces))
+        merge(cloth_bm, q)
+        i += rng.randint(1, 2)
+
+
+for la in LOTS_:
+    ob_ = bpy.data.objects.get(f"{la['style']}_{la.get('seed', 0):03d}") if 'seed' in la else None
+    if ob_ is None:
+        continue
+    rf = ob_.get('t8_roof')
+    w, d = la['w'], la['d']
+    mw = ob_.matrix_world
+    cl_bm, cl_cols, rest, blind, pots, leaf = bmesh.new(), [], bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
+    if rf is not None:
+        zf, perg, upper = rf[0], rf[1], rf[2]
+        if not upper and T8RNG.random() < 0.7:            # a washing line across the front of the roof terrace
+            y_ = -d / 4 + T8RNG.uniform(-0.3, 0.3)
+            a, b = Vector((-w / 2 + 0.7, y_, zf + 1.75)), Vector((w / 2 - 0.7, y_, zf + 1.75))
+            for e in (a, b):
+                merge(rest, bm_cyl(0.04, 0.04, 1.8, 4, (e.x, e.y, zf)))
+            merge(rest, nl_kit.line3(a, b, 0.015))
+            _hang_cloths(cl_bm, cl_cols, a, b, 0.18, T8RNG, mw)
+            T8['laundry'] += 1
+        if perg:                                           # a rolled reed blind along the pergola's front beam
+            merge(blind, xf(bm_cyl(0.11, 0.11, w - 1.8, 6, (0, 0, -(w - 1.8) / 2)), loc=(0, 0.05, zf + 2.2), ry=math.pi / 2))
+            T8['blinds'] += 1
+        for sx in (-1, 1):                                 # a pot plant on each front corner of the parapet
+            if T8RNG.random() < 0.6:
+                px_, py_ = sx * (w / 2 - 0.55), -d / 2 + 0.55
+                merge(pots, bm_cyl(0.2, 0.15, 0.34, 6, (px_, py_, zf)))
+                merge(leaf, bm_ico(0.32, (px_, py_, zf + 0.5), 0, (1.0, 1.0, 0.8), seed=T8RNG.randint(0, 99), amp=0.25))
+                T8['pots'] += 1
+    if la['style'] == 'loft':                              # a fishing net drying on a frame beside the net store
+        sides = [sx for sx, k in ((-1, 'nb_w'), (1, 'nb_e')) if not la.get(k)]
+        if sides:
+            sx = sides[0]
+            x_ = sx * (w / 2 + 1.0)
+            a, b = Vector((x_, -d / 4, 2.6)), Vector((x_, d / 4, 2.6))
+            for e in (a, b):
+                merge(rest, bm_cyl(0.06, 0.05, 2.7, 4, (e.x, e.y, 0.3)))
+            merge(rest, nl_kit.line3(a, b, 0.03))
+            q = bmesh.new()
+            vs = [q.verts.new(v) for v in (a + Vector((0, 0, -0.05)), b + Vector((0, 0, -0.05)), b + Vector((0, 0, -2.0)), a + Vector((0, 0, -2.0)))]
+            f = q.faces.new(vs); q.normal_update()
+            nw = mw.to_3x3() @ f.normal
+            if Vector((nw.x, nw.y)).dot(_VC) < 0:
+                f.normal_flip()
+            merge(cl_bm, q); cl_cols.append(lin('#56604A'))
+            T8['nets'] += 1
+    if len(cl_bm.faces):
+        cols_ = list(cl_cols)
+        obj(ob_.name + '_t8_cloth', cl_bm, face=lambda q, c=cols_: (c[q.index] if q.index < len(c) else c[-1], PT['plain']), family='house',
+            parent=ob_, jitter=0.04, props=dict(sway=1.0, sway_mode='hang', sway_span=1.0))
+    else:
+        cl_bm.free()
+    for (bm_, col_, pt_, nm_) in ((rest, lin('#6E5A44'), PT['plain'], 'poles'), (blind, lin('#B9A27A'), PT['boards'], 'blind'),
+                                  (pots, lin('#B0663E'), PT['plain'], 'pots')):
+        if len(bm_.faces):
+            obj(ob_.name + '_t8_' + nm_, bm_, col_, pt_, family='house', parent=ob_, jitter=0.05)
+        else:
+            bm_.free()
+    if len(leaf.faces):
+        obj(ob_.name + '_t8_leaf', leaf, face=lambda q: ((lin('#5C7E3A') if q.normal.z > 0.2 else lin('#47652E')), PT['leaf']), family='veg',
+            parent=ob_, jitter=0.08)
+    else:
+        leaf.free()
+print('LAUNDRY', T8)
 bpy.context.view_layer.update()
 
 

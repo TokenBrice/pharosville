@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import {
-  BloomEffect, EffectComposer, EffectPass, KernelSize, LUT3DEffect, type MipmapBlurPass, Pass, RenderPass, SMAAEffect, SMAAPreset,
+  BloomEffect, Effect, EffectComposer, EffectPass, KernelSize, LUT3DEffect, type MipmapBlurPass, Pass, RenderPass, SMAAEffect, SMAAPreset,
   TiltShiftEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect,
 } from "postprocessing";
 import type { CameraRig } from "./camera-rig";
@@ -18,7 +18,7 @@ export interface PostPreparation {
 
 /**
  * The WebGL2 post chain (NaN scrub, one merged EffectPass + SMAA):
- *   scrub → tilt-shift (overview only) → bloom → AgX → per-hour 3D LUT grade → vignette → SMAA.
+ *   scrub → tilt-shift (overview only) → bloom → AgX → per-hour 3D LUT grade → vignette → dither (+ paper tooth) → SMAA.
  * The LUT is generated on the CPU from style C's grade (lift/gamma/gain + saturation + AgX look contrast)
  * and regenerated only when the interpolated grade actually changes.
  */
@@ -135,6 +135,44 @@ export class NanScrubPass extends Pass {
 }
 
 /**
+ * Dither + paper tooth (02-L4 / 01-A11, decorative), in display space after the grade: ±0.5/255 triangular dither from
+ * interleaved-gradient noise (no banding in the night sky and bloom halos), and an optional static paper tooth: a
+ * screen-fixed 2-octave luminance grain (~1.5 %, strongest in mid-tones, zero toward the screen edges where the UI
+ * sits). Never animated (reduced-motion safe). The tooth ships off unless PAPER_TOOTH (art review D-6); `?tooth=1|0`.
+ */
+const PAPER_TOOTH = 0;
+const DITHER_FRAG = /* glsl */ `
+uniform float uTooth;
+float hbIgn(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+float hbH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float hbVal(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hbH(i), hbH(i + vec2(1.0, 0.0)), f.x), mix(hbH(i + vec2(0.0, 1.0)), hbH(i + 1.0), f.x), f.y);
+}
+void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+  vec3 c = inputColor.rgb;
+  if (uTooth > 0.0) {
+    vec2 fc = gl_FragCoord.xy;
+    float g = hbVal(fc / 2.6) * 0.6 + hbVal(fc / 9.0 + 17.3) * 0.4 - 0.5;
+    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float mid = smoothstep(0.08, 0.35, l) * (1.0 - smoothstep(0.7, 0.95, l));
+    vec2 e = min(uv, 1.0 - uv);
+    float edge = smoothstep(0.02, 0.1, min(e.x, e.y));
+    c *= 1.0 + g * 2.0 * uTooth * mid * edge;
+  }
+  float d = hbIgn(gl_FragCoord.xy) + hbIgn(gl_FragCoord.xy + vec2(5.588, 7.31)) - 1.0;
+  outputColor = vec4(c + d / 255.0, inputColor.a);
+}`;
+
+export class DitherEffect extends Effect {
+  constructor(tooth: number) {
+    super("HbDitherEffect", DITHER_FRAG, { uniforms: new Map([["uTooth", new THREE.Uniform(tooth)]]) });
+    this.inputColorSpace = THREE.SRGBColorSpace;   // ±0.5/255 means display steps
+  }
+}
+
+/**
  * postprocessing's levels setter calls Pass.dispose(), evicting the still-live down/up materials.
  * This narrow adapter mirrors its mip construction, but releases targets only. Keep in sync with the
  * pinned MipmapBlurPass implementation; sizes, formats, names and blur materials are unchanged.
@@ -172,6 +210,7 @@ export class PostChain {
   readonly vignette: VignetteEffect;
   readonly lut: LUT3DEffect;
   readonly smaa: SMAAEffect;
+  readonly dither: DitherEffect;
   private readonly scrub = new NanScrubPass();
   private readonly main: EffectPass;
   private readonly lutTex: THREE.Data3DTexture;
@@ -182,8 +221,16 @@ export class PostChain {
   /** Camera distances where tilt-shift starts / reaches full strength (set from the layout presets). */
   tiltNear = 260;
   tiltFar = 700;
+  /**
+   * The focal subject (01-A6): the Pharos' foot and lantern (world), set by the layout system. The tilt-shift band
+   * centres on the tower's screen height, so the miniature's sharp row is the lighthouse, not the sky above it.
+   */
+  tiltFocus: [THREE.Vector3, THREE.Vector3] | null = null;
+  private readonly cam: THREE.PerspectiveCamera;
+  private readonly focusV = new THREE.Vector3();
 
   constructor(readonly renderer: THREE.WebGLRenderer, readonly composer: EffectComposer, scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
+    this.cam = camera;
     composer.addPass(new RenderPass(scene, camera));
     composer.addPass(this.scrub);
     this.tiltShift = new TiltShiftEffect({ focusArea: 0.6, feather: 0.38, offset: 0.06, kernelSize: KernelSize.MEDIUM, resolutionScale: 0.5 });
@@ -202,7 +249,9 @@ export class PostChain {
     // the tilt-shift blur pass runs even at opacity 0: skip it while the effect is faded out (heart/close)
     const tiltUpdate = this.tiltShift.update.bind(this.tiltShift);
     this.tiltShift.update = (r, input, dt) => { if (this.tiltShift.blendMode.opacity.value > 0.002) tiltUpdate(r, input, dt); };
-    this.main = new EffectPass(camera, this.tiltShift, this.bloom, this.toneMapping, this.lut, this.vignette);
+    const toothQ = typeof location !== "undefined" ? new URLSearchParams(location.search).get("tooth") : null;
+    this.dither = new DitherEffect(toothQ === null ? PAPER_TOOTH * 0.015 : toothQ === "0" ? 0 : 0.015);
+    this.main = new EffectPass(camera, this.tiltShift, this.bloom, this.toneMapping, this.lut, this.vignette, this.dither);
     composer.addPass(this.main);
     this.smaa = new SMAAEffect({ preset: SMAAPreset.HIGH });
     composer.addPass(new EffectPass(camera, this.smaa));
@@ -285,6 +334,15 @@ export class PostChain {
     const z = THREE.MathUtils.smoothstep(rig.distance, this.tiltNear, this.tiltFar);
     this.tiltShift.blendMode.opacity.value = z * 0.55;
     this.tiltShift.focusArea = THREE.MathUtils.lerp(0.75, 0.58, z);
+    if (this.tiltFocus && z > 0) {
+      // tower mid-height and lantern in NDC y (tilt-shift space is -1 bottom … 1 top); keep the lantern inside the
+      // sharp row, never drop the band below its old place (the harbour below stays in the soft fall-off)
+      const yb = this.focusV.copy(this.tiltFocus[0]).project(this.cam).y;
+      const yt = this.focusV.copy(this.tiltFocus[1]).project(this.cam).y;
+      const sharp = this.tiltShift.focusArea - this.tiltShift.feather;
+      const want = Math.max((yb + yt) * 0.5, yt - sharp - 0.06);
+      this.tiltShift.offset = THREE.MathUtils.clamp(Number.isFinite(want) ? want : 0.06, 0.06, 0.5);
+    }
     this.vignette.darkness = 0.36 + 0.12 * z;
     // LUT: regenerate when the grade moved (throttled to 4 Hz while the clock runs).
     this.lutAge += delta;

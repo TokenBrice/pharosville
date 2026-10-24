@@ -10,16 +10,19 @@ import type { HarbourLayout, Vec2 } from "../layout/types";
 import { pierIdFor } from "../model/classify";
 import { CIVIC_PANEL_ID, civicPlots, civicTop, inPlot, inPoly, officeChain, plotFor, seaZones, ZONE_PANEL, type CivicPlot } from "./places";
 import { getCove, getGround, getLayout, getSim, getWorldPicking, type GroundLike, type PickHit, type PickingService, type ScreenPoint } from "./services";
+import { landmarkHover } from "../world/landmark-hover";
 import { yardCoins, yardHullPosition } from "./yard";
 
 /** Landmarks read as areas on the water (polygon / footprint hit), not as buildings. */
 const AREA_ZONE: Record<string, string> = { shoals: "shoals", "wreck-cove": "wreckCove", "far-ports": "farPorts" };
 /** Purely decorative landmarks are not offered for picking at all (they would only add noise). */
-const SKIP = new Set(["breakwater", "tide-gauge"]);
+const SKIP = new Set(["breakwater"]);
 /** Wrecks answer the pointer only from this close (px per m at the cove): further out, the cove zone does. */
 const WRECK_MIN_PPM = 3.6;
 /** A yard hull's tag height above its cradle (m): small keels, no rig yet. */
 const YARD_TOP = 7;
+/** 07-M6: the decorative harbour tug's hover id (places.ts names it, facts.ts says it carries no data). */
+export const HARBOUR_TUG = "harbour-tug";
 
 const v = new THREE.Vector3();
 const ray = new THREE.Raycaster();
@@ -143,6 +146,14 @@ export class AnalyticPicking implements PickingService {
         if (score < bestScore) { bestScore = score; best = i; }
       }
       if (best >= 0) return { kind: "boat", id: p.ids[best] };
+      // the harbour tug (07-M6): declared decorative, it answers as a place ("harbour tug"), never a coin
+      for (let k = 0; k < sim.tugs.count; k++) {
+        const x = sim.tugs.x[k], z = sim.tugs.z[k];
+        this.project(x, 0.4, z, a);
+        if (!a.visible) continue;
+        this.project(x, 4.5, z, b);
+        if (segDist(clientX, clientY, a.x, a.y, b.x, b.y) < Math.max(7, 2.2 * this.ppm(x, 0, z))) return { kind: "landmark", id: HARBOUR_TUG };
+      }
     }
 
     // the Shipyard's hulls (when the civic system has placed them): keel → deck-top segment
@@ -348,6 +359,26 @@ export class AnalyticPicking implements PickingService {
     return best;
   }
 
+  /**
+   * The sphere (centre xyz, radius m) a hovered building answers inside (in-world hover), or null for
+   * areas on the water (zones, the Shoals, the Far Ports) which have no walls to light.
+   */
+  hoverSphere(hit: PickHit): [number, number, number, number] | null {
+    if (hit.kind !== "landmark") return null;
+    const L = this.layout;
+    const pl = plotFor(L, hit.id);
+    if (pl) {
+      const top = civicTop(pl.kind), r = Math.max(pl.footprint[0], pl.footprint[1]) * 0.6;
+      return [pl.position[0], pl.position[1] + top * 0.5, pl.position[2], Math.max(r, top * 0.6) + 2];
+    }
+    if (AREA_ZONE[hit.id] || seaZones(L).some((z) => z.id === hit.id)) return null;
+    const lm = L?.landmarks.find((l) => l.id === hit.id);
+    if (!lm || lm.footprint > 70) return null;
+    // the Pharos: the whole tower, from the island to the lantern
+    if (hit.id === "pharos") return [lm.position[0], lm.position[1] + 45, lm.position[2], 62];
+    return [lm.position[0], lm.position[1] + lm.footprint * 0.35, lm.position[2], lm.footprint * 0.75 + 2];
+  }
+
   private anchorOf(landmarkId: string): [number, number, number] | null {
     const lab = this.layout?.labels?.find((l) => l.id === landmarkId);
     return lab ? lab.anchor : null;
@@ -373,6 +404,7 @@ export class AnalyticPicking implements PickingService {
       return this.worldPosition({ kind: "landmark", id: "wreck-cove" });
     }
     if (hit.kind === "landmark") {
+      if (hit.id === HARBOUR_TUG) { const T = getSim(this.ctx)?.tugs; return T?.count ? [T.x[0], 0, T.z[0]] : null; }
       const place = this.placeOf(hit.id);
       if (place) return place.ground;
       const lm = L.landmarks.find((l) => l.id === hit.id);
@@ -396,6 +428,7 @@ export class AnalyticPicking implements PickingService {
       return this.project(sim.pose.position[i * 3], this.mastTop(i) + 1.5, sim.pose.position[i * 3 + 2], out);
     }
     if (hit.kind === "landmark") {
+      if (hit.id === HARBOUR_TUG) { const T = getSim(this.ctx)?.tugs; return T?.count ? this.project(T.x[0], 6, T.z[0], out) : null; }
       const lantern = hit.id === "pharos" ? (this.ctx.services.get("lighthouse") as { lanternPosition?: THREE.Vector3 } | undefined)?.lanternPosition : undefined;
       if (lantern) return this.project(lantern.x, lantern.y + 7, lantern.z, out);
       const place = this.placeOf(hit.id);
@@ -461,6 +494,7 @@ export class UIPicking implements PickingService {
   private wreckSelected: string | null = null;
   setHover(hit: PickHit | null): void {
     getWorldPicking(this.ctx)?.setHover(hit?.kind === "boat" ? hit.id : null);
+    landmarkHover(this.ctx.uniforms).set(hit ? this.own.hoverSphere(hit) : null);
     this.wreckHover = hit?.kind === "wreck" ? hit.id : null;
     getCove(this.ctx)?.focus(this.wreckHover, this.wreckSelected);
   }

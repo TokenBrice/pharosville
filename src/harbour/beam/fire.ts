@@ -164,10 +164,12 @@ attribute vec4 aSeed;        // x slot 0..1, y rand, z rand, w rand
 uniform vec3 uOrigin;
 uniform float uSmokeT;
 uniform vec4 uWind;
+uniform float uPlumeScale;   // 1 the lit column; ~0.5 the banked fire's thin wisp
 varying vec2 vUv;
 varying float vAlpha;
 varying float vLife;
 varying vec2 vSeed;
+varying vec3 vWp;
 void main() {
   vSeed = aSeed.yw;
   float life = fract(uSmokeT * 0.028 + aSeed.x);
@@ -179,10 +181,12 @@ void main() {
   float ph = uSmokeT * 0.1 + aSeed.y * 6.28 + life * 2.4;
   vec2 off = vec2(sin(ph), cos(ph * 0.83)) * (1.2 + 7.0 * life) + (aSeed.zw - 0.5) * 6.0 * life;
   c.xz += off;
-  float size = (3.2 + 19.0 * life) * (0.75 + 0.5 * aSeed.z);
+  float size = (3.2 + 19.0 * life) * (0.75 + 0.5 * aSeed.z) * uPlumeScale;
+  c.xz = mix(uOrigin.xz, c.xz, 0.4 + 0.6 * uPlumeScale);
   vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
   vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
   vec3 wp = c + (right * position.x + up * position.y) * size;
+  vWp = wp;
   vUv = position.xy;
   vLife = life;
   vAlpha = smoothstep(0.0, 0.06, life) * (1.0 - smoothstep(0.35, 1.0, life));
@@ -195,10 +199,24 @@ uniform vec3 uShade;
 uniform vec3 uFireUnder;
 uniform float uOpacity;
 uniform sampler2D uNoise;
+uniform vec3 uBeamPos;
+uniform float uBeamAngle;
+uniform vec3 uBeamLight;
 varying vec2 vUv;
 varying float vAlpha;
 varying float vLife;
 varying vec2 vSeed;
+varying vec3 vWp;
+// 05-P7a the beam lights the smoke as it swings under the drifting column: a soft lamp-coloured flare on
+// the puffs above the shaft's ground track, fading with height over it (night only: uBeamLight is 0 by day)
+float plumeBeam(vec3 p) {
+  vec2 rel = p.xz - uBeamPos.xz;
+  vec2 bd = vec2(cos(uBeamAngle), sin(uBeamAngle));
+  float along = dot(rel, bd);
+  float lat = abs(rel.x * bd.y - rel.y * bd.x);
+  float w = 5.0 + max(along, 0.0) * 0.12;
+  return exp(-lat * lat / (w * w)) * smoothstep(-2.0, 10.0, along) * exp(-max(p.y - uBeamPos.y, 0.0) / 45.0);
+}
 void main() {
   float r = length(vUv);
   if (r > 1.0) discard;
@@ -209,6 +227,7 @@ void main() {
   // the fire lights the smoke from below (the night read: a glowing column over the lantern, the underside
   // of each puff warm, fading as the column climbs out of the firelight)
   col += uFireUnder * (1.0 - smoothstep(0.0, 0.5, vLife)) * clamp(0.75 - 0.65 * vUv.y, 0.0, 1.0);
+  if (dot(uBeamLight, vec3(1.0)) > 1e-4) col += uBeamLight * plumeBeam(vWp) * clamp(0.8 - 0.5 * vUv.y, 0.2, 1.0) * 0.9;
   gl_FragColor = vec4(col, a * vAlpha * uOpacity * (1.0 - 0.5 * vLife));
 }`;
 
@@ -222,6 +241,8 @@ export interface FireState {
   wind: number;
   /** Reduced motion: the fire holds still. */
   reduced: boolean;
+  /** 0..1 the PSI is unlit (05-P4): the fire is banked, not erased: a thin grey wisp still rises. */
+  banked?: number;
 }
 
 export class PharosFire {
@@ -242,8 +263,10 @@ export class PharosFire {
   private readonly pu = {
     uOrigin: { value: new THREE.Vector3() }, uSmokeT: { value: 0 }, uWind: this.fu.uWind,
     uLit: { value: new THREE.Color() }, uShade: { value: new THREE.Color() }, uFireUnder: { value: new THREE.Color() },
-    uOpacity: { value: 0.3 }, uNoise: this.fu.uNoise,
-  };
+    uOpacity: { value: 0.3 }, uNoise: this.fu.uNoise, uPlumeScale: { value: 1 },
+    // the beam's shared uniforms (bindBeam); placeholders keep the shader valid without a beam
+    uBeamPos: { value: new THREE.Vector3(0, -1000, 0) }, uBeamAngle: { value: 0 }, uBeamLight: { value: new THREE.Color(0, 0, 0) },
+  } as Record<string, THREE.IUniform>;
   private readonly flames: THREE.Mesh;
   private readonly embers: THREE.Points;
   private readonly glow: THREE.Mesh;
@@ -342,6 +365,11 @@ export class PharosFire {
     this.group.add(this.flames, this.embers, this.glow, this.plume);
   }
 
+  /** Share the beam's uniforms with the plume (05-P7a): the shaft lights the smoke it passes under. */
+  bindBeam(u: { uBeamPos: THREE.IUniform<THREE.Vector3>; uBeamAngle: THREE.IUniform<number>; uBeamLight: THREE.IUniform<THREE.Color> }): void {
+    this.pu.uBeamPos = u.uBeamPos; this.pu.uBeamAngle = u.uBeamAngle; this.pu.uBeamLight = u.uBeamLight;
+  }
+
   /** Per frame. Returns nothing; read `flicker` after. */
   update(dt: number, s: FireState, u: WorldUniforms, camera: THREE.PerspectiveCamera, viewportH: number): void {
     if (!s.reduced) { this.t += dt; this.smokeT += dt; }
@@ -383,8 +411,11 @@ export class PharosFire {
     lit.copy(u.uHemiSky.value).add(tc.copy(u.uSunColor.value).multiplyScalar(0.22)).multiply(tc.setRGB(0.9, 0.89, 0.88));
     shade.copy(u.uHemiSky.value).multiplyScalar(0.55).add(tc.copy(u.uHemiGround.value).multiplyScalar(0.35)).multiply(tc.setRGB(0.78, 0.76, 0.76));
     this.pu.uFireUnder.value.setRGB(1.0, 0.42, 0.12).multiply(this.tint).multiplyScalar(lvl * fl * night * 1.25);
-    this.pu.uOpacity.value = lvl * (0.42 - 0.2 * night);
-    this.plume.visible = lvl > 0.01;
+    // banked (05-P4): a thin grey wisp at about a third of the column's opacity, half its girth
+    const banked = THREE.MathUtils.clamp(s.banked ?? 0, 0, 1) * (1 - lvl);
+    this.pu.uOpacity.value = lvl * (0.42 - 0.2 * night) + banked * 0.13;
+    this.pu.uPlumeScale.value = THREE.MathUtils.lerp(1, 0.5, banked / Math.max(banked + lvl, 1e-3));
+    this.plume.visible = lvl > 0.01 || banked > 0.01;
   }
 
   dispose(): void {

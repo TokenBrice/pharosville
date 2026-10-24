@@ -10,6 +10,7 @@ import type { HarbourFeed } from "../data/fetch";
 import type { ReadinessState, RenderedFleetState, SimulationStatus } from "../engine/types";
 import type { HarbourModel } from "../model/types";
 import { dismissPoster, resetPosterState } from "./poster";
+import { startWake, wantsWake, WAKE_PULLBACK } from "./wake";
 import "./harbour-app.css";
 
 /** Pending-only hold, measured from this mount's first composer-completed frame, not navigation/init. */
@@ -49,6 +50,7 @@ export function HarbourApp() {
     let unmountUI: (() => void) | null = null;
     let stopWatching: (() => void) | undefined;
     let shellTimer = 0;
+    let stopWake: (() => void) | null = null;
 
     resetPosterState();
     const boot = async () => {
@@ -69,7 +71,10 @@ export function HarbourApp() {
         if (next !== "waiting" && !(next === "unavailable" && simulation?.unavailable)) stopWatching?.();
         if (revealed) return;
         revealed = true;
-        dismissPoster("crossfade");
+        // the harbour wakes (wake.ts): the live camera starts pulled back and the poster shrinks to match
+        const wake = !!engine && wantsWake(engine);
+        if (wake && engine) stopWake = startWake(engine);
+        dismissPoster("crossfade", wake ? 1 / (1 + WAKE_PULLBACK) : 1);
         void preloadDetails().catch(() => { /* A later interaction may retry a failed warmup. */ });
         shellTimer = window.setTimeout(() => {
           setShellGone(true);
@@ -129,6 +134,7 @@ export function HarbourApp() {
       engine?.abort(); // a mount torn down mid-boot (React's dev double-mount) stops booting at once
       stopWatching?.();
       clearTimeout(shellTimer);
+      stopWake?.();
       resetPosterState();
       // dispose only after init settles: systems must not be torn down mid-load
       void settled.finally(() => {

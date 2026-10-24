@@ -2765,6 +2765,129 @@
    "keel_bottom_y": -1.34,
    "freeboard_m": 1.5,
    "kb": 85.7
+  },
+  "office-works": {
+   "file": "office-works.glb",
+   "footprint": [
+    10,
+    10
+   ],
+   "tris": 1004,
+   "budget": 6000,
+   "nodes": [
+    {
+     "name": "works_block",
+     "origin": [
+      -3.0,
+      9.35,
+      2.15
+     ],
+     "material": "hb_opaque",
+     "tris": 30,
+     "anim": "hanging block: origin = rope top under the hook; sway about the origin, or raise/lower with the wheel"
+    },
+    {
+     "name": "works_body",
+     "origin": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "material": "hb_opaque",
+     "tris": 810
+    },
+    {
+     "name": "works_hook",
+     "origin": [
+      -3.0,
+      9.35,
+      2.15
+     ],
+     "empty": true,
+     "anim": "jib tip pulley (the rope top)"
+    },
+    {
+     "name": "works_wheel",
+     "origin": [
+      -3.0,
+      1.85,
+      4.4
+     ],
+     "material": "hb_opaque",
+     "tris": 164,
+     "anim": "treadwheel: rotate about the axle = glTF local +X (the node origin is the axle centre); turns while works_block rises"
+    }
+   ],
+   "anchors": {
+    "flank": {
+     "ethereum": {
+      "pos": [
+       -9.15,
+       0.5,
+       1.03
+      ],
+      "rotY": -1.5708
+     },
+     "tron": {
+      "pos": [
+       9.0,
+       0.5,
+       -2.48
+      ],
+      "rotY": 1.5708
+     },
+     "bsc": {
+      "pos": [
+       -9.16,
+       0.5,
+       0.98
+      ],
+      "rotY": -1.5708
+     },
+     "solana": {
+      "pos": [
+       -9.05,
+       0.5,
+       -0.9
+      ],
+      "rotY": -1.5708
+     },
+     "hyperliquid-l1": {
+      "pos": [
+       9.0,
+       0.5,
+       -2.48
+      ],
+      "rotY": 1.5708
+     },
+     "base": {
+      "pos": [
+       9.77,
+       0.5,
+       -3.1
+      ],
+      "rotY": 1.5708
+     },
+     "arbitrum": {
+      "pos": [
+       7.43,
+       0.5,
+       -1.48
+      ],
+      "rotY": 1.5708
+     },
+     "polygon": {
+      "pos": [
+       8.65,
+       0.5,
+       -3.1
+      ],
+      "rotY": 1.5708
+     }
+    }
+   },
+   "note": "kit frame: +x along the flank wall, +z out from it, origin on the ground at the wall; flank.<chain> = kit origin + yaw (about +Y, applied first) in that office plot frame",
+   "kb": 21.6
   }
  }
 }

@@ -129,3 +129,59 @@ export function temperatureFor(nDay: number): number {
   // coldest ≈ 20 Jan, warmest ≈ 22 Jul
   return 12 - 11 * Math.cos((2 * Math.PI * (nDay - 20)) / 365);
 }
+
+/** Mean synodic month (days). */
+export const SYNODIC_DAYS = 29.530588853;
+
+/**
+ * W04 the moon's age (days since new moon, 0..29.53) at an instant: the mean synodic month from a reference new
+ * moon (2000-01-06 18:14 UTC, JD 2451550.26). Good to about half a day, plenty for a painted disc. Decorative.
+ */
+export function moonAge(ms: number): number {
+  const jd = ms / 86_400_000 + 2440587.5;
+  return ((((jd - 2451550.26) % SYNODIC_DAYS) + SYNODIC_DAYS) % SYNODIC_DAYS);
+}
+
+/** Illuminated fraction of the disc (0 new … 1 full) for a moon age in days. */
+export function moonIllumination(age: number): number {
+  return (1 - Math.cos((2 * Math.PI * age) / SYNODIC_DAYS)) / 2;
+}
+
+/** `?moon=<age days>` dev override (0..29.53), or null. */
+export function parseMoonOverride(get: (k: string) => string | null): number | null {
+  const v = get("moon");
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? ((n % SYNODIC_DAYS) + SYNODIC_DAYS) % SYNODIC_DAYS : null;
+}
+
+/** W06 the annual meteor showers: peak (day of year), half-width (days), zenithal hourly rate, hemisphere bias. */
+export interface MeteorShower { name: string; peak: number; width: number; zhr: number; north: number; south: number; radiantAz: number }
+export const METEOR_SHOWERS: readonly MeteorShower[] = [
+  { name: "quadrantids", peak: 3.5, width: 0.7, zhr: 110, north: 1, south: 0.1, radiantAz: 30 },
+  { name: "lyrids", peak: 112, width: 1.2, zhr: 18, north: 1, south: 0.5, radiantAz: 60 },
+  { name: "eta-aquariids", peak: 126, width: 3, zhr: 50, north: 0.4, south: 1, radiantAz: 100 },
+  { name: "perseids", peak: 224.5, width: 2.2, zhr: 100, north: 1, south: 0.25, radiantAz: 40 },
+  { name: "orionids", peak: 294.5, width: 2.2, zhr: 20, north: 1, south: 1, radiantAz: 110 },
+  { name: "leonids", peak: 321, width: 1, zhr: 15, north: 1, south: 0.8, radiantAz: 90 },
+  { name: "geminids", peak: 347.5, width: 1.5, zhr: 150, north: 1, south: 0.6, radiantAz: 80 },
+];
+
+/** The shower active on a real day of the year (strength 0..1 = how near its peak × hemisphere), or null. */
+export function meteorShowerOn(doy: number, southern: boolean): { shower: MeteorShower; strength: number } | null {
+  let best: { shower: MeteorShower; strength: number } | null = null;
+  for (const s of METEOR_SHOWERS) {
+    let d = Math.abs(doy - s.peak);
+    d = Math.min(d, 365 - d);
+    const k = Math.exp(-((d / s.width) ** 2)) * (southern ? s.south : s.north);
+    if (k >= 0.05 && (!best || k * s.zhr > best.strength * best.shower.zhr)) best = { shower: s, strength: k };
+  }
+  return best;
+}
+
+/** Mean seconds between painted meteors: ~15–40 s at a shower's peak, ~5 min of sporadics otherwise. */
+export function meteorIntervalSec(on: { shower: MeteorShower; strength: number } | null): number {
+  if (!on) return 300;
+  const peak = 15 + 25 * (1 - Math.min(1, on.shower.zhr / 120));
+  return 1 / (on.strength / peak + (1 - on.strength) / 300);
+}

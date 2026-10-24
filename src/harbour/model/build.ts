@@ -2,7 +2,7 @@ import DEAD_STABLECOINS from "virtual:pharosville-cemetery";
 import brandColors from "../../../data/brand-colors.json";
 import { logosById } from "../../lib/logos";
 import { fnv1a, hashColor, hullClassFor, pierIdFor, rigFor } from "./classify";
-import { asDewsBand, flowsReading, psiReading, seaStateReading, stormCones, weatherReading, wrecks } from "./readings";
+import { asDewsBand, flowsReading, isMaiden, psiReading, seaStateReading, stormCones, stormFlags, tideFactsReading, weatherReading, weekAgoGapShare, wrecks } from "./readings";
 import { allTruth } from "./truth";
 import type { Boat, BoatState, BuildOptions, CircuitStop, Harbour, HarbourModel, HarbourPayloads } from "./types";
 
@@ -87,6 +87,8 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
 
   const pegById = new Map((peg?.coins ?? []).map((c) => [c.id, c]));
   const gradeById = new Map((grades?.grades ?? []).map((g) => [g.id, g.grade]));
+  const coinsCurrent = truth.stablecoins.state === "current";
+  const gapShare = weekAgoGapShare(coins.filter((a) => !deadIds.has(a.id)));
 
   const boats: Boat[] = coins.map((a) => {
     const supply = sumBuckets(a.circulating);
@@ -121,6 +123,8 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
       dewsScore: typeof sig?.score === "number" ? sig.score : null,
       grade: gradeById.get(a.id) ?? null,
       state,
+      maiden: state !== "wrecked" && isMaiden(a, coinsCurrent, gapShare),
+      stormSignal: null,
     };
   });
   boats.sort((a, b) => b.supply - a.supply || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -144,6 +148,9 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
   });
 
   const live = boats.filter((b) => b.state !== "wrecked");
+  const flags = stormFlags(live, truth.stress);
+  const flagById = new Map(flags.map((f) => [f.id, f.shape]));
+  for (const b of boats) b.stormSignal = flagById.get(b.id) ?? null;
   const planKey = planKeyOf(boats);
   return {
     builtAtMs: nowMs,
@@ -152,10 +159,12 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
     harbours,
     readings: {
       psi: psiReading(payloads.stability?.data ?? null, truth.stability),
+      tide: tideFactsReading(chainsPayload, truth.chains),
       seaState: seaStateReading(live, peg != null, truth.pegSummary),
       weather: weatherReading(live, stress != null, truth.stress),
       flows: flowsReading(payloads.mintBurn?.data ?? null, truth.mintBurn),
       stormCones: stormCones(live, stress != null),
+      stormFlags: flags,
       shoals: live.filter((b) => b.activeDepeg).map((b) => ({ id: b.id, bps: b.pegDeviationBps, supply: b.supply })),
       wrecks: wrecks(dead),
     },

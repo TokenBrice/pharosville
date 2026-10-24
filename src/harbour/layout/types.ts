@@ -112,7 +112,7 @@ export interface Mooring {
   swingRadius: number;
 }
 
-export type LayoutLightKind = "window" | "lamp" | "pierhead" | "harbourlight";
+export type LayoutLightKind = "window" | "lamp" | "pierhead" | "harbourlight" | "hearth";
 
 export interface LayoutLight {
   kind: LayoutLightKind;

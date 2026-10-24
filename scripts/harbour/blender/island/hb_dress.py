@@ -92,9 +92,16 @@ def on_land(x, y):
     return point_in_poly(x, y, COAST) and not occupied(x, y)
 
 
+AGRI = []           # 08-T1: extra cultivated plots (world polygons): the vineyard, the threshing floor, the temenos
+
+
 def in_crop(x, y):
     f = terrain.field_at(x, y)
-    return f is not None and f['kind'] in ('hay', 'plough')
+    if f is not None and f['kind'] in ('hay', 'plough'):
+        return True
+    if terrain.terrace_w(*uvp(x, y)) > 0.25:
+        return True
+    return any(point_in_poly(x, y, P_) for P_ in AGRI)
 
 
 def refresh_occ():
@@ -156,13 +163,180 @@ refresh_occ()
 obj('land_roads', road_bm, PAL['gravel'], PT['cobble'], family='terrain', jitter=0.04)
 obj('land_paths', path_bm, PAL['earth'], PT['cobble'], family='terrain', jitter=0.05)
 
+# ------------------------------------------------------------------ 08-T1 (prettier): the cultivated hinterland
+# contour olive terraces (terrain.TERRACES: the ground is cut in benches), a dry-stone coping on every riser top, olives in
+# rows along each bench; one trellised vineyard down the fall line; a paved threshing floor (aloni) by the windmill.
+T1RNG = random.Random(4108)        # own stream: the island's other scatters are unaffected by these counts
+lips = bmesh.new()
+
+
+def iso_segments(cuv, rr, level_of, levels, step=1.4, wmin=0.55):
+    """Marching squares over a terraced hillside (natural heights): [(level index, (x0, y0), (x1, y1))] segments of the
+    contour h = level_of(k) for k in levels, inside the hillside (terrace weight >= wmin at the segment's middle)."""
+    x0, y0 = wpt(cuv[0] - rr, cuv[1]); xs_ = []
+    corners = [wpt(cuv[0] + a * rr, cuv[1] + b * rr) for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    X0, X1 = min(c[0] for c in corners), max(c[0] for c in corners)
+    Y0, Y1 = min(c[1] for c in corners), max(c[1] for c in corners)
+    nx_, ny_ = int((X1 - X0) / step) + 2, int((Y1 - Y0) / step) + 2
+    G = np.zeros((ny_, nx_)); IN = np.zeros((ny_, nx_), bool)
+    for j in range(ny_):
+        for i in range(nx_):
+            x, y = X0 + i * step, Y0 + j * step
+            IN[j, i] = terrain.terrace_w(*uvp(x, y)) > 0.0
+            G[j, i] = terrain.height(x, y, terraces=False) if IN[j, i] else -99.0
+    out = []
+    for j in range(ny_ - 1):
+        for i in range(nx_ - 1):
+            if not (IN[j, i] and IN[j, i + 1] and IN[j + 1, i] and IN[j + 1, i + 1]):
+                continue
+            c4 = [(X0 + i * step, Y0 + j * step, G[j, i]), (X0 + (i + 1) * step, Y0 + j * step, G[j, i + 1]),
+                  (X0 + (i + 1) * step, Y0 + (j + 1) * step, G[j + 1, i + 1]), (X0 + i * step, Y0 + (j + 1) * step, G[j + 1, i])]
+            lo_, hi_ = min(q[2] for q in c4), max(q[2] for q in c4)
+            for k in levels:
+                L = level_of(k)
+                if not (lo_ < L < hi_):
+                    continue
+                cr = []
+                for a, b in zip(c4, c4[1:] + c4[:1]):
+                    if (a[2] - L) * (b[2] - L) < 0:
+                        t = (L - a[2]) / (b[2] - a[2])
+                        cr.append((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t))
+                for q in range(0, len(cr) - 1, 2):
+                    m = ((cr[q][0] + cr[q + 1][0]) / 2, (cr[q][1] + cr[q + 1][1]) / 2)
+                    if terrain.terrace_w(*uvp(*m)) >= wmin:
+                        out.append((k, cr[q], cr[q + 1]))
+    return out
+
+
+TERRACE_OLIVES = []
+for (c_, ru_, rv_, a_) in terrain.TERRACES:
+    rr_ = max(ru_, rv_) + 1.0
+    ks = range(int(1.5 / terrain.TERRACE_STEP), int(26 / terrain.TERRACE_STEP))
+    risers_ = iso_segments(c_, rr_, lambda k: k * terrain.TERRACE_STEP, ks)
+    # bench middles: the olive rows (quincunx-ish: greedy spacing along each contour, rows offset by the land)
+    cand = [((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, k) for (k, a, b) in
+            iso_segments(c_, rr_, lambda k: (k + 0.44) * terrain.TERRACE_STEP, ks, wmin=0.7)]
+    cand.sort(key=lambda q: (q[2], q[0] + q[1] * 0.37))
+    for (x, y, k) in cand:
+        if not on_land(x, y) or any((x - q[0]) ** 2 + (y - q[1]) ** 2 < (6.6 if k == q[2] else 4.2) ** 2 for q in TERRACE_OLIVES):
+            continue
+        TERRACE_OLIVES.append((x, y, k))
+    # REVIEW #4: each riser top is a LOW dry-stone line (a course or two, warm stone near the ground's value), lying on the
+    # contour; it breaks where an olive stands over it and in short natural gaps, so a hillside reads as lines, not blades
+    for (k, a, b) in risers_:
+        if not (on_land(*a) and on_land(*b)):
+            continue
+        m_ = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        if terrain.fbm(m_[0], m_[1], 0.05, 1, 41) > 0.7 or any((m_[0] - q[0]) ** 2 + (m_[1] - q[1]) ** 2 < 1.8 ** 2 for q in TERRACE_OLIVES):
+            continue
+        za, zb = H(*a), H(*b)
+        merge(lips, nl_kit.beam((a[0], a[1], za + 0.07), (b[0], b[1], zb + 0.07), 0.62, 0.26))
+print('TERRACES lips', len(lips.faces) // 6, 'olive spots', len(TERRACE_OLIVES))
+
+# the vineyard: rows straight down the fall line - a post every 2.4 m, a vine stock between, each a lumpy canopy
+vc_, VD, VA, VINEYARD = terrain.vineyard()
+VD, VA = Vector(VD), Vector(VA)
+VINE_HALF = terrain.VINE_HALF
+vine_posts, vine_leaf = bmesh.new(), bmesh.new()
+_nrow = 0
+for r_ in range(int(2 * VINE_HALF[1] / 2.5) + 1):
+    off = -VINE_HALF[1] + 0.5 + r_ * 2.5
+    run_ = []
+    for s_ in range(int(2 * VINE_HALF[0] / 1.2) + 2):
+        q = Vector(vc_) + VA * off + VD * (-VINE_HALF[0] + 0.6 + s_ * 1.2)
+        ok_ = s_ * 1.2 < 2 * VINE_HALF[0] - 1.0 and on_land(q.x, q.y) and terrain.field_at(q.x, q.y) is None
+        if ok_:
+            run_.append((q.x, q.y)); continue
+        if len(run_) >= 4:
+            _nrow += 1
+            for i_, q2 in enumerate(run_):
+                z2 = H(*q2)
+                if i_ % 2 == 0:
+                    merge(vine_posts, bm_rod((q2[0], q2[1], z2 - 0.1), (q2[0], q2[1], z2 + 1.35), 0.055, 3))
+                else:
+                    rr = T1RNG.uniform(0.5, 0.62)
+                    merge(vine_leaf, xf(bm_ico(rr, (0, 0, 0), 0, (1.0, 0.62, 0.7), seed=T1RNG.randint(0, 999), amp=0.35),
+                                        loc=(q2[0], q2[1], z2 + 0.95), rz=math.atan2(VD.y, VD.x) + T1RNG.uniform(-0.2, 0.2)))
+                    merge(vine_posts, bm_rod((q2[0], q2[1], z2 - 0.05), (q2[0] + T1RNG.uniform(-0.1, 0.1), q2[1], z2 + 0.7), 0.07, 3))
+            od.line([o_to(*run_[0]), o_to(*run_[-1])], fill=255, width=3)
+        run_ = []
+AGRI.append(VINEYARD)
+print('VINEYARD rows', _nrow)
+
+# the threshing floor (aloni): a round stone floor with a kerb, dead level beside the windmill
+thr = bmesh.new()
+tcx, tcy = wpt(*terrain.THRESHING_UV)
+tz = terrain.disc_at(tcx, tcy)[0]
+_ring = [(tcx + math.cos(2 * math.pi * i / 18) * terrain.THRESHING_R, tcy + math.sin(2 * math.pi * i / 18) * terrain.THRESHING_R) for i in range(18)]
+merge(thr, bm_prism(_ring, tz - 0.3, tz + 0.08))
+for a, b in zip(_ring, _ring[1:] + _ring[:1]):
+    merge(lips, nl_kit.beam((a[0], a[1], tz + 0.2), (b[0], b[1], tz + 0.2), 0.42, 0.34))
+occ_poly(_ring)
+AGRI.append(_ring)
+refresh_occ()
+obj('land_threshing', thr, face=lambda q: ((lin('#CDBFA0') if q.normal.z > 0.5 else lin('#A99C82')), PT['cobble']), family='terrain', jitter=0.05)
+obj('vine_posts', vine_posts, lin('#7A6248'), PT['plain'], family='veg', jitter=0.06)
+obj('vine_canopy', vine_leaf, face=lambda q: ((PAL['vine_light'] if q.normal.z > 0.3 else PAL['vine']), PT['leaf']), family='veg', jitter=0.1,
+    props=dict(sway=0.55, sway_mode='ground', sway_span=1.6))
+
+# ------------------------------------------------------------------ 08-T4 (prettier): a small hill sanctuary on the west spine
+# The harbour's own sanctuary, generic and votive (no name, no statue, no colossus; R3/D3): a temenos levelled on the
+# spine's north knoll (terrain.SANCTUARY_*), a tholos under 7 m, an altar and two stelae on the approach, a ring of
+# cypresses with its gap toward the town, a processional path from the west road, one lamp at dusk.
+SRNG = random.Random(4404)
+s_st, s_wall, s_roof, s_pave = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
+scx, scy = wpt(*terrain.SANCTUARY_UV)
+sz = terrain.disc_at(scx, scy)[0]
+_su = lambda du, dv: wpt(terrain.SANCTUARY_UV[0] + du, terrain.SANCTUARY_UV[1] + dv)    # screen-plan offsets from its centre
+SANCT_RING = [(scx + math.cos(2 * math.pi * i / 20) * (terrain.SANCTUARY_R - 0.6), scy + math.sin(2 * math.pi * i / 20) * (terrain.SANCTUARY_R - 0.6)) for i in range(20)]
+tx_, ty_ = _su(0.0, 1.8)                       # the tholos stands toward the back; the altar before it, on the camera side
+_pc = _su(0.0, -1.6)                           # a modest paved court round the tholos and the altar; the rest stays turf
+merge(s_pave, bm_prism([(_pc[0] + math.cos(2 * math.pi * i / 16) * 5.4, _pc[1] + math.sin(2 * math.pi * i / 16) * 5.4) for i in range(16)], sz - 0.4, sz + 0.07))
+for k, (r_, h_) in enumerate(((3.6, 0.26), (3.25, 0.26), (2.9, 0.26))):
+    merge(s_st, bm_cyl(r_, r_, h_, 14, (tx_, ty_, sz + 0.07 + k * 0.26)))
+zc_ = sz + 0.07 + 3 * 0.26
+merge(s_wall, bm_cyl(1.75, 1.75, 3.0, 12, (tx_, ty_, zc_), cap=False))          # the cella
+for i in range(8):
+    a = 2 * math.pi * i / 8 + 0.2
+    merge(s_st, bm_cyl(0.19, 0.16, 3.0, 6, (tx_ + math.cos(a) * 2.5, ty_ + math.sin(a) * 2.5, zc_)))
+merge(s_st, bm_cyl(2.8, 2.8, 0.42, 14, (tx_, ty_, zc_ + 3.0)))                   # the entablature ring
+merge(s_roof, bm_cyl(3.05, 0.25, 1.45, 14, (tx_, ty_, zc_ + 3.42), cap=False))  # a low tiled cone
+merge(s_st, bm_cyl(0.25, 0.05, 0.45, 6, (tx_, ty_, zc_ + 4.87)))                # finial (top ~6.6 m above the knoll)
+ax_, ay_ = _su(0.0, -4.2)
+merge(s_st, bm_box2(ax_ - 0.75, ay_ - 0.5, sz + 0.07, ax_ + 0.75, ay_ + 0.5, sz + 1.0))   # the altar
+merge(s_st, bm_box2(ax_ - 0.9, ay_ - 0.62, sz + 0.95, ax_ + 0.9, ay_ + 0.62, sz + 1.1))
+for du in (-2.6, 2.6):                          # two stelae flanking the approach
+    ex_, ey_ = _su(du, -6.6)
+    merge(s_st, xf(bm_box(0.5, 0.18, 1.5), loc=(ex_, ey_, sz + 0.82), rz=SRNG.uniform(-0.2, 0.2)))
+occ_poly([(scx + math.cos(2 * math.pi * i / 16) * (terrain.SANCTUARY_R + 2.5), scy + math.sin(2 * math.pi * i / 16) * (terrain.SANCTUARY_R + 2.5)) for i in range(16)])
+AGRI.append(SANCT_RING)
+SANCT_CYPRESS = []
+for i in range(17):                             # the cypress ring, open to the south (the approach, toward the town);
+    a = -math.pi / 2 + math.radians(36) + i * math.radians(288) / 16      # REVIEW #9: a dense, staggered double rank
+    rr_ = 10.6 if i % 2 == 0 else 12.3
+    du, dv = math.cos(a) * rr_, math.sin(a) * rr_
+    SANCT_CYPRESS.append(_su(du + SRNG.uniform(-0.4, 0.4), dv + SRNG.uniform(-0.4, 0.4)))
+# the processional path: from the west road across the slope to the temenos gap
+shrine_bm = bmesh.new()
+ROADS['shrine'] = road([(-176.8, -21.0), (-170.0, -24.6), (-162.6, -25.6), (-155.0, -24.2)], 1.5, PAL['earth'], 'path_shrine',
+                       shrine_bm, smooth=False)
+obj('land_paths_shrine', shrine_bm, PAL['earth'], PT['cobble'], family='terrain', jitter=0.05)
+SANCT_LAMP = (_su(1.6, -4.6), sz + 0.07)
+SANCT_SPOTS = [(_su(0.0, -6.0), sz + 0.07), (_su(-2.0, -1.5), sz + 0.07)]
+refresh_occ()
+obj('sanctuary_stone', s_st, CP['marble'], PT['ashlar'], family='landmark', jitter=0.03, bevel=0.02)
+obj('sanctuary_cella', s_wall, CP['wash_cream'], PT['render'], family='landmark', jitter=0.02)
+obj('sanctuary_roof', s_roof, lin('#8C4F39'), PT['tiles'], family='landmark', jitter=0.04)
+obj('sanctuary_paving', s_pave, face=lambda q: ((CP['lime_dark'] if q.normal.z > 0.5 else CP['lime_dark']), PT['cobble']), family='terrain', jitter=0.05)
+print('SANCTUARY z', round(sz, 1), 'top', round(zc_ + 5.32, 1))
+
 # ------------------------------------------------------------------ dry-stone walls round the meadows (they follow the land)
 walls = bmesh.new(); hedge = bmesh.new(); sheep = bmesh.new(); sheep_h = bmesh.new()
 for fi, f in enumerate(terrain.FIELDS):
     p = f['poly'] + f['poly'][:1]
     for ei, (a, b) in enumerate(zip(p, p[1:])):
         # pastures and hay fields have vine rows along some sides (P5: they replace the hedgerows), dry-stone walls on the rest
-        is_hedge = f['kind'] != 'plough' and (ei + fi) % 3 == 0
+        is_hedge = False                 # 08-T1: the vineyard's trellised rows replace the vine-row blobs
         n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / (1.6 if is_hedge else 3.0)))
         if is_hedge:                     # two rows, set into the field parallel to its side
             ang = math.atan2(b[1] - a[1], b[0] - a[0])
@@ -200,6 +374,8 @@ for fi, f in enumerate(terrain.FIELDS):
                 merge(sheep_h, bm_cyl(0.07, 0.07, 0.4, 4, (q[0] + lx * math.cos(a_), q[1] + lx * math.sin(a_), z_)))
 refresh_occ()
 obj('field_walls', walls, PAL['rock'], PT['ashlar'], family='prop_wall', jitter=0.12)
+# 08-T1 terrace copings + the threshing-floor kerb: warm dry stone close to the grove floor's value (REVIEW #4: not grey)
+obj('terrace_lips', lips, lin('#A8A07C'), PT['rock'], family='prop_wall', jitter=0.08)
 obj('field_vines', hedge, face=lambda q: ((PAL['vine_light'] if q.normal.z > 0.3 else PAL['vine']), PT['leaf']), family='veg', jitter=0.1)
 obj('field_sheep', sheep, lin('#EEE9DD'), PT['plain'], family='veg', jitter=0.04)
 obj('field_sheep_heads', sheep_h, lin('#2E2B29'), PT['plain'], family='veg')
@@ -287,9 +463,46 @@ BUILD = dict(olive=nl_kit.olive, fig=nl_kit.fig, pomegranate=nl_kit.pomegranate,
 HEIGHT = dict(olive=(4.5, 6.5), fig=(4.0, 5.8), pomegranate=(3.4, 4.6), plane=(9.0, 12.0), almond=(4.2, 6.0))
 
 
+# 08-T2 (prettier): three umbrella-pine crowns, chosen by exposure (a position hash, so the scatter's draws are unchanged):
+# 'tiered' (the kit's flat pads), 'sheared' (on the crests and by the sea: leaning and streamed downwind), 'young' (low,
+# rounder, a third of the sheltered ones)
+_bw = CJ_LAYOUT.get('wind', {}).get('bowHeadingRad', 0.0)
+WIND_TO = Vector((-math.sin(_bw), math.cos(_bw)))          # downwind on the Blender ground plane (hulls lie bow to wind)
+PINE_VARIANTS = dict(tiered=0, sheared=0, young=0)
+
+
+def pine_variant(p, z):
+    hsh = terrain._hash(int(p[0] * 5), int(p[1] * 5), 41)
+    if terrain.dcoast(*p) < 16.0 or (z > 19.0 and hsh > 0.55):
+        return 'sheared'
+    return 'young' if hsh < 0.3 else 'tiered'
+
+
 def place_pine(p, rng):
     z = H(*p)
-    nl_kit.umbrella_pine(LEAF['pine'], TRUNK['pine'], (p[0], p[1], z - 0.3), rng.uniform(8.5, 12.5) * (1.0 if z > 12 else 0.85), rng)
+    lb, tb = bmesh.new(), bmesh.new()
+    z0 = z - 0.3
+    nl_kit.umbrella_pine(lb, tb, (p[0], p[1], z0), rng.uniform(8.5, 12.5) * (1.0 if z > 12 else 0.85), rng)
+    var = pine_variant(p, z)
+    PINE_VARIANTS[var] += 1
+    if var == 'sheared':             # crown streamed downwind and pressed flat, the trunk leaning after it
+        zs = [v.co.z for v in lb.verts]; zc = (min(zs) + max(zs)) / 2
+        for b_ in (lb, tb):
+            for v in b_.verts:
+                hgt = max(0.0, v.co.z - z0)
+                v.co.x += WIND_TO.x * hgt * 0.16; v.co.y += WIND_TO.y * hgt * 0.16
+        for v in lb.verts:
+            d = Vector((v.co.x - p[0], v.co.y - p[1]))
+            v.co.x += WIND_TO.x * d.dot(WIND_TO) * 0.3; v.co.y += WIND_TO.y * d.dot(WIND_TO) * 0.3
+            v.co.z = zc + (v.co.z - zc) * 0.78
+    elif var == 'young':             # a young pine: lower, its single crown rounder
+        zs = [v.co.z for v in lb.verts]; zc = (min(zs) + max(zs)) / 2
+        for v in lb.verts:
+            v.co.z = zc + (v.co.z - zc) * 1.5
+        for b_ in (lb, tb):
+            for v in b_.verts:
+                v.co.x = p[0] + (v.co.x - p[0]) * 0.62; v.co.y = p[1] + (v.co.y - p[1]) * 0.62; v.co.z = z0 + (v.co.z - z0) * 0.62
+    merge(LEAF['pine'], lb); merge(TRUNK['pine'], tb)
     TREES['pine'] += 1
 
 
@@ -311,6 +524,17 @@ def placer(*mix):
     return place
 
 
+# 08-T4: the sanctuary's cypress ring (REVIEW #9: taller, and its own darker, bluer green: a sacred grove, not park trees)
+SANCT_LEAF = bmesh.new()
+for (x, y) in SANCT_CYPRESS:
+    nl_kit.cypress(SANCT_LEAF, (x, y, H(x, y) - 0.3), SRNG.uniform(9.0, 11.5), SRNG)
+    TREES['cypress'] += 1
+    TREE_GRID.setdefault((int(x // 10.0), int(y // 10.0)), []).append((x, y, 3.0))
+# 08-T1: the terrace olives first (their rows are fixed), so every other scatter keeps clear of them
+for (x, y, k) in TERRACE_OLIVES:
+    nl_kit.olive(LEAF['olive'], TRUNK['olive'], (x, y, H(x, y) - 0.15), T1RNG.uniform(3.6, 4.6), T1RNG)
+    TREES['olive'] += 1
+    TREE_GRID.setdefault((int(x // 10.0), int(y // 10.0)), []).append((x, y, 4.5))
 # the town gardens: olives between and behind the terrace houses, figs and pomegranates in the courtyards, a few planes
 TOWN_SPOTS = []
 for k, (r0, r1, z) in enumerate(RINGS):
@@ -339,12 +563,22 @@ scatter(40, roadside(['west', 'south', 'east'], 3.8), place_cypress, 7.0, DRNG, 
 _R_EDGE = RINGS[-1][1]
 scatter(30, lambda r: town_pt(r.uniform(TOWN_TH[-1][1], TOWN_TH[-1][0]), _R_EDGE + r.uniform(6.0, 16.0)), place_cypress, 5.0, DRNG,
         max_try=1500, grid=TREE_GRID)
-scatter(60, lambda r: wpt(r.uniform(-200, 220), r.uniform(-250, -200)), placer(('almond', 1.0)), 8.0, DRNG, max_try=2000, grid=TREE_GRID)   # the south slopes
-scatter(30, lambda r: wpt(r.uniform(-240, -150), r.uniform(-200, -40)), placer(('olive', 1.0)), 8.0, DRNG, max_try=2000, grid=TREE_GRID)   # the west grove
-scatter(40, line_sampler(terrain.WEST_SPINE + [(-150.0, 40.0)], 40.0), placer(('almond', 0.75), ('olive', 0.25)), 8.0, DRNG, max_try=3000, grid=TREE_GRID)
-scatter(60, line_sampler(terrain.EAST_SPINE, 34.0), placer(('almond', 0.4), ('plane', 0.6)), 8.0, DRNG, max_try=2000, grid=TREE_GRID)
+# 08-T2: the open-ground trees stand in groves with clear ground between (not an even sprinkle across the lawns)
+def grove(sampler, lo=0.5):
+    def s(rng):
+        p = sampler(rng)
+        if p is None or terrain.fbm(p[0], p[1], 0.018, 2, 71) < lo:
+            return None
+        return p
+    return s
+
+
+scatter(44, grove(lambda r: wpt(r.uniform(-200, 220), r.uniform(-250, -200))), placer(('almond', 1.0)), 7.0, DRNG, max_try=4000, grid=TREE_GRID)   # the south slopes
+scatter(16, grove(lambda r: wpt(r.uniform(-240, -150), r.uniform(-200, -40))), placer(('olive', 1.0)), 7.0, DRNG, max_try=3000, grid=TREE_GRID)   # the west grove
+scatter(28, grove(line_sampler(terrain.WEST_SPINE + [(-150.0, 40.0)], 40.0)), placer(('almond', 0.75), ('olive', 0.25)), 7.0, DRNG, max_try=5000, grid=TREE_GRID)
+scatter(48, grove(line_sampler(terrain.EAST_SPINE, 34.0)), placer(('almond', 0.4), ('plane', 0.6)), 7.5, DRNG, max_try=4000, grid=TREE_GRID)
 scatter(24, crown_clear(line_sampler(CREST, 16.0), 2.0), placer(('plane', 1.0)), 8.0, DRNG, max_try=2000, grid=TREE_GRID)
-print('TREES', TREES)
+print('TREES', TREES, 'pines', PINE_VARIANTS)
 
 
 # ground dressing: shrubs, tufts, flowers, heather on the headland, boulders + lichen
@@ -402,10 +636,117 @@ def place_meadow(p, rng):
             merge(lich, bm_ico(rr * 0.5, (p[0] + rr * 0.1, p[1], z + 0.1 + rr * 0.55), 0, (1.3, 1.0, 0.25), seed=rng.randint(0, 99)))
 
 
-scatter(1680, lambda r: (r.uniform(OX0, OX1), r.uniform(OY0, OY1)), place_meadow, 3.2, DRNG, max_try=60000)
 # rock outcrops: clustered granite tors on the slopes (charm + breakup of the green)
 OUTCROPS = [(-170.0, -70.0), (-240.0, -120.0), (-158.0, 52.0), (250.0, -90.0), (230.0, -150.0), (-30.0, -232.0), (120.0, -226.0),
             (-270.0, -170.0), (220.0, 20.0), (-200.0, 10.0), (60.0, 132.0), (-160.0, -200.0)]
+# 08-T2 (prettier): an ecological density mask instead of a uniform 1,680-point sprinkle - maquis thickets on the steep
+# flanks and round the tors, garrigue on the ridges, open turf by the roads, fields and houses, and the rest clustered
+# in drifts (about 40 % fewer clumps than before; the headland heath keeps its own rule)
+from scipy import ndimage as _nd
+OCC_D = _nd.distance_transform_edt(~OCC) * OS          # metres to the nearest road, lot, wall or quay apron
+_LAND_IM = Image.new('L', (OW, OH), 0); ImageDraw.Draw(_LAND_IM).polygon([o_to(*p) for p in COAST], fill=255)
+LAND_R = np.array(_LAND_IM) > 127
+OUTCROP_W = []
+ECO = dict(maquis=0, garrigue=0, turf=0, meadow=0, headland=0)
+
+
+def _occ_d(x, y):
+    i, j = int((OY1 - y) / OS), int((x - OX0) / OS)
+    return float(OCC_D[i, j]) if 0 <= i < OH and 0 <= j < OW else 0.0
+
+
+def eco_zone(p):
+    x, y = p
+    u, v = uvp(x, y)
+    if terrain.head_d(u, v) < 1.05:
+        return 'headland'
+    z = H(x, y)
+    g = math.hypot(H(x + 1.5, y) - H(x - 1.5, y), H(x, y + 1.5) - H(x, y - 1.5)) / 3.0
+    if g > 0.3 or any((x - ox) ** 2 + (y - oy) ** 2 < 15.0 ** 2 for ox, oy in OUTCROP_W):
+        return 'maquis'
+    if z > 16.0 or min(terrain.line_d(u, v, terrain.WEST_SPINE), terrain.line_d(u, v, terrain.EAST_SPINE)) < 14.0:
+        return 'garrigue'
+    if _occ_d(x, y) < 7.0 or any(in_crop(x + dx, y + dy) or terrain.field_at(x + dx, y + dy) for dx, dy in ((6, 0), (-6, 0), (0, 6), (0, -6))):
+        return 'turf'
+    return 'meadow'
+
+
+ECO_DENSITY = dict(maquis=0.3, garrigue=0.5, turf=0.12, meadow=0.5, headland=1.0)
+
+
+def eco_sampler(rng):
+    x, y = rng.uniform(OX0, OX1), rng.uniform(OY0, OY1)
+    i, j = int((OY1 - y) / OS), int((x - OX0) / OS)
+    if not (0 <= i < OH and 0 <= j < OW) or not LAND_R[i, j] or OCC[i, j]:
+        return None
+    cl = terrain.sstep(0.4, 0.62, terrain.fbm(x, y, 0.026, 2, 63))          # drifts: clustered, with open ground between
+    if rng.random() > 0.1 + 0.9 * cl:
+        return None
+    if rng.random() > ECO_DENSITY[eco_zone((x, y))]:
+        return None
+    return (x, y)
+
+
+def place_eco(p, rng):
+    zone = eco_zone(p)
+    ECO[zone] += 1
+    if zone == 'headland':
+        place_meadow(p, rng); return
+    z = H(*p)
+    k = rng.random()
+    if zone == 'garrigue':               # low, grey-violet cushions (thyme, lavender, heath), a stone now and then
+        for k_ in range(rng.randint(1, 3)):
+            q = (p[0] + rng.uniform(-1.6, 1.6), p[1] + rng.uniform(-1.6, 1.6))
+            rh = rng.uniform(0.45, 0.85)
+            merge(heath, bm_ico(rh, (q[0], q[1], seat_z(q, rh * 1.3) + 0.05), 0, (1.4, 1.0, 0.45), seed=rng.randint(0, 999), amp=0.3))
+        if k < 0.18:
+            rr = rng.uniform(0.5, 1.2)
+            merge(bould, bm_ico(rr, (p[0], p[1], seat_z(p, rr * 1.2) + 0.05), 1, (1.25, 1.0, 0.7), seed=rng.randint(0, 999), amp=0.35))
+        return
+    if zone == 'turf':                   # open, grazed turf: a tuft or a few flowers, no more
+        if k < 0.6:
+            for q in range(2):
+                a = rng.uniform(0, 6.28); h = rng.uniform(0.4, 0.8)
+                merge(tuft, bm_cyl(0.14, 0.0, h, 3, (p[0] + math.cos(a) * 0.25, p[1] + math.sin(a) * 0.25, z), rot=a))
+        else:
+            for q in range(3):
+                merge(flw, bm_cyl(0.18, 0.0, 0.34, 3, (p[0] + rng.uniform(-0.9, 0.9), p[1] + rng.uniform(-0.9, 0.9), z + 0.05), rot=rng.random()))
+        return
+    if zone == 'maquis' or k < 0.25:     # thickets: two or three clumps knit together, an agave on the dry slopes
+        if zone == 'maquis' and k < 0.08:
+            a0 = rng.uniform(0, 6.28); s_ = rng.uniform(0.8, 1.2)
+            for k_ in range(4):
+                merge(MQ['agave'], xf(bm_cyl(0.14 * s_, 0.0, 0.8 * s_, 3), loc=(p[0], p[1], z - 0.05), rz=a0 + k_ * 1.57, rx=0.7))
+            return
+        for c_ in range(1 if zone != 'maquis' else rng.randint(1, 3)):
+            q = p if c_ == 0 else (p[0] + rng.uniform(-1.4, 1.4), p[1] + rng.uniform(-1.4, 1.4))
+            k_, acc = rng.random(), 0.0
+            for sp, w in MQ_MIX:
+                acc += w
+                if k_ < acc:
+                    break
+            r0, sc = MQ_SHAPE[sp]
+            rr = r0 * rng.uniform(0.8, 1.25) * (1.0 if c_ == 0 else 0.75)
+            sub_ = 1 if (c_ == 0 and rr > 0.8) else 0           # small satellites stay coarse (budget)
+            merge(MQ[sp], bm_ico(rr, (q[0], q[1], seat_z(q, rr) + rr * sc[2] * 0.55), sub_, sc, seed=rng.randint(0, 999), amp=0.3))
+        return
+    if k < 0.6:                          # the open meadow: tufts and flower drifts, the odd stone
+        for q in range(3):
+            a = rng.uniform(0, 6.28); h = rng.uniform(0.5, 1.0)
+            merge(tuft, bm_cyl(0.14, 0.0, h, 3, (p[0] + math.cos(a) * 0.25, p[1] + math.sin(a) * 0.25, z), rot=a))
+    elif k < 0.9:
+        for q in range(3):
+            merge(flw, bm_cyl(0.18, 0.0, 0.34, 3, (p[0] + rng.uniform(-0.9, 0.9), p[1] + rng.uniform(-0.9, 0.9), z + 0.05), rot=rng.random()))
+    else:
+        rr = rng.uniform(0.6, 1.5)
+        zb = seat_z(p, rr * 1.2)
+        merge(bould, bm_ico(rr, (p[0], p[1], zb + 0.05), 1, (1.25, 1.0, 0.7), seed=rng.randint(0, 999), amp=0.35))
+
+
+OUTCROP_W[:] = [wpt(u, v) for (u, v) in OUTCROPS]
+scatter(640, eco_sampler, place_eco, 3.2, DRNG, max_try=400000)
+print('ECO', ECO)
+
 for (u, v) in OUTCROPS:
     cx, cy = wpt(u, v)
     if not point_in_poly(cx, cy, COAST):
@@ -466,6 +807,9 @@ for sp in SPECIES:
     else:
         face_ = lambda q, c=LEAF_COL[sp], pt_=pt_: ((lin(c[0]) if q.normal.z > 0.35 else lin(c[1])), pt_)
     obj('trees_' + sp, LEAF[sp], face=face_, family='tree_' + sp, jitter=0.08, seed=3)
+    if sp == 'cypress':
+        obj('trees_sanct_cypress', SANCT_LEAF, face=lambda q, pt_=pt_: ((lin('#2E4426') if q.normal.z > 0.35 else lin('#1E2E1A')), pt_),
+            family='tree_cypress', jitter=0.06, seed=3)
     if sp in BARK:
         obj('trees_' + sp + '_trunk', TRUNK[sp], lin(BARK[sp]), PT['plain'], family='tree_' + sp)
     else:
@@ -489,6 +833,7 @@ obj('veg_flowers', flw, face=lambda q: ((PAL['flower_y'], PAL['flower_w'], PAL['
 obj('veg_garrigue', heath, face=lambda q: ((lin('#8A80A0') if q.normal.z > 0.3 else lin('#5E6650')), PT['leaf_evergreen']), family='veg', jitter=0.1)
 obj('land_boulders', bould, face=lambda q: ((PAL['rock_light'] if q.normal.z > 0.5 else PAL['rock']), PT['rock']), family='rock', jitter=0.08)
 obj('land_lichen', lich, PAL['lichen'], PT['rock'], family='rock', jitter=0.1)
+print('VEGTRIS', sum(sum(len(p_.vertices) - 2 for p_ in o_.data.polygons) for o_ in bpy.data.objects if o_.type == 'MESH' and o_.name.startswith(('veg_', 'land_boulders', 'land_lichen'))))
 DRNG.seed(9090)          # P5: what follows no longer shifts whenever the vegetation above draws differently
 
 # ------------------------------------------------------------------ QUAY LIFE
@@ -552,6 +897,32 @@ for (k, pts, z) in LANES:
 for (x, y, z, kind, col) in CJ['lamps']:      # piers: tripods; the moles' and the causeway's crest lamps: stone pillars
     lamp((x, y), z, 3.0 if z < 2 else 3.4, pennant=col if kind == 'pierhead' else None, kind=kind,
          stand='pillar' if kind == 'lamp' and z >= Z_SHORE - 0.01 else 'tripod')
+def hearth_lamp(p, z, h=1.7):
+    """08-T4/T9: a small bronze fire-bowl on a tripod: a hinterland 'hearth' light (dim layout kind)."""
+    x, y = p
+    for k in range(3):
+        a = 2 * math.pi * k / 3 + 0.4
+        merge(lampb, nl_kit.beam((x + 0.35 * math.cos(a), y + 0.35 * math.sin(a), z), (x, y, z + h), 0.05, 0.05))
+    merge(lampb, bm_cyl(0.08, 0.3, 0.2, 6, (x, y, z + h), cap=False))
+    # no flame mesh: the shared lamp emissive would glow at the town's level; the dim 'hearth' sprite is the fire
+    LAMP_LIGHTS.append((x, y, z + h + 0.3, 'hearth', None))
+
+
+hearth_lamp(SANCT_LAMP[0], SANCT_LAMP[1])      # 08-T4: the sanctuary's one lamp at dusk
+# 08-T9 (prettier): hinterland hearths - a dim warm point at each farmstead door, the windmill's door, and a wayside
+# lantern at two forks of the west road (layout kind 'hearth': under the town lamps, far under the beam)
+HEARTHS = 0
+for lot in CJ['lots']:
+    if lot['style'] in ('farmhouse', 'barn'):
+        f_ = Vector(lot['face']); c_ = Vector(lot['c']) + f_ * (lot['d'] / 2 + 0.9)
+        LAMP_LIGHTS.append((c_.x, c_.y, lot['z'] + 2.1, 'hearth', None)); HEARTHS += 1
+_wf = Vector((-0.34, -0.94)).normalized()
+_wd = Vector(CJ['windmill']) + _wf * 4.4
+LAMP_LIGHTS.append((_wd.x, _wd.y, H(_wd.x, _wd.y) + 1.9, 'hearth', None)); HEARTHS += 1
+for (u_, v_) in ((-202.0, -78.0), (-186.0, -149.0)):          # beside the forks (the footpath to the coast; the south road)
+    q_ = wpt(u_, v_)
+    hearth_lamp(q_, H(*q_)); HEARTHS += 1
+print('HEARTHS', HEARTHS + 1)
 obj('lamps_posts', lampb, CP['bronze'], PT['metal'], family='prop_lamp')
 obj('lamps_pillars', lstone, CP['lime'], PT['ashlar'], family='prop_lamp', bevel=0.03)
 obj('lamps_glass', lglass, mat=M['lamp'], family='prop_lamp', shadow=False)

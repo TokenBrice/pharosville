@@ -1,4 +1,9 @@
+import { GUST_GLSL } from "../weather/gust";
 import { CLOUD_SHADOW_GLSL } from "../sky/cloud-shadow";
+import { SEA_TONE_GLSL } from "./sea-tone";
+import { SUN_SHADOW_GLSL } from "../world/sun-shadow";
+import { SEA_GOLDEN_GLSL } from "./sea-golden";
+import { SEA_HELIO_GLSL } from "./sea-helio";
 import { SWELL_DIR, wavesGLSL } from "./waves";
 
 /** Style C sea ramp (sRGB hex, palette.json) + the A-graft sunlit shallows. */
@@ -54,10 +59,13 @@ uniform float uFwdAz, uHorizonDist, uHorizonDepr;
 uniform vec3 uGlintDir, uGlintCol;
 uniform vec4 uWeatherSea;     // cover, wind, wind dir x, wind dir z
 uniform vec2 uPrecip;         // rain, snow intensity (weather director)
+uniform vec4 uGust;           // F-wind gust field: dir x, dir z, DEWS strength, time (weather/gust.ts)
+${GUST_GLSL}
 // beam (shared from the beam system)
 uniform vec3 uBeamPos, uBeamCol;
 uniform float uBeamAngle;
 uniform vec4 uBeamShape;
+uniform vec4 uBeamSun;     // 05-P2 heliograph: rgb sun × mirror × gain (0 by night / overcast), w landing distance
 uniform float uDebug;
 // town lights (lights system's top-down pool RT): reflected in the water at night
 uniform sampler2D uPoolTex;
@@ -69,6 +77,10 @@ varying vec3 vWorld;
 varying float vDamp;
 ${wavesGLSL()}
 ${CLOUD_SHADOW_GLSL}
+${SEA_TONE_GLSL}
+${SUN_SHADOW_GLSL}
+${SEA_GOLDEN_GLSL}
+${SEA_HELIO_GLSL}
 
 const vec2 SWELL = vec2(${SWELL_DIR[0].toFixed(5)}, ${SWELL_DIR[1].toFixed(5)});
 
@@ -138,6 +150,8 @@ void main() {
   // cat's paws: drifting patches of wind-roughened water vs glassy slicks
   vec2 pawUv = xz * 0.0019 - wdir * t * (0.004 + 0.012 * wind);
   float paws = smoothstep(0.38, 0.7, texture2D(uNoise, pawUv).g * 0.7 + texture2D(uNoise, pawUv * 2.7 + 0.3).b * 0.45);
+  // (the shared gust field's paws too: the patches that heel the hulls roughen the water they cross)
+  paws = max(paws, hbGust(xz, uGust.w, uGust.xy) * (0.55 + 0.45 * uGust.z));
   float rough = mix(0.35, 1.0, paws) * (0.75 + 0.5 * wind);
   // a rain-pitted sea loses its mirror
   rough *= 1.0 + 0.6 * uPrecip.x;
@@ -145,6 +159,9 @@ void main() {
   float windSea = smoothstep(0.6, 1.0, wind);
   // zones: the harbours lie in the lee (calmer, glassier); the Roads catch the open-sea wind
   rough *= (1.0 - 0.38 * zm.b) * (1.0 + 0.3 * zm.a);
+  // lee slicks behind still hulls (wake live A, decorative): glassy satin water, the ripple drops away
+  float slick = live.a;
+  rough *= 1.0 - 0.7 * slick;
 
   // ---------------------------------------------------------------- normals
   float far01 = smoothstep(250.0, 1300.0, camD);
@@ -201,6 +218,8 @@ void main() {
   body = mix(body, vec3(lumB) * vec3(0.86, 1.0, 0.98), clamp(storm * 0.5 + cover * 0.25, 0.0, 0.65));
   body *= 1.0 - 0.18 * storm - 0.22 * cover;
   float sunUp = clamp(uSunDir.y * 3.0, 0.0, 1.0) * (1.0 - uNight);
+  // 02-L1: the key light's shadow on the flat sea plane (displacement would only add acne); sun-lit terms only
+  float sunSh = hbSeaSunShadow(vec3(xz.x, 0.0, xz.y));   // (soft, thin casters dissolved: sun-shadow.ts)
   // A graft: sunlit teal shallows (light reaching the sand)
   float shoalK = (1.0 - smoothstep(0.3, 4.5, max(dep, depth))) * sunUp;
   body = mix(body, uSunlitShoal, shoalK * (0.22 + 0.3 * smoothstep(0.3, 0.75, nA.b) + 0.1 * nC.g));
@@ -210,10 +229,12 @@ void main() {
     // a gentle shelf off every natural shore (quay walls and moles drop straight to depth instead)
     float bedDep = max(min(depth, 0.25 + max(coast, 0.0) * 0.3) + (nA.r - 0.5) * 1.6 + (nB.g - 0.5) * 0.6, 0.0);
     float clarity = (1.0 - 0.75 * storm) * (1.0 - 0.45 * cover) * (1.0 - 0.6 * uNight);
-    float seeBed = (1.0 - smoothstep(0.3, 7.0, bedDep)) * clarity * smoothstep(1.5, 7.0, sdist) * (1.0 - 0.65 * zm.b);
+    // (the harbours' lee water hides its bed, except off natural shores clear of the quay walls: sandy shallows)
+    float seeBed = (1.0 - smoothstep(0.3, 7.0, bedDep)) * clarity * smoothstep(1.5, 7.0, sdist) * (1.0 - 0.65 * zm.b * (1.0 - 0.2 * smoothstep(4.0, 10.0, sdist)));
     float rockN = texture2D(uNoise, xz * 0.031 + 0.17).r * 0.75 + nC.b * 0.35;
     vec3 sand = mix(vec3(0.62, 0.55, 0.40), vec3(0.74, 0.67, 0.50), nB.g);
     vec3 bed = mix(sand, vec3(0.26, 0.30, 0.26) * (0.8 + 0.4 * nC.r), smoothstep(0.62, 0.78, rockN));
+    bed = hbPosidonia(bed, xz, bedDep, zm.r);
     vec3 absorb = exp(-bedDep * vec3(0.55, 0.17, 0.13));
     vec3 seen = bed * absorb * mix(vec3(1.0), uSunlitShoal * 1.6, 0.35);
     // caustics only ever appear scaled by cGain: with no sun (uniform, so the branch is coherent and the
@@ -233,6 +254,8 @@ void main() {
     body = mix(body, seen * mix(0.95, 1.0, sunUp), seeBed * 0.62);
     body += uSunlitShoal * caus * 0.10 * cGain * (1.0 - seeBed * 0.5) * (1.0 - smoothstep(0.5, 5.0, dep));
   }
+  body = hbSeaTone(body, zm.b, zm.r, dep, sdist, sunUp, nA.b, camD);
+  body = hbBasinLift(body, zm.b, zm.r, dep, coast);
   // the Shoals: clear turquoise water over the reef shelf, bright by day, a pale jade glimmer at night
   {
     float reefK = zm.r * (0.55 + 0.45 * smoothstep(0.35, 0.7, nA.b + 0.25 * nC.g));
@@ -241,14 +264,15 @@ void main() {
   }
   // churned wake water is lighter and greener
   body = mix(body, uShoal * 1.35 * mix(1.0, 0.45, uNight), clamp(trail * 0.25 + live.r * 0.2, 0.0, 0.35));
-  // hull occlusion
-  body *= 1.0 - live.b * 0.4;
+  // hull occlusion (+ the waterline meniscus), and the lee slick's satin: a touch darker, a cleaner mirror below
+  body *= (1.0 - min(live.b, 1.0) * 0.4) * (1.0 - 0.12 * slick);
   // swell and ripple relief: facets tilted toward the key light read lighter (zero-mean, so the tint holds)
   {
     vec3 Lk = normalize(uSunDir + vec3(0.0, 0.6, 0.0));
     float relief = dot(N, Lk) - Lk.y;
     body *= 1.0 + clamp(relief * 2.2, -0.35, 0.35) * (1.0 - far01 * 0.6);
   }
+  body = hbSeaGolden(body, sunSh, sunUp);
   // day/night exposure of the unlit tint
   float bodyGain = mix(0.95, 0.36, uNight);
   body *= bodyGain;
@@ -266,10 +290,14 @@ void main() {
   float thR = degrees(wrapPi(atan(Rr.x, -Rr.z) - uFwdAz));
   float eR = degrees(asin(clamp(Rr.y, -1.0, 1.0)) - uHorizonDepr);
   vec3 sky = band(thR, eR, 2.6 + 1.2 * rough + clamp(eR * 0.12, 0.0, 1.8));
+  vec4 mCloud = hbMirrorClouds(sky, vWorld, Rr);
   float NdV = max(dot(Nr, V), 0.0);
   float F = 0.03 + 0.97 * pow(1.0 - NdV, 5.0);
   F = min(F * (0.8 + 0.5 * rough) * (1.0 + 0.4 * zm.b), 0.6 + 0.12 * zm.b);
   vec3 col = body * (1.0 - F) + sky * F;
+  // clouds in the mirror: a Fresnel floor so they still pass across the basin seen from above (calm water best)
+  col += (mCloud.rgb - sky) * mCloud.a * max(F, 0.2 * (1.0 - 0.5 * min(rough, 1.0)));
+  sky = mix(sky, mCloud.rgb, mCloud.a);
 
   // ---------------------------------------------------------------- the lit town in the water (night)
   // planar-like: a light h metres up at foot P mirrors onto the water at P - away * D * h / Hc, so the
@@ -282,9 +310,11 @@ void main() {
     float smear = dot(dn, side) * (4.0 + 7.0 * rough) + dot(gN.xz, side) * 14.0;
     float wav = dot(dn, away) * 4.0 + dot(gN.xz, away) * 20.0;
     vec3 acc = vec3(0.0);
+    // calm water draws each light out into a longer column (03-O11): the taps stride further along the view
+    float calmCol = (1.0 - smoothstep(0.35, 0.9, rough)) * (1.0 - uPrecip.x);
     for (int i = 0; i < 6; i++) {
       float h = 1.2 + float(i) * 3.0;
-      vec2 q = xz + away * (camD * h / Hc + wav * (0.4 + 0.12 * float(i))) + side * smear * (0.5 + 0.1 * float(i));
+      vec2 q = xz + away * (camD * h / Hc * (1.0 + 0.55 * calmCol) + wav * (0.4 + 0.12 * float(i)) + calmCol * float(i) * 1.1) + side * smear * (0.5 + 0.1 * float(i));
       vec2 puv = (q - uPoolBounds.xy) * uPoolBounds.zw;
       float ok = step(0.0, puv.x) * step(puv.x, 1.0) * step(0.0, puv.y) * step(puv.y, 1.0);
       acc += texture2D(uPoolTex, clamp(puv, 0.0, 1.0)).rgb * ok * (1.0 - 0.08 * float(i));
@@ -307,7 +337,7 @@ void main() {
     float ch = crestH * 1.7 + (nB.g - 0.5) * 0.6;
     float face = clamp(dot(gN.xz, toCam.xz / max(camD, 1.0)) * 6.0 + 0.3, 0.0, 1.0);
     float sssK = golden * (0.3 + 0.7 * back * back) * smoothstep(0.15, 0.9, ch) * face * smoothstep(0.04, 0.35, amp) * (1.0 - far01 * 0.5) * (1.0 - cover * 0.6);
-    col += uSunColor * vec3(0.20, 0.62, 0.48) * sssK * 0.16 * step(1.0, coast);
+    col += uSunColor * vec3(0.20, 0.62, 0.48) * sssK * 0.16 * step(1.0, coast) * sunSh;
   }
 
   // ---------------------------------------------------------------- sun / moon glitter path
@@ -333,6 +363,7 @@ void main() {
   float facet = pow(max(dot(Nsp, Hs), 0.0), 1400.0) * smoothstep(0.5, 0.8, nB.a) * (1.0 - far01 * 0.85);
   float sparkMask = smoothstep(0.45, 0.85, nC.a + 0.25 * nB.b);
   glint += uSunColor * facet * 0.7 * sunUp;
+  glint *= sunSh;
 
   // ---------------------------------------------------------------- low-sun sheen on the far water toward the sun (style C)
   {
@@ -365,9 +396,15 @@ void main() {
     vec2 bd = vec2(cos(a), sin(a));
     float along = dot(rel, bd);
     float lat = abs(rel.x * bd.y - rel.y * bd.x);
-    float w = 2.0 + along * tan(uBeamShape.y) * 1.25;
-    float foot = exp(-pow(lat / w, 2.0) * 1.6) * smoothstep(0.0, 40.0, along) * exp(-along / (uBeamShape.x * 0.55));
-    beam += uBeamCol * foot * (0.05 + bspec * 7.0 * sparkMask);
+    // the shaft rides ~85 m up: what reaches the water is scattered light, a broad soft swath (the same width
+    // as the beam's light on the town, beam-light-glsl.ts) that gathers away from the tower; a narrow bright
+    // track running from the tower's foot read as a second, lower beam
+    float w = (2.3 + along * tan(uBeamShape.y)) * 2.2 + 4.0;
+    float foot = exp(-pow(lat / w, 2.0) * 1.4) * smoothstep(30.0, 90.0, along) * exp(-along / (uBeamShape.x * 0.55));
+    beam += uBeamCol * foot * (0.025 + bspec * 3.5 * sparkMask);
+    // 05-P2 the heliograph by day: the mirror's sun coin crossing the water, specular only (sea-helio.ts): it packs
+    // the sea's own (already shadowed) sun glitter denser and brighter, never a diffuse wash
+    glint = hbHelioGlint(glint, hbHelioCoin(rel), Nsp, Hs, nB.a, sparkMask, far01);
     // the fire's own reflection: a soft column under the lantern (through the calm envelope normal) with a few
     // capped ripple twinkles inside it, not a wide spray of sparks across the basin; it swells on the mirror's flash
     float lrE = max(dot(reflect(vd, Nenv), Lb), 0.0);
@@ -381,12 +418,15 @@ void main() {
   float bands = uSea.w;
   float dnC = coast + (nB.r - 0.5) * 2.4 + (nC.g - 0.5) * 0.8;
   float fContact = 1.0 - smoothstep(0.25, 1.05, dnC);
-  float lap = sin(t * 0.55 + nA.b * 6.2831) ;
-  float p2 = 2.6 + 0.7 * lap;
-  float band2 = (1.0 - smoothstep(0.16, 0.42, abs(dnC - p2))) * smoothstep(0.42, 0.58, nB.g);
-  float p3 = 6.0 + 0.9 * sin(t * 0.42 + 1.7 + nA.g * 6.2831);
-  float band3 = (1.0 - smoothstep(0.12, 0.34, abs(dnC - p3))) * smoothstep(0.52, 0.64, nC.r) * 0.55;
-  float coastFoam = max(fContact, max(band2 * 0.9, band3) * bands) * step(-1.0, coast);
+  // swell trains that arrive (03-O3): coast-parallel crest lines travel shoreward, bunching and slowing as the water
+  // shoals (wavenumber rises with falling depth), steepening into a thin foam lip that breaks near the contact line.
+  // Scaled by the declared sea state's foam bands (uSea.w) exactly like the old in-place bands; the sea clock stills them.
+  float shoalW = mix(0.62, 1.25, 1.0 - smoothstep(1.0, 9.0, depth));
+  float trainPh = dnC * shoalW + t * 0.78 + nA.b * 5.0 + nB.r * 0.8;
+  float crestL = pow(0.5 + 0.5 * cos(trainPh), mix(10.0, 22.0, smoothstep(2.0, 8.0, dnC)));
+  float trainK = smoothstep(9.5, 5.0, dnC) * smoothstep(0.7, 1.6, dnC) * (0.45 + 0.55 * smoothstep(7.0, 1.5, dnC));
+  float band2 = crestL * trainK * smoothstep(0.38, 0.6, nB.g + 0.1 * nC.r);
+  float coastFoam = max(fContact, band2 * 0.9 * bands) * step(-1.0, coast);
   // lace: a fine drifting net of bubble threads (shared by the swash, the eddies and old wakes);
   // beyond the heart view it melts into its mean coverage instead of shimmering
   float lA = texture2D(uNoise, xz * 0.071 + t * vec2(0.003, -0.002)).b;
@@ -413,7 +453,8 @@ void main() {
     vec2 sw2 = vec2(sin(t * 0.05 + nA.g * 6.2831), cos(t * 0.041 + nA.b * 6.2831)) * 0.05;
     float scum = smoothstep(0.58, 0.8, texture2D(uNoise, xz * 0.09 + sw2).g * 0.8 + nC.a * 0.35);
     float eddyK = (1.0 - smoothstep(0.5, 3.6, sdN)) * smoothstep(0.0, 0.25, sdN);
-    fStruct = max(fStruct, max(scum * 0.5, lace * 0.45) * eddyK);
+    // (open water off the coast: a mooring buoy keeps a thin contact ring, not a cotton-wool blotch of eddy scum)
+    fStruct = max(fStruct, max(scum * 0.5, lace * 0.45) * eddyK * (1.0 - 0.92 * smoothstep(18.0, 50.0, coast)));
   }
   // calm water keeps only a faint contact line round piles, buoys and quays; the foam builds with sea state and rain
   fStruct *= mix(0.35, 1.0, max(storm, uPrecip.x));
@@ -456,7 +497,9 @@ void main() {
   float foam = clamp(max(max(coastFoam, fStruct), max(max(fTrail, fKel), max(fRing, caps))), 0.0, 1.0);
   foam *= 1.0 - smoothstep(uHorizonDist * 0.86, uHorizonDist * 0.99, fwdD);
   float ndl = max(dot(N, uSunDir), 0.0);
-  vec3 foamLit = mix(uFoamCol, uFoamNight, uNight * 0.6) * (uAmbient * 1.1 + uSunColor * (0.25 + 0.75 * ndl) * 0.3183);
+  vec3 foamLit = mix(uFoamCol, uFoamNight, uNight * 0.6) * (uAmbient * 1.1 + uSunColor * (0.25 + 0.75 * ndl) * 0.3183 * mix(1.0, sunSh, 0.8));
+  // overview: the coast foam stays under the bloom threshold (no glowing outline round the island, 01-A6)
+  foamLit *= 1.0 - 0.38 * smoothstep(310.0, 500.0, uCameraPos.y) * (1.0 - uNight);
 
   // visible low swell: crests catch the sky, troughs hold the body colour
   {
@@ -470,6 +513,8 @@ void main() {
   col += glint * overcast * (1.0 - foam) * cShade;
   col += beam * (1.0 - foam * 0.5);
   col = mix(col, foamLit, foam);
+  // summer nights: the churned water of wakes, contact rings and the swash glows faintly (decorative, sea-tone.ts)
+  col += hbBiolum(trail * 0.9 + live.r * 1.4 + live.g * 0.7 + max(coastFoam - fContact * 0.6, 0.0) * step(dnC, 7.0), zm.r, t, nC.a);
 
   // ---------------------------------------------------------------- horizon haze (meets the painted backdrop exactly)
   // gentle aerial perspective: the outer sea keeps its swell and colour, meeting the card exactly
@@ -488,5 +533,7 @@ void main() {
   if (uDebug > 3.5 && uDebug < 4.5) col = sky;
   if (uDebug > 4.5 && uDebug < 5.5) col = vec3(F * 4.0, hz, foam);
   if (uDebug > 5.5 && uDebug < 6.5) col = glint + beam;
+  if (uDebug > 6.5 && uDebug < 7.5) col = vec3(live.a, live.b, zm.a);
+  if (uDebug > 7.5 && uDebug < 8.5) col = vec3(sunSh);
   gl_FragColor = vec4(col, 1.0);
 }`;
