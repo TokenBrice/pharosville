@@ -28,18 +28,31 @@ export function updateAerial(centerX: number, centerZ: number, harbourR: number,
   aerialUniforms.uAerialCap.value = AERIAL_CAP * (1 - 0.45 * night);
 }
 
-/** Binds uAerialDensity = uFogDensity and uAerialHaze = uHaze (aliased: no clash with other chunks); needs uHorizon. */
-export const AERIAL_GLSL = /* glsl */ `
+/**
+ * Binds uAerialDensity = uFogDensity and uAerialHaze = uHaze (aliased: no clash with other chunks); needs uHorizon.
+ * PERF: the tint's amount is smooth in distance, so it is computed per VERTEX (AERIAL_VERT_GLSL, `hbAerialVert(world)`
+ * once vHbWorld is known) and only the mix runs per fragment.
+ */
+export const AERIAL_VERT_GLSL = /* glsl */ `
 uniform vec4 uAerial;
 uniform float uAerialCap, uAerialDensity;
-uniform vec3 uAerialHaze;
-void hbAerial(inout vec3 c, vec3 wp, float keep) {
-  if (uAerial.w <= 0.0) return;
+varying float vHbAerial;
+void hbAerialVert(vec3 wp) {
+  if (uAerial.w <= 0.0) { vHbAerial = 0.0; return; }
   float kr = smoothstep(uAerial.z, uAerial.w, length(wp.xz - uAerial.xy));
   float camD = length(cameraPosition - wp);
   float kd = 1.0 - exp(-max(camD - 350.0, 0.0) * uAerialDensity * 1.6);
   // tall things (tower tops, masts) stay a little clearer; capped (less at night: lamps keep their glow)
-  float k = min(kr * kd * (1.0 - 0.4 * smoothstep(25.0, 110.0, wp.y)), uAerialCap) * (1.0 - keep);
+  vHbAerial = min(kr * kd * (1.0 - 0.4 * smoothstep(25.0, 110.0, wp.y)), uAerialCap);
+}
+`;
+
+export const AERIAL_GLSL = /* glsl */ `
+uniform vec3 uAerialHaze;
+varying float vHbAerial;
+void hbAerial(inout vec3 c, vec3 wp, float keep) {
+  float k = vHbAerial * (1.0 - keep);
+  if (k <= 0.0) return;
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
   c = mix(c, vec3(l), k * 0.6);
   c = mix(c, mix(uAerialHaze, uHorizon, 0.4), k);

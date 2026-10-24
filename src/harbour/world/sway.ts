@@ -42,7 +42,12 @@ float hbSwayNoise(vec2 p) {
 // the shared spatial gust field (weather/gust.ts) multiplies the wind here; 1 = between gusts
 uniform vec4 uSwayGust;
 ${GUST_GLSL}
-float hbSwayGust(vec2 xz) { return 1.0 + 0.8 * uSwayGust.z * hbGust(xz, uSwayGust.w, uSwayGust.xy); }
+float hbSwayGust(vec2 xz) {
+  #ifdef HB_LITE
+  return 1.0;   // (Low tier: the crowns sway with the wind alone, not the passing paws)
+  #endif
+  return 1.0 + 0.8 * uSwayGust.z * hbGust(xz, uSwayGust.w, uSwayGust.xy);
+}
 // world-space bend of a vertex of weight w (0..1) at world position wp
 vec3 hbSway(vec3 wp, float w) {
   float wind = length(uSwayWind) * hbSwayGust(wp.xz);
