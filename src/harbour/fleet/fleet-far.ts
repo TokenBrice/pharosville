@@ -24,6 +24,11 @@ void hbFarCloth(inout vec3 c) {
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
   c = mix(c, vec3(l), 0.22 * f) * (1.0 - 0.2 * f);
 }
+// earth pigments: the dye's chroma is capped on the CPU (sailDye); a hovered / selected hull shows it at full chroma
+vec3 hbDyeChroma(vec3 dye) {
+  float l = dot(dye, vec3(0.2126, 0.7152, 0.0722));
+  return max(mix(vec3(l), dye, 1.0 + 0.45 * smoothstep(0.05, 0.5, vFleetMisc.x)), vec3(0.0));
+}
 // LOD topsides far away: a pale sheer line and a bright waterline lip give the few-px hull a silhouette on the sea
 void hbFarLodHull(inout vec3 c, float t, float aa) {
   float f = smoothstep(0.2, 0.9, hbFarK());

@@ -337,7 +337,7 @@ void hbFleetColor(inout vec3 c) {
       // keeps the canvas and bands it. The family cloth (cream, tanbark …) shows through a little. Square sails
       // (node 1: hung from _heel / the yards, both side edges alike) take the band along the foot only, a little deeper.
       float role = vFleetMisc.w;
-      vec3 cloth = c, pig = dye.rgb, body = mix(pig, cloth, 0.1);
+      vec3 cloth = c, pig = hbDyeChroma(dye.rgb), body = mix(pig, cloth, 0.1);
       bool squareSail = abs(vFleetRig.y - 1.0) < 0.5;
       float foot = 1.0 - smoothstep((squareSail ? 0.1 : 0.07) - sw.y, (squareSail ? 0.1 : 0.07) + sw.y, su.y);
       float edge = squareSail ? foot : max(smoothstep(0.93 - sw.x, 0.93 + sw.x, su.x), foot);
