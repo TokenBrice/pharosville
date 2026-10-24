@@ -67,6 +67,8 @@ export const REEF_FLARE_LINE = "The beacon\u2019s fire flares three times when a
 export const MAIDEN_LINE = "new to the register this week";
 /** DA-07 hover: the bunting she is dressed in, in the panel's words. */
 export const MAIDEN_HOVER = `dressed overall: ${MAIDEN_LINE}`;
+/** Hover for a coin launched during this visit, dressed for her first circuit (M8d: "launched today"). */
+export const LAUNCH_HOVER = "dressed overall: launched today";
 
 /** "USDT · $184.0B · alongside Tron" (+ " · signal hoisted: early warning, not a depeg" under a DA-04 signal). */
 export function boatFact(b: Boat, w: Whereabouts): string {

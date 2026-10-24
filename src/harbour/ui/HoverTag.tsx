@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { boatFact, harbourFact, landmarkFact, wreckFact } from "./facts";
+import { boatFact, harbourFact, landmarkFact, LAUNCH_HOVER, wreckFact } from "./facts";
 import { deadRecords, FAMILIES } from "../model/obituary";
 import { placeName } from "./places";
 import { expectedLabel, PHASE_NAME, yardCoins } from "./yard";
@@ -52,6 +52,8 @@ function Tag({ hit, shown, pinned }: { hit: PickHit; shown: boolean; pinned: boo
       name = b.symbol;
       const w = store.whereaboutsOf(b.id);
       fact = boatFact(b, w).slice(b.symbol.length + 3);
+      // a coin launched during this visit sails dressed overall for her first circuit (fleet/bunting.ts)
+      if (!b.maiden && (store.ctx.services.get("bunting") as { isDressed?(id: string): boolean } | undefined)?.isDressed?.(b.id)) fact += ` · ${LAUNCH_HOVER}`;
       swatch = b.brandColor;
       decorative = w.kind === "outing";
     }
