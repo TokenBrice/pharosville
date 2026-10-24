@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { anniversaryToday } from "../model/anniversary";
-import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, frontThunderDue, weatherInputs } from "./feed";
+import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, CONCH_GAP_SEC, conchDue, frontThunderDue, momentCue, weatherInputs } from "./feed";
 import { birdThinning, cicadaLevel, dayClock, hourStrikes, settleDb, settleRate, gustSwell } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {
@@ -163,5 +163,21 @@ describe("harbour sound: thunder ahead of a storm front", () => {
     expect(frontThunderDue(f(3, 1, 0.1))).toBe(-1);     // a clearing line: no thunder
     expect(frontThunderDue(f(0, 2, 0.1))).toBe(-1);     // toward Alert: no lightning in that band, no thunder
     expect(frontThunderDue(f(2.9, 3.1, 0.1))).toBe(-1); // a small move eases in place
+  });
+});
+
+describe("harbour sound: event cues", () => {
+  it("a staged launch rings the buoy, a staged death the cove's bell; depeg, recovery and the rest stay silent", () => {
+    expect(momentCue("launch")).toBe("launch-bell");
+    expect(momentCue("death")).toBe("cove-bell");
+    for (const k of ["depeg", "recovery", "psi-band", "dews-band", "flow-hour", "hull-class", "grade"]) expect(momentCue(k)).toBeNull();
+  });
+  it("the conch: only the four titans, at most one per three minutes, never over a staged moment", () => {
+    expect(conchDue("usdt-tether", 1000, -Infinity, false)).toBe(true);
+    expect(conchDue("usds-sky", 1000, -Infinity, false)).toBe(true);
+    expect(conchDue("dai-makerdao", 1000, -Infinity, false)).toBe(false);
+    expect(conchDue("usdc-circle", 1000, 1000 - CONCH_GAP_SEC + 1, false)).toBe(false);
+    expect(conchDue("usdc-circle", 1000, 1000 - CONCH_GAP_SEC, false)).toBe(true);
+    expect(conchDue("usde-ethena", 1000, -Infinity, true)).toBe(false);
   });
 });
