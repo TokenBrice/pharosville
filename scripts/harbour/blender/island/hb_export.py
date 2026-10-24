@@ -137,6 +137,69 @@ def join(objs, name):
     return o
 
 
+# ------------------------------------------------------------------ 08-T3 (prettier): per-vertex sway weight (_SWAY)
+# A weight 0..1 per vertex (stored x100 as a BYTE) that the runtime kit material (world/sway.ts) multiplies into its wind sway: leaf vertices weigh
+# by height above the ground (0 at the trunk, ~1 at a tall crown's top) times a per-family stiffness (pines barely move,
+# cypress spires nod); objects may set 'sway' (k), 'sway_mode' ('ground' | 'hang': cloth, 1 at the hem, 0 on its line) and
+# 'sway_span' (m). Every exported mesh carries the attribute (zeros elsewhere), so the merged chunks share one layout.
+SWAY_K = dict(tree_pine=0.3, tree_cypress=0.8, tree_olive=0.6, tree_fig=0.6, tree_pomegranate=0.6, tree_plane=0.5,
+              tree_almond=0.6, veg=0.45)
+SWAY_LEAF_PIDS = (8, 14)
+_HG = {}
+
+
+def _ground(x, y):
+    k = (int(round(x)), int(round(y)))
+    z = _HG.get(k)
+    if z is None:
+        z = _HG[k] = (terrain.height(*k) if point_in_poly(k[0], k[1], COAST) else 0.0)
+    return z
+
+
+def bake_sway(o, src, fam):
+    me = o.data
+    n = len(me.vertices)
+    w = np.zeros(n, np.float32)
+    k = src.get('sway')
+    explicit = k is not None
+    if not explicit:
+        k = SWAY_K.get(fam, 0.4 if (fam or '').startswith(('tree', 'veg')) else 0.0)
+    if k and n:
+        co = np.zeros(n * 3, np.float32); me.vertices.foreach_get('co', co); co = co.reshape(-1, 3)
+        sel = np.ones(n, bool)
+        if not explicit:
+            col = me.color_attributes.get('Col')
+            a = np.zeros(len(me.loops) * 4, np.float32); col.data.foreach_get('color', a)
+            pid = np.rint(a.reshape(-1, 4)[:, 3] * 16.0)
+            li = np.zeros(len(me.loops), np.int64); me.loops.foreach_get('vertex_index', li)
+            sel = np.zeros(n, bool); sel[li[np.isin(pid, SWAY_LEAF_PIDS)]] = True
+        mode = src.get('sway_mode', 'ground'); span = float(src.get('sway_span', 9.0))
+        if mode == 'hang':          # cloth: each loose piece swings from its top edge (mesh islands)
+            bm = bmesh.new(); bm.from_mesh(me); bm.verts.ensure_lookup_table()
+            seen = np.zeros(n, bool)
+            for v0 in bm.verts:
+                if seen[v0.index]:
+                    continue
+                comp, stack = [], [v0]; seen[v0.index] = True
+                while stack:
+                    v = stack.pop(); comp.append(v.index)
+                    for e in v.link_edges:
+                        o2 = e.other_vert(v)
+                        if not seen[o2.index]:
+                            seen[o2.index] = True; stack.append(o2)
+                zc = co[comp, 2]; zt = zc.max()
+                w[comp] = np.clip((zt - zc) / max(span, 1e-3), 0.0, 1.0)
+            bm.free()
+        else:
+            idx = np.nonzero(sel)[0]
+            zg = np.array([_ground(co[i, 0], co[i, 1]) for i in idx], np.float32)
+            w[idx] = np.clip((co[idx, 2] - zg) / span, 0.0, 1.0) ** 1.3
+        w *= float(k)
+        w[~sel] = 0.0
+    at = me.attributes.new('_sway', 'INT8', 'POINT')          # glTF BYTE (1 B/vertex): weight x 100, 0..100
+    at.data.foreach_set('value', np.rint(np.clip(w, 0.0, 1.0) * 100.0).astype(np.int32))
+
+
 # ------------------------------------------------------------------ gather the static island
 CHUNK = lambda x, y: ('w' if x < 0 else 'e') + ('s' if y < 60 else 'n')
 groups = {}
@@ -158,6 +221,7 @@ for ob in list(scene.objects):
     nm = is_named(ob) or ('shakkei' if fam == 'shakkei' else None)
     o = baked_copy(ob, ob.name + '_x')
     ensure_col(o.data)
+    bake_sway(o, ob, fam)
     if nm:
         if ob.name == 'tide_board_src':
             named_parts.setdefault('tide_board', []).append((role, o, ob))
@@ -366,7 +430,7 @@ def export_glb(objs, path):
     bpy.ops.export_scene.gltf(filepath=path, export_format='GLB', use_selection=True, export_apply=True,
                               export_vertex_color='NAME', export_vertex_color_name='Col', export_all_vertex_colors=False,
                               export_extras=True, export_yup=True, export_materials='EXPORT', export_normals=EXPORT_NORMALS,
-                              export_image_format='NONE', export_texcoords=True)
+                              export_image_format='NONE', export_texcoords=True, export_attributes=True)
 
 
 island_objs = CHUNK_OBJS + NAMED_OUT
