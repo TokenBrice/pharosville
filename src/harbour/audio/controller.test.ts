@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { anniversaryToday } from "../model/anniversary";
-import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, CONCH_GAP_SEC, conchDue, frontThunderDue, momentCue, weatherInputs } from "./feed";
+import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, CONCH_GAP_SEC, conchDue, frontThunderDue, momentCue, passAllowed, weatherInputs } from "./feed";
 import { birdThinning, cicadaLevel, dayClock, hourStrikes, settleDb, settleRate, gustSwell } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {
@@ -179,5 +179,17 @@ describe("harbour sound: event cues", () => {
     expect(conchDue("usdc-circle", 1000, 1000 - CONCH_GAP_SEC + 1, false)).toBe(false);
     expect(conchDue("usdc-circle", 1000, 1000 - CONCH_GAP_SEC, false)).toBe(true);
     expect(conchDue("usde-ethena", 1000, -Infinity, true)).toBe(false);
+  });
+});
+
+describe("harbour sound: passing hulls", () => {
+  it("at most two in any ten seconds", () => {
+    const recent: number[] = [];
+    let heard = 0;
+    for (let t = 0; t < 60; t += 0.25) if (passAllowed(recent, t)) { recent.push(t); heard++; }
+    expect(heard).toBe(12);
+    const r2 = [0, 1];
+    expect(passAllowed(r2, 9.9)).toBe(false);
+    expect(passAllowed(r2, 10)).toBe(true);
   });
 });

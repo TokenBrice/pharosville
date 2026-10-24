@@ -138,6 +138,8 @@ export const EVENING_GUN_DELAY = 1.2;
  * conch under the bell buoy and the gun under a far roll of thunder (dsp.test.ts checks both).
  */
 export const FAR_GAIN = 0.1;
+/** The passing hulls' bus (bow wash and a sail's flog): under a near lap (dsp.test.ts). */
+export const PASS_GAIN = 0.5;
 
 /**
  * The ten-minute settle: after a while unwatched the whole mix eases down 3 dB, and it always breathes a
@@ -352,6 +354,7 @@ export class Ambience {
   /** lazy event clips waiting for their synthesis (played when ready, dropped if more than 2 s late) */
   private pending: Array<{ kind: ClipKind; at: number; level: number; pan: number }> = [];
   private readonly farBus: GainNode;
+  private readonly passBus: GainNode;
   // the ten-minute settle (and the slow breathing of the whole mix), and the one-shots now sounding
   private readonly settle: GainNode;
   private readonly breathPhase: number;
@@ -534,6 +537,8 @@ export class Ambience {
     this.cueBus = ac.createGain(); this.cueBus.gain.value = CUE_GAIN; this.cueBus.connect(this.out);
     // the far event cues (conch, evening gun): soft, through the harbour walls' slap-back
     this.farBus = ac.createGain(); this.farBus.gain.value = FAR_GAIN; this.farBus.connect(this.out); this.farBus.connect(this.echo);
+    // ships passing the listener: dry and close
+    this.passBus = ac.createGain(); this.passBus.gain.value = PASS_GAIN; this.passBus.connect(this.out);
     // the hour bell: soft and far (dark, through the harbour walls' slap-back), from the town
     const tollBus = ac.createGain(); tollBus.gain.value = 0.07;
     this.tollLp = this.filter("lowpass", 2000, 0.5);
@@ -1075,6 +1080,26 @@ export class Ambience {
     if (this.disposed) return;
     this.need(kind);
     this.pending.push({ kind, at: this.ac.currentTime + delay, level: Math.max(0, Math.min(1, level)) * settleRate(this.inputs.attention), pan: Math.max(-0.8, Math.min(0.8, pan)) });
+  }
+
+  /**
+   * A ship under way slides past the listener: her bow wash swept from `pan0` to `pan1` over ~2 s, and her
+   * canvas shaking once as she comes abeam. The caller limits the rate; nothing under reduced motion.
+   */
+  passing(level: number, pan0: number, pan1: number): void {
+    if (this.disposed || this.inputs.reduced || !(level > 1e-3)) return;
+    this.need("swish", "flap");
+    const buf = this.bank.pick("swish", this.rnd);
+    if (!buf) return;
+    const ac = this.ac, at = ac.currentTime + 0.05, lv = Math.min(1, level) * settleRate(this.inputs.attention);
+    const c = (p: number) => Math.max(-0.85, Math.min(0.85, p));
+    const s = ac.createBufferSource(); s.buffer = buf; s.playbackRate.value = 0.94 + this.rnd() * 0.12;
+    const g = ac.createGain(); g.gain.value = lv * (buf.numberOfChannels === 1 ? Math.SQRT2 : 1);
+    const p = ac.createStereoPanner();
+    p.pan.setValueAtTime(c(pan0), at); p.pan.linearRampToValueAtTime(c(pan1), at + buf.duration);
+    s.connect(g).connect(p).connect(this.passBus);
+    s.start(at);
+    this.play("flap", at + 0.7 + this.rnd() * 0.4, this.passBus, 0.6 * lv, c((pan0 + pan1) / 2), 0.95 + this.rnd() * 0.1);
   }
 
   /** A titan home at her berth: a soft, distant conch from where she lies. */

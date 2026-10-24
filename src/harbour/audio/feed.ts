@@ -197,6 +197,17 @@ export function conchDue(id: string, nowSec: number, lastSec: number, staging: b
   return !!TITANS[id] && !staging && !(nowSec - lastSec < CONCH_GAP_SEC);
 }
 
+/** A ship passes the listener within this (m, on the water), under way at least PASS_MIN_SPEED (m/s). */
+export const PASS_RADIUS = 60, PASS_MIN_SPEED = 0.6;
+/** At most PASS_MAX passing-hull sounds in any PASS_WINDOW_SEC. */
+export const PASS_MAX = 2, PASS_WINDOW_SEC = 10;
+
+/** Rate limit of the passing hulls: may one sound at `nowSec`, given the recent ones (pruned in place)? */
+export function passAllowed(recent: number[], nowSec: number): boolean {
+  while (recent.length && nowSec - recent[0] >= PASS_WINDOW_SEC) recent.shift();
+  return recent.length < PASS_MAX;
+}
+
 /** The visitor's attention from the seconds since their last input: 1 for 3 min, then down to 0 over 60 s. */
 export function attentionFor(idleSec: number): number {
   return idleSec < 180 ? 1 : Math.max(0, 1 - (idleSec - 180) / 60);
@@ -223,6 +234,9 @@ export class Feeder {
   private unsubMoment: (() => void) | null = null;
   private unsubSim: (() => void) | null = null;
   private conchAt = -Infinity;
+  /** each hull's last distance from the listener (passing hulls), and the recent passes' times */
+  private passD = new Float32Array(0);
+  private passes: number[] = [];
 
   constructor(private readonly ctx: EngineContext, private readonly amb: Ambience) {}
 
@@ -306,6 +320,7 @@ export class Feeder {
     amb.set(inputs);
     this.last = inputs;
     this.listen();
+    if (L) this.passing(amb, !!inputs.reduced);
     this.beam(amb, inputs);
     this.frontThunder(amb, weather?.state?.front);
     return inputs;
@@ -336,6 +351,34 @@ export class Feeder {
         this.amb.conch(0.45 + 0.4 * p.near, p.pan * 0.7);
       });
     }
+  }
+
+  /**
+   * Ships under way passing the listener (a decorative mirror of the sim's motion): one crossing into
+   * PASS_RADIUS at a time, at most PASS_MAX per PASS_WINDOW_SEC, none under reduced motion or from high up.
+   */
+  private passing(amb: Ambience, reduced: boolean): void {
+    const pose = (this.ctx.services.get("sim") as SimLike | undefined)?.pose;
+    if (!pose) return;
+    const n = pose.count, [lx, ly, lz] = this.ear;
+    if (this.passD.length !== n) { this.passD = new Float32Array(n).fill(Infinity); }
+    const high = ly > 140, t = performance.now() / 1000;
+    let warm = false;
+    for (let i = 0; i < n; i++) {
+      const ph = pose.phase[i], v = pose.speed[i];
+      const x = pose.position[i * 3], z = pose.position[i * 3 + 2];
+      const d = Math.hypot(x - lx, z - lz), was = this.passD[i];
+      this.passD[i] = d;
+      // under way: casting off, sailing, approaching (sim PHASES 1..3)
+      if (ph < 1 || ph > 3 || !(v > PASS_MIN_SPEED) || reduced || high) continue;
+      if (d < 3 * PASS_RADIUS) warm = true;
+      if (!(d <= PASS_RADIUS && was > PASS_RADIUS) || !passAllowed(this.passes, t)) continue;
+      this.passes.push(t);
+      const h = pose.heading[i], ahead = Math.min(18, v * 2.4);
+      const a = this.place(x, z, 45), b = this.place(x + Math.sin(h) * ahead, z + Math.cos(h) * ahead, 45);
+      amb.passing(0.35 + 0.65 * a.near, a.pan * 0.8, b.pan * 0.8);
+    }
+    if (warm) { amb.prepare("swish"); amb.prepare("flap"); }
   }
 
   /** A staged moment (the scheduler's: rare, budgeted, nothing under reduced motion): its sound, if any. */
