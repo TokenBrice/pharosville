@@ -140,8 +140,16 @@ export class PostChain {
   /** Camera distances where tilt-shift starts / reaches full strength (set from the layout presets). */
   tiltNear = 260;
   tiltFar = 700;
+  /**
+   * The focal subject (01-A6): the Pharos' foot and lantern (world), set by the layout system. The tilt-shift band
+   * centres on the tower's screen height, so the miniature's sharp row is the lighthouse, not the sky above it.
+   */
+  tiltFocus: [THREE.Vector3, THREE.Vector3] | null = null;
+  private readonly cam: THREE.PerspectiveCamera;
+  private readonly focusV = new THREE.Vector3();
 
   constructor(readonly renderer: THREE.WebGLRenderer, readonly composer: EffectComposer, scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
+    this.cam = camera;
     composer.addPass(new RenderPass(scene, camera));
     composer.addPass(this.scrub);
     this.tiltShift = new TiltShiftEffect({ focusArea: 0.6, feather: 0.38, offset: 0.06, kernelSize: KernelSize.MEDIUM, resolutionScale: 0.5 });
@@ -190,6 +198,15 @@ export class PostChain {
     const z = THREE.MathUtils.smoothstep(rig.distance, this.tiltNear, this.tiltFar);
     this.tiltShift.blendMode.opacity.value = z * 0.55;
     this.tiltShift.focusArea = THREE.MathUtils.lerp(0.75, 0.58, z);
+    if (this.tiltFocus && z > 0) {
+      // tower mid-height and lantern in NDC y (tilt-shift space is -1 bottom … 1 top); keep the lantern inside the
+      // sharp row, never drop the band below its old place (the harbour below stays in the soft fall-off)
+      const yb = this.focusV.copy(this.tiltFocus[0]).project(this.cam).y;
+      const yt = this.focusV.copy(this.tiltFocus[1]).project(this.cam).y;
+      const sharp = this.tiltShift.focusArea - this.tiltShift.feather;
+      const want = Math.max((yb + yt) * 0.5, yt - sharp - 0.06);
+      this.tiltShift.offset = THREE.MathUtils.clamp(Number.isFinite(want) ? want : 0.06, 0.06, 0.5);
+    }
     this.vignette.darkness = 0.36 + 0.12 * z;
     // LUT: regenerate when the grade moved (throttled to 4 Hz while the clock runs).
     this.lutAge += delta;

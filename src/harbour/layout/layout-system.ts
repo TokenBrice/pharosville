@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import layoutUrl from "../data/layout.json?url";
 import type { CameraPreset } from "../engine/camera-rig";
 import type { PostChain } from "../engine/post";
@@ -58,6 +59,10 @@ export class LayoutSystem implements WorldSystem {
     this.base = preset;
     this.fit = !(cam.length >= 4 && cam.every(Number.isFinite)); // an explicit ?cam= framing is taken as given
     this.hero = heroPoints(layout);
+    // tilt-shift focus follows the Pharos (01-A6): its foot and lantern (heroPoints puts them first)
+    const pharos = layout.landmarks.find((l) => l.id === "pharos");
+    const postSvc = ctx.services.get("post") as PostChain | undefined;
+    if (pharos && postSvc && this.hero.length >= 2) postSvc.tiltFocus = [new THREE.Vector3(...this.hero[0]), new THREE.Vector3(...this.hero[1])];
     this.heartDistance = presets.heart?.distance ?? presets.overview.distance * 0.45;
     this.overviewDistance = presets.overview.distance;
     ctx.services.set("home-view", () => (this.applied = this.home(ctx)));

@@ -472,6 +472,8 @@ void main() {
   foam *= 1.0 - smoothstep(uHorizonDist * 0.86, uHorizonDist * 0.99, fwdD);
   float ndl = max(dot(N, uSunDir), 0.0);
   vec3 foamLit = mix(uFoamCol, uFoamNight, uNight * 0.6) * (uAmbient * 1.1 + uSunColor * (0.25 + 0.75 * ndl) * 0.3183);
+  // overview: the coast foam stays under the bloom threshold (no glowing outline round the island, 01-A6)
+  foamLit *= 1.0 - 0.38 * smoothstep(310.0, 500.0, uCameraPos.y) * (1.0 - uNight);
 
   // visible low swell: crests catch the sky, troughs hold the body colour
   {
