@@ -16,6 +16,9 @@ import type { BeamUniforms } from "./uniforms";
  * heading (uBeamSun.w), crossing the water and the walls once per revolution, dimmed by cloud (DEWS).
  */
 export const BEAM_LIGHT_GLSL = /* glsl */ `
+#ifdef HB_BEAM_VERT
+varying float vHbBeamK;
+#endif
 uniform vec3 uBeamPos;
 uniform float uBeamAngle;
 uniform vec4 uBeamShape;
@@ -37,6 +40,10 @@ vec3 hbBeamLight(vec3 p, vec3 n) {
   bool swath = dot(uBeamLight, vec3(1.0)) > 1e-4, sun = dot(uBeamSun.rgb, vec3(1.0)) > 1e-4;
   if (uBeamPos.y < -100.0 || !(swath || sun)) return o;
   vec2 f = hbBeamFrame(p);
+  #ifdef HB_BEAM_VERT
+  // (the swath's soft amount came from the vertex stage: BEAM_LIGHT_VERT_GLSL; only the wrap is per fragment)
+  if (swath) o += uBeamLight * vHbBeamK * clamp(dot(n, normalize(uBeamPos - p)) * 0.6 + 0.4, 0.0, 1.0);
+  #else
   if (swath) {
     vec3 toL = normalize(uBeamPos - p);
     float wrap = clamp(dot(n, toL) * 0.6 + 0.4, 0.0, 1.0);
@@ -52,6 +59,7 @@ vec3 hbBeamLight(vec3 p, vec3 n) {
     float vert = 0.3 + 0.7 * exp(-max(shaftY - p.y, 0.0) / 80.0);
     o += uBeamLight * lat * fall * vert * wrap;
   }
+  #endif
   if (sun) {
     // the heliograph's coin: a soft ellipse, long along the heading, no volume
     float a = (f.x - uBeamSun.w) / (16.0 + uBeamSun.w * 0.14);
@@ -88,6 +96,33 @@ vec3 hbPharosFire(vec3 p, vec3 n) {
   // the Helios over the dome: a glint on each flash toward the viewer
   o += uPharosFire.rgb * step(97.0, h) * step(r, 5.0) * min(uBeamShape.w, 2.0) * 0.45;
   return o * uPharosFire.w;
+}
+`;
+
+/**
+ * PERF (the kit's Low tier): the swath's amount (lateral × fall-off × height; soft over tens of metres) per VERTEX.
+ * A material that injects this into its vertex stage, calls `hbBeamVert(world)` there and defines HB_BEAM_VERT gets the
+ * per-vertex swath in hbBeamLight; the rest (the wrap toward the lamp, the day coin, the fire) stays per fragment.
+ */
+export const BEAM_LIGHT_VERT_GLSL = /* glsl */ `
+uniform vec3 uBeamPos;
+uniform float uBeamAngle;
+uniform vec4 uBeamShape;
+uniform vec4 uBeamFall;
+uniform vec3 uBeamLight;
+varying float vHbBeamK;
+void hbBeamVert(vec3 p) {
+  vHbBeamK = 0.0;
+  if (uBeamPos.y < -100.0 || dot(uBeamLight, vec3(1.0)) <= 1e-4) return;
+  vec2 rel = p.xz - uBeamPos.xz;
+  vec2 bd = vec2(cos(uBeamAngle), sin(uBeamAngle));
+  vec2 f = vec2(dot(rel, bd), abs(rel.x * bd.y - rel.y * bd.x));
+  float L = uBeamShape.x;
+  float w = (uBeamFall.y + max(f.x, 0.0) * uBeamFall.z) * 2.2 + 4.0;
+  float lat = exp(-(f.y * f.y) / (w * w) * 1.4);
+  float fall = smoothstep(30.0, 90.0, f.x) * exp(-f.x / max(uBeamFall.x * 2.5, 1.0)) * (1.0 - smoothstep(L * 0.75, L * 1.15, f.x));
+  float shaftY = uBeamPos.y - f.x * tan(uBeamShape.z);
+  vHbBeamK = lat * fall * (0.3 + 0.7 * exp(-max(shaftY - p.y, 0.0) / 80.0));
 }
 `;
 

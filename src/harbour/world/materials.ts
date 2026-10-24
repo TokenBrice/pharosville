@@ -7,7 +7,7 @@ import type { WorldUniforms } from "../engine/uniforms";
 import { CLOUD_SHADOW_GLSL, cloudShadowUniforms } from "../sky/cloud-shadow";
 import { AERIAL_GLSL, AERIAL_VERT_GLSL, aerialUniforms } from "./aerial";
 import { RUNUP_GLSL, runupUniforms } from "./runup";
-import { BEAM_LIGHT_GLSL, beamLightUniforms } from "../beam/beam-light-glsl";
+import { BEAM_LIGHT_GLSL, BEAM_LIGHT_VERT_GLSL, beamLightUniforms } from "../beam/beam-light-glsl";
 import { getBeamUniforms } from "../beam/uniforms";
 import { LAMP_WAVE_GLSL, lampWaveUniforms } from "../lights/lamp-wave";
 import { DEW_GLSL, dewUniforms } from "../weather/dew";
@@ -383,7 +383,7 @@ export function cropStagesAt(phase: number): Record<string, string> {
 /**
  * PERF: the Low tier's lighter kit (HB_LITE): decorative extras that carry no data drop out of the compiled program
  * (gilt/bronze metal sheen, dew and rime, the meadows' terrain dryness, the lamplighting wave on the light pools, the
- * gust paws in the crowns' sway, the fleet's topside weathering).
+ * gust paws in the crowns' sway, the fleet's topside weathering), and the beam swath's soft amount is computed per vertex.
  * Every reading (beam light, sea state run-up, hover, weather, season colours, aerial distance) stays.
  */
 const GLSL_SEASON = /* glsl */ `
@@ -695,6 +695,13 @@ export class HarbourMaterials {
       shader.vertexShader = shader.vertexShader
         .replace("#include <common>", `#include <common>\n${AERIAL_VERT_GLSL}`)
         .replace("    vHbWorld = (modelMatrix * hbW).xyz;\n  }", "    vHbWorld = (modelMatrix * hbW).xyz;\n    hbAerialVert(vHbWorld);\n  }");
+      // Low tier: the beam swath's soft amount per vertex (beam-light-glsl.ts BEAM_LIGHT_VERT_GLSL)
+      if (this.lite) {
+        shader.defines = { ...shader.defines, HB_BEAM_VERT: "" };
+        shader.vertexShader = shader.vertexShader
+          .replace("#include <common>", `#include <common>\n${BEAM_LIGHT_VERT_GLSL}`)
+          .replace("    hbAerialVert(vHbWorld);\n  }", "    hbAerialVert(vHbWorld);\n    hbBeamVert(vHbWorld);\n  }");
+      }
       // 08-T3: leaf / vine / cloth sway from island.glb's _SWAY weight (world/sway.ts); 0 elsewhere
       Object.assign(shader.uniforms, { uSwayWind: this.uniforms.uWindVec, uSwayTime: this.uniforms.uTime }, swayUniforms);
       shader.vertexShader = shader.vertexShader
