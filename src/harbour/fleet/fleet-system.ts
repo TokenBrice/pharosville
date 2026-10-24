@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { Mastheads } from "./mastheads";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout, HullClass, Pier } from "../layout/types";
 import type { HarbourModel, StormFlag } from "../model/types";
@@ -175,6 +176,8 @@ export class FleetSystem implements WorldSystem {
   private paint = new Float32Array(0);
   private geomIds = new Map<string, number>();
   private boats: BoatRec[] = [];
+  /** 09-L6 (life): mastheads of hulls at rest, where gulls may stand */
+  private readonly mastheads = new Mastheads();
   private byId = new Map<string, BoatRec>();
   private wreckInst: Array<{ inst: number; x: number; z: number; h: number; scale: number; heel: number; y: number; pitch: number; phi: number }> = [];
   private wrecksPosed = false;
@@ -306,6 +309,7 @@ export class FleetSystem implements WorldSystem {
 
     ctx.services.set("picking", this.pickingService());
     ctx.services.set("cove", this.coveSvc);
+    ctx.services.set("mastheads", this.mastheads);
     this.clock = new MotionClock(ensureMotionService(ctx));
     const quality = ctx.services.get("quality") as QualityService | undefined;
     if (quality) {
@@ -782,6 +786,7 @@ export class FleetSystem implements WorldSystem {
     }
     if (sigReadings && sigReadings.version > 0) this.bunting?.sync(sigReadings.maidens, frame.nowMs, dt, reducedMotion, cam.position);
 
+    this.mastheads.begin(pose?.ids ?? [], n);
     for (let i = 0, bi = 0; i < n && bi < this.boats.length; i++) {
       const b = this.boats[bi];
       if (b.id !== pose!.ids[i]) continue; // a boat without a kit hull was skipped
@@ -893,6 +898,7 @@ export class FleetSystem implements WorldSystem {
       b.flag = b.loa >= 12 ? 1 : b.flag ? (px > 55 ? 1 : 0) : (px > 72 ? 1 : 0);
       const far = b.hi > 0.05 || b.wrecked ? 0 : 1 - THREE.MathUtils.smoothstep(px, SPAR_FAR, SPAR_NEAR);
       b.struck = !moving && sail < 0.1 && b.mastK < far * STRIKE_SHARE;
+      if (!moving && !b.wrecked && !b.struck && !b.titan && b.visible) this.mastheads.set(i, this.lampAt(b.variant.masthead.x, b.variant.masthead.y, b.variant.masthead.z));
 
       if (this.mastSignals && !b.wrecked && b.visible && !b.struck && b.dist < tier.flagRange) this.mastSignals.hull(b.id, this.m4, b.variant.masthead, b.scale, b.loa);
       if (this.bunting && !b.wrecked && b.visible && !b.struck && b.dist < tier.flagRange

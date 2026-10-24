@@ -7,17 +7,24 @@
  */
 
 export type V3 = [number, number, number];
-export type WalkKind = "quay" | "lane" | "stair" | "road" | "pier";
+export type WalkKind = "quay" | "lane" | "stair" | "road" | "pier" | "mole";
 
 export interface WalkPath { kind: WalkKind; w: number; pts: V3[] }
 export interface Walkways {
   version: 1;
   paths: WalkPath[];
   benches: Array<{ p: V3; h: number }>;
-  spots: Array<{ kind: "edge" | "square"; p: V3; h: number }>;
+  /** edge: quay edge facing the water; square: open standing ground; stall: a vendor's place behind a market stall */
+  spots: Array<{ kind: "edge" | "square" | "stall"; p: V3; h: number }>;
   chimneys: V3[];
   flagpoles: Array<{ p: V3; h: number }>;
   bunting: Array<{ a: V3; b: V3; sag: number }>;
+  /** the Pharos causeway, landing → islet pavement (the keeper's night walk) */
+  causeway?: V3[];
+  /** plan polygons [x, z] where goats graze */
+  pastures?: Array<Array<[number, number]>>;
+  /** the hay cart's farm road (never between two chain hamlets) */
+  cartway?: V3[];
 }
 
 export interface WalkGraph {
@@ -34,7 +41,7 @@ export interface WalkGraph {
 }
 
 /** Where strollers go: the harbour front and the town, not the far coast roads. */
-const KIND_WEIGHT: Record<WalkKind, number> = { quay: 4, lane: 2.4, stair: 1.2, pier: 0.4, road: 0.25 };
+const KIND_WEIGHT: Record<WalkKind, number> = { quay: 4, lane: 2.4, stair: 1.2, pier: 0.4, road: 0.25, mole: 0.8 };
 
 export interface WalkGraphOptions {
   /** test against the built island (e.g. the ground height field): a node inside a building or a wall is dropped with its edges */
