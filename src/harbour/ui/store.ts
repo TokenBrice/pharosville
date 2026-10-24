@@ -12,10 +12,11 @@ import type { Boat, HarbourModel } from "../model/types";
 import { PANEL_LANDMARKS, whereabouts, type Whereabouts } from "./facts";
 import { UIPicking } from "./picking";
 import { inPoly, seaZones } from "./places";
+import { idleBreath, rankWatch, WATCH_DWELL_S, type WatchCoin, type WatchStop } from "./watch";
 import { RouteLine } from "../fleet/route-line";
 import { landmarkHover } from "../world/landmark-hover";
 import { PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "../sim/sim";
-import { ensureMotionService, getLayout, getModel, getSim, sameHit, type MotionService, type PickHit, type PickingService } from "./services";
+import { ensureMotionService, getFeed, getLayout, getModel, getSim, sameHit, type MotionService, type PickHit, type PickingService } from "./services";
 
 export interface UIState {
   model: HarbourModel | null;
@@ -33,6 +34,8 @@ export interface UIState {
   announce: string;
   /** A postcard frame is being taken: the overlay UI steps aside. */
   capturing: boolean;
+  /** The harbourmaster's watch (W): the current stop's coin and why it is shown, or null. */
+  watch: { symbol: string; line: string } | null;
 }
 
 type FrameFn = (frame: FrameState) => void;
@@ -56,6 +59,8 @@ const KEY_PAN_PX_S = 520;
 const KEY_ZOOM = 1.25;
 /** Follow spring stiffness (1/s): a critically damped spring lags about 2/ω ≈ 1.2 s behind a steady sail. */
 export const FOLLOW_OMEGA = 1.7;
+/** The watch frames each subject from this far (m). */
+const WATCH_DIST = 260;
 
 /** One step of a critically damped spring toward (gx, gz) (semi-implicit; stable for dt ≤ 0.1). */
 export function springStep(p: { x: number; z: number; vx: number; vz: number }, gx: number, gz: number, omega: number, dt: number): void {
@@ -104,7 +109,7 @@ export class HarbourUIStore {
     };
     this.state = {
       model: this.readModel(), hover: null, selected: null, searchOpen: false, ledgerOpen: false, chartMode: false,
-      reducedMotion: this.motion.reduced, tick: 0, follow: null, announce: "", capturing: false,
+      reducedMotion: this.motion.reduced, tick: 0, follow: null, announce: "", capturing: false, watch: null,
     };
     this.cleanups.push(this.motion.subscribe((reduced) => { this.set({ reducedMotion: reduced }); if (reduced) this.setFollow(null); }));
     this.attachPointer(ctx.renderer.domElement);
@@ -144,13 +149,16 @@ export class HarbourUIStore {
     if (model !== this.state.model) this.set({ model });
     if (frame.nowMs - this.lastTick >= 1000) { this.lastTick = frame.nowMs; this.set({ tick: this.state.tick + 1 }); }
     // hover: re-pick on pointer motion, and every 120 ms while still (boats sail out from under it)
-    if (this.pointer.inside && !this.dragging && !this.state.capturing && (this.pointer.dirty || frame.nowMs - this.lastPickAt > 120)) {
+    if (this.pointer.inside && !this.dragging && !this.state.capturing && !this.state.watch && (this.pointer.dirty || frame.nowMs - this.lastPickAt > 120)) {
       this.pointer.dirty = false;
       this.lastPickAt = frame.nowMs;
       const hit = this.picking.pick(this.pointer.x, this.pointer.y);
       this.setHover(hit);
     }
     landmarkHover(this.ctx.uniforms).step(frame.delta, this.ctx.uniforms.uNight.value);
+    if (this.ctx.rig.inputEpoch !== this.seenEpoch) { this.seenEpoch = this.ctx.rig.inputEpoch; this.noteInput(); }
+    this.watchFrame(frame.delta);
+    this.breathFrame(frame.delta);
     this.routeFrame(frame.delta);
     this.keyPanFrame(frame.delta);
     this.followFrame(frame.delta);
@@ -193,6 +201,7 @@ export class HarbourUIStore {
         if (Math.hypot(e.clientX - this.seen.x, e.clientY - this.seen.y) < 6) return;
       }
       this.pointer.x = e.clientX; this.pointer.y = e.clientY; this.pointer.dirty = true; this.pointer.inside = true;
+      this.noteInput();
       if (this.down && Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y) > 5) {
         this.dragging = true;
         this.setHover(null);
@@ -200,6 +209,8 @@ export class HarbourUIStore {
     };
     const down = (e: PointerEvent) => {
       this.lastPointerType = e.pointerType;
+      this.noteInput();
+      if (this.state.watch) this.stopWatch();
       if (e.pointerType === "touch") { this.touchDown(e); return; }
       if (e.button === 0) this.down = { x: e.clientX, y: e.clientY, t: performance.now() };
     };
@@ -300,6 +311,7 @@ export class HarbourUIStore {
   }
 
   select(hit: PickHit | null, opts: { fly?: boolean } = {}): void {
+    if (this.state.watch) this.stopWatch();
     if (!sameHit(hit, this.state.selected) || !hit) this.setFollow(null);
     this.picking.setSelected(hit);
     this.route.show(hit?.kind === "boat" ? hit.id : null);
@@ -378,6 +390,99 @@ export class HarbourUIStore {
     const i = sel?.kind === "boat" && sim ? sim.pose.ids.indexOf(sel.id) : -1;
     const at: [number, number] | null = i >= 0 && sim ? [sim.pose.position[i * 3], sim.pose.position[i * 3 + 2]] : null;
     this.route.update(dt, !this.ctx.rig.gliding, this.state.reducedMotion, at);
+  }
+
+  // ------------------------------------------------------------------ idle breath and the watch (W)
+
+  private lastInputAt = performance.now();
+  private seenEpoch = 0;
+  private readonly breathGoal = { k: 0, dx: 0, dz: 0 };
+
+  /** Any visitor input: the idle clock restarts (and a breath under way eases out). */
+  noteInput(): void { this.lastInputAt = performance.now(); }
+
+  /**
+   * Idle breath (12-M7a): after 3 min with no input and nothing open, the view breathes ±3 % and a few
+   * metres round where it rests over a 90 s sine; any input lets it ease back out. Render-only (the rig's
+   * breath offset): it never travels and never moves the goal. Still under reduced motion.
+   */
+  private breathFrame(dt: number): void {
+    const s = this.state, rig = this.ctx.rig;
+    const active = !s.reducedMotion && !s.selected && !s.follow && !s.watch && !s.searchOpen && !s.ledgerOpen && !rig.gliding;
+    const g = this.breathGoal;
+    if (active) idleBreath((performance.now() - this.lastInputAt) / 1000, g); else g.k = g.dx = g.dz = 0;
+    const b = rig.breath, k = s.reducedMotion ? 1 : 1 - Math.exp(-dt * 2.5);
+    b.k += (g.k - b.k) * k; b.dx += (g.dx - b.dx) * k; b.dz += (g.dz - b.dz) * k;
+    if (Math.abs(b.k) < 1e-5 && Math.abs(b.dx) < 1e-3 && Math.abs(b.dz) < 1e-3) b.k = b.dx = b.dz = 0;
+  }
+
+  private watchRun: { stops: WatchStop[]; i: number; dwell: number; epoch: number; spring: { x: number; z: number; vx: number; vz: number } } | null = null;
+
+  /** The coins as the watch ranks them: model fields plus the 24 h / 7 d supply buckets from the feed. */
+  private watchCoins(): WatchCoin[] {
+    const m = this.state.model;
+    if (!m) return [];
+    const feed = getFeed(this.ctx);
+    const assets = ((feed?.payloads as Record<string, { data?: { peggedAssets?: Array<Record<string, unknown>> } } | undefined> | undefined)?.stablecoins?.data?.peggedAssets) ?? [];
+    const sum = (o: unknown): number | null => (o && typeof o === "object" ? Object.values(o as Record<string, unknown>).reduce<number>((a, v) => a + (typeof v === "number" && Number.isFinite(v) ? v : 0), 0) : null);
+    const byId = new Map(assets.map((a) => [a.id as string, a]));
+    return m.boats.filter((b) => b.state !== "wrecked").map((b) => {
+      const a = byId.get(b.id);
+      return { id: b.id, symbol: b.symbol, supply: b.supply, activeDepeg: b.activeDepeg, pegDeviationBps: b.pegDeviationBps, prevDay: a ? sum(a.circulatingPrevDay) : null, prevWeek: a ? sum(a.circulatingPrevWeek) : null };
+    });
+  }
+
+  toggleWatch(): void { if (this.state.watch) this.stopWatch(); else this.startWatch(); }
+
+  /** W: glide between the day's data-ranked subjects, ~20 s at each, pinning the hover tag. Opt-in only. */
+  startWatch(): void {
+    const stops = rankWatch(this.watchCoins());
+    if (!stops.length) { this.set({ announce: "Nothing notable to watch right now." }); return; }
+    if (this.state.selected) this.select(null);
+    this.setFollow(null);
+    const rig = this.ctx.rig;
+    this.watchRun = { stops, i: -1, dwell: 0, epoch: rig.inputEpoch, spring: { x: rig.target.x, z: rig.target.z, vx: 0, vz: 0 } };
+    this.watchNext();
+  }
+
+  stopWatch(): void {
+    if (!this.watchRun) return;
+    this.watchRun = null;
+    this.setHover(null);
+    this.set({ watch: null, announce: "Watch ended." });
+  }
+
+  private watchNext(): void {
+    const w = this.watchRun;
+    if (!w) return;
+    w.i = (w.i + 1) % w.stops.length;
+    w.dwell = 0;
+    const stop = w.stops[w.i], b = this.boat(stop.id);
+    const pos = this.picking.worldPosition({ kind: "boat", id: stop.id });
+    if (!b || !pos) { this.stopWatch(); return; }
+    const { rig, camera } = this.ctx;
+    this.moveTo({
+      target: [pos[0], 0, pos[2]], distance: THREE.MathUtils.clamp(WATCH_DIST, rig.minDistance, rig.maxDistance), fovDeg: camera.fov,
+      pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
+    });
+    const hit: PickHit = { kind: "boat", id: stop.id };
+    this.picking.setHover(hit);
+    this.set({ hover: hit, watch: { symbol: b.symbol, line: stop.line }, announce: `Watch: ${b.symbol}, ${stop.line}.` });
+  }
+
+  private watchFrame(dt: number): void {
+    const w = this.watchRun, rig = this.ctx.rig;
+    if (!w) return;
+    if (rig.inputEpoch !== w.epoch) { this.stopWatch(); return; }
+    if (rig.gliding) { Object.assign(w.spring, { x: rig.target.x, z: rig.target.z, vx: 0, vz: 0 }); return; }
+    w.dwell += dt;
+    if (w.dwell >= WATCH_DWELL_S) { this.watchNext(); return; }
+    // keep her in view while she sails (the follow spring, no panel to clear)
+    if (this.state.reducedMotion) return;
+    const p = this.picking.worldPosition({ kind: "boat", id: w.stops[w.i].id });
+    if (!p) return;
+    springStep(w.spring, p[0], p[2], FOLLOW_OMEGA, dt);
+    rig.steer(w.spring.x, w.spring.z);
   }
 
   // ------------------------------------------------------------------ postcard (P)

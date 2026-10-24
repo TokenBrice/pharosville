@@ -21,6 +21,7 @@ export function HarbourUI() {
   const reducedMotion = useUISlice((s) => s.reducedMotion);
   const announce = useUISlice((s) => s.announce);
   const capturing = useUISlice((s) => s.capturing);
+  const watch = useUISlice((s) => s.watch);
   // focus to return to when the topmost layer closes
   const returnTo = useRef<HTMLElement | null>(null);
   const remember = () => {
@@ -46,6 +47,12 @@ export function HarbourUI() {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const s = store.getSnapshot();
+      store.noteInput();
+      // the watch lets go on any key but its own (Esc included)
+      if (s.watch && e.key !== "w" && e.key !== "W" && !e.repeat && e.key !== "Shift") {
+        store.stopWatch();
+        if (e.key === "Escape") { e.preventDefault(); return; }
+      }
       if (e.key === "Escape") {
         if (s.searchOpen) closeSearch();
         else if (s.selected) closePanel();
@@ -67,6 +74,7 @@ export function HarbourUI() {
       else if (e.key === "[") { e.preventDefault(); store.stepHull(-1); }
       else if ((e.key === "f" || e.key === "F") && !e.repeat) { e.preventDefault(); store.toggleFollow(); }
       else if ((e.key === "p" || e.key === "P") && !e.repeat) { e.preventDefault(); store.requestPostcard(); }
+      else if ((e.key === "w" || e.key === "W") && !e.repeat) { e.preventDefault(); store.toggleWatch(); }
     };
     // a released key always stops its pan (even when focus moved into a field meanwhile)
     const onKeyUp = (e: KeyboardEvent) => { if (PAN_KEYS[e.key]) store.keyPan(PAN_KEYS[e.key], false); };
@@ -104,6 +112,12 @@ export function HarbourUI() {
       <SidePanel onClose={closePanel} />
       <Search onClose={closeSearch} />
       <Postcard />
+      {watch && (
+        <div className="hb-watch hb-paper" aria-hidden="true">
+          <span className="hb-sc">Harbourmaster’s watch</span> <b>{watch.symbol}</b> <em>{watch.line}</em>
+          <span className="hb-watch-key"><kbd>W</kbd>stop</span>
+        </div>
+      )}
       <div className="hb-sr" aria-live="polite">{chartMode ? "Chart mode on: names shown." : ""}{searchOpen ? "Search open." : ""}{announce}</div>
     </div>
   );
