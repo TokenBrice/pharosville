@@ -256,6 +256,7 @@ void main() {
     body += uSunlitShoal * caus * 0.10 * cGain * (1.0 - seeBed * 0.5) * (1.0 - smoothstep(0.5, 5.0, dep));
   }
   body = hbSeaTone(body, zm.b, zm.r, dep, sdist, sunUp, nA.b, camD);
+  body = hbBasinLift(body, zm.b, zm.r, dep, coast);
   // the Shoals: clear turquoise water over the reef shelf, bright by day, a pale jade glimmer at night
   {
     float reefK = zm.r * (0.55 + 0.45 * smoothstep(0.35, 0.7, nA.b + 0.25 * nC.g));

@@ -29,6 +29,14 @@ vec3 hbSeaTone(vec3 body, float zb, float zr, float dep, float sdist, float sunU
   body *= 1.0 - 0.12 * mid;
   return body;
 }
+// polish #11: the inner basin gets back part of v1.2.1's luminous turquoise by day, most along the quays and in the
+// shallows (+~18 % green-blue body, ≈ +8-10 % value on screen after the mirror; red held, so it stays saturated), so the harbour reads light and the channel middle
+// still sits a step deeper (the lift is multiplicative and weaker there). The Shoals keep their own, lighter reef.
+vec3 hbBasinLift(vec3 body, float zb, float zr, float dep, float coast) {
+  float near = max(1.0 - smoothstep(6.0, 45.0, coast), 1.0 - smoothstep(2.0, 7.0, dep));
+  float w = zb * (1.0 - zr) * mix(0.45, 1.0, near) * (1.0 - uNight);
+  return body * (1.0 + w * vec3(-0.02, 0.22, 0.17));
+}
 // Posidonia: dark sea-grass meadows in patches on the bed (not in the very shallows, never on the reef)
 vec3 hbPosidonia(vec3 bed, vec2 xz, float bedDep, float zr) {
   #ifdef HB_LITE
