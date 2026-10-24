@@ -18,6 +18,8 @@ import { usePresence, useStore, useSticky, useUI, useUISlice } from "./hooks";
 import { getFeed, getLighthouse, type PickHit } from "./services";
 import type { HarbourUIStore } from "./store";
 import { DEV_OVERRIDE_KEYS, TIDE_FULL_SCALE_PCT, TIDE_SLACK_PCT } from "../readings/bind";
+import type { EventsService } from "../model/event-hub";
+import { dayBookLine } from "../model/events";
 
 type Raw = Record<string, unknown>;
 const raw = (store: HarbourUIStore, key: string): Raw | null => {
@@ -490,8 +492,40 @@ function HarbourmasterPanel({ titleRef }: { titleRef: P["titleRef"] }) {
             {s.stats.outings != null && <p className="hb-caption">A boat out for a sail is decoration: a loop out of its own harbour and back to the same berth.</p>}
           </Sec>
         )}
+        <DayBook />
       </div>
     </>
+  );
+}
+
+const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+/** The Day book: every confirmed change since the viewer arrived (model/events.ts), newest first. */
+function DayBook() {
+  const store = useStore();
+  const ev = store.ctx.services.get("events") as EventsService | undefined;
+  const [, bump] = useState(0);
+  useEffect(() => ev?.subscribe(() => bump((n) => n + 1)), [ev]);
+  if (!ev) return null;
+  const book = ev.book;
+  return (
+    <Sec title={`Day book · since you arrived at ${clock(ev.arrivedAtMs)}`}>
+      {book.length ? (
+        <ol className="hb-list hb-daybook">
+          {book.slice(0, 40).map((e) => {
+            const line = dayBookLine(e, clock(e.atMs));
+            return (
+              <li key={e.id}>
+                {e.coinId ? <button type="button" className="hb-row" onClick={() => store.select({ kind: "boat", id: e.coinId! })}><span>{e.dev ? <em>{line}</em> : line}</span></button>
+                  : <div className="hb-row"><span>{e.dev ? <em>{line}</em> : line}</span></div>}
+              </li>
+            );
+          })}
+        </ol>
+      ) : <p className="hb-empty">Nothing has changed since you arrived.</p>}
+      {book.length > 40 && <p className="hb-caption">and {book.length - 40} earlier.</p>}
+      <p className="hb-caption">A change is entered once a second reading in a row confirms it, so a one-poll blip is never recorded. Stale readings, coverage gaps and methodology changes are never entered.</p>
+    </Sec>
   );
 }
 

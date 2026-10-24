@@ -40,3 +40,7 @@
   the world must be back at rest by `endMs`.
 - Dev: `?moment=<kind>[:<coin id>]` injects one synthetic `(dev)` event through the book and the budget once the
   fleet is in (e.g. `?moment=depeg:usdt`, `?moment=launch`).
+
+## Day book (Harbourmaster panel)
+
+- Changelog: The Harbourmaster keeps a Day book. Every confirmed change since you arrived (a coin onto or off the Shoals, a launch, a wreck, the Pharos's band, the weather, a big hour at the Mint or the Burn, a hull class or a grade) is entered with its time, coin, and old → new value, once a second reading in a row confirms it.
