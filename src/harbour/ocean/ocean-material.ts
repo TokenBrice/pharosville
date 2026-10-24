@@ -275,10 +275,14 @@ void main() {
   float thR = degrees(wrapPi(atan(Rr.x, -Rr.z) - uFwdAz));
   float eR = degrees(asin(clamp(Rr.y, -1.0, 1.0)) - uHorizonDepr);
   vec3 sky = band(thR, eR, 2.6 + 1.2 * rough + clamp(eR * 0.12, 0.0, 1.8));
+  vec4 mCloud = hbMirrorClouds(sky, vWorld, Rr);
   float NdV = max(dot(Nr, V), 0.0);
   float F = 0.03 + 0.97 * pow(1.0 - NdV, 5.0);
   F = min(F * (0.8 + 0.5 * rough) * (1.0 + 0.4 * zm.b), 0.6 + 0.12 * zm.b);
   vec3 col = body * (1.0 - F) + sky * F;
+  // clouds in the mirror: a Fresnel floor so they still pass across the basin seen from above (calm water best)
+  col += (mCloud.rgb - sky) * mCloud.a * max(F, 0.2 * (1.0 - 0.5 * min(rough, 1.0)));
+  sky = mix(sky, mCloud.rgb, mCloud.a);
 
   // ---------------------------------------------------------------- the lit town in the water (night)
   // planar-like: a light h metres up at foot P mirrors onto the water at P - away * D * h / Hc, so the

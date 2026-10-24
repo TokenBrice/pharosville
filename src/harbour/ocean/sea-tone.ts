@@ -7,6 +7,8 @@
  *    the haze lifts it at the horizon, so the sea sits below the limewash and the Pharos holds the top value.
  *  - 03-O6 basin floor: sandy-green shallows along the natural shores of the harbours (sandier than reef turquoise),
  *    and dark Posidonia meadow patches on the visible bed.
+ *  - 03-O2 clouds in the mirror: the reflected ray meets the cloud-shadow deck, so the same drifting clouds that
+ *    shade the sea also pass across it as soft bright patches (cover is DEWS-driven already; nothing new is encoded).
  */
 export const SEA_TONE_GLSL = /* glsl */ `
 vec3 hbSeaTone(vec3 body, float zb, float zr, float dep, float sdist, float sunUp, float nb, float camD) {
@@ -26,5 +28,17 @@ vec3 hbPosidonia(vec3 bed, vec2 xz, float bedDep, float zr) {
   float p = texture2D(uNoise, xz * 0.011 + 0.43).r * 0.7 + texture2D(uNoise, xz * 0.047 + 0.11).g * 0.4;
   float k = smoothstep(0.66, 0.76, p) * smoothstep(0.7, 2.2, bedDep) * (1.0 - zr);
   return mix(bed, vec3(0.045, 0.07, 0.04), k * 0.85);
+}
+// clouds drifting across the mirror: the cloud-shadow field sampled where the reflected ray meets the deck.
+// Returns (lit cloud colour, weight); the material lays it over the reflected sky with a Fresnel floor, so the soft
+// patches read at the hero pitch too (decorative)
+vec4 hbMirrorClouds(vec3 sky, vec3 p, vec3 Rr) {
+  if (uCloudShadow.w < 0.001) return vec4(sky, 0.0);
+  float up = max(Rr.y, 0.04);
+  vec2 q = p.xz + Rr.xz / up * (650.0 - p.y);
+  float cc = (1.0 - hbCloudShadow(q)) / uCloudShadow.w;
+  float l = dot(sky, vec3(0.2126, 0.7152, 0.0722));
+  vec3 cloud = max(sky * 1.25, vec3(l * 1.55)) * mix(vec3(1.0), uSunColor / max(max(uSunColor.r, uSunColor.g), 1e-3), 0.25);
+  return vec4(cloud, cc * 0.55 * smoothstep(0.03, 0.2, Rr.y));
 }
 `;
