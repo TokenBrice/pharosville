@@ -5,6 +5,7 @@ import { useStore, useUISlice } from "./hooks";
 import { HoverTag } from "./HoverTag";
 import { Ledger } from "./Ledger";
 import { SidePanel } from "./Panel";
+import { Postcard } from "./Postcard";
 import { Search } from "./Search";
 
 /** Arrow keys pan. (No WASD: W is the opt-in watch, D-5, and half a WASD set would only confuse.) */
@@ -19,6 +20,7 @@ export function HarbourUI() {
   const chartMode = useUISlice((s) => s.chartMode);
   const reducedMotion = useUISlice((s) => s.reducedMotion);
   const announce = useUISlice((s) => s.announce);
+  const capturing = useUISlice((s) => s.capturing);
   // focus to return to when the topmost layer closes
   const returnTo = useRef<HTMLElement | null>(null);
   const remember = () => {
@@ -64,6 +66,7 @@ export function HarbourUI() {
       else if (e.key === "]") { e.preventDefault(); store.stepHull(1); }
       else if (e.key === "[") { e.preventDefault(); store.stepHull(-1); }
       else if ((e.key === "f" || e.key === "F") && !e.repeat) { e.preventDefault(); store.toggleFollow(); }
+      else if ((e.key === "p" || e.key === "P") && !e.repeat) { e.preventDefault(); store.requestPostcard(); }
     };
     // a released key always stops its pan (even when focus moved into a field meanwhile)
     const onKeyUp = (e: KeyboardEvent) => { if (PAN_KEYS[e.key]) store.keyPan(PAN_KEYS[e.key], false); };
@@ -93,13 +96,14 @@ export function HarbourUI() {
   }, [selected]);
 
   return (
-    <div className={`hb-ui${reducedMotion ? " hb-reduced" : ""}`}>
+    <div className={`hb-ui${reducedMotion ? " hb-reduced" : ""}${capturing ? " hb-capturing" : ""}`}>
       <ChartLabels />
       <HoverTag />
       <CornerMark />
       <Ledger onClose={closeLedger} />
       <SidePanel onClose={closePanel} />
       <Search onClose={closeSearch} />
+      <Postcard />
       <div className="hb-sr" aria-live="polite">{chartMode ? "Chart mode on: names shown." : ""}{searchOpen ? "Search open." : ""}{announce}</div>
     </div>
   );

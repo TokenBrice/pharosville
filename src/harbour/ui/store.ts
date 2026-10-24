@@ -31,6 +31,8 @@ export interface UIState {
   follow: string | null;
   /** The screen-reader live line for keyboard moves ([ / ] stepping, follow). */
   announce: string;
+  /** A postcard frame is being taken: the overlay UI steps aside. */
+  capturing: boolean;
 }
 
 type FrameFn = (frame: FrameState) => void;
@@ -102,7 +104,7 @@ export class HarbourUIStore {
     };
     this.state = {
       model: this.readModel(), hover: null, selected: null, searchOpen: false, ledgerOpen: false, chartMode: false,
-      reducedMotion: this.motion.reduced, tick: 0, follow: null, announce: "",
+      reducedMotion: this.motion.reduced, tick: 0, follow: null, announce: "", capturing: false,
     };
     this.cleanups.push(this.motion.subscribe((reduced) => { this.set({ reducedMotion: reduced }); if (reduced) this.setFollow(null); }));
     this.attachPointer(ctx.renderer.domElement);
@@ -142,7 +144,7 @@ export class HarbourUIStore {
     if (model !== this.state.model) this.set({ model });
     if (frame.nowMs - this.lastTick >= 1000) { this.lastTick = frame.nowMs; this.set({ tick: this.state.tick + 1 }); }
     // hover: re-pick on pointer motion, and every 120 ms while still (boats sail out from under it)
-    if (this.pointer.inside && !this.dragging && (this.pointer.dirty || frame.nowMs - this.lastPickAt > 120)) {
+    if (this.pointer.inside && !this.dragging && !this.state.capturing && (this.pointer.dirty || frame.nowMs - this.lastPickAt > 120)) {
       this.pointer.dirty = false;
       this.lastPickAt = frame.nowMs;
       const hit = this.picking.pick(this.pointer.x, this.pointer.y);
@@ -376,6 +378,33 @@ export class HarbourUIStore {
     const i = sel?.kind === "boat" && sim ? sim.pose.ids.indexOf(sel.id) : -1;
     const at: [number, number] | null = i >= 0 && sim ? [sim.pose.position[i * 3], sim.pose.position[i * 3 + 2]] : null;
     this.route.update(dt, !this.ctx.rig.gliding, this.state.reducedMotion, at);
+  }
+
+  // ------------------------------------------------------------------ postcard (P)
+
+  private readonly postcardFns = new Set<() => void>();
+  onPostcard(fn: () => void): () => void { this.postcardFns.add(fn); return () => this.postcardFns.delete(fn); }
+  requestPostcard(): void { for (const fn of this.postcardFns) fn(); }
+
+  /**
+   * The next rendered frame, copied at display resolution. The overlay UI and the hover step aside for
+   * it (`capturing`); the copy is taken in a rAF callback queued after the engine's own, so the drawing
+   * buffer still holds the frame just rendered (no preserveDrawingBuffer needed).
+   */
+  async captureFrame(): Promise<HTMLCanvasElement> {
+    this.setHover(null);
+    this.set({ capturing: true });
+    try {
+      // let the hover lift fade from the hulls (~250 ms) before the shutter
+      await new Promise((r) => setTimeout(r, 320));
+      return await new Promise<HTMLCanvasElement>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const src = this.ctx.renderer.domElement;
+        const c = document.createElement("canvas");
+        c.width = src.width; c.height = src.height;
+        c.getContext("2d")!.drawImage(src, 0, 0);
+        resolve(c);
+      })));
+    } finally { this.set({ capturing: false }); }
   }
 
   // ------------------------------------------------------------------ keyboard camera
