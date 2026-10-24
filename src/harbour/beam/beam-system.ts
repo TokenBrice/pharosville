@@ -54,6 +54,10 @@ const R0 = 2.3;            // beam radius at the mirror (m) = the bronze disc
 const HALF = 0.05;         // cone half-angle (rad), ~2.9 deg
 const TILT = 0.028;        // down-tilt (rad)
 const MIRROR_BACK = 3.3;   // the mirror face sits this far behind the fire (m)
+/** The beam's light on the world (05-P1): kept below the quay-lamp pools so it never reads as a searchlight. */
+const BEAM_LIGHT_GAIN = 0.8;
+/** The daylight heliograph coin (05-P2): × the sun colour; a dappled patch, not a spotlight. */
+const HELIO_GAIN = 0.2;
 
 const BEAM_FRAG = /* glsl */ `
 uniform mat4 uCamWorld;
@@ -381,6 +385,14 @@ export class BeamSystem implements WorldSystem {
     this.bu.uBeamCol.value.copy(this.colorS).multiplyScalar((0.1 + 0.15 * dayAlert + 0.9 * nightK) * (0.4 + 0.6 * this.reachS) * 1.3 * (lit ? 1 : 0) * swell * breath * intro);
     this.bu.uBeamShape.value.set(L, HALF * narrow, TILT, flash * (1.5 + 2.5 * day) * intro);
     this.bu.uBeamFall.value.set(L * 0.22, R0 * narrow, Math.tan(HALF * narrow), this.reachS);
+    // 05-P1: the shaft's scattered light on what it passes over (night only; kit, fleet, sprites, plume)
+    const litK = (lit ? 1 : 0) * swell * breath * intro * (1 - 0.15 * this.shutterS);
+    this.bu.uBeamLight.value.copy(this.colorS).multiplyScalar(BEAM_LIGHT_GAIN * nightK * (0.4 + 0.6 * this.reachS) * litK);
+    // 05-P2: by day the mirror throws the sun, dimmed by the DEWS cloud (no sun, no heliograph)
+    const cloud = sky?.shared?.uWeatherSea.value.x ?? 0.3;
+    const sunK = HELIO_GAIN * day * (0.5 + 0.5 * this.reachS) * litK * THREE.MathUtils.clamp(1 - 1.1 * cloud, 0, 1);
+    const sc = ctx.uniforms.uSunColor.value;
+    this.bu.uBeamSun.value.set(sc.r * sunK, sc.g * 0.88 * sunK, sc.b * 0.66 * sunK, L * 0.35);
     this.bu.uBeamBack.value = 0;
   }
 

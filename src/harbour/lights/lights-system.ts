@@ -5,6 +5,8 @@ import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { getLightsStore, type LightsStore } from "./lights-service";
 import type { QualityService } from "../engine/quality";
+import { BEAM_LIGHT_GLSL, beamLightUniforms } from "../beam/beam-light-glsl";
+import { getBeamUniforms } from "../beam/uniforms";
 
 const MAX_POINT = 16;
 const POOL_RES = 2048;
@@ -132,9 +134,10 @@ export class LightsSystem implements WorldSystem {
 
     // ---- sprites
     const spriteMat = new THREE.ShaderMaterial({
-      uniforms: { uWindowGlow: u.uWindowGlow, uNight: u.uNight, uPx: this.uPx },
+      uniforms: { uWindowGlow: u.uWindowGlow, uNight: u.uNight, uPx: this.uPx, ...beamLightUniforms(getBeamUniforms(ctx)) },
       vertexShader: /* glsl */ `
         ${GLSL_GLOW}
+        ${BEAM_LIGHT_GLSL}
         uniform float uPx;
         attribute vec3 iPos; attribute vec4 iCol; attribute vec4 iPar;
         varying vec2 vQ; varying vec3 vC;
@@ -147,6 +150,8 @@ export class LightsSystem implements WorldSystem {
           mv.xy += position.xy * size * 3.0;
           mv.z += 0.6;
           vC = iCol.rgb * iCol.a * lhGlow(iPar.y) * (0.35 + 0.65 * k);
+          // the quay lamps answer the beam as it passes over them (05-P1)
+          vC *= 1.0 + 0.8 * dot(hbBeamLight(iPos, vec3(0.0, 1.0, 0.0)), vec3(0.3333));
           gl_Position = iPar.x > 0.0 && iCol.a > 0.0 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
         }`,
       fragmentShader: /* glsl */ `

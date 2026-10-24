@@ -3,6 +3,8 @@ import type { EngineContext } from "../engine/types";
 import { decodeInto, setBounds } from "../engine/static-merge";
 import type { WorldUniforms } from "../engine/uniforms";
 import { CLOUD_SHADOW_GLSL, cloudShadowUniforms } from "../sky/cloud-shadow";
+import { BEAM_LIGHT_GLSL, beamLightUniforms } from "../beam/beam-light-glsl";
+import { getBeamUniforms } from "../beam/uniforms";
 
 /**
  * THE HARBOUR MATERIAL PORT — style C "Northern Light" (p1/style-c/nl_common.py build_kit_material,
@@ -495,6 +497,8 @@ export class HarbourMaterials {
   readonly ao: AOUniforms;
   private readonly cache = new Map<string, THREE.Material>();
   readonly rimK: THREE.IUniform<number> = { value: 1 };
+  /** The Pharos beam as a light (beam/beam-light-glsl.ts): bound by getHarbourMaterials. */
+  readonly beam: Record<string, THREE.IUniform> = {};
 
   constructor(readonly uniforms: WorldUniforms) {
     const black = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
@@ -513,6 +517,7 @@ export class HarbourMaterials {
       uAOTex: this.ao.uAOTex, uAOBounds: this.ao.uAOBounds,
       uSnowCover: u.uSnowCover, uWetness: u.uWetness, uFoliage: u.uFoliage, uSeasonPhase: u.uSeasonPhase,
       uHbSunDir: u.uSunDir, uHbSunColor: u.uSunColor,
+      ...this.beam,
     };
   }
 
@@ -531,7 +536,7 @@ export class HarbourMaterials {
       // winter / late-autumn bare crowns discard: compiled in only when the calendar can need it
       if (leafFallAt(this.uniforms) > 0.001) shader.defines = { ...shader.defines, HB_BARE: "" };
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}`)
+        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}\n${BEAM_LIGHT_GLSL}`)
         .replace("#include <color_fragment>", `
   vec3 hbVc = vec3(1.0);
   #if defined( USE_COLOR_ALPHA )
@@ -584,6 +589,7 @@ export class HarbourMaterials {
     float hbSkyL = hbLuma(uHemiSky);
     outgoingLight += min(hbEnvSpec(hbNw, hbVw, roughnessFactor, 0.03), vec3(mix(4.0, 0.35 * hbSkyL + 0.01, smoothstep(0.0, 0.25, uWetness)))) * uRimK * hbOcc;
     outgoingLight += diffuseColor.rgb * hbPool(vHbWorld, hbNw);
+    outgoingLight += diffuseColor.rgb * hbBeamLight(vHbWorld, hbNw) * hbOcc;
     // moonlight fill (0 by day): soft, mostly from above, with an albedo floor so dark hulls and
     // navy/black sail covers keep a readable mid-tone at night instead of collapsing to silhouettes
     outgoingLight += max(diffuseColor.rgb, vec3(0.12)) * uNightLift * hbOcc * (0.6 + 0.4 * max(hbNw.y, 0.0));
@@ -895,6 +901,10 @@ export function dequantizeForPatterns(mesh: THREE.Mesh): void {
 /** The shared HarbourMaterials ('materials' service), created on first use. */
 export function getHarbourMaterials(ctx: EngineContext): HarbourMaterials {
   let m = ctx.services.get("materials") as HarbourMaterials | undefined;
-  if (!m) { m = new HarbourMaterials(ctx.uniforms); ctx.services.set("materials", m); }
+  if (!m) {
+    m = new HarbourMaterials(ctx.uniforms);
+    Object.assign(m.beam, beamLightUniforms(getBeamUniforms(ctx)));
+    ctx.services.set("materials", m);
+  }
   return m;
 }
