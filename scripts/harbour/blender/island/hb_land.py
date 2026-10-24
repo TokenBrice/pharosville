@@ -862,6 +862,35 @@ set_coll(collection('marina', ROOTC))
 mcrest, mcop, mband = bmesh.new(), bmesh.new(), bmesh.new()
 mprom, mbench, mplant, mleaf, mtrunk = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
 MOLE_TOWERS = []
+mopus, mamph, mrope, mcap, mexed, mbronze = (bmesh.new() for _ in range(6))     # 08-T7 (prettier): the mole's rhythm
+_t7 = random.Random(707)
+
+
+def _amphora(bm_, x, y, z, s=1.0, lean=0.0, rz=0.0):
+    a_ = bm_cyl(0.06 * s, 0.19 * s, 0.32 * s, 6, (0, 0, 0.0)); merge(a_, bm_cyl(0.19 * s, 0.05 * s, 0.3 * s, 6, (0, 0, 0.32 * s)))
+    merge(a_, bm_cyl(0.05 * s, 0.07 * s, 0.1 * s, 5, (0, 0, 0.62 * s)))
+    merge(bm_, xf(a_, loc=(x, y, z), rx=lean, rz=rz))
+
+
+def _berth_props(p, t, n, z):
+    """An amphora stack, a coiled hawser or a capstan (all under 1 m), by turns, at a promenade edge."""
+    kind = _t7.randrange(3)
+    if kind == 0:
+        for j in range(_t7.randint(3, 5)):
+            q = p + t * _t7.uniform(-0.7, 0.7) + n * _t7.uniform(-0.3, 0.3)
+            _amphora(mamph, q.x, q.y, z, _t7.uniform(0.85, 1.05), lean=(0.35 if j == 0 else 0.0), rz=_t7.uniform(0, 6.28))
+    elif kind == 1:
+        for j in range(_t7.randint(1, 2)):
+            q = p + t * (j * 1.15 - 0.5)
+            merge(mrope, bm_cyl(0.5, 0.5, 0.16, 10, (q.x, q.y, z))); merge(mrope, bm_cyl(0.34, 0.34, 0.17, 10, (q.x, q.y, z + 0.16)))
+    else:
+        merge(mcap, bm_cyl(0.28, 0.24, 0.62, 8, (p.x, p.y, z))); merge(mcap, bm_cyl(0.38, 0.38, 0.12, 8, (p.x, p.y, z + 0.62)))
+        a0 = _t7.uniform(0, 3.14)
+        for a_ in (a0, a0 + math.pi / 2):
+            d_ = Vector((math.cos(a_), math.sin(a_))) * 0.8
+            merge(mcap, nl_kit.beam((p.x - d_.x, p.y - d_.y, z + 0.55), (p.x + d_.x, p.y + d_.y, z + 0.55), 0.07, 0.07))
+
+
 ETH_BAND = lin(CJ['pennant']['pier-ethereum'])
 _mrng = random.Random(41)
 
@@ -896,8 +925,35 @@ for m in CJ.get('moles', []):
     # between each two, and a little planted tree in a stone tub every other gap
     Lw = polyline_len([tuple(f[0]) for f in walk]); s_ = 24.0; k_ = 0
     wl = [tuple(f[0]) for f in walk]
+    # 08-T7: a darker opus band across the walk under every lamp (12 + 24k), berth gear at a walk edge between (18 + 24k,
+    # alternate sides; nothing on the boat-side aprons), and a stone exedra with an empty plinth at mid-length
+    s_mid = 24.0 * max(1, round(Lw / 48.0))
+    sb = 12.0
+    while sb < Lw - 4.0:
+        pb_, tb_ = along(wl, sb); pb_ = Vector(pb_); tb_ = Vector(tb_)
+        merge(mopus, nl_kit.beam(tuple(pb_ - tb_ * 0.8) + (Z_SHORE + 0.215,), tuple(pb_ + tb_ * 0.8) + (Z_SHORE + 0.215,), pw - 0.5, 0.03))
+        if sb + 6.0 < Lw - 8.0 and abs(sb + 6.0 - s_mid) > 6.0:
+            pp_, tp_ = along(wl, sb + 6.0); pp_ = Vector(pp_); tp_ = Vector(tp_); np_ = Vector((-tp_.y, tp_.x))
+            _berth_props(pp_ + np_ * (pw / 2 - 0.75) * (1 if int(sb / 24.0) % 2 else -1), tp_, np_, Z_SHORE + 0.2)
+        sb += 24.0
+    pe_, te_ = along(wl, s_mid); pe_ = Vector(pe_); te_ = Vector(te_); ne_ = Vector((-te_.y, te_.x))
+    ce_ = pe_ + ne_ * (pw / 2 - 0.3)                   # the exedra's back on the walk's edge, open to the walk
+    a0_ = math.atan2(-ne_.y, -ne_.x)
+    for j in range(7):
+        a1 = a0_ - math.pi / 2 + math.pi * j / 7; a2 = a0_ - math.pi / 2 + math.pi * (j + 1) / 7
+        q1 = ce_ + Vector((math.cos(a1), math.sin(a1))) * 1.7; q2 = ce_ + Vector((math.cos(a2), math.sin(a2))) * 1.7
+        merge(mexed, nl_kit.beam((q1.x, q1.y, Z_SHORE + 0.42), (q2.x, q2.y, Z_SHORE + 0.42), 0.5, 0.42))        # the curved seat
+        r1 = ce_ + (q1 - ce_) * 1.2; r2 = ce_ + (q2 - ce_) * 1.2
+        merge(mexed, nl_kit.beam((r1.x, r1.y, Z_SHORE + 0.65), (r2.x, r2.y, Z_SHORE + 0.65), 0.2, 0.9))          # its back
+    pl_ = ce_ - ne_ * 0.6
+    merge(mexed, bm_box2(pl_.x - 0.4, pl_.y - 0.4, Z_SHORE + 0.2, pl_.x + 0.4, pl_.y + 0.4, Z_SHORE + 1.05))      # the plinth (anonymous)
+    merge(mexed, bm_box2(pl_.x - 0.48, pl_.y - 0.48, Z_SHORE + 1.0, pl_.x + 0.48, pl_.y + 0.48, Z_SHORE + 1.12))
+    merge(mbronze, bm_cyl(0.12, 0.34, 0.22, 8, (pl_.x, pl_.y, Z_SHORE + 1.12), cap=False))                   # a bronze offering bowl
     while s_ < Lw - 8.0:
         p2, t2 = along(wl, s_); p2 = Vector(p2); t2 = Vector(t2); n2 = Vector((-t2.y, t2.x)); ang = math.atan2(t2.y, t2.x)
+        if abs(s_ - s_mid) < 1.0:
+            s_ += 24.0; k_ += 1
+            continue
         if k_ % 2 == 0:
             for sd in (1, -1):                         # back to back, each facing its own row of hulls
                 _bench(mbench, p2 + n2 * sd * 0.45 - t2 * 2.4, ang + (0 if sd < 0 else math.pi), Z_SHORE + 0.26)
@@ -938,6 +994,12 @@ obj('mole_planters', mplant, PAL['granite'], PT['ashlar'], family='quay', jitter
 obj('mole_tree_trunks', mtrunk, PAL['timber_dark'], PT['plain'], family='veg')
 obj('mole_tree_crowns', mleaf, face=lambda q: ((lin('#7D9A4A') if q.normal.z > 0.3 else lin('#5E7D3C')), PT['leaf']), family='veg', jitter=0.08)
 obj('mole_chain_band', mband, ETH_BAND, PT['plain'], family='quay', jitter=0.0)
+obj('mole_opus_bands', mopus, lin('#8F8676'), PT['cobble'], family='quay', jitter=0.05)
+obj('mole_amphorae', mamph, face=lambda q: ((lin('#B0663E') if q.index % 5 else lin('#C69B74')), PT['plain']), family='prop_crate', jitter=0.08)
+obj('mole_hawsers', mrope, PAL['rope'], PT['plain'], family='prop_rope', jitter=0.05)
+obj('mole_capstans', mcap, PAL['timber_dark'], PT['planks_y'], family='prop_crate', jitter=0.05)
+obj('mole_exedrae', mexed, PAL['lime'], PT['ashlar'], family='prop_bench', jitter=0.03, bevel=0.02)
+obj('mole_bronze', mbronze, lin('#9A6430'), PT['metal'], family='prop_bench')
 
 # ------------------------------------------------------------------ P6: civic pads - granite retaining walls / parapets on every edge
 # where the level pad and the land beside it differ (the civic models stand on the pads; the walls make them read as
