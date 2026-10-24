@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { LANDMARK_HOVER_GLSL, landmarkHover } from "./landmark-hover";
 import type { EngineContext } from "../engine/types";
 import { decodeInto, setBounds } from "../engine/static-merge";
 import type { WorldUniforms } from "../engine/uniforms";
@@ -526,6 +527,7 @@ export class HarbourMaterials {
       uSnowCover: u.uSnowCover, uWetness: u.uWetness, uFoliage: u.uFoliage, uSeasonPhase: u.uSeasonPhase,
       uHbSunDir: u.uSunDir, uHbSunColor: u.uSunColor,
       ...this.beam, ...lampWaveUniforms,
+      ...landmarkHover(u).uniforms,
     };
   }
 
@@ -544,7 +546,7 @@ export class HarbourMaterials {
       // winter / late-autumn bare crowns discard: compiled in only when the calendar can need it
       if (leafFallAt(this.uniforms) > 0.001) shader.defines = { ...shader.defines, HB_BARE: "" };
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}\n${AERIAL_GLSL}\n${RUNUP_GLSL}\n${BEAM_LIGHT_GLSL}`)
+        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}\n${AERIAL_GLSL}\n${RUNUP_GLSL}\n${BEAM_LIGHT_GLSL}\n${LANDMARK_HOVER_GLSL}`)
         .replace("#include <color_fragment>", `
   vec3 hbVc = vec3(1.0);
   #if defined( USE_COLOR_ALPHA )
@@ -611,6 +613,7 @@ export class HarbourMaterials {
       outgoingLight += uHbSunColor * g * spec * hbSnow * hbCs * 0.5;
     }
     outgoingLight += uHbSunColor * hbDewGlint(hbPid, vHbWorld, hbNw, hbVw, uHbSunDir, hbSdW) * hbCs * 0.6;   // W12 dawn dew
+    outgoingLight += hbLmHoverRim(vHbWorld, hbNw, hbVw, outgoingLight);
   }
   hbAerial(outgoingLight, vHbWorld, 0.0);   // distance (decorative, world/aerial.ts)
   #include <opaque_fragment>`);
@@ -684,7 +687,7 @@ export class HarbourMaterials {
     vHbWinC = (modelMatrix * c).xyz;
   }`);
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>\nuniform float uWindowGlow;\nuniform float uWindowOcc;\n${GLSL_NOISE}\n${GLSL_ENV}\n${LAMP_WAVE_GLSL}\nvarying vec3 vHbLocal;\nvarying vec3 vHbLocalN;\nvarying vec3 vHbWorld;\nvarying vec4 vHbWin;\nvarying vec3 vHbWinC;`)
+        .replace("#include <common>", `#include <common>\nuniform float uWindowGlow;\nuniform float uWindowOcc;\n${GLSL_NOISE}\n${GLSL_ENV}\n${LAMP_WAVE_GLSL}\n${LANDMARK_HOVER_GLSL}\nvarying vec3 vHbLocal;\nvarying vec3 vHbLocalN;\nvarying vec3 vHbWorld;\nvarying vec4 vHbWin;\nvarying vec3 vHbWinC;`)
         .replace("#include <color_fragment>", `
   float hbLit = 1.0, hbWarm = 0.0, hbPlain = 0.0;
   #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
@@ -726,6 +729,7 @@ export class HarbourMaterials {
     // the lamplighting wave (05-P3): the window's own moment (the Pharos's tower windows first, top-down)
     float hbWg = hbLampGlow(uWindowGlow, hbLampRank(vHbWinC, hbWhite(hbId + 61.0)));
     totalEmissiveRadiance = col * on * level * room * hbWg * ${WIN_MAX.toFixed(1)} * (hbGlass + 0.04) * hbRecess * mix(1.0, ${PLAIN_GAIN.toFixed(2)}, hbPlain);
+    totalEmissiveRadiance *= 1.0 + 0.3 * hbLmHoverIn(vHbWorld);
   }`)
         .replace("#include <opaque_fragment>", `
   {

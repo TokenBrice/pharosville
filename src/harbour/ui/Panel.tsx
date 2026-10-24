@@ -132,6 +132,7 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
       <Head kicker="Vessel" title={b.symbol} sub={sub} logo={<Logo src={b.logo} label={b.symbol} color={b.brandColor} />} titleRef={titleRef} />
       <div className="hb-panel-body">
         {whereLine(b, w) && <div className="hb-where">{titleCase(whereLine(b, w).charAt(0)) + whereLine(b, w).slice(1)}</div>}
+        <FollowToggle id={b.id} underWay={w.kind === "sailing" || w.kind === "casting-off" || w.kind === "outing"} />
         <p className="hb-why">{whyHere(b, w)}</p>
 
         <Sec title="Supply">
@@ -184,6 +185,19 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
   );
 }
 
+/** Follow her (F): a quiet toggle while she is under way; hidden under reduced motion (the world is still). */
+function FollowToggle({ id, underWay }: { id: string; underWay: boolean }) {
+  const store = useStore();
+  const following = useUISlice((s) => s.follow) === id;
+  const reduced = useUISlice((s) => s.reducedMotion);
+  if (reduced || (!underWay && !following)) return null;
+  return (
+    <button type="button" className="hb-follow" aria-pressed={following} onClick={() => store.setFollow(following ? null : id)}>
+      <kbd>F</kbd>{following ? "following" : "follow her"}
+    </button>
+  );
+}
+
 /** The stops the boat actually calls at (the prose names the same ones), each a way into that harbour. */
 function CircuitSec({ b }: { b: Boat }) {
   const store = useStore();
@@ -205,6 +219,7 @@ function CircuitSec({ b }: { b: Boat }) {
         {single ? "Its supply sits at this one harbour, so it swings at its home mooring." : "Docks at each stop for a time in proportion to its supply there. Sailing is not a bridge transfer."}
         {stops.some((s) => s.folded.length > 0) ? " Chains without a pier, or under 5 % of its supply, fold into the Far Ports." : ""}
       </p>
+      {!single && <p className="hb-caption hb-route-note">The dashed line on the water is her route: today’s rounds (from supply share).</p>}
     </Sec>
   );
 }

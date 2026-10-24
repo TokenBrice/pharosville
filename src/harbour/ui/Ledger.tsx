@@ -3,6 +3,7 @@ import type { Boat, HarbourModel } from "../model/types";
 import { epitaphOf, wreckDate } from "./facts";
 import { bps, causeName, money, pegName, share, titleCase } from "./format";
 import { usePresence, useStore, useUISlice } from "./hooks";
+import { KeyList } from "./KeyList";
 import { expectedKey, expectedLabel, launchedFromYard, PHASE_NAME, PHASES, UPCOMING_URL, yardCoins, type YardCoin } from "./yard";
 
 const TABS = ["Legend", "Coins", "Pre-launch", "Chains", "Wrecks"] as const;
@@ -120,6 +121,7 @@ function Legend() {
           <li key={l.title}>{l.glyph}<div><b>{l.title}</b><p className="hb-rule">{l.rule}</p><p>{l.more}</p></div></li>
         ))}
       </ul>
+      <KeyList />
     </>
   );
 }
