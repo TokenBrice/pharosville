@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SYNTHS, renderNow, rumble, shoreWash, thunder, type ClipKind } from "./dsp";
+import { CUE_GAIN } from "./ambience";
 
 const SR = 48000;
 
@@ -65,5 +66,45 @@ describe("harbour sound DSP", () => {
     const sr = 24000, near = renderNow(thunder(11, sr)), far = renderNow(rumble(12, sr));
     expect(brightness(near.L, sr, 0, 0.4)).toBeGreaterThan(5 * brightness(near.L, sr, 2, 6));
     expect(brightness(far.L, sr, 0, far.L.length / sr)).toBeLessThan(brightness(near.L, sr, 0, 0.4) / 5);
+  });
+});
+
+/** Mono view of a clip: its DC, loudest 50 ms RMS, and the RMS of its last tenth (the decay). */
+function shape(kind: ClipKind, seed: number, sr = 24000) {
+  const c = renderNow(SYNTHS[kind](seed, sr)), n = c.L.length, W = Math.floor(0.05 * sr);
+  let sum = 0, loud = 0, tail = 0;
+  for (let i = 0; i < n; i++) sum += (c.L[i] + c.R[i]) / 2;
+  for (let i = 0; i + W <= n; i += W >> 1) {
+    let q = 0;
+    for (let j = i; j < i + W; j++) q += ((c.L[j] + c.R[j]) / 2) ** 2;
+    loud = Math.max(loud, Math.sqrt(q / W));
+  }
+  const t0 = Math.floor(n * 0.9);
+  for (let i = t0; i < n; i++) tail += ((c.L[i] + c.R[i]) / 2) ** 2;
+  return { dc: Math.abs(sum / n), loud, tail: Math.sqrt(tail / (n - t0)) };
+}
+
+describe("harbour sound: the new kinds sit under the mix they join", () => {
+  const press = Math.max(...[1, 2, 3].map((s) => shape("press", s).loud));
+  it.each(["mallet", "adze", "saw"] as ClipKind[])("%s: no DC, decays to silence, quieter than a Mint press", (kind) => {
+    for (const seed of [1, 2, 3, 4]) {
+      const s = shape(kind, seed);
+      expect(s.dc).toBeLessThan(1e-3);
+      expect(s.tail).toBeLessThan(0.05 * s.loud);
+      expect(s.loud).toBeLessThan(0.5 * press);
+    }
+  });
+});
+
+describe("harbour sound: UI foley", () => {
+  it.each(["unroll", "latch", "flick"] as ClipKind[])("%s: tiny, short, and under −24 dBFS after the cue bus and master", (kind) => {
+    for (const seed of [1, 2, 3]) {
+      const c = renderNow(SYNTHS[kind](seed, 16000));
+      expect(c.L.length / 16000).toBeLessThan(0.2);
+      let peak = 0;
+      for (const v of c.L) peak = Math.max(peak, Math.abs(v));
+      expect(peak * CUE_GAIN * 0.7).toBeLessThan(10 ** (-24 / 20));
+      expect(shape(kind, seed).dc).toBeLessThan(1e-3);
+    }
   });
 });

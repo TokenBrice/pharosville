@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { CAUSE_META } from "@shared/lib/cause-of-death";
 import { deadRecords, FAMILIES, FAMILY_ORDER, type CauseFamily } from "../model/obituary";
+import { anniversaryToday, worldToday } from "../model/anniversary";
 import type { HarbourLayout } from "../layout/types";
 import type { Boat, HarbourModel } from "../model/types";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
@@ -411,6 +412,7 @@ function WreckPanel({ model, titleRef }: P) {
       <Head kicker="Sea zone · the cove" title="Wreck Cove" sub={`${all.length} wrecks, one for every stablecoin that died`} titleRef={titleRef} />
       <div className="hb-panel-body">
         <p className="hb-why">Each wreck is one dead coin. Its size is the peak market cap it reached; its form tells how it died. The twenty largest have their posts on the memorial above the tide line, lit at dusk.</p>
+        {all.filter(({ w }) => anniversaryToday(w.deathDate, worldToday())).map(({ w }) => <p key={w.id} className="hb-caption">{w.symbol} died on this day in {w.deathDate.slice(0, 4)}: anniversary today.</p>)}
         <Sec title="How they died">
           <div className="hb-chips" role="group" aria-label="Show one cause of death">
             {FAMILY_ORDER.filter((f) => counts.get(f)).map((f) => (
