@@ -72,7 +72,7 @@ export function weatherInputs(w: WeatherLike | undefined, s: SeasonLike | undefi
 }
 
 /** Where the sound sources sit, gathered once per layout. */
-interface Sources { coast: Vec2[]; berths: Vec2[]; reef: Vec2 | null; fire: Vec3 | null; mint: Vec3 | null; town: Vec2[]; trees: Vec2[] }
+interface Sources { coast: Vec2[]; berths: Vec2[]; reef: Vec2 | null; fire: Vec3 | null; mint: Vec3 | null; ship: Vec3 | null; town: Vec2[]; trees: Vec2[] }
 
 function gatherSources(L: HarbourLayout & CivicLayout & LitLayout): Sources {
   const shoals = L.zones?.shoals?.polygon;
@@ -83,10 +83,11 @@ function gatherSources(L: HarbourLayout & CivicLayout & LitLayout): Sources {
   // the fire burns in the lantern near the top of the ~100 m tower
   const fire: Vec3 | null = ph ? [ph[0], ph[1] + (L.pharos ? 82 : 30), ph[2]] : null;
   const m = L.civic?.find((c) => c.kind === "mint")?.position ?? null;
+  const y = L.civic?.find((c) => c.kind === "shipyard")?.position ?? null;
   return {
     coast: L.island?.coast ?? [],
     berths: (L.piers ?? []).flatMap((p) => p.berths.map((b) => [b.position[0], b.position[2]] as Vec2)),
-    reef, fire, mint: m ? [m[0], m[1] + 12, m[2]] : null,
+    reef, fire, mint: m ? [m[0], m[1] + 12, m[2]] : null, ship: y ? [y[0], y[1] + 4, y[2]] : null,
     town: (L.lights ?? []).filter((l) => l.kind === "window").map((l) => [l.position[0], l.position[2]] as Vec2),
     // the cove hamlets sit among the island's groves
     trees: (L.landmarks ?? []).filter((l) => l.id.startsWith("hamlet")).map((l) => [l.position[0], l.position[2]] as Vec2),
@@ -264,6 +265,10 @@ class Controller implements SoundController {
         inputs.mintPan = pan(S.mint[0], S.mint[2]); inputs.mintBack = back(S.mint[0], S.mint[2]);
         inputs.mintRate = (ctx.services.get("civic") as Civic | undefined)?.mintRate ?? 0.5;
       } else inputs.mint = 0;
+      if (S.ship) {
+        inputs.ship = near(Math.hypot(S.ship[0] - lx, S.ship[2] - lz), ly - S.ship[1], 80);
+        inputs.shipPan = pan(S.ship[0], S.ship[2]); inputs.shipBack = back(S.ship[0], S.ship[2]);
+      } else inputs.ship = 0;
       if (S.town.length) { inputs.town = near(nearest(lx, lz, S.town), ly, 120); inputs.townPan = pan(hit[0], hit[1]); inputs.townBack = back(hit[0], hit[1]); }
       const onLand = S.coast.length > 2 && inside(lx, lz, S.coast);
       inputs.land = onLand ? near(0, ly, 170) : 0.4 * (inputs.shore ?? 0);

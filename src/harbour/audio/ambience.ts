@@ -55,6 +55,10 @@ export interface AmbienceInputs {
   mint: number;
   mintPan: number;
   mintRate: number;
+  /** nearness 0..1 of the Shipyard's slipways (0 when there is none), and its pan */
+  ship: number;
+  shipPan: number;
+  shipBack: number;
   /** precipitation intensity 0..1, rain and snow (the TYPE follows the season, the INTENSITY the DEWS band) */
   rain: number;
   snow: number;
@@ -197,7 +201,7 @@ export class Ambience {
     fire: 0, firePan: 0, mint: 0, mintPan: 0, mintRate: 0.5,
     rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
     town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false, attention: 1,
-    shoreBack: 0, reefBack: 0, mintBack: 0, townBack: 0,
+    shoreBack: 0, reefBack: 0, mintBack: 0, townBack: 0, ship: 0, shipPan: 0, shipBack: 0,
   };
   private readonly rnd: () => number;
   private readonly bank: ClipBank;
@@ -229,6 +233,11 @@ export class Ambience {
   private readonly mintBus: GainNode;
   private readonly mintLp: BiquadFilterNode;
   private readonly mintPan: StereoPannerNode;
+  private readonly shipBus: GainNode;
+  private readonly shipLp: BiquadFilterNode;
+  private readonly shipPan: StereoPannerNode;
+  /** the yard's work: strokes left in this run, the tool, its beat, where on the slip the shipwright stands */
+  private ship = { left: 0, tool: "mallet" as ClipKind, beat: 0.6, at: 0 };
   // event buses
   private readonly harbourBus: GainNode;    // creaks, taps (near)
   private readonly gullBus: GainNode;
@@ -268,7 +277,7 @@ export class Ambience {
   private idle = 0;
   private next = {
     wave: 0, lap: 0, reef: 0, gull: 0, creak: 0, tap: 0, horn: 0, gust: 0, crackle: 0, press: 0, refresh: 0,
-    rainA: 0, rainB: 0, drip: 0, bird: 0, cricket: 0, cicada: 0, crunch: 0,
+    rainA: 0, rainB: 0, drip: 0, bird: 0, cricket: 0, cicada: 0, crunch: 0, ship: 0, groan: 0,
   };
   private setLeft = 0;
   private pressN = 0;
@@ -372,6 +381,12 @@ export class Ambience {
     this.mintPan = ac.createStereoPanner();
     this.mintLp.connect(this.mintPan).connect(this.mintBus).connect(this.out);
 
+    // ---- the Shipyard: mallets, adzes and a pit saw on oak, a treadwheel crane's groan (by day only)
+    this.shipBus = ac.createGain(); this.shipBus.gain.value = 0;
+    this.shipLp = this.filter("lowpass", 2500, 0.6);
+    this.shipPan = ac.createStereoPanner();
+    this.shipLp.connect(this.shipPan).connect(this.shipBus).connect(this.out);
+
     // ---- rain: the fine hiss of drops on the open sea and a heavier body in a downpour, driven by the gusts;
     // the patter of drops on roofs and quays (clips), louder and brighter near the town; eaves dripping
     const rainIn = ac.createGain();
@@ -427,6 +442,7 @@ export class Ambience {
       wave: t + 0.2, lap: t + 0.6, reef: t + 1.5, gull: t + 3 + this.rnd() * 4, creak: t + 3, tap: t + 1.5, horn: t + 3, gust: t,
       crackle: t, press: t + 0.5, refresh: t + 20,
       rainA: t, rainB: t + 1.7, drip: t + 1, bird: t + 1 + this.rnd() * 3, cricket: t, cicada: t, crunch: t + 4,
+      ship: t + 2, groan: t + 6,
     };
     if (opts.manual) this.bank.buildAll();
     else {
@@ -535,6 +551,11 @@ export class Ambience {
     this.aim(this.mintBus.gain, 0.16 * I.mint * I.mint * point, 0.5);
     this.aim(this.mintLp.frequency, air(I.mint, 700, 6000) * behind(I.mintBack, 0.5), 0.5);
     this.aim(this.mintPan.pan, I.mintPan * 0.8, 0.5);
+    // the yard works by day; the shipwrights down tools in the rain and in a storm, and the yard is shut at night
+    const yard = I.ship * (1 - clamp01((night - 0.4) / 0.2)) * (1 - clamp01(rain * 1.5)) * (1 - 0.8 * storm);
+    this.aim(this.shipBus.gain, 0.55 * yard * I.ship * point, 0.5);
+    this.aim(this.shipLp.frequency, air(I.ship, 600, 5000) * behind(I.shipBack, 0.5), 0.5);
+    this.aim(this.shipPan.pan, I.shipPan * 0.8, 0.5);
 
     // ---- weather (data): snow's hush, rain on the sea and the roofs, drips, spray, the howl
     this.aim(this.hush.gain, -(11 * snow + 4 * I.snowCover), 1.5);
@@ -577,6 +598,7 @@ export class Ambience {
     if (cicadas > 0.01) this.need("cicada");
     if (rustle > 0.01) this.need("rustle");
     if (crunch > 0.01) this.need("crunch");
+    if (yard > 0.02) this.need("mallet", "adze", "saw");
 
     const N = this.next;
     // ---- the swell: one wave per period, in sets; the shore, the bed, the laps and the bell answer it
@@ -716,6 +738,30 @@ export class Ambience {
         N.press = at + (this.pressN % 3 === 0 ? 1.1 : 0.62) / (0.6 + 0.8 * I.mintRate);
       }
     } else N.press = Math.max(N.press, now);
+    // the Shipyard: runs of two to five strokes at a human (uneven) beat, then a pause; now and then the crane
+    if (yard > 0.02) {
+      const Y = this.ship;
+      if (N.ship < ahead) {
+        const at = Math.max(N.ship, now);
+        if (Y.left <= 0) {
+          const k = r();
+          Y.tool = k < 0.5 ? "mallet" : k < 0.8 ? "adze" : "saw";
+          Y.left = Y.tool === "saw" ? 1 + Math.floor(r() * 3) : 2 + Math.floor(r() * 4);
+          Y.beat = Y.tool === "mallet" ? 0.5 + r() * 0.25 : Y.tool === "adze" ? 0.6 + r() * 0.3 : 1.3 + r() * 0.25;
+          Y.at = r() * 0.6 - 0.3;
+        }
+        const lvl = Y.tool === "mallet" ? 0.7 : Y.tool === "adze" ? 0.45 : 0.35;
+        this.play(Y.tool, at, this.shipLp, lvl * (0.8 + 0.4 * r()), I.shipPan * 0.6 + Y.at, 0.95 + r() * 0.1);
+        Y.left--;
+        N.ship = at + (Y.left > 0 ? Y.beat * (0.82 + 0.36 * r()) : (2 + r() * 5) / thin);
+      }
+      if (N.groan < ahead) {
+        const at = Math.max(N.groan, now);
+        this.play("creak", at, this.shipLp, 0.8, I.shipPan * 0.6 + 0.2, 0.62 + r() * 0.1);
+        if (r() < 0.5) this.play("creak", at + 1.1 + r() * 0.5, this.shipLp, 0.6, I.shipPan * 0.6 + 0.2, 0.6 + r() * 0.1);
+        N.groan = at + (9 + r() * 11) / thin;
+      }
+    } else { N.ship = Math.max(N.ship, now + 1); N.groan = Math.max(N.groan, now + 4); }
     if (N.gull < ahead) {
       const at = Math.max(N.gull, now);
       if (r() < 1 - 0.75 * night) this.play("gull", at, this.gullBus, 0.5 + 0.35 * r(), r() * 1.2 - 0.6, 0.92 + r() * 0.16);

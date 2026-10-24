@@ -25,7 +25,9 @@ export type ClipKind = "shore" | "lap" | "reef" | "crackle" | "press" | "halyard
   // weather (DEWS): precipitation, thunder
   | "drizzle" | "rain" | "drip" | "thunder" | "rumble"
   // season colour (calendar, decorative)
-  | "bird" | "cricket" | "cicada" | "rustle" | "crunch";
+  | "bird" | "cricket" | "cicada" | "rustle" | "crunch"
+  // the Shipyard's tools (decorative, by day)
+  | "mallet" | "adze" | "saw";
 
 /** mulberry32: small, fast, seedable. */
 export function makeRng(seed: number): Rng {
@@ -921,6 +923,94 @@ export function* crunch(seed: number, sr: number): Generator<void, Clip> {
   return { sr, L, R };
 }
 
+// ---------------------------------------------------------------------------------------------------------
+// The Shipyard: shipwrights' tools on oak (decorative mirror of the yard's visible work)
+// ---------------------------------------------------------------------------------------------------------
+
+/**
+ * A caulking mallet on a trenail or a chisel: a wooden "thock" — a 1–2 ms knock of noise exciting two body
+ * resonances (the mallet head ~150–220 Hz, the struck timber ~520–760 Hz), a dull thump under it. 0.4 s.
+ */
+export function* mallet(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 0.4, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const lo = new Svf(sr), hi = new Svf(sr), kT = onePole(140, sr);
+  const qLo = range(r, 5, 8), qHi = range(r, 6, 10);
+  lo.set(range(r, 150, 220), qLo); hi.set(range(r, 520, 760), qHi);
+  const tauX = range(r, 0.0012, 0.0024), aHi = range(r, 0.45, 0.8);
+  let th = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const ex = N() * (i < 6 ? (i + 1) / 7 : Math.exp(-(t - 6 / sr) / tauX));
+    lo.run(ex); hi.run(ex);
+    th += kT * (ex - th);
+    // /Q: unity gain at each resonance
+    const v = (lo.bp / qLo) * 2.2 + (hi.bp / qHi) * 1.6 * aHi + th * 1.2 * Math.exp(-t / 0.03);
+    L[i] = v; R[i] = v;
+  }
+  yield;
+  seal({ L, R }, sr, 0.0005, 0.08);
+  limit({ L, R }, 0.5);
+  return { sr, L, R };
+}
+
+/** An adze dressing a plank: a brighter bite into the grain and a few splinter ticks. 0.3 s. */
+export function* adze(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 0.3, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const bite = new Svf(sr), body = new Svf(sr);
+  const qB = range(r, 2, 3.5);
+  bite.set(range(r, 1400, 2400), qB); body.set(range(r, 380, 520), 6);
+  const tau = range(r, 0.006, 0.014);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const ex = N() * smooth(t / 0.002) * Math.exp(-t / tau);
+    bite.run(ex); body.run(ex);
+    const v = (bite.bp / qB) * 0.9 + (body.bp / 6) * 1.4;
+    L[i] = v; R[i] = v;
+  }
+  for (let k = 0, m = 2 + Math.floor(r() * 4); k < m; k++) {
+    tick(L, R, sr, range(r, 0.008, 0.08), logRange(r, 2200, 5200), 2.5, range(r, 0.0004, 0.001), range(r, 0.06, 0.16), 0, N);
+  }
+  yield;
+  seal({ L, R }, sr, 0.0005, 0.06);
+  limit({ L, R }, 0.45);
+  return { sr, L, R };
+}
+
+/**
+ * A pit saw through oak: one push and one pull (the pull a little lower and softer), each a breathy band of
+ * noise chattered by the teeth (~55–95 strokes of a tooth per second) under an arched envelope. ~1.1–1.5 s.
+ */
+export function* saw(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const d1 = range(r, 0.38, 0.55), gap = range(r, 0.06, 0.14), d2 = range(r, 0.36, 0.52);
+  const T = 0.02 + d1 + gap + d2 + 0.12, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const bp = new Svf(sr), kTooth = range(r, 55, 95);
+  const strokes: Array<[number, number, number, number]> = [[0.02, d1, range(r, 2400, 3400), 1], [0.02 + d1 + gap, d2, range(r, 1900, 2700), 0.75]];
+  let ph = 0;
+  for (const [at, d, fc, a] of strokes) {
+    bp.set(fc, 1.6);
+    const i0 = Math.floor(at * sr), m = Math.ceil(d * sr);
+    for (let i = 0; i < m && i0 + i < n; i++) {
+      const x = i / m;
+      ph += kTooth * (0.8 + 0.4 * Math.sin(Math.PI * x)) / sr; ph -= Math.floor(ph);
+      const teeth = 0.35 + 0.65 * Math.pow(1 - ph, 3);
+      const e = smooth(x / 0.18) * smooth((1 - x) / 0.25) * a;
+      bp.run(N() * teeth * e);
+      const v = (bp.bp / 1.6) * 0.32;
+      L[i0 + i] += v; R[i0 + i] += v;
+      if (((i0 + i) % SLICE) === SLICE - 1) yield;
+    }
+  }
+  seal({ L, R }, sr, 0.005, 0.08);
+  limit({ L, R }, 0.4);
+  return { sr, L, R };
+}
+
 export const SYNTHS: Record<ClipKind, (seed: number, sr: number) => Generator<void, Clip>> = {
   shore: (s, sr) => shoreWash(s, sr, { stone: (s & 3) === 3 }),
   lap,
@@ -941,6 +1031,9 @@ export const SYNTHS: Record<ClipKind, (seed: number, sr: number) => Generator<vo
   cicada,
   rustle,
   crunch,
+  mallet,
+  adze,
+  saw,
 };
 
 /** Run a synthesiser to completion (Node, tests). */
