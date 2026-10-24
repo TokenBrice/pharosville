@@ -11,7 +11,7 @@ vec3 hbSeaGolden(vec3 body, float sunSh, float sunUp) {
   // (a sun on the horizon is weak against the sky: its hull-long streaks fade rather than bar the water)
   float shK = (1.0 - sunSh) * mix(0.55, 1.0, smoothstep(0.0, 0.12, uSunDir.y + uNight));
   body *= 1.0 - shK * mix(0.12, 0.06, uNight);
-  body *= mix(vec3(1.0), vec3(0.95, 0.99, 1.05), shK * (1.0 - uNight));
+  body *= mix(vec3(1.0), vec3(0.92, 0.98, 1.06), shK * (1.0 - uNight));
   float lumS = max(dot(uSunColor, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
   vec3 hue = min(uSunColor / lumS, vec3(2.2));
   float low = (1.0 - smoothstep(0.07, 0.42, uSunDir.y)) * smoothstep(0.0, 0.05, uSunDir.y) * (1.0 - uNight);
