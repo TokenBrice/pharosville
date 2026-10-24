@@ -31,7 +31,7 @@ const MAX_STAMPS = 2048;
 const STAMP_VERT = /* glsl */ `
 attribute vec4 sA; // x, z, heading (rad, bow along (sin h, cos h)), halfLength
 attribute vec4 sB; // halfBeam, speed (m/s), strength, -
-uniform vec4 uBounds; uniform float uTrail;
+uniform vec4 uBounds; uniform float uTrail; uniform vec2 uLee;
 varying vec2 vL; varying vec4 vS; varying vec2 vW;
 void main() {
   float hl = sA.w, hb = sB.x, spd = sB.y;
@@ -39,13 +39,26 @@ void main() {
   float wl = hl * (3.0 + 4.0 * smoothstep(1.2, 6.0, spd));         // Kelvin wedge length behind the stern
   vec2 lo, hi;
   if (uTrail > 0.5) { lo = vec2(-hl * 1.6, -hb * 1.6); hi = vec2(hl * 1.2, hb * 1.6); }
-  else if (moving > 0.5) { lo = vec2(-hl - wl * 1.1, -(wl * 0.42 + hb * 2.0)); hi = vec2(hl * 1.3, wl * 0.42 + hb * 2.0); }
-  else { float r = max(hl * 1.5, hb * 2.2) * 2.0; lo = vec2(-r); hi = vec2(r); } // still: room for the lee slick
+  else { lo = vec2(-hl - wl * 1.1, -(wl * 0.42 + hb * 2.0)); hi = vec2(hl * 1.3, wl * 0.42 + hb * 2.0); }
   vec2 t = position.xy * 0.5 + 0.5;
-  vec2 l = mix(lo, hi, t);
-  vL = l; vS = vec4(hl, hb, spd, sB.z);
   float s = sin(sA.z), c = cos(sA.z);
-  vec2 w = sA.xy + vec2(s, c) * l.x + vec2(c, -s) * l.y;               // l.x along bow, l.y to starboard
+  vec2 l, w;
+  if (uTrail < 0.5 && moving < 0.5) {
+    // still: a quad in the LEE frame (along uLee, across it) holding the hull's rings (any heading) and the
+    // slick lobe trailing downwind (zero past 2.6 hl, lateral gaussian ~e^-4 at the edge): ~2.5x fewer
+    // fragments than a square round the hull
+    float r0 = max(hl, hb) * 1.45;
+    float wd = max(r0, 2.0 * (hb * 1.5 + hl * 2.6 * 0.18));
+    vec2 a = mix(vec2(-r0, -wd), vec2(max(r0, hl * 2.6), wd), t);
+    vec2 lp = vec2(-uLee.y, uLee.x);
+    w = sA.xy + uLee * a.x + lp * a.y;
+    vec2 d = w - sA.xy;
+    l = vec2(dot(d, vec2(s, c)), dot(d, vec2(c, -s)));
+  } else {
+    l = mix(lo, hi, t);
+    w = sA.xy + vec2(s, c) * l.x + vec2(c, -s) * l.y;                 // l.x along bow, l.y to starboard
+  }
+  vL = l; vS = vec4(hl, hb, spd, sB.z);
   vW = w - sA.xy;
   vec2 uv = (w - uBounds.xy) / (uBounds.zw - uBounds.xy);
   gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
