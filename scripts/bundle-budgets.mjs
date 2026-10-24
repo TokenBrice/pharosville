@@ -44,8 +44,10 @@ export const bundleBudgets = {
     // 2026-10-14 Harbour cutover: the chart-paper UI (D12), loaded with the
     // lazy chunk. First-paint CSS is the static public/arrival-shell.css.
     // Measured 18.3 KiB raw / 4.8 KiB gzip.
-    maxRawBytes: 28 * 1024,
-    maxGzipBytes: 7 * 1024,
+    // 2026-10-24 prettier sweep (postcard, sound menu, Day book, chart-paper
+    // unroll, tide/storm panels): measured 29.1 KiB raw / 6.8 KiB gzip.
+    maxRawBytes: 34 * 1024,
+    maxGzipBytes: 8.5 * 1024,
     required: true,
   },
 };
