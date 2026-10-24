@@ -146,6 +146,58 @@ def build_heightfield():
                     pts.append((px, py))
                 u += st
             v += st * 0.866
+    # 08-T1/T4 (prettier): the olive terraces and the level discs (threshing floor, temenos) - a fine jittered grid, so the
+    # benches stay level and every dry-stone riser keeps its steep face
+    for (c, ru, rv, a) in terrain.TERRACES:
+        rr = max(ru, rv) + 1.0
+        v = c[1] - rr
+        while v < c[1] + rr:
+            u = c[0] - rr
+            while u < c[0] + rr:
+                uu, vv = u + rng.uniform(-0.3, 0.3), v + rng.uniform(-0.3, 0.3)
+                if terrain.terrace_w(uu, vv) > 0.01:
+                    px, py = wpt(uu, vv)
+                    if inside(px, py) and dcoast(px, py) > 2.2:
+                        pts.append((px, py))
+                u += 1.8
+            v += 1.8 * 0.866
+        # rows exactly on every riser's top and foot (natural-height contours), so each riser is its own band of faces
+        S_, R_ = terrain.TERRACE_STEP, terrain.TERRACE_RISER
+        g = 1.0
+        n_ = int(2 * rr / g) + 1
+        grid_ = {}
+        for i in range(n_):
+            for j in range(n_):
+                uu, vv = c[0] - rr + i * g, c[1] - rr + j * g
+                if terrain.terrace_w(uu, vv) > 0.05:
+                    grid_[(i, j)] = terrain.height(*wpt(uu, vv), terraces=False) / S_
+        for (i, j), k0 in grid_.items():
+            for (di, dj) in ((1, 0), (0, 1)):
+                k1 = grid_.get((i + di, j + dj))
+                if k1 is None:
+                    continue
+                lo_, hi_ = min(k0, k1), max(k0, k1)
+                for L in range(int(math.floor(lo_)) - 1, int(math.ceil(hi_)) + 1):
+                    for lev in (L, L - R_):
+                        if lo_ < lev < hi_:
+                            t = (lev - k0) / (k1 - k0)
+                            px, py = wpt(c[0] - rr + (i + di * t) * g, c[1] - rr + (j + dj * t) * g)
+                            if inside(px, py) and dcoast(px, py) > 2.2:
+                                pts.append((px, py))
+    _vpoly = terrain.vineyard()[3]                  # the vineyard's soil: crisp rows hugging its rectangle
+    for off in (-0.45, 0.45):
+        for p in _resample(offset_poly(_vpoly, off) if off else _vpoly, 1.8):
+            if inside(*p) and dcoast(*p) > 2.2:
+                pts.append(p)
+    for (cuv, r, b) in ((terrain.THRESHING_UV, terrain.THRESHING_R, 3.0), (terrain.SANCTUARY_UV, terrain.SANCTUARY_R, 4.0)):
+        cx_, cy_ = wpt(*cuv)
+        for k in range(int((r + b) / 1.6) + 1):
+            rr = k * 1.6
+            n = max(1, int(2 * math.pi * rr / 1.6))
+            for i in range(n):
+                px, py = cx_ + math.cos(2 * math.pi * i / n) * rr, cy_ + math.sin(2 * math.pi * i / n) * rr
+                if inside(px, py) and dcoast(px, py) > 2.2:
+                    pts.append((px, py))
     # terrace fronts: rows of points hugging both sides of each retaining wall arc (a clean vertical band)
     for k in range(1, len(RINGS)):
         r0 = RINGS[k][0]
@@ -218,6 +270,11 @@ def hf_face(q):
     if pd is not None and nz > 0.9:                 # P6 civic pads: paved (the building's own model stands on it)
         return (jitter_col(PAL['cobble'], 0.96 + 0.08 * terrain.fbm(c.x, c.y, 0.05, 2, 13)), PT['cobble'])
     nn = terrain.fbm(c.x, c.y, 0.02, 2, 11)
+    tw, tf = terrain.terrace_info(c.x, c.y)
+    if tw > 0.45:                                   # 08-T1: olive terraces - dry-stone risers, a dry grove floor
+        if (tf > 1.0 - terrain.TERRACE_RISER - 0.03 or tf < 0.03) and nz < 0.97:
+            return (jitter_col(lin('#A39985'), 0.92 + 0.16 * nn), PT['rock'])
+        return (jitter_col(lin('#93975A'), 0.94 + 0.12 * nn), PT['grass'])
     if nz < 0.34:                                   # only the steepest ground shows granite; the flanks stay turf
         return ((PAL['rock'] if nn > 0.5 else lin('#8A8B86')), PT['rock'])
     if nz < 0.72:
@@ -241,6 +298,8 @@ def hf_face(q):
         else:
             col = PEBBLE if dc < 7.5 else lin('#A6A77A')
         return (jitter_col(col, 0.95 + 0.1 * nn), PT['plain'])
+    if terrain.in_vineyard(c.x, c.y):                # 08-T1: worked soil between the vine rows
+        return (jitter_col(lin('#8C7457'), 0.94 + 0.12 * nn), PT['plain'])
     fl = terrain.field_at(c.x, c.y)
     if fl is not None:
         fc = lin(terrain.FIELD_COL[fl['kind']])
@@ -279,7 +338,7 @@ def _terrain_paint(me):
         x, y = v.co.x, v.co.y
         n1 = terrain.fbm(x, y, 0.016, 3, 31)          # meadow drifts (tens of metres)
         n2 = terrain.fbm(x, y, 0.07, 2, 37)           # patches (a few metres)
-        if v.normal.z > 0.72:
+        if v.normal.z > 0.72 and terrain.field_at(x, y) is None and not terrain.in_vineyard(x, y):     # 08-T1: fields keep their tone
             k_dry = max(0.0, min(1.0, (n1 - 0.55) / 0.12)) * 0.42
             k_moss = max(0.0, min(1.0, (0.42 - n1) / 0.1)) * 0.35
             c = c.lerp(dry, k_dry).lerp(moss, k_moss)

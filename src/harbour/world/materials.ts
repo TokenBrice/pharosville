@@ -339,6 +339,21 @@ uniform vec3 uHbSunDir;   // = uSunDir / uSunColor (renamed: the fleet port decl
 uniform vec3 uHbSunColor;
 float hbLuma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
+// 08-T2: grass dryness from the land (no texture of its own): height, the slope's south aspect (facet normal) and
+// convexity against the island height field (uAOTex, 4 taps 7 m out). dry/lush 0..1.
+void hbGrassTerrain(vec3 W, out float dry, out float lush) {
+  vec3 n = normalize(cross(dFdx(W), dFdy(W)));
+  n *= sign(n.y + 1e-5);
+  float steep = 1.0 - n.y;
+  float south = clamp(n.z / max(length(n.xz), 1e-3), 0.0, 1.0);    // glTF +z = south
+  float conv = 0.0;
+  if (uAOBounds.z > 0.0) {
+    conv = W.y - 0.25 * (hbHeight(W.xz + vec2(7.0, 0.0)) + hbHeight(W.xz - vec2(7.0, 0.0)) + hbHeight(W.xz + vec2(0.0, 7.0)) + hbHeight(W.xz - vec2(0.0, 7.0)));
+  }
+  dry = clamp(smoothstep(10.0, 20.0, W.y) * 0.55 + smoothstep(0.06, 0.3, steep) * south * 0.6 + smoothstep(0.3, 1.6, conv) * 0.5, 0.0, 1.0);
+  lush = clamp(smoothstep(0.3, 1.4, -conv) * (1.0 - smoothstep(12.0, 18.0, W.y)), 0.0, 1.0) * (1.0 - dry);
+}
+
 // SEASON ON VEGETATION. pid 8 leaf (trees, shrubs, hedges, ivy), 6 grass (meadows, verges).
 // col = patterned albedo, vc = authored vertex albedo; W = world position; dW = its screen footprint.
 // bare = how much of this fragment the leaf fall takes (deciduous only; the kit discards by it).
@@ -350,6 +365,10 @@ vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
   float shade = hbLuma(col) / max(hbLuma(vc), 1e-4);     // the pattern's light and dark survive the recolour
   float patchN = hbNoise(W * 0.06);
   if (grass > 0.5) {
+    // 08-T2: the land's own shape: dry gold on ridges, crowns and steep south faces, lush in the hollows
+    float hbDry, hbLush;
+    hbGrassTerrain(W, hbDry, hbLush);
+    patchN = clamp(patchN + 0.5 * hbDry - 0.35 * hbLush, 0.0, 1.0);
     // spring: fresh yellow-lime turf strewn with wildflowers (yellow, white, pink, violet) in meadow drifts
     vec3 spring = col * vec3(1.12, 1.2, 0.42) + vec3(0.012, 0.016, 0.0);
     vec2 fc = floor(W.xz * 0.6), ff = fract(W.xz * 0.6) - 0.5;   // ~1.7 m cells: a clump of blooms each
@@ -364,7 +383,8 @@ vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
     float cov = mix(petal, density * 0.16, sub);
     spring = mix(spring, mix(flower, vec3(0.88, 0.62, 0.48), sub) * (0.62 + 0.38 * shade), cov);
     // summer: deep and lush, with sun-gold drifts where the meadow runs dry
-    vec3 summer = mix(col * vec3(0.8, 0.95, 0.56), vec3(0.3, 0.25, 0.05) * shade, smoothstep(0.58, 0.85, patchN) * 0.4);
+    vec3 summer = mix(col * vec3(0.8, 0.95, 0.56), vec3(0.3, 0.25, 0.05) * shade, smoothstep(0.58, 0.85, patchN) * (0.4 + 0.25 * hbDry));
+    summer *= mix(vec3(1.0), vec3(0.9, 1.05, 0.9), hbLush);
     vec3 straw = vec3(0.26, 0.19, 0.065) * shade * (0.8 + 0.4 * patchN);
     vec3 dormant = mix(col, vec3(0.11, 0.1, 0.055) * shade, 0.65);
     return spring * sp + summer * su + mix(col, straw, 0.3 + 0.4 * patchN) * au + dormant * wi;
