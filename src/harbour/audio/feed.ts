@@ -41,6 +41,8 @@ interface Vec3Like { readonly x: number; readonly z: number }
 interface BeamLike { reach?(): number }
 /** The 'model' service: the dead coins (Wreck Cove), read structurally. */
 interface WreckModel { readonly readings?: { readonly wrecks?: ReadonlyArray<{ readonly deathDate?: string }> } }
+/** The shared gust field (weather/gust.ts, service 'gust'): the field now at (x, z), 0..1 unscaled. */
+interface GustLike { at?(x: number, z: number): number }
 interface PsiReadings { readonly psi?: { readonly lit?: boolean; readonly reach?: number } }
 
 const BAND_LEVEL: Record<string, number> = { CALM: 0, WATCH: 1, ALERT: 2, WARNING: 3, DANGER: 4 };
@@ -232,6 +234,10 @@ export class Feeder {
         inputs.burnPan = pan(S.burn[0], S.burn[2]); inputs.burnBack = back(S.burn[0], S.burn[2]);
         inputs.burnRate = burnRateOf(civic);
       } else inputs.burn = 0;
+      // the wind's gusts are the shared cat's-paws (the ones that heel the fleet), felt where the listener is
+      const g = ctx.services.get("gust") as GustLike | undefined;
+      const paw = g?.at?.(lx, lz);
+      inputs.paw = paw != null && Number.isFinite(paw) ? Math.max(0, Math.min(1, paw)) : -1;
       if (S.cove) { inputs.cove = near(Math.hypot(S.cove[0] - lx, S.cove[1] - lz), ly, 120); inputs.covePan = pan(S.cove[0], S.cove[1]); }
       this.knell(amb, inputs);
       if (S.ship) {

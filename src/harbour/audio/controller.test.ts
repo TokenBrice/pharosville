@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { anniversaryToday } from "../model/anniversary";
 import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, weatherInputs } from "./feed";
-import { birdThinning, cicadaLevel, dayClock, hourStrikes, settleDb, settleRate } from "./ambience";
+import { birdThinning, cicadaLevel, dayClock, hourStrikes, settleDb, settleRate, gustSwell } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {
   it("absent services read as fair weather with no season colour", () => {
@@ -137,5 +137,17 @@ describe("harbour sound: Wreck Cove's anniversary bell (deathDate)", () => {
     expect(anniversaryToday("2024-04", today)).toBe(false);
     expect(anniversaryToday("", today)).toBe(false);
     expect(anniversaryToday(undefined, today)).toBe(false);
+  });
+});
+
+describe("harbour sound: the shared gust field", () => {
+  it("the swell follows the paw; its size is the wind strength only, never above the free-running gusts' ceiling", () => {
+    for (const wind of [0, 0.3, 1]) {
+      expect(gustSwell(1, wind, 0.5, 0.5)).toBeGreaterThan(gustSwell(0, wind, 0.5, 0.5));
+      expect(gustSwell(0, wind, 0.5, 1)).toBeLessThanOrEqual(0.5);   // a lull is a lull in any wind
+    }
+    expect(gustSwell(1, 1, 0.5, 0.5) - gustSwell(0, 1, 0.5, 0.5)).toBeGreaterThan(3 * (gustSwell(1, 0, 0.5, 0.5) - gustSwell(0, 0, 0.5, 0.5)));
+    expect(gustSwell(1, 1, 1, 1)).toBeLessThanOrEqual(0.35 + 0.5 + 0.6 + 0.4);
+    expect(Number.isFinite(gustSwell(Number.NaN, 0.3, 0.3, 0.3))).toBe(true);
   });
 });

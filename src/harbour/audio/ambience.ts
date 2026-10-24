@@ -78,6 +78,11 @@ export interface AmbienceInputs {
   storm: number;
   /** gustiness 0..1 */
   gust: number;
+  /**
+   * the shared gust field at the listener (weather/gust.ts: the cat's-paws that heel the fleet and darken the
+   * water), 0 in a lull … 1 in a paw, unscaled; -1 when there is no field (the gusts are then free-running)
+   */
+  paw: number;
   /** calendar season weights (sum ≈ 1) and the snow lying on the land 0..1 */
   spring: number;
   summer: number;
@@ -157,6 +162,15 @@ export function dayClock(hour: number): { chorus: number; hush: number; deep: nu
  */
 export function hourStrikes(h: number): number {
   return h >= 6 && h <= 22 ? (h === 12 ? 3 : 1) : 0;
+}
+
+/**
+ * The wind's swell at the listener from the shared gust field: a lull 0.35–0.5, a full paw up to ~1.85 in a
+ * DEWS blow (the field's shape decides WHEN, only the wind strength decides HOW MUCH). `flutter` 0..1.
+ */
+export function gustSwell(paw: number, wind: number, gust: number, flutter: number): number {
+  const c = (x: number) => (x > 0 ? (x < 1 ? x : 1) : 0);
+  return 0.35 + 0.15 * c(flutter) + c(paw) * (0.25 + 0.85 * c(wind) + 0.25 * c(gust));
 }
 
 /** Event-rate multiplier of the settle: 1 while watched … 0.7 (~30 % sparser) when settled. */
@@ -239,7 +253,7 @@ export class Ambience {
   private readonly inputs: AmbienceInputs = {
     zoom: 0.5, wind: 0.35, fog: 0, night: 0, hour: 9, clock: 9, shore: 0.5, shorePan: 0, harbour: 0.5, reef: 0.2, reefPan: -0.5,
     fire: 0, firePan: 0, mint: 0, mintPan: 0, mintRate: 0.5,
-    rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
+    rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, paw: -1, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
     town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false, attention: 1,
     shoreBack: 0, reefBack: 0, mintBack: 0, townBack: 0, ship: 0, shipPan: 0, shipBack: 0,
     burn: 0, burnPan: 0, burnBack: 0, burnRate: 0, cove: 0, covePan: 0,
@@ -748,10 +762,13 @@ export class Ambience {
     // gusts: the wind band wanders and swells
     if (N.gust < ahead) {
       const at = Math.max(N.gust, now), d = (1.2 + r() * 2.8) * (1 - 0.35 * gust);
-      const hi = Math.min(1, r() * (0.5 + wind * 0.7 + 0.3 * gust));
+      // with the shared field the swell IS the paw passing over the listener (its shape decorative, its
+      // strength the DEWS wind), a small flutter on top; without it, the gusts run free as before
+      const paw = I.paw >= 0 ? clamp01(I.paw) : -1;
+      const hi = paw < 0 ? Math.min(1, r() * (0.5 + wind * 0.7 + 0.3 * gust)) : Math.min(1, (0.15 + 0.2 * r()) * (0.5 + wind) + paw * (0.3 + 0.6 * wind));
       this.windLo.gain.setTargetAtTime(1 - hi * 0.7, at, d * 0.4);
       this.windHi.gain.setTargetAtTime(hi, at, d * 0.4);
-      this.windGust.gain.setTargetAtTime(0.35 + r() * (0.5 + wind * 0.6 + 0.4 * gust), at, d * 0.35);
+      this.windGust.gain.setTargetAtTime(paw < 0 ? 0.35 + r() * (0.5 + wind * 0.6 + 0.4 * gust) : gustSwell(paw, wind, gust, r()), at, d * 0.35);
       // the whistle sings in some gusts of a blow, never as a steady tone
       this.whistle.gain.setTargetAtTime(blow > 0.55 && r() < 0.55 ? (blow - 0.55) * (0.3 + 0.5 * r()) : 0, at, d * 0.3);
       // driving rain: sheets of it come with the gusts
