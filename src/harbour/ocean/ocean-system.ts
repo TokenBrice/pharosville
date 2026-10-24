@@ -8,6 +8,8 @@ import { OCEAN_FRAG, OCEAN_VERT, SEA_PALETTE } from "./ocean-material";
 import { buildSeaSdf, defaultSeaBounds, landMaskFromHeights, SDF_COAST_RANGE, seaSdfInputFromLayout, type Bounds4, type HeightField } from "./sea-sdf";
 import { acquireFxTextures, type FxTextures } from "./textures";
 import { WakeField, type WakeService } from "./wake";
+import { updateAerial } from "../world/aerial";
+import { runupUniforms } from "../world/runup";
 import { hullSwell, SEA_STATES, waveHeight } from "./waves";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { buildZoneMask, type SeaZoneLike } from "./zone-mask";
@@ -170,6 +172,7 @@ export class OceanSystem implements WorldSystem {
         ...skyShared,
         ...getBeamUniforms(ctx),
         ...cloudShadowUniforms,
+        uFoliage: W.uFoliage,
         uDebug: { value: 0 },
         // the lights system's top-down pool RT, read back along the view ray as the town's reflection
         uPoolTex: getHarbourMaterials(ctx).pool.uPoolTex, uPoolBounds: getHarbourMaterials(ctx).pool.uPoolBounds,
@@ -274,12 +277,18 @@ export class OceanSystem implements WorldSystem {
     this.clock ??= new MotionClock(ensureMotionService(ctx));
     this.time = this.seaTime.value = this.clock.step(frame.delta);
     this.seaU.value.lerp(this.seaGoal, 1 - Math.exp(-frame.delta * 0.4));
+    runupUniforms.uRunup.value.set(this.seaU.value.x, this.time);
     for (const m of this.debugMovers) {
       const a = m.ph + this.time * m.w;
       const x = m.cx + Math.cos(a) * m.r, z = m.cz + Math.sin(a) * m.r;
       const vx = -Math.sin(a) * m.r * m.w, vz = Math.cos(a) * m.r * m.w;
       this.wake.stamp(x, z, vx, vz, m.hw, 1);
     }
+    // aerial distance tint (decorative): zero inside the harbour radius, full ramp a little past the scene's edge
+    const sc = this.material.uniforms.uSceneCenter.value as THREE.Vector2, sr = this.material.uniforms.uSceneRadius.value as number;
+    updateAerial(sc.x, sc.y, sr * 0.62, sr * 1.2, ctx.uniforms.uNight.value);
+    const ws = this.material.uniforms.uWeatherSea.value as THREE.Vector4;
+    if (ws.z * ws.z + ws.w * ws.w > 1e-6) this.wake.lee.set(ws.z, ws.w).normalize();
     this.wake.update(ctx.renderer, frame.delta);
     const u = this.material.uniforms;
     u.uWake.value = this.wake.texture;

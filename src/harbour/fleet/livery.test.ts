@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DECK, linear, liveryFor, sailDye, TOPSIDE, TRIM } from "./livery";
+import * as THREE from "three";
+import { DECK, DYE_MAX_SAT, linear, liveryFor, sailDye, TOPSIDE, TRIM } from "./livery";
 
 const ids = Array.from({ length: 400 }, (_, i) => `coin-${i}`);
 
@@ -54,6 +55,28 @@ describe("sailDye", () => {
     const d = sailDye("#0a0a0a");
     expect(d.mode).toBe(1);
     expect(lum(d.rgb)).toBeGreaterThan(lum(linear("#505050")));
+  });
+  const hslOf = (rgb: [number, number, number]) => {
+    const o = { h: 0, s: 0, l: 0 };
+    new THREE.Color(rgb[0], rgb[1], rgb[2]).getHSL(o, THREE.SRGBColorSpace);
+    return o;
+  };
+  it("caps chroma at earth-pigment strength but keeps the brand hue", () => {
+    for (const hex of ["#ff0000", "#00c853", "#2962ff", "#ff00ff", "#ffd600", "#26a17b", "#f7931a"]) {
+      const src = { h: 0, s: 0, l: 0 };
+      new THREE.Color(hex).getHSL(src, THREE.SRGBColorSpace);
+      const d = hslOf(sailDye(hex).rgb);
+      expect(d.s).toBeLessThanOrEqual(DYE_MAX_SAT + 0.01);
+      const dh = Math.abs(d.h - src.h);
+      expect(Math.min(dh, 1 - dh)).toBeLessThan(0.01);
+    }
+  });
+  it("keeps adjacent brand hues apart (hue order survives the cap)", () => {
+    const hues = [0, 30, 60, 120, 180, 210, 240, 270, 300].map((h) => {
+      const c = new THREE.Color().setHSL(h / 360, 0.9, 0.5, THREE.SRGBColorSpace);
+      return hslOf(sailDye(`#${c.getHexString(THREE.SRGBColorSpace)}`).rgb).h * 360;
+    });
+    for (let i = 1; i < hues.length; i++) expect(hues[i] - hues[i - 1]).toBeGreaterThan(20);
   });
   it("keeps canvas for near-white brands, with a deeper band colour", () => {
     const d = sailDye("#f4f4f2");
