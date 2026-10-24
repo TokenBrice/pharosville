@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { EngineContext } from "../engine/types";
 import type { QualityService, QualitySettings } from "../engine/quality";
+import { NO_SHADOW, sunShadowUniforms } from "./sun-shadow";
 
 const UP_Y = new THREE.Vector3(0, 1, 0);
 const UP_Z = new THREE.Vector3(0, 0, 1);
@@ -28,7 +29,7 @@ export class SunRig {
   private framesSinceShadow = 1e9;
   private readonly heldSun = new THREE.Vector3(0, 1, 0);
   /** half extent, centre x/y, depth range, sun direction of the last fit */
-  private readonly lastFit = new Float64Array(7);
+  private readonly lastFit = new Float64Array(8);
   private readonly lightView = new THREE.Matrix4();
   private readonly lightViewInv = new THREE.Matrix4();
   private readonly ray = new THREE.Ray();
@@ -78,7 +79,9 @@ export class SunRig {
     this.fill.target.position.set(0, 0, 0);
     // moonlight: softer, lighter shadows
     this.key.shadow.intensity = 1 - 0.3 * u.uNight.value;
-    this.key.shadow.radius = 2.2 + 2.5 * u.uNight.value;
+    // 02-L6: a low sun's long shadows soften with distance (penumbra by elevation; the tap count is unchanged)
+    const elDeg = Math.asin(THREE.MathUtils.clamp(u.uSunDir.value.y, -1, 1)) * THREE.MathUtils.RAD2DEG;
+    this.key.shadow.radius = 2.2 + 2.5 * u.uNight.value + 3.0 * (1 - THREE.MathUtils.smoothstep(elDeg, 6, 30)) * (1 - u.uNight.value);
     // hold the shadow sun until it drifted ~0.1° (or a refresh is due): a running clock must not force a re-render
     const interval = q?.shadowInterval ?? 0;
     this.sinceShadow += delta;
@@ -89,6 +92,11 @@ export class SunRig {
     const sm = ctx.renderer.shadowMap;
     sm.autoUpdate = false;
     if (due || moved) { sm.needsUpdate = true; this.sinceShadow = 0; this.framesSinceShadow = 0; }
+    // 02-L1: the sea samples the same map (world/sun-shadow.ts); 4 taps on High, 1 on Medium/Low
+    const ss = sunShadowUniforms, map = this.key.shadow.map?.depthTexture ?? null;
+    ss.uKeyShadow.value = map ?? NO_SHADOW;
+    ss.uKeyShadowMat.value = this.key.shadow.matrix;
+    ss.uKeyShadowP.value.set(map ? 1 : 0, (this.key.shadow.radius * 0.8) / this.mapSize, q?.tier === "high" ? 4 : 1, this.key.shadow.intensity);
   }
 
   /** Fits the shadow camera; returns true when the light frustum changed (the cached map is stale). */
@@ -124,12 +132,15 @@ export class SunRig {
       minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
       minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
     }
-    // quantise the extent (16 m steps) and snap the centre to whole texels
+    // quantise the extent (16 m steps) and snap the centre to whole texels. 02-L6 long-shadow texel guard: each axis
+    // keeps its own extent, so a low sun (whose ground footprint is foreshortened along light-space y) spends the
+    // map's rows on that short axis instead of on empty square margin: long shadows keep their edge, not stair-steps
     const step = 16;
-    const half = Math.ceil((Math.max(maxX - minX, maxY - minY) * 0.5 + 6) / step) * step;
-    const texel = (2 * half) / this.mapSize;
+    const half = Math.ceil(((maxX - minX) * 0.5 + 6) / step) * step;
+    const halfY = Math.ceil(((maxY - minY) * 0.5 + 6) / step) * step;
+    const texel = (2 * half) / this.mapSize, texelY = (2 * halfY) / this.mapSize;
     const cx = Math.round((minX + maxX) * 0.5 / texel) * texel;
-    const cy = Math.round((minY + maxY) * 0.5 / texel) * texel;
+    const cy = Math.round((minY + maxY) * 0.5 / texelY) * texelY;
 
     // depth range: the island box in light space
     let minZ = Infinity, maxZ = -Infinity;
@@ -142,15 +153,15 @@ export class SunRig {
     k.position.copy(centre);
     k.target.position.copy(centre).sub(sunDir);
     const cam = k.shadow.camera;
-    cam.left = -half; cam.right = half; cam.top = half; cam.bottom = -half;
+    cam.left = -half; cam.right = half; cam.top = halfY; cam.bottom = -halfY;
     cam.near = 1; cam.far = maxZ - minZ + 40;
     cam.updateProjectionMatrix();
-    k.shadow.normalBias = texel * 1.6;
+    k.shadow.normalBias = Math.max(texel, texelY) * 1.6;
     k.target.updateMatrixWorld();
     const f = this.lastFit;
     const moved = f[0] !== half || f[1] !== cx || f[2] !== cy || Math.abs(f[3] - (maxZ - minZ)) > 1e-3 ||
-      f[4] !== sunDir.x || f[5] !== sunDir.y || f[6] !== sunDir.z;
-    f[0] = half; f[1] = cx; f[2] = cy; f[3] = maxZ - minZ; f[4] = sunDir.x; f[5] = sunDir.y; f[6] = sunDir.z;
+      f[4] !== sunDir.x || f[5] !== sunDir.y || f[6] !== sunDir.z || f[7] !== halfY;
+    f[0] = half; f[1] = cx; f[2] = cy; f[3] = maxZ - minZ; f[4] = sunDir.x; f[5] = sunDir.y; f[6] = sunDir.z; f[7] = halfY;
     return moved;
   }
 

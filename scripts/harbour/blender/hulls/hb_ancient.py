@@ -109,6 +109,8 @@ class AncientRig(Rig):
             s.r_mast = min(0.42, max(0.085, 0.0165 * L)); s.rope = max(0.022, 0.0028 * L)
         s.cover_y = MB(seed + 9)    # brailed bundle on the main yard
         s.oars = MB(seed + 10)
+        s.lamp = MB(seed + 11)      # 06-F6 stern-lantern glass (hb_emissive)
+        s.win = MB(seed + 12)       # 06-F7 titan stern-gallery windows (hb_fleet_window)
         s.lod = dict(masts=[], squares=[], cover=None, gaff=None, posts=[], oars=[], boxes=[])
 
     # -------------------------------------------------- spars + square sails
@@ -332,11 +334,38 @@ class AncientRig(Rig):
         s.flag.face((hm, hb, fb, nt), c2, 0, uv=[(0, 0.5), (0, 0), (1, 0), (0.72, 0.5)], jitter=0.0)
         s.flag.backface(g0)
 
+    # -------------------------------------------------- 06-F6 stern lantern
+    LANTERN_TRIS = 20
+
+    def stern_lantern(s):
+        """A bronze lantern on a short stern staff, its glass a separate hb_emissive node (stern_lantern_glass) that the
+        runtime lights exactly when the hull's stern lamp is lit (variants.ts sternLampLit); empty 'stern_lantern' = the
+        glass centre (the riding light's anchor). LANTERN_TRIS triangles, outside the class budget."""
+        H, L, S = s.H, s.L, s.S
+        st = H.stern()
+        x = st.x + 0.05 * L
+        z0 = H.deck(x)
+        hw = 0.09 + 0.006 * L
+        hh = hw * 1.45
+        top = Vector((x - 0.006 * L, 0, z0 + 0.5 + 0.42 * S))
+        rod(s.deck, Vector((x, 0, z0 - 0.05)), top, max(0.025, 0.0035 * L), s.sch['spar'], 3, smooth=False)
+        c = top + Vector((0, 0, hh))
+        box(s.lamp, c, (2 * hw, 2 * hw, 2 * hh), PAL['pitch'], skip=('+z', '-z'), jitter=0.0)
+        a = hw * 1.25
+        q = [s.deck.vert(c + Vector((dx * a, dy * a, hh))) for dx, dy in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+        apex = s.deck.vert(c + Vector((0, 0, hh + hw * 1.1)))
+        for k in range(4):
+            s.deck.face((q[k], q[(k + 1) % 4], apex), PAL['bronze'], PT['metal'], jitter=0.0)
+        b = [s.deck.vert(c + Vector((dx * hw, dy * hw, -hh))) for dx, dy in ((-1, -1), (-1, 1), (1, 1), (1, -1))]
+        s.deck.face(b, PAL['bronze'], PT['metal'], jitter=0.0)
+        s.empties['stern_lantern'] = c
+
     # -------------------------------------------------- nodes
     def build_nodes(s, coll=None):
         root, objs = super().build_nodes(coll)
         heel = [c for c in root.children if c.name.split('.')[0] == '_heel'][0]
-        for mb, nm, mat in ((s.cover_y, 'sail_cover', 'hb_cover'), (s.oars, 'oars', 'hb_opaque')):
+        for mb, nm, mat in ((s.cover_y, 'sail_cover', 'hb_cover'), (s.oars, 'oars', 'hb_opaque'),
+                            (s.lamp, 'stern_lantern_glass', 'hb_emissive'), (s.win, 'stern_windows', 'hb_fleet_window')):
             if mb.f:
                 objs[nm] = to_object(mb, nm, mat, parent=heel, coll=coll)
         return root, objs
@@ -558,6 +587,7 @@ def build_ancient(vid, family, rig, cls, sch, coll=None, seed=0, n_sec=None, L=N
                 R.hull.face(ids if sd < 0 else ids[::-1], PAL['gilt'], 0, jitter=0.0)
         R.amphorae([H.x0 + 0.13 * L, H.x0 + 0.17 * L], [-B * 0.2, 0, B * 0.2], 0.35 * S)
     R.flags(pennants, True)
+    R.stern_lantern()
     main_t = max(R.tops, key=lambda t: t.z)
     u_b, u_s = 0.82, -0.86
     R.empties['bow_cleat'] = Vector((H.x(u_b, H.zt(u_b)) - 0.02 * L, 0, H.zt(u_b)))
@@ -573,7 +603,7 @@ def build_ancient(vid, family, rig, cls, sch, coll=None, seed=0, n_sec=None, L=N
 def build_ancient_budget(vid, family, rig, cls, sch, coll=None, seed=0, budget=None, L=None, remove=None):
     """Same guard as export.py: drop hull sections until the boat fits its class budget."""
     n_sec = SECTIONS.get(cls, 13)
-    budget = budget or BUDGET[cls]
+    budget = (budget or BUDGET[cls]) + AncientRig.LANTERN_TRIS     # the stern lantern (06-F6) rides outside the class budget
     while True:
         root, objs, R = build_ancient(vid, family, rig, cls, sch, coll, seed, n_sec, L=L)
         t = tri_count(descendants(root))

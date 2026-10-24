@@ -202,9 +202,22 @@ class TitanRig(AncientRig):
                 box(s.deck, (tx + cx * tw * 0.4, cy * ww * 0.4, z0 + th + 0.38), (0.35, 0.35, 0.4), wall, skip=('-z',))
         s.lod['boxes'].append((Vector((tx, 0, z0 + th / 2)), (tw, ww, th), wall))
 
+    def stern_windows(s, n=3):
+        """06-F7b: a stern gallery of small windows on each quarter (hb_fleet_window), warm at dusk (decorative)."""
+        H, L, S = s.H, s.L, s.S
+        a, b = 0.17 * S, 0.22 * S
+        for k in range(n):
+            u = -0.79 + 0.065 * k
+            x = H.x(u, H.zt(u)); w = H.w(u) + 0.03; z = H.zt(u) - 0.62 * S
+            for sd in (-1, 1):
+                ids = [s.win.vert((x + dx * a, sd * w, z + dz * b)) for dx, dz in ((1, -1), (1, 1), (-1, 1), (-1, -1))]
+                s.win.face(ids if sd < 0 else ids[::-1], lin('#3A2A1C'), 0, jitter=0.0)
+
     def finish(s, coll=None):
         H, L = s.H, s.L
         s.flags(s.pennants, True)
+        s.stern_lantern()
+        s.stern_windows()
         st = H.stern()
         main_t = max(s.tops, key=lambda t: t.z)
         u_b, u_s = 0.82, -0.86

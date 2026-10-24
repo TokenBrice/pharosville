@@ -51,6 +51,8 @@ export interface HullVariant {
   bowCleat: THREE.Vector3;
   sternCleat: THREE.Vector3;
   masthead: THREE.Vector3;
+  /** The stern lantern's glass centre (06-F6; older kits: above the stern cleat). */
+  sternLantern: THREE.Vector3;
   /** Highest point (m above the waterline) for picking spheres / labels. */
   top: number;
   /** A galley: her full mesh carries oar banks that row (06-F3, node NODE_OARS). */
@@ -66,6 +68,9 @@ export interface Kit {
 const KIND: Record<string, number> = { hb_opaque: 0, hb_sail: 1, hb_cover: 2 };
 /** Wreck kit v2 kinds: the epitaph nameboard (TEXCOORD_0 = board space) and lantern glass (hb_emissive × uLamp). */
 export const KIND_BOARD = 3, KIND_LAMP = 4;
+/** Hull kinds (06-F6/F7): the stern lantern's glass (hb_emissive: KIND_LAMP, lit by the hull's stern-lamp flag) and a
+ *  titan's stern-gallery windows (hb_fleet_window, warm at dusk, decorative). */
+export const KIND_WINDOW = 5;
 const MIRROR_RIGID = new Set(["yards", "sail_extra", "oars", "yard_artemon", "steering_oar"]);
 /**
  * Oar banks (06-F3): node 5, each oar pivoting about its own thole pin (aPivot = the oar's inboard end, found by
@@ -197,7 +202,8 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     }
     for (const g of groups) {
       const mat = mats[g.materialIndex ?? 0];
-      const gk = opts.wreck && mat.name === "hb_emissive" ? KIND_LAMP : epitaph && (KIND[mat.name] ?? 0) === 0 ? KIND_BOARD : KIND[mat.name] ?? 0;
+      const gk = mat.name === "hb_emissive" ? KIND_LAMP : !opts.wreck && mat.name === "hb_fleet_window" ? KIND_WINDOW
+        : epitaph && (KIND[mat.name] ?? 0) === 0 ? KIND_BOARD : KIND[mat.name] ?? 0;
       const used = new Map<number, number>();
       const end = g.start + g.count;
       for (let k = g.start; k < end; k++) {
@@ -401,6 +407,7 @@ export async function loadKit(assets: AssetStore): Promise<Kit> {
         bowCleat: anchor("bow_cleat", [h.loa_m * 0.42, 1, 0]),
         sternCleat: anchor("stern_cleat", [-h.loa_m * 0.42, 1, 0]),
         masthead: anchor("masthead_light", [0, h.loa_m, 0]),
+        sternLantern: nodeOrigin(h.nodes, "stern_lantern") ?? anchor("stern_cleat", [-h.loa_m * 0.42, 1, 0]).add(new THREE.Vector3(0, 0.9, 0)),
         top: fg.boundingBox!.max.y,
         oars: h.nodes.some((n) => n.name === "oars"),
       });

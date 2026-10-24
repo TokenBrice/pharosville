@@ -404,7 +404,9 @@ export class SkySystem implements WorldSystem {
     this.u.uSunDisc.value.set(sunAz * COMP, discE(sunEl), 0.62, sunVis);
     // the moon keeps a fixed station left of the harbour mouth (not on the beam's axis), small, with a halo
     const moonTh = -12 + 1.2 * Math.sin(hour * 0.26);
-    this.u.uMoonDisc.value.set(moonTh, discE(moonEl) + 0.35, 0.3, moonVis);
+    // 01-A8: no painted moon beside a sun that is still up near it (the dusk frame keeps one disc)
+    const moonShown = moonVis * (1 - sunVis * (1 - THREE.MathUtils.smoothstep(Math.abs(sunAz * COMP - moonTh), 18, 45)));
+    this.u.uMoonDisc.value.set(moonTh, discE(moonEl) + 0.35, 0.3, moonShown);
     // clouds/hills are lit by the key light (true azimuth)
     this.u.uLight.value.set(relAz(sunDir), Math.max(0.05, sunEl), 0, 0);
 
@@ -417,7 +419,7 @@ export class SkySystem implements WorldSystem {
       return this.glint.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
     };
     const sunW = sunVis * this.u.uDiscK.value.x;
-    const moonW = moonVis * this.u.uDiscK.value.y;
+    const moonW = moonShown * this.u.uDiscK.value.y;
     const keyLum = Math.max(0.05, W.uSunColor.value.r * 0.3 + W.uSunColor.value.g * 0.59 + W.uSunColor.value.b * 0.11);
     // the storm deck hides the moon and the sun: their glitter on the sea goes with them
     const deck = 1 - 0.92 * THREE.MathUtils.smoothstep(this.coverS, 0.45, 0.85);

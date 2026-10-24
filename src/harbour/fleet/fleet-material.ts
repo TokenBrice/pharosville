@@ -3,6 +3,7 @@ import type { HarbourMaterials } from "../world/materials";
 import type { WorldUniforms } from "../engine/uniforms";
 import { FLEET_FAR_FRAG } from "./fleet-far";
 import { FLEET_MOTION_GLSL } from "./fleet-motion-glsl";
+import { SAIL_LIGHT_GLSL } from "./sail-light-glsl";
 
 /**
  * The fleet material: the shared harbour kit material (patterns, world breakup, env spec, light
@@ -87,6 +88,7 @@ varying vec4 vFleetMisc;    // highlight, flip (mirrored node now), kind, brand 
 varying vec4 vFleetUV;      // sail uv, emblem uv
 varying vec4 vFleetRig;     // furl, node, flag, side (posed object-space normal z: covers print their roundel on ±z)
 varying vec4 vSailDye;      // sails: dye rgb, mode (uFleetPaint texel 4)
+varying float vFleetLamp;   // 06-F6: the stern lantern lit 0|1 (texel 2.z)
 vec4 hbFleetTexel(int idx, int k) {
   int size = textureSize(uFleetData, 0).x;
   int j = idx * FLEET_TEXELS + k;
@@ -172,6 +174,7 @@ void hbFleetPose(vec3 p, vec3 n) {
   vFleetMisc = vec4(a.z, flip, aMeta.x, aMeta.z);
   vFleetUV = vec4(aSailUV, aEmbUV);
   vFleetRig = vec4(furl, node, aMeta.w, n.z);
+  vFleetLamp = mo.z;
 }
 `;
 
@@ -232,9 +235,11 @@ varying vec4 vFleetMisc;
 varying vec4 vFleetUV;
 varying vec4 vFleetRig;
 varying vec4 vSailDye;
+varying float vFleetLamp;
 varying vec4 vPaintA;
 varying vec4 vPaintB;
 varying vec3 vPaintC;
+${SAIL_LIGHT_GLSL}
 float hbSeam(float c, float period, float w) {
   float f = abs(fract(c / period + 0.5) - 0.5) * period;
   float aa = fwidth(c) * 0.75 + 1e-5;
@@ -376,6 +381,7 @@ void hbFleetColor(inout vec3 c) {
       c = mix(base, base * 1.1 + 0.015, smoothstep(0.5, 1.0, su.y) * 0.5);
     }
     c *= 1.0 - (seams * 0.07 + tabling * 0.09) * fine;    // cloths + tabling
+    hbSailOpaque = (seams * 0.45 + tabling * 0.55) * fine;  // 06-F12: they stand dark in the backlit glow
     // furled canvas (rolled jib, square sails on their yards): weathered cloth, not a white bar
     c = mix(c, c * vec3(0.66, 0.62, 0.55), smoothstep(0.35, 0.95, vFleetRig.x));
     float slot = vFleetBrand.a;
@@ -386,6 +392,7 @@ void hbFleetColor(inout vec3 c) {
       vec3 ringCol = dye.w > 1.5 ? dye.rgb : dye.w > 0.5 ? dye.rgb * 0.42 : vFleetBrand.rgb;
       float ring = smoothstep(0.482 - era, 0.482 + era, er) * (1.0 - smoothstep(0.535 - era, 0.535 + era, er));
       c = mix(c, ringCol, ring * show);
+      hbSailOpaque = max(hbSailOpaque, ring * show * 0.5);
     }
     if (slot >= 0.0 && show > 0.0 && e.x >= 0.0 && e.x <= 1.0 && e.y >= 0.0 && e.y <= 1.0) {
       // manifest rule: flip u when gl_FrontFacing == isMirrored, with three's det<0 front-face swap.
@@ -402,6 +409,7 @@ void hbFleetColor(inout vec3 c) {
       vec4 t = textureGrad(uEmblems, uv, gx, gy) * show; // premultiplied
       t = hbFarEmblem(t, (dye.w > 0.5 ? dye.rgb : vFleetBrand.rgb) * 0.5);
       c = c * (1.0 - t.a) + t.rgb * 0.92;                  // printed on cloth: a touch under paper-white
+      hbSailOpaque = max(hbSailOpaque, t.a * 0.7);
     }
     hbFarCloth(c);
   } else if (vFleetRig.z > 0.5) {
@@ -428,6 +436,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   m.name = "hb_fleet";
   m.onBeforeCompile = (shader, renderer) => {
     baseHook(shader, renderer);
+    shader.defines = { ...shader.defines, HB_FLEET: "" };   // world/metal.ts: only unpainted hull trim turns metal
     Object.assign(shader.uniforms, fleet, { uSunDir: u.uSunDir, uSunColor: u.uSunColor, uTime: fleet.uFleetTime, uLamp: u.uLamp });
     shader.vertexShader = shader.vertexShader
       .replace("#include <batching_pars_vertex>", `#include <batching_pars_vertex>\nuniform float uTime;\n${VERT_PARS}`)
@@ -449,10 +458,15 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
     if (vFleetMisc.z > 3.5) {
       float fl = 0.86 + 0.08 * sin(uTime * 5.3 + vHbWorld.x * 1.7) + 0.06 * sin(uTime * 11.9 + vHbWorld.z * 2.3);
       // (a selected wreck's lantern, 'cove' focus hi = 1, burns bright day or night: her memorial light)
-      outgoingLight += vec3(1.0, 0.42, 0.095) * (uLamp * vFleetRig.x + smoothstep(0.7, 1.0, vFleetMisc.x) * (1.6 + 1.4 * uLamp)) * fl;
+      if (vFleetBrand.a < -8.5) outgoingLight += vec3(1.0, 0.42, 0.095) * (uLamp * vFleetRig.x + smoothstep(0.7, 1.0, vFleetMisc.x) * (1.6 + 1.4 * uLamp)) * fl;
+      // 06-F6 a hull's stern lantern: lit exactly when her stern lamp is (sternLampLit, texel 2.z), else a dark lantern
+      else if (vFleetMisc.z < 4.5) outgoingLight += vec3(1.0, 0.42, 0.095) * uLamp * 0.3 * vFleetLamp * fl;
+      // 06-F7b a titan's stern-gallery windows: warm from dusk (decorative, like the town's windows)
+      else outgoingLight += vec3(1.0, 0.45, 0.14) * smoothstep(2.0, 22.0, uLamp) * 1.1 * (0.94 + 0.06 * fl);
     }
     // sail cloth glows when the low sun is behind it
-    if (vFleetMisc.z > 0.5 && vFleetMisc.z < 1.5) outgoingLight += diffuseColor.rgb * uSunColor * max(0.0, dot(-fN, uSunDir)) * 0.16 * (1.0 - vFleetRig.x);
+    // (02-L2: view- and elevation-dependent, brightest against a low sun; 06-F12 seams and roundel in silhouette)
+    if (vFleetMisc.z > 0.5 && vFleetMisc.z < 1.5) outgoingLight += hbSailGlow(diffuseColor.rgb, fN, fV, vFleetRig.x);
     // hover / selection: soft warm rim + lift
     float hi = vFleetMisc.x;
     if (hi > 0.001) {
@@ -465,7 +479,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   }
   #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => "hb_fleet_v9";
+  m.customProgramCacheKey = () => "hb_fleet_v9g2";
 
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";

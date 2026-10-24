@@ -18,7 +18,7 @@ import { HoverLantern } from "./hover-lantern";
 import { bollardFor, MooringLines } from "./mooring-lines";
 import { RidingLights } from "./riding-lights";
 import { Fenders } from "./fenders";
-import { FLAG_BURGEE, FLAG_DISTRESS, FLAG_HOUSE, HouseFlags } from "./house-flags";
+import { FLAG_BURGEE, FLAG_DISTRESS, FLAG_HOUSE, FLAG_STREAMER, HouseFlags } from "./house-flags";
 import { MastSignals } from "./storm-cones-mast";
 import { Bunting } from "./bunting";
 import { coastDistance } from "../sim/obstacles";
@@ -927,10 +927,17 @@ export class FleetSystem implements WorldSystem {
         else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += 0.3 + (this.mastSignals?.lift(b.id, b.loa) ?? 0); }
         this.flags.add(this.v.x, this.v.y, this.v.z, size, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), b.slot, b.phi * 3, b.brand,
           distress ? FLAG_DISTRESS : b.titan ? FLAG_HOUSE : FLAG_BURGEE);
+        // 06-F7c a titan flies a long vexillum from the truck, above her house flag (decorative)
+        if (b.titan && !distress && !b.struck) {
+          this.flags.add(this.v.x, this.v.y + 0.9, this.v.z, b.loa * 0.34, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 1.3, b.brand, FLAG_STREAMER);
+        }
         b.flag = 0;
       }
       this.writeData(b.inst, b.wrecked ? 0 : 1 - sail, b.wrecked ? 0 : b.swing, b.hi, b.brand.r, b.brand.g, b.brand.b, b.wrecked ? -2 : b.slot, b.wrecked ? 0 : b.flag, far, b.struck);
-      if (b.wrecked) this.writeMotion(b.inst, 0, 0, 0, 0); else this.writeMotion(b.inst, mo.fill, mo.shake, 0, b.row);
+      // 06-F6: the stern lantern's glass is lit exactly when her stern / riding lamp is (sternLampLit: a peg reading;
+      // moored, the hash-picked minority) — the same flag as the riding light below, by day too (dimmed by uLamp)
+      const lantern = (moving || ph === PH_ANCHORED ? b.reading : b.lit) ? 1 : 0;
+      if (b.wrecked) this.writeMotion(b.inst, 0, 0, 0, 0); else this.writeMotion(b.inst, mo.fill, mo.shake, lantern, b.row);
 
       // night: under way, masthead + red/green sidelights (+ the stern light); anchored, an anchor light;
       // moored, only some hulls show a dim one. Stern / anchor lamps are lit only with a peg reading.
@@ -946,13 +953,15 @@ export class FleetSystem implements WorldSystem {
           const sl = lampAt(bx, by, bz);
           rl.add(sl.x, sl.y, sl.z, LAMP_GREEN.r * 2.8, LAMP_GREEN.g * 2.8, LAMP_GREEN.b * 2.8, 0.3, h0, 0.7);
           if (b.reading) {
-            const sp = lampAt(v.sternCleat.x, v.sternCleat.y + 0.9, 0);
+            const sp = lampAt(v.sternLantern.x, v.sternLantern.y, v.sternLantern.z);
             rl.add(sp.x, sp.y, sp.z, LAMP_WARM.r * 2.2, LAMP_WARM.g * 2.2, LAMP_WARM.b * 2.2, 0.26, h0, 0.8);
           }
         } else {
           const k = ph === PH_ANCHORED ? 1.3 : 0.65;
-          // rig struck far away: the anchor lamp hangs low in the forestay's place, not on thin air
-          const mh = b.struck ? lampAt(v.bowCleat.x * 0.8, v.bowCleat.y + 1.2, 0) : lampAt(v.masthead.x, v.masthead.y, v.masthead.z);
+          // rig struck far away: the anchor lamp hangs low in the forestay's place, not on thin air; moored, the riding
+          // light is her stern lantern (06-F6)
+          const mh = ph !== PH_ANCHORED ? lampAt(v.sternLantern.x, v.sternLantern.y, v.sternLantern.z)
+            : b.struck ? lampAt(v.bowCleat.x * 0.8, v.bowCleat.y + 1.2, 0) : lampAt(v.masthead.x, v.masthead.y, v.masthead.z);
           rl.add(mh.x, mh.y, mh.z, LAMP_WARM.r * k, LAMP_WARM.g * k, LAMP_WARM.b * k, ph === PH_ANCHORED ? 0.26 : 0.17, h0, 0.5);
         }
       }
