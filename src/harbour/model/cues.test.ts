@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDevCueOverrides, deriveTargets, OFFICE_FURL_ON, OFFICE_WORKS_HOLD, OFFICE_WORKS_ON, officeStates, officeWorks } from "../readings/bind";
+import { applyDevCueOverrides, deriveTargets, OFFICE_FURL_HOLD, OFFICE_FURL_ON, OFFICE_WORKS_HOLD, OFFICE_WORKS_ON, officeStates, officeWorks } from "../readings/bind";
 import { boatFact, MAIDEN_LINE, officeLine, SIGNAL_HOISTED, stormSignalLine } from "../ui/facts";
 import { buildHarbourModel } from "./build";
 import { isMaiden, MAIDEN_MAX_GAP_SHARE, STORM_FLAGS_MAX, weekAgoGapShare } from "./readings";
@@ -90,6 +90,13 @@ describe("T6 chain office (change30dPct, a fraction)", () => {
     expect(officeWorks(OFFICE_WORKS_HOLD - 1e-9, "works")).toBe("neutral");
     expect(officeWorks(0.07, "neutral")).toBe("neutral");
     expect(officeWorks(0.07, "furled")).toBe("neutral");
+  });
+  it("hysteresis (symmetric): furled holds up to −6 %, then lets go; neutral needs −8 % to furl", () => {
+    expect(officeWorks(-0.07, "furled")).toBe("furled");
+    expect(officeWorks(OFFICE_FURL_HOLD, "furled")).toBe("furled");
+    expect(officeWorks(OFFICE_FURL_HOLD + 1e-9, "furled")).toBe("neutral");
+    expect(officeWorks(-0.07, "neutral")).toBe("neutral");
+    expect(officeWorks(-0.07, "works")).toBe("neutral");
   });
   it("neutral when /api/chains is not current or the figure is missing", () => {
     expect(officeWorks(0.5, "works", false)).toBe("neutral");

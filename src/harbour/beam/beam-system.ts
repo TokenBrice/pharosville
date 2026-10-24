@@ -70,7 +70,7 @@ uniform float R0, TANA;
 
 float bmHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 
-float beamDensity(vec3 p, vec3 ax, float L) {
+float beamDensity(vec3 p, vec3 ax, float L, float fine) {
   vec3 q = p - uBeamPos;
   float s = dot(q, ax);
   float r = length(q - ax * s);
@@ -86,9 +86,16 @@ float beamDensity(vec3 p, vec3 ax, float L) {
   // drifting sea-mist breakup (world space, does not rotate with the beam)
   vec2 drift = vec2(uTime * (0.6 + 2.0 * uWind), uTime * 0.25);
   float n1 = texture2D(uNoise, (p.xz + drift) * 0.0045 + p.y * 0.0021).r;
-  float n2 = texture2D(uNoise, (p.xz - drift * 0.6) * 0.016 + vec2(p.y * 0.013, 0.0)).g;
+  // the 256² noise tiles every ~62 m at this scale, so one sample repeats ~10 times down a long shaft and reads
+  // as regular ribbing: blend a second, rotated sample at an incommensurate scale so the breakup never repeats
+  vec2 q2 = p.xz - drift * 0.6;
+  float n2a = texture2D(uNoise, q2 * 0.016 + vec2(p.y * 0.013, 0.0)).g;
+  float n2b = texture2D(uNoise, mat2(0.799, -0.602, 0.602, 0.799) * q2 * 0.0117 + vec2(0.37, p.y * 0.011)).g;
+  float n2 = 0.5 + (n2a + n2b - 1.0) * 0.7;
   float n3 = texture2D(uNoise, (p.xz + drift * 1.7) * 0.05 + vec2(p.y * 0.04, 0.5)).b;
-  float mist = (0.16 + 1.7 * smoothstep(0.28, 0.85, n1 * 0.7 + n2 * 0.55)) * (0.75 + 0.5 * n3);
+  // n3's ~1 m grain is only kept where the march resolves it: across a wide far shaft one step spans many
+  // grains, and the undersampled field beats against the texture tile into regular ribs
+  float mist = (0.16 + 1.7 * smoothstep(0.28, 0.85, n1 * 0.7 + n2 * 0.55)) * mix(1.0, 0.75 + 0.5 * n3, fine);
   return prof * fall * spread * mist;
 }
 
@@ -111,9 +118,10 @@ float shaft(vec3 ro, vec3 rd, float tMax, vec3 ax, float jitter) {
   const int N = 18;
   float dt = (t1 - t0) / float(N);
   float acc = 0.0;
+  float fine = 1.0 - smoothstep(1.5, 4.0, dt);
   for (int i = 0; i < N; i++) {
     float t = t0 + (float(i) + jitter) * dt;
-    acc += beamDensity(ro + rd * t, ax, uL) * smoothstep(uNear * 0.35, uNear, t);
+    acc += beamDensity(ro + rd * t, ax, uL, fine) * smoothstep(uNear * 0.35, uNear, t);
   }
   // a shaft seen end-on, or swinging toward the viewer, would wash the frame: the lantern flare carries
   // that read instead

@@ -19,7 +19,7 @@ import { stormTrend, type FrontState } from "../weather/director";
 import { usePresence, useStore, useSticky, useUI, useUISlice } from "./hooks";
 import { getFeed, getLighthouse, type PickHit } from "./services";
 import type { HarbourUIStore } from "./store";
-import { DEV_OVERRIDE_KEYS, OFFICE_WORKS_HOLD, TIDE_FULL_SCALE_PCT, TIDE_SLACK_PCT, type OfficeState } from "../readings/bind";
+import { DEV_OVERRIDE_KEYS, OFFICE_FURL_HOLD, OFFICE_WORKS_HOLD, TIDE_FULL_SCALE_PCT, TIDE_SLACK_PCT, type OfficeState } from "../readings/bind";
 import type { EventsService } from "../model/event-hub";
 import { dayBookLine } from "../model/events";
 
@@ -609,7 +609,7 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
             </div>
             <p className="hb-why">{h.visitors} {h.visitors === 1 ? "boat calls" : "boats call"} here. A pier’s length and its berths follow the supply it holds.</p>
             {h.piered && CHAIN_COLOR[chain] && <p className="hb-caption">Know it by the harbour office with the {chain} crest, the house flag and awnings in its colour, and its name lettered on the water.</p>}
-            {h.piered && CHAIN_COLOR[chain] && office && <p className="hb-caption">{office}. {officeState === "works" ? `Under works from +8 % until the gain falls below +${OFFICE_WORKS_HOLD * 100} %` : "Furled at −8 % or worse"}; a 30-day horizon, unlike the Harbourmaster’s flags for the last 24 h.</p>}
+            {h.piered && CHAIN_COLOR[chain] && office && <p className="hb-caption">{office}. {officeState === "works" ? `Under works from +8 % until the gain falls below +${OFFICE_WORKS_HOLD * 100} %` : `Furled from −8 % until the loss recovers above −${-OFFICE_FURL_HOLD * 100} %`}; a 30-day horizon, unlike the Harbourmaster’s flags for the last 24 h.</p>}
             <Sec title="Largest callers">
               <BoatList rows={visitors.slice(0, 10).map(({ b, usd }) => ({ id: b.id, label: <><b>{b.symbol}</b> <em>{share(usd / h.supplyUsd)}</em></>, value: money(usd) }))} />
             </Sec>

@@ -31,22 +31,24 @@ export const REACH_SCORE_HI = 100;
 
 /**
  * T6 chain office (PLAN §6): /api/chains `change30dPct` (a FRACTION, like every chains change) → the harbour office's
- * dress. Under works at ≥ +8 % (held until it falls below +6 %), awnings furled at ≤ −8 %, neutral between and
+ * dress. Under works at ≥ +8 % (held until it falls below +6 %), awnings furled at ≤ −8 % (held until it recovers
+ * above −6 %), neutral between and
  * whenever /api/chains is not current. A 30-day horizon, deliberately not the Harbourmaster's 24 h movers hoist.
  */
 export const OFFICE_WORKS_ON = 0.08;
 export const OFFICE_WORKS_HOLD = 0.06;
 export const OFFICE_FURL_ON = -0.08;
+export const OFFICE_FURL_HOLD = -0.06;
 export type OfficeState = "works" | "furled" | "neutral";
 
 export function officeWorks(change30dPct: number | null | undefined, prev: OfficeState = "neutral", current = true): OfficeState {
   if (!current || typeof change30dPct !== "number" || !Number.isFinite(change30dPct)) return "neutral";
   if (change30dPct >= OFFICE_WORKS_ON || (prev === "works" && change30dPct >= OFFICE_WORKS_HOLD)) return "works";
-  if (change30dPct <= OFFICE_FURL_ON) return "furled";
+  if (change30dPct <= OFFICE_FURL_ON || (prev === "furled" && change30dPct <= OFFICE_FURL_HOLD)) return "furled";
   return "neutral";
 }
 
-/** Every chain row's office state (chain name → state), carrying `prev` for the works hysteresis. */
+/** Every chain row's office state (chain name → state), carrying `prev` for the works / furled hysteresis. */
 export function officeStates(rows: ReadonlyArray<{ name: string; change30dPct?: number | null | undefined }>, current: boolean, prev: Readonly<Record<string, OfficeState>> = {}): Record<string, OfficeState> {
   const out: Record<string, OfficeState> = {};
   for (const r of rows) out[r.name] = officeWorks(r.change30dPct, prev[r.name] ?? "neutral", current);

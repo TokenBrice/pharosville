@@ -31,7 +31,7 @@ export interface LifeService {
   readonly bustle: number;
 }
 
-interface WindSource { wind?: { fromRad: number; strength: number } }
+interface WindSource { wind?: { fromRad: number; strength: number; veer?: number } }
 
 /**
  * LIFE — the declared-decorative inhabitants of the island: townsfolk, gulls, chimney smoke, flags and
@@ -144,7 +144,8 @@ export class LifeSystem implements WorldSystem {
     const sky = ctx.services.get("sky") as SkyService | undefined;
     const sim = ctx.services.get("sim") as WindSource | undefined;
     this.wind = sky?.shared.uWeatherSea.value.y ?? sim?.wind?.strength ?? 0.35;
-    if (sim?.wind) { const to = sim.wind.fromRad + Math.PI; this.windTo[0] = Math.sin(to); this.windTo[1] = Math.cos(to); }
+    // (+ the sim's decorative veer, 07-M5: smoke and flags turn with the render wind and the anchorage)
+    if (sim?.wind) { const to = sim.wind.fromRad + (sim.wind.veer ?? 0) + Math.PI; this.windTo[0] = Math.sin(to); this.windTo[1] = Math.cos(to); }
 
     // the calendar (declared decorative): fewer folk out in the cold, every hearth lit in winter
     const season = ctx.services.get("season") as SeasonService | undefined;
