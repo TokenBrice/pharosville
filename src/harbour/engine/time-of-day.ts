@@ -107,7 +107,7 @@ export const DEFAULT_KEYFRAMES: TimeKeyframe[] = [
     ambient: "#8C9AC0", zenith: "#55689C", horizon: "#FFD8A8", haze: "#D2B2A6",
     fogDensity: 0.0009, night: 0.05, windowGlow: 0.2, exposure: 0.25, bloom: [0.55, 1.3], lamp: 4, lens: 5,
     windowOcc: 0.5,
-    grade: { lift: [0.99, 1.0, 1.04], gamma: [1, 1, 1], gain: [1.05, 1.0, 0.94], saturation: 1.20, contrast: 1.28, blueSat: 0.9, warmSat: 1.04 } },
+    grade: { lift: [0.99, 1.0, 1.04], gamma: [1, 1, 1], gain: [1.05, 1.0, 0.94], saturation: 1.20, contrast: 1.28, blueSat: 0.86, warmSat: 1.04 } },
   // dusk: sun on the horizon, red-violet world, windows coming on
   { hour: 19.7, sunColor: "#FF7448", sunIntensity: 1.6, sunAz: 298, sunEl: 1.5,
     fillColor: "#6A78C0", fillIntensity: 0.3, fillAz: 120, fillEl: 35,

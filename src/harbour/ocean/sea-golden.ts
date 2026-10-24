@@ -13,7 +13,7 @@ vec3 hbSeaGolden(vec3 body, float sunSh, float sunUp) {
   float low = (1.0 - smoothstep(0.07, 0.42, uSunDir.y)) * smoothstep(0.0, 0.05, uSunDir.y) * (1.0 - uNight);
   float k = low * sunSh * smoothstep(0.0, 0.3, sunUp);
   float lumB = dot(body, vec3(0.2126, 0.7152, 0.0722));
-  body = mix(body, vec3(lumB), 0.18 * k);
-  return mix(body, body * hue, 0.32 * k);
+  body = mix(body, vec3(lumB), 0.22 * k);
+  return mix(body, body * hue, 0.45 * k);
 }
 `;
