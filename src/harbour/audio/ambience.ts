@@ -420,7 +420,8 @@ export class Ambience {
     const buf = this.bank.pick(kind, this.rnd);
     if (!buf) return;      // still being synthesised: the beds carry the scene meanwhile
     const s = this.ac.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate;
-    const g = this.ac.createGain(); g.gain.value = level;
+    // a mono clip holds (L + R) / 2: √2 puts it back at the stereo clip's level through the panner
+    const g = this.ac.createGain(); g.gain.value = buf.numberOfChannels === 1 ? level * Math.SQRT2 : level;
     s.connect(g).connect(this.lane(to, pan));
     s.start(at);
   }

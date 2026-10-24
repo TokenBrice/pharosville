@@ -8,16 +8,24 @@ import { SYNTHS, makeRng, type Clip, type ClipKind } from "./dsp";
 
 /**
  * Synthesis rate per kind: each just above twice its highest content (the source node resamples on play).
- * Halves the memory and the synthesis time against 48 kHz; the bank holds ~18 MB of PCM in all.
+ * Dark kinds (the reef, the far roll, the bell buoy) go lower still. With the MONO kinds and the variant
+ * counts below, the eager bank holds ~7.6 MB of PCM (was ~18 MB); the lazy weather/season kinds add only what
+ * the scene asks for.
  */
 const RATE: Record<ClipKind, number> = {
-  shore: 24000, lap: 24000, reef: 12000, crackle: 24000, press: 24000, halyard: 24000, bell: 16000, gull: 24000, creak: 16000,
+  shore: 20000, lap: 16000, reef: 8000, crackle: 16000, press: 16000, halyard: 24000, bell: 12000, gull: 16000, creak: 16000,
   drizzle: 24000, rain: 24000, drip: 24000, thunder: 24000, rumble: 8000, bird: 24000, cricket: 24000, cicada: 24000, rustle: 24000, crunch: 24000,
 };
 const PLAN: Record<ClipKind, number> = {
-  shore: 6, lap: 8, reef: 3, crackle: 3, press: 2, halyard: 5, bell: 2, gull: 6, creak: 4,
-  drizzle: 2, rain: 3, drip: 4, thunder: 3, rumble: 4, bird: 7, cricket: 3, cicada: 3, rustle: 5, crunch: 3,
+  shore: 4, lap: 6, reef: 3, crackle: 3, press: 2, halyard: 4, bell: 2, gull: 5, creak: 3,
+  drizzle: 2, rain: 3, drip: 4, thunder: 2, rumble: 3, bird: 6, cricket: 3, cicada: 3, rustle: 4, crunch: 3,
 };
+/**
+ * Stored as ONE channel ((L + R) / 2, so the PCM stays below full scale; the player gains a mono clip by √2,
+ * which puts it at the stereo clip's level through the lane's panner): kinds that are a single
+ * placed source anyway, whose stereo width comes from the pan lane they are played into, not the clip.
+ */
+const MONO = new Set<ClipKind>(["lap", "reef", "crackle", "press", "halyard", "bell", "gull", "creak", "drip", "rumble", "bird", "crunch"]);
 /**
  * Weather and season kinds are LAZY: synthesised only once the scene asks for them (want()), so a calm
  * summer noon never spends a millisecond or a megabyte on thunder or snow.
@@ -85,8 +93,17 @@ export class ClipBank {
       }
       const s = this.job.gen.next();
       if (s.done) {
-        const c = s.value, buf = this.ac.createBuffer(2, c.L.length, c.sr);
-        buf.copyToChannel(c.L as Float32Array<ArrayBuffer>, 0); buf.copyToChannel(c.R as Float32Array<ArrayBuffer>, 1);
+        const c = s.value;
+        let buf: AudioBuffer;
+        if (MONO.has(this.job.kind)) {
+          const m = new Float32Array(c.L.length);
+          for (let i = 0; i < m.length; i++) m[i] = (c.L[i] + c.R[i]) * 0.5;
+          buf = this.ac.createBuffer(1, m.length, c.sr);
+          buf.copyToChannel(m, 0);
+        } else {
+          buf = this.ac.createBuffer(2, c.L.length, c.sr);
+          buf.copyToChannel(c.L as Float32Array<ArrayBuffer>, 0); buf.copyToChannel(c.R as Float32Array<ArrayBuffer>, 1);
+        }
         this.clips[this.job.kind][this.job.slot] = buf;
         // keep the list dense even if slots fill out of order
         this.clips[this.job.kind] = this.clips[this.job.kind].filter(Boolean);
@@ -94,6 +111,13 @@ export class ClipBank {
       }
     }
     return this.pending;
+  }
+
+  /** Bytes of PCM held now (tests, diagnostics). */
+  get bytes(): number {
+    let b = 0;
+    for (const list of Object.values(this.clips)) for (const c of list) b += c.length * c.numberOfChannels * 4;
+    return b;
   }
 
   /** Everything at once (offline rendering, tests). */
