@@ -11,7 +11,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer failure fallback: the first-paint poster stays up with the arrival guide and Pharos links; no alternate renderer
 - Runtime media namespace: `/harbour/`
 - Latest app version: `v1.4.0` (`livingHarbour`)
-- Latest changelog entry: `2026-10-24-living-harbour` / `v1.4.0` / 2026-10-24 / Living Harbour
+- Latest changelog entry: `2026-10-25-living-harbour` / `v1.4.0` / 2026-10-25 / Living Harbour
 
 ## Viewport Gate
 
