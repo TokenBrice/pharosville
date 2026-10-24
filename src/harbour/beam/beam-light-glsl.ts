@@ -37,13 +37,12 @@ vec3 hbBeamLight(vec3 p, vec3 n) {
   bool swath = dot(uBeamLight, vec3(1.0)) > 1e-4, sun = dot(uBeamSun.rgb, vec3(1.0)) > 1e-4;
   if (uBeamPos.y < -100.0 || !(swath || sun)) return o;
   vec2 f = hbBeamFrame(p);
-  float L = uBeamShape.x;
-  // scattered swath: wider and softer than the shaft (the mist spreads the light as it falls)
-  float w = (uBeamFall.y + max(f.x, 0.0) * uBeamFall.z) * 2.2 + 4.0;
-  // (outside the swath every factor below is 0 or < 2e-5: before 30 m, past the reach, or > 2.8 widths aside)
-  if (swath && f.x > 30.0 && f.x < L * 1.15 && f.y < w * 2.8) {
+  if (swath) {
     vec3 toL = normalize(uBeamPos - p);
     float wrap = clamp(dot(n, toL) * 0.6 + 0.4, 0.0, 1.0);
+    float L = uBeamShape.x;
+    // scattered swath: wider and softer than the shaft (the mist spreads the light as it falls)
+    float w = (uBeamFall.y + max(f.x, 0.0) * uBeamFall.z) * 2.2 + 4.0;
     float lat = exp(-(f.y * f.y) / (w * w) * 1.4);
     // the light outlasts the visible shaft (lit mist reads far less than lit stone): the shaft's decay
     // length × 2.5, cut a little past the reach, so a low score lights only the near harbour
