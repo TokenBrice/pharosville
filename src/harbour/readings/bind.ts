@@ -58,7 +58,8 @@ export interface TideReading {
 export interface AlertCoin { id: string; symbol: string; band: DewsBand; score: number | null; supply: number }
 
 export interface WorldTargets {
-  psi: { lit: boolean; sweepSec: number; reach: number; lamp: LampStep; band: ConditionBand | null; score: number | null };
+  /** `qualified` (DA-09): lit but computed without early-warning inputs → the horn shutter narrows the beam. */
+  psi: { lit: boolean; sweepSec: number; reach: number; lamp: LampStep; band: ConditionBand | null; score: number | null; qualified?: boolean };
   /** null = unknown: the sea is left as it is (never painted calm on purpose). */
   sea: SeaStep | null;
   /** The DEWS weather the director (src/harbour/weather) eases toward; `level` is the continuous supply-weighted 0..4. */
@@ -162,6 +163,7 @@ export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted }: D
       lamp: lit && p.band ? lampStepForBand(p.band) : 0,
       band: lit ? p.band : null,
       score: lit ? p.score : null,
+      qualified: lit && p.qualified === true,
     },
     sea: r.seaState.step,
     weather: weatherKnown && r.weather.cloudCover != null && r.weather.wind != null
@@ -183,8 +185,9 @@ export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted }: D
  * Dev-only reading overrides (never in production builds; the caller gates on import.meta.env.DEV):
  *   ?psi=TREMOR|none  ?psiScore=55  ?offpeg=0.06  ?dews=ALERT (alias ?weather=ALERT)  ?cones=3 (5 = four + pennant)  ?tide=-0.8 (percent)
  *   ?stale=1 (fleet stale → fog)  ?stale=mintBurn,chains (those landmarks stale)
+ *   ?psiQualified=1|0 (DA-09: PSI computed without early-warning data → horn shutter)
  */
-export const DEV_OVERRIDE_KEYS = ["psi", "psiScore", "offpeg", "dews", "weather", "cones", "tide", "stale"] as const;
+export const DEV_OVERRIDE_KEYS = ["psi", "psiScore", "offpeg", "dews", "weather", "cones", "tide", "stale", "psiQualified"] as const;
 
 export function applyDevOverrides(t: WorldTargets, q: URLSearchParams): WorldTargets {
   const out: WorldTargets = { ...t, psi: { ...t.psi }, landmarks: { ...t.landmarks }, flows: { ...t.flows } };
@@ -192,7 +195,7 @@ export function applyDevOverrides(t: WorldTargets, q: URLSearchParams): WorldTar
   if (psi) {
     const band = psi.toUpperCase();
     if (band === "NONE" || band === "NULL") {
-      out.psi = { lit: false, sweepSec: PSI_SWEEP_DURATION.BEDROCK, reach: 0, lamp: 0, band: null, score: null };
+      out.psi = { lit: false, sweepSec: PSI_SWEEP_DURATION.BEDROCK, reach: 0, lamp: 0, band: null, score: null, qualified: false };
     } else if (band in PSI_SWEEP_DURATION) {
       const b = band as ConditionBand;
       out.psi = { ...out.psi, lit: true, band: b, sweepSec: PSI_SWEEP_DURATION[b], lamp: lampStepForBand(b), score: out.psi.score ?? 91 };
@@ -201,6 +204,7 @@ export function applyDevOverrides(t: WorldTargets, q: URLSearchParams): WorldTar
   }
   const score = Number(q.get("psiScore"));
   if (q.has("psiScore") && Number.isFinite(score) && out.psi.lit) { out.psi.score = score; out.psi.reach = reachForScore(score); }
+  if (q.has("psiQualified")) out.psi.qualified = out.psi.lit && q.get("psiQualified") !== "0";
   const off = Number(q.get("offpeg"));
   if (q.has("offpeg") && Number.isFinite(off)) out.sea = seaStepForShare(off);
   const dews = (q.get("dews") ?? q.get("weather") ?? "").toUpperCase();

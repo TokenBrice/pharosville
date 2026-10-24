@@ -30,7 +30,13 @@ export function psiReading(stability: StabilityPayload | null, truth: EndpointTr
     lamp: !lit || !band ? null : band === "BEDROCK" || band === "STEADY" ? "white"
       : band === "TREMOR" || band === "FRACTURE" ? "amber" : "red",
     stale: truth.state === "stale",
+    qualified: lit && psiQualified(cur?.inputDegradation),
   };
+}
+
+/** DA-09: the PSI was computed without its early-warning inputs (DEWS or depeg events unavailable). */
+export function psiQualified(d: { dewsUnavailable?: boolean; depegEventsUnavailable?: boolean } | null | undefined): boolean {
+  return d?.dewsUnavailable === true || d?.depegEventsUnavailable === true;
 }
 
 /** Sea state: supply-weighted share off peg, in 4 declared steps. */
