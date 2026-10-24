@@ -17,6 +17,10 @@ import { rng } from "./walkways";
  *
  * Cats (09-L7): a few sit on the quay copings by day, looking about with a flick of the tail, and doze there at
  * night, head down. They go in when it storms.
+ *
+ * The hay cart (08-T5 / 09-L9): a donkey and its two-wheeled cart, heaped with hay (never crates or amphorae: cargo
+ * would read as the Mint / the Burn), plying the west lobe's farm road at a walk with a carter at its head, pausing
+ * at each end; by day only (off the road at night and in a storm). The road never joins two chain hamlets.
  */
 
 export const BEASTS_URL = "/harbour/kit/life_beasts.glb";
@@ -147,7 +151,11 @@ export class Herds {
   private readonly herd: THREE.InstancedBufferAttribute;
   private readonly herdB: THREE.InstancedBufferAttribute;
 
-  constructor(geo: THREE.BufferGeometry, mats: HarbourMaterials, private readonly ground: HerdGround, pastures: ReadonlyArray<ReadonlyArray<readonly [number, number]>>, cats: readonly CatSeat[] = [], seed = 61) {
+  /** the cart's road: xz polyline, cumulative length; where along it (m), which way, pause left (s), wheel angle */
+  private readonly road: { pts: number[]; cum: number[]; s: number; dir: number; pause: number; wheel: number } | null;
+  private readonly carterPose = { x: 0, y: 0, z: 0, yaw: 0, gait: 0 };
+
+  constructor(geo: THREE.BufferGeometry, mats: HarbourMaterials, private readonly ground: HerdGround, pastures: ReadonlyArray<ReadonlyArray<readonly [number, number]>>, cats: readonly CatSeat[] = [], cartway: ReadonlyArray<readonly number[]> = [], seed = 61) {
     const r = rng(seed);
     // goats: a small flock per pasture (up to three), placed on open, gentle ground inside it
     pastures.slice(0, 3).forEach((poly, f) => {
@@ -173,20 +181,32 @@ export class Herds {
       const br = rng(seed * 499 + k * 31);
       this.beasts.push({ kind: "cat", x: c.x, y: c.y, z: c.z, yaw: c.yaw, rank: br(), flock: -1, t: 0, tx: c.x, tz: c.z, graze: 0, gait: 0, walking: false, r: br, visible: true });
     });
+    // the donkey and its hay cart, part way along the farm road
+    if (cartway.length >= 2) {
+      const pts: number[] = [], cum: number[] = [0];
+      cartway.forEach((v, k) => {
+        pts.push(v[0], v[2]);
+        if (k) cum.push(cum[k - 1] + Math.hypot(v[0] - cartway[k - 1][0], v[2] - cartway[k - 1][2]));
+      });
+      this.road = { pts, cum, s: cum[cum.length - 1] * 0.3, dir: 1, pause: 0, wheel: 0 };
+      this.beasts.push({ kind: "donkey", x: pts[0], y: 0, z: pts[1], yaw: 0, rank: 0, flock: -1, t: 0, tx: 0, tz: 0, graze: 0, gait: 0, walking: true, r: rng(seed * 7), visible: true });
+    } else this.road = null;
     const N = Math.max(1, this.beasts.length);
     const herd = new Float32Array(N * 4), herdB = new Float32Array(N * 4), tint = new Float32Array(N * 3);
     const c = new THREE.Color();
     this.beasts.forEach((b, i) => {
       herd[i * 4] = KIND_ID[b.kind]; herd[i * 4 + 1] = r();
       const coats = b.kind === "cat" ? CAT_COATS : GOAT_COATS;
-      c.set(coats[Math.floor(r() * coats.length)]); c.toArray(tint, i * 3);
+      if (b.kind === "donkey") c.set("#8C7F72"); else c.set(coats[Math.floor(r() * coats.length)]);
+      c.toArray(tint, i * 3);
     });
     this.herd = new THREE.InstancedBufferAttribute(herd, 4); this.herd.setUsage(THREE.DynamicDrawUsage);
     this.herdB = new THREE.InstancedBufferAttribute(herdB, 4); this.herdB.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute("aHerd", this.herd);
     geo.setAttribute("aHerdB", this.herdB);
     geo.setAttribute("aHdTint", new THREE.InstancedBufferAttribute(tint, 3));
-    const mat = chainedKitMaterial(mats, "herds", { vertexHead: VERTEX_HEAD, vertexPose: VERTEX_POSE, normalPose: NORMAL_POSE, colorPose: COLOR_POSE, uniforms: this.uniforms });
+    // two-sided: thin ears, tails and the cart's open boards
+    const mat = chainedKitMaterial(mats, "herds", { vertexHead: VERTEX_HEAD, vertexPose: VERTEX_POSE, normalPose: NORMAL_POSE, colorPose: COLOR_POSE, uniforms: this.uniforms }, THREE.DoubleSide);
     this.mesh = new THREE.InstancedMesh(geo, mat, N);
     this.mesh.name = "life-herds";
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -211,7 +231,7 @@ export class Herds {
    * @param share the weather's and the tier's share of life (storms: some goats go in, the rest huddle)
    * @param moving false under reduced motion: everyone stands where they are
    */
-  update(dt: number, night: number, share: number, moving: boolean): void {
+  update(dt: number, night: number, share: number, moving: boolean, cartOut = false): void {
     if (moving) this.uniforms.uHerdT.value += dt;
     const huddle = Math.max(night > 0.6 ? 1 : 0, Math.min(1, (1 - share) * 2));
     const H = this.herd.array as Float32Array, HB = this.herdB.array as Float32Array;
@@ -223,8 +243,9 @@ export class Herds {
     }
     for (let i = 0; i < this.beasts.length; i++) {
       const b = this.beasts[i];
-      b.visible = b.rank < 0.35 + 0.65 * share;
+      b.visible = b.kind === "donkey" ? cartOut && share > 0.6 : b.rank < 0.35 + 0.65 * share;
       if (moving && b.visible && b.kind === "goat") this.stepGoat(b, dt, huddle);
+      if (b.kind === "donkey") { this.stepCart(b, moving && b.visible ? dt : 0); HB[i * 4 + 1] = this.road!.wheel; }
       const gait = moving ? b.gait : 0;
       H[i * 4 + 2] = b.kind === "goat" ? (moving ? b.graze * (1 - huddle * 0.8) : 0.4) : 0;
       H[i * 4 + 3] = gait;
@@ -239,6 +260,41 @@ export class Herds {
     }
     this.herd.needsUpdate = true; this.herdB.needsUpdate = true;
     this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** The carter's place this frame (at the donkey's head, on its left), or null when the cart is off the road. */
+  carter(): { x: number; y: number; z: number; yaw: number; gait: number } | null {
+    const b = this.beasts.find((o) => o.kind === "donkey");
+    if (!b || !b.visible) return null;
+    const c = Math.cos(b.yaw), sn = Math.sin(b.yaw), P = this.carterPose;
+    // donkey-local (0.7 left, 0.6 ahead) → world (local +x maps to (cos, -sin), +z to (sin, cos))
+    P.x = b.x + c * 0.7 + sn * 0.6 * SCALE.donkey; P.z = b.z - sn * 0.7 + c * 0.6 * SCALE.donkey;
+    P.y = this.ground.heightAt(P.x, P.z); P.yaw = b.yaw; P.gait = b.gait;
+    return P;
+  }
+
+  /** Walk the cart along its road (≈ 0.9 m/s), turning back at each end after a pause. */
+  private stepCart(b: Beast, dt: number): void {
+    const R = this.road!, L = R.cum[R.cum.length - 1];
+    if (R.pause > 0) { R.pause -= dt; b.gait = Math.max(0, b.gait - dt * 2); }
+    else if (dt > 0) {
+      b.gait = Math.min(1, b.gait + dt * 1.5);
+      const v = 0.9 * b.gait * dt;
+      R.s += R.dir * v;
+      R.wheel += v / (0.46 * SCALE.donkey);
+      if (R.s <= 0 || R.s >= L) { R.s = Math.min(L, Math.max(0, R.s)); R.dir = -R.dir; R.pause = 20 + b.r() * 25; }
+    }
+    // place it on the road; the donkey leads, so it looks the way it goes
+    let k = 1;
+    while (k < R.cum.length - 1 && R.cum[k] < R.s) k++;
+    const t = (R.s - R.cum[k - 1]) / Math.max(1e-6, R.cum[k] - R.cum[k - 1]);
+    const x0 = R.pts[(k - 1) * 2], z0 = R.pts[(k - 1) * 2 + 1], x1 = R.pts[k * 2], z1 = R.pts[k * 2 + 1];
+    b.x = x0 + (x1 - x0) * t; b.z = z0 + (z1 - z0) * t;
+    b.y = this.ground.heightAt(b.x, b.z);
+    const ty = Math.atan2((x1 - x0) * R.dir, (z1 - z0) * R.dir);
+    // first placement: facing the road; after that it turns gently (round in the yard at each end, while it waits)
+    b.yaw = b.t === 0 ? ty : b.yaw + Math.atan2(Math.sin(ty - b.yaw), Math.cos(ty - b.yaw)) * Math.min(1, dt * 1.5);
+    b.t = 1;
   }
 
   private stepGoat(b: Beast, dt: number, huddle: number): void {

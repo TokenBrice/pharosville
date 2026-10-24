@@ -16,13 +16,18 @@ describe("roles by the hour", () => {
     expect(roleDensity("promenader", 23)).toBe(0);
   });
 
-  it("the night watchman 23–4 h, the keeper 0–4 h, the lamplighters only at dusk", () => {
+  it("the night watchman 23–4 h, the keeper 0–4 h", () => {
     for (const h of [23.2, 0, 2, 3.9]) expect(roleDensity("watchman", h)).toBe(1);
     for (const h of [4.5, 12, 22.5]) expect(roleDensity("watchman", h)).toBe(0);
     for (const h of [0.1, 3, 3.9]) expect(roleDensity("keeper", h)).toBe(1);
     for (const h of [4.5, 12, 23.5]) expect(roleDensity("keeper", h)).toBe(0);
-    expect(roleDensity("lamplighter", 19)).toBe(1);
-    expect(roleDensity("lamplighter", 6)).toBe(0);
+  });
+
+  it("the carter and the shepherd keep to the day: off the roads at night", () => {
+    for (const r of ["carter", "shepherd"] as const) {
+      expect(roleDensity(r, 12)).toBe(1);
+      for (const h of [0, 3, 21, 23.5]) expect(roleDensity(r, h)).toBe(0);
+    }
   });
 
   it("storms only ever thin life", () => {

@@ -12,7 +12,7 @@ extras as 'pivot' (glTF coords: meshopt quantization folds a dequantization offs
 runtime poses each part about it in the vertex shader. Facing: -Y in Blender (= +Z in glTF, the runtime's forward).
 Colour: corner colour 'Col'; ALPHA 1 = coat (the runtime tints it per animal), 0 = fixed (horns, hooves, wood, hay).
 The cart carries hay only: never crates or amphorae (cargo would read as the Mint / the Burn).
-Budgets (tris): goat <= 130, cat <= 70, donkey + cart <= 220.
+Budgets (tris): goat <= 130, cat <= 70, donkey + cart <= 240.
 """
 import os, sys, math, subprocess
 import bpy, bmesh
@@ -24,7 +24,7 @@ RAW = os.path.join(ROOT, 'outputs', 'harbour', 'life')
 DST = os.path.join(ROOT, 'public', 'harbour', 'kit', 'life_beasts.glb')
 ARGV = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 COMPRESS = '--no-compress' not in ARGV
-BUDGET = {'goat': 130, 'cat': 70, 'donkey': 220}
+BUDGET = {'goat': 130, 'cat': 70, 'donkey': 240}
 os.makedirs(RAW, exist_ok=True)
 
 
@@ -63,6 +63,20 @@ class Part:
         self.face([a, b, c], col, coat)
         if both:
             self.face([a, c, b], col, coat)
+
+    def mound(self, c, rx, rz, length, n, col):
+        """A heap lying along y: a half-ellipse cross-section (width 2 rx, height rz) from y-length/2 to y+length/2,
+        its ends drawn in a little (straw, not a box)."""
+        cx, cy, cz = c
+        ang = [math.pi * k / n for k in range(n + 1)]
+        def sec(y, k):
+            return [(cx + math.cos(a) * rx * k, y, cz + math.sin(a) * rz * k) for a in ang]
+        A, B, M = sec(cy - length / 2, 0.75), sec(cy + length / 2, 0.75), sec(cy, 1.0)
+        for (P, Q) in ((A, M), (M, B)):
+            for k in range(n):
+                self.face([P[k], P[k + 1], Q[k + 1], Q[k]], col, False)
+        self.face(A[::-1], col, False)
+        self.face(B, col, False)
 
     def ring(self, c, r, w, n, col, coat=False):
         """A wheel: an n-gon prism round the x axis, centre c, radius r, width w."""
@@ -169,7 +183,7 @@ def donkey():
     cart.box((0, 1.75, 0.78), (1.0, 1.25, 0.12), WOOD, coat=False)
     for s in (-1, 1):
         cart.box((s * 0.5, 1.75, 0.94), (0.05, 1.25, 0.22), WOOD, coat=False, caps=False)
-    cart.box((0, 1.78, 1.12), (0.9, 1.1, 0.42), HAY, coat=False, taper=(0.8, 0.85))
+    cart.mound((0, 1.75, 0.86), 0.5, 0.5, 1.2, 5, HAY)                                         # hay heaped over the boards
     wheels = Part()
     for s in (-1, 1):
         wheels.ring((s * 0.6, 1.75, 0.46), 0.46, 0.07, 7, WOOD_D)

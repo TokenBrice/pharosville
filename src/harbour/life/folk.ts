@@ -22,9 +22,9 @@ import { buildWalkGraph, rng, spawnWalker, stepWalker, type Walker, type WalkGra
  */
 
 // part ids (vertex attribute aPart)
-const P_THIGH_L = 0, P_THIGH_R = 1, P_COAT = 2, P_ARM_L = 3, P_ARM_R = 4, P_HEAD = 5, P_HAT = 6, P_LANTERN = 7, P_SHIN_L = 8, P_SHIN_R = 9, P_ROD = 10;
+const P_THIGH_L = 0, P_THIGH_R = 1, P_COAT = 2, P_ARM_L = 3, P_ARM_R = 4, P_HEAD = 5, P_HAT = 6, P_LANTERN = 7, P_SHIN_L = 8, P_SHIN_R = 9, P_ROD = 10, P_CROOK = 11;
 /** aRole: what a role carries or wears (posed in the vertex shader) */
-const R_NONE = 0, R_ROD = 1, R_CLOAK = 2;
+const R_NONE = 0, R_ROD = 1, R_CLOAK = 2, R_CROOK = 3;
 const HIP_Y = 0.86, KNEE_Y = 0.45, SHOULDER_Y = 1.4, LEG_X = 0.095, ARM_X = 0.285;
 
 function figureGeometry(): THREE.BufferGeometry {
@@ -57,6 +57,10 @@ function figureGeometry(): THREE.BufferGeometry {
   // an angler's rod, held forward in both hands, with its line hanging plumb into the sea (collapsed unless angling)
   stick(m, [0.02, 0.98, 0.3], [0.22, 2.35, 2.6], 0.022, "#6B5238", P_ROD);
   stick(m, [0.22, 2.35, 2.62], [0.22, -2.4, 2.62], 0.008, "#D9D4C6", P_ROD);
+  // a shepherd's crook, a staff held upright in the right hand (collapsed unless a shepherd)
+  stick(m, [ARM_X + 0.03, 0.02, 0.2], [ARM_X + 0.03, 1.9, 0.16], 0.022, "#6B5238", P_CROOK);
+  stick(m, [ARM_X + 0.03, 1.9, 0.16], [ARM_X + 0.03, 2.02, 0.04], 0.02, "#6B5238", P_CROOK);
+  stick(m, [ARM_X + 0.03, 2.02, 0.04], [ARM_X + 0.03, 1.9, -0.06], 0.02, "#6B5238", P_CROOK);
   return buildGeometry(m);
 }
 
@@ -67,7 +71,7 @@ attribute vec3 aSkin;
 attribute vec4 aHat;
 attribute vec3 aLegs;
 attribute vec4 aAnim;        // x phase, y gait 0..1, z sit 0/1, w lantern 0/1
-attribute float aRole;       // 0 none, 1 rod (angler), 2 cloak (the keeper)
+attribute float aRole;       // 0 none, 1 rod (angler), 2 cloak (the keeper), 3 crook (the shepherd)
 uniform float uLifeT;
 varying float vLfLantern;
 
@@ -83,6 +87,7 @@ vec3 lfPose(vec3 p, float dir) {
   float stand = (1.0 - gait) * (1.0 - sit);
   float rod = 1.0 - step(0.5, abs(aRole - ${R_ROD.toFixed(1)}));
   float cloak = 1.0 - step(0.5, abs(aRole - ${R_CLOAK.toFixed(1)}));
+  float crook = 1.0 - step(0.5, abs(aRole - ${R_CROOK.toFixed(1)}));
   vec3 piv;
   if (part < 1.5 || (part > 7.5 && part < 9.5)) {
     bool left = part < 0.5 || (part > 7.5 && part < 8.5);
@@ -96,7 +101,7 @@ vec3 lfPose(vec3 p, float dir) {
     }
     piv = vec3(x, ${HIP_Y.toFixed(3)}, 0.0) * (1.0 - dir);
     p = piv + lfRotX(p - piv, thigh);
-  } else if (part > 2.5 && part < 4.5 || part > 6.5 && part < 7.5) {
+  } else if (part > 2.5 && part < 4.5 || part > 6.5 && part < 7.5 || part > 10.5) {
     bool left = part < 3.5;
     float s = left ? 1.0 : -1.0;
     float a = 0.42 * gait * sw * s;
@@ -105,10 +110,11 @@ vec3 lfPose(vec3 p, float dir) {
     a -= sit * 0.45;
     if (!left) a = mix(a, -0.12 + 0.08 * gait * sw, lantern);   // the lantern arm swings little
     a = mix(a, -0.95 + 0.04 * sin(uLifeT * 0.6 + aAnim.x * 9.0), rod);   // both hands on the rod
+    if (!left) a = mix(a, -0.3 + 0.12 * gait * sw, crook);                 // the crook planted as he walks
     float x = left ? -${ARM_X.toFixed(3)} : ${ARM_X.toFixed(3)};
     piv = vec3(x, ${SHOULDER_Y.toFixed(3)}, 0.0);
     if (part > 6.5) {
-      // the lantern hangs plumb from the hand: translate with the hand, never rotate
+      // the lantern hangs plumb from the hand (the crook stands upright in it): translate with the hand, never rotate
       vec3 hand = vec3(x, 0.8, 0.0);
       p += (piv + lfRotX(hand - piv, a) - hand) * (1.0 - dir);
     } else {
@@ -133,6 +139,7 @@ vec3 lfPose(vec3 p, float dir) {
     if (part > 5.5 && part < 6.5 && aHat.a < 0.5) p = vec3(0.0, 1.6, 0.0);
     if (part > 6.5 && part < 7.5 && lantern < 0.5) p = vec3(${ARM_X.toFixed(3)}, 0.9, 0.0);
     if (part > 9.5 && part < 10.5 && rod < 0.5) p = vec3(0.0, 1.0, 0.0);
+    if (part > 10.5 && crook < 0.5) p = vec3(${ARM_X.toFixed(3)}, 0.9, 0.0);
   }
   return p;
 }
@@ -206,7 +213,7 @@ export interface FolkGround {
   seatHeight(x: number, z: number, fx: number, fz: number): number | null;
 }
 
-const ROLES: readonly Role[] = ["folk", "angler", "vendor", "promenader", "watchman", "keeper", "lamplighter"];
+const ROLES: readonly Role[] = ["folk", "angler", "vendor", "promenader", "watchman", "keeper", "shepherd", "carter"];
 
 export class Townsfolk {
   readonly mesh: THREE.InstancedMesh;
@@ -214,7 +221,7 @@ export class Townsfolk {
   private readonly graph: WalkGraph;
   private readonly anim: THREE.InstancedBufferAttribute;
   readonly uniforms = { uLifeT: { value: 0 }, uLifeLamp: { value: 0 } };
-  private readonly density: Record<Role, number> = { folk: 0, angler: 0, vendor: 0, promenader: 0, watchman: 0, keeper: 0, lamplighter: 0 };
+  private readonly density: Record<Role, number> = { folk: 0, angler: 0, vendor: 0, promenader: 0, watchman: 0, keeper: 0, shepherd: 0, carter: 0 };
   private first = true;
 
   private readonly lightPos = new THREE.Vector3();
@@ -233,13 +240,17 @@ export class Townsfolk {
     const special: Array<{ role: Role; graph: WalkGraph; speed: number }> = [];
     if (quays) special.push({ role: "watchman", graph: quays, speed: 0.7 });
     if (causeway) special.push({ role: "keeper", graph: causeway, speed: 0.55 });
+    // the shepherd walks the west lobe's farm road (08-T5 / 09-L9: never between two chain hamlets)
+    const farmRoad = walk.cartway && walk.cartway.length >= 2 ? sub([{ kind: "road", w: 1.0, pts: walk.cartway }], undefined) : null;
+    if (farmRoad) special.push({ role: "shepherd", graph: farmRoad, speed: 0.62 });
+    const carter = farmRoad ? 1 : 0;
     const pairs = moles ? PROMENADE_PAIRS : 0;
     // edge spots stand 1.15 m from the quay edge: test a tighter ring there than on the squares
     const isOpen = (s: { kind: string; p: [number, number, number] }) => !ground || ground.open(s.p[0], s.p[1], s.p[2], s.kind === "edge" ? 0.45 : 1.3);
     const edges = walk.spots.filter((s) => s.kind === "edge" && isOpen(s));
     // anglers: alone at the quay edge with a rod over the water, on spots the standing groups (every third) leave free
     const anglerSpots = edges.filter((_, k) => k % 6 === 1 || k % 6 === 4).filter((_, k, all) => k % Math.max(1, Math.floor(all.length / ANGLERS)) === 0).slice(0, ANGLERS);
-    const generic = caps.walkers - special.length - pairs * 2 - anglerSpots.length;
+    const generic = caps.walkers - special.length - pairs * 2 - anglerSpots.length - carter;
     // walkers
     const addWalker = (role: Role, g: WalkGraph, i: number, rank: number, speed?: number): number => {
       const wr = rng(seed * 977 + i * 131);
@@ -259,9 +270,12 @@ export class Townsfolk {
     }
     special.forEach((s, k) => {
       const i = addWalker(s.role, s.graph, generic + pairs + k, 0, s.speed);
-      this.actors[i].lanternRank = 0;
+      // the night roles carry a lantern
+      this.actors[i].lanternRank = s.role === "watchman" || s.role === "keeper" ? 0 : 1;
       this.actors[i].walker!.lane = 0;
     });
+    // the carter leads the donkey and its hay cart (placed each frame from the herds: setCarter)
+    if (carter) this.actors.push({ kind: "walk", role: "carter", rank: 0, lanternRank: 1, scale: 1, x: 0, y: -50, z: 0, yaw: 0, visible: false });
     for (const s of anglerSpots) {
       this.actors.push({ kind: "stand", role: "angler", rank: r(), lanternRank: 1, scale: 0.94 + r() * 0.12, x: s.p[0], y: s.p[1], z: s.p[2], yaw: s.h, visible: true });
     }
@@ -342,7 +356,7 @@ export class Townsfolk {
       c.set(rc?.legs ?? LEGS[Math.floor(r() * LEGS.length)]); c.toArray(legs, i * 3);
       c.set(rc?.hat ?? HATS[Math.floor(r() * HATS.length)]); c.toArray(hat, i * 4); hat[i * 4 + 3] = rc || r() < 0.55 ? 1 : 0;
       anim[i * 4] = r(); anim[i * 4 + 1] = a.kind === "walk" ? 1 : 0; anim[i * 4 + 2] = a.kind === "sit" ? 1 : 0;
-      role[i] = a.role === "angler" ? R_ROD : a.role === "keeper" ? R_CLOAK : R_NONE;
+      role[i] = a.role === "angler" ? R_ROD : a.role === "keeper" ? R_CLOAK : a.role === "shepherd" ? R_CROOK : R_NONE;
     });
     geo.setAttribute("aTint", new THREE.InstancedBufferAttribute(tint, 3));
     geo.setAttribute("aSkin", new THREE.InstancedBufferAttribute(skin, 3));
@@ -371,6 +385,10 @@ export class Townsfolk {
   }
 
   get count(): number { return this.actors.length; }
+
+  private carter: { x: number; y: number; z: number; yaw: number; gait: number } | null = null;
+  /** Where the carter walks this frame (at the donkey's head), or null when the cart is off the road. */
+  setCarter(p: { x: number; y: number; z: number; yaw: number; gait: number } | null): void { this.carter = p; }
 
   /** The cast by role (dev captures). */
   roleCounts(): Record<string, number | number[][]> {
@@ -408,7 +426,14 @@ export class Townsfolk {
     for (let i = 0; i < this.actors.length; i++) {
       const a = this.actors[i];
       const vis = a.rank < this.density[a.role];
-      if (a.leader !== undefined) {
+      if (a.role === "carter") {
+        const c = this.carter;
+        a.visible = vis && c !== null;
+        if (c) { a.x = c.x; a.y = c.y; a.z = c.z; a.yaw = c.yaw; }
+        const gait = moving && c ? c.gait : 0;
+        if (anim[i * 4 + 1] !== gait) { anim[i * 4 + 1] = gait; dirtyAnim = true; }
+        this.write(i);
+      } else if (a.leader !== undefined) {
         // the companion: at the leader's left shoulder, in step a half-pace apart
         const l = this.actors[a.leader];
         const c = Math.cos(l.yaw), sn = Math.sin(l.yaw);
@@ -427,7 +452,7 @@ export class Townsfolk {
         }
         a.x = w.x; a.y = w.y; a.z = w.z; a.yaw = w.yaw;
         const gait = moving ? w.gait : 0;
-        const lantern = a.lanternRank < lanternShare || (a.lanternRank === 0 && a.role !== "folk") ? 1 : 0;
+        const lantern = a.lanternRank < lanternShare || (a.lanternRank === 0 && a.role !== "folk") ? 1 : 0;   // folk at night; the watchman and the keeper
         if (anim[i * 4 + 1] !== gait || anim[i * 4 + 3] !== lantern) { anim[i * 4 + 1] = gait; anim[i * 4 + 3] = lantern; dirtyAnim = true; }
         a.visible = vis;
         this.write(i);

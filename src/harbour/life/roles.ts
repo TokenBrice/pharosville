@@ -10,11 +10,12 @@ import { townDensity } from "./walkways";
  * - promenader   in twos on the moles' promenades, at dusk
  * - watchman     one, with a lantern, on the quays from 23 h to 4 h
  * - keeper       one cloaked figure with a lantern on the Pharos causeway, 0–4 h (no name, no panel, no hover)
- * - lamplighter  two, with poles, along the quay lamp line at dusk
+ * - shepherd     one, with a crook, on the west lobe's farm road by day
+ * - carter       one, leading the donkey and its hay cart on the same road by day (off the roads at night)
  *
  * Storms thin everyone (`stormShare`): weather is the DEWS signal, and life only ever withdraws from it.
  */
-export type Role = "folk" | "angler" | "vendor" | "promenader" | "watchman" | "keeper" | "lamplighter";
+export type Role = "folk" | "angler" | "vendor" | "promenader" | "watchman" | "keeper" | "shepherd" | "carter";
 
 type Knots = ReadonlyArray<readonly [number, number]>;
 
@@ -24,7 +25,8 @@ const CURVES: Record<Exclude<Role, "folk">, Knots> = {
   promenader: [[0, 0], [16.8, 0], [17.6, 0.5], [18.4, 1], [20, 1], [20.9, 0], [24, 0]],
   watchman: [[0, 1], [4, 1], [4.01, 0], [22.99, 0], [23, 1], [24, 1]],
   keeper: [[0, 1], [4, 1], [4.01, 0], [23.99, 0], [24, 1]],
-  lamplighter: [[0, 0], [18.1, 0], [18.2, 1], [20.2, 1], [20.3, 0], [24, 0]],
+  shepherd: [[0, 0], [6.4, 0], [6.5, 1], [18.4, 1], [18.5, 0], [24, 0]],
+  carter: [[0, 0], [7, 0], [7.1, 1], [17.9, 1], [18, 0], [24, 0]],
 };
 
 function piecewise(k: Knots, hour: number): number {

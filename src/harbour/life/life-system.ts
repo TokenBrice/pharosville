@@ -19,7 +19,7 @@ import type { MastheadService } from "../fleet/mastheads";
 import { ChimneySmoke } from "./smoke";
 import { SeasonalDrift } from "./drift";
 import type { SeasonService } from "../season/season-system";
-import { stormShare } from "./roles";
+import { roleDensity, stormShare } from "./roles";
 import { smokeAmount, townDensity, type Walkways } from "./walkways";
 
 export const WALKWAYS_URL = "/harbour/walkways.json";
@@ -173,7 +173,7 @@ export class LifeSystem implements WorldSystem {
     if (ground && walk.pastures?.length) {
       try {
         const geo = beastGeometry(await ctx.assets.gltf(BEASTS_URL));
-        this.herds = new Herds(geo, mats, ground, walk.pastures, folkGround ? catSeats(walk, folkGround, ht ? [ht[0], ht[2]] : undefined) : []);
+        this.herds = new Herds(geo, mats, ground, walk.pastures, folkGround ? catSeats(walk, folkGround, ht ? [ht[0], ht[2]] : undefined) : [], walk.cartway ?? []);
         this.group.add(this.herds.mesh);
       } catch { this.herds = null; }
     }
@@ -225,7 +225,9 @@ export class LifeSystem implements WorldSystem {
     const fire = THREE.MathUtils.smoothstep(summer, 0.3, 0.8) * fireHours * u.uNight.value * (this.wind < 0.5 ? 1 : 0);
     this.drift?.update(dt, moving, autumn, spring, share, ctx.camera, ctx.rig.target, ctx.rig.distance, u, fire);
     this.flags?.update(dt, moving, this.windTo, this.wind);
-    this.herds?.update(dt, u.uNight.value, share * stormShare(this.wind), moving);
+    // 08-T5 / 09-L9: the hay cart is out by day (the carter's hours), off the road at night
+    this.herds?.update(dt, u.uNight.value, share * stormShare(this.wind), moving, roleDensity("carter", hour) > 0);
+    this.folk.setCarter(this.herds?.carter() ?? null);
     if (this.dolphins) {
       // only in the calm bands (DEWS CALM / WATCH) of a fresh reading: no reading, stale fog or rough weather = none
       const level = (ctx.services.get("weather") as WeatherService | undefined)?.state.level ?? null;
