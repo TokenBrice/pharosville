@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { anniversaryToday } from "../model/anniversary";
-import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, weatherInputs } from "./feed";
-import { birdThinning, cicadaLevel, dayClock, hourStrikes, settleDb, settleRate } from "./ambience";
+import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, CONCH_GAP_SEC, conchDue, frontThunderDue, momentCue, passAllowed, weatherInputs } from "./feed";
+import { birdThinning, cicadaLevel, dayClock, hourStrikes, settleDb, settleRate, gustSwell } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {
   it("absent services read as fair weather with no season colour", () => {
@@ -137,5 +137,59 @@ describe("harbour sound: Wreck Cove's anniversary bell (deathDate)", () => {
     expect(anniversaryToday("2024-04", today)).toBe(false);
     expect(anniversaryToday("", today)).toBe(false);
     expect(anniversaryToday(undefined, today)).toBe(false);
+  });
+});
+
+describe("harbour sound: the shared gust field", () => {
+  it("the swell follows the paw; its size is the wind strength only, never above the free-running gusts' ceiling", () => {
+    for (const wind of [0, 0.3, 1]) {
+      expect(gustSwell(1, wind, 0.5, 0.5)).toBeGreaterThan(gustSwell(0, wind, 0.5, 0.5));
+      expect(gustSwell(0, wind, 0.5, 1)).toBeLessThanOrEqual(0.5);   // a lull is a lull in any wind
+    }
+    expect(gustSwell(1, 1, 0.5, 0.5) - gustSwell(0, 1, 0.5, 0.5)).toBeGreaterThan(3 * (gustSwell(1, 0, 0.5, 0.5) - gustSwell(0, 0, 0.5, 0.5)));
+    expect(gustSwell(1, 1, 1, 1)).toBeLessThanOrEqual(0.35 + 0.5 + 0.6 + 0.4);
+    expect(Number.isFinite(gustSwell(Number.NaN, 0.3, 0.3, 0.3))).toBe(true);
+  });
+});
+
+describe("harbour sound: thunder ahead of a storm front", () => {
+  it("two far rolls while a rising front that brings lightning is still upwind; none otherwise", () => {
+    const f = (from: number, to: number, progress: number) => ({ from, to, progress });
+    expect(frontThunderDue(null)).toBe(-1);
+    expect(frontThunderDue(f(1, 3, 0))).toBe(0);
+    expect(frontThunderDue(f(1, 3, 0.1))).toBe(1);
+    expect(frontThunderDue(f(1, 3, 0.25))).toBe(2);
+    expect(frontThunderDue(f(1, 3, 0.4))).toBe(-1);     // overhead: the local storm speaks
+    expect(frontThunderDue(f(3, 1, 0.1))).toBe(-1);     // a clearing line: no thunder
+    expect(frontThunderDue(f(0, 2, 0.1))).toBe(-1);     // toward Alert: no lightning in that band, no thunder
+    expect(frontThunderDue(f(2.9, 3.1, 0.1))).toBe(-1); // a small move eases in place
+  });
+});
+
+describe("harbour sound: event cues", () => {
+  it("a staged launch rings the buoy, a staged death the cove's bell; depeg, recovery and the rest stay silent", () => {
+    expect(momentCue("launch")).toBe("launch-bell");
+    expect(momentCue("death")).toBe("cove-bell");
+    for (const k of ["depeg", "recovery", "psi-band", "dews-band", "flow-hour", "hull-class", "grade"]) expect(momentCue(k)).toBeNull();
+  });
+  it("the conch: only the four titans, at most one per three minutes, never over a staged moment", () => {
+    expect(conchDue("usdt-tether", 1000, -Infinity, false)).toBe(true);
+    expect(conchDue("usds-sky", 1000, -Infinity, false)).toBe(true);
+    expect(conchDue("dai-makerdao", 1000, -Infinity, false)).toBe(false);
+    expect(conchDue("usdc-circle", 1000, 1000 - CONCH_GAP_SEC + 1, false)).toBe(false);
+    expect(conchDue("usdc-circle", 1000, 1000 - CONCH_GAP_SEC, false)).toBe(true);
+    expect(conchDue("usde-ethena", 1000, -Infinity, true)).toBe(false);
+  });
+});
+
+describe("harbour sound: passing hulls", () => {
+  it("at most two in any ten seconds", () => {
+    const recent: number[] = [];
+    let heard = 0;
+    for (let t = 0; t < 60; t += 0.25) if (passAllowed(recent, t)) { recent.push(t); heard++; }
+    expect(heard).toBe(12);
+    const r2 = [0, 1];
+    expect(passAllowed(r2, 9.9)).toBe(false);
+    expect(passAllowed(r2, 10)).toBe(true);
   });
 });

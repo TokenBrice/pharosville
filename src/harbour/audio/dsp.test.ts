@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SYNTHS, renderNow, rumble, shoreWash, thunder, type ClipKind } from "./dsp";
-import { CUE_GAIN } from "./ambience";
+import { CUE_GAIN, FAR_GAIN, PASS_GAIN } from "./ambience";
 
 const SR = 48000;
 
@@ -106,5 +106,44 @@ describe("harbour sound: UI foley", () => {
       expect(peak * CUE_GAIN * 0.7).toBeLessThan(10 ** (-24 / 20));
       expect(shape(kind, seed).dc).toBeLessThan(1e-3);
     }
+  });
+});
+
+describe("harbour sound: event cues are far and soft", () => {
+  const peakOf = (kind: ClipKind, seed: number) => { const c = renderNow(SYNTHS[kind](seed, 8000)); let p = 0; for (const v of c.L) p = Math.max(p, Math.abs(v)); return p; };
+  const loudest = (kind: ClipKind, sr = 8000) => Math.max(...[1, 2, 3].map((s) => shape(kind, s, sr).loud));
+  it.each(["conch", "gun"] as ClipKind[])("%s: no DC, decays to silence", (kind) => {
+    for (const seed of [1, 2, 3]) {
+      const s = shape(kind, seed, 8000);
+      expect(s.dc).toBeLessThan(1e-3);
+      expect(s.tail).toBeLessThan(0.05 * s.loud);
+    }
+  });
+  it("a titan's conch (loudest call, level 0.85) sits under the bell buoy's ordinary strike", () => {
+    const bell = Math.max(...[1, 2, 3].map((s) => peakOf("bell", s))) * 0.11;      // bellBus, level 1
+    const conch = Math.max(...[1, 2, 3].map((s) => peakOf("conch", s))) * FAR_GAIN * 0.85;
+    expect(conch).toBeLessThan(0.8 * bell);
+    expect(loudest("conch") * FAR_GAIN * 0.85).toBeLessThan(loudest("bell") * 0.11);
+  });
+  it("the evening gun is duller and quieter than a far roll of storm thunder", () => {
+    const roll = loudest("rumble") * 1.5 * 0.35;     // thunderBus × the softest far roll (intensity 0, 20 km)
+    expect(loudest("gun") * FAR_GAIN).toBeLessThan(roll);
+    expect(Math.max(...[1, 2, 3].map((s) => peakOf("gun", s))) * FAR_GAIN * 0.7).toBeLessThan(10 ** (-26 / 20));   // after the master: under −26 dBFS
+  });
+});
+
+describe("harbour sound: passing hulls sit under the laps", () => {
+  it.each(["swish", "flap"] as ClipKind[])("%s: no DC, decays to silence", (kind) => {
+    for (const seed of [1, 2, 3]) {
+      const s = shape(kind, seed, 12000);
+      expect(s.dc).toBeLessThan(1e-3);
+      expect(s.tail).toBeLessThan(0.05 * s.loud);
+    }
+  });
+  it("a hull passing close (level 1) is quieter than a lap against the quay beside you", () => {
+    const loud = (k: ClipKind) => Math.max(...[1, 2, 3, 4].map((s) => shape(k, s, 16000).loud));
+    const lap = loud("lap") * (0.06 + 1.1) * 0.75;        // lapBus near a berth × a middling lap
+    expect(loud("swish") * PASS_GAIN).toBeLessThan(0.7 * lap);
+    expect(loud("flap") * PASS_GAIN * 0.6).toBeLessThan(0.7 * lap);
   });
 });

@@ -29,7 +29,7 @@ export interface SoundController {
   setMode(mode: SoundMode): void;
   /** audio is actually running (on, and started by a gesture) */
   readonly playing: boolean;
-  /** Call from a click handler. */
+  /** Call from a click handler: off ↔ the visitor's last sound choice (the ambience unless they picked music). */
   toggle(): void;
   subscribe(fn: () => void): () => void;
   /** Stop and release the audio (the choice stays). */
@@ -48,15 +48,21 @@ function readChoice(): SoundMode {
     return localStorage.getItem(MUSIC_KEY) === "on" ? "music" : "ambient";
   } catch { return "off"; }
 }
+/** The music's remembered choice survives "off", so the speaker turns back on to what the visitor last chose. */
+function readMusic(): boolean {
+  try { return localStorage.getItem(MUSIC_KEY) === "on"; } catch { return false; }
+}
 function writeChoice(mode: SoundMode): void {
   try {
     localStorage.setItem(KEY, mode !== "off" ? "on" : "off");
-    localStorage.setItem(MUSIC_KEY, mode === "music" ? "on" : "off");
+    if (mode !== "off") localStorage.setItem(MUSIC_KEY, mode === "music" ? "on" : "off");
   } catch { /* private window: not remembered */ }
 }
 
 class Controller implements SoundController {
   mode = readChoice();
+  /** the last sound chosen this visit (or remembered), for the speaker's one-click toggle */
+  private lastOn: SoundMode = readMusic() ? "music" : "ambient";
   private amb: Ambience | null = null;
   private music: Music | null = null;
   private musicLoading = false;
@@ -84,11 +90,12 @@ class Controller implements SoundController {
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
   private emit(): void { for (const fn of this.listeners) fn(); }
 
-  toggle(): void { this.setMode(this.on ? "off" : "ambient"); }
+  toggle(): void { this.setMode(this.on ? "off" : this.lastOn); }
 
   setMode(mode: SoundMode): void {
     if (mode === this.mode) return;
     this.mode = mode;
+    if (mode !== "off") this.lastOn = mode;
     writeChoice(mode);
     if (mode === "off") this.stop();
     else { this.disarm(); this.start(); this.tune(); }

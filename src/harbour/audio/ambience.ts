@@ -78,6 +78,11 @@ export interface AmbienceInputs {
   storm: number;
   /** gustiness 0..1 */
   gust: number;
+  /**
+   * the shared gust field at the listener (weather/gust.ts: the cat's-paws that heel the fleet and darken the
+   * water), 0 in a lull … 1 in a paw, unscaled; -1 when there is no field (the gusts are then free-running)
+   */
+  paw: number;
   /** calendar season weights (sum ≈ 1) and the snow lying on the land 0..1 */
   spring: number;
   summer: number;
@@ -120,9 +125,21 @@ const VOICES = 24;
 const ALWAYS = new Set<ClipKind>(["shore", "crackle", "drizzle", "rain", "cricket", "cicada", "thunder", "rumble", "unroll", "latch", "flick"]);
 /** The UI foley's bus gain: a cue's peak (≤ 0.6 in the clip) lands under −24 dBFS after the master. */
 export const CUE_GAIN = 0.12;
-/** The chart table's foley: a panel opened, a panel closed, a ledger page. */
-export type CueName = "open" | "close" | "page";
-const CUE_KIND: Record<CueName, ClipKind> = { open: "unroll", close: "latch", page: "flick" };
+/**
+ * The chart table's foley: a panel opened, a panel closed, a ledger page; and "evening-gun", the decorative
+ * sunset gun's dull report, played EVENING_GUN_DELAY after the call (the call is the visual puff).
+ */
+export type CueName = "open" | "close" | "page" | "evening-gun";
+const CUE_KIND: Partial<Record<CueName, ClipKind>> = { open: "unroll", close: "latch", page: "flick" };
+/** The evening gun is heard this long after its puff is seen (sound from ~400 m across the bay). */
+export const EVENING_GUN_DELAY = 1.2;
+/**
+ * The far event cues' bus (a titan's conch, the evening gun): with the clip peaks ≤ 0.5 / 0.6 this keeps the
+ * conch under the bell buoy and the gun under a far roll of thunder (dsp.test.ts checks both).
+ */
+export const FAR_GAIN = 0.1;
+/** The passing hulls' bus (bow wash and a sail's flog): under a near lap (dsp.test.ts). */
+export const PASS_GAIN = 0.5;
 
 /**
  * The ten-minute settle: after a while unwatched the whole mix eases down 3 dB, and it always breathes a
@@ -157,6 +174,15 @@ export function dayClock(hour: number): { chorus: number; hush: number; deep: nu
  */
 export function hourStrikes(h: number): number {
   return h >= 6 && h <= 22 ? (h === 12 ? 3 : 1) : 0;
+}
+
+/**
+ * The wind's swell at the listener from the shared gust field: a lull 0.35–0.5, a full paw up to ~1.85 in a
+ * DEWS blow (the field's shape decides WHEN, only the wind strength decides HOW MUCH). `flutter` 0..1.
+ */
+export function gustSwell(paw: number, wind: number, gust: number, flutter: number): number {
+  const c = (x: number) => (x > 0 ? (x < 1 ? x : 1) : 0);
+  return 0.35 + 0.15 * c(flutter) + c(paw) * (0.25 + 0.85 * c(wind) + 0.25 * c(gust));
 }
 
 /** Event-rate multiplier of the settle: 1 while watched … 0.7 (~30 % sparser) when settled. */
@@ -239,7 +265,7 @@ export class Ambience {
   private readonly inputs: AmbienceInputs = {
     zoom: 0.5, wind: 0.35, fog: 0, night: 0, hour: 9, clock: 9, shore: 0.5, shorePan: 0, harbour: 0.5, reef: 0.2, reefPan: -0.5,
     fire: 0, firePan: 0, mint: 0, mintPan: 0, mintRate: 0.5,
-    rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
+    rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, paw: -1, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
     town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false, attention: 1,
     shoreBack: 0, reefBack: 0, mintBack: 0, townBack: 0, ship: 0, shipPan: 0, shipBack: 0,
     burn: 0, burnPan: 0, burnBack: 0, burnRate: 0, cove: 0, covePan: 0,
@@ -325,6 +351,10 @@ export class Ambience {
   private readonly ribsLoop: LazyLoop;
   /** the anniversary bell, waiting for its clips */
   private knell: { level: number; pan: number } | null = null;
+  /** lazy event clips waiting for their synthesis (played when ready, dropped if more than 2 s late) */
+  private pending: Array<{ kind: ClipKind; at: number; level: number; pan: number }> = [];
+  private readonly farBus: GainNode;
+  private readonly passBus: GainNode;
   // the ten-minute settle (and the slow breathing of the whole mix), and the one-shots now sounding
   private readonly settle: GainNode;
   private readonly breathPhase: number;
@@ -505,6 +535,10 @@ export class Ambience {
     this.ribsLoop = new LazyLoop(ac, this.white, ribsBp);
     ribsBp.connect(this.ribs).connect(this.ribsPan).connect(this.duck);
     this.cueBus = ac.createGain(); this.cueBus.gain.value = CUE_GAIN; this.cueBus.connect(this.out);
+    // the far event cues (conch, evening gun): soft, through the harbour walls' slap-back
+    this.farBus = ac.createGain(); this.farBus.gain.value = FAR_GAIN; this.farBus.connect(this.out); this.farBus.connect(this.echo);
+    // ships passing the listener: dry and close
+    this.passBus = ac.createGain(); this.passBus.gain.value = PASS_GAIN; this.passBus.connect(this.out);
     // the hour bell: soft and far (dark, through the harbour walls' slap-back), from the town
     const tollBus = ac.createGain(); tollBus.gain.value = 0.07;
     this.tollLp = this.filter("lowpass", 2000, 0.5);
@@ -748,10 +782,13 @@ export class Ambience {
     // gusts: the wind band wanders and swells
     if (N.gust < ahead) {
       const at = Math.max(N.gust, now), d = (1.2 + r() * 2.8) * (1 - 0.35 * gust);
-      const hi = Math.min(1, r() * (0.5 + wind * 0.7 + 0.3 * gust));
+      // with the shared field the swell IS the paw passing over the listener (its shape decorative, its
+      // strength the DEWS wind), a small flutter on top; without it, the gusts run free as before
+      const paw = I.paw >= 0 ? clamp01(I.paw) : -1;
+      const hi = paw < 0 ? Math.min(1, r() * (0.5 + wind * 0.7 + 0.3 * gust)) : Math.min(1, (0.15 + 0.2 * r()) * (0.5 + wind) + paw * (0.3 + 0.6 * wind));
       this.windLo.gain.setTargetAtTime(1 - hi * 0.7, at, d * 0.4);
       this.windHi.gain.setTargetAtTime(hi, at, d * 0.4);
-      this.windGust.gain.setTargetAtTime(0.35 + r() * (0.5 + wind * 0.6 + 0.4 * gust), at, d * 0.35);
+      this.windGust.gain.setTargetAtTime(paw < 0 ? 0.35 + r() * (0.5 + wind * 0.6 + 0.4 * gust) : gustSwell(paw, wind, gust, r()), at, d * 0.35);
       // the whistle sings in some gusts of a blow, never as a steady tone
       this.whistle.gain.setTargetAtTime(blow > 0.55 && r() < 0.55 ? (blow - 0.55) * (0.3 + 0.5 * r()) : 0, at, d * 0.3);
       // driving rain: sheets of it come with the gusts
@@ -813,7 +850,14 @@ export class Ambience {
         N.nightjar = at + (40 + r() * 80) / thin;
       }
     } else N.nightjar = Math.max(N.nightjar, now + 10 + r() * 20);
-    // the anniversary bell, once its clips are ready
+    // event clips that waited for their synthesis
+    if (this.pending.length) {
+      this.pending = this.pending.filter((p) => {
+        if (now > p.at + 2) return false;
+        return !this.play(p.kind, Math.max(p.at, now + 0.05), this.farBus, p.level, p.pan);
+      });
+    }
+    // the anniversary bell (and a death's bell), once its clips are ready
     if (this.knell) {
       this.need("tolling");
       if (this.play("tolling", now + 0.2, this.tollLp, this.knell.level, this.knell.pan, 0.6)) this.knell = null;
@@ -936,6 +980,9 @@ export class Ambience {
     }
   }
 
+  /** Have a lazy kind ready ahead of a cue the controller knows is coming (e.g. a front's far thunder). */
+  prepare(kind: ClipKind): void { if (!this.disposed) this.need(kind); }
+
   /** Ask the bank for lazy kinds; start synthesising if it was idle. */
   private need(...kinds: ClipKind[]): void {
     const busy = this.bank.pending;
@@ -1012,10 +1059,51 @@ export class Ambience {
    * A dead coin's anniversary (deathDate, D11: the Wreck Cove panel says "anniversary today"): one low bronze
    * bell from the cove, the hour bell slowed to 0.6. The controller rings it at most once per visit.
    */
-  anniversary(level: number, pan: number): void {
+  anniversary(level: number, pan: number): void { this.coveBell(level, pan); }
+
+  /** One low bronze bell from Wreck Cove (an anniversary, or a death staged as a moment). */
+  coveBell(level: number, pan: number): void {
     if (this.disposed) return;
     this.knell = { level: Math.max(0, Math.min(1, level)), pan };
   }
+
+  /** A launch (staged moment): the bell buoy struck twice, softly, a slow breath apart. */
+  launchBell(pan: number): void {
+    if (this.disposed) return;
+    const at = this.ac.currentTime + 0.4, p = Math.max(-0.8, Math.min(0.8, pan));
+    this.play("bell", at, this.bellBus, 0.55, p, 1);
+    this.play("bell", at + 1.9, this.bellBus, 0.42, p, 0.995);
+  }
+
+  /** A far event clip (the conch, the gun) `delay` s from now, once synthesised. */
+  private far(kind: ClipKind, delay: number, level: number, pan: number): void {
+    if (this.disposed) return;
+    this.need(kind);
+    this.pending.push({ kind, at: this.ac.currentTime + delay, level: Math.max(0, Math.min(1, level)) * settleRate(this.inputs.attention), pan: Math.max(-0.8, Math.min(0.8, pan)) });
+  }
+
+  /**
+   * A ship under way slides past the listener: her bow wash swept from `pan0` to `pan1` over ~2 s, and her
+   * canvas shaking once as she comes abeam. The caller limits the rate; nothing under reduced motion.
+   */
+  passing(level: number, pan0: number, pan1: number): void {
+    if (this.disposed || this.inputs.reduced || !(level > 1e-3)) return;
+    this.need("swish", "flap");
+    const buf = this.bank.pick("swish", this.rnd);
+    if (!buf) return;
+    const ac = this.ac, at = ac.currentTime + 0.05, lv = Math.min(1, level) * settleRate(this.inputs.attention);
+    const c = (p: number) => Math.max(-0.85, Math.min(0.85, p));
+    const s = ac.createBufferSource(); s.buffer = buf; s.playbackRate.value = 0.94 + this.rnd() * 0.12;
+    const g = ac.createGain(); g.gain.value = lv * (buf.numberOfChannels === 1 ? Math.SQRT2 : 1);
+    const p = ac.createStereoPanner();
+    p.pan.setValueAtTime(c(pan0), at); p.pan.linearRampToValueAtTime(c(pan1), at + buf.duration);
+    s.connect(g).connect(p).connect(this.passBus);
+    s.start(at);
+    this.play("flap", at + 0.7 + this.rnd() * 0.4, this.passBus, 0.6 * lv, c((pan0 + pan1) / 2), 0.95 + this.rnd() * 0.1);
+  }
+
+  /** A titan home at her berth: a soft, distant conch from where she lies. */
+  conch(level: number, pan: number): void { this.far("conch", 0.3, level, pan); }
 
   private music: GainNode | null = null;
   /** Where the (separately loaded) music joins the mix: after the settle and the snow hush, with a little of the slap-back. */
@@ -1031,8 +1119,10 @@ export class Ambience {
 
   /** A UI cue: one tiny paper-or-wood sound, centred, dry (no echo, no distance). */
   cue(name: CueName): void {
-    if (this.disposed || !CUE_KIND[name]) return;
-    this.play(CUE_KIND[name], this.ac.currentTime + 0.01, this.cueBus, 1, 0, 0.97 + this.rnd() * 0.06);
+    if (this.disposed) return;
+    if (name === "evening-gun") { this.far("gun", EVENING_GUN_DELAY, 1 - 0.5 * this.inputs.storm, this.inputs.firePan * 0.4); return; }
+    const kind = CUE_KIND[name];
+    if (kind) this.play(kind, this.ac.currentTime + 0.01, this.cueBus, 1, 0, 0.97 + this.rnd() * 0.06);
   }
 
   /**

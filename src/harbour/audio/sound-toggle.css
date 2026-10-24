@@ -8,8 +8,16 @@
 .hb-sound::before {
   content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 0.5px; background: var(--brass-soft);
 }
-.hb-sound:hover, .hb-sound[aria-expanded="true"] { color: var(--ink); background: rgba(166, 130, 66, 0.1); }
-.hb-sound:focus-visible { outline-offset: -2px; }
+.hb-sound:hover, .hb-sound-more:hover, .hb-sound-more[aria-expanded="true"] { color: var(--ink); background: rgba(166, 130, 66, 0.1); }
+.hb-sound:focus-visible, .hb-sound-more:focus-visible { outline-offset: -2px; }
+/* the caret beside the speaker: the menu of the three states */
+.hb-sound-more {
+  align-self: stretch; display: grid; place-items: center; width: 14px; margin-left: -2px; padding: 0 3px 0 0;
+  color: var(--ink-3); transition: color 150ms var(--ease), background-color 150ms var(--ease);
+}
+.hb-sound-more svg { display: block; }
+.hb-sound-more path { fill: none; stroke: currentColor; stroke-width: 1.1; stroke-linecap: round; stroke-linejoin: round; }
+@media (pointer: coarse) { .hb-sound-more { width: 28px; min-height: 44px; } }
 .hb-sound svg { display: block; overflow: visible; }
 .hb-sound svg path { fill: none; stroke: currentColor; stroke-width: 1.15; stroke-linecap: round; stroke-linejoin: round; }
 .hb-sound .hb-sound-body { fill: rgba(166, 130, 66, 0.16); }
@@ -41,4 +49,4 @@
 .hb-sound-menu button[aria-checked="true"]::before { background: var(--brass); box-shadow: none; }
 .hb-sound-menu button:hover, .hb-sound-menu button:focus-visible { background: rgba(166, 130, 66, 0.13); color: var(--ink); }
 .hb-sound-menu button:focus-visible { outline-offset: -1px; }
-.hb-reduced .hb-sound, .hb-reduced .hb-sound *, .hb-reduced .hb-sound-menu * { transition-duration: 1ms; }
+.hb-reduced .hb-sound, .hb-reduced .hb-sound *, .hb-reduced .hb-sound-more, .hb-reduced .hb-sound-menu * { transition-duration: 1ms; }

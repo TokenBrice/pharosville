@@ -1,6 +1,8 @@
 import type { EngineContext } from "../engine/types";
 import type { HarbourLayout, Vec2, Vec3 } from "../layout/types";
 import { anniversaryToday, worldToday } from "../model/anniversary";
+import { TITANS } from "../fleet/titans";
+import { FRONT_HERE, FRONT_MIN, targetsForLevel } from "../weather/director";
 import type { Ambience, AmbienceInputs } from "./ambience";
 
 /**
@@ -24,11 +26,13 @@ interface LitLayout { lights?: Array<{ kind: string; position: Vec3 }> }
  * must never depend on it being there. DEWS level 0..4 (continuous), eased by the director.
  */
 export interface WeatherLike {
-  readonly state?: { readonly level?: number | null; readonly wind?: number; readonly rain?: number; readonly snow?: number; readonly wetness?: number };
+  readonly state?: { readonly front?: FrontLike | null; readonly level?: number | null; readonly wind?: number; readonly rain?: number; readonly snow?: number; readonly wetness?: number };
   readonly band?: string | null;
   readonly precip?: { readonly rain?: number; readonly snow?: number };
   onLightning?(cb: (e: StrikeLike) => void): (() => void) | void;
 }
+/** The weather director's W01 front (sky lane): from/to DEWS levels and its sweep 0 (upwind horizon) … 1. */
+export interface FrontLike { readonly from: number; readonly to: number; readonly progress: number }
 export interface StrikeLike { distanceKm?: number; thunderDelaySec?: number; intensity?: number; azimuth?: number }
 /** The 'season' service (calendar): weights in contract order spring, summer, autumn, winter. */
 export interface SeasonLike { readonly weights?: readonly number[]; readonly snowCover?: number }
@@ -41,6 +45,16 @@ interface Vec3Like { readonly x: number; readonly z: number }
 interface BeamLike { reach?(): number }
 /** The 'model' service: the dead coins (Wreck Cove), read structurally. */
 interface WreckModel { readonly readings?: { readonly wrecks?: ReadonlyArray<{ readonly deathDate?: string }> } }
+/** The shared gust field (weather/gust.ts, service 'gust'): the field now at (x, z), 0..1 unscaled. */
+interface GustLike { at?(x: number, z: number): number; readonly dirX?: number; readonly dirZ?: number }
+/** The 'events' service (model/event-hub.ts): staged moments only, already budgeted by the scheduler. */
+interface EventsLike { readonly current?: unknown; onMoment?(fn: (m: { event: { kind: string; coinId: string | null } }) => void): () => void }
+/** The 'sim' service: its events (dockings) and the poses (positions, speeds, phases), read structurally. */
+export interface SimLike {
+  onEvent?(cb: (e: { id: string; kind: string; x: number; z: number }) => void): () => void;
+  indexOf?(id: string): number;
+  readonly pose?: { readonly count: number; readonly position: Float32Array; readonly heading: Float32Array; readonly speed: Float32Array; readonly phase: Uint8Array };
+}
 interface PsiReadings { readonly psi?: { readonly lit?: boolean; readonly reach?: number } }
 
 const BAND_LEVEL: Record<string, number> = { CALM: 0, WATCH: 1, ALERT: 2, WARNING: 3, DANGER: 4 };
@@ -152,6 +166,48 @@ export function behindOf(dx: number, dz: number, fx: number, fz: number): number
   return Math.max(0, Math.min(1, -(dx * fx + dz * fz) / (Math.hypot(dx, dz) + 40)));
 }
 
+/** Where in a rising front's sweep its far thunder rolls: two, while it is still out over the upwind sea. */
+export const FRONT_ROLLS = [0.07, 0.21] as const;
+
+/**
+ * Thunder ahead of a storm front: how many far rolls are due by now (0..2), or -1 when there are none to come
+ * — no front, an easing (clearing) front, a jump under FRONT_MIN, a front that brings no lightning (below
+ * Warning: the same `strikesPerMin` the sky's lightning uses), or one already overhead (the local storm then
+ * speaks for itself). The director never sends a front on the first reading or under reduced motion.
+ */
+export function frontThunderDue(f: FrontLike | null | undefined): number {
+  if (!f || !(f.to - f.from >= FRONT_MIN) || !(targetsForLevel(f.to).strikesPerMin > 0) || !(f.progress < FRONT_HERE[0])) return -1;
+  return FRONT_ROLLS.filter((p) => f.progress >= p).length;
+}
+
+/** The titans' conch: at most one per this many seconds, whatever the dockings. */
+export const CONCH_GAP_SEC = 180;
+
+/** The staged-moment kinds the harbour answers by ear (depeg and recovery deliberately none: never alarming). */
+export type MomentCue = "launch-bell" | "cove-bell" | null;
+export function momentCue(kind: string): MomentCue {
+  return kind === "launch" ? "launch-bell" : kind === "death" ? "cove-bell" : null;
+}
+
+/**
+ * A titan home at her berth (sim docking of one of the four TITANS): the conch sounds unless one sounded in
+ * the last CONCH_GAP_SEC, or a staged moment holds the stage (the scheduler's moment is never talked over).
+ */
+export function conchDue(id: string, nowSec: number, lastSec: number, staging: boolean): boolean {
+  return !!TITANS[id] && !staging && !(nowSec - lastSec < CONCH_GAP_SEC);
+}
+
+/** A ship passes the listener within this (m, on the water), under way at least PASS_MIN_SPEED (m/s). */
+export const PASS_RADIUS = 60, PASS_MIN_SPEED = 0.6;
+/** At most PASS_MAX passing-hull sounds in any PASS_WINDOW_SEC. */
+export const PASS_MAX = 2, PASS_WINDOW_SEC = 10;
+
+/** Rate limit of the passing hulls: may one sound at `nowSec`, given the recent ones (pruned in place)? */
+export function passAllowed(recent: number[], nowSec: number): boolean {
+  while (recent.length && nowSec - recent[0] >= PASS_WINDOW_SEC) recent.shift();
+  return recent.length < PASS_MAX;
+}
+
 /** The visitor's attention from the seconds since their last input: 1 for 3 min, then down to 0 over 60 s. */
 export function attentionFor(idleSec: number): number {
   return idleSec < 180 ? 1 : Math.max(0, 1 - (idleSec - 180) / 60);
@@ -167,8 +223,20 @@ export class Feeder {
   /** the anniversary bell rings at most once per visit; it waits until the sound has played a while */
   private rang = false;
   private readonly startedAt = performance.now();
+  /** the rising front being heard, and how many of its far rolls have sounded */
+  private front: FrontLike | null = null;
+  private frontRolled = 0;
   /** the camera's right on the ground, kept for placing thunder */
   private readonly right: Vec2 = [1, 0];
+  /** the listener (on the camera ray) and the last inputs, for placing the event cues between readings */
+  private readonly ear: Vec3 = [0, 0, 0];
+  private last: Partial<AmbienceInputs> = {};
+  private unsubMoment: (() => void) | null = null;
+  private unsubSim: (() => void) | null = null;
+  private conchAt = -Infinity;
+  /** each hull's last distance from the listener (passing hulls), and the recent passes' times */
+  private passD = new Float32Array(0);
+  private passes: number[] = [];
 
   constructor(private readonly ctx: EngineContext, private readonly amb: Ambience) {}
 
@@ -202,6 +270,7 @@ export class Feeder {
       const lx = t.x + (cam.x - t.x) * 0.45, ly = t.y + (cam.y - t.y) * 0.45, lz = t.z + (cam.z - t.z) * 0.45;
       const rl = Math.hypot(e[0], e[2]) || 1, rx = e[0] / rl, rz = e[2] / rl;   // the camera's right, on the ground
       this.right[0] = rx; this.right[1] = rz;
+      this.ear[0] = lx; this.ear[1] = ly; this.ear[2] = lz;
       const near = (dg: number, h: number, ref: number) => Math.min(1, (ref * ref) / (dg * dg + h * h + 1));
       const pan = (x: number, z: number) => { const dx = x - lx, dz = z - lz; return Math.max(-1, Math.min(1, (dx * rx + dz * rz) / (Math.hypot(dx, dz) + 40))); };
       // the camera looks down its -z: its forward on the ground; how far behind the listener's look a source lies
@@ -232,6 +301,10 @@ export class Feeder {
         inputs.burnPan = pan(S.burn[0], S.burn[2]); inputs.burnBack = back(S.burn[0], S.burn[2]);
         inputs.burnRate = burnRateOf(civic);
       } else inputs.burn = 0;
+      // the wind's gusts are the shared cat's-paws (the ones that heel the fleet), felt where the listener is
+      const g = ctx.services.get("gust") as GustLike | undefined;
+      const paw = g?.at?.(lx, lz);
+      inputs.paw = paw != null && Number.isFinite(paw) ? Math.max(0, Math.min(1, paw)) : -1;
       if (S.cove) { inputs.cove = near(Math.hypot(S.cove[0] - lx, S.cove[1] - lz), ly, 120); inputs.covePan = pan(S.cove[0], S.cove[1]); }
       this.knell(amb, inputs);
       if (S.ship) {
@@ -245,8 +318,93 @@ export class Feeder {
       if (S.trees.length) inputs.treesPan = pan(hit[0], hit[1]);
     }
     amb.set(inputs);
+    this.last = inputs;
+    this.listen();
+    if (L) this.passing(amb, !!inputs.reduced);
     this.beam(amb, inputs);
+    this.frontThunder(amb, weather?.state?.front);
     return inputs;
+  }
+
+  /** Pan and nearness (0..1, `ref` m) of a world point for the listener. */
+  private place(x: number, z: number, ref: number): { pan: number; near: number } {
+    const [lx, ly, lz] = this.ear, dx = x - lx, dz = z - lz;
+    return {
+      pan: Math.max(-1, Math.min(1, (dx * this.right[0] + dz * this.right[1]) / (Math.hypot(dx, dz) + 40))),
+      near: Math.min(1, (ref * ref) / (dx * dx + dz * dz + ly * ly + 1)),
+    };
+  }
+
+  /** Subscribe (once each service is there) to the staged moments and to the sim's dockings. */
+  private listen(): void {
+    const { ctx } = this;
+    const ev = ctx.services.get("events") as EventsLike | undefined;
+    const sim = ctx.services.get("sim") as SimLike | undefined;
+    if (!this.unsubMoment && ev?.onMoment) this.unsubMoment = ev.onMoment((m) => this.moment(m.event.kind, m.event.coinId));
+    if (!this.unsubSim && sim?.onEvent) {
+      this.unsubSim = sim.onEvent((e) => {
+        if (e.kind !== "docking") return;
+        const t = performance.now() / 1000;
+        if (!conchDue(e.id, t, this.conchAt, !!(ctx.services.get("events") as EventsLike | undefined)?.current)) return;
+        this.conchAt = t;
+        const p = this.place(e.x, e.z, 160);
+        this.amb.conch(0.45 + 0.4 * p.near, p.pan * 0.7);
+      });
+    }
+  }
+
+  /**
+   * Ships under way passing the listener (a decorative mirror of the sim's motion): one crossing into
+   * PASS_RADIUS at a time, at most PASS_MAX per PASS_WINDOW_SEC, none under reduced motion or from high up.
+   */
+  private passing(amb: Ambience, reduced: boolean): void {
+    const pose = (this.ctx.services.get("sim") as SimLike | undefined)?.pose;
+    if (!pose) return;
+    const n = pose.count, [lx, ly, lz] = this.ear;
+    if (this.passD.length !== n) { this.passD = new Float32Array(n).fill(Infinity); }
+    const high = ly > 140, t = performance.now() / 1000;
+    let warm = false;
+    for (let i = 0; i < n; i++) {
+      const ph = pose.phase[i], v = pose.speed[i];
+      const x = pose.position[i * 3], z = pose.position[i * 3 + 2];
+      const d = Math.hypot(x - lx, z - lz), was = this.passD[i];
+      this.passD[i] = d;
+      // under way: casting off, sailing, approaching (sim PHASES 1..3)
+      if (ph < 1 || ph > 3 || !(v > PASS_MIN_SPEED) || reduced || high) continue;
+      if (d < 3 * PASS_RADIUS) warm = true;
+      if (!(d <= PASS_RADIUS && was > PASS_RADIUS) || !passAllowed(this.passes, t)) continue;
+      this.passes.push(t);
+      const h = pose.heading[i], ahead = Math.min(18, v * 2.4);
+      const a = this.place(x, z, 45), b = this.place(x + Math.sin(h) * ahead, z + Math.cos(h) * ahead, 45);
+      amb.passing(0.35 + 0.65 * a.near, a.pan * 0.8, b.pan * 0.8);
+    }
+    if (warm) { amb.prepare("swish"); amb.prepare("flap"); }
+  }
+
+  /** A staged moment (the scheduler's: rare, budgeted, nothing under reduced motion): its sound, if any. */
+  private moment(kind: string, coinId: string | null): void {
+    const cue = momentCue(kind), I = this.last;
+    if (cue === "cove-bell") this.amb.coveBell(0.45 + 0.4 * (I.cove ?? 0), (I.covePan ?? 0) * 0.6);
+    else if (cue === "launch-bell") {
+      const sim = this.ctx.services.get("sim") as SimLike | undefined;
+      const i = coinId && sim?.indexOf ? sim.indexOf(coinId) : -1, pos = sim?.pose?.position;
+      this.amb.launchBell(i >= 0 && pos ? this.place(pos[i * 3], pos[i * 3 + 2], 160).pan * 0.6 : (I.shipPan ?? 0) * 0.6);
+    }
+  }
+
+  /** A storm front rising over the upwind horizon: two far, low rolls from that side before its rain arrives. */
+  private frontThunder(amb: Ambience, f: FrontLike | null | undefined): void {
+    const due = frontThunderDue(f);
+    if (due < 0 || !f) { this.front = null; return; }
+    // a new front (the director's object): heard from now on, at most one roll at once if it is already under way
+    if (f !== this.front) { this.front = f; this.frontRolled = Math.max(0, due - 1); amb.prepare("rumble"); }
+    if (due <= this.frontRolled) return;
+    this.frontRolled = due;
+    // from upwind: against the gust field's downwind direction, across the camera's right
+    const g = this.ctx.services.get("gust") as GustLike | undefined;
+    const ux = -(g?.dirX ?? 0), uz = -(g?.dirZ ?? 0);
+    const pan = Math.max(-1, Math.min(1, ux * this.right[0] + uz * this.right[1]));
+    amb.thunder(20 + 8 * due, 0.3, pan * 0.8, 0.4);
   }
 
   /** A dead coin's anniversary today (the panel's "anniversary today"): the cove's bell, once per visit. */
@@ -289,5 +447,9 @@ export class Feeder {
     amb.thunder(km, e.intensity ?? 0.6, pan * 0.8, e.thunderDelaySec ?? (km * 1000) / 343);
   }
 
-  dispose(): void { this.unsubStrike?.(); this.unsubStrike = null; }
+  dispose(): void {
+    this.unsubStrike?.(); this.unsubStrike = null;
+    this.unsubMoment?.(); this.unsubMoment = null;
+    this.unsubSim?.(); this.unsubSim = null;
+  }
 }

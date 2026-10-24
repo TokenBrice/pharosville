@@ -7,16 +7,17 @@ const MODES: ReadonlyArray<[SoundMode, string]> = [["off", "Sound off"], ["ambie
 const SAY: Record<SoundMode, string> = { off: "off", ambient: "ambient sound", music: "ambient sound and music" };
 
 /**
- * The speaker beside the wordmark: opt-in sound (D13), off by default, remembered per visitor. A small menu
- * (three states, D-7): off, the ambience, or the ambience with music. Drawn in the chart voice: a thin ink
- * speaker; sound waves when on, a hairline cross when off, a small note in place of the far wave when the music plays.
+ * The speaker beside the wordmark: opt-in sound (D13), off by default, remembered per visitor. One click on
+ * the speaker turns the sound on or off (back to the visitor's last choice: the ambience, or the ambience with
+ * music); the small caret beside it opens the menu of the three states (D-7). Drawn in the chart voice: a thin
+ * ink speaker; sound waves when on, a hairline cross when off, a small note in place of the far wave when the music plays.
  */
 export function SoundToggle() {
   const store = useStore();
   const ctl = useMemo(() => getSoundController(store.ctx), [store]);
   const mode = useSyncExternalStore(ctl.subscribe, () => ctl.mode, () => "off" as SoundMode);
   const [open, setOpen] = useState(false);
-  const btn = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
+  const btn = useRef<HTMLButtonElement>(null), caret = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
   // the chart table's foley: a panel opened / closed / turned to another place, the ledger opened / closed
   // (watched here, so no UI file carries a sound hook; cue() is a no-op unless the sound is playing)
   useEffect(() => {
@@ -37,7 +38,7 @@ export function SoundToggle() {
     return () => removeEventListener("pointerdown", away, { capture: true });
   }, [open]);
 
-  const close = (refocus: boolean) => { setOpen(false); if (refocus) btn.current?.focus(); };
+  const close = (refocus: boolean) => { setOpen(false); if (refocus) caret.current?.focus(); };
   const onMenuKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])];
     const i = items.indexOf(document.activeElement as HTMLElement);
@@ -53,11 +54,9 @@ export function SoundToggle() {
   return (
     <span className="hb-sound-wrap">
       <button
-        ref={btn} type="button" className="hb-sound" data-mode={mode}
-        aria-haspopup="menu" aria-expanded={open} aria-controls={open ? "hb-sound-menu" : undefined}
-        aria-label={`Sound: ${SAY[mode]}. Choose sound.`} title={`Sound: ${SAY[mode]}`}
-        onClick={() => setOpen((o) => !o)}
-        onKeyDown={(e) => { if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); setOpen(true); } }}
+        ref={btn} type="button" className="hb-sound" data-mode={mode} aria-pressed={mode !== "off"}
+        aria-label="Sound" title={`Sound: ${SAY[mode]}`}
+        onClick={() => { setOpen(false); ctl.toggle(); }}
       >
         <svg viewBox="0 0 20 16" width="20" height="16" aria-hidden="true">
           <path className="hb-sound-body" d="M2.5 5.6h2.8L9.2 2.3v11.4L5.3 10.4H2.5z" />
@@ -68,6 +67,14 @@ export function SoundToggle() {
           <path className="hb-sound-off" d="M12.4 5.6l4.6 4.8M17 5.6l-4.6 4.8" />
           <g className="hb-sound-note"><path d="M16.6 10V3.6c.9.3 1.6.9 1.9 1.8" /><ellipse cx="15.2" cy="10.2" rx="1.55" ry="1.15" transform="rotate(-20 15.2 10.2)" /></g>
         </svg>
+      </button>
+      <button
+        ref={caret} type="button" className="hb-sound-more" aria-haspopup="menu" aria-expanded={open}
+        aria-controls={open ? "hb-sound-menu" : undefined} aria-label="Sound options" title="Sound options"
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => { if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); setOpen(true); } }}
+      >
+        <svg viewBox="0 0 8 16" width="8" height="16" aria-hidden="true"><path d="M1.5 6.5L4 9l2.5-2.5" /></svg>
       </button>
       {open && (
         <div ref={menu} id="hb-sound-menu" role="menu" aria-label="Sound" className="hb-sound-menu hb-paper hb-neat" onKeyDown={onMenuKey}>

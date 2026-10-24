@@ -31,7 +31,11 @@ export type ClipKind = "shore" | "lap" | "reef" | "crackle" | "press" | "halyard
   // the day clock (decorative): night birds, the harbour's hour bell
   | "owl" | "nightjar" | "tolling"
   // paper-and-wood UI foley (only while the sound is on)
-  | "unroll" | "latch" | "flick";
+  | "unroll" | "latch" | "flick"
+  // event cues (staged moments, a titan home, the evening gun): rare, far and soft
+  | "conch" | "gun"
+  // a ship under way passing the listener (decorative mirror of the sim's motion)
+  | "swish" | "flap";
 
 /** mulberry32: small, fast, seedable. */
 export function makeRng(seed: number): Rng {
@@ -1178,6 +1182,125 @@ export function* flick(seed: number, sr: number): Generator<void, Clip> {
   return { sr, L, R };
 }
 
+// ---------------------------------------------------------------------------------------------------------
+// Event cues: rare, far, soft — never a "ding"
+// ---------------------------------------------------------------------------------------------------------
+
+/**
+ * A titan comes home: a conch blown far off — a hollow, breathy tone near B♭3 that scoops up into pitch,
+ * swells once and falls away at its end, heard through distance (dark). 3.8 s.
+ */
+export function* conch(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 3.8, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const f0 = 233 * range(r, 0.97, 1.03), vib = range(r, 4, 5.2), vph = r() * TAU;
+  const breath = new Svf(sr), dark = new Svf(sr);
+  breath.set(f0 * 2, 3); dark.set(1100, 0.6);
+  const parts: ReadonlyArray<readonly [number, number]> = [[1, 1], [2, 0.32], [3, 0.12], [4, 0.04]];
+  const ph = parts.map(() => r() * TAU);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    // a slow breath: 0.4 s in, a swell at ~1.3 s, the lip tiring after 2.3 s
+    const env = smooth(t / 0.4) * (0.85 + 0.15 * Math.sin(Math.PI * Math.min(1, t / 2.6))) * (1 - smooth((t - 2.3) / 0.85));
+    // the scoop up into pitch, a little vibrato, and the fall at the end
+    const bend = 1 - 0.035 * Math.exp(-t / 0.12) + 0.003 * Math.sin(TAU * vib * t + vph) - 0.04 * smooth((t - 2.5) / 0.7);
+    let v = 0;
+    for (let k = 0; k < parts.length; k++) {
+      ph[k] += (TAU * f0 * parts[k][0] * bend) / sr;
+      v += Math.sin(ph[k]) * parts[k][1];
+    }
+    breath.run(N());
+    dark.run(v * 0.3 * env + breath.bp * 0.05 * env);
+    L[i] = dark.lp;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  R.set(L);
+  seal({ L, R }, sr, 0.01, 0.2);
+  limit({ L, R }, 0.5);
+  return { sr, L, R };
+}
+
+/**
+ * The evening gun from across the bay: a dull report (a low thump with no crack: the distance has eaten
+ * it), the air's short boom, and its echo rolling back off the hills. 3.5 s.
+ */
+export function* gun(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 3.5, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const thump = new Svf(sr), roll = new Svf(sr);
+  const fT = range(r, 120, 170), fR = range(r, 80, 110);
+  thump.set(fT, 0.8); roll.set(fR, 0.7);
+  const kT = 0.35 / lpRms(fT, sr), kR = 0.12 / lpRms(fR, sr);
+  const echo = range(r, 0.55, 0.9), echo2 = echo + range(r, 0.6, 0.9), ph = r() * TAU, f = range(r, 44, 52);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr, u = t - 0.02;
+    const e = u < 0 ? 0 : smooth(u / 0.012) * Math.exp(-u / 0.18);
+    const boom = u < 0 ? 0 : Math.sin(ph + TAU * f * u) * smooth(u / 0.02) * Math.exp(-u / 0.35) * 0.18;
+    const re = swell(t, echo, 0.45) * 0.55 + swell(t, echo2, 0.6) * 0.25;
+    thump.run(N()); roll.run(N());
+    L[i] = thump.lp * kT * e + boom + roll.lp * kR * re;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  R.set(L);
+  seal({ L, R }, sr, 0.004, 0.6);
+  limit({ L, R }, 0.6);
+  return { sr, L, R };
+}
+
+/**
+ * A hull under way slides past: the bow wave's hiss swelling and falling (a band of noise that brightens as
+ * she comes abeam), a few bubbles in her wake, and the low slop of the wash. 2.4 s.
+ */
+export function* swish(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 2.4, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const hiss = new Svf(sr), slop = new Svf(sr), peakAt = range(r, 0.9, 1.2), f0 = range(r, 500, 700), f1 = range(r, 1500, 2100);
+  const kS = 0.2 / lpRms(160, sr);
+  slop.set(160, 0.7);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr, e = swell(t, peakAt, 0.55);
+    if ((i & 15) === 0) hiss.set(f0 * Math.pow(f1 / f0, e), 0.8);
+    hiss.run(N()); slop.run(N());
+    const v = hiss.bp * 0.16 * e + slop.lp * kS * 0.12 * swell(t, peakAt + 0.25, 0.7);
+    L[i] = v; R[i] = v;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  for (let k = 0, m = 4 + Math.floor(r() * 6); k < m; k++) {
+    const f = logRange(r, 500, 1800);
+    grain(L, R, sr, peakAt + range(r, 0, 0.9), f, range(r, 6, 12) / f, 0.01 + 0.02 * r(), 0, 0.3, r() * TAU);
+  }
+  seal({ L, R }, sr, 0.05, 0.3);
+  limit({ L, R }, 0.5);
+  return { sr, L, R };
+}
+
+/** Her canvas shakes once as she passes: three to five soft flogs of sailcloth, quickly dying. 0.9 s. */
+export function* flap(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 0.9, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const body = new Svf(sr), cloth = new Svf(sr);
+  body.set(range(r, 180, 320), 1.2); cloth.set(range(r, 900, 1400), 0.9);
+  const hits: number[] = [];
+  for (let t = 0.02, k = 0, m = 3 + Math.floor(r() * 3); k < m; k++, t += range(r, 0.09, 0.14)) hits.push(t);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    let e = 0;
+    for (let k = 0; k < hits.length; k++) { const u = t - hits[k]; if (u > 0) e += Math.pow(0.7, k) * smooth(u / 0.006) * Math.exp(-u / 0.035); }
+    const w = N() * e;
+    body.run(w); cloth.run(w);
+    const v = body.bp * 0.22 + cloth.bp * 0.06;
+    L[i] = v; R[i] = v;
+  }
+  yield;
+  seal({ L, R }, sr, 0.002, 0.2);
+  limit({ L, R }, 0.5);
+  return { sr, L, R };
+}
+
 export const SYNTHS: Record<ClipKind, (seed: number, sr: number) => Generator<void, Clip>> = {
   shore: (s, sr) => shoreWash(s, sr, { stone: (s & 3) === 3 }),
   lap,
@@ -1207,6 +1330,10 @@ export const SYNTHS: Record<ClipKind, (seed: number, sr: number) => Generator<vo
   unroll,
   latch,
   flick,
+  conch,
+  gun,
+  swish,
+  flap,
 };
 
 /** Run a synthesiser to completion (Node, tests). */
