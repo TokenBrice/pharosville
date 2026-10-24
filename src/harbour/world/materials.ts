@@ -10,6 +10,7 @@ import { BEAM_LIGHT_GLSL, beamLightUniforms } from "../beam/beam-light-glsl";
 import { getBeamUniforms } from "../beam/uniforms";
 import { LAMP_WAVE_GLSL, lampWaveUniforms } from "../lights/lamp-wave";
 import { DEW_GLSL, dewUniforms } from "../weather/dew";
+import { METAL_GLSL } from "./metal";
 
 /**
  * THE HARBOUR MATERIAL PORT — style C "Northern Light" (p1/style-c/nl_common.py build_kit_material,
@@ -546,7 +547,7 @@ export class HarbourMaterials {
       // winter / late-autumn bare crowns discard: compiled in only when the calendar can need it
       if (leafFallAt(this.uniforms) > 0.001) shader.defines = { ...shader.defines, HB_BARE: "" };
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}\n${AERIAL_GLSL}\n${RUNUP_GLSL}\n${BEAM_LIGHT_GLSL}\n${LANDMARK_HOVER_GLSL}`)
+        .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}\n${AERIAL_GLSL}\n${RUNUP_GLSL}\n${BEAM_LIGHT_GLSL}\n${LANDMARK_HOVER_GLSL}\n${METAL_GLSL}`)
         .replace("#include <color_fragment>", `
   vec3 hbVc = vec3(1.0);
   #if defined( USE_COLOR_ALPHA )
@@ -571,6 +572,9 @@ export class HarbourMaterials {
   }
   diffuseColor.a = 1.0;`)
         .replace("#include <roughnessmap_fragment>", "float roughnessFactor = hbRough;")
+        // gilt and bronze as metals (world/metal.ts); snow on them is snow, not silver
+        .replace("#include <metalnessmap_fragment>", "float metalnessFactor = hbMetal(hbPid, diffuseColor.rgb, roughnessFactor);")
+        .replace("#include <lights_physical_fragment>", "metalnessFactor *= 1.0 - hbSnow;\n#include <lights_physical_fragment>")
         .replace("#include <emissivemap_fragment>", `
   float hbSnow, hbPuddle;
   hbWeather(diffuseColor.rgb, roughnessFactor, inverseTransformDirection(normal, viewMatrix), hbPid, vHbWorld, hbSdW, hbSnow, hbPuddle);
@@ -590,7 +594,8 @@ export class HarbourMaterials {
     float hbCap = 0.005 + 0.5 * hbLuma(uHemiSky);
     float hbSl = hbLuma(reflectedLight.directSpecular);
     reflectedLight.directSpecular *= mix(1.0, min(1.0, hbCap / max(hbSl, 1e-5)), hbWetK);
-  }`)
+  }
+  hbMetalCap(reflectedLight.directSpecular, metalnessFactor);`)
         .replace("#include <opaque_fragment>", `
   {
     vec3 hbV = normalize(vViewPosition);
@@ -614,6 +619,7 @@ export class HarbourMaterials {
     }
     outgoingLight += uHbSunColor * hbDewGlint(hbPid, vHbWorld, hbNw, hbVw, uHbSunDir, hbSdW) * hbCs * 0.6;   // W12 dawn dew
     outgoingLight += hbLmHoverRim(vHbWorld, hbNw, hbVw, outgoingLight);
+    outgoingLight += hbMetalLight(metalnessFactor, diffuseColor.rgb, hbNw, hbVw, roughnessFactor, reflectedLight.directSpecular) * hbOcc;
   }
   hbAerial(outgoingLight, vHbWorld, 0.0);   // distance (decorative, world/aerial.ts)
   #include <opaque_fragment>`);

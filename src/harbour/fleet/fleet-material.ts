@@ -433,6 +433,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   m.name = "hb_fleet";
   m.onBeforeCompile = (shader, renderer) => {
     baseHook(shader, renderer);
+    shader.defines = { ...shader.defines, HB_FLEET: "" };   // world/metal.ts: only unpainted hull trim turns metal
     Object.assign(shader.uniforms, fleet, { uSunDir: u.uSunDir, uSunColor: u.uSunColor, uTime: fleet.uFleetTime, uLamp: u.uLamp });
     shader.vertexShader = shader.vertexShader
       .replace("#include <batching_pars_vertex>", `#include <batching_pars_vertex>\nuniform float uTime;\n${VERT_PARS}`)

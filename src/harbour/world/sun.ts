@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { EngineContext } from "../engine/types";
 import type { QualityService, QualitySettings } from "../engine/quality";
-import { sunShadowUniforms } from "./sun-shadow";
+import { NO_SHADOW, sunShadowUniforms } from "./sun-shadow";
 
 const UP_Y = new THREE.Vector3(0, 1, 0);
 const UP_Z = new THREE.Vector3(0, 0, 1);
@@ -94,7 +94,7 @@ export class SunRig {
     if (due || moved) { sm.needsUpdate = true; this.sinceShadow = 0; this.framesSinceShadow = 0; }
     // 02-L1: the sea samples the same map (world/sun-shadow.ts); 4 taps on High, 1 on Medium/Low
     const ss = sunShadowUniforms, map = this.key.shadow.map?.depthTexture ?? null;
-    ss.uKeyShadow.value = map;
+    ss.uKeyShadow.value = map ?? NO_SHADOW;
     ss.uKeyShadowMat.value = this.key.shadow.matrix;
     ss.uKeyShadowP.value.set(map ? 1 : 0, (this.key.shadow.radius * 0.8) / this.mapSize, q?.tier === "high" ? 4 : 1, this.key.shadow.intensity);
   }

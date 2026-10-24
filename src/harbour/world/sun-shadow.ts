@@ -5,9 +5,14 @@ import * as THREE from "three";
  * SunRig (world/sun.ts) fills these every frame; consumers read `hbSunShadow(worldPos)` (1 = sunlit). Module-level
  * uniforms, like the cloud shadows (one engine per page). Decorative: time of day only.
  */
+/** bound until the first shadow render: a compare-mode depth texture, so the shadow sampler always matches */
+export const NO_SHADOW = new THREE.DepthTexture(1, 1);
+NO_SHADOW.compareFunction = THREE.LessEqualCompare;
+NO_SHADOW.needsUpdate = true;   // (a never-uploaded texture binds as an empty colour texture: a sampler mismatch)
+
 export const sunShadowUniforms = {
-  /** the key light's depth map (hardware compare); null until the first shadow render */
-  uKeyShadow: { value: null } as THREE.IUniform<THREE.Texture | null>,
+  /** the key light's depth map (hardware compare); NO_SHADOW until the first shadow render */
+  uKeyShadow: { value: NO_SHADOW } as THREE.IUniform<THREE.Texture>,
   /** world → shadow uv/depth (three's light.shadow.matrix, shared by reference) */
   uKeyShadowMat: { value: new THREE.Matrix4() } as THREE.IUniform<THREE.Matrix4>,
   /** x enabled 0|1, y PCF radius in uv, z taps (1 | 4), w strength (shadow.intensity) */
