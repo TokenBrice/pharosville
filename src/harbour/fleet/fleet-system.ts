@@ -6,7 +6,7 @@ import type { OceanService } from "../ocean/ocean-system";
 import type { WakeService } from "../ocean/wake";
 import { hullSwellCache } from "../ocean/waves";
 import type { HarbourSim } from "../sim/sim";
-import { EV_TOW, MAX_TUGS, PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING } from "../sim/sim";
+import { EV_TO_SHOALS, EV_TOW, MAX_TUGS, PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING } from "../sim/sim";
 import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { EmblemAtlas } from "./emblems";
@@ -769,7 +769,9 @@ export class FleetSystem implements WorldSystem {
       // rig pose
       const target = b.wrecked ? 0 : targetSwing(h, windFrom, sail);
       b.swing = approach(b.swing, target, dt * 0.55);
-      const mo = this.motion(b, h, windFrom, sail, moving, target, gustSvc.at(x, z), windK, live, dt);
+      // canvas half loose and flogging: adrift to the Shoals, or aground there (07-M7)
+      const loose = pose!.event[i] === EV_TO_SHOALS || (ph === PH_ANCHORED && sim?.slotOf(i)?.kind === "shoals");
+      const mo = this.motion(b, h, windFrom, sail, moving, target, gustSvc.at(x, z), windK, live, dt, loose);
       // in a storm the sail drawing heels her hard over (the sim's heel follows the model's wind); a passing
       // cat's-paw leans her a little further (07-M4)
       const heelT = pose!.heel[i] * brail * (moving ? 1 + 1.3 * storm : 1) + mo.heel;
@@ -966,7 +968,7 @@ export class FleetSystem implements WorldSystem {
    * 07-M1 luff head to wind, 06-F2 belly (+ the gust's breath) and flog through a tack, 07-M4 the gust's heel and
    * surge, 06-F3 a galley's oars out while she is under way. Reduced motion (live → 0): no shake; the belly holds.
    */
-  private motion(b: BoatRec, h: number, windFrom: number, sail: number, moving: boolean, target: number, g: number, windK: number, live: number, dt: number): { fill: number; shake: number; heel: number; surge: number; yaw: number } {
+  private motion(b: BoatRec, h: number, windFrom: number, sail: number, moving: boolean, target: number, g: number, windK: number, live: number, dt: number, loose: boolean): { fill: number; shake: number; heel: number; surge: number; yaw: number } {
     const o = this.mo;
     const rel = Math.abs(wrapAngle(windFrom - h)); // 0 head to wind … π running
     const luff = moving ? sail * (1 - THREE.MathUtils.smoothstep(rel, 0.5, 0.78)) : 0;
@@ -975,7 +977,8 @@ export class FleetSystem implements WorldSystem {
     b.flog += ((tacking ? sail : 0) - b.flog) * (1 - Math.exp(-dt * (tacking ? 5 : 1.2)));
     const gk = g * (0.35 + 0.65 * windK);
     o.fill = moving ? sail * (1 - 0.75 * luff) * (0.5 + 0.3 * windK + 0.45 * gk) : sail * (0.12 + 0.3 * gk);
-    o.shake = live * Math.min(1, Math.max(0.5 * luff, b.flog));
+    o.shake = live * Math.min(1, Math.max(0.5 * luff, b.flog, loose ? 0.75 : 0));
+    if (loose) o.fill = sail * (0.15 + 0.2 * gk);
     const sa = Math.sin(windFrom - h);
     o.heel = moving ? sa * Math.abs(sa) * sail * gk * 0.05 : 0;
     o.surge = moving ? 0.25 * gk * sail : -0.35 * gk;

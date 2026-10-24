@@ -78,6 +78,12 @@ export interface TugBuffer {
 }
 /** Tug: towline length beyond the dying hull's bow (m, + 1.5 LOA), rowing speed home (m/s), turning radius (m). */
 const TUG_LINE = 6, TUG_V = 1.6, TUG_R = 6;
+/**
+ * 07-M7 adrift: a depegged hull drifts to the Shoals at this share of her pace, her canvas half loose and
+ * flogging, her head wandering (±ADRIFT_YAW rad about the path), listing more as she goes; on recovery she
+ * sheets home over SHEET_HOME_S and comes upright.
+ */
+const ADRIFT_PACE = 0.6, ADRIFT_YAW = 0.2, SHEET_HOME_S = 30;
 
 /** A sim event for listeners (audio, moments): the coin, what happened, where (world x, z). */
 export type SimEventKind = "launch" | "tow" | "to-shoals" | "rejoin" | "docking";
@@ -139,6 +145,8 @@ interface Voyage {
   endPhase: number;
   kind: number;
   startHeading: number;
+  /** She was aground on the Shoals when this voyage began (a recovery: canvas sheeted home, she comes upright). */
+  fromShoals?: boolean;
 }
 
 interface BoatRt {
@@ -318,6 +326,9 @@ export class HarbourSim {
   /** Seconds since she arrived at the slot she lies at / until she casts off from it (1e9: long ago / not soon). */
   private dockT = 1e9;
   private castT = 1e9;
+  /** The voyage being written (EV_*, 0 = a plan leg) and whether she began it aground on the Shoals. */
+  private vKind = 0;
+  private vFromShoals = false;
 
   /** @param coast the baked sea SDF's coast channel: hulls then keep off the island's real coastline */
   constructor(model: HarbourModel, layout: HarbourLayout, nowMs = Date.now(), coast: CoastGrid | null = null) {
@@ -631,11 +642,12 @@ export class HarbourSim {
     path.setFrom = sailSetAt(from ?? undefined); path.setTo = sailSetAt(L.slots[toSlot]);
     const startH = from ? (from.swing > 0 ? at.h : from.heading) : at.h;
     const nom = legTiming(path, 1e9, r.loa, newTiming(), startH, L.slots[toSlot].heading, false);
-    let D = kind === EV_TOW ? nom.tNom * 1.8 : nom.tNom;
+    // under tow, slow; adrift to the Shoals (07-M7), at ~0.6 of her pace
+    let D = kind === EV_TOW ? nom.tNom * 1.8 : kind === EV_TO_SHOALS ? nom.tNom / ADRIFT_PACE : nom.tNom;
     if (arriveAt != null) D = Math.max(nom.minD, arriveAt - t);
     const tm = legTiming(path, D, r.loa, newTiming(), startH, L.slots[toSlot].heading, false);
     if (this.launching) kind = EV_LAUNCH;
-    r.voyage = { path, tm, t0: t, D, endSlot: toSlot, endMode, endPhase, kind, startHeading: at.h };
+    r.voyage = { path, tm, t0: t, D, endSlot: toSlot, endMode, endPhase, kind, startHeading: at.h, fromShoals: from?.kind === "shoals" };
     r.mode = MODE_VOYAGE;
     if (kind === EV_TOW) r.tow = this.makeTow(r, path, tm, t);
     const ev = EV_KIND[kind];
@@ -919,6 +931,20 @@ export class HarbourSim {
     // through a tack or a gybe: no snap from one side to the other)
     const sa = Math.sin(this.wind.fromRad - o[2]);
     p.heel[i] = sa * Math.abs(sa) * o[4] * (0.05 + 0.1 * this.wind.strength);
+    if (this.vKind === EV_TO_SHOALS) {
+      // adrift (07-M7): sail half loose and flogging, her head wandering, the list of the Shoals coming on
+      const TAU = 2 * Math.PI, t = this.t, rem = o[6];
+      const prog = Math.min(1, Math.max(0, this.legT / Math.max(1, arrivalT(tm, path))));
+      const wander = Math.min(1, this.legT / 20) * Math.min(1, Math.max(0, rem / (r.loa * 2)));
+      p.heading[i] += ADRIFT_YAW * wander * (0.7 * Math.sin((TAU * t) / 23 + r.phi) + 0.3 * Math.sin((TAU * t) / 9.5 + r.phi * 1.7));
+      p.sailState[i] = Math.min(p.sailState[i], 0.25 + 0.08 * Math.sin((TAU * t) / 2.4 + r.phi));
+      p.heel[i] = -r.side * r.heelBase * prog * prog * (3 - 2 * prog) + 0.03 * Math.sin((TAU * t) / 6.5 + r.phi);
+    } else if (this.vFromShoals) {
+      // recovered (07-M7): her canvas sheeted home, she comes upright
+      const k0 = Math.min(1, this.legT / SHEET_HOME_S), k = k0 * k0 * (3 - 2 * k0);
+      p.sailState[i] = Math.min(p.sailState[i], 0.25 + 0.75 * k);
+      p.heel[i] = p.heel[i] * k - r.side * r.heelBase * (1 - k);
+    }
     if (r.wrecked) {
       // her last voyage (07-M6): canvas struck, under tow, a list growing as she goes
       p.sailState[i] = 0;
@@ -940,7 +966,9 @@ export class HarbourSim {
       const v = r.voyage;
       const tl = t - v.t0;
       if (tl < v.D) {
-        this.legT = tl; this.writeLeg(i, r, v.path, v.tm, v.endSlot); p.event[i] = v.kind;
+        this.legT = tl; this.vKind = v.kind; this.vFromShoals = !!v.fromShoals;
+        this.writeLeg(i, r, v.path, v.tm, v.endSlot); p.event[i] = v.kind;
+        this.vKind = 0; this.vFromShoals = false;
         const f = Math.min(1, tl / PUSH_FADE_S);
         this.pushF[i] = f * f * (3 - 2 * f);
         return;

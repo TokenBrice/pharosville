@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildHarbourModel } from "../model/build";
 import { CYCLE_S } from "./plan";
 import { DEAD_STABLECOINS } from "@shared/lib/dead-stablecoins";
-import { EV_TOW, HarbourSim, PH_SAILING, windVeer, type SimEvent } from "./sim";
+import { EV_REJOIN, EV_TO_SHOALS, EV_TOW, HarbourSim, PH_SAILING, windVeer, type SimEvent } from "./sim";
 import { makeLayout, makePayloads, PIERED, T0_MS } from "./test-fixtures";
 
 const layout = makeLayout();
@@ -72,5 +72,33 @@ describe("lane MOTION sim hooks", () => {
     expect(sim.tugs.count).toBe(0);
     // dockings are reported too
     expect(events.some((e) => e.kind === "docking")).toBe(true);
+  });
+
+  it("07-M7 adrift to the Shoals: half-loose canvas, slower than her pace, then sheeted home on recovery", () => {
+    const opts = { pieredChains: PIERED, dead: [] };
+    const first = buildHarbourModel(makePayloads(), T0_MS, opts);
+    const victim = first.boats.find((b) => b.state === "circuit" && b.hullClass === "small")!.id;
+    const sim = new HarbourSim(first, layout, T0_MS);
+    const t1 = T0_MS + 120_000;
+    sim.poseAt(t1);
+    sim.setModel(buildHarbourModel(makePayloads({ depegIds: [victim], nowMs: t1 }), t1, opts), t1);
+    const vi = sim.indexOf(victim);
+    let adrift = 0, maxSail = 0, s = 0;
+    for (; s < 3600; s += 5) {
+      const p = sim.poseAt(t1 + s * 1000);
+      if (p.event[vi] !== EV_TO_SHOALS) break;
+      adrift++; maxSail = Math.max(maxSail, p.sailState[vi]);
+    }
+    expect(adrift).toBeGreaterThan(5);
+    expect(maxSail).toBeLessThan(0.4);
+    const t2 = t1 + 60 * 60_000;
+    sim.poseAt(t2);
+    sim.setModel(buildHarbourModel(makePayloads({ nowMs: t2 }), t2, opts), t2);
+    let p = sim.poseAt(t2 + 2000);
+    expect(p.event[vi]).toBe(EV_REJOIN);
+    const early = p.sailState[vi];
+    p = sim.poseAt(t2 + 60_000);
+    if (p.event[vi] === EV_REJOIN) expect(p.sailState[vi]).toBeGreaterThan(early);
+    expect(early).toBeLessThan(0.5);
   });
 });
