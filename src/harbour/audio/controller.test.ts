@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { weatherInputs } from "./controller";
-import { birdThinning, cicadaLevel } from "./ambience";
+import { attentionFor, weatherInputs } from "./controller";
+import { birdThinning, cicadaLevel, settleDb, settleRate } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {
   it("absent services read as fair weather with no season colour", () => {
@@ -39,5 +39,26 @@ describe("harbour sound: summer cicadas", () => {
     expect(birdThinning(0)).toBe(1);
     expect(birdThinning(1)).toBeLessThan(birdThinning(0.5));
     expect(birdThinning(1)).toBeGreaterThan(0);
+  });
+});
+
+describe("harbour sound: the ten-minute settle", () => {
+  it("attention holds for three idle minutes, then eases to zero over one", () => {
+    expect(attentionFor(0)).toBe(1);
+    expect(attentionFor(179)).toBe(1);
+    expect(attentionFor(210)).toBeCloseTo(0.5);
+    expect(attentionFor(240)).toBe(0);
+    expect(attentionFor(3600)).toBe(0);
+  });
+
+  it("settled: 3 dB down and ~30 % sparser; the breathing never exceeds ±1.5 dB", () => {
+    let lo = Infinity, hi = -Infinity;
+    for (let t = 0; t < 3600; t += 1.3) { const d = settleDb(1, t, 0.7); lo = Math.min(lo, d); hi = Math.max(hi, d); }
+    expect(hi).toBeLessThanOrEqual(1.5 + 1e-9);
+    expect(lo).toBeGreaterThanOrEqual(-1.5 - 1e-9);
+    expect(hi - lo).toBeGreaterThan(2);          // it does breathe
+    for (const t of [0, 77, 400]) expect(settleDb(0, t, 0.7) - settleDb(1, t, 0.7)).toBeCloseTo(-3);
+    expect(settleRate(1)).toBe(1);
+    expect(settleRate(0)).toBeCloseTo(0.7);
   });
 });

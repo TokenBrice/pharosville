@@ -80,6 +80,8 @@ export interface AmbienceInputs {
   reduced: boolean;
   /** low quality tier (a weaker machine): skip the costlier storm layers (howl, spray, the second rain stream) */
   lean: boolean;
+  /** the visitor's attention 1 … 0 after a few idle minutes (the ten-minute settle: quieter, sparser) */
+  attention: number;
 }
 
 export interface AmbienceOptions {
@@ -90,6 +92,23 @@ export interface AmbienceOptions {
 
 const MASTER = 0.7;
 const TICK_MS = 120;
+/** at most this many one-shot events sound at once (the continuous beds and the data kinds always play) */
+const VOICES = 24;
+/** kinds that are a bed (overlapped clips), the swell itself, or data: never dropped by the voice cap */
+const ALWAYS = new Set<ClipKind>(["shore", "crackle", "drizzle", "rain", "cricket", "cicada", "thunder", "rumble"]);
+
+/**
+ * The ten-minute settle: after a while unwatched the whole mix eases down 3 dB, and it always breathes a
+ * slow ±1.5 dB (two incommensurate swells, 2.5 and ~3.9 min) so the scene never sits stationary. In dB.
+ */
+export function settleDb(attention: number, t: number, phase = 0): number {
+  const a = Math.max(0, Math.min(1, attention));
+  const breath = 0.6 * Math.sin((2 * Math.PI * t) / 150 + phase) + 0.4 * Math.sin((2 * Math.PI * t) / 233 + 2.1 * phase + 1);
+  return -3 * (1 - a) + 1.5 * breath;
+}
+
+/** Event-rate multiplier of the settle: 1 while watched … 0.7 (~30 % sparser) when settled. */
+export const settleRate = (attention: number) => 0.7 + 0.3 * Math.max(0, Math.min(1, attention));
 
 /** A stereo noise buffer with independent channels (width without phasiness) and a crossfaded seam. */
 function noiseBuffer(ac: BaseAudioContext, seconds: number, color: "white" | "pink", rnd: () => number): AudioBuffer {
@@ -169,7 +188,7 @@ export class Ambience {
     zoom: 0.5, wind: 0.35, fog: 0, night: 0, hour: 9, shore: 0.5, shorePan: 0, harbour: 0.5, reef: 0.2, reefPan: -0.5,
     fire: 0, firePan: 0, mint: 0, mintPan: 0, mintRate: 0.5,
     rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
-    town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false,
+    town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false, attention: 1,
   };
   private readonly rnd: () => number;
   private readonly bank: ClipBank;
@@ -230,6 +249,10 @@ export class Ambience {
   private readonly rustleBus: GainNode;
   private readonly rustleLp: BiquadFilterNode;
   private readonly crunchBus: GainNode;
+  // the ten-minute settle (and the slow breathing of the whole mix), and the one-shots now sounding
+  private readonly settle: GainNode;
+  private readonly breathPhase: number;
+  private voices: number[] = [];
   private timer = 0;
   private idle = 0;
   private next = {
@@ -258,7 +281,9 @@ export class Ambience {
     // thunder over a storm surf can never clip, at the cost of a table lookup per sample
     const safety = ac.createWaveShaper();
     safety.curve = softClipCurve();
-    this.out.connect(this.hush).connect(comp).connect(safety).connect(ac.destination);
+    this.settle = ac.createGain();
+    this.breathPhase = this.rnd() * Math.PI * 2;
+    this.out.connect(this.settle).connect(this.hush).connect(comp).connect(safety).connect(ac.destination);
     // the weather beds (wind, rain, spray, howl) pass through a duck that dips under a near thunderclap, so
     // the clap stands out of a downpour without pushing the mix toward full scale
     this.duck = ac.createGain(); this.duck.connect(this.out);
@@ -419,6 +444,13 @@ export class Ambience {
   private play(kind: ClipKind, at: number, to: AudioNode, level: number, pan = 0, rate = 1): void {
     const buf = this.bank.pick(kind, this.rnd);
     if (!buf) return;      // still being synthesised: the beds carry the scene meanwhile
+    // a global cap on the one-shot events: a busy moment never piles up into a wall of clips
+    const now = this.ac.currentTime;
+    if (this.voices.length >= VOICES) this.voices = this.voices.filter((e) => e > now);
+    if (!ALWAYS.has(kind)) {
+      if (this.voices.length >= VOICES) return;
+      this.voices.push(at + buf.duration / rate);
+    }
     const s = this.ac.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate;
     // a mono clip holds (L + R) / 2: √2 puts it back at the stereo clip's level through the panner
     const g = this.ac.createGain(); g.gain.value = buf.numberOfChannels === 1 ? level * Math.SQRT2 : level;
@@ -455,6 +487,9 @@ export class Ambience {
     const tc = 0.8;
     const air = (d: number, lo: number, hi: number) => lo * Math.pow(hi / lo, Math.max(0, Math.min(1, d)));
     const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+    // the settle: the mix eases down and thins after a few idle minutes; any input brings it back in ~2 s
+    const att = clamp01(I.attention), thin = settleRate(att);
+    this.aim(this.settle.gain, Math.pow(10, settleDb(att, now, this.breathPhase) / 20), att > 0.99 ? 0.5 : 2);
 
     // ---- levels: nearer is louder AND brighter; a storm heavies the whole sea
     this.aim(this.shoreBus.gain, 0.5 * (0.3 + 0.7 * I.shore) * (1 - 0.3 * zoom) * (1 + 0.5 * storm), tc);
@@ -550,7 +585,7 @@ export class Ambience {
       const laps = 2 + Math.floor(r() * 3);
       for (let k = 0; k < laps; k++) this.play("lap", at + 0.9 + k * (0.22 + r() * 0.5), this.lapLp, (0.5 + 0.5 * r()) * size, r() * 1.6 - 0.8, 0.85 + r() * 0.3);
       // the bell buoy rolls with the same swell
-      if (r() < 0.3) {
+      if (r() < 0.3 * thin) {
         this.play("bell", at + 1 + r(), this.bellBus, 1, -0.4, 0.99 + r() * 0.02);
         if (r() < 0.35) this.play("bell", at + 2.2 + r() * 0.6, this.bellBus, 0.55, -0.4, 0.99 + r() * 0.02);
       }
@@ -560,7 +595,7 @@ export class Ambience {
     if (N.lap < ahead) {
       const at = Math.max(N.lap, now);
       this.play("lap", at, this.lapLp, 0.25 + 0.4 * r(), r() * 1.8 - 0.9, 0.8 + r() * 0.4);
-      N.lap = at + 0.7 + r() * (2.6 - wind * 1.2);
+      N.lap = at + (0.7 + r() * (2.6 - wind * 1.2)) / thin;
     }
     if (N.reef < ahead) {
       const at = Math.max(N.reef, now);
@@ -663,17 +698,17 @@ export class Ambience {
     if (N.gull < ahead) {
       const at = Math.max(N.gull, now);
       if (r() < 1 - 0.75 * night) this.play("gull", at, this.gullBus, 0.5 + 0.35 * r(), r() * 1.2 - 0.6, 0.92 + r() * 0.16);
-      N.gull = at + 4 + r() * 10 + night * 10;
+      N.gull = at + (4 + r() * 10 + night * 10) / thin;
     }
     if (N.creak < ahead) {
       const at = Math.max(N.creak, now);
       this.play("creak", at, this.harbourBus, 0.7 + 0.5 * r(), r() * 1.2 - 0.6, 0.85 + r() * 0.3);
-      N.creak = at + 2.5 + r() * 6 - wind * 1.5;
+      N.creak = at + (2.5 + r() * 6 - wind * 1.5) / thin;
     }
     if (N.tap < ahead) {
       const at = Math.max(N.tap, now);
       this.play("halyard", at, this.harbourBus, 0.6 + 0.6 * r() * (0.5 + wind), r() * 1.4 - 0.7, 0.9 + r() * 0.2);
-      N.tap = at + 1.2 + r() * (5 - wind * 3.5);
+      N.tap = at + (1.2 + r() * (5 - wind * 3.5)) / thin;
     }
     // the foghorn: stale data only
     if (fog > 0.5 && N.horn < ahead) {

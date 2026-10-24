@@ -122,6 +122,14 @@ function nearest(x: number, z: number, pts: Vec2[]): number {
   return d;
 }
 
+/** The visitor's attention from the seconds since their last input: 1 for 3 min, then down to 0 over 60 s. */
+export function attentionFor(idleSec: number): number {
+  return idleSec < 180 ? 1 : Math.max(0, 1 - (idleSec - 180) / 60);
+}
+
+/** Inputs that count as watching (pointer moves included: a hand on the mouse is attention). */
+const ATTENTION_EVENTS = ["pointerdown", "pointermove", "keydown", "wheel"] as const;
+
 function readChoice(): boolean {
   try { return localStorage.getItem(KEY) === "on"; } catch { return false; }
 }
@@ -141,6 +149,8 @@ class Controller implements SoundController {
   /** the camera's right on the ground, kept for placing thunder */
   private readonly right: Vec2 = [1, 0];
   private readonly listeners = new Set<() => void>();
+  private lastInput = 0;
+  private readonly onInput = () => { this.lastInput = performance.now(); };
   private readonly onGesture = () => { this.disarm(); if (this.on) this.start(); };
   private readonly onVisibility = () => {
     if (!this.ac) return;
@@ -187,6 +197,8 @@ class Controller implements SoundController {
       this.starting = false;
       if (!this.on || this.ac !== ac) { void ac.close(); return; }
       this.amb = new Ambience(ac);
+      this.lastInput = performance.now();
+      for (const t of ATTENTION_EVENTS) addEventListener(t, this.onInput, { capture: true, passive: true });
       this.feed();
       this.poll = window.setInterval(() => this.feed(), 250);
       this.emit();
@@ -214,6 +226,7 @@ class Controller implements SoundController {
       ...weatherInputs(weather, ctx.services.get("season") as SeasonLike | undefined, wind, wetU),
       reduced: !!(ctx.services.get("motion") as Motion | undefined)?.reduced,
       lean: (ctx.services.get("quality") as Quality | undefined)?.tier === "low",
+      attention: attentionFor((performance.now() - this.lastInput) / 1000),
     };
     // thunder answers the weather's lightning (subscribed once the service is there)
     if (!this.unsubStrike && weather?.onLightning) this.unsubStrike = weather.onLightning((e) => this.strike(e)) ?? (() => undefined);
@@ -264,6 +277,7 @@ class Controller implements SoundController {
 
   stop(): void {
     clearInterval(this.poll);
+    for (const t of ATTENTION_EVENTS) removeEventListener(t, this.onInput, { capture: true });
     this.unsubStrike?.(); this.unsubStrike = null;
     const amb = this.amb, ac = this.ac;
     this.amb = null; this.ac = null;
