@@ -15,7 +15,7 @@ import { yardCoins, yardHullPosition } from "./yard";
 /** Landmarks read as areas on the water (polygon / footprint hit), not as buildings. */
 const AREA_ZONE: Record<string, string> = { shoals: "shoals", "wreck-cove": "wreckCove", "far-ports": "farPorts" };
 /** Purely decorative landmarks are not offered for picking at all (they would only add noise). */
-const SKIP = new Set(["breakwater", "tide-gauge"]);
+const SKIP = new Set(["breakwater"]);
 /** Wrecks answer the pointer only from this close (px per m at the cove): further out, the cove zone does. */
 const WRECK_MIN_PPM = 3.6;
 /** A yard hull's tag height above its cradle (m): small keels, no rig yet. */

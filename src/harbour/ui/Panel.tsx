@@ -17,7 +17,7 @@ const signed = (v: number) => (v < 0 ? MINUS : "") + Math.abs(v).toFixed(2);
 import { usePresence, useStore, useSticky, useUI, useUISlice } from "./hooks";
 import { getFeed, getLighthouse, type PickHit } from "./services";
 import type { HarbourUIStore } from "./store";
-import { DEV_OVERRIDE_KEYS } from "../readings/bind";
+import { DEV_OVERRIDE_KEYS, TIDE_FULL_SCALE_PCT, TIDE_SLACK_PCT } from "../readings/bind";
 
 type Raw = Record<string, unknown>;
 const raw = (store: HarbourUIStore, key: string): Raw | null => {
@@ -99,6 +99,7 @@ function PanelContent({ hit, titleRef }: { hit: PickHit; titleRef: React.RefObje
     case "far-ports": return <FarPortsPanel model={model} titleRef={titleRef} />;
     case "the-roads": return <RoadsPanel titleRef={titleRef} />;
     case "harbourmaster": return <HarbourmasterPanel titleRef={titleRef} />;
+    case "tide-gauge": return <TidePanel model={model} titleRef={titleRef} />;
     case "chartroom": return <ChartRoomPanel model={model} titleRef={titleRef} />;
     case "keeperslog": return <KeepersLogPanel model={model} titleRef={titleRef} />;
     case "registry": return <RegistryPanel model={model} titleRef={titleRef} />;
@@ -489,6 +490,33 @@ function HarbourmasterPanel({ titleRef }: { titleRef: P["titleRef"] }) {
             {s.stats.outings != null && <p className="hb-caption">A boat out for a sail is decoration: a loop out of its own harbour and back to the same berth.</p>}
           </Sec>
         )}
+      </div>
+    </>
+  );
+}
+
+/** The tide gauge's DOM twin: the same /api/chains figure the water column stands at, plus the 24 h and 30 d. */
+function TidePanel({ model, titleRef }: P) {
+  const t = model?.readings.tide;
+  const ch = (v: number | null | undefined) => <b className={v == null ? "" : v > 0.0005 ? "hb-up" : v < -0.0005 ? "hb-down" : ""}>{pctChange(v)}</b>;
+  const slack = t?.change7d != null && Math.abs(t.change7d * 100) < TIDE_SLACK_PCT;
+  return (
+    <>
+      <Head kicker="Landmark · the harbour wall" title="Tide Gauge" sub="all stablecoin supply, week on week" titleRef={titleRef} />
+      <div className="hb-panel-body">
+        {!t?.available || t.change7d == null ? <p className="hb-why">The gauge is dry: there is no supply-change reading. It never shows slack water by default.</p> : (
+          <>
+            <div className="hb-big hb-num" style={{ marginTop: 6 }}>{pctChange(t.change7d)}<small>over 7 d</small></div>
+            <p className="hb-why">The water on the gauge stands at the week’s change in all stablecoin supply: above the datum when it grew, below when it shrank{slack ? "; this week it is slack water, at the datum" : ""}.</p>
+            <div className="hb-changes">
+              <div><span className="hb-sc">24 h</span>{ch(t.change24h)}</div>
+              <div><span className="hb-sc">7 d</span>{ch(t.change7d)}</div>
+              <div><span className="hb-sc">30 d</span>{ch(t.change30d)}</div>
+            </div>
+            <p className="hb-caption">Scale: the brass pins mark ±0.5, 1 and {TIDE_FULL_SCALE_PCT} %, on a square-root scale; ±{TIDE_FULL_SCALE_PCT} % or more stands the water at full height. Under {TIDE_SLACK_PCT} % is slack water. Only the 7-day figure moves the water.{t.stale ? " The reading is stale, so the column is grey." : ""}</p>
+          </>
+        )}
+        {model && <Freshness label="Chain data" state={model.truth.chains.state} ageSec={model.truth.chains.ageSec} />}
       </div>
     </>
   );

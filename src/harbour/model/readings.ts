@@ -2,8 +2,8 @@ import { PSI_SWEEP_DURATION } from "@shared/lib/psi-colors";
 import type { DeadStablecoin } from "@shared/types/market";
 import { causeFamily } from "./obituary";
 import type {
-  Boat, ConditionBand, DewsBand, EndpointTruth, FlowsReading, HarbourReadings, MintBurnPayload,
-  PsiReading, SeaStateReading, StabilityPayload, WeatherReading,
+  Boat, ChainsPayload, ConditionBand, DewsBand, EndpointTruth, FlowsReading, HarbourReadings, MintBurnPayload,
+  PsiReading, SeaStateReading, StabilityPayload, TideFactsReading, WeatherReading,
 } from "./types";
 
 const PSI_BANDS = new Set<string>(Object.keys(PSI_SWEEP_DURATION));
@@ -68,6 +68,20 @@ export function weatherReading(boats: Boat[], stressAvailable: boolean, truth: E
     wind: Math.min(1, 0.2 + level * 0.2),
     coverage: tot > 0 ? seen / tot : null,
     stale,
+  };
+}
+
+const frac = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+/** Global supply change from /api/chains (fractions, as sent), for the tide gauge's panel and hover. */
+export function tideFactsReading(chains: ChainsPayload | null, truth: EndpointTruth): TideFactsReading {
+  const available = chains != null && truth.state !== "unavailable";
+  return {
+    change24h: available ? frac(chains?.globalChange24hPct) : null,
+    change7d: available ? frac(chains?.globalChange7dPct) : null,
+    change30d: available ? frac(chains?.globalChange30dPct) : null,
+    available,
+    stale: truth.state === "stale",
   };
 }
 

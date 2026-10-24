@@ -2,7 +2,7 @@ import { DEAD_STABLECOINS } from "@shared/lib/dead-stablecoins";
 import brandColors from "../../../data/brand-colors.json";
 import { logosById } from "../../lib/logos";
 import { fnv1a, hashColor, hullClassFor, pierIdFor, rigFor } from "./classify";
-import { asDewsBand, flowsReading, psiReading, seaStateReading, stormCones, weatherReading, wrecks } from "./readings";
+import { asDewsBand, flowsReading, psiReading, seaStateReading, stormCones, tideFactsReading, weatherReading, wrecks } from "./readings";
 import { allTruth } from "./truth";
 import type { Boat, BoatState, BuildOptions, CircuitStop, Harbour, HarbourModel, HarbourPayloads } from "./types";
 
@@ -152,6 +152,7 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
     harbours,
     readings: {
       psi: psiReading(payloads.stability?.data ?? null, truth.stability),
+      tide: tideFactsReading(chainsPayload, truth.chains),
       seaState: seaStateReading(live, peg != null, truth.pegSummary),
       weather: weatherReading(live, stress != null, truth.stress),
       flows: flowsReading(payloads.mintBurn?.data ?? null, truth.mintBurn),

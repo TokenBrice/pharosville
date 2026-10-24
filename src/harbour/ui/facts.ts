@@ -5,7 +5,7 @@
 import deadJson from "@shared/data/dead-stablecoins.json";
 import type { Boat, HarbourModel } from "../model/types";
 import { deadRecords, FAMILIES } from "../model/obituary";
-import { bps, money, monthYear, share, titleCase } from "./format";
+import { bps, money, monthYear, pctChange, share, titleCase } from "./format";
 
 export type WhereKind = "alongside" | "moored" | "casting-off" | "sailing" | "outing" | "shoals" | "wreck" | "far" | "unknown";
 export interface Whereabouts { kind: WhereKind; /** Chain name, "the Far Ports", or null. */ place: string | null }
@@ -153,6 +153,7 @@ export function landmarkFact(id: string, m: HarbourModel | null, underWay: numbe
       if (!c) return { fact: "no stress reading" };
       return { fact: c.count === 0 ? "no cones hoisted" : `${c.count} ${c.count === 1 ? "cone" : "cones"} · early-warning alerts` };
     }
+    case "tide-gauge": return { fact: tideFact(m) };
     case "wreck-cove": return { fact: `${r?.wrecks.length ?? 0} wrecks, with epitaphs` };
     case "far-ports": {
       const far = m?.harbours.filter((h) => !h.piered) ?? [];
@@ -169,6 +170,13 @@ export function landmarkFact(id: string, m: HarbourModel | null, underWay: numbe
   }
 }
 
+/** The tide gauge's line: the 7-day change of all stablecoin supply (/api/chains globalChange7dPct, a fraction). */
+export function tideFact(m: HarbourModel | null): string {
+  const t = m?.readings.tide;
+  if (!t?.available || t.change7d == null) return "no supply reading";
+  return `all supply ${pctChange(t.change7d)} over 7 d${t.stale ? " · stale" : ""}`;
+}
+
 export function harbourFact(chain: string, m: HarbourModel | null): string {
   const h = m?.harbours.find((x) => x.chain === chain);
   if (!h) return "harbour";
@@ -177,7 +185,7 @@ export function harbourFact(chain: string, m: HarbourModel | null): string {
 
 /** Landmarks that open a panel on click (the rest are hover-only). */
 export const PANEL_LANDMARKS = new Set(["pharos", "shoals", "customs-house", "tide-board", "storm-mast", "wreck-cove", "far-ports", "registry", "harbourmaster", "slipway",
-  "mint", "burn", "chartroom", "keeperslog", "the-roads"]);
+  "tide-gauge", "mint", "burn", "chartroom", "keeperslog", "the-roads"]);
 
 export const wreckDate = (d: string) => monthYear(d);
 

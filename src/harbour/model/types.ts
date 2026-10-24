@@ -25,7 +25,7 @@ export type CoinRow = Pick<StablecoinData, "id" | "name" | "symbol" | "pegType" 
 export interface StablecoinsPayload { peggedAssets: CoinRow[] }
 
 export type ChainRow = Pick<ChainSummary, "id" | "name" | "totalUsd"> & Partial<Pick<ChainSummary, "dominanceShare" | "healthScore" | "healthBand" | "change24hPct" | "change7dPct" | "change30dPct">>;
-export interface ChainsPayload extends Partial<Pick<ChainsResponse, "globalTotalUsd" | "unattributedTotalUsd" | "globalChange7dPct">> { chains: ChainRow[] }
+export interface ChainsPayload extends Partial<Pick<ChainsResponse, "globalTotalUsd" | "unattributedTotalUsd" | "globalChange24hPct" | "globalChange7dPct" | "globalChange30dPct">> { chains: ChainRow[] }
 
 export interface StabilityPayload {
   current: (Pick<StabilityIndexCurrent, "score" | "band"> & Partial<Pick<StabilityIndexCurrent, "avg24h" | "computedAt">>) | null;
@@ -181,8 +181,21 @@ export interface FlowsReading {
   available: boolean;
 }
 
+/**
+ * The tide gauge's DOM twin: /api/chains global supply change. All three are FRACTIONS (0.004 = +0.4 %)
+ * despite the "Pct" in the field names; null when absent or not finite. The gauge stands at the 7 d figure.
+ */
+export interface TideFactsReading {
+  change24h: number | null;
+  change7d: number | null;
+  change30d: number | null;
+  available: boolean;
+  stale: boolean;
+}
+
 export interface HarbourReadings {
   psi: PsiReading;
+  tide: TideFactsReading;
   seaState: SeaStateReading;
   weather: WeatherReading;
   flows: FlowsReading;
