@@ -38,6 +38,7 @@ export const REACH_SCORE_HI = 100;
 export const OFFICE_WORKS_ON = 0.08;
 export const OFFICE_WORKS_HOLD = 0.06;
 export const OFFICE_FURL_ON = -0.08;
+/** Furled is held while the 30-day change stays ≤ −6 % (symmetric with the works hysteresis). */
 export const OFFICE_FURL_HOLD = -0.06;
 export type OfficeState = "works" | "furled" | "neutral";
 

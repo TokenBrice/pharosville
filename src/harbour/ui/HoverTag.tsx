@@ -1,10 +1,11 @@
 import { useRef } from "react";
-import { boatFact, harbourFact, landmarkFact, wreckFact } from "./facts";
+import { boatFact, harbourFact, landmarkFact, LAUNCH_HOVER, wreckFact } from "./facts";
 import { deadRecords, FAMILIES } from "../model/obituary";
 import { placeName } from "./places";
 import { expectedLabel, PHASE_NAME, yardCoins } from "./yard";
 import { useFrame, usePresence, useStore, useSticky, useUI } from "./hooks";
-import { getLayout, sameHit, type PickHit, type ScreenPoint } from "./services";
+import { getFeed, getLayout, sameHit, type PickHit, type ScreenPoint } from "./services";
+import type { OfficeState } from "../readings/bind";
 
 /**
  * The chart-paper tag: name + one fact, hung from a brass leader at the object's anchor. Follows the
@@ -51,6 +52,8 @@ function Tag({ hit, shown, pinned }: { hit: PickHit; shown: boolean; pinned: boo
       name = b.symbol;
       const w = store.whereaboutsOf(b.id);
       fact = boatFact(b, w).slice(b.symbol.length + 3);
+      // a coin launched during this visit sails dressed overall for her first circuit (fleet/bunting.ts)
+      if (!b.maiden && (store.ctx.services.get("bunting") as { isDressed?(id: string): boolean } | undefined)?.isDressed?.(b.id)) fact += ` · ${LAUNCH_HOVER}`;
       swatch = b.brandColor;
       decorative = w.kind === "outing";
     }
@@ -76,7 +79,10 @@ function Tag({ hit, shown, pinned }: { hit: PickHit; shown: boolean; pinned: boo
     fact = f.fact; decorative = !!f.decorative;
   } else {
     name = `${hit.id} harbour`;
-    fact = harbourFact(hit.id, model);
+    // T6: the office's month (readings.offices; the 30-day figure from the same /api/chains row the panel prints)
+    const office = (store.ctx.services.get("readings") as { offices?: Readonly<Record<string, OfficeState>> } | undefined)?.offices?.[hit.id];
+    const row = (getFeed(store.ctx)?.payloads.chains?.data?.chains ?? []).find((c) => c.name === hit.id);
+    fact = harbourFact(hit.id, model, office, row?.change30dPct);
   }
   if (!name) return null;
 

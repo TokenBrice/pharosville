@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout, HullClass, Pier } from "../layout/types";
-import type { HarbourModel } from "../model/types";
+import type { HarbourModel, StormFlag } from "../model/types";
 import type { OceanService } from "../ocean/ocean-system";
 import type { WakeService } from "../ocean/wake";
 import { hullSwellCache } from "../ocean/waves";
@@ -19,6 +19,8 @@ import { bollardFor, MooringLines } from "./mooring-lines";
 import { RidingLights } from "./riding-lights";
 import { Fenders } from "./fenders";
 import { FLAG_BURGEE, FLAG_DISTRESS, FLAG_HOUSE, HouseFlags } from "./house-flags";
+import { MastSignals } from "./storm-cones-mast";
+import { Bunting } from "./bunting";
 import { coastDistance } from "../sim/obstacles";
 import type { QualityService, QualityTier } from "../engine/quality";
 import { approach, hash01, indexVariants, pickVariant, sternLampLit, targetSwing, wrapAngle, wreckScale, type VariantIndex } from "./variants";
@@ -107,6 +109,8 @@ const GALLEY_BRAIL = 0.7;
 const TUG_KIT = "usd_fisher_skiff", TUG_LOA = 6;
 /** 07-M8: the most a hull yaws into a give-way or lane change (rad). */
 const GIVE_WAY_YAW = 0.15;
+/** M8e: how long a titan's house flag takes to break out when she berths (s). */
+const BREAKOUT_SEC = 2.5;
 const CLASS_LOA_FALLBACK: Record<HullClass, number> = { flagship: 26, large: 18, medium: 13, small: 10, boat: 7.5, skiff: 5 };
 
 interface BoatRec {
@@ -203,6 +207,13 @@ export class FleetSystem implements WorldSystem {
   private riding!: RidingLights;
   private fenders: Fenders | null = null;
   private flags: HouseFlags | null = null;
+  /** DA-04: storm signals at the mastheads of the readings' stormFlags coins (storm-cones-mast.ts). */
+  private mastSignals: MastSignals | null = null;
+  /** DA-07: maiden / launch bunting (bunting.ts); `simEvents` its sim subscription. */
+  private bunting: Bunting | null = null;
+  private simEvents: (() => void) | null = null;
+  /** M8e: a titan home at her berth breaks out her house flag (0 → 1 over BREAKOUT_SEC; absent = flying). */
+  private readonly breakout = new Map<string, number>();
   private hover: string | null = null;
   private selected: string | null = null;
   private ring: THREE.Mesh | null = null;
@@ -285,6 +296,11 @@ export class FleetSystem implements WorldSystem {
     ctx.scene.add(this.fenders.mesh);
     this.flags = new HouseFlags({ ...ctx.uniforms, uTime: this.uniforms.uFleetTime }, this.atlas.texture, this.atlas.grid);
     ctx.scene.add(this.flags.mesh);
+    this.mastSignals = new MastSignals(getHarbourMaterials(ctx).kit());
+    ctx.scene.add(this.mastSignals.mesh);
+    this.bunting = new Bunting(getHarbourMaterials(ctx).kit());
+    ctx.scene.add(this.bunting.mesh);
+    ctx.services.set("bunting", this.bunting);
     this.ring = this.makeRing();
     ctx.scene.add(this.ring);
 
@@ -754,6 +770,17 @@ export class FleetSystem implements WorldSystem {
     gustSvc.tick(ctx, frame);
     const windK = sim?.wind.strength ?? 0.35;
     const live = this.clock ? this.clock.live : 1;
+    const sigReadings = ctx.services.get("readings") as { version: number; stormFlags: readonly StormFlag[]; maidens: readonly string[] } | undefined;
+    const reducedMotion = ensureMotionService(ctx).reduced;
+    this.mastSignals?.sync(sigReadings?.stormFlags ?? [], dt, reducedMotion);
+    if (this.bunting && sim && !this.simEvents) {
+      const bt = this.bunting;
+      this.simEvents = sim.onEvent((ev) => {
+        if (ev.kind === "launch") bt.launch(ev.id, Date.now());
+        else if (ev.kind === "docking") { bt.berthed(ev.id); if (this.byId.get(ev.id)?.titan) this.breakout.set(ev.id, 0); }
+      });
+    }
+    if (sigReadings && sigReadings.version > 0) this.bunting?.sync(sigReadings.maidens, frame.nowMs, dt, reducedMotion, cam.position);
 
     for (let i = 0, bi = 0; i < n && bi < this.boats.length; i++) {
       const b = this.boats[bi];
@@ -867,6 +894,14 @@ export class FleetSystem implements WorldSystem {
       const far = b.hi > 0.05 || b.wrecked ? 0 : 1 - THREE.MathUtils.smoothstep(px, SPAR_FAR, SPAR_NEAR);
       b.struck = !moving && sail < 0.1 && b.mastK < far * STRIKE_SHARE;
 
+      if (this.mastSignals && !b.wrecked && b.visible && !b.struck && b.dist < tier.flagRange) this.mastSignals.hull(b.id, this.m4, b.variant.masthead, b.scale, b.loa);
+      if (this.bunting && !b.wrecked && b.visible && !b.struck && b.dist < tier.flagRange
+        && this.bunting.hull(b.id, this.m4, b.variant.bowCleat, b.variant.masthead, b.variant.sternCleat, b.loa, b.brand, time, windK) && b.dist < tier.lineRange) {
+        const [l0, l1, l2] = this.bunting.line;
+        this.lines.add(l0.x, l0.y, l0.z, l1.x, l1.y, l1.z, 1);
+        this.lines.add(l1.x, l1.y, l1.z, l2.x, l2.y, l2.z, 1);
+      }
+
       // At rest (docked, moored, at anchor) every hull flies its coin's colours, so a furled fleet still reads coin
       // by coin: a brand burgee with the emblem at the masthead (a titan: a big house flag), never smaller than a few
       // px (the overview: a dot of brand colour over each hull); a struck rig flies it from the stern staff. It
@@ -879,10 +914,17 @@ export class FleetSystem implements WorldSystem {
         // the Roads read as hulls at anchor, not confetti; the hovered / selected / searched hull keeps the full flag
         const capK = b.titan ? 0.42 : b.hi > 0.05 ? 0.55 : flagCapK(px);
         const minPx = b.hi > 0.05 ? FLAG_HI_MIN_PX : tier.flagMinPx;
-        const size = Math.min(Math.max(base, minPx / pxM), b.loa * capK);
+        let size = Math.min(Math.max(base, minPx / pxM), b.loa * capK);
+        const bk = this.breakout.get(b.id);
+        if (bk !== undefined) {
+          // a titan home: her house flag breaks out from the hoist (M8e); reduced motion: simply flying
+          const k = reducedMotion ? 1 : Math.min(1, bk + dt / BREAKOUT_SEC);
+          if (k >= 1) this.breakout.delete(b.id); else this.breakout.set(b.id, k);
+          size *= 0.12 + 0.88 * k * k * (3 - 2 * k);
+        }
         const v = b.variant;
         if (b.struck) { this.lampAt(v.sternCleat.x * 0.92, v.sternCleat.y, 0); this.v.y += 0.5 + size * 0.72; }
-        else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += 0.3; }
+        else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += 0.3 + (this.mastSignals?.lift(b.id, b.loa) ?? 0); }
         this.flags.add(this.v.x, this.v.y, this.v.z, size, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), b.slot, b.phi * 3, b.brand,
           distress ? FLAG_DISTRESS : b.titan ? FLAG_HOUSE : FLAG_BURGEE);
         b.flag = 0;
@@ -940,6 +982,8 @@ export class FleetSystem implements WorldSystem {
       }
     }
 
+    this.mastSignals?.end();
+    this.bunting?.end();
     this.poseTugs(sim, time);
 
     // hulks lie still on the dry strand (set once: they never move)
@@ -1310,6 +1354,10 @@ export class FleetSystem implements WorldSystem {
     if (this.riding) { ctx.scene.remove(this.riding.object); this.riding.dispose(); }
     if (this.fenders) { ctx.scene.remove(this.fenders.mesh); this.fenders.dispose(); }
     if (this.flags) { ctx.scene.remove(this.flags.mesh); this.flags.dispose(); }
+    this.mastSignals?.dispose();
+    this.bunting?.dispose();
+    this.simEvents?.();
+    ctx.services.delete("bunting");
     this.material?.dispose(); this.depth?.dispose();
     this.atlas?.dispose();
     this.boards?.dispose();

@@ -10,12 +10,15 @@ import { MAX_CONES } from "./bind";
  * another (top slot first), come down in reverse and swing a little in the DEWS wind; each carries a red lantern at
  * night. Reduced motion: placed at once, no swing, no flutter.
  */
-type Shape = "cone" | "drum";
+export type Shape = "cone" | "drum";
 /** The signal from the top: the first `level` shapes are hoisted. */
 const SHAPES: readonly Shape[] = ["cone", "cone", "drum", "drum"];
-const CONE_R = 1.5, CONE_H = 2.9;
-const DRUM_R = 1.12, DRUM_H = 2.4;
+export const CONE_R = 1.5, CONE_H = 2.9;
+export const DRUM_R = 1.12, DRUM_H = 2.4;
 const HOIST_SEC = 2.4;
+/** The haul (DEWS band moment): hand over hand, a pull every HAUL_PERIOD s, so a shape takes ~3 s and visibly climbs. */
+const HAUL_PERIOD = 0.9;
+const haulRate = (time: number) => 0.3 + 1.6 * Math.max(0, Math.sin((2 * Math.PI * time) / HAUL_PERIOD));
 const LANTERN_R = 0.34;  // the night signal: a red lantern on each hoisted shape
 const LANTERN_HEX = "#FF4430";
 const PENNANT_L = 7.5, PENNANT_H = 2.0, PENNANT_SEG = 14;
@@ -41,9 +44,9 @@ function shapeGeometry(kind: Shape): THREE.BufferGeometry {
 }
 
 /** Static per-shape vertex data: rest positions, normals, colours and indices (re-posed into the one draw each frame). */
-interface ShapeData { pos: Float32Array; nrm: Float32Array; col: Float32Array; idx: ArrayLike<number> }
+export interface ShapeData { pos: Float32Array; nrm: Float32Array; col: Float32Array; idx: ArrayLike<number> }
 
-function shapeData(kind: Shape): ShapeData {
+export function shapeData(kind: Shape): ShapeData {
   const g = shapeGeometry(kind);
   const d = {
     pos: (g.attributes.position.array as Float32Array).slice(), nrm: (g.attributes.normal.array as Float32Array).slice(),
@@ -155,7 +158,7 @@ export class StormCones {
   }
 
   update(dt: number, time: number, wind: number, reduced: boolean, camera: THREE.Vector3): void {
-    const step = dt / HOIST_SEC;
+    const step = (dt / HOIST_SEC) * haulRate(time);
     const n = this.shapes.length;
     for (let i = 0; i < n; i++) {
       const up = i < this.count;

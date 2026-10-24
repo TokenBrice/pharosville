@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyDevCueOverrides, deriveTargets, OFFICE_FURL_HOLD, OFFICE_FURL_ON, OFFICE_WORKS_HOLD, OFFICE_WORKS_ON, officeStates, officeWorks } from "../readings/bind";
-import { boatFact, MAIDEN_LINE, officeLine, SIGNAL_HOISTED, stormSignalLine } from "../ui/facts";
+import { boatFact, harbourFact, MAIDEN_LINE, officeLine, SIGNAL_HOISTED, stormSignalLine } from "../ui/facts";
 import { buildHarbourModel } from "./build";
 import { isMaiden, MAIDEN_MAX_GAP_SHARE, STORM_FLAGS_MAX, weekAgoGapShare } from "./readings";
 import type { CoinRow, HarbourPayloads } from "./types";
@@ -89,6 +89,10 @@ describe("T6 chain office (change30dPct, a fraction)", () => {
     expect(officeWorks(OFFICE_WORKS_HOLD, "works")).toBe("works");
     expect(officeWorks(OFFICE_WORKS_HOLD - 1e-9, "works")).toBe("neutral");
     expect(officeWorks(0.07, "neutral")).toBe("neutral");
+    expect(officeWorks(-0.07, "furled")).toBe("furled");
+    expect(officeWorks(OFFICE_FURL_HOLD, "furled")).toBe("furled");
+    expect(officeWorks(OFFICE_FURL_HOLD + 1e-9, "furled")).toBe("neutral");
+    expect(officeWorks(-0.07, "neutral")).toBe("neutral");
     expect(officeWorks(0.07, "furled")).toBe("neutral");
   });
   it("hysteresis (symmetric): furled holds up to −6 %, then lets go; neutral needs −8 % to furl", () => {
@@ -115,6 +119,9 @@ describe("T6 chain office (change30dPct, a fraction)", () => {
     expect(officeLine("works", 0.12)).toBe("Office under works: supply +12.0% over 30 d");
     expect(officeLine("furled", -0.09)).toBe("Awnings furled: −9.0% over 30 d");
     expect(officeLine("neutral", 0.07)).toBeNull();
+    const m = { harbours: [{ chain: "Base", supplyUsd: 4e9, visitors: 12 }] } as unknown as Parameters<typeof harbourFact>[1];
+    expect(harbourFact("Base", m, "works", 0.12)).toBe("$4.00B · 12 boats call · office under works: supply +12.0% over 30 d");
+    expect(harbourFact("Base", m, "neutral", 0.12)).toBe("$4.00B · 12 boats call");
   });
 });
 

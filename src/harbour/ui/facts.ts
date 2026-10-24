@@ -60,9 +60,19 @@ export const SIGNAL_HOISTED_DEPEG = "signal hoisted: early warning; the Shoals t
 const signalWords = (b: Boat) => (b.activeDepeg ? SIGNAL_HOISTED_DEPEG : SIGNAL_HOISTED);
 const SHAPE_WORDS: Record<StormSignalShape, string> = { cone: "a cone", drum: "a drum", "cone+drum": "a cone and a drum" };
 
+/** Shoals panel line for the depeg moment (life/moments-stage.ts). */
+export const REEF_FLARE_LINE = "The beacon\u2019s fire flares three times when a coin is confirmed off its peg (two readings in a row); the Day book records it.";
+
+/** DA-07 Boat panel line. */
+export const MAIDEN_LINE = "new to the register this week";
+/** DA-07 hover: the bunting she is dressed in, in the panel's words. */
+export const MAIDEN_HOVER = `dressed overall: ${MAIDEN_LINE}`;
+/** Hover for a coin launched during this visit, dressed for her first circuit (M8d: "launched today"). */
+export const LAUNCH_HOVER = "dressed overall: launched today";
+
 /** "USDT · $184.0B · alongside Tron" (+ " · signal hoisted: early warning, not a depeg" under a DA-04 signal). */
 export function boatFact(b: Boat, w: Whereabouts): string {
-  return [b.symbol, money(b.supply), whereLine(b, w), b.stormSignal ? signalWords(b) : ""].filter(Boolean).join(" · ");
+  return [b.symbol, money(b.supply), whereLine(b, w), b.stormSignal ? signalWords(b) : "", b.maiden ? MAIDEN_HOVER : ""].filter(Boolean).join(" · ");
 }
 
 /** DA-04 Boat panel line, or null when she flies no signal and is not at Alert or worse. */
@@ -72,8 +82,6 @@ export function stormSignalLine(b: Boat, stressCurrent: boolean): string | null 
   return null;
 }
 
-/** DA-07 Boat panel line. */
-export const MAIDEN_LINE = "new to the register this week";
 
 /** T6 chain panel line for an office state, from the same 30-day figure (a fraction), or null when neutral. */
 export function officeLine(state: OfficeState | undefined, change30d: number | null | undefined): string | null {
@@ -203,10 +211,12 @@ export function tideFact(m: HarbourModel | null): string {
   return `all supply ${pctChange(t.change7d)} over 7 d${t.stale ? " · stale" : ""}`;
 }
 
-export function harbourFact(chain: string, m: HarbourModel | null): string {
+/** The harbour's hover; a T6 office state appends the chain panel's own line ("office under works: supply +12.0% over 30 d"). */
+export function harbourFact(chain: string, m: HarbourModel | null, office?: OfficeState, change30d?: number | null): string {
   const h = m?.harbours.find((x) => x.chain === chain);
   if (!h) return "harbour";
-  return `${money(h.supplyUsd)} · ${h.visitors} ${h.visitors === 1 ? "boat calls" : "boats call"}`;
+  const line = officeLine(office, change30d);
+  return [`${money(h.supplyUsd)} · ${h.visitors} ${h.visitors === 1 ? "boat calls" : "boats call"}`, line ? line[0].toLowerCase() + line.slice(1) : ""].filter(Boolean).join(" · ");
 }
 
 /** Landmarks that open a panel on click (the rest are hover-only). */

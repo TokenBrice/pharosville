@@ -67,6 +67,7 @@ describe("facts", () => {
     expect(boatFact(boat(), whereabouts(2, "berth", "Ethereum", true))).toBe("USDT · $184.1B · out for a sail");
     expect(whereabouts(0, "berth", "Ethereum", true).kind).toBe("alongside");
     expect(boatFact(boat({ pegDeviationBps: -35, state: "shoals" }), whereabouts(5, "shoals", null))).toBe("USDT · $184.1B · on the Shoals −35 bps");
+    expect(boatFact(boat({ maiden: true }), whereabouts(0, "berth", "Tron"))).toBe("USDT · $184.1B · alongside Tron · dressed overall: new to the register this week");
   });
   it("explains the position from the data", () => {
     expect(whyHere(boat(), whereabouts(0, "berth", "Tron"))).toMatch(/circuit of 2 stops, Tron and Ethereum,.*longest at Tron, where 51% of its supply sits/);
