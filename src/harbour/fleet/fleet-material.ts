@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { HarbourMaterials } from "../world/materials";
 import type { WorldUniforms } from "../engine/uniforms";
+import { FLEET_FAR_FRAG } from "./fleet-far";
 
 /**
  * The fleet material: the shared harbour kit material (patterns, world breakup, env spec, light
@@ -218,6 +219,7 @@ float hbSeam(float c, float period, float w) {
   float aa = fwidth(c) * 0.75 + 1e-5;
   return 1.0 - smoothstep(w - aa, w + aa, f);
 }
+${FLEET_FAR_FRAG}
 // livery (decorative, per coin): painted topsides with a sheer stripe and a name board, deck tone, trim
 void hbFleetPaint(inout vec3 c) {
   float mode = vPaintA.w;
@@ -244,6 +246,7 @@ void hbFleetPaint(inout vec3 c) {
     // LOD: the sheer stripe is painted, not modelled
     float s = smoothstep(0.80 - aa, 0.80 + aa, t) * (1.0 - smoothstep(0.93 - aa, 0.93 + aa, t));
     c = mix(c, vPaintB.rgb, s);
+    hbFarLodHull(c, t, aa);
     return;
   }
   if (vPaintC.y > 0.5) {
@@ -323,6 +326,7 @@ void hbFleetColor(inout vec3 c) {
       vec2 gx = vec2(ex.x * sx * uEmblemGrid.z, -ex.y * uEmblemGrid.w);
       vec2 gy = vec2(ey.x * sx * uEmblemGrid.z, -ey.y * uEmblemGrid.w);
       vec4 t = textureGrad(uEmblems, uv, gx, gy) * show;  // premultiplied
+      t = hbFarEmblem(t, dyed * 0.55);
       c = c * (1.0 - t.a) + t.rgb * 0.9;
     }
   } else if (kind > 0.5) {
@@ -373,8 +377,10 @@ void hbFleetColor(inout vec3 c) {
       vec2 gx = vec2(ex.x * sx * 0.97 * uEmblemGrid.z, -ex.y * 0.97 * uEmblemGrid.w);
       vec2 gy = vec2(ey.x * sx * 0.97 * uEmblemGrid.z, -ey.y * 0.97 * uEmblemGrid.w);
       vec4 t = textureGrad(uEmblems, uv, gx, gy) * show; // premultiplied
+      t = hbFarEmblem(t, (dye.w > 0.5 ? dye.rgb : vFleetBrand.rgb) * 0.5);
       c = c * (1.0 - t.a) + t.rgb * 0.92;                  // printed on cloth: a touch under paper-white
     }
+    hbFarCloth(c);
   } else if (vFleetRig.z > 0.5) {
     c = dyed * 1.15;                                       // house pennant in the brand colour (no national ensign)
   } else {
@@ -425,7 +431,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   }
   #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => "hb_fleet_v7";
+  m.customProgramCacheKey = () => "hb_fleet_v7f";
 
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";
