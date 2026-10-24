@@ -30,6 +30,7 @@ uniform vec4 uPrecipSkyB;    // flash elevation (deg), curtain wind slant, snow 
 uniform vec4 uFrontA;        // W01 front: cover from, cover to, storm from, storm to
 uniform vec4 uSquall;        // W09 squall: th (deg), strength, W03 sunbreaks 0..1, -
 uniform vec3 uClearZen, uClearHor;
+uniform vec4 uSeasonSky;     // W10: cirrus amount multiplier, autumn mackerel band 0..1, -, -
 uniform vec4 uNightSky;      // W05: Milky Way 0..1, star clock (s, stills with reduced motion), band azimuth offset (deg), summer core 0..1
 uniform vec4 uMeteor;        // W06: streak start th, e (deg), direction (unit, deg space)
 uniform vec4 uMeteorB;       // W06: life 0..1, length (deg), brightness, -   // W01: the hour's zenith and horizon before the storm grade (the clearing's sky)
@@ -230,9 +231,17 @@ vec3 skyBand(float th, float e, float pxDeg) {
     float n1 = texture2D(uSkyNoise, vec2(q.x * 1.0, q.y * 3.2 + warp * 0.7)).r;
     float n2 = texture2D(uSkyNoise, vec2(q.x * 3.7 + 0.31, q.y * 11.0 + warp * 1.8)).b;
     float band = smoothstep(2.0, 4.0, e) * (1.0 - smoothstep(10.0, 15.0, e));
-    cir = smoothstep(0.55, 0.85, n1 * 0.7 + n2 * 0.45) * pres * band * (0.45 + 0.55 * gCov) * 0.38;
+    cir = smoothstep(0.55, 0.85, n1 * 0.7 + n2 * 0.45) * pres * band * (0.45 + 0.55 * gCov) * 0.38 * uSeasonSky.x;
     vec3 cirCol = mix(uCloudLight, uCloudRim, 0.4) * mix(1.0, 0.8, uNight);
     c = mix(c, cirCol, cir);
+    // W10 autumn: a mackerel (altocumulus) band, small rippled cells in rows, as thin as the cirrus
+    if (uSeasonSky.y > 0.01) {
+      vec2 mq = vec2(thc * 0.9, e * 2.6 + sin(thc * 0.35) * 0.6);
+      float cell = 1.0 - length(fract(mq) - 0.5) * 2.0;
+      float mpres = smoothstep(0.5, 0.75, texture2D(uSkyNoise, vec2(thc * 0.012 + 0.71, e * 0.03 + 0.2)).g) * smoothstep(3.5, 5.0, e) * (1.0 - smoothstep(7.5, 9.5, e));
+      float mk = smoothstep(0.25, 0.6, cell) * mpres * uSeasonSky.y * 0.22;
+      c = mix(c, cirCol, mk);
+    }
   }
 #endif
   // ---- painted cumulus banks (array order = far to near)

@@ -8,6 +8,7 @@ import { bakeCloudAtlas, CLOUD_CELLS } from "./clouds";
 import { cloudShadowUniforms } from "./cloud-shadow";
 import { applySkyPalette, createSkyPaletteUniforms } from "./palette";
 import { MAX_BANKS, SKY_BAND_GLSL } from "./sky-glsl";
+import { bankReveal, seasonBankShape, seasonHighCloud, type SkySeasonWeights } from "./season-sky";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import {
   dayOfYear, METEOR_SHOWERS, meteorIntervalSec, meteorShowerOn, moonAge, moonIllumination, parseMoonOverride, SYNODIC_DAYS,
@@ -109,7 +110,7 @@ void main() {
   gl_FragColor = vec4(skyBand(th, e, 0.25), 1.0);
 }`;
 
-interface Bank { th: number; e: number; h: number; w: number; cell: number; mirror: number; slot: number; drift: number; dist: number; haze: number }
+interface Bank { th: number; e: number; h: number; w: number; h0: number; w0: number; cell: number; mirror: number; slot: number; drift: number; dist: number; haze: number }
 
 export class SkySystem implements WorldSystem {
   readonly name = "sky";
@@ -162,6 +163,7 @@ export class SkySystem implements WorldSystem {
     uFrontA: { value: new THREE.Vector4() },
     uClearZen: { value: new THREE.Color() },
     uSquall: { value: new THREE.Vector4() },
+    uSeasonSky: { value: new THREE.Vector4(1, 0, 0, 0) },
     uClearHor: { value: new THREE.Color() },
     uFrontB: { value: new THREE.Vector4() },
   };
@@ -188,6 +190,8 @@ export class SkySystem implements WorldSystem {
   private meteorIn = 20;
   private meteorAge = -1;
   private meteorDur = 0.55;
+  /** W10: the season weights the bank shapes were last made for */
+  private seasonKey = "";
 
   init(ctx: EngineContext): void {
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
@@ -318,10 +322,10 @@ export class SkySystem implements WorldSystem {
     ];
     // the composition drifts with the wall clock, so each visit (and each hour) frames it differently
     const t0 = (Date.now() / 1000) % 1e6;
-    this.banks = spec.map(([th, e, h, cell, slot, dist, haze], i) => ({
-      th, e, h, w: h * 4 * (0.9 + 0.2 * ((i * 37) % 7) / 7), cell: cell % CLOUD_CELLS, mirror: i % 2, slot,
-      drift: t0 * 0.012 * (3000 / dist), dist, haze,
-    }));
+    this.banks = spec.map(([th, e, h, cell, slot, dist, haze], i) => {
+      const w = h * 4 * (0.9 + 0.2 * ((i * 37) % 7) / 7);
+      return { th, e, h, w, h0: h, w0: w, cell: cell % CLOUD_CELLS, mirror: i % 2, slot, drift: t0 * 0.012 * (3000 / dist), dist, haze };
+    });
   }
 
   update(frame: FrameState, ctx: EngineContext): void {
@@ -456,6 +460,15 @@ export class SkySystem implements WorldSystem {
       this.u.uFrontA.value.set(fr.coverFrom, fr.coverTo, stormOf(fr.coverFrom), stormOf(fr.coverTo));
       this.u.uFrontB.value.set(lineTh, this.frontSide, fr.rainTo, 1);
     } else this.u.uFrontB.value.w = 0;
+    // W10: the season picks the cloud shapes (area kept, so never the amount)
+    const sw = (ctx.services.get("season") as { weights?: SkySeasonWeights } | undefined)?.weights;
+    const sKey = sw ? sw.map((x) => x.toFixed(2)).join() : "";
+    if (sw && sKey !== this.seasonKey) {
+      this.seasonKey = sKey;
+      for (const b of this.banks) { const sh = seasonBankShape({ w: b.w0, h: b.h0 }, sw, THREE.MathUtils.smoothstep(9000 - b.dist, 0, 4000)); b.w = sh.w; b.h = sh.h; }
+      const [cirrus, mackerel] = seasonHighCloud(sw);
+      this.u.uSeasonSky.value.set(cirrus, mackerel, 0, 0);
+    }
     // fair-weather cumulus even when calm (2-3 banks), the full sky at ALERT and above
     this.banks.forEach((b, i) => {
       b.drift += driftDeg * (3000 / b.dist) * 1.6 * (1 + 1.2 * gust * THREE.MathUtils.smoothstep(9000 - b.dist, 0, 4000));
@@ -465,7 +478,7 @@ export class SkySystem implements WorldSystem {
       let th = b.th + b.drift + lateralDeg / b.dist;
       th = ((th + lim) % (2 * lim) + 2 * lim) % (2 * lim) - lim;
       const edge = THREE.MathUtils.smoothstep(lim - Math.abs(th), 0, 6);
-      const a = THREE.MathUtils.clamp(5 + coverAt(th) * MAX_BANKS - b.slot, 0, 1) * edge;
+      const a = bankReveal(coverAt(th), b.slot, MAX_BANKS) * edge;
       this.u.uBanks.value[i].set(th, b.e, b.w * grow, b.h * grow);
       this.u.uBankB.value[i].set(b.cell, a, b.haze, b.mirror);
     });
