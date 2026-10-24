@@ -133,6 +133,16 @@ export interface WeatherState {
    * Rising (to > from): a storm front with a shelf-cloud lip; easing: a clearing line.
    */
   front: FrontState | null;
+  /**
+   * W03 sunbreaks 0..1: the rain is easing off (a shower trough at Watch/Alert, a clearing front) or a recovery
+   * is fresh — sunlit patches drift over a shadowed land. Decorative aftermath of a DEWS easing; never at Danger.
+   */
+  breaks: number;
+  /**
+   * W09 the passing squall at Watch/Alert: the shower cell as a place. `pos` 0 = on the upwind horizon,
+   * 1 = overhead (the shower's crest, when it rains here), 2 = on the downwind horizon; `k` its strength.
+   */
+  squall: { pos: number; k: number };
   /** The last recovery seen during the visit (≥ Alert → ≤ Watch), or null. */
   recovery: { fromBand: WeatherBand; atSec: number } | null;
 }
@@ -178,6 +188,10 @@ export interface DirectorInput {
   still?: boolean;
   /** Dev ?frontAt=: hold a front at this progress (0..1). */
   frontPin?: number | undefined;
+  /** Dev ?breaks=1: open the sunbreaks. */
+  forceBreaks?: boolean;
+  /** Dev ?squall=0..2: hold the squall there. */
+  squallPin?: number | undefined;
 }
 
 /** Easing time constants (s). */
@@ -191,6 +205,7 @@ export class WeatherDirector {
   readonly state: WeatherState = {
     level: null, band: null, cloud: 0.38, wind: 0.3, windNow: 0.3, precip: 0, rain: 0, snow: 0,
     strikesPerMin: 0, strikeKm: [12, 18], gloom: 0, wetness: 0, rainbow: 0, front: null, recovery: null,
+    breaks: 0, squall: { pos: 0, k: 0 },
   };
   private front: { from: number; to: number; progress: number } | null = null;
   private shown: number | null = null;
@@ -265,6 +280,14 @@ export class WeatherDirector {
       s.wind = ease(s.wind, t.wind, dt, TAU.wind);
       const goal = this.precipGoal(t, input.time);
       s.precip = ease(s.precip, goal, dt, goal > s.precip ? TAU.precipUp : TAU.precipDown);
+      // W03: breaks open while the rain falls away faster than it lingers (or a recovery is fresh)
+      const easing = smoothstep(0.03, 0.15, s.precip - goal) * smoothstep(0.02, 0.1, s.precip + s.wetness * 0.3);
+      const wantBreaks = Math.max(easing, this.rainbowLeft > 0 || input.forceBreaks ? 1 : 0) * (1 - smoothstep(0.8, 0.95, t.cloud));
+      s.breaks = ease(s.breaks, wantBreaks, dt, 5);
+      // W09: the squall walks in with the shower cell's rise and away with its fall
+      const env = showerEnvelope(input.time, t.showerOn), next = showerEnvelope(input.time + 1, t.showerOn);
+      s.squall.pos = input.squallPin ?? (next >= env ? env : 2 - env);
+      s.squall.k = smoothstep(0.05, 0.2, t.shower) * (1 - smoothstep(0.3, 0.6, t.steady));
     }
     this.snowS = ease(this.snowS, input.snowShare, dt, 30);
     // wetness: soaks in rain (snow lies, it does not wet), dries slowly once it stops

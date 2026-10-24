@@ -28,7 +28,8 @@ import { Rainbow } from "./rainbow";
  * sea and the island read this frame's weather.
  *
  * Dev: ?dews= / ?weather=CALM|WATCH|ALERT|WARNING|DANGER (readings) apply at once; ?rainbow=1 hangs the
- * bow; ?strike=1 forces frequent lightning (any band); ?season= / ?month= when no season system runs.
+ * bow; ?strike=1 forces frequent lightning (any band); ?season= / ?month= when no season system runs;
+ * ?front=<band>[&frontAt=0..1] sends a front 2.5 s after load; ?breaks=1 opens sunbreaks; ?squall=0..2 holds the squall.
  */
 export interface WeatherService {
   readonly state: Readonly<WeatherState>;
@@ -184,6 +185,8 @@ export class WeatherSystem implements WorldSystem {
       forceRainbow: this.q.get("rainbow") === "1",
       still: this.clock.live < 0.5,
       frontPin: fLevel != null && fAt != null && Number.isFinite(Number(fAt)) ? Number(fAt) : undefined,
+      forceBreaks: this.q.get("breaks") === "1",
+      squallPin: this.q.has("squall") && Number.isFinite(Number(this.q.get("squall"))) ? Number(this.q.get("squall")) : undefined,
     };
     // dev overrides (and the first reading) take effect at once, not over a minute
     const overridden = !!readings?.overridden && w != null;

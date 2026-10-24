@@ -61,7 +61,10 @@ const stormOf = (cover: number) => THREE.MathUtils.smoothstep(cover, 0.38, 0.75)
 interface WeatherSkyLike {
   readonly gloom: number;
   readonly flash: { readonly azimuth: number; readonly elevation: number };
-  readonly state?: { readonly wind: number; readonly windNow: number };
+  readonly state?: {
+    readonly wind: number; readonly windNow: number; readonly breaks: number;
+    readonly squall: { readonly pos: number; readonly k: number };
+  };
 }
 
 const BAND_FRAC = 0.2;               // pretend horizon sits this fraction of the frame below the top
@@ -150,6 +153,7 @@ export class SkySystem implements WorldSystem {
     uPrecipSkyB: { value: new THREE.Vector4() },
     uFrontA: { value: new THREE.Vector4() },
     uClearZen: { value: new THREE.Color() },
+    uSquall: { value: new THREE.Vector4() },
     uClearHor: { value: new THREE.Color() },
     uFrontB: { value: new THREE.Vector4() },
   };
@@ -459,9 +463,17 @@ export class SkySystem implements WorldSystem {
       const shadowW = (cov: number) => (0.42 + 0.2 * stormOf(cov)) * sunUp * THREE.MathUtils.smoothstep(cov, 0.12, 0.45) * (1 - 0.7 * night);
       cs.uCloudShadow.value.w = shadowW(fr.coverFrom);
       cs.uCloudShadowK.value.x = 0.66 - 0.3 * fr.coverFrom;
-      cs.uCloudShadowG.value.set(0.66 - 0.3 * fr.coverTo, shadowW(fr.coverTo));
+      cs.uCloudShadowG.value.set(0.66 - 0.3 * fr.coverTo, shadowW(fr.coverTo), 0);
       cs.uCloudShadowF.value.set(wind.z, wind.w, -1100 + 2200 * fr.progress, 1);
     } else cs.uCloudShadowF.value.w = 0;
+    // W03 sunbreaks (by day) and the W09 squall's shadow, walking along the wind
+    const brk = (wxs?.breaks ?? 0) * sunUp * (1 - night);
+    const sq = wxs?.squall;
+    const sqK = sq ? sq.k * (1 - 0.5 * night) : 0;
+    const sqSide = across >= 0 ? 1 : -1;
+    this.u.uSquall.value.set(sq ? sqSide * fL * (sq.pos - 1) : 0, sqK, brk, 0);
+    cs.uCloudShadowG.value.z = brk;
+    cs.uCloudShadowS.value.set(wind.z * ((sq?.pos ?? 0) - 1) * 1100, wind.w * ((sq?.pos ?? 0) - 1) * 1100, 1 / 260, 0.32 * sqK * sunUp * (1 - 0.7 * night));
 
     // ---- band texture for the sea (cheap: 512 x 128)
     this.bandPass.render(ctx.renderer, this.bandRT);

@@ -27,6 +27,7 @@ uniform float uStorm;        // 0 fair … 1 storm deck (DEWS ALERT and above)
 uniform vec4 uPrecipSky;     // rain, snow, lightning flash, flash azimuth (deg) — the weather director
 uniform vec4 uPrecipSkyB;    // flash elevation (deg), curtain wind slant, snow share, -
 uniform vec4 uFrontA;        // W01 front: cover from, cover to, storm from, storm to
+uniform vec4 uSquall;        // W09 squall: th (deg), strength, W03 sunbreaks 0..1, -
 uniform vec3 uClearZen, uClearHor;   // W01: the hour's zenith and horizon before the storm grade (the clearing's sky)
 uniform vec4 uFrontB;        // W01 front: line azimuth (deg, band space), travel sign (+1 = toward +th), rain it brings, active 0/1
 
@@ -252,6 +253,29 @@ vec3 skyBand(float th, float e, float pxDeg) {
     float body = smoothstep(0.1, 1.2, e) * (0.35 + 0.65 * uStorm);
     vec3 fc = vec3(0.78, 0.84, 1.0);
     c += fc * uPrecipSky.z * (exp(-fd * 1.2) * 2.2 * body + exp(-fd * 0.35) * 0.35 + 0.12);
+  }
+  // ---- W03 sunbreaks: faint crepuscular shafts fanning down from the sun through the gaps in the cloud
+  if (uSquall.z > 0.002 && uSunDisc.w > 0.01) {
+    vec2 v = vec2(th - uSunDisc.x, e - uSunDisc.y);
+    if (v.y < 0.0) {
+      float r = length(v);
+      float rays = smoothstep(0.5, 0.9, sbNoise1(atan(v.x, -v.y) * 9.0 + 3.0, 7.0));
+      float gap = smoothstep(0.4, 0.7, texture2D(uSkyNoise, vec2((th + uWeather.z * 2.0) * 0.02 + 0.4, e * 0.08 + 0.2)).g);
+      c += uSunColor * rays * gap * exp(-r / 9.0) * smoothstep(0.3, 1.5, r) * uSquall.z * uSunDisc.w * 0.16;
+    }
+  }
+  // ---- W09 the passing squall: one darker bank with its own rain curtain, walking along the wind
+  if (uSquall.y > 0.002) {
+    float sqd = (th - uSquall.x) / 5.5;
+    float sqm = uSquall.y * exp(-sqd * sqd);
+    if (sqm > 0.003) {
+      vec3 sqC = mix(uCloudShade, uCloudMid, 0.3) * vec3(0.88, 0.95, 1.06) * 0.85;
+      float bank = smoothstep(0.7, 1.6, e) * (1.0 - smoothstep(3.5, 5.5, e + (texture2D(uSkyNoise, vec2(th * 0.06, 0.15)).r - 0.5) * 2.0));
+      c = mix(c, sqC, sqm * bank * 0.75);
+      float streak = texture2D(uSkyNoise, vec2(th * 0.9 + e * uPrecipSkyB.y * 1.6, e * 0.05 - uTime * 0.02)).b;
+      float hang = (1.0 - smoothstep(0.5, 1.9, e)) * smoothstep(-0.2, 0.2, e);
+      c = mix(c, sqC * 0.95, sqm * hang * (0.4 + 0.3 * streak));
+    }
   }
   // ---- shakkei: three hill silhouettes with aerial perspective
   float dlh = sign(uLight.x - th + 1e-3);

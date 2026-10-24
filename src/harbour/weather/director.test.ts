@@ -157,6 +157,35 @@ describe("W01 weather fronts", () => {
   });
 });
 
+describe("W03 sunbreaks and W09 squalls", () => {
+  it("breaks open as the rain eases and after a recovery, never under Danger's deck", () => {
+    const d = new WeatherDirector();
+    d.step(0.1, input(4, "DANGER", { still: true }));
+    run(d, 120, input(4, "DANGER", { still: true }));
+    expect(d.state.breaks).toBeLessThan(0.01);
+    run(d, 60, input(1, "WATCH", { still: true }));
+    expect(d.state.breaks).toBeGreaterThan(0.5);
+    const c = new WeatherDirector();
+    run(c, 120, input(0, "CALM"));
+    expect(c.state.breaks).toBe(0);
+  });
+
+  it("squalls only at Watch and Alert, overhead at the shower's crest", () => {
+    const k = (l: number) => { const d = new WeatherDirector(); d.step(0.1, input(l, null)); d.step(0.1, input(l, null)); return d.state.squall.k; };
+    expect(k(0)).toBe(0);
+    expect(k(1)).toBeGreaterThan(0.4);
+    expect(k(2)).toBeGreaterThan(0.9);
+    expect(k(3.5)).toBe(0);
+    const d = new WeatherDirector();
+    d.step(0.1, input(2, "ALERT"));
+    for (let t = 0; t < 400; t += 0.5) {
+      d.step(0.5, input(2, "ALERT", { time: t }));
+      const env = showerEnvelope(t, targetsForLevel(2).showerOn);
+      expect(Math.abs(d.state.squall.pos - 1)).toBeCloseTo(1 - env, 5);
+    }
+  });
+});
+
 describe("calendar fallback", () => {
   it("months map to seasons, flipped south of the equator", () => {
     expect(seasonForMonth(1, false)).toBe("winter");
