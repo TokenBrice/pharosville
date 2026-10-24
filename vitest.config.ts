@@ -1,9 +1,10 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
+import { staticDataProjections } from "./scripts/vite/static-data-plugin";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [staticDataProjections(), react()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

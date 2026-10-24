@@ -14,6 +14,7 @@ import type { HarbourLayout, Vec2 } from "../layout/types";
 import { buildHarbourModel } from "../model/build";
 import type { HarbourPayloads } from "../model/types";
 import { clearance, coastDistance, hullHalfWidth, type CoastGrid } from "./obstacles";
+import { buildPlan } from "./plan";
 import { HarbourSim, PHASES, PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "./sim";
 import { makePayloads, T0_MS } from "./test-fixtures";
 
@@ -166,7 +167,7 @@ const LONG_HOURS = Number(process.env.HARBOUR_AUDIT_HOURS ?? 0);
 describe("hull footprints in the real harbour", () => {
   it("no hull ever lies on land or over a pier deck (synthetic fleet, 2.5 h every 2 s)", () => {
     const model = buildHarbourModel(makePayloads(), T0_MS, { pieredChains: layout.piers.map((p) => p.chain), dead: [] });
-    const sim = new HarbourSim(model, layout, T0_MS, coast);
+    const sim = new HarbourSim(model, layout, T0_MS, coast, buildPlan);
     const r = audit(sim, T0_MS, 2.5, 2);
     expect(r.underWay).toBeGreaterThan(50_000);
     expect(r.land.length, summarise(r.land)).toBe(0);
@@ -177,7 +178,7 @@ describe("hull footprints in the real harbour", () => {
     const nowMs = Date.UTC(2026, 9, 13, 21, 15);
     const real = realPayloads(nowMs);
     const model = buildHarbourModel(real ?? makePayloads({ nowMs }), nowMs, { pieredChains: layout.piers.map((p) => p.chain), ...(real ? {} : { dead: [] }) });
-    const sim = new HarbourSim(model, layout, nowMs, coast);
+    const sim = new HarbourSim(model, layout, nowMs, coast, buildPlan);
     const step = Number(process.env.HARBOUR_AUDIT_STEP ?? 1);
     const r = audit(sim, nowMs, LONG_HOURS, step);
     console.info(`[audit] ${real ? "real" : "synthetic"} fleet, ${model.boats.length} hulls, ${LONG_HOURS} h every ${step} s: ${r.samples} hull-samples (${r.underWay} under way)`);

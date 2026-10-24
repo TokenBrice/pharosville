@@ -203,6 +203,10 @@ export class Music {
 
   set(i: Partial<MusicInputs>): void { Object.assign(this.inputs, i); }
 
+  /** A hidden tab: no JS timer while the owner's audio clock is suspended (phrases keep their times on it). */
+  pause(): void { clearInterval(this.timer); this.timer = 0; }
+  resume(): void { if (!this.disposed && !this.timer) this.timer = window.setInterval(() => this.step(), 250); }
+
   private string(midi: number): { buf: AudioBuffer; rate: number } {
     const base = BASES.reduce((b, x) => (Math.abs(midi - x) < Math.abs(midi - b) ? x : b), BASES[0]);
     let buf = this.strings.get(base);
@@ -270,16 +274,18 @@ export class Music {
     const b = this.ac.createBuffer(1, d.length, SR); b.copyToChannel(d as Float32Array<ArrayBuffer>, 0); return b;
   }
 
-  /** Fade out, then release. */
-  async dispose(): Promise<void> {
+  /** Fade out (unless `fade` is false: engine teardown, a hidden tab), then release. */
+  async dispose(fade = true): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
-    clearInterval(this.timer);
-    const now = this.ac.currentTime;
-    this.bus.gain.cancelScheduledValues(now);
-    this.bus.gain.setValueAtTime(this.bus.gain.value, now);
-    this.bus.gain.linearRampToValueAtTime(0, now + 0.8);
-    await new Promise((r) => setTimeout(r, 900));
+    clearInterval(this.timer); this.timer = 0;
+    if (fade) {
+      const now = this.ac.currentTime;
+      this.bus.gain.cancelScheduledValues(now);
+      this.bus.gain.setValueAtTime(this.bus.gain.value, now);
+      this.bus.gain.linearRampToValueAtTime(0, now + 0.8);
+      await new Promise((r) => setTimeout(r, 900));
+    }
     this.bus.disconnect();
   }
 }

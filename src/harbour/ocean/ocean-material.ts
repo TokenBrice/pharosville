@@ -65,7 +65,6 @@ ${GUST_GLSL}
 uniform vec3 uBeamPos, uBeamCol;
 uniform float uBeamAngle;
 uniform vec4 uBeamShape;
-uniform float uBeamBack;
 uniform vec4 uBeamSun;     // 05-P2 heliograph: rgb sun × mirror × gain (0 by night / overcast), w landing distance
 uniform float uDebug;
 // town lights (lights system's top-down pool RT): reflected in the water at night
@@ -392,18 +391,17 @@ void main() {
     vec3 Lb = normalize(uBeamPos - vWorld);
     vec3 Hb = normalize(Lb + V);
     float bspec = pow(max(dot(Nsp, Hb), 0.0), 260.0);
-    for (int k = 0; k < 2; k++) {
-      float a = uBeamAngle + float(k) * 3.14159265;
-      vec2 bd = vec2(cos(a), sin(a));
-      float along = dot(rel, bd);
-      float lat = abs(rel.x * bd.y - rel.y * bd.x);
-      // the shaft rides ~85 m up: what reaches the water is scattered light, a broad soft swath (the same width
-      // as the beam's light on the town, beam-light-glsl.ts) that gathers away from the tower; a narrow bright
-      // track running from the tower's foot read as a second, lower beam
-      float w = (2.3 + along * tan(uBeamShape.y)) * 2.2 + 4.0;
-      float foot = exp(-pow(lat / w, 2.0) * 1.4) * smoothstep(30.0, 90.0, along) * exp(-along / (uBeamShape.x * 0.55));
-      beam += uBeamCol * foot * (0.025 + bspec * 3.5 * sparkMask) * (k == 0 ? 1.0 : uBeamBack);
-    }
+    // The Pharos has one mirror/one forward beam; no opposite sea foot is emitted.
+    float a = uBeamAngle;
+    vec2 bd = vec2(cos(a), sin(a));
+    float along = dot(rel, bd);
+    float lat = abs(rel.x * bd.y - rel.y * bd.x);
+    // the shaft rides ~85 m up: what reaches the water is scattered light, a broad soft swath (the same width
+    // as the beam's light on the town, beam-light-glsl.ts) that gathers away from the tower; a narrow bright
+    // track running from the tower's foot read as a second, lower beam
+    float w = (2.3 + along * tan(uBeamShape.y)) * 2.2 + 4.0;
+    float foot = exp(-pow(lat / w, 2.0) * 1.4) * smoothstep(30.0, 90.0, along) * exp(-along / (uBeamShape.x * 0.55));
+    beam += uBeamCol * foot * (0.025 + bspec * 3.5 * sparkMask);
     // 05-P2 the heliograph by day: the mirror's sun coin crossing the water, specular only (sea-helio.ts): it packs
     // the sea's own (already shadowed) sun glitter denser and brighter, never a diffuse wash
     glint = hbHelioGlint(glint, hbHelioCoin(rel), Nsp, Hs, nB.a, sparkMask, far01);

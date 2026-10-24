@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { mergeStaticMeshes } from "../engine/static-merge";
 import type { CivicPlot, CrestAtlas } from "./types";
+import type { PreparationService } from "../engine/types";
+import { isPreparationAbort } from "../engine/prepare";
 
 /**
  * Harbour-office dressing (D17). Whoever places the civic GLBs (public/harbour/civic/harbour-office-*.glb)
@@ -80,6 +82,7 @@ export class OfficeDresser {
   /** T6: the merged awnings (world space), each chain's vertex run and its rest positions. */
   private readonly awnings: Array<{ mesh: THREE.Mesh; rest: Float32Array; runs: Map<string, { start: number; count: number }> }> = [];
   private readonly furlK = new Map<string, number>();
+  private disposed = false;
 
   constructor(private readonly atlas: CrestAtlas, crests: THREE.Texture, private readonly plots: ReturnType<typeof officePlots>) {
     this.panelMat = new THREE.MeshStandardMaterial({ map: crests, roughness: 0.62, metalness: 0.05, emissive: new THREE.Color(1, 0.86, 0.66), emissiveMap: crests, emissiveIntensity: 0 });
@@ -92,7 +95,7 @@ export class OfficeDresser {
   setGlow(k: number): void { this.panelMat.emissiveIntensity = k; }
 
   /** Scan the scene for undressed offices. Returns the flag sites found this pass. */
-  scan(scene: THREE.Object3D): OfficeSite[] {
+  async scan(scene: THREE.Object3D, preparation?: PreparationService): Promise<OfficeSite[]> {
     const found: OfficeSite[] = [];
     const panels: THREE.Object3D[] = [], awnings: THREE.Object3D[] = [], tops: THREE.Object3D[] = [];
     scene.traverse((o) => {
@@ -105,6 +108,19 @@ export class OfficeDresser {
     const chainAt = (o: THREE.Object3D) => { o.getWorldPosition(this.v); return nearestChain(this.plots, this.v.x, this.v.z); };
     const dressed: THREE.Mesh[] = [];
     const awn: Array<{ chain: string; mesh: THREE.Mesh }> = [];
+    /** T6: staged awnings that furl (vertex-coloured): merged on their own, per chain, not into the static offices. */
+    const awnChain = new Map<THREE.Mesh, string>();
+    const staged = new THREE.Group();
+    const replacements: Array<{ original: THREE.Mesh; candidate: THREE.Mesh }> = [];
+    const stage = (original: THREE.Mesh) => {
+      const candidate = new THREE.Mesh(original.geometry, original.material);
+      candidate.castShadow = original.castShadow;
+      candidate.receiveShadow = original.receiveShadow;
+      candidate.customDepthMaterial = original.customDepthMaterial;
+      staged.add(candidate);
+      replacements.push({ original, candidate });
+      return candidate;
+    };
     for (const o of panels) {
       const chain = chainAt(o), c = chain ? this.atlas.chains[chain] : undefined;
       if (!c) continue;
@@ -128,9 +144,9 @@ export class OfficeDresser {
         const dy = drop / Math.max(1e-3, m.getWorldScale(this.v).y);
         for (let i = 0; i < pos.count; i++) pos.setXYZ(i, c0.x + (pos.getX(i) - c0.x) * grow, c0.y + (pos.getY(i) - c0.y) * grow - dy, pos.getZ(i) + 0.04);
         g.computeBoundingSphere();
-        m.geometry = g;
-        m.material = this.panelMat;
-        dressed.push(m);
+        const candidate = stage(m);
+        candidate.geometry = g;
+        candidate.material = this.panelMat;
       }
       this.done.add(chain!);
     }
@@ -140,6 +156,7 @@ export class OfficeDresser {
       o.userData[DRESSED] = true;
       const tint = new THREE.Color(c.color);
       for (const m of meshesOf(o)) {
+        const candidate = stage(m);
         const g = m.geometry.clone(), src = g.getAttribute("color") as THREE.BufferAttribute | undefined;
         // the tint needs float colours (glTF keeps them as normalized bytes: a tinted byte would round)
         const col = src ? floatCopy(src) : undefined;
@@ -147,19 +164,31 @@ export class OfficeDresser {
           g.setAttribute("color", col);
           for (let i = 0; i < col.count; i++) col.setXYZ(i, col.getX(i) * tint.r, col.getY(i) * tint.g, col.getZ(i) * tint.b);
           col.needsUpdate = true;
-          m.geometry = g;
-          awn.push({ chain: chain!, mesh: m });
-          continue;
+          candidate.geometry = g;
+          awnChain.set(candidate, chain!);
         } else {
           const mats = (Array.isArray(m.material) ? m.material : [m.material]).map((mm) => {
             const k = mm.clone() as THREE.MeshStandardMaterial;
             k.color?.copy(tint);
             return k;
           });
-          m.material = Array.isArray(m.material) ? mats : mats[0];
+          candidate.material = Array.isArray(m.material) ? mats : mats[0];
         }
-        dressed.push(m);
       }
+    }
+    try { await preparation?.prepareGroup(staged); }
+    catch (error) {
+      // Keep the previous synchronous behaviour if preparation itself fails, never publish after teardown.
+      if (!isPreparationAbort(error)) console.error("[harbour] office preparation failed", error);
+    }
+    if (this.disposed) {
+      for (const { original, candidate } of replacements) if (candidate.geometry !== original.geometry) candidate.geometry.dispose();
+      return [];
+    }
+    for (const { original, candidate } of replacements) {
+      original.geometry = candidate.geometry; original.material = candidate.material;
+      const chain = awnChain.get(candidate);
+      if (chain) awn.push({ chain, mesh: original }); else dressed.push(original);
     }
     // dressed crests and awnings never move again: one draw per material for all the offices (and one shadow draw)
     mergeStaticMeshes(dressed, scene, "offices");
@@ -242,5 +271,5 @@ export class OfficeDresser {
     }
   }
 
-  dispose(): void { this.panelMat.dispose(); for (const a of this.awnings) { a.mesh.removeFromParent(); a.mesh.geometry.dispose(); } }
+  dispose(): void { this.disposed = true; this.panelMat.dispose(); for (const a of this.awnings) { a.mesh.removeFromParent(); a.mesh.geometry.dispose(); } }
 }

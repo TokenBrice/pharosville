@@ -2,6 +2,7 @@
 import { useState } from "react";
 import type { Boat, DewsBand, Freshness, HarbourModel } from "../model/types";
 import { age, money, share } from "./format";
+import { runtimeLogoPath } from "../../lib/logos";
 
 export function truthState(m: HarbourModel | null): { state: Freshness; word: string; detail: string } {
   if (!m || !m.hasFleet) return { state: "unavailable", word: "awaiting data", detail: "no harbour data has arrived" };
@@ -19,7 +20,7 @@ export function Logo({ src, label, color, size }: { src: string | null; label: s
   const style = size ? { width: size, height: size } : undefined;
   return (
     <span className="hb-logo" style={style} aria-hidden="true">
-      {src && !broken ? <img src={src} alt="" onError={() => setBroken(true)} /> : <span style={{ background: color, width: "100%", height: "100%", display: "grid", placeItems: "center" }}>{label.slice(0, 2)}</span>}
+      {src && !broken ? <img src={runtimeLogoPath(src)} alt="" onError={() => setBroken(true)} /> : <span style={{ background: color, width: "100%", height: "100%", display: "grid", placeItems: "center" }}>{label.slice(0, 2)}</span>}
     </span>
   );
 }

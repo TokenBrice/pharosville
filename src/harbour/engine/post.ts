@@ -1,11 +1,20 @@
 import * as THREE from "three";
 import {
-  BloomEffect, Effect, EffectComposer, EffectPass, KernelSize, LUT3DEffect, Pass, RenderPass, SMAAEffect, SMAAPreset,
+  BloomEffect, Effect, EffectComposer, EffectPass, KernelSize, LUT3DEffect, type MipmapBlurPass, Pass, RenderPass, SMAAEffect, SMAAPreset,
   TiltShiftEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect,
 } from "postprocessing";
 import type { CameraRig } from "./camera-rig";
 import type { Grade, TimeOfDay } from "./time-of-day";
 import type { QualitySettings } from "./quality";
+import type { EngineContext, PreparationEntry } from "./types";
+import { preparationMaterial } from "./prepare";
+import { StaticDepthPass } from "../world/depth-prepass";
+import { getHarbourMaterials } from "../world/materials";
+
+export interface PostPreparation {
+  entries: PreparationEntry[];
+  dispose(): void;
+}
 
 /**
  * The WebGL2 post chain (NaN scrub, one merged EffectPass + SMAA):
@@ -163,6 +172,37 @@ export class DitherEffect extends Effect {
   }
 }
 
+/**
+ * postprocessing's levels setter calls Pass.dispose(), evicting the still-live down/up materials.
+ * This narrow adapter mirrors its mip construction, but releases targets only. Keep in sync with the
+ * pinned MipmapBlurPass implementation; sizes, formats, names and blur materials are unchanged.
+ */
+function setBloomLevels(pass: MipmapBlurPass, levels: number): void {
+  if (pass.levels === levels) return;
+  const mip = pass as MipmapBlurPass & {
+    renderTarget: THREE.WebGLRenderTarget;
+    downsamplingMipmaps: THREE.WebGLRenderTarget[];
+    upsamplingMipmaps: THREE.WebGLRenderTarget[];
+    resolution: THREE.Vector2;
+  };
+  for (const target of mip.downsamplingMipmaps) target.dispose();
+  for (const target of mip.upsamplingMipmaps) target.dispose();
+  mip.downsamplingMipmaps.length = 0;
+  mip.upsamplingMipmaps.length = 0;
+  for (let i = 0; i < levels; i++) {
+    const target = mip.renderTarget.clone();
+    target.texture.name = `Downsampling.Mipmap${i}`;
+    mip.downsamplingMipmaps.push(target);
+  }
+  mip.upsamplingMipmaps.push(mip.renderTarget);
+  for (let i = 1; i < levels - 1; i++) {
+    const target = mip.renderTarget.clone();
+    target.texture.name = `Upsampling.Mipmap${i}`;
+    mip.upsamplingMipmaps.push(target);
+  }
+  mip.setSize(mip.resolution.x, mip.resolution.y);
+}
+
 export class PostChain {
   readonly bloom: BloomEffect;
   readonly toneMapping: ToneMappingEffect;
@@ -175,7 +215,9 @@ export class PostChain {
   private readonly main: EffectPass;
   private readonly lutTex: THREE.Data3DTexture;
   private readonly lutKey = new Float32Array(15).fill(-1);
+  private tier: QualitySettings["tier"] | undefined;
   private lutAge = 1e9;
+  private depthPrepass?: StaticDepthPass;
   /** Camera distances where tilt-shift starts / reaches full strength (set from the layout presets). */
   tiltNear = 260;
   tiltFar = 700;
@@ -215,11 +257,20 @@ export class PostChain {
     composer.addPass(new EffectPass(camera, this.smaa));
   }
 
+  installDepthPrepass(ctx: EngineContext): void {
+    this.depthPrepass = new StaticDepthPass(ctx, getHarbourMaterials(ctx).staticDepth);
+    const render = this.composer.passes[0] as RenderPass;
+    render.clearPass.enabled = false;
+  }
+
   /**
    * Called once every system has added its passes (stale fog, beam shafts), before the first render:
    * the scrub goes right ahead of the bloom pass so it cleans whatever those scene-linear passes wrote.
    */
   seal(): void {
+    // Systems insert scene-linear effects after the original RenderPass at index 1.
+    // Add depth only after those insertions, keeping it adjacent to the colour pass.
+    if (this.depthPrepass) this.composer.addPass(this.depthPrepass, 0);
     const passes = this.composer.passes as Pass[];
     passes.splice(passes.indexOf(this.scrub), 1);
     passes.splice(passes.indexOf(this.main), 0, this.scrub);
@@ -227,8 +278,52 @@ export class PostChain {
 
   /** Quality tier hooks (same art; cheaper effects). */
   setQuality(q: QualitySettings): void {
-    this.bloom.mipmapBlurPass.levels = q.bloomLevels;
+    if (this.tier === q.tier) return;
+    this.tier = q.tier;
+    setBloomLevels(this.bloom.mipmapBlurPass, q.bloomLevels);
     this.smaa.applyPreset(q.smaa === "high" ? SMAAPreset.HIGH : q.smaa === "medium" ? SMAAPreset.MEDIUM : SMAAPreset.LOW);
+  }
+
+  /** Boot covers all private passes; tier changes affect only the two SMAA preset materials. */
+  preparationEntries(next?: QualitySettings): PostPreparation {
+    const entries: PreparationEntry[] = [];
+    const owned: THREE.Material[] = [];
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
+    const add = (pass: Pass, target: () => THREE.WebGLRenderTarget | null, material?: THREE.Material) => {
+      const surface = pass as unknown as { scene: THREE.Scene; camera: THREE.Camera };
+      const root = material ? new THREE.Mesh(geometry, material) : surface.scene;
+      entries.push({ root, camera: surface.camera, target, scene: surface.scene });
+    };
+    if (!next) {
+      for (const pass of this.composer.passes) {
+        if (!(pass instanceof RenderPass) && !(pass instanceof StaticDepthPass)) add(pass, () => pass.renderToScreen ? null : this.composer.outputBuffer);
+      }
+      const bloom = this.bloom.mipmapBlurPass as MipmapBlurPass & {
+        downsamplingMaterial: THREE.Material; upsamplingMaterial: THREE.Material;
+        downsamplingMipmaps: THREE.WebGLRenderTarget[]; upsamplingMipmaps: THREE.WebGLRenderTarget[];
+      };
+      add(this.bloom.luminancePass, () => (this.bloom as BloomEffect & { renderTarget: THREE.WebGLRenderTarget }).renderTarget);
+      add(bloom, () => bloom.downsamplingMipmaps[0], bloom.downsamplingMaterial);
+      add(bloom, () => bloom.upsamplingMipmaps[0], bloom.upsamplingMaterial);
+      const tilt = this.tiltShift.blurPass as typeof this.tiltShift.blurPass & { renderTargetA: THREE.WebGLRenderTarget };
+      add(tilt, () => tilt.renderTargetA);
+    }
+    const smaa = this.smaa as SMAAEffect & {
+      edgeDetectionPass: Pass; weightsPass: Pass;
+      renderTargetEdges: THREE.WebGLRenderTarget; renderTargetWeights: THREE.WebGLRenderTarget;
+    };
+    let edge = smaa.edgeDetectionMaterial, weights = smaa.weightsMaterial;
+    if (next) {
+      edge = preparationMaterial(edge); weights = preparationMaterial(weights);
+      owned.push(edge, weights);
+      // Invoke the dependency's preset on owned materials, never mutate live defines while awaiting.
+      SMAAEffect.prototype.applyPreset.call({ edgeDetectionMaterial: edge, weightsMaterial: weights } as SMAAEffect,
+        next.smaa === "high" ? SMAAPreset.HIGH : next.smaa === "medium" ? SMAAPreset.MEDIUM : SMAAPreset.LOW);
+    }
+    add(smaa.edgeDetectionPass, () => smaa.renderTargetEdges, edge);
+    add(smaa.weightsPass, () => smaa.renderTargetWeights, weights);
+    return { entries, dispose: () => { geometry.dispose(); for (const material of owned) material.dispose(); } };
   }
 
   update(delta: number, tod: TimeOfDay, rig: CameraRig): void {
@@ -260,5 +355,5 @@ export class PostChain {
     }
   }
 
-  dispose(): void { this.lutTex.dispose(); this.scrub.dispose(); }
+  dispose(): void { this.depthPrepass?.dispose(); this.lutTex.dispose(); this.scrub.dispose(); }
 }

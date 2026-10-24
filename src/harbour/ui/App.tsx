@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ChartLabels } from "./ChartLabels";
 import { CornerMark } from "./CornerMark";
 import { useStore, useUISlice } from "./hooks";
 import { HoverTag } from "./HoverTag";
-import { Ledger } from "./Ledger";
-import { SidePanel } from "./Panel";
 import { Postcard } from "./Postcard";
-import { Search } from "./Search";
+import { preloadDetails } from "./details";
+import { DetailFallback } from "./DetailFallback";
+
+const DetailPanels = lazy(preloadDetails);
 
 /** Arrow keys pan. (No WASD: W is the opt-in watch, D-5, and half a WASD set would only confuse.) */
 const PAN_KEYS: Record<string, "up" | "down" | "left" | "right"> = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
@@ -22,6 +23,10 @@ export function HarbourUI() {
   const announce = useUISlice((s) => s.announce);
   const capturing = useUISlice((s) => s.capturing);
   const watch = useUISlice((s) => s.watch);
+  const ledgerOpen = useUISlice((s) => s.ledgerOpen);
+  // Keep mounted after first use so each panel retains its existing close/presence semantics.
+  const [detailsStarted, setDetailsStarted] = useState(false);
+  if (!detailsStarted && (ledgerOpen || searchOpen || selected)) setDetailsStarted(true);
   // focus to return to when the topmost layer closes
   const returnTo = useRef<HTMLElement | null>(null);
   const remember = () => {
@@ -108,9 +113,9 @@ export function HarbourUI() {
       <ChartLabels />
       <HoverTag />
       <CornerMark />
-      <Ledger onClose={closeLedger} />
-      <SidePanel onClose={closePanel} />
-      <Search onClose={closeSearch} />
+      {detailsStarted && <Suspense fallback={<DetailFallback closeLedger={closeLedger} closePanel={closePanel} closeSearch={closeSearch} />}>
+        <DetailPanels closeLedger={closeLedger} closePanel={closePanel} closeSearch={closeSearch} />
+      </Suspense>}
       <Postcard />
       {watch && (
         <div className="hb-watch hb-paper" aria-hidden="true">

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { getBeamUniforms } from "../beam/uniforms";
 import type { QualityService } from "../engine/quality";
-import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import type { OceanService } from "../ocean/ocean-system";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
@@ -10,7 +10,7 @@ import type { SkyService } from "../sky/sky-system";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { getHarbourMaterials } from "../world/materials";
 import {
-  DEWS_LEVELS, moonbowLight, recoveryLine, seasonForMonth, snowShare, targetsForLevel, weightsForSeason, WeatherDirector, type Season, type SeasonWeights, type WeatherBand, type WeatherState,
+  DEWS_LEVELS, moonbowLight, recoveryLine, seasonForMonth, snowShare, targetsForLevel, weightsForSeason, WeatherDirector, type DirectorInput, type Season, type SeasonWeights, type WeatherBand, type WeatherState,
 } from "./director";
 import { Lightning, type StrikeEvent } from "./lightning";
 import { MAX_SPRAY, PRECIP_BUDGET, Precipitation } from "./precip";
@@ -90,6 +90,7 @@ export class WeatherSystem implements WorldSystem {
   private readonly flash = { azimuth: 0, elevation: 2 };
   private moonAt = -1;
   private moonIllum = 1;
+  private readonly input: DirectorInput = { level: null, band: null, snowShare: 0, sunUp: 0, time: 0 };
 
   init(ctx: EngineContext): void {
     this.fx = acquireFxTextures(ctx);
@@ -119,6 +120,13 @@ export class WeatherSystem implements WorldSystem {
       onLightning: (cb) => this.lightning.onStrike(cb),
     };
     ctx.services.set("weather", svc);
+  }
+
+  async prepareIdle(ctx: EngineContext): Promise<void> {
+    // Uniform-only rain/snow/flash/recovery transitions share these four programs. No weather is advanced.
+    const root = new THREE.Group();
+    root.children = [this.precip.fall, this.precip.ground, this.lightning.mesh, this.rainbow.mesh];
+    await (ctx.services.get("preparation") as PreparationService | undefined)?.prepareGroup(root);
   }
 
   /** Spray anchors along the surf: the outer coast, the breakwater and mole, the islets, the Shoals reef. */
@@ -193,14 +201,14 @@ export class WeatherSystem implements WorldSystem {
     const fLevel = fq in DEWS_LEVELS && this.elapsed > 2.5 ? DEWS_LEVELS[fq as WeatherBand] : null;
     const fAt = this.q.get("frontAt");
     this.clock ??= new MotionClock(ensureMotionService(ctx));
-    const input = {
-      level: fLevel ?? (w ? w.level : null), band: fLevel != null ? (fq as WeatherBand) : w?.band ?? null, snowShare: share, sunUp, moonUp, time: this.elapsed,
-      forceRainbow: this.q.get("rainbow") === "1",
-      still: this.clock.live < 0.5,
-      frontPin: fLevel != null && fAt != null && Number.isFinite(Number(fAt)) ? Number(fAt) : undefined,
-      forceBreaks: this.q.get("breaks") === "1",
-      squallPin: this.q.has("squall") && Number.isFinite(Number(this.q.get("squall"))) ? Number(this.q.get("squall")) : undefined,
-    };
+    const input = this.input;
+    input.level = fLevel ?? (w ? w.level : null); input.band = fLevel != null ? (fq as WeatherBand) : w?.band ?? null;
+    input.snowShare = share; input.sunUp = sunUp; input.moonUp = moonUp; input.time = this.elapsed;
+    input.forceRainbow = this.q.get("rainbow") === "1";
+    input.still = this.clock.live < 0.5;
+    input.frontPin = fLevel != null && fAt != null && Number.isFinite(Number(fAt)) ? Number(fAt) : undefined;
+    input.forceBreaks = this.q.get("breaks") === "1";
+    input.squallPin = this.q.has("squall") && Number.isFinite(Number(this.q.get("squall"))) ? Number(this.q.get("squall")) : undefined;
     // dev overrides (and the first reading) take effect at once, not over a minute
     const overridden = !!readings?.overridden && w != null;
     let snapNow = overridden;
@@ -245,8 +253,8 @@ export class WeatherSystem implements WorldSystem {
     const cool = THREE.MathUtils.smoothstep(cover, 0.3, 0.8) * (1 - U.uNight.value);
     if (cool > 1e-3) {
       const g = ctx.timeOfDay.grade;
-      g.gain = [g.gain[0] * (1 - 0.13 * cool), g.gain[1] * (1 - 0.07 * cool), g.gain[2] * (1 + 0.02 * cool)];
-      g.lift = [g.lift[0] * (1 - 0.012 * cool), g.lift[1], g.lift[2] * (1 + 0.02 * cool)];
+      g.gain[0] *= 1 - 0.13 * cool; g.gain[1] *= 1 - 0.07 * cool; g.gain[2] *= 1 + 0.02 * cool;
+      g.lift[0] *= 1 - 0.012 * cool; g.lift[2] *= 1 + 0.02 * cool;
       g.warmSat *= 1 - 0.12 * cool;
     }
 

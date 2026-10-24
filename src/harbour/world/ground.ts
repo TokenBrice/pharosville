@@ -15,6 +15,8 @@ export interface GroundService {
   /** Raw heights, row 0 = world z max (same layout as the texture). */
   heights: Float32Array;
   size: number;
+  /** Owned by IslandSystem; release only after GPU consumers (including pillar masking) are gone. */
+  dispose(): void;
 }
 
 /** Max-pooled, half-float, linearly filterable copy of the height field (for height-field AO). */
@@ -92,6 +94,5 @@ export function renderGround(renderer: THREE.WebGLRenderer, root: THREE.Object3D
     const a = h[y0 * size + x0], b = h[y0 * size + x1], c = h[y1 * size + x0], d = h[y1 * size + x1];
     return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
   };
-  const tex = rt.texture;
-  return { heightAt, texture: tex, bounds, heights: h, size };
+  return { heightAt, texture: rt.texture, bounds, heights: h, size, dispose: () => rt.dispose() };
 }

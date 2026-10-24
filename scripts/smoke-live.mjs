@@ -172,35 +172,26 @@ const endpointValidatorsByPath = {
   },
   "/api/chains": (json) => {
     assertArray(json.chains, "chains.chains", { nonEmpty: true });
-    assertNumber(json.updatedAt, "chains.updatedAt");
+    assertNumber(json.globalChange7dPct, "chains.globalChange7dPct");
   },
   "/api/stability-index?detail=true": (json) => {
     assert(json.current === null || isRecord(json.current), "stability.current must be null or an object");
     assertArray(json.history, "stability.history");
-    assert(isRecord(json.methodology), "stability.methodology must be an object");
   },
   "/api/peg-summary": (json) => {
     assertArray(json.coins, "pegSummary.coins", { nonEmpty: true });
-    assert(json.summary === null || isRecord(json.summary), "pegSummary.summary must be null or an object");
-    assert(isRecord(json.methodology), "pegSummary.methodology must be an object");
   },
   "/api/stress-signals": (json) => {
     assert(isRecord(json.signals), "stress.signals must be an object");
-    assertNumber(json.updatedAt, "stress.updatedAt");
-    assert(isRecord(json.methodology), "stress.methodology must be an object");
   },
   "/api/safety-grades": (json) => {
     assertArray(json.grades, "safetyGrades.grades", { nonEmpty: true });
-    assertNumber(json.updatedAt, "safetyGrades.updatedAt");
   },
-  // `scope` is `.optional()` in MintBurnFlowsResponseSchema and `coins` carries
-  // no minimum, so neither can be a hard gate: a contract-legal payload would
-  // fail the deploy smoke through every retry and email admins twice an hour.
-  // Both still matter enough to say out loud, so they go to the warning tier.
+  // The standalone projection retains panel flows and scope, not the upstream
+  // aggregate gauge. Empty scope/coin coverage remains an honest warning.
   "/api/mint-burn-flows": (json) => {
-    assert(isRecord(json.gauge), "mintBurn.gauge must be an object");
+    assertArray(json.hourly, "mintBurn.hourly");
     assertArray(json.coins, "mintBurn.coins");
-    assertNumber(json.updatedAt, "mintBurn.updatedAt");
 
     const warnings = [];
     if (json.coins.length === 0) {
@@ -243,16 +234,19 @@ const producerIntervalsByKey = parseProducerIntervalsByKey(
   CRON_INTERVALS_CLIENT,
 );
 
-// Where each payload carries its publication time. Only the endpoints that ship
+// Where each payload carries its publication time. The Pages Function projects responses
+// (docs/pharosville/CONTRACTS.md) and keeps `_meta`, so `_meta.updatedAt` is the fallback when a
+// projected body no longer carries the upstream top-level timestamp. Only the endpoints that ship
 // an `_meta` envelope get the status/ageSeconds half of the check.
+const metaUpdatedAt = (json) => json._meta?.updatedAt;
 const freshnessSourcesByPath = {
-  "/api/stablecoins": { key: "stablecoins", readUpdatedAt: (json) => json._meta?.updatedAt },
-  "/api/chains": { key: "chains", readUpdatedAt: (json) => json.updatedAt },
-  "/api/stability-index?detail=true": { key: "stability", readUpdatedAt: (json) => json.current?.computedAt },
-  "/api/peg-summary": { key: "pegSummary", readUpdatedAt: (json) => json.methodology?.asOf },
-  "/api/stress-signals": { key: "stress", readUpdatedAt: (json) => json.updatedAt },
-  "/api/safety-grades": { key: "safetyGrades", readUpdatedAt: (json) => json.updatedAt },
-  "/api/mint-burn-flows": { key: "mintBurn", readUpdatedAt: (json) => json.updatedAt },
+  "/api/stablecoins": { key: "stablecoins", readUpdatedAt: metaUpdatedAt },
+  "/api/chains": { key: "chains", readUpdatedAt: (json) => json.updatedAt ?? metaUpdatedAt(json) },
+  "/api/stability-index?detail=true": { key: "stability", readUpdatedAt: (json) => json.current?.computedAt ?? metaUpdatedAt(json) },
+  "/api/peg-summary": { key: "pegSummary", readUpdatedAt: (json) => json.methodology?.asOf ?? metaUpdatedAt(json) },
+  "/api/stress-signals": { key: "stress", readUpdatedAt: (json) => json.updatedAt ?? metaUpdatedAt(json) },
+  "/api/safety-grades": { key: "safetyGrades", readUpdatedAt: (json) => json.updatedAt ?? metaUpdatedAt(json) },
+  "/api/mint-burn-flows": { key: "mintBurn", readUpdatedAt: (json) => json.updatedAt ?? metaUpdatedAt(json) },
 };
 
 export function findFreshnessProblems(path, json, freshness, nowSec) {

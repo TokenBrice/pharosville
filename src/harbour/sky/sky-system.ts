@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { styleCDirection } from "../engine/time-of-day";
-import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import { FullscreenPass } from "../ocean/gpu-bake";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
@@ -130,6 +130,18 @@ export class SkySystem implements WorldSystem {
   private banks: Bank[] = [];
   private landPts: Array<[number, number]> = [];
   private horizon = 1500;
+  private layout: HarbourLayout | undefined;
+  private readonly cameraKey = {
+    valid: false, matrix: new THREE.Matrix4(), projection: new THREE.Matrix4(), position: new THREE.Vector3(), target: new THREE.Vector3(),
+    resolution: new THREE.Vector2(), fov: 0, aspect: 0,
+  };
+  private readonly geometry = { fwdAz: 0, vfov: 0, halfH: 0, pitch: 0, R: 1500, depr: 0, rightX: 1, rightZ: 0, lateralDeg: 0 };
+  private bandInputs: Array<THREE.IUniform<number | THREE.Color | THREE.Vector3 | THREE.Vector4>> = [];
+  private bandState: number[] = [];
+  private bandNext: number[] = [];
+  private bandDirty = true;
+  private bandNoise: THREE.Texture | null = null;
+  private bandNoiseVersion = -1;
   readonly shared: SkyShared = {
     uSkyBand: { value: null },
     uSkyBandRange: { value: new THREE.Vector4(-BAND_TH, BAND_TH, BAND_E0, BAND_E1) },
@@ -194,17 +206,7 @@ export class SkySystem implements WorldSystem {
   private seasonKey = "";
 
   init(ctx: EngineContext): void {
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
-    if (layout) {
-      const pts: Array<[number, number]> = [];
-      const coast = layout.island?.coast as unknown;
-      const polys = Array.isArray(coast) && Array.isArray((coast as unknown[][])[0]?.[0]) ? (coast as Array<Array<[number, number]>>) : [coast as Array<[number, number]>];
-      for (const poly of polys) if (Array.isArray(poly)) for (const p of poly) pts.push([p[0], p[1]]);
-      for (const line of [layout.island?.breakwater, layout.island?.mole]) for (const p of line ?? []) pts.push([p[0], p[1]]);
-      // P6: the Pharos islet (layout.island.islets) stands out at the mouth - keep it inside the sky card
-      for (const poly of layout.island?.islets ?? []) for (const p of poly) pts.push([p[0], p[1]]);
-      this.landPts = pts;
-    }
+    this.syncLayout(ctx.services.get("layout") as HarbourLayout | undefined);
     this.fx = acquireFxTextures(ctx);
     this.atlas = bakeCloudAtlas(ctx.renderer);
     this.u.uCloudAtlas.value = this.atlas.texture;
@@ -231,6 +233,17 @@ export class SkySystem implements WorldSystem {
       minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping,
     });
     this.bandPass = new FullscreenPass(BAND_FRAG, { ...world, ...this.u, uRange: this.shared.uSkyBandRange });
+    (ctx.services.get("preparation") as PreparationService | undefined)?.register(this.bandPass.preparationEntry(() => this.bandRT));
+    // Only inputs consumed by SKY_REFLECTION: no stars/discs/cloud atlas/banks/cirrus.
+    this.bandInputs = [
+      W.uNight, W.uZenith, W.uHorizon, W.uHaze, this.u.uGlowCol, this.u.uCloudLight, this.u.uCloudMid,
+      this.u.uCloudShade, this.u.uMount, this.u.uMountLit, this.u.uSkyK, this.u.uSunDisc, this.u.uMoonDisc,
+      this.u.uLight, this.u.uParallax, this.u.uStorm, this.u.uPrecipSky, this.u.uPrecipSkyB, this.shared.uSkyBandRange,
+      // Living Harbour: the clearing haze tint and storm strip (uSunColor), the W01 front and the W09 squall
+      W.uSunColor, this.u.uClearZen, this.u.uClearHor, this.u.uFrontA, this.u.uFrontB, this.u.uSquall,
+    ];
+    this.bandNext = new Array<number>(4 + this.bandInputs.length * 4).fill(0);
+    this.bandState = new Array<number>(this.bandNext.length).fill(NaN);
     this.shared.uSkyBand.value = this.bandRT.texture;
 
     this.seedBanks();
@@ -330,22 +343,34 @@ export class SkySystem implements WorldSystem {
     });
   }
 
-  update(frame: FrameState, ctx: EngineContext): void {
-    const { camera, rig, uniforms: W } = ctx;
-    const dt = frame.delta;
-    this.coverS += (this.cover - this.coverS) * (1 - Math.exp(-dt * 0.5));
-    this.windS += (this.wind - this.windS) * (1 - Math.exp(-dt * 0.5));
-    applySkyPalette(ctx.timeOfDay.hour, this.u);
-    this.updateMoon(ctx, frame.nowMs);
-    // W04: a dark (new-moon) night shows more stars; a thin moon lights the world less — with a floor, so the
-    // harbour stays legible and the lamps carry the night
-    const illum = this.moonIllum, nightK = W.uNight.value;
-    this.u.uSkyK.value.w *= 1 + 0.45 * (1 - illum);
-    W.uNightLift.value.multiplyScalar(0.7 + 0.3 * illum);
-    W.uSunColor.value.multiplyScalar(1 - nightK * 0.25 * (1 - illum));
+  private syncLayout(layout: HarbourLayout | undefined): void {
+    this.layout = layout;
+    const pts: Array<[number, number]> = [];
+    if (layout) {
+      const coast = layout.island?.coast as unknown;
+      const polys = Array.isArray(coast) && Array.isArray((coast as unknown[][])[0]?.[0]) ? (coast as Array<Array<[number, number]>>) : [coast as Array<[number, number]>];
+      for (const poly of polys) if (Array.isArray(poly)) for (const p of poly) pts.push([p[0], p[1]]);
+      for (const line of [layout.island?.breakwater, layout.island?.mole]) for (const p of line ?? []) pts.push([p[0], p[1]]);
+      // Keep the Pharos islet inside the card as well as the main island.
+      for (const poly of layout.island?.islets ?? []) for (const p of poly) pts.push([p[0], p[1]]);
+    }
+    this.landPts = pts;
+    this.cameraKey.valid = false;
+  }
 
-    // ---- camera frame
-    const fwd = camera.getWorldDirection(this.tmp);
+  /** Geometry depends only on the immutable layout, camera frame, target and drawing size, not sky lighting/weather. */
+  private cameraFrame(ctx: EngineContext): void {
+    const { camera, rig, uniforms: W } = ctx;
+    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    if (layout !== this.layout) this.syncLayout(layout);
+    const fwd = camera.getWorldDirection(this.tmp), key = this.cameraKey;
+    if (key.valid && key.matrix.equals(camera.matrixWorld) && key.projection.equals(camera.projectionMatrix) && key.position.equals(camera.position)
+      && key.target.equals(rig.target) && key.resolution.equals(W.uResolution.value)
+      && key.fov === camera.fov && key.aspect === camera.aspect) return;
+    key.matrix.copy(camera.matrixWorld); key.projection.copy(camera.projectionMatrix);
+    key.position.copy(camera.position); key.target.copy(rig.target);
+    key.resolution.copy(W.uResolution.value); key.fov = camera.fov; key.aspect = camera.aspect; key.valid = true;
+    this.bandDirty = true;
     const fwdAz = Math.atan2(fwd.x, -fwd.z);
     const vfov = camera.fov * D2R;
     const halfH = Math.atan(Math.tan(vfov / 2) * camera.aspect);
@@ -353,15 +378,14 @@ export class SkySystem implements WorldSystem {
     const camY = camera.position.y;
     const deprWanted = pitch - vfov / 2 + BAND_FRAC * vfov;
     let R = camY / Math.tan(Math.max(0.05, deprWanted));
-    // never cut through land: push the card beyond the farthest land point in view
     const cx = camera.position.x, cz = camera.position.z;
     const span = halfH + 0.25;
     const fl = Math.hypot(fwd.x, fwd.z) || 1;
     let far = 0;
     for (const [px, pz] of this.landPts) {
       const dx = px - cx, dz = pz - cz, d = Math.hypot(dx, dz);
-      const df = (dx * fwd.x + dz * fwd.z) / fl;                              // depth along the view
-      if (df / d < Math.cos(span)) continue;                                  // outside the card
+      const df = (dx * fwd.x + dz * fwd.z) / fl;
+      if (df / d < Math.cos(span)) continue;
       far = Math.max(far, df);
     }
     if (far > 0) R = Math.max(R, far + 14);
@@ -374,13 +398,57 @@ export class SkySystem implements WorldSystem {
     bd.uYBot.value = -4; bd.uYTop.value = Math.max(yTop, 20);
     bd.uPxDeg.value = camera.fov / Math.max(1, W.uResolution.value.y);
     this.mesh.visible = yTop > 0;
-
-    // ---- parallax: lateral pan relative to the island centre shifts far layers a little
     const rightX = Math.cos(fwdAz), rightZ = Math.sin(fwdAz);
     const lateral = rig.target.x * rightX + rig.target.z * rightZ;
-    const deg = (d: number) => (lateral / d) * (180 / Math.PI);
-    this.u.uParallax.value.set(deg(9000), deg(5200), deg(3000), deg(7000));
-    const lateralDeg = deg(1);
+    this.u.uParallax.value.set((lateral / 9000) * (180 / Math.PI), (lateral / 5200) * (180 / Math.PI), (lateral / 3000) * (180 / Math.PI), (lateral / 7000) * (180 / Math.PI));
+    const geometry = this.geometry;
+    geometry.fwdAz = fwdAz; geometry.vfov = vfov; geometry.halfH = halfH; geometry.pitch = pitch;
+    geometry.R = R; geometry.depr = depr; geometry.rightX = rightX; geometry.rightZ = rightZ;
+    geometry.lateralDeg = (lateral / 1) * (180 / Math.PI);
+  }
+
+  /** Reuse only identical inputs; animated rain/decks and each lightning flash retain full frame cadence. */
+  private renderBand(ctx: EngineContext): void {
+    const next = this.bandNext, prev = this.bandState;
+    const weather = this.u.uWeather.value, precip = this.u.uPrecipSky.value;
+    // Below 0.009 the GLSL sum cannot cross its 0.01 branch through float rounding.
+    const rain = precip.x + precip.y > 0.009;
+    const nightDeck = THREE.MathUtils.smoothstep(weather.x, 0.2, 0.36) * THREE.MathUtils.smoothstep(ctx.uniforms.uNight.value, 0.25, 0.75);
+    // A lower threshold than the GLSL branch is conservative around CPU/GPU float rounding.
+    const deck = this.u.uStorm.value > 0.001 || nightDeck > 0.001;
+    next[0] = weather.x; next[1] = rain || deck ? weather.z : 0;
+    next[2] = rain ? ctx.uniforms.uTime.value : 0; next[3] = weather.y;
+    for (let i = 0; i < this.bandInputs.length; i++) {
+      const value = this.bandInputs[i].value, offset = 4 + i * 4;
+      if (typeof value === "number") next[offset] = value;
+      else value.toArray(next, offset);
+    }
+    const noise = this.u.uSkyNoise.value;
+    let dirty = this.bandDirty || noise !== this.bandNoise || noise?.version !== this.bandNoiseVersion;
+    for (let i = 0; i < next.length; i++) if (next[i] !== prev[i]) dirty = true;
+    if (!dirty) return;
+    this.bandPass.render(ctx.renderer, this.bandRT);
+    for (let i = 0; i < next.length; i++) prev[i] = next[i];
+    this.bandNoise = noise; this.bandNoiseVersion = noise?.version ?? -1; this.bandDirty = false;
+  }
+
+  update(frame: FrameState, ctx: EngineContext): void {
+    const { uniforms: W } = ctx;
+    const dt = frame.delta;
+    this.coverS += (this.cover - this.coverS) * (1 - Math.exp(-dt * 0.5));
+    this.windS += (this.wind - this.windS) * (1 - Math.exp(-dt * 0.5));
+    applySkyPalette(ctx.timeOfDay.hour, this.u);
+    this.updateMoon(ctx, frame.nowMs);
+    // W04: a dark (new-moon) night shows more stars; a thin moon lights the world less — with a floor, so the
+    // harbour stays legible and the lamps carry the night
+    const illum = this.moonIllum, nightK = W.uNight.value;
+    this.u.uSkyK.value.w *= 1 + 0.45 * (1 - illum);
+    W.uNightLift.value.multiplyScalar(0.7 + 0.3 * illum);
+    W.uSunColor.value.multiplyScalar(1 - nightK * 0.25 * (1 - illum));
+
+    // Only the card/horizon geometry is cached; all hour/weather/glint/cloud work below stays live.
+    this.cameraFrame(ctx);
+    const { fwdAz, vfov, halfH, pitch, R, depr, rightX, rightZ, lateralDeg } = this.geometry;
 
     // ---- sun & moon. The key light (uSunDir) is the sun by day and the moon by night (TimeOfDay);
     //      the painted discs are art-directed: the moon keeps style C's station (az 50, el 26), drifting slowly.
@@ -515,7 +583,7 @@ export class SkySystem implements WorldSystem {
       greyOf(W.uFillColor.value, 0.5 * storm, 1);
       const g = ctx.timeOfDay.grade;
       g.saturation *= 1 - 0.42 * storm;
-      g.gain = [g.gain[0] * (1 - 0.04 * storm), g.gain[1] * (1 - 0.01 * storm), g.gain[2] * (1 - 0.03 * storm)];
+      g.gain[0] *= 1 - 0.04 * storm; g.gain[1] *= 1 - 0.01 * storm; g.gain[2] *= 1 - 0.03 * storm;
       g.contrast = 1 + (g.contrast - 1) * (1 - 0.35 * storm);
     }
 
@@ -538,7 +606,7 @@ export class SkySystem implements WorldSystem {
         W.uZenith.value.multiplyScalar(1 - 0.22 * gloom);
         W.uHorizon.value.multiplyScalar(1 - 0.12 * gloom);
         const g = ctx.timeOfDay.grade;
-        g.gain = [g.gain[0] * (1 - 0.06 * gloom), g.gain[1] * (1 - 0.05 * gloom), g.gain[2] * (1 - 0.02 * gloom)];
+        g.gain[0] *= 1 - 0.06 * gloom; g.gain[1] *= 1 - 0.05 * gloom; g.gain[2] *= 1 - 0.02 * gloom;
       }
       if (flash > 1e-3) {
         // a cold blue-white flash on everything the sky lights (the hemisphere and fill lights copy these next).
@@ -586,7 +654,7 @@ export class SkySystem implements WorldSystem {
     cs.uCloudShadowS.value.set(wind.z * ((sq?.pos ?? 0) - 1) * 1100, wind.w * ((sq?.pos ?? 0) - 1) * 1100, 1 / 260, 0.32 * sqK * sunUp * (1 - 0.7 * night));
 
     // ---- band texture for the sea (cheap: 512 x 128)
-    this.bandPass.render(ctx.renderer, this.bandRT);
+    this.renderBand(ctx);
   }
 
   dispose(ctx: EngineContext): void {

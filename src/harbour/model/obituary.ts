@@ -7,12 +7,15 @@
  * that only hastened a vote to close stays a wind-down). The family picks the wreck's form; its size and its
  * place on the strand stay the peak-cap rank.
  */
-import { DEAD_STABLECOINS } from "@shared/lib/dead-stablecoins";
+import cemetery from "virtual:pharosville-cemetery";
 import type { DeadStablecoin } from "@shared/types/market";
-import { logosById } from "../../lib/logos";
+import { logosById, runtimeLogoPath } from "../../lib/logos";
 import cemeteryLogos from "./cemetery-logos.json";
 
-export type CauseFamily = "spiral" | "exploit" | "counterparty" | "run" | "wind-down" | "decree";
+import { bornOf, causeFamily } from "../ui/cemetery-classify";
+import type { CauseFamily } from "../ui/cemetery-classify";
+export { bornOf, causeFamily };
+export type { CauseFamily };
 
 export interface FamilyInfo {
   /** The family as the tag and the obituary name it. */
@@ -33,40 +36,6 @@ export const FAMILIES: Record<CauseFamily, FamilyInfo> = {
 };
 export const FAMILY_ORDER: readonly CauseFamily[] = ["spiral", "exploit", "counterparty", "run", "wind-down", "decree"];
 
-/** Its own contract or protocol attacked: an exploit, a hack, an attacker, an unauthorised or infinite mint. */
-const ATTACKED = /\b(?:was exploited|exploited via|an? (?:\$[\d.,]+[KMB]? )?(?:smart contract |flash[- ]loan |catastrophic |security )?(?:exploit|breach)\b|hack(?:ed)?\b|attacker|infinite mint|mint(?:ed)? [^.]{0,40}(?:out of thin air|unauthori[sz]ed|fraudulent)|rebasing bug|security (?:breach|flaw))/i;
-/**
- * Read by hand where the words mislead: an exploit it survived before dying of something else (the funds came
- * back; a second, unrelated collapse; contagion that outweighed a small hack).
- */
-const NOT_EXPLOITED = new Set(["mod-move-dollar-2025-06", "yu-yu-2025-11", "usdx-stables-labs-usdx-2025-11"]);
-
-export function causeFamily(d: Pick<DeadStablecoin, "id" | "causeOfDeath" | "obituary">): CauseFamily {
-  const c = d.causeOfDeath;
-  if (c === "regulatory") return "decree";
-  if (c === "abandoned") return "wind-down";
-  if (!NOT_EXPLOITED.has(d.id) && ATTACKED.test(d.obituary ?? "")) return "exploit";
-  if (c === "algorithmic-failure") return "spiral";
-  if (c === "counterparty-failure") return "counterparty";
-  return "run";
-}
-
-const MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December";
-const BORN = new RegExp(`\\b(?:launched|created|founded|deployed|debuted|born|went live)\\b[^.;]{0,24}?\\b(?:in |on )?(?:(early|mid|late) )?(?:(${MONTHS}) )?(?:\\d{1,2}, )?((?:19|20)\\d{2})\\b`, "i");
-const BORN_PAREN = /\bcreated \(((?:19|20)\d{2})\)/i;
-
-/**
- * When it was launched, as the obituary itself says it ("launched in April 2022", "created (2014)",
- * "launched in late 2021"); null when it does not say. Never later than its death.
- */
-export function bornOf(obituary: string, deathDate: string): string | null {
-  const m = BORN.exec(obituary);
-  const p = m ? null : BORN_PAREN.exec(obituary);
-  const year = m?.[3] ?? p?.[1];
-  if (!year || year > deathDate.slice(0, 4)) return null;
-  const qual = m?.[1]?.toLowerCase(), month = m?.[2];
-  return [qual, month ? month.charAt(0).toUpperCase() + month.slice(1).toLowerCase() : null, year].filter(Boolean).join(" ");
-}
 
 export interface DeadRecord {
   id: string;
@@ -100,16 +69,35 @@ export function deadRecord(d: DeadStablecoin): DeadRecord {
     family: causeFamily(d), deathDate: d.deathDate, born: bornOf(d.obituary ?? "", d.deathDate),
     peakMcap: d.peakMcap ?? null, epitaph: d.epitaph?.trim() || null, obituary: d.obituary,
     sourceUrl: d.sourceUrl || null, sourceLabel: d.sourceLabel || null,
-    logo: LOGOS[d.id] ?? (d.llamaId ? logosById[d.llamaId] ?? null : null),
+    logo: LOGOS[d.id] ? runtimeLogoPath(LOGOS[d.id]) : (d.llamaId ? logosById[d.llamaId] ?? null : null),
     pharosUrl: cemeteryUrl(d.id),
   };
 }
 
-let cache: Map<string, DeadRecord> | null = null;
-/** Every dead coin by id (the default dead list). */
+export type DeadSummary = Omit<DeadRecord, "obituary" | "sourceUrl" | "sourceLabel">;
+let summaries: Map<string, DeadSummary> | null = null;
+let records: Map<string, DeadRecord> | null = null;
+
+/** Eager exact names, families, dates and epitaphs; no cemetery narrative dependency. */
+export function deadSummaries(): Map<string, DeadSummary> {
+  if (!summaries) summaries = new Map(cemetery.map((d) => [d.id, {
+    id: d.id, name: d.name, symbol: d.symbol, pegCurrency: d.pegCurrency, cause: d.causeOfDeath,
+    family: d.family, deathDate: d.deathDate, born: d.born, peakMcap: d.peakMcap ?? null,
+    epitaph: d.epitaph?.trim() || null,
+    logo: LOGOS[d.id] ? runtimeLogoPath(LOGOS[d.id]) : (d.llamaId ? logosById[d.llamaId] ?? null : null),
+    pharosUrl: cemeteryUrl(d.id),
+  }]));
+  return summaries;
+}
+
+/** Installed by the deferred detail boundary before any narrative UI mounts. */
+export function installDeadRecords(rows: readonly DeadStablecoin[]): void {
+  records = new Map(rows.map((d) => [d.id, deadRecord(d)]));
+}
+
 export function deadRecords(): Map<string, DeadRecord> {
-  if (!cache) cache = new Map(DEAD_STABLECOINS.map((d) => [d.id, deadRecord(d)]));
-  return cache;
+  if (!records) throw new Error("Cemetery narratives must load before detail UI mounts.");
+  return records;
 }
 
 /** Days from a "YYYY-MM" (or "YYYY-MM-DD") death date's last possible day to `now`: a month-only date is read generously. */

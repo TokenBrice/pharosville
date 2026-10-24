@@ -1,9 +1,16 @@
 /**
- * The first-paint poster (index.html `#pv-poster`) lives outside the React root so it survives the
- * first render. It is dismissed once: crossfaded when the live harbour has drawn its first real
- * frame, or dropped at once when the viewport gate keeps the world unmounted.
+ * The first-paint illustration lives outside React. Keep its original markup for resize readmission;
+ * every new world must start behind the same poster, even after a previous fade removed it.
  */
 const FADE_MS = 1100;
+let original: HTMLElement | undefined;
+let cancelFade: (() => void) | undefined;
+
+function rememberPoster(): HTMLElement | null {
+  const poster = document.getElementById("pv-poster");
+  if (poster && !original) original = poster.cloneNode(true) as HTMLElement;
+  return poster;
+}
 
 /**
  * `scale` (crossfade only): the live camera starts pulled back (the harbour wakes, wake.ts), so the
@@ -13,7 +20,9 @@ const FADE_MS = 1100;
 export function dismissPoster(how: "crossfade" | "now", scale = 1): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  const poster = document.getElementById("pv-poster");
+  const poster = rememberPoster();
+  cancelFade?.();
+  cancelFade = undefined;
   if (how === "now") {
     poster?.remove();
     return;
@@ -24,13 +33,28 @@ export function dismissPoster(how: "crossfade" | "now", scale = 1): void {
   }
   root.setAttribute("data-pv-live", "");
   if (!poster) return;
-  const done = () => poster.remove();
-  poster.addEventListener("transitionend", (e) => { if (e.propertyName === "opacity") done(); });
-  setTimeout(done, FADE_MS + 200);
+  const done = () => {
+    poster.remove();
+    cleanup();
+  };
+  // the transform (scale) ends first: only the opacity fade's end removes the poster
+  const onEnd = (e: TransitionEvent) => { if (e.propertyName === "opacity") done(); };
+  const cleanup = () => {
+    clearTimeout(timer);
+    poster.removeEventListener("transitionend", onEnd);
+    cancelFade = undefined;
+  };
+  poster.addEventListener("transitionend", onEnd);
+  const timer = setTimeout(done, FADE_MS + 200);
+  cancelFade = cleanup;
 }
 
 /** Back to the loading state (the world unmounted, e.g. the window shrank below the gate). */
 export function resetPosterState(): void {
   if (typeof document === "undefined") return;
   document.documentElement.removeAttribute("data-pv-live");
+  cancelFade?.();
+  cancelFade = undefined;
+  const poster = rememberPoster();
+  if (!poster && original) document.body.prepend(original.cloneNode(true));
 }

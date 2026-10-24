@@ -9,8 +9,8 @@ import { LighthouseSystem } from "./world/lighthouse-system";
 import { LightsSystem } from "./lights/lights-system";
 import { FleetSystem } from "./fleet/fleet-system";
 import { ReadingsSystem } from "./readings/readings-system";
-import { LifeSystem } from "./life/life-system";
-import { IdentitySystem } from "./identity/identity-system";
+import { LazyLifeSystem } from "./life/lazy-system";
+import { LazyIdentitySystem } from "./identity/lazy-system";
 import { CivicSystem } from "./civic/civic-system";
 import { OfficeWorksSystem } from "./civic/office-works";
 import { MomentsStage } from "./life/moments-stage";
@@ -33,8 +33,8 @@ export const SYSTEMS: Array<() => WorldSystem> = [
   () => new LighthouseSystem(),
   () => new CivicSystem(),
   () => new FleetSystem(),
-  () => new LifeSystem(),
-  () => new IdentitySystem(),
+  () => new LazyLifeSystem(),
+  () => new LazyIdentitySystem(),
   () => new OfficeWorksSystem(), // T6: after identity (it rolls the awnings the identity layer dressed)
   () => new MomentsStage(), // staged data moments (events service): launch dressing, the reef beacon's flare
   () => new LightsSystem(),

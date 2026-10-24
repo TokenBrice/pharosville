@@ -420,7 +420,6 @@ export class BeamSystem implements WorldSystem {
     const sunK = HELIO_GAIN * day * (0.5 + 0.5 * this.reachS) * litK * THREE.MathUtils.clamp(1 - 1.1 * cloud, 0, 1);
     const sc = ctx.uniforms.uSunColor.value;
     this.bu.uBeamSun.value.set(sc.r * sunK, sc.g * 0.88 * sunK, sc.b * 0.66 * sunK, L * 0.35);
-    this.bu.uBeamBack.value = 0;
   }
 
   dispose(ctx: EngineContext): void {

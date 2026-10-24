@@ -48,7 +48,30 @@ export class AnalyticPicking implements PickingService {
   private index = new Map<string, number>();
   private indexIds: readonly string[] | null = null;
 
-  constructor(private readonly ctx: EngineContext) {}
+  private readonly observer: ResizeObserver | undefined;
+  private rectDirty = true;
+  private inFrame = false;
+  private projectionReady = false;
+  private readonly invalidateRect = () => { this.rectDirty = true; };
+
+  constructor(private readonly ctx: EngineContext) {
+    const canvas = ctx.renderer.domElement;
+    if (typeof ResizeObserver !== "undefined") {
+      this.observer = new ResizeObserver(this.invalidateRect);
+      this.observer.observe(canvas);
+      if (canvas.parentElement) this.observer.observe(canvas.parentElement);
+    }
+    window.addEventListener("resize", this.invalidateRect);
+    window.addEventListener("scroll", this.invalidateRect, true);
+  }
+
+  beginFrame(): void { this.inFrame = true; this.projectionReady = false; }
+  endFrame(): void { this.inFrame = false; }
+  dispose(): void {
+    this.observer?.disconnect();
+    window.removeEventListener("resize", this.invalidateRect);
+    window.removeEventListener("scroll", this.invalidateRect, true);
+  }
 
   setHover(): void { /* the analytic picker draws nothing */ }
   setSelected(): void { /* idem */ }
@@ -56,9 +79,14 @@ export class AnalyticPicking implements PickingService {
   private get layout(): HarbourLayout | null { return getLayout(this.ctx); }
 
   private begin(): void {
-    const r = this.ctx.renderer.domElement.getBoundingClientRect(), o = this.rect;
-    o.left = r.left; o.top = r.top; o.width = r.width || innerWidth; o.height = r.height || innerHeight;
+    if (this.inFrame && this.projectionReady) return;
+    if (this.rectDirty) {
+      const r = this.ctx.renderer.domElement.getBoundingClientRect(), o = this.rect;
+      o.left = r.left; o.top = r.top; o.width = r.width || innerWidth; o.height = r.height || innerHeight;
+      this.rectDirty = false;
+    }
     this.ctx.camera.updateMatrixWorld();
+    this.projectionReady = true;
   }
 
   /** Project world → viewport px. Returns false when behind the camera. */
@@ -436,6 +464,9 @@ export class AnalyticPicking implements PickingService {
 export class UIPicking implements PickingService {
   private readonly own: AnalyticPicking;
   constructor(private readonly ctx: EngineContext) { this.own = new AnalyticPicking(ctx); }
+  beginFrame(): void { this.own.beginFrame(); }
+  endFrame(): void { this.own.endFrame(); }
+  dispose(): void { this.own.dispose(); }
 
   pick(clientX: number, clientY: number): PickHit | null {
     const world = getWorldPicking(this.ctx);

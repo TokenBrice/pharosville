@@ -118,10 +118,10 @@ void main() {
   gl_FragColor = vec4(n.xy * 0.5 + 0.5, rim, a);
 }`;
 
-/** Bake the 8-bank atlas (2048 x 1024 RGBA8, mipmapped; three regenerates mips after each cell). */
+/** Bake the 8-bank atlas (2048 x 1024 RGBA8), generating its mip chain only after the last cell. */
 export function bakeCloudAtlas(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTarget {
   const rt = new THREE.WebGLRenderTarget(CELL_W * CLOUD_COLS, CELL_H * CLOUD_ROWS, {
-    type: THREE.UnsignedByteType, format: THREE.RGBAFormat, depthBuffer: false, generateMipmaps: true,
+    type: THREE.UnsignedByteType, format: THREE.RGBAFormat, depthBuffer: false, generateMipmaps: false,
     minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping,
   });
   const lobeArr = Array.from({ length: MAX_LOBES }, () => new THREE.Vector4());
@@ -133,6 +133,8 @@ export function bakeCloudAtlas(renderer: THREE.WebGLRenderer): THREE.WebGLRender
     const u = pass.material.uniforms;
     u.uCount.value = lobes.length; u.uBase.value = base; u.uSeed.value = c * 13 + 5;
     vp.set((c % CLOUD_COLS) * CELL_W, Math.floor(c / CLOUD_COLS) * CELL_H, CELL_W, CELL_H);
+    // No consumer can sample the atlas until it returns; only the complete base level needs mips.
+    rt.texture.generateMipmaps = c === CLOUD_CELLS - 1;
     pass.render(renderer, rt, c === 0, vp);
   }
   pass.dispose();

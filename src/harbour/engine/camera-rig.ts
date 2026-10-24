@@ -70,6 +70,11 @@ export class CameraRig {
   readonly breath = { k: 0, dx: 0, dz: 0 };
   /** Bumped by every user pan or zoom (not by glides): follow / watch / idle read it to let go. */
   inputEpoch = 0;
+  private readonly syncedTarget = new THREE.Vector3(NaN, NaN, NaN);
+  private readonly syncedBreath = { k: NaN, dx: NaN, dz: NaN };
+  private syncedDistance = NaN;
+  private syncedPitch = NaN;
+  private syncedYaw = NaN;
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
@@ -78,8 +83,7 @@ export class CameraRig {
     this.goalDistance = p.distance;
     this.pitch = THREE.MathUtils.degToRad(p.pitchDeg);
     this.yaw = THREE.MathUtils.degToRad(p.yawDeg);
-    this.camera.fov = p.fovDeg;
-    this.camera.updateProjectionMatrix();
+    if (this.camera.fov !== p.fovDeg) { this.camera.fov = p.fovDeg; this.camera.updateProjectionMatrix(); }
     this.glide = null;
     if (immediate) { this.target.copy(this.goalTarget); this.distance = this.goalDistance; this.sync(); }
   }
@@ -188,14 +192,26 @@ export class CameraRig {
   }
 
   private sync(): void {
+    const sb = this.syncedBreath, b0 = this.breath;
+    if (this.syncedDistance === this.distance && this.syncedPitch === this.pitch
+      && this.syncedYaw === this.yaw && this.syncedTarget.equals(this.target)
+      && sb.k === b0.k && sb.dx === b0.dx && sb.dz === b0.dz) return;
+    sb.k = b0.k; sb.dx = b0.dx; sb.dz = b0.dz;
+    this.syncedDistance = this.distance;
+    this.syncedPitch = this.pitch;
+    this.syncedYaw = this.yaw;
+    this.syncedTarget.copy(this.target);
     const cp = Math.cos(this.pitch);
     const b = this.breath;
     const dist = this.distance * (1 + b.k);
     this.offset.set(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp).multiplyScalar(dist);
     this.camera.position.set(this.target.x + b.dx, this.target.y, this.target.z + b.dz).add(this.offset);
     this.camera.lookAt(this.target.x + b.dx, this.target.y, this.target.z + b.dz);
-    this.camera.near = Math.max(1, dist * 0.05);
-    this.camera.far = dist * 12;
-    this.camera.updateProjectionMatrix();
+    const near = Math.max(1, dist * 0.05), far = dist * 12;
+    if (this.camera.near !== near || this.camera.far !== far) {
+      this.camera.near = near;
+      this.camera.far = far;
+      this.camera.updateProjectionMatrix();
+    }
   }
 }

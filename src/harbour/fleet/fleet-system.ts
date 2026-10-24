@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { Mastheads } from "./mastheads";
-import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, PreparationService, ReadinessState, WorldSystem } from "../engine/types";
 import type { HarbourLayout, HullClass, Pier } from "../layout/types";
-import type { HarbourModel, StormFlag } from "../model/types";
+import type { Boat, HarbourModel, StormFlag } from "../model/types";
 import type { OceanService } from "../ocean/ocean-system";
 import type { WakeService } from "../ocean/wake";
 import { hullSwellCache } from "../ocean/waves";
@@ -10,7 +10,7 @@ import type { HarbourSim } from "../sim/sim";
 import { EV_TO_SHOALS, EV_TOW, MAX_TUGS, PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING } from "../sim/sim";
 import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
-import { EmblemAtlas } from "./emblems";
+import { EmblemAtlas, type EmblemCoin } from "./emblems";
 import { createFleetMaterials, FLEET_DATA_TEXELS, type FleetUniforms } from "./fleet-material";
 import { loadKit, loadWreckKit, type HullVariant, type Kit, type WreckItem } from "./hull-kit";
 import { buildWreath, composeCove, CoveService, EpitaphBoards, freshDeath, PERCH_ITEMS, topVertex, type CoveDead, type CoveMark, type CovePiece, type CoveSlot } from "./wreck-cove";
@@ -30,10 +30,13 @@ import { inPoly, seaZones } from "../ui/places";
 import { titanFor } from "./titans";
 import { DECK, linear, liveryFor, sailDye, TOPSIDE, TRIM } from "./livery";
 import { ensureMotionService, MotionClock } from "../ui/services";
+import { fleetShadowFrustum, rigRadius } from "./visibility";
+import type { SunRig } from "../world/sun";
 
 /**
- * FleetSystem: every stablecoin's hull, in ONE BatchedMesh multi-draw (+ its shadow pass), posed every
- * frame from the 'sim' service: hull variant by peg family × supply class (kit manifest), LOD hull when
+ * FleetSystem: every stablecoin's hull, in ONE BatchedMesh multi-draw (+ its shadow pass), consuming
+ * every frame's 'sim' pose, with offscreen non-casters skipping matrix/rig uploads: hull variant by peg
+ * family × supply class (kit manifest), LOD hull when
  * small on screen, furl morph, boom swing + tack mirroring, heel from the sim plus swell bob/pitch/roll
  * from ocean.heightAt, brand boot-top/pennant/cover tint, brand-dyed sails, the coin emblem on the main (and second) sail. Also:
  * wake stamps, mooring lines, riding lights, Wreck Cove hulks, mooring buoys, and the 'picking' service.
@@ -52,6 +55,12 @@ export interface PickingService {
   screenPosition(kind: "boat" | "landmark", id: string): { x: number; y: number; visible: boolean };
   setHover(id: string | null): void;
   setSelected(id: string | null): void;
+}
+
+/** Actual hull submissions for the installed model; published in place only after the fleet update. */
+export interface FleetFrameState {
+  revision: number;
+  boats: number;
 }
 
 /** Riding lights come on with the town (uWindowGlow), not at the first hint of golden hour. */
@@ -116,6 +125,7 @@ const CLASS_LOA_FALLBACK: Record<HullClass, number> = { flagship: 26, large: 18,
 
 interface BoatRec {
   id: string;
+  source: Boat;
   inst: number;
   variant: HullVariant;
   scale: number;
@@ -135,12 +145,15 @@ interface BoatRec {
   phi: number;
   slot: number; // emblem slot
   brand: THREE.Color;
-  bollardSlot: number;
+  /** Replans may reuse a numeric index for a different immutable raft-berth object. */
+  bollardSlot: HarbourSim["layout"]["slots"][number] | null;
   bow: [number, number, number] | null;
   /** Bow-in (Mediterranean) berth: two bow lines to the quay, the stern's lazy line down to its block. */
   med: boolean;
   stern: [number, number, number] | null;
   visible: boolean;
+  posed: boolean;
+  visualRadius: number;
   dist: number;
   /** Has a peg reading (stern / anchor lamp may be lit at all); shows an anchor light when moored (sternLampLit); whether its pennant flies. */
   reading: boolean;
@@ -174,11 +187,16 @@ export class FleetSystem implements WorldSystem {
   private readonly uniforms: FleetUniforms;
   private data = new Float32Array(0);
   private paint = new Float32Array(0);
+  private readonly rigRadii = new Map<HullVariant, number>();
+  /** Dirty whole rows, accumulated until the renderer has consumed the texture ranges. */
+  private dataDirty = new Uint8Array(0);
   private geomIds = new Map<string, number>();
   private boats: BoatRec[] = [];
   /** 09-L6 (life): mastheads of hulls at rest, where gulls may stand */
   private readonly mastheads = new Mastheads();
   private byId = new Map<string, BoatRec>();
+  private liveIds = new Set<string>();
+  private wreckSlots: number[] = [];
   private wreckInst: Array<{ inst: number; x: number; z: number; h: number; scale: number; heel: number; y: number; pitch: number; phi: number }> = [];
   private wrecksPosed = false;
   private buoyInst: Array<{ inst: number; x: number; z: number; phi: number }> = [];
@@ -204,6 +222,10 @@ export class FleetSystem implements WorldSystem {
   private batchV = 0;
   private batchI = 0;
   private model: HarbourModel | null = null;
+  private modelRevision = 0;
+  /** Each installed revision submits its complete fleet once before offscreen posing can be skipped. */
+  private needsFullPose = false;
+  private readonly fleetFrame: FleetFrameState = { revision: 0, boats: 0 };
   private layout: HarbourLayout | null = null;
   private piers = new Map<string, Pier>();
   private lines!: MooringLines;
@@ -278,7 +300,7 @@ export class FleetSystem implements WorldSystem {
     this.layout = layout;
     for (const p of layout.piers) this.piers.set(p.id, p);
     try {
-      const [kit, atlas] = await Promise.all([loadKit(ctx.assets), EmblemAtlas.load(420)]);
+      const [kit, atlas] = await Promise.all([loadKit(ctx.assets), EmblemAtlas.load(ctx.assets, 420)]);
       this.kit = kit; this.atlas = atlas;
     } catch (e) {
       console.error("[harbour] fleet: kit failed to load", e);
@@ -297,7 +319,7 @@ export class FleetSystem implements WorldSystem {
     ctx.scene.add(this.riding.object);
     this.fenders = new Fenders();
     ctx.scene.add(this.fenders.mesh);
-    this.flags = new HouseFlags({ ...ctx.uniforms, uTime: this.uniforms.uFleetTime }, this.atlas.texture, this.atlas.grid);
+    this.flags = new HouseFlags({ ...ctx.uniforms, uTime: this.uniforms.uFleetTime }, this.atlas);
     ctx.scene.add(this.flags.mesh);
     this.mastSignals = new MastSignals(getHarbourMaterials(ctx).kit());
     ctx.scene.add(this.mastSignals.mesh);
@@ -360,8 +382,11 @@ export class FleetSystem implements WorldSystem {
     }
     const rows = Math.ceil((maxInstances * FLEET_DATA_TEXELS) / DATA_W);
     if (this.data.length >= rows * DATA_W * 4) return;
+    const previous = this.data;
     this.data = new Float32Array(rows * DATA_W * 4);
-    for (let i = 0; i < maxInstances; i++) this.data[(i * FLEET_DATA_TEXELS + 1) * 4 + 3] = -1;
+    this.data.set(previous);
+    this.dataDirty = new Uint8Array(rows);
+    for (let i = previous.length / (FLEET_DATA_TEXELS * 4); i < maxInstances; i++) this.data[(i * FLEET_DATA_TEXELS + 1) * 4 + 3] = -1;
     const old = this.uniforms.uFleetData.value;
     const t = new THREE.DataTexture(this.data, DATA_W, rows, THREE.RGBAFormat, THREE.FloatType);
     t.needsUpdate = true;
@@ -380,11 +405,37 @@ export class FleetSystem implements WorldSystem {
   }
 
   private writeData(inst: number, furl: number, swing: number, hi: number, r: number, g: number, b: number, slot: number, flag = 1, far = 0, struck = false): void {
-    const d = this.data, o = inst * FLEET_DATA_TEXELS * 4;
+    const o = inst * FLEET_DATA_TEXELS * 4;
     // pennant flying (sign), how far the rig has receded and whether it is struck share one channel
     const m = 1 + far + (struck ? 2 : 0);
-    d[o] = furl; d[o + 1] = swing; d[o + 2] = hi; d[o + 3] = flag > 0.5 ? m : -m;
-    d[o + 4] = r; d[o + 5] = g; d[o + 6] = b; d[o + 7] = slot;
+    this.writeDatum(o, furl); this.writeDatum(o + 1, swing); this.writeDatum(o + 2, hi); this.writeDatum(o + 3, flag > 0.5 ? m : -m);
+    this.writeDatum(o + 4, r); this.writeDatum(o + 5, g); this.writeDatum(o + 6, b); this.writeDatum(o + 7, slot);
+  }
+
+  private writeDatum(offset: number, value: number): void {
+    const v = Math.fround(value); // compare the stored Float32, not its double-precision source
+    if (this.data[offset] === v) return;
+    this.data[offset] = v;
+    this.dataDirty[Math.floor(offset / (DATA_W * 4))] = 1;
+  }
+
+  private uploadData(): void {
+    const texture = this.uniforms.uFleetData.value;
+    let changed = false;
+    for (let row = 0; row < this.dataDirty.length; row++) {
+      if (!this.dataDirty[row]) continue;
+      // Three texture ranges are single-row component spans, not rectangles. Do not clear pending
+      // ranges here: data may change again before a hidden tab / deferred scene is actually rendered.
+      const start = row * DATA_W * 4;
+      let pending = false;
+      for (const range of texture.updateRanges) {
+        if (range.start === start && range.count === DATA_W * 4) { pending = true; break; }
+      }
+      if (!pending) texture.addUpdateRange(start, DATA_W * 4);
+      this.dataDirty[row] = 0;
+      changed = true;
+    }
+    if (changed) texture.needsUpdate = true;
   }
 
   /**
@@ -407,46 +458,133 @@ export class FleetSystem implements WorldSystem {
 
   // ------------------------------------------------------------------ model → instances
 
+  /**
+   * Reconcile by ID, in model/pose order. Unchanged hulls retain their instance, paint, emblem slot and
+   * all visual history (velocity, highlight, LOD/pennant hysteresis, swell and mooring caches).
+   * The layout/kit are immutable for this fleet's lifetime; only actual variant/size changes invalidate them.
+   */
   private install(model: HarbourModel): void {
-    const mesh = this.mesh!, kit = this.kit!, layout = this.layout!;
-    this.model = model;
-    const old = this.byId;
-    for (const b of this.boats) mesh.deleteInstance(b.inst);
-    for (const w of this.wreckInst) mesh.deleteInstance(w.inst);
-    for (const bu of this.buoyInst) mesh.deleteInstance(bu.inst);
-    for (const tg of this.tugInst) mesh.deleteInstance(tg);
-    this.boats = []; this.byId = new Map(); this.wreckInst = []; this.buoyInst = []; this.tugInst = [];
-    const loaOf = (c: HullClass) => layout.hull?.loa?.[c] ?? CLASS_LOA_FALLBACK[c];
+    const mesh = this.mesh!;
+    const previous = this.model;
+    const ids = new Set(model.boats.map((b) => b.id));
+    for (const b of this.boats) if (!ids.has(b.id)) mesh.deleteInstance(b.inst);
+    const boats: BoatRec[] = [];
+    const byId = new Map<string, BoatRec>();
+    const emblems: EmblemCoin[] = [];
     for (const boat of model.boats) {
-      const titan = titanFor(boat.id, (v) => kit.hulls.has(v)); // the majors sail their own hero ship (titans.ts)
-      const vid = titan ?? pickVariant(this.index, boat.rig, boat.hullClass);
-      const variant = vid ? kit.hulls.get(vid) : undefined;
-      if (!variant) continue;
-      const loa = titan ? variant.loa : loaOf(boat.hullClass);
-      const scale = loa / variant.loa;
-      const geomFull = this.geomIds.get(variant.id)!;
-      const geomLod = this.geomIds.get(`${variant.id}#lod`) ?? geomFull;
-      const geomWreck = this.geomIds.get(WRECK_KITS[Math.floor(hash01(boat.id) * 3)]) ?? geomFull;
-      const wrecked = boat.state === "wrecked";
-      const g0 = wrecked ? geomWreck : geomLod;
-      const prev = old.get(boat.id);
-      const brand = new THREE.Color(boat.brandColor);
-      const rec: BoatRec = {
-        id: boat.id, inst: this.addInstance(g0), variant, scale, loa, beam: variant.beam * scale, geomFull, geomLod, geomWreck, geomCur: g0, wrecked, dead: wrecked,
-        swing: prev?.swing ?? 0, heel: prev?.heel ?? 0, hi: 0, px: prev?.px ?? 0, pz: prev?.pz ?? 0, vx: 0, vz: 0, seen: !!prev?.seen,
-        phi: hash01(boat.id + "#bob") * Math.PI * 2,
-        slot: this.atlas ? this.atlas.slotFor({ id: boat.id, symbol: boat.symbol, brandColor: boat.brandColor }) : -1,
-        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, flog: 0, row: 0, brail: 0, dox: 0, doz: 0, gyaw: 0, struck: false, mastK: titan ? 2 : hash01(boat.id + "#mast"), titan: !!titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
-        swell: hullSwellCache(),
-      };
-      this.writePaint(rec.inst, wrecked || titan ? null : boat.id, variant.family, wrecked ? null : boat.brandColor);
-      this.boats.push(rec);
-      this.byId.set(rec.id, rec);
+      const prev = this.byId.get(boat.id);
+      const emblemChanged = !prev || prev.source.symbol !== boat.symbol || prev.source.brandColor !== boat.brandColor;
+      const rec = this.reconcileBoat(boat, prev);
+      if (!rec) { if (prev) mesh.deleteInstance(prev.inst); continue; }
+      boats.push(rec); byId.set(rec.id, rec);
+      // Main rebuilt live instances in model order. Keep that authored animation phase
+      // in the unused deck-alpha channel, independent of reconciled allocation slots.
+      const phaseOffset = rec.inst * PAINT_TEXELS * 4 + 11;
+      if (this.paint[phaseOffset] !== boats.length - 1) {
+        this.paint[phaseOffset] = boats.length - 1;
+        this.uniforms.uFleetPaint.value.needsUpdate = true;
+      }
+      if (emblemChanged) emblems.push(boat);
     }
-    this.placeWrecks(model, this.ctx?.services.get("sim") as HarbourSim | undefined);
-    this.wrecksPosed = false;
-    this.placeBuoys();
-    this.placeTugs();
+    if (this.atlas && emblems.length) {
+      this.atlas.begin(emblems);
+      for (const coin of emblems) byId.get(coin.id)!.slot = this.atlas.slotFor(coin);
+      this.atlas.end();
+    }
+    this.boats = boats; this.byId = byId;
+    const sim = this.ctx?.services.get("sim") as HarbourSim | undefined;
+    const taken: number[] = [];
+    if (sim) for (let i = 0; i < sim.pose.count; i++) {
+      if (model.boats[i]?.state === "wrecked" && sim.pose.slot[i] >= 0) taken.push(sim.pose.slot[i]);
+    }
+    taken.sort((a, b) => a - b);
+    const dead = model.readings.wrecks;
+    const oldDead = previous?.readings.wrecks;
+    const wrecksChanged = !oldDead || dead.length !== oldDead.length || dead.some((w, i) => {
+      const old = oldDead[i];
+      return w.id !== old.id || w.name !== old.name || w.symbol !== old.symbol || w.cause !== old.cause ||
+        w.family !== old.family || w.deathDate !== old.deathDate || w.peakMcap !== old.peakMcap ||
+        ids.has(w.id) !== this.liveIds.has(w.id);
+    }) || taken.length !== this.wreckSlots.length || taken.some((slot, i) => slot !== this.wreckSlots[i]);
+    this.model = model; this.liveIds = ids; this.wreckSlots = taken;
+    this.modelRevision = (this.ctx?.services.get("readiness") as ReadinessState | undefined)?.revision ?? 0;
+    this.needsFullPose = true;
+    if (wrecksChanged) {
+      for (const w of this.wreckInst) mesh.deleteInstance(w.inst);
+      this.wreckInst = [];
+      this.placeWrecks(model, sim);
+      this.wrecksPosed = false;
+    } else if (this.cove) {
+      // A refresh still expires a wreath when its death ages out; unchanged wrecks/boards stay installed.
+      const ground = this.ctx?.services.get("ground") as GroundService | undefined;
+      this.placeWreath(dead.filter((w) => !ids.has(w.id)), (x, z) => ground ? ground.heightAt(x, z) : 0.5);
+    }
+    if (!previous) { this.placeBuoys(); this.placeTugs(); } // fixed layout: never tear down/repaint the same buoys/tugs on a feed refresh
+  }
+
+  private reconcileBoat(boat: Boat, prev: BoatRec | undefined): BoatRec | undefined {
+    if (prev && prev.source.rig === boat.rig && prev.source.hullClass === boat.hullClass &&
+      prev.source.brandColor === boat.brandColor && prev.dead === (boat.state === "wrecked") &&
+      prev.source.nullPeg === boat.nullPeg) {
+      prev.source = boat; // pose/sim owns every other reading; no geometry, colour, paint or atlas work
+      return prev;
+    }
+    const kit = this.kit!, layout = this.layout!, mesh = this.mesh!;
+    const sameHull = prev && prev.source.rig === boat.rig && prev.source.hullClass === boat.hullClass;
+    const hero = sameHull ? null : titanFor(boat.id, (v) => kit.hulls.has(v));
+    const titan = sameHull ? prev.titan : !!hero;
+    const vid = sameHull ? prev.variant.id : hero ?? pickVariant(this.index, boat.rig, boat.hullClass);
+    const variant = vid ? kit.hulls.get(vid) : undefined;
+    if (!variant) return;
+    const loa = titan ? variant.loa : layout.hull?.loa?.[boat.hullClass] ?? CLASS_LOA_FALLBACK[boat.hullClass];
+    const scale = loa / variant.loa;
+    const wrecked = boat.state === "wrecked";
+    if (prev) {
+      // `dead` is the coin's state; `wrecked` is how she is drawn this frame (a dead coin under tow is afloat, 07-M6)
+      const paintChanged = prev.source.brandColor !== boat.brandColor || prev.variant.family !== variant.family || prev.dead !== wrecked;
+      if (prev.variant !== variant || prev.scale !== scale || prev.dead !== wrecked) {
+        const geomFull = this.geomIds.get(variant.id)!;
+        const geomLod = this.geomIds.get(`${variant.id}#lod`) ?? geomFull;
+        const geomWreck = this.geomIds.get(WRECK_KITS[Math.floor(hash01(boat.id) * 3)]) ?? geomFull;
+        const geom = wrecked ? geomWreck : prev.geomCur === prev.geomFull ? geomFull : geomLod;
+        if (geom !== prev.geomCur) mesh.setGeometryIdAt(prev.inst, geom);
+        let radius = this.rigRadii.get(variant);
+        if (radius == null) {
+          radius = Math.max(rigRadius(variant.full), variant.lod ? rigRadius(variant.lod) : 0);
+          this.rigRadii.set(variant, radius);
+        }
+        Object.assign(prev, { variant, scale, loa, beam: variant.beam * scale, geomFull, geomLod, geomWreck,
+          geomCur: geom, wrecked, dead: wrecked, top: variant.top * scale, visualRadius: radius * scale, bollardSlot: null });
+      }
+      if (prev.source.brandColor !== boat.brandColor) prev.brand.set(boat.brandColor);
+      if (paintChanged) this.writePaint(prev.inst, wrecked || titan ? null : boat.id, variant.family, wrecked ? null : boat.brandColor);
+      if (prev.source.nullPeg !== boat.nullPeg) {
+        prev.reading = sternLampLit(boat, "under-way"); prev.lit = sternLampLit(boat, "moored");
+      }
+      prev.source = boat;
+      return prev;
+    }
+    const geomFull = this.geomIds.get(variant.id)!;
+    const geomLod = this.geomIds.get(`${variant.id}#lod`) ?? geomFull;
+    const geomWreck = this.geomIds.get(WRECK_KITS[Math.floor(hash01(boat.id) * 3)]) ?? geomFull;
+    const geomCur = wrecked ? geomWreck : geomLod;
+    let radius = this.rigRadii.get(variant);
+    if (radius == null) {
+      radius = Math.max(rigRadius(variant.full), variant.lod ? rigRadius(variant.lod) : 0);
+      this.rigRadii.set(variant, radius);
+    }
+    const rec: BoatRec = {
+      id: boat.id, source: boat, inst: this.addInstance(geomCur), variant, scale, loa, beam: variant.beam * scale,
+      geomFull, geomLod, geomWreck, geomCur, wrecked, dead: wrecked,
+      swing: 0, heel: 0, hi: 0, px: 0, pz: 0, vx: 0, vz: 0, seen: false,
+      phi: hash01(boat.id + "#bob") * Math.PI * 2, slot: -1, brand: new THREE.Color(boat.brandColor),
+      bollardSlot: null, bow: null, med: false, stern: null, visible: false, dist: 0,
+      reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, flog: 0, row: 0, brail: 0, dox: 0, doz: 0, gyaw: 0, struck: false,
+      mastK: titan ? 2 : hash01(boat.id + "#mast"), titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
+      swell: hullSwellCache(), posed: true, visualRadius: radius * scale,
+    };
+    this.writePaint(rec.inst, wrecked || titan ? null : boat.id, variant.family, wrecked ? null : boat.brandColor);
+    return rec;
   }
 
   /** 07-M6: the harbour tugs' instances (MAX_TUGS, hidden until a tow): a small rowed lighter in plain livery. */
@@ -687,23 +825,35 @@ export class FleetSystem implements WorldSystem {
 
   /** A fresh wreath at the newest death's post while it is under WREATH_DAYS old (dev: ?wreath=1 forces one). */
   private placeWreath(dead: readonly CoveDead[], gy: (x: number, z: number) => number): void {
-    if (this.wreath) { this.wreath.removeFromParent(); this.wreath.geometry.dispose(); (this.wreath.material as THREE.Material).dispose(); this.wreath = null; }
     const force = import.meta.env.DEV && new URLSearchParams(location.search).get("wreath") === "1";
     const fresh = force ? freshDeath(dead, Date.now(), Infinity) : freshDeath(dead, Date.now());
     const marks = fresh ? this.coveSvc.marksOf(fresh.id) : [];
-    const m = marks.find((k) => k.memorial && k.lamp) ?? marks.find((k) => k.lamp);
-    if (!m?.lamp || !this.ctx) return;
-    // leaning against the foot of her post, facing out the way her board does
-    // (sized to the post: the lantern stands ~1.6 m up a post at scale 1)
+    const m = marks.find((mark) => mark.memorial && mark.lamp) ?? marks.find((mark) => mark.lamp);
+    const ctx = this.ctx;
+    const remove = () => {
+      if (!this.wreath) return;
+      this.wreath.removeFromParent(); this.wreath.geometry.dispose();
+      (this.wreath.material as THREE.Material).dispose(); this.wreath = null;
+    };
+    if (!m?.lamp || !ctx) { remove(); return; }
+    // Same death and placement retains the prepared wreath, including during an in-flight refresh.
     const f = m.h - Math.PI / 2, fx = Math.sin(f), fz = Math.cos(f), k = m.scale * 0.7;
-    const x = m.lamp[0] + fx * 0.3 * k, z = m.lamp[2] + fz * 0.3 * k;
+    const x = m.lamp[0] + fx * 0.3 * k, z = m.lamp[2] + fz * 0.3 * k, y = gy(x, z) + 0.5 * k;
+    const key = `${fresh!.id}:${x}:${y}:${z}:${f}:${k}`;
+    if (this.wreath?.userData.preparationKey === key) return;
+    remove();
     const w = this.wreath = buildWreath();
-    w.scale.setScalar(k);
-    w.position.set(x, gy(x, z) + 0.5 * k, z);
-    w.rotation.set(-0.3, f, 0, "YXZ");
-    w.updateMatrixWorld();
-    w.matrixAutoUpdate = false;
-    this.ctx.scene.add(w);
+    w.userData.preparationKey = key;
+    w.scale.setScalar(k); w.position.set(x, y, z); w.rotation.set(-0.3, f, 0, "YXZ");
+    w.updateMatrixWorld(); w.matrixAutoUpdate = false;
+    const preparation = ctx.services.get("preparation") as PreparationService | undefined;
+    const publish = () => { if (this.ctx === ctx && this.wreath === w && !this.failed) ctx.scene.add(w); };
+    if (!preparation) { publish(); return; }
+    void preparation.prepareGroup(w).then(publish).catch((error: unknown) => {
+      if (this.ctx !== ctx || this.wreath !== w || this.failed) return;
+      console.error("[harbour] wreath preparation failed", error);
+      publish();
+    });
   }
 
   private placeBuoys(): void {
@@ -721,9 +871,9 @@ export class FleetSystem implements WorldSystem {
 
   update(frame: FrameState, ctx: EngineContext): void {
     if (!this.mesh || this.failed) return;
-    // the emblem logos are not first-view weight: fetched once the first frame is up (roundels until then)
+    // Decode logos on the original first-update schedule into the combined canvas.
     if (!this.logosAsked) { this.logosAsked = true; requestAnimationFrame(() => { void this.atlas?.loadLogos(); }); }
-    // so is Wreck Cove's kit (the cove lies off both default views)
+    // Wreck Cove's kit is also deferred (the cove lies off both default views).
     if (this.coveState === "wait" && this.model) { this.coveState = "loading"; requestAnimationFrame(() => { void this.loadCove(); }); }
     const t0 = performance.now();
     const model = ctx.services.get("model") as HarbourModel | undefined;
@@ -749,6 +899,8 @@ export class FleetSystem implements WorldSystem {
     const ground = ctx.services.get("ground") as GroundService | undefined;
     const mesh = this.mesh;
     mesh.castShadow = ctx.rig.distance < tier.shadowDist;
+    const sun = ctx.services.get("sun") as SunRig | undefined;
+    const shadowFrustum = mesh.castShadow && sun ? fleetShadowFrustum(sun.key) : null;
 
     const st = this.stats;
     st.full = 0; st.lod = 0; st.visible = 0; st.moving = 0; st.docked = 0; st.wakes = 0;
@@ -787,6 +939,7 @@ export class FleetSystem implements WorldSystem {
     if (sigReadings && sigReadings.version > 0) this.bunting?.sync(sigReadings.maidens, frame.nowMs, dt, reducedMotion, cam.position);
 
     this.mastheads.begin(pose?.ids ?? [], n);
+    let posed = 0;
     for (let i = 0, bi = 0; i < n && bi < this.boats.length; i++) {
       const b = this.boats[bi];
       if (b.id !== pose!.ids[i]) continue; // a boat without a kit hull was skipped
@@ -830,63 +983,77 @@ export class FleetSystem implements WorldSystem {
       const resp = b.wrecked ? 0.12 : Math.min(1, Math.max(0.3, 9 / b.loa));
       const idle = moving ? 0.6 : 1;
       const bob = (h0 * 0.7 + (hBow + hSt) * 0.15) + Math.sin(time * 0.9 + b.phi) * 0.035 * resp * idle;
-      let pitch = Math.atan2(hBow - hSt, half * 2) * 0.8 * resp + Math.sin(time * 0.7 + b.phi * 1.3) * 0.006 * resp;
-      let roll = Math.atan2(hPort - hStb, b.beam) * 0.7 * resp + Math.sin(time * 1.05 + b.phi) * 0.014 * resp * idle;
-      // storm: under way she labours (pitching into the seas, rolling); alongside or on her mooring she
-      // snubs at her lines, surging back and forth and sheering
-      let sx = x, sz = z, sh = h;
-      // a cat's-paw (07-M4): under way she surges ahead; on a mooring she drops back on her rode and sheers
-      if (!b.wrecked) { sx += fx * mo.surge; sz += fz * mo.surge; sh += mo.yaw; }
       // she steers round a neighbour rather than crabbing (07-M8): yaw into the sideways rate of her lane offset
-      // and give-way shove (sim pose.drift), forward under way only, at most GIVE_WAY_YAW
+      // and give-way shove (sim pose.drift), forward under way only, at most GIVE_WAY_YAW (history: every frame)
       const dox = pose!.drift[i * 2], doz = pose!.drift[i * 2 + 1];
       const lat = ((dox - b.dox) * -fz + (doz - b.doz) * fx) / dt;
       b.dox = dox; b.doz = doz;
       const fwdV = b.vx * fx + b.vz * fz;
       const yawT = moving && ph === PH_SAILING && fwdV > 0.5 && Math.abs(lat) < 5 ? THREE.MathUtils.clamp(-Math.atan2(lat, fwdV), -GIVE_WAY_YAW, GIVE_WAY_YAW) : 0;
       b.gyaw += (yawT - b.gyaw) * (1 - Math.exp(-dt * 2));
-      sh += b.gyaw;
-      if (storm > 0.01 && !b.wrecked) {
-        const k = storm * resp;
-        if (moving) {
-          pitch = pitch * (1 + 1.4 * storm) + k * (0.07 * Math.sin(time * 1.15 + b.phi * 1.7) + 0.03 * Math.sin(time * 2.3 + b.phi));
-          roll = roll * (1 + 1.2 * storm) + k * (0.09 * Math.sin(time * 0.83 + b.phi) + 0.035 * Math.sin(time * 1.9 + b.phi * 2.1));
-        } else {
-          const ph2 = time * 0.55 + b.phi * 2.3;
-          const snub = Math.sin(ph2) + 0.35 * Math.sin(ph2 * 2.1 + 1.3); // a tug, a slack, a sharper tug
-          const surge = storm * (0.25 + 0.012 * b.loa) * snub;
-          sx += fx * surge; sz += fz * surge;
-          sh += storm * 0.06 * Math.sin(time * 0.41 + b.phi * 1.1);
-          pitch += k * 0.05 * Math.sin(time * 1.1 + b.phi);
-          roll += k * 0.07 * Math.sin(time * 0.9 + b.phi * 1.4);
-        }
-      }
-
-      // 07-M12: on the launching ways her keel rides the slip (seated on the ground, pitched with its slope);
-      // afloat, the splash's rebound (sim pose.pitch)
+      // 07-M12: on the launching ways her keel rides the slip (seated on the ground, pitched with its slope)
       const onWays = pose!.position[i * 3 + 1] > 0.5 && !!ground;
-      pitch += pose!.pitch[i];
-      if (onWays) {
-        const gB = ground!.heightAt(x + fx * half, z + fz * half), gS = ground!.heightAt(x - fx * half, z - fz * half);
-        this.e.set(0, h - Math.PI / 2, Math.atan2(gB - gS, half * 2), "YZX");
-        this.v.set(x, Math.max(bob, (gB + gS) / 2 + 0.15), z);
-      } else if (b.wrecked) {
-        // beached: on the sand, keel buried, no swell under her
-        this.e.set(b.heel, h - Math.PI / 2, 0.05, "YZX");
-        this.v.set(x, (ground ? ground.heightAt(x, z) : 0) - b.beam * 0.22, z);
-      } else {
-        this.e.set(b.heel + roll, sh - Math.PI / 2, pitch, "YZX");
-        this.v.set(sx, bob, sz);
-      }
-      this.q.setFromEuler(this.e);
-      this.m4.compose(this.v, this.q, this.s.setScalar(b.scale));
-      mesh.setMatrixAt(b.inst, this.m4);
 
-      // visibility + LOD by on-screen size
+      // Keep exact picking / screenPosition bounds, swell cache, velocity and rig history even offscreen.
       const cy = bob + b.top * 0.4;
       this.sphere.center.set(x, cy, z); this.sphere.radius = Math.max(b.loa * 0.55, b.top * 0.55);
       b.cx = x; b.cy = cy; b.cz = z; b.r = this.sphere.radius;
       b.visible = this.frustum.intersectsSphere(this.sphere);
+      // Conservative rig envelope, including all boom angles, storm surge and pennant flutter.
+      this.sphere.radius = Math.max(b.r, b.visualRadius + b.top * 0.4 + 1.35 * (0.25 + 0.012 * b.loa) + 0.05 + 0.08 * Math.abs(this.uniforms.uWind.value));
+      // Keep potential casters in the fitted shadow region current even outside the main view.
+      // shadowDist is the existing zoom gate, not a per-boat cutoff (which would remove live shadows).
+      // Wreck ground height is not bounded by the sea-centred envelope; interaction/debug stay exact.
+      const poseHull = this.needsFullPose || b.wrecked || b.id === this.selected || b.id === this.hover || b.hi > 0.05
+        || this.debug !== null || this.frustum.intersectsSphere(this.sphere)
+        || (mesh.castShadow && (!shadowFrustum || shadowFrustum.intersectsSphere(this.sphere)));
+      if (poseHull !== b.posed) { mesh.setVisibleAt(b.inst, poseHull); b.posed = poseHull; }
+      if (poseHull) {
+        posed++;
+        let pitch = Math.atan2(hBow - hSt, half * 2) * 0.8 * resp + Math.sin(time * 0.7 + b.phi * 1.3) * 0.006 * resp;
+        let roll = Math.atan2(hPort - hStb, b.beam) * 0.7 * resp + Math.sin(time * 1.05 + b.phi) * 0.014 * resp * idle;
+        // storm: under way she labours (pitching into the seas, rolling); alongside or on her mooring she
+        // snubs at her lines, surging back and forth and sheering
+        let sx = x, sz = z, sh = h;
+        // a cat's-paw (07-M4): under way she surges ahead; on a mooring she drops back on her rode and sheers
+        if (!b.wrecked) { sx += fx * mo.surge; sz += fz * mo.surge; sh += mo.yaw; }
+        sh += b.gyaw;
+        if (storm > 0.01 && !b.wrecked) {
+          const k = storm * resp;
+          if (moving) {
+            pitch = pitch * (1 + 1.4 * storm) + k * (0.07 * Math.sin(time * 1.15 + b.phi * 1.7) + 0.03 * Math.sin(time * 2.3 + b.phi));
+            roll = roll * (1 + 1.2 * storm) + k * (0.09 * Math.sin(time * 0.83 + b.phi) + 0.035 * Math.sin(time * 1.9 + b.phi * 2.1));
+          } else {
+            const ph2 = time * 0.55 + b.phi * 2.3;
+            const snub = Math.sin(ph2) + 0.35 * Math.sin(ph2 * 2.1 + 1.3); // a tug, a slack, a sharper tug
+            const surge = storm * (0.25 + 0.012 * b.loa) * snub;
+            sx += fx * surge; sz += fz * surge;
+            sh += storm * 0.06 * Math.sin(time * 0.41 + b.phi * 1.1);
+            pitch += k * 0.05 * Math.sin(time * 1.1 + b.phi);
+            roll += k * 0.07 * Math.sin(time * 0.9 + b.phi * 1.4);
+          }
+        }
+
+        // afloat, the launch splash's rebound (sim pose.pitch)
+        pitch += pose!.pitch[i];
+        if (onWays) {
+          const gB = ground!.heightAt(x + fx * half, z + fz * half), gS = ground!.heightAt(x - fx * half, z - fz * half);
+          this.e.set(0, h - Math.PI / 2, Math.atan2(gB - gS, half * 2), "YZX");
+          this.v.set(x, Math.max(bob, (gB + gS) / 2 + 0.15), z);
+        } else if (b.wrecked) {
+          // beached: on the sand, keel buried, no swell under her
+          this.e.set(b.heel, h - Math.PI / 2, 0.05, "YZX");
+          this.v.set(x, (ground ? ground.heightAt(x, z) : 0) - b.beam * 0.22, z);
+        } else {
+          this.e.set(b.heel + roll, sh - Math.PI / 2, pitch, "YZX");
+          this.v.set(sx, bob, sz);
+        }
+        this.q.setFromEuler(this.e);
+        this.m4.compose(this.v, this.q, this.s.setScalar(b.scale));
+        mesh.setMatrixAt(b.inst, this.m4);
+      }
+
+      // visibility + LOD by on-screen size
       const dx = cam.position.x - x, dy = cam.position.y - cy, dz = cam.position.z - z;
       b.dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
       const px = (b.loa / b.dist) * pxPerM;
@@ -939,11 +1106,13 @@ export class FleetSystem implements WorldSystem {
         }
         b.flag = 0;
       }
-      this.writeData(b.inst, b.wrecked ? 0 : 1 - sail, b.wrecked ? 0 : b.swing, b.hi, b.brand.r, b.brand.g, b.brand.b, b.wrecked ? -2 : b.slot, b.wrecked ? 0 : b.flag, far, b.struck);
-      // 06-F6: the stern lantern's glass is lit exactly when her stern / riding lamp is (sternLampLit: a peg reading;
-      // moored, the hash-picked minority) — the same flag as the riding light below, by day too (dimmed by uLamp)
-      const lantern = (moving || ph === PH_ANCHORED ? b.reading : b.lit) ? 1 : 0;
-      if (b.wrecked) this.writeMotion(b.inst, 0, 0, 0, 0); else this.writeMotion(b.inst, mo.fill, mo.shake, lantern, b.row);
+      if (poseHull) {
+        this.writeData(b.inst, b.wrecked ? 0 : 1 - sail, b.wrecked ? 0 : b.swing, b.hi, b.brand.r, b.brand.g, b.brand.b, b.wrecked ? -2 : b.slot, b.wrecked ? 0 : b.flag, far, b.struck);
+        // 06-F6: the stern lantern's glass is lit exactly when her stern / riding lamp is (sternLampLit: a peg reading;
+        // moored, the hash-picked minority) — the same flag as the riding light below, by day too (dimmed by uLamp)
+        const lantern = (moving || ph === PH_ANCHORED ? b.reading : b.lit) ? 1 : 0;
+        if (b.wrecked) this.writeMotion(b.inst, 0, 0, 0, 0); else this.writeMotion(b.inst, mo.fill, mo.shake, lantern, b.row);
+      }
 
       // night: under way, masthead + red/green sidelights (+ the stern light); anchored, an anchor light;
       // moored, only some hulls show a dim one. Stern / anchor lamps are lit only with a peg reading.
@@ -1038,10 +1207,16 @@ export class FleetSystem implements WorldSystem {
       );
       this.flags.end(fl, flagWind);
     }
-    this.uniforms.uFleetData.value.needsUpdate = true;
+    this.uploadData();
 
     this.updateRing(frame, ctx);
     this.hoverLantern.update(ctx, this.hover ? this.byId.get(this.hover) : undefined);
+    // Clear against the boats this fleet could install (a missing kit variant must not force full posing forever);
+    // fleet-frame still reports the actual posed count, so the reveal compares it with readiness honestly.
+    if (this.needsFullPose && posed === this.boats.length) this.needsFullPose = false;
+    this.fleetFrame.revision = this.modelRevision;
+    this.fleetFrame.boats = posed;
+    ctx.services.set("fleet-frame", this.fleetFrame);
     this.cpuMs += (performance.now() - t0 - this.cpuMs) * 0.1;
     if (this.debug) this.updateDebug(frame, ctx, sim);
   }
@@ -1083,8 +1258,8 @@ export class FleetSystem implements WorldSystem {
 
   /** uFleetData texel 2 (F-fleet3, fleet-material): sail fill, shake, lantern lit (reserved), oar stroke. */
   private writeMotion(inst: number, fill: number, shake: number, lit: number, row: number): void {
-    const d = this.data, o = (inst * FLEET_DATA_TEXELS + 2) * 4;
-    d[o] = fill; d[o + 1] = shake; d[o + 2] = lit; d[o + 3] = row;
+    const o = (inst * FLEET_DATA_TEXELS + 2) * 4;
+    this.writeDatum(o, fill); this.writeDatum(o + 1, shake); this.writeDatum(o + 2, lit); this.writeDatum(o + 3, row);
   }
 
   /**
@@ -1095,8 +1270,8 @@ export class FleetSystem implements WorldSystem {
   private mooringLines(b: BoatRec, s: NonNullable<HarbourSim["layout"]["slots"][number]>, x: number, z: number, lines: number, bob: number): void {
     const v = b.variant, sc = b.scale;
     if (s.kind === "berth") {
-      if (b.bollardSlot !== s.index) {
-        b.bollardSlot = s.index;
+      if (b.bollardSlot !== s) {
+        b.bollardSlot = s;
         const fx = Math.sin(s.heading), fz = Math.cos(s.heading);
         const sx = -fz, sz = fx; // starboard (-cos h, sin h)
         const pier = this.piers.get(s.id.split("/")[0]);
@@ -1363,6 +1538,12 @@ export class FleetSystem implements WorldSystem {
   }
 
   dispose(ctx: EngineContext): void {
+    this.failed = true;
+    this.ctx = null;
+    if (this.wreath) {
+      this.wreath.removeFromParent(); this.wreath.geometry.dispose();
+      (this.wreath.material as THREE.Material).dispose(); this.wreath = null;
+    }
     if (this.mesh) { ctx.scene.remove(this.mesh); this.mesh.dispose(); }
     if (this.lines) { ctx.scene.remove(this.lines.object); this.lines.dispose(); }
     if (this.ring) { ctx.scene.remove(this.ring); this.ring.geometry.dispose(); (this.ring.material as THREE.Material).dispose(); }
@@ -1378,9 +1559,11 @@ export class FleetSystem implements WorldSystem {
     this.boards?.dispose();
     this.uniforms.uFleetData.value.dispose();
     this.uniforms.uFleetPaint.value.dispose();
+    this.rigRadii.clear();
     this.debug?.remove();
     this.unsubQuality?.(); this.unsubQuality = null;
     ctx.services.delete("picking");
+    ctx.services.delete("fleet-frame");
   }
 }
 

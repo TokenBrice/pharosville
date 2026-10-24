@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import font from "../../../public/harbour/chart-lettering.json";
 import layout from "../data/layout.json";
-import { fitLabel, footprintsOverlap, labelFootprint, labelSpecs, layoutLabel, lineBases, lineWidth, placeLabels, readableAngle, type FitObstacle, type LabelSpec, type PlaceView } from "./labels";
+import { fitLabel, footprintsOverlap, labelFootprint, labelSpecs, layoutLabel, lineBases, lineWidth, placeLabels, rankPlacements, readableAngle, type FitObstacle, type LabelSpec, type PlaceView } from "./labels";
 import type { ChartFont, SeaZone, SeaZoneKind } from "./types";
 
 const F = font as unknown as ChartFont;
@@ -112,5 +112,31 @@ describe("chart lettering: collision solver", () => {
     const [the, word] = lineBases(shoals);
     const main = shoals.lines[1];
     expect(the - (word + main.cap)).toBeGreaterThanOrEqual(shoals.lines[0].cap * 0.5);
+  });
+
+  it("preserves the recorded pre-cache chart placements, scores and tie order exactly", () => {
+    const obstacles = layout.piers.flatMap((p) => p.segments.map((g): FitObstacle => ({
+      a: [g.a[0], g.a[1]], b: [g.b[0], g.b[1]], halfWidth: g.width / 2,
+    })));
+    const specs = labelSpecs(zones);
+    const out = placeLabels(specs, zones, F, { obstacles });
+    expect(out.map((s) => ({ id: s.id, anchor: s.anchor, angle: s.angle, caps: s.lines.map((l) => l.cap) }))).toEqual([
+      { id: "shoals", anchor: [-349.4988816784387, -43.651957838681305], angle: 0.7854, caps: [7.5, 15] },
+      { id: "far-ports", anchor: [3.54, -420.73], angle: 0.7854, caps: [9, 18] },
+      { id: "wreck-cove", anchor: [-216.3751899236537, 188.09474254529215], angle: 0.7854, caps: [14] },
+      { id: "the-roads", anchor: [-133.930925075738, -269.6909941652011], angle: 0.7854, caps: [9.5, 19] },
+      { id: "outer-passage", anchor: [-283.4089288596718, -339.9788488613461], angle: 0.7854, caps: [11, 22] },
+      { id: "western-reach", anchor: [-487.9, 176.78], angle: 0.7854, caps: [8.36, 16.72] },
+      { id: "southern-sea", anchor: [269.2689288596718, 269.2688488613461], angle: 0.7854, caps: [11, 22] },
+    ]);
+    const shoals = specs.find((s) => s.id === "shoals")!;
+    const ranked = rankPlacements(shoals, zones.find((z) => z.id === shoals.id)!, F, { obstacles });
+    const first = Array.from({ length: 4 }, () => ranked.next().value!);
+    expect(first.map((c) => ({ anchor: c.spec.anchor, score: c.score, fit: c.fit }))).toEqual([
+      { anchor: [-349.4988816784387, -43.651957838681305], score: 0.9538092334894448, fit: 0.967854505683529 },
+      { anchor: [-334.4603798473074, -58.690514909415704], score: 0.9455031108779878, fit: 0.9585031108779878 },
+      { anchor: [-349.4988816784387, -43.651957838681305], score: 0.9301338781821323, fit: 0.9861791503762166 },
+      { anchor: [-334.4603798473074, -58.690514909415704], score: 0.9164471356804664, fit: 0.9714471356804665 },
+    ]);
   });
 });

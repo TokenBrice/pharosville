@@ -38,7 +38,7 @@ export interface WeatherTargets {
   /** Lightning strikes per minute (0 below Warning). */
   strikesPerMin: number;
   /** Strike distance range (km) — thunder delay ∝ distance. */
-  strikeKm: readonly [number, number];
+  strikeKm: [number, number];
   /** Extra darkening of the day light beyond the overcast (Danger's "darkened light"), 0..1. */
   gloom: number;
 }
@@ -58,20 +58,23 @@ const STEADY = [0, 0, 0.1, 0.62, 1] as const;
 const SHOWER = [0, 0.14, 0.5, 0.3, 0] as const;
 const STRIKES = [0, 0, 0, 1.6, 7.5] as const;
 
-export function targetsForLevel(level: number): WeatherTargets {
+/** An optional caller-owned target keeps the frame path allocation-free; standalone callers get a fresh value. */
+export function targetsForLevel(level: number, out: WeatherTargets = {
+  cloud: 0, wind: 0, gust: 0, steady: 0, shower: 0, showerOn: 0, strikesPerMin: 0, strikeKm: [0, 0], gloom: 0,
+}): WeatherTargets {
   const l = Math.min(4, Math.max(0, level));
-  return {
-    cloud: Math.min(1, 0.15 + l * 0.22),
-    wind: Math.min(1, 0.2 + l * 0.2),
-    gust: 0.04 + 0.11 * l,
-    steady: table(STEADY, l),
-    shower: table(SHOWER, l),
-    showerOn: smoothstep(1.2, 1.9, l),
-    // lightning only from Warning up (2.6 = the Warning band's lower edge after rounding)
-    strikesPerMin: l < 2.5 ? 0 : table(STRIKES, l) * smoothstep(2.5, 2.9, l),
-    strikeKm: [lerp(12, 2.5, smoothstep(3, 4, l)), lerp(18, 9, smoothstep(3, 4, l))],
-    gloom: smoothstep(2.6, 4, l),
-  };
+  out.cloud = Math.min(1, 0.15 + l * 0.22);
+  out.wind = Math.min(1, 0.2 + l * 0.2);
+  out.gust = 0.04 + 0.11 * l;
+  out.steady = table(STEADY, l);
+  out.shower = table(SHOWER, l);
+  out.showerOn = smoothstep(1.2, 1.9, l);
+  // lightning only from Warning up (2.6 = the Warning band's lower edge after rounding)
+  out.strikesPerMin = l < 2.5 ? 0 : table(STRIKES, l) * smoothstep(2.5, 2.9, l);
+  out.strikeKm[0] = lerp(12, 2.5, smoothstep(3, 4, l));
+  out.strikeKm[1] = lerp(18, 9, smoothstep(3, 4, l));
+  out.gloom = smoothstep(2.6, 4, l);
+  return out;
 }
 
 /**
@@ -229,16 +232,17 @@ export class WeatherDirector {
   private lastBandLevel: number | null = null;
   private rainbowLeft = 0;
   private snowS = 0;
+  private readonly targets = targetsForLevel(0);
 
   /** Jump straight to the weather of `input` (first reading, dev overrides): no 60 s wait. */
   snap(input: DirectorInput): void {
     if (input.level == null) return;
     this.shown = input.level;
     this.front = null; this.state.front = null;
-    const t = targetsForLevel(input.level);
+    const t = targetsForLevel(input.level, this.targets);
     const s = this.state;
     s.cloud = t.cloud; s.wind = t.wind; s.gloom = t.gloom; s.strikesPerMin = t.strikesPerMin;
-    s.strikeKm = [t.strikeKm[0], t.strikeKm[1]];
+    s.strikeKm[0] = t.strikeKm[0]; s.strikeKm[1] = t.strikeKm[1];
     this.snowS = input.snowShare;
     const p = this.precipGoal(t, input.time);
     s.precip = p;
@@ -255,7 +259,7 @@ export class WeatherDirector {
     const s = this.state;
     s.snow = s.precip * this.snowS;
     s.rain = s.precip - s.snow;
-    s.windNow = clamp01(s.wind + (this.shown == null ? 0 : targetsForLevel(this.shown).gust) * gustEnvelope(input.time) * (0.4 + 0.6 * s.wind));
+    s.windNow = clamp01(s.wind + (this.shown == null ? 0 : this.targets.gust) * gustEnvelope(input.time) * (0.4 + 0.6 * s.wind));
   }
 
   step(dt: number, input: DirectorInput): WeatherState {
@@ -290,7 +294,7 @@ export class WeatherDirector {
     s.band = input.band;
     s.front = this.front;
     if (this.shown != null) {
-      const t = targetsForLevel(this.shown);
+      const t = targetsForLevel(this.shown, this.targets);
       // the shown level already eases (TAU.cloud): the deck, gloom and lightning follow it directly
       s.cloud = t.cloud; s.gloom = t.gloom; s.strikesPerMin = t.strikesPerMin;
       s.strikeKm[0] = t.strikeKm[0]; s.strikeKm[1] = t.strikeKm[1];

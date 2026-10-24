@@ -1,4 +1,4 @@
-import { DEAD_STABLECOINS } from "@shared/lib/dead-stablecoins";
+import DEAD_STABLECOINS from "virtual:pharosville-cemetery";
 import brandColors from "../../../data/brand-colors.json";
 import { logosById } from "../../lib/logos";
 import { fnv1a, hashColor, hullClassFor, pierIdFor, rigFor } from "./classify";

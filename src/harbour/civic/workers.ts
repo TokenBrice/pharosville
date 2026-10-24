@@ -103,6 +103,9 @@ export class Workers {
   private readonly p = new THREE.Vector3();
   private readonly s = new THREE.Vector3(1, 1, 1);
   private readonly zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  /** Last visible local placements, independent of the shader's live hammer/walk clock. */
+  private readonly placements: Float64Array;
+  private readonly visible: Uint8Array;
 
   constructor(mats: HarbourMaterials, count: number, seed = 3) {
     const g = workerGeometry();
@@ -127,6 +130,8 @@ export class Workers {
     this.mesh.frustumCulled = false;
     this.mesh.name = "civic-workers";
     this.slots = Array.from({ length: count }, () => ({ x: 0, y: 0, z: 0, h: 0, gait: 0, hammer: 0, tempo: 1, visible: false }));
+    this.placements = new Float64Array(count * 4);
+    this.visible = new Uint8Array(count);
     for (let i = 0; i < count; i++) this.mesh.setMatrixAt(i, this.zero);
   }
 
@@ -134,17 +139,34 @@ export class Workers {
   update(dt: number, moving: boolean): void {
     if (moving) this.t += dt;
     this.u.uWorkT.value = this.t;
-    const A = this.anim.array as Float32Array;
+    const A = this.anim.array as Float32Array, P = this.placements;
+    let matricesChanged = false, animChanged = false;
     for (let i = 0; i < this.slots.length; i++) {
-      const w = this.slots[i];
-      if (!w.visible) { this.mesh.setMatrixAt(i, this.zero); continue; }
-      this.q.setFromAxisAngle(this.up, w.h);
-      this.m4.compose(this.p.set(w.x, w.y, w.z), this.q, this.s);
-      this.mesh.setMatrixAt(i, this.m4);
-      A[i * 4 + 1] = w.gait; A[i * 4 + 2] = w.hammer; A[i * 4 + 3] = w.tempo;
+      const w = this.slots[i], at = i * 4;
+      if (!w.visible) {
+        if (this.visible[i]) {
+          this.mesh.setMatrixAt(i, this.zero);
+          this.visible[i] = 0;
+          matricesChanged = true;
+        }
+        continue;
+      }
+      if (!this.visible[i] || P[at] !== w.x || P[at + 1] !== w.y || P[at + 2] !== w.z || P[at + 3] !== w.h) {
+        this.q.setFromAxisAngle(this.up, w.h);
+        this.m4.compose(this.p.set(w.x, w.y, w.z), this.q, this.s);
+        this.mesh.setMatrixAt(i, this.m4);
+        P[at] = w.x; P[at + 1] = w.y; P[at + 2] = w.z; P[at + 3] = w.h;
+        this.visible[i] = 1;
+        matricesChanged = true;
+      }
+      const gait = Math.fround(w.gait), hammer = Math.fround(w.hammer), tempo = Math.fround(w.tempo);
+      if (A[at + 1] !== gait || A[at + 2] !== hammer || A[at + 3] !== tempo) {
+        A[at + 1] = gait; A[at + 2] = hammer; A[at + 3] = tempo;
+        animChanged = true;
+      }
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
-    this.anim.needsUpdate = true;
+    if (matricesChanged) this.mesh.instanceMatrix.needsUpdate = true;
+    if (animChanged) this.anim.needsUpdate = true;
   }
 
   dispose(): void {

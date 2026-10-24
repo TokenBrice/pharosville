@@ -1,6 +1,6 @@
 # PharosVille Maintenance Guide
 
-Last updated: 2026-10-14
+Last updated: 2026-10-19
 
 Current code and route contracts win over historical plans. Use this directory
 for durable operational guidance; use `agents/` for plans and handoffs, not as
@@ -32,8 +32,20 @@ state, weather and fog carry off-peg share, stress signals and stale data.
 `src/harbour/` holds one three.js WebGL2 `Engine` (`engine/`), ordered world
 systems (`systems.ts`), the same-origin data feed, model and sim (`data/`,
 `model/`, `sim/`) and the chart-paper UI (`ui/`); `src/harbour/app/` is the
-production mount. The desktop gate runs before any of it loads. If WebGL2
-cannot start, the first-paint poster stays up with the guide and Pharos links.
+production mount. A tiny same-origin bootstrap checks the desktop gate before
+importing React, the world or live feeds. If WebGL2 cannot start, the
+first-paint poster stays up with the guide and Pharos links. Reveal follows a
+composer-completed world/fleet revision, not an arbitrary first canvas frame;
+slow fresh data may reveal the world without boats, then admit the fleet together.
+
+Lossless packs and browser-native Brotli delivery use one generated asset
+registry and immutable content-hashed paths. The current and preceding
+release's media, fonts and shell CSS remain reachable; `OPERATIONS.md` owns
+retention and rollback. Shader preparation keeps the current quality state
+drawing while preparing the next, and an explicit static depth prepass reduces
+island/civic shading. No-KHR compilation and the explicit partial-batch timeout
+path can still block; `CONTRACTS.md` owns that scenery-preserving behavior.
+Do not infer transition or GPU performance from a CI pass.
 
 ## Maintenance rules
 

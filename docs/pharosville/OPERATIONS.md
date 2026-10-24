@@ -61,9 +61,63 @@ npx wrangler pages deploy dist --project-name pharosville
 npm run smoke:live -- --url https://pharosville.pharos.watch
 ```
 
-To roll back, select a prior successful **production** deployment in the
-Cloudflare Pages dashboard, roll it back, then rerun live smoke. Preview
-deployments are not rollback targets.
+For rollback, use the retained-artifact recovery procedure below, then rerun live smoke.
+Cloudflare dashboard rollback selects an immutable prior production deployment and has the
+old-tab limitation described below; preview deployments are not rollback targets.
+
+### Immutable media and the two-release window
+
+The Vite asset/preload plugin runs `scripts/harbour/build-asset-registry.mjs` during every production
+build. One generated `/asset-registry.json` supplies HTML hints, rewritten static media references,
+runtime loaders and manifest transport references. Objects live under
+`/harbour/_immutable/<24-character SHA-256 prefix>/...`; the registry records their full SHA-256 and
+stored byte size. Fonts, arrival CSS and posters use this namespace too. Stable HTML and the registry
+revalidate; only content-addressed objects receive one-year immutable caching.
+
+The deploy job runs `node scripts/harbour/retain-assets.mjs dist https://pharosville.pharos.watch`
+immediately before Pages upload. It downloads the live registry without cache, copies **that release's
+own** hashed files into the new artifact, verifies each stored-body hash and size, and records the
+previous release in the new registry. It does not traverse `previous.previous`: production retains the
+current and immediately preceding release, not an ever-growing history. A missing registry/HTML fallback
+is accepted only for the initial migration; malformed registries, missing objects and hash mismatches fail
+the deployment. Redeploying the live asset generation (a fresh build of release B over live B, e.g. a
+code-only change) copies live B's own retained previous generation instead, so A tabs keep their A-only
+lazy assets; the fixture in `node scripts/harbour/verify-asset-registry.mjs dist` exercises A→B→B. The
+registry's `files` always describes
+only its own release, never the retained union.
+
+Production `.glb.br`, `.pack.br` and `.bin.br` objects carry real `Content-Encoding: br` and the appropriate
+GLB/octet-stream MIME in `_headers`. The browser HTTP stack decompresses them; there is **no JavaScript
+Brotli inflater** and no dependency on `DecompressionStream("br")`. Retention uses raw HTTP downloads to
+preserve compressed bytes across encoder upgrades. Development still uses the existing gzip+JS-inflate
+GLB siblings and exact WebP sea source. Packs contain the original 49 eager kit and 17 initial civic GLBs;
+hull-stages and cove pieces remain independent. No model quantization or texture pixel changes occur.
+
+For an asset-changing rollback that must preserve both supported releases, rebuild the target release
+artifact, run the same retention command against the currently live release, and publish that artifact
+through the authorized production recovery path. A dashboard rollback selects an **immutable older
+deployment**: it cannot add newer-release objects to it and therefore does not preserve a newer tab's
+never-fetched lazy hashes. Use dashboard rollback only with that limitation explicitly accepted, never
+as proof of the two-release retention contract. Preview deployments are not production rollback targets.
+
+Release acceptance: in a production-faithful two-release A→B fixture, leave an A tab open, request an
+A-only lazy asset for the first time after B deploys, then republish A with B retained and request a
+B-only lazy asset. Verify exact hashes, MIME, encoding, validators and immutable policy in both directions,
+and that a third release drops the oldest generation. Repeat through Pages and run live smoke after the
+actual production rollback. Latest-two Chrome/Edge, Firefox and Safari must decode the addressed Brotli
+representations without JS Brotli support; missing hardware/browser evidence is SKIP, not PASS.
+
+Targeted asset checks (no frame-time or visual claim):
+
+```bash
+node scripts/harbour/verify-asset-registry.mjs dist
+node scripts/harbour/check-asset-delivery.mjs dist https://YOUR-PREVIEW.pharosville.pages.dev
+```
+
+The first checks every stored hash, all 89 intact models with the shipped parser, pack bounds,
+full-resolution RGBA/coast equality and a bounded two-release/rollback fixture. The second uses the
+maintained shared Chrome to fetch every object with JavaScript DecompressionStream removed.
+It does not substitute for the Firefox/Safari or production rollback release checks.
 
 ## Routine checks
 

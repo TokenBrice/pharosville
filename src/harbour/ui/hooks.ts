@@ -29,6 +29,14 @@ export function useFrame(fn: (frame: FrameState) => void): void {
   useEffect(() => s.onFrame((f) => ref.current(f)), [s]);
 }
 
+/** Overlay write phase: every frame's projections/measurements have already completed. */
+export function useFrameWrite(fn: (frame: FrameState) => void): void {
+  const s = useStore();
+  const ref = useRef(fn);
+  useLayoutEffect(() => { ref.current = fn; });
+  useEffect(() => s.onFrameWrite((f) => ref.current(f)), [s]);
+}
+
 /**
  * Mount → next frame shown → (closing) hidden → unmount after the fade. Returns [mounted, shown].
  * With reduced motion the CSS fade collapses to a cut.

@@ -1,6 +1,6 @@
 # PharosVille Testing and Visual Review
 
-Last updated: 2026-10-14
+Last updated: 2026-10-19
 
 Use the smallest check that proves the contract you changed. The production
 world is The Harbour (`src/harbour/`), one three.js WebGL2 Engine; if WebGL2
@@ -89,10 +89,92 @@ the Harbour's boot fails deterministically and the lane proves the poster, the
 arrival guide, the failure message and the links stay useful, and that a
 blocked viewport requests nothing.
 
-**Known cost, stated plainly:** a renderer regression that only shows on a GPU
-will not be caught by CI, and the Harbour has no automated real-GPU frame-time
-tripwire yet (`validate:deploy-gate` reports `PASS_PERF_SKIPPED`). Until one is
-wired, measure with `npm run preview` before every release.
+**Known cost, stated plainly:** CI cannot catch GPU-only regressions. Before
+release, manually run `validate:deploy-gate` on the operator's real GPU: its
+Harbour tripwire starts the production-faithful origin from the build, runs
+three cold fast4g loads at 1600×1000/DPR1, and fails if the first-fleet median
+exceeds `scripts/perf/baselines/branch-load.json` by more than **15%**. The static
+byte gate runs too, including in CI. CI records `SKIP_PERF_CI`; unavailable or
+software-only GPU records `SKIP_PERF_NO_GPU` (exit78), never a GPU PASS. The
+full gate preserves `PASS_PERF_SKIPPED` when GPU measurement is skipped.
+To exercise only this socket against a separate production build, run
+`node scripts/pharosville/validate-deploy-gate.mjs --perf-only --dist /tmp/nfs-t1 --port 4195`;
+JSON evidence is written under `outputs/perf/deploy-gate/`. The origin is
+stopped afterward and needs the same server-side API configuration as
+`perf:origin`. The persisted baseline is **contended reference evidence**:
+this tolerant short regression check is not quiet-machine release confidence
+or a frame-time/visual-equivalence check. Keep the other manual GPU lanes.
+
+## Performance harness
+
+Maintained tooling is in `scripts/perf/`; see its [usage and measurement
+caveats](../../scripts/perf/README.md). Every entry point accepts `--help`.
+The harness never changes the runtime scenery, simulation, fade or quality.
+
+```bash
+npm run perf:origin -- --dist dist --port 4180
+npm run perf:load -- --url 'http://127.0.0.1:4180/?t=12&view=heart&intro=0' --runs 5 --config fast4g --arm both --out outputs/perf/load/summary.json
+npm run perf:bytes -- --dist dist --json outputs/perf/bytes.json
+```
+
+Build separately before starting an origin. Unlike `vite preview`, the origin
+applies `public/_headers`, compression and validators and runs the real Pages
+API proxy with Vite's server-side environment loading; the key is never printed.
+It is HTTP/1.1 without Cloudflare edge caching, not a substitute for live CDN
+transport/cache checks.
+
+`perf:load` interleaves `--url` and optional `--compare-url` A/B arms, with
+`none|cable|fast4g|fast4g+cpu4|igpu` configurations. Cold and repeat are distinct;
+repeat seeds and revisits inside the same shared capture lock. It reports
+the first engine frame, first **fleet-bearing rendered model revision**,
+crossfade start and poster removal separately, plus completed same-origin
+wire bytes, requests, true network 304s and boot phases. JSON summaries include
+medians/min/max, per-run load averages and a `contended` flag; `--baseline FILE`
+adds median deltas against reviewed summaries in `scripts/perf/baselines/`.
+Require quiet-machine n≥5 cold fast4g and n≥3 other arms before attributing wins.
+Completed-before-frame responses omit partial bodies and can move across the
+observation boundary: they are not the immutable first-frame dependency ledger.
+
+`perf:bytes` is the **CI-safe** static ledger: built HTML hints plus eager
+manifest files, layout, core scenery, slot metadata, shell/poster/fonts, and a
+separate full Harbour media inventory. Budgets in `scripts/perf/budgets.json`
+start at measured bytes +5%; regressions and unbudgeted media fail. It runs in
+`validate` immediately after `check:bundle-size` and requires no browser/GPU/key.
+Text compression estimates are labeled estimates, not measured CDN wire bytes.
+
+`perf:frame`, `perf:golden`, `perf:soak` and `perf:compare` expose the manual
+frame/resource, deterministic still/motion, lifecycle and comparison lanes.
+Use their `--help`; all GPU captures go through `shot.mjs` and the shared lock.
+Inspect every image/filmstrip pair: a numerical pass cannot approve scenery
+or motion changes. Record GPU/driver/browser, viewport/DPR, quality,
+thermal/battery state and contention alongside evidence.
+
+Use `?prof=gpu` for completed, frame/state-tagged per-pass GPU queries; query
+submission or the latest available result is not the cost of the current
+frame. Exercise the timer-unavailable lane separately. Tier/weather/seasonal
+preparation needs both KHR-present and KHR-absent runs: the latter remains
+correct but synchronous driver compilation can block, so report observed
+transition maxima rather than claiming a non-blocking guarantee.
+Exercise cancellation and the 30 s preparation deadline separately: the
+deadline warns and retains an active partial batch so scenery is not lost,
+but a successful reveal is not proof all first-use shader work finished.
+
+Arrival acceptance is separate from a successful load timing: exercise slow,
+failed and valid zero-boat data, worker startup/planning failure, refreshes
+with changed IDs, delayed/failed imports, and denied→admitted→denied→readmitted.
+The pending-data hold is 2 s from the first composer-completed world frame;
+if it expires, distinguish that empty-world reveal from the later first
+complete fleet frame. A rendered model revision must carry a complete
+fleet-frame report before boats count as arrived. Inspect normal-motion
+filmstrips for the approved empty-world and deferred people/gulls/labels
+trials; neither an earlier empty frame nor a settled still proves arrival
+equivalence. Depth-prepass comparisons also cover offscreen shadows and live
+leaf↔bare changes, not just the initial summer view.
+
+**CI has no GPU.** Only static byte budgets run there. GPU lanes are manual
+real-hardware checks and report **SKIP (exit 78), never PASS**, when unavailable
+or in CI. A static/DOM pass or `PASS_PERF_SKIPPED` is not GPU performance
+confidence; release confidence still requires the appropriate manual lanes.
 
 ## Release confidence
 

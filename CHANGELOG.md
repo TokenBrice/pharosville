@@ -2,11 +2,11 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
-## v1.3.0 - 2026-10-24 - Living Harbour
+## v1.4.0 - 2026-10-24 - Living Harbour
 
 The harbour comes alive: the fleet rides at anchor instead of scattering like confetti, one wind moves sea, sails, trees and sky, the Pharos's light falls on the world it watches, weather rolls in from the horizon, the hinterland is farmed and inhabited, and the data's real moments are staged, sparingly, and written down.
 
-Collected from `feat/prettier` (the 2026-10-24 sweep; see `agents/claudeville-prettier/PLAN.md`). No existing data mapping changed; every new cue below names its source and has the same words in a panel or tag.
+Collected from `feat/prettier` after v1.3.0 (the 2026-10-24 sweep; see `agents/claudeville-prettier/PLAN.md`). No existing data mapping changed; every new cue below names its source and has the same words in a panel or tag.
 
 - The fleet rides at anchor. Far hulls fly smaller burgees, their emblems melt into the sail's dye and their hulls gain a pale sheer and a bright waterline; sails are dyed in earth pigments (every coin keeps its hue); ships sit in the water with a dark waterline, a wet band and a glassy slick downwind. The ship you hover, select or search keeps full colour.
 - Water with depth and light. A dredged channel, sandy shallows and sea-grass on the bed; clouds drift across the harbour's mirror; swell lines arrive and break, quays carry a wet run-up line; the sea receives the sun's shadow, so at dawn and in the golden hour the Pharos lays a long blue finger across the bay. Far ships and shores settle into the day's haze (decorative distance, never the stale-data fog). Summer nights: wakes glow faintly.
@@ -21,6 +21,20 @@ Collected from `feat/prettier` (the 2026-10-24 sweep; see `agents/claudeville-pr
 - A farmed, inhabited hinterland. Olive terraces, a vineyard and a threshing floor on the west lobe; scrub where the land would grow it; a small hill sanctuary; moles with paving bands, amphorae and an exedra; laundry on the roofs; fields that turn with the farm year; hearth lights at night. Anglers at dawn, vendors at the market, couples on the moles at dusk, a watchman and the keeper's lantern on the causeway at night; goats, cats, swallows, fireflies, a hay cart, and dolphins in calm weather. Storms thin life out; none of it carries data.
 - Moves and moments. Camera moves glide; the first view drifts in as the Pharos is kindled to its live reading; the wheel zooms where you point; new keys: arrows, + / −, [ ] to step through ships, F to follow, W for the harbourmaster's watch, P for a dated postcard of the harbour with the stability index; a selected ship's day's rounds are pencilled on the water; ships' lanterns and buildings answer the pointer; panels unroll like chart paper.
 - Sound (still opt-in): one click turns it on; a caret offers optional music (lyre and aulos in the old modes, mostly silence). The Shipyard and the Burn's furnace are heard, the beam breathes as it passes, a dawn chorus and an hour bell keep time, thunder rolls before a front, gusts follow the wind on the water, a bell marks a launch or a death, a far conch a flagship coming home. The sound bank uses less than half the memory.
+
+## v1.3.0 - 2026-10-19 - Fair Wind
+
+The same harbour arrives with less to download, keeps its work off the sailing frame, and welcomes smaller screens without loading the world.
+
+Collected from `perf/need-for-speed` after v1.2.1 (`main..HEAD` and the integrated phase-3 work; see `agents/2026-10-19-need-for-speed/impl/STATUS.md`).
+
+- Faster arrival: lossless asset packs use Brotli compression, unchanged files stay cached at immutable content-hashed addresses, and the live feeds send only the fields the harbour and its records need. The scenery and the readings keep their detail.
+- Steadier frames: quality and weather changes prepare shaders ahead of taking over instead of doing all that work in one sailing frame. A depth prepass makes the island and civic quarter cheaper to shade, and the sky and ocean skip redundant work. Browsers without parallel shader compilation, or a preparation that stalls, can still pause on shader work; scenery is never discarded to hide the delay.
+- A lighter welcome on small screens: the guide and links work without downloading React, the world or its live feeds. Resizing back into the harbour restores the arrival poster.
+- Smoother refreshes: route planning stays in its worker, existing ships keep their identity when fresh data arrives, and a fleet is shown only after its complete pose has reached the screen. A planning failure says the fleet is unavailable rather than inventing one.
+- An approved arrival trial lets the world appear without boats when fresh data is slow; once ready, the boats arrive together; only if some hulls cannot be shown for more than three seconds does the harbour open with an honest note saying so. Fog still means stale data, not waiting.
+- A second approved trial loads people, gulls and sea labels slightly later. Panels, search and the ledger are warmed after the harbour appears so they need not weigh down arrival.
+- Measured on the development machine against v1.2.1 (shared machine, 3–5 runs each): on a fast 4G connection the first frame with boats arrives in 4.9 s instead of 6.0 s, and in 6.5 s instead of 9.4 s on a four-times-slower CPU; on a weak integrated GPU each frame costs 15–20% less GPU time (53 → 45 ms at noon, 66 → 53 ms at night) with 69 resident shader programs instead of 98, and a quality change compiles no new shaders (longest pause 2.9 s → 1.5 s).
 
 ## v1.2.1 - 2026-10-19 - Canvas Up
 

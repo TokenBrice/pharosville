@@ -2,9 +2,10 @@ import * as THREE from "three";
 import { LANDMARK_HOVER_GLSL, landmarkHover } from "./landmark-hover";
 import type { EngineContext } from "../engine/types";
 import type { QualityService } from "../engine/quality";
-import { decodeInto, setBounds } from "../engine/static-merge";
+import { decodeInto, deferPatternDecode, setBounds, takePatternTransform } from "../engine/static-merge";
 import type { WorldUniforms } from "../engine/uniforms";
 import { CLOUD_SHADOW_GLSL, cloudShadowUniforms } from "../sky/cloud-shadow";
+import { StaticDepthRegistry } from "./depth-prepass";
 import { AERIAL_GLSL, AERIAL_VERT_GLSL, aerialUniforms } from "./aerial";
 import { RUNUP_GLSL, runupUniforms } from "./runup";
 import { BEAM_LIGHT_GLSL, BEAM_LIGHT_VERT_GLSL, beamLightUniforms } from "../beam/beam-light-glsl";
@@ -287,6 +288,7 @@ uniform vec4 uPoolBounds;
 uniform float uWindowGlow;
 // projected light pools: rgb = additive irradiance on up-facing surfaces, a = source height
 vec3 hbPool(vec3 worldPos, vec3 worldN) {
+  if (uWindowGlow <= 0.02) return vec3(0.0); // the final smoothstep is exactly zero
   vec2 uv = (worldPos.xz - uPoolBounds.xy) * uPoolBounds.zw;
   if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec3(0.0);
   vec4 p = texture2D(uPoolTex, uv);
@@ -558,9 +560,8 @@ void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, flo
     float upm = smoothstep(lo - ${SNOW_SLOPE.give.toFixed(2)} * uSnowCover, hi - ${SNOW_SLOPE.give.toFixed(2)} * uSnowCover, up + (n2 - 0.5) * 0.14 * hbFine(dW, 0.4));
     float cover = uSnowCover * (1.0 - trod) * (1.0 - ${(1 - SNOW_LEAF_KEEP).toFixed(2)} * leaf);
     cover *= 1.0 - ${(1 - SNOW_CROWN_KEEP).toFixed(2)} * hbIs(pid, ${PATTERN_LEAF_EVERGREEN.toFixed(1)});   // flat evergreen crowns: snow-capped, not buried
-    #ifdef USE_BATCHING
-      cover *= 0.4;                                        // hulls under way shed it: a dusting on the decks
-    #endif
+    // Full authored cover also on hulls: Three's former USE_BATCHING guard was vertex-only,
+    // so its fragment-side 0.4 multiplier never ran. Do not turn that dead branch into a look change.
     // two scales: drifts and bare patches the overview can read (~25 m), soft edges up close (~2.5 m);
     // steep ground sheds it
     float nL = hbNoise(W * vec3(0.045, 0.02, 0.045));
@@ -637,6 +638,7 @@ export class HarbourMaterials {
   readonly pool: PoolUniforms;
   readonly ao: AOUniforms;
   private readonly cache = new Map<string, THREE.Material>();
+  readonly staticDepth = new StaticDepthRegistry(this);
   readonly rimK: THREE.IUniform<number> = { value: 1 };
   /** The Pharos beam as a light (beam/beam-light-glsl.ts): bound by getHarbourMaterials. */
   readonly beam: Record<string, THREE.IUniform> = {};
@@ -656,6 +658,8 @@ export class HarbourMaterials {
     this.lite = lite;
     for (const [key, m] of this.cache) if (key.startsWith("kit:")) m.needsUpdate = true;
     for (const m of this.derived) m.needsUpdate = true;
+    for (const [key, m] of this.cache) if (key.startsWith("kit-predepth")) m.needsUpdate = true;
+    this.staticDepth.invalidate();
   }
 
   constructor(readonly uniforms: WorldUniforms) {
@@ -663,6 +667,31 @@ export class HarbourMaterials {
     black.needsUpdate = true;
     this.pool = { uPoolTex: { value: black }, uPoolBounds: { value: new THREE.Vector4(0, 0, 0, 0) } };
     this.ao = { uAOTex: { value: black }, uAOBounds: { value: new THREE.Vector4(0, 0, 0, 0) } };
+  }
+
+  /** Attach before compilation, including late kit objects, not on the first winter frame. */
+  prepareSeasonDepth(root: THREE.Object3D): void {
+    root.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (mesh.castShadow && !mesh.customDepthMaterial && !Array.isArray(mesh.material) && mesh.material?.name === "hb_kit") {
+        mesh.customDepthMaterial = this.kitDepth();
+      }
+    });
+  }
+
+  invalidateSeason(root: THREE.Object3D): void {
+    const changed = new Set<THREE.Material>(this.cache.values());
+    root.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      for (const material of Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []) {
+        if (material.customProgramCacheKey().includes("hb_kit_")) {
+          changed.add(material);
+          if (mesh.customDepthMaterial) changed.add(mesh.customDepthMaterial);
+        }
+      }
+    });
+    for (const material of changed) material.needsUpdate = true;
+    this.staticDepth.invalidate();
   }
 
   private shared(): Record<string, THREE.IUniform> {
@@ -796,38 +825,55 @@ export class HarbourMaterials {
   }
 
   /**
-   * Shadow-depth twin of the kit: drops the same bare-crown fragments, so a winter tree casts the shadow of
-   * its twigs, not of last summer's canopy. Only needed while leafFallAt() > 0 (the season system assigns it).
+   * Depth twin of the kit. Both variants compile out leaf discard outside the legacy bare-crown
+   * activation boundary; an always-attached shadow twin must not run noise/discard in summer.
    */
-  kitDepth(): THREE.MeshDepthMaterial {
-    const hit = this.cache.get("kit-depth");
+  kitDepth(prepass = false, side: THREE.Side = THREE.DoubleSide): THREE.MeshDepthMaterial {
+    const key = prepass ? `kit-predepth:${side}` : "kit-depth";
+    const hit = this.cache.get(key);
     if (hit) return hit as THREE.MeshDepthMaterial;
-    const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-    m.name = "hb_kit_depth";
+    const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side });
+    m.name = prepass ? "hb_kit_predepth" : "hb_kit_depth";
+    if (prepass) m.colorWrite = false;
     m.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, { uFoliage: this.uniforms.uFoliage, uSeasonPhase: this.uniforms.uSeasonPhase });
+      if (leafFallAt(this.uniforms) > 0.001) shader.defines = { ...shader.defines, HB_BARE: "" };
       shader.vertexShader = shader.vertexShader
         .replace("#include <common>", "#include <common>\nattribute vec4 color;\nvarying vec3 vHbWorld;\nvarying vec4 vHbCol;")
-        .replace("#include <begin_vertex>", `#include <begin_vertex>
+        .replace("#include <project_vertex>", `#include <project_vertex>
   vHbCol = color;
   {
     vec4 hbW = vec4(transformed, 1.0);
+    #ifdef USE_BATCHING
+      hbW = batchingMatrix * hbW;
+    #endif
     #ifdef USE_INSTANCING
       hbW = instanceMatrix * hbW;
     #endif
     vHbWorld = (modelMatrix * hbW).xyz;
   }`);
+      // the static depth prepass must bend the same crowns the colour pass bends (08-T3 sway), or a crown swaying
+      // away from the camera fails LessEqual against its own rest depth; the shadow twin stays static (sway.ts)
+      if (prepass) {
+        Object.assign(shader.uniforms, { uSwayWind: this.uniforms.uWindVec, uSwayTime: this.uniforms.uTime }, swayUniforms);
+        if (this.lite) shader.defines = { ...shader.defines, HB_LITE: "" };
+        shader.vertexShader = shader.vertexShader
+          .replace("#include <common>", `#include <common>\n${SWAY_VERTEX_DECL}`)
+          .replace("#include <begin_vertex>", `#include <begin_vertex>\n${SWAY_VERTEX_APPLY}`);
+      }
       shader.fragmentShader = shader.fragmentShader
         .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_LEAF_FALL}\nvarying vec3 vHbWorld;\nvarying vec4 vHbCol;`)
         .replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>
+  #ifdef HB_BARE
   {
     float pid = floor(vHbCol.a * 16.0 + 0.5);
     float bare = hbIs(pid, ${PATTERN_LEAF.toFixed(1)}) * hbLeafFall() * (1.0 - hbConifer(vHbCol.rgb));
     if (hbNoise(vHbWorld * 1.7) < bare * 0.84) discard;
-  }`);
+  }
+  #endif`);
     };
-    m.customProgramCacheKey = () => "hb_kit_depth_v1";
-    this.cache.set("kit-depth", m);
+    m.customProgramCacheKey = () => `hb_kit_${prepass ? "predepth" : "depth"}_v4_${leafFallAt(this.uniforms) > 0.001 ? "bare" : "leaf"}${prepass ? `_sw${this.kitKey()}` : ""}`;
+    this.cache.set(key, m);
     return m;
   }
 
@@ -981,12 +1027,21 @@ if (uWindowGlow > 1e-3) totalEmissiveRadiance *= mix(1.0, hbLampGlow(uWindowGlow
    * see metres (see dequantizeForPatterns). Unknown names are left alone.
    * Sets shadows: opaque kit casts + receives; glass/emissive/lens do not cast.
    */
-  apply(root: THREE.Object3D, opts: { lensLit?: THREE.IUniform<number> } = {}): void {
+  apply(root: THREE.Object3D, opts: { lensLit?: THREE.IUniform<number>; deferStatic?: (mesh: THREE.Mesh) => boolean } = {}): void {
     const lensLit = opts.lensLit ?? { value: 1 };
+    // Mixed eager/deferred users of one GLTF geometry must not mutate each other's source arrays.
+    const uses = new Map<THREE.BufferGeometry, number>();
+    if (opts.deferStatic) root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh) uses.set(mesh.geometry, (uses.get(mesh.geometry) ?? 0) + 1);
+    });
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
-      if (!(mesh as THREE.SkinnedMesh).isSkinnedMesh && !mesh.morphTargetInfluences) dequantizeForPatterns(mesh);
+      if (!(mesh as THREE.SkinnedMesh).isSkinnedMesh && !mesh.morphTargetInfluences) {
+        if (opts.deferStatic?.(mesh) && uses.get(mesh.geometry) === 1 && !mesh.geometry.attributes.tangent && !Array.isArray(mesh.material) && materialKindFor(mesh.material.name) === "kit") deferPatternDecode(mesh);
+        else dequantizeForPatterns(mesh);
+      }
       const swap = (mat: THREE.Material): THREE.Material => {
         const kind = materialKindFor(mat.name);
         const src = mat as THREE.MeshStandardMaterial;
@@ -1012,6 +1067,7 @@ if (uWindowGlow > 1e-3) totalEmissiveRadiance *= mix(1.0, hbLampGlow(uWindowGlow
   }
 
   dispose(): void {
+    this.staticDepth.dispose();
     for (const m of this.cache.values()) m.dispose();
     this.cache.clear();
   }
@@ -1084,16 +1140,17 @@ export function dequantizeForPatterns(mesh: THREE.Mesh): void {
   let g = mesh.geometry;
   if (baked.has(g)) g = g.clone();
   mesh.updateMatrix();
+  const transform = takePatternTransform(mesh) ?? mesh.matrix;
   for (const name of ["position", "normal", "uv"]) {
     const a = g.attributes[name];
     if (!a) continue;
     const kind = name === "position" ? "point" : name === "normal" ? "normal" : null;
     if (!kind && a.array instanceof Float32Array && !a.normalized) continue;
     const out = new Float32Array(a.count * a.itemSize);
-    decodeInto(a, out, 0, kind ? mesh.matrix : null, kind);
+    decodeInto(a, out, 0, kind ? transform : null, kind);
     g.setAttribute(name, new THREE.BufferAttribute(out, a.itemSize));
   }
-  (g.attributes.tangent as THREE.BufferAttribute | undefined)?.transformDirection(mesh.matrix);
+  (g.attributes.tangent as THREE.BufferAttribute | undefined)?.transformDirection(transform);
   setBounds(g);
   baked.add(g);
   mesh.geometry = g;

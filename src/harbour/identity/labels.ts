@@ -83,6 +83,8 @@ export interface GlyphQuad {
 
 /** Clear space between stacked lines, × the upper line's cap height (the swell lifts each line on its own). */
 export const LINE_GAP = 0.6;
+/** Keep the two rotated contributions separate: anchor + along + across must retain its rounding order. */
+interface LocalGlyphQuad { c: Array<[number, number, number, number]>; slot: number }
 
 /** Baselines (label-local v, before the stretch), top line first: the main line's mid cap sits on the anchor. */
 export function lineBases(spec: LabelSpec): number[] {
@@ -100,12 +102,11 @@ export function lineBases(spec: LabelSpec): number[] {
  * Set one label: lines stacked (the first line on top), the block centred on the anchor (the main line's
  * mid cap-height on the anchor), along a gently drooping baseline, then turned to labelAngle.
  */
-export function layoutLabel(spec: LabelSpec, font: ChartFont): GlyphQuad[] {
-  const quads: GlyphQuad[] = [];
+function glyphGeometry(spec: LabelSpec, font: ChartFont): LocalGlyphQuad[] {
+  const quads: LocalGlyphQuad[] = [];
   const rx = Math.cos(spec.angle), rz = -Math.sin(spec.angle);     // reading direction on the water
   const ux = -Math.sin(spec.angle), uz = -Math.cos(spec.angle);    // "up" the chart (away from the viewer)
-  const [ax, az] = spec.anchor;
-  const toWorld = (u: number, v: number): [number, number] => [ax + rx * u + ux * v * CHART_STRETCH, az + rz * u + uz * v * CHART_STRETCH];
+  const rotated = (u: number, v: number): [number, number, number, number] => [rx * u, ux * v * CHART_STRETCH, rz * u, uz * v * CHART_STRETCH];
 
   const main = spec.lines[spec.lines.length - 1];
   const mainW = lineWidth(main.text, main.face, main.cap, main.track, font);
@@ -116,7 +117,7 @@ export function layoutLabel(spec: LabelSpec, font: ChartFont): GlyphQuad[] {
   const pushQuad = (cu: number, cv: number, x0: number, x1: number, y0: number, y1: number, slot: number) => {
     // a quad around (cu, cv) rotated to the local baseline slope
     const v0 = cv + droop(cu), a = Math.atan(slope(cu)), ca = Math.cos(a), sa = Math.sin(a);
-    const P = (x: number, y: number) => toWorld(cu + x * ca - y * sa, v0 + x * sa + y * ca);
+    const P = (x: number, y: number) => rotated(cu + x * ca - y * sa, v0 + x * sa + y * ca);
     quads.push({ c: [P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1)], slot });
   };
   const rule = (u0: number, u1: number, v: number, th: number) => {
@@ -161,6 +162,14 @@ export function layoutLabel(spec: LabelSpec, font: ChartFont): GlyphQuad[] {
     pushQuad(0, v, (font.quad.x0 - cx) * emM, (font.quad.x1 - cx) * emM, (font.quad.y0 - cy) * emM, (font.quad.y1 - cy) * emM, font.star.slot);
   }
   return quads;
+}
+
+export function layoutLabel(spec: LabelSpec, font: ChartFont): GlyphQuad[] {
+  const [ax, az] = spec.anchor;
+  return glyphGeometry(spec, font).map((q) => ({
+    slot: q.slot,
+    c: q.c.map(([rx, ux, rz, uz]): [number, number] => [ax + rx + ux, az + rz + uz]),
+  }));
 }
 
 // ------------------------------------------------------------------ fitting names into their water
@@ -365,22 +374,38 @@ export function rankPlacements(spec: LabelSpec, zone: SeaZone, font: ChartFont, 
   const occluded = env.heightAt ? views.map((v) => makeOccluded(v, env.heightAt!, sea)) : [];
   const nearPier = env.obstacles?.length ? obstacleMask(env.obstacles) : null;
   const crowded = env.crowd?.length ? obstacleMask(env.crowd) : null;
+  let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+  for (const [x, z] of zone.polygon) {
+    minX = Math.min(minX, x); minZ = Math.min(minZ, z);
+    maxX = Math.max(maxX, x); maxZ = Math.max(maxZ, z);
+  }
+  const corners = new Float64Array(8);
+  const inF = views.map(() => 0), offF = views.map(() => 0), occ = views.map(() => 0);
 
   // fine: 3×3 samples over each glyph's ink and the line of sight; coarse: the ink centre only, no sight test
   const FINE = [0.3, 0.45, 0.6].flatMap((s) => [0.3, 0.45, 0.62].map((t) => [s, t] as const));
   const COARSE = [[0.3, 0.3] as const, [0.6, 0.62] as const];
-  const judge = (cand: LabelSpec, du: number, dv: number, k: number, fine: boolean): { score: number; fit: number } => {
+  const judge = (cand: LabelSpec, geometry: readonly LocalGlyphQuad[], du: number, dv: number, k: number, fine: boolean): { score: number; fit: number } => {
     let inside = 0, clash = 0, busy = 0, n = 0;
-    const inF = views.map(() => 0), offF = views.map(() => 0), occ = views.map(() => 0);
-    for (const q of layoutLabel(cand, font)) {
+    inF.fill(0); offF.fill(0); occ.fill(0);
+    for (const q of geometry) {
       if (q.slot < 0) continue;
+      for (let i = 0; i < 4; i++) {
+        const c = q.c[i];
+        corners[i * 2] = cand.anchor[0] + c[0] + c[1];
+        corners[i * 2 + 1] = cand.anchor[1] + c[2] + c[3];
+      }
       for (const [s, t] of fine ? FINE : COARSE) {
-        const bx = q.c[0][0] + (q.c[1][0] - q.c[0][0]) * s, bz = q.c[0][1] + (q.c[1][1] - q.c[0][1]) * s;
-        const x = bx + (q.c[3][0] + (q.c[2][0] - q.c[3][0]) * s - bx) * t, z = bz + (q.c[3][1] + (q.c[2][1] - q.c[3][1]) * s - bz) * t;
+        // Interpolate after translation, exactly as layoutLabel did; translating pre-interpolated samples
+        // would change rounding at polygon/view boundaries and could change a tied candidate's rank.
+        const bx = corners[0] + (corners[2] - corners[0]) * s, bz = corners[1] + (corners[3] - corners[1]) * s;
+        const x = bx + (corners[6] + (corners[4] - corners[6]) * s - bx) * t, z = bz + (corners[7] + (corners[5] - corners[7]) * s - bz) * t;
         n++;
-        // a zone's name may spill a little past its edge (a cove at a frame edge reads from the water beside it)
-        if (inPoly(x, z, zone.polygon)) inside++;
-        else { const d = polyDist(x, z, zone.polygon); if (d < NEAR_ZONE) inside += 0.85 - 0.45 * (d / NEAR_ZONE); }
+        // Beyond the expanded bounding box neither containment nor the near-zone discount can contribute.
+        if (x >= minX - NEAR_ZONE && x <= maxX + NEAR_ZONE && z >= minZ - NEAR_ZONE && z <= maxZ + NEAR_ZONE) {
+          if (inPoly(x, z, zone.polygon)) inside++;
+          else { const d = polyDist(x, z, zone.polygon); if (d < NEAR_ZONE) inside += 0.85 - 0.45 * (d / NEAR_ZONE); }
+        }
         // clear of the coast (what hides behind hills and town from the default views is the sight test's job)
         if (env.coastAt && env.coastAt(x, z) < COAST_CLEAR) clash++;
         else if (nearPier?.(x, z)) clash++;
@@ -412,15 +437,16 @@ export function rankPlacements(spec: LabelSpec, zone: SeaZone, font: ChartFont, 
     return { score, fit };
   };
 
-  const all: Array<Candidate & { du: number; dv: number; k: number }> = [];
+  const all: Array<Candidate & { du: number; dv: number; k: number; geometry: readonly LocalGlyphQuad[] }> = [];
   for (const k of [1, 0.88, 0.76]) {
     const lines = spec.lines.map((l) => ({ ...l, cap: l.cap * k }));
     if (lines[lines.length - 1].cap < 6.5) continue;
+    const geometry = glyphGeometry({ ...base, lines }, font);
     for (let i = -5; i <= 5; i++) for (let j = -5; j <= 5; j++) {
       const du = (i / 5) * W * 0.9, dv = (j / 5) * Math.max(main.cap * 7, 130);
       const anchor: [number, number] = [spec.anchor[0] + rx * du + ux * dv, spec.anchor[1] + rz * du + uz * dv];
       const cand: LabelSpec = { ...base, lines, anchor };
-      all.push({ spec: cand, ...judge(cand, du, dv, k, false), du, dv, k });
+      all.push({ spec: cand, ...judge(cand, geometry, du, dv, k, false), du, dv, k, geometry });
     }
   }
   all.sort((a, b) => b.score - a.score);
@@ -434,7 +460,7 @@ export function rankPlacements(spec: LabelSpec, zone: SeaZone, font: ChartFont, 
       // (past a few batches the coarse order is trusted: deep in the list nothing scores well anyway)
       if (judged.length && (judged[0].score >= bound - FINE_SLACK || next >= FINE_BATCH * 4)) { yield judged.shift()!; continue; }
       if (next >= all.length) return;
-      for (const c of all.slice(next, next + FINE_BATCH)) judged.push({ spec: c.spec, ...judge(c.spec, c.du, c.dv, c.k, true) });
+      for (const c of all.slice(next, next + FINE_BATCH)) judged.push({ spec: c.spec, ...judge(c.spec, c.geometry, c.du, c.dv, c.k, true) });
       next += FINE_BATCH;
       judged.sort((a, b) => b.score - a.score);
     }

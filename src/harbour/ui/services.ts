@@ -28,6 +28,9 @@ export interface ScreenPoint { x: number; y: number; visible: boolean }
  * positions for camera flights. It is internal to the UI, never registered as a service.
  */
 export interface PickingService {
+  beginFrame(): void;
+  endFrame(): void;
+  dispose(): void;
   pick(clientX: number, clientY: number): PickHit | null;
   /** The object's tag anchor (above the mast / roof) in viewport CSS px. */
   screenPosition(hit: PickHit, out?: ScreenPoint): ScreenPoint | null;
@@ -56,24 +59,33 @@ export interface WorldPicking {
 export interface MotionService {
   readonly reduced: boolean;
   subscribe(fn: (reduced: boolean) => void): () => void;
+  dispose(): void;
 }
 
 export function ensureMotionService(ctx: EngineContext): MotionService {
+  if (ctx.signal?.aborted) throw new DOMException("Engine disposed", "AbortError");
   const existing = ctx.services.get("motion") as MotionService | undefined;
   if (existing) return existing;
   const mq = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
   const forced = new URLSearchParams(location.search).get("motion");
   let reduced = forced === "reduce" ? true : forced === "full" ? false : mq?.matches ?? false;
   const listeners = new Set<(r: boolean) => void>();
-  mq?.addEventListener("change", (e) => {
+  const onChange = (e: MediaQueryListEvent) => {
     if (forced) return;
     reduced = e.matches;
     for (const fn of listeners) fn(reduced);
-  });
+  };
+  mq?.addEventListener("change", onChange);
   const svc: MotionService = {
     get reduced() { return reduced; },
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+    dispose() {
+      mq?.removeEventListener("change", onChange);
+      ctx.signal?.removeEventListener("abort", svc.dispose);
+      listeners.clear();
+    },
   };
+  ctx.signal?.addEventListener("abort", svc.dispose, { once: true });
   ctx.services.set("motion", svc);
   return svc;
 }

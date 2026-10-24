@@ -15,6 +15,8 @@
  * An .svg that is mostly an embedded bitmap, or past the media validator's vector ceiling, is rasterised to a 256 px
  * .png (sharp, pinned by the lockfile, so CI and local runs agree); the source .svg hash is kept in the sync stamp so it
  * is only re-rasterised when the source changes. Files this run leaves unreferenced are deleted.
+ * Runtime-only lossless WebP alternates and logos/lossless.json are regenerated alongside the originals;
+ * originals stay the emblem/brand-colour build sources, and only smaller, exact RGBA alternates are selected.
  */
 import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
@@ -42,6 +44,25 @@ function needsRaster(path, buf) {
 async function rasterise(buf) {
   const { default: sharp } = await import("sharp");
   return sharp(buf, { density: 300 }).resize({ width: 256 }).png({ compressionLevel: 9 }).toBuffer();
+}
+
+/**
+ * Runtime-only alternate; originals remain the emblem builder's source book.
+ * Compare the complete decoded RGBA buffer (including alpha and hidden RGB),
+ * preserve colour/orientation metadata, and keep the source unless WebP wins.
+ */
+export async function losslessLogo(logoPath, bytes) {
+  if (!/\.(?:png|jpe?g|webp)$/i.test(logoPath)) return null;
+  const { default: sharp } = await import("sharp");
+  const metadata = await sharp(bytes).metadata();
+  if ((metadata.pages ?? 1) > 1) return null;
+  const candidate = await sharp(bytes).keepMetadata().webp({ lossless: true, exact: true, effort: 6 }).toBuffer();
+  if (candidate.length >= bytes.length) return null;
+  if (findMediaFileProblems(`${logoPath}.lossless.webp`, candidate).length) return null;
+  const before = await sharp(bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const after = await sharp(candidate).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  if (before.info.width !== after.info.width || before.info.height !== after.info.height || before.info.channels !== after.info.channels || !before.data.equals(after.data)) return null;
+  return { path: `${logoPath}.lossless.webp`, bytes: candidate };
 }
 
 /**
@@ -185,6 +206,25 @@ export async function planLogos({ root, source, registry, redirects, payloadCoin
   // files this run orphaned (an old .svg whose entries all moved to the source's .png)
   const kept = new Set(Object.values(merged));
   const deletes = [...new Set(Object.values(own))].filter((p) => !kept.has(p) && topLevel(p)).sort();
+
+  // The URL map is a runtime projection, not a mutation of the synced source
+  // book; build-emblems continues to read the exact original source files.
+  const optimized = {};
+  for (const p of [...kept].sort()) {
+    const bytes = writes.get(p) ?? await readOrNull(ownPublic(p));
+    if (!bytes) continue;
+    const alternate = await losslessLogo(p, bytes);
+    if (!alternate) continue;
+    optimized[p] = alternate.path;
+    const current = await readOrNull(ownPublic(alternate.path));
+    if (!current?.equals(alternate.bytes)) writes.set(alternate.path, alternate.bytes);
+  }
+  const mapPath = "/logos/lossless.json";
+  const previous = await readJson(ownPublic(mapPath)).catch(() => ({}));
+  for (const p of Object.values(previous)) if (!Object.values(optimized).includes(p)) deletes.push(p);
+  const mapBytes = Buffer.from(`${JSON.stringify(optimized, null, 2)}\n`);
+  const currentMap = await readOrNull(ownPublic(mapPath));
+  if (!currentMap?.equals(mapBytes)) writes.set(mapPath, mapBytes);
 
   return { before: own, logos: merged, writes, deletes, rasterHashes: raster, missingInSource, rejected, payloadMissing, payloadCovered };
 }

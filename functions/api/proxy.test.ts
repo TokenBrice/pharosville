@@ -10,6 +10,10 @@ import {
   type PharosVilleSmokeBlockedVariant,
 } from "../../shared/lib/pharosville-smoke-matrix";
 import { onRequest } from "./[[path]]";
+import { endpointProjector, type ProjectionJson } from "./_project";
+import type { PharosVilleApiEndpointKey } from "../../shared/types/pharosville-endpoint-keys";
+import { PHAROSVILLE_API_PAYLOAD_SCHEMAS } from "../../shared/types/pharosville";
+import { isRenderableWorldPayload } from "../../src/lib/world-payload-guard";
 
 function makeContext(url: string, init?: {
   env?: Record<string, string | undefined>;
@@ -66,11 +70,161 @@ const NON_EXACT_ENDPOINT_QUERY_VARIANTS = PROXY_BLOCKED_QUERY_VARIANTS
   .filter((variant) => variant.path !== UNLISTED_API_PATH)
   .map((variant) => variant.path);
 
+
+const projectionMeta = { updatedAt: 1_700_000_000, ageSeconds: 5, status: "degraded", warning: "fixture", dependencies: { test: { updatedAt: null, status: "unavailable" } } };
+const projectionFixtures: Array<{ key: PharosVilleApiEndpointKey; input: ProjectionJson; expected: ProjectionJson }> = [
+  {
+    key: "stablecoins",
+    input: { _meta: projectionMeta, fxFallbackRates: { USD: 1 }, peggedAssets: [{ id: "live-unregistered", name: "Fixture", symbol: "FIX", pegType: "peggedUSD", chains: ["Ethereum", "Unknown"], circulating: { peggedUSD: 100 }, circulatingPrevDay: { peggedUSD: 90 }, circulatingPrevWeek: null, circulatingPrevMonth: { peggedUSD: 70 }, chainCirculating: { Ethereum: { current: 100, circulatingPrevDay: 90 }, Unknown: { current: null }, Missing: null }, price: 1, geckoId: "fixture" }] },
+    expected: { _meta: projectionMeta, peggedAssets: [{ id: "live-unregistered", name: "Fixture", symbol: "FIX", pegType: "peggedUSD", chains: ["Ethereum", "Unknown"], circulating: { peggedUSD: 100 }, circulatingPrevDay: { peggedUSD: 90 }, circulatingPrevWeek: null, circulatingPrevMonth: { peggedUSD: 70 }, chainCirculating: { Ethereum: { current: 100 }, Unknown: { current: null }, Missing: null } }] },
+  },
+  {
+    key: "chains",
+    input: { _meta: projectionMeta, globalTotalUsd: 100, globalChange7dPct: -2, chains: [{ id: "ethereum", name: "Ethereum", totalUsd: 100, healthScore: null, change24hPct: 1, change7dPct: -2, change30dPct: null, healthFactors: { quality: 1 }, topStablecoins: [] }] },
+    expected: { _meta: projectionMeta, globalChange7dPct: -2, chains: [{ id: "ethereum", name: "Ethereum", totalUsd: 100, healthScore: null, change24hPct: 1, change7dPct: -2, change30dPct: null }] },
+  },
+  {
+    key: "stability",
+    input: { _meta: projectionMeta, current: { score: 80, band: "STEADY", avg24h: 79, components: { severity: 5, breadth: 3, stressBreadth: 2, trend: -10, extra: 999 }, contributors: [], computedAt: 100 }, history: [...Array.from({ length: 40 }, (_, i) => ({ date: 40 - i, score: 80 + i / 10, band: "STEADY", methodologyVersion: "v9" })), { date: 100, score: null }], methodology: {} },
+    expected: { _meta: projectionMeta, current: { score: 80, band: "STEADY", avg24h: 79, components: { severity: 5, breadth: 3, stressBreadth: 2, trend: -10 }, computedAt: 100 }, history: Array.from({ length: 30 }, (_, i) => ({ date: i + 11, score: 80 + (29 - i) / 10 })) },
+  },
+  {
+    key: "pegSummary",
+    input: { _meta: projectionMeta, coins: [{ id: "fixture", currentDeviationBps: null, activeDepeg: false, pegScore: null, pegReference: { valueUsd: 1, source: "median", contributorCount: 3, internal: true }, symbol: "FIX" }, { id: "unknown", currentDeviationBps: null, activeDepeg: false, pegScore: null, pegReference: null }], methodology: {}, summary: null },
+    expected: { _meta: projectionMeta, coins: [{ id: "fixture", currentDeviationBps: null, activeDepeg: false, pegScore: null, pegReference: { valueUsd: 1, source: "median", contributorCount: 3 } }, { id: "unknown", currentDeviationBps: null, activeDepeg: false, pegScore: null, pegReference: null }] },
+  },
+  {
+    key: "stress",
+    input: { _meta: projectionMeta, updatedAt: 100, signals: { fixture: { score: 0, band: "UNKNOWN", computedAt: 100, signals: {} }, missing: null } },
+    expected: { _meta: projectionMeta, updatedAt: 100, signals: { fixture: { score: 0, band: "UNKNOWN" }, missing: null } },
+  },
+  {
+    key: "mintBurn",
+    input: { _meta: projectionMeta, gauge: { score: null }, hourly: [{ hourTs: 100, netFlowUsd: null, mintVolumeUsd: 0, burnVolumeUsd: 0, valuation: "partial" }, { hourTs: 200, netFlowUsd: 10, mintVolumeUsd: 20, burnVolumeUsd: 10 }], scope: { chainIds: ["ethereum"], label: "Scope" }, coins: [{ stablecoinId: "fixture", mintVolume24hUsd: 0, burnVolume24hUsd: 0, netFlow24hUsd: null, netFlow7dUsd: null, netFlow30dUsd: 100, coverage: { status: "unavailable", isPartial: true }, valuation: { window24h: { completeness: "partial" } } }] },
+    expected: { _meta: projectionMeta, hourly: [{ hourTs: 100, netFlowUsd: null, mintVolumeUsd: 0, burnVolumeUsd: 0 }, { hourTs: 200, netFlowUsd: 10, mintVolumeUsd: 20, burnVolumeUsd: 10 }], scope: { chainIds: ["ethereum"] }, coins: [{ stablecoinId: "fixture", mintVolume24hUsd: 0, burnVolume24hUsd: 0, netFlow24hUsd: null, netFlow7dUsd: null, coverage: { status: "unavailable" } }] },
+  },
+];
 describe("PharosVille API proxy", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it.each(projectionFixtures)("preserves the complete $key world and panel fixture", ({ key, input, expected }) => {
+    const original = structuredClone(input);
+    const result = endpointProjector(key)(input);
+    expect(result).toEqual(expected);
+    expect(input).toEqual(original);
+    expect(PHAROSVILLE_API_PAYLOAD_SCHEMAS[key].safeParse(result).success).toBe(true);
+    expect(isRenderableWorldPayload(key, result)).toBe(true);
+    expect(endpointProjector(key)(result)).toEqual(result);
+  });
+
+  it("retains stability's structural history when there is no current reading", () => {
+    expect(endpointProjector("stability")({ current: null, history: [], _meta: null, methodology: {} }))
+      .toEqual({ current: null, history: [], _meta: null });
+  });
+
+  it.each(["strong", "weak", "list", "wildcard", "mismatch"])("honours %s GET validators on projected misses and cache hits", async (kind) => {
+    const cache = new MemoryEdgeCache();
+    installEdgeCache(cache);
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const url = "https://pharosville.pharos.watch/api/chains";
+    const fixture = projectionFixtures.find((entry) => entry.key === "chains")!;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(fixture.input, {
+      headers: { etag: '"upstream"', "x-data-age": "12", age: "7", warning: '199 - "fixture"', "cache-control": "public, max-age=60" },
+    }));
+    const first = await onRequest(makeContext(url, { waitUntilPromises }));
+    const etag = first.headers.get("etag")!;
+    await Promise.all(waitUntilPromises);
+    const condition = kind === "strong" ? etag : kind === "weak" ? `W/${etag}` : kind === "list" ? `"other", W/${etag}` : kind === "wildcard" ? "*" : '"different"';
+    for (const cached of [true, false]) {
+      if (!cached) cache.responses.clear();
+      const response = await onRequest(makeContext(url, { headers: { "if-none-match": condition }, waitUntilPromises }));
+      expect(response.status).toBe(kind === "mismatch" ? 200 : 304);
+      expect(response.headers.get("etag")).toBe(etag);
+      expect(response.headers.get("x-data-age")).toBe("12");
+      expect(response.headers.get("age")).toBe("7");
+      expect(response.headers.get("warning")).toBe('199 - "fixture"');
+      expect(response.headers.get("cache-control")).toBe("public, max-age=60");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      if (kind !== "mismatch") {
+        expect(response.body).toBeNull();
+        expect(await response.text()).toBe("");
+      } else await expect(response.json()).resolves.toEqual(fixture.expected);
+      await Promise.all(waitUntilPromises);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Cache always stores the complete 200 body, never the conditional 304.
+    expect((await cache.match(new Request(url)))?.status).toBe(200);
+  });
+
+  it("derives validators from projected bytes rather than upstream ETags", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const bodies = [
+      { chains: [], globalChange7dPct: 1, extra: "a" },
+      { chains: [], globalChange7dPct: 1, extra: "b" },
+      { chains: [], globalChange7dPct: 2, extra: "b" },
+    ];
+    const tags: Array<string | null> = [];
+    for (const body of bodies) {
+      fetchMock.mockResolvedValueOnce(Response.json(body, { headers: { etag: 'W/"unchanged-upstream"' } }));
+      const response = await onRequest(makeContext("https://pharosville.pharos.watch/api/chains"));
+      tags.push(response.headers.get("etag"));
+    }
+    expect(tags[0]).toMatch(/^"pv1-[a-f0-9]{64}"$/);
+    expect(tags[1]).toBe(tags[0]);
+    expect(tags[2]).not.toBe(tags[0]);
+  });
+
+  it("upgrades an old cached representation before comparing validators", async () => {
+    const cache = new MemoryEdgeCache();
+    installEdgeCache(cache);
+    const fixture = projectionFixtures.find((entry) => entry.key === "chains")!;
+    const url = "https://pharosville.pharos.watch/api/chains";
+    await cache.put(new Request(url), Response.json(fixture.input, { headers: { etag: '"old-upstream"', "x-data-age": "9" } }));
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const response = await onRequest(makeContext(url, { headers: { "if-none-match": '"old-upstream"' } }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("etag")).toMatch(/^"pv1-[a-f0-9]{64}"$/);
+    await expect(response.json()).resolves.toEqual(fixture.expected);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["fetch-error", "5xx"].flatMap((failure) => (
+    ["strong", "weak", "list", "wildcard"].map((validator) => ({ failure, validator }))
+  )))("sends the full stale body after $failure with a $validator validator without counting Age twice", async ({ failure, validator }) => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const cache = new MemoryEdgeCache();
+    installEdgeCache(cache);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const url = "https://pharosville.pharos.watch/api/chains";
+    const fixture = projectionFixtures.find((entry) => entry.key === "chains")!;
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(fixture.input, { headers: { "x-data-age": "12", age: "7" } }));
+    const first = await onRequest(makeContext(url, { waitUntilPromises }));
+    await Promise.all(waitUntilPromises);
+    cache.responses.delete(url);
+    const lastGoodUrl = "https://pharosville.pharos.watch/api/__last-good/api/chains";
+    const stored = (await cache.match(new Request(lastGoodUrl)))!;
+    const headers = new Headers(stored.headers);
+    headers.set("age", "3600");
+    headers.set("x-pharosville-last-good-stored-at", String(Math.floor(Date.now() / 1000) - 3600));
+    await cache.put(new Request(lastGoodUrl), new Response(stored.body, { headers }));
+    if (failure === "fetch-error") fetchMock.mockRejectedValueOnce(new Error("upstream down"));
+    else fetchMock.mockResolvedValueOnce(Response.json({ error: "upstream unavailable" }, { status: 503 }));
+    const etag = first.headers.get("etag")!;
+    const condition = validator === "strong" ? etag : validator === "weak" ? `W/${etag}` : validator === "list" ? `"other", W/${etag}` : "*";
+    const response = await onRequest(makeContext(url, { headers: { "if-none-match": condition } }));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(fixture.expected);
+    expect(response.headers.get("etag")).toBe(etag);
+    expect(response.headers.get("warning")).toBe('110 - "Response is stale"');
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(Number(response.headers.get("x-data-age")) + Number(response.headers.get("age"))).toBe(3619);
+    expect(response.headers.get("x-pharosville-last-good-base-age")).toBeNull();
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
   it("keeps the proxy allowlist in sync with the lightweight PharosVille API client contract", () => {
@@ -101,7 +255,7 @@ describe("PharosVille API proxy", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("public, max-age=60");
     expect(response.headers.get("content-type")).toContain("application/json");
-    expect(response.headers.get("etag")).toBe("\"fixture\"");
+    expect(response.headers.get("etag")).toMatch(/^"pv1-[a-f0-9]{64}"$/);
     expect(response.headers.get("retry-after")).toBe("15");
     expect(response.headers.get("warning")).toBe("199 proxy fixture");
     expect(response.headers.get("x-data-age")).toBe("12");
@@ -433,12 +587,13 @@ describe("PharosVille API proxy", () => {
     // RUNTIME_ACTIVE_IDS. Malformed rows are dropped rather than forwarded.
     expect(body.grades).toHaveLength(1);
     expect(body.grades[0]?.id).toBe(activeId);
-    // Everything the contract does model survives, `_meta` included.
-    expect(body.grades[0]).toEqual({ id: activeId, score: 80, grade: "A-" });
+    expect(body.grades[0]).toEqual({ id: activeId, grade: "A-" });
     expect(body.updatedAt).toBe(1_700_000_000);
-    expect(body.model).toBe("v9");
-    expect(body.methodologyVersion).toBe("9.8");
+    expect(body.model).toBeUndefined();
+    expect(body.methodologyVersion).toBeUndefined();
     expect(body._meta).toEqual({ updatedAt: 1_700_000_000, ageSeconds: 5, status: "fresh" });
+    expect(PHAROSVILLE_API_PAYLOAD_SCHEMAS.safetyGrades.safeParse(body).success).toBe(true);
+    expect(isRenderableWorldPayload("safetyGrades", body)).toBe(true);
   });
 
   it.each(["stalled", "interrupted", "truncated"])("serves last-good after a %s projected body", async (kind) => {
@@ -640,9 +795,8 @@ describe("PharosVille API proxy", () => {
       await expect(response.text()).resolves.toContain("PharosVille API upstream request failed");
     });
 
-    // `/api/stablecoins` has no projector, so nothing else on this path ever
-    // parses the body: without this check a truncated or mislabelled 200 becomes
-    // the copy a later outage promotes to "the answer" under Warning: 110.
+    // Body parsing and projection share the upstream deadline. A truncated
+    // response must never become the copy served during a later outage.
     it("refuses to pin a 200 whose body is not parseable JSON", async () => {
       vi.spyOn(console, "error").mockImplementation(() => undefined);
       const cache = new MemoryEdgeCache();
@@ -658,7 +812,7 @@ describe("PharosVille API proxy", () => {
       const served = await onRequest(makeContext(SHORT_TTL_URL, { waitUntilPromises }));
       await Promise.all(waitUntilPromises);
 
-      // Still forwarded live — the edge does not judge a body it was asked to relay.
+      // Invalid JSON is a controlled upstream failure, never a live body.
       expect(served.status).toBe(502);
       await expect(cache.match(new Request(LAST_GOOD_URL))).resolves.toBeUndefined();
 

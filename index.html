@@ -59,6 +59,41 @@
         </div>
       </section>
     </div>
+    <template id="pv-welcome">
+      <div data-pharosville-route>
+        <h1 id="pharosville-heading" class="sr-only">PharosVille</h1>
+        <div class="pharosville-gate">
+          <section class="pharosville-narrow" aria-labelledby="pharosville-narrow-title">
+            <div class="pharosville-narrow__inner">
+              <h2 id="pharosville-narrow-title">PharosVille</h2>
+              <p class="pharosville-narrow__promise">A living stablecoin harbour</p>
+              <figure class="pharosville-gate__illustration">
+                <picture>
+                  <source type="image/avif" srcset="/harbour/poster-960.avif 960w, /harbour/poster-1600.avif 1600w" sizes="(min-width: 700px) 50vw, 100vw" />
+                  <source type="image/webp" srcset="/harbour/poster-960.webp 960w, /harbour/poster-1600.webp 1600w" sizes="(min-width: 700px) 50vw, 100vw" />
+                  <img class="pharosville-gate__still" src="/harbour/poster-960.webp" width="960" height="600" alt="The PharosVille harbour at golden hour: a lighthouse headland, a town on the quay and a bay of stablecoin boats. Illustration, not live readings." />
+                </picture>
+                <figcaption>Illustration, not live readings</figcaption>
+              </figure>
+              <p>Welcome to the harbour. Read its language here, then inspect the latest evidence on Pharos.</p>
+              <dl class="pharosville-narrow__guide">
+                <div><dt>Boats</dt><dd>One boat is one stablecoin. It sails a circuit between its chains and docks longest where it holds the most supply.</dd></div>
+                <div><dt>Lighthouse</dt><dd>The beam is the Pharos Stability Index: the market as a whole.</dd></div>
+                <div><dt>Sea and sky</dt><dd>Rough water is supply trading off its peg, storms are stress signals, and fog means the data has gone stale.</dd></div>
+              </dl>
+              <nav class="pharosville-narrow__links" aria-label="Pharos analytics">
+                <a href="https://pharos.watch/stability-index/">Peg Stability Index — fleet-wide health score</a>
+                <a href="https://pharos.watch/stablecoins/">Stablecoins — supply and backing, coin by coin</a>
+                <a href="https://pharos.watch/chains/">Chains — where that supply lives</a>
+                <a href="https://pharos.watch/depeg/">Depegs — coins drifting off their peg</a>
+                <a href="https://pharos.watch/cemetery/">Cemetery — stablecoins lost at sea</a>
+              </nav>
+              <p class="pharosville-narrow__size"><span data-pv-size>For the living harbour, open a larger screen, such as a tablet, an unfolded foldable or a computer: </span>at least 720×600, with either dimension first. These links open Pharos analytics; no live readings are embedded here.</p>
+            </div>
+          </section>
+        </div>
+      </div>
+    </template>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

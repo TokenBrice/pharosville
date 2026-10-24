@@ -75,6 +75,7 @@ export class HarbourUIStore {
   private state: UIState;
   private readonly listeners = new Set<() => void>();
   private readonly frameFns = new Set<FrameFn>();
+  private readonly frameWrites = new Set<FrameFn>();
   readonly picking: PickingService;
   readonly motion: MotionService;
   private pointer: { x: number; y: number; dirty: boolean; inside: boolean } = { x: 0, y: 0, dirty: false, inside: false };
@@ -132,6 +133,7 @@ export class HarbourUIStore {
     for (const fn of this.listeners) fn();
   }
   onFrame(fn: FrameFn): () => void { this.frameFns.add(fn); return () => this.frameFns.delete(fn); }
+  onFrameWrite(fn: FrameFn): () => void { this.frameWrites.add(fn); return () => this.frameWrites.delete(fn); }
 
   // ------------------------------------------------------------------ the frame hook
 
@@ -145,6 +147,7 @@ export class HarbourUIStore {
   }
 
   private frame(frame: FrameState): void {
+    this.picking.beginFrame();
     const model = this.readModel();
     if (model !== this.state.model) this.set({ model });
     if (frame.nowMs - this.lastTick >= 1000) { this.lastTick = frame.nowMs; this.set({ tick: this.state.tick + 1 }); }
@@ -155,14 +158,20 @@ export class HarbourUIStore {
       const hit = this.picking.pick(this.pointer.x, this.pointer.y);
       this.setHover(hit);
     }
-    landmarkHover(this.ctx.uniforms).step(frame.delta, this.ctx.uniforms.uNight.value);
-    if (this.ctx.rig.inputEpoch !== this.seenEpoch) { this.seenEpoch = this.ctx.rig.inputEpoch; this.noteInput(); }
-    this.watchFrame(frame.delta);
-    this.breathFrame(frame.delta);
-    this.routeFrame(frame.delta);
-    this.keyPanFrame(frame.delta);
-    this.followFrame(frame.delta);
-    for (const fn of this.frameFns) fn(frame);
+    try {
+      landmarkHover(this.ctx.uniforms).step(frame.delta, this.ctx.uniforms.uNight.value);
+      if (this.ctx.rig.inputEpoch !== this.seenEpoch) { this.seenEpoch = this.ctx.rig.inputEpoch; this.noteInput(); }
+      this.watchFrame(frame.delta);
+      this.breathFrame(frame.delta);
+      this.routeFrame(frame.delta);
+      this.keyPanFrame(frame.delta);
+      this.followFrame(frame.delta);
+      for (const fn of this.frameFns) fn(frame);
+      // All overlay reads/projections finish before the first style write.
+      for (const fn of this.frameWrites) fn(frame);
+    } finally {
+      this.picking.endFrame();
+    }
   }
 
   /**
@@ -668,5 +677,11 @@ export class HarbourUIStore {
     return out.sort((a, b) => b.supply - a.supply);
   }
 
-  dispose(): void { for (const c of this.cleanups) c(); }
+  dispose(): void {
+    for (const c of this.cleanups) c();
+    this.picking.dispose();
+    this.frameFns.clear();
+    this.frameWrites.clear();
+    this.listeners.clear();
+  }
 }
