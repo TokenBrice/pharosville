@@ -6,6 +6,7 @@ import { SYSTEMS } from "../systems";
 import { mountHarbourUI } from "../ui/mount";
 import type { HarbourFeed } from "../data/fetch";
 import { dismissPoster, resetPosterState } from "./poster";
+import { startWake, wantsWake, WAKE_PULLBACK } from "./wake";
 import "./harbour-app.css";
 
 /** Crossfade without data after this long: an honest "awaiting data" harbour beats a frozen poster. */
@@ -36,6 +37,7 @@ export function HarbourApp() {
     let unmountUI: (() => void) | null = null;
     let raf = 0;
     let shellTimer = 0;
+    let stopWake: (() => void) | null = null;
 
     const boot = async () => {
       engine = new Engine(world);
@@ -57,7 +59,9 @@ export function HarbourApp() {
         if (settle > 0) settle--;
         if (settle === 0) {
           setStage("live");
-          dismissPoster("crossfade");
+          const wake = !!engine && wantsWake(engine);
+          if (wake && engine) stopWake = startWake(engine);
+          dismissPoster("crossfade", wake ? 1 / (1 + WAKE_PULLBACK) : 1);
           shellTimer = window.setTimeout(() => setShellGone(true), 1200);
           return;
         }
@@ -79,6 +83,7 @@ export function HarbourApp() {
       engine?.abort(); // a mount torn down mid-boot (React's dev double-mount) stops booting at once
       cancelAnimationFrame(raf);
       clearTimeout(shellTimer);
+      stopWake?.();
       resetPosterState();
       // dispose only after init settles: systems must not be torn down mid-load
       void settled.finally(() => {
