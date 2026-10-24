@@ -206,10 +206,12 @@ export function tideFact(m: HarbourModel | null): string {
   return `all supply ${pctChange(t.change7d)} over 7 d${t.stale ? " · stale" : ""}`;
 }
 
-export function harbourFact(chain: string, m: HarbourModel | null): string {
+/** The harbour's hover; a T6 office state appends the chain panel's own line ("office under works: supply +12.0% over 30 d"). */
+export function harbourFact(chain: string, m: HarbourModel | null, office?: OfficeState, change30d?: number | null): string {
   const h = m?.harbours.find((x) => x.chain === chain);
   if (!h) return "harbour";
-  return `${money(h.supplyUsd)} · ${h.visitors} ${h.visitors === 1 ? "boat calls" : "boats call"}`;
+  const line = officeLine(office, change30d);
+  return [`${money(h.supplyUsd)} · ${h.visitors} ${h.visitors === 1 ? "boat calls" : "boats call"}`, line ? line[0].toLowerCase() + line.slice(1) : ""].filter(Boolean).join(" · ");
 }
 
 /** Landmarks that open a panel on click (the rest are hover-only). */

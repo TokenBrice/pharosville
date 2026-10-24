@@ -12,6 +12,7 @@ import { ReadingsSystem } from "./readings/readings-system";
 import { LifeSystem } from "./life/life-system";
 import { IdentitySystem } from "./identity/identity-system";
 import { CivicSystem } from "./civic/civic-system";
+import { OfficeWorksSystem } from "./civic/office-works";
 import { WeatherSystem } from "./weather/weather-system";
 import { SeasonSystem } from "./season/season-system";
 
@@ -33,6 +34,7 @@ export const SYSTEMS: Array<() => WorldSystem> = [
   () => new FleetSystem(),
   () => new LifeSystem(),
   () => new IdentitySystem(),
+  () => new OfficeWorksSystem(), // T6: after identity (it rolls the awnings the identity layer dressed)
   () => new LightsSystem(),
   () => new BeamSystem(),
 ];

@@ -4,7 +4,8 @@ import { deadRecords, FAMILIES } from "../model/obituary";
 import { placeName } from "./places";
 import { expectedLabel, PHASE_NAME, yardCoins } from "./yard";
 import { useFrame, usePresence, useStore, useSticky, useUI } from "./hooks";
-import { getLayout, sameHit, type PickHit, type ScreenPoint } from "./services";
+import { getFeed, getLayout, sameHit, type PickHit, type ScreenPoint } from "./services";
+import type { OfficeState } from "../readings/bind";
 
 /**
  * The chart-paper tag: name + one fact, hung from a brass leader at the object's anchor. Follows the
@@ -76,7 +77,10 @@ function Tag({ hit, shown, pinned }: { hit: PickHit; shown: boolean; pinned: boo
     fact = f.fact; decorative = !!f.decorative;
   } else {
     name = `${hit.id} harbour`;
-    fact = harbourFact(hit.id, model);
+    // T6: the office's month (readings.offices; the 30-day figure from the same /api/chains row the panel prints)
+    const office = (store.ctx.services.get("readings") as { offices?: Readonly<Record<string, OfficeState>> } | undefined)?.offices?.[hit.id];
+    const row = (getFeed(store.ctx)?.payloads.chains?.data?.chains ?? []).find((c) => c.name === hit.id);
+    fact = harbourFact(hit.id, model, office, row?.change30dPct);
   }
   if (!name) return null;
 

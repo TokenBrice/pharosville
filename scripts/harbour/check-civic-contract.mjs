@@ -29,6 +29,8 @@ const CIVIC = {
   stormstation: { required: [], anchors: ["weather_board", "signal"] },
   harbourmaster: { required: [], anchors: ["mover_up", "mover_down"] },
   keeperslog: { required: ["vane"] },
+  // T6 works dressing beside a harbour office; anchors.flank.<chain> places it in each office plot
+  "office-works": { required: ["works_body", "works_wheel"], anchors: ["flank"] },
 };
 for (const chain of ["ethereum", "tron", "bsc", "solana", "hyperliquid-l1", "base", "arbitrum", "polygon"]) {
   CIVIC[`harbour-office:${chain}`] = { required: OFFICE };

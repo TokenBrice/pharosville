@@ -37,12 +37,14 @@ export const REACH_SCORE_HI = 100;
 export const OFFICE_WORKS_ON = 0.08;
 export const OFFICE_WORKS_HOLD = 0.06;
 export const OFFICE_FURL_ON = -0.08;
+/** Furled is held while the 30-day change stays ≤ −6 % (symmetric with the works hysteresis). */
+export const OFFICE_FURL_HOLD = -0.06;
 export type OfficeState = "works" | "furled" | "neutral";
 
 export function officeWorks(change30dPct: number | null | undefined, prev: OfficeState = "neutral", current = true): OfficeState {
   if (!current || typeof change30dPct !== "number" || !Number.isFinite(change30dPct)) return "neutral";
   if (change30dPct >= OFFICE_WORKS_ON || (prev === "works" && change30dPct >= OFFICE_WORKS_HOLD)) return "works";
-  if (change30dPct <= OFFICE_FURL_ON) return "furled";
+  if (change30dPct <= OFFICE_FURL_ON || (prev === "furled" && change30dPct <= OFFICE_FURL_HOLD)) return "furled";
   return "neutral";
 }
 
