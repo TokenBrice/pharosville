@@ -39,6 +39,9 @@ void hbFarLodHull(inout vec3 c, float t, float aa) {
 }
 // wet waterline, weed line and salt: painted topsides sit in the water, used and loved (t: boot-top 0 … sheer 1)
 void hbWeather(inout vec3 c, float t, float aa) {
+  #ifdef HB_LITE
+  return;   // (Low tier: clean topsides)
+  #endif
   float u = vPaintC.x;
   float wet = 1.0 - smoothstep(0.0, 0.2 + aa, t);
   c *= 1.0 - 0.24 * wet * wet;

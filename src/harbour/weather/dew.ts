@@ -30,6 +30,9 @@ export const DEW_GLSL = /* glsl */ `
 uniform vec2 uHbDew;
 // rime: thin frosted edges on grass (pid 6) and roof tiles (pid 7), crisp and patchy, never a cover
 void hbDewRime(inout vec3 alb, inout float rough, float pid, vec3 W, vec3 N, float snow) {
+  #ifdef HB_LITE
+  return;
+  #endif
   if (uHbDew.y < 0.002) return;
   float host = hbIs(pid, 6.0) + hbIs(pid, 7.0) * 0.8;
   float n = hbNoise(W * 1.7) * 0.6 + hbNoise(W * 7.0) * 0.4;
@@ -39,6 +42,9 @@ void hbDewRime(inout vec3 alb, inout float rough, float pid, vec3 W, vec3 N, flo
 }
 // dew: sparse sun-facing glints on grass (6) and leaves (8), faded where sub-pixel
 float hbDewGlint(float pid, vec3 W, vec3 N, vec3 V, vec3 L, float dW) {
+  #ifdef HB_LITE
+  return 0.0;
+  #endif
   if (uHbDew.x < 0.002) return 0.0;
   float host = hbIs(pid, 6.0) + hbIs(pid, 8.0) * 0.6;
   float g = step(0.985, hbWhite(floor(W * 6.0) + 37.0)) * hbFine(dW, 0.17);

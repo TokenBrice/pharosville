@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { EngineContext } from "../engine/types";
 import type { QualityService, QualitySettings } from "../engine/quality";
-import { NO_SHADOW, sunShadowUniforms } from "./sun-shadow";
+import { SeaShadowMask, sunShadowUniforms } from "./sun-shadow";
 
 const UP_Y = new THREE.Vector3(0, 1, 0);
 const UP_Z = new THREE.Vector3(0, 0, 1);
@@ -36,6 +36,9 @@ export class SunRig {
   private readonly pts: THREE.Vector3[] = Array.from({ length: 32 }, () => new THREE.Vector3());
   private readonly tmp = new THREE.Vector3();
   private readonly ndc = new THREE.Vector3();
+  /** the sea's resolved shadow (world/sun-shadow.ts); dirty while a requested map render has not been resolved */
+  private readonly seaMask = new SeaShadowMask();
+  private seaMaskDirty = false;
 
   constructor(mapSize = 4096) {
     this.mapSize = mapSize;
@@ -91,12 +94,15 @@ export class SunRig {
     const moved = this.fitShadow(ctx.camera, this.heldSun);
     const sm = ctx.renderer.shadowMap;
     sm.autoUpdate = false;
-    if (due || moved) { sm.needsUpdate = true; this.sinceShadow = 0; this.framesSinceShadow = 0; }
-    // 02-L1: the sea samples the same map (world/sun-shadow.ts); 4 taps on High, 1 on Medium/Low
+    // 02-L1: the sea reads the same map through a resolved mask (world/sun-shadow.ts); 4 taps on High, 1 on Medium/Low.
+    // three clears needsUpdate once it rendered the map we asked for (last frame): resolve it before asking again
     const ss = sunShadowUniforms, map = this.key.shadow.map?.depthTexture ?? null;
-    ss.uKeyShadow.value = map ?? NO_SHADOW;
-    ss.uKeyShadowMat.value = this.key.shadow.matrix;
     ss.uKeyShadowP.value.set(map ? 1 : 0, (this.key.shadow.radius * 0.8) / this.mapSize, q?.tier === "high" ? 4 : 1, this.key.shadow.intensity);
+    if (map && this.seaMaskDirty && !sm.needsUpdate) {
+      this.seaMask.resolve(ctx.renderer, map, this.mapSize, this.key.shadow.matrix);
+      this.seaMaskDirty = false;
+    }
+    if (due || moved) { sm.needsUpdate = true; this.seaMaskDirty = true; this.sinceShadow = 0; this.framesSinceShadow = 0; }
   }
 
   /** Fits the shadow camera; returns true when the light frustum changed (the cached map is stale). */
@@ -167,6 +173,7 @@ export class SunRig {
 
   dispose(): void {
     this.key.shadow.dispose();
+    this.seaMask.dispose();
     this.group.removeFromParent();
   }
 }
