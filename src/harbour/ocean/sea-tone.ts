@@ -9,6 +9,9 @@
  *    and dark Posidonia meadow patches on the visible bed.
  *  - 03-O2 clouds in the mirror: the reflected ray meets the cloud-shadow deck, so the same drifting clouds that
  *    shade the sea also pass across it as soft bright patches (cover is DEWS-driven already; nothing new is encoded).
+ *  - 03-O5 summer-night bioluminescence (decorative, season-bound): churned water in wakes, hull contact rings and the
+ *    swash glows a faint pale cyan-green on summer nights. Never in open water, never in the Shoals (their own night
+ *    glimmer stays theirs), kept far below the night bloom threshold; the pulse rides the sea clock (still when reduced).
  */
 export const SEA_TONE_GLSL = /* glsl */ `
 vec3 hbSeaTone(vec3 body, float zb, float zr, float dep, float sdist, float sunUp, float nb, float camD) {
@@ -40,5 +43,12 @@ vec4 hbMirrorClouds(vec3 sky, vec3 p, vec3 Rr) {
   float l = dot(sky, vec3(0.2126, 0.7152, 0.0722));
   vec3 cloud = max(sky * 1.25, vec3(l * 1.55)) * mix(vec3(1.0), uSunColor / max(max(uSunColor.r, uSunColor.g), 1e-3), 0.25);
   return vec4(cloud, cc * 0.55 * smoothstep(0.03, 0.2, Rr.y));
+}
+uniform vec4 uFoliage;   // season weights (spring, summer, autumn, winter): calendar, decorative
+vec3 hbBiolum(float churn, float zr, float t, float tw) {
+  float k = uFoliage.y * uNight * (1.0 - smoothstep(0.05, 0.3, zr));
+  if (k < 0.01) return vec3(0.0);
+  float pulse = 0.7 + 0.3 * sin(t * 2.1 + tw * 25.0);
+  return vec3(0.16, 0.62, 0.5) * clamp(churn, 0.0, 1.0) * pulse * k * 0.11;
 }
 `;

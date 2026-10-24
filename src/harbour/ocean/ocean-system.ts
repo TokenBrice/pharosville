@@ -172,6 +172,7 @@ export class OceanSystem implements WorldSystem {
         ...skyShared,
         ...getBeamUniforms(ctx),
         ...cloudShadowUniforms,
+        uFoliage: W.uFoliage,
         uDebug: { value: 0 },
         // the lights system's top-down pool RT, read back along the view ray as the town's reflection
         uPoolTex: getHarbourMaterials(ctx).pool.uPoolTex, uPoolBounds: getHarbourMaterials(ctx).pool.uPoolBounds,

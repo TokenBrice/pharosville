@@ -490,6 +490,8 @@ void main() {
   col += glint * overcast * (1.0 - foam) * cShade;
   col += beam * (1.0 - foam * 0.5);
   col = mix(col, foamLit, foam);
+  // summer nights: the churned water of wakes, contact rings and the swash glows faintly (decorative, sea-tone.ts)
+  col += hbBiolum(trail * 0.9 + live.r * 1.4 + live.g * 0.7 + max(coastFoam - fContact * 0.6, 0.0) * step(dnC, 7.0), zm.r, t, nC.a);
 
   // ---------------------------------------------------------------- horizon haze (meets the painted backdrop exactly)
   // gentle aerial perspective: the outer sea keeps its swell and colour, meeting the card exactly
