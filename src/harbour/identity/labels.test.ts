@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import font from "../../../public/harbour/chart-lettering.json";
 import layout from "../data/layout.json";
-import { fitLabel, footprintsOverlap, labelFootprint, labelSpecs, layoutLabel, lineWidth, placeLabels, readableAngle, type FitObstacle, type LabelSpec, type PlaceView } from "./labels";
+import { fitLabel, footprintsOverlap, labelFootprint, labelSpecs, layoutLabel, lineBases, lineWidth, placeLabels, readableAngle, type FitObstacle, type LabelSpec, type PlaceView } from "./labels";
 import type { ChartFont, SeaZone, SeaZoneKind } from "./types";
 
 const F = font as unknown as ChartFont;
@@ -105,5 +105,12 @@ describe("chart lettering: collision solver", () => {
     for (let i = 0; i < out.length; i++) for (let j = i + 1; j < out.length; j++) {
       expect(footprintsOverlap(labelFootprint(out[i], F), labelFootprint(out[j], F)), `${out[i].id} × ${out[j].id}`).toBe(false);
     }
+  });
+
+  it("sets the article clearly above the word, with room for the swell", () => {
+    const shoals = labelSpecs(zones).find((s) => s.lines[0]?.text === "THE")!;
+    const [the, word] = lineBases(shoals);
+    const main = shoals.lines[1];
+    expect(the - (word + main.cap)).toBeGreaterThanOrEqual(shoals.lines[0].cap * 0.5);
   });
 });
