@@ -22,6 +22,7 @@ import { coastDistance } from "../sim/obstacles";
 import type { QualityService, QualityTier } from "../engine/quality";
 import { approach, hash01, indexVariants, pickVariant, sternLampLit, targetSwing, wrapAngle, wreckScale, type VariantIndex } from "./variants";
 import { ensureGustService } from "../weather/gust";
+import { inPoly, seaZones } from "../ui/places";
 import { titanFor } from "./titans";
 import { DECK, linear, liveryFor, sailDye, TOPSIDE, TRIM } from "./livery";
 import { ensureMotionService, MotionClock } from "../ui/services";
@@ -92,6 +93,8 @@ const PAINT_TEXELS = 5;
  * docked rows read as hulls and a few masts.
  */
 const SPAR_NEAR = 70, SPAR_FAR = 34, STRIKE_SHARE = 0.8;
+/** 07-M2: a galley under oars inside the moles keeps this share of her canvas brailed up. */
+const GALLEY_BRAIL = 0.7;
 const CLASS_LOA_FALLBACK: Record<HullClass, number> = { flagship: 26, large: 18, medium: 13, small: 10, boat: 7.5, skiff: 5 };
 
 interface BoatRec {
@@ -132,6 +135,7 @@ interface BoatRec {
   /** Lane MOTION: flog through a tack (eased 0..1) and how far her oars are out (galleys, 0..1). */
   flog: number;
   row: number;
+  brail: number;
   /** Picking sphere (world). */
   cx: number; cy: number; cz: number; r: number; top: number;
   /** Her sea-sampling cache (ocean.hullHeights at rest). */
@@ -394,7 +398,7 @@ export class FleetSystem implements WorldSystem {
         swing: prev?.swing ?? 0, heel: prev?.heel ?? 0, hi: 0, px: prev?.px ?? 0, pz: prev?.pz ?? 0, vx: 0, vz: 0, seen: !!prev?.seen,
         phi: hash01(boat.id + "#bob") * Math.PI * 2,
         slot: this.atlas ? this.atlas.slotFor({ id: boat.id, symbol: boat.symbol, brandColor: boat.brandColor }) : -1,
-        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, flog: 0, row: 0, struck: false, mastK: titan ? 2 : hash01(boat.id + "#mast"), titan: !!titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
+        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, flog: 0, row: 0, brail: 0, struck: false, mastK: titan ? 2 : hash01(boat.id + "#mast"), titan: !!titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
         swell: hullSwellCache(),
       };
       this.writePaint(rec.inst, wrecked || titan ? null : boat.id, variant.family, wrecked ? null : boat.brandColor);
@@ -692,8 +696,10 @@ export class FleetSystem implements WorldSystem {
       bi++;
       const x = pose!.position[i * 3], z = pose!.position[i * 3 + 2], h = pose!.heading[i];
       const ph = pose!.phase[i];
-      const sail = pose!.sailState[i];
       const moving = ph === PH_CASTING_OFF || ph === PH_SAILING || ph === PH_APPROACHING;
+      // a galley rows inside the moles with her canvas brailed up, and sets it once clear of the mouth (07-M2)
+      const brail = 1 - GALLEY_BRAIL * this.brailing(b, moving, x, z, dt);
+      const sail = pose!.sailState[i] * brail;
       // velocity from the pose itself (robust to astern legs and ?simspeed)
       if (!b.seen) { b.px = x; b.pz = z; b.seen = true; }
       let vx = (x - b.px) / dt, vz = (z - b.pz) / dt;
@@ -708,7 +714,7 @@ export class FleetSystem implements WorldSystem {
       const mo = this.motion(b, h, windFrom, sail, moving, target, gustSvc.at(x, z), windK, live, dt);
       // in a storm the sail drawing heels her hard over (the sim's heel follows the model's wind); a passing
       // cat's-paw leans her a little further (07-M4)
-      const heelT = pose!.heel[i] * (moving ? 1 + 1.3 * storm : 1) + mo.heel;
+      const heelT = pose!.heel[i] * brail * (moving ? 1 + 1.3 * storm : 1) + mo.heel;
       b.heel += (heelT - b.heel) * (1 - Math.exp(-dt * 1.2));
       const hiT = b.id === this.hover ? 1 : b.id === this.selected ? 0.5 : 0;
       b.hi += (hiT - b.hi) * hiK;
@@ -909,6 +915,16 @@ export class FleetSystem implements WorldSystem {
     return o;
   }
   private readonly mo = { fill: 0, shake: 0, heel: 0, surge: 0, yaw: 0 };
+
+  /** 07-M2: how far a galley's canvas is brailed (0..1, eased): she is under way inside a harbour's waters. */
+  private brailing(b: BoatRec, moving: boolean, x: number, z: number, dt: number): number {
+    if (!b.variant.oars) return 0;
+    if (!this.harbours && this.layout) this.harbours = seaZones(this.layout).filter((zn) => zn.kind === "harbour").map((zn) => zn.polygon);
+    const inside = moving && !!this.harbours?.some((poly) => inPoly(x, z, poly));
+    b.brail += ((inside ? 1 : 0) - b.brail) * (1 - Math.exp(-dt * 0.35));
+    return b.brail;
+  }
+  private harbours: Array<readonly [number, number][]> | null = null;
 
   /** uFleetData texel 2 (F-fleet3, fleet-material): sail fill, shake, lantern lit (reserved), oar stroke. */
   private writeMotion(inst: number, fill: number, shake: number, lit: number, row: number): void {
