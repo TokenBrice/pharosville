@@ -466,6 +466,9 @@ for (nm, pts) in WINDOW_GROUPS:
     c = sum(pts, Vector()) / len(pts)
     LIGHTS.append(dict(kind='window', position=gl3(c), color='#FFAE57', building=nm, windows=len(pts)))
 for (x, y, z, kind, col) in LAMP_LIGHTS:
+    if kind == 'hearth':        # 08-T9: dim hinterland hearths (farm doors, the windmill, the sanctuary, wayside lamps)
+        LIGHTS.append(dict(kind='hearth', position=gl3((x, y, z)), color=col or '#FF9A48'))
+        continue
     LIGHTS.append(dict(kind='pierhead' if kind == 'pierhead' else 'lamp', position=gl3((x, y, z)), color=col or '#FFB15C'))
 json.dump(LIGHTS, open(os.path.join(OUTD, 'window_lights.json'), 'w'))
 STATS['lights'] = len(LIGHTS)

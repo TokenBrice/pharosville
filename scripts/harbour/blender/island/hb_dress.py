@@ -273,6 +273,56 @@ obj('vine_posts', vine_posts, lin('#7A6248'), PT['plain'], family='veg', jitter=
 obj('vine_canopy', vine_leaf, face=lambda q: ((PAL['vine_light'] if q.normal.z > 0.3 else PAL['vine']), PT['leaf']), family='veg', jitter=0.1,
     props=dict(sway=0.55, sway_mode='ground', sway_span=1.6))
 
+# ------------------------------------------------------------------ 08-T4 (prettier): a small hill sanctuary on the west spine
+# The harbour's own sanctuary, generic and votive (no name, no statue, no colossus; R3/D3): a temenos levelled on the
+# spine's north knoll (terrain.SANCTUARY_*), a tholos under 7 m, an altar and two stelae on the approach, a ring of
+# cypresses with its gap toward the town, a zig-zag processional path up from the west road, one lamp at dusk.
+SRNG = random.Random(4404)
+s_st, s_wall, s_roof, s_pave = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
+scx, scy = wpt(*terrain.SANCTUARY_UV)
+sz = terrain.disc_at(scx, scy)[0]
+_su = lambda du, dv: wpt(terrain.SANCTUARY_UV[0] + du, terrain.SANCTUARY_UV[1] + dv)    # screen-plan offsets from its centre
+SANCT_RING = [(scx + math.cos(2 * math.pi * i / 20) * (terrain.SANCTUARY_R - 0.6), scy + math.sin(2 * math.pi * i / 20) * (terrain.SANCTUARY_R - 0.6)) for i in range(20)]
+tx_, ty_ = _su(0.0, 1.8)                       # the tholos stands toward the back; the altar before it, on the camera side
+_pc = _su(0.0, -1.6)                           # a modest paved court round the tholos and the altar; the rest stays turf
+merge(s_pave, bm_prism([(_pc[0] + math.cos(2 * math.pi * i / 16) * 5.4, _pc[1] + math.sin(2 * math.pi * i / 16) * 5.4) for i in range(16)], sz - 0.4, sz + 0.07))
+for k, (r_, h_) in enumerate(((3.6, 0.26), (3.25, 0.26), (2.9, 0.26))):
+    merge(s_st, bm_cyl(r_, r_, h_, 14, (tx_, ty_, sz + 0.07 + k * 0.26)))
+zc_ = sz + 0.07 + 3 * 0.26
+merge(s_wall, bm_cyl(1.75, 1.75, 3.0, 12, (tx_, ty_, zc_), cap=False))          # the cella
+for i in range(8):
+    a = 2 * math.pi * i / 8 + 0.2
+    merge(s_st, bm_cyl(0.19, 0.16, 3.0, 6, (tx_ + math.cos(a) * 2.5, ty_ + math.sin(a) * 2.5, zc_)))
+merge(s_st, bm_cyl(2.8, 2.8, 0.42, 14, (tx_, ty_, zc_ + 3.0)))                   # the entablature ring
+merge(s_roof, bm_cyl(3.05, 0.25, 1.45, 14, (tx_, ty_, zc_ + 3.42), cap=False))  # a low tiled cone
+merge(s_st, bm_cyl(0.25, 0.05, 0.45, 6, (tx_, ty_, zc_ + 4.87)))                # finial (top ~6.6 m above the knoll)
+ax_, ay_ = _su(0.0, -4.2)
+merge(s_st, bm_box2(ax_ - 0.75, ay_ - 0.5, sz + 0.07, ax_ + 0.75, ay_ + 0.5, sz + 1.0))   # the altar
+merge(s_st, bm_box2(ax_ - 0.9, ay_ - 0.62, sz + 0.95, ax_ + 0.9, ay_ + 0.62, sz + 1.1))
+for du in (-2.6, 2.6):                          # two stelae flanking the approach
+    ex_, ey_ = _su(du, -6.6)
+    merge(s_st, xf(bm_box(0.5, 0.18, 1.5), loc=(ex_, ey_, sz + 0.82), rz=SRNG.uniform(-0.2, 0.2)))
+occ_poly([(scx + math.cos(2 * math.pi * i / 16) * (terrain.SANCTUARY_R + 2.5), scy + math.sin(2 * math.pi * i / 16) * (terrain.SANCTUARY_R + 2.5)) for i in range(16)])
+AGRI.append(SANCT_RING)
+SANCT_CYPRESS = []
+for i in range(11):                             # the cypress ring, open to the south (the approach, toward the town)
+    a = -math.pi / 2 + math.radians(40) + i * math.radians(280) / 10
+    du, dv = math.cos(a) * 11.0, math.sin(a) * 11.0
+    SANCT_CYPRESS.append(_su(du + SRNG.uniform(-0.6, 0.6), dv + SRNG.uniform(-0.6, 0.6)))
+# the processional path: up from the west road in three short zig-zags to the temenos gap
+shrine_bm = bmesh.new()
+ROADS['shrine'] = road([(-178.6, -23.9), (-185.5, -23.4), (-181.0, -21.0), (-187.2, -19.6), (-188.0, -16.6)], 1.5, PAL['earth'], 'path_shrine',
+                       shrine_bm, smooth=False)
+obj('land_paths_shrine', shrine_bm, PAL['earth'], PT['cobble'], family='terrain', jitter=0.05)
+SANCT_LAMP = (_su(1.6, -4.6), sz + 0.07)
+SANCT_SPOTS = [(_su(0.0, -6.0), sz + 0.07), (_su(-2.0, -1.5), sz + 0.07)]
+refresh_occ()
+obj('sanctuary_stone', s_st, CP['marble'], PT['ashlar'], family='landmark', jitter=0.03, bevel=0.02)
+obj('sanctuary_cella', s_wall, CP['wash_cream'], PT['render'], family='landmark', jitter=0.02)
+obj('sanctuary_roof', s_roof, lin('#8C4F39'), PT['tiles'], family='landmark', jitter=0.04)
+obj('sanctuary_paving', s_pave, face=lambda q: ((CP['lime_dark'] if q.normal.z > 0.5 else CP['lime_dark']), PT['cobble']), family='terrain', jitter=0.05)
+print('SANCTUARY z', round(sz, 1), 'top', round(zc_ + 5.32, 1))
+
 # ------------------------------------------------------------------ dry-stone walls round the meadows (they follow the land)
 walls = bmesh.new(); hedge = bmesh.new(); sheep = bmesh.new(); sheep_h = bmesh.new()
 for fi, f in enumerate(terrain.FIELDS):
@@ -466,6 +516,11 @@ def placer(*mix):
     return place
 
 
+# 08-T4: the sanctuary's cypress ring
+for (x, y) in SANCT_CYPRESS:
+    nl_kit.cypress(LEAF['cypress'], (x, y, H(x, y) - 0.3), SRNG.uniform(7.5, 9.5), SRNG)
+    TREES['cypress'] += 1
+    TREE_GRID.setdefault((int(x // 10.0), int(y // 10.0)), []).append((x, y, 3.0))
 # 08-T1: the terrace olives first (their rows are fixed), so every other scatter keeps clear of them
 for (x, y, k) in TERRACE_OLIVES:
     nl_kit.olive(LEAF['olive'], TRUNK['olive'], (x, y, H(x, y) - 0.15), T1RNG.uniform(3.6, 4.6), T1RNG)
@@ -830,6 +885,18 @@ for (k, pts, z) in LANES:
 for (x, y, z, kind, col) in CJ['lamps']:      # piers: tripods; the moles' and the causeway's crest lamps: stone pillars
     lamp((x, y), z, 3.0 if z < 2 else 3.4, pennant=col if kind == 'pierhead' else None, kind=kind,
          stand='pillar' if kind == 'lamp' and z >= Z_SHORE - 0.01 else 'tripod')
+def hearth_lamp(p, z, h=1.7):
+    """08-T4/T9: a small bronze fire-bowl on a tripod with a low flame: a hinterland 'hearth' light (dim layout kind)."""
+    x, y = p
+    for k in range(3):
+        a = 2 * math.pi * k / 3 + 0.4
+        merge(lampb, nl_kit.beam((x + 0.35 * math.cos(a), y + 0.35 * math.sin(a), z), (x, y, z + h), 0.05, 0.05))
+    merge(lampb, bm_cyl(0.08, 0.3, 0.2, 6, (x, y, z + h), cap=False))
+    merge(lglass, bm_cyl(0.16, 0.03, 0.32, 5, (x, y, z + h + 0.12), cap=False))
+    LAMP_LIGHTS.append((x, y, z + h + 0.3, 'hearth', None))
+
+
+hearth_lamp(SANCT_LAMP[0], SANCT_LAMP[1])      # 08-T4: the sanctuary's one lamp at dusk
 obj('lamps_posts', lampb, CP['bronze'], PT['metal'], family='prop_lamp')
 obj('lamps_pillars', lstone, CP['lime'], PT['ashlar'], family='prop_lamp', bevel=0.03)
 obj('lamps_glass', lglass, mat=M['lamp'], family='prop_lamp', shadow=False)

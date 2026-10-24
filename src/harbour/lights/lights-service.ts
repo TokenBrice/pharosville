@@ -10,7 +10,7 @@ import type { EngineContext } from "../engine/types";
  * Pure data store; the LightsSystem owns the GPU side. Registered early (by the island system) so any
  * later system (fleet riding lights) can add lights during its own init.
  */
-export type LightKind = "window" | "lamp" | "pierhead" | "harbourlight" | "riding" | (string & {});
+export type LightKind = "window" | "lamp" | "pierhead" | "harbourlight" | "riding" | "hearth" | (string & {});
 
 export interface LightsService {
   add(kind: LightKind, position: THREE.Vector3Like | [number, number, number], color?: string | THREE.Color, radius?: number): number;
@@ -41,6 +41,9 @@ export const KINDS: Record<string, KindSpec> = {
   pierhead: { color: "#FFD9A0", pool: 6.0, poolK: 0.42, sprite: 0.6, spriteK: 16, point: 26, mount: 4.6 },
   harbourlight: { color: "#FF5A3C", pool: 4.0, poolK: 0.35, sprite: 1.0, spriteK: 26, point: 30, mount: 4.0 },
   riding: { color: "#FFF2D6", pool: 0, poolK: 0, sprite: 0.32, spriteK: 18, point: 0, mount: 0 },
+  // 08-T9: hinterland hearths (farm doors, the windmill, the hill sanctuary, wayside lamps): warm, small and dim —
+  // well under the town's lamps, never promoted to a point light
+  hearth: { color: "#FF9A48", pool: 3.2, poolK: 0.16, sprite: 0.3, spriteK: 7, point: 0, mount: 1.8 },
 };
 const DEFAULT_KIND = KINDS.lamp;
 
