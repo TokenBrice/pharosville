@@ -48,6 +48,12 @@ export interface StrikeLike { distanceKm?: number; thunderDelaySec?: number; int
 export interface SeasonLike { readonly weights?: readonly number[]; readonly snowCover?: number }
 interface Motion { readonly reduced?: boolean }
 interface Quality { readonly tier?: string }
+/** The 'lighthouse' service: the sweep heading (layout convention: the beam points along (sin h, 0, cos h)). */
+interface LighthouseLike { readonly lanternPosition?: Vec3Like; sweepAngle?(): number; readonly lit?: boolean; readonly period?: number }
+interface Vec3Like { readonly x: number; readonly z: number }
+/** The 'beam' service: a reach() getter (0..1, the PSI beam) when the beam layer publishes one. */
+interface BeamLike { reach?(): number }
+interface PsiReadings { readonly psi?: { readonly lit?: boolean; readonly reach?: number } }
 
 const BAND_LEVEL: Record<string, number> = { CALM: 0, WATCH: 1, ALERT: 2, WARNING: 3, DANGER: 4 };
 const clamp01 = (x: number) => (x > 0 ? (x < 1 ? x : 1) : 0);
@@ -130,6 +136,28 @@ export function burnRateOf(c: { burnRate?: number; banked?: boolean } | undefine
   return clamp01(c.burnRate ?? 0);
 }
 
+/**
+ * The beam's passing: the peak gain (before the master) of the soft low breath when the sweep crosses the
+ * camera. Follows the beam's reach (PSI, the beam's own signal: no new mapping, no pitch), fuller at night,
+ * nothing when the lamp is unlit, and muted as stale fog shows (stale data owns the voice: the foghorn).
+ * Never above 0.045 (≈ −30 dBFS after the master).
+ */
+export function beamBreathPeak(reach: number, lit: boolean, night: number, fog: number): number {
+  if (!lit || !Number.isFinite(reach)) return 0;
+  const c = (x: number) => Math.max(0, Math.min(1, x));
+  return 0.045 * (0.35 + 0.65 * c(reach)) * (0.45 + 0.55 * c(night)) * (1 - c(fog * 2.5));
+}
+
+const wrapPi = (a: number) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
+
+/**
+ * The sweep crossed the camera's bearing between two readings: the signed angle beam − bearing changed sign
+ * while small (a jump through ±π is the far side, not a crossing).
+ */
+export function beamCrossed(prev: number, now: number): boolean {
+  return Math.abs(prev) < 1 && Math.abs(now) < 1 && (prev < 0) !== (now < 0);
+}
+
 /** How far behind a look along (fx, fz) the offset (dx, dz) lies: 0 ahead or beside … →1 straight behind (soft near the listener). */
 export function behindOf(dx: number, dz: number, fx: number, fz: number): number {
   return Math.max(0, Math.min(1, -(dx * fx + dz * fz) / (Math.hypot(dx, dz) + 40)));
@@ -159,6 +187,9 @@ class Controller implements SoundController {
   private src: Sources | null = null;
   private srcFor: unknown = null;
   private unsubStrike: (() => void) | null = null;
+  /** the beam's heading minus the camera's bearing from the tower, last reading; and the last breath's time */
+  private beamDelta = Number.NaN;
+  private beamAt = 0;
   /** the camera's right on the ground, kept for placing thunder */
   private readonly right: Vec2 = [1, 0];
   private readonly listeners = new Set<() => void>();
@@ -291,6 +322,27 @@ class Controller implements SoundController {
       if (S.trees.length) inputs.treesPan = pan(hit[0], hit[1]);
     }
     amb.set(inputs);
+    this.beam(amb, inputs);
+  }
+
+  /** The beam's passing: one breath each time the sweep crosses the camera (never when held: reduced motion). */
+  private beam(amb: Ambience, inputs: Partial<AmbienceInputs>): void {
+    const { ctx } = this;
+    const lh = ctx.services.get("lighthouse") as LighthouseLike | undefined;
+    const lp = lh?.lanternPosition;
+    if (!lh?.sweepAngle || !lp) { this.beamDelta = Number.NaN; return; }
+    const cam = ctx.rig.camera.position;
+    const d = wrapPi(lh.sweepAngle() - Math.atan2(cam.x - lp.x, cam.z - lp.z));
+    const prev = this.beamDelta;
+    this.beamDelta = d;
+    if (!beamCrossed(prev, d)) return;
+    const t = performance.now();
+    if (t - this.beamAt < 1500) return;
+    this.beamAt = t;
+    const psi = (ctx.services.get("readings") as PsiReadings | undefined)?.psi;
+    const reach = (ctx.services.get("beam") as BeamLike | undefined)?.reach?.() ?? psi?.reach ?? 0;
+    const lit = (lh.lit ?? true) && (psi?.lit ?? true);
+    amb.beamPass(beamBreathPeak(reach, lit, inputs.night ?? 0, inputs.fog ?? 0), (inputs.firePan ?? 0) * 0.5);
   }
 
   /** A lightning strike: its thunder, delayed by its distance, from where it struck (azimuth 0 = -z, +π/2 = +x). */

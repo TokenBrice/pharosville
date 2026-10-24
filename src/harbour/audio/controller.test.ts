@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attentionFor, behindOf, burnRateOf, weatherInputs } from "./controller";
+import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, weatherInputs } from "./controller";
 import { birdThinning, cicadaLevel, settleDb, settleRate } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {
@@ -79,5 +79,24 @@ describe("harbour sound: the Burn's furnace", () => {
     expect(burnRateOf({ banked: false })).toBe(0);
     expect(burnRateOf(undefined)).toBe(0);
     expect(burnRateOf({ burnRate: Number.NaN })).toBe(0);
+  });
+});
+
+describe("harbour sound: the beam's passing", () => {
+  it("is heard once, as the sweep crosses the camera's bearing (not at the far side)", () => {
+    expect(beamCrossed(-0.1, 0.05)).toBe(true);
+    expect(beamCrossed(0.1, -0.05)).toBe(true);
+    expect(beamCrossed(-0.3, -0.1)).toBe(false);
+    expect(beamCrossed(3.1, -3.1)).toBe(false);
+    expect(beamCrossed(Number.NaN, 0.1)).toBe(false);
+  });
+
+  it("follows the beam's reach, is nothing unlit, mutes under stale fog, never above −30 dBFS", () => {
+    expect(beamBreathPeak(0.8, false, 1, 0)).toBe(0);
+    expect(beamBreathPeak(0.8, true, 1, 0.5)).toBe(0);
+    expect(beamBreathPeak(1, true, 1, 0)).toBeLessThanOrEqual(0.045);
+    expect(beamBreathPeak(1, true, 1, 0) * 0.7).toBeLessThan(10 ** (-30 / 20) + 1e-9);
+    expect(beamBreathPeak(0.9, true, 1, 0)).toBeGreaterThan(beamBreathPeak(0.2, true, 1, 0));
+    expect(beamBreathPeak(0.9, true, 0, 0)).toBeLessThan(beamBreathPeak(0.9, true, 1, 0));
   });
 });

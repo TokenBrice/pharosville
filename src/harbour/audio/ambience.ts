@@ -906,6 +906,26 @@ export class Ambience {
     }
   }
 
+  /**
+   * The beam passes over the listener: one breath, a sine and its octave near A2 (no pitch follows the score),
+   * a 1.5 s swell and a 4 s release, lowpassed and sent through the harbour walls' slap-back.
+   */
+  beamPass(peak: number, pan = 0): void {
+    if (this.disposed || !(peak > 1e-4)) return;
+    const ac = this.ac, at = ac.currentTime + 0.05;
+    const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 420; lp.Q.value = 0.5;
+    const g = this.env(at, 1.5, 0.4, 4, Math.min(0.045, peak) * settleRate(this.inputs.attention));
+    const p = this.pan(Math.max(-0.6, Math.min(0.6, pan)));
+    lp.connect(g).connect(p);
+    p.connect(this.out); p.connect(this.echo);
+    for (const [f, a] of [[110, 1], [220.6, 0.3]] as const) {
+      const o = ac.createOscillator(); o.frequency.value = f * (0.995 + this.rnd() * 0.01);
+      const og = ac.createGain(); og.gain.value = a;
+      o.connect(og).connect(lp);
+      o.start(at); o.stop(at + 6.2);
+    }
+  }
+
   /** Fade out, then release everything. */
   async dispose(): Promise<void> {
     if (this.disposed) return;
