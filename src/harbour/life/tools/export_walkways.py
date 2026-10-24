@@ -156,7 +156,7 @@ causeway.append(gl(q.x, q.y, PHJ['z'] + 0.02))
 # ground): the open meadow on the Pharos headland between the causeway and the Burn (no field there, a soft ellipse), then
 # the two terrain.FIELDS pastures nearest the west-lobe farm
 terrain_ = G['terrain']
-HEADLAND_MEADOW = (-203.0, 4.0, 15.0, 10.0, 0.5)          # plan centre x, y (Blender), radii, angle
+HEADLAND_MEADOW = (-204.0, 54.0, 6.5, 13.0, 0.15)         # plan centre x, y (Blender), radii, angle: the knoll above the causeway
 cx_, cy_, ra_, rb_, an_ = HEADLAND_MEADOW
 pastures = [[[round(cx_ + math.cos(t) * ra_ * math.cos(an_) - math.sin(t) * rb_ * math.sin(an_), 2),
               round(-(cy_ + math.cos(t) * ra_ * math.sin(an_) + math.sin(t) * rb_ * math.cos(an_)), 2)]
