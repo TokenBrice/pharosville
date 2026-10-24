@@ -38,8 +38,10 @@ export interface AmbienceInputs {
   fog: number;
   /** 0 day … 1 night */
   night: number;
-  /** world hour 0..24 */
+  /** world hour 0..24 (the LIGHT hour: dawn, dusk and night as the sky shows them) */
   hour: number;
+  /** the world's clock hour 0..24 (wall clock or the pinned ?t=): the hour bell strikes it */
+  clock: number;
   /** nearness 0..1 of the beaches / rocky shore, and the pan of the nearest stretch */
   shore: number;
   shorePan: number;
@@ -124,6 +126,31 @@ export function settleDb(attention: number, t: number, phase = 0): number {
   return -3 * (1 - a) + 1.5 * breath;
 }
 
+/** 0 → 1 over [a, b], 1 until c, → 0 over [c, d] (hours). */
+const trap = (h: number, a: number, b: number, c: number, d: number) =>
+  Math.max(0, Math.min(1, (h - a) / (b - a), (d - h) / (d - c)));
+
+/**
+ * The day clock (time of day is decorative): the dawn chorus 05–07 h, the noon hush 12–14 h, and the deep
+ * night 22–04 h when the owls call. Each 0..1, fading over the hour at its edges. `hour` = the light hour.
+ */
+export function dayClock(hour: number): { chorus: number; hush: number; deep: number } {
+  const h = ((hour % 24) + 24) % 24;
+  return {
+    chorus: trap(h, 4.6, 5.3, 7, 7.8),
+    hush: trap(h, 11.3, 12.2, 13.8, 14.6),
+    deep: Math.max(trap(h, 21.4, 22.4, 24.5, 25), trap(h, -1, -0.5, 3.6, 4.5)),
+  };
+}
+
+/**
+ * Strikes of the harbour bell as the clock enters hour `h`: one, from 06 to 22 h, three at noon at most;
+ * never a counting peal (sixteen tolls at 16 h would be a jolt), never at night.
+ */
+export function hourStrikes(h: number): number {
+  return h >= 6 && h <= 22 ? (h === 12 ? 3 : 1) : 0;
+}
+
 /** Event-rate multiplier of the settle: 1 while watched … 0.7 (~30 % sparser) when settled. */
 export const settleRate = (attention: number) => 0.7 + 0.3 * Math.max(0, Math.min(1, attention));
 
@@ -202,7 +229,7 @@ export class Ambience {
   private readonly out: GainNode;
   private readonly sources: AudioScheduledSourceNode[] = [];
   private readonly inputs: AmbienceInputs = {
-    zoom: 0.5, wind: 0.35, fog: 0, night: 0, hour: 9, shore: 0.5, shorePan: 0, harbour: 0.5, reef: 0.2, reefPan: -0.5,
+    zoom: 0.5, wind: 0.35, fog: 0, night: 0, hour: 9, clock: 9, shore: 0.5, shorePan: 0, harbour: 0.5, reef: 0.2, reefPan: -0.5,
     fire: 0, firePan: 0, mint: 0, mintPan: 0, mintRate: 0.5,
     rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
     town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false, attention: 1,
@@ -280,6 +307,10 @@ export class Ambience {
   private readonly rustleBus: GainNode;
   private readonly rustleLp: BiquadFilterNode;
   private readonly crunchBus: GainNode;
+  // the day clock: night birds, the hour bell
+  private readonly nightBus: GainNode;
+  private readonly tollLp: BiquadFilterNode;
+  private lastHour = -1;
   // the ten-minute settle (and the slow breathing of the whole mix), and the one-shots now sounding
   private readonly settle: GainNode;
   private readonly breathPhase: number;
@@ -288,7 +319,7 @@ export class Ambience {
   private idle = 0;
   private next = {
     wave: 0, lap: 0, reef: 0, gull: 0, creak: 0, tap: 0, horn: 0, gust: 0, crackle: 0, press: 0, refresh: 0,
-    rainA: 0, rainB: 0, drip: 0, bird: 0, cricket: 0, cicada: 0, crunch: 0, ship: 0, groan: 0, burn: 0, bellows: 0,
+    rainA: 0, rainB: 0, drip: 0, bird: 0, cricket: 0, cicada: 0, crunch: 0, ship: 0, groan: 0, burn: 0, bellows: 0, owl: 0, nightjar: 0,
   };
   private setLeft = 0;
   private pressN = 0;
@@ -452,6 +483,11 @@ export class Ambience {
     this.rustleLp = this.filter("lowpass", 9000, 0.5);
     this.rustleLp.connect(this.rustleBus).connect(this.out);
     this.crunchBus = ac.createGain(); this.crunchBus.gain.value = 0; this.crunchBus.connect(this.out);
+    this.nightBus = ac.createGain(); this.nightBus.gain.value = 0; this.nightBus.connect(this.out); this.nightBus.connect(this.echo);
+    // the hour bell: soft and far (dark, through the harbour walls' slap-back), from the town
+    const tollBus = ac.createGain(); tollBus.gain.value = 0.07;
+    this.tollLp = this.filter("lowpass", 2000, 0.5);
+    this.tollLp.connect(tollBus); tollBus.connect(this.out); tollBus.connect(this.echo);
 
     this.harbourBus = ac.createGain(); this.harbourBus.gain.value = 0; this.harbourBus.connect(this.out);
     this.gullBus = ac.createGain(); this.gullBus.gain.value = 0; this.gullBus.connect(this.out); this.gullBus.connect(this.echo);
@@ -464,6 +500,7 @@ export class Ambience {
       crackle: t, press: t + 0.5, refresh: t + 20,
       rainA: t, rainB: t + 1.7, drip: t + 1, bird: t + 1 + this.rnd() * 3, cricket: t, cicada: t, crunch: t + 4,
       ship: t + 2, groan: t + 6, burn: t, bellows: t + 2,
+      owl: t + 20 + this.rnd() * 40, nightjar: t + 10 + this.rnd() * 30,
     };
     if (opts.manual) this.bank.buildAll();
     else {
@@ -601,8 +638,15 @@ export class Ambience {
     const day = 1 - night;
     const quiet = (1 - clamp01(rain * 1.6)) * (1 - 0.9 * storm) * (1 - snow);
     const cic = cicadaLevel(I.summer, I.hour);
-    const birds = (I.spring + 0.5 * I.summer + 0.2 * I.autumn + 0.04 * I.winter) * day * quiet * birdThinning(cic);
-    this.aim(this.birdBus.gain, birds * (0.05 + 0.5 * I.trees), 1);
+    // the day clock: a fuller dawn chorus in spring and summer (more singers, barely louder), a noon hush
+    const clock = dayClock(I.hour), chorus = clock.chorus * clamp01(I.spring + I.summer);
+    const birds = (I.spring + 0.5 * I.summer + 0.2 * I.autumn + 0.04 * I.winter) * Math.max(day, 0.8 * chorus) * quiet * birdThinning(cic) * (1 - 0.5 * clock.hush);
+    const birdRate = 1 + 1.5 * chorus;
+    this.aim(this.birdBus.gain, birds * (0.05 + 0.5 * I.trees) * (1 + 0.25 * chorus), 1);
+    // owls in the deep night (any season), a nightjar churring on summer nights; the rain silences them
+    const owls = clock.deep * (1 - clamp01(rain * 2)) * (1 - 0.9 * storm);
+    const jars = I.summer * clamp01((night - 0.5) / 0.3) * (1 - clamp01(rain * 2)) * (1 - 0.9 * storm);
+    this.aim(this.nightBus.gain, (0.03 + 0.25 * I.trees) * point, 1);
     const dusk = clamp01((night - 0.2) / 0.4);
     const crickets = (I.summer + 0.3 * I.spring + 0.5 * I.autumn) * dusk * (1 - clamp01(rain * 2)) * (1 - 0.8 * storm);
     this.aim(this.cricketBus.gain, crickets * (0.04 + 0.4 * I.land), 1);
@@ -625,6 +669,9 @@ export class Ambience {
     if (rustle > 0.01) this.need("rustle");
     if (crunch > 0.01) this.need("crunch");
     if (yard > 0.02) this.need("mallet", "adze", "saw");
+    if (owls > 0.01) this.need("owl");
+    if (jars > 0.01) this.need("nightjar");
+    if (I.clock > 5.5 && I.clock < 22.5) this.need("tolling");
 
     const N = this.next;
     // ---- the swell: one wave per period, in sets; the shore, the bed, the laps and the bell answer it
@@ -720,9 +767,32 @@ export class Ambience {
         const at = Math.max(N.bird, now), pan = I.treesPan * 0.5 + r() * 1.2 - 0.6;
         this.play("bird", at, this.birdBus, 0.5 + 0.5 * r(), pan, 0.94 + r() * 0.12);
         if (r() < 0.3) this.play("bird", at + 1 + r() * 1.5, this.birdBus, 0.35 + 0.3 * r(), -pan, 0.92 + r() * 0.16);
-        N.bird = at + (1.5 + r() * 5) / (0.4 + Math.min(1, birds));
+        N.bird = at + (1.5 + r() * 5) / (0.4 + Math.min(1, birds)) / birdRate / thin;
       }
     } else N.bird = Math.max(N.bird, now + r() * 2);
+    // an owl now and then (about one call in 90 s), sometimes answered from another grove
+    if (owls > 0.01) {
+      if (N.owl < ahead) {
+        const at = Math.max(N.owl, now), pan = I.treesPan * 0.5 + r() * 1.0 - 0.5;
+        this.play("owl", at, this.nightBus, 0.8 * owls, pan, 0.96 + r() * 0.08);
+        if (r() < 0.3) this.play("owl", at + 4 + r() * 3, this.nightBus, 0.4 * owls, -pan, 1.02 + r() * 0.06);
+        N.owl = at + (60 + r() * 60) / thin;
+      }
+    } else N.owl = Math.max(N.owl, now + 20 + r() * 30);
+    if (jars > 0.01) {
+      if (N.nightjar < ahead) {
+        const at = Math.max(N.nightjar, now);
+        this.play("nightjar", at, this.nightBus, 0.7 * jars, I.treesPan * 0.4 + r() * 0.8 - 0.4, 0.97 + r() * 0.06);
+        N.nightjar = at + (40 + r() * 80) / thin;
+      }
+    } else N.nightjar = Math.max(N.nightjar, now + 10 + r() * 20);
+    // the hour bell: one soft strike as the clock enters each hour from 06 to 22 h (three at noon)
+    const hf = Math.floor(((I.clock % 24) + 24) % 24);
+    if (this.lastHour < 0) this.lastHour = hf;
+    else if (hf !== this.lastHour) {
+      this.lastHour = hf;
+      for (let k = 0, m = hourStrikes(hf); k < m; k++) this.play("tolling", now + 0.2 + k * 3.4, this.tollLp, 1 - 0.5 * storm, I.townPan * 0.6, 0.995 + r() * 0.01);
+    }
     // crickets: overlapped 4 s clips like the fire
     if (crickets > 0.01) {
       if (N.cricket < ahead) {

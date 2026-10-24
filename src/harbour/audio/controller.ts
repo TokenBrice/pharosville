@@ -266,7 +266,7 @@ class Controller implements SoundController {
     const weather = ctx.services.get("weather") as WeatherLike | undefined;
     const wetU = (ctx.uniforms as unknown as { uWetness?: { value: number } }).uWetness?.value ?? 0;
     const inputs: Partial<AmbienceInputs> = {
-      zoom: Math.sqrt(zoom), fog, night: ctx.uniforms.uNight.value, hour: ctx.timeOfDay.hour,
+      zoom: Math.sqrt(zoom), fog, night: ctx.uniforms.uNight.value, hour: ctx.timeOfDay.hour, clock: ctx.timeOfDay.clockHour,
       ...weatherInputs(weather, ctx.services.get("season") as SeasonLike | undefined, wind, wetU),
       reduced: !!(ctx.services.get("motion") as Motion | undefined)?.reduced,
       lean: (ctx.services.get("quality") as Quality | undefined)?.tier === "low",

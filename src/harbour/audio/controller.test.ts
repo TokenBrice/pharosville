@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, weatherInputs } from "./controller";
-import { birdThinning, cicadaLevel, settleDb, settleRate } from "./ambience";
+import { birdThinning, cicadaLevel, dayClock, hourStrikes, settleDb, settleRate } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {
   it("absent services read as fair weather with no season colour", () => {
@@ -98,5 +98,28 @@ describe("harbour sound: the beam's passing", () => {
     expect(beamBreathPeak(1, true, 1, 0) * 0.7).toBeLessThan(10 ** (-30 / 20) + 1e-9);
     expect(beamBreathPeak(0.9, true, 1, 0)).toBeGreaterThan(beamBreathPeak(0.2, true, 1, 0));
     expect(beamBreathPeak(0.9, true, 0, 0)).toBeLessThan(beamBreathPeak(0.9, true, 1, 0));
+  });
+});
+
+describe("harbour sound: the day clock", () => {
+  it("the dawn chorus, the noon hush and the deep night each hold their hours", () => {
+    expect(dayClock(6).chorus).toBe(1);
+    expect(dayClock(9).chorus).toBe(0);
+    expect(dayClock(13).hush).toBe(1);
+    expect(dayClock(17).hush).toBe(0);
+    expect(dayClock(23.5).deep).toBe(1);
+    expect(dayClock(2).deep).toBe(1);
+    expect(dayClock(12).deep).toBe(0);
+    expect(dayClock(19).deep).toBe(0);
+  });
+
+  it("the hour bell strikes once per hour 06–22, three times at noon, never at night, never a peal", () => {
+    expect(hourStrikes(5)).toBe(0);
+    expect(hourStrikes(6)).toBe(1);
+    expect(hourStrikes(12)).toBe(3);
+    expect(hourStrikes(16)).toBe(1);
+    expect(hourStrikes(22)).toBe(1);
+    expect(hourStrikes(23)).toBe(0);
+    expect(hourStrikes(0)).toBe(0);
   });
 });

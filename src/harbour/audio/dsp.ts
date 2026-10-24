@@ -27,7 +27,9 @@ export type ClipKind = "shore" | "lap" | "reef" | "crackle" | "press" | "halyard
   // season colour (calendar, decorative)
   | "bird" | "cricket" | "cicada" | "rustle" | "crunch"
   // the Shipyard's tools (decorative, by day)
-  | "mallet" | "adze" | "saw";
+  | "mallet" | "adze" | "saw"
+  // the day clock (decorative): night birds, the harbour's hour bell
+  | "owl" | "nightjar" | "tolling";
 
 /** mulberry32: small, fast, seedable. */
 export function makeRng(seed: number): Rng {
@@ -1011,6 +1013,108 @@ export function* saw(seed: number, sr: number): Generator<void, Clip> {
   return { sr, L, R };
 }
 
+// ---------------------------------------------------------------------------------------------------------
+// The day clock (decorative): night birds and the hour bell
+// ---------------------------------------------------------------------------------------------------------
+
+/**
+ * A tawny owl from the groves: a long "hooo", a pause, then a short note and a long quavering one, all near
+ * 380–430 Hz, gliding down a little, with breath in it. ~3–4.5 s.
+ */
+export function* owl(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const f0 = range(r, 380, 430), gap = range(r, 0.7, 1.6);
+  const notes: Array<[number, number, number, number, number]> = [   // at, dur, f, glide, quaver depth
+    [0.03, range(r, 0.38, 0.55), f0, 0.94, 0],
+  ];
+  const t2 = notes[0][0] + notes[0][1] + gap;
+  notes.push([t2, range(r, 0.1, 0.16), f0 * 1.03, 0.97, 0]);
+  notes.push([t2 + range(r, 0.24, 0.32), range(r, 0.8, 1.2), f0 * 1.01, 0.9, range(r, 0.35, 0.6)]);
+  const last = notes[notes.length - 1], T = last[0] + last[1] + 0.25, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const quaver = range(r, 7, 10), kb = onePole(900, sr);
+  let ph = 0, b = 0;
+  for (const [at, d, f, glide, q] of notes) {
+    const i0 = Math.floor(at * sr), m = Math.ceil(d * sr);
+    for (let i = 0; i < m && i0 + i < n; i++) {
+      const x = i / m, u = i / sr;
+      ph += (TAU * f * lerp(1, glide, x)) / sr;
+      const trem = 1 - q * (0.5 + 0.5 * Math.sin(TAU * quaver * u)) * smooth(x / 0.3);
+      const e = smooth(x / 0.2) * smooth((1 - x) / 0.35) * trem * 0.22;
+      b += kb * (N() - b);
+      const v = (Math.sin(ph) + 0.06 * Math.sin(2 * ph)) * e + b * e * 0.25;
+      L[i0 + i] += v; R[i0 + i] += v;
+    }
+  }
+  yield;
+  seal({ L, R }, sr, 0.01, 0.15);
+  limit({ L, R }, 0.4);
+  return { sr, L, R };
+}
+
+/**
+ * A nightjar churring on a summer night: a long mechanical trill (a tone near 1 kHz in pulses at 28–42 a
+ * second) that shifts between two rates now and then, swelling in and dying away. 5–7 s.
+ */
+export function* nightjar(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed);
+  const T = range(r, 5, 7), n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const fA = range(r, 900, 1250), rA = range(r, 28, 34), rB = range(r, 36, 42), fB = fA * range(r, 1.06, 1.14);
+  const shifts: number[] = [];
+  for (let t = range(r, 0.8, 2); t < T; t += range(r, 1, 2.8)) shifts.push(t);
+  let ph = 0, pp = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    let k = 0;
+    for (const s of shifts) if (t > s) k ^= 1;
+    const f = k ? fB : fA, rate = k ? rB : rA;
+    ph += (TAU * f) / sr; pp += rate / sr; pp -= Math.floor(pp);
+    const pulse = Math.pow(Math.sin(Math.PI * pp), 2);
+    const e = smooth(t / 0.8) * smooth((T - t) / 0.6) * 0.07;
+    const v = (Math.sin(ph) + 0.15 * Math.sin(2 * ph)) * pulse * e;
+    L[i] = v; R[i] = v;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  seal({ L, R }, sr, 0.01, 0.1);
+  limit({ L, R }, 0.3);
+  return { sr, L, R };
+}
+
+/**
+ * The harbour's hour bell: a bronze bell struck soft (a wooden striker, no clank), its hum, prime, tierce-ish
+ * and nominal partials (0.5, 1, 2.0, 2.76, 5.4) on a long decay. ~220 Hz, 8 s.
+ */
+export function* tolling(seed: number, sr: number): Generator<void, Clip> {
+  const r = makeRng(seed), N = noiseOf(r, sr);
+  const T = 8, n = Math.ceil(T * sr);
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const f0 = 220 * range(r, 0.97, 1.03);
+  for (const [ratio, a, d] of [[0.5, 0.45, 6.5], [1, 1, 5.5], [2.0, 0.5, 3.6], [2.76, 0.32, 2.4], [5.4, 0.1, 1.1]] as const) {
+    const f = f0 * ratio * range(r, 0.998, 1.002), beat = range(r, 0.3, 0.9), ph = r() * TAU;
+    if (f > sr * 0.45) continue;
+    const decay = Math.exp(-1 / ((d / 4.6) * sr)), w = (TAU * f) / sr;
+    let e = a * 0.32;
+    for (let i = 0; i < n; i++) {
+      const b = 1 - 0.15 * (1 + Math.sin(TAU * beat * (i / sr))) * 0.5;
+      L[i] += Math.sin(ph + w * i) * e * b * (i < 400 ? i / 400 : 1);
+      e *= decay;
+      if (e < 1e-5) break;
+    }
+    yield;
+  }
+  // the striker: a soft, dark thud on the strike
+  const th = new Svf(sr); th.set(500, 0.9);
+  for (let i = 0, m = Math.ceil(0.06 * sr); i < m; i++) {
+    th.run(N() * 0.1 * Math.exp(-i / (0.012 * sr)) * (i < 24 ? i / 24 : 1));
+    L[i] += th.lp;
+  }
+  R.set(L);
+  seal({ L, R }, sr, 0.001, 0.6);
+  limit({ L, R }, 0.6);
+  return { sr, L, R };
+}
+
 export const SYNTHS: Record<ClipKind, (seed: number, sr: number) => Generator<void, Clip>> = {
   shore: (s, sr) => shoreWash(s, sr, { stone: (s & 3) === 3 }),
   lap,
@@ -1034,6 +1138,9 @@ export const SYNTHS: Record<ClipKind, (seed: number, sr: number) => Generator<vo
   mallet,
   adze,
   saw,
+  owl,
+  nightjar,
+  tolling,
 };
 
 /** Run a synthesiser to completion (Node, tests). */
