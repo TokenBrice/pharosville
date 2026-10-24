@@ -45,10 +45,17 @@ export interface SkyService {
   /** immediate: jump there (first reading, dev overrides) instead of easing. */
   setCloudCover(v: number, immediate?: boolean): void;
   setWind(v: number, immediate?: boolean): void;
+  /** W01: a weather front crossing (cover it replaces → cover it brings, rain it brings, sweep 0..1), or null. */
+  setFront(f: SkyFront | null): void;
   readonly shared: SkyShared;
   /** Horizontal distance (m) from the camera to the painted horizon; content beyond it is hidden. */
   horizonDistance(): number;
 }
+
+export interface SkyFront { coverFrom: number; coverTo: number; rainTo: number; progress: number }
+
+/** Storm grade of a cloud cover (the deck, slate tint and dimming: DEWS ALERT and above). */
+const stormOf = (cover: number) => THREE.MathUtils.smoothstep(cover, 0.38, 0.75);
 
 /** What the sky reads from the weather director's service (src/harbour/weather). */
 interface WeatherSkyLike {
@@ -141,7 +148,14 @@ export class SkySystem implements WorldSystem {
     uPrecipSky: { value: new THREE.Vector4() },
     /** flash elevation (deg), wind slant of the curtains, -, - */
     uPrecipSkyB: { value: new THREE.Vector4() },
+    uFrontA: { value: new THREE.Vector4() },
+    uClearZen: { value: new THREE.Color() },
+    uClearHor: { value: new THREE.Color() },
+    uFrontB: { value: new THREE.Vector4() },
   };
+  private front: SkyFront | null = null;
+  /** +1: the front travels toward +th (it comes from the left of the view); fixed when it starts */
+  private frontSide = 1;
   private readonly bd = {
     uCam: { value: new THREE.Vector3() }, uFwdAzV: { value: 0 }, uR: { value: 1500 }, uSpan: { value: 0.5 },
     uYBot: { value: -3 }, uYTop: { value: 100 }, uPxDeg: { value: 0.025 },
@@ -196,6 +210,7 @@ export class SkySystem implements WorldSystem {
     const svc: SkyService = {
       setCloudCover: (v, now) => { this.cover = THREE.MathUtils.clamp(v, 0, 1); if (now) this.coverS = this.cover; },
       setWind: (v, now) => { this.wind = THREE.MathUtils.clamp(v, 0, 1); if (now) this.windS = this.wind; },
+      setFront: (f) => { if (f && !this.front) this.frontSide = 0; this.front = f; },
       shared: this.shared,
       horizonDistance: () => this.horizon,
     };
@@ -343,8 +358,18 @@ export class SkySystem implements WorldSystem {
     const wxs = (ctx.services.get("weather") as WeatherSkyLike | undefined)?.state;
     const gust = wxs ? THREE.MathUtils.clamp((wxs.windNow - wxs.wind) / 0.25, 0, 1) : 0;
     this.cirrusDrift += driftDeg * 0.3 * gust;
+    // ---- W01 the front: it comes from the upwind side of the view and sweeps across the band
+    const fr = this.front;
+    if (fr && this.frontSide === 0) this.frontSide = across >= 0 ? 1 : -1;
+    const fL = halfH / D2R + 14;
+    const lineTh = fr ? this.frontSide * (-fL + 2 * fL * fr.progress) : 0;
+    const coverAt = (th: number) => !fr ? this.coverS
+      : THREE.MathUtils.lerp(fr.coverFrom, fr.coverTo, 1 - THREE.MathUtils.smoothstep(this.frontSide * (th - lineTh), -3, 3));
+    if (fr) {
+      this.u.uFrontA.value.set(fr.coverFrom, fr.coverTo, stormOf(fr.coverFrom), stormOf(fr.coverTo));
+      this.u.uFrontB.value.set(lineTh, this.frontSide, fr.rainTo, 1);
+    } else this.u.uFrontB.value.w = 0;
     // fair-weather cumulus even when calm (2-3 banks), the full sky at ALERT and above
-    const vis = 5 + this.coverS * MAX_BANKS;
     this.banks.forEach((b, i) => {
       b.drift += driftDeg * (3000 / b.dist) * 1.6 * (1 + 1.2 * gust * THREE.MathUtils.smoothstep(9000 - b.dist, 0, 4000));
       const grow = 0.85 + 0.3 * this.coverS;
@@ -353,7 +378,7 @@ export class SkySystem implements WorldSystem {
       let th = b.th + b.drift + lateralDeg / b.dist;
       th = ((th + lim) % (2 * lim) + 2 * lim) % (2 * lim) - lim;
       const edge = THREE.MathUtils.smoothstep(lim - Math.abs(th), 0, 6);
-      const a = THREE.MathUtils.clamp(vis - b.slot, 0, 1) * edge;
+      const a = THREE.MathUtils.clamp(5 + coverAt(th) * MAX_BANKS - b.slot, 0, 1) * edge;
       this.u.uBanks.value[i].set(th, b.e, b.w * grow, b.h * grow);
       this.u.uBankB.value[i].set(b.cell, a, b.haze, b.mirror);
     });
@@ -363,8 +388,10 @@ export class SkySystem implements WorldSystem {
 
     // ---- storm grade (ALERT and above): slate sky, dimmer duller key light, greyer world, flatter grade.
     //      Runs after TimeOfDay and the readings binder wrote the uniforms, before the island copies them.
-    const storm = THREE.MathUtils.smoothstep(this.coverS, 0.38, 0.75);
+    const storm = stormOf(this.coverS);
     this.u.uStorm.value = storm;
+    this.u.uClearZen.value.copy(W.uZenith.value);
+    this.u.uClearHor.value.copy(W.uHorizon.value);
     if (storm > 1e-3) {
       const greyOf = (c: THREE.Color, k: number, mul: number) => {
         const l = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
@@ -392,7 +419,8 @@ export class SkySystem implements WorldSystem {
       this.u.uPrecipSky.value.set(W.uPrecip.value.x, W.uPrecip.value.y, flash, fth);
       const wv = W.uWindVec.value;
       // curtains lean downwind: + when the wind blows to the view's right
-      this.u.uPrecipSkyB.value.set(wx.flash.elevation, (wv.x * rightX + wv.y * rightZ) * 0.6, 0, 0);
+      const pp = W.uPrecip.value;
+      this.u.uPrecipSkyB.value.set(wx.flash.elevation, (wv.x * rightX + wv.y * rightZ) * 0.6, pp.x + pp.y > 0.02 ? pp.y / (pp.x + pp.y) : this.u.uPrecipSkyB.value.z, 0);
       const gloom = wx.gloom * (1 - 0.6 * night);
       if (gloom > 1e-3) {
         W.uSunColor.value.multiplyScalar(1 - 0.38 * gloom);
@@ -426,6 +454,14 @@ export class SkySystem implements WorldSystem {
       (0.42 + 0.2 * storm) * sunUp * THREE.MathUtils.smoothstep(this.coverS, 0.12, 0.45) * (1 - 0.7 * night),
     );
     cs.uCloudShadowK.value.set(0.66 - 0.3 * this.coverS, 0.16);
+    // W01: the shadow line crosses the sea toward the island, travelling with the wind (ahead: the old sky)
+    if (fr) {
+      const shadowW = (cov: number) => (0.42 + 0.2 * stormOf(cov)) * sunUp * THREE.MathUtils.smoothstep(cov, 0.12, 0.45) * (1 - 0.7 * night);
+      cs.uCloudShadow.value.w = shadowW(fr.coverFrom);
+      cs.uCloudShadowK.value.x = 0.66 - 0.3 * fr.coverFrom;
+      cs.uCloudShadowG.value.set(0.66 - 0.3 * fr.coverTo, shadowW(fr.coverTo));
+      cs.uCloudShadowF.value.set(wind.z, wind.w, -1100 + 2200 * fr.progress, 1);
+    } else cs.uCloudShadowF.value.w = 0;
 
     // ---- band texture for the sea (cheap: 512 x 128)
     this.bandPass.render(ctx.renderer, this.bandRT);

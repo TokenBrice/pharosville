@@ -127,6 +127,40 @@ export interface WeatherState {
   wetness: number;
   /** Rainbow strength 0..1 (recovery, daylight only). */
   rainbow: number;
+  /**
+   * W01 the weather front crossing the bay (null when none): the DEWS level it brings (`to`), the level it
+   * replaces (`from`) and how far it has swept, 0 = on the upwind horizon … 1 = past the downwind one.
+   * Rising (to > from): a storm front with a shelf-cloud lip; easing: a clearing line.
+   */
+  front: FrontState | null;
+  /** The last recovery seen during the visit (≥ Alert → ≤ Watch), or null. */
+  recovery: { fromBand: WeatherBand; atSec: number } | null;
+}
+
+export interface FrontState { readonly from: number; readonly to: number; readonly progress: number }
+
+/**
+ * A new reading at least this far (DEWS levels, supply-weighted) from the weather being shown sends a front
+ * across the bay; smaller moves just ease in place. Also the threshold of the Storm panel's trend line.
+ */
+export const FRONT_MIN = 0.35;
+/** Seconds a front takes to cross from the upwind to the downwind horizon. */
+export const FRONT_SEC = 70;
+/** Where the front is overhead (progress) — the local weather turns over this span. */
+export const FRONT_HERE: readonly [number, number] = [0.32, 0.72];
+
+export const bandOfLevel = (level: number): WeatherBand =>
+  (["CALM", "WATCH", "ALERT", "WARNING", "DANGER"] as const)[Math.min(4, Math.max(0, Math.round(level)))];
+
+/**
+ * The Storm panel's trend line (the DOM twin of the visible front, same words): "rising toward Alert" while
+ * a storm front crosses, "easing toward Watch" while a clearing line does; null when the weather is settled.
+ */
+export function stormTrend(front: FrontState | null): { dir: "rising" | "easing"; toward: WeatherBand; text: string } | null {
+  if (!front || front.progress >= 1 || Math.abs(front.to - front.from) < FRONT_MIN) return null;
+  const dir = front.to > front.from ? "rising" : "easing";
+  const toward = bandOfLevel(front.to);
+  return { dir, toward, text: `${dir} toward ${toward[0]}${toward.slice(1).toLowerCase()}` };
 }
 
 export interface DirectorInput {
@@ -140,6 +174,10 @@ export interface DirectorInput {
   time: number;
   /** ?rainbow=1 */
   forceRainbow?: boolean;
+  /** Reduced motion: no sweeping front, the weather eases in place. */
+  still?: boolean;
+  /** Dev ?frontAt=: hold a front at this progress (0..1). */
+  frontPin?: number | undefined;
 }
 
 /** Easing time constants (s). */
@@ -152,8 +190,9 @@ const ease = (cur: number, goal: number, dt: number, tau: number) => cur + (goal
 export class WeatherDirector {
   readonly state: WeatherState = {
     level: null, band: null, cloud: 0.38, wind: 0.3, windNow: 0.3, precip: 0, rain: 0, snow: 0,
-    strikesPerMin: 0, strikeKm: [12, 18], gloom: 0, wetness: 0, rainbow: 0,
+    strikesPerMin: 0, strikeKm: [12, 18], gloom: 0, wetness: 0, rainbow: 0, front: null, recovery: null,
   };
+  private front: { from: number; to: number; progress: number } | null = null;
   private shown: number | null = null;
   private lastBandLevel: number | null = null;
   private rainbowLeft = 0;
@@ -163,6 +202,7 @@ export class WeatherDirector {
   snap(input: DirectorInput): void {
     if (input.level == null) return;
     this.shown = input.level;
+    this.front = null; this.state.front = null;
     const t = targetsForLevel(input.level);
     const s = this.state;
     s.cloud = t.cloud; s.wind = t.wind; s.gloom = t.gloom; s.strikesPerMin = t.strikesPerMin;
@@ -190,15 +230,33 @@ export class WeatherDirector {
     const s = this.state;
     if (input.level != null) {
       if (this.shown == null) { this.snap(input); return s; }
-      // the shown level itself moves slowly, so every channel crosses the bands in order
-      this.shown = ease(this.shown, input.level, dt, TAU.cloud);
+      // W01: a reading far enough from the weather shown sends a front across from the upwind horizon (a
+      // clearing line when easing); the local weather turns as it passes overhead. Smaller moves, and reduced
+      // motion, ease in place: the shown level moves slowly, so every channel crosses the bands in order.
+      const f = this.front;
+      if (f && Math.abs(input.level - f.to) > 0.1) this.front = null;
+      if (!this.front && !input.still && Math.abs(input.level - this.shown) >= FRONT_MIN) {
+        this.front = { from: this.shown, to: input.level, progress: 0 };
+      }
+      const fr = this.front;
+      if (fr) {
+        fr.progress = input.frontPin != null ? clamp01(input.frontPin) : Math.min(1, fr.progress + dt / FRONT_SEC);
+        this.shown = lerp(fr.from, fr.to, smoothstep(FRONT_HERE[0], FRONT_HERE[1], fr.progress));
+        if (fr.progress >= 1) { this.shown = fr.to; this.front = null; }
+      } else {
+        this.shown = ease(this.shown, input.level, dt, TAU.cloud);
+      }
       // a recovery seen during the visit: from ≥ Alert to ≤ Watch
       const bandLevel = input.band ? DEWS_LEVELS[input.band] : Math.round(input.level);
-      if (this.lastBandLevel != null && this.lastBandLevel >= 2 && bandLevel <= 1) this.rainbowLeft = RAINBOW_SEC;
+      if (this.lastBandLevel != null && this.lastBandLevel >= 2 && bandLevel <= 1) {
+        this.rainbowLeft = RAINBOW_SEC;
+        s.recovery = { fromBand: bandOfLevel(this.lastBandLevel), atSec: input.time };
+      }
       this.lastBandLevel = bandLevel;
     }
     s.level = this.shown;
     s.band = input.band;
+    s.front = this.front;
     if (this.shown != null) {
       const t = targetsForLevel(this.shown);
       // the shown level already eases (TAU.cloud): the deck, gloom and lightning follow it directly

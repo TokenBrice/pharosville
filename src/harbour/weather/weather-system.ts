@@ -10,7 +10,7 @@ import type { SkyService } from "../sky/sky-system";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { getHarbourMaterials } from "../world/materials";
 import {
-  seasonForMonth, snowShare, weightsForSeason, WeatherDirector, type Season, type SeasonWeights, type WeatherBand, type WeatherState,
+  DEWS_LEVELS, seasonForMonth, snowShare, targetsForLevel, weightsForSeason, WeatherDirector, type Season, type SeasonWeights, type WeatherBand, type WeatherState,
 } from "./director";
 import { Lightning, type StrikeEvent } from "./lightning";
 import { MAX_SPRAY, PRECIP_BUDGET, Precipitation } from "./precip";
@@ -173,9 +173,17 @@ export class WeatherSystem implements WorldSystem {
     const season = ctx.services.get("season") as SeasonLike | undefined;
     const share = season?.snowShare ?? snowShare(season?.weights ?? this.fallbackWeights);
     const sunUp = THREE.MathUtils.smoothstep(U.uSunDir.value.y, 0.03, 0.25) * (1 - U.uNight.value);
+    // dev ?front=<band>[&frontAt=0..1]: load on the current weather, then 2.5 s later a reading at <band> arrives
+    //  (frontAt holds the front at that point of its sweep, for captures)
+    const fq = (this.q.get("front") ?? "").toUpperCase();
+    const fLevel = fq in DEWS_LEVELS && this.elapsed > 2.5 ? DEWS_LEVELS[fq as WeatherBand] : null;
+    const fAt = this.q.get("frontAt");
+    this.clock ??= new MotionClock(ensureMotionService(ctx));
     const input = {
-      level: w ? w.level : null, band: w?.band ?? null, snowShare: share, sunUp, time: this.elapsed,
+      level: fLevel ?? (w ? w.level : null), band: fLevel != null ? (fq as WeatherBand) : w?.band ?? null, snowShare: share, sunUp, time: this.elapsed,
       forceRainbow: this.q.get("rainbow") === "1",
+      still: this.clock.live < 0.5,
+      frontPin: fLevel != null && fAt != null && Number.isFinite(Number(fAt)) ? Number(fAt) : undefined,
     };
     // dev overrides (and the first reading) take effect at once, not over a minute
     const overridden = !!readings?.overridden && w != null;
@@ -196,6 +204,12 @@ export class WeatherSystem implements WorldSystem {
     if (sky && this.snapped) {
       if (!this.q.has("cloud")) sky.setCloudCover(s.cloud, snapNow);
       if (!this.q.has("wind")) sky.setWind(s.windNow, snapNow);
+      // W01: the front's deck and rain, ahead of the local weather (rain over the sea first)
+      const f = s.front;
+      if (f && !this.q.has("cloud")) {
+        const a = targetsForLevel(f.from), b = targetsForLevel(f.to);
+        sky.setFront({ coverFrom: a.cloud, coverTo: b.cloud, rainTo: Math.min(1, b.steady + b.shower * 0.6), progress: f.progress });
+      } else sky.setFront(null);
     }
     // overcast mutes and greys the key light; under the deck the day grades darker and cooler (a clear
     // sky stays warm). Runs after TimeOfDay, before the sky's storm grade and the island's lights.
@@ -216,7 +230,6 @@ export class WeatherSystem implements WorldSystem {
     }
 
     // ---- motion + quality
-    this.clock ??= new MotionClock(ensureMotionService(ctx));
     const ptime = this.clock.step(dt);
     const reduced = this.clock.live < 0.5;
     const tier = (ctx.services.get("quality") as QualityService | undefined)?.settings.tier ?? "high";
