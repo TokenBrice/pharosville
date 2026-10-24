@@ -247,6 +247,8 @@ export class SkySystem implements WorldSystem {
     if (q.has("wind")) svc.setWind(Number(q.get("wind")));
     this.coverS = this.cover; this.windS = this.wind;
     this.moonOverride = parseMoonOverride((k) => q.get(k));
+    // dev: ?skyT0=<s> pins the bank composition (it otherwise drifts with the wall clock) for A/B captures
+    if (q.has("skyT0")) this.seedBanks(Number(q.get("skyT0")));
     const forced = METEOR_SHOWERS.find((m) => m.name === q.get("meteors"));
     if (forced) { this.shower = { shower: forced, strength: 1 }; this.meteorForced = true; this.meteorIn = 2; }
   }
@@ -305,7 +307,7 @@ export class SkySystem implements WorldSystem {
     mb.set(0, 2.5 + Math.random() * 3, 0.5 + Math.random() * 0.5, 0);
   }
 
-  private seedBanks(): void {
+  private seedBanks(t0Override?: number): void {
     // hand-placed composition in three depth layers (far to near): th, e base, height (deg), cell, slot,
     // distance (m, drives parallax) and aerial haze. Far banks sit low, small and hazy on the horizon;
     // near banks are big, lifted and crop at the frame top like style C. Cover reveals them in slot order.
@@ -321,7 +323,7 @@ export class SkySystem implements WorldSystem {
       [ -4,  2.6,  5.6,  5, 7, 4200,  0.05],
     ];
     // the composition drifts with the wall clock, so each visit (and each hour) frames it differently
-    const t0 = (Date.now() / 1000) % 1e6;
+    const t0 = t0Override ?? (Date.now() / 1000) % 1e6;
     this.banks = spec.map(([th, e, h, cell, slot, dist, haze], i) => {
       const w = h * 4 * (0.9 + 0.2 * ((i * 37) % 7) / 7);
       return { th, e, h, w, h0: h, w0: w, cell: cell % CLOUD_CELLS, mirror: i % 2, slot, drift: t0 * 0.012 * (3000 / dist), dist, haze };
@@ -408,7 +410,9 @@ export class SkySystem implements WorldSystem {
     const moonShown = moonVis * (1 - sunVis * (1 - THREE.MathUtils.smoothstep(Math.abs(sunAz * COMP - moonTh), 18, 45)));
     this.u.uMoonDisc.value.set(moonTh, discE(moonEl) + 0.35, 0.3, moonShown);
     // clouds/hills are lit by the key light (true azimuth)
-    this.u.uLight.value.set(relAz(sunDir), Math.max(0.05, sunEl), 0, 0);
+    // at night they take their light from the painted moon, so the moonlit rims face the disc you see
+    const moonKey = THREE.MathUtils.smoothstep(night, 0.3, 0.8) * moonVis;
+    this.u.uLight.value.set(THREE.MathUtils.lerp(relAz(sunDir), moonTh, moonKey), Math.max(0.05, THREE.MathUtils.lerp(sunEl, moonEl, moonKey)), 0, 0);
 
     // ---- glint: a virtual light whose mirror image sits under the painted disc
     // when the band is out of frame (close zooms) the glint follows the true elevation instead
@@ -464,10 +468,12 @@ export class SkySystem implements WorldSystem {
     } else this.u.uFrontB.value.w = 0;
     // W10: the season picks the cloud shapes (area kept, so never the amount)
     const sw = (ctx.services.get("season") as { weights?: SkySeasonWeights } | undefined)?.weights;
-    const sKey = sw ? sw.map((x) => x.toFixed(2)).join() : "";
+    // calm (from the DEWS cover only) settles the autumn's long low banks
+    const calm = Math.round((1 - THREE.MathUtils.smoothstep(this.coverS, 0.2, 0.5)) * 20) / 20;
+    const sKey = sw ? sw.map((x) => x.toFixed(2)).join() + calm : "";
     if (sw && sKey !== this.seasonKey) {
       this.seasonKey = sKey;
-      for (const b of this.banks) { const sh = seasonBankShape({ w: b.w0, h: b.h0 }, sw, THREE.MathUtils.smoothstep(9000 - b.dist, 0, 4000)); b.w = sh.w; b.h = sh.h; }
+      for (const b of this.banks) { const sh = seasonBankShape({ w: b.w0, h: b.h0 }, sw, THREE.MathUtils.smoothstep(9000 - b.dist, 0, 4000), calm); b.w = sh.w; b.h = sh.h; }
       const [cirrus, mackerel] = seasonHighCloud(sw);
       this.u.uSeasonSky.value.set(cirrus, mackerel, 0, 0);
     }

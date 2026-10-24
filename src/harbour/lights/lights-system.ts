@@ -154,26 +154,31 @@ export class LightsSystem implements WorldSystem {
         ${BEAM_LIGHT_GLSL}
         uniform float uPx;
         attribute vec3 iPos; attribute vec4 iCol; attribute vec4 iPar;
-        varying vec2 vQ; varying vec3 vC;
+        varying vec2 vQ; varying vec3 vC; varying float vHalo;
         void main() {
           vQ = position.xy * 2.0;
           vec4 mv = viewMatrix * vec4(iPos, 1.0);
           float d = -mv.z;
           float size = max(iPar.x, d * uPx * 2.4) * 2.0;
           float k = iPar.x / size;                 // shrink brightness as the min-pixel clamp grows it
+          // at overview distance the min-pixel clamp and the halo made a string of pearls along every quay (bloom
+          // grew it further): far lamps keep a small point, a faint halo and a little less light
+          float far = smoothstep(560.0, 1000.0, d);
+          size = max(iPar.x, d * uPx * mix(2.4, 1.3, far)) * 2.0;
+          vHalo = mix(0.10, 0.03, far);
           mv.xy += position.xy * size * 3.0;
           mv.z += 0.6;
-          vC = iCol.rgb * iCol.a * lhGlowAt(iPar.y, iPos) * (0.35 + 0.65 * k);
+          vC = iCol.rgb * iCol.a * lhGlowAt(iPar.y, iPos) * (0.35 + 0.65 * k) * (1.0 - 0.5 * far);
           // the quay lamps answer the beam as it passes over them (05-P1)
           vC *= 1.0 + 0.8 * dot(hbBeamLight(iPos, vec3(0.0, 1.0, 0.0)), vec3(0.3333));
           gl_Position = iPar.x > 0.0 && iCol.a > 0.0 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
         }`,
       fragmentShader: /* glsl */ `
-        varying vec2 vQ; varying vec3 vC;
+        varying vec2 vQ; varying vec3 vC; varying float vHalo;
         void main() {
           float r2 = dot(vQ, vQ) * 9.0;
           float core = exp(-r2 * 6.0);
-          float halo = exp(-r2 * 1.1) * 0.10;
+          float halo = exp(-r2 * 1.1) * vHalo;
           gl_FragColor = vec4(vC * (core + halo), 1.0);
         }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
@@ -293,7 +298,7 @@ export class LightsSystem implements WorldSystem {
       const on = l.alive && l.on;
       if (on && this.nearWater[i] === 0) this.nearWater[i] = this.isNearWater(l.position.x, l.position.z, l.position.y) ? 2 : 1;
       (this.iWet.array as Float32Array)[i] = this.nearWater[i] === 2 ? this.wetDistance(l.position.x, l.position.z) : 0;
-      C[i * 4] = l.color.r; C[i * 4 + 1] = l.color.g; C[i * 4 + 2] = l.color.b;
+      C[i * 4] = l.color.r * l.k; C[i * 4 + 1] = l.color.g * l.k; C[i * 4 + 2] = l.color.b * l.k;
       C[i * 4 + 3] = on ? Math.max(l.spec.spriteK, 0.001) : 0;
       Q[i * 4] = l.spec.sprite;
       // y: mounting height; negative = window (follows uWindowGlow), positive = lamp-like
@@ -340,7 +345,8 @@ export class LightsSystem implements WorldSystem {
     for (let k = 0; k < MAX_POINT; k++) {
       const p = this.points[k];
       const glow = THREE.MathUtils.smoothstep(lampGlow(g, this.store.rankAt(p.position), w.spread), 0.02, 0.55);
-      p.intensity = ((p.userData.base as number | undefined) ?? 0) * glow;
+      const base = (p.userData.base as number | undefined) ?? 0;
+      p.intensity = base > 0 ? base * glow * (this.store.lights[this.bestI[k]]?.k ?? 1) : 0;
     }
   }
 

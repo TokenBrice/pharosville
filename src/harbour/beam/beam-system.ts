@@ -65,10 +65,17 @@ uniform mat4 uInvProj;
 uniform vec3 uBeamPos, uColor, uAx0;
 uniform float uTime, uIntensity, uL, uWind, uNear;
 uniform sampler2D uNoise;
+uniform vec3 uSkyRef;      // the horizon sky (cloud fade on sky pixels)
+uniform float uSkyT;       // view-ray distance (m) beyond which the surface hit is the sky backdrop
 // mirror radius and cone half-angle tangent: the horn shutter (DA-09) narrows both
 uniform float R0, TANA;
 
 float bmHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+// low-frequency value noise from a hash: it never tiles, so no blotch repeats down a long shaft
+float bmVNoise(vec2 x) {
+  vec2 i = floor(x), f = fract(x), u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(bmHash(i), bmHash(i + vec2(1.0, 0.0)), u.x), mix(bmHash(i + vec2(0.0, 1.0)), bmHash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
 
 float beamDensity(vec3 p, vec3 ax, float L, float fine) {
   vec3 q = p - uBeamPos;
@@ -85,17 +92,16 @@ float beamDensity(vec3 p, vec3 ax, float L, float fine) {
   float spread = pow(3.2 / (Rn + 2.2), 1.7);
   // drifting sea-mist breakup (world space, does not rotate with the beam)
   vec2 drift = vec2(uTime * (0.6 + 2.0 * uWind), uTime * 0.25);
-  float n1 = texture2D(uNoise, (p.xz + drift) * 0.0045 + p.y * 0.0021).r;
-  // the 256² noise tiles every ~62 m at this scale, so one sample repeats ~10 times down a long shaft and reads
-  // as regular ribbing: blend a second, rotated sample at an incommensurate scale so the breakup never repeats
+  // a tiled noise texture repeats every few tens of metres and a long shaft integrates those repeats into
+  // regular blotches: two octaves of hash value noise (banks ~60 m and ~25 m across) never repeat
+  float n1 = bmVNoise((p.xz + drift) / 60.0 + p.y * 0.012);
   vec2 q2 = p.xz - drift * 0.6;
-  float n2a = texture2D(uNoise, q2 * 0.016 + vec2(p.y * 0.013, 0.0)).g;
-  float n2b = texture2D(uNoise, mat2(0.799, -0.602, 0.602, 0.799) * q2 * 0.0117 + vec2(0.37, p.y * 0.011)).g;
-  float n2 = 0.5 + (n2a + n2b - 1.0) * 0.7;
+  float n2 = bmVNoise(mat2(0.799, -0.602, 0.602, 0.799) * q2 / 24.0 + vec2(17.3, p.y * 0.03));
   float n3 = texture2D(uNoise, (p.xz + drift * 1.7) * 0.05 + vec2(p.y * 0.04, 0.5)).b;
   // n3's ~1 m grain is only kept where the march resolves it: across a wide far shaft one step spans many
   // grains, and the undersampled field beats against the texture tile into regular ribs
-  float mist = (0.16 + 1.7 * smoothstep(0.28, 0.85, n1 * 0.7 + n2 * 0.55)) * mix(1.0, 0.75 + 0.5 * n3, fine);
+  // (the same mean as before, a gentler swing: smooth banks over a full 0.16..1.86 range read as separate blobs)
+  float mist = (0.6 + 1.2 * smoothstep(0.25, 0.95, n1 * 0.7 + n2 * 0.55)) * mix(1.0, 0.75 + 0.5 * n3, fine);
   return prof * fall * spread * mist;
 }
 
@@ -140,10 +146,18 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   vec3 ro = uCamWorld[3].xyz;
   vec3 rd = normalize((uCamWorld * vec4(rdV, 0.0)).xyz);
   float tMax = viewZ / rdV.z;   // both negative: distance along the ray to the surface
-  float jitter = bmHash(gl_FragCoord.xy + fract(uTime) * 61.0);
+  // interleaved-gradient (blue-ish) dither, rotated per frame: the 18-step march leaves no grain pattern
+  float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy + mod(floor(uTime * 60.0), 64.0) * 5.588238, vec2(0.06711056, 0.00583715))));
   float acc = shaft(ro, rd, tMax, uAx0, jitter);
   // optical-depth cap: the shaft saturates softly instead of blowing out what lies behind it
   float a = 1.0 - exp(-acc * 0.7);
+  // over the sky the shaft stands in front of the painted cloud banks: let it thin where they are lit brighter
+  // than the horizon sky, so it never paints over them
+  if (tMax > uSkyT) {
+    float sky = max(dot(uSkyRef, vec3(0.2126, 0.7152, 0.0722)), 1e-3);
+    float bg = dot(inputColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+    a *= 1.0 - 0.45 * smoothstep(1.4, 3.2, bg / sky);
+  }
   outputColor = vec4(inputColor.rgb + uColor * a * uIntensity, inputColor.a);
 }`;
 
@@ -244,6 +258,8 @@ export class BeamSystem implements WorldSystem {
     uWind: new THREE.Uniform(0.3),
     uNear: new THREE.Uniform(100),
     uNoise: new THREE.Uniform(null as THREE.Texture | null),
+    uSkyRef: new THREE.Uniform(new THREE.Color()),
+    uSkyT: new THREE.Uniform(1e9),
     R0: new THREE.Uniform(R0),
     TANA: new THREE.Uniform(Math.tan(HALF)),
   };
@@ -356,6 +372,9 @@ export class BeamSystem implements WorldSystem {
     U.R0.value = R0 * narrow;
     U.TANA.value = Math.tan(HALF * narrow);
     U.uTime.value = frame.elapsed;
+    U.uSkyRef.value.copy(ctx.uniforms.uHorizon.value);
+    const skyH = (ctx.services.get("sky") as { horizonDistance?: () => number } | undefined)?.horizonDistance?.();
+    U.uSkyT.value = skyH && skyH > 0 ? skyH * 0.9 : 1e9;
     // the shaft fades out before it reaches the camera (never a smear across the foreground)
     U.uNear.value = THREE.MathUtils.clamp(this.lantern.distanceTo(cam) * 0.55, 40, 320);
     const sky = ctx.services.get("sky") as { shared?: { uWeatherSea: THREE.IUniform<THREE.Vector4> } } | undefined;

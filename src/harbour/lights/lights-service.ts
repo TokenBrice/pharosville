@@ -24,6 +24,8 @@ export interface LightsService {
    * edge); at dawn they go out in reverse. A lamplighter can walk the lights in this order. -1 = unknown id.
    */
   rankOf?(id: number): number;
+  /** Scale one light's whole output (pool, sprite, pillar, point light) 0..1, for fades. Default 1. */
+  setIntensity?(id: number, k: number): void;
 }
 
 export interface KindSpec {
@@ -63,6 +65,8 @@ export interface LightRecord {
   radius: number;
   on: boolean;
   alive: boolean;
+  /** Output scale 0..1 (setIntensity). */
+  k: number;
 }
 
 export class LightsStore implements LightsService {
@@ -91,7 +95,7 @@ export class LightsStore implements LightsService {
       position: Array.isArray(position) ? new THREE.Vector3(...position) : new THREE.Vector3(position.x, position.y, position.z),
       color: color instanceof THREE.Color ? color.clone() : new THREE.Color(color ?? spec.color),
       radius: radius ?? spec.pool,
-      on: true, alive: true,
+      on: true, alive: true, k: 1,
     };
     const id = this.free.length ? this.free.pop()! : this.lights.length;
     this.lights[id] = rec;
@@ -102,6 +106,12 @@ export class LightsStore implements LightsService {
   setOn(id: number, on: boolean): void {
     const l = this.lights[id];
     if (l && l.alive && l.on !== on) { l.on = on; this.version++; }
+  }
+
+  setIntensity(id: number, k: number): void {
+    const l = this.lights[id];
+    const v = Math.min(1, Math.max(0, k));
+    if (l && l.alive && l.k !== v) { l.k = v; this.version++; }
   }
 
   remove(id: number): void {

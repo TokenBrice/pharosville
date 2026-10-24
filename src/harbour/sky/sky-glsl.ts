@@ -94,15 +94,18 @@ vec3 sbCloudBank(int i, float th, float e, float pxDeg, vec3 c, vec3 Lc) {
   vec2 l2 = Lc.xy / max(length(Lc.xy), 1e-3), n2 = N.xy / max(length(N.xy), 1e-3);
   float facing = smoothstep(-0.25, 0.6, dot(n2, l2));
   float rimE = s.b * s.b;
-  float rim = rimE * (0.25 + 0.55 * back) * facing * uSkyK.y;
+  float rim = rimE * (0.25 + 0.55 * back) * facing * mix(1.0, facing, uNight) * uSkyK.y;
   col = mix(col, uCloudRim * 1.15, clamp(rim, 0.0, 0.85));
   // thin edges glow when backlit (forward scattering); silver linings at night
-  col += uCloudRim * rimE * (back * back * 0.18 + 0.1 * uNight) * uSkyK.y * (0.25 + 0.75 * facing);
+  // (at night only the moon side keeps a rim: no all-round blue-white outline)
+  col += uCloudRim * rimE * (back * back * 0.18 + 0.1 * uNight) * uSkyK.y * mix(0.25 + 0.75 * facing, facing * facing, uNight);
   // overcast: flatten and grey the light; storm: heavy slate
   float cov = gCov;
   col = mix(col, mix(uCloudShade, uCloudMid, 0.55), smoothstep(0.55, 1.0, cov) * 0.45);
   float lc0 = dot(col, vec3(0.299, 0.587, 0.114));
   col = mix(col, vec3(lc0) * vec3(0.88, 0.95, 1.04) * 0.78, gStorm * 0.6);
+  // night banks stay quiet beside the Pharos: about 40 % less albedo
+  col *= 1.0 - 0.4 * uNight;
   // aerial perspective (far layers sink into the haze), and the base melts into it
   col = mix(col, mix(uHorizon, uHaze, 0.5), clamp(bi.z + baseDark * 0.18, 0.0, 1.0));
   return mix(c, col, s.a * bi.y);
