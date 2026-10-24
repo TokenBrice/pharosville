@@ -5,8 +5,8 @@ const SEASONS: SkySeasonWeights[] = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [
 
 describe("W10 seasonal sky: shapes only, cover stays DEWS", () => {
   it("keeps every bank's painted area in every season (no season looks cloudier)", () => {
-    for (const w of SEASONS) for (const near of [0, 0.5, 1]) {
-      const s = seasonBankShape({ w: 12, h: 3 }, w, near);
+    for (const w of SEASONS) for (const near of [0, 0.5, 1]) for (const calm of [0, 0.5, 1]) {
+      const s = seasonBankShape({ w: 12, h: 3 }, w, near, calm);
       expect(s.w * s.h).toBeCloseTo(36, 6);
     }
   });
@@ -15,6 +15,12 @@ describe("W10 seasonal sky: shapes only, cover stays DEWS", () => {
     const summer = seasonBankShape({ w: 12, h: 3 }, [0, 1, 0, 0], 1), winter = seasonBankShape({ w: 12, h: 3 }, [0, 0, 0, 1], 1);
     expect(summer.h).toBeGreaterThan(3);
     expect(winter.h).toBeLessThan(3);
+  });
+
+  it("calm weather shortens the autumn's long low banks (shape only)", () => {
+    const stormy = seasonBankShape({ w: 12, h: 3 }, [0, 0, 1, 0], 1, 0), calm = seasonBankShape({ w: 12, h: 3 }, [0, 0, 1, 0], 1, 1);
+    expect(calm.w).toBeLessThan(stormy.w);
+    expect(calm.w * calm.h).toBeCloseTo(stormy.w * stormy.h, 6);
   });
 
   it("the cover a DEWS level reveals is identical in every season", () => {
