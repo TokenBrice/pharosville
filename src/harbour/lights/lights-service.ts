@@ -41,6 +41,8 @@ export const KINDS: Record<string, KindSpec> = {
   pierhead: { color: "#FFD9A0", pool: 6.0, poolK: 0.42, sprite: 0.6, spriteK: 16, point: 26, mount: 4.6 },
   harbourlight: { color: "#FF5A3C", pool: 4.0, poolK: 0.35, sprite: 1.0, spriteK: 26, point: 30, mount: 4.0 },
   riding: { color: "#FFF2D6", pool: 0, poolK: 0, sprite: 0.32, spriteK: 18, point: 0, mount: 0 },
+  /** The Pharos keeper's vigil lamp (05-P4): a tiny cool pinprick while the fire is banked (PSI unlit). */
+  vigil: { color: "#DCE6F2", pool: 0, poolK: 0, sprite: 0.16, spriteK: 22, point: 0, mount: 0 },
 };
 const DEFAULT_KIND = KINDS.lamp;
 
