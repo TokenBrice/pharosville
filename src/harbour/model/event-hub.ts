@@ -50,7 +50,13 @@ export class HarbourEventHub implements EventsService {
   get current(): StagedMoment | null { return this.moments.current; }
 
   subscribe(fn: () => void): () => void { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
-  onMoment(fn: (m: StagedMoment) => void): () => void { this.momentListeners.add(fn); return () => { this.momentListeners.delete(fn); }; }
+  /** A late subscriber still hears the moment on stage now (it may have been staged earlier in this frame). */
+  onMoment(fn: (m: StagedMoment) => void): () => void {
+    this.momentListeners.add(fn);
+    const now = this.moments.current;
+    if (now) fn(now);
+    return () => { this.momentListeners.delete(fn); };
+  }
 
   /** After a model build: detect, record, schedule. Returns the events confirmed by this build. */
   observe(model: HarbourModel, payloads: HarbourPayloads, nowMs: number, reduced: boolean): HarbourEvent[] {
