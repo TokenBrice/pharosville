@@ -21,6 +21,8 @@ const SKIP = new Set(["breakwater"]);
 const WRECK_MIN_PPM = 3.6;
 /** A yard hull's tag height above its cradle (m): small keels, no rig yet. */
 const YARD_TOP = 7;
+/** 07-M6: the decorative harbour tug's hover id (places.ts names it, facts.ts says it carries no data). */
+export const HARBOUR_TUG = "harbour-tug";
 
 const v = new THREE.Vector3();
 const ray = new THREE.Raycaster();
@@ -116,6 +118,14 @@ export class AnalyticPicking implements PickingService {
         if (score < bestScore) { bestScore = score; best = i; }
       }
       if (best >= 0) return { kind: "boat", id: p.ids[best] };
+      // the harbour tug (07-M6): declared decorative, it answers as a place ("harbour tug"), never a coin
+      for (let k = 0; k < sim.tugs.count; k++) {
+        const x = sim.tugs.x[k], z = sim.tugs.z[k];
+        this.project(x, 0.4, z, a);
+        if (!a.visible) continue;
+        this.project(x, 4.5, z, b);
+        if (segDist(clientX, clientY, a.x, a.y, b.x, b.y) < Math.max(7, 2.2 * this.ppm(x, 0, z))) return { kind: "landmark", id: HARBOUR_TUG };
+      }
     }
 
     // the Shipyard's hulls (when the civic system has placed them): keel → deck-top segment
@@ -366,6 +376,7 @@ export class AnalyticPicking implements PickingService {
       return this.worldPosition({ kind: "landmark", id: "wreck-cove" });
     }
     if (hit.kind === "landmark") {
+      if (hit.id === HARBOUR_TUG) { const T = getSim(this.ctx)?.tugs; return T?.count ? [T.x[0], 0, T.z[0]] : null; }
       const place = this.placeOf(hit.id);
       if (place) return place.ground;
       const lm = L.landmarks.find((l) => l.id === hit.id);
@@ -389,6 +400,7 @@ export class AnalyticPicking implements PickingService {
       return this.project(sim.pose.position[i * 3], this.mastTop(i) + 1.5, sim.pose.position[i * 3 + 2], out);
     }
     if (hit.kind === "landmark") {
+      if (hit.id === HARBOUR_TUG) { const T = getSim(this.ctx)?.tugs; return T?.count ? this.project(T.x[0], 6, T.z[0], out) : null; }
       const lantern = hit.id === "pharos" ? (this.ctx.services.get("lighthouse") as { lanternPosition?: THREE.Vector3 } | undefined)?.lanternPosition : undefined;
       if (lantern) return this.project(lantern.x, lantern.y + 7, lantern.z, out);
       const place = this.placeOf(hit.id);

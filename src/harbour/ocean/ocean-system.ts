@@ -1,3 +1,4 @@
+import { ensureGustService } from "../weather/gust";
 import * as THREE from "three";
 import { getBeamUniforms } from "../beam/uniforms";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
@@ -174,6 +175,7 @@ export class OceanSystem implements WorldSystem {
         ...cloudShadowUniforms,
         uFoliage: W.uFoliage,
         uDebug: { value: 0 },
+        uGust: ensureGustService(ctx).uniform,
         // the lights system's top-down pool RT, read back along the view ray as the town's reflection
         uPoolTex: getHarbourMaterials(ctx).pool.uPoolTex, uPoolBounds: getHarbourMaterials(ctx).pool.uPoolBounds,
         uWindowGlow: W.uWindowGlow,
@@ -276,6 +278,7 @@ export class OceanSystem implements WorldSystem {
     }
     this.clock ??= new MotionClock(ensureMotionService(ctx));
     this.time = this.seaTime.value = this.clock.step(frame.delta);
+    ensureGustService(ctx).tick(ctx, frame);
     this.seaU.value.lerp(this.seaGoal, 1 - Math.exp(-frame.delta * 0.4));
     runupUniforms.uRunup.value.set(this.seaU.value.x, this.time);
     for (const m of this.debugMovers) {

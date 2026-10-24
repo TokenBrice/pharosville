@@ -53,7 +53,7 @@ export const civicTop = (kind: string) => CIVIC_TOP[kind] ?? CIVIC_TOP[kind.spli
 export const PLACE_NAME: Record<string, string> = {
   mint: "The Mint", burn: "The Burn", slipway: "The Shipyard", "customs-house": "Customs House", registry: "The Registry",
   chartroom: "The Chart Room", "storm-mast": "Storm-signal Station", harbourmaster: "Harbourmaster’s Office", keeperslog: "The Keeper’s Log",
-  pharos: "The Pharos", shoals: "The Shoals", "far-ports": "The Far Ports", "wreck-cove": "Wreck Cove", "the-roads": "The Roads",
+  pharos: "The Pharos", "harbour-tug": "Harbour tug", shoals: "The Shoals", "far-ports": "The Far Ports", "wreck-cove": "Wreck Cove", "the-roads": "The Roads",
 };
 
 /** A sea zone that opens a panel (as a landmark id), or null (open water and harbour water are handled apart). */

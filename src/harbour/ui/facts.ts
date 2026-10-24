@@ -142,6 +142,7 @@ export interface PlaceCounts { yard?: number | undefined; roads?: number | undef
 export function landmarkFact(id: string, m: HarbourModel | null, underWay: number | null, counts: PlaceCounts = {}): { fact: string; decorative?: boolean } {
   const r = m?.readings;
   switch (id) {
+    case "harbour-tug": return { fact: "tows the dead to Wreck Cove · carries no data", decorative: true };
     case "mint": {
       const t = flowTotals(m);
       return { fact: t ? `${money(t.mint)} minted in 24 h` : "fires banked · no flow reading" };

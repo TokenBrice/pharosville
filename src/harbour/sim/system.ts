@@ -5,6 +5,9 @@
  * Dev only (never in production builds): `?sim=1` logs the under-way count every 10 s;
  * `?simspeed=N` runs the sim clock N×; `?simdebug=1` draws plain hull markers from the poses;
  * `?simat=<epoch ms>` starts the sim clock there; the 'simclock' service shifts it (gate captures).
+ * `?simevent=tow|shoals|launch[:<coin id>]` stages one snapshot diff ~6 s after the data lands (lane MOTION
+ * captures of 07-M6/M7/M12): a coin under way dies (towed to Wreck Cove) or depegs (adrift to the Shoals), or
+ * a medium coin missing from the first snapshot appears (launched down the ways).
  *
  * Reduced motion (the 'motion' service: prefers-reduced-motion or ?motion=reduce) HOLDS the sim clock:
  * every boat lies still at the pose she had (no sailing, no swinging to her mooring). When it turns off
@@ -17,7 +20,7 @@ import { HarbourFeed } from "../data/fetch";
 import { buildHarbourModel } from "../model/build";
 import { allTruth } from "../model/truth";
 import type { HarbourModel } from "../model/types";
-import { HarbourSim, PH_APPROACHING, PH_DOCKED, PH_MOORED } from "./sim";
+import { HarbourSim, PH_APPROACHING, PH_DOCKED, PH_MOORED, PH_SAILING } from "./sim";
 import type { CoastGrid } from "./obstacles";
 import { SimDebugMarkers } from "./debug-markers";
 import { warmLegsOffThread, type WarmLegs } from "./warm-legs";
@@ -60,6 +63,8 @@ export class DataSystem implements WorldSystem {
   private warm: WarmLegs | null = null;
   /** The first install has been queued (the eager one, built ahead of the first frames). */
   private eager = false;
+  /** Dev: a staged snapshot diff (?simevent): kind, coin (chosen when it fires), when (ms, wall) it fires. */
+  private devEvent: { kind: string; id: string | null; at: number; fired: boolean } | null = null;
 
   async init(ctx: EngineContext): Promise<void> {
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
@@ -74,6 +79,8 @@ export class DataSystem implements WorldSystem {
       const at = Number(q.get("simat"));
       if (q.has("simat") && Number.isFinite(at)) this.offset = at - Date.now();
       ctx.services.set("simclock", { shift: (ms: number) => { this.offset += ms; }, now: () => this.simClock(Date.now()) });
+      const ev = q.get("simevent");
+      if (ev) { const [kind, id] = ev.split(":"); this.devEvent = { kind, id: id ?? null, at: Infinity, fired: false }; }
     }
     this.t0 = Date.now();
     const motion = ensureMotionService(ctx);
@@ -139,15 +146,39 @@ export class DataSystem implements WorldSystem {
 
   private rebuild(ctx: EngineContext, now: number, simT: number): HarbourModel | null {
     if (!this.feed || !this.sim || !this.layout) return null;
-    const model = buildHarbourModel(this.feed.payloads, now, { pieredChains: this.layout.piers.map((p) => p.chain) });
+    let model = buildHarbourModel(this.feed.payloads, now, { pieredChains: this.layout.piers.map((p) => p.chain) });
+    if (import.meta.env.DEV && this.devEvent) model = this.stageDevEvent(model);
     this.sim.setModel(model, simT);
     ctx.services.set("model", model);
     return model;
   }
 
+  /** Dev (?simevent): before it fires, a launch's coin is left out; once fired, the coin dies / depegs / is back. */
+  private stageDevEvent(model: HarbourModel): HarbourModel {
+    const ev = this.devEvent!;
+    if (!model.hasFleet) return model;
+    if (ev.at === Infinity) ev.at = Date.now() + 6000;
+    if (ev.kind === "launch") {
+      ev.id ??= model.boats.find((b) => b.state === "circuit" && b.hullClass === "medium")?.id ?? null;
+      // (a fleet without her is a different plan, as a real new coin's is)
+      return ev.fired ? model : { ...model, planKey: `${model.planKey}#without-${ev.id}`, boats: model.boats.filter((b) => b.id !== ev.id) };
+    }
+    if (!ev.fired) return model;
+    if (!ev.id && this.sim) {
+      // a coin under way, the biggest in sight of the harbour's heart
+      const p = this.sim.pose;
+      let best = -1;
+      for (let i = 0; i < p.count; i++) if (p.phase[i] === PH_SAILING && model.boats[i]?.state === "circuit" && (best < 0 || this.sim.layout.loa[model.boats[i].hullClass] > this.sim.layout.loa[model.boats[best].hullClass])) best = i;
+      ev.id = best >= 0 ? p.ids[best] : null;
+    }
+    const state = ev.kind === "tow" ? "wrecked" : ev.kind === "shoals" ? "shoals" : null;
+    return state ? { ...model, boats: model.boats.map((b) => (b.id === ev.id ? { ...b, state } : b)) } : model;
+  }
+
   update(frame: FrameState, ctx: EngineContext): void {
     const sim = this.sim;
     if (!sim) return;
+    if (this.devEvent && !this.devEvent.fired && Date.now() >= this.devEvent.at) { this.devEvent.fired = true; this.dirty = true; }
     const now = this.simNow(frame.nowMs);
     if (!this.dirty && frame.nowMs - this.lastBuild > TRUTH_RECHECK_MS && this.feed) {
       // a silent feed must still age into stale: re-check freshness (cheap), rebuild only on a change

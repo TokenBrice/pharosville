@@ -55,7 +55,7 @@ export interface WeatherService {
 }
 
 interface SeasonLike { readonly weights?: SeasonWeights; readonly snowShare?: number; readonly sunrise?: number; readonly temperatureC?: number }
-interface SimLike { readonly wind?: { fromRad: number } }
+interface SimLike { readonly wind?: { fromRad: number; veer?: number } }
 
 function calendarSeason(q: URLSearchParams): Season {
   const s = q.get("season");
@@ -209,7 +209,8 @@ export class WeatherSystem implements WorldSystem {
 
     // ---- wind: the prevailing direction (the hulls lie to it) × DEWS strength incl. gusts
     const sim = ctx.services.get("sim") as SimLike | undefined;
-    if (sim?.wind) { const to = sim.wind.fromRad + Math.PI; this.windTo.set(Math.sin(to), Math.cos(to)); }
+    // (+ the sim's slow decorative veer, 07-M5: flags, gusts and the anchorage turn together)
+    if (sim?.wind) { const to = sim.wind.fromRad + (sim.wind.veer ?? 0) + Math.PI; this.windTo.set(Math.sin(to), Math.cos(to)); }
     this.windVec.copy(this.windTo).multiplyScalar(s.windNow);
     U.uWindVec.value.copy(this.windVec);
     U.uWetness.value = s.wetness;

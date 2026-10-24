@@ -6,11 +6,11 @@ import type { OceanService } from "../ocean/ocean-system";
 import type { WakeService } from "../ocean/wake";
 import { hullSwellCache } from "../ocean/waves";
 import type { HarbourSim } from "../sim/sim";
-import { PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING } from "../sim/sim";
+import { EV_TO_SHOALS, EV_TOW, MAX_TUGS, PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING } from "../sim/sim";
 import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { EmblemAtlas } from "./emblems";
-import { createFleetMaterials, type FleetUniforms } from "./fleet-material";
+import { createFleetMaterials, FLEET_DATA_TEXELS, type FleetUniforms } from "./fleet-material";
 import { loadKit, loadWreckKit, type HullVariant, type Kit, type WreckItem } from "./hull-kit";
 import { buildWreath, composeCove, CoveService, EpitaphBoards, freshDeath, PERCH_ITEMS, topVertex, type CoveDead, type CoveMark, type CovePiece, type CoveSlot } from "./wreck-cove";
 import type { LightsService } from "../lights/lights-service";
@@ -21,7 +21,9 @@ import { Fenders } from "./fenders";
 import { FLAG_BURGEE, FLAG_DISTRESS, FLAG_HOUSE, HouseFlags } from "./house-flags";
 import { coastDistance } from "../sim/obstacles";
 import type { QualityService, QualityTier } from "../engine/quality";
-import { approach, hash01, indexVariants, pickVariant, sternLampLit, targetSwing, wreckScale, type VariantIndex } from "./variants";
+import { approach, hash01, indexVariants, pickVariant, sternLampLit, targetSwing, wrapAngle, wreckScale, type VariantIndex } from "./variants";
+import { ensureGustService } from "../weather/gust";
+import { inPoly, seaZones } from "../ui/places";
 import { titanFor } from "./titans";
 import { DECK, linear, liveryFor, sailDye, TOPSIDE, TRIM } from "./livery";
 import { ensureMotionService, MotionClock } from "../ui/services";
@@ -99,6 +101,12 @@ export function flagCapK(hullPx: number): number {
 }
 /** A hovered / selected (searched) hull's flag never drops below this many px: brand findable at overview. */
 const FLAG_HI_MIN_PX = 9;
+/** 07-M2: a galley under oars inside the moles keeps this share of her canvas brailed up. */
+const GALLEY_BRAIL = 0.7;
+/** 07-M6: the harbour tug's kit hull and length (m): a small rowed lighter, declared decorative (hover "harbour tug"). */
+const TUG_KIT = "usd_fisher_skiff", TUG_LOA = 6;
+/** 07-M8: the most a hull yaws into a give-way or lane change (rad). */
+const GIVE_WAY_YAW = 0.15;
 const CLASS_LOA_FALLBACK: Record<HullClass, number> = { flagship: 26, large: 18, medium: 13, small: 10, boat: 7.5, skiff: 5 };
 
 interface BoatRec {
@@ -113,6 +121,8 @@ interface BoatRec {
   geomWreck: number;
   geomCur: number;
   wrecked: boolean;
+  /** The coin is dead (wrecked: she lies a wreck, except while the tug tows her to the cove). */
+  dead: boolean;
   swing: number;
   heel: number;
   hi: number;
@@ -136,6 +146,12 @@ interface BoatRec {
   mastK: number;
   /** A titan (titans.ts): flies an outsized house flag when her sails are furled, so the majors read at a glance. */
   titan: boolean;
+  /** Lane MOTION: flog through a tack (eased 0..1) and how far her oars are out (galleys, 0..1). */
+  flog: number;
+  row: number;
+  brail: number;
+  /** 07-M8: last frame's sim drift (lane offset + shove) and the eased give-way yaw. */
+  dox: number; doz: number; gyaw: number;
   /** Picking sphere (world). */
   cx: number; cy: number; cz: number; r: number; top: number;
   /** Her sea-sampling cache (ocean.hullHeights at rest). */
@@ -322,10 +338,10 @@ export class FleetSystem implements WorldSystem {
       this.uniforms.uFleetPaint.value = t;
       old.dispose();
     }
-    const rows = Math.ceil((maxInstances * 2) / DATA_W);
+    const rows = Math.ceil((maxInstances * FLEET_DATA_TEXELS) / DATA_W);
     if (this.data.length >= rows * DATA_W * 4) return;
     this.data = new Float32Array(rows * DATA_W * 4);
-    for (let i = 0; i < maxInstances; i++) this.data[(i * 2 + 1) * 4 + 3] = -1;
+    for (let i = 0; i < maxInstances; i++) this.data[(i * FLEET_DATA_TEXELS + 1) * 4 + 3] = -1;
     const old = this.uniforms.uFleetData.value;
     const t = new THREE.DataTexture(this.data, DATA_W, rows, THREE.RGBAFormat, THREE.FloatType);
     t.needsUpdate = true;
@@ -344,7 +360,7 @@ export class FleetSystem implements WorldSystem {
   }
 
   private writeData(inst: number, furl: number, swing: number, hi: number, r: number, g: number, b: number, slot: number, flag = 1, far = 0, struck = false): void {
-    const d = this.data, o = inst * 8;
+    const d = this.data, o = inst * FLEET_DATA_TEXELS * 4;
     // pennant flying (sign), how far the rig has receded and whether it is struck share one channel
     const m = 1 + far + (struck ? 2 : 0);
     d[o] = furl; d[o + 1] = swing; d[o + 2] = hi; d[o + 3] = flag > 0.5 ? m : -m;
@@ -378,7 +394,8 @@ export class FleetSystem implements WorldSystem {
     for (const b of this.boats) mesh.deleteInstance(b.inst);
     for (const w of this.wreckInst) mesh.deleteInstance(w.inst);
     for (const bu of this.buoyInst) mesh.deleteInstance(bu.inst);
-    this.boats = []; this.byId = new Map(); this.wreckInst = []; this.buoyInst = [];
+    for (const tg of this.tugInst) mesh.deleteInstance(tg);
+    this.boats = []; this.byId = new Map(); this.wreckInst = []; this.buoyInst = []; this.tugInst = [];
     const loaOf = (c: HullClass) => layout.hull?.loa?.[c] ?? CLASS_LOA_FALLBACK[c];
     for (const boat of model.boats) {
       const titan = titanFor(boat.id, (v) => kit.hulls.has(v)); // the majors sail their own hero ship (titans.ts)
@@ -395,11 +412,11 @@ export class FleetSystem implements WorldSystem {
       const prev = old.get(boat.id);
       const brand = new THREE.Color(boat.brandColor);
       const rec: BoatRec = {
-        id: boat.id, inst: this.addInstance(g0), variant, scale, loa, beam: variant.beam * scale, geomFull, geomLod, geomWreck, geomCur: g0, wrecked,
+        id: boat.id, inst: this.addInstance(g0), variant, scale, loa, beam: variant.beam * scale, geomFull, geomLod, geomWreck, geomCur: g0, wrecked, dead: wrecked,
         swing: prev?.swing ?? 0, heel: prev?.heel ?? 0, hi: 0, px: prev?.px ?? 0, pz: prev?.pz ?? 0, vx: 0, vz: 0, seen: !!prev?.seen,
         phi: hash01(boat.id + "#bob") * Math.PI * 2,
         slot: this.atlas ? this.atlas.slotFor({ id: boat.id, symbol: boat.symbol, brandColor: boat.brandColor }) : -1,
-        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, struck: false, mastK: titan ? 2 : hash01(boat.id + "#mast"), titan: !!titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
+        brand, bollardSlot: -2, bow: null, med: false, stern: null, visible: false, dist: 0, reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, flog: 0, row: 0, brail: 0, dox: 0, doz: 0, gyaw: 0, struck: false, mastK: titan ? 2 : hash01(boat.id + "#mast"), titan: !!titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
         swell: hullSwellCache(),
       };
       this.writePaint(rec.inst, wrecked || titan ? null : boat.id, variant.family, wrecked ? null : boat.brandColor);
@@ -409,7 +426,54 @@ export class FleetSystem implements WorldSystem {
     this.placeWrecks(model, this.ctx?.services.get("sim") as HarbourSim | undefined);
     this.wrecksPosed = false;
     this.placeBuoys();
+    this.placeTugs();
   }
+
+  /** 07-M6: the harbour tugs' instances (MAX_TUGS, hidden until a tow): a small rowed lighter in plain livery. */
+  private placeTugs(): void {
+    const v = this.kit?.hulls.get(TUG_KIT), geom = this.geomIds.get(TUG_KIT);
+    if (!v || geom == null) return;
+    for (let k = 0; k < MAX_TUGS; k++) {
+      const inst = this.addInstance(geom);
+      this.writePaint(inst, null, v.family, null);
+      this.writeData(inst, 1, 0, 0, 0.42, 0.4, 0.36, -1, 0);
+      this.writeMotion(inst, 0, 0, 0, 0);
+      this.mesh!.setVisibleAt(inst, false);
+      this.tugInst.push(inst);
+    }
+  }
+  private tugInst: number[] = [];
+  /** Where each tug was drawn (x, z), for the picker; count = live tugs. */
+  readonly tugSeen = { count: 0, x: new Float32Array(MAX_TUGS), z: new Float32Array(MAX_TUGS) };
+
+  /** Pose the live tugs (sim.tugs) and their towlines. */
+  private poseTugs(sim: HarbourSim | undefined, time: number): void {
+    const v = this.kit?.hulls.get(TUG_KIT), T = sim?.tugs, mesh = this.mesh!;
+    const n = v && T ? Math.min(T.count, this.tugInst.length) : 0;
+    this.tugSeen.count = n;
+    for (let k = 0; k < this.tugInst.length; k++) {
+      const inst = this.tugInst[k];
+      mesh.setVisibleAt(inst, k < n);
+      if (k >= n) continue;
+      const x = T!.x[k], z = T!.z[k], h = T!.heading[k];
+      this.tugSeen.x[k] = x; this.tugSeen.z[k] = z;
+      const sc = TUG_LOA / v!.loa;
+      // she pulls: a slow surge and roll at the oars' rhythm
+      this.e.set(Math.sin(time * 3.14 + k) * 0.02, h - Math.PI / 2, Math.sin(time * 1.1 + k) * 0.015, "YZX");
+      this.m4.compose(this.v.set(x, this.seaH(x, z), z), this.q.setFromEuler(this.e), this.s.setScalar(sc));
+      mesh.setMatrixAt(inst, this.m4);
+      const towed = T!.of[k] >= 0 ? this.boats.find((b) => b.id === sim!.pose.ids[T!.of[k]]) : undefined;
+      if (towed && towed.visible) {
+        // the towline: from her stern to the dying hull's bow, sagging between
+        const st = this.v.copy(v!.sternCleat).applyMatrix4(this.m4);
+        const sx = st.x, sy = st.y, sz = st.z;
+        mesh.getMatrixAt(towed.inst, this.m4b);
+        const bw = this.v.copy(towed.variant.bowCleat).applyMatrix4(this.m4b);
+        this.lines.add(sx, sy, sz, bw.x, bw.y, bw.z, 1);
+      }
+    }
+  }
+  private readonly m4b = new THREE.Matrix4();
 
   /**
    * Dead coins (readings.wrecks) that are not payload boats: hulks beached up the Wreck Cove strand (the
@@ -685,15 +749,24 @@ export class FleetSystem implements WorldSystem {
     const wLen = wv ? Math.hypot(wv.x, wv.y) : 0;
     const flagDownwind = wLen > 1e-3 ? Math.atan2(wv!.x, wv!.y) : windFrom + Math.PI;
     const flagWind = wLen > 1e-3 ? wLen : sim?.wind.strength ?? 0.35;
+    // lane MOTION: the shared gust field (F-wind) and the wind's strength (DEWS) that scales what it does
+    const gustSvc = ensureGustService(ctx);
+    gustSvc.tick(ctx, frame);
+    const windK = sim?.wind.strength ?? 0.35;
+    const live = this.clock ? this.clock.live : 1;
 
     for (let i = 0, bi = 0; i < n && bi < this.boats.length; i++) {
       const b = this.boats[bi];
       if (b.id !== pose!.ids[i]) continue; // a boat without a kit hull was skipped
       bi++;
+      // a dead coin under tow (07-M6) is still afloat, canvas struck: she becomes a wreck on the strand
+      b.wrecked = b.dead && pose!.event[i] !== EV_TOW;
       const x = pose!.position[i * 3], z = pose!.position[i * 3 + 2], h = pose!.heading[i];
       const ph = pose!.phase[i];
-      const sail = pose!.sailState[i];
       const moving = ph === PH_CASTING_OFF || ph === PH_SAILING || ph === PH_APPROACHING;
+      // a galley rows inside the moles with her canvas brailed up, and sets it once clear of the mouth (07-M2)
+      const brail = 1 - GALLEY_BRAIL * this.brailing(b, moving, x, z, dt);
+      const sail = pose!.sailState[i] * brail;
       // velocity from the pose itself (robust to astern legs and ?simspeed)
       if (!b.seen) { b.px = x; b.pz = z; b.seen = true; }
       let vx = (x - b.px) / dt, vz = (z - b.pz) / dt;
@@ -705,8 +778,12 @@ export class FleetSystem implements WorldSystem {
       // rig pose
       const target = b.wrecked ? 0 : targetSwing(h, windFrom, sail);
       b.swing = approach(b.swing, target, dt * 0.55);
-      // in a storm the sail drawing heels her hard over (the sim's heel follows the model's wind)
-      const heelT = pose!.heel[i] * (moving ? 1 + 1.3 * storm : 1);
+      // canvas half loose and flogging: adrift to the Shoals, or aground there (07-M7)
+      const loose = pose!.event[i] === EV_TO_SHOALS || (ph === PH_ANCHORED && sim?.slotOf(i)?.kind === "shoals");
+      const mo = this.motion(b, h, windFrom, sail, moving, target, gustSvc.at(x, z), windK, live, dt, loose);
+      // in a storm the sail drawing heels her hard over (the sim's heel follows the model's wind); a passing
+      // cat's-paw leans her a little further (07-M4)
+      const heelT = pose!.heel[i] * brail * (moving ? 1 + 1.3 * storm : 1) + mo.heel;
       b.heel += (heelT - b.heel) * (1 - Math.exp(-dt * 1.2));
       const hiT = b.id === this.hover ? 1 : b.id === this.selected ? 0.5 : 0;
       b.hi += (hiT - b.hi) * hiK;
@@ -726,6 +803,17 @@ export class FleetSystem implements WorldSystem {
       // storm: under way she labours (pitching into the seas, rolling); alongside or on her mooring she
       // snubs at her lines, surging back and forth and sheering
       let sx = x, sz = z, sh = h;
+      // a cat's-paw (07-M4): under way she surges ahead; on a mooring she drops back on her rode and sheers
+      if (!b.wrecked) { sx += fx * mo.surge; sz += fz * mo.surge; sh += mo.yaw; }
+      // she steers round a neighbour rather than crabbing (07-M8): yaw into the sideways rate of her lane offset
+      // and give-way shove (sim pose.drift), forward under way only, at most GIVE_WAY_YAW
+      const dox = pose!.drift[i * 2], doz = pose!.drift[i * 2 + 1];
+      const lat = ((dox - b.dox) * -fz + (doz - b.doz) * fx) / dt;
+      b.dox = dox; b.doz = doz;
+      const fwdV = b.vx * fx + b.vz * fz;
+      const yawT = moving && ph === PH_SAILING && fwdV > 0.5 && Math.abs(lat) < 5 ? THREE.MathUtils.clamp(-Math.atan2(lat, fwdV), -GIVE_WAY_YAW, GIVE_WAY_YAW) : 0;
+      b.gyaw += (yawT - b.gyaw) * (1 - Math.exp(-dt * 2));
+      sh += b.gyaw;
       if (storm > 0.01 && !b.wrecked) {
         const k = storm * resp;
         if (moving) {
@@ -742,7 +830,15 @@ export class FleetSystem implements WorldSystem {
         }
       }
 
-      if (b.wrecked) {
+      // 07-M12: on the launching ways her keel rides the slip (seated on the ground, pitched with its slope);
+      // afloat, the splash's rebound (sim pose.pitch)
+      const onWays = pose!.position[i * 3 + 1] > 0.5 && !!ground;
+      pitch += pose!.pitch[i];
+      if (onWays) {
+        const gB = ground!.heightAt(x + fx * half, z + fz * half), gS = ground!.heightAt(x - fx * half, z - fz * half);
+        this.e.set(0, h - Math.PI / 2, Math.atan2(gB - gS, half * 2), "YZX");
+        this.v.set(x, Math.max(bob, (gB + gS) / 2 + 0.15), z);
+      } else if (b.wrecked) {
         // beached: on the sand, keel buried, no swell under her
         this.e.set(b.heel, h - Math.PI / 2, 0.05, "YZX");
         this.v.set(x, (ground ? ground.heightAt(x, z) : 0) - b.beam * 0.22, z);
@@ -792,6 +888,7 @@ export class FleetSystem implements WorldSystem {
         b.flag = 0;
       }
       this.writeData(b.inst, b.wrecked ? 0 : 1 - sail, b.wrecked ? 0 : b.swing, b.hi, b.brand.r, b.brand.g, b.brand.b, b.wrecked ? -2 : b.slot, b.wrecked ? 0 : b.flag, far, b.struck);
+      if (b.wrecked) this.writeMotion(b.inst, 0, 0, 0, 0); else this.writeMotion(b.inst, mo.fill, mo.shake, 0, b.row);
 
       // night: under way, masthead + red/green sidelights (+ the stern light); anchored, an anchor light;
       // moored, only some hulls show a dim one. Stern / anchor lamps are lit only with a peg reading.
@@ -822,7 +919,9 @@ export class FleetSystem implements WorldSystem {
       // Only way along the hull's own axis makes a wake: warping sideways onto a quay (the titans) left a hull-wide
       // U of trail foam stamped across the hull.
       const fwd = b.vx * fx + b.vz * fz;
-      if (wake && !b.wrecked) {
+      if (wake && !b.wrecked && !onWays) {
+        // the launch's splash: a burst of foam round her as she takes the water (07-M12)
+        if (pose!.pitch[i] > 0.04) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * 2.2, 2, b.loa * 0.8);
         if (moving && Math.abs(fwd) > 0.15) { wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5); st.moving++; }
         else if (ph === PH_ANCHORED) {
           // aground: surf breaks and churns round the hull, pulsing with the swell
@@ -840,6 +939,8 @@ export class FleetSystem implements WorldSystem {
         if (s) this.mooringLines(b, s, x, z, pose!.lines[i], bob);
       }
     }
+
+    this.poseTugs(sim, time);
 
     // hulks lie still on the dry strand (set once: they never move)
     if (!this.wrecksPosed) {
@@ -884,6 +985,47 @@ export class FleetSystem implements WorldSystem {
     this.hoverLantern.update(ctx, this.hover ? this.byId.get(this.hover) : undefined);
     this.cpuMs += (performance.now() - t0 - this.cpuMs) * 0.1;
     if (this.debug) this.updateDebug(frame, ctx, sim);
+  }
+
+  /**
+   * The wind in her canvas and the oars (lane MOTION; decorative, scaled by DEWS wind strength only):
+   * 07-M1 luff head to wind, 06-F2 belly (+ the gust's breath) and flog through a tack, 07-M4 the gust's heel and
+   * surge, 06-F3 a galley's oars out while she is under way. Reduced motion (live → 0): no shake; the belly holds.
+   */
+  private motion(b: BoatRec, h: number, windFrom: number, sail: number, moving: boolean, target: number, g: number, windK: number, live: number, dt: number, loose: boolean): { fill: number; shake: number; heel: number; surge: number; yaw: number } {
+    const o = this.mo;
+    const rel = Math.abs(wrapAngle(windFrom - h)); // 0 head to wind … π running
+    const luff = moving ? sail * (1 - THREE.MathUtils.smoothstep(rel, 0.5, 0.78)) : 0;
+    // a tack or gybe: the boom crossing over (target on the other side, or still near the centre line)
+    const tacking = moving && sail > 0.3 && (target * b.swing < 0 || (Math.abs(b.swing) < 0.12 && Math.abs(target) > 0.15));
+    b.flog += ((tacking ? sail : 0) - b.flog) * (1 - Math.exp(-dt * (tacking ? 5 : 1.2)));
+    const gk = g * (0.35 + 0.65 * windK);
+    o.fill = moving ? sail * (1 - 0.75 * luff) * (0.5 + 0.3 * windK + 0.45 * gk) : sail * (0.12 + 0.3 * gk);
+    o.shake = live * Math.min(1, Math.max(0.5 * luff, b.flog, loose ? 0.75 : 0));
+    if (loose) o.fill = sail * (0.15 + 0.2 * gk);
+    const sa = Math.sin(windFrom - h);
+    o.heel = moving ? sa * Math.abs(sa) * sail * gk * 0.05 : 0;
+    o.surge = moving ? 0.25 * gk * sail : -0.35 * gk;
+    o.yaw = moving ? 0 : 0.04 * gk * (hash01(b.id + "#sheer") < 0.5 ? 1 : -1);
+    b.row += ((b.variant.oars && moving ? 1 : 0) - b.row) * (1 - Math.exp(-dt * 0.8));
+    return o;
+  }
+  private readonly mo = { fill: 0, shake: 0, heel: 0, surge: 0, yaw: 0 };
+
+  /** 07-M2: how far a galley's canvas is brailed (0..1, eased): she is under way inside a harbour's waters. */
+  private brailing(b: BoatRec, moving: boolean, x: number, z: number, dt: number): number {
+    if (!b.variant.oars) return 0;
+    if (!this.harbours && this.layout) this.harbours = seaZones(this.layout).filter((zn) => zn.kind === "harbour").map((zn) => zn.polygon);
+    const inside = moving && !!this.harbours?.some((poly) => inPoly(x, z, poly));
+    b.brail += ((inside ? 1 : 0) - b.brail) * (1 - Math.exp(-dt * 0.35));
+    return b.brail;
+  }
+  private harbours: Array<readonly [number, number][]> | null = null;
+
+  /** uFleetData texel 2 (F-fleet3, fleet-material): sail fill, shake, lantern lit (reserved), oar stroke. */
+  private writeMotion(inst: number, fill: number, shake: number, lit: number, row: number): void {
+    const d = this.data, o = (inst * FLEET_DATA_TEXELS + 2) * 4;
+    d[o] = fill; d[o + 1] = shake; d[o + 2] = lit; d[o + 3] = row;
   }
 
   /**

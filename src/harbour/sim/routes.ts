@@ -151,7 +151,7 @@ export interface LegControl {
  */
 export function legControlPoints(L: SimLayout, from: Slot | null, at: { x: number; z: number; h: number } | null, to: Slot, loa: number, beam = loa * 0.32, via: readonly Vec2[] | null = null): LegControl {
   const g = L.graph;
-  const extras: PathExtras = { keepOff: L.keepOff, hard: L.hard };
+  const extras: PathExtras = { keepOff: L.keepOff, hard: L.hard, windFrom: L.windFrom };
   // ---- where the hull leaves from
   const berthLike = !!from && (from.mode === "alongside" || from.mode === "finger" || from.mode === "pontoon");
   let p1: Vec2, h0: number, startNode: number;

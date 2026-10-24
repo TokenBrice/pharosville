@@ -1,3 +1,4 @@
+import { GUST_GLSL } from "../weather/gust";
 import { CLOUD_SHADOW_GLSL } from "../sky/cloud-shadow";
 import { SEA_TONE_GLSL } from "./sea-tone";
 import { SWELL_DIR, wavesGLSL } from "./waves";
@@ -55,6 +56,8 @@ uniform float uFwdAz, uHorizonDist, uHorizonDepr;
 uniform vec3 uGlintDir, uGlintCol;
 uniform vec4 uWeatherSea;     // cover, wind, wind dir x, wind dir z
 uniform vec2 uPrecip;         // rain, snow intensity (weather director)
+uniform vec4 uGust;           // F-wind gust field: dir x, dir z, DEWS strength, time (weather/gust.ts)
+${GUST_GLSL}
 // beam (shared from the beam system)
 uniform vec3 uBeamPos, uBeamCol;
 uniform float uBeamAngle;
@@ -142,6 +145,8 @@ void main() {
   // cat's paws: drifting patches of wind-roughened water vs glassy slicks
   vec2 pawUv = xz * 0.0019 - wdir * t * (0.004 + 0.012 * wind);
   float paws = smoothstep(0.38, 0.7, texture2D(uNoise, pawUv).g * 0.7 + texture2D(uNoise, pawUv * 2.7 + 0.3).b * 0.45);
+  // (the shared gust field's paws too: the patches that heel the hulls roughen the water they cross)
+  paws = max(paws, hbGust(xz, uGust.w, uGust.xy) * (0.55 + 0.45 * uGust.z));
   float rough = mix(0.35, 1.0, paws) * (0.75 + 0.5 * wind);
   // a rain-pitted sea loses its mirror
   rough *= 1.0 + 0.6 * uPrecip.x;
