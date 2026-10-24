@@ -1,6 +1,6 @@
 # PharosVille Architecture
 
-Last updated: 2026-10-15
+Last updated: 2026-10-24
 
 PharosVille is The Harbour: a desktop-gated React shell around one imperative
 three.js WebGL2 world (`src/harbour/`). Every stablecoin is one boat sailing a
@@ -52,8 +52,16 @@ HarbourFeed (/api/*, per-endpoint cadence) → buildHarbourModel → HarbourSim
   and SMAA, `QualityGovernor` for the pixel ratio) and the shared
   `WorldUniforms`. Systems implement `WorldSystem` and expose services through
   `ctx.services`.
-- `systems.ts`: the ordered registry. Layout, data, readings, sky, ocean,
-  island, lighthouse, fleet, lights, beam.
+- `systems.ts`: the ordered registry. Season, layout, data, readings,
+  weather, sky, ocean, island, lighthouse, civic, fleet, life, identity,
+  office works, moments stage, lights, beam.
+- Shared services added by the 2026-10-24 sweep (`agents/claudeville-prettier/`):
+  `gust` (`weather/gust.ts`, one spatial gust field on CPU and GPU for the
+  water, the fleet's heel, tree sway and the sound), `events`
+  (`model/event-hub.ts`: poll-delta detection with two-poll hysteresis, the
+  rarity scheduler for staged moments and the Day book), the lamp wave
+  (`lights/lamp-wave.ts`) and the beam light (`beam/beam-light-glsl.ts`) that
+  the kit and fleet materials share.
 - `data/`, `model/`, `sim/`: the same-origin feed (last good payload per
   endpoint, freshness from `_meta` and headers), the pure model (coins, piers,
   truth states, readings) and the deterministic circuit sim (boat poses at
