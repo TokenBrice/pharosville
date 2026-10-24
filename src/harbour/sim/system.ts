@@ -160,7 +160,8 @@ export class DataSystem implements WorldSystem {
     if (ev.at === Infinity) ev.at = Date.now() + 6000;
     if (ev.kind === "launch") {
       ev.id ??= model.boats.find((b) => b.state === "circuit" && b.hullClass === "medium")?.id ?? null;
-      return ev.fired ? model : { ...model, boats: model.boats.filter((b) => b.id !== ev.id) };
+      // (a fleet without her is a different plan, as a real new coin's is)
+      return ev.fired ? model : { ...model, planKey: `${model.planKey}#without-${ev.id}`, boats: model.boats.filter((b) => b.id !== ev.id) };
     }
     if (!ev.fired) return model;
     if (!ev.id && this.sim) {

@@ -821,7 +821,15 @@ export class FleetSystem implements WorldSystem {
         }
       }
 
-      if (b.wrecked) {
+      // 07-M12: on the launching ways her keel rides the slip (seated on the ground, pitched with its slope);
+      // afloat, the splash's rebound (sim pose.pitch)
+      const onWays = pose!.position[i * 3 + 1] > 0.5 && !!ground;
+      pitch += pose!.pitch[i];
+      if (onWays) {
+        const gB = ground!.heightAt(x + fx * half, z + fz * half), gS = ground!.heightAt(x - fx * half, z - fz * half);
+        this.e.set(0, h - Math.PI / 2, Math.atan2(gB - gS, half * 2), "YZX");
+        this.v.set(x, Math.max(bob, (gB + gS) / 2 + 0.15), z);
+      } else if (b.wrecked) {
         // beached: on the sand, keel buried, no swell under her
         this.e.set(b.heel, h - Math.PI / 2, 0.05, "YZX");
         this.v.set(x, (ground ? ground.heightAt(x, z) : 0) - b.beam * 0.22, z);
@@ -898,7 +906,9 @@ export class FleetSystem implements WorldSystem {
       // Only way along the hull's own axis makes a wake: warping sideways onto a quay (the titans) left a hull-wide
       // U of trail foam stamped across the hull.
       const fwd = b.vx * fx + b.vz * fz;
-      if (wake && !b.wrecked) {
+      if (wake && !b.wrecked && !onWays) {
+        // the launch's splash: a burst of foam round her as she takes the water (07-M12)
+        if (pose!.pitch[i] > 0.04) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * 2.2, 2, b.loa * 0.8);
         if (moving && Math.abs(fwd) > 0.15) { wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5); st.moving++; }
         else if (ph === PH_ANCHORED) {
           // aground: surf breaks and churns round the hull, pulsing with the swell

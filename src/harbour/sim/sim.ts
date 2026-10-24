@@ -59,6 +59,11 @@ export interface PoseBuffer {
    * hull into its rate of change so she steers round a neighbour instead of crabbing sideways (07-M8).
    */
   drift: Float32Array;
+  /**
+   * Extra pitch (rad, + bow up), and position y: 1 while she is on the launching ways (the renderer seats her
+   * keel on the ground there), else 0. 07-M12: the slide down the ways and the rebound after the splash.
+   */
+  pitch: Float32Array;
 }
 
 /**
@@ -84,6 +89,8 @@ const TUG_LINE = 6, TUG_V = 1.6, TUG_R = 6;
  * sheets home over SHEET_HOME_S and comes upright.
  */
 const ADRIFT_PACE = 0.6, ADRIFT_YAW = 0.2, SHEET_HOME_S = 30;
+/** 07-M12: the slide down the ways (s), and the splash: pitch rebound amplitude (rad), decay (s), period (s). */
+const SLIDE_S = 7, SPLASH_PITCH = 0.09, SPLASH_DECAY = 1.8, SPLASH_T = 2.8;
 
 /** A sim event for listeners (audio, moments): the coin, what happened, where (world x, z). */
 export type SimEventKind = "launch" | "tow" | "to-shoals" | "rejoin" | "docking";
@@ -147,6 +154,8 @@ interface Voyage {
   startHeading: number;
   /** She was aground on the Shoals when this voyage began (a recovery: canvas sheeted home, she comes upright). */
   fromShoals?: boolean;
+  /** 07-M12 a launch: the ways she slides down first, stern first, over SLIDE_S (top x, z → foot x, z, heading down). */
+  launch?: [number, number, number, number, number];
 }
 
 interface BoatRt {
@@ -335,7 +344,7 @@ export class HarbourSim {
     this.layout = buildSimLayout(layout, coast);
     this.baseSlots = this.layout.slots.length;
     this.wind.fromRad = this.layout.windFrom;
-    this.pose = { count: 0, ids: [], position: new Float32Array(0), heading: new Float32Array(0), heel: new Float32Array(0), sailState: new Float32Array(0), speed: new Float32Array(0), phase: new Uint8Array(0), slot: new Int32Array(0), event: new Uint8Array(0), lines: new Float32Array(0), outing: new Uint8Array(0), drift: new Float32Array(0) };
+    this.pose = { count: 0, ids: [], position: new Float32Array(0), heading: new Float32Array(0), heel: new Float32Array(0), sailState: new Float32Array(0), speed: new Float32Array(0), phase: new Uint8Array(0), slot: new Int32Array(0), event: new Uint8Array(0), lines: new Float32Array(0), outing: new Uint8Array(0), drift: new Float32Array(0), pitch: new Float32Array(0) };
     this.install(model, nowMs, true);
   }
 
@@ -531,7 +540,7 @@ export class HarbourSim {
     if (p.heading.length !== n) {
       p.position = new Float32Array(n * 3); p.heading = new Float32Array(n); p.heel = new Float32Array(n);
       p.sailState = new Float32Array(n); p.speed = new Float32Array(n); p.phase = new Uint8Array(n);
-      p.slot = new Int32Array(n).fill(-1); p.event = new Uint8Array(n); p.lines = new Float32Array(n); p.outing = new Uint8Array(n); p.drift = new Float32Array(n * 2);
+      p.slot = new Int32Array(n).fill(-1); p.event = new Uint8Array(n); p.lines = new Float32Array(n); p.outing = new Uint8Array(n); p.drift = new Float32Array(n * 2); p.pitch = new Float32Array(n);
       this.prevPhase = new Uint8Array(n).fill(255);
     }
     if (this.laneW.length !== n) {
@@ -654,6 +663,15 @@ export class HarbourSim {
     if (ev) this.emit(r.id, ev, at.x, at.z);
   }
 
+  /** 07-M12: on the ways, u 0..1 of the slide: stern first, gathering speed, canvas not yet bent on. */
+  private slide(i: number, w: [number, number, number, number, number], u: number, dest: number): void {
+    const p = this.pose, e = Math.max(0, Math.min(1, u)) ** 2;
+    p.position[i * 3] = w[0] + (w[2] - w[0]) * e; p.position[i * 3 + 1] = 1; p.position[i * 3 + 2] = w[1] + (w[3] - w[1]) * e;
+    p.heading[i] = w[4] + Math.PI; p.speed[i] = (2 * Math.max(0, u) * Math.hypot(w[2] - w[0], w[3] - w[1])) / SLIDE_S;
+    p.sailState[i] = 0; p.heel[i] = 0; p.lines[i] = 0; p.phase[i] = PH_CASTING_OFF; p.slot[i] = dest;
+    this.laneW[i] = 0; this.sepW[i] = 0;
+  }
+
   /** 07-M6: the tug's schedule for a tow: when she casts off (the hull's bow a hull length short of the end). */
   private makeTow(r: BoatRt, path: PathRec, tm: LegTiming, t0: number): Tow {
     const ahead = 1.5 * r.loa + TUG_LINE;
@@ -734,9 +752,12 @@ export class HarbourSim {
     const lp = this.layout.launchPath!;
     const a = lp[0], b = lp[1];
     const h = Math.atan2(b[0] - a[0], b[1] - a[1]);
+    // 07-M12: she slides stern first down the ways (lp[0] → lp[1]), then swings round in the water and sails
     this.launching = true;
-    this.rejoin(i, t, { x: a[0], z: a[1], h, slot: -1, moving: true });
+    this.rejoin(i, t, { x: b[0], z: b[1], h: h + Math.PI, slot: -1, moving: true });
     this.launching = false;
+    const v = this.rt[i].voyage;
+    if (v && v.kind === EV_LAUNCH) { v.t0 += SLIDE_S; v.launch = [a[0], a[1], b[0], b[1], h]; }
   }
 
   /** After a re-plan: hulls whose planned place changed sail there; the rest just carry on. */
@@ -962,13 +983,19 @@ export class HarbourSim {
     p.outing[i] = 0;
     this.laneW[i] = 0;
     this.dockT = 1e9; this.castT = 1e9; this.pushF[i] = 1;
+    p.pitch[i] = 0; p.position[i * 3 + 1] = 0;
     if (r.mode === MODE_VOYAGE && r.voyage) {
       const v = r.voyage;
       const tl = t - v.t0;
+      if (tl < 0 && v.launch) { this.slide(i, v.launch, 1 + tl / SLIDE_S, v.endSlot); p.event[i] = EV_LAUNCH; return; }
       if (tl < v.D) {
         this.legT = tl; this.vKind = v.kind; this.vFromShoals = !!v.fromShoals;
         this.writeLeg(i, r, v.path, v.tm, v.endSlot); p.event[i] = v.kind;
         this.vKind = 0; this.vFromShoals = false;
+        // the splash: stern first into the water, her bow pitching up and settling (07-M12)
+        if (v.launch && tl < 5 * SPLASH_DECAY) p.pitch[i] = SPLASH_PITCH * Math.exp(-tl / SPLASH_DECAY) * Math.cos((2 * Math.PI * tl) / SPLASH_T);
+        // and her canvas is bent on and hoisted only once she has swung round, afloat
+        if (v.launch) { const k = Math.min(1, Math.max(0, (tl - 10) / 20)); p.sailState[i] = Math.min(p.sailState[i], k * k * (3 - 2 * k)); }
         const f = Math.min(1, tl / PUSH_FADE_S);
         this.pushF[i] = f * f * (3 - 2 * f);
         return;
