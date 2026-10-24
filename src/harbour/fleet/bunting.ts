@@ -12,15 +12,23 @@ import * as THREE from "three";
  * dynamic kit-material geometry (≤ MAX_DRESSED hulls).
  */
 export const MAX_DRESSED = 16;
-const FLAGS_PER_LEG = 11;
+const FLAGS_PER_LEG = 16; // REVIEW #7: dense enough to read as a dressed line at the heart view
 const FLAGS = FLAGS_PER_LEG * 2;
 /** Launch dressing: the flags run up over this long, and come down again by her first berth or this long. */
 const DRESS_SEC = 3.5;
 export const LAUNCH_DRESS_MS = 20 * 60_000;
-const CREAM = new THREE.Color("#EFE6D2");
+const CREAM = new THREE.Color("#FBF4E4");
+/** A dark brand is lifted toward white until its luma reaches this (linear): dyed bunting reads against hull and sea. */
+const MIN_LUMA = 0.2;
+/** Flag drop never below this many px on screen (it grows with distance, capped at MAX_LOA_K × LOA), like the flag law. */
+export const BUNTING_MIN_PX = 4;
+const MAX_LOA_K = 0.09;
 
-/** Flag edge (m) for a hull of length `loa`. */
-export function buntingFlagSize(loa: number): number { return THREE.MathUtils.clamp(loa * 0.04, 0.38, 1.0); }
+/** Flag edge (m) for a hull of length `loa`, `pxPerM` screen px per metre at the hull. */
+export function buntingFlagSize(loa: number, pxPerM = Infinity): number {
+  const base = THREE.MathUtils.clamp(loa * 0.05, 0.45, 1.3);
+  return Math.max(base, Math.min(BUNTING_MIN_PX / pxPerM, loa * MAX_LOA_K));
+}
 
 interface Dress { p: number; up: boolean; slot: number }
 
@@ -41,6 +49,7 @@ export class Bunting {
   private readonly t = new THREE.Vector3();
   private readonly n = new THREE.Vector3();
   private readonly col = new THREE.Color();
+  private readonly dye = new THREE.Color();
   private readonly cam = new THREE.Vector3();
 
   constructor(material: THREE.Material) {
@@ -95,7 +104,8 @@ export class Bunting {
    * One posed hull: `m` = her world matrix (kit frame); bow, masthead and stern anchors in the kit frame.
    * `brand` linear; `time` the fleet's decorative clock (still under reduced motion); `wind` 0..1.
    */
-  hull(id: string, m: THREE.Matrix4, bow: THREE.Vector3, mast: THREE.Vector3, stern: THREE.Vector3, loa: number, brand: THREE.Color, time: number, wind: number): boolean {
+  hull(id: string, m: THREE.Matrix4, bow: THREE.Vector3, mast: THREE.Vector3, stern: THREE.Vector3, loa: number, brand: THREE.Color, time: number, wind: number,
+    pxPerM = Infinity): boolean {
     const d = this.dressed.get(id);
     if (!d || d.p <= 0.002) return false;
     const P = (this.geo.attributes.position as THREE.BufferAttribute).array as Float32Array;
@@ -107,7 +117,10 @@ export class Bunting {
     const bowW = this.a.copy(bow).applyMatrix4(m).addScaledVector(this.up, 0.5);
     const mastW = this.b.copy(mast).applyMatrix4(m);
     const sternW = this.c.copy(stern).applyMatrix4(m).addScaledVector(this.up, 0.7);
-    const f = buntingFlagSize(loa);
+    const f = buntingFlagSize(loa, pxPerM);
+    // her colour, lifted when dark (luma below MIN_LUMA) so the line reads; never past the dye (no glow)
+    const luma = 0.2126 * brand.r + 0.7152 * brand.g + 0.0722 * brand.b;
+    const dye = this.dye.copy(brand).lerp(CREAM, luma < MIN_LUMA ? (MIN_LUMA - luma) / Math.max(1e-3, 0.9 - luma) : 0);
     const shown = d.p * FLAGS; // flags run up from the bow, along the line to the stern
     const sway = 0.18 + 0.35 * wind;
     let v = d.slot * FLAGS * 3;
@@ -145,7 +158,7 @@ export class Bunting {
         const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
         for (let q = 0; q < 3; q++) { N[o + q * 3] = nx; N[o + q * 3 + 1] = ny; N[o + q * 3 + 2] = nz; }
         // brand, cream, brand a shade deeper, cream …: dyed cloth, never neon
-        const c = fi % 2 === 1 ? CREAM : this.col.copy(brand).multiplyScalar(fi % 4 === 0 ? 1 : 0.82);
+        const c = fi % 2 === 1 ? CREAM : this.col.copy(dye).multiplyScalar(fi % 4 === 0 ? 1 : 0.9);
         for (let q = 0; q < 3; q++) { const w = (v + q) * 4; C[w] = c.r; C[w + 1] = c.g; C[w + 2] = c.b; C[w + 3] = 0; }
       }
     }

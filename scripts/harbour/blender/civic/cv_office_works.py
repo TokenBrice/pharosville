@@ -40,7 +40,8 @@ def rope(mb, a, b, r=0.035):
 def scaffold(op, x0=-4.8, x1=0.6):
     """Pole scaffold: two rows of standards, ledgers and putlogs (into the wall) at three lifts, plank decks, a raker
     brace and a ladder."""
-    pole, plank, put = PAL['timber_grey'], PAL['timber_fresh'], PAL['timber']
+    # REVIEW #7: fresh, light timber throughout, so the scaffold reads against the wall's shade at the heart view
+    pole, plank, put = PAL['timber_fresh'], PAL['stone_light'], PAL['timber_fresh']
     xs = [x0 + (x1 - x0) * k / 3 for k in range(4)]
     rows = (0.3, 1.5)
     lifts = (2.8, 5.4, 8.0)
@@ -116,7 +117,7 @@ def crane(op, cx=-3.0, co=4.4):
     Returns (wheel mesh builder, axle point, jib tip) in Blender coords."""
     R, hz, half = 1.6, 1.85, 0.5           # wheel radius, axle height, half drum width
     ax_ = O(cx, co, hz)
-    frame = PAL['oak']
+    frame = PAL['timber']
     apex = hz + 0.15
     for s in (-1, 1):
         x = cx + s * (half + 0.28)

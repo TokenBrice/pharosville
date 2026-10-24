@@ -67,14 +67,15 @@ void main() {
     // gardens and hillsides, not the quays or the shore
     land = step(0.0, tuv.x) * step(tuv.x, 1.0) * step(0.0, tuv.y) * step(tuv.y, 1.0) * smoothstep(4.0, 6.0, ground) * (1.0 - smoothstep(30.0, 34.0, ground));
     y = ground + 0.8 + 0.7 * sin(uDriftT * 0.5 + k1 * 9.0);
-    blink = pow(max(0.0, sin(uDriftT * (0.9 + 0.6 * k2) + k1 * 40.0)), 8.0);
+    blink = pow(max(0.0, sin(uDriftT * (0.9 + 0.6 * k2) + k1 * 40.0)), 4.0);
     life = 0.5;
   }
   vec3 c = vec3(p.x, y, p.y);
   float dist = length(cameraPosition - c);
   // a leaf is ~0.25 m; never smaller than ~2.4 px so the drift still reads from the heart view
   float size = max(mix(0.28, 0.2, petal), dist * uPxWorld * 2.4) * on * land;
-  if (fire > 0.5) size = max(0.13, dist * uPxWorld * 2.0) * on * land * step(0.02, blink);
+  // REVIEW #10: ~4 px (twice the old spark) so a summer night reads at a 160 m close-up; still a speck, never a lamp
+  if (fire > 0.5) size = max(0.26, dist * uPxWorld * 4.0) * on * land * step(0.02, blink);
   size *= smoothstep(0.0, 0.04, life) * (1.0 - smoothstep(0.93, 1.0, life));
   // tumble: the flake turns in the view plane and its width flickers as it flips
   float a = uDriftT * (1.4 + 2.2 * k1) + k2 * 6.28;
@@ -90,7 +91,8 @@ void main() {
   float t = h1(r * 311.0);
   vec3 lc = t < 0.3 ? vec3(0.85, 0.42, 0.05) : t < 0.55 ? vec3(0.78, 0.2, 0.03) : t < 0.75 ? vec3(0.55, 0.07, 0.03) : t < 0.92 ? vec3(0.88, 0.66, 0.1) : vec3(0.42, 0.26, 0.08);
   vec3 pc = mix(vec3(0.95, 0.55, 0.68), vec3(0.95, 0.92, 0.9), step(0.55, t));
-  vCol = fire > 0.5 ? vec3(0.78, 1.0, 0.32) * (0.25 + 1.15 * blink) : mix(lc, pc, petal);
+  // the spark peaks at luma ~0.9 (scene-linear), under the night bloom threshold (1.0): it never blooms
+  vCol = fire > 0.5 ? vec3(0.78, 1.0, 0.32) * (0.3 + 0.7 * blink) : mix(lc, pc, petal);
   vFire = fire;
   gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
 }`;
@@ -106,7 +108,7 @@ void main() {
     // a firefly: a soft round spark, self-lit (faint: well under a lamp's glow)
     float r = length(vUv);
     if (r > 1.0) discard;
-    gl_FragColor = vec4(vCol * (1.0 - r * r), 1.0);
+    gl_FragColor = vec4(vCol * (1.0 - smoothstep(0.35, 1.0, r)), 1.0);
     return;
   }
   // leaf: a pointed ellipse; petal: a round drop

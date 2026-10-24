@@ -361,14 +361,25 @@ def bake_ao(objs, distance=7.0, samples=48, strength=0.8):
         me.color_attributes.active_color = ao
         bpy.ops.object.select_all(action='DESELECT')
         o.select_set(True); bpy.context.view_layer.objects.active = o
-        try:
-            bpy.ops.object.bake(type='AO', target='VERTEX_COLORS', margin=0)
-        except Exception as e:
-            print('AO bake failed on', o.name, e)
+        n = len(me.loops)
+        a = None
+        for _try in range(2):
+            try:
+                bpy.ops.object.bake(type='AO', target='VERTEX_COLORS', margin=0)
+                a = np.zeros(n * 4, np.float32); ao.data.foreach_get('color', a); a = a.reshape(-1, 4)
+            except Exception as e:
+                print('AO bake failed on', o.name, e)
+                a = None
+            # the GPU bake can fail or come back all black (Blender 5.2 on CUDA/OptiX, a busy GPU): the CPU from here on
+            if scene.cycles.device == 'GPU' and (a is None or not a[:, 0].any()):
+                print('AO bake: no GPU result, baking on the CPU')
+                scene.cycles.device = 'CPU'
+                bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'NONE'
+                continue
+            break
+        if a is None:
             me.color_attributes.remove(ao)
             continue
-        n = len(me.loops)
-        a = np.zeros(n * 4, np.float32); ao.data.foreach_get('color', a); a = a.reshape(-1, 4)
         c = np.zeros(n * 4, np.float32); col = me.color_attributes['Col']; col.data.foreach_get('color', c); c = c.reshape(-1, 4)
         occ = np.clip(a[:, 0], 0, 1)
         k = 1.0 - strength * (1.0 - occ)

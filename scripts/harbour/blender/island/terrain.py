@@ -280,11 +280,13 @@ def town_step(u, v):
 # quantised into level benches TERRACE_STEP apart with a steep dry-stone riser (the top TERRACE_RISER share of each step's
 # natural rise), so the benches follow the land's own contours; hb_land rows the mesh there, hb_dress lips + plants them.
 TERRACES = [((-163.0, -90.0), 21.0, 15.0, 0.25), ((-160.0, -47.0), 19.0, 14.0, 0.2)]
-TERRACE_STEP, TERRACE_RISER = 1.6, 0.16
+TERRACE_STEP, TERRACE_RISER = 1.6, 0.3      # REVIEW #4: a battered bank, not an upright blade
 # level discs (screen plan centre, radius, blend): the threshing floor by the windmill; the hill sanctuary's temenos on the
 # spine's north knoll (z = the knoll's own height at the centre)
 THRESHING_UV, THRESHING_R = (-196.0, -186.0), 5.2
-SANCTUARY_UV, SANCTUARY_R = (-188.0, -8.0), 9.5
+# REVIEW #9: off the shipyard's back wall onto the open knoll east of the west road (along the spine, Wreck Cove's strand
+# leaves no room for a cypress ring), ~34 m from its first site
+SANCTUARY_UV, SANCTUARY_R = (-155.0, -15.0), 9.5
 _discs = None      # [(x, y, r, blend, z)] world, built on first use
 # the vineyard (screen plan centre; half-size along the fall line, across): its rows run straight down the slope
 VINE_UV, VINE_HALF = (-162.0, -165.0), (12.0, 11.0)

@@ -212,11 +212,7 @@ TERRACE_OLIVES = []
 for (c_, ru_, rv_, a_) in terrain.TERRACES:
     rr_ = max(ru_, rv_) + 1.0
     ks = range(int(1.5 / terrain.TERRACE_STEP), int(26 / terrain.TERRACE_STEP))
-    for (k, a, b) in iso_segments(c_, rr_, lambda k: k * terrain.TERRACE_STEP, ks):
-        if not (on_land(*a) and on_land(*b)):
-            continue
-        za, zb = H(*a), H(*b)
-        merge(lips, nl_kit.beam((a[0], a[1], za + 0.14), (b[0], b[1], zb + 0.14), 0.5, 0.42))
+    risers_ = iso_segments(c_, rr_, lambda k: k * terrain.TERRACE_STEP, ks)
     # bench middles: the olive rows (quincunx-ish: greedy spacing along each contour, rows offset by the land)
     cand = [((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, k) for (k, a, b) in
             iso_segments(c_, rr_, lambda k: (k + 0.44) * terrain.TERRACE_STEP, ks, wmin=0.7)]
@@ -225,6 +221,16 @@ for (c_, ru_, rv_, a_) in terrain.TERRACES:
         if not on_land(x, y) or any((x - q[0]) ** 2 + (y - q[1]) ** 2 < (6.6 if k == q[2] else 4.2) ** 2 for q in TERRACE_OLIVES):
             continue
         TERRACE_OLIVES.append((x, y, k))
+    # REVIEW #4: each riser top is a LOW dry-stone line (a course or two, warm stone near the ground's value), lying on the
+    # contour; it breaks where an olive stands over it and in short natural gaps, so a hillside reads as lines, not blades
+    for (k, a, b) in risers_:
+        if not (on_land(*a) and on_land(*b)):
+            continue
+        m_ = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        if terrain.fbm(m_[0], m_[1], 0.05, 1, 41) > 0.7 or any((m_[0] - q[0]) ** 2 + (m_[1] - q[1]) ** 2 < 1.8 ** 2 for q in TERRACE_OLIVES):
+            continue
+        za, zb = H(*a), H(*b)
+        merge(lips, nl_kit.beam((a[0], a[1], za + 0.07), (b[0], b[1], zb + 0.07), 0.62, 0.26))
 print('TERRACES lips', len(lips.faces) // 6, 'olive spots', len(TERRACE_OLIVES))
 
 # the vineyard: rows straight down the fall line - a post every 2.4 m, a vine stock between, each a lumpy canopy
@@ -276,7 +282,7 @@ obj('vine_canopy', vine_leaf, face=lambda q: ((PAL['vine_light'] if q.normal.z >
 # ------------------------------------------------------------------ 08-T4 (prettier): a small hill sanctuary on the west spine
 # The harbour's own sanctuary, generic and votive (no name, no statue, no colossus; R3/D3): a temenos levelled on the
 # spine's north knoll (terrain.SANCTUARY_*), a tholos under 7 m, an altar and two stelae on the approach, a ring of
-# cypresses with its gap toward the town, a zig-zag processional path up from the west road, one lamp at dusk.
+# cypresses with its gap toward the town, a processional path from the west road, one lamp at dusk.
 SRNG = random.Random(4404)
 s_st, s_wall, s_roof, s_pave = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
 scx, scy = wpt(*terrain.SANCTUARY_UV)
@@ -305,13 +311,14 @@ for du in (-2.6, 2.6):                          # two stelae flanking the approa
 occ_poly([(scx + math.cos(2 * math.pi * i / 16) * (terrain.SANCTUARY_R + 2.5), scy + math.sin(2 * math.pi * i / 16) * (terrain.SANCTUARY_R + 2.5)) for i in range(16)])
 AGRI.append(SANCT_RING)
 SANCT_CYPRESS = []
-for i in range(11):                             # the cypress ring, open to the south (the approach, toward the town)
-    a = -math.pi / 2 + math.radians(40) + i * math.radians(280) / 10
-    du, dv = math.cos(a) * 11.0, math.sin(a) * 11.0
-    SANCT_CYPRESS.append(_su(du + SRNG.uniform(-0.6, 0.6), dv + SRNG.uniform(-0.6, 0.6)))
-# the processional path: up from the west road in three short zig-zags to the temenos gap
+for i in range(17):                             # the cypress ring, open to the south (the approach, toward the town);
+    a = -math.pi / 2 + math.radians(36) + i * math.radians(288) / 16      # REVIEW #9: a dense, staggered double rank
+    rr_ = 10.6 if i % 2 == 0 else 12.3
+    du, dv = math.cos(a) * rr_, math.sin(a) * rr_
+    SANCT_CYPRESS.append(_su(du + SRNG.uniform(-0.4, 0.4), dv + SRNG.uniform(-0.4, 0.4)))
+# the processional path: from the west road across the slope to the temenos gap
 shrine_bm = bmesh.new()
-ROADS['shrine'] = road([(-178.6, -23.9), (-185.5, -23.4), (-181.0, -21.0), (-187.2, -19.6), (-188.0, -16.6)], 1.5, PAL['earth'], 'path_shrine',
+ROADS['shrine'] = road([(-176.8, -21.0), (-170.0, -24.6), (-162.6, -25.6), (-155.0, -24.2)], 1.5, PAL['earth'], 'path_shrine',
                        shrine_bm, smooth=False)
 obj('land_paths_shrine', shrine_bm, PAL['earth'], PT['cobble'], family='terrain', jitter=0.05)
 SANCT_LAMP = (_su(1.6, -4.6), sz + 0.07)
@@ -366,8 +373,9 @@ for fi, f in enumerate(terrain.FIELDS):
             for lx in (-0.3, 0.3):
                 merge(sheep_h, bm_cyl(0.07, 0.07, 0.4, 4, (q[0] + lx * math.cos(a_), q[1] + lx * math.sin(a_), z_)))
 refresh_occ()
-merge(walls, lips)                   # 08-T1: terrace copings + the threshing-floor kerb, the same dry stone
 obj('field_walls', walls, PAL['rock'], PT['ashlar'], family='prop_wall', jitter=0.12)
+# 08-T1 terrace copings + the threshing-floor kerb: warm dry stone close to the grove floor's value (REVIEW #4: not grey)
+obj('terrace_lips', lips, lin('#A8A07C'), PT['rock'], family='prop_wall', jitter=0.08)
 obj('field_vines', hedge, face=lambda q: ((PAL['vine_light'] if q.normal.z > 0.3 else PAL['vine']), PT['leaf']), family='veg', jitter=0.1)
 obj('field_sheep', sheep, lin('#EEE9DD'), PT['plain'], family='veg', jitter=0.04)
 obj('field_sheep_heads', sheep_h, lin('#2E2B29'), PT['plain'], family='veg')
@@ -516,9 +524,10 @@ def placer(*mix):
     return place
 
 
-# 08-T4: the sanctuary's cypress ring
+# 08-T4: the sanctuary's cypress ring (REVIEW #9: taller, and its own darker, bluer green: a sacred grove, not park trees)
+SANCT_LEAF = bmesh.new()
 for (x, y) in SANCT_CYPRESS:
-    nl_kit.cypress(LEAF['cypress'], (x, y, H(x, y) - 0.3), SRNG.uniform(7.5, 9.5), SRNG)
+    nl_kit.cypress(SANCT_LEAF, (x, y, H(x, y) - 0.3), SRNG.uniform(9.0, 11.5), SRNG)
     TREES['cypress'] += 1
     TREE_GRID.setdefault((int(x // 10.0), int(y // 10.0)), []).append((x, y, 3.0))
 # 08-T1: the terrace olives first (their rows are fixed), so every other scatter keeps clear of them
@@ -798,6 +807,9 @@ for sp in SPECIES:
     else:
         face_ = lambda q, c=LEAF_COL[sp], pt_=pt_: ((lin(c[0]) if q.normal.z > 0.35 else lin(c[1])), pt_)
     obj('trees_' + sp, LEAF[sp], face=face_, family='tree_' + sp, jitter=0.08, seed=3)
+    if sp == 'cypress':
+        obj('trees_sanct_cypress', SANCT_LEAF, face=lambda q, pt_=pt_: ((lin('#2E4426') if q.normal.z > 0.35 else lin('#1E2E1A')), pt_),
+            family='tree_cypress', jitter=0.06, seed=3)
     if sp in BARK:
         obj('trees_' + sp + '_trunk', TRUNK[sp], lin(BARK[sp]), PT['plain'], family='tree_' + sp)
     else:

@@ -900,9 +900,9 @@ export class FleetSystem implements WorldSystem {
       b.struck = !moving && sail < 0.1 && b.mastK < far * STRIKE_SHARE;
       if (!moving && !b.wrecked && !b.struck && !b.titan && b.visible) this.mastheads.set(i, this.lampAt(b.variant.masthead.x, b.variant.masthead.y, b.variant.masthead.z));
 
-      if (this.mastSignals && !b.wrecked && b.visible && !b.struck && b.dist < tier.flagRange) this.mastSignals.hull(b.id, this.m4, b.variant.masthead, b.scale, b.loa);
+      if (this.mastSignals && !b.wrecked && b.visible && !b.struck && b.dist < tier.flagRange) this.mastSignals.hull(b.id, this.m4, b.variant.masthead, b.scale, b.loa, pxPerM / b.dist);
       if (this.bunting && !b.wrecked && b.visible && !b.struck && b.dist < tier.flagRange
-        && this.bunting.hull(b.id, this.m4, b.variant.bowCleat, b.variant.masthead, b.variant.sternCleat, b.loa, b.brand, time, windK) && b.dist < tier.lineRange) {
+        && this.bunting.hull(b.id, this.m4, b.variant.bowCleat, b.variant.masthead, b.variant.sternCleat, b.loa, b.brand, time, windK, pxPerM / b.dist) && b.dist < tier.lineRange) {
         const [l0, l1, l2] = this.bunting.line;
         this.lines.add(l0.x, l0.y, l0.z, l1.x, l1.y, l1.z, 1);
         this.lines.add(l1.x, l1.y, l1.z, l2.x, l2.y, l2.z, 1);
