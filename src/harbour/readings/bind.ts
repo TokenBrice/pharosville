@@ -15,7 +15,7 @@
  *   freshness  → sea fog, ONLY when /api/stablecoins is stale or unavailable
  */
 import type {
-  ConditionBand, DewsBand, EndpointKey, EndpointTruth, FlowsReading, HarbourModel,
+  ConditionBand, DewsBand, EndpointKey, EndpointTruth, FlowsReading, HarbourModel, StormFlag, StormSignalShape,
 } from "../model/types";
 import { PSI_SWEEP_DURATION } from "@shared/lib/psi-colors";
 
@@ -28,6 +28,30 @@ export const MAX_CONES = 4;
 /** Score that maps to zero / full beam reach. Reach is (score - lo)/(hi - lo), eased to spread the top. */
 export const REACH_SCORE_LO = 30;
 export const REACH_SCORE_HI = 100;
+
+/**
+ * T6 chain office (PLAN §6): /api/chains `change30dPct` (a FRACTION, like every chains change) → the harbour office's
+ * dress. Under works at ≥ +8 % (held until it falls below +6 %), awnings furled at ≤ −8 %, neutral between and
+ * whenever /api/chains is not current. A 30-day horizon, deliberately not the Harbourmaster's 24 h movers hoist.
+ */
+export const OFFICE_WORKS_ON = 0.08;
+export const OFFICE_WORKS_HOLD = 0.06;
+export const OFFICE_FURL_ON = -0.08;
+export type OfficeState = "works" | "furled" | "neutral";
+
+export function officeWorks(change30dPct: number | null | undefined, prev: OfficeState = "neutral", current = true): OfficeState {
+  if (!current || typeof change30dPct !== "number" || !Number.isFinite(change30dPct)) return "neutral";
+  if (change30dPct >= OFFICE_WORKS_ON || (prev === "works" && change30dPct >= OFFICE_WORKS_HOLD)) return "works";
+  if (change30dPct <= OFFICE_FURL_ON) return "furled";
+  return "neutral";
+}
+
+/** Every chain row's office state (chain name → state), carrying `prev` for the works hysteresis. */
+export function officeStates(rows: ReadonlyArray<{ name: string; change30dPct?: number | null | undefined }>, current: boolean, prev: Readonly<Record<string, OfficeState>> = {}): Record<string, OfficeState> {
+  const out: Record<string, OfficeState> = {};
+  for (const r of rows) out[r.name] = officeWorks(r.change30dPct, prev[r.name] ?? "neutral", current);
+  return out;
+}
 
 export type LampStep = 0 | 1 | 2;
 export type SeaStep = 0 | 1 | 2 | 3;
@@ -70,6 +94,12 @@ export interface WorldTargets {
   /** Individual coins at Alert or worse (for the panel; the mast shows the weighted band). */
   alerts: AlertCoin[];
   tide: TideReading;
+  /** DA-04: coins flying a masthead storm signal, worst first, ≤ 5 (model.readings.stormFlags; [] when stress is not current). */
+  stormFlags: StormFlag[];
+  /** DA-07: ids of the coins on their maiden voyage (Boat.maiden). */
+  maidens: string[];
+  /** T6: chain name → office state (works / furled / neutral); neutral for every chain when /api/chains is not current. */
+  offices: Record<string, OfficeState>;
   flows: FlowsReading;
   /** Sea fog wanted: /api/stablecoins stale, or unavailable after the feed has tried. */
   fog: boolean;
@@ -139,9 +169,13 @@ export interface DeriveInput {
   chainsChange7d: number | null | undefined;
   /** True once the feed has attempted /api/stablecoins (before that the harbour is SYNCING, not foggy). */
   stablecoinsAttempted: boolean;
+  /** /api/chains rows (name + change30dPct), for the T6 office states. */
+  chainRows?: ReadonlyArray<{ name: string; change30dPct?: number | null | undefined }> | undefined;
+  /** The previous office states (the works hysteresis). */
+  prevOffices?: Readonly<Record<string, OfficeState>> | undefined;
 }
 
-export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted }: DeriveInput): WorldTargets {
+export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted, chainRows, prevOffices }: DeriveInput): WorldTargets {
   const r = model.readings;
   const p = r.psi;
   const lit = p.lit && p.band != null && p.score != null;
@@ -171,6 +205,9 @@ export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted }: D
     pennant: mast.pennant,
     alerts: alertCoins(model),
     tide: model.truth.chains.state === "unavailable" ? { pct: null, level: 0 } : tideFromFraction(chainsChange7d),
+    stormFlags: model.readings.stormFlags,
+    maidens: model.boats.filter((b) => b.maiden).map((b) => b.id),
+    offices: officeStates(chainRows ?? [], model.truth.chains.state === "current", prevOffices),
     flows: r.flows,
     fog: coins.state === "stale" || (coins.state === "unavailable" && stablecoinsAttempted),
     landmarks,
@@ -184,7 +221,35 @@ export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted }: D
  *   ?psi=TREMOR|none  ?psiScore=55  ?offpeg=0.06  ?dews=ALERT (alias ?weather=ALERT)  ?cones=3 (5 = four + pennant)  ?tide=-0.8 (percent)
  *   ?stale=1 (fleet stale → fog)  ?stale=mintBurn,chains (those landmarks stale)
  */
-export const DEV_OVERRIDE_KEYS = ["psi", "psiScore", "offpeg", "dews", "weather", "cones", "tide", "stale"] as const;
+export const DEV_OVERRIDE_KEYS = ["psi", "psiScore", "offpeg", "dews", "weather", "cones", "tide", "stale", "stormflags", "maiden", "office"] as const;
+
+const DEV_SHAPES: StormSignalShape[] = ["cone+drum", "drum", "cone"];
+const DEV_BANDS: DewsBand[] = ["DANGER", "WARNING", "ALERT"];
+
+/**
+ * Dev-only D-3 cue overrides, on the model's largest live boats:
+ *   ?stormflags=N (≤ 5: DANGER, WARNING, ALERT…)  ?maiden=N or ?maiden=id,id  ?office=Ethereum:works,Tron:furled
+ */
+export function applyDevCueOverrides(t: WorldTargets, q: URLSearchParams, model: Pick<HarbourModel, "boats">): WorldTargets {
+  const live = model.boats.filter((b) => b.state !== "wrecked");
+  const out = { ...t };
+  const nf = Number(q.get("stormflags"));
+  if (q.has("stormflags") && Number.isFinite(nf)) {
+    out.stormFlags = live.slice(0, Math.max(0, Math.min(5, Math.round(nf)))).map((b, i) =>
+      ({ id: b.id, symbol: b.symbol, band: DEV_BANDS[Math.min(2, i)], score: 90 - i * 5, shape: DEV_SHAPES[Math.min(2, i)] }));
+  }
+  const m = q.get("maiden");
+  if (m) out.maidens = /^\d+$/.test(m) ? live.slice(0, Number(m)).map((b) => b.id) : m.split(",");
+  const o = q.get("office");
+  if (o) {
+    out.offices = { ...out.offices };
+    for (const part of o.split(",")) {
+      const [chain, st] = part.split(":");
+      if (chain && (st === "works" || st === "furled" || st === "neutral")) out.offices[chain] = st;
+    }
+  }
+  return out;
+}
 
 export function applyDevOverrides(t: WorldTargets, q: URLSearchParams): WorldTargets {
   const out: WorldTargets = { ...t, psi: { ...t.psi }, landmarks: { ...t.landmarks }, flows: { ...t.flows } };

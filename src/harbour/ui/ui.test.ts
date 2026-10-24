@@ -56,7 +56,7 @@ const boat = (over: Partial<Boat> = {}): Boat => ({
   id: "usdt", symbol: "USDT", name: "Tether", supply: 184.1e9, hullClass: "flagship", rig: "usd", pegType: "peggedUSD",
   brandColor: "#26a17b", logo: null, chainShares: [{ chain: "Tron", share: 0.51, usd: 93e9 }, { chain: "Ethereum", share: 0.4, usd: 73e9 }],
   circuit: [{ chain: "Tron", where: "pier-tron", share: 0.55, rawShare: 0.51 }, { chain: "Ethereum", where: "pier-ethereum", share: 0.45, rawShare: 0.4 }],
-  home: "pier-tron", pegDeviationBps: -8, activeDepeg: false, nullPeg: false, dews: "CALM", dewsScore: 15, grade: "A-", state: "circuit", ...over,
+  home: "pier-tron", pegDeviationBps: -8, activeDepeg: false, nullPeg: false, dews: "CALM", dewsScore: 15, grade: "A-", state: "circuit", maiden: false, stormSignal: null, ...over,
 });
 
 describe("facts", () => {

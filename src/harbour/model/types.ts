@@ -25,7 +25,7 @@ export type CoinRow = Pick<StablecoinData, "id" | "name" | "symbol" | "pegType" 
 export interface StablecoinsPayload { peggedAssets: CoinRow[] }
 
 export type ChainRow = Pick<ChainSummary, "id" | "name" | "totalUsd"> & Partial<Pick<ChainSummary, "dominanceShare" | "healthScore" | "healthBand" | "change24hPct" | "change7dPct" | "change30dPct">>;
-export interface ChainsPayload extends Partial<Pick<ChainsResponse, "globalTotalUsd" | "unattributedTotalUsd" | "globalChange7dPct">> { chains: ChainRow[] }
+export interface ChainsPayload extends Partial<Pick<ChainsResponse, "globalTotalUsd" | "unattributedTotalUsd" | "globalChange24hPct" | "globalChange7dPct" | "globalChange30dPct">> { chains: ChainRow[] }
 
 export interface StabilityPayload {
   current: (Pick<StabilityIndexCurrent, "score" | "band"> & Partial<Pick<StabilityIndexCurrent, "avg24h" | "computedAt">>) | null;
@@ -114,7 +114,18 @@ export interface Boat {
   dewsScore: number | null;
   grade: string | null;
   state: BoatState;
+  /**
+   * DA-07 maiden voyage: new to the register this week (model/readings.ts isMaiden). False when the feed is not
+   * current or too many coins lack a week-ago supply (a producer gap, not a week of launches).
+   */
+  maiden: boolean;
+  /** DA-04: the storm signal at her masthead (one of the ≤ 5 worst DEWS ALERT+ coins), or null. */
+  stormSignal: StormSignalShape | null;
 }
+
+/** DA-04 masthead shape, in the Storm-signal Station's vocabulary: ALERT cone, WARNING drum, DANGER cone + drum. */
+export type StormSignalShape = "cone" | "drum" | "cone+drum";
+export interface StormFlag { id: string; symbol: string; band: DewsBand; score: number | null; shape: StormSignalShape }
 
 export interface Harbour {
   chain: string;
@@ -181,11 +192,26 @@ export interface FlowsReading {
   available: boolean;
 }
 
+/**
+ * The tide gauge's DOM twin: /api/chains global supply change. All three are FRACTIONS (0.004 = +0.4 %)
+ * despite the "Pct" in the field names; null when absent or not finite. The gauge stands at the 7 d figure.
+ */
+export interface TideFactsReading {
+  change24h: number | null;
+  change7d: number | null;
+  change30d: number | null;
+  available: boolean;
+  stale: boolean;
+}
+
 export interface HarbourReadings {
   psi: PsiReading;
+  tide: TideFactsReading;
   seaState: SeaStateReading;
   weather: WeatherReading;
   flows: FlowsReading;
+  /** DA-04: the coins flying a storm signal at the masthead, worst first, ≤ STORM_FLAGS_MAX; [] when stress is not current. */
+  stormFlags: StormFlag[];
   /** Storm cones hoisted: one per ALERT+ coin, max 5; `extra` is the "+N". null = unknown. */
   stormCones: { count: number; shown: number; extra: number } | null;
   shoals: Array<{ id: string; bps: number | null; supply: number }>;

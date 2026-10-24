@@ -5,7 +5,7 @@ import type { HarbourLayout } from "../layout/types";
 import type { Boat, HarbourModel } from "../model/types";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { ChainSplit, chainLogo, Crest, DEWS_INK, FlowBars, Freshness, Logo, PSI_INK, Sparkline, TideBars } from "./bits";
-import { circuitStops, flowTotals, obituaryText, quoted, whereLine, whyHere, wreckDate } from "./facts";
+import { circuitStops, flowTotals, MAIDEN_LINE, obituaryText, officeLine, quoted, stormSignalLine, whereLine, whyHere, wreckDate } from "./facts";
 import { age, bps, causeName, MINUS, money, pctChange, pegName, share, titleCase, vesselKind } from "./format";
 import { CHAIN_COLOR, placeName, scopeName } from "./places";
 import { expectedLabel, groupYard, launchedFromYard, PHASE_NAME, PHASES, STAGE_NAME, STAGE_OF, UPCOMING_URL, yardCoins, type YardCoin } from "./yard";
@@ -17,7 +17,9 @@ const signed = (v: number) => (v < 0 ? MINUS : "") + Math.abs(v).toFixed(2);
 import { usePresence, useStore, useSticky, useUI, useUISlice } from "./hooks";
 import { getFeed, getLighthouse, type PickHit } from "./services";
 import type { HarbourUIStore } from "./store";
-import { DEV_OVERRIDE_KEYS } from "../readings/bind";
+import { DEV_OVERRIDE_KEYS, OFFICE_WORKS_HOLD, TIDE_FULL_SCALE_PCT, TIDE_SLACK_PCT, type OfficeState } from "../readings/bind";
+import type { EventsService } from "../model/event-hub";
+import { dayBookLine } from "../model/events";
 
 type Raw = Record<string, unknown>;
 const raw = (store: HarbourUIStore, key: string): Raw | null => {
@@ -99,6 +101,7 @@ function PanelContent({ hit, titleRef }: { hit: PickHit; titleRef: React.RefObje
     case "far-ports": return <FarPortsPanel model={model} titleRef={titleRef} />;
     case "the-roads": return <RoadsPanel titleRef={titleRef} />;
     case "harbourmaster": return <HarbourmasterPanel titleRef={titleRef} />;
+    case "tide-gauge": return <TidePanel model={model} titleRef={titleRef} />;
     case "chartroom": return <ChartRoomPanel model={model} titleRef={titleRef} />;
     case "keeperslog": return <KeepersLogPanel model={model} titleRef={titleRef} />;
     case "registry": return <RegistryPanel model={model} titleRef={titleRef} />;
@@ -122,6 +125,7 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
   const truth = store.getSnapshot().model?.truth.stablecoins;
   const sub = `${b.name} · ${vesselKind(b.rig, b.hullClass)}`;
   const ch = (v: number | null) => <b className={v == null ? "" : v > 0.0005 ? "hb-up" : v < -0.0005 ? "hb-down" : ""}>{pctChange(v)}</b>;
+  const signal = stormSignalLine(b, store.getSnapshot().model?.truth.stress.state === "current");
   return (
     <>
       <Head kicker="Vessel" title={b.symbol} sub={sub} logo={<Logo src={b.logo} label={b.symbol} color={b.brandColor} />} titleRef={titleRef} />
@@ -136,6 +140,7 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
             <div><span className="hb-sc">7 d</span>{ch(prev("circulatingPrevWeek"))}</div>
             <div><span className="hb-sc">30 d</span>{ch(prev("circulatingPrevMonth"))}</div>
           </div>
+          {b.maiden && <p className="hb-caption">Maiden voyage: {MAIDEN_LINE}, with no supply on record a week or a month ago.</p>}
         </Sec>
 
         {b.state !== "wrecked" && <CircuitSec b={b} />}
@@ -158,6 +163,7 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
             <dt>Early warning</dt>
             <dd>{b.dews ? <span className="hb-band" style={{ "--band": DEWS_INK[b.dews] } as React.CSSProperties}>{titleCase(b.dews)}{b.dewsScore != null ? <em>&nbsp;{Math.round(b.dewsScore)}</em> : null}</span> : <em>not covered</em>}</dd>
             <dt>Safety grade</dt><dd>{b.grade ?? <em>unrated</em>}</dd>
+            {signal && <><dt>Storm signal</dt><dd>{signal}</dd></>}
           </dl>
         </Sec>
 
@@ -489,6 +495,65 @@ function HarbourmasterPanel({ titleRef }: { titleRef: P["titleRef"] }) {
             {s.stats.outings != null && <p className="hb-caption">A boat out for a sail is decoration: a loop out of its own harbour and back to the same berth.</p>}
           </Sec>
         )}
+        <DayBook />
+      </div>
+    </>
+  );
+}
+
+const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+/** The Day book: every confirmed change since the viewer arrived (model/events.ts), newest first. */
+function DayBook() {
+  const store = useStore();
+  const ev = store.ctx.services.get("events") as EventsService | undefined;
+  const [, bump] = useState(0);
+  useEffect(() => ev?.subscribe(() => bump((n) => n + 1)), [ev]);
+  if (!ev) return null;
+  const book = ev.book;
+  return (
+    <Sec title={`Day book · since you arrived at ${clock(ev.arrivedAtMs)}`}>
+      {book.length ? (
+        <ol className="hb-list hb-daybook">
+          {book.slice(0, 40).map((e) => {
+            const line = dayBookLine(e, clock(e.atMs));
+            return (
+              <li key={e.id}>
+                {e.coinId ? <button type="button" className="hb-row" onClick={() => store.select({ kind: "boat", id: e.coinId! })}><span>{e.dev ? <em>{line}</em> : line}</span></button>
+                  : <div className="hb-row"><span>{e.dev ? <em>{line}</em> : line}</span></div>}
+              </li>
+            );
+          })}
+        </ol>
+      ) : <p className="hb-empty">Nothing has changed since you arrived.</p>}
+      {book.length > 40 && <p className="hb-caption">and {book.length - 40} earlier.</p>}
+      <p className="hb-caption">A change is entered once a second reading in a row confirms it, so a one-poll blip is never recorded. Stale readings, coverage gaps and methodology changes are never entered.</p>
+    </Sec>
+  );
+}
+
+/** The tide gauge's DOM twin: the same /api/chains figure the water column stands at, plus the 24 h and 30 d. */
+function TidePanel({ model, titleRef }: P) {
+  const t = model?.readings.tide;
+  const ch = (v: number | null | undefined) => <b className={v == null ? "" : v > 0.0005 ? "hb-up" : v < -0.0005 ? "hb-down" : ""}>{pctChange(v)}</b>;
+  const slack = t?.change7d != null && Math.abs(t.change7d * 100) < TIDE_SLACK_PCT;
+  return (
+    <>
+      <Head kicker="Landmark · the harbour wall" title="Tide Gauge" sub="all stablecoin supply, week on week" titleRef={titleRef} />
+      <div className="hb-panel-body">
+        {!t?.available || t.change7d == null ? <p className="hb-why">The gauge is dry: there is no supply-change reading. It never shows slack water by default.</p> : (
+          <>
+            <div className="hb-big hb-num" style={{ marginTop: 6 }}>{pctChange(t.change7d)}<small>over 7 d</small></div>
+            <p className="hb-why">The water on the gauge stands at the week’s change in all stablecoin supply: above the datum when it grew, below when it shrank{slack ? "; this week it is slack water, at the datum" : ""}.</p>
+            <div className="hb-changes">
+              <div><span className="hb-sc">24 h</span>{ch(t.change24h)}</div>
+              <div><span className="hb-sc">7 d</span>{ch(t.change7d)}</div>
+              <div><span className="hb-sc">30 d</span>{ch(t.change30d)}</div>
+            </div>
+            <p className="hb-caption">Scale: the brass pins mark ±0.5, 1 and {TIDE_FULL_SCALE_PCT} %, on a square-root scale; ±{TIDE_FULL_SCALE_PCT} % or more stands the water at full height. Under {TIDE_SLACK_PCT} % is slack water. Only the 7-day figure moves the water.{t.stale ? " The reading is stale, so the column is grey." : ""}</p>
+          </>
+        )}
+        {model && <Freshness label="Chain data" state={model.truth.chains.state} ageSec={model.truth.chains.ageSec} />}
       </div>
     </>
   );
@@ -500,6 +565,8 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
   const visitors = (model?.boats ?? []).map((b) => ({ b, usd: b.chainShares.find((c) => c.chain === chain)?.usd ?? 0 }))
     .filter((x) => x.usd > 0).sort((a, b) => b.usd - a.usd);
   const chainRow = ((raw(store, "chains")?.chains as Raw[] | undefined) ?? []).find((c) => c.name === chain);
+  const officeState = (store.ctx.services.get("readings") as { offices?: Readonly<Record<string, OfficeState>> } | undefined)?.offices?.[chain];
+  const office = officeLine(officeState, chainRow?.change30dPct as number | undefined);
   return (
     <>
       <Head kicker={h?.piered === false ? "Far port" : CHAIN_COLOR[chain] ? `${chain} harbour · harbour office` : "Harbour"} title={chain} sub={h ? `${share(h.share)} of all stablecoin supply` : undefined}
@@ -515,6 +582,7 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
             </div>
             <p className="hb-why">{h.visitors} {h.visitors === 1 ? "boat calls" : "boats call"} here. A pier’s length and its berths follow the supply it holds.</p>
             {h.piered && CHAIN_COLOR[chain] && <p className="hb-caption">Know it by the harbour office with the {chain} crest, the house flag and awnings in its colour, and its name lettered on the water.</p>}
+            {h.piered && CHAIN_COLOR[chain] && office && <p className="hb-caption">{office}. {officeState === "works" ? `Under works from +8 % until the gain falls below +${OFFICE_WORKS_HOLD * 100} %` : "Furled at −8 % or worse"}; a 30-day horizon, unlike the Harbourmaster’s flags for the last 24 h.</p>}
             <Sec title="Largest callers">
               <BoatList rows={visitors.slice(0, 10).map(({ b, usd }) => ({ id: b.id, label: <><b>{b.symbol}</b> <em>{share(usd / h.supplyUsd)}</em></>, value: money(usd) }))} />
             </Sec>

@@ -2,15 +2,17 @@ import * as THREE from "three";
 import type { BeamService } from "../beam/beam-system";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourFeed } from "../data/fetch";
-import type { HarbourModel } from "../model/types";
+import type { HarbourModel, StormFlag } from "../model/types";
+import { HarbourEventHub } from "../model/event-hub";
+import type { EventKind } from "../model/events";
 import type { OceanService } from "../ocean/ocean-system";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import type { LightsService } from "../lights/lights-service";
 import type { LighthouseService } from "../world/lighthouse-system";
 import { getHarbourMaterials } from "../world/materials";
 import {
-  applyDevOverrides, deriveTargets, DEV_OVERRIDE_KEYS, TIDE_FULL_SCALE_PCT,
-  type AlertCoin, type LampStep, type LandmarkId, type LandmarkReading, type TideReading, type WorldTargets,
+  applyDevCueOverrides, applyDevOverrides, deriveTargets, DEV_OVERRIDE_KEYS, TIDE_FULL_SCALE_PCT,
+  type AlertCoin, type LampStep, type LandmarkId, type LandmarkReading, type OfficeState, type TideReading, type WorldTargets,
 } from "./bind";
 import { StaleFog } from "./fog";
 import { StormCones, type SignalRig } from "./storm-cones";
@@ -26,6 +28,11 @@ import { TideGauge } from "./tide-gauge";
  *
  * Dev only: ?psi=TREMOR|none ?psiScore=55 ?offpeg=0.06 ?dews=ALERT ?cones=3 ?tide=-0.8 ?stale=1
  * (see bind.ts applyDevOverrides). The engine's own ?sea= ?cloud= ?wind= ?lamp= ?reach= win.
+ * D-3 cues (dev): ?stormflags=N ?maiden=N|id,id ?office=Ethereum:works,Tron:furled (bind.ts applyDevCueOverrides).
+ * ?moment=<kind>[:<coin id>] (dev) puts one synthetic event (marked "(dev)") through the Day book and the
+ * rarity budget once the fleet is in, for the lanes that stage moments.
+ *
+ * Service 'events' (model/event-hub.ts): the event detector, the rarity scheduler and the Day book.
  */
 export interface ReadingsService {
   /** Bumped whenever the targets change. */
@@ -49,6 +56,12 @@ export interface ReadingsService {
   readonly alerts: readonly AlertCoin[];
   /** Sea fog now, 0..1 (only ever non-zero when the fleet data is stale/unavailable). */
   readonly fog: number;
+  /** DA-04: coins flying a masthead storm signal, worst first, ≤ 5 (render from here: dev ?stormflags=N applies). */
+  readonly stormFlags: readonly StormFlag[];
+  /** DA-07: coin ids on their maiden voyage (render from here: dev ?maiden= applies). */
+  readonly maidens: readonly string[];
+  /** T6: chain name → harbour office state (works ≥ +8 % 30 d, held to +6 %; furled ≤ −8 %; neutral when stale). */
+  readonly offices: Readonly<Record<string, OfficeState>>;
   /** True when dev URL overrides are bending the readings. */
   readonly overridden: boolean;
   subscribe(fn: () => void): () => void;
@@ -94,6 +107,10 @@ export class ReadingsSystem implements WorldSystem {
   /** The Pharos lamp glass: its own material so it can go dark (unknown PSI) and take the lamp colour. */
   private lensMat: THREE.MeshStandardMaterial | null = null;
   private readonly lensLevel: THREE.IUniform<number> = { value: 1 };
+  /** The 'events' service (model/event-hub.ts): detector + rarity scheduler + Day book. */
+  private readonly events = new HarbourEventHub(Date.now());
+  /** Dev only: `?moment=<kind>[:<coin id>]` injects one synthetic event once the fleet is in. */
+  private devMoment: string | null = import.meta.env.DEV ? this.q.get("moment") : null;
 
   init(ctx: EngineContext): void {
     this.fx = acquireFxTextures(ctx);
@@ -116,10 +133,27 @@ export class ReadingsSystem implements WorldSystem {
       get pennant() { return sys.targets?.pennant ?? false; },
       get alerts() { return sys.targets?.alerts ?? []; },
       get fog() { return sys.fogS; },
+      get offices() { return sys.targets?.offices ?? {}; },
+      get stormFlags() { return sys.targets?.stormFlags ?? []; },
+      get maidens() { return sys.targets?.maidens ?? []; },
       get overridden() { return sys.dev; },
       subscribe(fn) { sys.listeners.add(fn); return () => sys.listeners.delete(fn); },
     };
     ctx.services.set("readings", svc);
+    ctx.services.set("events", this.events);
+  }
+
+  /** After every model build: the event detector reads the accepted readings (the sim already reacted). */
+  private observeEvents(ctx: EngineContext, model: HarbourModel, nowMs: number, reduced: boolean): void {
+    const feed = ctx.services.get("feed") as HarbourFeed | undefined;
+    if (feed) this.events.observe(model, feed.payloads, nowMs, reduced);
+    if (this.devMoment && model.hasFleet && model.boats.length) {
+      const [kind, id] = this.devMoment.split(":");
+      this.devMoment = null;
+      const b = model.boats.find((x) => x.id === id) ?? model.boats.find((x) => x.state !== "wrecked") ?? model.boats[0];
+      this.events.inject({ id: `dev:${kind}:${nowMs}`, kind: kind as EventKind, atMs: nowMs, firstSeenMs: nowMs, endpoint: "stablecoins",
+        coinId: b.id, symbol: b.symbol, field: "dev", from: null, to: null, text: `(dev) ${kind} · ${b.symbol}` }, nowMs, reduced);
+    }
   }
 
   /** Island + lighthouse nodes load after this system's init: bind them on the first frames. */
@@ -184,8 +218,10 @@ export class ReadingsSystem implements WorldSystem {
       model,
       chainsChange7d: chains?.globalChange7dPct,
       stablecoinsAttempted: feed?.payloads.stablecoins !== undefined,
+      chainRows: chains?.chains,
+      prevOffices: this.targets?.offices,
     });
-    if (this.dev) t = applyDevOverrides(t, this.q);
+    if (this.dev) t = applyDevCueOverrides(applyDevOverrides(t, this.q), this.q, model);
     this.targets = t;
     this.version++;
     this.cones?.setCount(t.cones, t.pennant);
@@ -195,14 +231,15 @@ export class ReadingsSystem implements WorldSystem {
   update(frame: FrameState, ctx: EngineContext): void {
     const dt = frame.delta;
     const model = ctx.services.get("model") as HarbourModel | undefined;
-    if (model && model !== this.model) { this.model = model; this.retarget(ctx, model); }
+    const motion = ctx.services.get("motion") as MotionLike | undefined;
+    const reduced = motion?.reduced ?? (import.meta.env.DEV && this.q.get("motion") === "reduce");
+    if (model && model !== this.model) { this.model = model; this.retarget(ctx, model); this.observeEvents(ctx, model, frame.nowMs, reduced); }
+    this.events.tick(frame.nowMs, reduced);
     this.bindLandmarks(ctx);
     this.bindSignal(ctx);
     const t = this.targets;
     if (!t) return;
     const U = ctx.uniforms;
-    const motion = ctx.services.get("motion") as MotionLike | undefined;
-    const reduced = motion?.reduced ?? (import.meta.env.DEV && this.q.get("motion") === "reduce");
 
     // ---- 1. PSI → the Pharos (rhythm, lamp colour, lit) and the beam (reach, colour)
     // until /api/stability-index has been tried the Pharos keeps its boot state (SYNCING is not "unlit")
@@ -282,6 +319,7 @@ export class ReadingsSystem implements WorldSystem {
     this.cones?.dispose();
     this.lensMat?.dispose();
     ctx.services.delete("readings");
+    ctx.services.delete("events");
   }
 }
 
