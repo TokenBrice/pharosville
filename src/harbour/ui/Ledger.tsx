@@ -63,12 +63,12 @@ const G = { fill: "none", stroke: "currentColor", strokeWidth: 1.2, strokeLineca
 const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: string }> = [
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M7 30h16M9 30V20h12v10M11 20V12h8v8M13 12V7h4v5" /><path {...G} d="M15 7c-1.5-1.5 0-3 0-4 1 1 2.5 2 0 4" /><path {...G} d="M18 6l22-4M18 7l22 5" strokeDasharray="2 2.5" /></svg>,
-    title: "The Pharos", rule: "The beam’s rhythm is the stability band.", more: "A fire in the lantern, thrown out to sea by a bronze mirror. A slow, wide sweep is a calm market; a faster, shorter beam is stress. A dark lantern means no reading.",
+    title: "The Pharos", rule: "The beam’s rhythm is the stability band.", more: "A fire in the lantern, thrown out to sea by a bronze mirror. A slow, wide sweep is a calm market; a faster, shorter beam is stress. A dark lantern means no reading. Its light passes over the ships and walls it reaches; a horn shutter narrows it when the index was computed without early-warning data.",
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M10 24h22l-3 4H13zM21 24V6M21 7l9 14h-9M20 9l-7 12h7" /></svg>,
     title: "Boats", rule: "Every stablecoin is one boat. Boats visit each chain in proportion to their supply there; sailing is not a bridge transfer.",
-    more: "Hull size follows supply; the rig follows the peg currency. The sail carries the coin’s colours.",
+    more: "Hull size follows supply; the rig follows the peg currency. The sail carries the coin’s colours. A lit bronze stern lantern means the coin has a peg reading. A boat dressed overall in signal flags is new to the register this week or launched while you watch. Wind, heel and sails are decorative; only the wind’s strength follows the weather.",
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M14 24h18l-3 4H17zM23 24V10M23 11l7 11h-7" /><path {...G} d="M10 18c-5-8 6-15 13-15s16 5 14 13" strokeDasharray="2.5 2.5" /><path {...G} d="M35 14l2 2.5 2.5-2" /></svg>,
@@ -78,7 +78,7 @@ const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: strin
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M5 13h36M5 23h36" strokeWidth={0.6} /><text x="23" y="21" textAnchor="middle" fontSize="8.5" letterSpacing="1.6" fill="currentColor" fontStyle="italic" fontWeight={600}>ETH</text></svg>,
     title: "Harbours and chart lettering", rule: "Each chain’s harbour carries its name, crest and colours.",
-    more: "The name is lettered on the water like a sea chart; its harbour office flies the chain’s crest. The Shoals, the Far Ports, Wreck Cove and the Roads are lettered where they lie. Lettering fades as you zoom in and at night.",
+    more: "The name is lettered on the water like a sea chart; its harbour office flies the chain’s crest. The Shoals, the Far Ports, Wreck Cove and the Roads are lettered where they lie. Lettering fades as you zoom in and at night. Building works at an office: the chain’s supply grew 8 % or more over 30 days; awnings rolled up: it shrank 8 % or more.",
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M4 30h18M6 30V18h14v12M9 18V6h3v12M14 18V9h3v9" /><path {...G} d="M10 5c-2-2 1-3 0-4M15 8c-2-2 1-3 0-4" strokeDasharray="1.5 1.5" /><path {...G} d="M28 30h14M30 30l2-6h6l2 6" /><path {...G} d="M35 23c-3-3-1-6 0-9 1 3 4 5 0 9z" /></svg>,
@@ -96,7 +96,7 @@ const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: strin
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M12 22h20a6 6 0 0 0 0-12 8 8 0 0 0-15-2 6 6 0 0 0-5 14zM16 26l-2 4M24 26l-2 4M32 26l-2 4" /></svg>,
-    title: "Weather", rule: "Weather is early-warning stress.", more: "Cloud and wind follow the supply-weighted early-warning level. The storm-signal station hoists one cone per coin at Alert or worse.",
+    title: "Weather", rule: "Weather is early-warning stress.", more: "Cloud and wind follow the supply-weighted early-warning level. The storm-signal station hoists one cone per coin at Alert or worse, and the five worst coins fly the same shape at their own masthead: early warning, not a depeg. Weather rolling in from the horizon is the reading rising; a clearing line, a rainbow or a moonbow, a recovery.",
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M6 12h26M12 17h28M6 22h24M14 27h20" strokeDasharray="5 3" /></svg>,
@@ -104,11 +104,11 @@ const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: strin
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><circle {...G} cx="16" cy="17" r="6" /><path {...G} d="M16 6v3M16 25v3M5 17h3M24 17h3M8 9l2 2M22 23l2 2M8 25l2-2M22 11l2-2" /><path {...G} d="M36 11a7 7 0 1 0 4 12 6 6 0 0 1-4-12z" /></svg>,
-    title: "Light and time of day", rule: "Light and time of day follow your clock and are decorative.", more: "Night brings windows, riding lights and pier lamps; it carries no data.",
+    title: "Light and time of day", rule: "Light and time of day follow your clock and are decorative.", more: "Night brings windows, riding lights and pier lamps, lit outward from the Pharos at dusk; it carries no data. So are the moon’s phase, meteors, the distance haze, sun shadows on the water, the seasons, the townsfolk and animals, and the trees moving in the wind.",
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M8 26c6-2 12-2 18 0s10 2 14 0M12 24l6-10 10 2 4 8M18 14l-2-6" /></svg>,
-    title: "Wreck Cove", rule: "Every grey hulk is a stablecoin that died.", more: "Each carries an epitaph; open the cove or the Wrecks tab to read them.",
+    title: "Wreck Cove", rule: "Every grey hulk is a stablecoin that died.", more: "Each carries an epitaph; open the cove or the Wrecks tab to read them. A coin that dies is towed in by the harbour tug, which carries no data.",
   },
 ];
 
