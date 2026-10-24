@@ -10,11 +10,11 @@ import { MAX_CONES } from "./bind";
  * another (top slot first), come down in reverse and swing a little in the DEWS wind; each carries a red lantern at
  * night. Reduced motion: placed at once, no swing, no flutter.
  */
-type Shape = "cone" | "drum";
+export type Shape = "cone" | "drum";
 /** The signal from the top: the first `level` shapes are hoisted. */
 const SHAPES: readonly Shape[] = ["cone", "cone", "drum", "drum"];
-const CONE_R = 1.5, CONE_H = 2.9;
-const DRUM_R = 1.12, DRUM_H = 2.4;
+export const CONE_R = 1.5, CONE_H = 2.9;
+export const DRUM_R = 1.12, DRUM_H = 2.4;
 const HOIST_SEC = 2.4;
 const LANTERN_R = 0.34;  // the night signal: a red lantern on each hoisted shape
 const LANTERN_HEX = "#FF4430";
@@ -41,9 +41,9 @@ function shapeGeometry(kind: Shape): THREE.BufferGeometry {
 }
 
 /** Static per-shape vertex data: rest positions, normals, colours and indices (re-posed into the one draw each frame). */
-interface ShapeData { pos: Float32Array; nrm: Float32Array; col: Float32Array; idx: ArrayLike<number> }
+export interface ShapeData { pos: Float32Array; nrm: Float32Array; col: Float32Array; idx: ArrayLike<number> }
 
-function shapeData(kind: Shape): ShapeData {
+export function shapeData(kind: Shape): ShapeData {
   const g = shapeGeometry(kind);
   const d = {
     pos: (g.attributes.position.array as Float32Array).slice(), nrm: (g.attributes.normal.array as Float32Array).slice(),
