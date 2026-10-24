@@ -167,6 +167,7 @@ export class SkySystem implements WorldSystem {
   private readonly tmp = new THREE.Vector3();
   private readonly moonDir = new THREE.Vector3();
   private readonly glint = new THREE.Vector3();
+  private readonly strikeDir = new THREE.Vector3();
   private readonly tmpC = new THREE.Color();
   private shadowDrift = (Date.now() / 1000) % 5000;
 
@@ -436,10 +437,15 @@ export class SkySystem implements WorldSystem {
         g.gain = [g.gain[0] * (1 - 0.06 * gloom), g.gain[1] * (1 - 0.05 * gloom), g.gain[2] * (1 - 0.02 * gloom)];
       }
       if (flash > 1e-3) {
-        // a cold blue-white flash on everything the sky lights (the hemisphere and fill lights copy these next)
+        // a cold blue-white flash on everything the sky lights (the hemisphere and fill lights copy these next).
+        // L7: most of it comes FROM the strike — the shadowless fill light turns toward its azimuth at ~25°, so the
+        // faces toward the storm flare and the lee sides stay dark; the hemisphere keeps a little (peak below v1.2).
         const fk = flash * (0.55 + 0.9 * night);
-        W.uHemiSky.value.r += 0.55 * fk; W.uHemiSky.value.g += 0.6 * fk; W.uHemiSky.value.b += 0.78 * fk;
+        W.uHemiSky.value.r += 0.25 * fk; W.uHemiSky.value.g += 0.27 * fk; W.uHemiSky.value.b += 0.35 * fk;
         W.uFillColor.value.r += 0.9 * fk; W.uFillColor.value.g += 1.0 * fk; W.uFillColor.value.b += 1.25 * fk;
+        const el = 25 * D2R, k = THREE.MathUtils.smoothstep(flash, 0, 0.35);
+        const sd = this.strikeDir.set(Math.sin(wx.flash.azimuth) * Math.cos(el), Math.sin(el), -Math.cos(wx.flash.azimuth) * Math.cos(el));
+        W.uFillDir.value.lerp(sd, k).normalize();
         W.uAmbient.value.r += 0.25 * fk; W.uAmbient.value.g += 0.28 * fk; W.uAmbient.value.b += 0.36 * fk;
       }
     } else this.u.uPrecipSky.value.set(0, 0, 0, 0);
