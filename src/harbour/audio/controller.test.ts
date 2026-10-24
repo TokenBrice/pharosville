@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { anniversaryToday } from "../model/anniversary";
-import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, weatherInputs } from "./controller";
+import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, weatherInputs } from "./feed";
 import { birdThinning, cicadaLevel, dayClock, hourStrikes, settleDb, settleRate } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {

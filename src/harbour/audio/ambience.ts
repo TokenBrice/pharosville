@@ -1017,6 +1017,18 @@ export class Ambience {
     this.knell = { level: Math.max(0, Math.min(1, level)), pan };
   }
 
+  private music: GainNode | null = null;
+  /** Where the (separately loaded) music joins the mix: after the settle and the snow hush, with a little of the slap-back. */
+  musicIn(): AudioNode {
+    if (!this.music) {
+      this.music = this.ac.createGain();
+      this.music.connect(this.out);
+      const send = this.ac.createGain(); send.gain.value = 0.25;
+      this.music.connect(send).connect(this.echo);
+    }
+    return this.music;
+  }
+
   /** A UI cue: one tiny paper-or-wood sound, centred, dry (no echo, no distance). */
   cue(name: CueName): void {
     if (this.disposed || !CUE_KIND[name]) return;
