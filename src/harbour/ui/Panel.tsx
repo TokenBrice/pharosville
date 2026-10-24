@@ -230,6 +230,7 @@ function PharosPanel({ model, titleRef }: P) {
           <>
             <div className="hb-big hb-num" style={{ marginTop: 6 }}>{p.score.toFixed(1)}<small><span className="hb-band" style={{ "--band": PSI_INK[p.band ?? ""] } as React.CSSProperties}>{titleCase(p.band ?? "")}</span></small></div>
             <p className="hb-why">A fire burns in the lantern and a bronze mirror throws it out to sea. The beam’s rhythm is the stability band{p.sweepSec ? `: one sweep every ${Math.round(lh?.period ?? p.sweepSec)} seconds` : ""}; its reach follows the score.</p>
+            {p.qualified && <p className="hb-why">Computed without early-warning data: a horn shutter narrows the beam until those inputs return.</p>}
             <Sec title="Last 30 days">
               <Sparkline values={histScores} dates={histDates} label={`PSI over the last ${hist.length} days, now ${p.score.toFixed(1)}`} />
               <dl className="hb-dl" style={{ marginTop: 8 }}>

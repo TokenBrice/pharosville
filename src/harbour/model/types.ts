@@ -28,7 +28,7 @@ export type ChainRow = Pick<ChainSummary, "id" | "name" | "totalUsd"> & Partial<
 export interface ChainsPayload extends Partial<Pick<ChainsResponse, "globalTotalUsd" | "unattributedTotalUsd" | "globalChange24hPct" | "globalChange7dPct" | "globalChange30dPct">> { chains: ChainRow[] }
 
 export interface StabilityPayload {
-  current: (Pick<StabilityIndexCurrent, "score" | "band"> & Partial<Pick<StabilityIndexCurrent, "avg24h" | "computedAt">>) | null;
+  current: (Pick<StabilityIndexCurrent, "score" | "band"> & Partial<Pick<StabilityIndexCurrent, "avg24h" | "computedAt" | "inputDegradation">>) | null;
 }
 export type PegCoinRow = Pick<PegSummaryCoin, "id" | "currentDeviationBps" | "activeDepeg"> & Partial<Pick<PegSummaryCoin, "pegScore">>;
 export interface PegSummaryPayload { coins: PegCoinRow[] }
@@ -162,6 +162,11 @@ export interface PsiReading {
   reach: number | null;
   lamp: "white" | "amber" | "red" | null;
   stale: boolean;
+  /**
+   * Lit, but computed without early-warning inputs (`current.inputDegradation.dewsUnavailable` or
+   * `.depegEventsUnavailable` true): the horn shutter narrows the beam; the Pharos panel says so.
+   */
+  qualified: boolean;
 }
 
 export interface SeaStateReading {

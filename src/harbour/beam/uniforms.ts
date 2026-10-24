@@ -16,6 +16,20 @@ export interface BeamUniforms {
   uBeamShape: THREE.IUniform<THREE.Vector4>;
   /** weight of the opposite (back) beam foot on the sea: 0 for the Pharos's single mirror beam */
   uBeamBack: THREE.IUniform<number>;
+  /**
+   * Shared falloff so every consumer of the beam's LIGHT (beam-light-glsl.ts: kit, fleet, lamp sprites, plume)
+   * agrees with the shaft: x along-beam decay length (m), y radius at the mirror (m), z tan(cone half-angle)
+   * (narrowed by the horn shutter), w reach 0..1 (eased).
+   */
+  uBeamFall: THREE.IUniform<THREE.Vector4>;
+  /** The beam's light on what it crosses: lamp colour × gain (night-weighted, 0 by day / unlit). */
+  uBeamLight: THREE.IUniform<THREE.Color>;
+  /** Daylight heliograph: rgb = sun colour × mirror albedo × gain (× 1 − DEWS cloud), w = landing distance (m). */
+  uBeamSun: THREE.IUniform<THREE.Vector4>;
+  /** Firelight down the tower: rgb = fire colour × level × flicker, w = night 0..1. */
+  uPharosFire: THREE.IUniform<THREE.Vector4>;
+  /** The Pharos's axis: x, z of the tower, y = its foot (world); w unused. */
+  uPharosAxis: THREE.IUniform<THREE.Vector4>;
 }
 
 const KEY = "beam:uniforms";
@@ -29,6 +43,11 @@ export function getBeamUniforms(ctx: EngineContext): BeamUniforms {
       uBeamCol: { value: new THREE.Color(0, 0, 0) },
       uBeamShape: { value: new THREE.Vector4(520, 0.07, 0.03, 0) },
       uBeamBack: { value: 0 },
+      uBeamFall: { value: new THREE.Vector4(100, 2.3, 0.05, 0) },
+      uBeamLight: { value: new THREE.Color(0, 0, 0) },
+      uBeamSun: { value: new THREE.Vector4(0, 0, 0, 120) },
+      uPharosFire: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uPharosAxis: { value: new THREE.Vector4(0, -1000, 0, 0) },
     };
     ctx.services.set(KEY, u);
   }

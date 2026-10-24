@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { WorldUniforms } from "../engine/uniforms";
+import { LAMP_WAVE_GLSL, lampWaveUniforms } from "../lights/lamp-wave";
 
 /**
  * The fleet's own night lights, one Points draw: a small soft lamp per lit hull plus a short,
@@ -16,6 +17,8 @@ attribute vec3 aInfo;   // size (m), kind (0 lamp | 1 streak), water y
 uniform vec2 uResolution;
 uniform float uGlow;
 uniform float uSea;     // 0 calm … 1 rough: streak length and break-up
+uniform float uWindowGlow;
+${LAMP_WAVE_GLSL}
 varying vec3 vColor;
 varying float vKind;
 varying float vAspect;
@@ -47,6 +50,9 @@ void main() {
   gl_PointSize = px;
   gl_Position = c;
   vColor = aColor * uGlow;
+  // the lamplighting wave (05-P3): the riding lights take their moment from where the hull lies
+  float wg = smoothstep(0.18, 0.5, uWindowGlow);
+  if (wg > 1e-3) vColor *= smoothstep(0.18, 0.5, hbLampGlow(uWindowGlow, hbLampRank(position, vSeed))) / wg;
 }`;
 
 const FRAG = /* glsl */ `
@@ -100,7 +106,7 @@ export class RidingLights {
     g.setDrawRange(0, 0);
     this.geo = g;
     this.mat = new THREE.ShaderMaterial({
-      uniforms: { uResolution: u.uResolution, uTime: u.uTime, uGlow: { value: 0 }, uSea: { value: 0.3 } },
+      uniforms: { uResolution: u.uResolution, uTime: u.uTime, uGlow: { value: 0 }, uSea: { value: 0.3 }, uWindowGlow: u.uWindowGlow, ...lampWaveUniforms },
       vertexShader: VERT, fragmentShader: FRAG,
       // additive colour, alpha untouched (later passes read the frame's alpha)
       transparent: true, depthWrite: false, depthTest: true, blending: THREE.CustomBlending,

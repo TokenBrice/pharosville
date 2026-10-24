@@ -126,7 +126,7 @@ export class ReadingsSystem implements WorldSystem {
         const f = sys.targets?.flows;
         return { net24hUsd: f?.net24hUsd ?? null, scope: f?.scope ?? [], available: f?.available ?? false, stale: f?.stale ?? false };
       },
-      get psi() { return sys.targets?.psi ?? { lit: false, sweepSec: 12, reach: 0, lamp: 0 as LampStep, band: null, score: null }; },
+      get psi() { return sys.targets?.psi ?? { lit: false, sweepSec: 12, reach: 0, lamp: 0 as LampStep, band: null, score: null, qualified: false }; },
       get cones() { return sys.targets?.cones ?? null; },
       get stormBand() { return sys.targets?.weather?.band ?? null; },
       get weather() { return sys.targets?.weather ?? null; },
@@ -286,6 +286,7 @@ export class ReadingsSystem implements WorldSystem {
         }
       }
       if (t.psi.reach !== this.lastReach && !this.q.has("reach")) { this.lastReach = t.psi.reach; beam.setReach(t.psi.reach); }
+      beam.setQualified?.(t.psi.qualified === true);
     }
 
     // ---- 2. sea state (the ocean eases its own swell)

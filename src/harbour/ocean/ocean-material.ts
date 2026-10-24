@@ -60,6 +60,7 @@ uniform vec3 uBeamPos, uBeamCol;
 uniform float uBeamAngle;
 uniform vec4 uBeamShape;
 uniform float uBeamBack;
+uniform vec4 uBeamSun;     // 05-P2 heliograph: rgb sun × mirror × gain (0 by night / overcast), w landing distance
 uniform float uDebug;
 // town lights (lights system's top-down pool RT): reflected in the water at night
 uniform sampler2D uPoolTex;
@@ -383,6 +384,14 @@ void main() {
       float w = 2.0 + along * tan(uBeamShape.y) * 1.25;
       float foot = exp(-pow(lat / w, 2.0) * 1.6) * smoothstep(0.0, 40.0, along) * exp(-along / (uBeamShape.x * 0.55));
       beam += uBeamCol * foot * (0.05 + bspec * 7.0 * sparkMask) * (k == 0 ? 1.0 : uBeamBack);
+    }
+    // 05-P2 the heliograph by day: the mirror's sun coin crossing the water (same ellipse as beam-light-glsl.ts)
+    if (dot(uBeamSun.rgb, vec3(1.0)) > 1e-4) {
+      vec2 hbd = vec2(cos(uBeamAngle), sin(uBeamAngle));
+      float ha = (dot(rel, hbd) - uBeamSun.w) / (16.0 + uBeamSun.w * 0.14);
+      float hb = abs(rel.x * hbd.y - rel.y * hbd.x) / (7.0 + uBeamSun.w * 0.05);
+      float coin = exp(-(ha * ha + hb * hb) * 1.6) * step(0.0, dot(rel, hbd));
+      beam += uBeamSun.rgb * coin * (0.3 + bspec * 4.0 * sparkMask);
     }
     // the fire's own reflection: a soft column under the lantern (through the calm envelope normal) with a few
     // capped ripple twinkles inside it, not a wide spray of sparks across the basin; it swells on the mirror's flash
