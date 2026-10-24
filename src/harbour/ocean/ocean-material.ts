@@ -386,9 +386,12 @@ void main() {
       vec2 bd = vec2(cos(a), sin(a));
       float along = dot(rel, bd);
       float lat = abs(rel.x * bd.y - rel.y * bd.x);
-      float w = 2.0 + along * tan(uBeamShape.y) * 1.25;
-      float foot = exp(-pow(lat / w, 2.0) * 1.6) * smoothstep(0.0, 40.0, along) * exp(-along / (uBeamShape.x * 0.55));
-      beam += uBeamCol * foot * (0.05 + bspec * 7.0 * sparkMask) * (k == 0 ? 1.0 : uBeamBack);
+      // the shaft rides ~85 m up: what reaches the water is scattered light, a broad soft swath (the same width
+      // as the beam's light on the town, beam-light-glsl.ts) that gathers away from the tower; a narrow bright
+      // track running from the tower's foot read as a second, lower beam
+      float w = (2.3 + along * tan(uBeamShape.y)) * 2.2 + 4.0;
+      float foot = exp(-pow(lat / w, 2.0) * 1.4) * smoothstep(30.0, 90.0, along) * exp(-along / (uBeamShape.x * 0.55));
+      beam += uBeamCol * foot * (0.025 + bspec * 3.5 * sparkMask) * (k == 0 ? 1.0 : uBeamBack);
     }
     // 05-P2 the heliograph by day: the mirror's sun coin crossing the water (same ellipse as beam-light-glsl.ts)
     if (dot(uBeamSun.rgb, vec3(1.0)) > 1e-4) {
