@@ -112,7 +112,7 @@
 .hb-intro b { font-weight: 600; font-size: 17.5px; line-height: 1.2; }
 .hb-intro span { font-style: italic; font-size: 15px; color: var(--ink-2); line-height: 1.35; }
 .hb-intro .hb-intro-keys { font-style: normal; font-size: 13.5px; color: var(--ink-3); margin-top: 3px; }
-.hb-intro kbd, .hb-caption kbd {
+.hb-intro kbd, .hb-caption kbd, .hb-follow kbd, .hb-keylist kbd, .hb-watch kbd {
   font-family: var(--serif); font-size: 12px; font-weight: 600; min-width: 16px; height: 16px; padding: 0 4px;
   display: inline-grid; place-items: center; border: 0.5px solid var(--brass); border-radius: 2px;
   background: rgba(255, 250, 235, 0.5); color: var(--ink-2); position: relative; top: -1px;
@@ -166,17 +166,10 @@
 .hb-where { display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; font-size: 15px; color: var(--ink); }
 .hb-where::before { content: ""; width: 5px; height: 5px; transform: rotate(45deg); background: var(--brass); }
 /* follow her (F): a quiet toggle beside the whereabouts */
-.hb-follow {
-  margin: 10px 0 0 12px; padding: 2px 7px 2px 4px; border-radius: 2px; font-size: 13.5px; font-style: italic;
-  color: var(--ink-3); vertical-align: 1px; transition: background-color 150ms var(--ease), color 150ms var(--ease);
-}
-.hb-follow:hover { background: rgba(166, 130, 66, 0.13); color: var(--ink); }
+.hb-follow { margin: 10px 0 0 12px; padding: 2px 7px 2px 4px; font-size: 13.5px; font-style: italic; color: var(--ink-3); }
+.hb-follow:hover, .hb-postcard button:hover, .hb-postcard a:hover { background: rgba(166, 130, 66, 0.13); color: var(--ink); }
 .hb-follow[aria-pressed="true"] { color: var(--brass-ink); }
-.hb-follow kbd, .hb-ledger kbd {
-  font-family: var(--serif); font-size: 12px; font-weight: 600; font-style: normal; min-width: 16px; height: 16px; padding: 0 4px;
-  display: inline-grid; place-items: center; border: 0.5px solid var(--brass); border-radius: 2px; margin-right: 4px;
-  background: rgba(255, 250, 235, 0.5); color: var(--ink-2); position: relative; top: -1px;
-}
+.hb-follow kbd, .hb-keylist kbd, .hb-watch kbd { font-style: normal; margin-right: 4px; }
 
 .hb-sec { margin-top: 20px; }
 .hb-sec-h { display: flex; align-items: center; gap: 10px; color: var(--brass-ink); margin: 0 0 9px; }
@@ -460,11 +453,9 @@
 
 /* the ledger's keyboard list (Legend tab foot) */
 .hb-keylist { margin-top: 22px; padding-top: 12px; border-top: 0.5px solid var(--brass-soft); }
-.hb-keylist h3 { margin: 0 0 8px; font-size: 13px; color: var(--brass-ink); font-weight: 600; }
-.hb-keylist dl { margin: 0; display: grid; gap: 5px; }
-.hb-keylist dl > div { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: baseline; }
-.hb-keylist dt { white-space: nowrap; }
-.hb-keylist dd { margin: 0; font-style: italic; font-size: 15px; color: var(--ink-2); }
+.hb-keylist h3 { margin: 0 0 8px; font-size: 13px; color: var(--brass-ink); }
+.hb-keylist dl > div { display: grid; grid-template-columns: 92px 1fr; gap: 10px; margin-top: 5px; }
+.hb-keylist dd { margin: 0; font-style: italic; color: var(--ink-2); }
 
 /* ------------------------------------------------------------------ chart-paper unroll (12-M9)
    The side panel and the ledger open as an unrolled chart: a top-down clip reveal (280 ms; the clip box
@@ -472,48 +463,17 @@
    Closing is a plain 160 ms fade (the clip snaps back once it is gone). The bottom sheet keeps its rise.
    Reduced motion: instant (.hb-reduced). */
 @media (min-width: 900px) {
-  .hb-panel.hb-fade, .hb-ledger.hb-fade {
-    clip-path: inset(-24px -24px calc(100% + 24px) -24px);
-    transition: opacity 160ms var(--ease), transform 160ms var(--ease), clip-path 0s linear 170ms;
-  }
-  .hb-panel.hb-fade[data-shown="true"], .hb-ledger.hb-fade[data-shown="true"] {
-    clip-path: inset(-24px -24px -36px -24px);
-    transition: opacity 200ms var(--ease), transform 280ms var(--ease), clip-path 280ms cubic-bezier(0.3, 0.6, 0.25, 1);
-  }
-  .hb-panel-head::after {
-    content: ""; position: absolute; left: 26px; right: 26px; bottom: 0; height: 1px; background: var(--brass-soft);
-    transform: scaleX(0); transform-origin: left center; transition: transform 0s linear 170ms;
-  }
-  .hb-panel[data-shown="true"] .hb-panel-head::after {
-    transform: scaleX(1); transition: transform 320ms cubic-bezier(0.3, 0.6, 0.25, 1) 140ms;
-  }
-  .hb-reduced .hb-panel.hb-fade, .hb-reduced .hb-ledger.hb-fade,
-  .hb-reduced .hb-panel-head::after { transition-duration: 1ms !important; transition-delay: 0s !important; }
+  :is(.hb-panel, .hb-ledger).hb-fade { clip-path: inset(-24px -24px calc(100% + 24px)); transition: opacity 160ms, transform 160ms, clip-path 0s 170ms; }
+  :is(.hb-panel, .hb-ledger).hb-fade[data-shown="true"] { clip-path: inset(-24px -24px -36px); transition: opacity 200ms, transform 280ms var(--ease), clip-path 280ms var(--ease); }
+  .hb-panel-head::after { content: ""; position: absolute; inset: auto 26px 0; height: 1px; background: var(--brass-soft); transform: scaleX(0); transform-origin: left; transition: transform 0s 170ms; }
+  .hb-panel[data-shown="true"] .hb-panel-head::after { transform: none; transition: transform 320ms var(--ease) 140ms; }
+  .hb-reduced :is(.hb-panel, .hb-ledger, .hb-panel-head)::after, .hb-reduced :is(.hb-panel, .hb-ledger).hb-fade { transition-duration: 1ms !important; transition-delay: 0s !important; }
 }
 
 /* ------------------------------------------------------------------ postcard (P, 12-M10) */
 .hb-ui.hb-capturing > * { visibility: hidden; }
-.hb-postcard-veil { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(20, 18, 14, 0.42); pointer-events: auto; z-index: 40; }
-.hb-postcard { padding: 16px 16px 12px; width: min(78vw, 1100px); max-height: calc(100vh - 56px); display: flex; flex-direction: column; gap: 10px; }
-.hb-postcard img { display: block; width: 100%; height: auto; min-height: 0; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(40, 30, 10, 0.25)); }
-.hb-postcard-actions { display: flex; justify-content: flex-end; gap: 6px; }
-.hb-postcard-btn {
-  padding: 4px 12px; border-radius: 2px; font-size: 15px; color: var(--ink-2); text-decoration: none;
-  border: 0.5px solid var(--brass); background: rgba(255, 250, 235, 0.5); transition: background-color 150ms var(--ease), color 150ms var(--ease);
-}
-.hb-postcard-btn:hover { background: rgba(166, 130, 66, 0.13); color: var(--ink); }
 
 /* ------------------------------------------------------------------ the harbourmaster's watch (W, 12-M7b) */
-.hb-watch {
-  position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
-  padding: 6px 14px 7px; font-size: 15px; color: var(--ink); white-space: nowrap; pointer-events: none;
-  display: flex; align-items: baseline; gap: 8px; max-width: calc(100vw - 28px); overflow: hidden;
-}
+.hb-watch { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 6px 14px 7px; font-size: 15px; white-space: nowrap; display: flex; align-items: baseline; gap: 8px; }
 .hb-watch .hb-sc { font-size: 12px; color: var(--brass-ink); }
-.hb-watch em { color: var(--ink-2); }
-.hb-watch-key { font-size: 13px; color: var(--ink-3); margin-left: 6px; }
-.hb-watch kbd {
-  font-family: var(--serif); font-size: 12px; font-weight: 600; min-width: 16px; height: 16px; padding: 0 4px;
-  display: inline-grid; place-items: center; border: 0.5px solid var(--brass); border-radius: 2px; margin-right: 4px;
-  background: rgba(255, 250, 235, 0.5); color: var(--ink-2); position: relative; top: -1px;
-}
+.hb-watch em, .hb-watch-key { color: var(--ink-2); }
