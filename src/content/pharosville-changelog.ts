@@ -12,9 +12,9 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
-    id: "2026-10-24-living-harbour",
+    id: "2026-10-25-living-harbour",
     version: PHAROSVILLE_RELEASE_VERSIONS.livingHarbour,
-    date: "2026-10-24",
+    date: "2026-10-25",
     title: "Living Harbour",
     summary: "The harbour comes alive: the fleet rides at anchor instead of scattering like confetti, one wind moves sea, sails, trees and sky, the Pharos's light falls on the world it watches, weather rolls in from the horizon, the hinterland is farmed and inhabited, and the data's real moments are staged, sparingly, and written down.",
     bullets: [

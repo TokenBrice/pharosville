@@ -2,7 +2,7 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
-## v1.4.0 - 2026-10-24 - Living Harbour
+## v1.4.0 - 2026-10-25 - Living Harbour
 
 The harbour comes alive: the fleet rides at anchor instead of scattering like confetti, one wind moves sea, sails, trees and sky, the Pharos's light falls on the world it watches, weather rolls in from the horizon, the hinterland is farmed and inhabited, and the data's real moments are staged, sparingly, and written down.
 
