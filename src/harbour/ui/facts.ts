@@ -3,7 +3,8 @@
  * so the hover tag, the panel and the tests all read the same words.
  */
 import deadJson from "@shared/data/dead-stablecoins.json";
-import type { Boat, HarbourModel } from "../model/types";
+import type { Boat, HarbourModel, StormSignalShape } from "../model/types";
+import type { OfficeState } from "../readings/bind";
 import { deadRecords, FAMILIES } from "../model/obituary";
 import { bps, money, monthYear, pctChange, share, titleCase } from "./format";
 
@@ -52,9 +53,33 @@ export function whereLine(b: Boat, w: Whereabouts): string {
   }
 }
 
-/** "USDT · $184.0B · alongside Tron". */
+/** DA-04: the words for a hoisted masthead signal (hover and panel say the same). */
+export const SIGNAL_HOISTED = "signal hoisted: early warning, not a depeg";
+/** A signal on a coin that IS off peg: the depeg is told by the Shoals, never by the signal. */
+export const SIGNAL_HOISTED_DEPEG = "signal hoisted: early warning; the Shoals tell the depeg";
+const signalWords = (b: Boat) => (b.activeDepeg ? SIGNAL_HOISTED_DEPEG : SIGNAL_HOISTED);
+const SHAPE_WORDS: Record<StormSignalShape, string> = { cone: "a cone", drum: "a drum", "cone+drum": "a cone and a drum" };
+
+/** "USDT · $184.0B · alongside Tron" (+ " · signal hoisted: early warning, not a depeg" under a DA-04 signal). */
 export function boatFact(b: Boat, w: Whereabouts): string {
-  return [b.symbol, money(b.supply), whereLine(b, w)].filter(Boolean).join(" · ");
+  return [b.symbol, money(b.supply), whereLine(b, w), b.stormSignal ? signalWords(b) : ""].filter(Boolean).join(" · ");
+}
+
+/** DA-04 Boat panel line, or null when she flies no signal and is not at Alert or worse. */
+export function stormSignalLine(b: Boat, stressCurrent: boolean): string | null {
+  if (b.stormSignal) return `${SHAPE_WORDS[b.stormSignal]} at the masthead, ${signalWords(b)}`;
+  if (stressCurrent && (b.dews === "ALERT" || b.dews === "WARNING" || b.dews === "DANGER")) return "none at the masthead: only the five worst early-warning scores hoist one";
+  return null;
+}
+
+/** DA-07 Boat panel line. */
+export const MAIDEN_LINE = "new to the register this week";
+
+/** T6 chain panel line for an office state, from the same 30-day figure (a fraction), or null when neutral. */
+export function officeLine(state: OfficeState | undefined, change30d: number | null | undefined): string | null {
+  if (state === "works") return `Office under works: supply ${pctChange(change30d, 1)} over 30 d`;
+  if (state === "furled") return `Awnings furled: ${pctChange(change30d, 1)} over 30 d`;
+  return null;
 }
 
 /** The single sentence that explains the boat's position from the data. */

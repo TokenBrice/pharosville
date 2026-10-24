@@ -3,7 +3,7 @@ import type { DeadStablecoin } from "@shared/types/market";
 import { causeFamily } from "./obituary";
 import type {
   Boat, ChainsPayload, ConditionBand, DewsBand, EndpointTruth, FlowsReading, HarbourReadings, MintBurnPayload,
-  PsiReading, SeaStateReading, StabilityPayload, TideFactsReading, WeatherReading,
+  CoinRow, PsiReading, SeaStateReading, StabilityPayload, StormFlag, StormSignalShape, TideFactsReading, WeatherReading,
 } from "./types";
 
 const PSI_BANDS = new Set<string>(Object.keys(PSI_SWEEP_DURATION));
@@ -113,4 +113,65 @@ export function wrecks(dead: readonly DeadStablecoin[]): HarbourReadings["wrecks
   return [...dead]
     .sort((a, b) => (a.deathDate < b.deathDate ? -1 : a.deathDate > b.deathDate ? 1 : a.id < b.id ? -1 : 1))
     .map((d) => ({ id: d.id, name: d.name, symbol: d.symbol, cause: d.causeOfDeath, family: causeFamily(d), deathDate: d.deathDate, peakMcap: d.peakMcap ?? null }));
+}
+
+// ------------------------------------------------------------------ D-3 cues (PLAN §6)
+
+/** DA-04: at most this many coins fly a masthead storm signal (the station's "up to five"). */
+export const STORM_FLAGS_MAX = 5;
+/** DA-04: the masthead shape per band, the Storm-signal Station's vocabulary. */
+export const STORM_SIGNAL_SHAPE: Partial<Record<DewsBand, StormSignalShape>> = { ALERT: "cone", WARNING: "drum", DANGER: "cone+drum" };
+
+/**
+ * DA-04: live coins at DEWS ALERT or worse, worst score first (supply breaks ties), at most STORM_FLAGS_MAX, each
+ * with its shape. Stale or unavailable stress → [] (the neutral pose: no signal, never a calm one claimed).
+ */
+export function stormFlags(boats: readonly Boat[], stress: EndpointTruth): StormFlag[] {
+  if (stress.state !== "current") return [];
+  const out: StormFlag[] = [];
+  for (const b of boats) {
+    if (b.state === "wrecked" || b.dews == null) continue;
+    const shape = STORM_SIGNAL_SHAPE[b.dews];
+    if (shape) out.push({ id: b.id, symbol: b.symbol, band: b.dews, score: b.dewsScore, shape });
+  }
+  const sup = new Map(boats.map((b) => [b.id, b.supply]));
+  return out.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || (sup.get(b.id) ?? 0) - (sup.get(a.id) ?? 0) || (a.id < b.id ? -1 : 1)).slice(0, STORM_FLAGS_MAX);
+}
+
+/**
+ * DA-07: above this share of coins without a week-ago supply, the gaps are the producer's, not a week of
+ * launches, and no coin is called new. (Live 2026-10-24: 83 of 624 coins, PAXG among them, had no
+ * `circulatingPrevWeek`, so the cue stays dark until the producer fills the bucket.)
+ */
+export const MAIDEN_MAX_GAP_SHARE = 0.02;
+
+const bucketSum = (o: Record<string, number> | null | undefined) => {
+  let s = 0;
+  for (const v of Object.values(o ?? {})) if (typeof v === "number" && Number.isFinite(v)) s += v;
+  return s;
+};
+
+/** No week-ago supply (absent or 0) while supply now is positive. */
+export function lacksWeekAgo(row: Pick<CoinRow, "circulating" | "circulatingPrevWeek">): boolean {
+  return bucketSum(row.circulating) > 0 && bucketSum(row.circulatingPrevWeek) <= 0;
+}
+
+/** Share of coins with supply now that lack a week-ago supply (the producer-gap test). */
+export function weekAgoGapShare(rows: ReadonlyArray<Pick<CoinRow, "circulating" | "circulatingPrevWeek">>): number {
+  let n = 0, gap = 0;
+  for (const r of rows) {
+    if (bucketSum(r.circulating) <= 0) continue;
+    n++;
+    if (bucketSum(r.circulatingPrevWeek) <= 0) gap++;
+  }
+  return n > 0 ? gap / n : 0;
+}
+
+/**
+ * DA-07 maiden voyage: `circulatingPrevWeek` absent/0 AND `circulatingPrevMonth` absent/0 (a coin with a
+ * month-ago supply is not new this week) AND `circulating` > 0 AND /api/stablecoins current AND the feed-wide
+ * gap share ≤ MAIDEN_MAX_GAP_SHARE.
+ */
+export function isMaiden(row: Pick<CoinRow, "circulating" | "circulatingPrevWeek" | "circulatingPrevMonth">, feedCurrent: boolean, gapShare: number): boolean {
+  return feedCurrent && gapShare <= MAIDEN_MAX_GAP_SHARE && lacksWeekAgo(row) && bucketSum(row.circulatingPrevMonth) <= 0;
 }

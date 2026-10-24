@@ -114,7 +114,18 @@ export interface Boat {
   dewsScore: number | null;
   grade: string | null;
   state: BoatState;
+  /**
+   * DA-07 maiden voyage: new to the register this week (model/readings.ts isMaiden). False when the feed is not
+   * current or too many coins lack a week-ago supply (a producer gap, not a week of launches).
+   */
+  maiden: boolean;
+  /** DA-04: the storm signal at her masthead (one of the ≤ 5 worst DEWS ALERT+ coins), or null. */
+  stormSignal: StormSignalShape | null;
 }
+
+/** DA-04 masthead shape, in the Storm-signal Station's vocabulary: ALERT cone, WARNING drum, DANGER cone + drum. */
+export type StormSignalShape = "cone" | "drum" | "cone+drum";
+export interface StormFlag { id: string; symbol: string; band: DewsBand; score: number | null; shape: StormSignalShape }
 
 export interface Harbour {
   chain: string;
@@ -199,6 +210,8 @@ export interface HarbourReadings {
   seaState: SeaStateReading;
   weather: WeatherReading;
   flows: FlowsReading;
+  /** DA-04: the coins flying a storm signal at the masthead, worst first, ≤ STORM_FLAGS_MAX; [] when stress is not current. */
+  stormFlags: StormFlag[];
   /** Storm cones hoisted: one per ALERT+ coin, max 5; `extra` is the "+N". null = unknown. */
   stormCones: { count: number; shown: number; extra: number } | null;
   shoals: Array<{ id: string; bps: number | null; supply: number }>;

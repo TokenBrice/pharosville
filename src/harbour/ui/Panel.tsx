@@ -5,7 +5,7 @@ import type { HarbourLayout } from "../layout/types";
 import type { Boat, HarbourModel } from "../model/types";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { ChainSplit, chainLogo, Crest, DEWS_INK, FlowBars, Freshness, Logo, PSI_INK, Sparkline, TideBars } from "./bits";
-import { circuitStops, flowTotals, obituaryText, quoted, whereLine, whyHere, wreckDate } from "./facts";
+import { circuitStops, flowTotals, MAIDEN_LINE, obituaryText, officeLine, quoted, stormSignalLine, whereLine, whyHere, wreckDate } from "./facts";
 import { age, bps, causeName, MINUS, money, pctChange, pegName, share, titleCase, vesselKind } from "./format";
 import { CHAIN_COLOR, placeName, scopeName } from "./places";
 import { expectedLabel, groupYard, launchedFromYard, PHASE_NAME, PHASES, STAGE_NAME, STAGE_OF, UPCOMING_URL, yardCoins, type YardCoin } from "./yard";
@@ -17,7 +17,7 @@ const signed = (v: number) => (v < 0 ? MINUS : "") + Math.abs(v).toFixed(2);
 import { usePresence, useStore, useSticky, useUI, useUISlice } from "./hooks";
 import { getFeed, getLighthouse, type PickHit } from "./services";
 import type { HarbourUIStore } from "./store";
-import { DEV_OVERRIDE_KEYS, TIDE_FULL_SCALE_PCT, TIDE_SLACK_PCT } from "../readings/bind";
+import { DEV_OVERRIDE_KEYS, OFFICE_WORKS_HOLD, TIDE_FULL_SCALE_PCT, TIDE_SLACK_PCT, type OfficeState } from "../readings/bind";
 import type { EventsService } from "../model/event-hub";
 import { dayBookLine } from "../model/events";
 
@@ -125,6 +125,7 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
   const truth = store.getSnapshot().model?.truth.stablecoins;
   const sub = `${b.name} · ${vesselKind(b.rig, b.hullClass)}`;
   const ch = (v: number | null) => <b className={v == null ? "" : v > 0.0005 ? "hb-up" : v < -0.0005 ? "hb-down" : ""}>{pctChange(v)}</b>;
+  const signal = stormSignalLine(b, store.getSnapshot().model?.truth.stress.state === "current");
   return (
     <>
       <Head kicker="Vessel" title={b.symbol} sub={sub} logo={<Logo src={b.logo} label={b.symbol} color={b.brandColor} />} titleRef={titleRef} />
@@ -139,6 +140,7 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
             <div><span className="hb-sc">7 d</span>{ch(prev("circulatingPrevWeek"))}</div>
             <div><span className="hb-sc">30 d</span>{ch(prev("circulatingPrevMonth"))}</div>
           </div>
+          {b.maiden && <p className="hb-caption">Maiden voyage: {MAIDEN_LINE}, with no supply on record a week or a month ago.</p>}
         </Sec>
 
         {b.state !== "wrecked" && <CircuitSec b={b} />}
@@ -161,6 +163,7 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
             <dt>Early warning</dt>
             <dd>{b.dews ? <span className="hb-band" style={{ "--band": DEWS_INK[b.dews] } as React.CSSProperties}>{titleCase(b.dews)}{b.dewsScore != null ? <em>&nbsp;{Math.round(b.dewsScore)}</em> : null}</span> : <em>not covered</em>}</dd>
             <dt>Safety grade</dt><dd>{b.grade ?? <em>unrated</em>}</dd>
+            {signal && <><dt>Storm signal</dt><dd>{signal}</dd></>}
           </dl>
         </Sec>
 
@@ -562,6 +565,8 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
   const visitors = (model?.boats ?? []).map((b) => ({ b, usd: b.chainShares.find((c) => c.chain === chain)?.usd ?? 0 }))
     .filter((x) => x.usd > 0).sort((a, b) => b.usd - a.usd);
   const chainRow = ((raw(store, "chains")?.chains as Raw[] | undefined) ?? []).find((c) => c.name === chain);
+  const officeState = (store.ctx.services.get("readings") as { offices?: Readonly<Record<string, OfficeState>> } | undefined)?.offices?.[chain];
+  const office = officeLine(officeState, chainRow?.change30dPct as number | undefined);
   return (
     <>
       <Head kicker={h?.piered === false ? "Far port" : CHAIN_COLOR[chain] ? `${chain} harbour · harbour office` : "Harbour"} title={chain} sub={h ? `${share(h.share)} of all stablecoin supply` : undefined}
@@ -577,6 +582,7 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
             </div>
             <p className="hb-why">{h.visitors} {h.visitors === 1 ? "boat calls" : "boats call"} here. A pier’s length and its berths follow the supply it holds.</p>
             {h.piered && CHAIN_COLOR[chain] && <p className="hb-caption">Know it by the harbour office with the {chain} crest, the house flag and awnings in its colour, and its name lettered on the water.</p>}
+            {h.piered && CHAIN_COLOR[chain] && office && <p className="hb-caption">{office}. {officeState === "works" ? `Under works from +8 % until the gain falls below +${OFFICE_WORKS_HOLD * 100} %` : "Furled at −8 % or worse"}; a 30-day horizon, unlike the Harbourmaster’s flags for the last 24 h.</p>}
             <Sec title="Largest callers">
               <BoatList rows={visitors.slice(0, 10).map(({ b, usd }) => ({ id: b.id, label: <><b>{b.symbol}</b> <em>{share(usd / h.supplyUsd)}</em></>, value: money(usd) }))} />
             </Sec>
