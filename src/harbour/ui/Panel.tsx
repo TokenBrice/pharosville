@@ -127,6 +127,7 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
       <Head kicker="Vessel" title={b.symbol} sub={sub} logo={<Logo src={b.logo} label={b.symbol} color={b.brandColor} />} titleRef={titleRef} />
       <div className="hb-panel-body">
         {whereLine(b, w) && <div className="hb-where">{titleCase(whereLine(b, w).charAt(0)) + whereLine(b, w).slice(1)}</div>}
+        <FollowToggle id={b.id} underWay={w.kind === "sailing" || w.kind === "casting-off" || w.kind === "outing"} />
         <p className="hb-why">{whyHere(b, w)}</p>
 
         <Sec title="Supply">
@@ -174,6 +175,19 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
         {truth && <Freshness label="Supply data" state={truth.state} ageSec={truth.ageSec} />}
       </div>
     </>
+  );
+}
+
+/** Follow her (F): a quiet toggle while she is under way; hidden under reduced motion (the world is still). */
+function FollowToggle({ id, underWay }: { id: string; underWay: boolean }) {
+  const store = useStore();
+  const following = useUISlice((s) => s.follow) === id;
+  const reduced = useUISlice((s) => s.reducedMotion);
+  if (reduced || (!underWay && !following)) return null;
+  return (
+    <button type="button" className="hb-follow" aria-pressed={following} onClick={() => store.setFollow(following ? null : id)}>
+      <kbd>F</kbd>{following ? "following" : "follow her"}
+    </button>
   );
 }
 

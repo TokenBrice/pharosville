@@ -7,6 +7,9 @@ import { Ledger } from "./Ledger";
 import { SidePanel } from "./Panel";
 import { Search } from "./Search";
 
+/** Arrow keys pan. (No WASD: W is the opt-in watch, D-5, and half a WASD set would only confuse.) */
+const PAN_KEYS: Record<string, "up" | "down" | "left" | "right"> = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 
 export function HarbourUI() {
@@ -15,6 +18,7 @@ export function HarbourUI() {
   const selected = useUISlice((s) => s.selected);
   const chartMode = useUISlice((s) => s.chartMode);
   const reducedMotion = useUISlice((s) => s.reducedMotion);
+  const announce = useUISlice((s) => s.announce);
   // focus to return to when the topmost layer closes
   const returnTo = useRef<HTMLElement | null>(null);
   const remember = () => {
@@ -54,9 +58,20 @@ export function HarbourUI() {
       else if (e.key === "l" || e.key === "L") { e.preventDefault(); if (!s.ledgerOpen) remember(); store.set({ ledgerOpen: !s.ledgerOpen }); }
       else if (e.key === "c" || e.key === "C") { e.preventDefault(); store.set({ chartMode: !s.chartMode }); }
       else if (e.key === "h" || e.key === "H" || e.key === "Home") { e.preventDefault(); store.goHome(); }
+      else if (PAN_KEYS[e.key] && !(e.target instanceof HTMLElement && e.target.closest(".hb-panel, .hb-ledger"))) { e.preventDefault(); store.keyPan(PAN_KEYS[e.key], true); }
+      else if (e.key === "+" || e.key === "=") { e.preventDefault(); store.keyZoom(1); }
+      else if (e.key === "-" || e.key === "_") { e.preventDefault(); store.keyZoom(-1); }
+      else if (e.key === "]") { e.preventDefault(); store.stepHull(1); }
+      else if (e.key === "[") { e.preventDefault(); store.stepHull(-1); }
+      else if ((e.key === "f" || e.key === "F") && !e.repeat) { e.preventDefault(); store.toggleFollow(); }
     };
+    // a released key always stops its pan (even when focus moved into a field meanwhile)
+    const onKeyUp = (e: KeyboardEvent) => { if (PAN_KEYS[e.key]) store.keyPan(PAN_KEYS[e.key], false); };
+    const onBlur = () => { for (const d of ["up", "down", "left", "right"] as const) store.keyPan(d, false); };
     addEventListener("keydown", onKey);
-    return () => removeEventListener("keydown", onKey);
+    addEventListener("keyup", onKeyUp);
+    addEventListener("blur", onBlur);
+    return () => { removeEventListener("keydown", onKey); removeEventListener("keyup", onKeyUp); removeEventListener("blur", onBlur); };
   }, [store, closeSearch, closePanel, closeLedger]);
 
   // opening the panel from the ledger/search: remember where focus was before the panel took it (the
@@ -85,7 +100,7 @@ export function HarbourUI() {
       <Ledger onClose={closeLedger} />
       <SidePanel onClose={closePanel} />
       <Search onClose={closeSearch} />
-      <div className="hb-sr" aria-live="polite">{chartMode ? "Chart mode on: names shown." : ""}{searchOpen ? "Search open." : ""}</div>
+      <div className="hb-sr" aria-live="polite">{chartMode ? "Chart mode on: names shown." : ""}{searchOpen ? "Search open." : ""}{announce}</div>
     </div>
   );
 }

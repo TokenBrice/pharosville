@@ -165,6 +165,18 @@
 .hb-why { margin: 14px 0 0; font-style: italic; font-size: 16.5px; line-height: 1.42; color: var(--ink-2); }
 .hb-where { display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; font-size: 15px; color: var(--ink); }
 .hb-where::before { content: ""; width: 5px; height: 5px; transform: rotate(45deg); background: var(--brass); }
+/* follow her (F): a quiet toggle beside the whereabouts */
+.hb-follow {
+  margin: 10px 0 0 12px; padding: 2px 7px 2px 4px; border-radius: 2px; font-size: 13.5px; font-style: italic;
+  color: var(--ink-3); vertical-align: 1px; transition: background-color 150ms var(--ease), color 150ms var(--ease);
+}
+.hb-follow:hover { background: rgba(166, 130, 66, 0.13); color: var(--ink); }
+.hb-follow[aria-pressed="true"] { color: var(--brass-ink); }
+.hb-follow kbd, .hb-ledger kbd {
+  font-family: var(--serif); font-size: 12px; font-weight: 600; font-style: normal; min-width: 16px; height: 16px; padding: 0 4px;
+  display: inline-grid; place-items: center; border: 0.5px solid var(--brass); border-radius: 2px; margin-right: 4px;
+  background: rgba(255, 250, 235, 0.5); color: var(--ink-2); position: relative; top: -1px;
+}
 
 .hb-sec { margin-top: 20px; }
 .hb-sec-h { display: flex; align-items: center; gap: 10px; color: var(--brass-ink); margin: 0 0 9px; }
@@ -445,3 +457,11 @@
   .hb-title { font-size: 29px; }
   .hb-chart-badge { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* the ledger's keyboard list (Legend tab foot) */
+.hb-keylist { margin-top: 22px; padding-top: 12px; border-top: 0.5px solid var(--brass-soft); }
+.hb-keylist h3 { margin: 0 0 8px; font-size: 13px; color: var(--brass-ink); font-weight: 600; }
+.hb-keylist dl { margin: 0; display: grid; gap: 5px; }
+.hb-keylist dl > div { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: baseline; }
+.hb-keylist dt { white-space: nowrap; }
+.hb-keylist dd { margin: 0; font-style: italic; font-size: 15px; color: var(--ink-2); }

@@ -8,7 +8,7 @@ const DECAY = 3.5;
 const FLING_MAX = 4200;
 
 /**
- * Camera input on the canvas: mouse drag pans, the wheel zooms; touch: one finger pans (with a glide
+ * Camera input on the canvas: mouse drag pans, the wheel zooms about the cursor; touch: one finger pans (with a glide
  * on release), two fingers pinch-zoom toward their midpoint and pan together. Taps, long-presses and
  * double-taps (selection, the hover tag, home) belong to the UI store, which listens to the same
  * pointer events. The canvas takes `touch-action: none`, so the browser neither scrolls nor
@@ -37,7 +37,12 @@ export class CameraInput {
     on("pointermove", (e) => this.move(e));
     on("pointerup", (e) => this.up(e));
     on("pointercancel", (e) => this.up(e));
-    on("wheel", (e) => { e.preventDefault(); this.rig.zoom(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
+    // the wheel zooms about the cursor, as a pinch zooms about the fingers
+    on("wheel", (e) => {
+      e.preventDefault();
+      const r = this.el.getBoundingClientRect();
+      this.rig.zoomAt(Math.exp(e.deltaY * 0.0012), e.clientX - r.left - this.width / 2, e.clientY - r.top - this.height / 2, this.height);
+    }, { passive: false });
     // a long press is the hover tag, not the browser's context menu / iOS callout
     on("contextmenu", (e) => { if (this.touchSeen) e.preventDefault(); });
   }
