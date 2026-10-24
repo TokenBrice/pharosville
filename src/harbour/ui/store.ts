@@ -5,7 +5,7 @@
  * the sim have advanced and before the composer renders, so DOM tags never lag the hulls.
  */
 import * as THREE from "three";
-import type { CameraPreset } from "../engine/camera-rig";
+import { glideSeconds, glideTravel, type CameraPreset } from "../engine/camera-rig";
 import type { Engine } from "../engine/engine";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { Boat, HarbourModel } from "../model/types";
@@ -274,7 +274,7 @@ export class HarbourUIStore {
     if (hit && opts.fly !== false) this.flyTo(hit);
   }
 
-  /** Damped camera flight (CameraRig goal), keeping the selection clear of the side panel. */
+  /** Camera flight (a minimum-jerk glide; a cut under reduced motion), keeping the selection clear of the side panel. */
   flyTo(hit: PickHit): void {
     const w = this.picking.worldPosition(hit);
     if (!w) return;
@@ -299,17 +299,36 @@ export class HarbourUIStore {
       const down = ((SHEET_FRACTION * vh) / 2) * perPx / Math.sin(rig.pitch);
       tx += Math.sin(rig.yaw) * down; tz += Math.cos(rig.yaw) * down;
     }
-    rig.applyPreset({
+    this.moveTo({
       target: [tx, ty, tz], distance: dist, fovDeg: camera.fov,
       pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
-    }, this.state.reducedMotion);
+    });
   }
 
-  /** Fly back to the framing the visitor landed on. */
-  goHome(): void {
-    // the layout's landing framing for the current aspect (a tablet may have turned round since)
+  /** A programmatic camera move: a glide, or a cut under reduced motion. */
+  moveTo(p: CameraPreset, opts?: { ms?: number; lift?: number }): void {
+    if (this.state.reducedMotion) this.ctx.rig.applyPreset(p, true);
+    else this.ctx.rig.glideTo(p, opts);
+  }
+
+  /** The landing framing for the current aspect (a tablet may have turned round since). */
+  homeView(): CameraPreset {
     const fitted = this.ctx.services.get("home-view") as (() => CameraPreset) | undefined;
-    this.ctx.rig.applyPreset(fitted?.() ?? this.home, this.state.reducedMotion);
+    return fitted?.() ?? this.home;
+  }
+
+  /**
+   * Fly back to the framing the visitor landed on: an unhurried glide (at least 1.6 s, the crane lift
+   * on long hops). Already home, it answers with a breath: a 4 % push-in and back ("here you are").
+   */
+  goHome(): void {
+    const p = this.homeView(), rig = this.ctx.rig;
+    if (this.state.reducedMotion) { rig.applyPreset(p, true); return; }
+    const settled = !rig.gliding && Math.abs(rig.distance - p.distance) < 1
+      && Math.abs(rig.target.x - p.target[0]) < 1 && Math.abs(rig.target.z - p.target[2]) < 1;
+    if (settled) { rig.glideTo(p, { ms: 1600, lift: -0.04 }); return; }
+    const travel = glideTravel(rig.target.x, rig.target.z, rig.distance, p.target[0], p.target[2], p.distance);
+    rig.glideTo(p, { ms: Math.max(1600, glideSeconds(travel) * 1000) });
   }
 
   // ------------------------------------------------------------------ reads
