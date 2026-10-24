@@ -275,7 +275,7 @@ def hf_face(q):
     tw, tf = terrain.terrace_info(c.x, c.y)
     if tw > 0.45:                                   # 08-T1: olive terraces - dry-stone risers, a dry grove floor
         if (tf > 1.0 - terrain.TERRACE_RISER - 0.03 or tf < 0.03) and nz < 0.97:
-            return (jitter_col(lin('#A39985'), 0.92 + 0.16 * nn), PT['rock'])
+            return (jitter_col(lin('#9C9672'), 0.94 + 0.12 * nn), PT['grass'])    # REVIEW #4: a grassed bank under the coping
         return (jitter_col(lin('#93975A'), 0.94 + 0.12 * nn), PT['grass'])
     if nz < 0.34:                                   # only the steepest ground shows granite; the flanks stay turf
         return ((PAL['rock'] if nn > 0.5 else lin('#8A8B86')), PT['rock'])
