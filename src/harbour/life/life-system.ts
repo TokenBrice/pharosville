@@ -13,6 +13,7 @@ import { Gulls } from "./gulls";
 import { ChimneySmoke } from "./smoke";
 import { SeasonalDrift } from "./drift";
 import type { SeasonService } from "../season/season-system";
+import { stormShare } from "./roles";
 import { smokeAmount, townDensity, type Walkways } from "./walkways";
 
 export const WALKWAYS_URL = "/harbour/walkways.json";
@@ -97,6 +98,8 @@ export class LifeSystem implements WorldSystem {
     const lights = ctx.services.get("lights") as LightsService | undefined;
     this.folk = new Townsfolk(walk, mats, { walkers: 150, standers: 34 }, folkGround, ht ? [ht[0], ht[2]] : undefined, lights);
     this.group.add(this.folk.mesh);
+    // dev captures: the cast by role (window.__harbourLife)
+    if (import.meta.env.DEV) (window as unknown as { __harbourLife?: unknown }).__harbourLife = { roles: this.folk.roleCounts() };
 
     const V = (p: readonly number[], dy = 0) => new THREE.Vector3(p[0], p[1] + dy, p[2]);
     const lm = (id: string) => layout.landmarks.find((l) => l.id === id)?.position;
@@ -149,8 +152,10 @@ export class LifeSystem implements WorldSystem {
     // the calendar (declared decorative): fewer folk out in the cold, every hearth lit in winter
     const season = ctx.services.get("season") as SeasonService | undefined;
     const [spring, , autumn, winter] = season?.weights ?? [0, 1, 0, 0];
-    this.bustle = townDensity(hour) * share * (1 - 0.35 * winter);
-    this.folk.update(dt, this.bustle, u.uNight.value, u.uLamp.value * 0.22, moving);
+    // …and fewer in a storm (the DEWS wind): life withdraws from the weather, never the other way round
+    const folkShare = share * (1 - 0.35 * winter) * stormShare(this.wind);
+    this.bustle = townDensity(hour) * folkShare;
+    this.folk.update(dt, hour, folkShare, u.uNight.value, u.uLamp.value * 0.22, moving);
     // gulls stand on the big hulks of Wreck Cove (the fleet's 'cove' service, once its kit has landed)
     if (!this.covePerched && this.gulls) {
       const marks = (ctx.services.get("cove") as { marks?: ReadonlyArray<{ perch: [number, number, number] | null; len: number }> } | undefined)?.marks ?? [];
