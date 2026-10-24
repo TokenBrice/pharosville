@@ -14,6 +14,9 @@ import { rng } from "./walkways";
  * Goats: 2–3 small flocks that graze (head down, a nibble) and amble a few metres at a time, keeping together; at
  * night they stand close and still. Storms (the DEWS wind) only ever take life away: the flock huddles and some
  * go in. Reduced motion: everyone stands still where they are.
+ *
+ * Cats (09-L7): a few sit on the quay copings by day, looking about with a flick of the tail, and doze there at
+ * night, head down. They go in when it storms.
  */
 
 export const BEASTS_URL = "/harbour/kit/life_beasts.glb";
@@ -23,6 +26,7 @@ const KIND_ID: Record<BeastKind, number> = { goat: 0, cat: 1, donkey: 2 };
 const PART_ID: Record<string, number> = { body: 0, head: 1, leg_fl: 2, leg_fr: 3, leg_hl: 4, leg_hr: 5, tail: 6, cart: 7, wheels: 8 };
 /** Drawn a little larger than life so they read as animals at harbour zoom (the gulls' licence). */
 const SCALE: Record<BeastKind, number> = { goat: 1.2, cat: 1.3, donkey: 1.15 };
+const CAT_COATS = ["#C98A4B", "#E9E2D6", "#9A8F84", "#B07A48", "#D8C8B0", "#3A3430"];
 const GOAT_COATS = ["#F2EEE6", "#EDE7DA", "#E3DACA", "#C9B79C", "#8A6A4C", "#6B5240"];
 
 /** Merge the kit's parts into one geometry: position, normal, colour, aCoat, aBP (part, kind), aPivot. */
@@ -131,6 +135,8 @@ interface Beast {
   visible: boolean;
 }
 
+export interface CatSeat { x: number; y: number; z: number; yaw: number }
+
 interface Flock { poly: ReadonlyArray<readonly [number, number]>; cx: number; cz: number; hx: number; hz: number }
 
 export class Herds {
@@ -141,7 +147,7 @@ export class Herds {
   private readonly herd: THREE.InstancedBufferAttribute;
   private readonly herdB: THREE.InstancedBufferAttribute;
 
-  constructor(geo: THREE.BufferGeometry, mats: HarbourMaterials, private readonly ground: HerdGround, pastures: ReadonlyArray<ReadonlyArray<readonly [number, number]>>, seed = 61) {
+  constructor(geo: THREE.BufferGeometry, mats: HarbourMaterials, private readonly ground: HerdGround, pastures: ReadonlyArray<ReadonlyArray<readonly [number, number]>>, cats: readonly CatSeat[] = [], seed = 61) {
     const r = rng(seed);
     // goats: a small flock per pasture (up to three), placed on open, gentle ground inside it
     pastures.slice(0, 3).forEach((poly, f) => {
@@ -162,12 +168,18 @@ export class Herds {
         this.beasts.push(b);
       }
     });
+    // cats: on their copings
+    cats.forEach((c, k) => {
+      const br = rng(seed * 499 + k * 31);
+      this.beasts.push({ kind: "cat", x: c.x, y: c.y, z: c.z, yaw: c.yaw, rank: br(), flock: -1, t: 0, tx: c.x, tz: c.z, graze: 0, gait: 0, walking: false, r: br, visible: true });
+    });
     const N = Math.max(1, this.beasts.length);
     const herd = new Float32Array(N * 4), herdB = new Float32Array(N * 4), tint = new Float32Array(N * 3);
     const c = new THREE.Color();
     this.beasts.forEach((b, i) => {
       herd[i * 4] = KIND_ID[b.kind]; herd[i * 4 + 1] = r();
-      c.set(GOAT_COATS[Math.floor(r() * GOAT_COATS.length)]); c.toArray(tint, i * 3);
+      const coats = b.kind === "cat" ? CAT_COATS : GOAT_COATS;
+      c.set(coats[Math.floor(r() * coats.length)]); c.toArray(tint, i * 3);
     });
     this.herd = new THREE.InstancedBufferAttribute(herd, 4); this.herd.setUsage(THREE.DynamicDrawUsage);
     this.herdB = new THREE.InstancedBufferAttribute(herdB, 4); this.herdB.setUsage(THREE.DynamicDrawUsage);
@@ -212,11 +224,12 @@ export class Herds {
     for (let i = 0; i < this.beasts.length; i++) {
       const b = this.beasts[i];
       b.visible = b.rank < 0.35 + 0.65 * share;
-      if (moving && b.visible) this.stepGoat(b, dt, huddle);
+      if (moving && b.visible && b.kind === "goat") this.stepGoat(b, dt, huddle);
       const gait = moving ? b.gait : 0;
-      H[i * 4 + 2] = moving ? b.graze * (1 - huddle * 0.8) : 0.4;
+      H[i * 4 + 2] = b.kind === "goat" ? (moving ? b.graze * (1 - huddle * 0.8) : 0.4) : 0;
       H[i * 4 + 3] = gait;
-      HB[i * 4] = night > 0.6 ? 0.35 : 0;
+      // asleep: goats lower their heads a little at night; a cat dozes, head down, tail still
+      HB[i * 4] = b.kind === "cat" ? THREE.MathUtils.smoothstep(night, 0.4, 0.8) : night > 0.6 ? 0.35 : 0;
       const s = b.visible ? SCALE[b.kind] : 0;
       const c = Math.cos(b.yaw) * s, sn = Math.sin(b.yaw) * s, o = i * 16;
       e[o] = c; e[o + 1] = 0; e[o + 2] = -sn; e[o + 3] = 0;

@@ -10,7 +10,7 @@ import { getHarbourMaterials } from "../world/materials";
 import { LandFlags } from "./flags";
 import { Townsfolk, type FolkGround } from "./folk";
 import { Dolphins } from "./dolphins";
-import { BEASTS_URL, beastGeometry, Herds } from "./herds";
+import { BEASTS_URL, beastGeometry, Herds, type CatSeat } from "./herds";
 import type { OceanService } from "../ocean/ocean-system";
 import type { WakeService } from "../ocean/wake";
 import type { WeatherService } from "../weather/weather-system";
@@ -39,6 +39,25 @@ export interface LifeService {
 }
 
 interface WindSource { wind?: { fromRad: number; strength: number }; pose?: GullShips }
+
+/** 09-L7: up to six cats on the quay copings near the heart, well apart (a coping top under them, the sea in front). */
+function catSeats(walk: Walkways, g: FolkGround, focus: [number, number] | undefined): CatSeat[] {
+  const out: CatSeat[] = [];
+  const edges = walk.spots.filter((s) => s.kind === "edge" && (!focus || Math.hypot(s.p[0] - focus[0], s.p[2] - focus[1]) < 260));
+  // every sixth spot from the third: where a standing group stands back from the edge (the coping sitters use the others)
+  for (let k = 3; k < edges.length && out.length < 6; k += 6) {
+    const e = edges[k], fx = Math.sin(e.h), fz = Math.cos(e.h);
+    for (const off of [0.95, 0.8, 1.1, 0.65, 1.25]) {
+      const x = e.p[0] + fx * off, z = e.p[2] + fz * off;
+      const y = g.seatHeight(x, z, fx, fz);
+      if (y === null || out.some((c) => Math.hypot(c.x - x, c.z - z) < 30)) continue;
+      // along the coping, or looking out to sea
+      out.push({ x, y: y - 0.01, z, yaw: e.h + (k % 3 === 0 ? 0 : Math.PI / 2) });
+      break;
+    }
+  }
+  return out;
+}
 
 /**
  * LIFE — the declared-decorative inhabitants of the island: townsfolk, gulls, chimney smoke, flags and
@@ -127,7 +146,8 @@ export class LifeSystem implements WorldSystem {
     for (const l of layout.lights ?? []) {
       if (l.kind === "pierhead" || l.kind === "harbourlight") perches.push(V(l.position, 0.42));
     }
-    this.gulls = new Gulls({ circles, perches }, mats, GULLS);
+    const squares = walk.spots.filter((sp) => sp.kind === "square").map((sp) => V(sp.p));
+    this.gulls = new Gulls({ circles, perches, squares }, mats, GULLS);
     this.gulls.busy = new URLSearchParams(location.search).get("gulls") === "busy";
     this.group.add(this.gulls.mesh);
 
@@ -153,7 +173,7 @@ export class LifeSystem implements WorldSystem {
     if (ground && walk.pastures?.length) {
       try {
         const geo = beastGeometry(await ctx.assets.gltf(BEASTS_URL));
-        this.herds = new Herds(geo, mats, ground, walk.pastures);
+        this.herds = new Herds(geo, mats, ground, walk.pastures, folkGround ? catSeats(walk, folkGround, ht ? [ht[0], ht[2]] : undefined) : []);
         this.group.add(this.herds.mesh);
       } catch { this.herds = null; }
     }
@@ -181,7 +201,7 @@ export class LifeSystem implements WorldSystem {
 
     // the calendar (declared decorative): fewer folk out in the cold, every hearth lit in winter
     const season = ctx.services.get("season") as SeasonService | undefined;
-    const [spring, , autumn, winter] = season?.weights ?? [0, 1, 0, 0];
+    const [spring, summer, autumn, winter] = season?.weights ?? [0, 1, 0, 0];
     // …and fewer in a storm (the DEWS wind): life withdraws from the weather, never the other way round
     const folkShare = share * (1 - 0.35 * winter) * stormShare(this.wind);
     this.bustle = townDensity(hour) * folkShare;
@@ -194,11 +214,16 @@ export class LifeSystem implements WorldSystem {
     }
     // 09-L6: the fleet for the gulls (hulls casting off to trail, mastheads to stand on)
     this.gulls?.setShips(sim?.pose ?? null, (ctx.services.get("mastheads") as MastheadService | undefined) ?? null);
-    this.gulls?.update(dt, moving, share > 0.5 ? 1 : 0.5, u.uNight.value);
+    // 09-L7: swallows over the squares at dusk in spring and summer (fewer in a blow)
+    const dusk = THREE.MathUtils.smoothstep(hour, 17.8, 18.5) * (1 - THREE.MathUtils.smoothstep(hour, 20.1, 20.8));
+    this.gulls?.update(dt, moving, share > 0.5 ? 1 : 0.5, u.uNight.value, (spring + summer) * dusk * share * stormShare(this.wind));
     const hearth = 1 + 1.1 * winter + 0.3 * autumn;
     if (this.smoke) this.smoke.uniforms.uSmokeOpacity.value = 0.26 * (1 + 0.35 * winter);
     this.smoke?.update(dt, moving, smokeAmount(hour) * hearth * (0.6 + 0.4 * share), this.windTo, this.wind, u);
-    this.drift?.update(dt, moving, autumn, spring, share, ctx.camera, ctx.rig.target, ctx.rig.distance, u);
+    // 09-L7: summer fireflies, 21–24 h, on calm nights only
+    const fireHours = THREE.MathUtils.smoothstep(hour, 20.8, 21.4) * (1 - THREE.MathUtils.smoothstep(hour, 23.4, 23.95));
+    const fire = THREE.MathUtils.smoothstep(summer, 0.3, 0.8) * fireHours * u.uNight.value * (this.wind < 0.5 ? 1 : 0);
+    this.drift?.update(dt, moving, autumn, spring, share, ctx.camera, ctx.rig.target, ctx.rig.distance, u, fire);
     this.flags?.update(dt, moving, this.windTo, this.wind);
     this.herds?.update(dt, u.uNight.value, share * stormShare(this.wind), moving);
     if (this.dolphins) {

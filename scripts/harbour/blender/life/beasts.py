@@ -142,9 +142,9 @@ def cat():
     for s in (-1, 1):
         head.tri((s * 0.02, -0.17, 0.38), (s * 0.06, -0.15, 0.38), (s * 0.045, -0.17, 0.45), COAT, coat=True)
     tail = Part()
-    tail.box((0.08, 0.1, 0.03), (0.035, 0.18, 0.035), COAT, caps=False)                         # the tail, round the flank
-    tail.box((0.07, -0.02, 0.03), (0.035, 0.1, 0.035), COAT, caps=False)
-    return beast('cat', [('body', body, (0, 0, 0)), ('head', head, (0, -0.13, 0.27)), ('tail', tail, (0.06, 0.16, 0.04))])
+    tail.box((0, 0.2, 0.26), (0.04, 0.04, 0.3), COAT, caps=False)                                # the tail, up behind
+    tail.box((0, 0.17, 0.43), (0.04, 0.09, 0.04), COAT)                                          # …its tip hooked forward
+    return beast('cat', [('body', body, (0, 0, 0)), ('head', head, (0, -0.13, 0.27)), ('tail', tail, (0, 0.18, 0.12))])
 
 
 def donkey():

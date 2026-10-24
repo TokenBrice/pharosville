@@ -18,7 +18,10 @@ import { rng } from "./walkways";
  */
 import type { MastheadService } from "../fleet/mastheads";
 
-const P_BODY = 0, P_WING_IN_L = 1, P_WING_OUT_L = 2, P_WING_IN_R = 3, P_WING_OUT_R = 4;
+const P_BODY = 0, P_WING_IN_L = 1, P_WING_OUT_L = 2, P_WING_IN_R = 3, P_WING_OUT_R = 4, P_FORK = 5;
+/** 09-L7 swallows over the squares at dusk (spring / summer): the same draw, small, dark, a forked tail. */
+const SWALLOWS = 16;
+const SWALLOW_SCALE = 0.3;
 const SPAN_IN = 0.55, SPAN_OUT = 1.2;
 /** Drawn larger than life so a gull reads as a bird, not a speck, at harbour zoom (key-art licence). */
 const GULL_SCALE = 1.35;
@@ -57,6 +60,8 @@ function gullGeometry(): THREE.BufferGeometry {
     push(e0, e1, t1, "#AEB6BD", outer); push(e0, t1, t0, "#AEB6BD", outer);
     push(t0, t1, tip, "#2E3237", outer);
   }
+  // a swallow's forked tail (collapsed on gulls)
+  for (const s of [-1, 1]) push(V(s * 0.03, 0.03, -0.36), V(s * 0.2, 0.03, -0.95), V(s * 0.02, 0.03, -0.5), "#F2EFE8", P_FORK);
   // single-sided wings would vanish from below: duplicate wing triangles with flipped winding
   const n0 = m.pos.length / 3;
   for (let v = 0; v < n0; v += 3) {
@@ -73,11 +78,13 @@ function gullGeometry(): THREE.BufferGeometry {
 const VERTEX_HEAD = /* glsl */ `
 attribute float aPart;
 attribute vec4 aWing;   // x flap amplitude, y phase, z fold 0..1, w flap rate
+attribute float aKind;  // 0 gull, 1 swallow
 uniform float uLifeT;
 vec3 gRotZ(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(p.x * c - p.y * s, p.x * s + p.y * c, p.z); }
 vec3 gullPose(vec3 p, float dir) {
   float part = aPart;
   if (part < 0.5) return p;
+  if (part > 4.5) return (aKind > 0.5 || dir > 0.5) ? p : vec3(0.0);
   float s = (part < 2.5) ? -1.0 : 1.0;
   bool outer = part > 1.5 && part < 2.5 || part > 3.5;
   float ph = uLifeT * aWing.w + aWing.y;
@@ -133,16 +140,21 @@ interface Gull {
   visible: boolean;
 }
 
+interface Swallow { c: THREE.Vector3; rx: number; rz: number; wx: number; wz: number; wy: number; p1: number; p2: number; h: number; rank: number; pos: THREE.Vector3; prev: THREE.Vector3; yaw: number; roll: number }
+
 export interface GullSites {
   /** wheel centres (x, y, z): the mouth, the Pharos, the bay */
   circles: THREE.Vector3[];
   /** perches (top surface point) */
   perches: THREE.Vector3[];
+  /** open squares the swallows hawk over at dusk */
+  squares?: THREE.Vector3[];
 }
 
 export class Gulls {
   readonly mesh: THREE.InstancedMesh;
   private readonly gulls: Gull[] = [];
+  private readonly swallows: Swallow[] = [];
   private readonly wing: THREE.InstancedBufferAttribute;
   readonly uniforms = { uLifeT: { value: 0 } };
   private taken: Int8Array;
@@ -159,6 +171,18 @@ export class Gulls {
     this.wing = new THREE.InstancedBufferAttribute(wing, 4);
     this.wing.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute("aWing", this.wing);
+    const sq = sites.squares?.length ? sites.squares : [];
+    const ns = sq.length ? SWALLOWS : 0;
+    const kind = new Float32Array(n + ns);
+    for (let k = 0; k < ns; k++) {
+      kind[n + k] = 1;
+      const sr = rng(seed * 389 + k * 41);
+      this.swallows.push({
+        c: sq[k % sq.length], rx: 7 + sr() * 9, rz: 7 + sr() * 9, wx: 0.8 + sr() * 0.5, wz: 0.8 + sr() * 0.5, wy: 0.5 + sr() * 0.4,
+        p1: sr() * 6.28, p2: sr() * 6.28, h: 3 + sr() * 4, rank: sr(), pos: new THREE.Vector3(), prev: new THREE.Vector3(), yaw: 0, roll: 0,
+      });
+    }
+    geo.setAttribute("aKind", new THREE.InstancedBufferAttribute(kind, 1));
     for (let i = 0; i < n; i++) {
       const gr = rng(seed * 733 + i * 97);
       const g: Gull = {
@@ -174,8 +198,11 @@ export class Gulls {
       this.gulls.push(g);
     }
     void r;
-    const mat = chainedKitMaterial(mats, "gull", { vertexHead: VERTEX_HEAD, vertexPose: "transformed = gullPose(transformed, 0.0);", normalPose: "objectNormal = normalize(gullPose(objectNormal, 1.0));", uniforms: this.uniforms }, THREE.FrontSide);
-    this.mesh = new THREE.InstancedMesh(geo, mat, n);
+    const mat = chainedKitMaterial(mats, "gull", {
+      vertexHead: VERTEX_HEAD, vertexPose: "transformed = gullPose(transformed, 0.0);", normalPose: "objectNormal = normalize(gullPose(objectNormal, 1.0));",
+      colorPose: "#ifdef USE_COLOR\n  if (aKind > 0.5) vColor.rgb *= vec3(0.16, 0.17, 0.25);\n#endif", uniforms: this.uniforms,
+    }, THREE.FrontSide);
+    this.mesh = new THREE.InstancedMesh(geo, mat, n + ns);
     this.mesh.name = "life-gulls";
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
@@ -277,8 +304,11 @@ export class Gulls {
     return -1;
   }
 
-  /** @param night 0 day … 1 night: by night most gulls settle and stay settled */
-  update(dt: number, moving: boolean, visibleShare: number, night = 0): void {
+  /**
+   * @param night 0 day … 1 night: by night most gulls settle and stay settled
+   * @param swallows share of the swallows out (season × the dusk hours; 0 = none)
+   */
+  update(dt: number, moving: boolean, visibleShare: number, night = 0, swallows = 0): void {
     this.night = night;
     if (moving) this.uniforms.uLifeT.value += dt;
     const w = this.wing.array as Float32Array;
@@ -302,8 +332,36 @@ export class Gulls {
       this.m4.compose(g.pos, this.q, this.s);
       this.m4.toArray(e, i * 16);
     }
+    this.updateSwallows(T, moving ? swallows : 0, w, e);
     this.wing.needsUpdate = true;
     this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Swallows hawking low over the squares: fast swooping loops (a Lissajous figure each), wings a-flicker. */
+  private updateSwallows(T: number, share: number, w: Float32Array, e: Float32Array): void {
+    const n = this.gulls.length;
+    for (let k = 0; k < this.swallows.length; k++) {
+      const b = this.swallows[k], i = n + k;
+      const on = b.rank < share;
+      if (on) {
+        b.prev.copy(b.pos);
+        b.pos.set(b.c.x + b.rx * Math.sin(T * b.wx + b.p1), b.c.y + b.h + 1.6 * Math.sin(T * b.wy + b.p2), b.c.z + b.rz * Math.sin(T * b.wz + b.p2));
+        const dx = b.pos.x - b.prev.x, dz = b.pos.z - b.prev.z;
+        if (dx * dx + dz * dz > 1e-6) {
+          const ty = Math.atan2(dx, dz), turn = Math.atan2(Math.sin(ty - b.yaw), Math.cos(ty - b.yaw));
+          b.yaw = ty; b.roll += (Math.max(-0.9, Math.min(0.9, -turn * 12)) - b.roll) * 0.2;
+        }
+      }
+      // short bursts of fast beats between glides
+      const burst = Math.max(0, Math.sin(T * 1.7 + b.p1 * 3)) ** 3;
+      w[i * 4] = 0.15 + 0.45 * burst; w[i * 4 + 1] = b.p2; w[i * 4 + 2] = 0; w[i * 4 + 3] = 22;
+      const sc = on ? SWALLOW_SCALE : 0;
+      this.e.set(0, b.yaw, b.roll, "YXZ");
+      this.q.setFromEuler(this.e);
+      this.s.set(sc, sc, sc);
+      this.m4.compose(b.pos, this.q, this.s);
+      this.m4.toArray(e, i * 16);
+    }
   }
 
   private step(g: Gull, dt: number, T: number): void {
