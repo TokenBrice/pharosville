@@ -73,14 +73,24 @@ const NIGHT: Omit<TimeKeyframe, "hour"> = {
 export const DEFAULT_KEYFRAMES: TimeKeyframe[] = [
   { hour: 0, ...NIGHT, windowOcc: 0.2 },
   { hour: 4.6, ...NIGHT, night: 0.95, windowGlow: 0.85, windowOcc: 0.12 },
-  // dawn: low pink sun behind the island (back light), cool lavender world
-  { hour: 6.4, sunColor: "#FFB48A", sunIntensity: 3.6, sunAz: 62, sunEl: 5,
-    fillColor: "#8E9BD8", fillIntensity: 0.35, fillAz: 200, fillEl: 35,
-    hemiSky: "#8A93BE", hemiGround: "#C6A6A8", worldK: 0.62,
-    ambient: "#8A93BE", zenith: "#5C6EA4", horizon: "#F6CDB4", haze: "#CBB0B4",
+  // polish #6 first light (~35 min before sunrise): the mirror of dusk, a rose-peach band on the horizon under a
+  // clear blue zenith, the sun's glow just warming the tower tops, lamps still lit; cool blue shade, not lavender-grey
+  { hour: 5.5, sunColor: "#FF8C62", sunIntensity: 1.5, sunAz: 60, sunEl: 1.5,
+    fillColor: "#6E82C4", fillIntensity: 0.3, fillAz: 200, fillEl: 35,
+    hemiSky: "#5A6EA8", hemiGround: "#A08A88", worldK: 0.72,
+    ambient: "#5A6EA8", zenith: "#3A4C8A", horizon: "#F4A88A", haze: "#9C8A9A",
+    fogDensity: 0.0011, night: 0.5, windowGlow: 0.62, exposure: 0.36, bloom: [0.85, 1.05], lamp: 18, lens: 9,
+    windowOcc: 0.42, nightLift: 0.03,
+    grade: { lift: [0.99, 0.99, 1.05], gamma: [1, 1, 1.02], gain: [1.05, 1.0, 0.95], saturation: 1.16, contrast: 1.3, shadowSat: 0.85, blueSat: 0.92, warmSat: 1.1 } },
+  // dawn: low warm sun behind the island (back light). Polish #6: the golden hour's warm/cool split at the other end
+  // of the day: a peach key and warm sunlit side against clear cool-blue shade and sky, no lavender-grey wash
+  { hour: 6.4, sunColor: "#FFA878", sunIntensity: 4.0, sunAz: 62, sunEl: 5,
+    fillColor: "#8299D6", fillIntensity: 0.35, fillAz: 200, fillEl: 35,
+    hemiSky: "#7F95C6", hemiGround: "#CCA696", worldK: 0.62,
+    ambient: "#7F95C6", zenith: "#5874B0", horizon: "#FAC8A4", haze: "#D4B4A6",
     fogDensity: 0.0011, night: 0.25, windowGlow: 0.35, exposure: 0.3, bloom: [0.7, 1.2], lamp: 6, lens: 6,
     windowOcc: 0.3, nightLift: 0.012,
-    grade: { lift: [1.0, 0.99, 1.04], gamma: [1, 1, 1.01], gain: [1.04, 1.0, 0.97], saturation: 1.18, contrast: 1.28, blueSat: 0.9, warmSat: 1.06 } },
+    grade: { lift: [0.99, 1.0, 1.04], gamma: [1, 1, 1], gain: [1.05, 1.0, 0.95], saturation: 1.22, contrast: 1.28, blueSat: 0.9, warmSat: 1.08 } },
   { hour: 8.5, sunColor: "#FFE2C4", sunIntensity: 4.4, sunAz: 110, sunEl: 30,
     fillColor: "#A9C4EE", fillIntensity: 0.4, fillAz: 250, fillEl: 40,
     hemiSky: "#8AAAC8", hemiGround: "#CBCBC2", worldK: 0.6,
