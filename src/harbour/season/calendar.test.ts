@@ -84,6 +84,15 @@ describe("seasonal day remap", () => {
     }
   });
 
+  it("keeps the golden hour and dusk in real hours around sunset (01-A8)", () => {
+    for (const [rise, set] of [[7.3, 17.1], [5.9, 20.1], [7.6, 18.4]]) {
+      expect(seasonalKeyHour(set - 1.35, rise, set)).toBeCloseTo(18.5, 5);   // the golden key
+      expect(seasonalKeyHour(set - 0.15, rise, set)).toBeCloseTo(19.7, 5);   // dusk
+      expect(seasonalKeyHour(set + 0.85, rise, set)).toBeCloseTo(20.7, 5);   // blue hour
+      expect(seasonalKeyHour(rise + 0.4, rise, set)).toBeCloseTo(6.4, 5);    // dawn
+    }
+  });
+
   it("is the identity on the reference day", () => {
     for (const h of [0, 3, 6, 9, 12, 18.5, 21]) expect(seasonalKeyHour(h, 6.0, 19.85)).toBeCloseTo(h, 5);
   });

@@ -108,14 +108,24 @@ export const DEFAULT_KEYFRAMES: TimeKeyframe[] = [
     fogDensity: 0.0009, night: 0.05, windowGlow: 0.2, exposure: 0.25, bloom: [0.55, 1.3], lamp: 4, lens: 5,
     windowOcc: 0.5,
     grade: { lift: [0.99, 1.0, 1.04], gamma: [1, 1, 1], gain: [1.05, 1.0, 0.94], saturation: 1.20, contrast: 1.28, blueSat: 0.86, warmSat: 1.04 } },
-  // dusk: sun on the horizon, red-violet world, windows coming on
-  { hour: 19.7, sunColor: "#FF7448", sunIntensity: 1.6, sunAz: 298, sunEl: 1.5,
-    fillColor: "#6A78C0", fillIntensity: 0.3, fillAz: 120, fillEl: 35,
-    hemiSky: "#5E6496", hemiGround: "#A7808A", worldK: 0.75,
-    ambient: "#5E6496", zenith: "#2F3D78", horizon: "#F09A78", haze: "#8E6E86",
+  // 01-A8 golden hold: the warm key lasts until ~40 min before sunset, the sun lower and deeper (real hours: see
+  // seasonalKeyHour), so the most screenshot-worthy light is a window, not an instant
+  { hour: 19.2, sunColor: "#FF9550", sunIntensity: 4.8, sunAz: 293, sunEl: 5,
+    fillColor: "#7A90D0", fillIntensity: 0.3, fillAz: 115, fillEl: 35,
+    hemiSky: "#8090BC", hemiGround: "#C2A094", worldK: 0.62,
+    ambient: "#8090BC", zenith: "#4F6298", horizon: "#FFCB98", haze: "#CDA8A0",
+    fogDensity: 0.001, night: 0.1, windowGlow: 0.32, exposure: 0.27, bloom: [0.6, 1.25], lamp: 7, lens: 6,
+    windowOcc: 0.56,
+    grade: { lift: [0.99, 1.0, 1.04], gamma: [1, 1, 1], gain: [1.05, 1.0, 0.94], saturation: 1.18, contrast: 1.28, blueSat: 0.86, warmSat: 1.04 } },
+  // dusk: sun on the horizon, windows coming on. 01-A8 warm/cool split: the lit limewash stays warm under a
+  // stronger low key, the shade and sky light go cool blue rather than violet, so the frame is not one magenta
+  { hour: 19.7, sunColor: "#FF7448", sunIntensity: 2.1, sunAz: 298, sunEl: 1.5,
+    fillColor: "#6A7CC0", fillIntensity: 0.3, fillAz: 120, fillEl: 35,
+    hemiSky: "#56689E", hemiGround: "#9A8482", worldK: 0.75,
+    ambient: "#56689E", zenith: "#2F3D78", horizon: "#F09A78", haze: "#857288",
     fogDensity: 0.0011, night: 0.45, windowGlow: 0.7, exposure: 0.35, bloom: [0.9, 1.0], lamp: 22, lens: 10,
     windowOcc: 0.74, nightLift: 0.025,
-    grade: { lift: [0.99, 0.99, 1.05], gamma: [1, 1, 1.02], gain: [1.04, 1.0, 0.96], saturation: 1.16, contrast: 1.3, shadowSat: 0.85, blueSat: 0.9, warmSat: 1.05 } },
+    grade: { lift: [0.99, 0.99, 1.05], gamma: [1, 1, 1.02], gain: [1.04, 1.0, 0.96], saturation: 1.1, contrast: 1.3, shadowSat: 0.82, blueSat: 0.9, warmSat: 1.06 } },
   // blue hour: the moon takes over as key
   { hour: 20.7, ...NIGHT, sunIntensity: 1.0, hemiSky: "#26355E", hemiGround: "#353F66", horizon: "#33406A", zenith: "#0A1130",
     haze: "#222C4C", night: 0.85, windowGlow: 0.95, exposure: 0.4, windowOcc: 0.68 },
@@ -161,13 +171,26 @@ export interface SeasonalDay {
 }
 const REF_RISE = 6.0, REF_SET = 19.85, REF_NOON_EL = 58, REF_NOON_AZ = 160;
 
-/** Clock hour → keyframe hour for a seasonal day (piecewise linear: the day and the night each stretch). */
+/**
+ * 01-A8 solar windows: around sunrise (−1.4 h … +1.5 h) and sunset (−2.0 h … +1.2 h) the keys run in REAL hours,
+ * so dawn, the golden hour, dusk and the blue hour keep their true length on a short winter day as on a long summer
+ * one (the golden key sits 1.35 h before sunset whatever the season); only the middle of the day and the night
+ * stretch. On a very short day the windows shrink with it.
+ */
+const RISE_PRE = 1.4, RISE_POST = 1.5, SET_PRE = 2.0, SET_POST = 1.2;
+
+/** Clock hour → keyframe hour for a seasonal day (piecewise linear: real-hour solar windows, stretched day and night). */
 export function seasonalKeyHour(hour: number, sunrise: number, sunset: number): number {
-  const day = Math.max(1, sunset - sunrise), refDay = REF_SET - REF_RISE;
+  const day = Math.max(1, sunset - sunrise), night = 24 - day;
+  const kd = Math.min(1, (day * 0.75) / (RISE_POST + SET_PRE)), kn = Math.min(1, (night * 0.75) / (SET_POST + RISE_PRE));
+  // anchors in hours since sunrise (clock) and in reference-day key hours, from sunrise round to the next sunrise
+  const c = [0, RISE_POST * kd, day - SET_PRE * kd, day, day + SET_POST * kn, 24 - RISE_PRE * kn, 24];
+  const r = [REF_RISE, REF_RISE + RISE_POST * kd, REF_SET - SET_PRE * kd, REF_SET, REF_SET + SET_POST * kn, REF_RISE + 24 - RISE_PRE * kn, REF_RISE + 24];
   const h = ((hour - sunrise) % 24 + 24) % 24; // hours since sunrise
-  if (h <= day) return REF_RISE + (h / day) * refDay;
-  const t = (h - day) / Math.max(1, 24 - day);
-  return (REF_SET + t * (24 - refDay)) % 24;
+  let i = 0;
+  while (i < c.length - 2 && h > c[i + 1]) i++;
+  const f = (h - c[i]) / Math.max(1e-6, c[i + 1] - c[i]);
+  return (r[i] + f * (r[i + 1] - r[i])) % 24;
 }
 
 /** Night moon-fill colour (slate blue, desaturated so night reads blue-teal, not "blue filter"). */
