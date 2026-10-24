@@ -1,4 +1,5 @@
 import { CLOUD_SHADOW_GLSL } from "../sky/cloud-shadow";
+import { SEA_TONE_GLSL } from "./sea-tone";
 import { SWELL_DIR, wavesGLSL } from "./waves";
 
 /** Style C sea ramp (sRGB hex, palette.json) + the A-graft sunlit shallows. */
@@ -70,6 +71,7 @@ varying vec3 vWorld;
 varying float vDamp;
 ${wavesGLSL()}
 ${CLOUD_SHADOW_GLSL}
+${SEA_TONE_GLSL}
 
 const vec2 SWELL = vec2(${SWELL_DIR[0].toFixed(5)}, ${SWELL_DIR[1].toFixed(5)});
 
@@ -214,10 +216,12 @@ void main() {
     // a gentle shelf off every natural shore (quay walls and moles drop straight to depth instead)
     float bedDep = max(min(depth, 0.25 + max(coast, 0.0) * 0.3) + (nA.r - 0.5) * 1.6 + (nB.g - 0.5) * 0.6, 0.0);
     float clarity = (1.0 - 0.75 * storm) * (1.0 - 0.45 * cover) * (1.0 - 0.6 * uNight);
-    float seeBed = (1.0 - smoothstep(0.3, 7.0, bedDep)) * clarity * smoothstep(1.5, 7.0, sdist) * (1.0 - 0.65 * zm.b);
+    // (the harbours' lee water hides its bed, except off natural shores clear of the quay walls: sandy shallows)
+    float seeBed = (1.0 - smoothstep(0.3, 7.0, bedDep)) * clarity * smoothstep(1.5, 7.0, sdist) * (1.0 - 0.65 * zm.b * (1.0 - 0.4 * smoothstep(4.0, 10.0, sdist)));
     float rockN = texture2D(uNoise, xz * 0.031 + 0.17).r * 0.75 + nC.b * 0.35;
     vec3 sand = mix(vec3(0.62, 0.55, 0.40), vec3(0.74, 0.67, 0.50), nB.g);
     vec3 bed = mix(sand, vec3(0.26, 0.30, 0.26) * (0.8 + 0.4 * nC.r), smoothstep(0.62, 0.78, rockN));
+    bed = hbPosidonia(bed, xz, bedDep, zm.r);
     vec3 absorb = exp(-bedDep * vec3(0.55, 0.17, 0.13));
     vec3 seen = bed * absorb * mix(vec3(1.0), uSunlitShoal * 1.6, 0.35);
     // caustics only ever appear scaled by cGain: with no sun (uniform, so the branch is coherent and the
@@ -237,6 +241,7 @@ void main() {
     body = mix(body, seen * mix(0.95, 1.0, sunUp), seeBed * 0.62);
     body += uSunlitShoal * caus * 0.10 * cGain * (1.0 - seeBed * 0.5) * (1.0 - smoothstep(0.5, 5.0, dep));
   }
+  body = hbSeaTone(body, zm.b, zm.r, dep, sdist, sunUp, nA.b, camD);
   // the Shoals: clear turquoise water over the reef shelf, bright by day, a pale jade glimmer at night
   {
     float reefK = zm.r * (0.55 + 0.45 * smoothstep(0.35, 0.7, nA.b + 0.25 * nC.g));
