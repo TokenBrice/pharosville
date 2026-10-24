@@ -295,9 +295,11 @@ void main() {
     float smear = dot(dn, side) * (4.0 + 7.0 * rough) + dot(gN.xz, side) * 14.0;
     float wav = dot(dn, away) * 4.0 + dot(gN.xz, away) * 20.0;
     vec3 acc = vec3(0.0);
+    // calm water draws each light out into a longer column (03-O11): the taps stride further along the view
+    float calmCol = (1.0 - smoothstep(0.35, 0.9, rough)) * (1.0 - uPrecip.x);
     for (int i = 0; i < 6; i++) {
       float h = 1.2 + float(i) * 3.0;
-      vec2 q = xz + away * (camD * h / Hc + wav * (0.4 + 0.12 * float(i))) + side * smear * (0.5 + 0.1 * float(i));
+      vec2 q = xz + away * (camD * h / Hc * (1.0 + 0.55 * calmCol) + wav * (0.4 + 0.12 * float(i)) + calmCol * float(i) * 1.1) + side * smear * (0.5 + 0.1 * float(i));
       vec2 puv = (q - uPoolBounds.xy) * uPoolBounds.zw;
       float ok = step(0.0, puv.x) * step(puv.x, 1.0) * step(0.0, puv.y) * step(puv.y, 1.0);
       acc += texture2D(uPoolTex, clamp(puv, 0.0, 1.0)).rgb * ok * (1.0 - 0.08 * float(i));
