@@ -15,6 +15,7 @@ import {
 import { Lightning, type StrikeEvent } from "./lightning";
 import { MAX_SPRAY, PRECIP_BUDGET, Precipitation } from "./precip";
 import { Rainbow } from "./rainbow";
+import { dewRime, dewUniforms } from "./dew";
 import { moonAge, moonIllumination, parseMoonOverride } from "../season/calendar";
 
 /**
@@ -53,7 +54,7 @@ export interface WeatherService {
   onLightning(cb: (e: StrikeEvent) => void): () => void;
 }
 
-interface SeasonLike { readonly weights?: SeasonWeights; readonly snowShare?: number }
+interface SeasonLike { readonly weights?: SeasonWeights; readonly snowShare?: number; readonly sunrise?: number; readonly temperatureC?: number }
 interface SimLike { readonly wind?: { fromRad: number } }
 
 function calendarSeason(q: URLSearchParams): Season {
@@ -212,6 +213,10 @@ export class WeatherSystem implements WorldSystem {
     this.windVec.copy(this.windTo).multiplyScalar(s.windNow);
     U.uWindVec.value.copy(this.windVec);
     U.uWetness.value = s.wetness;
+    // W12 dew (spring/autumn dawns) and rime (cold winter dawns): decorative calendar + hour, never mist
+    const [dew, rime] = dewRime(season?.weights ?? this.fallbackWeights, U.uSunDir.value.y, ctx.timeOfDay.hour, season?.sunrise ?? 6.5,
+      season?.temperatureC ?? 12, s.precip);
+    dewUniforms.uHbDew.value.set(dew * (1 - U.uNight.value), rime);
     U.uPrecip.value.set(s.rain, s.snow);
 
     // ---- the sky: deck + wind (unless the engine's own ?cloud= / ?wind= pin them)

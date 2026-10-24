@@ -13,6 +13,8 @@
 - Moonbow: a recovery you watch at night, under a bright moon, hangs a faint silver moonbow over the harbour. The Storm-signal panel now records every recovery in words — "Recovered from Alert 3 min ago" — by day or night.
 - A real night sky: stars now have magnitudes and colours (a few warm, a few blue), twinkling more low down; on clear, dark nights (calm weather, little moon) a faint Milky Way arcs over the harbour, brightest in summer.
 - Meteor showers on their real dates — Quadrantids, Lyrids, η-Aquariids, Perseids, Orionids, Leonids, Geminids — as thin warm streaks on clear nights (one every 15–40 s at a peak, the odd sporadic otherwise). Never a flash; none with reduced motion.
+- Each season has its own sky: tall summer cumulus, long low autumn banks with a mackerel sky, flat pale winter stratocumulus, small spring fair-weather clouds and more cirrus. The amount of cloud is still the stress weather, identical in every season.
+- Dew and rime: spring and autumn dawns glitter with dew on the grass and leaves until the sun climbs; cold winter dawns frost the grass and roof tiles until mid-morning. Neither is mist — fog still means stale data only.
 
 ## Legend lines
 
