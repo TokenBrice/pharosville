@@ -13,6 +13,7 @@ import { LifeSystem } from "./life/life-system";
 import { IdentitySystem } from "./identity/identity-system";
 import { CivicSystem } from "./civic/civic-system";
 import { OfficeWorksSystem } from "./civic/office-works";
+import { MomentsStage } from "./life/moments-stage";
 import { WeatherSystem } from "./weather/weather-system";
 import { SeasonSystem } from "./season/season-system";
 
@@ -35,6 +36,7 @@ export const SYSTEMS: Array<() => WorldSystem> = [
   () => new LifeSystem(),
   () => new IdentitySystem(),
   () => new OfficeWorksSystem(), // T6: after identity (it rolls the awnings the identity layer dressed)
+  () => new MomentsStage(), // staged data moments (events service): launch dressing, the reef beacon's flare
   () => new LightsSystem(),
   () => new BeamSystem(),
 ];

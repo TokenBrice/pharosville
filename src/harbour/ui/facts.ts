@@ -60,6 +60,9 @@ export const SIGNAL_HOISTED_DEPEG = "signal hoisted: early warning; the Shoals t
 const signalWords = (b: Boat) => (b.activeDepeg ? SIGNAL_HOISTED_DEPEG : SIGNAL_HOISTED);
 const SHAPE_WORDS: Record<StormSignalShape, string> = { cone: "a cone", drum: "a drum", "cone+drum": "a cone and a drum" };
 
+/** Shoals panel line for the depeg moment (life/moments-stage.ts). */
+export const REEF_FLARE_LINE = "The beacon\u2019s fire flares three times when a coin is confirmed off its peg (two readings in a row); the Day book records it.";
+
 /** DA-07 Boat panel line. */
 export const MAIDEN_LINE = "new to the register this week";
 /** DA-07 hover: the bunting she is dressed in, in the panel's words. */
