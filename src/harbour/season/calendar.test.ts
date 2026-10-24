@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  moonAge, moonIllumination, parseMoonOverride, SYNODIC_DAYS,
+  meteorIntervalSec, meteorShowerOn, moonAge, moonIllumination, parseMoonOverride, SYNODIC_DAYS,
   dayOfYear, dominantSeason, isSouthernZone, northernDay, overrideDay, parseSeasonOverride, seasonWeights, snowShareFor,
   solarDay,
 } from "./calendar";
@@ -105,5 +105,26 @@ describe("W04 moon phase", () => {
     expect(parseMoonOverride(get("moon=7.4"))).toBeCloseTo(7.4);
     expect(parseMoonOverride(get(""))).toBeNull();
     expect(parseMoonOverride(get("moon=x"))).toBeNull();
+  });
+});
+
+describe("W06 meteor showers", () => {
+  it("fall on their real dates and nowhere else", () => {
+    expect(meteorShowerOn(dayOfYear(2026, 8, 12), false)?.shower.name).toBe("perseids");
+    expect(meteorShowerOn(dayOfYear(2026, 8, 12), false)!.strength).toBeGreaterThan(0.8);
+    expect(meteorShowerOn(dayOfYear(2026, 12, 14), false)?.shower.name).toBe("geminids");
+    expect(meteorShowerOn(dayOfYear(2026, 10, 21), false)?.shower.name).toBe("orionids");
+    expect(meteorShowerOn(dayOfYear(2026, 3, 1), false)).toBeNull();
+    expect(meteorShowerOn(dayOfYear(2026, 1, 3), false)?.shower.name).toBe("quadrantids");
+    // the Perseids are a northern shower; the eta Aquariids favour the south
+    expect(meteorShowerOn(dayOfYear(2026, 8, 12), true)!.strength).toBeLessThan(0.3);
+    expect(meteorShowerOn(dayOfYear(2026, 5, 6), true)!.strength).toBeGreaterThan(meteorShowerOn(dayOfYear(2026, 5, 6), false)!.strength);
+  });
+
+  it("are rare: 15-40 s apart at a peak, minutes apart otherwise", () => {
+    expect(meteorIntervalSec(null)).toBe(300);
+    const per = meteorIntervalSec(meteorShowerOn(dayOfYear(2026, 8, 12), false));
+    expect(per).toBeGreaterThanOrEqual(15);
+    expect(per).toBeLessThanOrEqual(40);
   });
 });

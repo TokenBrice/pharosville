@@ -9,7 +9,10 @@ import { cloudShadowUniforms } from "./cloud-shadow";
 import { applySkyPalette, createSkyPaletteUniforms } from "./palette";
 import { MAX_BANKS, SKY_BAND_GLSL } from "./sky-glsl";
 import { ensureMotionService, MotionClock } from "../ui/services";
-import { moonAge, moonIllumination, parseMoonOverride, SYNODIC_DAYS } from "../season/calendar";
+import {
+  dayOfYear, METEOR_SHOWERS, meteorIntervalSec, meteorShowerOn, moonAge, moonIllumination, parseMoonOverride, SYNODIC_DAYS,
+  type MeteorShower,
+} from "../season/calendar";
 
 /**
  * SKY: a camera-attached painted backdrop (a flat card facing the camera, so the pretend horizon is a
@@ -141,6 +144,9 @@ export class SkySystem implements WorldSystem {
     uSunDisc: { value: new THREE.Vector4() },
     uMoonDisc: { value: new THREE.Vector4() },
     uMoonPhase: { value: new THREE.Vector4(Math.PI, 1, 1, 0) },
+    uNightSky: { value: new THREE.Vector4() },
+    uMeteor: { value: new THREE.Vector4() },
+    uMeteorB: { value: new THREE.Vector4() },
     uLight: { value: new THREE.Vector4() },
     uBanks: { value: Array.from({ length: MAX_BANKS }, () => new THREE.Vector4()) },
     uBankB: { value: Array.from({ length: MAX_BANKS }, () => new THREE.Vector4()) },
@@ -176,6 +182,12 @@ export class SkySystem implements WorldSystem {
   private moonOverride: number | null = null;
   private moonAt = -1e9;
   private moonIllum = 1;
+  /** W06: tonight's shower (real date, ?meteors=<name> in dev), the next streak's countdown and the live one */
+  private shower: { shower: MeteorShower; strength: number } | null = null;
+  private meteorForced = false;
+  private meteorIn = 20;
+  private meteorAge = -1;
+  private meteorDur = 0.55;
 
   init(ctx: EngineContext): void {
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
@@ -231,6 +243,8 @@ export class SkySystem implements WorldSystem {
     if (q.has("wind")) svc.setWind(Number(q.get("wind")));
     this.coverS = this.cover; this.windS = this.wind;
     this.moonOverride = parseMoonOverride((k) => q.get(k));
+    const forced = METEOR_SHOWERS.find((m) => m.name === q.get("meteors"));
+    if (forced) { this.shower = { shower: forced, strength: 1 }; this.meteorForced = true; this.meteorIn = 2; }
   }
 
   /** W04: the real moon phase (decorative, like the clock); the lit limb mirrors in the southern hemisphere. */
@@ -241,6 +255,50 @@ export class SkySystem implements WorldSystem {
     this.moonIllum = moonIllumination(age);
     const southern = (ctx.services.get("season") as { southern?: boolean } | undefined)?.southern ?? false;
     this.u.uMoonPhase.value.set((2 * Math.PI * age) / SYNODIC_DAYS, southern ? -1 : 1, this.moonIllum, 0);
+    if (!this.meteorForced) {
+      const d = new Date(nowMs);
+      this.shower = meteorShowerOn(dayOfYear(d.getFullYear(), d.getMonth() + 1, d.getDate()), southern);
+    }
+  }
+
+  /**
+   * W05 Milky Way + W06 meteors: decorative real sky, only on clear (CALM) dark nights. Meteors radiate from the
+   * shower's radiant, thin and warm, under a second each, at most one at a time; none under reduced motion.
+   */
+  private updateNightSky(dt: number, live: number, starT: number, fwdAz: number, halfDeg: number, ctx: EngineContext): void {
+    const night = ctx.uniforms.uNight.value;
+    const clear = 1 - THREE.MathUtils.smoothstep(this.coverS, 0.2, 0.3);
+    const dark = THREE.MathUtils.smoothstep(night, 0.6, 0.95) * clear;
+    const w = (ctx.services.get("season") as { weights?: readonly number[] } | undefined)?.weights ?? [0, 1, 0, 0];
+    const seasonK = 0.7 * w[0] + 1 * w[1] + 0.7 * w[2] + 0.45 * w[3];
+    const mw = dark * (1 - THREE.MathUtils.smoothstep(this.moonIllum, 0.15, 0.45)) * seasonK;
+    // the band keeps its place in the world (az 200), the view moves across it
+    let off = 200 - fwdAz / D2R;
+    off = ((off + 180) % 360 + 360) % 360 - 180;
+    this.u.uNightSky.value.set(mw, starT, off, w[1]);
+    const mb = this.u.uMeteorB.value;
+    if (this.meteorAge >= 0) {
+      this.meteorAge += dt;
+      mb.x = this.meteorAge / this.meteorDur;
+      if (mb.x >= 1) { this.meteorAge = -1; mb.x = 0; }
+      return;
+    }
+    mb.x = 0;
+    if (dark < 0.5 || live < 0.99) return;
+    this.meteorIn -= dt;
+    if (this.meteorIn > 0) return;
+    const mean = this.meteorForced ? 2 : meteorIntervalSec(this.shower);
+    this.meteorIn = -Math.log(1 - Math.random() * 0.98) * mean;
+    // start somewhere in the visible band; travel away from the radiant (high in the sky at its azimuth)
+    const th0 = (Math.random() * 2 - 1) * halfDeg * 0.8, e0 = 3.5 + Math.random() * 5;
+    let rth = (this.shower?.shower.radiantAz ?? Math.random() * 360) - fwdAz / D2R;
+    rth = ((rth + 180) % 360 + 360) % 360 - 180;
+    let dx = th0 - THREE.MathUtils.clamp(rth, -halfDeg * 1.5, halfDeg * 1.5), dy = e0 - 14;
+    const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+    this.meteorDur = 0.35 + Math.random() * 0.3;
+    this.meteorAge = 0;
+    this.u.uMeteor.value.set(th0, e0, dx, dy);
+    mb.set(0, 2.5 + Math.random() * 3, 0.5 + Math.random() * 0.5, 0);
   }
 
   private seedBanks(): void {
@@ -412,6 +470,7 @@ export class SkySystem implements WorldSystem {
       this.u.uBankB.value[i].set(b.cell, a, b.haze, b.mirror);
     });
     this.u.uWeather.value.set(this.coverS, this.windS, this.cirrusDrift);
+    this.updateNightSky(dt, live, driftT, fwdAz, halfH / D2R, ctx);
     // one wind field: the weather director's direction (uWindVec, the way the hulls lie) with a slow wobble
     this.shared.uWeatherSea.value.set(this.coverS, this.windS, Math.cos(wdA), Math.sin(wdA));
 

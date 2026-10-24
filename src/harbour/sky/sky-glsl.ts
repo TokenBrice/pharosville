@@ -29,7 +29,10 @@ uniform vec4 uPrecipSky;     // rain, snow, lightning flash, flash azimuth (deg)
 uniform vec4 uPrecipSkyB;    // flash elevation (deg), curtain wind slant, snow share, -
 uniform vec4 uFrontA;        // W01 front: cover from, cover to, storm from, storm to
 uniform vec4 uSquall;        // W09 squall: th (deg), strength, W03 sunbreaks 0..1, -
-uniform vec3 uClearZen, uClearHor;   // W01: the hour's zenith and horizon before the storm grade (the clearing's sky)
+uniform vec3 uClearZen, uClearHor;
+uniform vec4 uNightSky;      // W05: Milky Way 0..1, star clock (s, stills with reduced motion), band azimuth offset (deg), summer core 0..1
+uniform vec4 uMeteor;        // W06: streak start th, e (deg), direction (unit, deg space)
+uniform vec4 uMeteorB;       // W06: life 0..1, length (deg), brightness, -   // W01: the hour's zenith and horizon before the storm grade (the clearing's sky)
 uniform vec4 uFrontB;        // W01 front: line azimuth (deg, band space), travel sign (+1 = toward +th), rain it brings, active 0/1
 
 // this pixel's cover and storm grade: the shown weather, or under a front the weather on its side of the line
@@ -141,17 +144,51 @@ vec3 skyBand(float th, float e, float pxDeg) {
   c = mix(c, vec3(lum) * vec3(0.96, 0.98, 1.02), smoothstep(0.4, 1.0, gCov) * 0.5);
 
 #ifndef SKY_REFLECTION
-  // ---- stars
+  // ---- stars (W05): a dense faint field plus sparse bright stars with magnitudes and colour temperatures;
+  //      twinkle is stronger low in the sky, and stills with reduced motion (uNightSky.y)
   if (uSkyK.w > 0.01 && e > 0.25) {
-    vec2 sp = vec2(th, e) / 0.42;
-    vec2 cid = floor(sp), f = fract(sp) - 0.5;
-    float h = sbHash(cid + 17.0);
-    if (h < 0.16) {
-      vec2 jit = vec2(sbHash(cid + 3.1), sbHash(cid + 8.4)) - 0.5;
-      float d = length((f - jit * 0.7) * 0.42) / max(pxDeg, 1e-4);
-      float bright = pow(sbHash(cid + 5.5), 3.0) * 2.5 + 0.35;
-      float tw = 0.75 + 0.25 * sin(uTime * (1.5 + 3.0 * h * 6.0) + h * 40.0);
-      c += vec3(0.85, 0.9, 1.0) * (1.0 - smoothstep(0.35, 1.25, d)) * bright * tw * uSkyK.w * smoothstep(0.25, 1.4, e) * (1.0 - gCov * 0.7);
+    float clear = 1.0 - gCov * 0.7;
+    float fadeE = smoothstep(0.25, 1.4, e);
+    float twA = mix(0.35, 0.1, smoothstep(0.8, 5.0, e));
+    for (int L = 0; L < 2; L++) {
+      float cellDeg = L == 0 ? 0.42 : 1.15;
+      vec2 sp = vec2(th, e) / cellDeg;
+      vec2 cid = floor(sp) + float(L) * 71.0, f = fract(sp) - 0.5;
+      float h = sbHash(cid + 17.0);
+      if (h < (L == 0 ? 0.16 : 0.22)) {
+        vec2 jit = vec2(sbHash(cid + 3.1), sbHash(cid + 8.4)) - 0.5;
+        float d = length((f - jit * 0.7) * cellDeg) / max(pxDeg, 1e-4);
+        float m = sbHash(cid + 5.5);
+        float bright = L == 0 ? pow(m, 3.0) * 1.6 + 0.3 : pow(m, 2.0) * 2.6 + 0.9;
+        float tw = 1.0 - twA + twA * sin(uNightSky.y * (1.5 + 18.0 * h) + h * 40.0);
+        float temp = sbHash(cid + 9.7);
+        vec3 sc = temp < 0.18 ? vec3(1.0, 0.82, 0.64) : temp > 0.85 ? vec3(0.72, 0.84, 1.12) : vec3(0.88, 0.92, 1.0);
+        c += sc * (1.0 - smoothstep(0.35, L == 0 ? 1.25 : 1.6, d)) * bright * tw * uSkyK.w * fadeE * clear;
+      }
+    }
+    // W05 the Milky Way on clear, dark nights: a tilted painterly band with dust lanes (not an atlas)
+    if (uNightSky.x > 0.01) {
+      float mth = th + uNightSky.z;
+      float axis = e - (4.6 + 2.2 * sin(radians(mth) * 1.3));
+      float n1 = texture2D(uSkyNoise, vec2(mth * 0.021 + 0.17, e * 0.09 + 0.43)).r;
+      float n2 = texture2D(uSkyNoise, vec2(mth * 0.07 + 0.61, e * 0.24 + 0.09)).g;
+      float width = 0.9 + 0.5 * n1;
+      float body = exp(-axis * axis / (width * width)) * (0.45 + 0.7 * n1);
+      float dust = smoothstep(0.55, 0.8, n2) * exp(-axis * axis / 0.35) * 0.45;
+      float core = 1.0 + 0.8 * uNightSky.w * smoothstep(0.3, 1.0, cos(radians(mth)));
+      vec3 mw = vec3(0.78, 0.8, 0.95) * body * (1.0 - dust) * core;
+      c += mw * uNightSky.x * 0.06 * fadeE * (1.0 - gCov * 0.7);
+    }
+    // W06 a meteor: a thin warm streak with a fading tail, under a second (never a flash, never like lightning)
+    if (uMeteorB.x > 0.0 && uMeteorB.x < 1.0) {
+      vec2 p = vec2(th, e) - uMeteor.xy;
+      float along = dot(p, uMeteor.zw);
+      float across = abs(p.x * uMeteor.w - p.y * uMeteor.z);
+      float head = uMeteorB.x * uMeteorB.y;
+      float tail = clamp(1.0 - (head - along) / (uMeteorB.y * 0.45), 0.0, 1.0) * step(along, head) * step(0.0, along);
+      float line = 1.0 - smoothstep(pxDeg * 0.5, pxDeg * 1.4, across);
+      float life = sin(uMeteorB.x * 3.14159);
+      c += vec3(1.0, 0.93, 0.8) * line * tail * tail * life * uMeteorB.z * clear;
     }
   }
 #endif

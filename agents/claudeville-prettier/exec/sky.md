@@ -11,6 +11,8 @@
 - Lightning has a direction: a strike lights the faces of the town that look toward it, the lee sides stay dark (no brighter than before).
 - Tonight's moon: the moon now shows its real phase for your date (crescent, half, gibbous, full; mirrored south of the equator), with faint earthshine on the dark limb. Its glow, its path on the sea and its light on the town follow the phase; on dark new-moon nights the stars come out and the harbour lamps carry the night.
 - Moonbow: a recovery you watch at night, under a bright moon, hangs a faint silver moonbow over the harbour. The Storm-signal panel now records every recovery in words — "Recovered from Alert 3 min ago" — by day or night.
+- A real night sky: stars now have magnitudes and colours (a few warm, a few blue), twinkling more low down; on clear, dark nights (calm weather, little moon) a faint Milky Way arcs over the harbour, brightest in summer.
+- Meteor showers on their real dates — Quadrantids, Lyrids, η-Aquariids, Perseids, Orionids, Leonids, Geminids — as thin warm streaks on clear nights (one every 15–40 s at a peak, the odd sporadic otherwise). Never a flash; none with reduced motion.
 
 ## Legend lines
 
@@ -18,6 +20,7 @@
 
 - Rainbow / moonbow (recovery): the DEWS weather improved from Alert or worse to Watch or better during your visit; Storm-signal panel "Recovered from <band> N min ago" for the same 3.5 minutes.
 - Moon (decorative): tonight's real phase.
+- Stars, Milky Way and meteors (decorative): the real night sky for your date; shown only on clear nights.
 
 ## Hooks wanted from other lanes
 
