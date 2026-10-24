@@ -246,9 +246,11 @@ void hbFleetPaint(inout vec3 c) {
     // LOD: the sheer stripe is painted, not modelled
     float s = smoothstep(0.80 - aa, 0.80 + aa, t) * (1.0 - smoothstep(0.93 - aa, 0.93 + aa, t));
     c = mix(c, vPaintB.rgb, s);
+    hbWeather(c, t, aa);
     hbFarLodHull(c, t, aa);
     return;
   }
+  hbWeather(c, t, aa);
   if (vPaintC.y > 0.5) {
     // a name board on each bow quarter: a contrasting board, a run of lettering on it
     float u = vPaintC.x, au = fwidth(u) + 1e-4;

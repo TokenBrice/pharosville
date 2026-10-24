@@ -37,4 +37,17 @@ void hbFarLodHull(inout vec3 c, float t, float aa) {
   c = mix(c, vec3(0.74, 0.70, 0.60), sheer * 0.55 * f);
   c = mix(c, vec3(0.80, 0.84, 0.82), lip * 0.6 * f);
 }
+// wet waterline, weed line and salt: painted topsides sit in the water, used and loved (t: boot-top 0 … sheer 1)
+void hbWeather(inout vec3 c, float t, float aa) {
+  float u = vPaintC.x;
+  float wet = 1.0 - smoothstep(0.0, 0.2 + aa, t);
+  c *= 1.0 - 0.24 * wet * wet;
+  float weed = 1.0 - smoothstep(0.0, 0.02 + aa, abs(t - 0.02));
+  c = mix(c, vec3(0.07, 0.075, 0.045), weed * 0.3);
+  // salt streaks: faint pale runs below the sheer, hashed along the hull
+  float col = fract(sin(floor(u * 38.0) * 91.17) * 437.5);
+  float run = smoothstep(0.55, 0.95, col) * smoothstep(0.35, 0.8, t) * (1.0 - smoothstep(0.8, 0.86, t));
+  float fine = 1.0 - smoothstep(0.02, 0.06, fwidth(u * 38.0) * 0.1);
+  c = mix(c, c * 0.85 + vec3(0.07, 0.07, 0.065), run * 0.35 * fine);
+}
 `;
