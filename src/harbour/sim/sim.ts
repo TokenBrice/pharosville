@@ -794,9 +794,11 @@ export class HarbourSim {
     this.laneW[i] = o[IO_LANE]; this.sepW[i] = o[IO_SEP]; this.legV[i] = tm.v;
     p.phase[i] = code === LEG_CAST_OFF || code === LEG_TURN || code === LEG_HOLD ? PH_CASTING_OFF : code === LEG_APPROACH ? PH_APPROACHING : PH_SAILING;
     p.slot[i] = dest;
-    // heel to leeward with the sail drawing (decorative; wind strength follows DEWS weather)
-    const side = Math.sin(this.wind.fromRad - o[2]) >= 0 ? 1 : -1;
-    p.heel[i] = side * o[4] * (0.04 + 0.08 * this.wind.strength);
+    // heel to leeward with the sail drawing (decorative; wind strength follows DEWS weather), by the point of
+    // sail (07-M1): ∝ sin²θ, most on a beam reach, upright head to wind and on a dead run (and so continuous
+    // through a tack or a gybe: no snap from one side to the other)
+    const sa = Math.sin(this.wind.fromRad - o[2]);
+    p.heel[i] = sa * Math.abs(sa) * o[4] * (0.05 + 0.1 * this.wind.strength);
   }
 
   private evalBoat(i: number): void {

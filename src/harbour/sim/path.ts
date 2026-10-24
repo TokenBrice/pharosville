@@ -4,7 +4,7 @@
  * arc length, so a pose lookup is O(1) and speed along the path is exactly what the timing says.
  */
 import type { Vec2 } from "../layout/types";
-import { clearance, hullClearance, openWaterFactor, type ObstacleField } from "./obstacles";
+import { clearance, hullClearance, OPEN_WATER_MAX, openWaterFactor, type ObstacleField } from "./obstacles";
 import { hypot } from "./math";
 
 export interface SubPath {
@@ -172,6 +172,8 @@ export interface PathExtras {
   headKeep?: number;
   /** Fine clearance (m) to hard structure (the real coast and the decks): the whole hull keeps off it. */
   hard?: ((x: number, z: number) => number) | null;
+  /** Layout wind (bow heading into it): the speed profile follows the points of sail (07-M1, applyPolar). */
+  windFrom?: number;
 }
 
 /** Water kept between the hull's outline and land or a deck under way, by hull length (m). */
@@ -407,6 +409,7 @@ export function buildPath(points: readonly Vec2[], loa: number, tailKeep = 2, fi
     const g = Math.min(1, Math.max(0, ((n - 1 - i) * ds) / (loa * GLIDE_LOA)));
     vrel[i] = Math.min(vrel[i], GLIDE_V + (1 - GLIDE_V) * g * g * (3 - 2 * g));
   }
+  if (extras.windFrom != null) applyPolar(vrel, hdg, n, ds, loa, extras.windFrom);
   const q = new Float32Array(n);
   for (let i = 1; i < n; i++) q[i] = q[i - 1] + ds * 2 / (vrel[i] + vrel[i - 1]);
   const Q = q[n - 1];
@@ -425,6 +428,68 @@ export function buildPath(points: readonly Vec2[], loa: number, tailKeep = 2, fi
     pts: out, hdg, n, ds, length, vrel, q, Q, sOfQ, rev,
     w0: extras.w0 ? Float32Array.from(extras.w0) : null, w1: extras.w1 ? Float32Array.from(extras.w1) : null, laneA, laneB,
   };
+}
+
+/**
+ * Points of sail (07-M1), relative speed by the angle off the wind θ (0 = head to wind … π = dead run): she
+ * ghosts close to the wind's eye, makes way close-hauled, is fastest on a beam / broad reach, rolls along on a run.
+ * Linear between the table's knots. Decorative: the wind direction is layout, never data.
+ */
+const POLAR_A = [0, 0.7, 0.87, 1.57, 2.27, Math.PI], POLAR_P = [0.55, 0.6, 0.8, 1.0, 1.1, 0.95];
+export function polar(theta: number): number {
+  const a = Math.min(Math.PI, Math.abs(theta));
+  for (let k = 1; k < POLAR_A.length; k++) if (a <= POLAR_A[k]) return POLAR_P[k - 1] + (POLAR_P[k] - POLAR_P[k - 1]) * (a - POLAR_A[k - 1]) / (POLAR_A[k] - POLAR_A[k - 1]);
+  return POLAR_P[POLAR_P.length - 1];
+}
+
+/**
+ * Reshape the speed profile by the points of sail WITHOUT changing the leg's effort Q = ∫ds/vrel: the polar is
+ * smoothed along the path (~40 m, no surges), faded in only clear of both berths (2-5 LOA: the cast-off, the
+ * glide in and the furl ramps keep their speeds), capped at the open-water maximum, and rescaled by k (bisection)
+ * so Q is exactly as before. Leg timing (legTiming, plan.ts rep legs, D10 dock share) only ever sees Q: it is
+ * unchanged; the hull just spends that time differently (slower upwind, quicker across the wind).
+ */
+function applyPolar(vrel: Float32Array, hdg: Float32Array, n: number, ds: number, loa: number, windFrom: number): void {
+  const length = (n - 1) * ds;
+  const P = new Float64Array(n), w = new Float64Array(n);
+  for (let i = 0; i < n; i++) P[i] = polar(wrapAngle(windFrom - hdg[i]));
+  // box-smooth the polar over ±20 m (two passes)
+  const r = Math.max(1, Math.round(20 / ds)), tmp = new Float64Array(n);
+  for (let pass = 0; pass < 2; pass++) {
+    let sum = 0, cnt = 0;
+    for (let j = 0; j <= Math.min(n - 1, r); j++) { sum += P[j]; cnt++; }
+    for (let i = 0; i < n; i++) {
+      tmp[i] = sum / cnt;
+      const o = i - r, inn = i + r + 1;
+      if (o >= 0) { sum -= P[o]; cnt--; }
+      if (inn < n) { sum += P[inn]; cnt++; }
+    }
+    P.set(tmp);
+  }
+  let any = false;
+  for (let i = 0; i < n; i++) {
+    const e = Math.min(i * ds, length - i * ds);
+    const t = Math.min(1, Math.max(0, (e - 2 * loa) / (3 * loa)));
+    w[i] = t * t * (3 - 2 * t);
+    if (w[i] > 0) any = true;
+  }
+  if (!any) return;
+  const effort = (k: number, out: Float32Array | null): number => {
+    let q = 0, prev = 0;
+    for (let i = 0; i < n; i++) {
+      const v0 = vrel[i], v = Math.min(Math.max(OPEN_WATER_MAX, v0), v0 * (1 + (k * P[i] - 1) * w[i]));
+      if (out) out[i] = v;
+      if (i > 0) q += (ds * 2) / (v + prev);
+      prev = v;
+    }
+    return q;
+  };
+  let q0 = 0;
+  for (let i = 1; i < n; i++) q0 += (ds * 2) / (vrel[i] + vrel[i - 1]);
+  let lo = 0.3, hi = 3;
+  if (effort(hi, null) > q0 || effort(lo, null) < q0) return; // (the cap leaves no room: keep the plain profile)
+  for (let it = 0; it < 48; it++) { const m = (lo + hi) / 2; if (effort(m, null) > q0) lo = m; else hi = m; }
+  effort((lo + hi) / 2, vrel);
 }
 
 export function wrapAngle(a: number): number {
