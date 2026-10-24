@@ -64,11 +64,8 @@ vec3 hbBeamLight(vec3 p, vec3 n) {
     // the heliograph's coin: a soft ellipse, long along the heading, no volume
     float a = (f.x - uBeamSun.w) / (16.0 + uBeamSun.w * 0.14);
     float b = f.y / (7.0 + uBeamSun.w * 0.05);
-    float e2 = a * a + b * b;
-    if (e2 < 6.0 && f.x >= 0.0) {   // (exp(-1.6 e2) < 1e-4 outside: the coin's own ellipse only)
-      float coin = exp(-e2 * 1.6);
-      o += uBeamSun.rgb * coin * clamp(dot(n, normalize(uBeamPos - p)) * 0.75 + 0.25, 0.0, 1.0);
-    }
+    float coin = exp(-(a * a + b * b) * 1.6) * step(0.0, f.x);
+    o += uBeamSun.rgb * coin * clamp(dot(n, normalize(uBeamPos - p)) * 0.75 + 0.25, 0.0, 1.0);
   }
   return o;
 }
