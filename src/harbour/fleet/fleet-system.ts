@@ -61,9 +61,9 @@ const LAMP_GREEN = new THREE.Color("#3DFF7A");
  */
 interface FleetTier { lodIn: number; lodOut: number; lineRange: number; flagRange: number; flagMinPx: number; shadowDist: number; contact: boolean; fenderRange: number }
 const FLEET_TIERS: Record<QualityTier, FleetTier> = {
-  high: { lodIn: 40, lodOut: 34, lineRange: 650, flagRange: 2400, flagMinPx: 9, shadowDist: 640, contact: true, fenderRange: 300 },
-  medium: { lodIn: 58, lodOut: 50, lineRange: 460, flagRange: 1800, flagMinPx: 8, shadowDist: 520, contact: true, fenderRange: 200 },
-  low: { lodIn: 90, lodOut: 78, lineRange: 300, flagRange: 1100, flagMinPx: 7, shadowDist: 360, contact: false, fenderRange: 0 },
+  high: { lodIn: 40, lodOut: 34, lineRange: 650, flagRange: 2400, flagMinPx: 4.5, shadowDist: 640, contact: true, fenderRange: 300 },
+  medium: { lodIn: 58, lodOut: 50, lineRange: 460, flagRange: 1800, flagMinPx: 4, shadowDist: 520, contact: true, fenderRange: 200 },
+  low: { lodIn: 90, lodOut: 78, lineRange: 300, flagRange: 1100, flagMinPx: 4, shadowDist: 360, contact: false, fenderRange: 0 },
 };
 /** DEWS bands at which the weather turns to storm for the fleet (ALERT … DANGER → 0.55 … 1). */
 const STORM_BY_BAND: Record<string, number> = { CALM: 0, WATCH: 0, ALERT: 0.55, WARNING: 0.8, DANGER: 1 };
@@ -91,6 +91,13 @@ const PAINT_TEXELS = 5;
  * docked rows read as hulls and a few masts.
  */
 const SPAR_NEAR = 70, SPAR_FAR = 34, STRIKE_SHARE = 0.8;
+
+/** Flag law by distance: the burgee's cap as a share of LOA, 0.3 below ~25 px of hull on screen, the full 0.55 from ~45 px. */
+export function flagCapK(hullPx: number): number {
+  return 0.3 + 0.25 * THREE.MathUtils.smoothstep(hullPx, 25, 45);
+}
+/** A hovered / selected (searched) hull's flag never drops below this many px: brand findable at overview. */
+const FLAG_HI_MIN_PX = 9;
 const CLASS_LOA_FALLBACK: Record<HullClass, number> = { flagship: 26, large: 18, medium: 13, small: 10, boat: 7.5, skiff: 5 };
 
 interface BoatRec {
@@ -770,7 +777,11 @@ export class FleetSystem implements WorldSystem {
       if (this.flags && !moving && !b.wrecked && b.visible && b.dist < tier.flagRange) {
         const pxM = pxPerM / b.dist;
         const base = b.titan ? b.loa * 0.3 : THREE.MathUtils.clamp(b.loa * 0.21, 1.3, 4.6);
-        const size = Math.min(Math.max(base, tier.flagMinPx / pxM), b.loa * (b.titan ? 0.42 : 0.55));
+        // flag law by distance (decorative): a far hull's burgee shrinks with it (≤ 0.3 × LOA below ~25 px of hull), so
+        // the Roads read as hulls at anchor, not confetti; the hovered / selected / searched hull keeps the full flag
+        const capK = b.titan ? 0.42 : b.hi > 0.05 ? 0.55 : flagCapK(px);
+        const minPx = b.hi > 0.05 ? FLAG_HI_MIN_PX : tier.flagMinPx;
+        const size = Math.min(Math.max(base, minPx / pxM), b.loa * capK);
         const v = b.variant;
         if (b.struck) { this.lampAt(v.sternCleat.x * 0.92, v.sternCleat.y, 0); this.v.y += 0.5 + size * 0.72; }
         else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += 0.3; }
