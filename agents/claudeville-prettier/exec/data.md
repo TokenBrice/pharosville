@@ -26,3 +26,17 @@
   side's mean over the window's hours (spike included), valuation `"complete"`. Judged once per new hour; exempt
   from the 2-poll rule (a closed hour is a final record, not a flickering state).
 - `dayBookLine(e, "14:20")` → `"14:20 USDX left the Shoals · 412 → 18 bps"`.
+
+## Rarity scheduler + `events` service
+
+- `model/moments.ts` `stepMoments(state, nowMs, incoming, { reduced }) → { state, staged, unstaged }` — pure.
+  Priority (`MOMENT_PRIORITY`): death 6 > depeg 5 > recovery 4 > launch 3 > psi-band = dews-band 2 > flow-hour 1;
+  hull-class and grade are never staged. `MOMENT_GAP_MS` 3 min, `MOMENT_HOUR_MAX` 6 per rolling hour,
+  `MOMENT_MAX_MS` 20 s (`MOMENT_DURATION_MS` per kind), one queued (highest priority), queued expires after
+  `QUEUE_MAX_WAIT_MS` 3 min. Reduced motion → nothing staged.
+- Service `ctx.services.get("events") as EventsService` (`model/event-hub.ts`), registered by the readings system:
+  `book: DayBookEntry[]` (newest first, `staged` flag, cap 200), `arrivedAtMs`, `current: StagedMoment | null`,
+  `version`, `subscribe(fn)`, `onMoment(fn: (m: StagedMoment) => void)`. `StagedMoment { event, startMs, endMs }`:
+  the world must be back at rest by `endMs`.
+- Dev: `?moment=<kind>[:<coin id>]` injects one synthetic `(dev)` event through the book and the budget once the
+  fleet is in (e.g. `?moment=depeg:usdt`, `?moment=launch`).
