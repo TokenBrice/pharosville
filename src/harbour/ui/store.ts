@@ -12,6 +12,7 @@ import type { Boat, HarbourModel } from "../model/types";
 import { PANEL_LANDMARKS, whereabouts, type Whereabouts } from "./facts";
 import { UIPicking } from "./picking";
 import { inPoly, seaZones } from "./places";
+import { RouteLine } from "../fleet/route-line";
 import { landmarkHover } from "../world/landmark-hover";
 import { PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "../sim/sim";
 import { ensureMotionService, getLayout, getModel, getSim, sameHit, type MotionService, type PickHit, type PickingService } from "./services";
@@ -83,6 +84,7 @@ export class HarbourUIStore {
   /** Where the pointer was first seen; hovering starts only once it has travelled from there. */
   private seen: { x: number; y: number } | null = null;
   private readonly cleanups: Array<() => void> = [];
+  private readonly route: RouteLine;
   /** The framing the visitor landed on: Home / double-click on open water flies back to it. */
   private readonly home: CameraPreset;
   private readonly devStale = import.meta.env.DEV ? new URLSearchParams(location.search).get("stale") : null;
@@ -104,6 +106,8 @@ export class HarbourUIStore {
     };
     this.cleanups.push(this.motion.subscribe((reduced) => { this.set({ reducedMotion: reduced }); if (reduced) this.setFollow(null); }));
     this.attachPointer(ctx.renderer.domElement);
+    this.route = new RouteLine(ctx, (id) => getSim(this.ctx)?.itineraryOf?.(id) ?? null);
+    this.cleanups.push(() => this.route.dispose());
     engine.add(this.system());
   }
 
@@ -145,6 +149,7 @@ export class HarbourUIStore {
       this.setHover(hit);
     }
     landmarkHover(this.ctx.uniforms).step(frame.delta, this.ctx.uniforms.uNight.value);
+    this.routeFrame(frame.delta);
     this.keyPanFrame(frame.delta);
     this.followFrame(frame.delta);
     for (const fn of this.frameFns) fn(frame);
@@ -295,6 +300,7 @@ export class HarbourUIStore {
   select(hit: PickHit | null, opts: { fly?: boolean } = {}): void {
     if (!sameHit(hit, this.state.selected) || !hit) this.setFollow(null);
     this.picking.setSelected(hit);
+    this.route.show(hit?.kind === "boat" ? hit.id : null);
     this.set({ selected: hit, searchOpen: false });
     if (hit && opts.fly !== false) this.flyTo(hit);
   }
@@ -362,6 +368,14 @@ export class HarbourUIStore {
     if (settled) { rig.glideTo(p, { ms: 1600, lift: -0.04 }); return; }
     const travel = glideTravel(rig.target.x, rig.target.z, rig.distance, p.target[0], p.target[2], p.distance);
     rig.glideTo(p, { ms: Math.max(1600, glideSeconds(travel) * 1000) });
+  }
+
+  /** The selected boat's rounds on the water (fleet/route-line.ts). */
+  private routeFrame(dt: number): void {
+    const sel = this.state.selected, sim = getSim(this.ctx);
+    const i = sel?.kind === "boat" && sim ? sim.pose.ids.indexOf(sel.id) : -1;
+    const at: [number, number] | null = i >= 0 && sim ? [sim.pose.position[i * 3], sim.pose.position[i * 3 + 2]] : null;
+    this.route.update(dt, !this.ctx.rig.gliding, this.state.reducedMotion, at);
   }
 
   // ------------------------------------------------------------------ keyboard camera

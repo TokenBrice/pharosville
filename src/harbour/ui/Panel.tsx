@@ -212,6 +212,7 @@ function CircuitSec({ b }: { b: Boat }) {
         {single ? "Its supply sits at this one harbour, so it swings at its home mooring." : "Docks at each stop for a time in proportion to its supply there. Sailing is not a bridge transfer."}
         {stops.some((s) => s.folded.length > 0) ? " Chains without a pier, or under 5 % of its supply, fold into the Far Ports." : ""}
       </p>
+      {!single && <p className="hb-caption hb-route-note">The dashed line on the water is her route: today’s rounds (from supply share).</p>}
     </Sec>
   );
 }

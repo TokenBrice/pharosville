@@ -290,6 +290,31 @@ export class HarbourSim {
   /** The layout-only outing and scenic answers (gate loops, metres), warmed off the main thread likewise (outings.outingSeed). */
   seedOutings(seed: OutingSeed): void { seedOutings(this.layout, seed); }
 
+  /**
+   * Read-only: a circuit hull's day of rounds under the plan (the route chart line, fleet/route-line.ts),
+   * starting with the leg she is on (or the next one, alongside). Each leg is its main path's samples
+   * (x, z interleaved); ports are the dock slots in calling order. Null for static, wrecked or unknown
+   * hulls. Legs not yet in the path cache are built here without caching (the same value).
+   */
+  itineraryOf(id: string): { legs: Array<{ pts: Float32Array; current: boolean }>; ports: Array<[number, number]> } | null {
+    const i = this.index.get(id);
+    const r = i === undefined ? undefined : this.rt[i];
+    const plan = r?.plan;
+    if (!r || !plan || plan.kind !== "circuit") return null;
+    const nSeg = plan.segStart.length, c = findSegment(plan, boatLocalTime(plan, this.t));
+    const legs: Array<{ pts: Float32Array; current: boolean }> = [];
+    const ports: Array<[number, number]> = [];
+    for (let k = 0; k < nSeg; k++) {
+      const seg = (c + k) % nSeg;
+      const slot = this.layout.slots[plan.segSlot[seg]];
+      if (plan.segKind[seg] === SEG_DOCK) { if (slot) ports.push([slot.x, slot.z]); continue; }
+      const key = pathKey(plan.segFrom[seg], plan.segSlot[seg], r.cls, plan.segLoop[seg]);
+      const path = this.pathCache.get(key) ?? buildPlanLegPath(this.layout, this.baseSlots, plan.segFrom[seg], plan.segSlot[seg], r.cls, plan.segLoop[seg]).path;
+      legs.push({ pts: path.pts.slice(0, path.n * 2), current: k === 0 });
+    }
+    return { legs, ports };
+  }
+
   /** The plan's overflow rafts (the slots past the authored ones): a worker adds them to its own layout before building legs. */
   rafts(): Slot[] { return this.layout.slots.slice(this.baseSlots); }
 
