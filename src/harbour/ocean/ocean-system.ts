@@ -9,6 +9,7 @@ import { buildSeaSdf, defaultSeaBounds, landMaskFromHeights, SDF_COAST_RANGE, se
 import { acquireFxTextures, type FxTextures } from "./textures";
 import { WakeField, type WakeService } from "./wake";
 import { updateAerial } from "../world/aerial";
+import { runupUniforms } from "../world/runup";
 import { hullSwell, SEA_STATES, waveHeight } from "./waves";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { buildZoneMask, type SeaZoneLike } from "./zone-mask";
@@ -275,6 +276,7 @@ export class OceanSystem implements WorldSystem {
     this.clock ??= new MotionClock(ensureMotionService(ctx));
     this.time = this.seaTime.value = this.clock.step(frame.delta);
     this.seaU.value.lerp(this.seaGoal, 1 - Math.exp(-frame.delta * 0.4));
+    runupUniforms.uRunup.value.set(this.seaU.value.x, this.time);
     for (const m of this.debugMovers) {
       const a = m.ph + this.time * m.w;
       const x = m.cx + Math.cos(a) * m.r, z = m.cz + Math.sin(a) * m.r;

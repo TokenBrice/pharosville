@@ -395,12 +395,15 @@ void main() {
   float bands = uSea.w;
   float dnC = coast + (nB.r - 0.5) * 2.4 + (nC.g - 0.5) * 0.8;
   float fContact = 1.0 - smoothstep(0.25, 1.05, dnC);
-  float lap = sin(t * 0.55 + nA.b * 6.2831) ;
-  float p2 = 2.6 + 0.7 * lap;
-  float band2 = (1.0 - smoothstep(0.16, 0.42, abs(dnC - p2))) * smoothstep(0.42, 0.58, nB.g);
-  float p3 = 6.0 + 0.9 * sin(t * 0.42 + 1.7 + nA.g * 6.2831);
-  float band3 = (1.0 - smoothstep(0.12, 0.34, abs(dnC - p3))) * smoothstep(0.52, 0.64, nC.r) * 0.55;
-  float coastFoam = max(fContact, max(band2 * 0.9, band3) * bands) * step(-1.0, coast);
+  // swell trains that arrive (03-O3): coast-parallel crest lines travel shoreward, bunching and slowing as the water
+  // shoals (wavenumber rises with falling depth), steepening into a thin foam lip that breaks near the contact line.
+  // Scaled by the declared sea state's foam bands (uSea.w) exactly like the old in-place bands; the sea clock stills them.
+  float shoalW = mix(0.62, 1.25, 1.0 - smoothstep(1.0, 9.0, depth));
+  float trainPh = dnC * shoalW + t * 0.78 + nA.b * 5.0 + nB.r * 0.8;
+  float crestL = pow(0.5 + 0.5 * cos(trainPh), mix(10.0, 22.0, smoothstep(2.0, 8.0, dnC)));
+  float trainK = smoothstep(9.5, 5.0, dnC) * smoothstep(0.7, 1.6, dnC) * (0.45 + 0.55 * smoothstep(7.0, 1.5, dnC));
+  float band2 = crestL * trainK * smoothstep(0.38, 0.6, nB.g + 0.1 * nC.r);
+  float coastFoam = max(fContact, band2 * 0.9 * bands) * step(-1.0, coast);
   // lace: a fine drifting net of bubble threads (shared by the swash, the eddies and old wakes);
   // beyond the heart view it melts into its mean coverage instead of shimmering
   float lA = texture2D(uNoise, xz * 0.071 + t * vec2(0.003, -0.002)).b;
