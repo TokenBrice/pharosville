@@ -218,7 +218,7 @@ void main() {
   body *= 1.0 - 0.18 * storm - 0.22 * cover;
   float sunUp = clamp(uSunDir.y * 3.0, 0.0, 1.0) * (1.0 - uNight);
   // 02-L1: the key light's shadow on the flat sea plane (displacement would only add acne); sun-lit terms only
-  float sunSh = hbSunShadow(vec3(xz.x, 0.0, xz.y));
+  float sunSh = hbSeaSunShadow(vec3(xz.x, 0.0, xz.y));   // (soft, thin casters dissolved: sun-shadow.ts)
   // A graft: sunlit teal shallows (light reaching the sand)
   float shoalK = (1.0 - smoothstep(0.3, 4.5, max(dep, depth))) * sunUp;
   body = mix(body, uSunlitShoal, shoalK * (0.22 + 0.3 * smoothstep(0.3, 0.75, nA.b) + 0.1 * nC.g));
