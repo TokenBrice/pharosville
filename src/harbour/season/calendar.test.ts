@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  meteorIntervalSec, meteorShowerOn, moonAge, moonIllumination, parseMoonOverride, SYNODIC_DAYS,
   dayOfYear, dominantSeason, isSouthernZone, northernDay, overrideDay, parseSeasonOverride, seasonWeights, snowShareFor,
   solarDay,
 } from "./calendar";
@@ -85,5 +86,45 @@ describe("seasonal day remap", () => {
 
   it("is the identity on the reference day", () => {
     for (const h of [0, 3, 6, 9, 12, 18.5, 21]) expect(seasonalKeyHour(h, 6.0, 19.85)).toBeCloseTo(h, 5);
+  });
+});
+
+describe("W04 moon phase", () => {
+  it("is new and full on real dates (within a day)", () => {
+    const near = (a: number, b: number) => Math.min(Math.abs(a - b), SYNODIC_DAYS - Math.abs(a - b));
+    expect(near(moonAge(Date.UTC(2024, 3, 8, 18, 21)), 0)).toBeLessThan(1);      // the April 2024 eclipse
+    expect(near(moonAge(Date.UTC(2024, 3, 23, 23, 49)), SYNODIC_DAYS / 2)).toBeLessThan(1);
+    expect(near(moonAge(Date.UTC(2026, 0, 3, 10, 3)), SYNODIC_DAYS / 2)).toBeLessThan(1);  // full moon 3 Jan 2026
+    expect(moonIllumination(moonAge(Date.UTC(2024, 3, 8, 18, 21)))).toBeLessThan(0.02);
+    expect(moonIllumination(SYNODIC_DAYS / 2)).toBeCloseTo(1);
+    expect(moonIllumination(SYNODIC_DAYS / 4)).toBeCloseTo(0.5);
+  });
+
+  it("reads ?moon=", () => {
+    const get = (q: string) => (k: string) => new URLSearchParams(q).get(k);
+    expect(parseMoonOverride(get("moon=7.4"))).toBeCloseTo(7.4);
+    expect(parseMoonOverride(get(""))).toBeNull();
+    expect(parseMoonOverride(get("moon=x"))).toBeNull();
+  });
+});
+
+describe("W06 meteor showers", () => {
+  it("fall on their real dates and nowhere else", () => {
+    expect(meteorShowerOn(dayOfYear(2026, 8, 12), false)?.shower.name).toBe("perseids");
+    expect(meteorShowerOn(dayOfYear(2026, 8, 12), false)!.strength).toBeGreaterThan(0.8);
+    expect(meteorShowerOn(dayOfYear(2026, 12, 14), false)?.shower.name).toBe("geminids");
+    expect(meteorShowerOn(dayOfYear(2026, 10, 21), false)?.shower.name).toBe("orionids");
+    expect(meteorShowerOn(dayOfYear(2026, 3, 1), false)).toBeNull();
+    expect(meteorShowerOn(dayOfYear(2026, 1, 3), false)?.shower.name).toBe("quadrantids");
+    // the Perseids are a northern shower; the eta Aquariids favour the south
+    expect(meteorShowerOn(dayOfYear(2026, 8, 12), true)!.strength).toBeLessThan(0.3);
+    expect(meteorShowerOn(dayOfYear(2026, 5, 6), true)!.strength).toBeGreaterThan(meteorShowerOn(dayOfYear(2026, 5, 6), false)!.strength);
+  });
+
+  it("are rare: 15-40 s apart at a peak, minutes apart otherwise", () => {
+    expect(meteorIntervalSec(null)).toBe(300);
+    const per = meteorIntervalSec(meteorShowerOn(dayOfYear(2026, 8, 12), false));
+    expect(per).toBeGreaterThanOrEqual(15);
+    expect(per).toBeLessThanOrEqual(40);
   });
 });

@@ -125,8 +125,67 @@ export interface WeatherState {
   gloom: number;
   /** Surfaces' wetness 0..1: rises in rain, dries slowly. */
   wetness: number;
-  /** Rainbow strength 0..1 (recovery, daylight only). */
+  /** Rainbow strength 0..1 (recovery; by day, or a moonbow under a bright moon). */
   rainbow: number;
+  /**
+   * W01 the weather front crossing the bay (null when none): the DEWS level it brings (`to`), the level it
+   * replaces (`from`) and how far it has swept, 0 = on the upwind horizon … 1 = past the downwind one.
+   * Rising (to > from): a storm front with a shelf-cloud lip; easing: a clearing line.
+   */
+  front: FrontState | null;
+  /**
+   * W03 sunbreaks 0..1: the rain is easing off (a shower trough at Watch/Alert, a clearing front) or a recovery
+   * is fresh — sunlit patches drift over a shadowed land. Decorative aftermath of a DEWS easing; never at Danger.
+   */
+  breaks: number;
+  /**
+   * W09 the passing squall at Watch/Alert: the shower cell as a place. `pos` 0 = on the upwind horizon,
+   * 1 = overhead (the shower's crest, when it rains here), 2 = on the downwind horizon; `k` its strength.
+   */
+  squall: { pos: number; k: number };
+  /** The last recovery seen during the visit (≥ Alert → ≤ Watch), or null. */
+  recovery: { fromBand: WeatherBand; atSec: number } | null;
+}
+
+export interface FrontState { readonly from: number; readonly to: number; readonly progress: number }
+
+/**
+ * A new reading at least this far (DEWS levels, supply-weighted) from the weather being shown sends a front
+ * across the bay; smaller moves just ease in place. Also the threshold of the Storm panel's trend line.
+ */
+export const FRONT_MIN = 0.35;
+/** Seconds a front takes to cross from the upwind to the downwind horizon. */
+export const FRONT_SEC = 70;
+/** Where the front is overhead (progress) — the local weather turns over this span. */
+export const FRONT_HERE: readonly [number, number] = [0.32, 0.72];
+
+export const bandOfLevel = (level: number): WeatherBand =>
+  (["CALM", "WATCH", "ALERT", "WARNING", "DANGER"] as const)[Math.min(4, Math.max(0, Math.round(level)))];
+
+/** W07 moonbow gate: the moon's illuminated fraction × night (a moonbow needs a bright moon, ≥ ~40 %). */
+export const moonbowLight = (illumination: number, night: number): number => smoothstep(0.35, 0.5, illumination) * smoothstep(0.5, 0.9, night);
+
+/**
+ * The DOM twin of the recovery rainbow / moonbow (same window, same words): "Recovered from Alert 3 min ago"
+ * while the recovery window lasts (RAINBOW_SEC), null otherwise.
+ */
+export function recoveryLine(rec: { fromBand: WeatherBand; atSec: number } | null, nowSec: number): string | null {
+  if (!rec) return null;
+  const ago = nowSec - rec.atSec;
+  if (ago < 0 || ago > RAINBOW_SEC) return null;
+  const min = Math.round(ago / 60);
+  return `Recovered from ${rec.fromBand[0]}${rec.fromBand.slice(1).toLowerCase()} ${min < 1 ? "just now" : `${min} min ago`}`;
+}
+
+/**
+ * The Storm panel's trend line (the DOM twin of the visible front, same words): "rising toward Alert" while
+ * a storm front crosses, "easing toward Watch" while a clearing line does; null when the weather is settled.
+ */
+export function stormTrend(front: FrontState | null): { dir: "rising" | "easing"; toward: WeatherBand; text: string } | null {
+  if (!front || front.progress >= 1 || Math.abs(front.to - front.from) < FRONT_MIN) return null;
+  const dir = front.to > front.from ? "rising" : "easing";
+  const toward = bandOfLevel(front.to);
+  return { dir, toward, text: `${dir} toward ${toward[0]}${toward.slice(1).toLowerCase()}` };
 }
 
 export interface DirectorInput {
@@ -138,8 +197,18 @@ export interface DirectorInput {
   sunUp: number;
   /** Seconds since start (for shower and gust cells). */
   time: number;
+  /** W07: 0 … 1 a bright moon up at night (illumination gated): a recovery at night hangs a moonbow. */
+  moonUp?: number;
   /** ?rainbow=1 */
   forceRainbow?: boolean;
+  /** Reduced motion: no sweeping front, the weather eases in place. */
+  still?: boolean;
+  /** Dev ?frontAt=: hold a front at this progress (0..1). */
+  frontPin?: number | undefined;
+  /** Dev ?breaks=1: open the sunbreaks. */
+  forceBreaks?: boolean;
+  /** Dev ?squall=0..2: hold the squall there. */
+  squallPin?: number | undefined;
 }
 
 /** Easing time constants (s). */
@@ -152,8 +221,10 @@ const ease = (cur: number, goal: number, dt: number, tau: number) => cur + (goal
 export class WeatherDirector {
   readonly state: WeatherState = {
     level: null, band: null, cloud: 0.38, wind: 0.3, windNow: 0.3, precip: 0, rain: 0, snow: 0,
-    strikesPerMin: 0, strikeKm: [12, 18], gloom: 0, wetness: 0, rainbow: 0,
+    strikesPerMin: 0, strikeKm: [12, 18], gloom: 0, wetness: 0, rainbow: 0, front: null, recovery: null,
+    breaks: 0, squall: { pos: 0, k: 0 },
   };
+  private front: { from: number; to: number; progress: number } | null = null;
   private shown: number | null = null;
   private lastBandLevel: number | null = null;
   private rainbowLeft = 0;
@@ -163,6 +234,7 @@ export class WeatherDirector {
   snap(input: DirectorInput): void {
     if (input.level == null) return;
     this.shown = input.level;
+    this.front = null; this.state.front = null;
     const t = targetsForLevel(input.level);
     const s = this.state;
     s.cloud = t.cloud; s.wind = t.wind; s.gloom = t.gloom; s.strikesPerMin = t.strikesPerMin;
@@ -190,15 +262,33 @@ export class WeatherDirector {
     const s = this.state;
     if (input.level != null) {
       if (this.shown == null) { this.snap(input); return s; }
-      // the shown level itself moves slowly, so every channel crosses the bands in order
-      this.shown = ease(this.shown, input.level, dt, TAU.cloud);
+      // W01: a reading far enough from the weather shown sends a front across from the upwind horizon (a
+      // clearing line when easing); the local weather turns as it passes overhead. Smaller moves, and reduced
+      // motion, ease in place: the shown level moves slowly, so every channel crosses the bands in order.
+      const f = this.front;
+      if (f && Math.abs(input.level - f.to) > 0.1) this.front = null;
+      if (!this.front && !input.still && Math.abs(input.level - this.shown) >= FRONT_MIN) {
+        this.front = { from: this.shown, to: input.level, progress: 0 };
+      }
+      const fr = this.front;
+      if (fr) {
+        fr.progress = input.frontPin != null ? clamp01(input.frontPin) : Math.min(1, fr.progress + dt / FRONT_SEC);
+        this.shown = lerp(fr.from, fr.to, smoothstep(FRONT_HERE[0], FRONT_HERE[1], fr.progress));
+        if (fr.progress >= 1) { this.shown = fr.to; this.front = null; }
+      } else {
+        this.shown = ease(this.shown, input.level, dt, TAU.cloud);
+      }
       // a recovery seen during the visit: from ≥ Alert to ≤ Watch
       const bandLevel = input.band ? DEWS_LEVELS[input.band] : Math.round(input.level);
-      if (this.lastBandLevel != null && this.lastBandLevel >= 2 && bandLevel <= 1) this.rainbowLeft = RAINBOW_SEC;
+      if (this.lastBandLevel != null && this.lastBandLevel >= 2 && bandLevel <= 1) {
+        this.rainbowLeft = RAINBOW_SEC;
+        s.recovery = { fromBand: bandOfLevel(this.lastBandLevel), atSec: input.time };
+      }
       this.lastBandLevel = bandLevel;
     }
     s.level = this.shown;
     s.band = input.band;
+    s.front = this.front;
     if (this.shown != null) {
       const t = targetsForLevel(this.shown);
       // the shown level already eases (TAU.cloud): the deck, gloom and lightning follow it directly
@@ -207,6 +297,14 @@ export class WeatherDirector {
       s.wind = ease(s.wind, t.wind, dt, TAU.wind);
       const goal = this.precipGoal(t, input.time);
       s.precip = ease(s.precip, goal, dt, goal > s.precip ? TAU.precipUp : TAU.precipDown);
+      // W03: breaks open while the rain falls away faster than it lingers (or a recovery is fresh)
+      const easing = smoothstep(0.03, 0.15, s.precip - goal) * smoothstep(0.02, 0.1, s.precip + s.wetness * 0.3);
+      const wantBreaks = Math.max(easing, this.rainbowLeft > 0 || input.forceBreaks ? 1 : 0) * (1 - smoothstep(0.8, 0.95, t.cloud));
+      s.breaks = ease(s.breaks, wantBreaks, dt, 5);
+      // W09: the squall walks in with the shower cell's rise and away with its fall
+      const env = showerEnvelope(input.time, t.showerOn), next = showerEnvelope(input.time + 1, t.showerOn);
+      s.squall.pos = input.squallPin ?? (next >= env ? env : 2 - env);
+      s.squall.k = smoothstep(0.05, 0.2, t.shower) * (1 - smoothstep(0.3, 0.6, t.steady));
     }
     this.snowS = ease(this.snowS, input.snowShare, dt, 30);
     // wetness: soaks in rain (snow lies, it does not wet), dries slowly once it stops
@@ -217,7 +315,7 @@ export class WeatherDirector {
     this.split(input);
     // rainbow: the recovery window (or the dev switch), daylight only, once the rain has thinned
     this.rainbowLeft = Math.max(0, this.rainbowLeft - dt);
-    const want = (input.forceRainbow || this.rainbowLeft > 0 ? 1 : 0) * smoothstep(0.15, 0.5, input.sunUp) *
+    const want = (input.forceRainbow || this.rainbowLeft > 0 ? 1 : 0) * Math.max(smoothstep(0.15, 0.5, input.sunUp), input.moonUp ?? 0) *
       (input.forceRainbow ? 1 : 1 - smoothstep(0.25, 0.5, s.precip)) * (1 - smoothstep(0.55, 0.75, s.cloud));
     s.rainbow = ease(s.rainbow, want, dt, want > s.rainbow ? TAU.rainbowIn : TAU.rainbowOut);
     if (s.rainbow < 1e-3 && want === 0) s.rainbow = 0;

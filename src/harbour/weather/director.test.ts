@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildBolt, jagged } from "./lightning";
 import {
-  RAINBOW_SEC, seasonForMonth, showerEnvelope, snowShare, targetsForLevel, WeatherDirector, weightsForSeason, type DirectorInput,
+  FRONT_MIN, FRONT_SEC, moonbowLight, RAINBOW_SEC, recoveryLine, seasonForMonth, stormTrend, showerEnvelope, snowShare, targetsForLevel, WeatherDirector, weightsForSeason, type DirectorInput,
 } from "./director";
 
 const input = (level: number | null, band: DirectorInput["band"], extra: Partial<DirectorInput> = {}): DirectorInput =>
@@ -54,7 +54,8 @@ describe("weather grammar: storminess is data", () => {
     // the band clears: one frame later the rain is still there, a minute later mostly gone
     d.step(0.1, input(0, "CALM"));
     expect(d.state.precip).toBeGreaterThan(0.95);
-    run(d, 60, input(0, "CALM"));
+    // (a four-band drop crosses as a clearing line: the rain stops once it has passed overhead)
+    run(d, 90, input(0, "CALM"));
     expect(d.state.precip).toBeLessThan(0.45);
     run(d, 240, input(0, "CALM"));
     expect(d.state.precip).toBeLessThan(0.01);
@@ -100,6 +101,107 @@ describe("weather grammar: storminess is data", () => {
     const f = new WeatherDirector();
     run(f, 60, input(0, "CALM"));
     expect(f.state.rainbow).toBe(0);
+  });
+});
+
+describe("W01 weather fronts", () => {
+  it("never on load; a big enough change sends a front, a small one eases in place", () => {
+    const d = new WeatherDirector();
+    d.step(0.1, input(3, "WARNING"));
+    expect(d.state.front).toBeNull();
+    run(d, 5, input(3 + FRONT_MIN * 0.8, "WARNING"));
+    expect(d.state.front).toBeNull();
+    const e = new WeatherDirector();
+    e.step(0.1, input(1, "WATCH"));
+    e.step(0.1, input(2, "ALERT"));
+    expect(e.state.front).not.toBeNull();
+    expect(e.state.front!.to).toBe(2);
+  });
+
+  it("the local weather turns only as the front passes overhead, and the front then clears away", () => {
+    const d = new WeatherDirector();
+    d.step(0.1, input(1, "WATCH"));
+    run(d, FRONT_SEC * 0.2, input(3, "WARNING"));
+    expect(d.state.level).toBeCloseTo(1, 5);            // still out over the sea
+    run(d, FRONT_SEC * 0.4, input(3, "WARNING"));
+    expect(d.state.level!).toBeGreaterThan(2);
+    run(d, FRONT_SEC * 0.5, input(3, "WARNING"));
+    expect(d.state.front).toBeNull();
+    expect(d.state.level).toBe(3);
+  });
+
+  it("reduced motion: no sweep, the weather eases in place", () => {
+    const d = new WeatherDirector();
+    d.step(0.1, input(0, "CALM"));
+    d.step(0.1, input(3, "WARNING", { still: true }));
+    expect(d.state.front).toBeNull();
+  });
+
+  it("the trend line says the same thing as the front", () => {
+    expect(stormTrend(null)).toBeNull();
+    expect(stormTrend({ from: 1, to: 2.1, progress: 0.3 })?.text).toBe("rising toward Alert");
+    expect(stormTrend({ from: 3.4, to: 1, progress: 0.5 })?.text).toBe("easing toward Watch");
+    expect(stormTrend({ from: 1, to: 2, progress: 1 })).toBeNull();
+    expect(stormTrend({ from: 1, to: 1 + FRONT_MIN * 0.9, progress: 0.2 })).toBeNull();
+    const d = new WeatherDirector();
+    d.step(0.1, input(1, "WATCH"));
+    d.step(0.1, input(2, "ALERT"));
+    expect(stormTrend(d.state.front)?.dir).toBe("rising");
+  });
+
+  it("records the recovery it saw, with the band it left", () => {
+    const d = new WeatherDirector();
+    d.step(0.1, input(3, "WARNING"));
+    d.step(0.1, input(1, "WATCH", { time: 42 }));
+    expect(d.state.recovery).toEqual({ fromBand: "WARNING", atSec: 42 });
+  });
+});
+
+describe("W03 sunbreaks and W09 squalls", () => {
+  it("breaks open as the rain eases and after a recovery, never under Danger's deck", () => {
+    const d = new WeatherDirector();
+    d.step(0.1, input(4, "DANGER", { still: true }));
+    run(d, 120, input(4, "DANGER", { still: true }));
+    expect(d.state.breaks).toBeLessThan(0.01);
+    run(d, 60, input(1, "WATCH", { still: true }));
+    expect(d.state.breaks).toBeGreaterThan(0.5);
+    const c = new WeatherDirector();
+    run(c, 120, input(0, "CALM"));
+    expect(c.state.breaks).toBe(0);
+  });
+
+  it("squalls only at Watch and Alert, overhead at the shower's crest", () => {
+    const k = (l: number) => { const d = new WeatherDirector(); d.step(0.1, input(l, null)); d.step(0.1, input(l, null)); return d.state.squall.k; };
+    expect(k(0)).toBe(0);
+    expect(k(1)).toBeGreaterThan(0.4);
+    expect(k(2)).toBeGreaterThan(0.9);
+    expect(k(3.5)).toBe(0);
+    const d = new WeatherDirector();
+    d.step(0.1, input(2, "ALERT"));
+    for (let t = 0; t < 400; t += 0.5) {
+      d.step(0.5, input(2, "ALERT", { time: t }));
+      const env = showerEnvelope(t, targetsForLevel(2).showerOn);
+      expect(Math.abs(d.state.squall.pos - 1)).toBeCloseTo(1 - env, 5);
+    }
+  });
+});
+
+describe("W07 moonbow and the recovery line", () => {
+  it("a night recovery hangs a moonbow only under a bright moon", () => {
+    expect(moonbowLight(0.1, 1)).toBe(0);
+    expect(moonbowLight(0.9, 1)).toBe(1);
+    expect(moonbowLight(0.9, 0)).toBe(0);
+    const d = new WeatherDirector();
+    run(d, 2, input(3, "WARNING", { sunUp: 0, moonUp: 1, still: true }));
+    run(d, 150, input(0, "CALM", { sunUp: 0, moonUp: 1, still: true }));
+    expect(d.state.rainbow).toBeGreaterThan(0.5);
+  });
+
+  it("says when and from what it recovered, for as long as the bow may hang", () => {
+    expect(recoveryLine(null, 10)).toBeNull();
+    expect(recoveryLine({ fromBand: "ALERT", atSec: 100 }, 120)).toBe("Recovered from Alert just now");
+    expect(recoveryLine({ fromBand: "WARNING", atSec: 100 }, 100 + 185)).toBe("Recovered from Warning 3 min ago");
+    expect(recoveryLine({ fromBand: "ALERT", atSec: 100 }, 101 + RAINBOW_SEC)).toBeNull();
   });
 });
 

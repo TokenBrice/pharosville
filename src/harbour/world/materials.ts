@@ -8,6 +8,7 @@ import { RUNUP_GLSL, runupUniforms } from "./runup";
 import { BEAM_LIGHT_GLSL, beamLightUniforms } from "../beam/beam-light-glsl";
 import { getBeamUniforms } from "../beam/uniforms";
 import { LAMP_WAVE_GLSL, lampWaveUniforms } from "../lights/lamp-wave";
+import { DEW_GLSL, dewUniforms } from "../weather/dew";
 
 /**
  * THE HARBOUR MATERIAL PORT — style C "Northern Light" (p1/style-c/nl_common.py build_kit_material,
@@ -406,6 +407,7 @@ vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
   return mix(decid, needles, conifer);
 }
 
+${DEW_GLSL}
 // WEATHER ON THE GROUND (snow cover: season + snowfall; wetness: rain, written by the weather director).
 // N = shading normal (world). Writes snow / puddle coverage for the lighting additions.
 void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, float dW, out float snow, out float puddle) {
@@ -473,6 +475,7 @@ void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, flo
     alb = mix(alb, alb * 0.4, puddle);
     rough = mix(rough, 0.03, puddle);
   }
+  hbDewRime(alb, rough, pid, W, N, snow);   // W12 winter-dawn rime (decorative; not mist)
 }
 `;
 
@@ -536,7 +539,7 @@ export class HarbourMaterials {
     m.name = "hb_kit";
     const fallbackPid = (opts.pattern ?? 0).toFixed(1);
     m.onBeforeCompile = (shader) => {
-      Object.assign(shader.uniforms, this.shared(), cloudShadowUniforms, aerialUniforms, runupUniforms, { uAerialDensity: this.uniforms.uFogDensity, uAerialHaze: this.uniforms.uHaze });
+      Object.assign(shader.uniforms, this.shared(), cloudShadowUniforms, dewUniforms, aerialUniforms, runupUniforms, { uAerialDensity: this.uniforms.uFogDensity, uAerialHaze: this.uniforms.uHaze });
       injectVaryings(shader);
       // winter / late-autumn bare crowns discard: compiled in only when the calendar can need it
       if (leafFallAt(this.uniforms) > 0.001) shader.defines = { ...shader.defines, HB_BARE: "" };
@@ -607,6 +610,7 @@ export class HarbourMaterials {
       float spec = pow(max(dot(reflect(-hbVw, hbNw), uHbSunDir), 0.0), 4.0);
       outgoingLight += uHbSunColor * g * spec * hbSnow * hbCs * 0.5;
     }
+    outgoingLight += uHbSunColor * hbDewGlint(hbPid, vHbWorld, hbNw, hbVw, uHbSunDir, hbSdW) * hbCs * 0.6;   // W12 dawn dew
   }
   hbAerial(outgoingLight, vHbWorld, 0.0);   // distance (decorative, world/aerial.ts)
   #include <opaque_fragment>`);

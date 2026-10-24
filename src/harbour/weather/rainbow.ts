@@ -37,6 +37,7 @@ uniform vec3 uBowDir;      // world direction of the bow centre
 uniform float uRadius;     // bow radius (deg)
 uniform float uK;          // strength 0..1
 uniform vec3 uSunCol;
+uniform float uSilver;     // W07 moonbow: 1 = mostly white-silver
 varying vec2 vNdc;
 vec3 spectrum(float x) {
   // x 0 = red (outside) … 1 = violet (inside); soft overlapping lobes, as the drops' disc smears them
@@ -75,6 +76,7 @@ void main() {
   // the legs fade toward the ground and the near foreground: strongest overhead, over the far water and sky
   float legs = smoothstep(0.05, 0.75, up) * smoothstep(-0.75, 0.2, vNdc.y);
   float k = uK * legs / ${LAYERS}.0;
+  col = mix(col, vec3(dot(col, vec3(0.3, 0.4, 0.3))) * vec3(0.92, 0.97, 1.08), uSilver * 0.82);
   vec3 light = col * mix(vec3(1.0), uSunCol / max(max(uSunCol.r, uSunCol.g), 1e-3), 0.35) * 0.46 * k;
   float alpha = dark * 0.09 * k;
   if (dot(light, vec3(1.0)) < 0.0015 / ${LAYERS}.0 && alpha < 0.002 / ${LAYERS}.0) discard;
@@ -97,7 +99,7 @@ export class Rainbow {
       uniforms: {
         uInvProjView: { value: new THREE.Matrix4() }, uCamPos: { value: new THREE.Vector3() },
         uBowDir: { value: new THREE.Vector3(0, 0, -1) }, uRadius: { value: 18 }, uK: { value: 0 },
-        uSunCol: { value: new THREE.Color(1, 1, 1) }, uDepth: { value: new THREE.Vector2(800, 1100) },
+        uSunCol: { value: new THREE.Color(1, 1, 1) }, uDepth: { value: new THREE.Vector2(800, 1100) }, uSilver: { value: 0 },
       },
       transparent: true, depthTest: true, depthWrite: false, fog: false,
       blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
@@ -115,10 +117,13 @@ export class Rainbow {
    * sized to the frame (a 42° bow would not fit a 25° lens), its crown near the top of the frame.
    * `distance` = the rig's distance to its target; `horizon` = the painted sky card's distance (the sheets stay in front of it).
    */
-  update(strength: number, camera: THREE.PerspectiveCamera, sunDir: THREE.Vector3, sunCol: THREE.Color, distance: number, horizon: number): void {
+  update(strength: number, camera: THREE.PerspectiveCamera, sunDir: THREE.Vector3, sunCol: THREE.Color, distance: number, horizon: number, moonbow = 0): void {
     this.mesh.visible = strength > 0.003;
     if (!this.mesh.visible) return;
     const u = this.mat.uniforms;
+    // W07: by night the bow hangs opposite the moon (the key light), silver and at about a quarter strength
+    u.uSilver.value = moonbow;
+    strength *= 1 - 0.75 * moonbow;
     // the rain curtain: just past the harbour's heart (the Pharos stands ~1.1 × the rig distance away) out to the far shore
     const far = Math.min(distance * 1.45, horizon * 0.85);
     u.uDepth.value.set(Math.min(distance * 1.16, far * 0.8), far);
