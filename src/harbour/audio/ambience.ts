@@ -80,6 +80,14 @@ export interface AmbienceInputs {
   reduced: boolean;
   /** low quality tier (a weaker machine): skip the costlier storm layers (howl, spray, the second rain stream) */
   lean: boolean;
+  /**
+   * how far BEHIND the listener's look each placed source lies, 0 (ahead or beside) … 1 (straight behind):
+   * a pseudo front/back cue, a darker sound from behind, without HRTF panners
+   */
+  shoreBack: number;
+  reefBack: number;
+  mintBack: number;
+  townBack: number;
   /** the visitor's attention 1 … 0 after a few idle minutes (the ten-minute settle: quieter, sparser) */
   attention: number;
 }
@@ -189,6 +197,7 @@ export class Ambience {
     fire: 0, firePan: 0, mint: 0, mintPan: 0, mintRate: 0.5,
     rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
     town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false, attention: 1,
+    shoreBack: 0, reefBack: 0, mintBack: 0, townBack: 0,
   };
   private readonly rnd: () => number;
   private readonly bank: ClipBank;
@@ -212,6 +221,8 @@ export class Ambience {
   private readonly windLow: GainNode;
   private readonly whistle: GainNode;
   private readonly whistleLoop: LazyLoop;
+  private readonly highAir: GainNode;
+  private readonly highAirLoop: LazyLoop;
   // civic
   private readonly fireBus: GainNode;
   private readonly firePan: StereoPannerNode;
@@ -344,6 +355,11 @@ export class Ambience {
     const whistleBp = this.filter("bandpass", 1350, 16);
     this.whistleLoop = new LazyLoop(ac, this.white, whistleBp);
     whistleBp.connect(this.whistle).connect(this.windGust);
+    // the high air of the overview: a thin, broad, very quiet wind that only the farthest zoom hears
+    this.highAir = ac.createGain(); this.highAir.gain.value = 0;
+    const airBp = this.filter("bandpass", 2500, 0.5);
+    this.highAirLoop = new LazyLoop(ac, this.white, airBp);
+    airBp.connect(this.highAir).connect(this.windGust);
 
     // ---- the Pharos fire: overlapped clips of flickering roar and crackle
     this.fireBus = ac.createGain(); this.fireBus.gain.value = 0;
@@ -489,30 +505,35 @@ export class Ambience {
     const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
     // the settle: the mix eases down and thins after a few idle minutes; any input brings it back in ~2 s
     const att = clamp01(I.attention), thin = settleRate(att);
+    // altitude: from the overview the sea breathes and the quay's detail falls away; a source behind is darker
+    const alt = clamp01((zoom - 0.8) / 0.2), point = 1 - 0.5 * alt;
+    const behind = (b: number, k: number) => 1 - k * clamp01(b);
     this.aim(this.settle.gain, Math.pow(10, settleDb(att, now, this.breathPhase) / 20), att > 0.99 ? 0.5 : 2);
 
     // ---- levels: nearer is louder AND brighter; a storm heavies the whole sea
     this.aim(this.shoreBus.gain, 0.5 * (0.3 + 0.7 * I.shore) * (1 - 0.3 * zoom) * (1 + 0.5 * storm), tc);
-    this.aim(this.shoreLp.frequency, air(I.shore * (1 - 0.4 * zoom), 900, 14000), tc);
+    this.aim(this.shoreLp.frequency, air(I.shore * (1 - 0.4 * zoom), 900, 14000) * behind(I.shoreBack, 0.55), tc);
     this.aim(this.bedGain.gain, (0.16 + 0.16 * zoom + 0.05 * wind + 0.14 * storm) * (1 - 0.5 * I.shore * near) * (1 - 0.2 * I.snowCover), tc);   // a near wave masks the far sea
     this.aim(this.bedLp.frequency, air(1 - zoom, 420, 900), tc);
-    this.aim(this.lapBus.gain, 0.06 + 1.1 * I.harbour * I.harbour, tc);
+    this.aim(this.lapBus.gain, (0.06 + 1.1 * I.harbour * I.harbour) * point, tc);
     this.aim(this.lapLp.frequency, air(I.harbour, 1200, 12000), tc);
     this.aim(this.reefBus.gain, (0.12 + 0.55 * I.reef) * (0.7 + 0.5 * wind) * (1 + 0.6 * storm), tc);
-    this.aim(this.reefLp.frequency, air(I.reef, 380, 2600), tc);
+    this.aim(this.reefLp.frequency, air(I.reef, 380, 2600) * behind(I.reefBack, 0.4), tc);
     this.aim(this.reefPan.pan, I.reefPan * 0.8, tc);
     this.aim(this.windGain.gain, (0.05 + 0.42 * wind * wind) * (0.7 + 0.3 * zoom), tc);
     this.aim(this.windLow.gain, 1.1 * wind * wind, tc);
     // the rigging sings in a blow, and in any storm from WARNING up
     const blow = Math.max(wind, storm > 0.6 ? 0.45 + 0.45 * storm : 0);
     this.whistleLoop.update(blow > 0.56, blow < 0.55, now, r);
-    this.aim(this.harbourBus.gain, (0.08 + 1.1 * I.harbour * I.harbour) * (1 - 0.3 * snow), tc);
+    this.highAirLoop.update(alt > 0.02, alt < 0.01, now, r);
+    this.aim(this.highAir.gain, 0.015 * alt, tc);
+    this.aim(this.harbourBus.gain, (0.08 + 1.1 * I.harbour * I.harbour) * (1 - 0.3 * snow) * point, tc);
     // gulls shelter from a storm and the rain, and snow softens them
     this.aim(this.gullBus.gain, (0.12 + 0.3 * near) * (1 - 0.8 * night) * (1 - 0.5 * fog) * (1 - 0.7 * storm) * (1 - 0.5 * rain) * (1 - 0.5 * snow), tc);
-    this.aim(this.fireBus.gain, 0.5 * I.fire * I.fire, 0.5);
+    this.aim(this.fireBus.gain, 0.5 * I.fire * I.fire * point, 0.5);
     this.aim(this.firePan.pan, I.firePan * 0.8, 0.5);
-    this.aim(this.mintBus.gain, 0.16 * I.mint * I.mint, 0.5);
-    this.aim(this.mintLp.frequency, air(I.mint, 700, 6000), 0.5);
+    this.aim(this.mintBus.gain, 0.16 * I.mint * I.mint * point, 0.5);
+    this.aim(this.mintLp.frequency, air(I.mint, 700, 6000) * behind(I.mintBack, 0.5), 0.5);
     this.aim(this.mintPan.pan, I.mintPan * 0.8, 0.5);
 
     // ---- weather (data): snow's hush, rain on the sea and the roofs, drips, spray, the howl
@@ -521,7 +542,7 @@ export class Ambience {
     this.aim(this.rainFine.gain, 0.28 * Math.pow(rain, 0.7) * (0.8 + 0.2 * zoom), 1);
     this.aim(this.rainBody.gain, 0.4 * rain * rain, 1);
     this.aim(this.patterBus.gain, (0.25 + 0.75 * I.town) * clamp01(rain * 2.5), 1);
-    this.aim(this.patterLp.frequency, air(I.town * (1 - 0.4 * zoom), 2200, 12000), 1);
+    this.aim(this.patterLp.frequency, air(I.town * (1 - 0.4 * zoom), 2200, 12000) * behind(I.townBack, 0.5), 1);
     this.aim(this.dripBus.gain, 0.5 * I.wet * (1 - snow) * (0.15 + 0.85 * I.town), 1);
     this.sprayLoop.update(storm > 0.4 && !I.lean, storm < 0.35 || I.lean, now, r);
     this.aim(this.sprayBus.gain, 0.4 * storm * storm * (0.3 + 0.7 * I.shore), 1);
@@ -811,7 +832,7 @@ export class Ambience {
     await new Promise((r) => setTimeout(r, 680));
     for (const s of this.sources) { try { s.stop(); } catch { /* already stopped */ } }
     this.whistleLoop.stop();
-    for (const l of [this.rainLoop, this.sprayLoop, this.howlLoop]) l.stop();
+    for (const l of [this.highAirLoop, this.rainLoop, this.sprayLoop, this.howlLoop]) l.stop();
     this.out.disconnect();
     if ("close" in this.ac) await (this.ac as AudioContext).close().catch(() => undefined);
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attentionFor, weatherInputs } from "./controller";
+import { attentionFor, behindOf, weatherInputs } from "./controller";
 import { birdThinning, cicadaLevel, settleDb, settleRate } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {
@@ -60,5 +60,14 @@ describe("harbour sound: the ten-minute settle", () => {
     for (const t of [0, 77, 400]) expect(settleDb(0, t, 0.7) - settleDb(1, t, 0.7)).toBeCloseTo(-3);
     expect(settleRate(1)).toBe(1);
     expect(settleRate(0)).toBeCloseTo(0.7);
+  });
+});
+
+describe("harbour sound: front/back cue", () => {
+  it("only sources behind the look are darkened, most when straight behind and far", () => {
+    expect(behindOf(0, -500, 0, -1)).toBe(0);       // ahead
+    expect(behindOf(500, 0, 0, -1)).toBe(0);        // beside
+    expect(behindOf(0, 500, 0, -1)).toBeGreaterThan(0.9);
+    expect(behindOf(0, 20, 0, -1)).toBeLessThan(0.4); // at the listener's feet: barely
   });
 });

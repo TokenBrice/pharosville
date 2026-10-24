@@ -122,6 +122,11 @@ function nearest(x: number, z: number, pts: Vec2[]): number {
   return d;
 }
 
+/** How far behind a look along (fx, fz) the offset (dx, dz) lies: 0 ahead or beside … →1 straight behind (soft near the listener). */
+export function behindOf(dx: number, dz: number, fx: number, fz: number): number {
+  return Math.max(0, Math.min(1, -(dx * fx + dz * fz) / (Math.hypot(dx, dz) + 40)));
+}
+
 /** The visitor's attention from the seconds since their last input: 1 for 3 min, then down to 0 over 60 s. */
 export function attentionFor(idleSec: number): number {
   return idleSec < 180 ? 1 : Math.max(0, 1 - (idleSec - 180) / 60);
@@ -239,6 +244,9 @@ class Controller implements SoundController {
       this.right[0] = rx; this.right[1] = rz;
       const near = (dg: number, h: number, ref: number) => Math.min(1, (ref * ref) / (dg * dg + h * h + 1));
       const pan = (x: number, z: number) => { const dx = x - lx, dz = z - lz; return Math.max(-1, Math.min(1, (dx * rx + dz * rz) / (Math.hypot(dx, dz) + 40))); };
+      // the camera looks down its -z: its forward on the ground; how far behind the listener's look a source lies
+      const fl = Math.hypot(e[8], e[10]) || 1, fx = -e[8] / fl, fz = -e[10] / fl;
+      const back = (x: number, z: number) => behindOf(x - lx, z - lz, fx, fz);
       let dc = Infinity, cx = lx, cz = lz;
       for (let i = 0, n = S.coast.length; i < n; i++) {
         const d = segDist(lx, lz, S.coast[i], S.coast[(i + 1) % n]);
@@ -247,16 +255,16 @@ class Controller implements SoundController {
       let db = Infinity;
       for (const b of S.berths) db = Math.min(db, Math.hypot(b[0] - lx, b[1] - lz));
       inputs.shore = S.coast.length ? near(dc, ly, 150) : 0.4;
-      inputs.shorePan = pan(cx, cz);
+      inputs.shorePan = pan(cx, cz); inputs.shoreBack = back(cx, cz);
       inputs.harbour = S.berths.length ? near(db, ly, 120) : 0.3;
-      if (S.reef) { inputs.reef = near(Math.hypot(S.reef[0] - lx, S.reef[1] - lz), ly, 160); inputs.reefPan = pan(S.reef[0], S.reef[1]); }
+      if (S.reef) { inputs.reef = near(Math.hypot(S.reef[0] - lx, S.reef[1] - lz), ly, 160); inputs.reefPan = pan(S.reef[0], S.reef[1]); inputs.reefBack = back(S.reef[0], S.reef[1]); }
       if (S.fire) { inputs.fire = near(Math.hypot(S.fire[0] - lx, S.fire[2] - lz), ly - S.fire[1], 70); inputs.firePan = pan(S.fire[0], S.fire[2]); }
       if (S.mint) {
         inputs.mint = near(Math.hypot(S.mint[0] - lx, S.mint[2] - lz), ly - S.mint[1], 80);
-        inputs.mintPan = pan(S.mint[0], S.mint[2]);
+        inputs.mintPan = pan(S.mint[0], S.mint[2]); inputs.mintBack = back(S.mint[0], S.mint[2]);
         inputs.mintRate = (ctx.services.get("civic") as Civic | undefined)?.mintRate ?? 0.5;
       } else inputs.mint = 0;
-      if (S.town.length) { inputs.town = near(nearest(lx, lz, S.town), ly, 120); inputs.townPan = pan(hit[0], hit[1]); }
+      if (S.town.length) { inputs.town = near(nearest(lx, lz, S.town), ly, 120); inputs.townPan = pan(hit[0], hit[1]); inputs.townBack = back(hit[0], hit[1]); }
       const onLand = S.coast.length > 2 && inside(lx, lz, S.coast);
       inputs.land = onLand ? near(0, ly, 170) : 0.4 * (inputs.shore ?? 0);
       inputs.trees = Math.max(S.trees.length ? near(nearest(lx, lz, S.trees), ly, 140) : 0, 0.6 * inputs.land);
