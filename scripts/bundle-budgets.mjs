@@ -24,8 +24,12 @@ export const bundleBudgets = {
     // Tightened 2026-10-15 after the need-for-speed pass moved the registry,
     // zod and the pre-launch book out of the chunk: measured 904.3 KiB raw /
     // 312.9 KiB gzip. Cap = measured + ~12%.
-    maxRawBytes: 1_020 * 1024,
-    maxGzipBytes: 352 * 1024,
+    // Re-baselined 2026-10-24 after the prettier sweep (agents/claudeville-prettier:
+    // beam light, lamp wave, gust field, sky/weather fronts, moon and meteors,
+    // events + Day book, signals, moments, life, camera glides, postcard):
+    // measured 1,066.7 KiB raw / 371.0 KiB gzip. Cap = measured + ~10%.
+    maxRawBytes: 1_175 * 1024,
+    maxGzipBytes: 408 * 1024,
     required: true,
   },
   renderer: {
@@ -62,8 +66,10 @@ export const aggregateBudgets = {
   // gzip in total. Cap = measured + ~11%.
   // Tightened 2026-10-15 (need-for-speed): measured 2,055.2 KiB raw / 658.8 KiB
   // gzip in total. Cap = measured + ~10%.
-  maxJsRawBytes: 2_260 * 1024,
-  maxJsGzipBytes: 724 * 1024,
+  // Re-baselined 2026-10-24 after the prettier sweep: measured 2,254.6 KiB raw /
+  // 730.4 KiB gzip in total (incl. the lazy sound chunks). Cap = measured + ~10%.
+  maxJsRawBytes: 2_480 * 1024,
+  maxJsGzipBytes: 804 * 1024,
 };
 
 export const forbiddenBundleChunks = [

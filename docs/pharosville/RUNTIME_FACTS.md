@@ -41,15 +41,15 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 ## World Systems
 
-- Registration (= update) order: `SeasonSystem` → `LayoutSystem` → `DataSystem` → `ReadingsSystem` → `WeatherSystem` → `SkySystem` → `OceanSystem` → `IslandSystem` → `LighthouseSystem` → `CivicSystem` → `FleetSystem` → `LifeSystem` → `IdentitySystem` → `LightsSystem` → `BeamSystem`
+- Registration (= update) order: `SeasonSystem` → `LayoutSystem` → `DataSystem` → `ReadingsSystem` → `WeatherSystem` → `SkySystem` → `OceanSystem` → `IslandSystem` → `LighthouseSystem` → `CivicSystem` → `FleetSystem` → `LifeSystem` → `IdentitySystem` → `OfficeWorksSystem` → `MomentsStage` → `LightsSystem` → `BeamSystem`
 
 ## Bundle Budgets
 
 - entry chunk: raw <= 64 KiB, gzip <= 24 KiB
-- Harbour lazy chunk: raw <= 1,020 KiB, gzip <= 352 KiB
+- Harbour lazy chunk: raw <= 1,175 KiB, gzip <= 408 KiB
 - Three.js renderer chunk: raw <= 960 KiB, gzip <= 276 KiB
 - Harbour CSS: raw <= 34 KiB, gzip <= 9 KiB
-- Total JS: raw <= 2,260 KiB, gzip <= 724 KiB
+- Total JS: raw <= 2,480 KiB, gzip <= 804 KiB
 
 ## Workflow Gates
 
