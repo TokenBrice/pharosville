@@ -28,9 +28,12 @@ export const bundleBudgets = {
     // 312.9 KiB gzip. Cap = measured + ~12%.
     // Tightened 2026-10-19 (need-for-speed v1.3.0): detail panels, cemetery prose, life/identity
     // and the planner moved to lazy chunks/worker: measured 756.8 KiB raw / 255.2 KiB gzip.
+    // Re-baselined 2026-10-25 for Living Harbour v1.4.0 (agents/claudeville-prettier) merged onto
+    // Fair Wind's lazy split: beam light, lamp wave, gust field, fronts, moon and meteors, events +
+    // Day book, signals, moments, camera glides, postcard. Measured 896.7 KiB raw / 305.6 KiB gzip.
     // Cap = measured + ~10%.
-    maxRawBytes: 832 * 1024,
-    maxGzipBytes: 281 * 1024,
+    maxRawBytes: 986 * 1024,
+    maxGzipBytes: 336 * 1024,
     required: true,
   },
   renderer: {
@@ -68,9 +71,11 @@ export const aggregateBudgets = {
   // Tightened 2026-10-15 (need-for-speed): measured 2,055.2 KiB raw / 658.8 KiB
   // gzip in total. Cap = measured + ~10%.
   // 2026-10-19 (need-for-speed v1.3.0): measured 2,198.0 KiB raw / 698.6 KiB gzip in total; the
-  // growth is lazy (detail panels, prelaunch book, planner worker), not first-frame JS. Cap kept.
-  maxJsRawBytes: 2_260 * 1024,
-  maxJsGzipBytes: 724 * 1024,
+  // growth is lazy (detail panels, prelaunch book, planner worker), not first-frame JS.
+  // Re-baselined 2026-10-25 (Living Harbour v1.4.0 on Fair Wind v1.3.0): measured 2,408.3 KiB raw /
+  // 774.1 KiB gzip in total (incl. the lazy sound and music chunks). Cap = measured + ~10%.
+  maxJsRawBytes: 2_650 * 1024,
+  maxJsGzipBytes: 852 * 1024,
 };
 
 export const forbiddenBundleChunks = [

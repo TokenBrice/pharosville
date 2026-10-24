@@ -46,10 +46,10 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 ## Bundle Budgets
 
 - entry chunk: raw <= 10 KiB, gzip <= 4 KiB
-- Harbour lazy chunk: raw <= 832 KiB, gzip <= 281 KiB
+- Harbour lazy chunk: raw <= 986 KiB, gzip <= 336 KiB
 - Three.js renderer chunk: raw <= 960 KiB, gzip <= 276 KiB
 - Harbour CSS: raw <= 34 KiB, gzip <= 9 KiB
-- Total JS: raw <= 2,260 KiB, gzip <= 724 KiB
+- Total JS: raw <= 2,650 KiB, gzip <= 852 KiB
 
 ## Workflow Gates
 
