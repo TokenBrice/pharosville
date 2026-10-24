@@ -7,7 +7,8 @@
 export const SEA_GOLDEN_GLSL = /* glsl */ `
 vec3 hbSeaGolden(vec3 body, float sunSh, float sunUp) {
   // ~35 % of the body is sun-lit upwelling: shade it (the moon's shadow is fainter still)
-  body *= 1.0 - (1.0 - sunSh) * mix(0.42, 0.15, uNight);
+  // (a sun on the horizon is weak against the sky: its hull-long streaks fade rather than bar the water)
+  body *= 1.0 - (1.0 - sunSh) * mix(0.42, 0.15, uNight) * mix(0.55, 1.0, smoothstep(0.0, 0.12, uSunDir.y + uNight));
   float lumS = max(dot(uSunColor, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
   vec3 hue = min(uSunColor / lumS, vec3(2.2));
   float low = (1.0 - smoothstep(0.07, 0.42, uSunDir.y)) * smoothstep(0.0, 0.05, uSunDir.y) * (1.0 - uNight);

@@ -3,6 +3,7 @@ import type { HarbourMaterials } from "../world/materials";
 import type { WorldUniforms } from "../engine/uniforms";
 import { FLEET_FAR_FRAG } from "./fleet-far";
 import { FLEET_MOTION_GLSL } from "./fleet-motion-glsl";
+import { SAIL_LIGHT_GLSL } from "./sail-light-glsl";
 
 /**
  * The fleet material: the shared harbour kit material (patterns, world breakup, env spec, light
@@ -235,6 +236,7 @@ varying vec4 vSailDye;
 varying vec4 vPaintA;
 varying vec4 vPaintB;
 varying vec3 vPaintC;
+${SAIL_LIGHT_GLSL}
 float hbSeam(float c, float period, float w) {
   float f = abs(fract(c / period + 0.5) - 0.5) * period;
   float aa = fwidth(c) * 0.75 + 1e-5;
@@ -376,6 +378,7 @@ void hbFleetColor(inout vec3 c) {
       c = mix(base, base * 1.1 + 0.015, smoothstep(0.5, 1.0, su.y) * 0.5);
     }
     c *= 1.0 - (seams * 0.07 + tabling * 0.09) * fine;    // cloths + tabling
+    hbSailOpaque = (seams * 0.45 + tabling * 0.55) * fine;  // 06-F12: they stand dark in the backlit glow
     // furled canvas (rolled jib, square sails on their yards): weathered cloth, not a white bar
     c = mix(c, c * vec3(0.66, 0.62, 0.55), smoothstep(0.35, 0.95, vFleetRig.x));
     float slot = vFleetBrand.a;
@@ -386,6 +389,7 @@ void hbFleetColor(inout vec3 c) {
       vec3 ringCol = dye.w > 1.5 ? dye.rgb : dye.w > 0.5 ? dye.rgb * 0.42 : vFleetBrand.rgb;
       float ring = smoothstep(0.482 - era, 0.482 + era, er) * (1.0 - smoothstep(0.535 - era, 0.535 + era, er));
       c = mix(c, ringCol, ring * show);
+      hbSailOpaque = max(hbSailOpaque, ring * show * 0.5);
     }
     if (slot >= 0.0 && show > 0.0 && e.x >= 0.0 && e.x <= 1.0 && e.y >= 0.0 && e.y <= 1.0) {
       // manifest rule: flip u when gl_FrontFacing == isMirrored, with three's det<0 front-face swap.
@@ -402,6 +406,7 @@ void hbFleetColor(inout vec3 c) {
       vec4 t = textureGrad(uEmblems, uv, gx, gy) * show; // premultiplied
       t = hbFarEmblem(t, (dye.w > 0.5 ? dye.rgb : vFleetBrand.rgb) * 0.5);
       c = c * (1.0 - t.a) + t.rgb * 0.92;                  // printed on cloth: a touch under paper-white
+      hbSailOpaque = max(hbSailOpaque, t.a * 0.7);
     }
     hbFarCloth(c);
   } else if (vFleetRig.z > 0.5) {
@@ -452,7 +457,8 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
       outgoingLight += vec3(1.0, 0.42, 0.095) * (uLamp * vFleetRig.x + smoothstep(0.7, 1.0, vFleetMisc.x) * (1.6 + 1.4 * uLamp)) * fl;
     }
     // sail cloth glows when the low sun is behind it
-    if (vFleetMisc.z > 0.5 && vFleetMisc.z < 1.5) outgoingLight += diffuseColor.rgb * uSunColor * max(0.0, dot(-fN, uSunDir)) * 0.16 * (1.0 - vFleetRig.x);
+    // (02-L2: view- and elevation-dependent, brightest against a low sun; 06-F12 seams and roundel in silhouette)
+    if (vFleetMisc.z > 0.5 && vFleetMisc.z < 1.5) outgoingLight += hbSailGlow(diffuseColor.rgb, fN, fV, vFleetRig.x);
     // hover / selection: soft warm rim + lift
     float hi = vFleetMisc.x;
     if (hi > 0.001) {
@@ -465,7 +471,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   }
   #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => "hb_fleet_v9";
+  m.customProgramCacheKey = () => "hb_fleet_v9g";
 
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";
