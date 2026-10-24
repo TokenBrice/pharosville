@@ -2,6 +2,7 @@ import { ensureGustService } from "../weather/gust";
 import * as THREE from "three";
 import { getBeamUniforms } from "../beam/uniforms";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import type { QualityService } from "../engine/quality";
 import type { HarbourLayout } from "../layout/types";
 import type { SkyService, SkyShared } from "../sky/sky-system";
 import { cloudShadowUniforms } from "../sky/cloud-shadow";
@@ -92,6 +93,7 @@ export class OceanSystem implements WorldSystem {
   private mesh!: THREE.Mesh;
   private material!: THREE.ShaderMaterial;
   private wake!: WakeField;
+  private unsubQuality: (() => void) | null = null;
   private sdfTex!: THREE.Texture;
   private coastR!: Uint8Array;
   private sdfSize = 1024;
@@ -187,7 +189,21 @@ export class OceanSystem implements WorldSystem {
         uSceneRadius: { value: Math.hypot(layout.bounds.max[0] - layout.bounds.min[0], layout.bounds.max[2] - layout.bounds.min[2]) / 2 },
       },
       fog: false,
+      // the calendar is set before anything compiles (season system first): summer nights' glow only when it can show
+      defines: W.uFoliage.value.y > 0.001 ? { HB_BIOLUM: "" } : {},
     });
+    // PERF: the Low tier's lighter sea (sea-tone.ts HB_LITE)
+    const quality = ctx.services.get("quality") as QualityService | undefined;
+    if (quality) {
+      const lite = (tier: string) => {
+        const on = tier === "low";
+        if (on === "HB_LITE" in this.material.defines) return;
+        if (on) this.material.defines.HB_LITE = ""; else delete this.material.defines.HB_LITE;
+        this.material.needsUpdate = true;
+      };
+      lite(quality.tier);
+      this.unsubQuality = quality.onChange((q) => lite(q.tier));
+    }
     this.mesh = new THREE.Mesh(oceanGeometry(this.bounds), this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 60;               // after land (0) and the sky card (50): hidden water is rejected early
@@ -301,6 +317,7 @@ export class OceanSystem implements WorldSystem {
   }
 
   dispose(ctx: EngineContext): void {
+    this.unsubQuality?.();
     ctx.scene.remove(this.mesh);
     this.mesh.geometry.dispose();
     this.material.dispose();

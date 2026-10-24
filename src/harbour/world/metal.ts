@@ -26,6 +26,9 @@ float hbMetalKind(float pid, vec3 c) {
 }
 // sets the metal's F0 tint (as diffuseColor) and roughness; returns metalness
 float hbMetal(float pid, inout vec3 c, inout float rough) {
+  #ifdef HB_LITE
+  return 0.0;   // (Low tier: no metal sheen; the gilt keeps its paint colour)
+  #endif
   float k = hbMetalKind(pid, c);
   if (k < 0.5) return 0.0;
   if (k < 1.5) { c = mix(c, vec3(0.86, 0.6, 0.2), 0.45); rough = 0.4; return 0.85; }   // gilt #E0B04A toward gold's F0

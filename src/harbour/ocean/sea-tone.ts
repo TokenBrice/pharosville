@@ -12,6 +12,9 @@
  *  - 03-O5 summer-night bioluminescence (decorative, season-bound): churned water in wakes, hull contact rings and the
  *    swash glows a faint pale cyan-green on summer nights. Never in open water, never in the Shoals (their own night
  *    glimmer stays theirs), kept far below the night bloom threshold; the pulse rides the sea clock (still when reduced).
+ *
+ * PERF: the Low tier compiles HB_LITE (no mirror clouds, no Posidonia: ≈ 3 texture taps per sea pixel); the summer
+ * glow compiles in only when the visit's calendar has summer weight (HB_BIOLUM).
  */
 export const SEA_TONE_GLSL = /* glsl */ `
 vec3 hbSeaTone(vec3 body, float zb, float zr, float dep, float sdist, float sunUp, float nb, float camD) {
@@ -28,6 +31,9 @@ vec3 hbSeaTone(vec3 body, float zb, float zr, float dep, float sdist, float sunU
 }
 // Posidonia: dark sea-grass meadows in patches on the bed (not in the very shallows, never on the reef)
 vec3 hbPosidonia(vec3 bed, vec2 xz, float bedDep, float zr) {
+  #ifdef HB_LITE
+  return bed;   // (Low tier: the plain sandy bed)
+  #endif
   float p = texture2D(uNoise, xz * 0.011 + 0.43).r * 0.7 + texture2D(uNoise, xz * 0.047 + 0.11).g * 0.4;
   float k = smoothstep(0.66, 0.76, p) * smoothstep(0.7, 2.2, bedDep) * (1.0 - zr);
   return mix(bed, vec3(0.045, 0.07, 0.04), k * 0.85);
@@ -36,6 +42,9 @@ vec3 hbPosidonia(vec3 bed, vec2 xz, float bedDep, float zr) {
 // Returns (lit cloud colour, weight); the material lays it over the reflected sky with a Fresnel floor, so the soft
 // patches read at the hero pitch too (decorative)
 vec4 hbMirrorClouds(vec3 sky, vec3 p, vec3 Rr) {
+  #ifdef HB_LITE
+  return vec4(sky, 0.0);   // (Low tier: no clouds in the mirror; their shadows still cross the water)
+  #endif
   if (uCloudShadow.w < 0.001) return vec4(sky, 0.0);
   float up = max(Rr.y, 0.04);
   vec2 q = p.xz + Rr.xz / up * (650.0 - p.y);
@@ -46,6 +55,9 @@ vec4 hbMirrorClouds(vec3 sky, vec3 p, vec3 Rr) {
 }
 uniform vec4 uFoliage;   // season weights (spring, summer, autumn, winter): calendar, decorative
 vec3 hbBiolum(float churn, float zr, float t, float tw) {
+  #ifndef HB_BIOLUM
+  return vec3(0.0);   // (compiled in only for a visit with summer in the calendar: ocean-system)
+  #endif
   float k = uFoliage.y * uNight * (1.0 - smoothstep(0.05, 0.3, zr));
   if (k < 0.01) return vec3(0.0);
   float pulse = 0.7 + 0.3 * sin(t * 2.1 + tw * 25.0);

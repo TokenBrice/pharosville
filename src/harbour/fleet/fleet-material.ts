@@ -479,7 +479,8 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   }
   #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => "hb_fleet_v9g2";
+  m.customProgramCacheKey = () => `hb_fleet_v9g2${mats.kitKey()}`;
+  mats.track(m);   // recompiles with the kit's Low-tier switch
 
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";

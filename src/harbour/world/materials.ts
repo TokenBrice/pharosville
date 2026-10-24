@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { LANDMARK_HOVER_GLSL, landmarkHover } from "./landmark-hover";
 import type { EngineContext } from "../engine/types";
+import type { QualityService } from "../engine/quality";
 import { decodeInto, setBounds } from "../engine/static-merge";
 import type { WorldUniforms } from "../engine/uniforms";
 import { CLOUD_SHADOW_GLSL, cloudShadowUniforms } from "../sky/cloud-shadow";
@@ -294,7 +295,11 @@ vec3 hbPool(vec3 worldPos, vec3 worldN) {
   float below = smoothstep(p.a + 0.6, p.a - 0.4, worldPos.y);      // floors: only under the source
   float band = exp(-pow((worldPos.y - p.a) / 2.6, 2.0));           // walls: around the source height
   // the lamplighting wave (05-P3): a pool lies by its lamp, so the fragment's own rank stands in for the lamp's
+  #ifdef HB_LITE
+  return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, uWindowGlow);   // (Low: no lamplighting wave)
+  #else
   return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, hbLampGlow(uWindowGlow, hbLampRank(worldPos, 0.5)));
+  #endif
 }
 `;
 
@@ -344,6 +349,20 @@ export function leafFallAt(u: WorldUniforms): number {
   return Math.min(1, f.w + f.z * x * x * (3 - 2 * x) * 0.55);
 }
 
+/**
+ * Whether the farm year's stooks can stand this visit (hbCrop: cut from phase 0.50, carted in by 0.70, each field
+ * ± 0.025): compiles them in only then (the calendar is fixed for a visit, set before anything compiles).
+ */
+export function stooksAt(u: WorldUniforms): boolean {
+  const p = u.uSeasonPhase.value;
+  return p > 0.47 && p < 0.73;
+}
+
+/**
+ * PERF: the Low tier's lighter kit (HB_LITE): decorative extras that carry no data drop out of the compiled program
+ * (gilt/bronze metal sheen, dew and rime, the meadows' terrain dryness, the lamplighting wave on the light pools).
+ * Every reading (beam light, sea state run-up, hover, weather, season colours, aerial distance) stays.
+ */
 const GLSL_SEASON = /* glsl */ `
 ${GLSL_LEAF_FALL}
 uniform float uSnowCover;
@@ -355,6 +374,9 @@ float hbLuma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 // 08-T2: grass dryness from the land (no texture of its own): height, the slope's south aspect (facet normal) and
 // convexity against the island height field (uAOTex, 4 taps 7 m out). dry/lush 0..1.
 void hbGrassTerrain(vec3 W, out float dry, out float lush) {
+  #ifdef HB_LITE
+  dry = 0.0; lush = 0.0; return;   // (Low: the meadow keeps its season colour without the land's shape)
+  #endif
   vec3 n = normalize(cross(dFdx(W), dFdy(W)));
   n *= sign(n.y + 1e-5);
   float steep = 1.0 - n.y;
@@ -390,6 +412,8 @@ vec3 hbCrop(vec3 col, vec3 vc, vec3 W, float dW) {
   float cut = smoothstep(0.5, 0.53, p);
   o = mix(o, stubble, cut);
   // stooks: sheaves stood up on the stubble until carted in (late Jul - Sep); ~3.5 m apart, sub-pixel -> mean tint
+  // (compiled in only when the calendar can show them: HB_STOOKS, see stooksAt)
+  #ifdef HB_STOOKS
   vec2 cell = floor(W.xz / 3.5), cf = fract(W.xz / 3.5) - 0.5;
   vec2 jit = vec2(hbWhite(vec3(cell, 81.0)), hbWhite(vec3(cell, 83.0))) - 0.5;
   float stook = (1.0 - smoothstep(0.1, 0.15, length(cf - jit * 0.5))) * step(0.35, hbWhite(vec3(cell, 87.0)));
@@ -397,6 +421,7 @@ vec3 hbCrop(vec3 col, vec3 vc, vec3 W, float dW) {
   float stookK = cut * (1.0 - smoothstep(0.66, 0.7, p));
   float sub = smoothstep(0.3, 0.7, dW / 0.6);
   o = mix(o, mix(vec3(0.56, 0.42, 0.13) * (1.0 - 0.45 * shadeSide), o * 0.97, sub), stook * stookK * (1.0 - sub * 0.9));
+  #endif
   o = mix(o, furrow, smoothstep(0.7, 0.78, p));               // autumn ploughing
   return o * shade;
 }
@@ -567,6 +592,23 @@ export class HarbourMaterials {
   readonly rimK: THREE.IUniform<number> = { value: 1 };
   /** The Pharos beam as a light (beam/beam-light-glsl.ts): bound by getHarbourMaterials. */
   readonly beam: Record<string, THREE.IUniform> = {};
+  /** Low tier: the lighter kit program (HB_LITE, see GLSL_SEASON's note). Set by getHarbourMaterials from 'quality'. */
+  private lite = false;
+  /** Materials built on the kit's hook elsewhere (the fleet): recompiled with the kit when `lite` flips. */
+  private readonly derived = new Set<THREE.Material>();
+
+  /** Program-key suffix for the kit's compile-time switches (derived materials append it to their own key). */
+  kitKey(): string { return this.lite ? "_lite" : ""; }
+
+  /** Register a material whose onBeforeCompile wraps the kit's (it must append kitKey() to its program key). */
+  track(m: THREE.Material): void { this.derived.add(m); }
+
+  setLite(lite: boolean): void {
+    if (lite === this.lite) return;
+    this.lite = lite;
+    for (const [key, m] of this.cache) if (key.startsWith("kit:")) m.needsUpdate = true;
+    for (const m of this.derived) m.needsUpdate = true;
+  }
 
   constructor(readonly uniforms: WorldUniforms) {
     const black = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
@@ -609,6 +651,8 @@ export class HarbourMaterials {
         .replace("#include <begin_vertex>", `#include <begin_vertex>\n${SWAY_VERTEX_APPLY}`);
       // winter / late-autumn bare crowns discard: compiled in only when the calendar can need it
       if (leafFallAt(this.uniforms) > 0.001) shader.defines = { ...shader.defines, HB_BARE: "" };
+      if (stooksAt(this.uniforms)) shader.defines = { ...shader.defines, HB_STOOKS: "" };
+      if (this.lite) shader.defines = { ...shader.defines, HB_LITE: "" };
       shader.fragmentShader = shader.fragmentShader
         .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}\n${AERIAL_GLSL}\n${RUNUP_GLSL}\n${BEAM_LIGHT_GLSL}\n${LANDMARK_HOVER_GLSL}\n${METAL_GLSL}`)
         .replace("#include <color_fragment>", `
@@ -687,7 +731,7 @@ export class HarbourMaterials {
   hbAerial(outgoingLight, vHbWorld, 0.0);   // distance (decorative, world/aerial.ts)
   #include <opaque_fragment>`);
     };
-    m.customProgramCacheKey = () => `hb_kit_${fallbackPid}_${leafFallAt(this.uniforms) > 0.001 ? "bare" : "leaf"}`;
+    m.customProgramCacheKey = () => `hb_kit_${fallbackPid}_${leafFallAt(this.uniforms) > 0.001 ? "bare" : "leaf"}${stooksAt(this.uniforms) ? "_st" : ""}${this.kitKey()}`;
     this.cache.set(key, m);
     return m;
   }
@@ -1004,6 +1048,12 @@ export function getHarbourMaterials(ctx: EngineContext): HarbourMaterials {
   if (!m) {
     m = new HarbourMaterials(ctx.uniforms);
     Object.assign(m.beam, beamLightUniforms(getBeamUniforms(ctx)));
+    const q = ctx.services.get("quality") as QualityService | undefined;
+    if (q) {
+      const mats = m;
+      mats.setLite(q.tier === "low");
+      q.onChange((s) => mats.setLite(s.tier === "low"));
+    }
     ctx.services.set("materials", m);
   }
   return m;
