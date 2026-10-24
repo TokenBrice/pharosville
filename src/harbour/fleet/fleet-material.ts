@@ -1,16 +1,21 @@
 import * as THREE from "three";
 import type { HarbourMaterials } from "../world/materials";
 import type { WorldUniforms } from "../engine/uniforms";
+import { FLEET_MOTION_GLSL } from "./fleet-motion-glsl";
 
 /**
  * The fleet material: the shared harbour kit material (patterns, world breakup, env spec, light
  * pools, height-field AO — so boats sit in the island's light) extended for one BatchedMesh draw of
- * every hull. Per-instance state lives in `uFleetData` (2 RGBA32F texels per batch instance):
+ * every hull. Per-instance state lives in `uFleetData` (3 RGBA32F texels per batch instance, FLEET_DATA_TEXELS):
  *   texel 0 = (furl 0..1, signed boom swing rad (>0 = port tack, mirrored rig), highlight 0..1,
  *              pennant: sign = flies (>0) or struck (<0); |w| = 1 + far (0..1: spars recede far away), + 2 when
  *              the CPU struck the rig (see STRUCK))
  *   texel 1 = (brand r, g, b linear, emblem slot or -1; -2 = a v1 hulk; ≤ -9 = a wreck kit v2 piece, -10 - n = nameboard n)
  *   (wreck kit v2 pieces: texel 0.x = their lantern lit 0..1; kinds 3 = epitaph board, 4 = lantern glass)
+ *   texel 2 = motion (F-fleet3, written by fleet-system writeMotion; all 0 = a still, unbellied rig):
+ *             x = sail fill 0..1 (belly depth: wind × gust, 06-F2), y = shake 0..1 (luff shiver head to wind / flog
+ *             through a tack, 07-M1 / 06-F2; 0 under reduced motion), z = lantern lit 0|1 (RESERVED for the stern-
+ *             lantern lane, 06-F6; unread here), w = oar stroke 0..1 (galleys rowing, 06-F3; 0 = oars frozen)
  * and the static livery in `uFleetPaint` (5 RGBA32F texels per instance, written once at install):
  *   texel 0 = (topside rgb, name board 0|1) · 1 = (stripe / trim rgb, painted 0|1) · 2 = (deck rgb, -) ·
  *   3 = (coachroof rgb, painted 0|1) · 4 = (sail dye rgb, mode 0 canvas | 1 dyed | 2 canvas + brand bands; livery.sailDye).
@@ -57,7 +62,11 @@ bool hbFleetStruck(float w) {
 }
 `;
 
+/** uFleetData texels per batch instance (F-fleet3: texel 2 = motion, see FleetUniforms). */
+export const FLEET_DATA_TEXELS = 3;
+
 const VERT_PARS = /* glsl */ `
+#define FLEET_TEXELS ${FLEET_DATA_TEXELS}
 attribute vec4 aMeta;
 attribute vec3 aPivot;
 attribute vec3 aAxis;
@@ -79,7 +88,7 @@ varying vec4 vFleetRig;     // furl, node, flag, side (posed object-space normal
 varying vec4 vSailDye;      // sails: dye rgb, mode (uFleetPaint texel 4)
 vec4 hbFleetTexel(int idx, int k) {
   int size = textureSize(uFleetData, 0).x;
-  int j = idx * 2 + k;
+  int j = idx * FLEET_TEXELS + k;
   return texelFetch(uFleetData, ivec2(j % size, j / size), 0);
 }
 mat3 hbRotAxis(vec3 a, float ang) {
@@ -120,6 +129,7 @@ void hbFleetLivery(int idx, float far) {
 }
 vec3 hbFleetP; vec3 hbFleetN;
 ${STRUCK}
+${FLEET_MOTION_GLSL}
 void hbFleetPose(vec3 p, vec3 n) {
   #ifdef USE_BATCHING
     int idx = int(getIndirectIndex(gl_DrawID));
@@ -128,14 +138,18 @@ void hbFleetPose(vec3 p, vec3 n) {
   #endif
   vec4 a = hbFleetTexel(idx, 0);
   vec4 b = hbFleetTexel(idx, 1);
+  vec4 mo = hbFleetTexel(idx, 2);
   float furl = a.x, swing = a.y;
-  p += aFurl * furl;
-  vec3 nn = n + aFurlN * furl;
-  n = dot(nn, nn) > 1e-6 ? normalize(nn) : vec3(0.0, 1.0, 0.0);
   float node = aMeta.y;
-  float flip = (node > 0.5 && swing > 0.0) ? 1.0 : 0.0;
+  float mf = hbOarFurl(node, furl, mo);
+  p += aFurl * mf;
+  vec3 nn = n + aFurlN * mf;
+  n = dot(nn, nn) > 1e-6 ? normalize(nn) : vec3(0.0, 1.0, 0.0);
+  p = hbSailBreath(p, mo, furl, node, float(idx));
+  p = hbOarStroke(p, n, mo, node, float(idx));
+  float flip = (node > 0.5 && node < 4.5 && swing > 0.0) ? 1.0 : 0.0;
   if (flip > 0.5) { p.z = -p.z; n.z = -n.z; }
-  if (node > 1.5) {
+  if (node > 1.5 && node < 4.5) {
     float ang = node < 3.5 ? swing : 0.6 * swing;
     // a little life in the set sail: the boom works with the swell
     ang += sin(uTime * 0.9 + float(idx) * 1.7) * 0.025 * (1.0 - furl);
@@ -161,16 +175,18 @@ void hbFleetPose(vec3 p, vec3 n) {
 `;
 
 const DEPTH_VERT_PARS = /* glsl */ `
+#define FLEET_TEXELS ${FLEET_DATA_TEXELS}
 attribute vec4 aMeta;
 attribute vec3 aPivot;
 attribute vec3 aAxis;
 attribute vec3 aFurl;
 attribute vec2 aPaint;
+attribute vec2 aSailUV;
 uniform highp sampler2D uFleetData;
 uniform float uTime;
 vec4 hbFleetTexel(int idx, int k) {
   int size = textureSize(uFleetData, 0).x;
-  int j = idx * 2 + k;
+  int j = idx * FLEET_TEXELS + k;
   return texelFetch(uFleetData, ivec2(j % size, j / size), 0);
 }
 mat3 hbRotAxis(vec3 a, float ang) {
@@ -180,16 +196,21 @@ mat3 hbRotAxis(vec3 a, float ang) {
               t * a.x * a.z + s * a.y, t * a.y * a.z - s * a.x, t * a.z * a.z + c);
 }
 ${STRUCK}
+${FLEET_MOTION_GLSL}
 vec3 hbFleetPoseP(vec3 p) {
   int idx = int(getIndirectIndex(gl_DrawID));
   vec4 a = hbFleetTexel(idx, 0);
+  vec4 mo = hbFleetTexel(idx, 2);
   float furl = a.x, swing = a.y;
-  p += aFurl * furl;
+  float node = aMeta.y;
+  p += aFurl * hbOarFurl(node, furl, mo);
+  vec3 n0 = vec3(0.0, 1.0, 0.0);
+  p = hbSailBreath(p, mo, furl, node, float(idx));
+  p = hbOarStroke(p, n0, mo, node, float(idx));
   if (aMeta.w > 0.5 && a.w < 0.5) p = vec3(0.0);
   if (hbFleetStruck(a.w)) p = vec3(0.0);
-  float node = aMeta.y;
-  if (node > 0.5 && swing > 0.0) p.z = -p.z;
-  if (node > 1.5) {
+  if (node > 0.5 && node < 4.5 && swing > 0.0) p.z = -p.z;
+  if (node > 1.5 && node < 4.5) {
     float ang = (node < 3.5 ? swing : 0.6 * swing) + sin(uTime * 0.9 + float(idx) * 1.7) * 0.025 * (1.0 - furl);
     p = aPivot + hbRotAxis(aAxis, ang) * (p - aPivot);
   }
@@ -425,7 +446,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   }
   #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => "hb_fleet_v7";
+  m.customProgramCacheKey = () => "hb_fleet_v8";
 
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";
@@ -435,6 +456,6 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
       .replace("#include <batching_pars_vertex>", `#include <batching_pars_vertex>\n${DEPTH_VERT_PARS}`)
       .replace("#include <begin_vertex>", "vec3 transformed = hbFleetPoseP(position);");
   };
-  depth.customProgramCacheKey = () => "hb_fleet_depth_v3";
+  depth.customProgramCacheKey = () => "hb_fleet_depth_v4";
   return { material: m, depth };
 }
