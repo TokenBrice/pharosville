@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildHarbourModel } from "../model/build";
 import { CYCLE_S } from "./plan";
-import { HarbourSim, PH_SAILING, windVeer } from "./sim";
+import { DEAD_STABLECOINS } from "@shared/lib/dead-stablecoins";
+import { EV_TOW, HarbourSim, PH_SAILING, windVeer, type SimEvent } from "./sim";
 import { makeLayout, makePayloads, PIERED, T0_MS } from "./test-fixtures";
 
 const layout = makeLayout();
@@ -34,5 +35,42 @@ describe("lane MOTION sim hooks", () => {
     }
     expect(moving).toBeGreaterThan(0);
     expect(withDrift).toBeGreaterThan(0);
+  });
+
+  it("07-M6 a death: canvas struck, a tug tows her to Wreck Cove, casts off and rows home; events fire once", () => {
+    const opts = { pieredChains: PIERED, dead: [] };
+    const first = buildHarbourModel(makePayloads(), T0_MS, opts);
+    const victim = first.boats.find((b) => b.state === "circuit" && b.hullClass === "medium")!.id;
+    const sim = new HarbourSim(first, layout, T0_MS);
+    const events: SimEvent[] = [];
+    sim.onEvent((e) => events.push(e));
+    const t1 = T0_MS + 300_000;
+    sim.poseAt(t1);
+    const dead = [{ ...DEAD_STABLECOINS[0], id: victim }];
+    sim.setModel(buildHarbourModel(makePayloads({ nowMs: t1 }), t1, { pieredChains: PIERED, dead }), t1);
+    expect(events.filter((e) => e.kind === "tow").map((e) => e.id)).toEqual([victim]);
+    const vi = sim.indexOf(victim);
+    let towed = 0, home = 0, lastTug = -1, maxGap = 0;
+    for (let s = 1; s < 3 * 3600; s += 5) {
+      const p = sim.poseAt(t1 + s * 1000);
+      const T = sim.tugs;
+      if (p.event[vi] === EV_TOW) {
+        expect(p.sailState[vi]).toBe(0);
+        if (T.count && T.of[0] === vi) {
+          towed++;
+          maxGap = Math.max(maxGap, Math.hypot(T.x[0] - p.position[vi * 3], T.z[0] - p.position[vi * 3 + 2]));
+        }
+      }
+      if (T.count && T.of[0] === -1) home++;
+      if (T.count) lastTug = s;
+    }
+    expect(towed).toBeGreaterThan(10);
+    expect(home).toBeGreaterThan(10);
+    expect(maxGap).toBeLessThan(60);
+    // she does not linger: the tug is gone well within the hour after the tow
+    expect(lastTug).toBeGreaterThan(0);
+    expect(sim.tugs.count).toBe(0);
+    // dockings are reported too
+    expect(events.some((e) => e.kind === "docking")).toBe(true);
   });
 });

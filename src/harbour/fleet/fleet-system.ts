@@ -6,7 +6,7 @@ import type { OceanService } from "../ocean/ocean-system";
 import type { WakeService } from "../ocean/wake";
 import { hullSwellCache } from "../ocean/waves";
 import type { HarbourSim } from "../sim/sim";
-import { PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING } from "../sim/sim";
+import { EV_TOW, MAX_TUGS, PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING } from "../sim/sim";
 import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { EmblemAtlas } from "./emblems";
@@ -95,6 +95,8 @@ const PAINT_TEXELS = 5;
 const SPAR_NEAR = 70, SPAR_FAR = 34, STRIKE_SHARE = 0.8;
 /** 07-M2: a galley under oars inside the moles keeps this share of her canvas brailed up. */
 const GALLEY_BRAIL = 0.7;
+/** 07-M6: the harbour tug's kit hull and length (m): a small rowed lighter, declared decorative (hover "harbour tug"). */
+const TUG_KIT = "usd_fisher_skiff", TUG_LOA = 6;
 /** 07-M8: the most a hull yaws into a give-way or lane change (rad). */
 const GIVE_WAY_YAW = 0.15;
 const CLASS_LOA_FALLBACK: Record<HullClass, number> = { flagship: 26, large: 18, medium: 13, small: 10, boat: 7.5, skiff: 5 };
@@ -111,6 +113,8 @@ interface BoatRec {
   geomWreck: number;
   geomCur: number;
   wrecked: boolean;
+  /** The coin is dead (wrecked: she lies a wreck, except while the tug tows her to the cove). */
+  dead: boolean;
   swing: number;
   heel: number;
   hi: number;
@@ -381,7 +385,8 @@ export class FleetSystem implements WorldSystem {
     for (const b of this.boats) mesh.deleteInstance(b.inst);
     for (const w of this.wreckInst) mesh.deleteInstance(w.inst);
     for (const bu of this.buoyInst) mesh.deleteInstance(bu.inst);
-    this.boats = []; this.byId = new Map(); this.wreckInst = []; this.buoyInst = [];
+    for (const tg of this.tugInst) mesh.deleteInstance(tg);
+    this.boats = []; this.byId = new Map(); this.wreckInst = []; this.buoyInst = []; this.tugInst = [];
     const loaOf = (c: HullClass) => layout.hull?.loa?.[c] ?? CLASS_LOA_FALLBACK[c];
     for (const boat of model.boats) {
       const titan = titanFor(boat.id, (v) => kit.hulls.has(v)); // the majors sail their own hero ship (titans.ts)
@@ -398,7 +403,7 @@ export class FleetSystem implements WorldSystem {
       const prev = old.get(boat.id);
       const brand = new THREE.Color(boat.brandColor);
       const rec: BoatRec = {
-        id: boat.id, inst: this.addInstance(g0), variant, scale, loa, beam: variant.beam * scale, geomFull, geomLod, geomWreck, geomCur: g0, wrecked,
+        id: boat.id, inst: this.addInstance(g0), variant, scale, loa, beam: variant.beam * scale, geomFull, geomLod, geomWreck, geomCur: g0, wrecked, dead: wrecked,
         swing: prev?.swing ?? 0, heel: prev?.heel ?? 0, hi: 0, px: prev?.px ?? 0, pz: prev?.pz ?? 0, vx: 0, vz: 0, seen: !!prev?.seen,
         phi: hash01(boat.id + "#bob") * Math.PI * 2,
         slot: this.atlas ? this.atlas.slotFor({ id: boat.id, symbol: boat.symbol, brandColor: boat.brandColor }) : -1,
@@ -412,7 +417,54 @@ export class FleetSystem implements WorldSystem {
     this.placeWrecks(model, this.ctx?.services.get("sim") as HarbourSim | undefined);
     this.wrecksPosed = false;
     this.placeBuoys();
+    this.placeTugs();
   }
+
+  /** 07-M6: the harbour tugs' instances (MAX_TUGS, hidden until a tow): a small rowed lighter in plain livery. */
+  private placeTugs(): void {
+    const v = this.kit?.hulls.get(TUG_KIT), geom = this.geomIds.get(TUG_KIT);
+    if (!v || geom == null) return;
+    for (let k = 0; k < MAX_TUGS; k++) {
+      const inst = this.addInstance(geom);
+      this.writePaint(inst, null, v.family, null);
+      this.writeData(inst, 1, 0, 0, 0.42, 0.4, 0.36, -1, 0);
+      this.writeMotion(inst, 0, 0, 0, 0);
+      this.mesh!.setVisibleAt(inst, false);
+      this.tugInst.push(inst);
+    }
+  }
+  private tugInst: number[] = [];
+  /** Where each tug was drawn (x, z), for the picker; count = live tugs. */
+  readonly tugSeen = { count: 0, x: new Float32Array(MAX_TUGS), z: new Float32Array(MAX_TUGS) };
+
+  /** Pose the live tugs (sim.tugs) and their towlines. */
+  private poseTugs(sim: HarbourSim | undefined, time: number): void {
+    const v = this.kit?.hulls.get(TUG_KIT), T = sim?.tugs, mesh = this.mesh!;
+    const n = v && T ? Math.min(T.count, this.tugInst.length) : 0;
+    this.tugSeen.count = n;
+    for (let k = 0; k < this.tugInst.length; k++) {
+      const inst = this.tugInst[k];
+      mesh.setVisibleAt(inst, k < n);
+      if (k >= n) continue;
+      const x = T!.x[k], z = T!.z[k], h = T!.heading[k];
+      this.tugSeen.x[k] = x; this.tugSeen.z[k] = z;
+      const sc = TUG_LOA / v!.loa;
+      // she pulls: a slow surge and roll at the oars' rhythm
+      this.e.set(Math.sin(time * 3.14 + k) * 0.02, h - Math.PI / 2, Math.sin(time * 1.1 + k) * 0.015, "YZX");
+      this.m4.compose(this.v.set(x, this.seaH(x, z), z), this.q.setFromEuler(this.e), this.s.setScalar(sc));
+      mesh.setMatrixAt(inst, this.m4);
+      const towed = T!.of[k] >= 0 ? this.boats.find((b) => b.id === sim!.pose.ids[T!.of[k]]) : undefined;
+      if (towed && towed.visible) {
+        // the towline: from her stern to the dying hull's bow, sagging between
+        const st = this.v.copy(v!.sternCleat).applyMatrix4(this.m4);
+        const sx = st.x, sy = st.y, sz = st.z;
+        mesh.getMatrixAt(towed.inst, this.m4b);
+        const bw = this.v.copy(towed.variant.bowCleat).applyMatrix4(this.m4b);
+        this.lines.add(sx, sy, sz, bw.x, bw.y, bw.z, 1);
+      }
+    }
+  }
+  private readonly m4b = new THREE.Matrix4();
 
   /**
    * Dead coins (readings.wrecks) that are not payload boats: hulks beached up the Wreck Cove strand (the
@@ -698,6 +750,8 @@ export class FleetSystem implements WorldSystem {
       const b = this.boats[bi];
       if (b.id !== pose!.ids[i]) continue; // a boat without a kit hull was skipped
       bi++;
+      // a dead coin under tow (07-M6) is still afloat, canvas struck: she becomes a wreck on the strand
+      b.wrecked = b.dead && pose!.event[i] !== EV_TOW;
       const x = pose!.position[i * 3], z = pose!.position[i * 3 + 2], h = pose!.heading[i];
       const ph = pose!.phase[i];
       const moving = ph === PH_CASTING_OFF || ph === PH_SAILING || ph === PH_APPROACHING;
@@ -860,6 +914,8 @@ export class FleetSystem implements WorldSystem {
         if (s) this.mooringLines(b, s, x, z, pose!.lines[i], bob);
       }
     }
+
+    this.poseTugs(sim, time);
 
     // hulks lie still on the dry strand (set once: they never move)
     if (!this.wrecksPosed) {

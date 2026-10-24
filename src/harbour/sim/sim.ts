@@ -15,7 +15,7 @@ import { buildSimLayout, nearestNode, PREVAILING_WIND_FROM, type SimLayout, type
 import { clearance, hullClearance, type CoastGrid } from "./obstacles";
 import { buildOutingPath, buildScenicPath, scenicClearOf, seedOutings, type OutingSeed } from "./outings";
 import { buildLegPath, legControlPoints } from "./routes";
-import { buildPath, evalLeg, hullMargin, IO_LANE, IO_LOA, IO_SEP, IO_T, legTiming, LEG_APPROACH, LEG_CAST_OFF, LEG_HOLD, LEG_HOLD_END, LEG_TURN, newLegTiming, type LegTiming, type PathRec } from "./path";
+import { buildPath, evalLeg, hullMargin, IO_LANE, IO_LOA, IO_S, IO_SEP, IO_T, legTiming, samplePath, LEG_APPROACH, LEG_CAST_OFF, LEG_HOLD, LEG_HOLD_END, LEG_TURN, newLegTiming, type LegTiming, type PathRec } from "./path";
 import { boatLocalTime, buildPlan, RAFT_CLEAR, seedLegTimes, CYCLE_S, findSegment, MANOEUVRE_S, SEG_DOCK, SPEED, type BoatPlan, type Plan, type RepLeg } from "./plan";
 import { hypot } from "./math";
 
@@ -60,6 +60,31 @@ export interface PoseBuffer {
    */
   drift: Float32Array;
 }
+
+/**
+ * 07-M6: DECLARED-DECORATIVE harbour tugs (a rowed lighter, hover "harbour tug"; they carry no data). One leads
+ * each dying hull (EV_TOW) to Wreck Cove on a towline, casts off a couple of hull lengths short of the strand,
+ * turns and rows home along the tow's path (offset to her starboard) and is gone at its start. A pure function
+ * of the tow voyage (its path, timing and start).
+ */
+export const MAX_TUGS = 4;
+export interface TugBuffer {
+  count: number;
+  x: Float32Array;
+  z: Float32Array;
+  heading: Float32Array;
+  /** Index of the hull she tows, while the towline is fast (else -1: rowing home). */
+  of: Int32Array;
+}
+/** Tug: towline length beyond the dying hull's bow (m, + 1.5 LOA), rowing speed home (m/s), turning radius (m). */
+const TUG_LINE = 6, TUG_V = 1.6, TUG_R = 6;
+
+/** A sim event for listeners (audio, moments): the coin, what happened, where (world x, z). */
+export type SimEventKind = "launch" | "tow" | "to-shoals" | "rejoin" | "docking";
+export interface SimEvent { id: string; kind: SimEventKind; x: number; z: number }
+const EV_KIND: Record<number, SimEventKind | undefined> = { [EV_LAUNCH]: "launch", [EV_TOW]: "tow", [EV_TO_SHOALS]: "to-shoals" };
+
+interface Tow { path: PathRec; tm: LegTiming; t0: number; loa: number; ahead: number; tRel: number; sEnd: number; tEnd: number }
 
 const MODE_PLAN = 0, MODE_VOYAGE = 1, MODE_HOLD = 2;
 const END_HOLD = 0, END_PLAN = 1;
@@ -157,6 +182,8 @@ interface BoatRt {
   list: number;
   surge: number;
   bumpK: number;
+  /** 07-M6: her last voyage under tow (kept until the tug is home). */
+  tow: Tow | null;
 }
 
 const newTiming = (): LegTiming => newLegTiming();
@@ -234,6 +261,11 @@ export class HarbourSim {
   readonly pose: PoseBuffer;
   /** Wind the hulls lie to: bow heading into the wind (radians) and 0..1 strength (DEWS weather). */
   readonly wind = { fromRad: PREVAILING_WIND_FROM, strength: 0.35, /** decorative veer now (07-M5, rad): render wind only */ veer: 0 };
+  /** 07-M6 harbour tugs this frame (decorative). */
+  readonly tugs: TugBuffer = { count: 0, x: new Float32Array(MAX_TUGS), z: new Float32Array(MAX_TUGS), heading: new Float32Array(MAX_TUGS), of: new Int32Array(MAX_TUGS) };
+  private listeners = new Set<(e: SimEvent) => void>();
+  /** A launch is being routed (its rejoin voyage is a launch). */
+  private launching = false;
   readonly stats: SimStats = { underWay: 0, docked: 0, moored: 0, anchored: 0, voyages: 0, overflow: 0, outings: 0, dockings: 0, expectedUnderWay: 0, expectedDockingsPerMin: 0 };
   frozen = false;
 
@@ -348,6 +380,20 @@ export class HarbourSim {
   }
 
   indexOf(id: string): number { return this.index.get(id) ?? -1; }
+
+  /**
+   * Listen for sim events (for audio / moments lanes): one-off voyages as they begin (launch, tow, to-shoals,
+   * rejoin: real snapshot diffs only, never on first load) and arrivals at a berth or mooring. Returns an
+   * unsubscribe. Called synchronously from setModel / poseAt; keep handlers cheap.
+   */
+  onEvent(cb: (e: SimEvent) => void): () => void {
+    this.listeners.add(cb);
+    return () => { this.listeners.delete(cb); };
+  }
+
+  private emit(id: string, kind: SimEventKind, x: number, z: number): void {
+    if (this.listeners.size) for (const cb of this.listeners) cb({ id, kind, x, z });
+  }
   slotOf(i: number): Slot | null { const s = this.pose.slot[i]; return s >= 0 ? this.layout.slots[s] ?? null : null; }
   berthId(i: number): string | null { return this.slotOf(i)?.id ?? null; }
 
@@ -413,6 +459,7 @@ export class HarbourSim {
         laneOff: (u01(b.id + "#lane") * 2 - 1) * LANE_JITTER, beam: this.layout.beam[b.hullClass],
         shoals: b.state === "shoals", wrecked: b.state === "wrecked",
         side: u01(b.id + "#side") < 0.5 ? 1 : -1, list: u01(b.id + "#list"), surge: 0.16 + 0.004 * this.layout.loa[b.hullClass], bumpK: BUMP_A * Math.sqrt(this.layout.loa[b.hullClass] / 13),
+        tow: o?.tow ?? null,
       };
     });
     this.resizePose(n);
@@ -448,7 +495,10 @@ export class HarbourSim {
         else if (!r.voyage && (!at || replan)) this.placeStatic(i);
         continue;
       }
-      if (pb.state === "shoals" || pb.state === "wrecked") { if (at) this.rejoin(i, t, at); else this.placeStatic(i); continue; }
+      if (pb.state === "shoals" || pb.state === "wrecked") {
+        if (at) { this.rejoin(i, t, at); this.emit(b.id, "rejoin", at.x, at.z); } else this.placeStatic(i);
+        continue;
+      }
       if (replan && at && !r.voyage) this.resyncFrom(i, t, at);
     }
     // hulls carrying on under the plan ease from the offset they were shown with; voyages start from it
@@ -584,8 +634,62 @@ export class HarbourSim {
     let D = kind === EV_TOW ? nom.tNom * 1.8 : nom.tNom;
     if (arriveAt != null) D = Math.max(nom.minD, arriveAt - t);
     const tm = legTiming(path, D, r.loa, newTiming(), startH, L.slots[toSlot].heading, false);
+    if (this.launching) kind = EV_LAUNCH;
     r.voyage = { path, tm, t0: t, D, endSlot: toSlot, endMode, endPhase, kind, startHeading: at.h };
     r.mode = MODE_VOYAGE;
+    if (kind === EV_TOW) r.tow = this.makeTow(r, path, tm, t);
+    const ev = EV_KIND[kind];
+    if (ev) this.emit(r.id, ev, at.x, at.z);
+  }
+
+  /** 07-M6: the tug's schedule for a tow: when she casts off (the hull's bow a hull length short of the end). */
+  private makeTow(r: BoatRt, path: PathRec, tm: LegTiming, t0: number): Tow {
+    const ahead = 1.5 * r.loa + TUG_LINE;
+    const sRel = Math.max(0, path.length - r.loa - ahead);
+    let lo = 0, hi = tm.tHold + tm.tW0 + tm.tTurn + (path.rev ? tm.tAstern : 0) + tm.tf;
+    for (let k = 0; k < 32; k++) { const m = (lo + hi) / 2; if (this.towS(path, tm, r.loa, m) < sRel) lo = m; else hi = m; }
+    const tRel = t0 + hi, sEnd = sRel + ahead;
+    return { path, tm, t0, loa: r.loa, ahead, tRel, sEnd, tEnd: tRel + (Math.PI * TUG_R) / TUG_V + sEnd / TUG_V };
+  }
+
+  /** Arc length along the tow path's main run of the towed hull at leg time lt (0 before it starts). */
+  private towS(path: PathRec, tm: LegTiming, loa: number, lt: number): number {
+    const o = this.tmp;
+    o[IO_T] = lt; o[IO_LOA] = loa;
+    evalLeg(path, tm, o);
+    return lt < tm.tHold + tm.tW0 + tm.tTurn + (path.rev ? tm.tAstern : 0) ? 0 : o[IO_S];
+  }
+
+  /** Tug poses at this.t (after the hulls). */
+  private poseTugs(): void {
+    const T = this.tugs, t = this.t, o = this.tmp, L = this.layout;
+    T.count = 0;
+    for (let i = 0; i < this.rt.length && T.count < MAX_TUGS; i++) {
+      const tw = this.rt[i].tow;
+      if (!tw) continue;
+      if (t >= tw.tEnd || t < tw.t0) { if (t >= tw.tEnd) this.rt[i].tow = null; continue; }
+      const k = T.count++;
+      const p = tw.path;
+      if (t < tw.tRel) {
+        o[IO_S] = Math.min(tw.sEnd, this.towS(p, tw.tm, tw.loa, t - tw.t0) + tw.ahead); samplePath(p, o);
+        T.x[k] = o[0]; T.z[k] = o[1]; T.heading[k] = o[2]; T.of[k] = i;
+        continue;
+      }
+      T.of[k] = -1;
+      // cast off: a U-turn to starboard, then home along the tow's path, standing off to her starboard
+      const u = t - tw.tRel, tTurn = (Math.PI * TUG_R) / TUG_V;
+      o[IO_S] = u < tTurn ? tw.sEnd : Math.max(0, tw.sEnd - TUG_V * (u - tTurn)); samplePath(p, o);
+      const h = o[2], fx = Math.sin(h), fz = Math.cos(h), sx = -fz, sz = fx;
+      if (u < tTurn) {
+        const a = (Math.PI * u) / tTurn, cx = o[0] + sx * TUG_R, cz = o[1] + sz * TUG_R;
+        T.x[k] = cx - sx * TUG_R * Math.cos(a) + fx * TUG_R * Math.sin(a); T.z[k] = cz - sz * TUG_R * Math.cos(a) + fz * TUG_R * Math.sin(a);
+        T.heading[k] = h - a;
+      } else {
+        // (closer in where the water is narrow)
+        const room = L.field ? Math.min(1, Math.max(0.3, (clearance(L.field, o[0], o[1]) - 4) / 10)) : 1;
+        T.x[k] = o[0] + sx * 2 * TUG_R * room; T.z[k] = o[1] + sz * 2 * TUG_R * room; T.heading[k] = h + Math.PI;
+      }
+    }
   }
 
   /** Back into the plan at its next dock window that a voyage from here can still make. */
@@ -618,9 +722,9 @@ export class HarbourSim {
     const lp = this.layout.launchPath!;
     const a = lp[0], b = lp[1];
     const h = Math.atan2(b[0] - a[0], b[1] - a[1]);
+    this.launching = true;
     this.rejoin(i, t, { x: a[0], z: a[1], h, slot: -1, moving: true });
-    const v = this.rt[i].voyage;
-    if (v) v.kind = EV_LAUNCH;
+    this.launching = false;
   }
 
   /** After a re-plan: hulls whose planned place changed sail there; the rest just carry on. */
@@ -815,6 +919,12 @@ export class HarbourSim {
     // through a tack or a gybe: no snap from one side to the other)
     const sa = Math.sin(this.wind.fromRad - o[2]);
     p.heel[i] = sa * Math.abs(sa) * o[4] * (0.05 + 0.1 * this.wind.strength);
+    if (r.wrecked) {
+      // her last voyage (07-M6): canvas struck, under tow, a list growing as she goes
+      p.sailState[i] = 0;
+      const prog = Math.min(1, Math.max(0, this.legT / Math.max(1, arrivalT(tm, path))));
+      p.heel[i] = -r.side * (0.03 + 0.12 * prog * prog);
+    }
   }
 
   private evalBoat(i: number): void {
@@ -1207,11 +1317,12 @@ export class HarbourSim {
       else if (ph === PH_DOCKED) st.docked++;
       else if (ph === PH_MOORED) st.moored++;
       else st.anchored++;
-      if (prev[i] === PH_APPROACHING && (ph === PH_DOCKED || ph === PH_MOORED)) st.dockings++;
+      if (prev[i] === PH_APPROACHING && (ph === PH_DOCKED || ph === PH_MOORED)) { st.dockings++; this.emit(this.rt[i].id, "docking", this.pose.position[i * 3], this.pose.position[i * 3 + 2]); }
       prev[i] = ph;
       if (this.pose.event[i] !== EV_NONE) st.voyages++;
     }
     this.separate();
+    this.poseTugs();
     // at most one look-ahead path per frame, and none on a frame that already built one
     while (this.builtThisFrame === 0 && this.prefetch.length) {
       const [bi, from, to, sc] = this.prefetch.shift()!;
