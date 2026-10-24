@@ -22,6 +22,8 @@ uniform vec4 uBeamShape;
 uniform vec4 uBeamFall;
 uniform vec3 uBeamLight;
 uniform vec4 uBeamSun;
+uniform vec4 uPharosFire;
+uniform vec4 uPharosAxis;
 // x along the ground track (m), y lateral (m) of a world point in the beam frame
 vec2 hbBeamFrame(vec3 p) {
   vec2 rel = p.xz - uBeamPos.xz;
@@ -57,6 +59,31 @@ vec3 hbBeamLight(vec3 p, vec3 n) {
   }
   return o;
 }
+// 05-P5 the fire lights its own tower from above: the cornices, parapets and upper storeys warm (night),
+// the four corner tritons flare as the beam's azimuth passes their diagonal, the Helios glints on the flash.
+// Decorative, in the lamp's colour (a red CRISIS fire reddens the cornice too). Only within the tower's radius.
+vec3 hbPharosFire(vec3 p, vec3 n) {
+  vec3 o = vec3(0.0);
+  if (uPharosFire.w < 1e-3 || dot(uPharosFire.rgb, vec3(1.0)) < 1e-4) return o;
+  vec2 d = p.xz - uPharosAxis.xz;
+  float r = length(d);
+  if (r > 24.0) return o;
+  float h = p.y - uPharosAxis.y;
+  float hL = uBeamPos.y - uPharosAxis.y;
+  // firelight from above: falls off down the shaft; up-facing ledges and outward faces catch it
+  float down = exp(-max(hL - h, 0.0) / 16.0) * step(h, hL + 2.0);
+  float catchK = clamp(n.y * 0.6 + 0.4, 0.15, 1.0);
+  o += uPharosFire.rgb * down * catchK * 0.32;
+  // tritons on the first terrace's corners (r ≈ 19, h ≈ 55..64): a rim flare as the beam swings past
+  float tri = smoothstep(15.5, 17.0, r) * (1.0 - smoothstep(22.0, 23.5, r)) * smoothstep(53.5, 55.0, h) * (1.0 - smoothstep(64.0, 66.0, h));
+  vec2 bd = vec2(cos(uBeamAngle), sin(uBeamAngle));
+  float az = pow(max(dot(d / max(r, 1e-3), bd), 0.0), 40.0);
+  float rim = clamp(dot(n.xz, d / max(r, 1e-3)) * 0.5 + 0.5, 0.0, 1.0);
+  o += uPharosFire.rgb * tri * az * rim * 1.6;
+  // the Helios over the dome: a glint on each flash toward the viewer
+  o += uPharosFire.rgb * step(97.0, h) * step(r, 5.0) * min(uBeamShape.w, 2.0) * 0.45;
+  return o * uPharosFire.w;
+}
 `;
 
 /** The uniforms BEAM_LIGHT_GLSL reads (bind into a shader's uniforms). */
@@ -64,5 +91,6 @@ export function beamLightUniforms(bu: BeamUniforms): Record<string, THREE.IUnifo
   return {
     uBeamPos: bu.uBeamPos, uBeamAngle: bu.uBeamAngle, uBeamShape: bu.uBeamShape,
     uBeamFall: bu.uBeamFall, uBeamLight: bu.uBeamLight, uBeamSun: bu.uBeamSun,
+    uPharosFire: bu.uPharosFire, uPharosAxis: bu.uPharosAxis,
   };
 }

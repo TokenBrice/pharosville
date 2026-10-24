@@ -4,6 +4,7 @@ import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import { PharosFire } from "../beam/fire";
+import { getBeamUniforms, type BeamUniforms } from "../beam/uniforms";
 import type { GroundService } from "./ground";
 import { getHarbourMaterials } from "./materials";
 
@@ -67,6 +68,7 @@ export class LighthouseSystem implements WorldSystem {
   private readonly position = new THREE.Vector3();
   private readonly lantern = new THREE.Vector3();
   private readonly tmp = new THREE.Vector3();
+  private bu: BeamUniforms | null = null;
 
   async init(ctx: EngineContext): Promise<void> {
     // the fire's light joins the scene before the first frame, so no material recompiles when the tower lands
@@ -97,6 +99,8 @@ export class LighthouseSystem implements WorldSystem {
     root.updateMatrixWorld(true);
     this.root = root;
     this.position.set(x, y, z);
+    this.bu = getBeamUniforms(ctx);
+    this.bu.uPharosAxis.value.set(x, y, z, 0);
 
     const node = (n: string) => root.getObjectByName(n);
     this.mirror = node("mirror") ?? null;
@@ -162,9 +166,12 @@ export class LighthouseSystem implements WorldSystem {
     const life = ctx.services.get("life") as LifeLike | undefined;
     const reduced = (ctx.services.get("motion") as MotionLike | undefined)?.reduced ?? false;
     const night = ctx.uniforms.uNight.value;
+    // arrival kindling (camera lane, via the beam service): the fire grows to its true level
+    const intro = (ctx.services.get("beam") as { introScale?: number } | undefined)?.introScale ?? 1;
+    const level = this.level * intro;
     if (this.fire) {
       const vh = ctx.renderer.domElement.height || 1000;
-      this.fire.update(frame.delta, { level: this.level, lamp: this.lampCol, windTo: life?.windTo ?? [0.84, -0.54], wind: life?.wind ?? 0.35, reduced }, ctx.uniforms, ctx.camera, vh);
+      this.fire.update(frame.delta, { level, lamp: this.lampCol, windTo: life?.windTo ?? [0.84, -0.54], wind: life?.wind ?? 0.35, reduced }, ctx.uniforms, ctx.camera, vh);
     }
     const fl = this.fire?.flicker ?? 1;
     const tint = this.tmp.set(this.lampCol.r / STEADY_LAMP.r, this.lampCol.g / STEADY_LAMP.g, this.lampCol.b / STEADY_LAMP.b);
@@ -174,9 +181,15 @@ export class LighthouseSystem implements WorldSystem {
       const dx = cam.x - this.statueAt.x, dz = cam.z - this.statueAt.z, l = Math.hypot(dx, dz) || 1;
       this.upLight.position.set(this.statueAt.x + (dx / l) * 5.5, this.statueAt.y + 0.5, this.statueAt.z + (dz / l) * 5.5);
       this.upLight.color.setRGB(1.0, 0.58 * tint.y, 0.24 * tint.z);
-      this.upLight.intensity = this.level * fl * 60 * night;
+      this.upLight.intensity = level * fl * 60 * night;
     }
-    if (this.ember) this.ember.color.setRGB(3 * tint.x, 0.85 * tint.y, 0.14 * tint.z).multiplyScalar(this.level * fl * (0.6 + 0.6 * night));
+    if (this.ember) this.ember.color.setRGB(3 * tint.x, 0.85 * tint.y, 0.14 * tint.z).multiplyScalar(level * fl * (0.6 + 0.6 * night));
+    // 05-P5 firelight down the tower, triton and Helios flares (kit shader, beam-light-glsl.ts hbPharosFire)
+    if (this.bu) {
+      this.bu.uPharosFire.value.set(1.0 * tint.x, 0.6 * tint.y, 0.26 * tint.z, THREE.MathUtils.smoothstep(night, 0.15, 0.8));
+      const k = level * fl;
+      this.bu.uPharosFire.value.x *= k; this.bu.uPharosFire.value.y *= k; this.bu.uPharosFire.value.z *= k;
+    }
 
     // the mirror: it glows with the fire it gathers, and flashes when it swings to face the viewer (the
     // day read of the rhythm: a sun glint once per revolution)
@@ -188,7 +201,7 @@ export class LighthouseSystem implements WorldSystem {
       const glint = Math.pow(facing, 24);
       this.mirrorMat.emissive.setRGB(1.0, 0.45 * tint.y, 0.14 * tint.z);
       // polished bronze catching the fire (warm, flickering), not a lit white disc
-      this.mirrorMat.emissiveIntensity = this.level * (fl * fl * (0.15 + 0.5 * night) + glint * (6 + 6 * (1 - night)));
+      this.mirrorMat.emissiveIntensity = level * (fl * fl * (0.15 + 0.5 * night) + glint * (6 + 6 * (1 - night)));
     }
   }
 

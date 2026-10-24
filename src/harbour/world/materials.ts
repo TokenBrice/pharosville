@@ -589,7 +589,7 @@ export class HarbourMaterials {
     float hbSkyL = hbLuma(uHemiSky);
     outgoingLight += min(hbEnvSpec(hbNw, hbVw, roughnessFactor, 0.03), vec3(mix(4.0, 0.35 * hbSkyL + 0.01, smoothstep(0.0, 0.25, uWetness)))) * uRimK * hbOcc;
     outgoingLight += diffuseColor.rgb * hbPool(vHbWorld, hbNw);
-    outgoingLight += diffuseColor.rgb * hbBeamLight(vHbWorld, hbNw) * hbOcc;
+    outgoingLight += diffuseColor.rgb * (hbBeamLight(vHbWorld, hbNw) * hbOcc + hbPharosFire(vHbWorld, hbNw));
     // moonlight fill (0 by day): soft, mostly from above, with an albedo floor so dark hulls and
     // navy/black sail covers keep a readable mid-tone at night instead of collapsing to silhouettes
     outgoingLight += max(diffuseColor.rgb, vec3(0.12)) * uNightLift * hbOcc * (0.6 + 0.4 * max(hbNw.y, 0.0));

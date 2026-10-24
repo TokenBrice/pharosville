@@ -28,6 +28,8 @@ export interface BeamUniforms {
   uBeamSun: THREE.IUniform<THREE.Vector4>;
   /** Firelight down the tower: rgb = fire colour × level × flicker, w = night 0..1. */
   uPharosFire: THREE.IUniform<THREE.Vector4>;
+  /** The Pharos's axis: x, z of the tower, y = its foot (world); w unused. */
+  uPharosAxis: THREE.IUniform<THREE.Vector4>;
 }
 
 const KEY = "beam:uniforms";
@@ -45,6 +47,7 @@ export function getBeamUniforms(ctx: EngineContext): BeamUniforms {
       uBeamLight: { value: new THREE.Color(0, 0, 0) },
       uBeamSun: { value: new THREE.Vector4(0, 0, 0, 120) },
       uPharosFire: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uPharosAxis: { value: new THREE.Vector4(0, -1000, 0, 0) },
     };
     ctx.services.set(KEY, u);
   }
