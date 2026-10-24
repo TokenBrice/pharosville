@@ -3,6 +3,7 @@ import { CLOUD_SHADOW_GLSL } from "../sky/cloud-shadow";
 import { SEA_TONE_GLSL } from "./sea-tone";
 import { SUN_SHADOW_GLSL } from "../world/sun-shadow";
 import { SEA_GOLDEN_GLSL } from "./sea-golden";
+import { SEA_HELIO_GLSL } from "./sea-helio";
 import { SWELL_DIR, wavesGLSL } from "./waves";
 
 /** Style C sea ramp (sRGB hex, palette.json) + the A-graft sunlit shallows. */
@@ -80,6 +81,7 @@ ${CLOUD_SHADOW_GLSL}
 ${SEA_TONE_GLSL}
 ${SUN_SHADOW_GLSL}
 ${SEA_GOLDEN_GLSL}
+${SEA_HELIO_GLSL}
 
 const vec2 SWELL = vec2(${SWELL_DIR[0].toFixed(5)}, ${SWELL_DIR[1].toFixed(5)});
 
@@ -218,7 +220,7 @@ void main() {
   body *= 1.0 - 0.18 * storm - 0.22 * cover;
   float sunUp = clamp(uSunDir.y * 3.0, 0.0, 1.0) * (1.0 - uNight);
   // 02-L1: the key light's shadow on the flat sea plane (displacement would only add acne); sun-lit terms only
-  float sunSh = hbSunShadow(vec3(xz.x, 0.0, xz.y));
+  float sunSh = hbSeaSunShadow(vec3(xz.x, 0.0, xz.y));   // (soft, thin casters dissolved: sun-shadow.ts)
   // A graft: sunlit teal shallows (light reaching the sand)
   float shoalK = (1.0 - smoothstep(0.3, 4.5, max(dep, depth))) * sunUp;
   body = mix(body, uSunlitShoal, shoalK * (0.22 + 0.3 * smoothstep(0.3, 0.75, nA.b) + 0.1 * nC.g));
@@ -254,6 +256,7 @@ void main() {
     body += uSunlitShoal * caus * 0.10 * cGain * (1.0 - seeBed * 0.5) * (1.0 - smoothstep(0.5, 5.0, dep));
   }
   body = hbSeaTone(body, zm.b, zm.r, dep, sdist, sunUp, nA.b, camD);
+  body = hbBasinLift(body, zm.b, zm.r, dep, coast);
   // the Shoals: clear turquoise water over the reef shelf, bright by day, a pale jade glimmer at night
   {
     float reefK = zm.r * (0.55 + 0.45 * smoothstep(0.35, 0.7, nA.b + 0.25 * nC.g));
@@ -401,14 +404,9 @@ void main() {
       float foot = exp(-pow(lat / w, 2.0) * 1.4) * smoothstep(30.0, 90.0, along) * exp(-along / (uBeamShape.x * 0.55));
       beam += uBeamCol * foot * (0.025 + bspec * 3.5 * sparkMask) * (k == 0 ? 1.0 : uBeamBack);
     }
-    // 05-P2 the heliograph by day: the mirror's sun coin crossing the water (same ellipse as beam-light-glsl.ts)
-    if (dot(uBeamSun.rgb, vec3(1.0)) > 1e-4) {
-      vec2 hbd = vec2(cos(uBeamAngle), sin(uBeamAngle));
-      float ha = (dot(rel, hbd) - uBeamSun.w) / (16.0 + uBeamSun.w * 0.14);
-      float hb = abs(rel.x * hbd.y - rel.y * hbd.x) / (7.0 + uBeamSun.w * 0.05);
-      float coin = exp(-(ha * ha + hb * hb) * 1.6) * step(0.0, dot(rel, hbd));
-      beam += uBeamSun.rgb * coin * (0.3 + bspec * 4.0 * sparkMask);
-    }
+    // 05-P2 the heliograph by day: the mirror's sun coin crossing the water, specular only (sea-helio.ts): it packs
+    // the sea's own (already shadowed) sun glitter denser and brighter, never a diffuse wash
+    glint = hbHelioGlint(glint, hbHelioCoin(rel), Nsp, Hs, nB.a, sparkMask, far01);
     // the fire's own reflection: a soft column under the lantern (through the calm envelope normal) with a few
     // capped ripple twinkles inside it, not a wide spray of sparks across the basin; it swells on the mirror's flash
     float lrE = max(dot(reflect(vd, Nenv), Lb), 0.0);

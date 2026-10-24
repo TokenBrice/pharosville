@@ -29,6 +29,14 @@ vec3 hbSeaTone(vec3 body, float zb, float zr, float dep, float sdist, float sunU
   body *= 1.0 - 0.12 * mid;
   return body;
 }
+// polish #11: the inner basin gets back part of v1.2.1's luminous turquoise by day, most along the quays and in the
+// shallows (+~18 % green-blue body, ≈ +8-10 % value on screen after the mirror; red held, so it stays saturated), so the harbour reads light and the channel middle
+// still sits a step deeper (the lift is multiplicative and weaker there). The Shoals keep their own, lighter reef.
+vec3 hbBasinLift(vec3 body, float zb, float zr, float dep, float coast) {
+  float near = max(1.0 - smoothstep(6.0, 45.0, coast), 1.0 - smoothstep(2.0, 7.0, dep));
+  float w = zb * (1.0 - zr) * mix(0.45, 1.0, near) * (1.0 - uNight);
+  return body * (1.0 + w * vec3(-0.02, 0.22, 0.17));
+}
 // Posidonia: dark sea-grass meadows in patches on the bed (not in the very shallows, never on the reef)
 vec3 hbPosidonia(vec3 bed, vec2 xz, float bedDep, float zr) {
   #ifdef HB_LITE
@@ -46,12 +54,17 @@ vec4 hbMirrorClouds(vec3 sky, vec3 p, vec3 Rr) {
   return vec4(sky, 0.0);   // (Low tier: no clouds in the mirror; their shadows still cross the water)
   #endif
   if (uCloudShadow.w < 0.001) return vec4(sky, 0.0);
-  float up = max(Rr.y, 0.04);
-  vec2 q = p.xz + Rr.xz / up * (650.0 - p.y);
+  // polish #12: the deck is ~650 m up, so the ripple normal swung the reflected point by hundreds of metres and broke
+  // the clouds into wave-sized camouflage blots (worst under a front). Reflect them off the mean surface instead,
+  // with only a trace of the waves: soft, whole cloud shapes drifting across the mirror
+  vec3 vf = normalize(p - uCameraPos);
+  vec3 Rm = normalize(mix(vec3(vf.x, abs(vf.y), vf.z), Rr, 0.12));
+  float up = max(Rm.y, 0.04);
+  vec2 q = p.xz + Rm.xz / up * (650.0 - p.y);
   float cc = (1.0 - hbCloudShadow(q)) / uCloudShadow.w;
   float l = dot(sky, vec3(0.2126, 0.7152, 0.0722));
   vec3 cloud = max(sky * 1.25, vec3(l * 1.55)) * mix(vec3(1.0), uSunColor / max(max(uSunColor.r, uSunColor.g), 1e-3), 0.25);
-  return vec4(cloud, cc * 0.55 * smoothstep(0.03, 0.2, Rr.y));
+  return vec4(cloud, cc * 0.55 * smoothstep(0.03, 0.2, Rm.y));
 }
 uniform vec4 uFoliage;   // season weights (spring, summer, autumn, winter): calendar, decorative
 vec3 hbBiolum(float churn, float zr, float t, float tw) {

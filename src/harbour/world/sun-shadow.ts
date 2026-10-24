@@ -27,6 +27,8 @@ export const sunShadowUniforms = {
   uKeyShadowMat: { value: new THREE.Matrix4() } as THREE.IUniform<THREE.Matrix4>,
   /** x enabled 0|1, y PCF radius in uv, z taps (1 | 4), w strength (shadow.intensity) */
   uKeyShadowP: { value: new THREE.Vector4(0, 0, 1, 1) } as THREE.IUniform<THREE.Vector4>,
+  /** log2(mask texels per world metre) at the last resolve: the sea picks its blur mip from it (hbSeaSunShadow) */
+  uSeaShadowT: { value: 0 } as THREE.IUniform<number>,
 };
 
 export const SUN_SHADOW_GLSL = /* glsl */ `
@@ -42,6 +44,26 @@ float hbSunShadow(vec3 wp) {
   float fade = smoothstep(0.0, 0.06, min(m.x, m.y));
   if (fade <= 0.0 || c.z >= 1.0) return 1.0;
   return mix(1.0, texture2D(uSeaShadow, c.xy).r, fade * uKeyShadowP.w);
+}
+// Polish #1: the shadow AS THE SEA WEARS IT. Water has no hard cast edge: the shadow only takes the sun's glitter and
+// warmth, so it is read from blurred mips of the mask: a ~4 m footprint for the body of a broad shadow and a ~11 m one
+// that both widens its edge and dissolves thin casters (sails, masts, rigging: a few metres wide, their mean over the
+// wide footprint stays mostly lit, and the remap lifts it to lit). Broad casters (the Pharos, the island, moles, hulls
+// side by side) keep a soft, wide-edged band. The Low tier (HB_LITE) skips the sea's sun shadow entirely (perf).
+uniform float uSeaShadowT;
+float hbSeaSunShadow(vec3 wp) {
+  #ifdef HB_LITE
+  return 1.0;
+  #endif
+  if (uKeyShadowP.x < 0.5) return 1.0;
+  vec3 c = (uKeyShadowMat * vec4(wp, 1.0)).xyz;
+  vec2 m = min(c.xy, 1.0 - c.xy);
+  float fade = smoothstep(0.0, 0.06, min(m.x, m.y));
+  if (fade <= 0.0 || c.z >= 1.0) return 1.0;
+  float sNear = textureLod(uSeaShadow, c.xy, max(uSeaShadowT + 2.0, 0.0)).r;
+  float sWide = textureLod(uSeaShadow, c.xy, max(uSeaShadowT + 3.4, 0.0)).r;
+  float s = max(sNear, smoothstep(0.08, 0.72, sWide));
+  return mix(1.0, s, fade * uKeyShadowP.w);
 }
 `;
 
@@ -98,6 +120,8 @@ export class SeaShadowMask {
     this.pass.material.uniforms.uKeyShadow.value = map;
     this.pass.render(renderer, this.rt);
     sunShadowUniforms.uSeaShadow.value = this.rt.texture;
+    // the plane's uv area per m² is |det|: texels per metre (geometric mean of the two axes) for the sea's blur mips
+    sunShadowUniforms.uSeaShadowT.value = Math.log2(Math.sqrt(Math.abs(det)) * size);
     sunShadowUniforms.uKeyShadowMat.value.copy(matrix);
   }
 
