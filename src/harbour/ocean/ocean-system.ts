@@ -5,6 +5,7 @@ import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import type { SkyService, SkyShared } from "../sky/sky-system";
 import { cloudShadowUniforms } from "../sky/cloud-shadow";
+import { sunShadowUniforms } from "../world/sun-shadow";
 import { OCEAN_FRAG, OCEAN_VERT, SEA_PALETTE } from "./ocean-material";
 import { buildSeaSdf, defaultSeaBounds, landMaskFromHeights, SDF_COAST_RANGE, seaSdfInputFromLayout, type Bounds4, type HeightField } from "./sea-sdf";
 import { acquireFxTextures, type FxTextures } from "./textures";
@@ -173,6 +174,7 @@ export class OceanSystem implements WorldSystem {
         ...skyShared,
         ...getBeamUniforms(ctx),
         ...cloudShadowUniforms,
+        ...sunShadowUniforms,
         uFoliage: W.uFoliage,
         uDebug: { value: 0 },
         uGust: ensureGustService(ctx).uniform,

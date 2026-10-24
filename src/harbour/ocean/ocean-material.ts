@@ -1,6 +1,8 @@
 import { GUST_GLSL } from "../weather/gust";
 import { CLOUD_SHADOW_GLSL } from "../sky/cloud-shadow";
 import { SEA_TONE_GLSL } from "./sea-tone";
+import { SUN_SHADOW_GLSL } from "../world/sun-shadow";
+import { SEA_GOLDEN_GLSL } from "./sea-golden";
 import { SWELL_DIR, wavesGLSL } from "./waves";
 
 /** Style C sea ramp (sRGB hex, palette.json) + the A-graft sunlit shallows. */
@@ -76,6 +78,8 @@ varying float vDamp;
 ${wavesGLSL()}
 ${CLOUD_SHADOW_GLSL}
 ${SEA_TONE_GLSL}
+${SUN_SHADOW_GLSL}
+${SEA_GOLDEN_GLSL}
 
 const vec2 SWELL = vec2(${SWELL_DIR[0].toFixed(5)}, ${SWELL_DIR[1].toFixed(5)});
 
@@ -213,6 +217,8 @@ void main() {
   body = mix(body, vec3(lumB) * vec3(0.86, 1.0, 0.98), clamp(storm * 0.5 + cover * 0.25, 0.0, 0.65));
   body *= 1.0 - 0.18 * storm - 0.22 * cover;
   float sunUp = clamp(uSunDir.y * 3.0, 0.0, 1.0) * (1.0 - uNight);
+  // 02-L1: the key light's shadow on the flat sea plane (displacement would only add acne); sun-lit terms only
+  float sunSh = hbSunShadow(vec3(xz.x, 0.0, xz.y));
   // A graft: sunlit teal shallows (light reaching the sand)
   float shoalK = (1.0 - smoothstep(0.3, 4.5, max(dep, depth))) * sunUp;
   body = mix(body, uSunlitShoal, shoalK * (0.22 + 0.3 * smoothstep(0.3, 0.75, nA.b) + 0.1 * nC.g));
@@ -264,6 +270,7 @@ void main() {
     float relief = dot(N, Lk) - Lk.y;
     body *= 1.0 + clamp(relief * 2.2, -0.35, 0.35) * (1.0 - far01 * 0.6);
   }
+  body = hbSeaGolden(body, sunSh, sunUp);
   // day/night exposure of the unlit tint
   float bodyGain = mix(0.95, 0.36, uNight);
   body *= bodyGain;
@@ -328,7 +335,7 @@ void main() {
     float ch = crestH * 1.7 + (nB.g - 0.5) * 0.6;
     float face = clamp(dot(gN.xz, toCam.xz / max(camD, 1.0)) * 6.0 + 0.3, 0.0, 1.0);
     float sssK = golden * (0.3 + 0.7 * back * back) * smoothstep(0.15, 0.9, ch) * face * smoothstep(0.04, 0.35, amp) * (1.0 - far01 * 0.5) * (1.0 - cover * 0.6);
-    col += uSunColor * vec3(0.20, 0.62, 0.48) * sssK * 0.16 * step(1.0, coast);
+    col += uSunColor * vec3(0.20, 0.62, 0.48) * sssK * 0.16 * step(1.0, coast) * sunSh;
   }
 
   // ---------------------------------------------------------------- sun / moon glitter path
@@ -354,6 +361,7 @@ void main() {
   float facet = pow(max(dot(Nsp, Hs), 0.0), 1400.0) * smoothstep(0.5, 0.8, nB.a) * (1.0 - far01 * 0.85);
   float sparkMask = smoothstep(0.45, 0.85, nC.a + 0.25 * nB.b);
   glint += uSunColor * facet * 0.7 * sunUp;
+  glint *= sunSh;
 
   // ---------------------------------------------------------------- low-sun sheen on the far water toward the sun (style C)
   {
@@ -490,7 +498,7 @@ void main() {
   float foam = clamp(max(max(coastFoam, fStruct), max(max(fTrail, fKel), max(fRing, caps))), 0.0, 1.0);
   foam *= 1.0 - smoothstep(uHorizonDist * 0.86, uHorizonDist * 0.99, fwdD);
   float ndl = max(dot(N, uSunDir), 0.0);
-  vec3 foamLit = mix(uFoamCol, uFoamNight, uNight * 0.6) * (uAmbient * 1.1 + uSunColor * (0.25 + 0.75 * ndl) * 0.3183);
+  vec3 foamLit = mix(uFoamCol, uFoamNight, uNight * 0.6) * (uAmbient * 1.1 + uSunColor * (0.25 + 0.75 * ndl) * 0.3183 * mix(1.0, sunSh, 0.8));
   // overview: the coast foam stays under the bloom threshold (no glowing outline round the island, 01-A6)
   foamLit *= 1.0 - 0.38 * smoothstep(310.0, 500.0, uCameraPos.y) * (1.0 - uNight);
 
@@ -527,5 +535,6 @@ void main() {
   if (uDebug > 4.5 && uDebug < 5.5) col = vec3(F * 4.0, hz, foam);
   if (uDebug > 5.5 && uDebug < 6.5) col = glint + beam;
   if (uDebug > 6.5 && uDebug < 7.5) col = vec3(live.a, live.b, zm.a);
+  if (uDebug > 7.5 && uDebug < 8.5) col = vec3(sunSh);
   gl_FragColor = vec4(col, 1.0);
 }`;
