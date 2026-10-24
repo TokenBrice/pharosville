@@ -51,7 +51,11 @@ export interface SkyService {
 }
 
 /** What the sky reads from the weather director's service (src/harbour/weather). */
-interface WeatherSkyLike { readonly gloom: number; readonly flash: { readonly azimuth: number; readonly elevation: number } }
+interface WeatherSkyLike {
+  readonly gloom: number;
+  readonly flash: { readonly azimuth: number; readonly elevation: number };
+  readonly state?: { readonly wind: number; readonly windNow: number };
+}
 
 const BAND_FRAC = 0.2;               // pretend horizon sits this fraction of the frame below the top
 const BAND_TH = 48, BAND_E0 = -1.5, BAND_E1 = 14;
@@ -326,12 +330,23 @@ export class SkySystem implements WorldSystem {
     // ---- clouds: cover reveals banks, wind drifts them (near layers faster); wrap at the band edge with a fade
     this.clock ??= new MotionClock(ensureMotionService(ctx));
     const driftT = this.clock.step(dt), live = this.clock.live;
-    const driftDeg = (0.004 + 0.05 * this.windS) * dt * live;
+    // W08 one wind: the banks and cirrus drift the way the wind blows across the view (the same direction as
+    // the cloud shadows, smoke and flags); a wind straight along the view still creeps, with its own sign
+    const wv0 = W.uWindVec.value;
+    const wdA = (wv0.lengthSq() > 1e-6 ? Math.atan2(wv0.y, wv0.x) : -0.6) + 0.15 * Math.sin(driftT * 0.01);
+    const across = Math.cos(wdA) * rightX + Math.sin(wdA) * rightZ;
+    const lat = 0.75 * across + 0.25 * Math.tanh(across * 6);
+    const driftDeg = (0.004 + 0.05 * this.windS) * dt * live * lat;
     this.cirrusDrift += driftDeg * 0.6;
+    // gusts briefly hurry the near banks (and the cirrus a little): the gust share of the wind now
+    // TODO(motion): read the shared gust field (weather/gust.ts) here once it lands, instead of windNow - wind
+    const wxs = (ctx.services.get("weather") as WeatherSkyLike | undefined)?.state;
+    const gust = wxs ? THREE.MathUtils.clamp((wxs.windNow - wxs.wind) / 0.25, 0, 1) : 0;
+    this.cirrusDrift += driftDeg * 0.3 * gust;
     // fair-weather cumulus even when calm (2-3 banks), the full sky at ALERT and above
     const vis = 5 + this.coverS * MAX_BANKS;
     this.banks.forEach((b, i) => {
-      b.drift += driftDeg * (3000 / b.dist) * 1.6;
+      b.drift += driftDeg * (3000 / b.dist) * 1.6 * (1 + 1.2 * gust * THREE.MathUtils.smoothstep(9000 - b.dist, 0, 4000));
       const grow = 0.85 + 0.3 * this.coverS;
       // each bank cycles just beyond the frame edge, fading only while (mostly) out of view
       const lim = halfH / D2R + b.w * grow * 0.5 + 3;
@@ -344,8 +359,6 @@ export class SkySystem implements WorldSystem {
     });
     this.u.uWeather.value.set(this.coverS, this.windS, this.cirrusDrift);
     // one wind field: the weather director's direction (uWindVec, the way the hulls lie) with a slow wobble
-    const wv0 = W.uWindVec.value;
-    const wdA = (wv0.lengthSq() > 1e-6 ? Math.atan2(wv0.y, wv0.x) : -0.6) + 0.15 * Math.sin(driftT * 0.01);
     this.shared.uWeatherSea.value.set(this.coverS, this.windS, Math.cos(wdA), Math.sin(wdA));
 
     // ---- storm grade (ALERT and above): slate sky, dimmer duller key light, greyer world, flatter grade.
