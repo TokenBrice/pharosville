@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import { Bunting, LAUNCH_DRESS_MS } from "./bunting";
-import { MastSignals, mastSignalSize, signalParts } from "./storm-cones-mast";
+import { MastSignals, MIN_PX, mastSignalSize, signalParts } from "./storm-cones-mast";
 import type { StormFlag } from "../model/types";
 
 const mat = new THREE.MeshBasicMaterial();
@@ -17,6 +17,12 @@ describe("DA-04 masthead storm signals", () => {
   it("sizes the shape to the hull, within readable bounds", () => {
     expect(mastSignalSize(5)).toBeGreaterThanOrEqual(0.9);
     expect(mastSignalSize(32)).toBeLessThanOrEqual(2.8);
+  });
+
+  it("never drops below MIN_PX on screen far away, within a share of the hull", () => {
+    expect(mastSignalSize(20, 100)).toBeCloseTo(mastSignalSize(20), 5);          // near: the hull's own size
+    expect(mastSignalSize(20, 2) * 2).toBeCloseTo(MIN_PX, 5);                   // far: MIN_PX px tall
+    expect(mastSignalSize(6, 0.5)).toBeLessThanOrEqual(6 * 0.45 + 1e-9);         // never taller than 0.45 × LOA
   });
 
   it("is simply there on the first reading, hoists later ones, strikes cleared ones", () => {

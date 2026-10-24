@@ -20,6 +20,8 @@ import { CIVIC_BASE, type CivicManifest } from "./assemble";
 const EASE_SEC = 3;
 /** The treadwheel's turn (rad/s): a walker's pace, slow. */
 const WHEEL_RATE = 0.3;
+/** REVIEW #7: the kit stands a quarter larger than built (scaffold ~11 m, up past the eaves), so works read at heart. */
+const KIT_SCALE = 1.25;
 const slugOf = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
 
 interface CivicPlots { readonly plots?: ReadonlyMap<string, { kind: string; root: THREE.Object3D }> }
@@ -97,7 +99,7 @@ export class OfficeWorksSystem implements WorldSystem {
       s.furl = instant ? fT : fT > s.furl ? Math.min(1, s.furl + step) : Math.max(0, s.furl - step);
       const we = s.works * s.works * (3 - 2 * s.works);
       s.group.visible = we > 0.001;
-      s.group.scale.set(1, Math.max(0.001, we), 1);
+      s.group.scale.set(KIT_SCALE, KIT_SCALE * Math.max(0.001, we), KIT_SCALE);
       if (s.wheel && s.group.visible && !reduced) s.wheel.rotation.x += WHEEL_RATE * frame.delta;
       identity?.furl(s.chain, s.furl * s.furl * (3 - 2 * s.furl));
     }

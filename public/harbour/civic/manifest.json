@@ -2887,7 +2887,7 @@
     }
    },
    "note": "kit frame: +x along the flank wall, +z out from it, origin on the ground at the wall; flank.<chain> = kit origin + yaw (about +Y, applied first) in that office plot frame",
-   "kb": 21.5
+   "kb": 21.6
   }
  }
 }

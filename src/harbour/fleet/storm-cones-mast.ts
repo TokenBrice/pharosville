@@ -5,8 +5,10 @@ import { CONE_H, DRUM_H, shapeData, type Shape, type ShapeData } from "../readin
 /**
  * DA-04 storm signals at the masthead: each coin in readings.stormFlags (the five worst DEWS Alert+ coins, worst
  * first) flies the Storm-signal Station's shape vocabulary over her own masthead — a cone at Alert, a drum at
- * Warning, a cone over a drum at Danger — the station's woven wicker, tarred dark. Early warning, not a depeg (the
- * Shoals tell the depeg). The shapes ride the hull's whole pose (heel, roll, pitch, the launch ways).
+ * Warning, a cone over a drum at Danger — in the real convention's matte black, a crisp silhouette against sky and
+ * sail (REVIEW #7: never a brown cask, never lit). Early warning, not a depeg (the Shoals tell the depeg). The shapes
+ * ride the hull's whole pose (heel, roll, pitch, the launch ways). Like the burgee's flag law, a far hull's shape never
+ * drops below MIN_PX on screen, so a hoisted signal reads at the default heart view.
  *
  * ONE draw: every shape of every flagged hull re-posed on the CPU into one small dynamic kit-material geometry
  * (≤ 5 hulls × a cone and a drum ≈ 1.2k vertices). A newly flagged coin's shape breaks out (grows from the truck)
@@ -19,19 +21,25 @@ export const MAST_SIGNALS_MAX = 5;
 const HOIST_SEC = 3;
 /** Shape height on a hull (m): a share of her length, kept readable on a skiff and modest on a titan. */
 const SIZE_K = 0.11, SIZE_MIN = 0.9, SIZE_MAX = 2.8;
-/** Tarred: the station's willow weave, darkened so a small shape reads against sky, sail and brand flag. */
-const TAR = 0.3;
+/** Matte black canvas (linear albedo, plain kit pattern 0): a silhouette against sky, sail and brand flag. */
+const BLACK = 0.03;
+/** Each shape's height never drops below this many px on screen (it grows with distance, capped at MAX_LOA_K × LOA). */
+export const MIN_PX = 9;
+const MAX_LOA_K = 0.45;
 /** Gap between the truck and the shape, and between a cone and the drum under it (× shape height). */
 const GAP_K = 0.12;
 
-export function mastSignalSize(loa: number): number { return THREE.MathUtils.clamp(loa * SIZE_K, SIZE_MIN, SIZE_MAX); }
+export function mastSignalSize(loa: number, pxPerM = Infinity): number {
+  const base = THREE.MathUtils.clamp(loa * SIZE_K, SIZE_MIN, SIZE_MAX);
+  return Math.max(base, Math.min(MIN_PX / pxPerM, loa * MAX_LOA_K));
+}
 
 /** The shapes, top first, of a signal: what the station's vocabulary hoists for each band. */
 export function signalParts(shape: StormSignalShape): readonly Shape[] {
   return shape === "cone" ? ["cone"] : shape === "drum" ? ["drum"] : ["cone", "drum"];
 }
 
-interface Slot { id: string | null; shape: StormSignalShape; p: number; up: boolean }
+interface Slot { id: string | null; shape: StormSignalShape; p: number; up: boolean; size: number }
 
 export class MastSignals {
   readonly mesh: THREE.Mesh;
@@ -60,10 +68,8 @@ export class MastSignals {
       const b = s * this.per;
       for (let k = 0; k < this.cone.idx.length; k++) idx.push(this.cone.idx[k] + b);
       for (let k = 0; k < this.drum.idx.length; k++) idx.push(this.drum.idx[k] + b + nc);
-      col.set(this.cone.col, b * 4);
-      col.set(this.drum.col, (b + nc) * 4);
-      for (let v = b; v < b + this.per; v++) for (let c = 0; c < 3; c++) col[v * 4 + c] *= TAR;
-      this.slots.push({ id: null, shape: "cone", p: 0, up: false });
+      for (let v = b; v < b + this.per; v++) col.set([BLACK, BLACK, BLACK, 0], v * 4);
+      this.slots.push({ id: null, shape: "cone", p: 0, up: false, size: 0 });
     }
     this.geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(verts * 3), 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(verts * 3), 3).setUsage(THREE.DynamicDrawUsage));
@@ -91,7 +97,7 @@ export class MastSignals {
         const free = this.slots.find((s) => !s.id) ?? this.slots.find((s) => !s.up && s.p <= 0);
         if (!free) continue;
         if (free.id && this.byId.get(free.id) === free) this.byId.delete(free.id);
-        free.id = id; free.shape = shape; free.up = true; free.p = 0;
+        free.id = id; free.shape = shape; free.up = true; free.p = 0; free.size = 0;
         this.byId.set(id, free);
       }
       // the first reading of the visit: the signals are simply there (nothing is "hoisted" on arrival)
@@ -110,15 +116,15 @@ export class MastSignals {
   lift(id: string, loa: number): number {
     const s = this.byId.get(id);
     if (!s || s.p <= 0) return 0;
-    const h = mastSignalSize(loa), e = s.p * s.p * (3 - 2 * s.p);
+    const h = s.size || mastSignalSize(loa), e = s.p * s.p * (3 - 2 * s.p);
     return (h * (1 + GAP_K) * signalParts(s.shape).length) * e;
   }
 
   /**
    * One posed hull: `m` = the hull's world matrix (kit frame, scale `scale`), `masthead` its masthead anchor in the
-   * kit frame. No-op unless the coin flies a signal.
+   * kit frame, `pxPerM` the screen px per metre at the hull (the minimum size). No-op unless the coin flies a signal.
    */
-  hull(id: string, m: THREE.Matrix4, masthead: THREE.Vector3, scale: number, loa: number): void {
+  hull(id: string, m: THREE.Matrix4, masthead: THREE.Vector3, scale: number, loa: number, pxPerM = Infinity): void {
     const s = this.byId.get(id);
     if (!s || s.p <= 0.002) return;
     const si = this.slots.indexOf(s);
@@ -127,7 +133,8 @@ export class MastSignals {
     const k = 1 / (scale || 1);
     this.ax.multiplyScalar(k); this.ay.multiplyScalar(k); this.az.multiplyScalar(k);
     const e = s.p * s.p * (3 - 2 * s.p);
-    const h = mastSignalSize(loa) * e;
+    s.size = mastSignalSize(loa, pxPerM);
+    const h = s.size * e;
     const P = (this.geo.attributes.position as THREE.BufferAttribute).array as Float32Array;
     const N = (this.geo.attributes.normal as THREE.BufferAttribute).array as Float32Array;
     const parts = signalParts(s.shape);
