@@ -236,10 +236,19 @@ vec3 skyBand(float th, float e, float pxDeg) {
     c = mix(c, cirCol, cir);
     // W10 autumn: a mackerel (altocumulus) band, small rippled cells in rows, as thin as the cirrus
     if (uSeasonSky.y > 0.01) {
+      // rows slip against each other and every cell is jittered, sized and warped on its own (an unbroken lattice
+      // read as a printed dot grid, worst at night against the dark sky), and some cells are missing
       vec2 mq = vec2(thc * 0.9, e * 2.6 + sin(thc * 0.35) * 0.6);
-      float cell = 1.0 - length(fract(mq) - 0.5) * 2.0;
+      float mrow = floor(mq.y);
+      mq.x += sbHash(vec2(mrow, 4.1)) * 7.0;
+      vec2 mid = floor(mq);
+      vec2 mf = fract(mq) - 0.5 - (vec2(sbHash(mid + 1.3), sbHash(mid + 2.7)) - 0.5) * 0.3;
+      float mwarp = texture2D(uSkyNoise, mq * 0.31 + 0.47).b - 0.5;
+      float cell = 1.0 - length(mf * vec2(1.0, 1.25)) / (0.32 + 0.16 * sbHash(mid + 4.9)) + mwarp * 0.6;
+      cell *= step(0.3, sbHash(mid + 6.1));
       float mpres = smoothstep(0.5, 0.75, texture2D(uSkyNoise, vec2(thc * 0.012 + 0.71, e * 0.03 + 0.2)).g) * smoothstep(3.5, 5.0, e) * (1.0 - smoothstep(7.5, 9.5, e));
-      float mk = smoothstep(0.25, 0.6, cell) * mpres * uSeasonSky.y * 0.22;
+      // a lit daytime texture: at night the thin sheet goes unseen against the dark (no grey dot field)
+      float mk = smoothstep(0.1, 0.55, cell) * mpres * uSeasonSky.y * 0.2 * (1.0 - uNight);
       c = mix(c, cirCol, mk);
     }
   }
