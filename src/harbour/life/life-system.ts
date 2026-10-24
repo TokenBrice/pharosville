@@ -9,6 +9,10 @@ import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { LandFlags } from "./flags";
 import { Townsfolk, type FolkGround } from "./folk";
+import { Dolphins } from "./dolphins";
+import type { OceanService } from "../ocean/ocean-system";
+import type { WakeService } from "../ocean/wake";
+import type { WeatherService } from "../weather/weather-system";
 import { Gulls } from "./gulls";
 import { ChimneySmoke } from "./smoke";
 import { SeasonalDrift } from "./drift";
@@ -36,8 +40,8 @@ interface WindSource { wind?: { fromRad: number; strength: number } }
 
 /**
  * LIFE — the declared-decorative inhabitants of the island: townsfolk, gulls, chimney smoke, flags and
- * bunting. Nothing here carries or implies data. Budget: ≤ 6 draw calls (folk + its shadow, gulls, smoke,
- * flags, seasonal drift = 6), ≤ 0.4 ms CPU per frame. Honours reduced motion (people stand, gulls perch, smoke holds still)
+ * bunting, dolphins at the mouth. Nothing here carries or implies data. Budget: ≤ 8 draw calls (folk + its shadow,
+ * gulls, smoke, flags, seasonal drift, dolphins = 7), ≤ 0.4 ms CPU per frame. Honours reduced motion (people stand, gulls perch, smoke holds still)
  * and the quality tier (fewer actors on Low).
  */
 export class LifeSystem implements WorldSystem {
@@ -47,6 +51,7 @@ export class LifeSystem implements WorldSystem {
   private smoke: ChimneySmoke | null = null;
   private flags: LandFlags | null = null;
   private drift: SeasonalDrift | null = null;
+  private dolphins: Dolphins | null = null;
   private motion: MotionService | null = null;
   private quality: QualityService | null = null;
   readonly group = new THREE.Group();
@@ -99,7 +104,7 @@ export class LifeSystem implements WorldSystem {
     this.folk = new Townsfolk(walk, mats, { walkers: 150, standers: 34 }, folkGround, ht ? [ht[0], ht[2]] : undefined, lights);
     this.group.add(this.folk.mesh);
     // dev captures: the cast by role (window.__harbourLife)
-    if (import.meta.env.DEV) (window as unknown as { __harbourLife?: unknown }).__harbourLife = { roles: this.folk.roleCounts() };
+    if (import.meta.env.DEV) (window as unknown as { __harbourLife?: unknown }).__harbourLife = { roles: this.folk.roleCounts(), life: this };
 
     const V = (p: readonly number[], dy = 0) => new THREE.Vector3(p[0], p[1] + dy, p[2]);
     const lm = (id: string) => layout.landmarks.find((l) => l.id === id)?.position;
@@ -127,6 +132,18 @@ export class LifeSystem implements WorldSystem {
 
     this.drift = new SeasonalDrift(mats.ao);
     this.group.add(this.drift.mesh);
+
+    // 09-L4 dolphins at the harbour mouth, between the Pharos and the breakwater head, in open water
+    const bwl = layout.island?.breakwater;
+    if (pharos && bwl && bwl.length) {
+      const end = bwl[bwl.length - 1];                    // the breakwater head (its harbour light)
+      const ocean = ctx.services.get("ocean") as OceanService | undefined;
+      this.dolphins = new Dolphins({
+        x: (pharos[0] + end[0]) / 2, z: (pharos[2] + end[1]) / 2, r: 22,
+        clear: ocean ? (x, z) => ocean.coastAt(x, z) > 14 : undefined,
+      }, mats, new URLSearchParams(location.search).get("dolphins"));
+      this.group.add(this.dolphins.mesh);
+    }
 
     if (walk.flagpoles.length || walk.bunting.length) {
       this.flags = new LandFlags(walk, mats);
@@ -168,13 +185,19 @@ export class LifeSystem implements WorldSystem {
     this.smoke?.update(dt, moving, smokeAmount(hour) * hearth * (0.6 + 0.4 * share), this.windTo, this.wind, u);
     this.drift?.update(dt, moving, autumn, spring, share, ctx.camera, ctx.rig.target, ctx.rig.distance, u);
     this.flags?.update(dt, moving, this.windTo, this.wind);
+    if (this.dolphins) {
+      // only in the calm bands (DEWS CALM / WATCH) of a fresh reading: no reading, stale fog or rough weather = none
+      const level = (ctx.services.get("weather") as WeatherService | undefined)?.state.level ?? null;
+      const fog = (ctx.services.get("readings") as { fog?: number } | undefined)?.fog ?? 0;
+      this.dolphins.update(dt, level !== null && level < 1.5 && fog < 0.05, moving, 0, ctx.services.get("wake") as WakeService | undefined);
+    }
   }
 
   dispose(ctx: EngineContext): void {
     ctx.scene.remove(this.group);
     ctx.services.delete("life");
-    this.folk?.dispose(); this.gulls?.dispose(); this.smoke?.dispose(); this.flags?.dispose(); this.drift?.dispose();
+    this.folk?.dispose(); this.gulls?.dispose(); this.smoke?.dispose(); this.flags?.dispose(); this.drift?.dispose(); this.dolphins?.dispose();
     this.folk = this.gulls = this.smoke = this.flags = null;
-    this.drift = null;
+    this.drift = null; this.dolphins = null;
   }
 }
