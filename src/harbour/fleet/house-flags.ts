@@ -8,8 +8,9 @@ import type { EmblemAtlas } from "./emblems";
  * (atlas slot: the logo on its white roundel) near the hoist, on both faces, streaming downwind (the weather's
  * wind: flutter and droop follow its strength), turned a little toward the viewer so it reads, lit with the scene.
  * Styles: a swallowtail BURGEE at the masthead (every hull) · a big rectangular HOUSE FLAG (the titans) · the
- * red-and-white chequered DISTRESS flag (aground on the Shoals). When a flag is only a few pixels across (the
- * overview) the roundel melts away and the brand field remains: a dot of the coin's colour over its hull.
+ * red-and-white chequered DISTRESS flag (aground on the Shoals: flown above her own colours, never instead). When a
+ * flag is only a few pixels across (the overview) the roundel melts away and the brand field remains: a dot of the
+ * coin's colour over its hull.
  */
 export const FLAG_BURGEE = 0, FLAG_HOUSE = 1, FLAG_DISTRESS = 2;
 /** 06-F7c a titan's vexillum: a long tapering masthead streamer in her colours, above the house flag (decorative). */

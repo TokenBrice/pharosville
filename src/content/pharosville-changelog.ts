@@ -12,6 +12,18 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-10-25-flying-colours",
+    version: PHAROSVILLE_RELEASE_VERSIONS.flyingColours,
+    date: "2026-10-25",
+    title: "Flying Colours",
+    summary: "Every boat shows her coin again, at every distance.",
+    bullets: [
+      "Ships on the Shoals keep their own colours: the emblem burgee (a flagship's house flag) still flies at the masthead, with the red-and-white chequered distress flag hoisted above it instead of in its place.",
+      "Far ships are recognisable again. The coin's roundel stays printed on the sail at every range instead of melting into the dye, far sails keep their brand hue, and the smallest, most distant hulls now carry the roundel on their sails too.",
+    ],
+    source: "Collected from `release/v1.4.1` after v1.4.0 (the fleet legibility fix). No data mapping changed.",
+  },
+  {
     id: "2026-10-25-living-harbour",
     version: PHAROSVILLE_RELEASE_VERSIONS.livingHarbour,
     date: "2026-10-25",

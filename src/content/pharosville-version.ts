@@ -40,6 +40,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   canvasUp: "v1.2.1",
   fairWind: "v1.3.0",
   livingHarbour: "v1.4.0",
+  flyingColours: "v1.4.1",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.livingHarbour;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.flyingColours;

@@ -40,6 +40,14 @@ describe("planSails", () => {
     const u = (c.x - -4) / D + m.emb[0];
     expect(u).toBeCloseTo(0.5, 3);
     expect(m.emb[5]).toBeLessThan(m.emb[1]); // the head corner (y = 9) has the smaller v
+    // the frame the LOD bake projects with reproduces the main's own emblem UVs
+    const f = m.frame!;
+    for (let i = 0; i < 3; i++) {
+      const p = [main.pos[i * 3], main.pos[i * 3 + 1], main.pos[i * 3 + 2]];
+      const dot = (d: number[]) => p[0] * d[0] + p[1] * d[1] + p[2] * d[2];
+      expect((dot(f.du) - f.cx) / f.D + 0.5).toBeCloseTo(m.emb[i * 2], 5);
+      expect((dot(f.dv) - f.cy) / f.D + 0.5).toBeCloseTo(m.emb[i * 2 + 1], 5);
+    }
   });
 
   it("puts a second, smaller roundel on the next lower sail and none on the jib or topsails", () => {

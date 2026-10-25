@@ -29,7 +29,12 @@ export interface SailMeshIn {
   /** COLOR_0 rgb per corner, when present. */
   color: ArrayLike<number> | null;
 }
-export interface SailMeshOut { emb: Float32Array; role: Float32Array }
+export interface SailMeshOut { emb: Float32Array; role: Float32Array; frame?: EmblemFrame }
+/**
+ * The main roundel's layout (on sail_main's output): emb = ((p·du − cx) / D + 0.5, (p·dv − cy) / D + 0.5), read the
+ * right way on a face wound like the main (sign of its winding · du×dv = `wind`). The LOD bake prints it on its sails.
+ */
+export interface EmblemFrame { du: [number, number, number]; dv: [number, number, number]; cx: number; cy: number; D: number; wind: number }
 
 interface Comp { mesh: number; verts: number[]; tris: number[]; area: number; minX: number; maxX: number; minY: number; maxY: number; band: boolean; upper: boolean }
 
@@ -42,7 +47,7 @@ const SKIP_SECOND = new Set(["sail_main", "sail_jib", "sail_spanker"]);
 const SECOND_MIN_AREA = 0.35, SECOND_TILT = Math.cos((25 * Math.PI) / 180);
 
 export function planSails(meshes: SailMeshIn[]): SailMeshOut[] {
-  const out = meshes.map((m) => {
+  const out = meshes.map((m): SailMeshOut => {
     const n = m.pos.length / 3;
     const emb = new Float32Array(n * 2);
     for (let i = 0; i < n; i++) { emb[i * 2] = NO_EMBLEM[0]; emb[i * 2 + 1] = NO_EMBLEM[1]; }
@@ -103,6 +108,7 @@ export function planSails(meshes: SailMeshIn[]): SailMeshOut[] {
     if (!circle) continue;
     const D = (circle.r * fill) / LOGO_R;
     const mirror = c !== mainComp && wind(c) !== mainWind;
+    if (c === mainComp) out[c.mesh].frame = { du, dv, cx: circle.x, cy: circle.y, D, wind: mainWind };
     c.verts.forEach((v, k) => {
       const u = (st[k][0] - circle.x) / D + 0.5;
       out[c.mesh].emb[v * 2] = mirror ? 1 - u : u;

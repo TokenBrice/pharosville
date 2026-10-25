@@ -2,6 +2,15 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v1.4.1 - 2026-10-25 - Flying Colours
+
+Every boat shows her coin again, at every distance.
+
+Collected from `release/v1.4.1` after v1.4.0 (the fleet legibility fix). No data mapping changed.
+
+- Ships on the Shoals keep their own colours: the emblem burgee (a flagship's house flag) still flies at the masthead, with the red-and-white chequered distress flag hoisted above it instead of in its place.
+- Far ships are recognisable again. The coin's roundel stays printed on the sail at every range instead of melting into the dye, far sails keep their brand hue, and the smallest, most distant hulls now carry the roundel on their sails too.
+
 ## v1.4.0 - 2026-10-25 - Living Harbour
 
 The harbour comes alive: the fleet rides at anchor instead of scattering like confetti, one wind moves sea, sails, trees and sky, the Pharos's light falls on the world it watches, weather rolls in from the horizon, the hinterland is farmed and inhabited, and the data's real moments are staged, sparingly, and written down.

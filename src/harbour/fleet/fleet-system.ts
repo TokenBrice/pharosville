@@ -1078,7 +1078,8 @@ export class FleetSystem implements WorldSystem {
       // At rest (docked, moored, at anchor) every hull flies its coin's colours, so a furled fleet still reads coin
       // by coin: a brand burgee with the emblem at the masthead (a titan: a big house flag), never smaller than a few
       // px (the overview: a dot of brand colour over each hull); a struck rig flies it from the stern staff. It
-      // replaces the kit's plain pennant. Aground on the Shoals: the distress flag instead.
+      // replaces the kit's plain pennant. Aground on the Shoals: she keeps her colours and flies the chequered distress
+      // flag above them, so the coin still reads.
       const distress = ph === PH_ANCHORED && sim?.slotOf(i)?.kind === "shoals";
       if (this.flags && !moving && !b.wrecked && b.visible && b.dist < tier.flagRange) {
         const pxM = pxPerM / b.dist;
@@ -1099,7 +1100,12 @@ export class FleetSystem implements WorldSystem {
         if (b.struck) { this.lampAt(v.sternCleat.x * 0.92, v.sternCleat.y, 0); this.v.y += 0.5 + size * 0.72; }
         else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += 0.3 + (this.mastSignals?.lift(b.id, b.loa) ?? 0); }
         this.flags.add(this.v.x, this.v.y, this.v.z, size, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), b.slot, b.phi * 3, b.brand,
-          distress ? FLAG_DISTRESS : b.titan ? FLAG_HOUSE : FLAG_BURGEE);
+          b.titan ? FLAG_HOUSE : FLAG_BURGEE);
+        if (distress) {
+          // hoisted above her colours (below them the yard and the brailed sail would hide it)
+          const dSize = size * 0.7;
+          this.flags.add(this.v.x, this.v.y + dSize * 0.72 + 0.15, this.v.z, dSize, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 0.7, b.brand, FLAG_DISTRESS);
+        }
         // 06-F7c a titan flies a long vexillum from the truck, above her house flag (decorative)
         if (b.titan && !distress && !b.struck) {
           this.flags.add(this.v.x, this.v.y + 0.9, this.v.z, b.loa * 0.34, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 1.3, b.brand, FLAG_STREAMER);
