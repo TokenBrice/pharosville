@@ -174,7 +174,9 @@ void hbFleetPose(vec3 p, vec3 n) {
   vSailDye = aMeta.x > 0.5 && aMeta.x < 1.5 ? hbPaintTexel(idx, 4) : vec4(0.0);
   vFleetMisc = vec4(a.z, flip, aMeta.x, aMeta.z);
   vFleetUV = vec4(aSailUV, aEmbUV);
-  vFleetRig = vec4(furl, node, aMeta.w, n.z);
+  // a LOD sail (aPaint.x 0: no breathing size) has no furl shape: it stands set, so it shows as set (cloth, roundel)
+  bool lodSail = aMeta.x > 0.5 && aMeta.x < 1.5 && aPaint.x > -1e-3;
+  vFleetRig = vec4(lodSail ? 0.0 : furl, node, aMeta.w, n.z);
   vFleetLamp = mo.z;
 }
 `;
@@ -362,7 +364,6 @@ void hbFleetColor(inout vec3 c) {
       vec2 gx = vec2(ex.x * sx * uEmblemGrid.z, -ex.y * uEmblemGrid.w);
       vec2 gy = vec2(ey.x * sx * uEmblemGrid.z, -ey.y * uEmblemGrid.w);
       vec4 t = textureGrad(uEmblems, uv, gx, gy) * show;  // premultiplied
-      t = hbFarEmblem(t, dyed * 0.55);
       c = c * (1.0 - t.a) + t.rgb * 0.9;
     }
   } else if (kind > 0.5) {
@@ -392,6 +393,7 @@ void hbFleetColor(inout vec3 c) {
     hbSailOpaque = (seams * 0.45 + tabling * 0.55) * fine;  // 06-F12: they stand dark in the backlit glow
     // furled canvas (rolled jib, square sails on their yards): weathered cloth, not a white bar
     c = mix(c, c * vec3(0.66, 0.62, 0.55), smoothstep(0.35, 0.95, vFleetRig.x));
+    hbFarCloth(c);                                         // (the cloth only: the roundel stays crisp at any range)
     float slot = vFleetBrand.a;
     // the roundel rides the furl morph and fades as the sail comes down (docked: the cover and house flag carry it)
     float show = (1.0 - smoothstep(0.2, 0.6, vFleetRig.x)) * clampR;
@@ -415,11 +417,9 @@ void hbFleetColor(inout vec3 c) {
       vec2 gx = vec2(ex.x * sx * 0.97 * uEmblemGrid.z, -ex.y * 0.97 * uEmblemGrid.w);
       vec2 gy = vec2(ey.x * sx * 0.97 * uEmblemGrid.z, -ey.y * 0.97 * uEmblemGrid.w);
       vec4 t = textureGrad(uEmblems, uv, gx, gy) * show; // premultiplied
-      t = hbFarEmblem(t, (dye.w > 0.5 ? dye.rgb : vFleetBrand.rgb) * 0.5);
       c = c * (1.0 - t.a) + t.rgb * 0.92;                  // printed on cloth: a touch under paper-white
       hbSailOpaque = max(hbSailOpaque, t.a * 0.7);
     }
-    hbFarCloth(c);
   } else if (vFleetRig.z > 0.5) {
     c = dyed * 1.15;                                       // house pennant in the brand colour (no national ensign)
   } else {
@@ -488,7 +488,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   #include <opaque_fragment>`);
   };
   // the kit's own key carries its season and Low-tier (kitKey) switches
-  m.customProgramCacheKey = () => `hb_fleet_v10_${kit.customProgramCacheKey()}`;
+  m.customProgramCacheKey = () => `hb_fleet_v11_${kit.customProgramCacheKey()}`;
   mats.track(m);   // recompiles with the kit's Low-tier switch
 
   const depth = new THREE.MeshDepthMaterial();

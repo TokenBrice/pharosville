@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { AssetStore } from "../engine/assets";
-import { planSails, ROLE_BODY, type SailMeshOut } from "./sail-plan";
+import { planSails, ROLE_BODY, type EmblemFrame, type SailMeshOut } from "./sail-plan";
 
 /**
  * The hull kit (public/harbour/kit, manifest.json) baked for ONE BatchedMesh draw:
@@ -16,7 +16,8 @@ import { planSails, ROLE_BODY, type SailMeshOut } from "./sail-plan";
  *     rig's brailed bundle (sail_cover under _heel) the roundel on its faces, u along the yard (yardBundle))
  *   aFurl / aFurlN: the "furl" morph deltas (0 = set … 1 = furled / cover on)
  *   aMeta = (kind 0 opaque | 1 sail | 2 cover, node, brand 0..1 (opaque) | sail role (sail-plan ROLE_*), flag 0..1)
- *     LOD sails (hb_opaque in the kit: rig paint 8 in the full hull's cloth colour) bake as kind 1 so they take the dye.
+ *     LOD sails (hb_opaque in the kit: rig paint 8 in the full hull's cloth colour) bake as kind 1 so they take the dye,
+ *     and carry the full hull's main roundel (its EmblemFrame, projected), so a small far hull still shows her coin.
  *     node: 0 rigid · 1 rigid + mirrored on port tack · 2 boom · 3 boom_2 · 4 jib
  *   aPivot / aAxis: rotation pivot + axis of the node's group (boom: gooseneck, +y; jib: tack, stay axis)
  *   aPaint = (livery region, x / (loa / 2)): the kit's _PAINT corner attribute (0 keep · 1 + 0.98 t topsides,
@@ -92,7 +93,7 @@ function nodeOrigin(nodes: ManifestNode[], name: string): THREE.Vector3 | null {
 }
 
 /** Flatten one GLB into the fleet attribute layout. `pivots` comes from the manifest (Blender object origins). */
-export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean; loa?: number; beam?: number; wreck?: boolean; skip?: ReadonlySet<string>; cloth?: [number, number, number] | null } = {}): THREE.BufferGeometry {
+export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean; loa?: number; beam?: number; wreck?: boolean; skip?: ReadonlySet<string>; cloth?: [number, number, number] | null; emblem?: EmblemFrame | null } = {}): THREE.BufferGeometry {
   const halfLoa = (opts.loa ?? 10) / 2;
   const boom = nodeOrigin(nodes, "boom") ?? new THREE.Vector3();
   const boom2 = nodeOrigin(nodes, "boom_2") ?? new THREE.Vector3();
@@ -104,6 +105,8 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
   gltf.scene.updateMatrixWorld(true);
   const sails = opts.lod || opts.wreck ? new Map<THREE.Mesh, SailMeshOut>() : planHullSails(gltf);
   const cloth = opts.lod ? opts.cloth ?? null : null;
+  const frame = opts.lod ? opts.emblem ?? null : null;
+  const lodSailVerts: number[] = [];
   let clothOut: [number, number, number] | null = null;
   gltf.scene.traverse((o) => {
     const mesh = o as THREE.Mesh;
@@ -227,6 +230,11 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
           else SU.push(uv0 && kind === 1 ? uv0.getX(vi) : 0, uv0 && kind === 1 ? uv0.getY(vi) : 0);
           if (plan && kind === 1) EU.push(plan.emb[vi * 2], plan.emb[vi * 2 + 1]);
           else if (coverEmb && kind === 2) EU.push(coverEmb[vi * 2], coverEmb[vi * 2 + 1]);
+          else if (lodSail && frame) {
+            EU.push((tmpV.set(P[P.length - 3], P[P.length - 2], P[P.length - 1]).dot(tmpP.set(...frame.du)) - frame.cx) / frame.D + 0.5,
+              (tmpV.dot(tmpP.set(...frame.dv)) - frame.cy) / frame.D + 0.5);
+            lodSailVerts.push(base + out);
+          }
           else EU.push(uv1 && kind === 1 ? uv1.getX(vi) : -1, uv1 && kind === 1 ? uv1.getY(vi) : -1);
           if (furlAdj) F.push(furlAdj[vi * 3], furlAdj[vi * 3 + 1], furlAdj[vi * 3 + 2]);
           else if (mp) {
@@ -249,6 +257,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
       }
     }
   });
+  if (frame && lodSailVerts.length) mirrorLodEmblem(P, I, EU, lodSailVerts, frame);
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(P, 3));
   g.setAttribute("normal", new THREE.Float32BufferAttribute(N, 3));
@@ -263,6 +272,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
   g.setAttribute("aPaint", new THREE.Float32BufferAttribute(PA, 2));
   g.setIndex(I);
   g.userData.cloth = clothOut;
+  g.userData.emblem = [...sails.values()].find((x) => x.frame)?.frame ?? null;
   // bounds cover the set AND furled shapes and the boom swung either way
   g.computeBoundingBox();
   const bb = g.boundingBox!;
@@ -270,6 +280,26 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
   bb.min.z = Math.min(bb.min.z, -span * 0.45); bb.max.z = Math.max(bb.max.z, span * 0.45);
   g.computeBoundingSphere();
   return g;
+}
+
+/**
+ * A LOD sail face wound against the full main (its GL front on the main's back) reads the roundel mirrored: the
+ * fragment flips u on back faces only, so mirror u here (per vertex, by the summed winding of its LOD-sail triangles).
+ */
+function mirrorLodEmblem(P: number[], I: number[], EU: number[], verts: number[], frame: EmblemFrame): void {
+  const on = new Set(verts), W = new Float32Array(P.length);
+  const nrm = new THREE.Vector3(...frame.du).cross(tmpP.set(...frame.dv));
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let k = 0; k + 2 < I.length; k += 3) {
+    const i0 = I[k], i1 = I[k + 1], i2 = I[k + 2];
+    if (!on.has(i0) || !on.has(i1) || !on.has(i2)) continue;
+    a.fromArray(P, i0 * 3); b.fromArray(P, i1 * 3).sub(a); c.fromArray(P, i2 * 3).sub(a);
+    b.cross(c);
+    for (const i of [i0, i1, i2]) { W[i * 3] += b.x; W[i * 3 + 1] += b.y; W[i * 3 + 2] += b.z; }
+  }
+  for (const i of verts) {
+    if (Math.sign(W[i * 3] * nrm.x + W[i * 3 + 1] * nrm.y + W[i * 3 + 2] * nrm.z) === -frame.wind) EU[i * 2] = 1 - EU[i * 2];
+  }
 }
 
 /**
@@ -398,7 +428,7 @@ export async function loadKit(assets: AssetStore): Promise<Kit> {
         h.lod ? assets.gltf(KIT_BASE + h.lod).catch(() => null) : Promise.resolve(null),
       ]);
       const fg = bakeGltf(full, h.nodes, { loa: h.loa_m, beam: h.beam_m });
-      const lg = lod ? bakeGltf(lod, [], { lod: true, loa: h.loa_m, cloth: fg.userData.cloth as [number, number, number] | null }) : null;
+      const lg = lod ? bakeGltf(lod, [], { lod: true, loa: h.loa_m, cloth: fg.userData.cloth as [number, number, number] | null, emblem: fg.userData.emblem as EmblemFrame | null }) : null;
       const anchor = (name: string, fb: [number, number, number]) => nodeOrigin(h.nodes, name) ?? new THREE.Vector3(...fb);
       hulls.set(h.id, {
         id: h.id, family: h.family, cls: h.class, loa: h.loa_m, beam: h.beam_m, full: fg, lod: lg,

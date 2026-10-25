@@ -3,9 +3,9 @@
  * FRAG_PARS, so the hot file only carries call sites.
  *
  *  - far-ship silhouette (06-F1): with the rig's `far` (vPaintC.z: 0 near … 1 a few px; 0 for a hovered /
- *    selected hull) the emblem's white disc melts into a deeper shade of the brand dye, the cloth loses ~20 % of
- *    its value and chroma, and a LOD hull gains a pale sheer and a bright waterline lip, so far ships read
- *    hull-first, sail-second (a fleet at anchor, not confetti). The brand hue is kept.
+ *    selected hull) the cloth loses ~20 % of its value and a LOD hull gains a pale sheer and a bright waterline
+ *    lip, so far ships read hull-first, sail-second. The brand hue and the emblem roundel are kept at every range:
+ *    a coin must stay recognisable however far off she lies.
  *  - earth-pigment dye (01-A3): `livery.sailDye` caps the dye's chroma; the hovered / selected hull gets it back
  *    (vFleetMisc.x = highlight: 1 hover, 0.5 selected).
  *  - wet waterline + weathering (06-F4): painted topsides (livery modes 2 / 4; titans carry no livery, so their
@@ -13,16 +13,9 @@
  */
 export const FLEET_FAR_FRAG = /* glsl */ `
 float hbFarK() { return vPaintC.z; }
-// the emblem (premultiplied) melts into a deeper shade of the dye far away: a darker brand field, no white disc
-vec4 hbFarEmblem(vec4 t, vec3 deep) {
-  float melt = smoothstep(0.15, 0.85, hbFarK());
-  return vec4(mix(t.rgb, deep * t.a, melt), t.a);
-}
-// far cloth: value and chroma down (~20 %), so a far sail is not the brightest thing on the water
+// far cloth: value down (~20 %), so a far sail is not the brightest thing on the water; its hue is the coin's, kept
 void hbFarCloth(inout vec3 c) {
-  float f = hbFarK();
-  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  c = mix(c, vec3(l), 0.22 * f) * (1.0 - 0.2 * f);
+  c *= 1.0 - 0.2 * hbFarK();
 }
 // earth pigments: the dye's chroma is capped on the CPU (sailDye); a hovered / selected hull shows it at full chroma
 vec3 hbDyeChroma(vec3 dye) {
