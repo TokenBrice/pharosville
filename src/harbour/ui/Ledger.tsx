@@ -1,18 +1,22 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FAMILIES, FAMILY_ORDER } from "../model/obituary";
 import type { Boat, EndpointKey, HarbourModel } from "../model/types";
-import { ANNIVERSARY_RULE, CEREMONY_RULE, FLOW_RULE, HULL_RULE, LETTERING_RULE, OFFICE_RULE, SAIL_RULE, SEA_RULE, TIDE_RULE, WREATH_RULE, WRECK_RULE, REEF_FLARE_LINE, alertCountLine, allocationLine, BOAT_SIGNALS_RULE, BY_EAR, epitaphOf, FAR_PORTS_LINE, STATION_RULE, stationFact, wreckDate } from "./facts";
+import { ANNIVERSARY_RULE, BOATS_GUIDE, FOG_GUIDE, PHAROS_GUIDE, landmarkFact, CEREMONY_RULE, FLOW_RULE, HULL_RULE, LETTERING_RULE, OFFICE_RULE, SAIL_RULE, SEA_RULE, TIDE_RULE, WREATH_RULE, WRECK_RULE, REEF_FLARE_LINE, alertCountLine, allocationLine, BOAT_SIGNALS_RULE, BY_EAR, epitaphOf, FAR_PORTS_LINE, STATION_RULE, stationFact, wreckDate } from "./facts";
 import { bps, causeName, money, pegName, share, titleCase } from "./format";
 import { Freshness } from "./bits";
 import { observedEmpty, readingSentence, qualificationCopy, READING_NAMES, sourceTruth } from "./source-state";
 import { truthCopy } from "./truth-copy";
+import { wreckHit } from "./Panel";
+import { usePanelSpace } from "./panel-space";
+import { LEDGER_TABS, LEDGER_PANES_MIN_PX, clearCoinFilters, matchesCoinFilters, newLedgerContext, type LedgerTab } from "./ledger-state";
+import type { PickHit } from "./services";
 import { getFeed } from "./services";
 import { usePresence, useStore, useUISlice } from "./hooks";
 import { KeyList } from "./KeyList";
 import { expectedKey, expectedLabel, launchedFromYard, PHASE_NAME, PHASES, UPCOMING_URL, yardCoins, YARD_EXPLANATION, type YardCoin } from "./yard";
 
-const TABS = ["Legend", "Coins", "Admission", "Chains", "Wrecks"] as const;
-type Tab = (typeof TABS)[number];
+const TABS = LEDGER_TABS;
+const DEFAULT_LEDGER = newLedgerContext();
 
 /** 'L' ledger: the legend with the declared rules, and the accessible table parity path. */
 export function Ledger({ onClose }: { onClose: () => void }) {
@@ -26,16 +30,38 @@ function LedgerBody({ shown, onClose }: { shown: boolean; onClose: () => void })
   const model = useUISlice((s) => s.model);
   const store = useStore();
   const yard = yardCoins(store.ctx);
-  const [tab, setTab] = useState<Tab>("Legend");
+  const ledger = useUISlice((s) => s.ledger) ?? DEFAULT_LEDGER;
+  const selected = useUISlice((s) => s.selected);
+  const open = useUISlice((s) => s.ledgerOpen);
+  const { tab } = ledger;
+  const setTab = (tab: LedgerTab) => store.updateLedger({ tab, returning: false });
+  const [wide, setWide] = useState(() => innerWidth >= LEDGER_PANES_MIN_PX);
+  useEffect(() => {
+    const resize = () => setWide(innerWidth >= LEDGER_PANES_MIN_PX);
+    addEventListener("resize", resize); return () => removeEventListener("resize", resize);
+  }, []);
+  const hidden = !open || (!!selected && !wide);
+  const sheet = usePanelSpace("ledger", shown && !hidden);
+  const body = useRef<HTMLDivElement>(null);
+  const firstFocus = useRef(true);
+  useLayoutEffect(() => {
+    if (hidden || !body.current) return;
+    body.current.scrollTop = ledger.views[tab].scroll;
+    if (ledger.returning) {
+      const row = [...body.current.querySelectorAll<HTMLElement>("[data-row]")].find((el) => el.dataset.row === ledger.views[tab].row);
+      (row?.querySelector<HTMLElement>("button") ?? head.current)?.focus({ preventScroll: true });
+      store.updateLedger({ returning: false });
+    } else if (firstFocus.current) head.current?.focus({ preventScroll: true });
+    firstFocus.current = false;
+  }, [tab, hidden, ledger.returning, ledger.views, store]);
   const head = useRef<HTMLHeadingElement>(null);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  useEffect(() => { head.current?.focus({ preventScroll: true }); }, []);
   const onTabKey = (e: React.KeyboardEvent, i: number) => {
     const n = e.key === "ArrowRight" ? (i + 1) % TABS.length : e.key === "ArrowLeft" ? (i + TABS.length - 1) % TABS.length : -1;
     if (n >= 0) { e.preventDefault(); setTab(TABS[n]); tabRefs.current[n]?.focus(); }
   };
   return (
-    <section className="hb-ledger hb-paper hb-neat hb-fade" data-shown={shown} aria-labelledby="hb-ledger-title" role="dialog" aria-modal="false">
+    <section ref={sheet} hidden={hidden} inert={hidden} className="hb-ledger hb-paper hb-neat hb-fade" data-shown={shown} aria-labelledby="hb-ledger-title" role="dialog" aria-modal="false">
       <button type="button" className="hb-close" aria-label="Close ledger (Esc)" onClick={onClose}>
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
       </button>
@@ -51,7 +77,7 @@ function LedgerBody({ shown, onClose }: { shown: boolean; onClose: () => void })
           ))}
         </div>
       </div>
-      <div className="hb-ledger-body" role="tabpanel" id={`hb-tp-${tab}`} aria-labelledby={`hb-tab-${tab}`} tabIndex={0}>
+      <div ref={body} onScroll={(e) => store.updateLedgerView(tab, { scroll: e.currentTarget.scrollTop })} className="hb-ledger-body" role="tabpanel" id={`hb-tp-${tab}`} aria-labelledby={`hb-tab-${tab}`} tabIndex={0}>
         {tab === "Legend" && <Legend model={model} />}
         {tab === "Coins" && <Coins model={model} />}
         {tab === "Admission" && <PreLaunch coins={yard} />}
@@ -68,11 +94,11 @@ const G = { fill: "none", stroke: "currentColor", strokeWidth: 1.2, strokeLineca
 const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: string }> = [
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M7 30h16M9 30V20h12v10M11 20V12h8v8M13 12V7h4v5" /><path {...G} d="M15 7c-1.5-1.5 0-3 0-4 1 1 2.5 2 0 4" /><path {...G} d="M18 6l22-4M18 7l22 5" strokeDasharray="2 2.5" /></svg>,
-    title: "The Pharos", rule: "The beam’s rhythm is the stability band.", more: "A fire in the lantern, thrown out to sea by a bronze mirror. A slow, wide sweep is a calm market; a faster, shorter beam is stress. A dark lantern means no reading. Its light passes over the ships and walls it reaches; a horn shutter narrows it when the index was computed without early-warning data.",
+    title: "The Pharos", rule: "The beam’s rhythm is the stability band.", more: PHAROS_GUIDE,
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M10 24h22l-3 4H13zM21 24V6M21 7l9 14h-9M20 9l-7 12h7" /></svg>,
-    title: "Boats", rule: "Every stablecoin is one boat. Boats visit each chain in proportion to their supply there; sailing is not a bridge transfer.",
+    title: "Boats", rule: BOATS_GUIDE,
     more: `${HULL_RULE} ${SAIL_RULE} Hull size follows supply; the rig follows the peg currency. The sail carries the coin’s colours. A lit bronze stern lantern means the coin has a peg reading. A boat dressed overall in signal flags is new to the register this week or joined the tracked register this visit.`,
   },
   {
@@ -105,7 +131,7 @@ const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: strin
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M6 12h26M12 17h28M6 22h24M14 27h20" strokeDasharray="5 3" /></svg>,
-    title: "Fog", rule: "Fog means stale data.", more: "When the feed stops refreshing, fog rolls in and every boat finishes its leg and holds. Nothing pretends to be live.",
+    title: "Fog", rule: "Fog means stale data.", more: FOG_GUIDE,
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><circle {...G} cx="16" cy="17" r="6" /><path {...G} d="M16 6v3M16 25v3M5 17h3M24 17h3M8 9l2 2M22 23l2 2M8 25l2-2M22 11l2-2" /><path {...G} d="M36 11a7 7 0 1 0 4 12 6 6 0 0 1-4-12z" /></svg>,
@@ -122,6 +148,12 @@ function Legend({ model }: { model: HarbourModel | null }) {
   const qualification = qualificationCopy(getFeed(store.ctx)?.payloads);
   return (
     <>
+      <section className="hb-sec" aria-label="Harbour now">
+        <h3 className="hb-sec-h hb-sc">Harbour now</h3>
+        {([["pharos", "Pharos Stability Index", "stability"], ["shoals", "Off peg", "pegSummary"], ["storm-mast", "Early warning", "stress"]] as const).map(([id, label, source]) => <p key={id} className="hb-caption">{label} — {landmarkFact(id, model, null).fact} {readingSentence(model, source)}</p>)}
+        <p className="hb-caption">Supply (USD) — {money(model?.supplyTotal)}. {readingSentence(model, "stablecoins")}</p>
+        <button type="button" className="hb-textbtn" onClick={() => store.select({ kind: "landmark", id: "keeperslog" }, { fly: false })}>The Keeper’s Log</button>
+      </section>
       <p className="hb-legend-intro">The harbour is the data. Nothing moves without a declared meaning, and anything that is only decoration says so.</p>
       <ul className="hb-legend">
         {LEGEND.map((l) => (
@@ -150,13 +182,18 @@ function Legend({ model }: { model: HarbourModel | null }) {
 
 // ------------------------------------------------------------------ tables
 
-interface Col<T> { key: string; label: string; num?: boolean; wrap?: boolean; get: (r: T) => string | number | null; cell?: (r: T) => ReactNode }
+interface Col<T> { key: string; label: string; num?: boolean; priority?: number; wrap?: boolean; get: (r: T) => string | number | null; cell?: (r: T) => ReactNode }
 
-function SortTable<T>({ rows, cols, caption, rowKey, initial, filterOf, noun }: {
-  rows: T[]; cols: Col<T>[]; caption: string; rowKey: (r: T) => string; initial: { key: string; dir: 1 | -1 }; filterOf: (r: T) => string; noun: string;
+function SortTable<T>({ rows, cols, caption, rowKey, initial, filterOf, noun, hitOf, total = rows.length }: {
+  rows: T[]; cols: Col<T>[]; caption: string; rowKey: (r: T) => string; initial: { key: string; dir: 1 | -1 }; filterOf: (r: T) => string; noun: string; total?: number; hitOf?: (r: T) => PickHit;
 }) {
-  const [sort, setSort] = useState(initial);
-  const [q, setQ] = useState("");
+  const store = useStore();
+  const ledger = useUISlice((s) => s.ledger) ?? DEFAULT_LEDGER;
+  useEffect(() => () => store.hoverLedger?.(null), [store]);
+  const view = ledger.views[ledger.tab];
+  const sort = view.sort.key ? view.sort : initial, q = view.query;
+  const setSort = (next: typeof sort) => store.updateLedgerView(ledger.tab, { sort: next, scroll: 0 });
+  const setQ = (query: string) => store.updateLedgerView(ledger.tab, { query, scroll: 0 });
   const shown = useMemo(() => {
     const f = q.trim().toLowerCase();
     const col = cols.find((c) => c.key === sort.key) ?? cols[0];
@@ -174,25 +211,26 @@ function SortTable<T>({ rows, cols, caption, rowKey, initial, filterOf, noun }: 
     <>
       <div className="hb-filter">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Filter ${noun}…`} aria-label={`Filter ${noun}`} />
-        <span aria-live="polite">{shown.length} of {rows.length}</span>
+        <span aria-live="polite">{shown.length} of {total}</span>
       </div>
       <table className="hb-table">
         <caption>{caption}</caption>
         <thead>
           <tr>
             {cols.map((c) => (
-              <th key={c.key} scope="col" className={c.num ? "r" : ""} aria-sort={sort.key === c.key ? (sort.dir === 1 ? "ascending" : "descending") : undefined}>
-                <button type="button" className="hb-sc" onClick={() => setSort((s) => ({ key: c.key, dir: s.key === c.key ? (s.dir === 1 ? -1 : 1) : c.num ? -1 : 1 }))}>{c.label}</button>
+              <th key={c.key} data-priority={c.priority} scope="col" className={c.num ? "r" : ""} aria-sort={sort.key === c.key ? (sort.dir === 1 ? "ascending" : "descending") : undefined}>
+                <button type="button" className="hb-sc" onClick={() => setSort({ key: c.key, dir: sort.key === c.key ? (sort.dir === 1 ? -1 : 1) : c.num ? -1 : 1 })}>{c.label}</button>
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
           {shown.map((r) => (
-            <tr key={rowKey(r)}>{cols.map((c) => <td key={c.key} className={c.num ? "r" : c.wrap ? "hb-wrap" : ""}>{c.cell ? c.cell(r) : String(c.get(r) ?? "—")}</td>)}</tr>
+            <tr key={rowKey(r)} data-row={rowKey(r)} onMouseEnter={() => hitOf && store.hoverLedger(hitOf(r))} onMouseLeave={() => hitOf && store.hoverLedger(null)} onFocus={() => hitOf && store.hoverLedger(hitOf(r))} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) store.hoverLedger(null); }}>{cols.map((c) => <td key={c.key} data-priority={c.priority} className={`${c.num ? "r " : ""}${c.wrap ? "hb-wrap" : ""}`}>{c.cell ? c.cell(r) : String(c.get(r) ?? "—")}</td>)}</tr>
           ))}
         </tbody>
       </table>
+      {!shown.length && <p className="hb-empty">No matching {noun}.</p>}
     </>
   );
 }
@@ -202,34 +240,48 @@ const STATE_WORD: Record<Boat["state"], string> = { circuit: "circuit", moored: 
 function Coins({ model }: { model: HarbourModel | null }) {
   const store = useStore();
   const gradeTruth = sourceTruth(model, "safetyGrades");
+  const ledger = useUISlice((s) => s.ledger) ?? DEFAULT_LEDGER;
+  const filters = ledger.filters;
+  const rows = useMemo(() => (model?.boats ?? []).filter((b) => matchesCoinFilters(b, filters)), [model, filters]);
+  const update = (patch: Partial<typeof filters>) => store.updateLedger({ filters: { ...filters, ...patch } });
   const cols = useMemo<Col<Boat>[]>(() => [
-    { key: "symbol", label: "Coin", get: (b) => b.symbol, cell: (b) => <><button type="button" onClick={() => store.select({ kind: "boat", id: b.id })} aria-label={`${b.symbol}, ${b.name}: show in the harbour`}>{b.symbol}</button> <em className="hb-trunc" title={b.name}>{b.name !== b.symbol ? b.name : ""}</em></> },
-    { key: "supply", label: "Supply", num: true, get: (b) => b.supply, cell: (b) => money(b.supply) },
-    { key: "peg", label: "Peg", get: (b) => pegName(b.pegType) },
-    { key: "dev", label: "Deviation", num: true, get: (b) => b.pegDeviationBps, cell: (b) => <span className={b.activeDepeg ? "hb-down" : ""}>{b.pegDeviationBps == null ? truthCopy({ kind: "absent-row", reading: "peg" }) : bps(b.pegDeviationBps)}</span> },
-    { key: "home", label: "Home", get: (b) => b.chainShares[0]?.chain ?? "No chain allocation reported." },
-    { key: "state", label: "State", get: (b) => STATE_WORD[b.state] },
-    { key: "grade", label: "Grade", get: (b) => truthCopy({ kind: "grade", grade: b.grade, truth: gradeTruth }), cell: (b) => <>{truthCopy({ kind: "grade", grade: b.grade, truth: gradeTruth })}{gradeTruth.state !== "current" && b.grade && <em> Last received grade: {b.grade}.</em>}</> },
-  ], [store, gradeTruth]);
+    { key: "symbol", label: "Coin", get: (b) => b.symbol, cell: (b) => <><button type="button" onClick={() => store.readLedger({ kind: "boat", id: b.id })} aria-label={`${b.symbol}, ${b.name}: Read record`}>{b.symbol} · Read record</button> <em className="hb-trunc" title={b.name}>{b.name !== b.symbol ? b.name : ""}</em></> },
+    { key: "supply", label: filters.chain ? "Chain supply" : "Supply", num: true, get: (b) => filters.chain ? b.chainShares.find((c) => c.chain === filters.chain)?.usd ?? 0 : b.supply, cell: (b) => money(filters.chain ? b.chainShares.find((c) => c.chain === filters.chain)?.usd ?? 0 : b.supply) },
+    { key: "peg", priority: 3, label: "Peg", get: (b) => pegName(b.pegType) },
+    { key: "dev", wrap: true, label: "Deviation", num: true, get: (b) => b.pegDeviationBps, cell: (b) => <span className={b.activeDepeg ? "hb-down" : ""}>{b.pegDeviationBps == null ? truthCopy({ kind: "absent-row", reading: "peg" }) : bps(b.pegDeviationBps)}</span> },
+    { key: "home", priority: 3, label: "Home", get: (b) => b.chainShares[0]?.chain ?? "No chain allocation reported." },
+    { key: "state", priority: 2, label: "State", get: (b) => STATE_WORD[b.state] },
+    { key: "grade", wrap: true, priority: 2, label: "Grade", get: (b) => truthCopy({ kind: "grade", grade: b.grade, truth: gradeTruth }), cell: (b) => <>{truthCopy({ kind: "grade", grade: b.grade, truth: gradeTruth })}{gradeTruth.state !== "current" && b.grade && <em> Last received grade: {b.grade}.</em>}</> },
+    { key: "locate", label: "Locate", get: (b) => b.symbol, cell: (b) => <button type="button" aria-label={`Locate ${b.symbol}`} onClick={() => store.readLedger({ kind: "boat", id: b.id }, true)}>Locate</button> },
+  ], [store, gradeTruth, filters.chain]);
   if (!model?.hasFleet) return <p className="hb-empty">Awaiting data: the register has not arrived yet.</p>;
-  return <>{(["stablecoins", "pegSummary", "stress", "safetyGrades", "mintBurn"] as const).map((source) => <Freshness key={source} model={model} source={source} />)}<SortTable rows={model.boats} cols={cols} rowKey={(b) => b.id} caption="Supply and holdings: Supply source; deviation: Peg readings; early warning: Stress readings; grade: Safety grades; flows: Flow readings. Every coin is one boat. Select a coin to sail to it." initial={{ key: "supply", dir: -1 }} filterOf={(b) => `${b.symbol} ${b.name}`} noun="coins" /></>;
+  return <>
+    {filters.chain && <h3 className="hb-sec-h">Coins with supply on {filters.chain}</h3>}
+    <div className="hb-coin-filters" role="group" aria-label="Coin filters">
+      {([["offPeg", "Off peg"], ["warning", "Early warning"], ["missingPeg", "Missing peg reading"]] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={filters[key]} onChange={(e) => update({ [key]: e.target.checked })} />{label}</label>)}
+      <label>Peg <select value={filters.peg} onChange={(e) => update({ peg: e.target.value })}><option value="">All pegs</option>{[...new Set(model.boats.map((b) => b.pegType))].sort().map((p) => <option key={p} value={p}>{pegName(p)}</option>)}</select></label>
+      <label>Chain <select value={filters.chain} onChange={(e) => update({ chain: e.target.value })}><option value="">All chains</option>{[...new Set(model.boats.flatMap((b) => b.chainShares.filter((c) => c.usd > 0).map((c) => c.chain)))].sort().map((c) => <option key={c}>{c}</option>)}</select></label>
+      <button type="button" className="hb-textbtn" onClick={() => { store.updateLedger({ filters: clearCoinFilters() }); store.updateLedgerView("Coins", { query: "", scroll: 0 }); }}>Clear filters</button>
+    </div>
+    {(["stablecoins", "pegSummary", "stress", "safetyGrades", "mintBurn"] as const).map((source) => <Freshness key={source} model={model} source={source} />)}<SortTable rows={rows} total={model.boats.length} hitOf={(b) => ({ kind: "boat", id: b.id })} cols={cols} rowKey={(b) => b.id} caption="Supply and holdings: Supply source; deviation: Peg readings; early warning: Stress readings; grade: Safety grades; flows: Flow readings. Every coin is one boat. Read record keeps the view; Locate finds it in the harbour." initial={{ key: "supply", dir: -1 }} filterOf={(b) => `${b.symbol} ${b.name}`} noun="coins" /></>;
 }
 
 function PreLaunch({ coins }: { coins: YardCoin[] }) {
   const store = useStore();
   const cols = useMemo<Col<YardCoin>[]>(() => [
-    { key: "symbol", label: "Coin", get: (c) => c.symbol, cell: (c) => <><button type="button" onClick={() => store.select({ kind: "yard", id: c.id })} aria-label={`${c.symbol}, ${c.name}: show on the Shipyard`}>{c.symbol}</button> <em className="hb-trunc" title={c.name}>{c.name !== c.symbol ? c.name : ""}</em></> },
+    { key: "symbol", label: "Coin", get: (c) => c.symbol, cell: (c) => <><button type="button" onClick={() => store.readLedger({ kind: "yard", id: c.id })} aria-label={`${c.symbol}, ${c.name}: Read record`}>{c.symbol} · Read record</button> <em className="hb-trunc" title={c.name}>{c.name !== c.symbol ? c.name : ""}</em></> },
     { key: "phase", label: "Phase", get: (c) => (c.phase ? PHASES.indexOf(c.phase) : -1), cell: (c) => (c.phase ? PHASE_NAME[c.phase] : <em>not stated</em>) },
     { key: "expected", label: "Expected", get: (c) => (c.expected ? expectedKey(c.expected) : null), cell: (c) => (c.expected ? expectedLabel(c.expected) : <em>not stated</em>) },
     { key: "peg", label: "Peg", get: (c) => (c.peg && c.peg !== "OTHER" ? pegName(c.peg) : null) },
-    { key: "news", label: "Latest news", num: true, get: (c) => c.milestones[0]?.date ?? null, cell: (c) => (c.milestones[0] ? expectedLabel(c.milestones[0].date.slice(0, 7)) : "—") },
+    { key: "news", priority: 3, label: "Latest news", num: true, get: (c) => c.milestones[0]?.date ?? null, cell: (c) => (c.milestones[0] ? expectedLabel(c.milestones[0].date.slice(0, 7)) : "—") },
+    { key: "locate", label: "Locate", get: (c) => c.symbol, cell: (c) => <button type="button" aria-label={`Locate ${c.symbol}`} onClick={() => store.readLedger({ kind: "yard", id: c.id }, true)}>Locate</button> },
   ], [store]);
   const model = useUISlice((s) => s.model);
   const gone = launchedFromYard(model);
   return (
     <>
       {coins.length === 0 && <p className="hb-empty">No records are awaiting admission to the tracked fleet.</p>}
-      <SortTable rows={coins} cols={cols} rowKey={(c) => c.id} caption={`Awaiting admission to the tracked fleet. ${YARD_EXPLANATION}${gone.length ? ` Admitted to the fleet: ${gone.map((c) => c.symbol).join(", ")}.` : ""}`}
+      <SortTable rows={coins} hitOf={(c) => ({ kind: "yard", id: c.id })} cols={cols} rowKey={(c) => c.id} caption={`Awaiting admission to the tracked fleet. ${YARD_EXPLANATION}${gone.length ? ` Admitted to the fleet: ${gone.map((c) => c.symbol).join(", ")}.` : ""}`}
         initial={{ key: "phase", dir: -1 }} filterOf={(c) => `${c.symbol} ${c.name} ${c.phase ?? ""}`} noun="records" />
       <p className="hb-caption" style={{ marginTop: 12 }}>Bundled admission records; see sources for dates. <a className="hb-out" href={UPCOMING_URL} target="_blank" rel="noopener noreferrer">pharos.watch/upcoming<span aria-hidden="true"> ↗</span><span className="hb-sr"> (opens in a new tab)</span></a></p>
     </>
@@ -240,24 +292,27 @@ function Chains({ model }: { model: HarbourModel | null }) {
   const store = useStore();
   type H = HarbourModel["harbours"][number];
   const cols = useMemo<Col<H>[]>(() => [
-    { key: "chain", label: "Chain", get: (h) => h.chain, cell: (h) => <button type="button" onClick={() => store.select({ kind: "harbour", id: h.chain })} aria-label={`${h.chain}: show in the harbour`}>{h.chain}</button> },
+    { key: "chain", label: "Chain", get: (h) => h.chain, cell: (h) => <button type="button" onClick={() => store.readLedger({ kind: "harbour", id: h.chain })} aria-label={`${h.chain}: Read record`}>{h.chain} · Read record</button> },
     { key: "supply", label: "Supply", num: true, get: (h) => h.supplyUsd, cell: (h) => money(h.supplyUsd) },
-    { key: "share", label: "Share", num: true, get: (h) => h.share, cell: (h) => `${share(h.share)} of reported chain-attributed supply` },
-    { key: "visitors", label: "Boats calling", num: true, get: (h) => h.visitors },
-    { key: "where", label: "Berths", get: (h) => (h.piered ? "own pier" : "Far Ports") },
+    { key: "share", wrap: true, label: "Share", num: true, get: (h) => h.share, cell: (h) => `${share(h.share)} of reported chain-attributed supply` },
+    { key: "visitors", priority: 2, label: "Boats calling", num: true, get: (h) => h.visitors },
+    { key: "where", priority: 3, label: "Berths", get: (h) => (h.piered ? "own pier" : "Far Ports") },
+    { key: "locate", label: "Locate", get: (h) => h.chain, cell: (h) => <button type="button" aria-label={`Locate ${h.chain}`} onClick={() => store.readLedger({ kind: "harbour", id: h.chain }, true)}>Locate</button> },
   ], [store]);
   if (!model?.hasFleet) return <p className="hb-empty">Awaiting data.</p>;
-  return <><Freshness model={model} source="stablecoins" /><Freshness model={model} source="chains" /><p className="hb-caption">{allocationLine(model.boats)}</p><SortTable rows={model.harbours} cols={cols} rowKey={(h) => h.chain} caption={FAR_PORTS_LINE} initial={{ key: "supply", dir: -1 }} filterOf={(h) => h.chain} noun="chains" /></>;
+  return <><Freshness model={model} source="stablecoins" /><Freshness model={model} source="chains" /><p className="hb-caption">{allocationLine(model.boats)}</p><SortTable rows={model.harbours} hitOf={(h) => ({ kind: "harbour", id: h.chain })} cols={cols} rowKey={(h) => h.chain} caption={FAR_PORTS_LINE} initial={{ key: "supply", dir: -1 }} filterOf={(h) => h.chain} noun="chains" /></>;
 }
 
 function Wrecks({ model }: { model: HarbourModel | null }) {
+  const store = useStore();
   type W = HarbourModel["readings"]["wrecks"][number];
   const cols = useMemo<Col<W>[]>(() => [
-    { key: "name", label: "Coin", get: (w) => w.name, cell: (w) => <><b>{w.name}</b> <em>{w.symbol !== w.name ? w.symbol : ""}</em></> },
+    { key: "name", label: "Coin", get: (w) => w.name, cell: (w) => <><button type="button" onClick={() => store.readLedger(wreckHit(store, w.id))}>{w.name} · Read record</button> <em>{w.symbol !== w.name ? w.symbol : ""}</em></> },
     { key: "date", label: "Died", get: (w) => w.deathDate, cell: (w) => wreckDate(w.deathDate) },
-    { key: "cause", label: "Cause", get: (w) => titleCase(causeName(w.cause)) },
-    { key: "epitaph", label: "Epitaph", get: (w) => epitaphOf(w.id), cell: (w) => <em>{epitaphOf(w.id) ?? "—"}</em>, wrap: true },
+    { key: "cause", priority: 2, label: "Cause", get: (w) => titleCase(causeName(w.cause)) },
+    { key: "epitaph", priority: 3, label: "Epitaph", get: (w) => epitaphOf(w.id), cell: (w) => <em>{epitaphOf(w.id) ?? "—"}</em>, wrap: true },
     { key: "peak", label: "Peak", num: true, get: (w) => w.peakMcap, cell: (w) => money(w.peakMcap) },
-  ], []);
-  return <SortTable rows={model?.readings.wrecks ?? []} cols={cols} rowKey={(w) => w.id} caption="The grey hulks of Wreck Cove." initial={{ key: "date", dir: -1 }} filterOf={(w) => `${w.name} ${w.symbol} ${w.cause}`} noun="wrecks" />;
+    { key: "locate", label: "Locate", get: (w) => w.name, cell: (w) => <button type="button" aria-label={`Locate ${w.symbol}`} onClick={() => store.readLedger(wreckHit(store, w.id), true)}>Locate</button> },
+  ], [store]);
+  return <SortTable hitOf={(w) => wreckHit(store, w.id)} rows={model?.readings.wrecks ?? []} cols={cols} rowKey={(w) => w.id} caption="The grey hulks of Wreck Cove." initial={{ key: "date", dir: -1 }} filterOf={(w) => `${w.name} ${w.symbol} ${w.cause}`} noun="wrecks" />;
 }

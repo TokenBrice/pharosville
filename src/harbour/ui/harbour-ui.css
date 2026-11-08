@@ -503,7 +503,6 @@
 .hb-yard .hb-row em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: var(--fs-small); }
 .hb-yard .hb-row span.hb-num { font-size: var(--fs-note); font-style: italic; }
 
-.hb-detail { line-height: 1.4; margin-top: 10px; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .hb-milestones { list-style: none; margin: 0; padding: 0 0 0 12px; border-left: 0.5px solid var(--rule); }
 .hb-milestones li { position: relative; padding: 0 0 9px 4px; }
 .hb-milestones li::before { content: ""; position: absolute; left: -16px; top: 6px; width: 6px; height: 6px; transform: rotate(45deg); background: var(--paper); border: 1px solid var(--brass-ink); }
@@ -586,3 +585,34 @@
 .hb-watch { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 6px 14px 7px; font-size: var(--fs-small); white-space: nowrap; display: flex; align-items: baseline; gap: 8px; }
 .hb-watch .hb-sc { color: var(--brass-ink); }
 .hb-watch em, .hb-watch-key { color: var(--ink-2); }
+
+/* Reading panes and their on-demand controls share the Pilot's Chart tokens. */
+.hb-panel-record { overflow-y: auto; min-height: 0; }
+.hb-panel-record .hb-panel-body { overflow: visible; }
+.hb-return, .hb-how, .hb-sources { margin: var(--s3) var(--s6); }
+.hb-scenery summary, .hb-sources summary, .hb-calendar summary { cursor: pointer; color: var(--link); min-height: var(--ctl); }
+.hb-reading-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.hb-reading-actions button, .hb-coin-filters select {
+  min-height: var(--ctl); padding: 0 var(--s2); border: 1px solid var(--rule); border-radius: var(--r-ctl); color: var(--link); background: var(--face); font: inherit;
+}
+.hb-reading-actions button:disabled { color: var(--ink-3); cursor: default; }
+.hb-guide { position: fixed; inset: var(--s6) auto auto var(--s6); width: min(480px, calc(100vw - 48px)); max-height: calc(100vh - 48px); overflow: auto; padding: var(--s6); pointer-events: auto; }
+.hb-guide .hb-title { font-size: var(--fs-h3); line-height: 1.2; }
+.hb-watch { flex-wrap: wrap; white-space: normal; max-width: calc(100vw - 48px); pointer-events: auto; }
+.hb-ledger[hidden] { display: none; }
+.hb-ledger-body { container-type: inline-size; }
+.hb-tabs { flex-wrap: wrap; gap: var(--s2) var(--s5); }
+.hb-coin-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin-bottom: var(--s3); font-size: var(--fs-small); }
+.hb-coin-filters label { display: inline-flex; align-items: center; gap: 4px; }
+.hb-coin-filters select { max-width: 12em; color: var(--ink); }
+.hb-ledger .hb-table td:first-child { white-space: nowrap; }
+.hb-ledger .hb-table td:first-child button { white-space: nowrap; max-width: 14em; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.hb-ledger .hb-table td .hb-trunc { max-width: 5em; }
+@container (max-width: 650px) { .hb-ledger .hb-table [data-priority="3"] { display: none; } }
+@container (max-width: 540px) { .hb-ledger .hb-table [data-priority="2"] { display: none; } }
+@media (pointer: coarse) {
+  .hb-reading-actions button, .hb-coin-filters select, .hb-coin-filters label, .hb-scenery summary, .hb-sources summary, .hb-calendar summary { min-height: var(--ctl-touch); }
+}
+.hb-reading-actions button:hover { background: var(--wash-2); }
+.hb-reading-actions button:active { background: var(--wash-3); }
+@container (max-width: 540px) { .hb-ledger .hb-trunc { display: none; } }

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useSyncExternalStore } from "react";
 import type { Services } from "../engine/services";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,11 +17,15 @@ import { SidePanel } from "./Panel";
 import { readingCoverage, readingSentence } from "./source-state";
 import type { PickHit } from "./services";
 import type { UIState } from "./store";
+import { newLedgerContext, type LedgerContext } from "./ledger-state";
 
 const { state, services, store } = vi.hoisted(() => {
-  const state = { model: null as HarbourModel | null, selected: null as PickHit | null, hover: null as PickHit | null, ledgerOpen: true, chartMode: false, reducedMotion: true, tick: 0 };
+  const state = { ledger: undefined as LedgerContext | undefined, model: null as HarbourModel | null, selected: null as PickHit | null, hover: null as PickHit | null, ledgerOpen: true, chartMode: false, reducedMotion: true, tick: 0 };
   const services = new Map<string, unknown>() as Services;
+  const listeners = new Set<() => void>();
   return { state, services, store: {
+    subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
+    updateLedger: (patch: Partial<LedgerContext>) => { state.ledger = { ...state.ledger!, ...patch }; for (const fn of listeners) fn(); },
     ctx: { services }, getSnapshot: () => state, select: vi.fn(), set: vi.fn(), goHome: vi.fn(),
     boat: (id: string) => state.model?.boats.find((b) => b.id === id), underWay: () => 0, boatsInZone: () => [],
     whereaboutsOf: () => ({ kind: "moored", place: "Ethereum" }),
@@ -28,7 +33,7 @@ const { state, services, store } = vi.hoisted(() => {
 });
 vi.mock("./hooks", () => ({
   useStore: () => store, useUI: () => state,
-  useUISlice: (select: (s: UIState) => unknown) => select(state as UIState),
+  useUISlice: (select: (s: UIState) => unknown) => useSyncExternalStore(store.subscribe, () => select(state as UIState)),
   usePresence: (open: boolean) => [open, open], useSticky: (value: unknown) => value,
   useFrame: () => {}, useFrameWrite: () => {}, touchFirst: () => false,
 }));
@@ -66,7 +71,7 @@ function parity(hit: PickHit, sentence: string) {
 }
 
 beforeEach(() => {
-  vi.useFakeTimers(); vi.setSystemTime(TRUTH_NOW); services.clear(); state.model = null; state.selected = null; state.hover = null;
+  window.innerWidth = 1600; state.ledger = newLedgerContext(); vi.useFakeTimers(); vi.setSystemTime(TRUTH_NOW); services.clear(); state.model = null; state.selected = null; state.hover = null;
   window.history.replaceState({}, "", "/?intro=0");
   vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
 });
@@ -96,7 +101,7 @@ describe("projected source sentences in hover, panel and ledger", () => {
     if (stateKind === "unknown") {
       panel({ kind: "boat", id: TRUTH_COIN_ID });
       expect(screen.getAllByText("Last received values").length).toBeGreaterThan(0);
-      expect(within(screen.getByRole("heading", { name: "Supply" }).closest("section")!).getByText("$1.00B")).toBeTruthy();
+      expect(within(screen.getByRole("heading", { name: "Supply (USD)" }).closest("section")!).getByText("$1.00B")).toBeTruthy();
     }
   });
 
@@ -175,7 +180,7 @@ describe("projected source sentences in hover, panel and ledger", () => {
     for (const key of ["stablecoins", "pegSummary", "stress", "safetyGrades", "mintBurn"] as const) expect(screen.getAllByText(readingSentence(state.model, key)).length).toBeGreaterThan(0);
     expect(screen.getByText("No peg reading is available for this coin.")).toBeTruthy();
     expect(screen.getByText("Last received grade: A.")).toBeTruthy();
-    expect(within(screen.getByRole("heading", { name: "Supply" }).closest("section")!).getByText("$1.00B")).toBeTruthy();
+    expect(within(screen.getByRole("heading", { name: "Supply (USD)" }).closest("section")!).getByText("$1.00B")).toBeTruthy();
   });
 
   it("an unverified PSI remains a labelled retained value", async () => {

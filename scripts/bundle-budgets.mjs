@@ -54,7 +54,8 @@ export const bundleBudgets = {
     // Measured 18.3 KiB raw / 4.8 KiB gzip.
     // 2026-10-24 prettier sweep (postcard, sound menu, Day book, chart-paper
     // unroll, tide/storm panels): measured 29.1 KiB raw / 6.8 KiB gzip.
-    maxRawBytes: 34 * 1024,
+    // v1.6 reading panes and controls use 1 KiB of the approved +2 KiB CSS allowance.
+    maxRawBytes: 35 * 1024,
     maxGzipBytes: 8.5 * 1024,
     required: true,
   },

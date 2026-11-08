@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useSyncExternalStore } from "react";
 import type { ServiceMap, Services } from "../engine/services";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,18 +16,22 @@ import { Search } from "./Search";
 import { SidePanel } from "./Panel";
 import type { PickHit } from "./services";
 import type { UIState } from "./store";
+import { newLedgerContext, type LedgerContext } from "./ledger-state";
 
 const { state, services, store } = vi.hoisted(() => {
-  const state = { model: null as HarbourModel | null, selected: null as PickHit | null, ledgerOpen: true, searchOpen: true, reducedMotion: true };
+  const state = { ledger: undefined as LedgerContext | undefined, model: null as HarbourModel | null, selected: null as PickHit | null, ledgerOpen: true, searchOpen: true, reducedMotion: true };
   const services = new Map<string, unknown>() as Services;
+  const listeners = new Set<() => void>();
   return { state, services, store: {
+    subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
+    updateLedger: (patch: Partial<LedgerContext>) => { state.ledger = { ...state.ledger!, ...patch }; for (const fn of listeners) fn(); },
     ctx: { services }, getSnapshot: () => state, select: vi.fn(),
     whereaboutsOf: () => ({ kind: "moored", place: "Ethereum" }),
   } };
 });
 vi.mock("./hooks", () => ({
   useStore: () => store, useUI: () => state,
-  useUISlice: (select: (s: UIState) => unknown) => select(state as UIState),
+  useUISlice: (select: (s: UIState) => unknown) => useSyncExternalStore(store.subscribe, () => select(state as UIState)),
   touchFirst: () => false, usePresence: (open: boolean) => [open, open], useSticky: (value: unknown) => value,
 }));
 
@@ -54,7 +59,7 @@ const coinFlow = (): CoinFlow & { stablecoinId: string } => ({ stablecoinId: "a"
 function feed(coin: object) { services.set("feed", { payloads: { mintBurn: snap({ coins: [coin] }) } } as unknown as ServiceMap["feed"]); }
 const hours = (): FlowHour[] => Array.from({ length: 24 }, (_, i) => ({ hourTs: 3600 * i, mintUsd: 100, burnUsd: 90, netUsd: 10, valuation: "complete" }));
 
-beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); services.clear(); state.model = model(); state.selected = null; });
+beforeEach(() => { window.innerWidth = 1600; state.ledger = newLedgerContext(); vi.useFakeTimers(); vi.setSystemTime(NOW); services.clear(); state.model = model(); state.selected = null; });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("station mast, separate coin counts and sound legend", () => {
