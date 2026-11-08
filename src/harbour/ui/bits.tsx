@@ -3,6 +3,8 @@ import { useState } from "react";
 import type { Boat, DewsBand, Freshness, HarbourModel } from "../model/types";
 import { age, money, share } from "./format";
 import { runtimeLogoPath } from "../../lib/logos";
+import { allocationLine } from "./facts";
+import { flowValued, flowWindow, grossFlow, NET_UNAVAILABLE, VALUATION_UNKNOWN, type FlowHour } from "./flow-copy";
 
 export function truthState(m: HarbourModel | null): { state: Freshness; word: string; detail: string } {
   if (!m || !m.hasFleet) return { state: "unavailable", word: "awaiting data", detail: "no harbour data has arrived" };
@@ -40,7 +42,7 @@ export function ChainSplit({ boat }: { boat: Boat }) {
   const restShare = rest.reduce((s, c) => s + c.share, 0);
   const restUsd = rest.reduce((s, c) => s + c.usd, 0);
   const rows = [...top.map((c, i) => ({ ...c, ink: CHAIN_INKS[i] })), ...(restShare > 0 ? [{ chain: `${rest.length} other ${rest.length === 1 ? "chain" : "chains"}`, share: restShare, usd: restUsd, ink: OTHER_INK }] : [])];
-  if (!rows.length) return <p className="hb-empty">No chain breakdown reported.</p>;
+  if (!rows.length) return <><p className="hb-empty">No chain breakdown reported.</p><p className="hb-caption">{allocationLine([boat])}</p></>;
   return (
     <>
       <div className="hb-split" role="img" aria-label={rows.map((r) => `${r.chain} ${share(r.share)}`).join(", ")}>
@@ -51,6 +53,8 @@ export function ChainSplit({ boat }: { boat: Boat }) {
           <li key={r.chain}><i style={{ background: r.ink }} /><span>{r.chain}</span><span className="hb-num">{money(r.usd)}</span><span className="hb-num hb-pct">{share(r.share)}</span></li>
         ))}
       </ul>
+      <p className="hb-caption">Percentages are shares of reported chain-attributed holdings.</p>
+      <p className="hb-caption">{allocationLine([boat])}</p>
     </>
   );
 }
@@ -87,21 +91,22 @@ export function Sparkline({ values, dates, label }: { values: number[]; dates?: 
 }
 
 /** 24 hourly net-flow bars around a zero line; partial-valuation hours are gaps, never zero. */
-export function TideBars({ hourly }: { hourly: Array<{ hourTs: number; netUsd: number | null }> }) {
+export function TideBars({ hourly }: { hourly: FlowHour[] }) {
   const W = 300, H = 92, mid = H / 2;
-  const maxAbs = Math.max(1, ...hourly.map((h) => Math.abs(h.netUsd ?? 0)));
+  const values = hourly.map((h) => h.valuation === "complete" ? h.netUsd : null);
+  const maxAbs = Math.max(1, ...values.map((v) => Math.abs(v ?? 0)));
   const bw = W / Math.max(24, hourly.length);
   const [hover, setHover] = useState<number | null>(null);
   const h = hover != null ? hourly[hover] : null;
   return (
     <div style={{ position: "relative" }}>
       <svg className="hb-bars" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img"
-        aria-label={`Hourly net mint and burn, last ${hourly.length} hours`} onMouseLeave={() => setHover(null)}>
+        aria-label={`Hourly net flow: mint minus burn · ${flowWindow(hourly)}`} onMouseLeave={() => setHover(null)}>
         <line x1="0" x2={W} y1={mid} y2={mid} stroke="#7a5a22" strokeWidth="0.75" vectorEffect="non-scaling-stroke" />
         {hourly.map((b, i) => {
-          const v = b.netUsd;
+          const v = values[i];
           const x = i * bw + 1;
-          if (v == null) return <line key={b.hourTs} x1={x + bw / 2 - 1} x2={x + bw / 2 - 1} y1={mid - 3} y2={mid + 3} stroke="#a99f8c" strokeWidth="1" vectorEffect="non-scaling-stroke" />;
+          if (v == null) return <g key={b.hourTs} onMouseEnter={() => setHover(i)}><rect x={i * bw} y={0} width={bw} height={H} fill="transparent" /><line x1={x + bw / 2 - 1} x2={x + bw / 2 - 1} y1={mid - 3} y2={mid + 3} stroke="#a99f8c" strokeWidth="1" vectorEffect="non-scaling-stroke" /></g>;
           const hgt = Math.max(1, (Math.abs(v) / maxAbs) * (mid - 4));
           return (
             <g key={b.hourTs} onMouseEnter={() => setHover(i)}>
@@ -111,7 +116,7 @@ export function TideBars({ hourly }: { hourly: Array<{ hourTs: number; netUsd: n
           );
         })}
       </svg>
-      <div className="hb-axis-note"><span>24 h ago</span><span>{h ? `${new Date(h.hourTs * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${h.netUsd == null ? "partial" : money(h.netUsd, { signed: true })}` : "minted above, burned below"}</span><span>now</span></div>
+      <div className="hb-axis-note"><span>{flowWindow(hourly)}</span><span>{h ? `${new Date(h.hourTs * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${h.netUsd == null || h.valuation === "partial" ? NET_UNAVAILABLE : h.valuation !== "complete" ? VALUATION_UNKNOWN : `${money(h.netUsd, { signed: true })} net ${h.netUsd >= 0 ? "minted" : "burned"}`}` : "net minted above, net burned below"}</span></div>
     </div>
   );
 }
@@ -120,7 +125,7 @@ export function TideBars({ hourly }: { hourly: Array<{ hourTs: number; netUsd: n
  * One side of the flows, hour by hour (the Mint's minting or the Burn's burning): bars up from a
  * baseline, on the series' own scale. Hover reads one hour.
  */
-export function FlowBars({ hourly, side }: { hourly: Array<{ hourTs: number; mintUsd: number; burnUsd: number }>; side: "mint" | "burn" }) {
+export function FlowBars({ hourly, side }: { hourly: FlowHour[]; side: "mint" | "burn" }) {
   const W = 300, H = 46;
   const vals = hourly.map((h) => (side === "mint" ? h.mintUsd : h.burnUsd));
   const max = Math.max(1, ...vals);
@@ -132,7 +137,7 @@ export function FlowBars({ hourly, side }: { hourly: Array<{ hourTs: number; min
   return (
     <div>
       <svg className="hb-flowbars" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img"
-        aria-label={`Supply ${word} each hour, last ${vals.length} hours; largest hour ${money(max)}`} onMouseLeave={() => setHover(null)}>
+        aria-label={`Supply ${word} each hour · ${flowWindow(hourly)}; largest hour ${flowValued(hourly) ? "" : "at least "}${money(max)}`} onMouseLeave={() => setHover(null)}>
         <line x1="0" x2={W} y1={H - 0.5} y2={H - 0.5} stroke="#7a5a22" strokeWidth="0.75" vectorEffect="non-scaling-stroke" />
         {vals.map((v, i) => {
           const hgt = v > 0 ? Math.max(1.5, (v / max) * (H - 3)) : 0;
@@ -144,7 +149,7 @@ export function FlowBars({ hourly, side }: { hourly: Array<{ hourTs: number; min
           );
         })}
       </svg>
-      <div className="hb-axis-note"><span>24 h ago</span><span>{h ? `${new Date(h.hourTs * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${money(side === "mint" ? h.mintUsd : h.burnUsd)} ${word}` : `${word} each hour`}</span><span>now</span></div>
+      <div className="hb-axis-note"><span>{flowWindow(hourly)}</span><span>{h ? `${new Date(h.hourTs * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${grossFlow(side === "mint" ? h.mintUsd : h.burnUsd, side, h.valuation === "complete")}` : `${word} each hour${flowValued(hourly) ? "" : " · lower bounds"}`}</span></div>
     </div>
   );
 }

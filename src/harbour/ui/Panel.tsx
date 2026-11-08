@@ -6,8 +6,11 @@ import type { HarbourLayout } from "../layout/types";
 import type { Boat, HarbourModel } from "../model/types";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { ChainSplit, chainLogo, Crest, DEWS_INK, FlowBars, Freshness, Logo, PSI_INK, Sparkline, TideBars } from "./bits";
-import { circuitStops, flowTotals, MAIDEN_LINE, REEF_FLARE_LINE, obituaryText, officeLine, quoted, stormSignalLine, whereLine, whyHere, wreckDate } from "./facts";
-import { age, bps, causeName, MINUS, money, pctChange, pegName, share, titleCase, vesselKind } from "./format";
+import { allocationLine, BOAT_SIGNALS_RULE, circuitStops, FAR_PORTS_LINE, flowTotals, MAIDEN_LINE, REEF_FLARE_LINE, obituaryText, officeLine, quoted, SOUND_FLOW, SOUND_PHAROS, SOUND_SURF, STATION_RULE, stationFact, stormSignalLine, whereLine, whyHere, wreckDate } from "./facts";
+import { age, bps, causeName, gradeName, MINUS, money, pctChange, pegName, share, titleCase, vesselKind } from "./format";
+import { coinNet, coverageLine, CUSTOMS_BARS, flowValued, flowWindow, grossFlow, NET_UNAVAILABLE, VALUATION_UNKNOWN, type CoinFlow } from "./flow-copy";
+import { gradeTally } from "../civic/yard";
+import { hasFlowDay } from "../civic/flows";
 import { CHAIN_COLOR, placeName, scopeName } from "./places";
 import { expectedLabel, groupYard, launchedFromYard, PHASE_NAME, PHASES, STAGE_NAME, STAGE_OF, UPCOMING_URL, yardCoins, type YardCoin } from "./yard";
 
@@ -121,9 +124,12 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
   const prev = (k: string) => { const v = sumBuckets(coin?.[k]); return v > 0 ? b.supply / v - 1 : null; };
   const peg = ((raw(store, "pegSummary")?.coins as Raw[] | undefined) ?? []).find((c) => c.id === b.id) ?? null;
   const ref = peg?.pegReference as { valueUsd?: number; source?: string; contributorCount?: number } | undefined;
-  const mint = ((raw(store, "mintBurn")?.coins as Raw[] | undefined) ?? []).find((c) => c.stablecoinId === b.id) ?? null;
-  const cov = mint?.coverage as { status?: string } | undefined;
-  const mintTracked = mint && cov?.status !== "unavailable";
+  const mint = ((raw(store, "mintBurn")?.coins as Array<CoinFlow & { stablecoinId: string }> | undefined) ?? []).find((c) => c.stablecoinId === b.id) ?? null;
+  const flowCoverage = coverageLine(mint?.coverage);
+  const flowAvailable = mint && flowCoverage !== "Flow reading unavailable.";
+  const flowAt = getFeed(store.ctx)?.payloads.mintBurn?.meta?.updatedAt ?? null;
+  const net24 = mint ? coinNet(mint, 1, flowAt) : null;
+  const net7 = mint ? coinNet(mint, 7, flowAt) : null;
   const truth = store.getSnapshot().model?.truth.stablecoins;
   const sub = `${b.name} · ${vesselKind(b.rig, b.hullClass)}`;
   const ch = (v: number | null) => <b className={v == null ? "" : v > 0.0005 ? "hb-up" : v < -0.0005 ? "hb-down" : ""}>{pctChange(v)}</b>;
@@ -165,19 +171,25 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
           <dl className="hb-dl">
             <dt>Early warning</dt>
             <dd>{b.dews ? <span className="hb-band" style={{ "--band": DEWS_INK[b.dews] } as React.CSSProperties}>{titleCase(b.dews)}{b.dewsScore != null ? <em>&nbsp;{Math.round(b.dewsScore)}</em> : null}</span> : <em>not covered</em>}</dd>
-            <dt>Safety grade</dt><dd>{b.grade ?? <em>unrated</em>}</dd>
+            <dt>Safety grade</dt><dd>{store.getSnapshot().model?.truth.safetyGrades.state === "unavailable" ? "Safety grades unavailable." : gradeName(b.grade)}</dd>
             {signal && <><dt>Storm signal</dt><dd>{signal}</dd></>}
           </dl>
         </Sec>
 
-        {mintTracked && (
+        {mint && (
           <Sec title="Mint & burn">
-            <dl className="hb-dl">
-              {Number(mint.mintVolume24hUsd) === 0 && Number(mint.burnVolume24hUsd) === 0 ? <><dt>Last 24 h</dt><dd><em>no mint or burn</em></dd></> : <>
-              <dt>Net, 24 h</dt><dd className={Number(mint.netFlow24hUsd) > 0 ? "hb-up" : Number(mint.netFlow24hUsd) < 0 ? "hb-down" : ""}>{money(Number(mint.netFlow24hUsd), { signed: true })}</dd>
-              <dt>Minted · burned</dt><dd>{money(Number(mint.mintVolume24hUsd))} · {money(Number(mint.burnVolume24hUsd))}</dd></>}
-              <dt>Net, 7 d</dt><dd>{money(Number(mint.netFlow7dUsd), { signed: true })}</dd>
-            </dl>
+            {flowCoverage && <p className="hb-caption">{flowCoverage}</p>}
+            {flowAvailable && <>
+              <dl className="hb-dl">
+                <dt>Net, {flowCoverage ? "partial history" : "24 h"}</dt><dd className={net24 == null ? "" : net24 > 0 ? "hb-up" : net24 < 0 ? "hb-down" : ""}>{money(net24, { signed: true })}</dd>
+                <dt>Minted</dt><dd>{grossFlow(mint.mintVolume24hUsd, "mint", mint.valuation?.window24h.mintCompleteness === "complete")}</dd>
+                <dt>Burned</dt><dd>{grossFlow(mint.burnVolume24hUsd, "burn", mint.valuation?.window24h.burnCompleteness === "complete")}</dd>
+                <dt>Net, 7 d{net7 == null ? " · incomplete or unavailable" : ""}</dt><dd>{money(net7, { signed: true })}</dd>
+              </dl>
+              {mint.valuation?.window24h.completeness === "partial" || mint.valuation?.netFlow7d === "partial" ? <p className="hb-caption">{NET_UNAVAILABLE}</p> : null}
+              {(!mint.valuation || mint.valuation.window24h.completeness === "unknown" || mint.valuation.netFlow7d === "unknown") && <p className="hb-caption">{VALUATION_UNKNOWN}</p>}
+              {flowAt == null || mint.coverage?.historyStartAt == null || mint.coverage.historyStartAt > flowAt - 7 * 86400 ? <p className="hb-caption">Partial history</p> : null}
+            </>}
           </Sec>
         )}
         {truth && <Freshness label="Supply data" state={truth.state} ageSec={truth.ageSec} />}
@@ -259,6 +271,7 @@ function PharosPanel({ model, titleRef }: P) {
           </>
         )}
         {model && <Freshness label="Stability index" state={model.truth.stability.state} ageSec={model.truth.stability.ageSec} />}
+        <p className="hb-caption">{SOUND_PHAROS}</p>
       </div>
     </>
   );
@@ -314,6 +327,7 @@ function ShoalsPanel({ model, titleRef }: P) {
         <p className="hb-why">Coins that lose their peg leave their circuit and anchor here, heeling on the reef, until the peg holds again.</p>
         <p className="hb-caption">Know it by the surf breaking on the reef, the red-and-white hazard buoys and the reef beacon.</p>
         <p className="hb-caption">{REEF_FLARE_LINE}</p>
+        <p className="hb-caption">{SOUND_SURF}</p>
         {sea?.offPegShare != null && <p className="hb-caption">Sea state {sea.step ?? "—"} of 3: {share(sea.offPegShare)} of supply is off peg.</p>}
         <Sec title="Aground">
           {s.length ? <BoatList rows={s.map((x) => ({ id: x.id, label: <><b>{bySym.get(x.id)?.symbol ?? x.id}</b> <em>{money(x.supply)}</em></>, value: <span className="hb-down">{bps(x.bps)}</span> }))} />
@@ -332,18 +346,20 @@ function CustomsPanel({ model, titleRef }: P) {
     <>
       <Head kicker="The flows quarter" title="Customs House" sub="the ledger of mint and burn" titleRef={titleRef} />
       <div className="hb-panel-body">
-        {!f?.available ? <p className="hb-why">The books are closed: there is no flow reading.</p> : (
+        {!f?.available || !f.hourly.length ? <p className="hb-why">The books are closed: there is no flow reading.</p> : (
           <>
-            <div className="hb-big hb-num" style={{ marginTop: 6 }}>{money(f.net24hUsd, { signed: true })}<small>net, 24 h</small></div>
-            <p className="hb-why">The Customs House keeps the exact books of the Mint beside it and the Burn across the mouth. Each bar is one hour: blue above the line for supply minted, red below for supply burned.</p>
+            <div className="hb-big hb-num" style={{ marginTop: 6 }}>{money(flowTotals(model)?.net, { signed: true })}<small>net · {flowWindow(f.hourly)}</small></div>
+            <p className="hb-why">The Customs House keeps the reported books of the Mint beside it and the Burn across the mouth. {CUSTOMS_BARS}</p>
+            {!flowValued(f.hourly) && <p className="hb-caption">{f.hourly.some((h) => h.netUsd == null) ? NET_UNAVAILABLE : VALUATION_UNKNOWN}</p>}
             <Sec title="Hourly net"><TideBars hourly={f.hourly} /></Sec>
             <Sec title="Totals">
               <dl className="hb-dl">
-                <dt>Minted</dt><dd>{money(mint)}</dd>
-                <dt>Burned</dt><dd>{money(burn)}</dd>
+                <dt>Minted</dt><dd>{grossFlow(mint, "mint", flowValued(f.hourly))}</dd>
+                <dt>Burned</dt><dd>{grossFlow(burn, "burn", flowValued(f.hourly))}</dd>
                 {f.scope.length > 0 && <><dt>Chains read</dt><dd>{f.scope.map(scopeName).join(" · ")}</dd></>}
               </dl>
             </Sec>
+            {!f.scope.length && <p className="hb-caption">Flow scope is unavailable.</p>}
             <FlowLinks />
           </>
         )}
@@ -368,13 +384,15 @@ function StormPanel({ model, titleRef }: P) {
   const w = model?.readings.weather;
   return (
     <>
-      <Head kicker="Landmark" title="Storm-signal Station" sub={!c ? "no stress reading" : c.count === 0 ? "no cones hoisted" : `${c.count} ${c.count === 1 ? "cone" : "cones"} hoisted`} titleRef={titleRef} />
+      <Head kicker="Landmark" title="Storm-signal Station" sub={stationFact(model)} titleRef={titleRef} />
       <div className="hb-panel-body">
-        <p className="hb-why">One cone on the mast for each coin at early-warning Alert or worse, up to five{c && c.extra > 0 ? `; ${c.extra} more are not shown` : ""}. The weather over the bay is the same stress, weighted by supply.</p>
+        <p className="hb-why">{STATION_RULE}</p>
+        <p className="hb-caption">{c ? `${c.count} covered coins are at Alert or worse.` : "Alert count unavailable."}</p>
+        <p className="hb-caption">{BOAT_SIGNALS_RULE}</p>
         {w?.band && <p className="hb-caption">Weather: {titleCase(w.band)}, over {share(w.coverage)} of supply.{trend ? ` ${trend.text.charAt(0).toUpperCase()}${trend.text.slice(1)}.` : ""}{recovered ? ` ${recovered}.` : ""}</p>}
         <Sec title="Alerts">
           {alerts.length ? <BoatList rows={alerts.map((b) => ({ id: b.id, label: <><b>{b.symbol}</b> <em>{money(b.supply)}</em></>, value: <span className="hb-band" style={{ "--band": DEWS_INK[b.dews!] } as React.CSSProperties}>{titleCase(b.dews!)} {Math.round(b.dewsScore ?? 0)}</span> }))} />
-            : <p className="hb-empty">Calm. No coin is at Alert or worse.</p>}
+            : <p className="hb-empty">{c ? "No alerts among covered coins." : "Stress readings unavailable."}</p>}
         </Sec>
         {model && <Freshness label="Stress signals" state={model.truth.stress.state} ageSec={model.truth.stress.ageSec} />}
       </div>
@@ -489,7 +507,8 @@ function FarPortsPanel({ model, titleRef }: P) {
     <>
       <Head kicker="Sea zone · offshore" title="The Far Ports" sub={`${far.length} chains without a pier`} titleRef={titleRef} />
       <div className="hb-panel-body">
-        <p className="hb-why">Supply on chains too small for a pier of their own. Boats sail out here for the share of their supply these chains hold.</p>
+        <p className="hb-why">{FAR_PORTS_LINE}</p>
+        {model && <p className="hb-caption">{allocationLine(model.boats)}</p>}
         <p className="hb-caption">Know it by the buoyed anchorage and its marker lights, out on the horizon.</p>
         <Sec title="Chains">
           <ul className="hb-list">
@@ -597,7 +616,7 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
   const office = officeLine(officeState, chainRow?.change30dPct as number | undefined);
   return (
     <>
-      <Head kicker={h?.piered === false ? "Far port" : CHAIN_COLOR[chain] ? `${chain} harbour · harbour office` : "Harbour"} title={chain} sub={h ? `${share(h.share)} of all stablecoin supply` : undefined}
+      <Head kicker={h?.piered === false ? "Far port" : CHAIN_COLOR[chain] ? `${chain} harbour · harbour office` : "Harbour"} title={chain} sub={h ? `${share(h.share)} of reported chain-attributed supply` : undefined}
         logo={CHAIN_COLOR[chain] ? <Crest chain={chain} color={CHAIN_COLOR[chain]} /> : <Logo src={chainLogo(chain)} label={chain} color="#1f5873" />} titleRef={titleRef} />
       <div className="hb-panel-body">
         {h && (
@@ -611,7 +630,8 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
             <p className="hb-why">{h.visitors} {h.visitors === 1 ? "boat calls" : "boats call"} here. A pier’s length and its berths follow the supply it holds.</p>
             {h.piered && CHAIN_COLOR[chain] && <p className="hb-caption">Know it by the harbour office with the {chain} crest, the house flag and awnings in its colour, and its name lettered on the water.</p>}
             {h.piered && CHAIN_COLOR[chain] && office && <p className="hb-caption">{office}. {officeState === "works" ? `Under works from +8 % until the gain falls below +${OFFICE_WORKS_HOLD * 100} %` : `Furled from −8 % until the loss recovers above −${-OFFICE_FURL_HOLD * 100} %`}; a 30-day horizon, unlike the Harbourmaster’s flags for the last 24 h.</p>}
-            <Sec title="Largest callers">
+            {model && <p className="hb-caption">{allocationLine(model.boats)}</p>}
+            <Sec title="Largest reported holdings">
               <BoatList rows={visitors.slice(0, 10).map(({ b, usd }) => ({ id: b.id, label: <><b>{b.symbol}</b> <em>{share(usd / h.supplyUsd)}</em></>, value: money(usd) }))} />
             </Sec>
             {h.healthScore != null && <Sec title="Chain health"><dl className="hb-dl"><dt>Health score</dt><dd>{Math.round(h.healthScore)}</dd></dl></Sec>}
@@ -650,25 +670,27 @@ function FlowPanel({ side, model, titleRef }: { side: "mint" | "burn" } & P) {
   const t = flowTotals(model);
   const mint = side === "mint";
   const vol = t ? (mint ? t.mint : t.burn) : null;
-  const other = t ? (mint ? t.burn : t.mint) : null;
-  const dominant = t && t.net != null ? (t.net >= 0 ? "mint" : "burn") : null;
-  const scope = f?.scope.length ? f.scope.map(scopeName) : ["Ethereum", "Base", "Arbitrum"];
+  const dominant = f && hasFlowDay(f.hourly) && !f.stale && t && t.net != null && t.net !== 0 ? (t.net > 0 ? "mint" : "burn") : null;
+  const scope = f?.scope.map(scopeName) ?? [];
+  const valued = flowValued(f?.hourly ?? []);
   return (
     <>
       <Head kicker="The flows quarter" title={mint ? "The Mint" : "The Burn"} sub={mint ? "where supply is struck" : "where supply is destroyed"} titleRef={titleRef} />
       <div className="hb-panel-body">
         {!t || vol == null ? <p className="hb-why">{mint ? "The furnaces are banked: there is no flow reading." : "The fire is banked: there is no flow reading."}</p> : (
           <>
-            <div className="hb-big hb-num" style={{ marginTop: 6 }}>{money(vol)}<small>{mint ? "minted" : "burned"}, 24 h</small></div>
+            <div className="hb-big hb-num" style={{ marginTop: 6 }}>{valued ? money(vol) : `At least ${money(vol)}`}<small>{mint ? "minted" : "burned"} · {flowWindow(f?.hourly ?? [])}</small></div>
             <p className="hb-why">{mint
-              ? "Its chimneys smoke, its furnaces glow, its presses stamp and its workers bustle in proportion to the dollars minted in the last 24 hours."
-              : "Its fire and smoke grow with the dollars burned (redeemed) in the last 24 hours."}
+              ? "Its chimneys smoke, its furnaces glow, its presses stamp and its workers bustle with reported minting activity."
+              : "Its fire and smoke follow reported burning (redemption) activity."}
               {dominant === side ? (mint ? " More is being minted than burned, so the Mint outworks the Burn." : " More is being burned than minted, so the Burn outshines the Mint.") : ""}</p>
+            {f && (!hasFlowDay(f.hourly) || f.stale) && <p className="hb-caption">The fires are banked until a current, complete daily window is available.</p>}
+            {!valued && <p className="hb-caption">{f?.hourly.some((h) => h.netUsd == null) ? NET_UNAVAILABLE : VALUATION_UNKNOWN}</p>}
             <Sec title={`Hourly, ${mint ? "minted" : "burned"}`}><FlowBars hourly={f?.hourly ?? []} side={side} /></Sec>
-            <Sec title="Last 24 hours">
+            <Sec title={flowWindow(f?.hourly ?? [])}>
               <dl className="hb-dl">
-                <dt>{mint ? "Minted" : "Burned"}</dt><dd>{money(vol)}</dd>
-                <dt>{mint ? "Burned, across the mouth" : "Minted, at the Mint"}</dt><dd>{money(other)}</dd>
+                <dt>{mint ? "Minted" : "Burned"}</dt><dd>{grossFlow(vol, side, valued)}</dd>
+                <dt>{mint ? "Burned, across the mouth" : "Minted, at the Mint"}</dt><dd>{grossFlow(mint ? t.burn : t.mint, mint ? "burn" : "mint", valued)}</dd>
                 <dt>Net</dt><dd className={t.net == null ? "" : t.net > 0 ? "hb-up" : t.net < 0 ? "hb-down" : ""}>{money(t.net, { signed: true })}</dd>
               </dl>
             </Sec>
@@ -678,8 +700,9 @@ function FlowPanel({ side, model, titleRef }: { side: "mint" | "burn" } & P) {
           <div className="hb-scope">
             {scope.map((c) => <span key={c}>{CHAIN_COLOR[c] ? <Crest chain={c} color={CHAIN_COLOR[c]} size={20} /> : <Logo src={chainLogo(c)} label={c} color="#1f5873" size={20} />}{c}</span>)}
           </div>
-          <p className="hb-caption">Mint and burn are read on {scope.length === 3 ? `${scope[0]}, ${scope[1]} and ${scope[2]}` : scope.join(", ")} only, the honest scope of the data. Issuance elsewhere is not counted here.</p>
+          <p className="hb-caption">{scope.length ? `Mint and burn are read on ${scope.length === 3 ? `${scope[0]}, ${scope[1]} and ${scope[2]}` : scope.join(", ")} only, the honest scope of the data. Issuance elsewhere is not counted here.` : "Flow scope is unavailable."}</p>
         </Sec>
+        <p className="hb-caption">{SOUND_FLOW}</p>
         <FlowLinks except={side} />
         {model && <Freshness label="Flow data" state={model.truth.mintBurn.state} ageSec={model.truth.mintBurn.ageSec} />}
       </div>
@@ -875,21 +898,23 @@ function KeepersLogPanel({ model, titleRef }: P) {
 
 function RegistryPanel({ model, titleRef }: P) {
   const live = (model?.boats ?? []).filter((b) => b.state !== "wrecked");
-  const tally = new Map<string, number>();
-  for (const b of live) { const g = b.grade ? b.grade.charAt(0).toUpperCase() : "—"; tally.set(g, (tally.get(g) ?? 0) + 1); }
-  const order = ["A", "B", "C", "D", "F", "—"].filter((g) => tally.has(g));
+  const available = model?.truth.safetyGrades.state !== "unavailable";
+  const tally = gradeTally(available ? live : []);
+  const order = ["A", "B", "C", "D", "E", "F", "—"].filter((g) => tally.has(g));
   return (
     <>
       <Head kicker="Landmark" title="The Registry" sub={`${model?.payloadCount ?? 0} coins on the register`} titleRef={titleRef} />
       <div className="hb-panel-body">
         <p className="hb-why">Every stablecoin the register knows is a boat in this harbour: no sampling, no sister ships. The Registry also keeps each coin’s safety grade.</p>
+        {!available && <p className="hb-empty">Safety grades unavailable.</p>}
         {order.length > 0 && (
           <Sec title="Safety grades">
             <dl className="hb-dl">
-              {order.map((g) => <Fragment key={g}><dt>{g === "—" ? "Unrated" : `Grade ${g}`}</dt><dd>{tally.get(g)}</dd></Fragment>)}
+              {order.map((g) => <Fragment key={g}><dt>{g === "—" ? "Not rated" : `Grade ${g}`}</dt><dd>{tally.get(g)}</dd></Fragment>)}
             </dl>
           </Sec>
         )}
+        <p className="hb-caption">The grade board groups live boats by grade letter; NR and missing grades are Not rated. Wrecks are excluded.</p>
         <p className="hb-caption">Press <kbd>L</kbd> for the ledger, or <kbd>/</kbd> to find one coin.</p>
         {model && <Freshness label="Safety grades" state={model.truth.safetyGrades.state} ageSec={model.truth.safetyGrades.ageSec} />}
       </div>
