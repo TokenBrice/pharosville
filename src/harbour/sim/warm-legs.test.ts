@@ -17,8 +17,8 @@ class WorkerDouble {
     WorkerDouble.created.push(this);
   }
 }
-beforeEach(() => { WorkerDouble.created = []; WorkerDouble.fail = false; vi.stubGlobal("Worker", WorkerDouble); });
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => { vi.useFakeTimers(); WorkerDouble.created = []; WorkerDouble.fail = false; vi.stubGlobal("Worker", WorkerDouble); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 const layout = { piers: [] } as unknown as HarbourLayout;
 const model = { planKey: "fleet" } as HarbourModel;
 
@@ -72,6 +72,30 @@ describe("persistent worker ownership and cancellation", () => {
     worker.onmessage!({ data: { id: 1, prepared: first } });
     expect(await a).toBe(first); expect(await b).toBe(second);
     expect(worker.terminate).not.toHaveBeenCalled(); warm.stop();
+  });
+
+  it("terminates silent warmup at 30 seconds, settles waiters, and ignores late replies", async () => {
+    const share = vi.fn(), onError = vi.fn();
+    const warm = warmLegsOffThread(layout, new Promise(() => {}), share, vi.fn(), onError);
+    const rejected = expect(warm.done).rejects.toMatchObject({ reason: "timeout" });
+    await vi.advanceTimersByTimeAsync(29_999); expect(onError).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1); await rejected;
+    const worker = WorkerDouble.created[0];
+    worker.onmessage!({ data: { legs: [], outings: {} } });
+    expect(share).not.toHaveBeenCalled(); expect(worker.terminate).toHaveBeenCalledOnce();
+  });
+
+  it("gives preparation an independent deadline and rejects every pending job on timeout", async () => {
+    const warm = warmLegsOffThread(layout, Promise.resolve(null), vi.fn(), vi.fn(), vi.fn());
+    const worker = WorkerDouble.created[0];
+    await vi.advanceTimersByTimeAsync(29_000);
+    worker.onmessage!({ data: { legs: [], outings: {} } }); await warm.done;
+    const a = warm.prepare(model, 0, []), b = warm.prepare(model, 1, []);
+    const rejected = Promise.all([expect(a).rejects.toMatchObject({ reason: "timeout" }), expect(b).rejects.toMatchObject({ reason: "timeout" })]);
+    await vi.advanceTimersByTimeAsync(29_999); expect(worker.terminate).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1); await rejected;
+    worker.onmessage!({ data: { id: 1, prepared: {} } });
+    expect(worker.terminate).toHaveBeenCalledOnce();
   });
 
   it.each(["error", "messageerror"])("settles pending work on worker %s", async (kind) => {

@@ -67,6 +67,16 @@ describe("facts", () => {
     expect(boatFact(boat(), whereabouts(2, "berth", "Ethereum", true))).toBe("USDT · $184.1B · out for a sail");
     expect(whereabouts(0, "berth", "Ethereum", true).kind).toBe("alongside");
     expect(boatFact(boat({ pegDeviationBps: -35, state: "shoals" }), whereabouts(5, "shoals", null))).toBe("USDT · $184.1B · on the Shoals −35 bps");
+    const towing = whereabouts(2, "wreck", null), drifting = whereabouts(3, "shoals", null);
+    const dead = boat({ state: "wrecked" }), offPeg = boat({ state: "shoals", pegDeviationBps: -35 });
+    expect(boatFact(dead, towing)).toContain("under tow to Wreck Cove");
+    expect(whyHere(dead, towing)).toBe("Under tow to Wreck Cove: this coin has died.");
+    expect(boatFact(offPeg, drifting)).toContain("drifting to the Shoals");
+    expect(whyHere(offPeg, drifting)).toMatch(/^Drifting to the Shoals/);
+    const held = whereabouts(5, null, null);
+    expect(boatFact(offPeg, held)).toContain("Route unavailable. Holding the last safe position.");
+    expect(whyHere(offPeg, held)).toBe("Route unavailable. Holding the last safe position.");
+    expect(whyHere(dead, whereabouts(5, "wreck", null))).toMatch(/^Beached in Wreck Cove/);
     expect(boatFact(boat({ maiden: true }), whereabouts(0, "berth", "Tron"))).toBe("USDT · $184.1B · alongside Tron · dressed overall: new to the register this week");
   });
   it("explains the position from the data", () => {

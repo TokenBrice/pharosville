@@ -29,7 +29,7 @@ describe("feed revision precedence", () => {
     feed.stop();
   });
 
-  it("ignores a response from a stopped lifecycle after restart", async () => {
+  it.each([false, true])("ignores a response from a stopped lifecycle after restart (failure=%s)", async (fail) => {
     const old = pendingResponse(); let count = 0;
     const fetcher: Fetcher = async (path) => {
       if (path === "/api/stablecoins") return ++count === 1 ? old.promise : response("new lifecycle");
@@ -38,7 +38,8 @@ describe("feed revision precedence", () => {
     const feed = new HarbourFeed({ fetcher, setTimer: () => 0, clearTimer: () => {}, isHidden: () => false });
     const first = feed.start(); feed.stop(); await feed.start();
     const snapshot = feed.payloads.stablecoins;
-    old.resolve(response("old lifecycle")); await first;
+    if (fail) old.reject(new Error("old lifecycle failure")); else old.resolve(response("old lifecycle"));
+    await first;
     expect(feed.payloads.stablecoins).toBe(snapshot);
     feed.stop();
   });

@@ -7,7 +7,7 @@ import type { OfficeState } from "../readings/bind";
 import { deadSummaries, FAMILIES } from "../model/obituary";
 import { bps, money, monthYear, pctChange, share, titleCase } from "./format";
 
-export type WhereKind = "alongside" | "moored" | "casting-off" | "sailing" | "outing" | "shoals" | "wreck" | "far" | "unknown";
+export type WhereKind = "alongside" | "moored" | "casting-off" | "sailing" | "outing" | "shoals" | "wreck" | "far" | "route-unavailable" | "unknown";
 export interface Whereabouts { kind: WhereKind; /** Chain name, "the Far Ports", or null. */ place: string | null }
 
 export const epitaphOf = (id: string): string | null => deadSummaries().get(id)?.epitaph ?? null;
@@ -15,12 +15,14 @@ export const epitaphOf = (id: string): string | null => deadSummaries().get(id)?
 export const quoted = (s: string) => `“${s}${/[.!?…]$/.test(s) ? "" : "."}”`;
 
 const FAR_PORTS = "the Far Ports";
+const ROUTE_UNAVAILABLE = "Route unavailable. Holding the last safe position.";
 
 /**
  * Sim phase index (PHASES order) + slot facts → where the boat is, in words. `outing`: the sim's
  * pose flag for a decorative harbour outing (D22): out for a sail, bound back to her own berth.
  */
 export function whereabouts(phase: number, slotKind: string | null, slotPlace: string | null, outing = false): Whereabouts {
+  if (phase >= 1 && phase <= 3 && (slotKind === "wreck" || slotKind === "shoals")) return { kind: "sailing", place: slotKind === "wreck" ? "Wreck Cove" : "the Shoals" };
   if (slotKind === "wreck") return { kind: "wreck", place: null };
   if (slotKind === "shoals") return { kind: "shoals", place: null };
   const place = slotKind === "far" ? FAR_PORTS : slotPlace;
@@ -30,7 +32,7 @@ export function whereabouts(phase: number, slotKind: string | null, slotPlace: s
     case 1: return { kind: "casting-off", place };
     case 2: case 3: return { kind: "sailing", place };
     case 4: return { kind: slotKind === "far" ? "far" : "moored", place };
-    case 5: return { kind: "shoals", place: null };
+    case 5: return { kind: slotKind === "far" ? "far" : slotKind ? "moored" : "route-unavailable", place };
     default: return { kind: "unknown", place };
   }
 }
@@ -41,10 +43,11 @@ export function whereLine(b: Boat, w: Whereabouts): string {
     case "moored": return w.place ? `moored off ${w.place}` : "at her mooring";
     case "far": return `in ${FAR_PORTS}`;
     case "casting-off": return w.place ? `casting off for ${w.place}` : "casting off";
-    case "sailing": return w.place ? `sailing to ${w.place}` : "under sail";
+    case "sailing": return w.place === "Wreck Cove" ? "under tow to Wreck Cove" : w.place === "the Shoals" ? "drifting to the Shoals" : w.place ? `sailing to ${w.place}` : "under sail";
     case "outing": return "out for a sail";
     case "shoals": return `on the Shoals ${bps(b.pegDeviationBps)}`;
     case "wreck": return "wrecked";
+    case "route-unavailable": return ROUTE_UNAVAILABLE;
     default: return "";
   }
 }
@@ -88,6 +91,8 @@ export function officeLine(state: OfficeState | undefined, change30d: number | n
 
 /** The single sentence that explains the boat's position from the data. */
 export function whyHere(b: Boat, w: Whereabouts): string {
+  if (w.kind === "route-unavailable") return ROUTE_UNAVAILABLE;
+  if (w.kind === "sailing" && w.place === "Wreck Cove") return "Under tow to Wreck Cove: this coin has died.";
   if (b.state === "wrecked" || w.kind === "wreck") {
     const ep = epitaphOf(b.id);
     return ep ? `Beached in Wreck Cove. ${quoted(ep)}` : "Beached in Wreck Cove: this coin has died.";
@@ -95,7 +100,7 @@ export function whyHere(b: Boat, w: Whereabouts): string {
   if (b.state === "shoals" || w.kind === "shoals") {
     const d = b.pegDeviationBps;
     const side = d == null ? "away from" : d < 0 ? "below" : "above";
-    return `Anchored on the Shoals because it trades ${d == null ? "" : `${Math.abs(Math.round(d))} bps `}${side} its peg. It rejoins its circuit once the peg holds.`;
+    return `${w.kind === "sailing" && w.place === "the Shoals" ? "Drifting to" : "Anchored on"} the Shoals because it trades ${d == null ? "" : `${Math.abs(Math.round(d))} bps `}${side} its peg. It rejoins its circuit once the peg holds.`;
   }
   const top = b.chainShares[0];
   if (b.circuit.length <= 1) {

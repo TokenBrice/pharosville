@@ -15,10 +15,10 @@ import { buildSimLayout, nearestNode, PREVAILING_WIND_FROM, type SimLayout, type
 import { clearance, hullClearance, type CoastGrid } from "./obstacles";
 import { seedOutings, type OutingSeed } from "./outings";
 import { legControlPoints } from "./routes";
-import { buildPath, evalLeg, hullMargin, IO_LANE, IO_LOA, IO_S, IO_SEP, IO_T, legTiming, samplePath, LEG_APPROACH, LEG_CAST_OFF, LEG_HOLD, LEG_HOLD_END, LEG_TURN, newLegTiming, type LegTiming, type PathRec } from "./path";
+import { ACCEL, buildPath, evalLeg, hullMargin, IO_LANE, IO_LOA, IO_S, IO_SEP, IO_T, legTiming, samplePath, LEG_APPROACH, LEG_CAST_OFF, LEG_HOLD, LEG_HOLD_END, LEG_TURN, newLegTiming, type LegTiming, type PathRec } from "./path";
 import { boatLocalTime, emptyPlan, hydratePlan, seedLegTimes, CYCLE_S, findSegment, MANOEUVRE_S, SEG_DOCK, SPEED, type BoatPlan, type Plan, type RepLeg } from "./plan";
 import { hypot } from "./math";
-import { buildPlanLegPath, pathKey, planPathRequests, PREFETCH_S, sailSetAt, type PathRequest, type PreparedPlan } from "./plan-paths";
+import { pathClear, buildPlanLegPath, pathKey, planPathRequests, PREFETCH_S, sailSetAt, type PathRequest, type PreparedPlan } from "./plan-paths";
 
 export const PHASES = ["docked", "casting-off", "sailing", "approaching", "moored", "anchored"] as const;
 export type Phase = (typeof PHASES)[number];
@@ -134,7 +134,7 @@ const YAW_PERIODS = [40, 45, 48, 50, 54, 60, 72, 75, 80, 90, 96, 100, 108, 120, 
 /**
  * 07-M5: a slow decorative veer of the wind (rad, ±~13°; periods 1350 s and 540 s divide the 6 h cycle, so the
  * harbour still repeats exactly). It turns the swinging hulls (each a little behind, by her own lag: the
- * anchorage wheels as one, raggedly) and the render wind (flags, gusts); paths, plan and heel under way keep
+ * anchorage wheels as one, raggedly) and the render wind (flags, gusts); paths and plan keep
  * the layout wind. Decorative only: never data.
  */
 export function windVeer(t: number): number {
@@ -201,6 +201,7 @@ interface BoatRt {
   bumpK: number;
   /** 07-M6: her last voyage under tow (kept until the tug is home). */
   tow: Tow | null;
+  safePose: { x: number; z: number; h: number } | undefined;
 }
 
 const newTiming = (): LegTiming => newLegTiming();
@@ -233,7 +234,7 @@ export class HarbourSim {
   model!: HarbourModel;
   readonly pose: PoseBuffer;
   /** Wind the hulls lie to: bow heading into the wind (radians) and 0..1 strength (DEWS weather). */
-  readonly wind = { fromRad: PREVAILING_WIND_FROM, strength: 0.35, /** decorative veer now (07-M5, rad): render wind only */ veer: 0 };
+  readonly wind = { fromRad: PREVAILING_WIND_FROM, strength: 0.35, /** decorative veer now (07-M5, rad): render wind only */ veer: 0, get displayFromRad() { return this.fromRad + this.veer; } };
   /** 07-M6 harbour tugs this frame (decorative). */
   readonly tugs: TugBuffer = { count: 0, x: new Float32Array(MAX_TUGS), z: new Float32Array(MAX_TUGS), heading: new Float32Array(MAX_TUGS), of: new Int32Array(MAX_TUGS) };
   private listeners = new Set<(e: SimEvent) => void>();
@@ -409,6 +410,8 @@ export class HarbourSim {
 
   // ------------------------------------------------------------------ model install & diffs
 
+  readonly routeUnavailable = new Set<string>();
+
   private install(model: HarbourModel, nowMs: number, first: boolean, prepared?: PreparedPlan): void {
     if (prepared && prepared.plan.key !== model.planKey) throw new Error("Prepared plan/model mismatch");
     const t = nowMs / 1000;
@@ -433,6 +436,7 @@ export class HarbourSim {
     const oldSep = new Map<string, [number, number]>();
     if (!first) for (let i = 0; i < this.pose.count && i < this.sepX.length; i++) if (this.sepX[i] !== 0 || this.sepZ[i] !== 0) oldSep.set(this.pose.ids[i], [this.sepX[i], this.sepZ[i]]);
 
+    const voyageSlots = new Map(prevRt.filter((r) => r.voyage && r.voyage.endSlot >= this.baseSlots).map((r) => [r.id, this.layout.slots[r.voyage!.endSlot]]));
     const replan = first || !this.plan || this.plan.key !== model.planKey;
     this.model = model;
     this.poseVersion++;
@@ -464,12 +468,18 @@ export class HarbourSim {
 
     const n = model.boats.length;
     this.index = new Map(model.boats.map((b, i) => [b.id, i]));
+    for (const id of this.routeUnavailable) if (!this.index.has(id)) this.routeUnavailable.delete(id);
     this.rt = model.boats.map((b, i) => {
       const old = prevIndex.get(b.id);
       const o = old != null ? prevRt[old] : null;
       const plan = this.plan.boats[i];
-      // a voyage under way survives a re-plan if it is bound for an authored slot (not a raft)
-      const keepVoyage = o?.voyage && (!replan || o.voyage.endSlot < this.baseSlots) ? o.voyage : null;
+      const keepVoyage = o?.voyage ? { ...o.voyage } : null;
+      const destination = voyageSlots.get(b.id);
+      if (keepVoyage && replan && destination) {
+        const existing = this.layout.slots.findIndex((slot) => slot.id === destination.id && slot.x === destination.x && slot.z === destination.z && slot.heading === destination.heading);
+        keepVoyage.endSlot = existing >= 0 ? existing : this.layout.slots.length;
+        if (existing < 0) this.layout.slots.push({ ...destination, index: keepVoyage.endSlot });
+      }
       return {
         id: b.id, cls: b.hullClass, loa: this.layout.loa[b.hullClass], plan,
         mode: keepVoyage ? MODE_VOYAGE : o && !replan ? o.mode : MODE_PLAN, cursor: 0, legSeg: -1, legPath: null, legTm: newTiming(), legEarly: 0.5, legLate: 0.5, legLocal: 0.5, legD: 0.5, // doubles from the start: keeps the fields unboxed
@@ -481,11 +491,15 @@ export class HarbourSim {
         laneOff: (u01(b.id + "#lane") * 2 - 1) * LANE_JITTER, beam: this.layout.beam[b.hullClass],
         shoals: b.state === "shoals", wrecked: b.state === "wrecked",
         side: u01(b.id + "#side") < 0.5 ? 1 : -1, list: u01(b.id + "#list"), surge: 0.16 + 0.004 * this.layout.loa[b.hullClass], bumpK: BUMP_A * Math.sqrt(this.layout.loa[b.hullClass] / 13),
-        tow: o?.tow ?? null,
+        tow: o?.tow ?? null, safePose: o?.safePose,
       };
     });
     this.resizePose(n);
     this.assignShoalsAndWrecks();
+    for (const r of this.rt) if (r.voyage) {
+      if (r.voyage.kind === EV_TOW) this.wreckOf.set(r.id, r.voyage.endSlot);
+      if (r.voyage.kind === EV_TO_SHOALS) this.shoalsOf.set(r.id, r.voyage.endSlot);
+    }
 
     const stale = model.truth.stablecoins.state !== "current" && model.hasFleet;
     if (first || !prev || !prev.hasFleet) {
@@ -504,7 +518,7 @@ export class HarbourSim {
       const at = oldPose?.get(b.id) ?? null;
       if (r.wrecked) {
         if (pb && pb.state !== "wrecked" && at) this.voyageTo(i, t, at, this.wreckOf.get(b.id)!, EV_TOW, END_HOLD, PH_ANCHORED, null);
-        else this.placeStatic(i);
+        else if (!r.voyage) this.placeStatic(i);
         continue;
       }
       if (!pb) {
@@ -554,13 +568,16 @@ export class HarbourSim {
   }
 
   /** Where every hull is shown now (x, z include the give-way shove px, pz: a voyage starts from there). */
-  private snapshotPose(): Map<string, { x: number; z: number; px: number; pz: number; h: number; slot: number; phase: number; moving: boolean }> {
-    const m = new Map<string, { x: number; z: number; px: number; pz: number; h: number; slot: number; phase: number; moving: boolean }>();
+  private snapshotPose(): Map<string, { x: number; z: number; px: number; pz: number; h: number; speed: number; slot: number; phase: number; moving: boolean }> {
+    const m = new Map<string, { x: number; z: number; px: number; pz: number; h: number; speed: number; slot: number; phase: number; moving: boolean }>();
     const p = this.pose;
     for (let i = 0; i < p.count; i++) {
       const ph = p.phase[i];
       const k = i < this.pushX.length ? i : -1;
-      m.set(p.ids[i], { x: p.position[i * 3], z: p.position[i * 3 + 2], px: k >= 0 ? this.pushX[k] : 0, pz: k >= 0 ? this.pushZ[k] : 0, h: p.heading[i], slot: p.slot[i], phase: ph, moving: ph === PH_CASTING_OFF || ph === PH_SAILING || ph === PH_APPROACHING });
+      const r = this.rt[i], v = r.voyage;
+      const tm = v?.tm ?? r.legTm, path = v?.path ?? r.legPath, local = v ? this.t - v.t0 : r.legLocal;
+      const astern = !!path?.rev && local >= tm.tHold + tm.tW0 + tm.tTurn && local < tm.tHold + tm.tW0 + tm.tTurn + tm.tAstern;
+      m.set(p.ids[i], { x: p.position[i * 3], z: p.position[i * 3 + 2], px: k >= 0 ? this.pushX[k] : 0, pz: k >= 0 ? this.pushZ[k] : 0, h: p.heading[i], speed: p.speed[i] * (astern ? -1 : 1), slot: p.slot[i], phase: ph, moving: ph === PH_CASTING_OFF || ph === PH_SAILING || ph === PH_APPROACHING });
     }
     return m;
   }
@@ -642,23 +659,40 @@ export class HarbourSim {
     return p;
   }
 
-  private voyageTo(i: number, t: number, at: { x: number; z: number; h: number; slot: number; moving: boolean }, toSlot: number, kind: number, endMode: number, endPhase: number, arriveAt: number | null): void {
+  private voyageTo(i: number, t: number, at: { x: number; z: number; h: number; speed?: number; slot: number; moving: boolean }, toSlot: number, kind: number, endMode: number, endPhase: number, arriveAt: number | null): void {
     const r = this.rt[i];
     const L = this.layout;
     // (a slot index from before a re-plan may name a raft that no longer exists)
     const from = !at.moving && at.slot >= 0 && at.slot < this.baseSlots ? L.slots[at.slot] : null;
-    const c = legControlPoints(L, from, at, L.slots[toSlot], r.loa, r.beam);
+    if (toSlot < 0) {
+      this.routeUnavailable.add(r.id);
+      r.mode = MODE_HOLD; r.voyage = null; r.holdSlot = -1; r.safePose = at;
+      return;
+    }
+    const speed = at.moving ? at.speed ?? 0 : 0;
+    const run = speed < 0 ? speed * speed / (2 * ACCEL) : 0;
+    const cusp = run ? { ...at, x: at.x - Math.sin(at.h) * run, z: at.z - Math.cos(at.h) * run } : at;
+    const c = legControlPoints(L, from, cusp, L.slots[toSlot], r.loa, r.beam);
+    if (run) c.extras.rev = [[at.x, at.z], [cusp.x, cusp.z]];
     if (from && from.swing > 0) c.pts[0] = [at.x, at.z];
     const path = buildPath(c.pts, r.loa, c.tail, L.field, r.beam, c.extras);
     path.underway = at.moving;
+    if (!pathClear(L, path, r.loa, r.beam)) {
+      this.routeUnavailable.add(r.id);
+      r.mode = MODE_HOLD; r.voyage = null; r.holdSlot = -1; r.safePose = at;
+      r.tow = null;
+      return;
+    }
+    this.routeUnavailable.delete(r.id);
     path.setFrom = sailSetAt(from ?? undefined); path.setTo = sailSetAt(L.slots[toSlot]);
     const startH = from ? (from.swing > 0 ? at.h : from.heading) : at.h;
-    const nom = legTiming(path, 1e9, r.loa, newTiming(), startH, L.slots[toSlot].heading, false);
+    const nom = legTiming(path, 1e9, r.loa, newTiming(), startH, L.slots[toSlot].heading, false, speed);
     // under tow, slow; adrift to the Shoals (07-M7), at ~0.6 of her pace
     let D = kind === EV_TOW ? nom.tNom * 1.8 : kind === EV_TO_SHOALS ? nom.tNom / ADRIFT_PACE : nom.tNom;
     if (arriveAt != null) D = Math.max(nom.minD, arriveAt - t);
-    const tm = legTiming(path, D, r.loa, newTiming(), startH, L.slots[toSlot].heading, false);
+    const tm = legTiming(path, D, r.loa, newTiming(), startH, L.slots[toSlot].heading, false, speed);
     if (this.launching) kind = EV_LAUNCH;
+    D = Math.max(D, arrivalT(tm, path));
     r.voyage = { path, tm, t0: t, D, endSlot: toSlot, endMode, endPhase, kind, startHeading: at.h, fromShoals: from?.kind === "shoals" };
     r.mode = MODE_VOYAGE;
     if (kind === EV_TOW) r.tow = this.makeTow(r, path, tm, t);
@@ -726,7 +760,7 @@ export class HarbourSim {
   }
 
   /** Back into the plan at its next dock window that a voyage from here can still make. */
-  private rejoin(i: number, t: number, at: { x: number; z: number; h: number; slot: number; moving: boolean }): void {
+  private rejoin(i: number, t: number, at: { x: number; z: number; h: number; speed?: number; slot: number; moving: boolean }): void {
     const r = this.rt[i];
     const p = r.plan;
     if (p.kind === "none") { this.placeStatic(i); return; }
@@ -764,7 +798,7 @@ export class HarbourSim {
   }
 
   /** After a re-plan: hulls whose planned place changed sail there; the rest just carry on. */
-  private resyncFrom(i: number, t: number, at: { x: number; z: number; px?: number; pz?: number; h: number; slot: number; moving: boolean }): void {
+  private resyncFrom(i: number, t: number, at: { x: number; z: number; px?: number; pz?: number; h: number; speed?: number; slot: number; moving: boolean }): void {
     const r = this.rt[i];
     r.mode = MODE_PLAN; r.voyage = null;
     this.t = t;
@@ -772,7 +806,7 @@ export class HarbourSim {
     const p = this.pose;
     // (a raft index from the old plan can name a different raft now: same slot means same place)
     const same = !at.moving && p.slot[i] === at.slot && at.slot < this.baseSlots && (p.phase[i] === PH_DOCKED || p.phase[i] === PH_MOORED);
-    const close = hypot(p.position[i * 3] - (at.x - (at.px ?? 0)), p.position[i * 3 + 2] - (at.z - (at.pz ?? 0))) < 1.5;
+    const close = hypot(p.position[i * 3] - (at.x - (at.px ?? 0)), p.position[i * 3 + 2] - (at.z - (at.pz ?? 0))) < 0.01;
     if (same || close) return;
     this.rejoin(i, t, at);
   }
@@ -783,10 +817,11 @@ export class HarbourSim {
     const L = this.layout;
     const want = L.slots[slotIdx];
     const held = taken ?? this.heldSlots();
-    if (!held.has(slotIdx)) return slotIdx;
+    const free = (s: number) => L.loa[L.slots[s].cls] >= r.loa && !held.has(s) && !L.slots[s].conflicts.some((c) => held.has(c));
+    if (free(slotIdx)) return slotIdx;
     const pool = L.pools.get(want.where);
-    for (const list of pool ? [pool.get(r.cls) ?? [], ...[...pool.values()]] : []) for (const s of list) if (!held.has(s)) return s;
-    return slotIdx;
+    for (const list of pool ? [pool.get(r.cls) ?? [], ...[...pool.values()]] : []) for (const s of list) if (free(s)) return s;
+    return -1;
   }
 
   private heldSlots(): Set<number> {
@@ -822,7 +857,7 @@ export class HarbourSim {
       }
       // under way on a plan leg: keep sailing it if its berth is free, else divert
       const dest = p.slot[i];
-      if (r.mode === MODE_PLAN && r.legPath && dest >= 0 && !held.has(dest)) {
+      if (r.mode === MODE_PLAN && r.legPath && !r.legStay && dest >= 0 && !held.has(dest) && !this.layout.slots[dest].conflicts.some((c) => held.has(c))) {
         // no waiting at the far end: the berth is only ours on arrival
         const tm = { ...r.legTm, tHoldEnd: 0 };
         r.voyage = { path: r.legPath, tm, t0: t - r.legLocal, D: r.legD - r.legTm.tHoldEnd, endSlot: dest, endMode: END_HOLD, endPhase: PH_DOCKED, kind: EV_STALE, startHeading: 0 };
@@ -832,7 +867,7 @@ export class HarbourSim {
       }
       const target = this.freeSlotNear(dest >= 0 ? dest : (r.plan.staticSlot >= 0 ? r.plan.staticSlot : r.plan.segSlot[0] ?? 0), r, held);
       held.add(target);
-      this.voyageTo(i, t, { x: p.position[i * 3], z: p.position[i * 3 + 2], h: p.heading[i], slot: -1, moving: true }, target, EV_STALE, END_HOLD, PH_ANCHORED, null);
+      this.voyageTo(i, t, { x: p.position[i * 3], z: p.position[i * 3 + 2], h: p.heading[i], speed: p.speed[i], slot: -1, moving: true }, target, EV_STALE, END_HOLD, PH_ANCHORED, null);
     }
   }
 
@@ -955,7 +990,7 @@ export class HarbourSim {
     // heel to leeward with the sail drawing (decorative; wind strength follows DEWS weather), by the point of
     // sail (07-M1): ∝ sin²θ, most on a beam reach, upright head to wind and on a dead run (and so continuous
     // through a tack or a gybe: no snap from one side to the other)
-    const sa = Math.sin(this.wind.fromRad - o[2]);
+    const sa = Math.sin(this.wind.displayFromRad - o[2]);
     p.heel[i] = sa * Math.abs(sa) * o[4] * (0.05 + 0.1 * this.wind.strength);
     if (this.vKind === EV_TO_SHOALS) {
       // adrift (07-M7): sail half loose and flogging, her head wandering, the list of the Shoals coming on
@@ -1025,7 +1060,7 @@ export class HarbourSim {
       }
     }
     if (r.mode === MODE_HOLD) {
-      if (r.holdSlot < 0) { p.speed[i] = 0; p.sailState[i] = 1; p.phase[i] = PH_ANCHORED; p.lines[i] = 0; return; }
+      if (r.holdSlot < 0) { if (r.safePose) { p.position[i * 3] = r.safePose.x; p.position[i * 3 + 2] = r.safePose.z; p.heading[i] = r.safePose.h; } p.slot[i] = -1; p.speed[i] = 0; p.heel[i] = 0; p.sailState[i] = 1; p.phase[i] = PH_ANCHORED; p.lines[i] = 0; return; }
       this.blend = 1;
       this.dockT = t - r.holdSince;
       this.restPose(i, r, L.slots[r.holdSlot], r.holdPhase);
@@ -1076,7 +1111,15 @@ export class HarbourSim {
       return;
     }
     this.ensureLeg(r, c);
-    if (r.legStay) { this.blend = 1; this.restPose(i, r, L.slots[plan.segSlot[c]], PH_DOCKED); return; }
+    if (r.legStay) {
+      if (!plan.outing) {
+        const from = L.slots[plan.segFrom[c]];
+        r.safePose = this.posed ? { x: p.position[i * 3], z: p.position[i * 3 + 2], h: p.heading[i] } : { x: from.x, z: from.z, h: from.heading };
+        r.mode = MODE_HOLD; r.holdSlot = -1;
+        this.evalBoat(i);
+      } else { this.blend = 1; this.restPose(i, r, L.slots[plan.segFrom[c]], PH_DOCKED); }
+      return;
+    }
     this.legT = u - plan.segStart[c] + r.legEarly;
     this.planLeg(i, r, c);
   }
@@ -1093,16 +1136,18 @@ export class HarbourSim {
     const from = L.slots[plan.segFrom[seg]], to = L.slots[plan.segSlot[seg]];
     const D = plan.segEnd[seg] - plan.segStart[seg];
     const tm = legTiming(path, 1e9, r.loa, r.legTm, from.heading, to.heading);
-    const extra = Math.max(0, tm.minD - D);
+    const extra = plan.kind === "circuit" ? 0 : Math.max(0, tm.minD - D);
     const pd = (seg - 1 + nSeg) % nSeg, nd = (seg + 1) % nSeg;
     const capE = 0.25 * (plan.segEnd[pd] - plan.segStart[pd]), capL = 0.25 * (plan.segEnd[nd] - plan.segStart[nd]);
     const late = Math.min(capL, extra / 2);
     const early = Math.min(capE, extra - late);
     r.legEarly = early; r.legLate = Math.min(capL, extra - early);
     r.legD = D + r.legEarly + r.legLate;
-    legTiming(path, r.legD, r.loa, r.legTm, from.heading, to.heading);
+    legTiming(path, r.legD, r.loa, r.legTm, from.heading, to.heading, plan.kind !== "circuit");
     r.legPath = path; r.legSeg = seg;
-    r.legStay = plan.segFrom[seg] === plan.segSlot[seg] && this.badOuting.has(pathKey(plan.segFrom[seg], plan.segSlot[seg], r.cls, plan.segLoop[seg]));
+    r.legStay = this.badOuting.has(pathKey(plan.segFrom[seg], plan.segSlot[seg], r.cls, plan.segLoop[seg]));
+    if (r.legStay && !plan.outing) this.routeUnavailable.add(r.id);
+    else this.routeUnavailable.delete(r.id);
   }
 
   private planLeg(i: number, r: BoatRt, seg: number): void {
