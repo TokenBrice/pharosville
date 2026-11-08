@@ -11,12 +11,13 @@ import { truthCopy } from "./truth-copy";
 export function truthState(m: HarbourModel | null): { state: Freshness; word: string; detail: string } {
   const supply = sourceTruth(m, "stablecoins");
   const lagging = m ? Object.entries(m.truth).filter(([k, t]) => k !== "stablecoins" && t.state !== "current").length : 6;
-  return { state: supply.state,
-    word: supply.state !== "current" ? readingSentence(m, "stablecoins")
-      : lagging === 0 ? "Supply: current."
-      : `Supply: current; ${lagging} other ${lagging === 1 ? "reading is" : "readings are"} stale or unavailable.`,
-    detail: readingSentence(m, "stablecoins"),
-  };
+  const others = lagging === 0 ? "" : ` ${lagging} other ${lagging === 1 ? "reading is" : "readings are"} stale or unavailable.`;
+  // The corner keeps a compact word; the full sentences (shared formatter) stay in `detail` for assistive tech and hover.
+  const word = supply.state === "current" ? (lagging === 0 ? "live" : `live · ${lagging} not current`)
+    : supply.state === "stale" ? (supply.ageSec != null ? `stale · ${age(supply.ageSec)} old` : "stale")
+    : supply.state === "unknown" ? "unverified"
+    : m?.hasFleet ? "unavailable" : "awaiting data";
+  return { state: supply.state, word, detail: `${readingSentence(m, "stablecoins")}${others}` };
 }
 
 export function Logo({ src, label, color, size }: { src: string | null; label: string; color: string; size?: number }) {

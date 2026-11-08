@@ -51,7 +51,7 @@ export function CornerMark() {
       <button
         type="button"
         className="hb-mark-btn"
-        aria-label={`PharosVille — ${t.word} ${health} Open the ledger.`}
+        aria-label={`PharosVille — ${t.detail} ${health} Open the ledger.`}
         aria-expanded={ledgerOpen}
         onClick={() => store.set({ ledgerOpen: !ledgerOpen })}
       >
@@ -60,7 +60,7 @@ export function CornerMark() {
       </button>
       <span className="hb-mark-more">
         <div>
-          <span className="hb-mark-state" role="status">{t.word} {health}</span>
+          <span className="hb-mark-state" role="status" title={t.detail}>{t.word} {health}</span>
           <span className="hb-keys">
             <button type="button" onClick={() => store.set({ searchOpen: true })} aria-label="Search (/)"><kbd>/</kbd>search</button>
             <button type="button" onClick={() => store.set({ ledgerOpen: !ledgerOpen })} aria-label="Ledger and legend (L)" aria-expanded={ledgerOpen}><kbd>L</kbd>ledger</button>
