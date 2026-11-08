@@ -7,7 +7,7 @@ import type { SkyShared } from "../sky/sky-system";
 import { cloudShadowUniforms } from "../sky/cloud-shadow";
 import { sunShadowUniforms } from "../world/sun-shadow";
 import { OCEAN_FRAG, OCEAN_VERT, SEA_PALETTE } from "./ocean-material";
-import { buildSeaSdf, defaultSeaBounds, landMaskFromHeights, SDF_COAST_RANGE, seaSdfInputFromLayout, type Bounds4, type HeightField } from "./sea-sdf";
+import { buildSeaSdf, defaultSeaBounds, landMaskFromHeights, SDF_COAST_RANGE, sdfMainlandFade, seaSdfInputFromLayout, type Bounds4, type HeightField } from "./sea-sdf";
 import { acquireFxTextures, type FxTextures } from "./textures";
 import { WakeField, type WakeService } from "./wake";
 import { updateAerial } from "../world/aerial";
@@ -52,10 +52,8 @@ const GRID_N = 256;
 const FAR_EXTENT = 7000;
 
 const coastOf = (r: number) => (r / 255 - 0.5) * SDF_COAST_RANGE;
-const DAMP_BY_BYTE = Float64Array.from({ length: 256 }, (_, r) => {
-  const coast = coastOf(r);
-  return THREE.MathUtils.smoothstep(coast, 0, 34) * 0.9 + 0.1 * THREE.MathUtils.smoothstep(coast, -2, 2);
-});
+const dampOf = (coast: number) => THREE.MathUtils.smoothstep(coast, 0, 34) * 0.9 + 0.1 * THREE.MathUtils.smoothstep(coast, -2, 2);
+const DAMP_BY_BYTE = Float64Array.from({ length: 256 }, (_, r) => dampOf(coastOf(r)));
 
 function oceanGeometry(bounds: Bounds4): THREE.BufferGeometry {
   const cx = (bounds[0] + bounds[2]) / 2, cz = (bounds[1] + bounds[3]) / 2;
@@ -108,6 +106,9 @@ export class OceanSystem implements WorldSystem {
   private bz0 = 0;
   private bw = 1;
   private bh = 1;
+  /** The layout-bounds centre (uSceneCenter): the SDF's mainland fade is about it (E02). */
+  private scx = 0;
+  private scz = 0;
   private fx!: FxTextures;
   private state: SeaState = 1;
   private readonly seaU = { value: new THREE.Vector4(SEA_STATES[1].amp, SEA_STATES[1].chop, SEA_STATES[1].caps, SEA_STATES[1].bands) };
@@ -130,6 +131,7 @@ export class OceanSystem implements WorldSystem {
     if (!layout) throw new Error("[harbour/ocean] needs the 'layout' service");
     this.bounds = (layout.sea?.bounds as Bounds4 | undefined) ?? defaultSeaBounds(layout);
     this.bx0 = this.bounds[0]; this.bz0 = this.bounds[1];
+    this.scx = (layout.bounds.min[0] + layout.bounds.max[0]) / 2; this.scz = (layout.bounds.min[2] + layout.bounds.max[2]) / 2;
     this.bw = this.bounds[2] - this.bounds[0]; this.bh = this.bounds[3] - this.bounds[1];
     this.fx = await acquireFxTextures(ctx);
 
@@ -277,15 +279,19 @@ export class OceanSystem implements WorldSystem {
     return Math.min(n - 1, Math.floor(v * n)) * n + Math.min(n - 1, Math.floor(u * n));
   }
 
+  /** The SDF coast at (x, z), the retired mainland faded to open water like the shaders (E02, sea-sdf.ts). */
   private coastAt(x: number, z: number): number {
     const i = this.texel(x, z);
-    return i < 0 ? 200 : coastOf(this.coastR[i]);
+    if (i < 0) return 200;
+    const c = coastOf(this.coastR[i]), k = sdfMainlandFade(x, z, this.scx, this.scz);
+    return k > 0 ? c + (SDF_COAST_RANGE / 2 - c) * k : c;
   }
 
-  /** Swell damping toward the coast: a function of the SDF byte alone, so a 256-entry table (same values). */
+  /** Swell damping toward the coast: a function of the SDF byte alone (a 256-entry table) within the island's coasts. */
   private dampAt(x: number, z: number): number {
     const i = this.texel(x, z);
-    return i < 0 ? 1 : DAMP_BY_BYTE[this.coastR[i]];
+    if (i < 0) return 1;
+    return sdfMainlandFade(x, z, this.scx, this.scz) > 0 ? dampOf(this.coastAt(x, z)) : DAMP_BY_BYTE[this.coastR[i]];
   }
 
   private seedDebugMovers(layout: HarbourLayout): void {

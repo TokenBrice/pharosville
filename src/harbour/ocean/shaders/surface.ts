@@ -7,10 +7,16 @@ import { SEA_HELIO_GLSL } from "../sea-helio";
 import { SWELL_DIR, wavesGLSL } from "../waves";
 
 /**
- * The sea surface: fields, normals and the unlit body. (Shader text ships in the first-frame bytes, so the v1.6.0 notes
- * live here.) E12/E13: `fp` is the water a pixel covers (m, DPR-aware, unlike camD): Kelvin foam fades by it, and the
+ * The sea surface: fields, normals and the unlit body. (Shader text ships in the first-frame bytes, so the longer notes
+ * live here.) Roughness: cat's paws are drifting patches of wind-roughened water against glassy slicks, and the shared
+ * gust field's paws join them (the patches that heel the hulls roughen the water they cross); a rain-pitted sea loses
+ * its mirror; from Warning up the DEWS wind raises a wind sea (whitecaps and spindrift) of its own; the harbours lie in
+ * the lee (calmer, glassier) while the Roads catch the open-sea wind; lee slicks behind still hulls (wake live A,
+ * decorative) are glassy satin water where the ripple drops away. E12/E13: `fp` is the water a pixel covers (m, DPR-aware, unlike camD): Kelvin foam fades by it, and the
  * ripple facets finer than the pixel (`unres`) glint off the swell normal with lobes widened by `spread` (sea-tone.ts
  * hbLobe); the Low tier reads the calm normals only. E11: hbSeaHour lays the hour's light on the body (sea-tone.ts).
+ * E02: past the island's coasts the SDF's coast and depth fade to open water (sea-sdf.ts SDF_ISLAND_RADII), so the
+ * retired mainland leaves no pale shoal or foam line on the sea; structures, buoys and the zones are untouched.
  */
 export const OCEAN_SURFACE = /* glsl */ `
 uniform float uTime, uNight;
@@ -105,13 +111,10 @@ void main() {
   vec2 edge2 = min(suv, 1.0 - suv);
   float inside = smoothstep(0.0, 0.03, min(edge2.x, edge2.y));
   vec4 sdf = texture2D(uSdf, clamp(suv, 0.0, 1.0));
-  // E02: the mainland mesh is retired but the baked SDF still carries its polygon (the NW corner). Every island
-  // coast ends within 436 m of the scene centre and the mainland band starts 593 m out: fade the SDF land terms
-  // between them so no pale "sandbank" ghost is drawn in open sea. Sea zones (zm) are unaffected.
-  float landK = inside * (1.0 - smoothstep(470.0, 560.0, length(xz - uSceneCenter)));
-  float coast = mix(220.0, (sdf.r - 0.5) * 128.0, landK);
-  float depth = mix(40.0, sdf.g * 40.0, landK);
-  float sdist = mix(16.0, sdf.b * 16.0, landK);
+  sdf.rg = mix(sdf.rg, vec2(1.0), smoothstep(470.0, 560.0, length(xz - uSceneCenter)));
+  float coast = mix(220.0, (sdf.r - 0.5) * 128.0, inside);
+  float depth = mix(40.0, sdf.g * 40.0, inside);
+  float sdist = mix(16.0, sdf.b * 16.0, inside);
   vec4 zm = texture2D(uZones, clamp(suv, 0.0, 1.0)) * inside;
   vec2 wuv = (xz - uWakeBounds.xy) / (uWakeBounds.zw - uWakeBounds.xy);
   vec2 wedge = min(wuv, 1.0 - wuv);
@@ -123,19 +126,15 @@ void main() {
   vec4 nB = texture2D(uNoise, xz * 0.017 + t * vec2(0.0035, -0.0026));
   vec4 nC = texture2D(uNoise, xz * 0.093 + t * vec2(0.012, 0.004));
 
-  // cat's paws: drifting patches of wind-roughened water vs glassy slicks
+  // cat's paws (see above)
   vec2 pawUv = xz * 0.0019 - wdir * t * (0.004 + 0.012 * wind);
   float paws = smoothstep(0.38, 0.7, texture2D(uNoise, pawUv).g * 0.7 + texture2D(uNoise, pawUv * 2.7 + 0.3).b * 0.45);
-  // (the shared gust field's paws too: the patches that heel the hulls roughen the water they cross)
   paws = max(paws, hbGust(xz, uGust.w, uGust.xy) * (0.55 + 0.45 * uGust.z));
   float rough = mix(0.35, 1.0, paws) * (0.75 + 0.5 * wind);
   // a rain-pitted sea loses its mirror
   rough *= 1.0 + 0.6 * uPrecip.x;
-  // the wind sea (DEWS): from Warning up the wind raises whitecaps and spindrift of its own
   float windSea = smoothstep(0.6, 1.0, wind);
-  // zones: the harbours lie in the lee (calmer, glassier); the Roads catch the open-sea wind
   rough *= (1.0 - 0.38 * zm.b) * (1.0 + 0.3 * zm.a);
-  // lee slicks behind still hulls (wake live A, decorative): glassy satin water, the ripple drops away
   float slick = live.a;
   rough *= 1.0 - 0.7 * slick;
 
