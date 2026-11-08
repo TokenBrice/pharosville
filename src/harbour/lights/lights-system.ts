@@ -1,11 +1,10 @@
 import { patch } from "../engine/shader-patch";
 import * as THREE from "three";
-import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
-import type { HarbourLayout } from "../layout/types";
+import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { getLightsStore, type LightsStore } from "./lights-service";
-import type { QualityService, QualitySettings } from "../engine/quality";
+import type { QualitySettings } from "../engine/quality";
 import { BEAM_LIGHT_GLSL, beamLightUniforms } from "../beam/beam-light-glsl";
 import { getBeamUniforms } from "../beam/uniforms";
 import { LAMP_WAVE_GLSL, LAMP_WAVE_SPREAD, lampGlow, lampWaveUniforms, setLampWave } from "./lamp-wave";
@@ -94,8 +93,8 @@ export class LightsSystem implements WorldSystem {
 
   init(ctx: EngineContext): void {
     this.store = getLightsStore(ctx);
-    this.ground = ctx.services.get("ground") as GroundService | undefined;
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    this.ground = ctx.services.get("ground");
+    const layout = ctx.services.get("layout");
     for (const l of layout?.lights ?? []) this.store.add(l.kind, l.position, l.color);
     // the lamplighting wave (05-P3): ranked by distance from the Pharos out to the furthest layout light
     const ph = layout?.landmarks?.find((l) => l.id === "pharos")?.position ?? [0, 0, 0];
@@ -248,10 +247,10 @@ export class LightsSystem implements WorldSystem {
       ctx.scene.add(p);
     }
     this.ensureCapacity(Math.max(256, this.store.lights.length));
-    this.offPreparation = (ctx.services.get("preparation") as PreparationService | undefined)?.register({
+    this.offPreparation = ctx.services.get("preparation")?.register({
       root: this.poolScene, camera: this.poolCam, target: () => this.poolRT,
     });
-    const quality = ctx.services.get("quality") as QualityService | undefined;
+    const quality = ctx.services.get("quality");
     if (quality) {
       this.applyQuality(quality.settings);
       this.offQuality = quality.onChange((settings) => this.applyQuality(settings));
@@ -352,9 +351,9 @@ export class LightsSystem implements WorldSystem {
     if (this.pickTimer <= 0) { this.pickTimer = 0.2; this.pickPoints(ctx); }
     // the wave: reduced motion → today's global step; an unlit Pharos → it starts from the town edge
     const w = this.store.wave;
-    const reduced = (ctx.services.get("motion") as { reduced?: boolean } | undefined)?.reduced ?? false;
+    const reduced = ctx.services.get("motion")?.reduced ?? false;
     w.spread = reduced ? 0 : LAMP_WAVE_SPREAD;
-    const lh = ctx.services.get("lighthouse") as { lit?: boolean; position?: THREE.Vector3 } | undefined;
+    const lh = ctx.services.get("lighthouse");
     if (lh?.position && lh.position.lengthSq() > 0) { w.x = lh.position.x; w.z = lh.position.z; w.footY = lh.position.y; }
     const edge = lh?.lit === false ? 1 : 0;
     w.fromEdge += (edge - w.fromEdge) * (1 - Math.exp(-frame.delta / 3));

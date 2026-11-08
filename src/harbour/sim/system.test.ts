@@ -1,3 +1,4 @@
+import type { Services } from "../engine/services";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { EngineContext, FrameState } from "../engine/types";
 import { DataSystem } from "./system";
@@ -69,7 +70,7 @@ beforeEach(() => {
   warm = deferred<void>(); paths = deferred<object>();
   state.warm = { done: warm.promise, prepare: vi.fn(() => paths.promise), stop: vi.fn() };
   system = new DataSystem();
-  ctx = { services: new Map([["layout", { piers: [] }]]) } as unknown as EngineContext;
+  ctx = { services: new Map([["layout", { piers: [] }]]) as unknown as Services } as unknown as EngineContext;
 });
 afterEach(() => { system.dispose(ctx); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 async function begin() {
@@ -94,7 +95,7 @@ describe("single-owner prepared adoption", () => {
 
   it("never installs or poses dirty data in a frame before warmup or while required paths are pending", async () => {
     await begin();
-    const sim = ctx.services.get("sim") as Sim;
+    const sim = ctx.services.get("sim")!;
     const readiness = ctx.services.get("readiness");
     system.update(frame, ctx);
     expect(sim.setModel).not.toHaveBeenCalled(); expect(sim.poseAt).not.toHaveBeenCalled();
@@ -109,7 +110,7 @@ describe("single-owner prepared adoption", () => {
     expect(ctx.services.get("model")).toBe(sim.model);
     expect(ctx.services.get("readiness")).toBe(readiness);
     expect(readiness).toEqual({ revision: 1, boats: 2, prepared: true });
-    const poses = sim.poseAt.mock.calls.length;
+    const poses = vi.mocked(sim.poseAt).mock.calls.length;
     system.update(frame, ctx);
     expect(sim.poseAt).toHaveBeenCalledTimes(poses);
   });

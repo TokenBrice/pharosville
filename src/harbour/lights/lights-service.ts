@@ -132,7 +132,7 @@ export class LightsStore implements LightsService {
 
 /** The shared 'lights' service (created on first use). */
 export function getLightsStore(ctx: EngineContext): LightsStore {
-  let s = ctx.services.get("lights") as LightsStore | undefined;
+  let s = ctx.services.get("lights");
   if (!s) { s = new LightsStore(); ctx.services.set("lights", s); }
   return s;
 }

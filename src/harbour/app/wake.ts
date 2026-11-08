@@ -8,7 +8,6 @@
  */
 import { minJerk } from "../engine/camera-rig";
 import type { Engine } from "../engine/engine";
-import type { MotionService } from "../ui/services";
 
 /** How much further out the drift starts (distance share). The poster is scaled to match. */
 export const WAKE_PULLBACK = 0.12;
@@ -16,7 +15,6 @@ const WAKE_MS = 6500;
 /** The fire kindles over this window (s after the crossfade starts). */
 const KINDLE_FROM = 0.3, KINDLE_S = 2.6;
 
-interface BeamIntro { setIntroScale?(k: number): void }
 
 /** The fire's intro scale at `t` s after the crossfade: dark, then kindled to full on the M1 curve. */
 export const kindle = (t: number): number => minJerk((t - KINDLE_FROM) / KINDLE_S);
@@ -24,14 +22,14 @@ export const kindle = (t: number): number => minJerk((t - KINDLE_FROM) / KINDLE_
 export function wantsWake(engine: Engine): boolean {
   const forced = new URLSearchParams(location.search).get("wake");
   if (forced === "0") return false;
-  if ((engine.ctx.services.get("motion") as MotionService | undefined)?.reduced) return false;
+  if (engine.ctx.services.get("motion")?.reduced) return false;
   return forced === "1" || !navigator.webdriver;
 }
 
 /** Start the wake now (call just before the poster crossfade). Returns a cleanup. */
 export function startWake(engine: Engine): () => void {
   const { rig, services } = engine.ctx;
-  const beam = () => services.get("beam") as BeamIntro | undefined;
+  const beam = () => services.get("beam");
   const home = {
     target: [rig.target.x, rig.target.y, rig.target.z] as [number, number, number], distance: rig.distance,
     fovDeg: rig.camera.fov, pitchDeg: (rig.pitch * 180) / Math.PI, yawDeg: (rig.yaw * 180) / Math.PI,

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { SeasonalDay } from "../engine/time-of-day";
 import { getHarbourMaterials } from "../world/materials";
 import { isPreparationAbort } from "../engine/prepare";
@@ -125,7 +125,7 @@ export class SeasonSystem implements WorldSystem {
     const materials = getHarbourMaterials(ctx), previousSignature = `${materials.kitKey()}:${u.uFoliage.value.y > 0.001}`;
     u.uFoliage.value.copy(foliage); u.uSeasonPhase.value = phase;
     const signature = `${materials.kitKey()}:${u.uFoliage.value.y > 0.001}`;
-    const preparation = ctx.services.get("preparation") as PreparationService | undefined;
+    const preparation = ctx.services.get("preparation");
     if (this.resolved && (previousSignature !== signature || this.pendingSeason) && preparation) {
       this.pendingSeason = true;
       u.uFoliage.value.copy(previousFoliage); u.uSeasonPhase.value = previousPhase;

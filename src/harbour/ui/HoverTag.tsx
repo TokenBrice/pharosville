@@ -6,7 +6,7 @@ import { expectedLabel, PHASE_NAME, yardCoins } from "./yard";
 import { useFrame, useFrameWrite, usePresence, useStore, useSticky, useUI } from "./hooks";
 import { getFeed, getLayout, sameHit, type PickHit, type ScreenPoint } from "./services";
 import { setStyle, useMeasurements } from "./measurements";
-import { LANDMARK_ENDPOINT, type OfficeState } from "../readings/bind";
+import { LANDMARK_ENDPOINT } from "../readings/bind";
 import type { EndpointKey } from "../model/types";
 import { Freshness } from "./bits";
 import { observedEmpty, qualificationCopy } from "./source-state";
@@ -69,7 +69,7 @@ function Tag({ hit, shown, pinned }: { hit: PickHit; shown: boolean; pinned: boo
       const w = store.whereaboutsOf(b.id);
       fact = boatFact(b, w).slice(b.symbol.length + 3);
       // a coin launched during this visit sails dressed overall for her first circuit (fleet/bunting.ts)
-      if (!b.maiden && (store.ctx.services.get("bunting") as { isDressed?(id: string): boolean } | undefined)?.isDressed?.(b.id)) fact += ` · ${LAUNCH_HOVER}`;
+      if (!b.maiden && store.ctx.services.get("bunting")?.isDressed?.(b.id)) fact += ` · ${LAUNCH_HOVER}`;
       swatch = b.brandColor;
       decorative = w.kind === "outing";
     }
@@ -96,7 +96,7 @@ function Tag({ hit, shown, pinned }: { hit: PickHit; shown: boolean; pinned: boo
   } else {
     name = `${hit.id} harbour`;
     // T6: the office's month (readings.offices; the 30-day figure from the same /api/chains row the panel prints)
-    const office = (store.ctx.services.get("readings") as { offices?: Readonly<Record<string, OfficeState>> } | undefined)?.offices?.[hit.id];
+    const office = store.ctx.services.get("readings")?.offices?.[hit.id];
     const row = (getFeed(store.ctx)?.payloads.chains?.data?.chains ?? []).find((c) => c.name === hit.id);
     fact = harbourFact(hit.id, model, office, row?.change30dPct);
   }

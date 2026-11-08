@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { EngineContext } from "../engine/types";
-import { GUST_GLSL, type GustService } from "../weather/gust";
+import { GUST_GLSL } from "../weather/gust";
 
 /**
  * 08-T3 — crowns, vines, pergola leaf and laundry breathe with the wind (decorative; re-uses the weather's wind,
@@ -72,8 +72,8 @@ export const SWAY_VERTEX_APPLY = /* glsl */ `
 
 /** Per frame: reduced motion stills every swaying vertex. */
 export function updateSway(ctx: EngineContext): void {
-  const reduced = (ctx.services.get("motion") as { reduced?: boolean } | undefined)?.reduced ?? false;
+  const reduced = ctx.services.get("motion")?.reduced ?? false;
   swayUniforms.uSwayK.value = reduced ? 0 : 1;
-  const gust = ctx.services.get("gust") as GustService | undefined;
+  const gust = ctx.services.get("gust");
   if (gust) swayUniforms.uSwayGust.value.copy(gust.uniform.value);
 }

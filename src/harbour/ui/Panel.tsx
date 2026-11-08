@@ -2,7 +2,6 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { CAUSE_META } from "@shared/lib/cause-of-death";
 import { deadRecords, FAMILIES, FAMILY_ORDER, type CauseFamily } from "../model/obituary";
 import { anniversaryToday, worldToday } from "../model/anniversary";
-import type { HarbourLayout } from "../layout/types";
 import type { Boat, EndpointKey, HarbourModel } from "../model/types";
 import { ChainSplit, chainLogo, Crest, DEWS_INK, FlowBars, Freshness, Logo, PSI_INK, Sparkline, TideBars } from "./bits";
 import { alertCountLine, allocationLine, BOAT_SIGNALS_RULE, circuitStops, FAR_PORTS_LINE, flowTotals, MAIDEN_LINE, REEF_FLARE_LINE, obituaryText, officeLine, quoted, SOUND_FLOW, SOUND_PHAROS, SOUND_SURF, STATION_RULE, stationFact, stormSignalLine, whereLine, whyHere, wreckDate } from "./facts";
@@ -20,12 +19,11 @@ import { expectedLabel, groupYard, launchedFromYard, PHASE_NAME, PHASES, STAGE_N
 const STAGE_WORD = { keel: "keel", ribs: "frames", planked: "planks", painted: "paint", rigged: "rigging" } as const;
 
 const signed = (v: number) => (v < 0 ? MINUS : "") + Math.abs(v).toFixed(2);
-import { stormTrend, type FrontState } from "../weather/director";
+import { stormTrend } from "../weather/director";
 import { usePresence, useStore, useSticky, useUI, useUISlice } from "./hooks";
 import { getFeed, getLighthouse, type PickHit } from "./services";
 import type { HarbourUIStore } from "./store";
-import { DEV_OVERRIDE_KEYS, OFFICE_FURL_HOLD, OFFICE_WORKS_HOLD, TIDE_FULL_SCALE_PCT, TIDE_SLACK_PCT, type OfficeState } from "../readings/bind";
-import type { EventsService } from "../model/event-hub";
+import { DEV_OVERRIDE_KEYS, OFFICE_FURL_HOLD, OFFICE_WORKS_HOLD, TIDE_FULL_SCALE_PCT, TIDE_SLACK_PCT } from "../readings/bind";
 import { dayBookLine } from "../model/events";
 
 type Raw = Record<string, unknown>;
@@ -37,7 +35,7 @@ const sumBuckets = (o: unknown) => (o && typeof o === "object" ? Object.values(o
 
 /** Dev only: URL reading overrides bend the world, not the payloads this panel reads, so say so. */
 function DevOverrideNote({ store }: { store: HarbourUIStore }) {
-  if (!(store.ctx.services.get("readings") as { overridden?: boolean } | undefined)?.overridden) return null;
+  if (!store.ctx.services.get("readings")?.overridden) return null;
   const q = new URLSearchParams(location.search);
   const keys = DEV_OVERRIDE_KEYS.filter((k) => q.has(k)).map((k) => `${k}=${q.get(k)}`).join(" ");
   return <p className="hb-caption hb-dev-override" role="note">Dev override ({keys}): the world shows forced readings; the figures below are the live data.</p>;
@@ -94,7 +92,7 @@ function PanelContent({ hit, titleRef }: { hit: PickHit; titleRef: React.RefObje
   if (hit.kind === "wreck") return <ObituaryPanel id={hit.id} titleRef={titleRef} />;
   if (hit.kind === "harbour") return <HarbourPanel chain={hit.id} model={model} titleRef={titleRef} />;
   if (hit.kind === "yard") return <YardCoinPanel id={hit.id} titleRef={titleRef} />;
-  const L = store.ctx.services.get("layout") as HarbourLayout | undefined;
+  const L = store.ctx.services.get("layout");
   const name = placeName(L ?? null, hit.id);
   switch (hit.id) {
     case "pharos": return <PharosPanel model={model} titleRef={titleRef} />;
@@ -378,13 +376,11 @@ function CustomsPanel({ model, titleRef }: P) {
   );
 }
 
-/** What the Storm panel reads from the weather service (src/harbour/weather), structurally. */
-interface WeatherLike { readonly state: { readonly front: FrontState | null }; readonly recoveryLine?: string | null }
 
 function StormPanel({ model, titleRef }: P) {
   const store = useStore();
   useUI(); // re-render on tick: the front crosses in about a minute
-  const wx = store.ctx.services.get("weather") as WeatherLike | undefined;
+  const wx = store.ctx.services.get("weather");
   const trend = stormTrend(wx?.state.front ?? null);
   const recovered = wx?.recoveryLine ?? null;
   const alerts = (model?.boats ?? []).filter((b) => b.state !== "wrecked" && (b.dews === "ALERT" || b.dews === "WARNING" || b.dews === "DANGER"))
@@ -534,7 +530,7 @@ function FarPortsPanel({ model, titleRef }: P) {
 function HarbourmasterPanel({ titleRef }: { titleRef: P["titleRef"] }) {
   const store = useStore();
   const { model } = useUI();
-  const s = (store.ctx.services.get("sim") as { stats: { underWay: number; docked: number; moored: number; anchored: number; outings?: number }; frozen: boolean } | undefined);
+  const s = store.ctx.services.get("sim");
   return (
     <>
       <Head kicker="Landmark" title="Harbourmaster’s Office" sub="the day’s movements" titleRef={titleRef} />
@@ -565,7 +561,7 @@ const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-GB", { hour: "
 /** The Day book: every confirmed change since the viewer arrived (model/events.ts), newest first. */
 function DayBook() {
   const store = useStore();
-  const ev = store.ctx.services.get("events") as EventsService | undefined;
+  const ev = store.ctx.services.get("events");
   const [, bump] = useState(0);
   useEffect(() => ev?.subscribe(() => bump((n) => n + 1)), [ev]);
   if (!ev) return null;
@@ -624,7 +620,7 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
   const visitors = (model?.boats ?? []).map((b) => ({ b, usd: b.chainShares.find((c) => c.chain === chain)?.usd ?? 0 }))
     .filter((x) => x.usd > 0).sort((a, b) => b.usd - a.usd);
   const chainRow = ((raw(store, "chains")?.chains as Raw[] | undefined) ?? []).find((c) => c.name === chain);
-  const officeState = (store.ctx.services.get("readings") as { offices?: Readonly<Record<string, OfficeState>> } | undefined)?.offices?.[chain];
+  const officeState = store.ctx.services.get("readings")?.offices?.[chain];
   const office = officeLine(officeState, chainRow?.change30dPct as number | undefined);
   return (
     <>

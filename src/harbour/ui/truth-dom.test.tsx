@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ServiceMap, Services } from "../engine/services";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { endpointProjector, type ProjectionJson } from "../../../functions/api/_project";
@@ -16,7 +17,7 @@ import type { UIState } from "./store";
 
 const { state, services, store } = vi.hoisted(() => {
   const state = { model: null as HarbourModel | null, selected: null as PickHit | null, ledgerOpen: true, reducedMotion: true };
-  const services = new Map<string, unknown>();
+  const services = new Map<string, unknown>() as Services;
   return { state, services, store: {
     ctx: { services }, getSnapshot: () => state, select: vi.fn(),
     whereaboutsOf: () => ({ kind: "moored", place: "Ethereum" }),
@@ -49,7 +50,7 @@ function section(title: string) { return within(screen.getByRole("heading", { na
 const valuation: MintBurnValuation = { completeness: "complete", mintCompleteness: "complete", burnCompleteness: "complete", unpricedMintEventCount: 0, unpricedBurnEventCount: 0 };
 const coverage: MintBurnCoinCoverage = { status: "full", has24hWindow: true, has30dWindow: false, has90dWindow: false, historyStartAt: NOW / 1000 - 8 * 86400, isPartial: false, startBlock: 0, lastSyncedBlock: 100, lagBlocks: 0 };
 const coinFlow = (): CoinFlow & { stablecoinId: string } => ({ stablecoinId: "a", netFlow24hUsd: 0, mintVolume24hUsd: 100, burnVolume24hUsd: 100, netFlow7dUsd: 0, coverage: { ...coverage }, valuation: { window24h: { ...valuation }, baseline: "complete", netFlow7d: "complete", netFlow30d: "complete", netFlow90d: "complete" } });
-function feed(coin: object) { services.set("feed", { payloads: { mintBurn: snap({ coins: [coin] }) } }); }
+function feed(coin: object) { services.set("feed", { payloads: { mintBurn: snap({ coins: [coin] }) } } as unknown as ServiceMap["feed"]); }
 const hours = (): FlowHour[] => Array.from({ length: 24 }, (_, i) => ({ hourTs: 3600 * i, mintUsd: 100, burnUsd: 90, netUsd: 10, valuation: "complete" }));
 
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); services.clear(); state.model = model(); state.selected = null; });

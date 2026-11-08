@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { Services } from "../engine/services";
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { projectedFixtures, TRUTH_COIN_ID, TRUTH_NOW, upstreamFixtures, type UpstreamFixtures } from "../__fixtures__/projection";
@@ -18,7 +19,7 @@ import type { UIState } from "./store";
 
 const { state, services, store } = vi.hoisted(() => {
   const state = { model: null as HarbourModel | null, selected: null as PickHit | null, hover: null as PickHit | null, ledgerOpen: true, chartMode: false, reducedMotion: true, tick: 0 };
-  const services = new Map<string, unknown>();
+  const services = new Map<string, unknown>() as Services;
   return { state, services, store: {
     ctx: { services }, getSnapshot: () => state, select: vi.fn(), set: vi.fn(), goHome: vi.fn(),
     boat: (id: string) => state.model?.boats.find((b) => b.id === id), underWay: () => 0, boatsInZone: () => [],

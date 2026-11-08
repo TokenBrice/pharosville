@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import layoutUrl from "../data/layout.json?url";
 import type { CameraPreset } from "../engine/camera-rig";
-import type { PostChain } from "../engine/post";
 import type { EngineContext, WorldSystem } from "../engine/types";
 import { fitPresetToAspect, heroPoints } from "./framing";
 import type { HarbourLayout, LayoutCameraPreset, Vec3 } from "./types";
@@ -60,7 +59,7 @@ export class LayoutSystem implements WorldSystem {
     this.hero = heroPoints(layout);
     // tilt-shift focus follows the Pharos (01-A6): its foot and lantern (heroPoints puts them first)
     const pharos = layout.landmarks.find((l) => l.id === "pharos");
-    const postSvc = ctx.services.get("post") as PostChain | undefined;
+    const postSvc = ctx.services.get("post");
     if (pharos && postSvc && this.hero.length >= 2) postSvc.tiltFocus = [new THREE.Vector3(...this.hero[0]), new THREE.Vector3(...this.hero[1])];
     this.heartDistance = presets.heart?.distance ?? presets.overview.distance * 0.45;
     this.overviewDistance = presets.overview.distance;
@@ -77,7 +76,7 @@ export class LayoutSystem implements WorldSystem {
     if (p.distance * 1.15 > rig.maxDistance) rig.maxDistance = p.distance * 1.15;
     // tilt-shift: none at the landing (heart) framing, full only out at the overview; a refit landing
     // that stands further back pushes the range out with it
-    const post = ctx.services.get("post") as PostChain | undefined;
+    const post = ctx.services.get("post");
     if (post) {
       const near = this.heartDistance * (p.distance / base.distance);
       post.tiltNear = near * 1.1;

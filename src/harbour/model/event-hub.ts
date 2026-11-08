@@ -4,7 +4,7 @@
  * `tick` every frame (cheap: it does work only while a moment is queued or running). No renderer, no clock reads.
  *
  * Consumers (audio, moments, camera lanes):
- *   const ev = ctx.services.get("events") as EventsService | undefined;
+ *   const ev = ctx.services.get("events");
  *   ev?.onMoment((m) => stage(m.event.kind, m.event.coinId, m.endMs));   // staged moments only, already budgeted
  *   ev?.subscribe(() => render(ev.book));                                  // any change: book or staging
  * A staged moment must be over by `m.endMs` (≤ 20 s). Under reduced motion nothing is staged; the book records all.

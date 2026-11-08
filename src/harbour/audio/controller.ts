@@ -231,7 +231,7 @@ class Controller implements SoundController {
 
 /** One controller per engine (kept in ctx.services as 'sound'). */
 export function getSoundController(ctx: EngineContext): SoundController {
-  let c = ctx.services.get("sound") as SoundController | undefined;
+  let c = ctx.services.get("sound");
   if (!c) { c = new Controller(ctx); ctx.services.set("sound", c); }
   return c;
 }

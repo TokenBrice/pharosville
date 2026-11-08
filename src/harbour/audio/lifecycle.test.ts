@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ServiceMap, Services } from "../engine/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../engine/types";
 import { Ambience, type AmbienceInputs } from "./ambience";
@@ -70,7 +71,7 @@ class AudioContextStub {
 function engineContext(): EngineContext {
   // The controller reads these engine services; no renderer or world systems are needed in this test.
   const ctx = {
-    services: new Map<string, unknown>(),
+    services: new Map<string, unknown>() as Services,
     rig: { distance: 300 },
     uniforms: { uNight: { value: 0 } },
     timeOfDay: { hour: 9 },
@@ -343,7 +344,7 @@ describe("harbour sound: visibility and lifetime", () => {
 
   it("disposes listeners, weather subscription, PCM and context idempotently without changing the saved choice", async () => {
     const ctx = engineContext(), unsub = vi.fn();
-    ctx.services.set("weather", { onLightning: () => unsub });
+    ctx.services.set("weather", { onLightning: () => unsub } as unknown as ServiceMap["weather"]);
     const ctl = controller(ctx);
     ctl.toggle();
     await vi.dynamicImportSettled();

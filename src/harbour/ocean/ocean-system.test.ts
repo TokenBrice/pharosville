@@ -1,10 +1,11 @@
+import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../engine/types";
 import { createWorldUniforms } from "../engine/uniforms";
 import { preparationMaterial } from "../engine/prepare";
 import { TIERS, type QualitySettings } from "../engine/quality";
-import { OceanSystem, type OceanService } from "./ocean-system";
+import { OceanSystem } from "./ocean-system";
 
 vi.mock("./textures", () => ({ acquireFxTextures: async () => ({ noise: new THREE.Texture(), ripple: new THREE.Texture(), release() {} }) }));
 vi.mock("./sdf-image", () => ({ loadSdfImage: async () => ({ width: 1, height: 1, data: new Uint8Array(4), coast: new Uint8Array(1) }) }));
@@ -17,10 +18,10 @@ describe("ocean feature preparation", () => {
     const quality = { tier: "medium", onChange: (fn: (q: QualitySettings) => void) => { listeners.add(fn); return () => listeners.delete(fn); } };
     const ctx = { scene: new THREE.Scene(), uniforms: createWorldUniforms(), services: new Map<string, unknown>([
       ["layout", { bounds: { min: [-10, 0, -10], max: [10, 10, 10] }, sea: { bounds: [-10, -10, 10, 10] } }], ["quality", quality],
-    ]) } as unknown as EngineContext;
+    ]) as Services } as unknown as EngineContext;
     const system = new OceanSystem(); await system.init(ctx);
     const material = (ctx.scene.getObjectByName("ocean") as THREE.Mesh).material as THREE.ShaderMaterial;
-    const ocean = ctx.services.get("ocean") as OceanService, defines = { ...material.defines };
+    const ocean = ctx.services.get("ocean")!, defines = { ...material.defines };
     const keys = new Set<string>(), version = material.version;
     for (const biolum of [false, true]) for (const lite of [false, true]) {
       ctx.uniforms.uFoliage.value.y = biolum ? 1 : 0;

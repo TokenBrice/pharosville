@@ -1,3 +1,4 @@
+import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorldUniforms } from "../engine/uniforms";
@@ -18,7 +19,7 @@ async function beamWorld(opts: { lit?: boolean; reduced?: boolean; night?: numbe
     ["fx:textures", { refs: 1, noise: new THREE.Texture(), ripple: new THREE.Texture(), release() {} }],
     ["lighthouse", lighthouse],
     ["motion", { reduced: opts.reduced ?? false }],
-  ]);
+  ]) as Services;
   const composer = { passes: [{}, {}, {}], addPass: vi.fn(), removePass: vi.fn() };
   const ctx = { camera, scene: new THREE.Scene(), uniforms, services, composer } as unknown as EngineContext;
   const beam = new BeamSystem();

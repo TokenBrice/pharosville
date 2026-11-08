@@ -1,3 +1,4 @@
+import type { ServiceMap, Services } from "./services";
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { FrameProfile } from "./frame-profile";
@@ -79,7 +80,7 @@ function frameEngine() {
   const ctx = {
     camera, renderer, composer, rig: new CameraRig(camera), timeOfDay: new TimeOfDay(),
     scene: new THREE.Scene(),
-    uniforms: createWorldUniforms(), services: new Map(),
+    uniforms: createWorldUniforms(), services: new Map() as Services,
   } as unknown as EngineContext;
   const engine = Object.assign(Object.create(Engine.prototype), {
     ctx, container: { clientWidth: 1000, clientHeight: 700 }, width: 0, height: 0, pixelRatio: 0,
@@ -292,7 +293,7 @@ describe("engine preparation and rendered readiness", () => {
   it("holds the context owner until restoration or the deadline and cancels feed/audio immediately", async () => {
     vi.useFakeTimers(); vi.stubGlobal("window", globalThis);
     const { engine, ctx } = frameEngine(), states = vi.fn(), data = { name: "data", init() {}, update() {}, dispose: vi.fn() };
-    const sound = { dispose: vi.fn() }; ctx.services.set("sound", sound); engine.begun.add(data);
+    const sound = { dispose: vi.fn() }; ctx.services.set("sound", sound as unknown as ServiceMap["sound"]); engine.begun.add(data);
     const off = engine.onLifecycle(states), event = new Event("webglcontextlost", { cancelable: true });
     engine.onContextLost(event);
     expect(event.defaultPrevented).toBe(true); expect(engine.aborted).toBe(true);

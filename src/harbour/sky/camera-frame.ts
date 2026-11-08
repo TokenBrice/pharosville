@@ -39,7 +39,7 @@ export class SkyCameraFrame {
   /** Geometry depends only on the immutable layout, camera frame, target and drawing size, not sky lighting/weather. */
   update(ctx: EngineContext, mesh: THREE.Mesh, bd: BackdropUniforms, parallax: THREE.IUniform<THREE.Vector4>): boolean {
     const { camera, rig, uniforms: W } = ctx;
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    const layout = ctx.services.get("layout");
     if (layout !== this.layout) this.syncLayout(layout);
     const fwd = camera.getWorldDirection(this.tmp), key = this.cameraKey;
     if (key.valid && key.matrix.equals(camera.matrixWorld) && key.projection.equals(camera.projectionMatrix) && key.position.equals(camera.position)

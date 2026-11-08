@@ -1,12 +1,9 @@
 import * as THREE from "three";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
-import type { QualityService } from "../engine/quality";
 import type { HarbourLayout } from "../layout/types";
 import { getLightsStore } from "../lights/lights-service";
-import type { LifeService } from "../life/life-system";
 import type { HarbourModel } from "../model/types";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
-import type { ReadingsService } from "../readings/readings-system";
 import { ensureMotionService, type MotionService } from "../ui/services";
 import { getHarbourMaterials, type HarbourMaterials } from "../world/materials";
 import { CIVIC_BASE, loadPlot, mergeStatic, pieceCentres, toWorld, type CivicManifest, type CivicPlot, type LoadedPlot } from "./assemble";
@@ -128,7 +125,7 @@ export class CivicSystem implements WorldSystem {
       get plots() { return sys.plotMap; },
     };
     ctx.services.set("civic", svc);
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    const layout = ctx.services.get("layout");
     const plots = ((layout as { civic?: CivicPlot[] } | undefined)?.civic ?? []).filter((p) => p && typeof p.kind === "string" && Array.isArray(p.position));
     // `?civic=0` leaves the quarter empty (A/B captures)
     if (!layout || !plots.length || this.q.get("civic") === "0") return;
@@ -281,8 +278,8 @@ export class CivicSystem implements WorldSystem {
     const u = ctx.uniforms;
 
     // flows: the model's 24 closed hours + the readings' stale flag (which carries ?stale=mintBurn)
-    const model = ctx.services.get("model") as HarbourModel | undefined;
-    const readings = ctx.services.get("readings") as ReadingsService | undefined;
+    const model = ctx.services.get("model");
+    const readings = ctx.services.get("readings");
     if ((model && model !== this.model) || (readings && readings.version !== this.readingsVersion)) {
       const fresh = model !== this.model;
       this.model = model ?? this.model;
@@ -299,7 +296,7 @@ export class CivicSystem implements WorldSystem {
     }
     if (!this.plots.length) return;
 
-    const life = ctx.services.get("life") as LifeService | undefined;
+    const life = ctx.services.get("life");
     const windTo = life?.windTo ?? [0.84, -0.54], wind = life?.wind ?? 0.35;
     const levels = workLevels(this.flows);
     const banked = this.flows.banked;
@@ -319,7 +316,7 @@ export class CivicSystem implements WorldSystem {
     this.boards?.update(dt, moving, u.uNight.value, wind);
 
     if (this.workers) {
-      const tier = (ctx.services.get("quality") as QualityService | undefined)?.tier ?? "high";
+      const tier = ctx.services.get("quality")?.tier ?? "high";
       const slots = this.workers.slots, mintSlots = this.mintSlots, yardSlots = this.yardSlots;
       if (this.mint) this.mint.workers(mintSlots, dt, moving); else mintSlots.forEach((s) => { s.visible = false; });
       if (this.yard) this.yard.workers(yardSlots); else yardSlots.forEach((s) => { s.visible = false; });
@@ -400,7 +397,7 @@ export class CivicSystem implements WorldSystem {
     if (rf && turned) boards.place("registry:flag", rf.slot, flagPlace(rf.hoist, this.flagWind, rf.size[0], rf.size[1]));
     const mv = this.movers;
     if (!mv || !this.crests) return;
-    const feed = ctx.services.get("feed") as { payloads?: { chains?: { data?: { chains?: unknown } } } } | undefined;
+    const feed = ctx.services.get("feed");
     const current = this.model?.truth.chains.state === "current";
     const rows = current ? feed?.payloads?.chains?.data?.chains : undefined;
     if (rows !== this.moversData || !this.moversKey.startsWith(`${this.model?.truth.chains.state}:`)) {
@@ -428,7 +425,7 @@ export class CivicSystem implements WorldSystem {
     this.boards?.dispose();
     ctx.scene.remove(this.group);
     ctx.services.delete("civic");
-    const lights = ctx.services.get("lights") as { remove(id: number): void } | undefined;
+    const lights = ctx.services.get("lights");
     for (const id of this.lightIds) lights?.remove(id);
     this.mint?.dispose(); this.burn?.dispose(); this.yard?.dispose(); this.workers?.dispose();
     this.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && m.name.startsWith("civic-merged")) m.geometry.dispose(); });

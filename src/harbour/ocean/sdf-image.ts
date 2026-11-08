@@ -13,9 +13,9 @@ export interface SdfImage { readonly data: Uint8Array; readonly coast: Uint8Arra
  * Development retains the authored lossless WebP. Callers only read the shared result.
  */
 export function loadSdfImage(ctx: EngineContext, url: string): Promise<SdfImage | null> {
-  const key = `sdf-image:${url}`;
-  let p = ctx.services.get(key) as Promise<SdfImage | null> | undefined;
-  if (!p) ctx.services.set(key, (p = decode(url, ctx.signal)));
+  const cache = ctx.assets.sdfImages;
+  let p = cache.get(url);
+  if (!p) cache.set(url, (p = decode(url, ctx.signal)));
   return p;
 }
 

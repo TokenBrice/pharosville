@@ -9,7 +9,6 @@ import { patch } from "../engine/shader-patch";
 import * as THREE from "three";
 import { LANDMARK_HOVER_GLSL, landmarkHover } from "./landmark-hover";
 import type { EngineContext } from "../engine/types";
-import type { QualityService } from "../engine/quality";
 import { decodeInto, deferPatternDecode, setBounds, takePatternTransform } from "../engine/static-merge";
 import type { WorldUniforms } from "../engine/uniforms";
 import { CLOUD_SHADOW_GLSL, cloudShadowUniforms } from "../sky/cloud-shadow";
@@ -675,11 +674,11 @@ export function dequantizeForPatterns(mesh: THREE.Mesh): void {
 
 /** The shared HarbourMaterials ('materials' service), created on first use. */
 export function getHarbourMaterials(ctx: EngineContext): HarbourMaterials {
-  let m = ctx.services.get("materials") as HarbourMaterials | undefined;
+  let m = ctx.services.get("materials");
   if (!m) {
     m = new HarbourMaterials(ctx.uniforms);
     Object.assign(m.beam, beamLightUniforms(getBeamUniforms(ctx)));
-    const q = ctx.services.get("quality") as QualityService | undefined;
+    const q = ctx.services.get("quality");
     if (q) {
       const mats = m;
       mats.setLite(q.tier === "low");

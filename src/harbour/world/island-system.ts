@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
-import type { HarbourLayout } from "../layout/types";
 import { aoHeightTexture, renderGround, type GroundService } from "./ground";
 import { getLightsStore } from "../lights/lights-service";
 import { dequantizeForPatterns, getHarbourMaterials } from "./materials";
@@ -25,7 +24,7 @@ export class IslandSystem implements WorldSystem {
   private ground: GroundService | null = null;
 
   async init(ctx: EngineContext): Promise<void> {
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    const layout = ctx.services.get("layout");
     if (!layout) throw new Error("[harbour] island needs the layout service");
     const mats = getHarbourMaterials(ctx);
     getLightsStore(ctx); // register 'lights' early so the fleet can add riding lights in its own init
