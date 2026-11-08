@@ -5,6 +5,7 @@ import { StoreContext } from "../../src/harbour/ui/hooks";
 import type { HarbourUIStore, UIState } from "../../src/harbour/ui/store";
 import { newLedgerContext, type LedgerContext, type LedgerTab, type LedgerView } from "../../src/harbour/ui/ledger-state";
 import { ensureMotionService } from "../../src/harbour/ui/services";
+import { publishPresentation } from "../../src/harbour/ui/presentation";
 import type { EngineContext } from "../../src/harbour/engine/types";
 import type { PickHit } from "../../src/harbour/ui/services";
 import type { SoundController, SoundMode } from "../../src/harbour/audio/controller";
@@ -36,6 +37,10 @@ export async function mountOverlayHarness(element: HTMLElement) {
   const ctx = { services, timeOfDay: { hour: 12 } } as unknown as EngineContext;
   const motion = ensureMotionService(ctx);
   motion.setStill(true);
+  // Stands in for the renderer: each model revision's whole fleet is drawn (a composer-completed frame).
+  let revision = 0;
+  const present = () => { const boats = state.model?.boats.length ?? 0; publishPresentation(ctx, { status: "complete", revision: ++revision, displayed: boats, expected: boats }); };
+  present();
   const store = {
     ctx, motion,
     getSnapshot: () => state,
@@ -80,7 +85,7 @@ export async function mountOverlayHarness(element: HTMLElement) {
     recovery: (active: boolean) => showRecovery(active),
     postcardFailure: (active: boolean) => { postcardFailure = active; },
     fail: () => fail(),
-    async refresh() { await Promise.all(["stablecoins", "chains", "stability", "pegSummary", "stress", "safetyGrades", "mintBurn"].map((key) => feed.refresh(key as Parameters<typeof feed.refresh>[0]))); set({ model: buildHarbourModel(feed.payloads, Date.now()), tick: state.tick + 1 }); },
+    async refresh() { await Promise.all(["stablecoins", "chains", "stability", "pegSummary", "stress", "safetyGrades", "mintBurn"].map((key) => feed.refresh(key as Parameters<typeof feed.refresh>[0]))); set({ model: buildHarbourModel(feed.payloads, Date.now()), tick: state.tick + 1 }); present(); },
     dispose() { root.unmount(); motion.dispose(); feed.stop(); },
   };
 }

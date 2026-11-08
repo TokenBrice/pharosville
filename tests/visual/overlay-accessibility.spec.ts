@@ -23,7 +23,7 @@ test.beforeEach(async ({ page }, testInfo) => {
 test("real search, ledger tabs, coin/landmark details and sound support keyboard and axe @visual-dom @visual-accessibility", async ({ page }) => {
   const errors: string[] = []; page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/__qa__/overlay.html?intro=0");
-  const search = page.getByRole("button", { name: "Search" });
+  const search = page.getByRole("button", { name: "Search", exact: true });
   await search.focus(); await page.keyboard.press("/");
   const input = page.getByRole("combobox"); await expect(input).toBeFocused(); await input.fill("USDC");
   await expect(page.getByRole("option").first()).toContainText("USDC"); await scan(page);
@@ -38,10 +38,11 @@ test("real search, ledger tabs, coin/landmark details and sound support keyboard
     await expect(tabs.nth(i)).toHaveAttribute("aria-selected", "true"); await scan(page);
     if (i + 1 < await tabs.count()) { await page.keyboard.press("ArrowRight"); await expect(tabs.nth(i + 1)).toBeFocused(); }
   }
-  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape"); await expect(search).toBeFocused();
   for (const id of ["pharos", "storm-mast", "keeperslog"]) {
     await page.evaluate((id) => (window as unknown as HarnessWindow).__overlay.store.select({ kind: "landmark", id }), id);
-    await expect(page.locator("#hb-panel-title")).toBeFocused(); await scan(page); await page.keyboard.press("Escape");
+    await expect(page.locator("#hb-panel-title")).toBeFocused(); await scan(page);
+    await page.keyboard.press("Escape"); await expect(search).toBeFocused();
   }
   const options = page.getByRole("button", { name: "Sound options" }); await options.focus(); await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("menuitemradio", { name: "Sound off", exact: true })).toBeFocused(); await scan(page);
@@ -52,7 +53,7 @@ test("real search, ledger tabs, coin/landmark details and sound support keyboard
 
 test("real stale/outage details and recovery content remain accessible @visual-dom @visual-accessibility", async ({ page }) => {
   await page.goto("/__qa__/overlay.html?intro=0");
-  await expect(page.getByRole("button", { name: "Search" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Search", exact: true })).toBeVisible();
   for (const atMs of [300000, 600000, 900000]) {
     await page.evaluate(async (atMs) => { const w = window as unknown as HarnessWindow; w.__scenario.advanceTo(atMs); await w.__overlay.refresh(); w.__overlay.store.select({ kind: "landmark", id: "keeperslog" }); }, atMs);
     await expect(page.locator("#hb-panel-title")).toBeVisible(); await scan(page);
@@ -61,7 +62,7 @@ test("real stale/outage details and recovery content remain accessible @visual-d
   await expect(page.getByRole("status")).toContainText("could not load");
   await expect(page.getByRole("link", { name: "Open Pharos analytics" })).toBeVisible(); await scan(page);
   await page.evaluate(() => (window as unknown as HarnessWindow).__overlay.recovery(false));
-  await expect(page.getByRole("button", { name: "Search" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Search", exact: true })).toBeVisible();
   await page.evaluate(() => (window as unknown as HarnessWindow).__overlay.fail());
   await expect(page.getByRole("button", { name: "Reload harbor" })).toBeVisible(); await scan(page);
 });
@@ -76,10 +77,12 @@ test("help preferences and native postcard success/failure retain focus and keyb
   await scan(page);
   await sheet.getByText("Explore further", { exact: true }).click();
   await sheet.getByText("View controls", { exact: true }).click(); await scan(page);
+  const still = sheet.getByRole("checkbox", { name: "Still world" });
+  await still.focus(); await page.keyboard.press("Space"); await expect(still).not.toBeChecked(); await expect(still).toBeFocused();
   await sheet.getByRole("checkbox", { name: "Character shortcuts" }).uncheck();
   await page.keyboard.press("Escape"); await expect(opener).toBeFocused();
   await page.keyboard.press("?"); await expect(sheet).toHaveCount(0);
-  await opener.click();
+  await page.locator(".hb-mark").hover(); await opener.click();
   await sheet.getByText("Explore further", { exact: true }).click();
   await page.evaluate(() => (window as unknown as HarnessWindow).__overlay.postcardFailure(true));
   const take = sheet.getByRole("button", { name: "Postcard", exact: true });
@@ -89,10 +92,13 @@ test("help preferences and native postcard success/failure retain focus and keyb
   await page.evaluate(() => (window as unknown as HarnessWindow).__overlay.postcardFailure(false));
   await postcard.getByRole("button", { name: "Try again" }).click();
   await expect(postcard.getByRole("link", { name: "Save" })).toBeFocused(); await scan(page);
-  for (let i = 0; i < 5; i++) {
+  // Native modality keeps the inert page out of the Tab order; past the last control, focus leaves for the browser's
+  // own UI (Chromium) or stays put (headless Firefox), and comes back into the dialog.
+  for (let i = 0; i < 6; i++) {
     await page.keyboard.press("Tab");
-    expect(await postcard.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true);
+    expect(await postcard.evaluate((dialog) => dialog.contains(document.activeElement) || !document.hasFocus())).toBe(true);
   }
+  await expect(postcard.locator(":focus")).toHaveCount(1);
   await page.keyboard.press("Escape"); await expect(postcard).toHaveCount(0); await expect(take).toBeFocused();
   await page.keyboard.press("Escape"); await expect(opener).toBeFocused();
 });
@@ -112,7 +118,7 @@ for (const [width, height] of [[600, 720], [720, 600], [1100, 640]] as const) {
       expect(search!.y + search!.height).toBeLessThanOrEqual(height - 12);
       expect(await input.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
       await page.getByRole("button", { name: "Close search", exact: true }).click();
-      await page.getByRole("button", { name: /Help and controls/ }).click();
+      await page.locator(".hb-mark").hover(); await page.getByRole("button", { name: /Help and controls/ }).click();
       const sheet = await page.locator(".hb-help").boundingBox();
       expect(sheet).not.toBeNull(); expect(sheet!.x).toBeGreaterThanOrEqual(12);
       expect(sheet!.x + sheet!.width).toBeLessThanOrEqual(width - 12);
