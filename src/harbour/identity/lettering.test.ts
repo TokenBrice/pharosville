@@ -47,5 +47,7 @@ describe("chart lettering tone by the hour", () => {
     expect(src).toContain("float dens = mix(mix(0.86, 0.55, smoothstep(0.0, 0.15, uNight)), 0.13, silver) * grain;");
     expect(src).toContain("vec3 ink = mix(uInkDay, uInkNight, silver);");
     expect(src).toContain("gl_FragColor = vec4(uHaloCol, halo * uHalo * (1.0 - smoothstep(0.0, 0.12, uNight)) * vA);");
+    // the day knock-out is a faint wash (.12 printed a pale rim round the names on the deeper v1.6.0 sea)
+    expect(src).toContain("uHalo: { value: 0.04 },");
   });
 });

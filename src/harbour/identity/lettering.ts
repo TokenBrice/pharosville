@@ -197,7 +197,8 @@ export class ChartLettering {
         uInkDay: { value: new THREE.Color("#0B2233") },
         uInkNight: { value: new THREE.Color("#93A7C2") },
         uHaloCol: { value: new THREE.Color("#CFE3DF") },
-        uHalo: { value: 0.12 },
+        // a faint knock-out: on the deeper day sea a stronger wash reads as a pale rim round the print
+        uHalo: { value: 0.04 },
       },
       transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide,
       // far off and grazing, the swell's own crests would nibble the print: a little depth bias (hulls still occlude)
