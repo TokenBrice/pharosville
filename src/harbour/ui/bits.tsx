@@ -12,7 +12,9 @@ export function truthState(m: HarbourModel | null): { state: Freshness; word: st
   const supply = sourceTruth(m, "stablecoins");
   const lagging = m ? Object.entries(m.truth).filter(([k, t]) => k !== "stablecoins" && t.state !== "current").length : 6;
   return { state: supply.state,
-    word: supply.state === "current" ? `Supply: current; ${lagging} other readings are stale or unavailable.` : readingSentence(m, "stablecoins"),
+    word: supply.state !== "current" ? readingSentence(m, "stablecoins")
+      : lagging === 0 ? "Supply: current."
+      : `Supply: current; ${lagging} other ${lagging === 1 ? "reading is" : "readings are"} stale or unavailable.`,
     detail: readingSentence(m, "stablecoins"),
   };
 }

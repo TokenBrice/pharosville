@@ -64,7 +64,8 @@ function circuitFor(chainUsd: Array<[string, number]>, supply: number, chains: r
  * Eligibility comes from the payload alone: every coin in /api/stablecoins is a boat.
  */
 export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, options: BuildOptions = {}): HarbourModel {
-  const truth = allTruth(payloads, nowMs);
+  // Freshness is judged against wall time; nowMs is the simulation clock (equal in production, offset by dev pins).
+  const truth = allTruth(payloads, options.truthNowMs ?? nowMs);
   const coins = payloads.stablecoins?.data?.peggedAssets ?? [];
   const peg = payloads.pegSummary?.data ?? null;
   const stress = payloads.stress?.data ?? null;

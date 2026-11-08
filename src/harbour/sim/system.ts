@@ -233,7 +233,8 @@ export class DataSystem implements WorldSystem {
     // This is freshness-only playback, never a replacement main-thread planning fallback.
     const payloads = this.workerFailed ? this.installedPayloads! : feed.payloads;
     const modelAt = () => {
-      const m = buildHarbourModel(payloads, this.simNow(Date.now()), { pieredChains: layout.piers.map((p) => p.chain) });
+      const now = Date.now();
+      const m = buildHarbourModel(payloads, this.simNow(now), { pieredChains: layout.piers.map((p) => p.chain), truthNowMs: now });
       return import.meta.env.DEV && this.devEvent ? this.stageDevEvent(m) : m;
     };
     let phase: "model-build" | "worker" = "model-build";
@@ -317,12 +318,11 @@ export class DataSystem implements WorldSystem {
     const sim = this.sim;
     if (!sim) return;
     if (this.devEvent && !this.devEvent.fired && Date.now() >= this.devEvent.at) { this.devEvent.fired = true; this.dirty = true; this.revision++; }
-    const now = this.simNow(frame.nowMs);
     if (this.readiness.prepared && !this.dirty && frame.nowMs - this.lastBuild > TRUTH_RECHECK_MS && this.feed) {
       // a silent feed must still age into stale: re-check freshness (cheap), rebuild only on a change
       this.lastBuild = frame.nowMs;
       const payloads = this.workerFailed ? this.installedPayloads ?? this.feed.payloads : this.feed.payloads;
-      const sig = Object.values(allTruth(payloads, now)).map((t) => t.state).join();
+      const sig = Object.values(allTruth(payloads, frame.nowMs)).map((t) => t.state).join(); // freshness uses wall time
       if (sig !== this.truthSig) { this.dirty = true; this.revision++; }
     }
     if (this.dirty) this.queuePreparation(ctx);

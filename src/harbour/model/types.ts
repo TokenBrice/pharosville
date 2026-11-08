@@ -84,6 +84,8 @@ export interface EndpointSnapshot<T> {
 export type HarbourPayloads = { [K in EndpointKey]?: EndpointSnapshot<PayloadByKey[K]> };
 
 export interface BuildOptions {
+  /** Wall-clock time for freshness (defaults to the model clock; differs only under dev time pins). */
+  truthNowMs?: number;
   /** Chains that own a pier, in layout order (layout.piers[].chain). Default: top 8 by supply. */
   pieredChains?: readonly string[];
   /** Optional full dead-coin override; default is the exact build-time cemetery scenery projection. */
