@@ -62,7 +62,13 @@ const BLOOM0: [number, number] = [0.5, 1.5];
  * these uniforms. Dawn, golden, dusk and night keys keep their own light.
  */
 export const DAY_AIR = 0.64;
-const dayAir = (hex: string): string => `#${new THREE.Color(hex).multiplyScalar(DAY_AIR).getHexString()}`;
+/**
+ * The morning (8.5) key: on a short day the 9:00 sun stands low behind the Pharos, so its air is a step clearer
+ * than noon's (× MORNING_AIR on top of DAY_AIR) and its key a touch stronger (4.8, the afternoon's): the back-lit
+ * tower holds its band. Dawn, noon and the afternoon keep their air.
+ */
+export const MORNING_AIR = 0.85;
+const dayAir = (hex: string, k = 1): string => `#${new THREE.Color(hex).multiplyScalar(DAY_AIR * k).getHexString()}`;
 
 /**
  * Night (style C night still): deep navy-teal value structure. The sky is slate-indigo with a dark zenith,
@@ -100,10 +106,10 @@ export const DEFAULT_KEYFRAMES: TimeKeyframe[] = [
     fogDensity: 0.0011, night: 0.25, windowGlow: 0.35, exposure: 0.3, bloom: [0.7, 1.2], lamp: 6, lens: 6,
     windowOcc: 0.3, nightLift: 0.012,
     grade: { lift: [0.99, 1.0, 1.04], gamma: [1, 1, 1], gain: [1.05, 1.0, 0.95], saturation: 1.22, contrast: 1.28, blueSat: 0.9, warmSat: 1.08 } },
-  { hour: 8.5, sunColor: "#FFE2C4", sunIntensity: 4.4, sunAz: 110, sunEl: 30,
+  { hour: 8.5, sunColor: "#FFE2C4", sunIntensity: 4.8, sunAz: 110, sunEl: 30,
     fillColor: "#A9C4EE", fillIntensity: 0.4, fillAz: 250, fillEl: 40,
     hemiSky: "#8AAAC8", hemiGround: "#CBCBC2", worldK: 0.6,
-    ambient: "#8AAAC8", zenith: "#5A8FCC", horizon: dayAir("#E6EEF0"), haze: dayAir("#C2D3DC"),
+    ambient: "#8AAAC8", zenith: "#5A8FCC", horizon: dayAir("#E6EEF0", MORNING_AIR), haze: dayAir("#C2D3DC", MORNING_AIR),
     fogDensity: 0.0008, night: 0, windowGlow: 0, exposure: 0.05, bloom: [0.35, 1.9], lamp: 0.4, lens: 3,
     grade: { lift: [0.99, 0.99, 1.0], gamma: [1, 1, 1], gain: [1.015, 1, 0.985], saturation: 1.12, contrast: 1.32, blueSat: 0.82, warmSat: 1.08 } },
   // noon (palette.json time_of_day.noon) — warmer key, firmer S-curve; the sea recedes, roofs/sails carry colour
