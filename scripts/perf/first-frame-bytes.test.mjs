@@ -37,6 +37,7 @@ test("dependency growth changes totals while preserving the old ledger and budge
     const grown = await collectBytes({ dist, publicDir });
     assert.ok(grown.totals.firstFrameGzipBodyBytes > first.totals.firstFrameGzipBodyBytes);
     assert.deepEqual(grown.legacyTotals, first.legacyTotals);
+    assert.deepEqual(grown.legacyCategories, first.legacyCategories);
     assert.equal(grown.ledgers.base.storedBytes + grown.ledgers.fleet.storedBytes, grown.totals.firstFrameStoredBytes);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

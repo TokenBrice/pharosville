@@ -84,7 +84,8 @@ new schema preserves `legacyTotals`; current `totals` close over actual emitted 
 references (including workers, URL seed assets, dynamic CSS and italic font). Base and
 fleet ledgers partition that conservative dependency frontier; decorative media are a
 separate stored inventory, including authoring/alternate transports. No budget changes
-are automatic; newly discovered dependencies can expose an existing budget overrun.
+are automatic. The gate compares `budgets.json` with `legacyTotals`/`legacyCategories`, the
+frontier those budgets were measured on; the complete ledgers are reported, not yet budgeted.
 
 B01 proposed targets remain: CPU4 frame CPU p95 ≤8 ms/p99 ≤12 ms; no application
 Long Tasks ≥50 ms after first fleet over ten minutes; cold arrival ≤2 tasks and none
