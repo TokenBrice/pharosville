@@ -29,7 +29,7 @@ export function performAction(store: HarbourUIStore, action: HarbourAction): voi
   const s = store.getSnapshot();
   if (action === "search") store.set({ searchOpen: true });
   else if (action === "ledger") store.set({ ledgerOpen: !s.ledgerOpen });
-  else if (action === "reading") { store.set({ ledgerOpen: true }); dispatchEvent(new Event("harbour:legend")); }
+  else if (action === "reading") store.startGuide(); // D06: the five-stop guide, on demand only
   else if (action === "names") store.set({ chartMode: !s.chartMode });
   else if (action === "home") store.goHome();
   else if (action === "watch") store.toggleWatch();

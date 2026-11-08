@@ -40,16 +40,18 @@ describe("the slip (O8-I7): the visitor's own modes, one at a time", () => {
     await set({ still: false });
     expect(slip().dataset.mode).toBe("names");
     await set({ watch: { symbol: "USDT", line: "new to the register this week" } });
-    expect(slip().dataset.mode).toBe("watch");
-    expect(document.querySelectorAll(".hb-slip")).toHaveLength(1);
+    expect(slip().dataset.shown).toBe("false"); // the watch speaks through its own controls (D14)
+    expect(document.querySelectorAll(".hb-slip, .hb-watch")).toHaveLength(2);
   });
 
-  it("carries the watch's subject and its stop", async () => {
+  it("gives the watch its own paced controls in the slip's place, with its subject and its stop", async () => {
     const stop = vi.spyOn(harness.store, "stopWatch");
     await set({ watch: { symbol: "USDC", line: "biggest supply change in 24 h (+$1.2B)" } });
-    expect(slip().dataset.mode).toBe("watch");
-    expect(slip().textContent).toContain("USDC biggest supply change in 24 h (+$1.2B)");
-    fireEvent.click(screen.getByRole("button", { name: "Stop the watch (W)" }));
+    expect(slip().dataset.shown).toBe("false");
+    const watch = document.querySelector<HTMLElement>(".hb-watch")!;
+    expect(watch.textContent).toContain("USDC biggest supply change in 24 h (+$1.2B)");
+    for (const name of ["Previous", "Next", "Inspect"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stop watch" }));
     expect(stop).toHaveBeenCalledOnce();
   });
 

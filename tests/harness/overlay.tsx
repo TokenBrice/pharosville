@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { HarbourUI } from "../../src/harbour/ui/App";
 import { StoreContext } from "../../src/harbour/ui/hooks";
 import type { HarbourUIStore, UIState } from "../../src/harbour/ui/store";
+import { newLedgerContext, type LedgerContext, type LedgerTab, type LedgerView } from "../../src/harbour/ui/ledger-state";
 import { ensureMotionService } from "../../src/harbour/ui/services";
 import type { EngineContext } from "../../src/harbour/engine/types";
 import type { PickHit } from "../../src/harbour/ui/services";
@@ -19,7 +20,7 @@ export async function mountOverlayHarness(element: HTMLElement) {
   const feed = new HarbourFeed({ setTimer: () => 0, clearTimer: () => {} });
   await feed.start();
   const listeners = new Set<() => void>(), soundListeners = new Set<() => void>();
-  let state: UIState = { model: buildHarbourModel(feed.payloads, Date.now()), hover: null, shipChoices: [], selected: null, searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: true, tick: 0, follow: null, announce: "", capturing: false, watch: null };
+  let state: UIState = { model: buildHarbourModel(feed.payloads, Date.now()), hover: null, shipChoices: [], selected: null, searchOpen: false, ledgerOpen: false, ledger: newLedgerContext(), chartMode: false, reducedMotion: true, tick: 0, follow: null, announce: "", capturing: false, watch: null };
   const set = (patch: Partial<UIState>) => { state = { ...state, ...patch }; listeners.forEach((fn) => fn()); };
   let mode: SoundMode = "off";
   let postcardFailure = false;
@@ -40,6 +41,16 @@ export async function mountOverlayHarness(element: HTMLElement) {
     getSnapshot: () => state,
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     set,
+    updateLedger(patch: Partial<LedgerContext>) { set({ ledger: { ...state.ledger!, ...patch } }); },
+    updateLedgerView(tab: LedgerTab, patch: Partial<LedgerView>) {
+      set({ ledger: { ...state.ledger!, views: { ...state.ledger!.views, [tab]: { ...state.ledger!.views[tab], ...patch } } } });
+    },
+    hoverLedger(hover: PickHit | null) { set({ hover }); },
+    readLedger(selected: PickHit, locate = false) {
+      store.updateLedgerView(state.ledger!.tab, { row: selected.id });
+      set({ selected, searchOpen: false, ledgerOpen: !locate, ledgerOrigin: true });
+    },
+    returnToLedger() { set({ selected: null, ledgerOpen: true, ledgerOrigin: false, ledger: { ...state.ledger!, returning: true } }); },
     select(selected: PickHit | null) { set({ selected, searchOpen: false }); },
     boat: (id: string) => state.model?.boats.find((b) => b.id === id),
     whereaboutsOf: () => ({ kind: "unknown", place: null }), boatsInZone: () => [], underWay: () => 0,

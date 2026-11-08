@@ -234,17 +234,6 @@
 }
 :is(.hb-keys, .hb-follow, .hb-keylist, .hb-slip) kbd { margin-right: 4px; }
 
-/* one-time orientation caption, hung under the wordmark */
-.hb-intro {
-  position: absolute; top: calc(100% + 9px); left: 0; width: 318px; padding: 11px 16px 12px;
-  display: grid; gap: 4px; pointer-events: none; transform: translateY(-4px);
-}
-.hb-intro[data-shown="true"] { transform: none; }
-.hb-intro::after { content: ""; position: absolute; top: -5px; left: 24px; width: 8px; height: 8px; background: var(--paper); border-left: 1px solid var(--edge); border-top: 1px solid var(--edge); transform: rotate(45deg); }
-.hb-intro b { font-weight: 600; font-size: var(--fs-lead); line-height: 1.2; }
-.hb-intro span { font-style: italic; font-size: var(--fs-small); color: var(--ink-2); line-height: 1.35; }
-.hb-intro .hb-intro-keys { font-style: normal; font-size: var(--fs-note); color: var(--ink-3); margin-top: 3px; }
-.hb-mark[data-intro="true"] .hb-dot[data-state="current"]::after { animation-duration: 1.6s; border-color: color-mix(in srgb, var(--live) 80%, transparent); }
 
 /* ------------------------------------------------------------------ hover tag */
 .hb-tag-anchor { position: fixed; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
@@ -658,3 +647,38 @@
 .hb-ui input:not([type="checkbox"]), .hb-ui select { min-height: var(--s6); }
 .hb-panel-body, .hb-ledger-body { padding-bottom: calc(var(--ctl-touch) + var(--s6)); }
 .hb-ui :focus { scroll-margin-block: var(--s6) calc(var(--ctl-touch) + var(--s6)); }
+/* ------------------------------------------------------------------ the harbourmaster's watch (W, D14): its own controls */
+.hb-watch { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 6px 14px 7px; font-size: var(--fs-small); display: flex; align-items: baseline; gap: 8px; }
+.hb-watch .hb-sc { color: var(--brass-ink); }
+.hb-watch em { color: var(--ink-2); }
+
+/* Reading panes and their on-demand controls share the Pilot's Chart tokens. */
+.hb-panel-record { overflow-y: auto; min-height: 0; }
+.hb-panel-record .hb-panel-body { overflow: visible; }
+.hb-return, .hb-how, .hb-sources { margin: var(--s3) var(--s6); }
+.hb-scenery summary, .hb-sources summary, .hb-calendar summary { cursor: pointer; color: var(--link); min-height: var(--ctl); }
+.hb-reading-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.hb-reading-actions button, .hb-coin-filters select {
+  min-height: var(--ctl); padding: 0 var(--s2); border: 1px solid var(--rule); border-radius: var(--r-ctl); color: var(--link); background: var(--face); font: inherit;
+}
+.hb-reading-actions button:disabled { color: var(--ink-3); cursor: default; }
+.hb-guide { position: fixed; inset: var(--s6) auto auto var(--s6); width: min(480px, calc(100vw - 48px)); max-height: calc(100vh - 48px); overflow: auto; padding: var(--s6); pointer-events: auto; }
+.hb-guide .hb-title { font-size: var(--fs-h3); line-height: 1.2; }
+.hb-watch { flex-wrap: wrap; white-space: normal; max-width: calc(100vw - 48px); pointer-events: auto; }
+.hb-ledger[hidden] { display: none; }
+.hb-ledger-body { container-type: inline-size; }
+.hb-tabs { flex-wrap: wrap; gap: var(--s2) var(--s5); }
+.hb-coin-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin-bottom: var(--s3); font-size: var(--fs-small); }
+.hb-coin-filters label { display: inline-flex; align-items: center; gap: 4px; }
+.hb-coin-filters select { max-width: 12em; color: var(--ink); }
+.hb-ledger .hb-table td:first-child { white-space: nowrap; }
+.hb-ledger .hb-table td:first-child button { white-space: nowrap; max-width: 14em; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.hb-ledger .hb-table td .hb-trunc { max-width: 5em; }
+@container (max-width: 650px) { .hb-ledger .hb-table [data-priority="3"] { display: none; } }
+@container (max-width: 540px) { .hb-ledger .hb-table [data-priority="2"] { display: none; } }
+@media (pointer: coarse) {
+  .hb-reading-actions button, .hb-coin-filters select, .hb-coin-filters label, .hb-scenery summary, .hb-sources summary, .hb-calendar summary { min-height: var(--ctl-touch); }
+}
+.hb-reading-actions button:hover { background: var(--wash-2); }
+.hb-reading-actions button:active { background: var(--wash-3); }
+@container (max-width: 540px) { .hb-ledger .hb-trunc { display: none; } }

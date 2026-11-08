@@ -11,6 +11,8 @@ import { SectionErrorBoundary } from "@/components/section-error-boundary";
 import { OverlayFailure } from "./OverlayFailure";
 import { PALETTE_FADE } from "./palette";
 import { Slip } from "./Slip";
+import { Guide } from "./Guide";
+import { WatchControls } from "./WatchControls";
 import { HelpSheet } from "./HelpSheet";
 import { ACTIONS, ActionContext, performAction, type HarbourAction } from "./KeyList";
 import { readShortcuts, saveShortcuts } from "./shortcuts";
@@ -98,6 +100,7 @@ export function HarbourUI() {
       store.noteInput();
       if (e.key === "Escape") {
         if (helpOpen) closeHelp();
+        else if (s.guideStop != null) store.closeGuide();
         else if (s.shipChoices?.length) store.set({ shipChoices: [] });
         else if (s.searchOpen) closeSearch();
         else if (s.selected) closePanel();
@@ -128,7 +131,7 @@ export function HarbourUI() {
 
   return (
     <ActionContext.Provider value={action}><div ref={root} className={`hb-ui${reducedMotion ? " hb-reduced" : ""}${capturing ? " hb-capturing" : ""}`} data-palette={palette ?? "day"} style={PALETTE_FADE}>
-      <a className="hb-skip hb-control hb-paper" href="#hb-ledger-title" onClick={(e) => { e.preventDefault(); action("reading"); requestAnimationFrame(() => document.querySelector<HTMLElement>("#hb-ledger-title, #hb-loading-ledger")?.focus()); }}>Skip to harbour readings</a>
+      <a className="hb-skip hb-control hb-paper" href="#hb-ledger-title" onClick={(e) => { e.preventDefault(); store.set({ ledgerOpen: true }); requestAnimationFrame(() => document.querySelector<HTMLElement>("#hb-ledger-title, #hb-loading-ledger")?.focus()); }}>Skip to harbour readings</a>
       <ChartLabels overlays={overlays} tagBox={tagBox} />
       <HoverTag overlayRef={tagBox} />
       <CornerMark />
@@ -144,6 +147,8 @@ export function HarbourUI() {
       {helpOpen && <HelpSheet onClose={closeHelp} shortcuts={shortcuts} setShortcuts={(enabled) => { setShortcuts(enabled); saveShortcuts(enabled); }} />}
       <Postcard />
       {!!shipChoices?.length && <ShipChooser choices={shipChoices} />}
+      <Guide />
+      <WatchControls />
       <Slip />
       <div className="hb-sr" aria-live="polite">{chartMode ? "Chart mode on: names shown." : ""}{searchOpen ? "Search open." : ""}{announce}</div>
     </div></ActionContext.Provider>

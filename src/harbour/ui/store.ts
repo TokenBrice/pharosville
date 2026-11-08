@@ -12,14 +12,19 @@ import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { Boat, HarbourModel } from "../model/types";
 import { PANEL_LANDMARKS, whereabouts, type Whereabouts } from "./facts";
 import { UIPicking } from "./picking";
-import { inPoly, seaZones } from "./places";
+import { civicTop, inPoly, plotFor, seaZones } from "./places";
 import { idleBreath, modelWatch, watchSources, WATCH_DWELL_S, type WatchStop } from "./watch";
 import { truthCopy } from "./truth-copy";
 import { nextPalette, registerPaletteTokens, type Palette } from "./palette";
+import { ElementMeasurements } from "./measurements";
+import { footprintBounds, frameSubject, usableSpace, type ScreenRect, type SubjectBounds } from "./camera-moves";
+import { LEDGER_PANES_MIN_PX, newLedgerContext, type LedgerContext, type LedgerTab, type LedgerView } from "./ledger-state";
+import { deadSummaries } from "../model/obituary";
+import { yardCoins } from "./yard";
 import { RouteLine } from "../fleet/route-line";
 import { landmarkHover } from "../world/landmark-hover";
 import { PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "../sim/sim";
-import { ensureMotionService, getLayout, getModel, getSim, sameHit, type MotionService, type PickHit, type PickingService } from "./services";
+import { ensureMotionService, getCove, getLayout, getModel, getSim, sameHit, type MotionService, type PickHit, type PickingService } from "./services";
 
 export interface UIState {
   model: HarbourModel | null;
@@ -28,6 +33,9 @@ export interface UIState {
   selected: PickHit | null;
   searchOpen: boolean;
   ledgerOpen: boolean;
+  ledger?: LedgerContext;
+  ledgerOrigin?: boolean;
+  guideStop?: number | null;
   chartMode: boolean;
   reducedMotion: boolean;
   /** Slow clock (1 Hz) for text that changes as boats sail. */
@@ -45,6 +53,9 @@ export interface UIState {
   /** The visitor's own Still world (Sound options), as the motion service reports it; its slip shows while it is on. */
   still?: boolean;
 }
+
+// Identifiers and research intent survive size-gate teardown; no readings or runtime are retained.
+let readingSession: { selected: PickHit | null; ledger: LedgerContext; ledgerOpen: boolean; origin: boolean; fly: boolean } | null = null;
 
 type FrameFn = (frame: FrameState) => void;
 
@@ -119,13 +130,17 @@ export class HarbourUIStore {
     registerPaletteTokens();
     this.state = {
       model: this.readModel(), hover: null, shipChoices: [], selected: null, searchOpen: false, ledgerOpen: false, chartMode: false,
+      ledger: readingSession?.ledger ?? newLedgerContext(), ledgerOrigin: false, guideStop: null,
       reducedMotion: this.motion.reduced, tick: 0, follow: null, announce: "", capturing: false, watch: null,
       palette: nextPalette(null, ctx.uniforms.uNight.value), still: this.motion.still,
     };
-    this.cleanups.push(this.motion.subscribe((reduced) => { this.set({ reducedMotion: reduced, still: this.motion.still }); if (reduced) this.stopAutomation(); }));
+    this.cleanups.push(this.motion.subscribe((reduced) => { this.set({ reducedMotion: reduced, still: this.motion.still }); if (reduced) { this.setFollow(null); this.ctx.rig.stop(); this.keyVel.x = this.keyVel.y = 0; } }));
     this.attachPointer(ctx.renderer.domElement);
     this.route = new RouteLine(ctx, (id) => getSim(this.ctx)?.itineraryOf?.(id) ?? null);
     this.cleanups.push(() => this.route.dispose());
+    const resize = () => { this.measurements.invalidate(ctx.renderer.domElement); };
+    addEventListener("resize", resize);
+    this.cleanups.push(() => removeEventListener("resize", resize));
     engine.add(this.system());
   }
 
@@ -136,6 +151,8 @@ export class HarbourUIStore {
   getSnapshot = (): UIState => this.state;
   subscribe = (fn: () => void): (() => void) => { this.listeners.add(fn); return () => this.listeners.delete(fn); };
   set(patch: Partial<UIState>): void {
+    // Opening research takes camera intent; the ledger must never trigger an unsolicited flight.
+    if (patch.ledgerOpen && this.state.selected) this.selectionEpoch = null;
     let changed = false;
     for (const k in patch) if ((patch as Record<string, unknown>)[k] !== (this.state as unknown as Record<string, unknown>)[k]) { changed = true; break; }
     if (!changed) return;
@@ -160,13 +177,15 @@ export class HarbourUIStore {
     this.picking.beginFrame();
     const model = this.readModel();
     if (model !== this.state.model) this.set({ model });
+    this.restoreReadingSession();
+    this.refreshPanelSpace();
     if (frame.nowMs - this.lastTick >= 1000) {
       this.lastTick = frame.nowMs;
       // the night bridge follows the clock's night factor (never a reading), with hysteresis (palette.ts)
       this.set({ tick: this.state.tick + 1, palette: nextPalette(this.state.palette, this.ctx.uniforms.uNight.value) });
     }
     // hover: re-pick on pointer motion, and every 120 ms while still (boats sail out from under it)
-    if (this.pointer.inside && !this.hoverHeld && !this.dragging && !this.state.capturing && !this.state.watch && (this.pointer.dirty || frame.nowMs - this.lastPickAt > 120)) {
+    if (!this.ledgerHover && this.pointer.inside && !this.hoverHeld && !this.dragging && !this.state.capturing && !this.state.watch && (this.pointer.dirty || frame.nowMs - this.lastPickAt > 120)) {
       this.pointer.dirty = false;
       this.lastPickAt = frame.nowMs;
       const hit = this.picking.pick(this.pointer.x, this.pointer.y);
@@ -213,6 +232,7 @@ export class HarbourUIStore {
     this.hoverHeld = held;
     if (!held && !this.pointer.inside && this.state.hover) this.setHover(null);
   }
+  private ledgerHover = false;
 
   private setHover(hit: PickHit | null): void {
     if (this.suppressedHover) {
@@ -370,46 +390,131 @@ export class HarbourUIStore {
     if (!sameHit(hit, this.state.selected) || !hit) this.setFollow(null);
     this.picking.setSelected(hit);
     this.route.show(hit?.kind === "boat" ? hit.id : null);
-    this.set({ selected: hit, searchOpen: false, shipChoices: [] });
+    this.set({ selected: hit, searchOpen: false, shipChoices: [], ...(hit && opts.fly !== false ? { ledgerOpen: false } : {}) });
+    this.selectionEpoch = hit && opts.fly !== false ? this.ctx.rig.inputEpoch : null;
     if (hit && opts.fly !== false) this.flyTo(hit);
   }
 
-  /** Camera flight (a minimum-jerk glide; a cut under reduced motion), keeping the selection clear of the side panel. */
-  flyTo(hit: PickHit): void {
+  private selectionEpoch: number | null = null;
+  private readonly measurements = new ElementMeasurements();
+  private readonly panels = new Map<"panel" | "ledger", HTMLElement>();
+  private spaceKey = "";
+  private space: ScreenRect | null = null;
+
+  measurePanel(kind: "panel" | "ledger", element: HTMLElement): () => void {
+    this.panels.set(kind, element);
+    return () => { this.measurements.forget(element); if (this.panels.get(kind) === element) this.panels.delete(kind); };
+  }
+
+  private refreshPanelSpace(reframe = true): void {
+    const canvas = this.ctx.renderer.domElement, size = this.measurements.get(canvas);
+    const width = size.w || canvas.clientWidth || innerWidth, height = size.h || canvas.clientHeight || innerHeight;
+    const overlays: ScreenRect[] = [];
+    for (const [kind, element] of this.panels) {
+      if (kind === "ledger" && (!this.state.ledgerOpen || (this.state.selected && width < LEDGER_PANES_MIN_PX))) continue;
+      if (kind === "panel" && !this.state.selected) continue;
+      const { w, h } = this.measurements.get(element);
+      if (!w || !h) continue;
+      overlays.push(kind === "ledger" ? { left: 14, right: 14 + w, top: 14, bottom: height - 14 }
+        : width < SHEET_BELOW_PX ? { left: 0, right: width, top: height - h, bottom: height }
+          : { left: width - 14 - w, right: width - 14, top: 14, bottom: 14 + h });
+    }
+    const space = usableSpace(width, height, overlays), key = `${width},${height},${space.left},${space.right},${space.top},${space.bottom}`;
+    this.space = space;
+    if (key === this.spaceKey) return;
+    this.spaceKey = key;
+    if (reframe && this.state.selected && this.selectionEpoch === this.ctx.rig.inputEpoch) this.flyTo(this.state.selected);
+  }
+
+  private subjectBounds(hit: PickHit): SubjectBounds | null {
     const w = this.picking.worldPosition(hit);
-    if (!w) return;
-    const { rig, camera } = this.ctx;
+    if (!w) return null;
+    const layout = getLayout(this.ctx);
+    if (hit.kind === "boat") {
+      const b = this.boat(hit.id), top = b && layout ? (layout.deckY ?? 1.2) + (layout.hull.mastAboveDeck[b.hullClass] ?? 8) : 16;
+      const length = b && layout ? layout.hull.loa[b.hullClass] / 2 : 12;
+      return { center: [w[0], top / 2, w[2]], radius: Math.hypot(top / 2, length ?? 12) };
+    }
+    if (hit.kind === "landmark" && hit.id === "pharos") return { center: [w[0], w[1] + 45, w[2]], radius: 62 };
+    if (hit.kind === "wreck") {
+      const mark = getCove(this.ctx)?.mark(hit.id);
+      if (mark) return { center: [mark.x, mark.y + mark.top / 2, mark.z], radius: Math.hypot(mark.top / 2, mark.len / 2) };
+    }
+    const plot = hit.kind === "landmark" ? plotFor(layout, hit.id) : null;
+    if (plot) return { center: [w[0], w[1] + civicTop(plot.kind) / 2, w[2]], radius: Math.hypot(civicTop(plot.kind) / 2, plot.footprint[0] / 2, plot.footprint[1] / 2) };
+    if (hit.kind === "harbour") {
+      const pier = layout?.piers.find((p) => p.chain === hit.id);
+      const bounds = pier && footprintBounds(pier.segments.flatMap((s) => [s.a, s.b]), 16);
+      if (bounds && pier) { bounds.radius += Math.max(...pier.segments.map((s) => s.width)) / 2; return bounds; }
+    }
+    if (hit.kind === "landmark") {
+      const polygon = seaZones(layout).find((z) => z.id === hit.id)?.polygon
+        ?? (hit.id === "shoals" ? layout?.zones.shoals?.polygon : hit.id === "wreck-cove" ? layout?.zones.wreckCove?.polygon : hit.id === "far-ports" ? layout?.zones.farPorts?.polygon : undefined);
+      const bounds = polygon && footprintBounds(polygon, 16);
+      if (bounds) return bounds;
+    }
+    const landmark = layout?.landmarks.find((l) => l.id === hit.id);
+    return { center: [w[0], w[1] + 8, w[2]], radius: landmark?.footprint ?? (hit.kind === "harbour" ? 24 : 16) };
+  }
+
+  /** Selection and Follow use the same measured free rectangle. */
+  private selectionPose(hit: PickHit, distance?: number): CameraPreset | null {
+    const subject = this.subjectBounds(hit);
+    if (!subject) return null;
+    const { rig, camera, renderer } = this.ctx;
+    const width = renderer.domElement.clientWidth || innerWidth, height = renderer.domElement.clientHeight || innerHeight;
     const close = hit.kind === "boat" ? 210 : hit.kind === "yard" ? 170 : hit.kind === "wreck" ? 160 : hit.kind === "harbour" ? 300
       : hit.id === "far-ports" || hit.id === "wreck-cove" || hit.id === "the-roads" ? 420 : hit.id === "slipway" ? 340 : hit.id === "pharos" ? 440 : 300;
-    // the Pharos stands ~100 m to its statue: aim at its middle so the beacon and its tag stay in frame
-    const ty = hit.kind === "landmark" && hit.id === "pharos" ? 45 : 0;
-    const dist = Math.min(Math.max(rig.distance, close * 0.75), close);
-    const [tx, tz] = this.framed(w[0], w[2], dist);
-    this.moveTo({
-      target: [tx, ty, tz], distance: dist, fovDeg: camera.fov,
+    return frameSubject(subject, this.space ?? usableSpace(width, height, []), width, height, {
+      target: subject.center, distance: distance ?? Math.min(Math.max(rig.distance, close * 0.75), close), fovDeg: camera.fov,
       pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
     });
   }
 
-  /** The rig target that frames a ground point clear of the side panel (or above the bottom sheet) at `dist`. */
-  private framed(x: number, z: number, dist: number): [number, number] {
-    const { rig, camera } = this.ctx;
-    const vh = this.ctx.renderer.domElement.clientHeight || innerHeight;
-    const vw = this.ctx.renderer.domElement.clientWidth || innerWidth;
-    const perPx = (2 * dist * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / vh;
-    let tx = x, tz = z;
-    if (vw >= SHEET_BELOW_PX) {
-      // the side panel: aim right of the object so it sits in the clear left part; screen-right on the
-      // ground plane is (cos yaw, 0, −sin yaw)
-      const shift = (PANEL_CLEARANCE_PX / 2) * perPx;
-      tx += Math.cos(rig.yaw) * shift; tz -= Math.sin(rig.yaw) * shift;
-    } else {
-      // the bottom sheet: aim below the object so it sits in the clear top part; screen-down on the
-      // ground is (sin yaw, 0, cos yaw), foreshortened by the pitch
-      const down = ((SHEET_FRACTION * vh) / 2) * perPx / Math.sin(rig.pitch);
-      tx += Math.sin(rig.yaw) * down; tz += Math.cos(rig.yaw) * down;
-    }
-    return [tx, tz];
+  flyTo(hit: PickHit): void {
+    this.refreshPanelSpace(false);
+    const pose = this.selectionPose(hit);
+    if (pose) this.moveTo(pose);
+  }
+
+  updateLedger(patch: Partial<LedgerContext>): void { this.set({ ledger: { ...this.state.ledger!, ...patch } }); }
+  updateLedgerView(tab: LedgerTab, patch: Partial<LedgerView>): void {
+    const ledger = this.state.ledger!;
+    this.updateLedger({ views: { ...ledger.views, [tab]: { ...ledger.views[tab], ...patch } } });
+  }
+  readLedger(hit: PickHit, locate = false): void {
+    this.hoverLedger(null);
+    if (!locate) this.stopAutomation();
+    this.updateLedgerView(this.state.ledger!.tab, { row: hit.id });
+    this.set({ ledgerOrigin: true, ledgerOpen: !locate });
+    this.select(hit, { fly: locate });
+  }
+  returnToLedger(): void {
+    this.select(null, { fly: false });
+    this.updateLedger({ returning: true });
+    this.set({ ledgerOpen: true, ledgerOrigin: false });
+  }
+  coinsOnChain(chain: string): void {
+    this.updateLedger({ tab: "Coins", filters: { ...newLedgerContext().filters, chain }, returning: false });
+    this.updateLedgerView("Coins", { query: "", scroll: 0, row: null });
+    this.select(null, { fly: false });
+    this.set({ ledgerOpen: true, ledgerOrigin: false });
+  }
+  hoverLedger(hit: PickHit | null): void { this.ledgerHover = !!hit; this.setHover(hit); }
+  startGuide(stop = 0): void { this.stopAutomation(); this.set({ guideStop: Math.max(0, Math.min(4, stop)) }); }
+  closeGuide(): void { this.set({ guideStop: null }); }
+
+  private restoreReadingSession(): void {
+    const saved = readingSession, model = this.state.model;
+    if (!saved || !model?.hasFleet || model.truth.stablecoins.state !== "current") return;
+    readingSession = null;
+    const hit = saved.selected;
+    const valid = !hit ? false : hit.kind === "boat" ? model.boats.some((b) => b.id === hit.id)
+      : hit.kind === "wreck" ? deadSummaries().has(hit.id) || model.readings.wrecks.some((w) => w.id === hit.id)
+        : hit.kind === "yard" ? yardCoins(this.ctx).some((c) => c.id === hit.id)
+          : hit.kind === "harbour" ? model.harbours.some((h) => h.chain === hit.id) : PANEL_LANDMARKS.has(hit.id);
+    this.set({ ledgerOpen: saved.ledgerOpen, ledgerOrigin: valid && saved.origin });
+    if (valid) this.select(hit, { fly: saved.fly });
   }
 
   /** A programmatic camera move: a glide, or a cut under reduced motion. */
@@ -430,6 +535,7 @@ export class HarbourUIStore {
    */
   goHome(): void {
     this.stopAutomation();
+    this.selectionEpoch = null;
     const p = this.homeView(), rig = this.ctx.rig;
     if (this.state.reducedMotion) { rig.applyPreset(p, true); return; }
     const settled = !rig.gliding && Math.abs(rig.distance - p.distance) < 1
@@ -489,11 +595,11 @@ export class HarbourUIStore {
 
   /** W: glide between the day's data-ranked subjects, ~20 s at each, pinning the hover tag. Opt-in only. */
   startWatch(): void {
-    if (this.state.reducedMotion) { this.set({ announce: "Motion is still. Readings continue to update." }); return; }
     const stops = this.watchStops();
     if (!stops.length) { this.set({ announce: this.watchEmpty() }); return; }
     if (this.state.selected) this.select(null);
     this.setFollow(null);
+    this.set({ ledgerOpen: false, searchOpen: false, guideStop: null });
     const rig = this.ctx.rig;
     this.watchRun = { stops, i: -1, dwell: 0, epoch: rig.inputEpoch, spring: { x: rig.target.x, z: rig.target.z, vx: 0, vz: 0 } };
     this.watchNext();
@@ -519,10 +625,21 @@ export class HarbourUIStore {
     return true;
   }
 
-  private watchNext(): void {
+  watchPrevious(): void { this.watchNext(-1); }
+
+  inspectWatch(): void {
+    const stop = this.watchRun?.stops[this.watchRun.i];
+    if (stop && this.watchStops().some((s) => s.id === stop.id && s.reason === stop.reason)) this.select({ kind: "boat", id: stop.id });
+  }
+
+  watchNext(direction: 1 | -1 = 1): void {
     const w = this.watchRun;
     if (!w) return;
-    w.i = (w.i + 1) % w.stops.length;
+    const previous = w.stops[w.i];
+    w.stops = this.watchStops();
+    if (!w.stops.length) { this.stopWatch(); this.set({ announce: this.watchEmpty() }); return; }
+    const at = previous ? w.stops.findIndex((s) => s.id === previous.id && s.reason === previous.reason) : -1;
+    w.i = at < 0 ? (direction === 1 ? 0 : w.stops.length - 1) : (at + direction + w.stops.length) % w.stops.length;
     w.dwell = 0;
     const stop = w.stops[w.i], b = this.boat(stop.id);
     const pos = this.picking.worldPosition({ kind: "boat", id: stop.id });
@@ -556,6 +673,7 @@ export class HarbourUIStore {
     const stop = stops[supported], boat = this.boat(stop.id);
     if (boat && (this.state.watch?.line !== stop.line || this.state.watch?.symbol !== boat.symbol)) this.set({ watch: { symbol: boat.symbol, line: stop.line } });
     if (rig.gliding) { Object.assign(w.spring, { x: rig.target.x, z: rig.target.z, vx: 0, vz: 0 }); return; }
+    if (this.state.reducedMotion) return;
     w.dwell += dt;
     if (w.dwell >= WATCH_DWELL_S) { this.watchNext(); return; }
     // keep her in view while she sails (the follow spring, no panel to clear)
@@ -679,6 +797,10 @@ export class HarbourUIStore {
     if (id === this.state.follow) return;
     if (id) {
       const rig = this.ctx.rig;
+      this.selectionEpoch = rig.inputEpoch;
+      this.set({ ledgerOpen: false });
+      const pose = this.selectionPose({ kind: "boat", id }, rig.distance);
+      if (pose) this.moveTo(pose);
       Object.assign(this.fol, { x: rig.target.x, z: rig.target.z, vx: 0, vz: 0, epoch: rig.inputEpoch, still: 0 });
     }
     const b = id ? this.boat(id) : null;
@@ -709,7 +831,9 @@ export class HarbourUIStore {
     if (f.still > 2) { this.setFollow(null); return; }
     // let a fly-to land first; the spring picks up from wherever the camera is
     if (rig.gliding) { Object.assign(f, { x: rig.target.x, z: rig.target.z, vx: 0, vz: 0 }); return; }
-    const [gx, gz] = this.framed(sim.pose.position[i * 3], sim.pose.position[i * 3 + 2], rig.distance);
+    const pose = this.selectionPose({ kind: "boat", id }, rig.distance);
+    if (!pose) return;
+    const [gx, , gz] = pose.target;
     springStep(f, gx, gz, FOLLOW_OMEGA, dt);
     rig.steer(f.x, f.z);
   }
@@ -746,6 +870,9 @@ export class HarbourUIStore {
   }
 
   dispose(): void {
+    readingSession = { selected: this.state.selected, ledger: this.state.ledger!, ledgerOpen: this.state.ledgerOpen,
+      origin: !!this.state.ledgerOrigin, fly: this.selectionEpoch === this.ctx.rig.inputEpoch };
+    this.measurements.dispose();
     for (const c of this.cleanups) c();
     this.picking.dispose();
     this.frameFns.clear();

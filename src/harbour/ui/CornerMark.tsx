@@ -1,23 +1,10 @@
-import { useEffect, useState } from "react";
 import { SoundToggle } from "../audio/SoundToggle";
 import { presentationCopy, usePresentation } from "./presentation";
 import { truthState } from "./bits";
-import { touchFirst, usePresence, useUISlice } from "./hooks";
+import { useUISlice } from "./hooks";
 import { useFeedHealth } from "./feed-health";
 import { ACTIONS, useHarbourAction } from "./KeyList";
 
-const INTRO_KEY = "harbour.intro.seen";
-
-/**
- * The one-time orientation caption: once per browser, a few seconds after the fleet arrives. Never in
- * automated captures (navigator.webdriver) unless forced with `?intro=1`; `?intro=0` suppresses it.
- */
-function wantsIntro(): boolean {
-  const forced = new URLSearchParams(location.search).get("intro");
-  if (forced === "1") return true;
-  if (forced === "0" || navigator.webdriver) return false;
-  try { return !localStorage.getItem(INTRO_KEY); } catch { return false; }
-}
 
 /**
  * The only persistent chrome (D11): wordmark + one live dot. Hover or keyboard focus opens the state
@@ -34,25 +21,10 @@ export function CornerMark() {
   const t = truthState(model);
   const health = useFeedHealth();
   const live = t.word === "live" && !display && !health;
-  const ready = !!model?.hasFleet;
 
-  const [want] = useState(wantsIntro);
-  const [intro, setIntro] = useState<"waiting" | "on" | "done">("waiting");
-  useEffect(() => {
-    if (!ready || !want || intro !== "waiting") return;
-    const id = setTimeout(() => setIntro("on"), 1400);
-    return () => clearTimeout(id);
-  }, [ready, want, intro]);
-  useEffect(() => {
-    if (intro !== "on") return;
-    try { localStorage.setItem(INTRO_KEY, "1"); } catch { /* private window: it simply shows again */ }
-    const id = setTimeout(() => setIntro("done"), 7000);
-    return () => clearTimeout(id);
-  }, [intro]);
-  const [introMounted, introShown] = usePresence(intro === "on", 600);
 
   return (
-    <div className="hb-mark hb-paper" data-intro={intro === "on"} data-live={live}>
+    <div className="hb-mark hb-paper" data-live={live}>
       <button
         type="button"
         className="hb-mark-btn"
@@ -76,15 +48,6 @@ export function CornerMark() {
         </div>
       </span>
       <SoundToggle />
-      {introMounted && (
-        <div className="hb-intro hb-paper hb-neat hb-fade" data-shown={introShown} role="status">
-          <b>Every boat here is a stablecoin.</b>
-          <span>It sails between the chains that hold it; the lighthouse, the sea and the sky are the market’s health.</span>
-          {touchFirst()
-            ? <span className="hb-intro-keys">Tap anything · hold for its name · pinch to zoom · the ledger holds the legend</span>
-            : <span className="hb-intro-keys">Hover anything · <kbd>L</kbd> the legend · <kbd>/</kbd> find a coin</span>}
-        </div>
-      )}
     </div>
   );
 }
