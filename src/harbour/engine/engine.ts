@@ -90,7 +90,7 @@ export class Engine {
   private running = false;
   private requestedRunning = false;
   private firstFrameMs: number | null = null;
-  private readonly rendered = { revision: 0, boats: 0 };
+  private readonly rendered = { revision: 0, boats: 0, drawn: 0 };
   private readonly renderedListeners = new Set<(state: RenderedFleetState) => void>();
   private gpuPasses: GpuPassProfiler | null = null;
   private readonly preparation: ProgramPreparation;
@@ -529,6 +529,7 @@ export class Engine {
     const fleet = this.ctx.services.get("fleet-frame");
     this.rendered.revision = fleet?.revision ?? 0;
     this.rendered.boats = fleet?.boats ?? 0;
+    this.rendered.drawn = fleet?.drawn ?? this.rendered.boats;
     this.stats.renderedRevision = this.rendered.revision;
     this.stats.renderedBoats = this.rendered.boats;
     if (this.firstFrameMs === null) performance.mark("pv:first-frame");

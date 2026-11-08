@@ -226,7 +226,7 @@ describe("engine preparation and rendered readiness", () => {
     const completed: RenderedFleetState[] = [];
     const off = engine.onRendered((state) => completed.push({ ...state }));
     engine.frame(16);
-    expect(completed).toEqual([{ revision: 0, boats: 0 }]);
+    expect(completed).toEqual([{ revision: 0, boats: 0, drawn: 0 }]);
     expect(engine.stats.firstFleetFrameMs).toBeNull();
     Object.assign(readiness, { revision: 1, boats: 12, prepared: true });
     Object.assign(posed, { revision: 1, boats: 11 });
@@ -235,13 +235,13 @@ describe("engine preparation and rendered readiness", () => {
       expect(completed).toHaveLength(1);
     });
     engine.frame(32);
-    expect(completed[1]).toEqual({ revision: 1, boats: 11 }); // Desired readiness must not invent a posed boat.
+    expect(completed[1]).toEqual({ revision: 1, boats: 11, drawn: 11 }); // Desired readiness must not invent a posed boat.
     expect(engine.stats.firstFleetFrameMs).not.toBeNull();
     Object.assign(readiness, { revision: 2, boats: 14 });
     Object.assign(posed, { revision: 1, boats: 12 }); // New readiness was not posed yet.
     engine.profile = new FrameProfile();
     engine.profiledFrame(48);
-    expect(completed[2]).toEqual({ revision: 1, boats: 12 });
+    expect(completed[2]).toEqual({ revision: 1, boats: 12, drawn: 12 });
     expect(engine.stats).toMatchObject({ renderedRevision: 1, renderedBoats: 12, programs: 1, textures: 3, gpuMs: 2, gpuP10Ms: 2, gpuP50Ms: 3, gpuSamples: 30, gpuCompletedSamples: 50 });
     expect(mark.mock.calls.filter(([name]) => name === "pv:first-frame")).toHaveLength(1);
     expect(mark.mock.calls.filter(([name]) => name === "pv:first-fleet-frame")).toHaveLength(1);
@@ -484,7 +484,7 @@ describe("engine preparation and rendered readiness", () => {
     const completed: RenderedFleetState[] = [];
     engine.onRendered((state) => completed.push({ ...state }));
     engine.frame(16);
-    expect(completed).toEqual([{ revision: 0, boats: 0 }]);
+    expect(completed).toEqual([{ revision: 0, boats: 0, drawn: 0 }]);
     expect(engine.stats.firstFleetFrameMs).toBeNull();
   });
 

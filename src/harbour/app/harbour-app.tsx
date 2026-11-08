@@ -141,7 +141,7 @@ export function HarbourApp() {
           reveal(readiness.boats === 0 ? "empty" : "live");
           return;
         }
-        const incomplete = readiness?.prepared && rendered.revision === readiness.revision && rendered.boats < readiness.boats;
+        const incomplete = readiness?.prepared && rendered.revision === readiness.revision && (rendered.drawn ?? rendered.boats) < readiness.boats;
         if (incomplete) {
           if (incompleteRevision !== readiness.revision) incompleteSince = undefined;
           incompleteRevision = readiness.revision;
@@ -149,7 +149,7 @@ export function HarbourApp() {
           if (now - incompleteSince > FLEET_WAIT_MS) {
             if (warnedIncompleteRevision !== readiness.revision) {
               warnedIncompleteRevision = readiness.revision;
-              console.warn("[harbour] revealing incomplete fleet", { revision: readiness.revision, rendered: rendered.boats, expected: readiness.boats });
+              console.warn("[harbour] revealing incomplete fleet", { revision: readiness.revision, rendered: rendered.drawn ?? rendered.boats, expected: readiness.boats });
             }
             reveal("partial");
             return;

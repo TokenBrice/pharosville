@@ -145,17 +145,17 @@ describe("conservative fleet visual culling", () => {
 });
 
 describe("fleet-frame submission evidence", () => {
-  it("publishes an entire first revision pose, then the actual culled count in the same service", () => {
+  it("publishes an entire first revision pose, then the actual culled count, keeping the drawable count (A17)", () => {
     const f = fixture(false);
     Object.assign(f.system, { needsFullPose: true });
     expect(f.context.services.has("fleet-frame")).toBe(false);
     f.system.update(frame, f.context);
     const submitted = f.context.services.get("fleet-frame")!;
-    expect(submitted).toEqual({ revision: 7, boats: 1 });
+    expect(submitted).toEqual({ revision: 7, boats: 1, drawn: 1 });
     expect(f.mesh.setMatrixAt).toHaveBeenCalledTimes(1);
     f.system.update(frame, f.context);
     expect(f.context.services.get("fleet-frame")).toBe(submitted);
-    expect(submitted).toEqual({ revision: 7, boats: 0 });
+    expect(submitted).toEqual({ revision: 7, boats: 0, drawn: 1 }); // culled, not incomplete
     expect(f.mesh.setMatrixAt).toHaveBeenCalledTimes(1);
   });
 
@@ -164,7 +164,7 @@ describe("fleet-frame submission evidence", () => {
     f.context.services.set("readiness", { revision: 8, boats: 123, prepared: true });
     f.sim.pose.ids[0] = "not-installed";
     f.system.update(frame, f.context);
-    expect(f.context.services.get("fleet-frame")).toEqual({ revision: 7, boats: 0 });
+    expect(f.context.services.get("fleet-frame")).toEqual({ revision: 7, boats: 0, drawn: 0 });
     expect(f.mesh.setMatrixAt).not.toHaveBeenCalled();
   });
 
@@ -174,7 +174,7 @@ describe("fleet-frame submission evidence", () => {
       if (missing === "pose") f.sim.pose.count = 2;
       else Object.assign(f.system, { boats: [] });
       f.system.update(frame, f.context);
-      expect(f.context.services.get("fleet-frame")).toEqual({ revision: 7, boats: 0 });
+      expect(f.context.services.get("fleet-frame")).toEqual({ revision: 7, boats: 0, drawn: 0 });
       expect(f.mesh.setMatrixAt).not.toHaveBeenCalled();
     }
   });

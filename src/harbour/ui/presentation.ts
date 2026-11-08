@@ -18,8 +18,9 @@ function state(owner: object) {
 }
 export function renderedPresentation(rendered: RenderedFleetState, ready: ReadinessState | undefined, failed: boolean): PresentationStatus {
   const matching = ready?.prepared && ready.revision > 0 && rendered.revision === ready.revision;
-  return { status: failed ? "failed" : !matching ? "pending" : rendered.boats === ready.boats ? "complete" : "partial",
-    revision: rendered.revision, displayed: rendered.boats, expected: ready?.boats ?? 0 };
+  const displayed = rendered.drawn ?? rendered.boats; // view culling is not an incomplete display
+  return { status: failed ? "failed" : !matching ? "pending" : displayed === ready.boats ? "complete" : "partial",
+    revision: rendered.revision, displayed, expected: ready?.boats ?? 0 };
 }
 /** Publication comes only from a composer-completed frame, independently of endpoint freshness. */
 export function publishPresentation(owner: object, next: PresentationStatus): void {

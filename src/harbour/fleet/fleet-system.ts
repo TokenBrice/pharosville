@@ -60,6 +60,8 @@ export interface PickingService {
 export interface FleetFrameState {
   revision: number;
   boats: number;
+  /** Boats this revision's full pose proved drawable; view culling afterwards is not incompleteness. */
+  drawn?: number;
 }
 
 /** Riding lights come on with the town (uWindowGlow), not at the first hint of golden hour. */
@@ -225,6 +227,8 @@ export class FleetSystem implements WorldSystem {
   /** Each installed revision submits its complete fleet once before offscreen posing can be skipped. */
   private needsFullPose = false;
   private readonly fleetFrame: FleetFrameState = { revision: 0, boats: 0 };
+  private drawnRevision = -1;
+  private drawnBoats = 0;
   private layout: HarbourLayout | null = null;
   private piers = new Map<string, Pier>();
   private lines!: MooringLines;
@@ -1220,9 +1224,13 @@ export class FleetSystem implements WorldSystem {
     this.hoverLantern.update(ctx, this.hover ? this.byId.get(this.hover) : undefined);
     // Clear against the boats this fleet could install (a missing kit variant must not force full posing forever);
     // fleet-frame still reports the actual posed count, so the reveal compares it with readiness honestly.
-    if (this.needsFullPose && posed === this.boats.length) this.needsFullPose = false;
+    if (this.needsFullPose && posed === this.boats.length) {
+      this.needsFullPose = false;
+      this.drawnRevision = this.modelRevision; this.drawnBoats = posed;
+    }
     this.fleetFrame.revision = this.modelRevision;
     this.fleetFrame.boats = posed;
+    this.fleetFrame.drawn = this.drawnRevision === this.modelRevision ? this.drawnBoats : posed;
     ctx.services.set("fleet-frame", this.fleetFrame);
     this.cpuMs += (performance.now() - t0 - this.cpuMs) * 0.1;
     if (this.debug) this.updateDebug(frame, ctx, sim);

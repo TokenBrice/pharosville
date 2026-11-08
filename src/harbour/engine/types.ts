@@ -92,7 +92,10 @@ export interface SimulationStatus {
 /** FleetSystem's posed/submitted revision and boat count, copied after a completed composer render. */
 export interface RenderedFleetState {
   readonly revision: number;
+  /** Hulls submitted this frame (the reveal's proof on the revision's full-pose frame). */
   readonly boats: number;
+  /** Hulls proven drawable for this revision (A17 completeness; culling does not lower it). */
+  readonly drawn?: number;
 }
 
 export interface HarbourStats {
