@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { initializeCapture, freezeCapture } from "./golden-controls.mjs";
 import { runShot } from "./frame.mjs";
+import { createReplay, replayInitScript } from "../../tests/helpers/scenario.ts";
 
 const { values: a } = parseArgs({ options: {
   help: { type: "boolean" }, origin: { type: "string", default: "http://127.0.0.1:4180/" }, out: { type: "string", default: "outputs/perf/golden" }, snapshot: { type: "string" },
@@ -14,7 +15,7 @@ const { values: a } = parseArgs({ options: {
   width: { type: "string", default: "1600" }, height: { type: "string", default: "1000" }, epoch: { type: "string" }, seed: { type: "string", default: "20261019" }, elapsed: { type: "string", default: "120" },
   filmstrip: { type: "string" }, interval: { type: "string", default: "100" }, "ready-timeout": { type: "string", default: "120" },
   "empty-fixture": { type: "boolean" },
-  "record-snapshot": { type: "string" },
+  "record-snapshot": { type: "string" }, "at-ms": { type: "string", default: "0" },
 } });
 if (a.help) {
   console.log(`Usage: node scripts/perf/golden.mjs --snapshot FILE [options]
@@ -23,6 +24,7 @@ if (a.help) {
   --views heart,overview,closest --hours 12.5,18.5,22 --seasons summer,winter --weather CALM,DANGER
   --dprs 1,2 --quality high|medium|low --profile standard|igpu --width 1600 --height 1000
   --empty-fixture             allow zero office flags only for a verified empty fleet
+  --at-ms MS                  advance a scenario before boot (single snapshots still work)
   --epoch MS --seed 20261019 --elapsed 120 --ready-timeout 120
   --filmstrip N --interval MS   N normal-motion frames, fixed simulation interval (default 100 ms)
 Stills pin Date/RNG, boot rAF timestamps, reduced motion, ALL MotionClocks (including ocean), eased
@@ -52,7 +54,8 @@ async function main() {
   }
   if (!a.snapshot) throw new Error("--snapshot FILE is required (use --record-snapshot FILE once; do not re-record between arms)");
   const snapshotText = await readFile(resolve(a.snapshot), "utf8"), snapshot = JSON.parse(snapshotText);
-  if (!snapshot.responses || !Number.isFinite(Number(a.epoch ?? snapshot.epoch))) throw new Error("Snapshot must contain responses and an epoch (or supply --epoch)");
+  snapshot.epoch = Number(a.epoch ?? snapshot.epoch);
+  createReplay(snapshot).advanceTo(Number(a["at-ms"]));
   const filmstrip = Number(a.filmstrip ?? 0), interval = Number(a.interval);
   if (a.filmstrip && (!Number.isInteger(filmstrip) || filmstrip < 1 || !(interval > 0))) throw new Error("--filmstrip must be a positive frame count; --interval must be positive");
   if (!["standard", "igpu"].includes(a.profile) || !["high", "medium", "low"].includes(a.quality)) throw new Error("invalid profile or quality");
@@ -61,9 +64,9 @@ async function main() {
   if (views.some((v) => !["heart", "overview", "closest"].includes(v)) || seasons.some((v) => !["spring", "summer", "autumn", "winter"].includes(v)) || weather.some((v) => !["CALM", "WATCH", "ALERT", "WARNING", "DANGER"].includes(v)) || dprs.some((v) => !["1", "2"].includes(v))) throw new Error("invalid view/season/weather/DPR matrix");
   const out = resolve(a.out);
   await mkdir(out, { recursive: true });
-  const controls = { epoch: Number(a.epoch ?? snapshot.epoch), seed: Number(a.seed), elapsed: Number(a.elapsed), filmstrip, interval, emptyFixture: !!a["empty-fixture"] };
+  const controls = { atMs: Number(a["at-ms"]), epoch: snapshot.epoch + Number(a["at-ms"]), seed: Number(a.seed), elapsed: Number(a.elapsed), filmstrip, interval, emptyFixture: !!a["empty-fixture"] };
   const initFile = resolve(out, "capture-init.js");
-  await writeFile(initFile, `(${initializeCapture.toString()})(${JSON.stringify(snapshot)},${JSON.stringify(controls)});`);
+  await writeFile(initFile, `${replayInitScript(snapshot)}\nwindow.__scenario.advanceTo(${Number(a["at-ms"])});\n(${initializeCapture.toString()})(${JSON.stringify(controls)});`);
   const manifest = { meta: { tool: "golden", date: new Date().toISOString(), origin: a.origin, snapshot: resolve(a.snapshot), snapshotSha256: createHash("sha256").update(snapshotText).digest("hex"), profile: a.profile, quality: a.quality, ...controls, protocol: "pinned Date/RNG/boot-rAF; converged private clocks and uniforms; zero-delta stills or fixed-step normal motion", humanReviewRequired: true }, captures: [] };
   let failure;
   outer: for (const dpr of dprs) for (const view of views) for (const hour of hours) for (const season of seasons) for (const band of weather) {

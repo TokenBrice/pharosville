@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrivalModuleFailure, ArrivalShell } from "@/components/arrival-shell";
 import { reportClientError } from "@/error-reporter";
-import { installGoogleAnalytics } from "@/google-analytics";
 import { preloadDetails } from "../ui/details";
 import { Engine } from "../engine/engine";
 import { SYSTEMS } from "../systems";
@@ -78,7 +77,6 @@ export function HarbourApp() {
         void preloadDetails().catch(() => { /* A later interaction may retry a failed warmup. */ });
         shellTimer = window.setTimeout(() => {
           setShellGone(true);
-          installGoogleAnalytics();
         }, 1200);
       };
       stopWatching = engine.onRendered((rendered: RenderedFleetState) => {

@@ -1,8 +1,9 @@
-export function initializeCapture(snapshot, controls) {
+export function initializeCapture(controls) {
   let seed = controls.seed >>> 0;
   Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
   const NativeDate = Date;
   window.__goldenNow = controls.epoch;
+  window.__scenarioEpoch = controls.epoch - (controls.atMs ?? 0);
   function PinnedDate(...args) {
     if (!new.target) return new NativeDate(window.__goldenNow).toString();
     return Reflect.construct(NativeDate, args.length ? args : [window.__goldenNow], new.target);
@@ -13,18 +14,6 @@ export function initializeCapture(snapshot, controls) {
   window.Date = PinnedDate;
   const raf = window.requestAnimationFrame.bind(window);
   window.requestAnimationFrame = (callback) => raf(() => callback(0));
-  const fetchReal = window.fetch.bind(window);
-  window.fetch = async (input, options) => {
-    const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url, location.href);
-    if (url.origin === location.origin && url.pathname.startsWith("/api/")) {
-      const row = snapshot.responses[url.pathname + url.search] ?? snapshot.responses[url.pathname];
-      if (!row) throw new Error(`API snapshot missing ${url.pathname}${url.search}`);
-      const headers = new Headers(row.headers);
-      headers.delete("content-encoding"); headers.delete("content-length");
-      return new Response(typeof row.body === "string" ? row.body : JSON.stringify(row.body), { status: row.status, headers });
-    }
-    return fetchReal(input, options);
-  };
   try { localStorage.setItem("pv:intro-seen", "1"); } catch { /* storage policy */ }
   const disableAnimations = () => {
     const style = document.createElement("style");
@@ -156,6 +145,7 @@ export async function freezeCapture({ elapsed, epoch, closest, band, filmstrip, 
       for (let step = 0; step < steps; step++) {
         stamp += dt * 1000;
         window.__goldenNow += dt * 1000;
+        window.__scenario?.advanceTo(window.__goldenNow - window.__scenarioEpoch);
         e.frame(stamp);
       }
       currentFrame++;

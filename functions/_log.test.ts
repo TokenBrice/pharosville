@@ -75,7 +75,8 @@ describe("client log function", () => {
     expect(response.status).toBe(204);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(logSpy).toHaveBeenCalledTimes(1);
-    expect(loggedLine(logSpy)).toContain("https://pharosville.pharos.watch/path");
+    expect(loggedLine(logSpy)).not.toContain("secret");
+    expect(loggedLine(logSpy)).not.toContain("/path");
   });
 
   it("logs a flat record behind a fixed greppable event token", async () => {
@@ -96,7 +97,7 @@ describe("client log function", () => {
     expect(record).toMatchObject({
       category: "render",
       event: "PHAROSVILLE_CLIENT_ERROR",
-      message: "context lost",
+      code: "unknown",
       ts: 1_700_000_000,
     });
     expect(record.payload).toBeUndefined();
@@ -250,4 +251,22 @@ describe("client log function", () => {
       { headers: { origin: "https://example.invalid" } },
     ))).resolves.toMatchObject({ status: 403 });
   });
+});
+
+it("reprojects before logging/KV and returns a ten-second Retry-After", async () => {
+  const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  stubEdgeCache();
+  const kv = recordingKv();
+  const context = makeContext(JSON.stringify({ category: "render", code: "shader-link", release: "v1.5.0", message: "秘密", stack: "Error: secret\n at https://example.com/assets/main.js?secret#hash:1:2", filename: "invalid?secret", ua: "raw agent" }), { env: { CLIENT_ERROR_KV: kv.CLIENT_ERROR_KV }, headers: { "user-agent": "raw agent" } });
+  expect((await onRequest(context)).status).toBe(204);
+  expect(loggedLine(spy)).toContain("shader-link");
+  expect(kv.calls[0]!.value).not.toMatch(/秘密|secret|raw agent|filename/);
+  const throttled = await onRequest(makeContext(JSON.stringify({ category: "render" })));
+  expect(throttled.status).toBe(429);
+  expect(throttled.headers.get("retry-after")).toBe("10");
+});
+
+it("enforces byte limits on multibyte streaming input and rejects invalid schemas", async () => {
+  expect((await onRequest(makeContext(JSON.stringify({ category: "render", message: "界".repeat(1500) })))).status).toBe(413);
+  expect((await onRequest(makeContext(JSON.stringify({ category: "invalid" })))).status).toBe(400);
 });

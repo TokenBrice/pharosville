@@ -1,118 +1,105 @@
 /* @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { projectDiagnostic } from "./error-diagnostic";
 
-async function loadReporter() {
-  vi.resetModules();
-  return import("./error-reporter");
-}
-
-describe("reportClientError", () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
-
-  function postedBodies(): Record<string, unknown>[] {
-    return fetchMock.mock.calls.map((call) => {
-      const init = call[1] as RequestInit;
-      return JSON.parse(init.body as string) as Record<string, unknown>;
-    });
-  }
-
+async function loadReporter() { vi.resetModules(); return import("./error-reporter"); }
+describe("bounded diagnostic queue", () => {
+  const fetchMock = vi.fn();
+  const bodies = () => fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body as string) as Record<string, unknown>);
   beforeEach(() => {
-    fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.useFakeTimers(); localStorage.clear(); fetchMock.mockReset();
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
   });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("posts the category and payload to the log endpoint", async () => {
+  it("serializes nearby failures across the server throttle", async () => {
     const { reportClientError } = await loadReporter();
-
-    reportClientError("render", { kind: "renderer-failure", cause: "webgl-context" });
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-
-    expect(fetchMock.mock.calls[0]![0]).toBe("/_log");
-    expect(postedBodies()[0]).toMatchObject({
-      category: "render",
-      kind: "renderer-failure",
-      cause: "webgl-context",
-    });
-  });
-
-  it("sends a repeated dedupe key only once, across categories", async () => {
-    const { reportClientError } = await loadReporter();
-
-    reportClientError("data-load", { message: "boom" }, "boom");
-    reportClientError("data-load", { message: "boom" }, "boom");
-    reportClientError("render", { message: "boom" }, "boom");
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-
+    reportClientError("render", { code: "context-loss", message: "secret" }, "first");
+    reportClientError("render", { code: "frame-failure" }, "second");
+    await vi.advanceTimersByTimeAsync(0);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(bodies().map((body) => body.code)).toEqual(["context-loss", "frame-failure"]);
+    expect(bodies()[0]).not.toHaveProperty("message");
   });
 
-  it("does not spend the session budget on a suppressed duplicate", async () => {
+  it("spaces successful deliveries from completion even when the first request is slow", async () => {
     const { reportClientError } = await loadReporter();
-
-    // MAX_REPORTS_PER_SESSION is 5. Six sends, one of them a duplicate, must
-    // still leave room for the fifth distinct failure.
-    for (const key of ["a", "a", "b", "c", "d", "e"]) {
-      reportClientError("network", { message: key }, key);
-    }
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
-
-    expect(postedBodies().map((body) => body.message)).toEqual(["a", "b", "c", "d", "e"]);
+    let finish: (response: Response) => void = () => {};
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    reportClientError("render", {}); reportClientError("network", {});
+    await vi.advanceTimersByTimeAsync(9_000);
+    finish(new Response(null, { status: 204 })); await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(9_999); expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1); expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("stops at MAX_REPORTS_PER_SESSION", async () => {
-    const { reportClientError } = await loadReporter();
-
-    for (let i = 0; i < 8; i += 1) reportClientError("network", { i }, `k${i}`);
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
-
+  it("bounds admission and deduplication before 10,000 unique faults", async () => {
+    const { reportClientError, readClientErrorHistory } = await loadReporter();
+    reportClientError("render", {}, "same");
+    reportClientError("network", {}, "same");
+    const added = vi.spyOn(Set.prototype, "add");
+    for (let i = 0; i < 10_000; i++) reportClientError("network", {}, `qa-dedupe:${i}`);
+    expect(added.mock.calls.filter(([key]) => typeof key === "string" && key.startsWith("qa-dedupe:")).length).toBe(4);
+    added.mockRestore();
+    await vi.runAllTimersAsync();
     expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(readClientErrorHistory()).toHaveLength(5);
   });
 
-  it("suppresses an uncaught error whose message a call site already reported", async () => {
+  it("honors Retry-After and stops permanent 4xx", async () => {
+    const { reportClientError } = await loadReporter();
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 429, headers: { "retry-after": "20" } }));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 403 }));
+    reportClientError("render", {});
+    await vi.advanceTimersByTimeAsync(19_999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.runAllTimersAsync();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("caps transient attempts at three", async () => {
+    const { reportClientError } = await loadReporter();
+    fetchMock.mockRejectedValue(new TypeError("offline"));
+    reportClientError("network", {});
+    await vi.runAllTimersAsync();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("purges expired, future, corrupt and legacy local history", async () => {
+    const { readClientErrorHistory } = await loadReporter();
+    const fresh = { category: "render", code: "context-loss", ts: Date.now(), release: "v1.4.1" };
+    localStorage.setItem("pharosville:error-history", JSON.stringify([
+      { category: "render", message: "legacy secret", ts: Date.now() },
+      { ...fresh, ts: Date.now() - 86_400_000 }, { ...fresh, ts: Date.now() + 1 },
+      ...Array.from({ length: 12 }, () => fresh),
+    ]));
+    expect(readClientErrorHistory()).toHaveLength(10);
+    expect(localStorage.getItem("pharosville:error-history")).not.toContain("secret");
+  });
+
+  it("cancels queued delivery on pagehide and ignores intentional cancellation", async () => {
     const { reportClientError, installClientErrorReporter } = await loadReporter();
     installClientErrorReporter();
-
-    reportClientError("render", { kind: "renderer-failure" }, "WebGL context lost");
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-
-    window.dispatchEvent(new ErrorEvent("error", { message: "WebGL context lost" }));
+    reportClientError("render", { code: "cancelled" });
+    reportClientError("render", {});
+    reportClientError("network", {});
+    await vi.advanceTimersByTimeAsync(0);
+    window.dispatchEvent(new Event("pagehide"));
+    await vi.runAllTimersAsync();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+});
 
-  // Browsers report every cross-origin script failure as this one opaque
-  // message, with no filename or position to tell two apart, so keying on it
-  // let the first one silence every later fault of the session.
-  // Installing leaves a window listener behind, so this test stays last and
-  // counts reports per dispatch rather than for the run.
-  it("does not let one opaque cross-origin fault suppress the next", async () => {
-    const { installClientErrorReporter } = await loadReporter();
-    installClientErrorReporter();
-    const opaque = () => new ErrorEvent("error", { message: "Script error." });
-    const located = () => new ErrorEvent("error", {
-      message: "boom",
-      filename: "https://pharosville.pharos.watch/assets/world.js",
-      lineno: 12,
-      colno: 4,
-    });
-
-    window.dispatchEvent(opaque());
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(postedBodies().at(-1)).toMatchObject({ message: "Script error." });
-
-    fetchMock.mockClear();
-    window.dispatchEvent(opaque());
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
-
-    // A located error still costs one report however often it is raised.
-    window.dispatchEvent(located());
-    await vi.waitFor(() => expect(postedBodies().some((body) => body.message === "boom")).toBe(true));
-    fetchMock.mockClear();
-    window.dispatchEvent(located());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
+it("projects bounded UTF-8 diagnostics with only sanitized source locations", () => {
+  const entry = projectDiagnostic({ category: "render", code: "shader-link", release: "v1.5.0", message: "秘密".repeat(10_000), reason: "secret", ua: "secret", url: "https://example.com/?secret", filename: "not a URL?secret", stack: "Error: secret\n at name (https://example.com/assets/main.js?token=secret#hash:12:4)" });
+  expect(entry).toMatchObject({ code: "shader-link", stack: "https://example.com/assets/main.js" });
+  expect(JSON.stringify(entry)).not.toMatch(/secret|秘密/);
+  expect(new TextEncoder().encode(JSON.stringify(entry)).byteLength).toBeLessThan(4_096);
+  expect(projectDiagnostic({ category: "invented" })).toBeNull();
+  expect(projectDiagnostic({ category: "render", kind: "toString" })?.code).toBe("unknown");
 });

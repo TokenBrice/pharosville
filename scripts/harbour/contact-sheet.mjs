@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { runShot } from "../perf/frame.mjs";
 import { initializeCapture, freezeCapture } from "../perf/golden-controls.mjs";
+import { replayInitScript } from "../../tests/helpers/scenario.ts";
 import { classifyGpu } from "./capture-provenance.mjs";
 
 export function captureMatrix(name = "true-bearing") {
@@ -72,8 +73,8 @@ async function main() {
   if (!snapshot.responses || !Number.isFinite(snapshot.epoch)) throw new Error("Snapshot needs responses and numeric epoch");
   const fixtureHash = createHash("sha256").update(text).digest("hex");
   await mkdir(out, { recursive: true });
-  const init = resolve(out, "capture-init.js"), controls = { epoch: snapshot.epoch, seed: 20261019, elapsed: 120, interval };
-  await writeFile(init, `(${initializeCapture.toString()})(${JSON.stringify(snapshot)},${JSON.stringify(controls)});`);
+  const init = resolve(out, "capture-init.js"), controls = { atMs: 0, epoch: snapshot.epoch, seed: 20261019, elapsed: 120, interval };
+  await writeFile(init, `${replayInitScript(snapshot)}\nwindow.__scenario.advanceTo(0);\n(${initializeCapture.toString()})(${JSON.stringify(controls)});`);
   const manifest = { meta: { tool: "contact-sheet", matrix: a.matrix, fixtureHash, ...controls, humanReviewRequired: true }, captures: [] };
   try {
     for (const entry of entries) {

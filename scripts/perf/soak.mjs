@@ -1,21 +1,23 @@
 #!/usr/bin/env node
 /** Refresh/remount resource soak in ONE tab; no navigation between cycles. */
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { median, runShot } from "./frame.mjs";
+import { replayInitScript } from "../../tests/helpers/scenario.ts";
 
 const { values: a } = parseArgs({ options: {
   help: { type: "boolean" }, origin: { type: "string", default: "http://127.0.0.1:4180/" }, out: { type: "string", default: "outputs/perf/soak" },
   cycles: { type: "string", default: "12" }, refreshes: { type: "string", default: "3" }, settle: { type: "string", default: "3000" }, warmup: { type: "string", default: "3" },
   width: { type: "string", default: "1600" }, height: { type: "string", default: "1000" }, dpr: { type: "string", default: "1" },
   profile: { type: "string", default: "standard" }, machine: { type: "string", default: "contended" }, gc: { type: "boolean" }, audio: { type: "boolean" },
-  "ready-timeout": { type: "string", default: "120" },
+  "ready-timeout": { type: "string", default: "120" }, snapshot: { type: "string" },
 } });
 if (a.help) {
   console.log(`Usage: node scripts/perf/soak.mjs [options]
   --origin URL --out DIR --cycles 12 --refreshes 3 --settle 3000 --warmup 3
   --width 1600 --height 1000 --dpr 1 --profile standard|igpu --machine contended|quiet
+  --snapshot FILE replay the shared scenario; advance five minutes per refresh
   --audio        exercise sound-ON lifecycle (default sound OFF)
   --gc           force GC before heap samples; record this intrusive choice explicitly
   --ready-timeout 120
@@ -37,7 +39,8 @@ async function main() {
   const options = { cycles, refreshes, warmup, settle: Number(a.settle), width: Number(a.width), height: Number(a.height), dpr: Number(a.dpr), gc: !!a.gc, audio: !!a.audio, readyTimeoutMs: Number(a["ready-timeout"]) * 1000 };
   const url = new URL(a.origin);
   url.searchParams.set("intro", "0");
-  const report = await runShot(["--url", url.href, "--cdp", "--init-script", `(${trackResources.toString()})();`, "--eval", `(${runSoak.toString()})(${JSON.stringify(options)})`, "--eval-wait", "0", "--seconds", "0", "--wait", "0", "--width", a.width, "--height", a.height, "--dpr", a.dpr, "--ready-timeout", a["ready-timeout"], "--timeout", String(Math.max(240, cycles * (options.readyTimeoutMs / 1000 + refreshes * 30 + options.settle / 500))), ...(a.profile === "igpu" ? ["--igpu"] : [])], resolve(out, "capture"));
+  const replay = a.snapshot ? replayInitScript(JSON.parse(await readFile(resolve(a.snapshot), "utf8"))) : "";
+  const report = await runShot(["--url", url.href, "--cdp", "--init-script", `${replay}\n(${trackResources.toString()})();`, "--eval", `(${runSoak.toString()})(${JSON.stringify(options)})`, "--eval-wait", "0", "--seconds", "0", "--wait", "0", "--width", a.width, "--height", a.height, "--dpr", a.dpr, "--ready-timeout", a["ready-timeout"], "--timeout", String(Math.max(240, cycles * (options.readyTimeoutMs / 1000 + refreshes * 30 + options.settle / 500))), ...(a.profile === "igpu" ? ["--igpu"] : [])], resolve(out, "capture"));
   const samples = report.evalResult.samples;
   const trends = {};
   for (const phase of ["mounted", "disposed"]) {
@@ -112,6 +115,7 @@ async function runSoak(options) {
     }
     let feed = engine.ctx.services.get("feed");
     for (let refresh = 0; refresh < options.refreshes; refresh++) {
+      window.__scenario?.advanceTo((cycle * options.refreshes + refresh + 1) * 300_000);
       const revision = engine.ctx.services.get("readiness").revision;
       await Promise.all(["stablecoins", "chains", "stability", "pegSummary", "stress", "safetyGrades", "mintBurn"].map((key) => feed.refresh(key)));
       await waitFor(() => window.__harbourStats?.renderedRevision > revision, "refreshed model rendered");

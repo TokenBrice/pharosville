@@ -73,9 +73,8 @@ has not been re-measured there):
   `webgl.disabled`, `webgl.forbid-software`, `LIBGL_ALWAYS_SOFTWARE`,
   `GALLIUM_DRIVER=llvmpipe` or `MOZ_ENABLE_WEBRENDER`. Locally Firefox is fine
   both on the GPU and forced to software GL, so this is the container.
-  the Firefox half of `visual` therefore exercises the DOM fallback, which it
-  does correctly: the signal overview renders and the accessibility ledger
-  carries every ship.
+  The Firefox half therefore proves the intentional graphics-denied contract.
+  It does not prove a rendered fleet.
 - **Default Chromium can reach SwiftShader and block DOM assertions** —
   omitting hardware flags does not prevent software WebGL. The original motion
   lane timed out on `locator.screenshot` at 180s; the expanded dense-data DOM
@@ -88,6 +87,32 @@ Chromium launches with `--disable-webgl` unless `PHAROSVILLE_VISUAL_GPU=1`, so
 the Harbour's boot fails deterministically and the lane proves the poster, the
 arrival guide, the failure message and the links stay useful, and that a
 blocked viewport requests nothing.
+
+The hardware startup cases are tagged `@hardware-required`: they require a real
+renderer identity, the current matching prepared/rendered revision, the replay's
+exact boat count (including valid zero), no poster/arrival card, and no unexpected
+page or console errors. They are explicit skips in the GPU-less lane, never an
+alternative “canvas or failure” pass. Boundary cases cover 719×600, 720×599,
+720×600 and 600×720, plus denial/readmission and a small physical screen.
+
+`tests/visual/overlay-accessibility.spec.ts` bundles a test-only StoreContext
+harness in memory, using actual overlay components and canonical data projections.
+It runs axe WCAG A/AA checks on search, every ledger tab, coin/landmark details,
+sound choices, stale/outage details and existing recovery content, with keyboard,
+Escape and focus-return assertions. It works against either dev or dist and adds
+no production route. Browser execution is required before calling these scans
+passed; the small jsdom harness test proves only component/store wiring.
+
+`tests/fixtures/scenarios/` holds shared `{epoch, steps:[{atMs,responses}]}`
+replays for current, valid-empty, pending, storm, two-poll depeg/recovery,
+unknown/stale/outage and malformed→good data. The shared helper in
+`tests/helpers/scenario.ts` preserves response headers and bodies, permits bounded
+failure/delay injection (at most five seconds), and advances its clock explicitly.
+Golden accepts the same files via `--snapshot FILE --at-ms MS`; soak accepts
+`--snapshot FILE` and advances five minutes per refresh. Legacy single snapshots
+with `{epoch,responses}` remain supported. Pure checks run through
+`node scripts/check-request-classifier.test.mjs`,
+`node scripts/check-scenario-replay.test.mjs` and the unit suite.
 
 **Known cost, stated plainly:** CI cannot catch GPU-only regressions. Before
 release, manually run `validate:deploy-gate` on the operator's real GPU: its
