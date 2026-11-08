@@ -1387,8 +1387,8 @@
   },
   "post/grade-dither": {
     "vertex": "f40394ec13e54858c38390a6ab01ee898aae5a1e1766855a94e72e39541db5bd",
-    "fragment": "fd32b07ee6e74d7185c34705ae2f0cd085d3a535cd6d761cdb0d3d2910da2c16",
-    "defines": "0190aa4540dee82c9a30bc53ef223bd08e016143edb5b96caf1613c93f6f2a6c",
+    "fragment": "7cc9fad80494f9cf81161097982a4a6142956b95f6c1fe5e30b3641b677dfddd",
+    "defines": "3418ed718f15f35c5b0255a31420cb838f146efb0d2bb9599e3e08f291723db1",
     "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
   }
 }

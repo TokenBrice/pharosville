@@ -104,6 +104,7 @@ export function visitShaderRecipes(visit: (recipe: ShaderRecipe) => void): void 
     const beamPass = new EffectPass(camera, new ShimmerEffect(new Map(Object.entries(beam.SH))), new BeamEffect(new Map(Object.entries(beam.U))));
     beamPass.recompile(); emit("beam/shimmer-shaft", beamPass.fullscreenMaterial); beamPass.dispose();
     const lut = new THREE.Data3DTexture(new Uint16Array(32 ** 3 * 4), 32, 32, 32);
+    lut.format = THREE.RGBAFormat; lut.type = THREE.HalfFloatType; // as engine/post.ts builds the grade LUT
     const post = new EffectPass(camera, new ToneMappingEffect({ mode: ToneMappingMode.AGX }),
       new LUT3DEffect(lut, { inputColorSpace: THREE.SRGBColorSpace }), new VignetteEffect({ offset: 0.28, darkness: 0.42 }), new DitherEffect(0));
     post.recompile(); emit("post/grade-dither", post.fullscreenMaterial); post.dispose(); lut.dispose();
