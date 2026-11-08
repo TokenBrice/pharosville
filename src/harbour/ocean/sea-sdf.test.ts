@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildSeaSdf, distanceTransform, landMaskFromHeights, SDF_COAST_RANGE, type SeaSdfInput } from "./sea-sdf";
+import { OCEAN_FRAG, OCEAN_VERT } from "./ocean-material";
+import { buildSeaSdf, distanceTransform, landMaskFromHeights, SDF_COAST_RANGE, SDF_ISLAND_RADII, sdfMainlandFade, type SeaSdfInput } from "./sea-sdf";
 import { waveHeight } from "./waves";
 
 const square = (c: number, h: number): [number, number][] => [[c - h, c - h], [c + h, c - h], [c + h, c + h], [c - h, c + h]];
@@ -58,5 +59,34 @@ describe("waves", () => {
   it("heightAt scales with amplitude and is bounded", () => {
     expect(Math.abs(waveHeight(10, 20, 3, 0))).toBe(0);
     for (let k = 0; k < 50; k++) expect(Math.abs(waveHeight(k * 13.1, k * 7.7, k * 0.3, 1))).toBeLessThan(3);
+  });
+});
+
+describe("E02 the retired mainland leaves the sea", () => {
+  it("fades the SDF's coast and depth to open water beyond the island's coasts, smoothly, about the layout centre", () => {
+    const [r0, r1] = SDF_ISLAND_RADII;
+    expect([r0, r1]).toEqual([470, 560]);
+    for (const a of [0, 1, 2.5, 4]) {
+      const at = (d: number) => sdfMainlandFade(11.2 + Math.cos(a) * d, 21.45 + Math.sin(a) * d, 11.2, 21.45);
+      expect(at(0)).toBe(0); expect(at(436)).toBe(0); expect(at(r0)).toBe(0);
+      expect(at(r1)).toBeCloseTo(1, 12); expect(at(604.7)).toBe(1); expect(at(2000)).toBe(1);
+      let prev = 0;
+      for (let d = r0; d <= r1; d += 1) { const k = at(d); expect(k).toBeGreaterThanOrEqual(prev); prev = k; }
+      const t = (515 - r0) / (r1 - r0);
+      expect(at(515)).toBeCloseTo(t * t * (3 - 2 * t), 12);              // GLSL smoothstep
+    }
+  });
+
+  it("pins the fade on R and G only, in both ocean shaders; structures, buoys and zones keep their channels", () => {
+    expect(OCEAN_FRAG).toContain("sdf.rg = mix(sdf.rg, vec2(1.0), smoothstep(470.0, 560.0, length(xz - uSceneCenter)));");
+    expect(OCEAN_FRAG).toContain("float sdist = mix(16.0, sdf.b * 16.0, inside);");
+    expect(OCEAN_FRAG).toContain("vec4 zm = texture2D(uZones, clamp(suv, 0.0, 1.0)) * inside;");
+    expect(OCEAN_VERT).toContain("uniform vec2 uSceneCenter;");
+    expect(OCEAN_VERT).toContain("mix(textureLod(uSdf, clamp(suv, 0.0, 1.0), 0.0).r, 1.0, smoothstep(470.0, 560.0, length(p.xz - uSceneCenter)))");
+    // the shaders' literal radii are the CPU's (one fade everywhere)
+    for (const src of [OCEAN_FRAG, OCEAN_VERT]) {
+      const m = /smoothstep\(([\d.]+), ([\d.]+), length\((?:xz|p\.xz) - uSceneCenter\)\)/.exec(src)!;
+      expect([Number(m[1]), Number(m[2])]).toEqual([...SDF_ISLAND_RADII]);
+    }
   });
 });

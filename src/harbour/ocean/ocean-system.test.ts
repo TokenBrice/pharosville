@@ -6,6 +6,7 @@ import { createWorldUniforms } from "../engine/uniforms";
 import { preparationMaterial } from "../engine/prepare";
 import { TIERS, type QualitySettings } from "../engine/quality";
 import { OceanSystem } from "./ocean-system";
+import { SEA_STATES, waveHeight } from "./waves";
 
 vi.mock("./textures", () => ({ acquireFxTextures: async () => ({ noise: new THREE.Texture(), ripple: new THREE.Texture(), release() {} }) }));
 vi.mock("./sdf-image", () => ({ loadSdfImage: async () => ({ width: 1, height: 1, data: new Uint8Array(4), coast: new Uint8Array(1) }) }));
@@ -39,6 +40,28 @@ describe("ocean feature preparation", () => {
       for (const fn of listeners) fn(TIERS[tier as "low" | "medium"]);
       expect(material.version).toBe(version + index + 1);
     }
+    system.dispose(ctx);
+  });
+});
+
+describe("E02 the retired mainland in the CPU sea", () => {
+  it("fades the SDF's coast to open water beyond the island's coasts, like the shaders, for hulls and dolphins", async () => {
+    vi.stubGlobal("location", { search: "", hash: "" });
+    // the mocked SDF is land everywhere (coast byte 0); the layout-bounds centre is the origin
+    const ctx = { scene: new THREE.Scene(), uniforms: createWorldUniforms(), services: new Map<string, unknown>([
+      ["layout", { bounds: { min: [-10, 0, -10], max: [10, 10, 10] }, sea: { bounds: [-1000, -1000, 1000, 1000] } }],
+    ]) as Services } as unknown as EngineContext;
+    const system = new OceanSystem(); await system.init(ctx);
+    const ocean = ctx.services.get("ocean")!;
+    expect(ocean.coastAt(0, 100)).toBe(-64);                 // within the island's coasts: the SDF as baked
+    expect(ocean.coastAt(0, 470)).toBe(-64);
+    expect(ocean.coastAt(0, 600)).toBeCloseTo(64, 9);        // past them: open water, the retired mainland gone
+    expect(ocean.coastAt(-600, 0)).toBeCloseTo(64, 9);
+    const mid = ocean.coastAt(515, 0);
+    expect(mid).toBeGreaterThan(-64); expect(mid).toBeLessThan(64);
+    // hulls bob with the water the vertex shader moves: none on land, the full swell past the fade
+    expect(ocean.heightAt(0, 100)).toBe(0);
+    expect(ocean.heightAt(0, 600)).toBeCloseTo(waveHeight(0, 600, 0, SEA_STATES[1].amp), 12);
     system.dispose(ctx);
   });
 });
