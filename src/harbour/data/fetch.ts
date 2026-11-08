@@ -155,6 +155,11 @@ export class HarbourFeed {
     return () => this.listeners.delete(fn);
   }
 
+  /** UI wake status describes an admitted overdue request, not a future retry deadline. */
+  get refreshingOverdue(): boolean {
+    return [...this.inFlight.keys()].some((key) => (this.due.get(key) ?? Infinity) <= this.now());
+  }
+
   /** Fetch everything now, then keep each endpoint on its own cadence. Resolves after the first round. */
   async start(): Promise<void> {
     if (this.running) return;

@@ -7,6 +7,7 @@ import { mastForBand, type OfficeState } from "../readings/bind";
 import { deadSummaries, FAMILIES } from "../model/obituary";
 import { bps, money, monthYear, pctChange, share, titleCase } from "./format";
 import { flowValued, flowWindow, grossFlow, NET_UNAVAILABLE, VALUATION_UNKNOWN } from "./flow-copy";
+import { observedEmpty, readingCoverage, readingSentence, sourceTruth } from "./source-state";
 
 export type WhereKind = "alongside" | "moored" | "casting-off" | "sailing" | "outing" | "shoals" | "wreck" | "far" | "unknown";
 export interface Whereabouts { kind: WhereKind; /** Chain name, "the Far Ports", or null. */ place: string | null }
@@ -31,7 +32,14 @@ export function stationLine(band: DewsBand | null): string {
 
 export function stationFact(m: HarbourModel | null): string {
   const w = m?.readings.weather;
-  return stationLine(w && !w.stale && w.cloudCover != null && w.wind != null ? w.band : null);
+  return stationLine(w && !w.stale && sourceTruth(m, "stress").state === "current" && sourceTruth(m, "stablecoins").state === "current" && (readingCoverage(m, "stress") ?? 0) > 0 && w.cloudCover != null && w.wind != null ? w.band : null);
+}
+
+export function alertCountLine(m: HarbourModel | null): string {
+  const c = m?.readings.stormCones;
+  if (!c || (readingCoverage(m, "stress") ?? 0) <= 0) return readingSentence(m, "stress");
+  return sourceTruth(m, "stress").state === "current" && sourceTruth(m, "stablecoins").state === "current"
+    ? `${c.count} covered coins are at Alert or worse.` : `Last received Alert-or-worse count: ${c.count}.`;
 }
 
 export function allocationLine(boats: readonly Boat[]): string | null {
@@ -189,12 +197,12 @@ export function landmarkFact(id: string, m: HarbourModel | null, underWay: numbe
     case "the-roads": return { fact: counts.roads != null ? `${counts.roads} ${counts.roads === 1 ? "boat" : "boats"} in the Roads` : "the outer mooring field" };
     case "pharos": {
       const p = r?.psi;
-      if (!p || !p.lit || p.score == null) return { fact: "unlit · no stability reading" };
-      return { fact: `PSI ${p.score.toFixed(1)} · ${titleCase(p.band ?? "")}${p.stale ? " · stale" : ""}` };
+      if (!p || p.score == null) return { fact: "unlit · no stability reading" };
+      return { fact: `${p.lit ? "" : "unlit · last received "}PSI ${p.score.toFixed(1)} · ${titleCase(p.band ?? "")}${p.stale ? " · stale" : ""}` };
     }
     case "shoals": {
       const n = r?.shoals.length ?? 0;
-      return { fact: n === 0 ? "clear water · nobody off peg" : `${n} ${n === 1 ? "boat" : "boats"} off peg` };
+      return { fact: n === 0 ? observedEmpty(m, "shoals") : `${sourceTruth(m, "pegSummary").state === "current" ? "" : "Last observed: "}${n} ${n === 1 ? "boat" : "boats"} off peg` };
     }
     case "customs-house": case "tide-board": {
       const f = r?.flows;

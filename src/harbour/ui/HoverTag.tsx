@@ -6,7 +6,10 @@ import { expectedLabel, PHASE_NAME, yardCoins } from "./yard";
 import { useFrame, useFrameWrite, usePresence, useStore, useSticky, useUI } from "./hooks";
 import { getFeed, getLayout, sameHit, type PickHit, type ScreenPoint } from "./services";
 import { setStyle, useMeasurements } from "./measurements";
-import type { OfficeState } from "../readings/bind";
+import { LANDMARK_ENDPOINT, type OfficeState } from "../readings/bind";
+import type { EndpointKey } from "../model/types";
+import { Freshness } from "./bits";
+import { observedEmpty, qualificationCopy } from "./source-state";
 
 /**
  * The chart-paper tag: name + one fact, hung from a brass leader at the object's anchor. Follows the
@@ -101,13 +104,21 @@ function Tag({ hit, shown, pinned }: { hit: PickHit; shown: boolean; pinned: boo
     measurements.invalidate(ref.current?.firstElementChild as HTMLElement | null);
   }, [measurements, name, fact, swatch]);
   if (!name) return null;
+  const extraSources: Record<string, EndpointKey> = { chartroom: "stability", mint: "mintBurn", burn: "mintBurn", "tide-board": "mintBurn", harbourmaster: "chains", "far-ports": "stablecoins" };
+  const primary = hit.kind === "landmark" ? LANDMARK_ENDPOINT[hit.id as keyof typeof LANDMARK_ENDPOINT] ?? extraSources[hit.id] : undefined;
+  const sources: EndpointKey[] = hit.kind === "boat" ? ["stablecoins"] : hit.kind === "harbour" ? ["stablecoins", "chains"]
+    : primary === "pegSummary" || primary === "stress" ? [primary, "stablecoins"] : primary ? [primary] : [];
+  const qualification = hit.kind === "landmark" && hit.id === "pharos" ? qualificationCopy(getFeed(store.ctx)?.payloads) : "";
 
   return (
     <div ref={ref} className="hb-tag-anchor hb-fade" data-shown={shown} data-pinned={pinned} aria-hidden="true">
-      <div className="hb-tag hb-paper">
+      <div className="hb-tag hb-paper" style={{ whiteSpace: "normal", width: "max-content", maxWidth: "min(480px, calc(100vw - 24px))", flexWrap: "wrap" }}>
         {swatch && <span className="hb-tag-swatch" style={{ background: swatch }} />}
         <span className="hb-tag-name">{name}</span>
         {fact && <span className={`hb-tag-fact hb-num${decorative ? " decorative" : ""}`}>{fact}</span>}
+        {sources.length > 0 && <div style={{ flexBasis: "100%" }}>{sources.map((source) => <Freshness key={source} model={model} source={source} />)}</div>}
+        {hit.kind === "landmark" && hit.id === "storm-mast" && model?.readings.stormCones?.count === 0 && <span>{observedEmpty(model, "alerts")}</span>}
+        {qualification && <span>{qualification}</span>}
       </div>
       <span className="hb-tag-leader" />
       <span className="hb-tag-pin" />
