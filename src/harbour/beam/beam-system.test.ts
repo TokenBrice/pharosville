@@ -9,7 +9,7 @@ interface BeamHarness { SH: { uShAmt: THREE.Uniform<number> }; U: { uIntensity: 
 const LANTERN = new THREE.Vector3(0, 90, 0);
 
 /** A beam over a fake engine: no renderer, the shared noise texture pre-seeded, a lighthouse service and a motion flag. */
-function beamWorld(opts: { lit?: boolean; reduced?: boolean; night?: number } = {}) {
+async function beamWorld(opts: { lit?: boolean; reduced?: boolean; night?: number } = {}) {
   const camera = new THREE.PerspectiveCamera(25, 1.6, 1, 5000);
   const uniforms = createWorldUniforms();
   uniforms.uNight.value = opts.night ?? 0;
@@ -22,7 +22,7 @@ function beamWorld(opts: { lit?: boolean; reduced?: boolean; night?: number } = 
   const composer = { passes: [{}, {}, {}], addPass: vi.fn(), removePass: vi.fn() };
   const ctx = { camera, scene: new THREE.Scene(), uniforms, services, composer } as unknown as EngineContext;
   const beam = new BeamSystem();
-  beam.init(ctx);
+  await beam.init(ctx); // fx textures are acquired asynchronously since B13
   const look = (from: [number, number, number], at: THREE.Vector3 = LANTERN) => {
     camera.position.set(...from);
     camera.lookAt(at);
@@ -55,8 +55,8 @@ describe("E07 heat shimmer over the beacon", () => {
     expect(shimmerAmount(100, true, true, 1, true)).toBe(0);
   });
 
-  it("drives the pass by day near/far/offscreen/unlit/reduced, and keeps the night shaft", () => {
-    const day = beamWorld();
+  it("drives the pass by day near/far/offscreen/unlit/reduced, and keeps the night shaft", async () => {
+    const day = await beamWorld();
     const near = day.look(at(100)), mid = day.look(at(330)), far = day.look(at(730));
     expect(near.intensity).toBe(0);                       // no shaft by day
     expect(near.shimmer).toBeGreaterThan(0.99);
@@ -69,10 +69,10 @@ describe("E07 heat shimmer over the beacon", () => {
     expect(away.shimmer).toBe(0);
     expect(away.pass).toBe(false);
 
-    expect(beamWorld({ lit: false }).look(at(100))).toMatchObject({ shimmer: 0, pass: false });
-    expect(beamWorld({ reduced: true }).look(at(100))).toMatchObject({ shimmer: 0, pass: false });
+    expect((await beamWorld({ lit: false })).look(at(100))).toMatchObject({ shimmer: 0, pass: false });
+    expect((await beamWorld({ reduced: true })).look(at(100))).toMatchObject({ shimmer: 0, pass: false });
 
-    const night = beamWorld({ night: 1 }).look(at(730));
+    const night = (await beamWorld({ night: 1 })).look(at(730));
     expect(night.shimmer).toBe(0);
     expect(night.intensity).toBeGreaterThan(0.002);
     expect(night.pass).toBe(true);                        // the shaft alone keeps the pass on
