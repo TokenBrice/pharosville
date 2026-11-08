@@ -13,6 +13,8 @@
  *                           return value (a Promise is awaited) is reported as `evalResult`
  *     [--burst N --interval ms]   extra frames <out>-NN.png
  *     [--json out.json]     write the report as JSON
+ *     [--paced]             use display pacing, including when --uncapped is also supplied
+ *     [--snapshot FILE]     replay/hash a golden API snapshot and anchor Date/RNG (live API latency is unavailable)
  *     [--uncapped]          remove vsync/rAF caps; pacing still includes submission/back-pressure and is NOT GPU time
  *     [--mobile]            emulate a mobile browser (CDP Emulation mobile flag: viewport meta, overlay scrollbars)
  *     [--touch]             emulate a touch screen (CDP Emulation.setTouchEmulationEnabled: touch events,
@@ -25,6 +27,7 @@
  *                           `transferBytes`. Use it for the desktop gate: a blocked viewport must show 0 apiRequests.
  *   Load / perf measurement (all via CDP on the capture tab; additive, off by default):
  *     [--throttle <name>]   network emulation (Network.emulateNetworkConditions) from navigation on:
+ *                             3g      1.6 Mbps down / 0.75 Mbps up, 400 ms RTT
  *                             fast4g  9 Mbps down / 1.5 Mbps up, 40 ms RTT
  *                             cable   20 Mbps down / 5 Mbps up, 20 ms RTT
  *     [--cpu-throttle <r>]  CPU slowdown factor (Emulation.setCPUThrottlingRate), e.g. 4
@@ -58,6 +61,10 @@
  * Report: GPU identity, WebGPU availability, frame-time p50/p95/max over --seconds (rAF deltas),
  * console errors, and window.__harbourStats (if the page exposes it: draws, triangles, backend).
  */
+import { replaySnapshot, pinCaptureClock } from "../perf/snapshot-replay.mjs";
+import { createHash } from "node:crypto";
+import { classifyGpu } from "./capture-provenance.mjs";
+import { observeLongTasks } from "./long-tasks.mjs";
 import { captureLock, connectShared } from "./shared-browser.mjs";
 import { mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -89,8 +96,9 @@ const waitMs = Number(args.wait ?? 4000);
 const seconds = Number(args.seconds ?? 4);
 // One persistent capture browser per profile (scripts/harbour/shared-browser.mjs): every capture is a
 // TAB in the same long-lived window, never a new window. Captures are serialised by a lock.
-const profileName = args.igpu ? (args.uncapped ? "igpu-uncapped" : "igpu") : args.webgpu ? "webgpu" : args.uncapped ? "uncapped" : "standard";
+const profileName = args.igpu ? ((args.uncapped && !args.paced) ? "igpu-uncapped" : "igpu") : args.webgpu ? "webgpu" : (args.uncapped && !args.paced) ? "uncapped" : "standard";
 const THROTTLES = {
+  "3g": { downMbps: 1.6, upMbps: 0.75, rttMs: 400 },
   fast4g: { downMbps: 9, upMbps: 1.5, rttMs: 40 },
   cable: { downMbps: 20, upMbps: 5, rttMs: 20 },
 };
@@ -105,6 +113,7 @@ for (const stale of context.pages()) {
   if (stale.url() !== "about:blank") await Promise.race([stale.close().catch(() => {}), new Promise((r) => setTimeout(r, 2000))]);
 }
 const page = await context.newPage();
+await page.addInitScript(observeLongTasks);
 await page.setViewportSize({ width, height });
 const [screenWidth, screenHeight] = typeof args.screen === "string" ? args.screen.split("x").map(Number) : [];
 const cdp = await context.newCDPSession(page);
@@ -130,7 +139,7 @@ async function finish(code = 0) {
   process.exit(code);
 }
 // A hung capture must never hold the shared lock: hard-stop after --timeout seconds (default 240).
-const HARD_TIMEOUT = setTimeout(() => { console.error("shot.mjs: hard timeout, releasing the capture lock"); void finish(124); }, Number(args.timeout ?? 240) * 1000);
+const HARD_TIMEOUT = setTimeout(() => { console.error("shot.mjs: hard timeout, releasing the capture lock"); void finish(124); }, Number(args.timeout ?? Math.max(240, seconds + waitMs / 1000 + 180)) * 1000);
 HARD_TIMEOUT.unref?.();
 for (const ev of ["unhandledRejection", "uncaughtException"]) process.on(ev, (err) => { console.error(err); void finish(1); });
 const consoleErrors = [];
@@ -218,6 +227,15 @@ if (args["init-script"]) await page.addInitScript(String(args["init-script"]));
 // Report the automation so captures are deterministic; `--human` keeps the visitor's arrival (or force it per
 // page with ?wake=1 / ?intro=1).
 if (!args.human) await page.addInitScript(() => { Object.defineProperty(Navigator.prototype, "webdriver", { get: () => true, configurable: true }); });
+let fixtureHash = args["fixture-hash"] ?? null;
+if (args.snapshot) {
+  const text = await readFile(resolve(args.snapshot), "utf8"), snapshot = JSON.parse(text);
+  if (!snapshot.responses || typeof snapshot.responses !== "object") throw new Error("Snapshot requires responses");
+  fixtureHash = createHash("sha256").update(text).digest("hex");
+  await page.addInitScript(replaySnapshot, snapshot);
+  if (!Number.isFinite(Number(args.epoch ?? snapshot.epoch))) throw new Error("Snapshot requires epoch or --epoch");
+  await page.addInitScript(pinCaptureClock, { epoch: Number(args.epoch ?? snapshot.epoch), seed: Number(args.seed ?? 20261019) });
+}
 if (args["init-script-file"]) await page.addInitScript({ path: resolve(args["init-script-file"]) });
 if (args["warm-seed"]) {
   await page.goto(url, { waitUntil: "load", timeout: Number(args["ready-timeout"] ?? 60) * 1000 });
@@ -258,11 +276,13 @@ const identity = await page.evaluate(async () => {
   if (navigator.gpu) {
     try { const a = await navigator.gpu.requestAdapter(); webgpu = a ? `${a.info?.vendor ?? "?"}/${a.info?.architecture ?? "?"}` : null; } catch { webgpu = null; }
   }
-  return { webgl: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : "none", webgpu };
+  return { backend: gl.getParameter(gl.VERSION), extensions: gl.getSupportedExtensions(),
+    limits: { maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE), maxRenderbufferSize: gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), maxViewport: [...gl.getParameter(gl.MAX_VIEWPORT_DIMS)] },
+    webgl: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : "none", webgpu };
 });
 
-if (/swiftshader|llvmpipe|software/i.test(identity.webgl)) {
-  console.error(`REFUSED: software renderer (${identity.webgl}). Not a real-GPU frame.`);
+if (classifyGpu(identity.webgl) !== "hardware") {
+  console.error(`REFUSED: unknown or software renderer (${identity.webgl}). Not a real-GPU frame.`);
   await finish(78);
 }
 if (args.igpu && !/amd|radeon/i.test(identity.webgl)) {
@@ -288,6 +308,7 @@ const timing = await page.evaluate((secs) => new Promise((done, fail) => {
   const engine = window.__harbour;
   if (!engine) throw new Error("Harbour engine disappeared before measurement");
   window.__gpuPasses?.reset();
+  window.__harbourProf?.reset();
   const deltas = [], rafDeltas = [];
   let start, last, lastRaf, governorFrameStart;
   function tick(now) {
@@ -340,20 +361,28 @@ const gpuPasses = await page.evaluate(async (timeout) => {
 }, Number(args["gpu-drain-timeout"] ?? 15000));
 const sorted = [...timing.deltas].sort((a, b) => a - b);
 const pct = (p) => sorted.length ? +sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))].toFixed(2) : null;
-const { stats, marks, gpuSamples } = await page.evaluate((range) => {
+const { stats, marks, gpuSamples, cpuProfile, longTasks } = await page.evaluate((range) => {
   const engine = window.__harbour;
   if (!engine) throw new Error("Harbour engine disappeared after measurement");
   const stats = JSON.parse(JSON.stringify(window.__harbourStats));
   const info = engine.ctx.renderer.info;
   Object.assign(stats, { textures: info.memory.textures, geometries: info.memory.geometries, programs: info.programs?.length ?? 0 });
-  return { stats, marks: Object.fromEntries(["pv:first-frame", "pv:first-fleet-frame"].map((name) => [name, performance.getEntriesByName(name).at(-1)?.startTime ?? null])), gpuSamples: (engine.governor.completedGpuSamples?.() ?? []).filter((sample) => sample.frame > range.governorFrameStart && sample.frame <= range.governorFrameEnd) };
+  return { cpuProfile: window.__harbourProf?.snapshot() ?? null, longTasks: window.__harbourLongTasks ?? null, stats, marks: Object.fromEntries(["pv:first-frame", "pv:first-fleet-frame"].map((name) => [name, performance.getEntriesByName(name).at(-1)?.startTime ?? null])), gpuSamples: (engine.governor.completedGpuSamples?.() ?? []).filter((sample) => sample.frame > range.governorFrameStart && sample.frame <= range.governorFrameEnd) };
 }, timing);
 const gpuValues = gpuSamples.map((sample) => sample.ms).sort((a, b) => a - b);
 const gpuSampleDistribution = { samples: gpuValues.length, population: "bounded retained completed governor samples within the measured frame range", p10Ms: gpuValues.length ? gpuValues[Math.floor(gpuValues.length * 0.1)] : null, p50Ms: gpuValues.length ? gpuValues[Math.floor(gpuValues.length * 0.5)] : null, p95Ms: gpuValues.length ? gpuValues[Math.floor(gpuValues.length * 0.95)] : null };
 
 await mkdir(dirname(outPath), { recursive: true });
+const captureStates = [];
 async function beforeCapture(index) {
   if (args["frame-eval"]) await page.evaluate(async ({ code, index }) => { window.__captureFrameIndex = index; return await (0, eval)(code); }, { code: String(args["frame-eval"]), index });
+  captureStates.push(await page.evaluate(() => {
+    const e = window.__harbour, gl = e.ctx.renderer.getContext();
+    return { viewport: { width: innerWidth, height: innerHeight, backingWidth: gl.drawingBufferWidth, backingHeight: gl.drawingBufferHeight, touch: navigator.maxTouchPoints > 0 },
+      dpr: e.ctx.renderer.getPixelRatio(), effectiveState: { hour: e.ctx.timeOfDay.clockHour, simulationElapsed: e.clock.elapsed, quality: window.__harbourStats?.quality,
+        weather: e.ctx.services.get("weather")?.state ?? null, season: e.ctx.services.get("season") ?? null,
+        revision: window.__harbourStats?.renderedRevision, boats: window.__harbourStats?.renderedBoats, readings: e.ctx.services.get("readings") ?? null } };
+  }));
 }
 await beforeCapture(0);
 await page.screenshot({ path: outPath });
@@ -363,14 +392,40 @@ for (let i = 0; i < burst; i++) {
   await beforeCapture(i + 1);
   await page.screenshot({ path: outPath.replace(/\.png$/, `-${String(i).padStart(2, "0")}.png`) });
 }
-
+// Build identification is outside the timed window and uses the serving checkout or fetched build bytes.
+const build = await page.evaluate(async () => {
+  try {
+    const r = await fetch("/__pharosville/checkout");
+    if (r.ok && r.headers.get("content-type")?.includes("json")) {
+      const checkout = await r.json();
+      if (checkout.sourceHash) return { sourceHash: checkout.sourceHash };
+    }
+  } catch { /* production has no dev checkout endpoint */ }
+  const resources = [...new Set([...performance.getEntriesByType("resource").map((r) => r.name), location.href])]
+    .filter((url) => new URL(url).origin === location.origin && (/\.(?:js|css)(?:[?#]|$)/.test(url) || url === location.href)).sort();
+  const content = [];
+  for (const url of resources) { const r = await fetch(url); if (!r.ok) throw new Error(`Cannot identify build: ${url}`); content.push([new URL(url).pathname, await r.text()]); }
+  return { content };
+});
+let driver = null;
+try {
+  const system = await browser.newBrowserCDPSession();
+  try {
+    const info = await system.send("SystemInfo.getInfo");
+    driver = info.gpu.devices.map((device) => ({ vendor: device.driverVendor ?? null, version: device.driverVersion ?? null }));
+  } finally { await system.detach(); }
+} catch { /* driver details are not exposed on every CDP backend */ }
+const baseProvenance = { schemaVersion: 1, gpu: identity.webgl, backend: identity.webgl.match(/Vulkan|Metal|Direct3D\d*|D3D\d*|OpenGL(?: ES)?/i)?.[0] ?? identity.backend,
+  browser: await browser.version(), driver, driverAvailability: driver?.some((device) => device.version) ? "CDP SystemInfo" : "unavailable",
+  buildHash: build.sourceHash ?? createHash("sha256").update(JSON.stringify(build.content)).digest("hex"), fixtureHash };
+const provenance = { ...baseProvenance, ...captureStates[0] };
 const report = {
   url, out: outPath, viewport: `${width}x${height}@${dpr}${args.mobile ? " mobile" : ""}${args.touch ? " touch" : ""}`, gpu: identity.webgl, webgpuAdapter: identity.webgpu,
   frames: timing.deltas.length, fps: timing.elapsedMs > 0 ? +(timing.deltas.length * 1000 / timing.elapsedMs).toFixed(2) : null,
   p50: pct(0.5), p95: pct(0.95), max: sorted.at(-1) ?? null,
   gpuSampleDistribution,
-  timing, gpuPasses, gpuSamples, navigations, stats, consoleErrors: consoleErrors.slice(0, 20),
-  load: { firstFrameNavMs: Math.round(firstFrameNavMs), firstFrameMs: stats?.firstFrameMs ?? null, firstFleetFrameMs: stats?.firstFleetFrameMs ?? null, marks, ...navTiming, wireBytesAtFirstFrame, wireBytes,
+  timing, gpuPasses, gpuSamples, cpuProfile, longTasks, provenance, capabilities: identity, paced: !!args.paced, navigations, stats, consoleErrors: consoleErrors.slice(0, 20),
+  load: { apiLatency: args.snapshot ? "replayed (no live API latency)" : "live", firstFrameNavMs: Math.round(firstFrameNavMs), firstFrameMs: stats?.firstFrameMs ?? null, firstFleetFrameMs: stats?.firstFleetFrameMs ?? null, marks, ...navTiming, wireBytesAtFirstFrame, wireBytes,
     ...(throttle ? { throttle: args.throttle } : {}), ...(args["cpu-throttle"] ? { cpuThrottle: Number(args["cpu-throttle"]) } : {}), ...(args.cold ? { cold: true } : {}) },
   ...(evalResult === undefined ? {} : { evalResult }),
   ...(args.waterfall ? {
@@ -385,5 +440,7 @@ const report = {
   } : {}),
 };
 console.log(JSON.stringify(report, null, 1));
+await writeFile(outPath.replace(/\.png$/, "") + ".provenance.json", JSON.stringify(provenance, null, 2));
+for (let i = 0; i < burst; i++) await writeFile(outPath.replace(/\.png$/, `-${String(i).padStart(2, "0")}.provenance.json`), JSON.stringify({ ...baseProvenance, ...captureStates[i + 1], frameIndex: i + 1 }, null, 2));
 if (args.json) { await mkdir(dirname(resolve(args.json)), { recursive: true }); await writeFile(resolve(args.json), JSON.stringify(report, null, 1)); }
 await finish(0);

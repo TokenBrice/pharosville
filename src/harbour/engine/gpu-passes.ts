@@ -3,7 +3,7 @@ import type { EffectComposer } from "postprocessing";
 
 type State = { tier: string; dpr: number; width: number; height: number };
 type Sample = { q: WebGLQuery; frame: number; label: string; epoch: number };
-type Frame = { state: State; passes: Record<string, number> };
+type Frame = { state: State; passes: Record<string, number>; submissions: Record<string, number> };
 const MAX_QUERIES = 4096;
 const MAX_FRAMES = 1200;
 
@@ -41,6 +41,8 @@ export class GpuPassProfiler {
   private readonly frames = new Map<number, Frame>();
   private readonly undo: Array<() => void> = [];
   private nextTarget = 1;
+  private materialLabel = "unattributed";
+  private readonly targetSizes = new Map<string, { width: number; height: number }>();
 
   constructor(renderer: THREE.WebGLRenderer, composer: EffectComposer) {
     this.gl = renderer.getContext() as WebGL2RenderingContext;
@@ -71,8 +73,13 @@ export class GpuPassProfiler {
         label = key === "blitFramebuffer" ? "depth-copy" : `${label}${key === "clear" ? "/clear" : key === "generateMipmap" ? "/mips" : ""}`;
         if (!this.frames.has(this.frame)) {
           const canvas = renderer.domElement;
-          this.frames.set(this.frame, { state: { tier: window.__harbourStats?.quality ?? "boot", dpr: renderer.getPixelRatio(), width: canvas.width, height: canvas.height }, passes: {} });
+          this.frames.set(this.frame, { state: { tier: window.__harbourStats?.quality ?? "boot", dpr: renderer.getPixelRatio(), width: canvas.width, height: canvas.height }, passes: {}, submissions: {} });
         }
+        const row = this.frames.get(this.frame)!;
+        const submission = `${label}/${this.materialLabel}`;
+        if (key.includes("draw") || key.includes("Draw")) row.submissions[submission] = (row.submissions[submission] ?? 0) + 1;
+        const renderTarget = renderer.getRenderTarget();
+        if (renderTarget) this.targetSizes.set(label, { width: renderTarget.width, height: renderTarget.height });
         gl.beginQuery(this.ext!.TIME_ELAPSED_EXT, q);
         try { return original.apply(target, args); }
         finally {
@@ -90,14 +97,23 @@ export class GpuPassProfiler {
           if (this.hooked.has(object) || (!(object as THREE.Mesh).isMesh && !(object as THREE.Points).isPoints && !(object as THREE.Line).isLine)) return;
           this.hooked.add(object);
           const before = object.onBeforeRender, after = object.onAfterRender;
+          const beforeShadow = object.onBeforeShadow, afterShadow = object.onAfterShadow;
+          object.onBeforeShadow = (...args) => {
+            beforeShadow.apply(object, args);
+            const material = args[5];
+            this.materialLabel = `${material.name || material.type}#${material.uuid}/caster:${object.name || object.uuid}`;
+          };
+          object.onAfterShadow = (...args) => { afterShadow.apply(object, args); this.materialLabel = "unattributed"; };
           object.onBeforeRender = (...args) => {
             before.apply(object, args);
+            const material = args[4] as THREE.Material;
+            this.materialLabel = `${material.name || material.type}#${material.uuid}${object.castShadow ? "/caster" : ""}`;
             let group = object;
             while (group.parent && group.parent !== scene) group = group.parent;
             this.label = `scene/${group.name || object.name || (args[4] as THREE.Material).name || object.type}`;
           };
-          object.onAfterRender = (...args) => { after.apply(object, args); this.label = "scene"; };
-          this.undo.push(() => { object.onBeforeRender = before; object.onAfterRender = after; });
+          object.onAfterRender = (...args) => { after.apply(object, args); this.label = "scene"; this.materialLabel = "unattributed"; };
+          this.undo.push(() => { object.onBeforeRender = before; object.onAfterRender = after; object.onBeforeShadow = beforeShadow; object.onAfterShadow = afterShadow; });
         });
         this.label = "scene";
       } else {
@@ -186,13 +202,13 @@ export class GpuPassProfiler {
     const pendingFrames = new Set(this.pending.filter((p) => p.epoch === this.epoch).map((p) => p.frame));
     const complete = [...this.frames].filter(([f]) => f >= this.minimumFrame && f < this.frame && !this.invalidFrames.has(f) && !pendingFrames.has(f));
     const labels = new Set(complete.flatMap(([, row]) => Object.keys(row.passes)));
-    const samples = complete.map(([frame, row]) => ({ frame, ...row.state, ms: Object.values(row.passes).reduce((a, b) => a + b, 0), passes: row.passes }));
+    const samples = complete.map(([frame, row]) => ({ frame, ...row.state, ms: Object.values(row.passes).reduce((a, b) => a + b, 0), passes: row.passes, submissions: row.submissions }));
     const total = distribution(samples.map((s) => s.ms));
     const passes = Object.fromEntries([...labels].sort().map((label) => {
       const values = complete.map(([, row]) => row.passes[label] ?? 0);
       return [label, { ...distribution(values), activeSamples: values.filter((v) => v > 0).length }];
     }));
-    return { available: this.available, sampledFrames: samples.length, pendingQueries: this.pending.length, currentPendingQueries: this.pending.filter((p) => p.epoch === this.epoch).length, disjointPolls: this.disjointPolls, invalidFrames: this.invalidFrames.size, discarded: this.discarded, skipped: this.skipped, total, totalP10Ms: total.p10Ms, totalMedianMs: total.p50Ms, totalP95Ms: total.p95Ms, passes, samples };
+    return { available: this.available, capabilities: { renderer: this.gl.getParameter(this.gl.RENDERER), version: this.gl.getParameter(this.gl.VERSION), extensions: this.gl.getSupportedExtensions() }, targets: Object.fromEntries(this.targetSizes), sampledFrames: samples.length, pendingQueries: this.pending.length, currentPendingQueries: this.pending.filter((p) => p.epoch === this.epoch).length, disjointPolls: this.disjointPolls, invalidFrames: this.invalidFrames.size, discarded: this.discarded, skipped: this.skipped, total, totalP10Ms: total.p10Ms, totalMedianMs: total.p50Ms, totalP95Ms: total.p95Ms, passes, samples };
   }
 
   dispose(): void {
