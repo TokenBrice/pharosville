@@ -19,13 +19,7 @@ const FAR_PORTS = "the Far Ports";
 export const FAR_PORTS_LINE = "Far Ports includes small chain allocations, chains without a pier, and supply without a reported chain allocation.";
 export const STATION_RULE = "The station repeats the supply-weighted stress band: Calm, no shapes; Watch, one cone; Alert, two cones; Warning, two cones and one drum; Danger, two cones and two drums with a red pennant.";
 export const BOAT_SIGNALS_RULE = "The five highest-scoring Alert-or-worse coins may fly a masthead signal: Alert, a cone; Warning, a drum; Danger, a cone and a drum. Early warning, not a depeg.";
-export const SOUND_SURF = "Surf follows sea state: the share of supply off peg.";
-export const SOUND_WEATHER = "Wind, rain and thunder follow early-warning stress.";
-export const SOUND_FOG = "The foghorn means stale data.";
-export const SOUND_PHAROS = "The Pharos breath follows the beam’s reach and falls silent when its reading is unavailable or stale.";
-export const SOUND_FLOW = "Mint and Burn sounds follow their displayed activity and stop when banked.";
-export const SOUND_DECORATIVE = "Other harbour sounds and music are decorative.";
-export const BY_EAR = [SOUND_SURF, SOUND_WEATHER, SOUND_FOG, SOUND_PHAROS, SOUND_FLOW, SOUND_DECORATIVE].join(" ");
+export { BY_EAR, SOUND_DECORATIVE, SOUND_FLOW, SOUND_FOG, SOUND_PHAROS, SOUND_SURF, SOUND_WEATHER } from "../audio/legend";
 
 /** The renderer hoists the first N shapes: cone, cone, drum, drum. */
 export function stationLine(band: DewsBand | null): string {
