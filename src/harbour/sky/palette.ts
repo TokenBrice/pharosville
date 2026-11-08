@@ -17,8 +17,10 @@ export const SKY_KEYS: SkyKey[] = [
   { hour: 0,    glow: "#6C82C0", glowK: 0.55, cloudLight: "#8A9BC4", cloudMid: "#43528A", cloudShade: "#1E2850", cloudRim: "#D3DEFF", rimK: 1.0, mount: "#1A2443", mountLit: "#33446E", snow: 0.25, stars: 1, sun: 0, moon: 1 },
   { hour: 5.0,  glow: "#6C82C0", glowK: 0.5,  cloudLight: "#8A9BC4", cloudMid: "#43528A", cloudShade: "#1E2850", cloudRim: "#D3DEFF", rimK: 1.0, mount: "#1C2646", mountLit: "#33446E", snow: 0.25, stars: 0.85, sun: 0, moon: 0.9 },
   { hour: 6.2,  glow: "#FFB59A", glowK: 0.9,  cloudLight: "#FFD5C2", cloudMid: "#C99AA8", cloudShade: "#5E5F8A", cloudRim: "#FFC3A0", rimK: 0.9, mount: "#4A4E74", mountLit: "#A88A9A", snow: 0.5, stars: 0.15, sun: 0.8, moon: 0.3 },
-  { hour: 7.5,  glow: "#FFE2C0", glowK: 0.45, cloudLight: "#FFF6EA", cloudMid: "#E2E4EE", cloudShade: "#9AA6C2", cloudRim: "#FFF0DD", rimK: 0.5, mount: "#7E92B0", mountLit: "#B2BCCC", snow: 0.8, stars: 0, sun: 1, moon: 0 },
-  { hour: 12,   glow: "#FFFFFF", glowK: 0.25, cloudLight: "#FFFFFF", cloudMid: "#E6ECF4", cloudShade: "#A2B3CC", cloudRim: "#FFFFFF", rimK: 0.4, mount: "#8FA8C2", mountLit: "#B9C9D8", snow: 1, stars: 0, sun: 1, moon: 0 },
+  // E03a: a silver morning and noon keep a quieter sun glow (.45 → .27, .25 → .15): the haze beside the hero stays
+  // below the Pharos' lit face while the back-lit morning key leaves it a rim; dawn, golden and night keep theirs
+  { hour: 7.5,  glow: "#FFE2C0", glowK: 0.27, cloudLight: "#FFF6EA", cloudMid: "#E2E4EE", cloudShade: "#9AA6C2", cloudRim: "#FFF0DD", rimK: 0.5, mount: "#7E92B0", mountLit: "#B2BCCC", snow: 0.8, stars: 0, sun: 1, moon: 0 },
+  { hour: 12,   glow: "#FFFFFF", glowK: 0.15, cloudLight: "#FFFFFF", cloudMid: "#E6ECF4", cloudShade: "#A2B3CC", cloudRim: "#FFFFFF", rimK: 0.4, mount: "#8FA8C2", mountLit: "#B9C9D8", snow: 1, stars: 0, sun: 1, moon: 0 },
   { hour: 16.5, glow: "#FFE8C8", glowK: 0.35, cloudLight: "#FFF6E8", cloudMid: "#E8E4E8", cloudShade: "#9EA6C4", cloudRim: "#FFE9C8", rimK: 0.55, mount: "#8796B4", mountLit: "#C2BCC0", snow: 0.8, stars: 0, sun: 1, moon: 0 },
   { hour: 18.6, glow: "#FFD39A", glowK: 1.0,  cloudLight: "#FFDCB0", cloudMid: "#E8A493", cloudShade: "#77719C", cloudRim: "#FFAA62", rimK: 1.0, mount: "#7F7F9E", mountLit: "#C9A089", snow: 0.4, stars: 0, sun: 1, moon: 0 },
   { hour: 19.6, glow: "#F09A7A", glowK: 0.8,  cloudLight: "#E8A6A0", cloudMid: "#8E6F92", cloudShade: "#3C3F6E", cloudRim: "#FFB08A", rimK: 0.8, mount: "#3E4068", mountLit: "#7A6280", snow: 0.3, stars: 0.3, sun: 0.4, moon: 0.6 },

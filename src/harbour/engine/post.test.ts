@@ -1,11 +1,17 @@
 import * as THREE from "three";
-import { BloomEffect, EdgeDetectionMaterial, SMAAEffect, SMAAPreset, SMAAWeightsMaterial } from "postprocessing";
+import { BloomEffect, EdgeDetectionMaterial, SMAAEffect, SMAAPreset, SMAAWeightsMaterial, TiltShiftEffect, VignetteEffect } from "postprocessing";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fillGradeLUT, gradePixel, LUT_SIZE, PostChain, SlicedGradeLUT } from "./post";
+import { fillGradeLUT, gradePixel, LUT_SIZE, PostChain, SlicedGradeLUT, TILT_MARGIN, TILT_OPACITY, tiltBand } from "./post";
 import { PreparationQueue } from "./preparation-queue";
 import type { PreparationService } from "./types";
-import { DEFAULT_KEYFRAMES, styleCDirection } from "./time-of-day";
+import { DEFAULT_KEYFRAMES, styleCDirection, TimeOfDay } from "./time-of-day";
 import { TIERS } from "./quality";
+import { CameraRig } from "./camera-rig";
+import layoutJson from "../data/layout.json";
+import { dockedRows } from "../layout/docked-rows";
+import { heroPoints } from "../layout/framing";
+import { toCameraPreset } from "../layout/layout-system";
+import type { HarbourLayout } from "../layout/types";
 
 import type { Grade } from "./time-of-day";
 
@@ -175,5 +181,63 @@ describe("quality preset preparation", () => {
       expectedEdge.dispose(); expectedWeights.dispose();
     }
     edge.dispose(); weights.dispose(); smaa.renderTargetEdges.dispose(); smaa.renderTargetWeights.dispose();
+  });
+});
+
+describe("E08 overview focus", () => {
+  const L = layoutJson as unknown as HarbourLayout;
+  const lantern = new THREE.Vector3(...heroPoints(L)[1]);
+  const dock = dockedRows(L).map((p) => new THREE.Vector3(...p));
+  const ndc = (p: THREE.Vector3, camera: THREE.Camera) => p.clone().project(camera).y;
+  const rigAt = (view: "overview" | "heart", aspect: number, pan: [number, number] = [0, 0], scale = 1) => {
+    const camera = new THREE.PerspectiveCamera(25, aspect, 1, 20000), rig = new CameraRig(camera);
+    const p = toCameraPreset(L.camera.presets[view]);
+    p.target = [p.target[0] + pan[0], p.target[1], p.target[2] + pan[1]];
+    p.distance *= scale;
+    rig.applyPreset(p, true);
+    camera.updateMatrixWorld(true);
+    return { camera, rig };
+  };
+
+  it("bounds the docked rows of the inner harbour (inside the bay), not the outer coves", () => {
+    const berths = L.piers.reduce((n, pier) => n + pier.berths.length, 0);
+    expect(dock.length).toBeGreaterThan(100);
+    expect(dock.length).toBeLessThan(berths);
+  });
+
+  it("the sharp band's projections contain both anchors, the lantern and every docked row, at any aspect and pan", () => {
+    const band = { lo: 0, hi: 0 };
+    for (const aspect of [1, 1.6, 2.4]) for (const pan of [[0, 0], [160, 0], [0, 160], [-160, -120]] as Array<[number, number]>) for (const scale of [0.8, 1, 1.15]) {
+      const { camera } = rigAt("overview", aspect, pan, scale);
+      expect(tiltBand(camera, lantern, dock, band)).toBe(true);
+      const ys = [lantern, ...dock].map((p) => ndc(p, camera));
+      expect(Math.min(...ys)).toBeCloseTo(band.lo + TILT_MARGIN, 9);
+      expect(Math.max(...ys)).toBeCloseTo(band.hi - TILT_MARGIN, 9);
+    }
+  });
+
+  it("PostChain: at the overview the sharp row is the harbour (lantern to docked rows) and the soft zone is capped", () => {
+    vi.stubGlobal("location", { search: "", hash: "" });
+    const { camera, rig } = rigAt("overview", 1.6);
+    const tiltShift = new TiltShiftEffect({ focusArea: 0.6, feather: 0.38, offset: 0.06 });
+    // (private fields set directly: the chain is built without a WebGL renderer)
+    const chain = Object.create(PostChain.prototype) as PostChain;
+    Object.assign(chain as unknown as Record<string, unknown>, {
+      renderer: { toneMappingExposure: 1 }, bloom: new BloomEffect(), tiltShift, vignette: new VignetteEffect(),
+      cam: camera, focusV: new THREE.Vector3(), band: { lo: 0, hi: 0 }, lutAge: 0, lutKey: new Float32Array(15),
+      tiltNear: 715, tiltFar: 1000, tiltFocus: [new THREE.Vector3(...heroPoints(L)[0]), lantern], tiltDock: dock,
+    });
+    chain.update(0.016, new TimeOfDay(), rig);
+    expect(tiltShift.blendMode.opacity.value).toBeCloseTo(TILT_OPACITY, 9);
+    expect(TILT_OPACITY).toBeLessThanOrEqual(0.35);
+    const sharp = tiltShift.focusArea - tiltShift.feather;
+    for (const p of [lantern, ...dock]) expect(Math.abs(ndc(p, camera) - tiltShift.offset)).toBeLessThanOrEqual(sharp - TILT_MARGIN + 1e-9);
+    // the miniature softness keeps the frame edges: the band is shorter than the frame
+    expect(sharp).toBeLessThan(0.75);
+    // at the landing (heart) the effect is faded out entirely
+    const heart = rigAt("heart", 1.6);
+    Object.assign(chain as unknown as Record<string, unknown>, { cam: heart.camera });
+    chain.update(0.016, new TimeOfDay(), heart.rig);
+    expect(tiltShift.blendMode.opacity.value).toBe(0);
   });
 });

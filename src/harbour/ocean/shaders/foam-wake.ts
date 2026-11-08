@@ -48,6 +48,9 @@ export const OCEAN_FOAM = /* glsl */ `  // -------------------------------------
   fTrail = max(fTrail, lace * smoothstep(0.06, 0.3, trail) * (1.0 - smoothstep(0.55, 0.95, trail)) * (0.35 + 0.4 * nB.g) * (1.0 - laceFar * 0.6));
   float fKel = smoothstep(0.07, 0.38, live.r * (0.45 + 1.0 * nC.r)) * 0.85;
   float fRing = smoothstep(0.3, 0.75, live.g * (0.35 + 1.0 * nC.b)) * 0.5;
+  // E08: a hull's contact ring has a fixed world width; under ~2 px (overview) it would print a white outline, so it
+  // fades with the pixel footprint (the coast's own contact line is kept)
+  fRing *= 1.0 - smoothstep(0.45, 0.9, length(fwidth(xz)));
   float caps = smoothstep(0.82 - 0.1 * storm, 0.97, crestH * 0.55 + nB.a * 0.55 + nC.r * 0.12) * uSea.z * smoothstep(25.0, 90.0, coast);
   // scattered whitecap flecks riding the crests across the whole bay once the declared sea is choppy
   // (uSea.z > 0: off-peg step 2+), so a rough sea reads at the heart view, not only in patches (readings)

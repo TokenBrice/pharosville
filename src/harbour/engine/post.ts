@@ -163,6 +163,32 @@ function setBloomLevels(pass: MipmapBlurPass, levels: number): void {
   mip.setSize(mip.resolution.x, mip.resolution.y);
 }
 
+/** E08: NDC margin kept sharp beyond the lantern and the docked rows; the soft zone's opacity cap. */
+export const TILT_MARGIN = 0.05;
+export const TILT_OPACITY = 0.35;
+const bandDir = new THREE.Vector3(), bandP = new THREE.Vector3();
+
+/**
+ * E08 overview focus (O2-I13, O1-I10): the tilt-shift's sharp band, NDC y (−1 bottom … 1 top), spanning the Pharos
+ * lantern and the docked rows' screen extent plus TILT_MARGIN. The rows lie on one level, so their screen extremes
+ * are the rows nearest and farthest along the view's ground direction: two projections whatever the pan or zoom.
+ * Writes out.lo/out.hi; false when a projection is not finite (the caller keeps its previous band).
+ */
+export function tiltBand(camera: THREE.Camera, lantern: THREE.Vector3, dock: readonly THREE.Vector3[], out: { lo: number; hi: number }): boolean {
+  const f = camera.getWorldDirection(bandDir), c = camera.position;
+  let near = lantern, far = lantern, sMin = Infinity, sMax = -Infinity;
+  for (const p of dock) {
+    const s = (p.x - c.x) * f.x + (p.z - c.z) * f.z;
+    if (s < sMin) { sMin = s; near = p; }
+    if (s > sMax) { sMax = s; far = p; }
+  }
+  const yl = bandP.copy(lantern).project(camera).y, yn = bandP.copy(near).project(camera).y, yf = bandP.copy(far).project(camera).y;
+  const lo = Math.min(yl, yn, yf) - TILT_MARGIN, hi = Math.max(yl, yn, yf) + TILT_MARGIN;
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return false;
+  out.lo = lo; out.hi = hi;
+  return true;
+}
+
 export class PostChain {
   readonly bloom: BloomEffect;
   readonly toneMapping: ToneMappingEffect;
@@ -187,8 +213,11 @@ export class PostChain {
    * centres on the tower's screen height, so the miniature's sharp row is the lighthouse, not the sky above it.
    */
   tiltFocus: [THREE.Vector3, THREE.Vector3] | null = null;
+  /** E08: the docked rows in the inner harbour (world, set by the layout system); with the lantern they bound the sharp band. */
+  tiltDock: THREE.Vector3[] = [];
   private readonly cam: THREE.PerspectiveCamera;
   private readonly focusV = new THREE.Vector3();
+  private readonly band = { lo: 0, hi: 0 };
 
   constructor(readonly renderer: THREE.WebGLRenderer, readonly composer: EffectComposer, scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
     this.cam = camera;
@@ -293,9 +322,13 @@ export class PostChain {
     this.bloom.luminanceMaterial.threshold = tod.bloomThreshold;
     // Tilt-shift: a miniature cue at overview zoom only; fades out as you zoom in.
     const z = THREE.MathUtils.smoothstep(rig.distance, this.tiltNear, this.tiltFar);
-    this.tiltShift.blendMode.opacity.value = z * 0.55;
+    this.tiltShift.blendMode.opacity.value = z * TILT_OPACITY;
     this.tiltShift.focusArea = THREE.MathUtils.lerp(0.75, 0.58, z);
-    if (this.tiltFocus && z > 0) {
+    if (this.tiltFocus && z > 0 && this.tiltDock.length > 0 && tiltBand(this.cam, this.tiltFocus[1], this.tiltDock, this.band)) {
+      // E08: the sharp row is the harbour itself, lantern to docked rows; the miniature softness keeps the frame edges
+      this.tiltShift.offset = (this.band.lo + this.band.hi) * 0.5;
+      this.tiltShift.focusArea = (this.band.hi - this.band.lo) * 0.5 + this.tiltShift.feather;
+    } else if (this.tiltFocus && z > 0) {
       // tower mid-height and lantern in NDC y (tilt-shift space is -1 bottom … 1 top); keep the lantern inside the
       // sharp row, never drop the band below its old place (the harbour below stays in the soft fall-off)
       const yb = this.focusV.copy(this.tiltFocus[0]).project(this.cam).y;

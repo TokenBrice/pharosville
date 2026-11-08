@@ -5,6 +5,7 @@ import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import { PharosFire } from "../beam/fire";
 import { getBeamUniforms, type BeamUniforms } from "../beam/uniforms";
 import { getHarbourMaterials } from "./materials";
+import { limewash } from "./limewash";
 import { getLightsStore } from "../lights/lights-service";
 
 export const LIGHTHOUSE_URL = "/harbour/lighthouse.glb";
@@ -137,6 +138,9 @@ export class LighthouseSystem implements WorldSystem {
       }
     });
 
+    // E03a: the hero's stone prints +6 % (limewash.ts), before the merge copies the colours
+    const tower = node("tower") as THREE.Mesh | undefined;
+    if (tower?.isMesh) limewash(tower.geometry);
     // the tower and its crowning statue never move (the mirror does): one draw, one shadow draw
     const still = ["tower", "statue"].map(node).filter((o): o is THREE.Mesh => !!(o as THREE.Mesh | undefined)?.isMesh);
     if (still.length === 2 && still[0].parent === still[1].parent && still[0].parent) mergeStaticMeshes(still, still[0].parent, "pharos");

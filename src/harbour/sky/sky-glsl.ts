@@ -3,6 +3,16 @@ import { CLOUD_COLS, CLOUD_ROWS } from "./clouds";
 export const MAX_BANKS = 8;
 
 /**
+ * E03a hero value lock (O1-I1 at the O10 full strength): the visible band is only ~5° tall, so the gradient reaches
+ * mid-blue behind the lantern within SKY_GRADIENT_DEG (was 6.5°), and the warm lift on the horizon stays below
+ * SKY_LIFT_DEG (was 1.6°, weight .35). Together with the darker day air (time-of-day DAY_AIR) the band sits a step
+ * below the Pharos' lit limewash by day; at night the darker band behind the lantern only helps the fire lead.
+ */
+export const SKY_GRADIENT_DEG = 3.5;
+export const SKY_LIFT_DEG = 1.0;
+export const SKY_LIFT = 0.2;
+
+/**
  * The painted sky band, evaluated in band space: th = azimuth (deg) relative to the view's forward
  * azimuth, e = elevation (deg) above the backdrop's base line (the pretend horizon). Shared by the
  * camera-attached backdrop (full res) and the low-res band render target the sea reflects/hazes from.
@@ -128,13 +138,14 @@ vec3 skyBand(float th, float e, float pxDeg) {
   gCov = uFrontB.w > 0.5 ? mix(uFrontA.x, uFrontA.y, gBehind) : uWeather.x;
   gStorm = uFrontB.w > 0.5 ? mix(uFrontA.z, uFrontA.w, gBehind) : uStorm;
   // ---- gradient: compressed so the narrow visible band still spans horizon -> zenith
-  float t = clamp(e / 6.5, 0.0, 1.0);
+  float t = clamp(e / ${SKY_GRADIENT_DEG.toFixed(2)}, 0.0, 1.0);
+  float lift = (1.0 - smoothstep(0.0, ${SKY_LIFT_DEG.toFixed(2)}, e)) * ${SKY_LIFT.toFixed(2)};
   vec3 c = mix(uHorizon, uZenith, pow(t, 0.62));
-  c = mix(c, uHorizon * 1.08, (1.0 - smoothstep(0.0, 1.6, e)) * 0.35);
+  c = mix(c, uHorizon * 1.08, lift);
   if (gStorm < uStorm - 0.002) {
     // W01 clearing: behind the line the sky is the hour's own again
     vec3 cc = mix(uClearHor, uClearZen, pow(t, 0.62));
-    cc = mix(cc, uClearHor * 1.08, (1.0 - smoothstep(0.0, 1.6, e)) * 0.35);
+    cc = mix(cc, uClearHor * 1.08, lift);
     c = mix(cc, c, gStorm / max(uStorm, 1e-3));
   }
   // ---- glow toward the key light's azimuth (sun/moon), strongest at the horizon
