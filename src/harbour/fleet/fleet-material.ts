@@ -438,7 +438,9 @@ void hbFleetColor(inout vec3 c) {
 const HOVER_SHEEN = /* glsl */ `
 vec3 hbHoverSheen(vec3 base, float kind, float hi) {
   if (kind < 0.5 || kind > 1.5) return vec3(0.0);
-  return base * uSunColor * 0.14 * hi * (1.0 - uLamp);
+  // uLamp runs from 0.4 at noon to 40 at night (engine/uniforms.ts): the day sheen fades out as the lamps come up;
+  // unclamped it went to about -39 at night, and the negative light turned a selected ship's sails NaN-black
+  return base * uSunColor * 0.14 * hi * max(1.0 - uLamp, 0.0);
 }
 `;
 
