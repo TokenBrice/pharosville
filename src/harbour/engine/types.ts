@@ -77,9 +77,15 @@ export interface ReadinessState {
   prepared: boolean;
 }
 
-/** Startup planning failure; the awaiting world is real, but it cannot claim live fleet readings. */
+/** Worker recovery is separate from feed freshness; unavailable retains the boatless-arrival contract. */
 export interface SimulationStatus {
   unavailable: boolean;
+  phase: "starting" | "ready" | "recovering" | "unavailable";
+  reason: "timeout" | "crash" | null;
+  attempt: number;
+  nextRetryAtMs: number | null;
+  message: string;
+  retry(): void;
 }
 
 /** FleetSystem's posed/submitted revision and boat count, copied after a completed composer render. */

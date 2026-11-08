@@ -911,7 +911,7 @@ export class FleetSystem implements WorldSystem {
     this.fenders?.begin();
     const pose = sim?.pose;
     const n = pose && model && pose.count === model.boats.length ? pose.count : 0;
-    const windFrom = sim?.wind.fromRad ?? -1;
+    const windFrom = sim?.wind.displayFromRad ?? -1;
     this.uniforms.uWind.value = sim?.wind.strength ?? 0.35;
     const slots = sim?.layout.slots;
     const hiK = 1 - Math.exp(-dt * 8);

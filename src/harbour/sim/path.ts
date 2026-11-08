@@ -523,6 +523,8 @@ export function samplePath(p: SubPath, out: Float64Array): void {
  */
 export interface LegTiming {
   tHold: number;
+  v0: number;
+  asternV0: number;
   /** spare time at the destination once in (≤ the berth's arrival reservation) */
   tHoldEnd: number;
   tW0: number;
@@ -547,7 +549,7 @@ export interface LegTiming {
   minD: number;
 }
 
-export const newLegTiming = (): LegTiming => ({ tHold: 0, tHoldEnd: 0, tW0: 0, tTurn: 0, tAstern: 0, tW1: 0, h0: 0, turn: 0, hEnd: 0, lf: 0, aD: 0, dD: 0, v: 0, t1: 0, t3: 0, tf: 0, tNom: 0, minD: 0 });
+export const newLegTiming = (): LegTiming => ({ tHold: 0, v0: 0, asternV0: 0, tHoldEnd: 0, tW0: 0, tTurn: 0, tAstern: 0, tW1: 0, h0: 0, turn: 0, hEnd: 0, lf: 0, aD: 0, dD: 0, v: 0, t1: 0, t3: 0, tf: 0, tNom: 0, minD: 0 });
 
 const WARP_V = 0.16;
 /** Spare leg time spent at the berths, at most (inside the planner's berth reservations). */
@@ -557,16 +559,16 @@ export const HOLD_OUT_MAX = 40, HOLD_IN_MAX = 22;
  * @param startHeading the hull's heading at the start (berth heading, or the swung heading)
  * @param hold spend spare time at the berth first (plan legs); false = sail it out (voyages under way)
  */
-export function legTiming(p: PathRec, D: number, loa: number, out: LegTiming, startHeading?: number, endHeading?: number, hold = true): LegTiming {
+export function legTiming(p: PathRec, D: number, loa: number, out: LegTiming, startHeading?: number, endHeading?: number, hold = true, startSpeed = 0): LegTiming {
   const vn = cruiseSpeed(loa);
   const tW0 = p.w0 ? Math.max(12, hypot(p.w0[2], p.w0[3]) / WARP_V) : 0;
   const tW1 = p.w1 ? Math.max(12, hypot(p.w1[0], p.w1[1]) / WARP_V) : 0;
   const vA = 0.35 + 0.45 * Math.sqrt(loa / 13);
-  const tAstern = p.rev ? Math.max(10, (1.5 * p.rev.length) / vA) : 0;
+  const tAstern = p.rev ? startSpeed < 0 ? 2 * p.rev.length / -startSpeed : Math.max(10, (1.5 * p.rev.length) / vA) : 0;
   const hullStart = p.w0 ? p.w0[4] : p.rev ? p.rev.hdg[0] + Math.PI : p.hdg[0];
   const h0 = startHeading ?? hullStart;
   const turn = wrapAngle(hullStart - h0);
-  const tTurn = Math.abs(turn) > 0.04 ? 3 + (Math.abs(turn) / Math.PI) * (16 + loa * 1.2) : 0;
+  const tTurn = !p.underway && Math.abs(turn) > 0.04 ? 3 + (Math.abs(turn) / Math.PI) * (16 + loa * 1.2) : 0;
   const lf = Math.max(0.01, p.Q);
   const man = tW0 + tW1 + tAstern + tTurn;
   // trapezoid at harbour speed (in q units vrel=1 ≡ vn)
@@ -594,13 +596,31 @@ export function legTiming(p: PathRec, D: number, loa: number, out: LegTiming, st
     else { acc = (4 * lf) / (tf * tf); v = acc * tf / 2; }
   }
   if (!(v > 0)) { v = lf / Math.max(1, tf); acc = 2 * v / Math.max(1, tf); }
-  const tAcc = v / acc;
+  const v0 = p.underway && !p.rev ? Math.max(0, startSpeed) / p.vrel[0] : 0;
+  if (v0 > 0) {
+    // Integrate the inherited velocity into the same effort budget and arrival time.
+    const ramp = (pace: number) => {
+      const t1 = Math.abs(pace - v0) / a, t3 = pace / a;
+      const aD = (v0 + pace) * t1 / 2, dD = pace * t3 / 2;
+      return { t1, t3, aD, dD, time: t1 + t3 + (lf - aD - dD) / pace };
+    };
+    let lo = 1e-6, hi = Math.max(v0, Math.sqrt(a * lf) + v0);
+    for (let k = 0; k < 50; k++) { const m = (lo + hi) / 2, r = ramp(m); if (r.aD + r.dD > lf) hi = m; else lo = m; }
+    const peak = lo;
+    tf = Math.max(tf, ramp(peak).time);
+    lo = 1e-6; hi = peak;
+    for (let k = 0; k < 50; k++) { const m = (lo + hi) / 2; if (ramp(m).time > tf) lo = m; else hi = m; }
+    v = (lo + hi) / 2;
+  }
+  const tAcc = v0 > 0 ? Math.abs(v - v0) / a : v / acc;
   out.tHold = tHold; out.tHoldEnd = tHoldEnd; out.tW0 = tW0; out.tTurn = tTurn; out.tAstern = tAstern; out.tW1 = tW1;
   out.h0 = h0; out.turn = turn;
   const hEndT = p.w1 ? p.w1[2] : endHeading ?? p.hdg[p.n - 1];
   out.hEnd = wrapAngle(hEndT - p.hdg[p.n - 1]);
-  out.lf = lf; out.aD = (v * tAcc) / 2; out.dD = (v * tAcc) / 2; out.v = v;
-  out.t1 = tAcc; out.t3 = tAcc; out.tf = tf;
+  out.v0 = v0; out.asternV0 = Math.max(0, -startSpeed);
+  out.lf = lf; out.aD = ((v0 + v) * tAcc) / 2; out.v = v;
+  out.t1 = tAcc; out.t3 = v0 > 0 ? v / a : tAcc;
+  out.dD = v * out.t3 / 2; out.tf = tf;
   out.tNom = tNom; out.minD = minD;
   return out;
 }
@@ -639,10 +659,10 @@ export function evalLeg(p: PathRec, tm: LegTiming, out: Float64Array): void {
   t -= tm.tHold + tm.tW0 + tm.tTurn;
   if (p.rev && t < tm.tAstern) {
     const u = t / tm.tAstern;
-    const e = u * u * (3 - 2 * u);
+    const e = tm.asternV0 > 0 ? 2 * u - u * u : u * u * (3 - 2 * u);
     out[IO_S] = p.rev.length * e; samplePath(p.rev, out);
     out[2] += Math.PI;
-    out[3] = (p.rev.length * 6 * u * (1 - u)) / tm.tAstern;
+    out[3] = tm.asternV0 > 0 ? tm.asternV0 * (1 - u) : (p.rev.length * 6 * u * (1 - u)) / tm.tAstern;
     out[5] = LEG_CAST_OFF; out[6] = p.length;
     return;
   }
@@ -664,7 +684,7 @@ export function evalLeg(p: PathRec, tm: LegTiming, out: Float64Array): void {
   }
   const tl = Math.min(t, tm.tf);
   let s: number, v: number;
-  if (tl < tm.t1) { s = tm.aD * (tl / tm.t1) ** 2; v = (tm.v * tl) / tm.t1; }
+  if (tl < tm.t1) { v = tm.v0 + (tm.v - tm.v0) * tl / tm.t1; s = (tm.v0 + v) * tl / 2; }
   else if (tl > tm.tf - tm.t3) { const r = Math.max(0, tm.tf - tl); s = tm.lf - tm.dD * (r / tm.t3) ** 2; v = (tm.v * r) / tm.t3; }
   else { s = tm.aD + tm.v * (tl - tm.t1); v = tm.v; }
   s = Math.min(tm.lf, Math.max(0, s));

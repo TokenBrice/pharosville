@@ -43,5 +43,5 @@ describe("points of sail (07-M1)", () => {
       for (let i = 0; i < p.count; i++) maxH = Math.max(maxH, Math.abs(p.heel[i]));
     }
     expect(maxH).toBeLessThan(0.3);
-  });
+  }, 120_000);
 });

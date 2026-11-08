@@ -14,7 +14,7 @@
  * the clock runs on from where it was held (it then lags wall time by the pause), so nothing jumps.
  * The model and its freshness always read the real clock.
  */
-import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, SimulationStatus, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import { HarbourFeed } from "../data/fetch";
 import { buildHarbourModel } from "../model/build";
@@ -68,9 +68,14 @@ export class DataSystem implements WorldSystem {
   private preparing = false;
   private warmed = false;
   private workerFailed = false;
-  private failedSnapshot: HarbourPayloads["stablecoins"] | undefined;
   private restartWarm: (() => void) | null = null;
-  readonly status = { unavailable: false };
+  private generation = 0;
+  private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  private retryRemaining = 0;
+  private retryPending = false;
+  private restartAttempt = true;
+  private unsubscribeRecovery: (() => void) | null = null;
+  readonly status: SimulationStatus = { unavailable: false, phase: "starting", reason: null, attempt: 0, nextRetryAtMs: null, message: "", retry: () => {} };
   /** Last installed snapshots retain their original ages if the worker becomes unavailable. */
   private installedPayloads: HarbourPayloads | null = null;
   private revision = 0;
@@ -85,7 +90,7 @@ export class DataSystem implements WorldSystem {
     if (!layout) {
       // Publish a terminal empty world too: reveal must never wait for a service this path cannot install.
       ctx.services.set("model", buildHarbourModel({}, Date.now()));
-      this.status.unavailable = true;
+      Object.assign(this.status, { unavailable: true, phase: "unavailable", message: "Fleet updates paused. Retry fleet updates." });
       console.warn("[harbour] data: no layout service; the fleet stays empty");
       return;
     }
@@ -120,16 +125,34 @@ export class DataSystem implements WorldSystem {
     const coasting = loadCoast(ctx, layout);
     // One persistent owner starts alongside the coast/API requests; no partial public installs.
     const startWarm = this.restartWarm = () => {
+      const generation = ++this.generation;
       this.warm?.stop();
-      this.warmed = false; this.workerFailed = false;
+      this.warmed = false; this.workerFailed = false; this.preparing = false; this.dirty = true;
+      const current = () => this.feed === feed && this.generation === generation;
       const warm = this.warm = warmLegsOffThread(layout, coasting,
-        (entries) => this.sim?.seedLegTimes(entries),
-        (seed) => this.sim?.seedOutings(seed),
-        (error) => this.workerUnavailable(ctx, feed, error));
+        (entries) => { if (current()) this.sim?.seedLegTimes(entries); },
+        (seed) => { if (current()) this.sim?.seedOutings(seed); },
+        (error) => { if (current()) this.workerUnavailable(ctx, feed, error); });
       void warm.done.then(() => {
         if (this.feed !== feed || this.warm !== warm) return;
         this.warmed = true; this.queuePreparation(ctx);
       }, () => { if (this.feed === feed && this.warm === warm) this.warmed = false; });
+    };
+    this.status.retry = () => {
+      if (this.feed !== feed || this.status.phase !== "unavailable") return;
+      this.status.attempt = 0;
+      this.status.phase = "recovering";
+      this.status.message = this.installedPayloads ? "Fleet updates paused. Showing saved readings." : "Fleet planning unavailable. Trying again.";
+      this.scheduleRetry(feed, 0, false);
+    };
+    const resume = () => this.resumeRetry(feed);
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
+    window.addEventListener("offline", resume);
+    this.unsubscribeRecovery = () => {
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("online", resume);
+      window.removeEventListener("offline", resume);
     };
     startWarm();
     const coast = await coasting;
@@ -146,12 +169,45 @@ export class DataSystem implements WorldSystem {
   private workerUnavailable(ctx: EngineContext, feed: HarbourFeed, error: unknown): void {
     if (this.feed !== feed || this.workerFailed) return;
     this.warmed = false; this.workerFailed = true; this.dirty = true;
-    this.failedSnapshot = feed.payloads.stablecoins;
-    // Route allocation is synchronous, so a task-only fallback could still stall a frame.
-    // Keep the real awaiting model and reveal it honestly instead of planning on the main thread.
+    this.warm?.stop();
     this.status.unavailable = this.installedPayloads === null;
+    this.status.reason = error instanceof Error && "reason" in error && error.reason === "timeout" ? "timeout" : "crash";
+    this.status.phase = this.status.attempt >= 3 ? "unavailable" : "recovering";
+    this.status.message = this.status.phase === "unavailable" ? "Fleet updates paused. Retry fleet updates."
+      : this.installedPayloads ? "Fleet updates paused. Showing saved readings." : "Fleet planning unavailable. Trying again.";
     console.warn("[harbour] simulation preparation unavailable", error);
+    if (this.status.phase === "recovering") this.scheduleRetry(feed, [1000, 5000, 15000][this.status.attempt]);
     this.queuePreparation(ctx);
+  }
+
+  private scheduleRetry(feed: HarbourFeed, delay: number, restartAttempt = true): void {
+    clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+    this.retryRemaining = delay;
+    this.restartAttempt = restartAttempt;
+    this.retryPending = true;
+    this.status.nextRetryAtMs = Date.now() + delay;
+    this.resumeRetry(feed);
+  }
+
+  private resumeRetry(feed: HarbourFeed): void {
+    if (this.feed !== feed || this.status.phase !== "recovering" || !this.retryPending) return;
+    if (document.hidden || navigator.onLine === false) {
+      if (this.status.nextRetryAtMs !== null) this.retryRemaining = Math.max(0, this.status.nextRetryAtMs - Date.now());
+      clearTimeout(this.retryTimer); this.retryTimer = undefined;
+      this.status.nextRetryAtMs = null;
+      return;
+    }
+    if (this.retryTimer !== undefined) return;
+    this.status.nextRetryAtMs = Date.now() + this.retryRemaining;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      this.status.nextRetryAtMs = null;
+      if (document.hidden || navigator.onLine === false) return;
+      this.retryPending = false;
+      if (this.restartAttempt) this.status.attempt++;
+      this.restartWarm?.();
+    }, this.retryRemaining);
   }
 
   private queuePreparation(ctx: EngineContext): void {
@@ -167,15 +223,9 @@ export class DataSystem implements WorldSystem {
   private async prepare(ctx: EngineContext): Promise<void> {
     const sim = this.sim, feed = this.feed, layout = this.layout, warm = this.warm;
     if (!sim || !feed || !layout || !warm || this.preparing) return;
-    if (this.workerFailed && !this.installedPayloads) {
-      this.dirty = false;
-      // A later register refresh can recover startup, without retrying on every optional arrival.
-      if (feed.payloads.stablecoins !== this.failedSnapshot) {
-        this.dirty = true;
-        this.restartWarm?.();
-      }
-      return;
-    }
+    if (this.workerFailed && !this.installedPayloads) { this.dirty = false; return; }
+    const generation = this.generation;
+    const recovering = this.workerFailed;
     this.preparing = true;
     this.dirty = false;
     let revision = this.revision;
@@ -193,7 +243,7 @@ export class DataSystem implements WorldSystem {
       const prepared = model.planKey !== sim.plan.key
         ? await warm.prepare(model, this.simClock(Date.now()), sim.knownPlainPaths())
         : undefined;
-      if (this.feed !== feed || this.sim !== sim || revision < this.consumedRevision) return;
+      if (this.feed !== feed || this.sim !== sim || this.generation !== generation || this.workerFailed !== recovering || revision < this.consumedRevision) return;
       // Never publish an unseen intermediate structural model or replay its transitions.
       // Optional arrivals with identical planning inputs coalesce without restarting allocation.
       phase = "model-build";
@@ -213,15 +263,16 @@ export class DataSystem implements WorldSystem {
       this.readiness.revision++;
       this.readiness.boats = model.boats.length;
       this.readiness.prepared = true;
-      this.status.unavailable = false;
+      if (!recovering) Object.assign(this.status, { unavailable: false, phase: "ready", reason: null, attempt: 0, nextRetryAtMs: null, message: "" });
     } catch (error) {
-      if (phase === "worker") this.workerUnavailable(ctx, feed, error);
+      if (this.generation !== generation) { /* a newer preparation owns the outcome */ }
+      else if (phase === "worker") this.workerUnavailable(ctx, feed, error);
       else {
         this.status.unavailable = this.installedPayloads === null;
         console.warn("[harbour] model-build unavailable", error);
       }
     } finally {
-      if (this.feed === feed) {
+      if (this.feed === feed && this.generation === generation) {
         this.preparing = false;
         this.queuePreparation(ctx);
       }
@@ -298,6 +349,9 @@ export class DataSystem implements WorldSystem {
   }
 
   dispose(ctx: EngineContext): void {
+    this.generation++;
+    clearTimeout(this.retryTimer); this.retryTimer = undefined; this.retryPending = false;
+    this.unsubscribeRecovery?.(); this.unsubscribeRecovery = null;
     clearTimeout(this.queued);
     this.queued = undefined;
     this.feed?.stop();
@@ -308,7 +362,8 @@ export class DataSystem implements WorldSystem {
     this.sim = null;
     this.warmed = false; this.preparing = false; this.dirty = false; this.preparedPose = false;
     this.workerFailed = false; this.installedPayloads = null;
-    this.failedSnapshot = undefined; this.restartWarm = null; this.status.unavailable = false;
+    this.restartWarm = null;
+    Object.assign(this.status, { unavailable: false, phase: "starting", reason: null, attempt: 0, nextRetryAtMs: null, message: "", retry: () => {} });
     this.readiness.prepared = false; this.readiness.boats = 0; this.readiness.revision = 0;
     this.revision = 0; this.consumedRevision = 0;
     ctx.services.delete("feed");

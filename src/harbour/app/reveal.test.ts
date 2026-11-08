@@ -273,18 +273,18 @@ describe("composer-completed arrival reveal", () => {
     expect(status()).toBe("Harbour ready; live readings unavailable.");
   });
 
-  it("reveals worker-startup failure honestly after a base frame despite successful data", async () => {
+  it.each(["recovering", "unavailable"])("reveals worker-startup failure honestly after a base frame despite successful data (%s)", async (phase) => {
     await mount();
     feed().payloads.stablecoins = { data: { peggedAssets: [{ id: "coin" }] } };
-    Object.assign(engine().ctx.services.get("simulation-status") as object, { unavailable: true });
+    Object.assign(engine().ctx.services.get("simulation-status") as object, { unavailable: true, phase, reason: "timeout", attempt: 1, nextRetryAtMs: Date.now() + 1000 });
     expect(shown()).toBe(false);
     await frame();
     expect(shown()).toBe(true);
     expect(status()).toBe("Harbour ready; live readings unavailable.");
     expect(readiness().prepared).toBe(false);
     expect(harness.preload).toHaveBeenCalledOnce();
-    expect(engine().listeners.size).toBe(1); // A later register refresh can restart the worker.
-    Object.assign(engine().ctx.services.get("simulation-status") as object, { unavailable: false });
+    expect(engine().listeners.size).toBe(1); // A bounded restart can install a coherent fleet.
+    Object.assign(engine().ctx.services.get("simulation-status") as object, { unavailable: false, phase: "ready", reason: null, attempt: 0, nextRetryAtMs: null });
     commit(1, 1);
     await frame(0, 0);
     expect(status()).toBe("Harbour ready; live readings unavailable.");

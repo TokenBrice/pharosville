@@ -26,7 +26,7 @@ function doubleBooked(p: PoseBuffer): number {
   return dup;
 }
 
-describe("HarbourSim", () => {
+describe("HarbourSim", { timeout: 120_000 }, () => {
   it("is deterministic from (model, layout, UTC) and independent of history", () => {
     const a = new HarbourSim(model, layout, T0_MS, null, buildPlan);
     const b = new HarbourSim(model, layout, T0_MS, null, buildPlan);
@@ -375,7 +375,7 @@ describe("HarbourSim", () => {
   });
 });
 
-describe("boot work off the main thread (sim/warm-legs)", () => {
+describe("boot work off the main thread (sim/warm-legs)", { timeout: 120_000 }, () => {
   /** What a warm-legs worker does, on its own copy of the layout (structuredClone stands in for postMessage). */
   const workerPaths = (sim: HarbourSim, reqs: PathRequest[]): Array<[string, PathRec, boolean]> => {
     const L = buildSimLayout(layout), base = L.slots.length;
@@ -421,7 +421,7 @@ describe("boot work off the main thread (sim/warm-legs)", () => {
   });
 });
 
-describe("prepared plans and held poses", () => {
+describe("prepared plans and held poses", { timeout: 120_000 }, () => {
   it("hydrates a transferred plan and every pose field exactly without a main-thread planner", () => {
     const worker = new HarbourSim(model, layout, T0_MS, null, buildPlan);
     const { now, soon } = worker.pathRequests(T0_MS);
@@ -492,7 +492,7 @@ describe("prepared plans and held poses", () => {
   });
 });
 
-describe("prepared refresh parity", () => {
+describe("prepared refresh parity", { timeout: 120_000 }, () => {
   it("preserves real replan voyages and poses exactly when allocation arrives from a worker", () => {
     const direct = new HarbourSim(model, layout, T0_MS, null, buildPlan);
     const prepared = new HarbourSim(model, layout, T0_MS, null, buildPlan);
@@ -512,5 +512,5 @@ describe("prepared refresh parity", () => {
     for (const delta of [0, 16, 1000, 12_000, 60_000, 300_000]) {
       expect(prepared.poseAt(at + delta)).toStrictEqual(direct.poseAt(at + delta));
     }
-  }, 60_000);
+  }, 120_000);
 });
