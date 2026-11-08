@@ -17,6 +17,9 @@ import { ensureMotionService, MotionClock } from "../ui/services";
 import { buildZoneMask, type SeaZoneLike } from "./zone-mask";
 import { loadSdfImage } from "./sdf-image";
 import { getHarbourMaterials } from "../world/materials";
+import { TimeOfDay } from "../engine/time-of-day";
+import { createWorldUniforms } from "../engine/uniforms";
+import { seaHour } from "./sea-tone";
 
 /**
  * OCEAN: one large sea plane (fine grid over the sea bounds, a stretched far ring beyond), an unlit
@@ -117,6 +120,10 @@ export class OceanSystem implements WorldSystem {
   private awaitGround = false;
   private zoneTex: THREE.DataTexture | null = null;
   private debugMovers: Array<{ cx: number; cz: number; r: number; w: number; ph: number; hw: number }> = [];
+  /** E11: a private time-of-day evaluation (keys + season only: no weather, no moon phase) at this hour and at noon. */
+  private hourTod: TimeOfDay | null = null;
+  private readonly hourU = createWorldUniforms();
+  private readonly noonU = createWorldUniforms();
 
   async init(ctx: EngineContext): Promise<void> {
     const layout = ctx.services.get("layout");
@@ -189,6 +196,8 @@ export class OceanSystem implements WorldSystem {
         uPrecip: W.uPrecip,
         uSceneCenter: { value: new THREE.Vector2((layout.bounds.min[0] + layout.bounds.max[0]) / 2, (layout.bounds.min[2] + layout.bounds.max[2]) / 2) },
         uSceneRadius: { value: Math.hypot(layout.bounds.max[0] - layout.bounds.min[0], layout.bounds.max[2] - layout.bounds.min[2]) / 2 },
+        // E11 the hour on the water / E13 the bloom ceiling for glints (sea-tone.ts; set every frame below)
+        uSeaHour: { value: new THREE.Vector4(1, 1, 1, 1) }, uSeaLow: { value: new THREE.Vector2(1, 0) }, uBloomT: { value: 1.5 },
       },
       fog: false,
       // the calendar is set before anything compiles (season system first): summer nights' glow only when it can show
@@ -319,7 +328,7 @@ export class OceanSystem implements WorldSystem {
       const a = m.ph + this.time * m.w;
       const x = m.cx + Math.cos(a) * m.r, z = m.cz + Math.sin(a) * m.r;
       const vx = -Math.sin(a) * m.r * m.w, vz = Math.cos(a) * m.r * m.w;
-      this.wake.stamp(x, z, vx, vz, m.hw, 1);
+      this.wake.stamp(x, z, vx, vz, m.hw, 1, undefined, m.ph);
     }
     // aerial distance tint (decorative): zero inside the harbour radius, full ramp a little past the scene's edge
     const sc = this.material.uniforms.uSceneCenter.value as THREE.Vector2, sr = this.material.uniforms.uSceneRadius.value as number;
@@ -330,6 +339,23 @@ export class OceanSystem implements WorldSystem {
     const u = this.material.uniforms;
     u.uWake.value = this.wake.texture;
     u.uWakeLive.value = this.wake.live;
+    this.hourLight(ctx);
+  }
+
+  /**
+   * E11: the hour's light on the sea body relative to this day's noon, from the time-of-day keys and the season alone
+   * (a private evaluation: the sky's storm gloom and the moon's phase stay out, so storms keep their own grading).
+   * E13: the bloom threshold the glints stay under.
+   */
+  private hourLight(ctx: EngineContext): void {
+    const tod = ctx.timeOfDay, u = this.material.uniforms;
+    if (!tod) return;
+    u.uBloomT.value = tod.bloomThreshold;
+    const s = (this.hourTod ??= new TimeOfDay());
+    s.keyframes = tod.keyframes; s.season = tod.season;
+    s.hour = 12; s.apply(this.noonU);
+    s.hour = tod.hour; s.apply(this.hourU);
+    seaHour(this.hourU, this.noonU, u.uSeaHour.value as THREE.Vector4, u.uSeaLow.value as THREE.Vector2);
   }
 
   dispose(ctx: EngineContext): void {
