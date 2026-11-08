@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>O8 · Pilot's Chart · board</title>
+<meta name="viewport" content="width=2000">
+<link rel="stylesheet" href="O8-pilot-chart.css">
+<style>
+  html, body { margin: 0; background: #262b31; }
+  body { width: 2000px; padding: 18px 0 30px; color: #e6dcc6; font-family: var(--serif); }
+  header { padding: 0 200px 10px; display: flex; align-items: baseline; gap: 18px; }
+  header h1 { margin: 0; font-size: 30px; font-weight: 600; }
+  header h1 i { font-weight: 400; }
+  header p { margin: 0; font-style: italic; color: #c8bda5; font-size: 16px; }
+  section { padding: 14px 200px 8px; }
+  section.wide { padding: 14px 14px 8px; }
+  h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #cfae6e; }
+  iframe { display: block; border: 0; background: #0d1b2a; box-shadow: 0 0 0 1px #000, 0 10px 30px rgba(0, 0, 0, 0.5); }
+  .row { display: flex; gap: 24px; align-items: flex-start; }
+  figure { margin: 0; }
+  figcaption { margin: 0 0 8px; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #cfae6e; }
+</style>
+</head>
+<body>
+<header><h1>Pilot’s Chart <i>· O8 UI direction</i></h1><p>Mockups over real-GPU frames (v1.4.1). Static HTML/CSS; tokens in O8-pilot-chart.css.</p></header>
+<section><h2>A · Desktop 1600 × 1000, day · a ship selected, toolbar open on hover, link copied</h2>
+  <iframe src="O8-harbour-ui.html?v=day" width="1600" height="1000" scrolling="no" title="Desktop day"></iframe></section>
+<section><h2>B · Desktop 1600 × 1000, night · bridge palette, the Pharos selected, mark at rest</h2>
+  <iframe src="O8-harbour-ui.html?v=night" width="1600" height="1000" scrolling="no" title="Desktop night"></iframe></section>
+<section class="wide"><div class="row">
+  <figure><figcaption>D · Phone 390 × 844 · welcome</figcaption><iframe src="O8-touch.html?v=phone" width="390" height="844" scrolling="no" title="Phone welcome"></iframe></figure>
+  <figure><figcaption>E · Desktop window 700 × 560 · too small</figcaption><iframe src="O8-touch.html?v=window" width="700" height="560" scrolling="no" title="Small window"></iframe></figure>
+  <figure><figcaption>F · Tablet portrait 834 × 1112 · half-detent sheet, More open</figcaption><iframe src="O8-touch.html?v=sheet" width="834" height="1112" scrolling="no" title="Tablet sheet"></iframe></figure>
+</div></section>
+<section><h2>C · Specimen · day chart and night bridge chart</h2>
+  <iframe src="O8-specimen.html" width="1600" height="1480" scrolling="no" title="Specimen"></iframe></section>
+</body>
+</html>

@@ -1,0 +1,331 @@
+{
+  "lane": "S15",
+  "executive_summary": "The feed already has producer-aware polling, hidden-page suppression, projected ETags, edge caching, timeouts, and last-good recovery. The largest problems are correctness defects: projection removes PSI qualification, flow valuation, and methodology evidence; unknown age becomes current; malformed enrichment can permanently wedge model preparation. Fog also covers unavailable data, while stale side feeds retain active analytical cues. Fix these before optimizing delivery. The strongest speed improvement is bounded edge revalidation using existing snapshots, avoiding the current upstream wait before fallback. Savings below are estimates, not live measurements.",
+  "current_state": [
+    "Seven endpoints load concurrently. Copied producer cadences are 15 minutes for stablecoins, chains, peg summary, and grades; 30 minutes for PSI, stress, and flows. These are repository declarations, not independently verified upstream schedules. Evidence: shared/lib/pharosville-endpoint-registry.ts:21; shared/lib/cron-intervals-client.ts:15; src/harbour/data/fetch.ts:135.",
+    "Successful polling targets the next producer write plus 45 seconds, bounded between one minute and one interval. Missing metadata uses half an interval. Errors back off through 30/60/120/300/600 seconds without jitter. Evidence: src/harbour/data/fetch.ts:23; src/harbour/data/fetch.ts:94; src/harbour/data/fetch.ts:168.",
+    "Scheduled hidden-page polling pauses through one-minute checks. There is no feed visibility-resume listener, offline handling, or cross-tab coordination; returning can wait nearly another minute. Evidence: src/harbour/data/fetch.ts:121; src/harbour/data/fetch.ts:174. Repository searches found no feed-level online/offline or BroadcastChannel implementation.",
+    "Projected SHA-256 ETags support weak/strong GET validators, lists, and wildcard matching. Browser HTTP caching owns conditional reuse; misses still fetch and project the complete upstream response without upstream validators. Evidence: functions/api/[[path]].ts:104; functions/api/[[path]].ts:115; functions/api/[[path]].ts:176; docs/pharosville/CONTRACTS.md:117.",
+    "The proxy already uses caches.default and a separately stored 24-hour last-good copy. Fallback follows upstream failure or 5xx, returns full JSON with Warning 110 and no-store, and preserves aging. Evidence: functions/_shared.ts:118; functions/_shared.ts:196; functions/api/[[path]].ts:138; functions/api/[[path]].ts:259.",
+    "Projection already removes substantial unused fields, caps PSI history at 30 rows, and preserves _meta. Actual wire sizes were not measured. API cache headers belong to Function responses; public/_headers primarily configures static assets. Evidence: functions/api/_project.ts:22; functions/api/_project.ts:50; functions/api/[[path]].ts:276; public/_headers:1.",
+    "Freshness fallback becomes stale above 12× endpoint budgets: fleet 2 hours, chains/stress 6 hours, peg/grades 3 hours, flows 12 hours, PSI 12 days. Explicit server stale status overrides these ages. Evidence: src/harbour/model/truth.ts:17; shared/lib/status-thresholds.ts:4; shared/lib/api-freshness.ts:119.",
+    "First fleet preparation already overlaps API requests, coastline loading, and worker startup. Installation waits for stablecoins and peg-summary snapshots, including settled errors. Evidence: src/harbour/sim/system.ts:114; src/harbour/sim/system.ts:157."
+  ],
+  "findings": [
+    {
+      "id": "S15-F1",
+      "title": "Projection disables the qualified PSI cue",
+      "severity": "high",
+      "evidence": "functions/api/_project.ts:46; shared/types/pharosville.ts:34; src/harbour/model/readings.ts:34; src/harbour/ui/Panel.tsx:250.",
+      "detail": "The proxy drops current.inputDegradation, although psiQualified reads its early-warning availability flags. Consequently, projected production responses cannot narrow the beam or show the existing qualification explanation when PSI was computed without those inputs. An in-memory projection probe confirmed the field disappears.",
+      "fix": "Retain inputDegradation in the projector and standalone schema. Add a projected-response-to-model test covering each unavailable input and the existing qualified text."
+    },
+    {
+      "id": "S15-F2",
+      "title": "Projection prevents every real flow-hour event",
+      "severity": "medium",
+      "evidence": "functions/api/_project.ts:87; shared/types/pharosville.ts:47; src/harbour/model/events.ts:143; src/harbour/model/events.ts:321.",
+      "detail": "Hourly projection removes valuation. Event detection requires valuation === \"complete\", so every projected hour fails completeness regardless of its volume. Existing event tests supply unprojected valuation fields and therefore miss the regression. An in-memory probe confirmed the loss.",
+      "fix": "Retain hourly valuation and test projected consecutive hourly snapshots through eventSnapshot and detectEvents. Preserve rejection of partial or missing valuation."
+    },
+    {
+      "id": "S15-F3",
+      "title": "Projection removes methodology change safeguards",
+      "severity": "medium",
+      "evidence": "functions/api/_project.ts:46; functions/api/_project.ts:65; functions/api/_project.ts:74; functions/api/_project.ts:79; src/harbour/model/events.ts:98; src/harbour/model/events.ts:237.",
+      "detail": "The detector silently re-baselines methodology changes, but projection removes the endpoint and row version fields it reads. Production observations therefore carry null versions and can report methodology-driven changes as market events after hysteresis. Preserving _meta does not preserve these separate fields.",
+      "fix": "Retain precisely the endpoint and per-row methodology versions consumed by events.ts. Test a version change through projection and confirm no event."
+    },
+    {
+      "id": "S15-F4",
+      "title": "Missing freshness evidence becomes current",
+      "severity": "high",
+      "evidence": "src/harbour/data/fetch.ts:77; src/harbour/data/fetch.ts:89; src/harbour/model/truth.ts:16; docs/pharosville/CONTRACTS.md:49.",
+      "detail": "Without valid metadata or X-Data-Age, endpointTruth substitutes time since download and reports current. Every successful fetch resets that invented age. Warning 110 is ignored entirely when meta is null. Probes confirmed both behaviors, contradicting the explicit unknown-age contract.",
+      "fix": "Keep unknown source age distinct from download age, preserve warning-only evidence, and prevent unknown evidence from enabling current analytical cues."
+    },
+    {
+      "id": "S15-F5",
+      "title": "Malformed enrichment can permanently wedge preparation",
+      "severity": "high",
+      "evidence": "src/harbour/data/fetch.ts:43; src/harbour/model/build.ts:88; src/harbour/sim/system.ts:179; src/harbour/sim/system.ts:189; src/harbour/sim/system.ts:190.",
+      "detail": "The feed accepts peg-summary coins:[null] because it checks only the outer array. Model construction then dereferences null.id. Construction occurs after preparing=true but before the try/finally, leaving preparing stuck true and rejecting the unawaited preparation task. Later good refreshes cannot recover. An in-memory probe confirmed malformed row acceptance and the failing dereference.",
+      "fix": "Validate render-critical enrichment rows before replacing last-good data. Move model construction inside preparation's try/finally and classify malformed data separately from worker failure."
+    },
+    {
+      "id": "S15-F6",
+      "title": "A failed first fleet request produces stale fog",
+      "severity": "medium",
+      "evidence": "src/harbour/readings/bind.ts:217; src/harbour/readings/readings-system.ts:220; src/harbour/readings/bind.test.ts:107; src/harbour/ui/Ledger.tsx:103.",
+      "detail": "Fog explicitly enables for unavailable stablecoins after any attempt, including a first-request failure with no dated fleet. The test enshrines this behavior, while the legend and brief reserve fog for stale data. Unavailable and stale currently share an analytical visual meaning.",
+      "fix": "Restrict fog to a dated stale fleet. Keep failed initial loading as an empty harbour with unavailable copy, and update the conflicting test."
+    },
+    {
+      "id": "S15-F7",
+      "title": "Stale side feeds retain active analytical cues",
+      "severity": "high",
+      "evidence": "src/harbour/model/readings.ts:23; src/harbour/model/readings.ts:54; src/harbour/model/readings.ts:70; src/harbour/readings/bind.ts:185; src/harbour/readings/bind.ts:205.",
+      "detail": "Stale PSI remains lit; stale peg and stress readings still produce sea and weather targets. Their stale flags do not gate these bindings. Since side-feed staleness does not create fleet fog, an old STEADY/CALM reading can retain its healthy appearance despite the brief's neutral-pose requirement.",
+      "fix": "Gate analytical targets on current source truth, retain dated values in DOM details, and test stale side feeds independently of stablecoins."
+    },
+    {
+      "id": "S15-F8",
+      "title": "Fallback cache TTL can hide a day of PSI updates",
+      "severity": "medium",
+      "evidence": "functions/api/[[path]].ts:281; functions/_shared.ts:94; shared/lib/pharosville-endpoint-registry.ts:46; shared/lib/api-freshness.ts:138; shared/lib/cron-intervals-client.ts:24.",
+      "detail": "When upstream omits Cache-Control, the proxy uses the freshness budget as HTTP max-age. PSI therefore receives 86400 seconds despite a declared 1800-second producer cadence. Browser and edge caches can reuse one body across 48 producer cycles. This is a conditional code-path defect; live upstream headers were not checked.",
+      "fix": "Define an explicit per-endpoint cache TTL bounded by publication cadence. Keep HTTP cache lifetime separate from analytical freshness tolerance."
+    },
+    {
+      "id": "S15-F9",
+      "title": "Displayed ages freeze between model installations",
+      "severity": "low",
+      "evidence": "src/harbour/model/truth.ts:16; src/harbour/sim/system.ts:263; src/harbour/ui/bits.tsx:166; src/harbour/ui/Panel.tsx:865.",
+      "detail": "Age is calculated into the model, then rendered directly. The periodic truth check only rebuilds when the categorical state changes. Between endpoint arrivals, an open freshness label can keep the same age for minutes despite continued wall-clock aging.",
+      "fix": "Advance displayed age from the model timestamp with a low-frequency DOM timer while freshness details are visible; do not rebuild the fleet."
+    }
+  ],
+  "ideas": [
+    {
+      "id": "S15-I1",
+      "title": "Repair projection against actual consumers",
+      "what": "Restore PSI inputDegradation, hourly valuation, and consumed methodology versions. Extend standalone schemas and add projection-to-model/event integration tests covering S15-F1–F3.",
+      "visitor_benefit": "Restores honest PSI qualifications and flow events while preventing methodology changes from masquerading as market changes.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Use existing flags, methodology versions, and complete valuation. Preserve existing PSI qualification text and flow thresholds: at least $100M and 3× hourly mean. Test the existing DOM/event semantics.",
+      "where": "functions/api/_project.ts:40; shared/types/pharosville.ts:32; src/harbour/model/events.ts:98; src/harbour/model/readings.ts:34.",
+      "effort": "S",
+      "perf_cost": "Zero new draws; estimated hundreds of bytes to several KB raw per response, depending on versioned row counts.",
+      "risks": "Invalidate cached projected representations and update projection epoch checks; otherwise old objects retain omissions until expiry.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S15-I2",
+      "title": "Make unknown freshness explicit",
+      "what": "Separate source age from receipt time, preserve warning-only responses, and share the small freshness-evidence normalizer between the Harbour fetcher and generic API helper.",
+      "visitor_benefit": "A successful download no longer implies the underlying market observation is current.",
+      "pillar": "professional",
+      "meaning": "data-bound",
+      "data_and_dom": "Evidence: _meta, X-Data-Age, Age, Warning. Missing source age displays 'Source age unavailable'; warning-only data never claims fresh. Unit-test missing, malformed, negative, and warning-only evidence.",
+      "where": "src/harbour/data/fetch.ts:68; src/lib/api.ts:317; src/harbour/model/truth.ts:12; src/harbour/ui/bits.tsx:162.",
+      "effort": "M",
+      "perf_cost": "Zero GPU cost; small constant work per response and negligible extra state.",
+      "risks": "Some currently live-looking feeds may become explicitly unknown; preserve last-good values without inventing source timestamps.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S15-I3",
+      "title": "Contain bad rows before publication",
+      "what": "Add lightweight render-critical checks for enrichment rows, retain last-good data on invalid refreshes, and include model construction inside preparation's cleanup boundary.",
+      "visitor_benefit": "One malformed source row cannot disable future fleet updates.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "Preserve unavailable/null readings; never repair malformed values into zero or healthy defaults. Test bad refresh followed by valid recovery.",
+      "where": "src/harbour/data/fetch.ts:39; src/harbour/model/build.ts:88; src/harbour/sim/system.ts:179.",
+      "effort": "S",
+      "perf_cost": "Estimated sub-millisecond linear checks for ordinary projected payloads; no dependency or GPU work.",
+      "risks": "Overly strict validation could reject tolerated upstream nulls; retain the existing stablecoin supply repair behavior.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S15-I4",
+      "title": "Separate cache lifetime from freshness policy",
+      "what": "Add explicit cache TTLs tied to producer cadence. Document and test each endpoint's polling, browser TTL, edge TTL, degraded age, and stale age separately.",
+      "visitor_benefit": "New publications reach visitors predictably, and 'current' has an understandable age limit.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "Existing age evidence and statuses remain authoritative. DECISION-NEEDED: choose whether the current 2-hour fleet and 12-day PSI fallback stale thresholds remain appropriate.",
+      "where": "shared/lib/pharosville-endpoint-registry.ts:17; shared/lib/api-freshness.ts:119; functions/api/[[path]].ts:281; functions/_shared.ts:94.",
+      "effort": "M",
+      "perf_cost": "Zero GPU cost. Removing a 24-hour PSI fallback TTL can expose updates up to 48× sooner; request volume rises on that conditional path.",
+      "risks": "Do not silently reinterpret upstream metadata or increase upstream requests without bounded edge reuse.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S15-I5",
+      "title": "Enforce stale and unavailable visual meanings",
+      "what": "Keep fog exclusive to dated stale fleet data. Gate stale side-feed targets into their declared neutral states while retaining exact last-known readings in panels.",
+      "visitor_benefit": "Old or missing evidence cannot look like a healthy live market.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Use model.truth per endpoint. Fog iff stablecoins is stale; initial failure says 'Fleet readings unavailable'. Side panels say 'Last known reading' with age. Test independent source failures.",
+      "where": "src/harbour/readings/bind.ts:182; src/harbour/model/readings.ts:19; src/harbour/readings/bind.test.ts:102.",
+      "effort": "M",
+      "perf_cost": "Zero additional draws; potentially fewer active analytical effects during outages.",
+      "risks": "Coordinate neutral sea/weather behavior with their owners so neutral never becomes an implicit CALM claim.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": [
+        "S15-I2"
+      ]
+    },
+    {
+      "id": "S15-I6",
+      "title": "Use classified retries with bounded jitter",
+      "what": "Retain HTTP status and Retry-After in feed errors. Apply bounded jitter to transient retries, honor 429/503 retry guidance, and slow persistent configuration or contract failures.",
+      "visitor_benefit": "Recovery is steadier during outages and avoids synchronized retry bursts.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "n/a; transport state does not change analytical values. Preserve original last-good timestamps.",
+      "where": "src/harbour/data/fetch.ts:66; src/harbour/data/fetch.ts:159; src/lib/api.ts:35; functions/api/[[path]].ts:40.",
+      "effort": "S",
+      "perf_cost": "Negligible CPU; can avoid repeated 30-second retries when upstream explicitly requests a longer wait.",
+      "risks": "Bound retry delays, support both Retry-After forms, and inject randomness/time for deterministic tests.",
+      "impact": 3,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S15-I7",
+      "title": "Refresh overdue sources on return",
+      "what": "Track due times, refresh overdue sources on visibility return or online events, and pause routine attempts while offline. Deduplicate in-flight refreshes and remove listeners on stop.",
+      "visitor_benefit": "Returning visitors avoid the current possible minute-long wait before refreshing.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "Offline is a transport label, never an immediate stale classification. Last-good data continues aging normally.",
+      "where": "src/harbour/data/fetch.ts:138; src/harbour/data/fetch.ts:174; src/harbour/engine/engine.ts:84.",
+      "effort": "S",
+      "perf_cost": "A few event listeners; eliminates hidden-page minute wakeups if scheduling becomes event-driven.",
+      "risks": "navigator.onLine is advisory; failed requests still need normal handling. Avoid seven unnecessary requests on every focus.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S15-I6"
+      ]
+    },
+    {
+      "id": "S15-I8",
+      "title": "Revalidate existing edge snapshots without blocking",
+      "what": "Add a bounded application-level revalidation window: serve an eligible stored projected response immediately and refresh through waitUntil. Keep explicit stored-age accounting and a hard maximum; coalesce concurrent refreshes within an isolate.",
+      "visitor_benefit": "First fleet dependencies and outage recovery avoid waiting for upstream before usable dated data arrives.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "Reuse existing endpoints and metadata. Stale snapshots remain marked stale; no fabricated current fleet or market events. Headers alone do not implement this Cache API behavior.",
+      "where": "functions/api/[[path]].ts:246; functions/api/[[path]].ts:259; functions/_shared.ts:186; src/harbour/sim/system.ts:160.",
+      "effort": "M",
+      "perf_cost": "Removes approximately one upstream round trip on eligible misses; avoids up to the existing 8-second timeout before fallback. No extra browser requests.",
+      "risks": "Only helps warm locations; isolate coalescing is not global. Bound stale serving and test background refresh failures.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": [
+        "S15-I2",
+        "S15-I4",
+        "S15-I5"
+      ]
+    },
+    {
+      "id": "S15-I9",
+      "title": "Conditionally revalidate upstream representations",
+      "what": "Store the upstream validator separately from the projected ETag. Revalidate retained upstream representations conditionally and reuse projected bytes on 304 while correctly merging freshness headers.",
+      "visitor_benefit": "Unchanged datasets cost less upstream bandwidth and projection work.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "n/a; preserve browser projected-byte validators and all freshness evidence.",
+      "where": "functions/api/[[path]].ts:115; functions/api/[[path]].ts:176; functions/api/[[path]].ts:260.",
+      "effort": "M",
+      "perf_cost": "Potentially eliminates most upstream response-body bytes and JSON projection on unchanged revalidations; benefit depends on upstream validator support.",
+      "risks": "Never send a projected validator upstream. Handle 304 only when the matching retained body exists.",
+      "impact": 3,
+      "confidence": 3,
+      "depends_on": [
+        "S15-I4"
+      ]
+    },
+    {
+      "id": "S15-I10",
+      "title": "Share feed results across admitted tabs",
+      "what": "If telemetry shows meaningful duplicate use, coordinate one visible polling owner with Web Locks and BroadcastChannel, broadcasting snapshots with their original source and receipt timestamps.",
+      "visitor_benefit": "Multiple harbour windows share network and parsing work.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "n/a; initialize coordination only after viewport admission. Received snapshots must retain real ages.",
+      "where": "src/harbour/data/fetch.ts:102; src/harbour/sim/system.ts:115; src/main.tsx.",
+      "effort": "M",
+      "perf_cost": "For N active tabs, polling requests can approach 1/N of today's count; structured-clone costs depend on payload size.",
+      "risks": "Low priority without evidence of multi-tab usage. Handle owner closure, unsupported APIs, and background ownership without split-brain polling.",
+      "impact": 2,
+      "confidence": 3,
+      "depends_on": [
+        "S15-I7",
+        "S15-I12"
+      ]
+    },
+    {
+      "id": "S15-I11",
+      "title": "Make the Keeper’s Log explain feed health",
+      "what": "Extend the existing log with advancing source age, last successful receipt, next retry, and a concise failure category. Distinguish degraded transport evidence from fresh readings.",
+      "visitor_benefit": "Visitors can verify why a reading is delayed without interpreting fog or raw errors.",
+      "pillar": "informative",
+      "meaning": "ux",
+      "data_and_dom": "Use EndpointSnapshot.error, source age, receipt time, and retry state. Show 'Offline', 'Rate limited', 'Refresh failed', or 'Source age unavailable'; retain last-known values.",
+      "where": "src/harbour/ui/Panel.tsx:849; src/harbour/ui/bits.tsx:162; src/harbour/model/types.ts:55; src/harbour/model/truth.ts:19.",
+      "effort": "M",
+      "perf_cost": "One low-frequency timer while details are visible; no fleet rebuild or GPU cost.",
+      "risks": "Keep details on demand and avoid announcing every age tick to assistive technology.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S15-I2",
+        "S15-I6"
+      ]
+    },
+    {
+      "id": "S15-I12",
+      "title": "Measure feed bytes and cache effectiveness",
+      "what": "Add sampled endpoint timing, projected-byte counts, cache outcomes, fallback use, and conditional-hit counters. Add fixture-based projection byte budgets alongside consumer integration checks.",
+      "visitor_benefit": "Optimization targets actual first-fleet delays and payload regressions.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "n/a; log endpoint identifiers and timings only, never keys or response bodies.",
+      "where": "functions/api/[[path]].ts:205; functions/api/[[path]].ts:252; functions/api/proxy.test.ts:114; src/harbour/data/fetch.ts:153.",
+      "effort": "S",
+      "perf_cost": "Small sampled logging overhead; byte budgets run outside rendering. Establish measurements before claiming KB or latency savings.",
+      "risks": "Separate projection size from compressed wire bytes and browser cache reuse from upstream cache hits.",
+      "impact": 3,
+      "confidence": 5,
+      "depends_on": []
+    }
+  ],
+  "top_picks": [
+    {
+      "id": "S15-I1",
+      "why": "Small contract repair restores three existing analytical safeguards without new visual machinery."
+    },
+    {
+      "id": "S15-I3",
+      "why": "A small validation and cleanup change prevents malformed enrichment from permanently disabling updates."
+    },
+    {
+      "id": "S15-I2",
+      "why": "Closes a direct truth-contract violation at the shared freshness boundary."
+    },
+    {
+      "id": "S15-I5",
+      "why": "Makes stale, unavailable, and current evidence visually consistent with the brief."
+    },
+    {
+      "id": "S15-I8",
+      "why": "Uses existing edge snapshots to remove upstream waiting from eligible first-fleet requests."
+    }
+  ],
+  "operator_decisions": [
+    "DECISION-NEEDED: Keep the current age-only stale thresholds, including fleet at 2 hours and PSI at 12 days, or choose tighter per-source thresholds?",
+    "DECISION-NEEDED: What maximum age may an edge snapshot have for immediate first-fleet delivery while background revalidation runs?"
+  ],
+  "cross_lane_hooks": [
+    "S01: coordinate projection restoration, stale neutral states, and matching DOM explanations; extend the source-field map to include event consumers.",
+    "S25: run event scenarios through the actual projector, including valuation completeness and methodology re-baselining.",
+    "Startup/performance lanes: measure stablecoins and peg-summary completion separately; both gate first fleet at src/harbour/sim/system.ts:160.",
+    "Skipped browsers, live upstream requests, full test suites, and edits; verification used source tracing and read-only in-memory assertions.",
+    "Risk: live cache headers, compressed payload sizes, upstream validator support, and latency gains remain unmeasured."
+  ]
+}

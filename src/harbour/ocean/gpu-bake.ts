@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import type { PreparationEntry } from "../engine/types";
+import type { EngineContext, PreparationEntry, PreparationService } from "../engine/types";
+import { assertShaderReady } from "../engine/shader-failure";
 
 /**
  * One-off GPU bakes (procedural textures, cloud atlas) and reusable fullscreen passes.
@@ -32,13 +33,21 @@ export class FullscreenPass {
   render(renderer: THREE.WebGLRenderer, target: THREE.WebGLRenderTarget | null, clear = true, viewport?: THREE.Vector4): void {
     const prevTarget = renderer.getRenderTarget();
     const prevAuto = renderer.autoClear;
-    if (viewport && target) { target.viewport.copy(viewport); target.scissor.copy(viewport); target.scissorTest = true; }
-    renderer.setRenderTarget(target);
-    renderer.autoClear = clear;
-    renderer.render(this.scene, this.camera);
-    if (viewport && target) { target.viewport.set(0, 0, target.width, target.height); target.scissorTest = false; }
-    renderer.autoClear = prevAuto;
-    renderer.setRenderTarget(prevTarget);
+    const face = renderer.getActiveCubeFace(), mip = renderer.getActiveMipmapLevel();
+    const prevViewport = viewport ? target?.viewport.clone() : undefined, prevScissor = viewport ? target?.scissor.clone() : undefined, prevScissorTest = target?.scissorTest;
+    try {
+      if (viewport && target) { target.viewport.copy(viewport); target.scissor.copy(viewport); target.scissorTest = true; }
+      renderer.setRenderTarget(target);
+      renderer.autoClear = clear;
+      renderer.render(this.scene, this.camera);
+      assertShaderReady(renderer);
+    } finally {
+      if (viewport && target && prevViewport && prevScissor) {
+        target.viewport.copy(prevViewport); target.scissor.copy(prevScissor); target.scissorTest = prevScissorTest!;
+      }
+      renderer.autoClear = prevAuto;
+      renderer.setRenderTarget(prevTarget, face, mip);
+    }
   }
 
   dispose(): void { this.mesh.geometry.dispose(); this.material.dispose(); }
@@ -54,7 +63,7 @@ export interface BakeOptions {
 }
 
 /** Render a fragment shader once into a new render target (texture stays on the GPU). */
-export function bakeTexture(renderer: THREE.WebGLRenderer, fragmentShader: string, o: BakeOptions): THREE.WebGLRenderTarget {
+export async function bakeTexture(ctx: EngineContext, fragmentShader: string, o: BakeOptions): Promise<THREE.WebGLRenderTarget> {
   const mip = o.mipmaps ?? true;
   const rt = new THREE.WebGLRenderTarget(o.width, o.height, {
     type: o.type ?? THREE.UnsignedByteType,
@@ -68,9 +77,15 @@ export function bakeTexture(renderer: THREE.WebGLRenderer, fragmentShader: strin
     anisotropy: 4,
   });
   const pass = new FullscreenPass(fragmentShader, o.uniforms ?? {});
-  pass.render(renderer, rt);
-  pass.dispose();
-  return rt;
+  const preparation = ctx.services.get("preparation") as PreparationService;
+  let batch;
+  try {
+    batch = await preparation.prepare([pass.preparationEntry(() => rt)], undefined, ctx.signal);
+    await preparation.submit(() => pass.render(ctx.renderer, rt), { signal: ctx.signal });
+    if (ctx.signal?.aborted) throw new DOMException("Bake cancelled", "AbortError");
+    return rt;
+  } catch (error) { rt.dispose(); throw error; }
+  finally { batch?.dispose(); pass.dispose(); }
 }
 
 /** GLSL: periodic (tileable) value noise + fbm, hash without sin for precision. */

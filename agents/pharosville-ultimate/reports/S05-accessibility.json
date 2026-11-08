@@ -1,0 +1,451 @@
+{
+  "lane": "S05",
+  "executive_summary": "The accessibility foundation is substantial, but WCAG 2.2 AA confidence is premature. Highest priorities are configurable character shortcuts, keyboard-readable chart values, preserving readable content through browser zoom, and correct modal focus containment. Reduced motion reaches most systems but misses several shader clocks and running animations; its CSS also breaks spatial positioning. Ledger fleet coverage is complete. Paper text contrast is strong. Findings below distinguish code-proven behavior from compatibility risks requiring later browser or assistive-technology checks.",
+  "current_state": [
+    "Native buttons, named controls, panel headings and a polite announcement region already exist: /home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:126; /home/ahirice/Documents/git/pharosville/src/harbour/ui/Panel.tsx:51.",
+    "Ledger tabs implement roving focus and arrow navigation; tables provide captions, column headers and aria-sort: /home/ahirice/Documents/git/pharosville/src/harbour/ui/Ledger.tsx:28; /home/ahirice/Documents/git/pharosville/src/harbour/ui/Ledger.tsx:157.",
+    "Fleet coverage passes source inspection: Coins receives every model.boats row without visual culling. Chains, pre-launch records and wrecks have separate tables: /home/ahirice/Documents/git/pharosville/src/harbour/ui/Ledger.tsx:192.",
+    "Search includes boats, chains, pre-launch coins, wrecks and analytical landmarks, with combobox/listbox semantics and Enter activation: /home/ahirice/Documents/git/pharosville/src/harbour/ui/Search.tsx:29.",
+    "Calculated sRGB contrast against #f4ecda: ink 13.81:1, secondary ink 8.41:1, muted ink 5.39:1, brass ink 5.39:1, focus blue 5.04:1. Decorative brass is 3.03:1; brass-soft is approximately 1.75:1. Tokens: /home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:8. Ratios exclude texture compositing.",
+    "Reduced motion holds simulation time, cuts new camera flights, freezes many decorative systems and disables new staged moments: /home/ahirice/Documents/git/pharosville/src/harbour/sim/system.ts:106; /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:370; /home/ahirice/Documents/git/pharosville/src/harbour/model/moments.ts:65.",
+    "Default focus outlines and extensive coarse-pointer 44px rules exist. The sound menu provides arrow navigation, Escape and return focus: /home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:42; /home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:424; /home/ahirice/Documents/git/pharosville/src/harbour/audio/SoundToggle.tsx:41.",
+    "English language, an h1 and useful static fallback links exist; no main landmark or skip link was found. The world itself is hidden from assistive technology: /home/ahirice/Documents/git/pharosville/index.html:2; /home/ahirice/Documents/git/pharosville/src/App.tsx:6; /home/ahirice/Documents/git/pharosville/src/harbour/app/harbour-app.tsx:148.",
+    "No deviceorientation/devicemotion interaction was found. Canvas selection normally activates on release and cancels touch taps after movement; search differs. Intro copy dismisses after seven seconds, with equivalent orientation information retained in the ledger: /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:226; /home/ahirice/Documents/git/pharosville/src/harbour/ui/CornerMark.tsx:42.",
+    "Existing DOM tests cover arrival, admission and fallback behavior, not complete keyboard journeys or accessibility modes: /home/ahirice/Documents/git/pharosville/tests/visual/harbour-dom.spec.ts:9; /home/ahirice/Documents/git/pharosville/src/harbour/ui/details-loading.test.tsx:26."
+  ],
+  "findings": [
+    {
+      "id": "S05-F1",
+      "title": "Global character shortcuts cannot be disabled or scoped",
+      "severity": "high",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:51; /home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:70",
+      "detail": "Letters and punctuation trigger ledger, camera, watch and postcard actions anywhere outside editable fields. There is no disable/remap preference or focused-component restriction. This fails the character-shortcut requirements of WCAG 2.1.4 and can conflict with speech input and assistive-technology navigation.",
+      "fix": "Add a discoverable character-shortcut switch, or restrict these shortcuts to a named, focused harbour interaction region. Preserve native control activation and Escape."
+    },
+    {
+      "id": "S05-F2",
+      "title": "Chart point values require a mouse",
+      "severity": "high",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/bits.tsx:59; /home/ahirice/Documents/git/pharosville/src/harbour/ui/bits.tsx:98; /home/ahirice/Documents/git/pharosville/src/harbour/ui/bits.tsx:134",
+      "detail": "PSI history points and hourly net/mint/burn values are exposed through mouse movement or mouse-enter handlers. SVG image labels provide only summaries; no keyboard interaction or complete DOM series exists. Keyboard and screen-reader users cannot inspect the same dated values, violating 2.1.1 and leaving incomplete non-text alternatives under 1.1.1.",
+      "fix": "Add an on-demand native data table beneath each chart, containing the identical dated series, units and null/partial states. Optionally add one keyboard-operable chart cursor."
+    },
+    {
+      "id": "S05-F3",
+      "title": "Browser zoom removes the readings being enlarged",
+      "severity": "high",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/main.tsx:27; /home/ahirice/Documents/git/pharosville/src/main.tsx:39; /home/ahirice/Documents/git/pharosville/src/systems/viewport-gate.ts:18; /home/ahirice/Documents/git/pharosville/index.html:91",
+      "detail": "Admission uses innerWidth/innerHeight. A 1280×960 CSS viewport enlarged to 200% becomes approximately 640×480 and fails admission. The application unmounts and replaces current panels/ledger with generic external links. Text enlargement therefore loses information and functionality, creating a 1.4.4/1.4.10 concern beyond the spatial-world exception.",
+      "fix": "Keep the runtime gate intact while retaining already-loaded readings in a responsive DOM reader outside the engine lifecycle. Do not mount the world or initiate world-data requests below the gate."
+    },
+    {
+      "id": "S05-F4",
+      "title": "Postcard claims modality without containing focus",
+      "severity": "high",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/Postcard.tsx:40; /home/ahirice/Documents/git/pharosville/src/harbour/ui/Postcard.tsx:51; /home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:51",
+      "detail": "The postcard sets aria-modal=true and initially focuses Save, but provides neither a focus loop nor inert background content. Tab can leave the dialog, and global harbour shortcuts remain active. Escape only closes the postcard while focus remains inside its section. This undermines dialog semantics and predictable focus operation.",
+      "fix": "Use a native modal dialog or implement equivalent containment, background inertness and opener restoration. Suspend harbour shortcuts while the modal is open."
+    },
+    {
+      "id": "S05-F5",
+      "title": "Nonmodal layers can conceal keyboard focus and lose return destinations",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:30; /home/ahirice/Documents/git/pharosville/src/harbour/ui/CornerMark.tsx:63; /home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:65; /home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:319",
+      "detail": "The ledger occupies the corner toolbar's position while those earlier controls remain tabbable underneath it. Search/ledger button openings bypass remember(), and all layers share one returnTo slot. Closing or toggling layers can restore to the generic wordmark rather than the actual opener. The overlap creates a source-level 2.4.11 risk; return behavior also weakens focus order.",
+      "fix": "Keep nonmodal controls visibly reachable, provide explicit region switching, and store opener focus separately for each layer. Route button and shortcut openings/closings through the same actions."
+    },
+    {
+      "id": "S05-F6",
+      "title": "Reduced motion leaves several visual clocks running",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/beam/beam-system.ts:332; /home/ahirice/Documents/git/pharosville/src/harbour/beam/beam-system.ts:374; /home/ahirice/Documents/git/pharosville/src/harbour/fleet/fleet-system.ts:1399; /home/ahirice/Documents/git/pharosville/src/harbour/readings/readings-system.ts:117; /home/ahirice/Documents/git/pharosville/src/harbour/lights/lights-system.ts:197; /home/ahirice/Documents/git/pharosville/src/harbour/sky/sky-system.ts:215",
+      "detail": "The held beam still swells and animates shaft noise/heat shimmer. Selection-ring pulses, stale-fog drift, lamp-water shimmer and sky rain curtains consume advancing elapsed/global time. These bypass the existing MotionClock pattern and violate the brief's still-world contract. This is not automatically an AA violation for every effect, but it is a concrete preference failure.",
+      "fix": "Use motion-aware clocks for each decorative effect; keep reduced-mode beam intensity constant and disable heat distortion. Preserve data-driven state changes and expose beam rhythm in text."
+    },
+    {
+      "id": "S05-F7",
+      "title": "Reduced-motion CSS erases essential positioning",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:62; /home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:269; /home/ahirice/Documents/git/pharosville/src/harbour/ui/HoverTag.tsx:58",
+      "detail": "The blanket transform:none !important rule applies to every fading element. It removes search's translateX(-50%) centering and overrides the hover tag's inline world-position transform. At 744px width, reduced-mode search extends to 812px, overflowing by 68px; tags lose their anchor entirely.",
+      "fix": "Remove the blanket transform reset. Disable transition timing globally, then reset only decorative entrance offsets while retaining search centering and projected tag positioning."
+    },
+    {
+      "id": "S05-F8",
+      "title": "Search chooses results on pointer down",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/Search.tsx:97",
+      "detail": "onMouseDown immediately selects a result, closes search and moves the camera. Moving away before release cannot abort that action. This fails the normal pointer-cancellation expectation in WCAG 2.5.2; down-event activation is unnecessary here.",
+      "fix": "Keep pointer-down prevention only if needed to retain input focus; perform selection through click or a verified pointer-up action. Preserve Enter activation."
+    },
+    {
+      "id": "S05-F9",
+      "title": "Loaded search has no touch-accessible close action",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/Search.tsx:70; /home/ahirice/Documents/git/pharosville/src/harbour/ui/Search.tsx:90; /home/ahirice/Documents/git/pharosville/src/harbour/ui/CornerMark.tsx:63",
+      "detail": "Search closes through Escape or selecting a result. The loaded component has no close button or outside-dismiss handler, and its toolbar button only sets searchOpen=true. A touchscreen visitor cannot simply cancel an empty or unsuccessful search without a keyboard or unrelated world selection.",
+      "fix": "Add a named close button with an adequate target and focus restoration. Keep Escape; outside dismissal can be optional."
+    },
+    {
+      "id": "S05-F10",
+      "title": "Sound-options target misses the 24px minimum",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/audio/sound-toggle.css:14",
+      "detail": "The fine-pointer caret target is 14px wide with a negative 2px margin beside the sound button. Its undersized-target spacing exception is not satisfied because a centered 24px target circle intersects the adjacent control. Coarse-pointer styling enlarges it, but WCAG 2.5.8 also applies to mouse users.",
+      "fix": "Make the caret at least 24px wide and remove overlapping margins; retain the larger coarse-pointer target."
+    },
+    {
+      "id": "S05-F11",
+      "title": "Sound-menu navigation also controls the camera",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/audio/SoundToggle.tsx:42; /home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:53; /home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:74",
+      "detail": "Menu arrow/Home handlers prevent default but allow propagation. The window handler ignores defaultPrevented and excludes only panel/ledger targets from arrow panning. ArrowUp/Down therefore navigate sound choices and pan the world; Home navigates the menu and flies the camera home.",
+      "fix": "Return immediately from the global handler when defaultPrevented is true. Scope remaining world-navigation keys away from menus and other composite widgets."
+    },
+    {
+      "id": "S05-F12",
+      "title": "Event changes have no assistive announcement path",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/Panel.tsx:535; /home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:126; /home/ahirice/Documents/git/pharosville/src/harbour/model/event-hub.ts:93",
+      "detail": "DayBook subscribes and prepends entries, but its list has no log/live semantics. The global polite region announces keyboard actions rather than confirmed events or staged moments. A screen-reader visitor receives no equivalent notice when a visible ceremony occurs, and an open Day book changes silently.",
+      "fix": "Announce a concise, deduplicated new-entry count while the Day book is open; optionally announce budgeted staged moments. Never mark the entire rerendering list live or announce each age/tick."
+    },
+    {
+      "id": "S05-F13",
+      "title": "Earlier Day book entries cannot be read",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/Panel.tsx:546; /home/ahirice/Documents/git/pharosville/src/harbour/ui/Panel.tsx:557; /home/ahirice/Documents/git/pharosville/src/harbour/model/event-hub.ts:36",
+      "detail": "The event hub retains 200 entries, but the DOM renders only 40 and replaces the rest with an 'earlier' count. There is no expansion or pagination control. Recorded event information becomes unavailable through the application's textual parity path.",
+      "fix": "Add a native Show earlier entries button that reveals the retained book in batches without moving existing focus. State the 200-entry retention limit honestly."
+    },
+    {
+      "id": "S05-F14",
+      "title": "Changing motion preference does not stop running animations",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:115; /home/ahirice/Documents/git/pharosville/src/harbour/app/wake.ts:65; /home/ahirice/Documents/git/pharosville/src/harbour/model/moments.ts:60; /home/ahirice/Documents/git/pharosville/src/harbour/life/moments-stage.ts:77",
+      "detail": "The preference subscription clears follow but does not cancel an existing camera glide or wake. stepMoments retains its current moment when reduced becomes true, and MomentsStage continues a flare until its stored deadline. Startup guards therefore do not ensure that an in-session preference change stills the world.",
+      "fix": "Cancel active camera/wake animation on preference changes, clear active staged moments under reduced mode, and defensively suppress existing stage effects. Test transitions from full to reduced during each animation."
+    },
+    {
+      "id": "S05-F15",
+      "title": "Touch camera navigation lacks single-pointer alternatives",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:63; /home/ahirice/Documents/git/pharosville/src/harbour/ui/CornerMark.tsx:62; /home/ahirice/Documents/git/pharosville/src/harbour/ui/KeyList.tsx:10",
+      "detail": "Arbitrary panning requires dragging, and touch zoom requires a two-finger pinch. Keyboard equivalents exist, but no tappable directional or zoom controls provide the single-pointer alternatives required by 2.5.7 and 2.5.1. Selecting a subject or going Home does not reproduce general camera positioning.",
+      "fix": "Expose a compact, on-demand view-control group with pan directions, zoom in/out and Home, reusing existing camera actions."
+    },
+    {
+      "id": "S05-F16",
+      "title": "Forced-color selection states rely on removable paint",
+      "severity": "low",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:239; /home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:328; /home/ahirice/Documents/git/pharosville/src/harbour/audio/sound-toggle.css:45",
+      "detail": "Selected tabs, chips and sound choices depend heavily on background fills or box shadows. Neither forced-colors nor prefers-contrast rules exist in the four stylesheets. Forced-color substitution can erase these visual distinctions. This is a compatibility risk, not a browser-verified conformance failure.",
+      "fix": "Use system-color borders/outlines and a persistent check or underline for selected states under forced-colors. Strengthen essential boundaries under prefers-contrast:more."
+    },
+    {
+      "id": "S05-F17",
+      "title": "Arrival removal can discard the focused link",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/components/arrival-shell.tsx:26; /home/ahirice/Documents/git/pharosville/src/harbour/app/harbour-app.tsx:79; /home/ahirice/Documents/git/pharosville/public/arrival-shell.css:41",
+      "detail": "The arrival contains focusable links. Reveal fades it to zero opacity, then removes it after 1200ms regardless of focus. A keyboard visitor using those links can experience invisible focus followed by focus falling to the body. No replacement control receives focus.",
+      "fix": "When the arrival contains focus, transfer focus to the corresponding persistent destination or retain the shell until focus leaves. Disable hidden arrival links during an intentional focus handoff."
+    },
+    {
+      "id": "S05-F18",
+      "title": "Hover tags cannot be hovered or explicitly dismissed",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/HoverTag.tsx:106; /home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:28; /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:154; /home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:61",
+      "detail": "Custom hover tags inherit pointer-events:none and disappear as picking moves away from their world target. Escape handles panels/search/ledger/chart, not hover-only content. This does not provide the hoverable and dismissible behavior expected by 1.4.13 when a tag obscures other content.",
+      "fix": "Allow the pointer to enter and remain over the tag, and let Escape suppress the current hover tag until its trigger is exited. Keep equivalent analytical text in panels."
+    }
+  ],
+  "ideas": [
+    {
+      "id": "S05-I1",
+      "title": "Make character shortcuts optional",
+      "what": "Add a keyboard-shortcut preference and scope camera keys away from handled composite-widget events.",
+      "visitor_benefit": "Speech input and assistive navigation stop triggering unintended actions.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "No market mapping changes; expose the preference as a named checkbox or pressed button.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:51; /home/ahirice/Documents/git/pharosville/src/harbour/ui/KeyList.tsx:19",
+      "effort": "S",
+      "perf_cost": "0 draws; estimated under 1KB JS.",
+      "risks": "Keep Escape and native activation available when shortcuts are disabled.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S05-I2",
+      "title": "Give each layer a reliable focus lifecycle",
+      "what": "Use real postcard modality, separate opener references, shared open/close actions and visible region switching for nonmodal panels.",
+      "visitor_benefit": "Focus stays visible and returns to the control that opened each layer.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "Preserve nonmodal ledger/panel behavior; only the postcard needs modal containment.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:30; /home/ahirice/Documents/git/pharosville/src/harbour/ui/Postcard.tsx:51; /home/ahirice/Documents/git/pharosville/src/harbour/ui/CornerMark.tsx:63",
+      "effort": "M",
+      "perf_cost": "0 draws; small DOM/event changes.",
+      "risks": "Nested search-to-panel journeys and retained ledger rows require regression coverage.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S05-I3",
+      "title": "Expose the existing chart series as tables",
+      "what": "Add native disclosure sections containing dated PSI and hourly flow tables from the exact arrays already rendered.",
+      "visitor_benefit": "Every chart value becomes readable without hovering, sight or precise pointing.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Use stability.history date/score and readings.flows.hourly hourTs/netUsd/mintUsd/burnUsd. No new threshold. Label units and partial/null values explicitly; test series parity.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/bits.tsx:59; /home/ahirice/Documents/git/pharosville/src/harbour/ui/Panel.tsx:339; /home/ahirice/Documents/git/pharosville/src/harbour/ui/Panel.tsx:832",
+      "effort": "S",
+      "perf_cost": "0 draws; at most 30 rows per expanded series.",
+      "risks": "Preserve gaps and timestamps; do not convert partial valuation into zero.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S05-I4",
+      "title": "Complete the still-world contract",
+      "what": "Replace remaining live decorative clocks with MotionClock and cancel active glides, wake and ceremonies when reduction is enabled.",
+      "visitor_benefit": "The motion preference consistently produces a still, inspectable harbour.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "Keep analytical state updates; retain sweep duration and PSI band as text instead of a reduced-mode brightness pulse.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/beam/beam-system.ts:332; /home/ahirice/Documents/git/pharosville/src/harbour/ui/services.ts:98; /home/ahirice/Documents/git/pharosville/src/harbour/model/moments.ts:58",
+      "effort": "M",
+      "perf_cost": "No new draws; a few scalar updates; potentially less visual churn.",
+      "risks": "Audit shared shader uniforms so freezing decoration does not freeze incoming readings or freshness ages.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S05-I5",
+      "title": "Preserve positioning while reducing CSS motion",
+      "what": "Remove the blanket transform reset and target entrance offsets specifically; include the corner-strip expansion and chart-label transitions.",
+      "visitor_benefit": "Reduced mode retains centered search and correctly anchored tags.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "n/a; layout transforms remain intact while decorative interpolation is removed.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:62; /home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:88; /home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:298",
+      "effort": "S",
+      "perf_cost": "0 draws; negligible CSS change.",
+      "risks": "Check both desktop panels and the bottom-sheet breakpoint.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S05-I6",
+      "title": "Make search cancellable with every input method",
+      "what": "Activate matches on click, add an explicit close control, restore opener focus and announce unsuccessful searches quietly.",
+      "visitor_benefit": "Touch and motor-impaired visitors can cancel an action or leave search without selecting anything.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "Retain existing combobox/listbox semantics and Enter selection; use a short polite no-results status.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/Search.tsx:70",
+      "effort": "S",
+      "perf_cost": "0 draws; one button and one small status node.",
+      "risks": "Prevent duplicate selection from combined pointer and click handlers.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S05-I2"
+      ]
+    },
+    {
+      "id": "S05-I7",
+      "title": "DECISION-NEEDED: retain a reader through zoom",
+      "what": "Keep a cached DOM reading view outside engine ownership when resizing or zooming unmounts the world.",
+      "visitor_benefit": "Visitors can enlarge and reflow the readings they were inspecting.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "Reuse the last admitted model and chart arrays, with capture time and aging freshness. Below the gate, mount no world runtime and start no world-data requests.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/main.tsx:39; /home/ahirice/Documents/git/pharosville/src/client.tsx:67; /home/ahirice/Documents/git/pharosville/src/harbour/ui/Ledger.tsx:180",
+      "effort": "L",
+      "perf_cost": "0 WebGL draws below gate; retained model memory and DOM-only rendering.",
+      "risks": "Needs operator agreement on cached-reader scope; preserve viewport admission rules and honest staleness.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": []
+    },
+    {
+      "id": "S05-I8",
+      "title": "Fix the sound caret target",
+      "what": "Set a 24px minimum caret width without overlapping margins; preserve the existing coarse-pointer enlargement.",
+      "visitor_benefit": "Sound options are easier to acquire with a mouse or alternative pointer.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "n/a; existing accessible name and expanded state remain.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/audio/sound-toggle.css:14",
+      "effort": "S",
+      "perf_cost": "0 draws; approximately 12px additional toolbar width.",
+      "risks": "Recheck toolbar fit on the smallest admitted tablet.",
+      "impact": 3,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S05-I9",
+      "title": "Make the Day book complete and quietly observable",
+      "what": "Add Show earlier entries and one deduplicated new-entry status; optionally announce only budgeted staged moments.",
+      "visitor_benefit": "Visitors can read retained history and notice changes without continuous announcements.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Reuse EventsService.book/current and dayBookLine; keep existing confirmation thresholds. Announce counts or one staged event, exclude synthetic events by default, and test deduplication.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/Panel.tsx:535; /home/ahirice/Documents/git/pharosville/src/harbour/model/event-hub.ts:23",
+      "effort": "S",
+      "perf_cost": "0 draws; batches of 40 rows, maximum 200 retained.",
+      "risks": "Do not announce staging-end updates, replay old entries on mount or replace focused rows.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S05-I10",
+      "title": "Offer one on-demand world summary",
+      "what": "Add a Harbour now section at the start of the ledger and a main landmark around the application.",
+      "visitor_benefit": "Screen-reader visitors can understand current market conditions without discovering several separately named landmarks.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Read existing psi, seaState, weather, shoals and truth fields. Reuse established bands/thresholds and panel wording; include unavailable/stale states. Keep the summary non-live and test text/model parity.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/Ledger.tsx:115; /home/ahirice/Documents/git/pharosville/src/harbour/model/types.ts:212; /home/ahirice/Documents/git/pharosville/src/App.tsx:6",
+      "effort": "S",
+      "perf_cost": "0 draws; a small DOM section rendered on demand.",
+      "risks": "Respect D11: no persistent numeric dashboard and no invented aggregate score.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S05-I11",
+      "title": "Support system contrast without changing the palette",
+      "what": "Add forced-color system borders/checkmarks, stronger essential boundaries for prefers-contrast and a conventional search focus outline.",
+      "visitor_benefit": "Focus and selected states remain identifiable in high-contrast environments.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "n/a; preserve existing text labels and ARIA states. Main paper text already exceeds 4.5:1.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:277; /home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:328; /home/ahirice/Documents/git/pharosville/src/harbour/audio/sound-toggle.css:45",
+      "effort": "S",
+      "perf_cost": "0 draws; estimated under 1KB CSS.",
+      "risks": "Validate actual forced-color rendering; avoid disabling the user's system-color substitutions.",
+      "impact": 3,
+      "confidence": 4,
+      "depends_on": []
+    },
+    {
+      "id": "S05-I12",
+      "title": "Expose tappable camera controls on demand",
+      "what": "Add a compact View disclosure containing directional pan, zoom in/out and Home buttons using existing store actions.",
+      "visitor_benefit": "Camera navigation works without dragging, pinching or a physical keyboard.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "n/a; named native buttons, logical order and at least 24px targets.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/CornerMark.tsx:62; /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:530; /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:547",
+      "effort": "S",
+      "perf_cost": "0 additional draws; seven controls while expanded.",
+      "risks": "Keep the default chrome quiet and preserve bounded camera behavior.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S05-I13",
+      "title": "Add a discoverable Still world control",
+      "what": "Expose an in-app motion switch backed by the existing motion service, initially respecting the operating-system preference.",
+      "visitor_benefit": "Visitors can stop ambient motion without finding an operating-system setting or URL parameter.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "Show an explicit pressed state and distinguish paused presentation from stale data. Keep readings and freshness updating.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/services.ts:65; /home/ahirice/Documents/git/pharosville/src/harbour/ui/CornerMark.tsx:62",
+      "effort": "M",
+      "perf_cost": "0 new draws; one control and a small preference state.",
+      "risks": "Never label still presentation as stale or use decorative fog to indicate it.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S05-I4",
+        "S05-I5"
+      ]
+    },
+    {
+      "id": "S05-I14",
+      "title": "Turn accessibility journeys into regression gates",
+      "what": "Extend DOM tests for shortcuts, nested focus restoration, postcard containment, chart tables, search cancellation and dynamic reduced-motion changes.",
+      "visitor_benefit": "Accessibility behavior survives future UI and visual changes.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "Use existing fixture models and assert complete ledger/model ID parity, dated series parity and bounded live announcements.",
+      "where": "/home/ahirice/Documents/git/pharosville/tests/visual/harbour-dom.spec.ts:9; /home/ahirice/Documents/git/pharosville/src/harbour/ui/details-loading.test.tsx:26",
+      "effort": "M",
+      "perf_cost": "No production cost; several focused test journeys.",
+      "risks": "DOM assertions do not establish visual contrast, screen-reader speech or GPU animation quality; reserve those for approved later verification.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": [
+        "S05-I1",
+        "S05-I2",
+        "S05-I3",
+        "S05-I4",
+        "S05-I5",
+        "S05-I6"
+      ]
+    },
+    {
+      "id": "S05-I15",
+      "title": "Make transient information safe to inspect",
+      "what": "Hand off arrival focus before removal; let hover tags retain pointer presence and dismiss with Escape until their trigger is exited.",
+      "visitor_benefit": "Loading completion and hover movement no longer remove information or focus unexpectedly.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "Reuse existing arrival links and tag facts; retain persistent guide equivalents rather than extending mandatory timers.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/app/harbour-app.tsx:79; /home/ahirice/Documents/git/pharosville/src/harbour/ui/HoverTag.tsx:106; /home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:61",
+      "effort": "M",
+      "perf_cost": "0 new draws; a few pointer/focus state checks.",
+      "risks": "Interactive tag hit areas must not interfere with canvas picking or drag cancellation.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": [
+        "S05-I2"
+      ]
+    }
+  ],
+  "top_picks": [
+    {
+      "id": "S05-I1",
+      "why": "Small change closes a clear WCAG A shortcut failure and fixes menu/camera event conflicts."
+    },
+    {
+      "id": "S05-I3",
+      "why": "Existing arrays can provide complete keyboard and screen-reader access with minimal implementation."
+    },
+    {
+      "id": "S05-I2",
+      "why": "Corrects modal behavior and the shared focus problems affecting several everyday journeys."
+    },
+    {
+      "id": "S05-I5",
+      "why": "A tightly scoped CSS correction fixes deterministic reduced-mode positioning defects."
+    },
+    {
+      "id": "S05-I4",
+      "why": "Completes the explicit still-world requirement using patterns already present throughout the engine."
+    }
+  ],
+  "operator_decisions": [
+    "Should a zoomed or resized visitor retain an explicitly dated, cached DOM reader after the world unmounts, while preserving the prohibition on below-gate world mounting and world-data requests?",
+    "Should staged-event announcements be available by opt-in, or limited to visitors who currently have the Day book open?"
+  ],
+  "cross_lane_hooks": [
+    "Engine, beam, weather and lighting owners should inventory every elapsed/global-time consumer and separate decorative clocks from analytical updates for S05-I4.",
+    "Shell/device owners should coordinate S05-I7 so cached reading access preserves the sorted 720×600 admission gate and introduces no below-gate world fetch.",
+    "Information-design owners should reuse existing panel vocabulary and freshness semantics for chart tables, event announcements and the on-demand summary.",
+    "UI owners should coordinate toolbar width, overlapping nonmodal surfaces and on-demand view/motion controls rather than adding permanent dashboard chrome.",
+    "Skipped browsers, captures, assistive-technology sessions and test-suite execution; repository files were unchanged. Risk: rendered focus, texture-composited contrast, forced colors and actual zoom behavior still require approved verification."
+  ]
+}

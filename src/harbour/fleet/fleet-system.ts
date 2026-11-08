@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { Mastheads } from "./mastheads";
+import { BootFailure, isAbort } from "../engine/failure";
 import type { EngineContext, FrameState, PreparationService, ReadinessState, WorldSystem } from "../engine/types";
 import type { HarbourLayout, HullClass, Pier } from "../layout/types";
 import type { Boat, HarbourModel, StormFlag } from "../model/types";
@@ -300,12 +301,14 @@ export class FleetSystem implements WorldSystem {
     this.layout = layout;
     for (const p of layout.piers) this.piers.set(p.id, p);
     try {
-      const [kit, atlas] = await Promise.all([loadKit(ctx.assets), EmblemAtlas.load(ctx.assets, 420)]);
+      const [kit, atlas] = await Promise.all([loadKit(ctx.assets), EmblemAtlas.load(ctx.assets, 420).then((atlas) => { this.atlas = atlas; return atlas; })]);
       this.kit = kit; this.atlas = atlas;
+      ctx.signal?.throwIfAborted();
     } catch (e) {
+      if (ctx.signal?.aborted || isAbort(e)) throw e;
       console.error("[harbour] fleet: kit failed to load", e);
       this.failed = true;
-      return;
+      throw new BootFailure("loading", { cause: e });
     }
     this.index = indexVariants(this.kit.manifest.hulls);
     this.uniforms.uEmblems.value = this.atlas.texture;
@@ -908,7 +911,7 @@ export class FleetSystem implements WorldSystem {
     this.fenders?.begin();
     const pose = sim?.pose;
     const n = pose && model && pose.count === model.boats.length ? pose.count : 0;
-    const windFrom = sim?.wind.fromRad ?? -1;
+    const windFrom = sim?.wind.displayFromRad ?? -1;
     this.uniforms.uWind.value = sim?.wind.strength ?? 0.35;
     const slots = sim?.layout.slots;
     const hiK = 1 - Math.exp(-dt * 8);

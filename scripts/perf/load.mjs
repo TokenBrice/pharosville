@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 
 const { values } = parseArgs({ options: {
+  paced: { type: "boolean" }, snapshot: { type: "string" },
   help: { type: "boolean" }, url: { type: "string", default: "http://127.0.0.1:4180/?t=12&view=heart&intro=0" },
   "compare-url": { type: "string" }, config: { type: "string", default: "fast4g" },
   runs: { type: "string", default: "5" }, arm: { type: "string", default: "both" },
@@ -18,20 +19,22 @@ if (values.help) {
   console.log(`Usage: node scripts/perf/load.mjs [options]
   --url URL              A origin/URL (default production-faithful local :4180)
   --compare-url URL      B origin/URL; order alternates A/B then B/A each round
-  --config LIST          none,cable,fast4g,fast4g+cpu4,igpu (default fast4g)
+  --config LIST          none,cable,3g,fast4g,fast4g+cpu4,igpu (default fast4g)
   --runs N               samples per URL/config/arm (default 5)
   --arm cold|repeat|both repeat uses a cold seed inside the SAME capture lock
   --repeat-delay MS      seed settle before repeat, default 1800; >60000 for expired media
   --ready-timeout SEC    first-fleet/poster deadline, default 180
   --out FILE             summary JSON (raw runs saved alongside it)
   --baseline FILE        diff medians against a persisted summary
+  --snapshot FILE        replay golden API snapshot (latency labelled replayed)
+  --paced                explicitly use the display-paced shared browser
   --max-load N           contended if any 1/5/15-minute load exceeds N
 Real GPU only, via shot.mjs and its shared lock. CI/no GPU: SKIP, exit 78.
 HTTP-cold is not GPU-driver/shader-cold. No timing thresholds are asserted.`);
   process.exit(0);
 }
 const configs = {
-  none: [], cable: ["--throttle", "cable"], fast4g: ["--throttle", "fast4g"],
+  none: [], "3g": ["--throttle", "3g"], cable: ["--throttle", "cable"], fast4g: ["--throttle", "fast4g"],
   "fast4g+cpu4": ["--throttle", "fast4g", "--cpu-throttle", "4"], igpu: ["--igpu"],
 };
 const selected = values.config.split(",");
@@ -74,7 +77,7 @@ const evaluate = `(async () => {
 })()`;
 const summary = {
   schemaVersion: 1, tool: "load", date: new Date().toISOString(), status: "RUNNING",
-  meta: { urls, configs: selected, arms, runs, repeatDelayMs: repeatDelay, viewport: { width: 1600, height: 1000, dpr: 1 },
+  meta: { apiLatency: values.snapshot ? "replayed (no live API latency)" : "live", paced: !!values.paced, urls, configs: selected, arms, runs, repeatDelayMs: repeatDelay, viewport: { width: 1600, height: 1000, dpr: 1 },
     machine: { platform: os.platform(), arch: os.arch(), cpu: os.cpus()[0]?.model, logicalCpus: os.availableParallelism(), maxLoad,
       loadavgStart: os.loadavg(), contended: false },
     byteAccounting: "CDP page-target completed responses including headers. Excludes partial in-flight bodies and unattached worker traffic; not an immutable dependency ledger. See first-frame-bytes.mjs. Local HTTP/1.1 is not CDN transport truth." },
@@ -111,6 +114,7 @@ outer: for (let round = 1; round <= runs; round++) {
       const id = `${target.label}-${config}-${arm}-${round}`, base = resolve(runDir, id);
       const loadavgBefore = os.loadavg();
       const args = ["--url", target.url, "--width", "1600", "--height", "1000", "--dpr", "1", "--seconds", "1", "--wait", "1800",
+        ...(values.paced ? ["--paced"] : []), ...(values.snapshot ? ["--snapshot", values.snapshot] : []),
         "--ready-timeout", String(timeout), "--timeout", String(timeout * 3 + repeatDelay / 1000 + 60), "--waterfall", "--log-requests",
         "--json", `${base}.json`, "--out", `${base}.png`, "--init-script", init, "--eval", evaluate, "--cold", ...configs[config],
         ...(arm === "repeat" ? ["--warm-seed", String(repeatDelay)] : [])];

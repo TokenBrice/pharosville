@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext, FrameState } from "../engine/types";
 import { LazyLifeSystem } from "../life/lazy-system";
 import { LazyIdentitySystem } from "../identity/lazy-system";
+import { deferred } from "../engine/deferred";
 
 const ctx = { services: new Map<string, unknown>() } as EngineContext;
 const frame: FrameState = { elapsed: 1, delta: 1 / 60, nowMs: 1000 };
@@ -32,6 +33,26 @@ beforeEach(() => {
 });
 
 describe("deferred life/identity module boundaries", () => {
+  it("settles cancellation during a deferred import and ignores its late module", async () => {
+    const gate = deferred(), controller = new AbortController();
+    vi.doMock("../life/life-system", async () => {
+      await gate.promise;
+      return { LifeSystem: class { init = lifeInit; } };
+    });
+    const pending = new LazyLifeSystem().init({ ...ctx, signal: controller.signal });
+    const cancelled = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    controller.abort(); await cancelled;
+    gate.resolve(); await vi.dynamicImportSettled();
+    expect(lifeInit).not.toHaveBeenCalled();
+  });
+
+  it("starts no deferred implementation for an already cancelled generation", async () => {
+    const controller = new AbortController(); controller.abort();
+    for (const system of [new LazyLifeSystem(), new LazyIdentitySystem()]) {
+      await expect(system.init({ ...ctx, signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+    }
+    expect(lifeLoaded).not.toHaveBeenCalled(); expect(identityLoaded).not.toHaveBeenCalled();
+  });
   it("preserves deferred registry names without evaluating implementation code at construction", () => {
     const life = new LazyLifeSystem(), identity = new LazyIdentitySystem();
     expect([life.name, identity.name]).toEqual(["life", "identity"]);

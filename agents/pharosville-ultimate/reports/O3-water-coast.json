@@ -1,0 +1,379 @@
+{
+ "lane": "O3 water-coast",
+ "executive_summary": "The water is the most finished system in the picture: coast foam, run-up, mirror clouds, night lamp and fire reflections and storm water all hold up in close-ups. (0) Critical, found with O4: a rising DEWS front turns the sea into cream fog-like banks. The mirror-cloud weight divides by the old cover's strength while the field uses the new one (sea-tone.ts:64 vs cloud-shadow.ts:34), unclamped, so fresh data shows the stale-fog look. The fix: use the shadow field's own coverage term (no division) plus a clamp. (1) Nothing in the world is reflected by day. This fixed-pitch camera always shows an object above its reflection, so a half-res screen-space mirror on water pixels fits (~0.03 ms RTX, ~0.2-0.4 ms M-class). (2) The basin ignores the hour: at golden hour it is within 3/255 of noon, and it turns pool-cyan under lilac dusk skies. Tinting the unlit body by the hour's irradiance costs ~8 ALU. (3) Graphic marks: dotted Kelvin arms (the route line's grammar), Shoals saucers, glint salt that blooms into lamp-like dots. (4) The sea-shadow mask and the wake field add ~70% to the 0.2 ms ocean pass; a perf diet pays for the mirror.",
+ "current_state": [
+  "One mature ocean shader (src/harbour/ocean/ocean-material.ts, 539 lines) on a 256^2 grid with a stretched far ring (ocean-system.ts:48-79): an unlit depth tint over the 2048^2 sea SDF, a Fresnel mirror of the painted sky band with drifting clouds (ocean-material.ts:281-300, sea-tone.ts:52-68), and ~30 texture taps per water pixel by day (+6 at night). The prettier-pass items 03-O2/O3/O4/O5/O6/O11 all shipped.",
+  "Strong: the coast. Arriving crest lines, swash, lace and eddy scum (ocean-material.ts:417-460) plus the wet run-up on stone (world/runup.ts:17-29) make the quays look crafted at the heart view (shots/O3-basin-day.png).",
+  "Strong: night water. The Pharos fire's reflection (ocean-material.ts:410-414) lands exactly where the lantern's mirror image projects (screen 523,656 = the cream patch in base-night.png); quay-lamp pillars and the pool read (ocean-material.ts:306-329) make the hero night frame work.",
+  "Strong (with one exception): storm water is grey-green with wind lanes, caps and splash rings (O3-storm-close.png), clearly not the milky stale banks (state-stale-fog.png). Sea state comes from uSea (off-peg share) and wind from DEWS (ocean-material.ts:155-161, 467-487). The exception: a rising W01 front blows the mirror clouds out into cream fog-like banks (O3-F13).",
+  "Weak: no world reflections by day; boats sit on, not in, the water (O3-basin-day.png). Pre-reboot builds had hull and tower reflections (CHANGELOG.md:148, :196). 03-O1 was deferred until O2 + A4 showed what was left (agents/claudeville-prettier/PLAN.md §8-9); both shipped and the basin is still one blue.",
+  "Weak: the basin keeps nearly the same colour from dawn to blue hour (O3-basin-hours.png). Marks read as UI or noise: dotted Kelvin arms, Shoals saucers, glint salt (O3-wake-dashes.png, O3-shoals-glitter.png).",
+  "Cost on the RTX per frame: scene/ocean 0.20 ms, wake trail/decay/live ~0.07 ms, sea-shadow mask + mips 0.067 ms (perf-rtx-day.json). The two off-pass full-field updates add ~70% on top of the ocean pass. Low tier compiles HB_LITE (ocean-system.ts:195-206).",
+  "REVIEW status: #1 shadow slabs fixed (sea-golden.ts:10-13; hour-morning.png is clean); #2 heliograph haze fixed (sea-helio.ts, specular only); #11 fixed by day but now applied at every hour (O3-F1). #12 is NOT fixed: under a real rising front the mirror clouds blow out (O3-F13, O4-front-rising.png). state-front.png is plain WARNING (front=1 is not a band; weather-system.ts:200), so earlier checks against it proved nothing."
+ ],
+ "findings": [
+  {
+   "id": "O3-F13",
+   "title": "A rising DEWS front blows the sea mirror into cream fog-like banks (fresh data shows the stale-fog look)",
+   "severity": "critical",
+   "evidence": "shots/O4-front-rising.png (?t=11&dews=CALM&front=WARNING&frontAt=0.4): west-basin p90 luminance 0.79 vs 0.54 normal, outer-sea median 0.83 vs 0.67; no blowout at WATCH with sunbreaks or a squall (O3-watch-breaks.png, O3-watch-squall.png). Code: ocean/sea-tone.ts:64; sky/cloud-shadow.ts:33-34; sky/sky-system.ts:640-645; ocean/ocean-material.ts:299-300",
+   "detail": "hbMirrorClouds computes cc = (1 - hbCloudShadow(q)) / uCloudShadow.w. During a W01 front, sky-system.ts:642 keeps uCloudShadow.w at the OLD cover's strength (about 0.01 at CALM), while hbCloudShadow uses the NEW strength uCloudShadowG.y (0.36-0.62) behind the line. cc reaches about 35-60, and ocean-material.ts:299-300 apply it unclamped (col += (cloud - sky)*a*..., sky = mix(sky, cloud, a)), so mix() extrapolates. The reflected-cloud colour and the inflated sky also feed the crest highlight and far-band terms. The whole sea behind the line turns opaque cream or pink. Fresh, rising stress data thus produces the stale-fog look, breaking \"fog = stale ONLY\". It happens on every DEWS rise, at any hour with sun (night and low sun scale both strengths equally), on High and Medium tiers (HB_LITE skips the mirror clouds). REVIEW #12 is therefore open in a worse form. Found with O4 (sky).",
+   "fix": "O3-I13 (S), split with O4: O4 has hbCloudShadow also return its coverage term s = smoothstep(k, k+soft, n), with k = mix(K.x, G.x, bh) (sky/cloud-shadow.ts). The ocean uses cc = s directly: identical to today at CALM, correct behind the line, with no division and no floor. A floor such as max(w, 0.02) would halve the CALM mirror clouds, since the CALM base strength is ~0.0098 at noon. Clamp mCloud.a at ocean-material.ts:299-300, tint mirrored clouds slate under a storm deck, add a TS-twin unit test, and add a rising-front review frame (O3-I12). sky-system.ts needs no change."
+  },
+  {
+   "id": "O3-F1",
+   "title": "The inner basin ignores the hour (a lit pool at golden, sunset and blue hour)",
+   "severity": "high",
+   "evidence": "shots/O3-basin-hours.png (median basin RGB: 40,88,115 noon; 37,85,113 golden; 24,62,103 sunset; 18,48,79 blue, s=0.63), hour-sunset.png, O3-bluehour-close.png, O3-golden-sunsh.png; ocean-material.ts:277-279, sea-tone.ts:35-39, sea-golden.ts:12-22",
+   "detail": "The body tint is unlit: it takes the ambient hue only at night (ocean-material.ts:279). hbBasinLift (+22% G, +17% B) holds until uNight (sea-tone.ts:37). Golden warmth is gated by sunSh (sea-golden.ts:18), and at 16.4 h the west lobe shadows the whole east basin (O3-golden-sunsh.png), so it keeps noon turquoise at about -12%. Against a peach, pink or lilac sky the basin reads as a lit swimming pool. The outer sea follows the hour only because grazing Fresnel shows it the sky.",
+   "fix": "O3-I2: tint the body by the hour irradiance (hue and level normalised to noon), gate the basin lift on sun elevation, and add a low-sun harbour Fresnel floor (~0.12)."
+  },
+  {
+   "id": "O3-F2",
+   "title": "Kelvin wakes read as a dotted route line",
+   "severity": "medium",
+   "evidence": "shots/O3-wake-dashes.png (4-frame burst), base-day.png harbour mouth; wake.ts:101-102, ocean-material.ts:465; route-line.ts:6,20",
+   "detail": "The echelon is a pure sine, smoothstep(sin(u*TAU/max(1.2,hb*1.3) - |y|*1.3)), so every moving hull trails two straight lines of identical, evenly spaced, bright-white dashes, 60-110 m long, overlapping into lanes at the mouth. Dashes on the water are already the data-bound route line's grammar (brass dashes for the selected ship).",
+   "fix": "O3-I3: per-stamp seed (sB.w is free), jitter the period and phase, faster fall-off, only the first 2-3 crests white; the rest is lighter, rougher water."
+  },
+  {
+   "id": "O3-F3",
+   "title": "Glint facets are HDR salt that blooms into lamp-like dots at the overview",
+   "severity": "medium",
+   "evidence": "shots/O3-shoals-glitter.png, O3-overview-glint.png (debugSea=6) vs base-overview.png; ocean-material.ts:358, 362-365; time-of-day.ts:105 (noon bloom threshold 2.0)",
+   "detail": "The crest-glint facet is pow(N.H,1400)*0.7*uSunColor: about 2.7 linear luminance at noon, above the 2.0 bloom threshold. It is faded only by camera distance (far01), never by pixel footprint, so stills show 1-2 px white salt and motion shows shimmer. At the overview the specks bloom and are tilt-shift-blurred into warm dots across the open sea that look like lamps at noon. The glint-only debug frame confirms they are glints, not buoys.",
+   "fix": "O3-I4: footprint-aware lobe (Toksvig-style n/(1+k*n*fp^2)) with matching peak scaling, a cap below the bloom threshold, and a fade by fwidth instead of far01."
+  },
+  {
+   "id": "O3-F4",
+   "title": "The Shoals read as a milky disc with white saucers, not a reef",
+   "severity": "medium",
+   "evidence": "shots/O3-shoals-day.png, O3-shoals-glitter.png, aspect-ultrawide.png; ocean-material.ts:491-496 (surf), :260-264 (turquoise); fleet-system.ts:1159-1161 (aground stamp strength 1.4-2.0); wake.ts:88-89,123",
+   "detail": "The surf is a swell-aligned sine masked by noise everywhere inside zm.r, which gives soft cotton patches. Soft milky patches on the water sit close to the stale-fog grammar. Each aground hull stamps a saturating contact ring, so it sits on a crisp white elliptical saucer that reads like a selection ring or a doily.",
+   "fix": "O3-I5: surf only on the swell-facing reef rim (from a small signed-distance texture), a calm, clear lagoon with coral heads, and aground rings broken toward the swell and laced in the lee."
+  },
+  {
+   "id": "O3-F5",
+   "title": "Overview bottom band: the nearest harbours blurred and haloed",
+   "severity": "medium",
+   "evidence": "base-overview.png (rows 760-1000: gradient energy halves), O3-overview-debug5.png (foam on every coast and hull), O3-overview-glint.png; post.ts:333-345; wake.ts:117; ocean-material.ts:466",
+   "detail": "At the overview the tilt-shift sharp band is pinned to the Pharos (opacity 0.55, offset up to 0.5), so the nearest and largest-on-screen harbours fall in the blur. Their bright shallows, swash lips, hull contact lips and rings are drawn at a fixed world width, so they become 2-4 px white outlines. Together with the bloomed glint specks (F3), they smear into a glowing band.",
+   "fix": "O2 owns the band (O2-F13/O2-I13: the sharp band spans from the Pharos lantern down to the inner docked rows, projected each frame). O3-I11 removes the water's share (footprint fades of rings, lips and the quay lift), and O3-I4 removes the bloomed glint specks."
+  },
+  {
+   "id": "O3-F6",
+   "title": "Night reflections turn pink and break into pills; anchored ships throw no light on the water",
+   "severity": "medium",
+   "evidence": "shots/O3-night-pills.png, O3-basin-night.png, base-night.png; ocean-material.ts:315-328; lights-service.ts:51 (riding pool 0)",
+   "detail": "Warm pool light is added onto a navy body, so dim reflections read salmon or lilac. The six strided taps step down the basin as separate soft blobs, not a broken column. Riding lights have no pool, so moored and anchored ships lay no reflection, the classic harbour-night cue.",
+   "fix": "O3-I6: partial-replace composite (col*(1-m)+acc), narrower and denser near taps, and a small pool for riding lights."
+  },
+  {
+   "id": "O3-F7",
+   "title": "Hidden full-field water passes cost ~70% on top of the ocean pass",
+   "severity": "medium",
+   "evidence": "perf-rtx-day.json: offscreen/ShaderMaterial 0.053 ms + mips 0.014 (sea mask), wake-trail 0.030, wake-decay 0.025 (every other frame), wake-live 0.017; sun-shadow.ts:63-64,103; sun.ts:101-104; quality.ts:28; wake.ts:161-168,224-262",
+   "detail": "On High the sea-shadow mask is resolved at 2048^2 with 4 PCF taps every frame, plus mips, yet the sea reads it only at mip >= ~3.5 (a 4-11 m footprint). The wake field is 2x2048^2 R16F plus a 2048^2 RGBA8 live layer (32 MB); the live layer is cleared and stored each frame and the history decayed full-field every other frame. On an iGPU this is bandwidth, est. 1.3-2 ms per frame on M-class at High.",
+   "fix": "O3-I8: resolve the mask at 512^2 with an 8-tap box (skip it on Low, which never reads it); fit the live wake layer to the view at 1024^2 and keep a 1024^2 trail history on Medium and Low."
+  },
+  {
+   "id": "O3-F8",
+   "title": "Ocean shader fetches taps whose result is zero and repeats Gerstner trig",
+   "severity": "low",
+   "evidence": "ocean-material.ts:175-176 and 345 (three evaluations of the same 5 phases), :244-250 (caustics behind a uniform branch), :432-433 (lace), :454 (scum), sea-tone.ts:45 (Posidonia)",
+   "detail": "About 30 taps per water pixel by day. Several are multiplied to zero over most of the sea: deep water, open water, far water. 25 transcendentals compute what 10 would.",
+   "fix": "O3-I8: one shared Gerstner evaluation, coherent per-pixel culls, and a far-water path for camD > 1300 m."
+  },
+  {
+   "id": "O3-F9",
+   "title": "Sky-band re-bake spikes (cross-lane, sky)",
+   "severity": "low",
+   "evidence": "perf-rtx-day.json: sky-band p50 0.010 ms, mean 0.28, p95 1.46, max 1.85 ms, 43 of 220 frames > 0.1 ms; sky-system.ts:231,411-432",
+   "detail": "The 512x128 band the ocean mirrors re-renders whenever its inputs change. On the RTX that costs up to 1.85 ms; on an iGPU it is a probable 25-50 ms hitch. The ocean samples it at LOD >= 2.6. Owned by O4 (O4-F7/I10). Caveat from O4: the first timed pass may be absorbing texture upload work, so attribute the cost before optimising.",
+   "fix": "Sky lane (O4-F7/I10): attribute first (upload vs shading), then amortise the band (rows per frame) or halve its resolution; the ocean does not need full detail."
+  },
+  {
+   "id": "O3-F10",
+   "title": "The reef glows cyan under a storm deck",
+   "severity": "low",
+   "evidence": "state-storm-danger.png (dews=DANGER) and state-front.png (plain dews=WARNING: front=1 is not a band); ocean-material.ts:214-219 vs :260-264",
+   "detail": "The reef turquoise is mixed in after the storm and overcast desaturation and darkening, so the Shoals stay a luminous lagoon under slate skies. It looks lit from within.",
+   "fix": "O3-I10: apply the storm and cover grading to turq too, keeping it one step lighter than the surrounding sea."
+  },
+  {
+   "id": "O3-F11",
+   "title": "Shader rain rings are sub-pixel at the heart view",
+   "severity": "low",
+   "evidence": "ocean-material.ts:95-112, 191-197; O3-storm-close.png (only the sprite splash rings read)",
+   "detail": "The rings are 2.3 m cells with a ring width of ~0.16 m, while a pixel is 0.3-0.65 m at the heart view. They add normal noise only. The weather splash sprites already carry rain on the water.",
+   "fix": "O3-I8: drop the loop, or scale the cell with the pixel footprint."
+  },
+  {
+   "id": "O3-F12",
+   "title": "The Burn plume lies on the water like a fog patch (cross-lane, civic)",
+   "severity": "low",
+   "evidence": "base-day.png and hour-morning.png (soft white patch east of the Pharos island), O3-mouth.png; civic/burn.ts:17-35",
+   "detail": "The plume is leaned toward camera-right to keep it off the Pharos. From the heart camera it projects onto the water between the islands as a soft milky patch, which is REVIEW #2's fog-look concern in another form. It is data-bound (burn activity), so this is the civic lane's call.",
+   "fix": "Civic lane: lean it upward and toward the land, or shorten its low drift over the water."
+  }
+ ],
+ "ideas": [
+  {
+   "id": "O3-I13",
+   "title": "Mirror clouds that cannot blow out (coverage-based weight, clamp, slate under storm decks)",
+   "what": "(a) [O4, sky/cloud-shadow.ts] hbCloudShadow also returns its coverage term s = smoothstep(k, k + soft, n), with k = mix(uCloudShadowK.x, uCloudShadowG.x, bh). That is front-aware, and its sunbreak and squall terms stay shadow-only. (b) [O3, sea-tone.ts:64] cc = s directly, replacing (1 - r)/uCloudShadow.w. It is identical to today at CALM and correct behind the line, with no division and no floor. A floor such as max(w, 0.02) would cut CALM mirror clouds to <=49% all day (base strength ~0.0098 at noon). (c) [O3, ocean-material.ts:299-300] clamp mCloud.a to [0,1] as defence in depth (mix must never extrapolate). (d) [O3] Under a storm deck, tint the mirrored cloud slate (mix toward lum*vec3(0.78,0.84,0.9) by the existing cover term, or bind the sky's uStorm) instead of the bright max(sky*1.25, l*1.55). (e) [O3] A TS twin of the weight with a unit test over coverFrom/coverTo/progress/breaks/squall, asserting 0 <= weight <= 1 and equality with today at CALM. Add a rising-front frame to the review set (O3-I12). One PR; sky-system.ts needs no change.",
+   "visitor_benefit": "A storm rolling in reads as a storm, slate water and a darkening mirror, never as the stale-data fog. The most dramatic data moment in the weather system stops showing the wrong signal.",
+   "pillar": "professional",
+   "meaning": "decorative",
+   "data_and_dom": "Protects existing grammar: fog = stale data ONLY (PRODUCT.md, BRIEF §4). No new field; cloud cover stays DEWS-driven exactly as now. Unit-tested bound on the mirror-cloud weight.",
+   "where": "src/harbour/sky/cloud-shadow.ts:30-56 (O4: coverage output); ocean/sea-tone.ts:52-68 (O3: weight); ocean/ocean-material.ts:293-300 (O3: clamp, slate tint)",
+   "effort": "S",
+   "perf_cost": "~0: one extra mix and a clamp in a function already called; 0 taps, 0 draws.",
+   "risks": "Behind a front, mirror clouds follow the new coverage (correct). The sunbreak and squall terms no longer brighten the mirror (they remain shadows). Verify the CALM frame is pixel-identical before and after, and that the falling-front (clearing) case still shows clouds ahead of the line. Ownership split agreed with O4: (a) O4, (b)-(e) O3.",
+   "impact": 5,
+   "confidence": 5,
+   "depends_on": [
+    "O4"
+   ]
+  },
+  {
+   "id": "O3-I1",
+   "title": "Harbour mirror: a screen-space reflection on water pixels (High and Medium)",
+   "what": "The camera pitch is fixed (D1), so every object standing on the water is above its reflection on screen, the ideal case for screen-space reflection (SSR). Temporal design, with no full-screen composite: (a) The ocean marks water pixels in the colour alpha (ocean-material.ts:538; opaque surfaces keep 1). (b) A new ocean/mirror-pass.ts at composer index 1 runs after the RenderPass and ahead of fog (readings inits before ocean). At half resolution (quarter on Medium) it reads frame N's colour and the depth texture the depth effects already force, early-outs on non-water alpha, and marches the reflected ray: 14 exponential steps, 4 binary refinements, a thickness test, and fades at the screen edges and on misses. It writes RGBA16F (reflected colour + confidence). (c) In frame N+1 the ocean shader samples that RT at the position reprojected through the previous view-projection (uPrevViewProj; out-of-range UV gives weight 0). It mixes inside its own composite before foam, glints and haze: col = mix(col, refl.rgb, refl.a*w), where w = calm-harbour Fresnel art-directed to 0.25-0.35 x (1-foam) x ripple strength dk x (1-rain), lower in the Shoals and open sea, with a sea-clock wobble and 2-tap vertical streaking for painterly strokes. Fog, beam, tilt-shift and bloom then layer on top in the right order, and stale fog veils the reflections naturally. There is no dependency on the beam EffectPass, which O2-F1's fix turns off by day. Lit windows reflect at night. Low tier is off (HB_LITE precedent). Register the pass in the preparation service.",
+   "visitor_benefit": "The Pharos lays a long wavering cream column across the basin, white hulls and coloured sails sit on their own reflections, and the limewash quay doubles in the calm harbour. It is the single cue that turns the teal sheet into water. Calm vs choppy sea also reads at a glance: crisp mirror vs broken.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a. Decorative. The break-up follows the ripple strength the sea already draws (off-peg chop x DEWS wind), so a rough sea never mirrors more than a calm one; no new field. Add a pure TS twin of the weight curve with a monotonicity test. Stale fog (a later pass) veils the reflections like the rest of the water. The beam shaft is not reflected (drawn later).",
+   "where": "new src/harbour/ocean/mirror-pass.ts (composer index 1); ocean/ocean-material.ts (water flag in alpha, reprojected RT sample, composite); ocean/ocean-system.ts (uPrevViewProj, RT binding, tier switch); engine/prepare.ts and quality tier hooks",
+   "effort": "L",
+   "perf_cost": "+1 half-res pass. High: ~21 taps and ~180 ALU per water texel at 1/4 pixel count, early-out elsewhere. The ocean gains +2 taps per water pixel. No full-screen composite (forcing the beam pass on by day would cost ~16 B/px, ~0.4 ms on a 60 GB/s iGPU at 1.6 Mpx; avoided). Est. ~0.03 ms RTX, 0.25-0.4 ms M-class iGPU at medium@1.25 to high@1.5, off on Low. Half-res RGBA16F RT 1.6-3.3 MB. +1 draw. Size the mirror RT from the CSS-pixel viewport (half of it on High, a quarter on Medium), not from the drawing buffer. Otherwise O2-I3's 2x supersampling on discrete GPUs would quadruple the march. The reflections are soft and streaked anyway, so the cost stays flat across DPR and supersampling.",
+   "risks": "One-frame latency: camera pans are handled by reprojection; boats move <0.1 m per frame. Disocclusion at screen edges after fast pans (fade by RT bounds). SSR holes where the reflected object is off-screen top (edge fade). Thin rigging noise (half-res plus streaking). Mirrored emblems are acceptable once broken by ripples. Calm: the painterly strength needs an A/B review. Tier difference (operator decision). Reduced motion: the wobble rides the sea clock and stills. The first frame after a resize has weight 0.",
+   "impact": 5,
+   "confidence": 3,
+   "depends_on": [
+    "O3-I8"
+   ]
+  },
+  {
+   "id": "O3-I2",
+   "title": "A basin that follows the hour (sky-lit body)",
+   "what": "After hbSeaGolden (ocean-material.ts:275): E = uAmbient + uSunColor*max(uSunDir.y,0)*sunSh*0.3; hue = E/lum(E); lvl = clamp(lum(E)/uNoonE, 0.3, 1). body *= mix(1, hue/uNoonHue, 0.45*(1-uNight)) * mix(1, lvl, 0.6*(1-uNight)), with the noon constants set once from the noon keyframe so noon is unchanged. Gate hbBasinLift (sea-tone.ts:37) on smoothstep(0.08, 0.35, uSunDir.y) instead of (1-uNight). Add a low-sun harbour Fresnel floor F = max(F, 0.12*zm.b*(1-smoothstep(0.05, 0.35, uSunDir.y))*(1-uNight)), so the peach, pink or lilac sky enters the basin.",
+   "visitor_benefit": "Dawn, golden hour, sunset and blue hour colour the harbour as they colour the sky. Lamps and their reflections then glow against dark, sky-tinted water instead of a lit cyan pool. This is the postcard hour.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a. Time of day is decorative; no data input.",
+   "where": "src/harbour/ocean/ocean-material.ts:275-299; sea-tone.ts:35-39; ocean-system.ts (two constant uniforms)",
+   "effort": "S",
+   "perf_cost": "~8 ALU per water pixel, 0 taps, 0 draws, 0 bytes.",
+   "risks": "Over-darkening the hero dusk: A/B at 16.4, 17.1, 17.6 and 18.3 h. Keep the golden warm/cool split. REVIEW #11 day lift is untouched at noon.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O3-I3",
+   "title": "Feathered Kelvin wakes instead of dotted lines",
+   "what": "wake.ts STAMP_FRAG: pass a per-hull seed in sB.w (free today; WakeService.stamp gains an optional seed from fleet-system.ts:1157). Jitter the echelon period by +/-20% per crest (hash of floor(u/P)+seed) plus a slow phase noise, vary crest length and brightness (0.6-1.0), and shorten the fall to wl*0.35 for hulls under ~10 m. In the ocean (ocean-material.ts:465) raise the fKel threshold (0.07 -> 0.3) and lower the gain (0.85 -> 0.6), so only the 2-3 crests nearest the hull foam white and the rest reads as lighter, rougher water through the existing churn tint (line 266). Keep the transverse waves and the bow wave.",
+   "visitor_benefit": "Moving boats leave believable, quiet water marks instead of stitched white lines that echo the brass route line. The harbour mouth stops looking like a runway.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a. Wakes are decorative; no change to who stamps or when.",
+   "where": "src/harbour/ocean/wake.ts:92-108,209-217; fleet/fleet-system.ts:1157; ocean-material.ts:462-466",
+   "effort": "S",
+   "perf_cost": "0 taps; ~6 ALU per stamp texel (stamp quads only); ocean ~0.",
+   "risks": "Wakes become less visible at the overview (intended). Check slow galleys still show motion.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O3-I4",
+   "title": "Glint anti-aliasing: no salt, no noon lamps",
+   "what": "fp = length(fwidth(xz)) (metres per pixel). For the facet (ocean-material.ts:363) and the sparks (:358): nEff = n/(1 + k*n*fp*fp), peak scaled by nEff/n so energy is roughly conserved. Cap glint so sunColor*facet stays below the bloom threshold (min(..., 0.85*threshold)). Replace (1 - far01*0.85) with a footprint fade smoothstep(0.6, 0.25, fp). The same footprint term can fade sparkMask and the twinkle.",
+   "visitor_benefit": "The sea sparkles as one soft field of light instead of white single-pixel noise; the overview's open sea stops being sprinkled with warm \"lamps\" at noon; no flicker in motion.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a",
+   "where": "src/harbour/ocean/ocean-material.ts:343-366, 393, 404; sea-helio.ts:24-27",
+   "effort": "S",
+   "perf_cost": "~5 ALU per water pixel; 0 taps.",
+   "risks": "Too soft and the glitter path loses sparkle: tune on golden and noon frames. Bloom contribution drops by design.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O3-I5",
+   "title": "A reef that reads as a reef",
+   "what": "(a) In zone-mask.ts build a small RGB8 texture (~256^2 over the Shoals bbox, ~192 KB) holding the signed distance to the Shoals polygon and its outward normal (CPU, at load, <2 ms). (b) In the ocean, inside an if (zm.r > 0.01) branch: crest lines on the seaward rim band (-2..+8 m), white only where dot(rimNormal, -SWELL) > 0, travelling on the swell clock (O3-I7), with spray dashes. Inside the lagoon: rough *= 0.6, seeBed raised, dark coral heads from rockN. Remove the blanket noise-masked surf (ocean-material.ts:491-496). (c) Aground stamps (fleet-system.ts:1159-1161): when k > 1.2, modulate the ring by the swell-facing angle plus an angular noise, so surf piles on the swell side and laces out downstream instead of a closed ellipse.",
+   "visitor_benefit": "The Shoals read as a hazard you can name: a reef with surf breaking on its rim and ships aground in a clear lagoon. No more milky patches that sit close to the stale-fog grammar.",
+   "pillar": "informative",
+   "meaning": "decorative",
+   "data_and_dom": "n/a. No new field. The Shoals zone and the aground state (off-peg coins) keep their meaning and stay legible: every aground hull still has white surf around it, just not a closed ring. Existing sim and fleet tests are unaffected.",
+   "where": "src/harbour/ocean/zone-mask.ts; ocean-material.ts:259-264, 490-496; ocean/wake.ts:88-89, 109-123; fleet/fleet-system.ts:1159-1161",
+   "effort": "M",
+   "perf_cost": "+1 tap only inside the Shoals bbox (coherent branch), ~20 ALU there; +192 KB; stamp shader +4 ALU for aground hulls.",
+   "risks": "Aground legibility at the overview (verify with the search highlight); \"THE SHOALS\" water lettering contrast; keep the surf slow and calm.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": [
+    "O3-I7"
+   ]
+  },
+  {
+   "id": "O3-I6",
+   "title": "Amber night reflections and riding-light streaks",
+   "what": "In the pool read (ocean-material.ts:323-328): composite as r = acc*gain; m = clamp(lum(r)*2.5, 0, 0.7); col = col*(1-m) + r, so warm light replaces the navy instead of tinting it pink. Retune the taps: heights 1.2 + 2.0*i, lateral smear 0.5 -> 0.3, weight 1 - 0.12*i, so each light makes one narrow column broken by shim into short dashes, not separate pills. In lights-service.ts:51 give riding lights pool 1.6 / poolK 0.06, so every anchored and moored ship lays a short white stern or red/green side-light streak through the same six taps.",
+   "visitor_benefit": "Harbour-night poetry: amber columns under the quay lamps and a field of tiny coloured streaks under the anchored fleet, instead of pink smudges and dark water under the ships.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a. Riding lights are already shown (lit after dusk); this only reflects them.",
+   "where": "src/harbour/ocean/ocean-material.ts:306-329; lights/lights-service.ts:51; lights/lights-system.ts pool pass",
+   "effort": "S",
+   "perf_cost": "0 new taps; ~4 ALU at night; pool pass +~300 instanced quads (<0.01 ms RTX); ground pools of riding lights very faint by poolK.",
+   "risks": "Riding-light pools also light nearby quays and decks slightly (keep poolK small). Check night bloom does not grow strings of pearls (REVIEW #15).",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O3-I7",
+   "title": "One swell clock for crest lines, swash, reef surf and run-up",
+   "what": "Export swellPhase(xz, t) from waves.ts: the main 62 m Gerstner component's phase, k*dot(dir, xz) - w*t, the wave the hulls already ride. Use it for the coast trains (ocean-material.ts:425, phase at the contact line), the swash sheet (:438 replaces its own 0.748 rad/s clock), the Shoals surf (:492) and the stone run-up (runup.ts:23 replaces fract(uRunup.y*0.105 + cell hash)). Keep a small per-stretch offset so the coast does not pulse in unison.",
+   "visitor_benefit": "The shore breathes in time: each crest line that arrives becomes a run-up on the quay and a swash sheet on the beach, in step with the swell lifting the moored hulls. A ten-minute watch feels like one sea.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a. Amplitudes still scale with the declared sea state (uSea) exactly as now; only phases are unified.",
+   "where": "src/harbour/ocean/waves.ts; ocean-material.ts:424-447, 491-496; world/runup.ts:17-29",
+   "effort": "S",
+   "perf_cost": "~0 (replaces phases); 0 taps.",
+   "risks": "A visible global pulse if offsets are too small; reduced motion is unchanged (sea clock stills).",
+   "impact": 2,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O3-I8",
+   "title": "Water perf diet (invisible)",
+   "what": "(a) Resolve SeaShadowMask at 512^2 on High and 256^2 on Medium with an 8-12-tap box of hardware PCF compares, and skip it on Low (HB_LITE never reads it): sun-shadow.ts:103, sun.ts:101-104. (b) One Gerstner evaluation of the 5 phases feeding gN, gT and crestH (waves.ts wavesGLSL; ocean-material.ts:175-176, 345). (c) Coherent culls: bed, caustics and Posidonia only where bedDep < 7 and camD < 650; lace only where dnC < 7, trail > 0.05 or near structures; scum only where sdN < 3.6. (d) A far-water path for camD > 1300 that skips r1/r2, facets, bed, lace and wake taps. (e) Wake: fit the live layer to the view at 1024^2 (texel ~0.4 m at heart, finer than now), keep a 1024^2 world-space trail history on Medium and Low, and scissor the decay to the stamp bbox. (f) Drop or footprint-scale the rain-ring loop. Measure with ?prof=gpu (scene/ocean + wake-* + offscreen sea mask).",
+   "visitor_benefit": "Smoother frames on laptops and Apple-Silicon Macs with no visible change, and the headroom that pays for the harbour mirror (O3-I1).",
+   "pillar": "all-devices",
+   "meaning": "infra",
+   "data_and_dom": "n/a",
+   "where": "src/harbour/world/sun-shadow.ts, world/sun.ts, ocean/waves.ts, ocean/ocean-material.ts, ocean/wake.ts, ocean/ocean-system.ts",
+   "effort": "M",
+   "perf_cost": "Savings est.: -0.08 ms RTX (of ~0.34 ms water total); -0.8 to -1.2 ms M-class at High; -1.5 to -2.5 ms AMD Raphael low@1; wake VRAM 32 MB -> ~8 MB; per-frame wake bandwidth ~24 MB -> ~6 MB.",
+   "risks": "A view-fitted live layer must follow camera pans with no edge pop (pad 15%); mask resolution change must keep hbSeaSunShadow footprints (uSeaShadowT adapts automatically). Verify with an iGPU capture when available.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O3-I9",
+   "title": "Satin wake scars on calm days",
+   "what": "A separate 1024^2 R8 \"glass\" RT over the sea bounds, stamped by moving hulls (same trail footprint, smaller deposit) and decayed every 4th frame with a ~40 s half-life. The ocean reads it with one tap inside the harbour zone (branch on zm.b) and scales dk and rough down by up to 60%, so passing boats leave long glassy lines that show the sky and the mirror. Disabled when wind > Watch.",
+   "visitor_benefit": "A contemplative trace of the day's traffic: long satin lanes across the cat's-paws that slowly heal.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a. Traffic is already shown by the boats; the scars carry no new information and fade in 40 s.",
+   "where": "src/harbour/ocean/wake.ts (new field), ocean-material.ts:155-189, fleet/fleet-system.ts:1157",
+   "effort": "M",
+   "perf_cost": "+1 MB; +1 tap per harbour water pixel; decay pass 1024^2 every 4th frame (~0.003 ms RTX, ~0.05 ms iGPU).",
+   "risks": "Could read as route lines if too crisp: keep them soft, wide and low-contrast. Off on Low.",
+   "impact": 2,
+   "confidence": 3,
+   "depends_on": [
+    "O3-I8"
+   ]
+  },
+  {
+   "id": "O3-I10",
+   "title": "Storm-honest reef colour",
+   "what": "Apply the storm and cover grading (ocean-material.ts:214-219) to the reef turquoise as well, or move the reef block before it: turq = mix(turq, lum*(0.86,1,0.98), storm*0.5+cover*0.25)*(1-0.18*storm-0.22*cover), keeping reefK so the Shoals stay one value step lighter than the surrounding sea.",
+   "visitor_benefit": "Under a storm deck the Shoals read as wet, grey-green shallows instead of a lit cyan lagoon; the whole sea agrees about the weather.",
+   "pillar": "professional",
+   "meaning": "decorative",
+   "data_and_dom": "n/a. The Shoals zone placement is unchanged; storm grading comes from the existing DEWS and sea uniforms.",
+   "where": "src/harbour/ocean/ocean-material.ts:259-264",
+   "effort": "S",
+   "perf_cost": "~3 ALU, 0 taps.",
+   "risks": "The Shoals must stay findable in storms: keep the value step and check state-storm-danger and front frames.",
+   "impact": 2,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O3-I11",
+   "title": "Overview water hygiene",
+   "what": "fp = length(fwidth(xz)) (shared with O3-I4). Multiply fRing and the still-hull lip (ocean-material.ts:466 via live.g) by 1 - smoothstep(0.45, 0.9, fp); the swash lip and train crests by 1 - 0.5*smoothstep(0.5, 1.0, fp); and the quay-side basin lift by 1 - 0.5*smoothstep(0.5, 1.0, fp). Cross-lane with O2: at the overview, centre the tilt-shift sharp band between the Pharos and the island centroid, or cap its opacity over the bottom third (post.ts:333-345).",
+   "visitor_benefit": "The overview reads as a crisp miniature all the way to the near harbours instead of a glowing, smeared foreground.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a",
+   "where": "src/harbour/ocean/ocean-material.ts:440-447, 466; sea-tone.ts:35-39; engine/post.ts:333-345 (O2)",
+   "effort": "S",
+   "perf_cost": "~3 ALU per water pixel; 0 taps.",
+   "risks": "Coast outline legibility at the overview: keep the contact line (fContact) unfaded.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "O3-I4"
+   ]
+  },
+  {
+   "id": "O3-I12",
+   "title": "Water budget line and fixed review frames",
+   "what": "Add a \"water\" aggregate to the ?prof=gpu summary (scene/ocean + wake-trail/decay/live + the sea-shadow mask offscreen pass + the mirror pass), with a soft budget per tier. Add a scripted set of shot.mjs water frames for art review: heart at 11/16.4/17.6/22 h, the Shoals close-up (cam=-350,0,-60,280,26), and a 4-frame burst at the harbour mouth (cam=-190,0,-150,300,26), and a rising front (?dews=CALM&front=WARNING&frontAt=0.4; front=1 is not a band). Every water change is then judged on the same frames and costs.",
+   "visitor_benefit": "Fewer regressions like the pool-at-dusk drift that slipped past a noon-centric review.",
+   "pillar": "professional",
+   "meaning": "infra",
+   "data_and_dom": "n/a",
+   "where": "src/harbour/engine/gpu-passes.ts (labels and summary); scripts/harbour (review frame list); docs/pharosville/TESTING.md",
+   "effort": "S",
+   "perf_cost": "0 at runtime (profiling only when ?prof=gpu).",
+   "risks": "None beyond maintenance.",
+   "impact": 2,
+   "confidence": 4,
+   "depends_on": []
+  }
+ ],
+ "top_picks": [
+  {
+   "id": "O3-I13",
+   "why": "S effort, zero cost: removes a critical data-truth break (a rising front shows the stale-fog look) by using the shadow field's own coverage term plus a clamp; identical to today at CALM."
+  },
+  {
+   "id": "O3-I2",
+   "why": "S effort, ~8 ALU: fixes the lit-pool basin at five of seven sampled hours and lets the lamps and dusk sky carry the frame."
+  },
+  {
+   "id": "O3-I1",
+   "why": "The single biggest \"this is water\" gain. The fixed-pitch camera is the ideal SSR case; ~0.03 ms RTX, 0.2-0.4 ms iGPU, off on Low."
+  },
+  {
+   "id": "O3-I8",
+   "why": "Invisible ~1 ms iGPU saving (sea mask at 512^2, shared trig, culls, view-fitted wake) that pays for the mirror twice over."
+  },
+  {
+   "id": "O3-I4",
+   "why": "S effort: kills glint salt, HDR fireflies and the noon lamp-dots at the overview (O3-I3, dotted wakes, is next)."
+  }
+ ],
+ "operator_decisions": [
+  "DECISION-NEEDED: Harbour mirror (O3-I1) tier policy: on for High and Medium, off for Low (as HB_LITE already drops the mirror clouds). Is a visible tier difference acceptable under the \"same art every tier\" rule (quality.ts:1-4)?",
+  "Mirror strength: physics gives ~6-8% reflectance at the hero pitch (Fresnel at ~62 deg incidence). The painterly target is 25-35% in the calm harbour, an exaggeration like the existing 0.2 mirror-cloud floor. Approve on A/B frames?",
+  "REVIEW #11 made the basin lightest along the quays. Once O3-I1 lays dark wall reflections there, should the lift move to natural shores and mid-basin?",
+  "Aground look (O3-I5): break the closed white rings into surf on the swell side and lace in the lee. Aground stays legible but less graphic. Approve?",
+  "Quieter wakes (O3-I3): only the 2-3 nearest crests stay white, the rest becomes lighter water. Approve the lower visibility at the overview?"
+ ],
+ "cross_lane_hooks": [
+  "O4 sky (agreed, one PR): for O3-F13/O3-I13, O4 exposes the coverage term s = smoothstep(k, k + soft, n), k = mix(K.x, G.x, bh), from sky/cloud-shadow.ts. O3 uses cc = s (no division, no floor), clamps mCloud.a, adds the storm-deck slate tint and a TS-twin test. No sky-system.ts change. Sunbreak and squall terms stay shadow-only. Note: state-front.png is plain WARNING (front=1 is not a band).",
+  "O2 light/post: the overview tilt band is O2-F13/O2-I13 (zero cost, complements O3-I11); O2-I8 scales bloom by the overview factor, which stacks with the O3-I4 glint cap. O3-I1 no longer composites in the beam EffectPass: O2-F1 fixes the inverted smoothstep(dCam, 520, 140) at beam-system.ts:391, which turns that pass off by day. The mirror pass sits at composer index 1 (after the RenderPass, ahead of fog), and the composite lives in the ocean shader (temporal, reprojected). If O2-I9 retires the standalone NaN scrub, the bloom-luminance guards still sit after the mirror.",
+  "Sky lane (O4-F7/I10): sky-band re-bake spikes (p95 1.46 ms, max 1.85 ms on the RTX in 20% of frames, F9). Attribute upload vs shading first. The ocean reads the band at LOD >= 2.6, so a half-res or row-amortised band is enough.",
+  "Fleet lane: an optional per-stamp seed in WakeService.stamp (fleet-system.ts:1156-1162) for O3-I3 and O3-I5; aground stamp shape (O3-I5).",
+  "Lights lane: riding-light pool spec (lights-service.ts:51) for O3-I6; the pool RT is 2048^2 RGBA16F (32 MB, lights-system.ts:13,113), and 1024^2 is enough for 6.5 m pools.",
+  "Civic lane: the Burn plume lies over the water as a fog-like patch from the heart camera (civic/burn.ts:17-35, F12).",
+  "Identity lane: alpha-blended chart lettering on the water suppresses the mirror under the letters (desired); check \"THE SHOALS\" contrast after O3-I5.",
+  "Perf/QA lane: adopt the water budget line and review frames (O3-I12); run an Apple-Silicon / iGPU capture for O3-I1 and O3-I8 when the profile is available."
+ ]
+}

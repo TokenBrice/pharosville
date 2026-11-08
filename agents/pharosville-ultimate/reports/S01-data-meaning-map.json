@@ -1,0 +1,424 @@
+{
+  "lane": "S01",
+  "executive_summary": "The strongest opportunity is restoring information already expected by existing consumers. Projection removes PSI qualification flags, event methodology versions, hourly valuation and two tide horizons. Other paths turn unknown flow values into zero or directional world cues. The Storm panel teaches a different mast encoding from the renderer. After these corrections, concentration, peg history, safety methodology and issuance momentum offer substantial learning value through on-demand DOM details, with no additional world geometry. The prior field map is outdated: most analytical extras are now stripped before reaching the browser, while tide parity, storm signals and the Day book already exist.",
+  "current_state": [
+    "Inventory convention: count normalized response fields and direct collection-row fields; nested objects count once, collection containers and _meta are excluded. U means unused or unreachable after projection; O means operational publication-age checks. Across seven endpoints: 147 field groups, 46 used including 4 O, 101 U; 48 survive projection, including two unused chain fields. These are group counts, not recursive leaf counts. Sources: functions/api/_project.ts:22, shared/types/pharosville.ts:17, scripts/smoke-live.mjs:242.",
+    "/stablecoins: 25 groups, 10 used/15 U. id selects static livery; name/symbol identify boats; pegType→rig; circulating→size; chainCirculating.current/chains→circuits; all have DOM equivalents. circulatingPrevDay→24h text; PrevWeek/Month→trend text and guarded maiden bunting. U: geckoId, pegMechanism, price, priceSource, priceConfidence, priceUpdatedAt, priceObservedAt, priceObservedAtMode, priceSyncedAt, consensusSources, agreeSources, supplySource, frozen, frozenAt, fxFallbackRates. Nested chain history is also stripped. Logos/brand are local assets, not API fields. Evidence: shared/types/market.ts:23; functions/api/_project.ts:28; src/harbour/model/build.ts:93; src/harbour/ui/Panel.tsx:139.",
+    "/chains: 26 groups, 6 used/20 U. name identifies harbours; change24hPct→movers flags and DOM; change30dPct→office dress and DOM; change7dPct/healthScore→DOM; globalChange7dPct→gauge and DOM. U: id,totalUsd are retained but only stored; logoPath,type,change24h,change7d,change30d,stablecoinCount,dominantStablecoin,topStablecoins,dominanceShare,healthBand,healthFactors; globalTotalUsd,chainAttributedTotalUsd,unattributedTotalUsd,globalChange24hPct,globalChange30dPct,updatedAt,healthMethodologyVersion are stripped. World chain totals come from stablecoins. Evidence: shared/types/chains.ts:48; functions/api/_project.ts:37; src/harbour/model/build.ts:132; src/harbour/ui/Panel.tsx:590.",
+    "/stability-index?detail=true: 16 groups, 7 used/9 U. current.score/band→beam reach/rhythm/lamp and DOM; avg24h/components→DOM; history.date/score→DOM sparkline; computedAt→O. Components retain severity,breadth,stressBreadth,trend. U: current.avg24hBand,contributors,inputDegradation,totalMcapUsd,methodologyVersion; history.band,components,methodologyVersion; root methodology. inputDegradation has an existing consumer but projection disconnects it. Evidence: shared/types/stability.ts:27; functions/api/_project.ts:40; src/harbour/model/readings.ts:19; src/harbour/ui/Panel.tsx:232.",
+    "/peg-summary: 31 groups including standalone pegReference, 6 used/25 U. id joins boats; activeDepeg→Shoals; currentDeviationBps→heel/text; pegScore/pegReference→DOM; methodology.asOf→O. U: symbol,name,pegType,pegCurrency,governance,depegEventCoverageLimited,priceSource,priceConfidence,priceUpdatedAt,priceObservedAt,priceObservedAtMode,priceSyncedAt,consensusSources,agreeSources,primaryTrust,pegPct,severityScore,spreadPenalty,eventCount,worstDeviationBps,lastEventAt,trackingSpanDays,methodologyVersion,dexPriceCheck,summary. Other methodology members are stripped. Evidence: shared/types/market.ts:362; shared/types/pharosville.ts:39; functions/api/_project.ts:56; src/harbour/ui/Panel.tsx:155.",
+    "/stress-signals: 10 groups, 3 used/7 U. signals[id].band/score→weighted weather, station mast, top-five boat signals and DOM; updatedAt→O. U: row signals,amplifiers,computedAt,methodologyVersion; root oldestComputedAt,malformedRows,methodology. Nested component available/value and amplifier psi/contagion never arrive. Weather coverage is calculated locally from covered boat supply. coverageRatio remains in the narrow model type but is absent from today's upstream shared response contract. Evidence: shared/types/market.ts:599; src/harbour/model/types.ts:35; functions/api/_project.ts:71; src/harbour/model/readings.ts:58.",
+    "/safety-grades: 8 groups, 3 used/5 U. id joins boats; grade→Registry board, boat panel and ledger; updatedAt→O. U: score,model,methodologyVersion,asOfSec,publicationStatus. Projection restricts grades to RUNTIME_ACTIVE_IDS; unregistered payload boats therefore remain unrated even if upstream supplies a grade. Evidence: shared/types/safety-grades.ts:7; functions/api/_project.ts:77; src/harbour/model/build.ts:89; src/harbour/civic/yard.ts:101; src/harbour/ui/Ledger.tsx:189.",
+    "/mint-burn-flows: 31 groups, 11 used/20 U. hourly.hourTs/netFlowUsd/mintVolumeUsd/burnVolumeUsd→fires, DOM bars/totals; scope.chainIds→DOM. Coin stablecoinId,mintVolume24hUsd,burnVolume24hUsd,netFlow24hUsd,netFlow7dUsd,coverage.status→DOM. U: coin symbol,flowIntensity,pressureShiftScore,pressureShiftState,netFlowDirection24h,has24hActivity,baselineDailyNetUsd,baselineDailyAbsUsd,baselineDataDays,mintCount24h,burnCount24h,netFlow30dUsd,netFlow90dUsd,largestEvent24h,valuation; hourly.valuation; root gauge,updatedAt,windowHours,sync. Other scope/coverage members are stripped. Evidence: shared/types/mint-burn.ts:71; functions/api/_project.ts:84; src/harbour/civic/flows.ts:65; src/harbour/ui/Panel.tsx:173.",
+    "Already strong: tide hover/panel parity, guarded maiden bunting, top-five storm signals, office hysteresis, PSI component explanations, explicit circuit-versus-transfer copy and a confirmed-change Day book. These should be improved, not re-added. Code-only probes reproduced qualification loss, disabled flow-hour eligibility, unknown-net reconstruction, false calm with no peg coverage, missing tide horizons and degraded-as-current classification. Evidence: src/harbour/ui/facts.ts:203; src/harbour/model/readings.ts:136; src/harbour/readings/bind.ts:45; src/harbour/ui/Panel.tsx:534."
+  ],
+  "findings": [
+    {
+      "id": "S01-F1",
+      "title": "Projection disables PSI qualification",
+      "severity": "high",
+      "evidence": "functions/api/_project.ts:46; src/harbour/model/readings.ts:34; src/harbour/readings/readings-system.ts:289; src/harbour/ui/Panel.tsx:250",
+      "detail": "current.inputDegradation is removed before psiQualified reads it. An upstream score computed without DEWS or depeg-event inputs consequently receives neither the narrowing shutter nor its existing caveat. A source-backed probe changed qualified from true before projection to false afterward.",
+      "fix": "Preserve the two qualification booleans in projection and the standalone contract. Test upstream payload→projector→model→qualification text, including independently unavailable inputs."
+    },
+    {
+      "id": "S01-F2",
+      "title": "Projection defeats methodology-change suppression",
+      "severity": "high",
+      "evidence": "functions/api/_project.ts:46; functions/api/_project.ts:65; functions/api/_project.ts:74; functions/api/_project.ts:79; src/harbour/model/events.ts:98; src/harbour/model/events.ts:237",
+      "detail": "The event detector silently re-baselines methodology changes, but projected stability, peg, stress and grade payloads lose the versions it reads. Versions become null across releases, allowing a persistent methodology-driven band or grade change to be narrated as a market event. The Day book explicitly promises otherwise.",
+      "fix": "Retain the endpoint and row versions actually consumed. Add projection-fed event tests showing methodology transitions remain silent while genuine same-method changes still confirm."
+    },
+    {
+      "id": "S01-F3",
+      "title": "Projected flow hours can never trigger their existing event",
+      "severity": "medium",
+      "evidence": "functions/api/_project.ts:87; src/harbour/model/events.ts:143; src/harbour/model/events.ts:321; src/harbour/model/events.test.ts:158",
+      "detail": "The detector requires hourly.valuation === complete. Projection always removes valuation, so every delivered hour fails that condition, including fully valued hours exceeding the existing $100M and three-times-mean thresholds. Direct fixtures retain valuation and therefore miss this integration failure.",
+      "fix": "Project hourly valuation and exercise the existing event detector through the projector. Verify complete, partial and missing valuation separately."
+    },
+    {
+      "id": "S01-F4",
+      "title": "Withheld flow nets become zero or directional certainty",
+      "severity": "high",
+      "evidence": "shared/types/mint-burn.ts:82; src/harbour/ui/Panel.tsx:177; src/harbour/ui/Panel.tsx:179; src/harbour/civic/flows.ts:80",
+      "detail": "The shared contract withholds signed net when valuation is partial and treats gross amounts as lower bounds. BoatPanel applies Number(null), displaying $0. civicFlows reconstructs the missing net from those gross amounts and still computes dominance. A probe turned unknown net into +$199M with maximum mint dominance, while the Customs panel correctly retained an unknown net.",
+      "fix": "Preserve nullable nets through formatting and civic bindings. Never reconstruct a withheld net; neutralize directional dominance and label gross values as lower bounds when valuation is partial."
+    },
+    {
+      "id": "S01-F5",
+      "title": "Storm text teaches the wrong mast encoding",
+      "severity": "medium",
+      "evidence": "src/harbour/readings/bind.ts:152; src/harbour/readings/readings-system.ts:227; src/harbour/readings/storm-cones.ts:6; src/harbour/ui/Panel.tsx:371; src/harbour/ui/Ledger.tsx:99; src/harbour/ui/facts.ts:181",
+      "detail": "The station renders the rounded supply-weighted DEWS band: zero to four shapes, plus a Danger pennant. Panel, legend and hover instead describe one cone per Alert+ coin, capped at five. Alert count and aggregate weather can differ substantially, making the explanation contradict the visible mast.",
+      "fix": "Keep the existing world mapping. Describe its exact band-to-shape sequence everywhere; retain Alert+ coin count as a separately named DOM statistic."
+    },
+    {
+      "id": "S01-F6",
+      "title": "Missing readings produce affirmative healthy copy",
+      "severity": "medium",
+      "evidence": "src/harbour/model/build.ts:101; src/harbour/model/readings.ts:44; src/harbour/ui/facts.ts:172; src/harbour/ui/Panel.tsx:312; src/harbour/ui/Panel.tsx:377",
+      "detail": "Missing peg rows default activeDepeg to false and enter the sea-state denominator. A present but empty peg feed yields zero off-peg share despite no observations. Shoals says nobody is off peg even without a model; Storm says Calm when no alerts exist, including unavailable coverage. A freshness footer cannot make those affirmative statements true.",
+      "fix": "Separate observed-zero from unknown. Calculate and disclose covered supply, use unavailable copy when coverage is absent, and retain neutral aggregate targets when nothing is observed."
+    },
+    {
+      "id": "S01-F7",
+      "title": "Outage fallback can still be classified current",
+      "severity": "high",
+      "evidence": "functions/api/[[path]].ts:145; src/harbour/data/fetch.ts:89; src/harbour/model/truth.ts:18; src/harbour/ui/bits.tsx:15",
+      "detail": "The proxy marks last-good outage responses Warning 110. The fetcher converts a fresh status to degraded, but endpointTruth only demotes explicit stale status or sufficiently old age. A young fallback therefore remains current, can retain live wording and can be accepted by the event detector.",
+      "fix": "Carry explicit stale-fallback evidence through the snapshot and honor it independently of age. Distinguish an outage fallback from ordinary degraded inputs; test a newly cached response followed immediately by upstream failure."
+    },
+    {
+      "id": "S01-F8",
+      "title": "Retained secondary readings lack local freshness",
+      "severity": "medium",
+      "evidence": "src/harbour/ui/Panel.tsx:127; src/harbour/ui/Panel.tsx:155; src/harbour/ui/Panel.tsx:183; src/harbour/civic/civic-system.ts:386; src/harbour/civic/civic-system.ts:403",
+      "detail": "BoatPanel combines peg, DEWS, grades and flows but only displays supply freshness. Those secondary endpoints can be stale while supply is current. Registry and movers boards also continue presenting their last values without checking their owning endpoint's freshness; movers only reconsider the row reference.",
+      "fix": "Attach endpoint-specific age/state to the corresponding boat sections and hover facts. Give stale boards an explicit neutral or stale treatment; include freshness in board invalidation."
+    },
+    {
+      "id": "S01-F9",
+      "title": "Chain percentages overclaim their denominator",
+      "severity": "medium",
+      "evidence": "src/harbour/model/build.ts:116; src/harbour/model/build.ts:132; src/harbour/model/build.ts:143; src/harbour/ui/Panel.tsx:600; src/harbour/ui/bits.tsx:37",
+      "detail": "Harbour.share divides by summed chain-attributed supply, but its heading says of all stablecoin supply. Boat chain shares similarly normalize only attributed amounts without naming that restriction. Unattributed supply is absent from those percentages although circuit planning can assign it to Far Ports.",
+      "fix": "Name the existing denominator as reported chain-attributed supply and disclose the unattributed amount separately. Do not silently alter circuit or pier mappings."
+    },
+    {
+      "id": "S01-F10",
+      "title": "Projection removes two existing tide-panel readings",
+      "severity": "low",
+      "evidence": "functions/api/_project.ts:37; src/harbour/model/readings.ts:87; src/harbour/ui/Panel.tsx:577; src/harbour/model/tide.test.ts:13",
+      "detail": "TidePanel and its model support global 24-hour and 30-day supply changes, but projection preserves only globalChange7dPct. Both other rows consequently display dashes regardless of upstream availability. Existing model tests bypass projection.",
+      "fix": "Retain globalChange24hPct and globalChange30dPct in projection and the standalone contract; add a projection-fed three-horizon assertion."
+    },
+    {
+      "id": "S01-F11",
+      "title": "Registry panel drops NR coins from its tally",
+      "severity": "low",
+      "evidence": "shared/types/safety-grades.ts:3; src/harbour/civic/yard.ts:105; src/harbour/ui/Panel.tsx:879",
+      "detail": "The world board correctly groups NR under unrated. RegistryPanel instead creates an N bucket, then renders only A, B, C, D, F and the missing-value bucket. NR coins disappear from its counts, breaking world-to-DOM parity.",
+      "fix": "Reuse gradeTally in RegistryPanel. Assert that every live coin belongs to exactly one displayed grade or unrated bucket."
+    },
+    {
+      "id": "S01-F12",
+      "title": "Flow coverage checks use a status absent from the contract",
+      "severity": "medium",
+      "evidence": "shared/types/mint-burn.ts:45; shared/types/mint-burn.ts:55; functions/api/_project.ts:92; src/harbour/ui/Panel.tsx:125",
+      "detail": "BoatPanel only rejects coverage.status === unavailable, but today's shared enum contains full, partial-history, lagging, bootstrapping, disabled and unknown. Every valid status passes. Window-completeness flags are stripped, so incomplete history can be presented as an ordinary 24-hour or seven-day reading.",
+      "fix": "Interpret current coverage statuses explicitly, retain necessary completeness evidence, and show unavailable or partial-history wording rather than ordinary complete-window totals."
+    },
+    {
+      "id": "S01-F13",
+      "title": "History graphics invent complete time spans",
+      "severity": "low",
+      "evidence": "functions/api/_project.ts:51; src/harbour/ui/bits.tsx:65; src/harbour/ui/bits.tsx:84; src/harbour/ui/bits.tsx:114; src/harbour/model/readings.ts:97",
+      "detail": "The PSI chart takes the last 30 records, spaces them by index and labels the ends 30 days ago and today. Short, sparse or stale histories therefore receive false dates. Flow bars similarly label any available tail as a complete 24-hour window, without checking timestamp continuity.",
+      "fix": "Use actual timestamp bounds and spacing; expose gaps and incomplete windows. Preserve existing values and encodings while correcting captions and temporal geometry."
+    }
+  ],
+  "ideas": [
+    {
+      "id": "S01-I1",
+      "title": "Restore evidence required by existing consumers",
+      "what": "Extend projection narrowly for PSI qualification, consumed methodology versions, hourly valuation and global tide horizons. Add projector-to-consumer regression cases instead of relying only on direct model fixtures.",
+      "visitor_benefit": "Existing caveats, event suppression and tide readings work as already promised.",
+      "pillar": "informative",
+      "meaning": "infra",
+      "data_and_dom": "Preserve current.inputDegradation booleans; existing true→qualification text. Preserve methodology changes→silent re-baseline. Preserve hourly.valuation=complete→existing $100M and 3× event rule. Preserve globalChange24hPct/30dPct→existing tide rows. Test all four paths after projection.",
+      "where": "functions/api/_project.ts:37; shared/types/pharosville.ts:27; src/harbour/model/events.ts:98; functions/api/proxy.test.ts:75",
+      "effort": "M",
+      "perf_cost": "0 draws/tris; estimated <10 KB gzip per full seven-endpoint refresh, unmeasured.",
+      "risks": "Retain only consumer-required evidence; update projection-contract tests and documented projection epoch.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S01-I2",
+      "title": "Keep partial flow valuation visibly partial",
+      "what": "Use nullable nets directly, retain minimal valuation/completeness fields, suppress dominance when net is withheld, and explain gross lower bounds in the existing flow panels.",
+      "visitor_benefit": "Missing valuation cannot look like balanced issuance or a confident minting/burning direction.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Source: netFlow24hUsd/netFlow7dUsd, hourly.netFlowUsd, valuation and coverage. Null or partial→'Net unavailable: some events lack USD valuation'; gross copy 'at least $X minted'. Incomplete window→'Partial history'. Test null versus zero, all coverage statuses and neutral world dominance.",
+      "where": "src/harbour/ui/Panel.tsx:124; src/harbour/civic/flows.ts:65; functions/api/_project.ts:84; shared/types/mint-burn.ts:55",
+      "effort": "M",
+      "perf_cost": "0 new draws/tris; a few scalar fields per coin; no per-frame work.",
+      "risks": "Gross activity remains a lower-bound observation; directional cues must not be reconstructed from unequal coverage.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": [
+        "S01-I1"
+      ]
+    },
+    {
+      "id": "S01-I3",
+      "title": "Make unknown and stale states local to each reading",
+      "what": "Carry explicit fallback status into truth, add freshness beside mixed-endpoint boat sections, and replace healthy empty-state assertions with coverage-aware text. Invalidate boards when truth changes.",
+      "visitor_benefit": "Visitors can distinguish no observed problems from no usable observations.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Source: endpoint truth, Warning 110, numeric peg coverage and weather.coverage. Unavailable/zero coverage→'No peg reading' or 'No stress reading'; stale→'Last observed … · stale'. Partial coverage→'Observed across X% of supply'. Test current supply with stale enrichers and an empty peg payload.",
+      "where": "src/harbour/data/fetch.ts:88; src/harbour/model/truth.ts:12; src/harbour/ui/facts.ts:172; src/harbour/ui/Panel.tsx:155; src/harbour/civic/civic-system.ts:382",
+      "effort": "M",
+      "perf_cost": "0 new draws; DOM text and existing board repaints only on truth transitions.",
+      "risks": "Keep fog exclusive to fleet freshness. Preserve existing signal mappings and label retained observations honestly.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S01-I4",
+      "title": "Teach beam, sea and weather together",
+      "what": "Correct mast explanations and add a compact comparison inside the on-demand Legend, with links to Pharos, Shoals and Storm panels. Explain station shapes separately from boat signals.",
+      "visitor_benefit": "Visitors learn that PSI summarizes stability, waves represent observed off-peg supply, and weather represents early warning.",
+      "pillar": "informative",
+      "meaning": "ux",
+      "data_and_dom": "Keep current mappings: sea thresholds <0.5%, <2%, <10%, otherwise step 3; weather uses rounded supply-weighted DEWS; beam uses PSI band/score. Copy: 'Warnings can rise while pegs still hold.' Test all five station bands, Alert+ counts that differ from them, and shared hover/panel wording.",
+      "where": "src/harbour/ui/Ledger.tsx:63; src/harbour/ui/Panel.tsx:359; src/harbour/ui/facts.ts:181; src/harbour/readings/bind.ts:123; src/harbour/readings/storm-cones.ts:6",
+      "effort": "S",
+      "perf_cost": "0 world draws/tris; small static DOM addition, estimated <2 KB gzip.",
+      "risks": "No remapping or persistent numerical HUD. Do not call a warning a confirmed depeg.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S01-I5",
+      "title": "Explain chain attribution and Far Ports precisely",
+      "what": "Rename chain-share denominators and add an on-demand reconciliation of total, chain-attributed and unattributed supply. Distinguish small named chains from unallocated supply in Far Ports copy.",
+      "visitor_benefit": "A displayed 60% has an explicit denominator, and missing attribution becomes understandable.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Source: circulating totals, chainCirculating.current; optionally projected globalTotalUsd,chainAttributedTotalUsd,unattributedTotalUsd. Always say 'X% of reported chain-attributed supply'. Positive gap→'$Y has no chain allocation'; attributed>total→'Reported totals do not reconcile'. Test $100 total/$60 attributed without changing circuits.",
+      "where": "src/harbour/model/build.ts:99; src/harbour/model/build.ts:132; src/harbour/ui/Panel.tsx:486; src/harbour/ui/Panel.tsx:600; src/harbour/ui/bits.tsx:37",
+      "effort": "M",
+      "perf_cost": "0 draws/tris; reuse model sums, with optional three-scalar projection expansion.",
+      "risks": "Different endpoint timestamps can explain reconciliation differences; show provenance and avoid negative unattributed amounts.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S01-I3"
+      ]
+    },
+    {
+      "id": "S01-I6",
+      "title": "Explain chain concentration and health",
+      "what": "Extend the chain panel with dominant-coin share and named health factors, reusing its existing largest-callers list. Keep all additions in DOM.",
+      "visitor_benefit": "Visitors understand why a large chain can still depend heavily on one stablecoin.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Source: dominantStablecoin,dominanceShare,healthFactors,healthBand,healthMethodologyVersion. Show available values; dominantStablecoin.share≥0.5→'More than half of this chain’s stablecoin supply is SYMBOL'. Otherwise show the exact share without a categorical warning. Test 49.9%, 50%, null quality and missing factors.",
+      "where": "shared/types/chains.ts:22; shared/types/chains.ts:48; functions/api/_project.ts:35; src/harbour/ui/Panel.tsx:614",
+      "effort": "M",
+      "perf_cost": "0 draws/tris; estimated 2–8 KB gzip additional chain payload, unmeasured.",
+      "risks": "Health is a methodology assessment, not a safety guarantee. Never encode it as physical decay.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": [
+        "S01-I5"
+      ]
+    },
+    {
+      "id": "S01-I7",
+      "title": "Show where a coin’s supply changed",
+      "what": "Retain selected chain-history values and add a 24-hour/7-day change column to the existing supply-by-chain details.",
+      "visitor_benefit": "Visitors can distinguish overall issuance from supply redistributing across chains.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Source: chainCirculating[c].current/circulatingPrevDay/circulatingPrevWeek. Finite positive baseline→percentage and dollar change; missing/zero baseline→'No comparable baseline'. Copy: 'Supply change on this chain; not evidence of a bridge transfer.' Test missing versus zero and opposing chain changes with unchanged total supply.",
+      "where": "shared/types/market.ts:13; functions/api/_project.ts:29; src/harbour/ui/bits.tsx:37; src/harbour/ui/Panel.tsx:151",
+      "effort": "M",
+      "perf_cost": "0 draws/tris; potentially 10–40 KB gzip more stablecoin data, unmeasured; project only requested horizons.",
+      "risks": "Snapshot differences do not identify transactions. Keep circuit motion unchanged and suppress comparisons across missing baselines.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": [
+        "S01-I5"
+      ]
+    },
+    {
+      "id": "S01-I8",
+      "title": "Give peg scores a track record and confidence",
+      "what": "Add a short peg-history section and observation-quality note to BoatPanel using existing upstream summary fields.",
+      "visitor_benefit": "A current peg reading gains historical context and a visible reliability boundary.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Source: eventCount,worstDeviationBps,lastEventAt,trackingSpanDays,depegEventCoverageLimited,priceConfidence,dexPriceCheck. eventCount=0→'No recorded events across X tracked days'; limited coverage→'Event coverage limited'. DEX disagreement→'DEX cross-check differs'. Test zero events, unknown worst deviation, limited coverage and disagreement without classifying them as depegs.",
+      "where": "shared/types/market.ts:362; functions/api/_project.ts:65; src/harbour/ui/Panel.tsx:155",
+      "effort": "M",
+      "perf_cost": "0 draws/tris; estimated 5–20 KB gzip additional peg payload, unmeasured.",
+      "risks": "No recorded events is not proof of safety. Observation age and tracking duration must accompany claims.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": [
+        "S01-I3"
+      ]
+    },
+    {
+      "id": "S01-I9",
+      "title": "Explain what is moving PSI",
+      "what": "Extend the existing PSI component section with a small contributor list and a numerical comparison against its existing 24-hour average.",
+      "visitor_benefit": "Visitors can connect an aggregate score to named coins and distinguish its level from its recent direction.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Source: current.contributors and score−avg24h. Show up to five supplied contributors without inventing point allocations. |delta|≥0.05→'X.X points above/below the 24 h average'; smaller→'Near the 24 h average'. Test missing average, contributor ordering, rounding and qualified PSI. No beam change.",
+      "where": "shared/types/stability.ts:11; functions/api/_project.ts:46; src/harbour/ui/Panel.tsx:251; src/harbour/ui/Panel.tsx:271",
+      "effort": "S",
+      "perf_cost": "0 draws/tris; cap contributor projection at five, estimated <2 KB gzip.",
+      "risks": "A contributor factor is not automatically an additive points deduction. Preserve upstream semantics and qualify degraded inputs.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": [
+        "S01-I1"
+      ]
+    },
+    {
+      "id": "S01-I10",
+      "title": "Put fleet concentration in the Registry",
+      "what": "Add top-one/top-three supply shares and a peg-currency breakdown to the existing Registry panel using current boat data.",
+      "visitor_benefit": "Visitors learn why a few large ships dominate a fleet containing hundreds of coins.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Source: live Boat.supply and pegType. Positive total→'The three largest coins hold X% of tracked supply'; zero/unknown total→unavailable. Group currencies with pegName and label USD-valued supply. Test wreck exclusion, deterministic ties, zero totals and mixed peg currencies. DOM only.",
+      "where": "src/harbour/model/build.ts:130; src/harbour/model/types.ts:93; src/harbour/ui/Panel.tsx:876; src/harbour/ui/format.ts:63",
+      "effort": "S",
+      "perf_cost": "0 network/draws/tris; one cached reduction per model revision, not per frame.",
+      "risks": "Label the tracked universe; do not imply issuer concentration because no issuer field supports that grouping.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S01-I3"
+      ]
+    },
+    {
+      "id": "S01-I11",
+      "title": "Make safety grades interpretable",
+      "what": "Show grade score, model, methodology version, publication status and date in existing safety details; reuse the world tally for Registry counts.",
+      "visitor_benefit": "A letter becomes a dated model assessment with an explicit unrated state.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Source: grades[].score/grade,model,methodologyVersion,asOfSec,publicationStatus. NR/null→'Not rated'; finite score→'Model score X/100'. Show publication status verbatim and 'Methodology assessment, not a guarantee'. Test every grade, NR totals, null scores and nonstandard publication status.",
+      "where": "shared/types/safety-grades.ts:7; functions/api/_project.ts:77; src/harbour/civic/yard.ts:101; src/harbour/ui/Panel.tsx:164; src/harbour/ui/Panel.tsx:876",
+      "effort": "S",
+      "perf_cost": "0 draws/tris; estimated 1–4 KB gzip extra payload, unmeasured.",
+      "risks": "No hull wear or safety-themed world decoration. Do not interpret an unknown publication status as final.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S01-I1",
+        "S01-I3"
+      ]
+    },
+    {
+      "id": "S01-I12",
+      "title": "Separate issuance direction from momentum",
+      "what": "Add a quiet two-line flow reading to BoatPanel showing net direction and change relative to the supplied baseline.",
+      "visitor_benefit": "Net burning and worsening pressure become distinguishable instead of collapsing into one red number.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Source: netFlowDirection24h,pressureShiftScore,pressureShiftState,baselineDailyNetUsd,baselineDataDays. Reuse getPressureShiftState: >10 improving, <−10 worsening, inclusive ±10 stable, null NR. Copy: 'Net burning over 24 h; pressure improving versus its baseline'. Test ±10 boundaries, inactivity, insufficient baseline and partial valuation.",
+      "where": "shared/types/mint-burn.ts:74; shared/lib/mint-burn-signals.ts:40; functions/api/_project.ts:91; src/harbour/ui/Panel.tsx:173",
+      "effort": "M",
+      "perf_cost": "0 draws/tris; estimated 3–10 KB gzip additional fields, unmeasured.",
+      "risks": "Improving describes this metric, not a price forecast. Withhold direction or momentum when valuation/baseline evidence is insufficient.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": [
+        "S01-I2"
+      ]
+    },
+    {
+      "id": "S01-I13",
+      "title": "DECISION-NEEDED: dated depeg history on demand",
+      "what": "Allow a bounded, validated depeg-events request when a visitor opens peg history; render a short timeline in the boat panel.",
+      "visitor_benefit": "Visitors can inspect when a peg failed, how far it moved and whether it recovered.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Source: /api/depeg-events events.startedAt/endedAt/direction/peakDeviationBps/source. endedAt=null→'Ongoing recorded event'; otherwise show dated duration and peak. Distinguish live/backfill. Test bounded ID/limit validation, ongoing events, empty results, stale responses and supplied methodology. No new world cue.",
+      "where": "shared/lib/api-endpoints/paths.ts:24; shared/types/market.ts:317; functions/api/[[path]].ts:80; src/harbour/ui/Panel.tsx:155",
+      "effort": "M",
+      "perf_cost": "0 world cost; one optional request, limit 30; estimated 2–8 KB gzip per selected coin.",
+      "risks": "Requires allowlist expansion and explicit per-request ID/query validation; never request it below the viewport gate.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": [
+        "S01-I8"
+      ]
+    },
+    {
+      "id": "S01-I14",
+      "title": "DECISION-NEEDED: explain available market liquidity",
+      "what": "Fetch a narrowly projected dex-liquidity map on first explicit inspection and add a DOM liquidity section to BoatPanel.",
+      "visitor_benefit": "Visitors understand that large circulating supply does not imply deep measured trading liquidity.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Source: /api/dex-liquidity totalTvlUsd,effectiveTvlUsd,liquidityScore,coverageConfidence,liquidityEvidenceClass,hasMeasuredLiquidityEvidence. No measured evidence→'No measured liquidity evidence'; otherwise show observed TVL, score and coverage without inventing a safe threshold. Test unobserved/partial/measured classes, null score and stale timestamps.",
+      "where": "shared/lib/api-endpoints/paths.ts:32; shared/types/market.ts:243; functions/api/[[path]].ts:80; src/harbour/ui/Panel.tsx:116",
+      "effort": "M",
+      "perf_cost": "0 draws/tris; optional shared request; estimated 5–30 KB gzip after minimal projection, unmeasured.",
+      "risks": "Requires allowlist expansion. TVL is not executable exit depth; retain evidence class and methodology, and avoid implying redemption capacity.",
+      "impact": 4,
+      "confidence": 3,
+      "depends_on": [
+        "S01-I3"
+      ]
+    },
+    {
+      "id": "S01-I15",
+      "title": "DECISION-NEEDED: inspect backing with provenance",
+      "what": "Add an explicit backing-details action using the shared stablecoin-reserves contract, with reserve slices and source links in DOM.",
+      "visitor_benefit": "Visitors can investigate what backs a coin and distinguish an estimate from a dated observation.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Source: /api/stablecoin-reserves/:id reserves[].name/pct/risk,mode,estimated,liveAt,provenance,sync,evidenceUrls. estimated=true→'Estimated reserve composition'; absent verified timestamp→'Freshness unverified'. Test estimated/static/live modes, stale sync, missing slices and percentage reconciliation. No world cargo or hull treatment.",
+      "where": "shared/lib/api-endpoints/paths.ts:18; shared/types/live-reserves.ts:255; shared/types/reserves.ts:8; functions/api/[[path]].ts:80",
+      "effort": "L",
+      "perf_cost": "0 draws/tris; one optional selected-coin request, estimated 2–10 KB gzip.",
+      "risks": "Requires validated dynamic allowlisting. Preserve provenance and presentation mode; a reserve composition is not proof of solvency.",
+      "impact": 4,
+      "confidence": 3,
+      "depends_on": [
+        "S01-I3",
+        "S01-I11"
+      ]
+    }
+  ],
+  "top_picks": [
+    {
+      "id": "S01-I1",
+      "why": "Restores four existing information paths with small payload changes and focused integration tests."
+    },
+    {
+      "id": "S01-I2",
+      "why": "Removes false numerical and directional certainty from both DOM and world."
+    },
+    {
+      "id": "S01-I4",
+      "why": "A small copy change corrects the central teaching contradiction without changing any encoding."
+    },
+    {
+      "id": "S01-I3",
+      "why": "Makes unavailable and retained readings understandable where visitors encounter them."
+    },
+    {
+      "id": "S01-I6",
+      "why": "Adds substantial market understanding inside an existing panel with no rendering cost."
+    }
+  ],
+  "operator_decisions": [
+    "DECISION-NEEDED: Allow bounded /api/depeg-events requests for selected-coin history, or keep event-level investigation on pharos.watch?",
+    "DECISION-NEEDED: Add a minimally projected /api/dex-liquidity endpoint for explicit inspection, accepting another optional feed?",
+    "DECISION-NEEDED: Allow validated /api/stablecoin-reserves/:id requests and their provenance UI, or retain backing details as an external destination?"
+  ],
+  "cross_lane_hooks": [
+    "Data/proxy ownership: coordinate S01-I1/I2 contract changes across functions/api/_project.ts:22, shared/types/pharosville.ts:17 and projection-fed consumer tests.",
+    "UI/teaching ownership: use one shared description for station mast shapes, weather coverage and freshness; src/harbour/ui/facts.ts:52 already demonstrates shared wording.",
+    "Visual lanes: preserve beam=PSI, sea=off-peg supply, weather=DEWS and fog=fleet staleness. Added analytical depth can remain DOM-only.",
+    "Accessibility lane: ensure new history, concentration and coverage details have readable DOM values; do not rely on SVG hover alone, as in src/harbour/ui/bits.tsx:77.",
+    "Verification limits: no edits, browsers, live API calls or full test suite; inspection and in-memory source probes only.",
+    "Risk: upstream field population and optional-endpoint availability remain unverified; payload-size estimates require measurement before implementation."
+  ]
+}

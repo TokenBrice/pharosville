@@ -53,7 +53,8 @@ vec4 hbMirrorClouds(vec3 sky, vec3 p, vec3 Rr) {
   #ifdef HB_LITE
   return vec4(sky, 0.0);   // (Low tier: no clouds in the mirror; their shadows still cross the water)
   #endif
-  if (uCloudShadow.w < 0.001) return vec4(sky, 0.0);
+  // (E01: a front's deck counts as well as the sky ahead of it, which may have none)
+  if (max(uCloudShadow.w, uCloudShadowG.y * step(0.5, uCloudShadowF.w)) < 0.001) return vec4(sky, 0.0);
   // polish #12: the deck is ~650 m up, so the ripple normal swung the reflected point by hundreds of metres and broke
   // the clouds into wave-sized camouflage blots (worst under a front). Reflect them off the mean surface instead,
   // with only a trace of the waves: soft, whole cloud shapes drifting across the mirror
@@ -61,9 +62,17 @@ vec4 hbMirrorClouds(vec3 sky, vec3 p, vec3 Rr) {
   vec3 Rm = normalize(mix(vec3(vf.x, abs(vf.y), vf.z), Rr, 0.12));
   float up = max(Rm.y, 0.04);
   vec2 q = p.xz + Rm.xz / up * (650.0 - p.y);
-  float cc = (1.0 - hbCloudShadow(q)) / uCloudShadow.w;
+  // E01: the deck's own coverage there, 0..1. (Recovering it from the shadow over the sky-ahead strength put a
+  // front's new strength behind its line over the old sky's, ~0.01 at Calm: weights of 35-60 blew a rising storm
+  // out into cream banks, the stale-fog look)
+  vec2 deck;
+  hbCloudShadow(q, deck);
+  float cc = clamp(deck.x, 0.0, 1.0);
   float l = dot(sky, vec3(0.2126, 0.7152, 0.0722));
   vec3 cloud = max(sky * 1.25, vec3(l * 1.55)) * mix(vec3(1.0), uSunColor / max(max(uSunColor.r, uSunColor.g), 1e-3), 0.25);
+  // under a storm deck the clouds in the mirror are its cold slate cells, a shade under the sky they cross: never
+  // pale, milky patches (the stale-data grammar)
+  cloud = mix(cloud, vec3(l) * vec3(0.86, 0.94, 1.07) * 0.85, deck.y);
   return vec4(cloud, cc * 0.55 * smoothstep(0.03, 0.2, Rm.y));
 }
 uniform vec4 uFoliage;   // season weights (spring, summer, autumn, winter): calendar, decorative

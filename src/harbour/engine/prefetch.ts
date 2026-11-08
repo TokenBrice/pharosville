@@ -12,11 +12,13 @@ import type { AssetStore } from "./assets";
  * construct one) fetch nothing.
  */
 export function prefetchHarbour(assets: AssetStore): void {
+  if (assets.signal.aborted) return;
   const island = assets.prefetch(ISLAND_URL);
   void assets.prefetch(LIGHTHOUSE_URL);
   const civic = assets.json<CivicManifest>(`${CIVIC_BASE}manifest.json`).catch(() => null);
   const kit = assets.json<KitManifest>(`${KIT_BASE}manifest.json`).catch(() => null);
   void island.then(async () => {
+    if (assets.signal.aborted) return;
     for (const spec of Object.values((await civic)?.kinds ?? {})) void assets.prefetch(CIVIC_BASE + spec.file);
     for (const h of (await kit)?.hulls ?? []) {
       void assets.prefetch(KIT_BASE + h.file);

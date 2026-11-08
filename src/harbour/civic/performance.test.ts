@@ -48,7 +48,7 @@ describe("engine-lifetime static JSON", () => {
 describe("civic worker dirty placements", () => {
   function workers() {
     const base = new THREE.MeshStandardMaterial();
-    const mats = { kit: () => base } as unknown as HarbourMaterials;
+    const mats = { kit: () => base, track: vi.fn() } as unknown as HarbourMaterials;
     return { crew: new Workers(mats, 2, 17), base };
   }
 

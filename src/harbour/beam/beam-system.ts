@@ -191,6 +191,19 @@ class ShimmerEffect extends Effect {
   }
 }
 
+/**
+ * E07 the heat shimmer's strength: a close-range read, full inside 140 m of the lantern and gone by 520 m (the
+ * lantern must be big enough on screen to bend), only while the fire burns and the lantern is on screen; never
+ * under reduced motion (the distortion IS movement). `breath` is the fire's damped flicker.
+ */
+export function shimmerAmount(dCam: number, lit: boolean, onScreen: boolean, breath: number, reduced: boolean): number {
+  if (!lit || !onScreen || reduced) return 0;
+  return (1 - THREE.MathUtils.smoothstep(dCam, 140, 520)) * (0.7 + 0.3 * breath);
+}
+
+/** The shared effect pass (shimmer + shaft) runs only while either has something to draw. */
+export const beamPassActive = (intensity: number, shimmer: number): boolean => intensity > 0.002 || shimmer > 0.001;
+
 const HALO_VERT = /* glsl */ `
 uniform float uSize;
 varying vec2 vQ;
@@ -269,8 +282,8 @@ export class BeamSystem implements WorldSystem {
   private intro = 1;
   private shown = 0;
 
-  init(ctx: EngineContext): void {
-    this.fx = acquireFxTextures(ctx);
+  async init(ctx: EngineContext): Promise<void> {
+    this.fx = await acquireFxTextures(ctx);
     this.bu = getBeamUniforms(ctx);
     this.lighthouse = ctx.services.get("lighthouse") as LighthouseLike | undefined;
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;
@@ -388,9 +401,10 @@ export class BeamSystem implements WorldSystem {
     this.SH.uShC.value.set(lp2.x * 0.5 + 0.5, lp2.y * 0.5 + 0.5 + 6 * pxPerM);
     this.SH.uShR.value.set(5.5 * pxPerM / ctx.camera.aspect, 5.5 * pxPerM);
     const onScreen = lp2.z < 1 && Math.abs(lp2.x) < 1.3 && lp2.y > -1.3 && lp2.y < 1.6;
-    this.SH.uShAmt.value = lit && onScreen ? THREE.MathUtils.smoothstep(dCam, 520, 140) * (0.7 + 0.3 * breath) : 0;
+    const reduced = (ctx.services.get("motion") as { reduced?: boolean } | undefined)?.reduced ?? false;
+    this.SH.uShAmt.value = shimmerAmount(dCam, lit, onScreen, breath, reduced);
     this.SH.uShT.value = frame.elapsed;
-    this.pass.enabled = U.uIntensity.value > 0.002 || this.SH.uShAmt.value > 0.001;
+    this.pass.enabled = beamPassActive(U.uIntensity.value, this.SH.uShAmt.value);
 
     // the mirror's glint: a sharp warm star when it faces the viewer (by day the sun glint, on rhythm); between
     // flashes only a faint ember of it remains, so the lantern reads as fire, not a lamp bulb

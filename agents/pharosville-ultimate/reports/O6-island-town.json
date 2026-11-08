@@ -1,0 +1,342 @@
+{
+  "lane": "O6 island-town (Island, town, the Pharos & landscape)",
+  "executive_summary": "The island already reads as a crafted Ptolemaic harbour; the civic quarter, the town and the night are its strongest parts. Five things hold it back, most of them cheap to fix. (1) The chain house flags out-scale the civic quarter and glow like billboards at night. Ethereum's 21x14 m crest roundel measures 2.5x brighter than the Pharos shaft after dark. (2) The hero has 8.2k triangles and no baked AO, and its full-height pilaster grid reads as an office tower at the visitor's pitch. (3) The ground follows a temperate year, so July is a lime golf course, and slope dryness from the facet normal paints a triangle mosaic. (4) The skyline pines are parasols on sticks. (5) Cool-grey retaining walls read as concrete. Top picks: flags at the town's scale and lit as cloth (S); AO baked into the Pharos and civic GLBs (S, zero runtime cost); grass dryness from the smooth slope (S, free); a Pharos v2 hero pass within today's envelope (M); and a Mediterranean ground calendar (S, needs a decision). All are decorative, authored in Blender or local to one shader, and none adds a draw.",
+  "current_state": [
+    "STRONG: the Pharos is the hero by value and silhouette at every hour (base-day, hour-golden, view-heart-night). Fire, mirror glint, triton flares and the banked/vigil states are calm and data-true (src/harbour/world/lighthouse-system.ts:173-240).",
+    "WEAK: the hero model is light and plain for its role. lighthouse.glb has 8,179 triangles, the same as the Mint (8,112) and against 296,436 on the island. At the fixed 26-degree pitch its five full-height panels per face, brick-scale ashlar and flush slits read as an office tower (scripts/harbour/blender/pharos/pharos_geo.py:180-208; shots O6-pharos-visitor.png, O6-pharos-day.png).",
+    "STRONG: the civic quarter is the richest part of the frame: the Ionic Customs House, the Registry temple front, the Mint's gilt discs, polychrome friezes and velaria (O6-civic-day.png). The classical restyle landed. People, doors and stairs are correctly scaled at the 95 m zoom (O6-scale-close.png).",
+    "STRONG: the town is lived in. It has meander bands, shutters, smoke and roof-terrace laundry (08-T8). Lit plain windows go out through the night through uWindowOcc (src/harbour/engine/time-of-day.ts:293). The civic night is warm and composed (O6-civic-night.png).",
+    "MIXED: the Wave 6 hinterland shipped. REVIEW #9 is fixed: the sanctuary sits on the knoll inside its cypress ring. REVIEW #4 is mostly fixed with warm battered lips (scripts/harbour/blender/island/hb_dress.py:377-378), but bench and riser share the lawn's tone, so the lips read as planks laid on grass (O6-crop-west-terraces.png).",
+    "MIXED: the vegetation species are right and the trees sway (08-T3). The umbrella pine, though, is one 20-face icosahedron squashed to 30 % height on a 3-sided pole (nl_kit.py:964-982), repeated about 330 times along the crest and spines (hb_dress.py:551-559).",
+    "WEAK: the ground. Grass shows only a 12 m blotch at heart distance (src/harbour/world/materials.ts:227-231). Summer is lime and lush (:509-510). Slope dryness uses the facet normal (:405), which paints a triangle mosaic (O6-crop-civic-crest-pines.png, O6-crop-summer-east.png).",
+    "NIGHT: 189 layout lights (90 lamps, 58 window lights, 28 pierheads, 9 hearths, 4 harbour lights), the lamp wave and window occupancy make dusk lovely. Mole lamps sit every 24 m (scripts/harbour/blender/island/compose.py:817-821), so the overview still strings pearls (REVIEW #15 is only partly closed: src/harbour/lights/lights-system.ts:164-170).",
+    "IDENTITY: the house flags are the loudest things in the town. Ethereum flies at 1.65x (src/harbour/identity/identity-system.ts:32), every flag grows 45 % at overview (:173), the shader is unlit with a 0.16 night glow (:174; crest-flags.ts:33-43), and the flags are exempt from distance air (src/harbour/world/aerial.ts:10).",
+    "COST: island.glb is 296k triangles and 4.78 MB (2.63 MB gz), merged to one draw per material. lighthouse.glb is 46 KB gz; the civic GLBs total 447 KB gz. Baked AO exists only in island.glb (scripts/harbour/blender/island/hb_export.py:330-396). Pharos, civic, titans and wrecks get none."
+  ],
+  "findings": [
+    {
+      "id": "O6-F1",
+      "title": "Chain house flags out-scale the civic quarter and glow like billboards at night (Ethereum worst)",
+      "severity": "high",
+      "evidence": "src/harbour/identity/identity-system.ts:32 (FLAG_SCALE ethereum 1.65), :167 and :173-174 (overview growth +45 %, night glow 0.16*uWindowGlow); src/harbour/identity/crest-flags.ts:33-43 (unlit: t.rgb*(uLight*vShade+uGlow)), :76 (fly 11 m, topmast 9 m), :143-144; scripts/harbour/blender/civic/cv_civic.py:612-617 (15 m pole); src/harbour/world/aerial.ts:10 (flags exempt from distance air); shots O6-civic-day.png, O6-civic-night.png, O6-crop-ethflag-daynight.png, O6-scale-close.png, base-overview.png",
+      "detail": "Close in, Ethereum's flag is 17.6 x 11.7 m. At the heart preset it is 21 x 14 m. Its top flies about 30 m above its quay, level with the pediments of the Customs House and Registry on their terraces and well above R3's 18 m building line. It hangs across the Registry front. At night the unlit shader keeps a 0.16 glow: in view-heart-night the crest roundel measures display L 0.58 (80 % of its day value), the Pharos shaft 0.23 and the lit Customs facade 0.26. The brightest non-emissive surface in the town is an advert-like disc. At overview all eight flags grow 45 % and skip the aerial tint, so they are the most saturated patches on the island.",
+      "fix": "O6-I1: scale 1.65 -> 1.2; overview growth +45 % -> +25 %; topmast 9 -> 6 m (Ethereum 7 m); night glow 0.16 -> 0.035 with the kit's night dimming; half-strength aerial tint; pin the flag top and the night gain in a unit test."
+    },
+    {
+      "id": "O6-F2",
+      "title": "Slope dryness uses the facet normal: a triangle mosaic on every grassy slope",
+      "severity": "medium",
+      "evidence": "src/harbour/world/materials.ts:405-413 (n = normalize(cross(dFdx(W), dFdy(W))) drives steep/south -> dry per triangle); shots O6-crop-civic-crest-pines.png, O6-crop-summer-east.png",
+      "detail": "hbGrassTerrain (08-T2) takes steepness and south aspect from the screen-space facet normal, which is constant across each terrain triangle. Neighbouring triangles therefore flip between straw and green. The hill behind the civic quarter and the east slopes read as crumpled paper, worst in summer and autumn when dryness weighs most.",
+      "fix": "O6-I2: take the slope normal from central differences of the four height-field taps it already fetches for convexity (+-7 m). Net ALU is about zero and the derivatives go away."
+    },
+    {
+      "id": "O6-F3",
+      "title": "The ground follows a temperate year: a lime golf-course summer under Ptolemaic stone",
+      "severity": "medium",
+      "evidence": "src/harbour/world/materials.ts:496 (spring col*(1.12,1.2,0.42)), :509-510 (summer col*(0.8,0.95,0.56); gold only where patchN > 0.58); shots O6-summer-heart.png, O6-crop-summer-west.png, season-spring.png",
+      "detail": "Spring and summer paint the west lobe and headlands a saturated yellow-green. In July the largest land mass in the default view reads as an English lawn. In the real Alexandrian year the ground turns gold from June until the first rains and is green in winter; on gold, the dark evergreens (pine, cypress, olive) would separate from the ground, whereas today they sit on a ground of similar hue.",
+      "fix": "O6-I3 (operator decision): a Mediterranean grass calendar. The trees keep their temperate cycle, and snow is unchanged."
+    },
+    {
+      "id": "O6-F4",
+      "title": "No baked AO on the hero or the civic buildings",
+      "severity": "medium",
+      "evidence": "scripts/harbour/blender/island/hb_export.py:330-396 (bake_ao, island only); scripts/harbour/blender/pharos/export.py and civic/export.py (no AO step; grep finds no bake outside the island); src/harbour/world/materials.ts:308-325 (the runtime hbAO samples the island height field only); shots O6-pharos-visitor.png, O6-lantern-dusk.png",
+      "detail": "The medium's contract is 'AO baked into vertex colour' (classical-town PLAN §2.2), but only island.glb gets it. The Pharos's cornices, lantern interior and tritons, and the civic colonnades and stoa ceilings, get no contact darkening beyond cast sun shadow. On shaded faces and at night they flatten, and the hero looks less crafted than the houses around it.",
+      "fix": "O6-I5: run the existing Cycles bake from the Pharos and civic exporters. Zero runtime cost."
+    },
+    {
+      "id": "O6-F5",
+      "title": "The hero reads as a pilastered office tower at the visitor's zoom",
+      "severity": "medium",
+      "evidence": "scripts/harbour/blender/pharos/pharos_geo.py:41-51 (the drum is only 6.2 m), :180-186 (six full-height strips per face -> five 46 m flutes), :189-208 (slits 0.06 m proud), :439-443 (the Helios cloak quad reads as a chest shield), :522 (mirror R 1.8 m), :148-173 (an empty 64 m pavement); lighthouse.glb 8,179 triangles; shots O6-pharos-visitor.png, O6-pharos-day.png, O6-lantern-dusk.png",
+      "detail": "From 240 m at the fixed 26-degree pitch, the square shaft has five full-height panels, brick-scale ashlar (pattern 2, 0.55 m courses) and rows of flush slits; it reads as an Art Deco block or a grain silo. The octagon and the 6 m drum are stubby, so the stack reads as a big box with a small top. The pavement is a bare 64 m square, and the islet rock under the hero is crumpled facets. The tritons are the Pharos's signature but read as green lumps at heart.",
+      "fix": "O6-I4: a Pharos v2 pass within today's envelope (FIRE_Z, dome and statue top unchanged), with the AO bake from O6-I5."
+    },
+    {
+      "id": "O6-F6",
+      "title": "Umbrella pines are parasols on sticks, and they draw the heart frame's skyline",
+      "severity": "medium",
+      "evidence": "scripts/harbour/blender/island/nl_kit.py:964-982 (one 20-face icosahedron at z-scale 0.3 on a 3-sided 0.028*h trunk); hb_dress.py:551-559 (120 crest + 80 west spine + 70 east spine + copses, about 330 pines); shots O6-crop-civic-crest-pines.png, O6-burn-day.png, O6-civic-night.png",
+      "detail": "The crest band behind the civic quarter is a row of near-identical thin flat lenses on poles; at night they silhouette as tables. A real stone pine has a thick forking trunk and a deep cloud crown. The species choice is right; the model is a placeholder.",
+      "fix": "O6-I6: rebuild crown and trunk, and compose the crest."
+    },
+    {
+      "id": "O6-F7",
+      "title": "Cool-grey retaining walls read as concrete; outcrops read as plastic",
+      "severity": "medium",
+      "evidence": "scripts/harbour/blender/island/nl_common.py:76-77 ('granite' #9C9C97 'tower stone', left over from the retired Northern palette); hb_land.py:455-456, 1075-1076 (terrace and civic-pad walls), :1006-1077 (plain vertical 0.9 m beams up to the hill's full height); hb_dress.py:834 (boulders rock_light #A5A7A5); shots O6-crop-civic-walls.png, O6-burn-day.png, O6-crop-west-terraces.png",
+      "detail": "Behind the Mint and around the Burn, walls 10-15 m high and up to 60 m long are uninterrupted grey planes under a thin coping. Next to warm limestone temples they read as a dam or a prison yard. The granite tors on the west knoll catch the sun as near-white polyhedra. The classical-town palette asked for warm limestone on a sandstone base course.",
+      "fix": "O6-I7: warm limestone palette, a batter, buttresses, set-backs and planting."
+    },
+    {
+      "id": "O6-F8",
+      "title": "Mole lamps on a 24 m metronome; the overview still strings pearls (REVIEW #15 partly open)",
+      "severity": "low",
+      "evidence": "scripts/harbour/blender/island/compose.py:817-821 (_s += 24.0); src/harbour/lights/lights-system.ts:164-170 (the far shrink starts at 560 m); shots O6-crop-overview-night-moles.png, view-overview-night.png",
+      "detail": "Every mole carries identical lamps 24 m apart. At night in the overview each one blooms to a disc of about 10-14 px, so the moles read as necklaces that compete with the Pharos fire.",
+      "fix": "O6-I8: place lamps by place, and start the far shrink earlier."
+    },
+    {
+      "id": "O6-F9",
+      "title": "Terraces and vineyard read as pale planks on a lawn (REVIEW #4 residual; #9 fixed)",
+      "severity": "low",
+      "evidence": "scripts/harbour/blender/island/hb_dress.py:167-234 and 377-378 (lips '#A8A07C'); terrain.py:282-283; shots O6-crop-west-terraces.png, O6-crop-summer-west.png",
+      "detail": "The benches are carved into the height field, but tread and riser share the lawn's tone, so from heart only the pale lips show, as short straight strips like boards. The vineyard posts add more strips. The sanctuary now sits clear of the Shipyard on its knoll, inside its cypress ring.",
+      "fix": "O6-I9: tonal benches and soil strips."
+    },
+    {
+      "id": "O6-F10",
+      "title": "Autumn leaf drift is oversized at close zoom (cross-lane: life)",
+      "severity": "low",
+      "evidence": "src/harbour/life/drift.ts:44-46 and 77-78 (fall heights 7-13 m, a minimum of 2.4 px); shot O6-scale-close.png",
+      "detail": "At the 90-100 m zoom, leaves 0.28 m wide, held at the minimum pixel size, appear as orange coins drifting across third-floor facades far from any tree. At heart they put confetti back onto the land, after Wave 1 removed it from the sea.",
+      "fix": "Life owner: spawn leaves only under deciduous crowns (sample the tree grid), cap the fall height at crown height, and relax the minimum-pixel clamp to about 1.6 px."
+    }
+  ],
+  "ideas": [
+    {
+      "id": "O6-I1",
+      "title": "House flags at the town's scale, lit as cloth",
+      "what": "identity-system.ts:32 FLAG_SCALE.ethereum 1.65 -> 1.2; :173 farScale 1+0.45*s -> 1+0.25*s; crest-flags.ts:76 topmast 9 -> 6 m (Ethereum 7 m), so the Ethereum fly tops out about 22-24 m above its quay instead of about 30 m. Night: identity-system.ts:174 glow 0.16 -> 0.035*uWindowGlow, and dim uLight with the kit's night curve (1 - 0.85*night plus the uNightLift floor), so the crest falls with the facades. Optionally the flag catches its own quay lamp: sample uPoolTex at the mast foot. Give the flags a half-strength aerial tint (AERIAL_GLSL, keep 0.5) so overview flags settle into the air like sails. Add a vitest that pins the flag top (<= 24 m above the office plot) and the night gain.",
+      "visitor_benefit": "The Customs House and the Pharos lead again. Ethereum still reads first among the chains, but as a flag rather than a billboard (about -55 % area at heart), and the night town keeps its lamplit calm.",
+      "pillar": "prettier",
+      "meaning": "decorative",
+      "data_and_dom": "n/a. This is chain heraldry (D17), not an analytical cue: the crest, colours and the 'Ethereum flies largest' ranking are unchanged, and no data mapping reads FLAG_SCALE.",
+      "where": "src/harbour/identity/identity-system.ts:32,166-174; src/harbour/identity/crest-flags.ts:33-43,76,143-144; src/harbour/world/aerial.ts (shared GLSL); identity tests",
+      "effort": "S",
+      "perf_cost": "0 draws, 0 tris; flag fragments +~8 ALU (aerial mix) on a few thousand px: ~0 ms on any GPU.",
+      "risks": "Chain legibility at overview: check C chart mode, search and the tablet frames. Keep Ethereum at least 1.2x the other chains. Reduced motion is unaffected.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "O6-I2",
+      "title": "Grass that follows the land, not the triangles (+ tussock grain)",
+      "what": "In hbGrassTerrain (materials.ts:401-415), replace the facet normal normalize(cross(dFdx(W), dFdy(W))) with the smooth slope from the four height taps it already reads for convexity: n = normalize(vec3(-(hE-hW)/14, 1, -(hS-hN)/14)). This is free and removes the triangle mosaic on every slope. Then add one 'tussock' term to the grass pattern (pid 6, :227-231): a 2.5 m 2D value-noise cell at +-6 % value with a +-0.02 green-to-gold hue shift, faded by hbFine so it lives at 4-12 px in the heart view. Today only the 12 m blotch survives at that distance, so lawns read as felt. HB_LITE keeps today's path.",
+      "visitor_benefit": "Slopes read as sun-dried ridges and green hollows instead of crumpled paper, and the lawns gain the flocked texture of a hand-made model.",
+      "pillar": "prettier",
+      "meaning": "decorative",
+      "data_and_dom": "n/a. The ground is decorative; the stale fog, DEWS wetness and snow are untouched.",
+      "where": "src/harbour/world/materials.ts:227-231, 401-415; materials.test.ts (a CPU mirror of the dryness over a synthetic height field)",
+      "effort": "S",
+      "perf_cost": "Dryness: net ~0 ALU (it drops dFdx/dFdy plus the cross product). Grain: one 2D value noise (4 hashes, ~50 ops) on grass fragments only (~25 % of the heart frame), about 0.03-0.1 ms on an Apple-class iGPU. Low tier: 0.",
+      "risks": "It must stay calm: fade the grain with hbFine so it never shimmers. Re-check the snow, dew and puddle look on grass.",
+      "impact": 3,
+      "confidence": 4,
+      "depends_on": []
+    },
+    {
+      "id": "O6-I3",
+      "title": "A Mediterranean year for the ground",
+      "what": "Re-time the grass branch of hbFoliage (materials.ts:495-513) to the Alexandrian year. It is green from the first rains (late October) through spring and straw-gold from June to October: base vec3(0.36,0.29,0.11)*shade, with olive kept only where hbLush > 0 and on the garden plots, and drier straw on ridges through the O6-I2 slope term. Spring is less acid (col*(1.05,1.12,0.62) instead of (1.12,1.2,0.42)), and the flowers stay. Deciduous trees keep their current cycle (almond blossom, bare winter); evergreens stay dark; snow is unchanged. Pin four calendar phases in a unit test.",
+      "visitor_benefit": "Summer, when the left third of the default view is mostly lawn, becomes the gold-and-dark-green Mediterranean postcard. Olives, pines and cypresses finally separate from the ground, so the planting reads as planted.",
+      "pillar": "prettier",
+      "meaning": "decorative",
+      "data_and_dom": "n/a. The season is declared decorative (calendar); DEWS weather, wetness and stale fog are untouched.",
+      "where": "src/harbour/world/materials.ts:482-513; src/harbour/season/calendar.ts (phase only); materials.test.ts",
+      "effort": "S",
+      "perf_cost": "0 (constants within the same branch).",
+      "risks": "It reverses the shipped v1.1.0 'deep lush summer' look, so it needs an operator decision. A green winter under partial snow must not read as spring. Straw under the golden-hour grade can go orange: check against hour-golden.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": [
+        "O6-I2"
+      ]
+    },
+    {
+      "id": "O6-I4",
+      "title": "Pharos v2: a monument, not an office tower",
+      "what": "One Opus-authored pass on scripts/harbour/blender/pharos/pharos_geo.py within today's envelope. FIRE_Z 88.2, the dome and the statue top stay put, so the beam origin, PHAROS_HEIGHT (framing.ts:21) and the node contract all hold. (1) Re-proportion: tier 1 2.6-48.6 -> 2.6-42 m, octagon -> about 48.5-71 m, drum 6.2 -> about 9.5 m, closer to the classical stack. (2) Replace the six full-height strips per face (:180-186) with drafted corner quoins, the two string courses and one recessed window bay per face. Set the slit windows in deep 0.4 m reveals instead of sitting 0.06 m proud (:189-208). (3) Make the first cornice an Egyptian cavetto with dentils and a deep shadowing corona (:243-257). (4) Scale the tritons 1.7 -> 2.3 (:576), coil each tail over the cornice lip and smooth-shade the torso. Give Helios a larger radiate crown and drop the chest-shield quad (:439-443). (5) Enlarge the bronze mirror from R 1.8 to 2.5 m with a gilt rim (:522), so its daytime glint (lighthouse-system.ts:230-239) carries at heart. (6) Build the signature long ramp on 6-8 arches from the causeway gate to an entrance about 10 m up. Dress the 64 m pavement with oil-amphora stacks, a woodpile under a lean-to, a windlass and a keepers' lodge. (7) Give the tower a value structure through vertex colour: a warmer, darker base course and damp foot rising to a pale marble crown, plus baked AO (O6-I5).",
+      "visitor_benefit": "The hero gains the authority and craft of its legend at every zoom. The eye climbs from the arcaded ramp to the fire.",
+      "pillar": "prettier",
+      "meaning": "decorative",
+      "data_and_dom": "n/a. The beam, fire, mirror sweep and tilt, and the banked and vigil states keep exactly their PSI mapping. A larger mirror area does not change when the glint fires (heading x facing).",
+      "where": "scripts/harbour/blender/pharos/pharos_geo.py, pharos/export.py, public/harbour/lighthouse.glb(.gz); node consumers in src/harbour/world/lighthouse-system.ts:112-126 (lantern, fire_emitter, smoke_emitter, mirror; the 'door' node has no runtime consumer)",
+      "effort": "M",
+      "perf_cost": "Tris 8.2k -> ~22k, still one merged draw plus one shadow draw (lighthouse-system.ts:147-148). Fragment cost is unchanged (same screen coverage). lighthouse.glb 46 -> ~110 KB gz.",
+      "risks": "It changes the hero, so the operator signs off on side-by-side frames at heart, overview, golden hour and night. The top of the silhouette must stay identical. Re-run the beam and lighthouse tests and the poster and postcard references.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": [
+        "O6-I5"
+      ]
+    },
+    {
+      "id": "O6-I5",
+      "title": "Bake ambient occlusion into the Pharos and civic GLBs",
+      "what": "Call the island's existing Cycles bake (scripts/harbour/blender/island/hb_export.py:330-396; distance 4-6 m, 48 samples, strength 0.6-0.8) from pharos/export.py and civic/export.py, and later titans/ and wrecks/, multiplying COLOR_0.rgb exactly as island.glb already does. Exclude the hb_window, hb_emissive, hb_crest, hb_cover, hb_mirror and hb_fire materials.",
+      "visitor_benefit": "Crisp crafted-miniature depth: column bases, cornice undersides, door reveals, the lantern and the tritons read as sculpted rather than flat.",
+      "pillar": "prettier",
+      "meaning": "decorative",
+      "data_and_dom": "n/a. No reading-bound material is touched.",
+      "where": "scripts/harbour/blender/pharos/export.py, scripts/harbour/blender/civic/export.py (then titans/export.py, wrecks/export.py); public/harbour/lighthouse.glb, public/harbour/civic/*.glb",
+      "effort": "S",
+      "perf_cost": "0 runtime (COLOR_0 already exists). Bytes +5-10 % on those GLBs, because smoother colour gradients compress slightly worse: about +25-50 KB gz in total.",
+      "risks": "Double-darkening where the runtime hbAO also applies (civic pads against the hill): cap strength at about 0.6. On flat-shaded meshes the AO is per corner, as on the island. Re-check snow and winter frames.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": []
+    },
+    {
+      "id": "O6-I6",
+      "title": "Stone pines and cypresses that read as trees, not parasols",
+      "what": "Rebuild nl_kit.umbrella_pine (nl_kit.py:964-982) and cypress (:985-994). Pine: a 5-sided trunk at 0.04*h, tapering and forking at 55-65 % into 3-4 visible scaffold limbs, under a crown of 4-6 overlapping pads (sub-1 icosahedra at z-scale 0.45-0.55 instead of one at 0.3). Give the crown a domed top, a flattened underside (the dark underside tone already in LEAF_COL) and sky gaps between pads. Keep the three pine_variant silhouettes (hb_dress.py:474-506) and widen heights from 8.5-12.5 m to 7-15 m. Cypress: 2-3 stacked 'flame' lobes with a twisted tip and a darker base. Compose the CREST (hb_dress.py:551-552) as fewer, larger pines in 3-4 groups with cypress accents instead of a uniform 120-tree band, because it forms the heart frame's right skyline.",
+      "visitor_benefit": "The skyline behind the civic quarter and along the spines reads as Pinus pinea and Italian cypress, the Mediterranean signature, instead of lollipops.",
+      "pillar": "prettier",
+      "meaning": "decorative",
+      "data_and_dom": "n/a",
+      "where": "scripts/harbour/blender/island/nl_kit.py:964-994; hb_dress.py:474-562; hb_export.py sway bake (_SWAY); island.glb rebuild",
+      "effort": "M",
+      "perf_cost": "About 330 pines x (60 -> 150-200 tris) plus 146 cypresses x (12 -> 40 tris): +35-50k island tris (+12-17 %), 0 draws, about +0.1-0.25 ms on an iGPU across the main, shadow and predepth passes, +100-150 KB gz.",
+      "risks": "Shadow-map and overdraw cost on the iGPU: measure with the igpu profile. The sway weights must be re-baked. Crowns must stay under the R3 line.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": [
+        "O6-I11"
+      ]
+    },
+    {
+      "id": "O6-I7",
+      "title": "Warm, built retaining walls and rocks",
+      "what": "(a) Palette: the retaining walls and copings use PAL['granite'] #9C9C97 and granite_light #BDBAB2 (nl_common.py:76-77; hb_land.py:455-456, 1075-1076), the cool 'tower stone' of the retired Northern style. Switch them to warm Alexandrian limestone ashlar (#BDAE8C, coping #D8CCB0) on a sandstone foot (#A8956F), and move the outcrop and boulder rock_light tops (#A5A7A5, hb_dress.py:834) to #B7AA8C. (b) Form: the civic pad walls are plain vertical 0.9 m beams up to about 15 m (hb_land.py:1006-1077). Batter them 6 degrees, add pilaster-buttresses every ~7 m where taller than 4 m, split any face over 8 m into two set-back courses (the P8 terrace logic, :1031-1060), and hang caper or ivy clumps from the maquis kit at the coping every 5-9 m, with sway weights.",
+      "visitor_benefit": "The battery, the Mint court and the Burn read as Hellenistic terraces of warm stone with green spilling over them, not concrete dams or a prison yard.",
+      "pillar": "prettier",
+      "meaning": "decorative",
+      "data_and_dom": "n/a",
+      "where": "scripts/harbour/blender/island/nl_common.py:36-38, 76-77; hb_land.py:412-456, 1006-1077; hb_dress.py:639-834; island.glb rebuild",
+      "effort": "M",
+      "perf_cost": "+3-6k tris, 0 draws, +15-30 KB gz.",
+      "risks": "The palette shift must carry over to the coast cliffs, skerries and the Pharos islet (hb_cliffs.py) and must not drift into sand. Pattern ids are unchanged, so snow and wet run-up still apply.",
+      "impact": 3,
+      "confidence": 4,
+      "depends_on": [
+        "O6-I11"
+      ]
+    },
+    {
+      "id": "O6-I8",
+      "title": "Night lamps with a rhythm, not a metronome",
+      "what": "Replace the 24 m pitch on the moles (compose.py:817-821) with lamps placed at places: a pair at the exedra and at each berth group's paving band (T7), one at each stair or ladder, and the pierhead light (kept), with dark stretches between. On the quays, keep lamps at doors, stalls and stairs. Lamps on the moles drop by 25-35 %. At overview, finish REVIEW #15: start the far-sprite shrink at about 420 m instead of 560 (lights-system.ts:166-170) and halve the far halo (0.03 -> 0.015).",
+      "visitor_benefit": "At dusk the eye walks from one lit place to the next along the moles. At overview the night island becomes a scatter of warm hearths around the beam, not strings of pearls.",
+      "pillar": "prettier",
+      "meaning": "decorative",
+      "data_and_dom": "n/a. The red and green harbour lights at the heads are unchanged; the lamp wave still ranks by distance from the Pharos.",
+      "where": "scripts/harbour/blender/island/compose.py:812-823 (+ the layout.json lights); src/harbour/lights/lights-system.ts:164-170",
+      "effort": "S",
+      "perf_cost": "Slightly cheaper: fewer pool stamps and sprites; 0 draws.",
+      "risks": "Check the night roles (watchman, couples on the moles) still walk lit routes. Keep the mole heads readable.",
+      "impact": 3,
+      "confidence": 4,
+      "depends_on": []
+    },
+    {
+      "id": "O6-I9",
+      "title": "A hinterland that reads as cultivated from the heart view",
+      "what": "Make the cultivated pattern tonal rather than drawn in lines. In hb_land's terrace rows (terrain.TERRACES, terrain.py:282-283), tint each bench tread with worked earth (#8B7558 at 35-45 %) or mark it pid 15 so the farm year applies, and darken each riser bank, so the contour stripes read at 650 m. Under each vineyard row (hb_dress.py:236-279), lay a ploughed soil strip between grass alleys. Lower the terrace lips and break them into jittered dry-stone runs: today's pale '#A8A07C' lips (hb_dress.py:377-378) read as planks laid on a lawn. With O6-I3, the summer benches go straw while the olives stay dark.",
+      "visitor_benefit": "The west lobe, a third of the default frame, reads at a glance as olive terraces and a vineyard: a cared-for countryside.",
+      "pillar": "prettier",
+      "meaning": "decorative",
+      "data_and_dom": "n/a",
+      "where": "scripts/harbour/blender/island/hb_land.py (terrace rows); hb_dress.py:167-279, 377-378; island.glb rebuild",
+      "effort": "S",
+      "perf_cost": "0 tris, 0 runtime (vertex colours only).",
+      "risks": "Patchwork-quilt risk: limit it to the two terrace knolls and the vineyard. Check the snow cover on the benches.",
+      "impact": 3,
+      "confidence": 3,
+      "depends_on": [
+        "O6-I3"
+      ]
+    },
+    {
+      "id": "O6-I10",
+      "title": "The keeper's evening round",
+      "what": "Once each evening, about 60-90 s before the lamp wave reaches the Pharos's windows (lamp-wave.ts), a small warm light climbs the tower's slit windows bottom-up along the internal ramp: the keeper carrying the night's oil. Each window brightens as the keeper passes and settles back; the existing top-down wave then takes over. It needs one uniform (vec4: Pharos axis xz, climber height, gain), read in the window material (materials.ts:933-949) only for windows within 16 m of the axis, driven from the clock by the lighthouse system. It is skipped under reduced motion and while the fire is banked, when the vigil lamp already tells that story.",
+      "visitor_benefit": "A small human story at dusk on the hero, someone tending the light, that rewards the visitor who stays.",
+      "pillar": "enchanting",
+      "meaning": "decorative",
+      "data_and_dom": "n/a. Time of day only. It never runs while PSI is unlit, so it cannot be read as 'the light is coming back'.",
+      "where": "src/harbour/world/lighthouse-system.ts:173-240; src/harbour/world/materials.ts:933-949 (window shader); src/harbour/lights/lamp-wave.ts; a unit test for the schedule",
+      "effort": "S",
+      "perf_cost": "+~5 ALU on window fragments; CPU ~0.",
+      "risks": "It must stay subtle (no strobe). A clock jump via ?t= or a resumed tab must not replay it.",
+      "impact": 2,
+      "confidence": 3,
+      "depends_on": []
+    },
+    {
+      "id": "O6-I11",
+      "title": "Asset review stations and an R3 envelope lint",
+      "what": "(a) A new scripts/harbour/asset-review.mjs: a fixed list of camera stations (the 12 O6 frames used here: Pharos at visitor pitch, day, night and dusk; civic day and night; town; west lobe; coves; burn headland; scale; summer heart) x hours, captured through shot.mjs into a dated contact sheet, run before and after every Blender export (D4). It becomes the review gate for island, lighthouse and civic GLB changes. (b) A lint in each exporter's report (pharos/export.py:59, civic/export.py, hb_export.py) that fails when anything other than the Pharos, cranes, masts and flag poles rises above 18 m. Add a vitest that pins the crest-flag top and the night gain.",
+      "visitor_benefit": "Indirect: every rebuild is judged on the same frames, so regressions in scale, palette or the mosaic are caught before release.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "n/a",
+      "where": "scripts/harbour/asset-review.mjs (new); scripts/harbour/blender/*/export.py; src/harbour/identity/*.test.ts",
+      "effort": "S",
+      "perf_cost": "0 runtime (dev only; the captures queue through the one shared browser, ~12 frames x 10-40 s).",
+      "risks": "Capture time. Keep it opt-in and off CI runners without a GPU.",
+      "impact": 2,
+      "confidence": 4,
+      "depends_on": []
+    },
+    {
+      "id": "O6-I12",
+      "title": "Egypt in the planting: a few date palms",
+      "what": "Add a date palm (Phoenix dactylifera) to nl_kit: a slightly curved, ringed 5-sided trunk of 9-14 m; a star crown of 12-16 drooping frond quads (two-sided, leaf_evergreen pid 14, sway weight 1 at the tips); and a skirt of dead fronds. Place about 20-30 sparingly: pairs flanking the Customs stair and the Pharos causeway abutment, a small grove on the Burn headland and two at the Shipyard gate. None go in the coves, which stay Greek.",
+      "visitor_benefit": "The island stops reading as Tuscany and becomes Ptolemaic Alexandria: Greek stone with Egyptian accents, a note the pharaoh colossi already strike. Palm crowns swaying in the wind give the heart view a lovely silhouette.",
+      "pillar": "prettier",
+      "meaning": "decorative",
+      "data_and_dom": "n/a",
+      "where": "scripts/harbour/blender/island/nl_kit.py (new date_palm); hb_dress.py (placement); hb_export.py sway; island.glb rebuild",
+      "effort": "S",
+      "perf_cost": "About 25 x 160 tris = 4k tris, 0 draws (merged into the evergreen leaf and trunk materials), +15 KB gz.",
+      "risks": "A 'resort' read if overused: cap the count and keep palms out of the coves. Palms are outside the classical-town species list (PLAN §4.6), so this needs an operator decision. Thin the snow on pid 14 fronds in winter.",
+      "impact": 3,
+      "confidence": 3,
+      "depends_on": [
+        "O6-I6"
+      ]
+    }
+  ],
+  "top_picks": [
+    {
+      "id": "O6-I1",
+      "why": "S, zero cost. It removes the loudest defect in the civic quarter by day and at night, and restores the Pharos-first value hierarchy."
+    },
+    {
+      "id": "O6-I5",
+      "why": "S, zero runtime cost. The hero and the civic buildings gain the baked depth that the medium's own contract promises."
+    },
+    {
+      "id": "O6-I2",
+      "why": "S, free shader fix for the triangle mosaic on every slope, plus turf grain that is visible at heart."
+    },
+    {
+      "id": "O6-I4",
+      "why": "M. The asset the product is named after gains proportion, craft and a value ladder up to the fire, at one draw and +14k tris."
+    },
+    {
+      "id": "O6-I3",
+      "why": "S. One shader block turns the summer default view into the Mediterranean postcard and separates the trees from the ground (needs a decision)."
+    }
+  ],
+  "operator_decisions": [
+    "DECISION-NEEDED O6-I3: adopt a Mediterranean grass calendar (gold June-October, green after the first rains through spring)? It reverses the shipped v1.1.0 'deep lush summer'. Trees and snow keep their current cycle.",
+    "DECISION-NEEDED O6-I1: reduce Ethereum's house-flag dominance from 1.65x to about 1.2x, the overview growth of all flags from +45 % to +25 %, and keep flag tops at or below about 24 m above their quay? R3's 18 m line covers buildings; the flags were treated as masts, and today Ethereum's flies about 30 m up.",
+    "DECISION-NEEDED O6-I4: approve re-proportioning the Pharos within the same envelope (fire height, dome and statue top unchanged) and removing the full-height pilaster grid. It is the largest change to the hero since v1.0.0, so gate it on before/after frames at heart, overview, golden hour and night.",
+    "DECISION-NEEDED O6-I12: admit an Egyptian vegetation accent (about 20-30 date palms on the civic quarter and the Pharos road) outside the classical-town species list?"
+  ],
+  "cross_lane_hooks": [
+    "O1 art-direction: sign off the warm stone family (O6-I7) and the Mediterranean ground calendar (O6-I3) against the grade, and the flag hierarchy (O6-I1).",
+    "O2 light-post: night value hierarchy. The flags (O6-I1) and the lamp halos at overview (O6-I8, lights-system.ts:164-170) are bloom and tone-map questions. Check that the baked AO (O6-I5) does not muddy the shadows under the grade's contrast and lift.",
+    "O3 water-coast: the coast cliffs, skerries and Pharos islet rock (hb_cliffs.py, hb_land.py:1081+) must move with the warm palette (O6-I7). The islet's crumpled rock skirt sits directly under the hero (O6-pharos-visitor.png).",
+    "O4 sky-weather: snow on a green Mediterranean winter ground (O6-I3). FYI: at pitch < 20 degrees, reachable only through ?cam, the sky shows faceted shards (O6-pharos-day.png, O6-lantern-dusk.png). That matters only for any future poster or marketing render at a lower pitch.",
+    "O5 fleet-craft: keep the house-flag scale (O6-I1) consistent with ship burgees and titan house flags (D17).",
+    "Life lane (owner of life/drift.ts and roles.ts): leaf drift at close zoom (O6-F10); keepers using the dressed Pharos platform and ramp (O6-I4); night routes if the mole lamps move (O6-I8); palm frond sway (O6-I12).",
+    "Perf/bytes lane: measure O6-I4/I6/I7/I12 together (+45-75k tris, about +250-400 KB gz) on the igpu profile and the Apple gate. island.glb is already 2.63 MB gz, so consider meshopt filters before growing it. Batch I6, I7, I8, I9 and I12 into ONE island.glb rebuild (with sea-sdf, walkways and occupancy), as Wave 6 did.",
+    "QA lane: adopt the asset-review stations (O6-I11) as the visual gate for any GLB change."
+  ]
+}

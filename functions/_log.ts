@@ -1,3 +1,4 @@
+import { projectDiagnostic } from "../src/error-diagnostic";
 import {
   getEdgeCache,
   jsonErrorResponse,
@@ -41,17 +42,6 @@ const LOG_SECURITY_RESPONSE_HEADERS = {
   "cache-control": "no-store",
   "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
 } as const;
-
-const STRING_PAYLOAD_FIELDS = [
-  ["category", 64],
-  ["kind", 64],
-  ["message", 1_000],
-  ["filename", 500],
-  ["reason", 1_000],
-  ["stack", 2_000],
-  ["url", 500],
-] as const;
-const NUMBER_PAYLOAD_FIELDS = ["ts", "lineno", "colno"] as const;
 
 function noContent(): Response {
   return withSecurityHeaders(new Response(null, { status: 204 }), LOG_SECURITY_RESPONSE_HEADERS);
@@ -132,40 +122,6 @@ async function isRateLimited(context: PagesContext): Promise<boolean> {
   return false;
 }
 
-function truncate(value: string, maxLength: number): string {
-  return value.length > maxLength ? value.slice(0, maxLength) : value;
-}
-
-function projectedUrl(value: string, maxLength: number): string {
-  try {
-    const parsed = new URL(value);
-    return truncate(`${parsed.origin}${parsed.pathname}`, maxLength);
-  } catch {
-    return truncate(value, maxLength);
-  }
-}
-
-function projectPayload(payload: unknown): Record<string, string | number> | null {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const source = payload as Record<string, unknown>;
-  const projected: Record<string, string | number> = {};
-
-  for (const [field, maxLength] of STRING_PAYLOAD_FIELDS) {
-    const value = source[field];
-    if (typeof value !== "string") continue;
-    projected[field] = field === "url" || field === "filename"
-      ? projectedUrl(value, maxLength)
-      : truncate(value, maxLength);
-  }
-
-  for (const field of NUMBER_PAYLOAD_FIELDS) {
-    const value = source[field];
-    if (typeof value === "number" && Number.isFinite(value)) projected[field] = value;
-  }
-
-  return Object.keys(projected).length > 0 ? projected : null;
-}
-
 /**
  * Best-effort durable copy. One key per report rather than a per-day counter:
  * KV is eventually consistent, so concurrent read-modify-write increments lose
@@ -173,11 +129,11 @@ function projectPayload(payload: unknown): Record<string, string | number> | nul
  * --prefix <EVENT>:<date>` still yields the day's count along with the reports
  * themselves. Never throws and never blocks the response.
  */
-function storeReport(context: PagesContext, event: string, ray: string, line: string): void {
+function storeReport(context: PagesContext, event: string, line: string): void {
   try {
     const kv = context.env?.CLIENT_ERROR_KV;
     if (!kv) return;
-    const key = `${event}:${new Date().toISOString()}:${ray || crypto.randomUUID()}`;
+    const key = `${event}:${new Date().toISOString()}:${crypto.randomUUID()}`;
     waitUntilOrVoid(
       context,
       kv.put(key, line, { expirationTtl: KV_TTL_SECONDS }).catch(() => undefined),
@@ -222,7 +178,9 @@ export async function onRequest(context: PagesContext): Promise<Response> {
 
   const synthetic = isSyntheticProbe(request);
   if (await isRateLimited(context)) {
-    return rejected("Too many requests", 429);
+    const response = rejected("Too many requests", 429);
+    response.headers.set("retry-after", String(RATE_LIMIT_WINDOW_SECONDS));
+    return response;
   }
 
   const contentType = request.headers.get("content-type") ?? "";
@@ -244,28 +202,20 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     return rejected("Bad request", 400);
   }
 
-  const projected = projectPayload(payload);
+  const projected = projectDiagnostic(payload);
   if (!projected) {
     return rejected("Bad request", 400);
   }
 
-  const ray = request.headers.get("cf-ray") ?? "";
-  const country = request.headers.get("cf-ipcountry") ?? "";
-  const ua = request.headers.get("user-agent") ?? "";
-  const origin = request.headers.get("origin") ?? "";
   const event = synthetic ? CANARY_EVENT : CLIENT_ERROR_EVENT;
   // Flat, not nested: every projected field sits at the top level so a log
-  // query can filter on `category` or `message` without unwrapping a blob.
+  // query can filter on `category` or `code` without unwrapping a blob.
   const line = `${event} ${JSON.stringify({
     event,
     ...projected,
-    country,
-    origin,
-    ray,
-    ua: truncate(ua, 200),
   })}`;
   console.error(line);
-  storeReport(context, event, ray, line);
+  storeReport(context, event, line);
 
   return noContent();
 }

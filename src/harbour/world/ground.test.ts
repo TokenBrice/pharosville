@@ -5,7 +5,7 @@ import { IslandSystem } from "./island-system";
 import type { GroundService } from "./ground";
 import type { EngineContext } from "../engine/types";
 
-function bakedGround() {
+function bakedGround(samples = [1, 2, 3, 4], fails = false) {
   let target: THREE.WebGLRenderTarget | null = null;
   const baked: THREE.WebGLRenderTarget[] = [];
   const disposed = vi.fn();
@@ -18,16 +18,32 @@ function bakedGround() {
     },
     setClearColor: vi.fn(), clear: vi.fn(), render: vi.fn(),
     readRenderTargetPixels: (_rt: THREE.WebGLRenderTarget, _x: number, _y: number, _w: number, _h: number, out: Float32Array) => {
-      for (let i = 0; i < 4; i++) out[i * 4] = i + 1;
+      if (fails) throw new Error("readback failed");
+      for (let i = 0; i < samples.length; i++) out[i * 4] = samples[i];
     },
   };
   const root = new THREE.Group(), parent = new THREE.Group();
+  root.add(new THREE.Mesh(new THREE.BoxGeometry(2, 8, 2)));
   parent.add(root);
-  const ground = renderGround(renderer as unknown as THREE.WebGLRenderer, root, [0, 0, 2, 2], 2);
+  let ground: GroundService;
+  try { ground = renderGround(renderer as unknown as THREE.WebGLRenderer, root, [0, 0, 2, 2], 2); }
+  catch (error) {
+    expect(root.parent).toBe(parent); expect(target).toBeNull(); expect(disposed).toHaveBeenCalledOnce();
+    expect(renderer.setClearColor).toHaveBeenLastCalledWith(new THREE.Color(0, 0, 0), 1);
+    throw error;
+  }
   return { ground, disposed, texture: baked[0].texture, root, parent, target };
 }
 
 describe("ground render target ownership", () => {
+  it("accepts valid flat samples without interpreting them as a failed readback", () => {
+    const { ground } = bakedGround([0, 0, 0, 0]);
+    expect(Array.from(ground.heights)).toEqual([0, 0, 0, 0]); ground.dispose();
+  });
+
+  it.each([[[], false], [[NaN, 1, 2, 3], false], [[5000, 1, 2, 3], false], [[1, 2, 3, 4], true]] as const)("rejects missing, nonfinite, out-of-bounds or failed readback (%s, %s)", (samples, fails) => {
+    expect(() => bakedGround([...samples], fails)).toThrow("graphics-buffers");
+  });
   it("keeps the exact baked texture alive after CPU extraction until its owner disposes", () => {
     const { ground, disposed, texture, root, parent, target } = bakedGround();
     expect(disposed).not.toHaveBeenCalled();

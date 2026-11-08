@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { BloomEffect, EffectComposer, ToneMappingEffect } from "postprocessing";
+import { FrameProfile } from "./frame-profile";
 import { AssetStore } from "./assets";
 import { QualityGovernor } from "./governor";
 import { installGpuPassProfiler, type GpuPassProfiler } from "./gpu-passes";
@@ -10,8 +11,15 @@ import { CameraInput } from "./input";
 import { TimeOfDay } from "./time-of-day";
 import { createWorldUniforms } from "./uniforms";
 import type { EngineContext, HarbourStats, PreparationEntry, RenderedFleetState, WorldSystem } from "./types";
-import { isPreparationAbort, ProgramPreparation, type PreparedPrograms } from "./prepare";
-import { TIERS, type QualitySettings } from "./quality";
+import { isPreparationAbort, preparationConsumer, ProgramPreparation, type PreparedPrograms } from "./prepare";
+import type { PreparationPriority } from "./preparation-queue";
+import { backingDpr, backingLimitsFor, TIERS, type BackingLimits, type QualitySettings } from "./quality";
+import { BootFailure, failureCode, type HarbourLifecycle } from "./failure";
+import { GraphicsValidity, probeGraphics } from "./graphics";
+import { getHarbourMaterials, shaderFeatureKey } from "../world/materials";
+import type { OceanService } from "../ocean/ocean-system";
+import { assertShaderReady } from "./shader-failure";
+import type { SunRig } from "../world/sun";
 
 /**
  * Systems nothing else needs at init and the first frame can do without (overlays and decoration):
@@ -21,7 +29,6 @@ const DEFERRED: ReadonlySet<string> = new Set(["life", "identity"]);
 const DEFERRED_PREPARATION_ATTEMPTS = 3;
 
 /** Dev profiling (`?prof=1`): per-system update() cost, summed since the last reset (window.__harbourProf). */
-interface FrameProfile { frames: number; ms: Record<string, number>; max: Record<string, number>; reset(): void }
 const PROF = typeof location !== "undefined" && new URLSearchParams(location.search).get("prof") === "1";
 const GPU_PROF = typeof location !== "undefined" && new URLSearchParams(location.search).get("prof") === "gpu";
 
@@ -33,6 +40,40 @@ declare global { interface Window { __harbourStats?: HarbourStats; __harbour?: E
  */
 export class Engine {
   readonly ctx: EngineContext;
+  private readonly graphics = new GraphicsValidity();
+  private lifecycle: HarbourLifecycle = { state: "BOOTING", code: null };
+  private readonly lifecycleListeners = new Set<(state: HarbourLifecycle) => void>();
+  private failedFrames = 0;
+  private restorationTimer = 0;
+
+  get canPublish(): boolean {
+    if (this.aborted || this.disposed || this.lifecycle.state === "RECOVERING" || this.lifecycle.state === "FAILED") return false;
+    try { this.graphics.assertValid(); return true; } catch { return false; }
+  }
+
+  onLifecycle(cb: (state: HarbourLifecycle) => void): () => void {
+    this.lifecycleListeners.add(cb); cb(this.lifecycle);
+    return () => this.lifecycleListeners.delete(cb);
+  }
+
+  private transition(state: HarbourLifecycle["state"], code: HarbourLifecycle["code"]): void {
+    this.lifecycle = { state, code };
+    for (const cb of this.lifecycleListeners) cb(this.lifecycle);
+  }
+
+  private onContextLost(event: Event): void {
+    event.preventDefault();
+    if (this.disposed || this.aborted) return;
+    this.abort();
+    this.transition("RECOVERING", "context-lost");
+    this.restorationTimer = window.setTimeout(() => this.transition("FAILED", "context-lost"), 30000);
+  }
+  private onContextRestored(): void {
+    if (this.disposed || this.lifecycle.state !== "RECOVERING") return;
+    clearTimeout(this.restorationTimer);
+    // The app disposes this owner before mounting a fresh Engine; GPU-only bakes never survive.
+    this.transition("BOOTING", "context-lost");
+  }
   private readonly systems: WorldSystem[] = [];
   /** Systems whose init has completed (only these update / resize). */
   private readonly ready = new Set<WorldSystem>();
@@ -48,14 +89,20 @@ export class Engine {
   private readonly clock = { last: 0, elapsed: 0 };
   private raf = 0;
   private running = false;
+  private requestedRunning = false;
   private firstFrameMs: number | null = null;
   private readonly rendered = { revision: 0, boats: 0 };
   private readonly renderedListeners = new Set<(state: RenderedFleetState) => void>();
   private gpuPasses: GpuPassProfiler | null = null;
   private readonly preparation: ProgramPreparation;
   private postPreparation: PostPreparation | undefined;
-  private readonly qualityPreparation = new Map<QualitySettings["tier"], Promise<void>>();
+  private readonly qualityPreparation = new Map<string, Promise<void>>();
   private readonly qualityPrograms = new Set<PreparedPrograms>();
+  /** Feature identities whose complete target-tier preparation is resident (governor's synchronous ready predicate). */
+  private readonly qualityReady = new Set<string>();
+  private readonly backingLimits: BackingLimits;
+  private resolution: MediaQueryList | undefined;
+  private resolutionDpr = 0;
   private width = 0;
   private height = 0;
   private pixelRatio = 0;
@@ -65,12 +112,10 @@ export class Engine {
     backend: "webgl2", drawCalls: 0, triangles: 0, textures: 0, programs: 0, hour: 0, systems: [], firstFrameMs: null, firstFleetFrameMs: null, renderedRevision: 0, renderedBoats: 0, dpr: 1, gpuMs: null, quality: "high",
   };
   private readonly startMs = performance.now();
-  private readonly profile: FrameProfile | null = PROF ? {
-    frames: 0, ms: {}, max: {},
-    reset() { this.frames = 0; this.ms = {}; this.max = {}; },
-  } : null;
+  private readonly profile: FrameProfile | null = PROF ? new FrameProfile() : null;
   private lap(key: string, since: number): number {
     const now = performance.now(), p = this.profile!, d = now - since;
+    p.tag(`stage:${key}`);
     p.ms[key] = (p.ms[key] ?? 0) + d;
     if (d > (p.max[key] ?? 0)) p.max[key] = d;
     return now;
@@ -81,12 +126,23 @@ export class Engine {
   readonly governor: QualityGovernor;
   private readonly input: CameraInput;
   private readonly onResize = () => this.resize();
-  private readonly onVisibility = () => { if (document.hidden) this.stop(); else this.start(); };
+  private readonly onVisibility = () => this.reconcileRunning();
   private readonly onSceneAddition = () => { if (this.booted) this.preparation.invalidate(); };
 
   constructor(readonly container: HTMLElement) {
-    const renderer = new THREE.WebGLRenderer({ antialias: false, stencil: false, depth: true, powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    let renderer: THREE.WebGLRenderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: false, stencil: false, depth: true, powerPreference: "high-performance" }); }
+    catch (cause) { throw new BootFailure("graphics-buffers", { cause }); }
+    renderer.debug.checkShaderErrors = true;
+    renderer.debug.onShaderError = this.graphics.onShaderError;
+    this.onContextLost = this.onContextLost.bind(this);
+    this.onContextRestored = this.onContextRestored.bind(this);
+    renderer.domElement.addEventListener("webglcontextlost", this.onContextLost);
+    renderer.domElement.addEventListener("webglcontextrestored", this.onContextRestored);
+    const gl = renderer.getContext() as WebGL2RenderingContext;
+    this.backingLimits = backingLimitsFor(gl);
+    renderer.setDrawingBufferSize(container.clientWidth || innerWidth, container.clientHeight || innerHeight,
+      backingDpr(container.clientWidth || innerWidth, container.clientHeight || innerHeight, Math.min(devicePixelRatio, 2), this.backingLimits));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping; // tone mapping happens in post
     renderer.shadowMap.enabled = true;
@@ -101,28 +157,38 @@ export class Engine {
     this.post = new PostChain(renderer, composer, scene, camera);
     this.bloom = this.post.bloom;
     this.toneMapping = this.post.toneMapping;
-    this.governor = new QualityGovernor(renderer.getContext() as WebGL2RenderingContext, (settings, dpr) => {
-      if (renderer.getPixelRatio() !== dpr) renderer.setPixelRatio(dpr);
+    this.governor = new QualityGovernor(gl, (settings) => {
       this.post.setQuality(settings);
       if (this.ctx) this.resize();
     }, !GPU_PROF); // Pass profiling owns elapsed queries: WebGL forbids nesting them.
     // the layout system tunes the tilt-shift range from its presets
 
-    this.ctx = { renderer, scene, camera, rig, composer, uniforms: createWorldUniforms(), timeOfDay: new TimeOfDay(), assets: new AssetStore(), services: new Map(), signal: this.lifetime.signal };
+    this.ctx = { renderer, scene, camera, rig, composer, uniforms: createWorldUniforms(), timeOfDay: new TimeOfDay(), assets: new AssetStore(this.lifetime.signal), services: new Map(), signal: this.lifetime.signal };
+    this.ctx.services.set("graphics-validity", this.graphics);
     this.ctx.services.set("post", this.post);
     this.ctx.services.set("quality", this.governor);
     this.preparation = new ProgramPreparation(this.ctx);
     this.ctx.services.set("preparation", this.preparation);
     this.post.installDepthPrepass(this.ctx);
     scene.addEventListener("childadded", this.onSceneAddition);
-    this.governor.setPreparation((settings) => this.prepareQuality(settings));
+    this.governor.setPreparation((settings, signal) => this.prepareQuality(settings, signal), (settings) => this.qualityReady.has(this.qualityIdentity(settings)));
     this.governor.publish();
     this.input = new CameraInput(renderer.domElement, rig);
     addEventListener("resize", this.onResize);
     document.addEventListener("visibilitychange", this.onVisibility);
     this.resize();
     window.__harbour = this;
-    if (this.profile) window.__harbourProf = this.profile;
+    if (this.profile) {
+      window.__harbourProf = this.profile;
+      this.profile.trackUploads(renderer.getContext());
+      const upload = renderer.initTexture.bind(renderer);
+      renderer.initTexture = (texture) => { this.profile!.tag("upload:texture"); return upload(texture); };
+      const prepare = this.preparation.prepare.bind(this.preparation);
+      this.preparation.prepare = (...args) => {
+        this.profile!.tag("preparation:start");
+        return prepare(...args).finally(() => this.profile?.tag("preparation:end"));
+      };
+    }
     prefetchHarbour(this.ctx.assets);
   }
 
@@ -143,6 +209,17 @@ export class Engine {
    * them while the main thread finishes the frame's CPU work). `?defer=0` boots everything first (A/B).
    */
   async init(): Promise<void> {
+    try { await this.initialize(); }
+    catch (error) {
+      if (this.aborted) return;
+      this.abort(); this.transition("FAILED", failureCode(error));
+      throw error;
+    }
+  }
+
+  private async initialize(): Promise<void> {
+    probeGraphics(this.ctx.renderer);
+    this.graphics.assertValid();
     const boot: Record<string, number> = {};
     this.stats.boot = boot;
     const defer = new URLSearchParams(location.search).get("defer") !== "0";
@@ -152,7 +229,9 @@ export class Engine {
       const t = performance.now();
       this.begun.add(s);
       try { await s.init(this.ctx); }
-      catch (error) { if (this.aborted) return; this.dispose(); throw error; }
+      catch (error) { if (this.aborted) return; throw error; }
+      if (this.aborted || this.disposed) return;
+      this.graphics.assertValid();
       this.preparation.stageTextures(this.ctx.scene);
       if (this.aborted || this.disposed) return;
       boot[s.name] = Math.round(performance.now() - t);
@@ -161,14 +240,23 @@ export class Engine {
     if (this.aborted) return;
     this.post.seal();
     this.resize(true);
+    this.ctx.timeOfDay.update(Date.now(), 0, this.ctx.uniforms);
+    await this.post.prepareGrade(this.ctx);
     const t = performance.now();
     this.postPreparation = this.post.preparationEntries();
     for (const entry of this.postPreparation.entries) this.preparation.register(entry);
     const wake = this.ctx.services.get("wake") as { preparationEntries(): PreparationEntry[] } | undefined;
     for (const entry of wake?.preparationEntries() ?? []) this.preparation.register(entry);
+    const sun = this.ctx.services.get("sun") as SunRig | undefined;
+    if (sun) this.preparation.register(sun.preparationEntry());
     while (!this.aborted && !this.disposed) {
-      try { this.preparation.adopt(await this.preparation.prepareWorld()); break; }
-      catch (error) { if (!isPreparationAbort(error)) { this.dispose(); throw error; } }
+      try {
+        const batch = await this.preparation.prepareWorld();
+        if (this.aborted || this.disposed) { batch.dispose(); return; }
+        try { this.graphics.assertValid(); } catch (error) { batch.dispose(); throw error; }
+        this.preparation.adopt(batch); break;
+      }
+      catch (error) { if (!isPreparationAbort(error)) throw error; }
     }
     if (this.aborted || this.disposed) return;
     // The first ordinary composer render is already behind the poster and provides real pose/depth
@@ -179,6 +267,7 @@ export class Engine {
       window.__gpuPasses = this.gpuPasses;
     }
     this.booted = true;
+    this.reconcileRunning();
   }
 
 
@@ -193,6 +282,7 @@ export class Engine {
     if (this.aborted) return;
     this.aborted = true; this.lifetime.abort(); this.stop(); this.preparation.invalidate();
     // The app waits for boot to settle before dispose; do not leave the data worker/feed alive meanwhile.
+    (this.ctx.services.get("sound") as { dispose(): void } | undefined)?.dispose();
     for (const system of this.begun) if (system.name === "data") {
       system.dispose(this.ctx); this.begun.delete(system); this.ready.delete(system);
     }
@@ -243,24 +333,54 @@ export class Engine {
   }
 
   start(): void {
-    if (this.running || this.disposed || this.aborted) return;
+    this.requestedRunning = true;
+    this.reconcileRunning();
+  }
+
+  private reconcileRunning(): void {
+    const shouldRun = this.booted && this.requestedRunning && !document.hidden && !this.disposed && !this.aborted;
+    if (!shouldRun) {
+      if (this.running) this.governor.pause();
+      this.running = false; cancelAnimationFrame(this.raf); this.raf = 0;
+      return;
+    }
+    if (this.running) return;
+    this.resize();
+    this.governor.resume();
     this.running = true;
     this.clock.last = performance.now();
     const tick = (now: number) => {
-      if (!this.running) return;
+      if (!this.running || document.hidden || this.disposed || this.aborted) { this.reconcileRunning(); return; }
       this.raf = requestAnimationFrame(tick);
       this.frame(now);
     };
     this.raf = requestAnimationFrame(tick);
   }
 
-  stop(): void { this.running = false; cancelAnimationFrame(this.raf); }
+  stop(): void { this.requestedRunning = false; this.reconcileRunning(); }
 
   private frame(now: number): void {
+    if (this.aborted || this.disposed) return;
+    try {
+      this.graphics.assertValid();
+      this.renderFrame(now);
+      this.failedFrames = 0;
+    } catch (error) {
+      if (this.aborted || this.disposed) return;
+      if (failureCode(error) === "shader") {
+        this.abort(); this.transition("RECOVERING", "shader");
+      } else if (++this.failedFrames >= 3) {
+        this.abort(); this.transition("FAILED", "frames");
+      }
+    }
+  }
+
+  private renderFrame(now: number): void {
     if (this.profile && this.firstFrameMs !== null) { this.profiledFrame(now); return; }
     const { ctx } = this;
     const t0 = this.firstFrameMs === null ? performance.now() : 0;
-    const delta = Math.min(0.1, Math.max(0, (now - this.clock.last) / 1000));
+    const rawDelta = Math.max(0, (now - this.clock.last) / 1000);
+    const delta = Math.min(0.1, rawDelta);
     this.clock.last = now;
     this.clock.elapsed += delta;
     const frame = this.frameState;
@@ -272,18 +392,21 @@ export class Engine {
     ctx.uniforms.uCameraPos.value.copy(ctx.camera.position);
     ctx.renderer.info.reset();
     this.governor.begin();
-    const prof = this.firstFrameMs === null ? this.stats.boot : undefined;
-    for (const s of this.systems) if (this.ready.has(s)) {
-      const ts = prof ? performance.now() : 0;
-      s.update(frame, ctx);
-      if (prof) prof[`u:${s.name}`] = Math.round(performance.now() - ts);
-    }
-    this.post.update(delta, ctx.timeOfDay, ctx.rig);
-    const tr = prof ? performance.now() : 0;
-    ctx.composer.render(delta);
-    this.recordRendered();
-    if (prof) prof["u:render"] = Math.round(performance.now() - tr);
-    this.governor.end(delta);
+    try {
+      const prof = this.firstFrameMs === null ? this.stats.boot : undefined;
+      for (const s of this.systems) if (this.ready.has(s)) {
+        const ts = prof ? performance.now() : 0;
+        s.update(frame, ctx);
+        if (prof) prof[`u:${s.name}`] = Math.round(performance.now() - ts);
+      }
+      this.post.update(delta, ctx.timeOfDay, ctx.rig);
+      const tr = prof ? performance.now() : 0;
+      ctx.composer.render(delta);
+      this.graphics.assertValid();
+      if (this.aborted || this.disposed) return;
+      this.recordRendered();
+      if (prof) prof["u:render"] = Math.round(performance.now() - tr);
+    } finally { this.governor.end(rawDelta); }
     if (this.firstFrameMs === null) {
       this.firstFrameMs = performance.now() - this.startMs;
       if (this.stats.boot) this.stats.boot.firstRender = Math.round(performance.now() - t0);
@@ -303,8 +426,14 @@ export class Engine {
     const p = this.profile!;
     p.frames++;
     const start = performance.now();
+    const rafGapMs = Math.max(0, now - this.clock.last);
+    const revision = this.rendered.revision;
+    const textures = ctx.renderer.info.memory.textures;
+    const readiness = ctx.services.get("readiness") as { prepared: boolean } | undefined;
+    if (readiness && !readiness.prepared) p.tag("route:pending");
     let t = start;
-    const delta = Math.min(0.1, Math.max(0, (now - this.clock.last) / 1000));
+    const rawDelta = Math.max(0, (now - this.clock.last) / 1000);
+    const delta = Math.min(0.1, rawDelta);
     this.clock.last = now;
     this.clock.elapsed += delta;
     const frame = this.frameState;
@@ -316,54 +445,88 @@ export class Engine {
     ctx.uniforms.uCameraPos.value.copy(ctx.camera.position);
     ctx.renderer.info.reset();
     this.governor.begin();
-    t = this.lap("pre", t);
-    for (const s of this.systems) if (this.ready.has(s)) { s.update(frame, ctx); t = this.lap(s.name, t); }
-    this.post.update(delta, ctx.timeOfDay, ctx.rig);
-    t = this.lap("post.update", t);
-    ctx.composer.render(delta);
-    this.recordRendered();
-    t = this.lap("render", t);
-    this.governor.end(delta);
+    try {
+      t = this.lap("pre", t);
+      for (const s of this.systems) if (this.ready.has(s)) { s.update(frame, ctx); t = this.lap(s.name, t); }
+      this.post.update(delta, ctx.timeOfDay, ctx.rig);
+      t = this.lap("post.update", t);
+      ctx.composer.render(delta);
+      this.graphics.assertValid();
+      if (this.aborted || this.disposed) return;
+      this.recordRendered();
+      t = this.lap("render", t);
+    } finally { this.governor.end(rawDelta); }
     this.publishStats();
     this.lap("tail", t);
-    this.lap("TOTAL", start);
+    const end = this.lap("TOTAL", start);
+    if (revision !== this.rendered.revision) p.tag("revision:install");
+    if (textures !== ctx.renderer.info.memory.textures) p.tag("upload:texture-allocation");
+    p.record({ frame: p.frames, revision: this.rendered.revision, tier: this.governor.tier,
+      dpr: ctx.renderer.getPixelRatio(), cpuMs: end - start, rafGapMs });
   }
 
-  /** Tier-invariant world lighting leaves only two SMAA materials to prepare, never the whole scene. */
-  private prepareQuality(settings: QualitySettings): Promise<void> {
-    const cached = this.qualityPreparation.get(settings.tier);
-    if (cached) return cached;
+  /** One tier's complete feature identity: tier, SMAA preset, preparation/material generations and compile features. */
+  private qualityIdentity(settings: QualitySettings): string {
+    const materials = getHarbourMaterials(this.ctx);
+    return `${settings.tier}:${settings.smaa}:${this.preparation.generation}:${materials.generation}:${shaderFeatureKey(materials.featureIdentity(0, settings.tier === "low"))}:${this.ctx.uniforms.uFoliage.value.y > 0.001}`;
+  }
+
+  /** Target world, private passes and SMAA stay resident until teardown; no live state crosses an await. */
+  private prepareQuality(settings: QualitySettings, signal?: AbortSignal, priority: PreparationPriority = "visible"): Promise<void> {
+    const materials = getHarbourMaterials(this.ctx);
+    const identity = () => this.qualityIdentity(settings);
+    const key = identity();
+    const cached = this.qualityPreparation.get(key);
+    if (cached) return preparationConsumer(cached, signal);
+    let preparedKey = key;
     const pending = (async () => {
       while (!this.disposed && !this.aborted) {
+        const generation = this.preparation.generation;
+        const materialGeneration = materials.generation;
         const post = this.post.preparationEntries(settings);
+        const scope = () => {
+          const restoreKit = materials.preparationScope(settings.tier === "low");
+          const restoreOcean = (this.ctx.services.get("ocean") as OceanService | undefined)?.preparationScope(settings.tier === "low");
+          return () => { restoreOcean?.(); restoreKit(); };
+        };
         try {
-          const batch = await this.preparation.prepare(post.entries);
+          const batch = await this.preparation.prepareWorld(scope, post.entries, undefined, priority);
           if (this.disposed || this.aborted) { batch.dispose(); break; }
+          if (generation !== this.preparation.generation || materialGeneration !== materials.generation) { batch.dispose(); continue; }
+          if (batch.status !== "complete") { batch.dispose(); throw new Error("Target tier preparation timed out"); }
           this.qualityPrograms.add(batch);
+          preparedKey = identity();
+          this.qualityReady.add(preparedKey);
           return;
         } catch (error) { if (!isPreparationAbort(error) || this.disposed || this.aborted) throw error; }
         finally { post.dispose(); }
       }
       throw new DOMException("Engine disposed", "AbortError");
     })();
-    this.qualityPreparation.set(settings.tier, pending);
-    void pending.catch(() => {
-      if (this.qualityPreparation.get(settings.tier) === pending) this.qualityPreparation.delete(settings.tier);
+    this.qualityPreparation.set(key, pending);
+    void pending.then(() => {
+      this.qualityPreparation.set(preparedKey, pending);
+      if (preparedKey !== key) this.qualityPreparation.delete(key);
+    }, () => {
+      if (this.qualityPreparation.get(key) === pending) this.qualityPreparation.delete(key);
     });
-    return pending;
+    return preparationConsumer(pending, signal);
   }
 
   private warmQuality(): void {
     // The first fleet frame can reveal immediately; submissions yield to bounded idle tasks.
     // Retain every preset until teardown: seasonal/world batch adoption must not evict them.
     for (const settings of Object.values(TIERS)) {
-      void this.prepareQuality(settings).catch((error: unknown) => {
+      void this.prepareQuality(settings, undefined, "background").catch((error: unknown) => {
         if (!isPreparationAbort(error)) console.error("[harbour] quality idle preparation failed", error);
       });
     }
   }
 
   private recordRendered(): void {
+    if (!this.canPublish) return;
+    assertShaderReady(this.ctx.renderer);
+    if (this.lifecycle.state === "BOOTING") this.transition("READY", null);
     const fleet = this.ctx.services.get("fleet-frame") as RenderedFleetState | undefined;
     this.rendered.revision = fleet?.revision ?? 0;
     this.rendered.boats = fleet?.boats ?? 0;
@@ -402,33 +565,50 @@ export class Engine {
   }
 
   resize(forceSystems = false): void {
+    if (this.disposed || this.aborted) return;
     const w = this.container.clientWidth || innerWidth, h = this.container.clientHeight || innerHeight;
     const { renderer, camera, composer, uniforms } = this.ctx;
-    const dpr = renderer.getPixelRatio();
+    if (this.resolutionDpr !== devicePixelRatio) {
+      this.resolution?.removeEventListener("change", this.onResize);
+      this.resolutionDpr = devicePixelRatio;
+      this.resolution = typeof matchMedia === "function" ? matchMedia(`(resolution: ${devicePixelRatio}dppx)`) : undefined;
+      this.resolution?.addEventListener("change", this.onResize);
+    }
+    const displayChanged = this.governor.reconcileDisplay(devicePixelRatio, backingDpr(w, h, 2, this.backingLimits));
+    const dpr = this.governor.dpr;
     const changed = w !== this.width || h !== this.height || dpr !== this.pixelRatio;
     if (changed) {
       this.preparation?.invalidate();
       this.width = w; this.height = h; this.pixelRatio = dpr;
-      renderer.setSize(w, h, false);
+      this.governor.resetTiming();
+      renderer.setDrawingBufferSize(w, h, dpr);
       composer.setSize(w, h);
       if (camera.aspect !== w / h) { camera.aspect = w / h; camera.updateProjectionMatrix(); }
-      uniforms.uResolution.value.set(w * dpr, h * dpr);
+      uniforms.uResolution.value.set(Math.floor(w * dpr), Math.floor(h * dpr));
+      this.stats.dpr = dpr;
     }
     if (changed || forceSystems) for (const s of this.systems) if (this.ready.has(s)) s.resize?.(w, h, this.ctx);
+    if (displayChanged) this.governor.publish();
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.abort();
     this.disposed = true;
+    clearTimeout(this.restorationTimer);
+    this.ctx.renderer.domElement.removeEventListener("webglcontextlost", this.onContextLost);
+    this.ctx.renderer.domElement.removeEventListener("webglcontextrestored", this.onContextRestored);
+    this.lifecycleListeners.clear();
     this.stop();
     this.preparation.dispose();
     for (const batch of this.qualityPrograms) batch.dispose();
     this.qualityPrograms.clear();
     this.qualityPreparation.clear();
+    this.qualityReady.clear();
     this.input.dispose();
     removeEventListener("resize", this.onResize);
     document.removeEventListener("visibilitychange", this.onVisibility);
+    this.resolution?.removeEventListener("change", this.onResize);
     this.ctx.scene.removeEventListener("childadded", this.onSceneAddition);
     // Three r186's module-owned DFG LUT keeps a texture-dispose listener per renderer.
     // Release it while material uniforms still exist, before renderer.dispose clears properties.
@@ -457,6 +637,7 @@ export class Engine {
     if (window.__harbour === this) delete window.__harbour;
     if (window.__harbourStats === this.stats) delete window.__harbourStats;
     if (window.__harbourProf === this.profile) delete window.__harbourProf;
+    this.profile?.dispose();
     this.gpuPasses?.dispose();
     if (window.__gpuPasses === this.gpuPasses) delete window.__gpuPasses;
     this.governor.dispose();

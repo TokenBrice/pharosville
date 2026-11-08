@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { EngineContext, PreparationService } from "../engine/types";
 import { FullscreenPass, NOISE_GLSL } from "../ocean/gpu-bake";
 
 /**
@@ -119,7 +120,7 @@ void main() {
 }`;
 
 /** Bake the 8-bank atlas (2048 x 1024 RGBA8), generating its mip chain only after the last cell. */
-export function bakeCloudAtlas(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTarget {
+export async function bakeCloudAtlas(ctx: EngineContext): Promise<THREE.WebGLRenderTarget> {
   const rt = new THREE.WebGLRenderTarget(CELL_W * CLOUD_COLS, CELL_H * CLOUD_ROWS, {
     type: THREE.UnsignedByteType, format: THREE.RGBAFormat, depthBuffer: false, generateMipmaps: false,
     minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping,
@@ -127,16 +128,24 @@ export function bakeCloudAtlas(renderer: THREE.WebGLRenderer): THREE.WebGLRender
   const lobeArr = Array.from({ length: MAX_LOBES }, () => new THREE.Vector4());
   const pass = new FullscreenPass(BAKE_FRAG, { uLobes: { value: lobeArr }, uCount: { value: 0 }, uBase: { value: 0.16 }, uSeed: { value: 0 } });
   const vp = new THREE.Vector4();
-  for (let c = 0; c < CLOUD_CELLS; c++) {
-    const { lobes, base } = cloudLobes(c + 1, CLOUD_KINDS[c]);
-    lobes.forEach((l, i) => lobeArr[i].set(l[0], l[1], l[2], l[3]));
-    const u = pass.material.uniforms;
-    u.uCount.value = lobes.length; u.uBase.value = base; u.uSeed.value = c * 13 + 5;
-    vp.set((c % CLOUD_COLS) * CELL_W, Math.floor(c / CLOUD_COLS) * CELL_H, CELL_W, CELL_H);
-    // No consumer can sample the atlas until it returns; only the complete base level needs mips.
-    rt.texture.generateMipmaps = c === CLOUD_CELLS - 1;
-    pass.render(renderer, rt, c === 0, vp);
-  }
-  pass.dispose();
-  return rt;
+  const preparation = ctx.services.get("preparation") as PreparationService;
+  let batch;
+  try {
+    batch = await preparation.prepare([pass.preparationEntry(() => rt)], undefined, ctx.signal);
+    for (let c = 0; c < CLOUD_CELLS; c++) {
+      await preparation.submit(() => {
+        const { lobes, base } = cloudLobes(c + 1, CLOUD_KINDS[c]);
+        lobes.forEach((l, i) => lobeArr[i].set(l[0], l[1], l[2], l[3]));
+        const u = pass.material.uniforms;
+        u.uCount.value = lobes.length; u.uBase.value = base; u.uSeed.value = c * 13 + 5;
+        vp.set((c % CLOUD_COLS) * CELL_W, Math.floor(c / CLOUD_COLS) * CELL_H, CELL_W, CELL_H);
+        // No consumer can sample the atlas until it returns; only the complete base level needs mips.
+        rt.texture.generateMipmaps = c === CLOUD_CELLS - 1;
+        pass.render(ctx.renderer, rt, c === 0, vp);
+      }, { signal: ctx.signal, nextFrame: true });
+    }
+    if (ctx.signal?.aborted) throw new DOMException("Bake cancelled", "AbortError");
+    return rt;
+  } catch (error) { rt.dispose(); throw error; }
+  finally { batch?.dispose(); pass.dispose(); }
 }

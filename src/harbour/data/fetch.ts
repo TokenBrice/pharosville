@@ -5,11 +5,12 @@
  */
 import { parseApiMeta, type ApiMeta } from "../../lib/api";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
-import { classifyFreshnessRatio } from "@shared/lib/status-thresholds";
+import { sourceFreshness } from "@shared/lib/source-freshness";
+import { validEnrichment } from "./validate";
 import { PHAROSVILLE_API_ENDPOINT_KEYS, type PharosVilleApiEndpointKey } from "@shared/types/pharosville-endpoint-keys";
-import type { EndpointSnapshot, HarbourPayloads } from "../model/types";
+import type { EndpointSnapshot, FeedFailureKind, HarbourPayloads } from "../model/types";
 
-export type Fetcher = (path: string, maxAgeSec: number, signal: AbortSignal) => Promise<{ data: unknown; meta: ApiMeta | null }>;
+export type Fetcher = (path: string, maxAgeSec: number, signal: AbortSignal) => Promise<{ data: unknown; meta: ApiMeta | null; staleFallback?: boolean; degradedTransport?: boolean }>;
 
 export interface FeedOptions {
   fetcher?: Fetcher;
@@ -18,6 +19,10 @@ export interface FeedOptions {
   clearTimer?: (h: unknown) => void;
   /** Skip a scheduled refresh while the page is hidden (re-checked every minute). */
   isHidden?: () => boolean;
+  isOnline?: () => boolean;
+  random?: () => number;
+  windowTarget?: Pick<EventTarget, "addEventListener" | "removeEventListener">;
+  documentTarget?: Pick<EventTarget, "addEventListener" | "removeEventListener">;
 }
 
 const MIN_REFRESH_MS = 60_000;
@@ -30,6 +35,13 @@ const REQUIRED_ARRAY: Record<PharosVilleApiEndpointKey, string | null> = {
   stress: null, safetyGrades: "grades", mintBurn: "hourly",
 };
 
+export class FeedError extends Error {
+  constructor(message: string, readonly kind: FeedFailureKind, readonly status: number | null = null, readonly retryAfter: string | null = null) {
+    super(message);
+    this.name = "FeedError";
+  }
+}
+
 /**
  * Structural check + repair. Deliberately more tolerant than src/lib/world-payload-guard: the live
  * /api/stablecoins carries rows like `chainCirculating.Arbitrum.current: null`, which that guard
@@ -37,11 +49,11 @@ const REQUIRED_ARRAY: Record<PharosVilleApiEndpointKey, string | null> = {
  * reads as "no supply there"), never the payload.
  */
 export function sanitizePayload(key: PharosVilleApiEndpointKey, data: unknown): unknown {
-  if (data === null || typeof data !== "object" || Array.isArray(data)) throw new Error(`${key}: payload is not an object`);
+  if (data === null || typeof data !== "object" || Array.isArray(data)) throw new FeedError(`${key}: payload is not an object`, "invalid-payload");
   const rec = data as Record<string, unknown>;
   const arr = REQUIRED_ARRAY[key];
-  if (arr && !Array.isArray(rec[arr])) throw new Error(`${key}: missing ${arr}[]`);
-  if (key === "stress" && (rec.signals === null || typeof rec.signals !== "object")) throw new Error("stress: missing signals");
+  if (arr && !Array.isArray(rec[arr])) throw new FeedError(`${key}: missing ${arr}[]`, "invalid-payload");
+  if (key !== "stablecoins" && !validEnrichment(key, rec)) throw new FeedError(`${key}: invalid consumed fields`, "invalid-payload");
   if (key === "stablecoins") {
     rec.peggedAssets = (rec.peggedAssets as unknown[]).filter((a): a is Record<string, unknown> =>
       a !== null && typeof a === "object" && typeof (a as Record<string, unknown>).id === "string" && typeof (a as Record<string, unknown>).pegType === "string")
@@ -60,34 +72,40 @@ export function sanitizePayload(key: PharosVilleApiEndpointKey, data: unknown): 
 
 /** Same-origin GET with the freshness evidence of src/lib/api.ts (body _meta, X-Data-Age, Age, Warning). */
 export const defaultFetcher: Fetcher = async (path, maxAgeSec, signal) => {
-  if (!path.startsWith("/api/") || path.startsWith("//")) throw new Error(`not a same-origin /api/ path: ${path}`);
-  const timeout = AbortSignal.timeout(15_000);
-  const res = await fetch(path, { signal: AbortSignal.any([signal, timeout]), headers: { accept: "application/json" } });
-  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
-  const json = (await res.json()) as unknown;
-  let meta: ApiMeta | null = null;
-  let data = json;
-  if (json && typeof json === "object" && !Array.isArray(json) && "_meta" in json) {
-    const { _meta, ...rest } = json as Record<string, unknown>;
-    meta = parseApiMeta(_meta);
-    data = rest;
+  const url = new URL(path, "https://pharosville.local");
+  if (!path.startsWith("/api/") || url.origin !== "https://pharosville.local" || !url.pathname.startsWith("/api/")) throw new FeedError(`not a same-origin /api/ path: ${path}`, "invalid-payload");
+  const controller = new AbortController();
+  const combined = AbortSignal.any([signal, controller.signal]);
+  const timeout = setTimeout(() => controller.abort(new DOMException("API request timed out", "TimeoutError")), 15_000);
+  let onAbort: () => void = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(combined.reason);
+    if (combined.aborted) onAbort(); else combined.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([(async () => {
+      combined.throwIfAborted();
+      const res = await fetch(path, { cache: "no-cache", signal: combined, headers: { accept: "application/json" } });
+      if (!res.ok) throw new FeedError(`${path}: HTTP ${res.status}`, "http", res.status, res.headers.get("Retry-After"));
+      let json: unknown;
+      try { json = await res.json(); }
+      catch (error) { if (combined.aborted) throw error; throw new FeedError(`${path}: invalid JSON`, "invalid-payload"); }
+      let meta: ApiMeta | null = null;
+      let data = json;
+      if (json && typeof json === "object" && !Array.isArray(json) && "_meta" in json) {
+        const { _meta, ...rest } = json as Record<string, unknown>;
+        meta = parseApiMeta(_meta);
+        data = rest;
+      }
+      return { data, ...sourceFreshness(meta, res.headers, maxAgeSec, Date.now()) };
+    })(), aborted]);
+  } catch (error) {
+    if (error instanceof FeedError) throw error;
+    throw new FeedError(`${path}: ${controller.signal.aborted ? "timed out" : "network request failed"}`, controller.signal.aborted ? "timeout" : "network");
+  } finally {
+    clearTimeout(timeout);
+    combined.removeEventListener("abort", onAbort);
   }
-  const dataAge = Number(res.headers.get("X-Data-Age") ?? NaN);
-  const cacheAge = Math.max(0, Number(res.headers.get("Age")) || 0);
-  if (meta || Number.isFinite(dataAge)) {
-    const nowS = Math.floor(Date.now() / 1000);
-    const ageSeconds = Math.max(Math.max(meta?.ageSeconds ?? 0, Number.isFinite(dataAge) ? dataAge : 0) + cacheAge, meta ? nowS - meta.updatedAt : 0);
-    const cls = classifyFreshnessRatio(ageSeconds / Math.max(1, maxAgeSec));
-    meta = {
-      ...meta,
-      updatedAt: Math.min(meta?.updatedAt ?? nowS, nowS - ageSeconds),
-      ageSeconds,
-      status: meta?.status === "stale" || cls === "stale" ? "stale" : meta?.status === "degraded" || cls === "degraded" ? "degraded" : "fresh",
-    };
-  }
-  const warning = res.headers.get("Warning");
-  if (warning && meta && meta.status === "fresh" && (/(?:^|,\s*)110\b/.test(warning) || /Response is (?:degraded|stale)/i.test(warning))) meta = { ...meta, status: "degraded", warning };
-  return { data, meta };
 };
 
 /** Next poll: just after the producer's next expected write, within [1 min, one producer interval]. */
@@ -106,18 +124,28 @@ export class HarbourFeed {
   private readonly setTimer: (fn: () => void, ms: number) => unknown;
   private readonly clearTimer: (h: unknown) => void;
   private readonly isHidden: () => boolean;
+  private readonly isOnline: () => boolean;
+  private readonly random: () => number;
+  private readonly windowTarget: FeedOptions["windowTarget"];
+  private readonly documentTarget: FeedOptions["documentTarget"];
+  private due = new Map<PharosVilleApiEndpointKey, number>();
+  private retryNotBefore = new Map<PharosVilleApiEndpointKey, number>();
+  private inFlight = new Map<PharosVilleApiEndpointKey, Promise<void>>();
   private timers = new Map<PharosVilleApiEndpointKey, unknown>();
   private errors = new Map<PharosVilleApiEndpointKey, number>();
   private listeners = new Set<(payloads: HarbourPayloads, key: PharosVilleApiEndpointKey) => void>();
   private abort = new AbortController();
   private running = false;
-  private requests = new Map<PharosVilleApiEndpointKey, number>();
 
   constructor(opts: FeedOptions = {}) {
     this.fetcher = opts.fetcher ?? defaultFetcher;
     this.now = opts.now ?? Date.now;
     this.setTimer = opts.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
     this.clearTimer = opts.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
+    this.random = opts.random ?? Math.random;
+    this.isOnline = opts.isOnline ?? (() => typeof navigator === "undefined" || navigator.onLine !== false);
+    this.windowTarget = opts.windowTarget ?? (typeof window === "undefined" ? undefined : window);
+    this.documentTarget = opts.documentTarget ?? (typeof document === "undefined" ? undefined : document);
     this.isHidden = opts.isHidden ?? (() => typeof document !== "undefined" && document.visibilityState === "hidden");
   }
 
@@ -127,45 +155,87 @@ export class HarbourFeed {
     return () => this.listeners.delete(fn);
   }
 
+  /** UI wake status describes an admitted overdue request, not a future retry deadline. */
+  get refreshingOverdue(): boolean {
+    return [...this.inFlight.keys()].some((key) => (this.due.get(key) ?? Infinity) <= this.now());
+  }
+
   /** Fetch everything now, then keep each endpoint on its own cadence. Resolves after the first round. */
   async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
     this.abort = new AbortController();
+    this.windowTarget?.addEventListener("online", this.wake);
+    this.documentTarget?.addEventListener("visibilitychange", this.wake);
     await Promise.all(PHAROSVILLE_API_ENDPOINT_KEYS.map((k) => this.refresh(k)));
   }
 
   stop(): void {
     this.running = false;
     this.abort.abort();
+    this.windowTarget?.removeEventListener("online", this.wake);
+    this.documentTarget?.removeEventListener("visibilitychange", this.wake);
+    this.inFlight.clear();
+    this.due.clear();
+    this.retryNotBefore.clear();
     for (const h of this.timers.values()) this.clearTimer(h);
     this.timers.clear();
   }
 
-  async refresh(key: PharosVilleApiEndpointKey): Promise<void> {
+  /** Wake only failed/overdue sources, preserving server and contract retry deadlines. */
+  private wake = (): void => {
+    if (!this.running || this.isHidden() || !this.isOnline()) return;
+    for (const key of PHAROSVILLE_API_ENDPOINT_KEYS) {
+      const failed = (this.payloads[key]?.failureStreak ?? 0) > 0;
+      if ((failed || (this.due.get(key) ?? Infinity) <= this.now()) && (this.retryNotBefore.get(key) ?? 0) <= this.now()) void this.refresh(key);
+    }
+  };
+
+  refresh(key: PharosVilleApiEndpointKey): Promise<void> {
+    if (!this.running) return Promise.resolve();
+    const pending = this.inFlight.get(key);
+    if (pending) return pending;
+    const task = this.fetchEndpoint(key);
+    this.inFlight.set(key, task);
+    void task.finally(() => { if (this.inFlight.get(key) === task) this.inFlight.delete(key); });
+    return task;
+  }
+
+  private async fetchEndpoint(key: PharosVilleApiEndpointKey): Promise<void> {
     const entry = PHAROSVILLE_ENDPOINT_REGISTRY[key];
-    const request = (this.requests.get(key) ?? 0) + 1;
-    this.requests.set(key, request);
     const abort = this.abort;
     const prev = this.payloads[key] as EndpointSnapshot<unknown> | undefined;
     let delay: number;
+    this.retryNotBefore.delete(key);
+    const old = this.timers.get(key);
+    if (old != null) this.clearTimer(old);
+    this.timers.delete(key);
     try {
-      const { data: raw, meta } = await this.fetcher(entry.path, entry.metaMaxAgeSec, abort.signal);
-      if (!this.running || this.abort !== abort || this.requests.get(key) !== request) return;
+      if (!this.isOnline()) throw new FeedError("offline", "offline");
+      const { data: raw, meta, staleFallback = false, degradedTransport = false } = await this.fetcher(entry.path, entry.metaMaxAgeSec, abort.signal);
+      if (!this.running || this.abort !== abort) return;
       const data = sanitizePayload(key, raw);
-      (this.payloads as Record<string, EndpointSnapshot<unknown>>)[key] = { data, meta, fetchedAtMs: this.now(), error: null };
+      (this.payloads as Record<string, EndpointSnapshot<unknown>>)[key] = {
+        data, meta, fetchedAtMs: this.now(), error: null, staleFallback, degradedTransport,
+        failureKind: null, failureStreak: 0, nextRetryAtMs: null,
+      };
       this.errors.delete(key);
       delay = nextRefreshDelayMs(key, meta);
     } catch (err) {
-      if (!this.running || this.abort !== abort || this.requests.get(key) !== request) return;
+      if (!this.running || this.abort !== abort) return;
       const n = this.errors.get(key) ?? 0;
       this.errors.set(key, n + 1);
-      // keep the last good payload; record the failure
+      const failure = err instanceof FeedError ? err : new FeedError(err instanceof Error ? err.message : String(err), this.isOnline() ? "network" : "offline");
+      const contractFailure = failure.kind === "invalid-payload" || (failure.status != null && [400, 401, 403, 404, 405, 500].includes(failure.status));
+      delay = contractFailure ? 600_000 : Math.min(600_000, Math.round(ERROR_BACKOFF_MS[Math.min(n, ERROR_BACKOFF_MS.length - 1)] * (0.8 + this.random() * 0.4)));
+      const retryAfter = failure.status === 429 || failure.status === 503 ? retryAfterMs(failure.retryAfter, this.now()) : null;
+      if (retryAfter != null) delay = retryAfter;
+      if (contractFailure || retryAfter != null) this.retryNotBefore.set(key, this.now() + delay);
       (this.payloads as Record<string, EndpointSnapshot<unknown>>)[key] = {
         data: prev?.data ?? null, meta: prev?.meta ?? null, fetchedAtMs: prev?.fetchedAtMs ?? null,
-        error: err instanceof Error ? err.message : String(err),
+        staleFallback: prev?.staleFallback ?? false, degradedTransport: prev?.degradedTransport ?? false,
+        error: failure.message, failureKind: failure.kind, failureStreak: n + 1, nextRetryAtMs: this.now() + delay,
       };
-      delay = ERROR_BACKOFF_MS[Math.min(n, ERROR_BACKOFF_MS.length - 1)];
     }
     for (const fn of this.listeners) fn(this.payloads, key);
     this.schedule(key, delay);
@@ -173,13 +243,26 @@ export class HarbourFeed {
 
   private schedule(key: PharosVilleApiEndpointKey, ms: number): void {
     if (!this.running) return;
+    this.due.set(key, this.now() + ms);
+    this.arm(key, ms);
+  }
+
+  private arm(key: PharosVilleApiEndpointKey, ms: number): void {
     const old = this.timers.get(key);
     if (old != null) this.clearTimer(old);
     this.timers.set(key, this.setTimer(() => {
       this.timers.delete(key);
       if (!this.running) return;
-      if (this.isHidden()) { this.schedule(key, MIN_REFRESH_MS); return; }
+      if (this.isHidden() || !this.isOnline()) { this.arm(key, MIN_REFRESH_MS); return; }
       void this.refresh(key);
     }, ms));
   }
+}
+
+/** RFC Retry-After seconds or HTTP date, bounded to an hour. */
+export function retryAfterMs(value: string | null, nowMs: number): number | null {
+  if (!value?.trim()) return null;
+  const trimmed = value.trim();
+  const delay = /^\d+$/.test(trimmed) ? Number(trimmed) * 1000 : /^[A-Za-z]{3},/.test(trimmed) ? Date.parse(trimmed) - nowMs : NaN;
+  return Number.isFinite(delay) && delay >= 0 ? Math.min(3_600_000, delay) : null;
 }

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
 import type { SeasonalDay } from "../engine/time-of-day";
-import { getHarbourMaterials, leafFallAt } from "../world/materials";
+import { getHarbourMaterials } from "../world/materials";
 import { isPreparationAbort } from "../engine/prepare";
 import {
   NOMINAL_LATITUDE, dayOfYear, dominantSeason, isSouthernZone, northernDay, overrideDay, parseSeasonOverride,
@@ -122,11 +122,11 @@ export class SeasonSystem implements WorldSystem {
     const u = ctx.uniforms;
     const foliage = new THREE.Vector4(...this.weights), phase = (this.nDay - 1) / 365;
     const previousFoliage = u.uFoliage.value.clone(), previousPhase = u.uSeasonPhase.value;
-    const wasBare = leafFallAt(u) > 0.001;
+    const materials = getHarbourMaterials(ctx), previousSignature = `${materials.kitKey()}:${u.uFoliage.value.y > 0.001}`;
     u.uFoliage.value.copy(foliage); u.uSeasonPhase.value = phase;
-    const bare = leafFallAt(u) > 0.001;
+    const signature = `${materials.kitKey()}:${u.uFoliage.value.y > 0.001}`;
     const preparation = ctx.services.get("preparation") as PreparationService | undefined;
-    if (this.resolved && (wasBare !== bare || this.pendingSeason) && preparation) {
+    if (this.resolved && (previousSignature !== signature || this.pendingSeason) && preparation) {
       this.pendingSeason = true;
       u.uFoliage.value.copy(previousFoliage); u.uSeasonPhase.value = previousPhase;
       const scope = () => {
@@ -136,11 +136,11 @@ export class SeasonSystem implements WorldSystem {
       };
       void preparation.prepareSeason(scope, () => {
         u.uFoliage.value.copy(foliage); u.uSeasonPhase.value = phase;
-        getHarbourMaterials(ctx).invalidateSeason(ctx.scene);
+        materials.invalidateSeason(ctx.scene);
         ctx.renderer.shadowMap.needsUpdate = true;
         this.pendingSeason = false;
       }).catch((error: unknown) => { if (!isPreparationAbort(error)) console.error("[harbour] season preparation failed", error); });
-    }
+    } else materials.invalidateSeason(ctx.scene);
     this.resolved = true;
     const d = this.day;
     d.sunrise = sd.sunrise; d.sunset = sd.sunset; d.noonElevation = sd.noonElevation;

@@ -263,7 +263,7 @@ from every check region at once.
 `src/error-reporter.ts` posts browser failures (renderer, world-data, uncaught,
 unhandled rejection) to `/_log`, handled by `functions/_log.ts`. Every accepted
 report is written as one line beginning with a fixed token, followed by a flat
-JSON object — flat so a log query can filter on `category` or `message` without
+JSON object — flat so a log query can filter on `category` or `code` without
 unwrapping a nested envelope.
 
 | Token | Means |
@@ -272,9 +272,22 @@ unwrapping a nested envelope.
 | `PHAROSVILLE_CANARY_PROBE` | The scheduled synthetic probe, not a real failure |
 
 Neither token is a prefix of the other, so a search for real errors can never
-match a probe. The reporter caps itself at five reports per browser session and
+match a probe. The reporter caps itself at five admitted reports per page visit and
 the Function rate-limits each client IP to one report per 10 seconds; a silent
-day is normal, and a burst of identical `message` values is the signal.
+day is normal, and a burst of identical controlled `code` values is the signal.
+
+Delivery is serialized and spaced by at least ten seconds, honors `429 Retry-After`,
+stops permanent 4xx responses, and tries transient failures at most three times.
+Hiding/leaving the page cancels pending delivery. Both browser and server project
+only category, controlled code, release, time and sanitized JavaScript source
+locations. Free-text messages/reasons, selection URLs, raw user agents and
+IP-derived event dimensions are omitted. UTF-8 request bodies stay below 4 KiB.
+Local history retains ten entries for at most 24 hours and purges the legacy
+free-text schema; operational KV retains its existing 30-day TTL.
+
+PharosVille has no usage analytics or RUM. Google Analytics is removed. Check
+the Cloudflare dashboard separately for injected analytics: repository checks
+cannot inspect dashboard settings.
 
 ### Read path
 

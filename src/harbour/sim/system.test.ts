@@ -7,7 +7,7 @@ interface Model { boats: unknown[]; hasFleet: boolean; planKey: string; truth: {
 interface Feed { payloads: Payloads; publish(key: string, count?: number | null): void }
 interface Sim { model: Model; plan: { key: string }; pose: { count: number }; setModel: Mock; poseAt: Mock }
 interface Warm { done: Promise<void>; prepare: Mock; stop: Mock }
-const state = vi.hoisted(() => ({ feed: null as Feed | null, warm: null as Warm | null, sims: [] as Sim[], fail: null as ((error: Error) => void) | null }));
+const state = vi.hoisted(() => ({ feed: null as Feed | null, warm: null as Warm | null, sims: [] as Sim[], buildError: false, fail: null as ((error: Error) => void) | null }));
 vi.mock("../data/fetch", () => ({ HarbourFeed: class {
   payloads: Payloads = {};
   listener: () => void = () => {};
@@ -20,12 +20,14 @@ vi.mock("../data/fetch", () => ({ HarbourFeed: class {
     this.listener();
   }
 } }));
-vi.mock("../model/build", () => ({ buildHarbourModel: (payloads: Payloads, nowMs: number): Model => ({
+vi.mock("../model/build", () => ({ buildHarbourModel: (payloads: Payloads, nowMs: number): Model => {
+  if (state.buildError) throw new Error("bad model");
+  return ({
   boats: Array.from({ length: payloads.stablecoins?.data?.count ?? 0 }),
   planKey: String(payloads.stablecoins?.data?.count ?? 0),
   hasFleet: !!payloads.stablecoins?.data,
   truth: { stablecoins: { state: !payloads.stablecoins?.data ? "unavailable" : nowMs - payloads.stablecoins.fetchedAtMs > 40_000 ? "stale" : "current" } },
-}) }));
+}); } }));
 vi.mock("../model/truth", () => ({ allTruth: (payloads: Payloads, nowMs: number) => ({ stablecoins: { state: !payloads.stablecoins?.data ? "unavailable" : nowMs - payloads.stablecoins.fetchedAtMs > 40_000 ? "stale" : "current" } }) }));
 vi.mock("../ocean/sdf-image", () => ({ loadSdfImage: vi.fn() }));
 vi.mock("../ui/services", () => ({ ensureMotionService: () => ({ reduced: false, subscribe: () => () => {} }) }));
@@ -58,9 +60,12 @@ let paths: { promise: Promise<object>; resolve(value: object): void; reject(erro
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal("location", { search: "" });
-  vi.stubGlobal("window", { setTimeout });
+  vi.stubGlobal("window", Object.assign(new EventTarget(), { setTimeout }));
+  vi.stubGlobal("document", Object.assign(new EventTarget(), { hidden: false }));
+  vi.stubGlobal("navigator", { onLine: true });
   state.sims.length = 0;
   state.fail = null;
+  state.buildError = false;
   warm = deferred<void>(); paths = deferred<object>();
   state.warm = { done: warm.promise, prepare: vi.fn(() => paths.promise), stop: vi.fn() };
   system = new DataSystem();
@@ -80,7 +85,7 @@ describe("single-owner prepared adoption", () => {
     ctx.services.delete("layout");
     await system.init(ctx);
     expect(ctx.services.get("model")).toMatchObject({ boats: [], hasFleet: false });
-    expect(ctx.services.get("simulation-status")).toEqual({ unavailable: true });
+    expect(ctx.services.get("simulation-status")).toMatchObject({ unavailable: true });
     expect(ctx.services.get("readiness")).toEqual({ revision: 0, boats: 0, prepared: false });
     expect(ctx.services.has("feed")).toBe(false); expect(ctx.services.has("sim")).toBe(false);
     system.update(frame, ctx);
@@ -179,24 +184,28 @@ describe("single-owner prepared adoption", () => {
     expect(state.sims[1].setModel).toHaveBeenCalledOnce();
   });
 
-  it("keeps aging the installed snapshots after worker loss, without retrying or planning in a frame", async () => {
+  it("ages saved readings during recovery and installs the freshest feed after a restart", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     await begin(); await startPreparation(); paths.resolve({}); await flush();
-    await vi.advanceTimersByTimeAsync(20_000);
-    state.warm!.prepare.mockRejectedValueOnce(new Error("worker stopped"));
+    state.fail!(new Error("worker crashed"));
+    expect(system.status).toMatchObject({ phase: "recovering", unavailable: false, attempt: 0, reason: "crash", message: "Fleet updates paused. Showing saved readings." });
     state.feed!.publish("stablecoins", 3);
-    await vi.runOnlyPendingTimersAsync();
-    await vi.runOnlyPendingTimersAsync();
-    expect(system.readiness.boats).toBe(2);
-    expect(state.sims[0].model.boats).toHaveLength(2);
-    expect(state.warm!.prepare).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(31_000);
+    Object.defineProperty(document, "hidden", { value: true, configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(50_000);
     system.update({ ...frame, nowMs: Date.now() }, ctx);
-    await vi.runOnlyPendingTimersAsync();
+    await vi.advanceTimersByTimeAsync(0);
     expect(state.sims[0].model.truth.stablecoins.state).toBe("stale");
-    state.feed!.publish("stress"); await vi.runOnlyPendingTimersAsync();
-    expect(state.warm!.prepare).toHaveBeenCalledTimes(2);
-    expect(state.sims[0].model.boats).toHaveLength(2);
+    expect(system.readiness.boats).toBe(2);
+    const recovered = deferred<object>();
+    state.warm = { done: Promise.resolve(), prepare: vi.fn(() => recovered.promise), stop: vi.fn() };
+    Object.defineProperty(document, "hidden", { value: false, configurable: true }); document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(1001);
+    state.feed!.publish("stablecoins", 4);
+    recovered.resolve({}); await flush();
+    await vi.advanceTimersByTimeAsync(1); await flush();
+    expect(system.readiness.boats).toBe(4);
+    expect(system.status).toMatchObject({ phase: "ready", unavailable: false, attempt: 0, reason: null, nextRetryAtMs: null });
   });
 
   it("surfaces worker failure without frame-owned fallback or false readiness", async () => {
@@ -206,7 +215,7 @@ describe("single-owner prepared adoption", () => {
     expect(warn).toHaveBeenCalledOnce();
     expect(state.sims[0].setModel).not.toHaveBeenCalled();
     expect(system.readiness.prepared).toBe(false);
-    expect(ctx.services.get("simulation-status")).toEqual({ unavailable: true });
+    expect(ctx.services.get("simulation-status")).toMatchObject({ unavailable: true });
   });
 
   it("terminates failed worker startup honestly even when stablecoins succeeded", async () => {
@@ -214,7 +223,7 @@ describe("single-owner prepared adoption", () => {
     await begin();
     const error = new Error("worker module blocked");
     state.fail!(error); warm.reject(error); await flush();
-    expect(ctx.services.get("simulation-status")).toEqual({ unavailable: true });
+    expect(ctx.services.get("simulation-status")).toMatchObject({ unavailable: true });
     await vi.runOnlyPendingTimersAsync();
     system.update(frame, ctx);
     state.feed!.publish("stress"); await vi.runOnlyPendingTimersAsync();
@@ -225,25 +234,101 @@ describe("single-owner prepared adoption", () => {
     expect(ctx.services.get("model")).toMatchObject({ boats: [], hasFleet: false });
   });
 
-  it("recovers failed first planning on a later register refresh, not optional arrivals", async () => {
+  it("exposes the timeout reason and initial recovery copy without false fleet readiness", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    await begin(); await startPreparation(); paths.reject(new Error("worker failed")); await flush();
-    await vi.runOnlyPendingTimersAsync();
-    const failed = state.warm!;
-    state.feed!.publish("stress"); await vi.runOnlyPendingTimersAsync();
-    expect(failed.stop).not.toHaveBeenCalled();
-    const recovered = deferred<object>();
-    state.warm = { done: Promise.resolve(), prepare: vi.fn(() => recovered.promise), stop: vi.fn() };
+    await begin();
+    state.fail!(Object.assign(new Error("warmup timed out"), { reason: "timeout" }));
+    expect(system.status).toMatchObject({ phase: "recovering", reason: "timeout", attempt: 0, unavailable: true, message: "Fleet planning unavailable. Trying again." });
+    expect(system.status.nextRetryAtMs).toBe(Date.now() + 1000);
+    expect(system.readiness.prepared).toBe(false);
+  });
+
+  it("bounds each episode to three restarts at 1/5/15 seconds and permits one named manual episode", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await begin();
+    const first = state.warm!;
+    state.fail!(new Error("crash")); warm.reject(new Error("crash")); await flush();
+    for (const [i, delay] of [1000, 5000, 15000].entries()) {
+      state.warm = { done: new Promise(() => {}), prepare: vi.fn(), stop: vi.fn() };
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      expect(system.status.attempt).toBe(i);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(system.status.attempt).toBe(i + 1);
+      state.fail!(new Error("crash"));
+    }
+    expect(first.stop).toHaveBeenCalled();
+    expect(system.status).toMatchObject({ phase: "unavailable", attempt: 3, nextRetryAtMs: null, message: "Fleet updates paused. Retry fleet updates." });
     state.feed!.publish("stablecoins", 3);
-    system.update(frame, ctx);
-    expect(failed.stop).not.toHaveBeenCalled(); // Restart and allocation are both task-owned.
-    await vi.runOnlyPendingTimersAsync(); await flush(); await vi.runOnlyPendingTimersAsync();
-    expect(failed.stop).toHaveBeenCalledOnce();
-    expect(state.warm.prepare).toHaveBeenCalledOnce();
-    expect(ctx.services.get("simulation-status")).toEqual({ unavailable: true });
-    recovered.resolve({}); await flush();
-    expect(system.readiness).toEqual({ revision: 1, boats: 3, prepared: true });
-    expect(ctx.services.get("simulation-status")).toEqual({ unavailable: false });
-    expect(state.sims[0].setModel).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(system.status.attempt).toBe(3);
+    Object.defineProperty(navigator, "onLine", { value: false, configurable: true });
+    window.dispatchEvent(new Event("offline"));
+    system.status.retry(); system.status.retry();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(system.status).toMatchObject({ phase: "recovering", attempt: 0, nextRetryAtMs: null, message: "Fleet planning unavailable. Trying again." });
+    state.warm = { done: new Promise(() => {}), prepare: vi.fn(), stop: vi.fn() };
+    Object.defineProperty(navigator, "onLine", { value: true, configurable: true }); window.dispatchEvent(new Event("online"));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(system.status.attempt).toBe(0); // A manual episode starts with a fresh initial attempt.
+    state.fail!(new Error("manual attempt failed"));
+    expect(system.status.nextRetryAtMs).toBe(Date.now() + 1000);
+    state.warm = { done: Promise.resolve(), prepare: vi.fn(async () => ({})), stop: vi.fn() };
+    await vi.advanceTimersByTimeAsync(1001);
+    expect(system.readiness.boats).toBe(3);
+    expect(system.status.phase).toBe("ready");
+  });
+
+  it("does not start another owner on visibility/connectivity events during worker recovery", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await begin();
+    state.fail!(new Error("crash")); warm.reject(new Error("crash")); await flush();
+    const next = deferred<void>();
+    state.warm = { done: next.promise, prepare: vi.fn(async () => ({})), stop: vi.fn() };
+    await vi.advanceTimersByTimeAsync(1000);
+    const owner = state.warm;
+    window.dispatchEvent(new Event("online")); document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(system.status.attempt).toBe(1); expect(owner.stop).not.toHaveBeenCalled();
+    next.resolve(); await flush(); await vi.advanceTimersByTimeAsync(1);
+    expect(system.status.phase).toBe("ready");
+  });
+
+  it("ignores a superseded generation's late preparation and failure", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await begin(); await startPreparation();
+    const oldFailure = state.fail!;
+    oldFailure(new Error("lost worker"));
+    state.feed!.publish("stablecoins", 3);
+    const next = deferred<object>();
+    state.warm = { done: Promise.resolve(), prepare: vi.fn(() => next.promise), stop: vi.fn() };
+    await vi.advanceTimersByTimeAsync(1001);
+    paths.resolve({}); oldFailure(new Error("late crash")); await flush();
+    expect(system.readiness.prepared).toBe(false);
+    next.resolve({}); await flush();
+    expect(system.readiness.boats).toBe(3);
+    expect(system.status.phase).toBe("ready");
+    system.dispose(ctx);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(ctx.services.has("simulation-status")).toBe(false);
+  });
+});
+
+
+describe("model-build failure containment", () => {
+  it("releases preparation and accepts a good refresh without declaring the worker broken", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await begin(); await startPreparation(); paths.resolve({}); await flush();
+    const installed = ctx.services.get("model");
+    const poses = state.sims[0].poseAt.mock.calls.length;
+    state.buildError = true;
+    state.feed!.publish("stress"); await vi.runOnlyPendingTimersAsync();
+    expect(ctx.services.get("model")).toBe(installed);
+    expect(state.sims[0].poseAt).toHaveBeenCalledTimes(poses);
+    expect(warn).toHaveBeenCalledWith("[harbour] model-build unavailable", expect.any(Error));
+    state.buildError = false;
+    state.feed!.publish("stablecoins", 3); await vi.runOnlyPendingTimersAsync(); await flush();
+    expect(state.warm!.prepare).toHaveBeenCalledTimes(2);
+    expect(state.sims[0].model.boats).toHaveLength(3);
+    expect(system.readiness.prepared).toBe(true);
   });
 });

@@ -32,9 +32,8 @@ export class LayoutSystem implements WorldSystem {
   private overviewDistance = 0;
 
   async init(ctx: EngineContext): Promise<void> {
-    const res = await fetch(layoutUrl);
-    if (!res.ok) throw new Error(`[harbour] layout.json ${res.status}`);
-    const layout = (await res.json()) as HarbourLayout;
+    const layout = await ctx.assets.json<HarbourLayout>(layoutUrl);
+    ctx.signal?.throwIfAborted();
     ctx.services.set("layout", layout);
 
     const { presets, panClamp } = layout.camera;

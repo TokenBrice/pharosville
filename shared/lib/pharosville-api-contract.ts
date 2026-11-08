@@ -14,6 +14,7 @@ export interface PharosVilleApiEndpoint<K extends PharosVilleApiEndpointKey = Ph
   schema: ZodType<PharosVilleApiPayload<K>>;
   metaMaxAgeSec: number;
   producerIntervalSec: number;
+  cacheTtlSec: number;
 }
 
 function endpointWithSchema<K extends PharosVilleApiEndpointKey>(key: K): PharosVilleApiEndpoint<K> {

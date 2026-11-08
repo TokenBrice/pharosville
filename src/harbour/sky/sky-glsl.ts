@@ -308,7 +308,7 @@ vec3 skyBand(float th, float e, float pxDeg) {
     float sd = uFrontB.y * (th - uFrontB.x) - e * 0.6;
     float wob = texture2D(uSkyNoise, vec2(th * 0.03 + 0.7, 0.37)).g - 0.5;
     float lipTop = 2.3 + wob * 0.8 - 0.12 * sd, lipBot = 0.75 + wob * 0.4;
-    float lip = smoothstep(2.5, -0.5, sd) * smoothstep(-14.0, -4.0, sd)
+    float lip = (1.0 - smoothstep(-0.5, 2.5, sd)) * smoothstep(-14.0, -4.0, sd)
       * smoothstep(lipBot - 0.15, lipBot + 0.2, e) * (1.0 - smoothstep(lipTop - 0.25, lipTop + 0.1, e));
     float k = clamp((uFrontA.w - uFrontA.z) * 1.6, 0.0, 1.0);
     vec3 lipC = mix(uCloudShade, uCloudMid, 0.15) * vec3(0.84, 0.92, 1.06) * 0.62;

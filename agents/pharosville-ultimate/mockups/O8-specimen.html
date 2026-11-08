@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>O8 · Pilot's Chart · specimen</title>
+<meta name="viewport" content="width=1600">
+<link rel="stylesheet" href="O8-pilot-chart.css">
+<style>
+  html, body { margin: 0; background: #0d1b2a; }
+  .sheetwrap { display: grid; grid-template-columns: 1fr 1fr; gap: 0; width: 1600px; }
+  .col { padding: 26px 34px 30px; min-height: 1480px; background-color: var(--paper); background-image: var(--grain), var(--sheen); color: var(--ink); }
+  .col.pc-night { border-left: 1px solid #000; }
+  .colhead { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 1px solid var(--rule); padding-bottom: 10px; margin-bottom: 18px; }
+  .colhead h1 { margin: 0; font-size: var(--fs-title); font-weight: 600; line-height: 1; }
+  .colhead h1 i { font-weight: 400; }
+  .colhead .pc-note { text-align: right; }
+  h2.pc-cap { margin: 22px 0 10px; display: flex; align-items: center; gap: 10px; }
+  h2.pc-cap::after { content: ""; flex: 1; border-top: 1px solid var(--rule); opacity: 0.55; }
+  .scale { display: grid; grid-template-columns: 92px 64px 1fr; align-items: baseline; row-gap: 6px; }
+  .scale .k { font-size: var(--fs-note); color: var(--ink-3); font-style: italic; }
+  .scale .v { font-size: var(--fs-note); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .scale .s { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sw { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+  .sw div { font-size: 12px; line-height: 1.25; color: var(--ink-2); }
+  .sw i { display: block; height: 34px; border-radius: 1px; box-shadow: inset 0 0 0 1px var(--neat); margin-bottom: 4px; }
+  .sw b { display: block; font-weight: 600; color: var(--ink); font-size: 12.5px; }
+  .space { display: flex; align-items: flex-end; gap: 16px; }
+  .space div { text-align: center; font-size: 12px; color: var(--ink-3); }
+  .space i { display: block; background: var(--wash-3); box-shadow: inset 0 0 0 1px var(--rule); height: 14px; margin: 0 auto 4px; }
+  .rowc { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .world { position: relative; height: 206px; border: 1px solid var(--edge); overflow: hidden; background: #2f6f8f center / 1600px 1000px no-repeat; }
+  .day .world { background-image: url("O8-bg-day-ship.jpg"); background-position: -40px -560px; }
+  .pc-night .world { background-image: url("O8-bg-night.jpg"); background-position: -930px -330px; }
+  .world .pc-slip { bottom: 12px; }
+  .menu { width: 230px; padding: 5px; display: grid; gap: 1px; }
+  .menu button { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px 0 8px; border: 0; background: none; font: inherit; font-size: var(--fs-body); color: var(--ink-2); border-radius: var(--r-ctl); text-align: left; }
+  .menu button::before { content: ""; width: 7px; height: 7px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--neat); }
+  .menu button[aria-checked="true"] { color: var(--ink); }
+  .menu button[aria-checked="true"]::before { background: var(--rule); box-shadow: none; }
+  .two { display: grid; grid-template-columns: 1fr 250px; gap: 22px; align-items: start; }
+  .status { display: grid; gap: 8px; }
+  .status div { display: flex; align-items: center; gap: 8px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-close" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-link" viewBox="0 0 16 16"><path d="M6.6 9.4l2.8-2.8"/><path d="M7.2 4.6l1.1-1.1a2.6 2.6 0 0 1 3.7 3.7l-1.1 1.1"/><path d="M8.8 11.4l-1.1 1.1A2.6 2.6 0 0 1 4 8.8l1.1-1.1"/></symbol>
+  <symbol id="i-share" viewBox="0 0 16 16"><path d="M8 2.5v8"/><path d="M5.2 5.3L8 2.5l2.8 2.8"/><path d="M4 8.5v5h8v-5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 16 16"><path d="M8 2.5v8"/><path d="M5.2 7.7L8 10.5l2.8-2.8"/><path d="M3 13.5h10"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 16 16"><path d="M5.5 5.5h7v8h-7z"/><path d="M3.5 10.5v-8h7"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.75"/><path d="M10.6 10.6L14 14"/></symbol>
+  <symbol id="i-ext" viewBox="0 0 16 16"><path d="M9.5 2.5h4v4"/><path d="M13.5 2.5l-6 6"/><path d="M11.5 9.5v4h-9v-9h4"/></symbol>
+  <symbol id="i-follow" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3.5"/><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3"/></symbol>
+  <symbol id="i-names" viewBox="0 0 16 16"><path d="M3 13L8 3l5 10"/><path d="M5 9h6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 16 16"><path d="M3 8h10"/><path d="M9.5 4.5L13 8l-3.5 3.5"/></symbol>
+</svg>
+
+<div class="sheetwrap">
+<!-- one column per palette; identical markup -->
+<template id="col">
+  <div class="colhead"><h1>Pilot’s Chart <i>· @@NAME@@</i></h1><span class="pc-note">@@WHEN@@</span></div>
+
+  <h2 class="pc-cap">Type · one family, eight steps</h2>
+  <div class="scale">
+    <span class="k">display</span><span class="v">38 / 600</span><span class="s pc-display pc-num">$176.8B <span style="font-size:17.5px;font-weight:400;font-style:italic;color:var(--ink-2)">91.4 Bedrock</span></span>
+    <span class="k">title</span><span class="v">30 / 600</span><span class="s pc-title">The Pharos</span>
+    <span class="k">h3</span><span class="v">21 / 600</span><span class="s pc-h3">Give this window a little more room.</span>
+    <span class="k">lead</span><span class="v">17.5 / 400</span><span class="s pc-lead">USDT · <span class="pc-num">$176.8B</span> · alongside Ethereum</span>
+    <span class="k">body</span><span class="v">16 / 400</span><span class="s pc-body">Sails a circuit of three stops, staying at each in proportion to its supply there.</span>
+    <span class="k">small</span><span class="v">14.5 / 400</span><span class="s pc-small">Tether · 99 other chains · <span class="pc-num">$4.50B</span> · <span class="pc-num">2.5%</span></span>
+    <span class="k">note</span><span class="v">13.5 / 400i</span><span class="s pc-note">Italic only for water, notes and decoration: “out for a sail”.</span>
+    <span class="k">cap</span><span class="v">11.5 / 600</span><span class="s pc-cap">Supply by chain · Points off 100</span>
+  </div>
+
+  <h2 class="pc-cap">Colour · tokens (contrast on paper)</h2>
+  <div class="sw">
+    <div><i style="background:var(--paper)"></i><b>paper</b>@@P1@@</div>
+    <div><i style="background:var(--paper-2)"></i><b>paper-2</b>hover, sheet</div>
+    <div><i style="background:var(--ink)"></i><b>ink</b>@@C1@@</div>
+    <div><i style="background:var(--ink-2)"></i><b>ink-2</b>@@C2@@</div>
+    <div><i style="background:var(--ink-3)"></i><b>ink-3</b>@@C3@@</div>
+    <div><i style="background:var(--brass-ink)"></i><b>brass-ink</b>@@C4@@</div>
+    <div><i style="background:var(--rule)"></i><b>rule</b>@@C5@@</div>
+    <div><i style="background:var(--link)"></i><b>link</b>@@C6@@</div>
+    <div><i style="background:var(--up)"></i><b>up</b>@@C7@@</div>
+    <div><i style="background:var(--down)"></i><b>down</b>@@C8@@</div>
+    <div><i style="background:var(--focus)"></i><b>focus</b>@@C9@@</div>
+    <div><i style="background:var(--live)"></i><b>live</b>@@C10@@</div>
+    <div><i style="background:var(--stale)"></i><b>stale</b>@@C11@@</div>
+    <div><i style="background:var(--wash-2)"></i><b>wash-2</b>hover fill</div>
+  </div>
+
+  <h2 class="pc-cap">Space · 4 px steps</h2>
+  <div class="space">
+    <div><i style="width:4px"></i>4</div><div><i style="width:8px"></i>8</div><div><i style="width:12px"></i>12</div><div><i style="width:16px"></i>16</div>
+    <div><i style="width:20px"></i>20</div><div><i style="width:24px"></i>24</div><div><i style="width:32px"></i>32</div>
+    <div style="text-align:left;margin-left:12px;font-style:italic">panel inset 24 · section gap 20 · head-to-content 8 · row 6/5 · control 32 (44 on touch) · radius 1 sheet, 2 control</div>
+  </div>
+
+  <h2 class="pc-cap">Controls · one family</h2>
+  <div class="rowc">
+    <button class="pc-btn pc-btn--primary" type="button"><svg class="pc-i"><use href="#i-download"/></svg>Save the print</button>
+    <button class="pc-btn" type="button"><svg class="pc-i"><use href="#i-copy"/></svg>Copy</button>
+    <button class="pc-btn is-hover" type="button"><svg class="pc-i"><use href="#i-share"/></svg>Share…</button>
+    <button class="pc-btn pc-btn--text" type="button">Open on pharos.watch</button>
+    <button class="pc-iconbtn" type="button" aria-label="Copy link"><svg class="pc-i"><use href="#i-link"/></svg></button>
+    <button class="pc-iconbtn is-hover" type="button" aria-label="Follow" aria-pressed="true"><svg class="pc-i"><use href="#i-follow"/></svg></button>
+    <button class="pc-iconbtn round" type="button" aria-label="Close"><svg class="pc-i"><use href="#i-close"/></svg></button>
+  </div>
+  <div class="rowc">
+    <button class="pc-chip" type="button"><i style="background:#b5382b"></i>Fraud <b>12</b></button>
+    <button class="pc-chip" type="button" aria-pressed="true"><i style="background:#7a4ca6"></i>Algorithmic <b>23</b></button>
+    <button class="pc-chip is-hover" type="button"><i style="background:#8a7d66"></i>Abandoned <b>31</b></button>
+    <span class="pc-small" style="margin-left:6px">keys <span class="pc-kbd">/</span> <span class="pc-kbd">L</span> <span class="pc-kbd">C</span> <span class="pc-kbd">Esc</span></span>
+  </div>
+  <div class="pc-tabs" role="tablist">
+    <button class="pc-tab" role="tab" aria-selected="false" type="button"><span class="pc-cap">Legend</span></button>
+    <button class="pc-tab" role="tab" aria-selected="true" type="button"><span class="pc-cap">Coins</span><span class="pc-count">657</span></button>
+    <button class="pc-tab" role="tab" aria-selected="false" type="button"><span class="pc-cap">Pre-launch</span><span class="pc-count">39</span></button>
+    <button class="pc-tab" role="tab" aria-selected="false" type="button"><span class="pc-cap">Chains</span><span class="pc-count">192</span></button>
+    <button class="pc-tab" role="tab" aria-selected="false" type="button"><span class="pc-cap">Wrecks</span><span class="pc-count">89</span></button>
+  </div>
+  <table class="pc-table" style="margin-top:8px">
+    <thead><tr><th><span class="pc-cap">Coin</span></th><th class="r"><span class="pc-cap pc-sort">Supply</span></th><th class="r"><span class="pc-cap">Deviation</span></th><th><span class="pc-cap">Home</span></th><th><span class="pc-cap">State</span></th></tr></thead>
+    <tbody>
+      <tr><td class="coin"><b>USDT</b><em>Tether</em></td><td class="r">$176.8B</td><td class="r">−13 bps</td><td>Tron</td><td>circuit</td></tr>
+      <tr class="is-hover"><td class="coin"><b>USDC</b><em>USD Coin</em></td><td class="r">$70.6B</td><td class="r">−2 bps</td><td>Ethereum</td><td>circuit</td></tr>
+      <tr><td class="coin"><b>USD1</b><em>World Liberty Financial…</em></td><td class="r">$3.45B</td><td class="r pc-down">−23 bps</td><td>Solana</td><td>circuit</td></tr>
+      <tr><td class="coin"><b>sUSDS</b><em>Sky Savings USDS</em></td><td class="r">$3.99B</td><td class="r"><em style="color:var(--ink-3)">no reading</em></td><td>Ethereum</td><td>moored</td></tr>
+    </tbody>
+  </table>
+  <p class="pc-note" style="margin:6px 0 0">Under 760 px the Peg, State and Grade columns step aside (container query); the coin cell stays one line; hovering a row lifts that hull in the world.</p>
+
+  <h2 class="pc-cap">On the world · tag, chart name, slip</h2>
+  <div class="two">
+    <div class="world">
+      <div class="pc-tag-anchor" style="left:150px; top:98px">
+        <div class="pc-tag pc-paper"><span class="pc-tag-swatch" style="background:#2775ca"></span><span class="pc-tag-name">USDC</span><span class="pc-tag-fact pc-num">$70.6B · sailing to Base</span></div>
+        <span class="pc-tag-leader"></span><span class="pc-tag-pin"></span>
+      </div>
+      <span class="pc-label" style="left:340px; top:64px">Customs House</span>
+      <div class="pc-slip pc-paper" role="status" style="left:50%"><svg class="pc-i"><use href="#i-names"/></svg><span class="pc-cap">Chart names on</span><span class="pc-small"><span class="pc-kbd">C</span> hides them</span></div>
+    </div>
+    <div>
+      <div class="menu pc-paper pc-neat" role="menu" aria-label="Sound">
+        <button type="button" role="menuitemradio" aria-checked="true">Sound off</button>
+        <button type="button" role="menuitemradio" aria-checked="false">Ambient sound</button>
+        <button type="button" role="menuitemradio" aria-checked="false">Ambient sound and music</button>
+      </div>
+      <div class="status" style="margin-top:14px">
+        <div><span class="pc-dot" data-state="live"></span><span class="pc-state">live</span></div>
+        <div><span class="pc-dot" data-state="stale"></span><span class="pc-state" data-state="stale">stale · 2 h old</span></div>
+        <div><span class="pc-dot" data-state="unavailable"></span><span class="pc-state">awaiting data</span></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<section class="col pc day" data-name="Day chart" data-when="paper · uNight below 0.45"></section>
+<section class="col pc pc-night" data-name="Night bridge chart" data-when="uNight above 0.55 · 1.2 s crossfade · cut under reduced motion"></section>
+</div>
+<script>
+  // contrast ratios (WCAG) computed from the tokens, so the sheet documents itself
+  const hex = (c) => { const m = c.trim().match(/^#([0-9a-f]{6})$/i); return m ? [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)) : null; };
+  const lum = (rgb) => { const f = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]); };
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const tpl = document.getElementById("col").innerHTML;
+  for (const col of document.querySelectorAll(".col")) {
+    let html = tpl.replace("@@NAME@@", esc(col.dataset.name)).replace("@@WHEN@@", esc(col.dataset.when));
+    col.innerHTML = html;
+    const cs = getComputedStyle(col), get = (v) => cs.getPropertyValue(v).trim();
+    const paper = hex(get("--paper"));
+    const names = ["--ink", "--ink-2", "--ink-3", "--brass-ink", "--rule", "--link", "--up", "--down", "--focus", "--live", "--stale"];
+    html = col.innerHTML.replace("@@P1@@", esc(get("--paper")));
+    names.forEach((n, i) => { const c = hex(get(n)); html = html.replace(`@@C${i + 1}@@`, esc(`${get(n)} · ${c && paper ? ratio(c, paper).toFixed(1) : "?"}:1`)); });
+    col.innerHTML = html;
+  }
+</script>
+</body>
+</html>

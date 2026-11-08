@@ -11,6 +11,7 @@
  * No renderer, no clock: unit-tested (civic.test.ts).
  */
 import type { FlowsReading } from "../model/types";
+import type { MintBurnHourlyBucket } from "@shared/types/mint-burn";
 
 export interface FlowSide {
   /** 0..1 how hard it works (0 when banked). */
@@ -62,6 +63,16 @@ export function dominanceFor(mint24: number, burn24: number): number {
   return Math.sign(r) * Math.min(1, Math.max(DOMINANCE_MIN, Math.abs(r) * 12));
 }
 
+/** A daily comparison needs all 24 distinct, consecutive closed hours. */
+export function hasFlowDay(hourly: ReadonlyArray<{ hourTs: number }>): boolean {
+  return hourly.length === 24 && hourly.every((h, i) => Number.isInteger(h.hourTs / 3600)
+    && (i === 0 || h.hourTs - hourly[i - 1].hourTs === 3600));
+}
+
+export function flowValued(hourly: ReadonlyArray<Pick<MintBurnHourlyBucket, "hourTs" | "valuation">>): boolean {
+  return hourly.length > 0 && hourly.every((h) => h.valuation === "complete");
+}
+
 export function civicFlows(f: Pick<FlowsReading, "hourly" | "net24hUsd" | "scope" | "stale" | "available"> | null | undefined): CivicFlows {
   if (!f || !f.available || f.hourly.length === 0) {
     const none: FlowSide = { activity: 0, volume24hUsd: null, lastHourUsd: null, stale: !!f?.stale };
@@ -70,15 +81,15 @@ export function civicFlows(f: Pick<FlowsReading, "hourly" | "net24hUsd" | "scope
   let mint = 0, burn = 0;
   for (const h of f.hourly) { mint += h.mintUsd || 0; burn += h.burnUsd || 0; }
   const last = f.hourly[f.hourly.length - 1];
-  const banked = f.stale;
+  const banked = f.stale || !hasFlowDay(f.hourly);
   const side = (v: number, lastV: number): FlowSide => ({
     activity: banked ? 0 : activityFor(v, lastV), volume24hUsd: v, lastHourUsd: lastV, stale: f.stale,
   });
   return {
     mint: side(mint, last.mintUsd || 0),
     burn: side(burn, last.burnUsd || 0),
-    net24hUsd: f.net24hUsd ?? mint - burn,
-    dominance: banked ? 0 : dominanceFor(mint, burn),
+    net24hUsd: f.net24hUsd,
+    dominance: banked || f.net24hUsd == null || !flowValued(f.hourly) ? 0 : dominanceFor(mint, burn),
     banked,
     scope: f.scope,
   };

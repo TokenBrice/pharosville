@@ -8,6 +8,8 @@ import { API_PATHS } from "./api-endpoints/paths";
 // so the desktop chunk never pulls the full server-only cron job catalog.
 import { CRON_INTERVALS_CLIENT as CRON_INTERVALS } from "./cron-intervals-client";
 
+export const PHAROSVILLE_PROJECTION_EPOCH = "pv2";
+
 export interface PharosVilleEndpointRegistryEntry<K extends PharosVilleApiEndpointKey = PharosVilleApiEndpointKey> {
   key: K;
   label: string;
@@ -16,6 +18,7 @@ export interface PharosVilleEndpointRegistryEntry<K extends PharosVilleApiEndpoi
   queryKey: readonly [string, ...string[]];
   metaMaxAgeSec: number;
   producerIntervalSec: number;
+  cacheTtlSec: number;
 }
 
 export const PHAROSVILLE_ENDPOINT_REGISTRY = {
@@ -27,6 +30,7 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
     queryKey: ["stablecoins"],
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stablecoins,
     producerIntervalSec: CRON_INTERVALS["sync-stablecoins"],
+    cacheTtlSec: CRON_INTERVALS["sync-stablecoins"],
   },
   chains: {
     key: "chains",
@@ -36,6 +40,7 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
     queryKey: ["chains"],
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.chains,
     producerIntervalSec: CRON_INTERVALS["sync-stablecoins"],
+    cacheTtlSec: CRON_INTERVALS["sync-stablecoins"],
   },
   stability: {
     key: "stability",
@@ -45,6 +50,7 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
     queryKey: ["stability-index-detail"],
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stabilityIndex,
     producerIntervalSec: CRON_INTERVALS["stability-index"],
+    cacheTtlSec: CRON_INTERVALS["stability-index"],
   },
   pegSummary: {
     key: "pegSummary",
@@ -54,6 +60,7 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
     queryKey: ["peg-summary"],
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.pegSummary,
     producerIntervalSec: CRON_INTERVALS["sync-stablecoins"],
+    cacheTtlSec: CRON_INTERVALS["sync-stablecoins"],
   },
   stress: {
     key: "stress",
@@ -63,6 +70,7 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
     queryKey: ["stress-signals"],
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stressSignals,
     producerIntervalSec: CRON_INTERVALS["compute-dews"],
+    cacheTtlSec: CRON_INTERVALS["compute-dews"],
   },
   safetyGrades: {
     key: "safetyGrades",
@@ -73,6 +81,7 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.safetyGrades,
     // Host mirror: the `publish-report-card-cache` cron now publishes safety grades on this cadence.
     producerIntervalSec: CRON_INTERVALS["publish-report-card-cache"],
+    cacheTtlSec: CRON_INTERVALS["publish-report-card-cache"],
   },
   // The only FLOW endpoint in the set: every other feed reports a stock (how
   // much exists, where it sits, how far off peg). This one reports issuance —
@@ -85,6 +94,7 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
     queryKey: ["mint-burn-flows"],
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.mintBurnFlows,
     producerIntervalSec: CRON_INTERVALS["sync-mint-burn"],
+    cacheTtlSec: CRON_INTERVALS["sync-mint-burn"],
   },
 } as const satisfies {
   [K in PharosVilleApiEndpointKey]: PharosVilleEndpointRegistryEntry<K>;

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import book from "../data/prelaunch.json";
-import { activityForRate, applyFlowOverrides, civicFlows, dominanceFor, workLevels } from "./flows";
+import { activityForRate, applyFlowOverrides, civicFlows, dominanceFor, hasFlowDay, workLevels } from "./flows";
 import { allocateYard, gradeTally, launchedIds, stageFor, topMovers, type PrelaunchBook, type PrelaunchCoin } from "./yard";
 
-const hour = (mintUsd: number, burnUsd: number, i = 0) => ({ hourTs: i, netUsd: mintUsd - burnUsd, mintUsd, burnUsd });
+const hour = (mintUsd: number, burnUsd: number, i = 0) => ({ hourTs: i * 3600, netUsd: mintUsd - burnUsd, mintUsd, burnUsd, valuation: "complete" as const });
 const flows = (hourly: ReturnType<typeof hour>[], extra: Partial<{ stale: boolean; available: boolean }> = {}) => ({
   hourly, net24hUsd: hourly.reduce((s, h) => s + h.netUsd, 0), scope: ["ethereum", "base", "arbitrum"], stale: false, available: true, ...extra,
 });
@@ -32,6 +32,38 @@ describe("the Mint and the Burn", () => {
     expect(c.dominance).toBeLessThan(0);
     const w = workLevels(c);
     expect(w.burn).toBeGreaterThan(w.mint);
+  });
+
+  it("never reconstructs a withheld signed net from lower-bound gross amounts", () => {
+    const hourly = Array.from({ length: 24 }, (_, i) => ({ ...hour(200e6, 1e6, i), netUsd: null }));
+    const c = civicFlows({ hourly, net24hUsd: null, scope: [], stale: false, available: true });
+    expect(c.net24hUsd).toBeNull();
+    expect(c.dominance).toBe(0);
+    expect(c.mint.volume24hUsd).toBe(24 * 200e6);
+  });
+
+  it("unknown or partial hourly valuation cannot establish directional dominance", () => {
+    for (const valuation of [undefined, "unknown", "partial"] as const) {
+      const hourly = Array.from({ length: 24 }, (_, i) => ({ ...hour(200e6, 1e6, i), valuation }));
+      const c = civicFlows({ hourly, net24hUsd: 24 * 199e6, scope: [], stale: false, available: true });
+      expect(c.dominance).toBe(0);
+      expect(c.mint.volume24hUsd).toBe(24 * 200e6);
+    }
+  });
+
+  it("banks incomplete, duplicate and gapped daily comparisons, preserving observed totals", () => {
+    const hourly = Array.from({ length: 24 }, (_, i) => hour(200e6, 1e6, i));
+    expect(hasFlowDay(hourly)).toBe(true);
+    for (const incomplete of [hourly.slice(1), [...hourly.slice(0, 23), hourly[22]], [...hourly.slice(0, 23), hour(1, 0, 24)]]) {
+      expect(hasFlowDay(incomplete)).toBe(false);
+      const c = civicFlows(flows(incomplete));
+      expect(c.banked).toBe(true);
+      expect(c.dominance).toBe(0);
+      expect(c.mint.activity).toBe(0);
+      expect(c.mint.volume24hUsd).toBeGreaterThan(0);
+    }
+    expect(hasFlowDay([])).toBe(false);
+    expect(hasFlowDay(hourly.map((h) => ({ ...h, hourTs: h.hourTs + 1 })))).toBe(false);
   });
 
   it("stale or missing flows bank the fires (never drawn as a calm reading)", () => {

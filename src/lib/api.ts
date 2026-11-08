@@ -1,5 +1,5 @@
 import { isRenderableWorldPayload } from "./world-payload-guard";
-import { classifyFreshnessRatio } from "@shared/lib/status-thresholds";
+import { sourceFreshness } from "@shared/lib/source-freshness";
 import { PHAROSVILLE_API_CLIENT_ENDPOINTS } from "@shared/lib/pharosville-api-client-contract";
 import type { ApiDependencyMeta, ApiMeta } from "@shared/types/api-meta";
 
@@ -85,10 +85,6 @@ function formatIssues(
   return issues.map((i) => `${i.path.map(String).join(".")}: ${i.message}`).join(", ");
 }
 
-function isFreshnessWarningHeader(warningHeader: string): boolean {
-  return /(?:^|,\s*)110\b/.test(warningHeader)
-    || /Response is (?:degraded|stale)/i.test(warningHeader);
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -143,6 +139,8 @@ export function parseApiMeta(value: unknown): ApiMeta | null {
     || !Number.isFinite(value.updatedAt)
     || typeof value.ageSeconds !== "number"
     || !Number.isFinite(value.ageSeconds)
+    || value.ageSeconds < 0
+    || value.updatedAt < 0
     || !isApiMetaStatus(value.status)
   ) {
     return null;
@@ -320,45 +318,7 @@ export async function apiFetchWithMeta<T>(
     data = rest;
   }
 
-  const dataAgeHeader = res.headers.get("X-Data-Age");
-  const dataAge = dataAgeHeader === null ? null : Number(dataAgeHeader);
-  const rawCacheAge = Number(res.headers.get("Age"));
-  const cacheAge = Number.isFinite(rawCacheAge) ? Math.max(0, rawCacheAge) : 0;
-  if (meta || (dataAge !== null && Number.isFinite(dataAge) && dataAge >= 0)) {
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    // Header and body ages describe the same evidence; CDN residence is added once.
-    const ageSeconds = Math.max(
-      Math.max(meta?.ageSeconds ?? 0, dataAge !== null && Number.isFinite(dataAge) ? dataAge : 0) + cacheAge,
-      meta ? nowSeconds - meta.updatedAt : 0,
-    );
-    const classified = classifyFreshnessRatio(ageSeconds / Math.max(1, maxAgeSec));
-    meta = {
-      ...meta,
-      updatedAt: Math.min(meta?.updatedAt ?? nowSeconds, nowSeconds - ageSeconds),
-      ageSeconds,
-      status: meta?.status === "stale" || classified === "stale" ? "stale"
-        : meta?.status === "degraded" || classified === "degraded" ? "degraded" : "fresh",
-    };
-  }
-
-  const warningHeader = res.headers.get("Warning");
-  if (warningHeader) {
-    const freshnessWarning = isFreshnessWarningHeader(warningHeader);
-    if (meta) {
-      meta = {
-        ...meta,
-        status: freshnessWarning && meta.status === "fresh" ? "degraded" : meta.status,
-        warning: warningHeader,
-      };
-    } else if (freshnessWarning) {
-      meta = {
-        updatedAt: Math.floor(Date.now() / 1000),
-        ageSeconds: 0,
-        status: "degraded",
-        warning: warningHeader,
-      };
-    }
-  }
+  meta = sourceFreshness(meta, res.headers, maxAgeSec, Date.now()).meta;
 
   const endpoint = PHAROSVILLE_API_CLIENT_ENDPOINTS.find((candidate) => candidate.path === normalizedPath);
   if (endpoint && !isRenderableWorldPayload(endpoint.key, data)) {

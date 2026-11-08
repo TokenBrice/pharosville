@@ -78,15 +78,18 @@ void main() {
     // so the trail settles at ~1 right behind the hull whatever the speed
     // a slow hull barely stirs the water: speed^2-ish and hull length scale the churn
     float sternL = hl * 0.3;
-    float stern = exp(-(pow((q.x + hl * 0.9) / sternL, 2.0) + pow(q.y / (hb * 0.45), 2.0)));
-    float sides = exp(-pow((abs(q.y) - hb * 1.0) / (hb * 0.22), 2.0)) * smoothstep(hl * 1.05, 0.0, abs(q.x)) * 0.08;
+    vec2 st = vec2((q.x + hl * 0.9) / sternL, q.y / (hb * 0.45));
+    float stern = exp(-dot(st, st));
+    float sd = (abs(q.y) - hb * 1.0) / (hb * 0.22);
+    float sides = exp(-sd * sd) * (1.0 - smoothstep(0.0, hl * 1.05, abs(q.x))) * 0.08;
     float rate = spd / (sternL * 1.77);
     float sK = smoothstep(0.8, 1.6, spd) * (0.3 + 0.7 * smoothstep(1.6, 5.0, spd)) * clamp(hl / 7.0, 0.5, 1.0);
     gl_FragColor = vec4((stern + sides) * rate * k * sK * uDt * 0.75, 0.0, 0.0, 1.0);
     return;
   }
   float e = length(vec2(q.x / hl, q.y / hb));
-  float ring = exp(-pow((e - 1.08) / 0.16, 2.0));
+  float re = (e - 1.08) / 0.16;
+  float ring = exp(-re * re);
   float occl = 1.0 - smoothstep(0.75, 1.35, e);
   float kel = 0.0;
   if (spd > 0.25) {
@@ -103,7 +106,8 @@ void main() {
     // transverse waves inside the wedge
     float inside = smoothstep(0.0, 1.0, (hb * 0.6 + u * 0.354) - abs(q.y)) * step(0.0, u);
     kel += inside * pow(0.5 + 0.5 * cos(u * 6.2831 / max(2.0, hl * 0.9)), 6.0) * fall * 0.18;
-    float bow = exp(-(pow((q.x - hl * 0.9) / (hl * 0.12), 2.0) + pow(q.y / (hb * 1.05), 2.0)));
+    vec2 bq = vec2((q.x - hl * 0.9) / (hl * 0.12), q.y / (hb * 1.05));
+    float bow = exp(-dot(bq, bq));
     kel = (kel + bow * 0.45) * sp;
   }
   // a still hull sits IN the water: a dark meniscus at the waterline, a thin bright lip where the swell meets her,
@@ -111,13 +115,16 @@ void main() {
   float meni = 0.0, lip = 0.0, slick = 0.0;
   if (spd <= 0.25) {
     float calm = 1.0 - smoothstep(0.5, 1.0, k);
-    meni = exp(-pow((e - 1.0) / 0.09, 2.0)) * 0.55;
+    float me = (e - 1.0) / 0.09;
+    meni = exp(-me * me) * 0.55;
     float rw = length(vW) + 1e-4;
     float face = smoothstep(0.0, 0.7, dot(vW / rw, -uSwell));
-    lip = exp(-pow((e - 1.13) / 0.1, 2.0)) * face * 0.75 * calm;
+    float le = (e - 1.13) / 0.1;
+    lip = exp(-le * le) * face * 0.75 * calm;
     float along = dot(vW, uLee), lat = abs(vW.x * uLee.y - vW.y * uLee.x);
     float len = hl * 2.6;
-    slick = exp(-pow(lat / (hb * 1.5 + max(along, 0.0) * 0.18), 2.0)) * smoothstep(-hl * 0.6, hl * 0.2, along)
+    float sl = lat / (hb * 1.5 + max(along, 0.0) * 0.18);
+    slick = exp(-sl * sl) * smoothstep(-hl * 0.6, hl * 0.2, along)
           * (1.0 - smoothstep(len * 0.4, len, along)) * calm;
   }
   gl_FragColor = vec4(kel * k, ring * k * (spd > 0.25 ? 0.45 : 0.7) + lip, occl * min(k, 1.0) + meni, slick);

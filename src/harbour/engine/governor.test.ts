@@ -36,27 +36,24 @@ describe("quality governor (no GPU timer)", () => {
   beforeEach(() => { vi.stubGlobal("location", { search: "" }); vi.stubGlobal("devicePixelRatio", 2); });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("starts an Apple GPU at Medium 1.5, steps down on missed frames, then probes back up", () => {
+  it("starts an Apple GPU at Medium 1.5 and reduces cost without inventing GPU headroom", () => {
     const applied: string[] = [];
     const g = new QualityGovernor(fakeGl("ANGLE (Apple, Apple M1, OpenGL 4.1)"), (s, d) => applied.push(`${s.tier}@${d}`));
     expect(`${g.tier}@${g.dpr}`).toBe("medium@1.5");
     run(g, 12, 33.4);                       // 30 fps: too rich
     expect(g.level).toBeLessThan(3);
     const low = g.level;
-    run(g, 60, 16.7);                       // clean 60 fps for a minute: probe upward
-    expect(g.level).toBeGreaterThan(low);
+    run(g, 60, 16.7);                       // clean presentation alone cannot establish GPU headroom
+    expect(g.level).toBe(low);
     expect(applied.length).toBeGreaterThan(1);
   });
 
-  it("a failed probe sets a ceiling instead of oscillating", () => {
+  it("never upgrades timerless 20.83 ms presentation", () => {
     const g = new QualityGovernor(fakeGl("Apple M2"), () => {});
     const start = g.level;
-    for (let i = 0; i < 3000 && g.level === start; i++) g.end(0.0167);   // clean → probe up one rung
-    expect(g.level).toBe(start + 1);
-    run(g, 8, 33.4);                        // the probe misses frames → back down
-    expect(g.level).toBe(start);
-    run(g, 40, 16.7);                       // clean again, but the ceiling holds for a while
-    expect(g.level).toBe(start);
+    run(g, 60, 20.83);
+    expect(g.level).toBeLessThan(start);
+    expect(g.level).toBe(0);
   });
 
   it("?quality pins the tier and never moves", () => {
@@ -230,5 +227,223 @@ describe("prepared effect publication", () => {
     expect(g.dpr).toBe(1.75);
     expect(prepare).not.toHaveBeenCalled();
     g.dispose();
+  });
+});
+
+describe("target-budget pressure and recovery", () => {
+  beforeEach(() => { vi.stubGlobal("location", { search: "" }); vi.stubGlobal("devicePixelRatio", 2); });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("reduces 17 ms GPU work at 33.3 ms presentation after two slow windows", () => {
+    const g = new QualityGovernor(timedGl("NVIDIA RTX 4070", { ms: 17 }), vi.fn());
+    const top = g.level;
+    runTimed(g, 2, 33.3); // Settling, calibration, then only one full decision window.
+    expect(g.level).toBe(top);
+    runTimed(g, 1.2, 33.3);
+    expect(g.level).toBe(top - 1);
+  });
+
+  it("acts on GPU budget pressure even with fast presentation", () => {
+    const g = new QualityGovernor(timedGl("NVIDIA RTX 4070", { ms: 14 }), vi.fn());
+    const top = g.level;
+    runTimed(g, 3.2, 16.7);
+    expect(g.level).toBe(top - 1);
+  });
+
+  it.each([60, 120, 144])("holds clean %i Hz and waits fifteen clean seconds before an upgrade", (hz) => {
+    const g = new QualityGovernor(timedGl("Apple M2", { ms: 2 }), vi.fn());
+    const start = g.level;
+    runTimed(g, 15, 1000 / hz);
+    expect(g.level).toBe(start);
+    runTimed(g, 1.5, 1000 / hz);
+    expect(g.level).toBe(start + 1);
+  });
+
+  it("does not cancel long-interval misses with alternating short intervals", () => {
+    const g = new QualityGovernor(fakeGl("Apple M2"), vi.fn());
+    const start = g.level;
+    for (let i = 0; i < 150; i++) { g.begin(); g.end(0.0083); g.begin(); g.end(0.025); }
+    expect(g.level).toBeLessThan(start);
+  });
+
+  it("requires more than five percent missed target slots in both normal windows", () => {
+    const g = new QualityGovernor(fakeGl("NVIDIA RTX 4070"), vi.fn());
+    const top = g.level;
+    run(g, 4, 17.4); // About 4% misses: insufficient to reduce cost.
+    expect(g.level).toBe(top);
+    run(g, 2.2, 17.7); // About 5.6% misses in two complete windows.
+    expect(g.level).toBe(top - 1);
+  });
+
+  it.each([60, 120, 144])("counts missed target slots independently of %i Hz native callbacks", (hz) => {
+    const g = new QualityGovernor(fakeGl("Apple M2"), vi.fn());
+    const start = g.level;
+    for (let i = 0; i < 10; i++) {
+      for (let frame = 0; frame < hz / 3; frame++) g.end(1 / hz);
+      g.end(0.05); // Same wall time and missed 60 Hz slots on every display.
+    }
+    expect(g.level).toBeLessThan(start);
+  });
+
+  it("requires predicted GPU cost below 0.65 of the target budget to upgrade", () => {
+    const g = new QualityGovernor(timedGl("Apple M2", { ms: 10 }), vi.fn());
+    const start = g.level;
+    runTimed(g, 60, 16.7); // A tier change predicts 1.2 × 10 ms, above 10.855 ms.
+    expect(g.level).toBe(start);
+  });
+
+  it("jumps to an already-ready low@1 within 1.5 seconds of severe overload", () => {
+    const applied = vi.fn(), prepare = vi.fn(async () => {});
+    const g = new QualityGovernor(timedGl("NVIDIA RTX 4070", { ms: 70 }), applied);
+    g.setPreparation(prepare, (settings) => settings.tier === "low");
+    runTimed(g, 1.5, 100);
+    expect([g.tier, g.dpr]).toEqual(["low", 1]);
+    expect(prepare).not.toHaveBeenCalled();
+    expect(applied).toHaveBeenCalledTimes(1);
+  });
+
+  it("also detects severe overload between normal decision boundaries", () => {
+    const gpu = { ms: 2 };
+    const g = new QualityGovernor(timedGl("NVIDIA RTX 4070", gpu), vi.fn());
+    g.setPreparation(vi.fn(async () => {}), () => true);
+    runTimed(g, 2.4, 16.7);
+    gpu.ms = 70;
+    runTimed(g, 1.4, 100);
+    expect([g.tier, g.dpr]).toEqual(["low", 1]);
+  });
+
+  it("uses same-tier resolution while emergency low prepares, then recovers slowly", async () => {
+    const gpu = { ms: 70 }, ready = deferred();
+    const g = new QualityGovernor(timedGl("NVIDIA RTX 4070", gpu), vi.fn());
+    const prepare = vi.fn(() => ready.promise);
+    g.setPreparation(prepare);
+    runTimed(g, 1.5, 100);
+    expect([g.tier, g.dpr]).toEqual(["high", 1.5]);
+    expect(prepare).toHaveBeenCalledTimes(1);
+    ready.resolve();
+    await ready.promise; await Promise.resolve(); await Promise.resolve();
+    expect([g.tier, g.dpr]).toEqual(["low", 1]);
+    gpu.ms = 2;
+    runTimed(g, 15, 16.7);
+    expect(g.level).toBe(0);
+    runTimed(g, 2, 16.7);
+    expect(g.level).toBe(1);
+  });
+
+  it("holds genuinely CPU-bound severe intervals", () => {
+    const g = new QualityGovernor(timedGl("NVIDIA RTX 4070", { ms: 1 }), vi.fn());
+    const top = g.level;
+    runTimed(g, 10, 100);
+    expect(g.level).toBe(top);
+  });
+
+  it("reduces cost with unavailable queries but never upgrades on missing GPU evidence", () => {
+    const { state, governor: g } = controlledGl();
+    state.ready = false;
+    runTimed(g, 8, 33.3);
+    expect(g.level).toBeLessThan(6);
+    const low = g.level;
+    runTimed(g, 60, 16.7);
+    expect(g.level).toBe(low);
+    expect(g.gpuSamples).toBe(0);
+    expect(g.gpuPendingQueries).toBe(4);
+  });
+
+  it("handles a fifteen-minute slowdown/recovery trace with bounded measurements", () => {
+    const gpu = { ms: 70 };
+    const g = new QualityGovernor(timedGl("NVIDIA RTX 4070", gpu), vi.fn());
+    runTimed(g, 5, 70);
+    expect(g.level).toBe(0);
+    gpu.ms = 2;
+    runTimed(g, 895, 1000 / 60);
+    expect(g.level).toBe(g.ladder.length - 1);
+    expect(g.gpuSamples).toBe(256);
+    expect(g.completedGpuSamples()).toHaveLength(256);
+  });
+});
+
+describe("display and lifecycle decision generations", () => {
+  beforeEach(() => { vi.stubGlobal("location", { search: "" }); vi.stubGlobal("devicePixelRatio", 2); });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("rebuilds 2↔1 DPR ladders and keeps the nearest valid state on return", () => {
+    const g = new QualityGovernor(fakeGl("NVIDIA RTX 4070"), vi.fn());
+    expect(g.reconcileDisplay(1, 2)).toBe(true);
+    expect(g.ladder).toHaveLength(3);
+    expect([g.tier, g.dpr]).toEqual(["high", 1]);
+    expect(g.reconcileDisplay(2, 2)).toBe(true);
+    expect([g.tier, g.dpr]).toEqual(["high", 1.5]);
+    expect(g.ladder).toHaveLength(7);
+    expect(g.reconcileDisplay(2, 2)).toBe(false);
+  });
+
+  it.each(["?quality=medium", "?dpr=1.75", "?quality=low&dpr=1.75"])("preserves explicit pins %s across migration, zoom and hard limits", (search) => {
+    vi.stubGlobal("location", { search });
+    const g = new QualityGovernor(fakeGl("NVIDIA RTX 4070"), vi.fn());
+    const tier = g.tier, dpr = g.dpr;
+    g.reconcileDisplay(1, 2);
+    expect(g.tier).toBe(tier);
+    expect(g.dpr).toBe(search.includes("dpr=") ? dpr : 1);
+    g.reconcileDisplay(0.8, 0.5);
+    expect(g.dpr).toBe(0.5);
+    g.reconcileDisplay(2, 2);
+    expect([g.tier, g.dpr]).toEqual([tier, dpr]);
+    expect(g.auto).toBe(false);
+    g.set("auto");
+    expect(g.auto).toBe(!search.includes("dpr="));
+  });
+
+  it("rejects pre-resume query samples and starts with 500 ms settling", () => {
+    const { state, governor: g } = controlledGl();
+    state.ms = 70; state.ready = false;
+    g.begin(); g.end(0.0167);
+    g.resume();
+    state.ready = true;
+    g.end(0.1);
+    expect(g.gpuSamples).toBe(0);
+    expect(g.gpuCompletedSamples).toBe(1); // Retained for diagnosis, excluded from the new decision state.
+    runTimed(g, 0.4, 100);
+    expect(g.level).toBe(6);
+    runTimed(g, 0.8, 100);
+    expect(g.level).toBe(0);
+    expect(g.completedGpuSamples().at(-1)?.state).toBeGreaterThan(0);
+  });
+
+  it("cancels an automatic preparation on resume and requires new evidence", async () => {
+    vi.stubGlobal("devicePixelRatio", 1);
+    const ready = deferred(), applied = vi.fn();
+    const g = new QualityGovernor(fakeGl("NVIDIA RTX 4070"), applied);
+    let signal: AbortSignal | undefined;
+    g.setPreparation((_settings, pendingSignal) => { signal = pendingSignal; return ready.promise; });
+    run(g, 3.2, 33.3);
+    expect(signal).toBeDefined();
+    g.resume();
+    expect(signal?.aborted).toBe(true);
+    ready.resolve(); await ready.promise; await Promise.resolve();
+    expect(g.tier).toBe("high");
+    expect(applied).not.toHaveBeenCalled();
+  });
+
+  it("prevents a pending decision from committing during a pause", async () => {
+    vi.stubGlobal("devicePixelRatio", 1);
+    const ready = deferred(), applied = vi.fn();
+    const g = new QualityGovernor(fakeGl("NVIDIA RTX 4070"), applied);
+    g.setPreparation(() => ready.promise);
+    run(g, 3.2, 33.3);
+    g.pause();
+    ready.resolve(); await ready.promise; await Promise.resolve();
+    expect(g.tier).toBe("high");
+    expect(applied).not.toHaveBeenCalled();
+  });
+
+  it("cancels a superseded ladder-index request when a display changes", async () => {
+    const ready = deferred(), applied = vi.fn();
+    const g = new QualityGovernor(fakeGl("NVIDIA RTX 4070"), applied);
+    g.setPreparation(() => ready.promise);
+    g.set("low");
+    g.reconcileDisplay(1, 2);
+    ready.resolve(); await ready.promise; await Promise.resolve();
+    expect([g.tier, g.dpr]).toEqual(["low", 1]);
+    expect(applied).toHaveBeenCalledTimes(1);
   });
 });

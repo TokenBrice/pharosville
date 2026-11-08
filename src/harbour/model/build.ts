@@ -64,7 +64,8 @@ function circuitFor(chainUsd: Array<[string, number]>, supply: number, chains: r
  * Eligibility comes from the payload alone: every coin in /api/stablecoins is a boat.
  */
 export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, options: BuildOptions = {}): HarbourModel {
-  const truth = allTruth(payloads, nowMs);
+  // Freshness is judged against wall time; nowMs is the simulation clock (equal in production, offset by dev pins).
+  const truth = allTruth(payloads, options.truthNowMs ?? nowMs);
   const coins = payloads.stablecoins?.data?.peggedAssets ?? [];
   const peg = payloads.pegSummary?.data ?? null;
   const stress = payloads.stress?.data ?? null;
@@ -148,7 +149,7 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
   });
 
   const live = boats.filter((b) => b.state !== "wrecked");
-  const flags = stormFlags(live, truth.stress);
+  const flags = coinsCurrent ? stormFlags(live, truth.stress) : [];
   const flagById = new Map(flags.map((f) => [f.id, f.shape]));
   for (const b of boats) b.stormSignal = flagById.get(b.id) ?? null;
   const planKey = planKeyOf(boats);

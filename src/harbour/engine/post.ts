@@ -6,8 +6,8 @@ import {
 import type { CameraRig } from "./camera-rig";
 import type { Grade, TimeOfDay } from "./time-of-day";
 import type { QualitySettings } from "./quality";
-import type { EngineContext, PreparationEntry } from "./types";
-import { preparationMaterial } from "./prepare";
+import type { EngineContext, PreparationEntry, PreparationService } from "./types";
+import { isPreparationAbort, preparationMaterial } from "./prepare";
 import { StaticDepthPass } from "../world/depth-prepass";
 import { getHarbourMaterials } from "../world/materials";
 
@@ -75,19 +75,75 @@ export function gradePixel(rgb: [number, number, number], g: Grade, out: [number
 }
 
 /** Fills an RGBA half-float 3D LUT (size³) with the grade. */
-export function fillGradeLUT(data: Uint16Array, size: number, g: Grade): void {
+export function fillGradeLUT(data: Uint16Array, size: number, g: Grade, firstRow = 0, endRow = size * size): void {
   const px: [number, number, number] = [0, 0, 0], o: [number, number, number] = [0, 0, 0];
   const toHalf = THREE.DataUtils.toHalfFloat;
-  let i = 0;
-  for (let b = 0; b < size; b++) {
-    for (let gg = 0; gg < size; gg++) {
-      for (let r = 0; r < size; r++) {
-        px[0] = r / (size - 1); px[1] = gg / (size - 1); px[2] = b / (size - 1);
-        gradePixel(px, g, o);
-        data[i++] = toHalf(o[0]); data[i++] = toHalf(o[1]); data[i++] = toHalf(o[2]); data[i++] = toHalf(1);
-      }
+  let i = firstRow * size * 4;
+  for (let row = firstRow; row < endRow; row++) {
+    const b = Math.floor(row / size), gg = row % size;
+    for (let r = 0; r < size; r++) {
+      px[0] = r / (size - 1); px[1] = gg / (size - 1); px[2] = b / (size - 1);
+      gradePixel(px, g, o);
+      data[i++] = toHalf(o[0]); data[i++] = toHalf(o[1]); data[i++] = toHalf(o[2]); data[i++] = toHalf(1);
     }
   }
+}
+
+/** Finish each immutable generation, then take the newest request accumulated during its bake. */
+export class SlicedGradeLUT {
+  private readonly textures: [THREE.Data3DTexture, THREE.Data3DTexture];
+  private front = 0;
+  private pending: Grade | undefined;
+  private running: Promise<void> | undefined;
+  private readonly lifetime = new AbortController();
+  private rowMs = 0.05;
+
+  constructor(private readonly publish: (texture: THREE.Data3DTexture) => void, private readonly size = LUT_SIZE) {
+    const create = () => {
+      const texture = new THREE.Data3DTexture(new Uint16Array(size ** 3 * 4), size, size, size);
+      texture.format = THREE.RGBAFormat; texture.type = THREE.HalfFloatType;
+      texture.minFilter = texture.magFilter = THREE.LinearFilter;
+      texture.wrapS = texture.wrapT = texture.wrapR = THREE.ClampToEdgeWrapping;
+      texture.unpackAlignment = 1;
+      return texture;
+    };
+    this.textures = [create(), create()];
+  }
+
+  get texture(): THREE.Data3DTexture { return this.textures[this.front]; }
+
+  request(grade: Grade, preparation: Pick<PreparationService, "submit" | "stageTexture">): Promise<void> {
+    if (this.lifetime.signal.aborted) return Promise.reject(new DOMException("Grade preparation cancelled", "AbortError"));
+    const snapshot: Grade = { ...grade, lift: [...grade.lift], gamma: [...grade.gamma], gain: [...grade.gain] };
+    Object.freeze(snapshot.lift); Object.freeze(snapshot.gamma); Object.freeze(snapshot.gain);
+    this.pending = Object.freeze(snapshot);
+    this.running ??= this.bake(preparation).finally(() => { this.running = undefined; });
+    return this.running;
+  }
+
+  private async bake(preparation: Pick<PreparationService, "submit" | "stageTexture">): Promise<void> {
+    const signal = this.lifetime.signal;
+    while (this.pending && !signal.aborted) {
+      const grade = this.pending; this.pending = undefined;
+      const back = 1 - this.front, texture = this.textures[back];
+      let row = 0;
+      while (row < this.size * this.size) {
+        await preparation.submit((deadline) => {
+          do {
+            const start = performance.now();
+            fillGradeLUT(texture.image.data as Uint16Array, this.size, grade, row, ++row);
+            this.rowMs = Math.max(0.05, this.rowMs * 0.5, (performance.now() - start) * 1.1);
+          } while (row < this.size * this.size && performance.now() + this.rowMs < deadline);
+        }, { signal, estimateMs: this.rowMs });
+      }
+      texture.needsUpdate = true;
+      await preparation.stageTexture(texture, { signal });
+      if (signal.aborted) return;
+      this.front = back; this.publish(texture);
+    }
+  }
+
+  dispose(): void { this.lifetime.abort(); this.pending = undefined; for (const texture of this.textures) texture.dispose(); }
 }
 
 /** Packs the grade into `out` (15 numbers); returns true when it moved since the last pack. */
@@ -213,7 +269,8 @@ export class PostChain {
   readonly dither: DitherEffect;
   private readonly scrub = new NanScrubPass();
   private readonly main: EffectPass;
-  private readonly lutTex: THREE.Data3DTexture;
+  private readonly gradeLut = new SlicedGradeLUT((texture) => { this.lut.uniforms.get("lut")!.value = texture; });
+  private preparation?: PreparationService;
   private readonly lutKey = new Float32Array(15).fill(-1);
   private tier: QualitySettings["tier"] | undefined;
   private lutAge = 1e9;
@@ -236,15 +293,7 @@ export class PostChain {
     this.tiltShift = new TiltShiftEffect({ focusArea: 0.6, feather: 0.38, offset: 0.06, kernelSize: KernelSize.MEDIUM, resolutionScale: 0.5 });
     this.bloom = new BloomEffect({ intensity: 0.6, luminanceThreshold: 1.3, luminanceSmoothing: 0.35, mipmapBlur: true, radius: 0.72, levels: 8 });
     this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
-    const data = new Uint16Array(LUT_SIZE ** 3 * 4);
-    this.lutTex = new THREE.Data3DTexture(data, LUT_SIZE, LUT_SIZE, LUT_SIZE);
-    this.lutTex.format = THREE.RGBAFormat;
-    this.lutTex.type = THREE.HalfFloatType;
-    this.lutTex.minFilter = this.lutTex.magFilter = THREE.LinearFilter;
-    this.lutTex.wrapS = this.lutTex.wrapT = this.lutTex.wrapR = THREE.ClampToEdgeWrapping;
-    this.lutTex.unpackAlignment = 1;
-    this.lutTex.needsUpdate = true;
-    this.lut = new LUT3DEffect(this.lutTex, { inputColorSpace: THREE.SRGBColorSpace });
+    this.lut = new LUT3DEffect(this.gradeLut.texture, { inputColorSpace: THREE.SRGBColorSpace });
     this.vignette = new VignetteEffect({ offset: 0.28, darkness: 0.42 });
     // the tilt-shift blur pass runs even at opacity 0: skip it while the effect is faded out (heart/close)
     const tiltUpdate = this.tiltShift.update.bind(this.tiltShift);
@@ -282,6 +331,14 @@ export class PostChain {
     this.tier = q.tier;
     setBloomLevels(this.bloom.mipmapBlurPass, q.bloomLevels);
     this.smaa.applyPreset(q.smaa === "high" ? SMAAPreset.HIGH : q.smaa === "medium" ? SMAAPreset.MEDIUM : SMAAPreset.LOW);
+  }
+
+  /** The arrival barrier includes a complete, uploaded grade before any frame may reveal. */
+  async prepareGrade(ctx: EngineContext): Promise<void> {
+    this.preparation = ctx.services.get("preparation") as PreparationService;
+    packGrade(ctx.timeOfDay.grade, this.lutKey);
+    await this.gradeLut.request(ctx.timeOfDay.grade, this.preparation);
+    this.lutAge = 0;
   }
 
   /** Boot covers all private passes; tier changes affect only the two SMAA preset materials. */
@@ -347,13 +404,14 @@ export class PostChain {
     // LUT: regenerate when the grade moved (throttled to 4 Hz while the clock runs).
     this.lutAge += delta;
     if (this.lutAge > 0.25) {
-      if (packGrade(tod.grade, this.lutKey)) {
-        fillGradeLUT(this.lutTex.image.data as Uint16Array, LUT_SIZE, tod.grade);
-        this.lutTex.needsUpdate = true;
+      if (this.preparation && packGrade(tod.grade, this.lutKey)) {
+        void this.gradeLut.request(tod.grade, this.preparation).catch((error: unknown) => {
+          if (!isPreparationAbort(error)) console.error("[harbour] grade preparation failed", error);
+        });
         this.lutAge = 0;
       }
     }
   }
 
-  dispose(): void { this.depthPrepass?.dispose(); this.lutTex.dispose(); this.scrub.dispose(); }
+  dispose(): void { this.depthPrepass?.dispose(); this.gradeLut.dispose(); this.scrub.dispose(); }
 }

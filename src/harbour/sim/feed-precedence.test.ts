@@ -8,28 +8,31 @@ function pendingResponse() {
   return { promise, resolve, reject };
 }
 
-describe("feed revision precedence", () => {
-  it.each([false, true])("ignores an older request settling after a newer installed snapshot (failure=%s)", async (fail) => {
-    const older = pendingResponse(), newer = pendingResponse();
+describe("feed single-flight and lifecycle precedence", () => {
+  it.each([false, true])("shares the pending request, then installs a later refresh (failure=%s)", async (fail) => {
+    const first = pendingResponse(), next = pendingResponse();
     let stableRequests = 0;
     const fetcher: Fetcher = async (path) => {
-      if (path === "/api/stablecoins") return ++stableRequests === 1 ? older.promise : newer.promise;
-      return { data: { chains: [], history: [], coins: [], signals: {}, grades: [], hourly: [] }, meta: null };
+      if (path === "/api/stablecoins") return ++stableRequests === 1 ? first.promise : next.promise;
+      return { data: { chains: [], current: null, history: [], coins: [], signals: {}, grades: [], hourly: [] }, meta: null };
     };
     const feed = new HarbourFeed({ fetcher, setTimer: () => 0, clearTimer: () => {}, isHidden: () => false });
     const notify = vi.fn(); feed.subscribe(notify);
     const starting = feed.start(), refresh = feed.refresh("stablecoins");
-    newer.resolve(response("newer")); await refresh;
-    const snapshot = feed.payloads.stablecoins, notifications = notify.mock.calls.length;
-    if (fail) older.reject(new Error("late failure")); else older.resolve(response("older"));
-    await starting;
-    expect(feed.payloads.stablecoins).toBe(snapshot);
+    expect(feed.refresh("stablecoins")).toBe(refresh);
+    expect(stableRequests).toBe(1);
+    if (fail) first.reject(new Error("first failure")); else first.resolve(response("first"));
+    await refresh; await starting;
+    const notifications = notify.mock.calls.length;
+    const later = feed.refresh("stablecoins");
+    expect(stableRequests).toBe(2);
+    next.resolve(response("newer")); await later;
     expect(feed.payloads.stablecoins?.data?.peggedAssets[0].id).toBe("newer");
-    expect(notify).toHaveBeenCalledTimes(notifications);
+    expect(notify).toHaveBeenCalledTimes(notifications + 1);
     feed.stop();
   });
 
-  it("ignores a response from a stopped lifecycle after restart", async () => {
+  it.each([false, true])("ignores a response from a stopped lifecycle after restart (failure=%s)", async (fail) => {
     const old = pendingResponse(); let count = 0;
     const fetcher: Fetcher = async (path) => {
       if (path === "/api/stablecoins") return ++count === 1 ? old.promise : response("new lifecycle");
@@ -38,7 +41,8 @@ describe("feed revision precedence", () => {
     const feed = new HarbourFeed({ fetcher, setTimer: () => 0, clearTimer: () => {}, isHidden: () => false });
     const first = feed.start(); feed.stop(); await feed.start();
     const snapshot = feed.payloads.stablecoins;
-    old.resolve(response("old lifecycle")); await first;
+    if (fail) old.reject(new Error("old lifecycle failure")); else old.resolve(response("old lifecycle"));
+    await first;
     expect(feed.payloads.stablecoins).toBe(snapshot);
     feed.stop();
   });

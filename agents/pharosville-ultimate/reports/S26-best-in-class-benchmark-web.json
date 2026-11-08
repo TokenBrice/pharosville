@@ -1,0 +1,319 @@
+{
+  "lane": "S26",
+  "executive_summary": "PharosVille should borrow restraint from calm diorama games, explicit inspection from live maps, and reproducibility from data journalism. Its foundations are already strong: truthful loading states, an accessible ledger, adaptive quality, and one-click opt-in sound. Prioritize touch-accessible actions, chart data parity, accurate postcard provenance, and recoverable onboarding. Four code-supported gaps follow. Fourteen recommendations translate verified benchmark patterns into specific changes; art proposals remain experiments because frames were not inspected. Preserve the bounded camera, phone gate, existing analytical mappings, and WebGL2 engine.",
+  "current_state": [
+    "The product explicitly prioritizes calm, progressive disclosure, exact evidence, and accessible analytical equivalents; these are the correct benchmark criteria (PRODUCT.md:19, PRODUCT.md:59).",
+    "Arrival already distinguishes loading, waiting, live, empty, partial, and unavailable states. Preserve this honest loading architecture instead of adding theatrical progress percentages (src/harbour/app/harbour-app.tsx:21).",
+    "The first-run caption appears after fleet readiness, expires after seven seconds, and records itself as seen immediately; it lacks an explicit replay action (src/harbour/ui/CornerMark.tsx:34).",
+    "The ledger already provides explanatory rules, sortable tables, filtering, and selectable coins. Felt-style map/table parity is substantially present (src/harbour/ui/Ledger.tsx:63, src/harbour/ui/Ledger.tsx:133).",
+    "Sound already has a one-click toggle, separate options menu, and ambient/music choices; the older integration note's two-click complaint is obsolete (src/harbour/audio/SoundToggle.tsx:9, src/harbour/audio/SoundToggle.tsx:56).",
+    "Quality already adapts through measured tiers and resolution rungs, with a public control service. The visible corner controls expose search, ledger, chart, and home (src/harbour/engine/quality.ts:103, src/harbour/ui/CornerMark.tsx:62).",
+    "Art direction already includes hourly palettes, distance tint, and restrained event scheduling. Older terrace and dawn complaints have explicit code fixes; do not refile them without frames (src/harbour/sky/palette.ts:16, src/harbour/model/moments.ts:16, scripts/harbour/blender/island/hb_dress.py:224, src/harbour/engine/time-of-day.ts:76).",
+    "Phones already receive an illustrated explanation and useful analytics links without live readings. Improve that deliberate experience while preserving admission boundaries (index.html:62, index.html:79).",
+    "The brief identifies base-day and base-night capture times but provides no detailed frame descriptions. Visual judgments remain unverified; historical iGPU measurements are supplied evidence, not measurements from this pass (agents/pharosville-ultimate/BRIEF.md:72, agents/pharosville-ultimate/BRIEF.md:87)."
+  ],
+  "findings": [
+    {
+      "id": "S26-F1",
+      "title": "Chart point details require mouse hover",
+      "severity": "medium",
+      "evidence": "src/harbour/ui/bits.tsx:68, src/harbour/ui/bits.tsx:77, src/harbour/ui/bits.tsx:107, src/harbour/ui/bits.tsx:140; callers: src/harbour/ui/Panel.tsx:252, src/harbour/ui/Panel.tsx:339, src/harbour/ui/Panel.tsx:667",
+      "detail": "PSI history and hourly flow charts expose individual dates and values through mouse handlers. Their SVG image labels summarize the series, but no keyboard point navigation or equivalent series table appears in these components. Keyboard and assistive-technology users cannot inspect the same observations.",
+      "fix": "Add an expandable semantic data table using the exact arrays already passed to each chart. Preserve null observations as unavailable or partial. Test dates, values, and null parity."
+    },
+    {
+      "id": "S26-F2",
+      "title": "Postcard and watch lack touch-accessible entry points",
+      "severity": "medium",
+      "evidence": "src/harbour/ui/App.tsx:81, src/harbour/ui/App.tsx:120; src/harbour/ui/CornerMark.tsx:62; src/harbour/ui/KeyList.tsx:14",
+      "detail": "Postcard and watch start through P and W keyboard handlers. Their ledger entries are explanatory text, and the active watch's stop instruction is an aria-hidden span. Supported tablets without hardware keyboards cannot directly invoke these features through the supplied controls.",
+      "fix": "Add real buttons for postcard and watch inside an on-demand actions menu, plus a real stop button in the watch strip. Reuse requestPostcard(), toggleWatch(), and stopWatch()."
+    },
+    {
+      "id": "S26-F3",
+      "title": "Postcards collapse independent freshness into one timestamp",
+      "severity": "medium",
+      "evidence": "src/harbour/ui/postcard.ts:26, src/harbour/ui/postcard.ts:30, src/harbour/ui/postcard.ts:32; src/harbour/ui/bits.tsx:10; src/harbour/ui/postcard.test.ts:5",
+      "detail": "The caption uses stablecoin age for both generic freshness and stale-readings text, even when PSI is the stale signal. Lagging stress, peg, or flow feeds can also leave the postcard claiming generic 'Readings as of' freshness. Independent endpoint evidence is available elsewhere, but the export does not preserve it.",
+      "fix": "Caption supply and PSI separately, disclose other lagging displayed signals, and distinguish scene time from UTC observation time. Add mixed-freshness fixtures, including fresh supply with stale PSI and unavailable stress."
+    },
+    {
+      "id": "S26-F4",
+      "title": "Reduced-motion watch still changes viewpoints automatically",
+      "severity": "medium",
+      "evidence": "src/harbour/ui/store.ts:371, src/harbour/ui/store.ts:482, src/harbour/ui/store.ts:488, src/harbour/ui/store.ts:490",
+      "detail": "The watch advances after its dwell interval before checking reduced motion. Reduced motion suppresses following and makes camera moves instantaneous, but the view still jumps automatically between subjects every twenty seconds. This conflicts with the brief's requirement that reduced motion still the world.",
+      "fix": "Under reduced motion, require an explicit Next action for each subject. Keep the selected subject and explanation stationary; test that elapsed time alone cannot advance it."
+    }
+  ],
+  "ideas": [
+    {
+      "id": "S26-I1",
+      "title": "Make the first reading recoverable",
+      "what": "[The Pudding](https://pudding.cool/process/how-to-make-dope-shit-part-3/) organizes explanation around audience questions, making unfamiliar graphics approachable. Replace the expiring caption with a dismissible, replayable 'Read the harbour' introduction: boats, lighthouse, then sea versus weather versus fog. Reuse existing legend text and selection methods. Avoid mandatory tours, scroll hijacking, and camera choreography.",
+      "visitor_benefit": "Visitors can learn at their own pace and recover an explanation they missed.",
+      "pillar": "informative",
+      "meaning": "ux",
+      "data_and_dom": "Reuse declared mappings from Ledger.tsx:66, :70, :95, :99, :103. This teaches existing semantics without introducing thresholds or simulated readings.",
+      "where": "src/harbour/ui/CornerMark.tsx:34; src/harbour/ui/Ledger.tsx:63; src/harbour/ui/store.ts:326",
+      "effort": "M",
+      "perf_cost": "Estimated under 3 KiB gzip; no new draws, geometry, or continuous work.",
+      "risks": "Keep optional and dismissible. Reduced motion must use stationary explanations. Test replay and persistence.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S26-I2",
+      "title": "Link each reading to its legend entry",
+      "what": "[Felt](https://help.felt.com/getting-started/tour-the-interface) separates map, legend, detail panel, and table into complementary inspection surfaces. Add 'How to read this' links in lighthouse, sea, weather, and boat panels that open the corresponding existing ledger entry. This shortens the distance between seeing and understanding. Avoid permanent labels, a dashboard sidebar, or duplicating the full legend in every panel.",
+      "visitor_benefit": "An unfamiliar visual cue becomes explainable at the moment curiosity arises.",
+      "pillar": "informative",
+      "meaning": "ux",
+      "data_and_dom": "n/a; navigation among existing DOM explanations. Preserve their exact terminology and thresholds.",
+      "where": "src/harbour/ui/Panel.tsx:81; src/harbour/ui/Ledger.tsx:63; src/harbour/ui/Ledger.tsx:115",
+      "effort": "S",
+      "perf_cost": "Estimated under 1 KiB gzip; zero GPU cost.",
+      "risks": "Return focus to the invoking link and retain the selected object. Test target entry and focus restoration.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S26-I3",
+      "title": "Expose a compact reading provenance sheet",
+      "what": "[Earth](https://earth.nullschool.net/about.html) names sources and distinguishes update cadences; that makes its beautiful motion auditable. Let the existing live/lagging indicator open a compact list of signal, source, observation age, availability, and analytical destination. Build it from existing truth metadata. Avoid interpreting one green dot as universal freshness or exposing technical endpoint details as the primary visitor language.",
+      "visitor_benefit": "Visitors can distinguish current supply from lagging stress or PSI without opening several panels.",
+      "pillar": "professional",
+      "meaning": "data-bound",
+      "data_and_dom": "Use model.truth endpoint state and ageSec, preserving current/stale/unavailable classifications. DOM examples: 'Supply updated 5 min ago' and 'Stress signals unavailable.' Add mixed-endpoint parity tests; introduce no new freshness thresholds.",
+      "where": "src/harbour/ui/bits.tsx:7; src/harbour/ui/bits.tsx:162; src/harbour/ui/CornerMark.tsx:29; src/harbour/model/types.ts:55",
+      "effort": "M",
+      "perf_cost": "Estimated 1–3 KiB gzip; render on existing model updates, no per-frame polling.",
+      "risks": "Do not present missing signals as calm. Reuse server freshness evidence and existing analytics destinations.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S26-I4",
+      "title": "Give every small chart a readable data view",
+      "what": "[OWID](https://ourworldindata.org/faqs) makes chart data and metadata inspectable and reusable. Extend the existing PSI and flow charts with an on-demand 'View values' table containing their exact observations. Retain the compact picture for quick reading. Avoid adding a charting dependency, dozens of tab stops, or a second calculation pipeline.",
+      "visitor_benefit": "Keyboard, touch, and screen-reader users can inspect the same dates and values as mouse users.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "Render Sparkline values/dates, TideBars hourly netUsd, and FlowBars hourly mintUsd/burnUsd directly. Null means partial/unavailable, never zero. Tests must compare chart inputs with table output.",
+      "where": "src/harbour/ui/bits.tsx:59; src/harbour/ui/bits.tsx:90; src/harbour/ui/bits.tsx:123; src/harbour/ui/Panel.tsx:252",
+      "effort": "M",
+      "perf_cost": "Estimated 1–3 KiB gzip; at most roughly 30 table rows per expanded chart; zero GPU cost.",
+      "risks": "Dates, units, timezone, and missing-data labels must match the visual. Keep tables collapsed initially.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S26-I5",
+      "title": "Expose advanced actions without expanding permanent chrome",
+      "what": "[Bruno Simon](https://bruno-simon.com/) supplies explicit options and separate device-control instructions, reducing uncertainty inside an unfamiliar 3D interface. Add an on-demand actions menu containing postcard, watch, and their keyboard hints; provide a genuine watch stop button. Keep the current sound toggle. Avoid copying driving controls, achievements, renderer switches, or a permanent game HUD.",
+      "visitor_benefit": "Supported tablets gain access to existing features, while desktop visitors can discover them without memorizing keys.",
+      "pillar": "all-devices",
+      "meaning": "ux",
+      "data_and_dom": "n/a; invoke existing store actions through semantic buttons with touch-sized targets.",
+      "where": "src/harbour/ui/CornerMark.tsx:62; src/harbour/ui/App.tsx:81; src/harbour/ui/App.tsx:120; src/harbour/ui/store.ts:444",
+      "effort": "S",
+      "perf_cost": "Estimated 1–2 KiB gzip; zero scene cost.",
+      "risks": "Keep menus keyboard-operable and avoid conflicts between global shortcuts and focused controls. Test click-to-action parity.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S26-I6",
+      "title": "Share a selected subject through a stable link",
+      "what": "[OWID](https://ourworldindata.org/you-can-now-copy-charts-to-the-clipboard-for-easy-sharing) offers link sharing alongside image export, letting recipients continue inspection. Add 'Copy link to this coin/place' using a validated selection identifier and chart-mode state. Restore selection after model readiness. State that the recipient sees current readings. Avoid serializing stress overrides, arbitrary camera freedom, or implying historical snapshot replay.",
+      "visitor_benefit": "A researcher can send a colleague directly to the relevant subject instead of explaining where to click.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "n/a; serialize presentation state only. Validate kind and identifier, handle removed assets explicitly, and never include credentials or payloads.",
+      "where": "src/harbour/ui/Panel.tsx:41; src/harbour/ui/store.ts:326; src/harbour/ui/postcard.ts:16",
+      "effort": "M",
+      "perf_cost": "Estimated 1–3 KiB gzip; no new API endpoint or GPU work.",
+      "risks": "A link is not an archived observation. Preserve the viewport gate and test malformed, unknown, and delayed-selection cases.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": []
+    },
+    {
+      "id": "S26-I7",
+      "title": "Make postcards portable evidence",
+      "what": "[OWID](https://ourworldindata.org/you-can-now-copy-charts-to-the-clipboard-for-easy-sharing) places image export and sharing together, reducing friction between discovery and communication. Improve the existing postcard with separate scene-time and observation-time labels, signal-specific freshness, a source URL, and an adjacent 'Copy caption' action. Avoid decorative export flourishes, silently stale claims, and pretending a live link reproduces historical data.",
+      "visitor_benefit": "An attractive screenshot remains interpretable and attributable after leaving PharosVille.",
+      "pillar": "professional",
+      "meaning": "data-bound",
+      "data_and_dom": "Use model.truth.stablecoins, model.truth.stability, other displayed signal states, and readings.psi. DOM and exported caption must use identical freshness words; test mixed freshness and unavailable PSI.",
+      "where": "src/harbour/ui/postcard.ts:16; src/harbour/ui/postcard.ts:79; src/harbour/ui/Postcard.tsx:30; src/harbour/ui/postcard.test.ts:13",
+      "effort": "M",
+      "perf_cost": "Estimated 1–3 KiB gzip; reuse existing display-resolution capture; no steady-state GPU cost.",
+      "risks": "Long captions need wrapping at tablet resolutions. Capture the model revision and time consistently with the frame.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S26-I8",
+      "title": "Turn the phone welcome into a useful field guide",
+      "what": "[The Pudding](https://pudding.cool/process/how-to-make-dope-shit-part-3/) emphasizes audience-appropriate explanation rather than assuming familiarity. Extend the existing static welcome with two expandable examples: 'A rough sea versus a storm' and 'An unavailable reading versus a calm reading.' Pair each with its existing analytics link. Avoid a shrunken WebGL world, fabricated live numbers, or a dead-end unsupported-device message.",
+      "visitor_benefit": "Phone visitors leave understanding the observatory's central distinctions and where to verify current evidence.",
+      "pillar": "all-devices",
+      "meaning": "ux",
+      "data_and_dom": "n/a; static educational HTML, clearly marked as examples. No world imports, API requests, or live-data widgets.",
+      "where": "index.html:62; index.html:79; index.html:84; src/main.tsx",
+      "effort": "S",
+      "perf_cost": "Estimated under 2 KiB additional HTML; native details elements require no JavaScript.",
+      "risks": "Keep examples distinct from current market conditions. Re-run the existing viewport/import/request boundary checks during implementation.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S26-I9",
+      "title": "Expose quality choices and validate the cheapest tier",
+      "what": "[Bruno Simon](https://bruno-simon.com/) exposes an understandable quality option; [Tiny Glade](https://pouncelight.games/tiny-glade/troubleshooting/runtime-crash/) documents targeted rendering workarounds. Add Auto and Low options to the on-demand menu using the existing quality service. Pair delivery with low-tier GPU and frame-pacing validation. Avoid renderer switches, a technical settings dashboard, or claiming a menu fixes the brief's historical iGPU slowdown.",
+      "visitor_benefit": "Visitors gain control when battery, thermal limits, or automatic tuning do not suit their device.",
+      "pillar": "all-devices",
+      "meaning": "infra",
+      "data_and_dom": "n/a; presentation settings only. Auto remains default; DOM states the selected mode without asserting guaranteed frame rates.",
+      "where": "src/harbour/engine/quality.ts:27; src/harbour/engine/quality.ts:103; src/harbour/engine/governor.ts:109; agents/pharosville-ultimate/BRIEF.md:87",
+      "effort": "M",
+      "perf_cost": "Estimated under 2 KiB gzip for controls; GPU benefit device-dependent and unmeasured. Low currently retains six bloom levels and 2048px shadows.",
+      "risks": "Manual tier selection can affect resolution as well as effects. Validate on the required Apple Silicon devices; preserve every analytical cue.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": [
+        "S26-I5"
+      ]
+    },
+    {
+      "id": "S26-I10",
+      "title": "Spend scenery detail on recognizable silhouettes",
+      "what": "[Islanders](https://playislanders.com/islanders1) centers a colorful minimalist island, while [Townscaper](https://www.townscapergame.com/) makes coherent architectural forms its core pleasure. Translate that restraint into a screen-space audit of decorative terrain dressing: retain recognizable tree groups and landmark silhouettes; remove repeated details that collapse below two pixels at the default view. Avoid more props, literal garden ornament catalogues, and changes to supply-sized piers or boats.",
+      "visitor_benefit": "The garden and harbour hierarchy can become clearer while reducing visual noise and asset cost.",
+      "pillar": "prettier",
+      "meaning": "decorative",
+      "data_and_dom": "n/a; restrict changes to decorative dressing. Existing data-bearing geometry, picking contracts, and cultural direction remain intact.",
+      "where": "scripts/harbour/blender/island/hb_dress.py:211; scripts/harbour/blender/island/hb_dress.py:282; src/harbour/world/aerial.ts:4",
+      "effort": "M",
+      "perf_cost": "Target zero added draws and a net triangle/GLB reduction; savings require asset statistics and real-GPU confirmation.",
+      "risks": "This is an art experiment, not a confirmed clutter defect. Check heart, overview, and tablet views; retain close-view character.",
+      "impact": 4,
+      "confidence": 3,
+      "depends_on": []
+    },
+    {
+      "id": "S26-I11",
+      "title": "Tune hourly color by compositional role",
+      "what": "[Monument Valley's lead artist](https://play.google.com/store/apps/editorial?id=mc_games_editorialevergreen_indiedev_interviewseries_ustwogames_fcp) describes balanced architectural palettes as a way to create atmosphere. Test small variants within PharosVille's existing hourly keys: background masses recede, inhabited land separates from water, and the Pharos remains the focal light. Avoid universal pastel grading, neon risk colors, extra bloom, and changing weather intensity to improve a composition.",
+      "visitor_benefit": "Day and night can feel deliberately composed while retaining legible boats, landmarks, and market conditions.",
+      "pillar": "prettier",
+      "meaning": "decorative",
+      "data_and_dom": "Use decorative clock-driven palette parameters only. Preserve DEWS cloud coverage, stale-only fog, PSI light behavior, and selection visibility.",
+      "where": "src/harbour/sky/palette.ts:16; src/harbour/engine/time-of-day.ts:63; src/harbour/world/aerial.ts:26",
+      "effort": "M",
+      "perf_cost": "Parameter-only variants: zero added draws, triangles, textures, or shader passes.",
+      "risks": "No frame-based defect is asserted. Require operator comparison across day/night, danger, stale, and missing-PSI states; do not repeat already-fixed dawn complaints.",
+      "impact": 4,
+      "confidence": 3,
+      "depends_on": []
+    },
+    {
+      "id": "S26-I12",
+      "title": "Make the existing watch visitor-paced",
+      "what": "[The Pudding](https://pudding.cool/process/how-to-make-dope-shit-part-3/) couples an explanatory focus with each visual state, helping readers understand why they are looking. Extend the existing watch with Previous, Next, Stop, and Inspect buttons while preserving its ranked reasons. In reduced motion, require Next rather than elapsed-time advances. Avoid a second tour engine, autoplay on arrival, or presenting a ranked subject as an investment recommendation.",
+      "visitor_benefit": "Visitors can linger, verify a notable ship, or continue without losing context.",
+      "pillar": "enchanting",
+      "meaning": "ux",
+      "data_and_dom": "Reuse rankWatch() output and its current mover/depeg/launch wording; introduce no new ranking thresholds. Display the same reason in the controls and live announcement.",
+      "where": "src/harbour/ui/watch.ts:19; src/harbour/ui/store.ts:464; src/harbour/ui/store.ts:482; src/harbour/ui/App.tsx:120",
+      "effort": "M",
+      "perf_cost": "Estimated 1–3 KiB gzip; reuse existing camera and picking work; no new scene assets.",
+      "risks": "Prevent global shortcuts from cancelling button navigation unexpectedly. Test manual progression, interruption, and reduced-motion immobility.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S26-I5"
+      ]
+    },
+    {
+      "id": "S26-I13",
+      "title": "Offer explicit stillness beside existing sound controls",
+      "what": "[Alto's Odyssey](https://play.google.com/store/apps/details?gl=us&id=com.noodlecake.altosodyssey) removes scoring pressure in Zen Mode so the landscape can carry attention. PharosVille already lacks scoring and has opt-in audio; add a 'Still world' action using its existing motion service, independently of sound. Keep exact data inspection available. Avoid a cinematic mode that hides evidence, automatic music, or pausing data freshness.",
+      "visitor_benefit": "Visitors can choose a quiet, stationary observatory without changing operating-system settings or editing a URL.",
+      "pillar": "enchanting",
+      "meaning": "ux",
+      "data_and_dom": "n/a; user-controlled motion preference. Keep readings and timestamps updating; stillness must not imply data is paused or stale.",
+      "where": "src/harbour/ui/services.ts:55; src/harbour/ui/services.ts:65; src/harbour/ui/services.ts:98; src/harbour/audio/SoundToggle.tsx:56",
+      "effort": "M",
+      "perf_cost": "Estimated 1–2 KiB gzip; likely less animation work, but no claimed rendering savings without measurement.",
+      "risks": "System reduced-motion preference must remain authoritative unless explicitly overridden. Audit every motion consumer and ensure automatic watch changes stop.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": [
+        "S26-I5",
+        "S26-I12"
+      ]
+    },
+    {
+      "id": "S26-I14",
+      "title": "Follow a chain's full constituent list",
+      "what": "[Flightradar24](https://www.flightradar24.com/blog/tutorial/an-all-new-way-to-filter-flights-on-flightradar24-com/) lets visitors narrow a dense world to a precise question. Extend the existing chain panel's ten largest callers with 'All coins on this chain,' opening a chain-scoped ledger. Keep the world intact and provide Clear filter. Avoid disappearing boats, dimming unrelated coins as though unhealthy, or treating current berth occupancy as total chain membership.",
+      "visitor_benefit": "Researchers can move from a recognizable pier to every coin contributing supply there, including the long tail.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Membership is Boat.chainShares.some(c => c.chain === selectedChain && c.usd > 0). DOM: 'Coins with supply on Ethereum'; show count and chain USD. Reuse freshness evidence and test membership independently of boat location.",
+      "where": "src/harbour/ui/Panel.tsx:590; src/harbour/ui/Panel.tsx:615; src/harbour/ui/Ledger.tsx:133; src/harbour/model/types.ts:104",
+      "effort": "M",
+      "perf_cost": "Estimated 1–3 KiB gzip; filter on model/selection changes, not per frame; zero additional draws.",
+      "risks": "Chain-attributed supply differs from circuit stops and instantaneous occupancy. Keep this distinction explicit and clear stale-data status.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    }
+  ],
+  "top_picks": [
+    {
+      "id": "S26-I5",
+      "why": "Small change that unlocks existing functionality on supported touch devices."
+    },
+    {
+      "id": "S26-I2",
+      "why": "Reuses excellent existing explanations and makes them discoverable exactly where needed."
+    },
+    {
+      "id": "S26-I4",
+      "why": "Closes a concrete analytical accessibility gap without changing the renderer or data pipeline."
+    },
+    {
+      "id": "S26-I7",
+      "why": "Repairs a trust issue in an existing export and improves its usefulness outside the product."
+    },
+    {
+      "id": "S26-I1",
+      "why": "Improves first understanding through recoverable teaching with no scene complexity."
+    }
+  ],
+  "operator_decisions": [
+    "Should shared links restore only subject and chart state, with current readings and local time, rather than attempting historical scene reproduction?",
+    "Which art experiment should receive the first taste review: reduced decorative detail or tighter hourly color hierarchy?",
+    "Should the first-run explanation remain until dismissed, or retain a timeout with a clearly visible replay action?"
+  ],
+  "cross_lane_hooks": [
+    "UI/accessibility lanes: share one on-demand actions surface across postcard, watch, quality, and stillness; preserve minimal permanent chrome and focus restoration.",
+    "Data-truth lane: review postcard endpoint freshness, provenance wording, chain membership semantics, and mixed-freshness fixtures.",
+    "Motion lane: fix timed watch advancement under reduced motion before exposing a visitor-controlled still-world preference.",
+    "Performance lane: validate lowest-tier cost and frame pacing on required real hardware; the historical iGPU result cannot establish current performance.",
+    "Art lanes: compare proposed variants against supplied day/night/state frames; old review findings are not automatically current defects.",
+    "Benchmark limits: Active Theory exposed only a JavaScript requirement through text retrieval; Lusion's text did not establish loading or accessibility behavior. No implementation claims were inferred from those shells.",
+    "Skipped browsers, image viewing, code changes, package installation, and runtime tests; onboarding passed and repository status remained unchanged.",
+    "Risk: visual benefits and performance estimates remain unmeasured; implementation requires targeted tests, operator taste review, and real-GPU validation."
+  ]
+}

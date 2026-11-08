@@ -22,6 +22,24 @@ async function walk(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
   return (await Promise.all(entries.map((entry) => entry.isDirectory() ? walk(resolve(dir, entry.name)) : [resolve(dir, entry.name)]))).flat();
 }
+/** Resolve references against the emitted graph, including Vite preload arrays, URL assets and CSS fonts.
+ * Only actual output paths are followed: no worker/seed/font filename conventions are assumed.
+ */
+export function emittedReferences(source, from, emitted) {
+  // shortcut: follows literal emitted URLs; use a Vite graph manifest if the build starts synthesizing paths.
+  const refs = new Set();
+  const add = (value) => {
+    if (/^(?:data:|https?:|#|\/\/)/i.test(value)) return;
+    for (const base of [from, "/"]) {
+      let url;
+      try { url = localUrl(value, base); } catch { continue; }
+      if (emitted.has(url)) { refs.add(url); break; }
+    }
+  };
+  for (const match of source.matchAll(/["'`]([^"'`\s]+)["'`]/g)) add(match[1]);
+  for (const match of source.matchAll(/url\(\s*["']?([^"'()\s]+)["']?\s*\)/g)) add(match[1]);
+  return [...refs];
+}
 /** No browser or timing cut-off: this ledger cannot shrink merely because rendering happened earlier. */
 export async function collectBytes({ dist = resolve(root, "dist"), publicDir = resolve(root, "public") } = {}) {
   dist = resolve(dist); publicDir = resolve(publicDir);
@@ -37,12 +55,12 @@ export async function collectBytes({ dist = resolve(root, "dist"), publicDir = r
     }
     throw new Error(`Missing dependency ${url}; build the selected dist first`);
   };
-  const add = (url, category, reason) => {
+  const add = (url, category, reason, ledger = "base") => {
     url = localUrl(url);
     url = registry.models[url]?.url ?? registry.urls[url] ?? url;
     const existing = dependencies.get(url);
     if (existing) { existing.reasons.push(reason); return; }
-    dependencies.set(url, { url, category, reasons: [reason] });
+    dependencies.set(url, { url, category, ledger, reasons: [reason] });
   };
   add("/index.html", "shell", "document");
   for (const match of html.matchAll(/<(?:link|script)\b[^>]*>/gi)) {
@@ -80,7 +98,7 @@ export async function collectBytes({ dist = resolve(root, "dist"), publicDir = r
     if (!specs.length) throw new Error(`Unrecognized eager manifest: ${manifestUrl}`);
     const transportRef = (value) => typeof value === "string" ? value : value?.url ?? value?.file;
     const pack = transportRef(manifest.pack);
-    if (pack) add(localUrl(pack, base), "geometry", `eager pack in ${manifestUrl}`);
+    if (pack) add(localUrl(pack, base), "geometry", `eager pack in ${manifestUrl}`, manifest.hulls ? "fleet" : "base");
     for (const spec of specs) {
       const refs = pack ? [] : [transportRef(spec.transport) ?? transportRef(spec.pack) ?? spec.url ?? spec.file,
         transportRef(spec.lodTransport) ?? transportRef(spec.lod)];
@@ -91,14 +109,28 @@ export async function collectBytes({ dist = resolve(root, "dist"), publicDir = r
         if (!spec.transport && !spec.pack && url.endsWith(".glb")) {
           try { await locate(`${url}.gz`); url += ".gz"; } catch { /* plain GLB transport */ }
         }
-        add(url, "geometry", `eager file in ${manifestUrl}`);
+        add(url, "geometry", `eager file in ${manifestUrl}`, manifest.hulls ? "fleet" : "base");
       }
     }
   }
   // Fleet slot metadata is awaited, unlike the large emblem image and deferred crests/lettering.
   const emblemMap = (await walk(resolve(publicDir, "harbour"))).find((file) => /(?:^|\/)emblems(?:[.-][^/]*)?\.json$/.test(file));
   if (!emblemMap) throw new Error("Missing fleet emblem metadata");
-  add("/" + relative(publicDir, emblemMap).split(sep).join("/"), "metadata", "fleet emblem slots");
+  add("/" + relative(publicDir, emblemMap).split(sep).join("/"), "metadata", "fleet emblem slots", "fleet");
+  const legacyUrls = new Set(dependencies.keys());
+  const emitted = new Set((await walk(dist)).map((file) => "/" + relative(dist, file).split(sep).join("/")));
+  const visited = new Set();
+  for (const dependency of dependencies.values()) {
+    if (visited.has(dependency.url) || !/\.(?:js|css|html)$/.test(dependency.url)) continue;
+    visited.add(dependency.url);
+    const source = await readFile(await locate(dependency.url), "utf8");
+    const workers = new Set([...source.matchAll(/new\s+(?:Shared)?Worker\(\s*new URL\(\s*["']([^"']+)["']/g)]
+      .flatMap((match) => emittedReferences(JSON.stringify(match[1]), dependency.url, emitted)));
+    for (const ref of emittedReferences(source, dependency.url, emitted)) {
+      add(ref, ref.endsWith(".js") ? "javascript" : ref.endsWith(".css") ? "shell" : "emitted-asset",
+        `emitted reference from ${dependency.url}`, workers.has(ref) ? "fleet" : dependency.ledger);
+    }
+  }
   const files = [];
   for (const dependency of dependencies.values()) {
     const file = await locate(dependency.url), data = await readFile(file), text = textFile.test(file);
@@ -118,8 +150,16 @@ export async function collectBytes({ dist = resolve(root, "dist"), publicDir = r
     firstFrameBrotliBodyBytes: sums(files, "brotliBodyBytes"), harbourMediaStoredBytes: sums(media, "storedBytes") };
   const categories = Object.fromEntries([...new Set(files.map((file) => file.category))].map((category) => [category,
     sums(files.filter((file) => file.category === category), "gzipBodyBytes")]));
-  return { schemaVersion: 1, dist, publicDir, totals, categories, files, media, preloads, preloadAudit,
-    notes: ["Static immutable dependency ledger, not completed-before-frame network bytes. Includes shell/poster/font lead; excludes live API payloads and deferred decoration.",
+  const ledger = (rows) => ({ storedBytes: sums(rows, "storedBytes"), gzipBodyBytes: sums(rows, "gzipBodyBytes"), brotliBodyBytes: sums(rows, "brotliBodyBytes"), files: rows.map((row) => row.url) });
+  const legacy = files.filter((file) => legacyUrls.has(file.url));
+  const legacyTotals = { firstFrameStoredBytes: sums(legacy, "storedBytes"), firstFrameGzipBodyBytes: sums(legacy, "gzipBodyBytes"), firstFrameBrotliBodyBytes: sums(legacy, "brotliBodyBytes"), harbourMediaStoredBytes: totals.harbourMediaStoredBytes };
+  const legacyCategories = Object.fromEntries([...new Set(legacy.map((file) => file.category))].map((category) => [category,
+    sums(legacy.filter((file) => file.category === category), "gzipBodyBytes")]));
+  const decorative = media.filter((item) => !dependencies.has(registry.models[item.url]?.url ?? registry.urls[item.url] ?? item.url))
+    .map((item) => ({ ...item, gzipBodyBytes: item.storedBytes, brotliBodyBytes: item.storedBytes }));
+  const ledgers = { base: ledger(files.filter((file) => file.ledger === "base")), fleet: ledger(files.filter((file) => file.ledger === "fleet")), decorative: ledger(decorative) };
+  return { schemaVersion: 2, legacyTotals, legacyCategories, ledgers, dist, publicDir, totals, categories, files, media, preloads, preloadAudit,
+    notes: ["Static immutable dependency ledger, not completed-before-frame network bytes. Includes shell/poster/font lead; includes emitted worker/seed/CSS/font dependencies; excludes live API payloads. Decorative media inventory is separate and may contain alternate transports.",
       "gzip/Brotli body estimates compress text only; binary transport bytes follow manifest URLs. No HTTP headers, latency, partial-response timing or CDN negotiation is modeled.",
       "Media inventory includes decoded source GLBs and encoded siblings, including deferred assets; it is stored bytes, not startup traffic."] };
 }
@@ -134,15 +174,18 @@ if (isMain) {
       const ledger = await collectBytes({ dist: values.dist, publicDir: values.public });
       const budgets = JSON.parse(await readFile(resolve(values.budgets), "utf8"));
       const checks = [];
-      for (const [name, max] of Object.entries(budgets.totals)) checks.push({ name, bytes: ledger.totals[name], max });
-      for (const [name, max] of Object.entries(budgets.categories)) checks.push({ name: `category:${name}`, bytes: ledger.categories[name], max });
+      // The budgets were measured on the original frontier: compare like with like until the complete
+      // ledgers (which charge alternate formats and on-demand logos) get budgets of their own.
+      for (const [name, max] of Object.entries(budgets.totals)) checks.push({ name, bytes: ledger.legacyTotals[name], max });
+      for (const [name, max] of Object.entries(budgets.categories)) checks.push({ name: `category:${name}`, bytes: ledger.legacyCategories[name], max });
       // New assets cannot escape review merely by being added after the baseline.
       const mediaBudgets = budgets.media;
       for (const item of ledger.media) checks.push({ name: item.url, bytes: item.storedBytes, max: mediaBudgets[item.url] });
       for (const check of checks) check.pass = Number.isFinite(check.bytes) && Number.isFinite(check.max) && check.bytes <= check.max;
       const failed = checks.filter((check) => !check.pass);
       ledger.checks = checks; ledger.status = failed.length ? "FAIL" : "PASS";
-      for (const [name, bytes] of Object.entries(ledger.totals)) console.log(`${name}: ${bytes.toLocaleString("en-US")} B (budget ${budgets.totals[name]?.toLocaleString("en-US")} B)`);
+      for (const [name, bytes] of Object.entries(ledger.legacyTotals)) console.log(`${name}: ${bytes.toLocaleString("en-US")} B (budget ${budgets.totals[name]?.toLocaleString("en-US")} B)`);
+      for (const [name, { storedBytes, gzipBodyBytes }] of Object.entries(ledger.ledgers)) console.log(`complete ${name} ledger (reported, not budgeted): ${storedBytes.toLocaleString("en-US")} B stored, ${gzipBodyBytes.toLocaleString("en-US")} B gzip`);
       for (const check of failed) console.error(`OVER BUDGET: ${check.name}: ${check.bytes} B > ${check.max ?? "no baseline"}`);
       if (values.json) { const path = resolve(values.json); await mkdir(dirname(path), { recursive: true }); await writeFile(path, JSON.stringify(ledger, null, 2) + "\n"); }
       console.log(`${ledger.status}: static first-frame and media bytes`);

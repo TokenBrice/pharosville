@@ -30,6 +30,7 @@ import { getHarbourMaterials } from "../world/materials";
 export type SeaState = 0 | 1 | 2 | 3;
 
 export interface OceanService {
+  preparationScope(lite: boolean): () => void;
   setSeaState(state: SeaState): void;
   readonly seaState: SeaState;
   /** Sea surface height (m) at world (x, z) now, for bobbing hulls. */
@@ -94,6 +95,8 @@ export class OceanSystem implements WorldSystem {
   private material!: THREE.ShaderMaterial;
   private wake!: WakeField;
   private unsubQuality: (() => void) | null = null;
+  private lite = false;
+  private featureKey = "";
   private sdfTex!: THREE.Texture;
   private coastR!: Uint8Array;
   private sdfSize = 1024;
@@ -122,7 +125,7 @@ export class OceanSystem implements WorldSystem {
     this.bounds = (layout.sea?.bounds as Bounds4 | undefined) ?? defaultSeaBounds(layout);
     this.bx0 = this.bounds[0]; this.bz0 = this.bounds[1];
     this.bw = this.bounds[2] - this.bounds[0]; this.bh = this.bounds[3] - this.bounds[1];
-    this.fx = acquireFxTextures(ctx);
+    this.fx = await acquireFxTextures(ctx);
 
     // sea SDF: the baked PNG when it exists, else generated now from the layout (same encoding)
     const loaded = await loadSdf(ctx, layout.sea?.sdf ?? "/harbour/sea-sdf.webp");
@@ -192,14 +195,21 @@ export class OceanSystem implements WorldSystem {
       // the calendar is set before anything compiles (season system first): summer nights' glow only when it can show
       defines: W.uFoliage.value.y > 0.001 ? { HB_BIOLUM: "" } : {},
     });
+    const features = () => Object.freeze({ biolum: W.uFoliage.value.y > 0.001, lite: this.lite });
+    this.material.customProgramCacheKey = () => { const f = features(); return `hb_ocean_${Number(f.biolum)}_${Number(f.lite)}`; };
+    this.material.onBeforeCompile = (shader) => {
+      const f = features();
+      shader.defines = { ...shader.defines };
+      delete shader.defines.HB_BIOLUM; delete shader.defines.HB_LITE;
+      if (f.biolum) shader.defines.HB_BIOLUM = "";
+      if (f.lite) shader.defines.HB_LITE = "";
+    };
     // PERF: the Low tier's lighter sea (sea-tone.ts HB_LITE)
     const quality = ctx.services.get("quality") as QualityService | undefined;
     if (quality) {
       const lite = (tier: string) => {
-        const on = tier === "low";
-        if (on === "HB_LITE" in this.material.defines) return;
-        if (on) this.material.defines.HB_LITE = ""; else delete this.material.defines.HB_LITE;
-        this.material.needsUpdate = true;
+        this.lite = tier === "low";
+        this.syncFeatures();
       };
       lite(quality.tier);
       this.unsubQuality = quality.onChange((q) => lite(q.tier));
@@ -222,6 +232,7 @@ export class OceanSystem implements WorldSystem {
 
     const getState = () => this.state;
     const svc: OceanService = {
+      preparationScope: (lite) => { const previous = this.lite; this.lite = lite; return () => { this.lite = previous; }; },
       setSeaState: (s) => this.setSeaState(s),
       get seaState() { return getState(); },
       heightAt: (x, z) => waveHeight(x, z, this.time, this.seaU.value.x) * this.dampAt(x, z),
@@ -243,6 +254,11 @@ export class OceanSystem implements WorldSystem {
     this.state = st;
     const p = SEA_STATES[st];
     this.seaGoal.set(p.amp, p.chop, p.caps, p.bands);
+  }
+
+  private syncFeatures(): void {
+    const key = this.material.customProgramCacheKey();
+    if (key !== this.featureKey) { this.featureKey = key; this.material.needsUpdate = true; }
   }
 
   /** Texel of the coast SDF under (x, z), or -1 off the SDF. */
@@ -290,6 +306,7 @@ export class OceanSystem implements WorldSystem {
   }
 
   update(frame: FrameState, ctx: EngineContext): void {
+    this.syncFeatures();
     if (this.awaitGround) {
       const ground = ctx.services.get("ground") as HeightField | undefined;
       if (ground?.heights) { this.awaitGround = false; this.rebuildFromGround(ground); }

@@ -87,7 +87,7 @@ describe("depth shader coverage", () => {
       expect("HB_BARE" in shader.defines).toBe(fall > 0.001);
       expect(shader.fragmentShader).toContain("#ifdef HB_BARE\n  {");
       expect(shader.fragmentShader).toContain("if (hbNoise(vHbWorld * 1.7) < bare * 0.84) discard;");
-      expect(depth.customProgramCacheKey()).toMatch(fall > 0.001 ? /bare$/ : /leaf$/);
+      expect(depth.customProgramCacheKey()).toMatch(fall > 0.001 ? /_bare(?:_|$)/ : /_leaf(?:_|$)/);
     }
     f.materials.dispose();
   });

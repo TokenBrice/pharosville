@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>O8 · Pilot's Chart · phone welcome, small window, tablet sheet</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="O8-pilot-chart.css">
+<style>
+  html, body { margin: 0; }
+  [data-v] .art { display: none; }
+  [data-v="phone"] .art.phone, [data-v="window"] .art.window, [data-v="sheet"] .art.sheet { display: block; }
+
+  /* ---------- phone welcome (no world, no data: a static page in the harbour's own voice) */
+  .phone { min-height: 100vh; background: linear-gradient(#0d1b2a, #16222f 40%, #16222f); padding-bottom: 28px; }
+  .phone .hero { position: relative; height: 236px; background: #1d5677 url("O8-poster.jpg") 42% 40% / cover no-repeat; }
+  .phone .hero::after { content: ""; position: absolute; inset: auto 0 0 0; height: 60px; background: linear-gradient(transparent, rgba(13, 27, 42, 0.55)); }
+  .phone .hero .pc-note { position: absolute; left: 14px; top: 12px; z-index: 1; padding: 2px 8px 3px; background: rgba(244, 236, 218, 0.9); color: #4a4236; border-radius: 1px; font-size: 12.5px; }
+  .phone .card { margin: -30px 12px 0; padding: 22px 20px 20px; z-index: 1; }
+  .phone .pc-wordmark { font-size: 34px; display: block; }
+  .phone .promise { font-style: italic; font-size: 19px; color: var(--ink-2); margin: 6px 0 16px; }
+  .phone .gate { padding: 14px 0 16px; border-top: 1px solid var(--neat); border-bottom: 1px solid var(--neat); }
+  .phone .gate p { margin: 6px 0 14px; }
+  .phone .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .guide { list-style: none; margin: 0; padding: 6px 0 0; }
+  .guide li { display: grid; grid-template-columns: 46px 1fr; gap: 12px; align-items: start; padding: 10px 0; border-bottom: 0.5px dotted var(--rule-dot); }
+  .guide svg { width: 46px; height: 34px; color: var(--ink-2); fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  .guide svg .accent { stroke: var(--rule); }
+  .guide b { font-weight: 600; font-size: var(--fs-lead); display: block; line-height: 1.2; }
+  .guide p { margin: 2px 0 0; color: var(--ink-2); font-size: var(--fs-body); line-height: 1.4; }
+  .links { list-style: none; margin: 6px 0 0; padding: 0; }
+  .links a { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; color: var(--ink); text-decoration: none; border-bottom: 0.5px dotted var(--rule-dot); }
+  .links a span { display: block; }
+  .links a em { display: block; font-size: var(--fs-small); color: var(--ink-3); line-height: 1.2; }
+  .links a .pc-i { color: var(--brass-ink); }
+
+  /* ---------- a desktop window too small to chart */
+  .window { position: relative; width: 700px; height: 560px; overflow: hidden; background: #0d1b2a; }
+  .window .bgimg { position: absolute; inset: -20px; background: url("O8-poster.jpg") center / cover; filter: blur(6px) saturate(0.85); }
+  .window .scrim { position: absolute; inset: 0; background: rgba(13, 27, 42, 0.5); }
+  .window .card { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 584px; padding: 20px 26px 18px; }
+  .window .top { display: flex; align-items: baseline; gap: 12px; }
+  .window .pc-wordmark { font-size: 26px; }
+  .window .top em { font-size: var(--fs-lead); color: var(--ink-2); }
+  .window .row { display: grid; grid-template-columns: 1fr 168px; gap: 22px; align-items: center; margin: 14px 0 12px; padding: 14px 0; border-top: 1px solid var(--neat); border-bottom: 1px solid var(--neat); }
+  .window .gauge text { font-family: var(--serif); }
+  .window .mini { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 16px; margin: 0 0 12px; }
+  .window .mini b { font-weight: 600; display: block; font-size: var(--fs-body); }
+  .window .mini span { font-size: var(--fs-note); color: var(--ink-2); line-height: 1.3; display: block; }
+  .window .lnk { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--fs-small); }
+  .window .lnk a { color: var(--link); text-decoration: underline; text-decoration-color: var(--neat); text-underline-offset: 3px; display: inline-flex; align-items: center; gap: 3px; }
+  .window .lnk .pc-i { width: 12px; height: 12px; }
+
+  /* ---------- tablet portrait: half-detent bottom sheet, touch toolbar, the More menu open */
+  .sheet { position: relative; width: 834px; height: 1112px; overflow: hidden; background: #1d5677 url("O8-bg-tablet.jpg") center / cover no-repeat; }
+  .sheet .pc-sheet { height: 556px; }
+  .sheet .pc-sheet .pc-panel-actions { top: 22px; right: 12px; }
+  .sheet .menu { position: absolute; top: 66px; left: 476px; width: 272px; padding: 6px; display: grid; gap: 2px; }
+  .sheet .menu button { display: grid; grid-template-columns: 22px 1fr; align-items: center; gap: 10px; min-height: 44px; padding: 0 10px; border: 0; background: none; color: var(--ink); font: inherit; text-align: left; border-radius: var(--r-ctl); }
+  .sheet .menu button em { display: block; font-size: var(--fs-note); color: var(--ink-3); line-height: 1.2; }
+  .sheet .menu button .pc-i { color: var(--brass-ink); }
+  .sheet .menu button.is-hover { background: var(--wash-2); }
+  .sheet .more-hint { position: absolute; left: 0; right: 0; bottom: 0; height: 64px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 12px; background: linear-gradient(transparent, var(--paper) 65%); }
+  .susds-medal img { width: 32px; height: 32px; border-radius: 50%; }
+</style>
+<script>document.documentElement.dataset.v = new URLSearchParams(location.search).get("v") || "phone";</script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-share" viewBox="0 0 16 16"><path d="M8 2.5v8"/><path d="M5.2 5.3L8 2.5l2.8 2.8"/><path d="M4 8.5v5h8v-5"/></symbol>
+  <symbol id="i-ext" viewBox="0 0 16 16"><path d="M9.5 2.5h4v4"/><path d="M13.5 2.5l-6 6"/><path d="M11.5 9.5v4h-9v-9h4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.75"/><path d="M10.6 10.6L14 14"/></symbol>
+  <symbol id="i-ledger" viewBox="0 0 16 16"><path d="M3.5 2.5h8.5a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3.5z"/><path d="M6 2.5v11"/><path d="M8.2 5.5h2.8M8.2 8h2.8"/></symbol>
+  <symbol id="i-names" viewBox="0 0 16 16"><path d="M3 13L8 3l5 10"/><path d="M5 9h6"/></symbol>
+  <symbol id="i-home" viewBox="0 0 16 16"><circle cx="8" cy="3.4" r="1.3"/><path d="M8 4.7v8.8"/><path d="M5.3 7h5.4"/><path d="M3 10.2c.6 2.2 2.6 3.3 5 3.3s4.4-1.1 5-3.3"/></symbol>
+  <symbol id="i-more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="0.6"/><circle cx="8" cy="8" r="0.6"/><circle cx="12.5" cy="8" r="0.6"/></symbol>
+  <symbol id="i-sound-off" viewBox="0 0 16 16"><path d="M2 6h2.4L7.6 3.3v9.4L4.4 10H2z"/><path d="M10.4 6.2l3.6 3.6M14 6.2l-3.6 3.6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path d="M5 6.5L8 9.5l3-3"/></symbol>
+  <symbol id="i-close" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-link" viewBox="0 0 16 16"><path d="M6.6 9.4l2.8-2.8"/><path d="M7.2 4.6l1.1-1.1a2.6 2.6 0 0 1 3.7 3.7l-1.1 1.1"/><path d="M8.8 11.4l-1.1 1.1A2.6 2.6 0 0 1 4 8.8l1.1-1.1"/></symbol>
+  <symbol id="i-postcard" viewBox="0 0 16 16"><path d="M2.5 3.5h11v9h-11z"/><path d="M2.5 10.5l3.2-3.2 2.6 2.6 1.9-1.9 3.3 3.3"/></symbol>
+  <symbol id="i-watch" viewBox="0 0 16 16"><path d="M4.5 2.5h7M4.5 13.5h7"/><path d="M5.2 2.5c0 3.2 5.6 3 5.6 5.5s-5.6 2.3-5.6 5.5M10.8 2.5c0 3.2-5.6 3-5.6 5.5s5.6 2.3 5.6 5.5"/></symbol>
+  <symbol id="i-legend" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 7.2v4"/><circle cx="8" cy="5" r="0.4"/></symbol>
+</svg>
+
+<!-- ============================================================ D · PHONE (390 × 844): the welcome page in the harbour's voice -->
+<div class="art phone pc pc-night">
+  <div class="hero"><span class="pc-note">Illustration, not live readings</span></div>
+  <section class="card pc pc-paper pc-neat" aria-labelledby="w-title">
+    <h1 class="pc-wordmark" id="w-title">Pharos<i>Ville</i></h1>
+    <p class="promise">A living stablecoin harbour</p>
+    <div class="gate">
+      <span class="pc-cap">Open it on a larger screen</span>
+      <p class="pc-body">The living harbour needs at least 720 × 600: a tablet, an unfolded foldable or a computer. Nothing of it loads on this phone.</p>
+      <div class="actions pc-touch">
+        <button class="pc-btn pc-btn--primary" type="button"><svg class="pc-i"><use href="#i-share"/></svg>Send to my computer</button>
+        <button class="pc-btn pc-btn--text" type="button">Copy link</button>
+      </div>
+    </div>
+    <ul class="guide" aria-label="How to read the harbour">
+      <li><svg viewBox="0 0 46 34" aria-hidden="true"><path d="M10 24h22l-3 4H13zM21 24V6M21 7l9 14h-9M20 9l-7 12h7"/><path class="accent" d="M4 31c4-2 8-2 12 0s8 2 12 0 8-2 12 0"/></svg>
+        <div><b>Boats</b><p>One boat is one stablecoin. It sails a circuit between its chains and docks longest where it holds the most supply.</p></div></li>
+      <li><svg viewBox="0 0 46 34" aria-hidden="true"><path d="M7 30h16M9 30V20h12v10M11 20V12h8v8M13 12V7h4v5"/><path d="M15 7c-1.5-1.5 0-3 0-4 1 1 2.5 2 0 4"/><path class="accent" d="M18 6l22-4M18 7l22 5" stroke-dasharray="2 2.5"/></svg>
+        <div><b>Lighthouse</b><p>The beam is the Pharos Stability Index: the market as a whole.</p></div></li>
+      <li><svg viewBox="0 0 46 34" aria-hidden="true"><path d="M12 16h20a6 6 0 0 0 0-12 8 8 0 0 0-15-2 6 6 0 0 0-5 14z"/><path class="accent" d="M4 24c4-4 8-4 12 0s8 4 12 0 8-4 12 0M4 31c4-4 8-4 12 0s8 4 12 0 8-4 12 0"/></svg>
+        <div><b>Sea and sky</b><p>Rough water is supply trading off its peg, storms are stress signals, and fog means the data has gone stale.</p></div></li>
+    </ul>
+    <div style="margin-top:16px"><span class="pc-cap">On Pharos</span></div>
+    <ul class="links">
+      <li><a href="#"><span>Pharos Stability Index<em>the fleet-wide health score</em></span><svg class="pc-i"><use href="#i-ext"/></svg></a></li>
+      <li><a href="#"><span>Stablecoins<em>supply and backing, coin by coin</em></span><svg class="pc-i"><use href="#i-ext"/></svg></a></li>
+      <li><a href="#"><span>Chains<em>where that supply lives</em></span><svg class="pc-i"><use href="#i-ext"/></svg></a></li>
+    </ul>
+  </section>
+</div>
+
+<!-- ============================================================ E · A DESKTOP WINDOW TOO SMALL (700 × 560): the action first, with a gauge -->
+<div class="art window pc">
+  <div class="bgimg"></div><div class="scrim"></div>
+  <section class="card pc-paper pc-neat" aria-labelledby="g-title">
+    <div class="top"><span class="pc-wordmark">Pharos<i>Ville</i></span><em>A living stablecoin harbour</em></div>
+    <div class="row">
+      <div>
+        <h2 class="pc-h3" id="g-title">Give this window a little more room.</h2>
+        <p class="pc-body" style="margin-top:6px">It is <b class="pc-num" style="color:var(--ink)">700 × 560</b>. At <b class="pc-num" style="color:var(--ink)">720 × 600</b> or more, either way round, the harbour opens by itself. Nothing of the world loads until then.</p>
+      </div>
+      <svg class="gauge" viewBox="0 0 168 112" role="img" aria-label="This window, 700 by 560, inside the 720 by 600 the harbour needs">
+        <rect x="14" y="6" width="144" height="96" fill="none" stroke="var(--rule)" stroke-width="1" stroke-dasharray="3 3"/>
+        <rect x="14" y="14" width="140" height="88" fill="var(--wash-2)" stroke="var(--ink-2)" stroke-width="1.2"/>
+        <path d="M154 58h4" stroke="var(--down)" stroke-width="1.5"/>
+        <path d="M84 6v8" stroke="var(--down)" stroke-width="1.5"/>
+        <text x="84" y="62" text-anchor="middle" font-size="13" fill="var(--ink)">700 × 560</text>
+        <text x="84" y="78" text-anchor="middle" font-size="11.5" font-style="italic" fill="var(--ink-3)">this window</text>
+        <text x="158" y="111" text-anchor="end" font-size="11" font-style="italic" fill="var(--brass-ink)">needs 720 × 600</text>
+      </svg>
+    </div>
+    <div class="mini">
+      <div><b>Boats</b><span>one per stablecoin, docking longest where its supply is</span></div>
+      <div><b>Lighthouse</b><span>the Pharos Stability Index</span></div>
+      <div><b>Sea and sky</b><span>off-peg water, stress storms, fog when stale</span></div>
+    </div>
+    <div class="lnk">
+      <a href="#">Pharos Stability Index<svg class="pc-i"><use href="#i-ext"/></svg></a>
+      <a href="#">Stablecoins<svg class="pc-i"><use href="#i-ext"/></svg></a>
+      <a href="#">Chains<svg class="pc-i"><use href="#i-ext"/></svg></a>
+      <a href="#">Depegs<svg class="pc-i"><use href="#i-ext"/></svg></a>
+      <a href="#">Cemetery<svg class="pc-i"><use href="#i-ext"/></svg></a>
+    </div>
+  </section>
+</div>
+
+<!-- ============================================================ F · TABLET PORTRAIT (834 × 1112, touch): half-detent sheet, touch toolbar, More open -->
+<div class="art sheet pc pc-touch">
+  <div class="pc-mark pc-paper">
+    <div class="pc-mark-word"><span class="pc-wordmark">Pharos<i>Ville</i></span><span class="pc-dot" data-state="live"></span><span class="pc-state">live</span></div>
+    <div class="pc-mark-tools" role="toolbar" aria-label="Harbour">
+      <button class="pc-tool" type="button"><svg class="pc-i"><use href="#i-search"/></svg>Search</button>
+      <button class="pc-tool" type="button"><svg class="pc-i"><use href="#i-ledger"/></svg>Ledger</button>
+      <button class="pc-tool" type="button"><svg class="pc-i"><use href="#i-names"/></svg>Names</button>
+      <button class="pc-tool" type="button" aria-expanded="true" style="background:var(--wash-2)"><svg class="pc-i"><use href="#i-more"/></svg>More</button>
+    </div>
+    <div class="pc-mark-sound">
+      <button class="pc-iconbtn" type="button" aria-label="Sound off"><svg class="pc-i"><use href="#i-sound-off"/></svg></button>
+      <button class="pc-iconbtn" type="button" aria-label="Sound options"><svg class="pc-i"><use href="#i-chev"/></svg></button>
+    </div>
+  </div>
+  <div class="menu pc-paper pc-neat" role="menu" aria-label="More">
+    <button type="button" role="menuitem"><svg class="pc-i"><use href="#i-home"/></svg><span>Home<em>back to the harbour view</em></span></button>
+    <button type="button" role="menuitem" class="is-hover"><svg class="pc-i"><use href="#i-postcard"/></svg><span>Postcard<em>a dated print of the harbour now</em></span></button>
+    <button type="button" role="menuitem"><svg class="pc-i"><use href="#i-watch"/></svg><span>Harbourmaster’s watch<em>visit the day’s notable ships</em></span></button>
+    <button type="button" role="menuitem"><svg class="pc-i"><use href="#i-legend"/></svg><span>How to read the harbour<em>the legend</em></span></button>
+  </div>
+
+  <div class="pc-tag-anchor pinned" style="left:286px; top:322px">
+    <div class="pc-tag pc-paper"><span class="pc-tag-swatch" style="background:#1aab9b"></span><span class="pc-tag-name">sUSDS</span><span class="pc-tag-fact pc-num">$3.99B · alongside Ethereum</span></div>
+    <span class="pc-tag-leader"></span><span class="pc-tag-pin"></span>
+  </div>
+
+  <aside class="pc-sheet pc-paper" aria-labelledby="t-susds">
+    <span class="pc-grabber" aria-hidden="true"></span>
+    <div class="pc-panel-actions">
+      <button class="pc-iconbtn" type="button" aria-label="Copy a link to sUSDS"><svg class="pc-i"><use href="#i-link"/></svg></button>
+      <button class="pc-iconbtn round" type="button" aria-label="Close"><svg class="pc-i"><use href="#i-close"/></svg></button>
+    </div>
+    <header class="pc-sheet-head">
+      <span class="pc-medal susds-medal"><img src="O8-logo-susds.png" alt=""></span>
+      <div><span class="pc-cap">Vessel · merchantman</span><h2 class="pc-title" id="t-susds">sUSDS</h2><div class="pc-sub" style="margin-top:2px">Sky Savings USDS</div></div>
+    </header>
+    <div class="pc-sheet-body">
+      <div>
+        <div class="pc-where"><span>Alongside Ethereum</span></div>
+        <p class="pc-body pc-why">Sails a circuit of two stops, Ethereum and Arbitrum, staying at each in proportion to its supply there. It stays longest at Ethereum, where 88&#8202;% of its supply sits.</p>
+        <section class="pc-sec">
+          <h3 class="pc-sec-h pc-cap">Supply</h3>
+          <div class="pc-display pc-num">$3.99B</div>
+          <div class="pc-changes pc-num">
+            <div><span>24 h</span><b class="pc-up">+1.25%</b></div>
+            <div><span>7 days</span><b class="pc-down">−11.0%</b></div>
+            <div><span>30 days</span><b class="pc-down">−18.9%</b></div>
+          </div>
+        </section>
+      </div>
+      <div>
+        <section class="pc-sec" style="margin-top:0">
+          <h3 class="pc-sec-h pc-cap">Circuit · 2 stops</h3>
+          <ul class="pc-rows">
+            <li><b>Ethereum</b><span class="pc-bar"><i style="width:88%"></i></span><span class="pc-num">88%</span></li>
+            <li><b>Arbitrum</b><span class="pc-bar"><i style="width:12%"></i></span><span class="pc-num">12%</span></li>
+          </ul>
+          <p class="pc-note" style="margin:8px 0 0">Docks at each stop for a time in proportion to its supply there. Sailing is not a bridge transfer.</p>
+        </section>
+        <section class="pc-sec">
+          <h3 class="pc-sec-h pc-cap">Supply by chain</h3>
+          <div class="pc-split"><span style="flex-grow:88;background:var(--c1)"></span><span style="flex-grow:12;background:var(--c2)"></span></div>
+          <ul class="pc-legend">
+            <li><i style="background:var(--c1)"></i><span>Ethereum</span><span class="pc-num">$3.51B</span><span class="pc-num">88%</span></li>
+            <li><i style="background:var(--c2)"></i><span>Arbitrum</span><span class="pc-num">$479M</span><span class="pc-num">12%</span></li>
+          </ul>
+        </section>
+        <section class="pc-sec">
+          <h3 class="pc-sec-h pc-cap">Peg</h3>
+          <dl class="pc-dl">
+            <dt>Pegged to</dt><dd>US dollar</dd>
+            <dt>Deviation</dt><dd><em>no reading</em></dd>
+          </dl>
+        </section>
+      </div>
+    </div>
+    <div class="more-hint"><span class="pc-note">Pull up for peg, signals, and mint and burn</span></div>
+  </aside>
+</div>
+</body>
+</html>

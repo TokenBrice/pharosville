@@ -1,0 +1,280 @@
+/* O8 "Pilot's Chart" — a refined UI direction for PharosVille (research mockup, not shipped code).
+   One family (EB Garamond 400/400i/600), an 8-step type scale, a 4 px spacing scale, and two chart palettes:
+   DAY (the existing chart paper, tokenised) and NIGHT (an S-52-style bridge palette: dark chart, dim cream ink,
+   brass rules) switched by the world's night factor so the Pharos beam stays the brightest thing on screen.
+   Every colour below is a token; components never use literals. */
+
+@font-face { font-family: "Harbour Garamond"; font-style: normal; font-weight: 400; font-display: swap; src: url("O8-fonts/eb-garamond-400-latin.woff2") format("woff2"); }
+@font-face { font-family: "Harbour Garamond"; font-style: italic; font-weight: 400; font-display: swap; src: url("O8-fonts/eb-garamond-400-italic-latin.woff2") format("woff2"); }
+@font-face { font-family: "Harbour Garamond"; font-style: normal; font-weight: 600; font-display: swap; src: url("O8-fonts/eb-garamond-600-latin.woff2") format("woff2"); }
+
+/* ------------------------------------------------------------------ scale tokens (theme-independent) */
+:root {
+  --serif: "Harbour Garamond", "EB Garamond", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  /* type: 8 steps (was 26 sizes from 9.5 to 36 px) */
+  --fs-cap: 11.5px;     /* tracked capitals: kickers, section heads, table heads, tabs */
+  --fs-note: 13.5px;    /* captions, axis notes, hints, freshness foot */
+  --fs-small: 14.5px;   /* secondary row text, coin names, chips */
+  --fs-body: 16px;      /* body, list rows, dd, menu items, tag fact */
+  --fs-lead: 17.5px;    /* tag name, search results, legend titles, sheet title (touch) */
+  --fs-h3: 21px;        /* search field, epitaph, gate headline */
+  --fs-title: 30px;     /* panel and ledger titles (26 when long) */
+  --fs-display: 38px;   /* the one key figure of a panel */
+  --lh-tight: 1.05; --lh-snug: 1.25; --lh-body: 1.45;
+  --track-cap: 0.12em;
+  /* space: 4 px base; optical nudges stay local */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
+  --r-panel: 1px; --r-ctl: 2px;
+  --ctl-h: 32px; --ctl-h-touch: 44px;
+  /* motion: one curve, three speeds, one slow theme change */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --t-fast: 150ms; --t-med: 220ms; --t-slow: 320ms; --t-watch: 1200ms;
+}
+
+/* ------------------------------------------------------------------ DAY chart paper */
+.pc {
+  --paper: #f4ecda; --paper-2: #ebe0c6; --paper-3: #e2d4b4;
+  --edge: rgba(110, 84, 40, 0.55);   /* the sheet's cut edge */
+  --neat: rgba(166, 130, 66, 0.55);  /* inner neatline */
+  --rule: #a68242;                   /* brass hairline (non-text, 3.0:1) */
+  --rule-dot: rgba(122, 90, 34, 0.45);
+  --wash-1: rgba(166, 130, 66, 0.07); --wash-2: rgba(166, 130, 66, 0.13); --wash-3: rgba(166, 130, 66, 0.22);
+  --ink: #23201a; --ink-2: #4a4236; --ink-3: #6a5e4b; --brass-ink: #7a5a22;
+  --link: #1f5873; --up: #3f6e52; --down: #a3372a; --focus: #1668a3;
+  --live: #3f8a5e; --stale: #9c6a17; --unavail: #8a7d66;
+  --halo: rgba(244, 236, 218, 0.95);
+  --lift: 0 1px 1px rgba(20, 16, 10, 0.12), 0 10px 30px -6px rgba(8, 14, 24, 0.45);
+  --lift-2: 0 1px 1px rgba(20, 16, 10, 0.12), 0 6px 16px -4px rgba(8, 14, 24, 0.35);
+  --sheen: radial-gradient(120% 90% at 50% 40%, rgba(255, 252, 240, 0.55), rgba(255, 252, 240, 0) 60%, rgba(150, 118, 64, 0.1) 100%);
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .36  0 0 0 0 .28  0 0 0 0 .16  0 0 0 .07 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  /* chain split inks (validated categorical set, unchanged) */
+  --c1: #1668a3; --c2: #b8700f; --c3: #7a4ca6; --c4: #008c80; --c5: #b5382b; --c-other: #a99f8c;
+  font-family: var(--serif); font-size: var(--fs-body); line-height: var(--lh-body); color: var(--ink);
+  font-kerning: normal; font-variant-ligatures: common-ligatures; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+
+/* ------------------------------------------------------------------ NIGHT bridge chart (uNight > 0.55, hysteresis to 0.45) */
+.pc.pc-night {
+  --paper: #18212b; --paper-2: #1f2a36; --paper-3: #283543;
+  --edge: rgba(207, 174, 110, 0.38);
+  --neat: rgba(207, 174, 110, 0.26);
+  --rule: #a88a52;
+  --rule-dot: rgba(207, 174, 110, 0.26);
+  --wash-1: rgba(207, 174, 110, 0.06); --wash-2: rgba(207, 174, 110, 0.12); --wash-3: rgba(207, 174, 110, 0.2);
+  --ink: #e6dcc6; --ink-2: #c8bda5; --ink-3: #aba18c; --brass-ink: #cfae6e;
+  --link: #8ec1d9; --up: #8fc7a0; --down: #ec9c8b; --focus: #7fb8ea;
+  --live: #5fb07f; --stale: #d9a441; --unavail: #8f8775;
+  --halo: rgba(12, 18, 26, 0.9);
+  --lift: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 14px 34px -10px rgba(0, 0, 0, 0.65);
+  --lift-2: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 8px 18px -6px rgba(0, 0, 0, 0.55);
+  --sheen: radial-gradient(120% 90% at 50% 25%, rgba(207, 174, 110, 0.07), rgba(207, 174, 110, 0) 55%, rgba(0, 0, 0, 0.2) 100%);
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .92  0 0 0 0 .86  0 0 0 0 .72  0 0 0 .045 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  --c1: #6fa8d6; --c2: #d9a052; --c3: #b294d6; --c4: #4cbcae; --c5: #e2897b; --c-other: #8f8775;
+  color-scheme: dark;
+}
+
+.pc *, .pc *::before, .pc *::after { box-sizing: border-box; }
+/* zero-specificity reset: every control speaks in the serif (components below set size and colour).
+   NB the board capture shots/O8-mockup-board.png predates this line: its toolbar and chip labels fell back to the UA sans. */
+.pc :where(button, input, select, textarea) { font: inherit; color: inherit; }
+.pc :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-ctl); }
+
+/* ------------------------------------------------------------------ type roles */
+.pc-cap { font-size: var(--fs-cap); font-weight: 600; letter-spacing: var(--track-cap); text-transform: uppercase; line-height: 1.2; color: var(--brass-ink); }
+.pc-num { font-variant-numeric: tabular-nums lining-nums; }
+.pc-note { font-size: var(--fs-note); font-style: italic; color: var(--ink-3); line-height: 1.4; }
+.pc-small { font-size: var(--fs-small); color: var(--ink-2); }
+.pc-lead { font-size: var(--fs-lead); line-height: var(--lh-snug); }
+.pc-h3 { font-size: var(--fs-h3); line-height: var(--lh-snug); font-weight: 600; margin: 0; }
+.pc-title { font-size: var(--fs-title); line-height: var(--lh-tight); font-weight: 600; letter-spacing: -0.005em; margin: 0; }
+.pc-display { font-size: var(--fs-display); line-height: 1; font-weight: 600; letter-spacing: -0.01em; }
+.pc-wordmark { font-weight: 600; letter-spacing: 0.01em; line-height: 1; }
+.pc-wordmark i { font-weight: 400; font-style: italic; }
+/* chart grammar: roman for facts and land, italic for water, annotations and decoration only */
+.pc-body { font-size: var(--fs-body); color: var(--ink-2); line-height: var(--lh-body); margin: 0; }
+
+/* ------------------------------------------------------------------ surfaces */
+.pc-paper {
+  position: relative; color: var(--ink);
+  background-color: var(--paper); background-image: var(--grain), var(--sheen);
+  border: 1px solid var(--edge); border-radius: var(--r-panel); box-shadow: var(--lift);
+  transition: background-color var(--t-watch) var(--ease), color var(--t-watch) var(--ease), border-color var(--t-watch) var(--ease);
+}
+.pc-neat::before { content: ""; position: absolute; inset: 4px; border: 0.5px solid var(--neat); pointer-events: none; }
+.pc-rule { height: 0; border: 0; border-top: 1px solid var(--rule); opacity: 0.55; margin: 0; }
+
+/* ------------------------------------------------------------------ icons: one hairline family, 16 px, 1.25 stroke */
+.pc-i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; display: block; }
+.pc-i.fill { fill: currentColor; stroke: none; }
+
+/* ------------------------------------------------------------------ buttons */
+.pc-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
+  height: var(--ctl-h); padding: 0 var(--s3); border-radius: var(--r-ctl);
+  font: inherit; font-size: var(--fs-body); line-height: 1; color: var(--ink); white-space: nowrap;
+  background: transparent; border: 1px solid var(--rule); cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.pc-btn:hover, .pc-btn.is-hover { background: var(--wash-2); }
+.pc-btn:active, .pc-btn.is-active { background: var(--wash-3); }
+.pc-btn--primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.pc-btn--primary:hover, .pc-btn--primary.is-hover { background: var(--ink-2); border-color: var(--ink-2); }
+.pc-btn--text { border-color: transparent; padding: 0 var(--s1); color: var(--link); text-decoration: underline; text-decoration-color: var(--neat); text-underline-offset: 3px; }
+.pc-btn--text:hover { background: none; text-decoration-color: var(--link); }
+.pc-iconbtn {
+  display: inline-grid; place-items: center; width: var(--ctl-h); height: var(--ctl-h); border-radius: var(--r-ctl);
+  color: var(--ink-3); background: none; border: 0; cursor: pointer; transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.pc-iconbtn:hover, .pc-iconbtn.is-hover { background: var(--wash-2); color: var(--ink); }
+.pc-iconbtn[aria-pressed="true"] { color: var(--brass-ink); }
+.pc-iconbtn.round { border-radius: 50%; }
+.pc-touch .pc-btn { height: var(--ctl-h-touch); padding: 0 var(--s4); }
+.pc-touch .pc-iconbtn { width: var(--ctl-h-touch); height: var(--ctl-h-touch); }
+
+/* ------------------------------------------------------------------ chips */
+.pc-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 9px; border-radius: var(--r-ctl);
+  font-size: var(--fs-small); color: var(--ink-2); background: none; border: 0; box-shadow: inset 0 0 0 1px var(--neat); cursor: pointer;
+}
+.pc-chip i { width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2); }
+.pc-chip b { font-weight: 400; color: var(--ink-3); font-size: var(--fs-note); }
+.pc-chip:hover, .pc-chip.is-hover { background: var(--wash-2); color: var(--ink); }
+.pc-chip[aria-pressed="true"] { background: var(--wash-3); color: var(--ink); box-shadow: inset 0 0 0 1px var(--rule); }
+.pc-touch .pc-chip { height: var(--ctl-h-touch); padding: 0 14px 0 12px; }
+
+/* ------------------------------------------------------------------ keys */
+.pc-kbd {
+  display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: var(--r-ctl);
+  font: 600 12px/1 var(--serif); color: var(--ink-2); background: var(--wash-1); box-shadow: inset 0 0 0 0.5px var(--rule);
+  position: relative; top: -1px;
+}
+
+/* ------------------------------------------------------------------ status dot (never colour alone: a word or a shape goes with it) */
+.pc-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
+.pc-dot[data-state="live"] { background: var(--live); box-shadow: 0 0 0 2px color-mix(in srgb, var(--live) 22%, transparent); }
+.pc-dot[data-state="stale"] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--stale); position: relative; }
+.pc-dot[data-state="stale"]::after { content: ""; position: absolute; left: 1px; right: 1px; top: 3px; height: 1.5px; background: var(--stale); }
+.pc-dot[data-state="unavailable"] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--unavail); }
+.pc-state { font-style: italic; font-size: var(--fs-small); color: var(--ink-2); }
+.pc-state[data-state="stale"] { color: var(--stale); font-style: normal; font-weight: 600; }
+
+/* ------------------------------------------------------------------ corner mark: wordmark + state, then a toolbar (hover/focus on desktop, always on touch) */
+.pc-mark { position: absolute; top: 14px; left: 14px; display: flex; align-items: stretch; height: 34px; }
+.pc-mark-word { display: flex; align-items: center; gap: 9px; padding: 0 12px 0 12px; font-size: 19px; }
+.pc-mark-tools { display: flex; align-items: center; gap: 2px; padding: 0 4px; border-left: 0.5px solid var(--neat); }
+.pc-tool {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px 0 6px; border-radius: var(--r-ctl);
+  font-size: var(--fs-small); color: var(--ink-2); background: none; border: 0; cursor: pointer; white-space: nowrap;
+}
+.pc-tool .pc-i { color: var(--ink-3); }
+.pc-tool .pc-kbd { margin-left: 2px; }
+.pc-tool:hover, .pc-tool.is-hover { background: var(--wash-2); color: var(--ink); }
+.pc-tool[aria-pressed="true"] { color: var(--ink); background: var(--wash-1); box-shadow: inset 0 -1.5px 0 var(--rule); }
+.pc-tool[aria-pressed="true"] .pc-i { color: var(--brass-ink); }
+.pc-mark-sound { display: flex; align-items: center; gap: 0; padding: 0 2px; border-left: 0.5px solid var(--neat); }
+.pc-mark-sound .pc-iconbtn { width: 30px; height: 30px; }
+.pc-mark-sound .pc-iconbtn + .pc-iconbtn { width: 18px; margin-left: -4px; }
+.pc-touch .pc-mark { height: 46px; }
+.pc-touch .pc-tool { height: 44px; padding: 0 10px; }
+.pc-touch .pc-mark-sound .pc-iconbtn { width: 40px; height: 44px; }
+.pc-touch .pc-mark-sound .pc-iconbtn + .pc-iconbtn { width: 28px; }
+
+/* ------------------------------------------------------------------ hover tag (unchanged anatomy; tokens and scale only) */
+.pc-tag-anchor { position: absolute; width: 0; height: 0; }
+.pc-tag { position: absolute; bottom: 15px; left: 0; transform: translateX(-50%); white-space: nowrap; padding: 4px 11px 5px; display: flex; align-items: baseline; gap: 8px; box-shadow: var(--lift-2); }
+.pc-tag-name { font-weight: 600; font-size: var(--fs-body); }
+.pc-tag-fact { font-size: var(--fs-small); color: var(--ink-2); }
+.pc-tag-swatch { width: 9px; height: 9px; border-radius: 50%; flex: none; align-self: center; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2); }
+.pc-tag-leader { position: absolute; left: -0.5px; bottom: 3px; width: 1px; height: 12px; background: var(--rule); }
+.pc-tag-pin { position: absolute; left: -3px; bottom: -3px; width: 6px; height: 6px; border-radius: 50%; background: var(--paper); border: 1px solid var(--brass-ink); }
+.pc-tag-anchor.pinned .pc-tag-pin { background: var(--rule); }
+
+/* chart-mode label (C): ink on a halo of the active paper */
+.pc-label { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; font-size: 13px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink);
+  text-shadow: 0 0 1px var(--halo), 0 0 2px var(--halo), 0 0 3px var(--halo), 0 0 6px var(--halo), 0 0 12px var(--halo); }
+
+/* ------------------------------------------------------------------ panel (desktop side panel) */
+.pc-panel { position: absolute; top: 14px; right: 14px; bottom: 14px; width: 372px; display: flex; flex-direction: column; overflow: hidden; }
+.pc-panel.fit { bottom: auto; }
+.pc-panel-head { position: relative; padding: 20px 24px 14px; }
+.pc-panel-head::after { content: ""; position: absolute; left: 24px; right: 24px; bottom: 0; border-top: 1px solid var(--rule); opacity: 0.55; }
+.pc-panel-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 2px; }
+.pc-kicker { display: block; margin-bottom: 8px; }
+.pc-title-row { display: flex; align-items: center; gap: 14px; }
+.pc-sub { font-size: var(--fs-body); color: var(--ink-2); margin-top: 6px; line-height: 1.2; }
+.pc-medal { width: 44px; height: 44px; border-radius: 50%; flex: none; display: grid; place-items: center; background: #fffaf0;
+  box-shadow: 0 0 0 1px var(--neat), 0 0 0 4px var(--paper), 0 0 0 4.5px var(--neat); }
+.pc-medal svg { width: 30px; height: 30px; }
+.pc-panel-body { position: relative; padding: 14px 24px 20px; overflow: hidden; flex: 1; }
+.pc-panel-body.fade::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 56px; background: linear-gradient(to bottom, transparent, var(--paper) 85%); pointer-events: none; }
+.pc-where { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-body); }
+.pc-where > span:first-child { display: inline-flex; align-items: center; gap: 8px; }
+.pc-where > span:first-child::before { content: ""; width: 5px; height: 5px; transform: rotate(45deg); background: var(--rule); }
+.pc-why { margin: 12px 0 0; }
+.pc-sec { margin-top: 20px; }
+.pc-sec-h { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
+.pc-sec-h::after { content: ""; flex: 1; border-top: 1px solid var(--rule); opacity: 0.55; }
+.pc-figure { display: flex; align-items: baseline; gap: 12px; }
+.pc-band { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-lead); color: var(--ink-2); }
+.pc-band::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--band, var(--unavail)); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2); }
+.pc-changes { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 10px; border-top: 1px solid var(--neat); border-bottom: 1px solid var(--neat); }
+.pc-changes > div { padding: 6px 0 5px; text-align: center; }
+.pc-changes > div + div { border-left: 1px solid var(--neat); }
+.pc-changes span { display: block; font-size: 12.5px; color: var(--ink-3); line-height: 1.2; }
+.pc-changes b { font-weight: 400; font-size: var(--fs-body); }
+.pc-up { color: var(--up); }
+.pc-down { color: var(--down); }
+.pc-dl { display: grid; grid-template-columns: 1fr auto; margin: 0; }
+.pc-dl dt, .pc-dl dd { padding: 5px 0 4px; border-bottom: 0.5px dotted var(--rule-dot); margin: 0; }
+.pc-dl dt { color: var(--ink-2); font-size: var(--fs-small); }
+.pc-dl dd { text-align: right; padding-left: 14px; font-variant-numeric: tabular-nums; }
+.pc-dl dd em { color: var(--ink-3); font-size: var(--fs-note); }
+.pc-rows { list-style: none; margin: 0; padding: 0; }
+.pc-rows li { display: grid; grid-template-columns: 1fr 56px 3.2em; gap: 10px; align-items: center; padding: 6px 0 5px; border-bottom: 0.5px dotted var(--rule-dot); }
+.pc-rows li b { font-weight: 600; display: inline-flex; align-items: center; gap: 9px; }
+.pc-rows li b::before { content: ""; width: 5px; height: 5px; transform: rotate(45deg); background: var(--rule); }
+.pc-rows .pc-num { text-align: right; color: var(--ink-2); }
+.pc-bar { position: relative; height: 5px; background: var(--wash-1); box-shadow: inset 1px 0 0 var(--brass-ink); }
+.pc-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--rule); opacity: 0.8; }
+.pc-bar.down i { background: var(--down); opacity: 0.85; }
+.pc-split { display: flex; gap: 2px; height: 10px; margin: 2px 0 8px; }
+.pc-split > span { display: block; height: 100%; border-radius: 1px; min-width: 2px; }
+.pc-legend { list-style: none; margin: 0; padding: 0; }
+.pc-legend li { display: grid; grid-template-columns: 12px 1fr auto 3.2em; gap: 8px; align-items: baseline; padding: 2px 0; font-size: var(--fs-small); }
+.pc-legend li i { width: 9px; height: 9px; border-radius: 1px; display: block; }
+.pc-legend .pc-num { color: var(--ink-2); text-align: right; }
+.pc-foot { margin-top: 20px; padding-top: 9px; border-top: 1px solid var(--neat); display: flex; align-items: center; gap: 8px; }
+.pc-spark { display: block; width: 100%; height: 64px; overflow: visible; }
+.pc-axis { display: flex; justify-content: space-between; font-size: 12.5px; font-style: italic; color: var(--ink-3); margin-top: 2px; }
+
+/* ------------------------------------------------------------------ slip (the one toast): answers the visitor's own action, never a market event (D11) */
+.pc-slip { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: baseline; gap: 10px; padding: 7px 10px 8px 14px; white-space: nowrap; box-shadow: var(--lift-2); }
+.pc-slip .pc-cap { font-size: 11px; }
+.pc-slip .pc-btn--text { height: auto; font-size: var(--fs-small); }
+.pc-slip .pc-i { align-self: center; color: var(--brass-ink); }
+
+/* ------------------------------------------------------------------ tabs */
+.pc-tabs { display: flex; gap: 22px; border-bottom: 1px solid color-mix(in srgb, var(--rule) 60%, transparent); }
+.pc-tab { position: relative; display: inline-flex; align-items: baseline; gap: 6px; height: 34px; padding: 10px 0 0; background: none; border: 0; cursor: pointer; color: var(--ink-3); font-family: var(--serif); }
+.pc-tab .pc-cap { color: inherit; }
+.pc-tab .pc-count { font-size: var(--fs-note); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.pc-tab[aria-selected="true"] { color: var(--ink); }
+.pc-tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--rule); }
+
+/* ------------------------------------------------------------------ table: one-line coin cell, priority columns, tabular figures */
+.pc-table { width: 100%; border-collapse: collapse; font-size: var(--fs-small); }
+.pc-table th { text-align: left; padding: 6px 8px 5px; border-bottom: 1px solid var(--rule); background: var(--paper); }
+.pc-table th .pc-cap { font-size: 11px; }
+.pc-table th.r, .pc-table td.r { text-align: right; }
+.pc-table td { padding: 6px 8px 5px; border-bottom: 0.5px dotted var(--rule-dot); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pc-table td.coin b { font-weight: 600; font-size: var(--fs-body); margin-right: 7px; }
+.pc-table td.coin em { color: var(--ink-3); }
+.pc-table tr.is-hover td { background: var(--wash-1); }
+.pc-sort::after { content: ""; display: inline-block; margin-left: 5px; border: 3.5px solid transparent; border-top-color: currentColor; border-bottom-width: 0; vertical-align: 1px; }
+
+/* ------------------------------------------------------------------ bottom sheet (touch, < 900 px): grabber + three detents */
+.pc-sheet { position: absolute; left: 0; right: 0; bottom: 0; border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0; box-shadow: 0 -1px 0 var(--edge), 0 -12px 30px -10px rgba(8, 14, 24, 0.45); }
+.pc-grabber { display: block; width: 40px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--rule) 70%, transparent); margin: 8px auto 2px; }
+.pc-sheet-head { display: flex; align-items: center; gap: 14px; padding: 6px 16px 12px 20px; }
+.pc-sheet-head .pc-title { font-size: 28px; }
+.pc-sheet-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; padding: 4px 20px 20px; max-width: 46em; }

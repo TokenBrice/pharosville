@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { EngineContext } from "../engine/types";
+import type { EngineContext, PreparationEntry } from "../engine/types";
 import type { QualityService, QualitySettings } from "../engine/quality";
 import { SeaShadowMask, sunShadowUniforms } from "./sun-shadow";
 
@@ -39,6 +39,7 @@ export class SunRig {
   /** the sea's resolved shadow (world/sun-shadow.ts); dirty while a requested map render has not been resolved */
   private readonly seaMask = new SeaShadowMask();
   private seaMaskDirty = false;
+  private seaMaskValid = false;
 
   constructor(mapSize = 4096) {
     this.mapSize = mapSize;
@@ -53,6 +54,8 @@ export class SunRig {
     this.group.add(k, k.target, this.fill, this.fill.target, this.hemi);
     this.group.name = "harbour-sun-rig";
   }
+
+  preparationEntry(): PreparationEntry { return this.seaMask.preparationEntry(); }
 
   /**
    * Shadow-map caching: the map is re-rendered only when the fitted light frustum moved (pan/zoom, sun
@@ -71,6 +74,7 @@ export class SunRig {
         this.key.shadow.map?.dispose();
         (this.key.shadow as { map: THREE.WebGLRenderTarget | null }).map = null;
         this.mapSize = q.shadowMapSize;
+        this.seaMaskValid = false;
       }
       force = true;
     }
@@ -97,11 +101,15 @@ export class SunRig {
     // 02-L1: the sea reads the same map through a resolved mask (world/sun-shadow.ts); 4 taps on High, 1 on Medium/Low.
     // three clears needsUpdate once it rendered the map we asked for (last frame): resolve it before asking again
     const ss = sunShadowUniforms, map = this.key.shadow.map?.depthTexture ?? null;
-    ss.uKeyShadowP.value.set(map ? 1 : 0, (this.key.shadow.radius * 0.8) / this.mapSize, q?.tier === "high" ? 4 : 1, this.key.shadow.intensity);
-    if (map && this.seaMaskDirty && !sm.needsUpdate) {
-      this.seaMask.resolve(ctx.renderer, map, this.mapSize, this.key.shadow.matrix);
-      this.seaMaskDirty = false;
+    const consumer = ctx.services.has("ocean") && q?.tier !== "low";
+    ss.uKeyShadowP.value.set(0, (this.key.shadow.radius * 0.8) / this.mapSize, q?.tier === "high" ? 4 : 1, this.key.shadow.intensity);
+    if (!consumer) {
+      this.seaMask.suspend(); this.seaMaskValid = false; this.seaMaskDirty = true;
+    } else if (map && this.seaMaskDirty && !sm.needsUpdate) {
+      this.seaMaskValid = this.seaMask.resolve(ctx.renderer, map, this.mapSize, this.key.shadow.matrix);
+      this.seaMaskDirty = !this.seaMaskValid;
     }
+    ss.uKeyShadowP.value.x = consumer && map && this.seaMaskValid ? 1 : 0;
     if (due || moved) { sm.needsUpdate = true; this.seaMaskDirty = true; this.sinceShadow = 0; this.framesSinceShadow = 0; }
   }
 

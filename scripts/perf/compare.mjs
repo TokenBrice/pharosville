@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /** Explicit non-overlapping 8x8 luminance SSIM + RGB errors. Not Gaussian SSIM or aesthetic approval. */
+import { compareProvenance } from "../harbour/capture-provenance.mjs";
 import sharp from "sharp";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
 const { values: a, positionals } = parseArgs({ allowPositionals: true, options: {
   help: { type: "boolean" }, before: { type: "string" }, after: { type: "string" }, out: { type: "string", default: "outputs/perf/compare" },
   threshold: { type: "string", default: "3" }, ssim: { type: "string", default: "0.995" }, mae: { type: "string", default: "0.5" }, changed: { type: "string", default: "1" }, assert: { type: "boolean" },
@@ -21,7 +24,9 @@ sheets (four rows/page). SSIM is 8x8 non-overlapping luminance with K1=.01, K2=.
 not Gaussian-window SSIM. Values screen candidates only; every pair needs human review at native
 resolution, including temporal thin lines/shadows/AA. Same GPU/DPR/state/API snapshot required.`);
 } else {
-  await main().catch((error) => { console.error(error.message); process.exitCode = 1; });
+  await compareCaptures(a, positionals).then((summary) => { process.exitCode = summary.exitCode; }).catch((error) => { console.error(error.message); process.exitCode = 1; });
+}
+
 }
 
 async function pngs(root, current = root) {
@@ -35,7 +40,7 @@ async function pngs(root, current = root) {
   return files.sort();
 }
 
-async function main() {
+export async function compareCaptures(a, positionals = []) {
   const before = resolve(a.before ?? positionals[0] ?? ""), after = resolve(a.after ?? positionals[1] ?? ""), out = resolve(positionals[2] ?? a.out);
   if (!(a.before ?? positionals[0]) || !(a.after ?? positionals[1])) throw new Error("Supply BEFORE and AFTER capture directories or PNG files (see --help)");
   if (out === before || out.startsWith(`${before}/`) || out === after || out.startsWith(`${after}/`)) throw new Error("Output must be outside the input capture directories");
@@ -53,9 +58,13 @@ async function main() {
   const beforeMeta = beforeDir ? await manifest(before) : null, afterMeta = afterDir ? await manifest(after) : null;
   const incompatible = beforeMeta && afterMeta ? ["snapshotSha256", "profile", "quality", "epoch", "seed", "elapsed", "filmstrip", "interval"].filter((key) => beforeMeta[key] !== afterMeta[key]) : [];
   const summary = { meta: { tool: "compare", before, after, method: "8x8 non-overlapping luminance SSIM; RGB MAE/RMSE; changed-channel share", threshold, humanReviewRequired: true, beforeCapture: beforeMeta, afterCapture: afterMeta, incompatibleMetadata: incompatible }, missingBefore, missingAfter, pairs: [] };
+  const receipt = async (path) => {
+    try { return JSON.parse(await readFile(path.replace(/\.png$/i, ".provenance.json"), "utf8")); } catch { return null; }
+  };
   let rows = [], page = 0;
   for (const name of names) {
     const leftPath = beforeDir ? resolve(before, name) : before, rightPath = afterDir ? resolve(after, name) : after;
+    const provenance = compareProvenance(await receipt(leftPath), await receipt(rightPath));
     const [left, right] = await Promise.all([sharp(leftPath).toColourspace("srgb").removeAlpha().raw().toBuffer({ resolveWithObject: true }), sharp(rightPath).toColourspace("srgb").removeAlpha().raw().toBuffer({ resolveWithObject: true })]);
     if (left.info.width !== right.info.width || left.info.height !== right.info.height || left.info.channels !== 3 || right.info.channels !== 3) { summary.pairs.push({ file: name, error: "dimensions/channels differ", before: left.info, after: right.info }); continue; }
     const width = left.info.width, height = left.info.height, channels = left.data.length;
@@ -85,8 +94,8 @@ async function main() {
       ssimSum += ((2 * mx * my + c1) * (2 * covariance + c2)) / ((mx * mx + my * my + c1) * (vx + vy + c2));
       blocks++;
     }
-    const result = { file: name, width, height, ssim: ssimSum / blocks, ssimBlocks: blocks, mae: sum / channels, maeNormalized: sum / channels / 255, rmse: Math.sqrt(squares / channels), changedChannelPercent: changed / channels * 100, maxChannelError: max };
-    result.screenPass = result.ssim >= Number(a.ssim) && result.mae <= Number(a.mae) && result.changedChannelPercent <= Number(a.changed);
+    const result = { file: name, provenance, width, height, ssim: ssimSum / blocks, ssimBlocks: blocks, mae: sum / channels, maeNormalized: sum / channels / 255, rmse: Math.sqrt(squares / channels), changedChannelPercent: changed / channels * 100, maxChannelError: max };
+    result.screenPass = provenance.status === "VERIFIED" && result.ssim >= Number(a.ssim) && result.mae <= Number(a.mae) && result.changedChannelPercent <= Number(a.changed);
     summary.pairs.push(result);
     const diffPath = resolve(out, "diff", name);
     await mkdir(dirname(diffPath), { recursive: true });
@@ -109,8 +118,10 @@ async function main() {
     const composites = rows.map((r) => { const item = { input: r.input, top, left: 0 }; top += r.height; return item; });
     await sharp({ create: { width: 1440, height: top, channels: 3, background: "#20242b" } }).composite(composites).png().toFile(resolve(out, `contact-${String(page + 1).padStart(3, "0")}.png`));
   }
+  summary.verification = summary.pairs.some((pair) => pair.provenance?.status === "UNVERIFIED") ? "UNVERIFIED" : summary.pairs.some((pair) => pair.provenance?.status === "INCOMPATIBLE") ? "INCOMPATIBLE" : "VERIFIED";
   summary.screenPass = !missingBefore.length && !missingAfter.length && !incompatible.length && summary.pairs.every((pair) => pair.screenPass);
+  summary.exitCode = summary.pairs.some((pair) => pair.provenance?.exitCode === 78) ? 78 : summary.verification !== "VERIFIED" || missingBefore.length || missingAfter.length || incompatible.length || summary.pairs.some((pair) => pair.error) || (a.assert && !summary.screenPass) ? 1 : 0;
   await writeFile(resolve(out, "summary.json"), JSON.stringify(summary, null, 2));
-  console.log(`${summary.pairs.length} pairs; screening ${summary.screenPass ? "PASS" : "FAIL"} (not aesthetic approval): ${resolve(out, "summary.json")}`);
-  if (missingBefore.length || missingAfter.length || incompatible.length || summary.pairs.some((pair) => pair.error) || (a.assert && !summary.screenPass)) process.exitCode = 1;
+  console.log(`${summary.pairs.length} pairs; screening ${summary.verification === "UNVERIFIED" ? "UNVERIFIED" : summary.screenPass ? "PASS" : "FAIL"} (not aesthetic approval): ${resolve(out, "summary.json")}`);
+  return summary;
 }

@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_URL = "https://pharosville.pharos.watch";
-const DEFAULT_PATHS = ["/", "/api/stablecoins", "/api/chains"];
+export const DEFAULT_PATHS = ["/", "/?sel=ship.usdc-circle", "/?sel=lighthouse", "/api/stablecoins", "/api/chains"];
 
 export const REQUIRED_PERMISSIONS_POLICY_FEATURES = [
   "accelerometer",
@@ -63,12 +63,19 @@ const REQUIRED_DOCUMENT_CSP_SOURCES = {
   "script-src": ["'wasm-unsafe-eval'"],
 };
 
+const APPROVED_CSP_SOURCES = {
+  ...REQUIRED_CSP_DIRECTIVES,
+  "img-src": ["'self'", "data:", "blob:"],
+  "script-src": ["'self'", "'wasm-unsafe-eval'"],
+};
+
 function parsePolicyDirectives(value) {
   const directives = new Map();
   for (const part of value.split(";")) {
     const tokens = part.trim().split(/\s+/).filter(Boolean);
     if (tokens.length === 0) continue;
     const [name, ...sources] = tokens;
+    if (directives.has(name.toLowerCase())) throw new Error(`duplicate ${name}`);
     directives.set(name.toLowerCase(), sources);
   }
   return directives;
@@ -90,7 +97,9 @@ function parsePermissionsDirectives(value) {
 
 export function validateCsp(value, { document = true } = {}) {
   const findings = [];
-  const directives = parsePolicyDirectives(value);
+  let directives;
+  try { directives = parsePolicyDirectives(value); }
+  catch (error) { return [error.message]; }
 
   for (const [name, requiredSources] of Object.entries(REQUIRED_CSP_DIRECTIVES)) {
     const sources = directives.get(name);
@@ -107,7 +116,9 @@ export function validateCsp(value, { document = true } = {}) {
   }
 
   for (const [name, sources] of directives) {
+    if (!Object.hasOwn(APPROVED_CSP_SOURCES, name)) findings.push(`unapproved directive ${name}`);
     for (const source of sources) {
+      if (!(APPROVED_CSP_SOURCES[name] ?? []).includes(source)) findings.push(`${name} uses unapproved source ${source}`);
       if (source === "*" || /^https:\/\/\*\./i.test(source)) {
         findings.push(`${name} uses wildcard source ${source}`);
       }

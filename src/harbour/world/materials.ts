@@ -294,8 +294,9 @@ vec3 hbPool(vec3 worldPos, vec3 worldN) {
   vec4 p = texture2D(uPoolTex, uv);
   p.rgb *= min(1.0, 0.5 / max(dot(p.rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-4));   // overlapping lamps: a sane max
   float upw = smoothstep(0.2, 0.85, worldN.y);
-  float below = smoothstep(p.a + 0.6, p.a - 0.4, worldPos.y);      // floors: only under the source
-  float band = exp(-pow((worldPos.y - p.a) / 2.6, 2.0));           // walls: around the source height
+  float below = 1.0 - smoothstep(p.a - 0.4, p.a + 0.6, worldPos.y);  // floors: only under the source
+  float dy = (worldPos.y - p.a) / 2.6;
+  float band = exp(-dy * dy);                                         // walls: around the source height
   // the lamplighting wave (05-P3): a pool lies by its lamp, so the fragment's own rank stands in for the lamp's
   #ifdef HB_LITE
   return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, uWindowGlow);   // (Low: no lamplighting wave)
@@ -380,6 +381,22 @@ export function cropStagesAt(phase: number): Record<string, string> {
     out[`HB_CROP_${name}`] = hi <= 0 ? "0" : lo >= 1 ? "2" : "1";
   }
   return out;
+}
+
+export interface ShaderFeatures {
+  readonly pattern: number;
+  readonly bare: boolean;
+  readonly stooks: boolean;
+  readonly cropStages: Readonly<Record<string, string>>;
+  readonly lite: boolean;
+}
+
+export function shaderFeatureKey(f: ShaderFeatures): string {
+  return `${f.pattern.toFixed(1)}_${f.bare ? "bare" : "leaf"}${f.stooks ? "_st" : ""}_c${Object.values(f.cropStages).join("")}${f.lite ? "_lite" : ""}`;
+}
+
+export function shaderFeatureDefines(f: ShaderFeatures): Record<string, string> {
+  return { ...f.cropStages, ...(f.bare ? { HB_BARE: "" } : {}), ...(f.stooks ? { HB_STOOKS: "" } : {}), ...(f.lite ? { HB_LITE: "", HB_BEAM_VERT: "" } : {}) };
 }
 
 /**
@@ -644,22 +661,49 @@ export class HarbourMaterials {
   readonly beam: Record<string, THREE.IUniform> = {};
   /** Low tier: the lighter kit program (HB_LITE, see GLSL_SEASON's note). Set by getHarbourMaterials from 'quality'. */
   private lite = false;
-  /** Materials built on the kit's hook elsewhere (the fleet): recompiled with the kit when `lite` flips. */
+  /** Materials built on the kit's hook elsewhere (fleet, life and civic workers). */
   private readonly derived = new Set<THREE.Material>();
+  private calendarInputs = "";
+  private readonly features = new Map<string, ShaderFeatures>();
+  private publishedFeatures = "";
+  private materialGeneration = 0;
+  get generation(): number { return this.materialGeneration; }
 
   /** Program-key suffix for the kit's compile-time switches (derived materials append it to their own key). */
-  kitKey(): string { return this.lite ? "_lite" : ""; }
+  kitKey(): string { return shaderFeatureKey(this.featureIdentity()); }
+
+  featureIdentity(pattern = 0, lite = this.lite): ShaderFeatures {
+    const u = this.uniforms, f = u.uFoliage.value;
+    const inputs = `${u.uSeasonPhase.value}:${f.z}:${f.w}`;
+    if (inputs !== this.calendarInputs) { this.calendarInputs = inputs; this.features.clear(); }
+    const key = `${pattern}:${lite}`;
+    let features = this.features.get(key);
+    if (!features) {
+      features = Object.freeze({ pattern, bare: leafFallAt(u) > 0.001, stooks: stooksAt(u), cropStages: Object.freeze(cropStagesAt(u.uSeasonPhase.value)), lite });
+      this.features.set(key, features);
+    }
+    return features;
+  }
+
+  /** Only synchronous compilation sees the target tier; no live material version is changed. */
+  preparationScope(lite: boolean): () => void {
+    const previous = this.lite; this.lite = lite;
+    return () => { this.lite = previous; };
+  }
 
   /** Register a material whose onBeforeCompile wraps the kit's (it must append kitKey() to its program key). */
-  track(m: THREE.Material): void { this.derived.add(m); }
+  track(m: THREE.Material): void {
+    if (this.derived.has(m)) return;
+    this.derived.add(m);
+    this.materialGeneration++;
+    const untrack = () => { this.derived.delete(m); this.materialGeneration++; m.removeEventListener("dispose", untrack); };
+    m.addEventListener("dispose", untrack);
+  }
 
   setLite(lite: boolean): void {
     if (lite === this.lite) return;
     this.lite = lite;
-    for (const [key, m] of this.cache) if (key.startsWith("kit:")) m.needsUpdate = true;
-    for (const m of this.derived) m.needsUpdate = true;
-    for (const [key, m] of this.cache) if (key.startsWith("kit-predepth")) m.needsUpdate = true;
-    this.staticDepth.invalidate();
+    this.invalidateSeason();
   }
 
   constructor(readonly uniforms: WorldUniforms) {
@@ -667,6 +711,7 @@ export class HarbourMaterials {
     black.needsUpdate = true;
     this.pool = { uPoolTex: { value: black }, uPoolBounds: { value: new THREE.Vector4(0, 0, 0, 0) } };
     this.ao = { uAOTex: { value: black }, uAOBounds: { value: new THREE.Vector4(0, 0, 0, 0) } };
+    this.publishedFeatures = this.kitKey();
   }
 
   /** Attach before compilation, including late kit objects, not on the first winter frame. */
@@ -679,9 +724,13 @@ export class HarbourMaterials {
     });
   }
 
-  invalidateSeason(root: THREE.Object3D): void {
-    const changed = new Set<THREE.Material>(this.cache.values());
-    root.traverse((object) => {
+  invalidateSeason(root?: THREE.Object3D): void {
+    const signature = this.kitKey();
+    if (signature === this.publishedFeatures) return;
+    this.publishedFeatures = signature;
+    const changed = new Set<THREE.Material>(this.derived);
+    for (const [key, material] of this.cache) if (key.startsWith("kit")) changed.add(material);
+    root?.traverse((object) => {
       const mesh = object as THREE.Mesh;
       for (const material of Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []) {
         if (material.customProgramCacheKey().includes("hb_kit_")) {
@@ -719,13 +768,14 @@ export class HarbourMaterials {
     m.name = "hb_kit";
     const fallbackPid = (opts.pattern ?? 0).toFixed(1);
     m.onBeforeCompile = (shader) => {
+      const features = this.featureIdentity(opts.pattern ?? 0);
       Object.assign(shader.uniforms, this.shared(), cloudShadowUniforms, dewUniforms, aerialUniforms, runupUniforms, { uAerialDensity: this.uniforms.uFogDensity, uAerialHaze: this.uniforms.uHaze });
       injectVaryings(shader);
       shader.vertexShader = shader.vertexShader
         .replace("#include <common>", `#include <common>\n${AERIAL_VERT_GLSL}`)
         .replace("    vHbWorld = (modelMatrix * hbW).xyz;\n  }", "    vHbWorld = (modelMatrix * hbW).xyz;\n    hbAerialVert(vHbWorld);\n  }");
       // Low tier: the beam swath's soft amount per vertex (beam-light-glsl.ts BEAM_LIGHT_VERT_GLSL)
-      if (this.lite) {
+      if (features.lite) {
         shader.defines = { ...shader.defines, HB_BEAM_VERT: "" };
         shader.vertexShader = shader.vertexShader
           .replace("#include <common>", `#include <common>\n${BEAM_LIGHT_VERT_GLSL}`)
@@ -737,10 +787,7 @@ export class HarbourMaterials {
         .replace("#include <common>", `#include <common>\n${SWAY_VERTEX_DECL}`)
         .replace("#include <begin_vertex>", `#include <begin_vertex>\n${SWAY_VERTEX_APPLY}`);
       // winter / late-autumn bare crowns discard: compiled in only when the calendar can need it
-      if (leafFallAt(this.uniforms) > 0.001) shader.defines = { ...shader.defines, HB_BARE: "" };
-      if (stooksAt(this.uniforms)) shader.defines = { ...shader.defines, HB_STOOKS: "" };
-      shader.defines = { ...shader.defines, ...cropStagesAt(this.uniforms.uSeasonPhase.value) };
-      if (this.lite) shader.defines = { ...shader.defines, HB_LITE: "" };
+      shader.defines = { ...shader.defines, ...shaderFeatureDefines(features) };
       shader.fragmentShader = shader.fragmentShader
         .replace("#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}\n${AERIAL_GLSL}\n${RUNUP_GLSL}\n${BEAM_LIGHT_GLSL}\n${LANDMARK_HOVER_GLSL}\n${METAL_GLSL}`)
         .replace("#include <color_fragment>", `
@@ -819,8 +866,9 @@ export class HarbourMaterials {
   hbAerial(outgoingLight, vHbWorld, 0.0);   // distance (decorative, world/aerial.ts)
   #include <opaque_fragment>`);
     };
-    m.customProgramCacheKey = () => `hb_kit_${fallbackPid}_${leafFallAt(this.uniforms) > 0.001 ? "bare" : "leaf"}${stooksAt(this.uniforms) ? "_st" : ""}_c${Object.values(cropStagesAt(this.uniforms.uSeasonPhase.value)).join("")}${this.kitKey()}`;
+    m.customProgramCacheKey = () => `hb_kit_${shaderFeatureKey(this.featureIdentity(opts.pattern ?? 0))}`;
     this.cache.set(key, m);
+    this.materialGeneration++;
     return m;
   }
 
@@ -836,8 +884,9 @@ export class HarbourMaterials {
     m.name = prepass ? "hb_kit_predepth" : "hb_kit_depth";
     if (prepass) m.colorWrite = false;
     m.onBeforeCompile = (shader) => {
+      const features = this.featureIdentity();
       Object.assign(shader.uniforms, { uFoliage: this.uniforms.uFoliage, uSeasonPhase: this.uniforms.uSeasonPhase });
-      if (leafFallAt(this.uniforms) > 0.001) shader.defines = { ...shader.defines, HB_BARE: "" };
+      if (features.bare) shader.defines = { ...shader.defines, HB_BARE: "" };
       shader.vertexShader = shader.vertexShader
         .replace("#include <common>", "#include <common>\nattribute vec4 color;\nvarying vec3 vHbWorld;\nvarying vec4 vHbCol;")
         .replace("#include <project_vertex>", `#include <project_vertex>
@@ -856,7 +905,7 @@ export class HarbourMaterials {
       // away from the camera fails LessEqual against its own rest depth; the shadow twin stays static (sway.ts)
       if (prepass) {
         Object.assign(shader.uniforms, { uSwayWind: this.uniforms.uWindVec, uSwayTime: this.uniforms.uTime }, swayUniforms);
-        if (this.lite) shader.defines = { ...shader.defines, HB_LITE: "" };
+        if (features.lite) shader.defines = { ...shader.defines, HB_LITE: "" };
         shader.vertexShader = shader.vertexShader
           .replace("#include <common>", `#include <common>\n${SWAY_VERTEX_DECL}`)
           .replace("#include <begin_vertex>", `#include <begin_vertex>\n${SWAY_VERTEX_APPLY}`);
@@ -872,8 +921,9 @@ export class HarbourMaterials {
   }
   #endif`);
     };
-    m.customProgramCacheKey = () => `hb_kit_${prepass ? `predepth_v4_sw${this.kitKey()}` : "depth_v3"}_${leafFallAt(this.uniforms) > 0.001 ? "bare" : "leaf"}`;
+    m.customProgramCacheKey = () => `hb_kit_${prepass ? "predepth_v4_sw" : "depth_v3"}_${this.kitKey()}`;
     this.cache.set(key, m);
+    this.materialGeneration++;
     return m;
   }
 

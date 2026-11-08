@@ -2,12 +2,14 @@
  * The one-fact lines and the "why it is here" sentences. Pure functions of (model, whereabouts),
  * so the hover tag, the panel and the tests all read the same words.
  */
-import type { Boat, HarbourModel, StormSignalShape } from "../model/types";
-import type { OfficeState } from "../readings/bind";
+import type { Boat, DewsBand, HarbourModel, StormSignalShape } from "../model/types";
+import { mastForBand, type OfficeState } from "../readings/bind";
 import { deadSummaries, FAMILIES } from "../model/obituary";
 import { bps, money, monthYear, pctChange, share, titleCase } from "./format";
+import { flowValued, flowWindow, grossFlow, NET_UNAVAILABLE, VALUATION_UNKNOWN } from "./flow-copy";
+import { observedEmpty, readingCoverage, readingSentence, sourceTruth } from "./source-state";
 
-export type WhereKind = "alongside" | "moored" | "casting-off" | "sailing" | "outing" | "shoals" | "wreck" | "far" | "unknown";
+export type WhereKind = "alongside" | "moored" | "casting-off" | "sailing" | "outing" | "shoals" | "wreck" | "far" | "route-unavailable" | "unknown";
 export interface Whereabouts { kind: WhereKind; /** Chain name, "the Far Ports", or null. */ place: string | null }
 
 export const epitaphOf = (id: string): string | null => deadSummaries().get(id)?.epitaph ?? null;
@@ -15,12 +17,44 @@ export const epitaphOf = (id: string): string | null => deadSummaries().get(id)?
 export const quoted = (s: string) => `“${s}${/[.!?…]$/.test(s) ? "" : "."}”`;
 
 const FAR_PORTS = "the Far Ports";
+export const FAR_PORTS_LINE = "Far Ports includes small chain allocations, chains without a pier, and supply without a reported chain allocation.";
+export const STATION_RULE = "The station repeats the supply-weighted stress band: Calm, no shapes; Watch, one cone; Alert, two cones; Warning, two cones and one drum; Danger, two cones and two drums with a red pennant.";
+export const BOAT_SIGNALS_RULE = "The five highest-scoring Alert-or-worse coins may fly a masthead signal: Alert, a cone; Warning, a drum; Danger, a cone and a drum. Early warning, not a depeg.";
+export { BY_EAR, SOUND_DECORATIVE, SOUND_FLOW, SOUND_FOG, SOUND_PHAROS, SOUND_SURF, SOUND_WEATHER } from "../audio/legend";
+
+/** The renderer hoists the first N shapes: cone, cone, drum, drum. */
+export function stationLine(band: DewsBand | null): string {
+  const mast = mastForBand(band);
+  if (mast.cones == null || band == null) return "Station: unavailable.";
+  const shapes = ["no shapes", "one cone", "two cones", "two cones and one drum", "two cones and two drums"][mast.cones];
+  return `Station: ${titleCase(band)}; ${shapes}${mast.pennant ? " with a red pennant" : ""}.`;
+}
+
+export function stationFact(m: HarbourModel | null): string {
+  const w = m?.readings.weather;
+  return stationLine(w && !w.stale && sourceTruth(m, "stress").state === "current" && sourceTruth(m, "stablecoins").state === "current" && (readingCoverage(m, "stress") ?? 0) > 0 && w.cloudCover != null && w.wind != null ? w.band : null);
+}
+
+export function alertCountLine(m: HarbourModel | null): string {
+  const c = m?.readings.stormCones;
+  if (!c || (readingCoverage(m, "stress") ?? 0) <= 0) return readingSentence(m, "stress");
+  return sourceTruth(m, "stress").state === "current" && sourceTruth(m, "stablecoins").state === "current"
+    ? `${c.count} covered coins are at Alert or worse.` : `Last received Alert-or-worse count: ${c.count}.`;
+}
+
+export function allocationLine(boats: readonly Boat[]): string | null {
+  const gap = boats.reduce((s, b) => s + b.supply - b.chainShares.reduce((n, c) => n + c.usd, 0), 0);
+  return gap > 0 ? `${money(gap)} has no reported chain allocation.` : gap < 0 ? "Reported totals do not reconcile." : null;
+}
+
+const ROUTE_UNAVAILABLE = "Route unavailable. Holding the last safe position.";
 
 /**
  * Sim phase index (PHASES order) + slot facts → where the boat is, in words. `outing`: the sim's
  * pose flag for a decorative harbour outing (D22): out for a sail, bound back to her own berth.
  */
 export function whereabouts(phase: number, slotKind: string | null, slotPlace: string | null, outing = false): Whereabouts {
+  if (phase >= 1 && phase <= 3 && (slotKind === "wreck" || slotKind === "shoals")) return { kind: "sailing", place: slotKind === "wreck" ? "Wreck Cove" : "the Shoals" };
   if (slotKind === "wreck") return { kind: "wreck", place: null };
   if (slotKind === "shoals") return { kind: "shoals", place: null };
   const place = slotKind === "far" ? FAR_PORTS : slotPlace;
@@ -30,7 +64,7 @@ export function whereabouts(phase: number, slotKind: string | null, slotPlace: s
     case 1: return { kind: "casting-off", place };
     case 2: case 3: return { kind: "sailing", place };
     case 4: return { kind: slotKind === "far" ? "far" : "moored", place };
-    case 5: return { kind: "shoals", place: null };
+    case 5: return { kind: slotKind === "far" ? "far" : slotKind ? "moored" : "route-unavailable", place };
     default: return { kind: "unknown", place };
   }
 }
@@ -41,10 +75,11 @@ export function whereLine(b: Boat, w: Whereabouts): string {
     case "moored": return w.place ? `moored off ${w.place}` : "at her mooring";
     case "far": return `in ${FAR_PORTS}`;
     case "casting-off": return w.place ? `casting off for ${w.place}` : "casting off";
-    case "sailing": return w.place ? `sailing to ${w.place}` : "under sail";
+    case "sailing": return w.place === "Wreck Cove" ? "under tow to Wreck Cove" : w.place === "the Shoals" ? "drifting to the Shoals" : w.place ? `sailing to ${w.place}` : "under sail";
     case "outing": return "out for a sail";
     case "shoals": return `on the Shoals ${bps(b.pegDeviationBps)}`;
     case "wreck": return "wrecked";
+    case "route-unavailable": return ROUTE_UNAVAILABLE;
     default: return "";
   }
 }
@@ -88,6 +123,8 @@ export function officeLine(state: OfficeState | undefined, change30d: number | n
 
 /** The single sentence that explains the boat's position from the data. */
 export function whyHere(b: Boat, w: Whereabouts): string {
+  if (w.kind === "route-unavailable") return ROUTE_UNAVAILABLE;
+  if (w.kind === "sailing" && w.place === "Wreck Cove") return "Under tow to Wreck Cove: this coin has died.";
   if (b.state === "wrecked" || w.kind === "wreck") {
     const ep = epitaphOf(b.id);
     return ep ? `Beached in Wreck Cove. ${quoted(ep)}` : "Beached in Wreck Cove: this coin has died.";
@@ -95,13 +132,13 @@ export function whyHere(b: Boat, w: Whereabouts): string {
   if (b.state === "shoals" || w.kind === "shoals") {
     const d = b.pegDeviationBps;
     const side = d == null ? "away from" : d < 0 ? "below" : "above";
-    return `Anchored on the Shoals because it trades ${d == null ? "" : `${Math.abs(Math.round(d))} bps `}${side} its peg. It rejoins its circuit once the peg holds.`;
+    return `${w.kind === "sailing" && w.place === "the Shoals" ? "Drifting to" : "Anchored on"} the Shoals because it trades ${d == null ? "" : `${Math.abs(Math.round(d))} bps `}${side} its peg. It rejoins its circuit once the peg holds.`;
   }
   const top = b.chainShares[0];
   if (b.circuit.length <= 1) {
-    if (!b.circuit[0]?.chain) return `Its supply sits on chains without a pier of their own, so it rides at anchor in ${FAR_PORTS}.`;
+    if (!b.circuit[0]?.chain) return `It rides at anchor in ${FAR_PORTS}. ${FAR_PORTS_LINE}`;
     const out = w.kind === "outing" ? " Out for a sail just now (decorative): it comes back to the same berth." : "";
-    return `Stays at ${b.circuit[0].chain} because ${top ? share(top.share) : "all"} of its supply is there.${out}`;
+    return `Stays at ${b.circuit[0].chain} because ${top ? share(top.share) : "all"} of its reported chain-attributed holdings are there.${out}`;
   }
   const stops = circuitStops(b);
   const names = stops.map((s) => s.name);
@@ -135,8 +172,8 @@ export function circuitStops(b: Boat): StopRow[] {
 /** 24 h mint and burn totals of the flows reading (null when there is none). */
 export function flowTotals(m: HarbourModel | null): { mint: number; burn: number; net: number | null } | null {
   const f = m?.readings.flows;
-  if (!f?.available) return null;
-  return { mint: f.hourly.reduce((s, h) => s + h.mintUsd, 0), burn: f.hourly.reduce((s, h) => s + h.burnUsd, 0), net: f.net24hUsd };
+  if (!f?.available || !f.hourly.length) return null;
+  return { mint: f.hourly.reduce((s, h) => s + h.mintUsd, 0), burn: f.hourly.reduce((s, h) => s + h.burnUsd, 0), net: flowValued(f.hourly) ? f.net24hUsd : null };
 }
 
 /** Optional live counts a landmark tag can quote. */
@@ -149,11 +186,11 @@ export function landmarkFact(id: string, m: HarbourModel | null, underWay: numbe
     case "harbour-tug": return { fact: "tows the dead to Wreck Cove · carries no data", decorative: true };
     case "mint": {
       const t = flowTotals(m);
-      return { fact: t ? `${money(t.mint)} minted in 24 h` : "fires banked · no flow reading" };
+      return { fact: t ? `${grossFlow(t.mint, "mint", flowValued(r!.flows.hourly))} ${flowWindow(r!.flows.hourly)}.` : "fires banked · no flow reading" };
     }
     case "burn": {
       const t = flowTotals(m);
-      return { fact: t ? `${money(t.burn)} burned in 24 h` : "fire banked · no flow reading" };
+      return { fact: t ? `${grossFlow(t.burn, "burn", flowValued(r!.flows.hourly))} ${flowWindow(r!.flows.hourly)}.` : "fire banked · no flow reading" };
     }
     case "chartroom": {
       const p = r?.psi;
@@ -166,28 +203,27 @@ export function landmarkFact(id: string, m: HarbourModel | null, underWay: numbe
     case "the-roads": return { fact: counts.roads != null ? `${counts.roads} ${counts.roads === 1 ? "boat" : "boats"} in the Roads` : "the outer mooring field" };
     case "pharos": {
       const p = r?.psi;
-      if (!p || !p.lit || p.score == null) return { fact: "unlit · no stability reading" };
-      return { fact: `PSI ${p.score.toFixed(1)} · ${titleCase(p.band ?? "")}${p.stale ? " · stale" : ""}` };
+      if (!p || p.score == null) return { fact: "unlit · no stability reading" };
+      return { fact: `${p.lit ? "" : "unlit · last received "}PSI ${p.score.toFixed(1)} · ${titleCase(p.band ?? "")}${p.stale ? " · stale" : ""}` };
     }
     case "shoals": {
       const n = r?.shoals.length ?? 0;
-      return { fact: n === 0 ? "clear water · nobody off peg" : `${n} ${n === 1 ? "boat" : "boats"} off peg` };
+      return { fact: n === 0 ? observedEmpty(m, "shoals") : `${sourceTruth(m, "pegSummary").state === "current" ? "" : "Last observed: "}${n} ${n === 1 ? "boat" : "boats"} off peg` };
     }
     case "customs-house": case "tide-board": {
       const f = r?.flows;
-      if (!f?.available || f.net24hUsd == null) return { fact: "no flow reading" };
-      return { fact: `${money(f.net24hUsd, { signed: true })} net ${f.net24hUsd >= 0 ? "minted" : "burned"} in 24 h` };
+      if (!f?.available || !f.hourly.length) return { fact: "no flow reading" };
+      if (f.net24hUsd == null || !flowValued(f.hourly)) return { fact: f.hourly.some((h) => h.netUsd == null) ? NET_UNAVAILABLE : VALUATION_UNKNOWN };
+      return { fact: `${money(f.net24hUsd, { signed: true })} net ${f.net24hUsd >= 0 ? "minted" : "burned"} · ${flowWindow(f.hourly)}` };
     }
     case "storm-mast": {
-      const c = r?.stormCones;
-      if (!c) return { fact: "no stress reading" };
-      return { fact: c.count === 0 ? "no cones hoisted" : `${c.count} ${c.count === 1 ? "cone" : "cones"} · early-warning alerts` };
+      return { fact: stationFact(m) };
     }
     case "tide-gauge": return { fact: tideFact(m) };
     case "wreck-cove": return { fact: `${r?.wrecks.length ?? 0} wrecks, with epitaphs` };
     case "far-ports": {
       const far = m?.harbours.filter((h) => !h.piered) ?? [];
-      return { fact: `${far.length} chains without a pier · ${money(far.reduce((s, h) => s + h.supplyUsd, 0))}` };
+      return { fact: `${far.length} chains without a pier · ${money(far.reduce((s, h) => s + h.supplyUsd, 0))}. ${FAR_PORTS_LINE}` };
     }
     case "registry": return { fact: `${m?.payloadCount ?? 0} coins on the register` };
     case "harbourmaster": return { fact: underWay == null ? "keeps the harbour" : `${underWay} boats under way` };

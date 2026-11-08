@@ -36,6 +36,7 @@ async function main() {
     runs: { type: "string", default: "3" }, seconds: { type: "string", default: "6" }, wait: { type: "string", default: "6000" }, settle: { type: "string", default: "3500" },
     quality: { type: "string", default: "high" }, prof: { type: "string", default: "gpu" }, machine: { type: "string", default: "contended" },
     width: { type: "string", default: "1600" }, height: { type: "string", default: "1000" }, "ready-timeout": { type: "string", default: "120" },
+    paced: { type: "boolean" }, "live-clock": { type: "boolean" }, snapshot: { type: "string" }, "multi-draw-disabled": { type: "boolean" },
     probes: { type: "string", default: "baseline" }, timerless: { type: "boolean" }, "init-script": { type: "string" },
   } });
   if (a.help) {
@@ -45,7 +46,9 @@ async function main() {
   --views heart,overview,closest --hours 12.5,18.5,22 --seasons summer,winter
   --weather CALM,DANGER | --dews 0,4  DEV overrides; effective weather is always recorded
   --profiles standard,igpu --dprs 1,2 --quality high|medium|low|auto
-  --prof gpu|none --timerless --machine contended|quiet --width 1600 --height 1000
+  --paced --seconds 900 --quality auto   display-paced session (no uncapped browser)
+  --snapshot FILE --multi-draw-disabled --live-clock
+  --prof 1|gpu|none --timerless --machine contended|quiet --width 1600 --height 1000
   --probes baseline,island-fragment-flat,ocean-fragment-flat,island-vertex-work,ocean-vertex-work,island-fragment-work,ocean-fragment-work
   --init-script FILE --ready-timeout 120
 All runs are uncapped and sequential. Medians are medians of run summaries, not pooled frames.
@@ -61,16 +64,16 @@ Production ignores DEV weather overrides: requested vs effective weather is chec
   const list = (s) => s.split(",").map((v) => v.trim()).filter(Boolean);
   const views = list(a.views), hours = list(a.hours), seasons = list(a.seasons), weather = list(a.dews ?? a.weather), profiles = list(a.profiles), dprs = list(a.dprs), probes = list(a.probes);
   if (![a.runs, a.seconds, a.width, a.height, a["ready-timeout"]].every((v) => Number(v) > 0) || !Number.isInteger(Number(a.runs))) throw new Error("runs/dimensions/durations must be positive (runs an integer)");
-  if (!["contended", "quiet"].includes(a.machine) || !["gpu", "none"].includes(a.prof) || !["auto", "high", "medium", "low"].includes(a.quality)) throw new Error("invalid machine, profiler, or quality");
+  if (!["contended", "quiet"].includes(a.machine) || !["1", "gpu", "none"].includes(a.prof) || !["auto", "high", "medium", "low"].includes(a.quality)) throw new Error("invalid machine, profiler, or quality");
   if (profiles.some((v) => !["standard", "igpu"].includes(v)) || dprs.some((v) => !["1", "2"].includes(v)) || views.some((v) => !["heart", "overview", "closest"].includes(v))) throw new Error("invalid profile, DPR, or view");
   const allowedProbes = ["baseline", "island-fragment-flat", "ocean-fragment-flat", "island-vertex-work", "ocean-vertex-work", "island-fragment-work", "ocean-fragment-work"];
   if (probes.some((v) => !allowedProbes.includes(v))) throw new Error("unknown source probe");
   const out = resolve(a.out);
   await mkdir(out, { recursive: true });
-  const init = (a["init-script"] ? await readFile(resolve(a["init-script"]), "utf8") : "") + (a.timerless ? `;(() => { const original = WebGL2RenderingContext.prototype.getExtension; WebGL2RenderingContext.prototype.getExtension = function(name) { return name === 'EXT_disjoint_timer_query_webgl2' ? null : original.call(this, name); }; })();` : "");
+  const init = (a["multi-draw-disabled"] ? `;(() => { const original = WebGL2RenderingContext.prototype.getExtension; WebGL2RenderingContext.prototype.getExtension = function(name) { return name === "WEBGL_multi_draw" ? null : original.call(this, name); }; })();` : "") + (a["init-script"] ? await readFile(resolve(a["init-script"]), "utf8") : "") + (a.timerless ? `;(() => { const original = WebGL2RenderingContext.prototype.getExtension; WebGL2RenderingContext.prototype.getExtension = function(name) { return name === 'EXT_disjoint_timer_query_webgl2' ? null : original.call(this, name); }; })();` : "");
   const initFile = resolve(out, "capture-init.js");
   if (init) await writeFile(initFile, init);
-  const summary = { meta: { tool: "frame", date: new Date().toISOString(), origin: a.origin, machine: a.machine, uncapped: true, prof: a.prof, timerless: !!a.timerless, quality: a.quality, displayDprs: dprs, thermal: "not recorded", browser: "shared Chrome; GPU identity in each run", notes: "No CI GPU pass implied. Compare quiet same-state runs only." }, scenarios: [] };
+  const summary = { meta: { tool: "frame", date: new Date().toISOString(), origin: a.origin, machine: a.machine, uncapped: !a.paced, paced: !!a.paced, apiLatency: a.snapshot ? "replayed" : "live", prof: a.prof, timerless: !!a.timerless, quality: a.quality, displayDprs: dprs, thermal: "not recorded", browser: "shared Chrome; GPU identity in each run", notes: "No CI GPU pass implied. Compare quiet same-state runs only." }, scenarios: [] };
   let failure;
   outer: for (const profile of profiles) for (const dpr of dprs) for (const view of views) for (const hour of hours) for (const season of seasons) for (const state of weather) for (const probe of probes) {
     const id = `${profile}-d${dpr}-${view}-t${hour}-${season}-${state}-${probe}`;
@@ -79,11 +82,11 @@ Production ignores DEV weather overrides: requested vs effective weather is chec
     for (let run = 1; run <= Number(a.runs); run++) {
       const url = new URL(a.origin);
       for (const key of ["view", "t", "season", "weather", "dews", "quality", "dpr", "prof"]) url.searchParams.delete(key);
-      for (const [k, v] of Object.entries({ view: view === "closest" ? "heart" : view, t: hour, season, [a.dews ? "dews" : "weather"]: state, intro: "0", ...(a.quality === "auto" ? {} : { quality: a.quality, dpr }), ...(a.prof === "gpu" ? { prof: "gpu" } : {}) })) url.searchParams.set(k, v);
+      for (const [k, v] of Object.entries({ view: view === "closest" ? "heart" : view, ...(a["live-clock"] ? {} : { t: hour }), season, [a.dews ? "dews" : "weather"]: state, intro: "0", ...(a.quality === "auto" ? {} : { quality: a.quality, dpr }), ...(a.prof !== "none" ? { prof: a.prof } : {}) })) url.searchParams.set(k, v);
       const evaluate = `(${prepareFrame.toString()})(${JSON.stringify({ settle: Number(a.settle), closest: view === "closest", probe, requestedWeather: a.dews ? null : state })})`;
       const base = resolve(out, id, `run-${run}`);
       try {
-        const report = await runShot(["--url", url.href, "--uncapped", ...(profile === "igpu" ? ["--igpu"] : []), "--dpr", dpr, "--width", a.width, "--height", a.height, "--seconds", a.seconds, "--wait", a.wait, "--ready-timeout", a["ready-timeout"], "--eval", evaluate, "--eval-wait", "0", ...(init ? ["--init-script-file", initFile] : [])], base);
+        const report = await runShot(["--url", url.href, ...(a.paced ? ["--paced"] : ["--uncapped"]), ...(a.snapshot ? ["--snapshot", a.snapshot] : []), ...(profile === "igpu" ? ["--igpu"] : []), "--dpr", dpr, "--width", a.width, "--height", a.height, "--seconds", a.seconds, "--wait", a.wait, "--ready-timeout", a["ready-timeout"], "--eval", evaluate, "--eval-wait", "0", ...(init ? ["--init-script-file", initFile] : [])], base);
         scenario.runs.push({ run, file: `${id}/run-${run}.json`, fps: report.fps, p50Ms: report.p50, p95Ms: report.p95, maxMs: report.max, elapsedMs: report.timing.elapsedMs, gpu: report.gpu, gpuTotal: report.gpuPasses?.total ?? report.gpuSampleDistribution, gpuSamples: report.gpuPasses?.sampledFrames ?? report.gpuSampleDistribution.samples, pendingQueries: report.gpuPasses?.currentPendingQueries ?? report.stats?.gpuPendingQueries ?? 0, disjointPolls: report.gpuPasses?.disjointPolls ?? 0, stats: report.stats, setup: report.evalResult, steadyProgramsCreated: report.stats.programs - report.evalResult.programs, consoleErrors: report.consoleErrors });
       } catch (error) { scenario.runs.push({ run, error: error.message }); failure = error; break outer; }
     }

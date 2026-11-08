@@ -136,3 +136,31 @@ describe("buildHarbourModel", () => {
     expect(buildHarbourModel(makePayloads(), T0_MS, { pieredChains: PIERED }).readings.wrecks.length).toBeGreaterThan(50);
   });
 });
+
+describe("verified source freshness", () => {
+  it("never dates unverified evidence from receipt time", () => {
+    const p = makePayloads();
+    p.stablecoins = { ...p.stablecoins!, meta: null, fetchedAtMs: T0_MS - 3600_000 };
+    const truth = buildHarbourModel(p, T0_MS, opts).truth.stablecoins;
+    expect(truth).toMatchObject({ state: "unknown", ageSec: null, sourceUpdatedAtMs: null, receivedAtMs: T0_MS - 3600_000, reason: "unverified-source" });
+  });
+  it("keeps a young fallback stale and an ordinary dated degraded input current", () => {
+    const p = makePayloads();
+    p.stablecoins = { ...p.stablecoins!, staleFallback: true };
+    p.stability = { ...p.stability!, meta: { ...p.stability!.meta!, status: "degraded" } };
+    const model = buildHarbourModel(p, T0_MS, opts);
+    expect(model.truth.stablecoins.state).toBe("stale");
+    expect(model.truth.stability.state).toBe("current");
+  });
+  it("preserves the twelve-times source tolerance boundary and rejects invalid ages", () => {
+    const p = makePayloads();
+    const tolerance = 600 * 12;
+    p.stablecoins = { ...p.stablecoins!, meta: { updatedAt: T0_MS / 1000 - tolerance, ageSeconds: tolerance, status: "degraded" } };
+    expect(buildHarbourModel(p, T0_MS, opts).truth.stablecoins.state).toBe("current");
+    expect(buildHarbourModel(p, T0_MS + 1000, opts).truth.stablecoins.state).toBe("stale");
+    for (const ageSeconds of [-1, NaN, Infinity]) {
+      p.stablecoins = { ...p.stablecoins, meta: { updatedAt: T0_MS / 1000, ageSeconds, status: "fresh" } };
+      expect(buildHarbourModel(p, T0_MS, opts).truth.stablecoins).toMatchObject({ state: "unknown", ageSec: null });
+    }
+  });
+});

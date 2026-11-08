@@ -104,7 +104,8 @@ vec3 rainRings(vec2 xz, float t, float cell) {
     vec2 d = f - c;
     float r = length(d);
     float rad = ph * 0.48;
-    float ring = sin((r - rad) * 40.0) * exp(-pow((r - rad) / 0.07, 2.0)) * (1.0 - ph) * (1.0 - ph);
+    float dr = (r - rad) / 0.07;
+    float ring = sin((r - rad) * 40.0) * exp(-dr * dr) * (1.0 - ph) * (1.0 - ph);
     acc.xy += d / max(r, 1e-3) * ring;
     acc.z += (1.0 - smoothstep(0.0, 0.05, r)) * (1.0 - smoothstep(0.0, 0.2, ph));
   }
@@ -260,6 +261,8 @@ void main() {
   {
     float reefK = zm.r * (0.55 + 0.45 * smoothstep(0.35, 0.7, nA.b + 0.25 * nC.g));
     vec3 turq = mix(vec3(0.10, 0.62, 0.56), vec3(0.20, 0.78, 0.66), nA.g);
+    // E01: under a storm deck (the DEWS cover) the reef greys with the sea, a step lighter: no cyan glow under slate
+    turq = mix(turq, vec3(dot(turq, vec3(0.299, 0.587, 0.114))) * vec3(0.86, 1.0, 0.98), cover * 0.45) * (1.0 - 0.15 * cover);
     body = mix(body, turq * mix(1.0, 0.3, uNight), reefK * (0.62 - 0.25 * uNight));
   }
   // churned wake water is lighter and greener
@@ -296,8 +299,10 @@ void main() {
   F = min(F * (0.8 + 0.5 * rough) * (1.0 + 0.4 * zm.b), 0.6 + 0.12 * zm.b);
   vec3 col = body * (1.0 - F) + sky * F;
   // clouds in the mirror: a Fresnel floor so they still pass across the basin seen from above (calm water best)
-  col += (mCloud.rgb - sky) * mCloud.a * max(F, 0.2 * (1.0 - 0.5 * min(rough, 1.0)));
-  sky = mix(sky, mCloud.rgb, mCloud.a);
+  // (E01: a weight, never an extrapolation)
+  float mA = clamp(mCloud.a, 0.0, 1.0);
+  col += (mCloud.rgb - sky) * mA * max(F, 0.2 * (1.0 - 0.5 * min(rough, 1.0)));
+  sky = mix(sky, mCloud.rgb, mA);
 
   // ---------------------------------------------------------------- the lit town in the water (night)
   // planar-like: a light h metres up at foot P mirrors onto the water at P - away * D * h / Hc, so the
@@ -400,7 +405,8 @@ void main() {
     // as the beam's light on the town, beam-light-glsl.ts) that gathers away from the tower; a narrow bright
     // track running from the tower's foot read as a second, lower beam
     float w = (2.3 + along * tan(uBeamShape.y)) * 2.2 + 4.0;
-    float foot = exp(-pow(lat / w, 2.0) * 1.4) * smoothstep(30.0, 90.0, along) * exp(-along / (uBeamShape.x * 0.55));
+    float lw = lat / w;   // (w turns negative far behind the tower)
+    float foot = exp(-lw * lw * 1.4) * smoothstep(30.0, 90.0, along) * exp(-along / (uBeamShape.x * 0.55));
     beam += uBeamCol * foot * (0.025 + bspec * 3.5 * sparkMask);
     // 05-P2 the heliograph by day: the mirror's sun coin crossing the water, specular only (sea-helio.ts): it packs
     // the sea's own (already shadowed) sun glitter denser and brighter, never a diffuse wash
@@ -424,7 +430,7 @@ void main() {
   float shoalW = mix(0.62, 1.25, 1.0 - smoothstep(1.0, 9.0, depth));
   float trainPh = dnC * shoalW + t * 0.78 + nA.b * 5.0 + nB.r * 0.8;
   float crestL = pow(0.5 + 0.5 * cos(trainPh), mix(10.0, 22.0, smoothstep(2.0, 8.0, dnC)));
-  float trainK = smoothstep(9.5, 5.0, dnC) * smoothstep(0.7, 1.6, dnC) * (0.45 + 0.55 * smoothstep(7.0, 1.5, dnC));
+  float trainK = (1.0 - smoothstep(5.0, 9.5, dnC)) * smoothstep(0.7, 1.6, dnC) * (0.45 + 0.55 * (1.0 - smoothstep(1.5, 7.0, dnC)));
   float band2 = crestL * trainK * smoothstep(0.38, 0.6, nB.g + 0.1 * nC.r);
   float coastFoam = max(fContact, band2 * 0.9 * bands) * step(-1.0, coast);
   // lace: a fine drifting net of bubble threads (shared by the swash, the eddies and old wakes);
@@ -506,7 +512,7 @@ void main() {
     float sk = smoothstep(0.04, 0.5, amp) * (1.0 - far01 * 0.6);
     float ch = crestH * 1.6 + (nB.g - 0.5) * 0.5;
     col += mix(sky, uSunColor * 0.12, 0.3) * smoothstep(0.2, 0.95, ch) * 0.15 * sk;
-    col *= 1.0 - 0.15 * smoothstep(0.1, -0.9, ch) * sk;
+    col *= 1.0 - 0.15 * (1.0 - smoothstep(-0.9, 0.1, ch)) * sk;
   }
   float cShade = hbCloudShadow(xz);
   col *= mix(1.0, cShade, 0.55);
