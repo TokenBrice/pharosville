@@ -152,7 +152,7 @@ describe("honest flow details", () => {
     const ui = panel("customs-house");
     expect(screen.getByText(CUSTOMS_BARS, { exact: false })).toBeTruthy();
     expect(screen.getByText("At least $2.30K minted.")).toBeTruthy();
-    expect(screen.getByText(NET_UNAVAILABLE)).toBeTruthy();
+    expect(screen.getAllByText(NET_UNAVAILABLE)[0]).toBeTruthy();
     expect(screen.getByText("Flow scope is unavailable.")).toBeTruthy();
     expect(landmarkFact("mint", state.model, null).fact).toContain("Partial history");
     ui.unmount(); panel("mint");
@@ -171,14 +171,14 @@ describe("honest flow details", () => {
     expect(screen.getByText("net minted above, net burned below")).toBeTruthy();
     expect(screen.getByText("minted each hour · lower bounds")).toBeTruthy();
     fireEvent.mouseEnter(document.querySelector(".hb-flowbars g")!);
-    expect(screen.getByText(/At least \$100 minted/)).toBeTruthy();
+    expect(screen.getAllByText(/At least \$100 minted/)[0]).toBeTruthy();
   });
 
   it("unknown hourly valuation leaves a labelled gap rather than a net bar", () => {
     render(<TideBars hourly={hours().map((h) => ({ ...h, valuation: "unknown" }))} />);
     expect(document.querySelectorAll(".hb-bars g line")).toHaveLength(24);
     fireEvent.mouseEnter(document.querySelector(".hb-bars g")!);
-    expect(screen.getByText(VALUATION_UNKNOWN, { exact: false })).toBeTruthy();
+    expect(screen.getAllByText(VALUATION_UNKNOWN, { exact: false })[0]).toBeTruthy();
   });
 });
 
@@ -231,5 +231,75 @@ describe("reported allocation and Registry reconciliation", () => {
     panel("registry");
     expect(screen.getAllByText("Safety grades: unavailable.").length).toBeGreaterThan(0);
     expect(screen.queryByRole("heading", { name: "Safety grades" })).toBeNull();
+  });
+});
+
+describe("admission, bounded visit observations and the finished visual key", () => {
+  it("explains mainnet beta records as admission and exposes their full narrative", () => {
+    services.set("civic", { yard: { coins: [{ id: "record", symbol: "REC", name: "Mainnet Pilot", launchPhase: "beta", launchPhaseDetail: "Already in pilot on mainnet. The complete recorded narrative.", expectedLaunchDate: "2026-Q4" }] } } as never);
+    panel("record", "yard");
+    expect(screen.getByText("Awaiting admission to the tracked fleet.")).toBeTruthy();
+    expect(screen.getByText("A Shipyard record may already be in pilot or on mainnet. Its hull follows the recorded phase; it joins the fleet when tracking inputs become available.")).toBeTruthy();
+    const more = screen.getByText("More about this record");
+    expect(more.closest("details")?.open).toBe(false);
+    fireEvent.click(more);
+    expect(screen.getByText("Already in pilot on mainnet. The complete recorded narrative.")).toBeTruthy();
+  });
+
+  it("honours an all-admitted civic yard without resurrecting bundled hulls", () => {
+    services.set("civic", { yard: { coins: [] } } as never);
+    panel("slipway");
+    expect(screen.getByText("No records are awaiting admission to the tracked fleet.")).toBeTruthy();
+    expect(screen.getByText(/Bundled admission records; see sources for dates\./)).toBeTruthy();
+  });
+
+  it("shows the capped book, UTC dates, first observations and discarded counts; earlier entries stay within the cap", () => {
+    const book = Array.from({ length: 200 }, (_, i) => ({ id: `${i}`, kind: "grade", atMs: NOW - i * 60000, firstSeenMs: NOW - i * 60000 - 10000, text: `Confirmed reading ${i}`, field: "grade", from: "B", to: "A", endpoint: "safetyGrades", coinId: null, staged: false }));
+    services.set("events", { arrivedAtMs: NOW - 86400000, book, droppedCount: 1, subscribe: () => () => {} } as never);
+    panel("harbourmaster");
+    expect(screen.getByText("Showing 40 of 200 retained entries; 1 earlier entries discarded.")).toBeTruthy();
+    expect(screen.getByText(/Earliest retained confirmation: .* UTC\./)).toBeTruthy();
+    expect(document.querySelectorAll(".hb-daybook > li")).toHaveLength(40);
+    fireEvent.click(screen.getByRole("button", { name: "Show earlier entries" }));
+    expect(document.querySelectorAll(".hb-daybook > li")).toHaveLength(80);
+    expect(screen.getAllByText(/First observed .* UTC; confirmed .* UTC\./)).toHaveLength(80);
+    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByRole("button", { name: "Show earlier entries" }));
+    expect(document.querySelectorAll(".hb-daybook > li")).toHaveLength(200);
+    expect(screen.queryByRole("button", { name: "Show earlier entries" })).toBeNull();
+  });
+
+  it("limits an empty book to confirmed changes recorded during this visit", () => {
+    services.set("events", { arrivedAtMs: NOW, book: [], droppedCount: 0, subscribe: () => () => {} } as never);
+    panel("harbourmaster");
+    expect(screen.getByText("No confirmed changes recorded this visit.")).toBeTruthy();
+    expect(screen.getByText("State changes require two consecutive accepted readings. Completed, fully valued flow hours are evaluated once per new hour. Missing, stale and methodology-change readings do not establish market changes.")).toBeTruthy();
+    expect(screen.queryByText(/Nothing has changed/)).toBeNull();
+  });
+});
+
+describe("display integrity independent of endpoint truth", () => {
+  it("retains stale PSI observations without labelling an old score now", () => {
+    const m = state.model!;
+    m.readings.psi = { ...m.readings.psi, score: 80, band: "STEADY", stale: true, lit: false };
+    m.truth.stability = { state: "stale", sourceUpdatedAtMs: NOW - 86400000, ageSec: 86400, serverStatus: "stale" };
+    services.set("feed", { payloads: { stability: { data: { history: [{ date: NOW / 1000 - 86400, score: 80, methodologyVersion: "v1" }] } } } } as never);
+    panel("pharos");
+    expect(document.querySelectorAll(".hb-chart-observation")).toHaveLength(1);
+    expect(document.querySelector(".hb-chart-now")).toBeNull();
+    expect(screen.getByText("The beacon is unlit while its reading is stale.")).toBeTruthy();
+  });
+  it("keeps the Keeper’s Log incomplete warning through a pending revision, then clears a matching complete frame", async () => {
+    const { publishPresentation } = await import("./presentation");
+    publishPresentation(store.ctx, { status: "partial", revision: 1, displayed: 1, expected: 2 });
+    const ui = panel("keeperslog");
+    expect(screen.getByText("1 of 2 boats displayed. This view is incomplete.")).toBeTruthy();
+    ui.unmount();
+    publishPresentation(store.ctx, { status: "pending", revision: 1, displayed: 1, expected: 3 });
+    const pending = panel("keeperslog");
+    expect(screen.getByText("1 of 2 boats displayed. This view is incomplete.")).toBeTruthy();
+    pending.unmount();
+    publishPresentation(store.ctx, { status: "complete", revision: 2, displayed: 3, expected: 3 });
+    panel("keeperslog");
+    expect(screen.queryByText(/This view is incomplete/)).toBeNull();
   });
 });

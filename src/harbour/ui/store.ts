@@ -13,11 +13,12 @@ import type { Boat, HarbourModel } from "../model/types";
 import { PANEL_LANDMARKS, whereabouts, type Whereabouts } from "./facts";
 import { UIPicking } from "./picking";
 import { inPoly, seaZones } from "./places";
-import { idleBreath, rankWatch, WATCH_DWELL_S, type WatchCoin, type WatchStop } from "./watch";
+import { idleBreath, modelWatch, watchSources, WATCH_DWELL_S, type WatchStop } from "./watch";
+import { truthCopy } from "./truth-copy";
 import { RouteLine } from "../fleet/route-line";
 import { landmarkHover } from "../world/landmark-hover";
 import { PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "../sim/sim";
-import { ensureMotionService, getFeed, getLayout, getModel, getSim, sameHit, type MotionService, type PickHit, type PickingService } from "./services";
+import { ensureMotionService, getLayout, getModel, getSim, sameHit, type MotionService, type PickHit, type PickingService } from "./services";
 
 export interface UIState {
   model: HarbourModel | null;
@@ -448,18 +449,16 @@ export class HarbourUIStore {
 
   private watchRun: { stops: WatchStop[]; i: number; dwell: number; epoch: number; spring: { x: number; z: number; vx: number; vz: number } } | null = null;
 
-  /** The coins as the watch ranks them: model fields plus the 24 h / 7 d supply buckets from the feed. */
-  private watchCoins(): WatchCoin[] {
-    const m = this.state.model;
-    if (!m) return [];
-    const feed = getFeed(this.ctx);
-    const assets = ((feed?.payloads as Record<string, { data?: { peggedAssets?: Array<Record<string, unknown>> } } | undefined> | undefined)?.stablecoins?.data?.peggedAssets) ?? [];
-    const sum = (o: unknown): number | null => (o && typeof o === "object" ? Object.values(o as Record<string, unknown>).reduce<number>((a, v) => a + (typeof v === "number" && Number.isFinite(v) ? v : 0), 0) : null);
-    const byId = new Map(assets.map((a) => [a.id as string, a]));
-    return m.boats.filter((b) => b.state !== "wrecked").map((b) => {
-      const a = byId.get(b.id);
-      return { id: b.id, symbol: b.symbol, supply: b.supply, activeDepeg: b.activeDepeg, pegDeviationBps: b.pegDeviationBps, prevDay: a ? sum(a.circulatingPrevDay) : null, prevWeek: a ? sum(a.circulatingPrevWeek) : null };
-    });
+  private watchRanked: { model: HarbourModel | null; second: number; stops: WatchStop[] } | null = null;
+  private watchStops(): WatchStop[] {
+    const model = this.state.model, second = Math.floor(Date.now() / 1000);
+    if (this.watchRanked?.model !== model || this.watchRanked.second !== second) this.watchRanked = { model, second, stops: modelWatch(model, Date.now()) };
+    return this.watchRanked.stops;
+  }
+
+  private watchEmpty(): string {
+    const current = watchSources(this.state.model, Date.now());
+    return truthCopy({ kind: "watch", waiting: !current.fleet || !current.peg });
   }
 
   toggleWatch(): void { if (this.state.watch) this.stopWatch(); else this.startWatch(); }
@@ -467,8 +466,8 @@ export class HarbourUIStore {
   /** W: glide between the day's data-ranked subjects, ~20 s at each, pinning the hover tag. Opt-in only. */
   startWatch(): void {
     if (this.state.reducedMotion) { this.set({ announce: "Motion is still. Readings continue to update." }); return; }
-    const stops = rankWatch(this.watchCoins());
-    if (!stops.length) { this.set({ announce: "Nothing notable to watch right now." }); return; }
+    const stops = this.watchStops();
+    if (!stops.length) { this.set({ announce: this.watchEmpty() }); return; }
     if (this.state.selected) this.select(null);
     this.setFollow(null);
     const rig = this.ctx.rig;
@@ -517,6 +516,20 @@ export class HarbourUIStore {
     const w = this.watchRun, rig = this.ctx.rig;
     if (!w) return;
     if (rig.inputEpoch !== w.epoch) { this.stopWatch(false); return; }
+    const stops = this.watchStops();
+    const previous = w.stops[w.i];
+    const supported = stops.findIndex((s) => s.id === previous?.id && s.reason === previous.reason);
+    if (!stops.length) {
+      this.stopWatch(); this.set({ announce: this.watchEmpty() }); return;
+    }
+    w.stops = stops;
+    if (supported < 0) {
+      if (this.state.reducedMotion) { this.stopWatch(); return; }
+      w.i = -1; this.watchNext(); return;
+    }
+    w.i = supported;
+    const stop = stops[supported], boat = this.boat(stop.id);
+    if (boat && (this.state.watch?.line !== stop.line || this.state.watch?.symbol !== boat.symbol)) this.set({ watch: { symbol: boat.symbol, line: stop.line } });
     if (rig.gliding) { Object.assign(w.spring, { x: rig.target.x, z: rig.target.z, vx: 0, vz: 0 }); return; }
     w.dwell += dt;
     if (w.dwell >= WATCH_DWELL_S) { this.watchNext(); return; }

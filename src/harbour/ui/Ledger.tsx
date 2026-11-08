@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { FAMILIES, FAMILY_ORDER } from "../model/obituary";
 import type { Boat, EndpointKey, HarbourModel } from "../model/types";
-import { alertCountLine, allocationLine, BOAT_SIGNALS_RULE, BY_EAR, epitaphOf, FAR_PORTS_LINE, STATION_RULE, stationFact, wreckDate } from "./facts";
+import { ANNIVERSARY_RULE, CEREMONY_RULE, FLOW_RULE, HULL_RULE, LETTERING_RULE, OFFICE_RULE, SAIL_RULE, SEA_RULE, TIDE_RULE, WREATH_RULE, WRECK_RULE, REEF_FLARE_LINE, alertCountLine, allocationLine, BOAT_SIGNALS_RULE, BY_EAR, epitaphOf, FAR_PORTS_LINE, STATION_RULE, stationFact, wreckDate } from "./facts";
 import { bps, causeName, money, pegName, share, titleCase } from "./format";
 import { Freshness } from "./bits";
-import { observedEmpty, qualificationCopy, READING_NAMES, sourceTruth } from "./source-state";
+import { observedEmpty, readingSentence, qualificationCopy, READING_NAMES, sourceTruth } from "./source-state";
 import { truthCopy } from "./truth-copy";
 import { getFeed } from "./services";
 import { usePresence, useStore, useUISlice } from "./hooks";
 import { KeyList } from "./KeyList";
-import { expectedKey, expectedLabel, launchedFromYard, PHASE_NAME, PHASES, UPCOMING_URL, yardCoins, type YardCoin } from "./yard";
+import { expectedKey, expectedLabel, launchedFromYard, PHASE_NAME, PHASES, UPCOMING_URL, yardCoins, YARD_EXPLANATION, type YardCoin } from "./yard";
 
 const TABS = ["Legend", "Coins", "Pre-launch", "Chains", "Wrecks"] as const;
 type Tab = (typeof TABS)[number];
@@ -72,7 +73,7 @@ const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: strin
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M10 24h22l-3 4H13zM21 24V6M21 7l9 14h-9M20 9l-7 12h7" /></svg>,
     title: "Boats", rule: "Every stablecoin is one boat. Boats visit each chain in proportion to their supply there; sailing is not a bridge transfer.",
-    more: "Hull size follows supply; the rig follows the peg currency. The sail carries the coin’s colours. A lit bronze stern lantern means the coin has a peg reading. A boat dressed overall in signal flags is new to the register this week or launched while you watch. Wind, heel and sails are decorative; only the wind’s strength follows the weather.",
+    more: `${HULL_RULE} ${SAIL_RULE} Hull size follows supply; the rig follows the peg currency. The sail carries the coin’s colours. A lit bronze stern lantern means the coin has a peg reading. A boat dressed overall in signal flags is new to the register this week or joined the tracked register this visit.`,
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M14 24h18l-3 4H17zM23 24V10M23 11l7 11h-7" /><path {...G} d="M10 18c-5-8 6-15 13-15s16 5 14 13" strokeDasharray="2.5 2.5" /><path {...G} d="M35 14l2 2.5 2.5-2" /></svg>,
@@ -81,22 +82,22 @@ const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: strin
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M5 13h36M5 23h36" strokeWidth={0.6} /><text x="23" y="21" textAnchor="middle" fontSize="8.5" letterSpacing="1.6" fill="currentColor" fontStyle="italic" fontWeight={600}>ETH</text></svg>,
-    title: "Harbours and chart lettering", rule: "Each chain’s harbour carries its name, crest and colours.",
-    more: "The name is lettered on the water like a sea chart; its harbour office flies the chain’s crest. The Shoals, the Far Ports, Wreck Cove and the Roads are lettered where they lie. Lettering fades as you zoom in and at night. Building works at an office: the chain’s supply grew 8 % or more over 30 days; awnings rolled up: it shrank 8 % or more.",
+    title: "Harbours and chart lettering", rule: LETTERING_RULE,
+    more: OFFICE_RULE,
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M4 30h18M6 30V18h14v12M9 18V6h3v12M14 18V9h3v9" /><path {...G} d="M10 5c-2-2 1-3 0-4M15 8c-2-2 1-3 0-4" strokeDasharray="1.5 1.5" /><path {...G} d="M28 30h14M30 30l2-6h6l2 6" /><path {...G} d="M35 23c-3-3-1-6 0-9 1 3 4 5 0 9z" /></svg>,
-    title: "The Mint and the Burn", rule: "The Mint works as hard as the last 24 hours of minting; the Burn’s fire burns as high as the burning.",
-    more: "Mint and Burn activity uses 60% of the 24-hour mean and 40% of the latest completed hour, on a compressed scale. Direction is unavailable when net valuation is withheld. Incomplete daily windows bank the fires. Partial or unknown valuation makes gross amounts lower bounds. The Customs House lists the reported scope.",
+    title: "The Mint and the Burn", rule: FLOW_RULE,
+    more: "Incomplete daily windows bank the fires. Partial or unknown valuation makes gross amounts lower bounds. The Customs House lists the reported scope.",
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M4 28l38-8" /><path {...G} d="M10 25c4 2 14 0 20-5M12 25V17M17 24V15M22 23V14M27 21V14" /><path {...G} d="M36 4v14M36 5l-10 5" /></svg>,
-    title: "The Shipyard", rule: "Every hull on the slips is a coin not yet launched.",
-    more: "Its stage follows the launch phase: a keel when announced, frames on testnet, planking while auditing, paint in beta, rigging when launching soon. At launch it slides down the slip into the fleet.",
+    title: "The Shipyard", rule: "Awaiting admission to the tracked fleet.",
+    more: YARD_EXPLANATION,
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M4 14c4-4 8-4 12 0s8 4 12 0 8-4 12 0M4 23c4-4 8-4 12 0s8 4 12 0 8-4 12 0" /></svg>,
-    title: "Sea state", rule: "Sea state is the share of supply off peg.", more: "Four steps, from flat calm (under 0.5 %) to a heavy sea (over 10 %). Coins off peg anchor on the Shoals.",
+    title: "Sea state", rule: "Sea state is the share of supply off peg.", more: SEA_RULE,
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M12 22h20a6 6 0 0 0 0-12 8 8 0 0 0-15-2 6 6 0 0 0-5 14zM16 26l-2 4M24 26l-2 4M32 26l-2 4" /></svg>,
@@ -112,7 +113,7 @@ const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: strin
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M8 26c6-2 12-2 18 0s10 2 14 0M12 24l6-10 10 2 4 8M18 14l-2-6" /></svg>,
-    title: "Wreck Cove", rule: "Every grey hulk is a stablecoin that died.", more: "Each carries an epitaph; open the cove or the Wrecks tab to read them. A coin that dies is towed in by the harbour tug, which carries no data.",
+    title: "Wreck Cove", rule: "Every grey hulk is a stablecoin that died.", more: `${WRECK_RULE} ${FAMILY_ORDER.map((f) => `${FAMILIES[f].name}: ${FAMILIES[f].form}.`).join(" ")} ${WREATH_RULE} ${ANNIVERSARY_RULE}`,
   },
 ];
 
@@ -124,9 +125,12 @@ function Legend({ model }: { model: HarbourModel | null }) {
       <p className="hb-legend-intro">The harbour is the data. Nothing moves without a declared meaning, and anything that is only decoration says so.</p>
       <ul className="hb-legend">
         {LEGEND.map((l) => (
-          <li key={l.title}>{l.glyph}<div><b>{l.title}</b><p className="hb-rule">{l.rule}</p><p>{l.more}</p></div></li>
+          <li key={l.title}>{l.glyph}<div><b>{l.title}</b><p className="hb-rule">{l.rule}</p><p>{l.more}{l.title === "Sea state" ? ` ${readingSentence(model, "pegSummary")}` : ""}</p></div></li>
         ))}
       </ul>
+      <p className="hb-caption">{TIDE_RULE}</p>
+      <p className="hb-caption">{REEF_FLARE_LINE}</p>
+      <p className="hb-caption">{CEREMONY_RULE}</p>
       <p className="hb-caption">{stationFact(model)}</p>
       <p className="hb-caption">{alertCountLine(model)}</p>
       {!(model?.readings.shoals.length) && <p className="hb-caption">{observedEmpty(model, "shoals")}</p>}
@@ -224,9 +228,10 @@ function PreLaunch({ coins }: { coins: YardCoin[] }) {
   const gone = launchedFromYard(model);
   return (
     <>
-      <SortTable rows={coins} cols={cols} rowKey={(c) => c.id} caption={`Coins not yet launched: hulls on the Shipyard’s slips, their stage following the launch phase. Select one to see its hull.${gone.length ? ` ${gone.map((c) => c.symbol).join(", ")} ${gone.length === 1 ? "has" : "have"} launched and ${gone.length === 1 ? "sails" : "sail"} with the fleet.` : ""}`}
-        initial={{ key: "phase", dir: -1 }} filterOf={(c) => `${c.symbol} ${c.name} ${c.phase ?? ""}`} noun="launches" />
-      <p className="hb-caption" style={{ marginTop: 12 }}>Every tracked launch, with sources: <a className="hb-out" href={UPCOMING_URL} target="_blank" rel="noopener noreferrer">pharos.watch/upcoming<span aria-hidden="true"> ↗</span><span className="hb-sr"> (opens in a new tab)</span></a></p>
+      {coins.length === 0 && <p className="hb-empty">No records are awaiting admission to the tracked fleet.</p>}
+      <SortTable rows={coins} cols={cols} rowKey={(c) => c.id} caption={`Awaiting admission to the tracked fleet. ${YARD_EXPLANATION}${gone.length ? ` Admitted to the fleet: ${gone.map((c) => c.symbol).join(", ")}.` : ""}`}
+        initial={{ key: "phase", dir: -1 }} filterOf={(c) => `${c.symbol} ${c.name} ${c.phase ?? ""}`} noun="records" />
+      <p className="hb-caption" style={{ marginTop: 12 }}>Bundled admission records; see sources for dates. <a className="hb-out" href={UPCOMING_URL} target="_blank" rel="noopener noreferrer">pharos.watch/upcoming<span aria-hidden="true"> ↗</span><span className="hb-sr"> (opens in a new tab)</span></a></p>
     </>
   );
 }

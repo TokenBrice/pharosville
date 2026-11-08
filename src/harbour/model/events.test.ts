@@ -120,6 +120,7 @@ describe("detectEvents — the kinds", () => {
     const ev = run([{ w: world() }, { w: more }, { w: more }]).flat();
     expect(ev.map((e) => [e.kind, e.coinId])).toEqual([["launch", "newc"]]);
     expect(ev[0].to).toBe("$30.0M");
+    expect(ev[0].text).toBe("NEWC joined the tracked register.");
     const less = world({ coins: [{ id: "usdx", supply: 2e9 }] });
     expect(run([{ w: world() }, { w: less }, { w: less }, { w: world() }, { w: world() }]).flat()).toEqual([]);
   });

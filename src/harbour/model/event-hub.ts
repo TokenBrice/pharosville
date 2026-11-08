@@ -27,6 +27,8 @@ export interface EventsService {
   readonly arrivedAtMs: number;
   /** Every confirmed event since arrival, newest first (capped at DAY_BOOK_MAX). */
   readonly book: readonly DayBookEntry[];
+  /** Confirmed entries discarded by the session cap. */
+  readonly droppedCount: number;
   /** The moment being staged right now, or null. */
   readonly current: StagedMoment | null;
   subscribe(fn: () => void): () => void;
@@ -40,11 +42,13 @@ export class HarbourEventHub implements EventsService {
   private moments: MomentState = EMPTY_MOMENTS;
   private entries: DayBookEntry[] = [];
   private ver = 0;
+  private dropped = 0;
   private readonly listeners = new Set<() => void>();
   private readonly momentListeners = new Set<(m: StagedMoment) => void>();
 
   constructor(readonly arrivedAtMs: number) {}
 
+  get droppedCount(): number { return this.dropped; }
   get version(): number { return this.ver; }
   get book(): readonly DayBookEntry[] { return this.entries; }
   get current(): StagedMoment | null { return this.moments.current; }
@@ -79,6 +83,7 @@ export class HarbourEventHub implements EventsService {
   private feed(events: readonly HarbourEvent[], nowMs: number, reduced: boolean): void {
     let changed = false;
     if (events.length) {
+      this.dropped += Math.max(0, this.entries.length + events.length - DAY_BOOK_MAX);
       this.entries = [...events.map((e) => ({ ...e, staged: false })).reverse(), ...this.entries].slice(0, DAY_BOOK_MAX);
       changed = true;
     }

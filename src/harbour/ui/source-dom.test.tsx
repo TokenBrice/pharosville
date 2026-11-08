@@ -183,7 +183,7 @@ describe("projected source sentences in hover, panel and ledger", () => {
     parity(landmark("pharos"), "PSI: unavailable. Source freshness is unverified.");
     panel(landmark("pharos"));
     expect(screen.getByText("Last received values")).toBeTruthy();
-    expect(screen.getByText("91.0")).toBeTruthy();
+    expect(screen.getAllByText("91.0")[0]).toBeTruthy();
   });
 
   it("one visible-disclosure clock advances source ages without rebuilding the model and stops on close", async () => {

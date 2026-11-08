@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { readPresentation } from "./presentation";
 import { useStore } from "./hooks";
 import { composePostcard, postcardCaption } from "./postcard";
 
@@ -28,7 +29,7 @@ export function Postcard() {
       returnTo.current = a instanceof HTMLElement && a !== document.body ? a : null;
       try {
         const frame = await store.captureFrame();
-        const cap = postcardCaption(store.getSnapshot().model, store.ctx.timeOfDay.hour, Date.now());
+        const cap = postcardCaption(store.getSnapshot().model, store.ctx.timeOfDay.hour, Date.now(), readPresentation(store.ctx));
         const print = await composePostcard(frame, cap);
         const blob = await new Promise<Blob | null>((res) => print.toBlob(res, "image/png"));
         if (blob) setCard({ url: URL.createObjectURL(blob), file: cap.file, alt: `${cap.title}. ${cap.fresh}` });

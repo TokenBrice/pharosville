@@ -86,7 +86,7 @@ export function allocateYard(coins: readonly PrelaunchCoin[], slipOrder: readonl
  * Pre-launch coins that are live now: their id or DefiLlama id is in the payload, or a live coin carries the same
  * name AND symbol (the registry's slug, e.g. "eurr-revolut", and the payload's numeric id, "436", can differ).
  */
-export function launchedIds(coins: readonly PrelaunchCoin[], live: Iterable<{ id: string; symbol?: string; name?: string }>): Set<string> {
+export function launchedIds(coins: readonly Pick<PrelaunchCoin, "id" | "name" | "symbol" | "llamaId">[], live: Iterable<{ id: string; symbol?: string; name?: string }>): Set<string> {
   const ids = new Set<string>(), named = new Set<string>();
   const nameKey = (name: string, symbol: string) => `${name.trim().toLowerCase()}|${symbol.trim().toLowerCase()}`;
   for (const b of live) { ids.add(b.id); if (b.name && b.symbol) named.add(nameKey(b.name, b.symbol)); }

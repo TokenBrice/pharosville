@@ -294,7 +294,7 @@ function eventFor(k: string, v: VarState, o: Obs, s: EventSnapshot, since: numbe
         ? mk("depeg", "pegSummary", "peg deviation", absBps(v.aux), `${absBps(o.aux)} bps`, `${sym} ran onto the Shoals`)
         : mk("recovery", "pegSummary", "peg deviation", absBps(v.aux), `${absBps(o.aux)} bps`, `${sym} left the Shoals`);
     case "live":
-      return o.value === "1" ? mk("launch", "stablecoins", "supply", null, money(o.aux), `${sym} launched`) : null;
+      return o.value === "1" ? mk("launch", "stablecoins", "supply", null, money(o.aux), `${sym} joined the tracked register.`) : null;
     case "wreck":
       return o.value === "1" ? mk("death", "stablecoins", "register", "live", "dead", `${sym} was towed to Wreck Cove`) : null;
     case "class": {

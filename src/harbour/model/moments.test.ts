@@ -81,6 +81,17 @@ describe("rarity scheduler", () => {
 });
 
 describe("events hub", () => {
+  it("retains 200 confirmations and counts discarded entries across midnight", () => {
+    const hub = new HarbourEventHub(Date.UTC(2026, 10, 7, 23, 59));
+    for (let i = 0; i < 201; i++) {
+      const at = hub.arrivedAtMs + i * 1000;
+      hub.inject(ev("grade", at), at, true);
+    }
+    expect(hub.book).toHaveLength(200);
+    expect(hub.droppedCount).toBe(1);
+    expect(hub.book.at(-1)?.atMs).toBe(hub.arrivedAtMs + 1000);
+    expect(hub.book[0].atMs).toBeGreaterThan(Date.UTC(2026, 10, 8));
+  });
   it("records every event newest first, flags the staged one, and notifies", () => {
     const hub = new HarbourEventHub(T);
     const seen: string[] = [];

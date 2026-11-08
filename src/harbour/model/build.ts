@@ -109,6 +109,7 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
       symbol: a.symbol,
       name: a.name,
       supply,
+      supplyPrevDay: a.circulatingPrevDay != null && Object.values(a.circulatingPrevDay).length > 0 && Object.values(a.circulatingPrevDay).every((v) => Number.isFinite(v) && v >= 0) ? sumBuckets(a.circulatingPrevDay) : null,
       hullClass: hullClassFor(supply),
       rig: rigFor(a.pegType),
       pegType: a.pegType,
