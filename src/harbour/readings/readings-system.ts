@@ -112,8 +112,8 @@ export class ReadingsSystem implements WorldSystem {
   /** Dev only: `?moment=<kind>[:<coin id>]` injects one synthetic event once the fleet is in. */
   private devMoment: string | null = import.meta.env.DEV ? this.q.get("moment") : null;
 
-  init(ctx: EngineContext): void {
-    this.fx = acquireFxTextures(ctx);
+  async init(ctx: EngineContext): Promise<void> {
+    this.fx = await acquireFxTextures(ctx);
     this.fog = new StaleFog(ctx.composer, ctx.camera, this.fx.noise, ctx.uniforms.uTime);
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- getters below read live system state
     const sys = this;

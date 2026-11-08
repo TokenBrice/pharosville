@@ -11,10 +11,15 @@ import { CameraInput } from "./input";
 import { TimeOfDay } from "./time-of-day";
 import { createWorldUniforms } from "./uniforms";
 import type { EngineContext, HarbourStats, PreparationEntry, RenderedFleetState, WorldSystem } from "./types";
-import { isPreparationAbort, ProgramPreparation, type PreparedPrograms } from "./prepare";
+import { isPreparationAbort, preparationConsumer, ProgramPreparation, type PreparedPrograms } from "./prepare";
+import type { PreparationPriority } from "./preparation-queue";
 import { backingDpr, backingLimitsFor, TIERS, type BackingLimits, type QualitySettings } from "./quality";
 import { BootFailure, failureCode, type HarbourLifecycle } from "./failure";
 import { GraphicsValidity, probeGraphics } from "./graphics";
+import { getHarbourMaterials, shaderFeatureKey } from "../world/materials";
+import type { OceanService } from "../ocean/ocean-system";
+import { assertShaderReady } from "./shader-failure";
+import type { SunRig } from "../world/sun";
 
 /**
  * Systems nothing else needs at init and the first frame can do without (overlays and decoration):
@@ -91,9 +96,10 @@ export class Engine {
   private gpuPasses: GpuPassProfiler | null = null;
   private readonly preparation: ProgramPreparation;
   private postPreparation: PostPreparation | undefined;
-  private readonly qualityPreparation = new Map<QualitySettings["tier"], Promise<void>>();
+  private readonly qualityPreparation = new Map<string, Promise<void>>();
   private readonly qualityPrograms = new Set<PreparedPrograms>();
-  private readonly qualityReady = new Set<QualitySettings["tier"]>();
+  /** Feature identities whose complete target-tier preparation is resident (governor's synchronous ready predicate). */
+  private readonly qualityReady = new Set<string>();
   private readonly backingLimits: BackingLimits;
   private resolution: MediaQueryList | undefined;
   private resolutionDpr = 0;
@@ -165,7 +171,7 @@ export class Engine {
     this.ctx.services.set("preparation", this.preparation);
     this.post.installDepthPrepass(this.ctx);
     scene.addEventListener("childadded", this.onSceneAddition);
-    this.governor.setPreparation((settings) => this.prepareQuality(settings), (settings) => this.qualityReady.has(settings.tier));
+    this.governor.setPreparation((settings, signal) => this.prepareQuality(settings, signal), (settings) => this.qualityReady.has(this.qualityIdentity(settings)));
     this.governor.publish();
     this.input = new CameraInput(renderer.domElement, rig);
     addEventListener("resize", this.onResize);
@@ -234,11 +240,15 @@ export class Engine {
     if (this.aborted) return;
     this.post.seal();
     this.resize(true);
+    this.ctx.timeOfDay.update(Date.now(), 0, this.ctx.uniforms);
+    await this.post.prepareGrade(this.ctx);
     const t = performance.now();
     this.postPreparation = this.post.preparationEntries();
     for (const entry of this.postPreparation.entries) this.preparation.register(entry);
     const wake = this.ctx.services.get("wake") as { preparationEntries(): PreparationEntry[] } | undefined;
     for (const entry of wake?.preparationEntries() ?? []) this.preparation.register(entry);
+    const sun = this.ctx.services.get("sun") as SunRig | undefined;
+    if (sun) this.preparation.register(sun.preparationEntry());
     while (!this.aborted && !this.disposed) {
       try {
         const batch = await this.preparation.prepareWorld();
@@ -455,36 +465,59 @@ export class Engine {
       dpr: ctx.renderer.getPixelRatio(), cpuMs: end - start, rafGapMs });
   }
 
-  /** Tier-invariant world lighting leaves only two SMAA materials to prepare, never the whole scene. */
-  private prepareQuality(settings: QualitySettings): Promise<void> {
-    const cached = this.qualityPreparation.get(settings.tier);
-    if (cached) return cached;
+  /** One tier's complete feature identity: tier, SMAA preset, preparation/material generations and compile features. */
+  private qualityIdentity(settings: QualitySettings): string {
+    const materials = getHarbourMaterials(this.ctx);
+    return `${settings.tier}:${settings.smaa}:${this.preparation.generation}:${materials.generation}:${shaderFeatureKey(materials.featureIdentity(0, settings.tier === "low"))}:${this.ctx.uniforms.uFoliage.value.y > 0.001}`;
+  }
+
+  /** Target world, private passes and SMAA stay resident until teardown; no live state crosses an await. */
+  private prepareQuality(settings: QualitySettings, signal?: AbortSignal, priority: PreparationPriority = "visible"): Promise<void> {
+    const materials = getHarbourMaterials(this.ctx);
+    const identity = () => this.qualityIdentity(settings);
+    const key = identity();
+    const cached = this.qualityPreparation.get(key);
+    if (cached) return preparationConsumer(cached, signal);
+    let preparedKey = key;
     const pending = (async () => {
       while (!this.disposed && !this.aborted) {
+        const generation = this.preparation.generation;
+        const materialGeneration = materials.generation;
         const post = this.post.preparationEntries(settings);
+        const scope = () => {
+          const restoreKit = materials.preparationScope(settings.tier === "low");
+          const restoreOcean = (this.ctx.services.get("ocean") as OceanService | undefined)?.preparationScope(settings.tier === "low");
+          return () => { restoreOcean?.(); restoreKit(); };
+        };
         try {
-          const batch = await this.preparation.prepare(post.entries);
+          const batch = await this.preparation.prepareWorld(scope, post.entries, undefined, priority);
           if (this.disposed || this.aborted) { batch.dispose(); break; }
+          if (generation !== this.preparation.generation || materialGeneration !== materials.generation) { batch.dispose(); continue; }
+          if (batch.status !== "complete") { batch.dispose(); throw new Error("Target tier preparation timed out"); }
           this.qualityPrograms.add(batch);
-          this.qualityReady.add(settings.tier);
+          preparedKey = identity();
+          this.qualityReady.add(preparedKey);
           return;
         } catch (error) { if (!isPreparationAbort(error) || this.disposed || this.aborted) throw error; }
         finally { post.dispose(); }
       }
       throw new DOMException("Engine disposed", "AbortError");
     })();
-    this.qualityPreparation.set(settings.tier, pending);
-    void pending.catch(() => {
-      if (this.qualityPreparation.get(settings.tier) === pending) this.qualityPreparation.delete(settings.tier);
+    this.qualityPreparation.set(key, pending);
+    void pending.then(() => {
+      this.qualityPreparation.set(preparedKey, pending);
+      if (preparedKey !== key) this.qualityPreparation.delete(key);
+    }, () => {
+      if (this.qualityPreparation.get(key) === pending) this.qualityPreparation.delete(key);
     });
-    return pending;
+    return preparationConsumer(pending, signal);
   }
 
   private warmQuality(): void {
     // The first fleet frame can reveal immediately; submissions yield to bounded idle tasks.
     // Retain every preset until teardown: seasonal/world batch adoption must not evict them.
     for (const settings of Object.values(TIERS)) {
-      void this.prepareQuality(settings).catch((error: unknown) => {
+      void this.prepareQuality(settings, undefined, "background").catch((error: unknown) => {
         if (!isPreparationAbort(error)) console.error("[harbour] quality idle preparation failed", error);
       });
     }
@@ -492,6 +525,7 @@ export class Engine {
 
   private recordRendered(): void {
     if (!this.canPublish) return;
+    assertShaderReady(this.ctx.renderer);
     if (this.lifecycle.state === "BOOTING") this.transition("READY", null);
     const fleet = this.ctx.services.get("fleet-frame") as RenderedFleetState | undefined;
     this.rendered.revision = fleet?.revision ?? 0;

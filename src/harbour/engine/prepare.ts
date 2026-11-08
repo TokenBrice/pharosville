@@ -3,12 +3,25 @@ import type { EngineContext, PreparationEntry, PreparationService } from "./type
 import { getHarbourMaterials } from "../world/materials";
 import { deferred } from "./deferred";
 import { graphicsValidity } from "./graphics";
+import { PreparationQueue, type PreparationPriority, type SubmissionOptions } from "./preparation-queue";
+import { assertShaderReady, installShaderFailureHook } from "./shader-failure";
 
 const aborted = () => new DOMException("Preparation superseded", "AbortError");
 export const isPreparationAbort = (error: unknown): boolean => error instanceof DOMException && error.name === "AbortError";
 type Restore = () => void;
-export interface PreparedPrograms { readonly sources: ReadonlySet<THREE.Material>; dispose(): void }
+export interface PreparedPrograms { readonly sources: ReadonlySet<THREE.Material>; readonly status: "complete" | "timed-out"; dispose(): void }
 interface PreparedProgram { isReady(): boolean; getUniforms(): unknown; getAttributes(): unknown }
+
+/** A cancelled consumer stops waiting without cancelling a shared warm-up. */
+export function preparationConsumer<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return pending;
+  if (signal.aborted) return Promise.reject(aborted());
+  return new Promise<T>((resolve, reject) => {
+    const cancel = () => { signal.removeEventListener("abort", cancel); reject(aborted()); };
+    signal.addEventListener("abort", cancel, { once: true });
+    void pending.then(resolve, reject).finally(() => signal.removeEventListener("abort", cancel));
+  });
+}
 
 /**
  * ShaderMaterial.copy deep-clones uniforms (and drops render-target textures). Clone its other state
@@ -52,52 +65,55 @@ export function preparationDepth(object: THREE.Mesh, source: THREE.Material): TH
   return depth;
 }
 
-/** Bounded idle submission batches, one pending state, no live-material async polling. */
+/** Shared bounded submissions and owned programs; compiler polling never sees live material state. */
 export class ProgramPreparation implements PreparationService {
   private readonly entries = new Set<PreparationEntry>();
   private readonly held = new Map<THREE.Object3D, PreparedPrograms>();
   private readonly uploads = new WeakMap<THREE.Texture, number>();
-  private readonly waits = new Set<() => void>();
+  readonly queue = new PreparationQueue();
+  private readonly pendingUploads = new WeakMap<THREE.Texture, Promise<void>>();
+  private readonly uninstallShaderFailure: () => void;
   private readonly active = new Set<AbortController>();
   private epoch = 0;
   private seasonRequest = 0;
   private disposed = false;
   private timeoutWarned = false;
   private current: PreparedPrograms | undefined;
-  constructor(private readonly ctx: EngineContext) {}
+  constructor(private readonly ctx: EngineContext) { this.uninstallShaderFailure = installShaderFailureHook(ctx.renderer); }
 
-  register(entry: PreparationEntry): () => void {
-    this.entries.add(entry);
-    return () => { this.entries.delete(entry); this.held.get(entry.root)?.dispose(); this.held.delete(entry.root); };
+  get generation(): number { return this.epoch; }
+  get stats() { return this.queue.stats; }
+
+  submit<T>(work: (deadline: number) => T, options: SubmissionOptions = {}): Promise<T> {
+    return this.queue.submit(work, { signal: this.ctx.signal, ...options });
   }
 
-  /** Cancellation also covers idle callbacks and compiler polling ownership. */
+  register(entry: PreparationEntry): () => void {
+    this.entries.add(entry); this.invalidate();
+    return () => { this.entries.delete(entry); this.held.get(entry.root)?.dispose(); this.held.delete(entry.root); this.invalidate(); };
+  }
+
+  /** Cancellation also covers queued submissions and compiler polling ownership. */
   invalidate(): void {
     this.epoch++;
     for (const controller of this.active) controller.abort();
   }
 
-  private idle(signal: AbortSignal | undefined = this.ctx.signal): Promise<number> {
-    if (this.disposed || signal?.aborted) return Promise.reject(aborted());
-    const { promise, resolve, reject } = deferred<number>();
-    const native = typeof requestIdleCallback === "function";
-    const clean = () => { this.waits.delete(cancel); signal?.removeEventListener("abort", cancel); };
-    const cancel = () => {
-      if (native) cancelIdleCallback(id); else clearTimeout(id);
-      clean(); reject(aborted());
-    };
-    const done = (deadline?: IdleDeadline) => {
-      clean();
-      if (this.disposed || signal?.aborted) reject(aborted());
-      // Under a saturated uncapped render loop, idle callbacks arrive via their timeout with zero
-      // timeRemaining(). A zero budget would submit/reflect just one material per callback, eventually
-      // exhausting the entire preparation deadline. Reserve the same bounded slice as the timer path.
-      else resolve(performance.now() + (deadline?.didTimeout ? 4 : Math.min(4, deadline?.timeRemaining() ?? 4)));
-    };
-    this.waits.add(cancel);
-    signal?.addEventListener("abort", cancel, { once: true });
-    const id = native ? requestIdleCallback(done, { timeout: 16 }) : window.setTimeout(done, 0);
-    return promise;
+  async stageTexture(texture: THREE.Texture, options: SubmissionOptions = {}): Promise<void> {
+    if (texture.isRenderTargetTexture || !texture.image || this.uploads.get(texture) === texture.version) return;
+    const pending = this.pendingUploads.get(texture);
+    if (pending) {
+      try { await preparationConsumer(pending, options.signal); }
+      catch (error) { if (!isPreparationAbort(error) || options.signal?.aborted || this.disposed) throw error; }
+      return this.stageTexture(texture, options);
+    }
+    const upload = this.submit(() => {
+      if (this.uploads.get(texture) === texture.version) return;
+      this.ctx.renderer.initTexture(texture);
+      this.uploads.set(texture, texture.version);
+    }, options);
+    this.pendingUploads.set(texture, upload);
+    try { await upload; } finally { if (this.pendingUploads.get(texture) === upload) this.pendingUploads.delete(texture); }
   }
 
   stageTextures(root: THREE.Object3D): void {
@@ -111,18 +127,13 @@ export class ProgramPreparation implements PreparationService {
         }
       }
     });
-    void (async () => {
-      for (const texture of textures) {
-        if (texture.isRenderTargetTexture || !texture.image || this.uploads.get(texture) === texture.version) continue;
-        await this.idle();
-        if (this.uploads.get(texture) === texture.version) continue;
-        this.ctx.renderer.initTexture(texture);
-        this.uploads.set(texture, texture.version);
-      }
-    })().catch((error: unknown) => { if (!isPreparationAbort(error)) console.error("[harbour] texture preparation failed", error); });
+    void Promise.all([...textures].map((texture) => this.stageTexture(texture))).catch((error: unknown) => {
+      if (!isPreparationAbort(error)) console.error("[harbour] texture preparation failed", error);
+    });
   }
 
   async prepareGroup(root: THREE.Object3D): Promise<void> {
+    this.invalidate();
     // Resize/season supersession retries detached additions against the new current state.
     while (!this.disposed) {
       const epoch = this.epoch;
@@ -141,7 +152,7 @@ export class ProgramPreparation implements PreparationService {
           this.held.delete(root);
         };
         for (const source of sources) source.addEventListener("dispose", release);
-        this.held.set(root, { sources: batch.sources, dispose: release });
+        this.held.set(root, { sources: batch.sources, status: batch.status, dispose: release });
         return;
       } catch (error) { if (!isPreparationAbort(error) || this.disposed || epoch === this.epoch) throw error; }
     }
@@ -163,12 +174,12 @@ export class ProgramPreparation implements PreparationService {
     throw aborted();
   }
 
-  async prepareWorld(scope?: () => Restore): Promise<PreparedPrograms> {
+  async prepareWorld(scope?: () => Restore, extra: readonly PreparationEntry[] = [], signal?: AbortSignal, priority: PreparationPriority = "visible"): Promise<PreparedPrograms> {
     if (this.disposed) throw aborted();
     return this.prepare([
       { root: this.ctx.scene, camera: this.ctx.camera, target: () => this.ctx.composer.inputBuffer, scene: this.ctx.scene },
-      ...this.entries,
-    ], scope);
+      ...this.entries, ...extra,
+    ], scope, signal, priority);
   }
 
   adopt(batch: PreparedPrograms): void {
@@ -181,7 +192,7 @@ export class ProgramPreparation implements PreparationService {
     }
   }
 
-  async prepare(entries: readonly PreparationEntry[], scope?: () => Restore, signal?: AbortSignal): Promise<PreparedPrograms> {
+  async prepare(entries: readonly PreparationEntry[], scope?: () => Restore, signal?: AbortSignal, priority: PreparationPriority = "visible"): Promise<PreparedPrograms> {
     const controller = new AbortController();
     const epoch = this.epoch;
     const cancel = () => controller.abort();
@@ -189,10 +200,15 @@ export class ProgramPreparation implements PreparationService {
     if (signal?.aborted || this.disposed) controller.abort();
     this.active.add(controller);
     const materials: THREE.Material[] = [];
+    // Matches the colour/depth format of r186's PCF map, including during boot before a live map exists.
+    const shadowTarget = new THREE.WebGLRenderTarget(1, 1);
+    shadowTarget.depthTexture = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
+    shadowTarget.depthTexture.compareFunction = THREE.LessEqualCompare;
     const pending: Promise<unknown>[] = [];
-    let deadline = 0;
     const observedSources = new Set<THREE.Material>();
-    const batch = { sources: observedSources, dispose: () => { for (const material of materials) material.dispose(); materials.length = 0; } };
+    const batch: PreparedPrograms & { status: PreparedPrograms["status"] } = { sources: observedSources, status: "complete", dispose: () => {
+      for (const material of materials) material.dispose(); materials.length = 0; shadowTarget.dispose();
+    } };
     let timedOut = false;
     const timeout = window.setTimeout(() => { timedOut = true; cancel(); }, 30000);
     const onAbort = () => { if (!timedOut) batch.dispose(); };
@@ -207,31 +223,36 @@ export class ProgramPreparation implements PreparationService {
           const sources = Array.isArray(object.material) ? object.material : [object.material];
           for (const source of sources) {
             if (!observedSources.has(source)) { observedSources.add(source); source.addEventListener("dispose", cancel); }
+            if (object.castShadow && object.customDepthMaterial && !observedSources.has(object.customDepthMaterial)) {
+              observedSources.add(object.customDepthMaterial); object.customDepthMaterial.addEventListener("dispose", cancel);
+            }
             for (const shadow of object.castShadow ? [false, true] : [false]) {
-              if (performance.now() >= deadline) deadline = await this.idle(controller.signal);
-              const { renderer } = this.ctx;
-              const target = renderer.getRenderTarget(), face = renderer.getActiveCubeFace(), mip = renderer.getActiveMipmapLevel();
-              const live = object.material, children = object.children;
-              let restore: Restore | undefined;
-              let material: THREE.Material | undefined;
-              try {
-                restore = scope?.();
-                material = shadow ? preparationDepth(object, source) : preparationMaterial(source);
-                materials.push(material);
-                object.material = material;
-                object.children = [];
-                renderer.setRenderTarget(entry.target());
-                const compile = () => {
-                  if (renderer.extensions.has("KHR_parallel_shader_compile")) pending.push(renderer.compileAsync(object, entry.camera, entry.scene));
-                  else renderer.compile(object, entry.camera, entry.scene);
-                };
-                const graphics = graphicsValidity(this.ctx);
-                if (graphics) graphics.checkPreparation(compile); else compile();
-              } finally {
-                object.material = live; object.children = children;
-                restore?.();
-                renderer.setRenderTarget(target, face, mip);
-              }
+              await this.submit(() => {
+                const { renderer } = this.ctx;
+                const target = renderer.getRenderTarget(), face = renderer.getActiveCubeFace(), mip = renderer.getActiveMipmapLevel();
+                const live = object.material, children = object.children;
+                let restore: Restore | undefined;
+                let material: THREE.Material | undefined;
+                try {
+                  restore = scope?.();
+                  material = shadow ? preparationDepth(object, source) : preparationMaterial(source);
+                  materials.push(material);
+                  object.material = material;
+                  object.children = [];
+                  renderer.setRenderTarget(shadow ? shadowTarget : entry.target());
+                  const compile = () => {
+                    if (renderer.extensions.has("KHR_parallel_shader_compile")) pending.push(renderer.compileAsync(object, entry.camera, entry.scene));
+                    else renderer.compile(object, entry.camera, entry.scene);
+                  };
+                  const graphics = graphicsValidity(this.ctx);
+                  if (graphics) graphics.checkPreparation(compile); else compile();
+                } finally {
+                  object.material = live; object.children = children;
+                  restore?.();
+                  renderer.setRenderTarget(target, face, mip);
+                }
+                assertShaderReady(renderer);
+              }, { signal: controller.signal, priority });
             }
           }
         }
@@ -248,23 +269,27 @@ export class ProgramPreparation implements PreparationService {
       } finally { controller.signal.removeEventListener("abort", stopWaiting); }
       const { renderer } = this.ctx;
       for (const material of materials) {
-        if (performance.now() >= deadline) deadline = await this.idle(controller.signal);
-        if (controller.signal.aborted) throw aborted();
-        // Reflect only owned programs. Without KHR this can block; readiness is not a timing guarantee.
+        // Reflect only owned programs. Without KHR one indivisible driver call can exceed the allowance.
         const properties = renderer.properties.get(material) as { programs?: Map<unknown, PreparedProgram> };
         for (const program of properties.programs?.values() ?? []) {
-          if (renderer.extensions.has("KHR_parallel_shader_compile")) while (!program.isReady()) deadline = await this.idle(controller.signal);
-          if (controller.signal.aborted) throw aborted();
-          const reflect = () => { program.getUniforms(); program.getAttributes(); };
-          const graphics = graphicsValidity(this.ctx);
-          if (graphics) graphics.checkPreparation(reflect); else reflect();
+          if (renderer.extensions.has("KHR_parallel_shader_compile")) {
+            let ready = await this.submit(() => program.isReady(), { signal: controller.signal, priority });
+            while (!ready) ready = await this.submit(() => program.isReady(), { signal: controller.signal, priority, nextFrame: true });
+          }
+          await this.submit(() => {
+            const reflect = () => { program.getUniforms(); program.getAttributes(); };
+            const graphics = graphicsValidity(this.ctx);
+            if (graphics) graphics.checkPreparation(reflect); else reflect();
+            assertShaderReady(renderer);
+          }, { signal: controller.signal, priority });
         }
       }
       if (controller.signal.aborted) throw aborted();
+      assertShaderReady(renderer);
       graphicsValidity(this.ctx)?.assertValid();
       return batch;
     } catch (error) {
-      try { graphicsValidity(this.ctx)?.assertValid(); } catch (failure) { batch.dispose(); throw failure; }
+      try { assertShaderReady(this.ctx.renderer); graphicsValidity(this.ctx)?.assertValid(); } catch (failure) { batch.dispose(); throw failure; }
       if (timedOut && !this.disposed && !signal?.aborted && epoch === this.epoch) {
         // Preparation is an optimization, never permission to erase scenery. Keep submitted program
         // references alive for the first real draw; it may synchronously finish the remaining work.
@@ -272,6 +297,7 @@ export class ProgramPreparation implements PreparationService {
           this.timeoutWarned = true;
           console.warn("[harbour] shader preparation timed out; showing scenery with possible first-use compilation", error);
         }
+        batch.status = "timed-out";
         return batch;
       }
       batch.dispose();
@@ -288,7 +314,7 @@ export class ProgramPreparation implements PreparationService {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true; this.invalidate();
-    for (const cancel of [...this.waits]) cancel();
+    this.queue.dispose(); this.uninstallShaderFailure();
     this.current?.dispose();
     for (const batch of this.held.values()) batch.dispose();
     this.held.clear(); this.entries.clear();

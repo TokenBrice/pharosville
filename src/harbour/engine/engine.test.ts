@@ -17,6 +17,9 @@ import { TIERS } from "./quality";
 import { QualityGovernor } from "./governor";
 import type { QualitySettings } from "./quality";
 import type { PreparedPrograms } from "./prepare";
+import { getHarbourMaterials } from "../world/materials";
+import { chainedKitMaterial } from "../life/figure-kit";
+import { installShaderFailureHook } from "./shader-failure";
 
 interface EngineHarness {
   ctx: EngineContext;
@@ -38,8 +41,8 @@ interface EngineHarness {
   begun: Set<WorldSystem>;
   disposed: boolean;
   aborted: boolean;
-  preparation: { prepareGroup: Mock; invalidate: Mock; prepare: Mock };
-  qualityPreparation: Map<QualitySettings["tier"], Promise<void>>;
+  preparation: { prepareGroup: Mock; invalidate: Mock; prepareWorld: Mock; generation: number };
+  qualityPreparation: Map<string, Promise<void>>;
   qualityPrograms: Set<PreparedPrograms>;
   qualityReady: Set<QualitySettings["tier"]>;
   governor: { end: Mock; pause: Mock; resume: Mock; reconcileDisplay: Mock; resetTiming: Mock; publish: Mock; dpr: number };
@@ -55,7 +58,7 @@ interface EngineHarness {
   reconcileRunning(): void;
   init(): Promise<void>;
   post: { preparationEntries: Mock };
-  prepareQuality(settings: QualitySettings): Promise<void>;
+  prepareQuality(settings: QualitySettings, signal?: AbortSignal): Promise<void>;
   warmQuality: Mock;
   initLater(): Promise<void>;
   init(): Promise<void>;
@@ -85,12 +88,12 @@ function frameEngine() {
     firstFrameMs: null, startMs: 0, profile: null, clock: { last: 0, elapsed: 0 },
     frameState: { elapsed: 0, delta: 0, nowMs: 0 }, rendered: { revision: 0, boats: 0 },
     renderedListeners: new Set(), systems: [], ready: new Set(), later: [], begun: new Set(),
-    disposed: false, aborted: false, preparation: { prepareGroup: vi.fn(async () => {}), invalidate: vi.fn(), prepare: vi.fn() },
+    disposed: false, aborted: false, preparation: { prepareGroup: vi.fn(async () => {}), invalidate: vi.fn(), prepare: vi.fn(), prepareWorld: vi.fn(), generation: 0 },
     qualityPreparation: new Map(), qualityPrograms: new Set(), qualityReady: new Set(), warmQuality: vi.fn(),
     backingLimits: { width: 8192, height: 8192 }, resolutionDpr: 0,
     booted: false, requestedRunning: false, running: false, raf: 0,
     stats: { backend: "webgl2", drawCalls: 0, triangles: 0, textures: 0, programs: 0, hour: 0, systems: [], firstFrameMs: null, firstFleetFrameMs: null, renderedRevision: 0, renderedBoats: 0 },
-    input: { update: vi.fn() }, post: { update: vi.fn() },
+    input: { update: vi.fn() }, post: { update: vi.fn(), prepareGrade: vi.fn(async () => {}) },
     governor: { begin: vi.fn(), end: vi.fn(), pause: vi.fn(), resume: vi.fn(), reconcileDisplay: vi.fn(() => false), resetTiming: vi.fn(), publish: vi.fn(), dpr: 1, tier: "high", gpuMs: 2, gpuP50Ms: 3, gpuSamples: 30, gpuCompletedSamples: 50, gpuPendingQueries: 1, gpuDisjointSamples: 2, gpuSkippedQueries: 0 },
   }) as EngineHarness;
   engine.onResize = () => engine.resize();
@@ -117,38 +120,41 @@ describe("engine preparation and rendered readiness", () => {
     expect(states).toHaveBeenLastCalledWith({ state: "FAILED", code: "loading" });
   });
 
-  it("prepares only post presets once, sharing idle and explicit requests and retaining their programs", async () => {
+  it("prepares the complete target tier once, sharing idle and explicit requests and retaining their programs", async () => {
     const { engine } = frameEngine();
     const entries: unknown[] = [], dispose = vi.fn();
     engine.post.preparationEntries = vi.fn(() => ({ entries, dispose }));
     const completion = deferred<PreparedPrograms>();
-    const batch = { sources: new Set<THREE.Material>(), dispose: vi.fn() };
-    engine.preparation.prepare.mockReturnValue(completion.promise);
+    const batch: PreparedPrograms = { status: "complete", sources: new Set<THREE.Material>(), dispose: vi.fn() };
+    engine.preparation.prepareWorld.mockReturnValue(completion.promise);
     const first = engine.prepareQuality(TIERS.low);
     expect(engine.prepareQuality(TIERS.low)).toBe(first);
-    expect(engine.preparation.prepare).toHaveBeenCalledExactlyOnceWith(entries);
+    expect(engine.preparation.prepareWorld).toHaveBeenCalledExactlyOnceWith(expect.any(Function), entries, undefined, "visible");
     expect(engine.preparation.invalidate).not.toHaveBeenCalled();
     completion.resolve(batch);
     await first;
     await engine.prepareQuality(TIERS.low);
-    expect(engine.preparation.prepare).toHaveBeenCalledTimes(1);
+    expect(engine.preparation.prepareWorld).toHaveBeenCalledTimes(1);
+    getHarbourMaterials(engine.ctx).setLite(true);
+    await engine.prepareQuality(TIERS.low);
+    expect(engine.preparation.prepareWorld).toHaveBeenCalledTimes(1);
     expect(engine.qualityPrograms.has(batch)).toBe(true);
     expect(batch.dispose).not.toHaveBeenCalled();
     expect(dispose).toHaveBeenCalledOnce();
   });
 
-  it("retries superseded post preparations but releases late completion after teardown", async () => {
+  it("retries superseded world preparations but releases late completion after teardown", async () => {
     const { engine } = frameEngine();
     const dispose = vi.fn();
     engine.post.preparationEntries = vi.fn(() => ({ entries: [], dispose }));
     const completion = deferred<PreparedPrograms>();
-    const batch = { sources: new Set<THREE.Material>(), dispose: vi.fn() };
-    engine.preparation.prepare
+    const batch: PreparedPrograms = { status: "complete", sources: new Set<THREE.Material>(), dispose: vi.fn() };
+    engine.preparation.prepareWorld
       .mockRejectedValueOnce(new DOMException("Season superseded", "AbortError"))
       .mockReturnValueOnce(completion.promise);
     const pending = engine.prepareQuality(TIERS.medium);
     await Promise.resolve();
-    expect(engine.preparation.prepare).toHaveBeenCalledTimes(2);
+    expect(engine.preparation.prepareWorld).toHaveBeenCalledTimes(2);
     engine.disposed = true;
     completion.resolve(batch);
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
@@ -156,6 +162,57 @@ describe("engine preparation and rendered readiness", () => {
     expect(batch.dispose).toHaveBeenCalledOnce();
     expect(engine.qualityPrograms.size).toBe(0);
     expect(engine.qualityPreparation.size).toBe(0);
+  });
+
+  it("rejects timed-out tiers and rebuilds readiness for late materials and season generations", async () => {
+    const { engine, ctx } = frameEngine();
+    engine.post.preparationEntries = vi.fn(() => ({ entries: [], dispose() {} }));
+    const partial: PreparedPrograms = { status: "timed-out", sources: new Set(), dispose: vi.fn() };
+    engine.preparation.prepareWorld.mockResolvedValueOnce(partial);
+    await expect(engine.prepareQuality(TIERS.low)).rejects.toThrow("timed out");
+    expect(partial.dispose).toHaveBeenCalledOnce(); expect(engine.qualityPrograms.size).toBe(0);
+    const complete = (): PreparedPrograms => ({ status: "complete", sources: new Set(), dispose: vi.fn() });
+    engine.preparation.prepareWorld.mockImplementation(async () => complete());
+    await engine.prepareQuality(TIERS.low);
+    const mats = getHarbourMaterials(ctx), life = chainedKitMaterial(mats, "late", { vertexHead: "", vertexPose: "", uniforms: {} });
+    await engine.prepareQuality(TIERS.low);
+    ctx.uniforms.uSeasonPhase.value = 0.1;
+    await engine.prepareQuality(TIERS.low);
+    engine.preparation.generation++;
+    await engine.prepareQuality(TIERS.low);
+    expect(engine.preparation.prepareWorld).toHaveBeenCalledTimes(5);
+    expect(engine.qualityPrograms.size).toBe(4); // Adoption cannot evict a future tier's resident programs.
+    for (const batch of engine.qualityPrograms) expect(batch.dispose).not.toHaveBeenCalled();
+    life.dispose(); mats.dispose();
+  });
+
+  it("cancels an individual tier consumer without destroying shared preparation", async () => {
+    const { engine } = frameEngine();
+    engine.post.preparationEntries = vi.fn(() => ({ entries: [], dispose() {} }));
+    const completion = deferred<PreparedPrograms>(), controller = new AbortController();
+    const batch: PreparedPrograms = { status: "complete", sources: new Set(), dispose: vi.fn() };
+    engine.preparation.prepareWorld.mockReturnValue(completion.promise);
+    const cancelled = engine.prepareQuality(TIERS.medium, controller.signal), shared = engine.prepareQuality(TIERS.medium);
+    controller.abort();
+    await expect(cancelled).rejects.toMatchObject({ name: "AbortError" });
+    completion.resolve(batch); await shared;
+    expect(engine.preparation.prepareWorld).toHaveBeenCalledOnce(); expect(batch.dispose).not.toHaveBeenCalled();
+  });
+
+  it("blocks rendered readiness when Three reports a link failure without throwing", () => {
+    const { engine, ctx, renderer, composer } = frameEngine();
+    const debug = { checkShaderErrors: false, onShaderError: null as THREE.WebGLRenderer["debug"]["onShaderError"] };
+    Object.assign(renderer, { debug });
+    const uninstall = installShaderFailureHook(ctx.renderer), rendered = vi.fn();
+    engine.onRendered(rendered);
+    ctx.services.set("fleet-frame", { revision: 1, boats: 12 });
+    composer.render.mockImplementationOnce(() => debug.onShaderError?.({} as WebGLRenderingContext, {} as Parameters<NonNullable<typeof debug.onShaderError>>[1], {} as WebGLShader, {} as WebGLShader));
+    const states: HarbourLifecycle[] = [];
+    engine.onLifecycle((state) => states.push(state));
+    engine.frame(16); // boot's frame policy catches the latched link failure and enters recovery
+    expect(states.at(-1)).toMatchObject({ state: "RECOVERING", code: "shader" });
+    expect(engine.stats.renderedRevision).toBe(0); expect(rendered).not.toHaveBeenCalled();
+    uninstall();
   });
 
   it("publishes only composer-completed revisions, marks first fleet once, and shares the profiled path", () => {
@@ -360,7 +417,7 @@ describe("engine preparation and rendered readiness", () => {
     const boot = engine.init();
     visibility.hidden = true;
     engine.reconcileRunning();
-    ready.resolve({ sources: new Set(), dispose: vi.fn() });
+    ready.resolve({ sources: new Set(), status: "complete", dispose: vi.fn() });
     await boot;
     engine.start(); // Production also requests start after init resolves.
     expect(engine.booted).toBe(true);
@@ -382,7 +439,7 @@ describe("engine preparation and rendered readiness", () => {
     engine.start();
     const boot = engine.init();
     engine.stop();
-    ready.resolve({ sources: new Set(), dispose: vi.fn() }); await boot;
+    ready.resolve({ sources: new Set(), status: "complete", dispose: vi.fn() }); await boot;
     visibility.hidden = true; engine.reconcileRunning();
     visibility.hidden = false; engine.reconcileRunning();
     expect(requestAnimationFrame).not.toHaveBeenCalled();

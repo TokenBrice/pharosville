@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import { BloomEffect, EdgeDetectionMaterial, SMAAEffect, SMAAPreset, SMAAWeightsMaterial } from "postprocessing";
-import { describe, expect, it, vi } from "vitest";
-import { fillGradeLUT, gradePixel, PostChain } from "./post";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fillGradeLUT, gradePixel, LUT_SIZE, PostChain, SlicedGradeLUT } from "./post";
+import { PreparationQueue } from "./preparation-queue";
+import type { PreparationService } from "./types";
 import { DEFAULT_KEYFRAMES, styleCDirection } from "./time-of-day";
 import { TIERS } from "./quality";
 
@@ -9,7 +11,53 @@ import type { Grade } from "./time-of-day";
 
 const neutral = (): Grade => ({ lift: [1, 1, 1], gamma: [1, 1, 1], gain: [1, 1, 1], saturation: 1, contrast: 1 });
 
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
 describe("grade LUT", () => {
+  it.each([1, 4])("slices a 19.6 ms bake at CPU×%s within the shared allowance, keeping byte parity and coalescing easing", async (throttle) => {
+    vi.useFakeTimers(); vi.stubGlobal("window", globalThis);
+    const a = { ...neutral(), contrast: 1.3, blueSat: 0.8, warmSat: 1.1, shadowSat: 0.7 };
+    const b = { ...neutral(), saturation: 0.5 }, c = { ...neutral(), gain: [1.1, 0.9, 1] as [number, number, number] };
+    const expected = [a, c].map((g) => { const data = new Uint16Array(LUT_SIZE ** 3 * 4); fillGradeLUT(data, LUT_SIZE, g); return data; });
+    let cpu = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => Date.now() + cpu);
+    const toHalf = THREE.DataUtils.toHalfFloat;
+    // O2-F2's measured bake cost, independent of the host CPU's speed.
+    const halfMs = 19.6 * throttle / (LUT_SIZE ** 3 * 4);
+    vi.spyOn(THREE.DataUtils, "toHalfFloat").mockImplementation((v) => { cpu += halfMs; return toHalf(v); });
+    const queue = new PreparationQueue(), slices: number[] = [], uploaded = new Set<THREE.Texture>();
+    const preparation: Pick<PreparationService, "submit" | "stageTexture"> = {
+      submit: (work, options) => queue.submit((deadline) => { const start = cpu; const result = work(deadline); slices.push(cpu - start); return result; }, options),
+      stageTexture: (texture, options) => queue.submit(() => { uploaded.add(texture); }, options),
+    };
+    const published: Uint16Array[] = [], textures = new Set<THREE.Data3DTexture>();
+    const lut = new SlicedGradeLUT((texture) => {
+      expect(uploaded.has(texture)).toBe(true);
+      textures.add(texture); published.push((texture.image.data as Uint16Array).slice());
+    });
+    const pending = lut.request(a, preparation);
+    await vi.advanceTimersByTimeAsync(16);
+    expect(published).toHaveLength(0);
+    lut.request(b, preparation); lut.request(c, preparation);
+    a.contrast = 0.5; c.gain[0] = 0.1;
+    await vi.advanceTimersByTimeAsync(3000); await pending;
+    expect(published).toEqual(expected);
+    expect(textures.size).toBe(2); expect((lut.texture.image.data as Uint16Array).byteLength).toBe(256 * 1024);
+    expect(Math.max(...slices)).toBeLessThanOrEqual(2);
+    expect(queue.stats.overruns).toBe(0);
+    lut.dispose(); queue.dispose(); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not upload or publish a partial generation after disposal", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("window", globalThis);
+    const queue = new PreparationQueue(), publish = vi.fn(), upload = vi.fn();
+    const lut = new SlicedGradeLUT(publish);
+    const pending = lut.request(neutral(), { submit: queue.submit.bind(queue), stageTexture: upload });
+    const cancelled = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    lut.dispose(); await cancelled;
+    expect(upload).not.toHaveBeenCalled(); expect(publish).not.toHaveBeenCalled();
+    queue.dispose(); expect(vi.getTimerCount()).toBe(0);
+  });
   it("a neutral grade is the identity", () => {
     for (const v of [0, 0.18, 0.5, 0.9, 1]) {
       const o = gradePixel([v, v * 0.5, 1 - v], neutral());

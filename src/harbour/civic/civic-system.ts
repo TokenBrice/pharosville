@@ -133,7 +133,7 @@ export class CivicSystem implements WorldSystem {
     // `?civic=0` leaves the quarter empty (A/B captures)
     if (!layout || !plots.length || this.q.get("civic") === "0") return;
     this.motion = ensureMotionService(ctx);
-    this.fx = acquireFxTextures(ctx);
+    this.fx = await acquireFxTextures(ctx);
     const mats = getHarbourMaterials(ctx);
 
     let manifest: CivicManifest;
