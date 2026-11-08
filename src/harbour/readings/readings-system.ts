@@ -293,7 +293,7 @@ export class ReadingsSystem implements WorldSystem {
     const ocean = ctx.services.get("ocean") as OceanService | undefined;
     if (ocean && t.sea !== this.lastSea && !this.q.has("sea")) {
       this.lastSea = t.sea;
-      if (t.sea != null) ocean.setSeaState(t.sea);
+      ocean.setSeaState(t.sea ?? 1);
     }
 
     // ---- 3. weather: DEWS → the weather director (src/harbour/weather) eases the sky, wind, rain/snow,
@@ -301,7 +301,7 @@ export class ReadingsSystem implements WorldSystem {
     const w = t.weather;
     this.windS += ((w?.wind ?? 0.3) - this.windS) * (1 - Math.exp(-dt * 0.5));
 
-    // ---- 4. fog, only for stale / unavailable fleet data; rolls in over 10 s
+    // ---- 4. fog, only for retained, dated stale fleet data; rolls in over 10 s
     const fogT = t.fog ? 1 : 0;
     this.fogS = fogT > this.fogS ? Math.min(1, this.fogS + dt / FOG_IN_SEC) : Math.max(0, this.fogS - dt / FOG_OUT_SEC);
     const fogE = this.fogS * this.fogS * (3 - 2 * this.fogS);

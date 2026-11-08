@@ -192,7 +192,7 @@ export function stormTrend(front: FrontState | null): { dir: "rising" | "easing"
 }
 
 export interface DirectorInput {
-  /** Continuous DEWS level, or null when there is no stress reading (the weather holds, never paints calm). */
+  /** Continuous DEWS level, or null when there is no stress reading (reset to non-analytical boot weather). */
   level: number | null;
   band: WeatherBand | null;
   snowShare: number;
@@ -264,6 +264,13 @@ export class WeatherDirector {
 
   step(dt: number, input: DirectorInput): WeatherState {
     const s = this.state;
+    if (input.level == null) {
+      this.shown = null; this.front = null; this.lastBandLevel = null; this.rainbowLeft = 0; this.snowS = 0;
+      Object.assign(s, { level: null, band: null, cloud: 0.38, wind: 0.3, windNow: 0.3, precip: 0, rain: 0, snow: 0,
+        strikesPerMin: 0, gloom: 0, wetness: 0, rainbow: 0, front: null, recovery: null, breaks: 0 });
+      s.strikeKm[0] = 12; s.strikeKm[1] = 18; s.squall.pos = 0; s.squall.k = 0;
+      return s;
+    }
     if (input.level != null) {
       if (this.shown == null) { this.snap(input); return s; }
       // W01: a reading far enough from the weather shown sends a front across from the upwind horizon (a

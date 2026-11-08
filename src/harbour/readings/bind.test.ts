@@ -55,8 +55,8 @@ describe("readings → world targets", () => {
   });
 
   it("PSI (DA-09): qualified when either early-warning input is unavailable, and only while lit", () => {
-    const deg = (dews: boolean, depeg: boolean, current: object = { score: 91.2, band: "BEDROCK" }) => derive(payloads({
-      stability: snap({ current: { ...current, inputDegradation: { dewsUnavailable: dews, dewsFailureReason: null, depegEventsUnavailable: depeg, depegEventsFailureReason: null } } }) as NonNullable<HarbourPayloads["stability"]>,
+    const deg = (dews: boolean, depeg: boolean, current: { score: number; band: string } = { score: 91.2, band: "BEDROCK" }) => derive(payloads({
+      stability: snap({ current: { ...current, inputDegradation: { dewsUnavailable: dews, depegEventsUnavailable: depeg } } }) as NonNullable<HarbourPayloads["stability"]>,
     })).psi.qualified;
     expect(derive(payloads()).psi.qualified).toBe(false);          // no inputDegradation block
     expect(deg(false, false)).toBe(false);
@@ -99,12 +99,14 @@ describe("readings → world targets", () => {
     expect(derive(drop(payloads(), "chains")).tide.pct).toBeNull();
   });
 
-  it("fog only for a stale or (attempted) unavailable /api/stablecoins", () => {
+  it("fog only for retained, dated stale /api/stablecoins", () => {
     expect(derive(payloads()).fog).toBe(false);
     const stale = payloads({ stablecoins: { ...payloads().stablecoins!, meta: { ...fresh, status: "stale" } } });
     expect(derive(stale).fog).toBe(true);
     expect(derive(drop(payloads(), "stablecoins"), false).fog).toBe(false); // still syncing
-    expect(derive(drop(payloads(), "stablecoins"), true).fog).toBe(true);
+    expect(derive(drop(payloads(), "stablecoins"), true).fog).toBe(false);
+    expect(derive(payloads({ stablecoins: { ...payloads().stablecoins!, meta: null, staleFallback: true } })).fog).toBe(false);
+    expect(derive(payloads({ stablecoins: { ...payloads().stablecoins!, meta: null } })).fog).toBe(false);
     // a stale side endpoint dims its landmark, never fogs the harbour
     const sideStale = derive(payloads({ stress: { ...payloads().stress!, meta: { ...fresh, status: "stale" } } }));
     expect(sideStale.fog).toBe(false);

@@ -885,7 +885,7 @@ function KeepersLogPanel({ model, titleRef }: P) {
               {rows.map((r) => (
                 <tr key={r.k}>
                   <td><span className="hb-dot" data-state={r.t.state} aria-hidden="true" /> {r.label}</td>
-                  <td className="r">{r.t.state === "unavailable" ? <em>unavailable</em> : <>{r.t.state === "stale" ? <em>stale · </em> : null}{age(r.t.ageSec)}{r.t.ageSec != null && r.t.ageSec >= 90 ? " ago" : ""}</>}</td>
+                  <td className="r">{r.t.state === "unknown" ? <em>Source freshness is unverified.</em> : r.t.state === "unavailable" ? <em>unavailable</em> : <>{r.t.state === "stale" ? <em>stale · </em> : null}{age(r.t.ageSec)}{r.t.ageSec != null && r.t.ageSec >= 90 ? " ago" : ""}</>}</td>
                 </tr>
               ))}
             </tbody>

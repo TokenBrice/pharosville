@@ -28,17 +28,25 @@ export type ChainRow = Pick<ChainSummary, "id" | "name" | "totalUsd"> & Partial<
 export interface ChainsPayload extends Partial<Pick<ChainsResponse, "globalTotalUsd" | "unattributedTotalUsd" | "globalChange24hPct" | "globalChange7dPct" | "globalChange30dPct">> { chains: ChainRow[] }
 
 export interface StabilityPayload {
-  current: (Pick<StabilityIndexCurrent, "score" | "band"> & Partial<Pick<StabilityIndexCurrent, "avg24h" | "computedAt" | "inputDegradation">>) | null;
+  current: (Pick<StabilityIndexCurrent, "score" | "band"> & Partial<Pick<StabilityIndexCurrent, "avg24h" | "computedAt" | "methodologyVersion">> & { inputDegradation?: { dewsUnavailable?: boolean; depegEventsUnavailable?: boolean } | null }) | null;
+  methodology?: { version?: string | null } | null;
+  history?: Array<{ date: number; score: number; methodologyVersion?: string | null }>;
 }
-export type PegCoinRow = Pick<PegSummaryCoin, "id" | "currentDeviationBps" | "activeDepeg"> & Partial<Pick<PegSummaryCoin, "pegScore">>;
-export interface PegSummaryPayload { coins: PegCoinRow[] }
+export type PegCoinRow = Pick<PegSummaryCoin, "id" | "currentDeviationBps" | "activeDepeg"> & Partial<Pick<PegSummaryCoin, "pegScore" | "methodologyVersion">>;
+export interface PegSummaryPayload { coins: PegCoinRow[]; methodology?: { version?: string | null; asOf?: number } | null }
 export interface StressPayload {
-  signals: Record<string, Pick<StressSignalEntry, "score" | "band">>;
+  signals: Record<string, Pick<StressSignalEntry, "score" | "band"> | null>;
+  methodology?: { version?: string | null } | null;
+  updatedAt?: number;
   coverageRatio?: number;
 }
-export interface SafetyGradesPayload { grades: Array<Pick<SafetyGradeEntry, "id" | "grade">> }
+export interface SafetyGradesPayload { grades: Array<Pick<SafetyGradeEntry, "id" | "grade">>; methodologyVersion?: string | null; updatedAt?: number }
 export interface MintBurnPayload {
   hourly: Array<Pick<MintBurnFlowsResponse["hourly"][number], "hourTs" | "netFlowUsd" | "mintVolumeUsd" | "burnVolumeUsd"> & { valuation?: string }>;
+  coins?: Array<Pick<MintBurnFlowsResponse["coins"][number], "stablecoinId" | "mintVolume24hUsd" | "burnVolume24hUsd" | "netFlow24hUsd" | "netFlow7dUsd"> & {
+    coverage?: Pick<NonNullable<MintBurnFlowsResponse["coins"][number]["coverage"]>, "status"> & Partial<Pick<NonNullable<MintBurnFlowsResponse["coins"][number]["coverage"]>, "has24hWindow" | "historyStartAt" | "isPartial">>;
+    valuation?: { window24h: { completeness: "complete" | "partial" | "unknown"; mintCompleteness?: "complete" | "partial" | "unknown"; burnCompleteness?: "complete" | "partial" | "unknown" }; netFlow7d?: "complete" | "partial" | "unknown" };
+  }>;
   scope?: { chainIds: string[]; label?: string } | undefined;
 }
 
@@ -52,6 +60,8 @@ export interface PayloadByKey {
   mintBurn: MintBurnPayload;
 }
 
+export type FeedFailureKind = "offline" | "timeout" | "http" | "invalid-payload" | "network";
+
 /** One endpoint's last good payload plus the freshness evidence that came with it. */
 export interface EndpointSnapshot<T> {
   data: T | null;
@@ -61,6 +71,11 @@ export interface EndpointSnapshot<T> {
   fetchedAtMs: number | null;
   /** Last fetch error (data may still hold an older good payload). */
   error?: string | null;
+  staleFallback?: boolean;
+  degradedTransport?: boolean;
+  failureKind?: FeedFailureKind | null;
+  failureStreak?: number;
+  nextRetryAtMs?: number | null;
 }
 
 export type HarbourPayloads = { [K in EndpointKey]?: EndpointSnapshot<PayloadByKey[K]> };
@@ -140,10 +155,13 @@ export interface Harbour {
   healthScore: number | null;
 }
 
-export type Freshness = "current" | "stale" | "unavailable";
+export type Freshness = "current" | "stale" | "unknown" | "unavailable";
 export interface EndpointTruth {
   state: Freshness;
   ageSec: number | null;
+  sourceUpdatedAtMs?: number | null;
+  receivedAtMs?: number | null;
+  reason?: "stale-fallback" | "source-stale" | "unverified-source" | "no-observation" | null;
   /** Server-reported status at fetch time. */
   serverStatus: ApiMeta["status"] | null;
 }
@@ -190,7 +208,8 @@ export interface WeatherReading {
 
 export interface FlowsReading {
   /** 24 hourly bars, oldest first; netUsd null = partial valuation (drawn as a gap, not zero). */
-  hourly: Array<{ hourTs: number; netUsd: number | null; mintUsd: number; burnUsd: number }>;
+  hourly: Array<{ hourTs: number; netUsd: number | null; mintUsd: number; burnUsd: number; valuation?: string }>;
+  coins?: MintBurnPayload["coins"];
   net24hUsd: number | null;
   scope: string[];
   stale: boolean;

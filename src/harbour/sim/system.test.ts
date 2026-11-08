@@ -7,7 +7,7 @@ interface Model { boats: unknown[]; hasFleet: boolean; planKey: string; truth: {
 interface Feed { payloads: Payloads; publish(key: string, count?: number | null): void }
 interface Sim { model: Model; plan: { key: string }; pose: { count: number }; setModel: Mock; poseAt: Mock }
 interface Warm { done: Promise<void>; prepare: Mock; stop: Mock }
-const state = vi.hoisted(() => ({ feed: null as Feed | null, warm: null as Warm | null, sims: [] as Sim[], fail: null as ((error: Error) => void) | null }));
+const state = vi.hoisted(() => ({ feed: null as Feed | null, warm: null as Warm | null, sims: [] as Sim[], buildError: false, fail: null as ((error: Error) => void) | null }));
 vi.mock("../data/fetch", () => ({ HarbourFeed: class {
   payloads: Payloads = {};
   listener: () => void = () => {};
@@ -20,12 +20,14 @@ vi.mock("../data/fetch", () => ({ HarbourFeed: class {
     this.listener();
   }
 } }));
-vi.mock("../model/build", () => ({ buildHarbourModel: (payloads: Payloads, nowMs: number): Model => ({
+vi.mock("../model/build", () => ({ buildHarbourModel: (payloads: Payloads, nowMs: number): Model => {
+  if (state.buildError) throw new Error("bad model");
+  return ({
   boats: Array.from({ length: payloads.stablecoins?.data?.count ?? 0 }),
   planKey: String(payloads.stablecoins?.data?.count ?? 0),
   hasFleet: !!payloads.stablecoins?.data,
   truth: { stablecoins: { state: !payloads.stablecoins?.data ? "unavailable" : nowMs - payloads.stablecoins.fetchedAtMs > 40_000 ? "stale" : "current" } },
-}) }));
+}); } }));
 vi.mock("../model/truth", () => ({ allTruth: (payloads: Payloads, nowMs: number) => ({ stablecoins: { state: !payloads.stablecoins?.data ? "unavailable" : nowMs - payloads.stablecoins.fetchedAtMs > 40_000 ? "stale" : "current" } }) }));
 vi.mock("../ocean/sdf-image", () => ({ loadSdfImage: vi.fn() }));
 vi.mock("../ui/services", () => ({ ensureMotionService: () => ({ reduced: false, subscribe: () => () => {} }) }));
@@ -61,6 +63,7 @@ beforeEach(() => {
   vi.stubGlobal("window", { setTimeout });
   state.sims.length = 0;
   state.fail = null;
+  state.buildError = false;
   warm = deferred<void>(); paths = deferred<object>();
   state.warm = { done: warm.promise, prepare: vi.fn(() => paths.promise), stop: vi.fn() };
   system = new DataSystem();
@@ -245,5 +248,25 @@ describe("single-owner prepared adoption", () => {
     expect(system.readiness).toEqual({ revision: 1, boats: 3, prepared: true });
     expect(ctx.services.get("simulation-status")).toEqual({ unavailable: false });
     expect(state.sims[0].setModel).toHaveBeenCalledOnce();
+  });
+});
+
+
+describe("model-build failure containment", () => {
+  it("releases preparation and accepts a good refresh without declaring the worker broken", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await begin(); await startPreparation(); paths.resolve({}); await flush();
+    const installed = ctx.services.get("model");
+    const poses = state.sims[0].poseAt.mock.calls.length;
+    state.buildError = true;
+    state.feed!.publish("stress"); await vi.runOnlyPendingTimersAsync();
+    expect(ctx.services.get("model")).toBe(installed);
+    expect(state.sims[0].poseAt).toHaveBeenCalledTimes(poses);
+    expect(warn).toHaveBeenCalledWith("[harbour] model-build unavailable", expect.any(Error));
+    state.buildError = false;
+    state.feed!.publish("stablecoins", 3); await vi.runOnlyPendingTimersAsync(); await flush();
+    expect(state.warm!.prepare).toHaveBeenCalledTimes(2);
+    expect(state.sims[0].model.boats).toHaveLength(3);
+    expect(system.readiness.prepared).toBe(true);
   });
 });

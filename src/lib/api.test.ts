@@ -158,3 +158,17 @@ describe("bounded response consumption", () => {
     expect(meta).toMatchObject({ ageSeconds: 50, updatedAt: 1_799_999_950, status: "degraded" });
   });
 });
+
+
+describe("unknown and outage freshness normalization", () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  it("does not synthesize a receipt timestamp for warning-only fallback", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ok: true }, { headers: { Warning: '110 - "Response is stale"', Age: "300" } })));
+    expect((await apiFetchWithMeta("/api/fixture")).meta).toBeNull();
+  });
+  it("demotes even young dated Warning 110 to stale", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ok: true, _meta: { updatedAt: 1_799_999_995, ageSeconds: 5, status: "fresh" } }, { headers: { Warning: '110 - "Response is stale"' } })));
+    expect((await apiFetchWithMeta("/api/fixture")).meta?.status).toBe("stale");
+  });
+});

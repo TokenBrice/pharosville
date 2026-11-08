@@ -148,7 +148,7 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
   });
 
   const live = boats.filter((b) => b.state !== "wrecked");
-  const flags = stormFlags(live, truth.stress);
+  const flags = coinsCurrent ? stormFlags(live, truth.stress) : [];
   const flagById = new Map(flags.map((f) => [f.id, f.shape]));
   for (const b of boats) b.stormSignal = flagById.get(b.id) ?? null;
   const planKey = planKeyOf(boats);

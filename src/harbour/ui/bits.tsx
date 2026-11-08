@@ -11,6 +11,7 @@ export function truthState(m: HarbourModel | null): { state: Freshness; word: st
   const t = m.truth;
   const essential = [t.stablecoins, t.chains];
   const worst: Freshness = essential.some((e) => e.state === "unavailable") ? "stale" : essential.some((e) => e.state === "stale") ? "stale" : "current";
+  if (essential.some((e) => e.state === "unknown")) return { state: "unknown", word: "unverified", detail: "Source freshness is unverified." };
   const lagging = (Object.keys(t) as Array<keyof typeof t>).filter((k) => t[k].state !== "current").length;
   const ageSec = t.stablecoins.ageSec;
   if (worst === "stale") return { state: "stale", word: `stale · ${age(ageSec)} old`, detail: "the harbour is holding still until fresh data arrives" };
@@ -168,7 +169,7 @@ export function Freshness({ label, state, ageSec }: { label: string; state: Fres
   return (
     <div className="hb-foot">
       <span className="hb-dot" data-state={state} aria-hidden="true" />
-      <span>{label} {state === "unavailable" ? "unavailable" : `${state === "stale" ? "stale, " : ""}updated ${age(ageSec)}${ageSec != null && ageSec >= 90 ? " ago" : ""}`}</span>
+      <span>{label} {state === "unknown" ? "unavailable. Source freshness is unverified." : state === "unavailable" ? "unavailable" : `${state === "stale" ? "stale, " : ""}updated ${age(ageSec)}${ageSec != null && ageSec >= 90 ? " ago" : ""}`}</span>
     </div>
   );
 }
