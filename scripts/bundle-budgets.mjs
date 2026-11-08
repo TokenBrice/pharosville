@@ -32,8 +32,12 @@ export const bundleBudgets = {
     // Fair Wind's lazy split: beam light, lamp wave, gust field, fronts, moon and meteors, events +
     // Day book, signals, moments, camera glides, postcard. Measured 896.7 KiB raw / 305.6 KiB gzip.
     // Cap = measured + ~10%.
-    maxRawBytes: 986 * 1024,
-    maxGzipBytes: 336 * 1024,
+    // Re-baselined 2026-11-09 for Clear Air v1.6.0 (agents/pharosville-ultimate): Pilot's Chart tokens and the night
+    // bridge palette, slips, dated charts with values tables, the help and controls sheet with lucide icons, the
+    // five-stop guide, Watch controls, ledger panes and filters, measured framing, the gesture/zoom/picking rework,
+    // typed services and checked shader patches. Measured 994.4 KiB raw / 337.5 KiB gzip. Cap = measured + ~10%.
+    maxRawBytes: 1094 * 1024,
+    maxGzipBytes: 371 * 1024,
     required: true,
   },
   renderer: {
