@@ -1,3 +1,4 @@
+import { patch } from "../engine/shader-patch";
 import * as THREE from "three";
 import type { HarbourMaterials } from "../world/materials";
 
@@ -110,14 +111,13 @@ export function chainedKitMaterial(mats: HarbourMaterials, key: string, hooks: L
   m.name = `hb_life_${key}`;
   m.onBeforeCompile = (shader, renderer) => {
     Object.assign(shader.uniforms, hooks.uniforms);
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", `#include <common>\n${hooks.vertexHead}`)
-      .replace("#include <beginnormal_vertex>", `#include <beginnormal_vertex>\n${hooks.normalPose ?? ""}`)
-      .replace("#include <begin_vertex>", `#include <begin_vertex>\n${hooks.vertexPose}`)
-      .replace("#include <color_vertex>", `#include <color_vertex>\n${hooks.colorPose ?? ""}`);
+    shader.vertexShader = patch(shader.vertexShader, "#include <common>", `#include <common>\n${hooks.vertexHead}`, { id: "life.1.common" });
+    shader.vertexShader = patch(shader.vertexShader, "#include <beginnormal_vertex>", `#include <beginnormal_vertex>\n${hooks.normalPose ?? ""}`, { id: "life.2.beginnormal_vertex" });
+    shader.vertexShader = patch(shader.vertexShader, "#include <begin_vertex>", `#include <begin_vertex>\n${hooks.vertexPose}`, { id: "life.3.begin_vertex" });
+    shader.vertexShader = patch(shader.vertexShader, "#include <color_vertex>", `#include <color_vertex>\n${hooks.colorPose ?? ""}`, { id: "life.4.color_vertex" });
     base.onBeforeCompile(shader, renderer);
-    if (hooks.fragmentHead) shader.fragmentShader = shader.fragmentShader.replace("#include <common>", `#include <common>\n${hooks.fragmentHead}`);
-    if (hooks.emissive) shader.fragmentShader = shader.fragmentShader.replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>\n${hooks.emissive}`);
+    if (hooks.fragmentHead) shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\n${hooks.fragmentHead}`, { id: "life.5.common" });
+    if (hooks.emissive) shader.fragmentShader = patch(shader.fragmentShader, "#include <emissivemap_fragment>", `#include <emissivemap_fragment>\n${hooks.emissive}`, { id: "life.6.emissivemap_fragment" });
   };
   m.customProgramCacheKey = () => `hb_life_${key}_${base.customProgramCacheKey()}`;
   mats.track(m);
@@ -129,9 +129,8 @@ export function posedDepthMaterial(key: string, hooks: LifeShaderHooks): THREE.M
   const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, hooks.uniforms);
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", `#include <common>\n${hooks.vertexHead}`)
-      .replace("#include <begin_vertex>", `#include <begin_vertex>\n${hooks.vertexPose}`);
+    shader.vertexShader = patch(shader.vertexShader, "#include <common>", `#include <common>\n${hooks.vertexHead}`, { id: "life.7.common" });
+    shader.vertexShader = patch(shader.vertexShader, "#include <begin_vertex>", `#include <begin_vertex>\n${hooks.vertexPose}`, { id: "life.8.begin_vertex" });
   };
   m.customProgramCacheKey = () => `hb_life_depth_${key}`;
   return m;

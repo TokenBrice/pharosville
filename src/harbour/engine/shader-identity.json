@@ -1,0 +1,1394 @@
+{
+  "kit/0.0_bare_c11111/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "b0aeccb3cbb99fccb866cc9bf89cab33a4523e655198c49806f0b7330baba8be",
+    "cacheKey": "hb_kit_0.0_bare_c11111"
+  },
+  "kit/0.0_bare_c11111/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c11111"
+  },
+  "kit/0.0_bare_c11111/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "b0aeccb3cbb99fccb866cc9bf89cab33a4523e655198c49806f0b7330baba8be",
+    "cacheKey": "hb_kit_0.0_bare_c11111"
+  },
+  "kit/0.0_bare_c11111/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c11111"
+  },
+  "kit/0.0_bare_c11111/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c11111"
+  },
+  "kit/0.0_bare_c11111/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c11111"
+  },
+  "fleet/0.0_bare_c11111/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "f3521f1aff5f3b5adc1478c53f9561a0d096cebb8cf344c2ff87bd4a49680160",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_bare_c11111"
+  },
+  "kit/0.0_bare_c11111_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "07056f7e859ec73650e5ef084b673974779ee2b9da867134453f1813f175393e",
+    "cacheKey": "hb_kit_0.0_bare_c11111_lite"
+  },
+  "kit/0.0_bare_c11111_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c11111_lite"
+  },
+  "kit/0.0_bare_c11111_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "07056f7e859ec73650e5ef084b673974779ee2b9da867134453f1813f175393e",
+    "cacheKey": "hb_kit_0.0_bare_c11111_lite"
+  },
+  "kit/0.0_bare_c11111_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c11111_lite"
+  },
+  "kit/0.0_bare_c11111_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c11111_lite"
+  },
+  "kit/0.0_bare_c11111_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c11111_lite"
+  },
+  "fleet/0.0_bare_c11111_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "19e11f7077dd410bc72cc6c9f964fe0e8bccb0b76789ec4b5c962f23f252b8f3",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_bare_c11111_lite"
+  },
+  "kit/0.0_bare_c00000/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "56e9c17e238d1829b0086fe445b2c2945faa12cba1e6ba3a8c6fecb1328c0240",
+    "cacheKey": "hb_kit_0.0_bare_c00000"
+  },
+  "kit/0.0_bare_c00000/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c00000"
+  },
+  "kit/0.0_bare_c00000/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "56e9c17e238d1829b0086fe445b2c2945faa12cba1e6ba3a8c6fecb1328c0240",
+    "cacheKey": "hb_kit_0.0_bare_c00000"
+  },
+  "kit/0.0_bare_c00000/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c00000"
+  },
+  "kit/0.0_bare_c00000/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c00000"
+  },
+  "kit/0.0_bare_c00000/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c00000"
+  },
+  "fleet/0.0_bare_c00000/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "19b89d24f958bf281823cf17d31aee493fb46b312cfd90676c11046760d4c2e9",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_bare_c00000"
+  },
+  "kit/0.0_bare_c00000_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "92a9ba8798931e3e8e864a0e9d94214edceb4d287725dde0015a827be5653336",
+    "cacheKey": "hb_kit_0.0_bare_c00000_lite"
+  },
+  "kit/0.0_bare_c00000_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c00000_lite"
+  },
+  "kit/0.0_bare_c00000_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "92a9ba8798931e3e8e864a0e9d94214edceb4d287725dde0015a827be5653336",
+    "cacheKey": "hb_kit_0.0_bare_c00000_lite"
+  },
+  "kit/0.0_bare_c00000_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c00000_lite"
+  },
+  "kit/0.0_bare_c00000_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c00000_lite"
+  },
+  "kit/0.0_bare_c00000_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c00000_lite"
+  },
+  "fleet/0.0_bare_c00000_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "0d89943cef0d4696429e39c8a80e1c29fd6f57d5afc2c5962f8d28873ff5013f",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_bare_c00000_lite"
+  },
+  "kit/0.0_bare_c10000/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "33717384f4706662587de2dbe04404c02ff461cc5ac33880b145c1f651fa140c",
+    "cacheKey": "hb_kit_0.0_bare_c10000"
+  },
+  "kit/0.0_bare_c10000/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c10000"
+  },
+  "kit/0.0_bare_c10000/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "33717384f4706662587de2dbe04404c02ff461cc5ac33880b145c1f651fa140c",
+    "cacheKey": "hb_kit_0.0_bare_c10000"
+  },
+  "kit/0.0_bare_c10000/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c10000"
+  },
+  "kit/0.0_bare_c10000/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c10000"
+  },
+  "kit/0.0_bare_c10000/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c10000"
+  },
+  "fleet/0.0_bare_c10000/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "c12e714b75c7c9d7064c3eb311d9c442483d3f10d32a5de776ca87d58f6e42ad",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_bare_c10000"
+  },
+  "kit/0.0_bare_c10000_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "8ab06da3f3108985268d0b813fe1f6246034038ec5444490aa9957287f1e08b9",
+    "cacheKey": "hb_kit_0.0_bare_c10000_lite"
+  },
+  "kit/0.0_bare_c10000_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c10000_lite"
+  },
+  "kit/0.0_bare_c10000_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "8ab06da3f3108985268d0b813fe1f6246034038ec5444490aa9957287f1e08b9",
+    "cacheKey": "hb_kit_0.0_bare_c10000_lite"
+  },
+  "kit/0.0_bare_c10000_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c10000_lite"
+  },
+  "kit/0.0_bare_c10000_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c10000_lite"
+  },
+  "kit/0.0_bare_c10000_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c10000_lite"
+  },
+  "fleet/0.0_bare_c10000_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "ae528cd766ed95fb042301676553476a43d549be44ed714b768fff1a69920759",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_bare_c10000_lite"
+  },
+  "kit/0.0_leaf_c10000/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "31416c3815339a51282b187645be4ccbd9eb0aae27076b832b8e81ebf0d9fd4f",
+    "cacheKey": "hb_kit_0.0_leaf_c10000"
+  },
+  "kit/0.0_leaf_c10000/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c10000"
+  },
+  "kit/0.0_leaf_c10000/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "31416c3815339a51282b187645be4ccbd9eb0aae27076b832b8e81ebf0d9fd4f",
+    "cacheKey": "hb_kit_0.0_leaf_c10000"
+  },
+  "kit/0.0_leaf_c10000/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c10000"
+  },
+  "kit/0.0_leaf_c10000/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c10000"
+  },
+  "kit/0.0_leaf_c10000/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c10000"
+  },
+  "fleet/0.0_leaf_c10000/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "400e40a53aa52e7e25573a0a69a607a58a86fd1fe57a32fe6a86f5b878179247",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c10000"
+  },
+  "kit/0.0_leaf_c10000_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "cca66d065b834f74155130f54132e30050688ecdd64dfccb3d711e292f8d1a74",
+    "cacheKey": "hb_kit_0.0_leaf_c10000_lite"
+  },
+  "kit/0.0_leaf_c10000_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c10000_lite"
+  },
+  "kit/0.0_leaf_c10000_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "cca66d065b834f74155130f54132e30050688ecdd64dfccb3d711e292f8d1a74",
+    "cacheKey": "hb_kit_0.0_leaf_c10000_lite"
+  },
+  "kit/0.0_leaf_c10000_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c10000_lite"
+  },
+  "kit/0.0_leaf_c10000_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c10000_lite"
+  },
+  "kit/0.0_leaf_c10000_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c10000_lite"
+  },
+  "fleet/0.0_leaf_c10000_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "28aa978f382ab2ea7dace783b6b7a8b57a794bc21dd661a0abd640dd679d3970",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c10000_lite"
+  },
+  "kit/0.0_leaf_c11000/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "b8c977409f5c79dce79c7a86df673a225f3ad0797aabfb0b7b85f994d6a7b06f",
+    "cacheKey": "hb_kit_0.0_leaf_c11000"
+  },
+  "kit/0.0_leaf_c11000/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c11000"
+  },
+  "kit/0.0_leaf_c11000/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "b8c977409f5c79dce79c7a86df673a225f3ad0797aabfb0b7b85f994d6a7b06f",
+    "cacheKey": "hb_kit_0.0_leaf_c11000"
+  },
+  "kit/0.0_leaf_c11000/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c11000"
+  },
+  "kit/0.0_leaf_c11000/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c11000"
+  },
+  "kit/0.0_leaf_c11000/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c11000"
+  },
+  "fleet/0.0_leaf_c11000/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "941a3d169246d330dcf80a1f7bfdf6a9ef46c76192480cef70fdf06eb7c44d48",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c11000"
+  },
+  "kit/0.0_leaf_c11000_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "e976978774631f1c5a5cb3f45698cbf9733a8beb883e3762658a2830e4f4ef6b",
+    "cacheKey": "hb_kit_0.0_leaf_c11000_lite"
+  },
+  "kit/0.0_leaf_c11000_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c11000_lite"
+  },
+  "kit/0.0_leaf_c11000_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "e976978774631f1c5a5cb3f45698cbf9733a8beb883e3762658a2830e4f4ef6b",
+    "cacheKey": "hb_kit_0.0_leaf_c11000_lite"
+  },
+  "kit/0.0_leaf_c11000_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c11000_lite"
+  },
+  "kit/0.0_leaf_c11000_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c11000_lite"
+  },
+  "kit/0.0_leaf_c11000_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c11000_lite"
+  },
+  "fleet/0.0_leaf_c11000_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "31615fc19d10aef142b1f632a0c553d460beb6102b7db3de7478c2108e42a03e",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c11000_lite"
+  },
+  "kit/0.0_leaf_c21000/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "8a9d0fc0b035189e1d6e5d49999522984abf81d0d6b7a24d12336af888f65c26",
+    "cacheKey": "hb_kit_0.0_leaf_c21000"
+  },
+  "kit/0.0_leaf_c21000/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21000"
+  },
+  "kit/0.0_leaf_c21000/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "8a9d0fc0b035189e1d6e5d49999522984abf81d0d6b7a24d12336af888f65c26",
+    "cacheKey": "hb_kit_0.0_leaf_c21000"
+  },
+  "kit/0.0_leaf_c21000/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21000"
+  },
+  "kit/0.0_leaf_c21000/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21000"
+  },
+  "kit/0.0_leaf_c21000/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21000"
+  },
+  "fleet/0.0_leaf_c21000/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "ea5bd94fb9aba5dbcb996a5c8942b1390ec53e63f58feda2a6b0045a1dee7fc7",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c21000"
+  },
+  "kit/0.0_leaf_c21000_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "da0126d3df1189982124e757256398c5f4a3eb6bc022b64c22a0529bc73d25b4",
+    "cacheKey": "hb_kit_0.0_leaf_c21000_lite"
+  },
+  "kit/0.0_leaf_c21000_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21000_lite"
+  },
+  "kit/0.0_leaf_c21000_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "da0126d3df1189982124e757256398c5f4a3eb6bc022b64c22a0529bc73d25b4",
+    "cacheKey": "hb_kit_0.0_leaf_c21000_lite"
+  },
+  "kit/0.0_leaf_c21000_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21000_lite"
+  },
+  "kit/0.0_leaf_c21000_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21000_lite"
+  },
+  "kit/0.0_leaf_c21000_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21000_lite"
+  },
+  "fleet/0.0_leaf_c21000_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "c6440122f10201179f30649e6f5c427306162607106a7e7803b1dd3dfd593f14",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c21000_lite"
+  },
+  "kit/0.0_leaf_c21100/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "bd97e53f8a4f14b263f17f6050dec9e43291db9d8aa4c6196452ab00a202986f",
+    "cacheKey": "hb_kit_0.0_leaf_c21100"
+  },
+  "kit/0.0_leaf_c21100/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21100"
+  },
+  "kit/0.0_leaf_c21100/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "bd97e53f8a4f14b263f17f6050dec9e43291db9d8aa4c6196452ab00a202986f",
+    "cacheKey": "hb_kit_0.0_leaf_c21100"
+  },
+  "kit/0.0_leaf_c21100/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21100"
+  },
+  "kit/0.0_leaf_c21100/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21100"
+  },
+  "kit/0.0_leaf_c21100/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21100"
+  },
+  "fleet/0.0_leaf_c21100/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "f7f793a2c8ee09f6bd3d16124b42f917cb8c07d03be490e3070fa985007cf3ee",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c21100"
+  },
+  "kit/0.0_leaf_c21100_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "b290f03084e9458c77ba1ac253713c6fd31ff1a93d9fb081c91d866a1e94f68d",
+    "cacheKey": "hb_kit_0.0_leaf_c21100_lite"
+  },
+  "kit/0.0_leaf_c21100_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21100_lite"
+  },
+  "kit/0.0_leaf_c21100_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "b290f03084e9458c77ba1ac253713c6fd31ff1a93d9fb081c91d866a1e94f68d",
+    "cacheKey": "hb_kit_0.0_leaf_c21100_lite"
+  },
+  "kit/0.0_leaf_c21100_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21100_lite"
+  },
+  "kit/0.0_leaf_c21100_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21100_lite"
+  },
+  "kit/0.0_leaf_c21100_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21100_lite"
+  },
+  "fleet/0.0_leaf_c21100_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "6e0feea0a2de74ebb306aff7ac9df26fbb29ce3fb52c7220cf1a804df5dc3271",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c21100_lite"
+  },
+  "kit/0.0_leaf_c22100/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "eb1bc143493331981b7b61e9f3749ee8e98e3f9f02be31a1637d430d86b7226f",
+    "cacheKey": "hb_kit_0.0_leaf_c22100"
+  },
+  "kit/0.0_leaf_c22100/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22100"
+  },
+  "kit/0.0_leaf_c22100/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "eb1bc143493331981b7b61e9f3749ee8e98e3f9f02be31a1637d430d86b7226f",
+    "cacheKey": "hb_kit_0.0_leaf_c22100"
+  },
+  "kit/0.0_leaf_c22100/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22100"
+  },
+  "kit/0.0_leaf_c22100/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22100"
+  },
+  "kit/0.0_leaf_c22100/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22100"
+  },
+  "fleet/0.0_leaf_c22100/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "0aee9b21ab01d211c04a3f738df32e0f917c3c608e1c87f5351062f48a4f9c04",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c22100"
+  },
+  "kit/0.0_leaf_c22100_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "b722b0db5347d3149ea61ed083acdc2cbdd8707335e3e665ece6b527d5b7bd5f",
+    "cacheKey": "hb_kit_0.0_leaf_c22100_lite"
+  },
+  "kit/0.0_leaf_c22100_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22100_lite"
+  },
+  "kit/0.0_leaf_c22100_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "b722b0db5347d3149ea61ed083acdc2cbdd8707335e3e665ece6b527d5b7bd5f",
+    "cacheKey": "hb_kit_0.0_leaf_c22100_lite"
+  },
+  "kit/0.0_leaf_c22100_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22100_lite"
+  },
+  "kit/0.0_leaf_c22100_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22100_lite"
+  },
+  "kit/0.0_leaf_c22100_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22100_lite"
+  },
+  "fleet/0.0_leaf_c22100_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "663b5244f4b915dc495bf244ee48beef10ed3a7e1b521ec523f1aa1edb6b5b8c",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c22100_lite"
+  },
+  "kit/0.0_leaf_st_c22110/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "997d037258ab61906273549f5a8ab31d0db488a132f1098552a5a2e634f72671",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22110"
+  },
+  "kit/0.0_leaf_st_c22110/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22110"
+  },
+  "kit/0.0_leaf_st_c22110/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "997d037258ab61906273549f5a8ab31d0db488a132f1098552a5a2e634f72671",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22110"
+  },
+  "kit/0.0_leaf_st_c22110/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22110"
+  },
+  "kit/0.0_leaf_st_c22110/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22110"
+  },
+  "kit/0.0_leaf_st_c22110/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22110"
+  },
+  "fleet/0.0_leaf_st_c22110/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "dfbb03b8e8a834b920daee30710b667213f871d38a3cfe184ff9f299402863f6",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_st_c22110"
+  },
+  "kit/0.0_leaf_st_c22110_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "b02ed1608f1ef6305091ba706d30cfbb07cb56e3a1c9040546235bc70e467dc8",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22110_lite"
+  },
+  "kit/0.0_leaf_st_c22110_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22110_lite"
+  },
+  "kit/0.0_leaf_st_c22110_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "b02ed1608f1ef6305091ba706d30cfbb07cb56e3a1c9040546235bc70e467dc8",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22110_lite"
+  },
+  "kit/0.0_leaf_st_c22110_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22110_lite"
+  },
+  "kit/0.0_leaf_st_c22110_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22110_lite"
+  },
+  "kit/0.0_leaf_st_c22110_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22110_lite"
+  },
+  "fleet/0.0_leaf_st_c22110_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "958201eb1c418984333aa1cc4b5ba62998819f855438ac1ef3ba3066c0686ca4",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_st_c22110_lite"
+  },
+  "kit/0.0_leaf_st_c22210/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "cd8cd84409e2028b287a2d05e2ec6901681b18889e867b6d653241c3d5cf2cf1",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22210"
+  },
+  "kit/0.0_leaf_st_c22210/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22210"
+  },
+  "kit/0.0_leaf_st_c22210/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "cd8cd84409e2028b287a2d05e2ec6901681b18889e867b6d653241c3d5cf2cf1",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22210"
+  },
+  "kit/0.0_leaf_st_c22210/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22210"
+  },
+  "kit/0.0_leaf_st_c22210/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22210"
+  },
+  "kit/0.0_leaf_st_c22210/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22210"
+  },
+  "fleet/0.0_leaf_st_c22210/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "6c03f5c06b4d4456c3729ff13b80ee9a1ee094e2746b38d9e6328772090a72f0",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_st_c22210"
+  },
+  "kit/0.0_leaf_st_c22210_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "0c3d2835453467509eeba2e4d3ae51171d18b0fa7e21ccc2d7f2151229b53dc2",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22210_lite"
+  },
+  "kit/0.0_leaf_st_c22210_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22210_lite"
+  },
+  "kit/0.0_leaf_st_c22210_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "0c3d2835453467509eeba2e4d3ae51171d18b0fa7e21ccc2d7f2151229b53dc2",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22210_lite"
+  },
+  "kit/0.0_leaf_st_c22210_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22210_lite"
+  },
+  "kit/0.0_leaf_st_c22210_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22210_lite"
+  },
+  "kit/0.0_leaf_st_c22210_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22210_lite"
+  },
+  "fleet/0.0_leaf_st_c22210_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "4a8cea498bb3e6ae13f55b61a5a856a9ff453ddc703f926a17bee761de48aa14",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_st_c22210_lite"
+  },
+  "kit/0.0_leaf_st_c22220/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "d53827d06b298d593b074c171899a5b13df1aa3cfe23ca51fa6fc3e6b558d52c",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22220"
+  },
+  "kit/0.0_leaf_st_c22220/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22220"
+  },
+  "kit/0.0_leaf_st_c22220/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "d53827d06b298d593b074c171899a5b13df1aa3cfe23ca51fa6fc3e6b558d52c",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22220"
+  },
+  "kit/0.0_leaf_st_c22220/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22220"
+  },
+  "kit/0.0_leaf_st_c22220/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22220"
+  },
+  "kit/0.0_leaf_st_c22220/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22220"
+  },
+  "fleet/0.0_leaf_st_c22220/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "f3a0695ccc8ca8efbc043b30b1bee70417f32bb1b8d6d2fcd66ca1cff9d6bd2f",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_st_c22220"
+  },
+  "kit/0.0_leaf_st_c22220_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "70538dc0fcf3fae59745d4f27fa89d1a0f8c9fa1b87860c3bad5290960a4e288",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22220_lite"
+  },
+  "kit/0.0_leaf_st_c22220_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22220_lite"
+  },
+  "kit/0.0_leaf_st_c22220_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "70538dc0fcf3fae59745d4f27fa89d1a0f8c9fa1b87860c3bad5290960a4e288",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22220_lite"
+  },
+  "kit/0.0_leaf_st_c22220_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22220_lite"
+  },
+  "kit/0.0_leaf_st_c22220_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22220_lite"
+  },
+  "kit/0.0_leaf_st_c22220_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22220_lite"
+  },
+  "fleet/0.0_leaf_st_c22220_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "1740305c12a8891b702bf8d123cf51dcf336a4fb2204c8d1342909bb5d681a29",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_st_c22220_lite"
+  },
+  "kit/0.0_leaf_st_c22221/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "c09494d9660adbd637079ec7e24f6b6a007eda2e672fc6f59109886609f8aa80",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22221"
+  },
+  "kit/0.0_leaf_st_c22221/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22221"
+  },
+  "kit/0.0_leaf_st_c22221/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "c09494d9660adbd637079ec7e24f6b6a007eda2e672fc6f59109886609f8aa80",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22221"
+  },
+  "kit/0.0_leaf_st_c22221/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22221"
+  },
+  "kit/0.0_leaf_st_c22221/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22221"
+  },
+  "kit/0.0_leaf_st_c22221/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22221"
+  },
+  "fleet/0.0_leaf_st_c22221/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "b55575889d3d83e7f8468e50389470155cf7d70b664eca8270a85800ebc1eaf8",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_st_c22221"
+  },
+  "kit/0.0_leaf_st_c22221_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "f2c147e26148b51cced9dfa8cb1556bc92d6b8cd9caf689db8a669e2d7ee140a",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22221_lite"
+  },
+  "kit/0.0_leaf_st_c22221_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22221_lite"
+  },
+  "kit/0.0_leaf_st_c22221_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "f2c147e26148b51cced9dfa8cb1556bc92d6b8cd9caf689db8a669e2d7ee140a",
+    "cacheKey": "hb_kit_0.0_leaf_st_c22221_lite"
+  },
+  "kit/0.0_leaf_st_c22221_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22221_lite"
+  },
+  "kit/0.0_leaf_st_c22221_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22221_lite"
+  },
+  "kit/0.0_leaf_st_c22221_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22221_lite"
+  },
+  "fleet/0.0_leaf_st_c22221_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "614ad30f8a4a2de4897930a80d6adc52c47c1b35a89c3490bb456d9833e215d6",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_st_c22221_lite"
+  },
+  "kit/0.0_leaf_c22221/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "c4afd1e6803e13f144a5bc375e482f6acfc53b7db4712aaeb4cb590452f34f29",
+    "cacheKey": "hb_kit_0.0_leaf_c22221"
+  },
+  "kit/0.0_leaf_c22221/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22221"
+  },
+  "kit/0.0_leaf_c22221/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "c4afd1e6803e13f144a5bc375e482f6acfc53b7db4712aaeb4cb590452f34f29",
+    "cacheKey": "hb_kit_0.0_leaf_c22221"
+  },
+  "kit/0.0_leaf_c22221/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22221"
+  },
+  "kit/0.0_leaf_c22221/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22221"
+  },
+  "kit/0.0_leaf_c22221/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22221"
+  },
+  "fleet/0.0_leaf_c22221/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "9d5f3abd56b1a9008d71d990f62c752a0ac8d654e86ef610ab0cbc69f04cc387",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c22221"
+  },
+  "kit/0.0_leaf_c22221_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "ce8ceb937f624e73986f8136a57a81e27fb86242381e1a8ca94bb830373bd53c",
+    "cacheKey": "hb_kit_0.0_leaf_c22221_lite"
+  },
+  "kit/0.0_leaf_c22221_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22221_lite"
+  },
+  "kit/0.0_leaf_c22221_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "ce8ceb937f624e73986f8136a57a81e27fb86242381e1a8ca94bb830373bd53c",
+    "cacheKey": "hb_kit_0.0_leaf_c22221_lite"
+  },
+  "kit/0.0_leaf_c22221_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22221_lite"
+  },
+  "kit/0.0_leaf_c22221_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22221_lite"
+  },
+  "kit/0.0_leaf_c22221_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22221_lite"
+  },
+  "fleet/0.0_leaf_c22221_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "c3b081b970c71d1c9207726d8254eb1a49d0cee64b0dc328eb978ad9c6c327e5",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c22221_lite"
+  },
+  "kit/0.0_leaf_c22222/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "61053117de59f16bce9f5643e600fdab2d819c306bcc8366cebcf41ef14cefaf",
+    "cacheKey": "hb_kit_0.0_leaf_c22222"
+  },
+  "kit/0.0_leaf_c22222/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22222"
+  },
+  "kit/0.0_leaf_c22222/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "61053117de59f16bce9f5643e600fdab2d819c306bcc8366cebcf41ef14cefaf",
+    "cacheKey": "hb_kit_0.0_leaf_c22222"
+  },
+  "kit/0.0_leaf_c22222/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22222"
+  },
+  "kit/0.0_leaf_c22222/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22222"
+  },
+  "kit/0.0_leaf_c22222/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22222"
+  },
+  "fleet/0.0_leaf_c22222/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "211994b6fce12b8768592a5f12903c039ab1021575c769ee60adb326657e7b74",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c22222"
+  },
+  "kit/0.0_leaf_c22222_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "8dbfa0ffb5059c0ed76811429650fe545cce125ea0536043ae795caf049f64fe",
+    "cacheKey": "hb_kit_0.0_leaf_c22222_lite"
+  },
+  "kit/0.0_leaf_c22222_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22222_lite"
+  },
+  "kit/0.0_leaf_c22222_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "8dbfa0ffb5059c0ed76811429650fe545cce125ea0536043ae795caf049f64fe",
+    "cacheKey": "hb_kit_0.0_leaf_c22222_lite"
+  },
+  "kit/0.0_leaf_c22222_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22222_lite"
+  },
+  "kit/0.0_leaf_c22222_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22222_lite"
+  },
+  "kit/0.0_leaf_c22222_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22222_lite"
+  },
+  "fleet/0.0_leaf_c22222_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "80a4ce793d74841938aebadb3241260f2f7ee5e123f0756b7760ea958975a36d",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_leaf_c22222_lite"
+  },
+  "kit/0.0_bare_c22222/static/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "064508ab05204a2252b4962d7350968b918c6d1842a94b13a6413fa5ada2cb16",
+    "cacheKey": "hb_kit_0.0_bare_c22222"
+  },
+  "kit/0.0_bare_c22222/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c22222"
+  },
+  "kit/0.0_bare_c22222/instanced/colour": {
+    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "064508ab05204a2252b4962d7350968b918c6d1842a94b13a6413fa5ada2cb16",
+    "cacheKey": "hb_kit_0.0_bare_c22222"
+  },
+  "kit/0.0_bare_c22222/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c22222"
+  },
+  "kit/0.0_bare_c22222/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c22222"
+  },
+  "kit/0.0_bare_c22222/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c22222"
+  },
+  "fleet/0.0_bare_c22222/batched/colour": {
+    "vertex": "1857f15201736ce01468162a1318d352955396e5a4cf2c76ede9c677336e8e08",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "d52662e34066e4837eb508cf8825db4d09408ba2ecd20de0e68c6f6cf5c00928",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_bare_c22222"
+  },
+  "kit/0.0_bare_c22222_lite/static/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "940bb560dac3df28a4004ab352b2c859ccdfb2111540dd614b4f3a0bdd52a022",
+    "cacheKey": "hb_kit_0.0_bare_c22222_lite"
+  },
+  "kit/0.0_bare_c22222_lite/static/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c22222_lite"
+  },
+  "kit/0.0_bare_c22222_lite/instanced/colour": {
+    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
+    "fragment": "ea9bb516d16eeb2159cfdbc8659ca0456ed5a8e855303ddbc032c9e9191ab8fd",
+    "defines": "940bb560dac3df28a4004ab352b2c859ccdfb2111540dd614b4f3a0bdd52a022",
+    "cacheKey": "hb_kit_0.0_bare_c22222_lite"
+  },
+  "kit/0.0_bare_c22222_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
+    "cacheKey": "hb_kit_depth_v3_0.0_bare_c22222_lite"
+  },
+  "kit/0.0_bare_c22222_lite/static/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c22222_lite"
+  },
+  "kit/0.0_bare_c22222_lite/instanced/predepth": {
+    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
+    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
+    "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c22222_lite"
+  },
+  "fleet/0.0_bare_c22222_lite/batched/colour": {
+    "vertex": "f1e307af2ffeb65e3b05913e94f53aa96306135d86bb05a1c5f1a63e9b9ec8d7",
+    "fragment": "d1ad5eb605dc6a25af028078a54a4ad33b788504fd90bbc3b396539db3d4f765",
+    "defines": "196569dca65e9ce3043f44893c68ebe4c8df6c42b959263d0e517afc47b3b741",
+    "cacheKey": "hb_fleet_v11_hb_kit_0.0_bare_c22222_lite"
+  },
+  "fleet/batched/depth": {
+    "vertex": "3fa9bcbe8f147dffee920b4527ede70266e4bdcf70c0acf6c0639c4b5bf658e5",
+    "fragment": "08541d654d77b3adda45a3efa4bae66f2dd1b8c34fd0bfc65c2c192444891b77",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_fleet_depth_v5"
+  },
+  "world/window": {
+    "vertex": "898d3313170de2e5f8652a391108f01c10f81edb62612447412e29d01615749d",
+    "fragment": "b8e9185a90fb93a4c68233cb8f832305406af022a9980bb6277bc1b78d5b26d1",
+    "defines": "066347ea2a4d7578c920ce459eb2c63433bc9693b6090ecdfb5ac745b141e930",
+    "cacheKey": "hb_window_v4"
+  },
+  "world/emissive": {
+    "vertex": "5274754b67f033f8ff08a2d24cbe2ebd2b9c6ef00f392e7840762287ff76b173",
+    "fragment": "47e9703d8dc702b64b5f3beedc0a01132de735aac44b4871d754e7572534e980",
+    "defines": "066347ea2a4d7578c920ce459eb2c63433bc9693b6090ecdfb5ac745b141e930",
+    "cacheKey": "hb_emissive_w1"
+  },
+  "world/lens": {
+    "vertex": "d3257679d2240f665094a138945b9ea7741c3e661e5b9d4c461710823cbc8970",
+    "fragment": "811f9200d658d7bfa709fd6c40feab2ef3cf54a8d91922eef5ba3c360813afad",
+    "defines": "066347ea2a4d7578c920ce459eb2c63433bc9693b6090ecdfb5ac745b141e930",
+    "cacheKey": "hb_lens"
+  },
+  "world/glass": {
+    "vertex": "d3257679d2240f665094a138945b9ea7741c3e661e5b9d4c461710823cbc8970",
+    "fragment": "e9319bb56752dd9937e1e5824596f0803540a213da73c65b1f4b0de9f1ca5916",
+    "defines": "066347ea2a4d7578c920ce459eb2c63433bc9693b6090ecdfb5ac745b141e930",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "life/colour": {
+    "vertex": "c62357690b46495b886e09a1d3a677c84ab7a697afa11343d08f6b6fa37d4a59",
+    "fragment": "e0577a45d0fc5e188a48712b42146e3ce638f69e6fa6a6e9da8cebddfe644b1d",
+    "defines": "940bb560dac3df28a4004ab352b2c859ccdfb2111540dd614b4f3a0bdd52a022",
+    "cacheKey": "hb_life_identity_hb_kit_0.0_bare_c22222_lite"
+  },
+  "life/depth": {
+    "vertex": "62a872d5bf70ac56c2f5e833bbfbfa4433a717a98f6deb62b3b574b054bd7a3f",
+    "fragment": "08541d654d77b3adda45a3efa4bae66f2dd1b8c34fd0bfc65c2c192444891b77",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_life_depth_identity"
+  },
+  "fleet/flags": {
+    "vertex": "5fc13776f1d3023cf7d7fa66d833f1ca7f4b4a8866374ebbeec4bc9df6ee0a2f",
+    "fragment": "825e45f6a5df4563cc17e4c605850b8f53d96d4ccd76405bedae43bac022b5bd",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "ocean/other/full": {
+    "vertex": "0f3c1d0a34e0c86bf2363df661782e3753efb3a9887c21011f0b7583e51bf4ed",
+    "fragment": "5a2ea501ceb3c32776c08073528ba8f698c107223771536635ae5dcaa08afb3f",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_ocean_0_0"
+  },
+  "ocean/other/low": {
+    "vertex": "0f3c1d0a34e0c86bf2363df661782e3753efb3a9887c21011f0b7583e51bf4ed",
+    "fragment": "5a2ea501ceb3c32776c08073528ba8f698c107223771536635ae5dcaa08afb3f",
+    "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
+    "cacheKey": "hb_ocean_0_1"
+  },
+  "ocean/summer/full": {
+    "vertex": "0f3c1d0a34e0c86bf2363df661782e3753efb3a9887c21011f0b7583e51bf4ed",
+    "fragment": "5a2ea501ceb3c32776c08073528ba8f698c107223771536635ae5dcaa08afb3f",
+    "defines": "06eef0b8d439c3b1871505c70ad3e8bbd91a744954bd20a8d8037451f270b7e5",
+    "cacheKey": "hb_ocean_1_0"
+  },
+  "ocean/summer/low": {
+    "vertex": "0f3c1d0a34e0c86bf2363df661782e3753efb3a9887c21011f0b7583e51bf4ed",
+    "fragment": "5a2ea501ceb3c32776c08073528ba8f698c107223771536635ae5dcaa08afb3f",
+    "defines": "bfe2b2702ed6edcde69cac16c5e4a295d4b957096ed927c50269b2e90c64e2d3",
+    "cacheKey": "hb_ocean_1_1"
+  },
+  "beam/halo": {
+    "vertex": "d1a972209d1d0756646e36141cd16160a296c1af05560b9ec523aebecf8896e5",
+    "fragment": "62967fd64a7cdf2c88276016cdec71821621fff05c5ce717f8195f5a583be16a",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "beam/flame": {
+    "vertex": "2c76d2522b56b1ac130b417aced75c8493998e3805e7abd71a8ef7f1f573465a",
+    "fragment": "4d040ce78df023357d39c2797c8f4491968596ccb4fc26a0f947f1bf62dd0f6c",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "beam/ember": {
+    "vertex": "a25d75af4772f7a805c9bf21b5c91af4886e5f51b9819c49474cbaee9c5b3272",
+    "fragment": "47c04e4866c9472475e58a4db1cddc5aabce322131fd6384a289dee246a6a22a",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "beam/glow": {
+    "vertex": "b532d420eea4ccc3cf23b28a8530a68a0f4d1f249ec70b5fff13635a2af094ad",
+    "fragment": "e8dde2e07ad1474dcd6871436ad8214121ebcb062f8eeb859c2295efef1b6d53",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "beam/plume": {
+    "vertex": "b5e378a40b3737295c094543113f6188b0171822cdd8a606327c47535a445b22",
+    "fragment": "1fde9475bfe0decc5e7097ece8ce5287f591eaf882a1f4eade170d83c5a0a482",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "sky/dome": {
+    "vertex": "29dd42bc4793c56c760a2ff0d2847e6fd6b4f71685b54932bd1286b192fdc67b",
+    "fragment": "9d46fd713186e2927d4deba753965587344a261b9dd73abed981b2b1661c7c75",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "sky/band": {
+    "vertex": "9ab5768fc1c4c41da8e062d0edf15bc8f1a361e6b23c98ca5699b1c98c07f376",
+    "fragment": "7740e6d5260fb64c1aba61bee4ebc87979724136601d5ebf374ce27ee3bc06c4",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "post/scrub": {
+    "vertex": "59f31270de2905d1616bd7fd5c94ee98465ebd722739c0d893a24dc440cbafde",
+    "fragment": "fff0d0f45e3f8d5bd10e9141d260ad95d3b22604b24500900228373740fb8b29",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "beam/shimmer-shaft": {
+    "vertex": "f40394ec13e54858c38390a6ab01ee898aae5a1e1766855a94e72e39541db5bd",
+    "fragment": "b74c15781ad982d3524168200b46cf416f04b454ecf423d7aaeda33782feacd2",
+    "defines": "6153492eaef18caaabf0ae1026e044a1d3b02f8e58494b67bc3fd33b5071aef4",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "post/grade-dither": {
+    "vertex": "f40394ec13e54858c38390a6ab01ee898aae5a1e1766855a94e72e39541db5bd",
+    "fragment": "fd32b07ee6e74d7185c34705ae2f0cd085d3a535cd6d761cdb0d3d2910da2c16",
+    "defines": "0190aa4540dee82c9a30bc53ef223bd08e016143edb5b96caf1613c93f6f2a6c",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  }
+}

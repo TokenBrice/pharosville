@@ -1,3 +1,9 @@
+import { fillGradeLUT } from "./shaders/grading";
+export { gradePixel, fillGradeLUT } from "./shaders/grading";
+import { SCRUB_FRAG } from "./shaders/scrub";
+export { SCRUB_FRAG } from "./shaders/scrub";
+import { DITHER_FRAG } from "./shaders/dither";
+export { DITHER_FRAG } from "./shaders/dither";
 import * as THREE from "three";
 import {
   BloomEffect, Effect, EffectComposer, EffectPass, KernelSize, LUT3DEffect, type MipmapBlurPass, Pass, RenderPass, SMAAEffect, SMAAPreset,
@@ -23,71 +29,6 @@ export interface PostPreparation {
  * and regenerated only when the interpolated grade actually changes.
  */
 export const LUT_SIZE = 32;
-
-const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
-
-/** Display-space S-curve around 0.5 (AgX "Medium High Contrast"-like). */
-function sCurve(v: number, c: number): number {
-  if (c === 1) return v;
-  return v < 0.5 ? 0.5 * Math.pow(2 * v, c) : 1 - 0.5 * Math.pow(2 * (1 - v), c);
-}
-
-const smooth = (e0: number, e1: number, x: number) => { const t = clamp01((x - e0) / (e1 - e0)); return t * t * (3 - 2 * t); };
-/** Soft hue window (degrees, may wrap): 1 inside [a, b], easing out over `soft` degrees. */
-function hueBand(h: number, a: number, b: number, soft: number): number {
-  const d = (x: number) => ((x % 360) + 360) % 360;
-  const w = d(b - a), p = d(h - a);
-  if (p <= w) return 1;
-  const out = Math.min(p - w, 360 - p);
-  return 1 - smooth(0, soft, out);
-}
-
-/**
- * Pure grade function on sRGB-encoded display values (what LUT3DEffect samples with).
- * Blender colour balance (LGG): x = ((v - 1)·(2 - lift) + 1)·gain; out = x^(1/gamma).
- * Then an S-curve, and a saturation that may depend on value (shadowSat) and hue (blueSat: cyan→blue,
- * warmSat: red→green), so the grade can keep the sea receding while roofs and sails carry the colour.
- */
-export function gradePixel(rgb: [number, number, number], g: Grade, out: [number, number, number] = [0, 0, 0]): [number, number, number] {
-  for (let c = 0; c < 3; c++) {
-    let x = ((rgb[c] - 1) * (2 - g.lift[c]) + 1) * g.gain[c];
-    x = Math.pow(Math.max(0, x), 1 / g.gamma[c]);
-    out[c] = sCurve(clamp01(x), g.contrast);
-  }
-  const l = 0.2126 * out[0] + 0.7152 * out[1] + 0.0722 * out[2];
-  let sat = g.saturation;
-  const shadowSat = g.shadowSat ?? 1, blueSat = g.blueSat ?? 1, warmSat = g.warmSat ?? 1;
-  if (shadowSat !== 1) sat *= shadowSat + (1 - shadowSat) * smooth(0.03, 0.42, l);
-  if (blueSat !== 1 || warmSat !== 1) {
-    const mx = Math.max(out[0], out[1], out[2]), mn = Math.min(out[0], out[1], out[2]), ch = mx - mn;
-    if (ch > 1e-4) {
-      let h: number;
-      if (mx === out[0]) h = 60 * (((out[1] - out[2]) / ch) % 6);
-      else if (mx === out[1]) h = 60 * ((out[2] - out[0]) / ch + 2);
-      else h = 60 * ((out[0] - out[1]) / ch + 4);
-      const chroma = smooth(0.02, 0.12, ch);   // near-greys keep their (tiny) hue untouched
-      sat *= 1 + (blueSat - 1) * hueBand(h, 180, 245, 25) * chroma;
-      sat *= 1 + (warmSat - 1) * hueBand(h, 345, 115, 25) * chroma;
-    }
-  }
-  for (let c = 0; c < 3; c++) out[c] = clamp01(l + (out[c] - l) * sat);
-  return out;
-}
-
-/** Fills an RGBA half-float 3D LUT (size³) with the grade. */
-export function fillGradeLUT(data: Uint16Array, size: number, g: Grade, firstRow = 0, endRow = size * size): void {
-  const px: [number, number, number] = [0, 0, 0], o: [number, number, number] = [0, 0, 0];
-  const toHalf = THREE.DataUtils.toHalfFloat;
-  let i = firstRow * size * 4;
-  for (let row = firstRow; row < endRow; row++) {
-    const b = Math.floor(row / size), gg = row % size;
-    for (let r = 0; r < size; r++) {
-      px[0] = r / (size - 1); px[1] = gg / (size - 1); px[2] = b / (size - 1);
-      gradePixel(px, g, o);
-      data[i++] = toHalf(o[0]); data[i++] = toHalf(o[1]); data[i++] = toHalf(o[2]); data[i++] = toHalf(1);
-    }
-  }
-}
 
 /** Finish each immutable generation, then take the newest request accumulated during its bake. */
 export class SlicedGradeLUT {
@@ -155,20 +96,6 @@ function packGrade(g: Grade, out: Float32Array): boolean {
   return moved;
 }
 
-/**
- * Zeroes non-finite scene pixels before anything blurs them. One NaN/Inf pixel from any shader (pow of a
- * negative, a half-float overflow) is spread by the bloom mip chain over the whole screen: a black frame.
- * NaN fails every comparison, so the range test catches it even where a driver folds isnan() away.
- */
-const SCRUB_FRAG = /* glsl */ `
-uniform sampler2D inputBuffer;
-varying vec2 vUv;
-void main() {
-  vec4 c = texture2D(inputBuffer, vUv);
-  bvec4 ok = bvec4(c.r >= 0.0 && c.r <= 65000.0, c.g >= 0.0 && c.g <= 65000.0, c.b >= 0.0 && c.b <= 65000.0, c.a >= 0.0 && c.a <= 65000.0);
-  gl_FragColor = vec4(ok.r ? c.r : 0.0, ok.g ? c.g : 0.0, ok.b ? c.b : 0.0, ok.a ? c.a : 1.0);
-}`;
-
 export class NanScrubPass extends Pass {
   private readonly mat: THREE.ShaderMaterial;
   constructor() {
@@ -197,29 +124,6 @@ export class NanScrubPass extends Pass {
  * sits). Never animated (reduced-motion safe). The tooth ships off unless PAPER_TOOTH (art review D-6); `?tooth=1|0`.
  */
 const PAPER_TOOTH = 0;
-const DITHER_FRAG = /* glsl */ `
-uniform float uTooth;
-float hbIgn(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
-float hbH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float hbVal(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hbH(i), hbH(i + vec2(1.0, 0.0)), f.x), mix(hbH(i + vec2(0.0, 1.0)), hbH(i + 1.0), f.x), f.y);
-}
-void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
-  vec3 c = inputColor.rgb;
-  if (uTooth > 0.0) {
-    vec2 fc = gl_FragCoord.xy;
-    float g = hbVal(fc / 2.6) * 0.6 + hbVal(fc / 9.0 + 17.3) * 0.4 - 0.5;
-    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    float mid = smoothstep(0.08, 0.35, l) * (1.0 - smoothstep(0.7, 0.95, l));
-    vec2 e = min(uv, 1.0 - uv);
-    float edge = smoothstep(0.02, 0.1, min(e.x, e.y));
-    c *= 1.0 + g * 2.0 * uTooth * mid * edge;
-  }
-  float d = hbIgn(gl_FragCoord.xy) + hbIgn(gl_FragCoord.xy + vec2(5.588, 7.31)) - 1.0;
-  outputColor = vec4(c + d / 255.0, inputColor.a);
-}`;
 
 export class DitherEffect extends Effect {
   constructor(tooth: number) {

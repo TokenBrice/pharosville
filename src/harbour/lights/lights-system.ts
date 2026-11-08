@@ -1,3 +1,4 @@
+import { patch } from "../engine/shader-patch";
 import * as THREE from "three";
 import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
@@ -25,11 +26,7 @@ const POINT_SKIP = "if ( pointLight.color != vec3( 0.0 ) ) {";
 {
   const chunk = THREE.ShaderChunk.lights_fragment_begin;
   if (!chunk.includes(POINT_SKIP)) {
-    if (POINT_LOOP.test(chunk)) {
-      THREE.ShaderChunk.lights_fragment_begin = chunk.replace(POINT_LOOP, `$1\n\t\t${POINT_SKIP}$2if ( directLight.visible ) $3\n\t\t}$4`);
-    } else if (import.meta.env.DEV) {
-      throw new Error("[harbour] lights_fragment_begin point-light loop changed (three upgrade?): update the dark-light skip");
-    }
+    THREE.ShaderChunk.lights_fragment_begin = patch(chunk, POINT_LOOP, `$1\n\t\t${POINT_SKIP}$2if ( directLight.visible ) $3\n\t\t}$4`, { id: "lights.dark-point-loop" });
   }
 }
 
