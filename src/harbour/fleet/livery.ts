@@ -119,6 +119,17 @@ export const DYE_MAX_SAT = 0.5;
 const DYE_L: [number, number] = [0.38, 0.62];
 
 /**
+ * E04 (O5-I5, ruling V3): her colours on a flag in the same earth pigment as her dyed cloth: the brand hue and
+ * lightness kept, its chroma capped at DYE_MAX_SAT (linear rgb into `out`). The hovered / selected / searched hull's
+ * flag flies the brand itself.
+ */
+export function flagPigment(hex: string, out = new THREE.Color()): THREE.Color {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(hex).getHSL(hsl, THREE.SRGBColorSpace);
+  return out.setHSL(hsl.h, Math.min(hsl.s, DYE_MAX_SAT), hsl.l, THREE.SRGBColorSpace);
+}
+
+/**
  * The sails' dye from the coin's brand colour (sRGB hex) → linear rgb + mode for the fleet shader:
  *   1 = dyed canvas: the brand hue at earth-pigment chroma (DYE_MAX_SAT), never neon, and lifted when very dark so the sails still read at night and
  *       in shadow (the lift is toward a lighter shade of the same hue, so it stays the brand);

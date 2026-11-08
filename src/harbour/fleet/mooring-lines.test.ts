@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { MooringLines } from "./mooring-lines";
+import { LINE_FADE, MooringLines } from "./mooring-lines";
 
 describe("CPU mooring curves", () => {
   it("uploads eight indexed ribbon segments and only the active range", () => {
@@ -62,6 +62,41 @@ describe("CPU mooring curves", () => {
     lines.add(0, 0, 0, 1, 1, 1, 1);
     lines.throwLine(0, 0, 0, 1, 1, 1, 1);
     expect(lines.lines).toBe(1);
+    lines.dispose();
+  });
+});
+
+// E27 calm ropes (O7-I9): edge coverage and a range fade, so lines neither stair-step nor pop at the line range
+describe("calm mooring ropes", () => {
+  it("draws the ribbon half a pixel wider each side and fades its edge by coverage, the frame's alpha untouched", () => {
+    const lines = new MooringLines({ value: new THREE.Vector2(1600, 1000) });
+    const m = lines.object.material as THREE.ShaderMaterial;
+    expect(m.vertexShader).toContain("c.xy += n * aQ.x * (hw + 0.5) * 2.0 / uResolution * c.w;");
+    expect(m.vertexShader).toContain("vSide = aQ.x * (hw + 0.5);");
+    expect(m.fragmentShader).toContain("clamp(vHalf + 0.5 - abs(vSide), 0.0, 1.0) * vFade");
+    expect(m.transparent).toBe(true);
+    expect(m.depthWrite).toBe(false);
+    expect([m.blendSrcAlpha, m.blendDstAlpha]).toEqual([THREE.ZeroFactor, THREE.OneFactor]);
+    // coverage across the ribbon integrates to its width: core 1 inside hw - 0.5, a linear 1 px fall-off at the edges
+    const cover = (side: number, hw: number) => Math.min(1, Math.max(0, hw + 0.5 - Math.abs(side)));
+    for (const hw of [0.7, 1.5, 3]) {
+      let sum = 0;
+      for (let s = -(hw + 0.5); s <= hw + 0.5; s += 0.001) sum += cover(s, hw) * 0.001;
+      expect(sum).toBeCloseTo(2 * hw, 2);
+    }
+    lines.dispose();
+  });
+
+  it("fades the ropes out over the last 15 % of the line range, which the fleet passes each frame", () => {
+    const lines = new MooringLines({ value: new THREE.Vector2(1600, 1000) });
+    const m = lines.object.material as THREE.ShaderMaterial;
+    expect(LINE_FADE).toBe(0.15);
+    expect(m.vertexShader).toContain("vFade = 1.0 - smoothstep(0.85 * uRange, uRange, distance(cameraPosition, aQ.y < 0.5 ? aA : aB));");
+    expect(m.uniforms.uRange.value).toBe(650);
+    lines.begin(); lines.end(new THREE.Color(1, 1, 1), 460);
+    expect(m.uniforms.uRange.value).toBe(460);
+    lines.end(new THREE.Color(1, 1, 1));
+    expect(m.uniforms.uRange.value).toBe(460);
     lines.dispose();
   });
 });

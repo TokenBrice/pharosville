@@ -25,6 +25,23 @@ bool hbFleetStruck(float w) {
 
 /** uFleetData texels per batch instance (F-fleet3: texel 2 = motion, see FleetUniforms). */
 export const FLEET_DATA_TEXELS = 3;
+/**
+ * E27 (O2-I4, O7-I9): rig as hairlines. A spar or stay narrower than RIG_FLOOR_PX CSS px is drawn at that width
+ * (pushed out along its radial normal: hull-kit bakes the tube's radius into aPaint.y and radial normals on rig
+ * corners) and fades by true / drawn width, so the energy is kept: a widened stay reads faint, not heavy, and is a
+ * continuous thread at DPR 1 instead of dashes crawling as the hull bobs. Colour pass only: the shadow twin keeps
+ * the true rig (DEPTH_VERT_PARS), and a struck rig stays struck.
+ */
+export const RIG_FLOOR_PX = 0.8;
+/**
+ * CPU twin of hbRigFloor's coverage (tests): true / drawn width for a tube of `radiusM` at `cssPxPerM`. The shader
+ * takes the view depth from the view matrix's z row (two mat-vec products, never a mat4 × mat4) and wants half of
+ * RIG_FLOOR_PX in object metres: CSS px per metre = 0.5 × P11 × CSS height / depth, times the hull's scale.
+ */
+export function rigCoverage(radiusM: number, cssPxPerM: number): number {
+  const want = (0.5 * RIG_FLOOR_PX) / cssPxPerM;
+  return radiusM / Math.max(radiusM, want);
+}
 
 export const VERT_PARS = /* glsl */ `
 #define FLEET_TEXELS ${FLEET_DATA_TEXELS}
@@ -39,6 +56,7 @@ attribute vec2 aPaint;
 uniform highp sampler2D uFleetData;
 uniform highp sampler2D uFleetPaint;
 uniform float uWind;
+uniform vec2 uFleetScreen;
 varying vec4 vPaintA;       // livery rgb, mode (0 keep · 1 paint · 2 topsides · 3 deck (keeps the grain) · 4 LOD topsides · 5 spar)
 varying vec4 vPaintB;       // trim rgb, topside height t
 varying vec3 vPaintC;       // x / half loa, name board, far (0 near … 1 a few px: spars recede, margins widen)
@@ -47,7 +65,7 @@ varying vec4 vFleetMisc;    // highlight, flip (mirrored node now), kind, brand 
 varying vec4 vFleetUV;      // sail uv, emblem uv
 varying vec4 vFleetRig;     // furl, node, flag, side (posed object-space normal z: covers print their roundel on ±z)
 varying vec4 vSailDye;      // sails: dye rgb, mode (uFleetPaint texel 4)
-varying float vFleetLamp;   // 06-F6: the stern lantern lit 0|1 (texel 2.z)
+varying float vFleetLamp;   // 06-F6: the stern lantern lit 0|1 (texel 2.z); E27: rig, -coverage
 vec4 hbFleetTexel(int idx, int k) {
   int size = textureSize(uFleetData, 0).x;
   int j = idx * FLEET_TEXELS + k;
@@ -90,6 +108,7 @@ void hbFleetLivery(int idx, float far) {
   }
 }
 vec3 hbFleetP; vec3 hbFleetN;
+float hbRigR;               // E27: live rig's tube radius (m), else 0
 ${STRUCK}
 ${FLEET_MOTION_GLSL}
 void hbFleetPose(vec3 p, vec3 n) {
@@ -125,18 +144,27 @@ void hbFleetPose(vec3 p, vec3 n) {
     float ph = uTime * (6.0 + 3.0 * uWind) + phase * 2.3;
     p.z += sin(ph + p.x * 3.0 + p.y) * (0.05 + 0.08 * uWind) * (1.0 - furl * 0.5);
   }
+  hbRigR = aPaint.x > 7.5 && aPaint.x < 10.5 ? aPaint.y : 0.0;
   if (aMeta.w > 0.5 && a.w < 0.5) p = vec3(0.0); // pennant struck (small hulls seen from afar)
-  if (hbFleetStruck(a.w)) p = vec3(0.0);
+  if (hbFleetStruck(a.w)) { p = vec3(0.0); hbRigR = 0.0; }
   hbFleetLivery(idx, hbFleetFar(a.w).x);
   hbFleetP = p; hbFleetN = n;
   vFleetBrand = b;
   vSailDye = aMeta.x > 0.5 && aMeta.x < 1.5 ? hbPaintTexel(idx, 4) : vec4(0.0);
   vFleetMisc = vec4(a.z, flip, aMeta.x, aMeta.z);
   vFleetUV = vec4(aSailUV, aEmbUV);
-  // a LOD sail (aPaint.x 0: no breathing size) has no furl shape: it stands set, so it shows as set (cloth, roundel)
-  bool lodSail = aMeta.x > 0.5 && aMeta.x < 1.5 && aPaint.x > -1e-3;
-  vFleetRig = vec4(lodSail ? 0.0 : furl, node, aMeta.w, n.z);
+  // E04 (O5-F8): a LOD sail furls through its own morph: furled, no print
+  vFleetRig = vec4(furl, node, aMeta.w, n.z);
   vFleetLamp = mo.z;
+}
+// E27: rig to RIG_FLOOR_PX CSS px along its radial normal; returns true / drawn width
+float hbRigFloor(inout vec3 p, vec3 n, mat4 bm) {
+  if (hbRigR <= 0.0) return 1.0;
+  vec4 wp = bm * vec4(p, 1.0);
+  float depth = max(-dot(vec4(modelViewMatrix[0][2], modelViewMatrix[1][2], modelViewMatrix[2][2], modelViewMatrix[3][2]), wp), 1e-3);
+  float want = ${(RIG_FLOOR_PX * 0.5).toFixed(2)} * depth / max(0.5 * projectionMatrix[1][1] * uFleetScreen.x * length(bm[0].xyz), 1e-6);
+  p += n * max(0.0, want - hbRigR);
+  return hbRigR / max(hbRigR, want);
 }
 `;
 

@@ -6,6 +6,13 @@ vec3 hbHoverSheen(vec3 base, float kind, float hi) {
 }
 `;
 
+/**
+ * E27: what a widened rig line gives way to: a neutral grey at this share of the distance air's value (haze and
+ * horizon). The sea and the cloth a stay is mostly seen against from the harbour's 26–30° cameras sit well below the
+ * bright horizon air, and a grey casts no cool line across a warm sail.
+ */
+export const RIG_AIR = 0.45;
+
 export const FLEET_LIGHTING = /* glsl */ `
   {
     vec3 fN = inverseTransformDirection(normal, viewMatrix);
@@ -32,5 +39,7 @@ export const FLEET_LIGHTING = /* glsl */ `
       outgoingLight += (vec3(1.0, 0.84, 0.6) * rim * 0.4 * lum * 3.0 + outgoingLight * 0.10) * hi;
       outgoingLight += hbHoverSheen(diffuseColor.rgb, vFleetMisc.z, hi);
     }
+    // E27: widened rig gives way by (1 - coverage) (pose.ts)
+    if (vFleetLamp < 0.0) outgoingLight = mix(vec3(dot(mix(uAerialHaze, uHorizon, 0.4), vec3(0.2126, 0.7152, 0.0722)) * ${RIG_AIR.toFixed(2)}), outgoingLight, -vFleetLamp);
   }
   #include <opaque_fragment>`;

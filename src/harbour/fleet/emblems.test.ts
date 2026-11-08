@@ -163,3 +163,34 @@ describe("combined emblem atlas", () => {
     expect(atlas.texture.version).toBe(version);
   });
 });
+
+// E04 (O5-I6, ruling V4): a coin without a logo carries sail lettering, not a brand-colour disc
+describe("monograms as sail lettering", () => {
+  it("draws a monogram slot as the letters alone (an alpha mask), from the first slot after the logo rows", async () => {
+    const { g } = canvasHarness();
+    const atlas = await EmblemAtlas.load(assets() as unknown as AssetStore, 420);
+    expect(atlas.letterSlot).toBe(640);   // 620 logos fill 20 rows of 32
+    atlas.begin([coin("new")]);
+    const fills: string[] = [];
+    g.fillText.mockImplementation(function (this: unknown) { fills.push(String((g as unknown as { fillStyle: string }).fillStyle)); });
+    expect(atlas.slotFor(coin("new"))).toBe(640);
+    atlas.end();
+    expect(g.arc).not.toHaveBeenCalled();                  // no disc, no ring
+    expect(g.clearRect).toHaveBeenCalledWith(0, 20 * 128, 128, 128);
+    expect(g.fillText).toHaveBeenCalledWith("COIN", 64, 20 * 128 + 64 + 128 * 0.025, 128 * 0.78);
+    expect(fills).toEqual(["#FFFFFF"]);                    // white ink: the shaders colour it from the cloth
+    atlas.dispose();
+  });
+
+  it("keeps the brand-colour roundel for a logo slot until its logo arrives (or as its fallback)", async () => {
+    const { g } = canvasHarness();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+    const atlas = await EmblemAtlas.load(assets() as unknown as AssetStore, 420);
+    atlas.begin([coin("logo-3")]); atlas.slotFor(coin("logo-3")); atlas.end();
+    expect(g.arc).toHaveBeenCalled();
+    expect(g.fillText).not.toHaveBeenCalled();
+    await atlas.loadLogos();
+    expect(g.fillText).toHaveBeenCalledTimes(1);           // the failed logo's lettered roundel
+    atlas.dispose();
+  });
+});

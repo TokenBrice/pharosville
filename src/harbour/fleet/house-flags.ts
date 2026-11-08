@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import type { WorldUniforms } from "../engine/uniforms";
+import { AERIAL_GLSL, AERIAL_VERT_GLSL, aerialUniforms } from "../world/aerial";
 import type { EmblemAtlas } from "./emblems";
+import { PRINT_FULL_PX, PRINT_INK_SAT, PRINT_SOFT_PX } from "./shaders/print";
 
 /**
  * House flags: the coin's colours flown by every hull at rest (docked, moored, at anchor), so a furled fleet
@@ -11,10 +13,19 @@ import type { EmblemAtlas } from "./emblems";
  * red-and-white chequered DISTRESS flag (aground on the Shoals: flown above her own colours, never instead). When a
  * flag is only a few pixels across (the overview) the roundel melts away and the brand field remains: a dot of the
  * coin's colour over its hull.
+ * E04 (O5-I5/I1/I6; ruling V3): her colours fly in the harbour's air and pigment: the field arrives at the
+ * earth-pigment chroma (the caller passes the capped colour) and takes the distance air at 0.6 × its cap; the device
+ * is printed on cream canvas by the print law (contrast by its size on screen), a monogram as lettering. The hovered,
+ * selected or searched hull (add's `hi`) flies her full colours, unhazed. The distress flag is a signal: exempt.
  */
 export const FLAG_BURGEE = 0, FLAG_HOUSE = 1, FLAG_DISTRESS = 2;
 /** 06-F7c a titan's vexillum: a long tapering masthead streamer in her colours, above the house flag (decorative). */
 export const FLAG_STREAMER = 5;
+/** E04: added to a flag's style when its hull is highlighted (hover / selection / search): full colours, no air. */
+const FLAG_HI = 8;
+/** Share of the distance air a burgee takes (ruling V3: 0.6 × the cap). */
+export const FLAG_AIR = 0.6;
+const f2 = (x: number) => x.toFixed(2);
 
 const VERT = /* glsl */ `
 attribute float aSlot;
@@ -26,6 +37,7 @@ varying vec2 vUv;
 varying float vSlot;
 varying vec4 vBrand;
 varying float vShade;
+${AERIAL_VERT_GLSL}
 void main() {
   vUv = uv;
   vSlot = aSlot;
@@ -34,7 +46,7 @@ void main() {
   float fly = uv.x;                       // 0 at the hoist … 1 at the fly
   float w = clamp(uWind, 0.0, 1.4);
   float ph = uTime * (4.0 + 4.5 * w) + aPhase;
-  if (aBrand.w > 4.5) {
+  if (aBrand.w - ${f2(FLAG_HI)} * step(${f2(FLAG_HI - 0.5)}, aBrand.w) > 4.5) {
     // streamer: a narrow ribbon tapering to a point, a slower wave running down its length
     p.y *= 0.12 * (1.0 - 0.9 * fly);
     p.z += sin(ph * 0.8 + fly * 8.0) * (0.006 + 0.012 * w) * fly;
@@ -44,6 +56,7 @@ void main() {
   // light airs: the fly droops toward the staff
   p.y -= fly * fly * 0.28 * (1.0 - smoothstep(0.12, 0.55, w));
   vShade = 0.86 + 0.14 * cos(ph + fly * 5.0);
+  hbAerialVert((modelMatrix * instanceMatrix * vec4(p, 1.0)).xyz);
   gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(p, 1.0);
 }`;
 
@@ -51,13 +64,18 @@ const FRAG = /* glsl */ `
 uniform sampler2D uEmblems;
 uniform vec4 uEmblemGrid;
 uniform vec3 uLight;
+uniform vec3 uHorizon;
+uniform vec2 uFleetScreen;
+uniform float uEmblemLetters;
 varying vec2 vUv;
 varying float vSlot;
 varying vec4 vBrand;
 varying float vShade;
 const vec3 CLOTH = vec3(0.93, 0.91, 0.86);
+${AERIAL_GLSL}
 void main() {
-  float style = vBrand.w;
+  float hi = step(${f2(FLAG_HI - 0.5)}, vBrand.w);
+  float style = vBrand.w - ${f2(FLAG_HI)} * hi;
   float x = vUv.x, ym = (vUv.y - 0.5) * 0.72;     // flag metres (a unit fly, 0.72 hoist)
   float ax = fwidth(x) + 1e-4;
   float edge = min(min(x, 1.0 - x), 0.36 - abs(ym));
@@ -76,7 +94,9 @@ void main() {
     // streamer: the brand ribbon with a cream heading (too thin for a hem or a roundel)
     float lumS = dot(brand, vec3(0.2126, 0.7152, 0.0722));
     c = mix(mix(vec3(lumS), brand, 0.9) * 0.92, CLOTH * 0.9, 1.0 - smoothstep(0.03 - ax, 0.03 + ax, x));
-    gl_FragColor = vec4(c * uLight * vShade, 1.0);
+    c *= uLight * vShade;
+    hbAerial(c, vec3(0.0), max(${f2(1 - FLAG_AIR)}, hi));
+    gl_FragColor = vec4(c, 1.0);
     return;
   }
   float lum = dot(brand, vec3(0.2126, 0.7152, 0.0722));
@@ -103,14 +123,34 @@ void main() {
       if (e.x >= 0.0 && e.x <= 1.0 && e.y >= 0.0 && e.y <= 1.0) {
         vec2 cell = vec2(mod(slot, uEmblemGrid.x), floor(slot / uEmblemGrid.x));
         vec2 uv = vec2((cell.x + e.x) * uEmblemGrid.z, 1.0 - (cell.y + e.y) * uEmblemGrid.w);
-        vec4 t = texture2D(uEmblems, uv) * show;     // premultiplied
-        c = c * (1.0 - t.a) + t.rgb * 0.94;
+        vec4 t = texture2D(uEmblems, uv);     // premultiplied
+        // E04 print law (the roundel's diameter, 2R flag units, in CSS px)
+        float k = max(smoothstep(${f2(PRINT_SOFT_PX)}, ${f2(PRINT_FULL_PX)}, 2.0 * R / (ax * max(uFleetScreen.y, 0.25))), hi);
+        vec3 ink = t.rgb / max(t.a, 1e-4), ground = CLOTH * 0.78;
+        float paper = 0.0;
+        if (slot >= uEmblemLetters) {
+          // a monogram: lettering inked from the field
+          ink = mix(c * 0.12, CLOTH * 0.9, 1.0 - smoothstep(0.22, 0.26, dot(c, vec3(0.2126, 0.7152, 0.0722))));
+        } else {
+          // a logo: on cream canvas (paper when highlighted), earth-pigment ink
+          float lo = min(ink.r, min(ink.g, ink.b)), mx = max(ink.r, max(ink.g, ink.b));
+          paper = smoothstep(0.72, 0.88, lo) * (1.0 - smoothstep(0.06, 0.16, mx - lo));
+          float sat = (mx - lo) / max(mx + lo, 1e-3);
+          ink = max(mix(vec3(dot(ink, vec3(0.2126, 0.7152, 0.0722))), ink, mix(min(1.0, ${f2(PRINT_INK_SAT)} / max(sat, 1e-3)), 1.0, hi)), vec3(0.0));
+          ground = mix(ground, vec3(0.94), hi);
+        }
+        vec3 soft = c * 1.15;
+        vec3 inkSoft = max(ink + 0.5 * (dot(soft, vec3(0.2126, 0.7152, 0.0722)) - dot(ink, vec3(0.2126, 0.7152, 0.0722))), vec3(0.0));
+        c = mix(c, mix(mix(inkSoft, ink, k), mix(soft, ground, k), paper), t.a * show);
       }
     }
   }
   // a thin darker hem so the cloth reads against sky and water
   c *= mix(0.6, 1.0, smoothstep(0.0, 0.03 + ax, edge));
-  gl_FragColor = vec4(c * uLight * vShade, 1.0);
+  c *= uLight * vShade;
+  // E04: the harbour's air (distress and highlight exempt)
+  hbAerial(c, vec3(0.0), style > 1.5 ? 1.0 : max(${f2(1 - FLAG_AIR)}, hi));
+  gl_FragColor = vec4(c, 1.0);
 }`;
 
 export class HouseFlags {
@@ -126,7 +166,8 @@ export class HouseFlags {
   private readonly s = new THREE.Vector3();
   private readonly p = new THREE.Vector3();
 
-  constructor(u: WorldUniforms, atlas: EmblemAtlas, max = 1024) {
+  /** `screen`: the fleet's (CSS viewport height px, effective DPR), for the print law. */
+  constructor(u: WorldUniforms, atlas: EmblemAtlas, max = 1024, screen: THREE.IUniform<THREE.Vector2> = { value: new THREE.Vector2(1000, 1) }) {
     // a unit flag in its own xy plane, hoist on the local origin, flying along +x
     const g = new THREE.PlaneGeometry(1, 0.72, 10, 3);
     g.translate(0.5, -0.36, 0);
@@ -134,6 +175,10 @@ export class HouseFlags {
       uniforms: {
         uTime: u.uTime, uWind: { value: 0.35 }, uEmblems: { value: atlas.texture }, uEmblemGrid: { value: atlas.grid },
         uLight: { value: new THREE.Color(1, 1, 1) },
+        // E04: the print law, lettering and the harbour's air (the shared aerial uniforms; off until the ocean binds them)
+        uFleetScreen: screen, uEmblemLetters: { value: atlas.letterSlot ?? 1e9 },
+        ...aerialUniforms, uAerialDensity: u.uFogDensity ?? { value: 0 }, uAerialHaze: u.uHaze ?? { value: new THREE.Color() },
+        uHorizon: u.uHorizon ?? { value: new THREE.Color() },
       },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide,
     });
@@ -154,9 +199,9 @@ export class HouseFlags {
   /**
    * A flag hoisted at (x,y,z), `size` m on the fly, streaming toward `downwind` (heading convention:
    * along (sin, cos)), turned up to `face` radians toward `toCam` (heading of the camera from the flag).
-   * `brand` is linear; `style` FLAG_BURGEE | FLAG_HOUSE | FLAG_DISTRESS.
+   * `brand` is linear; `style` FLAG_BURGEE | FLAG_HOUSE | FLAG_DISTRESS; `hi`: her hull is hovered, selected or searched.
    */
-  add(x: number, y: number, z: number, size: number, downwind: number, toCam: number, slot: number, phase: number, brand: THREE.Color, style: number): void {
+  add(x: number, y: number, z: number, size: number, downwind: number, toCam: number, slot: number, phase: number, brand: THREE.Color, style: number, hi = false): void {
     if (this.n >= this.mesh.instanceMatrix.count) return;
     // the flag's +x is its fly: yaw it so the fly points downwind, then ease the face toward the viewer
     let yaw = downwind - Math.PI / 2;
@@ -168,7 +213,7 @@ export class HouseFlags {
     this.mesh.setMatrixAt(this.n, this.m);
     this.slotAttr.setX(this.n, slot);
     this.phaseAttr.setX(this.n, phase);
-    this.brandAttr.setXYZW(this.n, brand.r, brand.g, brand.b, style);
+    this.brandAttr.setXYZW(this.n, brand.r, brand.g, brand.b, style + (hi ? FLAG_HI : 0));
     this.n++;
   }
 
