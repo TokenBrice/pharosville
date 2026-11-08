@@ -3,10 +3,10 @@ import { useStore } from "./hooks";
 import { composePostcard, postcardCaption } from "./postcard";
 
 // (inline: the Harbour CSS sits at its byte budget)
-const VEIL: React.CSSProperties = { position: "fixed", inset: 0, display: "grid", placeItems: "center", background: "rgba(20, 18, 14, 0.42)", pointerEvents: "auto", zIndex: 40 };
+const VEIL: React.CSSProperties = { position: "fixed", inset: 0, display: "grid", placeItems: "center", background: "var(--veil)", pointerEvents: "auto", zIndex: 40 };
 const CARD: React.CSSProperties = { padding: "16px 16px 12px", width: "min(78vw, 1100px)", maxHeight: "calc(100vh - 56px)", display: "flex", flexDirection: "column", gap: 10 };
 const IMG: React.CSSProperties = { display: "block", width: "100%", minHeight: 0, objectFit: "contain" };
-const BTN: React.CSSProperties = { padding: "4px 12px", fontSize: 15, color: "var(--ink-2)", textDecoration: "none", border: "0.5px solid var(--brass)" };
+const BTN: React.CSSProperties = { padding: "4px 12px", fontSize: 15, color: "var(--ink-2)", textDecoration: "none", border: "0.5px solid var(--rule)" };
 
 /**
  * P: a postcard of the harbour as it is now. The overlay UI steps aside for the capture frame (the

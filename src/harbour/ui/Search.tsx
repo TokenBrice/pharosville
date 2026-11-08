@@ -32,13 +32,13 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
     }));
     for (const h of model?.harbours ?? []) {
       out.push({ id: `chain:${h.chain}`, symbol: h.chain, name: h.piered ? `${h.chain} harbour` : `${h.chain}, a far port`, supply: h.supplyUsd,
-        hit: { kind: "harbour", id: h.chain }, logo: chainLogo(h.chain), color: "#1f5873", note: money(h.supplyUsd) });
+        hit: { kind: "harbour", id: h.chain }, logo: chainLogo(h.chain), color: "var(--fill-chain)", note: money(h.supplyUsd) });
     }
     // pre-launch coins: hulls on the Shipyard's slips
     const live = new Set(out.map((o) => o.id));
     for (const c of yardCoins(store.ctx)) {
       if (live.has(c.id)) continue;
-      out.push({ id: c.id, symbol: c.symbol, name: c.name, supply: 0, hit: { kind: "yard", id: c.id }, logo: c.logo, color: "#7a5a22",
+      out.push({ id: c.id, symbol: c.symbol, name: c.name, supply: 0, hit: { kind: "yard", id: c.id }, logo: c.logo, color: "var(--fill-yard)",
         note: `pre-launch · ${c.phase ? PHASE_NAME[c.phase].toLowerCase() : "shipyard"}` });
     }
     // the dead: each lies in Wreck Cove (a live hull in the dead list is already here as a boat); never outranks a
@@ -46,7 +46,7 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
     for (const w of model?.readings.wrecks ?? []) {
       if (live.has(w.id)) continue;
       const r = deadRecords().get(w.id);
-      out.push({ id: w.id, symbol: w.symbol, name: w.name, supply: 0, hit: { kind: "wreck", id: w.id }, logo: r?.logo ?? null, color: "#8a7d66",
+      out.push({ id: w.id, symbol: w.symbol, name: w.name, supply: 0, hit: { kind: "wreck", id: w.id }, logo: r?.logo ?? null, color: "var(--fill-wreck)",
         note: `wreck · † ${w.deathDate.slice(0, 4)}` });
     }
     const L = getLayout(store.ctx);
@@ -56,7 +56,7 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
       if (!L?.landmarks.some((l) => l.id === id) && !plotFor(L, id) && !zoneIds.has(id)) continue;
       const name = placeName(L, id);
       out.push({ id: `lm:${id}`, symbol: name, name: name.replace(/^The /, ""), supply: 0,
-        hit: { kind: "landmark", id }, logo: null, color: "#a68242", note: zoneIds.has(id) ? "sea zone" : "landmark" });
+        hit: { kind: "landmark", id }, logo: null, color: "var(--rule)", note: zoneIds.has(id) ? "sea zone" : "landmark" });
     }
     return out;
   }, [model, store]);
