@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { terrainOccludes } from "../ui/pick-visibility";
+import { getGround } from "../ui/services";
 import { Mastheads } from "./mastheads";
 import { BootFailure, isAbort } from "../engine/failure";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
@@ -1395,7 +1397,7 @@ export class FleetSystem implements WorldSystem {
       ring.scale.setScalar(Math.max(4, w.len * 0.62));
     }
     const m = ring.material as THREE.ShaderMaterial;
-    m.uniforms.uTime.value = frame.elapsed;
+    m.uniforms.uTime.value = this.time;
     m.uniforms.uK.value = this.ringK;
   }
 
@@ -1420,15 +1422,18 @@ export class FleetSystem implements WorldSystem {
         const cam = ctx.camera;
         ray.origin.copy(cam.position);
         ray.direction.copy(ndc).unproject(cam).sub(cam.position).normalize();
-        let best: PickHit | null = null, bestT = Infinity;
+        let best: PickHit | null = null, bestT = Infinity, bestProximity = Infinity;
         for (const b of this.boats) {
           if (!b.visible) continue;
           // a slim capsule-ish test: the hull sphere, shrunk toward the mast line for long hulls
           sph.center.set(b.cx, b.cy, b.cz); sph.radius = Math.max(b.r * 0.75, 3);
           const hit = ray.intersectSphere(sph, tmp);
-          if (!hit) continue;
+          if (!hit || terrainOccludes(getGround(ctx), cam.position, tmp.x, tmp.y, tmp.z)) continue;
           const t = tmp.distanceTo(ray.origin);
-          if (t < bestT) { bestT = t; best = { kind: "boat", id: b.id }; }
+          const proximity = Math.sqrt(ray.distanceSqToPoint(sph.center)) / Math.max(1, cam.position.distanceTo(sph.center));
+          if (proximity < bestProximity || (proximity === bestProximity && (t < bestT || (t === bestT && b.id < (best?.id ?? ""))))) {
+            bestProximity = proximity; bestT = t; best = { kind: "boat", id: b.id };
+          }
         }
         if (best) return best;
         for (const lm of this.layout?.landmarks ?? []) {

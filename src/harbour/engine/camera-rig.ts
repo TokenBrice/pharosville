@@ -60,6 +60,7 @@ export class CameraRig {
   bounds = new THREE.Box2(new THREE.Vector2(-600, -600), new THREE.Vector2(600, 600));
   private readonly goalTarget = new THREE.Vector3();
   private goalDistance = 720;
+  private zoomRate = 6;
   private readonly offset = new THREE.Vector3();
   private glide: Glide | null = null;
   private readonly gp = { x: 0, y: 0, z: 0, d: 0 };
@@ -70,6 +71,15 @@ export class CameraRig {
   readonly breath = { k: 0, dx: 0, dz: 0 };
   /** Bumped by every user pan or zoom (not by glides): follow / watch / idle read it to let go. */
   inputEpoch = 0;
+  stopEpoch = 0;
+  get pendingDistance(): number { return this.goalDistance; }
+
+  /** Stop both scripted motion and the damped chase at the rendered pose. */
+  stop(): void {
+    this.glide = null; this.goalTarget.copy(this.target); this.goalDistance = this.distance;
+    this.breath.k = this.breath.dx = this.breath.dz = 0;
+    this.stopEpoch++;
+  }
   private readonly syncedTarget = new THREE.Vector3(NaN, NaN, NaN);
   private readonly syncedBreath = { k: NaN, dx: NaN, dz: NaN };
   private syncedDistance = NaN;
@@ -81,6 +91,7 @@ export class CameraRig {
   applyPreset(p: CameraPreset, immediate = false): void {
     this.goalTarget.set(...p.target);
     this.goalDistance = p.distance;
+    this.zoomRate = 6;
     this.pitch = THREE.MathUtils.degToRad(p.pitchDeg);
     this.yaw = THREE.MathUtils.degToRad(p.yawDeg);
     if (this.camera.fov !== p.fovDeg) { this.camera.fov = p.fovDeg; this.camera.updateProjectionMatrix(); }
@@ -131,25 +142,37 @@ export class CameraRig {
     this.goalTarget.z = THREE.MathUtils.clamp(this.goalTarget.z + dzWorld, this.bounds.min.y, this.bounds.max.y);
   }
 
-  zoom(factor: number): void {
+  zoom(factor: number, response = 6, immediate = false): void {
+    this.zoomRate = response;
     this.cancelGlide();
     this.inputEpoch++;
     this.goalDistance = THREE.MathUtils.clamp(this.goalDistance * factor, this.minDistance, this.maxDistance);
+    if (immediate) { this.distance = this.goalDistance; this.sync(); }
   }
 
   /**
    * Zoom about a screen point (px from the viewport centre): the ground under it stays put, as under
-   * a pinch. The target moves by (1 − f) of the point's offset, f being the clamped distance ratio.
+   * a pinch. Both ray/ground intersections use the pending pose, including repeated events between frames.
    */
   zoomAt(factor: number, dxPx: number, dyPx: number, viewportHeight: number): void {
     this.cancelGlide();
-    const before = this.goalDistance;
+    const ground = (distance: number): THREE.Vector3 | null => {
+      const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch), sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
+      const eye = new THREE.Vector3(sy * cp, sp, cy * cp).multiplyScalar(distance).add(this.goalTarget);
+      const scale = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) / viewportHeight;
+      const direction = new THREE.Vector3(-sy * cp, -sp, -cy * cp)
+        .addScaledVector(new THREE.Vector3(cy, 0, -sy), dxPx * scale)
+        .addScaledVector(new THREE.Vector3(-sy * sp, cp, -cy * sp), -dyPx * scale);
+      const t = -eye.y / direction.y;
+      return Number.isFinite(t) && t > 0 ? eye.addScaledVector(direction, t) : null;
+    };
+    const before = ground(this.goalDistance);
     this.zoom(factor);
-    const f = this.goalDistance / before;
-    if (f === 1) return;
-    const [wx, wz] = this.dragToWorld(dxPx, dyPx, viewportHeight);
-    // dragToWorld is the pan that drags content BY that offset: the point's own ground offset is its negative
-    this.pan((f - 1) * wx, (f - 1) * wz);
+    const after = ground(this.goalDistance);
+    if (before && after) {
+      this.goalTarget.x = THREE.MathUtils.clamp(this.goalTarget.x + before.x - after.x, this.bounds.min.x, this.bounds.max.x);
+      this.goalTarget.z = THREE.MathUtils.clamp(this.goalTarget.z + before.z - after.z, this.bounds.min.y, this.bounds.max.y);
+    }
   }
 
   /** Is the rig headed for (or resting at) this framing? */
@@ -187,7 +210,7 @@ export class CameraRig {
     }
     const k = 1 - Math.exp(-delta * 6);
     this.target.lerp(this.goalTarget, k);
-    this.distance += (this.goalDistance - this.distance) * k;
+    this.distance += (this.goalDistance - this.distance) * (1 - Math.exp(-delta * this.zoomRate));
     this.sync();
   }
 

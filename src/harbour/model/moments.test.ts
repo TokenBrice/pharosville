@@ -104,3 +104,18 @@ describe("events hub", () => {
     expect(hub.current).toBeNull();
   });
 });
+
+it("cancels active and queued ceremonies on reduction while retaining and accepting book records", () => {
+  const hub = new HarbourEventHub(T);
+  hub.inject(ev("depeg"), T, false);
+  hub.inject(ev("launch", T + 1), T + 1, false);
+  expect(hub.current).not.toBeNull();
+  hub.tick(T + 2, true);
+  expect(hub.current).toBeNull();
+  const retained = hub.book.length;
+  hub.inject(ev("death", T + 3), T + 3, true);
+  expect(hub.book).toHaveLength(retained + 1);
+  expect(hub.current).toBeNull();
+  hub.tick(T + MOMENT_GAP_MS + 2, false);
+  expect(hub.current).toBeNull();
+});

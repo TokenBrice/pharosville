@@ -8,6 +8,7 @@ import { PostChain, type PostPreparation } from "./post";
 import { prefetchHarbour } from "./prefetch";
 import { CameraRig } from "./camera-rig";
 import { CameraInput } from "./input";
+import { ensureMotionService } from "../ui/services";
 import { TimeOfDay } from "./time-of-day";
 import { createWorldUniforms } from "./uniforms";
 import type { EngineContext, HarbourStats, RenderedFleetState, WorldSystem } from "./types";
@@ -171,7 +172,7 @@ export class Engine {
     scene.addEventListener("childadded", this.onSceneAddition);
     this.governor.setPreparation((settings, signal) => this.prepareQuality(settings, signal), (settings) => this.qualityReady.has(this.qualityIdentity(settings)));
     this.governor.publish();
-    this.input = new CameraInput(renderer.domElement, rig);
+    this.input = new CameraInput(renderer.domElement, rig, ensureMotionService(this.ctx));
     addEventListener("resize", this.onResize);
     document.addEventListener("visibilitychange", this.onVisibility);
     this.resize();

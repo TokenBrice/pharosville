@@ -5,6 +5,7 @@ export { SHIMMER_FRAG, ShimmerEffect } from "./shaders/shimmer";
 import { BeamEffect } from "./shaders/shaft";
 export { BEAM_FRAG, BeamEffect } from "./shaders/shaft";
 import * as THREE from "three";
+import { ensureMotionService, MotionClock } from "../ui/services";
 import { EffectPass } from "postprocessing";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
@@ -23,8 +24,7 @@ import { getBeamUniforms, type BeamUniforms } from "./uniforms";
  *
  * Reads the 'lighthouse' service ({ lanternPosition, sweepAngle(), period }) when present, else the
  * layout's pharos landmark + 30 m and a 12 s sweep. Service 'beam': setReach(0..1), setColor(0|1|2 | colour).
- * Reduced motion (the lighthouse holds the beam still): the PSI rhythm becomes a slow lamp swell at the
- * same period, so the band still reads without movement.
+ * Reduced motion holds the beam and intensity still; the PSI period remains available in the readings.
  */
 export interface BeamService {
   setReach(v: number): void;
@@ -101,8 +101,7 @@ export class BeamSystem implements WorldSystem {
   private lantern = new THREE.Vector3();
   private readonly mirror = new THREE.Vector3();
   private lighthouse: LighthouseLike | undefined;
-  private lastAngle = NaN;
-  private stillFor = 0;
+  private clock: MotionClock | null = null;
   private dayPresence = 0;
   private readonly tmp = new THREE.Vector3();
   private readonly fireTint = new THREE.Color();
@@ -179,21 +178,19 @@ export class BeamSystem implements WorldSystem {
 
   update(frame: FrameState, ctx: EngineContext): void {
     const dt = frame.delta;
+    const motion = ensureMotionService(ctx);
+    this.clock ??= new MotionClock(motion);
+    const time = this.clock.step(dt), reduced = motion.reduced;
     this.lighthouse ??= ctx.services.get("lighthouse");
     const lp = this.lighthouse?.lanternPosition;
     if (Array.isArray(lp)) this.lantern.set(lp[0], lp[1], lp[2]);
     else if (lp) this.lantern.copy(lp);
     // internal convention: the beam points along (cos a, 0, sin a)
-    const angle = this.lighthouse?.sweepAngle ? Math.PI / 2 - this.lighthouse.sweepAngle() : (frame.elapsed * 2 * Math.PI) / 12;
+    const angle = this.lighthouse?.sweepAngle ? Math.PI / 2 - this.lighthouse.sweepAngle() : (time * 2 * Math.PI) / 12;
     const lit = this.lighthouse?.lit ?? true;
-    const flicker = this.lighthouse?.flicker ?? 1;
+    const flicker = reduced ? 1 : this.lighthouse?.flicker ?? 1;
     this.reachS += (this.reach - this.reachS) * (1 - Math.exp(-dt));
     this.colorS.lerp(this.color, 1 - Math.exp(-dt * 1.5));
-    // held beam (reduced motion): the rhythm becomes a slow lamp swell at the sweep period
-    this.stillFor = Math.abs(angle - this.lastAngle) < 1e-5 ? this.stillFor + dt : 0;
-    this.lastAngle = angle;
-    const period = Math.max(2, this.lighthouse?.period ?? 12);
-    const swell = this.stillFor > 0.5 ? 0.4 + 0.6 * (0.5 + 0.5 * Math.cos((frame.elapsed * 2 * Math.PI) / period)) : 1;
     // the firelight breathes (damped: the mirror gathers the whole fire)
     const breath = 0.7 + 0.3 * flicker;
 
@@ -205,7 +202,7 @@ export class BeamSystem implements WorldSystem {
     const narrow = 1 - 0.45 * this.shutterS;
     const intro = this.intro;
     this.shown = this.reachS * (lit ? 1 : 0) * intro;
-    const vis = nightK * (0.35 + 0.65 * this.reachS) * (lit ? 1 : 0) * swell * breath * (1 - 0.15 * this.shutterS) * intro;
+    const vis = nightK * (0.35 + 0.65 * this.reachS) * (lit ? 1 : 0) * breath * (1 - 0.15 * this.shutterS) * intro;
 
     // glint: the mirror swinging to face the camera's azimuth (once per revolution: one mirror, one beam)
     const cam = ctx.camera.position;
@@ -231,7 +228,7 @@ export class BeamSystem implements WorldSystem {
     U.uL.value = L;
     U.R0.value = R0 * narrow;
     U.TANA.value = Math.tan(HALF * narrow);
-    U.uTime.value = frame.elapsed;
+    U.uTime.value = time;
     U.uSkyRef.value.copy(ctx.uniforms.uHorizon.value);
     const skyH = ctx.services.get("sky")?.horizonDistance?.();
     U.uSkyT.value = skyH && skyH > 0 ? skyH * 0.9 : 1e9;
@@ -248,9 +245,8 @@ export class BeamSystem implements WorldSystem {
     this.SH.uShC.value.set(lp2.x * 0.5 + 0.5, lp2.y * 0.5 + 0.5 + 6 * pxPerM);
     this.SH.uShR.value.set(5.5 * pxPerM / ctx.camera.aspect, 5.5 * pxPerM);
     const onScreen = lp2.z < 1 && Math.abs(lp2.x) < 1.3 && lp2.y > -1.3 && lp2.y < 1.6;
-    const reduced = ctx.services.get("motion")?.reduced ?? false;
     this.SH.uShAmt.value = shimmerAmount(dCam, lit, onScreen, breath, reduced);
-    this.SH.uShT.value = frame.elapsed;
+    this.SH.uShT.value = time;
     this.pass.enabled = beamPassActive(U.uIntensity.value, this.SH.uShAmt.value);
 
     // the mirror's glint: a sharp warm star when it faces the viewer (by day the sun glint, on rhythm); between
@@ -261,8 +257,8 @@ export class BeamSystem implements WorldSystem {
     hu.uColor.value.copy(this.colorS);
     hu.uSize.value = dist * (0.04 + 0.05 * flash);
     const near = THREE.MathUtils.smoothstep(dist, 60, 220);       // close-up: let the colonnade read
-    hu.uCore.value = (0.1 * nightK * swell + (3.0 + 5 * day) * flash + 3.0 * dayAlert) * (0.35 + 0.65 * near) * breath;
-    hu.uGlow.value = (0.12 * nightK * swell + (1.4 + 1.5 * day) * flash + 7.0 * dayAlert) * (0.3 + 0.7 * near);
+    hu.uCore.value = (0.1 * nightK + (3.0 + 5 * day) * flash + 3.0 * dayAlert) * (0.35 + 0.65 * near) * breath;
+    hu.uGlow.value = (0.12 * nightK + (1.4 + 1.5 * day) * flash + 7.0 * dayAlert) * (0.3 + 0.7 * near);
     hu.uStreak.value = ((1.1 + 0.6 * day) * flash) * (0.5 + 0.5 * near);
     this.halo.visible = lit && intro > 0.01;
     if (intro < 1) { hu.uCore.value *= intro; hu.uGlow.value *= intro; hu.uStreak.value *= intro; }
@@ -270,11 +266,11 @@ export class BeamSystem implements WorldSystem {
     // shared with the sea (one beam: no back foot)
     this.bu.uBeamPos.value.copy(this.lantern);
     this.bu.uBeamAngle.value = angle;
-    this.bu.uBeamCol.value.copy(this.colorS).multiplyScalar((0.1 + 0.15 * dayAlert + 0.9 * nightK) * (0.4 + 0.6 * this.reachS) * 1.3 * (lit ? 1 : 0) * swell * breath * intro);
+    this.bu.uBeamCol.value.copy(this.colorS).multiplyScalar((0.1 + 0.15 * dayAlert + 0.9 * nightK) * (0.4 + 0.6 * this.reachS) * 1.3 * (lit ? 1 : 0) * breath * intro);
     this.bu.uBeamShape.value.set(L, HALF * narrow, TILT, flash * (1.5 + 2.5 * day) * intro);
     this.bu.uBeamFall.value.set(L * 0.22, R0 * narrow, Math.tan(HALF * narrow), this.reachS);
     // 05-P1: the shaft's scattered light on what it passes over (night only; kit, fleet, sprites, plume)
-    const litK = (lit ? 1 : 0) * swell * breath * intro * (1 - 0.15 * this.shutterS);
+    const litK = (lit ? 1 : 0) * breath * intro * (1 - 0.15 * this.shutterS);
     this.bu.uBeamLight.value.copy(this.colorS).multiplyScalar(BEAM_LIGHT_GAIN * nightK * (0.4 + 0.6 * this.reachS) * litK);
     // 05-P2: by day the mirror throws the sun, dimmed by the DEWS cloud (no sun, no heliograph)
     const cloud = sky?.shared?.uWeatherSea.value.x ?? 0.3;

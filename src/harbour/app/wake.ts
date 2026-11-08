@@ -49,6 +49,7 @@ export function startWake(engine: Engine): () => void {
     if (letGo) rig.cancelGlide();
     beam()?.setIntroScale?.(1);
     off();
+    offMotion();
   };
   const onInput = () => finish(true);
   const opts = { capture: true, passive: true } as const;
@@ -60,6 +61,7 @@ export function startWake(engine: Engine): () => void {
     removeEventListener("wheel", onInput, opts);
     removeEventListener("keydown", onInput, opts);
   };
+  const offMotion = services.get("motion")?.subscribe((reduced) => { if (reduced) finish(true); }) ?? (() => undefined);
   const step = () => {
     const t = (performance.now() - t0) / 1000;
     if (rig.inputEpoch !== epoch) { finish(false); return; }

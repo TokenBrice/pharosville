@@ -113,3 +113,31 @@ describe("camera rig exact dirty state", () => {
     }
   });
 });
+
+describe("ground-anchored zoom", () => {
+  it.each([15, 30, 60, 120, 144])("settles within 1 CSS px at %sHz, across positions, pending events and target heights", (hz) => {
+    for (const y of [0, 45]) for (const [xPx, yPx] of [[-500, -200], [400, 300], [0, 0]]) {
+      const camera = new THREE.PerspectiveCamera(25, 1.6, 1, 10000), rig = new CameraRig(camera);
+      rig.applyPreset({ ...preset(0, 0, 400), target: [0, y, 0], pitchDeg: 26 }, true);
+      camera.updateMatrixWorld();
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(xPx / 800, -yPx / 500), camera);
+      const anchor = ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3())!;
+      rig.zoomAt(0.8, xPx, yPx, 1000); rig.zoomAt(0.8, xPx, yPx, 1000);
+      for (let i = 0; i < hz * 6; i++) rig.update(1 / hz);
+      camera.updateMatrixWorld(); const screen = anchor.clone().project(camera);
+      expect(Math.hypot(screen.x * 800 - xPx, -screen.y * 500 - yPx)).toBeLessThan(1);
+    }
+  });
+
+  it("keeps finite bounded poses at zoom/pan limits and skips upward ground rays", () => {
+    const rig = new CameraRig(new THREE.PerspectiveCamera(25, 1.6));
+    rig.applyPreset(preset(599, 599, 300), true);
+    rig.zoomAt(1e6, 700, 450, 1000); rig.update(10);
+    expect(rig.distance).toBe(rig.maxDistance);
+    expect(rig.bounds.containsPoint(new THREE.Vector2(rig.target.x, rig.target.z))).toBe(true);
+    rig.zoomAt(0.001, 0, -100000, 1000); rig.update(10);
+    expect(rig.distance).toBe(rig.minDistance);
+    expect(rig.target.toArray().every(Number.isFinite)).toBe(true);
+  });
+});

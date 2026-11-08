@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { ensureMotionService, MotionClock } from "../ui/services";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourModel, StormFlag } from "../model/types";
 import { HarbourEventHub } from "../model/event-hub";
@@ -84,6 +85,8 @@ export class ReadingsSystem implements WorldSystem {
   private readonly dev = import.meta.env.DEV && DEV_OVERRIDE_KEYS.some((k) => this.q.has(k));
   private fx: FxTextures | null = null;
   private fog: StaleFog | null = null;
+  private clock: MotionClock | null = null;
+  private readonly decorativeTime = new THREE.Uniform(0);
   private fogS = 0;
   private periodS = 12;
   private litS = 1;
@@ -108,7 +111,7 @@ export class ReadingsSystem implements WorldSystem {
 
   async init(ctx: EngineContext): Promise<void> {
     this.fx = await acquireFxTextures(ctx);
-    this.fog = new StaleFog(ctx.composer, ctx.camera, this.fx.noise, ctx.uniforms.uTime);
+    this.fog = new StaleFog(ctx.composer, ctx.camera, this.fx.noise, this.decorativeTime);
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- getters below read live system state
     const sys = this;
     const svc: ReadingsService = {
@@ -224,6 +227,8 @@ export class ReadingsSystem implements WorldSystem {
 
   update(frame: FrameState, ctx: EngineContext): void {
     const dt = frame.delta;
+    this.clock ??= new MotionClock(ensureMotionService(ctx));
+    this.decorativeTime.value = this.clock.step(dt);
     const model = ctx.services.get("model");
     const motion = ctx.services.get("motion");
     const reduced = motion?.reduced ?? (import.meta.env.DEV && this.q.get("motion") === "reduce");
@@ -303,7 +308,7 @@ export class ReadingsSystem implements WorldSystem {
 
     // ---- 5–6. landmarks: the storm signal (the station's mast), the tide gauge
     const glow = U.uWindowGlow.value;
-    this.cones?.update(dt, frame.elapsed, this.windS, reduced, ctx.camera.position);
+    this.cones?.update(dt, this.decorativeTime.value, this.windS, reduced, ctx.camera.position);
     this.gauge?.update(dt, t.tide.level, t.tide.pct != null, t.landmarks["tide-gauge"].state === "stale", glow, reduced);
   }
 

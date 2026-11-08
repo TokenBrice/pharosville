@@ -86,6 +86,7 @@ export class SkySystem implements WorldSystem {
   private cirrusDrift = 0;
   /** Cloud drift eases to a stop under reduced motion. */
   private clock: MotionClock | null = null;
+  private readonly decorativeTime = new THREE.Uniform(0);
   private banks: Bank[] = [];
   private readonly camera = new SkyCameraFrame();
   private readonly band = new SkyBandCache();
@@ -158,7 +159,7 @@ export class SkySystem implements WorldSystem {
     this.u.uCloudAtlas.value = this.atlas.texture;
     this.u.uSkyNoise.value = this.fx.noise;
     const W = ctx.uniforms;
-    const world = { uTime: W.uTime, uNight: W.uNight, uZenith: W.uZenith, uHorizon: W.uHorizon, uHaze: W.uHaze, uSunColor: W.uSunColor };
+    const world = { uTime: this.decorativeTime, uNight: W.uNight, uZenith: W.uZenith, uHorizon: W.uHorizon, uHaze: W.uHaze, uSunColor: W.uSunColor };
 
     // backdrop card: unit grid, vertex shader wraps it round the camera
     const g = new THREE.PlaneGeometry(1, 1, 96, 1);
@@ -366,6 +367,7 @@ export class SkySystem implements WorldSystem {
     // ---- clouds: cover reveals banks, wind drifts them (near layers faster); wrap at the band edge with a fade
     this.clock ??= new MotionClock(ensureMotionService(ctx));
     const driftT = this.clock.step(dt), live = this.clock.live;
+    this.decorativeTime.value = driftT;
     // W08 one wind: the banks and cirrus drift the way the wind blows across the view (the same direction as
     // the cloud shadows, smoke and flags); a wind straight along the view still creeps, with its own sign
     const wv0 = W.uWindVec.value;
@@ -510,7 +512,7 @@ export class SkySystem implements WorldSystem {
     cs.uCloudShadowS.value.set(wind.z * ((sq?.pos ?? 0) - 1) * 1100, wind.w * ((sq?.pos ?? 0) - 1) * 1100, 1 / 260, 0.32 * sqK * sunUp * (1 - 0.7 * night));
 
     // ---- band texture for the sea (cheap: 512 x 128)
-    this.band.render(ctx, this.u, this.bandPass, this.bandRT);
+    this.band.render(ctx, this.u, this.bandPass, this.bandRT, this.decorativeTime.value);
   }
 
   dispose(ctx: EngineContext): void {

@@ -27,7 +27,8 @@ export interface PickingService {
   beginFrame(): void;
   endFrame(): void;
   dispose(): void;
-  pick(clientX: number, clientY: number): PickHit | null;
+  pick(clientX: number, clientY: number, coarse?: boolean): PickHit | null;
+  choices?(clientX: number, clientY: number): PickHit[];
   /** The object's tag anchor (above the mast / roof) in viewport CSS px. */
   screenPosition(hit: PickHit, out?: ScreenPoint): ScreenPoint | null;
   /** The object's ground position (x, y, z), for camera flights. */
@@ -54,6 +55,8 @@ export interface WorldPicking {
  */
 export interface MotionService {
   readonly reduced: boolean;
+  readonly still: boolean;
+  setStill(still: boolean): void;
   subscribe(fn: (reduced: boolean) => void): () => void;
   dispose(): void;
 }
@@ -63,17 +66,20 @@ export function ensureMotionService(ctx: EngineContext): MotionService {
   const existing = ctx.services.get("motion");
   if (existing) return existing;
   const mq = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
-  const forced = new URLSearchParams(location.search).get("motion");
-  let reduced = forced === "reduce" ? true : forced === "full" ? false : mq?.matches ?? false;
+  const forced = import.meta.env.DEV && new URLSearchParams(location.search).get("motion") === "reduce";
+  let osReduced = mq?.matches ?? false, still = false;
+  let reduced = osReduced || forced || still;
   const listeners = new Set<(r: boolean) => void>();
-  const onChange = (e: MediaQueryListEvent) => {
-    if (forced) return;
-    reduced = e.matches;
+  const update = () => {
+    reduced = osReduced || forced || still;
     for (const fn of listeners) fn(reduced);
   };
+  const onChange = (e: MediaQueryListEvent) => { osReduced = e.matches; update(); };
   mq?.addEventListener("change", onChange);
   const svc: MotionService = {
     get reduced() { return reduced; },
+    get still() { return still; },
+    setStill(value) { if (still !== value) { still = value; update(); } },
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     dispose() {
       mq?.removeEventListener("change", onChange);

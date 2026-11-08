@@ -7,7 +7,7 @@ import { BY_EAR } from "./legend";
 const harness = vi.hoisted(() => {
   const snapshot = { selected: null, ledgerOpen: false };
   return {
-    store: { ctx: {}, subscribe: () => () => undefined, getSnapshot: () => snapshot },
+    store: { motion: { reduced: false, still: false, subscribe: () => () => undefined, setStill: vi.fn() }, ctx: {}, subscribe: () => () => undefined, getSnapshot: () => snapshot },
     ctl: { mode: "off", subscribe: () => () => undefined, toggle: vi.fn(), setMode: vi.fn(), cue: vi.fn() },
   };
 });

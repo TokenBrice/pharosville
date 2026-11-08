@@ -17,3 +17,22 @@ describe("follow spring", () => {
     expect(p.x).toBeCloseTo(goal, 1);
   });
 });
+
+it("integrates follow identically at 15/30/60/120/144Hz for fixed targets", () => {
+  const ends = [15, 30, 60, 120, 144].map((hz) => {
+    const p = { x: 0, z: 0, vx: 0, vz: 0 };
+    for (let i = 0; i < hz * 3; i++) springStep(p, 20, -10, FOLLOW_OMEGA, 1 / hz);
+    return p;
+  });
+  for (const p of ends) for (const key of ["x", "z", "vx", "vz"] as const) expect(p[key]).toBeCloseTo(ends[0][key], 10);
+});
+
+it("keeps a sailing follow endpoint within 1 CSS pixel across refresh rates", () => {
+  const endpoints = [15, 30, 60, 120, 144].map((hz) => {
+    const p = { x: 0, z: 0, vx: 0, vz: 0 };
+    for (let i = 0; i < hz * 20; i++) springStep(p, 4 * (i + 1) / hz, 0, FOLLOW_OMEGA, 1 / hz);
+    return p.x;
+  });
+  const metresPerPixel = 2 * 300 * Math.tan(30 * Math.PI / 360) / 1000;
+  for (const x of endpoints) expect(Math.abs(x - endpoints[0]) / metresPerPixel).toBeLessThan(1);
+});

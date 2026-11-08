@@ -38,7 +38,7 @@ it("reuses only identical band inputs, preserving animated deck/rain cadence and
   const color = { value: new THREE.Color(0.1, 0.2, 0.3) }, storm = u.uStorm;
   cache.setInputs([color, storm]);
   const render = vi.fn(), pass = { render } as unknown as FullscreenPass, rt = new THREE.WebGLRenderTarget(1, 1);
-  const draw = () => cache.render(ctx, u, pass, rt);
+  const draw = () => cache.render(ctx, u, pass, rt, uniforms.uTime.value);
   draw(); draw(); expect(render).toHaveBeenCalledTimes(1);
   uniforms.uTime.value++; u.uWeather.value.z++; draw(); expect(render).toHaveBeenCalledTimes(1);
   color.value.r++; draw(); expect(render).toHaveBeenCalledTimes(2);

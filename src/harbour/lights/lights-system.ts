@@ -1,5 +1,6 @@
 import { patch } from "../engine/shader-patch";
 import * as THREE from "three";
+import { ensureMotionService, MotionClock } from "../ui/services";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
@@ -82,6 +83,8 @@ export class LightsSystem implements WorldSystem {
   private seenVersion = -1;
   private seenMove = -1;
   private pickTimer = 0;
+  private clock: MotionClock | null = null;
+  private readonly decorativeTime = new THREE.Uniform(0);
   private readonly uPx: THREE.IUniform<number> = { value: 0.001 };
   private ground: GroundService | undefined;
   private nearWater: Uint8Array = new Uint8Array(0);
@@ -190,7 +193,7 @@ export class LightsSystem implements WorldSystem {
     const g = this.ground;
     const pillarMat = new THREE.ShaderMaterial({
       uniforms: {
-        uWindowGlow: u.uWindowGlow, uNight: u.uNight, uTime: u.uTime, ...lampWaveUniforms,
+        uWindowGlow: u.uWindowGlow, uNight: u.uNight, uTime: this.decorativeTime, ...lampWaveUniforms,
         uGround: { value: g?.texture ?? null }, uGroundB: { value: g ? new THREE.Vector4(g.bounds[0], g.bounds[3], 1 / (g.bounds[2] - g.bounds[0]), 1 / (g.bounds[3] - g.bounds[1])) : new THREE.Vector4() },
         uHasGround: { value: g ? 1 : 0 },
       },
@@ -334,6 +337,8 @@ export class LightsSystem implements WorldSystem {
   }
 
   update(frame: FrameState, ctx: EngineContext): void {
+    this.clock ??= new MotionClock(ensureMotionService(ctx));
+    this.decorativeTime.value = this.clock.step(frame.delta);
     const s = this.store;
     // the pillar start depends on the view azimuth (fixed in presets; re-derive if it ever changes)
     if (Math.abs(ctx.rig.yaw - this.wetYaw) > 0.05 || Number.isNaN(this.wetYaw)) { this.wetYaw = ctx.rig.yaw; this.seenVersion = -1; }

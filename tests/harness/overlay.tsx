@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { HarbourUI } from "../../src/harbour/ui/App";
 import { StoreContext } from "../../src/harbour/ui/hooks";
 import type { HarbourUIStore, UIState } from "../../src/harbour/ui/store";
+import { ensureMotionService } from "../../src/harbour/ui/services";
+import type { EngineContext } from "../../src/harbour/engine/types";
 import type { PickHit } from "../../src/harbour/ui/services";
 import type { SoundController, SoundMode } from "../../src/harbour/audio/controller";
 import { HarbourFeed } from "../../src/harbour/data/fetch";
@@ -17,7 +19,7 @@ export async function mountOverlayHarness(element: HTMLElement) {
   const feed = new HarbourFeed({ setTimer: () => 0, clearTimer: () => {} });
   await feed.start();
   const listeners = new Set<() => void>(), soundListeners = new Set<() => void>();
-  let state: UIState = { model: buildHarbourModel(feed.payloads, Date.now()), hover: null, selected: null, searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: true, tick: 0, follow: null, announce: "", capturing: false, watch: null };
+  let state: UIState = { model: buildHarbourModel(feed.payloads, Date.now()), hover: null, shipChoices: [], selected: null, searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: true, tick: 0, follow: null, announce: "", capturing: false, watch: null };
   const set = (patch: Partial<UIState>) => { state = { ...state, ...patch }; listeners.forEach((fn) => fn()); };
   let mode: SoundMode = "off";
   const sound: SoundController = {
@@ -28,8 +30,11 @@ export async function mountOverlayHarness(element: HTMLElement) {
     cue() {}, stop() {}, dispose() {},
   };
   const services = new Map<string, unknown>([["feed", feed], ["sound", sound]]);
+  const ctx = { services, timeOfDay: { hour: 12 } } as unknown as EngineContext;
+  const motion = ensureMotionService(ctx);
+  motion.setStill(true);
   const store = {
-    ctx: { services, timeOfDay: { hour: 12 } },
+    ctx, motion,
     getSnapshot: () => state,
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     set,
@@ -37,7 +42,7 @@ export async function mountOverlayHarness(element: HTMLElement) {
     boat: (id: string) => state.model?.boats.find((b) => b.id === id),
     whereaboutsOf: () => ({ kind: "unknown", place: null }), boatsInZone: () => [], underWay: () => 0,
     onFrame: () => () => {}, onFrameWrite: () => () => {}, onPostcard: () => () => {},
-    noteInput() {}, stopWatch() {}, goHome() {}, keyPan() {}, keyZoom() {}, stepHull() {}, toggleFollow() {}, requestPostcard() {}, toggleWatch() {}, setFollow(follow: string | null) { set({ follow }); },
+    noteInput() {}, dismissHover: () => false, stopAutomation() {}, stopWatch() {}, goHome() {}, keyPan() {}, keyZoom() {}, stepHull() {}, toggleFollow() {}, requestPostcard() {}, toggleWatch() {}, setFollow(follow: string | null) { set({ follow }); },
   } as unknown as HarbourUIStore;
   let showRecovery: (value: boolean) => void = () => {};
   let fail: () => void = () => {};
@@ -56,6 +61,6 @@ export async function mountOverlayHarness(element: HTMLElement) {
     recovery: (active: boolean) => showRecovery(active),
     fail: () => fail(),
     async refresh() { await Promise.all(["stablecoins", "chains", "stability", "pegSummary", "stress", "safetyGrades", "mintBurn"].map((key) => feed.refresh(key as Parameters<typeof feed.refresh>[0]))); set({ model: buildHarbourModel(feed.payloads, Date.now()), tick: state.tick + 1 }); },
-    dispose() { root.unmount(); feed.stop(); },
+    dispose() { root.unmount(); motion.dispose(); feed.stop(); },
   };
 }

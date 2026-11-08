@@ -5,6 +5,7 @@
  * the sim have advanced and before the composer renders, so DOM tags never lag the hulls.
  */
 import * as THREE from "three";
+import { primaryPointer, TOUCH_COMMIT_PX } from "../engine/input";
 import { glideSeconds, glideTravel, type CameraPreset } from "../engine/camera-rig";
 import type { Engine } from "../engine/engine";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
@@ -21,6 +22,7 @@ import { ensureMotionService, getFeed, getLayout, getModel, getSim, sameHit, typ
 export interface UIState {
   model: HarbourModel | null;
   hover: PickHit | null;
+  shipChoices: PickHit[];
   selected: PickHit | null;
   searchOpen: boolean;
   ledgerOpen: boolean;
@@ -43,7 +45,7 @@ type FrameFn = (frame: FrameState) => void;
 /** Touch: hold this long (still) for the hover tag. */
 const LONG_PRESS_MS = 480;
 /** Touch: a finger that travels further than this is panning, not tapping. */
-const TAP_SLOP_PX = 10;
+const TAP_SLOP_PX = TOUCH_COMMIT_PX;
 /** Touch: a second tap on open water landing this soon (after the first lifts) and this close flies home. */
 const DOUBLE_TAP_MS = 300;
 const DOUBLE_TAP_SLOP_PX = 40;
@@ -62,13 +64,13 @@ export const FOLLOW_OMEGA = 1.7;
 /** The watch frames each subject from this far (m). */
 const WATCH_DIST = 260;
 
-/** One step of a critically damped spring toward (gx, gz) (semi-implicit; stable for dt ≤ 0.1). */
+/** Exact critically damped spring step toward (gx, gz), independent of frame duration. */
 export function springStep(p: { x: number; z: number; vx: number; vz: number }, gx: number, gz: number, omega: number, dt: number): void {
-  const w2 = omega * omega, c = 2 * omega;
-  p.vx += (w2 * (gx - p.x) - c * p.vx) * dt;
-  p.vz += (w2 * (gz - p.z) - c * p.vz) * dt;
-  p.x += p.vx * dt;
-  p.z += p.vz * dt;
+  const k = Math.exp(-omega * dt);
+  const dx = p.x - gx, dz = p.z - gz;
+  const bx = p.vx + omega * dx, bz = p.vz + omega * dz;
+  p.x = gx + (dx + bx * dt) * k; p.z = gz + (dz + bz * dt) * k;
+  p.vx = (p.vx - omega * bx * dt) * k; p.vz = (p.vz - omega * bz * dt) * k;
 }
 
 export class HarbourUIStore {
@@ -109,10 +111,10 @@ export class HarbourUIStore {
       pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
     };
     this.state = {
-      model: this.readModel(), hover: null, selected: null, searchOpen: false, ledgerOpen: false, chartMode: false,
+      model: this.readModel(), hover: null, shipChoices: [], selected: null, searchOpen: false, ledgerOpen: false, chartMode: false,
       reducedMotion: this.motion.reduced, tick: 0, follow: null, announce: "", capturing: false, watch: null,
     };
-    this.cleanups.push(this.motion.subscribe((reduced) => { this.set({ reducedMotion: reduced }); if (reduced) this.setFollow(null); }));
+    this.cleanups.push(this.motion.subscribe((reduced) => { this.set({ reducedMotion: reduced }); if (reduced) this.stopAutomation(); }));
     this.attachPointer(ctx.renderer.domElement);
     this.route = new RouteLine(ctx, (id) => getSim(this.ctx)?.itineraryOf?.(id) ?? null);
     this.cleanups.push(() => this.route.dispose());
@@ -203,6 +205,7 @@ export class HarbourUIStore {
   private attachPointer(el: HTMLCanvasElement): void {
     const move = (e: PointerEvent) => {
       if (e.pointerType === "touch") { this.touchMove(e); return; }
+      if (this.touch.ids.size) return;
       // Chrome sends pointermoves for a cursor that merely rests over the page at load (and on layout
       // changes; a resting hand jitters it by a pixel): only a pointer that has really travelled may hover.
       if (!this.pointer.inside) {
@@ -217,6 +220,7 @@ export class HarbourUIStore {
       }
     };
     const down = (e: PointerEvent) => {
+      if (!primaryPointer(e)) return;
       this.lastPointerType = e.pointerType;
       this.noteInput();
       if (this.state.watch) this.stopWatch();
@@ -231,11 +235,22 @@ export class HarbourUIStore {
       this.dragging = false;
       if (!d || wasDrag || e.button !== 0) return;
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || performance.now() - d.t > 600) return;
-      const hit = this.picking.pick(e.clientX, e.clientY);
+      const choices = e.pointerType === "pen" ? this.picking.choices?.(e.clientX, e.clientY) ?? [] : [];
+      if (choices.length > 1) { this.set({ shipChoices: choices }); return; }
+      const hit = this.picking.pick(e.clientX, e.clientY, e.pointerType === "pen");
       if (hit && this.isOpenable(hit)) this.select(hit);
       else if (!hit) this.select(null);
     };
-    const cancel = (e: PointerEvent) => { if (e.pointerType === "touch") this.touchCancel(e); };
+    const cancel = (e: PointerEvent) => {
+      if (e.pointerType === "touch") this.touchCancel(e);
+      this.down = null; this.dragging = false;
+    };
+    const blur = () => {
+      this.touch.ids.clear(); this.touch.multi = true; clearTimeout(this.touch.timer);
+      this.down = null; this.dragging = false; this.keyDirs.clear(); this.stopAutomation();
+    };
+    window.addEventListener("blur", blur);
+    el.addEventListener("lostpointercapture", cancel);
     const leave = (e: PointerEvent) => {
       if (e.pointerType === "touch") return; // a lifted finger keeps the tag it asked for
       this.pointer.inside = false; this.seen = null; this.setHover(null);
@@ -249,6 +264,8 @@ export class HarbourUIStore {
     el.addEventListener("pointercancel", cancel);
     el.addEventListener("pointerleave", leave);
     this.cleanups.push(() => {
+      window.removeEventListener("blur", blur);
+      el.removeEventListener("lostpointercapture", cancel);
       clearTimeout(this.touch.timer);
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerdown", down);
@@ -268,6 +285,7 @@ export class HarbourUIStore {
    */
   private touchDown(e: PointerEvent): void {
     const t = this.touch;
+    this.pointer.inside = false; this.pointer.dirty = false; this.seen = null;
     t.ids.add(e.pointerId);
     clearTimeout(t.timer);
     if (t.ids.size > 1) { t.multi = true; return; }
@@ -288,12 +306,15 @@ export class HarbourUIStore {
   }
 
   private touchUp(e: PointerEvent): void {
+    this.touchMove(e);
     const t = this.touch;
     if (!t.ids.delete(e.pointerId) || t.ids.size) return;
     clearTimeout(t.timer);
     if (t.multi || t.moved || t.long) return;
     const now = performance.now();
-    const hit = this.picking.pick(e.clientX, e.clientY);
+    const choices = this.picking.choices?.(e.clientX, e.clientY) ?? [];
+    if (choices.length > 1) { t.lastTap = null; this.set({ shipChoices: choices }); return; }
+    const hit = this.picking.pick(e.clientX, e.clientY, true);
     const prev = t.lastTap;
     t.lastTap = hit ? null : { x: e.clientX, y: e.clientY, at: now };
     if (!hit && prev && t.at - prev.at < DOUBLE_TAP_MS && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < DOUBLE_TAP_SLOP_PX) {
@@ -324,7 +345,7 @@ export class HarbourUIStore {
     if (!sameHit(hit, this.state.selected) || !hit) this.setFollow(null);
     this.picking.setSelected(hit);
     this.route.show(hit?.kind === "boat" ? hit.id : null);
-    this.set({ selected: hit, searchOpen: false });
+    this.set({ selected: hit, searchOpen: false, shipChoices: [] });
     if (hit && opts.fly !== false) this.flyTo(hit);
   }
 
@@ -383,7 +404,7 @@ export class HarbourUIStore {
    * on long hops). Already home, it answers with a breath: a 4 % push-in and back ("here you are").
    */
   goHome(): void {
-    this.setFollow(null);
+    this.stopAutomation();
     const p = this.homeView(), rig = this.ctx.rig;
     if (this.state.reducedMotion) { rig.applyPreset(p, true); return; }
     const settled = !rig.gliding && Math.abs(rig.distance - p.distance) < 1
@@ -445,6 +466,7 @@ export class HarbourUIStore {
 
   /** W: glide between the day's data-ranked subjects, ~20 s at each, pinning the hover tag. Opt-in only. */
   startWatch(): void {
+    if (this.state.reducedMotion) { this.set({ announce: "Motion is still. Readings continue to update." }); return; }
     const stops = rankWatch(this.watchCoins());
     if (!stops.length) { this.set({ announce: "Nothing notable to watch right now." }); return; }
     if (this.state.selected) this.select(null);
@@ -454,11 +476,23 @@ export class HarbourUIStore {
     this.watchNext();
   }
 
-  stopWatch(): void {
-    if (!this.watchRun) return;
+  stopWatch(cancelMotion = true): void {
+    if (!this.watchRun && !this.state.watch) return;
     this.watchRun = null;
+    if (cancelMotion) this.ctx.rig.stop();
     this.setHover(null);
     this.set({ watch: null, announce: "Watch ended." });
+  }
+
+  stopAutomation(): void {
+    this.stopWatch(); this.setFollow(null); this.ctx.rig.stop();
+    this.keyVel.x = this.keyVel.y = 0;
+  }
+
+  dismissHover(): boolean {
+    if (!this.state.hover) return false;
+    this.pointer.inside = false; this.seen = null; this.setHover(null);
+    return true;
   }
 
   private watchNext(): void {
@@ -482,7 +516,7 @@ export class HarbourUIStore {
   private watchFrame(dt: number): void {
     const w = this.watchRun, rig = this.ctx.rig;
     if (!w) return;
-    if (rig.inputEpoch !== w.epoch) { this.stopWatch(); return; }
+    if (rig.inputEpoch !== w.epoch) { this.stopWatch(false); return; }
     if (rig.gliding) { Object.assign(w.spring, { x: rig.target.x, z: rig.target.z, vx: 0, vz: 0 }); return; }
     w.dwell += dt;
     if (w.dwell >= WATCH_DWELL_S) { this.watchNext(); return; }
@@ -536,29 +570,23 @@ export class HarbourUIStore {
     const tx = (d.has("left") ? 1 : 0) - (d.has("right") ? 1 : 0);
     const ty = (d.has("up") ? 1 : 0) - (d.has("down") ? 1 : 0);
     if (!tx && !ty && Math.abs(v.x) < 1 && Math.abs(v.y) < 1) { v.x = v.y = 0; return; }
+    const len = Math.hypot(tx, ty) || 1;
+    const gx = tx / len * KEY_PAN_PX_S, gy = ty / len * KEY_PAN_PX_S;
     const k = this.state.reducedMotion ? 1 : 1 - Math.exp(-dt * 8);
-    v.x += (tx * KEY_PAN_PX_S - v.x) * k; v.y += (ty * KEY_PAN_PX_S - v.y) * k;
+    const dx = this.state.reducedMotion ? gx * dt : gx * dt + (v.x - gx) * k / 8;
+    const dy = this.state.reducedMotion ? gy * dt : gy * dt + (v.y - gy) * k / 8;
+    v.x += (gx - v.x) * k; v.y += (gy - v.y) * k;
     const vh = this.ctx.renderer.domElement.clientHeight || innerHeight;
-    const [wx, wz] = this.ctx.rig.dragToWorld(v.x * dt, v.y * dt, vh);
+    const [wx, wz] = this.ctx.rig.dragToWorld(dx, dy, vh);
     this.ctx.rig.pan(wx, wz);
   }
 
-  /** + / −: a short glide in or out by one step (counts as a user zoom: follow and watch let go). */
+  /** + / −: accumulate steps on the pending distance with a 150 ms chase (a cut under reduction). */
   keyZoom(dir: 1 | -1): void {
     const rig = this.ctx.rig;
-    rig.inputEpoch++;
-    const p = this.currentGoal();
-    p.distance = THREE.MathUtils.clamp(p.distance * (dir > 0 ? 1 / KEY_ZOOM : KEY_ZOOM), rig.minDistance, rig.maxDistance);
-    this.moveTo(p, { ms: 700 });
-  }
-
-  /** The rig's pose as a preset (where it is now). */
-  private currentGoal(): CameraPreset {
-    const { rig, camera } = this.ctx;
-    return {
-      target: [rig.target.x, rig.target.y, rig.target.z], distance: rig.distance, fovDeg: camera.fov,
-      pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
-    };
+    this.setFollow(null);
+    if (this.state.watch) this.stopWatch();
+    rig.zoom(dir > 0 ? 1 / KEY_ZOOM : KEY_ZOOM, 1 / 0.15, this.state.reducedMotion);
   }
 
   private stepList: string[] = [];

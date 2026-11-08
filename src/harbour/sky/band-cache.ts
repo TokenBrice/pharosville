@@ -23,7 +23,7 @@ export class SkyBandCache {
   }
 
   /** Reuse only identical inputs; animated rain/decks and each lightning flash retain full frame cadence. */
-  render(ctx: EngineContext, u: BandUniforms, pass: FullscreenPass, target: THREE.WebGLRenderTarget): void {
+  render(ctx: EngineContext, u: BandUniforms, pass: FullscreenPass, target: THREE.WebGLRenderTarget, time: number): void {
     const next = this.bandNext, prev = this.bandState;
     const weather = u.uWeather.value, precip = u.uPrecipSky.value;
     // Below 0.009 the GLSL sum cannot cross its 0.01 branch through float rounding.
@@ -32,7 +32,7 @@ export class SkyBandCache {
     // A lower threshold than the GLSL branch is conservative around CPU/GPU float rounding.
     const deck = u.uStorm.value > 0.001 || nightDeck > 0.001;
     next[0] = weather.x; next[1] = rain || deck ? weather.z : 0;
-    next[2] = rain ? ctx.uniforms.uTime.value : 0; next[3] = weather.y;
+    next[2] = rain ? time : 0; // D13: the decorative clock, still under reduced motion next[3] = weather.y;
     for (let i = 0; i < this.bandInputs.length; i++) {
       const value = this.bandInputs[i].value, offset = 4 + i * 4;
       if (typeof value === "number") next[offset] = value;
