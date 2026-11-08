@@ -284,6 +284,11 @@ assert.equal(
 const apiCsp = "default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'";
 assert.deepEqual(validateCsp(apiCsp), ["img-src missing blob:", "script-src missing 'wasm-unsafe-eval'"]);
 assert.deepEqual(validateCsp(apiCsp, { document: false }), []);
+// The live gate checks the proxy's real header, so hold the shipped one to it here too (v1.5.0's
+// deploy failed when the fixture said connect-src 'self' but the function still named the upstream).
+const shippedApiCsp = readFileSync(resolve("functions/api/[[path]].ts"), "utf8").match(/"content-security-policy": "([^"]+)"/)?.[1];
+assert.ok(shippedApiCsp, "functions/api/[[path]].ts declares the API content-security-policy");
+assert.deepEqual(validateCsp(shippedApiCsp, { document: false }), []);
 // A complete policy cannot gain unsafe execution, an external host, or a duplicate override.
 const documentCsp = apiCsp.replace("img-src 'self' data:", "img-src 'self' data: blob:").replace("script-src 'self'", "script-src 'self' 'wasm-unsafe-eval'");
 assert.deepEqual(validateCsp(documentCsp), []);
