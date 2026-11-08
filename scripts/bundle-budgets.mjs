@@ -57,7 +57,7 @@ export const bundleBudgets = {
     // v1.6 reading panes and controls use 1 KiB of the approved +2 KiB CSS allowance.
     // 2026-11-08 v1.6.0 u-polish (operator ruling U5: +2 KiB raw / +0.6 KiB gzip with offsetting deletions):
     // the merged v1.6.0 lanes measured 38.0 KiB raw / 8.6 KiB gzip; one control family and the merges below bring
-    // it to 32.8 KiB raw / 8.0 KiB gzip (33,625 / 8,223 B). Cap = the ruling's ceiling. Deleted or merged (each proven unused or
+    // it to 32.9 KiB raw / 8.0 KiB gzip (33,662 / 8,230 B). Cap = the ruling's ceiling. Deleted or merged (each proven unused or
     // overridden by grep over src/ and tests/, or covered by a shared rule): the pre-v1.6 token aliases
     // (--brass --brass-soft --sea --green --red --shadow) and the unused --chart-up; the prefers-reduced-motion
     // block and the 1 ms unroll/sound overrides (.hb-reduced already cuts every transition); the (pointer: coarse)

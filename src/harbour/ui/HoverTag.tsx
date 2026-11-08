@@ -46,7 +46,7 @@ function Tag({ hit, shown, pinned, overlayRef }: { overlayRef?: RefObject<LabelB
     // Read the cached tag dimensions before ANY overlayRef writes in this engine frame.
     const tag = el.firstElementChild as HTMLElement | null;
     const { w, h } = measurements.get(tag);
-    const box = tagPlacement(p.x, p.y, w, h, { w: innerWidth, h: innerHeight });
+    const box = tagPlacement(p.x, p.y, w, h, { w: innerWidth, h: innerHeight }, store.tagSpace ?? undefined);
     next.below = box.below;
     if (overlayRef) Object.assign(overlayRef.current, { x: box.left, y: box.top, w, h });
     next.tag = `translate(${(box.left - p.x).toFixed(1)}px, ${(box.top - p.y).toFixed(1)}px)`;
