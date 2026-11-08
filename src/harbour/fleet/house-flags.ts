@@ -95,11 +95,13 @@ void main() {
     c = mix(c, CLOTH * 0.9, 1.0 - smoothstep(0.035 - ax, 0.035 + ax, x));
     // the emblem roundel, while it is big enough on screen to be one (a few px: the brand dot remains)
     float show = 1.0 - smoothstep(1.0 / 26.0, 1.0 / 12.0, ax);
-    if (vSlot >= 0.0 && show > 0.0) {
+    // E04 (O5-F1): the interpolated slot lands at 320 ± ε; round it before mod / floor (-1 = no emblem stays -1)
+    float slot = floor(vSlot + 0.5);
+    if (slot >= 0.0 && show > 0.0) {
       vec2 d = vec2(x - cx, ym);
       vec2 e = vec2(gl_FrontFacing ? d.x : -d.x, -d.y) * (0.465 / R) + 0.5;  // the slot's disc (r 0.465) on R
       if (e.x >= 0.0 && e.x <= 1.0 && e.y >= 0.0 && e.y <= 1.0) {
-        vec2 cell = vec2(mod(vSlot, uEmblemGrid.x), floor(vSlot / uEmblemGrid.x));
+        vec2 cell = vec2(mod(slot, uEmblemGrid.x), floor(slot / uEmblemGrid.x));
         vec2 uv = vec2((cell.x + e.x) * uEmblemGrid.z, 1.0 - (cell.y + e.y) * uEmblemGrid.w);
         vec4 t = texture2D(uEmblems, uv) * show;     // premultiplied
         c = c * (1.0 - t.a) + t.rgb * 0.94;

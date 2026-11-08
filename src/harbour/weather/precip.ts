@@ -262,7 +262,8 @@ void main() {
     a = m * smoothstep(0.4, 0.8, n + 0.25 * (1.0 - d)) * vA * 0.38;
     c = vLight * 1.15 + 0.03;
   } else {
-    float ring = exp(-pow((d - 0.78) / 0.11, 2.0));
+    float rd = (d - 0.78) / 0.11;   // (signed inside the ring: squared by multiplication, never pow)
+    float ring = exp(-rd * rd);
     float drop = (1.0 - smoothstep(0.0, 0.22, d)) * (1.0 - smoothstep(0.0, 0.25, vLife));
     a = (ring * 0.8 + drop) * vA * uSplashAlpha * step(d, 1.0);
     c = vLight * 1.3 + 0.02;

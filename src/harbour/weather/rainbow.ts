@@ -39,14 +39,16 @@ uniform float uK;          // strength 0..1
 uniform vec3 uSunCol;
 uniform float uSilver;     // W07 moonbow: 1 = mostly white-silver
 varying vec2 vNdc;
+// a gaussian lobe of width w round c (x - c is signed: squared by multiplication, never pow)
+float rbLobe(float x, float c, float w) { float u = (x - c) / w; return exp(-u * u); }
 vec3 spectrum(float x) {
   // x 0 = red (outside) … 1 = violet (inside); soft overlapping lobes, as the drops' disc smears them
   vec3 c = vec3(0.0);
-  c += vec3(1.0, 0.16, 0.10) * exp(-pow((x - 0.08) / 0.17, 2.0));
-  c += vec3(1.0, 0.62, 0.10) * exp(-pow((x - 0.30) / 0.14, 2.0));
-  c += vec3(0.55, 0.95, 0.25) * exp(-pow((x - 0.50) / 0.14, 2.0));
-  c += vec3(0.12, 0.55, 1.0) * exp(-pow((x - 0.72) / 0.15, 2.0));
-  c += vec3(0.45, 0.22, 0.95) * exp(-pow((x - 0.92) / 0.14, 2.0));
+  c += vec3(1.0, 0.16, 0.10) * rbLobe(x, 0.08, 0.17);
+  c += vec3(1.0, 0.62, 0.10) * rbLobe(x, 0.30, 0.14);
+  c += vec3(0.55, 0.95, 0.25) * rbLobe(x, 0.50, 0.14);
+  c += vec3(0.12, 0.55, 1.0) * rbLobe(x, 0.72, 0.15);
+  c += vec3(0.45, 0.22, 0.95) * rbLobe(x, 0.92, 0.14);
   return c;
 }
 void main() {

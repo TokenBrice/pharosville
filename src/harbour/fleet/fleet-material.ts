@@ -250,6 +250,10 @@ varying vec4 vPaintA;
 varying vec4 vPaintB;
 varying vec3 vPaintC;
 ${SAIL_LIGHT_GLSL}
+// E04 (O5-F1): the emblem slot / sentinel rides an interpolated varying that lands at 320 ± ε: rounded before any
+// mod / floor, or a slot on atlas column 0 (a multiple of the grid width: USDe's 320) flips per pixel between its
+// own tile and the clamped edge of the row above. Integers round to themselves, so -1 / -2 / -10 - n stay put.
+float hbFleetSlot() { return floor(vFleetBrand.a + 0.5); }
 float hbSeam(float c, float period, float w) {
   float f = abs(fract(c / period + 0.5) - 0.5) * period;
   float aa = fwidth(c) * 0.75 + 1e-5;
@@ -329,7 +333,7 @@ void hbFleetColor(inout vec3 c) {
   if (kind > 3.5) { c = vec3(0.042, 0.04, 0.034); return; }   // lantern glass (its glow is added after lighting)
   if (kind > 2.5) {
     // the epitaph nameboard: the dead coin's name in dark ink, carved into the weathered board
-    float board = -vFleetBrand.a - 10.0;
+    float board = -hbFleetSlot() - 10.0;
     if (board >= 0.0 && su.x >= 0.0 && su.x <= 1.0 && su.y >= 0.0 && su.y <= 1.0) {
       vec2 cell = vec2(mod(board, uBoardGrid.x), floor(board / uBoardGrid.x));
       // (glTF TEXCOORD_0: v runs top → bottom of the board, as the canvas rows do; flipY puts row 0 at v = 1)
@@ -356,10 +360,11 @@ void hbFleetColor(inout vec3 c) {
     // threshold; a boom cover's flat side is ~1 and its crest ~0)
     bool bundle = abs(vFleetRig.y - 1.0) < 0.5;
     float show = smoothstep(0.55, 0.9, vFleetRig.x) * (bundle ? smoothstep(0.08, 0.3, abs(side)) : smoothstep(0.25, 0.55, abs(side)));
-    if (vFleetBrand.a >= 0.0 && show > 0.0 && e.x >= 0.0 && e.x <= 1.0 && e.y >= 0.0 && e.y <= 1.0) {
+    float slot = hbFleetSlot();
+    if (slot >= 0.0 && show > 0.0 && e.x >= 0.0 && e.x <= 1.0 && e.y >= 0.0 && e.y <= 1.0) {
       float sx = side < 0.0 ? -1.0 : 1.0;
       vec2 q = vec2(side < 0.0 ? 1.0 - e.x : e.x, e.y);
-      vec2 cell = vec2(mod(vFleetBrand.a, uEmblemGrid.x), floor(vFleetBrand.a / uEmblemGrid.x));
+      vec2 cell = vec2(mod(slot, uEmblemGrid.x), floor(slot / uEmblemGrid.x));
       vec2 uv = vec2((cell.x + q.x) * uEmblemGrid.z, 1.0 - (cell.y + q.y) * uEmblemGrid.w);
       vec2 gx = vec2(ex.x * sx * uEmblemGrid.z, -ex.y * uEmblemGrid.w);
       vec2 gy = vec2(ey.x * sx * uEmblemGrid.z, -ey.y * uEmblemGrid.w);
@@ -394,7 +399,7 @@ void hbFleetColor(inout vec3 c) {
     // furled canvas (rolled jib, square sails on their yards): weathered cloth, not a white bar
     c = mix(c, c * vec3(0.66, 0.62, 0.55), smoothstep(0.35, 0.95, vFleetRig.x));
     hbFarCloth(c);                                         // (the cloth only: the roundel stays crisp at any range)
-    float slot = vFleetBrand.a;
+    float slot = hbFleetSlot();
     // the roundel rides the furl morph and fades as the sail comes down (docked: the cover and house flag carry it)
     float show = (1.0 - smoothstep(0.2, 0.6, vFleetRig.x)) * clampR;
     if (slot >= 0.0 && show > 0.0 && er < 0.56) {
