@@ -73,6 +73,16 @@ async function frame(revision = 0, boats = 0) {
 async function advance(ms: number) { await act(async () => { vi.advanceTimersByTime(ms); }); }
 
 describe("composer-completed arrival reveal", () => {
+  it("hands arrival focus to the wordmark before fading or removing links", async () => {
+    await mount();
+    const arrival = host.querySelector<HTMLElement>(".pv-arrival")!;
+    const controls = host.querySelector(".pv-world")!.nextElementSibling!;
+    const mark = document.createElement("button"); mark.className = "hb-mark-btn"; controls.append(mark);
+    arrival.querySelector<HTMLElement>("a")!.focus();
+    commit(1, 1); await frame(1, 1);
+    expect(document.activeElement).toBe(mark); expect(arrival.inert).toBe(true);
+    await advance(1300); expect(arrival.isConnected).toBe(false); expect(document.activeElement).toBe(mark);
+  });
   it("keeps display integrity after reveal, including complete → partial → complete revisions", async () => {
     await mount(); commit(1, 12); await frame(1, 12);
     expect(readPresentation(engine().ctx)).toEqual({ status: "complete", revision: 1, displayed: 12, expected: 12 });

@@ -14,7 +14,7 @@ vi.mock("./HoverTag", () => ({ HoverTag: () => null }));
 vi.mock("./Postcard", () => ({ Postcard: () => null }));
 vi.mock("./CornerMark", () => ({ CornerMark: () => <button className="hb-mark-btn">PharosVille</button> }));
 vi.mock("./hooks", () => ({
-  useStore: () => ({ getSnapshot: () => state, set: vi.fn(), select: vi.fn(), noteInput: vi.fn(), stopWatch: vi.fn() }),
+  useStore: () => ({ subscribe: () => () => {}, getSnapshot: () => state, set: vi.fn(), select: vi.fn(), noteInput: vi.fn(), stopWatch: vi.fn() }),
   useUISlice: (select: (s: UIState) => unknown) => select(state),
 }));
 vi.mock("./DetailPanels", () => {

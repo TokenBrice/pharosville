@@ -18,7 +18,6 @@ export function SoundToggle() {
   const ctl = useMemo(() => getSoundController(store.ctx), [store]);
   const mode = useSyncExternalStore(ctl.subscribe, () => ctl.mode, () => "off" as SoundMode);
   const reduced = useSyncExternalStore(store.motion.subscribe, () => store.motion.reduced);
-  const still = useSyncExternalStore(store.motion.subscribe, () => store.motion.still);
   const [open, setOpen] = useState(false);
   const [reading, setReading] = useState(false);
   const btn = useRef<HTMLButtonElement>(null), caret = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
@@ -90,7 +89,6 @@ export function SoundToggle() {
               {label}
             </button>
           ))}
-          <label className="hb-still-world"><input type="checkbox" checked={still} onChange={(e) => store.motion.setStill(e.currentTarget.checked)} /> Still world</label>
           <button type="button" role="menuitem" tabIndex={-1} aria-expanded={reading} aria-controls={reading ? "hb-sound-reading" : undefined}
             aria-describedby={reading ? "hb-sound-reading" : undefined} onClick={() => setReading((r) => !r)}>
             How to read the sounds

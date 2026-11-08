@@ -15,32 +15,32 @@ vi.mock("./CornerMark", () => ({ CornerMark: () => <button className="hb-mark-bt
 vi.mock("./details", () => ({ preloadDetails: harness.preload }));
 vi.mock("../../error-reporter", () => ({ reportClientError: vi.fn() }));
 vi.mock("./hooks", () => ({
-  useStore: () => ({ getSnapshot: () => harness.state, set: harness.set, select: harness.select, noteInput: vi.fn(), stopWatch: vi.fn() }),
+  useStore: () => ({ motion: { subscribe: () => () => {}, still: false, reduced: false, setStill: vi.fn() }, subscribe: () => () => {}, getSnapshot: () => harness.state, set: harness.set, select: harness.select, noteInput: vi.fn(), stopWatch: vi.fn() }),
   useUISlice: (select: (state: UIState) => unknown) => select(harness.state as UIState),
 }));
 beforeEach(() => { harness.preload.mockReset(); harness.state.ledgerOpen = true; vi.spyOn(console, "error").mockImplementation(() => {}); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-it("retains controls after a rejected detail import and creates a fresh lazy identity on retry", async () => {
-  harness.preload.mockRejectedValueOnce(new Error("chunk unavailable"))
-    .mockResolvedValueOnce({ default: () => <div>Details recovered</div> });
+it("retains controls after a rejected detail import and offers reload without retrying the rejected identity", async () => {
+  harness.preload.mockRejectedValue(new Error("chunk unavailable"));
   render(<HarbourUI />);
-  await screen.findByRole("heading", { name: "These details could not open." });
+  await screen.findByRole("heading", { name: "These details could not load. The harbour is still available." });
   expect(screen.getByRole("button", { name: "PharosVille" })).toBeTruthy();
   expect(document.activeElement).toBe(screen.getByRole("heading"));
-  fireEvent.click(screen.getByRole("button", { name: "Retry details" }));
-  await screen.findByText("Details recovered");
-  expect(harness.preload).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("button", { name: "Reload page" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Retry details" })).toBeNull();
+  expect(harness.preload).toHaveBeenCalledOnce();
+  fireEvent.keyDown(window, { key: "?" });
+  expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Help and controls" }));
+  fireEvent.click(screen.getByRole("dialog", { name: "Help and controls" }).querySelector("button")!);
 });
 
-it("contains repeated render errors, offers reload, and returns focus when details close", async () => {
+it("contains render errors and returns focus when details close", async () => {
   const Broken = () => { throw new Error("detail render"); };
   harness.preload.mockResolvedValue({ default: Broken });
   const ui = render(<HarbourUI />);
-  await screen.findByRole("button", { name: "Retry details" });
-  fireEvent.click(screen.getByRole("button", { name: "Retry details" }));
   await screen.findByRole("button", { name: "Reload page" });
-  fireEvent.click(screen.getByRole("button", { name: "Close details" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
   expect(harness.set).toHaveBeenCalledWith({ ledgerOpen: false });
   harness.state.ledgerOpen = false; ui.rerender(<HarbourUI />);
   await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)); });

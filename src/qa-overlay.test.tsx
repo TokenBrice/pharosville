@@ -12,7 +12,7 @@ it("mounts actual overlay components through StoreContext with keyboard close/fo
   vi.stubGlobal("fetch", replay.fetch); vi.spyOn(Date, "now").mockImplementation(replay.now);
   document.body.innerHTML = '<main><h1>Overlay contract</h1><div id="overlay"></div></main>';
   await act(async () => { harness = await mountOverlayHarness(document.getElementById("overlay")!); });
-  const searchButton = screen.getByRole("button", { name: "Search (/)" }); searchButton.focus();
+  const searchButton = screen.getByRole("button", { name: "Search" }); searchButton.focus();
   fireEvent.keyDown(searchButton, { key: "/" });
   await waitFor(() => expect(screen.getByRole("combobox")).toBe(document.activeElement));
   fireEvent.change(screen.getByRole("combobox"), { target: { value: "USDC" } });

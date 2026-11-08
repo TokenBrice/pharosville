@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { StoreContext } from "./hooks";
 import { ShipChooser } from "./ShipChooser";
-import { SoundToggle } from "../audio/SoundToggle";
+import { HelpSheet } from "./HelpSheet";
 import { ensureMotionService } from "./services";
 import type { HarbourUIStore } from "./store";
 import type { EngineContext } from "../engine/types";
@@ -23,12 +23,11 @@ it("shows at most five named ships and offers selection, Cancel and native Escap
   fireEvent(dialog, new Event("cancel", { cancelable: true })); expect(set).toHaveBeenLastCalledWith({ shipChoices: [] });
 });
 
-it("offers Still world beside sound controls with the exact continued-readings copy, respecting OS reduction", () => {
+it("offers Still world in Help and controls with the exact continued-readings copy, respecting OS reduction", () => {
   vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
   const ctx = { services: new Map() } as unknown as EngineContext, motion = ensureMotionService(ctx);
   const store = { ctx, motion, getSnapshot: () => ({ selected: null, ledgerOpen: false }), subscribe: () => () => {} } as unknown as HarbourUIStore;
-  render(<StoreContext.Provider value={store}><SoundToggle /></StoreContext.Provider>);
-  fireEvent.click(screen.getByRole("button", { name: "Sound options" }));
+  render(<StoreContext.Provider value={store}><HelpSheet onClose={() => {}} shortcuts={true} setShortcuts={() => {}} /></StoreContext.Provider>);
   const checkbox = screen.getByRole("checkbox", { name: "Still world" });
   expect(screen.getByText("Motion is still. Readings continue to update.")).toBeTruthy();
   fireEvent.click(checkbox); expect(motion.still).toBe(true);

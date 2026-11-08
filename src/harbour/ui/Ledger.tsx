@@ -27,6 +27,11 @@ function LedgerBody({ shown, onClose }: { shown: boolean; onClose: () => void })
   const store = useStore();
   const yard = yardCoins(store.ctx);
   const [tab, setTab] = useState<Tab>("Legend");
+  useEffect(() => {
+    const legend = () => { setTab("Legend"); head.current?.focus({ preventScroll: true }); };
+    addEventListener("harbour:legend", legend);
+    return () => removeEventListener("harbour:legend", legend);
+  }, []);
   const head = useRef<HTMLHeadingElement>(null);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   useEffect(() => { head.current?.focus({ preventScroll: true }); }, []);

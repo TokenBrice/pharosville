@@ -1,13 +1,13 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, type RefObject } from "react";
 import { cullLabels, type LabelBox } from "./cull";
 import { useFrame, useFrameWrite, usePresence, useStore, useUISlice } from "./hooks";
 import { sameHit, type PickHit, type ScreenPoint } from "./services";
-import { setStyle, useMeasurements } from "./measurements";
+import { overlaps, setStyle, useMeasurements } from "./measurements";
 
 interface ChartLabel { key: string; text: string; kind: "landmark" | "pier" | "boat"; hit: PickHit }
 
 /** 'C' Chart mode: landmark names, pier names and the top-10 boats, collision-culled in priority order. */
-export function ChartLabels() {
+export function ChartLabels({ overlays, tagBox }: { overlays?: RefObject<LabelBox[]>; tagBox?: RefObject<LabelBox> }) {
   const chartMode = useUISlice((s) => s.chartMode);
   const model = useUISlice((s) => s.model);
   const [mounted, shown] = usePresence(chartMode, 220);
@@ -54,6 +54,10 @@ export function ChartLabels() {
       }
       box.w = w; box.h = h; box.visible = visible;
       box.x = (p?.x ?? 0) - w / 2; box.y = (p?.y ?? 0) - h - (l.kind === "boat" ? 10 : 0);
+    }
+    const occupied = [...(overlays?.current ?? []), ...(tagBox ? [tagBox.current] : [])];
+    for (const box of boxes.current.slice(0, labels.length)) {
+      if (occupied.some((overlay) => overlay.visible && overlaps(box, overlay, 6))) box.visible = false;
     }
     kept.current = cullLabels(boxes.current.slice(0, labels.length), 6, vp);
   });
