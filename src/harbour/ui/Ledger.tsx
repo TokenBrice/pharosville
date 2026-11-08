@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FAMILIES, FAMILY_ORDER } from "../model/obituary";
 import type { Boat, EndpointKey, HarbourModel } from "../model/types";
-import { ANNIVERSARY_RULE, CEREMONY_RULE, FLOW_RULE, HULL_RULE, LETTERING_RULE, OFFICE_RULE, SAIL_RULE, SEA_RULE, TIDE_RULE, WREATH_RULE, WRECK_RULE, REEF_FLARE_LINE, alertCountLine, allocationLine, BOAT_SIGNALS_RULE, BY_EAR, epitaphOf, FAR_PORTS_LINE, STATION_RULE, stationFact, wreckDate } from "./facts";
+import { ANNIVERSARY_RULE, CEREMONY_RULE, FLOW_RULE, HULL_RULE, LETTERING_RULE, OFFICE_RULE, PRINT_RULE, SAIL_RULE, SEA_RULE, TIDE_RULE, WREATH_RULE, WRECK_RULE, REEF_FLARE_LINE, alertCountLine, allocationLine, BOAT_SIGNALS_RULE, BY_EAR, epitaphOf, FAR_PORTS_LINE, STATION_RULE, stationFact, wreckDate } from "./facts";
 import { bps, causeName, money, pegName, share, titleCase } from "./format";
 import { Freshness } from "./bits";
 import { observedEmpty, readingSentence, qualificationCopy, READING_NAMES, sourceTruth } from "./source-state";
@@ -73,7 +73,7 @@ const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: strin
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M10 24h22l-3 4H13zM21 24V6M21 7l9 14h-9M20 9l-7 12h7" /></svg>,
     title: "Boats", rule: "Every stablecoin is one boat. Boats visit each chain in proportion to their supply there; sailing is not a bridge transfer.",
-    more: `${HULL_RULE} ${SAIL_RULE} Hull size follows supply; the rig follows the peg currency. The sail carries the coin’s colours. A lit bronze stern lantern means the coin has a peg reading. A boat dressed overall in signal flags is new to the register this week or joined the tracked register this visit.`,
+    more: `${HULL_RULE} ${SAIL_RULE} Hull size follows supply; the rig follows the peg currency. The sail carries the coin’s colours. ${PRINT_RULE} A lit bronze stern lantern means the coin has a peg reading. A boat dressed overall in signal flags is new to the register this week or joined the tracked register this visit.`,
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M14 24h18l-3 4H17zM23 24V10M23 11l7 11h-7" /><path {...G} d="M10 18c-5-8 6-15 13-15s16 5 14 13" strokeDasharray="2.5 2.5" /><path {...G} d="M35 14l2 2.5 2.5-2" /></svg>,

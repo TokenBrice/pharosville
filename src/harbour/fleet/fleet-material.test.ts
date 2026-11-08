@@ -6,6 +6,9 @@ import type { EmblemAtlas } from "./emblems";
 import { createFleetMaterials, type FleetUniforms } from "./fleet-material";
 import { FleetSystem } from "./fleet-system";
 import { HouseFlags } from "./house-flags";
+import { tubeRadii } from "./hull-kit";
+import { RIG_AIR } from "./shaders/lighting";
+import { RIG_FLOOR_PX, rigCoverage } from "./shaders/pose";
 
 interface FleetHarness { uniforms: FleetUniforms }
 
@@ -99,6 +102,95 @@ describe("fleet emblem slots on atlas column 0", () => {
     expect(flagFrag).toContain("vec2 cell = vec2(mod(slot, uEmblemGrid.x), floor(slot / uEmblemGrid.x));");
     expect(flagFrag).not.toMatch(/mod\(vSlot|floor\(vSlot \//);
     material.dispose(); depth.dispose(); materials.dispose(); flags.mesh.geometry.dispose(); (flags.mesh.material as THREE.Material).dispose();
+    for (const uniform of [fleet.uFleetData, fleet.uFleetPaint, fleet.uEmblems, fleet.uBoards]) uniform.value.dispose();
+  });
+});
+
+// E27 calm rigging (O2-I4, O7-I9): stays and spars as hairlines, energy kept
+describe("rig hairlines", () => {
+  /** A straight tube of `segs` sides along `axis` (flat faces: each face's corners are its own, as the kit exports a rope). */
+  function tube(segs: number, r: number, from: THREE.Vector3, to: THREE.Vector3): THREE.BufferGeometry {
+    const d = to.clone().sub(from).normalize(), u = new THREE.Vector3(1, 0, 0).cross(d);
+    if (u.lengthSq() < 1e-6) u.set(0, 0, 1).cross(d);
+    u.normalize();
+    const w = d.clone().cross(u).normalize(), pos: number[] = [], nrm: number[] = [], idx: number[] = [];
+    const ring = (c: THREE.Vector3, k: number) => c.clone().addScaledVector(u, r * Math.cos((2 * Math.PI * k) / segs)).addScaledVector(w, r * Math.sin((2 * Math.PI * k) / segs));
+    for (let k = 0; k < segs; k++) {
+      const a = ring(from, k), b = ring(from, k + 1), c = ring(to, k + 1), e = ring(to, k);
+      const n = b.clone().sub(a).cross(e.clone().sub(a)).normalize();
+      const base = pos.length / 3;
+      for (const p of [a, b, c, e]) { pos.push(p.x, p.y, p.z); nrm.push(n.x, n.y, n.z); }
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+    g.setIndex(idx);
+    return g;
+  }
+
+  it("bakes each stay's and spar's radius and a radial normal, so a widened rope grows round without slits", () => {
+    const stay = tube(3, 0.03, new THREE.Vector3(-4, 1, 0), new THREE.Vector3(2, 9, 0.5));
+    const mast = tube(6, 0.12, new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, 11, 0));
+    const merged = { attributes: { position: new THREE.Float32BufferAttribute([...stay.attributes.position.array, ...mast.attributes.position.array], 3) },
+      index: new THREE.BufferAttribute(new Uint32Array([...stay.index!.array, ...Array.from(mast.index!.array, (i) => i + stay.attributes.position.count)]), 1) } as unknown as THREE.BufferGeometry;
+    const out = tubeRadii(merged, new THREE.Matrix4(), () => true)!;
+    const nStay = stay.attributes.position.count;
+    const p = merged.attributes.position;
+    for (let v = 0; v < p.count; v++) {
+      const r = v < nStay ? 0.03 : 0.12;
+      expect(out.r[v]).toBeCloseTo(r, 3);
+      const n = new THREE.Vector3(out.n[v * 3], out.n[v * 3 + 1], out.n[v * 3 + 2]);
+      expect(n.length()).toBeCloseTo(1, 5);
+      // radial: across the tube's axis, outward
+      const axis = v < nStay ? new THREE.Vector3(6, 8, 0.5).normalize() : new THREE.Vector3(0, 1, 0);
+      expect(Math.abs(n.dot(axis))).toBeLessThan(1e-3);
+    }
+    // corners at one position (a flat-shaded rope's split corners) share one normal: they move together
+    const seen = new Map<string, THREE.Vector3>();
+    for (let v = 0; v < nStay; v++) {
+      const key = [p.getX(v), p.getY(v), p.getZ(v)].map((x) => x.toFixed(4)).join();
+      const n = new THREE.Vector3(out.n[v * 3], out.n[v * 3 + 1], out.n[v * 3 + 2]);
+      const prev = seen.get(key);
+      if (prev) expect(prev.distanceTo(n)).toBeLessThan(1e-4); else seen.set(key, n);
+    }
+    expect(tubeRadii(merged, new THREE.Matrix4(), () => false)).toBeNull();
+    stay.dispose(); mast.dispose();
+  });
+
+  it("widens only to 0.8 CSS px and fades by true / drawn width", () => {
+    const heart = 1000 / (2 * Math.tan((12.5 * Math.PI) / 180)) / 650;   // CSS px per metre at the 650 m landing
+    expect(rigCoverage(0.03, heart)).toBeCloseTo(0.03 / (0.5 * RIG_FLOOR_PX / heart), 6);
+    expect(rigCoverage(0.03, heart)).toBeLessThan(0.3);
+    expect(rigCoverage(0.03, 40)).toBe(1);         // close in, a rope is wider than the floor: untouched
+    expect(rigCoverage(0.12, 3)).toBeCloseTo(0.12 / (0.4 / 3), 6);  // a far mast: just under the floor
+    for (const k of [0.5, 2, 8, 30]) expect(rigCoverage(0.05, k * 1.5)).toBeGreaterThanOrEqual(rigCoverage(0.05, k));
+  });
+
+  it("holds the colour pass's rig at the floor and leaves the shadow twin and struck rigs as they were", () => {
+    const materials = new HarbourMaterials(createWorldUniforms());
+    const kit = materials.kit();
+    const fleet = (new FleetSystem() as unknown as FleetHarness).uniforms;
+    const { material, depth } = createFleetMaterials({ kit: () => kit, kitKey: () => "", track: () => undefined } as unknown as HarbourMaterials, {} as WorldUniforms, fleet);
+    const shader = { ...THREE.ShaderLib.standard, uniforms: {} } as THREE.WebGLProgramParametersWithUniforms;
+    material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    const vert = shader.vertexShader;
+    expect(vert).toContain("float hbRigCover = hbRigFloor(transformed, hbFleetN, batchingMatrix);");
+    expect(vert).toContain("if (hbRigCover < 1.0) vFleetLamp = -hbRigCover;");
+    expect(vert).toContain(`float want = ${(RIG_FLOOR_PX * 0.5).toFixed(2)} * depth / max(0.5 * projectionMatrix[1][1] * uFleetScreen.x * length(bm[0].xyz), 1e-6);`);
+    // a struck rig (far, furled) stays struck: no live radius once it collapses
+    expect(vert).toContain("if (hbFleetStruck(a.w)) { p = vec3(0.0); hbRigR = 0.0; }");
+    expect(vert.indexOf("hbRigR = aPaint.x > 7.5 && aPaint.x < 10.5 ? aPaint.y : 0.0;")).toBeLessThan(vert.indexOf("if (hbFleetStruck(a.w)) { p = vec3(0.0); hbRigR = 0.0; }"));
+    // the energy: a widened corner gives way to the air behind it by (1 - coverage), after the hover light
+    const frag = shader.fragmentShader;
+    expect(frag).toContain(`if (vFleetLamp < 0.0) outgoingLight = mix(vec3(dot(mix(uAerialHaze, uHorizon, 0.4), vec3(0.2126, 0.7152, 0.0722)) * ${RIG_AIR.toFixed(2)}), outgoingLight, -vFleetLamp);`);
+    expect(frag.indexOf("outgoingLight += hbHoverSheen(")).toBeLessThan(frag.indexOf("if (vFleetLamp < 0.0) outgoingLight"));
+    // the shadow twin keeps the true rig
+    const depthShader = { ...THREE.ShaderLib.depth, uniforms: {} } as THREE.WebGLProgramParametersWithUniforms;
+    depth.onBeforeCompile(depthShader, {} as THREE.WebGLRenderer);
+    expect(depthShader.vertexShader).not.toContain("hbRigFloor");
+    expect(depthShader.vertexShader).toContain("if (hbFleetStruck(a.w)) p = vec3(0.0);");
+    material.dispose(); depth.dispose(); materials.dispose();
     for (const uniform of [fleet.uFleetData, fleet.uFleetPaint, fleet.uEmblems, fleet.uBoards]) uniform.value.dispose();
   });
 });

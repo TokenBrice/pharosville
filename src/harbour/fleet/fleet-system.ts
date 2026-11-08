@@ -28,7 +28,7 @@ import { approach, hash01, indexVariants, pickVariant, sternLampLit, targetSwing
 import { ensureGustService } from "../weather/gust";
 import { inPoly, seaZones } from "../ui/places";
 import { titanFor } from "./titans";
-import { DECK, linear, liveryFor, sailDye, TOPSIDE, TRIM } from "./livery";
+import { DECK, flagPigment, linear, liveryFor, sailDye, TOPSIDE, TRIM } from "./livery";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { fleetShadowFrustum, rigRadius } from "./visibility";
 
@@ -98,6 +98,18 @@ const COVE_ITEMS = ["wreck_great_hulk", "wreck_merchant_sunk", "wreck_stern_sect
   "wreck_mast_stump", "wreck_skiff", "wreck_dinghy", "wreck_cove_epitaph", "wreck_cove_bell", "wreck_cove_pennants"];
 const COVE_LAMP = new THREE.Color("#FFB36B");
 const BUOY_KIT = "mooring_buoy";
+/**
+ * E04 (O1-I4, ruling V10): the decorative mooring buoys recede. Their slot sentinel paints them a weathered ochre
+ * (shaders/print.ts), they ease to BUOY_FAR_SCALE between BUOY_EASE m, and below BUOY_HIDE_PX CSS px across they
+ * shrink away (gone by its first value). By camera distance only: a buoy never says whether her mooring is taken.
+ */
+export const BUOY_SLOT = -3, BUOY_FAR_SCALE = 0.7;
+export const BUOY_EASE: readonly [number, number] = [300, 450], BUOY_HIDE_PX: readonly [number, number] = [2.5, 3.5];
+/** A buoy's scale for its camera distance (m) and its CSS px per metre there; 0 = hidden. */
+export function buoyScale(dist: number, pxPerM: number, size: number): number {
+  const s = 1 - (1 - BUOY_FAR_SCALE) * THREE.MathUtils.smoothstep(dist, BUOY_EASE[0], BUOY_EASE[1]);
+  return s * THREE.MathUtils.smoothstep(size * s * pxPerM, BUOY_HIDE_PX[0], BUOY_HIDE_PX[1]);
+}
 const DATA_W = 256;
 /** Livery texels per instance (uFleetPaint): topside, trim, deck, coachroof, sail dye. */
 const PAINT_TEXELS = 5;
@@ -146,6 +158,8 @@ interface BoatRec {
   phi: number;
   slot: number; // emblem slot
   brand: THREE.Color;
+  /** E04: her flag's field: the brand at the earth-pigment chroma (the highlighted hull flies `brand` itself). */
+  flagBrand: THREE.Color;
   /** Replans may reuse a numeric index for a different immutable raft-berth object. */
   bollardSlot: HarbourSim["layout"]["slots"][number] | null;
   bow: [number, number, number] | null;
@@ -200,7 +214,9 @@ export class FleetSystem implements WorldSystem {
   private wreckSlots: number[] = [];
   private wreckInst: Array<{ inst: number; x: number; z: number; h: number; scale: number; heel: number; y: number; pitch: number; phi: number }> = [];
   private wrecksPosed = false;
-  private buoyInst: Array<{ inst: number; x: number; z: number; phi: number }> = [];
+  private buoyInst: Array<{ inst: number; x: number; z: number; phi: number; shown: boolean }> = [];
+  /** E04: the buoy's size on screen (m): its height above the water, from its kit geometry. */
+  private buoySize = 1;
   /** Wreck kit v2: loaded after the first frame (the cove is off the default views); its nameboards and lanterns. */
   private cove: Map<string, WreckItem> | null = null;
   private coveState: "wait" | "loading" | "done" = "wait";
@@ -293,6 +309,8 @@ export class FleetSystem implements WorldSystem {
       uFleetTime: { value: 0 },
       uBoards: { value: new THREE.Texture() },
       uBoardGrid: { value: new THREE.Vector4(1, 1, 1, 1) },
+      uFleetScreen: { value: new THREE.Vector2(1000, 1) },
+      uEmblemLetters: { value: 1e9 },
     };
   }
 
@@ -315,6 +333,7 @@ export class FleetSystem implements WorldSystem {
     this.index = indexVariants(this.kit.manifest.hulls);
     this.uniforms.uEmblems.value = this.atlas.texture;
     this.uniforms.uEmblemGrid.value = this.atlas.grid;
+    this.uniforms.uEmblemLetters!.value = this.atlas.letterSlot;
     const { material, depth } = createFleetMaterials(getHarbourMaterials(ctx), ctx.uniforms, this.uniforms);
     this.material = material; this.depth = depth;
     this.buildMesh(ctx, 1500);
@@ -324,7 +343,7 @@ export class FleetSystem implements WorldSystem {
     ctx.scene.add(this.riding.object);
     this.fenders = new Fenders();
     ctx.scene.add(this.fenders.mesh);
-    this.flags = new HouseFlags({ ...ctx.uniforms, uTime: this.uniforms.uFleetTime }, this.atlas);
+    this.flags = new HouseFlags({ ...ctx.uniforms, uTime: this.uniforms.uFleetTime }, this.atlas, 1024, this.uniforms.uFleetScreen);
     ctx.scene.add(this.flags.mesh);
     this.mastSignals = new MastSignals(getHarbourMaterials(ctx).kit());
     ctx.scene.add(this.mastSignals.mesh);
@@ -561,7 +580,7 @@ export class FleetSystem implements WorldSystem {
         Object.assign(prev, { variant, scale, loa, beam: variant.beam * scale, geomFull, geomLod, geomWreck,
           geomCur: geom, wrecked, dead: wrecked, top: variant.top * scale, visualRadius: radius * scale, bollardSlot: null });
       }
-      if (prev.source.brandColor !== boat.brandColor) prev.brand.set(boat.brandColor);
+      if (prev.source.brandColor !== boat.brandColor) { prev.brand.set(boat.brandColor); flagPigment(boat.brandColor, prev.flagBrand); }
       if (paintChanged) this.writePaint(prev.inst, wrecked || titan ? null : boat.id, variant.family, wrecked ? null : boat.brandColor);
       if (prev.source.nullPeg !== boat.nullPeg) {
         prev.reading = sternLampLit(boat, "under-way"); prev.lit = sternLampLit(boat, "moored");
@@ -582,7 +601,7 @@ export class FleetSystem implements WorldSystem {
       id: boat.id, source: boat, inst: this.addInstance(geomCur), variant, scale, loa, beam: variant.beam * scale,
       geomFull, geomLod, geomWreck, geomCur, wrecked, dead: wrecked,
       swing: 0, heel: 0, hi: 0, px: 0, pz: 0, vx: 0, vz: 0, seen: false,
-      phi: hash01(boat.id + "#bob") * Math.PI * 2, slot: -1, brand: new THREE.Color(boat.brandColor),
+      phi: hash01(boat.id + "#bob") * Math.PI * 2, slot: -1, brand: new THREE.Color(boat.brandColor), flagBrand: flagPigment(boat.brandColor),
       bollardSlot: null, bow: null, med: false, stern: null, visible: false, dist: 0,
       reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, flog: 0, row: 0, brail: 0, dox: 0, doz: 0, gyaw: 0, struck: false,
       mastK: titan ? 2 : hash01(boat.id + "#mast"), titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
@@ -864,11 +883,14 @@ export class FleetSystem implements WorldSystem {
   private placeBuoys(): void {
     const geom = this.geomIds.get(BUOY_KIT);
     if (geom == null) return;
+    const g = this.kit?.props.get(BUOY_KIT)?.geometry;
+    if (g) { if (!g.boundingBox) g.computeBoundingBox(); this.buoySize = g.boundingBox!.max.y - g.boundingBox!.min.y; }
     for (const m of this.layout!.moorings ?? []) {
       const inst = this.addInstance(geom);
       this.writePaint(inst, null, "", null);
-      this.writeData(inst, 0, 0, 0, 0.8, 0.2, 0.1, -1);
-      this.buoyInst.push({ inst, x: m.position[0], z: m.position[2], phi: hash01(m.id) * 6.28 });
+      // E04: weathered ochre (the slot sentinel), not the bright red-and-white of a fairway mark
+      this.writeData(inst, 0, 0, 0, 0.45, 0.16, 0.10, BUOY_SLOT);
+      this.buoyInst.push({ inst, x: m.position[0], z: m.position[2], phi: hash01(m.id) * 6.28, shown: true });
     }
   }
 
@@ -891,6 +913,8 @@ export class FleetSystem implements WorldSystem {
     this.frustum.setFromProjectionMatrix(this.pv);
     const viewH = ctx.renderer.domElement.clientHeight || innerHeight;
     const pxPerM = viewH / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));
+    // E04 / E27: the print law and the rig's hairline floor work in CSS px (effective DPR: render px per CSS px)
+    this.uniforms.uFleetScreen!.value.set(viewH, ctx.renderer.getPixelRatio());
     const dt = Math.max(1e-3, frame.delta);
     const time = this.time = this.clock ? this.clock.step(dt) : frame.elapsed;
     this.uniforms.uFleetTime.value = time;
@@ -1104,8 +1128,10 @@ export class FleetSystem implements WorldSystem {
         const v = b.variant;
         if (b.struck) { this.lampAt(v.sternCleat.x * 0.92, v.sternCleat.y, 0); this.v.y += 0.5 + size * 0.72; }
         else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += 0.3 + (this.mastSignals?.lift(b.id, b.loa) ?? 0); }
-        this.flags.add(this.v.x, this.v.y, this.v.z, size, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), b.slot, b.phi * 3, b.brand,
-          b.titan ? FLAG_HOUSE : FLAG_BURGEE);
+        // E04: her colours in the harbour's pigment and air; the hovered / selected / searched hull flies them full
+        const hiFlag = b.hi > 0.05;
+        this.flags.add(this.v.x, this.v.y, this.v.z, size, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), b.slot, b.phi * 3,
+          hiFlag ? b.brand : b.flagBrand, b.titan ? FLAG_HOUSE : FLAG_BURGEE, hiFlag);
         if (distress) {
           // hoisted above her colours (below them the yard and the brailed sail would hide it)
           const dSize = size * 0.7;
@@ -1113,7 +1139,8 @@ export class FleetSystem implements WorldSystem {
         }
         // 06-F7c a titan flies a long vexillum from the truck, above her house flag (decorative)
         if (b.titan && !distress && !b.struck) {
-          this.flags.add(this.v.x, this.v.y + 0.9, this.v.z, b.loa * 0.34, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 1.3, b.brand, FLAG_STREAMER);
+          this.flags.add(this.v.x, this.v.y + 0.9, this.v.z, b.loa * 0.34, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 1.3,
+            b.hi > 0.05 ? b.brand : b.flagBrand, FLAG_STREAMER, b.hi > 0.05);
         }
         b.flag = 0;
       }
@@ -1191,11 +1218,15 @@ export class FleetSystem implements WorldSystem {
       }
     }
 
-    // buoys bob on the swell (still under reduced motion)
+    // buoys bob on the swell (still under reduced motion); E04: they recede with distance and drop below a few px
     for (const bu of this.buoyInst) {
       const y = this.seaH(bu.x, bu.z);
+      const d = Math.hypot(cam.position.x - bu.x, cam.position.y - y, cam.position.z - bu.z);
+      const k = buoyScale(d, pxPerM / d, this.buoySize);
+      if ((k > 0) !== bu.shown) { bu.shown = k > 0; mesh.setVisibleAt(bu.inst, bu.shown); }
+      if (!bu.shown) continue;
       this.e.set(Math.sin(time * 1.3 + bu.phi) * 0.06, bu.phi, Math.sin(time * 1.1 + bu.phi * 2) * 0.06, "YZX");
-      this.m4.compose(this.v.set(bu.x, y - 0.05, bu.z), this.q.setFromEuler(this.e), this.s.setScalar(1));
+      this.m4.compose(this.v.set(bu.x, y - 0.05, bu.z), this.q.setFromEuler(this.e), this.s.setScalar(k));
       mesh.setMatrixAt(bu.inst, this.m4);
     }
 
@@ -1206,7 +1237,7 @@ export class FleetSystem implements WorldSystem {
       u.uHemiSky.value.g * 1.6 + u.uSunColor.value.g * 0.12,
       u.uHemiSky.value.b * 1.6 + u.uSunColor.value.b * 0.12,
     );
-    this.lines.end(this.ropeLight.setRGB(Math.min(1, light.x), Math.min(1, light.y), Math.min(1, light.z)));
+    this.lines.end(this.ropeLight.setRGB(Math.min(1, light.x), Math.min(1, light.y), Math.min(1, light.z)), tier.lineRange);
     this.fenders?.end();
     this.riding.end(glowK, Math.min(1, (sim?.wind.strength ?? 0.35) * 1.4));
     if (this.flags) {

@@ -31,7 +31,7 @@ function fixture(shadows: boolean) {
   const wake = { stamp: vi.fn() };
   const sim = { pose: { count: 1, ids: ["coin"], position: [1000000, 0, 0], heading: [0], phase: [PH_DOCKED], sailState: [0], heel: [0.1], slot: [-1], lines: [0], event: [0], drift: [0, 0], pitch: [0], outing: [0] }, wind: { fromRad: -1, strength: 0.35 }, layout: { slots: [] } };
   const context = {
-    camera, renderer: { domElement: { clientHeight: 600 } }, rig: { distance: shadows ? 100 : 1000 },
+    camera, renderer: { domElement: { clientHeight: 600 }, getPixelRatio: () => 1 }, rig: { distance: shadows ? 100 : 1000 },
     services: new Map<string, unknown>([["model", model], ["sim", sim], ["ocean", ocean], ["wake", wake], ["sun", sun], ["readiness", { revision: 7, boats: 1, prepared: true }]]) as Services,
     uniforms: { uWindowGlow: { value: 0 }, uWindVec: { value: new THREE.Vector2() }, uHemiSky: { value: new THREE.Color(1, 1, 1) }, uSunColor: { value: new THREE.Color(1, 1, 1) }, uNight: { value: 0 } },
   } as unknown as EngineContext;

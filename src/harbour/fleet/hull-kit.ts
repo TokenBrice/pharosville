@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { AssetStore } from "../engine/assets";
-import { planSails, ROLE_BODY, type EmblemFrame, type SailMeshOut } from "./sail-plan";
+import { planSails, printFill, ROLE_BODY, type EmblemFrame, type SailMeshOut } from "./sail-plan";
 
 /**
  * The hull kit (public/harbour/kit, manifest.json) baked for ONE BatchedMesh draw:
@@ -23,7 +23,8 @@ import { planSails, ROLE_BODY, type EmblemFrame, type SailMeshOut } from "./sail
  *   aPaint = (livery region, x / (loa / 2)): the kit's _PAINT corner attribute (0 keep · 1 + 0.98 t topsides,
  *     t boot-top 0 .. sheer 1 · 3 sheer stripe / band · 4 deck · 5 rail cap · 6 inside bulwarks · 7 coachroof ·
  *     8 spar; LOD: topsides + 10, rig 9) plus, from the node names, 8 for spars and 10 for standing rigging.
- *     Decorative, never data.
+ *     Decorative, never data. Rig corners (8, 9, 10) carry their tube's radius (m) in y instead, and radial normals
+ *     (tubeRadii): the vertex shader holds thin rig at a hairline (E27).
  */
 export const KIT_BASE = "/harbour/kit/";
 /** Furled cover's half-height over the rolled sail's mean radius (its half-width stays 0.42): a tall, narrow sail bag. */
@@ -93,7 +94,7 @@ function nodeOrigin(nodes: ManifestNode[], name: string): THREE.Vector3 | null {
 }
 
 /** Flatten one GLB into the fleet attribute layout. `pivots` comes from the manifest (Blender object origins). */
-export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean; loa?: number; beam?: number; wreck?: boolean; skip?: ReadonlySet<string>; cloth?: [number, number, number] | null; emblem?: EmblemFrame | null } = {}): THREE.BufferGeometry {
+export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolean; loa?: number; beam?: number; wreck?: boolean; skip?: ReadonlySet<string>; cloth?: [number, number, number] | null; emblem?: EmblemFrame | null; fill?: number } = {}): THREE.BufferGeometry {
   const halfLoa = (opts.loa ?? 10) / 2;
   const boom = nodeOrigin(nodes, "boom") ?? new THREE.Vector3();
   const boom2 = nodeOrigin(nodes, "boom_2") ?? new THREE.Vector3();
@@ -103,7 +104,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
   const P: number[] = [], N: number[] = [], C: number[] = [], SU: number[] = [], EU: number[] = [], F: number[] = [], FN: number[] = [];
   const M: number[] = [], PV: number[] = [], AX: number[] = [], PA: number[] = [], I: number[] = [];
   gltf.scene.updateMatrixWorld(true);
-  const sails = opts.lod || opts.wreck ? new Map<THREE.Mesh, SailMeshOut>() : planHullSails(gltf);
+  const sails = opts.lod || opts.wreck ? new Map<THREE.Mesh, SailMeshOut>() : planHullSails(gltf, opts.fill);
   const cloth = opts.lod ? opts.cloth ?? null : null;
   const frame = opts.lod ? opts.emblem ?? null : null;
   const lodSailVerts: number[] = [];
@@ -139,6 +140,8 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     const mn = mi != null ? geo.morphAttributes.normal?.[mi] : undefined;
     const relative = geo.morphTargetsRelative;
     const mw = mesh.matrixWorld;
+    // E27: spars and stays as tubes (radius and radial normal per corner), for the rig's hairline floor
+    const rig = tubeRadii(geo, mw, (vi) => { const pc = paint ? paint.getX(vi) : nodePaint; return pc > 7.5 && pc < 10.5; });
     const linear = new THREE.Matrix4().copy(mw).setPosition(0, 0, 0);
     tmpN.getNormalMatrix(mw);
     const base = P.length / 3;
@@ -221,7 +224,11 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
           used.set(vi, out);
           tmpV.fromBufferAttribute(pos, vi).applyMatrix4(mw);
           P.push(tmpV.x, tmpV.y, tmpV.z);
-          if (nrm) { tmpV.fromBufferAttribute(nrm, vi).applyMatrix3(tmpN).normalize(); N.push(tmpV.x, tmpV.y, tmpV.z); } else N.push(0, 1, 0);
+          const rigR = kind === 0 && rig ? rig.r[vi] : 0;
+          if (nrm) tmpV.fromBufferAttribute(nrm, vi).applyMatrix3(tmpN).normalize(); else tmpV.set(0, 1, 0);
+          // a flat-faced rope's corner takes its radial direction (a smooth spar's normal already is radial)
+          if (rigR > 0 && tmpV.x * rig!.n[vi * 3] + tmpV.y * rig!.n[vi * 3 + 1] + tmpV.z * rig!.n[vi * 3 + 2] < 0.9) N.push(rig!.n[vi * 3], rig!.n[vi * 3 + 1], rig!.n[vi * 3 + 2]);
+          else N.push(tmpV.x, tmpV.y, tmpV.z);
           if (mesh.name === "yards" && !opts.lod) C.push(0.3, 0.2, 0.12, col && col.itemSize > 3 ? col.getW(vi) : 0); // spars are tarred wood, not white planks
           else if (col) C.push(col.getX(vi), col.getY(vi), col.getZ(vi), col.itemSize > 3 ? col.getW(vi) : 0); else C.push(1, 1, 1, 0);
           if (coverUV && kind === 2) SU.push(coverUV[vi * 2], coverUV[vi * 2 + 1]);
@@ -249,7 +256,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
           let pc = kind === 0 ? (paint ? paint.getX(vi) : nodePaint) : kind === 1 ? -sailSize : 0;
           if (opts.lod && pc >= 1 && pc < 2.5) pc += 10; // LOD topsides: the stripe is painted in the shader
           else if (opts.lod && pc > 7.5 && pc < 8.5) pc = 9; // LOD rig: may be struck far away when furled
-          PA.push(pc, P[P.length - 3] / halfLoa);
+          PA.push(pc, rigR > 0 && pc > 7.5 && pc < 10.5 ? rigR : P[P.length - 3] / halfLoa);
           if (tholes) PV.push(tholes[vi * 3], tholes[vi * 3 + 1], tholes[vi * 3 + 2]); else PV.push(pivot.x, pivot.y, pivot.z);
           AX.push(axis.x, axis.y, axis.z);
         }
@@ -350,7 +357,7 @@ function yardBundle(nv: number, B: Float32Array, Pf: Float32Array, adj: Float32A
 }
 
 /** The hull's sails (hb_sail meshes, set shape in the GLB root frame) through sail-plan: emblem UVs and dye roles. */
-function planHullSails(gltf: GLTF): Map<THREE.Mesh, SailMeshOut> {
+function planHullSails(gltf: GLTF, fill?: number): Map<THREE.Mesh, SailMeshOut> {
   const meshes: THREE.Mesh[] = [];
   gltf.scene.traverse((o) => {
     const m = o as THREE.Mesh;
@@ -368,7 +375,7 @@ function planHullSails(gltf: GLTF): Map<THREE.Mesh, SailMeshOut> {
     }
     const index = geo.index ? geo.index.array : Uint32Array.from({ length: n }, (_, i) => i);
     return { name: m.name, pos: P, index, uv1: U, color: C };
-  }));
+  }), fill);
   return new Map(meshes.map((m, i) => [m, out[i]]));
 }
 
@@ -405,6 +412,95 @@ function oarTholes(geo: THREE.BufferGeometry, mw: THREE.Matrix4): Float32Array {
   return out;
 }
 
+/** E27: a tube is clean when no corner lies further than this from its axis (m), nor than this share of its length. */
+const TUBE_MAX_R = 0.5, TUBE_SLIM = 0.04;
+
+interface TubeFit { cx: number; cy: number; cz: number; ax: number; ay: number; az: number }
+/** Centroid and principal direction (power iteration: a tube's length dominates its girth) of corners in W. */
+function fitTube(W: Float32Array, verts: readonly number[]): TubeFit {
+  let cx = 0, cy = 0, cz = 0;
+  for (const v of verts) { cx += W[v * 3]; cy += W[v * 3 + 1]; cz += W[v * 3 + 2]; }
+  cx /= verts.length; cy /= verts.length; cz /= verts.length;
+  let xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+  for (const v of verts) {
+    const dx = W[v * 3] - cx, dy = W[v * 3 + 1] - cy, dz = W[v * 3 + 2] - cz;
+    xx += dx * dx; xy += dx * dy; xz += dx * dz; yy += dy * dy; yz += dy * dz; zz += dz * dz;
+  }
+  let ax = 0.57, ay = 0.71, az = 0.41;
+  for (let it = 0; it < 24; it++) {
+    const x = xx * ax + xy * ay + xz * az, y = xy * ax + yy * ay + yz * az, z = xz * ax + yz * ay + zz * az;
+    const l = Math.hypot(x, y, z);
+    if (l < 1e-12) break;
+    ax = x / l; ay = y / l; az = z / l;
+  }
+  return { cx, cy, cz, ax, ay, az };
+}
+
+/**
+ * E27: the wanted corners (spars, stays) of a mesh as tubes. Pieces joined by triangles (a smooth spar whole, each
+ * flat face of a 3-sided rope on its own) are joined into one tube where they share a corner position AND run
+ * parallel: a rope's three faces, never two ropes meeting at a masthead. A tube's axis runs through its centroid
+ * along its principal direction. Per corner of a clean (long, thin) tube: its distance from the axis (m, hull frame;
+ * 0 = not a clean tube corner) and its radial direction. A flat-faced rope's corners take that direction as their
+ * normal (the bake), so a widened rope grows round, without opening slits between its faces (pose.ts hbRigFloor);
+ * a smooth spar's normals already are radial.
+ */
+export function tubeRadii(geo: THREE.BufferGeometry, mw: THREE.Matrix4, want: (vi: number) => boolean): { r: Float32Array; n: Float32Array } | null {
+  const pos = geo.attributes.position, nv = pos.count;
+  const W = new Float32Array(nv * 3), parent = new Int32Array(nv).map((_, i) => i);
+  const find = (a: number): number => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+  const join = (a: number, b: number) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+  const on: number[] = [];
+  for (let vi = 0; vi < nv; vi++) {
+    if (!want(vi)) continue;
+    on.push(vi);
+    tmpV.fromBufferAttribute(pos, vi).applyMatrix4(mw);
+    W[vi * 3] = tmpV.x; W[vi * 3 + 1] = tmpV.y; W[vi * 3 + 2] = tmpV.z;
+  }
+  if (!on.length) return null;
+  const idx = geo.index, ni = idx ? idx.count : nv;
+  for (let k = 0; k + 2 < ni; k += 3) {
+    const a = idx ? idx.getX(k) : k, b = idx ? idx.getX(k + 1) : k + 1, c = idx ? idx.getX(k + 2) : k + 2;
+    if (want(a) && want(b) && want(c)) { join(a, b); join(b, c); }
+  }
+  const group = (): Map<number, number[]> => {
+    const out = new Map<number, number[]>();
+    for (const vi of on) { const root = find(vi), t = out.get(root); if (t) t.push(vi); else out.set(root, [vi]); }
+    return out;
+  };
+  // pieces sharing a corner position join only when they run parallel (within ~0.8°): one rope's faces, never the
+  // shrouds of a fan that meet at one masthead ring
+  const piece = new Int32Array(nv), axisOf = new Map<number, TubeFit>();
+  for (const [root, verts] of group()) { axisOf.set(root, fitTube(W, verts)); for (const v of verts) piece[v] = root; }
+  const seen = new Map<string, number>();
+  for (const vi of on) {
+    const k = `${Math.round(W[vi * 3] * 500)},${Math.round(W[vi * 3 + 1] * 500)},${Math.round(W[vi * 3 + 2] * 500)}`;
+    const o = seen.get(k);
+    if (o == null) { seen.set(k, vi); continue; }
+    const a = axisOf.get(piece[vi])!, b = axisOf.get(piece[o])!;
+    if (Math.abs(a.ax * b.ax + a.ay * b.ay + a.az * b.az) > 0.9999) join(vi, o);
+  }
+  const r = new Float32Array(nv), n = new Float32Array(nv * 3);
+  for (const verts of group().values()) {
+    const { cx, cy, cz, ax, ay, az } = fitTube(W, verts);
+    // only a clean tube (long and thin) has one axis to grow about
+    let t0 = Infinity, t1 = -Infinity, rmax = 0;
+    for (const v of verts) {
+      const dx = W[v * 3] - cx, dy = W[v * 3 + 1] - cy, dz = W[v * 3 + 2] - cz, t = dx * ax + dy * ay + dz * az;
+      t0 = Math.min(t0, t); t1 = Math.max(t1, t);
+      rmax = Math.max(rmax, Math.hypot(dx - ax * t, dy - ay * t, dz - az * t));
+    }
+    if (rmax > Math.min(TUBE_MAX_R, TUBE_SLIM * (t1 - t0))) continue;
+    for (const v of verts) {
+      const dx = W[v * 3] - cx, dy = W[v * 3 + 1] - cy, dz = W[v * 3 + 2] - cz, t = dx * ax + dy * ay + dz * az;
+      const rx = dx - ax * t, ry = dy - ay * t, rz = dz - az * t, rl = Math.hypot(rx, ry, rz);
+      if (rl < 1e-5) continue;
+      r[v] = rl; n[v * 3] = rx / rl; n[v * 3 + 1] = ry / rl; n[v * 3 + 2] = rz / rl;
+    }
+  }
+  return { r, n };
+}
+
 /** A sail mesh's working size (m): its height or its widest horizontal reach, whichever is less. */
 function sailExtent(geo: THREE.BufferGeometry, mw: THREE.Matrix4): number {
   const pos = geo.attributes.position;
@@ -427,7 +523,7 @@ export async function loadKit(assets: AssetStore): Promise<Kit> {
         assets.gltf(KIT_BASE + h.file),
         h.lod ? assets.gltf(KIT_BASE + h.lod).catch(() => null) : Promise.resolve(null),
       ]);
-      const fg = bakeGltf(full, h.nodes, { loa: h.loa_m, beam: h.beam_m });
+      const fg = bakeGltf(full, h.nodes, { loa: h.loa_m, beam: h.beam_m, fill: printFill(h.class) });
       const lg = lod ? bakeGltf(lod, [], { lod: true, loa: h.loa_m, cloth: fg.userData.cloth as [number, number, number] | null, emblem: fg.userData.emblem as EmblemFrame | null }) : null;
       const anchor = (name: string, fb: [number, number, number]) => nodeOrigin(h.nodes, name) ?? new THREE.Vector3(...fb);
       hulls.set(h.id, {

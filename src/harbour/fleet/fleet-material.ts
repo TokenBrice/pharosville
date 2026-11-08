@@ -25,9 +25,10 @@ import type { WorldUniforms } from "../engine/uniforms";
  *   3 = (coachroof rgb, painted 0|1) · 4 = (sail dye rgb, mode 0 canvas | 1 dyed | 2 canvas + brand bands; livery.sailDye).
  *   The kit's aPaint region picks which one a corner wears; sails wear texel 4 by their sail-plan role (aMeta.z).
  * The vertex shader poses the rig (furl morph, mirror, boom/boom_2 about the gooseneck, jib about its
- * stay); the fragment tints _BRAND corners and covers, prints the emblem from the atlas onto sail_main
- * (manifest flip rule; sail-plan.ts re-measures the emblem square: a bigger roundel, and one on the second sail),
- * dyes the sail cloth in the brand colour, and adds cloth seams, sail translucency and the hover rim.
+ * stay) and holds thin rig at a hairline (E27); the fragment tints _BRAND corners and covers, prints the emblem from
+ * the atlas onto sail_main (manifest flip rule; sail-plan.ts sizes the roundel inside its sail by hull class, and one
+ * on the second sail) by the E04 print law (shaders/print.ts), dyes the sail cloth in the brand colour, and adds
+ * cloth seams, sail translucency and the hover rim.
  */
 export interface FleetUniforms {
   uFleetData: THREE.IUniform<THREE.DataTexture>;
@@ -41,6 +42,10 @@ export interface FleetUniforms {
   /** Wreck Cove epitaph nameboards (alpha = ink) and their grid (cols, rows, 1/cols, 1/rows). */
   uBoards: THREE.IUniform<THREE.Texture>;
   uBoardGrid: THREE.IUniform<THREE.Vector4>;
+  /** E04/E27: (CSS viewport height px, effective DPR): the print's size on screen and the rig's hairline floor. */
+  uFleetScreen?: THREE.IUniform<THREE.Vector2>;
+  /** E04 (O5-I6): the atlas's first monogram slot; from there on a mark is lettering, not a printed logo. */
+  uEmblemLetters?: THREE.IUniform<number>;
 }
 
 export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, fleet: FleetUniforms): { material: THREE.MeshStandardMaterial; depth: THREE.MeshDepthMaterial } {
@@ -51,10 +56,13 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
   m.onBeforeCompile = (shader, renderer) => {
     baseHook(shader, renderer);
     shader.defines = { ...shader.defines, HB_FLEET: "" };   // world/metal.ts: only unpainted hull trim turns metal
-    Object.assign(shader.uniforms, fleet, { uSunDir: u.uSunDir, uSunColor: u.uSunColor, uTime: fleet.uFleetTime, uLamp: u.uLamp });
+    // (the print and rig uniforms default to a 1000 px DPR-1 screen and no lettering until the fleet binds its own)
+    Object.assign(shader.uniforms, { uFleetScreen: { value: new THREE.Vector2(1000, 1) }, uEmblemLetters: { value: 1e9 } }, fleet,
+      { uSunDir: u.uSunDir, uSunColor: u.uSunColor, uTime: fleet.uFleetTime, uLamp: u.uLamp });
     shader.vertexShader = patch(shader.vertexShader, "#include <batching_pars_vertex>", `#include <batching_pars_vertex>\nuniform float uTime;\n${VERT_PARS}`, { id: "fleet.1.batching_pars_vertex" });
     shader.vertexShader = patch(shader.vertexShader, "#include <beginnormal_vertex>", "hbFleetPose(position, normal);\nvec3 objectNormal = hbFleetN;\n#ifdef USE_TANGENT\nvec3 objectTangent = vec3(tangent.xyz);\n#endif", { id: "fleet.2.beginnormal_vertex" });
-    shader.vertexShader = patch(shader.vertexShader, "#include <begin_vertex>", "vec3 transformed = hbFleetP;", { id: "fleet.3.begin_vertex" });
+    // E27: the rig's hairline floor needs the batch matrix (main's batchingMatrix) for its depth and scale
+    shader.vertexShader = patch(shader.vertexShader, "#include <begin_vertex>", "vec3 transformed = hbFleetP;\n#ifdef USE_BATCHING\n  float hbRigCover = hbRigFloor(transformed, hbFleetN, batchingMatrix);\n  if (hbRigCover < 1.0) vFleetLamp = -hbRigCover;\n#endif", { id: "fleet.3.begin_vertex" });
     // the kit port derives vHbWorld from instanceMatrix only: add the batch matrix
     shader.vertexShader = patch(shader.vertexShader, "hbW = instanceMatrix * hbW;\n    #endif", "hbW = instanceMatrix * hbW;\n    #endif\n    #ifdef USE_BATCHING\n      hbW = batchingMatrix * hbW;\n    #endif", { id: "fleet.4.hbW-instanceMatrix-hbW-endif" });
     shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\n${FRAG_PARS}\n${HOVER_SHEEN}`, { id: "fleet.5.common" });
@@ -65,7 +73,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
     shader.fragmentShader = patch(shader.fragmentShader, "#include <opaque_fragment>", FLEET_LIGHTING, { id: "fleet.10.opaque_fragment" });
   };
   // the kit's own key carries its season and Low-tier (kitKey) switches
-  m.customProgramCacheKey = () => `hb_fleet_v11_${kit.customProgramCacheKey()}`;
+  m.customProgramCacheKey = () => `hb_fleet_v12_${kit.customProgramCacheKey()}`;
   mats.track(m);   // recompiles with the kit's Low-tier switch
 
   const depth = new THREE.MeshDepthMaterial();

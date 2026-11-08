@@ -3,12 +3,16 @@ import type { HarbourLayout, Pier } from "../layout/types";
 
 /**
  * Mooring lines: thin sagging ropes as screen-space ribbons (true rope width, never under ~1.4 px),
- * one draw for the whole harbour.
+ * one draw for the whole harbour. E27 (O7-I9): the ribbon carries half a pixel of soft edge each side (coverage
+ * AA, the frame's alpha untouched) and fades out over the last LINE_FADE of the line range, so lines neither
+ * stair-step nor pop as the camera crosses the range.
  * Each line runs from a bollard / buoy ring / anchor point to a hull's cleat; `k` (0..1) is how much of
  * it is out, growing from the shore end (a line thrown from the pier as the hull comes alongside, taken
  * back in as she casts off).
  */
 const SEGS = 8;
+/** E27: share of the line range (from its far end) over which the ropes fade out. */
+export const LINE_FADE = 0.15;
 
 const VERT = /* glsl */ `
 attribute vec3 aA;
@@ -17,6 +21,10 @@ attribute vec2 aQ;      // x: side (-1 | 1), y: end (0 = A, 1 = B)
 uniform vec2 uResolution;
 uniform float uWidth;   // rope diameter (m)
 uniform float uMinPx;
+uniform float uRange;   // line range (m)
+varying float vSide;    // px from the centre line
+varying float vHalf;    // half-width (px)
+varying float vFade;
 void main() {
   mat4 pv = projectionMatrix * viewMatrix;
   vec4 ca = pv * vec4(aA, 1.0), cb = pv * vec4(aB, 1.0);
@@ -25,15 +33,21 @@ void main() {
   d = dot(d, d) > 1e-6 ? normalize(d) : vec2(1.0, 0.0);
   vec2 n = vec2(-d.y, d.x);
   vec4 c = aQ.y < 0.5 ? ca : cb;
-  // half-width in pixels: the rope's true size, never thinner than uMinPx (AA'd in the fragment)
+  // half-width in pixels: the rope's true size, never thinner than uMinPx, plus half a pixel of AA edge each side
   float hw = max(uMinPx, uWidth * projectionMatrix[1][1] * 0.5 * uResolution.y / c.w) * 0.5;
-  c.xy += n * aQ.x * hw * 2.0 / uResolution * c.w;
+  c.xy += n * aQ.x * (hw + 0.5) * 2.0 / uResolution * c.w;
+  vSide = aQ.x * (hw + 0.5);
+  vHalf = hw;
+  vFade = 1.0 - smoothstep(${(1 - LINE_FADE).toFixed(2)} * uRange, uRange, distance(cameraPosition, aQ.y < 0.5 ? aA : aB));
   gl_Position = c;
 }`;
 
 const FRAG = /* glsl */ `
 uniform vec3 uColor;
-void main() { gl_FragColor = vec4(uColor, 1.0); }`;
+varying float vSide;
+varying float vHalf;
+varying float vFade;
+void main() { gl_FragColor = vec4(uColor, clamp(vHalf + 0.5 - abs(vSide), 0.0, 1.0) * vFade); }`;
 
 export class MooringLines {
   readonly object: THREE.Mesh;
@@ -71,8 +85,12 @@ export class MooringLines {
     g.setDrawRange(0, 0);
     this.geo = g;
     this.material = new THREE.ShaderMaterial({
-      uniforms: { uResolution: resolution, uWidth: { value: 0.07 }, uMinPx: { value: 1.4 }, uColor: { value: this.rope.clone() } },
+      uniforms: { uResolution: resolution, uWidth: { value: 0.07 }, uMinPx: { value: 1.4 }, uColor: { value: this.rope.clone() }, uRange: { value: 650 } },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide,
+      // E27: coverage-blended edges over the frame; its alpha (read by later passes) untouched
+      transparent: true, depthWrite: false, blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendEquationAlpha: THREE.AddEquation, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     this.object = new THREE.Mesh(g, this.material);
     this.object.name = "harbour-mooring-lines";
@@ -133,7 +151,9 @@ export class MooringLines {
     this.count++;
   }
 
-  end(light: THREE.Color): void {
+  /** `range`: the fleet's line range this frame (m): the ropes fade out over its last LINE_FADE. */
+  end(light: THREE.Color, range?: number): void {
+    if (range !== undefined) this.material.uniforms.uRange.value = range;
     const nq = this.count * SEGS;
     this.geo.setDrawRange(0, nq * 6);
     if (nq) {

@@ -275,6 +275,7 @@ export const OFFICE_RULE = "Office works begin at +8% over 30 days and remain un
 export const FLOW_RULE = "Mint and Burn activity uses 60% of the 24-hour mean and 40% of the latest completed hour, on a compressed scale. Direction is unavailable when net valuation is withheld.";
 export const TIDE_RULE = "The tide gauge shows seven-day global supply change on a signed square-root scale, full at ±2%; changes smaller than 0.01% are slack.";
 export const HULL_RULE = "Hull supply classes begin at $1M, $10M, $100M, $1B and $10B.";
+export const PRINT_RULE = "Coin marks are printed on cloth. At a distance their contrast softens; hover, select or search to inspect a coin.";
 export const WRECK_RULE = "Wreck form follows the recorded cause family; size follows peak-cap rank.";
 export const WREATH_RULE = "A fresh wreath marks the newest recorded death within 90 days; month-only dates count from month end.";
 export const ANNIVERSARY_RULE = "An anniversary requires a recorded full date from an earlier year; month-only dates have no anniversary day.";
