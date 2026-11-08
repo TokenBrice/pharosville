@@ -23,7 +23,7 @@ The following headers are required for production responses:
 - `permissions-policy: accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), clipboard-read=(), display-capture=(), document-domain=(), encrypted-media=(), fullscreen=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(self), serial=(), sync-xhr=(), usb=(), web-share=(), xr-spatial-tracking=()`
 - `cross-origin-opener-policy: same-origin`
 - `cross-origin-resource-policy: same-origin`
-- `content-security-policy: default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data: blob: https://www.google-analytics.com; style-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://www.googletagmanager.com https://static.cloudflareinsights.com; connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://static.cloudflareinsights.com; frame-ancestors 'none'; form-action 'self'`
+- `content-security-policy: default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'`
 
 `img-src blob:` and `script-src 'wasm-unsafe-eval'` are required by the world, not optional slack. GLB textures decode through blob URLs, and the Harbour's GLBs (island, lighthouse, boat kit) may be meshopt-compressed, so the decoder must instantiate WebAssembly. Without them the deployed site can fail to load its world while the dev server — which sends no CSP — looks correct. `'wasm-unsafe-eval'` permits only WebAssembly compilation; JavaScript `eval` stays blocked. The static validator requires both sources.
 
@@ -33,7 +33,7 @@ Every Permissions-Policy feature is denied with `()` except two, which are same-
 
 Opt-in sound adds no header source. Its `AudioContext` is created inside the Sound switch's own click (user activation), and its lazy procedural chunk is same-origin script. Verify sound on the deployed site after any `autoplay` policy change; that path has not been measured under production headers.
 
-The optional `VITE_GA_ID` flow still requires `www.googletagmanager.com` for the loader and exact Google Analytics hosts for beacon traffic, but the static policy should not use `*.google-analytics.com`, `*.analytics.google.com`, or `*.googletagmanager.com` wildcards while analytics is inactive by default. Cloudflare Pages `_headers` is a static file, so the pragmatic closure for repo-review item #35 is to keep analytics runtime-gated by `VITE_GA_ID`, allow only the exact hosts required by that optional path, and reject wildcard CSP sources in static validation.
+PharosVille ships no usage analytics or RUM. The dormant Google Analytics integration and external analytics CSP hosts have been removed. Dashboard-injected scripts must also remain disabled; the document policy permits no external script or connection origin.
 
 Content-addressed media, fonts and shell CSS under `/harbour/_immutable/*` use
 `Cache-Control: public, max-age=31536000, immutable`; `/asset-registry.json` and unhashed shell/font

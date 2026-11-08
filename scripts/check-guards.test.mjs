@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import "./check-request-classifier.test.mjs";
+import "./check-scenario-replay.test.mjs";
 import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -282,6 +284,18 @@ assert.equal(
 const apiCsp = "default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'";
 assert.deepEqual(validateCsp(apiCsp), ["img-src missing blob:", "script-src missing 'wasm-unsafe-eval'"]);
 assert.deepEqual(validateCsp(apiCsp, { document: false }), []);
+// A complete policy cannot gain unsafe execution, an external host, or a duplicate override.
+const documentCsp = apiCsp.replace("img-src 'self' data:", "img-src 'self' data: blob:").replace("script-src 'self'", "script-src 'self' 'wasm-unsafe-eval'");
+assert.deepEqual(validateCsp(documentCsp), []);
+for (const directive of ["script-src", "connect-src", "img-src", "style-src"]) {
+  for (const source of ["'unsafe-inline'", "'unsafe-eval'", "https://example.com", "https:", "data:"]) {
+    if (directive === "img-src" && source === "data:") continue;
+    assert.ok(validateCsp(documentCsp.replace(`${directive} 'self'`, `${directive} 'self' ${source}`)).length > 0);
+  }
+}
+assert.ok(validateCsp(`${documentCsp}; script-src 'self'`).some((finding) => finding.includes("duplicate")));
+assert.ok(validateCsp(`${documentCsp}; worker-src https://example.com`).length > 0);
+
 assert.equal(validatePermissionsPolicy("autoplay=(), camera=()").some((finding) => finding.includes("display-capture")), true);
 assert.equal(REQUIRED_PERMISSIONS_POLICY_FEATURES.includes("screen-wake-lock"), true);
 // Stay mode's two features are self-only: denying them breaks Stay in production,

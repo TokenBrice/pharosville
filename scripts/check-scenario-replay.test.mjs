@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import { createReplay, replayInitScript } from "../tests/helpers/scenario.ts";
+const fixture = JSON.parse(readFileSync(new URL("../tests/fixtures/scenarios/current.json", import.meta.url), "utf8"));
+const globals = { fetch: () => { throw new Error("Unexpected real fetch"); }, location: { href: "https://fixture.test/", origin: "https://fixture.test" }, URL, Request, Response, Headers, DOMException, Date: class extends Date {}, setTimeout, clearTimeout };
+globals.window = globals;
+runInNewContext(replayInitScript(fixture), globals);
+assert.equal((await globals.window.fetch("/api/stablecoins")).status, 200);
+globals.window.__scenario.advanceTo(60_000);
+assert.equal(globals.Date.now(), fixture.epoch + 60_000);
+assert.equal(new globals.Date().getTime(), fixture.epoch + 60_000);
+assert.equal(new globals.Date(0).getTime(), 0);
+assert.throws(() => globals.window.__scenario.advanceTo(0));
+const replay = createReplay(fixture);
+await assert.rejects(() => replay.fetch("/api/missing"));
+console.log("Serialized scenario replay self-check passed");

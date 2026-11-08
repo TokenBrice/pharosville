@@ -1,0 +1,565 @@
+{
+  "epoch": 1790000000000,
+  "steps": [
+    {
+      "atMs": 0,
+      "responses": {
+        "/api/stablecoins": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "peggedAssets": [
+              {
+                "id": "usdc-circle",
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "pegType": "peggedUSD",
+                "chains": [
+                  "Ethereum"
+                ],
+                "circulating": {
+                  "peggedUSD": 2000000000
+                },
+                "chainCirculating": {
+                  "Ethereum": {
+                    "current": 2000000000
+                  }
+                }
+              }
+            ],
+            "_meta": {
+              "updatedAt": 1789999970,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        },
+        "/api/chains": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "chains": [
+              {
+                "id": "ethereum",
+                "name": "Ethereum",
+                "totalUsd": 2000000000
+              }
+            ],
+            "globalChange7dPct": 0,
+            "_meta": {
+              "updatedAt": 1789999970,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        },
+        "/api/stability-index?detail=true": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "current": null,
+            "history": [],
+            "_meta": {
+              "updatedAt": 1789999970,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        },
+        "/api/peg-summary": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "coins": [
+              {
+                "id": "usdc-circle",
+                "currentDeviationBps": 18,
+                "activeDepeg": false
+              }
+            ],
+            "_meta": {
+              "updatedAt": 1789999970,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        },
+        "/api/stress-signals": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "signals": {
+              "usdc-circle": {
+                "score": 10,
+                "band": "CALM"
+              }
+            },
+            "_meta": {
+              "updatedAt": 1789999970,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        },
+        "/api/safety-grades": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "grades": [
+              {
+                "id": "usdc-circle",
+                "grade": "A"
+              }
+            ],
+            "_meta": {
+              "updatedAt": 1789999970,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        },
+        "/api/mint-burn-flows": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "hourly": [],
+            "_meta": {
+              "updatedAt": 1789999970,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        }
+      }
+    },
+    {
+      "atMs": 300000,
+      "responses": {
+        "/api/stablecoins": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "20000",
+            "x-pharosville-proxy": "1",
+            "warning": "110 - \"Response is stale\""
+          },
+          "body": {
+            "peggedAssets": [
+              {
+                "id": "usdc-circle",
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "pegType": "peggedUSD",
+                "chains": [
+                  "Ethereum"
+                ],
+                "circulating": {
+                  "peggedUSD": 2000000000
+                },
+                "chainCirculating": {
+                  "Ethereum": {
+                    "current": 2000000000
+                  }
+                }
+              }
+            ],
+            "_meta": {
+              "updatedAt": 1789980000,
+              "ageSeconds": 20000,
+              "status": "stale"
+            }
+          }
+        },
+        "/api/chains": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "20000",
+            "x-pharosville-proxy": "1",
+            "warning": "110 - \"Response is stale\""
+          },
+          "body": {
+            "chains": [
+              {
+                "id": "ethereum",
+                "name": "Ethereum",
+                "totalUsd": 2000000000
+              }
+            ],
+            "globalChange7dPct": 0,
+            "_meta": {
+              "updatedAt": 1789980000,
+              "ageSeconds": 20000,
+              "status": "stale"
+            }
+          }
+        },
+        "/api/stability-index?detail=true": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "20000",
+            "x-pharosville-proxy": "1",
+            "warning": "110 - \"Response is stale\""
+          },
+          "body": {
+            "current": {
+              "score": 82.4,
+              "band": "STEADY",
+              "computedAt": 1789999970
+            },
+            "history": [],
+            "_meta": {
+              "updatedAt": 1789980000,
+              "ageSeconds": 20000,
+              "status": "stale"
+            }
+          }
+        },
+        "/api/peg-summary": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "20000",
+            "x-pharosville-proxy": "1",
+            "warning": "110 - \"Response is stale\""
+          },
+          "body": {
+            "coins": [
+              {
+                "id": "usdc-circle",
+                "currentDeviationBps": 18,
+                "activeDepeg": false
+              }
+            ],
+            "_meta": {
+              "updatedAt": 1789980000,
+              "ageSeconds": 20000,
+              "status": "stale"
+            }
+          }
+        },
+        "/api/stress-signals": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "20000",
+            "x-pharosville-proxy": "1",
+            "warning": "110 - \"Response is stale\""
+          },
+          "body": {
+            "signals": {
+              "usdc-circle": {
+                "score": 10,
+                "band": "CALM"
+              }
+            },
+            "_meta": {
+              "updatedAt": 1789980000,
+              "ageSeconds": 20000,
+              "status": "stale"
+            }
+          }
+        },
+        "/api/safety-grades": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "20000",
+            "x-pharosville-proxy": "1",
+            "warning": "110 - \"Response is stale\""
+          },
+          "body": {
+            "grades": [
+              {
+                "id": "usdc-circle",
+                "grade": "A"
+              }
+            ],
+            "_meta": {
+              "updatedAt": 1789980000,
+              "ageSeconds": 20000,
+              "status": "stale"
+            }
+          }
+        },
+        "/api/mint-burn-flows": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "20000",
+            "x-pharosville-proxy": "1",
+            "warning": "110 - \"Response is stale\""
+          },
+          "body": {
+            "hourly": [],
+            "_meta": {
+              "updatedAt": 1789980000,
+              "ageSeconds": 20000,
+              "status": "stale"
+            }
+          }
+        }
+      }
+    },
+    {
+      "atMs": 600000,
+      "responses": {
+        "/api/stablecoins": {
+          "status": 503,
+          "headers": {
+            "retry-after": "10"
+          },
+          "body": {
+            "error": "Unavailable"
+          }
+        },
+        "/api/chains": {
+          "status": 503,
+          "headers": {
+            "retry-after": "10"
+          },
+          "body": {
+            "error": "Unavailable"
+          }
+        },
+        "/api/stability-index?detail=true": {
+          "status": 503,
+          "headers": {
+            "retry-after": "10"
+          },
+          "body": {
+            "error": "Unavailable"
+          }
+        },
+        "/api/peg-summary": {
+          "status": 503,
+          "headers": {
+            "retry-after": "10"
+          },
+          "body": {
+            "error": "Unavailable"
+          }
+        },
+        "/api/stress-signals": {
+          "status": 503,
+          "headers": {
+            "retry-after": "10"
+          },
+          "body": {
+            "error": "Unavailable"
+          }
+        },
+        "/api/safety-grades": {
+          "status": 503,
+          "headers": {
+            "retry-after": "10"
+          },
+          "body": {
+            "error": "Unavailable"
+          }
+        },
+        "/api/mint-burn-flows": {
+          "status": 503,
+          "headers": {
+            "retry-after": "10"
+          },
+          "body": {
+            "error": "Unavailable"
+          }
+        }
+      }
+    },
+    {
+      "atMs": 900000,
+      "responses": {
+        "/api/stablecoins": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "peggedAssets": [
+              {
+                "id": "usdc-circle",
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "pegType": "peggedUSD",
+                "chains": [
+                  "Ethereum"
+                ],
+                "circulating": {
+                  "peggedUSD": 2000000000
+                },
+                "chainCirculating": {
+                  "Ethereum": {
+                    "current": 2000000000
+                  }
+                }
+              }
+            ],
+            "_meta": {
+              "updatedAt": 1790000870,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        },
+        "/api/chains": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "chains": [
+              {
+                "id": "ethereum",
+                "name": "Ethereum",
+                "totalUsd": 2000000000
+              }
+            ],
+            "globalChange7dPct": 0,
+            "_meta": {
+              "updatedAt": 1790000870,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        },
+        "/api/stability-index?detail=true": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "current": {
+              "score": 82.4,
+              "band": "STEADY",
+              "computedAt": 1789999970
+            },
+            "history": [],
+            "_meta": {
+              "updatedAt": 1790000870,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        },
+        "/api/peg-summary": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "coins": [
+              {
+                "id": "usdc-circle",
+                "currentDeviationBps": 18,
+                "activeDepeg": false
+              }
+            ],
+            "_meta": {
+              "updatedAt": 1790000870,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        },
+        "/api/stress-signals": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "signals": {
+              "usdc-circle": {
+                "score": 10,
+                "band": "CALM"
+              }
+            },
+            "_meta": {
+              "updatedAt": 1790000870,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        },
+        "/api/safety-grades": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "grades": [
+              {
+                "id": "usdc-circle",
+                "grade": "A"
+              }
+            ],
+            "_meta": {
+              "updatedAt": 1790000870,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        },
+        "/api/mint-burn-flows": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-data-age": "30",
+            "x-pharosville-proxy": "1"
+          },
+          "body": {
+            "hourly": [],
+            "_meta": {
+              "updatedAt": 1790000870,
+              "ageSeconds": 30,
+              "status": "fresh"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

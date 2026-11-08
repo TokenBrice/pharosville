@@ -10,7 +10,7 @@ interface TestEngine {
   listeners: Set<(state: RenderedFleetState) => void>;
   render(state: RenderedFleetState): void;
 }
-const harness = vi.hoisted(() => ({ engines: [] as TestEngine[], analytics: vi.fn(), preload: vi.fn(async () => {}) }));
+const harness = vi.hoisted(() => ({ engines: [] as TestEngine[], preload: vi.fn(async () => {}) }));
 vi.mock("../engine/engine", () => ({
   Engine: class {
     ctx = { services: new Map<string, unknown>([
@@ -33,7 +33,6 @@ vi.mock("../engine/engine", () => ({
 vi.mock("../systems", () => ({ SYSTEMS: [] }));
 vi.mock("../ui/mount", () => ({ mountHarbourUI: () => vi.fn() }));
 vi.mock("../ui/details", () => ({ preloadDetails: harness.preload }));
-vi.mock("../../google-analytics", () => ({ installGoogleAnalytics: harness.analytics }));
 vi.mock("../../error-reporter", () => ({ reportClientError: vi.fn() }));
 // The sweep's arrival drift-in (wake.ts) drives a real camera rig; this harness has none.
 vi.mock("./wake", () => ({ wantsWake: () => false, startWake: () => () => undefined, WAKE_PULLBACK: 0.12 }));
@@ -94,12 +93,9 @@ describe("composer-completed arrival reveal", () => {
     expect(shown()).toBe(true);
     expect(status()).toBe("The harbour is live.");
     expect(harness.preload).toHaveBeenCalledOnce(); // Warm the first interaction immediately, not after crossfade.
-    expect(harness.analytics).not.toHaveBeenCalled();
     await advance(1199);
-    expect(harness.analytics).not.toHaveBeenCalled();
     await advance(1);
     expect(host.querySelector(".pv-arrival")).toBeNull();
-    expect(harness.analytics).toHaveBeenCalledOnce();
     expect(harness.preload).toHaveBeenCalledOnce();
   });
 
@@ -125,7 +121,6 @@ describe("composer-completed arrival reveal", () => {
     await frame(1, 12);
     expect(status()).toBe("The harbour is live.");
     await advance(1200);
-    expect(harness.analytics).toHaveBeenCalledOnce(); // Arrival does not restart the crossfade/timer.
   });
 
   it("does not use the pending timeout to reveal a successful but unprepared fleet", async () => {
@@ -237,7 +232,6 @@ describe("composer-completed arrival reveal", () => {
     expect(engine().listeners.size).toBe(0);
     expect(document.getElementById("pv-poster")).toBeNull();
     expect(host.querySelector(".pv-arrival")).toBeNull();
-    expect(harness.analytics).toHaveBeenCalledOnce();
   });
 
   it("keeps a late failure honest after the boatless pending reveal", async () => {

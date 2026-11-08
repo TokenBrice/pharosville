@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { runShot } from "./frame.mjs";
+import { createReplay, replayInitScript } from "../../tests/helpers/scenario.ts";
 
 const { values: a } = parseArgs({ options: {
   help: { type: "boolean" }, origin: { type: "string", default: "http://127.0.0.1:4180/" }, out: { type: "string", default: "outputs/perf/golden" }, snapshot: { type: "string" },
@@ -12,7 +13,7 @@ const { values: a } = parseArgs({ options: {
   dprs: { type: "string", default: "1,2" }, quality: { type: "string", default: "high" }, profile: { type: "string", default: "standard" },
   width: { type: "string", default: "1600" }, height: { type: "string", default: "1000" }, epoch: { type: "string" }, seed: { type: "string", default: "20261019" }, elapsed: { type: "string", default: "120" },
   filmstrip: { type: "string" }, interval: { type: "string", default: "100" }, "ready-timeout": { type: "string", default: "120" },
-  "record-snapshot": { type: "string" },
+  "record-snapshot": { type: "string" }, "at-ms": { type: "string", default: "0" },
 } });
 if (a.help) {
   console.log(`Usage: node scripts/perf/golden.mjs --snapshot FILE [options]
@@ -20,6 +21,7 @@ if (a.help) {
   --origin URL --out DIR        default production-faithful http://127.0.0.1:4180/; outputs/perf/golden
   --views heart,overview,closest --hours 12.5,18.5,22 --seasons summer,winter --weather CALM,DANGER
   --dprs 1,2 --quality high|medium|low --profile standard|igpu --width 1600 --height 1000
+  --at-ms MS                  advance a scenario before boot (single snapshots still work)
   --epoch MS --seed 20261019 --elapsed 120 --ready-timeout 120
   --filmstrip N --interval MS   N normal-motion frames, fixed simulation interval (default 100 ms)
 Stills pin Date/RNG, boot rAF timestamps, reduced motion, ALL MotionClocks (including ocean), eased
@@ -49,7 +51,8 @@ async function main() {
   }
   if (!a.snapshot) throw new Error("--snapshot FILE is required (use --record-snapshot FILE once; do not re-record between arms)");
   const snapshotText = await readFile(resolve(a.snapshot), "utf8"), snapshot = JSON.parse(snapshotText);
-  if (!snapshot.responses || !Number.isFinite(Number(a.epoch ?? snapshot.epoch))) throw new Error("Snapshot must contain responses and an epoch (or supply --epoch)");
+  snapshot.epoch = Number(a.epoch ?? snapshot.epoch);
+  createReplay(snapshot).advanceTo(Number(a["at-ms"]));
   const filmstrip = Number(a.filmstrip ?? 0), interval = Number(a.interval);
   if (a.filmstrip && (!Number.isInteger(filmstrip) || filmstrip < 1 || !(interval > 0))) throw new Error("--filmstrip must be a positive frame count; --interval must be positive");
   if (!["standard", "igpu"].includes(a.profile) || !["high", "medium", "low"].includes(a.quality)) throw new Error("invalid profile or quality");
@@ -58,9 +61,9 @@ async function main() {
   if (views.some((v) => !["heart", "overview", "closest"].includes(v)) || seasons.some((v) => !["spring", "summer", "autumn", "winter"].includes(v)) || weather.some((v) => !["CALM", "WATCH", "ALERT", "WARNING", "DANGER"].includes(v)) || dprs.some((v) => !["1", "2"].includes(v))) throw new Error("invalid view/season/weather/DPR matrix");
   const out = resolve(a.out);
   await mkdir(out, { recursive: true });
-  const controls = { epoch: Number(a.epoch ?? snapshot.epoch), seed: Number(a.seed), elapsed: Number(a.elapsed), filmstrip, interval };
+  const controls = { atMs: Number(a["at-ms"]), epoch: snapshot.epoch + Number(a["at-ms"]), seed: Number(a.seed), elapsed: Number(a.elapsed), filmstrip, interval };
   const initFile = resolve(out, "capture-init.js");
-  await writeFile(initFile, `(${initializeCapture.toString()})(${JSON.stringify(snapshot)},${JSON.stringify(controls)});`);
+  await writeFile(initFile, `${replayInitScript(snapshot)}\nwindow.__scenario.advanceTo(${Number(a["at-ms"])});\n(${initializeCapture.toString()})(${JSON.stringify(controls)});`);
   const manifest = { meta: { tool: "golden", date: new Date().toISOString(), origin: a.origin, snapshot: resolve(a.snapshot), snapshotSha256: createHash("sha256").update(snapshotText).digest("hex"), profile: a.profile, quality: a.quality, ...controls, protocol: "pinned Date/RNG/boot-rAF; converged private clocks and uniforms; zero-delta stills or fixed-step normal motion", humanReviewRequired: true }, captures: [] };
   let failure;
   outer: for (const dpr of dprs) for (const view of views) for (const hour of hours) for (const season of seasons) for (const band of weather) {
@@ -79,11 +82,12 @@ async function main() {
   console.log(`Golden manifest: ${resolve(out, "manifest.json")}`);
 }
 
-function initializeCapture(snapshot, controls) {
+function initializeCapture(controls) {
   let seed = controls.seed >>> 0;
   Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
   const NativeDate = Date;
   window.__goldenNow = controls.epoch;
+  window.__scenarioEpoch = controls.epoch - controls.atMs;
   function PinnedDate(...args) {
     if (!new.target) return new NativeDate(window.__goldenNow).toString();
     return Reflect.construct(NativeDate, args.length ? args : [window.__goldenNow], new.target);
@@ -94,18 +98,6 @@ function initializeCapture(snapshot, controls) {
   window.Date = PinnedDate;
   const raf = window.requestAnimationFrame.bind(window);
   window.requestAnimationFrame = (callback) => raf(() => callback(0));
-  const fetchReal = window.fetch.bind(window);
-  window.fetch = async (input, options) => {
-    const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url, location.href);
-    if (url.origin === location.origin && url.pathname.startsWith("/api/")) {
-      const row = snapshot.responses[url.pathname + url.search] ?? snapshot.responses[url.pathname];
-      if (!row) throw new Error(`API snapshot missing ${url.pathname}${url.search}`);
-      const headers = new Headers(row.headers);
-      headers.delete("content-encoding"); headers.delete("content-length");
-      return new Response(typeof row.body === "string" ? row.body : JSON.stringify(row.body), { status: row.status, headers });
-    }
-    return fetchReal(input, options);
-  };
   try { localStorage.setItem("pv:intro-seen", "1"); } catch { /* storage policy */ }
   const disableAnimations = () => {
     const style = document.createElement("style");
@@ -233,6 +225,7 @@ async function freezeCapture({ elapsed, epoch, closest, band, filmstrip, interva
       for (let step = 0; step < steps; step++) {
         stamp += dt * 1000;
         window.__goldenNow += dt * 1000;
+        window.__scenario.advanceTo(window.__goldenNow - window.__scenarioEpoch);
         e.frame(stamp);
       }
       currentFrame++;

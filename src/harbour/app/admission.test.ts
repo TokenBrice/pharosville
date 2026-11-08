@@ -7,7 +7,6 @@ const { imported, mounted, unmounted, report } = vi.hoisted(() => ({
   imported: vi.fn(), mounted: vi.fn(), unmounted: vi.fn(), report: vi.fn(),
 }));
 vi.mock("../../error-reporter", () => ({ installClientErrorReporter: vi.fn(), reportClientError: report }));
-vi.mock("../../google-analytics", () => ({ installGoogleAnalytics: vi.fn() }));
 
 let dispose: (() => void) | undefined;
 const dimensions = (sw: number, sh: number, w: number, h: number) => {

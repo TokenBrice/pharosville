@@ -1,5 +1,4 @@
 import { installClientErrorReporter, reportClientError } from "./error-reporter";
-import { installGoogleAnalytics } from "./google-analytics";
 import { canViewportShowMap, isWidescreenViewport } from "./systems/viewport-gate";
 import { dismissPoster, resetPosterState } from "./harbour/app/poster";
 
@@ -20,8 +19,6 @@ function welcome(screenCapable: boolean): void {
     if (screenCapable) size.textContent = "Your device can show the living harbour. Give this window more room: ";
   }
   dismissPoster("now");
-  // Two callbacks leave a paint opportunity for the useful welcome before analytics starts.
-  requestAnimationFrame(() => requestAnimationFrame(() => { if (!admitted) installGoogleAnalytics(); }));
 }
 
 function sync(): void {
