@@ -15,6 +15,7 @@ import { UIPicking } from "./picking";
 import { inPoly, seaZones } from "./places";
 import { idleBreath, modelWatch, watchSources, WATCH_DWELL_S, type WatchStop } from "./watch";
 import { truthCopy } from "./truth-copy";
+import { nextPalette, registerPaletteTokens, type Palette } from "./palette";
 import { RouteLine } from "../fleet/route-line";
 import { landmarkHover } from "../world/landmark-hover";
 import { PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "../sim/sim";
@@ -39,6 +40,10 @@ export interface UIState {
   capturing: boolean;
   /** The harbourmaster's watch (W): the current stop's coin and why it is shown, or null. */
   watch: { symbol: string; line: string } | null;
+  /** The overlay palette (palette.ts): the night bridge after dusk, from the clock's night factor. Absent reads as day. */
+  palette?: Palette;
+  /** The visitor's own Still world (Sound options), as the motion service reports it; its slip shows while it is on. */
+  still?: boolean;
 }
 
 type FrameFn = (frame: FrameState) => void;
@@ -111,11 +116,13 @@ export class HarbourUIStore {
       target: [rig.target.x, rig.target.y, rig.target.z], distance: rig.distance, fovDeg: camera.fov,
       pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
     };
+    registerPaletteTokens();
     this.state = {
       model: this.readModel(), hover: null, shipChoices: [], selected: null, searchOpen: false, ledgerOpen: false, chartMode: false,
       reducedMotion: this.motion.reduced, tick: 0, follow: null, announce: "", capturing: false, watch: null,
+      palette: nextPalette(null, ctx.uniforms.uNight.value), still: this.motion.still,
     };
-    this.cleanups.push(this.motion.subscribe((reduced) => { this.set({ reducedMotion: reduced }); if (reduced) this.stopAutomation(); }));
+    this.cleanups.push(this.motion.subscribe((reduced) => { this.set({ reducedMotion: reduced, still: this.motion.still }); if (reduced) this.stopAutomation(); }));
     this.attachPointer(ctx.renderer.domElement);
     this.route = new RouteLine(ctx, (id) => getSim(this.ctx)?.itineraryOf?.(id) ?? null);
     this.cleanups.push(() => this.route.dispose());
@@ -153,7 +160,11 @@ export class HarbourUIStore {
     this.picking.beginFrame();
     const model = this.readModel();
     if (model !== this.state.model) this.set({ model });
-    if (frame.nowMs - this.lastTick >= 1000) { this.lastTick = frame.nowMs; this.set({ tick: this.state.tick + 1 }); }
+    if (frame.nowMs - this.lastTick >= 1000) {
+      this.lastTick = frame.nowMs;
+      // the night bridge follows the clock's night factor (never a reading), with hysteresis (palette.ts)
+      this.set({ tick: this.state.tick + 1, palette: nextPalette(this.state.palette, this.ctx.uniforms.uNight.value) });
+    }
     // hover: re-pick on pointer motion, and every 120 ms while still (boats sail out from under it)
     if (this.pointer.inside && !this.dragging && !this.state.capturing && !this.state.watch && (this.pointer.dirty || frame.nowMs - this.lastPickAt > 120)) {
       this.pointer.dirty = false;

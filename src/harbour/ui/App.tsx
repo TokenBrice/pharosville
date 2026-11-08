@@ -9,6 +9,8 @@ import { preloadDetails } from "./details";
 import { DetailFallback } from "./DetailFallback";
 import { SectionErrorBoundary } from "@/components/section-error-boundary";
 import { OverlayFailure } from "./OverlayFailure";
+import { PALETTE_FADE } from "./palette";
+import { Slip } from "./Slip";
 
 /** Arrow keys pan. (No WASD: W is the opt-in watch, D-5, and half a WASD set would only confuse.) */
 const PAN_KEYS: Record<string, "up" | "down" | "left" | "right"> = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
@@ -24,7 +26,7 @@ export function HarbourUI() {
   const reducedMotion = useUISlice((s) => s.reducedMotion);
   const announce = useUISlice((s) => s.announce);
   const capturing = useUISlice((s) => s.capturing);
-  const watch = useUISlice((s) => s.watch);
+  const palette = useUISlice((s) => s.palette);
   const ledgerOpen = useUISlice((s) => s.ledgerOpen);
   // Keep mounted after first use so each panel retains its existing close/presence semantics.
   const [DetailPanels, setDetailPanels] = useState(() => lazy(preloadDetails));
@@ -110,7 +112,7 @@ export function HarbourUI() {
   }, [selected]);
 
   return (
-    <div className={`hb-ui${reducedMotion ? " hb-reduced" : ""}${capturing ? " hb-capturing" : ""}`}>
+    <div className={`hb-ui${reducedMotion ? " hb-reduced" : ""}${capturing ? " hb-capturing" : ""}`} data-palette={palette ?? "day"} style={PALETTE_FADE}>
       <ChartLabels />
       <HoverTag />
       <CornerMark />
@@ -124,12 +126,7 @@ export function HarbourUI() {
       </Suspense></SectionErrorBoundary>}
       <Postcard />
       {!!shipChoices?.length && <ShipChooser choices={shipChoices} />}
-      {watch && (
-        <div className="hb-watch hb-paper" aria-hidden="true">
-          <span className="hb-sc">Harbourmaster’s watch</span> <b>{watch.symbol}</b> <em>{watch.line}</em>
-          <span className="hb-watch-key"><kbd>W</kbd>stop</span>
-        </div>
-      )}
+      <Slip />
       <div className="hb-sr" aria-live="polite">{chartMode ? "Chart mode on: names shown." : ""}{searchOpen ? "Search open." : ""}{announce}</div>
     </div>
   );

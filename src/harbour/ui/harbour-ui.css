@@ -28,7 +28,7 @@
   --r-ctl: 2px;
   --ctl: 32px;
   --ctl-touch: 44px;
-  /* motion: one curve; hover, open, unroll, and the palette change (the night bridge crossfade) */
+  /* motion: one curve for every response (hover, open, unroll); the palette change, which answers the clock, eases evenly */
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --t-fast: 150ms;
   --t-med: 220ms;
@@ -103,20 +103,28 @@
   font-variant-ligatures: common-ligatures;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* the palette crossfade: palette.ts registers the colour tokens as <color> and names them in the root's
+     transition-property, so every surface, rule, halo and gradient stop turns together; an even ease, since the
+     light changing is not a response to the visitor */
+  transition: var(--t-palette) ease-in-out;
 }
+.hb-ui.hb-reduced { transition-duration: 0s; }
 
 /* The night bridge (O8-I1, S-52 style): dark chart, dim cream ink, brass rules, so the Pharos keeps the brightest
-   pixels after dusk. Defined, not yet switched on: U-night sets data-palette="night" on the .hb-ui root (uNight with
-   hysteresis) and owns the --t-palette crossfade. Contrast on --paper: ink 11.9, ink-2 8.7, ink-3 6.4, brass-ink
-   7.7, rule 5.0, link 8.3, up 8.4, down 7.5, focus 7.7, live 6.2, stale 7.2. */
+   pixels after dusk. palette.ts sets data-palette="night" on the .hb-ui root at the 1 Hz tick from uNight (night
+   above 0.55, day below 0.45). Every ink stays under the night scene's brightest lights (a night frame's brightest
+   0.7 % begins near luminance 0.35-0.4; the ink is 0.335) yet reads on the paper as drawn (grain and sheen lift it
+   to about 0.02): contrast on --paper ink 6.0, ink-2 5.7, ink-3 5.4, brass-ink 5.2, link 5.6, up 5.3, down 5.3,
+   stale-ink 5.2 (4.7 or more as drawn); marks rule 5.0, focus 5.6, live 5.5, stale 5.2, unavail 4.6. The three
+   inks sit close at night (S-52 practice); size, weight and italics carry the hierarchy. */
 .hb-ui[data-palette="night"] {
   --paper: #18212b;
   --paper-2: #1f2a36;
   --paper-3: #283543;
-  --ink: #e6dcc6;
-  --ink-2: #c8bda5;
-  --ink-3: #aba18c;
-  --brass-ink: #cfae6e;
+  --ink: #a39c8d;
+  --ink-2: #9f988a;
+  --ink-3: #989589;
+  --brass-ink: #ab8e5a;
   --rule: #a88a52;
   --neat: rgba(207, 174, 110, 0.26);
   --edge: rgba(207, 174, 110, 0.38);
@@ -125,22 +133,22 @@
   --wash-2: rgba(207, 174, 110, 0.12);
   --wash-3: rgba(207, 174, 110, 0.2);
   --face: rgba(255, 255, 255, 0.05);
-  --link: #8ec1d9;
-  --up: #8fc7a0;
-  --down: #ec9c8b;
-  --focus: #7fb8ea;
-  --live: #5fb07f;
-  --stale: #d9a441;
-  --stale-ink: #d9a441;
+  --link: #719db2;
+  --up: #6f9e7d;
+  --down: #c48272;
+  --focus: #6a9cc8;
+  --live: #58a676;
+  --stale: #b88a37;
+  --stale-ink: #b88a37;
   --unavail: #8f8775;
   --halo: rgba(12, 18, 26, 0.9);
-  --sea-ink: #9cc7dd;
-  --medal: #e6dcc6;
+  --sea-ink: #7299ad;
+  --medal: #9d9585;
   --ring: rgba(255, 255, 255, 0.22);
-  --sheen-hi: rgba(207, 174, 110, 0.07);
+  --sheen-hi: rgba(207, 174, 110, 0.05);
   --sheen-lo: rgba(0, 0, 0, 0.2);
   --lift: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 14px 34px -10px rgba(0, 0, 0, 0.65);
-  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .92  0 0 0 0 .86  0 0 0 0 .72  0 0 0 .045 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .92  0 0 0 0 .86  0 0 0 0 .72  0 0 0 .035 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   --chart-up: #6fa8d6;
   --chart-down: #e2897b;
   --c1: #6fa8d6;
@@ -191,8 +199,9 @@
 .hb-mark-word i { font-weight: 400; font-style: italic; }
 .hb-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; position: relative; top: 1px; }
 .hb-dot[data-state="current"] { background: var(--live); box-shadow: 0 0 0 2px color-mix(in srgb, var(--live) 18%, transparent); }
-.hb-dot[data-state="stale"] { background: var(--stale); box-shadow: 0 0 0 2px color-mix(in srgb, var(--stale) 20%, transparent); }
-.hb-dot[data-state="unavailable"] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--unavail); }
+/* the shape says the state too (O8-I7): a dot live, a ring-and-bar stale, a ring unavailable or unverified */
+.hb-dot[data-state="stale"] { box-shadow: inset 0 0 0 1.5px var(--stale); background: linear-gradient(transparent 2.75px, var(--stale) 0 4.25px, transparent 0); }
+.hb-dot[data-state^="un"] { box-shadow: inset 0 0 0 1.5px var(--unavail); } /* unavailable, unknown */
 .hb-dot[data-state="current"]::after {
   content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--live) 55%, transparent);
   animation: hb-breathe 3.2s ease-out infinite;
@@ -207,6 +216,12 @@
 .hb-mark:is(:hover, :has(:focus-visible)) .hb-mark-more { grid-template-columns: 1fr; opacity: 1; }
 .hb-mark:is(:hover, :has(:focus-visible)) .hb-mark-btn { padding-right: 8px; }
 .hb-mark-state { font-style: italic; font-size: var(--fs-small); color: var(--ink-2); }
+/* not plainly live (O8-I7): once the harbour is revealed (the arrival card speaks before), the state word stays out
+   at rest; the rest of the strip still waits for hover or focus */
+[data-pv-live] .hb-mark[data-live="false"] .hb-mark-more { grid-template-columns: 1fr; opacity: 1; }
+[data-pv-live] .hb-mark[data-live="false"] .hb-mark-btn { padding-right: 8px; }
+@media (hover: hover) { .hb-mark[data-live="false"]:not(:hover, :has(:focus-visible)) .hb-mark-more > div > :not(.hb-mark-state) { display: none; } }
+.hb-mark-state[data-state="stale"] { color: var(--stale-ink); font-style: normal; font-weight: 600; }
 .hb-keys { font-size: var(--fs-note); color: var(--ink-3); display: flex; gap: 2px; margin-right: 6px; }
 .hb-keys button { padding: 3px 6px 3px 4px; border-radius: var(--r-ctl); color: var(--ink-3); transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 .hb-keys button:focus-visible { outline-offset: -1px; }
@@ -218,7 +233,7 @@
   display: inline-grid; place-items: center; border: 0.5px solid var(--rule); border-radius: var(--r-ctl);
   background: var(--face); color: var(--ink-2); position: relative; top: -1px;
 }
-:is(.hb-keys, .hb-follow, .hb-keylist, .hb-watch) kbd { margin-right: 4px; }
+:is(.hb-keys, .hb-follow, .hb-keylist, .hb-slip) kbd { margin-right: 4px; }
 
 /* one-time orientation caption, hung under the wordmark */
 .hb-intro {
@@ -373,13 +388,8 @@
 .hb-bars { display: block; width: 100%; height: 92px; overflow: visible; }
 .hb-axis-note { display: flex; justify-content: space-between; font-size: var(--fs-note); color: var(--ink-3); font-style: italic; margin-top: 2px; }
 /* chart inks: an SVG mark draws with stroke/fill="currentColor" under one of these, so it follows the palette */
-.hb-chart-mark { color: var(--ink); }
 .hb-chart-now { color: var(--ink); fill: var(--paper); }
 .hb-chart-axis { color: var(--brass-ink); }
-.hb-chart-grid { color: var(--rule); }
-.hb-chart-gap { color: var(--c-other); }
-.hb-chart-up { color: var(--chart-up); }
-.hb-chart-down { color: var(--chart-down); }
 
 /* ------------------------------------------------------------------ search */
 .hb-search { position: fixed; top: 14vh; left: 50%; width: 440px; max-width: calc(100vw - 28px); transform: translate(-50%, -6px); pointer-events: auto; }
@@ -429,7 +439,6 @@
   content: ""; position: absolute; left: -2.5px; bottom: -3px; width: 6px; height: 6px; border-radius: 50%;
   background: var(--paper); border: 1px solid var(--brass-ink);
 }
-.hb-chart-badge { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); padding: 4px 12px 5px; font-size: var(--fs-note); color: var(--ink-2); font-style: italic; }
 
 /* ------------------------------------------------------------------ ledger */
 .hb-ledger {
@@ -503,7 +512,6 @@
 .hb-yard .hb-row em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: var(--fs-small); }
 .hb-yard .hb-row span.hb-num { font-size: var(--fs-note); font-style: italic; }
 
-.hb-detail { line-height: 1.4; margin-top: 10px; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .hb-milestones { list-style: none; margin: 0; padding: 0 0 0 12px; border-left: 0.5px solid var(--rule); }
 .hb-milestones li { position: relative; padding: 0 0 9px 4px; }
 .hb-milestones li::before { content: ""; position: absolute; left: -16px; top: 6px; width: 6px; height: 6px; transform: rotate(45deg); background: var(--paper); border: 1px solid var(--brass-ink); }
@@ -530,6 +538,7 @@
   .hb-mark-more { grid-template-columns: 1fr; opacity: 1; }
   .hb-mark-btn { padding-right: 8px; }
   .hb-keys kbd { display: none; }
+  .hb-slip kbd { display: none; }
 }
 @media (pointer: coarse) {
   .hb-mark-btn, .hb-sound { min-height: var(--ctl-touch); }
@@ -545,6 +554,7 @@
   .hb-textbtn { display: inline-block; min-height: var(--ctl-touch); line-height: var(--ctl-touch); }
   .hb-filter input { min-height: var(--ctl-touch); }
   .hb-panel-body, .hb-ledger-body { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  .hb-slip button { min-height: var(--ctl-touch); }
 }
 @media (max-width: 899.98px) {
   .hb-panel {
@@ -557,7 +567,7 @@
   .hb-panel[data-shown="true"] { transform: none; }
   .hb-panel-head { padding: 16px 60px 10px 20px; }
   .hb-panel-body { padding: 0 20px 18px; overscroll-behavior: contain; }
-  .hb-chart-badge { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .hb-ui:has(.hb-panel) .hb-slip { bottom: calc(50dvh + 12px); }
 }
 
 /* the ledger's keyboard list (Legend tab foot) */
@@ -582,7 +592,19 @@
 /* ------------------------------------------------------------------ postcard (P, 12-M10) */
 .hb-ui.hb-capturing > * { visibility: hidden; }
 
-/* ------------------------------------------------------------------ the harbourmaster's watch (W, 12-M7b) */
-.hb-watch { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 6px 14px 7px; font-size: var(--fs-small); white-space: nowrap; display: flex; align-items: baseline; gap: 8px; }
-.hb-watch .hb-sc { color: var(--brass-ink); }
-.hb-watch em, .hb-watch-key { color: var(--ink-2); }
+/* ------------------------------------------------------------------ the slip (O8-I7): the one toast
+   A mode the visitor turned on (Names, Still world, the watch W) shows here until it is off, one at a time, centred in
+   the free area: clear of the side panel and the ledger, above the sheet. Never a market event (D11). */
+.hb-slip {
+  position: fixed; inset-inline: 0; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: fit-content; margin-inline: auto;
+  display: flex; align-items: baseline; gap: 10px; padding: 5px 6px 6px 14px; font-size: var(--fs-small); color: var(--ink-2); white-space: nowrap;
+  transform: translateY(4px); visibility: hidden; transition: all var(--t-med) var(--ease); /* visibility too: hidden only once faded */
+}
+.hb-slip[data-shown="true"] { transform: none; visibility: visible; }
+.hb-slip .hb-sc { color: var(--brass-ink); }
+.hb-slip button { padding: 2px 7px 3px 5px; border-radius: var(--r-ctl); color: var(--ink-3); transition: all var(--t-fast) var(--ease); }
+.hb-slip button:hover { background: var(--wash-2); color: var(--ink); }
+@media (min-width: 900px) {
+  .hb-ui:has(.hb-panel) .hb-slip { right: 392px; }
+  .hb-ui:has(.hb-ledger) .hb-slip { left: 728px; }
+}
