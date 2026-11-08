@@ -23,8 +23,8 @@ export function WatchControls() {
     else if (e.key === "Escape" || e.key.toLowerCase() === "w") { e.preventDefault(); store.stopWatch(); }
     else if (e.key === "Home") { e.preventDefault(); store.goHome(); } // D14: Home ends the watch from its own controls too
   }}>
-    <span><span className="hb-sc">Harbourmaster’s watch</span> <b>{watch.symbol}</b> <em>{watch.line}</em></span>
-    <div className="hb-reading-actions">
+    <span><span className="hb-sc">Harbourmaster’s watch</span> <b>{watch.symbol}</b> <span>{watch.line}</span></span>
+    <div className="hb-keys">
       <button type="button" onClick={() => store.watchPrevious()}>Previous</button>
       <button type="button" onClick={() => store.watchNext()}>Next</button>
       <button type="button" onClick={() => store.inspectWatch()}>Inspect</button>

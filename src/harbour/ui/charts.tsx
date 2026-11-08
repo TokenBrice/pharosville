@@ -44,12 +44,12 @@ export function Sparkline({ observations, now, nowAt, label = "PSI observations"
     <p className="hb-caption">{caption}</p>
     {selected && <>
       <div className="hb-axis-note" role="status" aria-live="polite">{utcObservation(selected.date)} UTC · {selected.score.toFixed(1)}</div>
-      <div className="hb-chart-controls">
-        <button type="button" disabled={index === 0} onClick={() => setSelectedDate(rows[index - 1].date)}>Previous observation</button>{" "}
-        <button type="button" disabled={index === rows.length - 1} onClick={() => setSelectedDate(rows[index + 1].date)}>Next observation</button>
+      <div className="hb-chart-controls hb-reading-actions">
+        <button type="button" className="hb-control" disabled={index === 0} onClick={() => setSelectedDate(rows[index - 1].date)}>Previous observation</button>{" "}
+        <button type="button" className="hb-control" disabled={index === rows.length - 1} onClick={() => setSelectedDate(rows[index + 1].date)}>Next observation</button>
       </div>
     </>}
-    <details><summary>View values</summary><table className="hb-table"><caption>PSI observations (UTC)</caption><thead><tr><th scope="col">Observation (UTC)</th><th scope="col">PSI</th><th scope="col">Methodology</th></tr></thead><tbody>
+    <details><summary>View values</summary><table className="hb-table"><caption>PSI observations (UTC)</caption><thead><tr><th scope="col"><span className="hb-sc">Observation (UTC)</span></th><th scope="col"><span className="hb-sc">PSI</span></th><th scope="col"><span className="hb-sc">Methodology</span></th></tr></thead><tbody>
       {rows.map((r) => <tr key={r.date}><th scope="row">{utcObservation(r.date)}</th><td>{r.score.toFixed(1)}</td><td className="hb-wrap">{r.methodologyVersion ?? "Unknown"}</td></tr>)}
       {current && <tr><th scope="row">Now · {utcObservation(current.date)}</th><td>{current.score.toFixed(1)}</td><td>Current reading</td></tr>}
     </tbody></table></details>
@@ -94,7 +94,7 @@ export function FlowChart({ hourly, side }: { hourly: FlowHour[]; side?: "mint" 
     </svg>
     <p className="hb-caption">{caption}</p>
     <div className="hb-axis-note">{hovered ? `${utcObservation(hovered.date)} UTC · ${valueLine(hovered.hour)}` : side ? `${side === "mint" ? "minted" : "burned"} each hour${rows.some((r) => r.hour && r.hour.valuation !== "complete") ? " · lower bounds" : ""}` : "net minted above, net burned below"}</div>
-    <details><summary>View values</summary><table className="hb-table"><caption>Hourly flow observations (UTC)</caption><thead><tr><th scope="col">Hour (UTC)</th><th scope="col">Value</th><th scope="col">Valuation</th></tr></thead><tbody>{rows.map(({ date, hour }) => <tr key={date}><th scope="row">{utcObservation(date)}</th><td className="hb-wrap">{valueLine(hour)}</td><td>{hour?.valuation ?? (hour ? "Unknown" : "Missing")}</td></tr>)}</tbody></table></details>
+    <details><summary>View values</summary><table className="hb-table"><caption>Hourly flow observations (UTC)</caption><thead><tr><th scope="col"><span className="hb-sc">Hour (UTC)</span></th><th scope="col"><span className="hb-sc">Value</span></th><th scope="col"><span className="hb-sc">Valuation</span></th></tr></thead><tbody>{rows.map(({ date, hour }) => <tr key={date}><th scope="row">{utcObservation(date)}</th><td className="hb-wrap">{valueLine(hour)}</td><td>{hour?.valuation ?? (hour ? "Unknown" : "Missing")}</td></tr>)}</tbody></table></details>
   </div>;
 }
 export const TideBars = ({ hourly }: { hourly: FlowHour[] }) => <FlowChart hourly={hourly} />;

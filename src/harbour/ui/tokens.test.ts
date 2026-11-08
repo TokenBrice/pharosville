@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 const ui = read("./harbour-ui.css");
 const sound = read("../audio/sound-toggle.css");
+const chooser = read("./camera-controls.css");
 const block = (selector: string) => { const at = ui.indexOf(`${selector} {`); return ui.slice(at, ui.indexOf("\n}", at) + 2); };
 const day = block(".hb-ui"), night = block('.hb-ui[data-palette="night"]');
 const tokens = (b: string) => new Map([...b.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
@@ -29,6 +30,7 @@ describe("Pilot's Chart tokens", () => {
   it("leaves no colour literal outside the two token blocks", () => {
     expect(ui.replace(day, "").replace(night, "")).not.toMatch(LITERAL);
     expect(sound).not.toMatch(LITERAL);
+    expect(chooser).not.toMatch(LITERAL);
   });
 
   it("redefines every palette colour for the night bridge, and nothing else", () => {
@@ -41,8 +43,10 @@ describe("Pilot's Chart tokens", () => {
   it("sets type only in the eight steps", () => {
     const steps = [...DAY].filter(([k]) => k.startsWith("--fs-")).map(([k, v]) => `${k.slice(5)} ${v}`);
     expect(steps).toEqual(["cap 11.5px", "note 13.5px", "small 14.5px", "body 16px", "lead 17.5px", "h3 21px", "title 30px", "title-long 26px", "display 38px"]);
-    const sizes = [...ui.replace(day, "").matchAll(/font(?:-size)?:\s*([^;}]+)/g)].map((m) => m[1]).filter((v) => /\d(?:px|em|rem)\b/.test(v.replace(/var\([^)]*\)/g, "")));
-    expect(sizes).toEqual([]);
+    for (const sheet of [ui.replace(day, ""), sound, chooser]) {
+      const sizes = [...sheet.matchAll(/font(?:-size)?:\s*([^;}]+)/g)].map((m) => m[1]).filter((v) => /\d(?:px|em|rem)\b/.test(v.replace(/var\([^)]*\)/g, "")));
+      expect(sizes).toEqual([]);
+    }
   });
 
   it("keeps text inks at 4.5:1 and marks at 3:1 on the paper, by day and by night", () => {

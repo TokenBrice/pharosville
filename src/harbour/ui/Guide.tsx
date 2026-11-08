@@ -47,18 +47,18 @@ function GuideReading({ stop }: { stop: number }) {
     e.stopPropagation();
     if (e.key === "Escape") { e.preventDefault(); store.closeGuide(); }
   }}>
-    <h2 id="hb-guide-title" className="hb-sec-h">How to read the harbour</h2>
+    <h2 id="hb-guide-title" className="hb-sec-h hb-sc">How to read the harbour</h2>
     <p className="hb-caption">{stop + 1} of {STOPS.length}</p>
     <h3 className="hb-title" tabIndex={-1} ref={head}>{reading.title}</h3>
-    <p>{reading.body}</p>
+    <p className="hb-why">{reading.body}</p>
     {stop === 0 && qualification && <p className="hb-caption">{qualification}</p>}
     {reading.sources.map((source) => <p key={source} className="hb-caption">{readingSentence(model, source)}</p>)}
     {!available && <p className="hb-caption">This subject is unavailable here. You can still read its explanation.</p>}
     <div className="hb-reading-actions">
-      <button type="button" disabled={stop === 0} onClick={() => store.startGuide(stop - 1)}>Back</button>
-      <button type="button" disabled={stop === STOPS.length - 1} onClick={() => store.startGuide(stop + 1)}>Next</button>
-      <button type="button" disabled={!available} onClick={() => { inspected.current = true; store.closeGuide(); store.select(hit); }}>Inspect reading</button>
-      <button type="button" onClick={() => store.closeGuide()}>Close guide</button>
+      <button type="button" className="hb-control" disabled={stop === 0} onClick={() => store.startGuide(stop - 1)}>Back</button>
+      <button type="button" className="hb-control" disabled={stop === STOPS.length - 1} onClick={() => store.startGuide(stop + 1)}>Next</button>
+      <button type="button" className="hb-control" disabled={!available} onClick={() => { inspected.current = true; store.closeGuide(); store.select(hit); }}>Inspect reading</button>
+      <button type="button" className="hb-control" onClick={() => store.closeGuide()}>Close guide</button>
     </div>
   </section>;
 }

@@ -70,7 +70,7 @@ export function Postcard() {
   };
 
   if (phase === "closed") return null;
-  return <dialog ref={dialog} className="hb-postcard hb-paper hb-neat" aria-label="Postcard"
+  return <dialog ref={dialog} className="hb-postcard hb-paper" aria-label="Postcard"
     onCancel={(e) => { e.preventDefault(); close(); }} onClose={() => { if (open.current) close(); }}>
     {phase === "creating" && <p role="status">Creating postcard…</p>}
     {phase === "failed" && <><p role="alert">The postcard could not be created.</p><button type="button" className="hb-control" onClick={() => take.current()}>Try again</button></>}
