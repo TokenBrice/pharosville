@@ -16,6 +16,6 @@ export async function overlayBundle() {
   return {
     script: output.output.find((file) => file.type === "chunk")!.code!,
     css: String(output.output.find((file) => file.fileName.endsWith(".css"))!.source),
-    html: '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Overlay contract</title><link rel="stylesheet" href="/arrival-shell.css"><link rel="stylesheet" href="/__qa__/overlay.css"></head><body><main><h1>Overlay contract</h1><div id="overlay"></div></main><script src="/__qa__/overlay.js"></script></body></html>',
+    html: '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Overlay contract</title><link rel="stylesheet" href="/arrival-shell.css"><link rel="stylesheet" href="/__qa__/overlay.css"></head><body><main><h1 class="sr-only">Overlay contract</h1><div id="overlay"></div></main><script src="/__qa__/overlay.js"></script></body></html>',
   };
 }
