@@ -4,15 +4,18 @@ import type { UIState } from "./store";
 
 export type SlipMode = "watch" | "still" | "names";
 
-/** The active modes, most recently turned on first: each keeps its place, a newly active one goes in front. */
-export function slipOrder(prev: readonly SlipMode[], active: readonly SlipMode[]): SlipMode[] {
-  return [...active.filter((m) => !prev.includes(m)), ...prev.filter((m) => active.includes(m))];
-}
+/** What each mode's slip says, and its way out (the watch's line is its current subject). */
+const SLIPS: Record<SlipMode, { label: string; line?: string; act: string; key?: string; name?: string }> = {
+  watch: { label: "Harbourmaster’s watch", act: "Stop", key: "W", name: "Stop the watch (W)" },
+  still: { label: "Still world", line: "Motion is still. Readings continue to update.", act: "Turn off" },
+  names: { label: "Names", line: "The chart is lettered: harbours, landmarks and the largest ships.", act: "Hide", key: "C", name: "Hide chart names (C)" },
+};
 
 /**
  * The slip (O8-I7), the overlay's one toast: the on-state of a mode the visitor turned on (chart Names, C; Still
  * world; the harbourmaster's watch, W), with a caps label, one line and the way out. It stays while its mode is on;
- * one shows at a time, the latest; it sits bottom-centre of the free area (harbour-ui.css). It answers the visitor's
+ * one shows at a time, the most consequential (the watch moves the camera, Still world stops the world, Names only
+ * letters it); it sits bottom-centre of the free area (harbour-ui.css). It answers the visitor's
  * own actions only, never a market event (D11). Its announcement is the existing polite live line (App) or the Still
  * world checkbox itself, so the slip adds no second voice. The element stays mounted (hidden) so it can fade both ways.
  */
@@ -21,32 +24,19 @@ export function Slip() {
   const names = useUISlice((s) => s.chartMode);
   const still = useUISlice((s) => !!s.still);
   const watch = useUISlice((s) => s.watch);
-  const active: SlipMode[] = [];
-  if (watch) active.push("watch");
-  if (still) active.push("still");
-  if (names) active.push("names");
-  const [order, setOrder] = useState<SlipMode[]>([]);
-  const next = slipOrder(order, active);
-  if (next.join() !== order.join()) setOrder(next);
+  const top: SlipMode | null = watch ? "watch" : still ? "still" : names ? "names" : null;
   // what the slip last said stays drawn while it fades out
-  const top = next[0] ?? null;
   const [last, setLast] = useState<{ mode: SlipMode; watch: UIState["watch"] } | null>(null);
   if (top && (top !== last?.mode || (top === "watch" && watch !== last.watch))) setLast({ mode: top, watch });
+  const s = last ? SLIPS[last.mode] : null;
+  const off = () => last?.mode === "watch" ? store.stopWatch() : last?.mode === "still" ? store.motion.setStill(false) : store.set({ chartMode: false });
   return (
     <div className="hb-slip hb-paper hb-fade" data-shown={!!top} data-mode={last?.mode}>
-      {last?.mode === "watch" ? <>
-        <span className="hb-sc">Harbourmaster’s watch</span>
-        <span><b>{last.watch?.symbol}</b> {last.watch?.line}</span>
-        <button type="button" onClick={() => store.stopWatch()} aria-label="Stop the watch (W)"><kbd>W</kbd>Stop</button>
-      </> : last?.mode === "still" ? <>
-        <span className="hb-sc">Still world</span>
-        <span>Motion is still. Readings continue to update.</span>
-        <button type="button" onClick={() => store.motion.setStill(false)}>Turn off</button>
-      </> : last?.mode === "names" ? <>
-        <span className="hb-sc">Names</span>
-        <span>The chart is lettered: harbours, landmarks and the largest ships.</span>
-        <button type="button" onClick={() => store.set({ chartMode: false })} aria-label="Hide chart names (C)"><kbd>C</kbd>Hide</button>
-      </> : null}
+      {last && s && <>
+        <span className="hb-sc">{s.label}</span>
+        <span>{last.mode === "watch" ? <><b>{last.watch?.symbol}</b> {last.watch?.line}</> : s.line}</span>
+        <button type="button" onClick={off} aria-label={s.name}>{s.key && <kbd>{s.key}</kbd>}{s.act}</button>
+      </>}
     </div>
   );
 }

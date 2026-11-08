@@ -42,10 +42,9 @@ describe("the night bridge switch (O8-I1)", () => {
     const night = [...block('.hb-ui[data-palette="night"]').matchAll(/--([\w-]+):\s*([^;]+);/g)]
       .filter(([, , value]) => !value.trim().startsWith("url(") && !/\dpx/.test(value)).map(([, name]) => name);
     expect([...PALETTE_TOKENS].sort()).toEqual(night.sort());
-    expect(PALETTE_FADE.transitionProperty.split(", ")).toEqual(PALETTE_TOKENS.map((t) => `--${t}`));
+    expect(PALETTE_FADE.transitionProperty.split(",")).toEqual(PALETTE_TOKENS.map((t) => `--${t}`));
     const root = block(".hb-ui");
-    expect(root).toContain("transition-duration: var(--t-palette);");
-    expect(root).toContain("transition-timing-function: ease-in-out;");
+    expect(root).toContain("transition: var(--t-palette) ease-in-out;"); // the property list is inline (PALETTE_FADE)
     expect(css).toContain(".hb-ui.hb-reduced { transition-duration: 0s; }");
   });
 

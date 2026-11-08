@@ -18,24 +18,19 @@ export function nextPalette(current: Palette | null | undefined, night: number):
 }
 
 /**
- * The colour tokens the night palette redefines (tokens.test.ts keeps this list equal to the night block). Registered
+ * The colour tokens the night palette redefines (palette.test.ts keeps this list equal to the night block). Registered
  * as <color>, they interpolate: one transition on the root crossfades every surface, rule, halo and gradient stop at
  * once. The paper grain and the sheet shadow are not colours; they change at the flip, where they barely show.
  */
-export const PALETTE_TOKENS = [
-  "paper", "paper-2", "paper-3", "ink", "ink-2", "ink-3", "brass-ink", "rule", "neat", "edge", "dot-rule",
-  "wash-1", "wash-2", "wash-3", "face", "link", "up", "down", "focus", "live", "stale", "stale-ink", "unavail",
-  "halo", "sea-ink", "medal", "ring", "sheen-hi", "sheen-lo", "chart-up", "chart-down", "c1", "c2", "c3", "c4", "c5", "c-other",
-] as const;
+export const PALETTE_TOKENS = ("paper paper-2 paper-3 ink ink-2 ink-3 brass-ink rule neat edge dot-rule wash-1 wash-2 wash-3 face link up "
+  + "down focus live stale stale-ink unavail halo sea-ink medal ring sheen-hi sheen-lo chart-up chart-down c1 c2 c3 c4 c5 c-other").split(" ");
 
 /** The root's transition-property (its duration and curve live in harbour-ui.css). */
-export const PALETTE_FADE = { transitionProperty: PALETTE_TOKENS.map((t) => `--${t}`).join(", ") };
+export const PALETTE_FADE = { transitionProperty: PALETTE_TOKENS.map((t) => `--${t}`).join() };
 
-/** Once per page; browsers without the API (and jsdom) cut instead of crossfading. */
+/** Once per page. Already registered (a remount, a hot reload) or no API (older browsers, jsdom): a cut instead of a fade. */
 export function registerPaletteTokens(): void {
-  if (typeof CSS === "undefined" || typeof CSS.registerProperty !== "function") return;
   for (const t of PALETTE_TOKENS) {
-    try { CSS.registerProperty({ name: `--${t}`, syntax: "<color>", inherits: true, initialValue: "transparent" }); }
-    catch { /* already registered (a remount or a hot reload) */ }
+    try { CSS.registerProperty({ name: `--${t}`, syntax: "<color>", inherits: true, initialValue: "transparent" }); } catch { /* see above */ }
   }
 }

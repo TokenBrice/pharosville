@@ -6,7 +6,6 @@ import { createReplay } from "../../../tests/helpers/scenario";
 import fixture from "../../../tests/fixtures/scenarios/current.json";
 import type { HarbourModel } from "../model/types";
 import { publishPresentation } from "./presentation";
-import { slipOrder } from "./Slip";
 import type { UIState } from "./store";
 
 let harness: Awaited<ReturnType<typeof mountOverlayHarness>>;
@@ -21,13 +20,6 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => harness.dispose()); document.body.replaceChildren(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("the slip (O8-I7): the visitor's own modes, one at a time", () => {
-  it("orders the active modes latest first, each keeping its place", () => {
-    expect(slipOrder([], ["watch", "names"])).toEqual(["watch", "names"]);
-    expect(slipOrder(["names"], ["still", "names"])).toEqual(["still", "names"]);
-    expect(slipOrder(["still", "names"], ["names"])).toEqual(["names"]);
-    expect(slipOrder(["names"], [])).toEqual([]);
-  });
-
   it("stays while chart Names are on, and its action turns them off", async () => {
     expect(slip().dataset.shown).toBe("false");
     await set({ chartMode: true });
@@ -38,15 +30,17 @@ describe("the slip (O8-I7): the visitor's own modes, one at a time", () => {
     expect(slip().dataset.shown).toBe("false");
   });
 
-  it("shows the latest mode and returns to the earlier one when it ends", async () => {
-    await set({ chartMode: true });
+  it("shows one at a time, the most consequential mode, and the next one when it ends", async () => {
     await set({ still: true });
-    expect(slip().dataset.mode).toBe("still");
+    await set({ chartMode: true });
+    expect(slip().dataset.mode).toBe("still"); // Names turned on later does not hide Still world
     expect(slip().textContent).toContain("Motion is still. Readings continue to update.");
     fireEvent.click(screen.getByRole("button", { name: "Turn off" }));
     expect(harness.store.motion.still).toBe(false);
     await set({ still: false });
     expect(slip().dataset.mode).toBe("names");
+    await set({ watch: { symbol: "USDT", line: "new to the register this week" } });
+    expect(slip().dataset.mode).toBe("watch");
     expect(document.querySelectorAll(".hb-slip")).toHaveLength(1);
   });
 
