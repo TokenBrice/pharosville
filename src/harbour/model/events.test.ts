@@ -167,6 +167,14 @@ describe("big flow hour", () => {
   const hours = (n: number, last: { mint: number; burn: number; valuation?: string }) =>
     Array.from({ length: n }, (_, i) => (i === n - 1 ? { hourTs: 1000 + i * 3600, ...last } : { hourTs: 1000 + i * 3600, mint: 10e6, burn: 10e6 }));
 
+  it("uses the model's distinct hours for the completed-hour event mean", () => {
+    const hourly = hours(24, { mint: 400e6, burn: 10e6 });
+    hourly.push({ ...hourly[23], mint: 500e6 });
+    const pl = payloads(world({ hourly }), T0);
+    const model = buildHarbourModel(pl, T0, { dead: [] });
+    expect(eventSnapshot(model, pl, T0).flowHour?.meanMintUsd).toBe((23 * 10e6 + 500e6) / 24);
+  });
+
   it("judges each new closed hour once; the first hour seen is the baseline", () => {
     const base = world({ hourly: hours(24, { mint: 400e6, burn: 10e6 }) });
     const big = world({ hourly: hours(25, { mint: 400e6, burn: 10e6 }) });

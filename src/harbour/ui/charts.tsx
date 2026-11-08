@@ -1,15 +1,23 @@
 import { useState } from "react";
-import { datedObservations, validObservationDate } from "@shared/lib/dated-observations";
+import { datedObservations, hourlyObservations, validObservationDate } from "@shared/lib/dated-observations";
 import { money } from "./format";
 import { grossFlow, NET_UNAVAILABLE, VALUATION_UNKNOWN, type FlowHour } from "./flow-copy";
 
 export interface PsiObservation { date: number; score: number; methodologyVersion?: string | null }
 export const utcObservation = (seconds: number): string => new Date(seconds * 1000).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
-export const psiObservations = (rows: readonly PsiObservation[]): PsiObservation[] => datedObservations(rows.filter((r) => Number.isFinite(r.score))).slice(-30);
+export const psiObservations = (rows: readonly { date: number; score?: unknown; methodologyVersion?: string | null }[]): PsiObservation[] => datedObservations(rows).filter((r): r is PsiObservation => typeof r.score === "number" && Number.isFinite(r.score)).slice(-30);
 export const PSI_COMPARISON_UNAVAILABLE = "Comparison unavailable across methodology versions.";
-export function psiChange(rows: readonly PsiObservation[]): string {
+function comparablePsi(rows: readonly PsiObservation[]): boolean {
   const method = rows[0]?.methodologyVersion;
-  if (rows.length < 2 || !method?.trim() || rows.some((r) => r.methodologyVersion !== method)) return PSI_COMPARISON_UNAVAILABLE;
+  return rows.length >= 2 && !!method?.trim() && rows.every((r) => r.methodologyVersion === method);
+}
+export function psiRange(rows: readonly PsiObservation[]): string {
+  if (!comparablePsi(rows)) return PSI_COMPARISON_UNAVAILABLE;
+  const scores = rows.map((r) => r.score);
+  return `${Math.min(...scores).toFixed(1)} – ${Math.max(...scores).toFixed(1)}`;
+}
+export function psiChange(rows: readonly PsiObservation[]): string {
+  if (!comparablePsi(rows)) return PSI_COMPARISON_UNAVAILABLE;
   const delta = rows[rows.length - 1].score - rows[0].score;
   return `${delta < 0 ? "−" : "+"}${Math.abs(delta).toFixed(1)} points.`;
 }
@@ -50,17 +58,18 @@ export function Sparkline({ observations, now, nowAt, label = "PSI observations"
 
 /** Retain actual time positions and materialize absent hours as empty slots, ending at the last report. */
 export function flowObservations(hourly: readonly FlowHour[]): Array<{ date: number; hour: FlowHour | null }> {
-  const rows = datedObservations(hourly.map((hour) => ({ date: hour.hourTs, hour })));
+  const rows = hourlyObservations(hourly).map((hour) => ({ date: hour.hourTs, hour }));
   if (!rows.length) return [];
-  const end = rows[rows.length - 1].date, start = Math.max(rows[0].date, end - 23 * 3600);
-  const byDate = new Map<number, FlowHour | null>(rows.filter((r) => r.date >= start).map((r) => [r.date, r.hour]));
+  const end = rows[rows.length - 1].date, start = rows[0].date;
+  const byDate = new Map<number, FlowHour | null>(rows.map((r) => [r.date, r.hour]));
   for (let date = Math.max(0, start); date <= end; date += 3600) if (!byDate.has(date)) byDate.set(date, null);
   return [...byDate].sort(([a], [b]) => a - b).map(([date, hour]) => ({ date, hour }));
 }
 
 export function FlowChart({ hourly, side }: { hourly: FlowHour[]; side?: "mint" | "burn" }) {
   const rows = flowObservations(hourly);
-  const [hover, setHover] = useState<number | null>(null);
+  const [hoverDate, setHoverDate] = useState<number | null>(null);
+  const hovered = rows.find((r) => r.date === hoverDate);
   if (!rows.length) return <p className="hb-empty">No dated observations available.</p>;
   const values = rows.map(({ hour: h }) => !h ? null : side ? (side === "mint" ? h.mintUsd : h.burnUsd) : h.valuation === "complete" ? h.netUsd : null);
   const max = Math.max(1, ...values.map((v) => Math.abs(v ?? 0)));
@@ -72,19 +81,19 @@ export function FlowChart({ hourly, side }: { hourly: FlowHour[]; side?: "mint" 
   const observed = rows.filter((r) => r.hour);
   const caption = `${utcObservation(start)} to ${utcObservation(end)} (UTC). ${observed.length} of 24 hourly observations.`;
   return <div>
-    <svg className={side ? "hb-flowbars" : "hb-bars"} viewBox={`0 0 300 ${H}`} preserveAspectRatio="none" role="img" aria-label={side ? `Supply ${side === "mint" ? "minted" : "burned"} each hour · ${caption}` : `Hourly net flow: mint minus burn · ${caption}`} onMouseLeave={() => setHover(null)}>
+    <svg className={side ? "hb-flowbars" : "hb-bars"} viewBox={`0 0 300 ${H}`} preserveAspectRatio="none" role="img" aria-label={side ? `Supply ${side === "mint" ? "minted" : "burned"} each hour · ${caption}` : `Hourly net flow: mint minus burn · ${caption}`} onMouseLeave={() => setHoverDate(null)}>
       <line className="hb-chart-axis" x1="0" x2="300" y1={baseline} y2={baseline} stroke="currentColor" strokeWidth="0.75" />
       {rows.map(({ date, hour }, i) => {
         const v = values[i], height = v == null ? 0 : Math.max(v === 0 ? 0 : 1, Math.abs(v) / max * (baseline - 4));
-        return <g key={date} onMouseEnter={() => setHover(i)}><title>{utcObservation(date)} UTC · {valueLine(hour)}</title>
+        return <g key={date} onMouseEnter={() => setHoverDate(date)}><title>{utcObservation(date)} UTC · {valueLine(hour)}</title>
           <rect x={x(date)} y="0" width={bw} height={H} fill="transparent" />
           {v == null && hour && <line className="hb-chart-unavailable" x1={x(date) + bw / 2} x2={x(date) + bw / 2} y1={baseline - 3} y2={baseline + 3} stroke="currentColor" />}
-          {v != null && <rect className={side === "burn" || v < 0 ? "hb-chart-negative hb-down" : "hb-chart-positive hb-up"} x={x(date) + 1} y={side || v >= 0 ? baseline - height : baseline} width={Math.max(1, bw - 2)} height={height} fill="currentColor" opacity={hover == null || hover === i ? 1 : 0.45} />}
+          {v != null && <rect className={side === "burn" || v < 0 ? "hb-chart-negative hb-down" : "hb-chart-positive hb-up"} x={x(date) + 1} y={side || v >= 0 ? baseline - height : baseline} width={Math.max(1, bw - 2)} height={height} fill="currentColor" opacity={!hovered || hoverDate === date ? 1 : 0.45} />}
         </g>;
       })}
     </svg>
     <p className="hb-caption">{caption}</p>
-    <div className="hb-axis-note">{hover != null ? `${utcObservation(rows[hover].date)} UTC · ${valueLine(rows[hover].hour)}` : side ? `${side === "mint" ? "minted" : "burned"} each hour${rows.some((r) => r.hour && r.hour.valuation !== "complete") ? " · lower bounds" : ""}` : "net minted above, net burned below"}</div>
+    <div className="hb-axis-note">{hovered ? `${utcObservation(hovered.date)} UTC · ${valueLine(hovered.hour)}` : side ? `${side === "mint" ? "minted" : "burned"} each hour${rows.some((r) => r.hour && r.hour.valuation !== "complete") ? " · lower bounds" : ""}` : "net minted above, net burned below"}</div>
     <details><summary>View values</summary><table className="hb-table"><caption>Hourly flow observations (UTC)</caption><thead><tr><th scope="col">Hour (UTC)</th><th scope="col">Value</th><th scope="col">Valuation</th></tr></thead><tbody>{rows.map(({ date, hour }) => <tr key={date}><th scope="row">{utcObservation(date)}</th><td className="hb-wrap">{valueLine(hour)}</td><td>{hour?.valuation ?? (hour ? "Unknown" : "Missing")}</td></tr>)}</tbody></table></details>
   </div>;
 }

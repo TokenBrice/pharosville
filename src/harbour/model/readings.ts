@@ -1,4 +1,5 @@
 import { PSI_SWEEP_DURATION } from "@shared/lib/psi-colors";
+import { hourlyObservations, validObservationDate } from "@shared/lib/dated-observations";
 import type { DeadStablecoin } from "@shared/types/market";
 import type { CemeteryScenery } from "../ui/static-data";
 import { causeFamily } from "./obituary";
@@ -24,6 +25,7 @@ export function psiReading(stability: StabilityPayload | null, truth: EndpointTr
   return {
     lit,
     score,
+    computedAt: validObservationDate(cur?.computedAt) ? cur.computedAt : null,
     band,
     avg24h: cur?.avg24h ?? null,
     sweepSec: lit && band ? PSI_SWEEP_DURATION[band] : null,
@@ -94,9 +96,7 @@ export function tideFactsReading(chains: ChainsPayload | null, truth: EndpointTr
 
 export function flowsReading(mint: MintBurnPayload | null, truth: EndpointTruth): FlowsReading {
   if (!mint) return { hourly: [], net24hUsd: null, scope: [], stale: truth.state === "stale", available: false };
-  const hourly = [...mint.hourly]
-    .sort((a, b) => a.hourTs - b.hourTs)
-    .slice(-24)
+  const hourly = hourlyObservations(mint.hourly)
     .map((h) => ({ hourTs: h.hourTs, netUsd: h.netFlowUsd, mintUsd: h.mintVolumeUsd, burnUsd: h.burnVolumeUsd, ...(h.valuation === undefined ? {} : { valuation: h.valuation }) }));
   let net: number | null = 0;
   for (const h of hourly) net = net == null || h.netUsd == null ? null : net + h.netUsd;

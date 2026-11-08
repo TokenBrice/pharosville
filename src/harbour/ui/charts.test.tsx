@@ -2,7 +2,9 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { endpointProjector, type ProjectionJson } from "../../../functions/api/_project";
-import { FlowBars, flowObservations, psiChange, psiObservations, PSI_COMPARISON_UNAVAILABLE, Sparkline, TideBars, utcObservation } from "./charts";
+import { FlowBars, flowObservations, psiChange, psiRange, psiObservations, PSI_COMPARISON_UNAVAILABLE, Sparkline, TideBars, utcObservation } from "./charts";
+import { buildHarbourModel } from "../model/build";
+import type { HarbourPayloads } from "../model/types";
 import type { FlowHour } from "./flow-copy";
 
 afterEach(cleanup);
@@ -61,6 +63,15 @@ describe("dated PSI observations", () => {
     expect(utcObservation(day)).toBe("2026-11-07 00:00:00");
   });
 
+  it("uses the same known-methodology requirement for ranges and signed changes", () => {
+    expect(psiRange([row(day, 90), row(day + 86400, 40)])).toBe("40.0 – 90.0");
+    for (const methodologyVersion of ["v2", null, ""]) {
+      const observations = [row(day, 90), { date: day + 86400, score: 40, methodologyVersion }];
+      expect(psiRange(observations)).toBe(PSI_COMPARISON_UNAVAILABLE);
+      expect(psiChange(observations)).toBe(PSI_COMPARISON_UNAVAILABLE);
+    }
+  });
+
   it("requires known compatible methodology for signed point changes", () => {
     expect(psiChange([row(day, 1), row(day + 86400, 3)])).toBe("+2.0 points.");
     expect(psiChange([row(day, 3), row(day + 86400, 1)])).toBe("−2.0 points.");
@@ -94,4 +105,62 @@ describe("hourly observations", () => {
     fireEvent.click(screen.getByText("View values"));
     expect(within(screen.getByRole("table")).getByText("At least $20 minted.")).toBeTruthy();
   });
+});
+
+
+describe("truth-review regressions", () => {
+  it.each([undefined, "mint", "burn"] as const)("keeps a flow hover safe when a refresh shrinks or replaces the series (%s)", (side) => {
+    const chart = (hourly: FlowHour[]) => side ? <FlowBars hourly={hourly} side={side} /> : <TideBars hourly={hourly} />;
+    const full = Array.from({ length: 24 }, (_, i) => hour(day + i * 3600, i));
+    const ui = render(chart(full));
+    fireEvent.mouseEnter(ui.container.querySelectorAll("svg g")[23]);
+    expect(ui.container.querySelector(".hb-axis-note")?.textContent).toContain("23:00:00 UTC");
+    expect(() => ui.rerender(chart(full.slice(-3)))).not.toThrow();
+    expect(ui.container.querySelector(".hb-axis-note")?.textContent).toContain("23:00:00 UTC");
+    ui.rerender(chart([hour(day), hour(day + 3600), hour(day + 7200)]));
+    expect(ui.container.querySelector(".hb-axis-note")?.textContent).not.toContain("23:00:00 UTC");
+    expect(screen.getByText("View values")).toBeTruthy();
+    ui.rerender(chart([]));
+    expect(screen.getByText("No dated observations available.")).toBeTruthy();
+    ui.rerender(chart(full.slice(-3)));
+    expect(screen.getByText("View values")).toBeTruthy();
+  });
+
+  it.each(["projection", "chart"])("honours a withdrawn duplicate in %s PSI history", (consumer) => {
+    const history = [{ date: day, score: 80 }, { date: day, score: null }, { date: day + 86400, score: 90 }];
+    const projected = endpointProjector("stability")({ current: {}, history }) as unknown as { history: typeof history };
+    const actual = consumer === "projection" ? projected.history : psiObservations(history);
+    expect(actual).toEqual([history[2]]);
+  });
+
+  it("uses one distinct-hour series for model net/gross totals, plotted bars and values", () => {
+    const hourly = Array.from({ length: 24 }, (_, i) => ({ hourTs: day + i * 3600, netFlowUsd: i, mintVolumeUsd: i + 100, burnVolumeUsd: 100, valuation: "complete" as const }));
+    const latest = { ...hourly[23], netFlowUsd: 50, mintVolumeUsd: 150 };
+    const model = buildHarbourModel({ mintBurn: { data: { hourly: [...hourly, latest] } } } as HarbourPayloads, day * 1000);
+    const flows = model.readings.flows;
+    expect(flows.hourly).toHaveLength(24);
+    expect(flows.hourly[0].hourTs).toBe(day);
+    expect(flows.net24hUsd).toBe(303);
+    expect(flows.hourly.reduce((sum, h) => sum + h.mintUsd, 0)).toBe(2703);
+    expect(flows.hourly.reduce((sum, h) => sum + h.burnUsd, 0)).toBe(2400);
+    render(<TideBars hourly={flows.hourly} />);
+    expect(screen.getByText(/24 of 24 hourly observations/)).toBeTruthy();
+    fireEvent.click(screen.getByText("View values"));
+    const rows = within(screen.getByRole("table")).getAllByRole("row");
+    expect(rows).toHaveLength(25);
+    expect(rows[1].textContent).toContain("2026-11-07 00:00:00");
+    expect(rows[24].textContent).toContain("+$50 net minted");
+  });
+});
+
+
+it("keeps old sparse flow observations outside both totals and the plotted daily window", () => {
+  const data = { hourly: [
+    { hourTs: day - 24 * 3600, netFlowUsd: 1000, mintVolumeUsd: 1000, burnVolumeUsd: 0, valuation: "complete" },
+    { hourTs: day, netFlowUsd: 1, mintVolumeUsd: 1, burnVolumeUsd: 0, valuation: "complete" },
+  ] };
+  const model = buildHarbourModel({ mintBurn: { data } } as HarbourPayloads, day * 1000);
+  expect(model.readings.flows.hourly).toHaveLength(1);
+  expect(model.readings.flows.net24hUsd).toBe(1);
+  expect(flowObservations(model.readings.flows.hourly).filter((r) => r.hour)).toHaveLength(1);
 });

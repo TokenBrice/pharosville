@@ -179,6 +179,8 @@ export interface PsiReading {
   /** False when there is no reading: unlit lantern, never a calm default. */
   lit: boolean;
   score: number | null;
+  /** Validated computation time (UTC epoch seconds) from the same installed score snapshot. */
+  computedAt?: number | null;
   band: ConditionBand | null;
   avg24h: number | null;
   /** Seconds per beam revolution (PSI_SWEEP_DURATION); null when unlit. */

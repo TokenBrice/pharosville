@@ -8,7 +8,7 @@ import { ANNIVERSARY_RULE, CEREMONY_RULE, FLOW_RULE, HULL_RULE, LETTERING_RULE, 
 import { bps, causeName, MINUS, money, pctChange, pegName, share, titleCase, vesselKind } from "./format";
 import { observedEmpty, qualificationCopy, readingCoverage, readingSentence, READING_NAMES, sourceTruth } from "./source-state";
 import { presentationCopy, usePresentation } from "./presentation";
-import { psiObservations, psiChange, utcObservation, type PsiObservation } from "./charts";
+import { psiObservations, psiChange, psiRange, utcObservation, type PsiObservation } from "./charts";
 import { truthCopy } from "./truth-copy";
 import { useFeedHealth } from "./feed-health";
 import { coinNet, coverageLine, CUSTOMS_BARS, flowValued, flowWindow, grossFlow, NET_UNAVAILABLE, VALUATION_UNKNOWN, type CoinFlow } from "./flow-copy";
@@ -253,7 +253,6 @@ function PharosPanel({ model, titleRef }: P) {
   const stab = raw(store, "stability");
   const cur = stab?.current as { components?: Record<string, number> } | undefined;
   const hist = psiObservations((stab?.history as PsiObservation[] | undefined) ?? []);
-  const histScores = hist.map((h) => h.score);
   const lh = getLighthouse(store.ctx);
   return (
     <>
@@ -265,10 +264,10 @@ function PharosPanel({ model, titleRef }: P) {
             <div className="hb-big hb-num" style={{ marginTop: 6 }}>{p.score.toFixed(1)}<small><span className="hb-band" style={{ "--band": PSI_INK[p.band ?? ""] } as React.CSSProperties}>{titleCase(p.band ?? "")}</span></small></div>
             <p className="hb-why">{p.lit ? <>A fire burns in the lantern and a bronze mirror throws it out to sea. The beam’s rhythm is the stability band{p.sweepSec ? `: one sweep every ${Math.round(lh?.period ?? p.sweepSec)} seconds` : ""}; its reach follows the score.</> : model?.truth.stability.state === "stale" ? "The beacon is unlit while its reading is stale." : "The beacon is unlit while its current reading is unavailable."}</p>
             <Sec title="PSI observations">
-              <Sparkline observations={hist} now={sourceTruth(model, "stability").state === "current" ? p.score : null} nowAt={sourceTruth(model, "stability").sourceUpdatedAtMs != null ? sourceTruth(model, "stability").sourceUpdatedAtMs! / 1000 : null} />
+              <Sparkline observations={hist} now={sourceTruth(model, "stability").state === "current" ? p.score : null} nowAt={p?.computedAt ?? null} />
               <dl className="hb-dl" style={{ marginTop: 8 }}>
                 <dt>24 h average</dt><dd>{p.avg24h != null ? p.avg24h.toFixed(1) : "Average unavailable."}</dd>
-                {hist.length > 1 && <><dt>Observation range</dt><dd>{Math.min(...histScores).toFixed(1)} – {Math.max(...histScores).toFixed(1)}</dd><dt>Change over the period</dt><dd>{psiChange(hist)}</dd></>}
+                {hist.length > 1 && <><dt>Observation range</dt><dd>{psiRange(hist)}</dd><dt>Change over the period</dt><dd>{psiChange(hist)}</dd></>}
               </dl>
             </Sec>
             {cur?.components && <PsiComponents c={cur.components} score={p.score} />}
@@ -867,7 +866,6 @@ function ChartRoomPanel({ model, titleRef }: P) {
   const p = model?.readings.psi;
   const stab = raw(store, "stability");
   const hist = psiObservations((stab?.history as PsiObservation[] | undefined) ?? []);
-  const scores = hist.map((h) => h.score);
   return (
     <>
       <Head kicker="Landmark" title="The Chart Room" sub="the Pharos’s dated observations" titleRef={titleRef} />
@@ -875,10 +873,10 @@ function ChartRoomPanel({ model, titleRef }: P) {
         <Freshness model={model} source="stability" />
         <p className="hb-why">Where the keepers chart the stability index day by day: the beacon shows the market now, the Chart Room shows how it got here.</p>
         <Sec title="PSI observations">
-          <Sparkline observations={hist} now={sourceTruth(model, "stability").state === "current" ? p?.score ?? null : null} nowAt={sourceTruth(model, "stability").sourceUpdatedAtMs != null ? sourceTruth(model, "stability").sourceUpdatedAtMs! / 1000 : null} />
+          <Sparkline observations={hist} now={sourceTruth(model, "stability").state === "current" ? p?.score ?? null : null} nowAt={p?.computedAt ?? null} />
           {hist.length > 1 && (
             <dl className="hb-dl" style={{ marginTop: 8 }}>
-              <dt>Observation range</dt><dd>{Math.min(...scores).toFixed(1)} – {Math.max(...scores).toFixed(1)}</dd>
+              <dt>Observation range</dt><dd>{psiRange(hist)}</dd>
               <dt>Change over the period</dt><dd>{psiChange(hist)}</dd>
             </dl>
           )}

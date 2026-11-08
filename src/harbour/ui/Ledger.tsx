@@ -11,7 +11,7 @@ import { usePresence, useStore, useUISlice } from "./hooks";
 import { KeyList } from "./KeyList";
 import { expectedKey, expectedLabel, launchedFromYard, PHASE_NAME, PHASES, UPCOMING_URL, yardCoins, YARD_EXPLANATION, type YardCoin } from "./yard";
 
-const TABS = ["Legend", "Coins", "Pre-launch", "Chains", "Wrecks"] as const;
+const TABS = ["Legend", "Coins", "Admission", "Chains", "Wrecks"] as const;
 type Tab = (typeof TABS)[number];
 
 /** 'L' ledger: the legend with the declared rules, and the accessible table parity path. */
@@ -46,7 +46,7 @@ function LedgerBody({ shown, onClose }: { shown: boolean; onClose: () => void })
           {TABS.map((t, i) => (
             <button key={t} type="button" role="tab" id={`hb-tab-${t}`} aria-selected={tab === t} aria-controls={`hb-tp-${t}`} tabIndex={tab === t ? 0 : -1}
               className="hb-tab hb-sc" ref={(el) => { tabRefs.current[i] = el; }} onClick={() => setTab(t)} onKeyDown={(e) => onTabKey(e, i)}>
-              {t}{t === "Coins" && model ? ` · ${model.boats.length}` : t === "Pre-launch" ? ` · ${yard.length}` : t === "Chains" && model ? ` · ${model.harbours.length}` : t === "Wrecks" && model ? ` · ${model.readings.wrecks.length}` : ""}
+              {t}{t === "Coins" && model ? ` · ${model.boats.length}` : t === "Admission" ? ` · ${yard.length}` : t === "Chains" && model ? ` · ${model.harbours.length}` : t === "Wrecks" && model ? ` · ${model.readings.wrecks.length}` : ""}
             </button>
           ))}
         </div>
@@ -54,7 +54,7 @@ function LedgerBody({ shown, onClose }: { shown: boolean; onClose: () => void })
       <div className="hb-ledger-body" role="tabpanel" id={`hb-tp-${tab}`} aria-labelledby={`hb-tab-${tab}`} tabIndex={0}>
         {tab === "Legend" && <Legend model={model} />}
         {tab === "Coins" && <Coins model={model} />}
-        {tab === "Pre-launch" && <PreLaunch coins={yard} />}
+        {tab === "Admission" && <PreLaunch coins={yard} />}
         {tab === "Chains" && <Chains model={model} />}
         {tab === "Wrecks" && <Wrecks model={model} />}
       </div>

@@ -34,12 +34,12 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
       out.push({ id: `chain:${h.chain}`, symbol: h.chain, name: h.piered ? `${h.chain} harbour` : `${h.chain}, a far port`, supply: h.supplyUsd,
         hit: { kind: "harbour", id: h.chain }, logo: chainLogo(h.chain), color: "#1f5873", note: money(h.supplyUsd) });
     }
-    // pre-launch coins: hulls on the Shipyard's slips
+    // Admission records: hulls on the Shipyard's slips
     const live = new Set(out.map((o) => o.id));
     for (const c of yardCoins(store.ctx)) {
       if (live.has(c.id)) continue;
       out.push({ id: c.id, symbol: c.symbol, name: c.name, supply: 0, hit: { kind: "yard", id: c.id }, logo: c.logo, color: "#7a5a22",
-        note: `pre-launch · ${c.phase ? PHASE_NAME[c.phase].toLowerCase() : "shipyard"}` });
+        note: `Awaiting admission to the tracked fleet. · ${c.phase ? PHASE_NAME[c.phase].toLowerCase() : "shipyard"}` });
     }
     // the dead: each lies in Wreck Cove (a live hull in the dead list is already here as a boat); never outranks a
     // live coin of the same name (supply 0)
