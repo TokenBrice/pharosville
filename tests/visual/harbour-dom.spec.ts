@@ -76,7 +76,8 @@ for (const [width, height] of [[719, 600], [720, 599], [720, 600], [600, 720]]) 
       expect(requests.length).toBeGreaterThan(0);
     }
     await page.setViewportSize({ width: 719, height: 600 });
-    await expect(page.getByText(/Give this window more room/)).toBeVisible();
+    // Playwright's emulated screen follows the resized viewport, so either denied copy is correct here.
+    await expect(page.getByText(/Give this window more room|open a larger screen/)).toBeVisible();
     await expect(page.locator(".pv-world canvas")).toHaveCount(0);
     requests.length = 0; await page.waitForTimeout(1000); expect(requests).toEqual([]);
     await page.setViewportSize({ width: 600, height: 720 });
