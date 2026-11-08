@@ -1,5 +1,6 @@
 /* First paint: the harbour poster, the arrival card, and the small-screen gate pages.
-   Static, class-only (CSP style-src 'self'); the live harbour crossfades in over the poster. */
+   Static, class-only (CSP style-src 'self'); the live harbour crossfades in over the poster.
+   The one EB Garamond set (D26): the overlay and the postcard read it through --pv-serif. */
 @font-face { font-family: "EB Garamond"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/eb-garamond-400-latin.woff2") format("woff2"); }
 @font-face { font-family: "EB Garamond"; font-style: italic; font-weight: 400; font-display: swap; src: url("/fonts/eb-garamond-400-italic-latin.woff2") format("woff2"); }
 @font-face { font-family: "EB Garamond"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/eb-garamond-600-latin.woff2") format("woff2"); }
@@ -11,6 +12,7 @@
   --pv-ink-2: #4a4236;
   --pv-brass: #a68242;
   --pv-serif: "EB Garamond", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --pv-mark: 19px; /* the wordmark, shared with the live corner mark */
   --pv-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --pv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   background: var(--pv-night);
@@ -51,7 +53,7 @@ button, input, select, textarea { font: inherit; }
 .pv-arrival__mark {
   position: absolute; top: 14px; left: 14px; margin: 0;
   padding: 5px 13px 6px 12px;
-  font: 600 19px/1 var(--pv-serif); letter-spacing: 0.01em;
+  font: 600 var(--pv-mark)/1 var(--pv-serif); letter-spacing: 0.01em;
 }
 .pv-arrival__mark i { font-weight: 400; font-style: italic; }
 .pv-arrival__card {
