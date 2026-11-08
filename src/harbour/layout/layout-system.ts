@@ -2,7 +2,7 @@ import * as THREE from "three";
 import layoutUrl from "../data/layout.json?url";
 import type { CameraPreset } from "../engine/camera-rig";
 import type { EngineContext, WorldSystem } from "../engine/types";
-import { fitPresetToAspect, heroPoints } from "./framing";
+import { fitPresetToAspect, footPoints, heroPoints } from "./framing";
 import type { HarbourLayout, LayoutCameraPreset, Vec3 } from "./types";
 
 /** Preset used on first paint: "heart" (v2 default framing) when present, else "overview". */
@@ -38,6 +38,7 @@ export class LayoutSystem implements WorldSystem {
   readonly name = "layout";
   private base: CameraPreset | null = null;
   private hero: Vec3[] = [];
+  private foot: Vec3[] = [];
   private fit = true;
   private applied: CameraPreset | null = null;
   private heartDistance = 0;
@@ -70,6 +71,7 @@ export class LayoutSystem implements WorldSystem {
     this.base = preset;
     this.fit = !cam; // an explicit ?cam= framing is taken as given
     this.hero = heroPoints(layout);
+    this.foot = footPoints(layout);
     // tilt-shift focus follows the Pharos (01-A6): its foot and lantern (heroPoints puts them first)
     const pharos = layout.landmarks.find((l) => l.id === "pharos");
     const postSvc = ctx.services.get("post");
@@ -84,7 +86,7 @@ export class LayoutSystem implements WorldSystem {
   /** The landing framing for the current aspect; also keeps the zoom limit and the tilt-shift range in step. */
   private home(ctx: EngineContext): CameraPreset {
     const base = this.base!;
-    const p = this.fit ? fitPresetToAspect(base, ctx.camera.aspect, this.hero) : base;
+    const p = this.fit ? fitPresetToAspect(base, ctx.camera.aspect, this.hero, this.foot) : base;
     const rig = ctx.rig;
     if (p.distance * 1.15 > rig.maxDistance) rig.maxDistance = p.distance * 1.15;
     // tilt-shift: none at the landing (heart) framing, full only out at the overview; a refit landing

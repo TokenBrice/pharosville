@@ -11,6 +11,13 @@ import type { HarbourLayout, Vec3 } from "./types";
  * own line of sight and, the narrower the screen, the more the hero is centred. At or above
  * FIT_BELOW_ASPECT the preset is returned untouched, so the 16:10 framing never changes, and the fit
  * is continuous at the threshold.
+ *
+ * D12 (portrait composition). With the 3D mainland retired (E02) the far land is the sky card's painted ridges,
+ * which the sky keeps a fixed fifth below the frame's top and always beyond the island: the horizon composes
+ * itself at every aspect, pan and zoom. What the fit owns is the frame's foot. Given the island's foot outline
+ * (footPoints), a framing that would leave open sea under the island and its harbours comes in along its line of
+ * sight, never past the hero's margin, until they reach the bottom edge: squarer screens frame the island's
+ * height and crop its lobes instead of floating it in empty water. Yaw, pitch and lens stay the preset's own.
  */
 export const FIT_BELOW_ASPECT = 1.4;
 /** Fully centred at or below this aspect (squarer than ~6:5: unfolded foldables, portrait tablets). */
@@ -19,6 +26,8 @@ const CENTRE_AT_ASPECT = 1.2;
 const MARGIN_X = 0.7;
 /** The Pharos stands ≈100 m to its statue. */
 const PHAROS_HEIGHT = 100;
+/** Every n-th coast vertex is enough to find the island's foot. */
+const FOOT_STRIDE = 4;
 
 /** The hero composition's anchor points, from the layout. */
 export function heroPoints(layout: HarbourLayout): Vec3[] {
@@ -35,11 +44,22 @@ export function heroPoints(layout: HarbourLayout): Vec3[] {
   return pts;
 }
 
+/**
+ * D12: what should reach the frame's foot (x, 0, z): the island's coast and its harbour basins, whose docked
+ * fleets are part of the subject (open water beyond them is not).
+ */
+export function footPoints(layout: HarbourLayout): Vec3[] {
+  const pts: Vec3[] = [];
+  const coast = layout.island?.coast ?? [];
+  for (let i = 0; i < coast.length; i += FOOT_STRIDE) pts.push([coast[i][0], 0, coast[i][1]]);
+  for (const zone of layout.seaZones ?? []) if (zone.kind === "harbour") for (const [x, z] of zone.polygon) pts.push([x, 0, z]);
+  return pts;
+}
+
 const cam = new THREE.PerspectiveCamera();
 const v = new THREE.Vector3();
 
-/** NDC bounds of `pts` seen from preset `p` at `aspect`. */
-function bounds(p: CameraPreset, aspect: number, pts: readonly Vec3[]): { x0: number; x1: number; y0: number; y1: number } {
+function place(p: CameraPreset, aspect: number): void {
   const yaw = THREE.MathUtils.degToRad(p.yawDeg), pitch = THREE.MathUtils.degToRad(p.pitchDeg);
   cam.fov = p.fovDeg; cam.aspect = aspect; cam.near = 1; cam.far = 20000;
   cam.updateProjectionMatrix();
@@ -47,6 +67,22 @@ function bounds(p: CameraPreset, aspect: number, pts: readonly Vec3[]): { x0: nu
     .multiplyScalar(p.distance).add(v.set(...p.target));
   cam.lookAt(v.set(...p.target));
   cam.updateMatrixWorld(true);
+}
+
+/** Lowest NDC y among the points inside the frame's width (+Infinity when none is): below -1 the foot is held. */
+export function footLevel(p: CameraPreset, aspect: number, foot: readonly Vec3[]): number {
+  place(p, aspect);
+  let y0 = Infinity;
+  for (const q of foot) {
+    v.set(q[0], q[1], q[2]).project(cam);
+    if (v.z < 1 && Math.abs(v.x) <= 1) y0 = Math.min(y0, v.y);
+  }
+  return y0;
+}
+
+/** NDC bounds of `pts` seen from preset `p` at `aspect`. */
+function bounds(p: CameraPreset, aspect: number, pts: readonly Vec3[]): { x0: number; x1: number; y0: number; y1: number } {
+  place(p, aspect);
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const q of pts) {
     v.set(q[0], q[1], q[2]).project(cam);
@@ -55,8 +91,11 @@ function bounds(p: CameraPreset, aspect: number, pts: readonly Vec3[]): { x0: nu
   return { x0, x1, y0, y1 };
 }
 
-/** The preset refitted for `aspect` (see the module note); the preset itself when no fit is needed. */
-export function fitPresetToAspect(p: CameraPreset, aspect: number, pts: readonly Vec3[]): CameraPreset {
+/**
+ * The preset refitted for `aspect` (see the module note); the preset itself when no fit is needed. `foot`
+ * (footPoints) adds D12's foot constraint; without it only the hero is fitted.
+ */
+export function fitPresetToAspect(p: CameraPreset, aspect: number, pts: readonly Vec3[], foot: readonly Vec3[] = []): CameraPreset {
   if (!(aspect > 0) || aspect >= FIT_BELOW_ASPECT || pts.length < 2) return p;
   const ref = bounds(p, FIT_BELOW_ASPECT, pts);
   const centre = THREE.MathUtils.clamp((FIT_BELOW_ASPECT - aspect) / (FIT_BELOW_ASPECT - CENTRE_AT_ASPECT), 0, 1);
@@ -80,13 +119,46 @@ export function fitPresetToAspect(p: CameraPreset, aspect: number, pts: readonly
   };
 
   const near = at(p.distance);
-  if (near.fits) return near.preset;
-  let lo = p.distance, hi = p.distance * 3;
-  for (let i = 0; i < 24; i++) {
-    const mid = (lo + hi) / 2;
-    if (at(mid).fits) hi = mid; else lo = mid;
+  let out: CameraPreset;
+  if (near.fits) out = near.preset;
+  else {
+    let lo = p.distance, hi = p.distance * 3;
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (at(mid).fits) hi = mid; else lo = mid;
+    }
+    out = at(hi).preset;
+    out.distance = Math.round(out.distance);
   }
-  const out = at(hi).preset;
-  out.distance = Math.round(out.distance);
-  return out;
+  if (!foot.length || centre <= 0 || footLevel(out, aspect, foot) <= -1) return out;
+
+  // D12: open sea under the island. Come in, but never past the hero's margin (its room, at least MARGIN_X)...
+  const marginX = Math.max(roomX, MARGIN_X);
+  const inMargin = (d: number): boolean => {
+    const b = bounds(at(d).preset, aspect, pts);
+    return Math.max(Math.abs(b.x0), Math.abs(b.x1)) <= marginX + 1e-3 && Math.max(Math.abs(b.y0), Math.abs(b.y1)) <= roomY + 1e-3;
+  };
+  let lo = out.distance * 0.5, hi = out.distance;
+  if (!inMargin(lo)) {
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (inMargin(mid)) hi = mid; else lo = mid;
+    }
+    lo = hi;
+  }
+  // ...and stand as far back as still holds the foot (or at that margin when nothing nearer does)
+  let d = lo;
+  if (footLevel(at(lo).preset, aspect, foot) <= -1) {
+    let held = lo, open = out.distance;
+    for (let i = 0; i < 24; i++) {
+      const mid = (held + open) / 2;
+      if (footLevel(at(mid).preset, aspect, foot) <= -1) held = mid; else open = mid;
+    }
+    d = held;
+  }
+  if (d >= out.distance - 0.5) return out; // the hero's margin already binds: nothing nearer is allowed
+  // eased in with the centring, so the fit stays continuous at FIT_BELOW_ASPECT
+  const fitted = at(out.distance + (d - out.distance) * centre).preset;
+  fitted.distance = Math.round(fitted.distance);
+  return fitted;
 }
