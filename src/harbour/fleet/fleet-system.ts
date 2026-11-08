@@ -1185,13 +1185,13 @@ export class FleetSystem implements WorldSystem {
       const fwd = b.vx * fx + b.vz * fz;
       if (wake && !b.wrecked && !onWays) {
         // the launch's splash: a burst of foam round her as she takes the water (07-M12)
-        if (pose!.pitch[i] > 0.04) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * 2.2, 2, b.loa * 0.8);
-        if (moving && Math.abs(fwd) > 0.15) { wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5); st.moving++; }
+        if (pose!.pitch[i] > 0.04) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * 2.2, 2, b.loa * 0.8, b.phi);
+        if (moving && Math.abs(fwd) > 0.15) { wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5, b.phi); st.moving++; }
         else if (ph === PH_ANCHORED) {
           // aground: surf breaks and churns round the hull, pulsing with the swell
           const surge = 0.5 + 0.5 * Math.sin(time * 1.4 + b.phi);
-          wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * (1.6 + 0.4 * surge), 1.4 + 0.6 * surge, b.loa * 0.7);
-        } else if (tier.contact || b.visible) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb, contactK, b.loa * 0.5);
+          wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * (1.6 + 0.4 * surge), 1.4 + 0.6 * surge, b.loa * 0.7, b.phi);
+        } else if (tier.contact || b.visible) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb, contactK, b.loa * 0.5, b.phi);
         st.wakes++;
       }
       if (ph === PH_DOCKED || ph === PH_MOORED) st.docked++;

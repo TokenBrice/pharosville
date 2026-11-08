@@ -6,7 +6,12 @@ import { SEA_GOLDEN_GLSL } from "../sea-golden";
 import { SEA_HELIO_GLSL } from "../sea-helio";
 import { SWELL_DIR, wavesGLSL } from "../waves";
 
-
+/**
+ * The sea surface: fields, normals and the unlit body. (Shader text ships in the first-frame bytes, so the v1.6.0 notes
+ * live here.) E12/E13: `fp` is the water a pixel covers (m, DPR-aware, unlike camD): Kelvin foam fades by it, and the
+ * ripple facets finer than the pixel (`unres`) glint off the swell normal with lobes widened by `spread` (sea-tone.ts
+ * hbLobe); the Low tier reads the calm normals only. E11: hbSeaHour lays the hour's light on the body (sea-tone.ts).
+ */
 export const OCEAN_SURFACE = /* glsl */ `
 uniform float uTime, uNight;
 uniform vec3 uCameraPos, uSunDir, uSunColor, uAmbient, uZenith;
@@ -132,6 +137,7 @@ void main() {
 
   // ---------------------------------------------------------------- normals
   float far01 = smoothstep(250.0, 1300.0, camD);
+  float fp = length(fwidth(xz));
   float amp = uSea.x * vDamp;
   // shading-only domain warp (the displacement and CPU heightAt are untouched): the crossing plane waves
   // would otherwise read as a regular diamond lattice across the mid-distance and the overview
@@ -139,8 +145,9 @@ void main() {
   float groups = 0.45 + 1.1 * smoothstep(0.2, 0.8, nA.r * 0.7 + texture2D(uNoise, xz * 0.0011 + vec2(t * 0.0009, 0.0)).b * 0.5);
   // shading exaggerates a calm swell (soft-capped so rough seas don't turn to mirrors), in wave groups
   float ampShade = 0.9 * (1.0 - exp(-amp * mix(2.6, 2.0, far01) / 0.9));
-  vec3 gN = gerstnerNormal(xzw, t, ampShade * groups);
-  float crestH = gerstnerCrest(xzw, t);
+  vec3 gS; float crestH;
+  gerstnerSums(xzw, t, gS, crestH);
+  vec3 gN = gerstnerNormalOf(gS, ampShade * groups);
   mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
   float sp = 0.6 + 1.2 * wind;
   vec4 r1 = texture2D(uRipple, xz * 0.043 + wdir * t * 0.010 * sp);
@@ -164,6 +171,11 @@ void main() {
   }
   vec3 N = normalize(vec3(gN.x + dn.x, gN.y, gN.z + dn.y));
   vec3 Nsp = normalize(vec3(gN.x + (d1.x + d2.x * 1.4) * 0.5, 1.0, gN.z + (d1.y + d2.y * 1.4) * 0.5)); // sharp, for sparkle
+  float unres = smoothstep(0.12, 0.35, fp);
+  #ifdef HB_LITE
+  unres = 1.0;
+  #endif
+  float spread = 0.3 * fp * fp;
 
   // ---------------------------------------------------------------- body (unlit depth tint)
   // apparent depth: the bathymetry, shoaling a little toward every coast so the channel reads deepest
@@ -232,7 +244,7 @@ void main() {
     body = mix(body, turq * mix(1.0, 0.3, uNight), reefK * (0.62 - 0.25 * uNight));
   }
   // churned wake water is lighter and greener
-  body = mix(body, uShoal * 1.35 * mix(1.0, 0.45, uNight), clamp(trail * 0.25 + live.r * 0.2, 0.0, 0.35));
+  body = mix(body, uShoal * 1.35 * mix(1.0, 0.45, uNight), clamp(trail * 0.25 + live.r * 0.38, 0.0, 0.35));
   // hull occlusion (+ the waterline meniscus), and the lee slick's satin: a touch darker, a cleaner mirror below
   body *= (1.0 - min(live.b, 1.0) * 0.4) * (1.0 - 0.12 * slick);
   // swell and ripple relief: facets tilted toward the key light read lighter (zero-mean, so the tint holds)
@@ -242,6 +254,7 @@ void main() {
     body *= 1.0 + clamp(relief * 2.2, -0.35, 0.35) * (1.0 - far01 * 0.6);
   }
   body = hbSeaGolden(body, sunSh, sunUp);
+  body = hbSeaHour(body);
   // day/night exposure of the unlit tint
   float bodyGain = mix(0.95, 0.36, uNight);
   body *= bodyGain;

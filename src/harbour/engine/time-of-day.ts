@@ -141,7 +141,7 @@ export const DEFAULT_KEYFRAMES: TimeKeyframe[] = [
   { hour: 19.7, sunColor: "#FF7448", sunIntensity: 2.1, sunAz: 298, sunEl: 1.5,
     fillColor: "#6A7CC0", fillIntensity: 0.3, fillAz: 120, fillEl: 35,
     hemiSky: "#56689E", hemiGround: "#9A8482", worldK: 0.75,
-    ambient: "#56689E", zenith: "#2F3D78", horizon: "#F09A78", haze: "#857288",
+    ambient: "#56689E", zenith: "#2F3D78", horizon: "#F09A78", haze: "#6E7890", // E11: cool dusk haze (was mauve #857288)
     fogDensity: 0.0011, night: 0.45, windowGlow: 0.7, exposure: 0.35, bloom: [0.9, 1.0], lamp: 22, lens: 10,
     windowOcc: 0.74, nightLift: 0.025,
     grade: { lift: [0.99, 0.99, 1.05], gamma: [1, 1, 1.02], gain: [1.04, 1.0, 0.96], saturation: 1.1, contrast: 1.3, shadowSat: 0.82, blueSat: 0.9, warmSat: 1.06 } },

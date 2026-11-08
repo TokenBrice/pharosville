@@ -1,12 +1,21 @@
+/**
+ * Foam, wakes, caps and surf. (Notes here: shader text ships in the first-frame bytes.)
+ * Swell trains that arrive (03-O3): coast-parallel crest lines travel shoreward, bunching and slowing as the water
+ * shoals (wavenumber rises with falling depth), steepening into a thin foam lip that breaks near the contact line.
+ * Scaled by the declared sea state's foam bands (uSea.w) exactly like the old in-place bands; the sea clock stills them.
+ * E14: the coast trains, the swash
+ * and the reef surf run on the main swell's phase (waves.ts hbSwellPhase) plus fixed per-stretch offsets, in step with
+ * the hulls' bob and the run-up on stone; the reef's lines sharpen (pow 10 -> 16) on that longer 62 m spacing. E12: only
+ * the strongest Kelvin crests whiten (threshold .3, gain .6), the rest of an arm is lighter, rougher water; where a crest
+ * is a pixel (fp) the white fades.
+ */
 export const OCEAN_FOAM = /* glsl */ `  // ---------------------------------------------------------------- foam
   float bands = uSea.w;
   float dnC = coast + (nB.r - 0.5) * 2.4 + (nC.g - 0.5) * 0.8;
   float fContact = 1.0 - smoothstep(0.25, 1.05, dnC);
-  // swell trains that arrive (03-O3): coast-parallel crest lines travel shoreward, bunching and slowing as the water
-  // shoals (wavenumber rises with falling depth), steepening into a thin foam lip that breaks near the contact line.
-  // Scaled by the declared sea state's foam bands (uSea.w) exactly like the old in-place bands; the sea clock stills them.
+  // swell trains that arrive (03-O3, see above)
   float shoalW = mix(0.62, 1.25, 1.0 - smoothstep(1.0, 9.0, depth));
-  float trainPh = dnC * shoalW + t * 0.78 + nA.b * 5.0 + nB.r * 0.8;
+  float trainPh = dnC * shoalW - hbSwellPhase(xz, t) + nA.b * 5.0 + nA.a * 0.8;
   float crestL = pow(0.5 + 0.5 * cos(trainPh), mix(10.0, 22.0, smoothstep(2.0, 8.0, dnC)));
   float trainK = (1.0 - smoothstep(5.0, 9.5, dnC)) * smoothstep(0.7, 1.6, dnC) * (0.45 + 0.55 * (1.0 - smoothstep(1.5, 7.0, dnC)));
   float band2 = crestL * trainK * smoothstep(0.38, 0.6, nB.g + 0.1 * nC.r);
@@ -19,7 +28,7 @@ export const OCEAN_FOAM = /* glsl */ `  // -------------------------------------
   float lace = mix(hbNet(lA, lB, 0.05), 0.3, laceFar);
   // swash: a foam sheet runs in with each crest of the main swell and drains back, tearing open as it thins
   {
-    float swPh = dot(xz, SWELL) * 0.1013 - t * 0.748 + nA.b * 2.2 + nB.r * 1.2;
+    float swPh = hbSwellPhase(xz, t) + nA.b * 2.2 + nA.a * 1.2;
     float sw = 0.5 + 0.5 * sin(swPh);
     sw = sw * sw * (3.0 - 2.0 * sw);
     float beachK = 1.0 - smoothstep(2.5, 9.0, depth);
@@ -46,7 +55,7 @@ export const OCEAN_FOAM = /* glsl */ `  // -------------------------------------
   float fTrail = smoothstep(0.25, 0.85, trail * (0.2 + 1.3 * nC.g * nB.b * 1.6)) * (0.4 + 0.35 * smoothstep(0.4, 1.0, trail));
   // as a wake ages it breaks into lace threads and drifting patches before it is gone
   fTrail = max(fTrail, lace * smoothstep(0.06, 0.3, trail) * (1.0 - smoothstep(0.55, 0.95, trail)) * (0.35 + 0.4 * nB.g) * (1.0 - laceFar * 0.6));
-  float fKel = smoothstep(0.07, 0.38, live.r * (0.45 + 1.0 * nC.r)) * 0.85;
+  float fKel = smoothstep(0.3, 0.62, live.r * (0.45 + 1.0 * nC.r)) * 0.6 * (1.0 - 0.65 * smoothstep(0.8, 2.0, fp));
   float fRing = smoothstep(0.3, 0.75, live.g * (0.35 + 1.0 * nC.b)) * 0.5;
   // E08: a hull's contact ring has a fixed world width; under ~2 px (overview) it would print a white outline, so it
   // fades with the pixel footprint (the coast's own contact line is kept)
@@ -76,8 +85,8 @@ export const OCEAN_FOAM = /* glsl */ `  // -------------------------------------
   caps = max(caps, snowSpeck * 0.8);
   // the Shoals: lines of surf breaking across the reef, rolling in with the swell
   {
-    float sPh = dot(xz, SWELL) * 0.15 - t * 0.85 + (nA.b - 0.5) * 5.0;
-    float brk = pow(0.5 + 0.5 * sin(sPh), 10.0) * smoothstep(0.35, 0.62, nB.g * 0.8 + nC.r * 0.35);
+    float sPh = hbSwellPhase(xz, t) + (nA.b - 0.5) * 5.0;
+    float brk = pow(0.5 + 0.5 * sin(sPh), 16.0) * smoothstep(0.35, 0.62, nB.g * 0.8 + nC.r * 0.35);
     float spray = smoothstep(0.62, 0.8, nC.a * 0.7 + nB.b * 0.4) * 0.35;
     caps = max(caps, (brk * 0.95 + spray * brk) * smoothstep(0.25, 0.8, zm.r) * (1.0 - far01 * 0.4));
   }

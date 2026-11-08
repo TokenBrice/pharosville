@@ -15,13 +15,15 @@ import type { PreparationEntry } from "../engine/types";
  *    ocean drops its ripple roughness; G also carries a thin bright lip on the swell-facing side of a still hull.
  *    A storm (contact strength ≥ ~1) or a hull aground keeps only the rings: no slick, no lip.
  *
- * Callers stamp every frame they want to be seen: stamp(x, z, vx, vz, halfWidth, strength[, halfLength]).
+ * Callers stamp every frame they want to be seen: stamp(x, z, vx, vz, halfWidth, strength[, halfLength[, seed]]).
  * Zero velocity = moored hull (contact ring + occlusion only). Stamps queued during frame N are drawn at
- * the start of frame N+1 (one frame of latency, invisible at harbour speeds).
+ * the start of frame N+1 (one frame of latency, invisible at harbour speeds). E12: `seed` (any number, default 0;
+ * a hull passes its own, stable frame to frame) jitters where her Kelvin arms' crests fall, so no two wakes share
+ * one evenly dotted pattern.
  */
 export interface WakeService {
   preparationEntries(): PreparationEntry[];
-  stamp(x: number, z: number, vx: number, vz: number, halfWidth: number, strength: number, halfLength?: number): void;
+  stamp(x: number, z: number, vx: number, vz: number, halfWidth: number, strength: number, halfLength?: number, seed?: number): void;
   readonly texture: THREE.Texture;
   readonly live: THREE.Texture;
   /** [minX, minZ, maxX, maxZ] */
@@ -32,9 +34,9 @@ const MAX_STAMPS = 2048;
 
 const STAMP_VERT = /* glsl */ `
 attribute vec4 sA; // x, z, heading (rad, bow along (sin h, cos h)), halfLength
-attribute vec4 sB; // halfBeam, speed (m/s), strength, -
+attribute vec4 sB; // halfBeam, speed (m/s), strength, seed
 uniform vec4 uBounds; uniform float uTrail; uniform vec2 uLee;
-varying vec2 vL; varying vec4 vS; varying vec2 vW;
+varying vec2 vL; varying vec4 vS; varying vec2 vW; varying float vSeed;
 void main() {
   float hl = sA.w, hb = sB.x, spd = sB.y;
   float moving = step(0.25, spd);
@@ -61,7 +63,7 @@ void main() {
     w = sA.xy + vec2(s, c) * l.x + vec2(c, -s) * l.y;                 // l.x along bow, l.y to starboard
   }
   vL = l; vS = vec4(hl, hb, spd, sB.z);
-  vW = w - sA.xy;
+  vW = w - sA.xy; vSeed = sB.w;
   vec2 uv = (w - uBounds.xy) / (uBounds.zw - uBounds.xy);
   gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
   if (uTrail > 0.5 && moving < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // moored hulls leave no trail
@@ -70,7 +72,7 @@ void main() {
 const STAMP_FRAG = /* glsl */ `
 uniform float uTrail, uDt;
 uniform vec2 uLee, uSwell;
-varying vec2 vL; varying vec4 vS; varying vec2 vW;
+varying vec2 vL; varying vec4 vS; varying vec2 vW; varying float vSeed;
 void main() {
   float hl = vS.x, hb = vS.y, spd = vS.z, k = vS.w;
   vec2 q = vL;
@@ -100,10 +102,13 @@ void main() {
     float wl = hl * (3.0 + 4.0 * smoothstep(1.2, 6.0, spd));
     float arm = abs(abs(q.y) - (hb * 0.6 + u * 0.354));               // Kelvin half-angle 19.47 deg
     float w = 0.5 + u * 0.018;                                        // thin lines (>= 1 texel: 0.47 m)
-    float fall = exp(-u / (wl * 0.5)) * smoothstep(0.0, hl * 0.4, u);
+    float fall = exp(-u / (wl * 0.42)) * smoothstep(0.0, hl * 0.4, u);
     // echelon: the arm breaks into short feathered crests with gaps
-    float ech = smoothstep(-0.1, 0.7, sin(u * 6.2831 / max(1.2, hb * 1.3) - abs(q.y) * 1.3));
-    kel = exp(-(arm * arm) / (w * w)) * fall * (0.25 + 0.75 * ech);
+    float ec = u / max(1.2, hb * 1.3) - abs(q.y) * 0.2069;
+    float cj = floor(ec + 0.25);
+    float cr = fract(sin(cj * 12.9898 + vSeed * 78.233) * 43758.5453);
+    float ech = smoothstep(-0.1, 0.7, sin((ec - (cr - 0.5) * 0.2) * 6.2831853)) * (0.8 + 0.4 * fract(cr * 7.13));
+    kel = exp(-(arm * arm) / (w * w)) * fall * (0.4 + 0.6 * ech);
     // transverse waves inside the wedge
     float inside = smoothstep(0.0, 1.0, (hb * 0.6 + u * 0.354) - abs(q.y)) * step(0.0, u);
     kel += inside * pow(0.5 + 0.5 * cos(u * 6.2831 / max(2.0, hl * 0.9)), 6.0) * fall * 0.18;
@@ -214,14 +219,14 @@ export class WakeField implements WakeService {
   get texture(): THREE.Texture { return this.hist[this.idx].texture; }
   get live(): THREE.Texture { return this.liveRT.texture; }
 
-  stamp(x: number, z: number, vx: number, vz: number, halfWidth: number, strength: number, halfLength?: number): void {
+  stamp(x: number, z: number, vx: number, vz: number, halfWidth: number, strength: number, halfLength?: number, seed = 0): void {
     if (this.count >= MAX_STAMPS) return;
     const spd = Math.hypot(vx, vz);
     const i = this.count++;
     this.bufA[i * 4] = x; this.bufA[i * 4 + 1] = z;
     this.bufA[i * 4 + 2] = spd > 1e-3 ? Math.atan2(vx, vz) : 0;
     this.bufA[i * 4 + 3] = halfLength ?? halfWidth * 3.1;
-    this.bufB[i * 4] = halfWidth; this.bufB[i * 4 + 1] = spd; this.bufB[i * 4 + 2] = strength; this.bufB[i * 4 + 3] = 0;
+    this.bufB[i * 4] = halfWidth; this.bufB[i * 4 + 1] = spd; this.bufB[i * 4 + 2] = strength; this.bufB[i * 4 + 3] = seed;
   }
 
   /**
