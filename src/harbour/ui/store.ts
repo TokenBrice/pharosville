@@ -400,6 +400,8 @@ export class HarbourUIStore {
   private readonly panels = new Map<"panel" | "ledger", HTMLElement>();
   private spaceKey = "";
   private space: ScreenRect | null = null;
+  /** The same free area 12 px in from every edge, read by the hover tag so it never runs under an open sheet. */
+  tagSpace: ScreenRect | null = null;
 
   measurePanel(kind: "panel" | "ledger", element: HTMLElement): () => void {
     this.panels.set(kind, element);
@@ -421,6 +423,7 @@ export class HarbourUIStore {
     }
     const space = usableSpace(width, height, overlays), key = `${width},${height},${space.left},${space.right},${space.top},${space.bottom}`;
     this.space = space;
+    this.tagSpace = usableSpace(width, height, overlays, 12);
     if (key === this.spaceKey) return;
     this.spaceKey = key;
     if (reframe && this.state.selected && this.selectionEpoch === this.ctx.rig.inputEpoch) this.flyTo(this.state.selected);

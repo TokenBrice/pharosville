@@ -85,6 +85,19 @@ it.each([[600, 720], [720, 600], [1100, 640]])("fits wrapped tags and cached hei
   expect(tagPlacement(w / 2, 300, 200, 220, { w, h }).below).toBe(false);
 });
 
+it("keeps a tag in the area an open side panel or sheet leaves free, 12 px clear of it", () => {
+  const panelFree = { left: 12, top: 12, right: 1222 - 12, bottom: 1000 - 12 }; // side panel from x 1222 at 1600×1000
+  for (const x of [900, 1200, 1400, 1590]) {
+    const box = tagPlacement(x, 500, 480, 64, { w: 1600, h: 1000 }, panelFree);
+    expect(box.left + 480).toBeLessThanOrEqual(1210); expect(box.left).toBeGreaterThanOrEqual(12);
+  }
+  const sheetFree = { left: 12, top: 12, right: 834 - 12, bottom: 556 - 12 }; // bottom sheet from y 556 at 834×1112
+  for (const y of [300, 540, 700, 1100]) expect(tagPlacement(400, y, 300, 64, { w: 834, h: 1112 }, sheetFree).top + 64).toBeLessThanOrEqual(544);
+  // the leader flips below only when there is no room above within the free area's own top
+  expect(tagPlacement(400, 90, 300, 64, { w: 1600, h: 1000 }, { left: 740, top: 12, right: 1588, bottom: 988 }).below).toBe(true);
+  expect(tagPlacement(400, 120, 300, 64, { w: 1600, h: 1000 }, { left: 740, top: 12, right: 1588, bottom: 988 }).below).toBe(false);
+});
+
 it("treats every visible overlay as occupied, including overlapping tools", () => {
   const a = { x: 10, y: 10, w: 50, h: 100 }, b = { x: 40, y: 10, w: 100, h: 100 };
   const label = { x: 120, y: 30, w: 20, h: 20 };

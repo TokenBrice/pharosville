@@ -69,11 +69,15 @@ export function setStyle(el: HTMLElement, key: OverlayStyle, value: string): voi
   if (el.style[key] !== value) el.style[key] = value;
 }
 
-/** Project the whole qualification box; the leader may shorten near a viewport edge. */
-export function tagPlacement(x: number, y: number, w: number, h: number, viewport: { w: number; h: number }) {
-  const left = Math.max(12, Math.min(viewport.w - 12 - w, x - w / 2));
-  const below = y < h + 27;
-  const top = Math.max(12, Math.min(viewport.h - 12 - h, below ? y + 15 : y - h - 15));
+/**
+ * Project the whole qualification box; the leader may shorten near an edge. `free` is the area left by the open
+ * side panel, sheet or ledger (12 px in from every edge), so a tag never runs underneath them; without it, the viewport.
+ */
+export function tagPlacement(x: number, y: number, w: number, h: number, viewport: { w: number; h: number },
+  free: { left: number; top: number; right: number; bottom: number } = { left: 12, top: 12, right: viewport.w - 12, bottom: viewport.h - 12 }) {
+  const left = Math.max(free.left, Math.min(free.right - w, x - w / 2));
+  const below = y - free.top < h + 15;
+  const top = Math.max(free.top, Math.min(free.bottom - h, below ? y + 15 : y - h - 15));
   return { left, top, below };
 }
 

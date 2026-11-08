@@ -299,6 +299,9 @@
 .hb-kicker { color: var(--brass-ink); display: block; margin-bottom: var(--s2); }
 .hb-title-row { display: flex; align-items: center; gap: var(--s3); }
 .hb-title { font-size: var(--fs-title); font-weight: 600; line-height: 1; margin: 0; letter-spacing: -0.005em; width: fit-content; } /* its focus ring hugs the words, clear of the close */
+/* a title takes focus only by script (tabindex -1, never in the Tab order) so a reader starts there; it draws no ring
+   (forced colours keep theirs, below) */
+.hb-title:focus-visible { outline: none; }
 .hb-title[data-long] { font-size: var(--fs-title-long); }
 .hb-title[data-long="2"] { overflow-wrap: anywhere; }
 .hb-sub { color: var(--ink-2); margin-top: 4px; }
