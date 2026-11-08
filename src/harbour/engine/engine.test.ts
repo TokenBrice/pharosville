@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { FrameProfile } from "./frame-profile";
 import { Engine } from "./engine";
 import { CameraRig } from "./camera-rig";
 import { TimeOfDay } from "./time-of-day";
@@ -18,7 +19,7 @@ interface EngineHarness {
   firstFrameMs: number | null;
   systems: WorldSystem[];
   ready: Set<WorldSystem>;
-  profile: { frames: number; ms: Record<string, number>; max: Record<string, number> } | null;
+  profile: FrameProfile | null;
   later: WorldSystem[];
   begun: Set<WorldSystem>;
   disposed: boolean;
@@ -155,7 +156,7 @@ describe("engine preparation and rendered readiness", () => {
     expect(engine.stats.firstFleetFrameMs).not.toBeNull();
     Object.assign(readiness, { revision: 2, boats: 14 });
     Object.assign(posed, { revision: 1, boats: 12 }); // New readiness was not posed yet.
-    engine.profile = { frames: 0, ms: {}, max: {} };
+    engine.profile = new FrameProfile();
     engine.profiledFrame(48);
     expect(completed[2]).toEqual({ revision: 1, boats: 12 });
     expect(engine.stats).toMatchObject({ renderedRevision: 1, renderedBoats: 12, programs: 1, textures: 3, gpuMs: 2, gpuP10Ms: 2, gpuP50Ms: 3, gpuSamples: 30, gpuCompletedSamples: 50 });
@@ -499,4 +500,49 @@ describe("engine preparation and rendered readiness", () => {
       expect(retainedRenderers).toBe(0);
     }
   });
+});
+
+describe("CPU profiler ring", () => {
+  it("wraps in chronological order, retains sums/max, and resets every population", () => {
+    const profile = new FrameProfile(3);
+    for (let frame = 1; frame <= 5; frame++) {
+      profile.frames++; profile.tag("stage:fleet");
+      profile.ms.TOTAL = (profile.ms.TOTAL ?? 0) + frame;
+      profile.max.TOTAL = frame;
+      profile.record({ frame, revision: 2, tier: "low", dpr: 1, cpuMs: frame, rafGapMs: frame * 2 });
+    }
+    expect(profile.snapshot()).toMatchObject({ frames: 5, ms: { TOTAL: 15 }, max: { TOTAL: 5 }, cpu: { samples: 3, p50Ms: 4, p95Ms: 5, p99Ms: 5 } });
+    expect(profile.snapshot().samples.map((s) => s.frame)).toEqual([3, 4, 5]);
+    expect(profile.snapshot().samples[0].tags).toEqual(["stage:fleet"]);
+    profile.reset();
+    expect(profile.snapshot()).toMatchObject({ frames: 0, ms: {}, max: {}, samples: [], cpu: { p95Ms: null } });
+  });
+  it("does no CPU profiling when disabled and records revision/stage tags when enabled", () => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("location", { search: "", hash: "" });
+    const { engine, ctx } = frameEngine();
+    engine.frame(16);
+    expect(window.__harbourProf).toBeUndefined();
+    expect(engine.profile).toBeNull();
+    engine.profile = new FrameProfile();
+    ctx.services.set("fleet-frame", { revision: 4, boats: 2 });
+    engine.frame(32);
+    expect(engine.profile.snapshot().samples[0]).toMatchObject({ frame: 1, revision: 4, tier: "high", dpr: 1, rafGapMs: 16 });
+    expect(engine.profile.snapshot().samples[0].tags).toEqual(expect.arrayContaining(["revision:install", "stage:render", "stage:TOTAL"]));
+    vi.unstubAllGlobals();
+  });
+});
+
+it("CPU upload profiling preserves GL calls, tags reused-buffer uploads and removes its hooks", () => {
+  const profile = new FrameProfile();
+  const original = vi.fn(() => 42);
+  const gl = { bufferSubData: original } as unknown as WebGL2RenderingContext;
+  profile.trackUploads(gl);
+  expect(gl.bufferSubData(1, 0, new Float32Array([1]))).toBe(42);
+  profile.record({ frame: 1, revision: 1, tier: "high", dpr: 1, cpuMs: 2, rafGapMs: 16 });
+  expect(profile.snapshot().samples[0].tags).toEqual(["upload:bufferSubData"]);
+  expect(original).toHaveBeenCalledOnce();
+  expect(original.mock.contexts[0]).toBe(gl);
+  profile.dispose();
+  expect(gl.bufferSubData).toBe(original);
 });

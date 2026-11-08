@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { BloomEffect, EffectComposer, ToneMappingEffect } from "postprocessing";
+import { FrameProfile } from "./frame-profile";
 import { AssetStore } from "./assets";
 import { QualityGovernor } from "./governor";
 import { installGpuPassProfiler, type GpuPassProfiler } from "./gpu-passes";
@@ -21,7 +22,6 @@ const DEFERRED: ReadonlySet<string> = new Set(["life", "identity"]);
 const DEFERRED_PREPARATION_ATTEMPTS = 3;
 
 /** Dev profiling (`?prof=1`): per-system update() cost, summed since the last reset (window.__harbourProf). */
-interface FrameProfile { frames: number; ms: Record<string, number>; max: Record<string, number>; reset(): void }
 const PROF = typeof location !== "undefined" && new URLSearchParams(location.search).get("prof") === "1";
 const GPU_PROF = typeof location !== "undefined" && new URLSearchParams(location.search).get("prof") === "gpu";
 
@@ -70,12 +70,10 @@ export class Engine {
     backend: "webgl2", drawCalls: 0, triangles: 0, textures: 0, programs: 0, hour: 0, systems: [], firstFrameMs: null, firstFleetFrameMs: null, renderedRevision: 0, renderedBoats: 0, dpr: 1, gpuMs: null, quality: "high",
   };
   private readonly startMs = performance.now();
-  private readonly profile: FrameProfile | null = PROF ? {
-    frames: 0, ms: {}, max: {},
-    reset() { this.frames = 0; this.ms = {}; this.max = {}; },
-  } : null;
+  private readonly profile: FrameProfile | null = PROF ? new FrameProfile() : null;
   private lap(key: string, since: number): number {
     const now = performance.now(), p = this.profile!, d = now - since;
+    p.tag(`stage:${key}`);
     p.ms[key] = (p.ms[key] ?? 0) + d;
     if (d > (p.max[key] ?? 0)) p.max[key] = d;
     return now;
@@ -129,7 +127,17 @@ export class Engine {
     document.addEventListener("visibilitychange", this.onVisibility);
     this.resize();
     window.__harbour = this;
-    if (this.profile) window.__harbourProf = this.profile;
+    if (this.profile) {
+      window.__harbourProf = this.profile;
+      this.profile.trackUploads(renderer.getContext());
+      const upload = renderer.initTexture.bind(renderer);
+      renderer.initTexture = (texture) => { this.profile!.tag("upload:texture"); return upload(texture); };
+      const prepare = this.preparation.prepare.bind(this.preparation);
+      this.preparation.prepare = (...args) => {
+        this.profile!.tag("preparation:start");
+        return prepare(...args).finally(() => this.profile?.tag("preparation:end"));
+      };
+    }
     prefetchHarbour(this.ctx.assets);
   }
 
@@ -325,6 +333,11 @@ export class Engine {
     const p = this.profile!;
     p.frames++;
     const start = performance.now();
+    const rafGapMs = Math.max(0, now - this.clock.last);
+    const revision = this.rendered.revision;
+    const textures = ctx.renderer.info.memory.textures;
+    const readiness = ctx.services.get("readiness") as { prepared: boolean } | undefined;
+    if (readiness && !readiness.prepared) p.tag("route:pending");
     let t = start;
     const rawDelta = Math.max(0, (now - this.clock.last) / 1000);
     const delta = Math.min(0.1, rawDelta);
@@ -349,7 +362,11 @@ export class Engine {
     this.governor.end(rawDelta);
     this.publishStats();
     this.lap("tail", t);
-    this.lap("TOTAL", start);
+    const end = this.lap("TOTAL", start);
+    if (revision !== this.rendered.revision) p.tag("revision:install");
+    if (textures !== ctx.renderer.info.memory.textures) p.tag("upload:texture-allocation");
+    p.record({ frame: p.frames, revision: this.rendered.revision, tier: this.governor.tier,
+      dpr: ctx.renderer.getPixelRatio(), cpuMs: end - start, rafGapMs });
   }
 
   /** Tier-invariant world lighting leaves only two SMAA materials to prepare, never the whole scene. */
@@ -494,6 +511,7 @@ export class Engine {
     if (window.__harbour === this) delete window.__harbour;
     if (window.__harbourStats === this.stats) delete window.__harbourStats;
     if (window.__harbourProf === this.profile) delete window.__harbourProf;
+    this.profile?.dispose();
     this.gpuPasses?.dispose();
     if (window.__gpuPasses === this.gpuPasses) delete window.__gpuPasses;
     this.governor.dispose();
