@@ -11,7 +11,6 @@ import { ACCEL, cruiseSpeed, legTiming, newLegTiming } from "./path";
 import { OFFSHORE_VARIANTS, outingMetres, outingTrack, outingVariants, scenicExtraMetres, trackClearOf } from "./outings";
 import { buildLegPath } from "./routes";
 import { hypot } from "./math";
-import { buildPlanLegPath, pathClear, pathKey } from "./plan-paths";
 
 export const CYCLE_S = 6 * 3600;
 /** Divisors of the cycle, minutes. */
@@ -223,8 +222,6 @@ function ladder(cls: HullClass): HullClass[] {
 }
 
 export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
-  const baseSlots = L.slots.length;
-  const exactTimes = new Map<string, { seconds: number; bad: boolean; blockedFrom: boolean }>();
   const timelines: Timeline[] = [];
   const tl = (slot: number) => (timelines[slot] ??= new Timeline());
   const rafts = new Map<string, number[]>(); // where → raft slots
@@ -254,7 +251,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
   };
 
   /** First free slot for [a, b) at `where`, walking the class ladder from a hash-rotated start. */
-  const findSlot = (where: string, cls: HullClass, a: number, b: number, seed: string, avoid: ReadonlyArray<[number, number, number]>, rejected?: Set<number>, preferred?: number): number => {
+  const findSlot = (where: string, cls: HullClass, a: number, b: number, seed: string, avoid: ReadonlyArray<[number, number, number]>): number => {
     const byCls = L.pools.get(where);
     if (!byCls) return -1;
     const avoided = (slot: number) => {
@@ -265,10 +262,8 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
       const list = byCls.get(k);
       if (!list || list.length === 0) continue;
       const start = Math.floor(u01(seed + k) * list.length);
-      for (let j = -1; j < list.length; j++) {
-        const s = j < 0 ? preferred : list[(start + j) % list.length];
-        if (s == null || (j < 0 && !list.includes(s))) continue;
-        if (rejected?.has(s)) continue;
+      for (let j = 0; j < list.length; j++) {
+        const s = list[(start + j) % list.length];
         if (!tl(s).isFree(a, b)) continue;
         if (avoided(s)) continue;
         // a neighbour whose hull would overlap this one's is busy then: skip
@@ -373,7 +368,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     const n = merged.length;
     const legs = merged.map((s, i) => legSeconds(s.where, merged[(i + 1) % n].where, b.hullClass));
     let sail = legs.reduce((a, v) => a + v, 0);
-    let T = snapPeriod(Math.max(PERIOD_MIN[b.hullClass] * 60, sail / MAX_SAIL_FRAC));
+    const T = snapPeriod(Math.max(PERIOD_MIN[b.hullClass] * 60, sail / MAX_SAIL_FRAC));
     // scenic legs, first out of the stop she lies at longest, while the period has room for them
     const scenic = new Uint8Array(n);
     if (SCENIC_CLASSES.has(b.hullClass) && u01(b.id + "#scenic") < SCENIC_SHARE) {
@@ -384,132 +379,88 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
         if (sc > legs[i] && sail + sc - legs[i] <= SCENIC_SAIL_FRAC * T) { sail += sc - legs[i]; legs[i] = sc; scenic[i] = v + 1; }
       }
     }
-    const rejected = merged.map(() => new Set<number>());
-    let timingPass = 0;
-    let preferred: { offset: number; slots: number[] } | null = null;
-    for (;;) {
-      const passSlots = L.slots.length;
-      const dockTotal = T - sail;
-      const dwell = merged.map((s) => s.share * dockTotal);
-      const reps = CYCLE_S / T;
-      // boat-local segment times for one period
-      const local: Array<{ kind: number; stop: number; a: number; e: number }> = [];
-      let u = 0;
-      for (let i = 0; i < n; i++) {
-        local.push({ kind: SEG_DOCK, stop: i, a: u, e: u + dwell[i] }); u += dwell[i];
-        local.push({ kind: SEG_LEG, stop: i, a: u, e: u + legs[i] }); u += legs[i];
-      }
-      const base = u01(b.id + "#phase") * T;
-      const legsLocal = local.filter((x) => x.kind === SEG_LEG);
-      let best: { offset: number; slots: number[]; score: number } | null = null;
-      for (let k = 0; k < OFFSET_TRIES; k++) {
-        const offset: number = k === 0 && preferred ? preferred.offset % T : (base + k * (T / OFFSET_TRIES) + (k ? u01(b.id + "#j" + k) * 7 : 0)) % T;
-        // contested gates: arrivals/departures closer than a bucket to another hull's at that harbour
-        let gateBad = 0;
-        for (let r = 0; r < reps; r++) for (const sgm of local) {
-          if (sgm.kind !== SEG_DOCK) continue;
-          const w = merged[sgm.stop].where;
-          if (!gateClear(w, r * T + sgm.a - offset)) gateBad++;
-          if (!gateClear(w, r * T + sgm.e - offset)) gateBad++;
-        }
-        const over = overload(offset, T, reps, legsLocal);
-        if (best && gateBad + over * 0.25 >= best.score) continue;
-        const chosen: number[] = [];
-        const avoid: Array<[number, number, number]> = [];
-        let fails = 0, choice = 0;
-        for (let r = 0; r < reps; r++) for (const sgm of local) {
-          if (sgm.kind !== SEG_DOCK) continue;
-          const w = merged[sgm.stop].where;
-          const a = r * T + sgm.a - offset - RESERVE_IN_S, e = r * T + sgm.e - offset + RESERVE_OUT_S;
-          const s = findSlot(w, b.hullClass, a, e, `${b.id}#${r}#${sgm.stop}${rejected[sgm.stop].size ? "#route" + rejected[sgm.stop].size : ""}`, avoid, rejected[sgm.stop], preferred?.slots[choice++]);
-          if (s < 0) fails++;
-          chosen.push(s);
-          avoid.push([s, a, e]);
-        }
-        // an overflowed window costs far more than a shared gate bucket
-        const score = fails * 100 + gateBad + over * 0.25;
-        if (!best || score < best.score) best = { offset, slots: chosen, score };
-        if (score === 0 || (preferred && k === 0 && fails === 0)) break;
-      }
-      // Exact selected routes set the travel budget before any berth reservation is committed.
-      // With no runtime borrowing or berth holds, effective dock seconds equal these supply shares.
-      const chosen = best!.slots;
-      for (let j = 0; j < chosen.length; j++) if (chosen[j] < 0) {
-        const stop = j % n, rep = Math.floor(j / n), dock = local[stop * 2];
-        chosen[j] = takeRaft(merged[stop].where, rep * T + dock.a - best!.offset - RESERVE_IN_S, rep * T + dock.e - best!.offset + RESERVE_OUT_S);
-      }
-      let changed = false;
-      for (let j = 0; j < chosen.length; j++) {
-        const from = chosen[j], to = chosen[(j + 1) % chosen.length], stop = j % n;
-        const key = pathKey(from, to, b.hullClass, scenic[stop]);
-        let exact = exactTimes.get(key);
-        if (exact == null) {
-          const { path, bad } = buildPlanLegPath(L, baseSlots, from, to, b.hullClass, scenic[stop]);
-          const blocked = { x: 0, z: 0 };
-          if (bad) pathClear(L, path, L.loa[b.hullClass], L.beam[b.hullClass], blocked);
-          const near = (slot: number) => hypot(blocked.x - L.slots[slot].x, blocked.z - L.slots[slot].z);
-          exact = { seconds: legTiming(path, 1e9, L.loa[b.hullClass], TIMING, L.slots[from].heading, L.slots[to].heading, false).minD, bad, blockedFrom: near(from) < near(to) };
-          exactTimes.set(key, exact);
-        }
-        if (exact.bad) {
-          if (exact.blockedFrom && from < baseSlots) { rejected[stop].add(from); changed = true; }
-          else if (to < baseSlots) { rejected[(stop + 1) % n].add(to); changed = true; }
-        }
-        if (exact.seconds > legs[stop] + 1e-5) { legs[stop] = exact.seconds; changed = true; }
-      }
-      if (changed) {
-        preferred = { offset: best!.offset, slots: chosen };
-        L.slots.length = passSlots;
-        for (const [where, list] of rafts) rafts.set(where, list.filter((slot) => slot < passSlots));
-        for (const key of exactTimes.keys()) { const [from, to] = key.split(">"); if (+from >= passSlots || +to >= passSlots) exactTimes.delete(key); }
-        if (++timingPass > 32) throw new Error(`Fleet route timing did not converge (${b.id}: ${rejected.map((s) => s.size).join(",")})`);
-        sail = legs.reduce((a, v) => a + v, 0);
-        T = Math.max(T, snapPeriod(sail / SCENIC_SAIL_FRAC));
-        if (sail >= T) throw new Error("Fleet routes exceed the UTC cycle");
-        continue;
-      }
-      const { offset } = best!;
-      const slots = best!.slots;
-      // commit: reservations, gate events, overflow rafts
-      let si = 0;
-      const segs: Array<{ kind: number; a: number; e: number; slot: number; from: number; scenic: number }> = [];
+    const dockTotal = T - sail;
+    const dwell = merged.map((s) => s.share * dockTotal);
+    const reps = CYCLE_S / T;
+    // boat-local segment times for one period
+    const local: Array<{ kind: number; stop: number; a: number; e: number }> = [];
+    let u = 0;
+    for (let i = 0; i < n; i++) {
+      local.push({ kind: SEG_DOCK, stop: i, a: u, e: u + dwell[i] }); u += dwell[i];
+      local.push({ kind: SEG_LEG, stop: i, a: u, e: u + legs[i] }); u += legs[i];
+    }
+    const base = u01(b.id + "#phase") * T;
+    const legsLocal = local.filter((x) => x.kind === SEG_LEG);
+    let best: { offset: number; slots: number[]; score: number } | null = null;
+    for (let k = 0; k < OFFSET_TRIES; k++) {
+      const offset = (base + k * (T / OFFSET_TRIES) + (k ? u01(b.id + "#j" + k) * 7 : 0)) % T;
+      // contested gates: arrivals/departures closer than a bucket to another hull's at that harbour
+      let gateBad = 0;
       for (let r = 0; r < reps; r++) for (const sgm of local) {
-        if (sgm.kind !== SEG_DOCK) { segs.push({ kind: SEG_LEG, a: r * T + sgm.a, e: r * T + sgm.e, slot: -1, from: -1, scenic: scenic[sgm.stop] }); continue; }
+        if (sgm.kind !== SEG_DOCK) continue;
+        const w = merged[sgm.stop].where;
+        if (!gateClear(w, r * T + sgm.a - offset)) gateBad++;
+        if (!gateClear(w, r * T + sgm.e - offset)) gateBad++;
+      }
+      const over = overload(offset, T, reps, legsLocal);
+      if (best && gateBad + over * 0.25 >= best.score) continue;
+      const chosen: number[] = [];
+      const avoid: Array<[number, number, number]> = [];
+      let fails = 0;
+      for (let r = 0; r < reps; r++) for (const sgm of local) {
+        if (sgm.kind !== SEG_DOCK) continue;
         const w = merged[sgm.stop].where;
         const a = r * T + sgm.a - offset - RESERVE_IN_S, e = r * T + sgm.e - offset + RESERVE_OUT_S;
-        const s = slots[si++];
-        if (L.slots[s].kind === "raft") overflow++;
-        tl(s).add(a, e);
-        buckets(w)[bucketOf(r * T + sgm.a - offset)] = 1;
-        buckets(w)[bucketOf(r * T + sgm.e - offset)] = 1;
-        if (L.slots[s].inNode >= 0) nodeB(L.slots[s].inNode)[bucketOf(r * T + sgm.a - offset)]++;
-        if (L.slots[s].outNode >= 0) { nodeB(L.slots[s].outNode)[bucketOf(r * T + sgm.e - offset)]++; depB(L.slots[s].outNode)[bucketOf(r * T + sgm.e - offset)]++; }
-        segs.push({ kind: SEG_DOCK, a: r * T + sgm.a, e: r * T + sgm.e, slot: s, from: s, scenic: 0 });
+        const s = findSlot(w, b.hullClass, a, e, `${b.id}#${r}#${sgm.stop}`, avoid);
+        if (s < 0) fails++;
+        chosen.push(s);
+        avoid.push([s, a, e]);
       }
-      for (let r = 0; r < reps; r++) for (const lg of legsLocal) for (let t = lg.a; t < lg.e; t += 60) {
-        uwMin[Math.floor((((r * T + t - offset) % CYCLE_S) + CYCLE_S) % CYCLE_S / 60)]++;
-      }
-      for (let i = 0; i < segs.length; i++) {
-        if (segs[i].kind !== SEG_LEG) continue;
-        segs[i].from = segs[i - 1].slot;
-        segs[i].slot = segs[(i + 1) % segs.length].slot;
-      }
-      const p = empty(b, "circuit");
-      p.period = T; p.offset = offset; p.legSeconds = sail;
-      p.segStart = Float64Array.from(segs, (s) => s.a);
-      p.segEnd = Float64Array.from(segs, (s) => s.e);
-      p.segKind = Uint8Array.from(segs, (s) => s.kind);
-      p.segSlot = Int32Array.from(segs, (s) => s.slot);
-      p.segFrom = Int32Array.from(segs, (s) => s.from);
-      p.segLoop = Uint8Array.from(segs, (s) => s.scenic);
-      merged.forEach((s, i) => p.dwell.set(s.where, (p.dwell.get(s.where) ?? 0) + dwell[i]));
-      plans.set(b.id, p);
-      nCircuit++;
-      expUnderWay += sail / T;
-      expDock += n / (T / 60);
-      periods[b.hullClass] = Math.max(periods[b.hullClass] ?? 0, T / 60);
-      break;
+      // an overflowed window costs far more than a shared gate bucket
+      const score = fails * 100 + gateBad + over * 0.25;
+      if (!best || score < best.score) best = { offset, slots: chosen, score };
+      if (score === 0) break;
     }
+    const { offset } = best!;
+    const slots = best!.slots;
+    // commit: reservations, gate events, overflow rafts
+    let si = 0;
+    const segs: Array<{ kind: number; a: number; e: number; slot: number; from: number; scenic: number }> = [];
+    for (let r = 0; r < reps; r++) for (const sgm of local) {
+      if (sgm.kind !== SEG_DOCK) { segs.push({ kind: SEG_LEG, a: r * T + sgm.a, e: r * T + sgm.e, slot: -1, from: -1, scenic: scenic[sgm.stop] }); continue; }
+      const w = merged[sgm.stop].where;
+      const a = r * T + sgm.a - offset - RESERVE_IN_S, e = r * T + sgm.e - offset + RESERVE_OUT_S;
+      let s = slots[si++];
+      if (s < 0) { s = takeRaft(w, a, e); overflow++; }
+      tl(s).add(a, e);
+      buckets(w)[bucketOf(r * T + sgm.a - offset)] = 1;
+      buckets(w)[bucketOf(r * T + sgm.e - offset)] = 1;
+      if (L.slots[s].inNode >= 0) nodeB(L.slots[s].inNode)[bucketOf(r * T + sgm.a - offset)]++;
+      if (L.slots[s].outNode >= 0) { nodeB(L.slots[s].outNode)[bucketOf(r * T + sgm.e - offset)]++; depB(L.slots[s].outNode)[bucketOf(r * T + sgm.e - offset)]++; }
+      segs.push({ kind: SEG_DOCK, a: r * T + sgm.a, e: r * T + sgm.e, slot: s, from: s, scenic: 0 });
+    }
+    for (let r = 0; r < reps; r++) for (const lg of legsLocal) for (let t = lg.a; t < lg.e; t += 60) {
+      uwMin[Math.floor((((r * T + t - offset) % CYCLE_S) + CYCLE_S) % CYCLE_S / 60)]++;
+    }
+    for (let i = 0; i < segs.length; i++) {
+      if (segs[i].kind !== SEG_LEG) continue;
+      segs[i].from = segs[i - 1].slot;
+      segs[i].slot = segs[(i + 1) % segs.length].slot;
+    }
+    const p = empty(b, "circuit");
+    p.period = T; p.offset = offset; p.legSeconds = sail;
+    p.segStart = Float64Array.from(segs, (s) => s.a);
+    p.segEnd = Float64Array.from(segs, (s) => s.e);
+    p.segKind = Uint8Array.from(segs, (s) => s.kind);
+    p.segSlot = Int32Array.from(segs, (s) => s.slot);
+    p.segFrom = Int32Array.from(segs, (s) => s.from);
+    p.segLoop = Uint8Array.from(segs, (s) => s.scenic);
+    merged.forEach((s, i) => p.dwell.set(s.where, (p.dwell.get(s.where) ?? 0) + dwell[i]));
+    plans.set(b.id, p);
+    nCircuit++;
+    expUnderWay += sail / T;
+    expDock += n / (T / 60);
+    periods[b.hullClass] = Math.max(periods[b.hullClass] ?? 0, T / 60);
   }
 
   // 3. harbour outings (D22, decorative): a single-chain hull casts off, sails a loop and comes back to
