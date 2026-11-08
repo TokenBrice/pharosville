@@ -105,9 +105,13 @@ void main() {
   vec2 edge2 = min(suv, 1.0 - suv);
   float inside = smoothstep(0.0, 0.03, min(edge2.x, edge2.y));
   vec4 sdf = texture2D(uSdf, clamp(suv, 0.0, 1.0));
-  float coast = mix(220.0, (sdf.r - 0.5) * 128.0, inside);
-  float depth = mix(40.0, sdf.g * 40.0, inside);
-  float sdist = mix(16.0, sdf.b * 16.0, inside);
+  // E02: the mainland mesh is retired but the baked SDF still carries its polygon (the NW corner). Every island
+  // coast ends within 436 m of the scene centre and the mainland band starts 593 m out: fade the SDF land terms
+  // between them so no pale "sandbank" ghost is drawn in open sea. Sea zones (zm) are unaffected.
+  float landK = inside * (1.0 - smoothstep(470.0, 560.0, length(xz - uSceneCenter)));
+  float coast = mix(220.0, (sdf.r - 0.5) * 128.0, landK);
+  float depth = mix(40.0, sdf.g * 40.0, landK);
+  float sdist = mix(16.0, sdf.b * 16.0, landK);
   vec4 zm = texture2D(uZones, clamp(suv, 0.0, 1.0)) * inside;
   vec2 wuv = (xz - uWakeBounds.xy) / (uWakeBounds.zw - uWakeBounds.xy);
   vec2 wedge = min(wuv, 1.0 - wuv);
