@@ -45,17 +45,24 @@ void main() {
 interface Shared extends FxTextures { refs: number }
 
 /** Ref-counted: every system that acquires calls release() in its dispose(). */
-export function acquireFxTextures(ctx: EngineContext): FxTextures {
-  const hit = ctx.services.get(KEY) as Shared | undefined;
-  if (hit) { hit.refs++; return hit; }
-  const noiseRT = bakeTexture(ctx.renderer, NOISE_FRAG, { width: 256, height: 256 });
-  const rippleRT = bakeTexture(ctx.renderer, RIPPLE_FRAG, { width: 512, height: 512 });
-  const fx: Shared = {
-    refs: 1,
-    noise: noiseRT.texture,
-    ripple: rippleRT.texture,
-    release() { if (--fx.refs > 0) return; noiseRT.dispose(); rippleRT.dispose(); ctx.services.delete(KEY); },
-  };
-  ctx.services.set(KEY, fx);
+export async function acquireFxTextures(ctx: EngineContext): Promise<FxTextures> {
+  let pending = ctx.services.get(KEY) as Promise<Shared> | undefined;
+  if (!pending) {
+    pending = (async () => {
+      const noiseRT = await bakeTexture(ctx, NOISE_FRAG, { width: 256, height: 256 });
+      try {
+        const rippleRT = await bakeTexture(ctx, RIPPLE_FRAG, { width: 512, height: 512 });
+        const fx: Shared = {
+          refs: 0, noise: noiseRT.texture, ripple: rippleRT.texture,
+          release() { if (--fx.refs > 0) return; noiseRT.dispose(); rippleRT.dispose(); ctx.services.delete(KEY); },
+        };
+        return fx;
+      } catch (error) { noiseRT.dispose(); throw error; }
+    })();
+    ctx.services.set(KEY, pending);
+    void pending.catch(() => { if (ctx.services.get(KEY) === pending) ctx.services.delete(KEY); });
+  }
+  const fx = await pending;
+  fx.refs++;
   return fx;
 }

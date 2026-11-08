@@ -92,8 +92,8 @@ export class WeatherSystem implements WorldSystem {
   private moonIllum = 1;
   private readonly input: DirectorInput = { level: null, band: null, snowShare: 0, sunUp: 0, time: 0 };
 
-  init(ctx: EngineContext): void {
-    this.fx = acquireFxTextures(ctx);
+  async init(ctx: EngineContext): Promise<void> {
+    this.fx = await acquireFxTextures(ctx);
     const mats = getHarbourMaterials(ctx);
     this.precip = new Precipitation({
       uAOTex: mats.ao.uAOTex, uAOBounds: mats.ao.uAOBounds, uPoolTex: mats.pool.uPoolTex, uPoolBounds: mats.pool.uPoolBounds,

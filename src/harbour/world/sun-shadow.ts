@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { FullscreenPass } from "../ocean/gpu-bake";
+import type { PreparationEntry } from "../engine/types";
 
 /**
  * 02-L1: the key light's shadow map, shared with materials that are not three-lit (the sea's ShaderMaterial).
@@ -93,13 +94,17 @@ void main() {
 /** Resolves the key light's depth map for the sea plane into sunShadowUniforms.uSeaShadow (see the note above). */
 export class SeaShadowMask {
   private rt: THREE.WebGLRenderTarget | null = null;
+  /** Same attachment format for compilation while Low has no production mask allocation. */
+  private readonly compilationTarget = new THREE.WebGLRenderTarget(1, 1, { format: THREE.RedFormat, depthBuffer: false });
   private readonly plane = new THREE.Vector3();
   private readonly pass = new FullscreenPass(MASK_FRAG, {
     uKeyShadow: { value: NO_SHADOW }, uPlane: { value: this.plane }, uKeyShadowP: sunShadowUniforms.uKeyShadowP,
   });
 
+  preparationEntry(): PreparationEntry { return this.pass.preparationEntry(() => this.rt ?? this.compilationTarget); }
+
   /** After the map was (re-)rendered with `matrix` (three's light.shadow.matrix): resolve the mask. */
-  resolve(renderer: THREE.WebGLRenderer, map: THREE.Texture, mapSize: number, matrix: THREE.Matrix4): void {
+  resolve(renderer: THREE.WebGLRenderer, map: THREE.Texture, mapSize: number, matrix: THREE.Matrix4): boolean {
     const size = Math.max(256, Math.min(2048, mapSize / 2));
     if (!this.rt || this.rt.width !== size) {
       this.rt?.dispose();
@@ -113,7 +118,7 @@ export class SeaShadowMask {
     const e = matrix.elements;   // column-major: row r, column c = e[c * 4 + r]
     const a = e[0], b = e[8], c = e[1], d = e[9];
     const det = a * d - b * c;
-    if (Math.abs(det) < 1e-12) return;
+    if (Math.abs(det) < 1e-12) return false;
     // x = ( d (u - e12) - b (v - e13)) / det ; z = (-c (u - e12) + a (v - e13)) / det ; depth = e2 x + e10 z + e14
     const ka = (e[2] * d - e[10] * c) / det, kb = (-e[2] * b + e[10] * a) / det;
     this.plane.set(ka, kb, e[14] - ka * e[12] - kb * e[13]);
@@ -123,11 +128,19 @@ export class SeaShadowMask {
     // the plane's uv area per m² is |det|: texels per metre (geometric mean of the two axes) for the sea's blur mips
     sunShadowUniforms.uSeaShadowT.value = Math.log2(Math.sqrt(Math.abs(det)) * size);
     sunShadowUniforms.uKeyShadowMat.value.copy(matrix);
+    return true;
+  }
+
+  suspend(): void {
+    this.rt?.dispose(); this.rt = null;
+    sunShadowUniforms.uSeaShadow.value = WHITE;
+    sunShadowUniforms.uKeyShadowP.value.x = 0;
   }
 
   dispose(): void {
-    this.rt?.dispose();
+    this.suspend();
     this.pass.dispose();
+    this.compilationTarget.dispose();
     sunShadowUniforms.uSeaShadow.value = WHITE;
   }
 }

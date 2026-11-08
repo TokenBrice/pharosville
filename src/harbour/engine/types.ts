@@ -4,6 +4,8 @@ import type { CameraRig } from "./camera-rig";
 import type { WorldUniforms } from "./uniforms";
 import type { TimeOfDay } from "./time-of-day";
 import type { AssetStore } from "./assets";
+import type { PreparedPrograms } from "./prepare";
+import type { SubmissionOptions } from "./preparation-queue";
 
 /** Everything a world system may touch. Owned by the Engine; systems never create their own renderer/loop. */
 export interface EngineContext {
@@ -61,8 +63,11 @@ export interface PreparationService {
   prepareGroup(root: THREE.Object3D): Promise<void>;
   /** Prepare a calendar classification before publishing colour/depth versions and uniforms. */
   prepareSeason(scope: () => () => void, commit: () => void): Promise<void>;
-  /** One idle upload per task; render-target attachments are never uploaded as CPU textures. */
+  /** Shared frame allowance for uploads; render-target attachments are never uploaded as CPU textures. */
   stageTextures(root: THREE.Object3D): void;
+  submit<T>(work: (deadline: number) => T, options?: SubmissionOptions): Promise<T>;
+  stageTexture(texture: THREE.Texture, options?: SubmissionOptions): Promise<void>;
+  prepare(entries: readonly PreparationEntry[], scope?: () => () => void, signal?: AbortSignal): Promise<PreparedPrograms>;
 }
 
 /** Installed simulation model/plan readiness; DataSystem mutates this service in place. */

@@ -4,7 +4,7 @@ import { createWorldUniforms } from "../engine/uniforms";
 import { chainedKitMaterial } from "../life/figure-kit";
 import {
   bareOf, evergreenOf, HarbourMaterials, ICICLE_WALL_PATTERNS, leafSnowKeepOf, PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, patternIdOf, snowSlopeOf,
-  windowKindOf, WINDOW_KIND,
+  windowKindOf, WINDOW_KIND, shaderFeatureDefines, shaderFeatureKey,
 } from "./materials";
 
 // linear vertex albedos: today's spruce (dark blue-green), round deciduous and birch greens
@@ -70,6 +70,40 @@ describe("snow by slope", () => {
 });
 
 describe("seasonal colour/depth publication", () => {
+  it("uses one immutable descriptor for keys/defines, excluding animated uniforms", () => {
+    const u = createWorldUniforms(), mats = new HarbourMaterials(u);
+    const kit = mats.kit({ pattern: 8 }), depth = mats.kitDepth(), predepth = mats.kitDepth(true);
+    const scene = new THREE.Scene(); scene.add(new THREE.Mesh(new THREE.BoxGeometry(), kit));
+    const check = () => {
+      const f = mats.featureIdentity(8);
+      expect(Object.isFrozen(f)).toBe(true); expect(Object.isFrozen(f.cropStages)).toBe(true);
+      expect(kit.customProgramCacheKey()).toBe(`hb_kit_${shaderFeatureKey(f)}`);
+      const shader = { vertexShader: THREE.ShaderLib.standard.vertexShader, fragmentShader: THREE.ShaderLib.standard.fragmentShader, uniforms: {}, defines: {} };
+      kit.onBeforeCompile(shader as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
+      expect(shader.defines).toMatchObject(shaderFeatureDefines(f));
+    };
+    for (const lite of [true, false]) {
+      const versions = [kit.version, depth.version, predepth.version];
+      mats.setLite(lite); mats.setLite(lite); check();
+      expect([kit.version, depth.version, predepth.version]).toEqual(versions.map((v) => v + 1));
+    }
+    let changes = 0, previous = mats.kitKey();
+    const version = kit.version;
+    for (let day = 0; day < 366; day++) {
+      u.uSeasonPhase.value = day / 365;
+      u.uFoliage.value.set(0, 1, 0, day > 320 ? 1 : 0);
+      const next = mats.kitKey(); if (next !== previous) changes++;
+      mats.invalidateSeason(scene); mats.invalidateSeason(scene); check(); previous = next;
+    }
+    expect(kit.version).toBe(version + changes);
+    const identity = mats.featureIdentity(), key = mats.kitKey(), versions = [kit.version, depth.version, predepth.version];
+    u.uTime.value++; u.uSnowCover.value = 0.7; u.uWetness.value = 0.4;
+    mats.invalidateSeason(scene);
+    expect(mats.featureIdentity()).toBe(identity); expect(mats.kitKey()).toBe(key);
+    expect([kit.version, depth.version, predepth.version]).toEqual(versions);
+    expect(mats.kit({ pattern: 0 }).customProgramCacheKey()).not.toBe(kit.customProgramCacheKey());
+    mats.dispose(); (scene.children[0] as THREE.Mesh).geometry.dispose();
+  });
   it("keys derived life materials by the same bare classification and invalidates both twins", () => {
     const uniforms = createWorldUniforms();
     uniforms.uFoliage.value.set(0, 1, 0, 0);

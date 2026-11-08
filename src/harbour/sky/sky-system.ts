@@ -205,10 +205,10 @@ export class SkySystem implements WorldSystem {
   /** W10: the season weights the bank shapes were last made for */
   private seasonKey = "";
 
-  init(ctx: EngineContext): void {
+  async init(ctx: EngineContext): Promise<void> {
     this.syncLayout(ctx.services.get("layout") as HarbourLayout | undefined);
-    this.fx = acquireFxTextures(ctx);
-    this.atlas = bakeCloudAtlas(ctx.renderer);
+    this.fx = await acquireFxTextures(ctx);
+    this.atlas = await bakeCloudAtlas(ctx);
     this.u.uCloudAtlas.value = this.atlas.texture;
     this.u.uSkyNoise.value = this.fx.noise;
     const W = ctx.uniforms;

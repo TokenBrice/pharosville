@@ -269,8 +269,8 @@ export class BeamSystem implements WorldSystem {
   private intro = 1;
   private shown = 0;
 
-  init(ctx: EngineContext): void {
-    this.fx = acquireFxTextures(ctx);
+  async init(ctx: EngineContext): Promise<void> {
+    this.fx = await acquireFxTextures(ctx);
     this.bu = getBeamUniforms(ctx);
     this.lighthouse = ctx.services.get("lighthouse") as LighthouseLike | undefined;
     const layout = ctx.services.get("layout") as HarbourLayout | undefined;

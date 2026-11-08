@@ -120,6 +120,7 @@ export function chainedKitMaterial(mats: HarbourMaterials, key: string, hooks: L
     if (hooks.emissive) shader.fragmentShader = shader.fragmentShader.replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>\n${hooks.emissive}`);
   };
   m.customProgramCacheKey = () => `hb_life_${key}_${base.customProgramCacheKey()}`;
+  mats.track(m);
   return m;
 }
 
