@@ -1,21 +1,20 @@
 /** Small shared pieces: logo medallion, chart glyphs (sparkline, tide bars, chain split), freshness. */
 import { useState } from "react";
-import type { Boat, DewsBand, Freshness, HarbourModel } from "../model/types";
+import type { Boat, DewsBand, EndpointKey, Freshness, HarbourModel } from "../model/types";
 import { age, money, share } from "./format";
 import { runtimeLogoPath } from "../../lib/logos";
 import { allocationLine } from "./facts";
 import { flowValued, flowWindow, grossFlow, NET_UNAVAILABLE, VALUATION_UNKNOWN, type FlowHour } from "./flow-copy";
+import { readingSentence, sourceTruth, useReadingNow } from "./source-state";
+import { truthCopy } from "./truth-copy";
 
 export function truthState(m: HarbourModel | null): { state: Freshness; word: string; detail: string } {
-  if (!m || !m.hasFleet) return { state: "unavailable", word: "awaiting data", detail: "no harbour data has arrived" };
-  const t = m.truth;
-  const essential = [t.stablecoins, t.chains];
-  const worst: Freshness = essential.some((e) => e.state === "unavailable") ? "stale" : essential.some((e) => e.state === "stale") ? "stale" : "current";
-  if (essential.some((e) => e.state === "unknown")) return { state: "unknown", word: "unverified", detail: "Source freshness is unverified." };
-  const lagging = (Object.keys(t) as Array<keyof typeof t>).filter((k) => t[k].state !== "current").length;
-  const ageSec = t.stablecoins.ageSec;
-  if (worst === "stale") return { state: "stale", word: `stale · ${age(ageSec)} old`, detail: "the harbour is holding still until fresh data arrives" };
-  return { state: "current", word: lagging ? `live · ${lagging} ${lagging === 1 ? "reading" : "readings"} lagging` : "live", detail: "" };
+  const supply = sourceTruth(m, "stablecoins");
+  const lagging = m ? Object.entries(m.truth).filter(([k, t]) => k !== "stablecoins" && t.state !== "current").length : 6;
+  return { state: supply.state,
+    word: supply.state === "current" ? `Supply: current; ${lagging} other readings are stale or unavailable.` : readingSentence(m, "stablecoins"),
+    detail: readingSentence(m, "stablecoins"),
+  };
 }
 
 export function Logo({ src, label, color, size }: { src: string | null; label: string; color: string; size?: number }) {
@@ -165,11 +164,20 @@ export function Crest({ chain, color, size = 52 }: { chain: string; color: strin
   );
 }
 
-export function Freshness({ label, state, ageSec }: { label: string; state: Freshness; ageSec: number | null }) {
+export function Freshness({ model, source }: { model: HarbourModel | null; source: EndpointKey }) {
+  const now = useReadingNow();
+  const truth = sourceTruth(model, source);
+  const stamp = truth.sourceUpdatedAtMs;
+  const dated = stamp != null && Number.isFinite(stamp) && stamp >= 0;
+  const elapsed = dated ? Math.max(0, (now - stamp) / 1000) : null;
   return (
-    <div className="hb-foot">
-      <span className="hb-dot" data-state={state} aria-hidden="true" />
-      <span>{label} {state === "unknown" ? "unavailable. Source freshness is unverified." : state === "unavailable" ? "unavailable" : `${state === "stale" ? "stale, " : ""}updated ${age(ageSec)}${ageSec != null && ageSec >= 90 ? " ago" : ""}`}</span>
-    </div>
+    <>
+      {(truth.state === "unknown" || (truth.state !== "unavailable" && !dated)) && <p className="hb-caption">{truthCopy({ kind: "retained-heading" })}</p>}
+      <div className="hb-foot" style={{ marginTop: 6, flexWrap: "wrap", alignItems: "baseline" }}>
+        <span className="hb-dot" data-state={truth.state} aria-hidden="true" />
+        <span style={{ flex: "1 1 220px", minWidth: 0, whiteSpace: "normal" }}>{readingSentence(model, source)}</span>
+        {elapsed != null && <span>{elapsed < 90 ? "Observed just now." : `Observed ${age(elapsed)} ago.`}</span>}
+      </div>
+    </>
   );
 }

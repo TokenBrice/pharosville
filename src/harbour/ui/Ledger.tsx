@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Boat, HarbourModel } from "../model/types";
-import { allocationLine, BOAT_SIGNALS_RULE, BY_EAR, epitaphOf, FAR_PORTS_LINE, STATION_RULE, stationFact, wreckDate } from "./facts";
-import { bps, causeName, gradeName, money, pegName, share, titleCase } from "./format";
+import type { Boat, EndpointKey, HarbourModel } from "../model/types";
+import { alertCountLine, allocationLine, BOAT_SIGNALS_RULE, BY_EAR, epitaphOf, FAR_PORTS_LINE, STATION_RULE, stationFact, wreckDate } from "./facts";
+import { bps, causeName, money, pegName, share, titleCase } from "./format";
+import { Freshness } from "./bits";
+import { observedEmpty, qualificationCopy, READING_NAMES, sourceTruth } from "./source-state";
+import { truthCopy } from "./truth-copy";
+import { getFeed } from "./services";
 import { usePresence, useStore, useUISlice } from "./hooks";
 import { KeyList } from "./KeyList";
 import { expectedKey, expectedLabel, launchedFromYard, PHASE_NAME, PHASES, UPCOMING_URL, yardCoins, type YardCoin } from "./yard";
@@ -113,6 +117,8 @@ const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: strin
 ];
 
 function Legend({ model }: { model: HarbourModel | null }) {
+  const store = useStore();
+  const qualification = qualificationCopy(getFeed(store.ctx)?.payloads);
   return (
     <>
       <p className="hb-legend-intro">The harbour is the data. Nothing moves without a declared meaning, and anything that is only decoration says so.</p>
@@ -122,7 +128,13 @@ function Legend({ model }: { model: HarbourModel | null }) {
         ))}
       </ul>
       <p className="hb-caption">{stationFact(model)}</p>
-      <p className="hb-caption">{model?.readings.stormCones ? `${model.readings.stormCones.count} covered coins are at Alert or worse.` : "Alert count unavailable."}</p>
+      <p className="hb-caption">{alertCountLine(model)}</p>
+      {!(model?.readings.shoals.length) && <p className="hb-caption">{observedEmpty(model, "shoals")}</p>}
+      {!(model?.readings.stormCones?.count) && <p className="hb-caption">{observedEmpty(model, "alerts")}</p>}
+      <section className="hb-sec" aria-label="Reading sources">
+        {(Object.keys(READING_NAMES) as EndpointKey[]).map((source) => <Freshness key={source} model={model} source={source} />)}
+        {qualification && <p className="hb-caption">{qualification}</p>}
+      </section>
       <section className="hb-sec" aria-labelledby="hb-by-ear">
         <h3 id="hb-by-ear" className="hb-sec-h hb-sc">By ear</h3>
         <p>{BY_EAR}</p>
@@ -185,18 +197,18 @@ const STATE_WORD: Record<Boat["state"], string> = { circuit: "circuit", moored: 
 
 function Coins({ model }: { model: HarbourModel | null }) {
   const store = useStore();
-  const gradesUnavailable = model?.truth.safetyGrades.state === "unavailable";
+  const gradeTruth = sourceTruth(model, "safetyGrades");
   const cols = useMemo<Col<Boat>[]>(() => [
     { key: "symbol", label: "Coin", get: (b) => b.symbol, cell: (b) => <><button type="button" onClick={() => store.select({ kind: "boat", id: b.id })} aria-label={`${b.symbol}, ${b.name}: show in the harbour`}>{b.symbol}</button> <em className="hb-trunc" title={b.name}>{b.name !== b.symbol ? b.name : ""}</em></> },
     { key: "supply", label: "Supply", num: true, get: (b) => b.supply, cell: (b) => money(b.supply) },
     { key: "peg", label: "Peg", get: (b) => pegName(b.pegType) },
-    { key: "dev", label: "Deviation", num: true, get: (b) => b.pegDeviationBps, cell: (b) => <span className={b.activeDepeg ? "hb-down" : ""}>{bps(b.pegDeviationBps)}</span> },
-    { key: "home", label: "Home", get: (b) => b.chainShares[0]?.chain ?? null },
+    { key: "dev", label: "Deviation", num: true, get: (b) => b.pegDeviationBps, cell: (b) => <span className={b.activeDepeg ? "hb-down" : ""}>{b.pegDeviationBps == null ? truthCopy({ kind: "absent-row", reading: "peg" }) : bps(b.pegDeviationBps)}</span> },
+    { key: "home", label: "Home", get: (b) => b.chainShares[0]?.chain ?? "No chain allocation reported." },
     { key: "state", label: "State", get: (b) => STATE_WORD[b.state] },
-    { key: "grade", label: "Grade", get: (b) => gradesUnavailable ? "Safety grades unavailable." : gradeName(b.grade) },
-  ], [store, gradesUnavailable]);
+    { key: "grade", label: "Grade", get: (b) => truthCopy({ kind: "grade", grade: b.grade, truth: gradeTruth }), cell: (b) => <>{truthCopy({ kind: "grade", grade: b.grade, truth: gradeTruth })}{gradeTruth.state !== "current" && b.grade && <em> Last received grade: {b.grade}.</em>}</> },
+  ], [store, gradeTruth]);
   if (!model?.hasFleet) return <p className="hb-empty">Awaiting data: the register has not arrived yet.</p>;
-  return <SortTable rows={model.boats} cols={cols} rowKey={(b) => b.id} caption="Every coin is one boat. Select a coin to sail to it." initial={{ key: "supply", dir: -1 }} filterOf={(b) => `${b.symbol} ${b.name}`} noun="coins" />;
+  return <>{(["stablecoins", "pegSummary", "stress", "safetyGrades", "mintBurn"] as const).map((source) => <Freshness key={source} model={model} source={source} />)}<SortTable rows={model.boats} cols={cols} rowKey={(b) => b.id} caption="Supply and holdings: Supply source; deviation: Peg readings; early warning: Stress readings; grade: Safety grades; flows: Flow readings. Every coin is one boat. Select a coin to sail to it." initial={{ key: "supply", dir: -1 }} filterOf={(b) => `${b.symbol} ${b.name}`} noun="coins" /></>;
 }
 
 function PreLaunch({ coins }: { coins: YardCoin[] }) {
@@ -230,7 +242,7 @@ function Chains({ model }: { model: HarbourModel | null }) {
     { key: "where", label: "Berths", get: (h) => (h.piered ? "own pier" : "Far Ports") },
   ], [store]);
   if (!model?.hasFleet) return <p className="hb-empty">Awaiting data.</p>;
-  return <><p className="hb-caption">{allocationLine(model.boats)}</p><SortTable rows={model.harbours} cols={cols} rowKey={(h) => h.chain} caption={FAR_PORTS_LINE} initial={{ key: "supply", dir: -1 }} filterOf={(h) => h.chain} noun="chains" /></>;
+  return <><Freshness model={model} source="stablecoins" /><Freshness model={model} source="chains" /><p className="hb-caption">{allocationLine(model.boats)}</p><SortTable rows={model.harbours} cols={cols} rowKey={(h) => h.chain} caption={FAR_PORTS_LINE} initial={{ key: "supply", dir: -1 }} filterOf={(h) => h.chain} noun="chains" /></>;
 }
 
 function Wrecks({ model }: { model: HarbourModel | null }) {

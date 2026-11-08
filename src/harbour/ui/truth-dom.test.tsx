@@ -220,15 +220,15 @@ describe("reported allocation and Registry reconciliation", () => {
     expect(counts.getByText("Not rated")).toBeTruthy();
     expect([...counts.getByText("Not rated").closest("dl")!.querySelectorAll("dd")].reduce((n, el) => n + Number(el.textContent), 0)).toBe(grades.length);
     ui.unmount(); panel("11", "boat");
-    expect(section("Signals").getByText("Not rated")).toBeTruthy(); cleanup();
+    expect(section("Signals").getByText("Not rated.")).toBeTruthy(); cleanup();
     render(<Ledger onClose={() => {}} />); fireEvent.click(screen.getByRole("tab", { name: /Coins/ }));
-    expect(screen.getAllByText("Not rated")).toHaveLength(2);
+    expect(screen.getAllByText("Not rated.")).toHaveLength(2);
     expect(screen.queryByText("NR")).toBeNull();
   });
 
   it("missing grade endpoint stays unavailable instead of classifying all boats as Not rated", () => {
     panel("registry");
-    expect(screen.getByText("Safety grades unavailable.")).toBeTruthy();
+    expect(screen.getAllByText("Safety grades: unavailable.").length).toBeGreaterThan(0);
     expect(screen.queryByRole("heading", { name: "Safety grades" })).toBeNull();
   });
 });

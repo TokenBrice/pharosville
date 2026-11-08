@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { SoundToggle } from "../audio/SoundToggle";
 import { truthState } from "./bits";
 import { touchFirst, usePresence, useStore, useUISlice } from "./hooks";
+import { useFeedHealth } from "./feed-health";
 
 const INTRO_KEY = "harbour.intro.seen";
 
@@ -27,6 +28,7 @@ export function CornerMark() {
   const ledgerOpen = useUISlice((s) => s.ledgerOpen);
   const chartMode = useUISlice((s) => s.chartMode);
   const t = truthState(model);
+  const health = useFeedHealth();
   const ready = !!model?.hasFleet;
 
   const [want] = useState(wantsIntro);
@@ -49,7 +51,7 @@ export function CornerMark() {
       <button
         type="button"
         className="hb-mark-btn"
-        aria-label={`PharosVille — data ${t.word}. Open the ledger.`}
+        aria-label={`PharosVille — ${t.word} ${health} Open the ledger.`}
         aria-expanded={ledgerOpen}
         onClick={() => store.set({ ledgerOpen: !ledgerOpen })}
       >
@@ -58,7 +60,7 @@ export function CornerMark() {
       </button>
       <span className="hb-mark-more">
         <div>
-          <span className="hb-mark-state" aria-hidden="true">{t.word}</span>
+          <span className="hb-mark-state" role="status">{t.word} {health}</span>
           <span className="hb-keys">
             <button type="button" onClick={() => store.set({ searchOpen: true })} aria-label="Search (/)"><kbd>/</kbd>search</button>
             <button type="button" onClick={() => store.set({ ledgerOpen: !ledgerOpen })} aria-label="Ledger and legend (L)" aria-expanded={ledgerOpen}><kbd>L</kbd>ledger</button>
