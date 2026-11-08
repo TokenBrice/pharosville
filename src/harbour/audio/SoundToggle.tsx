@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { useStore } from "../ui/hooks";
 import { getSoundController, type SoundMode } from "./controller";
+import { BY_EAR } from "./legend";
 import "./sound-toggle.css";
 
 const MODES: ReadonlyArray<[SoundMode, string]> = [["off", "Sound off"], ["ambient", "Ambient sound"], ["music", "Ambient sound and music"]];
@@ -17,6 +18,7 @@ export function SoundToggle() {
   const ctl = useMemo(() => getSoundController(store.ctx), [store]);
   const mode = useSyncExternalStore(ctl.subscribe, () => ctl.mode, () => "off" as SoundMode);
   const [open, setOpen] = useState(false);
+  const [reading, setReading] = useState(false);
   const btn = useRef<HTMLButtonElement>(null), caret = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
   // the chart table's foley: a panel opened / closed / turned to another place, the ledger opened / closed
   // (watched here, so no UI file carries a sound hook; cue() is a no-op unless the sound is playing)
@@ -40,7 +42,7 @@ export function SoundToggle() {
 
   const close = (refocus: boolean) => { setOpen(false); if (refocus) caret.current?.focus(); };
   const onMenuKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])];
+    const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"], [role="menuitem"]') ?? [])];
     const i = items.indexOf(document.activeElement as HTMLElement);
     const go = (k: number) => { e.preventDefault(); items[(k + items.length) % items.length]?.focus(); };
     if (e.key === "ArrowDown") go(i + 1);
@@ -86,6 +88,11 @@ export function SoundToggle() {
               {label}
             </button>
           ))}
+          <button type="button" role="menuitem" tabIndex={-1} aria-expanded={reading} aria-controls={reading ? "hb-sound-reading" : undefined}
+            aria-describedby={reading ? "hb-sound-reading" : undefined} onClick={() => setReading((r) => !r)}>
+            How to read the sounds
+          </button>
+          {reading && <p id="hb-sound-reading" className="hb-sound-reading">{BY_EAR}</p>}
         </div>
       )}
     </span>

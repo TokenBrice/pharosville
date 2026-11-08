@@ -3,7 +3,7 @@ import type { HarbourLayout, Vec2, Vec3 } from "../layout/types";
 import { anniversaryToday, worldToday } from "../model/anniversary";
 import { TITANS } from "../fleet/titans";
 import { FRONT_HERE, FRONT_MIN, targetsForLevel } from "../weather/director";
-import type { Ambience, AmbienceInputs } from "./ambience";
+import { NEUTRAL_SEA, type Ambience, type AmbienceInputs } from "./ambience";
 
 /**
  * World → sound, loaded lazily with the ambience (none of this is in the main chunk): every 250 ms the
@@ -13,6 +13,7 @@ import type { Ambience, AmbienceInputs } from "./ambience";
  */
 
 interface Readings { fog?: number }
+interface OceanLike { readonly shared?: { readonly uSea?: { readonly value: { readonly x: number; readonly y: number; readonly z: number; readonly w: number } } } }
 interface Life { wind?: number }
 /** P6 layout additions read here, all optional (older layouts simply have no Mint / no pharos block). */
 interface CivicLayout { pharos?: { position: Vec3 }; civic?: Array<{ kind: string; position: Vec3 }> }
@@ -43,8 +44,11 @@ interface LighthouseLike { readonly lanternPosition?: Vec3Like; sweepAngle?(): n
 interface Vec3Like { readonly x: number; readonly z: number }
 /** The 'beam' service: a reach() getter (0..1, the PSI beam) when the beam layer publishes one. */
 interface BeamLike { reach?(): number }
-/** The 'model' service: the dead coins (Wreck Cove), read structurally. */
-interface WreckModel { readonly readings?: { readonly wrecks?: ReadonlyArray<{ readonly deathDate?: string }> } }
+/** The 'model' service: dead coins (Wreck Cove) and sea truth, read structurally. */
+interface ModelLike {
+  readonly readings?: { readonly wrecks?: ReadonlyArray<{ readonly deathDate?: string }>; readonly seaState?: { readonly step: number | null; readonly stale?: boolean } };
+  readonly truth?: { readonly stablecoins?: { readonly state: string } };
+}
 /** The shared gust field (weather/gust.ts, service 'gust'): the field now at (x, z), 0..1 unscaled. */
 interface GustLike { at?(x: number, z: number): number; readonly dirX?: number; readonly dirZ?: number }
 /** The 'events' service (model/event-hub.ts): staged moments only, already budgeted by the scheduler. */
@@ -254,8 +258,15 @@ export class Feeder {
     const wind = (ctx.services.get("life") as Life | undefined)?.wind ?? 0.35;
     const weather = ctx.services.get("weather") as WeatherLike | undefined;
     const wetU = (ctx.uniforms as unknown as { uWetness?: { value: number } }).uWetness?.value ?? 0;
+    const model = ctx.services.get("model") as ModelLike | undefined;
+    const sea = (ctx.services.get("ocean") as OceanLike | undefined)?.shared?.uSea?.value;
+    const seaAvailable = model?.readings?.seaState?.step != null && !model.readings.seaState.stale && model.truth?.stablecoins?.state === "current"
+      && !!sea && [sea.x, sea.y, sea.z, sea.w].every(Number.isFinite);
+    const civic = ctx.services.get("civic") as Civic | undefined;
     const inputs: Partial<AmbienceInputs> = {
       zoom: Math.sqrt(zoom), fog, night: ctx.uniforms.uNight.value, hour: ctx.timeOfDay.hour, clock: ctx.timeOfDay.clockHour,
+      sea: seaAvailable && sea ? [sea.x, sea.y, sea.z, sea.w] : NEUTRAL_SEA, seaAvailable,
+      mintRate: clamp01(civic?.mintRate ?? 0), mintAvailable: false,
       ...weatherInputs(weather, ctx.services.get("season") as SeasonLike | undefined, wind, wetU),
       reduced: !!(ctx.services.get("motion") as Motion | undefined)?.reduced,
       lean: (ctx.services.get("quality") as Quality | undefined)?.tier === "low",
@@ -291,12 +302,11 @@ export class Feeder {
       if (S.mint) {
         inputs.mint = near(Math.hypot(S.mint[0] - lx, S.mint[2] - lz), ly - S.mint[1], 80);
         inputs.mintPan = pan(S.mint[0], S.mint[2]); inputs.mintBack = back(S.mint[0], S.mint[2]);
-        inputs.mintRate = (ctx.services.get("civic") as Civic | undefined)?.mintRate ?? 0.5;
+        inputs.mintAvailable = civic?.banked === false && Number.isFinite(civic.mintRate);
       } else inputs.mint = 0;
       // the Burn's furnace answers the Mint: its roar follows the burn activity, and it is silent (embers drawn
       // apart) whenever the mint-burn reading is stale or missing: never a faked fire
       if (S.burn) {
-        const civic = ctx.services.get("civic") as Civic | undefined;
         inputs.burn = near(Math.hypot(S.burn[0] - lx, S.burn[2] - lz), ly - S.burn[1], 70);
         inputs.burnPan = pan(S.burn[0], S.burn[2]); inputs.burnBack = back(S.burn[0], S.burn[2]);
         inputs.burnRate = burnRateOf(civic);
@@ -410,7 +420,7 @@ export class Feeder {
   /** A dead coin's anniversary today (the panel's "anniversary today"): the cove's bell, once per visit. */
   private knell(amb: Ambience, inputs: Partial<AmbienceInputs>): void {
     if (this.rang || performance.now() - this.startedAt < 12_000) return;
-    const wrecks = (this.ctx.services.get("model") as WreckModel | undefined)?.readings?.wrecks;
+    const wrecks = (this.ctx.services.get("model") as ModelLike | undefined)?.readings?.wrecks;
     if (!wrecks?.length) return;
     this.rang = true;
     const today = worldToday();

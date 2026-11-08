@@ -13,8 +13,8 @@
  *   - the foghorn, ONLY while the data is stale, never otherwise;
  *   - WEATHER, all of it data (the supply-weighted DEWS band, through the 'weather' service): rain hissing on
  *     the open sea and pattering on roofs and quays (louder near the town), eaves dripping while things are
- *     wet, snow hushing the whole scene (a high shelf over everything, softer gulls), heavier storm surf with
- *     spray, gusts, a moaning howl and the rigging's whistle in a blow, and thunder after each flash,
+ *     wet, snow hushing the whole scene (a high shelf over everything, softer gulls), gusts,
+ *     a moaning howl and the rigging's whistle in a blow, and thunder after each flash,
  *     delayed by the distance of the strike (a tearing crack and roll when near, a low rumble when far);
  *   - SEASON colour (calendar, declared decorative like the time of day): songbirds in the trees in spring,
  *     crickets at dusk in summer, dry leaves rustling in the gusts of autumn, and the crisp hush of winter
@@ -34,6 +34,10 @@ export interface AmbienceInputs {
   zoom: number;
   /** wind 0..1 (DEWS) */
   wind: number;
+  /** Eased ocean uSea: amplitude, chop, whitecaps, bands (off-peg supply share). */
+  sea: [number, number, number, number];
+  /** A non-null sea reading with current stablecoin truth. Otherwise analytical surf is silent. */
+  seaAvailable: boolean;
   /** stale-data fog 0..1 */
   fog: number;
   /** 0 day … 1 night */
@@ -57,6 +61,8 @@ export interface AmbienceInputs {
   mint: number;
   mintPan: number;
   mintRate: number;
+  /** Separate from the rate: fresh idle presses may still work; banked/missing presses never do. */
+  mintAvailable: boolean;
   /** nearness 0..1 of the Burn's furnace (0 when there is none), its pan, and the burn activity 0..1 (0 = stale) */
   burn: number;
   burnPan: number;
@@ -110,6 +116,8 @@ export interface AmbienceInputs {
   /** the visitor's attention 1 … 0 after a few idle minutes (the ten-minute settle: quieter, sparser) */
   attention: number;
 }
+
+export const NEUTRAL_SEA: AmbienceInputs["sea"] = [0.1, 0.35, 0, 0.8];
 
 export interface AmbienceOptions {
   /** no timers: the caller drives step() (offline rendering) and the bank is built at once */
@@ -267,7 +275,8 @@ export class Ambience {
   private readonly sources: AudioBufferSourceNode[] = [];
   private readonly inputs: AmbienceInputs = {
     zoom: 0.5, wind: 0.35, fog: 0, night: 0, hour: 9, clock: 9, shore: 0.5, shorePan: 0, harbour: 0.5, reef: 0.2, reefPan: -0.5,
-    fire: 0, firePan: 0, mint: 0, mintPan: 0, mintRate: 0.5,
+    sea: NEUTRAL_SEA, seaAvailable: false,
+    fire: 0, firePan: 0, mint: 0, mintPan: 0, mintRate: 0, mintAvailable: false,
     rain: 0, snow: 0, wet: 0, storm: 0, gust: 0.3, paw: -1, spring: 0, summer: 0, autumn: 0, winter: 0, snowCover: 0,
     town: 0.3, townPan: 0, trees: 0.2, treesPan: 0, land: 0.3, reduced: false, lean: false, attention: 1,
     shoreBack: 0, reefBack: 0, mintBack: 0, townBack: 0, ship: 0, shipPan: 0, shipBack: 0,
@@ -678,6 +687,9 @@ export class Ambience {
     const tc = 0.8;
     const air = (d: number, lo: number, hi: number) => lo * Math.pow(hi / lo, Math.max(0, Math.min(1, d)));
     const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+    const s = I.seaAvailable ? clamp01((I.sea[0] - 0.1) / 0.75) : 0;
+    const caps = I.seaAvailable ? clamp01(I.sea[2]) : 0;
+    const rainKind = rain < 0.3 ? "drizzle" : "rain";
     // the settle: the mix eases down and thins after a few idle minutes; any input brings it back in ~2 s
     const att = clamp01(I.attention), thin = settleRate(att);
     // altitude: from the overview the sea breathes and the quay's detail falls away; a source behind is darker
@@ -685,10 +697,10 @@ export class Ambience {
     const behind = (b: number, k: number) => 1 - k * clamp01(b);
     this.aim(this.settle.gain, Math.pow(10, settleDb(att, now, this.breathPhase) / 20), att > 0.99 ? 0.5 : 2);
 
-    // ---- levels: nearer is louder AND brighter; a storm heavies the whole sea
-    this.aim(this.shoreBus.gain, 0.5 * (0.3 + 0.7 * I.shore) * (1 - 0.3 * zoom) * (1 + 0.5 * storm), tc);
+    // ---- levels: nearer is louder AND brighter; surf follows the sea, independently of DEWS
+    this.aim(this.shoreBus.gain, I.seaAvailable ? 0.5 * (0.3 + 0.7 * I.shore) * (1 - 0.3 * zoom) * (1 + 0.5 * s) : 0, tc);
     this.aim(this.shoreLp.frequency, air(I.shore * (1 - 0.4 * zoom), 900, 14000) * behind(I.shoreBack, 0.55), tc);
-    this.aim(this.bedGain.gain, (0.16 + 0.16 * zoom + 0.05 * wind + 0.14 * storm) * (1 - 0.5 * I.shore * near) * (1 - 0.2 * I.snowCover), tc);   // a near wave masks the far sea
+    this.aim(this.bedGain.gain, I.seaAvailable ? (0.16 + 0.16 * zoom + 0.19 * s) * (1 - 0.5 * I.shore * near) * (1 - 0.2 * I.snowCover) : 0, tc);   // a near wave masks the far sea
     this.aim(this.bedLp.frequency, air(1 - zoom, 420, 900), tc);
     this.aim(this.lapBus.gain, (0.06 + 1.1 * I.harbour * I.harbour) * point, tc);
     // Wreck Cove's hush: the laps there are darker, the gulls keep away, the wind hollows through the ribs
@@ -697,7 +709,7 @@ export class Ambience {
     this.ribsLoop.update(cove > 0.03, cove < 0.02, now, r);
     this.aim(this.ribs.gain, 0.2 * cove * (0.4 + 0.6 * wind), tc);
     this.aim(this.ribsPan.pan, I.covePan * 0.7, tc);
-    this.aim(this.reefBus.gain, (0.12 + 0.55 * I.reef) * (0.7 + 0.5 * wind) * (1 + 0.6 * storm), tc);
+    this.aim(this.reefBus.gain, I.seaAvailable ? (0.12 + 0.55 * I.reef) * (0.7 + 0.5 * s) * (1 + 0.6 * s) : 0, tc);
     this.aim(this.reefLp.frequency, air(I.reef, 380, 2600) * behind(I.reefBack, 0.4), tc);
     this.aim(this.reefPan.pan, I.reefPan * 0.8, tc);
     this.aim(this.windGain.gain, (0.05 + 0.42 * wind * wind) * (0.7 + 0.3 * zoom), tc);
@@ -712,7 +724,7 @@ export class Ambience {
     this.aim(this.gullBus.gain, (0.12 + 0.3 * near) * (1 - 0.8 * night) * (1 - 0.5 * fog) * (1 - 0.7 * storm) * (1 - 0.5 * rain) * (1 - 0.5 * snow) * (1 - 0.7 * cove) * (1 - 0.25 * dayClock(I.hour).hush), tc);
     this.aim(this.fireBus.gain, 0.5 * I.fire * I.fire * point, 0.5);
     this.aim(this.firePan.pan, I.firePan * 0.8, 0.5);
-    this.aim(this.mintBus.gain, 0.16 * I.mint * I.mint * point, 0.5);
+    this.aim(this.mintBus.gain, I.mintAvailable ? 0.16 * I.mint * I.mint * point : 0, 0.5);
     this.aim(this.mintLp.frequency, air(I.mint, 700, 6000) * behind(I.mintBack, 0.5), 0.5);
     this.aim(this.mintPan.pan, I.mintPan * 0.8, 0.5);
     const furnace = I.burn * clamp01(I.burnRate);
@@ -734,8 +746,8 @@ export class Ambience {
     this.aim(this.patterBus.gain, (0.25 + 0.75 * I.town) * clamp01(rain * 2.5), 1);
     this.aim(this.patterLp.frequency, air(I.town * (1 - 0.4 * zoom), 2200, 12000) * behind(I.townBack, 0.5), 1);
     this.aim(this.dripBus.gain, 0.5 * I.wet * (1 - snow) * (0.15 + 0.85 * I.town), 1);
-    this.sprayLoop.update(storm > 0.4 && !I.lean, storm < 0.35 || I.lean, now, r);
-    this.aim(this.sprayBus.gain, 0.4 * storm * storm * (0.3 + 0.7 * I.shore), 1);
+    this.sprayLoop.update(caps > 0.01 && !I.lean, caps < 0.005 || I.lean, now, r);
+    this.aim(this.sprayBus.gain, 0.4 * caps * caps * (0.3 + 0.7 * I.shore), 1);
     const howl = storm > 0.5 ? Math.pow((storm - 0.5) / 0.5, 1.5) : 0;
     this.howlLoop.update(howl > 0.02 && !I.lean, howl < 0.01 || I.lean, now, r);
     this.aim(this.howlBus.gain, 2.4 * howl * (0.5 + 0.5 * gust) * (0.7 + 0.3 * zoom), 1);
@@ -766,7 +778,7 @@ export class Ambience {
     this.aim(this.crunchBus.gain, 0.7 * crunch, 1);
 
     // only what the scene needs is synthesised
-    if (rain > 0.005) this.need(rain < 0.35 ? "drizzle" : "rain");
+    if (rain > 0.005) this.need(rainKind);
     if (I.wet > 0.05) this.need("drip");
     if (storm > 0.6) this.need("thunder", "rumble");
     if (birds > 0.01) this.need("bird");
@@ -783,18 +795,20 @@ export class Ambience {
     // ---- the swell: one wave per period, in sets; the shore, the bed, the laps and the bell answer it
     if (N.wave < ahead) {
       const at = Math.max(N.wave, now);
-      if (this.setLeft <= 0 && r() < 0.18 + 0.3 * storm) this.setLeft = 3;
+      if (this.setLeft <= 0 && r() < 0.18 + 0.3 * s) this.setLeft = 3;
       const big = this.setLeft > 0 ? 1.25 : 1;
       this.setLeft--;
-      const size = (0.55 + 0.45 * r()) * big * (0.85 + 0.3 * wind) * (1 + 0.35 * storm);
-      const deep = 1 - 0.08 * storm;      // storm breakers are bigger, slower, deeper
+      const size = (0.55 + 0.45 * r()) * big * (0.85 + 0.3 * s) * (1 + 0.35 * s);
+      const deep = 1 - 0.08 * s;      // rough-sea breakers are bigger, slower, deeper
       // the main wash, and often a second one further along the beach
       // (the nearest stretch of beach pulls the main wash to its side of the screen)
       const lean = I.shorePan * 0.6 * I.shore;
-      this.play("shore", at, this.shoreLp, 0.9 * size, lean + (r() - 0.5) * (1.2 - 0.6 * I.shore), (0.94 + r() * 0.1) * deep);
-      if (r() < 0.6 + 0.3 * storm) this.play("shore", at + 0.8 + r() * 2.4, this.shoreLp, 0.45 * size * (0.6 + 0.4 * r()), r() * 1.6 - 0.8, (0.9 + r() * 0.12) * deep);
-      // spray flung off the break in a storm
-      if (storm > 0.35) {
+      if (I.seaAvailable) {
+        this.play("shore", at, this.shoreLp, 0.9 * size, lean + (r() - 0.5) * (1.2 - 0.6 * I.shore), (0.94 + r() * 0.1) * deep);
+        if (r() < 0.6 + 0.3 * s) this.play("shore", at + 0.8 + r() * 2.4, this.shoreLp, 0.45 * size * (0.6 + 0.4 * r()), r() * 1.6 - 0.8, (0.9 + r() * 0.12) * deep);
+      }
+      // spray flung off whitecaps
+      if (caps > 0) {
         const sg = this.spray.gain;
         sg.setTargetAtTime(0.45 + 0.55 * size, at + 0.8, 0.25);
         sg.setTargetAtTime(0.15, at + 1.8, 1.4);
@@ -811,19 +825,19 @@ export class Ambience {
         this.play("bell", at + 1 + r(), this.bellBus, 1, -0.4, 0.99 + r() * 0.02);
         if (r() < 0.35) this.play("bell", at + 2.2 + r() * 0.6, this.bellBus, 0.55, -0.4, 0.99 + r() * 0.02);
       }
-      N.wave = at + (6 + r() * 3.5) * (1 - 0.18 * wind) * (1 - 0.12 * storm);
+      N.wave = at + (6 + r() * 3.5) * (1 - 0.12 * s);
     }
     // stray laps between the swells
     if (N.lap < ahead) {
       const at = Math.max(N.lap, now);
       this.play("lap", at, this.lapLp, 0.25 + 0.4 * r(), r() * 1.8 - 0.9, 0.8 + r() * 0.4);
-      N.lap = at + (0.7 + r() * (2.6 - wind * 1.2)) / thin;
+      N.lap = at + (0.7 + r() * (2.6 - s * 1.2)) / thin;
     }
-    if (N.reef < ahead) {
+    if (I.seaAvailable && N.reef < ahead) {
       const at = Math.max(N.reef, now);
       this.play("reef", at, this.reefLp, 0.6 + 0.4 * r(), r() * 0.6 - 0.3, 0.9 + r() * 0.15);
       N.reef = at + 6.5 + r() * 5;
-    }
+    } else if (!I.seaAvailable) N.reef = Math.max(N.reef, now);
     // gusts: the wind band wanders and swells
     if (N.gust < ahead) {
       const at = Math.max(N.gust, now), d = (1.2 + r() * 2.8) * (1 - 0.35 * gust);
@@ -851,7 +865,7 @@ export class Ambience {
     if (rain > 0.01) {
       if (N.rainA < ahead) {
         const at = Math.max(N.rainA, now);
-        this.play(rain < 0.3 ? "drizzle" : "rain", at, this.patterLp, 0.9, I.townPan * 0.3 + r() * 0.4 - 0.2, 0.95 + r() * 0.1);
+        this.play(rainKind, at, this.patterLp, 0.9, I.townPan * 0.3 + r() * 0.4 - 0.2, 0.95 + r() * 0.1);
         N.rainA = at + 3.45 + r() * 0.1;
       }
       if (rain > 0.6 && !I.lean) {
@@ -962,14 +976,14 @@ export class Ambience {
       }
     } else { N.burn = Math.max(N.burn, now); N.bellows = Math.max(N.bellows, now + 1); }
     // the Mint: three presses in a steady rhythm that quickens with the minting
-    if (I.mint > 0.03) {
+    if (I.mintAvailable && I.mint > 0.03) {
       if (N.press < ahead) {
         const at = Math.max(N.press, now);
         this.play("press", at, this.mintLp, 0.5 + 0.2 * r(), (this.pressN % 3 - 1) * 0.25, 0.92 + (this.pressN % 3) * 0.07);
         this.pressN++;
         N.press = at + (this.pressN % 3 === 0 ? 1.1 : 0.62) / (0.6 + 0.8 * I.mintRate);
       }
-    } else N.press = Math.max(N.press, now);
+    } else { N.press = now; this.pressN = 0; }
     // the Shipyard: runs of two to five strokes at a human (uneven) beat, then a pause; now and then the crane
     if (yard > 0.02) {
       const Y = this.ship;
