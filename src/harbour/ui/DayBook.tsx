@@ -54,7 +54,7 @@ export function DayBook({ open = true }: { open?: boolean }) {
       <p className="hb-caption">Showing {shown.filter((e) => book.some((retained) => retained.id === e.id)).length} of {book.length} retained entries; {ev.droppedCount} earlier entries discarded.</p>
       {focused && !book.some((e) => e.id === focused.id) && <p className="hb-caption">The focused entry is no longer retained; it stays here until focus leaves it.</p>}
       {book.length > 0 && <p className="hb-caption">Earliest retained confirmation: {clock(book[book.length - 1].atMs)}.</p>}
-      {book.length > visible && <button type="button" onClick={() => setVisible((n) => n + 40)}>Show earlier entries</button>}
+      {book.length > visible && <button type="button" className="hb-textbtn" onClick={() => setVisible((n) => n + 40)}>Show earlier entries</button>}
       <p className="hb-caption">{CEREMONY_RULE}</p>
       <p className="hb-caption">State changes require two consecutive accepted readings. Completed, fully valued flow hours are evaluated once per new hour. Missing, stale and methodology-change readings do not establish market changes.</p>
     </section>

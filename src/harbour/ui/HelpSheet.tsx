@@ -17,8 +17,10 @@ export function HelpSheet({ onClose, shortcuts, setShortcuts }: {
   </button>;
   return <section className="hb-help hb-paper hb-neat" role="dialog" aria-labelledby="hb-help-title"
     onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); } }}>
-    <header><h2 id="hb-help-title" className="hb-title" tabIndex={-1} ref={heading}>Help and controls</h2>
-      <button type="button" className="hb-control" onClick={onClose}>Close</button></header>
+    <header className="hb-panel-head"><h2 id="hb-help-title" className="hb-title" tabIndex={-1} ref={heading}>Help and controls</h2></header>
+    <button type="button" className="hb-close" aria-label="Close" onClick={onClose}>
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
+    </button>
     <div className="hb-help-body">
       <p>Explore at your pace.</p>
       <div className="hb-help-actions">{button("search", Search)}{button("ledger", BookOpen)}{button("home", House)}{button("reading", CircleHelp)}</div>

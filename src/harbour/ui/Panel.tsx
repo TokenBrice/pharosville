@@ -294,7 +294,7 @@ function PharosPanel({ model, titleRef }: P) {
         {qualificationCopy(getFeed(store.ctx)?.payloads) && <p className="hb-caption">{qualificationCopy(getFeed(store.ctx)?.payloads)}</p>}
         {p?.score == null ? <p className="hb-why">{readingSentence(model, "stability")}</p> : (
           <>
-            <div className="hb-big hb-num" style={{ marginTop: 6 }}>{p.score.toFixed(1)}<small><span className="hb-band" style={{ "--band": PSI_INK[p.band ?? ""] } as React.CSSProperties}>{titleCase(p.band ?? "")}</span></small></div>
+            <div className="hb-big hb-num">{p.score.toFixed(1)}<small><span className="hb-band" style={{ "--band": PSI_INK[p.band ?? ""] } as React.CSSProperties}>{titleCase(p.band ?? "")}</span></small></div>
 
             <Sec title="PSI observations">
               <Sparkline observations={hist} now={sourceTruth(model, "stability").state === "current" ? p.score : null} nowAt={p?.computedAt ?? null} />
@@ -396,7 +396,7 @@ function CustomsPanel({ model, titleRef }: P) {
         <Freshness model={model} source="mintBurn" />
         {!f?.available || !f.hourly.length ? <p className="hb-why">The books are closed: there is no flow reading.</p> : (
           <>
-            <div className="hb-big hb-num" style={{ marginTop: 6 }}>{money(flowTotals(model)?.net, { signed: true })}<small>net · {flowWindow(f.hourly)}</small></div>
+            <div className="hb-big hb-num">{money(flowTotals(model)?.net, { signed: true })}<small>net · {flowWindow(f.hourly)}</small></div>
 
             {!flowValued(f.hourly) && <p className="hb-caption">{f.hourly.some((h) => h.netUsd == null) ? NET_UNAVAILABLE : VALUATION_UNKNOWN}</p>}
             <Sec title="Hourly net"><TideBars hourly={f.hourly} /></Sec>
@@ -501,7 +501,7 @@ function WreckPanel({ model, titleRef }: P) {
             {rows.map(({ w, r }) => (
               <li key={w.id}>
                 <button type="button" className="hb-row" onClick={() => store.select(wreckHit(store, w.id))}>
-                  <span className="hb-wreck-name"><Logo src={r?.logo ?? null} label={w.symbol} color="#8a7d66" size={20} /><b>{w.symbol}</b><em>{w.name !== w.symbol ? w.name : ""}</em></span>
+                  <span className="hb-wreck-name"><Logo src={r?.logo ?? null} label={w.symbol} color="var(--fill-wreck)" size={20} /><b>{w.symbol}</b><em>{w.name !== w.symbol ? w.name : ""}</em></span>
                   <span className="hb-num">{sort === "peak" ? money(w.peakMcap) : wreckDate(w.deathDate)}</span>
                   <span className="hb-wreck-line">{family && r?.epitaph ? <span className="hb-wreck-epitaph">{quoted(r.epitaph)}</span>
                     : <span className="hb-band" style={{ "--band": FAMILIES[w.family].ink } as React.CSSProperties}>{FAMILIES[w.family].name}</span>}
@@ -530,7 +530,7 @@ function ObituaryPanel({ id, titleRef }: { id: string; titleRef: P["titleRef"] }
   return (
     <>
       <Head kicker="In memoriam · Wreck Cove" title={r.symbol} sub={r.name !== r.symbol ? r.name : `a ${pegName(r.pegCurrency)} stablecoin`}
-        logo={<Logo src={r.logo} label={r.symbol} color="#8a7d66" />} titleRef={titleRef} />
+        logo={<Logo src={r.logo} label={r.symbol} color="var(--fill-wreck)" />} titleRef={titleRef} />
       <div className="hb-panel-body">
         {r.epitaph && <p className="hb-obit-epitaph">{quoted(r.epitaph)}</p>}
         <div className="hb-where">Lies in Wreck Cove, {fam.form}</div>
@@ -625,7 +625,7 @@ function TidePanel({ model, titleRef }: P) {
         <Freshness model={model} source="chains" />
         {!t?.available || t.change7d == null ? <p className="hb-why">The gauge is dry: there is no supply-change reading. It never shows slack water by default.</p> : (
           <>
-            <div className="hb-big hb-num" style={{ marginTop: 6 }}>{pctChange(t.change7d)}<small>over 7 d</small></div>
+            <div className="hb-big hb-num">{pctChange(t.change7d)}<small>over 7 d</small></div>
 
             <div className="hb-changes">
               <div><span className="hb-sc">24 h</span>{ch(t.change24h)}</div>
@@ -654,12 +654,12 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
   return (
     <>
       <Head kicker={h?.piered === false ? "Far port" : CHAIN_COLOR[chain] ? `${chain} harbour · harbour office` : "Harbour"} title={chain} sub={h ? `${share(h.share)} of reported chain-attributed supply` : undefined}
-        logo={CHAIN_COLOR[chain] ? <Crest chain={chain} color={CHAIN_COLOR[chain]} /> : <Logo src={chainLogo(chain)} label={chain} color="#1f5873" />} titleRef={titleRef} />
+        logo={CHAIN_COLOR[chain] ? <Crest chain={chain} color={CHAIN_COLOR[chain]} /> : <Logo src={chainLogo(chain)} label={chain} color="var(--fill-chain)" />} titleRef={titleRef} />
       <div className="hb-panel-body">
         <Freshness model={model} source="stablecoins" />
         {h && (
           <>
-            <div className="hb-big hb-num" style={{ marginTop: 6 }}>{money(h.supplyUsd)}</div>
+            <div className="hb-big hb-num">{money(h.supplyUsd)}</div>
             <Freshness model={model} source="chains" />
             <div className="hb-changes">
               <div><span className="hb-sc">24 h</span><b>{chainRow?.change24hPct == null ? "Comparison unavailable." : pctChange(chainRow.change24hPct as number)}</b></div>
@@ -723,7 +723,7 @@ function FlowPanel({ side, model, titleRef }: { side: "mint" | "burn" } & P) {
         <Freshness model={model} source="mintBurn" />
         {!t || vol == null ? <p className="hb-why">{mint ? "The furnaces are banked: there is no flow reading." : "The fire is banked: there is no flow reading."}</p> : (
           <>
-            <div className="hb-big hb-num" style={{ marginTop: 6 }}>{valued ? money(vol) : `At least ${money(vol)}`}<small>{mint ? "minted" : "burned"} · {flowWindow(f?.hourly ?? [])}</small></div>
+            <div className="hb-big hb-num">{valued ? money(vol) : `At least ${money(vol)}`}<small>{mint ? "minted" : "burned"} · {flowWindow(f?.hourly ?? [])}</small></div>
 
             {f && (!hasFlowDay(f.hourly) || f.stale) && <p className="hb-caption">The fires are banked until a current, complete daily window is available.</p>}
             {!valued && <p className="hb-caption">{f?.hourly.some((h) => h.netUsd == null) ? NET_UNAVAILABLE : VALUATION_UNKNOWN}</p>}
@@ -739,7 +739,7 @@ function FlowPanel({ side, model, titleRef }: { side: "mint" | "burn" } & P) {
         )}
         <Sec title="Scope">
           <div className="hb-scope">
-            {scope.map((c) => <span key={c}>{CHAIN_COLOR[c] ? <Crest chain={c} color={CHAIN_COLOR[c]} size={20} /> : <Logo src={chainLogo(c)} label={c} color="#1f5873" size={20} />}{c}</span>)}
+            {scope.map((c) => <span key={c}>{CHAIN_COLOR[c] ? <Crest chain={c} color={CHAIN_COLOR[c]} size={20} /> : <Logo src={chainLogo(c)} label={c} color="var(--fill-chain)" size={20} />}{c}</span>)}
           </div>
           <p className="hb-caption">{scope.length ? `Mint and burn are read on ${scope.length === 3 ? `${scope[0]}, ${scope[1]} and ${scope[2]}` : scope.join(", ")} only, the honest scope of the data. Issuance elsewhere is not counted here.` : "Flow scope is unavailable."}</p>
         </Sec>
@@ -809,7 +809,7 @@ function ShipyardPanel({ titleRef }: { titleRef: P["titleRef"] }) {
               {g.coins.map((c) => (
                 <li key={c.id}>
                   <button type="button" className="hb-row" onClick={() => store.select({ kind: "yard", id: c.id })}>
-                    <span><Logo src={c.logo} label={c.symbol} color="#7a5a22" size={22} /><b>{c.symbol}</b><em>{c.name !== c.symbol ? c.name : ""}</em></span>
+                    <span><Logo src={c.logo} label={c.symbol} color="var(--fill-yard)" size={22} /><b>{c.symbol}</b><em>{c.name !== c.symbol ? c.name : ""}</em></span>
                     <span className="hb-num">{expectedLabel(c.expected)}</span>
                   </button>
                 </li>
@@ -832,7 +832,7 @@ function YardCoinPanel({ id, titleRef }: { id: string; titleRef: P["titleRef"] }
   const shown = c.milestones.slice(0, 6);
   return (
     <>
-      <Head kicker="Awaiting admission to the tracked fleet." title={c.symbol} sub={c.name !== c.symbol ? c.name : c.issuer ?? "Awaiting admission to the tracked fleet."} logo={<Logo src={c.logo} label={c.symbol} color="#7a5a22" />} titleRef={titleRef} />
+      <Head kicker="Awaiting admission to the tracked fleet." title={c.symbol} sub={c.name !== c.symbol ? c.name : c.issuer ?? "Awaiting admission to the tracked fleet."} logo={<Logo src={c.logo} label={c.symbol} color="var(--fill-yard)" />} titleRef={titleRef} />
       <div className="hb-panel-body">
         <div className="hb-where">Building at the Shipyard · {STAGE_NAME[c.stage]}</div>
         <p className="hb-why">{YARD_EXPLANATION}</p>

@@ -55,8 +55,20 @@ export const bundleBudgets = {
     // 2026-10-24 prettier sweep (postcard, sound menu, Day book, chart-paper
     // unroll, tide/storm panels): measured 29.1 KiB raw / 6.8 KiB gzip.
     // v1.6 reading panes and controls use 1 KiB of the approved +2 KiB CSS allowance.
-    maxRawBytes: 35 * 1024,
-    maxGzipBytes: 8.5 * 1024,
+    // 2026-11-08 v1.6.0 u-polish (operator ruling U5: +2 KiB raw / +0.6 KiB gzip with offsetting deletions):
+    // the merged v1.6.0 lanes measured 38.0 KiB raw / 8.6 KiB gzip; one control family and the merges below bring
+    // it to 32.8 KiB raw / 8.0 KiB gzip (33,625 / 8,223 B). Cap = the ruling's ceiling. Deleted or merged (each proven unused or
+    // overridden by grep over src/ and tests/, or covered by a shared rule): the pre-v1.6 token aliases
+    // (--brass --brass-soft --sea --green --red --shadow) and the unused --chart-up; the prefers-reduced-motion
+    // block and the 1 ms unroll/sound overrides (.hb-reduced already cuts every transition); the (pointer: coarse)
+    // per-component 44 px heights the any-pointer rule already sets; .hb-reading-actions button and its states
+    // (now .hb-control); the second .hb-search-field/.hb-results/.hb-search-hint/.hb-mark/.hb-keys/.hb-tabs/
+    // .hb-watch/.hb-ledger-body blocks appended by later lanes; the focus-less :focus:not(:focus-visible)
+    // rules; the breath's three ::after hides; the duplicate trunc, ellipsis, list-reset, scroll and hover rules;
+    // the panel's 68 px bottom padding for the now focus-revealed "Back to harbour controls"; spaces inside
+    // token values (custom properties keep their text verbatim).
+    maxRawBytes: 36 * 1024,
+    maxGzipBytes: 9.1 * 1024,
     required: true,
   },
 };

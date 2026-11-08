@@ -23,7 +23,7 @@ export function nextPalette(current: Palette | null | undefined, night: number):
  * once. The paper grain and the sheet shadow are not colours; they change at the flip, where they barely show.
  */
 export const PALETTE_TOKENS = ("paper paper-2 paper-3 ink ink-2 ink-3 brass-ink rule neat edge dot-rule wash-1 wash-2 wash-3 face link up "
-  + "down focus live stale stale-ink unavail halo sea-ink medal ring sheen-hi sheen-lo chart-up chart-down c1 c2 c3 c4 c5 c-other").split(" ");
+  + "down focus live stale stale-ink unavail halo sea-ink medal ring sheen-hi sheen-lo chart-down c1 c2 c3 c4 c5 c-other").split(" ");
 
 /** The root's transition-property (its duration and curve live in harbour-ui.css). */
 export const PALETTE_FADE = { transitionProperty: PALETTE_TOKENS.map((t) => `--${t}`).join() };

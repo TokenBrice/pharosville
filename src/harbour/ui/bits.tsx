@@ -25,7 +25,7 @@ export function Logo({ src, label, color, size }: { src: string | null; label: s
   const style = size ? { width: size, height: size } : undefined;
   return (
     <span className="hb-logo" style={style} aria-hidden="true">
-      {src && !broken ? <img src={runtimeLogoPath(src)} alt="" onError={() => setBroken(true)} /> : <span style={{ background: color, width: "100%", height: "100%", display: "grid", placeItems: "center" }}>{label.slice(0, 2)}</span>}
+      {src && !broken ? <img src={runtimeLogoPath(src)} alt="" onError={() => setBroken(true)} /> : <span style={{ background: color }}>{label.slice(0, 2)}</span>}
     </span>
   );
 }
@@ -81,9 +81,9 @@ export function Freshness({ model, source }: { model: HarbourModel | null; sourc
   return (
     <>
       {(truth.state === "unknown" || (truth.state !== "unavailable" && !dated)) && <p className="hb-caption">{truthCopy({ kind: "retained-heading" })}</p>}
-      <div className="hb-foot" style={{ marginTop: 6, flexWrap: "wrap", alignItems: "baseline" }}>
+      <div className="hb-foot">
         <span className="hb-dot" data-state={truth.state} aria-hidden="true" />
-        <span style={{ flex: "1 1 220px", minWidth: 0, whiteSpace: "normal" }}>{readingSentence(model, source)}</span>
+        <span>{readingSentence(model, source)}</span>
         {elapsed != null && <span>{elapsed < 90 ? "Observed just now." : `Observed ${age(elapsed)} ago.`}</span>}
       </div>
     </>
