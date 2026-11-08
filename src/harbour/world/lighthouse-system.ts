@@ -1,13 +1,11 @@
 import * as THREE from "three";
 import { mergeStaticMeshes } from "../engine/static-merge";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
-import type { HarbourLayout } from "../layout/types";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import { PharosFire } from "../beam/fire";
 import { getBeamUniforms, type BeamUniforms } from "../beam/uniforms";
-import type { GroundService } from "./ground";
 import { getHarbourMaterials } from "./materials";
-import { getLightsStore, type LightsService } from "../lights/lights-service";
+import { getLightsStore } from "../lights/lights-service";
 
 export const LIGHTHOUSE_URL = "/harbour/lighthouse.glb";
 
@@ -41,10 +39,6 @@ export interface LighthouseService {
   setLampColor?(c: THREE.ColorRepresentation): void;
 }
 
-/** layout.pharos (P6 shared contract), when the island has placed the islet. */
-interface PharosPlacement { position: [number, number, number]; rotationY: number }
-interface LifeLike { readonly wind: number; readonly windTo: readonly [number, number] }
-interface MotionLike { readonly reduced: boolean }
 
 /** The steady lamp (PSI 3-step 0); amber / red are tints relative to it. */
 const STEADY_LAMP = new THREE.Color(1.0, 0.86, 0.62);
@@ -88,8 +82,8 @@ export class LighthouseSystem implements WorldSystem {
     this.phase = ((Date.now() / 1000) % this.period) / this.period;
     ctx.services.set("lighthouse", this.service());
 
-    const layout = ctx.services.get("layout") as (HarbourLayout & { pharos?: PharosPlacement }) | undefined;
-    const ground = ctx.services.get("ground") as GroundService | undefined;
+    const layout = ctx.services.get("layout");
+    const ground = ctx.services.get("ground");
     const gltf = await ctx.assets.gltf(LIGHTHOUSE_URL);
     const root = gltf.scene;
     getHarbourMaterials(ctx).apply(root);
@@ -185,15 +179,15 @@ export class LighthouseSystem implements WorldSystem {
       this.mirror.rotation.y = mh - this.root.rotation.y;
       this.mirror.rotation.x = this.mirrorTilt0 + 0.3 * banked;
     }
-    const lightsSvc = ctx.services.get("lights") as LightsService | undefined;
+    const lightsSvc = ctx.services.get("lights");
     const vigilOn = banked > 0.6;
     if (lightsSvc && this.vigil >= 0 && vigilOn !== this.vigilOn) { this.vigilOn = vigilOn; lightsSvc.setOn(this.vigil, vigilOn); }
 
-    const life = ctx.services.get("life") as LifeLike | undefined;
-    const reduced = (ctx.services.get("motion") as MotionLike | undefined)?.reduced ?? false;
+    const life = ctx.services.get("life");
+    const reduced = ctx.services.get("motion")?.reduced ?? false;
     const night = ctx.uniforms.uNight.value;
     // arrival kindling (camera lane, via the beam service): the fire grows to its true level
-    const intro = (ctx.services.get("beam") as { introScale?: number } | undefined)?.introScale ?? 1;
+    const intro = ctx.services.get("beam")?.introScale ?? 1;
     const level = this.level * intro;
     if (this.fire) {
       const vh = ctx.renderer.domElement.height || 1000;

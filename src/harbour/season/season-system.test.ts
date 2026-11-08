@@ -1,3 +1,4 @@
+import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../engine/types";
@@ -18,7 +19,7 @@ describe("complete calendar shader signature", () => {
       expect(mats.kitKey()).not.toBe(live); restore();
       expect(mats.kitKey()).toBe(live); commit();
     });
-    const ctx = { uniforms: createWorldUniforms(), scene: new THREE.Scene(), services: new Map([ ["preparation", { prepareSeason }] ]), timeOfDay: new TimeOfDay(), renderer: { shadowMap: {} } } as unknown as EngineContext;
+    const ctx = { uniforms: createWorldUniforms(), scene: new THREE.Scene(), services: new Map([ ["preparation", { prepareSeason }] ]) as unknown as Services, timeOfDay: new TimeOfDay(), renderer: { shadowMap: {} } } as unknown as EngineContext;
     const mats = getHarbourMaterials(ctx), system = new SeasonSystem();
     system.init(ctx);
     const material = mats.kit(), version = material.version;

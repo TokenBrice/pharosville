@@ -1,5 +1,4 @@
 import { useMemo, useRef } from "react";
-import type { HarbourLayout } from "../layout/types";
 import { cullLabels, type LabelBox } from "./cull";
 import { useFrame, useFrameWrite, usePresence, useStore, useUISlice } from "./hooks";
 import { sameHit, type PickHit, type ScreenPoint } from "./services";
@@ -14,7 +13,7 @@ export function ChartLabels() {
   const [mounted, shown] = usePresence(chartMode, 220);
   const store = useStore();
   const labels = useMemo<ChartLabel[]>(() => {
-    const L = store.ctx.services.get("layout") as HarbourLayout | undefined;
+    const L = store.ctx.services.get("layout");
     const out: ChartLabel[] = [];
     // priority: the Pharos, then piers, then the top boats, then the other landmarks
     const landmarks = (L?.labels ?? []).filter((l) => l.kind === "landmark" && !l.id.startsWith("hamlet-"));

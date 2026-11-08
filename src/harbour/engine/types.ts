@@ -6,6 +6,7 @@ import type { TimeOfDay } from "./time-of-day";
 import type { AssetStore } from "./assets";
 import type { PreparedPrograms } from "./prepare";
 import type { SubmissionOptions } from "./preparation-queue";
+import type { Services } from "./services";
 
 /** Everything a world system may touch. Owned by the Engine; systems never create their own renderer/loop. */
 export interface EngineContext {
@@ -18,8 +19,8 @@ export interface EngineContext {
   readonly uniforms: WorldUniforms;
   readonly timeOfDay: TimeOfDay;
   readonly assets: AssetStore;
-  /** Free-form registry so systems can expose services to each other (e.g. "wake", "layout", "model"). */
-  readonly services: Map<string, unknown>;
+  /** Publisher-owned services, read lazily as systems initialize or replace them. */
+  readonly services: Services;
   /** Engine lifetime; optional for standalone system fixtures. */
   readonly signal?: AbortSignal;
 }

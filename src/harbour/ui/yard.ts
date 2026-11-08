@@ -162,7 +162,7 @@ export interface CivicLike {
   };
 }
 
-export const getCivic = (ctx: EngineContext) => (ctx.services.get("civic") as CivicLike | undefined) ?? null;
+export const getCivic = (ctx: EngineContext): CivicLike | null => ctx.services.get("civic") ?? null;
 
 let civicSrc: unknown[] | null = null, civicOut: YardCoin[] = [];
 /** The coins in the yard: the civic list when it has one, else the registry. */

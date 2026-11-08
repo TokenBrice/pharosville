@@ -7,9 +7,7 @@ import { FAILURE_COPY, failureCode, isAbort, type BootFailureKind, type HarbourL
 import { canViewportShowMap, isWidescreenViewport } from "@/systems/viewport-gate";
 import { SYSTEMS } from "../systems";
 import { mountHarbourUI } from "../ui/mount";
-import type { HarbourFeed } from "../data/fetch";
-import type { ReadinessState, RenderedFleetState, SimulationStatus } from "../engine/types";
-import type { HarbourModel } from "../model/types";
+import type { RenderedFleetState } from "../engine/types";
 import { dismissPoster, resetPosterState } from "./poster";
 import { startWake, wantsWake, WAKE_PULLBACK } from "./wake";
 import "./harbour-app.css";
@@ -107,12 +105,12 @@ export function HarbourApp() {
       await engine.init();
       if (cancelled || !engine.canPublish) return;
       delete window.__harbourStats; // a previous mount's stats must not count as this world's first frame
-      const feed = engine.ctx.services.get("feed") as HarbourFeed | undefined;
-      const readiness = engine.ctx.services.get("readiness") as ReadinessState | undefined;
+      const feed = engine.ctx.services.get("feed");
+      const readiness = engine.ctx.services.get("readiness");
       let firstRenderedAt: number | undefined;
       let incompleteSince: number | undefined;
       let incompleteRevision: number | undefined;
-      const simulation = engine.ctx.services.get("simulation-status") as SimulationStatus | undefined;
+      const simulation = engine.ctx.services.get("simulation-status");
       let revealed = false;
       const reveal = (next: Exclude<Stage, "loading" | "failed" | "recovering">) => {
         if (cancelled || !engine?.canPublish) return;
@@ -133,7 +131,7 @@ export function HarbourApp() {
         if (cancelled || !engine?.canPublish) return;
         const now = performance.now();
         firstRenderedAt ??= now;
-        const model = engine?.ctx.services.get("model") as HarbourModel | undefined;
+        const model = engine?.ctx.services.get("model");
         // A snapshot alone is not proof: the committed revision's entire fleet must have drawn.
         const complete = model?.hasFleet && readiness?.prepared && readiness.revision > 0
           && rendered.revision === readiness.revision && rendered.boats === readiness.boats;

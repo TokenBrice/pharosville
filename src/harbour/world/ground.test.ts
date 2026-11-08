@@ -1,3 +1,4 @@
+import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import { renderGround } from "./ground";
@@ -61,7 +62,7 @@ describe("ground render target ownership", () => {
     const { ground, disposed } = bakedGround();
     const island = new IslandSystem();
     Object.assign(island as unknown as { ground: GroundService }, { ground });
-    const ctx = { scene: new THREE.Scene(), services: new Map([["ground", ground]]) } as unknown as EngineContext;
+    const ctx = { scene: new THREE.Scene(), services: new Map([["ground", ground]]) as Services } as unknown as EngineContext;
     expect(disposed).not.toHaveBeenCalled();
     island.dispose(ctx);
     expect(disposed).toHaveBeenCalledTimes(1);

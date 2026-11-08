@@ -5,6 +5,8 @@
  * (toward the default camera). Headings: bow along (sin h, 0, cos h).
  */
 
+import type { IdentityLayout } from "../identity/types";
+
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
 
@@ -94,7 +96,7 @@ export interface Landmark {
 export interface HeadedSlot { id: string; class: HullClass; position: Vec3; headingRad: number }
 
 export interface LayoutZones {
-  shoals?: { polygon: Vec2[]; slots: Vec3[] };
+  shoals?: { polygon: Vec2[]; slots: Vec3[]; rocks?: number[][] };
   wreckCove?: { polygon: Vec2[]; slots: HeadedSlot[] };
   slipway?: { polygon: Vec2[]; slots: Vec3[]; launchPath: Vec2[] };
   farPorts?: { polygon: Vec2[]; rows: Array<{ cls: HullClass; line: Vec2[]; slots: Vec3[] }> };
@@ -135,7 +137,7 @@ export interface LayoutLabel {
   kind: string;
 }
 
-export interface HarbourLayout {
+export interface HarbourLayout extends IdentityLayout {
   version?: 1 | 2;
   units: "m";
   axes?: string;
@@ -154,6 +156,8 @@ export interface HarbourLayout {
   lights?: LayoutLight[];
   sea?: LayoutSea;
   labels?: LayoutLabel[];
+  pharos?: { position: Vec3; rotationY: number };
+  wind?: { bowHeadingRad?: number };
 }
 
 /** The 'layout' service value (ctx.services.get("layout")). */

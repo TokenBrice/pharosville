@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { Pass } from "postprocessing";
-import type { EngineContext, PreparationService } from "../engine/types";
+import type { EngineContext } from "../engine/types";
 import type { HarbourMaterials } from "./materials";
 
 const owners = new WeakMap<THREE.Mesh, StaticDepthRegistry>();
@@ -96,7 +96,7 @@ export class StaticDepthPass extends Pass {
   constructor(private readonly ctx: EngineContext, private readonly registry: StaticDepthRegistry) {
     super("StaticDepthPass", registry.scene, ctx.camera);
     this.needsSwap = false;
-    this.unregister = (ctx.services.get("preparation") as PreparationService).register({ root: registry.scene, camera: ctx.camera, target: () => ctx.composer.inputBuffer, scene: registry.scene });
+    this.unregister = ctx.services.get("preparation")!.register({ root: registry.scene, camera: ctx.camera, target: () => ctx.composer.inputBuffer, scene: registry.scene });
   }
   render(renderer: THREE.WebGLRenderer, inputBuffer: THREE.WebGLRenderTarget): void {
     this.ctx.scene.updateMatrixWorld();

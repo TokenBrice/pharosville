@@ -60,10 +60,9 @@ export interface GustService {
   readonly time: number;
 }
 
-interface WindSource { wind?: { fromRad: number; strength: number } }
 
 export function ensureGustService(ctx: EngineContext): GustService {
-  const hit = ctx.services.get("gust") as GustService | undefined;
+  const hit = ctx.services.get("gust");
   if (hit) return hit;
   const clock = new MotionClock(ensureMotionService(ctx));
   const u = { value: new THREE.Vector4(0.6, 0.8, 0.35, 0) };
@@ -73,7 +72,7 @@ export function ensureGustService(ctx: EngineContext): GustService {
     tick(c: EngineContext, frame: FrameState) {
       if (frame.elapsed === last) return;
       last = frame.elapsed;
-      const sim = c.services.get("sim") as WindSource | undefined;
+      const sim = c.services.get("sim");
       const wv = c.uniforms.uWindVec?.value;
       let dx: number, dz: number;
       if (wv && Math.hypot(wv.x, wv.y) > 1e-3) { const l = Math.hypot(wv.x, wv.y); dx = wv.x / l; dz = wv.y / l; }

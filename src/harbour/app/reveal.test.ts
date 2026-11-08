@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
+import type { ServiceMap, Services } from "../engine/services";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RenderedFleetState, ReadinessState } from "../engine/types";
+import type { RenderedFleetState } from "../engine/types";
 
 import { BootFailure, type HarbourLifecycle } from "../engine/failure";
 import { deferred } from "../engine/deferred";
@@ -13,7 +14,7 @@ interface TestEngine {
   lifecycle(state: HarbourLifecycle): void;
   abort: ReturnType<typeof vi.fn>;
   dispose: ReturnType<typeof vi.fn>;
-  ctx: { services: Map<string, unknown> };
+  ctx: { services: Services };
   listeners: Set<(state: RenderedFleetState) => void>;
   render(state: RenderedFleetState): void;
 }
@@ -25,7 +26,7 @@ vi.mock("../engine/engine", () => ({
       ["model", { hasFleet: false, boats: [] }],
       ["readiness", { revision: 0, boats: 0, prepared: false }],
       ["simulation-status", { unavailable: false }],
-    ]) };
+    ]) as Services };
     listeners = new Set<(state: RenderedFleetState) => void>();
     constructor() { harness.engines.push(this); }
     add() { return this; }
@@ -52,8 +53,8 @@ import { HarbourApp } from "./harbour-app";
 let root: Root | undefined;
 let host: HTMLDivElement;
 const engine = () => harness.engines[harness.engines.length - 1];
-const feed = () => engine().ctx.services.get("feed") as { payloads: { stablecoins?: { data: unknown } } };
-const readiness = () => engine().ctx.services.get("readiness") as ReadinessState;
+const feed = () => engine().ctx.services.get("feed")! as unknown as { payloads: { stablecoins?: { data: unknown } } };
+const readiness = () => engine().ctx.services.get("readiness")!;
 const shown = () => document.documentElement.hasAttribute("data-pv-live");
 const status = () => host.querySelector("[role=status]")?.textContent;
 async function mount() {
@@ -62,7 +63,7 @@ async function mount() {
 }
 function commit(revision: number, boats: number) {
   feed().payloads.stablecoins = { data: { peggedAssets: Array.from({ length: boats }, (_, id) => ({ id })) } };
-  engine().ctx.services.set("model", { hasFleet: true, boats: Array.from({ length: boats }) });
+  engine().ctx.services.set("model", { hasFleet: true, boats: Array.from({ length: boats }) } as unknown as ServiceMap["model"]);
   Object.assign(readiness(), { revision, boats, prepared: true });
 }
 async function frame(revision = 0, boats = 0) {
@@ -115,7 +116,7 @@ describe("composer-completed arrival reveal", () => {
   it("independently blocks every reveal outcome behind a graphics failure latch", async () => {
     await mount(); engine().canPublish = false;
     commit(1, 12); await frame(1, 12); await frame(1, 11); await advance(4000); await frame(1, 11);
-    engine().ctx.services.set("model", { hasFleet: false, boats: [] });
+    engine().ctx.services.set("model", { hasFleet: false, boats: [] } as unknown as ServiceMap["model"]);
     await frame(); await advance(3000); await frame();
     feed().payloads.stablecoins = { data: null }; await frame();
     expect(shown()).toBe(false); expect(harness.preload).not.toHaveBeenCalled();
@@ -258,7 +259,7 @@ describe("composer-completed arrival reveal", () => {
   it("reveals an unavailable empty model without a feed when layout initialization could not start", async () => {
     await mount();
     engine().ctx.services.delete("feed");
-    Object.assign(engine().ctx.services.get("simulation-status") as object, { unavailable: true });
+    Object.assign(engine().ctx.services.get("simulation-status")!, { unavailable: true });
     await frame();
     expect(shown()).toBe(true);
     expect(status()).toBe("Harbour ready; live readings unavailable.");
@@ -276,7 +277,7 @@ describe("composer-completed arrival reveal", () => {
   it.each(["recovering", "unavailable"])("reveals worker-startup failure honestly after a base frame despite successful data (%s)", async (phase) => {
     await mount();
     feed().payloads.stablecoins = { data: { peggedAssets: [{ id: "coin" }] } };
-    Object.assign(engine().ctx.services.get("simulation-status") as object, { unavailable: true, phase, reason: "timeout", attempt: 1, nextRetryAtMs: Date.now() + 1000 });
+    Object.assign(engine().ctx.services.get("simulation-status")!, { unavailable: true, phase, reason: "timeout", attempt: 1, nextRetryAtMs: Date.now() + 1000 });
     expect(shown()).toBe(false);
     await frame();
     expect(shown()).toBe(true);
@@ -284,7 +285,7 @@ describe("composer-completed arrival reveal", () => {
     expect(readiness().prepared).toBe(false);
     expect(harness.preload).toHaveBeenCalledOnce();
     expect(engine().listeners.size).toBe(1); // A bounded restart can install a coherent fleet.
-    Object.assign(engine().ctx.services.get("simulation-status") as object, { unavailable: false, phase: "ready", reason: null, attempt: 0, nextRetryAtMs: null });
+    Object.assign(engine().ctx.services.get("simulation-status")!, { unavailable: false, phase: "ready", reason: null, attempt: 0, nextRetryAtMs: null });
     commit(1, 1);
     await frame(0, 0);
     expect(status()).toBe("Harbour ready; live readings unavailable.");

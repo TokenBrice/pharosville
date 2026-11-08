@@ -1,3 +1,4 @@
+import type { Services } from "./services";
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProgramPreparation, preparationDepth, preparationMaterial } from "./prepare";
@@ -33,7 +34,7 @@ function harness(parallel: boolean) {
     extensions: { has: () => parallel }, properties: { get: (material: THREE.Material) => programs.get(material) ?? {} },
     compile, compileAsync: vi.fn((object: THREE.Object3D) => { compile(object); return completion.promise; }), initTexture: vi.fn(),
   };
-  const ctx = { scene, camera, renderer, composer: { inputBuffer: input }, uniforms: createWorldUniforms(), services: new Map() } as unknown as EngineContext;
+  const ctx = { scene, camera, renderer, composer: { inputBuffer: input }, uniforms: createWorldUniforms(), services: new Map() as Services } as unknown as EngineContext;
   return { ctx, scene, camera, renderer, input, previous, completion, reflected, preparation: new ProgramPreparation(ctx), target: () => target };
 }
 

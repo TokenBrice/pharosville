@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import { getLightsStore } from "../lights/lights-service";
 import type { GroundService } from "../world/ground";
 import type { OceanService } from "../ocean/ocean-system";
@@ -34,7 +34,6 @@ const FLAG_SCALE: Record<string, number> = { ethereum: 1.65 };
 /** Roof/ridge heights above the plot (m) for the chart's line-of-sight test; others ~18 m. */
 const CIVIC_HEIGHT: Record<string, number> = { customs: 26, mint: 30, burn: 26, shipyard: 14, registry: 20, stormstation: 22 };
 
-interface LifeWind { readonly wind: number; readonly windTo: readonly [number, number] }
 
 /** Metres added to dry land in the sight grid for trees (not in the island's height field). */
 const TREE_ALLOWANCE = 11;
@@ -83,7 +82,7 @@ export class IdentitySystem implements WorldSystem {
   private labels: LabelSpec[] = [];
 
   async init(ctx: EngineContext): Promise<void> {
-    const layout = ctx.services.get("layout") as IdentityLayout | undefined;
+    const layout = ctx.services.get("layout");
     if (!layout) return;
     this.motion = ensureMotionService(ctx);
     const [font, atlas, sdfTex, crestTex] = await Promise.all([
@@ -95,9 +94,9 @@ export class IdentitySystem implements WorldSystem {
 
     ctx.signal?.throwIfAborted();
     if (font && sdfTex && layout.seaZones?.length) {
-      const ocean = ctx.services.get("ocean") as OceanService | undefined;
+      const ocean = ctx.services.get("ocean");
       const t0 = performance.now();
-      this.labels = this.fittedSpecs(layout, font, ocean, ctx.camera.aspect, ctx.services.get("ground") as GroundService | undefined);
+      this.labels = this.fittedSpecs(layout, font, ocean, ctx.camera.aspect, ctx.services.get("ground"));
       performance.measure("identity:labels", { start: t0 });
       this.lettering = new ChartLettering(this.labels, font, sdfTex, ctx.uniforms, ocean, layout.seaLevel ?? 0);
       ctx.scene.add(this.lettering.mesh);
@@ -112,10 +111,10 @@ export class IdentitySystem implements WorldSystem {
       this.flags = new CrestFlags(crestTex);
       ctx.scene.add(this.flags.group);
       // chain-colour beacons and bollards on each harbour's pier head (one instanced draw)
-      const ground = ctx.services.get("ground") as GroundService | undefined;
+      const ground = ctx.services.get("ground");
       const piers = (layout as { piers?: MarkPier[] }).piers ?? [];
       if (ground && piers.length) {
-        const ocean = ctx.services.get("ocean") as OceanService | undefined;
+        const ocean = ctx.services.get("ocean");
         const sea = layout.seaLevel ?? 0;
         const sites = markSites(piers, ocean ? (x, z) => ocean.coastAt(x, z) > -5 : undefined)
           .map((m) => ({ ...m, y: ground.heightAt(m.x, m.z) }))
@@ -128,7 +127,7 @@ export class IdentitySystem implements WorldSystem {
     }
 
     // the Far Ports: a buoyed anchorage, its buoys lit at night (steady amber, the island owns the raft-end marks)
-    const fp = (ctx.services.get("layout") as { zones?: { farPorts?: { rows?: Array<{ line: Array<[number, number]> }> } } }).zones?.farPorts;
+    const fp = ctx.services.get("layout")!.zones?.farPorts;
     if (fp?.rows?.length) {
       const lights = getLightsStore(ctx);
       fp.rows.forEach((row, ri) => {
@@ -151,7 +150,7 @@ export class IdentitySystem implements WorldSystem {
       // the offices arrive whenever their placer has loaded them: look twice a second, then less often
       this.scanIn = this.scans++ < 60 ? 0.5 : 3;
       this.scanning = true;
-      void this.dresser.scan(ctx.scene, ctx.services.get("preparation") as PreparationService | undefined).then((sites) => {
+      void this.dresser.scan(ctx.scene, ctx.services.get("preparation")).then((sites) => {
         if (this.disposed) return;
         for (const s of sites) {
           const c = this.atlas!.chains[s.chain];
@@ -161,8 +160,8 @@ export class IdentitySystem implements WorldSystem {
     }
     this.dresser?.setGlow(0.28 * u.uWindowGlow.value);
     if (this.flags) {
-      const life = ctx.services.get("life") as LifeWind | undefined;
-      const sky = ctx.services.get("sky") as { shared?: { uWeatherSea?: { value: THREE.Vector4 } } } | undefined;
+      const life = ctx.services.get("life");
+      const sky = ctx.services.get("sky");
       const wind = life?.wind ?? sky?.shared?.uWeatherSea?.value.y ?? 0.35;
       const windTo = life?.windTo ?? ([0.84, -0.54] as const);
       const dim = 1 - 0.7 * u.uNight.value;

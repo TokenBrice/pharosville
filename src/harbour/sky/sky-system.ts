@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { styleCDirection } from "../engine/time-of-day";
-import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import { FullscreenPass } from "../ocean/gpu-bake";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
@@ -8,7 +8,7 @@ import { bakeCloudAtlas, CLOUD_CELLS } from "./clouds";
 import { cloudShadowUniforms } from "./cloud-shadow";
 import { applySkyPalette, createSkyPaletteUniforms } from "./palette";
 import { MAX_BANKS, SKY_BAND_GLSL } from "./sky-glsl";
-import { bankReveal, seasonBankShape, seasonHighCloud, type SkySeasonWeights } from "./season-sky";
+import { bankReveal, seasonBankShape, seasonHighCloud } from "./season-sky";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import {
   dayOfYear, METEOR_SHOWERS, meteorIntervalSec, meteorShowerOn, moonAge, moonIllumination, parseMoonOverride, SYNODIC_DAYS,
@@ -62,15 +62,6 @@ export interface SkyFront { coverFrom: number; coverTo: number; rainTo: number; 
 /** Storm grade of a cloud cover (the deck, slate tint and dimming: DEWS ALERT and above). */
 const stormOf = (cover: number) => THREE.MathUtils.smoothstep(cover, 0.38, 0.75);
 
-/** What the sky reads from the weather director's service (src/harbour/weather). */
-interface WeatherSkyLike {
-  readonly gloom: number;
-  readonly flash: { readonly azimuth: number; readonly elevation: number };
-  readonly state?: {
-    readonly wind: number; readonly windNow: number; readonly breaks: number;
-    readonly squall: { readonly pos: number; readonly k: number };
-  };
-}
 
 const BAND_FRAC = 0.2;               // pretend horizon sits this fraction of the frame below the top
 const BAND_TH = 48, BAND_E0 = -1.5, BAND_E1 = 14;
@@ -206,7 +197,7 @@ export class SkySystem implements WorldSystem {
   private seasonKey = "";
 
   async init(ctx: EngineContext): Promise<void> {
-    this.syncLayout(ctx.services.get("layout") as HarbourLayout | undefined);
+    this.syncLayout(ctx.services.get("layout"));
     this.fx = await acquireFxTextures(ctx);
     this.atlas = await bakeCloudAtlas(ctx);
     this.u.uCloudAtlas.value = this.atlas.texture;
@@ -233,7 +224,7 @@ export class SkySystem implements WorldSystem {
       minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping,
     });
     this.bandPass = new FullscreenPass(BAND_FRAG, { ...world, ...this.u, uRange: this.shared.uSkyBandRange });
-    (ctx.services.get("preparation") as PreparationService | undefined)?.register(this.bandPass.preparationEntry(() => this.bandRT));
+    ctx.services.get("preparation")?.register(this.bandPass.preparationEntry(() => this.bandRT));
     // Only inputs consumed by SKY_REFLECTION: no stars/discs/cloud atlas/banks/cirrus.
     this.bandInputs = [
       W.uNight, W.uZenith, W.uHorizon, W.uHaze, this.u.uGlowCol, this.u.uCloudLight, this.u.uCloudMid,
@@ -272,7 +263,7 @@ export class SkySystem implements WorldSystem {
     this.moonAt = nowMs;
     const age = this.moonOverride ?? moonAge(nowMs);
     this.moonIllum = moonIllumination(age);
-    const southern = (ctx.services.get("season") as { southern?: boolean } | undefined)?.southern ?? false;
+    const southern = ctx.services.get("season")?.southern ?? false;
     this.u.uMoonPhase.value.set((2 * Math.PI * age) / SYNODIC_DAYS, southern ? -1 : 1, this.moonIllum, 0);
     if (!this.meteorForced) {
       const d = new Date(nowMs);
@@ -288,7 +279,7 @@ export class SkySystem implements WorldSystem {
     const night = ctx.uniforms.uNight.value;
     const clear = 1 - THREE.MathUtils.smoothstep(this.coverS, 0.2, 0.3);
     const dark = THREE.MathUtils.smoothstep(night, 0.6, 0.95) * clear;
-    const w = (ctx.services.get("season") as { weights?: readonly number[] } | undefined)?.weights ?? [0, 1, 0, 0];
+    const w = ctx.services.get("season")?.weights ?? [0, 1, 0, 0];
     const seasonK = 0.7 * w[0] + 1 * w[1] + 0.7 * w[2] + 0.45 * w[3];
     const mw = dark * (1 - THREE.MathUtils.smoothstep(this.moonIllum, 0.15, 0.45)) * seasonK;
     // the band keeps its place in the world (az 200), the view moves across it
@@ -361,7 +352,7 @@ export class SkySystem implements WorldSystem {
   /** Geometry depends only on the immutable layout, camera frame, target and drawing size, not sky lighting/weather. */
   private cameraFrame(ctx: EngineContext): void {
     const { camera, rig, uniforms: W } = ctx;
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    const layout = ctx.services.get("layout");
     if (layout !== this.layout) this.syncLayout(layout);
     const fwd = camera.getWorldDirection(this.tmp), key = this.cameraKey;
     if (key.valid && key.matrix.equals(camera.matrixWorld) && key.projection.equals(camera.projectionMatrix) && key.position.equals(camera.position)
@@ -520,7 +511,7 @@ export class SkySystem implements WorldSystem {
     this.cirrusDrift += driftDeg * 0.6;
     // gusts briefly hurry the near banks (and the cirrus a little): the gust share of the wind now
     // TODO(motion): read the shared gust field (weather/gust.ts) here once it lands, instead of windNow - wind
-    const wxs = (ctx.services.get("weather") as WeatherSkyLike | undefined)?.state;
+    const wxs = ctx.services.get("weather")?.state;
     const gust = wxs ? THREE.MathUtils.clamp((wxs.windNow - wxs.wind) / 0.25, 0, 1) : 0;
     this.cirrusDrift += driftDeg * 0.3 * gust;
     // ---- W01 the front: it comes from the upwind side of the view and sweeps across the band
@@ -535,7 +526,7 @@ export class SkySystem implements WorldSystem {
       this.u.uFrontB.value.set(lineTh, this.frontSide, fr.rainTo, 1);
     } else this.u.uFrontB.value.w = 0;
     // W10: the season picks the cloud shapes (area kept, so never the amount)
-    const sw = (ctx.services.get("season") as { weights?: SkySeasonWeights } | undefined)?.weights;
+    const sw = ctx.services.get("season")?.weights;
     // calm (from the DEWS cover only) settles the autumn's long low banks
     const calm = Math.round((1 - THREE.MathUtils.smoothstep(this.coverS, 0.2, 0.5)) * 20) / 20;
     const sKey = sw ? sw.map((x) => x.toFixed(2)).join() + calm : "";
@@ -588,7 +579,7 @@ export class SkySystem implements WorldSystem {
     }
 
     // ---- weather (director): curtains, the lightning flash in the deck and on the world, Danger's gloom
-    const wx = ctx.services.get("weather") as WeatherSkyLike | undefined;
+    const wx = ctx.services.get("weather");
     if (wx) {
       const flash = W.uLightning.value;
       let fth = wx.flash.azimuth - fwdAz;

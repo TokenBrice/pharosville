@@ -28,7 +28,7 @@ export class HoverLantern {
   private last = -1;
 
   update(ctx: EngineContext, hovered: { id: string; cx: number; cy: number; cz: number; top: number } | undefined): void {
-    const lights = ctx.services.get("lights") as LightsService | undefined;
+    const lights = ctx.services.get("lights");
     if (!lights) return;
     const now = performance.now();
     const dt = this.last < 0 ? 0 : Math.min(0.1, (now - this.last) / 1000);

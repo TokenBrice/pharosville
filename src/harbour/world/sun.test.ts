@@ -1,3 +1,4 @@
+import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../engine/types";
@@ -12,7 +13,7 @@ describe("sea-shadow consumer ownership", () => {
   it("does no low-tier allocation/resolve/mips and resumes only with a completed matching map", () => {
     const rig = new SunRig(2048), quality = { settings: TIERS.low };
     const renderer = { shadowMap: { needsUpdate: false, autoUpdate: false } };
-    const ctx = { uniforms: createWorldUniforms(), services: new Map<string, unknown>([["quality", quality], ["ocean", {}]]), renderer, camera: new THREE.PerspectiveCamera() } as unknown as EngineContext;
+    const ctx = { uniforms: createWorldUniforms(), services: new Map<string, unknown>([["quality", quality], ["ocean", {}]]) as Services, renderer, camera: new THREE.PerspectiveCamera() } as unknown as EngineContext;
     vi.spyOn(rig as unknown as { fitShadow(): boolean }, "fitShadow").mockReturnValue(false);
     const resolve = vi.spyOn(SeaShadowMask.prototype, "resolve").mockReturnValue(true);
     const map = new THREE.WebGLRenderTarget(2048, 2048); map.depthTexture = new THREE.DepthTexture(2048, 2048);

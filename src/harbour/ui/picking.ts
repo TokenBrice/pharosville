@@ -429,7 +429,7 @@ export class AnalyticPicking implements PickingService {
     }
     if (hit.kind === "landmark") {
       if (hit.id === HARBOUR_TUG) { const T = getSim(this.ctx)?.tugs; return T?.count ? this.project(T.x[0], 6, T.z[0], out) : null; }
-      const lantern = hit.id === "pharos" ? (this.ctx.services.get("lighthouse") as { lanternPosition?: THREE.Vector3 } | undefined)?.lanternPosition : undefined;
+      const lantern = hit.id === "pharos" ? this.ctx.services.get("lighthouse")?.lanternPosition : undefined;
       if (lantern) return this.project(lantern.x, lantern.y + 7, lantern.z, out);
       const place = this.placeOf(hit.id);
       if (place) return this.project(place.top[0], place.top[1], place.top[2], out);

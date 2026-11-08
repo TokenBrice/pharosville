@@ -1,21 +1,18 @@
 import * as THREE from "three";
 import { Mastheads } from "./mastheads";
 import { BootFailure, isAbort } from "../engine/failure";
-import type { EngineContext, FrameState, PreparationService, ReadinessState, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout, HullClass, Pier } from "../layout/types";
-import type { Boat, HarbourModel, StormFlag } from "../model/types";
+import type { Boat, HarbourModel } from "../model/types";
 import type { OceanService } from "../ocean/ocean-system";
-import type { WakeService } from "../ocean/wake";
 import { hullSwellCache } from "../ocean/waves";
 import type { HarbourSim } from "../sim/sim";
 import { EV_TO_SHOALS, EV_TOW, MAX_TUGS, PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING } from "../sim/sim";
-import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { EmblemAtlas, type EmblemCoin } from "./emblems";
 import { createFleetMaterials, FLEET_DATA_TEXELS, type FleetUniforms } from "./fleet-material";
 import { loadKit, loadWreckKit, type HullVariant, type Kit, type WreckItem } from "./hull-kit";
 import { buildWreath, composeCove, CoveService, EpitaphBoards, freshDeath, PERCH_ITEMS, topVertex, type CoveDead, type CoveMark, type CovePiece, type CoveSlot } from "./wreck-cove";
-import type { LightsService } from "../lights/lights-service";
 import { HoverLantern } from "./hover-lantern";
 import { bollardFor, MooringLines } from "./mooring-lines";
 import { RidingLights } from "./riding-lights";
@@ -24,7 +21,7 @@ import { FLAG_BURGEE, FLAG_DISTRESS, FLAG_HOUSE, FLAG_STREAMER, HouseFlags } fro
 import { MastSignals } from "./storm-cones-mast";
 import { Bunting } from "./bunting";
 import { coastDistance } from "../sim/obstacles";
-import type { QualityService, QualityTier } from "../engine/quality";
+import type { QualityTier } from "../engine/quality";
 import { approach, hash01, indexVariants, pickVariant, sternLampLit, targetSwing, wrapAngle, wreckScale, type VariantIndex } from "./variants";
 import { ensureGustService } from "../weather/gust";
 import { inPoly, seaZones } from "../ui/places";
@@ -32,7 +29,6 @@ import { titanFor } from "./titans";
 import { DECK, linear, liveryFor, sailDye, TOPSIDE, TRIM } from "./livery";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { fleetShadowFrustum, rigRadius } from "./visibility";
-import type { SunRig } from "../world/sun";
 
 /**
  * FleetSystem: every stablecoin's hull, in ONE BatchedMesh multi-draw (+ its shadow pass), consuming
@@ -215,7 +211,7 @@ export class FleetSystem implements WorldSystem {
     (m, hi) => this.writeData(m.inst, m.lit ? 1 : 0, 0, hi, 0.6, 0.6, 0.6, m.board >= 0 ? -10 - m.board : -9, 0),
     // the selected coin's lantern also throws a brighter pool of light on the sand (dusk and night)
     (lamp) => {
-      const lights = this.ctx?.services.get("lights") as LightsService | undefined;
+      const lights = this.ctx?.services.get("lights");
       if (this.coveGlow >= 0) lights?.remove(this.coveGlow);
       this.coveGlow = lamp && lights ? lights.add("harbourlight", lamp, COVE_LAMP, 8) : -1;
     },
@@ -296,7 +292,7 @@ export class FleetSystem implements WorldSystem {
 
   async init(ctx: EngineContext): Promise<void> {
     this.ctx = ctx;
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    const layout = ctx.services.get("layout");
     if (!layout) { console.warn("[harbour] fleet: no layout"); return; }
     this.layout = layout;
     for (const p of layout.piers) this.piers.set(p.id, p);
@@ -336,7 +332,7 @@ export class FleetSystem implements WorldSystem {
     ctx.services.set("cove", this.coveSvc);
     ctx.services.set("mastheads", this.mastheads);
     this.clock = new MotionClock(ensureMotionService(ctx));
-    const quality = ctx.services.get("quality") as QualityService | undefined;
+    const quality = ctx.services.get("quality");
     if (quality) {
       this.tier = FLEET_TIERS[quality.tier] ?? FLEET_TIERS.high;
       this.unsubQuality = quality.onChange((q) => { this.tier = FLEET_TIERS[q.tier] ?? FLEET_TIERS.high; });
@@ -495,7 +491,7 @@ export class FleetSystem implements WorldSystem {
       this.atlas.end();
     }
     this.boats = boats; this.byId = byId;
-    const sim = this.ctx?.services.get("sim") as HarbourSim | undefined;
+    const sim = this.ctx?.services.get("sim");
     const taken: number[] = [];
     if (sim) for (let i = 0; i < sim.pose.count; i++) {
       if (model.boats[i]?.state === "wrecked" && sim.pose.slot[i] >= 0) taken.push(sim.pose.slot[i]);
@@ -510,7 +506,7 @@ export class FleetSystem implements WorldSystem {
         ids.has(w.id) !== this.liveIds.has(w.id);
     }) || taken.length !== this.wreckSlots.length || taken.some((slot, i) => slot !== this.wreckSlots[i]);
     this.model = model; this.liveIds = ids; this.wreckSlots = taken;
-    this.modelRevision = (this.ctx?.services.get("readiness") as ReadinessState | undefined)?.revision ?? 0;
+    this.modelRevision = this.ctx?.services.get("readiness")?.revision ?? 0;
     this.needsFullPose = true;
     if (wrecksChanged) {
       for (const w of this.wreckInst) mesh.deleteInstance(w.inst);
@@ -519,7 +515,7 @@ export class FleetSystem implements WorldSystem {
       this.wrecksPosed = false;
     } else if (this.cove) {
       // A refresh still expires a wreath when its death ages out; unchanged wrecks/boards stay installed.
-      const ground = this.ctx?.services.get("ground") as GroundService | undefined;
+      const ground = this.ctx?.services.get("ground");
       this.placeWreath(dead.filter((w) => !ids.has(w.id)), (x, z) => ground ? ground.heightAt(x, z) : 0.5);
     }
     if (!previous) { this.placeBuoys(); this.placeTugs(); } // fixed layout: never tear down/repaint the same buoys/tugs on a feed refresh
@@ -647,7 +643,7 @@ export class FleetSystem implements WorldSystem {
     if (this.coveState !== "done" && this.kit?.manifest.wreck_kit) return; // the v2 cove lands shortly
     const L = sim?.layout;
     const kit = this.kit!;
-    const ground = this.ctx?.services.get("ground") as GroundService | undefined;
+    const ground = this.ctx?.services.get("ground");
     const taken = new Set<number>();
     if (sim) for (let i = 0; i < sim.pose.count; i++) if (model.boats[i]?.state === "wrecked" && sim.pose.slot[i] >= 0) taken.add(sim.pose.slot[i]);
     const gy = (x: number, z: number) => (ground ? ground.heightAt(x, z) : 0.5);
@@ -740,7 +736,7 @@ export class FleetSystem implements WorldSystem {
     if (this.model) {
       for (const w of this.wreckInst) mesh.deleteInstance(w.inst);
       this.wreckInst = [];
-      this.placeWrecks(this.model, ctx.services.get("sim") as HarbourSim | undefined);
+      this.placeWrecks(this.model, ctx.services.get("sim"));
       this.wrecksPosed = false;
     }
   }
@@ -753,8 +749,8 @@ export class FleetSystem implements WorldSystem {
   private placeCove(model: HarbourModel, sim: HarbourSim | undefined): void {
     const items = this.cove!, ctx = this.ctx;
     const L = sim?.layout;
-    const ground = ctx?.services.get("ground") as GroundService | undefined;
-    const lights = ctx?.services.get("lights") as LightsService | undefined;
+    const ground = ctx?.services.get("ground");
+    const lights = ctx?.services.get("lights");
     const coast = L?.field?.coast ?? null;
     const taken = new Set<number>();
     if (sim) for (let i = 0; i < sim.pose.count; i++) if (model.boats[i]?.state === "wrecked" && sim.pose.slot[i] >= 0) taken.add(sim.pose.slot[i]);
@@ -849,7 +845,7 @@ export class FleetSystem implements WorldSystem {
     w.userData.preparationKey = key;
     w.scale.setScalar(k); w.position.set(x, y, z); w.rotation.set(-0.3, f, 0, "YXZ");
     w.updateMatrixWorld(); w.matrixAutoUpdate = false;
-    const preparation = ctx.services.get("preparation") as PreparationService | undefined;
+    const preparation = ctx.services.get("preparation");
     const publish = () => { if (this.ctx === ctx && this.wreath === w && !this.failed) ctx.scene.add(w); };
     if (!preparation) { publish(); return; }
     void preparation.prepareGroup(w).then(publish).catch((error: unknown) => {
@@ -879,11 +875,11 @@ export class FleetSystem implements WorldSystem {
     // Wreck Cove's kit is also deferred (the cove lies off both default views).
     if (this.coveState === "wait" && this.model) { this.coveState = "loading"; requestAnimationFrame(() => { void this.loadCove(); }); }
     const t0 = performance.now();
-    const model = ctx.services.get("model") as HarbourModel | undefined;
-    const sim = ctx.services.get("sim") as HarbourSim | undefined;
+    const model = ctx.services.get("model");
+    const sim = ctx.services.get("sim");
     if (model && model !== this.model) this.install(model);
-    this.ocean = (ctx.services.get("ocean") as OceanService | undefined) ?? null;
-    const wake = ctx.services.get("wake") as WakeService | undefined;
+    this.ocean = ctx.services.get("ocean") ?? null;
+    const wake = ctx.services.get("wake");
     const cam = ctx.camera;
     this.pv.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.pv);
@@ -894,15 +890,15 @@ export class FleetSystem implements WorldSystem {
     this.uniforms.uFleetTime.value = time;
     const tier = this.tier;
     // storm: the weather band the sky and the storm mast show (DEWS ALERT and worse)
-    const readings = ctx.services.get("readings") as { stormBand?: string | null } | undefined;
+    const readings = ctx.services.get("readings");
     const stormT = STORM_BY_BAND[readings?.stormBand ?? "CALM"] ?? 0;
     this.storm += (stormT - this.storm) * (1 - Math.exp(-dt * 0.35));
     const storm = this.storm;
     const contactK = contactStrength(storm);
-    const ground = ctx.services.get("ground") as GroundService | undefined;
+    const ground = ctx.services.get("ground");
     const mesh = this.mesh;
     mesh.castShadow = ctx.rig.distance < tier.shadowDist;
-    const sun = ctx.services.get("sun") as SunRig | undefined;
+    const sun = ctx.services.get("sun");
     const shadowFrustum = mesh.castShadow && sun ? fleetShadowFrustum(sun.key) : null;
 
     const st = this.stats;
@@ -929,7 +925,7 @@ export class FleetSystem implements WorldSystem {
     gustSvc.tick(ctx, frame);
     const windK = sim?.wind.strength ?? 0.35;
     const live = this.clock ? this.clock.live : 1;
-    const sigReadings = ctx.services.get("readings") as { version: number; stormFlags: readonly StormFlag[]; maidens: readonly string[] } | undefined;
+    const sigReadings = ctx.services.get("readings");
     const reducedMotion = ensureMotionService(ctx).reduced;
     this.mastSignals?.sync(sigReadings?.stormFlags ?? [], dt, reducedMotion);
     if (this.bunting && sim && !this.simEvents) {
@@ -1390,7 +1386,7 @@ export class FleetSystem implements WorldSystem {
     ring.visible = this.ringK > 0.01 && !!(b || w);
     if (!ring.visible) return;
     if (b) {
-      const ocean = ctx.services.get("ocean") as OceanService | undefined;
+      const ocean = ctx.services.get("ocean");
       const y = (ocean ? ocean.heightAt(b.cx, b.cz) : 0) + 0.3;
       ring.position.set(b.cx, y, b.cz);
       ring.scale.setScalar(Math.max(4, b.loa * 0.66));
@@ -1505,7 +1501,7 @@ export class FleetSystem implements WorldSystem {
 
   /** Hull capsules vs each other and vs the static island (ground height field). Dev only. */
   private runAudit(ctx: EngineContext): void {
-    const ground = ctx.services.get("ground") as GroundService | undefined;
+    const ground = ctx.services.get("ground");
     const cell = 24, grid = new Map<number, BoatRec[]>();
     const key = (x: number, z: number) => (Math.floor(x / cell) + 512) * 4096 + (Math.floor(z / cell) + 512);
     let hull = 0, land = 0, worst = "", worstD = 0;

@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
-import type { IdentityService } from "../identity/identity-system";
 import type { OfficeState } from "../readings/bind";
 import { ensureMotionService, type MotionService } from "../ui/services";
 import { getHarbourMaterials } from "../world/materials";
@@ -25,7 +24,6 @@ const KIT_SCALE = 1.25;
 const slugOf = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
 
 interface CivicPlots { readonly plots?: ReadonlyMap<string, { kind: string; root: THREE.Object3D }> }
-interface OfficeReadings { readonly version: number; readonly offices: Readonly<Record<string, OfficeState>> }
 
 interface Site { chain: string; group: THREE.Group; wheel: THREE.Object3D | null; works: number; furl: number }
 
@@ -78,12 +76,12 @@ export class OfficeWorksSystem implements WorldSystem {
 
   update(frame: FrameState, ctx: EngineContext): void {
     if (this.state === "wait") {
-      const plots = (ctx.services.get("civic") as CivicPlots | undefined)?.plots;
+      const plots = ctx.services.get("civic")?.plots;
       if (plots && [...plots.values()].some((p) => p.kind.startsWith("harbour-office:"))) void this.load(ctx, plots);
       return;
     }
     if (this.state !== "ready") return;
-    const readings = ctx.services.get("readings") as OfficeReadings | undefined;
+    const readings = ctx.services.get("readings");
     if (!readings || readings.version <= 0) return;
     const want = new Map<string, OfficeState>();
     for (const [name, st] of Object.entries(readings.offices)) want.set(slugOf(name), st);
@@ -91,7 +89,7 @@ export class OfficeWorksSystem implements WorldSystem {
     const instant = reduced || !this.primed;
     this.primed = true;
     const step = frame.delta / EASE_SEC;
-    const identity = ctx.services.get("identity") as IdentityService | undefined;
+    const identity = ctx.services.get("identity");
     for (const s of this.sites.values()) {
       const st = want.get(s.chain) ?? "neutral";
       const wT = st === "works" ? 1 : 0, fT = st === "furled" ? 1 : 0;

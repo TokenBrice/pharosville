@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { Effect, EffectAttribute, EffectPass, BlendFunction } from "postprocessing";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
-import type { HarbourLayout } from "../layout/types";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import { getBeamUniforms, type BeamUniforms } from "./uniforms";
 
@@ -285,8 +284,8 @@ export class BeamSystem implements WorldSystem {
   async init(ctx: EngineContext): Promise<void> {
     this.fx = await acquireFxTextures(ctx);
     this.bu = getBeamUniforms(ctx);
-    this.lighthouse = ctx.services.get("lighthouse") as LighthouseLike | undefined;
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    this.lighthouse = ctx.services.get("lighthouse");
+    const layout = ctx.services.get("layout");
     const pharos = layout?.landmarks?.find((l) => l.id === "pharos");
     this.lantern.set(pharos?.position[0] ?? 0, (pharos?.position[1] ?? 0) + 30, pharos?.position[2] ?? 0);
 
@@ -332,7 +331,7 @@ export class BeamSystem implements WorldSystem {
 
   update(frame: FrameState, ctx: EngineContext): void {
     const dt = frame.delta;
-    this.lighthouse ??= ctx.services.get("lighthouse") as LighthouseLike | undefined;
+    this.lighthouse ??= ctx.services.get("lighthouse");
     const lp = this.lighthouse?.lanternPosition;
     if (Array.isArray(lp)) this.lantern.set(lp[0], lp[1], lp[2]);
     else if (lp) this.lantern.copy(lp);
@@ -371,7 +370,7 @@ export class BeamSystem implements WorldSystem {
     const flash = lit ? Math.pow(Math.max(0, c0), 60 - 28 * day - 18 * dayAlert) : 0;
 
     // fog thickens the shaft (more to scatter from)
-    const fog = (ctx.services.get("readings") as { fog?: number } | undefined)?.fog ?? 0;
+    const fog = ctx.services.get("readings")?.fog ?? 0;
     const U = this.U;
     const ct = Math.cos(TILT), st = Math.sin(TILT);
     U.uAx0.value.set(Math.cos(angle) * ct, -st, Math.sin(angle) * ct);
@@ -386,11 +385,11 @@ export class BeamSystem implements WorldSystem {
     U.TANA.value = Math.tan(HALF * narrow);
     U.uTime.value = frame.elapsed;
     U.uSkyRef.value.copy(ctx.uniforms.uHorizon.value);
-    const skyH = (ctx.services.get("sky") as { horizonDistance?: () => number } | undefined)?.horizonDistance?.();
+    const skyH = ctx.services.get("sky")?.horizonDistance?.();
     U.uSkyT.value = skyH && skyH > 0 ? skyH * 0.9 : 1e9;
     // the shaft fades out before it reaches the camera (never a smear across the foreground)
     U.uNear.value = THREE.MathUtils.clamp(this.lantern.distanceTo(cam) * 0.55, 40, 320);
-    const sky = ctx.services.get("sky") as { shared?: { uWeatherSea: THREE.IUniform<THREE.Vector4> } } | undefined;
+    const sky = ctx.services.get("sky");
     U.uWind.value = sky?.shared?.uWeatherSea.value.y ?? 0.3;
     U.uCamWorld.value.copy(ctx.camera.matrixWorld);
     U.uInvProj.value.copy(ctx.camera.projectionMatrixInverse);
@@ -401,7 +400,7 @@ export class BeamSystem implements WorldSystem {
     this.SH.uShC.value.set(lp2.x * 0.5 + 0.5, lp2.y * 0.5 + 0.5 + 6 * pxPerM);
     this.SH.uShR.value.set(5.5 * pxPerM / ctx.camera.aspect, 5.5 * pxPerM);
     const onScreen = lp2.z < 1 && Math.abs(lp2.x) < 1.3 && lp2.y > -1.3 && lp2.y < 1.6;
-    const reduced = (ctx.services.get("motion") as { reduced?: boolean } | undefined)?.reduced ?? false;
+    const reduced = ctx.services.get("motion")?.reduced ?? false;
     this.SH.uShAmt.value = shimmerAmount(dCam, lit, onScreen, breath, reduced);
     this.SH.uShT.value = frame.elapsed;
     this.pass.enabled = beamPassActive(U.uIntensity.value, this.SH.uShAmt.value);

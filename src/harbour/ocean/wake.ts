@@ -20,6 +20,7 @@ import type { PreparationEntry } from "../engine/types";
  * the start of frame N+1 (one frame of latency, invisible at harbour speeds).
  */
 export interface WakeService {
+  preparationEntries(): PreparationEntry[];
   stamp(x: number, z: number, vx: number, vz: number, halfWidth: number, strength: number, halfLength?: number): void;
   readonly texture: THREE.Texture;
   readonly live: THREE.Texture;

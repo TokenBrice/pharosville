@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { EngineContext, PreparationEntry } from "../engine/types";
-import type { QualityService, QualitySettings } from "../engine/quality";
+import type { QualitySettings } from "../engine/quality";
 import { SeaShadowMask, sunShadowUniforms } from "./sun-shadow";
 
 const UP_Y = new THREE.Vector3(0, 1, 0);
@@ -65,7 +65,7 @@ export class SunRig {
    */
   update(ctx: EngineContext, delta = 0): void {
     const u = ctx.uniforms;
-    const q = (ctx.services.get("quality") as QualityService | undefined)?.settings;
+    const q = ctx.services.get("quality")?.settings;
     let force = false;
     if (q && q !== this.quality) {
       this.quality = q;

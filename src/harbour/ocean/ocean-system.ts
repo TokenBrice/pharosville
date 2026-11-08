@@ -2,9 +2,8 @@ import { ensureGustService } from "../weather/gust";
 import * as THREE from "three";
 import { getBeamUniforms } from "../beam/uniforms";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
-import type { QualityService } from "../engine/quality";
 import type { HarbourLayout } from "../layout/types";
-import type { SkyService, SkyShared } from "../sky/sky-system";
+import type { SkyShared } from "../sky/sky-system";
 import { cloudShadowUniforms } from "../sky/cloud-shadow";
 import { sunShadowUniforms } from "../world/sun-shadow";
 import { OCEAN_FRAG, OCEAN_VERT, SEA_PALETTE } from "./ocean-material";
@@ -120,7 +119,7 @@ export class OceanSystem implements WorldSystem {
   private debugMovers: Array<{ cx: number; cz: number; r: number; w: number; ph: number; hw: number }> = [];
 
   async init(ctx: EngineContext): Promise<void> {
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    const layout = ctx.services.get("layout");
     if (!layout) throw new Error("[harbour/ocean] needs the 'layout' service");
     this.bounds = (layout.sea?.bounds as Bounds4 | undefined) ?? defaultSeaBounds(layout);
     this.bx0 = this.bounds[0]; this.bz0 = this.bounds[1];
@@ -152,7 +151,7 @@ export class OceanSystem implements WorldSystem {
     const wakeRes = Math.min(2048, THREE.MathUtils.ceilPowerOfTwo(Math.ceil(Math.max(this.bounds[2] - this.bounds[0], this.bounds[3] - this.bounds[1]) / 0.55)));
     this.wake = new WakeField(this.bounds, wakeRes, wakeRes);
 
-    const sky = ctx.services.get("sky") as SkyService | undefined;
+    const sky = ctx.services.get("sky");
     const skyShared: SkyShared | Record<string, THREE.IUniform> = sky?.shared ?? {
       uSkyBand: { value: null }, uSkyBandRange: { value: new THREE.Vector4(-48, 48, -1.5, 14) }, uFwdAz: { value: 0 },
       uHorizonDist: { value: 2500 }, uHorizonDepr: { value: 0.4 }, uGlintDir: { value: new THREE.Vector3(0, 0.6, -0.8) },
@@ -205,7 +204,7 @@ export class OceanSystem implements WorldSystem {
       if (f.lite) shader.defines.HB_LITE = "";
     };
     // PERF: the Low tier's lighter sea (sea-tone.ts HB_LITE)
-    const quality = ctx.services.get("quality") as QualityService | undefined;
+    const quality = ctx.services.get("quality");
     if (quality) {
       const lite = (tier: string) => {
         this.lite = tier === "low";
@@ -308,7 +307,7 @@ export class OceanSystem implements WorldSystem {
   update(frame: FrameState, ctx: EngineContext): void {
     this.syncFeatures();
     if (this.awaitGround) {
-      const ground = ctx.services.get("ground") as HeightField | undefined;
+      const ground = ctx.services.get("ground");
       if (ground?.heights) { this.awaitGround = false; this.rebuildFromGround(ground); }
     }
     this.clock ??= new MotionClock(ensureMotionService(ctx));

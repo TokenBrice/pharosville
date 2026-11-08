@@ -1,24 +1,15 @@
 import * as THREE from "three";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { QualityService, QualityTier } from "../engine/quality";
-import type { HarbourLayout } from "../layout/types";
-import type { LightsService } from "../lights/lights-service";
-import type { SkyService } from "../sky/sky-system";
 import { ensureMotionService, type MotionService } from "../ui/services";
-import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { LandFlags } from "./flags";
 import { Townsfolk, type FolkGround } from "./folk";
 import { Dolphins } from "./dolphins";
 import { BEASTS_URL, beastGeometry, Herds, type CatSeat } from "./herds";
-import type { OceanService } from "../ocean/ocean-system";
-import type { WakeService } from "../ocean/wake";
-import type { WeatherService } from "../weather/weather-system";
-import { Gulls, type GullShips } from "./gulls";
-import type { MastheadService } from "../fleet/mastheads";
+import { Gulls } from "./gulls";
 import { ChimneySmoke } from "./smoke";
 import { SeasonalDrift } from "./drift";
-import type { SeasonService } from "../season/season-system";
 import { roleDensity, stormShare } from "./roles";
 import { smokeAmount, townDensity, type Walkways } from "./walkways";
 
@@ -38,7 +29,6 @@ export interface LifeService {
   readonly bustle: number;
 }
 
-interface WindSource { wind?: { fromRad: number; strength: number; veer?: number }; pose?: GullShips }
 
 /** 09-L7: up to six cats on the quay copings near the heart, well apart (a coping top under them, the sea in front). */
 function catSeats(walk: Walkways, g: FolkGround, focus: [number, number] | undefined): CatSeat[] {
@@ -95,7 +85,7 @@ export class LifeSystem implements WorldSystem {
     const sys = this;
     ctx.services.set("life", svc);
     if (!this.enabled) return;
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    const layout = ctx.services.get("layout");
     if (!layout) return;
     let walk: Walkways;
     try {
@@ -104,9 +94,9 @@ export class LifeSystem implements WorldSystem {
     ctx.signal?.throwIfAborted();
     const mats = getHarbourMaterials(ctx);
     this.motion = ensureMotionService(ctx);
-    this.quality = (ctx.services.get("quality") as QualityService | undefined) ?? null;
+    this.quality = ctx.services.get("quality") ?? null;
 
-    const ground = ctx.services.get("ground") as GroundService | undefined;
+    const ground = ctx.services.get("ground");
     const ring = [[0, 0], [0.9, 0], [-0.9, 0], [0, 0.9], [0, -0.9]] as const;
     const folkGround: FolkGround | undefined = ground && {
       // a node is inside something when most of a 1.8 m cross stands well above it (thin lamp posts don't count)
@@ -121,7 +111,7 @@ export class LifeSystem implements WorldSystem {
       },
     };
     const ht = layout.camera.presets.heart?.target;
-    const lights = ctx.services.get("lights") as LightsService | undefined;
+    const lights = ctx.services.get("lights");
     this.folk = new Townsfolk(walk, mats, { walkers: 150, standers: 34 }, folkGround, ht ? [ht[0], ht[2]] : undefined, lights);
     this.group.add(this.folk.mesh);
     // dev captures: the cast by role (window.__harbourLife)
@@ -160,7 +150,7 @@ export class LifeSystem implements WorldSystem {
     const bwl = layout.island?.breakwater;
     if (pharos && bwl && bwl.length) {
       const end = bwl[bwl.length - 1];                    // the breakwater head (its harbour light)
-      const ocean = ctx.services.get("ocean") as OceanService | undefined;
+      const ocean = ctx.services.get("ocean");
       this.dolphins = new Dolphins({
         x: (pharos[0] + end[0]) / 2, z: (pharos[2] + end[1]) / 2, r: 22,
         clear: ocean ? (x, z) => ocean.coastAt(x, z) > 14 : undefined,
@@ -194,14 +184,14 @@ export class LifeSystem implements WorldSystem {
     const u = ctx.uniforms;
 
     // wind: strength from the sky (DEWS, smoothed), direction from the sim (the way the hulls lie)
-    const sky = ctx.services.get("sky") as SkyService | undefined;
-    const sim = ctx.services.get("sim") as WindSource | undefined;
+    const sky = ctx.services.get("sky");
+    const sim = ctx.services.get("sim");
     this.wind = sky?.shared.uWeatherSea.value.y ?? sim?.wind?.strength ?? 0.35;
     // (+ the sim's decorative veer, 07-M5: smoke and flags turn with the render wind and the anchorage)
     if (sim?.wind) { const to = sim.wind.fromRad + (sim.wind.veer ?? 0) + Math.PI; this.windTo[0] = Math.sin(to); this.windTo[1] = Math.cos(to); }
 
     // the calendar (declared decorative): fewer folk out in the cold, every hearth lit in winter
-    const season = ctx.services.get("season") as SeasonService | undefined;
+    const season = ctx.services.get("season");
     const [spring, summer, autumn, winter] = season?.weights ?? [0, 1, 0, 0];
     // …and fewer in a storm (the DEWS wind): life withdraws from the weather, never the other way round
     const folkShare = share * (1 - 0.35 * winter) * stormShare(this.wind);
@@ -209,12 +199,12 @@ export class LifeSystem implements WorldSystem {
     this.folk.update(dt, hour, folkShare, u.uNight.value, u.uLamp.value * 0.22, moving);
     // gulls stand on the big hulks of Wreck Cove (the fleet's 'cove' service, once its kit has landed)
     if (!this.covePerched && this.gulls) {
-      const marks = (ctx.services.get("cove") as { marks?: ReadonlyArray<{ perch: [number, number, number] | null; len: number }> } | undefined)?.marks ?? [];
+      const marks = ctx.services.get("cove")?.marks ?? [];
       const pts = marks.filter((m) => m.perch).sort((a, b) => b.len - a.len).slice(0, 7).map((m) => new THREE.Vector3(...m.perch!));
       if (pts.length) { this.gulls.addPerches(pts, 4); this.covePerched = true; }
     }
     // 09-L6: the fleet for the gulls (hulls casting off to trail, mastheads to stand on)
-    this.gulls?.setShips(sim?.pose ?? null, (ctx.services.get("mastheads") as MastheadService | undefined) ?? null);
+    this.gulls?.setShips(sim?.pose ?? null, ctx.services.get("mastheads") ?? null);
     // 09-L7: swallows over the squares at dusk in spring and summer (fewer in a blow)
     const dusk = THREE.MathUtils.smoothstep(hour, 17.8, 18.5) * (1 - THREE.MathUtils.smoothstep(hour, 20.1, 20.8));
     this.gulls?.update(dt, moving, share > 0.5 ? 1 : 0.5, u.uNight.value, (spring + summer) * dusk * share * stormShare(this.wind));
@@ -231,9 +221,9 @@ export class LifeSystem implements WorldSystem {
     this.folk.setCarter(this.herds?.carter() ?? null);
     if (this.dolphins) {
       // only in the calm bands (DEWS CALM / WATCH) of a fresh reading: no reading, stale fog or rough weather = none
-      const level = (ctx.services.get("weather") as WeatherService | undefined)?.state.level ?? null;
-      const fog = (ctx.services.get("readings") as { fog?: number } | undefined)?.fog ?? 0;
-      this.dolphins.update(dt, level !== null && level < 1.5 && fog < 0.05, moving, 0, ctx.services.get("wake") as WakeService | undefined);
+      const level = ctx.services.get("weather")?.state.level ?? null;
+      const fog = ctx.services.get("readings")?.fog ?? 0;
+      this.dolphins.update(dt, level !== null && level < 1.5 && fog < 0.05, moving, 0, ctx.services.get("wake"));
     }
   }
 

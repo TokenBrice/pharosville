@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { EngineContext, PreparationService } from "../engine/types";
+import type { EngineContext } from "../engine/types";
 import { FullscreenPass, NOISE_GLSL } from "../ocean/gpu-bake";
 
 /**
@@ -128,7 +128,7 @@ export async function bakeCloudAtlas(ctx: EngineContext): Promise<THREE.WebGLRen
   const lobeArr = Array.from({ length: MAX_LOBES }, () => new THREE.Vector4());
   const pass = new FullscreenPass(BAKE_FRAG, { uLobes: { value: lobeArr }, uCount: { value: 0 }, uBase: { value: 0.16 }, uSeed: { value: 0 } });
   const vp = new THREE.Vector4();
-  const preparation = ctx.services.get("preparation") as PreparationService;
+  const preparation = ctx.services.get("preparation")!;
   let batch;
   try {
     batch = await preparation.prepare([pass.preparationEntry(() => rt)], undefined, ctx.signal);

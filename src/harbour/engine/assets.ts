@@ -4,6 +4,7 @@ import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.j
 import { readAssetPack, type AssetPack } from "./asset-pack";
 import { abortable, transport } from "./transport";
 import { BootFailure, isAbort } from "./failure";
+import type { SdfImage } from "../ocean/sdf-image";
 
 interface ModelTransport { url: string; entry?: string }
 interface AssetRegistry { urls: Record<string, string>; models: Record<string, ModelTransport> }
@@ -19,6 +20,7 @@ export class AssetStore {
   private readonly gltfs = new Map<string, Promise<GLTF>>();
   private readonly textures = new Map<string, Promise<THREE.Texture>>();
   private readonly jsons = new Map<string, Promise<unknown>>();
+  readonly sdfImages = new Map<string, Promise<SdfImage | null>>();
   private readonly prefetched = new Map<string, Promise<ArrayBuffer | null>>();
   private readonly packs = new Map<string, Promise<AssetPack>>();
   private readonly packRemaining = new Map<string, Set<string>>();
@@ -203,7 +205,7 @@ export class AssetStore {
     if (this.disposed) return;
     this.disposed = true;
     this.lifetime.abort();
-    this.gltfs.clear(); this.textures.clear(); this.jsons.clear(); this.prefetched.clear();
+    this.gltfs.clear(); this.textures.clear(); this.jsons.clear(); this.sdfImages.clear(); this.prefetched.clear();
     this.packs.clear(); this.packRemaining.clear();
     for (const resource of this.resources) resource.dispose();
     this.resources.clear();

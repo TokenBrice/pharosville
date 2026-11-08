@@ -12,13 +12,8 @@ import { NEUTRAL_SEA, type Ambience, type AmbienceInputs } from "./ambience";
  * anniversary bell. Every service is read structurally and optional: the sound never depends on one.
  */
 
-interface Readings { fog?: number }
-interface OceanLike { readonly shared?: { readonly uSea?: { readonly value: { readonly x: number; readonly y: number; readonly z: number; readonly w: number } } } }
-interface Life { wind?: number }
 /** P6 layout additions read here, all optional (older layouts simply have no Mint / no pharos block). */
 interface CivicLayout { pharos?: { position: Vec3 }; civic?: Array<{ kind: string; position: Vec3 }> }
-/** Optional civic service: the Mint's activity 0..1, when the civic layer publishes it. */
-interface Civic { mintRate?: number; burnRate?: number; banked?: boolean }
 /** Lights in the layout: the town's windows say where its roofs and quays are. */
 interface LitLayout { lights?: Array<{ kind: string; position: Vec3 }> }
 
@@ -37,29 +32,12 @@ export interface FrontLike { readonly from: number; readonly to: number; readonl
 export interface StrikeLike { distanceKm?: number; thunderDelaySec?: number; intensity?: number; azimuth?: number }
 /** The 'season' service (calendar): weights in contract order spring, summer, autumn, winter. */
 export interface SeasonLike { readonly weights?: readonly number[]; readonly snowCover?: number }
-interface Motion { readonly reduced?: boolean }
-interface Quality { readonly tier?: string }
-/** The 'lighthouse' service: the sweep heading (layout convention: the beam points along (sin h, 0, cos h)). */
-interface LighthouseLike { readonly lanternPosition?: Vec3Like; sweepAngle?(): number; readonly lit?: boolean; readonly period?: number }
-interface Vec3Like { readonly x: number; readonly z: number }
-/** The 'beam' service: a reach() getter (0..1, the PSI beam) when the beam layer publishes one. */
-interface BeamLike { reach?(): number }
-/** The 'model' service: dead coins (Wreck Cove) and sea truth, read structurally. */
-interface ModelLike {
-  readonly readings?: { readonly wrecks?: ReadonlyArray<{ readonly deathDate?: string }>; readonly seaState?: { readonly step: number | null; readonly stale?: boolean } };
-  readonly truth?: { readonly stablecoins?: { readonly state: string } };
-}
-/** The shared gust field (weather/gust.ts, service 'gust'): the field now at (x, z), 0..1 unscaled. */
-interface GustLike { at?(x: number, z: number): number; readonly dirX?: number; readonly dirZ?: number }
-/** The 'events' service (model/event-hub.ts): staged moments only, already budgeted by the scheduler. */
-interface EventsLike { readonly current?: unknown; onMoment?(fn: (m: { event: { kind: string; coinId: string | null } }) => void): () => void }
 /** The 'sim' service: its events (dockings) and the poses (positions, speeds, phases), read structurally. */
 export interface SimLike {
   onEvent?(cb: (e: { id: string; kind: string; x: number; z: number }) => void): () => void;
   indexOf?(id: string): number;
   readonly pose?: { readonly count: number; readonly position: Float32Array; readonly heading: Float32Array; readonly speed: Float32Array; readonly phase: Uint8Array };
 }
-interface PsiReadings { readonly psi?: { readonly lit?: boolean; readonly reach?: number } }
 
 const BAND_LEVEL: Record<string, number> = { CALM: 0, WATCH: 1, ALERT: 2, WARNING: 3, DANGER: 4 };
 const clamp01 = (x: number) => (x > 0 ? (x < 1 ? x : 1) : 0);
@@ -251,25 +229,25 @@ export class Feeder {
    */
   feed(idleSec: number): Partial<AmbienceInputs> {
     const { ctx, amb } = this;
-    const L = ctx.services.get("layout") as (HarbourLayout & CivicLayout) | undefined;
+    const L = ctx.services.get("layout");
     const lo = L?.camera.minDistance ?? 90, hi = L?.camera.maxDistance ?? 1150;
     const zoom = Math.max(0, Math.min(1, (ctx.rig.distance - lo) / (hi - lo)));
-    const fog = (ctx.services.get("readings") as Readings | undefined)?.fog ?? 0;
-    const wind = (ctx.services.get("life") as Life | undefined)?.wind ?? 0.35;
-    const weather = ctx.services.get("weather") as WeatherLike | undefined;
+    const fog = ctx.services.get("readings")?.fog ?? 0;
+    const wind = ctx.services.get("life")?.wind ?? 0.35;
+    const weather = ctx.services.get("weather");
     const wetU = (ctx.uniforms as unknown as { uWetness?: { value: number } }).uWetness?.value ?? 0;
-    const model = ctx.services.get("model") as ModelLike | undefined;
-    const sea = (ctx.services.get("ocean") as OceanLike | undefined)?.shared?.uSea?.value;
+    const model = ctx.services.get("model");
+    const sea = ctx.services.get("ocean")?.shared?.uSea?.value;
     const seaAvailable = model?.readings?.seaState?.step != null && !model.readings.seaState.stale && model.truth?.stablecoins?.state === "current"
       && !!sea && [sea.x, sea.y, sea.z, sea.w].every(Number.isFinite);
-    const civic = ctx.services.get("civic") as Civic | undefined;
+    const civic = ctx.services.get("civic");
     const inputs: Partial<AmbienceInputs> = {
       zoom: Math.sqrt(zoom), fog, night: ctx.uniforms.uNight.value, hour: ctx.timeOfDay.hour, clock: ctx.timeOfDay.clockHour,
       sea: seaAvailable && sea ? [sea.x, sea.y, sea.z, sea.w] : NEUTRAL_SEA, seaAvailable,
       mintRate: clamp01(civic?.mintRate ?? 0), mintAvailable: false,
-      ...weatherInputs(weather, ctx.services.get("season") as SeasonLike | undefined, wind, wetU),
-      reduced: !!(ctx.services.get("motion") as Motion | undefined)?.reduced,
-      lean: (ctx.services.get("quality") as Quality | undefined)?.tier === "low",
+      ...weatherInputs(weather, ctx.services.get("season"), wind, wetU),
+      reduced: !!ctx.services.get("motion")?.reduced,
+      lean: ctx.services.get("quality")?.tier === "low",
       attention: attentionFor(idleSec),
     };
     // thunder answers the weather's lightning (subscribed once the service is there)
@@ -312,7 +290,7 @@ export class Feeder {
         inputs.burnRate = burnRateOf(civic);
       } else inputs.burn = 0;
       // the wind's gusts are the shared cat's-paws (the ones that heel the fleet), felt where the listener is
-      const g = ctx.services.get("gust") as GustLike | undefined;
+      const g = ctx.services.get("gust");
       const paw = g?.at?.(lx, lz);
       inputs.paw = paw != null && Number.isFinite(paw) ? Math.max(0, Math.min(1, paw)) : -1;
       if (S.cove) { inputs.cove = near(Math.hypot(S.cove[0] - lx, S.cove[1] - lz), ly, 120); inputs.covePan = pan(S.cove[0], S.cove[1]); }
@@ -348,14 +326,14 @@ export class Feeder {
   /** Subscribe (once each service is there) to the staged moments and to the sim's dockings. */
   private listen(): void {
     const { ctx } = this;
-    const ev = ctx.services.get("events") as EventsLike | undefined;
-    const sim = ctx.services.get("sim") as SimLike | undefined;
+    const ev = ctx.services.get("events");
+    const sim = ctx.services.get("sim");
     if (!this.unsubMoment && ev?.onMoment) this.unsubMoment = ev.onMoment((m) => this.moment(m.event.kind, m.event.coinId));
     if (!this.unsubSim && sim?.onEvent) {
       this.unsubSim = sim.onEvent((e) => {
         if (e.kind !== "docking") return;
         const t = performance.now() / 1000;
-        if (!conchDue(e.id, t, this.conchAt, !!(ctx.services.get("events") as EventsLike | undefined)?.current)) return;
+        if (!conchDue(e.id, t, this.conchAt, !!ctx.services.get("events")?.current)) return;
         this.conchAt = t;
         const p = this.place(e.x, e.z, 160);
         this.amb.conch(0.45 + 0.4 * p.near, p.pan * 0.7);
@@ -368,7 +346,7 @@ export class Feeder {
    * PASS_RADIUS at a time, at most PASS_MAX per PASS_WINDOW_SEC, none under reduced motion or from high up.
    */
   private passing(amb: Ambience, reduced: boolean): void {
-    const pose = (this.ctx.services.get("sim") as SimLike | undefined)?.pose;
+    const pose = this.ctx.services.get("sim")?.pose;
     if (!pose) return;
     const n = pose.count, [lx, ly, lz] = this.ear;
     if (this.passD.length !== n) { this.passD = new Float32Array(n).fill(Infinity); }
@@ -396,7 +374,7 @@ export class Feeder {
     const cue = momentCue(kind), I = this.last;
     if (cue === "cove-bell") this.amb.coveBell(0.45 + 0.4 * (I.cove ?? 0), (I.covePan ?? 0) * 0.6);
     else if (cue === "launch-bell") {
-      const sim = this.ctx.services.get("sim") as SimLike | undefined;
+      const sim = this.ctx.services.get("sim");
       const i = coinId && sim?.indexOf ? sim.indexOf(coinId) : -1, pos = sim?.pose?.position;
       this.amb.launchBell(i >= 0 && pos ? this.place(pos[i * 3], pos[i * 3 + 2], 160).pan * 0.6 : (I.shipPan ?? 0) * 0.6);
     }
@@ -411,7 +389,7 @@ export class Feeder {
     if (due <= this.frontRolled) return;
     this.frontRolled = due;
     // from upwind: against the gust field's downwind direction, across the camera's right
-    const g = this.ctx.services.get("gust") as GustLike | undefined;
+    const g = this.ctx.services.get("gust");
     const ux = -(g?.dirX ?? 0), uz = -(g?.dirZ ?? 0);
     const pan = Math.max(-1, Math.min(1, ux * this.right[0] + uz * this.right[1]));
     amb.thunder(20 + 8 * due, 0.3, pan * 0.8, 0.4);
@@ -420,7 +398,7 @@ export class Feeder {
   /** A dead coin's anniversary today (the panel's "anniversary today"): the cove's bell, once per visit. */
   private knell(amb: Ambience, inputs: Partial<AmbienceInputs>): void {
     if (this.rang || performance.now() - this.startedAt < 12_000) return;
-    const wrecks = (this.ctx.services.get("model") as ModelLike | undefined)?.readings?.wrecks;
+    const wrecks = this.ctx.services.get("model")?.readings?.wrecks;
     if (!wrecks?.length) return;
     this.rang = true;
     const today = worldToday();
@@ -431,7 +409,7 @@ export class Feeder {
   /** The beam's passing: one breath each time the sweep crosses the camera (never when held: reduced motion). */
   private beam(amb: Ambience, inputs: Partial<AmbienceInputs>): void {
     const { ctx } = this;
-    const lh = ctx.services.get("lighthouse") as LighthouseLike | undefined;
+    const lh = ctx.services.get("lighthouse");
     const lp = lh?.lanternPosition;
     if (!lh?.sweepAngle || !lp) { this.beamDelta = Number.NaN; return; }
     const cam = ctx.rig.camera.position;
@@ -442,8 +420,8 @@ export class Feeder {
     const t = performance.now();
     if (t - this.beamAt < 1500) return;
     this.beamAt = t;
-    const psi = (ctx.services.get("readings") as PsiReadings | undefined)?.psi;
-    const reach = (ctx.services.get("beam") as BeamLike | undefined)?.reach?.() ?? psi?.reach ?? 0;
+    const psi = ctx.services.get("readings")?.psi;
+    const reach = ctx.services.get("beam")?.reach?.() ?? psi?.reach ?? 0;
     const lit = (lh.lit ?? true) && (psi?.lit ?? true);
     amb.beamPass(beamBreathPeak(reach, lit, inputs.night ?? 0, inputs.fog ?? 0), (inputs.firePan ?? 0) * 0.5);
   }

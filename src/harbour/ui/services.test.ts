@@ -1,3 +1,4 @@
+import type { Services } from "../engine/services";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ensureMotionService } from "./services";
 import type { EngineContext } from "../engine/types";
@@ -10,7 +11,7 @@ describe("engine-owned motion listener", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener, removeEventListener }));
     vi.stubGlobal("location", { search: "" });
     const lifetime = new AbortController();
-    const ctx = { services: new Map(), signal: lifetime.signal } as unknown as EngineContext;
+    const ctx = { services: new Map() as Services, signal: lifetime.signal } as unknown as EngineContext;
     const motion = ensureMotionService(ctx);
     expect(ensureMotionService(ctx)).toBe(motion);
     expect(addEventListener).toHaveBeenCalledTimes(1);

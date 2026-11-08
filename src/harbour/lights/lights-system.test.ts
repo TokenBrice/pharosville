@@ -1,3 +1,4 @@
+import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import { LightsSystem } from "./lights-system";
@@ -21,7 +22,7 @@ function lightContext() {
   };
   const ctx = {
     camera, scene, renderer, rig: new CameraRig(camera), uniforms: createWorldUniforms(),
-    services: new Map<string, unknown>([["quality", quality], ["materials", { pool: { uPoolTex: { value: null }, uPoolBounds: { value: new THREE.Vector4() } } }]]),
+    services: new Map<string, unknown>([["quality", quality], ["materials", { pool: { uPoolTex: { value: null }, uPoolBounds: { value: new THREE.Vector4() } } }]]) as Services,
   } as unknown as EngineContext;
   return { ctx, unsubscribe, publish: (settings: QualitySettings) => { quality.settings = settings; changed?.(settings, 1); } };
 }

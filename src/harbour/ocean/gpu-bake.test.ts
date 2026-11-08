@@ -1,3 +1,4 @@
+import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../engine/types";
@@ -23,7 +24,7 @@ function harness() {
       draws.push({ target: target!, mipmaps: target!.texture.generateMipmaps, at: Date.now() });
     }),
   };
-  const ctx = { renderer, signal: controller.signal, scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), uniforms: createWorldUniforms(), services: new Map() } as unknown as EngineContext;
+  const ctx = { renderer, signal: controller.signal, scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), uniforms: createWorldUniforms(), services: new Map() as Services } as unknown as EngineContext;
   const preparation = new ProgramPreparation(ctx); ctx.services.set("preparation", preparation);
   return { ctx, renderer, previous, controller, draws, preparation };
 }

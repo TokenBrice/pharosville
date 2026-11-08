@@ -374,7 +374,7 @@ export class HarbourUIStore {
 
   /** The landing framing for the current aspect (a tablet may have turned round since). */
   homeView(): CameraPreset {
-    const fitted = this.ctx.services.get("home-view") as (() => CameraPreset) | undefined;
+    const fitted = this.ctx.services.get("home-view");
     return fitted?.() ?? this.home;
   }
 

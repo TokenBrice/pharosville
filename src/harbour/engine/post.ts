@@ -335,7 +335,7 @@ export class PostChain {
 
   /** The arrival barrier includes a complete, uploaded grade before any frame may reveal. */
   async prepareGrade(ctx: EngineContext): Promise<void> {
-    this.preparation = ctx.services.get("preparation") as PreparationService;
+    this.preparation = ctx.services.get("preparation")!;
     packGrade(ctx.timeOfDay.grade, this.lutKey);
     await this.gradeLut.request(ctx.timeOfDay.grade, this.preparation);
     this.lutAge = 0;

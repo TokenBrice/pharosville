@@ -1,3 +1,4 @@
+import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import { createWorldUniforms } from "../engine/uniforms";
@@ -63,7 +64,7 @@ describe("static opaque depth registry", () => {
   });
   it("registers preparation, clears before depth and restores renderer state even on failure", () => {
     const f = fixture(), unregister = vi.fn(), register = vi.fn(() => unregister);
-    const ctx = { scene: f.world, camera: new THREE.PerspectiveCamera(), services: new Map([["preparation", { register }]]), composer: { inputBuffer: {} } } as unknown as EngineContext;
+    const ctx = { scene: f.world, camera: new THREE.PerspectiveCamera(), services: new Map([["preparation", { register }]]) as unknown as Services, composer: { inputBuffer: {} } } as unknown as EngineContext;
     const pass = new StaticDepthPass(ctx, f.registry);
     const renderer = { autoClear: true, shadowMap: { enabled: true }, setRenderTarget: vi.fn(), clear: vi.fn(), render: vi.fn(() => { throw new Error("draw"); }) };
     expect(() => pass.render(renderer as unknown as THREE.WebGLRenderer, {} as THREE.WebGLRenderTarget)).toThrow("draw");

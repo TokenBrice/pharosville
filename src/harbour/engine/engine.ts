@@ -10,16 +10,14 @@ import { CameraRig } from "./camera-rig";
 import { CameraInput } from "./input";
 import { TimeOfDay } from "./time-of-day";
 import { createWorldUniforms } from "./uniforms";
-import type { EngineContext, HarbourStats, PreparationEntry, RenderedFleetState, WorldSystem } from "./types";
+import type { EngineContext, HarbourStats, RenderedFleetState, WorldSystem } from "./types";
 import { isPreparationAbort, preparationConsumer, ProgramPreparation, type PreparedPrograms } from "./prepare";
 import type { PreparationPriority } from "./preparation-queue";
 import { backingDpr, backingLimitsFor, TIERS, type BackingLimits, type QualitySettings } from "./quality";
 import { BootFailure, failureCode, type HarbourLifecycle } from "./failure";
 import { GraphicsValidity, probeGraphics } from "./graphics";
 import { getHarbourMaterials, shaderFeatureKey } from "../world/materials";
-import type { OceanService } from "../ocean/ocean-system";
 import { assertShaderReady } from "./shader-failure";
-import type { SunRig } from "../world/sun";
 
 /**
  * Systems nothing else needs at init and the first frame can do without (overlays and decoration):
@@ -245,9 +243,9 @@ export class Engine {
     const t = performance.now();
     this.postPreparation = this.post.preparationEntries();
     for (const entry of this.postPreparation.entries) this.preparation.register(entry);
-    const wake = this.ctx.services.get("wake") as { preparationEntries(): PreparationEntry[] } | undefined;
+    const wake = this.ctx.services.get("wake");
     for (const entry of wake?.preparationEntries() ?? []) this.preparation.register(entry);
-    const sun = this.ctx.services.get("sun") as SunRig | undefined;
+    const sun = this.ctx.services.get("sun");
     if (sun) this.preparation.register(sun.preparationEntry());
     while (!this.aborted && !this.disposed) {
       try {
@@ -282,7 +280,7 @@ export class Engine {
     if (this.aborted) return;
     this.aborted = true; this.lifetime.abort(); this.stop(); this.preparation.invalidate();
     // The app waits for boot to settle before dispose; do not leave the data worker/feed alive meanwhile.
-    (this.ctx.services.get("sound") as { dispose(): void } | undefined)?.dispose();
+    this.ctx.services.get("sound")?.dispose();
     for (const system of this.begun) if (system.name === "data") {
       system.dispose(this.ctx); this.begun.delete(system); this.ready.delete(system);
     }
@@ -429,7 +427,7 @@ export class Engine {
     const rafGapMs = Math.max(0, now - this.clock.last);
     const revision = this.rendered.revision;
     const textures = ctx.renderer.info.memory.textures;
-    const readiness = ctx.services.get("readiness") as { prepared: boolean } | undefined;
+    const readiness = ctx.services.get("readiness");
     if (readiness && !readiness.prepared) p.tag("route:pending");
     let t = start;
     const rawDelta = Math.max(0, (now - this.clock.last) / 1000);
@@ -486,7 +484,7 @@ export class Engine {
         const post = this.post.preparationEntries(settings);
         const scope = () => {
           const restoreKit = materials.preparationScope(settings.tier === "low");
-          const restoreOcean = (this.ctx.services.get("ocean") as OceanService | undefined)?.preparationScope(settings.tier === "low");
+          const restoreOcean = this.ctx.services.get("ocean")?.preparationScope(settings.tier === "low");
           return () => { restoreOcean?.(); restoreKit(); };
         };
         try {
@@ -527,7 +525,7 @@ export class Engine {
     if (!this.canPublish) return;
     assertShaderReady(this.ctx.renderer);
     if (this.lifecycle.state === "BOOTING") this.transition("READY", null);
-    const fleet = this.ctx.services.get("fleet-frame") as RenderedFleetState | undefined;
+    const fleet = this.ctx.services.get("fleet-frame");
     this.rendered.revision = fleet?.revision ?? 0;
     this.rendered.boats = fleet?.boats ?? 0;
     this.stats.renderedRevision = this.rendered.revision;
@@ -628,9 +626,9 @@ export class Engine {
     dfgLut?.dispose();
     // a deferred system still initialising disposes itself when its init settles (initLater)
     for (const s of [...this.systems].reverse()) if (this.ready.has(s) || (this.begun.has(s) && !this.later.includes(s))) s.dispose(this.ctx);
-    (this.ctx.services.get("sound") as { dispose(): void } | undefined)?.dispose();
-    (this.ctx.services.get("motion") as { dispose(): void } | undefined)?.dispose();
-    (this.ctx.services.get("materials") as { dispose(): void } | undefined)?.dispose();
+    this.ctx.services.get("sound")?.dispose();
+    this.ctx.services.get("motion")?.dispose();
+    this.ctx.services.get("materials")?.dispose();
     this.ctx.assets.dispose();
     this.ctx.services.clear();
     this.postPreparation?.dispose();

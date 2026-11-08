@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../engine/types";
@@ -50,7 +51,7 @@ describe("overlay measurements", () => {
     camera.position.set(0, 100, 100);
     camera.lookAt(0, 0, 0);
     const matrix = vi.spyOn(camera, "updateMatrixWorld");
-    const ctx = { renderer: { domElement: canvas }, camera, services: new Map([["layout", layout]]) } as unknown as EngineContext;
+    const ctx = { renderer: { domElement: canvas }, camera, services: new Map([["layout", layout]]) as unknown as Services } as unknown as EngineContext;
     const picker = new AnalyticPicking(ctx);
     picker.beginFrame();
     for (let i = 0; i < 20; i++) picker.screenPosition({ kind: "landmark", id: "pharos" });
