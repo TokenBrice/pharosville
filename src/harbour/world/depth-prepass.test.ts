@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createWorldUniforms } from "../engine/uniforms";
 import { HarbourMaterials } from "./materials";
 import { replaceStaticDepth, StaticDepthPass } from "./depth-prepass";
+import { RETIRED_MAINLAND, retireMainland } from "./island-system";
 import type { EngineContext } from "../engine/types";
 
 function fixture() {
@@ -90,6 +91,34 @@ describe("depth shader coverage", () => {
       expect(shader.fragmentShader).toContain("if (hbNoise(vHbWorld * 1.7) < bare * 0.84) discard;");
       expect(depth.customProgramCacheKey()).toMatch(fall > 0.001 ? /_bare(?:_|$)/ : /_leaf(?:_|$)/);
     }
+    f.materials.dispose();
+  });
+});
+
+describe("E02 retired mainland", () => {
+  it("is hidden and detached before registration, so the island's depth pass never draws it", () => {
+    const f = fixture();
+    f.source.name = "island_en_opaque";
+    const mainland = new THREE.Mesh(new THREE.BoxGeometry(), f.materials.kit());
+    mainland.name = RETIRED_MAINLAND;
+    f.group.add(mainland);
+    expect(retireMainland(f.group)).toBe(mainland);
+    expect(mainland.visible).toBe(false);
+    expect(mainland.parent).toBeNull();
+    expect(f.group.getObjectByName(RETIRED_MAINLAND)).toBeUndefined();
+    // IslandSystem's registration pass: every remaining mesh under the island root
+    f.group.traverse((o) => { if ((o as THREE.Mesh).isMesh) f.registry.add(o as THREE.Mesh); });
+    f.world.updateMatrixWorld(true); f.registry.sync(f.world);
+    expect(f.registry.scene.children.map((c) => c.name)).toEqual(["island_en_opaque-predepth"]);
+    // a stale reference registered later still contributes nothing: it is not attached to the world
+    f.registry.add(mainland); f.registry.sync(f.world);
+    expect(f.registry.scene.children.filter((c) => c.visible).map((c) => c.name)).toEqual(["island_en_opaque-predepth"]);
+    f.materials.dispose();
+  });
+  it("is a no-op once the export no longer carries the node", () => {
+    const f = fixture();
+    expect(retireMainland(f.group)).toBeNull();
+    expect(f.group.children).toEqual([f.source]);
     f.materials.dispose();
   });
 });

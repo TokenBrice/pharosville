@@ -1,7 +1,7 @@
 import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
-import { LightsSystem } from "./lights-system";
+import { LightsSystem, POINT_BUDGET, pointBudget } from "./lights-system";
 import { getLightsStore } from "./lights-service";
 import { CameraRig } from "../engine/camera-rig";
 import { TIERS } from "../engine/quality";
@@ -32,6 +32,7 @@ describe("light quality and zero glow visibility", () => {
     const { ctx, publish, unsubscribe } = lightContext();
     const lights = new LightsSystem();
     lights.init(ctx);
+    ctx.rig.distance = 650; // the landing keeps the tier's whole budget (E09)
     const points = ctx.scene.children.filter((object) => object instanceof THREE.PointLight);
     const store = getLightsStore(ctx);
     for (let i = 0; i < 20; i++) store.add("lamp", [i * 3, 4, i * 2]);
@@ -108,4 +109,60 @@ it("freezes the pillar's decorative clock after settling without sharing the liv
   for (let i = 0; i < 120; i++) { ctx.uniforms.uTime.value++; lights.update({ delta: 1 / 60, elapsed: 20 + i / 60, nowMs: 20000 + i * 1000 / 60 }, ctx); }
   expect(clock.value).toBe(held);
   lights.dispose(ctx);
+});
+
+describe("E09 lamp economy", () => {
+  const lit = (ctx: EngineContext) => ctx.scene.children.filter((o): o is THREE.PointLight => o instanceof THREE.PointLight && o.intensity > 0);
+  function night(tier: keyof typeof TIERS) {
+    const { ctx, publish } = lightContext();
+    const lights = new LightsSystem();
+    lights.init(ctx);
+    publish(TIERS[tier]);
+    const store = getLightsStore(ctx);
+    for (let i = 0; i < 20; i++) store.add("lamp", [i * 3, 4, i * 2]);
+    ctx.uniforms.uWindowGlow.value = 1;
+    const at = (distance: number) => { ctx.rig.distance = distance; lights.update({ elapsed: 0, delta: 0, nowMs: 0 }, ctx); return lit(ctx); };
+    return { ctx, lights, at };
+  }
+
+  it("lights the tier's count to 800 m (the landing included), the nearest four to 900 m and none beyond", () => {
+    const { ctx, lights, at } = night("high");
+    for (const [distance, count] of [[90, 16], [650, 16], [799, 16], [800, 4], [899, 4], [900, 0], [1000, 0], [1150, 0]] as const) {
+      expect(at(distance)).toHaveLength(count);
+      expect(ctx.scene.children.filter((o) => o instanceof THREE.PointLight && o.visible)).toHaveLength(16); // no recompile
+    }
+    lights.dispose(ctx);
+  });
+
+  it("keeps the nearest four last and eases every limit, so a zoom never pops a facade dark", () => {
+    const { ctx, lights, at } = night("medium");
+    const near = at(120).map((p) => p.intensity);
+    expect(near).toHaveLength(TIERS.medium.pointLights);
+    const points = ctx.scene.children.filter((o): o is THREE.PointLight => o instanceof THREE.PointLight);
+    const sweep = (from: number, to: number, slot: number) => {
+      const values: number[] = [];
+      for (let d = from; d <= to; d += 1) { at(d); values.push(points[slot].intensity); }
+      return values;
+    };
+    for (const [slot, from, to] of [[5, 660, 810], [0, 750, 910]] as const) {
+      const v = sweep(from, to, slot);
+      expect(v[0]).toBeCloseTo(near[slot], 9);
+      expect(v.at(-1)).toBe(0);
+      for (let i = 1; i < v.length; i++) {
+        expect(v[i]).toBeLessThanOrEqual(v[i - 1] + 1e-12); // monotonic fade out
+        expect(v[i - 1] - v[i]).toBeLessThan(near[slot] * 0.06); // no step larger than 6 % per metre
+      }
+    }
+    expect(at(650).map((p) => p.intensity)).toEqual(near); // the landing: nothing dimmed
+    // past the full budget only the nearest four remain, easing out together
+    expect(at(850).map((p) => p.intensity)).toEqual(near.slice(0, POINT_BUDGET.few).map((v) => v * pointBudget(0, 850)));
+    lights.dispose(ctx);
+  });
+
+  it("never regresses the low tier at the landing distance", () => {
+    const { ctx, lights, at } = night("low");
+    expect(at(650)).toHaveLength(TIERS.low.pointLights);
+    expect(pointBudget(TIERS.low.pointLights - 1, 650)).toBe(1);
+    lights.dispose(ctx);
+  });
 });
