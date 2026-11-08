@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import type { WorldUniforms } from "../engine/uniforms";
-import type { HarbourMaterials } from "../world/materials";
+import { createWorldUniforms, type WorldUniforms } from "../engine/uniforms";
+import { HarbourMaterials } from "../world/materials";
 import type { EmblemAtlas } from "./emblems";
 import { createFleetMaterials, type FleetUniforms } from "./fleet-material";
 import { FleetSystem } from "./fleet-system";
@@ -13,7 +13,8 @@ interface FleetHarness { uniforms: FleetUniforms }
 describe("fleet material atlas/season ownership", () => {
   it("uses the original combined-atlas gradients for sails and covers and inherits the seasonal shader key", () => {
     let season = "leaf";
-    const kit = new THREE.MeshStandardMaterial();
+    const materials = new HarbourMaterials(createWorldUniforms());
+    const kit = materials.kit();
     kit.customProgramCacheKey = () => `kit_${season}`;
     // Test-only access to the same private uniform seam used by the upload harness.
     const system = new FleetSystem() as unknown as FleetHarness;
@@ -44,7 +45,7 @@ describe("fleet material atlas/season ownership", () => {
     expect(material.customProgramCacheKey()).not.toBe(key);
     expect(material.customProgramCacheKey()).toContain("kit_bare");
     expect(depth.customProgramCacheKey()).toBe(depthKey); // classic fleet depth has no seasonal kit hook
-    material.dispose(); depth.dispose(); kit.dispose();
+    material.dispose(); depth.dispose(); materials.dispose();
     for (const uniform of [fleet.uFleetData, fleet.uFleetPaint, fleet.uEmblems, fleet.uBoards]) uniform.value.dispose();
   });
 });
@@ -79,7 +80,8 @@ describe("fleet emblem slots on atlas column 0", () => {
   });
 
   it("rounds before every mod/floor in the fleet and the house-flag shaders", () => {
-    const kit = new THREE.MeshStandardMaterial();
+    const materials = new HarbourMaterials(createWorldUniforms());
+    const kit = materials.kit();
     const fleet = (new FleetSystem() as unknown as FleetHarness).uniforms;
     const { material, depth } = createFleetMaterials({ kit: () => kit, kitKey: () => "", track: () => undefined } as unknown as HarbourMaterials, {} as WorldUniforms, fleet);
     const shader = { ...THREE.ShaderLib.standard, uniforms: {} } as THREE.WebGLProgramParametersWithUniforms;
@@ -96,7 +98,7 @@ describe("fleet emblem slots on atlas column 0", () => {
     expect(flagFrag).toContain("float slot = floor(vSlot + 0.5);");
     expect(flagFrag).toContain("vec2 cell = vec2(mod(slot, uEmblemGrid.x), floor(slot / uEmblemGrid.x));");
     expect(flagFrag).not.toMatch(/mod\(vSlot|floor\(vSlot \//);
-    material.dispose(); depth.dispose(); kit.dispose(); flags.mesh.geometry.dispose(); (flags.mesh.material as THREE.Material).dispose();
+    material.dispose(); depth.dispose(); materials.dispose(); flags.mesh.geometry.dispose(); (flags.mesh.material as THREE.Material).dispose();
     for (const uniform of [fleet.uFleetData, fleet.uFleetPaint, fleet.uEmblems, fleet.uBoards]) uniform.value.dispose();
   });
 });
