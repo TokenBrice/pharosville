@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Boat, HarbourModel } from "../model/types";
-import { epitaphOf, wreckDate } from "./facts";
-import { bps, causeName, money, pegName, share, titleCase } from "./format";
+import { allocationLine, BOAT_SIGNALS_RULE, BY_EAR, epitaphOf, FAR_PORTS_LINE, STATION_RULE, stationFact, wreckDate } from "./facts";
+import { bps, causeName, gradeName, money, pegName, share, titleCase } from "./format";
 import { usePresence, useStore, useUISlice } from "./hooks";
 import { KeyList } from "./KeyList";
 import { expectedKey, expectedLabel, launchedFromYard, PHASE_NAME, PHASES, UPCOMING_URL, yardCoins, type YardCoin } from "./yard";
@@ -47,7 +47,7 @@ function LedgerBody({ shown, onClose }: { shown: boolean; onClose: () => void })
         </div>
       </div>
       <div className="hb-ledger-body" role="tabpanel" id={`hb-tp-${tab}`} aria-labelledby={`hb-tab-${tab}`} tabIndex={0}>
-        {tab === "Legend" && <Legend />}
+        {tab === "Legend" && <Legend model={model} />}
         {tab === "Coins" && <Coins model={model} />}
         {tab === "Pre-launch" && <PreLaunch coins={yard} />}
         {tab === "Chains" && <Chains model={model} />}
@@ -83,7 +83,7 @@ const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: strin
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M4 30h18M6 30V18h14v12M9 18V6h3v12M14 18V9h3v9" /><path {...G} d="M10 5c-2-2 1-3 0-4M15 8c-2-2 1-3 0-4" strokeDasharray="1.5 1.5" /><path {...G} d="M28 30h14M30 30l2-6h6l2 6" /><path {...G} d="M35 23c-3-3-1-6 0-9 1 3 4 5 0 9z" /></svg>,
     title: "The Mint and the Burn", rule: "The Mint works as hard as the last 24 hours of minting; the Burn’s fire burns as high as the burning.",
-    more: "Chimney smoke, furnace glow, presses and workers follow the dollars minted; fire and smoke follow the dollars burned. When more is burned than minted, the Burn outshines the Mint. Read on Ethereum, Base and Arbitrum; the Customs House keeps the exact books.",
+    more: "Mint and Burn activity uses 60% of the 24-hour mean and 40% of the latest completed hour, on a compressed scale. Direction is unavailable when net valuation is withheld. Incomplete daily windows bank the fires. Partial or unknown valuation makes gross amounts lower bounds. The Customs House lists the reported scope.",
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M4 28l38-8" /><path {...G} d="M10 25c4 2 14 0 20-5M12 25V17M17 24V15M22 23V14M27 21V14" /><path {...G} d="M36 4v14M36 5l-10 5" /></svg>,
@@ -96,7 +96,7 @@ const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: strin
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M12 22h20a6 6 0 0 0 0-12 8 8 0 0 0-15-2 6 6 0 0 0-5 14zM16 26l-2 4M24 26l-2 4M32 26l-2 4" /></svg>,
-    title: "Weather", rule: "Weather is early-warning stress.", more: "Cloud and wind follow the supply-weighted early-warning level. The storm-signal station hoists one cone per coin at Alert or worse, and the five worst coins fly the same shape at their own masthead: early warning, not a depeg. Weather rolling in from the horizon is the reading rising; a clearing line, a rainbow or a moonbow, a recovery.",
+    title: "Weather", rule: "Weather is early-warning stress.", more: `${STATION_RULE} ${BOAT_SIGNALS_RULE} Weather rolling in from the horizon is the reading rising; a clearing line, a rainbow or a moonbow, a recovery.`,
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M6 12h26M12 17h28M6 22h24M14 27h20" strokeDasharray="5 3" /></svg>,
@@ -112,7 +112,7 @@ const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: strin
   },
 ];
 
-function Legend() {
+function Legend({ model }: { model: HarbourModel | null }) {
   return (
     <>
       <p className="hb-legend-intro">The harbour is the data. Nothing moves without a declared meaning, and anything that is only decoration says so.</p>
@@ -121,6 +121,12 @@ function Legend() {
           <li key={l.title}>{l.glyph}<div><b>{l.title}</b><p className="hb-rule">{l.rule}</p><p>{l.more}</p></div></li>
         ))}
       </ul>
+      <p className="hb-caption">{stationFact(model)}</p>
+      <p className="hb-caption">{model?.readings.stormCones ? `${model.readings.stormCones.count} covered coins are at Alert or worse.` : "Alert count unavailable."}</p>
+      <section className="hb-sec" aria-labelledby="hb-by-ear">
+        <h3 id="hb-by-ear" className="hb-sec-h hb-sc">By ear</h3>
+        <p>{BY_EAR}</p>
+      </section>
       <KeyList />
     </>
   );
@@ -179,6 +185,7 @@ const STATE_WORD: Record<Boat["state"], string> = { circuit: "circuit", moored: 
 
 function Coins({ model }: { model: HarbourModel | null }) {
   const store = useStore();
+  const gradesUnavailable = model?.truth.safetyGrades.state === "unavailable";
   const cols = useMemo<Col<Boat>[]>(() => [
     { key: "symbol", label: "Coin", get: (b) => b.symbol, cell: (b) => <><button type="button" onClick={() => store.select({ kind: "boat", id: b.id })} aria-label={`${b.symbol}, ${b.name}: show in the harbour`}>{b.symbol}</button> <em className="hb-trunc" title={b.name}>{b.name !== b.symbol ? b.name : ""}</em></> },
     { key: "supply", label: "Supply", num: true, get: (b) => b.supply, cell: (b) => money(b.supply) },
@@ -186,8 +193,8 @@ function Coins({ model }: { model: HarbourModel | null }) {
     { key: "dev", label: "Deviation", num: true, get: (b) => b.pegDeviationBps, cell: (b) => <span className={b.activeDepeg ? "hb-down" : ""}>{bps(b.pegDeviationBps)}</span> },
     { key: "home", label: "Home", get: (b) => b.chainShares[0]?.chain ?? null },
     { key: "state", label: "State", get: (b) => STATE_WORD[b.state] },
-    { key: "grade", label: "Grade", get: (b) => b.grade },
-  ], [store]);
+    { key: "grade", label: "Grade", get: (b) => gradesUnavailable ? "Safety grades unavailable." : gradeName(b.grade) },
+  ], [store, gradesUnavailable]);
   if (!model?.hasFleet) return <p className="hb-empty">Awaiting data: the register has not arrived yet.</p>;
   return <SortTable rows={model.boats} cols={cols} rowKey={(b) => b.id} caption="Every coin is one boat. Select a coin to sail to it." initial={{ key: "supply", dir: -1 }} filterOf={(b) => `${b.symbol} ${b.name}`} noun="coins" />;
 }
@@ -218,12 +225,12 @@ function Chains({ model }: { model: HarbourModel | null }) {
   const cols = useMemo<Col<H>[]>(() => [
     { key: "chain", label: "Chain", get: (h) => h.chain, cell: (h) => <button type="button" onClick={() => store.select({ kind: "harbour", id: h.chain })} aria-label={`${h.chain}: show in the harbour`}>{h.chain}</button> },
     { key: "supply", label: "Supply", num: true, get: (h) => h.supplyUsd, cell: (h) => money(h.supplyUsd) },
-    { key: "share", label: "Share", num: true, get: (h) => h.share, cell: (h) => share(h.share) },
+    { key: "share", label: "Share", num: true, get: (h) => h.share, cell: (h) => `${share(h.share)} of reported chain-attributed supply` },
     { key: "visitors", label: "Boats calling", num: true, get: (h) => h.visitors },
     { key: "where", label: "Berths", get: (h) => (h.piered ? "own pier" : "Far Ports") },
   ], [store]);
   if (!model?.hasFleet) return <p className="hb-empty">Awaiting data.</p>;
-  return <SortTable rows={model.harbours} cols={cols} rowKey={(h) => h.chain} caption="Chains with the most supply get a pier; the rest share the Far Ports." initial={{ key: "supply", dir: -1 }} filterOf={(h) => h.chain} noun="chains" />;
+  return <><p className="hb-caption">{allocationLine(model.boats)}</p><SortTable rows={model.harbours} cols={cols} rowKey={(h) => h.chain} caption={FAR_PORTS_LINE} initial={{ key: "supply", dir: -1 }} filterOf={(h) => h.chain} noun="chains" /></>;
 }
 
 function Wrecks({ model }: { model: HarbourModel | null }) {

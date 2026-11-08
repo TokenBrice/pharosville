@@ -2,6 +2,8 @@
 
 export const MINUS = "−";
 
+export const gradeName = (grade: string | null | undefined): string => !grade || grade === "NR" ? "Not rated" : grade;
+
 const sign = (n: number, plus = true) => (n < 0 ? MINUS : plus && n > 0 ? "+" : "");
 
 /** $184.0B, $4.21B, $312M, $8.4M, $820K, $95. */
