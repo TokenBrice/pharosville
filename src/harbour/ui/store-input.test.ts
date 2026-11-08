@@ -26,7 +26,7 @@ function fixture() {
   vi.spyOn(store.picking, "choices").mockReturnValue([]);
   const pointer = (type: string, x = 100, id = 1, pointerType = "touch") => canvas.dispatchEvent(Object.assign(new Event(type), { pointerId: id, pointerType, button: 0, clientX: x, clientY: 100 }));
   const frame = (dt = 1 / 60) => system.update({ delta: dt, elapsed: 1, nowMs: Date.now() }, ctx);
-  return { store, input, rig, hit, pick, pointer, frame };
+  return { store, input, rig, hit, pick, pointer, frame, canvas };
 }
 beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -117,4 +117,21 @@ it("a manual wheel/pan takeover ends Watch without discarding the visitor's pend
   f.rig.zoom(0.8); f.rig.update(1 / 60); f.frame();
   expect(f.store.getSnapshot().watch).toBeNull();
   expect(f.rig.pendingDistance).toBe(240);
+});
+
+
+it("keeps a pointer-hovered tag and suppresses Escape until its world trigger is exited", () => {
+  const f = fixture();
+  f.pointer("pointermove", 100, 1, "mouse"); f.pointer("pointermove", 110, 1, "mouse"); f.frame();
+  expect(f.store.getSnapshot().hover).toEqual(f.hit);
+  const tag = document.createElement("div"); tag.className = "hb-tag-anchor";
+  f.canvas.dispatchEvent(Object.assign(new Event("pointerleave"), { pointerType: "mouse", relatedTarget: tag }));
+  f.store.holdHover(true); f.pick.mockReturnValue(null); f.frame();
+  expect(f.store.getSnapshot().hover).toEqual(f.hit);
+  expect(f.store.dismissHover()).toBe(true);
+  f.pick.mockReturnValue(f.hit); f.pointer("pointermove", 120, 1, "mouse"); f.pointer("pointermove", 130, 1, "mouse"); f.frame();
+  expect(f.store.getSnapshot().hover).toBeNull();
+  f.pick.mockReturnValue(null); f.pointer("pointermove", 140, 1, "mouse"); f.frame();
+  f.pick.mockReturnValue(f.hit); f.pointer("pointermove", 150, 1, "mouse"); f.frame();
+  expect(f.store.getSnapshot().hover).toEqual(f.hit);
 });

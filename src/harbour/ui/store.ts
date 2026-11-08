@@ -166,7 +166,7 @@ export class HarbourUIStore {
       this.set({ tick: this.state.tick + 1, palette: nextPalette(this.state.palette, this.ctx.uniforms.uNight.value) });
     }
     // hover: re-pick on pointer motion, and every 120 ms while still (boats sail out from under it)
-    if (this.pointer.inside && !this.dragging && !this.state.capturing && !this.state.watch && (this.pointer.dirty || frame.nowMs - this.lastPickAt > 120)) {
+    if (this.pointer.inside && !this.hoverHeld && !this.dragging && !this.state.capturing && !this.state.watch && (this.pointer.dirty || frame.nowMs - this.lastPickAt > 120)) {
       this.pointer.dirty = false;
       this.lastPickAt = frame.nowMs;
       const hit = this.picking.pick(this.pointer.x, this.pointer.y);
@@ -207,7 +207,18 @@ export class HarbourUIStore {
     return this.staleOut;
   }
 
+  private hoverHeld = false;
+  private suppressedHover: PickHit | null = null;
+  holdHover(held: boolean): void {
+    this.hoverHeld = held;
+    if (!held && !this.pointer.inside && this.state.hover) this.setHover(null);
+  }
+
   private setHover(hit: PickHit | null): void {
+    if (this.suppressedHover) {
+      if (sameHit(hit, this.suppressedHover)) return;
+      this.suppressedHover = null;
+    }
     if (sameHit(hit, this.state.hover)) return;
     this.picking.setHover(hit);
     this.ctx.renderer.domElement.style.cursor = hit && this.isOpenable(hit) ? "pointer" : "";
@@ -265,7 +276,9 @@ export class HarbourUIStore {
     el.addEventListener("lostpointercapture", cancel);
     const leave = (e: PointerEvent) => {
       if (e.pointerType === "touch") return; // a lifted finger keeps the tag it asked for
-      this.pointer.inside = false; this.seen = null; this.setHover(null);
+      this.pointer.inside = false; this.seen = null;
+      if (e.relatedTarget instanceof Element && e.relatedTarget.closest(".hb-tag-anchor")) { this.hoverHeld = true; return; }
+      this.setHover(null);
     };
     // double-click on open water: back to the landing framing (touch has its own double tap)
     const dbl = (e: MouseEvent) => { if (this.lastPointerType !== "touch" && !this.picking.pick(e.clientX, e.clientY)) this.goHome(); };
@@ -501,7 +514,8 @@ export class HarbourUIStore {
 
   dismissHover(): boolean {
     if (!this.state.hover) return false;
-    this.pointer.inside = false; this.seen = null; this.setHover(null);
+    const hit = this.state.hover;
+    this.hoverHeld = false; this.setHover(null); this.suppressedHover = hit;
     return true;
   }
 
@@ -569,12 +583,14 @@ export class HarbourUIStore {
     try {
       // let the hover lift fade from the hulls (~250 ms) before the shutter
       await new Promise((r) => setTimeout(r, 320));
-      return await new Promise<HTMLCanvasElement>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => {
-        const src = this.ctx.renderer.domElement;
-        const c = document.createElement("canvas");
-        c.width = src.width; c.height = src.height;
-        c.getContext("2d")!.drawImage(src, 0, 0);
-        resolve(c);
+      return await new Promise<HTMLCanvasElement>((resolve, reject) => requestAnimationFrame(() => requestAnimationFrame(() => {
+        try {
+          const src = this.ctx.renderer.domElement;
+          const c = document.createElement("canvas");
+          c.width = src.width; c.height = src.height;
+          c.getContext("2d")!.drawImage(src, 0, 0);
+          resolve(c);
+        } catch (error) { reject(error); }
       })));
     } finally { this.set({ capturing: false }); }
   }

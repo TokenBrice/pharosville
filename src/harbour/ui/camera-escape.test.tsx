@@ -6,7 +6,7 @@ import type { UIState } from "./store";
 
 const harness = vi.hoisted(() => {
   const state = { selected: null, searchOpen: false, ledgerOpen: false, chartMode: false, shipChoices: [], hover: null, watch: null } as Partial<UIState>;
-  return { state, store: { getSnapshot: () => state, noteInput() {}, set: vi.fn(), select: vi.fn(), dismissHover: vi.fn(), stopAutomation: vi.fn(), stopWatch: vi.fn() } };
+  return { state, store: { subscribe: () => () => {}, getSnapshot: () => state, noteInput() {}, set: vi.fn(), select: vi.fn(), dismissHover: vi.fn(), stopAutomation: vi.fn(), stopWatch: vi.fn() } };
 });
 vi.mock("./hooks", () => ({ useStore: () => harness.store, useUISlice: (select: (s: UIState) => unknown) => select(harness.state as UIState) }));
 vi.mock("./ChartLabels", () => ({ ChartLabels: () => null }));

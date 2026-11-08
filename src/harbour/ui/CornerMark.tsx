@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { SoundToggle } from "../audio/SoundToggle";
 import { presentationCopy, usePresentation } from "./presentation";
 import { truthState } from "./bits";
-import { touchFirst, usePresence, useStore, useUISlice } from "./hooks";
+import { touchFirst, usePresence, useUISlice } from "./hooks";
 import { useFeedHealth } from "./feed-health";
+import { ACTIONS, useHarbourAction } from "./KeyList";
 
 const INTRO_KEY = "harbour.intro.seen";
 
@@ -25,7 +26,7 @@ function wantsIntro(): boolean {
  * (O8-I7), and the mark's shape says the state too (a dot live, a ring-and-bar stale, a ring unavailable).
  */
 export function CornerMark() {
-  const store = useStore();
+  const action = useHarbourAction();
   const model = useUISlice((s) => s.model);
   const ledgerOpen = useUISlice((s) => s.ledgerOpen);
   const chartMode = useUISlice((s) => s.chartMode);
@@ -57,7 +58,7 @@ export function CornerMark() {
         className="hb-mark-btn"
         aria-label={`PharosVille — ${t.detail} ${display} ${health} Open the ledger.`}
         aria-expanded={ledgerOpen}
-        onClick={() => store.set({ ledgerOpen: !ledgerOpen })}
+        onClick={() => action("ledger")}
       >
         <span className="hb-mark-word">Pharos<i>Ville</i></span>
         <span className="hb-dot" data-state={t.state} aria-hidden="true" />
@@ -66,10 +67,11 @@ export function CornerMark() {
         <div>
           <span className="hb-mark-state" role="status" data-state={t.state} title={`${t.detail} ${display}`}>{t.word} {display} {health}</span>
           <span className="hb-keys">
-            <button type="button" onClick={() => store.set({ searchOpen: true })} aria-label="Search (/)"><kbd>/</kbd>search</button>
-            <button type="button" onClick={() => store.set({ ledgerOpen: !ledgerOpen })} aria-label="Ledger and legend (L)" aria-expanded={ledgerOpen}><kbd>L</kbd>ledger</button>
-            <button type="button" onClick={() => store.set({ chartMode: !chartMode })} aria-label="Chart names (C)" aria-pressed={chartMode}><kbd>C</kbd>chart</button>
-            <button type="button" onClick={() => store.goHome()} aria-label="Back to the harbour view (H)"><kbd>H</kbd>home</button>
+            {(["search", "ledger", "names", "home"] as const).map((id) => <button key={id} type="button" onClick={() => action(id)} aria-label={ACTIONS[id].label}
+              aria-expanded={id === "ledger" ? ledgerOpen : undefined} aria-pressed={id === "names" ? chartMode : undefined}>
+              <kbd aria-hidden="true">{ACTIONS[id].cap}</kbd>{id === "ledger" ? "Ledger" : ACTIONS[id].label}
+            </button>)}
+            <button type="button" onClick={() => action("help")}><span aria-hidden="true">⋯ </span>Help and controls</button>
           </span>
         </div>
       </span>

@@ -69,6 +69,8 @@ export function HarbourApp() {
       stopWatching?.(); clearTimeout(shellTimer); stopWake?.(); stopWake = null;
       unmountUI?.(); unmountUI = null;
       resetPosterState(); setShellGone(false);
+      const arrival = document.querySelector<HTMLElement>(".pv-arrival");
+      if (arrival) arrival.inert = false;
     };
     const release = () => {
       stopLifecycle?.(); unmountUI?.(); unmountUI = null; engine?.dispose();
@@ -122,6 +124,9 @@ export function HarbourApp() {
         // the harbour wakes (wake.ts): the live camera starts pulled back and the poster shrinks to match
         const wake = !!engine && wantsWake(engine);
         if (wake && engine) stopWake = startWake(engine);
+        const arrival = document.querySelector<HTMLElement>(".pv-arrival");
+        if (arrival?.contains(document.activeElement)) (ui.querySelector<HTMLElement>(".hb-mark-btn") ?? document.querySelector<HTMLElement>("main"))?.focus({ preventScroll: true });
+        if (arrival) arrival.inert = true;
         dismissPoster("crossfade", wake ? 1 / (1 + WAKE_PULLBACK) : 1);
         void preloadDetails().catch(() => { /* A later interaction may retry a failed warmup. */ });
         shellTimer = window.setTimeout(() => {

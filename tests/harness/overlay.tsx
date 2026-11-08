@@ -22,6 +22,8 @@ export async function mountOverlayHarness(element: HTMLElement) {
   let state: UIState = { model: buildHarbourModel(feed.payloads, Date.now()), hover: null, shipChoices: [], selected: null, searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: true, tick: 0, follow: null, announce: "", capturing: false, watch: null };
   const set = (patch: Partial<UIState>) => { state = { ...state, ...patch }; listeners.forEach((fn) => fn()); };
   let mode: SoundMode = "off";
+  let postcardFailure = false;
+  const postcards = new Set<() => void>();
   const sound: SoundController = {
     get mode() { return mode; }, get on() { return mode !== "off"; }, get playing() { return false; },
     setMode(next) { mode = next; soundListeners.forEach((fn) => fn()); },
@@ -41,8 +43,14 @@ export async function mountOverlayHarness(element: HTMLElement) {
     select(selected: PickHit | null) { set({ selected, searchOpen: false }); },
     boat: (id: string) => state.model?.boats.find((b) => b.id === id),
     whereaboutsOf: () => ({ kind: "unknown", place: null }), boatsInZone: () => [], underWay: () => 0,
-    onFrame: () => () => {}, onFrameWrite: () => () => {}, onPostcard: () => () => {},
-    noteInput() {}, dismissHover: () => false, stopAutomation() {}, stopWatch() {}, goHome() {}, keyPan() {}, keyZoom() {}, stepHull() {}, toggleFollow() {}, requestPostcard() {}, toggleWatch() {}, setFollow(follow: string | null) { set({ follow }); },
+    onFrame: () => () => {}, onFrameWrite: () => () => {},
+    onPostcard(fn: () => void) { postcards.add(fn); return () => { postcards.delete(fn); }; },
+    async captureFrame() {
+      if (postcardFailure) throw new Error("Test postcard failure");
+      const frame = document.createElement("canvas"); frame.width = 320; frame.height = 180; return frame;
+    },
+    holdHover() {},
+    noteInput() {}, dismissHover: () => false, stopAutomation() {}, stopWatch() {}, goHome() {}, keyPan() {}, keyZoom() {}, stepHull() {}, toggleFollow() {}, requestPostcard() { postcards.forEach((fn) => fn()); }, toggleWatch() {}, setFollow(follow: string | null) { set({ follow }); },
   } as unknown as HarbourUIStore;
   let showRecovery: (value: boolean) => void = () => {};
   let fail: () => void = () => {};
@@ -59,6 +67,7 @@ export async function mountOverlayHarness(element: HTMLElement) {
   return {
     store,
     recovery: (active: boolean) => showRecovery(active),
+    postcardFailure: (active: boolean) => { postcardFailure = active; },
     fail: () => fail(),
     async refresh() { await Promise.all(["stablecoins", "chains", "stability", "pegSummary", "stress", "safetyGrades", "mintBurn"].map((key) => feed.refresh(key as Parameters<typeof feed.refresh>[0]))); set({ model: buildHarbourModel(feed.payloads, Date.now()), tick: state.tick + 1 }); },
     dispose() { root.unmount(); motion.dispose(); feed.stop(); },

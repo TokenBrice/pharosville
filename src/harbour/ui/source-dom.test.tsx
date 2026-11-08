@@ -22,7 +22,7 @@ const { state, services, store } = vi.hoisted(() => {
   const services = new Map<string, unknown>() as Services;
   return { state, services, store: {
     ctx: { services }, getSnapshot: () => state, select: vi.fn(), set: vi.fn(), goHome: vi.fn(),
-    boat: (id: string) => state.model?.boats.find((b) => b.id === id), underWay: () => 0, boatsInZone: () => [],
+    holdHover: vi.fn(), boat: (id: string) => state.model?.boats.find((b) => b.id === id), underWay: () => 0, boatsInZone: () => [],
     whereaboutsOf: () => ({ kind: "moored", place: "Ethereum" }),
   } };
 });
