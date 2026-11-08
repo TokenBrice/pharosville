@@ -7,7 +7,7 @@ import { preloadDetails } from "./details";
 
 const { imported, state } = vi.hoisted(() => ({
   imported: vi.fn(),
-  state: { model: null, hover: null, selected: null, searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: false, tick: 0, follow: null, announce: "", capturing: false, watch: null },
+  state: { model: null, hover: null, shipChoices: [], selected: null, searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: false, tick: 0, follow: null, announce: "", capturing: false, watch: null },
 }));
 vi.mock("./ChartLabels", () => ({ ChartLabels: () => null }));
 vi.mock("./HoverTag", () => ({ HoverTag: () => null }));

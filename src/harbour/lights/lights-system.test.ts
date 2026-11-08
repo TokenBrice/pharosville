@@ -21,7 +21,7 @@ function lightContext() {
   };
   const ctx = {
     camera, scene, renderer, rig: new CameraRig(camera), uniforms: createWorldUniforms(),
-    services: new Map<string, unknown>([["quality", quality], ["materials", { pool: { uPoolTex: { value: null }, uPoolBounds: { value: new THREE.Vector4() } } }]]),
+    services: new Map<string, unknown>([["motion", { reduced: false }], ["quality", quality], ["materials", { pool: { uPoolTex: { value: null }, uPoolBounds: { value: new THREE.Vector4() } } }]]),
   } as unknown as EngineContext;
   return { ctx, unsubscribe, publish: (settings: QualitySettings) => { quality.settings = settings; changed?.(settings, 1); } };
 }
@@ -91,4 +91,20 @@ describe("light quality and zero glow visibility", () => {
     expect(dispose).not.toHaveBeenCalled();
     dispose();
   });
+});
+
+it("freezes the pillar's decorative clock after settling without sharing the live engine clock", () => {
+  const { ctx } = lightContext(), lights = new LightsSystem();
+  lights.init(ctx);
+  const pillars = ctx.scene.getObjectByName("harbour-light-pillars") as THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  const clock = pillars.material.uniforms.uTime;
+  expect(clock).not.toBe(ctx.uniforms.uTime);
+  lights.update({ delta: 1, elapsed: 1, nowMs: 1000 }, ctx);
+  expect(clock.value).toBe(1);
+  (ctx.services.get("motion") as { reduced: boolean }).reduced = true;
+  for (let i = 0; i < 600; i++) lights.update({ delta: 1 / 60, elapsed: 1 + i / 60, nowMs: 1000 + i * 1000 / 60 }, ctx);
+  const held = clock.value;
+  for (let i = 0; i < 120; i++) { ctx.uniforms.uTime.value++; lights.update({ delta: 1 / 60, elapsed: 20 + i / 60, nowMs: 20000 + i * 1000 / 60 }, ctx); }
+  expect(clock.value).toBe(held);
+  lights.dispose(ctx);
 });

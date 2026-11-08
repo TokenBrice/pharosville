@@ -127,6 +127,7 @@ export class SkySystem implements WorldSystem {
   private cirrusDrift = 0;
   /** Cloud drift eases to a stop under reduced motion. */
   private clock: MotionClock | null = null;
+  private readonly decorativeTime = new THREE.Uniform(0);
   private banks: Bank[] = [];
   private landPts: Array<[number, number]> = [];
   private horizon = 1500;
@@ -212,7 +213,7 @@ export class SkySystem implements WorldSystem {
     this.u.uCloudAtlas.value = this.atlas.texture;
     this.u.uSkyNoise.value = this.fx.noise;
     const W = ctx.uniforms;
-    const world = { uTime: W.uTime, uNight: W.uNight, uZenith: W.uZenith, uHorizon: W.uHorizon, uHaze: W.uHaze, uSunColor: W.uSunColor };
+    const world = { uTime: this.decorativeTime, uNight: W.uNight, uZenith: W.uZenith, uHorizon: W.uHorizon, uHaze: W.uHaze, uSunColor: W.uSunColor };
 
     // backdrop card: unit grid, vertex shader wraps it round the camera
     const g = new THREE.PlaneGeometry(1, 1, 96, 1);
@@ -417,7 +418,7 @@ export class SkySystem implements WorldSystem {
     // A lower threshold than the GLSL branch is conservative around CPU/GPU float rounding.
     const deck = this.u.uStorm.value > 0.001 || nightDeck > 0.001;
     next[0] = weather.x; next[1] = rain || deck ? weather.z : 0;
-    next[2] = rain ? ctx.uniforms.uTime.value : 0; next[3] = weather.y;
+    next[2] = rain ? this.decorativeTime.value : 0; next[3] = weather.y;
     for (let i = 0; i < this.bandInputs.length; i++) {
       const value = this.bandInputs[i].value, offset = 4 + i * 4;
       if (typeof value === "number") next[offset] = value;
@@ -510,6 +511,7 @@ export class SkySystem implements WorldSystem {
     // ---- clouds: cover reveals banks, wind drifts them (near layers faster); wrap at the band edge with a fade
     this.clock ??= new MotionClock(ensureMotionService(ctx));
     const driftT = this.clock.step(dt), live = this.clock.live;
+    this.decorativeTime.value = driftT;
     // W08 one wind: the banks and cirrus drift the way the wind blows across the view (the same direction as
     // the cloud shadows, smoke and flags); a wind straight along the view still creeps, with its own sign
     const wv0 = W.uWindVec.value;

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { ShipChooser } from "./ShipChooser";
 import { ChartLabels } from "./ChartLabels";
 import { CornerMark } from "./CornerMark";
 import { useStore, useUISlice } from "./hooks";
@@ -17,6 +18,7 @@ const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isConte
 export function HarbourUI() {
   const store = useStore();
   const searchOpen = useUISlice((s) => s.searchOpen);
+  const shipChoices = useUISlice((s) => s.shipChoices);
   const selected = useUISlice((s) => s.selected);
   const chartMode = useUISlice((s) => s.chartMode);
   const reducedMotion = useUISlice((s) => s.reducedMotion);
@@ -51,24 +53,22 @@ export function HarbourUI() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
       const s = store.getSnapshot();
       store.noteInput();
-      // the watch lets go on any key but its own (Esc included)
-      if (s.watch && e.key !== "w" && e.key !== "W" && !e.repeat && e.key !== "Shift") {
-        store.stopWatch();
-        if (e.key === "Escape") { e.preventDefault(); return; }
-      }
       if (e.key === "Escape") {
-        if (s.searchOpen) closeSearch();
+        if (s.shipChoices?.length) store.set({ shipChoices: [] });
+        else if (s.searchOpen) closeSearch();
         else if (s.selected) closePanel();
         else if (s.ledgerOpen) closeLedger();
         else if (s.chartMode) store.set({ chartMode: false });
-        else return;
+        else if (store.dismissHover()) { /* hover closes before camera automation */ }
+        else store.stopAutomation();
         e.preventDefault();
         return;
       }
-      if (typing(e.target)) return;
+      if (s.shipChoices?.length || typing(e.target)) return;
+      if (s.watch && !["w", "W", "Shift"].includes(e.key) && !e.repeat) store.stopWatch();
       if (e.key === "/") { e.preventDefault(); remember(); store.set({ searchOpen: true }); }
       else if (e.key === "l" || e.key === "L") { e.preventDefault(); if (!s.ledgerOpen) remember(); store.set({ ledgerOpen: !s.ledgerOpen }); }
       else if (e.key === "c" || e.key === "C") { e.preventDefault(); store.set({ chartMode: !s.chartMode }); }
@@ -123,6 +123,7 @@ export function HarbourUI() {
         <DetailPanels closeLedger={closeLedger} closePanel={closePanel} closeSearch={closeSearch} />
       </Suspense></SectionErrorBoundary>}
       <Postcard />
+      {!!shipChoices?.length && <ShipChooser choices={shipChoices} />}
       {watch && (
         <div className="hb-watch hb-paper" aria-hidden="true">
           <span className="hb-sc">Harbourmaster’s watch</span> <b>{watch.symbol}</b> <em>{watch.line}</em>

@@ -61,3 +61,14 @@ describe("DA-07 bunting", () => {
     expect(b.isDressed("m")).toBe(true);
   });
 });
+
+it("cancels active launch dressing under reduction while keeping the analytical maiden marks", () => {
+  const b = new Bunting(mat), camera = new THREE.Vector3();
+  b.launch("launch", 0); b.sync(["maiden"], 100, 0.1, false, camera);
+  expect(b.isDressed("launch")).toBe(true);
+  b.sync(["maiden"], 200, 0.1, true, camera);
+  expect(b.isDressed("launch")).toBe(false); expect(b.isDressed("maiden")).toBe(true);
+  b.sync(["maiden"], 300, 0.1, false, camera);
+  expect(b.isDressed("launch")).toBe(false);
+  b.dispose();
+});

@@ -8,7 +8,7 @@ const harness = vi.hoisted(() => {
   let resolve!: (value: { default: () => React.ReactNode }) => void;
   const pending = new Promise<{ default: () => React.ReactNode }>((done) => { resolve = done; });
   return {
-    state: { model: null, hover: null, selected: null as UIState["selected"], searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: false, tick: 0, follow: null, announce: "", capturing: false, watch: null },
+    state: { model: null, hover: null, shipChoices: [], selected: null as UIState["selected"], searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: false, tick: 0, follow: null, announce: "", capturing: false, watch: null },
     set: vi.fn(), select: vi.fn(), preload: vi.fn(() => pending), resolve,
   };
 });

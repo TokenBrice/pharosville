@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { ensureMotionService } from "../ui/services";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { Bunting } from "../fleet/bunting";
 import type { EventsService, StagedMoment } from "../model/event-hub";
@@ -76,6 +77,11 @@ export class MomentsStage implements WorldSystem {
 
   update(frame: FrameState, ctx: EngineContext): void {
     const cur = (ctx.services.get("events") as EventsService | undefined)?.current ?? null;
+    if (ensureMotionService(ctx).reduced) {
+      this.seen = cur; this.flareFrom = this.flareUntil = -1;
+      if (this.flare) this.flare.visible = false;
+      return;
+    }
     if (cur && cur !== this.seen) { this.seen = cur; this.stage(ctx, cur); }
     if (!this.flare || !this.flareMat) return;
     const now = frame.nowMs;

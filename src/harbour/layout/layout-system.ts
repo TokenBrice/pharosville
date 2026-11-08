@@ -15,6 +15,19 @@ export function toCameraPreset(p: LayoutCameraPreset): CameraPreset {
   return { target: [...p.target], distance: p.distance, fovDeg: p.fovDeg, pitchDeg: p.pitchDeg, yawDeg: p.yawDeg };
 }
 
+/** URL framing is a development aid, bounded before it reaches camera math. */
+export function devCamera(raw: string | null, rig: EngineContext["rig"], dev: boolean): number[] | null {
+  if (!dev || !raw) return null;
+  const parts = raw.split(",");
+  if ((parts.length !== 4 && parts.length !== 5) || parts.some((v) => !v.trim())) return null;
+  const cam = parts.map(Number);
+  if (!cam.every(Number.isFinite) || cam[3] <= 0 || (cam.length === 5 && (cam[4] < 5 || cam[4] > 85))) return null;
+  cam[0] = THREE.MathUtils.clamp(cam[0], rig.bounds.min.x, rig.bounds.max.x);
+  cam[2] = THREE.MathUtils.clamp(cam[2], rig.bounds.min.y, rig.bounds.max.y);
+  cam[3] = THREE.MathUtils.clamp(cam[3], rig.minDistance, rig.maxDistance);
+  return cam;
+}
+
 /**
  * Loads src/harbour/data/layout.json, registers it as the 'layout' service, applies the default
  * camera preset (or `?view=<preset>`) and the pan clamp. Runs first so every later system can read it.
@@ -49,14 +62,14 @@ export class LayoutSystem implements WorldSystem {
     const name = asked && presets[asked] ? asked : defaultPresetName(layout);
     const preset = toCameraPreset(presets[name]);
     // dev/gate framing: ?cam=x,y,z,distance[,pitchDeg]
-    const cam = (q.get("cam") ?? "").split(",").map(Number);
-    if (cam.length >= 4 && cam.every(Number.isFinite)) {
+    const cam = devCamera(q.get("cam"), rig, import.meta.env.DEV);
+    if (cam) {
       preset.target = [cam[0], cam[1], cam[2]];
       preset.distance = cam[3];
-      if (cam.length >= 5) preset.pitchDeg = cam[4];
+      if (cam.length === 5) preset.pitchDeg = cam[4];
     }
     this.base = preset;
-    this.fit = !(cam.length >= 4 && cam.every(Number.isFinite)); // an explicit ?cam= framing is taken as given
+    this.fit = !cam; // an explicit ?cam= framing is taken as given
     this.hero = heroPoints(layout);
     // tilt-shift focus follows the Pharos (01-A6): its foot and lantern (heroPoints puts them first)
     const pharos = layout.landmarks.find((l) => l.id === "pharos");
