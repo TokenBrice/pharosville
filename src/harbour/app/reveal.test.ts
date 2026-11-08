@@ -47,6 +47,7 @@ vi.mock("../ui/details", () => ({ preloadDetails: harness.preload }));
 vi.mock("../../error-reporter", () => ({ reportClientError: vi.fn() }));
 // The sweep's arrival drift-in (wake.ts) drives a real camera rig; this harness has none.
 vi.mock("./wake", () => ({ wantsWake: () => false, startWake: () => () => undefined, WAKE_PULLBACK: 0.12 }));
+import { readPresentation, presentationCopy } from "../ui/presentation";
 import { HarbourApp } from "./harbour-app";
 
 let root: Root | undefined;
@@ -71,6 +72,26 @@ async function frame(revision = 0, boats = 0) {
 async function advance(ms: number) { await act(async () => { vi.advanceTimersByTime(ms); }); }
 
 describe("composer-completed arrival reveal", () => {
+  it("keeps display integrity after reveal, including complete → partial → complete revisions", async () => {
+    await mount(); commit(1, 12); await frame(1, 12);
+    expect(readPresentation(engine().ctx)).toEqual({ status: "complete", revision: 1, displayed: 12, expected: 12 });
+    await advance(1300);
+    expect(host.querySelector(".pv-arrival")).toBeNull();
+    commit(2, 15); await frame(1, 12);
+    expect(presentationCopy(readPresentation(engine().ctx))).toBe("The fleet’s readings are still arriving; boats are not shown yet.");
+    await frame(2, 10);
+    expect(presentationCopy(readPresentation(engine().ctx))).toBe("10 of 15 boats displayed. This view is incomplete.");
+    const same = readPresentation(engine().ctx);
+    await frame(2, 10);
+    expect(readPresentation(engine().ctx)).toBe(same);
+    commit(3, 15); await frame(2, 10);
+    expect(readPresentation(engine().ctx)).toBe(same);
+    await frame(3, 15);
+    expect(presentationCopy(readPresentation(engine().ctx))).toBe("");
+    Object.assign(engine().ctx.services.get("simulation-status") as object, { unavailable: true });
+    await frame(3, 15);
+    expect(presentationCopy(readPresentation(engine().ctx))).toBe("The fleet could not be prepared. Readings remain available in Pharos analytics.");
+  });
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -222,7 +243,7 @@ describe("composer-completed arrival reveal", () => {
     expect(shown()).toBe(true);
     expect(status()).toBe("Harbour ready; some boats could not be displayed.");
     expect(warn).toHaveBeenCalledExactlyOnceWith("[harbour] revealing incomplete fleet", { revision: 2, rendered: 11, expected: 12 });
-    expect(engine().listeners.size).toBe(0);
+    expect(engine().listeners.size).toBe(1);
     await frame(2, 11);
     expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
@@ -290,7 +311,7 @@ describe("composer-completed arrival reveal", () => {
     expect(status()).toBe("Harbour ready; live readings unavailable.");
     await frame(1, 1);
     expect(status()).toBe("The harbour is live.");
-    expect(engine().listeners.size).toBe(0);
+    expect(engine().listeners.size).toBe(1);
     expect(harness.preload).toHaveBeenCalledOnce();
   });
 
@@ -306,7 +327,7 @@ describe("composer-completed arrival reveal", () => {
     await frame(3, 0);
     expect(engine().listeners.size).toBe(1);
     await frame(4, 12);
-    expect(engine().listeners.size).toBe(0);
+    expect(engine().listeners.size).toBe(1);
     expect(document.getElementById("pv-poster")).toBeNull();
     expect(host.querySelector(".pv-arrival")).toBeNull();
   });

@@ -11,7 +11,11 @@ import type { LaunchMilestone, LaunchPhase } from "@shared/types/core";
 import runtimeSlim from "@shared/data/stablecoins/runtime-slim.json";
 import prelaunchBook from "virtual:pharosville-prelaunch";
 import { logosById, runtimeLogoPath } from "../../lib/logos";
+import { launchedIds } from "../civic/yard";
+import type { HarbourModel } from "../model/types";
 import type { EngineContext } from "../engine/types";
+
+export const YARD_EXPLANATION = "A Shipyard record may already be in pilot or on mainnet. Its hull follows the recorded phase; it joins the fleet when tracking inputs become available.";
 
 export const UPCOMING_URL = "https://pharos.watch/upcoming/";
 
@@ -26,7 +30,7 @@ export const STAGE_OF: Record<LaunchPhase, HullStage> = {
   announced: "keel", testnet: "ribs", auditing: "planked", beta: "painted", "launching-soon": "rigged",
 };
 export const STAGE_NAME: Record<HullStage, string> = {
-  keel: "keel laid", ribs: "in frame", planked: "planked", painted: "painted", rigged: "rigged, awaiting launch",
+  keel: "keel laid", ribs: "in frame", planked: "planked", painted: "painted", rigged: "rigged, awaiting admission",
 };
 
 export interface YardCoin {
@@ -168,7 +172,12 @@ let civicSrc: unknown[] | null = null, civicOut: YardCoin[] = [];
 /** The coins in the yard: the civic list when it has one, else the registry. */
 export function yardCoins(ctx: EngineContext): YardCoin[] {
   const list = getCivic(ctx)?.yard?.coins;
-  if (!Array.isArray(list) || list.length === 0) return REGISTRY_YARD;
+  if (!Array.isArray(list)) {
+    const model = ctx.services.get("model") as HarbourModel | undefined;
+    if (!model) return REGISTRY_YARD;
+    const admitted = launchedIds(REGISTRY_YARD, model.boats);
+    return REGISTRY_YARD.filter((c) => !admitted.has(c.id));
+  }
   if (list !== civicSrc) {
     civicSrc = list;
     const reg = new Map(REGISTRY_YARD.map((c) => [c.id, c]));
@@ -192,11 +201,11 @@ export function yardHullPosition(ctx: EngineContext, id: string): [number, numbe
 }
 
 /** Tracked launches that are live now: in the fleet under their id (or their DefiLlama id). */
-export function launchedFromYard(model: { boats: ReadonlyArray<{ id: string; symbol: string }> } | null): Array<{ id: string; symbol: string }> {
+export function launchedFromYard(model: { boats: ReadonlyArray<{ id: string; symbol: string; name?: string }> } | null): Array<{ id: string; symbol: string }> {
   if (!model) return [];
-  const live = new Map(model.boats.map((b) => [b.id, b]));
-  return REGISTRY_YARD.flatMap((c) => {
-    const b = live.get(c.id) ?? (c.llamaId ? live.get(c.llamaId) : undefined);
+  const admitted = launchedIds(REGISTRY_YARD, model.boats);
+  return REGISTRY_YARD.filter((c) => admitted.has(c.id)).flatMap((c) => {
+    const b = model.boats.find((b) => launchedIds([c], [b]).has(c.id));
     return b ? [{ id: b.id, symbol: b.symbol }] : [];
   });
 }

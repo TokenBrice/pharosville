@@ -29,11 +29,10 @@ export interface BeamService {
   setDayPresence?(v: number): void;
   /** DA-09: PSI computed without early-warning data → a horn shutter narrows the beam (eased). */
   setQualified?(q: boolean): void;
-  /** Arrival kindling (camera lane): 0..1 multiplier on the fire and the beam up to their true value. */
-  setIntroScale?(k: number): void;
-  /** The current kindling multiplier (the lighthouse's fire reads it). */
+
+  /** Compatibility for the lighthouse: analytical light has no arrival attenuation. */
   readonly introScale?: number;
-  /** The beam's eased reach 0..1 as shown (× lit × kindling): audio's beam breath follows it. */
+  /** The beam's eased reach 0..1 as shown (× lit): audio's beam breath follows it. */
   reach?(): number;
 }
 
@@ -279,7 +278,6 @@ export class BeamSystem implements WorldSystem {
   /** DA-09 horn shutter target / eased 0..1. */
   private qualified = 0;
   private shutterS = 0;
-  private intro = 1;
   private shown = 0;
 
   async init(ctx: EngineContext): Promise<void> {
@@ -311,15 +309,12 @@ export class BeamSystem implements WorldSystem {
     this.halo.name = "beam-halo";
     ctx.scene.add(this.halo);
 
-    // eslint-disable-next-line @typescript-eslint/no-this-alias -- the introScale getter reads live state
-    const sys = this;
     const svc: BeamService = {
       setReach: (v) => { this.reach = THREE.MathUtils.clamp(v, 0, 1); },
       setColor: (c) => { this.color.set(typeof c === "number" && c >= 0 && c <= 2 && Number.isInteger(c) ? LAMP_COLORS[c] : (c as THREE.ColorRepresentation)).multiply(FIRE_WARM); },
       setDayPresence: (v) => { this.dayPresence = THREE.MathUtils.clamp(v, 0, 1); },
       setQualified: (q) => { this.qualified = q ? 1 : 0; },
-      setIntroScale: (k) => { this.intro = Number.isFinite(k) ? THREE.MathUtils.clamp(k, 0, 1) : 1; },
-      get introScale() { return sys.intro; },
+      introScale: 1,
       reach: () => this.shown,
     };
     ctx.services.set("beam", svc);
@@ -356,9 +351,8 @@ export class BeamSystem implements WorldSystem {
     // DA-09 horn shutter: eases in over a few seconds; narrows the cone and dims it a touch (still sweeps)
     this.shutterS += (this.qualified - this.shutterS) * (1 - Math.exp(-dt / 2.5));
     const narrow = 1 - 0.45 * this.shutterS;
-    const intro = this.intro;
-    this.shown = this.reachS * (lit ? 1 : 0) * intro;
-    const vis = nightK * (0.35 + 0.65 * this.reachS) * (lit ? 1 : 0) * swell * breath * (1 - 0.15 * this.shutterS) * intro;
+    this.shown = this.reachS * (lit ? 1 : 0);
+    const vis = nightK * (0.35 + 0.65 * this.reachS) * (lit ? 1 : 0) * swell * breath * (1 - 0.15 * this.shutterS);
 
     // glint: the mirror swinging to face the camera's azimuth (once per revolution: one mirror, one beam)
     const cam = ctx.camera.position;
@@ -417,17 +411,16 @@ export class BeamSystem implements WorldSystem {
     hu.uCore.value = (0.1 * nightK * swell + (3.0 + 5 * day) * flash + 3.0 * dayAlert) * (0.35 + 0.65 * near) * breath;
     hu.uGlow.value = (0.12 * nightK * swell + (1.4 + 1.5 * day) * flash + 7.0 * dayAlert) * (0.3 + 0.7 * near);
     hu.uStreak.value = ((1.1 + 0.6 * day) * flash) * (0.5 + 0.5 * near);
-    this.halo.visible = lit && intro > 0.01;
-    if (intro < 1) { hu.uCore.value *= intro; hu.uGlow.value *= intro; hu.uStreak.value *= intro; }
+    this.halo.visible = lit;
 
     // shared with the sea (one beam: no back foot)
     this.bu.uBeamPos.value.copy(this.lantern);
     this.bu.uBeamAngle.value = angle;
-    this.bu.uBeamCol.value.copy(this.colorS).multiplyScalar((0.1 + 0.15 * dayAlert + 0.9 * nightK) * (0.4 + 0.6 * this.reachS) * 1.3 * (lit ? 1 : 0) * swell * breath * intro);
-    this.bu.uBeamShape.value.set(L, HALF * narrow, TILT, flash * (1.5 + 2.5 * day) * intro);
+    this.bu.uBeamCol.value.copy(this.colorS).multiplyScalar((0.1 + 0.15 * dayAlert + 0.9 * nightK) * (0.4 + 0.6 * this.reachS) * 1.3 * (lit ? 1 : 0) * swell * breath);
+    this.bu.uBeamShape.value.set(L, HALF * narrow, TILT, flash * (1.5 + 2.5 * day));
     this.bu.uBeamFall.value.set(L * 0.22, R0 * narrow, Math.tan(HALF * narrow), this.reachS);
     // 05-P1: the shaft's scattered light on what it passes over (night only; kit, fleet, sprites, plume)
-    const litK = (lit ? 1 : 0) * swell * breath * intro * (1 - 0.15 * this.shutterS);
+    const litK = (lit ? 1 : 0) * swell * breath * (1 - 0.15 * this.shutterS);
     this.bu.uBeamLight.value.copy(this.colorS).multiplyScalar(BEAM_LIGHT_GAIN * nightK * (0.4 + 0.6 * this.reachS) * litK);
     // 05-P2: by day the mirror throws the sun, dimmed by the DEWS cloud (no sun, no heliograph)
     const cloud = sky?.shared?.uWeatherSea.value.x ?? 0.3;

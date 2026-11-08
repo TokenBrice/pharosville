@@ -116,6 +116,8 @@ export interface Boat {
   name: string;
   /** USD supply (sum of circulating buckets). */
   supply: number;
+  /** Accepted 24-hour comparison from the same payload as this boat. */
+  supplyPrevDay?: number | null;
   hullClass: HullClass;
   rig: RigFamily;
   pegType: string;

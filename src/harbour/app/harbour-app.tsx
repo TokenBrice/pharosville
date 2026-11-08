@@ -6,6 +6,7 @@ import { Engine } from "../engine/engine";
 import { FAILURE_COPY, failureCode, isAbort, type BootFailureKind, type HarbourLifecycle } from "../engine/failure";
 import { canViewportShowMap, isWidescreenViewport } from "@/systems/viewport-gate";
 import { SYSTEMS } from "../systems";
+import { publishPresentation, renderedPresentation } from "../ui/presentation";
 import { mountHarbourUI } from "../ui/mount";
 import type { HarbourFeed } from "../data/fetch";
 import type { ReadinessState, RenderedFleetState, SimulationStatus } from "../engine/types";
@@ -112,12 +113,12 @@ export function HarbourApp() {
       let firstRenderedAt: number | undefined;
       let incompleteSince: number | undefined;
       let incompleteRevision: number | undefined;
+      let warnedIncompleteRevision: number | undefined;
       const simulation = engine.ctx.services.get("simulation-status") as SimulationStatus | undefined;
       let revealed = false;
       const reveal = (next: Exclude<Stage, "loading" | "failed" | "recovering">) => {
         if (cancelled || !engine?.canPublish) return;
         setStage(next);
-        if (next !== "waiting" && !(next === "unavailable" && simulation?.unavailable)) stopWatching?.();
         if (revealed) return;
         revealed = true;
         // the harbour wakes (wake.ts): the live camera starts pulled back and the poster shrinks to match
@@ -131,6 +132,7 @@ export function HarbourApp() {
       };
       stopWatching = engine.onRendered((rendered: RenderedFleetState) => {
         if (cancelled || !engine?.canPublish) return;
+        publishPresentation(engine.ctx, renderedPresentation(rendered, readiness, simulation?.unavailable === true));
         const now = performance.now();
         firstRenderedAt ??= now;
         const model = engine?.ctx.services.get("model") as HarbourModel | undefined;
@@ -147,7 +149,10 @@ export function HarbourApp() {
           incompleteRevision = readiness.revision;
           incompleteSince ??= now;
           if (now - incompleteSince > FLEET_WAIT_MS) {
-            console.warn("[harbour] revealing incomplete fleet", { revision: readiness.revision, rendered: rendered.boats, expected: readiness.boats });
+            if (warnedIncompleteRevision !== readiness.revision) {
+              warnedIncompleteRevision = readiness.revision;
+              console.warn("[harbour] revealing incomplete fleet", { revision: readiness.revision, rendered: rendered.boats, expected: readiness.boats });
+            }
             reveal("partial");
             return;
           }

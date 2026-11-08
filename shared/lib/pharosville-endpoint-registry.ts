@@ -8,7 +8,7 @@ import { API_PATHS } from "./api-endpoints/paths";
 // so the desktop chunk never pulls the full server-only cron job catalog.
 import { CRON_INTERVALS_CLIENT as CRON_INTERVALS } from "./cron-intervals-client";
 
-export const PHAROSVILLE_PROJECTION_EPOCH = "pv2";
+export const PHAROSVILLE_PROJECTION_EPOCH = "pv3";
 
 export interface PharosVilleEndpointRegistryEntry<K extends PharosVilleApiEndpointKey = PharosVilleApiEndpointKey> {
   key: K;

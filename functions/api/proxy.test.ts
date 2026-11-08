@@ -40,7 +40,7 @@ function makeContext(url: string, init?: {
   };
 }
 
-const epochCacheUrl = (url: string) => url.replace("/api/", "/api/__projection/pv2/api/");
+const epochCacheUrl = (url: string) => url.replace("/api/", "/api/__projection/pv3/api/");
 
 class MemoryEdgeCache {
   readonly putUrls: string[] = [];
@@ -176,7 +176,7 @@ describe("PharosVille API proxy", () => {
       const response = await onRequest(makeContext("https://pharosville.pharos.watch/api/chains"));
       tags.push(response.headers.get("etag"));
     }
-    expect(tags[0]).toMatch(/^"pv2-[a-f0-9]{64}"$/);
+    expect(tags[0]).toMatch(/^"pv3-[a-f0-9]{64}"$/);
     expect(tags[1]).toBe(tags[0]);
     expect(tags[2]).not.toBe(tags[0]);
   });
@@ -190,7 +190,7 @@ describe("PharosVille API proxy", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(fixture.input));
     const response = await onRequest(makeContext(url, { headers: { "if-none-match": '"old-upstream"' } }));
     expect(response.status).toBe(200);
-    expect(response.headers.get("etag")).toMatch(/^"pv2-[a-f0-9]{64}"$/);
+    expect(response.headers.get("etag")).toMatch(/^"pv3-[a-f0-9]{64}"$/);
     await expect(response.json()).resolves.toEqual(fixture.expected);
     expect(fetchMock).toHaveBeenCalledOnce();
   });
@@ -209,7 +209,7 @@ describe("PharosVille API proxy", () => {
     const first = await onRequest(makeContext(url, { waitUntilPromises }));
     await Promise.all(waitUntilPromises);
     cache.responses.delete(epochCacheUrl(url));
-    const lastGoodUrl = "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv2/api/chains";
+    const lastGoodUrl = "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv3/api/chains";
     const stored = (await cache.match(new Request(lastGoodUrl)))!;
     const headers = new Headers(stored.headers);
     headers.set("age", "3600");
@@ -258,7 +258,7 @@ describe("PharosVille API proxy", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("public, max-age=60");
     expect(response.headers.get("content-type")).toContain("application/json");
-    expect(response.headers.get("etag")).toMatch(/^"pv2-[a-f0-9]{64}"$/);
+    expect(response.headers.get("etag")).toMatch(/^"pv3-[a-f0-9]{64}"$/);
     expect(response.headers.get("retry-after")).toBe("15");
     expect(response.headers.get("warning")).toBe("199 proxy fixture");
     expect(response.headers.get("x-data-age")).toBe("12");
@@ -305,7 +305,7 @@ describe("PharosVille API proxy", () => {
     expect(response.headers.get("cache-control")).toBe("public, max-age=900");
     expect(cache.putUrls).toEqual([
       epochCacheUrl("https://pharosville.pharos.watch/api/stablecoins"),
-      "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv2/api/stablecoins",
+      "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv3/api/stablecoins",
     ]);
     expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
     await expect(cache.match(new Request(epochCacheUrl("https://pharosville.pharos.watch/api/stablecoins"))))
@@ -323,7 +323,7 @@ describe("PharosVille API proxy", () => {
           "cache-control": "public, max-age=600",
           "content-type": "application/json",
           "x-pharosville-proxy": "1",
-          etag: '"pv2-fixture"',
+          etag: '"pv3-fixture"',
         },
       }),
     );
@@ -394,10 +394,10 @@ describe("PharosVille API proxy", () => {
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(cache.putUrls).toEqual([
       epochCacheUrl("https://pharosville.pharos.watch/api/stablecoins"),
-      "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv2/api/stablecoins",
+      "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv3/api/stablecoins",
     ]);
     expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
-    const lastGood = await cache.match(new Request("https://pharosville.pharos.watch/api/__last-good/api/__projection/pv2/api/stablecoins"));
+    const lastGood = await cache.match(new Request("https://pharosville.pharos.watch/api/__last-good/api/__projection/pv3/api/stablecoins"));
     expect(await lastGood?.text()).not.toContain("test-proxy-key");
     expect([...lastGood!.headers.keys()]).not.toContain("x-api-key");
   });
@@ -605,8 +605,8 @@ describe("PharosVille API proxy", () => {
     const cache = new MemoryEdgeCache();
     installEdgeCache(cache);
     const url = "https://pharosville.pharos.watch/api/safety-grades";
-    await cache.put(new Request("https://pharosville.pharos.watch/api/__last-good/api/__projection/pv2/api/safety-grades"), Response.json({ grades: [] }, {
-      headers: { etag: '"pv2-fixture"', "x-pharosville-last-good-stored-at": String(Math.floor(Date.now() / 1000)), "x-data-age": "5" },
+    await cache.put(new Request("https://pharosville.pharos.watch/api/__last-good/api/__projection/pv3/api/safety-grades"), Response.json({ grades: [] }, {
+      headers: { etag: '"pv3-fixture"', "x-pharosville-last-good-stored-at": String(Math.floor(Date.now() / 1000)), "x-data-age": "5" },
     }));
     const stream = new ReadableStream({ start(controller) {
       if (kind === "interrupted") controller.error(new Error("body interrupted"));
@@ -639,7 +639,7 @@ describe("PharosVille API proxy", () => {
 
   describe("last-good fallback", () => {
     const SHORT_TTL_URL = "https://pharosville.pharos.watch/api/stablecoins";
-    const LAST_GOOD_URL = "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv2/api/stablecoins";
+    const LAST_GOOD_URL = "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv3/api/stablecoins";
 
     // The long-TTL copy shares `caches.default` with the CDN, so both halves
     // matter: the key has to be in-zone or the write is not documented to land

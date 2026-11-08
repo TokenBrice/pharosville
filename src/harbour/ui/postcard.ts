@@ -6,6 +6,7 @@
  * composition is browser-only.
  */
 import type { HarbourModel } from "../model/types";
+import { presentationCopy, type PresentationStatus } from "./presentation";
 import { truthState } from "./bits";
 import { age, titleCase } from "./format";
 
@@ -13,7 +14,7 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /** `hour`: the scene's local hour (decimal), the time the picture shows. */
-export function postcardCaption(model: HarbourModel | null, hour: number, nowMs: number): { title: string; fresh: string; stale: boolean; file: string } {
+export function postcardCaption(model: HarbourModel | null, hour: number, nowMs: number, presentation?: PresentationStatus): { title: string; fresh: string; stale: boolean; file: string } {
   const d = new Date(nowMs);
   const mins = Math.floor((((hour % 24) + 24) % 24) * 60 + 1e-6);
   const h = Math.floor(mins / 60) % 24, m = mins % 60;
@@ -32,6 +33,8 @@ export function postcardCaption(model: HarbourModel | null, hour: number, nowMs:
     const asOf = new Date(nowMs - (sc?.ageSec ?? 0) * 1000);
     fresh = `Readings as of ${pad(asOf.getUTCHours())}:${pad(asOf.getUTCMinutes())} UTC`;
   }
+  const display = presentationCopy(presentation);
+  if (display) fresh += ` ${display}`;
   const file = `pharosville-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(h)}${pad(m)}.png`;
   return { title, fresh, stale: t.state !== "current" || !!psi?.stale, file };
 }

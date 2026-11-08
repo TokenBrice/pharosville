@@ -1,4 +1,6 @@
 import { Engine } from "./engine/engine";
+import type { ReadinessState, SimulationStatus } from "./engine/types";
+import { publishPresentation, renderedPresentation } from "./ui/presentation";
 import { SYSTEMS } from "./systems";
 import { mountHarbourUI } from "./ui/mount";
 
@@ -12,6 +14,9 @@ async function boot() {
   const engine = new Engine(root);
   for (const make of SYSTEMS) engine.add(make());
   await engine.init();
+  engine.onRendered((rendered) => publishPresentation(engine.ctx, renderedPresentation(rendered,
+    engine.ctx.services.get("readiness") as ReadinessState | undefined,
+    (engine.ctx.services.get("simulation-status") as SimulationStatus | undefined)?.unavailable === true)));
   engine.start();
   const ui = document.getElementById("harbour-ui");
   if (ui) mountHarbourUI(engine, ui);
