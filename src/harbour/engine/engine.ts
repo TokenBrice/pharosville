@@ -11,7 +11,7 @@ import { TimeOfDay } from "./time-of-day";
 import { createWorldUniforms } from "./uniforms";
 import type { EngineContext, HarbourStats, PreparationEntry, RenderedFleetState, WorldSystem } from "./types";
 import { isPreparationAbort, ProgramPreparation, type PreparedPrograms } from "./prepare";
-import { TIERS, type QualitySettings } from "./quality";
+import { backingDpr, backingLimitsFor, TIERS, type BackingLimits, type QualitySettings } from "./quality";
 
 /**
  * Systems nothing else needs at init and the first frame can do without (overlays and decoration):
@@ -48,6 +48,7 @@ export class Engine {
   private readonly clock = { last: 0, elapsed: 0 };
   private raf = 0;
   private running = false;
+  private requestedRunning = false;
   private firstFrameMs: number | null = null;
   private readonly rendered = { revision: 0, boats: 0 };
   private readonly renderedListeners = new Set<(state: RenderedFleetState) => void>();
@@ -56,6 +57,10 @@ export class Engine {
   private postPreparation: PostPreparation | undefined;
   private readonly qualityPreparation = new Map<QualitySettings["tier"], Promise<void>>();
   private readonly qualityPrograms = new Set<PreparedPrograms>();
+  private readonly qualityReady = new Set<QualitySettings["tier"]>();
+  private readonly backingLimits: BackingLimits;
+  private resolution: MediaQueryList | undefined;
+  private resolutionDpr = 0;
   private width = 0;
   private height = 0;
   private pixelRatio = 0;
@@ -81,12 +86,15 @@ export class Engine {
   readonly governor: QualityGovernor;
   private readonly input: CameraInput;
   private readonly onResize = () => this.resize();
-  private readonly onVisibility = () => { if (document.hidden) this.stop(); else this.start(); };
+  private readonly onVisibility = () => this.reconcileRunning();
   private readonly onSceneAddition = () => { if (this.booted) this.preparation.invalidate(); };
 
   constructor(readonly container: HTMLElement) {
     const renderer = new THREE.WebGLRenderer({ antialias: false, stencil: false, depth: true, powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    const gl = renderer.getContext() as WebGL2RenderingContext;
+    this.backingLimits = backingLimitsFor(gl);
+    renderer.setDrawingBufferSize(container.clientWidth || innerWidth, container.clientHeight || innerHeight,
+      backingDpr(container.clientWidth || innerWidth, container.clientHeight || innerHeight, Math.min(devicePixelRatio, 2), this.backingLimits));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping; // tone mapping happens in post
     renderer.shadowMap.enabled = true;
@@ -101,8 +109,7 @@ export class Engine {
     this.post = new PostChain(renderer, composer, scene, camera);
     this.bloom = this.post.bloom;
     this.toneMapping = this.post.toneMapping;
-    this.governor = new QualityGovernor(renderer.getContext() as WebGL2RenderingContext, (settings, dpr) => {
-      if (renderer.getPixelRatio() !== dpr) renderer.setPixelRatio(dpr);
+    this.governor = new QualityGovernor(gl, (settings) => {
       this.post.setQuality(settings);
       if (this.ctx) this.resize();
     }, !GPU_PROF); // Pass profiling owns elapsed queries: WebGL forbids nesting them.
@@ -115,7 +122,7 @@ export class Engine {
     this.ctx.services.set("preparation", this.preparation);
     this.post.installDepthPrepass(this.ctx);
     scene.addEventListener("childadded", this.onSceneAddition);
-    this.governor.setPreparation((settings) => this.prepareQuality(settings));
+    this.governor.setPreparation((settings) => this.prepareQuality(settings), (settings) => this.qualityReady.has(settings.tier));
     this.governor.publish();
     this.input = new CameraInput(renderer.domElement, rig);
     addEventListener("resize", this.onResize);
@@ -179,6 +186,7 @@ export class Engine {
       window.__gpuPasses = this.gpuPasses;
     }
     this.booted = true;
+    this.reconcileRunning();
   }
 
 
@@ -243,24 +251,38 @@ export class Engine {
   }
 
   start(): void {
-    if (this.running || this.disposed || this.aborted) return;
+    this.requestedRunning = true;
+    this.reconcileRunning();
+  }
+
+  private reconcileRunning(): void {
+    const shouldRun = this.booted && this.requestedRunning && !document.hidden && !this.disposed && !this.aborted;
+    if (!shouldRun) {
+      if (this.running) this.governor.pause();
+      this.running = false; cancelAnimationFrame(this.raf); this.raf = 0;
+      return;
+    }
+    if (this.running) return;
+    this.resize();
+    this.governor.resume();
     this.running = true;
     this.clock.last = performance.now();
     const tick = (now: number) => {
-      if (!this.running) return;
+      if (!this.running || document.hidden || this.disposed || this.aborted) { this.reconcileRunning(); return; }
       this.raf = requestAnimationFrame(tick);
       this.frame(now);
     };
     this.raf = requestAnimationFrame(tick);
   }
 
-  stop(): void { this.running = false; cancelAnimationFrame(this.raf); }
+  stop(): void { this.requestedRunning = false; this.reconcileRunning(); }
 
   private frame(now: number): void {
     if (this.profile && this.firstFrameMs !== null) { this.profiledFrame(now); return; }
     const { ctx } = this;
     const t0 = this.firstFrameMs === null ? performance.now() : 0;
-    const delta = Math.min(0.1, Math.max(0, (now - this.clock.last) / 1000));
+    const rawDelta = Math.max(0, (now - this.clock.last) / 1000);
+    const delta = Math.min(0.1, rawDelta);
     this.clock.last = now;
     this.clock.elapsed += delta;
     const frame = this.frameState;
@@ -283,7 +305,7 @@ export class Engine {
     ctx.composer.render(delta);
     this.recordRendered();
     if (prof) prof["u:render"] = Math.round(performance.now() - tr);
-    this.governor.end(delta);
+    this.governor.end(rawDelta);
     if (this.firstFrameMs === null) {
       this.firstFrameMs = performance.now() - this.startMs;
       if (this.stats.boot) this.stats.boot.firstRender = Math.round(performance.now() - t0);
@@ -304,7 +326,8 @@ export class Engine {
     p.frames++;
     const start = performance.now();
     let t = start;
-    const delta = Math.min(0.1, Math.max(0, (now - this.clock.last) / 1000));
+    const rawDelta = Math.max(0, (now - this.clock.last) / 1000);
+    const delta = Math.min(0.1, rawDelta);
     this.clock.last = now;
     this.clock.elapsed += delta;
     const frame = this.frameState;
@@ -323,7 +346,7 @@ export class Engine {
     ctx.composer.render(delta);
     this.recordRendered();
     t = this.lap("render", t);
-    this.governor.end(delta);
+    this.governor.end(rawDelta);
     this.publishStats();
     this.lap("tail", t);
     this.lap("TOTAL", start);
@@ -340,6 +363,7 @@ export class Engine {
           const batch = await this.preparation.prepare(post.entries);
           if (this.disposed || this.aborted) { batch.dispose(); break; }
           this.qualityPrograms.add(batch);
+          this.qualityReady.add(settings.tier);
           return;
         } catch (error) { if (!isPreparationAbort(error) || this.disposed || this.aborted) throw error; }
         finally { post.dispose(); }
@@ -402,19 +426,30 @@ export class Engine {
   }
 
   resize(forceSystems = false): void {
+    if (this.disposed || this.aborted) return;
     const w = this.container.clientWidth || innerWidth, h = this.container.clientHeight || innerHeight;
     const { renderer, camera, composer, uniforms } = this.ctx;
-    const dpr = renderer.getPixelRatio();
+    if (this.resolutionDpr !== devicePixelRatio) {
+      this.resolution?.removeEventListener("change", this.onResize);
+      this.resolutionDpr = devicePixelRatio;
+      this.resolution = typeof matchMedia === "function" ? matchMedia(`(resolution: ${devicePixelRatio}dppx)`) : undefined;
+      this.resolution?.addEventListener("change", this.onResize);
+    }
+    const displayChanged = this.governor.reconcileDisplay(devicePixelRatio, backingDpr(w, h, 2, this.backingLimits));
+    const dpr = this.governor.dpr;
     const changed = w !== this.width || h !== this.height || dpr !== this.pixelRatio;
     if (changed) {
       this.preparation?.invalidate();
       this.width = w; this.height = h; this.pixelRatio = dpr;
-      renderer.setSize(w, h, false);
+      this.governor.resetTiming();
+      renderer.setDrawingBufferSize(w, h, dpr);
       composer.setSize(w, h);
       if (camera.aspect !== w / h) { camera.aspect = w / h; camera.updateProjectionMatrix(); }
-      uniforms.uResolution.value.set(w * dpr, h * dpr);
+      uniforms.uResolution.value.set(Math.floor(w * dpr), Math.floor(h * dpr));
+      this.stats.dpr = dpr;
     }
     if (changed || forceSystems) for (const s of this.systems) if (this.ready.has(s)) s.resize?.(w, h, this.ctx);
+    if (displayChanged) this.governor.publish();
   }
 
   dispose(): void {
@@ -426,9 +461,11 @@ export class Engine {
     for (const batch of this.qualityPrograms) batch.dispose();
     this.qualityPrograms.clear();
     this.qualityPreparation.clear();
+    this.qualityReady.clear();
     this.input.dispose();
     removeEventListener("resize", this.onResize);
     document.removeEventListener("visibilitychange", this.onVisibility);
+    this.resolution?.removeEventListener("change", this.onResize);
     this.ctx.scene.removeEventListener("childadded", this.onSceneAddition);
     // Three r186's module-owned DFG LUT keeps a texture-dispose listener per renderer.
     // Release it while material uniforms still exist, before renderer.dispose clears properties.

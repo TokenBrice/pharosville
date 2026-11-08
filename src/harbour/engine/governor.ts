@@ -3,17 +3,15 @@ import { TIERS, initialRungFor, ladderFor, parseTier, type CompletedGpuSample, t
 interface QuerySlot extends CompletedGpuSample { q: WebGLQuery | null; disjoint: boolean }
 const QUERY_CAPACITY = 4;
 const SAMPLE_CAPACITY = 256;
+const TARGET_SECONDS = 0.0167;
 
 /**
  * Quality governor: walks the (tier, pixel ratio) ladder from measured frame cost. Exposed as the
  * 'quality' service.
- *  - GPU time from EXT_disjoint_timer_query_webgl2 when available (the honest number under vsync);
- *    otherwise rAF deltas: missed vsyncs step DOWN, and long clean stretches PROBE one rung up. A probe
- *    that misses frames is reverted and that rung becomes the ceiling (retried later, ever more rarely).
- *    This is the path Safari and Chrome-on-Mac take (no timer queries there).
- *  - With a GPU timer, a slow window steps down only when the GPU time is ≥ 60 % of the frame interval;
- *    a CPU-bound frame holds the rung (cheaper effects would not help).
- *  - One rung per decision, hysteresis, and a cool-down after every change so it never oscillates.
+ *  - GPU p10 is compared to the target budget, never to an already-missed presentation interval.
+ *  - Raw visible rAF intervals count missed target slots; low-GPU CPU-bound windows hold their rung.
+ *  - Two slow windows reduce cost; upgrades require fifteen clean seconds and measured GPU headroom.
+ *    Without usable timer samples, reductions remain available but upgrades cannot prove headroom.
  *  - `?dpr=<x>` pins the pixel ratio, `?quality=high|medium|low` pins the tier (gate captures).
  *  - Allocation-free per frame (sample ring, no sorting of fresh arrays).
  */
@@ -51,18 +49,20 @@ export class QualityGovernor implements QualityService {
    */
   private readonly decisionSamples = new Float32Array(256);
   private gpuN = 0;
-  private slowFrames = 0;
+  private severeFrames = 0;
   private frames = 0;
+  private missedSlots = 0;
   private windowTime = 0;
-  private cooldown = 3;
-  /** seconds of clean frames at the current rung (timer-less probing) */
+  private emergencyTime = 0;
+  private settling = 0.5;
+  private calibrating = true;
+  private slowWindows = 0;
   private clean = 0;
-  private probeAfter = 8;
-  private probing = false;
-  private ceiling: number;
-  private ceilingTimer = 0;
+  private deviceDpr: number;
+  private maxDpr = 2;
   private readonly listeners = new Set<(s: QualitySettings, dpr: number) => void>();
   private preparation: ((settings: QualitySettings, signal: AbortSignal) => Promise<void>) | undefined;
+  private prepared: ((settings: QualitySettings) => boolean) | undefined;
   private pending: AbortController | undefined;
   private disposed = false;
 
@@ -71,8 +71,8 @@ export class QualityGovernor implements QualityService {
     const p = Number.parseFloat(q.get("dpr") ?? "");
     this.pinnedDpr = Number.isFinite(p) && p > 0 ? Math.min(2, p) : null;
     this.pinnedTier = parseTier(q.get("quality"));
-    this.ladder = ladderFor(devicePixelRatio);
-    this.ceiling = this.ladder.length - 1;
+    this.deviceDpr = devicePixelRatio;
+    this.ladder = ladderFor(this.deviceDpr);
     const dbg = gl.getExtension("WEBGL_debug_renderer_info");
     const name = String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
     const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
@@ -85,7 +85,7 @@ export class QualityGovernor implements QualityService {
   get auto(): boolean { return this.pinnedDpr === null && this.pinnedTier === null; }
   get tier(): QualityTier { return this.ladder[this.rung].tier; }
   get settings(): QualitySettings { return TIERS[this.tier]; }
-  get dpr(): number { return this.pinnedDpr ?? this.ladder[this.rung].dpr; }
+  get dpr(): number { return Math.min(this.maxDpr, this.pinnedDpr ?? this.ladder[this.rung].dpr); }
   /** Index of the current rung (for stats). */
   get level(): number { return this.rung; }
   get gpuMs(): number | null { return this.gpuP10Ms; }
@@ -102,13 +102,14 @@ export class QualityGovernor implements QualityService {
   }
 
   /** Effect preparation is separate from resolution-only publication; still one controller. */
-  setPreparation(prepare: (settings: QualitySettings, signal: AbortSignal) => Promise<void>): void {
+  setPreparation(prepare: (settings: QualitySettings, signal: AbortSignal) => Promise<void>, prepared?: (settings: QualitySettings) => boolean): void {
     this.preparation = prepare;
+    this.prepared = prepared;
   }
 
   set(tier: QualityTier | "auto"): void {
     this.pending?.abort(); this.pending = undefined;
-    if (tier === "auto") { this.pinnedTier = null; this.cooldown = 2; return; }
+    if (tier === "auto") { this.pinnedTier = null; this.resetTiming(); return; }
     this.pinnedTier = tier;
     this.go(this.richest(tier));
   }
@@ -124,6 +125,43 @@ export class QualityGovernor implements QualityService {
     for (const fn of this.listeners) fn(this.settings, this.dpr);
   }
 
+  /** Reconcile before allocation; the engine publishes after its backing dimensions are coherent. */
+  reconcileDisplay(deviceDpr: number, maxDpr: number): boolean {
+    if (deviceDpr === this.deviceDpr && maxDpr === this.maxDpr) return false;
+    const tier = this.tier, dpr = this.ladder[this.rung].dpr;
+    this.pending?.abort(); this.pending = undefined;
+    this.deviceDpr = deviceDpr; this.maxDpr = maxDpr;
+    this.ladder.splice(0, this.ladder.length, ...ladderFor(deviceDpr));
+    this.rung = this.richest(tier);
+    if (this.pinnedTier !== tier) {
+      for (let i = 0; i < this.ladder.length; i++) if (this.ladder[i].tier === tier &&
+        Math.abs(this.ladder[i].dpr - dpr) < Math.abs(this.ladder[this.rung].dpr - dpr)) this.rung = i;
+    }
+    this.resetTiming();
+    if (this.pinnedTier && this.pinnedTier !== tier) this.go(this.richest(this.pinnedTier));
+    return true;
+  }
+
+  /** Pending automatic decisions and query generations cannot cross a pause boundary. */
+  pause(): void {
+    this.pending?.abort(); this.pending = undefined;
+    this.resetTiming();
+  }
+
+  resume(): void {
+    this.pause();
+    if (this.pinnedTier) this.go(this.richest(this.pinnedTier));
+  }
+
+  resetTiming(): void {
+    this.stateId++;
+    this.measuredHead = this.measuredN = 0;
+    this.settling = 0.5; this.calibrating = true;
+    this.slowWindows = 0; this.clean = 0;
+    this.frames = this.severeFrames = 0; this.emergencyTime = 0;
+    this.resetWindow();
+  }
+
   private richest(tier: QualityTier): number {
     let best = 0;
     for (let i = 0; i < this.ladder.length; i++) if (this.ladder[i].tier === tier) best = i;
@@ -135,11 +173,11 @@ export class QualityGovernor implements QualityService {
     if (next === this.rung || this.disposed) return;
     this.pending?.abort();
     this.pending = undefined;
-    if (!this.preparation || this.tier === this.ladder[next].tier) { this.commit(next); return; }
+    if (!this.preparation || this.tier === this.ladder[next].tier || this.prepared?.(TIERS[this.ladder[next].tier])) { this.commit(next); return; }
     const controller = new AbortController();
     this.pending = controller;
     const transition = async () => {
-      // Automatic decisions are adjacent. Explicit overrides await only their requested preset;
+      // Overrides and emergency reductions await only their requested preset;
       // the engine shares this with post-reveal warming, without publishing intermediate tiers.
       await this.preparation?.(TIERS[this.ladder[next].tier], controller.signal);
       if (controller.signal.aborted || this.disposed) return;
@@ -151,18 +189,17 @@ export class QualityGovernor implements QualityService {
   }
 
   private commit(next: number): void {
-    const tierChanged = this.tier !== this.ladder[next].tier;
-    this.cooldown = (next < this.rung ? 2 : 2.5) + (tierChanged ? 1.5 : 0);
     this.rung = next;
-    this.stateId++;
-    this.measuredHead = this.measuredN = 0;
-    this.resetWindow(); this.clean = 0;
+    this.resetTiming();
     this.publish();
   }
 
-  private resetWindow(): void { this.frames = 0; this.slowFrames = 0; this.gpuN = 0; this.windowTime = 0; }
+  private resetWindow(): void {
+    this.gpuN = 0; this.windowTime = 0; this.missedSlots = 0;
+  }
 
   begin(): void {
+    if (this.disposed) return;
     this.frameId++;
     if (!this.ext || this.active) return;
     if (this.queryN === QUERY_CAPACITY) { this.gpuSkippedQueries++; return; }
@@ -180,6 +217,7 @@ export class QualityGovernor implements QualityService {
   }
 
   end(delta: number): void {
+    if (this.disposed) return;
     const { gl, ext } = this;
     if (ext && this.active) {
       gl.endQuery(ext.TIME_ELAPSED_EXT);
@@ -209,47 +247,48 @@ export class QualityGovernor implements QualityService {
         if (this.gpuN < this.decisionSamples.length) this.decisionSamples[this.gpuN++] = slot.ms;
       }
     }
-    if (!this.auto || this.pending) return;   // pinned/pending: measure only; current tier keeps drawing
-    if (this.ceilingTimer > 0 && (this.ceilingTimer -= delta) <= 0) this.ceiling = this.ladder.length - 1;
-    this.cooldown -= delta;
-    if (this.cooldown > 0) { this.resetWindow(); return; }
+    if (!this.auto || this.pending || delta <= 0 || !Number.isFinite(delta)) return;
+    if (this.settling > 0) { this.settling -= delta; this.resetWindow(); return; }
     this.frames++;
     this.windowTime += delta;
-    if (delta > 0.0215) this.slowFrames++;
-    if (this.frames < 90 && this.windowTime < 1.5) return;
-    const slowShare = this.slowFrames / this.frames;
-    const gpu = this.gpuN > 20 ? this.lowTail() : null;
-    const windowSecs = this.windowTime, frames = this.frames;
+    this.emergencyTime += delta;
+    const slots = delta / TARGET_SECONDS;
+    // Fractional misses catch sustained 48 fps; short intervals never cancel a preceding long gap.
+    this.missedSlots += Math.max(0, slots - 1);
+    if (delta > 2 * TARGET_SECONDS) this.severeFrames++;
+    if (this.emergencyTime >= 0.5) {
+      const severe = this.severeFrames > this.frames / 2;
+      this.frames = this.severeFrames = 0; this.emergencyTime = 0;
+      const gpu = this.gpuN ? this.lowTail() : null;
+      if (severe && (gpu === null || gpu > 0.8 * TARGET_SECONDS * 1000) && this.rung > 0) {
+        if (this.preparation && this.tier !== "low" && !this.prepared?.(TIERS.low)) {
+          // Save same-tier pixels immediately while the complete low variant prepares.
+          const cheapest = this.ladder.findIndex((r) => r.tier === this.tier);
+          this.go(cheapest);
+        }
+        this.go(0);
+        return;
+      }
+    }
+    if (this.windowTime < (this.calibrating ? 0.5 : 1)) return;
+    const missedShare = this.missedSlots / (this.windowTime / TARGET_SECONDS);
+    const gpu = this.gpuN ? this.lowTail() : null;
+    const gpuPressure = gpu !== null && gpu > 0.8 * TARGET_SECONDS * 1000;
+    const actionable = gpu === null || gpuPressure;
+    const windowSecs = this.windowTime, calibration = this.calibrating;
+    this.calibrating = false;
     this.resetWindow();
 
-    // With a GPU timer, step down only when the GPU is the bottleneck (≥ 60 % of the frame interval):
-    // CPU-bound frames gain nothing from cheaper effects.
-    const slow = slowShare > 0.06 || (gpu !== null && gpu > 13);
-    const gpuBound = gpu === null || gpu >= 0.6 * (windowSecs * 1000 / frames);
-    if (slow && gpuBound) {
-      if (this.probing) {
-        // the probe failed: this rung is too rich for now; back off and retry much later
-        this.ceiling = this.rung - 1;
-        this.ceilingTimer = this.probeAfter * 8;
-        this.probeAfter = Math.min(240, this.probeAfter * 2);
-      }
-      this.probing = false;
-      this.go(this.rung - 1);
-      return;
-    }
-    this.probing = false;
-    if (slow) return;   // CPU-bound: hold the rung
-    if (this.rung >= Math.min(this.ceiling, this.ladder.length - 1)) return;
+    if (calibration) return;
+    const slow = missedShare > 0.05 || gpuPressure;
+    this.slowWindows = slow && actionable ? this.slowWindows + 1 : 0;
+    if (this.slowWindows >= 2) { this.go(this.rung - 1); return; }
+    if (slow || missedShare >= 0.005) { this.clean = 0; return; }
+    this.clean += windowSecs;
+    if (this.clean < 15 || gpu === null || this.rung === this.ladder.length - 1) return;
     const next = this.ladder[this.rung + 1];
-    if (gpu !== null) {
-      const cur = this.ladder[this.rung];
-      const growth = (next.dpr / cur.dpr) ** 2 * (next.tier !== cur.tier ? 1.2 : 1);
-      if (slowShare < 0.01 && gpu * growth < 6) this.go(this.rung + 1);
-      return;
-    }
-    // no GPU timer: probe upward after a long clean stretch
-    if (slowShare < 0.005) this.clean += windowSecs; else this.clean = 0;
-    if (this.clean >= this.probeAfter) { this.go(this.rung + 1); this.probing = true; }
+    const growth = (Math.min(this.maxDpr, next.dpr) / this.dpr) ** 2 * (next.tier !== this.tier ? 1.2 : 1);
+    if (gpu * growth < 0.65 * TARGET_SECONDS * 1000) this.go(this.rung + 1);
   }
 
   /** Rolling sorted population: O(256) shifts, no allocation or per-frame sort. */
