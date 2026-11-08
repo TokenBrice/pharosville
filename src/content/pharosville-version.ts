@@ -43,6 +43,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   flyingColours: "v1.4.1",
   trueBearing: "v1.5.0",
   sailsByNight: "v1.5.1",
+  clearAir: "v1.6.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.sailsByNight;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.clearAir;

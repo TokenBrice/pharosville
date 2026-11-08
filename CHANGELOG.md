@@ -2,6 +2,24 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v1.6.0 - 2026-11-09 - Clear Air
+
+The harbour comes into focus: the Pharos leads the day and owns the night, the water follows the hour, coins are printed on cloth, and the chart chrome becomes one calm instrument you can read, steer and learn at your own pace.
+
+Collected from `release/v1.6.0` after v1.5.0: the second release of the ultimate enhancement pass (see `agents/pharosville-ultimate/PLAN.md`). Promise amendments: coin marks are printed on cloth (v1.4.1 kept full-contrast marks at every range), the overlay turns to a dark night bridge after dusk, and the Ledger's Pre-launch tab is now Admission. No analytical mapping changed.
+
+- The Pharos leads the day: a bluer sky, a cleaner sea haze and a whiter limewash keep the tower the brightest thing against its sky, and the overview keeps the Pharos and the docked rows in focus.
+- The night belongs to the fire. After dusk the charts turn to a dark night bridge (a slow fade, or a cut when motion is reduced) and back to paper at dawn, so the Pharos's fire, not the chrome, is the brightest thing on a night screen.
+- Water that follows the hour: the basin deepens and cools at dawn, in the golden hour and at dusk; wakes are feathered crests instead of dotted routes; glints no longer crawl; and the shore's swell, swash, reef surf and wet stone ride the same swell as the boats.
+- Coins are printed on cloth: each mark is painted on the sails in the harbour's pigments, and far ones soften into the coin's colours so the Roads read as a fleet at anchor rather than a field of pins. Hover, select or search a boat to see her mark in full. Flags fly at the town's scale, rigging and mooring lines are fine steady threads, and buoys weather and drop out of sight far away.
+- The far shore lives only in the painted sky: zooming out, panning north or holding a tablet upright no longer puts a wall across the horizon, and portrait and squarer screens frame the whole island. Stale-data fog reads at night too, as one neutral sea smoke, and still appears only for stale data.
+- One chart instrument: one Garamond in eight sizes, a spacing scale, every colour a token and explanations set upright. The corner shows its state word whenever a reading isn't live, with a mark whose shape (a dot, a ring with a bar, an empty ring) carries the state, never colour alone.
+- Help and controls: every action (search, ledger, home, watch, postcard, view controls, Still world and optional character shortcuts) lives in one sheet with touch access, and "How to read the harbour" is a five-stop guide that never starts by itself.
+- Readings with dates: the Stability Index and flow charts plot real dated observations with honest gaps, a values table and Previous/Next, and comparisons across methodology versions are withheld. The Shipyard explains admission to tracking, and the Day book and the Watch describe only what was observed.
+- The ledger as a research desk: read a record without moving the view, locate its ship when you choose and return to the same filtered row; panels put current facts and caveats first; and the harbourmaster's watch is visitor-paced with Previous, Next, Inspect and Stop watch.
+- Steadier steering: zoom stays anchored under the pointer, cancelled gestures stop cleanly, the visible ship wins a tap (with a short list when targets overlap), Still world stops decoration while readings keep updating, search can always be cancelled, and every overlay state is checked with axe and the keyboard.
+- Under the hood: checked shader patches, owned shader modules, a real-GPU compile check of every harbour program and a typed service map, the groundwork for the releases that follow.
+
 ## v1.5.1 - 2026-11-08 - Sails by Night
 
 Selected ships keep their sails at night.
