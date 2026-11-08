@@ -7,6 +7,12 @@ import type { HarbourPayloads } from "./types";
 const opts = { pieredChains: PIERED, dead: [] };
 
 describe("buildHarbourModel", () => {
+  it.each([-1, Infinity, NaN, 9e15])("omits an unrepresentable PSI computation time (%s)", (computedAt) => {
+    const payloads = makePayloads();
+    payloads.stability!.data!.current!.computedAt = computedAt;
+    expect(buildHarbourModel(payloads, T0_MS, opts).readings.psi.computedAt).toBeNull();
+  });
+
   it("makes one boat per payload coin, eligibility from the payload alone", () => {
     const m = buildHarbourModel(makePayloads(), T0_MS, opts);
     expect(m.payloadCount).toBe(625);

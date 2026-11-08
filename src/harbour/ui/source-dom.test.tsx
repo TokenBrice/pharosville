@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { Services } from "../engine/services";
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { projectedFixtures, TRUTH_COIN_ID, TRUTH_NOW, upstreamFixtures, type UpstreamFixtures } from "../__fixtures__/projection";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
@@ -271,5 +271,39 @@ describe("transport health remains independent from observation freshness", () =
     const saved = { data: { peggedAssets: [] }, meta: null, fetchedAtMs: TRUTH_NOW };
     expect(transportCopy({ stablecoins: { ...saved, failureStreak: 2, failureKind: "invalid-payload" } }, true)).toBe("A reading could not be used. Showing saved readings.");
     expect(transportCopy({ stablecoins: saved }, true)).toBe("");
+  });
+});
+
+
+describe("truth-review PSI provenance and comparisons", () => {
+  it.each(["pharos", "chartroom"])("dates %s's live score from its installed computedAt, not publication or a newer feed", async (id) => {
+    const feed = await setup((input) => {
+      input.stability._meta = { updatedAt: TRUTH_NOW / 1000, ageSeconds: 0, status: "fresh" };
+      Object.assign(input.stability.current as object, { score: 91, computedAt: TRUTH_NOW / 1000 - 3600 });
+    });
+    const snapshot = feed.payloads.stability!;
+    feed.payloads.stability = { ...snapshot, data: { ...snapshot.data!, current: { ...snapshot.data!.current!, score: 50, computedAt: TRUTH_NOW / 1000 - 1800 } } };
+    const ui = panel(landmark(id));
+    expect(ui.container.querySelector(".hb-chart-now title")?.textContent).toBe("Now · 91.0 · 2026-11-08 11:00:00 UTC");
+    fireEvent.click(screen.getByText("View values"));
+    expect(within(screen.getByRole("table")).getByRole("rowheader", { name: "Now · 2026-11-08 11:00:00" })).toBeTruthy();
+  });
+
+  it.each(["pharos", "chartroom"])("omits %s's now mark when the installed computedAt is absent", async (id) => {
+    await setup((input) => { delete (input.stability.current as Record<string, unknown>).computedAt; });
+    const ui = panel(landmark(id));
+    expect(ui.container.querySelector(".hb-chart-now")).toBeNull();
+    fireEvent.click(screen.getByText("View values"));
+    expect(within(screen.getByRole("table")).queryByRole("rowheader", { name: /^Now/ })).toBeNull();
+  });
+
+  it.each(["pharos", "chartroom"])("withholds %s's range across methodology versions", async (id) => {
+    await setup((input) => { input.stability.history = [
+      { date: TRUTH_NOW / 1000 - 86400, score: 90, methodologyVersion: "v1" },
+      { date: TRUTH_NOW / 1000, score: 40, methodologyVersion: "v2" },
+    ]; });
+    const ui = panel(landmark(id));
+    const range = within(ui.container).getByText("Observation range").nextElementSibling;
+    expect(range?.textContent).toBe("Comparison unavailable across methodology versions.");
   });
 });

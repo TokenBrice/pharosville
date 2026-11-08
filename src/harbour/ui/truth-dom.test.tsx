@@ -11,12 +11,13 @@ import { ChainSplit, FlowBars, TideBars } from "./bits";
 import { allocationLine, BOAT_SIGNALS_RULE, BY_EAR, FAR_PORTS_LINE, landmarkFact, SOUND_FLOW, SOUND_PHAROS, SOUND_SURF, STATION_RULE } from "./facts";
 import { coinNet, CUSTOMS_BARS, NET_UNAVAILABLE, VALUATION_UNKNOWN, type CoinFlow, type FlowHour } from "./flow-copy";
 import { Ledger } from "./Ledger";
+import { Search } from "./Search";
 import { SidePanel } from "./Panel";
 import type { PickHit } from "./services";
 import type { UIState } from "./store";
 
 const { state, services, store } = vi.hoisted(() => {
-  const state = { model: null as HarbourModel | null, selected: null as PickHit | null, ledgerOpen: true, reducedMotion: true };
+  const state = { model: null as HarbourModel | null, selected: null as PickHit | null, ledgerOpen: true, searchOpen: true, reducedMotion: true };
   const services = new Map<string, unknown>() as Services;
   return { state, services, store: {
     ctx: { services }, getSnapshot: () => state, select: vi.fn(),
@@ -26,7 +27,7 @@ const { state, services, store } = vi.hoisted(() => {
 vi.mock("./hooks", () => ({
   useStore: () => store, useUI: () => state,
   useUISlice: (select: (s: UIState) => unknown) => select(state as UIState),
-  usePresence: (open: boolean) => [open, open], useSticky: (value: unknown) => value,
+  touchFirst: () => false, usePresence: (open: boolean) => [open, open], useSticky: (value: unknown) => value,
 }));
 
 const NOW = 1_790_000_000_000;
@@ -301,5 +302,28 @@ describe("display integrity independent of endpoint truth", () => {
     publishPresentation(store.ctx, { status: "complete", revision: 2, displayed: 3, expected: 3 });
     panel("keeperslog");
     expect(screen.queryByText(/This view is incomplete/)).toBeNull();
+  });
+});
+
+
+describe("truth-review admission wording", () => {
+  const pilot = { id: "pilot", symbol: "PILOT", name: "Mainnet Pilot", launchPhase: "beta", launchPhaseDetail: "Already deployed on mainnet; awaiting tracking inputs." };
+  it("describes a mainnet pilot in Search as awaiting admission", () => {
+    state.model!.readings.wrecks = [];
+    services.set("civic", { yard: { coins: [pilot] } } as unknown as ServiceMap["civic"]);
+    render(<Search onClose={() => {}} />);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "PILOT" } });
+    const result = screen.getByRole("option");
+    expect(result.textContent).toContain("Awaiting admission to the tracked fleet.");
+    expect(result.textContent).not.toMatch(/pre-launch/i);
+  });
+
+  it("categorises mainnet pilots as admission records in the Ledger", () => {
+    services.set("civic", { yard: { coins: [pilot] } } as unknown as ServiceMap["civic"]);
+    render(<Ledger onClose={() => {}} />);
+    expect(screen.queryByRole("tab", { name: /Pre-launch/ })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: /Admission/ }));
+    expect(screen.getByRole("tabpanel").textContent).toContain("Awaiting admission to the tracked fleet.");
+    expect(screen.getByRole("tabpanel").textContent).toContain("PILOT");
   });
 });

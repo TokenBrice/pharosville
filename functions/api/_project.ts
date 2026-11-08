@@ -51,8 +51,8 @@ function projectStability(payload: ProjectionJson): ProjectionJson {
     out.current = projected;
   }
   // Validate and resolve duplicate dates before the bounded tail, matching the plotted observations.
-  const history = payload.history.filter((row): row is JsonObject & { date: number } => row !== null && typeof row === "object" && !Array.isArray(row) && Number.isFinite(row.score) && validObservationDate(row.date));
-  out.history = datedObservations(history).slice(-30).map((row) => pick(row, ["date", "score", "methodologyVersion"]));
+  const history = payload.history.filter((row): row is JsonObject & { date: number } => row !== null && typeof row === "object" && !Array.isArray(row) && validObservationDate(row.date));
+  out.history = datedObservations(history).filter((row) => Number.isFinite(row.score)).slice(-30).map((row) => pick(row, ["date", "score", "methodologyVersion"]));
   return out;
 }
 
