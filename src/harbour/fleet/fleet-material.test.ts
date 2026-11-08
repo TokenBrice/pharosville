@@ -194,3 +194,22 @@ describe("rig hairlines", () => {
     for (const uniform of [fleet.uFleetData, fleet.uFleetPaint, fleet.uEmblems, fleet.uBoards]) uniform.value.dispose();
   });
 });
+
+// v1.5.1: uLamp runs 0.4 (noon) … 40 (night). The hovered/selected sail sheen once multiplied by (1 - uLamp), about
+// -39 at night: negative light, NaN after tone mapping, scrubbed to black sails on the selected ship.
+describe("hover / selection sail sheen at night", () => {
+  it("fades out as the lamps come up and can never add negative light", () => {
+    const materials = new HarbourMaterials(createWorldUniforms());
+    const kit = materials.kit();
+    const system = new FleetSystem() as unknown as FleetHarness;
+    const { material, depth } = createFleetMaterials({ kit: () => kit, kitKey: () => "", track: () => undefined } as unknown as HarbourMaterials, {} as WorldUniforms, system.uniforms);
+    const shader = { ...THREE.ShaderLib.standard, uniforms: {} } as THREE.WebGLProgramParametersWithUniforms;
+    material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    expect(shader.fragmentShader).toContain("hi * max(1.0 - uLamp, 0.0)");
+    expect(shader.fragmentShader).not.toMatch(/hi \* \(1\.0 - uLamp\)/);
+    const factor = (lamp: number) => Math.max(1 - lamp, 0);
+    expect(factor(0.4)).toBeCloseTo(0.6, 6);
+    for (const lamp of [1, 2, 20, 40.4]) expect(factor(lamp)).toBe(0);
+    material.dispose(); depth.dispose(); materials.dispose();
+  });
+});
