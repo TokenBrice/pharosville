@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
 import { BOATS_GUIDE, BOAT_SIGNALS_RULE, FOG_GUIDE, PHAROS_GUIDE, SAIL_RULE, SEA_RULE, STATION_RULE } from "./facts";
 import { useStore, useUISlice } from "./hooks";
-import { readingSentence } from "./source-state";
+import { qualificationCopy, readingSentence } from "./source-state";
 import type { EndpointKey } from "../model/types";
-import type { PickHit } from "./services";
+import { getFeed, type PickHit } from "./services";
 
 const STOPS: Array<{ title: string; body: string; target: string; sources: EndpointKey[] }> = [
   { title: "The Pharos: market-wide stability", body: PHAROS_GUIDE, target: "pharos", sources: ["stability"] },
@@ -41,6 +41,8 @@ function GuideReading({ stop }: { stop: number }) {
   const boat = stop === 1 ? model?.boats.find((b) => b.state !== "wrecked") : null;
   const hit: PickHit = boat ? { kind: "boat", id: boat.id } : { kind: "landmark", id: reading.target };
   const available = !!store.picking.worldPosition(hit);
+  // the same disclosure as the Pharos panel, tag and ledger when the index was computed without an input
+  const qualification = qualificationCopy(getFeed(store.ctx)?.payloads);
   return <section className="hb-guide hb-paper hb-neat" role="dialog" aria-modal="false" aria-labelledby="hb-guide-title" onKeyDown={(e) => {
     e.stopPropagation();
     if (e.key === "Escape") { e.preventDefault(); store.closeGuide(); }
@@ -49,6 +51,7 @@ function GuideReading({ stop }: { stop: number }) {
     <p className="hb-caption">{stop + 1} of {STOPS.length}</p>
     <h3 className="hb-title" tabIndex={-1} ref={head}>{reading.title}</h3>
     <p>{reading.body}</p>
+    {stop === 0 && qualification && <p className="hb-caption">{qualification}</p>}
     {reading.sources.map((source) => <p key={source} className="hb-caption">{readingSentence(model, source)}</p>)}
     {!available && <p className="hb-caption">This subject is unavailable here. You can still read its explanation.</p>}
     <div className="hb-reading-actions">

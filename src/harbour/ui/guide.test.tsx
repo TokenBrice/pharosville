@@ -72,3 +72,31 @@ it("falls back to the wordmark when the guide launcher has closed", () => {
   mount(); act(() => f.store.startGuide()); fireEvent.click(screen.getByRole("button", { name: "Close guide" }));
   expect(document.activeElement).toBe(mark); mark.remove();
 });
+
+it("discloses every degraded PSI input at the Pharos stop with the shared wording (truth review)", () => {
+  const feed = f.store.ctx.services.get("feed")!;
+  const current = feed.payloads.stability!.data!.current as { inputDegradation?: { dewsUnavailable?: boolean; depegEventsUnavailable?: boolean } };
+  mount(); act(() => f.store.startGuide(0));
+  for (const [degradation, missing] of [
+    [{ dewsUnavailable: true }, "stress signals"],
+    [{ depegEventsUnavailable: true }, "depeg events"],
+    [{ dewsUnavailable: true, depegEventsUnavailable: true }, "stress signals and depeg events"],
+  ] as const) {
+    current.inputDegradation = degradation;
+    act(() => f.store.startGuide(1)); act(() => f.store.startGuide(0));
+    expect(screen.getByText(`Computed without ${missing}. A horn shutter narrows the beam until those inputs return.`)).toBeTruthy();
+  }
+  delete current.inputDegradation;
+  act(() => f.store.startGuide(1)); act(() => f.store.startGuide(0));
+  expect(screen.queryByText(/Computed without/)).toBeNull();
+  expect(screen.getByText(/computed without stress signals or depeg events\./)).toBeTruthy();
+});
+
+it("Home ends the watch from its own controls (D14)", () => {
+  const home = vi.spyOn(f.store, "goHome");
+  mount(); act(() => f.store.set({ watch: { symbol: "X", line: "current reason" } }));
+  const next = screen.getByRole("button", { name: "Next" }); act(() => next.focus());
+  fireEvent.keyDown(next, { key: "Home" });
+  expect(home).toHaveBeenCalledOnce();
+  expect(f.store.getSnapshot().watch).toBeNull();
+});

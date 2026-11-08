@@ -21,6 +21,7 @@ export function WatchControls() {
     if (e.key === "ArrowLeft") { e.preventDefault(); store.watchPrevious(); }
     else if (e.key === "ArrowRight") { e.preventDefault(); store.watchNext(); }
     else if (e.key === "Escape" || e.key.toLowerCase() === "w") { e.preventDefault(); store.stopWatch(); }
+    else if (e.key === "Home") { e.preventDefault(); store.goHome(); } // D14: Home ends the watch from its own controls too
   }}>
     <span><span className="hb-sc">Harbourmaster’s watch</span> <b>{watch.symbol}</b> <em>{watch.line}</em></span>
     <div className="hb-reading-actions">

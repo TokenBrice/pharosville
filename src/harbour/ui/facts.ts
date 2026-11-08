@@ -282,6 +282,6 @@ export const ANNIVERSARY_RULE = "An anniversary requires a recorded full date fr
 export const CEREMONY_RULE = "Confirmed visit events may stage brief ceremonies; the Day book also records events that receive no ceremony. Night and seasons follow the calendar and carry no market reading.";
 
 /** Shared guide/legend wording: teaching stays on demand and adds no analytical mapping. */
-export const PHAROS_GUIDE = "A fire in the lantern, thrown out to sea by a bronze mirror. A slow, wide sweep is a calm market; a faster, shorter beam is stress. A dark lantern means no reading. Its light passes over the ships and walls it reaches; a horn shutter narrows it when the index was computed without early-warning data.";
+export const PHAROS_GUIDE = "A fire in the lantern, thrown out to sea by a bronze mirror. A slow, wide sweep is a calm market; a faster, shorter beam is stress. A dark lantern means no reading. Its light passes over the ships and walls it reaches; a horn shutter narrows it when the index was computed without stress signals or depeg events.";
 export const BOATS_GUIDE = "Every stablecoin is one boat. Boats visit each chain in proportion to their supply there; sailing is not a bridge transfer.";
 export const FOG_GUIDE = "When the feed stops refreshing, fog rolls in and every boat finishes its leg and holds. Nothing pretends to be live.";
