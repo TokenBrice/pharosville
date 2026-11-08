@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DAY_AIR, DEFAULT_KEYFRAMES, TimeOfDay } from "./time-of-day";
+import { DAY_AIR, DEFAULT_KEYFRAMES, MORNING_AIR, TimeOfDay } from "./time-of-day";
 import { createWorldUniforms } from "./uniforms";
 import { SKY_BAND_GLSL, SKY_GRADIENT_DEG, SKY_LIFT, SKY_LIFT_DEG } from "../sky/sky-glsl";
 
@@ -49,16 +49,23 @@ describe("local hour cache", () => {
 
 describe("E03a hero value lock", () => {
   const key = (hour: number) => DEFAULT_KEYFRAMES.find((k) => k.hour === hour)!;
-  const close = (hex: string, authored: string) => {
-    const a = new THREE.Color(hex), b = new THREE.Color(authored).multiplyScalar(DAY_AIR);
+  const close = (hex: string, authored: string, k = DAY_AIR) => {
+    const a = new THREE.Color(hex), b = new THREE.Color(authored).multiplyScalar(k);
     for (const c of ["r", "g", "b"] as const) expect(a[c]).toBeCloseTo(b[c], 2);
   };
 
   it("sets the day keys' horizon and haze DAY_AIR below their authored colours (linear), one air for sky, sea and fog", () => {
     expect(DAY_AIR).toBeLessThanOrEqual(0.85);
-    close(key(8.5).horizon, "#E6EEF0"); close(key(8.5).haze, "#C2D3DC");
     close(key(12).horizon, "#E8F1F4"); close(key(12).haze, "#BCD3DF");
     close(key(16).horizon, "#F2E6D6"); close(key(16).haze, "#C9C6C8");
+  });
+
+  it("clears the back-lit morning's air a step below noon's and lifts its key no higher than the afternoon's", () => {
+    expect(MORNING_AIR).toBeLessThan(1);
+    expect(MORNING_AIR).toBeGreaterThanOrEqual(0.8);
+    close(key(8.5).horizon, "#E6EEF0", DAY_AIR * MORNING_AIR); close(key(8.5).haze, "#C2D3DC", DAY_AIR * MORNING_AIR);
+    expect(key(8.5).sunIntensity).toBeLessThanOrEqual(key(16).sunIntensity);
+    expect(key(8.5).sunIntensity).toBeGreaterThan(key(6.4).sunIntensity);
   });
 
   it("leaves the dawn, golden and night keys their own light", () => {
