@@ -7,6 +7,7 @@ import { dequantizeForPatterns, getHarbourMaterials } from "./materials";
 import { SunRig } from "./sun";
 import { mergeStaticMeshes } from "../engine/static-merge";
 import { updateSway } from "./sway";
+import { graphicsValidity } from "../engine/graphics";
 
 export const ISLAND_URL = "/harbour/island.glb";
 
@@ -39,7 +40,7 @@ export class IslandSystem implements WorldSystem {
       mats.apply(gltf.scene, { deferStatic: (mesh) => mesh.name.startsWith("island_") });
       this.root = gltf.scene;
     } catch (e) {
-      if (!import.meta.env.DEV) throw e;
+      if (ctx.signal?.aborted || !import.meta.env.DEV) throw e;
       console.warn("[harbour] island.glb failed to load: dev stand-in", e);
       const { buildStandIn } = await import("./standin");
       const s = await buildStandIn(ctx, layout, mats);
@@ -59,6 +60,7 @@ export class IslandSystem implements WorldSystem {
     this.root.updateMatrixWorld(true);
     const ground = renderGround(ctx.renderer, this.root, [min[0], min[2], max[0], max[2]], 1024);
     this.ground = ground;
+    graphicsValidity(ctx)?.assertValid();
     ctx.services.set("ground", ground);
     mats.ao.uAOTex.value = aoHeightTexture(ground, 512);
     mats.ao.uAOBounds.value.set(min[0], max[2], 1 / (max[0] - min[0]), 1 / (max[2] - min[2]));

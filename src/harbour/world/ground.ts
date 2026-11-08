@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { BootFailure } from "../engine/failure";
 
 /**
  * 'ground' service: a top-down height field of the static island (terrain, quays, piers, roofs), rendered
@@ -70,17 +71,29 @@ export function renderGround(renderer: THREE.WebGLRenderer, root: THREE.Object3D
   const prevTarget = renderer.getRenderTarget();
   const prevClear = renderer.getClearColor(new THREE.Color());
   const prevAlpha = renderer.getClearAlpha();
-  renderer.setRenderTarget(rt);
-  renderer.setClearColor(new THREE.Color(FLOOR, 0, 0), 1);
-  renderer.clear();
-  renderer.render(scene, cam);
-  const data = new Float32Array(size * size * 4);
-  renderer.readRenderTargetPixels(rt, 0, 0, size, size, data);
-  renderer.setRenderTarget(prevTarget);
-  renderer.setClearColor(prevClear, prevAlpha);
-  scene.remove(root);
-  if (parent) parent.add(root);
-  mat.dispose();
+  const extent = new THREE.Box3().setFromObject(root);
+  const low = Math.min(FLOOR, extent.min.y) - 0.1, high = Math.max(FLOOR, extent.max.y) + 0.1;
+  const data = new Float32Array(size * size * 4).fill(NaN);
+  let valid = false;
+  try {
+    renderer.setRenderTarget(rt);
+    renderer.setClearColor(new THREE.Color(FLOOR, 0, 0), 1);
+    renderer.clear();
+    renderer.render(scene, cam);
+    renderer.readRenderTargetPixels(rt, 0, 0, size, size, data);
+    for (let i = 0; i < data.length; i += 4) {
+      if (!Number.isFinite(data[i]) || data[i] < low || data[i] > high) throw new BootFailure("graphics-buffers");
+    }
+    valid = true;
+  } catch (cause) { throw new BootFailure("graphics-buffers", { cause }); }
+  finally {
+    renderer.setRenderTarget(prevTarget);
+    renderer.setClearColor(prevClear, prevAlpha);
+    scene.remove(root);
+    if (parent) parent.add(root);
+    mat.dispose();
+    if (!valid) rt.dispose();
+  }
 
   // CPU copy (R only); texture row 0 = bottom of the ortho view = world z max
   const h = new Float32Array(size * size);

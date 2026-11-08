@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { EngineContext, PreparationEntry, PreparationService } from "./types";
 import { getHarbourMaterials } from "../world/materials";
 import { deferred } from "./deferred";
+import { graphicsValidity } from "./graphics";
 
 const aborted = () => new DOMException("Preparation superseded", "AbortError");
 export const isPreparationAbort = (error: unknown): boolean => error instanceof DOMException && error.name === "AbortError";
@@ -76,7 +77,7 @@ export class ProgramPreparation implements PreparationService {
     for (const controller of this.active) controller.abort();
   }
 
-  private idle(signal?: AbortSignal): Promise<number> {
+  private idle(signal: AbortSignal | undefined = this.ctx.signal): Promise<number> {
     if (this.disposed || signal?.aborted) return Promise.reject(aborted());
     const { promise, resolve, reject } = deferred<number>();
     const native = typeof requestIdleCallback === "function";
@@ -220,8 +221,12 @@ export class ProgramPreparation implements PreparationService {
                 object.material = material;
                 object.children = [];
                 renderer.setRenderTarget(entry.target());
-                if (renderer.extensions.has("KHR_parallel_shader_compile")) pending.push(renderer.compileAsync(object, entry.camera, entry.scene));
-                else renderer.compile(object, entry.camera, entry.scene);
+                const compile = () => {
+                  if (renderer.extensions.has("KHR_parallel_shader_compile")) pending.push(renderer.compileAsync(object, entry.camera, entry.scene));
+                  else renderer.compile(object, entry.camera, entry.scene);
+                };
+                const graphics = graphicsValidity(this.ctx);
+                if (graphics) graphics.checkPreparation(compile); else compile();
               } finally {
                 object.material = live; object.children = children;
                 restore?.();
@@ -250,12 +255,16 @@ export class ProgramPreparation implements PreparationService {
         for (const program of properties.programs?.values() ?? []) {
           if (renderer.extensions.has("KHR_parallel_shader_compile")) while (!program.isReady()) deadline = await this.idle(controller.signal);
           if (controller.signal.aborted) throw aborted();
-          program.getUniforms(); program.getAttributes();
+          const reflect = () => { program.getUniforms(); program.getAttributes(); };
+          const graphics = graphicsValidity(this.ctx);
+          if (graphics) graphics.checkPreparation(reflect); else reflect();
         }
       }
       if (controller.signal.aborted) throw aborted();
+      graphicsValidity(this.ctx)?.assertValid();
       return batch;
     } catch (error) {
+      try { graphicsValidity(this.ctx)?.assertValid(); } catch (failure) { batch.dispose(); throw failure; }
       if (timedOut && !this.disposed && !signal?.aborted && epoch === this.epoch) {
         // Preparation is an optimization, never permission to erase scenery. Keep submitted program
         // references alive for the first real draw; it may synchronously finish the remaining work.

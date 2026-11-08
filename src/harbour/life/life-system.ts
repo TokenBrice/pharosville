@@ -99,10 +99,9 @@ export class LifeSystem implements WorldSystem {
     if (!layout) return;
     let walk: Walkways;
     try {
-      const r = await fetch(WALKWAYS_URL);
-      if (!r.ok || !(r.headers.get("content-type") ?? "").includes("json")) return;
-      walk = (await r.json()) as Walkways;
+      walk = await ctx.assets.json<Walkways>(WALKWAYS_URL);
     } catch { return; }
+    ctx.signal?.throwIfAborted();
     const mats = getHarbourMaterials(ctx);
     this.motion = ensureMotionService(ctx);
     this.quality = (ctx.services.get("quality") as QualityService | undefined) ?? null;
@@ -178,6 +177,7 @@ export class LifeSystem implements WorldSystem {
       } catch { this.herds = null; }
     }
 
+    ctx.signal?.throwIfAborted();
     if (walk.flagpoles.length || walk.bunting.length) {
       this.flags = new LandFlags(walk, mats);
       this.group.add(this.flags.mesh);

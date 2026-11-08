@@ -6,8 +6,8 @@ import { HoverTag } from "./HoverTag";
 import { Postcard } from "./Postcard";
 import { preloadDetails } from "./details";
 import { DetailFallback } from "./DetailFallback";
-
-const DetailPanels = lazy(preloadDetails);
+import { SectionErrorBoundary } from "@/components/section-error-boundary";
+import { OverlayFailure } from "./OverlayFailure";
 
 /** Arrow keys pan. (No WASD: W is the opt-in watch, D-5, and half a WASD set would only confuse.) */
 const PAN_KEYS: Record<string, "up" | "down" | "left" | "right"> = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
@@ -25,6 +25,7 @@ export function HarbourUI() {
   const watch = useUISlice((s) => s.watch);
   const ledgerOpen = useUISlice((s) => s.ledgerOpen);
   // Keep mounted after first use so each panel retains its existing close/presence semantics.
+  const [DetailPanels, setDetailPanels] = useState(() => lazy(preloadDetails));
   const [detailsStarted, setDetailsStarted] = useState(false);
   if (!detailsStarted && (ledgerOpen || searchOpen || selected)) setDetailsStarted(true);
   // focus to return to when the topmost layer closes
@@ -113,9 +114,14 @@ export function HarbourUI() {
       <ChartLabels />
       <HoverTag />
       <CornerMark />
-      {detailsStarted && <Suspense fallback={<DetailFallback closeLedger={closeLedger} closePanel={closePanel} closeSearch={closeSearch} />}>
+      {detailsStarted && <SectionErrorBoundary name="harbour-details" onRetry={() => setDetailPanels(() => lazy(preloadDetails))}
+        fallback={(retry, attempts) => (ledgerOpen || searchOpen || selected) && <OverlayFailure scope="details" retry={retry} attempts={attempts} close={() => {
+          if (searchOpen) closeSearch();
+          if (selected) closePanel();
+          if (ledgerOpen) closeLedger();
+        }} />}><Suspense fallback={<DetailFallback closeLedger={closeLedger} closePanel={closePanel} closeSearch={closeSearch} />}>
         <DetailPanels closeLedger={closeLedger} closePanel={closePanel} closeSearch={closeSearch} />
-      </Suspense>}
+      </Suspense></SectionErrorBoundary>}
       <Postcard />
       {watch && (
         <div className="hb-watch hb-paper" aria-hidden="true">

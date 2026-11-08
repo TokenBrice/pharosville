@@ -5,12 +5,19 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RenderedFleetState, ReadinessState } from "../engine/types";
 
+import { BootFailure, type HarbourLifecycle } from "../engine/failure";
+import { deferred } from "../engine/deferred";
+
 interface TestEngine {
+  canPublish: boolean;
+  lifecycle(state: HarbourLifecycle): void;
+  abort: ReturnType<typeof vi.fn>;
+  dispose: ReturnType<typeof vi.fn>;
   ctx: { services: Map<string, unknown> };
   listeners: Set<(state: RenderedFleetState) => void>;
   render(state: RenderedFleetState): void;
 }
-const harness = vi.hoisted(() => ({ engines: [] as TestEngine[], analytics: vi.fn(), preload: vi.fn(async () => {}) }));
+const harness = vi.hoisted(() => ({ engines: [] as TestEngine[], analytics: vi.fn(), preload: vi.fn(async () => {}), init: vi.fn(async () => {}) }));
 vi.mock("../engine/engine", () => ({
   Engine: class {
     ctx = { services: new Map<string, unknown>([
@@ -22,7 +29,11 @@ vi.mock("../engine/engine", () => ({
     listeners = new Set<(state: RenderedFleetState) => void>();
     constructor() { harness.engines.push(this); }
     add() { return this; }
-    async init() {}
+    init = harness.init;
+    canPublish = true;
+    lifecycleListeners = new Set<(state: HarbourLifecycle) => void>();
+    onLifecycle(cb: (state: HarbourLifecycle) => void) { this.lifecycleListeners.add(cb); return () => this.lifecycleListeners.delete(cb); }
+    lifecycle(state: HarbourLifecycle) { this.canPublish = state.state === "READY" || (state.state === "BOOTING" && !state.code); for (const cb of this.lifecycleListeners) cb(state); }
     start = vi.fn();
     abort = vi.fn();
     dispose = vi.fn();
@@ -65,7 +76,12 @@ describe("composer-completed arrival reveal", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.clearAllMocks();
+    harness.init.mockResolvedValue(undefined);
+    vi.spyOn(console, "error").mockImplementation(() => {});
     harness.engines.length = 0;
+    Object.defineProperty(window, "screen", { configurable: true, value: { width: 1200, height: 800 } });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
     document.documentElement.removeAttribute("data-pv-live");
     document.body.innerHTML = '<div id="pv-poster"></div><div id="test-root"></div>';
     host = document.getElementById("test-root") as HTMLDivElement;
@@ -75,7 +91,68 @@ describe("composer-completed arrival reveal", () => {
     root = undefined;
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     delete window.__harbourStats;
+  });
+
+  it("terminates a rejected required kit despite prepared fleet data and allows an admitted retry", async () => {
+    Object.defineProperty(window, "screen", { configurable: true, value: { width: 1200, height: 800 } });
+    harness.init.mockRejectedValueOnce(new BootFailure("loading"));
+    await mount(); commit(1, 12); await frame(1, 12);
+    expect(shown()).toBe(false);
+    expect(status()).toBe("The harbour’s scenery could not load. Check your connection and try again.");
+    const old = engine(); expect(old.abort).toHaveBeenCalled(); expect(old.dispose).toHaveBeenCalled();
+    const retry = host.querySelector("button")!;
+    expect(retry.textContent).toBe("Retry harbour");
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 719 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+    await act(async () => retry.click()); expect(engine()).toBe(old);
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
+    await act(async () => retry.click()); expect(engine()).not.toBe(old);
+    commit(1, 0); await frame(1, 0); expect(shown()).toBe(true);
+  });
+
+  it("independently blocks every reveal outcome behind a graphics failure latch", async () => {
+    await mount(); engine().canPublish = false;
+    commit(1, 12); await frame(1, 12); await frame(1, 11); await advance(4000); await frame(1, 11);
+    engine().ctx.services.set("model", { hasFleet: false, boats: [] });
+    await frame(); await advance(3000); await frame();
+    feed().payloads.stablecoins = { data: null }; await frame();
+    expect(shown()).toBe(false); expect(harness.preload).not.toHaveBeenCalled();
+  });
+
+  it("ignores restoration after admission is withdrawn during boot", async () => {
+    const boot = deferred(); harness.init.mockReturnValueOnce(boot.promise);
+    await mount(); const old = engine();
+    await act(async () => old.lifecycle({ state: "RECOVERING", code: "context-lost" }));
+    expect(shown()).toBe(false);
+    await act(async () => root!.unmount()); root = undefined;
+    await act(async () => {
+      old.lifecycle({ state: "BOOTING", code: "context-lost" }); boot.resolve();
+    });
+    expect(harness.engines).toHaveLength(1); expect(old.dispose).toHaveBeenCalled();
+    expect(shown()).toBe(false);
+  });
+
+  it("restores the poster during fade, remounts once after restoration, and requires action after another loss", async () => {
+    await mount(); commit(1, 12); await frame(1, 12);
+    expect(shown()).toBe(true);
+    const old = engine();
+    await act(async () => old.lifecycle({ state: "RECOVERING", code: "context-lost" }));
+    expect(shown()).toBe(false); expect(old.dispose).not.toHaveBeenCalled();
+    expect(status()).toBe("The harbour’s graphics were interrupted. Restoring the view.");
+    await advance(1500); expect(host.querySelector(".pv-arrival")).not.toBeNull();
+    await act(async () => old.lifecycle({ state: "BOOTING", code: "context-lost" }));
+    expect(old.dispose).toHaveBeenCalled(); expect(engine()).not.toBe(old);
+    commit(2, 12); await frame(2, 12); await advance(1300);
+    expect(shown()).toBe(true);
+    const restored = engine();
+    await act(async () => restored.lifecycle({ state: "RECOVERING", code: "context-lost" }));
+    expect(status()).toBe("The harbour’s graphics could not recover.");
+    expect(host.querySelector("button")?.textContent).toBe("Retry harbour");
+    await act(async () => restored.lifecycle({ state: "BOOTING", code: "context-lost" }));
+    expect(engine()).toBe(restored);
   });
 
   it("reveals fast data only on the exact prepared revision's complete fleet render", async () => {

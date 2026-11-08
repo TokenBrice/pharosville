@@ -1,5 +1,7 @@
 import * as THREE from "three";
 import type { AssetStore } from "../engine/assets";
+import { abortable, transport } from "../engine/transport";
+import { isAbort } from "../engine/failure";
 
 /**
  * Sail-emblem atlas: decoded logos and generated monograms share one canvas and mip chain.
@@ -38,7 +40,7 @@ export class EmblemAtlas {
   private dirty = false;
   private batching = false;
 
-  private constructor(private readonly meta: AtlasMeta, extraSlots: number) {
+  private constructor(private readonly meta: AtlasMeta, extraSlots: number, private readonly signal?: AbortSignal) {
     const rowsLogos = logoRows(meta);
     this.logoSlots = rowsLogos * meta.cols;
     this.capacity = Math.max(1, Math.min(meta.cols, rowsLogos + Math.ceil(extraSlots / meta.cols) + 1)) * meta.cols;
@@ -65,8 +67,9 @@ export class EmblemAtlas {
     let meta: AtlasMeta = { slot: 128, cols: 32, width: 4096, height: 128, ids: {} };
     try {
       meta = await assets.json<AtlasMeta>(EMBLEMS_JSON);
-    } catch (e) { console.warn("[harbour] fleet: emblem atlas unavailable, monograms only", e); }
-    return new EmblemAtlas(meta, extraSlots);
+    } catch (e) { if (isAbort(e) || assets.signal?.aborted) throw e; console.warn("[harbour] fleet: emblem atlas unavailable, monograms only", e); }
+    assets.signal?.throwIfAborted();
+    return new EmblemAtlas(meta, extraSlots, assets.signal);
   }
 
   /** Reserve every slot used by this install before drawing (including shared logo slots). */
@@ -102,18 +105,23 @@ export class EmblemAtlas {
 
   /** Copy decoded logos into the combined canvas once; finish pending monograms on failure. */
   async loadLogos(): Promise<void> {
-    if (this.logos !== "wait") return;
+    if (this.logos !== "wait" || this.disposed || this.signal?.aborted) return;
     this.logos = "loading";
     let img: ImageBitmap | null = null;
     for (const url of [EMBLEMS_IMG, EMBLEMS_IMG_FALLBACK]) {
       try {
-        const ri = await fetch(url);
-        if (ri.ok && (ri.headers.get("content-type") ?? "").includes("image")) img = await createImageBitmap(await ri.blob(), { premultiplyAlpha: "none" });
-      } catch (e) { console.warn(`[harbour] fleet: emblem logos unavailable from ${url}`, e); }
+        img = await transport(this.signal, async (signal) => {
+          const ri = await fetch(url, { signal });
+          if (!ri.ok || !(ri.headers.get("content-type") ?? "").includes("image")) return null;
+          const blob = await ri.blob();
+          signal.throwIfAborted();
+          return abortable(createImageBitmap(blob, { premultiplyAlpha: "none" }), signal, (image) => image.close());
+        }, (image) => image?.close());
+      } catch (e) { if (isAbort(e) || this.signal?.aborted) return; console.warn(`[harbour] fleet: emblem logos unavailable from ${url}`, e); }
       if (img) break;
     }
     this.logos = "done";
-    if (this.disposed) { img?.close(); return; }
+    if (this.disposed || this.signal?.aborted) { img?.close(); return; }
     if (img) {
       this.batching = true;
       const rows = logoRows(this.meta);

@@ -12,6 +12,8 @@ import { createWorldUniforms } from "./uniforms";
 import type { EngineContext, HarbourStats, PreparationEntry, RenderedFleetState, WorldSystem } from "./types";
 import { isPreparationAbort, ProgramPreparation, type PreparedPrograms } from "./prepare";
 import { TIERS, type QualitySettings } from "./quality";
+import { BootFailure, failureCode, type HarbourLifecycle } from "./failure";
+import { GraphicsValidity, probeGraphics } from "./graphics";
 
 /**
  * Systems nothing else needs at init and the first frame can do without (overlays and decoration):
@@ -33,6 +35,40 @@ declare global { interface Window { __harbourStats?: HarbourStats; __harbour?: E
  */
 export class Engine {
   readonly ctx: EngineContext;
+  private readonly graphics = new GraphicsValidity();
+  private lifecycle: HarbourLifecycle = { state: "BOOTING", code: null };
+  private readonly lifecycleListeners = new Set<(state: HarbourLifecycle) => void>();
+  private failedFrames = 0;
+  private restorationTimer = 0;
+
+  get canPublish(): boolean {
+    if (this.aborted || this.disposed || this.lifecycle.state === "RECOVERING" || this.lifecycle.state === "FAILED") return false;
+    try { this.graphics.assertValid(); return true; } catch { return false; }
+  }
+
+  onLifecycle(cb: (state: HarbourLifecycle) => void): () => void {
+    this.lifecycleListeners.add(cb); cb(this.lifecycle);
+    return () => this.lifecycleListeners.delete(cb);
+  }
+
+  private transition(state: HarbourLifecycle["state"], code: HarbourLifecycle["code"]): void {
+    this.lifecycle = { state, code };
+    for (const cb of this.lifecycleListeners) cb(this.lifecycle);
+  }
+
+  private onContextLost(event: Event): void {
+    event.preventDefault();
+    if (this.disposed || this.aborted) return;
+    this.abort();
+    this.transition("RECOVERING", "context-lost");
+    this.restorationTimer = window.setTimeout(() => this.transition("FAILED", "context-lost"), 30000);
+  }
+  private onContextRestored(): void {
+    if (this.disposed || this.lifecycle.state !== "RECOVERING") return;
+    clearTimeout(this.restorationTimer);
+    // The app disposes this owner before mounting a fresh Engine; GPU-only bakes never survive.
+    this.transition("BOOTING", "context-lost");
+  }
   private readonly systems: WorldSystem[] = [];
   /** Systems whose init has completed (only these update / resize). */
   private readonly ready = new Set<WorldSystem>();
@@ -85,7 +121,15 @@ export class Engine {
   private readonly onSceneAddition = () => { if (this.booted) this.preparation.invalidate(); };
 
   constructor(readonly container: HTMLElement) {
-    const renderer = new THREE.WebGLRenderer({ antialias: false, stencil: false, depth: true, powerPreference: "high-performance" });
+    let renderer: THREE.WebGLRenderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: false, stencil: false, depth: true, powerPreference: "high-performance" }); }
+    catch (cause) { throw new BootFailure("graphics-buffers", { cause }); }
+    renderer.debug.checkShaderErrors = true;
+    renderer.debug.onShaderError = this.graphics.onShaderError;
+    this.onContextLost = this.onContextLost.bind(this);
+    this.onContextRestored = this.onContextRestored.bind(this);
+    renderer.domElement.addEventListener("webglcontextlost", this.onContextLost);
+    renderer.domElement.addEventListener("webglcontextrestored", this.onContextRestored);
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping; // tone mapping happens in post
@@ -108,7 +152,8 @@ export class Engine {
     }, !GPU_PROF); // Pass profiling owns elapsed queries: WebGL forbids nesting them.
     // the layout system tunes the tilt-shift range from its presets
 
-    this.ctx = { renderer, scene, camera, rig, composer, uniforms: createWorldUniforms(), timeOfDay: new TimeOfDay(), assets: new AssetStore(), services: new Map(), signal: this.lifetime.signal };
+    this.ctx = { renderer, scene, camera, rig, composer, uniforms: createWorldUniforms(), timeOfDay: new TimeOfDay(), assets: new AssetStore(this.lifetime.signal), services: new Map(), signal: this.lifetime.signal };
+    this.ctx.services.set("graphics-validity", this.graphics);
     this.ctx.services.set("post", this.post);
     this.ctx.services.set("quality", this.governor);
     this.preparation = new ProgramPreparation(this.ctx);
@@ -143,6 +188,17 @@ export class Engine {
    * them while the main thread finishes the frame's CPU work). `?defer=0` boots everything first (A/B).
    */
   async init(): Promise<void> {
+    try { await this.initialize(); }
+    catch (error) {
+      if (this.aborted) return;
+      this.abort(); this.transition("FAILED", failureCode(error));
+      throw error;
+    }
+  }
+
+  private async initialize(): Promise<void> {
+    probeGraphics(this.ctx.renderer);
+    this.graphics.assertValid();
     const boot: Record<string, number> = {};
     this.stats.boot = boot;
     const defer = new URLSearchParams(location.search).get("defer") !== "0";
@@ -152,7 +208,9 @@ export class Engine {
       const t = performance.now();
       this.begun.add(s);
       try { await s.init(this.ctx); }
-      catch (error) { if (this.aborted) return; this.dispose(); throw error; }
+      catch (error) { if (this.aborted) return; throw error; }
+      if (this.aborted || this.disposed) return;
+      this.graphics.assertValid();
       this.preparation.stageTextures(this.ctx.scene);
       if (this.aborted || this.disposed) return;
       boot[s.name] = Math.round(performance.now() - t);
@@ -167,8 +225,13 @@ export class Engine {
     const wake = this.ctx.services.get("wake") as { preparationEntries(): PreparationEntry[] } | undefined;
     for (const entry of wake?.preparationEntries() ?? []) this.preparation.register(entry);
     while (!this.aborted && !this.disposed) {
-      try { this.preparation.adopt(await this.preparation.prepareWorld()); break; }
-      catch (error) { if (!isPreparationAbort(error)) { this.dispose(); throw error; } }
+      try {
+        const batch = await this.preparation.prepareWorld();
+        if (this.aborted || this.disposed) { batch.dispose(); return; }
+        try { this.graphics.assertValid(); } catch (error) { batch.dispose(); throw error; }
+        this.preparation.adopt(batch); break;
+      }
+      catch (error) { if (!isPreparationAbort(error)) throw error; }
     }
     if (this.aborted || this.disposed) return;
     // The first ordinary composer render is already behind the poster and provides real pose/depth
@@ -193,6 +256,7 @@ export class Engine {
     if (this.aborted) return;
     this.aborted = true; this.lifetime.abort(); this.stop(); this.preparation.invalidate();
     // The app waits for boot to settle before dispose; do not leave the data worker/feed alive meanwhile.
+    (this.ctx.services.get("sound") as { dispose(): void } | undefined)?.dispose();
     for (const system of this.begun) if (system.name === "data") {
       system.dispose(this.ctx); this.begun.delete(system); this.ready.delete(system);
     }
@@ -257,6 +321,22 @@ export class Engine {
   stop(): void { this.running = false; cancelAnimationFrame(this.raf); }
 
   private frame(now: number): void {
+    if (this.aborted || this.disposed) return;
+    try {
+      this.graphics.assertValid();
+      this.renderFrame(now);
+      this.failedFrames = 0;
+    } catch (error) {
+      if (this.aborted || this.disposed) return;
+      if (failureCode(error) === "shader") {
+        this.abort(); this.transition("RECOVERING", "shader");
+      } else if (++this.failedFrames >= 3) {
+        this.abort(); this.transition("FAILED", "frames");
+      }
+    }
+  }
+
+  private renderFrame(now: number): void {
     if (this.profile && this.firstFrameMs !== null) { this.profiledFrame(now); return; }
     const { ctx } = this;
     const t0 = this.firstFrameMs === null ? performance.now() : 0;
@@ -272,18 +352,21 @@ export class Engine {
     ctx.uniforms.uCameraPos.value.copy(ctx.camera.position);
     ctx.renderer.info.reset();
     this.governor.begin();
-    const prof = this.firstFrameMs === null ? this.stats.boot : undefined;
-    for (const s of this.systems) if (this.ready.has(s)) {
-      const ts = prof ? performance.now() : 0;
-      s.update(frame, ctx);
-      if (prof) prof[`u:${s.name}`] = Math.round(performance.now() - ts);
-    }
-    this.post.update(delta, ctx.timeOfDay, ctx.rig);
-    const tr = prof ? performance.now() : 0;
-    ctx.composer.render(delta);
-    this.recordRendered();
-    if (prof) prof["u:render"] = Math.round(performance.now() - tr);
-    this.governor.end(delta);
+    try {
+      const prof = this.firstFrameMs === null ? this.stats.boot : undefined;
+      for (const s of this.systems) if (this.ready.has(s)) {
+        const ts = prof ? performance.now() : 0;
+        s.update(frame, ctx);
+        if (prof) prof[`u:${s.name}`] = Math.round(performance.now() - ts);
+      }
+      this.post.update(delta, ctx.timeOfDay, ctx.rig);
+      const tr = prof ? performance.now() : 0;
+      ctx.composer.render(delta);
+      this.graphics.assertValid();
+      if (this.aborted || this.disposed) return;
+      this.recordRendered();
+      if (prof) prof["u:render"] = Math.round(performance.now() - tr);
+    } finally { this.governor.end(delta); }
     if (this.firstFrameMs === null) {
       this.firstFrameMs = performance.now() - this.startMs;
       if (this.stats.boot) this.stats.boot.firstRender = Math.round(performance.now() - t0);
@@ -316,14 +399,17 @@ export class Engine {
     ctx.uniforms.uCameraPos.value.copy(ctx.camera.position);
     ctx.renderer.info.reset();
     this.governor.begin();
-    t = this.lap("pre", t);
-    for (const s of this.systems) if (this.ready.has(s)) { s.update(frame, ctx); t = this.lap(s.name, t); }
-    this.post.update(delta, ctx.timeOfDay, ctx.rig);
-    t = this.lap("post.update", t);
-    ctx.composer.render(delta);
-    this.recordRendered();
-    t = this.lap("render", t);
-    this.governor.end(delta);
+    try {
+      t = this.lap("pre", t);
+      for (const s of this.systems) if (this.ready.has(s)) { s.update(frame, ctx); t = this.lap(s.name, t); }
+      this.post.update(delta, ctx.timeOfDay, ctx.rig);
+      t = this.lap("post.update", t);
+      ctx.composer.render(delta);
+      this.graphics.assertValid();
+      if (this.aborted || this.disposed) return;
+      this.recordRendered();
+      t = this.lap("render", t);
+    } finally { this.governor.end(delta); }
     this.publishStats();
     this.lap("tail", t);
     this.lap("TOTAL", start);
@@ -364,6 +450,8 @@ export class Engine {
   }
 
   private recordRendered(): void {
+    if (!this.canPublish) return;
+    if (this.lifecycle.state === "BOOTING") this.transition("READY", null);
     const fleet = this.ctx.services.get("fleet-frame") as RenderedFleetState | undefined;
     this.rendered.revision = fleet?.revision ?? 0;
     this.rendered.boats = fleet?.boats ?? 0;
@@ -421,6 +509,10 @@ export class Engine {
     if (this.disposed) return;
     this.abort();
     this.disposed = true;
+    clearTimeout(this.restorationTimer);
+    this.ctx.renderer.domElement.removeEventListener("webglcontextlost", this.onContextLost);
+    this.ctx.renderer.domElement.removeEventListener("webglcontextrestored", this.onContextRestored);
+    this.lifecycleListeners.clear();
     this.stop();
     this.preparation.dispose();
     for (const batch of this.qualityPrograms) batch.dispose();

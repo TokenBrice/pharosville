@@ -41,11 +41,11 @@ export class OfficeWorksSystem implements WorldSystem {
   private async load(ctx: EngineContext, plots: NonNullable<CivicPlots["plots"]>): Promise<void> {
     this.state = "loading";
     try {
-      const r = await fetch(CIVIC_BASE + "manifest.json");
-      const spec = ((await r.json()) as CivicManifest).kinds["office-works"];
+      const spec = (await ctx.assets.json<CivicManifest>(CIVIC_BASE + "manifest.json")).kinds["office-works"];
       const flank = (spec?.anchors?.flank ?? {}) as Record<string, { pos: [number, number, number]; rotY: number }>;
       if (!spec) { this.state = "off"; return; }
       const src = (await ctx.assets.gltf(CIVIC_BASE + spec.file)).scene;
+      ctx.signal?.throwIfAborted();
       getHarbourMaterials(ctx).apply(src);
       // the wheel turns about its axle: re-pivot it on the manifest origin (the material port baked it in place)
       const axle = spec.nodes.find((n) => n.name === "works_wheel")?.origin;
@@ -71,7 +71,7 @@ export class OfficeWorksSystem implements WorldSystem {
       }
       this.state = "ready";
     } catch (e) {
-      console.warn("[harbour] office works unavailable", e);
+      if (!ctx.signal?.aborted) console.warn("[harbour] office works unavailable", e);
       this.state = "off";
     }
   }
