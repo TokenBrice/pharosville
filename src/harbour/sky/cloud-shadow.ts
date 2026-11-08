@@ -27,17 +27,22 @@ uniform sampler2D uCloudShadowTex;
 uniform vec4 uCloudShadowF;
 uniform vec3 uCloudShadowG;
 uniform vec4 uCloudShadowS;
-float hbCloudShadow(vec2 xz) {
+// E01: deck = this point's deck: x its coverage 0 (clear) … 1 (under a cloud), the shadow's own term before its
+// strength, the sunbreaks or the squall; y the storm grade on this side of a front, the sky's stormOf(cover)
+// recovered from the threshold it sets as 0.66 - 0.3 × cover (sky-system.ts): 0.546 ↔ cover 0.38, 0.435 ↔ 0.75
+float hbCloudShadow(vec2 xz, out vec2 deck) {
   // W01: under a front, the ground behind its line already has the weather it brings (the shadow line crosses
   // the water toward the island); ahead of it, the old sky
   float bh = uCloudShadowF.w > 0.5 ? 1.0 - smoothstep(-60.0, 60.0, dot(xz, uCloudShadowF.xy) - uCloudShadowF.z) : 0.0;
   float w = mix(uCloudShadow.w, uCloudShadowG.y, bh);
+  float k = mix(uCloudShadowK.x, uCloudShadowG.x, bh);
+  deck = vec2(0.0, 1.0 - smoothstep(0.435, 0.546, k));
   float r = 1.0;
   vec2 uv = (xz + uCloudShadow.xy) * uCloudShadow.z;
   if (w > 0.001) {
-    float k = mix(uCloudShadowK.x, uCloudShadowG.x, bh);
     float n = texture2D(uCloudShadowTex, uv).r * 0.72 + texture2D(uCloudShadowTex, uv * 2.3 + 0.37).g * 0.38;
-    r = 1.0 - w * smoothstep(k, k + uCloudShadowK.y, n);
+    deck.x = smoothstep(k, k + uCloudShadowK.y, n);
+    r = 1.0 - w * deck.x;
   }
   // W03 sunbreaks: the field inverts — most of the land and sea shadowed, a few large sunlit patches drifting
   if (uCloudShadowG.z > 0.001) {
@@ -53,4 +58,5 @@ float hbCloudShadow(vec2 xz) {
   }
   return r;
 }
+float hbCloudShadow(vec2 xz) { vec2 deck; return hbCloudShadow(xz, deck); }
 `;

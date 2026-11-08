@@ -294,8 +294,9 @@ vec3 hbPool(vec3 worldPos, vec3 worldN) {
   vec4 p = texture2D(uPoolTex, uv);
   p.rgb *= min(1.0, 0.5 / max(dot(p.rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-4));   // overlapping lamps: a sane max
   float upw = smoothstep(0.2, 0.85, worldN.y);
-  float below = smoothstep(p.a + 0.6, p.a - 0.4, worldPos.y);      // floors: only under the source
-  float band = exp(-pow((worldPos.y - p.a) / 2.6, 2.0));           // walls: around the source height
+  float below = 1.0 - smoothstep(p.a - 0.4, p.a + 0.6, worldPos.y);  // floors: only under the source
+  float dy = (worldPos.y - p.a) / 2.6;
+  float band = exp(-dy * dy);                                         // walls: around the source height
   // the lamplighting wave (05-P3): a pool lies by its lamp, so the fragment's own rank stands in for the lamp's
   #ifdef HB_LITE
   return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, uWindowGlow);   // (Low: no lamplighting wave)
