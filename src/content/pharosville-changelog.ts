@@ -12,6 +12,17 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-11-08-sails-by-night",
+    version: PHAROSVILLE_RELEASE_VERSIONS.sailsByNight,
+    date: "2026-11-08",
+    title: "Sails by Night",
+    summary: "Selected ships keep their sails at night.",
+    bullets: [
+      "A ship you hover or select after dark no longer turns her sails solid black. The warm daytime sheen that marks her now fades out as the lamps come up instead of turning into negative light; by day she looks exactly as before.",
+    ],
+    source: "Collected from `release/v1.5.1` after v1.5.0: a fix-forward patch for a defect reported in production. No data mapping changed.",
+  },
+  {
     id: "2026-11-08-true-bearing",
     version: PHAROSVILLE_RELEASE_VERSIONS.trueBearing,
     date: "2026-11-08",

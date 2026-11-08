@@ -2,6 +2,14 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v1.5.1 - 2026-11-08 - Sails by Night
+
+Selected ships keep their sails at night.
+
+Collected from `release/v1.5.1` after v1.5.0: a fix-forward patch for a defect reported in production. No data mapping changed.
+
+- A ship you hover or select after dark no longer turns her sails solid black. The warm daytime sheen that marks her now fades out as the lamps come up instead of turning into negative light; by day she looks exactly as before.
+
 ## v1.5.0 - 2026-11-08 - True Bearing
 
 The harbour says exactly what it knows: every reading names its source and how current it is, a rising storm no longer looks like stale fog, and the world explains and recovers from interruptions instead of stalling.
