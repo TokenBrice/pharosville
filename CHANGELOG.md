@@ -2,6 +2,23 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v1.5.0 - 2026-11-08 - True Bearing
+
+The harbour says exactly what it knows: every reading names its source and how current it is, a rising storm no longer looks like stale fog, and the world explains and recovers from interruptions instead of stalling.
+
+Collected from `release/v1.5.0` after v1.4.1: the first release of the ultimate enhancement pass (see `agents/pharosville-ultimate/PLAN.md`). No analytical mapping changed; where a reading's wording or sound source changed, it is listed below.
+
+- Every reading says how current it is. Panels, hover tags and the ledger state each source on its own line (current with its update time, stale with when it was last observed, or unavailable), the corner keeps a short status word, and a missing reading is never described as clear water or a calm sky. Fog over the harbour now appears only when the fleet's own data is stale and dated.
+- Details that had gone missing are back: the Pharos panel says when the Stability Index was computed without stress or depeg inputs (and the horn shutter narrows the beam), the tide gauge shows its 24-hour and 30-day changes again, and a change of methodology is no longer reported as a market event.
+- Flows stay honest: a withheld net amount stays unknown instead of reading $0, partial valuations are labelled as lower bounds, incomplete histories say so, and the Customs chart labels net minted and net burned.
+- The storm station is explained as it is drawn: its cones, drums and pennant follow the supply-weighted stress band, with the number of Alert-or-worse coins shown separately. Chain percentages name what they are a share of, unallocated supply is disclosed, and Not rated coins are counted in the Registry.
+- A rising storm front no longer turns the harbour cream-white: fronts darken the water as weather should, by day and under the moon, and stale-data fog stays unmistakable. Coin marks that printed as noise (USDe's flag among them) are clean again, and the heat shimmer over the beacon now shows up close instead of across the far view.
+- Sound follows the picture: the surf you hear follows the same sea state as the water, wind and rain still follow early-warning stress, and the Mint falls silent when its activity reading is banked. "How to read the sounds" in the sound menu and a "By ear" section in the ledger explain each cue.
+- Ships keep their story through updates: tows, drifting boats and launches survive new readings, rerouted ships keep their way on, canvas and flags share one breeze, and the fleet planner recovers on its own if it stalls, with a retry if it cannot.
+- Steadier on every machine: graphics quality steps down sooner when drawing struggles and returns gradually, quality changes prepare the whole harbour before switching, the dawn and dusk colour grade is prepared in small slices instead of one long pause, and low detail stops drawing unused sea shadows.
+- Failures explain themselves: a failed scenery download, a graphics interruption, an unsupported device or a shader that cannot be prepared now shows a clear message with a retry instead of an endless poster, and a details panel that fails to open no longer takes the controls with it.
+- Housekeeping: the dormant usage-analytics code is gone, error reports are smaller and carry no free text, the security policy is stricter, and the welcome links use the index's name, the Pharos Stability Index.
+
 ## v1.4.1 - 2026-10-25 - Flying Colours
 
 Every boat shows her coin again, at every distance.
