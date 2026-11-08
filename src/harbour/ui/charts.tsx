@@ -5,6 +5,8 @@ import { grossFlow, NET_UNAVAILABLE, VALUATION_UNKNOWN, type FlowHour } from "./
 
 export interface PsiObservation { date: number; score: number; methodologyVersion?: string | null }
 export const utcObservation = (seconds: number): string => new Date(seconds * 1000).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
+/** A daily series (every observation at 00:00 UTC) is labelled by its dates alone; any other keeps its times. */
+const observationLabel = (daily: boolean) => (seconds: number): string => daily ? utcObservation(seconds).slice(0, 10) : utcObservation(seconds);
 export const psiObservations = (rows: readonly { date: number; score?: unknown; methodologyVersion?: string | null }[]): PsiObservation[] => datedObservations(rows).filter((r): r is PsiObservation => typeof r.score === "number" && Number.isFinite(r.score)).slice(-30);
 export const PSI_COMPARISON_UNAVAILABLE = "Comparison unavailable across methodology versions.";
 function comparablePsi(rows: readonly PsiObservation[]): boolean {
@@ -26,7 +28,9 @@ export function psiChange(rows: readonly PsiObservation[]): string {
 export function Sparkline({ observations, now, nowAt, label = "PSI observations" }: { observations: readonly PsiObservation[]; now?: number | null; nowAt?: number | null; label?: string }) {
   const rows = psiObservations(observations);
   const [selectedDate, setSelectedDate] = useState<number | null>(null);
-  const index = Math.max(0, rows.findIndex((r) => r.date === selectedDate));
+  // opens on the latest observation, beside the figure it explains; Previous steps back in time
+  const found = rows.findIndex((r) => r.date === selectedDate), index = found < 0 ? rows.length - 1 : found;
+  const at = observationLabel(rows.every((r) => r.date % 86400 === 0));
   const selected = rows[index];
   const current = now != null && Number.isFinite(now) && validObservationDate(nowAt) ? { date: nowAt, score: now } : null;
   const plotted = [...rows, ...(current ? [current] : [])];
@@ -35,22 +39,22 @@ export function Sparkline({ observations, now, nowAt, label = "PSI observations"
   const lo = Math.min(...plotted.map((r) => r.score)), hi = Math.max(...plotted.map((r) => r.score));
   const x = (date: number) => 5 + (end === start ? 0.5 : (date - start) / (end - start)) * 290;
   const y = (score: number) => 50 - ((score - lo + 0.5) / (hi - lo + 1)) * 44;
-  const caption = rows.length ? `${rows.length} observations from ${utcObservation(rows[0].date)} to ${utcObservation(rows[rows.length - 1].date)} (UTC).` : "No dated observations available.";
+  const caption = rows.length ? `${rows.length} observations from ${at(rows[0].date)} to ${at(rows[rows.length - 1].date)} (UTC).` : "No dated observations available.";
   return <div>
     <svg className="hb-spark" viewBox="0 0 300 56" role="img" aria-label={label}>
-      {rows.map((r) => <circle className="hb-chart-observation" key={r.date} cx={x(r.date)} cy={y(r.score)} r={selected?.date === r.date ? 3.5 : 2.5} fill="currentColor" onMouseEnter={() => setSelectedDate(r.date)}><title>{utcObservation(r.date)} UTC · {r.score.toFixed(1)}</title></circle>)}
+      {rows.map((r) => <circle className="hb-chart-observation" key={r.date} cx={x(r.date)} cy={y(r.score)} r={selected?.date === r.date ? 3.5 : 2.5} fill="currentColor" onMouseEnter={() => setSelectedDate(r.date)}><title>{at(r.date)} UTC · {r.score.toFixed(1)}</title></circle>)}
       {current && <circle className="hb-chart-now" cx={x(current.date)} cy={y(current.score)} r="4" fill="none" stroke="currentColor" strokeWidth="1.5"><title>Now · {current.score.toFixed(1)} · {utcObservation(current.date)} UTC</title></circle>}
     </svg>
     <p className="hb-caption">{caption}</p>
     {selected && <>
-      <div className="hb-axis-note" role="status" aria-live="polite">{utcObservation(selected.date)} UTC · {selected.score.toFixed(1)}</div>
+      <div className="hb-axis-note" role="status" aria-live="polite">{at(selected.date)} UTC · {selected.score.toFixed(1)}</div>
       <div className="hb-chart-controls hb-reading-actions">
         <button type="button" className="hb-control" disabled={index === 0} onClick={() => setSelectedDate(rows[index - 1].date)}>Previous observation</button>{" "}
         <button type="button" className="hb-control" disabled={index === rows.length - 1} onClick={() => setSelectedDate(rows[index + 1].date)}>Next observation</button>
       </div>
     </>}
     <details><summary>View values</summary><table className="hb-table"><caption>PSI observations (UTC)</caption><thead><tr><th scope="col"><span className="hb-sc">Observation (UTC)</span></th><th scope="col"><span className="hb-sc">PSI</span></th><th scope="col"><span className="hb-sc">Methodology</span></th></tr></thead><tbody>
-      {rows.map((r) => <tr key={r.date}><th scope="row">{utcObservation(r.date)}</th><td>{r.score.toFixed(1)}</td><td className="hb-wrap">{r.methodologyVersion ?? "Unknown"}</td></tr>)}
+      {rows.map((r) => <tr key={r.date}><th scope="row">{at(r.date)}</th><td>{r.score.toFixed(1)}</td><td className="hb-wrap">{r.methodologyVersion ?? "Unknown"}</td></tr>)}
       {current && <tr><th scope="row">Now · {utcObservation(current.date)}</th><td>{current.score.toFixed(1)}</td><td>Current reading</td></tr>}
     </tbody></table></details>
   </div>;

@@ -2,7 +2,7 @@ import { useMemo, useRef, type RefObject } from "react";
 import { cullLabels, type LabelBox } from "./cull";
 import { useFrame, useFrameWrite, usePresence, useStore, useUISlice } from "./hooks";
 import { sameHit, type PickHit, type ScreenPoint } from "./services";
-import { overlaps, setStyle, useMeasurements } from "./measurements";
+import { devicePx, overlaps, setStyle, useMeasurements } from "./measurements";
 
 interface ChartLabel { key: string; text: string; kind: "landmark" | "pier" | "boat"; hit: PickHit }
 
@@ -69,7 +69,7 @@ export function ChartLabels({ overlays, tagBox }: { overlays?: RefObject<LabelBo
       const el = refs.current[i], b = boxes.current[i];
       if (!el) continue;
       setStyle(el, "opacity", keep[i] ? "1" : "0");
-      setStyle(el, "transform", `translate3d(${b.x.toFixed(1)}px, ${b.y.toFixed(1)}px, 0)`);
+      setStyle(el, "transform", `translate3d(${devicePx(b.x)}px, ${devicePx(b.y)}px, 0)`);
       const lead = leaders.current[i], foot = feet.current[i];
       if (lead && foot) setStyle(lead, "height", `${Math.max(0, foot.y - (b.y + b.h)).toFixed(1)}px`);
     }

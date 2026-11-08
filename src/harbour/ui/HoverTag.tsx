@@ -6,7 +6,7 @@ import { placeName } from "./places";
 import { expectedLabel, PHASE_NAME, yardCoins } from "./yard";
 import { useFrame, useFrameWrite, usePresence, useStore, useSticky, useUI } from "./hooks";
 import { getFeed, getLayout, sameHit, type PickHit, type ScreenPoint } from "./services";
-import { setStyle, tagPlacement, useMeasurements } from "./measurements";
+import { devicePx, setStyle, tagPlacement, useMeasurements } from "./measurements";
 import { LANDMARK_ENDPOINT } from "../readings/bind";
 import type { EndpointKey } from "../model/types";
 import { Freshness } from "./bits";
@@ -49,8 +49,10 @@ function Tag({ hit, shown, pinned, overlayRef }: { overlayRef?: RefObject<LabelB
     const box = tagPlacement(p.x, p.y, w, h, { w: innerWidth, h: innerHeight }, store.tagSpace ?? undefined);
     next.below = box.below;
     if (overlayRef) Object.assign(overlayRef.current, { x: box.left, y: box.top, w, h });
-    next.tag = `translate(${(box.left - p.x).toFixed(1)}px, ${(box.top - p.y).toFixed(1)}px)`;
-    next.anchor = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`;
+    // both the anchor and the box land on device pixels (the box's offset is snapped from the snapped anchor)
+    const ax = devicePx(p.x), ay = devicePx(p.y);
+    next.tag = `translate(${devicePx(box.left - ax)}px, ${devicePx(box.top - ay)}px)`;
+    next.anchor = `translate3d(${ax}px, ${ay}px, 0)`;
   });
 
   useFrameWrite(() => {

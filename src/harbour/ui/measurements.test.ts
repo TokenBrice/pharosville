@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../engine/types";
 import layout from "../data/layout.json";
-import { ElementMeasurements, overlaps, setStyle, tagPlacement, useOverlayRects } from "./measurements";
+import { devicePx, ElementMeasurements, overlaps, setStyle, tagPlacement, useOverlayRects } from "./measurements";
 import { AnalyticPicking } from "./picking";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -83,6 +83,14 @@ it.each([[600, 720], [720, 600], [1100, 640]])("fits wrapped tags and cached hei
   }
   expect(tagPlacement(w / 2, 180, 200, 220, { w, h }).below).toBe(true);
   expect(tagPlacement(w / 2, 300, 200, 220, { w, h }).below).toBe(false);
+});
+
+it("puts tags and chart names on the device-pixel grid, so their text draws crisp", () => {
+  for (const [dpr, v, want] of [[1, 12.4, 12], [1, 12.6, 13], [2, 12.3, 12.5], [2, 12.2, 12], [1.25, 10.1, 10.4]] as const) {
+    vi.stubGlobal("devicePixelRatio", dpr);
+    expect(devicePx(v)).toBeCloseTo(want, 6);
+  }
+  vi.unstubAllGlobals();
 });
 
 it("keeps a tag in the area an open side panel or sheet leaves free, 12 px clear of it", () => {

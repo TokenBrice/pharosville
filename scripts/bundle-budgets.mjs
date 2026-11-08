@@ -71,6 +71,8 @@ export const bundleBudgets = {
     // rules; the breath's three ::after hides; the duplicate trunc, ellipsis, list-reset, scroll and hover rules;
     // the panel's 68 px bottom padding for the now focus-revealed "Back to harbour controls"; spaces inside
     // token values (custom properties keep their text verbatim).
+    // 2026-11-09 UI art director fixes (B1 guide placement, B2 night washes and the active row, N1-N7): 34,323 B raw /
+    // 8,348 B gzip (33.5 / 8.2 KiB), inside the same cap.
     maxRawBytes: 36 * 1024,
     maxGzipBytes: 9.1 * 1024,
     required: true,

@@ -251,7 +251,7 @@ function Coins({ model }: { model: HarbourModel | null }) {
   const rows = useMemo(() => (model?.boats ?? []).filter((b) => matchesCoinFilters(b, filters)), [model, filters]);
   const update = (patch: Partial<typeof filters>) => store.updateLedger({ filters: { ...filters, ...patch } });
   const cols = useMemo<Col<Boat>[]>(() => [
-    { key: "symbol", label: "Coin", get: (b) => b.symbol, cell: (b) => <><button type="button" onClick={() => store.readLedger({ kind: "boat", id: b.id })} aria-label={`${b.symbol}, ${b.name}: Read record`}>{b.symbol} · Read record</button> <em className="hb-trunc" title={b.name}>{b.name !== b.symbol ? b.name : ""}</em></> },
+    { key: "symbol", label: "Coin", get: (b) => b.symbol, cell: (b) => <><button type="button" onClick={() => store.readLedger({ kind: "boat", id: b.id })} aria-label={`${b.symbol}, ${b.name}: Read record`}>{b.symbol}</button> <em className="hb-trunc" title={b.name}>{b.name !== b.symbol ? b.name : ""}</em></> },
     { key: "supply", label: filters.chain ? "Chain supply" : "Supply", num: true, get: (b) => filters.chain ? b.chainShares.find((c) => c.chain === filters.chain)?.usd ?? 0 : b.supply, cell: (b) => money(filters.chain ? b.chainShares.find((c) => c.chain === filters.chain)?.usd ?? 0 : b.supply) },
     { key: "peg", priority: 3, label: "Peg", get: (b) => pegName(b.pegType) },
     { key: "dev", wrap: true, label: "Deviation", num: true, get: (b) => b.pegDeviationBps, cell: (b) => <span className={b.activeDepeg ? "hb-down" : ""}>{b.pegDeviationBps == null ? truthCopy({ kind: "absent-row", reading: "peg" }) : bps(b.pegDeviationBps)}</span> },
@@ -262,7 +262,7 @@ function Coins({ model }: { model: HarbourModel | null }) {
   ], [store, gradeTruth, filters.chain]);
   if (!model?.hasFleet) return <p className="hb-empty">Awaiting data: the register has not arrived yet.</p>;
   return <>
-    {filters.chain && <h3 className="hb-sec-h">Coins with supply on {filters.chain}</h3>}
+    {filters.chain && <h3 className="hb-sec-h hb-sc">Coins with supply on {filters.chain}</h3>}
     <div className="hb-coin-filters" role="group" aria-label="Coin filters">
       {([["offPeg", "Off peg"], ["warning", "Early warning"], ["missingPeg", "Missing peg reading"]] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={filters[key]} onChange={(e) => update({ [key]: e.target.checked })} />{label}</label>)}
       <label>Peg <select className="hb-control" value={filters.peg} onChange={(e) => update({ peg: e.target.value })}><option value="">All pegs</option>{[...new Set(model.boats.map((b) => b.pegType))].sort().map((p) => <option key={p} value={p}>{pegName(p)}</option>)}</select></label>
@@ -275,7 +275,7 @@ function Coins({ model }: { model: HarbourModel | null }) {
 function PreLaunch({ coins }: { coins: YardCoin[] }) {
   const store = useStore();
   const cols = useMemo<Col<YardCoin>[]>(() => [
-    { key: "symbol", label: "Coin", get: (c) => c.symbol, cell: (c) => <><button type="button" onClick={() => store.readLedger({ kind: "yard", id: c.id })} aria-label={`${c.symbol}, ${c.name}: Read record`}>{c.symbol} · Read record</button> <em className="hb-trunc" title={c.name}>{c.name !== c.symbol ? c.name : ""}</em></> },
+    { key: "symbol", label: "Coin", get: (c) => c.symbol, cell: (c) => <><button type="button" onClick={() => store.readLedger({ kind: "yard", id: c.id })} aria-label={`${c.symbol}, ${c.name}: Read record`}>{c.symbol}</button> <em className="hb-trunc" title={c.name}>{c.name !== c.symbol ? c.name : ""}</em></> },
     { key: "phase", label: "Phase", get: (c) => (c.phase ? PHASES.indexOf(c.phase) : -1), cell: (c) => (c.phase ? PHASE_NAME[c.phase] : <em>not stated</em>) },
     { key: "expected", label: "Expected", get: (c) => (c.expected ? expectedKey(c.expected) : null), cell: (c) => (c.expected ? expectedLabel(c.expected) : <em>not stated</em>) },
     { key: "peg", label: "Peg", get: (c) => (c.peg && c.peg !== "OTHER" ? pegName(c.peg) : null) },
@@ -298,7 +298,7 @@ function Chains({ model }: { model: HarbourModel | null }) {
   const store = useStore();
   type H = HarbourModel["harbours"][number];
   const cols = useMemo<Col<H>[]>(() => [
-    { key: "chain", label: "Chain", get: (h) => h.chain, cell: (h) => <button type="button" onClick={() => store.readLedger({ kind: "harbour", id: h.chain })} aria-label={`${h.chain}: Read record`}>{h.chain} · Read record</button> },
+    { key: "chain", label: "Chain", get: (h) => h.chain, cell: (h) => <button type="button" onClick={() => store.readLedger({ kind: "harbour", id: h.chain })} aria-label={`${h.chain}: Read record`}>{h.chain}</button> },
     { key: "supply", label: "Supply", num: true, get: (h) => h.supplyUsd, cell: (h) => money(h.supplyUsd) },
     { key: "share", wrap: true, label: "Share", num: true, get: (h) => h.share, cell: (h) => `${share(h.share)} of reported chain-attributed supply` },
     { key: "visitors", priority: 2, label: "Boats calling", num: true, get: (h) => h.visitors },
@@ -313,7 +313,7 @@ function Wrecks({ model }: { model: HarbourModel | null }) {
   const store = useStore();
   type W = HarbourModel["readings"]["wrecks"][number];
   const cols = useMemo<Col<W>[]>(() => [
-    { key: "name", label: "Coin", get: (w) => w.name, cell: (w) => <><button type="button" onClick={() => store.readLedger(wreckHit(store, w.id))}>{w.name} · Read record</button> <em>{w.symbol !== w.name ? w.symbol : ""}</em></> },
+    { key: "name", label: "Coin", get: (w) => w.name, cell: (w) => <><button type="button" onClick={() => store.readLedger(wreckHit(store, w.id))} aria-label={`${w.name}: Read record`}>{w.name}</button> <em>{w.symbol !== w.name ? w.symbol : ""}</em></> },
     { key: "date", label: "Died", get: (w) => w.deathDate, cell: (w) => wreckDate(w.deathDate) },
     { key: "cause", priority: 2, label: "Cause", get: (w) => titleCase(causeName(w.cause)) },
     { key: "epitaph", priority: 3, label: "Epitaph", get: (w) => epitaphOf(w.id), cell: (w) => <em>{epitaphOf(w.id) ?? "—"}</em>, wrap: true },
