@@ -49,7 +49,8 @@ export function makeLayout(opts: { berthsPerClass?: number; moorings?: boolean }
     }
     return { id: `pier-${chain.toLowerCase()}`, chain, kind: "pontoon", gate: [ox, oz] as Vec2, segments: [], berths, berthCounts: {} };
   });
-  const farRows = CLASSES.map((cls, c) => ({ cls, line: [[0, -480], [100, -480]] as Vec2[],
+  // The ring fixture uses anchorages; real-layout tests cover pontoon rows and their fairways.
+  const farRows = CLASSES.map((cls, c) => ({ cls, line: [] as Vec2[],
     slots: Array.from({ length: 70 }, (_, j) => [-300 + j * 9, 0, -460 - c * 30] as Vec3) }));
   const layout = {
     version: 1, units: "m", seaLevel: 0, deckY: 1.2, bounds: { min: [-600, -6, -600], max: [600, 60, 600] },
@@ -86,8 +87,10 @@ export function makeCoins(opts: FleetOpts = {}): PayloadByKey["stablecoins"]["pe
   const coins: PayloadByKey["stablecoins"]["peggedAssets"] = [];
   const multi = opts.multiChainShare ?? 0.22;
   let k = 0;
+  const baseCount = CLASS_COUNTS.reduce((sum, [, count]) => sum + count, 0);
   for (const [cls, count, base] of CLASS_COUNTS) {
-    for (let j = 0; j < count; j++, k++) {
+    const limit = count + (cls === "skiff" ? Math.max(0, (opts.n ?? baseCount) - baseCount) : 0);
+    for (let j = 0; j < limit; j++, k++) {
       if (opts.n != null && coins.length >= opts.n) return coins;
       const id = `coin-${cls}-${j}`;
       const supply = base * (1 + u01(id + "s") * 8.9);

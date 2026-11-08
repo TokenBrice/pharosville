@@ -1,0 +1,54 @@
+{
+  "baseline": "5dbb6a2a",
+  "testCommand": "npx vitest run <files> --maxWorkers=1 --reporter=json",
+  "files": [
+    {
+      "file": "sim.test.ts",
+      "oldSeconds": 64.62111108398437,
+      "newSeconds": 49.8076220703125,
+      "ratio": 0.7707639382055869,
+      "oldStatus": "passed",
+      "newStatus": "passed"
+    },
+    {
+      "file": "plan-paths.test.ts",
+      "oldSeconds": 6.65181494140625,
+      "newSeconds": 6.012015380859375,
+      "ratio": 0.9038157907003325,
+      "oldStatus": "passed",
+      "newStatus": "passed"
+    },
+    {
+      "file": "motion.test.ts",
+      "oldSeconds": 9.219537841796875,
+      "newSeconds": 8.945298095703125,
+      "ratio": 0.9702545018199848,
+      "oldStatus": "passed",
+      "newStatus": "passed"
+    }
+  ],
+  "focused": {
+    "passed": 86,
+    "skipped": 5
+  },
+  "full": {
+    "command": "npx vitest run --maxWorkers=2 --reporter=dot",
+    "seconds": 68.94,
+    "passed": 790,
+    "skipped": 5
+  },
+  "d10": {
+    "fixture": "generated-657 / real layout and coast",
+    "hours": 6,
+    "circuitHulls": 151,
+    "routeUnavailable": 0,
+    "maxDriftPercentagePoints": 4.4121915820029,
+    "worst": "coin-flagship-0 at pier-ethereum",
+    "scheduledShare": 0.4,
+    "effectiveShare": 0.444121915820029
+  },
+  "limitations": [
+    "Integration market snapshot was not present; no network/browser used.",
+    "Strict D10 and full-cycle diagnostics are opt-in; S16-I3 is explicitly deferred."
+  ]
+}

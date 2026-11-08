@@ -22,10 +22,9 @@ export interface PreparedPlan {
 }
 
 /** The whole hull stays clear of land and decks all along a path (and its astern prefix). */
-export function pathClear(L: SimLayout, p: PathRec, loa: number, beam: number, blocked?: { x: number; z: number }): boolean {
+export function pathClear(L: SimLayout, p: PathRec, loa: number, beam: number): boolean {
   const clear = (x: number, z: number, h: number) => {
     if (L.field && clearance(L.field, x, z) > loa / 2 + 4 || hullClearance(L.hard, x, z, h, loa, beam) >= -0.15) return true;
-    if (blocked) { blocked.x = x; blocked.z = z; }
     return false;
   };
   for (const [part, reverse] of [[p, 0], [p.rev, Math.PI]] as const) {

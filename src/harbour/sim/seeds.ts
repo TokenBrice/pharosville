@@ -3,8 +3,8 @@ import type { CoastGrid } from "./obstacles";
 import type { OutingSeed } from "./outings";
 import type { RepLeg } from "./plan";
 
-/** Bump when geometry/timing/outing semantics change, then run build-sim-seeds.mjs. 3: effective dock timing and terminal route validation. */
-export const SIM_SEED_VERSION = 3;
+/** Bump when geometry/timing/outing semantics change, then run build-sim-seeds.mjs. 4: representative allocation restored within the preparation budget (S16-I3 deferred). */
+export const SIM_SEED_VERSION = 4;
 export interface SimSeeds {
   version: number;
   key: string;

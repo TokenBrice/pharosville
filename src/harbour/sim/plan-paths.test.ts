@@ -38,5 +38,5 @@ describe("allocation-only worker parity", () => {
     main.setModel(model, now, structuredClone(prepared));
     expect(main.plan.boats).toStrictEqual(direct.plan.boats);
     for (const delta of [0, 1, 1000, 60_000, 240_000]) expect(main.poseAt(now + delta)).toStrictEqual(direct.poseAt(now + delta));
-  }, 120_000);
+  }, 60_000);
 });

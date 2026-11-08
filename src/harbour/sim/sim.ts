@@ -1136,14 +1136,15 @@ export class HarbourSim {
     const from = L.slots[plan.segFrom[seg]], to = L.slots[plan.segSlot[seg]];
     const D = plan.segEnd[seg] - plan.segStart[seg];
     const tm = legTiming(path, 1e9, r.loa, r.legTm, from.heading, to.heading);
-    const extra = plan.kind === "circuit" ? 0 : Math.max(0, tm.minD - D);
+    // shortcut: representative budgets distort effective dock shares; restore exact retiming once it meets the cold preparation budget.
+    const extra = Math.max(0, tm.minD - D);
     const pd = (seg - 1 + nSeg) % nSeg, nd = (seg + 1) % nSeg;
     const capE = 0.25 * (plan.segEnd[pd] - plan.segStart[pd]), capL = 0.25 * (plan.segEnd[nd] - plan.segStart[nd]);
     const late = Math.min(capL, extra / 2);
     const early = Math.min(capE, extra - late);
     r.legEarly = early; r.legLate = Math.min(capL, extra - early);
     r.legD = D + r.legEarly + r.legLate;
-    legTiming(path, r.legD, r.loa, r.legTm, from.heading, to.heading, plan.kind !== "circuit");
+    legTiming(path, r.legD, r.loa, r.legTm, from.heading, to.heading);
     r.legPath = path; r.legSeg = seg;
     r.legStay = this.badOuting.has(pathKey(plan.segFrom[seg], plan.segSlot[seg], r.cls, plan.segLoop[seg]));
     if (r.legStay && !plan.outing) this.routeUnavailable.add(r.id);
