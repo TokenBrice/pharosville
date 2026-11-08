@@ -10,6 +10,9 @@ import type { ChainsResponse, ChainSummary } from "@shared/types/chains";
 import type { CauseFamily } from "./obituary";
 import type { DeadStablecoin, PegSummaryCoin, StablecoinData, StressSignalEntry } from "@shared/types/market";
 import type { MintBurnFlowsResponse } from "@shared/types/mint-burn";
+
+/** Hourly valuation completeness, as the shared contract types it. */
+type HourValuation = MintBurnFlowsResponse["hourly"][number]["valuation"];
 import type { SafetyGradeEntry } from "@shared/types/safety-grades";
 import type { StabilityIndexCurrent } from "@shared/types/stability";
 import type { PharosVilleApiEndpointKey } from "@shared/types/pharosville-endpoint-keys";
@@ -42,7 +45,7 @@ export interface StressPayload {
 }
 export interface SafetyGradesPayload { grades: Array<Pick<SafetyGradeEntry, "id" | "grade">>; methodologyVersion?: string | null; updatedAt?: number }
 export interface MintBurnPayload {
-  hourly: Array<Pick<MintBurnFlowsResponse["hourly"][number], "hourTs" | "netFlowUsd" | "mintVolumeUsd" | "burnVolumeUsd"> & { valuation?: string }>;
+  hourly: Array<Pick<MintBurnFlowsResponse["hourly"][number], "hourTs" | "netFlowUsd" | "mintVolumeUsd" | "burnVolumeUsd"> & { valuation?: HourValuation | undefined }>;
   coins?: Array<Pick<MintBurnFlowsResponse["coins"][number], "stablecoinId" | "mintVolume24hUsd" | "burnVolume24hUsd" | "netFlow24hUsd" | "netFlow7dUsd"> & {
     coverage?: Pick<NonNullable<MintBurnFlowsResponse["coins"][number]["coverage"]>, "status"> & Partial<Pick<NonNullable<MintBurnFlowsResponse["coins"][number]["coverage"]>, "has24hWindow" | "historyStartAt" | "isPartial">>;
     valuation?: { window24h: { completeness: "complete" | "partial" | "unknown"; mintCompleteness?: "complete" | "partial" | "unknown"; burnCompleteness?: "complete" | "partial" | "unknown" }; netFlow7d?: "complete" | "partial" | "unknown" };
@@ -208,7 +211,7 @@ export interface WeatherReading {
 
 export interface FlowsReading {
   /** 24 hourly bars, oldest first; netUsd null = partial valuation (drawn as a gap, not zero). */
-  hourly: Array<{ hourTs: number; netUsd: number | null; mintUsd: number; burnUsd: number; valuation?: string }>;
+  hourly: Array<{ hourTs: number; netUsd: number | null; mintUsd: number; burnUsd: number; valuation?: HourValuation | undefined }>;
   coins?: MintBurnPayload["coins"];
   net24hUsd: number | null;
   scope: string[];
