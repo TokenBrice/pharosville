@@ -166,15 +166,16 @@
   const hex = (c) => { const m = c.trim().match(/^#([0-9a-f]{6})$/i); return m ? [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)) : null; };
   const lum = (rgb) => { const f = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]); };
   const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const tpl = document.getElementById("col").innerHTML;
   for (const col of document.querySelectorAll(".col")) {
-    let html = tpl.replace("@@NAME@@", col.dataset.name).replace("@@WHEN@@", col.dataset.when);
+    let html = tpl.replace("@@NAME@@", esc(col.dataset.name)).replace("@@WHEN@@", esc(col.dataset.when));
     col.innerHTML = html;
     const cs = getComputedStyle(col), get = (v) => cs.getPropertyValue(v).trim();
     const paper = hex(get("--paper"));
     const names = ["--ink", "--ink-2", "--ink-3", "--brass-ink", "--rule", "--link", "--up", "--down", "--focus", "--live", "--stale"];
-    html = col.innerHTML.replace("@@P1@@", get("--paper"));
-    names.forEach((n, i) => { const c = hex(get(n)); html = html.replace(`@@C${i + 1}@@`, `${get(n)} · ${c && paper ? ratio(c, paper).toFixed(1) : "?"}:1`); });
+    html = col.innerHTML.replace("@@P1@@", esc(get("--paper")));
+    names.forEach((n, i) => { const c = hex(get(n)); html = html.replace(`@@C${i + 1}@@`, esc(`${get(n)} · ${c && paper ? ratio(c, paper).toFixed(1) : "?"}:1`)); });
     col.innerHTML = html;
   }
 </script>
