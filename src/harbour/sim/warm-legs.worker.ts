@@ -52,7 +52,8 @@ scope.onmessage = ({ data: m }) => {
     for (const [from, to, cls, loop] of [...requests.now, ...requests.soon]) {
       const key = pathKey(from, to, cls, loop);
       const { path, bad } = buildPlanLegPath(L, base, from, to, cls, loop);
-      if (bad && from !== to) throw new Error("Fleet route unavailable");
+      // One unsafe leg must never fail the whole fleet: the flag travels with the path and the main
+      // sim handles it per boat (badOuting / route-unavailable hold), as before S16-I6.
       prepared.paths.push([key, path, bad]);
     }
     const buffers = new Set<ArrayBufferLike>();
