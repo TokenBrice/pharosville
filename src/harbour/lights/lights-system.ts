@@ -14,6 +14,21 @@ const MAX_POINT = 16;
 const POOL_RES = 2048;
 
 /**
+ * E09: point lights only where they show. The tier's whole count while the camera stands within 800 m of its
+ * target (the landing keeps every facade it lights: four lights there visibly dimmed the quay fronts), the
+ * nearest four out to 900 m and none beyond, at the overview and the zoomed-out frames, where a light's reach
+ * covers a few pixels and the projected pools carry the look. Each limit eases a slot out over the last 15 %
+ * before it, so a zoom never pops a facade dark, and the count of lit slots meets the limit exactly.
+ */
+export const POINT_BUDGET = { fullBelow: 800, fewBelow: 900, few: 4 } as const;
+
+/** Budget weight (0..1) of point-light slot `slot` (0 = nearest the focus) with the camera `distance` m out. */
+export function pointBudget(slot: number, distance: number): number {
+  const limit = slot < POINT_BUDGET.few ? POINT_BUDGET.fewBelow : POINT_BUDGET.fullBelow;
+  return 1 - THREE.MathUtils.smoothstep(distance, limit * 0.85, limit);
+}
+
+/**
  * All tiers keep sixteen shader slots (changing `visible` changes NUM_POINT_LIGHTS and recompiles
  * every lit program). By day and beyond the tier's promotion budget the lights sit at
  * intensity 0 (uniform colour 0). Patch three's point-light loop to skip those (a uniform branch) and to
@@ -367,11 +382,13 @@ export class LightsSystem implements WorldSystem {
     // Zero RGB under additive blending and no depth writes; post clamps the opaque scene's alpha.
     // Never threshold a small glow: dawn/dusk contributions and all other lighting stay unchanged.
     this.sprites.visible = this.pillars.visible = g !== 0;
+    const distance = ctx.rig.distance;
     for (let k = 0; k < MAX_POINT; k++) {
       const p = this.points[k];
       const glow = THREE.MathUtils.smoothstep(lampGlow(g, this.store.rankAt(p.position), w.spread), 0.02, 0.55);
       const base = (p.userData.base as number | undefined) ?? 0;
-      p.intensity = base > 0 ? base * glow * (this.store.lights[this.bestI[k]]?.k ?? 1) : 0;
+      const budget = pointBudget(k, distance);
+      p.intensity = base > 0 && budget > 0 ? base * glow * budget * (this.store.lights[this.bestI[k]]?.k ?? 1) : 0;
     }
   }
 
@@ -388,8 +405,9 @@ export class LightsSystem implements WorldSystem {
   }
 
   /**
-   * Promote the N lights nearest the camera focus to real point lights (N by quality tier).
-   * Unpromoted slots remain exactly dark. Allocation-free top-N selection.
+   * Promote the N lights nearest the camera focus to real point lights (N by quality tier), nearest first, so
+   * the distance budget (pointBudget) keeps the nearest. Unpromoted slots remain exactly dark. Allocation-free
+   * top-N selection.
    */
   private pickPoints(ctx: EngineContext): void {
     const want = this.pointCount;
