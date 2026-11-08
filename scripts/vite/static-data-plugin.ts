@@ -1,14 +1,18 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import type { Plugin } from "vite";
 import type { DeadStablecoin } from "../../shared/types/market";
 import { bornOf, causeFamily } from "../../src/harbour/ui/cemetery-classify";
 
-/** Derive projections from canonical synced books on every build: no duplicate data to go stale. */
-export function staticDataProjections(): Plugin {
-  const files: Record<string, URL> = {
-    "virtual:pharosville-cemetery": new URL("../../shared/data/dead-stablecoins.json", import.meta.url),
-    "virtual:pharosville-prelaunch": new URL("../../src/harbour/data/prelaunch.json", import.meta.url),
+/**
+ * Derive projections from canonical synced books on every build: no duplicate data to go stale. Paths resolve from
+ * the repository root (every caller runs there) rather than import.meta, so Playwright's CommonJS loader can import
+ * this too (tests/helpers/overlay-bundle.ts).
+ */
+export function staticDataProjections(root = process.cwd()): Plugin {
+  const files: Record<string, string> = {
+    "virtual:pharosville-cemetery": resolve(root, "shared/data/dead-stablecoins.json"),
+    "virtual:pharosville-prelaunch": resolve(root, "src/harbour/data/prelaunch.json"),
   };
   return {
     name: "pharosville-static-data-projections",
@@ -16,7 +20,7 @@ export function staticDataProjections(): Plugin {
     load(id) {
       const file = files[id.slice(1)];
       if (!id.startsWith("\0") || !file) return;
-      this.addWatchFile(fileURLToPath(file));
+      this.addWatchFile(file);
       const data = JSON.parse(readFileSync(file, "utf8"));
       const projected = id.endsWith("cemetery")
         ? (data as DeadStablecoin[]).map((d) => ({
