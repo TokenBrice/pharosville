@@ -186,14 +186,17 @@ export class DataSystem implements WorldSystem {
       const m = buildHarbourModel(payloads, this.simNow(Date.now()), { pieredChains: layout.piers.map((p) => p.chain) });
       return import.meta.env.DEV && this.devEvent ? this.stageDevEvent(m) : m;
     };
-    let model = modelAt();
+    let phase: "model-build" | "worker" = "model-build";
     try {
+      let model = modelAt();
+      phase = "worker";
       const prepared = model.planKey !== sim.plan.key
         ? await warm.prepare(model, this.simClock(Date.now()), sim.knownPlainPaths())
         : undefined;
       if (this.feed !== feed || this.sim !== sim || revision < this.consumedRevision) return;
       // Never publish an unseen intermediate structural model or replay its transitions.
       // Optional arrivals with identical planning inputs coalesce without restarting allocation.
+      phase = "model-build";
       const latest = modelAt();
       if (latest.planKey !== model.planKey) { this.dirty = true; return; }
       model = latest;
@@ -212,7 +215,11 @@ export class DataSystem implements WorldSystem {
       this.readiness.prepared = true;
       this.status.unavailable = false;
     } catch (error) {
-      this.workerUnavailable(ctx, feed, error);
+      if (phase === "worker") this.workerUnavailable(ctx, feed, error);
+      else {
+        this.status.unavailable = this.installedPayloads === null;
+        console.warn("[harbour] model-build unavailable", error);
+      }
     } finally {
       if (this.feed === feed) {
         this.preparing = false;

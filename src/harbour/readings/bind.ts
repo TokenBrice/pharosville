@@ -12,7 +12,7 @@
  *                pennant at Danger, so the mast and the sky always tell one story; the ALERT+ coins live in the panel
  *   7d supply  → the tide gauge, signed-sqrt against TIDE_FULL_SCALE_PCT
  *   mint/burn  → the Mint and the Burn (src/harbour/civic, D19; the tide board is gone)
- *   freshness  → sea fog, ONLY when /api/stablecoins is stale or unavailable
+ *   freshness  → sea fog, ONLY when /api/stablecoins is dated stale
  */
 import type {
   ConditionBand, DewsBand, EndpointKey, EndpointTruth, FlowsReading, HarbourModel, StormFlag, StormSignalShape,
@@ -87,7 +87,7 @@ export interface AlertCoin { id: string; symbol: string; band: DewsBand; score: 
 export interface WorldTargets {
   /** `qualified` (DA-09): lit but computed without early-warning inputs → the horn shutter narrows the beam. */
   psi: { lit: boolean; sweepSec: number; reach: number; lamp: LampStep; band: ConditionBand | null; score: number | null; qualified?: boolean };
-  /** null = unknown: the sea is left as it is (never painted calm on purpose). */
+  /** null = unknown: reset to the non-analytical boot sea. */
   sea: SeaStep | null;
   /** The DEWS weather the director (src/harbour/weather) eases toward; `level` is the continuous supply-weighted 0..4. */
   weather: { cloud: number; wind: number; band: DewsBand | null; level: number } | null;
@@ -105,7 +105,7 @@ export interface WorldTargets {
   /** T6: chain name → office state (works / furled / neutral); neutral for every chain when /api/chains is not current. */
   offices: Record<string, OfficeState>;
   flows: FlowsReading;
-  /** Sea fog wanted: /api/stablecoins stale, or unavailable after the feed has tried. */
+  /** Sea fog wanted only for retained, dated stale /api/stablecoins. */
   fog: boolean;
   landmarks: Record<LandmarkId, LandmarkReading>;
 }
@@ -179,10 +179,10 @@ export interface DeriveInput {
   prevOffices?: Readonly<Record<string, OfficeState>> | undefined;
 }
 
-export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted, chainRows, prevOffices }: DeriveInput): WorldTargets {
+export function deriveTargets({ model, chainsChange7d, chainRows, prevOffices }: DeriveInput): WorldTargets {
   const r = model.readings;
   const p = r.psi;
-  const lit = p.lit && p.band != null && p.score != null;
+  const lit = model.truth.stability.state === "current" && p.lit && p.band != null && p.score != null;
   const landmarks = {} as Record<LandmarkId, LandmarkReading>;
   for (const id of Object.keys(LANDMARK_ENDPOINT) as LandmarkId[]) {
     const key = LANDMARK_ENDPOINT[id];
@@ -190,7 +190,8 @@ export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted, cha
     landmarks[id] = { state: landmarkState(t), ageSec: t.ageSec, endpoint: key };
   }
   const coins = model.truth.stablecoins;
-  const weatherKnown = r.weather.cloudCover != null && r.weather.wind != null;
+  const fleetCurrent = coins.state === "current";
+  const weatherKnown = fleetCurrent && model.truth.stress.state === "current" && r.weather.cloudCover != null && r.weather.wind != null;
   const mast = mastForBand(weatherKnown ? r.weather.band : null);
   return {
     psi: {
@@ -202,19 +203,19 @@ export function deriveTargets({ model, chainsChange7d, stablecoinsAttempted, cha
       score: lit ? p.score : null,
       qualified: lit && p.qualified === true,
     },
-    sea: r.seaState.step,
+    sea: fleetCurrent && model.truth.pegSummary.state === "current" ? r.seaState.step : null,
     weather: weatherKnown && r.weather.cloudCover != null && r.weather.wind != null
       ? { cloud: r.weather.cloudCover, wind: r.weather.wind, band: r.weather.band, level: r.weather.level ?? (r.weather.band ? DEWS_LEVEL[r.weather.band] : 0) }
       : null,
     cones: mast.cones,
     pennant: mast.pennant,
-    alerts: alertCoins(model),
-    tide: model.truth.chains.state === "unavailable" ? { pct: null, level: 0 } : tideFromFraction(chainsChange7d),
-    stormFlags: model.readings.stormFlags,
+    alerts: fleetCurrent && model.truth.stress.state === "current" ? alertCoins(model) : [],
+    tide: model.truth.chains.state !== "current" ? { pct: null, level: 0 } : tideFromFraction(chainsChange7d),
+    stormFlags: fleetCurrent ? model.readings.stormFlags : [],
     maidens: model.boats.filter((b) => b.maiden).map((b) => b.id),
     offices: officeStates(chainRows ?? [], model.truth.chains.state === "current", prevOffices),
-    flows: r.flows,
-    fog: coins.state === "stale" || (coins.state === "unavailable" && stablecoinsAttempted),
+    flows: model.truth.mintBurn.state === "current" ? r.flows : { ...r.flows, available: false, hourly: [], net24hUsd: null },
+    fog: model.hasFleet && coins.state === "stale" && coins.ageSec != null,
     landmarks,
   };
 }

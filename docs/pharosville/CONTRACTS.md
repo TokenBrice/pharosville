@@ -92,7 +92,7 @@ contract only with explicit intent and matching code, tests and route docs.
 Only PharosVille consumes these allowlisted routes. The Pages Function projects
 successful JSON to the complete world **and** on-demand panel contract below;
 the upstream analytical schemas are not the standalone response contract.
-`shared/types/pharosville.ts` owns the standalone schemas (contract version 2).
+`shared/types/pharosville.ts` owns the standalone schemas (contract version 3).
 Every `_meta` object is retained intact, including unavailable dependencies.
 Nulls and missing readings are not filled, and no live stablecoin or chain is
 filtered out. The existing active-ID safety-grade filter is unchanged.
@@ -100,12 +100,12 @@ filtered out. The existing active-ID safety-grade filter is unchanged.
 | Endpoint | Retained fields |
 |---|---|
 | `/api/stablecoins` | Every `peggedAssets` row: `id`, `name`, `symbol`, `pegType`, `chains`, `circulating`, `circulatingPrevDay/Week/Month`, each `chainCirculating.*.current` |
-| `/api/chains` | Every row's `id`, `name`, `totalUsd`, `healthScore`, `change24hPct`, `change7dPct`, `change30dPct`; top-level `globalChange7dPct` |
-| `/api/stability-index?detail=true` | `current.score`, `band`, `avg24h`, `computedAt`, components `severity`, `breadth`, `stressBreadth`, `trend`; `history` retains the panel's last 30 finite-score rows sorted by ascending date, each `date` and `score` |
-| `/api/peg-summary` | Every coin's `id`, `currentDeviationBps`, `activeDepeg`, `pegScore`, and `pegReference.valueUsd/source/contributorCount`; `methodology.asOf` only |
-| `/api/stress-signals` | Every signal ID and its `score`, `band`; top-level `updatedAt` |
-| `/api/safety-grades` | Existing runtime-active rows, each `id`, `grade`; top-level `updatedAt` |
-| `/api/mint-burn-flows` | Every hourly row's `hourTs`, `netFlowUsd`, `mintVolumeUsd`, `burnVolumeUsd`; `scope.chainIds`; every coin's `stablecoinId`, `mintVolume24hUsd`, `burnVolume24hUsd`, `netFlow24hUsd`, `netFlow7dUsd`, `coverage.status` |
+| `/api/chains` | Every row's `id`, `name`, `totalUsd`, `healthScore`, `change24hPct`, `change7dPct`, `change30dPct`; top-level `globalChange24hPct`, `globalChange7dPct`, `globalChange30dPct` |
+| `/api/stability-index?detail=true` | `current.score`, `band`, `avg24h`, `computedAt`, `methodologyVersion`, `inputDegradation.dewsUnavailable/depegEventsUnavailable`, root `methodology.version`; components `severity`, `breadth`, `stressBreadth`, `trend`; `history` retains the panel's last 30 finite-score rows sorted by ascending date, each `date`, `score`, and `methodologyVersion` |
+| `/api/peg-summary` | Every coin's `id`, `currentDeviationBps`, `activeDepeg`, `pegScore`, and `pegReference.valueUsd/source/contributorCount`; coin `methodologyVersion`; root `methodology.asOf/version` |
+| `/api/stress-signals` | Every signal ID and its `score`, `band`; top-level `updatedAt`, `methodology.version` |
+| `/api/safety-grades` | Existing runtime-active rows, each `id`, `grade`; top-level `updatedAt`, `methodologyVersion` |
+| `/api/mint-burn-flows` | Every hourly row's `hourTs`, `netFlowUsd`, `mintVolumeUsd`, `burnVolumeUsd`, `valuation`; `scope.chainIds`; every coin's `stablecoinId`, `mintVolume24hUsd`, `burnVolume24hUsd`, `netFlow24hUsd`, `netFlow7dUsd`, `coverage.status/has24hWindow/historyStartAt/isPartial`, `valuation.window24h.completeness/mintCompleteness/burnCompleteness`, `valuation.netFlow7d` |
 
 Publication timestamps (`_meta`, `computedAt`, `methodology.asOf`, `updatedAt`) are kept so
 `npm run smoke:live` can age-check every projected body. Deliberately dropped upstream extras
@@ -114,14 +114,20 @@ include stablecoin `price`; chains' `globalTotalUsd`, `unattributedTotalUsd`, ro
 mint/burn `gauge`. These are not available to world/UI consumers; new uses must explicitly extend
 the projector and standalone contract first.
 
-Cache policy, `X-Data-Age`, `Age`, and `Warning` remain freshness evidence.
+Source age requires valid `_meta` or `X-Data-Age`; `Age` only adds CDN residence.
+Warning 110 always marks a stale fallback, independently of source age.
+Browser/edge cache lifetime is bounded by producer cadence (`cacheTtlSec`), separately from
+analytical source tolerance and 24-hour last-good retention; stricter upstream policies survive.
 The ETag is a SHA-256 digest of the serialized **projected** representation,
 not the upstream ETag. GET `If-None-Match` supports weak/strong comparisons,
 lists and `*`; a match returns bodyless 304 with the current freshness,
 cache and security headers. The browser reuses its cached body; the feed does
 not send manual validators or treat an exposed 304 as a JSON payload.
 The edge stores full 200 responses even when the requesting browser gets 304.
-Previously cached representations are projected and re-tagged before use.
+Projection epoch `pv2` namespaces normal and last-good internal keys and ETags.
+Old-epoch representations are ignored, never re-projected as a new contract.
+The feed uses browser revalidation (`cache: "no-cache"`). A first post-cutover outage
+may have no compatible last-good observation and is reported unavailable.
 Last-good outage responses always send the full 200 body with `Warning: 110`,
 `no-store` and their age, even when a browser validator matches, so stale
 demotion never depends on browser-specific merging of 304 headers.

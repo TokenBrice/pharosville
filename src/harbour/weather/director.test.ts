@@ -63,13 +63,14 @@ describe("weather grammar: storminess is data", () => {
     expect(d.state.wetness).toBeGreaterThan(0.05);
   });
 
-  it("unknown holds the weather, never paints it calm", () => {
+  it("unknown resets weather and recovery history to the non-analytical boot pose", () => {
     const d = new WeatherDirector();
     d.step(0.1, input(3, "WARNING"));
-    const p = d.state.precip;
     run(d, 30, input(null, null));
-    expect(d.state.precip).toBeGreaterThan(p * 0.5);
-    expect(d.state.level).toBe(3);
+    expect(d.state).toMatchObject({ level: null, band: null, cloud: 0.38, wind: 0.3, precip: 0, strikesPerMin: 0, rainbow: 0, front: null, recovery: null });
+    d.step(0.1, input(0, "CALM"));
+    expect(d.state.recovery).toBeNull();
+    expect(d.rainbowRemaining).toBe(0);
   });
 
   it("snow vs rain is the season's; the intensity is the band's", () => {

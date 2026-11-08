@@ -20,7 +20,7 @@ export function psiReading(stability: StabilityPayload | null, truth: EndpointTr
   const cur = stability?.current ?? null;
   const band = cur && PSI_BANDS.has(cur.band) ? (cur.band as ConditionBand) : null;
   const score = cur && Number.isFinite(cur.score) ? cur.score : null;
-  const lit = band != null && score != null && truth.state !== "unavailable";
+  const lit = band != null && score != null && truth.state === "current";
   return {
     lit,
     score,
@@ -97,15 +97,16 @@ export function flowsReading(mint: MintBurnPayload | null, truth: EndpointTruth)
   const hourly = [...mint.hourly]
     .sort((a, b) => a.hourTs - b.hourTs)
     .slice(-24)
-    .map((h) => ({ hourTs: h.hourTs, netUsd: h.netFlowUsd, mintUsd: h.mintVolumeUsd, burnUsd: h.burnVolumeUsd }));
+    .map((h) => ({ hourTs: h.hourTs, netUsd: h.netFlowUsd, mintUsd: h.mintVolumeUsd, burnUsd: h.burnVolumeUsd, ...(h.valuation === undefined ? {} : { valuation: h.valuation }) }));
   let net: number | null = 0;
   for (const h of hourly) net = net == null || h.netUsd == null ? null : net + h.netUsd;
   return {
     hourly,
+    ...(mint.coins ? { coins: mint.coins } : {}),
     net24hUsd: hourly.length ? net : null,
     scope: mint.scope?.chainIds ?? [],
     stale: truth.state === "stale",
-    available: true,
+    available: hourly.length > 0,
   };
 }
 

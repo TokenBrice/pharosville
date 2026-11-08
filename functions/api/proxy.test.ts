@@ -9,6 +9,7 @@ import {
   PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS,
   type PharosVilleSmokeBlockedVariant,
 } from "../../shared/lib/pharosville-smoke-matrix";
+import { PHAROSVILLE_ENDPOINT_REGISTRY } from "../../shared/lib/pharosville-endpoint-registry";
 import { onRequest } from "./[[path]]";
 import { endpointProjector, type ProjectionJson } from "./_project";
 import type { PharosVilleApiEndpointKey } from "../../shared/types/pharosville-endpoint-keys";
@@ -38,6 +39,8 @@ function makeContext(url: string, init?: {
       : {}),
   };
 }
+
+const epochCacheUrl = (url: string) => url.replace("/api/", "/api/__projection/pv2/api/");
 
 class MemoryEdgeCache {
   readonly putUrls: string[] = [];
@@ -86,12 +89,12 @@ const projectionFixtures: Array<{ key: PharosVilleApiEndpointKey; input: Project
   {
     key: "stability",
     input: { _meta: projectionMeta, current: { score: 80, band: "STEADY", avg24h: 79, components: { severity: 5, breadth: 3, stressBreadth: 2, trend: -10, extra: 999 }, contributors: [], computedAt: 100 }, history: [...Array.from({ length: 40 }, (_, i) => ({ date: 40 - i, score: 80 + i / 10, band: "STEADY", methodologyVersion: "v9" })), { date: 100, score: null }], methodology: {} },
-    expected: { _meta: projectionMeta, current: { score: 80, band: "STEADY", avg24h: 79, components: { severity: 5, breadth: 3, stressBreadth: 2, trend: -10 }, computedAt: 100 }, history: Array.from({ length: 30 }, (_, i) => ({ date: i + 11, score: 80 + (29 - i) / 10 })) },
+    expected: { _meta: projectionMeta, current: { score: 80, band: "STEADY", avg24h: 79, components: { severity: 5, breadth: 3, stressBreadth: 2, trend: -10 }, computedAt: 100 }, history: Array.from({ length: 30 }, (_, i) => ({ date: i + 11, score: 80 + (29 - i) / 10, methodologyVersion: "v9" })), methodology: {} },
   },
   {
     key: "pegSummary",
     input: { _meta: projectionMeta, coins: [{ id: "fixture", currentDeviationBps: null, activeDepeg: false, pegScore: null, pegReference: { valueUsd: 1, source: "median", contributorCount: 3, internal: true }, symbol: "FIX" }, { id: "unknown", currentDeviationBps: null, activeDepeg: false, pegScore: null, pegReference: null }], methodology: {}, summary: null },
-    expected: { _meta: projectionMeta, coins: [{ id: "fixture", currentDeviationBps: null, activeDepeg: false, pegScore: null, pegReference: { valueUsd: 1, source: "median", contributorCount: 3 } }, { id: "unknown", currentDeviationBps: null, activeDepeg: false, pegScore: null, pegReference: null }] },
+    expected: { _meta: projectionMeta, methodology: {}, coins: [{ id: "fixture", currentDeviationBps: null, activeDepeg: false, pegScore: null, pegReference: { valueUsd: 1, source: "median", contributorCount: 3 } }, { id: "unknown", currentDeviationBps: null, activeDepeg: false, pegScore: null, pegReference: null }] },
   },
   {
     key: "stress",
@@ -100,8 +103,8 @@ const projectionFixtures: Array<{ key: PharosVilleApiEndpointKey; input: Project
   },
   {
     key: "mintBurn",
-    input: { _meta: projectionMeta, gauge: { score: null }, hourly: [{ hourTs: 100, netFlowUsd: null, mintVolumeUsd: 0, burnVolumeUsd: 0, valuation: "partial" }, { hourTs: 200, netFlowUsd: 10, mintVolumeUsd: 20, burnVolumeUsd: 10 }], scope: { chainIds: ["ethereum"], label: "Scope" }, coins: [{ stablecoinId: "fixture", mintVolume24hUsd: 0, burnVolume24hUsd: 0, netFlow24hUsd: null, netFlow7dUsd: null, netFlow30dUsd: 100, coverage: { status: "unavailable", isPartial: true }, valuation: { window24h: { completeness: "partial" } } }] },
-    expected: { _meta: projectionMeta, hourly: [{ hourTs: 100, netFlowUsd: null, mintVolumeUsd: 0, burnVolumeUsd: 0 }, { hourTs: 200, netFlowUsd: 10, mintVolumeUsd: 20, burnVolumeUsd: 10 }], scope: { chainIds: ["ethereum"] }, coins: [{ stablecoinId: "fixture", mintVolume24hUsd: 0, burnVolume24hUsd: 0, netFlow24hUsd: null, netFlow7dUsd: null, coverage: { status: "unavailable" } }] },
+    input: { _meta: projectionMeta, gauge: { score: null }, hourly: [{ hourTs: 100, netFlowUsd: null, mintVolumeUsd: 0, burnVolumeUsd: 0, valuation: "partial" }, { hourTs: 200, netFlowUsd: 10, mintVolumeUsd: 20, burnVolumeUsd: 10 }], scope: { chainIds: ["ethereum"], label: "Scope" }, coins: [{ stablecoinId: "fixture", mintVolume24hUsd: 0, burnVolume24hUsd: 0, netFlow24hUsd: null, netFlow7dUsd: null, netFlow30dUsd: 100, coverage: { status: "partial-history", isPartial: true }, valuation: { window24h: { completeness: "partial" } } }] },
+    expected: { _meta: projectionMeta, hourly: [{ hourTs: 100, netFlowUsd: null, mintVolumeUsd: 0, burnVolumeUsd: 0, valuation: "partial" }, { hourTs: 200, netFlowUsd: 10, mintVolumeUsd: 20, burnVolumeUsd: 10 }], scope: { chainIds: ["ethereum"] }, coins: [{ stablecoinId: "fixture", mintVolume24hUsd: 0, burnVolume24hUsd: 0, netFlow24hUsd: null, netFlow7dUsd: null, coverage: { status: "partial-history", isPartial: true }, valuation: { window24h: { completeness: "partial" } } }] },
   },
 ];
 describe("PharosVille API proxy", () => {
@@ -123,7 +126,7 @@ describe("PharosVille API proxy", () => {
 
   it("retains stability's structural history when there is no current reading", () => {
     expect(endpointProjector("stability")({ current: null, history: [], _meta: null, methodology: {} }))
-      .toEqual({ current: null, history: [], _meta: null });
+      .toEqual({ current: null, history: [], _meta: null, methodology: {} });
   });
 
   it.each(["strong", "weak", "list", "wildcard", "mismatch"])("honours %s GET validators on projected misses and cache hits", async (kind) => {
@@ -157,7 +160,7 @@ describe("PharosVille API proxy", () => {
     }
     expect(fetchMock).toHaveBeenCalledTimes(2);
     // Cache always stores the complete 200 body, never the conditional 304.
-    expect((await cache.match(new Request(url)))?.status).toBe(200);
+    expect((await cache.match(new Request(epochCacheUrl(url))))?.status).toBe(200);
   });
 
   it("derives validators from projected bytes rather than upstream ETags", async () => {
@@ -173,23 +176,23 @@ describe("PharosVille API proxy", () => {
       const response = await onRequest(makeContext("https://pharosville.pharos.watch/api/chains"));
       tags.push(response.headers.get("etag"));
     }
-    expect(tags[0]).toMatch(/^"pv1-[a-f0-9]{64}"$/);
+    expect(tags[0]).toMatch(/^"pv2-[a-f0-9]{64}"$/);
     expect(tags[1]).toBe(tags[0]);
     expect(tags[2]).not.toBe(tags[0]);
   });
 
-  it("upgrades an old cached representation before comparing validators", async () => {
+  it("ignores old cached representations and fetches the new contract", async () => {
     const cache = new MemoryEdgeCache();
     installEdgeCache(cache);
     const fixture = projectionFixtures.find((entry) => entry.key === "chains")!;
     const url = "https://pharosville.pharos.watch/api/chains";
     await cache.put(new Request(url), Response.json(fixture.input, { headers: { etag: '"old-upstream"', "x-data-age": "9" } }));
-    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(fixture.input));
     const response = await onRequest(makeContext(url, { headers: { "if-none-match": '"old-upstream"' } }));
     expect(response.status).toBe(200);
-    expect(response.headers.get("etag")).toMatch(/^"pv1-[a-f0-9]{64}"$/);
+    expect(response.headers.get("etag")).toMatch(/^"pv2-[a-f0-9]{64}"$/);
     await expect(response.json()).resolves.toEqual(fixture.expected);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it.each(["fetch-error", "5xx"].flatMap((failure) => (
@@ -205,8 +208,8 @@ describe("PharosVille API proxy", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(fixture.input, { headers: { "x-data-age": "12", age: "7" } }));
     const first = await onRequest(makeContext(url, { waitUntilPromises }));
     await Promise.all(waitUntilPromises);
-    cache.responses.delete(url);
-    const lastGoodUrl = "https://pharosville.pharos.watch/api/__last-good/api/chains";
+    cache.responses.delete(epochCacheUrl(url));
+    const lastGoodUrl = "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv2/api/chains";
     const stored = (await cache.match(new Request(lastGoodUrl)))!;
     const headers = new Headers(stored.headers);
     headers.set("age", "3600");
@@ -255,7 +258,7 @@ describe("PharosVille API proxy", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("public, max-age=60");
     expect(response.headers.get("content-type")).toContain("application/json");
-    expect(response.headers.get("etag")).toMatch(/^"pv1-[a-f0-9]{64}"$/);
+    expect(response.headers.get("etag")).toMatch(/^"pv2-[a-f0-9]{64}"$/);
     expect(response.headers.get("retry-after")).toBe("15");
     expect(response.headers.get("warning")).toBe("199 proxy fixture");
     expect(response.headers.get("x-data-age")).toBe("12");
@@ -299,13 +302,13 @@ describe("PharosVille API proxy", () => {
     await Promise.all(waitUntilPromises);
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("public, max-age=600");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=900");
     expect(cache.putUrls).toEqual([
-      "https://pharosville.pharos.watch/api/stablecoins",
-      "https://pharosville.pharos.watch/api/__last-good/api/stablecoins",
+      epochCacheUrl("https://pharosville.pharos.watch/api/stablecoins"),
+      "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv2/api/stablecoins",
     ]);
     expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
-    await expect(cache.match(new Request("https://pharosville.pharos.watch/api/stablecoins")))
+    await expect(cache.match(new Request(epochCacheUrl("https://pharosville.pharos.watch/api/stablecoins"))))
       .resolves.toBeInstanceOf(Response);
   });
 
@@ -313,13 +316,14 @@ describe("PharosVille API proxy", () => {
     const cache = new MemoryEdgeCache();
     installEdgeCache(cache);
     await cache.put(
-      new Request("https://pharosville.pharos.watch/api/stablecoins"),
+      new Request(epochCacheUrl("https://pharosville.pharos.watch/api/stablecoins")),
       new Response(JSON.stringify({ cached: true }), {
         status: 200,
         headers: {
           "cache-control": "public, max-age=600",
           "content-type": "application/json",
           "x-pharosville-proxy": "1",
+          etag: '"pv2-fixture"',
         },
       }),
     );
@@ -389,11 +393,11 @@ describe("PharosVille API proxy", () => {
     expect(response.headers.get("x-api-key")).toBeNull();
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(cache.putUrls).toEqual([
-      "https://pharosville.pharos.watch/api/stablecoins",
-      "https://pharosville.pharos.watch/api/__last-good/api/stablecoins",
+      epochCacheUrl("https://pharosville.pharos.watch/api/stablecoins"),
+      "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv2/api/stablecoins",
     ]);
     expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
-    const lastGood = await cache.match(new Request("https://pharosville.pharos.watch/api/__last-good/api/stablecoins"));
+    const lastGood = await cache.match(new Request("https://pharosville.pharos.watch/api/__last-good/api/__projection/pv2/api/stablecoins"));
     expect(await lastGood?.text()).not.toContain("test-proxy-key");
     expect([...lastGood!.headers.keys()]).not.toContain("x-api-key");
   });
@@ -569,7 +573,6 @@ describe("PharosVille API proxy", () => {
       grades: [
         { id: activeId, score: 80, grade: "A-" },
         { id: "not-a-tracked-stablecoin", score: 12, grade: "F" },
-        { score: 55, grade: "C" },
       ],
     };
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
@@ -584,13 +587,13 @@ describe("PharosVille API proxy", () => {
 
     // Grades outside the runtime active set can never be reached: `grades` has
     // one consumer and it only ever indexes by an id that passed
-    // RUNTIME_ACTIVE_IDS. Malformed rows are dropped rather than forwarded.
+    // RUNTIME_ACTIVE_IDS. Malformed rows remain visible to contract validation.
     expect(body.grades).toHaveLength(1);
     expect(body.grades[0]?.id).toBe(activeId);
     expect(body.grades[0]).toEqual({ id: activeId, grade: "A-" });
     expect(body.updatedAt).toBe(1_700_000_000);
     expect(body.model).toBeUndefined();
-    expect(body.methodologyVersion).toBeUndefined();
+    expect(body.methodologyVersion).toBe("9.8");
     expect(body._meta).toEqual({ updatedAt: 1_700_000_000, ageSeconds: 5, status: "fresh" });
     expect(PHAROSVILLE_API_PAYLOAD_SCHEMAS.safetyGrades.safeParse(body).success).toBe(true);
     expect(isRenderableWorldPayload("safetyGrades", body)).toBe(true);
@@ -602,8 +605,8 @@ describe("PharosVille API proxy", () => {
     const cache = new MemoryEdgeCache();
     installEdgeCache(cache);
     const url = "https://pharosville.pharos.watch/api/safety-grades";
-    await cache.put(new Request("https://pharosville.pharos.watch/api/__last-good/api/safety-grades"), Response.json({ grades: [] }, {
-      headers: { "x-pharosville-last-good-stored-at": String(Math.floor(Date.now() / 1000)), "x-data-age": "5" },
+    await cache.put(new Request("https://pharosville.pharos.watch/api/__last-good/api/__projection/pv2/api/safety-grades"), Response.json({ grades: [] }, {
+      headers: { etag: '"pv2-fixture"', "x-pharosville-last-good-stored-at": String(Math.floor(Date.now() / 1000)), "x-data-age": "5" },
     }));
     const stream = new ReadableStream({ start(controller) {
       if (kind === "interrupted") controller.error(new Error("body interrupted"));
@@ -636,7 +639,7 @@ describe("PharosVille API proxy", () => {
 
   describe("last-good fallback", () => {
     const SHORT_TTL_URL = "https://pharosville.pharos.watch/api/stablecoins";
-    const LAST_GOOD_URL = "https://pharosville.pharos.watch/api/__last-good/api/stablecoins";
+    const LAST_GOOD_URL = "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv2/api/stablecoins";
 
     // The long-TTL copy shares `caches.default` with the CDN, so both halves
     // matter: the key has to be in-zone or the write is not documented to land
@@ -658,7 +661,7 @@ describe("PharosVille API proxy", () => {
 
       expect(cache.putUrls.every((putUrl) => new URL(putUrl).origin === "https://pharosville.pharos.watch"))
         .toBe(true);
-      expect(cache.putUrls).toEqual([SHORT_TTL_URL, LAST_GOOD_URL]);
+      expect(cache.putUrls).toEqual([epochCacheUrl(SHORT_TTL_URL), LAST_GOOD_URL]);
     });
 
     it("refuses the reserved prefix with no-store, so no caller can take the key", async () => {
@@ -710,7 +713,7 @@ describe("PharosVille API proxy", () => {
       );
       await onRequest(makeContext(SHORT_TTL_URL, { waitUntilPromises }));
       await Promise.all(waitUntilPromises);
-      cache.responses.delete(SHORT_TTL_URL);
+      cache.responses.delete(epochCacheUrl(SHORT_TTL_URL));
     }
 
     it("stores the last-good copy under a long TTL", async () => {
@@ -816,7 +819,7 @@ describe("PharosVille API proxy", () => {
       expect(served.status).toBe(502);
       await expect(cache.match(new Request(LAST_GOOD_URL))).resolves.toBeUndefined();
 
-      cache.responses.delete(SHORT_TTL_URL);
+      cache.responses.delete(epochCacheUrl(SHORT_TTL_URL));
       vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("upstream down"));
       const duringOutage = await onRequest(makeContext(SHORT_TTL_URL));
 
@@ -848,4 +851,66 @@ describe("PharosVille API proxy", () => {
 
     expect(response.status).toBe(502);
   });
+});
+
+describe("projection epoch and cache lifetime", () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  it("uses producer cadence as cache TTL for every endpoint, keeping source tolerances separate", () => {
+    expect(Object.fromEntries(Object.entries(PHAROSVILLE_ENDPOINT_REGISTRY).map(([key, e]) => [key, e.cacheTtlSec]))).toEqual({ stablecoins: 900, chains: 900, stability: 1800, pegSummary: 900, stress: 1800, safetyGrades: 900, mintBurn: 1800 });
+    expect(PHAROSVILLE_ENDPOINT_REGISTRY.stability.metaMaxAgeSec).toBe(86400);
+  });
+  it.each([
+    [null, "public, max-age=1800"], ["public, max-age=60", "public, max-age=60"],
+    ["public, max-age=86400, s-maxage=99999", "public, max-age=1800, s-maxage=1800"],
+    ["no-store", "no-store"], ["private, max-age=10", "private, max-age=10"],
+  ])("bounds edge/browser lifetime while preserving stricter upstream policy: %s", async (control, expected) => {
+    const cache = new MemoryEdgeCache(); installEdgeCache(cache);
+    const waiting: Promise<unknown>[] = [];
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ current: null, history: [] }, { headers: control ? { "Cache-Control": control } : {} }));
+    const response = await onRequest(makeContext("https://pharosville.pharos.watch/api/stability-index?detail=true", { waitUntilPromises: waiting }));
+    await Promise.all(waiting);
+    expect(response.headers.get("cache-control")).toBe(expected);
+    if (control?.startsWith("no-store") || control?.startsWith("private")) expect(cache.putUrls).toEqual([]);
+  });
+  it.each([false, true])("ignores pv1 normal and last-good bodies on outage (namespaced=%s)", async (namespaced) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cache = new MemoryEdgeCache(); installEdgeCache(cache);
+    const url = "https://pharosville.pharos.watch/api/chains";
+    const normal = namespaced ? epochCacheUrl(url) : url;
+    const lastGood = `https://pharosville.pharos.watch/api/__last-good${new URL(normal).pathname}`;
+    for (const key of [normal, lastGood]) await cache.put(new Request(key), Response.json({ chains: [], globalChange7dPct: 1 }, { headers: { etag: '"pv1-obsolete"', "x-pharosville-last-good-stored-at": String(Math.floor(Date.now() / 1000)) } }));
+    const fetcher = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("down"));
+    const response = await onRequest(makeContext(url));
+    expect(fetcher).toHaveBeenCalledOnce(); expect(response.status).toBe(502);
+    expect(response.headers.get("Warning")).toBeNull();
+  });
+  it("does not turn unknown source age into X-Data-Age zero in a fallback", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cache = new MemoryEdgeCache(); installEdgeCache(cache);
+    const waiting: Promise<unknown>[] = [];
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ chains: [], globalChange7dPct: 1 }));
+    const url = "https://pharosville.pharos.watch/api/chains";
+    await onRequest(makeContext(url, { waitUntilPromises: waiting })); await Promise.all(waiting);
+    cache.responses.delete(epochCacheUrl(url));
+    fetcher.mockRejectedValueOnce(new Error("down"));
+    const response = await onRequest(makeContext(url));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Warning")).toContain("110");
+    expect(response.headers.get("X-Data-Age")).toBeNull();
+  });
+  it("preserves malformed enrichment rows so client validation can reject the endpoint", () => {
+    const malformed = { grades: [null, { score: 90, grade: "A" }] };
+    expect(endpointProjector("safetyGrades")(malformed)).toEqual({ grades: [null, { grade: "A" }] });
+    expect(PHAROSVILLE_API_PAYLOAD_SCHEMAS.safetyGrades.safeParse(endpointProjector("safetyGrades")(malformed)).success).toBe(false);
+  });
+});
+
+it("refuses the projection cache namespace with no-store", async () => {
+  const fetcher = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("must not fetch"));
+  try {
+    const response = await onRequest(makeContext(epochCacheUrl("https://pharosville.pharos.watch/api/chains")));
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(fetcher).not.toHaveBeenCalled();
+  } finally { vi.restoreAllMocks(); }
 });

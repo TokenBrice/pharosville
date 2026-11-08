@@ -288,7 +288,7 @@ export class CivicSystem implements WorldSystem {
       this.model = model ?? this.model;
       this.readingsVersion = readings?.version ?? -1;
       const f = this.model?.readings.flows;
-      let c = civicFlows(f ? { ...f, stale: f.stale || (readings?.flows.stale ?? false) } : null);
+      let c = civicFlows(f ? { ...f, available: f.available && this.model?.truth.mintBurn.state === "current", stale: f.stale || (readings?.flows.stale ?? false) } : null);
       if (this.dev) c = applyFlowOverrides(c, this.q);
       this.flows = c;
       if (fresh && this.yard && this.model) {
@@ -383,8 +383,8 @@ export class CivicSystem implements WorldSystem {
   private paintGrades(): void {
     if (!this.boards || !this.grades || !this.model || this.model === this.gradeModel) return;
     this.gradeModel = this.model;
-    const tally = this.model.hasFleet ? gradeTally(this.model.boats) : null;
-    const key = tally ? [...tally].join(",") : "none";
+    const tally = this.model.hasFleet && this.model.truth.stablecoins.state === "current" && this.model.truth.safetyGrades.state === "current" ? gradeTally(this.model.boats) : null;
+    const key = `${this.model.truth.stablecoins.state}:${this.model.truth.safetyGrades.state}:${tally ? [...tally].join(",") : "none"}`;
     if (key === this.gradeKey) return;
     this.gradeKey = key;
     this.boards.paint(this.grades, (c, s) => paintGradeBoard(c, s, tally));
@@ -401,11 +401,12 @@ export class CivicSystem implements WorldSystem {
     const mv = this.movers;
     if (!mv || !this.crests) return;
     const feed = ctx.services.get("feed") as { payloads?: { chains?: { data?: { chains?: unknown } } } } | undefined;
-    const rows = feed?.payloads?.chains?.data?.chains;
-    if (rows !== this.moversData || !this.moversKey) {
+    const current = this.model?.truth.chains.state === "current";
+    const rows = current ? feed?.payloads?.chains?.data?.chains : undefined;
+    if (rows !== this.moversData || !this.moversKey.startsWith(`${this.model?.truth.chains.state}:`)) {
       this.moversData = rows;
       const m = topMovers(Array.isArray(rows) ? rows as ChainMove[] : [], Object.keys(this.crests.chains));
-      const key = `${m.up?.slug ?? "-"}:${m.down?.slug ?? "-"}`;
+      const key = `${this.model?.truth.chains.state}:${m.up?.slug ?? "-"}:${m.down?.slug ?? "-"}`;
       if (key !== this.moversKey) {
         this.moversKey = key;
         const { img, chains } = this.crests;
