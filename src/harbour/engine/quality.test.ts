@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TIERS, initialRungFor, ladderFor, parseTier } from "./quality";
+import { backingDpr, backingLimitsFor, TIERS, initialRungFor, ladderFor, parseTier } from "./quality";
 import { gradePixel } from "./post";
 import type { Grade } from "./time-of-day";
 
@@ -11,6 +11,7 @@ describe("quality ladder", () => {
     expect(two[two.length - 1]).toEqual({ tier: "high", dpr: 2 });
     expect(ladderFor(3)[ladderFor(3).length - 1].dpr).toBe(2);
     for (const r of ladderFor(1.5)) expect(r.dpr).toBeLessThanOrEqual(1.5);
+    expect(ladderFor(0.8).map((r) => r.dpr)).toEqual([0.8, 0.8, 0.8]); // Native zoom density, not rescue rungs.
   });
 
   it("starts integrated GPUs at Medium 1.5 and discrete GPUs at the top", () => {
@@ -39,6 +40,28 @@ describe("quality ladder", () => {
     expect(TIERS.high.shadowMinFrames).toBe(1);
     expect(TIERS.medium.shadowMinFrames).toBe(2);
     expect(TIERS.low.shadowMinFrames).toBe(2);
+  });
+});
+
+describe("hard backing limits", () => {
+  it.each([
+    [4096, 8192, [16384, 16384], { width: 4096, height: 4096 }],
+    [16384, 2048, [16384, 16384], { width: 2048, height: 2048 }],
+    [16384, 8192, [4096, 2048], { width: 4096, height: 2048 }],
+  ])("uses the tightest texture, renderbuffer and viewport bounds", (texture, renderbuffer, viewport, expected) => {
+    const gl = {
+      MAX_TEXTURE_SIZE: 1, MAX_RENDERBUFFER_SIZE: 2, MAX_VIEWPORT_DIMS: 3,
+      getParameter: (p: number) => p === 1 ? texture : p === 2 ? renderbuffer : new Int32Array(viewport),
+    } as unknown as WebGL2RenderingContext;
+    expect(backingLimitsFor(gl)).toEqual(expected);
+  });
+
+  it("clamps before allocation, allowing below-one only when hard dimensions require it", () => {
+    const limits = { width: 4096, height: 2048 };
+    expect(backingDpr(1000, 700, 2, limits)).toBe(2);
+    expect(backingDpr(4000, 1000, 2, limits)).toBe(1.024);
+    expect(backingDpr(1000, 4000, 2, limits)).toBe(0.512);
+    expect(backingDpr(8000, 4000, 1, limits)).toBe(0.512);
   });
 });
 

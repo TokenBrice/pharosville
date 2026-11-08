@@ -32,7 +32,7 @@ export const TIERS: Record<QualityTier, QualitySettings> = {
 
 export interface QualityRung { readonly tier: QualityTier; readonly dpr: number }
 
-/** Cheapest → richest. The governor only ever moves one rung at a time. */
+/** Cheapest → richest. Severe overload may bypass intermediate rungs. */
 export const LADDER: readonly QualityRung[] = [
   { tier: "low", dpr: 1 },
   { tier: "low", dpr: 1.25 },
@@ -48,7 +48,7 @@ export const LADDER: readonly QualityRung[] = [
  * duplicate rungs removed. A 1× display gets low@1 → medium@1 → high@1.
  */
 export function ladderFor(deviceDpr: number): QualityRung[] {
-  const cap = Math.min(2, Math.max(1, deviceDpr));
+  const cap = Math.min(2, deviceDpr);
   const out: QualityRung[] = [];
   for (const r of LADDER) {
     const rung = { tier: r.tier, dpr: Math.min(r.dpr, cap) };
@@ -56,6 +56,19 @@ export function ladderFor(deviceDpr: number): QualityRung[] {
     if (!last || last.tier !== rung.tier || last.dpr !== rung.dpr) out.push(rung);
   }
   return out;
+}
+
+export interface BackingLimits { readonly width: number; readonly height: number }
+
+/** Attachment and viewport limits are hard ceilings, including for explicit DPR overrides. */
+export function backingLimitsFor(gl: WebGL2RenderingContext): BackingLimits {
+  const attachment = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) as number, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number);
+  const viewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array;
+  return { width: Math.min(attachment, viewport[0]), height: Math.min(attachment, viewport[1]) };
+}
+
+export function backingDpr(width: number, height: number, requested: number, limits: BackingLimits): number {
+  return Math.min(requested, limits.width / width, limits.height / height);
 }
 
 /** Phone and tablet GPUs by WEBGL_debug_renderer_info name (Android ANGLE strings carry the same names). */

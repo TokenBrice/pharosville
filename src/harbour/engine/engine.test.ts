@@ -8,6 +8,7 @@ import type { EngineContext, HarbourStats, RenderedFleetState, WorldSystem } fro
 import { ProgramPreparation } from "./prepare";
 import { deferred } from "./deferred";
 import { TIERS } from "./quality";
+import { QualityGovernor } from "./governor";
 import type { QualitySettings } from "./quality";
 import type { PreparedPrograms } from "./prepare";
 
@@ -25,6 +26,19 @@ interface EngineHarness {
   preparation: { prepareGroup: Mock; invalidate: Mock; prepare: Mock };
   qualityPreparation: Map<QualitySettings["tier"], Promise<void>>;
   qualityPrograms: Set<PreparedPrograms>;
+  qualityReady: Set<QualitySettings["tier"]>;
+  governor: { end: Mock; pause: Mock; resume: Mock; reconcileDisplay: Mock; resetTiming: Mock; publish: Mock; dpr: number };
+  booted: boolean;
+  requestedRunning: boolean;
+  running: boolean;
+  clock: { last: number; elapsed: number };
+  frameState: { delta: number };
+  container: { clientWidth: number; clientHeight: number };
+  onResize: () => void;
+  start(): void;
+  stop(): void;
+  reconcileRunning(): void;
+  init(): Promise<void>;
   post: { preparationEntries: Mock };
   prepareQuality(settings: QualitySettings): Promise<void>;
   warmQuality: Mock;
@@ -40,7 +54,7 @@ function frameEngine() {
   const camera = new THREE.PerspectiveCamera();
   const renderer = {
     info: { reset: vi.fn(), render: { calls: 12, triangles: 34 }, memory: { textures: 3 }, programs: [{}] },
-    getPixelRatio: () => 1, setSize: vi.fn(),
+    getPixelRatio: () => 1, setDrawingBufferSize: vi.fn(),
   };
   const composer = { render: vi.fn(), setSize: vi.fn() };
   const ctx = {
@@ -54,11 +68,14 @@ function frameEngine() {
     frameState: { elapsed: 0, delta: 0, nowMs: 0 }, rendered: { revision: 0, boats: 0 },
     renderedListeners: new Set(), systems: [], ready: new Set(), later: [], begun: new Set(),
     disposed: false, aborted: false, preparation: { prepareGroup: vi.fn(async () => {}), invalidate: vi.fn(), prepare: vi.fn() },
-    qualityPreparation: new Map(), qualityPrograms: new Set(), warmQuality: vi.fn(),
+    qualityPreparation: new Map(), qualityPrograms: new Set(), qualityReady: new Set(), warmQuality: vi.fn(),
+    backingLimits: { width: 8192, height: 8192 }, resolutionDpr: 0,
+    booted: false, requestedRunning: false, running: false, raf: 0,
     stats: { backend: "webgl2", drawCalls: 0, triangles: 0, textures: 0, programs: 0, hour: 0, systems: [], firstFrameMs: null, firstFleetFrameMs: null, renderedRevision: 0, renderedBoats: 0 },
     input: { update: vi.fn() }, post: { update: vi.fn() },
-    governor: { begin: vi.fn(), end: vi.fn(), dpr: 1, tier: "high", gpuMs: 2, gpuP50Ms: 3, gpuSamples: 30, gpuCompletedSamples: 50, gpuPendingQueries: 1, gpuDisjointSamples: 2, gpuSkippedQueries: 0 },
+    governor: { begin: vi.fn(), end: vi.fn(), pause: vi.fn(), resume: vi.fn(), reconcileDisplay: vi.fn(() => false), resetTiming: vi.fn(), publish: vi.fn(), dpr: 1, tier: "high", gpuMs: 2, gpuP50Ms: 3, gpuSamples: 30, gpuCompletedSamples: 50, gpuPendingQueries: 1, gpuDisjointSamples: 2, gpuSkippedQueries: 0 },
   }) as EngineHarness;
+  engine.onResize = () => engine.resize();
   return { engine, ctx, renderer, composer };
 }
 
@@ -66,6 +83,10 @@ describe("engine preparation and rendered readiness", () => {
   beforeEach(() => {
     vi.stubGlobal("location", { search: "", hash: "" });
     vi.stubGlobal("window", {});
+    vi.stubGlobal("devicePixelRatio", 1);
+    vi.stubGlobal("document", { hidden: false, removeEventListener: vi.fn() });
+    vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
   });
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -163,12 +184,161 @@ describe("engine preparation and rendered readiness", () => {
     engine.systems.push(system); engine.ready.add(system);
     engine.resize();
     engine.resize();
-    expect(renderer.setSize).toHaveBeenCalledTimes(1);
+    expect(renderer.setDrawingBufferSize).toHaveBeenCalledTimes(1);
     expect(composer.setSize).toHaveBeenCalledTimes(1);
     expect(system.resize).toHaveBeenCalledTimes(1);
     engine.resize(true);
-    expect(renderer.setSize).toHaveBeenCalledTimes(1);
+    expect(renderer.setDrawingBufferSize).toHaveBeenCalledTimes(1);
     expect(system.resize).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])("passes raw visible timing separately from animation's clamp (profiled=%s)", (profiled) => {
+    const { engine, composer } = frameEngine();
+    if (profiled) engine.profile = { frames: 0, ms: {}, max: {} };
+    engine.firstFrameMs = 1;
+    engine.frame(250);
+    expect(engine.frameState.delta).toBe(0.1);
+    expect(engine.clock.elapsed).toBe(0.1);
+    expect(composer.render).toHaveBeenCalledWith(0.1);
+    expect(engine.governor.end).toHaveBeenCalledWith(0.25);
+  });
+
+  it.each([60, 120, 144])("integrates equal animation time at %i Hz", (hz) => {
+    const { engine } = frameEngine();
+    for (let i = 1; i <= hz; i++) engine.frame(i * 1000 / hz);
+    expect(engine.clock.elapsed).toBeCloseTo(1, 8);
+  });
+
+  it("reconciles display DPR at unchanged CSS size and publishes actual allocation everywhere", () => {
+    const { engine, ctx, renderer, composer } = frameEngine();
+    const gl = { RENDERER: 1, getExtension: () => null, getParameter: () => "NVIDIA RTX 4070" } as unknown as WebGL2RenderingContext;
+    vi.stubGlobal("devicePixelRatio", 2);
+    const governor = new QualityGovernor(gl, () => engine.resize());
+    Object.assign(engine, { governor });
+    const changed = vi.fn(); governor.onChange(changed);
+    engine.resize();
+    expect(renderer.setDrawingBufferSize).toHaveBeenLastCalledWith(1000, 700, 2);
+    vi.stubGlobal("devicePixelRatio", 1);
+    engine.resize();
+    expect(renderer.setDrawingBufferSize).toHaveBeenLastCalledWith(1000, 700, 1);
+    expect(ctx.uniforms.uResolution.value.toArray()).toEqual([1000, 700]);
+    expect(engine.stats.dpr).toBe(1);
+    expect(governor.dpr).toBe(1);
+    expect(changed).toHaveBeenCalledExactlyOnceWith(TIERS.high, 1);
+    engine.resize();
+    expect(composer.setSize).toHaveBeenCalledTimes(2);
+    vi.stubGlobal("devicePixelRatio", 2);
+    engine.resize();
+    expect(renderer.setDrawingBufferSize).toHaveBeenLastCalledWith(1000, 700, 1.5);
+    expect(governor.ladder.at(-1)?.dpr).toBe(2);
+  });
+
+  it("renews the resolution listener for zoom without a CSS resize and removes the old listener", () => {
+    const queries: { addEventListener: Mock; removeEventListener: Mock }[] = [];
+    const media = vi.fn(() => {
+      const query = { addEventListener: vi.fn(), removeEventListener: vi.fn() };
+      queries.push(query); return query;
+    });
+    vi.stubGlobal("matchMedia", media);
+    const { engine } = frameEngine();
+    engine.resize();
+    const listener = queries[0].addEventListener.mock.calls[0][1] as () => void;
+    vi.stubGlobal("devicePixelRatio", 1.25);
+    listener();
+    expect(queries[0].removeEventListener).toHaveBeenCalledWith("change", listener);
+    expect(media).toHaveBeenLastCalledWith("(resolution: 1.25dppx)");
+    expect(engine.governor.reconcileDisplay).toHaveBeenLastCalledWith(1.25, 2);
+    engine.resize();
+    expect(queries).toHaveLength(2);
+  });
+
+  it("applies hard limits before a combined size/DPR allocation, including explicit overrides", () => {
+    vi.stubGlobal("location", { search: "?dpr=2&quality=high", hash: "" });
+    const { engine, ctx, renderer } = frameEngine();
+    const gl = { RENDERER: 1, getExtension: () => null, getParameter: () => "NVIDIA RTX 4070" } as unknown as WebGL2RenderingContext;
+    const governor = new QualityGovernor(gl, () => engine.resize());
+    Object.assign(engine, { governor, backingLimits: { width: 2000, height: 1000 } });
+    engine.container.clientWidth = 4000; engine.container.clientHeight = 2000;
+    engine.resize();
+    expect(renderer.setDrawingBufferSize).toHaveBeenLastCalledWith(4000, 2000, 0.5);
+    expect(ctx.camera.aspect).toBe(2);
+    expect(ctx.uniforms.uResolution.value.toArray()).toEqual([2000, 1000]);
+    expect(engine.stats.dpr).toBe(0.5);
+    engine.container.clientWidth = 1000; engine.container.clientHeight = 500;
+    engine.resize();
+    expect(renderer.setDrawingBufferSize).toHaveBeenLastCalledWith(1000, 500, 2);
+    expect(governor.dpr).toBe(2);
+  });
+
+  it("does not schedule before boot, or on hidden boot completion, and resumes once visible", async () => {
+    const visibility = { hidden: false };
+    vi.stubGlobal("document", visibility);
+    const { engine } = frameEngine();
+    const ready = deferred<PreparedPrograms>();
+    Object.assign(engine.post, { seal: vi.fn(), preparationEntries: () => ({ entries: [], dispose: vi.fn() }) });
+    Object.assign(engine.preparation, { prepareWorld: () => ready.promise, adopt: vi.fn() });
+    engine.start();
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+    const boot = engine.init();
+    visibility.hidden = true;
+    engine.reconcileRunning();
+    ready.resolve({ sources: new Set(), dispose: vi.fn() });
+    await boot;
+    engine.start(); // Production also requests start after init resolves.
+    expect(engine.booted).toBe(true);
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+    visibility.hidden = false;
+    engine.reconcileRunning(); engine.start();
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    expect(engine.governor.resume).toHaveBeenCalledOnce();
+  });
+
+  it("preserves intentional stop across visibility changes and boot completion", async () => {
+    const visibility = { hidden: false };
+    vi.stubGlobal("document", visibility);
+    const { engine } = frameEngine();
+    const ready = deferred<PreparedPrograms>();
+    Object.assign(engine.post, { seal: vi.fn(), preparationEntries: () => ({ entries: [], dispose: vi.fn() }) });
+    Object.assign(engine.preparation, { prepareWorld: () => ready.promise, adopt: vi.fn() });
+    engine.start();
+    const boot = engine.init();
+    engine.stop();
+    ready.resolve({ sources: new Set(), dispose: vi.fn() }); await boot;
+    visibility.hidden = true; engine.reconcileRunning();
+    visibility.hidden = false; engine.reconcileRunning();
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+    engine.start(); engine.stop();
+    engine.reconcileRunning();
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    expect(engine.running).toBe(false);
+  });
+
+  it("resets timing on resume, ignores hidden time and guards a queued hidden callback", () => {
+    const visibility = { hidden: false };
+    vi.stubGlobal("document", visibility);
+    const { engine } = frameEngine(); engine.booted = true;
+    vi.spyOn(performance, "now").mockReturnValue(1000);
+    engine.start();
+    const firstTick = vi.mocked(requestAnimationFrame).mock.calls[0][0];
+    visibility.hidden = true;
+    firstTick(2000); // Visibility event need not have arrived yet.
+    expect(engine.governor.end).not.toHaveBeenCalled();
+    expect(engine.running).toBe(false);
+    expect(engine.governor.pause).toHaveBeenCalledOnce();
+    vi.spyOn(performance, "now").mockReturnValue(100_000);
+    visibility.hidden = false; engine.reconcileRunning();
+    const resumedTick = vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0];
+    resumedTick(100_016.7);
+    expect(engine.governor.end.mock.calls[0][0]).toBeCloseTo(0.0167);
+    expect(engine.governor.resume).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["aborted", "disposed"])("never schedules after %s", (flag) => {
+    const { engine } = frameEngine();
+    Object.assign(engine, { booted: true, [flag]: true });
+    engine.start(); engine.reconcileRunning();
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+    expect(engine.running).toBe(false);
   });
 
   it("does not turn installed readiness into render evidence without a posed fleet service", () => {
@@ -311,6 +481,8 @@ describe("engine preparation and rendered readiness", () => {
         abort: vi.fn(), stop: vi.fn(), input: { dispose: vi.fn() },
         post: { dispose: vi.fn() }, governor: { dispose: vi.fn() },
       });
+      const resolution = { removeEventListener: vi.fn() };
+      Object.assign(engine, { resolution });
       Object.assign(engine.preparation, { dispose: vi.fn() });
       const system: WorldSystem = {
         name: "physical", init() {}, update() {},
@@ -322,6 +494,7 @@ describe("engine preparation and rendered readiness", () => {
       engine.systems.push(system); engine.ready.add(system);
       engine.dispose();
       engine.dispose();
+      expect(resolution.removeEventListener).toHaveBeenCalledExactlyOnceWith("change", engine.onResize);
       expect(disposed).toHaveBeenCalledTimes(cycle + 1);
       expect(retainedRenderers).toBe(0);
     }
