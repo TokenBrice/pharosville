@@ -32,9 +32,9 @@ export function Logo({ src, label, color, size }: { src: string | null; label: s
 
 export const chainLogo = (chain: string) => `/chains/${chain.toLowerCase().replace(/\s+/g, "-")}.svg`;
 
-/** Validated categorical inks on chart paper (dataviz validator: CVD ≥ 11, contrast ≥ 3:1). */
-export const CHAIN_INKS = ["#1668a3", "#b8700f", "#7a4ca6", "#008c80", "#b5382b"];
-export const OTHER_INK = "#a99f8c";
+/** Validated categorical inks on chart paper (dataviz validator: CVD ≥ 11, contrast ≥ 3:1), per palette: harbour-ui.css --c1…--c5. */
+export const CHAIN_INKS = ["var(--c1)", "var(--c2)", "var(--c3)", "var(--c4)", "var(--c5)"];
+export const OTHER_INK = "var(--c-other)";
 
 export const DEWS_INK: Record<DewsBand, string> = { CALM: "#3f8a5e", WATCH: "#b0912e", ALERT: "#c0702a", WARNING: "#b5382b", DANGER: "#7e1f2a" };
 export const PSI_INK: Record<string, string> = { BEDROCK: "#3f8a5e", STEADY: "#6f9a4a", TREMOR: "#b0912e", FRACTURE: "#c0702a", CRISIS: "#b5382b", MELTDOWN: "#7e1f2a" };

@@ -21,7 +21,8 @@ function wantsIntro(): boolean {
 /**
  * The only persistent chrome (D11): wordmark + one live dot. Hover or keyboard focus opens the state
  * word and the key strip, whose keys are real buttons (search, ledger, chart, home); on touch the strip
- * stays open (harbour-ui.css).
+ * stays open (harbour-ui.css). Whenever the reading is not plainly live the state word stays out at rest
+ * (O8-I7), and the mark's shape says the state too (a dot live, a ring-and-bar stale, a ring unavailable).
  */
 export function CornerMark() {
   const store = useStore();
@@ -31,6 +32,7 @@ export function CornerMark() {
   const display = presentationCopy(usePresentation());
   const t = truthState(model);
   const health = useFeedHealth();
+  const live = t.word === "live" && !display && !health;
   const ready = !!model?.hasFleet;
 
   const [want] = useState(wantsIntro);
@@ -49,7 +51,7 @@ export function CornerMark() {
   const [introMounted, introShown] = usePresence(intro === "on", 600);
 
   return (
-    <div className="hb-mark hb-paper" data-intro={intro === "on"}>
+    <div className="hb-mark hb-paper" data-intro={intro === "on"} data-live={live}>
       <button
         type="button"
         className="hb-mark-btn"
@@ -62,7 +64,7 @@ export function CornerMark() {
       </button>
       <span className="hb-mark-more">
         <div>
-          <span className="hb-mark-state" role="status" title={`${t.detail} ${display}`}>{t.word} {display} {health}</span>
+          <span className="hb-mark-state" role="status" data-state={t.state} title={`${t.detail} ${display}`}>{t.word} {display} {health}</span>
           <span className="hb-keys">
             <button type="button" onClick={() => store.set({ searchOpen: true })} aria-label="Search (/)"><kbd>/</kbd>search</button>
             <button type="button" onClick={() => store.set({ ledgerOpen: !ledgerOpen })} aria-label="Ledger and legend (L)" aria-expanded={ledgerOpen}><kbd>L</kbd>ledger</button>
