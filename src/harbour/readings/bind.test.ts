@@ -114,6 +114,15 @@ describe("readings → world targets", () => {
     expect(derive(drop(payloads(), "mintBurn")).landmarks["customs-house"].state).toBe("unknown");
   });
 
+  it("fog = stale fleet data only: no weather, front, beam, sea, tide or side-endpoint reading rolls it in (E10)", () => {
+    const base = derive(payloads());
+    for (const q of ["dews=DANGER", "dews=WARNING", "weather=ALERT", "psi=none", "psiScore=12", "offpeg=0.25", "tide=-4", "cones=5", "stale=mintBurn,chains,stress"]) {
+      expect(applyDevOverrides(base, new URLSearchParams(q)).fog, q).toBe(false);
+    }
+    expect(applyDevOverrides(base, new URLSearchParams("stale=1")).fog).toBe(true);
+    expect(applyDevOverrides(base, new URLSearchParams("stale=stablecoins&dews=DANGER")).fog).toBe(true);
+  });
+
   it("dev overrides", () => {
     const t = applyDevOverrides(derive(payloads()), new URLSearchParams("psi=TREMOR&psiScore=55&offpeg=0.06&dews=ALERT&stale=1"));
     expect(t.psi).toMatchObject({ lit: true, band: "TREMOR", lamp: 1, sweepSec: 6, score: 55 });

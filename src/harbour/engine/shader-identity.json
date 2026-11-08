@@ -1309,25 +1309,25 @@
   },
   "ocean/other/full": {
     "vertex": "0f3c1d0a34e0c86bf2363df661782e3753efb3a9887c21011f0b7583e51bf4ed",
-    "fragment": "5a2ea501ceb3c32776c08073528ba8f698c107223771536635ae5dcaa08afb3f",
+    "fragment": "e18ca143cf996c3255440298ebbeb506bbe5104b0f98553753455a64311bed59",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_ocean_0_0"
   },
   "ocean/other/low": {
     "vertex": "0f3c1d0a34e0c86bf2363df661782e3753efb3a9887c21011f0b7583e51bf4ed",
-    "fragment": "5a2ea501ceb3c32776c08073528ba8f698c107223771536635ae5dcaa08afb3f",
+    "fragment": "e18ca143cf996c3255440298ebbeb506bbe5104b0f98553753455a64311bed59",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_ocean_0_1"
   },
   "ocean/summer/full": {
     "vertex": "0f3c1d0a34e0c86bf2363df661782e3753efb3a9887c21011f0b7583e51bf4ed",
-    "fragment": "5a2ea501ceb3c32776c08073528ba8f698c107223771536635ae5dcaa08afb3f",
+    "fragment": "e18ca143cf996c3255440298ebbeb506bbe5104b0f98553753455a64311bed59",
     "defines": "06eef0b8d439c3b1871505c70ad3e8bbd91a744954bd20a8d8037451f270b7e5",
     "cacheKey": "hb_ocean_1_0"
   },
   "ocean/summer/low": {
     "vertex": "0f3c1d0a34e0c86bf2363df661782e3753efb3a9887c21011f0b7583e51bf4ed",
-    "fragment": "5a2ea501ceb3c32776c08073528ba8f698c107223771536635ae5dcaa08afb3f",
+    "fragment": "e18ca143cf996c3255440298ebbeb506bbe5104b0f98553753455a64311bed59",
     "defines": "bfe2b2702ed6edcde69cac16c5e4a295d4b957096ed927c50269b2e90c64e2d3",
     "cacheKey": "hb_ocean_1_1"
   },
@@ -1363,13 +1363,13 @@
   },
   "sky/dome": {
     "vertex": "29dd42bc4793c56c760a2ff0d2847e6fd6b4f71685b54932bd1286b192fdc67b",
-    "fragment": "9d46fd713186e2927d4deba753965587344a261b9dd73abed981b2b1661c7c75",
+    "fragment": "367294f8aa86e576712845066927c2a9fe2de990cbd2e12a0864377152bb04a4",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
   },
   "sky/band": {
     "vertex": "9ab5768fc1c4c41da8e062d0edf15bc8f1a361e6b23c98ca5699b1c98c07f376",
-    "fragment": "7740e6d5260fb64c1aba61bee4ebc87979724136601d5ebf374ce27ee3bc06c4",
+    "fragment": "278b801c3aba868d8e24cb9247bf86aae62297efd63fb408ee20e650e0f2f51a",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
   },

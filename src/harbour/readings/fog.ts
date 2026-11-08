@@ -69,11 +69,30 @@ export class StaleFogEffect extends Effect {
 }
 
 const LUM = new THREE.Vector3(0.2126, 0.7152, 0.0722);
+const lum = (c: THREE.Color): number => c.r * LUM.x + c.g * LUM.y + c.b * LUM.z;
+
+/**
+ * E10 readable stale night (O4-I7, O1-I7): the bank wears ONE sea-smoke hue at every hour, a pale near-neutral grey
+ * with a whisper of the stale dot's amber (display sRGB: HSL saturation .04, b − r = −.03), never the hour's tint, so
+ * pale and milky means stale by night as by day. Only its luminance follows the hour: the hour's air (its haze with a
+ * touch of horizon light), moonlit and lamp-lit at night so the bank stands above the dark scene it veils, NIGHT_LIFT
+ * over the earlier night bank. The amount (the data) is the caller's and unchanged; lamps keep their HDR excess.
+ */
+export const SEA_SMOKE = "#A3A09B";
+export const NIGHT_LIFT = 1.4;
+const SMOKE = new THREE.Color(SEA_SMOKE);
+const SMOKE_LUM = lum(SMOKE);
+
+/** out = the stale bank's scene-linear colour for the hour's haze/horizon (linear) and night factor. */
+export function seaSmoke(out: THREE.Color, haze: THREE.Color, horizon: THREE.Color, night: number): THREE.Color {
+  const air = THREE.MathUtils.lerp(lum(haze), lum(horizon), 0.25 + 0.45 * night);
+  const l = air * (1.05 + 1.3 * night) * (1 + (NIGHT_LIFT - 1) * night);
+  return out.copy(SMOKE).multiplyScalar(l / SMOKE_LUM);
+}
 
 export class StaleFog {
   private readonly effect: StaleFogEffect;
   private pass: EffectPass | null;
-  private readonly grey = new THREE.Color();
   private readonly dir = new THREE.Vector3();
   amount = 0;
 
@@ -102,12 +121,8 @@ export class StaleFog {
     // distance from the camera to the water along the view axis (the framed subject)
     const d = this.camera.getWorldDirection(this.dir);
     u.get("uFocus")!.value = d.y < -0.05 ? THREE.MathUtils.clamp(this.camera.position.y / -d.y, 80, 2000) : 600;
-    // mist: the hour's haze, a touch of horizon light, half desaturated (fog is grey, not tinted glass)
-    const c = u.get("uFogCol")!.value as THREE.Color;
-    // by night the bank is moonlit and lamp-lit: paler than the dark scene it veils, so it still reads
-    c.copy(haze).lerp(horizon, 0.25 + 0.45 * night);
-    const l = c.r * LUM.x + c.g * LUM.y + c.b * LUM.z;
-    c.lerp(this.grey.setRGB(l, l, l), 0.45 - 0.15 * night).multiplyScalar(1.05 + 1.3 * night);
+    // sea smoke: one hue at every hour, the hour's luminance (paler than the dark scene it veils at night)
+    seaSmoke(u.get("uFogCol")!.value as THREE.Color, haze, horizon, night);
   }
 
   dispose(): void {

@@ -3,6 +3,7 @@ import layoutUrl from "../data/layout.json?url";
 import type { CameraPreset } from "../engine/camera-rig";
 import type { EngineContext, WorldSystem } from "../engine/types";
 import { fitPresetToAspect, heroPoints } from "./framing";
+import { dockedRows } from "./docked-rows";
 import type { HarbourLayout, LayoutCameraPreset, Vec3 } from "./types";
 
 /** Preset used on first paint: "heart" (v2 default framing) when present, else "overview". */
@@ -74,6 +75,8 @@ export class LayoutSystem implements WorldSystem {
     const pharos = layout.landmarks.find((l) => l.id === "pharos");
     const postSvc = ctx.services.get("post");
     if (pharos && postSvc && this.hero.length >= 2) postSvc.tiltFocus = [new THREE.Vector3(...this.hero[0]), new THREE.Vector3(...this.hero[1])];
+    // E08: with the lantern, the inner harbour's docked rows bound the overview's sharp band
+    if (postSvc) postSvc.tiltDock = dockedRows(layout).map((p) => new THREE.Vector3(...p));
     this.heartDistance = presets.heart?.distance ?? presets.overview.distance * 0.45;
     this.overviewDistance = presets.overview.distance;
     ctx.services.set("home-view", () => (this.applied = this.home(ctx)));

@@ -1,6 +1,8 @@
+import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TimeOfDay } from "./time-of-day";
+import { DAY_AIR, DEFAULT_KEYFRAMES, TimeOfDay } from "./time-of-day";
 import { createWorldUniforms } from "./uniforms";
+import { SKY_BAND_GLSL, SKY_GRADIENT_DEG, SKY_LIFT, SKY_LIFT_DEG } from "../sky/sky-glsl";
 
 describe("local hour cache", () => {
   beforeEach(() => vi.stubGlobal("location", { search: "", hash: "" }));
@@ -42,5 +44,36 @@ describe("local hour cache", () => {
     tod.speed = 2;
     tod.update(now, 3600, u);
     expect(tod.clockHour).toBe(13);
+  });
+});
+
+describe("E03a hero value lock", () => {
+  const key = (hour: number) => DEFAULT_KEYFRAMES.find((k) => k.hour === hour)!;
+  const close = (hex: string, authored: string) => {
+    const a = new THREE.Color(hex), b = new THREE.Color(authored).multiplyScalar(DAY_AIR);
+    for (const c of ["r", "g", "b"] as const) expect(a[c]).toBeCloseTo(b[c], 2);
+  };
+
+  it("sets the day keys' horizon and haze DAY_AIR below their authored colours (linear), one air for sky, sea and fog", () => {
+    expect(DAY_AIR).toBeLessThanOrEqual(0.85);
+    close(key(8.5).horizon, "#E6EEF0"); close(key(8.5).haze, "#C2D3DC");
+    close(key(12).horizon, "#E8F1F4"); close(key(12).haze, "#BCD3DF");
+    close(key(16).horizon, "#F2E6D6"); close(key(16).haze, "#C9C6C8");
+  });
+
+  it("leaves the dawn, golden and night keys their own light", () => {
+    expect(key(6.4).horizon).toBe("#FAC8A4");
+    expect(key(18.5).horizon).toBe("#FFD8A8");
+    expect(key(22).horizon).toBe("#1D2740");
+    expect(key(22).haze).toBe("#151C30");
+  });
+
+  it("gives the sky band a steeper gradient and a horizon lift confined below 1°", () => {
+    expect(SKY_GRADIENT_DEG).toBeLessThanOrEqual(4.5);
+    expect(SKY_LIFT_DEG).toBeLessThanOrEqual(1);
+    expect(SKY_LIFT).toBeLessThan(0.35);
+    expect(SKY_BAND_GLSL).toContain(`clamp(e / ${SKY_GRADIENT_DEG.toFixed(2)}, 0.0, 1.0)`);
+    expect(SKY_BAND_GLSL).toContain(`smoothstep(0.0, ${SKY_LIFT_DEG.toFixed(2)}, e)`);
+    expect(SKY_BAND_GLSL).not.toContain("e / 6.5");
   });
 });
