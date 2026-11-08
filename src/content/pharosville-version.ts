@@ -42,6 +42,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   livingHarbour: "v1.4.0",
   flyingColours: "v1.4.1",
   trueBearing: "v1.5.0",
+  sailsByNight: "v1.5.1",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.trueBearing;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.sailsByNight;
