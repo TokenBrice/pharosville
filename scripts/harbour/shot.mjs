@@ -117,11 +117,14 @@ await page.addInitScript(observeLongTasks);
 await page.setViewportSize({ width, height });
 const [screenWidth, screenHeight] = typeof args.screen === "string" ? args.screen.split("x").map(Number) : [];
 const cdp = await context.newCDPSession(page);
-if (dpr !== 1 || args.mobile || args.touch || screenWidth) {
-  await cdp.send("Emulation.setDeviceMetricsOverride", {
-    width, height, deviceScaleFactor: dpr, mobile: !!args.mobile,
-    ...(screenWidth && screenHeight ? { screenWidth, screenHeight } : {}),
-  });
+const emulateMetrics = dpr !== 1 || args.mobile || args.touch || screenWidth;
+// The device-metrics override (DPR, mobile, touch, screen); capture() below keeps every frame under it.
+const applyMetrics = () => cdp.send("Emulation.setDeviceMetricsOverride", {
+  width, height, deviceScaleFactor: dpr, mobile: !!args.mobile,
+  ...(screenWidth && screenHeight ? { screenWidth, screenHeight } : {}),
+});
+if (emulateMetrics) {
+  await applyMetrics();
   if (args.touch) {
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
   }
@@ -384,13 +387,21 @@ async function beforeCapture(index) {
         revision: window.__harbourStats?.renderedRevision, boats: window.__harbourStats?.renderedBoats, readings: e.ctx.services.get("readings") ?? null } };
   }));
 }
+// With emulated metrics (--dpr, --mobile, --touch, --screen), capture through our own CDP session: it honours the
+// override and returns device pixels (a --dpr 2 frame is 2× the viewport). Playwright's page.screenshot re-applies the
+// context's own DPR-1 metrics, which silently dropped every --dpr 2 capture back to DPR 1.
+async function capture(path) {
+  if (!emulateMetrics) return page.screenshot({ path });
+  const { data } = await cdp.send("Page.captureScreenshot", { format: "png" });
+  await writeFile(path, Buffer.from(data, "base64"));
+}
 await beforeCapture(0);
-await page.screenshot({ path: outPath });
+await capture(outPath);
 const burst = Number(args.burst ?? 0);
 for (let i = 0; i < burst; i++) {
   await page.waitForTimeout(Number(args.interval ?? 600));
   await beforeCapture(i + 1);
-  await page.screenshot({ path: outPath.replace(/\.png$/, `-${String(i).padStart(2, "0")}.png`) });
+  await capture(outPath.replace(/\.png$/, `-${String(i).padStart(2, "0")}.png`));
 }
 // Build identification is outside the timed window and uses the serving checkout or fetched build bytes.
 const build = await page.evaluate(async () => {
