@@ -1,0 +1,355 @@
+{
+ "lane": "O10",
+ "executive_summary": "PharosVille's night is already postcard-grade; its day and its marks are not. Look target: one hero, one air, one hour. The Pharos holds the top value at every hour, marks are printed into the world's pigment and air and step forward on demand, the hour colours the water, and truth owns its grammar on the sea. Ten moves, ranked by impact / cost: (1) hero value lock; (2) the water's truth grammar; (3) coins as print, not pins; (4) one far land and framing that holds; (5) the hour colours the water; then arrival and dusk, water marks, temporal calm, the crafted monument, the harbour mirror. Fourteen real-GPU spikes proved 1-5. The strong day lock cuts the share of the band at or above the tower's lit face from 85 % to 23 % (O1-I1 as specified: 63 %). At night, brightest-pixel ownership moves from the corner mark (90 % to 3 %) to the fire (1 % to 28 %). The front fix turns the cream basin (L 0.62) back into water (0.35). Hiding the mainland reveals the painted ridges; the overview band adds 67 % detail to the moles. Ship 1 with 3; 5 needs per-key chroma.",
+ "current_state": [
+  "Night is the benchmark: fire, beam and lamps carry the frame and the 16:10 composition is sound (base-night.png; O1, O2); the light pipeline (AgX + per-hour LUT, fitted PCF) is coherent.",
+  "Day hierarchy inverted, measured: 85 % of the sky/sea band behind the Pharos is at or above its lit face (lit face L 0.743; sky beside the lantern 0.786; horizon band 0.817) - shots/O10-hero-day-before.png; sky-glsl.ts:131-133, time-of-day.ts:94-112, ocean-material.ts:521.",
+  "Night chrome outranks the hero: the corner mark owns 90 % of the brightest 0.7 % of pixels and the lantern + fire 1 %; the ETH crest (p90 0.59) outranks the shaft (0.32) - shots/O10-look-night-before.png; harbour-ui.css:8-25,50; crest-flags.ts:41; identity-system.ts:167-174.",
+  "The Roads are the busiest region in every day frame: 87-110 speckles per 10k px from paper roundels, unhazed burgees, 469 buoys and embossed lettering - fleet-material.ts:420, house-flags.ts:111, fleet-system.ts:859-868, lettering.ts:102.",
+  "The water's truth grammar is broken: a rising front from Calm makes the basin brighter than stale fog (L 0.62 vs 0.56; sea-tone.ts:64), and stale fog at night wears the hour's navy (S 0.52 vs 0.20 by day; fog.ts:108-110).",
+  "The runtime mainland breaks the sky card on squarer and zoomed-out frames (island-system.ts:57, sky-system.ts:379-392); the overview's sharp band cannot reach the harbour because of the [0.06, 0.5] clamp (post.ts:344).",
+  "The basin stays pool-cyan from noon to dusk (dusk S 0.81 under a lilac sky) - ocean-material.ts:275-279, sea-tone.ts:37; the arrival poster double-exposes golden art over night (O7-F1).",
+  "The engine is spike-friendly: every material is reachable from the scene graph and fragment strings / onBeforeCompile hooks can be re-patched live, so 5 of the 10 moves were proven on the real GPU in 14 captures without editing a file (mockups/O10-spike-harness.js)."
+ ],
+ "findings": [
+  {
+   "id": "O10-F1",
+   "title": "O1-I1 as specified only halves the day inversion; about twice its strength plus +6 % limewash fixes it",
+   "severity": "high",
+   "evidence": "shots/O10-hero-day-before/after.png, O10-hero-day-strong-before/after.png, O10-notan-day.png; sky-glsl.ts:131-133, time-of-day.ts:94-112, ocean-material.ts:521",
+   "detail": "Share of the sky/sea band at or above the tower's lit face: 85 % before, 63 % with O1-I1 as specified (e/4.5, horizon+haze ~8 % sRGB darker, far haze from 0.72 R), 23 % with e/3.5, horizon+haze x0.72 linear, far haze from 0.75 R and Pharos limewash +6 % (lit face 0.758 vs sky beside the lantern 0.718). Noon still reads bright.",
+   "fix": "Adopt the stronger numbers (O10-I1) and assert 'band >= lit face <= 25 %' at 5 key hours + winter in the art-direction gate (O1-I14)."
+  },
+  {
+   "id": "O10-F2",
+   "title": "At night the chrome owns the brightest pixels; the night bridge palette hands them back to the fire",
+   "severity": "high",
+   "evidence": "shots/O10-ui-night-before/after.png; harbour-ui.css:8-25 (tokens), :50 (paper sheen literal)",
+   "detail": "Share of the brightest 0.7 % of pixels: corner mark 90 % -> 3 %, Pharos lantern + fire 1 % -> 28 % with only the existing 15 tokens remapped to O8's night values plus the sheen literal. Confirms O8-F1 with a stronger number.",
+   "fix": "O8-I1 on uNight with hysteresis (O10-I1); tokenise the remaining literals first (O8-I2)."
+  },
+  {
+   "id": "O10-F3",
+   "title": "The day value lock and the pin field are coupled: a darker sea makes every pin pop harder",
+   "severity": "medium",
+   "evidence": "shots/O10-hero-day-before/after.png, O10-coins-day-before/after.png, O10-quiet-marks-before/after.png",
+   "detail": "The lock drops the open sea L 0.72 -> 0.64 (strong: 0.59) and raises Roads speckle 87 -> 109 per 10k px; the print law alone leaves it at 110 (paper discs become dyed patches, but cream canvas still contrasts); buoys x0.55 + hairline lettering bring it to 98.",
+   "fix": "Ship O10-I1 and O10-I3 in the same wave and add a far-sail value law (canvas -10-15 % below ~20 px on screen)."
+  },
+  {
+   "id": "O10-F4",
+   "title": "Confirmed and fixed live: the rising-front sea renders brighter than stale fog",
+   "severity": "critical",
+   "evidence": "shots/O10-front-sea-before/after.png, state-stale-fog.png; sea-tone.ts:64, ocean-material.ts:293-300",
+   "detail": "Inner basin L 0.62 / S 0.36 under a rising front from Calm (stale fog 0.56 / 0.20, clear 0.37 / 0.58). Normalising the mirror-cloud weight by the local strength mix(uCloudShadow.w, uCloudShadowG.y, behind) and clamping to [0,1] gives 0.35 / 0.60: water in passing shadow.",
+   "fix": "O4-I1 exactly as spiked (O10-I2) plus a CPU-twin test and the O4-I8 gate frame."
+  },
+  {
+   "id": "O10-F5",
+   "title": "Stale fog at night is visible when fully stale but reads as more night, not as fog",
+   "severity": "medium",
+   "evidence": "shots/O10-stale-night-before/after.png, O10-stale-night-hue-only.png, view-heart-night.png; readings/fog.ts:108-110",
+   "detail": "Fully stale, the bank lifts the basin +0.08 L over a clear night but keeps the hour's navy (S 0.52). Neutral sea-smoke hue at the same luminance: S 0.35. With a night lift (x1.9, bloom x1.5 while stale): +0.16 L, S 0.24 - the day grammar (pale, desaturated). Nuances O1-F5 / O4-F3.",
+   "fix": "O4-I7 colour law with a ~x1.4 night lift (O10-I2); the amount (data) is untouched."
+  },
+  {
+   "id": "O10-F6",
+   "title": "O3-I2's irradiance tint alone raises dusk saturation and cools golden water",
+   "severity": "medium",
+   "evidence": "shots/O10-basin-dusk-v1-before/after.png, O10-basin-dusk-before/after.png, O10-basin-golden-before/after.png; ocean-material.ts:275-279, sea-tone.ts:37",
+   "detail": "v1 (tint normalised to noon, lift gated on the sun, 0.12 floor): dusk G 59 -> 47 but S 0.81 -> 0.85. v2 adds twilight chroma -25 % and a 0.2 floor: dusk hue 209 -> 222, S 0.67; golden hue 203 -> 217, S 0.50 - harmonious but cool, not O1's 'jade'.",
+   "fix": "Keys own the sea colour (O1-I5 seaTint/seaChroma), the irradiance term only modulates sun and shade (O10-I5)."
+  },
+  {
+   "id": "O10-F7",
+   "title": "The overview's sharp band cannot reach the harbour, and re-centring alone softens the hero",
+   "severity": "medium",
+   "evidence": "shots/O10-overview-band-before/after.png; post.ts:333-345 (clamp at :344)",
+   "detail": "The [0.06, 0.5] clamp keeps the band above the harbour. Re-centred midway Pharos foot -> overview target at focusArea 0.58 the Pharos loses 22 % detail (17.3 -> 13.5); widened to focusArea 0.75 / feather 0.3 the moles go 12.1 -> 20.2, south harbours 9.7 -> 12.8, Pharos unchanged.",
+   "fix": "Lower the clamp, centre midway, widen to 0.75, cap the soft zone at 0.35, bloom threshold +0.3 at overview (O10-I4)."
+  },
+  {
+   "id": "O10-F8",
+   "title": "A CSS night dip cannot repair the golden-over-night arrival",
+   "severity": "medium",
+   "evidence": "shots/O10-poster-before/after.png, O7-arrival-night-01.png; app/poster.ts:30-33, public/arrival-shell.css:27-33",
+   "detail": "Held at its mid-fade state (scale 0.893, opacity 0.6) the recreated poster matches O7-F1. A feathered mask removes the picture-in-picture edge; brightness/saturation/multiplied navy reads as a dirty veil because golden art cannot be relit in CSS.",
+   "fix": "Ship the feather now; render hour-matched night and dusk key art (D4 Blender) chosen by the visitor's hour before fetch (O10-I6)."
+  },
+  {
+   "id": "O10-F9",
+   "title": "Fleet shadows at the landing add little; the defect is the 640 m pop",
+   "severity": "low",
+   "evidence": "shots/O10-fleet-shadow-before/after.png, O7-shadowpop-compare.png; fleet-system.ts:79-81,901",
+   "detail": "Raising shadowDist past the 650 m landing seats the hulls slightly (basin L -0.003); not worth a per-frame fleet shadow pass at landing.",
+   "fix": "Keep them off at the landing and replace the binary cut with O7-I9's dithered fade band (O10-I8)."
+  }
+ ],
+ "ideas": [
+  {
+   "id": "O10-I1",
+   "title": "Hero value lock, day and night",
+   "what": "Day: sky-glsl.ts:131 t = clamp(e / 3.5) (was 6.5) and :133 horizon lift only below 1 deg at 0.2; day horizon + haze keys (time-of-day.ts:94-112) x0.72 linear (~-14 % sRGB) by day; far-sea haze ramp from 0.75 R (ocean-material.ts:521, was 0.62); Pharos limewash +6 % (vertex colour in pharos export or a hero albedo multiplier). Flags at the town's scale: FLAG_SCALE.ethereum 1.65 -> 1.2, topmast 9 -> 6 m, overview growth +45 -> +25 % (identity-system.ts:32,173). Night: crest flags lit as cloth - light x (1 - 0.82 n), truck glow 0.16 -> 0.035 x uWindowGlow (identity-system.ts:167-174, crest-flags.ts:41); night bridge UI tokens (O8-I1) on uNight with hysteresis 0.55/0.45. Spiked: band >= lit face 85 % -> 23 %; corner mark top-pixel share 90 % -> 3 %, fire 1 % -> 28 %.",
+   "visitor_benefit": "The lighthouse reads first at every hour; the eye lands on the namesake, not on the sky band, a banner or the menu.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: no data reads the sky keys, FLAG_SCALE or the UI palette; the live/stale words and dots stay; UI token pairs keep >= 4.5:1 text contrast (test per palette).",
+   "where": "src/harbour/sky/sky-glsl.ts:131-133; src/harbour/engine/time-of-day.ts:94-112; src/harbour/ocean/ocean-material.ts:521; scripts/harbour/blender/pharos (limewash); src/harbour/identity/identity-system.ts:32,167-174; src/harbour/identity/crest-flags.ts:33-42; src/harbour/ui/harbour-ui.css:8-25,50; src/harbour/ui/store.ts (1 Hz uNight read)",
+   "effort": "M",
+   "perf_cost": "0 draws, ~2 ALU (flags); constants elsewhere; UI is CSS only (a 1.2 s crossfade at the switch).",
+   "risks": "A deeper noon sea and bluer band (art call; as-specified is the half step); the night palette reinterprets D12 (DECISION); flag dimming must keep crests legible (hover restores); must ship with O10-I3 (darker sea raises pin contrast).",
+   "impact": 5,
+   "confidence": 5,
+   "depends_on": [
+    "O1-I1",
+    "O1-I8",
+    "O2-I5",
+    "O6-I1",
+    "O8-I1",
+    "O8-I2",
+    "O10-I3"
+   ]
+  },
+  {
+   "id": "O10-I2",
+   "title": "The water's truth grammar: fronts are slate lines, stale fog is pale at every hour",
+   "what": "Front: in sea-tone.ts:64 normalise the mirror-cloud weight by the local deck strength, cc = clamp((1 - hbCloudShadow(q)) / max(mix(uCloudShadow.w, uCloudShadowG.y, behind), 1e-3), 0, 1) with behind = the same front-line mask hbCloudShadow uses; behind the line mix the cloud colour toward sky x0.8 by the new deck strength (slate). Fog: fog.ts:105-110 keeps the hour's luminance but a fixed near-neutral sea-smoke hue (1.02, 0.99, 0.93), plus a night lift ~x1.4 and bloom x1.3 while stale. Gate (O4-I8): front basin below stale fog, night fog lift >= 0.08 L, fog S <= 0.3. Spiked: front basin L 0.62 -> 0.35 (clear 0.37); night fog S 0.52 -> 0.24.",
+   "visitor_benefit": "A milky sea always means 'data is old', and a rising front looks like weather coming, never like stale data.",
+   "pillar": "informative",
+   "meaning": "data-bound",
+   "data_and_dom": "Front = DEWS band change (weather director front, coverFrom -> coverTo); the Panel's front trend line (ui/Panel.tsx:374) is unchanged. Fog = readings fog amount (stale age) unchanged; DOM chip 'stale - N h old' unchanged; only colours change. Tests: CPU twin of the clamped cc (never > 1, behind-line normalisation) and the fog colour law per hour (S <= 0.3).",
+   "where": "src/harbour/ocean/sea-tone.ts:64; src/harbour/ocean/ocean-material.ts:293-300; src/harbour/readings/fog.ts:105-110; gate on shot.mjs frames",
+   "effort": "S",
+   "perf_cost": "~6 ALU per water pixel, 0 taps; fog: uniform colour; bloom intensity only while stale at night.",
+   "risks": "A brighter night fog must stay below the lamps (calm); no decorative system may reuse pale/milky water.",
+   "impact": 5,
+   "confidence": 5,
+   "depends_on": [
+    "O4-I1",
+    "O3-I13",
+    "O4-I7",
+    "O1-I7",
+    "O4-I8"
+   ]
+  },
+  {
+   "id": "O10-I3",
+   "title": "Coins as print, not pins (with burgees in the air and quiet marks)",
+   "what": "fleet-material.ts:420 and :367: discPx = 0.98 / (era * dpr); k = max(smoothstep(12, 30, discPx), highlight); un-premultiply the atlas, detect the paper ground (min(rgb) > ~0.7), replace it with cloth x1.15 and halve the ink's value contrast (hue kept) as k -> 0; full print on hover/select/search. Fix the column-0 slot (floor(slot + 0.5) before mod/floor, fleet-material.ts:362,413; house-flags.ts:102). Burgees (house-flags.ts:111): far chroma x0.7, value -20 %, aerial tint at 0.6x the kit cap. Far-sail value law: canvas -10-15 % below ~20 px. Quiet marks: buoys x0.55 beyond 300 m and dropped beyond 900 m (fleet-system.ts:1189-1194), weathered paint; lettering density 0.86 -> 0.55, ink #24343C, day halo 0.12 -> 0.04 (lettering.ts:102,193-196). Spiked: night Roads speckle -10 %, basin -12 %; with quiet marks 110 -> 98 per 10k px.",
+   "visitor_benefit": "The harbour reads as a fleet under sail instead of a map covered in pins; any coin still steps forward the moment it is hovered, searched or selected.",
+   "pillar": "prettier",
+   "meaning": "ux",
+   "data_and_dom": "Identity mapping unchanged (slot per coin; hull size still follows supply). Legend line: 'Sails carry each coin's device; small and distant ones are printed softly - hover, search or zoom to bring one forward.' Tests: k(discPx) law, highlight override, slot rounding for slots 0, 32, 320.",
+   "where": "src/harbour/fleet/fleet-material.ts:359-368,396,413-421; src/harbour/fleet/house-flags.ts:89-111; src/harbour/fleet/fleet-system.ts:859-868,1189-1194; src/harbour/identity/lettering.ts:102,193-196; src/harbour/ui/KeyList.tsx (legend line)",
+   "effort": "M",
+   "perf_cost": "~10-14 FS ALU on print fragments, ~6 on flags, 0 draws, 0 bytes, + a DPR uniform.",
+   "risks": "Amends v1.4.1's 'crisp at every range' (DECISION); white-ink logos need a minimum ink/ground difference; golden re-baselines.",
+   "impact": 5,
+   "confidence": 4,
+   "depends_on": [
+    "O5-I2",
+    "O5-I1",
+    "O5-I5",
+    "O5-F1",
+    "O1-I2",
+    "O1-I4",
+    "O1-I9",
+    "O10-I1"
+   ]
+  },
+  {
+   "id": "O10-I4",
+   "title": "One far land, and framing that holds at every zoom and aspect",
+   "what": "island-system.ts:57: set visible = false on 'shakkei' (drop it from hb_export.py:324-328 at the next rebuild); add a framing test (aspects 0.75-2.4 x zoom to maxDistance: no runtime mesh between the island and the card distance R, sky-system.ts:379-392). Overview: post.ts:333-345 centre the sharp band midway between the Pharos foot and the overview target (lower the 0.06 clamp), focusArea 0.75, feather 0.3, soft opacity cap 0.35, bloom threshold +0.3 x z. Squarer screens fit the island's height (O1-I12, framing.ts:59-92). Spiked: painted ridges replace the faceted wall on tablet portrait; overview moles 12.1 -> 20.2 mean |Laplacian|, south harbours 9.7 -> 12.8, Pharos unchanged.",
+   "visitor_benefit": "Tablets and zoomed-out views keep a calm painted horizon, and the overview shows the harbour's data rows sharp instead of a blurred band.",
+   "pillar": "all-devices",
+   "meaning": "ux",
+   "data_and_dom": "n/a: framing and post only; the docked rows (fleet data) become more legible, nothing is re-mapped.",
+   "where": "src/harbour/world/island-system.ts:57; scripts/harbour/blender/island (hb_export.py:324-328); src/harbour/sky/sky-system.ts:379-392; src/harbour/engine/post.ts:333-345; src/harbour/layout/framing.ts:59-92; src/harbour/layout/layout-system.ts:79-86",
+   "effort": "S",
+   "perf_cost": "-3,966 tris, -1-2 draws; overview 0.",
+   "risks": "None for truth; the overview keeps its miniature softness only at the frame edges; squarer-screen crops of the lobes need sign-off.",
+   "impact": 4,
+   "confidence": 5,
+   "depends_on": [
+    "O1-I3",
+    "O4-I2",
+    "O1-I10",
+    "O1-I12",
+    "O2-I13",
+    "O3-I11"
+   ]
+  },
+  {
+   "id": "O10-I5",
+   "title": "The hour colours the water",
+   "what": "ocean-material.ts:275 after hbSeaGolden: body x the hour's irradiance E = uAmbient + uSunColor x max(sunDir.y, 0) x sunSh x 0.3, normalised to noon (a uniform computed once from the keyframes), hue at 45 %, level at 60 %, by day; twilight chroma -25 % weighted (1 - sunUp)(1 - smoothstep(0.55, 0.95, uNight)); sea-tone.ts:37 basin lift x smoothstep(0.05, 0.35, sunDir.y); :296 a 0.12 -> 0.2 twilight Fresnel floor. Then O1-I5 per-key seaTint/seaChroma own the art direction (jade at golden if wanted) and the 3.0/7.5/14.5 keys. Spiked (v2): dusk basin hue 209 -> 222, S 0.81 -> 0.67; golden hue 203 -> 217, S 0.61 -> 0.50.",
+   "visitor_benefit": "Golden hour and dusk read as one light: the water belongs to the sky instead of a lit pool under a lilac sky.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: clock only; sea state (uSea, off-peg) and DEWS wind layers untouched.",
+   "where": "src/harbour/ocean/ocean-material.ts:275-279,296; src/harbour/ocean/sea-tone.ts:37; src/harbour/engine/time-of-day.ts (keys + seaTint/seaChroma fields)",
+   "effort": "M",
+   "perf_cost": "~12 ALU per water pixel, 0 taps; keys 0.",
+   "risks": "Noon unchanged by construction; trades REVIEW #11's quay lift at low sun; the tint alone raises saturation (needs the chroma term); the colour authority (keys vs irradiance) needs a decision.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": [
+    "O3-I2",
+    "O1-I5",
+    "O4-I3"
+   ]
+  },
+  {
+   "id": "O10-I6",
+   "title": "Seamless arrival and the dusk ritual",
+   "what": "Poster (poster.ts:30-33, arrival-shell.css:27-33): a feathered radial mask while it scales; hour-matched night and dusk key art rendered from Blender (hb_render.py, D4) and picked by the visitor's hour before fetch; reduced motion = a 400-600 ms opacity fade. Kindle beat (O7-I2): uLampArrive folded into hbLampGlow so the town catches outward from the Pharos in ~3 s after the fire. Lamplighter's round (O7-I3): ~2 s ignition with a 15 % wick overshoot, LAMP_WAVE_START 0.3 -> ~0.45 (lamp-wave.ts:36-43). Spiked: the feather removes the picture-in-picture; a CSS night dip reads as a dirty veil (rejected).",
+   "visitor_benefit": "The first second and every dusk become moments: no golden rectangle over a night harbour; the fire kindles and the harbour answers.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "PSI: the kindle ends on the live beam reach; a banked PSI keeps today's edge-first order; DOM unchanged.",
+   "where": "src/harbour/app/poster.ts:30-33; public/arrival-shell.css:27-33; index.html (poster sources); src/harbour/app/wake.ts; src/harbour/lights/lamp-wave.ts:36-43; scripts/harbour/blender (key art)",
+   "effort": "M",
+   "perf_cost": "CSS for 1.1 s; ~3 ALU for 3 s; +60-120 KB for two extra posters (one fetched per visit).",
+   "risks": "Reduced motion must still the world; the poster bytes sit on the critical path; the kindle must never imply a PSI change.",
+   "impact": 4,
+   "confidence": 3,
+   "depends_on": [
+    "O7-I1",
+    "O7-I2",
+    "O7-I3",
+    "O9-I9"
+   ]
+  },
+  {
+   "id": "O10-I7",
+   "title": "Water that reads as water: no dashes, saucers, salt or glint lamps",
+   "what": "Jittered echelon period +-20 % with a per-stamp seed and only 2-3 white crests (wake.ts:101; O3-I3); glint lobe widened by the pixel footprint n/(1 + 6 fp^2), energy kept, faded by footprint, capped under bloom (ocean-material.ts:363; O3-I4 - spiked in the overview look frame); reef surf only on the swell-facing rim and aground rings that break in the lee (O3-I5); amber night reflections and riding-light streaks (O3-I6).",
+   "visitor_benefit": "The sea stops speaking the interface's grammar (route dashes, selection rings, lamp dots) and reads as calm water.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "Aground rings (Shoals = off-peg, fleet-system.ts:1159-1161) must stay legible; no data is re-mapped.",
+   "where": "src/harbour/ocean/wake.ts:88-122; src/harbour/ocean/ocean-material.ts:363,491-496; src/harbour/lights/lights-service.ts:51",
+   "effort": "M",
+   "perf_cost": "Wakes 0; glint ~5 ALU; reef +1 tap inside its box; +~300 pool quads.",
+   "risks": "Softer aground marks need sign-off; glint AA must not dull the noon sparkle near the camera.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "O3-I3",
+    "O3-I4",
+    "O3-I5",
+    "O3-I6",
+    "O1-I11"
+   ]
+  },
+  {
+   "id": "O10-I8",
+   "title": "Temporal calm: nothing pops",
+   "what": "Replace the binary fleet castShadow at 640 m (fleet-system.ts:79-81,901) with a dithered fade band with hysteresis (O7-I9); rigging as hairlines with a 0.8 px width floor and coverage tint (hull-kit.ts:85; O2-I4); mooring-line coverage AA (mooring-lines.ts:28-36); continuous hover pool; tug rows out. Look check: shadows switched on at the landing add little (basin L -0.003), so keep them off at the landing.",
+   "visitor_benefit": "The first wheel notch, every glide and the idle breath stop flipping 8 % of the frame; masts stop crawling.",
+   "pillar": "professional",
+   "meaning": "decorative",
+   "data_and_dom": "n/a.",
+   "where": "src/harbour/fleet/fleet-system.ts:79-81,901,1168; src/harbour/fleet/hull-kit.ts:85; src/harbour/fleet/mooring-lines.ts:28-36",
+   "effort": "M",
+   "perf_cost": "+0.1-0.3 ms only inside the shadow band; rigging ~15 VS ALU on rig vertices.",
+   "risks": "Fade band cost on iGPU must be measured on the Apple gate.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "O7-I9",
+    "O2-I4",
+    "O2-I1"
+   ]
+  },
+  {
+   "id": "O10-I9",
+   "title": "The crafted monument and its ground",
+   "what": "One Blender wave: Pharos v2 within today's envelope (O6-I4) with baked AO for the Pharos and civic GLBs (O6-I5); slope from central differences, not the facet normal (materials.ts:405; O6-I2); a Mediterranean grass year (materials.ts:496,509-510; O6-I3); stone pines, cypresses and warm battered walls (O6-I6/I7); backlit crowns at low sun (O2-I7) and two-tap contact AO (O2-I6). Not spikeable at runtime (geometry and bakes).",
+   "visitor_benefit": "Up close the namesake reads as a monument and the island as a sunlit Alexandrian landscape, not an office tower on a golf course.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: assets and material patterns only.",
+   "where": "scripts/harbour/blender/pharos (pharos_geo.py), island (hb_export.py:330-396, hb_land.py:1006-1077, nl_kit.py:964-982); src/harbour/world/materials.ts:237-238,405,496,509-510",
+   "effort": "L",
+   "perf_cost": "+45-75k tris, +250-400 KB gz, ~+0.1-0.25 ms on an iGPU.",
+   "risks": "The hero's silhouette is identity (before/after review stations, O6-I11); byte and tri budgets; D4 Blender only.",
+   "impact": 5,
+   "confidence": 3,
+   "depends_on": [
+    "O6-I4",
+    "O6-I5",
+    "O6-I2",
+    "O6-I3",
+    "O6-I6",
+    "O6-I7",
+    "O2-I6",
+    "O2-I7"
+   ]
+  },
+  {
+   "id": "O10-I10",
+   "title": "The harbour mirror (screen-space reflection on calm water)",
+   "what": "O3-I1: the ocean writes a mirror weight to alpha (ocean-material.ts:538); a half-res march in a new ocean/mirror-pass.ts at composer index 1; composited at the head of the beam EffectPass (beam-system.ts:286,393) with a sea-clock wobble; fades with stale fog; off on Low. Paid for by the O3-I8 water diet.",
+   "visitor_benefit": "The Pharos, limewash town and hulls finally stand in their water: the single biggest 'this is water' gain.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a; must be veiled by the stale fog like everything else.",
+   "where": "src/harbour/ocean/mirror-pass.ts (new); src/harbour/ocean/ocean-material.ts:538; src/harbour/beam/beam-system.ts:286,393",
+   "effort": "L",
+   "perf_cost": "+0.03 ms RTX, +0.2-0.4 ms M-class iGPU, 1.6-3.3 MB; offset by O3-I8 (-0.8-1.2 ms).",
+   "risks": "A visible tier difference (DECISION); iGPU cost; reflections of marks must follow O10-I3.",
+   "impact": 4,
+   "confidence": 3,
+   "depends_on": [
+    "O3-I1",
+    "O3-I8",
+    "O10-I3"
+   ]
+  }
+ ],
+ "top_picks": [
+  {
+   "id": "O10-I1",
+   "why": "Every frame, constants plus a token set; proven live: band-over-tower 85 % -> 23 %, the fire takes the night's brightest pixels back from the chrome (1 % -> 28 %)."
+  },
+  {
+   "id": "O10-I2",
+   "why": "A critical truth defect with a proven two-line fix (front basin L 0.62 -> 0.35) plus a colour law that makes stale fog read at night."
+  },
+  {
+   "id": "O10-I3",
+   "why": "Removes the confetti that makes the harbour read as a map; required by I1's darker sea; shader-only, findability kept by hover/search."
+  },
+  {
+   "id": "O10-I4",
+   "why": "One line retires the mainland wall on tablets and zoom-out; the overview band adds 67 % detail to the data rows at zero cost."
+  },
+  {
+   "id": "O10-I5",
+   "why": "~12 ALU makes golden hour and dusk read as one light; proven at two hours, with the per-key chroma it needs identified."
+  }
+ ],
+ "operator_decisions": [
+  "DECISION-NEEDED: Day value lock at ~2x O1-I1 plus +6 % Pharos limewash (deeper noon sea, bluer band; band-over-tower 23 %), or the as-specified half step (63 %)?",
+  "DECISION-NEEDED: Night bridge UI palette (O8-I1) - reinterprets D12's chart paper at night; the largest night gain measured (chrome 90 % -> 3 % of the brightest pixels).",
+  "DECISION-NEEDED: Coins print law (O5-I2) - devices under ~30 px print softly, hover/search/select restore; plus a far-sail value law. Amends v1.4.1's 'crisp at every range'.",
+  "Retire the runtime mainland (recommended) rather than pushing the sky card beyond it?",
+  "Stale fog at night as a neutral sea-smoke bank about +0.1 L brighter than a clear night (by design brighter than the night it veils)?",
+  "Water colour authority: art-directed per-key seaTint/seaChroma (jade at golden) or physically lit water (cool in shadow at golden)? Recommendation: keys own the colour, irradiance modulates sun and shade.",
+  "Arrival: ship the feather now; add hour-matched night and dusk poster art (+60-120 KB, one fetched per visit) or keep the golden poster? The CSS night dip is rejected.",
+  "Overview: move the sharp band onto the harbour (softness only at the frame edges) - confirm the miniature cue is still wanted that way.",
+  "Fleet shadows at the landing: keep off with a fade band (recommended) rather than paying for them at 650 m."
+ ],
+ "cross_lane_hooks": [
+  "R2-E: every GLSL patch in mockups/O10-spike-harness.js compiled and rendered on the real GPU (RTX, ANGLE/Vulkan); treat them as implementation sketches and re-measure on the Apple gate.",
+  "O1: finalise the value numbers (as specified vs x2), the per-key seaTint/seaChroma and the gate metrics: band >= lit face share, brightest-0.7 % ownership, basin L/S per state.",
+  "O5: add the far-sail value law and a white-ink minimum contrast; land the column-0 slot fix first (the print-law spike ran without it).",
+  "O8: tokenise the ~50 literals before the night palette (the spike needed !important for the paper sheen at harbour-ui.css:50).",
+  "O3/O4: implement O4-I1 exactly as spiked (local strength = mix(uCloudShadow.w, uCloudShadowG.y, behind)); add the O4-I8 truth-grammar gate.",
+  "O2: overview band (clamp, centre, focusArea 0.75), bloom threshold at overview, and the fleet shadow fade band with O7.",
+  "O7: ship the poster feather now; night/dusk key art through hb_render.py (D4) and the kindle beat with O9-I9's first ten seconds.",
+  "QA (S18): run the value and truth-grammar gates on shot.mjs / npm run preview frames only, never SwiftShader."
+ ]
+}

@@ -1,0 +1,330 @@
+{
+  "lane": "S18",
+  "executive_summary": "PharosVille has substantial unit coverage and reusable real-GPU tooling; it needs tighter acceptance criteria more than new infrastructure. The browser suite accepts runtime startup failure, accessibility checks cover only shell states, and release automation requires no hardware evidence. Existing soak and frame tools report problems without necessarily failing. Extend the deterministic capture, comparison, and soak harnesses; add scenario replays, axe checks, shader compilation checks, and a quiet-machine frame budget. This was read-only research: no browsers, changes, or release-confidence claims.",
+  "current_state": [
+    "Vitest discovers colocated source, Functions, and shared tests, using Node by default and per-file jsdom where needed; no coverage threshold is configured. Evidence: vitest.config.ts:15; src/harbour/ui/details.test.tsx:1.",
+    "Feed scheduling, same-origin endpoints, last-good retention, and aging are tested. Analytical bindings explicitly test unknown PSI, sea thresholds, and stale-only fog. Evidence: src/harbour/data/fetch.test.ts:28; src/harbour/readings/bind.test.ts:36.",
+    "Arrival tests cover exact rendered revisions, pending and failed data, worker failure, valid empty fleets, and readmission. Evidence: src/harbour/app/reveal.test.ts:81; src/harbour/app/reveal.test.ts:253.",
+    "Preparation and lifecycle tests cover cancellation, KHR absence, restoration, and disposal, but compiler calls are mocked. Audio has detailed visibility and teardown tests. Evidence: src/harbour/engine/prepare.test.ts:16; src/harbour/audio/lifecycle.test.ts:127.",
+    "The browser suite contains five cases: JavaScript-disabled first paint, small-screen denial, and three admitted sizes accepting canvas or failure. Accessibility tags cover only the first two. Evidence: tests/visual/harbour-dom.spec.ts:12; tests/visual/harbour-dom.spec.ts:40.",
+    "CI validates code, assets, builds, bundle budgets, static bytes, and Chromium/Firefox DOM fallback. Chromium WebGL is deliberately disabled in CI. Evidence: .github/workflows/deploy-cloudflare.yml:22; tests/helpers/playwright-config.ts:57.",
+    "Real-GPU captures serialize through shared Chrome. Golden captures already pin snapshots, clocks, RNG, and filmstrips; comparison already produces perceptual metrics and contact sheets. Evidence: scripts/harbour/shared-browser.mjs:102; scripts/perf/golden.mjs:82; scripts/perf/compare.mjs:19.",
+    "Existing soak tooling refreshes seven feeds, cycles viewport admission, and records heap, renderer, worker, and audio trends. Frame tooling already spans views, hours, seasons, weather, DPR, and profiles. Evidence: scripts/perf/soak.mjs:105; scripts/perf/frame.mjs:75.",
+    "Publication follows a successful main deploy; daily canaries check freshness and the error-reporting endpoint. Neither establishes rendering, art, or frame-budget confidence. Evidence: .github/workflows/release.yml:37; .github/workflows/canary-smoke.yml:26."
+  ],
+  "findings": [
+    {
+      "id": "S18-F1",
+      "title": "The local browser contract accepts a broken world",
+      "severity": "high",
+      "evidence": "tests/visual/harbour-dom.spec.ts:44; tests/visual/harbour-dom.spec.ts:48; scripts/pharosville/validate-deploy-gate.mjs:27.",
+      "detail": "Every admitted-size test accepts either a canvas or a startup/import failure. Consequently, the full local browser suite can pass when a hardware-capable browser cannot start the world. A canvas alone also does not establish a completed fleet frame.",
+      "fix": "Separate intentional WebGL-unavailable cases from hardware-required startup cases. Require a coherent completed revision and expected fixture boat count in the latter; fail unexpected startup and page errors."
+    },
+    {
+      "id": "S18-F2",
+      "title": "Accessibility labels overstate browser coverage",
+      "severity": "medium",
+      "evidence": "tests/visual/harbour-dom.spec.ts:12; tests/visual/harbour-dom.spec.ts:25; package.json:29; docs/pharosville/TESTING.md:76.",
+      "detail": "The accessibility subset checks first-paint headings/links and the blocked welcome page. It never opens search, ledger, detail panels, or sound controls, and contains no axe scan. Documentation describing ledger parity in the CI fallback exceeds the current assertions. This is a coverage gap, not a demonstrated accessibility violation.",
+      "fix": "Exercise actual overlay components in a deterministic DOM harness, add axe checks and keyboard assertions, and update the testing documentation to describe the demonstrated contract."
+    },
+    {
+      "id": "S18-F3",
+      "title": "Release success does not enforce the steady frame budget",
+      "severity": "high",
+      "evidence": "scripts/pharosville/validate-deploy-gate.mjs:64; scripts/perf/frame.mjs:90; .github/workflows/release.yml:37; docs/pharosville/TESTING.md:174.",
+      "detail": "The local performance tripwire gates first-fleet load latency against a baseline, not steady p95 frame time. The frame matrix records timing and stability without enforcing them. Publication requires successful deployment but no commit-bound Apple Silicon Safari/Chrome evidence. Thus a green release can leave the declared frame budget unverified.",
+      "fix": "Add an operator-machine steady-frame regression check and retain explicit hardware PASS/FAIL/SKIP evidence for the release commit. Keep GPU-less CI limited to its actual contract."
+    },
+    {
+      "id": "S18-F4",
+      "title": "The soak can exit successfully after detecting growth",
+      "severity": "medium",
+      "evidence": "scripts/perf/soak.mjs:49; scripts/perf/soak.mjs:56; scripts/perf/soak.mjs:59; scripts/perf/soak.mjs:61.",
+      "detail": "Resource growth changes the JSON verdict but never the process exit status. Missing measurements receive an unavailable verdict, yet the aggregate becomes plateau whenever no metric explicitly reports growth. Automation checking only exit status can therefore accept growth or incomplete measurements.",
+      "fix": "Preserve the diagnostic mode, add an explicit assertion mode, distinguish incomplete evidence from plateau, and test aggregation using synthetic growth, plateau, and unavailable samples."
+    },
+    {
+      "id": "S18-F5",
+      "title": "Shader sensitivity probes generate malformed source",
+      "severity": "medium",
+      "evidence": "scripts/perf/frame.mjs:129; scripts/perf/frame.mjs:133.",
+      "detail": "The vertex-work and fragment-work transform uses an overescaped newline and closing-brace regex. A browser-free execution of the actual source line produced a literal backslash-n and inserted no ALU loop. These diagnostic runs cannot establish the advertised shader sensitivity; baseline captures are unaffected.",
+      "fix": "Correct the escaping, require exactly one successful insertion, and add a small source-transform self-check before using these probes for performance decisions."
+    },
+    {
+      "id": "S18-F6",
+      "title": "Perceptual comparisons do not enforce hardware compatibility",
+      "severity": "medium",
+      "evidence": "scripts/perf/golden.mjs:64; scripts/perf/golden.mjs:73; scripts/perf/compare.mjs:52; scripts/perf/compare.mjs:54.",
+      "detail": "Compatibility checks cover selected manifest fields but omit per-capture GPU identity and browser/driver provenance. Missing manifests also bypass compatibility checks. Equal-sized images from different hardware can receive a screening PASS despite the documented same-GPU requirement.",
+      "fix": "Record capture provenance and validate paired capture metadata. Label unverified comparisons explicitly and prevent assertion-mode success when required compatibility evidence is absent."
+    },
+    {
+      "id": "S18-F7",
+      "title": "The blocked-screen request guard misses current asset transports",
+      "severity": "medium",
+      "evidence": "tests/visual/harbour-dom.spec.ts:7; tests/visual/harbour-dom.spec.ts:27; scripts/harbour/build-asset-registry.mjs:41; scripts/harbour/build-asset-registry.mjs:86.",
+      "detail": "The request regex misses immutable kit.pack.br, civic.pack.br, sea-sdf.bin.br, emblems, and logo requests. A browser-free check confirmed representative URLs evade it. The test can therefore pass despite some prohibited world-media fetching; this does not establish that such fetching currently occurs.",
+      "fix": "Classify requests against built registry/module dependencies, with explicit allowances for welcome/poster assets. Test the classifier against current packed, hashed, image, and module URLs."
+    },
+    {
+      "id": "S18-F8",
+      "title": "Unknown GPU identity can pass the capture check",
+      "severity": "low",
+      "evidence": "scripts/harbour/shot.mjs:261; scripts/harbour/shot.mjs:264; scripts/pharosville/validate-deploy-gate.mjs:103.",
+      "detail": "When renderer identification is unavailable, shot.mjs reports 'none'. Its rejection regex only catches named software renderers, so unidentified hardware continues. The deploy-gate probe already rejects none and unknown, creating inconsistent evidence standards.",
+      "fix": "Use the same conservative identity predicate across capture entry points. Return SKIP/78 for unidentified rendering rather than presenting it as verified real-GPU evidence."
+    }
+  ],
+  "ideas": [
+    {
+      "id": "S18-I1",
+      "title": "Make hardware startup assertions require a working fleet",
+      "what": "Split intentional fallback cases from hardware-required correctness cases. Assert completed model revision, expected fixture fleet count, poster removal, and absence of unexpected boot errors.",
+      "visitor_benefit": "World startup regressions stop passing the local release checks.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "Use fixture-derived expected counts and existing rendered-revision telemetry; preserve honest empty/unavailable arrival copy.",
+      "where": "tests/visual/harbour-dom.spec.ts:44; src/harbour/app/reveal.test.ts:81; scripts/pharosville/validate-deploy-gate.mjs:27.",
+      "effort": "M",
+      "perf_cost": "No production bytes or frame cost; several additional correctness cases.",
+      "risks": "Keep CI's intentional no-WebGL fallback separate. These assertions must never judge pixels or performance.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": [
+        "S18-I5"
+      ]
+    },
+    {
+      "id": "S18-I2",
+      "title": "Scan real overlay states with axe",
+      "what": "Add a test-only StoreContext harness mounting actual overlay components without WebGL. Run axe through the DOM browser lane across search, ledger tabs, panels, sound menus, and failure states; add keyboard and focus-return checks.",
+      "visitor_benefit": "Keyboard and assistive-technology users retain access to the analytical details.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "Reuse real DOM components and fixture readings; assert names, relationships, focus, and ledger parity without inventing a production fallback.",
+      "where": "src/harbour/ui/mount.tsx:13; src/harbour/ui/Ledger.tsx:33; src/harbour/ui/Search.tsx:71; tests/visual/harbour-dom.spec.ts:12.",
+      "effort": "M",
+      "perf_cost": "Dev-only axe dependency; zero shipped JavaScript and GPU cost.",
+      "risks": "Axe cannot establish screen-reader usability or world readability. Avoid blanket rule exclusions and test-only markup substitutes.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": [
+        "S18-I5"
+      ]
+    },
+    {
+      "id": "S18-I3",
+      "title": "Extend golden captures into a local art-review contact sheet",
+      "what": "Reuse golden.mjs and shot.mjs for a curated hours × states × views matrix. Add stale, unavailable PSI, depeg, and empty-fleet cases, then generate labeled thumbnails linking native frames and short filmstrips.",
+      "visitor_benefit": "Lighting, composition, signal legibility, and motion regressions receive consistent human review.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "Decorative hour/view controls remain separate from replayed analytical states. Labels show effective state and snapshot identity.",
+      "where": "scripts/perf/golden.mjs:66; scripts/perf/compare.mjs:94; scripts/harbour/shot.mjs:354.",
+      "effort": "M",
+      "perf_cost": "Zero production cost; approximately 18–30 serialized captures per curated review, plus optional bursts.",
+      "risks": "Do not require the entire Cartesian product every change. Empty scenarios need relaxed nonempty atlas/flag assumptions at scripts/perf/golden.mjs:145.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": [
+        "S18-I5"
+      ]
+    },
+    {
+      "id": "S18-I4",
+      "title": "Harden the existing local perceptual review",
+      "what": "Extend compare.mjs with hardware/browser/viewport compatibility checks and reviewed tolerance presets. Retain before/after/difference sheets and native images; use scores only to prioritize local human inspection.",
+      "visitor_benefit": "Small rendering regressions become easier to notice without turning aesthetic approval into a numerical score.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "n/a; compares matching frozen captures and does not change analytical readings.",
+      "where": "scripts/perf/compare.mjs:54; scripts/perf/compare.mjs:89; scripts/perf/compare.mjs:112.",
+      "effort": "S",
+      "perf_cost": "Zero runtime cost; existing sharp-based offline processing.",
+      "risks": "Driver, antialiasing, and thin-line differences require tolerance. Keep this optional and local, outside CI aesthetic acceptance.",
+      "impact": 3,
+      "confidence": 5,
+      "depends_on": [
+        "S18-I3"
+      ]
+    },
+    {
+      "id": "S18-I5",
+      "title": "Promote snapshots into deterministic scenario replays",
+      "what": "Extend the existing seven-endpoint snapshot seam with timestamped response sequences for storm escalation, two-poll depeg/recovery, valid empty fleet, and stale/outage recovery. Reuse them across unit, DOM, capture, and soak lanes.",
+      "visitor_benefit": "Rare market and failure states remain truthful and usable after changes.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "Preserve stress signals, peg deviation/off-peg share, stablecoin membership, and freshness metadata. Assert existing thresholds and matching panel/ledger text; introduce no new cue.",
+      "where": "scripts/perf/golden.mjs:98; src/harbour/data/fetch.test.ts:5; src/harbour/model/events.test.ts:70; src/harbour/readings/bind.ts:123.",
+      "effort": "M",
+      "perf_cost": "Test-only fixtures and replay setup; zero production bundle cost.",
+      "risks": "Keep endpoint schemas and timestamps coherent. Dist must receive actual matching payloads because development overrides are ignored.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S18-I6",
+      "title": "Make the existing soak actionable and genuinely long-running",
+      "what": "Add assertion mode and incomplete-evidence handling, then provide a 30–60-minute mounted scenario alongside the existing remount cycles. Exercise refresh churn, selections, panels, visibility, and optional sound; compare post-warmup resource trends.",
+      "visitor_benefit": "Long ambient sessions are less likely to accumulate resources or degrade.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "Use replayed payload churn and real existing controls; sound remains opt-in and reduced-motion behavior is exercised separately.",
+      "where": "scripts/perf/soak.mjs:43; scripts/perf/soak.mjs:105; src/harbour/audio/lifecycle.test.ts:127.",
+      "effort": "M",
+      "perf_cost": "Zero shipped cost; 30–60 minutes of dedicated local GPU time per extended run.",
+      "risks": "Heap noise and driver caches require calibrated tolerances. Logical renderer counters cannot establish resident VRAM usage or prove leak absence.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": [
+        "S18-I5"
+      ]
+    },
+    {
+      "id": "S18-I7",
+      "title": "Add a real-driver shader compilation smoke check",
+      "what": "Use shot.mjs initialization hooks to record shader/program failures before boot. Exercise quality tiers, leaf/bare variants, shadow/depth/post passes, storm/night, and KHR-present/absent paths. Fail compilation/link errors and incomplete preparation.",
+      "visitor_benefit": "GPU-specific broken materials and missing effects are caught before visitors encounter them.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "n/a; fixture state selects existing material variants without adding renderer paths.",
+      "where": "scripts/harbour/shot.mjs:215; src/harbour/engine/prepare.test.ts:16; src/harbour/engine/engine.ts:165; src/harbour/world/depth-prepass.test.ts:82.",
+      "effort": "M",
+      "perf_cost": "Zero production cost; additional local compilation time and diagnostic synchronization.",
+      "risks": "One Chrome/GPU cannot validate other drivers. Repeat on available AMD/Intel/Apple hardware; actual Safari requires its own operator-run check.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": [
+        "S18-I5"
+      ]
+    },
+    {
+      "id": "S18-I8",
+      "title": "Gate steady performance on the operator machine",
+      "what": "Add a small quiet-machine regression wrapper around perf:frame with fixed fixtures, state, viewport, and effective quality. Enforce the declared p95 budget plus reviewed relative regression limits; retain raw samples and explicit SKIP outcomes.",
+      "visitor_benefit": "Rendering additions must earn their cost on the supported integrated-GPU device.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "n/a; measurements observe unchanged scenery and analytical bindings.",
+      "where": "scripts/perf/frame.mjs:87; scripts/pharosville/validate-deploy-gate.mjs:33; agents/2026-10-13-pharosville-reboot/PLAN.md:362.",
+      "effort": "M",
+      "perf_cost": "Zero production cost; repeated local samples, initially three runs per critical state.",
+      "risks": "Apple Silicon Safari/Chrome evidence remains required by D14. Reject mismatched hardware or contention; distinguish presentation pacing from GPU query time.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": [
+        "S18-I5"
+      ]
+    },
+    {
+      "id": "S18-I9",
+      "title": "Maintain a small device and browser acceptance matrix",
+      "what": "Add a release checklist for actual Apple Silicon Safari/Chrome, desktop Firefox, available Windows/Linux GPUs, admitted tablets/foldables, and blocked phones. Record browser/GPU, DPR, input, reduced motion, context recovery, and observed result.",
+      "visitor_benefit": "Supported devices receive deliberate verification beyond desktop emulation.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "Retain sorted 720×600 screen and window tests; explicitly verify blocked devices make no world requests.",
+      "where": "tests/helpers/playwright-config.ts:15; tests/visual/harbour-dom.spec.ts:40; src/systems/viewport-gate.test.ts:66; docs/pharosville/CHANGE_CHECKLIST.md:32.",
+      "effort": "S",
+      "perf_cost": "Zero runtime cost; manual device-session time per release risk.",
+      "risks": "Chrome device emulation and Playwright WebKit are not evidence from actual tablet Safari. Record unavailable combinations honestly.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S18-I10",
+      "title": "DECISION-NEEDED: bind release confidence to the tested artifact",
+      "what": "Produce a compact receipt containing commit/build digest, fixture hash, hardware identity, checks, skips, and operator art verdict. Decide whether release publication must require matching hardware evidence or only display missing evidence.",
+      "visitor_benefit": "A published version has a clear account of what was verified.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "n/a; repository/release metadata only. Preserve the existing release.yml publication path.",
+      "where": ".github/workflows/release.yml:37; scripts/pharosville/validate-deploy-gate.mjs:53; scripts/perf/golden.mjs:64; docs/pharosville/RELEASES.md:46.",
+      "effort": "M",
+      "perf_cost": "Zero runtime cost; small JSON receipt and evidence links.",
+      "risks": "Blocking requires hardware availability; advisory receipts preserve availability but leave enforcement manual. Human art approval must remain distinct from metric PASS.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": [
+        "S18-I1",
+        "S18-I6",
+        "S18-I7",
+        "S18-I8",
+        "S18-I9"
+      ]
+    },
+    {
+      "id": "S18-I11",
+      "title": "Repair and self-check shader diagnostic probes",
+      "what": "Fix the overescaped source transform, assert one insertion and a real newline, and add a tiny synthetic shader test. Reject diagnostic captures containing shader errors instead of comparing invalid workloads.",
+      "visitor_benefit": "Performance work targets real bottlenecks using trustworthy experiments.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "n/a; test-only source probes remain outside shipping materials.",
+      "where": "scripts/perf/frame.mjs:129; scripts/perf/frame.mjs:133; scripts/check-guards.test.mjs:379.",
+      "effort": "S",
+      "perf_cost": "Zero production cost; intentional extra ALU only during diagnostic captures.",
+      "risks": "Compiler optimization can affect synthetic probes; validate sensitivity against real workload changes.",
+      "impact": 3,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S18-I12",
+      "title": "Strengthen the admission request boundary tests",
+      "what": "Replace the extension regex with a registry-aware request classifier. Add large-screen/small-window denial and boundary-size browser cases, plus denial/readmission assertions for world requests and disposal.",
+      "visitor_benefit": "Unsupported windows avoid hidden graphics downloads and runtime work.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "Assert the existing sorted 720×600 profile independently for physical screen and viewport; allow only required welcome/poster resources.",
+      "where": "tests/visual/harbour-dom.spec.ts:7; scripts/harbour/build-asset-registry.mjs:23; src/systems/viewport-gate.test.ts:66; src/harbour/app/admission.test.ts:53.",
+      "effort": "S",
+      "perf_cost": "Zero production cost; a few additional DOM correctness cases.",
+      "risks": "Do not block legitimate first-paint assets. Keep admission assertions independent of orientation and graphical appearance.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    }
+  ],
+  "top_picks": [
+    {
+      "id": "S18-I1",
+      "why": "Closes the most direct false-green path: hardware-capable startup failure currently passes."
+    },
+    {
+      "id": "S18-I8",
+      "why": "Turns the declared frame budget into a repeatable local acceptance check."
+    },
+    {
+      "id": "S18-I5",
+      "why": "One shared replay seam makes rare-state verification repeatable across several existing lanes."
+    },
+    {
+      "id": "S18-I2",
+      "why": "Adds meaningful accessibility coverage while keeping GPU-less CI useful."
+    },
+    {
+      "id": "S18-I3",
+      "why": "Makes consistent art review inexpensive by extending captures and comparison tools already present."
+    }
+  ],
+  "operator_decisions": [
+    "Should versioned publication block when matching hardware evidence is missing, or retain advisory PASS/FAIL/SKIP receipts?",
+    "Which Apple Silicon device and actual Safari/Chrome sessions are available for the existing D14 gate?",
+    "Who owns the human contact-sheet and motion verdict, and which secondary physical devices can be checked regularly?"
+  ],
+  "cross_lane_hooks": [
+    "Art and lighting lanes should nominate sensitive hours, views, and motion intervals for S18-I3; existing golden matrices are at scripts/perf/golden.mjs:11.",
+    "Data lanes should supply coherent multi-poll fixtures and expected text for S18-I5, preserving event hysteresis at src/harbour/model/events.test.ts:70.",
+    "Accessibility owners should review real overlay states and keyboard expectations for S18-I2; ledger tab navigation starts at src/harbour/ui/Ledger.tsx:28.",
+    "Engine/performance lanes should define shader-variant coverage and reviewed hardware baselines; existing preparation mocks start at src/harbour/engine/prepare.test.ts:9.",
+    "Verification limit: only startup checks, source inspection, and browser-free probe/request/GPU-predicate checks ran; no browsers, full suites, builds, or live checks.",
+    "Remaining risk: current appearance, hardware compatibility, frame budgets, and long-session stability were not measured. No repository files were changed."
+  ]
+}

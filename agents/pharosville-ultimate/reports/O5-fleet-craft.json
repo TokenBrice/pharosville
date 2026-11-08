@@ -1,0 +1,284 @@
+{
+ "lane": "O5",
+ "executive_summary": "Up close the fleet is a crafted miniature; the Shoals and Wreck Cove are among PharosVille's best passages. The day-time 'map pin' look has four stacked causes in code. The paper-white disc has 0.92 albedo against dye at about 0.15, and it measures 1.13x the sail's inscribed circle. The far law dims the cloth but not the disc, so contrast grows with distance. Logo ink, monogram discs and burgees bypass the earth-pigment cap, and the burgees also skip the aerial tint. Finally, swing-moored minnows keep their sails set (D-1); 396 of 657 boats are under $10M. Recommended law, keeping v1.4.1's promise that every coin stays findable: print the device into the canvas (cream ground, pigment ink, seams across it, inside the sail). Let print contrast follow the device's on-screen size, so ships of $1B or more stay crisp and minnows become soft patches of their colours. Monograms become sail lettering, flags join the air, and hover or search lift any coin. Fix first: emblem slots that are multiples of 32 (including the USDe titan) render as salt-and-pepper noise because the slot is an interpolated varying. The emblem atlas also costs about 120 MB of GPU and canvas memory.",
+ "current_state": [
+  "Architecture: all 657 hulls render in one BatchedMesh draw (fleet-system.ts:350-369), posed in the vertex shader from 3 data texels and 5 livery texels each. Fleet GPU is about 0.30 of 2.37 ms on an RTX (gpu-passes-summary.txt). House flags are one instanced draw (194 at the default view).",
+  "Census at the default view (O5 eval): skiff 261, boat 135, small 164, medium 76, large 17, titans 4. Median on-screen LOA: skiff 14 px, boat 21, small 28, medium 57, large 72, titans 79-112. 208 moored at swing moorings, 38 rafted, 176 docked, 20 aground.",
+  "Device law today (v1.4.1): every set sail prints the logo on a paper-white roundel at every range (fleet-material.ts:397-422), including LOD sails (hull-kit.ts:228-236). Swing moorings and rafts keep sails set (sim/plan-paths.ts:57-59, D-1). Every resting hull flies an emblem burgee of at least 4.5 px (fleet-system.ts:1084-1103).",
+  "Strong: close range reads as a crafted miniature, with planked decks, swan necks, steering oars, breathing canvas, rowing galleys and sea-driven heel and pitch. The motion burst shows believable heel, tacks and wakes (O5-burst-sheet.png).",
+  "Strong: the Shoals (grounded hulls in surf rings, distress flag above their colours) and Wreck Cove (memorial arc, nameboards) are calm and legible (O5-close-shoals.png, O5-close-cove.png). USDT is the best model in the harbour (O5-titan-usdt.png). Mast signals read at mid range (O5-signals-mid.png).",
+  "Weak: by day the Roads and the open sea read as logo pins: a ~9 px paper disc over a 14x2 px hull (O5-crop-day-roads.png, O5-mid-roads.png, O5-close-roads.png). In base-day's Roads region, 9,152 px stand more than 8 L* above their neighbourhood (p95 +33 L*). Bright-pixel saturation p99 there is 0.70, against 0.44 on the Pharos.",
+  "Hover and selection verified in code and on a frame: full mesh, far 0, full chroma, no aerial tint, flag of at least 9 px (fleet-system.ts:1061,1066,1089-1090; fleet-far.ts:21-24; fleet-material.ts:459). At range the lift is subtle (O5-crop-hover.png). Search lifts only the chosen coin, after a camera flight (ui/store.ts:322-329); browsing results lifts nothing (ui/Search.tsx:97-98).",
+  "Low tier: docked LOD rows collapse their sails through the LOD furl morph and read cleanly (O5-pair-mole-high-vs-low.png)."
+ ],
+ "findings": [
+  {
+   "id": "O5-F1",
+   "title": "Coins on atlas column 0 render as salt-and-pepper noise, including the USDe titan",
+   "severity": "high",
+   "evidence": "O5-crop-usde-flag-close.png, O5-crop-usde-sail-edge.png, O5-crop-titan-usde-flag.png; fleet-material.ts:87,173,397,413,362,332-334; house-flags.ts:20-31,102; atlas canvas and GPU readback match emblems.png (O5 eval: gradient 16.6, 423 vs 433 edge flips); clean tile in O5-atlas-usde-stretch.png",
+   "detail": "The emblem slot reaches the fragment shader as an interpolated varying: vFleetBrand.a in the fleet, vSlot in the flags. The shader then computes cell = (mod(slot, 32), floor(slot / 32)). Interpolation returns 320 +/- epsilon, so for exact multiples of 32 the mod flips between 0 and 31.99997 and the floor between rows 10 and 9. Each pixel then samples either the right tile or the clamped edge of the row above. Affected: 20 logo slots (0, 32 ... 608: USDe, sUSDS, cUSD, EURS, BUSD, USDM ...) plus monogram slots 640/672/704/736. The damage appears on house flags, brailed-bundle prints and sail prints. The epitaph board index uses the same mod pattern.",
+   "fix": "Round the slot before cell math in all four places (float slot = floor(vFleetBrand.a + 0.5); likewise vSlot and the board index), or declare the varyings flat (WebGL2). Add a shader-string or unit test that checks the cell math for slots 0, 32 and 320, and a golden capture of USDe at her berth. Effort S."
+  },
+  {
+   "id": "O5-F2",
+   "title": "The far law amplifies the pin: the cloth dims, the paper disc does not",
+   "severity": "medium",
+   "evidence": "fleet-material.ts:396 (hbFarCloth before the print), 419-420 (disc composited at 0.92); fleet-far.ts:17-19; livery.ts:167,176-186",
+   "detail": "Dyed cloth (chroma-capped, about 0.15 linear luminance) carries a paper disc at 0.92 albedo, roughly 6:1 (+50 L*). v1.4.1 kept the 20 % far dim on the cloth but applies it before the print, so the disc-to-cloth ratio rises to about 7.5:1 with distance. Far ships become more pin-like, not less.",
+   "fix": "Apply the far dim and value cap to the whole printed area, or adopt O5-I2 (a screen-size print law)."
+  },
+  {
+   "id": "O5-F3",
+   "title": "The device overflows its sail by design: square sails become placards",
+   "severity": "medium",
+   "evidence": "sail-plan.ts:8-9,16-18 (FILL_MAIN 0.97); build-emblems.mjs:24-33 (ground r 61/128, logo r 52/128); fleet-material.ts:321-326,400-406; O5-crop-close-sails.png, O5-close-roads.png",
+   "detail": "The logo fills 97 % of the sail's inscribed circle, so the white ground (1.13x) and the brand ring (1.24x) are larger than the sail's inner circle and get clamped at the luff and leech. On square sails the dyed cloth survives only in the corners.",
+   "fix": "Fill by class (O5-I3) so the ground and ring end inside the inscribed circle."
+  },
+  {
+   "id": "O5-F4",
+   "title": "Logo ink, monogram discs and flags bypass the earth-pigment cap; flags also skip the aerial tint",
+   "severity": "medium",
+   "evidence": "livery.ts:167 (DYE_MAX_SAT 0.5 applies to the dye only); emblems.ts:188-196 (monogram disc saturation up to 0.62); house-flags.ts:89 (0.9 brand chroma), 111 (no aerial); world/aerial.ts:10-11 (flags exempt); base-day bright-pixel saturation p99 0.70 in the Roads vs 0.44 on the Pharos",
+   "detail": "01-A3 gave the sails earth pigments, but the marks printed on them, and the burgees above them, keep raw brand chroma and no haze. They are the most saturated, least atmospheric objects on the far water: the confetti.",
+   "fix": "Route logo ink, monograms and flag fields through the dye's chroma cap, with highlighted hulls at full chroma (O5-I1, O5-I6). Add a reduced aerial tint to flags (O5-I5)."
+  },
+  {
+   "id": "O5-F5",
+   "title": "The emblem atlas holds about 120 MB of GPU and canvas memory and re-uploads whole",
+   "severity": "medium",
+   "evidence": "O5 eval: canvas 4096x3200 (25 rows, slots 0-754); emblems.ts:53-60 (RGBA8, mipmaps), 94-101 and 147-148 (invalidate), 163-176 (grow); fleet-system.ts:303 (420 extra slots)",
+   "detail": "4096x3200x4 = 52.4 MB, plus mips, is about 70 MB of texture. The 52 MB 2D canvas also stays alive (usually GPU-backed in Chrome). Any install that draws a monogram re-uploads the full 52 MB and regenerates its mips; boot does this at least twice (install, then logos). This is a risk for tablets (admitted by the gate) and iGPUs. Hitch size there is unmeasured.",
+   "fix": "O5-I9: upload logos once from the ImageBitmap, keep monograms in a small separate texture, and drop the canvas. Optionally use 96 px slots plus a 256 px hero sheet. Measure on the iGPU profile."
+  },
+  {
+   "id": "O5-F6",
+   "title": "Double branding at rest",
+   "severity": "low",
+   "evidence": "O5-crop-close-docked.png; fleet-material.ts:351-368 (cover print), 397-422 (sail print); fleet-system.ts:1102-1103 (emblem burgee)",
+   "detail": "Docked hulls show the logo on the brailed bundle and on the burgee side by side. Swing-moored hulls show it on the set sail and the burgee. Two white discs per hull at close and mid range.",
+   "fix": "O5-I4: the burgee flies plain colours while the hull's own print is visible."
+  },
+  {
+   "id": "O5-F7",
+   "title": "Hover and search reveal is thin at range",
+   "severity": "low",
+   "evidence": "O5-crop-hover.png (hovered and selected far raft boats); fleet-system.ts:1393 (ring max(4 m, 0.66 LOA)); ui/Search.tsx:97-98; ui/store.ts:322-329",
+   "detail": "At the Roads a hovered skiff gains a 9 px flag and full-chroma cloth, and the selection ring is about 9 px. Search shows nothing in the world until a result is chosen and the camera flies.",
+   "fix": "O5-I8 (search preview and roll call) and O5-I10 (ring screen-space floor)."
+  },
+  {
+   "id": "O5-F8",
+   "title": "Furled LOD sails shade as set, on a wrong rationale",
+   "severity": "low",
+   "evidence": "fleet-material.ts:148-149 (furl morph applied to every vertex), 177-179 (lodSail forces furl 0 in the fragment); scripts/harbour/blender/hulls/export.py:111 ('morph furl collapses the sails'); hb_ancient.py build_ancient_lod tri2 set/furled pairs",
+   "detail": "v1.4.1 says a LOD sail has no furl shape, but the LOD export carries a furl morph and the vertex shader applies it. A docked LOD hull's collapsed sail strip therefore shades as unweathered set cloth and prints a squashed full roundel. It is harmless at LOD size, but the comment is wrong and the work is wasted.",
+   "fix": "Apply the set-shading override only when furl < 0.5, and correct the comment."
+  }
+ ],
+ "ideas": [
+  {
+   "id": "O5-I1",
+   "title": "Printed, not stuck: the device painted into the sailcloth",
+   "what": "In the sail branch (fleet-material.ts:392-422), un-premultiply the atlas sample and detect paper ground (min(rgb)/a > 0.85 and low chroma). Replace it with an unbleached-canvas ground derived from the family cloth (at most 0.72 albedo, warm). Pass the logo ink through the dye's earth-pigment chroma cap (DYE_MAX_SAT 0.5; full chroma for hovered or selected hulls via vFleetMisc.x). Move the seam, tabling and mottle multiply and the furl weathering after the print, so the cloth's construction crosses the device. Do the same on the brailed bundle and cover print (fleet-material.ts:359-368, ties and band after the print) and on the flag roundel (house-flags.ts:98-106, ground = flag CLOTH).",
+   "visitor_benefit": "Close up, sails read as painted canvas with a device, as on an ancient ship, not stickers. The brightest marks on the water stop being logo discs, and at night the grey moonlit discs go away.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a. The logo silhouette and hue are unchanged and the brand colour remains the dye. Hover and selection restore full chroma (existing hbDyeChroma path). No signal is re-mapped.",
+   "where": "src/harbour/fleet/fleet-material.ts (sail and cover print), src/harbour/fleet/fleet-far.ts (new hbPrint helper), src/harbour/fleet/house-flags.ts, src/harbour/fleet/livery.ts (shared cap constant)",
+   "effort": "S",
+   "perf_cost": "0 draws, 0 attributes, 0 bytes. About +14 FS ALU on print fragments only (sails are roughly 2-4 % of a 1600x1000 default frame) and about +10 on flag roundels. Under 0.01 ms on RTX, about 0.02-0.05 ms on an iGPU.",
+   "risks": "Logos with white ink on a transparent ground need a minimum ink-to-ground contrast (darken the ground if the ink luminance is above 0.75). Golden images change. Dark logos need the ground at least 0.25 luminance above the ink. No motion changes.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": [
+    "O5-F1"
+   ]
+  },
+  {
+   "id": "O5-I2",
+   "title": "The print follows its size: a screen-size law for the device",
+   "what": "In the same block, discPx = 0.98 / (era * uDpr); era already exists at fleet-material.ts:320. Set k = max(smoothstep(12, 30, discPx), smoothstep(0.05, 0.5, highlight)). At k = 1 the near print from O5-I1 shows. As k falls to 0, the ground's value converges to cloth +15 % and the ink's value contrast halves, keeping the hue, so a 9 px device becomes a soft patch of the coin's colours in the dyed cloth. Apply hbFarCloth to the whole print (fixes O5-F2). Device diameters at the default view are about 46-56 px for titans, 28-34 large, 21-25 medium, 17-20 small, 13-15 boat and 8-9 skiff, so k is about 1 for titans and large hulls, 0.5-0.8 for medium, 0.2-0.4 for small, under 0.1 for boats and 0 for skiffs.",
+   "visitor_benefit": "The Roads read as a moored fleet with painted sails instead of a field of pins. Importance becomes legible, because the crisp devices are the big coins'. Any coin can still be brought forward by hover, search or zoom.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "A visual law on screen size only, adding no new signal. Ordering follows hull size, the existing supply-class cue. Hover, selection and search force k = 1. Proposed legend line in KeyList: 'Sails carry each coin's device; small and distant ones are printed softly — hover, search or zoom to bring one forward.'",
+   "where": "src/harbour/fleet/fleet-material.ts:318-326,396-422; src/harbour/fleet/fleet-far.ts; a DPR uniform (engine uniforms); src/harbour/ui/KeyList.tsx (legend line)",
+   "effort": "S",
+   "perf_cost": "About +6 FS ALU on print fragments, 1 uniform, 0 draws, 0 bytes.",
+   "risks": "It amends v1.4.1's 'crisp at every range' for devices under ~30 px (DECISION-NEEDED). Tune the thresholds with a blind A/B on base-day, base-overview and the Roads crops. Retina must use CSS px. Edge-on sails underestimate discPx, which is acceptable. No motion.",
+   "impact": 5,
+   "confidence": 4,
+   "depends_on": [
+    "O5-I1"
+   ]
+  },
+  {
+   "id": "O5-I3",
+   "title": "The device sits inside its sail: fill by hull class",
+   "what": "Make FILL_MAIN and FILL_SECOND (sail-plan.ts:18) class-dependent at bake time: titans 0.92, large 0.88, medium 0.84, small/boat/skiff 0.80. Pass the hull class from hull-kit.ts loadKit into planSails. The white ground (1.13x) and brand ring (1.24x) then end inside the inscribed circle, so a band of dyed cloth always frames the device instead of a clamp at the luff and leech.",
+   "visitor_benefit": "Square sails stop reading as placards; the coin's colour reads as cloth around a device.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: a geometry constant, no data.",
+   "where": "src/harbour/fleet/sail-plan.ts:15-18,104-117; src/harbour/fleet/hull-kit.ts (loadKit, bakeGltf options); src/harbour/fleet/sail-plan.test.ts",
+   "effort": "S",
+   "perf_cost": "0 at runtime (bake-time constants).",
+   "risks": "Logos on small hulls shrink by about 15-20 %, slightly less legible at mid range; O5-I1's contrast offsets this. Titans keep near-full size.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O5-I4",
+   "title": "One device per resting hull",
+   "what": "In the flag loop (fleet-system.ts:1084-1103), pass slot -1 to flags.add (a plain swallowtail in the coin's colours, no roundel) when the hull's own print is visible. That means a set sail at rest (swing moorings and rafts, sailSetAt) or a brailed bundle facing at least 0.3 toward the camera. Titans' house flags, struck rigs and the hovered or selected hull keep the emblem flag.",
+   "visitor_benefit": "Halves the logo count in the Roads and docked rows at close and mid range (O5-crop-close-docked.png). Flags look like flags.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a. The coin stays identified by her sail or cover print, the brand colour of the burgee and the hover tag.",
+   "where": "src/harbour/fleet/fleet-system.ts:1084-1114",
+   "effort": "S",
+   "perf_cost": "CPU only, effectively 0; slightly fewer textured flag fragments.",
+   "risks": "Visitors who learned 'burgee = coin' lose the second mark at mid range. The bundle is edge-on from some angles, hence the facing condition. DECISION-NEEDED.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O5-I5",
+   "title": "REOPEN: flags in the same air and pigment",
+   "what": "Pass the burgee and house-flag field (house-flags.ts:89) and the streamer through the sailDye chroma cap. Add the shared aerial distance tint (AERIAL_VERT_GLSL and AERIAL_GLSL from world/aerial.ts) at 0.6x the cap. Exempt the hovered or selected hull by packing its highlight into aBrand.w (style + 10*hi).",
+   "visitor_benefit": "The Roads' confetti of full-chroma, unhazed burgees settles into the same air as hulls and sails. The overview calms down, and hover still pops.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "Decorative, static, identical in every data state; the 'distance' legend already exists. New argument for reopening the exemption (aerial.ts:10-11): 194 burgees are the only unpigmented, unhazed objects on the far water (O5-crop-day-roads.png).",
+   "where": "src/harbour/fleet/house-flags.ts (VERT, FRAG, add()), src/harbour/fleet/fleet-system.ts:1102-1111, src/harbour/world/aerial.ts (comment)",
+   "effort": "S",
+   "perf_cost": "+1 varying. About 10 VS ALU on ~8.5k flag vertices and 6 FS ALU on flag fragments; negligible. 0 draws.",
+   "risks": "Far burgees become slightly less legible, so keep the cap at or below 0.6. Must not resemble stale-data fog: it is static and distance-only. DECISION-NEEDED.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O5-I6",
+   "title": "Monograms become sail lettering",
+   "what": "For coins without a logo (115 slots at runtime), emblems.ts:179-205 draws a saturated brand disc with a white ring and rim, a poker chip. Instead, draw only the serif letters as an alpha mask; keep the plain disc only as the loading placeholder. The shader inks letters for slots at or above uLogoSlots from the dye: cream on dark cloth, a deep shade of the dye on light cloth, the deep brand shade on mode-2 canvas. Flags letter in cream on the brand field.",
+   "visitor_benefit": "Removes about 115 saturated discs, many of them crowding the Roads (O5-close-roads.png: PA, LCNY, BAO, CLEV, USP, BTC, JPYD, XIDR). The sails look lettered, which suits the period, and the identity text is the same.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a. The monogram text (from symbol) and the brand colour (dye) are unchanged.",
+   "where": "src/harbour/fleet/emblems.ts:179-205; src/harbour/fleet/fleet-material.ts (print branch); src/harbour/fleet/house-flags.ts; src/harbour/fleet/emblems.test.ts",
+   "effort": "S",
+   "perf_cost": "About +3 FS ALU; 0 bytes (same slots); 0 draws.",
+   "risks": "Letter contrast against the dye must stay at least 3:1. Golden images change. DECISION-NEEDED (drops the brand-colour disc).",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "O5-F1"
+   ]
+  },
+  {
+   "id": "O5-I7",
+   "title": "Size-class flag law for the minnows",
+   "what": "In fleet-system.ts:1086-1091, for skiff and boat hulls, lower the flag floor from tier.flagMinPx (4.5 px) to 3 px and cap at 0.25x LOA below ~25 px of hull. Medium and larger hulls, titans and hovered or selected hulls (FLAG_HI_MIN_PX 9) are unchanged.",
+   "visitor_benefit": "396 of 657 boats are under $10M. Their burgees stop dominating the anchorage at the default and overview views, and the larger coins' flags stand out by contrast.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "Derived from the existing hull class, which is already the supply-class cue; adds no new mapping. Hover and search keep the 9 px floor.",
+   "where": "src/harbour/fleet/fleet-system.ts:110-116,1084-1092",
+   "effort": "S",
+   "perf_cost": "CPU only; fewer flag pixels.",
+   "risks": "Sub-3 px flags shimmer, so keep the floor at 3 px. Minnows' brand dots are fainter at overview, where the brand colour remains on the sail dye.",
+   "impact": 2,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O5-I8",
+   "title": "Search previews and a roll call in the world",
+   "what": "When a search row becomes active (ui/Search.tsx:97-98, arrow keys or hover), call store.previewHover(hit), which calls picking.setHover(id). The coin lifts in the world (full print, full chroma, 9 px flag, hover lantern) without moving the camera. When the list holds 12 or fewer boat hits, call a new FleetSystem.setHighlights(ids) at hi 0.35 so every match lifts together. Clear both when the search closes.",
+   "visitor_benefit": "Visitors see where a coin is on the water before committing to a camera flight. Together with O5-I2, any quiet far coin can be called forward.",
+   "pillar": "informative",
+   "meaning": "ux",
+   "data_and_dom": "Uses existing search results; the DOM list already names each coin. No new data or signal.",
+   "where": "src/harbour/ui/Search.tsx, src/harbour/ui/store.ts:322-345, src/harbour/ui/picking.ts:495-503, src/harbour/fleet/fleet-system.ts (hover/selected plus a small highlight set)",
+   "effort": "M",
+   "perf_cost": "CPU only (≤ 12 highlight writes); no draws.",
+   "risks": "Hover flicker while arrowing, so ease it in as today. Must not move the camera or steal focus. Reduced motion: the lift is a colour change, which is fine.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O5-I9",
+   "title": "Emblem atlas diet and hero tiles",
+   "what": "Decode emblems.avif to an ImageBitmap and upload it once as the logo texture. Keep runtime monograms in a separate small canvas texture (for example 2048x512), so a monogram change re-uploads 2-4 MB, not 52 MB. Drop the 52 MB 2D canvas. Optionally shrink logo slots to 96 px (build-emblems.mjs SLOT) and add a 256 px hero sheet for the ~21 coins at or above $1B (titans and large) so their sails stay crisp at maximum zoom. The shader routes slot ranges to two or three samplers.",
+   "visitor_benefit": "Less memory pressure and no whole-atlas re-upload hitches on tablets and iGPUs; titans' devices stay sharp up close.",
+   "pillar": "all-devices",
+   "meaning": "infra",
+   "data_and_dom": "n/a",
+   "where": "src/harbour/fleet/emblems.ts, scripts/harbour/build-emblems.mjs, src/harbour/fleet/fleet-material.ts, src/harbour/fleet/house-flags.ts, src/harbour/fleet/fleet-system.ts:303",
+   "effort": "M",
+   "perf_cost": "Emblem memory falls from about 122 MB (70 MB texture with mips, plus the 52 MB canvas) to about 67 MB, or to about 43 MB with 96 px slots plus 7 MB of hero tiles. One more sampler. Removes one or two full 52 MB uploads and mip passes at boot.",
+   "risks": "Golden pixels change (emblems.ts:5-7 warns about this), so re-baseline. Context-loss restore needs the bitmap kept or re-fetched. Premultiply flags from an ImageBitmap need care.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O5-I10",
+   "title": "A selection ring you can find",
+   "what": "In fleet-system.ts:1393, scale the ring to max(4 m, 0.66 LOA, 22 px / pxPerM * dist), and thicken its line with distance. Apply the same to the cove's selected wreck.",
+   "visitor_benefit": "After a search flight from far zoom, or a click on a 14 px skiff, the ring actually marks her; today it is about 9 px at the Roads.",
+   "pillar": "professional",
+   "meaning": "ux",
+   "data_and_dom": "n/a: the selection already appears in the side panel.",
+   "where": "src/harbour/fleet/fleet-system.ts:1343-1401",
+   "effort": "S",
+   "perf_cost": "0 (one quad).",
+   "risks": "A large ring may overlap neighbours at far zoom; it is transient and only for the selection.",
+   "impact": 2,
+   "confidence": 4,
+   "depends_on": []
+  }
+ ],
+ "top_picks": [
+  {
+   "id": "O5-I2",
+   "why": "The single change that turns the field of pins into a moored fleet. Shader-only (about 6 ALU), and every coin stays findable."
+  },
+  {
+   "id": "O5-I1",
+   "why": "The near-range half of the same move: devices look painted, flags and covers match, and moonlit grey discs vanish. S, about 14 ALU."
+  },
+  {
+   "id": "O5-I3",
+   "why": "A bake-time constant that removes placard sails at zero runtime cost."
+  },
+  {
+   "id": "O5-I6",
+   "why": "Removes about 115 saturated poker chips crowding the Roads, with period-correct sail lettering and the same identity."
+  },
+  {
+   "id": "O5-I5",
+   "why": "Settles 194 unhazed full-chroma burgees into the harbour's air; S and negligible GPU."
+  }
+ ],
+ "operator_decisions": [
+  "DECISION-NEEDED (O5-I2): adopt a screen-size print law? Devices under ~30 px print softly (ground near the cloth, ink hue kept); titans and large hulls stay crisp at default views; hover, selection and search restore the full print. This amends v1.4.1's 'crisp at every range' without removing any mark.",
+  "DECISION-NEEDED (O5-I4): when a resting hull's sail or bundle already shows her print, should her burgee fly plain colours without the roundel?",
+  "DECISION-NEEDED (O5-I5): reopen the flags' aerial-tint exemption (world/aerial.ts:10-11) at 0.6x the cap, with the hovered or selected hull exempt?",
+  "DECISION-NEEDED (O5-I6): replace the generated brand-colour monogram discs (coins without a logo) with sail lettering inked from the dye?",
+  "DECISION-NEEDED (O5-I9): accept 96 px logo slots plus 256 px hero tiles for coins at or above $1B, with golden re-baselines, to cut emblem memory by about 55-80 MB?"
+ ],
+ "cross_lane_hooks": [
+  "O1 art direction: set the print value ceiling (canvas ground at or below the town limewash, below the Pharos marble) and judge the O5-I2 thresholds in the A/B on base-day, base-overview and the Roads crops.",
+  "O2 light/post: check the canvas ground and pigment ink under AgX, the LUT and bloom (golden-hour backlight already darkens the print via hbSailOpaque). Expose the aerial GLSL to house-flags.ts (O5-I5) and a DPR uniform for O5-I2.",
+  "UI lane: O5-I8 preview and highlight set (ui/Search.tsx, ui/store.ts, ui/picking.ts); the O5-I2 legend line in KeyList.tsx; O5-I10 ring.",
+  "Perf/QA lane: measure O5-I9 (VRAM, upload hitch) on the iGPU profile; add a golden shot of the USDe titan for O5-F1; capture tooling should wait for renderedBoats > 0 (one O5 capture landed on 'awaiting data' under multi-lane load).",
+  "Whoever owns build-emblems.mjs and the golden tests: O5-I1, I3, I6 and I9 change emblem pixels by design, so re-baseline scripts/perf/golden.mjs once the art review passes."
+ ]
+}

@@ -1,0 +1,402 @@
+{
+  "lane": "S06",
+  "executive_summary": "The camera has strong foundations: exponential damping, interruptible minimum-jerk glides, cursor zoom, touch gestures, keyboard navigation, and panel-aware focus. The largest defects are inaccurate zoom anchoring, incomplete motion cancellation, non-accumulating keyboard zoom, and picking through terrain. In-memory reproductions confirmed these behaviors without browsers. Wheel units, responsive selection framing, watch freshness, and camera URL validation also need attention. Prioritize correcting these mechanics before adding motion polish. Existing hover-light fades already address the historical review complaint.",
+  "current_state": [
+    "The rig uses fixed-angle pan and distance zoom, exponential damping at 6/s, and 0.9–2.4 s minimum-jerk glides with logarithmic zoom. /home/ahirice/Documents/git/pharosville/src/harbour/engine/camera-rig.ts:12,96,176.",
+    "Wheel input always prevents default and applies exp(deltaY × 0.0012); ctrlKey, deltaMode, and deltaX do not affect interpretation. /home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:41.",
+    "Touch supports midpoint pan, pinch zoom, and release inertia; selection supports tap, 480 ms long press, and double-tap Home on unassigned water. /home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:63; /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:269.",
+    "Arrows pan; +/− zoom; brackets step visible ships; F follows; W starts the watch. Single-click already selects and focuses; boat double-click has no distinct focus action. /home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:74; /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:234,244,322.",
+    "Picking first tests fleet spheres by depth, then analytic hull-to-mast capsules with a minimum 7 CSS-pixel radius. This already helps distant boats. /home/ahirice/Documents/git/pharosville/src/harbour/fleet/fleet-system.ts:1425; /home/ahirice/Documents/git/pharosville/src/harbour/ui/picking.ts:143,471.",
+    "Moving pointers repick every frame; stationary pointers repick after 120 ms. Tags track world projections each frame, with overlay reads preceding writes. /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:154,169; /home/ahirice/Documents/git/pharosville/src/harbour/ui/HoverTag.tsx:33.",
+    "Chart labels have deterministic priority and collision culling, but no temporal hysteresis. Tags constrain horizontal placement but do not reserve panel space. /home/ahirice/Documents/git/pharosville/src/harbour/ui/ChartLabels.tsx:19,59; /home/ahirice/Documents/git/pharosville/src/harbour/ui/cull.ts:7; /home/ahirice/Documents/git/pharosville/src/harbour/ui/HoverTag.tsx:40.",
+    "Selection framing accounts for a 392 px side-panel footprint or a half-height bottom sheet. Home adapts to aspect changes; inspected selections do not receive equivalent resize handling. /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:349; /home/ahirice/Documents/git/pharosville/src/harbour/layout/layout-system.ts:92.",
+    "Historical hover-fade criticism is partly resolved: boat lanterns fade over 180/240 ms, and landmark presence eases exponentially. Building-to-building changes still relocate the glow immediately. /home/ahirice/Documents/git/pharosville/src/harbour/fleet/hover-lantern.ts:9; /home/ahirice/Documents/git/pharosville/src/harbour/world/landmark-hover.ts:25.",
+    "Read-only review included in-memory Node/Three.js reproductions; repository status remained unchanged. Existing camera tests cover glide shape and damping, while the follow test exercises only 60 Hz. /home/ahirice/Documents/git/pharosville/src/harbour/engine/camera-rig.test.ts:7,96; /home/ahirice/Documents/git/pharosville/src/harbour/ui/camera-moves.test.ts:5."
+  ],
+  "findings": [
+    {
+      "id": "S06-F1",
+      "title": "Cursor-centered zoom drifts in perspective",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/engine/camera-rig.ts:144,150,162,167.",
+      "detail": "zoomAt uses a linear screen-to-ground approximation at the target distance rather than intersecting the pointer ray with the ground. An in-memory Three.js reproduction at 300 m, pitch 26°, 1600×1000 produced approximately 97 px of anchor drift when zooming 2× at a point 300 px below center. It also mixes goal-distance ratios with rendered-distance scaling during damped input.",
+      "fix": "Compute ground-ray intersections before and after the proposed zoom using a consistent pose, then translate the target by their difference. Test vertical offsets, repeated events before a frame, and zoom limits."
+    },
+    {
+      "id": "S06-F2",
+      "title": "Wheel distance ignores event units",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:41.",
+      "detail": "Raw deltaY feeds the zoom exponent without deltaMode normalization. Three line units and three pixel units therefore produce identical motion, although they represent different distances. An in-memory event replay confirmed identical settled distances. Horizontal precision-touchpad movement is discarded entirely.",
+      "fix": "Normalize pixel, line, and page units before applying sensitivity. Define ctrlKey pinch and ordinary scroll behavior explicitly; cover each event mode with input tests."
+    },
+    {
+      "id": "S06-F3",
+      "title": "Rapid keyboard zoom loses requested steps",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:547,556; /home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:76.",
+      "detail": "keyZoom reads the rendered distance, then restarts a 700 ms minimum-jerk glide. Repeated presses before the camera advances replace the same target rather than accumulating. Two immediate '+' calls from 300 m settled at 240 m instead of 192 m. Key repeat repeatedly restarts the near-zero-velocity portion of the easing curve.",
+      "fix": "Accumulate keyboard zoom against the pending distance goal, using a short chase or smoothly retargeted transition. Verify rapid presses and held-key behavior."
+    },
+    {
+      "id": "S06-F4",
+      "title": "Cancelled touches can fling and wheel input cannot stop inertia",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:39,41,84,97.",
+      "detail": "pointercancel invokes the normal release handler, which can start a fling from recent velocity. Wheel input does not clear the input object's gliding flag, so zoom can continue alongside old touch inertia. Both behaviors reproduced through the actual handlers in memory. There is also no lostpointercapture cleanup.",
+      "fix": "Separate cancellation from successful release. Cancellation, lost capture, blur, and a new wheel gesture should clear pointer bookkeeping and inertia without creating momentum."
+    },
+    {
+      "id": "S06-F5",
+      "title": "Hidden boats remain pickable through terrain",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/fleet/fleet-system.ts:1001,1425; /home/ahirice/Documents/git/pharosville/src/harbour/ui/picking.ts:135,339,471.",
+      "detail": "Fleet visibility means frustum intersection, not terrain visibility. Its sphere picker returns boats before considering scenery. The analytic fallback also accepts boat capsules without calling its existing occlusion check. A synthetic height-field fixture returned hidden(id)=true while pick(center) still selected that boat.",
+      "fix": "Apply terrain visibility to candidate acceptance in both paths. Test candidate depth against the visible scene surface, and continue searching when a nearer candidate is hidden."
+    },
+    {
+      "id": "S06-F6",
+      "title": "Watch stop and Home do not consistently stop camera ownership",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:385,457,482; /home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:57; /home/ahirice/Documents/git/pharosville/src/harbour/ui/CornerMark.tsx:66.",
+      "detail": "stopWatch clears watch state but leaves its active camera glide running; an in-memory reproduction confirmed this. The Home button calls goHome directly, which does not stop the watch. Consequently Home can complete and then be superseded by watch tracking. Keyboard H stops the watch through a separate handler, creating inconsistent button/key behavior.",
+      "fix": "Make explicit stop and Home actions cancel watch-owned motion at the current pose. Put ownership cleanup in store actions so buttons and shortcuts behave identically."
+    },
+    {
+      "id": "S06-F7",
+      "title": "Enabling reduced motion leaves existing camera motion active",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:115,370,490; /home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:126.",
+      "detail": "The motion subscription stops follow but does not cancel an existing glide or touch fling. moveTo only applies reduced-motion behavior when a new move starts. An active watch also continues scheduling timed camera cuts, although its continuous tracking stops.",
+      "fix": "On transition to reduced motion, stop inertia and current automated camera movement. End an active watch with an announcement or require explicit continuation through static stops."
+    },
+    {
+      "id": "S06-F8",
+      "title": "Selection framing becomes stale across panel layout changes",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:349; /home/ahirice/Documents/git/pharosville/src/harbour/layout/layout-system.ts:92; /home/ahirice/Documents/git/pharosville/src/harbour/ui/harbour-ui.css:439.",
+      "detail": "Selection focus chooses its clearance once from viewport width. Resizing across 900 px changes the panel from side panel to bottom sheet, but LayoutSystem only reframes a camera still at Home. A selected boat retains its previous lateral offset and lacks the new upward clearance unless follow is active or the visitor selects again.",
+      "fix": "Recompute selection clearance on viewport/panel layout changes while the visitor has not manually moved away from that selection."
+    },
+    {
+      "id": "S06-F9",
+      "title": "Camera URL accepts poses that break camera math",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/layout/layout-system.ts:48,53; /home/ahirice/Documents/git/pharosville/src/harbour/engine/camera-rig.ts:81,172,210.",
+      "detail": "The cam parameter is described as development framing but is parsed without a development guard. Validation checks finiteness only, accepting zero/negative distance, zero pitch, and out-of-bounds targets. cam=0,0,0,0,0 reaches the rig; an in-memory reproduction then produced NaN pan deltas.",
+      "fix": "Restrict development overrides to development builds and validate positive distance, permitted angles, and bounds. Production share state should restore only validated bounded pan/zoom."
+    },
+    {
+      "id": "S06-F10",
+      "title": "Secondary mouse buttons also start camera drags",
+      "severity": "low",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:53,63; /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:224.",
+      "detail": "CameraInput captures every pointerdown without checking mouse button. The UI store only tracks primary-button drags, so right-button movement pans without matching drag-state handling. An in-memory right-button replay incremented the rig's pan epoch.",
+      "fix": "Accept only the documented mouse button, while retaining touch and intended pen input. Share the gesture eligibility rule with selection handling."
+    },
+    {
+      "id": "S06-F11",
+      "title": "Watch captions can outlive the readings they describe",
+      "severity": "medium",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:431,447,464,482; /home/ahirice/Documents/git/pharosville/src/harbour/ui/watch.ts:38.",
+      "detail": "The watch snapshots ranked subjects and their explanatory strings at startup, then loops those stops indefinitely. It neither reranks on model changes nor checks endpoint freshness. A recovered coin can retain the caption 'worst depeg now'; a visit can start or continue from stale retained readings.",
+      "fix": "Revalidate freshness and recompute reasons at stop boundaries and relevant model updates. Stop or show an explicit unavailable state when current ranking cannot be supported."
+    },
+    {
+      "id": "S06-F12",
+      "title": "Fling travel varies with frame rate",
+      "severity": "low",
+      "evidence": "/home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:126; /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:66; /home/ahirice/Documents/git/pharosville/src/harbour/ui/camera-moves.test.ts:7.",
+      "detail": "Fling velocity decays exponentially, but displacement uses velocity × delta before decay. Replaying the formula from 1000 px/s for one second gives 310.7 px at 15 Hz, 285.2 px at 60 Hz, and 280.5 px at 144 Hz. Follow also uses numerical spring integration; its existing test covers only 60 Hz.",
+      "fix": "Integrate fling displacement as v × (1−exp(−decay×dt))/decay. Compare follow trajectories across supported frame rates and use an analytic spring step if differences exceed the acceptance tolerance."
+    }
+  ],
+  "ideas": [
+    {
+      "id": "S06-I1",
+      "title": "Keep the ground exactly under the zoom pointer",
+      "what": "Replace approximate zoom anchoring with before/after ground-ray intersections. Apply target compensation using one consistent pose. Require under 1 CSS-pixel settled drift away from clamped boundaries.",
+      "visitor_benefit": "Pinching and wheel zoom feel attached to the subject instead of sliding across the harbour.",
+      "pillar": "all-devices",
+      "meaning": "ux",
+      "data_and_dom": "n/a; camera mechanics do not change analytical meaning.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/engine/camera-rig.ts:144; /home/ahirice/Documents/git/pharosville/src/harbour/engine/camera-rig.test.ts:41.",
+      "effort": "M",
+      "perf_cost": "Estimate: two ray-plane intersections per zoom update; zero draws, triangles, or dependencies.",
+      "risks": "Ground anchoring needs a defined plane after focusing the elevated Pharos; bounds may legitimately prevent perfect anchoring.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S06-I2",
+      "title": "Normalize wheel input and define trackpad behavior",
+      "what": "Normalize deltaMode, distinguish ctrlKey pinch, and consume both scroll axes where panning is supported. Start calibration at 0.0012 per normalized zoom pixel and cap a single event to a 0.8–1.25 distance ratio. Prefer an explicit trackpad preference over brittle device heuristics.",
+      "visitor_benefit": "Mouse wheels, macOS trackpads, and Windows precision touchpads receive predictable controls.",
+      "pillar": "all-devices",
+      "meaning": "ux",
+      "data_and_dom": "n/a; update the existing keyboard/control explanation to match the chosen gesture policy.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:41; /home/ahirice/Documents/git/pharosville/src/harbour/ui/KeyList.tsx:11.",
+      "effort": "M",
+      "perf_cost": "Estimate: constant arithmetic per event; under 2 KB source growth; zero GPU cost.",
+      "risks": "Scroll-to-pan changes an established zoom gesture. Sensitivity and inertia tails require real macOS and Windows validation.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": []
+    },
+    {
+      "id": "S06-I3",
+      "title": "Make every stop action stop the camera",
+      "what": "Add a small explicit motion-cancellation path across input and store. Cancel inertia on wheel, pointer cancellation, lost capture, and blur. Home ends watch/follow before moving. Escape ends automated motion at its current pose. Reduced-motion changes cancel ongoing automation.",
+      "visitor_benefit": "The camera yields immediately and consistently when the visitor takes control.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "n/a; retain concise live announcements such as 'Watch ended' and 'Stopped following'.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:36; /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:115,385,457; /home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:61.",
+      "effort": "M",
+      "perf_cost": "Estimate: a few state resets per cancellation; zero recurring rendering cost.",
+      "risks": "Keep Escape's layer-closing order explicit; cancelling a watch must not unexpectedly clear an unrelated selection.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S06-I4",
+      "title": "Accumulate keyboard zoom without restarting its easing",
+      "what": "Apply every 1.25× step to the pending zoom goal. Use a 120–180 ms response for repeated input instead of restarting a 700 ms minimum-jerk flight. Normalize diagonal arrow vectors to retain the documented 520 px/s speed.",
+      "visitor_benefit": "Quick presses and held keys respond evenly, including on high-refresh displays.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "n/a; existing shortcut text remains accurate.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:534,547; /home/ahirice/Documents/git/pharosville/src/harbour/ui/App.tsx:75.",
+      "effort": "S",
+      "perf_cost": "Estimate: constant arithmetic; zero additional GPU or network work.",
+      "risks": "Preserve follow/watch cancellation and reduced-motion cuts; avoid keyboard-repeat-dependent zoom speed.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S06-I5",
+      "title": "Pick visible subjects with consistent overlap priority",
+      "what": "Keep the existing forgiving capsules, reject terrain-occluded candidates in both picking paths, and compare candidates by pointer proximity with depth as a tie-breaker. Give direct visible hits priority over expanded hit regions. Use at least 12 px radius for coarse-pointer taps versus the existing 7 px mouse minimum.",
+      "visitor_benefit": "Small boats are easier to select without clicking ships behind the island or losing foreground targets.",
+      "pillar": "all-devices",
+      "meaning": "ux",
+      "data_and_dom": "n/a; selection continues opening the existing exact-value panel and ledger parity path.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/picking.ts:124,339,471; /home/ahirice/Documents/git/pharosville/src/harbour/fleet/fleet-system.ts:1418.",
+      "effort": "M",
+      "perf_cost": "Estimate: bounded height-field checks for shortlisted candidates; zero draws. Measure CPU cost before checking every boat.",
+      "risks": "Enlarged touch targets increase overlap; preserve deterministic tie-breaking and test partially visible masts.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S06-I6",
+      "title": "Stabilize hover without delaying first feedback",
+      "what": "Show the first hover immediately; retain its candidate within an extra 3 px release margin, requiring roughly 60 ms of a clearly better candidate before switching. Repick stationary hovered boats every 50 ms. Keep clicks immediate. Add 2 px hysteresis to tag above/below placement and label collision transitions.",
+      "visitor_benefit": "Names stop chattering between neighboring moving boats while tags remain responsive.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "n/a; reuse current tag facts and existing light fades rather than adding new signals.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:154,196; /home/ahirice/Documents/git/pharosville/src/harbour/ui/HoverTag.tsx:40; /home/ahirice/Documents/git/pharosville/src/harbour/ui/cull.ts:7.",
+      "effort": "M",
+      "perf_cost": "Estimate: stationary hover picking rises from about 8 to 20 checks/s; moving-pointer frequency stays unchanged.",
+      "risks": "Excessive stickiness can misidentify a passing boat. Clear immediately on drag, canvas exit, or loss of visibility.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": [
+        "S06-I5"
+      ]
+    },
+    {
+      "id": "S06-I7",
+      "title": "Match momentum across slow and high-refresh screens",
+      "what": "Integrate exponential fling displacement analytically using the existing 3.5/s decay. Compare complete camera trajectories at 15, 30, 60, 120, and 144 Hz; use an analytic critically damped follow step if necessary. Target under 1 px endpoint variation for equal elapsed input.",
+      "visitor_benefit": "A flick travels the same distance on a weak tablet and a 144 Hz laptop.",
+      "pillar": "all-devices",
+      "meaning": "ux",
+      "data_and_dom": "n/a; preserve current velocity limits and follow semantics.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:126; /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:66; /home/ahirice/Documents/git/pharosville/src/harbour/ui/camera-moves.test.ts:5.",
+      "effort": "S",
+      "perf_cost": "Estimate: reuse the existing exponential evaluation; negligible CPU change and zero GPU cost.",
+      "risks": "The rig's additional damping also affects final travel; test the complete input-to-camera chain, not only velocity.",
+      "impact": 3,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S06-I8",
+      "title": "Frame selections against the actual available viewport",
+      "what": "Measure the visible panel or sheet and derive a usable screen rectangle with 24 px padding. Reframe an untouched selection after resize or panel-layout changes. Project subject bounds, including the Pharos top, rather than relying only on a ground point and fixed clearance.",
+      "visitor_benefit": "Selected subjects remain visible when tablets rotate or laptop windows resize.",
+      "pillar": "all-devices",
+      "meaning": "ux",
+      "data_and_dom": "n/a; use existing DOM measurement batching and selection identity.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:332,349; /home/ahirice/Documents/git/pharosville/src/harbour/ui/measurements.ts; /home/ahirice/Documents/git/pharosville/src/harbour/ui/Panel.tsx:51.",
+      "effort": "M",
+      "perf_cost": "Estimate: a few projections on selection or resize; reuse cached measurements; zero new draw calls.",
+      "risks": "Never pull the camera back after manual panning. Preserve the sorted viewport gate and reduced-motion behavior.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S06-I9",
+      "title": "Soften arrival at bounds while keeping the diorama bounded",
+      "what": "Retain hard camera limits, but attenuate outward inertial velocity over the final roughly 40 screen pixels and clear the blocked velocity component at contact. Leave direct inward movement unattenuated. Avoid elastic overshoot outside the world.",
+      "visitor_benefit": "The camera settles against harbour limits without a prolonged invisible fling or sticky reversal.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "n/a; modifies navigation feedback only.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/engine/camera-rig.ts:127,134; /home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:125.",
+      "effort": "M",
+      "perf_cost": "Estimate: constant bound-distance arithmetic during momentum; zero GPU cost.",
+      "risks": "Do not attenuate deliberate direct dragging twice through both input and rig damping. Validate corners and zoom-dependent scaling.",
+      "impact": 3,
+      "confidence": 4,
+      "depends_on": [
+        "S06-I7"
+      ]
+    },
+    {
+      "id": "S06-I10",
+      "title": "Expose camera affordances through existing controls",
+      "what": "Use grab over empty navigable water, grabbing during an accepted drag, and pointer over openable subjects. Add accessible +/− controls to the existing expandable corner strip, with 44 px coarse-pointer targets. Reject secondary-button drags.",
+      "visitor_benefit": "Visitors can discover navigation without a wheel, pinch gesture, or keyboard shortcut.",
+      "pillar": "all-devices",
+      "meaning": "ux",
+      "data_and_dom": "n/a; label controls 'Zoom in' and 'Zoom out'; preserve the existing sparse corner UI.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:196,203; /home/ahirice/Documents/git/pharosville/src/harbour/ui/CornerMark.tsx:62; /home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:53.",
+      "effort": "S",
+      "perf_cost": "Estimate: two DOM buttons and state-dependent cursor writes; zero scene cost.",
+      "risks": "Avoid covering the harbour with persistent controls. Cursor state must reset after cancellation and disposal.",
+      "impact": 3,
+      "confidence": 5,
+      "depends_on": [
+        "S06-I4"
+      ]
+    },
+    {
+      "id": "S06-I11",
+      "title": "Share and restore a bounded inspection state",
+      "what": "Add a copy-link action encoding selected kind/id and bounded target/distance with fixed camera angles. Resolve selection after model readiness. Push history for deliberate selections, replace camera state after roughly 300 ms idle, and restore on popstate without replaying writes. Current code only reads initial view/cam parameters.",
+      "visitor_benefit": "A shared link and browser Back return to the intended coin and viewpoint.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "Selection IDs and camera coordinates only; no readings, timestamps presented as snapshots, or API credentials.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/layout/layout-system.ts:48; /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:322; /home/ahirice/Documents/git/pharosville/src/harbour/ui/CornerMark.tsx:62.",
+      "effort": "M",
+      "perf_cost": "Estimate: a small URL codec and debounced history updates; no new API requests or GPU work.",
+      "risks": "Handle removed coins, malformed links, viewport readmission, and live boat movement. Avoid adding a history entry per frame.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S06-I12"
+      ]
+    },
+    {
+      "id": "S06-I12",
+      "title": "Validate every external camera pose",
+      "what": "Reject nonpositive distances and unsupported angles before applying URL poses. Clamp shared pan/zoom to permitted ranges; keep arbitrary pitch overrides development-only. Add boundary cases for zero, negative, enormous, missing, and nonfinite values.",
+      "visitor_benefit": "Opening a malformed or old camera link cannot corrupt navigation.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "n/a; invalid state falls back to the normal aspect-fitted Home view.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/layout/layout-system.ts:53; /home/ahirice/Documents/git/pharosville/src/harbour/engine/camera-rig.ts:81.",
+      "effort": "S",
+      "perf_cost": "Estimate: validation only on pose entry; zero recurring frame cost.",
+      "risks": "Preserve legitimate development captures and aspect-fitted presets; distinguish trusted authored presets from external URL input.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S06-I13",
+      "title": "Keep the watch's explanations current and verifiable",
+      "what": "Rebuild watch stops at boundaries and revalidate the active reason on model updates. Require current stablecoin readings. Preserve the existing $1M mover floor, worst active depeg ranking, and zero-week-history newcomer rule; stop unsupported reasons instead of looping old captions.",
+      "visitor_benefit": "The guided camera visit explains what the live readings currently support.",
+      "pillar": "professional",
+      "meaning": "data-bound",
+      "data_and_dom": "Sources: supply, circulatingPrevDay/Week, activeDepeg, pegDeviationBps, and truth.stablecoins.state. Reuse rankWatch captions in the watch and live announcement. When stale: 'Watch paused: readings are stale.' Add freshness and recovered-depeg tests.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/watch.ts:19; /home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:431,464; /home/ahirice/Documents/git/pharosville/src/harbour/ui/watch.test.ts:6.",
+      "effort": "M",
+      "perf_cost": "Estimate: O(number of boats) on relevant model updates or stop boundaries, not per frame; no GPU cost.",
+      "risks": "Avoid frequent reranking that interrupts contemplation. Refresh captions immediately but defer subject changes until a safe stop boundary.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S06-I3"
+      ]
+    },
+    {
+      "id": "S06-I14",
+      "title": "Add a small interaction regression matrix",
+      "what": "Exercise actual input handlers with mocked elements and a real Three.js camera: wheel units, ctrl-pinch policy, pointercancel, lost capture, rapid key zoom, bounds, occlusion, and motion-setting changes. Compare deterministic trajectories at 30/60/120/144 Hz and include portrait-to-landscape selection framing.",
+      "visitor_benefit": "Interaction fixes remain reliable as camera choreography and device support evolve.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "n/a; synthetic poses and DOM events only, without world feeds or browser rendering.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/engine/camera-rig.test.ts:41; /home/ahirice/Documents/git/pharosville/src/harbour/ui/camera-moves.test.ts:5; /home/ahirice/Documents/git/pharosville/src/harbour/engine/input.ts:17.",
+      "effort": "M",
+      "perf_cost": "Estimate: test-only additions; no production bundle or frame cost.",
+      "risks": "Synthetic events establish correctness, not physical gesture feel. Retain later real-device acceptance checks.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S06-I15",
+      "title": "Avoid unnecessary flights when inspecting nearby subjects",
+      "what": "Keep single-click selection, but skip automatic travel when the subject already fits the usable viewport and has adequate projected size. Make double-click on a subject explicitly request close focus. Do not restart a glide for an unchanged selection; retain current double-click Home behavior on unassigned water.",
+      "visitor_benefit": "Reading several nearby boats feels direct while deliberate focus remains available.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "n/a; selection still opens the same detail panel. Explain the focus gesture in existing control help.",
+      "where": "/home/ahirice/Documents/git/pharosville/src/harbour/ui/store.ts:234,244,322,332; /home/ahirice/Documents/git/pharosville/src/harbour/ui/KeyList.tsx:5.",
+      "effort": "M",
+      "perf_cost": "Estimate: a few projections per selection; fewer camera transitions; zero new scene draws.",
+      "risks": "Changes established single-click choreography. Determine the projected-size threshold through operator review; start around 40 px subject height.",
+      "impact": 3,
+      "confidence": 4,
+      "depends_on": [
+        "S06-I8"
+      ]
+    }
+  ],
+  "top_picks": [
+    {
+      "id": "S06-I1",
+      "why": "Fixes reproduced anchor drift shared by wheel and pinch, making the primary navigation gesture feel substantially more precise."
+    },
+    {
+      "id": "S06-I3",
+      "why": "One focused cancellation pass resolves several surprising behaviors across Escape, Home, touch cancellation, and reduced motion."
+    },
+    {
+      "id": "S06-I5",
+      "why": "Prevents selection through scenery while improving small-target access using the existing analytic picker."
+    },
+    {
+      "id": "S06-I4",
+      "why": "A small change fixes demonstrably lost keyboard zoom steps and improves held-key response."
+    },
+    {
+      "id": "S06-I2",
+      "why": "Normalizing wheel units is inexpensive; an explicit gesture policy prevents device-specific behavior from emerging accidentally."
+    }
+  ],
+  "operator_decisions": [
+    "Should ordinary two-finger trackpad scrolling pan, with ctrlKey pinch zooming, or should the current scroll-to-zoom behavior remain the default? Approve any explicit trackpad preference before S06-I2 changes established gestures.",
+    "Should single-click always trigger the current cinematic focus, or may S06-I15 keep an already legible subject stationary and reserve deliberate close focus for double-click?",
+    "Under reduced motion, should W be unavailable or become an explicitly advanced sequence of static subjects? Automatic timed cuts should require a deliberate product choice."
+  ],
+  "cross_lane_hooks": [
+    "Coordinate responsive UI work with S06-I8: expose measured panel/sheet bounds through the existing read-before-write measurement flow.",
+    "Coordinate fleet/terrain work with S06-I5: share candidate visibility and rendered bounds without adding GPU readback or per-boat terrain marches on every frame.",
+    "Coordinate data-truth work with S06-I13: preserve freshness provenance and refresh watch explanations when their supporting readings change.",
+    "Skipped: no browsers, captures, package installation, repository edits, or full test-suite execution; validation used source review and in-memory reproductions.",
+    "Risk: gesture sensitivities, hover thresholds, and subjective damping still need real macOS/Windows touchpads, touch tablets, and 120/144 Hz hardware acceptance."
+  ]
+}

@@ -1,0 +1,371 @@
+{
+ "lane": "O2-light-post",
+ "executive_summary": "The light is PharosVille's strongest asset: a coherent AgX + per-hour LUT chain, a clean fitted PCF sun, and warm/cool golden and night palettes. The wins are where that pipeline wastes time or stalls, plus crafted-light gaps. (1) At the landing and overview the sun shadow map and sea mask re-render every frame with no moving caster in them (fleet shadows switch off at >=640 m; the landing sits at 650 m): 17.6 % of GPU time. Render on change only. (2) The 32^3 grade LUT is rebuilt on the main thread: 19.6 ms per refill, every ~4 s around dawn and dusk and at 4 Hz while weather eases, unseen by pinned ?t= captures. Bake it on the GPU. (3) The heat-shimmer gate is inverted (three's JS smoothstep with reversed edges): its full-screen pass runs by day at far range and never close up. (4) At night the chain crest flags outshine the Pharos (luma 92 vs 62). (5) Gaps: rigging breaks into dotted lines at DPR 1, wall feet lack contact darkening, backlit crowns stay dead at dawn while sails glow, and the overview tilt-shift blurs the docked fleet. All fixes are S-M, mostly GPU-neutral.",
+ "current_state": [
+  "Post chain: RenderPass -> (stale fog) -> beam/shimmer EffectPass -> NaN scrub -> merged EffectPass (tilt-shift, bloom 8 mips r 0.72, AgX, per-hour 32^3 half-float LUT, vignette, +/-0.5/255 dither) -> SMAA (engine/post.ts:20-21, 232-258); half-float composer, no MSAA (engine/engine.ts:88-100). Coherent and cheap on RTX (~0.2 ms, 8 %).",
+  "Time of day: 11 keyframes with exposure, bloom, grade, sun/fill/hemi, nightLift and a seasonal remap (engine/time-of-day.ts:63-144, 193-204). Measured key:fill on the Pharos ~3:1 at noon (linear 0.53 vs 0.175, O2-noon-pharos.png) and ~2:1 at golden with a warm/cool split; the navy night with warm lamps is still the yardstick.",
+  "Shadows: one fitted, quantised, texel-snapped PCF map (4096 High / 2048 Medium-Low), 5-tap Vogel disk + IGN, radius by sun elevation and night, normalBias 1.6 texels (world/sun.ts:43-55, 84-87, 141-165). No acne or peter-panning in close-ups (O2-crop-noon-plaza.png); a 4-frame burst changes 0 % of static stone (O2-burst-diff-berths.png); the sea reads a resolved R8 mask (world/sun-shadow.ts:9-14).",
+  "Contact/AO: only a 512^2 height-field AO (8 taps at 2/5.5 m) on indirect light (world/materials.ts:308-325, 778-784), plus wake contact rings under hulls on Medium/High (fleet/fleet-system.ts:79-81). n8ao is a dependency (package.json:81) that nothing imports.",
+  "Materials: one MeshStandard uber-kit with procedural patterns (world/materials.ts:180-265), analytic env spec, gilt/bronze metals (world/metal.ts), sail dye/seams/translucency (fleet/sail-light-glsl.ts), aerial tint (world/aerial.ts). Limestone, limewash, ashlar, timber and sailcloth read distinctly up close; terracotta and foliage go flat at heart (hbFine fades per-tile jitter; no leaf transmission).",
+  "Night lights: a 2048^2 projected pool texture sampled by every kit fragment, instanced sprites with an overview fix, water pillars, and 16/8/4 promoted point lights with a uniform skip for dark slots (lights/lights-system.ts:16-35, 119-260, 393-419).",
+  "Anti-aliasing: SMAA HIGH/MEDIUM/LOW by tier (engine/post.ts:256, 284); the DPR ladder is capped at the device ratio (engine/quality.ts:47-58). Mooring lines have a ~1.4 px width floor (fleet/mooring-lines.ts:4-30) and far rigs are struck (fleet/fleet-material.ts:46-60); standing rigging has no floor and aliases at DPR 1.",
+  "GPU on RTX at t=11, 1600x1000, High: 2.37 ms p50 = island 15 %, shadow 14.6 %, civic 13 %, fleet 12.7 %, ocean 8.5 %, post ~8 %, life 4 %, sea mask 2.9 % (perf-rtx-day.json). Prior Raphael iGPU at Low@1 measured 68-76 ms (INTEGRATION-NOTES). Post traffic is ~106 B/px per frame of full-resolution half-float reads and writes."
+ ],
+ "findings": [
+  {
+   "id": "O2-F1",
+   "title": "Heat-shimmer gate inverted: full-screen beam/shimmer pass runs by day at far range, never close up",
+   "severity": "medium",
+   "evidence": "src/harbour/beam/beam-system.ts:391,393; node_modules/three/src/math/MathUtils.js:167-176; shots/perf-rtx-day.json (beam pass in 220/220 day frames at t=11)",
+   "detail": "THREE.MathUtils.smoothstep(dCam, 520, 140) returns 0 for every dCam <= 520 and 1 above it, because three's JS smoothstep tests x <= min first and has no reversed-edge support. So uShAmt is ~1 beyond 520 m (landing, overview) and 0 below, the inverse of the comment ('a close-range read'). this.pass.enabled therefore stays true in every daytime frame, costing one full-screen half-float read+write (16 B/px; RTX 0.016 ms, est. 0.3-0.5 ms on a Raphael-class iGPU), and the intended close-up shimmer never shows. It is the only reversed-edge call of three's JS smoothstep in src/harbour.",
+   "fix": "uShAmt = 1 - smoothstep(dCam, 140, 520) (or a local linearstep helper), plus a unit test for uShAmt at 100/300/700 m and a check that the beam pass is disabled by day at the landing."
+  },
+  {
+   "id": "O2-F2",
+   "title": "Grade LUT rebuilt on the main thread: ~20 ms stall every ~4 s at dawn/dusk, 4 Hz during weather easing",
+   "severity": "high",
+   "evidence": "src/harbour/engine/post.ts:51-91 (gradePixel/fillGradeLUT), 347-355 (refill, 4 Hz throttle); sky/sky-system.ts:584-587, 608-609; weather/weather-system.ts:255-258; season/season-system.ts:186-192; perf-cpu-day.json post.update max 0.1 ms (pinned t)",
+   "detail": "fillGradeLUT(32^3) measured 19.6 ms on this desktop CPU under Node 24 (19.1 ms gradePixel math, 2.2 ms half conversion); est. 40-80 ms on laptop CPUs. It runs when any grade component moves >= 5e-4, at most 4 Hz. A simulated calm reference day (0.25 s steps) gives 4,962 refills/day: 920/h at 05-06 h and 938/h at 19-20 h, about one every 3.9 s. Storm, gloom and cloud-cover easing rewrite the grade every frame, so refills run at 4 Hz during weather transitions (~80 ms/s of main thread). Every perf capture pins ?t=, so the harness cannot see it.",
+   "fix": "Bake the LUT on the GPU (O2-I2). Stopgap: 16^3 LUT (2.45 ms) or a worker fill with a transferred buffer."
+  },
+  {
+   "id": "O2-F3",
+   "title": "Static sun shadow and sea mask re-rendered every frame at the landing and overview",
+   "severity": "high",
+   "evidence": "src/harbour/fleet/fleet-system.ts:79-81, 901 (fleet casts below 640/520/360 m); src/harbour/data/layout.json heart distance 650 (layout/framing.ts:59-89 only pushes it out); life/folk.ts:380; civic/workers.ts:128; world/sun.ts:89-105; engine/quality.ts:28-30; perf-rtx-day.json (shadow + offscreen mask in 220/220 frames, median 17.6 % of GPU)",
+   "detail": "At the landing (650 m) and overview (1000 m) the fleet does not cast on any tier. The only moving casters left are townsfolk and civic workers (1-4 px figures). High still re-renders the 4096^2 map every frame (shadowInterval 0); Medium/Low re-render at 30/15 Hz, i.e. every 2nd-4th frame, which sets p95. Each refresh also re-resolves and re-mips the SeaShadowMask. Measured share on RTX: shadow 0.345 ms + mask 0.068 ms of 2.37 ms.",
+   "fix": "O2-I1: gate figure casting by distance and render the map only when a framing change, sun drift, tier or season change, or a live dynamic caster requires it."
+  },
+  {
+   "id": "O2-F4",
+   "title": "Chain crest flags outshine the Pharos at night",
+   "severity": "medium",
+   "evidence": "src/harbour/identity/crest-flags.ts:33-42 (FRAG: c = tex * (uLight * vShade + uGlow)); identity/identity-system.ts:167-174; base-night.png, view-overview-night.png, O2-night-civic.png, O2-notan-night.png",
+   "detail": "The flags are lit by a flat, shadowless light: (hemi*1.1 + moon key*0.42) * (1 - 0.7 night) + 0.16 * windowGlow. Mean sRGB luma at night: ETH flag 92 vs Pharos tower body 62 (base-night); 75 vs 69 at overview. In a 4-value notan the flag sits in the top value class next to the lamps. That breaks 'the Pharos stays the hero' and contradicts the code's own 'faintly lit' comment.",
+   "fix": "O2-I5: hoist-lamp gradient plus moon on the folds; target flag luma <= 0.7x the tower body at night, with a legibility floor."
+  },
+  {
+   "id": "O2-F5",
+   "title": "Sub-pixel standing rigging breaks into dotted lines and crawls at DPR 1",
+   "severity": "medium",
+   "evidence": "shots/O2-crop-mole-dpr1-vs-dpr2.png, O2-crop-galley-dpr1-vs-dpr2.png, O2-burst-diff-berths.png; fleet/hull-kit.ts:85 (PAINT_RIGGING=10); fleet/fleet-material.ts:46-60; fleet/mooring-lines.ts:24-30 (the width floor exists for mooring lines only)",
+   "detail": "At the heart view a stay is ~0.2 px wide, so it rasterises as dashes, and the dashes walk along the stay as hulls bob and heel (visible in the burst diff). DPR 2 (downsampled) renders the same stays as continuous soft lines. SMAA cannot rebuild geometry that was never rasterised. Low tier hides it by striking far rigs; High/Medium at DPR 1 show it.",
+   "fix": "O2-I4 (width floor + coverage tint for rigging/spars); O2-I3 for discrete GPUs on 1x screens."
+  },
+  {
+   "id": "O2-F6",
+   "title": "No contact darkening at wall, plinth and column feet",
+   "severity": "medium",
+   "evidence": "src/harbour/world/materials.ts:308-325 (hbAO: 8 taps at 2/5.5 m on a 512^2 max-filtered height field), 778-784 (indirect only); world/island-system.ts:60-64; shots/O2-crop-noon-wallfoot.png",
+   "detail": "For flat ground beside a wall, hbAO occludes ~1/8 of directions, which is ~10 % of indirect light and ~3 % of the total at noon. Wall fragments see no occluder in front of them. So plinths, columns and stair cheeks meet the paving at full value and the buildings look placed rather than seated.",
+   "fix": "O2-I6: one-tap wall-foot wash plus a pre-baked up-facing AO texture (also cheaper than today's 8 taps)."
+  },
+  {
+   "id": "O2-F7",
+   "title": "Backlit crowns stay dead at dawn and golden hour while sails glow",
+   "severity": "low",
+   "evidence": "src/harbour/world/materials.ts:237-238 (leaf pattern: only an up-facing lift); fleet/sail-light-glsl.ts (sails have transmission); engine/time-of-day.ts:85-87 (dawn sun behind the island); shots/O2-dawn-hill.png",
+   "detail": "With the dawn sun directly behind the hill, the umbrella pines and cypresses render as flat dark green-grey slabs, while sails in the same frame glow with translucency. The inconsistency throws away the most magical backlight moment of the day.",
+   "fix": "O2-I7: leaf transmission using the sail term, gated to a low sun."
+  },
+  {
+   "id": "O2-F8",
+   "title": "Night overview lamps still read as a string of pearls (REVIEW #15 open)",
+   "severity": "low",
+   "evidence": "src/harbour/lights/lights-system.ts:152-177 (sprite far floor 1.3 px, halo 0.03); engine/post.ts:237 (bloom r 0.72, 8 mips); engine/time-of-day.ts:68 (night bloom [0.85, 1.0]); shots/O2-crop-overview-pearls.png",
+   "detail": "At overview each quay lamp is a ~6 px clipped core (max 226) plus a full-strength bloom halo. Evenly spaced along the moles, they read as an LED chain, and the bloom does not scale down with camera distance.",
+   "fix": "O2-I8: bloom intensity and radius follow the overview factor; static per-lamp brightness jitter; a smaller far core."
+  },
+  {
+   "id": "O2-F9",
+   "title": "Point lights promoted regardless of camera distance",
+   "severity": "low",
+   "evidence": "src/harbour/lights/lights-system.ts:393-419 (pickPoints: nearest to focus, no distance budget), 24 (uniform skip only for dark slots); perf-rtx-night.json (lit passes +~0.2 ms at night)",
+   "detail": "At night 16/8/4 lights are evaluated in every lit kit/fleet fragment (~12 ALU each out of range, ~70 in range), even at overview where each light's 10-18 m reach covers a few pixels and the projected pools already carry the look.",
+   "fix": "O2-I10: a distance budget in pickPoints (A/B at overview first)."
+  },
+  {
+   "id": "O2-F10",
+   "title": "n8ao is a dead dependency",
+   "severity": "low",
+   "evidence": "package.json:81; no import under src/ (grep)",
+   "detail": "The package is declared but never imported, so it ships nothing to the client, yet earlier plans cite it as available AO.",
+   "fix": "Remove it from package.json (or adopt it deliberately). Do not count it as existing AO."
+  },
+  {
+   "id": "O2-F11",
+   "title": "1x displays never supersample, even on GPUs with ~85 % headroom",
+   "severity": "low",
+   "evidence": "src/harbour/engine/quality.ts:47-58 (ladderFor caps dpr at device dpr), quality.test.ts:7; perf-rtx-day.json (2.37 ms GPU at 1600x1000); aspect-retina-1440.png vs base-day.png",
+   "detail": "A discrete GPU on a 1080p/1440p monitor renders at DPR 1, so masts, stays and roof ridges alias, while the same scene at DPR 2 (downsampled) is clean. That invariant is a design choice in a test, not a locked decision.",
+   "fix": "O2-I3: allow 2x render scale above a 1x device ratio, discrete GPUs only."
+  },
+  {
+   "id": "O2-F12",
+   "title": "GLSL smoothstep with reversed literal edges (spec-undefined)",
+   "severity": "low",
+   "evidence": "src/harbour/ocean/ocean-material.ts (3 literal cases), sky/sky-glsl.ts (1); expression forms such as world/materials.ts:297",
+   "detail": "GLSL ES 3.0 and MSL leave smoothstep undefined for edge0 >= edge1. Current desktop and Apple drivers compute the reversed ramp, so nothing is broken today, but the code relies on unspecified behaviour across ANGLE back-ends.",
+   "fix": "Rewrite as 1.0 - smoothstep(e1, e0, x) when those files are next touched; add a lint grep."
+  },
+  {
+   "id": "O2-F13",
+   "title": "At overview the tilt-shift sharp band sits above the harbour, so the docked fleet is blurred",
+   "severity": "medium",
+   "evidence": "src/harbour/engine/post.ts:333-345 (offset follows the Pharos, clamped 0.06-0.5; focusArea 0.58, feather 0.38 at z=1); node_modules/postprocessing TiltShiftEffect.updateParams (maskParams = offset +/- (focusArea - feather)); shots/base-overview.png; noted with O3-water-coast",
+   "detail": "At overview the Pharos sits high in the frame, so the offset clamps at 0.5: the sharp band is NDC 0.3-0.7 (screen y ~150-350 px of 1000), the blur ramps through the harbour, and everything below NDC -0.08 gets the full 55 % mix. The moles' docked rows and the hamlet piers (the fleet data) land there: mean |laplacian| per 100 px strip of base-overview.png is 10-14 at 500-900 px, vs 15-30 for the same kind of content at heart (base-day.png). O3 also sees fixed-width foam and glints blooming in that blurred bottom band.",
+   "fix": "O2-I13: the sharp band spans from the Pharos lantern down to the inner docked rows, projected each frame; zero cost."
+  }
+ ],
+ "ideas": [
+  {
+   "id": "O2-I1",
+   "title": "Still shadows: render the sun's map only when a caster that matters has moved",
+   "what": "(1) Townsfolk (life/folk.ts:380) and civic workers (civic/workers.ts:128) cast real shadows only below a zoom gate (~320 m, the same pattern as the fleet's shadowDist at fleet-system.ts:901). Beyond it, each figure keeps a baked 2-4-triangle dark foot blob in its instanced geometry, faded in by distance. (2) A tiny 'casters' registry (fleet mesh.castShadow, folk, workers, shipyard/launch moments) tells SunRig.update (world/sun.ts:89-105) whether any dynamic caster is live. If none is, the tier's shadowInterval is treated as infinite: the map and the SeaShadowMask resolve re-render only on a framing change (fitShadow 'moved'), the existing ~0.11 deg sun drift (~every 27 s under the live clock), a tier change or a season invalidation. (3) Optional phase 2: a decimated shadow-proxy island (Blender script, D4) on a shadow-camera-only layer, for zoomed-in frames where the fleet casts.",
+   "visitor_benefit": "The same picture with ~18 % less GPU work at the landing and overview on every tier; Medium/Low lose the shadow spike that lands on every 2nd-4th frame, so laptops get a steadier p95.",
+   "pillar": "all-devices",
+   "meaning": "infra",
+   "data_and_dom": "n/a: decorative lighting; no reading uses the sun shadow, and the PSI beam, fog and sea state are untouched.",
+   "where": "src/harbour/world/sun.ts (update/fit), world/sun-shadow.ts (resolve after a render only), fleet/fleet-system.ts:901, life/folk.ts:380, civic/workers.ts:128, a small casters service; tests in world/sun or engine/quality tests",
+   "effort": "S",
+   "perf_cost": "Saves the shadow pass + sea-mask resolve at landing/overview: measured 0.41 of 2.37 ms (17.6 %) on RTX at t=11. iGPU est.: a 2048^2 refresh (~0.4 M static caster tris + R8 mask + mips) of 1-2.5 ms on an M1-class GPU and 5-10 ms on the Raphael-class iGPU, today landing on every 2nd (Medium) / 2nd-4th (Low) frame, so p95 drops by about that much. Adds 2-4 tris per figure (~0).",
+   "risks": "A dynamic caster missing from the registry would leave a frozen shadow (unit-test the registry and the fleet gate). Under the live clock, sun drift makes a <=1 px shadow-edge step every ~27 s at heart (use a slow 2 Hz refresh instead of infinity if visible). Reduced motion: unaffected.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O2-I2",
+   "title": "Bake the grade LUT on the GPU (no more 20-80 ms main-thread stalls)",
+   "what": "Port gradePixel (engine/post.ts:51-75: lift/gamma/gain, S-curve, shadowSat, blueSat/warmSat hue windows) to GLSL. Render the 32^3 LUT into a THREE.WebGL3DRenderTarget (HalfFloat, 32 layers of 32x32, renderer.setRenderTarget(rt, layer), one fullscreen triangle per layer) only on frames where packGrade reports movement; LUT3DEffect samples rt.texture. Drop the 4 Hz throttle (post.ts:348-349) so storm, gloom and lightning grade changes are continuous. Keep the CPU gradePixel as the test oracle (readback of 27 probe texels within 1/512) and as the fallback when half-float colour buffers are unavailable.",
+   "visitor_benefit": "No periodic hitch at dawn and dusk (today one every ~4 s) or while the weather turns; grade transitions glide instead of stepping at 4 Hz.",
+   "pillar": "professional",
+   "meaning": "infra",
+   "data_and_dom": "n/a: the grade is time-of-day/weather presentation; storm grey keeps reading the same DEWS-driven inputs, so nothing is re-mapped.",
+   "where": "src/harbour/engine/post.ts (PostChain.update, LUT ownership), new engine/grade-lut.ts, engine/post.test.ts",
+   "effort": "M",
+   "perf_cost": "Main thread: -19.6 ms per refill on this desktop CPU (est. -40-80 ms on laptops); refills today ~4,962/day, every ~3.9 s at dawn/dusk and at 4 Hz in weather easing. GPU: +32 draws of 32x32 px (32 k px total, <0.02 ms on an iGPU) only on frames where the grade moved; +256 KB render target.",
+   "risks": "Needs colour-renderable half float (EXT_color_buffer_half_float/float; the half-float composer already depends on it); CPU/GPU parity (test-guarded); the bake must run before the first composer render.",
+   "impact": 4,
+   "confidence": 5,
+   "depends_on": []
+  },
+  {
+   "id": "O2-I3",
+   "title": "Supersample 1x screens when the GPU has headroom",
+   "what": "ladderFor (engine/quality.ts:50-58) adds high@1.5 and high@2 rungs above a device ratio of 1, only for GPUs whose initialRungFor is the top rung (nvidia, radeon rx/pro, apple m-max/ultra). The governor's existing probe/hysteresis decides whether to stay there. The canvas drawing buffer becomes 2x its CSS box and the compositor's 2:1 downscale acts as a box filter (offer 2.0 only if 1.5's bilinear shows aliasing). Update the invariant in quality.test.ts:7 to 'never above 2, and above the device ratio only for discrete GPUs'.",
+   "visitor_benefit": "Desktop visitors on common 1080p/1440p monitors get Retina-grade edges: continuous masts and stays, clean roof ridges and railings (compare aspect-retina-1440.png with base-day.png).",
+   "pillar": "prettier",
+   "meaning": "infra",
+   "data_and_dom": "n/a: resolution only.",
+   "where": "src/harbour/engine/quality.ts, engine/governor.ts, engine/quality.test.ts",
+   "effort": "S",
+   "perf_cost": "Discrete GPUs on 1x screens only: 4x pixels at the top rung (RTX 5070 Ti est. 2.4 -> 6-7 ms GPU at 1600x1000, still far under budget); ~4x render-target memory (~250 MB at 3200x2000). Zero for iGPUs, which are never offered these rungs.",
+   "risks": "Probe stutter on mid-range discrete cards (the governor reverts misses); memory on 4 GB cards; fan noise on long visits (the governor could prefer 1.5).",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O2-I4",
+   "title": "Rigging as hairlines, not dotted lines",
+   "what": "Reuse the mooring-line width floor (fleet/mooring-lines.ts:24-30) for standing rigging (aPaint.x 10, hull-kit.ts:85) and spars (8) in the fleet vertex shader. After the pose, in view space, push each vertex along its normalised view-space normal by max(0, 0.5*minPx*pxSize(-mvPosition.z) - rigRadius), where minPx ~0.8 and pxSize comes from projectionMatrix[1][1] and the viewport height. Pass coverage = trueWidthPx/drawnWidthPx as a varying; the fragment mixes the rope colour toward uAmbient by (1 - coverage), so a widened 0.2 px stay reads as a faint continuous line rather than a heavy one. Keep the existing struck/far-rig behaviour (fleet-material.ts:46-60); inflate the depth twin only when the fleet casts.",
+   "visitor_benefit": "Ships read as rigged rather than stippled at DPR 1, and the stays stop crawling as hulls bob and heel (O2-crop-mole-dpr1-vs-dpr2.png, burst diff).",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: rig geometry carries no data; hull, brand dye, emblem and flag are untouched.",
+   "where": "src/harbour/fleet/fleet-material.ts (VERT_PARS hbFleetPose, project_vertex hook, FRAG_PARS), fleet/hull-kit.ts (rig radius constant), fleet/fleet-material.test.ts",
+   "effort": "M",
+   "perf_cost": "+~15 VS ALU on rig/spar vertices (~25-40 k vertices in view), <0.02 ms on an iGPU; fragment cost +~1 px x stay length; 0 draws, 0 textures.",
+   "risks": "Lines too heavy at mid range (tune minPx and the tint at heart and at 300 m); night tint toward a dark ambient (check at 22 h); the hover rim on thin geometry; program cache key bump (hb_fleet_v11 -> v12).",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O2-I5",
+   "title": "Crest flags lit by their own truck lamp at night",
+   "what": "In the crest-flag fragment shader (identity/crest-flags.ts:33-42) and its light feed (identity/identity-system.ts:167-174), replace the flat night light. The night key becomes moon/sky x the fold shading (vShade) x (1 - 0.82*night). The truck lamp becomes a gradient: uGlow * exp(-2.2 * distance from the hoist head in flag units). Target: at 22 h the flag's mean luma is <= 0.7x the Pharos tower body (today 92 vs 62 -> ~55), with a floor at 25 % of the day value. Hover/selection restores today's level so the crest reads on demand.",
+   "visitor_benefit": "At night the Pharos, its beam and the lamps carry the frame again, and the chain flags become lamplit cloth instead of glowing billboards (O2-notan-night.png).",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "Identity flags stay legible: the crest's internal contrast is unchanged and only the night key changes. Chain identity remains in the hover tag and side panel, and no reading is re-mapped.",
+   "where": "src/harbour/identity/crest-flags.ts (FRAG + update), identity/identity-system.ts:167-174, identity/crest-flags.test.ts",
+   "effort": "S",
+   "perf_cost": "~6 ALU per flag fragment; 0 draws.",
+   "risks": "Dark crests (navy or black brand fields) could go illegible at night: check all 8 chain crests at 22 h and at overview, and keep the floor.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O2-I6",
+   "title": "Two-tap contact AO: grounded walls and a cheaper kit",
+   "what": "(1) At island init, bake today's hbAO for up-facing surfaces (8 taps at 2/5.5 m, P.y = the texel's own height) into a 512^2 R8 'sky visibility' texture with one FullscreenPass. (2) For vertical kit fragments, add a wall-foot wash: one tap of a 1024^2 R16F copy of the ground RT (world/ground.ts, 0.68 m texels) at P + N*1.0 m gives the ground in front; foot = 1 - smoothstep(0, 1.2 m, P.y - h); darken indirect light by up to 35 % and direct diffuse by ~12 % (a painted wash). hbOcc = mix(wash, aoUp(P.xz), N.y). Static kit only; the fleet keeps today's hbAO. Optional alternative: bake the same into island.glb vertex colours (D4).",
+   "visitor_benefit": "Walls, plinths, columns and stair cheeks sit in the paving with a soft dark foot instead of looking pasted on (O2-crop-noon-wallfoot.png).",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: static ambient occlusion, identical in every data state.",
+   "where": "src/harbour/world/materials.ts (GLSL_AO, aomap hook 778-784), world/island-system.ts:60-64, world/ground.ts, world/materials.test.ts",
+   "effort": "M",
+   "perf_cost": "Net GPU-negative: -6 R16F taps and ~-30 ALU per kit fragment, +1 R8 and +1 R16F tap and ~+15 ALU; est. -0.1 to -0.3 ms on a Raphael-class iGPU at heart. +2.3 MB textures; one-time bake <1 ms GPU.",
+   "risks": "Upper floors over arcades or balconies (P.y not at the height-field top) would take ground AO, so restrict aoUp to |P.y - h| < 1.5 m and use 1 otherwise. A dirty look if the direct share is overdone; tune on noon and golden close-ups.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O2-I7",
+   "title": "Backlit crowns at dawn and golden hour",
+   "what": "Give the leaf patterns (8 and 14; materials.ts:237-238) the sails' transmission term (fleet/sail-light-glsl.ts). glow = leafAlbedo * sunColour * max(0, -N.L) * (0.06 + 0.4 * pow(max(0, -V.L), 3) * low) * (1 - bare) * (1 - snow), where low is the same 4-22 deg elevation window, capped under the hour's bloom threshold (<= 0.35 scene-linear). Gate it with one hardware PCF lookup of the sun shadow at P + L*2 m (the crown's sun side), so a crown behind a building stays dark. Add it in the kit's opaque_fragment block (materials.ts:794-818), under a uniform branch that runs only when the sun is low.",
+   "visitor_benefit": "At dawn, when the sun stands behind the island, the umbrella pines and cypresses light up at their edges the way the sails already do: the magic-hour silhouette the hill lacks today (O2-dawn-hill.png).",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: time of day only.",
+   "where": "src/harbour/world/materials.ts (opaque_fragment block), shared constants with fleet/sail-light-glsl.ts",
+   "effort": "S",
+   "perf_cost": "~15 ALU + 1 PCF lookup on leaf fragments only while the sun is low (uniform branch): ~0 by day and night, <=0.05 ms on an M1-class GPU at dawn and golden; 0 draws.",
+   "risks": "Over-glow into 'neon foliage', especially autumn reds (cap and A/B per season); snow-dusted crowns (multiply by 1 - snow); keep it out of the Low tier only if measured.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O2-I8",
+   "title": "Overview night: lamps, not a string of pearls",
+   "what": "In PostChain.update (post.ts:329-346), scale bloom with the existing overview factor z: intensity *= (1 - 0.3*z), and bloom.mipmapBlurPass.radius goes 0.72 -> 0.6 at z = 1. Far lamps keep a tight glow while the Pharos fire, an order of magnitude brighter, still blooms. In the sprite shader (lights-system.ts:152-177), add a static per-lamp brightness of +/-15 % from the existing position hash and lower the far minimum size from 1.3 to 1.0 * uPx.",
+   "visitor_benefit": "The night overview reads as a lamplit town around a hero lighthouse rather than evenly spaced LED bulbs (O2-crop-overview-pearls.png).",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: night presentation only.",
+   "where": "src/harbour/engine/post.ts (update), lights/lights-system.ts (sprite VS)",
+   "effort": "S",
+   "perf_cost": "0 (uniform changes and ~2 VS ALU per sprite).",
+   "risks": "Under-glow at mid zoom (z ramps from tiltNear to tiltFar, so heart is unchanged); keep REVIEW #15's intent and check view-overview-night side by side.",
+   "impact": 2,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O2-I9",
+   "title": "Post-chain bandwidth diet",
+   "what": "(1) Fix the inverted shimmer gate (O2-F1): uShAmt = 1 - smoothstep(dCam, 140, 520). With that alone, the scene-linear beam/shimmer pass is off by day beyond 520 m (today it is on in 220/220 day frames). (2) Retire the standalone NanScrubPass (post.ts:107-135, 235, 270-277): scrub inside the bloom luminance material (the mip chain is the only screen-wide spreader) and as the first effect of the merged EffectPass, and keep a NaN/Inf-injection test that asserts a non-black frame. (3) The merged pass writes an RGBA8 sRGB target that SMAA reads, through a dedicated SMAA input; SMAA works in display space and the dither already sits before that quantisation.",
+   "visitor_benefit": "The same image with ~40 % less full-screen post traffic (~106 -> ~62 B/px), the cheapest win on bandwidth-starved iGPUs and at DPR 1.5-2.",
+   "pillar": "all-devices",
+   "meaning": "infra",
+   "data_and_dom": "n/a: no visual change intended.",
+   "where": "src/harbour/beam/beam-system.ts:391, engine/post.ts, engine/post.test.ts",
+   "effort": "M",
+   "perf_cost": "Per frame at 1600x1000: -25.6 MB (shimmer, by day), -25.6 MB (scrub), ~-19 MB (8-bit SMAA input), i.e. ~-0.4, -0.4 and -0.3 ms on a ~60 GB/s iGPU; ~1.8x that at 1440x900@1.5. RTX saves ~0.03 ms.",
+   "risks": "NaN regressions (keep the injection test); the tilt-shift blur can still smear a NaN locally at overview; relies on postprocessing internals (pin the version, as setBloomLevels already does).",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O2-I10",
+   "title": "Point lights only where they can be seen",
+   "what": "pickPoints (lights-system.ts:393-419) takes a distance budget: the tier's count when rig.distance < 350 m, min(4, tier) up to 800 m, and 0 beyond (overview). Slots stay at 16, so nothing recompiles (lights-system.ts:16-35 uniform skip), and intensities already ease per frame, so promotion changes fade rather than pop.",
+   "visitor_benefit": "The same night look at heart and close-up; a cheaper night overview on laptops.",
+   "pillar": "all-devices",
+   "meaning": "infra",
+   "data_and_dom": "n/a: decorative lamps; the projected pools that carry the look are unchanged.",
+   "where": "src/harbour/lights/lights-system.ts (pickPoints, update), lights/lights-system.test.ts",
+   "effort": "S",
+   "perf_cost": "At the night overview: -16/8/4 light evaluations per lit fragment (~12 ALU each out of range, ~70 in range); est. -0.3 to -0.8 ms on iGPUs, ~-0.05 ms on RTX.",
+   "risks": "Facade light near lamps may visibly drop at mid zoom; A/B view-overview-night and heart-night before shipping, and keep the budget generous at heart.",
+   "impact": 2,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O2-I11",
+   "title": "Material character: patched tile roofs and sun-catching setts",
+   "what": "(a) Tiles (pid 7, materials.ts:232-236): a 3-6 m world-space patchwork (one hbNoise) of old and new tiles, shifting value +/-6 % and hue toward ochre or brown, plus faint lichen/soot darkening toward the eaves (the fragment's depth below the local height-field top). Unlike today's per-tile jitter, which hbFine fades at heart, this survives at the landing view. (b) Cobbles (pid 4, materials.ts:218-222): reuse the voronoi's nearest-cell vector to shade each sett as a low dome toward the sun (+/-8 %, faded where sub-pixel), instead of a crack-line-only read.",
+   "visitor_benefit": "Roofs read as Mediterranean terracotta rather than flat salmon or mauve planes (O2-noon-civic.png, O2-dawn-hill.png), and the plaza reads as setts rather than crazed mud (O2-crop-noon-plaza.png).",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: static procedural pattern, identical in every data state.",
+   "where": "src/harbour/world/materials.ts (GLSL_PATTERNS pid 7 and pid 4 branches), world/materials.test.ts",
+   "effort": "S",
+   "perf_cost": "~+50 ALU on roof fragments and ~+5 on sett fragments; est. 0.02-0.05 ms on an M1-class GPU; 0 textures.",
+   "risks": "Busy roofs at overview (low amplitude, fade with hbFine at the largest scale); keep the Blender palette's albedo as the anchor (D4); review with O1 art direction.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O2-I12",
+   "title": "Night value-hierarchy check: the Pharos stays the hero",
+   "what": "An advisory capture-lane script (e.g. scripts/harbour/value-check.mjs driving shot.mjs --eval) projects screen rectangles for the Pharos tower body and lantern and for every crest flag and landmark from layout.json. On real-GPU frames at t = 12, 18.3 and 22 and at overview, with dews=CALM and a pinned season, it measures mean sRGB luma per rectangle. It fails when any non-Pharos landmark (lamps excluded) exceeds the tower body at night or the lantern at any hour, and writes a 4-value notan PNG like O2-notan-night.png.",
+   "visitor_benefit": "Protects the core art rule automatically, so a future flag, cue or material cannot quietly upstage the lighthouse.",
+   "pillar": "professional",
+   "meaning": "infra",
+   "data_and_dom": "n/a: QA tooling, no runtime change.",
+   "where": "scripts/harbour/ (new value-check script using shot.mjs and shared-browser.mjs), docs/pharosville/TESTING.md",
+   "effort": "M",
+   "perf_cost": "0 at runtime; ~4 real-GPU captures per run in the capture lane.",
+   "risks": "Threshold flakiness with live data (pin dews, season, offpeg); keep it advisory until it has been stable for a few releases.",
+   "impact": 2,
+   "confidence": 3,
+   "depends_on": [
+    "O2-I5"
+   ]
+  },
+  {
+   "id": "O2-I13",
+   "title": "Overview tilt-shift band through the harbour, Pharos included",
+   "what": "In PostChain.update (engine/post.ts:333-345), extend PostChain.tiltFocus with a second anchor: the inner harbour's docked rows (the layout moorings' southern extent, set by layout-system.ts alongside the Pharos hero points). Each frame, project the Pharos lantern and that anchor to NDC y. The sharp band spans both plus a 0.05 margin: offset = midpoint, x = half-span (focusArea = x + feather), capped so the sharp band is at most 65 % of the screen height. The Pharos stays inside the band (honours 01-A6), and the 0.55 blur keeps the top sky strip and the nearest sea strip, so the miniature read survives.",
+   "visitor_benefit": "At overview the visitor can read the docked fleet along the moles and at the hamlet piers (the data) instead of seeing it through a 55 % blur, while the miniature fall-off stays at the frame edges.",
+   "pillar": "informative",
+   "meaning": "ux",
+   "data_and_dom": "n/a: a decorative post effect is re-aimed so existing data cues (docked boats, house flags) stay legible; no reading changes.",
+   "where": "src/harbour/engine/post.ts (update, tiltFocus), layout/layout-system.ts (anchor), engine/post.test.ts (band contains both anchors at the overview preset)",
+   "effort": "S",
+   "perf_cost": "0 (two projections and uniform writes per frame on the CPU; the blur pass is unchanged).",
+   "risks": "A weaker miniature cue at overview: an art call with O1, A/B base-overview. Interplay with O3's foam/glint fades (O3-I11, O3-I4) in the bottom strip.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  }
+ ],
+ "top_picks": [
+  {
+   "id": "O2-I1",
+   "why": "~18 % of GPU time back at the default views (measured), plus a steadier p95 on Medium/Low, for an S change."
+  },
+  {
+   "id": "O2-I2",
+   "why": "Removes a periodic 20-80 ms main-thread stall (every ~4 s at dawn/dusk, 4 Hz in weather) that no gate measures today."
+  },
+  {
+   "id": "O2-I7",
+   "why": "The biggest dawn and golden-hour enchantment in the frame for ~15 ALU: backlit crowns finally glow like the sails."
+  },
+  {
+   "id": "O2-I5",
+   "why": "Returns the night value hierarchy to the Pharos (flag 92 vs tower 62 today) for a few ALU."
+  },
+  {
+   "id": "O2-I3",
+   "why": "Retina-grade rigging and roofs for desktop 1x screens at S effort, only where the GPU has room."
+  }
+ ],
+ "operator_decisions": [
+  "DECISION-NEEDED (O2-I3): allow rendering above the device pixel ratio (up to 2x) on discrete GPUs attached to 1x screens. This changes the invariant asserted in engine/quality.test.ts:7. Trade: crisp masts and roofs vs. desktop GPU power and memory (~250 MB at 3200x2000).",
+  "O2-I1: at the landing and overview, townsfolk and worker shadows become baked foot blobs, and under the live clock the sun's shadow edge steps by <=1 px about every 27 s, in exchange for ~18 % of GPU time. Accept, or prefer a slow 2 Hz refresh?",
+  "O2-I5: approve dimming the chain crest flags at night to <=0.7x the Pharos tower body (identity stays legible; hover restores full level).",
+  "O2-I9: accept replacing the dedicated NaN scrub pass with in-shader guards (bloom luminance + first merged effect), knowing the overview tilt-shift blur could still smear a NaN locally.",
+  "O2-I13: at overview, keep the docked fleet sharp (a band through the harbour, Pharos included) at the cost of a weaker miniature blur?",
+  "Anti-aliasing direction: confirm that TAA and MSAA stay out for now (TAA ghosting on moving coin emblems; MSAA cost on Intel/AMD iGPUs), and that supersampling rungs (O2-I3) plus rigging hairlines (O2-I4) are the AA plan."
+ ],
+ "cross_lane_hooks": [
+  "Fleet lane: O2-I4 edits the fleet vertex pose and its depth twin (fleet-material.ts VERT_PARS/DEPTH_VERT_PARS); coordinate the hb_fleet cache key and any sail/rig changes.",
+  "Life and civic lanes: O2-I1 needs a castShadow distance gate and a baked foot blob for townsfolk (life/folk.ts) and civic workers (civic/workers.ts), and every future moving caster must register with the casters service.",
+  "Perf/engine lanes: measure O2-I1, O2-I9 and O2-I10 on the Apple Silicon gate with npm run preview, and add a live-clock (unpinned) CPU capture so LUT-style stalls (O2-F2) become visible; the O2-F1 fix changes the per-pass baseline.",
+  "Ocean lane (O3): O3-I1 was redesigned as a temporal mirror: a half-res pass at composer index 1 on frame-N colour/depth, sampled with reprojection by the ocean shader in frame N+1. It no longer touches the beam EffectPass, so the O2-F1 fix can disable that pass by day with no side effects. O2-I13 pairs with O3-I11 foam fades (O3-F5 points to O2-F13), and O2-I8 stacks with the O3-I4 glint cap. After O2-I1 the SeaShadowMask resolves only after a map render (check uSeaShadow staleness).",
+  "O1 art direction: sign off the night flag level (O2-I5), leaf glow (O2-I7), wall wash (O2-I6) and roof patchwork (O2-I11) on close-ups at noon, golden and night.",
+  "Island/Blender (D4): O2-I1 phase 2 needs a decimated shadow-proxy island mesh from the build script; O2-I6's vertex-colour alternative would also be a Blender bake.",
+  "Identity lane: O2-I5 changes the crest-flag shader and light feed; O2-I12 needs landmark/flag screen rectangles exposed for the value check."
+ ]
+}

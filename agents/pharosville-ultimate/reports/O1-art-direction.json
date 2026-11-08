@@ -1,0 +1,388 @@
+{
+ "lane": "O1",
+ "executive_summary": "Night is already postcard-grade: the fire and beam hold the top value and a storm at night is the best frame in the set. Day is not: (1) the hero is not the top value - the painted sky band and far sea (L 0.74) out-value the tower (0.62-0.65), so in a notan the Pharos merges into the horizon; (2) the water is map-pin confetti - paper-white sail roundels kept at every range since v1.4.1, burgees floating on receding masts and 469 always-on buoys give the Roads/basin 55-64 bright specks per 10k px, 7x the open sea; (3) the colour script has a 7-hour noon plateau, a magenta-violet dusk and a pool-cyan basin that ignores the hour's light. A real defect: the 3D mainland mesh ('shakkei') leaks in front of the camera-attached sky card whenever the camera stands back - zoom past ~700 m on any desktop, every landing on screens squarer than ~1.2, tablet portrait. Best value for cost: retire that mesh, a day value lock, tonal roundels plus quieter buoys, a night stale-fog that reads, and a 'last light on the Pharos' dusk moment.",
+ "current_state": [
+  "Night is the benchmark: lantern L 0.70 vs sky 0.22-0.41, calm beam, lamp pools and moon glade (base-night, O1-notan-day-golden-night bottom row); psi=none reads as a dark lantern; DEWS DANGER reads as weather by day and is superb at night (O1-storm-night).",
+  "16:10 composition is sound (Pharos on the left third, civic quarter balancing right, basin and mole as leading lines); ultrawide and small-laptop hold up; the Roads (top right) are the densest clutter in every frame.",
+  "Day value structure is inverted: the brightest mass is the sky + far-sea band; the stated intent 'the Pharos holds the top value' (src/harbour/ocean/sea-tone.ts:6-7) is met only from sunset on.",
+  "Skies are the best day asset (dawn, 7:45, golden distinct and painterly) but the basin stays cyan/teal under all of them: the sea body is unlit (src/harbour/ocean/ocean-material.ts:200-279), the hour reaches it only via hbSeaGolden on sunlit water at low sun (src/harbour/ocean/sea-golden.ts:8-22).",
+  "Speckle density (blobs dL>0.10 over a 9 px median, base-day): Roads 64/10k px, basin 55, open sea beyond the mouth 8.7 (O1-noise-crops).",
+  "5-second data read: DEWS storm strong; stale fog strong by day (basin chroma -68 %), nearly invisible at night; PSI legible at night only (by day a rhythm glint, rarely in a still); off-peg sea subtle; Shoals clear; Wreck Cove only at the overview in the tilt-shift soft zone.",
+  "Horizon = camera-attached painted card (src/harbour/sky/sky-system.ts:19-23, BAND_FRAC 0.2 at :75): elegant at 16:10, but its distance rule lets the 3D mainland through on zoom-out and squarer screens.",
+  "REVIEW.md 1-15: 8 fixed (1, 2, 4, 5, 9, 12, 13, 14), 1 fixed but changed character (11: basin now the most saturated mass), 4 partly open (3, 6, 8, 15), 7 partly fixed (cones legible, office works not discernible at heart), 10 unverified (summer only)."
+ ],
+ "findings": [
+  {
+   "id": "O1-F1",
+   "title": "3D mainland mesh breaks the horizon on zoom-out and on squarer screens",
+   "severity": "high",
+   "evidence": "shots/O1-zoomout-1100.png (16:10, cam=-110.31,20,-98.99,1100,26), base-tablet-portrait.png, O1-portrait-overview.png; src/harbour/sky/sky-system.ts:379-392; src/harbour/world/island-system.ts:56-57; scripts/harbour/blender/island/hb_dress.py:1575-1637; compose.py:1182-1192; hb_export.py:324-328; src/harbour/world/aerial.ts:16",
+   "detail": "The sky card sits at R = camY / tan(pitch - 0.3*vfov) so the pretend horizon is 20 % below the frame top; R grows with camera height. The 'shakkei' node (mainland ~520 m NW of the island, 3,966 tris) only loses castShadow and gets the generic aerial tint capped at 0.28, not the 'strong fog' its export note asks for. Modelled with the real framing code: the default 16:10 heart hides it by only 22 m (R 911 m vs coast 933 m); at the heart pitch any zoom >= ~700 m (max 1150 m) puts it in front of the card; landings on aspect <= ~1.2 (square 808 m, foldable 902 m, tablet portrait 1089 m; tablet-portrait overview 1547 m) show it at once. It renders as a faceted brown/green wall with pale triangle facets at its foot filling the top quarter.",
+   "fix": "Hide the node at runtime (island-system.ts:57: visible=false, drop from staticDepth) or stop exporting it; the painted shakkei ridges (sky-glsl.ts:348-371) already carry the hills. Add a framing test over aspect 0.75-2.4 x zoom to maxDistance asserting no runtime mesh lies between the island bounds and R. (Idea O1-I3.)"
+  },
+  {
+   "id": "O1-F2",
+   "title": "Day hierarchy inverted: the Pharos is not the top value",
+   "severity": "high",
+   "evidence": "shots/O1-notan-day-golden-night.png; measured L: base-day tower top 0.65 / shaft 0.62 vs sky beside lantern 0.74 and far sea 0.74; golden 0.68 vs 0.70; winter 0.66 vs 0.78-0.80; src/harbour/sky/sky-glsl.ts:130-132; src/harbour/engine/time-of-day.ts:97,104,110; src/harbour/ocean/ocean-material.ts:295,521",
+   "detail": "The visible sky band is only ~5 deg tall at the heart pitch, and the gradient t = e/6.5 leaves the sky at lantern height ~40 % zenith plus a horizon lift, so it stays near the near-white day horizon (#E8F1F4 at noon). The far sea is lifted by the haze ramp from 0.62 R and by Fresnel reflection of that pale horizon. In a 2-value notan the tower merges into the bright top band; only from sunset on does the lantern lead.",
+   "fix": "Deepen the band (e/4.5, horizon lift below 1 deg only), lower day horizon/haze keys ~8 %, start the far-sea haze at 0.72 R, lift the limewash ~5 %; accept when tower lit face >= band behind +0.05 L at t=9/11/14.5/16.4 and in winter (value study: shots/O1-study-hero-value.png). (O1-I1.)"
+  },
+  {
+   "id": "O1-F3",
+   "title": "Map-pin confetti: far roundels, floating burgees and 469 buoys",
+   "severity": "high",
+   "evidence": "shots/O1-noise-crops.png A/B, O1-close-civic.png; speckle density Roads 64, basin 55 vs open sea 8.7 per 10k px (base-day); src/harbour/fleet/fleet-material.ts:396-421 (paper-white roundel t.rgb*0.92 at any range since f4781348); src/harbour/fleet/fleet-far.ts:5-19; src/harbour/world/aerial.ts:9-11 (flags exempt); src/harbour/fleet/fleet-system.ts:859-868 (buoys)",
+   "detail": "v1.4.1 dropped the 06-F1 emblem melt: every sail now prints a paper-white disc + brand ring at any range, the brightest thing on a 5 px hull; masts recede far away so burgees float like pins; one red/white buoy per layout mooring (469) is always drawn, peppering the basin with 3-4 px white specks even where no boat is moored. Together they read as a map covered in pins rather than a fleet at anchor.",
+   "fix": "Tonal roundel below ~16 px (logo and ring kept, full on hover/select/search), burgees get far value and half aerial tint, buoys weathered/smaller/hidden below 2.5 px. (O1-I2, O1-I4.)"
+  },
+  {
+   "id": "O1-F4",
+   "title": "Colour script: 7-hour noon plateau, monochrome dusk, basin ignores the hour",
+   "severity": "medium",
+   "evidence": "shots/O1-colour-script-current.png, O1-t0745.png; src/harbour/engine/time-of-day.ts:94-112, 130-141; src/harbour/ocean/ocean-material.ts:200-279",
+   "detail": "Keys 8.5/12/16 are near-identical (zenith #5A8FCC/#5A8FCC/#5880BE); 9:00 vs 11:00 sky, far sea, basin and Roads differ by <=0.02 L. Sunset: sky #C98C90, far sea #A0839B, basin #1B3D64 (S 0.75); blue hour sky #966B84 (coral->indigo interpolation passes through mauve). 3:00 is 22:00 with fewer windows. At 7:45 the basin is pool-cyan inside a pink frame because the body colour is unlit.",
+   "fix": "Colour script v2: retune dusk haze/hemi, add keys 3.0/7.5/14.5, add per-hour seaTint/seaChroma on the body. (O1-I5.)"
+  },
+  {
+   "id": "O1-F5",
+   "title": "Stale fog nearly invisible at night (the only in-world stale cue)",
+   "severity": "medium",
+   "evidence": "shots/O1-stale-night.png vs view-heart-night.png (both t=21): far sea +0.08 L, basin +0.03, Roads +0.04, lamps/sky unchanged; by day state-stale-fog: basin +0.23 L, chroma -68 %; src/harbour/readings/fog.ts:35-45,92-110; src/harbour/readings/bind.ts:296-299",
+   "detail": "At night the bank is lifted toward the horizon colour but its extinction barely shows against a dark scene and nothing scatters the lights, so a stale night harbour looks live in a 5-second read; only the header pill says 'stale'.",
+   "fix": "Night fog that reads: lights scatter in the stale bank (bloom radius/intensity, halos, far-light extinction, broader beam sheath), same field/threshold/DOM. (O1-I7.)"
+  },
+  {
+   "id": "O1-F6",
+   "title": "Crest flags and the ETH banner are unshaded stickers",
+   "severity": "medium",
+   "evidence": "shots/O1-close-civic.png, O1-noise-crops.png F; src/harbour/identity/crest-flags.ts:41; src/harbour/identity/identity-system.ts:32,167-174",
+   "detail": "The crest cloth is t.rgb*(uLight*vShade+uGlow): no hemisphere, aerial or AO; ETH flies at 1.65x scale x farScale up to 1.45 (~22x15 m at heart, about two thirds of the Customs House front); at night a uniform glow 0.16*windowGlow keeps it L 0.34 vs basin 0.13, the brightest non-lamp mass after the Pharos.",
+   "fix": "Hemisphere + aerial shading, ETH 1.25, farScale from 650 m, truck-lamp falloff at night, chroma x0.9. (O1-I8.)"
+  },
+  {
+   "id": "O1-F7",
+   "title": "Water lettering reads as embossed stone signage",
+   "severity": "medium",
+   "evidence": "shots/O1-noise-crops.png A, base-day.png; src/harbour/identity/labels.ts:34,49,59-69; src/harbour/identity/lettering.ts:95,102,193-196",
+   "detail": "Zone caps 14-19 m x CHART_STRETCH 1.85 give 26-35 m letters at 86 % ink density with a pale halo wash that makes them look raised; 'THE ROADS' is printed over the densest anchorage, adding to the clutter there.",
+   "fix": "Hairline chart print: density 0.55, slate-sepia ink, near-zero day halo, caps -15 %, Roads anchor off the anchorage. (O1-I9.)"
+  },
+  {
+   "id": "O1-F8",
+   "title": "Overview foreground is a tilt-shift/bloom mush",
+   "severity": "medium",
+   "evidence": "shots/base-overview.png bottom quarter (O1-noise-crops.png D); src/harbour/engine/post.ts:329-346; src/harbour/layout/layout-system.ts:62-65,79-86",
+   "detail": "The sharp band is centred on the Pharos near the frame top (01-A6) with opacity up to 0.55, so the harbour - the overview's subject - and the southern hamlets fall into the soft zone; day specks bloom into halos.",
+   "fix": "Centre the band between the Pharos foot and the basin centroid, cap opacity 0.35, raise the bloom threshold at overview distance. (O1-I10.)"
+  },
+  {
+   "id": "O1-F9",
+   "title": "Wakes read as dashed UI lines",
+   "severity": "medium",
+   "evidence": "shots/O1-noise-crops.png C; src/harbour/ocean/wake.ts:96-104; src/harbour/ocean/ocean-material.ts:465",
+   "detail": "The Kelvin 'echelon' uses a fixed-period sine (period max(1.2, 1.3*beam)) with a 0.25 floor, so every arm prints as evenly spaced white dashes - route-line grammar rather than water.",
+   "fix": "Jitter the period per crest, raise the floor to 0.5, fade arms with distance. (O1-I11.)"
+  },
+  {
+   "id": "O1-F10",
+   "title": "Squarer screens waste the frame",
+   "severity": "medium",
+   "evidence": "shots/O1-portrait-overview.png (27-40 % empty blurred sea) vs O1-portrait-overview-alt.png (cam=-81.5,0,-119.2,1200,30); src/harbour/layout/framing.ts:15-92",
+   "detail": "The refit backs the camera off until the hero group's WIDTH fits (roomY >= 0.9 never binds), so tablet-portrait overview lands at 1547 m with a small island over an empty, tilt-blurred foreground; a 1200 m framing keeps the hero within |x| 0.65 and fills the frame.",
+   "fix": "Frame the height on aspect < 1.0. (O1-I12.)"
+  },
+  {
+   "id": "O1-F11",
+   "title": "Storm by day drowns the hero",
+   "severity": "low",
+   "evidence": "shots/state-storm-danger.png (tower top L 0.39, shaft 0.32 vs sky 0.58) vs O1-storm-night.png; src/harbour/beam/beam-system.ts:341-348",
+   "detail": "In a DEWS storm by day the Pharos becomes a mid-grey slab with no focal light; the fire's visibility follows only uNight, so a lit lantern does not show through the gloom, while the same storm at night is the best frame in the set.",
+   "fix": "Lantern glow follows max(nightK, 0.6*gloom), cool storm rim on the tower. (O1-I13.)"
+  },
+  {
+   "id": "O1-F12",
+   "title": "Print craft: photographic logos speckle, near sails read as billboards",
+   "severity": "low",
+   "evidence": "shots/O1-cues-heart.png (grainy coin image on a big square sail at the mouth), O1-noise-crops.png E; src/harbour/fleet/fleet-material.ts:399-421; scripts/harbour/build-emblems.mjs (no posterise step)",
+   "detail": "Photographic coin logos print as salt-and-pepper speckle at sail size; the roundel replaces the cloth's seams and mottle so foreground square sails look like pasted posters.",
+   "fix": "Posterise photographic logos to 3-4 tones at atlas build; multiply the print by the weave terms. (Part of O1-I2.)"
+  },
+  {
+   "id": "O1-F13",
+   "title": "REVIEW.md leftovers still open",
+   "severity": "low",
+   "evidence": "shots/O1-review-crops.png (#3 clouds), O1-review-crops-2.png (#15 overview pearls), hour-dawn.png (#6), O1-cues-heart.png (#7 office works); src/harbour/lights/lights-system.ts:164-171; src/harbour/lights/lamp-wave.ts:36-43",
+   "detail": "Night cloud banks still read as lit cotton top-right (below the fire); dawn land is very dark (L 0.14) under a cold basin; the lamp wave is hard to see in stills; overview lamp halos still form strings of pearls; chain-office 'works' are not discernible at heart.",
+   "fix": "Fold #6 into the colour script (I5), #15 into the overview bloom change (I10); office works need camera-facing scaffolding (identity/civic lane)."
+  }
+ ],
+ "ideas": [
+  {
+   "id": "O1-I1",
+   "title": "Hero value lock by day",
+   "what": "(1) sky-glsl.ts:130-132: gradient t = clamp(e/4.5) (was 6.5) and the near-horizon lift only below 1 deg (smoothstep(0,1,e), 0.25) so the visible 5-deg band reaches mid-blue behind the lantern; (2) day keys ~8 % darker: 8.5 h horizon #E6EEF0->#D9E4EA, haze #C2D3DC->#B4C8D3; 12 h horizon #E8F1F4->#D8E5EC, haze #BCD3DF->#AEC5D3; 16 h horizon #F2E6D6->#E6DACB (time-of-day.ts:97,104,110); (3) far-sea haze from 0.72 R (ocean-material.ts:521, was 0.62); (4) Pharos limewash albedo +5 %. Acceptance on real-GPU frames: tower lit face >= band behind the lantern +0.05 L at t=9/11/14.5/16.4 and winter, and the tower separates in a 2-value notan (target structure: shots/O1-study-hero-value.png, a PIL value study: sky 0.74->0.61, far sea 0.74->0.65).",
+   "visitor_benefit": "The eye lands on the Pharos first by day, as it already does at night; the sky reads bluer and calmer.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: time-of-day palette only. Stale fog becomes more distinct (its milky lift contrasts with a deeper clear sky); the aerial tint (reads uHaze) darkens slightly but stays static and data-independent.",
+   "where": "src/harbour/sky/sky-glsl.ts:130-132; src/harbour/engine/time-of-day.ts:94-112; src/harbour/ocean/ocean-material.ts:521; src/harbour/world/materials.ts (Pharos kit albedo)",
+   "effort": "S",
+   "perf_cost": "0 draws, 0 ALU (constants only)",
+   "risks": "Card and sea haze must change together or the haze line stops meeting the card; >10 % darkening starts to read as weather; check the winter skyPale path (season) that pales the zenith.",
+   "impact": 5,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O1-I2",
+   "title": "Coins as print, not pins",
+   "what": "fleet-material.ts:399-421: derive the roundel's screen diameter from its existing derivatives; pin = 1 - smoothstep(6, 16, discPx); below ~16 px the paper-white FIELD of the disc (atlas pixels near paper white) falls to the cloth tone x1.1 while the logo ink and the brand ring stay; full paper-white roundel whenever vFleetMisc.x > 0 (hover/selected/searched). Re-weave near prints: multiply the printed colour by the sail's mottle and seam terms so it reads as dyed canvas. Burgees (house-flags.ts:89-109): far-cloth -20 % value by on-screen size and half the aerial tint (they keep their brand hue). build-emblems.mjs: posterise photographic logos to 3-4 tones for print.",
+   "visitor_benefit": "The Roads and the basin read as a fleet at anchor instead of a map full of pins; every coin stays findable by logo shape, ring and colour, and fully by hover/search.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "Identity only, no analytical field. Hover tag, search and ledger unchanged; hovered, selected and searched hulls keep the full roundel (vFleetMisc.x).",
+   "where": "src/harbour/fleet/fleet-material.ts:396-421; src/harbour/fleet/fleet-far.ts:14-19; src/harbour/fleet/house-flags.ts:89-109; src/harbour/world/aerial.ts:9-11; scripts/harbour/build-emblems.mjs",
+   "effort": "M",
+   "perf_cost": "~6-8 ALU per sail/burgee fragment; 0 draws; atlas rebuild offline",
+   "risks": "Nuances v1.4.1 'every boat shows her coin at every range' (DECISION-NEEDED); verify brand recognisability with search at the overview; leave the Shoals distress flags untouched.",
+   "impact": 5,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O1-I3",
+   "title": "Retire the 3D mainland; card-only horizon",
+   "what": "island-system.ts:57: set visible=false on the 'shakkei' node (and keep it out of staticDepth), or stop exporting it (hb_export.py:324-328; the offline key-art render in hb_render.py:130 can keep it). The painted ridges on the card (sky-glsl.ts:348-371) already provide the hills at every aspect. Add a framing test: for aspects 0.75-2.4 and zoom up to layout maxDistance (refits included), no runtime mesh lies between the island bounds and the card distance R (sky-system.ts:379-392).",
+   "visitor_benefit": "No faceted wall across the top of the frame when zooming out or landing on a tablet/foldable; the horizon stays the hazy painted band.",
+   "pillar": "all-devices",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: decorative scenery.",
+   "where": "src/harbour/world/island-system.ts:56-57; scripts/harbour/blender/island/hb_export.py:324-328; src/harbour/sky/sky-system.ts:379-392; src/harbour/layout/framing.test.ts",
+   "effort": "S",
+   "perf_cost": "-1 draw (plus its depth-prepass draw if registered), -3,966 tris",
+   "risks": "None at 16:10 (already hidden there); the poster/key art is rendered offline.",
+   "impact": 4,
+   "confidence": 5,
+   "depends_on": []
+  },
+  {
+   "id": "O1-I4",
+   "title": "Quiet moorings",
+   "what": "The 469 decorative buoys (fleet-system.ts:859-868, one per layout mooring): weathered low-value red-ochre with a narrow stone band instead of white (writeData 0.8,0.2,0.1 -> ~0.45,0.16,0.10 and the kit's white body), scale x0.7 beyond 300 m, and skip instances below ~2.5 px on screen unless their berth is occupied.",
+   "visitor_benefit": "The basin becomes calm water again; boats, not buoys, carry the eye (target: basin speckle density -30 %).",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: buoys encode nothing (placed from layout moorings).",
+   "where": "src/harbour/fleet/fleet-system.ts:99,859-868,1189-1195; src/harbour/fleet/hull-kit.ts (mooring_buoy)",
+   "effort": "S",
+   "perf_cost": "Same draw, fewer instances; per-frame px test on 469 points (<0.02 ms CPU)",
+   "risks": "Keep near buoys within ~300 m so swing moorings still read up close.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O1-I5",
+   "title": "Colour script v2 (three new keys + a sea that follows the hour)",
+   "what": "Retune time-of-day.ts keys and add three: 3.0 'quiet watch' (zenith #03061A, horizon #121A2E, windowOcc 0.1, lamp 40, exposure 0.40), 7.5 'silver morning' (zenith #4E7FC0, horizon #E2E9EE), 14.5 'warm afternoon' (zenith #5482C0, horizon #EDE6DA, warmSat 1.1); dawn blueSat 0.9->0.8; dusk 19.7 haze #857288->#6E7890 and hemiSky/ambient #56689E->#4E66A0 (warm/cool split, not magenta); blue hour horizon cooler (#2E3C68). Add optional TimeKeyframe fields seaTint (hex) and seaChroma (0..1), applied to the sea body before the Shoals reef mix (ocean-material.ts:257-264) so the basin is slate-lilac at first light, clear cyan-teal (not pool-cyan) at 7:30, jade at golden, low-chroma teal at dusk. Hero dL targets per key (report table).",
+   "visitor_benefit": "A 10-minute or all-day watch shows distinct, harmonious hours, and the harbour water belongs to the same light as the sky.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: time of day is decorative. Off-peg chop, DEWS wind layers and the Shoals' turquoise are untouched (tint applied before the reef mix).",
+   "where": "src/harbour/engine/time-of-day.ts:33-53,73-144; src/harbour/ocean/ocean-material.ts:257-279; src/harbour/ocean/ocean-system.ts (uniform binding)",
+   "effort": "M",
+   "perf_cost": "2 uniforms, ~4 ALU per sea pixel; LUT regeneration unchanged (4 Hz); 0 draws",
+   "risks": "The seasonal remap compresses windows in winter (check Nov and Jun); judge every key on npm run preview frames, never SwiftShader.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O1-I6",
+   "title": "Last light on the Pharos (the Earth-shadow line)",
+   "what": "In the kit key-light term (world/materials.ts, inherited by the fleet) multiply the sun's direct light by smoothstep(h-6, h+6, worldY), with h = mix(-10, 130, smoothstep(0.10, 0.0, uSunDir.y)) while the sun is low and uNight < 0.5: over the last ~25 min before sunset the shadow climbs quays, roofs and masts, the lantern, statue and mirror keep the gold last, then the PSI fire takes over as uNight rises. Dawn mirrors it: the first ray touches the lantern.",
+   "visitor_benefit": "A quiet, physically true daily moment that hands the light from the sun to the fire and makes the lighthouse the last lit thing.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: hour only; fire and beam keep their PSI mapping; legend 'time of day'.",
+   "where": "src/harbour/world/materials.ts (key light); src/harbour/fleet/fleet-material.ts (inherits kit); src/harbour/engine/time-of-day.ts (sun elevation)",
+   "effort": "M",
+   "perf_cost": "~2-3 ALU in kit and fleet fragments; 0 draws",
+   "risks": "Must not read as a data cue (daily, solar-timed); a pure function of the hour, so reduced motion is unaffected; check against the sun shadow map at grazing sun (t=17.0-17.2 in November).",
+   "impact": 4,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O1-I7",
+   "title": "Night fog that reads",
+   "what": "With the existing stale fog on (fog amount, readings/fog.ts:92) and night > 0, scale by fogAmount x night: bloom radius 0.72->0.9 and intensity +0.5 (post.ts:237,331), light-sprite halo x2 and core -20 % (lights-system.ts:164-171), far riding/anchor lights fade by exp(-od) using the fog pass's optical-depth formula (fog.ts:35-45), the beam sheath scatter x1.5 with reach and colour unchanged (beam-system.ts:404-414); halos desaturated 30 % so it reads grey-veiled, not festive.",
+   "visitor_benefit": "At night a stale feed looks like a fogbound harbour within five seconds, matching the header's 'stale' pill, instead of looking live.",
+   "pillar": "informative",
+   "meaning": "data-bound",
+   "data_and_dom": "Same signal: endpoint landmark state 'stale' -> out.fog (readings/bind.ts:296-299) -> fog amount; threshold unchanged; DOM unchanged (header freshness pill 'stale - 2 h old', ledger 'fog means the data has gone stale'). Unit test: night + fog -> bloom/halo multipliers > 1 and riding-light extinction > 0; fog off or day -> identity.",
+   "where": "src/harbour/readings/fog.ts:35-45,92-110; src/harbour/engine/post.ts:237,329-332; src/harbour/lights/lights-system.ts:164-171,215-220; src/harbour/beam/beam-system.ts:395-414",
+   "effort": "M",
+   "perf_cost": "~0: bloom already runs; +3 ALU per light sprite; no new pass",
+   "risks": "Keep it calm and grey (no glow spectacle); keep it distinct from DEWS storm (storm = slate deck + rain; fog = halos + extinction); static, so reduced motion is unaffected.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O1-I8",
+   "title": "Seat the crest flags (the ETH banner)",
+   "what": "crest-flags.ts:41: shade the cloth with hemisphere sky/ground and the AERIAL_GLSL mix (cap 0.28); ETH FLAG_SCALE 1.65->1.25 (identity-system.ts:32); farScale = 1 + 0.45*smoothstep(650, 1000, distance) (was 420-900, :173) so the heart keeps true size; at night replace the uniform glow 0.16*windowGlow (:174) with a truck-lamp falloff near the hoist top; chroma x0.9 as house-flags.ts:89 does.",
+   "visitor_benefit": "The civic quarter reads as architecture flying a flag, not a banner ad; at night the Pharos, not the ETH flag, is the brightest object after the lamps.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "Identity only (D17 chain crests); the 'dominant harbour flies a larger flag' rule is hard-coded to ethereum (identity-system.ts:32), so shrinking it re-maps nothing.",
+   "where": "src/harbour/identity/crest-flags.ts:33-42,110-144; src/harbour/identity/identity-system.ts:32,161-174",
+   "effort": "S",
+   "perf_cost": "~6 ALU on <=16 flag instances; 0 draws",
+   "risks": "Crest legibility at the overview (farScale still grows past 650 m).",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O1-I9",
+   "title": "Hairline water lettering",
+   "what": "lettering.ts:102 day ink density 0.86->0.55; uInkDay #0B2233->#24343C (:193); day halo 0.12->0.04 (:196) so letters stop looking raised; labels.ts:49 caps shoals 15->13, roads 19->16, wreckCove 14->12; anchor 'THE ROADS' over clearer water seaward of the anchorage by adding mooring positions as obstacles in the identity label fitter (identity-system.ts fittedSpecs).",
+   "visitor_benefit": "Names read as quiet printed chart lettering and stop competing with the fleet at the Roads.",
+   "pillar": "prettier",
+   "meaning": "ux",
+   "data_and_dom": "Names unchanged (layout seaZones); ledger 'chart lettering' text unchanged (ui/Ledger.tsx:80-81).",
+   "where": "src/harbour/identity/lettering.ts:95-104,193-196; src/harbour/identity/labels.ts:34,49-69; src/harbour/identity/identity-system.ts:176-190",
+   "effort": "S",
+   "perf_cost": "0",
+   "risks": "Overview legibility (fade bands unchanged); the night silver ink stays.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O1-I10",
+   "title": "Overview focus on the harbour",
+   "what": "post.ts:337-345: centre the sharp band on the mean NDC y of the Pharos foot and the basin centroid (a third tiltFocus point from the layout) rather than the tower; cap opacity at z*0.35 (post.ts:335); focusArea lerp(0.75, 0.66); raise the bloom threshold by +0.3*z by day (post.ts:332) so buoy/foam specks stop haloing at the overview.",
+   "visitor_benefit": "At the overview the moles, piers and fleet are crisp; the miniature cue stays at the frame edges.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a",
+   "where": "src/harbour/engine/post.ts:329-346; src/harbour/layout/layout-system.ts:62-65,79-86; src/harbour/layout/framing.ts:24-36",
+   "effort": "S",
+   "perf_cost": "0 (the blur pass may be skipped more often)",
+   "risks": "Less tilt-shift 'miniature' charm at the overview; A/B on real frames.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O1-I11",
+   "title": "Wakes that read as water",
+   "what": "wake.ts:101-102: jitter the echelon period per crest (period x (0.7 + 0.6*hash(floor(u/period)))) and raise the floor (0.25+0.75*ech -> 0.5+0.5*ech) so arms read as feathered continuous lines with irregular breaks; ocean-material.ts:465: fade fKel by (1 - 0.5*far01) so distant wakes stop drawing dotted lines.",
+   "visitor_benefit": "Moving boats leave water, not dashed route lines; the basin calms.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a",
+   "where": "src/harbour/ocean/wake.ts:96-104; src/harbour/ocean/ocean-material.ts:462-466",
+   "effort": "S",
+   "perf_cost": "~3 ALU per stamped wake texel; 0 draws",
+   "risks": "Keep the Kelvin half-angle; check the frozen wake under reduced motion.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O1-I12",
+   "title": "Squarer screens frame the height, not the width",
+   "what": "framing.ts:59-92: for aspect < 1.0 add a vertical objective: the closest distance (with a forward target shift) that keeps the hero group within |x| <= 0.7 NDC, its top <= 0.56 NDC, and pushes the island's south coast to <= -0.9 NDC, instead of backing off for the hero width alone. Tablet-portrait overview: 1547 m -> ~1200 m, target 90 m further from the camera (shots/O1-portrait-overview-alt.png: cam=-81.5,0,-119.2,1200,30); heart refits likewise.",
+   "visitor_benefit": "Tablets and foldables get a full, rich frame instead of a small island over an empty blurred sea.",
+   "pillar": "all-devices",
+   "meaning": "ux",
+   "data_and_dom": "n/a: the overview still shows the Pharos, harbour, civic quarter and hamlets; the east/west lobes crop on portrait and stay reachable by pan, search and panel.",
+   "where": "src/harbour/layout/framing.ts:15-92; src/harbour/layout/framing.test.ts",
+   "effort": "S",
+   "perf_cost": "0 (fewer far hulls in frame: slightly less fleet work)",
+   "risks": "Some chain hamlets cropped at the portrait overview (operator OK needed); keep the refit continuous at aspect 1.0 and on resize.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "O1-I3"
+   ]
+  },
+  {
+   "id": "O1-I13",
+   "title": "The storm keeps a hearth",
+   "what": "Drive the lantern fire's glow (not the beam's reach or length) with max(nightK, 0.6*gloom) (beam-system.ts:341-348, beam/fire.ts; gloom from the weather director, sky-system.ts WeatherSkyLike.gloom) so a lit Pharos shows its fire through a dark DEWS storm by day; add a faint cool sky-rim on the tower's sky-facing edges when storm > 0.5 (world/materials.ts). Target: tower top >= band +0.05 L in state-storm-danger (now 0.39 vs 0.58).",
+   "visitor_benefit": "In the most dramatic weather the eye still finds the lighthouse first and can see whether its fire is lit.",
+   "pillar": "prettier",
+   "meaning": "data-bound",
+   "data_and_dom": "Existing PSI state only (psi.lit and lamp colour step from the readings binding); no new threshold; DOM unchanged (Pharos panel PSI band). psi=none keeps the banked dark fire (neutral pose). Unit test: gloom > 0 with PSI lit -> lantern glow above the clear-day glow; psi none -> unchanged.",
+   "where": "src/harbour/beam/beam-system.ts:340-405; src/harbour/beam/fire.ts; src/harbour/weather/director.ts; src/harbour/world/materials.ts",
+   "effort": "S",
+   "perf_cost": "~0 (uniform math) + ~2 ALU for the rim",
+   "risks": "Must not make a storm look cosy; keep the amber/red colour steps honest; no change at night.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O1-I14",
+   "title": "Art-direction regression gate",
+   "what": "A repo script (scripts/harbour/art-check.mjs) over real-GPU review frames from npm run preview / shot.mjs at t=3/6.9/9/11/14.5/16.4/17.1/17.6/22 plus DANGER, stale and winter: (a) tower-vs-band dL from the layout-projected Pharos box (warn by day if < +0.05), (b) speckle density in the Roads and basin (warn > 35/10k px), (c) basin chroma per hour, (d) horizon intrusion: no non-sky pixels above the pretend horizon except the Pharos and smoke, for 4 aspects x 3 zooms, (e) the colour-script strip for the release review. Refuses frames whose report shows a software GPU.",
+   "visitor_benefit": "Keeps postcard quality from regressing between releases.",
+   "pillar": "professional",
+   "meaning": "infra",
+   "data_and_dom": "n/a",
+   "where": "scripts/harbour/ (new); docs/pharosville/TESTING.md; the preview lane",
+   "effort": "M",
+   "perf_cost": "n/a (offline)",
+   "risks": "Metrics are diagnostic, not taste (PRODUCT.md: models do not substitute the operator); start as warnings.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  }
+ ],
+ "top_picks": [
+  {
+   "id": "O1-I3",
+   "why": "S-sized (one line + a test): removes a defect visible on every desktop zoom-out past ~700 m and every squarer-screen landing, and saves a draw and 3,966 tris."
+  },
+  {
+   "id": "O1-I1",
+   "why": "S-sized constants: the biggest daytime gain (the hero becomes the top value) at zero runtime cost."
+  },
+  {
+   "id": "O1-I2",
+   "why": "Removes the dominant whole-frame noise while keeping every coin identifiable; ~6-8 ALU."
+  },
+  {
+   "id": "O1-I7",
+   "why": "Restores the only in-world stale cue at night with the existing signal and bloom pass; data truth."
+  },
+  {
+   "id": "O1-I6",
+   "why": "A daily, physically true dusk moment that hands the light from sun to fire; ~3 ALU, no draws."
+  }
+ ],
+ "operator_decisions": [
+  "DECISION-NEEDED (O1-I2): may the far sail roundel print tonally below ~16 px on screen (logo shape and brand ring kept, full paper-white roundel on hover, select and search)? This nuances v1.4.1 'every boat shows her coin at every range'.",
+  "O1-I3: retire the runtime mainland mesh (it is only ever visible when broken), or keep it and give it a real fog/visibility rule for zoomed-out views?",
+  "O1-I12: may the squarer-screen overview crop the east/west lobes so it frames the island's height (tablet portrait ~1200 m instead of 1547 m)?",
+  "O1-I5: approve three new keys (3.0 quiet watch, 7.5 silver morning, 14.5 warm afternoon) and per-hour seaTint/seaChroma so the basin follows the hour?",
+  "O1-I4: the mooring buoys are decorative; may they be dimmed, shrunk beyond 300 m and hidden below 2.5 px?",
+  "O1-I13: may a lit PSI fire glow through DEWS gloom by day (visibility only, mapping unchanged)?"
+ ],
+ "cross_lane_hooks": [
+  "Sky/ocean lane: O1-I1 changes the sky card gradient and the sea haze together; the haze line must still meet the card exactly (ocean-material.ts:519-528 and sky-glsl.ts:410-413).",
+  "Fleet lane: O1-I2 (roundel and burgee print), O1-I4 (buoys), O1-I11 (wakes, with the ocean lane).",
+  "Data-truth/readings lane: O1-I7 and O1-I13 need unit tests beside readings/bind.ts; also check whether stale=1 should leave the PSI beam at full reach (O1-stale-night.png) under the neutral-pose rule, if the PSI endpoint is the stale one.",
+  "Devices/framing lane: the O1-I3 horizon test and the O1-I12 refit (framing.ts) for aspects 0.75-2.4 and zoom to maxDistance.",
+  "Identity lane: O1-I8 (crest flags) and O1-I9 (lettering); chain-office 'works' still not discernible at heart (O1-cues-heart.png).",
+  "Perf lane: O1-I3 removes 1-2 draws and 3,966 tris; every other O1 idea is constants or a few ALU in existing passes.",
+  "QA/professional lane: O1-I14 must run only on shot.mjs / npm run preview frames, never SwiftShader.",
+  "Camera lane: O1-I10 changes the overview tilt-shift band set by layout-system.ts."
+ ]
+}

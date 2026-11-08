@@ -1,0 +1,441 @@
+{
+ "lane": "O9-audio",
+ "executive_summary": "PharosVille's sound is a crafted, fully procedural instrument (32 synthesised kinds, zero audio files, camera-placed, a stale-only foghorn) and one trusted click on the speaker now starts it (verified; the 'two clicks' note is stale). Measured with BS.1770 offline renders and in the live page, five things matter: (1) loudness is unmanaged across states: the calm home view is -28.6 LUFS but a DEWS Danger storm is -12.4 LUFS (+16 LU), peaks at -0.6 dBFS and is a compressed, flat-to-16 kHz wall (LRA 2.6 LU); (2) the audible surf follows DEWS while the visible surf and run-up follow the off-peg sea state, a silent re-map; (3) the opt-in music sits 13 LU under the sea and is masked in every octave; (4) the Pharos's only voice, the beam breath (110/220 Hz sines), is inaudible on laptop and tablet speakers (-45 vs -31 LUFS laptop-weighted) and stacks at stress sweeps; (5) the first ten seconds are noise-first (1.2 s near-silence, first full wave ~8.6 s). Also: the Mint stamps on stale data, the launch bell is the random buoy, the ledger names no audible cue, and remembered-on may never start on iPad touch.",
+ "current_state": [
+  "Fully procedural and lazy: 0 audio files in public/ or src/; 32 seeded synthesisers (src/harbour/audio/dsp.ts:24-38, physically modelled shore washes with a stereo peel and ITD, Minnaert bubbles, N-wave thunder) into a renewing clip bank (bank.ts:15-42, one variant replaced every 20 s); weather/season kinds are synthesised only when the scene asks (bank.ts:39). Eager bank = 291 ms of CPU in idle slices, longest uninterrupted step 3.3 ms (4.8 ms for lazy thunder/bird) on this desktop (Node timing). Excellent craft; keep the house style.",
+  "Toggle UX verified in the real page with trusted CDP input: one click on the speaker -> mode 'ambient', AudioContext 'running' synchronously, ambience built 149 ms later (SoundToggle.tsx:56-60, controller.ts:116-124); the caret opens a keyboard-complete three-state menu (shots/O9-sound-menu.png, O9-sound-menu-crop.png). The INTEGRATION-NOTES 'two clicks' hazard is resolved. No long task >= 50 ms and no frame > 33 ms while enabling (fast desktop).",
+  "Spatialisation is solid: listener 45 % along the camera ray, inverse-square nearness and screen-bearing pan per source (feed.ts:248-327), darker sources behind the look (feed.ts:165-167), an altitude crossfade with a 'high air' bed at the overview (ambience.ts:684-709), five fixed pan lanes per bus (ambience.ts:653-660).",
+  "Data bindings are mostly honest and tested: foghorn ONLY when fog > 0.5 (ambience.ts:1012-1017; fog is stale-only, readings-system.ts:304-307), DEWS -> wind/rain/howl/thunder with distance-delayed claps and front rolls (feed.ts:395-448), beam breath level from the beam's reach, muted unlit or in stale fog (feed.ts:148-152), Burn silent when banked (feed.ts:137-140), launch/death moments only from the budgeted events service (feed.ts:385-393).",
+  "Long-watch care exists: the ten-minute settle (-3 dB, 30 % sparser after 3 idle minutes), a +/-1.5 dB two-period breath, a 24-voice one-shot cap, thunder capped at three rolls (ambience.ts:146-154, 125, 1051-1052).",
+  "Measured levels (offline render of the real graph, home view, calm autumn noon): -28.6 LUFS integrated (-30.4 'laptop', i.e. 4th-order HP at 200 Hz), momentary max -24.1, LRA 4.8 LU, sample peak -13.5 dBFS, L/R correlation 0.22. Noise beds = 68 % of the K-weighted power, sea one-shots 15.5 %, rigging 9.4 %, gulls 7.2 %, bells 5.6 %. Danger storm -12.4 LUFS; stale fog -27.6 (the horn +4-5 LU momentary); music alone -41.8; beam breath alone -33.2 (laptop -45.2). Evidence: shots/O9-offline-mix-analysis.json, shots/O9-mix-evidence.png.",
+  "Costs are low: the whole audio graph renders offline at ~2-3.5 % of one desktop core (0.8-1.6 s per 40-60 s of audio); PCM held ~20 MB at an autumn noon (13.6 MB bank incl. lazy drizzle/bird/rustle/yard/tolling + 6.9 MB of 48 kHz stereo noise beds), ~25 MB in a storm.",
+  "Weak: loudness range across states, the storm's spectrum, the masked music, the inaudible Pharos voice, the sea-state re-map, the Mint's stale stamping, an undocumented sound grammar, a noise-first on-ramp, and a stationary event texture (~2.7 audible one-shots per second forever, independent Poisson clocks)."
+ ],
+ "findings": [
+  {
+   "id": "O9-F1",
+   "title": "A DEWS Danger storm plays 16 LU louder than the calm harbour, peaks into the soft clipper and is a flat wall of noise",
+   "severity": "high",
+   "evidence": "shots/O9-offline-mix-analysis.json (storm-danger -12.4 LUFS, Mmax -9.4, peak -0.6 dBFS, LRA 2.6; home-day -28.6); ambience.ts:704 windLow 1.1*wind^2, :741 howl x2.4, :732-733 + :502 rain fine BP 6.5 kHz Q0.5, :514 spray HP 1.8 kHz, :689/:700 surf/reef x1.5/x1.6, :530 thunderBus 1.5, :389-390 comp -18 dB 2.5:1",
+   "detail": "Every storm layer is additive with no loudness management: at Danger the octave bands are flat from 31.5 Hz to 16 kHz (-27.5 to -32.9 dB) where calm falls from -40 to -70 dB; 8-16 kHz rises ~30-40 dB (rain fine + spray). The glue compressor squashes it to LRA 2.6 LU, so near thunder barely rises over the bed. A visitor who set their volume for the calm harbour is blasted when the market's early-warning band reaches Danger; on headphones it is fatiguing white noise. Calm, contemplative is a non-negotiable.",
+   "fix": "Re-voice the storm (O9-I2) under a loudness architecture (O9-I1): Danger <= -20 LUFS (<= +6 LU over calm), LRA >= 6 LU, 8 kHz band >= 3 dB under 4 kHz, sample peak <= -3 dBFS via a real limiter."
+  },
+  {
+   "id": "O9-F2",
+   "title": "The audible surf follows DEWS while the visible surf and run-up follow the off-peg sea state (silent re-map, D11)",
+   "severity": "high",
+   "evidence": "ambience.ts:689 (shore bus x(1+0.5*storm)), :789-790 (wave size x(1+0.35*storm)), :814 (period), :700 (reef x(1+0.6*storm)); feed.ts:64-80 never reads the ocean; ocean-system.ts:241-246 + :300-301 (visible amp/chop/caps/run-up = SEA_STATES[step]); world/runup.ts:6; waves.ts:101-106; Ledger.tsx:95",
+   "detail": "The Ledger says 'Sea state is the share of supply off peg' and the Shoals panel says 'Sea state N of 3'. The picture obeys (wave amplitude 0.1/0.24/0.5/0.85, whitecaps from step 2, run-up reach). The sound's surf ignores it and grows with the DEWS storm instead, so a heavy off-peg sea with whitecaps sounds like gentle lapping, and a Danger storm over a step-0 sea crashes. The off-peg signal has no audible counterpart at all.",
+   "fix": "O9-I7: read ocean.shared.uSea (the eased amp/chop/caps/bands) into a new AmbienceInputs.sea; surf size, period, run-up hiss and whitecap spray follow it; DEWS keeps wind, gust, rain, howl, thunder and wind-blown spray only. Unit test: surf independent of DEWS level, monotonic in sea step."
+  },
+  {
+   "id": "O9-F3",
+   "title": "The opt-in music is masked: 13 LU under the ambience and under the bed in every octave band",
+   "severity": "high",
+   "evidence": "shots/O9-offline-mix-analysis.json: solo-music -41.8 LUFS (gated phrases), music+day vs home-day +0.18 dB; octave bands music 250 Hz -52.3 / 500 -56.8 / 1k -60.1 vs mix -39.3 / -39.7 / -46.1; music.ts:172 MUSIC_GAIN 0.1, :20 ROOT D3; ambience.ts:1155-1163 (0.25 send into the slap-back)",
+   "detail": "A visitor who explicitly picks 'Ambient sound and music' hears essentially no music at the default view: phrases sit 13-17 dB under the sea in every band where the lyre and aulos have energy (tone-in-noise detection needs roughly -4 to -6 dB in the critical band). Only pluck onsets might poke through on headphones. The design comment's 'well under the sea' overshoots.",
+   "fix": "O9-I5: +9 dB (MUSIC_GAIN 0.1 -> ~0.28), lyre an octave up, a 2 dB bed pocket during phrases; target -6 +/-2 LU under the ambience, still >= 60 % silence."
+  },
+  {
+   "id": "O9-F4",
+   "title": "Remembered 'on' arms on pointerdown, which is not activation-triggering for touch: iPad visitors may get a silent harbour with the speaker drawn 'on'",
+   "severity": "high",
+   "evidence": "controller.ts:149-152 (arm: pointerdown + keydown), :81 (first gesture disarms, then start()), :159-185 (context created and resumed in that handler); HTML user-activation model (activation-triggering: keydown, mousedown, pointerdown only for mouse, pointerup for touch/pen, touchend); O9 emulated-touch run (cap3) was inconclusive because Playwright's evaluate grants a user gesture, so the tab already had activation",
+   "detail": "On touch, the first tap fires pointerdown before activation exists; the AudioContext created there starts suspended. WebKit lifts its audio restriction only while processing a gesture, and the later bed/clip start() calls come from an async import, so on iPadOS Safari the context very likely stays suspended; Chrome may rescue it by its source-node start unlock if the chunk lands after the finger lifts (timing luck). The listener is removed after the first attempt, nothing retries, and the icon shows waves. Tablets are a supported device class. Needs one real-iPad check.",
+   "fix": "O9-I14(a): arm on pointerup + keydown + click; keep the listeners until ac.state === 'running'; on statechange to suspended/interrupted while visible, re-arm and resume() on the next gesture. Add a device test note to TESTING.md."
+  },
+  {
+   "id": "O9-F5",
+   "title": "The Pharos's only voice (the beam breath) is inaudible on laptop/tablet speakers and stacks into a throb at stress sweeps",
+   "severity": "medium",
+   "evidence": "ambience.ts:1177-1191 (sines 110 + 220.6 Hz, lowpass 420 Hz, env 1.5 + 0.4 + 4 s); feed.ts:148-152, :421-439 (1.5 s minimum gap, 4 Hz polling); psi-colors.ts:56-63 (sweep 12/9/6/4/2.5/1.2 s); O9-offline-mix-analysis.json solo-beam-night: 93 % of power < 150 Hz, -33.2 LUFS full range but -45.2 laptop-weighted vs night bed -31.1; its 125 Hz octave -40 vs the bed's -38.1",
+   "detail": "The PSI is the world's central signal and the breath its only sound. On laptop/tablet speakers (little below ~200 Hz) it disappears 14 dB under the bed; on headphones its fundamental sits under the bed's low roar. At FRACTURE/CRISIS sweeps (4/2.5 s) the 5.9 s envelope overlaps 2-3 times (+4-5 dB), an accidental 'louder under stress' throb; at MELTDOWN (1.2 s) the 4 Hz crossing test aliases.",
+   "fix": "O9-I3: a D-tuned partial stack + breath formant with >= 60 % of energy above 250 Hz, brightness from reach, one breath at a time with the envelope scaled to the sweep period."
+  },
+  {
+   "id": "O9-F6",
+   "title": "The Mint keeps stamping when the mint-burn reading is stale (the picture's presses stop)",
+   "severity": "medium",
+   "evidence": "civic/mint.ts:124 ('hz = banked ? 0 : ...'), civic/flows.ts:75 (activity 0 when banked); ambience.ts:715 (mintBus ignores activity), :965-972 (strokes continue at /(0.6+0.8*mintRate), i.e. 0.77/s at activity 0); feed.ts:294 (mintRate ?? 0.5)",
+   "detail": "'Stale/unavailable data -> neutral pose, never a good one.' The Burn obeys (burnRateOf returns 0 when banked) but the Mint's sound fakes activity near the Mint, and a missing civic service reads as half-busy.",
+   "fix": "Gate mintBus on !civic.banked && mintRate > 0, default 0; better, play each stroke on the visible ram's strike (mint.ts:132-133 'struck !== p.last') so sight and sound agree and reduced motion is silent. Test mirroring 'the Burn's furnace' test."
+  },
+  {
+   "id": "O9-F7",
+   "title": "The launch bell is the random bell buoy, played quieter: it carries no meaning",
+   "severity": "medium",
+   "evidence": "ambience.ts:1116-1121 (launchBell: 'bell' clip at 0.55 and 0.42) vs :810-813 (random buoy: same clip at level 1, ~2-3 strikes/min, 35 % doubled)",
+   "detail": "A staged launch is a data moment (the Day book records it); its sound is indistinguishable from, and softer than, the decorative buoy that rings every ~25 s. The AUDIO-B notes rejected a depeg bell for exactly this reason.",
+   "fix": "O9-I11: a distinct launch voice (the hull's rumble down the ways + splash, then two hand bells D5/A5) and suppress the random buoy and gulls around staged moments."
+  },
+  {
+   "id": "O9-F8",
+   "title": "The first ten seconds are noise-first: near-silence, the first wash under the fade, the first full wave at ~8.6 s",
+   "severity": "medium",
+   "evidence": "shots/O9-sound-first10s.json (samples: < -45 dBFS until 1.2 s, steady ~-33 dB RMS from ~2.8 s; log: first shore at 0.55 s, bell skipped at 0.33 s because its clip was ready at 0.70 s, next swell 8.37 s + 0.22 s); ambience.ts:392-393 (3 s linear fade), :564 (first event times), :794 + :814 (a failed play still advances the swell); bank.ts:41 (FIRST order)",
+   "detail": "The click is answered by a swelling filtered noise; the signature swell breaks ~8-10 dB under its steady level and the next wave comes 8 s later; the buoy misses the first swell. On a 3-4x slower CPU the first shore clip (46 ms of synthesis in idle slices) can miss its slot entirely, pushing the first wave to ~7-10 s. In production the chunk fetch (no prefetch) adds 0.1-0.8 s.",
+   "fix": "O9-I9: dB-linear 1.4 s fade, FIRST reordered, the first swell waits for its clip, a seeded arrival script for the first 10 s, chunk warm-up on speaker hover."
+  },
+  {
+   "id": "O9-F9",
+   "title": "No audible cue is documented: the Ledger never mentions the foghorn, the breath, the furnace, thunder or the bells",
+   "severity": "medium",
+   "evidence": "Ledger.tsx:63-115 (LEGEND: no sound line; 'Fog means stale data' omits the horn); agents/claudeville-prettier/exec/audio.md 'Legend line (Ledger) - Anniversary bell' never landed (grep 'anniversary' finds only Panel.tsx:416)",
+   "detail": "D11 asks every analytical cue to name its source, threshold and DOM text in the same words. A listener cannot learn that only the foghorn means stale, that the breath follows the beam's reach, or that thunder is the early-warning storm.",
+   "fix": "O9-I8: a 'By ear' ledger entry (shown when sound is on) and one caption line in the sound menu."
+  },
+  {
+   "id": "O9-F10",
+   "title": "The calm mix is a dark frozen bed plus treble events, with a scooped 1 kHz octave",
+   "severity": "low",
+   "evidence": "O9-offline-mix-analysis.json home-day bands 500 Hz -39.7 / 1 kHz -46.1 / 2 kHz -43.0; beds 68 % of K-power; ambience.ts:417 + :429 (one 9.3 s pink buffer feeds the bed and windLow), :427 + :692 (bed lowpass 420-900 Hz), :451 (both wind bands loop the same 8.7 s white buffer)",
+   "detail": "The layer carrying two thirds of the loudness is a 9.3 s frozen noise loop heard ~65 times in a 10-minute watch; the washes articulate only above 1 kHz, leaving a 6 dB hole between the rumble and the 2 kHz taps/gulls. It reads as 'distant motorway plus details' more than a shore.",
+   "fix": "O9-I15: bed -4 dB at near views, a run-up foam band 1-4 kHz that swells with each wash, live (unrepeating) noise from an AudioWorklet."
+  },
+  {
+   "id": "O9-F11",
+   "title": "PCM outside the budget: 6.9 MB of 48 kHz stereo noise beds; ~20-25 MB in practice; drizzle built where it cannot play",
+   "severity": "low",
+   "evidence": "ambience.ts:416-417 (8.7 s + 9.3 s stereo at ac.sampleRate, 32 ms synchronous on this desktop); bank.test.ts (8 MB eager budget excludes beds); live bank 13.6 MB after 12 s (O9-sound-first10s.json); ambience.ts:769 (need drizzle at rain > 0.005) vs :731/:851 (plays above 0.01)",
+   "detail": "Not a crisis on desktops, but iPad tabs share memory with a heavy WebGL world and the noise generation is a ~100 ms long task on a weak laptop at the moment of enabling.",
+   "fix": "O9-I15 (live noise, -6.9 MB); align the drizzle threshold with playback; store cicada/cricket/rain clips mono or at 16 kHz."
+  },
+  {
+   "id": "O9-F12",
+   "title": "Dead code: the evening gun ships but nothing calls it",
+   "severity": "low",
+   "evidence": "ambience.ts:134-137, :1168 (cue 'evening-gun'), dsp.ts:1228-1250 (gun), dsp.test.ts 'the evening gun...'; INTEGRATION-NOTES 'Evening gun dropped (no battery): audio cue unused'; grep finds no caller outside src/harbour/audio",
+   "detail": "Unreachable feature with tests; confuses future lanes.",
+   "fix": "Remove it, or wire it to a visible sunset puff if the signals lane ever builds one."
+  },
+  {
+   "id": "O9-F13",
+   "title": "Pitched voices are randomly detuned and partly outside the music's modes",
+   "severity": "low",
+   "evidence": "dsp.ts:1098 (hour bell 220 Hz x 0.97-1.03 = +/-51 cents), dsp.ts:1197 (conch 233 Hz B-flat x 0.97-1.03), dsp.ts:451-452 (buoy G4 with a B-flat partial); music.ts:17-20 (D Dorian by day has B natural)",
+   "detail": "Bells drift up to half a semitone between variants and the buoy's G-minor colour cross-relates with the daytime lyre; the harbour has no tonal identity.",
+   "fix": "O9-I4: tune every pitched voice to D with a few cents of life."
+  },
+  {
+   "id": "O9-F14",
+   "title": "Inaudible one-shots still allocate nodes and voice slots",
+   "severity": "low",
+   "evidence": "O9-sound-first10s.json log: 12 Mint presses + 6 Shipyard strokes in 12.5 s at the home view; solo-civic renders at -99 LUFS gated / -85 short-term; ambience.ts:965-996 (gates at mint/yard > 0.03 / 0.02), :639-643 (24-voice cap)",
+   "detail": "About 1.4 BufferSource+Gain pairs per second are created for sounds 55 dB under the mix and they count against the 24-voice cap.",
+   "fix": "Skip play() when bus gain x level < 1e-3 (read the aimed value from this.aims)."
+  },
+  {
+   "id": "O9-F15",
+   "title": "Music echoes through a 310 ms feedback slap: ghost notes between lyre beats",
+   "severity": "low",
+   "evidence": "ambience.ts:408-414 (DelayNode 0.31 s, feedback 0.26, damped 1.7 kHz), :1159 (music send 0.25); music.ts:76 (lyre beat 0.5-0.7 s)",
+   "detail": "A discrete repeat lands mid-beat (and a second at 620 ms, -12 dB): a rhythmic delay effect rather than the sense of a place.",
+   "fix": "O9-I6: a procedural harbour reverb (convolver) replaces the slap for music and far sources."
+  }
+ ],
+ "ideas": [
+  {
+   "id": "O9-I1",
+   "title": "Loudness architecture: targets, a real limiter and a mix-report gate",
+   "what": "Adopt measured targets (BS.1770, offline render of the real graph): calm home view -26 +/-2 LUFS (now -28.6), every DEWS state <= +6 LU over calm (now +16.1), momentary events <= +8 LU over the bed, music phrases -6 +/-2 LU under the ambience (now -13), sample peak <= -3 dBFS (now -0.6), per-scene LRA 4-8 LU. Master chain: keep the glue compressor, add a limiter (DynamicsCompressorNode threshold -6 dBFS, knee 0, ratio 20, attack 2 ms, release 250 ms) before the soft clip, which stays as last resort; raise MASTER 0.7 -> ~0.85 once beds are re-balanced. Turn this lane's eval into scripts/audio/mix-report.mjs (OfflineAudioContext renders of 8 canonical scenes + layer solos in a no-world page via the shared browser) and assert the targets in validate:release (not per commit).",
+   "visitor_benefit": "Sound that is comfortable at one volume setting in every market state, audible detail on laptop speakers, and no regression when a lane adds a layer.",
+   "pillar": "professional",
+   "meaning": "infra",
+   "data_and_dom": "n/a: levels only; no mapping changes. The gate reads the same inputs the Feeder sets.",
+   "where": "src/harbour/audio/ambience.ts:122 (MASTER), :389-402 (chain); new scripts/audio/mix-report.mjs (from agents/pharosville-ultimate shots/O9 eval); docs/pharosville/TESTING.md; package.json validate:release",
+   "effort": "M",
+   "perf_cost": "One extra DynamicsCompressorNode (~0.2-0.4 % of a core). mix-report ~30 s in the release lane only (17 renders took 27 s here). 0 bytes in the main chunk.",
+   "risks": "A louder calm mix must still feel calm: judge on real laptop speakers and headphones (the operator's ear, not Playwright). The limiter must not pump; keep it as a ceiling, not a loudness tool.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": [
+    "O9-I2"
+   ]
+  },
+  {
+   "id": "O9-I2",
+   "title": "A storm you can listen to: re-voice the DEWS weather beds",
+   "what": "Re-stage the storm's layers so Danger reads big through texture and dynamics, not +16 LU: windLow 1.1*wind^2 -> 0.35*wind^2 with a 30 Hz highpass (ambience.ts:455-458, :704); howl 2.4 -> 0.9 (:741); rain fine BP 6.5 kHz Q0.5 -> BP 4 kHz Q0.7 + lowpass 9 kHz, rain body unchanged (:502-503, :732); spray HP 1.8 kHz -> BP 3 kHz Q0.6 (:514); surf storm factor removed (O9-I7). Add squall dynamics: drive the weather duck bus (:405) +/-5 dB from the director's gust cells (weather/director.ts:92 gustEnvelope) so the storm has lulls, and let near thunder stand +8 LU over a lull. Targets: Danger <= -20 LUFS, LRA >= 6 LU, 8 kHz octave >= 3 dB under 4 kHz.",
+   "visitor_benefit": "A storm that is dramatic and readable (gusts, lulls, a crack that lands) instead of a fatiguing white-noise wall; no volume grab when the market turns.",
+   "pillar": "enchanting",
+   "meaning": "data-bound",
+   "data_and_dom": "Unchanged mapping: DEWS level -> targetsForLevel(l).wind/steady/strikes (director.ts:62-78) still drives every layer; only gains/filters change. DOM: Ledger 'Weather is early-warning stress' (Ledger.tsx:99). Test: offline-render budget (O9-I1) + existing weatherInputs tests.",
+   "where": "src/harbour/audio/ambience.ts:405, :455-458, :502-514, :704, :732-741, :839-845; reads director gust envelope via the weather service",
+   "effort": "M",
+   "perf_cost": "0 new sources; +1-2 BiquadFilterNodes; the duck automation already exists. Lean tier unchanged.",
+   "risks": "Must still sound like a storm (the picture is dramatic): keep the howl's moan and the crack; verify by ear. Reduced motion keeps thunder soft (unchanged).",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": [
+    "O9-I1",
+    "O9-I7"
+   ]
+  },
+  {
+   "id": "O9-I3",
+   "title": "The Pharos voice: a tuned, audible beam breath",
+   "what": "Replace the 110/220.6 Hz sine pair (ambience.ts:1185) with a D-tuned partial stack D3/A3/D4/A4 (146.8, 220, 293.7, 440 Hz; amplitudes 1, 0.45, 0.6, 0.2) plus a soft breath (noise through a 600-1100 Hz formant) so >= 60 % of its energy sits above 250 Hz where laptop and tablet speakers play (today 93 % is below 150 Hz). Brightness follows the same reach that already sets its level: lowpass 700 + 1300*reach Hz. One breath at a time; attack 0.25*P, release <= 0.55*P where P is the sweep period (psi-colors.ts:56-63), so FRACTURE/CRISIS sweeps no longer stack 2-3 envelopes; detect crossings from the lighthouse's own sweep phase instead of 4 Hz angle polling (feed.ts:160-162, :433). Keep the -30 dBFS cap and the night/fog factors.",
+   "visitor_benefit": "At night the visitor hears the lighthouse breathe as its light passes over them, on any device: the hero has a voice, and a longer reach sounds fuller and clearer.",
+   "pillar": "enchanting",
+   "meaning": "data-bound",
+   "data_and_dom": "Same source, no new claim: beam.reach() / readings.psi.reach (PSI score -> reach, bind.ts REACH_SCORE_LO/HI), lighthouse.lit, fog mute (feed.ts:148-152, beamBreathPeak unchanged). DOM: Ledger 'The Pharos' (Ledger.tsx:66) + O9-I8 'As the beam passes you, the Pharos breathes: fuller and brighter the farther it reaches.' Tests: laptop-weighted share >= 0.6; envelope <= period; one voice at a time.",
+   "where": "src/harbour/audio/ambience.ts:1177-1191; src/harbour/audio/feed.ts:421-439; lighthouse service (sweep phase)",
+   "effort": "S",
+   "perf_cost": "4 OscillatorNodes + 1 noise BufferSource per breath (now 2 oscillators), one every 9-12 s: negligible (< 0.1 % of a core).",
+   "risks": "A pitched tone every 9-12 s can drone over 10 minutes: keep it ~6 dB under the bed's peaks by day, fuller at night (as now); never a pitch that follows the score (decided earlier, keep).",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": [
+    "O9-I4"
+   ]
+  },
+  {
+   "id": "O9-I4",
+   "title": "The harbour key: every pitched voice in D (a sonic identity)",
+   "what": "Retune constants so the harbour, the Pharos and the music share one key: bell buoy 392 -> 440 Hz (A4) with its 1.19 partial -> 1.2 (C5, in both D Dorian and D Phrygian) (dsp.ts:451-452); hour bell 220 Hz +/-3 % -> 293.7 Hz (D4) +/-3 cents (dsp.ts:1098); conch 233 Hz +/-3 % (B-flat) -> 220 Hz (A3) +/-5 cents (dsp.ts:1197); the beam breath on D (O9-I3); launch hand bells D5/A5 (O9-I11); goat bells (O9-I12) on A/D. The foghorn keeps G2/D3 (already consonant). The music stays D Dorian by day, D Phrygian at night (music.ts:17-20).",
+   "visitor_benefit": "The harbour sounds like one place with one voice; when music plays, every bell belongs to it, and the Pharos's D becomes recognisable.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: tuning constants of decorative and existing voices; no data.",
+   "where": "src/harbour/audio/dsp.ts:451-452, :1098, :1197; ambience.ts:1116-1121",
+   "effort": "S",
+   "perf_cost": "0.",
+   "risks": "Sameness: keep a few cents of variant detune and the inharmonic partials so bells stay bronze, not synth.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O9-I5",
+   "title": "Music you can hear when you choose it",
+   "what": "MUSIC_GAIN 0.1 -> ~0.28 (+9 dB; music.ts:172) so phrases land -6 +/-2 LU under the ambience at the home view (now -13 LU, 13-17 dB under the bed in every octave); lyre ROOT D3 -> D4 (music.ts:20; the aulos keeps +12) to clear the bed's 250-500 Hz roar; while a phrase sounds, ease bedGain 2 dB (a pocket) and restore over 3 s; send the music to the O9-I6 reverb instead of the 310 ms slap (ambience.ts:1159). Update music.test's -27 dBFS bound to the new target.",
+   "visitor_benefit": "The third sound state finally delivers: a quiet lyre and aulos that are actually heard, still mostly silence.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: decorative music seeded by the calendar day (music.ts:22-28); weather may only mute it (unchanged).",
+   "where": "src/harbour/audio/music.ts:20, :172, :197; ambience.ts:1155-1163, bed gain",
+   "effort": "S",
+   "perf_cost": "0 (one gain automation per phrase).",
+   "risks": "Louder music edges toward 'soundtrack': keep >= 60 % silence (music.test), phrases every 20-60 s; operator ear check on speakers.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": [
+    "O9-I1"
+   ]
+  },
+  {
+   "id": "O9-I6",
+   "title": "A harbour-shaped reverb instead of the feedback slap",
+   "what": "Replace the DelayNode slap (ambience.ts:408-414: 310 ms, feedback 0.26) with a ConvolverNode fed a procedural stereo impulse response built once by dsp.ts at 24 kHz: early reflections at ~45/95/150 ms (quay walls, mole), then a 2.2 s diffuse noise tail whose lowpass falls 6 -> 2 kHz (air absorption). Sends scale with distance (send = 0.12 + 0.45*(1 - nearness)) on the gull, bell, toll, far-cue, beam and music buses; the sea beds stay dry. Lean tier keeps the slap.",
+   "visitor_benefit": "Far bells and gulls sound far across water; the music and the Pharos sit in a space instead of echoing.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: acoustic space only.",
+   "where": "src/harbour/audio/ambience.ts:408-414, every '.connect(this.echo)'; dsp.ts (new harbourIR generator)",
+   "effort": "M",
+   "perf_cost": "Convolver with a 2.2 s stereo IR: ~1-2 % of a laptop core (partitioned FFT; long IRs run on a background thread in Chrome); IR ~0.4-0.8 MB; one-time ~20 ms synthesis in an idle slice.",
+   "risks": "Mud if sends are too high; keep the beds dry and the tail dark. Verify CPU on the iGPU laptop profile.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O9-I7",
+   "title": "The sea you see: surf from the declared sea state, not the storm",
+   "what": "Feed the ocean's eased sea vector (ocean.shared.uSea: amp/chop/caps/bands, ocean-system.ts:166, :300) into a new AmbienceInputs.sea; shore wash size and level scale with amp (SEA_STATES 0.1/0.24/0.5/0.85, waves.ts:101-106), the swell period shortens 9.5 -> 6.5 s with it, a run-up foam hiss and whitecap spray enter from caps > 0 (step 2+), laps against hulls grow with chop. Remove 'storm' from shore size, bus level, period and reef (ambience.ts:689, :700, :789-790, :814). DEWS keeps wind, gust, rain, howl, thunder and wind-blown spray. The audio then eases with the picture (same uniform).",
+   "visitor_benefit": "Ears and eyes tell one story: a heavy off-peg sea is heard breaking on the beach; a storm over a calm sea is wind and rain, not surf.",
+   "pillar": "informative",
+   "meaning": "data-bound",
+   "data_and_dom": "Source readings.seaState.step from offPegShare (bind.ts:123 seaStepForShare: < 0.5 % / 2 % / 10 %), via ocean.setSeaState. DOM (same words): Ledger 'Sea state is the share of supply off peg ... flat calm (under 0.5 %) to a heavy sea (over 10 %)' (Ledger.tsx:95) and the Shoals panel 'Sea state N of 3: X of supply is off peg' (Panel.tsx:317); O9-I8 'The surf is the sea state.' Unknown reading: the ocean holds its neutral step and the sound follows it. Unit test: surf size monotonic in amp and independent of DEWS level.",
+   "where": "src/harbour/audio/feed.ts:248-327 (read ocean.shared.uSea), ambience.ts inputs + :689-815; tests in controller.test.ts",
+   "effort": "M",
+   "perf_cost": "0 (one more input; same nodes).",
+   "risks": "Behaviour change: a DEWS storm over a calm sea loses its crashing surf (correct, but ask). Stale data: the picture's neutral sea must be what the sound plays.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O9-I8",
+   "title": "'By ear': the sound grammar in the ledger and the menu",
+   "what": "Add one Ledger legend entry rendered while sound is on, in the existing voice: 'By ear (sound on). Only the foghorn means stale data. As the beam passes you, the Pharos breathes: fuller the farther it reaches. The Mint's presses and the Burn's roar follow their last 24 hours and fall silent when that reading is stale. Thunder answers the early-warning storm's lightning, from where it struck. The surf is the sea state. A launch and a death each have their own bell; a low bell from Wreck Cove on a dead coin's anniversary. Gulls, birds, the hour bell and the music are decorative.' Add one caption line under the sound menu items ('The sea, the weather and the Pharos are heard as they are shown.').",
+   "visitor_benefit": "A listener can learn what the sounds mean and trust that nothing audible is invented; completes D11 for audio.",
+   "pillar": "informative",
+   "meaning": "ux",
+   "data_and_dom": "Each clause names an existing field: readings.fog (stale only), beam reach / lighthouse.lit, civic.mintRate/burnRate/banked, weather.onLightning, readings.seaState.step (O9-I7), events moments launch/death, wrecks[].deathDate (Panel.tsx:416 'anniversary today'). Test: Ledger renders the entry iff sound.on; string snapshot.",
+   "where": "src/harbour/ui/Ledger.tsx:63-115; src/harbour/audio/SoundToggle.tsx:79-90 (+ sound-toggle.css caption)",
+   "effort": "S",
+   "perf_cost": "~0.6 KB of text in the main chunk.",
+   "risks": "Ledger length: keep to four lines; wording reviewed with O8.",
+   "impact": 3,
+   "confidence": 5,
+   "depends_on": [
+    "O9-I7",
+    "O9-I11"
+   ]
+  },
+  {
+   "id": "O9-I9",
+   "title": "A composed first ten seconds",
+   "what": "(a) Master fade: 3 s linear (ambience.ts:392-393) -> exponential 0.003 -> MASTER over 1.4 s, so the click is answered at ~-20 dB within 0.4 s; (b) bank FIRST (bank.ts:41) -> halyard, lap, shore, bell, gull, ...; the first shore variant synthesised short (size 0.6, ~25 ms); (c) the first swell waits for its clip: when play('shore') fails on wave #1, retry in 0.15 s instead of moving on (ambience.ts:794, :814); (d) a seeded arrival script, then the random clocks: a near lap at ~0.3 s, the first wash breaking at ~1.5 s at full level, a far gull at ~4 s, the bell buoy on the second swell (~8-9 s), the beam's next crossing; (e) warm the ambience+feed chunk on the speaker's pointerenter/focus (JS only, no AudioContext).",
+   "visitor_benefit": "The harbour answers the click within half a second and presents its signature (wave, gull, bell) inside ten seconds; today the first full wave comes at ~8.6 s after a second of silence.",
+   "pillar": "enchanting",
+   "meaning": "ux",
+   "data_and_dom": "n/a: scheduling only; the warm-up fetches the same lazy JS, no world data.",
+   "where": "src/harbour/audio/ambience.ts:392-393, :562-575, :784-815; bank.ts:41; SoundToggle.tsx (pointerenter/focus warm-up)",
+   "effort": "S",
+   "perf_cost": "0; the warm-up moves ~25 KB gz of lazy JS earlier, only for visitors who hover the speaker.",
+   "risks": "A scripted start must not feel identical each visit: seed which gull, which pan, which wash. The warm-up touches D13's 'loaded only when enabled' (operator decision).",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O9-I10",
+   "title": "Activity clouds: lulls, flocks and gusts you can see",
+   "what": "(1) One slow random walk 'activity' (0.45-1.3, 1-4 min correlation) multiplies the rates of decorative events (gulls, halyards, creaks, stray laps): episodes and real lulls instead of ~2.7 audible one-shots per second forever (O9-sound-first10s.json log). (2) Gulls call in flocks (2-4 calls over 3-6 s, then 20-60 s apart), panned to the nearest visible gull group (life/gulls.ts publishes a centroid), solitary calls halved: gulls are only 7 % of the power but the loudest recurring event (-28.4 LUFS momentary, 63 % of their A-weighted energy in 2-5 kHz). (3) Halyard taps and rigging creaks follow the shared gust field at the listener (feed.ts:305-307 already reads 'paw'; ambience.ts:1002-1011 uses only DEWS wind): taps x(0.25 + 1.5*paw), so the cat's-paw darkens the water, heels the ships, then the rigging rings. (4) While a panel or the ledger is open, activity leans low (-2 dB, x0.7 rates): a reading posture.",
+   "visitor_benefit": "Over a ten-minute watch the harbour has moments and silences, and what is heard follows what is seen.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "Decorative timing; the paw's shape is decorative and its strength is the DEWS wind exactly as gustSwell already declares (ambience.ts:181-188). No new claim.",
+   "where": "src/harbour/audio/ambience.ts:997-1011 (+ an activity state), feed.ts (gull centroid, store selection), life/gulls.ts (service)",
+   "effort": "M",
+   "perf_cost": "Fewer one-shots on average (-10-30 % nodes); one more service read at 4 Hz.",
+   "risks": "Too sparse reads as a dead harbour: floor activity at 0.45; keep the settle on top. Needs a small 'gulls' service from the life owner.",
+   "impact": 4,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O9-I11",
+   "title": "Moments with their own voice (launch, death, the harbour holding its breath)",
+   "what": "Launch: the hull's rumble down the ways and a splash from the Shipyard (new lazy procedural kind 'ways': ~2 s of wooden roll noise through two resonances + a splash), then two small hand bells D5/A5 as the bunting runs up (moments-stage launch), instead of the buoy's own clip at lower level (ambience.ts:1116-1121). Death: the cove bell (tolling at rate 0.6 = 132 Hz, inaudible on laptops) gets partials >= 260 Hz and two slow oar strokes of the tug. Around any staged moment (events.current) the random buoy and gulls hold for +/-15 s, so the cue stands in a small silence.",
+   "visitor_benefit": "A launch and a death are heard as what they are, not lost among decorative bells.",
+   "pillar": "informative",
+   "meaning": "data-bound",
+   "data_and_dom": "Source: events.onMoment kinds 'launch' and 'death' only (feed.ts:186-190 momentCue, already budgeted <= 1 per 3 min, none on first load or under reduced motion, model/event-hub.ts); DOM twin: the Day book entry for that moment; O9-I8 text. Tests: momentCue unchanged; launch never plays the 'bell' kind; buoy/gulls suppressed while events.current.",
+   "where": "src/harbour/audio/ambience.ts:1103-1121, dsp.ts (ways, handbell), feed.ts:385-393; sim launch slide timing",
+   "effort": "M",
+   "perf_cost": "2 lazy kinds (~0.2 MB) synthesised only when a moment is staged; < 10 nodes per moment.",
+   "risks": "Must never become a notification 'ding': far, soft, below the buoy's peak, no rising intervals. Depeg and recovery stay silent (decided).",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "O9-I4"
+   ]
+  },
+  {
+   "id": "O9-I12",
+   "title": "Life you can hear: dolphins, goat bells, the hay cart",
+   "what": "Decorative mirrors of visible life, each only when near and only when the picture shows it: the dolphin pod (life/dolphins.ts: every 90-150 s, CALM/WATCH only, hidden under reduced motion) -> a soft blow and splash per surfacing from the pod's position (the CPU already mirrors the roll timing for the foam rings); goat flocks (life/herds.ts: graze by day, still at night, in when it storms) -> sparse bronze goat-bell 'tonks' in the harbour key; the donkey's hay cart -> a wooden axle creak when near the farm road. Three lazy procedural kinds (blow, goatbell, axle), 2 variants each.",
+   "visitor_benefit": "Rare 'did you hear that?' moments that reward looking closely; a Mediterranean signature (goat bells) without voices or lore.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: the Ledger already declares townsfolk and animals decorative (Ledger.tsx:107).",
+   "where": "src/harbour/audio/dsp.ts, ambience.ts, feed.ts; life/dolphins.ts + life/herds.ts (publish pod timing and flock centres)",
+   "effort": "M",
+   "perf_cost": "~0.3 MB lazy PCM; a few events per minute when near; 0 at the home view.",
+   "risks": "Anti-reference 'decorative lore': textures only, never voices; count against the activity budget (O9-I10).",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": [
+    "O9-I10",
+    "O9-I4"
+   ]
+  },
+  {
+   "id": "O9-I13",
+   "title": "Adaptive decorative music by hour and season",
+   "what": "Extend music.ts with an hour curve and a season colour, still seeded by the calendar day and muted by storm/rain: dawn = the aulos alone, high and slow; 12-14 h no phrases (the noon hush, ambience.ts:164-171); golden hour = lyre over a drone; on each hour 06-22 the next phrase begins on the hour bell's tail in its pitch (D, O9-I4); deep night = Phrygian, a drone pedal, gaps x1.5. Seasons: spring a brighter register and one more voice, summer sparser at the cicada hours, autumn lower and slower, winter longest string decay and no drum.",
+   "visitor_benefit": "The music becomes part of the day's light: you can tell dawn from dusk by ear, and the hour bell is answered.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "Clock and calendar only (worldToday, timeOfDay), never market data; extend the Ledger's 'Light and time of day ... decorative' line with 'and the music'. Test: >= 60 % silence at every hour; mode by light unchanged.",
+   "where": "src/harbour/audio/music.ts:64-109, :221-233; controller.ts:198-202 (pass hour/season)",
+   "effort": "M",
+   "perf_cost": "0.",
+   "risks": "Complexity and taste: keep the silent majority; cap phrase density at dawn chorus hours.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": [
+    "O9-I5",
+    "O9-I4"
+   ]
+  },
+  {
+   "id": "O9-I14",
+   "title": "Tablet and battery robustness for sound",
+   "what": "(a) Arm the remembered choice on activation-triggering events: pointerup, keydown, click (not pointerdown, controller.ts:149-152); keep listening until ac.state === 'running'; on 'statechange' to suspended/interrupted while visible, re-arm and resume() on the next gesture. (b) iPadOS/iOS: set navigator.audioSession.type = 'ambient' explicitly where the API exists (mixes with the visitor's own music, obeys silent mode) and show one menu line 'Silent mode mutes the harbour'. (c) Sleep: after 20 idle minutes fade out and suspend() the context (attentionFor already tracks idleness, feed.ts:211-214); resume on input. (d) Small-speaker rule in the mix report: every data voice keeps >= 60 % of its energy above 250 Hz. (e) DECISION-NEEDED: an opt-in 'harbour at rest' sound postcard on the phone welcome page (the ambience has no three.js; fixed calm decorative inputs from the visitor's clock and season; no world data fetched; labelled 'a calm day, not live').",
+   "visitor_benefit": "Sound that reliably starts on tablets, never shows 'on' while silent, does not drain a battery overnight, and a deliberate (optional) phone story.",
+   "pillar": "all-devices",
+   "meaning": "infra",
+   "data_and_dom": "n/a for (a)-(d). (e) decorative only, no /api/* call, must say it is not live.",
+   "where": "src/harbour/audio/controller.ts:47-62, :81-104, :149-185; SoundToggle.tsx menu; scripts/audio/mix-report.mjs (d); src/main.tsx welcome page (e)",
+   "effort": "S",
+   "perf_cost": "Saves the audio thread (~2-3 % of a desktop core, more on weak laptops) while idle; 0 otherwise.",
+   "risks": "Needs one real-iPad and one Android tablet check (the emulated test cannot reproduce a first touch). (e) changes the phone story: operator decision.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O9-I15",
+   "title": "A calmer, richer, unfrozen sea bed",
+   "what": "(1) At near views lower the far-sea bed ~4 dB (ambience.ts:691; today 68 % of the loudness) so the washes carry the sea; (2) add a run-up foam band (noise BP 1-4 kHz) that swells with each wash's run-up and backwash on the same swell clock (ambience.ts:802-805), filling the 1 kHz hole between the dark bed and the 2 kHz taps; (3) generate the bed and wind noise live in a tiny AudioWorkletProcessor (same-origin module; CSP script-src 'self' forbids blob: worklets), decorrelated stereo white/pink, instead of the frozen 9.3 s/8.7 s buffers heard ~65 times in ten minutes (ambience.ts:416-417, :429, :451, :457); keep LazyLoop gating by gain. Drop drizzle synthesis below the playback threshold (ambience.ts:769).",
+   "visitor_benefit": "A shore that sounds like water arriving and draining rather than a steady roar, with nothing to recognise as a loop over a long watch.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: bed texture; sea size itself follows O9-I7.",
+   "where": "src/harbour/audio/ambience.ts:194-217, :416-458, :691-692, :802-805; new src/harbour/audio/noise-worklet.ts (emitted as a same-origin asset)",
+   "effort": "M",
+   "perf_cost": "-6.9 MB PCM and -32 ms (desktop) to ~-100 ms (weak laptop) of synchronous work at enable; +~0.2 % of a core on the audio thread; one small worklet request on enable.",
+   "risks": "AudioWorklet is Safari 14.1+ / all current browsers; keep a buffer fallback if addModule fails. Re-balance must be judged by ear.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "O9-I7"
+   ]
+  }
+ ],
+ "top_picks": [
+  {
+   "id": "O9-I9",
+   "why": "S effort, first impression: the click is answered in 0.4 s and wave, gull and bell all arrive within ten seconds (today ~8.6 s to the first full wave)."
+  },
+  {
+   "id": "O9-I3",
+   "why": "S effort: gives the hero (PSI) a voice that exists on laptops and tablets and stops the accidental stress throb; same data, no new claim."
+  },
+  {
+   "id": "O9-I2",
+   "why": "Fixes the worst measured defect (+16 LU, flat-to-16 kHz storm) with constants and one envelope; best paired with the O9-I1 gate."
+  },
+  {
+   "id": "O9-I7",
+   "why": "Removes a silent D11 re-map: the surf becomes the sea state the picture and ledger already show; one input, no new nodes."
+  },
+  {
+   "id": "O9-I5",
+   "why": "S effort: the opt-in music goes from masked (-13 LU) to present (-6 LU) while staying mostly silence."
+  }
+ ],
+ "operator_decisions": [
+  "Loudness: raise the calm mix to about -26 LUFS (+2.6 dB) and cap every DEWS state at +6 LU over calm (Danger from -12.4 to <= -20 LUFS)? Or keep the whisper-quiet calm mix and only cap storms?",
+  "Music level: should 'Ambient sound and music' place the music ~6 LU under the sea (audible), instead of today's ~13 LU under (masked)?",
+  "Surf = sea state (off-peg) rather than DEWS (O9-I7): accept that a DEWS storm over a calm sea-state sounds windy and rainy with modest surf, matching the picture?",
+  "D13 says the sound chunk loads only when enabled: may the speaker's hover/focus warm the lazy JS (no AudioContext, no sound) to remove the network wait from the on-ramp (O9-I9e)?",
+  "DECISION-NEEDED (phones): offer an opt-in, decorative-only 'harbour at rest' sound postcard on the phone welcome page, no world data fetched, labelled 'a calm day, not live' (O9-I14e)?",
+  "iPadOS: obey silent mode ('ambient' audio session, mixes with the visitor's music) and say so in the menu, or use 'playback' (plays through silent mode but pauses the visitor's own music)?",
+  "Life sounds (dolphin blows, goat bells, the hay cart, O9-I12): welcome texture, or too close to 'decorative lore'?",
+  "Evening gun: delete the dead cue and synth, or keep it for a future visible sunset puff?"
+ ],
+ "cross_lane_hooks": [
+  "O3-water-coast: keep ocean.shared.uSea (amp/chop/caps/bands) as the single eased sea-state signal; if run-up/foam timing gets a swell clock, expose its phase so washes break with the visible run-up (O9-I7, O9-I15).",
+  "O4-sky-weather: expose the director's gust/squall envelope (weather/director.ts:92) and keep front/lightning events; any new DEWS visual layer should declare its audio twin and stay inside the O9-I1 loudness budget (O9-I2).",
+  "O2-light-post / Pharos owner: publish the beam's sweep phase and period from the lighthouse service so the breath is timed by the beam itself, not 4 Hz polling (O9-I3).",
+  "O7-motion-enchantment: moments staging (launch slide, bunting, tug tow) should expose start times so O9-I11 can sync; dolphins/herds/gulls need small read-only services (pod timing, flock centres) for O9-I10/I12; reduced motion must keep silencing motion-tied sounds.",
+  "O6-island-town: the Mint should emit visible press strikes (mint.ts:132-133) and banked state so sound and sight agree (O9-F6); the Shipyard 'ways' for the launch rumble (O9-I11).",
+  "O8-ui-design: Ledger 'By ear' entry and the sound-menu caption/iOS hint wording (O9-I8, O9-I14); speaker hover/focus warm-up hook (O9-I9).",
+  "QA/perf lane: run scripts/audio/mix-report.mjs in validate:release with the O9-I1 targets; add a real-device check (iPad Safari, Android tablet) for remembered-on sound to TESTING.md (O9-F4)."
+ ]
+}

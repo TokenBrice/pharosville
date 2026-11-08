@@ -1,0 +1,336 @@
+{
+  "lane": "S11",
+  "executive_summary": "The governor has useful hysteresis, bounded GPU queries, prepared SMAA presets, and strong reduced-motion support. Two synthetic checks against the actual source exposed control defects: 17 ms GPU work presented every 33.3 ms never downgrades, and timerless 48 fps is treated as clean enough to upgrade. Recovery is also slow, automatic resolution stops at DPR 1, display DPR changes are ignored, and the ocean’s low-quality shader variant bypasses preparation. Prioritize correcting those mechanisms, then add refresh-aware pacing, explicit visitor preferences, and sustained laptop validation. No browser or hardware measurements were taken.",
+  "current_state": [
+    "High/medium/low use 4096/2048/2048 shadow maps, every-frame/30 Hz/15 Hz interval refresh, 16/8/4 active point lights, 8/7/6 bloom levels, and matching SMAA presets. Sixteen point-light shader slots remain resident across tiers (src/harbour/engine/quality.ts:27; src/harbour/lights/lights-system.ts:246).",
+    "Tiers also change fleet LOD thresholds, line/flag/fender ranges and shadow distance; life shares are 1/0.75/0.45; precipitation budgets are 22000/14000/8000 falling particles and 2600/1600/900 splashes. Low removes ocean mirror-cloud and seagrass shading (src/harbour/fleet/fleet-system.ts:78; src/harbour/life/life-system.ts:28; src/harbour/weather/precip.ts:19; src/harbour/ocean/sea-tone.ts:42).",
+    "GPU strings select the starting rung: software renderers start lowest; recognized discrete GPUs start highest; Apple Max/Ultra starts high@1.5; integrated, unknown, mobile and coarse-pointer devices generally start medium@1.5. These are startup guesses, followed by measurement (src/harbour/engine/quality.ts:71; src/harbour/engine/governor.ts:76).",
+    "The automatic ladder spans low@1 through high@2 and caps against the initial device DPR. Renderer/composer backing resolution scales independently of CSS size. React UI occupies a separate DOM root, so reducing world resolution preserves DOM text sharpness (src/harbour/engine/quality.ts:36; src/harbour/engine/engine.ts:404; src/harbour/app/harbour-app.css:3; src/harbour/ui/mount.tsx:9).",
+    "Decisions begin after a three-second cooldown, then a window ending at 90 frames or 1.5 seconds. Slow means over 6% of frames exceed 21.5 ms, or GPU p10 exceeds 13 ms. Downgrades are adjacent; upgrades require headroom or timerless clean-frame probes with exponential failure backoff (src/harbour/engine/governor.ts:57; src/harbour/engine/governor.ts:212).",
+    "GPU measurement is bounded and state-tagged: four reusable query handles, 256 completed samples, disjoint rejection, and separate p10/p50 telemetry. Quality changes await prepared SMAA programs; shader preparation yields in bounded idle batches and retains submitted programs on timeout (src/harbour/engine/governor.ts:26; src/harbour/engine/post.ts:287; src/harbour/engine/prepare.ts:79; src/harbour/engine/prepare.ts:259).",
+    "Both render paths clamp animation delta to 100 ms. Camera easing, inertia, fleet effects and MotionClock use delta-based integration, including exponential easing; inspected animation paths do not accelerate with 120/144 Hz refresh (src/harbour/engine/engine.ts:263; src/harbour/engine/engine.ts:307; src/harbour/engine/camera-rig.ts:176; src/harbour/engine/input.ts:126; src/harbour/ui/services.ts:102).",
+    "Visibility normally cancels rAF and resets its timestamp on resume, avoiding accumulated animation delta. Fleet simulation and daylight instead sample current wall time, so boats/daylight can jump to their current state without replaying every hidden frame. Scheduled feed refreshes defer while hidden; audio pauses (src/harbour/engine/engine.ts:84; src/harbour/engine/engine.ts:245; src/harbour/sim/system.ts:230; src/harbour/data/fetch.ts:181; src/harbour/audio/controller.ts:82).",
+    "Reduced motion already follows a live media query, holds fleet simulation, eases decorative clocks to stillness, and suppresses camera wake. It does not stop the render loop. Source searches found no battery, saveData or reduced-data policy and no visitor quality/motion controls; rendering requests high-performance power preference (src/harbour/ui/services.ts:65; src/harbour/sim/system.ts:106; src/harbour/app/wake.ts:27; src/harbour/engine/engine.ts:88; src/harbour/ui/CornerMark.tsx:62).",
+    "Existing tests cover tier selection, timerless probes, CPU/GPU distinction, bounded queries and prepared publication. Six in-memory scenarios using transpiled actual source confirmed recovery timings and the two control defects. Existing test suites were inspected, not executed; their timing cases primarily exercise 16.7/33.4 ms inputs (src/harbour/engine/governor.test.ts:35; src/harbour/engine/governor.test.ts:72; src/harbour/engine/quality.test.ts:6)."
+  ],
+  "findings": [
+    {
+      "id": "S11-F1",
+      "title": "GPU bottleneck detection can lock an overloaded device at high quality",
+      "severity": "high",
+      "evidence": "src/harbour/engine/governor.ts:227; src/harbour/engine/governor.test.ts:77",
+      "detail": "The governor requires GPU time to exceed 60% of the observed presentation interval before lowering quality. Synthetic actual-source execution with 17 ms GPU samples and 33.3 ms frames held high@2 for 30 seconds: 17 ms exceeds the 13 ms budget but falls below 20 ms, so it is classified as CPU-bound. This input represents a plausible missed-vsync boundary.",
+      "fix": "Compare GPU work against the target frame budget rather than a fraction of the already-slow presentation interval. Preserve the existing genuinely CPU-bound case: 1 ms GPU work with 33.3 ms frames."
+    },
+    {
+      "id": "S11-F2",
+      "title": "High-refresh misses and uneven pacing can be classified as healthy",
+      "severity": "high",
+      "evidence": "src/harbour/engine/governor.ts:218; src/harbour/engine/governor.ts:251; src/harbour/engine/engine.ts:249",
+      "detail": "There is no refresh estimate or render pacing target. Every frame at or below 21.5 ms counts as clean. Synthetic timerless 20.83 ms frames, equivalent to 48 fps, upgraded medium@1.5 to high@1.75 within 30 seconds. A 120 Hz display delivering every second refresh is likewise indistinguishable from clean 60 Hz. Fast frames therefore do not establish consistent presentation.",
+      "fix": "Choose an explicit presentation target, measure misses relative to it, and pace rendering at suitable display divisors. Test 60/120/144 Hz and alternating intervals rather than only average frame duration."
+    },
+    {
+      "id": "S11-F3",
+      "title": "The cheapest automatic rung cannot reduce native-resolution pixel load",
+      "severity": "high",
+      "evidence": "src/harbour/engine/quality.ts:36; src/harbour/engine/quality.ts:50; src/harbour/engine/engine.ts:412; agents/claudeville-prettier/exec/INTEGRATION-NOTES.md:39",
+      "detail": "Automatic resolution bottoms out at DPR 1 regardless of canvas area. A 3840×2160 CSS canvas therefore still shades 8.29 million pixels per full-resolution pass at minimum quality. Historical evidence records 68–76 ms GPU frames even at low@1 on Raphael; that measurement was not repeated here. The controller has no further resolution response once this floor is reached.",
+      "fix": "Add pixel-budget-aware subnative rescue rungs while preserving CSS dimensions, DOM UI, analytical cues and the existing viewport gate. Validate whether the residual cost requires shader optimization as well."
+    },
+    {
+      "id": "S11-F4",
+      "title": "The low-quality ocean shader bypasses quality preparation",
+      "severity": "medium",
+      "evidence": "src/harbour/ocean/ocean-system.ts:198; src/harbour/engine/engine.ts:333; src/harbour/engine/post.ts:287",
+      "detail": "Entering or leaving low changes the ocean material’s HB_LITE define and marks it for recompilation. prepareQuality prepares only postprocessing entries, whose tier-specific branch covers SMAA materials. Thus the first ocean draw in the new variant can perform first-use shader work during an already-stressed transition. Preparation guarantees currently exclude a real tier-dependent world shader.",
+      "fix": "Prepare and retain both ocean variants through the existing preparation service before publishing the relevant tier. Add coverage proving the live material is unchanged until readiness and the prepared variant survives later world adoption."
+    },
+    {
+      "id": "S11-F5",
+      "title": "Severe startup overload takes several seconds per downgrade",
+      "severity": "medium",
+      "evidence": "src/harbour/engine/governor.ts:57; src/harbour/engine/governor.ts:155; src/harbour/engine/governor.ts:219; src/harbour/engine/engine.ts:263",
+      "detail": "With sustained 33.4 ms synthetic frames and immediate transitions, medium@1.5 first drops after about 4.4 seconds and reaches low@1 after 12.9 seconds; high@2 takes 24.8 seconds to reach low@1. Async preparation can add delay. Governor timing also receives animation delta capped at 100 ms, understating wall-clock overload when frames are slower still.",
+      "fix": "Separate raw timing from animation delta, shorten startup calibration, and provide an emergency resolution reduction that can bypass adjacent-step cooldowns under sustained severe overload."
+    },
+    {
+      "id": "S11-F6",
+      "title": "Display DPR is captured once and never reconciled",
+      "severity": "medium",
+      "evidence": "src/harbour/engine/governor.ts:74; src/harbour/engine/engine.ts:404; src/harbour/engine/quality.ts:47",
+      "detail": "The ladder is constructed from devicePixelRatio only at engine creation. resize reads the renderer’s existing ratio rather than the current display ratio. Moving a window between 1× and 2× displays, or changing browser zoom, can leave rendering above the new display cap or permanently prevent a sharper rung. This contradicts the ladder’s stated display-cap policy.",
+      "fix": "Reconcile current device DPR on resize and resolution-media changes, rebuild the available ladder, and preserve the nearest valid quality state. Test DPR changes with unchanged CSS dimensions."
+    },
+    {
+      "id": "S11-F7",
+      "title": "Visibility changes can start rendering before boot completes",
+      "severity": "medium",
+      "evidence": "src/harbour/engine/engine.ts:84; src/harbour/engine/engine.ts:122; src/harbour/engine/engine.ts:245; src/harbour/app/harbour-app.tsx:59; src/harbour/app/harbour-app.tsx:120",
+      "detail": "The constructor installs a visibility listener immediately. Returning to a tab during async initialization calls start(), which checks running/disposed/aborted but not booted. It can therefore render and initialize deferred systems before normal boot completion. Conversely, HarbourApp calls start unconditionally after init even if initialization completed while hidden.",
+      "fix": "Require completed boot and visible state before scheduling frames. Keep a clear requested-running lifecycle so visibility restoration cannot restart an intentionally stopped engine. Cover hide/show during initialization."
+    },
+    {
+      "id": "S11-F8",
+      "title": "Tier changes publish abrupt lighting and population changes",
+      "severity": "low",
+      "evidence": "src/harbour/lights/lights-system.ts:264; src/harbour/life/life-system.ts:192; src/harbour/fleet/fleet-system.ts:1060; src/harbour/engine/post.ts:280",
+      "detail": "Hysteresis limits transition frequency but does not blend effects. Removed point-light slots become dark immediately; life density and fleet LOD thresholds change on the next update; bloom/SMAA switch directly. These mechanisms can produce visible changes during automatic adaptation. Their perceptual prominence was not assessed because this lane used no browser.",
+      "fix": "Ease inexpensive light and actor visibility over roughly 500 ms while applying urgent resolution savings immediately. Preserve selected/hovered ship legibility and existing per-boat LOD hysteresis."
+    }
+  ],
+  "ideas": [
+    {
+      "id": "S11-I1",
+      "title": "Correct the GPU budget decision",
+      "what": "Use an explicit frame budget B. Treat GPU p10 above 0.8B as actionable pressure regardless of its share of an already-missed presentation interval. Keep genuinely low-GPU, high-CPU frames on their current graphics rung and expose their cause separately.",
+      "visitor_benefit": "Devices near a vsync boundary can recover instead of remaining stuck at half-rate presentation.",
+      "pillar": "all-devices",
+      "meaning": "infra",
+      "data_and_dom": "n/a; changes rendering cost decisions without changing readings.",
+      "where": "src/harbour/engine/governor.ts:225; src/harbour/engine/governor.test.ts:77",
+      "effort": "S",
+      "perf_cost": "No added draws or triangles; negligible decision arithmetic.",
+      "risks": "GPU p10 is deliberately resistant to timer backpressure. Preserve that calibration and verify thresholds on real hardware.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S11-I2",
+      "title": "Define refresh-aware smoothness and pace presentation",
+      "what": "DECISION-NEEDED: default to 60 fps on 60/120 Hz and 72 fps on 144 Hz, with native-refresh rendering optional. Infer cadence from clean short rAF intervals, retaining a conservative fallback. Use target budget B, downgrade after over 5% missed target slots in two one-second windows, and upgrade only after 15 seconds below 0.5% misses with predicted GPU cost below 0.65B.",
+      "visitor_benefit": "Consistent movement and lower unnecessary GPU work on fast-refresh displays.",
+      "pillar": "all-devices",
+      "meaning": "infra",
+      "data_and_dom": "n/a; paced frames must retain real-time simulation and accumulated animation delta.",
+      "where": "src/harbour/engine/engine.ts:245; src/harbour/engine/governor.ts:218; src/harbour/engine/camera-rig.ts:176",
+      "effort": "M",
+      "perf_cost": "No added rendering passes; approximately halves frame submissions at 120/144 Hz under the proposed default.",
+      "risks": "An overloaded stream cannot reliably reveal native refresh. Uniform 60 fps does not divide 144 Hz; test the proposed 72 fps choice and variable-refresh behavior.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": [
+        "S11-I1"
+      ]
+    },
+    {
+      "id": "S11-I3",
+      "title": "Recover quickly from startup and severe overload",
+      "what": "Start integrated/unknown/coarse-pointer devices at medium@1, then measure. Replace the initial three-second blind period with 500 ms warmup plus 500 ms calibration. If at least half the intervals exceed 2B for 500 ms, permit a larger resolution reduction. Feed raw visible wall time to the governor while keeping the existing 100 ms animation clamp.",
+      "visitor_benefit": "Weak devices spend less of their first visit struggling before adaptation helps.",
+      "pillar": "all-devices",
+      "meaning": "infra",
+      "data_and_dom": "n/a; no data or geometry omission.",
+      "where": "src/harbour/engine/quality.ts:71; src/harbour/engine/governor.ts:57; src/harbour/engine/engine.ts:263",
+      "effort": "M",
+      "perf_cost": "Lower initial pixel work; no steady-state added draws.",
+      "risks": "Initial shader/upload hitches must not permanently suppress quality. Emergency reductions should use already-ready paths and retain slow upward recovery.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": [
+        "S11-I1",
+        "S11-I4"
+      ]
+    },
+    {
+      "id": "S11-I4",
+      "title": "Budget backing pixels and add subnative rescue resolution",
+      "what": "DECISION-NEEDED: trial a four-million-pixel automatic ceiling and additional DPR rungs 0.8, 0.67 and 0.5. Derive the maximum ratio from sqrt(pixelBudget / CSSArea), also respecting device DPR and the existing 2× ceiling. Allow low@0.5 under severe pressure; a 4K CSS canvas then renders about 2.07 million pixels.",
+      "visitor_benefit": "Retina and 4K visitors get an attainable rendering budget while DOM text remains sharp.",
+      "pillar": "all-devices",
+      "meaning": "infra",
+      "data_and_dom": "n/a; preserve CSS size, picking coordinates, DOM labels and all analytical objects.",
+      "where": "src/harbour/engine/quality.ts:36; src/harbour/engine/engine.ts:404; src/harbour/ui/mount.tsx:9",
+      "effort": "M",
+      "perf_cost": "DPR 0.5 shades 75% fewer pixels than DPR 1 in resolution-scaled passes; actual frame savings require measurement.",
+      "risks": "Thin rigs, emblems and beam edges may soften. Pixel savings cannot fix every geometry or CPU bottleneck; art and hardware review remain necessary.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": []
+    },
+    {
+      "id": "S11-I5",
+      "title": "Reconcile quality when display density changes",
+      "what": "Observe resolution-media changes and reconcile DPR during resize. Rebuild the ladder only when device DPR changes, retain the closest affordable rung, and reset measurement windows after the backing resolution changes. Preserve deliberate capture overrides.",
+      "visitor_benefit": "Dragging the harbour between monitors avoids unnecessary oversampling and persistent blur.",
+      "pillar": "all-devices",
+      "meaning": "infra",
+      "data_and_dom": "n/a; CSS layout and pointer coordinates remain authoritative.",
+      "where": "src/harbour/engine/governor.ts:74; src/harbour/engine/quality.ts:50; src/harbour/engine/engine.ts:404",
+      "effort": "S",
+      "perf_cost": "Event-driven work only; one necessary render-target resize per actual density change.",
+      "risks": "Browser zoom can emit repeated events. Deduplicate density changes and clean up media-query listeners.",
+      "impact": 3,
+      "confidence": 5,
+      "depends_on": [
+        "S11-I4"
+      ]
+    },
+    {
+      "id": "S11-I6",
+      "title": "Prepare the complete tier-dependent shader set",
+      "what": "Register the ocean’s HB_LITE and full variants with the existing ProgramPreparation service and retain them alongside SMAA presets. Publish a tier only after its complete shader set is ready. Separately measure the bloom and shadow-target reallocations that still occur at commit.",
+      "visitor_benefit": "Automatic quality changes are less likely to introduce a compilation hitch.",
+      "pillar": "all-devices",
+      "meaning": "infra",
+      "data_and_dom": "n/a; existing ocean appearance and meanings remain unchanged.",
+      "where": "src/harbour/ocean/ocean-system.ts:198; src/harbour/engine/engine.ts:333; src/harbour/engine/post.ts:180; src/harbour/world/sun.ts:69",
+      "effort": "M",
+      "perf_cost": "One additional resident ocean program variant; driver memory is unmeasured. No added steady-state draws.",
+      "risks": "Preparation must avoid mutating live defines and preserve cancellation, season variants and program lifetime.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S11-I7",
+      "title": "Make automatic effect transitions quieter",
+      "what": "Fade removed/promoted point-light contributions and decorative actor visibility over 500 ms. Keep resolution reductions immediate, avoid full-frame crossfades, and defer upward tier changes while the visitor is dragging or pinching. Retain selected and hovered ship detail.",
+      "visitor_benefit": "Adaptation feels less like lights and inhabitants suddenly changing.",
+      "pillar": "all-devices",
+      "meaning": "decorative",
+      "data_and_dom": "n/a; blend decorative quality contributions without altering data-bound signal thresholds.",
+      "where": "src/harbour/lights/lights-system.ts:264; src/harbour/life/life-system.ts:192; src/harbour/fleet/fleet-system.ts:1060",
+      "effort": "M",
+      "perf_cost": "No new passes; a few scalar updates and possibly brief overlap in existing instance batches.",
+      "risks": "Fading must not delay emergency savings or fade analytical storm flags, coin identity or freshness cues.",
+      "impact": 3,
+      "confidence": 4,
+      "depends_on": [
+        "S11-I6"
+      ]
+    },
+    {
+      "id": "S11-I8",
+      "title": "Offer compact quality and motion preferences",
+      "what": "Add an on-demand preferences panel beside the existing corner controls: quality Automatic/Economy/High and motion System/Reduced. Persist explicit choices with guarded storage access. Show applied quality inside the panel. Reuse QualityService and MotionService, making override precedence and returning to Automatic explicit.",
+      "visitor_benefit": "Visitors can choose quiet laptop operation or stillness without editing URL parameters or operating-system settings.",
+      "pillar": "all-devices",
+      "meaning": "ux",
+      "data_and_dom": "DOM controls use native labeled inputs, keyboard access and explicit selected states; no persistent performance badge.",
+      "where": "src/harbour/ui/CornerMark.tsx:62; src/harbour/ui/services.ts:65; src/harbour/engine/governor.ts:109",
+      "effort": "M",
+      "perf_cost": "Small on-demand DOM surface; estimated under 3 KB gzip without dependencies.",
+      "risks": "The current auto setter does not clear pinned DPR. Define capture-override precedence and avoid silently overriding system reduced motion.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S11-I2",
+        "S11-I9"
+      ]
+    },
+    {
+      "id": "S11-I9",
+      "title": "Provide an explicit economy policy with optional device hints",
+      "what": "Economy caps presentation at 30 fps on 60/120 Hz or 36 fps on 144 Hz and limits effects/resolution. Trial 15 Hz idle rendering under reduced motion, restoring responsiveness on interaction. Feature-detect saveData/reduced-data as suggestions; never require Chromium-only getBattery. Any battery hint remains optional and subordinate to explicit visitor preference.",
+      "visitor_benefit": "Long ambient sessions have a deliberate lower-power option across browsers.",
+      "pillar": "all-devices",
+      "meaning": "ux",
+      "data_and_dom": "Do not reduce analytical feed freshness or hide required readings. Explain Economy’s frame-rate tradeoff in the preferences panel.",
+      "where": "src/harbour/engine/engine.ts:88; src/harbour/engine/engine.ts:249; src/harbour/ui/services.ts:65; src/harbour/data/fetch.ts:174",
+      "effort": "M",
+      "perf_cost": "Roughly halves submissions versus a 60/72 fps target; energy savings require device measurement.",
+      "risks": "Reduced data is not equivalent to reduced motion or low battery. Static rendering still needs updates for fresh readings, lighting and interaction.",
+      "impact": 4,
+      "confidence": 3,
+      "depends_on": [
+        "S11-I2"
+      ]
+    },
+    {
+      "id": "S11-I10",
+      "title": "Make visibility a boot-safe lifecycle boundary",
+      "what": "Schedule frames only when booted, requested-running and visible. On resume, reset raw timing and governor decision history, reject pre-pause decision samples, and apply a short 500 ms settling period. Preserve wall-clock freshness and current fleet poses without replaying hidden animation frames.",
+      "visitor_benefit": "Switching tabs during loading or a long session resumes predictably.",
+      "pillar": "all-devices",
+      "meaning": "infra",
+      "data_and_dom": "Keep model freshness tied to Date.now; hidden time must never make stale readings appear fresh.",
+      "where": "src/harbour/engine/engine.ts:84; src/harbour/engine/engine.ts:245; src/harbour/app/harbour-app.tsx:120; src/harbour/sim/system.ts:258",
+      "effort": "S",
+      "perf_cost": "Event-driven state resets; no added steady-state rendering.",
+      "risks": "Do not restart an intentionally stopped engine or discard installed fleet readiness. Cover hidden boot completion and teardown races.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S11-I11",
+      "title": "Extend existing performance tools with a paced thermal session",
+      "what": "Extend the current shared-browser tooling with a 15-minute, visible, automatic-quality session using normal pacing and both timer/timerless paths. Record per-minute frame p95/p99, missed slots, tier/DPR changes, CPU update cost and GPU distributions. Exercise day/night/storm, interaction and tab resume; record AC/battery state manually.",
+      "visitor_benefit": "Laptop smoothness is validated after heat buildup, beyond a short desktop capture.",
+      "pillar": "all-devices",
+      "meaning": "infra",
+      "data_and_dom": "n/a; developer diagnostics only, with no hardware identifiers sent remotely.",
+      "where": "scripts/perf/frame.mjs:35; scripts/perf/frame.mjs:73; scripts/perf/soak.mjs:8; docs/pharosville/TESTING.md:145",
+      "effort": "M",
+      "perf_cost": "Bounded per-second diagnostic aggregation; measure observer overhead. Existing uncapped profiling remains a separate diagnostic mode.",
+      "risks": "Current frame runs are uncapped and default to pinned high quality; resource soak remounts repeatedly. Neither establishes sustained automatic-governor behavior.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": [
+        "S11-I1",
+        "S11-I2",
+        "S11-I10"
+      ]
+    },
+    {
+      "id": "S11-I12",
+      "title": "Turn timing edge cases into deterministic regression traces",
+      "what": "Extend governor tests with 17 ms GPU/33.3 ms presentation, genuine CPU overload, 60/120/144 Hz cadences, alternating misses, unavailable/disjoint queries, severe overload, a 15-minute slowdown/recovery trace and DPR migration. Assert bounded downgrade latency, conservative upgrade rate and no changes while hidden. Test animation equivalence over equal elapsed time at different refresh rates.",
+      "visitor_benefit": "Smoothness fixes remain reliable across future effects and quality changes.",
+      "pillar": "all-devices",
+      "meaning": "infra",
+      "data_and_dom": "n/a; pure timing tests and existing mocked engine harnesses.",
+      "where": "src/harbour/engine/governor.test.ts:15; src/harbour/engine/quality.test.ts:6; src/harbour/engine/engine.test.ts:39",
+      "effort": "M",
+      "perf_cost": "Zero production rendering cost; synthetic long sessions execute without real-time waits.",
+      "risks": "Mocks verify controller logic, not GPU calibration. Keep real-device acceptance separate and avoid asserting arbitrary implementation details.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S11-I1",
+        "S11-I2",
+        "S11-I3",
+        "S11-I5",
+        "S11-I10"
+      ]
+    }
+  ],
+  "top_picks": [
+    {
+      "id": "S11-I1",
+      "why": "Small correction removes a demonstrated failure to downgrade at a common presentation boundary."
+    },
+    {
+      "id": "S11-I4",
+      "why": "Adds the missing pixel-cost escape for large canvases and already-overloaded low-tier devices."
+    },
+    {
+      "id": "S11-I2",
+      "why": "Defines smoothness across refresh rates and avoids spending every available refresh on ambient rendering."
+    },
+    {
+      "id": "S11-I6",
+      "why": "Closes a concrete shader-preparation gap during quality transitions."
+    },
+    {
+      "id": "S11-I10",
+      "why": "Small lifecycle fix prevents rendering before boot and makes tab restoration predictable."
+    }
+  ],
+  "operator_decisions": [
+    "DECISION-NEEDED: Should Automatic target 60 fps on 60/120 Hz and 72 fps on 144 Hz, with native-refresh rendering optional?",
+    "DECISION-NEEDED: Is automatic subnative world resolution down to DPR 0.5 acceptable under severe load, subject to ship-identity and signal-legibility review?",
+    "Should the visitor preferences expose Automatic/Economy/High quality and System/Reduced motion in the existing on-demand corner controls?",
+    "Which laptop models and power states supplement the locked Apple Silicon Safari/Chrome gate for sustained 15-minute acceptance?"
+  ],
+  "cross_lane_hooks": [
+    "Renderer/ocean work must prepare HB_LITE variants and measure bloom/shadow reallocation separately from shader compilation (src/harbour/ocean/ocean-system.ts:198; src/harbour/engine/post.ts:180; src/harbour/world/sun.ts:69).",
+    "Fleet and visual lanes must review emblems, thin rigs, storm flags and selected-ship visibility at proposed subnative rungs; retain CSS-based picking and LOD sizing (src/harbour/fleet/fleet-system.ts:887).",
+    "UI/accessibility work should reuse the corner’s on-demand pattern and MotionService; preserve keyboard access, system reduced motion and the sorted 720×600 admission gate (src/harbour/ui/CornerMark.tsx:19; src/harbour/ui/services.ts:65).",
+    "CPU-performance work remains necessary when GPU cost is genuinely low: graphics adaptation alone cannot guarantee smoothness, and existing profiling already separates system updates (src/harbour/engine/engine.ts:300).",
+    "Validation work should extend existing shared real-GPU tools, retain the Apple Silicon Safari/Chrome p95 ≤16.7 ms gate, and distinguish paced presentation from uncapped GPU diagnostics (docs/pharosville/TESTING.md:145; scripts/perf/frame.mjs:51).",
+    "Skipped: repository changes, browsers and full test-suite execution. Risk: proposed thresholds, visual transitions, battery savings and thermal behavior still require real-device validation."
+  ]
+}

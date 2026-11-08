@@ -1,0 +1,413 @@
+{
+ "lane": "O8 · ui-design (UI/HUD visual design & first-impression surfaces)",
+ "executive_summary": "By day the chart-paper chrome is more crafted and distinctive than Apple Maps, Windy, Felt or Flightradar24, and the arrival and search cards are excellent. It trails them on systematic, adaptive design. At night, day paper (L* 94) over a scene at L* 20 makes the chrome the brightest object: the corner mark alone holds ~84% of the home night frame's brightest pixels, versus ~12% for the Pharos lantern. There are 26 font sizes and ~50 colour literals, and italics have no meaning. Controls use seven treatments with no primary. Freshness is colour-only (a stale dot at 2.58:1) and chart mode is invisible with a mouse. The tablet sheet is fixed and unbounded, and the phone welcome page drops the voice for system sans. I propose the 'Pilot's Chart' direction: one serif family, an 8-step type scale, a 4 px spacing scale, tokens everywhere, an S-52-style night bridge palette switched by uNight, one control family, a detented sheet, and gate pages in the harbour's voice. Mockups and specs are in mockups/O8-*.",
+ "current_state": [
+  "Strong chart voice by day: EB Garamond 400/400i/600, SVG paper grain, double neatline, brass hairlines, U+2212 minus, tabular lining figures (harbour-ui.css:3-57, format.ts:1-3); arrival card and search are best-in-class for their scope (O8-arrival.png, O8-search-day.png).",
+  "One fixed day palette (harbour-ui.css:8-25); nothing in src/harbour/ui reads the night factor, so at night panel/mark/tag/menu are the brightest masses (O8-night-chart-harbourmaster.png, O8-notan-night-ui.png, O8-notan-base-night.png).",
+  "Type and colour have no system: 26 font sizes from 9.5 to 36 px, ~20 italic rule groups including the main body paragraph (.hb-why :165), 31 hex and ~20 rgba literals, and SVG and canvas inks hard-coded in TSX (bits.tsx:78-129, postcard.ts:65-84).",
+  "Accessibility plumbing is solid: focus return (App.tsx:30-45), combobox/listbox/tablist/menuitemradio roles, live region, 44 px coarse-pointer targets (harbour-ui.css:424-438), reduced motion. Panel motion is calm and consistent: one curve, 150-320 ms, chart-paper unroll (:465-471).",
+  "Touch: the strip stays open with 44 px targets but shows lowercase words without affordance; postcard and watch have no touch entry; the <900 px bottom sheet is a fixed 50dvh box without detents or a limit on line length (O8-tablet-portrait-sheet.png, harbour-ui.css:439-452).",
+  "Ledger: a 700 px sheet holding 7-column tables, which overflow horizontally on tablets (O8-tablet-ledger-coins.png, Ledger.tsx:183-189). The legend glyphs are delicate 1.2-stroke line drawings.",
+  "Gate pages (phone, small window): a navy page with system-sans body and plain link list (arrival-shell.css:95-134), a different language from the paper arrival card in the same file; the actionable size message comes last (O8-blocked-700x560.png).",
+  "Postcard: an attractive deckled print, but presented frame-in-frame with inline-styled buttons because of the CSS byte budget (Postcard.tsx:5-9; Harbour CSS cap 34 KiB raw / 8.5 KiB gz, bundle-budgets.mjs:49-60)."
+ ],
+ "findings": [
+  {
+   "id": "O8-F1",
+   "title": "At night the UI chrome out-shines the Pharos",
+   "severity": "high",
+   "evidence": "shots/base-night.png + O8-notan-base-night.png (corner mark ≈84% of the top-0.7% brightest pixels, lantern ≈12%); O8-night-chart-harbourmaster.png + O8-notan-night-ui.png (panel+mark mean L* 90.9 vs scene 21.4; panel holds 81% of L*>80 pixels); harbour-ui.css:8-25 fixed tokens",
+   "detail": "Day paper (#f4ecda, L* 93.6) is used at every hour. D7 makes the beam the night hero and PRODUCT asks for calm; a 364×580 L*94 sheet and the corner mark over an L*≈20 scene are glare that undoes the light lanes' night hierarchy. The UI never reads uniforms.uNight (uniforms.ts:10).",
+   "fix": "O8-I1: switch a night bridge palette on uNight with hysteresis (night >0.55, day <0.45) at the existing 1 Hz tick (store.ts:153); 1.2 s crossfade, cut under reduced motion; depends on the token pass (O8-I2)."
+  },
+  {
+   "id": "O8-F2",
+   "title": "No type system; italics carry no meaning; sub-minimum label sizes",
+   "severity": "medium",
+   "evidence": "harbour-ui.css: 26 distinct font sizes (9.5–36 px); .hb-sub :158, .hb-why :165, .hb-caption :201 all italic (~20 italic rule groups); 9.5 px at :390/:399, 10.5 px at :189",
+   "detail": "Half-pixel steps mean hierarchy comes from italic vs roman instead of size, weight and colour. With the main explanatory paragraph, subtitle, captions, hints, foot and empty states all italic, italic stops signalling 'annotation/decorative'. EB Garamond's small x-height makes 9.5–10.5 px labels illegible.",
+   "fix": "O8-I2: 8-step scale (11.5/13.5/14.5/16/17.5/21/30/38), roman body, italic only for water names, notes and decoration; floors of 11.5 px caps and 13 px lowercase."
+  },
+  {
+   "id": "O8-F3",
+   "title": "Colour is hard-coded across CSS, SVG and canvas, so no theme can work",
+   "severity": "medium",
+   "evidence": "31 hex + ~20 rgba literals in harbour-ui.css/sound-toggle.css; SVG inks in bits.tsx:78-82, 100-109, 129 and Search.tsx:35-49; canvas inks in postcard.ts:65-84",
+   "detail": "A night palette, prefers-contrast or forced-colors support (S05-I11) would each require touching dozens of literals; repeated rgba(166,130,66,α) washes at six alphas are one token family.",
+   "fix": "O8-I2: tokens per mockups/O8-pilot-chart.css (surface, ink, brass, washes, state, chain inks); SVG strokes via var() or currentColor; postcard reads computed tokens."
+  },
+  {
+   "id": "O8-F4",
+   "title": "Controls do not form a family and there is no primary action style",
+   "severity": "medium",
+   "evidence": "harbour-ui.css:95-98 (strip), 169-171 (follow), 234-239 (chip), 241-244 (sorts), 325-328 (tabs); Postcard.tsx:5-9 inline buttons ('the Harbour CSS sits at its byte budget'); arrival-shell.css:121-124 (sans grey button); O8-postcard.png",
+   "detail": "Seven treatments, with border weights from 0.5 to 1 px. The postcard's Save is a utility rectangle. The budget pressure pushes styles into JS.",
+   "fix": "O8-I3: primary, secondary, text and icon buttons, chip, tabs, close and menu as one spec (O8-specimen.html); move the postcard styles back into CSS (paid for by O8-I2 deletions)."
+  },
+  {
+   "id": "O8-F5",
+   "title": "Phone and small-window welcome is the least crafted surface",
+   "severity": "medium",
+   "evidence": "base-phone-welcome.png, O8-blocked-700x560.png, O8-phone-landscape.png vs O8-arrival.png; arrival-shell.css:14,19,101 (--pv-ui system sans); index.html:62-96",
+   "detail": "Phones get a navy page with system-sans body, a plain underlined link list and no paper, brass or glyphs, unlike the arrival card in the same stylesheet. Content defects are already in S08 (F5 'Peg Stability Index' at fallback-links.ts:2 / index.html:85; F6 the reason appears last).",
+   "fix": "O8-I5: paper card over the poster, serif body (fonts already preloaded, index.html:14-15), glyph guide, the action first, a live window gauge; adopt S08-I2's handoff."
+  },
+  {
+   "id": "O8-F6",
+   "title": "Stale is colour-only and chart mode is invisible on mouse devices",
+   "severity": "medium",
+   "evidence": "harbour-ui.css:86-92 (strip collapses on hover devices), :78 stale dot #c08a2e = 2.58:1 on paper; :316 .hb-chart-badge styled but never rendered (grep)",
+   "detail": "With a mouse the corner mark at rest is wordmark + 7 px dot, so 'stale' is an amber dot below the 3:1 non-text minimum, carried by colour alone (PRODUCT.md forbids). Pressing C shows labels but no indicator or exit hint.",
+   "fix": "O8-I7: show the state word whenever not live, mark stale with a ring-and-bar shape at ≥3:1 (#9c6a17 = 4.0:1), and use the slip for modes (Names on · C hides them)."
+  },
+  {
+   "id": "O8-F7",
+   "title": "PSI sparkline end label disagrees with the headline score",
+   "severity": "medium",
+   "evidence": "O8-pharos-panel-sunset.png (headline 91.4, sparkline end 88.7 labelled 'today'); bits.tsx:82, :84; Panel.tsx:248-252, :832",
+   "detail": "The end label is the last daily close and the axis says 'today', directly under the live score, so a visitor sees two 'now' numbers. Related to S02-F11 (undated axes).",
+   "fix": "O8-I9: date the closes, add a hollow live marker labelled with readings.psi.score, and add a unit test."
+  },
+  {
+   "id": "O8-F8",
+   "title": "Ledger tables overflow the 700 px sheet on tablets",
+   "severity": "medium",
+   "evidence": "O8-tablet-ledger-coins.png (1194×834 touch); Ledger.tsx:183-189 (7 Coins columns); harbour-ui.css:320, 344",
+   "detail": "Home is clipped, and State and Grade sit behind a horizontal scroll inside a vertical scroll. At 44 px rows the coin name wraps under its symbol.",
+   "fix": "O8-I8: container-query column priorities, one-line coin cell, sticky first column (with S03-I10)."
+  },
+  {
+   "id": "O8-F9",
+   "title": "Bottom sheet has no detents or grabber and an unbounded measure",
+   "severity": "medium",
+   "evidence": "O8-tablet-portrait-sheet.png (110+ characters per line at 834 px); harbour-ui.css:439-452; store.ts:54-55",
+   "detail": "A fixed 50dvh box that can only be closed; the 24h/7d/30d cells stretch across 800 px; nothing signals that the sheet scrolls.",
+   "fix": "O8-I4 (visual spec) with S07-I6 (heights and gestures)."
+  },
+  {
+   "id": "O8-F10",
+   "title": "Symbols fall back to a system font inside Garamond text",
+   "severity": "low",
+   "evidence": "fontTools on public/fonts/*.woff2: no U+2020, U+2190, U+2192, U+2197, U+2265; used at facts.ts:228, Search.tsx:50, Panel.tsx:466,474,698,733, events.ts:345, Ledger.tsx:210, KeyList.tsx:10",
+   "detail": "The dagger in wreck tags, arrows in the Day book and key list, and the external-link mark render in DejaVu, Segoe or Apple Symbols, at a different weight and size.",
+   "fix": "O8-I10: add the glyphs to the subset (+1–2 KB per face) or draw arrows and the external mark as icons."
+  },
+  {
+   "id": "O8-F11",
+   "title": "In-world painted lettering uses Georgia/Times, not the harbour face",
+   "severity": "low",
+   "evidence": "civic/paint.ts:9, shipyard.ts:354-369, wreck-cove.ts:375-383, fleet/emblems.ts:202 vs build-crests.mjs:219-220 (sea lettering in EB Garamond)",
+   "detail": "Without Georgia (Linux, ChromeOS, Android) signboards and wreck boards fall back to Liberation or DejaVu Serif, so the picture and the UI use two type voices.",
+   "fix": "Cross-lane (O6/O5): paint with 'EB Garamond' after document.fonts.load (600 instead of 700)."
+  },
+  {
+   "id": "O8-F12",
+   "title": "Postcard presented frame-in-frame with utility buttons",
+   "severity": "low",
+   "evidence": "O8-postcard.png; Postcard.tsx:7-8, 55-58; postcard.ts:64-75",
+   "detail": "Dialog paper, neatline, deckle paper and brass frame are four frames around one print. Behaviour defects (modality, provenance, touch entry) are owned by S20-F2..F6, S05-F4 and S07-F6.",
+   "fix": "O8-I11: the print alone on the veil, with Save the print (primary), Copy and Share… below it."
+  },
+  {
+   "id": "O8-F13",
+   "title": "Unused icon dependency and dead CSS",
+   "severity": "low",
+   "evidence": "package.json:80 lucide-react with no import anywhere in src/shared/functions; harbour-ui.css:229 .hb-epitaph, :316 .hb-chart-badge, :408 .hb-latest unused",
+   "detail": "The 21 inline SVG icons already share a 1.1–1.3 stroke family; the dependency adds install surface only. The dead rules waste about 0.6 KB of a nearly full CSS budget.",
+   "fix": "O8-I12: adopt lucide for utility icons at 1.25 stroke or drop it; delete the dead rules in the token pass."
+  },
+  {
+   "id": "O8-F14",
+   "title": "Unfurl copy describes a retired world",
+   "severity": "low",
+   "evidence": "functions/index.ts:68-77 (lighthouse, pigeonnier), :110 ('the water under its hull is peg risk, the harbour it docks in is its chain')",
+   "detail": "Public link previews would teach the old grammar. Today peg risk is the Shoals and sea state, and a boat visits several chains. The client never reads ?sel= (S20-F1), so this text is reachable only by hand-made links today.",
+   "fix": "Rewrite with the panel vocabulary when S20-I1 restores selection links (ids: ship.<id>, pharos)."
+  }
+ ],
+ "ideas": [
+  {
+   "id": "O8-I1",
+   "title": "Night bridge palette (S-52-style day/night chart palettes)",
+   "what": "Read ctx.uniforms.uNight in the store's existing 1 Hz tick; set data-light='night' on .hb-ui above 0.55 and back to 'day' below 0.45. A token block redefines paper, ink, brass, washes, state and chain inks, the chart-label halo (cream ink on dark halo) and the shadows. Colour transitions take 1.2 s and cut under reduced motion. Values and contrast are validated in mockups/O8-pilot-chart.css (all text ≥5.8:1 on night paper).",
+   "visitor_benefit": "At night the Pharos beam and the lamps become the brightest things again; panels stop glaring and read like a chart-plotter on a dark bridge.",
+   "pillar": "prettier",
+   "meaning": "ux",
+   "data_and_dom": "n/a: follows the decorative clock (uNight), never market data; every text/token pair re-validated ≥4.5:1 (table in O8-ui-design.md §4).",
+   "where": "src/harbour/ui/store.ts:153 (tick), src/harbour/ui/App.tsx:112 (root attribute), harbour-ui.css token block, sound-toggle.css, ChartLabels halo (harbour-ui.css:301-302), postcard veil",
+   "effort": "M",
+   "perf_cost": "0 GPU. One attribute write per dusk and dawn; one overlay-subtree restyle (<0.5 ms); 1.2 s of colour transitions on ~10 small layers. CSS +~1.2 KiB raw / +0.35 KiB gzip.",
+   "risks": "Reinterprets D12 'chart-paper panels' (operator decision). The switch must not flicker at dusk (hysteresis). Contrast must be re-checked for every state. Forced-colors must still override.",
+   "impact": 5,
+   "confidence": 4,
+   "depends_on": [
+    "O8-I2",
+    "S23-I3"
+   ]
+  },
+  {
+   "id": "O8-I2",
+   "title": "Pilot's Chart tokens: 8-step type scale, italics grammar, 4 px spacing, every ink a token",
+   "what": "Replace 26 sizes with --fs-cap 11.5, note 13.5, small 14.5, body 16, lead 17.5, h3 21, title 30, display 38. Body text and .hb-why/.hb-sub become roman; italic is kept for water names, notes and decoration. Spacing tokens 4/8/12/16/20/24/32. Colour tokens for surface, ink, brass, washes (.07/.13/.22), state and chain inks. SVG uses var() or currentColor (bits.tsx, Search.tsx); the postcard canvas reads computed tokens. Delete dead rules.",
+   "visitor_benefit": "Clearer hierarchy (one key figure, one title, quiet notes); italic means 'not a reading'; no illegible 9.5 px labels.",
+   "pillar": "professional",
+   "meaning": "infra",
+   "data_and_dom": "n/a: presentation only; no text or mapping changes.",
+   "where": "src/harbour/ui/harbour-ui.css, src/harbour/audio/sound-toggle.css, bits.tsx, Search.tsx, postcard.ts, public/arrival-shell.css (shared tokens)",
+   "effort": "M",
+   "perf_cost": "CSS roughly neutral (−0.6 KiB dead rules/duplicate rgba, +0.8 KiB tokens); 0 runtime cost.",
+   "risks": "Visual regressions across about 15 panels; needs a screenshot pass of the UI states captured here. Tokenisation alone can add bytes (S23).",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": [
+    "S23-I3"
+   ]
+  },
+  {
+   "id": "O8-I3",
+   "title": "One control family",
+   "what": "Buttons (32 px, 44 px coarse; 1 px rule border; wash-2 hover, wash-3 pressed): primary (ink fill, at most one per surface), secondary, text (link colour, 3 px underline offset), icon (32 px, 16 px glyph at 1.25 stroke). Chip 28 px with an inset ring and the count as a note. Round close paired with Copy link. Tabs with caps label and roman count. Radio menu. Apply to the strip, follow, sorts, chips, sound menu, postcard and welcome button.",
+   "visitor_benefit": "Every clickable thing looks clickable in the same way; the one primary action per surface is obvious.",
+   "pillar": "professional",
+   "meaning": "ux",
+   "data_and_dom": "n/a",
+   "where": "harbour-ui.css, sound-toggle.css, Postcard.tsx (drop inline styles), DetailFallback.tsx/Panel.tsx/Ledger.tsx close buttons, arrival-shell.css:121-124",
+   "effort": "S",
+   "perf_cost": "≈0; CSS −0.3 to +0.4 KiB.",
+   "risks": "Low; keep the existing aria-pressed/expanded semantics.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "O8-I2",
+    "S23-I4"
+   ]
+  },
+  {
+   "id": "O8-I4",
+   "title": "Detented bottom sheet with a grabber and a two-column, bounded body",
+   "what": "Below 900 px: a 40×4 grabber; detents peek (≈132 px: medallion, title, one fact, close), half (50dvh) and full (92dvh); body limited to 46 em, two columns from 700 px; a 'Pull up for more' note when content continues; camera framing (store.ts SHEET_FRACTION) follows the active detent.",
+   "visitor_benefit": "On tablets and foldables the world stays visible while reading; text has a readable measure; the sheet feels native.",
+   "pillar": "all-devices",
+   "meaning": "ux",
+   "data_and_dom": "n/a",
+   "where": "harbour-ui.css:439-452, Panel.tsx SidePanel, store.ts:54-55 & framed() :351-367",
+   "effort": "M",
+   "perf_cost": "0 GPU; drag via transform on one layer.",
+   "risks": "Gesture conflicts with world pan (S07 owns them); reduced motion must cut between detents.",
+   "impact": 4,
+   "confidence": 3,
+   "depends_on": [
+    "S07-I6",
+    "O8-I2"
+   ]
+  },
+  {
+   "id": "O8-I5",
+   "title": "Welcome pages in the harbour's voice (phone and too-small window)",
+   "what": "Phone: poster hero, a paper card with the wordmark, then 'Open it on a larger screen' first with Send to my computer (navigator.share) and Copy link, the three-row guide drawn with the ledger's line glyphs, and links with external marks. Small window: a centred paper card with 'Give this window a little more room', live W×H numbers (resize already re-admits, main.tsx:61) and a gauge (this window vs 720×600). Serif body; one name, 'Pharos Stability Index'.",
+   "visitor_benefit": "Phone visitors meet the same crafted product as desktop visitors, learn at once why there is no harbour, and can hand the link to a bigger screen.",
+   "pillar": "all-devices",
+   "meaning": "ux",
+   "data_and_dom": "n/a: static page; no /api request, no world runtime (gate preserved); same guide text as HARBOUR_GUIDE (arrival-shell.tsx:5-9).",
+   "where": "index.html:62-96 template, public/arrival-shell.css:95-134, src/desktop-only-fallback.tsx, src/fallback-links.ts, src/main.tsx:14-25",
+   "effort": "S",
+   "perf_cost": "0 bytes for fonts (400/600/400i already preloaded or used); +~1 KiB CSS in arrival-shell.css (first paint, static).",
+   "risks": "Keep client.test.tsx copies identical; Share must be feature-detected; no orientation tests.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": [
+    "S08-I2"
+   ]
+  },
+  {
+   "id": "O8-I6",
+   "title": "A toolbar that reads as controls, with a More overflow for touch parity",
+   "what": "Desktop (on hover or focus): '/ Search · L Ledger · C Names · H Home · ⋯' with key caps, in title case, 26 px items. Touch: 16 px icon + label (Search, Ledger, Names, More) at 44 px. More opens a paper menu with Home, Postcard (P), Harbourmaster's watch (W) and 'How to read the harbour' (legend), each with a one-line description. Rename 'chart' to 'Names'.",
+   "visitor_benefit": "Touch visitors get postcard, watch and legend; desktop visitors see what C does and learn the keys.",
+   "pillar": "all-devices",
+   "meaning": "ux",
+   "data_and_dom": "n/a",
+   "where": "src/harbour/ui/CornerMark.tsx:76-87, harbour-ui.css:86-103, 419-428, KeyList.tsx",
+   "effort": "S",
+   "perf_cost": "≈0; +~0.4 KiB CSS; icons ≈0.3 KiB each.",
+   "risks": "Strip width on 834 px portrait (~600 px); D11 minimal chrome: the strip stays hidden at rest on hover devices.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": [
+    "S07-I8",
+    "S26-I5",
+    "O8-I3"
+   ]
+  },
+  {
+   "id": "O8-I7",
+   "title": "State you can see: freshness word, stale shape, and one slip for modes and confirmations",
+   "what": "The collapsed corner mark shows the state word whenever truthState is not 'current' ('stale · 2 h old', 'awaiting data'). The stale dot becomes a ring with a bar at ≥3:1 (#9c6a17 = 4.0:1 day, #d9a441 night). One 'slip' component (bottom-centre of the free area; icon, caps label, one line, optional key or text action; 220 ms in; confirmations 3.5 s, modes persistent) replaces .hb-watch and the unused .hb-chart-badge, and covers Names on, Following, Watch, Link copied and Postcard saved. Never used for market events.",
+   "visitor_benefit": "Nobody mistakes a stale harbour for a live one, including colour-blind visitors and anyone not hovering; modes always show how to exit.",
+   "pillar": "professional",
+   "meaning": "data-bound",
+   "data_and_dom": "Freshness from truthState(model) (bits.tsx:7-16): state 'stale' when stablecoins/chains truth is stale or unavailable; DOM text unchanged ('stale · N old', 'awaiting data'), now always visible when not live; unit test: CornerMark at rest renders the word for stale and unavailable.",
+   "where": "CornerMark.tsx:47-60, harbour-ui.css:76-92, 316, 477-479, App.tsx:120-126 (watch), store.ts announce",
+   "effort": "S",
+   "perf_cost": "≈0; +~0.3 KiB CSS.",
+   "risks": "D11 'single live/stale dot': a word appears only in exceptional states; the slip must stay quiet (no stacking, no market events).",
+   "impact": 4,
+   "confidence": 5,
+   "depends_on": [
+    "O8-I2"
+   ]
+  },
+  {
+   "id": "O8-I8",
+   "title": "Responsive ledger table with row-to-hull linking",
+   "what": "Container queries on .hb-ledger: below 760 px hide Peg, State and Grade (data-priority 3), and below 600 px hide Home. One-line coin cell (symbol 16/600 + italic name, truncated). Sticky first column. Rows 32/44 px. Row hover or focus calls picking.setHover for that hull, so it lifts in the world and the tag appears; Enter flies there (exists).",
+   "visitor_benefit": "Tables fit tablets without nested scrolling, and the ledger and the world point at each other.",
+   "pillar": "informative",
+   "meaning": "ux",
+   "data_and_dom": "n/a: same values; the hidden columns stay in the accessible table via a column picker (with S03-I10).",
+   "where": "src/harbour/ui/Ledger.tsx:133-176 (SortTable), harbour-ui.css:319-353, store.ts setHover",
+   "effort": "M",
+   "perf_cost": "Hover-lift reuses the existing picking path (1 extra pick-state change per row hover); no extra draws.",
+   "risks": "Hover-lift for rows scrolled off-world must be ignored; keep th aria-sort.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": [
+    "S03-I10",
+    "O8-I2"
+   ]
+  },
+  {
+   "id": "O8-I9",
+   "title": "A sparkline that tells the time",
+   "what": "Plot stability.history as dated daily closes, append the live reading as a hollow marker joined by a dotted segment, and label it 'now 91.4' from readings.psi.score. The axis reads '<first date> · daily closes' and '<last close date> close 88.7 · now 91.4'. Same in Chart Room (Panel.tsx:832).",
+   "visitor_benefit": "No more two different 'now' numbers; visitors see that the live index differs from yesterday's close.",
+   "pillar": "informative",
+   "meaning": "data-bound",
+   "data_and_dom": "Fields: stability.history[].date/score (shared/types/stability.ts:41-47), readings.psi.score. DOM text: 'D Mon close X · now Y'. Unit test: the end label equals psi.score when lit; the axis dates match the first and last history dates.",
+   "where": "src/harbour/ui/bits.tsx:58-87, Panel.tsx:248-256, 832",
+   "effort": "S",
+   "perf_cost": "0",
+   "risks": "Must handle a missing live score (no marker) and gaps (S02-F11).",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "S02-I10"
+   ]
+  },
+  {
+   "id": "O8-I10",
+   "title": "Type completeness: glyph subset and one face across world and UI",
+   "what": "Re-subset the three EB Garamond woff2 with U+2020 † U+2190–2193 arrows U+2197 ↗ U+2264/2265 ≤≥ U+2248 ≈ (optionally c2sc/smcp on 600 only for true small caps). Share one family name across arrival, overlay and postcard (S23-I9). Ask O6/O5 to paint signage and emblems with 'EB Garamond' after document.fonts.load.",
+   "visitor_benefit": "No mismatched symbols inside sentences; the town's signs speak in the same typeface as the chart.",
+   "pillar": "professional",
+   "meaning": "infra",
+   "data_and_dom": "n/a",
+   "where": "public/fonts/*.woff2 (build step), harbour-ui.css:3-5, arrival-shell.css:3-5, civic/paint.ts:9, shipyard.ts:354, wreck-cove.ts:375, emblems.ts:202",
+   "effort": "S",
+   "perf_cost": "+1–2 KB per face (+6–9 KB with small caps, optional); canvas text unchanged in cost.",
+   "risks": "Signage must wait for the font (fallback first, repaint once) or textures pop.",
+   "impact": 2,
+   "confidence": 5,
+   "depends_on": [
+    "S23-I9"
+   ]
+  },
+  {
+   "id": "O8-I11",
+   "title": "Postcard presented as a print",
+   "what": "Drop the dialog paper and neatline: the deckled print sits on the veil, caption included, with 'Save the print' (primary), 'Copy' (ClipboardItem image/png) and 'Share…' (navigator.share with files, feature-detected) below. Styles move from inline to CSS. Entry from the More menu on touch.",
+   "visitor_benefit": "The postcard feels like an object worth keeping and is easy to share from tablets and Macs.",
+   "pillar": "professional",
+   "meaning": "ux",
+   "data_and_dom": "n/a: the caption logic is unchanged (provenance fixes are S20-I5).",
+   "where": "src/harbour/ui/Postcard.tsx, postcard.ts, harbour-ui.css",
+   "effort": "S",
+   "perf_cost": "0",
+   "risks": "Clipboard and Share support varies; fall back to Save only. Modality per S05-F4.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": [
+    "S20-I6",
+    "S20-I7",
+    "O8-I3",
+    "O8-I6"
+   ]
+  },
+  {
+   "id": "O8-I12",
+   "title": "One hairline icon set",
+   "what": "Either adopt lucide-react (already a dependency) through a tiny Icon wrapper fixed at 16 px, strokeWidth 1.25 and currentColor for the eight utility icons (close, search, link, share, copy, download, external, chevron), or delete the dependency and keep the hand-drawn set. Thicken the ledger legend glyphs to 1.4 stroke with one brass accent stroke each so they read at 46 px.",
+   "visitor_benefit": "Icons look like one family; legend pictures are legible at a glance.",
+   "pillar": "professional",
+   "meaning": "ux",
+   "data_and_dom": "n/a",
+   "where": "package.json:80, Ledger.tsx:62-113, DetailFallback.tsx, Panel.tsx, Search.tsx, SoundToggle.tsx",
+   "effort": "S",
+   "perf_cost": "≈0.3 KiB gzip per lucide icon (tree-shaken); 0 if kept hand-drawn.",
+   "risks": "Lucide's geometric style must stay at 1.25 stroke to match the hairline voice.",
+   "impact": 2,
+   "confidence": 4,
+   "depends_on": [
+    "O8-I3"
+   ]
+  },
+  {
+   "id": "O8-I13",
+   "title": "Panel page-turn when one selection replaces another",
+   "what": "When PanelContent remounts on a new key (Panel.tsx:56), run a 160 ms opacity and 4 px rise on .hb-panel-body and redraw the head rule, matching the existing 'page' sound cue (SoundToggle.tsx:28). Reduced motion: cut.",
+   "visitor_benefit": "Moving from ship to ship feels like turning the chart's pages, not a jump cut.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: motion only; content identical.",
+   "where": "harbour-ui.css:465-471, Panel.tsx:41-58",
+   "effort": "S",
+   "perf_cost": "One compositor-only animation per selection change.",
+   "risks": "Must not delay focus to the title (keep the focus effect immediate).",
+   "impact": 2,
+   "confidence": 4,
+   "depends_on": [
+    "O8-I2"
+   ]
+  }
+ ],
+ "top_picks": [
+  {
+   "id": "O8-I1",
+   "why": "The most visible change in the product. At night the chrome currently out-shines the Pharos; one token block and a 1 Hz attribute give the night back to the beam, at zero GPU cost."
+  },
+  {
+   "id": "O8-I7",
+   "why": "About a day of work closes a colour-only freshness cue (data truth) and the invisible chart mode, and unifies the watch strip and confirmations into one quiet component."
+  },
+  {
+   "id": "O8-I2",
+   "why": "The enabler: an 8-step scale, italics grammar and tokens make I1, I3 and theming possible, sharpen hierarchy, and free CSS budget so the postcard's inline styles go back into CSS."
+  },
+  {
+   "id": "O8-I5",
+   "why": "Every phone visitor's first impression; small static work with no data and no new fonts turns the weakest surface into the harbour's voice."
+  },
+  {
+   "id": "O8-I9",
+   "why": "Small and unit-testable; removes a confusing pair of 'now' numbers from the most-visited panel."
+  }
+ ],
+ "operator_decisions": [
+  "DECISION-NEEDED (O8-I1): at night, use a dark S-52-style 'bridge' palette for the chart chrome, reinterpreting D12 'chart-paper panels'? The conservative alternative is dimmed paper at L*≈84, still about 4x the night scene's luminance. Recommendation: bridge palette.",
+  "Typography: stay with one serif family (recommended), or add a data sans for tables and numerals (+20–30 KB, a more dashboard-like look)?",
+  "Toolbar wording (O8-I6): title case with key caps, rename 'chart' to 'Names', and add a ⋯ overflow holding Postcard, Watch and Legend?",
+  "lucide-react: adopt it for 8 utility icons at 1.25 stroke, or remove the unused dependency?",
+  "Harbour CSS cap (bundle-budgets.mjs:57-58): allow about +2 KiB raw / +0.6 KiB gzip for the night tokens and control family, or require offsetting deletions (≈0.8 KiB available from dead rules and duplicate washes)?",
+  "OG card: add a discreet wordmark lockup (no readings, per GITHUB_MEDIA.md)?"
+ ],
+ "cross_lane_hooks": [
+  "S23 (UI engineering): implement O8-I2 with the values in mockups/O8-pilot-chart.css (S23-I3 explicitly defers values to the visual lane); S23-I4 close/action consolidation = O8-I3; S23-I9 one font family name = O8-I10.",
+  "S07 (touch): sheet detents, drag and SHEET_FRACTION per detent for O8-I4; touch entry points for postcard and watch via the More menu (O8-I6).",
+  "S08 (welcome): content restructure, handoff and PSI naming; O8-I5 supplies the visual design (mockups O8-touch.html?v=phone|window).",
+  "S20 (sharing): ?sel= restore and Copy link; O8 supplies the panel link icon button and the 'Link copied' slip, plus the unfurl copy rewrite (O8-F14).",
+  "S02/S03: sparkline dating (S02-I10) for O8-I9; ledger column choices (S03-I10) for O8-I8.",
+  "S05 (accessibility): forced-colors/prefers-contrast on the new tokens (S05-I11); the slip reuses the existing polite live region.",
+  "O2 light/post and O7 motion: align the UI's night threshold with the lamp-lighting wave (uNight) so the chrome dims as the lamps come on; O1 to confirm the night hierarchy (beam > lamps > chrome) on real frames after I1.",
+  "O6 town and O5 fleet: paint signboards, shipyard placards, wreck boards and sail emblems in EB Garamond after document.fonts.load (O8-F11)."
+ ]
+}

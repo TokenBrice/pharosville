@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>O8 · Pilot's Chart · desktop day / night</title>
+<meta name="viewport" content="width=1600">
+<link rel="stylesheet" href="O8-pilot-chart.css">
+<style>
+  html, body { margin: 0; background: #0d1b2a; }
+  .stage { position: relative; width: 1600px; height: 1000px; overflow: hidden; background: #0d1b2a center / cover no-repeat; }
+  .stage.day { background-image: url("O8-bg-day-ship.jpg"), linear-gradient(#bcd0dc, #2f6f8f); }
+  .stage.night { background-image: url("O8-bg-night.jpg"), linear-gradient(#141c2c, #0d1b2a); }
+  [data-v="day"] .stage.night, [data-v="night"] .stage.day { display: none; }
+  .free-centre { left: calc((100% - 386px) / 2) !important; }
+  .usdt-medal img { width: 30px; height: 30px; }
+</style>
+<script>document.documentElement.dataset.v = new URLSearchParams(location.search).get("v") || "day";</script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.75"/><path d="M10.6 10.6L14 14"/></symbol>
+  <symbol id="i-close" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-link" viewBox="0 0 16 16"><path d="M6.6 9.4l2.8-2.8"/><path d="M7.2 4.6l1.1-1.1a2.6 2.6 0 0 1 3.7 3.7l-1.1 1.1"/><path d="M8.8 11.4l-1.1 1.1A2.6 2.6 0 0 1 4 8.8l1.1-1.1"/></symbol>
+  <symbol id="i-follow" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3.5"/><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3"/></symbol>
+  <symbol id="i-sound-off" viewBox="0 0 16 16"><path d="M2 6h2.4L7.6 3.3v9.4L4.4 10H2z"/><path d="M10.4 6.2l3.6 3.6M14 6.2l-3.6 3.6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path d="M5 6.5L8 9.5l3-3"/></symbol>
+  <symbol id="i-more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="0.6"/><circle cx="8" cy="8" r="0.6"/><circle cx="12.5" cy="8" r="0.6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></symbol>
+  <symbol id="i-postcard" viewBox="0 0 16 16"><path d="M2.5 3.5h11v9h-11z"/><path d="M2.5 10.5l3.2-3.2 2.6 2.6 1.9-1.9 3.3 3.3"/></symbol>
+</svg>
+
+<!-- ============================================================ A · DAY: a ship selected (side panel), pinned tag, toolbar open on hover, a slip -->
+<main class="pc stage day">
+  <div class="pc-mark pc-paper">
+    <div class="pc-mark-word"><span class="pc-wordmark">Pharos<i>Ville</i></span><span class="pc-dot" data-state="live"></span><span class="pc-state">live</span></div>
+    <div class="pc-mark-tools" role="toolbar" aria-label="Harbour">
+      <button class="pc-tool" type="button"><span class="pc-kbd">/</span>Search</button>
+      <button class="pc-tool" type="button"><span class="pc-kbd">L</span>Ledger</button>
+      <button class="pc-tool" type="button" aria-pressed="false"><span class="pc-kbd">C</span>Names</button>
+      <button class="pc-tool" type="button"><span class="pc-kbd">H</span>Home</button>
+      <button class="pc-tool" type="button" aria-label="More: postcard, watch, keys"><svg class="pc-i"><use href="#i-more"/></svg></button>
+    </div>
+    <div class="pc-mark-sound">
+      <button class="pc-iconbtn" type="button" aria-label="Sound off"><svg class="pc-i"><use href="#i-sound-off"/></svg></button>
+      <button class="pc-iconbtn" type="button" aria-label="Sound options"><svg class="pc-i"><use href="#i-chev"/></svg></button>
+    </div>
+  </div>
+
+  <div class="pc-tag-anchor pinned" style="left:592px; top:186px">
+    <div class="pc-tag pc-paper"><span class="pc-tag-swatch" style="background:#26a17b"></span><span class="pc-tag-name">USDT</span><span class="pc-tag-fact pc-num">$176.8B · alongside Ethereum</span></div>
+    <span class="pc-tag-leader"></span><span class="pc-tag-pin"></span>
+  </div>
+
+  <aside class="pc-panel pc-paper pc-neat" aria-labelledby="t-usdt">
+    <header class="pc-panel-head">
+      <div class="pc-panel-actions">
+        <button class="pc-iconbtn" type="button" aria-label="Copy a link to USDT"><svg class="pc-i"><use href="#i-link"/></svg></button>
+        <button class="pc-iconbtn round" type="button" aria-label="Close (Esc)"><svg class="pc-i"><use href="#i-close"/></svg></button>
+      </div>
+      <span class="pc-cap pc-kicker">Vessel · grain ship</span>
+      <div class="pc-title-row">
+        <span class="pc-medal usdt-medal"><img src="O8-logo-usdt.svg" alt=""></span>
+        <div><h2 class="pc-title" id="t-usdt">USDT</h2><div class="pc-sub">Tether</div></div>
+      </div>
+    </header>
+    <div class="pc-panel-body fade">
+      <div class="pc-where"><span>Alongside Ethereum</span></div>
+      <p class="pc-body pc-why">Sails a circuit of three stops, Tron, Ethereum and BSC, staying at each in proportion to its supply there. It stays longest at Tron, where 55&#8202;% of its supply sits.</p>
+
+      <section class="pc-sec">
+        <h3 class="pc-sec-h pc-cap">Supply</h3>
+        <div class="pc-display pc-num">$176.8B</div>
+        <div class="pc-changes pc-num">
+          <div><span>24 h</span><b>0.00%</b></div>
+          <div><span>7 days</span><b class="pc-down">−1.56%</b></div>
+          <div><span>30 days</span><b class="pc-down">−4.04%</b></div>
+        </div>
+      </section>
+
+      <section class="pc-sec">
+        <h3 class="pc-sec-h pc-cap">Circuit · 3 stops</h3>
+        <ul class="pc-rows">
+          <li><b>Tron</b><span class="pc-bar"><i style="width:55%"></i></span><span class="pc-num">55%</span></li>
+          <li><b>Ethereum</b><span class="pc-bar"><i style="width:40%"></i></span><span class="pc-num">40%</span></li>
+          <li><b>BSC</b><span class="pc-bar"><i style="width:5.4%"></i></span><span class="pc-num">5.4%</span></li>
+        </ul>
+        <p class="pc-note" style="margin:8px 0 0">Docks at each stop for a time in proportion to its supply there. Sailing is not a bridge transfer; the dashed line on the water is today’s rounds.</p>
+      </section>
+
+      <section class="pc-sec">
+        <h3 class="pc-sec-h pc-cap">Supply by chain</h3>
+        <div class="pc-split" role="img" aria-label="Tron 52%, Ethereum 38%, BSC 5.2%, Solana 1.4%, Plasma 0.5%, 99 other chains 2.5%">
+          <span style="flex-grow:52;background:var(--c1)"></span><span style="flex-grow:38;background:var(--c2)"></span><span style="flex-grow:5.2;background:var(--c3)"></span><span style="flex-grow:1.4;background:var(--c4)"></span><span style="flex-grow:0.5;background:var(--c5)"></span><span style="flex-grow:2.5;background:var(--c-other)"></span>
+        </div>
+        <ul class="pc-legend">
+          <li><i style="background:var(--c1)"></i><span>Tron</span><span class="pc-num">$92.2B</span><span class="pc-num">52%</span></li>
+          <li><i style="background:var(--c2)"></i><span>Ethereum</span><span class="pc-num">$67.6B</span><span class="pc-num">38%</span></li>
+          <li><i style="background:var(--c3)"></i><span>BSC</span><span class="pc-num">$9.17B</span><span class="pc-num">5.2%</span></li>
+          <li><i style="background:var(--c4)"></i><span>Solana</span><span class="pc-num">$2.44B</span><span class="pc-num">1.4%</span></li>
+          <li><i style="background:var(--c5)"></i><span>Plasma</span><span class="pc-num">$900M</span><span class="pc-num">0.5%</span></li>
+          <li><i style="background:var(--c-other)"></i><span>99 other chains</span><span class="pc-num">$4.50B</span><span class="pc-num">2.5%</span></li>
+        </ul>
+      </section>
+
+      <section class="pc-sec">
+        <h3 class="pc-sec-h pc-cap">Peg</h3>
+        <dl class="pc-dl">
+          <dt>Pegged to</dt><dd>US dollar</dd>
+          <dt>Deviation</dt><dd>−13 bps</dd>
+          <dt>Reference</dt><dd>$1.0000 <em>median of 270</em></dd>
+        </dl>
+      </section>
+    </div>
+  </aside>
+
+  <div class="pc-slip pc-paper free-centre" role="status">
+    <svg class="pc-i"><use href="#i-check"/></svg>
+    <span class="pc-cap">Link copied</span>
+    <span class="pc-small">pharosville.pharos.watch/?sel=ship.usdt</span>
+  </div>
+</main>
+
+<!-- ============================================================ B · NIGHT: the bridge palette; the Pharos selected; the mark at rest (collapsed) -->
+<main class="pc pc-night stage night">
+  <div class="pc-mark pc-paper">
+    <div class="pc-mark-word"><span class="pc-wordmark">Pharos<i>Ville</i></span><span class="pc-dot" data-state="live" aria-label="live"></span></div>
+    <div class="pc-mark-sound">
+      <button class="pc-iconbtn" type="button" aria-label="Sound off"><svg class="pc-i"><use href="#i-sound-off"/></svg></button>
+      <button class="pc-iconbtn" type="button" aria-label="Sound options"><svg class="pc-i"><use href="#i-chev"/></svg></button>
+    </div>
+  </div>
+
+  <div class="pc-tag-anchor pinned" style="left:490px; top:92px">
+    <div class="pc-tag pc-paper"><span class="pc-tag-name">The Pharos</span><span class="pc-tag-fact pc-num">PSI 91.4 · Bedrock</span></div>
+    <span class="pc-tag-leader"></span><span class="pc-tag-pin"></span>
+  </div>
+
+  <aside class="pc-panel fit pc-paper pc-neat" aria-labelledby="t-pharos">
+    <header class="pc-panel-head">
+      <div class="pc-panel-actions">
+        <button class="pc-iconbtn" type="button" aria-label="Copy a link to the Pharos"><svg class="pc-i"><use href="#i-link"/></svg></button>
+        <button class="pc-iconbtn round" type="button" aria-label="Close (Esc)"><svg class="pc-i"><use href="#i-close"/></svg></button>
+      </div>
+      <span class="pc-cap pc-kicker">The beacon</span>
+      <h2 class="pc-title" id="t-pharos">The Pharos</h2>
+      <div class="pc-sub">Pharos Stability Index</div>
+    </header>
+    <div class="pc-panel-body">
+      <div class="pc-figure"><span class="pc-display pc-num">91.4</span><span class="pc-band" style="--band:#5fb07f">Bedrock</span></div>
+      <p class="pc-body pc-why">A fire burns in the lantern and a bronze mirror throws it out to sea. The beam’s rhythm is the stability band, one sweep every 12 seconds; its reach follows the score.</p>
+
+      <section class="pc-sec">
+        <h3 class="pc-sec-h pc-cap">Last 30 days</h3>
+        <svg class="pc-spark" viewBox="0 0 324 64" role="img" aria-label="Daily closes over 30 days, 82.5 to 93.1; the 7 November close 88.7; now 91.4">
+          <line x1="0" x2="268" y1="52" y2="52" stroke="var(--rule)" stroke-width="0.5" stroke-dasharray="1 3"/>
+          <path d="M0.0,26.0L9.2,25.2L18.5,26.3L27.7,24.5L37.0,12.0L46.2,16.5L55.4,22.6L64.7,23.7L73.9,24.8L83.2,24.1L92.4,22.9L101.7,22.2L110.9,24.5L120.1,21.4L129.4,26.7L138.6,27.8L147.9,25.6L157.1,23.3L166.3,24.8L175.6,26.0L184.8,29.0L194.1,42.9L203.3,52.0L212.6,41.4L221.8,34.3L231.0,31.6L240.3,30.9L249.5,29.7L258.8,29.0L268.0,28.6" fill="none" stroke="var(--ink)" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+          <circle cx="268" cy="28.6" r="2.6" fill="var(--ink)"/>
+          <path d="M268,28.6 L300,18.4" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="2 2.5"/>
+          <circle cx="300" cy="18.4" r="3.4" fill="var(--paper)" stroke="var(--brass-ink)" stroke-width="1.6"/>
+          <text x="300" y="6" text-anchor="middle" font-size="12.5" fill="var(--ink)" font-family="inherit" style="font-variant-numeric:tabular-nums">now 91.4</text>
+        </svg>
+        <div class="pc-axis"><span>9 Oct · daily closes</span><span>7 Nov close 88.7 · now 91.4</span></div>
+        <dl class="pc-dl" style="margin-top:8px">
+          <dt>24 h average</dt><dd class="pc-num">88.3</dd>
+          <dt>30-day range</dt><dd class="pc-num">82.5 – 93.1</dd>
+        </dl>
+      </section>
+
+      <section class="pc-sec">
+        <h3 class="pc-sec-h pc-cap">Points off 100</h3>
+        <ul class="pc-rows" style="--x:0">
+          <li style="grid-template-columns:1fr 64px 3.6em"><span>Severity<span class="pc-note" style="display:block;font-size:13px">how far off peg stressed coins trade</span></span><span class="pc-bar down"><i style="width:1%"></i></span><span class="pc-num pc-down">−0.02</span></li>
+          <li style="grid-template-columns:1fr 64px 3.6em"><span>Breadth<span class="pc-note" style="display:block;font-size:13px">how much supply is off peg</span></span><span class="pc-bar down"><i style="width:100%"></i></span><span class="pc-num pc-down">−5.55</span></li>
+          <li style="grid-template-columns:1fr 64px 3.6em"><span>Stress breadth<span class="pc-note" style="display:block;font-size:13px">supply under early warning</span></span><span class="pc-bar down"><i style="width:24.9%"></i></span><span class="pc-num pc-down">−1.38</span></li>
+          <li style="grid-template-columns:1fr 64px 3.6em"><span>Trend<span class="pc-note" style="display:block;font-size:13px">the drift of recent days</span></span><span class="pc-bar down"><i style="width:29.5%"></i></span><span class="pc-num pc-down">−1.64</span></li>
+        </ul>
+        <p class="pc-note" style="margin:8px 0 0">100 − 0.02 − 5.55 − 1.38 − 1.64 = 91.4</p>
+      </section>
+      <div class="pc-foot pc-note"><span class="pc-dot" data-state="live"></span><span>Stability index updated 5 min ago</span></div>
+    </div>
+  </aside>
+
+  <div class="pc-slip pc-paper free-centre" role="status">
+    <svg class="pc-i"><use href="#i-postcard"/></svg>
+    <span class="pc-cap">Postcard saved</span>
+    <span class="pc-small pc-num">pharosville-2026-11-08-2200.png</span>
+    <button class="pc-btn pc-btn--text" type="button">Share…</button>
+  </div>
+</main>
+</body>
+</html>

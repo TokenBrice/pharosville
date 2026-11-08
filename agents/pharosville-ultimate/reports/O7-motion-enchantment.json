@@ -1,0 +1,399 @@
+{
+ "lane": "O7 motion-enchantment",
+ "executive_summary": "The camera foundations are excellent (minimum-jerk glides, log-space zoom, crane lift, a render-only idle breath) and the night arrival, once the poster has gone, is the best six seconds in the product. The weak spots are transitions and attention, not craft. (1) The first 1.5 s: the poster shrinks into a hard-edged inset and double-exposes a v1.2 golden key art over the live hour (F1). (2) The first zoom flips every ship shadow at once, 8.2 % of the frame at golden hour, because the fleet's shadow switch sits at 640 m and the landing view is 650 m (F2). (3) Data moments are staged where nobody looks: Wreck Cove is off-frame, the slipway sits on the frame edge, the reef flare is invisible by day, and a death cannot happen in production at all (F3, F4). (4) Dusk lamps light in a 40-minute gradient nobody sees happen (F8). Top ideas, all S-M with near-zero GPU cost: a night arrival where the town lights in answer to the kindled Pharos, a seamless registered crossfade, a temporal calm pass, a lamplighter's round that ignites lamp by lamp in the blue hour, and a calm moment slip with a Look glide.",
+ "current_state": [
+  "Camera rig is strong: quintic minimum-jerk glides, log-space zoom, a sin^2 crane lift on long hops and a render-only breath offset that never moves the goal (engine/camera-rig.ts:6-44, :70, :96-104); any pan or zoom cancels a glide (:110-138).",
+  "Arrival: 1100 ms poster crossfade (app/poster.ts:5) with a 6.5 s drift-in from 12 % further out and the Pharos kindled over 0.3-2.9 s to its live PSI value (app/wake.ts:14-22). At night the settled frame is superb (agents/pharosville-ultimate/shots/O7-arrival-night-13.png); the crossfade itself is the weakest moment (agents/pharosville-ultimate/shots/O7-arrival-night-01.png).",
+  "W watch: at most 3 data-ranked stops (mover, worst depeg, newest coin), 20 s dwell, fixed 260 m framing, spring-follow of the subject (ui/watch.ts:19-44, ui/store.ts:63, :464-495). Today it cycles USPD / pmUSD / USYC (agents/pharosville-ultimate/shots/O7-watch.json). F follow is a critically damped spring, omega 1.7, about 1.2 s lag (store.ts:61, :631-647). Idle breath: +/-3 % after 180 s (watch.ts:47-63).",
+  "Moments: a two-poll event detector, a rarity scheduler (<=1 per 3 min, <=6 per hour, <=20 s) and a Day book (model/event-hub.ts, model/moments.ts:16-29). The stage itself dresses only launch (bunting) and depeg (reef-beacon flare) (life/moments-stage.ts:68-89); audio rings launch and cove bells on staging (audio/feed.ts:384-392).",
+  "Sim voyages are finely crafted at close zoom: a 7 s stern-first launch slide with splash (sim/sim.ts:93), a 1.8x-slow tow behind a declared-decorative tug with a sagging towline (sim.ts:85, :657-664; agents/pharosville-ultimate/shots/O7-tow-zoom.png), and an adrift leg at 0.6 pace with flogging canvas (sim.ts:91).",
+  "Life: 150 walkers + 34 standers with roles by the hour, 14 gulls, dolphins every 90-150 s, goats, cats, a hay cart, smoke, flags, leaves and fireflies (life/life-system.ts:121-206, life/roles.ts). From the landing seat it reads as speckle: folk are 4-6 px, a dolphin's fin and back about 1.5 x 4.5 px (agents/pharosville-ultimate/shots/O7-dolphins2-crop.png).",
+  "Lamplighting wave: 0.4 glow units of spread outward from the Pharos (lights/lamp-wave.ts:36-43). It now shows a front in stills mid-wave (agents/pharosville-ultimate/shots/O7-lampwave-mole.png, frames 03-05) but runs about 16:28-17:08 on 8 Nov in golden light, and each lamp fades in over about 3 min.",
+  "Hover answers: hull lanterns fade in 180 ms and out 240 ms (fleet/hover-lantern.ts:10-11) and landmark rims ease (world/landmark-hover.ts:33-41), so REVIEW #14 is essentially fixed. One gap: moving from one building to another switches at once (:25-31).",
+  "Postcard: an elegant deckle print with a brass hairline and a two-line caption, copied at display resolution (ui/postcard.ts:16-88). It bakes in world-space selection chrome and inherits the panel offset (agents/pharosville-ultimate/shots/O7-follow-04.png).",
+  "Temporal quality: SMAA only, with no MSAA (engine/engine.ts:88, :100; engine/post.ts:256). Fleet shadows switch at 640 m (fleet/fleet-system.ts:79, :901). Rigging and mooring lines alias into dashes that crawl (agents/pharosville-ultimate/shots/O7-crawl-rigging.png)."
+ ],
+ "findings": [
+  {
+   "id": "O7-F1",
+   "title": "Arrival crossfade shows a hard-edged picture-in-picture and a golden-over-night double exposure",
+   "severity": "high",
+   "evidence": "agents/pharosville-ultimate/shots/O7-arrival-night-01.png (and O7-arrival-night-sheet.png frame 2); app/poster.ts:30-33; app/wake.ts:14; app/harbour-app.tsx:74-77; public/arrival-shell.css:29-33; poster last regenerated in e252a135 (v1.2.0)",
+   "detail": "During the 1.1 s fade the poster is scaled to 1/(1+WAKE_PULLBACK) = 0.893 while it is still mostly opaque, which exposes 85 px / 53 px margins of the live world around a hard rectangle. At night the golden-hour key art is double-exposed over a dark harbour, and it still shows the pre-v1.4 confetti fleet (big flags) that v1.4.0 removed. On non-16:10 aspects the object-fit:cover centre crop and the aspect-refitted camera (layout/framing.ts:59) frame different scenes, so the Pharos jumps during the fade on tablets and ultrawides. Every visitor sees this first.",
+   "fix": "O7-I1: feather the poster edges while it scales (CSS mask), register its transform to projected hero points of the live wake framing, dip it toward night with a CSS filter when the live hour is dusk or night, and refresh the key art from the v1.4 world."
+  },
+  {
+   "id": "O7-F2",
+   "title": "Every ship shadow switches on at 640 m, 10 m inside the 650 m landing distance",
+   "severity": "high",
+   "evidence": "fleet/fleet-system.ts:901 (mesh.castShadow = rig.distance < tier.shadowDist), :79-81 (High 640, Medium 520, Low 360); src/harbour/data/layout.json camera.presets.heart.distance = 650; agents/pharosville-ultimate/shots/O7-shadowpop-golden.png vs -00.png vs -01.png (world held with motion=reduce): 131,763 px (8.2 %) darken by >10 luma for 641 m -> 639 m, 131,837 px brighten back for 639 m -> 641 m, control 641 -> 641 only 0.7 %; O7-shadowpop-golden-compare.png",
+   "detail": "The landing view sits just outside the gate, so the first wheel notch, any select glide, every W watch glide and Home all cross it, and hundreds of sail and hull shadows pop at once. At noon the effect is subtle (O7-shadowpop.png); at golden hour and dawn long sail shadows appear across quays and water. Medium and Low tiers cross it deeper in a zoom, but the pop is the same.",
+   "fix": "O7-I9 (1): add hysteresis and a fade band, using a hash-dithered discard in the fleet's shadow-depth variant over shadowDist x [0.85, 1] that PCF turns into a real fade. At minimum, move the High threshold so it does not sit within 2 % of the landing distance."
+  },
+  {
+   "id": "O7-F3",
+   "title": "Staged moments happen where the visitor is not looking",
+   "severity": "medium",
+   "evidence": "Landing-frame projection (1600x1000, heart preset): Wreck Cove at x = -300 px (off-screen), slipway at x = 87 px (agents/pharosville-ultimate/shots/O7-launch-crops.png), reef beacon at (222, 346) where the depeg flare adds at most about 20 luma on a 17 px patch by day, no more than surf variance (agents/pharosville-ultimate/shots/O7-shoals-beacon.png); life/moments-stage.ts:18-22, :68-89; model/moments.ts:23-29",
+   "detail": "Only launch (bunting) and depeg (an additive warm-white sprite) are dressed by the stage. The launch slide, tow and drift are sim reactions that run at the first poll, wherever they are. Recovery, psi-band, dews-band and flow-hour are 'staged' with no dressing at all, yet they spend the 3-minute budget. There is no on-screen notice and no camera cue, so the Day book is the only witness. The REVIEW note 'moment=depeg reef flare: not seen in a still' still holds by day.",
+   "fix": "O7-I4 (a moment slip with a Look glide, and drop no-op kinds from the scheduler or give them a slip) and O7-I5 (smoke by day, fire by night at the reef beacon)."
+  },
+  {
+   "id": "O7-F4",
+   "title": "The death ceremony cannot happen in production, and bells ring a poll late",
+   "severity": "medium",
+   "evidence": "model/build.ts:14, :74, :104 (wrecked comes only from the bundled DEAD_STABLECOINS); model/events.ts header (death = a coin's state turns wrecked); audio/feed.ts:384-392 (bells on the staged moment); sim/system.ts:8-10, :238-256 (?simevent=tow is the only path)",
+   "detail": "The dead list is compiled into the bundle and cannot change within a page session, so the tug, towline and cove bell of 07-M6 are reachable only in dev. For launches, under D-4, the slide and bunting start at the first poll while the launch bell and Day book entry wait for the confirming poll, at least 60 s later, so picture and sound never coincide. A one-poll blip would still slide a hull down the ways.",
+   "fix": "O7-I6: hold the ceremonial launch slide until confirmation and ring on the splash (DECISION-NEEDED, revisits D-4 for launches only). Decide whether deaths need a live source or stay dev-only."
+  },
+  {
+   "id": "O7-F5",
+   "title": "Watch and follow land behind a moving ship, then lurch after her",
+   "severity": "medium",
+   "evidence": "engine/camera-rig.ts:96-104 (destination frozen at glide start); ui/store.ts:486 and :643 (spring reset to zero velocity after the glide); sim/path.ts:49 (cruise 2.6-4.2 m/s); agents/pharosville-ultimate/shots/O7-watch-sheet.png frames 1-2",
+   "detail": "A ship moves 4-10 m during a 0.9-2.4 s glide. That is 35-90 px at the watch's 260 m and 43-107 px at follow's 210 m. The camera lands on her old position, stops, then the spring accelerates from rest to catch her.",
+   "fix": "O7-I7: give glides a live goal and hand the ship's velocity to the spring at landing."
+  },
+  {
+   "id": "O7-F6",
+   "title": "Thin lines alias into crawling dashes",
+   "severity": "medium",
+   "evidence": "agents/pharosville-ultimate/shots/O7-crawl-rigging.png (camera static during a watch dwell, three frames: the stays render as broken dashes whose gaps move); engine/engine.ts:88 (antialias:false), :100 (EffectComposer without multisampling); engine/post.ts:256 (SMAA only); fleet/mooring-lines.ts:28 claims 'AA'd in the fragment' but :36 writes a flat colour",
+   "detail": "Rigging, mooring lines, towlines and flag halyards are sub-pixel or 1.4 px opaque ribbons with no coverage AA, and SMAA cannot rebuild them. They shimmer during every glide, during the idle breath and as hulls bob, and that is most visible at DPR 1 on laptops.",
+   "fix": "Ribbon coverage alpha from the across-ribbon coordinate with fwidth (S). Rigging minimum width through PAINT_RIGGING (fleet/hull-kit.ts:85) or 4x MSAA on the High tier (cross-lane O2/O5, measure on Apple Silicon)."
+  },
+  {
+   "id": "O7-F7",
+   "title": "Watch and postcard are keyboard-only, and the watch is a 60-second loop",
+   "severity": "medium",
+   "evidence": "ui/App.tsx:80-82 (F/P/W keys only; follow also has a panel toggle, Panel.tsx:136); ui/KeyList.tsx:14-15 (discoverable only at the foot of the Legend); ui/watch.ts:19-44; ui/store.ts:63, :155; agents/pharosville-ultimate/shots/O7-watch.json",
+   "detail": "Touch tablets admitted by the 720x600 gate cannot start the watch or take a postcard. A ten-minute watch shows the same three ships ten times at a fixed 260 m, whatever the hull size. Picking is suspended while watching, so the visitor cannot hover anything else.",
+   "fix": "O7-I8 (a data-ranked round, a corner-strip button, hover kept alive) and a postcard button (O7-I12)."
+  },
+  {
+   "id": "O7-F8",
+   "title": "The lamplighting wave runs in golden light and no lamp is ever seen to light",
+   "severity": "low",
+   "evidence": "lights/lamp-wave.ts:36-43 (START 0.3, SPREAD 0.4, RAMP 0.04); engine/time-of-day.ts golden/dusk keys (glow 0.32 at key 19.2, 0.7 at 19.7 = sunset); agents/pharosville-ultimate/shots/O7-lampwave-sheet.png and O7-lampwave-mole.png (t=16.45 at 80x speed: none at frame 02, the front crosses frames 03-06, all lit by 07); REVIEW #8",
+   "detail": "REVIEW #8 is half-fixed: a still taken mid-wave now shows lit lamps near the Pharos and dark ones far out. But the front takes about 40 min (16:28-17:08 local on 8 Nov), ends at sunset, and each lamp ramps over about 3 min at dusk's glow rate. Live, it is imperceptible.",
+   "fix": "O7-I3: ignite each lamp in about 2 s with a small overshoot and move the window to sunset through the early blue hour."
+  },
+  {
+   "id": "O7-F9",
+   "title": "Small pops and steps",
+   "severity": "low",
+   "evidence": "fleet/fleet-system.ts:614 (tug setVisibleAt: appears at the hull's bow and vanishes where the tow began); :1168 and :79 (mooring lines hard-cut at lineRange 650 m, equal to the landing distance, with b.dist from the breathing camera, :1058); life/folk.ts:428-470 (folk blink at rank thresholds, including storm thinning); world/landmark-hover.ts:25-31 (building-to-building switch is instant); fleet/hover-lantern.ts:8, :45 (hover pool steps 1.5 m)",
+   "detail": "Each is minor, but together they make motion read as switching rather than craft. The idle breath (+/-3 %, about +/-19.5 m) is enough to toggle mooring lines on hulls near 650 m.",
+   "fix": "O7-I9 (2)-(6): distance fades, a two-slot landmark hover, a continuous hover pool, folk leaving at path ends, and a tug that rows out."
+  },
+  {
+   "id": "O7-F10",
+   "title": "Postcards bake in selection chrome and mix two clocks",
+   "severity": "low",
+   "evidence": "agents/pharosville-ultimate/shots/O7-follow-04.png (selection ring and route lines in the print); ui/store.ts:503-521 (only the DOM steps aside); ui/postcard.ts:25, :33 (scene local hour vs 'Readings as of HH:MM UTC')",
+   "detail": "The keepsake shows UI-like rings and pencilled routes, and full-chroma flags on neighbouring hulls, while the subject sits off-centre to clear a panel that is not in the print. The caption pairs the visitor's local hour with a UTC as-of time.",
+   "fix": "O7-I12."
+  },
+  {
+   "id": "O7-F11",
+   "title": "Arrival sequencing: the caption competes with the kindle, and interrupts snap",
+   "severity": "low",
+   "evidence": "ui/CornerMark.tsx:36, :42 (caption 1.4 s after the model is ready, for 7 s; agents/pharosville-ultimate/shots/O7-arrival-night-02.png shows caption and kindle together); app/wake.ts:47-59 (setIntroScale(1) snaps the fire; any keydown, including Tab, L or /, cancels the drift mid-way); public/arrival-shell.css:90-92 (1 ms cut under reduced motion)",
+   "detail": "The first-visit caption appears at the same moment the fire is kindled, so the eye reads text instead of watching the light. On slow GPUs it can appear over the poster, because the React mark is mounted before reveal. Under reduced motion the golden poster cuts to the night world in 1 ms, a full-screen luminance jump; an opacity fade is not vestibular motion.",
+   "fix": "O7-I2 (3)-(4) and a 400-600 ms opacity-only fade under reduced motion (O7-I1)."
+  },
+  {
+   "id": "O7-F12",
+   "title": "Decorative life answers the weather without a legend line",
+   "severity": "low",
+   "evidence": "life/life-system.ts:207, :220, :230, :236 (stormShare thins folk, gulls and herds; dolphins only when DEWS level < 1.5 and fog < 0.05); life/roles.ts:48-56; life/dolphins.ts:8-13; ui/Ledger.tsx:107 (townsfolk and animals 'carry no data')",
+   "detail": "Dolphins appear only in CALM or WATCH with a fresh reading, so their presence is a de-facto calm-market cue. The legend says the opposite. The BRIEF rule is that decorative things never respond to data.",
+   "fix": "Operator decision: either declare it in the Weather legend ('in rough weather the townsfolk and animals take shelter; dolphins come only in calm') or decouple life from DEWS."
+  },
+  {
+   "id": "O7-F13",
+   "title": "Life is invisible from the landing seat",
+   "severity": "low",
+   "evidence": "agents/pharosville-ultimate/shots/O7-dolphins2-crop.png (pod frozen mid-roll at clock 1.0 s with dews=CALM: nothing legible); agents/pharosville-ultimate/shots/O7-crop-day-quay.png (folk are 4-6 px specks); life/dolphins.ts:22 (1.3x licence, about 3.9 m, so fin and back are about 1.5 x 4.5 px at 760 m)",
+   "detail": "Over a ten-minute watch from the landing view, the only life a visitor sees is ships, smoke, flags and gull flecks. Dolphins, goats, cats and roles are zoom-in delights.",
+   "fix": "O7-I11 (far-readable seasonal cues and a dolphin splash). Accept the rest as rewards for zooming."
+  }
+ ],
+ "ideas": [
+  {
+   "id": "O7-I1",
+   "title": "Seamless arrival: a feathered, registered, hour-matched crossfade",
+   "what": "(1) Feather the poster while it shrinks: put a soft elliptical CSS mask on .pv-poster during the crossfade so the 0.893 scale (poster.ts:30-33) never shows a hard rectangle. (2) Register it on every aspect: compute scale and translate from 2-3 hero points (Pharos foot and lantern, breakwater head; layout/framing.ts heroPoints) projected at the poster's authored framing (heart, 16:10) and at the live wake framing, so the Pharos stays put on 834x1112 tablets and 2560x1080 ultrawides. (3) Dip into night: when uNight > 0.3 at reveal, transition a CSS filter (brightness 0.4, saturate 0.6, slight cool hue) together with the opacity, so the golden key art falls into night instead of double-exposing. (4) Refresh the key art from the v1.4 world, since it still shows the v1.2 fleet. Optionally add a night variant chosen before fetch (Pages middleware rewriting the poster srcset by request.cf.timezone hour, or main.tsx swapping an inert hint). (5) Under reduced motion, use a 400-600 ms opacity-only fade instead of the 1 ms cut (arrival-shell.css:90-92).",
+   "visitor_benefit": "The first 1.5 s stop looking like a broken picture-in-picture. The key art melts into the live harbour at the same place and the same hour.",
+   "pillar": "professional",
+   "meaning": "ux",
+   "data_and_dom": "n/a: the poster carries no live numbers. The reveal contract (readiness, 1100 ms fade, boatless trial) is unchanged.",
+   "where": "src/harbour/app/poster.ts, app/wake.ts, app/harbour-app.tsx:74-77, public/arrival-shell.css, layout/framing.ts; public/harbour/poster-*.{avif,webp}; optional functions/_middleware.ts",
+   "effort": "S",
+   "perf_cost": "CSS only: one full-screen mask and filter composite for 1.1 s (about 0.2-0.5 ms/frame on an iGPU compositor, then gone); 0 draws. Optional night poster about +110 KB AVIF, one variant fetched per visit if chosen before fetch.",
+   "risks": "The head preload fetches the golden poster before any script runs, so a client-side hour swap must make that hint inert or it double-downloads. Registration must fall back to today's scale. Reduced motion must keep no scale.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O7-I2",
+   "title": "The Pharos kindles, the harbour answers: an arrival beat sheet",
+   "what": "Sequence the first 8 s as darkness, then fire, then the town, then the settle, then words. (1) For night or dusk arrivals (uWindowGlow > 0.3), add one uniform uLampArrive that runs 0 to 1 from the end of the kindle (about 2.9 s) to about 6 s, folded into hbLampGlow: a lamp, window or riding light shows only once uLampArrive passes its own lamp-wave rank (lamp-wave.ts:61-74 already ranks every light by distance from the Pharos), and the CPU mirror lampGlow drives the 16 point lights. The town catches outward from the kindled fire in about 3 s and ends at the clock's true state. (2) By day, shift the sweep phase once at reveal so the mirror's once-per-revolution glint (beam-system.ts flash term) passes over the viewer as the drift settles at about 6.5 s. The period is unchanged; only the phase moves. (3) Show the first-visit caption after the wake ends, not 1.4 s after the model (CornerMark.tsx:36). (4) Interrupt gently: ramp the kindle to full over 0.4 s instead of snapping (wake.ts:52), and let only camera inputs (canvas pointerdown, wheel, arrows, +/-) cancel the drift, not Tab, L or / (wake.ts:57-59).",
+   "visitor_benefit": "Every night arrival becomes a small ceremony: the lighthouse is lit, the harbour lights up in answer, and only then do the words appear. By day, the Pharos's flash greets the visitor as the camera settles.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "Decorative (time of day). PSI truth is kept: the beam still kindles to its live reach and colour, and the sweep period (the PSI rhythm) is unchanged; only its phase at arrival moves. A banked PSI keeps today's edge-first lamp order (fromEdge) and gets no glint. No new DOM; the caption text is unchanged.",
+   "where": "src/harbour/app/wake.ts, lights/lamp-wave.ts (+uLampArrive, CPU mirror, test), lights/lights-system.ts:355-366, fleet/riding-lights.ts, world/materials.ts (window glow), world/lighthouse-system.ts (one-time phase), ui/CornerMark.tsx:33-44",
+   "effort": "S",
+   "perf_cost": "+1 uniform and about 3 ALU in lamp, window and riding-light fragments that are already ranked, active about 3 s per visit; 0 draws; 0 KB of assets.",
+   "risks": "Keep bloom calm as lights catch, inside the existing glow. Unit-test that uLampArrive = 1 is identical to today's output. Reduced motion and automation skip it along with the wake (wake.ts:24-29).",
+   "impact": 5,
+   "confidence": 4,
+   "depends_on": [
+    "O7-I1"
+   ]
+  },
+  {
+   "id": "O7-I3",
+   "title": "The lamplighter's round: dusk lamps catch one by one in the blue hour",
+   "what": "(1) Ignite instead of fade: set LAMP_RAMP to about 0.0005 glow (about 2 s at dusk's glow rate) with a 15 % warm overshoot that settles in 1.5 s, like a wick catching, mirrored in lampGlow (lamp-wave.ts:40, :70-74, :95-100). (2) Move the window later: LAMP_WAVE_START from 0.3 to about 0.45, so the front walks from sunset into the early blue hour, when lamps read against the sky. (3) Keep the slow front: 90 lamps and 28 pierheads over about 35 min is one ignition roughly every 18 s, walking outward; dawn snuffs them in reverse. (4) Optional (M): a lamplighter figure, a folk role with a pole, walking the mole at the front through the existing LightsStore.rankOf hook (lights-service.ts:24). It is visible only when zoomed in.",
+   "visitor_benefit": "At dusk the visitor watches individual lamps catch, one after another, walking out from the Pharos along the moles: a daily ritual instead of an invisible gradient.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "Decorative (clock). The Ledger already says the lamps are 'lit outward from the Pharos at dusk; it carries no data' (Ledger.tsx:107). No data.",
+   "where": "src/harbour/lights/lamp-wave.ts (+ lamp-wave.test.ts), lights/lights-system.ts; optional life/folk.ts, life/roles.ts, public/harbour/walkways.json (mole path)",
+   "effort": "S",
+   "perf_cost": "About 3 ALU in lamp, window and riding-light fragments; 0 draws. The lamplighter adds 0 draws (an existing folk instance) and under 0.01 ms CPU.",
+   "risks": "The overshoot must stay below the bloom step that would make lights flash. Pinned ?t= night frames must be unchanged. Reduced motion keeps the single global step (lights-system.ts:359).",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O7-I4",
+   "title": "Moments you notice: a quiet slip and a Look glide",
+   "what": "When the events service stages a moment (event-hub.ts onMoment), show a small chart-paper slip under the corner mark for its duration (<=20 s). It carries the Day book's own sentence (dayBookLine) and a 'Look' button (key G). Look glides to the subject (the hull, the slipway, the reef beacon or Wreck Cove) with the normal moveTo. The slip is aria-live polite, never moves the camera on its own, and Esc dismisses it. If the W watch is running, the staged moment becomes its next stop. Also stop spending the budget on no-op kinds: recovery, psi-band, dews-band and flow-hour are staged (moments.ts:23-29) but nothing dresses them, so either give them a slip line or remove them from MOMENT_PRIORITY.",
+   "visitor_benefit": "The rare real changes the harbour stages, such as a launch at the frame's edge or a depeg on the far Shoals, are actually seen, and the visitor learns where to look.",
+   "pillar": "informative",
+   "meaning": "data-bound",
+   "data_and_dom": "Existing confirmed events only (model/events.ts: depeg = pegSummary activeDepeg false->true; launch = a new live id in stablecoins peggedAssets; D-4 two-poll confirmation). The slip text is the Day book line for that event, word for word, and the Day book entry gets the same Look. Unit test: slip text === dayBookLine(event). Dev events stay italic '(dev)'.",
+   "where": "src/harbour/ui/App.tsx (slip), ui/store.ts (lookAt, moment stop for the watch), ui/Panel.tsx (dayBookLine), model/moments.ts (priority table), ui/KeyList.tsx",
+   "effort": "M",
+   "perf_cost": "DOM only: one element for <=20 s; 0 GPU; about 1 KB gz JS (inline styles, since the Harbour CSS sits near its cap).",
+   "risks": "Calm comes from the scheduler (<=1 per 3 min, <=6 per hour, one slip at a time). Nothing is staged under reduced motion, but the Day book still lists every event. Never move the camera unasked (D-5, the L13 lesson).",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": [
+    "O7-I7"
+   ]
+  },
+  {
+   "id": "O7-I5",
+   "title": "Smoke by day, fire by night: a reef-beacon signal that reads at every hour",
+   "what": "Replace the depeg ceremony's additive warm-white sprite (moments-stage.ts:18-22, :58-63, :85-89), which is lost in the Shoals' surf by day, with the ancient beacon code. By day the fire-bowl sends three dark smoke puffs on the existing DEPEG_FLARES timing, using the ChimneySmoke particles (life/smoke.ts) as a vertical column. By night the fire flare stays. Optionally, a recovery sends a single pale puff (decide).",
+   "visitor_benefit": "A depeg is visible from the landing view in daylight, as a calm, period-true signal.",
+   "pillar": "enchanting",
+   "meaning": "data-bound",
+   "data_and_dom": "Same event and timing as today: a staged depeg (pegSummary.coins[id].activeDepeg false->true, confirmed on 2 polls), with the Day book line unchanged. The Ledger's moments note gains 'smoke by day, fire by night'. The smoke is never horizontal or banked, because fog means stale data only.",
+   "where": "src/harbour/life/moments-stage.ts, life/smoke.ts (one extra emitter), ui/Ledger.tsx (legend line)",
+   "effort": "S",
+   "perf_cost": "About +60 particles for <=7 s in the existing smoke draw; 0 new draws.",
+   "risks": "The smoke must never read as fog: a dark vertical column, short-lived, rising from the fire-bowl. The night flare stays warm white, never red.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O7-I6",
+   "title": "Bells on the beat: launches that are seen and heard together",
+   "what": "(1) Hold the ceremonial launch until confirmation: a new coin waits on the slip (her hull stage) until the confirming poll, then slides (SLIDE_S = 7 s, sim.ts:93). The launch bell rings at the splash rather than at confirmation (audio/feed.ts:384-392), the bunting runs up at the same moment, and the Day book entry lands with them. A one-poll blip then shows nothing. (2) The sim emits beats as events ('splash', 'beached'); audio keys off them when a confirmed moment is pending. (3) Deaths cannot occur in a session (O7-F4): keep the tow dev-only, or tie it to a live source (decision).",
+   "visitor_benefit": "Sound and picture agree: the bell rings as the hull meets the water, not a minute later over an empty slip, and nothing is launched on a reading that will not hold.",
+   "pillar": "enchanting",
+   "meaning": "data-bound",
+   "data_and_dom": "Launch = a new live id in /api/stablecoins peggedAssets, confirmed on 2 accepted polls (model/events.ts). Until the confirming poll her hover and panel say 'on the slip: launch awaiting the next reading'; the Day book line appears at the slide. DECISION-NEEDED: this revisits D-4's 'sim reaction unchanged' for launches only. The depeg drift stays immediate, because the Shoals position is the data.",
+   "where": "src/harbour/sim/sim.ts (launch hold, beat events), sim/system.ts, model/event-hub.ts, audio/feed.ts:338-392, fleet/bunting.ts, ui/facts.ts",
+   "effort": "M",
+   "perf_cost": "0 GPU; negligible CPU.",
+   "risks": "Truth: a coin that is in the register is shown on the slip for one more poll, and this has to be said in her tag and panel. Regression risk in the sim's launch tests (plan keys, warm legs).",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O7-I7",
+   "title": "Glides that land on a moving ship",
+   "what": "Let Glide take an optional live goal: a callback that returns the framed point each frame. glidePose already interpolates from->to with s(u), so updating 'to' stays smooth, and at u = 1 the camera's velocity equals the target's. Hand the ship's velocity (pose heading x speed) to the follow and watch springs at landing instead of zero (store.ts:486, :643). Use it in flyTo for boats (store.ts:331-344), watchNext (:464-480) and follow.",
+   "visitor_benefit": "Select, watch and follow arrive alongside the ship in one continuous move, not arrive, stop, then chase.",
+   "pillar": "professional",
+   "meaning": "ux",
+   "data_and_dom": "n/a (camera only).",
+   "where": "src/harbour/engine/camera-rig.ts (Glide.to provider, + camera-rig.test.ts), ui/store.ts:331-344, :464-495, :631-647, ui/camera-moves.test.ts",
+   "effort": "S",
+   "perf_cost": "CPU only, about 0 ms.",
+   "risks": "A moving goal must still respect the pan bounds. Reduced motion keeps cuts.",
+   "impact": 3,
+   "confidence": 5,
+   "depends_on": []
+  },
+  {
+   "id": "O7-I8",
+   "title": "The harbourmaster's round: a better W watch",
+   "what": "Replace the three-stop loop (watch.ts:19-44) with a data-ranked round of up to 8 stops, each captioned in its panel's words: the Pharos (PSI score and band), the biggest 24 h mover, the Shoals (number off peg and the worst), the storm station (if DEWS >= WATCH), the newest coin or the Shipyard's next launch, the chain office with the largest 30-day change (T6), Wreck Cove (an anniversary today), then home. Frame each stop by its size (hull LOA, landmark radius) instead of a fixed 260 m (store.ts:63). Add a 2-3 % push-in over each 14-20 s dwell, re-rank every lap, and keep hover alive while watching (store.ts:155 suspends it). Put a 'watch' button in the corner strip so touch tablets can start it (App.tsx:82 is keyboard-only). It is never started by idleness (D-5).",
+   "visitor_benefit": "A ten-minute guided tour of today's market in the world's own vocabulary, and a reason to leave PharosVille running.",
+   "pillar": "informative",
+   "meaning": "data-bound",
+   "data_and_dom": "Each stop names its field and reuses its panel sentence: stability current.score and band; sum of circulatingPrevDay (the existing mover rule, >= $1M); pegSummary activeDepeg count and max |pegDeviationBps|; the stress band; ChainRow.change30dPct (T6: +/-8 % with hysteresis); deathDate (anniversaryToday). rankRound(model) is pure with unit tests, and the banner and the aria announcement read the same lines. Stale data: the round says so at the Pharos and skips data stops, never showing a 'good' pose.",
+   "where": "src/harbour/ui/watch.ts, ui/store.ts:428-495, ui/App.tsx:120-124, ui/CornerMark.tsx (button), ui/KeyList.tsx",
+   "effort": "M",
+   "perf_cost": "Camera moves only; 0 extra GPU; about 1.5 KB gz JS.",
+   "risks": "It stays opt-in and calm: no cuts, dwells of at least 14 s. Each landmark stop needs a panel line in the same words, with tests.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": [
+    "O7-I7"
+   ]
+  },
+  {
+   "id": "O7-I9",
+   "title": "Temporal calm pass: nothing pops",
+   "what": "(1) Fleet shadows: replace the binary castShadow gate at 640 m (fleet-system.ts:901), which flips 8.2 % of the frame on the first zoom, with hysteresis and a fade band: a hash-dithered discard in the fleet's shadow-depth variant over shadowDist x [0.85, 1], which PCF turns into a real fade. (2) Mooring lines and towlines: add the coverage alpha the comment promises (mooring-lines.ts:28 vs :36) using fwidth of the across-ribbon coordinate, and fade lines over the last 15 % of lineRange (fleet-system.ts:1168). (3) The tug rows out from the Wreck Cove jetty, or fades in over 1 s, instead of appearing at the hull's bow (:614). (4) Townsfolk leave at walk-graph ends or fade over 0.4 s instead of blinking at rank thresholds (folk.ts:428-470). (5) Landmark hover keeps two slots, so moving between buildings cross-fades (landmark-hover.ts:25-31). (6) The hover pool follows the hull continuously instead of in 1.5 m steps (hover-lantern.ts:8, :45).",
+   "visitor_benefit": "The world stops flickering when you first zoom or glide, and motion reads as craft.",
+   "pillar": "prettier",
+   "meaning": "infra",
+   "data_and_dom": "n/a: no reading changes. The tug stays declared decorative ('carries no data').",
+   "where": "src/harbour/fleet/fleet-system.ts, fleet/fleet-material.ts (shadow-depth fade variant), fleet/mooring-lines.ts, life/folk.ts, world/landmark-hover.ts, world/materials.ts, fleet/hover-lantern.ts, lights/lights-service.ts",
+   "effort": "M",
+   "perf_cost": "Below the band, shadow cost is unchanged. Inside it, the fleet's depth pass runs with a discard, which turns early-z off for that pass on iGPUs (about 0.1-0.3 ms while in the band). Line AA adds blending and about 4 ALU. The second hover slot adds one vec4 uniform and about 6 ALU in kit fragments, only while hovering.",
+   "risks": "The dithered caster must be stable (a world-space per-hull hash) so it does not shimmer. The depth-prepass registry must ignore the fade variant. Program-count growth needs checking against the shader-preparation budget.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O7-I10",
+   "title": "The hour told by doves",
+   "what": "On the hour from 06 to 22, the same strikes as the audio hour bell (audio/ambience.ts:910), a flock of about 12 pale doves lifts from the Customs House's Tower of the Winds, circles the quay once (about 25 s) and resettles. Reuse the gull flock's instanced draw (life/gulls.ts) with a dove tint and a scripted loop. With sound on, the lift starts on the first strike; with sound off, the doves alone mark the hour.",
+   "visitor_benefit": "A gentle clock the eye can read from the landing view, a pale wheeling cluster over the town, and a moment where picture and sound agree.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "Decorative (clock only). The Ledger's 'Light and time of day' line adds 'doves on the hour'. No data.",
+   "where": "src/harbour/life/gulls.ts (dove variant), life/life-system.ts, audio/feed.ts and audio/ambience.ts (shared hour clock), ui/Ledger.tsx",
+   "effort": "M",
+   "perf_cost": "+12 instances in the existing gull draw, posed in the vertex shader; 0 draws; under 0.01 ms CPU; 0 KB of assets.",
+   "risks": "Calm: at most 17 a day, 25 s each. Under reduced motion the doves stay perched. The rhythm is the clock, so it must never coincide with a staged moment's slip.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O7-I11",
+   "title": "Seasonal skies seen from the seat: cranes, murmurations and a dolphin's splash",
+   "what": "Add 2-3 rare, far-readable decorative cues on a calm 'decorative score' (<=1 per 20 min, never during a staged moment, none under reduced motion, seeded by local date so captures reproduce): (1) common cranes in a V crossing high over the sea in their real migration windows (mid-Oct-Nov, late Feb-Mar), about 40 s; (2) a starling murmuration over the west lobe at winter dusk (Nov-Feb, around sunset), a slowly morphing cloud for about 60 s; (3) the dolphins' leaping roll throws a white splash ring (6-10 px of foam on dark water) through the wake service, so a pod is noticed from the seat (dolphins.ts; today 1 pod in 5 leaps).",
+   "visitor_benefit": "Over a ten-minute watch something rare and alive happens in plain view, tied to the real calendar and never to the market.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "Decorative (calendar and time). The Ledger's 'Light and time of day' line gains 'birds of passage'. No data.",
+   "where": "new src/harbour/life/flocks.ts (sharing the gull material), life/life-system.ts, life/dolphins.ts (splash via ocean/wake), season/season-system.ts (dates)",
+   "effort": "M",
+   "perf_cost": "Crane V: +16 instances in the gull draw. Murmuration: one instanced draw of about 400 quads (about 800 tris), posed in the vertex shader by a noise flow field and active only about 60 s on in-season days (+1 draw while active; the life layer is at its 8-draw budget, so share the gull draw or accept 9). About 0.05 ms on an iGPU while active.",
+   "risks": "It must not read as weather or data: no swarming over the Shoals or Wreck Cove, slow and quiet. It inherits the open life/weather question (O7-F12).",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O7-I12",
+   "title": "Postcards worth keeping",
+   "what": "(1) The photographer's step: P makes a 1.2 s glide to a composed frame before the shutter. The subject goes on a third, without the panel-clearance offset (store.ts:347-366). With nothing selected, it uses one of 3 hour-keyed views (dawn: the Pharos against the light; golden: the town and bay; night: the beam over the Roads). (2) Hide world chrome for the capture frame: the route line, the selection ring and the highlight chroma (store.ts:503-521 hides only the DOM). (3) One clock on the card: the scene time and the readings' time in the visitor's zone ('readings as of 15:00, your time'; postcard.ts:25, :33). (4) A visible postcard button for touch. (5) Optional crisp print: render 2x2 tiles with camera.setViewOffset into a 2x canvas, with tilt-shift off and the vignette applied once in 2D.",
+   "visitor_benefit": "The keepsake looks composed and clean, with a caption a stranger can read, which makes PharosVille shareable.",
+   "pillar": "professional",
+   "meaning": "ux",
+   "data_and_dom": "The caption keeps the PSI score and band and the freshness and stale lines exactly as today (postcard.ts:22-35).",
+   "where": "src/harbour/ui/postcard.ts, ui/Postcard.tsx, ui/store.ts:497-522, fleet/route-line.ts, fleet/fleet-system.ts (selection ring), ui/CornerMark.tsx (button)",
+   "effort": "M",
+   "perf_cost": "(1)-(4): 0 GPU. (5): about 4 extra frame renders at the shutter (a 60-300 ms hitch on an iGPU, on an explicit user action) and a 16 MB transient canvas at 3200x2000.",
+   "risks": "Tile seams with bloom (render overlap margins). The 'never upscaled' rule stays. The photographer's step must be skipped under reduced motion (it cuts instead).",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "O7-I7"
+   ]
+  },
+  {
+   "id": "O7-I13",
+   "title": "An anniversary lantern at Wreck Cove",
+   "what": "A dead coin's anniversary is audio-only today: the cove bell once per visit (audio/feed.ts:410, audio/ambience.ts:1104) plus a panel line. Give it a picture: a small votive lantern lit all day on that coin's hulk, as a pooled lamp at the wreck's perch, with 'anniversary today' in the hover tag. Calm and memorial, never celebratory; at most 3 lanterns.",
+   "visitor_benefit": "A visitor who wanders to Wreck Cove finds a lantern burning for a coin that died on this day.",
+   "pillar": "enchanting",
+   "meaning": "data-bound",
+   "data_and_dom": "Field: deathDate (model/anniversary.ts anniversaryToday, in the visitor's calendar). DOM: the existing Wreck Cove and obituary 'anniversary today' text, in the same words in the hover tag. Unit test through anniversaryToday.",
+   "where": "src/harbour/fleet/wreck-cove.ts, lights/lights-service.ts, ui/facts.ts",
+   "effort": "S",
+   "perf_cost": "+1-3 pooled lights from the existing pool; 0 draws.",
+   "risks": "Busy days are capped at 3 lanterns, with the rest in the panel. By day the lantern stays subtle.",
+   "impact": 2,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O7-I14",
+   "title": "The paper and the world answer each other",
+   "what": "(1) Hovering or focusing a coin row in the Ledger, a search result or a Day book line lights that ship in the world (picking.setHover: full-chroma sail by day, stern lantern at night). If she is off-screen, a small brass edge tick points toward her. (2) Closing the side panel unwinds the panel-clearance offset with a 0.8 s glide, if the visitor has not panned since (store.ts:347-366). (3) 'Show in the harbour' from the ledger and search uses the moving-target glide.",
+   "visitor_benefit": "The chart paper and the harbour feel like one instrument: you can see which hull a row means before you commit to it.",
+   "pillar": "informative",
+   "meaning": "ux",
+   "data_and_dom": "n/a: no new readings. The highlight is the existing hover state.",
+   "where": "src/harbour/ui/Ledger.tsx:183-219, ui/Search.tsx:98, ui/Panel.tsx:550, ui/store.ts, ui/picking.ts",
+   "effort": "S",
+   "perf_cost": "0 GPU beyond the existing hover; DOM events only.",
+   "risks": "A hover from the DOM must yield to a pointer hover on the canvas. Screen-reader focus must never move the camera.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "O7-I7"
+   ]
+  }
+ ],
+ "top_picks": [
+  {
+   "id": "O7-I2",
+   "why": "The most memorable 10 s for every dusk or night visitor (the town answers the kindled Pharos), for an S effort, about 0 GPU and full PSI truth."
+  },
+  {
+   "id": "O7-I1",
+   "why": "Fixes the defect every visitor meets first (the picture-in-picture and the golden-over-night double exposure) with CSS and a key-art refresh."
+  },
+  {
+   "id": "O7-I9",
+   "why": "Removes an 8.2 %-of-frame shadow pop on the very first zoom plus the line crawl; mostly S pieces with measured evidence."
+  },
+  {
+   "id": "O7-I3",
+   "why": "Turns dusk into a daily, visible ritual with a few constants and about 3 ALU."
+  },
+  {
+   "id": "O7-I4",
+   "why": "Makes the existing staging actually witnessed, with Day-book-identical text and no unasked camera moves. O7-I7 (S, confidence 5) is the close sixth and a dependency."
+  }
+ ],
+ "operator_decisions": [
+  "DECISION-NEEDED (D-4 revisit, launches only): hold the launch slide until the confirming poll so that slide, bunting, bell and Day book land together and a one-poll blip shows nothing? The trade-off is that a new coin sits on the slip for about one more poll, and her tag has to say so.",
+  "Deaths come only from the bundled DEAD_STABLECOINS list, so the tug-and-tow ceremony is dev-only. Accept that, or wire a live death source? A live source would need a new allowlisted endpoint (DECISION-NEEDED).",
+  "Decorative life thins in storms and dolphins appear only in DEWS CALM/WATCH. Declare this in the Weather legend ('in rough weather the town and its animals take shelter'), or decouple life from DEWS to honour 'decorative never responds to data'?",
+  "Arrival poster: one refreshed golden key art with a CSS dusk dip (S), or hour-matched day and night posters chosen before fetch through Pages middleware using cf.timezone (M; one Function invocation per HTML request)?",
+  "W watch scope: may the round visit landmarks (Pharos, Shoals, storm station, Wreck Cove) and get a visible button for touch? It would still never start from idleness (D-5).",
+  "Approve a 'decorative score' of at most one rare decorative cue per 20 minutes (cranes, murmuration), plus doves on the hour, all calendar-true and none under reduced motion?",
+  "Stop the thin-line crawl with 4x MSAA on the High tier (bandwidth on Apple Silicon to be measured by O2), or with a rigging minimum width plus ribbon AA only?"
+ ],
+ "cross_lane_hooks": [
+  "O2 light/post: measure 4x MSAA on High (EffectComposer multisampling) versus rigging minimum width; check bloom thresholds against the lamp ignition overshoot (O7-I3) and the arrival catch (O7-I2); capture the refreshed poster key art from the same grade (O7-I1).",
+  "O5 fleet craft: add the dithered shadow-fade variant of the fleet material (O7-I9-1), coverage AA for the mooring and tow ribbons (mooring-lines.ts:36), the tug's row-out or fade, and a rigging minimum width through PAINT_RIGGING (hull-kit.ts:85).",
+  "O3 water/coast: make the dolphin splash ring legible from 650-760 m (O7-I11), and keep the depeg smoke over the Shoals' foam from reading as fog (O7-I5).",
+  "O4 sky/weather: layer the crane V and the murmuration against the cloud banks so neither reads as a front; give the murmuration a winter-dusk palette.",
+  "O6 island/town: a lamplighter path along the moles (walkways.json), a dove roost on the Tower of the Winds, an anniversary-lantern perch on hulks, and an olive-harvest tableau in November as a seasonal life cue.",
+  "Audio (opt-in): share the hour-bell clock with the doves (O7-I10); key the launch and cove bells to the sim beats 'splash' and 'beached' (O7-I6).",
+  "UI/a11y: the moment slip's aria-live (O7-I4), watch and postcard buttons for touch (O7-I8, O7-I12), and DOM-to-world hover without camera moves on focus (O7-I14).",
+  "Perf: measure the fleet shadow pass on Medium and Low when the 640/520/360 m gates become fade bands (O7-I9)."
+ ]
+}

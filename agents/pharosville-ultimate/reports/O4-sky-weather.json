@@ -1,0 +1,393 @@
+{
+ "lane": "O4-sky-weather",
+ "executive_summary": "The sky and weather are honest, calm and cheap: the painted card costs about 0.04 ms on the RTX, and the sunrise, dusk, night, rainbow and ALERT frames are lovely. Three things matter most. (1) A critical truth bug: any rising front from Calm (the Ledger's 'reading rising') turns the harbour water into opaque cream-white blotches, brighter than the stale fog itself. The sea's mirror-cloud weight is divided by the OLD cover's shadow strength (sea-tone.ts:64) and applied unclamped. It is a two-line fix. (2) The 3D mainland mesh breaks through the sky card on tablet portrait, zoom-out and pans north, as a flat-shaded wall with pale triangle facets. Retire it (-3,966 tris). (3) The fog grammar is unmistakable by day but has no value signature at night, and the DANGER sky is a flat slab. The cheapest enchantment: a twilight wedge (Earth's shadow + Belt of Venus, since every sunset here happens behind the camera) and a Milky Way and meteors that actually show; both shipped features are invisible today. Clouds are 2D impostors without self-shadow; a height channel gives them form for about 0.05 ms on an iGPU.",
+ "current_state": [
+  "One camera-attached painted card renders the whole sky in a single shader: gradient, glow, stars, Milky Way, meteors, discs, cirrus, mackerel, eight cumulus impostors, storm deck, front lip, lightning glow, shafts, squall, three ridges and haze (src/harbour/sky/sky-glsl.ts:126-415, sky-system.ts:79-101,217-228). The horizon is pinned 20 % below the frame top (sky-system.ts:75,379), so the visible sky is a fixed 5.0 deg strip at every zoom and aspect (computed for heart, overview, ultrawide and zoom-out). The card costs 0.038-0.044 ms on the RTX (shots/gpu-passes-summary.txt).",
+  "The weather grammar is data-honest and coherent. The continuous DEWS level drives tables for cover, wind, precipitation, strikes and gloom (weather/director.ts:62-78). Fronts carry DOM trend lines (director.ts:159-192, ui/Panel.tsx:374) and recoveries hang a rainbow or moonbow (weather/rainbow.ts). Reduced motion stills drift, lightning and fronts. The rainbow is calm and depth-sorted behind the Pharos (shots/O4-rainbow.png), and ALERT reads as a crafted overcast (shots/O4-alert-squall.png).",
+  "Clouds are 2D impostors drawn inside the sky card, not billboards. Eight baked atlas cells (sky/clouds.ts:32-142) get per-bank parallax (sky-system.ts:403,549-560) and per-frame light from the real sun or moon azimuth: wrap lighting on a blurred normal, rims, a darker base (sky-glsl.ts:64-112). They have no self-shadow, one lobe recipe with a ruler-straight base, a fixed ~4:1 aspect (sky-system.ts:341), near banks cropped at the frame top, and stippled night rims. That is why they read as cotton-ball cut-outs (shots/O4-crop-day-clouds-left.png, O4-crop-night-clouds.png). In portrait they become horizontal strips.",
+  "Stale fog is unmistakable by day: the notan collapses to one mid-grey, and inner-basin saturation is 0.15 against 0.61 clear (shots/O4-notan-truth-grammar.png). At night it has no value signature: inner basin L 0.209 against 0.177, and bluer than the clear night (shots/O4-pair-night-vs-stale.png, readings/fog.ts:105-110).",
+  "Storms have drama: lightning bolts on a card behind the island, flash-lit decks, directional fill, rain rings and gloom (shots/O4-storm-night-strike*.png). But the DANGER sky is the flattest region of any frame: sky luminance SD 0.012 against 0.027-0.032 in clear frames (state-storm-danger.png). And at a night flash the rain reads as a white-scratch overlay.",
+  "Far land: the three painted ridges in the band are subtle and right (O4-crop-day-clouds-right.png). The Blender mainland mesh (hb_dress.py:1575-1637) is supposed to stay behind the card but does not always (F2).",
+  "Real-sky layer: the moon phase follows the calendar (season/calendar.ts:140-148), but the moon sits at a fixed station every night (sky-system.ts:458,475-479). The setting sun is never in frame: it sets behind-right at a relative azimuth of 117-150 deg, and COMP 0.34 puts it at th 40-51 deg (sky-system.ts:466,474). The dawn sun is in frame at th about -11 to -14 deg, and the sunrise sweep is a highlight (O4-sunrise-sweep-*.png).",
+  "Prior REVIEW issues: #3 (bright night banks) is fixed (sky-glsl.ts:107-108, moon-side rims only). #6 (lavender-grey dawn) is fixed (engine/time-of-day.ts:76-93). #5 (beam over clouds) is partly fixed in the beam lane (beam/beam-system.ts:154-156). #12 (front camouflage on the water) is still open and worse (F1)."
+ ],
+ "findings": [
+  {
+   "id": "O4-F1",
+   "title": "A rising weather front turns the harbour water into a fog-like cream veil",
+   "severity": "critical",
+   "evidence": "shots/O4-front-rising.png, O4-crop-front-sea.png and O4-front-vs-fog-notan.png (?t=11&dews=CALM&front=WARNING&frontAt=0.4); src/harbour/ocean/sea-tone.ts:64; sky/cloud-shadow.ts:34; sky/sky-system.ts:642-644; ocean/ocean-material.ts:299-300; cross-checked by O3 (reports/O3-water-coast.md, O3-F13)",
+   "detail": "hbMirrorClouds computes cc = (1 - hbCloudShadow(q)) / uCloudShadow.w. During a W01 front, uCloudShadow.w is the OLD cover's shadow strength (about 0.0098 at Calm), while hbCloudShadow uses the NEW strength behind the line (0.36 for Watch, 0.62 for Warning). cc therefore reaches about 35-60 (applied weight about 20-35 after the 0.55 factor), and ocean-material.ts applies it unclamped (col += (mCloud.rgb - sky) * mCloud.a * ...; sky = mix(sky, mCloud.rgb, mCloud.a)), which extrapolates. Inner basin goes to L 0.676 (clear day 0.327, stale fog 0.550) with a warm pink cast; in notan it is whiter than the stale fog. Every rising front that starts at Calm (the most common state) does this on the high and medium tiers; HB_LITE skips mirror clouds. The Ledger (ui/Ledger.tsx:99) defines weather rolling in as 'the reading rising', so a declared data cue renders as the reserved stale-data grammar. It is front-specific: O3 captured dews=WATCH with breaks=1 and with squall=1 (shots/O3-watch-breaks.png, O3-watch-squall.png) and saw no blowout, because both strengths scale together there. A Watch-to-Alert front still over-brightens mildly (cc about 1.5). O3 independently confirmed the cause and logged it as O3-F13 / O3-I13.",
+   "fix": "Return the local strength from hbCloudShadow (or add an hbCloudShadowW twin) and use cc = clamp((1 - r) / max(wLocal, 1e-3), 0, 1). Clamp mCloud.a to [0,1] at the consumer. On the storm side of a front (and under uStorm) tint mirror clouds toward the deck slate instead of max(sky*1.25, l*1.55). Add a CPU twin plus unit test, and a gate frame whose inner-basin luminance must stay below the same-hour stale value."
+  },
+  {
+   "id": "O4-F2",
+   "title": "The 3D mainland mesh breaks through the sky card on tablet portrait, zoom-out and pans north",
+   "severity": "high",
+   "evidence": "shots/O4-mainland-zoomout.png (?cam=-110.31,20,-98.99,1150,26); base-tablet-portrait.png; O4-crop-portrait-mainland.png; src/harbour/sky/sky-system.ts:379-391; world/island-system.ts:56-57; layout/framing.ts:59-95; scripts/harbour/blender/island/hb_dress.py:1575-1637; hb_export.py:324-328; fill_mask.py:16; world/aerial.ts:16",
+   "detail": "The card distance R = max(camY / tan(pitch - 0.3 vfov), farthest island land + 14). It grows with camera height, and the mainland is not among the land points. R against the mainland coast: landing 16:10, R 911 m vs coast 996-1076 m (hidden); heart zoomed to maxDistance 1150, R 1566 vs 1446-1526 (visible); tablet portrait (refit to 1089 m), R 1486 vs 1391-1471 (visible). The pan clamp allows about 490 m of travel north, which also brings it in. It renders as an opaque flat-shaded olive/brown wall over up to 13 % of the frame, with pale triangle facets (its steep rock faces), and replaces the open-sea horizon. It gets only the 0.28 aerial cap. The exporter comment promises 'strong fog' that does not exist at runtime, and fill_mask.py assumes it is 'never part of the frame'.",
+   "fix": "Hide the 'shakkei' node at runtime (island-system.ts:57: o.visible = false) and drop it from the export at the next island rebuild (-3,966 tris, -1-2 draws). Keep the mainland polygon in the sea SDF bake. Alternative: clamp R below the mainland's nearest forward distance, which keeps it hidden but lowers the horizon when zoomed out."
+  },
+  {
+   "id": "O4-F3",
+   "title": "Stale fog has no value signature at night",
+   "severity": "high",
+   "evidence": "shots/O4-stale-night.png vs base-night.png (O4-pair-night-vs-stale.png); notan in O4-front-vs-fog-notan.png; src/harbour/readings/fog.ts:102-110",
+   "detail": "At night the fog colour is the haze lerped 70 % toward the navy horizon, then x2.35, so it is a blue veil. Inner basin L 0.209 vs 0.177 for the clear night, contrast SD 0.067 vs 0.120, b-r +0.134 vs +0.110: bluer than the clear night. The 3-level notan is identical to a clear night's. The DOM chip says 'stale · 2 h old' while the world reads as a hazier night, which weakens the 'fog = stale only' contract (Ledger.tsx:103) for every night visitor.",
+   "fix": "Give the fog its own hue (O4-I7). At night, use a pale near-neutral moonlit bank lit by luminance only, with a minimum inner-basin lift of about +0.08 L over the same-hour clear frame. Keep the lamp halos. Gate it with O4-I8."
+  },
+  {
+   "id": "O4-F4",
+   "title": "The storm sky is a flat slab: the W02 deck structure is crushed",
+   "severity": "medium",
+   "evidence": "shots/state-storm-danger.png (sky luminance SD 0.012 vs 0.027-0.032 clear; notan = one flat mid-grey band); src/harbour/sky/sky-glsl.ts:151-152,282-301,394-398; sky-system.ts:572-588",
+   "detail": "The cell and roll modulation (about +/-10-15 %) runs BEFORE four flattening steps: the overcast desaturation, the rain-shaft and visibility slate, the zenith and horizon storm grey, and the grade (saturation x0.58, contrast x0.65 at storm 1). The pale horizon strip closes completely at cover 0.97 or more. The storm then differs from fog only by value and hue, not by structure.",
+   "fix": "Apply the structure after the greying, raise the contrast at ALERT and above, add a scud band, and keep a sliver of the horizon strip at DANGER (O4-I6)."
+  },
+  {
+   "id": "O4-F5",
+   "title": "The shipped Milky Way is invisible",
+   "severity": "medium",
+   "evidence": "shots/O4-night-sky.png (evalResult nightSky.x = 1, moon 0.3 %), O4-mw-check-*.png, base-night.png and hour-deepnight.png (tonight's new moon at Calm); src/harbour/sky/sky-glsl.ts:177-189",
+   "detail": "The band follows e = 4.6 + 2.2 sin(...), almost parallel to the horizon at e of about 2-3.5 deg, with gain 0.06. Even at full gate strength it adds about 8-10/255 in a broad horizontal bump that reads as horizon haze. Its dust lanes read as smudges. The CHANGELOG v1.4.0 promise 'a faint Milky Way on clear dark nights' is not visible.",
+   "fix": "Draw a tilted, star-dense band with a rift and 2.5-3x gain (O4-I4)."
+  },
+  {
+   "id": "O4-F6",
+   "title": "Calm and Watch skies are nearly identical by day (cloud amount under-reports the DEWS step)",
+   "severity": "medium",
+   "evidence": "src/harbour/sky/season-sky.ts:33-35; sky-system.ts:548,557; weather/director.ts:66; ui/Ledger.tsx:99",
+   "detail": "bankReveal = clamp(5 + 8 cover - slot) reveals 6.2 of 8 banks at Calm (cover 0.15) and 8 of 8 at Watch (0.37); about 3.6 vs 4.6 are in view. The code comment says 'fair-weather cumulus even when calm (2-3 banks)'. The Ledger says 'Cloud and wind follow the supply-weighted early-warning level'. By day, Calm vs Watch differs by about one bank; the night deck makes the difference legible only after dark.",
+   "fix": "Retune the reveal law so the visible banks step clearly by band, with a unit test, a CHANGELOG note and an operator decision (O4-I9)."
+  },
+  {
+   "id": "O4-F7",
+   "title": "The sky band render target re-renders every frame; the first-pass GPU spike is unattributed",
+   "severity": "medium",
+   "evidence": "src/harbour/sky/sky-system.ts:410-433 (key at :420); weather/weather-system.ts:235; weather/director.ts:262; shots/perf-rtx-day.json, perf-rtx-night.json and perf-rtx-storm.json (pass 'sky-band')",
+   "detail": "next[3] = uWeather.y is the eased, gust-modulated wind (windNow includes gustEnvelope). SKY_BAND_GLSL never reads it, so the 512x128 half-float pass and its mip chain render on 220/220 sampled frames even at a pinned hour. With the live clock, sub-LSB colour drift would also dirty it. Separately, 'sky-band' is the first timed pass and shows 1.1-1.7 ms on 16-20 % of frames (43/220 day, 36/212 night, 35/221 storm) against a p50 of 0.010 ms. Those frames total 3.5-4.5 ms vs a median of 2.4, so this drives the RTX GPU p95. It is probably an upload or sync captured by the frame's first timer query, not band ALU.",
+   "fix": "Drop uWeather.y from the key and quantise hour-driven inputs (O4-I10). Add a no-op first timed pass, or move uploads, to attribute the spike correctly before optimising."
+  },
+  {
+   "id": "O4-F8",
+   "title": "The autumn mackerel band reads as a polka-dot grid",
+   "severity": "medium",
+   "evidence": "shots/O4-crop-day-mackerel.png (from base-day.png); src/harbour/sky/sky-glsl.ts:244-260; sky/season-sky.ts:38-40",
+   "detail": "Smooth, near-identical ellipses with wide gaps sit in rows across the top 40 px of every autumn daytime frame. It is in season now (November). Real altocumulus is packed, irregular and shaded, so this reads as a printed pattern.",
+   "fix": "Use smaller, tightly packed, shaded cells with lower contrast and a gradient in cell size across the band, or retire the band and let autumn speak through the bank shapes (inside O4-I5)."
+  },
+  {
+   "id": "O4-F9",
+   "title": "Most meteors are spawned above the visible band",
+   "severity": "low",
+   "evidence": "src/harbour/sky/sky-system.ts:312-316; computed band top 5.0 deg; shots/O4-crop-meteor.png (staged, in-band); agents/claudeville-prettier/exec/INTEGRATION-NOTES.md ('Meteor streak never captured on screen')",
+   "detail": "e0 = 3.5 + 5 rand against a visible band top of 5.0 deg at every zoom, so about 70 % start out of view and many never enter it. The streak itself is well made (thin, warm, tapered).",
+   "fix": "Spawn with e0 in [1.2, visTop - 0.6], with the band top passed from cameraFrame. Aim so that 60 % or more of the streak stays in view (O4-I4)."
+  },
+  {
+   "id": "O4-F10",
+   "title": "The moon ignores the real moon's hours",
+   "severity": "low",
+   "evidence": "shots/base-night.png (t=22: a 0.3 %-lit crescent one day before new moon); src/harbour/sky/sky-system.ts:458,473-479",
+   "detail": "The disc keeps an art-directed station every night. A thin waning crescent near new moon is only up just before dawn, so the 'tonight's moon' promise holds for the phase but not the time.",
+   "fix": "Gate visibility on a calendar moonrise/moonset model (O4-I12)."
+  },
+  {
+   "id": "O4-F11",
+   "title": "Lightning can appear to strike the Pharos (the PSI hero)",
+   "severity": "low",
+   "evidence": "shots/O4-crop-strike-tower.png and O4-storm-night-strike*.png; src/harbour/weather/lightning.ts:179-184",
+   "detail": "The strike azimuth is uniform over +/-0.85 of the half-FOV, and the bolt card sits just in front of the painted ridges, so a bolt behind the islet reads as hitting the lantern. That invites a data reading of a decorative event.",
+   "fix": "Reject strike azimuths within about +/-4 deg of the Pharos's screen azimuth (O4-I6)."
+  },
+  {
+   "id": "O4-F12",
+   "title": "The shared evidence frame state-front.png does not show a front",
+   "severity": "low",
+   "evidence": "agents/pharosville-ultimate/BRIEF.md section 5; shots/state-front.png; src/harbour/weather/weather-system.ts:198-204",
+   "detail": "?front=1 is ignored because the param wants a band name. The frame is plain WARNING. Anyone judging fronts from it misses F1.",
+   "fix": "Use ?dews=CALM&front=WARNING&frontAt=0.4 (shots/O4-front-rising.png) and add it to the gate set."
+  },
+  {
+   "id": "O4-F13",
+   "title": "The sun's path is mirrored against the world's own compass",
+   "severity": "low",
+   "evidence": "shots/O4-sunrise-sweep*.png (the disc climbs to the left); src/harbour/engine/time-of-day.ts:78-93,304-312,154-158",
+   "detail": "With -z as north, the keyframe azimuths put sunrise in the WNW, noon SSW and sunset in the ENE. The dawn sun climbs to the left, which is the southern-hemisphere motion, shown to northern visitors. The art-directed light is good, so this is cosmetic.",
+   "fix": "Accept and document, or mirror only the azimuth progression after an art review. That relights every hour, so it is not recommended now."
+  }
+ ],
+ "ideas": [
+  {
+   "id": "O4-I1",
+   "title": "Fix the rising-front sea: local-strength, clamped, slate-tinted mirror clouds",
+   "what": "Make hbCloudShadow expose its cloud COVERAGE term s = smoothstep(k, k + uCloudShadowK.y, n), with k = mix(uCloudShadowK.x, uCloudShadowG.x, bh), via an out-param or an hbCloudCover twin in CLOUD_SHADOW_GLSL. In hbMirrorClouds (sea-tone.ts:64) use cc = s directly, replacing (1 - r) / uCloudShadow.w: no division and no floor. This is identical to today at Calm and correct behind a front line. Clamp mCloud.a to [0,1] where ocean-material.ts:299-300 consumes it. Under a storm deck, tint the mirror clouds toward the deck slate (uCloudShade/uCloudMid greyed as in sky-glsl.ts:290-294) instead of max(sky*1.25, l*1.55), so a storm darkens the reflection. Add a TS-twin unit test: the weight stays in [0,1] for any front from/to pair and equals today's at Calm. Add a gate frame ?dews=CALM&front=WARNING&frontAt=0.4 whose inner-basin mean L stays at or below the same-hour clear frame + 0.05. Agreed with O3 as one PR: O4 does the cloud-shadow.ts output; O3 does sea-tone.ts, ocean-material.ts, the tint and the test; sky-system.ts is unchanged.",
+   "visitor_benefit": "The one weather moment that tells 'stress is rising' reads as a darkening sea under an incoming deck, not as a white fog bank. Fog stays the stale-data signal only.",
+   "pillar": "informative",
+   "meaning": "data-bound",
+   "data_and_dom": "Protects an existing cue without changing it. Source: the supply-weighted DEWS level, with a front when a new reading is at least FRONT_MIN 0.35 away from the shown level (weather/director.ts:159,274-282). DOM: Storm panel 'Weather: <Band>, over N% of supply. Rising toward <Band>.' (ui/Panel.tsx:374, stormTrend) and Ledger 'Weather rolling in from the horizon is the reading rising' (ui/Ledger.tsx:99). Unchanged words. New unit test on the mirror weight, plus the gate frame.",
+   "where": "src/harbour/ocean/sea-tone.ts:52-67; ocean/ocean-material.ts:293-300; sky/cloud-shadow.ts:30-55; sky/sky-system.ts:640-654",
+   "effort": "S",
+   "perf_cost": "About +2 ALU per sea pixel (one extra mix and clamp); 0 draws, 0 bytes, about 0 ms.",
+   "risks": "Low. Side effect: with cc = coverage, the W03 sunbreak and W09 squall terms stay shadow-only and no longer brighten the mirror. That is correct: a dark squall bank should not reflect as lit cumulus, and the sunbreak inversion is a ground-light effect. O3's breaks/squall captures showed no blowout either way. There is no floor, so Calm mirror clouds are unchanged; a max(w, 0.02) floor would have cut them to <=49 % (Calm base strength is about 0.0098 at noon).",
+   "impact": 5,
+   "confidence": 5,
+   "depends_on": [
+    "O3-I13 (same fix): O4 owns the hbCloudShadow local-strength/coverage output in sky/cloud-shadow.ts; O3 owns the clamp, the slate tint and the unit test in ocean/sea-tone.ts and ocean-material.ts; one PR"
+   ]
+  },
+  {
+   "id": "O4-I2",
+   "title": "One far-land layer: retire the 3D mainland behind the sky card",
+   "what": "Set the 'shakkei' node invisible at runtime (world/island-system.ts:57, next to the existing castShadow=false) and remove it from the island export at the next Blender rebuild (hb_export.py:324-328 and hb_dress.py:1575-1637). Keep the mainland polygon in the sea-SDF bake (bake_sdf.py:71-72) so the sea still knows the coast. The painted shakkei ridges (sky-glsl.ts:348-371) then form the only distant land at every aspect, zoom and pan, matching the landing view. Optional follow-up: let the painted ridge heights scale slightly with the frame aspect so narrow frames keep a readable far coast.",
+   "visitor_benefit": "Tablet portrait (a supported device class), every scrolled-out view and pans north keep the open sea and the soft painted far coast, instead of a flat-shaded wall with pale triangle facets that closes the horizon.",
+   "pillar": "all-devices",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: scenery only. The mainland carries no data.",
+   "where": "src/harbour/world/island-system.ts:56-57; scripts/harbour/blender/island/hb_export.py:324-328; scripts/harbour/blender/island/hb_dress.py:1575-1637",
+   "effort": "S",
+   "perf_cost": "Saves 3,966 triangles and 1-2 draws (main pass and static-depth prepass); island.glb shrinks slightly at rebuild.",
+   "risks": "Very low. The node is referenced only by the castShadow line; key-art renders (hb_render.py:130-142) use their own Blender copy. Verify that the poster and OG card were not composed with it visible.",
+   "impact": 4,
+   "confidence": 5,
+   "depends_on": []
+  },
+  {
+   "id": "O4-I3",
+   "title": "Twilight wedge: Earth's shadow and the Belt of Venus at dusk, rays at dawn",
+   "what": "In skyBand, while the sun's elevation is between about +3 and -9 deg and the view faces away from it (every sunset in this composition: the sun sets behind-right at a relative azimuth of 117-150 deg), paint the anti-twilight arch. A blue-grey Earth's-shadow band rises from the horizon (top e_s = k * (depression + 1 deg), mapped into 0-2.5 deg of band), under a 0.8-1.2 deg pink Belt of Venus (palette glow/pink at 25-35 %). It peaks toward the anti-solar azimuth with the same COMP compression (in frame on the left in autumn and winter, th about -10 to -14 deg) and fades through the blue hour. At dawn the sun is in frame (th about -14 deg): extend the W03 crepuscular-ray code (sky-glsl.ts:325-334) to clear mornings, with 3-5 faint rays from behind the bank nearest the sun whenever one sits within about 6 deg. It is inside skyBand, so the sea's band reflection mirrors the belt for free. Pass the anti-solar th and sun depression in a spare uniform (for example uMoonPhase.w plus one new vec4).",
+   "visitor_benefit": "Dusk, the most-watched hour, gains the real, recognisable sky structure people see when they face away from a sunset, so the sky band itself becomes a clock. Clear dawns get a quiet set-piece.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: clock and calendar only. The Ledger already lists light and time of day as decorative (ui/Ledger.tsx:107).",
+   "where": "src/harbour/sky/sky-glsl.ts (new block before the haze band; W03 shafts); sky/sky-system.ts:455-505; sky/palette.ts (belt colour per key)",
+   "effort": "S",
+   "perf_cost": "About 10-14 ALU on band pixels, branch-skipped outside twilight; +1 noise tap for the dawn rays; also in the 512x128 band render target. About 0.005-0.01 ms on an iGPU; 0 draws.",
+   "risks": "Calm: static bands that move only with the sun. Truth: keep the shadow band chromatic (blue, b-r > 0) and above the haze line so it can never read as a fog bank. Bloom: keep it below the threshold.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": [
+    "O1 art direction (palette)"
+   ]
+  },
+  {
+   "id": "O4-I4",
+   "title": "Night sky that shows: the Milky Way as a rising river, meteors born in view",
+   "what": "Replace the near-horizontal sinusoid (sky-glsl.ts:177-189) with a tilted band. Its axis is the signed distance to a line that enters at the horizon on one side and leaves through the frame top at 35-60 deg on screen, slowly turning with the clock (uNightSky.z plus 15 deg per hour; frozen under reduced motion). Use 2.5-3x gain, a narrow dark rift along the axis instead of dust blobs, and a faint-star density raised inside the band (hash threshold 0.16 -> 0.16 + 0.35*body) so the band is made of stars. Cap it at about 35 % of the beam's luminance. Meteors: pass visTop from cameraFrame, spawn e0 in [1.2, visTop - 0.6], and clamp the radiant direction so that 60 % or more of the streak stays in the band (sky-system.ts:312-316).",
+   "visitor_benefit": "On clear, dark nights (tonight is a new moon at Calm) the galaxy rises past the Pharos. Meteor showers on their real dates are actually seen. Both are already promised in v1.4.0 'A real night sky'.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: calendar and clock. The gate is unchanged (Calm cover < 0.2-0.3, night, moon < 15-45 % lit, sky-system.ts:287-297). The Ledger already lists meteors and the moon's phase as decorative.",
+   "where": "src/harbour/sky/sky-glsl.ts:155-201; sky/sky-system.ts:287-321,362-408",
+   "effort": "S",
+   "perf_cost": "About +6-8 ALU and up to +1 tap on night band pixels only (about 0.01 ms on an iGPU); meteor placement is CPU. 0 draws.",
+   "risks": "Must not compete with the beam or the fire: cap the luminance and keep it cool and soft. The rift must not read as a cloud. Reduced motion: no rotation, no meteors (as today).",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": []
+  },
+  {
+   "id": "O4-I5",
+   "title": "Lit cumulus v2: a height channel, 2.5D self-shadow, varied recipes, calm rims",
+   "what": "Store the lobe-union height (already computed in field().x, clouds.ts:84-103) in the atlas B channel. Derive the rim at runtime from an alpha mip difference, so no new texture is needed. In sbCloudBank, march 4 taps toward the light's 2D direction in card space (Lc.xy) and compare heights to get self-shadowed flanks and lit crowns. Replace the rim-proximity silver lining with thickness transmittance exp(-k*h) for backlit edges. Vary the recipe: power-law lobe radii, 3-5 dominant towers, flatter tops in winter (season-sky stays area-preserving), and a rougher, slightly concave base (3x base noise). Sample night rims from lod+1.5 to remove the stipple. Drop the near-layer crop strip (lower its e or give near banks a broken under-base). Replace or retire the polka-dot mackerel (O4-F8).",
+   "visitor_benefit": "The top of every frame looks hand-painted: clouds read as sunlit volumes with form and soft bellies, not cotton-ball cut-outs, at every hour (lavender undersides at golden, moonlit edges at night).",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: the cover amount stays DEWS. Shapes only, keeping the area-preserving season test (sky/season-sky.test.ts).",
+   "where": "src/harbour/sky/clouds.ts:32-142; sky/sky-glsl.ts:64-112,244-260; sky/sky-system.ts:323-344",
+   "effort": "M",
+   "perf_cost": "+4 atlas taps and about 20 ALU on cloud-covered band pixels (about 25-35 % of the band, about 80-110k px at 1600x1000): about +0.03-0.06 ms on an iGPU at DPR 1, about 2x at DPR 2. Atlas bytes unchanged (2048x1024 RGBA8 plus mips).",
+   "risks": "Art review needed. Keep night albedo -40 % (REVIEW #3) and the moon-side rims. Avoid harsh contrast: calm, painterly values.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": [
+    "O1 art direction"
+   ]
+  },
+  {
+   "id": "O4-I6",
+   "title": "Storm sky with structure, and lightning that never touches the hero",
+   "what": "Reorder skyBand so the overcast desaturation and storm grey apply first, then the W02 cell, seam and roll modulation. Raise that modulation to about +/-25 % at ALERT and above. Add a low dark scud (fractus) band drifting with the wind under the deck (still under reduced motion). Keep a 10-20 % sliver of the bright horizon strip until cover 0.99, so DANGER keeps the marine-painting light. Multiply the lightning glow (sky-glsl.ts:318-324) by the deck-cell noise so a flash lights cloud forms. Reject strike azimuths within +/-4 deg of the Pharos's screen azimuth (lightning.ts:179-184). Lower the flash lift on rain drops (precip.ts:54, x2.2 -> x1.2) so a night flash is not a white-scratch overlay.",
+   "visitor_benefit": "Storms look sculpted rather than murky, and are separated from fog by structure as well as value and hue. The Pharos never looks struck.",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "No mapping change: the DEWS band still sets cover, strikes and gloom (director.ts:62-78); this only changes how the existing deck is painted. The strike exclusion is placement only.",
+   "where": "src/harbour/sky/sky-glsl.ts:126-153,274-324; sky/sky-system.ts:572-588; weather/lightning.ts:179-184; weather/precip.ts:53-60",
+   "effort": "S",
+   "perf_cost": "About +6 ALU on band pixels at ALERT and above; 0 taps for the reorder, +1 for the scud; 0 draws. About 0.005 ms on an iGPU.",
+   "risks": "Drama vs calm: no fast motion, and the flash envelope is untouched (photosensitivity rules in lightning.ts:12-15). Coordinate the grade with O2 so post does not flatten it again.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "O2 light/post (storm grade)"
+   ]
+  },
+  {
+   "id": "O4-I7",
+   "title": "Stale fog with its own colour, legible day and night",
+   "what": "Stop deriving the fog colour from the hour's haze (fog.ts:105-110). Use a fixed sea-smoke hue: pale, near-neutral, with a whisper of the UI stale dot's amber (b-r about -0.02 to -0.04, saturation <= 0.06), scaled by the hour's light luminance but never hued by it. At night use a pale moonlit bank (minimum inner-basin lift of about +0.08 L over the same-hour clear frame) with the existing lamp halos (fog.ts:48). Give the decorative haze (world/aerial.ts, ocean far haze in ocean-material.ts:519-528) a saturation floor, so the far sea never goes as neutral-milky as the fog.",
+   "visitor_benefit": "The fog is recognisable at every hour as 'the stale fog', never confused with morning haze, winter snow veils or a dark night, and it pairs with the amber stale dot in the header.",
+   "pillar": "informative",
+   "meaning": "data-bound",
+   "data_and_dom": "Existing cue, same meaning. Source: /api/stablecoins stale or unavailable -> fog (readings/bind.ts; bind.test.ts:102-107). DOM: header chip 'stale · <age> old' plus Ledger 'Fog means stale data. When the feed stops refreshing, fog rolls in...' (ui/Ledger.tsx:103). Same words. Add a unit test that the fog hue stays within a small dE of its constant across hours, plus the O4-I8 gate.",
+   "where": "src/harbour/readings/fog.ts:91-111; world/aerial.ts:50-60; ocean/ocean-material.ts:519-528",
+   "effort": "S",
+   "perf_cost": "0 GPU (uniform colour only).",
+   "risks": "Amber could read as smoke or pollution, so keep saturation very low. Art review at 6 hours (dawn, noon, golden, dusk, night, winter). It must never become the storm's cold slate.",
+   "impact": 4,
+   "confidence": 4,
+   "depends_on": [
+    "O4-I8"
+   ]
+  },
+  {
+   "id": "O4-I8",
+   "title": "Truth-grammar gate: perceptual separation of fog, haze, storm and front",
+   "what": "Add a small script that runs on the frames already captured by the operator's real-GPU gate (npm run preview / shot.mjs). It computes region statistics (inner basin, far sea, sky: mean L, luminance SD, saturation, b-r) and a 3-level notan, then asserts margins for the gate set (t = 7/9/11/17/22 x {Calm, stale=1, DANGER, Calm->WARNING front at 0.4, winter WARNING}): stale inner-basin saturation <= 0.4x same-hour clear; stale night inner-basin L >= clear + 0.06; front inner-basin L < stale inner-basin L; storm sky luminance SD >= 0.02; morning far-sea saturation >= 0.05. Document it in docs/pharosville/TESTING.md.",
+   "visitor_benefit": "Visitors keep a world where fog always means stale data. Regressions like O4-F1 and O4-F3 are caught before release.",
+   "pillar": "professional",
+   "meaning": "infra",
+   "data_and_dom": "n/a: QA only. It checks the existing fog = stale contract (Ledger.tsx:103) perceptually.",
+   "where": "scripts/harbour/ (new truth-gate script next to shot.mjs); docs/pharosville/TESTING.md",
+   "effort": "M",
+   "perf_cost": "0 runtime. About 10 extra gate captures, about 3-5 min per release gate run.",
+   "risks": "Thresholds were tuned on RTX frames; Apple Silicon frames differ slightly, so assert margins, not exact values. Never judge from SwiftShader frames (AGENTS rule).",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "O4-I1",
+    "O4-I7",
+    "QA/perf lane"
+   ]
+  },
+  {
+   "id": "O4-I9",
+   "title": "Weather you can count: Calm about 3 clouds, Watch about 5, Alert full plus deck",
+   "what": "Retune bankReveal (season-sky.ts:33-35) from clamp(5 + 8 cover - slot) to a law whose in-view count steps by band, for example clamp(1.4 + 10 cover - slot): about 2.9 banks at Calm (0.15), about 5 at Watch (0.37), all 8 at Alert (0.59) plus the existing deck. Keep cirrus presence tied to cover (sky-glsl.ts:241). Add a unit test that the visible-in-view bank count at the heart framing strictly increases Calm < Watch < Alert, and keep the season invariance (area-preserving shapes).",
+   "visitor_benefit": "The sky's cloud amount reads the stress band at a glance by day, as the Ledger promises, instead of only at night.",
+   "pillar": "informative",
+   "meaning": "data-bound",
+   "data_and_dom": "Source: the supply-weighted DEWS level -> cloud = 0.15 + 0.22 level (weather/director.ts:66, model readings.weather). Thresholds: band levels 0-4 (CALM, WATCH, ALERT, WARNING, DANGER). DOM, same words: Storm panel 'Weather: <Band>, over N% of supply' (ui/Panel.tsx:374) and Ledger 'Cloud and wind follow the supply-weighted early-warning level' (ui/Ledger.tsx:99). Unit test in sky/season-sky.test.ts. This re-tunes an existing encoding: announce it in the CHANGELOG, never silently.",
+   "where": "src/harbour/sky/season-sky.ts:32-35; sky/season-sky.test.ts; sky/sky-system.ts:548-560",
+   "effort": "S",
+   "perf_cost": "0 to slightly negative (fewer bank loops at Calm).",
+   "risks": "Calm days (likely the common state) get emptier skies and lose some painterly richness: keep 3 small far banks and the cirrus. Needs an operator decision. Stale or unavailable DEWS holds the weather (director.ts:194-196); never show a 'good' empty sky for missing data.",
+   "impact": 3,
+   "confidence": 4,
+   "depends_on": [
+    "O4-I5",
+    "UI lane (CHANGELOG copy)"
+   ]
+  },
+  {
+   "id": "O4-I10",
+   "title": "A sky-band cache that actually caches (iGPU and TBDR win)",
+   "what": "Remove uWeather.y from the band's dirty key (sky-system.ts:420); the band shader never reads it. Quantise the hour-driven inputs: re-render only when any input moves by more than 1/1024, or at most once per second, outside rain, deck motion, fronts and lightning, where the current per-frame cadence stays. Then add a no-op first timed pass (or move texture uploads) so the 1.1-1.7 ms spikes the profiler blames on 'sky-band' (16-20 % of frames) are attributed correctly before anyone optimises the wrong pass.",
+   "visitor_benefit": "Smoother frames on weak laptops and Apple Silicon: one fewer render-target switch and half-float mip chain on most frames, with no visible change.",
+   "pillar": "all-devices",
+   "meaning": "infra",
+   "data_and_dom": "n/a: no visual or data change.",
+   "where": "src/harbour/sky/sky-system.ts:410-433; engine/gpu-passes.ts",
+   "effort": "S",
+   "perf_cost": "Saves the 512x128 half-float pass plus mips on most frames: about 0.018 ms on the RTX; about 0.1-0.25 ms estimated on Apple Silicon or an iGPU including the tile store/load of the render-target switch.",
+   "risks": "A slightly stale band during slow colour drift, bounded below 1 LSB after tonemapping. Keep the existing conservative branches for rain and deck.",
+   "impact": 2,
+   "confidence": 4,
+   "depends_on": [
+    "perf lane"
+   ]
+  },
+  {
+   "id": "O4-I11",
+   "title": "Rain and snow with depth: graded hatching, gust sheets, soft near flakes",
+   "what": "In FALL_VERT (precip.ts:96-171): fade alpha and shorten the exposure length with view depth (far drops thinner, fainter, shorter; near drops longer). Add a forward-scatter term so drops brighten only where backlit (lamp pools, the bright horizon strip, the beam). Modulate the visible density by the shared gust field (include GUST_GLSL, hbGust) so rain arrives in sheets with the cat's-paws. Snow: depth-graded flake size (near flakes larger, softer, lower alpha like out-of-focus bokeh; far flakes fine) and less uniform brightness. Keep the instance count = budget x precip (precip.ts:408) so intensity stays DEWS.",
+   "visitor_benefit": "Storms read as weather moving through space rather than a uniform white-scratch overlay (O4-storm-night-strike.png); winter snowfall feels soft (O4-winter-snow.png).",
+   "pillar": "prettier",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: precipitation intensity stays exactly the DEWS mapping (director.ts:57-58,302-303); only the shading and spatial distribution change. Add a test that the mean drawn density equals today's.",
+   "where": "src/harbour/weather/precip.ts:34-200; weather/gust.ts (GLSL include)",
+   "effort": "M",
+   "perf_cost": "+~10 vertex ALU x <= 22k instances (negligible). Shorter far streaks cut about 20-30 % of the alpha overdraw at DANGER (about -0.05 ms on an iGPU). 0 draws.",
+   "risks": "Reduced motion: sheets hold still with the gust clock. Keep calm, with no flicker. The snow veil must stay distinct from fog: it moves and falls.",
+   "impact": 3,
+   "confidence": 3,
+   "depends_on": []
+  },
+  {
+   "id": "O4-I12",
+   "title": "The moon keeps the real moon's hours",
+   "what": "From moonAge (season/calendar.ts:140-148), derive the moon's transit hour (solar noon + 24.84 h x age / 29.53) and a simple altitude at the nominal latitude. Add a pure, unit-tested moonUpAt(ms, lat) in calendar.ts. Gate moonShown, its glitter path and the night key's moonlight share (sky-system.ts:444-447,473-505) on moonUp. Slide the art station along the band so the moon rises low on one side and sets on the other while it is up. Let the young crescent (2-5 days) appear low beside the dusk glow with the earthshine the disc shader already draws (sky-glsl.ts:220-226). Use moonUp in the moonbow gate (weather-system.ts:193-196).",
+   "visitor_benefit": "'Tonight's moon' is true in time as well as phase. Moonless nights give the sky to the stars and the Milky Way (O4-I4), and the dusk crescent with earthshine becomes a rare, real delight.",
+   "pillar": "enchanting",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: calendar. The Ledger already lists the moon's phase as decorative (ui/Ledger.tsx:107); add 'and its hours'.",
+   "where": "src/harbour/season/calendar.ts; sky/sky-system.ts:269-281,455-505; weather/weather-system.ts:193-196",
+   "effort": "S",
+   "perf_cost": "0 GPU; trivial CPU once a minute.",
+   "risks": "Nights without a moon must stay legible: keep the nightLift floor (sky-system.ts:446, 0.7) and the lamps carry the night. The key-light direction stays art-directed.",
+   "impact": 2,
+   "confidence": 4,
+   "depends_on": [
+    "O4-I4"
+   ]
+  },
+  {
+   "id": "O4-I13",
+   "title": "Skies composed for portrait and ultrawide",
+   "what": "Scale the bank composition by the horizontal half-FOV (sky-system.ts:323-344,549-560). In portrait (half-width about 9.5 deg) use 3-4 small fair-weather banks no wider than 0.7 of the view, so whole clouds sit in frame. On ultrawide (27.7 deg) add two banks (MAX_BANKS 8 -> 10). Keep the cover -> visible-cloud fraction per degree aspect-invariant, with a unit test. Re-seed positions with a fade, never a pop, on resize.",
+   "visitor_benefit": "Tablets in portrait see whole painted clouds instead of horizontal strips cut by the frame; ultrawide keeps a populated sky.",
+   "pillar": "all-devices",
+   "meaning": "decorative",
+   "data_and_dom": "n/a: the amount stays DEWS. The fraction-preserving test guards it.",
+   "where": "src/harbour/sky/sky-system.ts:323-344,549-560; sky/sky-glsl.ts:3",
+   "effort": "S",
+   "perf_cost": "0 in portrait (fewer banks); about +2 % band cost on ultrawide (2 extra bank loops).",
+   "risks": "Composition churn on resize: ease it. Coordinate with O4-I9 so the amount law stays one law.",
+   "impact": 2,
+   "confidence": 3,
+   "depends_on": [
+    "O4-I2",
+    "O4-I9"
+   ]
+  }
+ ],
+ "top_picks": [
+  {
+   "id": "O4-I1",
+   "why": "Critical truth fix (a rising front currently looks like stale fog), a few lines, about 0 ms."
+  },
+  {
+   "id": "O4-I2",
+   "why": "Removes the biggest artefact on tablet portrait and every zoom-out, in one line, with a net perf gain (-3,966 tris)."
+  },
+  {
+   "id": "O4-I7",
+   "why": "Makes fog = stale legible at night and gives it one identity at every hour; S effort, 0 GPU."
+  },
+  {
+   "id": "O4-I3",
+   "why": "The dusk sky gains the real structure it lacks (Earth's shadow + Belt of Venus), about 12 ALU, every evening."
+  },
+  {
+   "id": "O4-I4",
+   "why": "Two shipped v1.4.0 features (Milky Way, meteors) become visible on nights like tonight's new moon; S effort."
+  }
+ ],
+ "operator_decisions": [
+  "Mainland: retire the 3D mainland mesh (recommended), or push the sky card beyond it so it becomes a real far coast? The second option closes the landing view's open-sea horizon and adds a near wall to every frame.",
+  "Calm sky legibility (O4-I9): accept fewer painted clouds on calm days, so Calm, Watch and Alert are countable by day? This re-tunes an existing cue and gets a CHANGELOG line.",
+  "Stale-fog hue (O4-I7): amber-leaning, keyed to the header's stale dot, or neutral grey? Both are fixed across hours.",
+  "Sunsets: the setting sun is always off-frame (behind-right). Pull the disc to the right frame edge for its last ~20 minutes (as COMP already does at dawn), or keep sunsets sun-less and add the twilight wedge (O4-I3) instead?",
+  "Mirrored sun path (O4-F13): accept the art-directed light (the dawn sun climbs to the left, the southern-hemisphere motion), or relight every hour to mirror it for northern visitors?",
+  "Real moon hours (O4-I12): accept moonless nights (no disc, no moon road) as calendar truth?"
+ ],
+ "cross_lane_hooks": [
+  "O3 water/coast: same bug as O3-F13 / fix O3-I13; ship it as one PR. O4 exposes the local strength or coverage from hbCloudShadow (sky/cloud-shadow.ts; sky-system.ts needs no change). O3 does the clamp, the storm-slate mirror clouds and the TS-twin unit test (ocean/sea-tone.ts, ocean-material.ts). Agreed floor: <= 1e-3, or no division, so Calm mirror clouds are unchanged. O3 also owns the far-haze saturation floor for O4-I7.",
+  "O2 light/post: the storm grade (sky-system.ts:584-587) feeds the shared post grade; coordinate the O4-I6 reorder. The twilight belt (O4-I3) must stay under the bloom threshold. Beam over painted clouds is REVIEW #5 (beam/beam-system.ts:154-156).",
+  "O1 art direction: approve the fog hue (O4-I7), the twilight palette (O4-I3), the cloud recipes and rims, and the mackerel fate (O4-I5, O4-F8).",
+  "Perf/QA lane: host the truth-grammar gate (O4-I8) in the preview gates. Attribute the 'sky-band' first-timer GPU spikes (O4-F7) before optimising; they drive the RTX GPU p95.",
+  "UI/data lane: CHANGELOG and Ledger copy for the re-tuned cloud law (O4-I9) and the moon's hours (O4-I12, Ledger.tsx:107).",
+  "Island/Blender: drop the mainland node at the next island.glb rebuild (O4-I2); the sea-SDF mainland polygon stays.",
+  "Orchestrator: BRIEF section 5's state-front.png is not a front (front=1 is ignored). Use shots/O4-front-rising.png and add ?dews=CALM&front=WARNING&frontAt=0.4 to the gate set."
+ ]
+}

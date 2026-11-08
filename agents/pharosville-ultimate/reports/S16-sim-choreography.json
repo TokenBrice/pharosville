@@ -1,0 +1,372 @@
+{
+  "lane": "S16",
+  "executive_summary": "The foundation is strong: deterministic UTC schedules, berth reservations, clearance-aware routes, and extensive simulation tests. Four priorities emerged: preserve active tows across unrelated refreshes; make simulation footprints match rendered hulls; enforce D10 against effective dock time; and preserve velocity when rerouting. Read-only probes reproduced a 752 m tow teleport, a 5.50→0 m/s transition, and approximately 4.8 percentage points of dock-share distortion. Residual underway overlaps also remain. Fleet work already costs 1.13 ms/frame, with data/simulation adding 0.55 ms; improve choreography within that budget.",
+  "current_state": [
+    "Normal traffic uses a six-hour UTC cycle, id-hashed phases, and deterministic allocation. History and worker-parity tests already exist: src/harbour/sim/plan.ts:15, src/harbour/sim/plan.ts:392, src/harbour/sim/sim.test.ts:30, src/harbour/sim/seeds.test.ts:43.",
+    "Berth allocation accounts for neighboring slot conflicts and arrival/departure reservations. Gate congestion is penalized rather than absolutely forbidden: src/harbour/sim/plan.ts:254, src/harbour/sim/plan.ts:397.",
+    "Routes already include astern departure arcs, hull-scaled turning, shoreline repair, slow approaches, and acceleration profiles. These should be refined rather than replaced: src/harbour/sim/routes.ts:30, src/harbour/sim/path.ts:270, src/harbour/sim/path.ts:366.",
+    "Mooring choreography is unusually complete: buoy swing, tide-dependent heading, fender rebound, sequential lines, and yielding to passing hulls: src/harbour/sim/sim.ts:858, src/harbour/sim/sim.ts:872, src/harbour/sim/sim.ts:1287.",
+    "Points-of-sail speed shaping already preserves path effort, while cloth, heel, gusts, galley brailing, and oars supply visual life: src/harbour/sim/path.ts:445, src/harbour/fleet/fleet-system.ts:1235.",
+    "Wakes already scale with speed and hull length, suppress sideways docking trails, and retain curved history. Adding generic speed-aware wakes would duplicate shipped work: src/harbour/fleet/fleet-system.ts:1150, src/harbour/ocean/wake.ts:76.",
+    "The real-geometry tests cover shoreline clearance and tolerate limited underway overlap; empirical D10 tests instead use the synthetic ring harbour: src/harbour/sim/hull-clearance.test.ts:168, src/harbour/sim/harbour-layout.test.ts:153, src/harbour/sim/sim.test.ts:151.",
+    "Supplied profiling records fleet 1.13 ms/frame, data 0.55 ms/frame, and fleet maximum 27.8 ms. These are existing measurements, not measurements from this pass: agents/pharosville-ultimate/BRIEF.md:83."
+  ],
+  "findings": [
+    {
+      "id": "S16-F1",
+      "title": "An unrelated refresh can teleport an active tow to shore",
+      "severity": "high",
+      "evidence": "src/harbour/sim/sim.ts:471; src/harbour/sim/sim.ts:505; src/harbour/sim/sim.ts:619",
+      "detail": "Installation initially preserves an authored-slot voyage, then the wrecked-state branch calls placeStatic when the previous model already marked that coin wrecked. An unrelated boat entering the Shoals bypasses the identical-refresh shortcut and triggers this branch. An 80-coin in-memory probe interrupted a ten-second-old tow, moved its hull 751.57 m to Wreck Cove, and left its tug active.",
+      "fix": "Keep a valid ongoing tow before applying static wreck placement. Test unrelated depeg, membership, freshness, and structural refreshes during the tow, including tug completion."
+    },
+    {
+      "id": "S16-F2",
+      "title": "Simulation clearance underestimates several rendered hulls",
+      "severity": "high",
+      "evidence": "src/harbour/sim/sim.ts:474; src/harbour/sim/sim.ts:481; src/harbour/fleet/fleet-system.ts:539; public/harbour/kit/manifest.json:3784",
+      "detail": "Simulation length and beam come exclusively from supply class. Rendering uses each variant's scaled beam and keeps titans at authored length. USDT therefore renders at 32×8.64 m while a flagship simulation footprint is 26×6.6 m. Ordinary variants also exceed class beams. Current clearance tests reuse simulation dimensions, so they cannot detect these discrepancies.",
+      "fix": "Share runtime-neutral rendered footprint metadata with planning, routing, separation, and tests. Include footprint identity in route caches and generated seeds; retain supply class as the analytical size category."
+    },
+    {
+      "id": "S16-F3",
+      "title": "Effective docking time drifts from D10 supply shares",
+      "severity": "high",
+      "evidence": "src/harbour/sim/plan.ts:382; src/harbour/sim/sim.ts:1096; src/harbour/sim/path.ts:581; src/harbour/sim/sim.test.ts:151",
+      "detail": "Planner dock windows are proportional, but runtime borrowing removes unequal amounts from neighboring windows, while spare leg time adds unequal berth holds. A six-hour replay of 625 synthetic coins on real geometry found a flagship's Tron occupancy near 25.1% against its scheduled 30%. Reconstructing effective intervals from exact leg timings gave 25.197%, confirming this exceeds sampling error.",
+      "fix": "Allocate using effective arrival, departure, and hold times after exact path timing. Normalize actual dock occupancy to circuit shares, and add full-cycle D10 checks on real geometry across all circuit hulls."
+    },
+    {
+      "id": "S16-F4",
+      "title": "Rerouting preserves position but discards momentum",
+      "severity": "medium",
+      "evidence": "src/harbour/sim/sim.ts:557; src/harbour/sim/sim.ts:645; src/harbour/sim/path.ts:560; src/harbour/sim/path.ts:667",
+      "detail": "Snapshots retain position and heading but no velocity. Every new voyage receives a rest-to-rest timing profile, even when path.underway is true. A depeg probe changed a sailing flagship from 5.503 m/s to zero at the same timestamp. Underway only changes sail/phase treatment; it does not preserve initial speed.",
+      "fix": "Carry signed velocity into voyage timing and match the first tangent. Test position, heading, and velocity continuity during depeg, recovery, stale diversion, and portfolio replanning."
+    },
+    {
+      "id": "S16-F5",
+      "title": "Soft avoidance still permits substantial underway overlaps",
+      "severity": "medium",
+      "evidence": "src/harbour/sim/sim.ts:1174; src/harbour/sim/sim.ts:1231; src/harbour/sim/harbour-layout.test.ts:181",
+      "detail": "Avoidance sums lateral shoves, caps displacement, and reduces it near obstacles; it cannot reserve crossing space or slow an approaching hull. Replaying the existing half-hour overlap test with current geometry produced 583 overlapping pair-samples against 42,328 underway hull-samples, or 1.38%. Its proxy's worst penetration was 4.63 m. This is numerical proxy evidence, not a rendered-mesh measurement.",
+      "fix": "Prevent predictable fairway conflicts during planning, then retain separation for small residual corrections. Add encounter-level tests for sustained overlap, crossing, overtaking, and narrow exits."
+    },
+    {
+      "id": "S16-F6",
+      "title": "Ordinary and event routes lack terminal clearance rejection",
+      "severity": "medium",
+      "evidence": "src/harbour/sim/plan-paths.ts:45; src/harbour/sim/plan-paths.ts:51; src/harbour/sim/routes.ts:351; src/harbour/sim/sim.ts:652",
+      "detail": "Outings are rejected when unsafe and scenic routes can fall back, but the final ordinary route is not passed through pathClear. repairBlocked also retains the original endpoint when both detours fail. Event voyages bypass this validator entirely. This is a failure-path risk; this pass did not establish a current ordinary route crossing land.",
+      "fix": "Validate every completed path and swept maneuver. Return an explicit failure when repair cannot succeed, then retain a validated safe pose or select another reachable slot."
+    },
+    {
+      "id": "S16-F7",
+      "title": "Rendered surge and yaw bypass simulation clearance",
+      "severity": "medium",
+      "evidence": "src/harbour/sim/sim.ts:1266; src/harbour/fleet/fleet-system.ts:1017; src/harbour/fleet/fleet-system.ts:1027; src/harbour/sim/hull-clearance.test.ts:132",
+      "detail": "Simulation clearance checks the nominal hull pose. Fleet rendering subsequently adds gust displacement, give-way yaw, and storm displacement/yaw without another clearance check. Storm surge alone reaches roughly one metre for a flagship. Thus the existing footprint audit does not establish safety for the pose actually drawn beside a quay or neighboring hull.",
+      "fix": "Reserve a conservative visual-motion envelope or attenuate decorative horizontal displacement and yaw near hard geometry. Audit the same final transforms used by rendering."
+    },
+    {
+      "id": "S16-F8",
+      "title": "Tab return mixes UTC relocation with paused visual history",
+      "severity": "medium",
+      "evidence": "src/harbour/engine/engine.ts:84; src/harbour/engine/engine.ts:248; src/harbour/sim/system.ts:230; src/harbour/fleet/fleet-system.ts:957; src/harbour/ocean/wake.ts:224",
+      "detail": "Hidden tabs stop engine updates, while route playback resumes at current wall time. Wake decay, rig smoothing, and fleet velocity history advance only by the small resumed frame delta. Large displacements are discarded for wake velocity, but existing trails are not aged or cleared. Old wakes can survive beside ships that have already relocated to their current UTC positions.",
+      "fix": "Introduce an explicit resume boundary: reconcile current poses, reset velocity/drift histories, and clear or analytically age wake history before revealing resumed traffic."
+    },
+    {
+      "id": "S16-F9",
+      "title": "Reduced motion can hold a new data voyage indefinitely",
+      "severity": "medium",
+      "evidence": "src/harbour/sim/system.ts:107; src/harbour/sim/system.ts:201; src/harbour/sim/system.ts:231; src/harbour/sim/sim.ts:994; src/harbour/sim/system.test.ts:31",
+      "detail": "Reduced motion holds simulation time, but subsequent data changes still create time-dependent voyages. A newly depegged hull can remain at its departure position indefinitely, and a launch can remain on the ways, until motion is enabled. The model and DOM already describe the new state. DataSystem tests hard-code reduced=false, leaving this interaction uncovered.",
+      "fix": "On data changes under reduced motion, install meaningful static destinations directly. Do not replay skipped travel when motion resumes; preserve real-clock freshness."
+    },
+    {
+      "id": "S16-F10",
+      "title": "Path misses still perform expensive geometry work in frames",
+      "severity": "medium",
+      "evidence": "src/harbour/sim/sim.ts:630; src/harbour/sim/sim.ts:1402; src/harbour/sim/path.ts:344; src/harbour/sim/path.ts:210; src/harbour/sim/warm-legs.worker.ts:46",
+      "detail": "The worker prepares current and near-future paths, but cache misses and lookahead still call buildPlanLegPath synchronously. One path can invoke hundreds of curvature passes and repeated whole-hull clearance relaxation. Limiting lookahead to one path per frame does not bound its duration, and a tab return can miss multiple paths. The supplied fleet spikes do not establish this as their cause.",
+      "fix": "Add revision-owned path refill jobs to the persistent worker, including resume preparation. Instrument path misses separately and preserve exact worker/main parity."
+    },
+    {
+      "id": "S16-F11",
+      "title": "Flags and sail trim use different wind directions",
+      "severity": "low",
+      "evidence": "src/harbour/weather/weather-system.ts:221; src/harbour/fleet/fleet-system.ts:911; src/harbour/fleet/fleet-system.ts:964; src/harbour/sim/sim.ts:140",
+      "detail": "Weather flags and gust travel include decorative wind veer, but sail swing, luffing, and moving-hull heel use the un-veered layout direction. The difference can approach thirteen degrees. Existing polar timing deliberately uses fixed layout wind, so changing route durations is unnecessary to correct the visible disagreement.",
+      "fix": "Expose one display-wind direction for flags, cloth, and decorative heel. Keep schedule geometry and effort normalization stable."
+    },
+    {
+      "id": "S16-F12",
+      "title": "Transit copy describes the destination as already reached",
+      "severity": "medium",
+      "evidence": "src/harbour/sim/sim.ts:954; src/harbour/ui/facts.ts:24; src/harbour/ui/facts.ts:92; src/harbour/ui/facts.ts:95",
+      "detail": "Moving poses store their destination slot. whereabouts checks wreck/Shoals slot kind before movement phase, and explanatory copy describes wrecked boats as beached or depegged boats as anchored. Consequently an active tow or Shoals-bound voyage can receive arrival wording while still crossing the harbour.",
+      "fix": "Resolve transit from pose.event and moving phase before destination-slot classification. Test identical transit wording in hover and panel, retaining the underlying depeg/death facts."
+    }
+  ],
+  "ideas": [
+    {
+      "id": "S16-I1",
+      "title": "Keep exceptional voyages intact through refreshes",
+      "what": "Preserve active authored-slot tows before static-state placement. Keep tug ownership until release and return. Add refresh-interleaving tests for another depeg, stale/fresh changes, and membership changes; assert continuous pose and exactly one tow event. Correct destination-first transit wording alongside the lifecycle fix.",
+      "visitor_benefit": "A solemn tow completes coherently instead of vanishing to shore during an unrelated market update.",
+      "pillar": "enchanting",
+      "meaning": "data-bound",
+      "data_and_dom": "Existing Boat.state='wrecked', pose.event=EV_TOW, and moving phase determine transit. Use 'under tow to Wreck Cove' during travel and existing beached wording after arrival. Sources: src/harbour/sim/sim.ts:505, src/harbour/ui/facts.ts:92. No new market threshold.",
+      "where": "src/harbour/sim/sim.ts:471; src/harbour/sim/motion.test.ts:40; src/harbour/ui/facts.ts:24",
+      "effort": "S",
+      "perf_cost": "Negligible CPU; zero added draws, triangles, or runtime assets.",
+      "risks": "D10 unchanged: this repairs an existing exceptional voyage. Guard stale handling and avoid restarting completed tows.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S16-I2",
+      "title": "Give planning the hull footprint visitors actually see",
+      "what": "Derive shared length/beam metadata from kit variants and titan overrides. Apply it to berth fit, path turning, clearance, and separation. Extend path keys and seed inputs accordingly. Test every family/class fallback and each titan against the rendered scale.",
+      "visitor_benefit": "Large ships receive convincing sea room; prominent bows and broad hulls stop defeating otherwise careful clearance logic.",
+      "pillar": "prettier",
+      "meaning": "infra",
+      "data_and_dom": "No new analytical encoding. Supply class retains its current meaning; the physical footprint follows existing rendered geometry: src/harbour/fleet/fleet-system.ts:539.",
+      "where": "src/harbour/fleet/variants.ts:24; src/harbour/fleet/titans.ts:12; src/harbour/sim/layout-graph.ts:350; src/harbour/sim/plan-paths.ts:11",
+      "effort": "L",
+      "perf_cost": "Estimated a few KB of compact metadata; slightly more clearance work for larger hulls; zero draws or triangles.",
+      "risks": "D10 requires retiming after longer routes. Cache identity, worker parity, seed regeneration, and crowded berth capacity must change together.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S16-I3",
+      "title": "Make effective dock time satisfy D10",
+      "what": "Include exact approach duration, borrowed time, and departure/arrival holds in worker allocation. Allocate remaining actual dock seconds by circuit.share. Extend empirical checks to every circuit hull on real geometry for a complete six-hour cycle; separately retain raw-share quantization tolerance.",
+      "visitor_benefit": "Watching a coin's visits teaches the supply distribution the panel promises.",
+      "pillar": "informative",
+      "meaning": "data-bound",
+      "data_and_dom": "Existing chainCirculating.current → CircuitStop.share drives occupancy; rawShare remains the panel percentage. No new thresholds or copy. Preserve 'staying at each in proportion to its supply': src/harbour/model/build.ts:43, src/harbour/ui/facts.ts:110.",
+      "where": "src/harbour/sim/plan.ts:382; src/harbour/sim/sim.ts:1089; src/harbour/sim/path.ts:581; src/harbour/sim/sim.test.ts:151",
+      "effort": "L",
+      "perf_cost": "More worker-side timing/allocation; target zero additional per-frame work and zero rendering cost.",
+      "risks": "D10 is the acceptance condition. Longer periods may be necessary; never repair timing by silently changing supply shares or allowing occupied-berth holds.",
+      "impact": 5,
+      "confidence": 5,
+      "depends_on": [
+        "S16-I2"
+      ]
+    },
+    {
+      "id": "S16-I4",
+      "title": "Carry momentum into reroutes",
+      "what": "Snapshot signed velocity and initialize underway voyages with that velocity and tangent. Ease toward their new pace under bounded acceleration instead of starting from rest. Test position/velocity continuity and heading change for depeg, recovery, stale diversion, and replanning.",
+      "visitor_benefit": "Ships bear away naturally when their destination changes, without an invisible brake followed by another departure.",
+      "pillar": "enchanting",
+      "meaning": "decorative",
+      "data_and_dom": "Existing event destinations and data meaning remain unchanged. Motion interpolation carries no additional market signal: src/harbour/sim/sim.ts:645.",
+      "where": "src/harbour/sim/sim.ts:557; src/harbour/sim/sim.ts:645; src/harbour/sim/path.ts:560; src/harbour/sim/motion.test.ts:77",
+      "effort": "M",
+      "perf_cost": "A few additional scalar values per active voyage; zero draws and negligible steady-state CPU.",
+      "risks": "D10: planned rejoin windows must remain feasible. Handle astern velocity, low-speed turns, and already-occupied destinations explicitly.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S16-I5",
+      "title": "Reserve fairways before hulls need to shove",
+      "what": "Extend worker scheduling from gate penalties to occupancy intervals for narrow exits and crossing nodes. Resolve conflicts deterministically by vessel identity and existing priority rules. Spend slack in validated offshore holding arcs; otherwise stretch the circuit and recompute proportional dwell. Test head-on, crossing, overtaking, and saturated exits.",
+      "visitor_benefit": "Busy piers develop readable departures and patient approaches instead of overlapping hulls and lateral sidesteps.",
+      "pillar": "enchanting",
+      "meaning": "decorative",
+      "data_and_dom": "Traffic ordering is declared decorative, never a risk or liquidity ranking. Existing supply destinations remain authoritative: src/harbour/sim/plan.ts:397, src/harbour/sim/sim.ts:1210.",
+      "where": "src/harbour/sim/plan.ts:304; src/harbour/sim/plan.ts:397; src/harbour/sim/sim.ts:1115; src/harbour/sim/harbour-layout.test.ts:153",
+      "effort": "L",
+      "perf_cost": "Additional worker scheduling and interval memory; zero added draws. Potentially fewer expensive close-pair corrections.",
+      "risks": "D10: unbudgeted waiting at a pier is forbidden. Preserve deterministic UTC playback, bounded queues, reduced-motion stillness, and calm traffic density.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": [
+        "S16-I2",
+        "S16-I3",
+        "S16-I6"
+      ]
+    },
+    {
+      "id": "S16-I6",
+      "title": "Reject unsafe routes consistently",
+      "what": "Apply final swept-hull validation to ordinary, scenic, outing, and event paths. Return explicit routing failure after unsuccessful repair. Try a validated alternate slot or retain the last safe pose. Make stale diversions respect hull size and neighboring-slot conflicts. Test disconnected lanes, blocked slips, and exhausted suitable berths.",
+      "visitor_benefit": "A ship waits safely when geometry is impossible instead of crossing a pier or taking an undersized berth.",
+      "pillar": "professional",
+      "meaning": "infra",
+      "data_and_dom": "No new market signal. A held route must expose an honest local route-unavailable status rather than imply successful arrival. Relevant fallback: src/harbour/sim/sim.ts:782.",
+      "where": "src/harbour/sim/plan-paths.ts:25; src/harbour/sim/routes.ts:341; src/harbour/sim/sim.ts:645; src/harbour/sim/sim.ts:782",
+      "effort": "M",
+      "perf_cost": "One validation sweep per built route, preferably in the worker; zero steady rendering cost.",
+      "risks": "D10: failed routes cannot count as successful dock occupancy. Avoid indefinite silent holds and preserve the last validated pose during recovery.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S16-I2"
+      ]
+    },
+    {
+      "id": "S16-I7",
+      "title": "Keep decorative motion inside safe sea room",
+      "what": "Reserve or clamp a horizontal surge/yaw envelope around the final rendered footprint. Attenuate storm and gust motion beside quays while retaining vertical bob and cloth life. Use the final pose consistently for attachments and wake origins. Test extreme gust, storm, and give-way yaw beside hard geometry.",
+      "visitor_benefit": "Moored hulls feel tethered and substantial without their bows or sides passing through stone.",
+      "pillar": "prettier",
+      "meaning": "decorative",
+      "data_and_dom": "Existing DEWS storm strength is unchanged. The mechanism limits decorative displacement for physical clearance; it introduces no new data cue: src/harbour/fleet/fleet-system.ts:1021.",
+      "where": "src/harbour/fleet/fleet-system.ts:1017; src/harbour/fleet/fleet-system.ts:1048; src/harbour/sim/hull-clearance.test.ts:121",
+      "effort": "M",
+      "perf_cost": "Estimated 0.05–0.2 ms near obstacles if runtime checks are needed; conservative precomputed envelopes may be cheaper. Zero draws.",
+      "risks": "D10 unchanged. Avoid visible amplitude popping, duplicate clearance work, and disagreement between picking, ropes, wakes, and rendered hulls.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": [
+        "S16-I2"
+      ]
+    },
+    {
+      "id": "S16-I8",
+      "title": "DECISION-NEEDED: Conceal UTC catch-up on tab return",
+      "what": "Add a resume transaction that obtains current poses, resets velocity and avoidance history, and clears or ages wakes. Optionally use a fleet-only fade of at most 250 ms while reconciling. Never interpolate positions across intervening land. Test short/long hidden intervals and reduced motion.",
+      "visitor_benefit": "Returning to the harbour feels settled, with current ships and no orphaned trails.",
+      "pillar": "professional",
+      "meaning": "ux",
+      "data_and_dom": "UTC routes and real-clock freshness remain authoritative. The optional fade is decorative; reduced motion receives an immediate reconciled static pose.",
+      "where": "src/harbour/engine/engine.ts:84; src/harbour/sim/system.ts:230; src/harbour/fleet/fleet-system.ts:955; src/harbour/ocean/wake.ts:224",
+      "effort": "M",
+      "perf_cost": "Event-only history reset and render-target clears; optional existing-material opacity control. No persistent draws or assets.",
+      "risks": "D10 unchanged because canonical simulation time continues. A fade briefly dims ships; immediate reconciliation reveals relocation but avoids that visual treatment.",
+      "impact": 3,
+      "confidence": 4,
+      "depends_on": [
+        "S16-I10"
+      ]
+    },
+    {
+      "id": "S16-I9",
+      "title": "Give reduced motion truthful static updates",
+      "what": "When data changes while motion is reduced, place affected boats directly in validated static states instead of creating voyages on a held clock. Keep ordinary held poses stable. Test depeg, recovery, launch, death, stale data, and re-enabling motion with real DataSystem/HarbourSim integration.",
+      "visitor_benefit": "Motion-sensitive visitors still see current market states without frozen launch or transit scenes.",
+      "pillar": "all-devices",
+      "meaning": "data-bound",
+      "data_and_dom": "Use existing Boat.state, circuit shares, and truth.stablecoins.state; no new thresholds. Static Shoals/Wreck placement must agree with existing hover/panel descriptions: src/harbour/ui/facts.ts:92.",
+      "where": "src/harbour/sim/system.ts:107; src/harbour/sim/system.ts:201; src/harbour/sim/sim.ts:490; src/harbour/sim/system.test.ts:31",
+      "effort": "M",
+      "perf_cost": "Event-only pose installation; likely less work than retaining paused exceptional voyages. Zero rendering additions.",
+      "risks": "D10 remains the schedule contract; reduced motion uses declared static representation. Do not replay skipped ceremonies or substitute favorable poses for unavailable readings.",
+      "impact": 4,
+      "confidence": 5,
+      "depends_on": [
+        "S16-I6"
+      ]
+    },
+    {
+      "id": "S16-I10",
+      "title": "Finish moving path construction out of animation frames",
+      "what": "Add revision-tagged route-refill requests to the existing persistent worker. Request future and resume paths before consumption, including transition routes from current pose. Keep stale results discardable and caches bounded. Add tests that ordinary playback and resumed playback perform no synchronous buildPath calls.",
+      "visitor_benefit": "Departures and tab returns stay smooth while the harbour retains rich, clearance-aware routes.",
+      "pillar": "all-devices",
+      "meaning": "infra",
+      "data_and_dom": "No new data, DOM, or semantics. Preserve exact route answers and installed-revision ownership: src/harbour/sim/warm-legs.worker.ts:42.",
+      "where": "src/harbour/sim/warm-legs.ts; src/harbour/sim/warm-legs.worker.ts:40; src/harbour/sim/sim.ts:630; src/harbour/sim/sim.ts:1402",
+      "effort": "L",
+      "perf_cost": "Removes unbounded route-building CPU from frames; adds occasional worker messages and transferred path buffers. Savings require measurement; no draw/triangle cost.",
+      "risks": "D10 and determinism require identical path/timing results. Prevent worker queue starvation, stale-plan adoption, and unsafe substitution when a requested path is late.",
+      "impact": 5,
+      "confidence": 4,
+      "depends_on": []
+    },
+    {
+      "id": "S16-I11",
+      "title": "Make cloth and flags agree on display wind",
+      "what": "Feed veered display wind into sail trim, luffing, and decorative heel, while retaining fixed planning wind and effort-preserving polar timing. Test both veer extremes, tack-side continuity, and agreement with flag direction.",
+      "visitor_benefit": "Flags, canvas, and leaning hulls breathe with one believable breeze.",
+      "pillar": "enchanting",
+      "meaning": "decorative",
+      "data_and_dom": "DEWS wind strength and all analytical mappings remain unchanged. Decorative direction already exists in weather: src/harbour/weather/weather-system.ts:221.",
+      "where": "src/harbour/fleet/fleet-system.ts:911; src/harbour/fleet/fleet-system.ts:1235; src/harbour/sim/path.ts:445",
+      "effort": "S",
+      "perf_cost": "Negligible scalar work; zero draws, triangles, textures, or new route construction.",
+      "risks": "D10 unchanged. Prevent decorative wind from rebuilding schedules, and preserve stable trim under reduced motion.",
+      "impact": 3,
+      "confidence": 5,
+      "depends_on": []
+    },
+    {
+      "id": "S16-I12",
+      "title": "Soften the existing acceleration profile",
+      "what": "Replace sharp acceleration/cruise joins in effort-space timing with short smooth ramps whose integrated distance and total duration remain fixed. Retain existing bend and approach speed limits. Test endpoint speed, bounded acceleration/jerk, monotonic distance, and unchanged arrival time.",
+      "visitor_benefit": "Large hulls gather way and settle with weight, especially during close inspection of departures and docking.",
+      "pillar": "enchanting",
+      "meaning": "decorative",
+      "data_and_dom": "Speed remains declared decorative. Existing destinations, shares, and arrival windows remain unchanged: src/harbour/sim/path.ts:519.",
+      "where": "src/harbour/sim/path.ts:560; src/harbour/sim/path.ts:665; src/harbour/sim/sim.test.ts:349",
+      "effort": "M",
+      "perf_cost": "A few extra arithmetic operations per underway hull; target under 0.05 ms/frame. Zero graphical additions.",
+      "risks": "D10 requires identical effective occupancy. Avoid increased top speed, longer approach occupation, or a spring-like motion style.",
+      "impact": 3,
+      "confidence": 4,
+      "depends_on": [
+        "S16-I3",
+        "S16-I4"
+      ]
+    },
+    {
+      "id": "S16-I13",
+      "title": "Budget the fleet loop with stage-level evidence",
+      "what": "Extend opt-in profiling around reconciliation, swell, rig motion, transforms, attachments, and uploads. Cache immutable per-coin choices such as the sheer sign currently hashed each frame. Preserve existing offscreen picking/history guarantees. Optimize only measured hotspots and verify pose/upload parity.",
+      "visitor_benefit": "More consistent frame pacing leaves room for improved choreography on slower CPUs.",
+      "pillar": "all-devices",
+      "meaning": "infra",
+      "data_and_dom": "No signal or DOM changes. Existing conservative culling and selective uploads remain intact: src/harbour/fleet/visibility.test.ts:116, src/harbour/fleet/uploads.test.ts:15.",
+      "where": "src/harbour/fleet/fleet-system.ts:878; src/harbour/fleet/fleet-system.ts:980; src/harbour/fleet/fleet-system.ts:1249; src/harbour/engine/engine.ts:300",
+      "effort": "M",
+      "perf_cost": "Profiling overhead only when enabled. A 0.1–0.3 ms fleet reduction is a target, not an established saving; no added draws or assets.",
+      "risks": "D10 unchanged. Do not reduce simulation accuracy, skip offscreen history, or claim the 27.8 ms fleet maximum is explained before substage measurement.",
+      "impact": 4,
+      "confidence": 4,
+      "depends_on": []
+    }
+  ],
+  "top_picks": [
+    {
+      "id": "S16-I1",
+      "why": "Small, well-supported fix removes a reproduced 752 m teleport and preserves an existing signature moment."
+    },
+    {
+      "id": "S16-I4",
+      "why": "A modest timing change removes the reproduced stop-at-reroute defect across several event types."
+    },
+    {
+      "id": "S16-I2",
+      "why": "Correct physical footprints are foundational: prominent ships currently exceed the dimensions used to protect them."
+    },
+    {
+      "id": "S16-I3",
+      "why": "Repairs a measured violation of the harbour's core supply-share promise before richer queues or timing changes compound it."
+    },
+    {
+      "id": "S16-I10",
+      "why": "Removes unbounded geometry work from playback frames and protects the CPU budget needed by better choreography."
+    }
+  ],
+  "operator_decisions": [
+    "For S16-I8, approve a fleet-only fade of at most 250 ms on tab return, or retain immediate UTC catch-up with wake and rig histories reset? Both preserve D10; the fade briefly dims ships."
+  ],
+  "cross_lane_hooks": [
+    "Fleet asset owners: publish rendered variant/titan footprints as runtime-neutral metadata; update worker/cache/seed identities together. Relevant contracts: src/harbour/fleet/fleet-system.ts:539, src/harbour/sim/seeds.ts:6.",
+    "Ocean and engine owners: provide a visibility-resume boundary and wake-history reset/aging mechanism. Keep canonical UTC route playback separate from decorative elapsed clocks.",
+    "UI owners: resolve moving EV_TOW/EV_TO_SHOALS before destination-slot wording, and use identical transit language in hover and panel: src/harbour/ui/facts.ts:24.",
+    "Performance owners: retain the supplied 1.13 ms fleet and 0.55 ms data baselines, then measure substage p95 and resume spikes on the Apple Silicon gate before approving added CPU work.",
+    "Validation owners: extend real-geometry checks to effective D10 occupancy, rendered footprints, refresh interleavings, and reduced-motion data changes; retain worker parity and existing clearance coverage.",
+    "Skipped browsers, edits, and the full test suite; read-only in-memory probes used synthetic payloads. Rendered appearance, live-fleet incidence, and Apple Silicon timing remain unverified."
+  ]
+}

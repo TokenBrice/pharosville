@@ -1,0 +1,5 @@
+# Scratch captures stay local; commit only reports and plans.
+shots/
+*.png
+*.jpg
+*.webm

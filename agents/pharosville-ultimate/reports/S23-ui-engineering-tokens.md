@@ -1,0 +1,240 @@
+# S23
+
+## Executive summary
+
+Preserve the existing overlay architecture: frame positions bypass React, measurements are cached, and reads precede writes. Prioritize two transform bugs, overlapping ledger/details at intermediate widths, and keyboard layer isolation. Consolidate existing chart-paper styles into a small token vocabulary and shared controls without adding a framework. The existing CSS artifact passes its actual 34 KiB raw / 8.5 KiB gzip cap, with 4.25 KiB raw / 1.57 KiB gzip remaining. Tokenization alone can increase bytes; budget component consolidation and font deduplication separately. Evidence: src/harbour/ui/store.ts:149, src/harbour/ui/harbour-ui.css:60, scripts/bundle-budgets.mjs:49.
+
+## Current state
+
+- Position tracking already avoids unconditional per-frame React state updates. The store publishes model changes, hover transitions and a 1 Hz text tick; separate callbacks handle projections and DOM writes. src/harbour/ui/store.ts:149; src/harbour/ui/hooks.ts:24.
+- Measurement engineering is strong: ResizeObserver invalidates cached dimensions, unchanged styles are skipped, and camera preparation is shared within a frame. Existing unit tests cover these guarantees. src/harbour/ui/measurements.ts:10; src/harbour/ui/picking.ts:81; src/harbour/ui/measurements.test.ts:11.
+- Subscription granularity is mixed. Search and ledger use identity-based slices and memoized collections; hover tags and several panel bodies subscribe to the entire snapshot. src/harbour/ui/hooks.ts:13; src/harbour/ui/Search.tsx:29; src/harbour/ui/Panel.tsx:83.
+- Responsive behavior uses media queries, with a bottom sheet below 900px and extensive coarse-pointer target rules. No container queries were found. Sorted admission correctly permits tall windows, including widths below 720px when the other dimension qualifies. src/harbour/ui/harbour-ui.css:419; src/systems/viewport-gate.ts:29.
+- The main stylesheet has 26 distinct explicit font-size values and 50 distinct literal hex/rgb/rgba colors. Across the four scoped stylesheets, counts are 29 and 58. Counts exclude font shorthands, SVG attributes and TSX inline styles. src/harbour/ui/harbour-ui.css:7; public/arrival-shell.css:7.
+- Color, surface, easing and font tokens exist; spacing, typography and layer scales are mostly literal. Repeated keyboard glyph styles and close SVG markup offer consolidation points. src/harbour/ui/harbour-ui.css:7; src/harbour/ui/harbour-ui.css:99; src/harbour/ui/DetailFallback.tsx:4.
+- Motion includes compositor-friendly breathing and fades, but also grid-track expansion, color/shadow transitions, clip-path entrances and per-frame leader-height writes. These have different layout/paint implications. src/harbour/ui/harbour-ui.css:71; src/harbour/ui/harbour-ui.css:86; src/harbour/ui/harbour-ui.css:465; src/harbour/ui/ChartLabels.tsx:71.
+- Fonts are local WOFF2 with swap; regular and semibold are preloaded. Arrival and runtime declare identical files under different family names, without metric-adjusted fallbacks. ResizeObserver handles subsequent label-size changes; CLS was not measured. index.html:14; public/arrival-shell.css:3; src/harbour/ui/harbour-ui.css:3.
+- The existing October 25 CSS artifact measures 30,464 raw / 7,099 gzip bytes: 87.5% / 81.6% of the enforced caps. check:bundle-size passed. In-memory source minification estimates 30,332 / 7,018 bytes; this is not a fresh production build. dist/assets/harbour-app-c_20QiWm.css:1; scripts/bundle-budgets.mjs:57.
+- Global stacking is explicit: world 0, poster 5, overlay 10, arrival 20, gate 30. Within the overlay, ledger, details and search primarily follow DOM order; postcard adds local z-index 40. src/harbour/app/harbour-app.css:2; public/arrival-shell.css:27; src/harbour/ui/DetailPanels.tsx:19; src/harbour/ui/Postcard.tsx:6.
+
+## Findings
+
+### S23-F1 [high] Reduced motion removes essential positioning
+
+- Evidence: src/harbour/ui/harbour-ui.css:62; src/harbour/ui/harbour-ui.css:269; src/harbour/ui/HoverTag.tsx:58; src/harbour/ui/HoverTag.tsx:106
+- Detail: The reduced-motion rule applies transform:none!important to every hb-fade element. Hover-tag anchors need their inline transform to follow world objects, so the rule pins them to the viewport origin. Search needs translateX(-50%) for centering; removing it shifts the dialog right and can overflow narrow admitted windows.
+- Fix: Disable animation duration without removing structural transforms. Scope entrance transforms to individual surfaces or a separate wrapper.
+
+### S23-F2 [medium] Hover tags transition their continuously updated position
+
+- Evidence: src/harbour/ui/harbour-ui.css:60; src/harbour/ui/HoverTag.tsx:46; src/harbour/ui/HoverTag.tsx:58; src/harbour/ui/HoverTag.tsx:106
+- Detail: The tracked anchor also carries hb-fade, which transitions transform for 200ms. Every engine-frame position assignment therefore retargets a CSS transition instead of landing immediately at the projected coordinate. This contradicts the intended synchronous hull/tag tracking.
+- Fix: Make the tracked anchor opacity-only. Keep any entrance translation on a separate, non-tracked element.
+
+### S23-F3 [medium] Ledger selections obscure ledger content at intermediate widths
+
+- Evidence: src/harbour/ui/harbour-ui.css:141; src/harbour/ui/harbour-ui.css:320; src/harbour/ui/Ledger.tsx:183; src/harbour/ui/store.ts:327; src/harbour/ui/DetailPanels.tsx:19
+- Detail: Selecting a ledger row leaves ledgerOpen true. At 900px width, the 700px ledger ends at x=714 while the 364px details panel starts at x=522, producing 192px overlap. Overlap persists below 1092px. Below 900px, the bottom sheet instead covers the ledger's lower region.
+- Fix: Coordinate the two surfaces: temporarily hide the ledger while compact details are open, preserve its filter/scroll state, and restore it on close. Keep simultaneous panes only where they fit.
+
+### S23-F4 [medium] Postcard claims modality without enforcing it
+
+- Evidence: src/harbour/ui/Postcard.tsx:40; src/harbour/ui/Postcard.tsx:51; src/harbour/ui/App.tsx:51
+- Detail: The postcard sets aria-modal=true and initially focuses Save, but has no focus containment or background inertness. Tab can reach underlying controls, and global camera shortcuts remain active while focus is inside the postcard.
+- Fix: Use a native modal dialog with existing paper styling and focus restoration. Suppress world shortcuts while that modal is active.
+
+### S23-F5 [medium] Sound-menu navigation also drives the camera
+
+- Evidence: src/harbour/audio/SoundToggle.tsx:42; src/harbour/ui/App.tsx:52; src/harbour/ui/App.tsx:75
+- Detail: Sound-menu ArrowUp, ArrowDown and Home handlers prevent default behavior but allow propagation. The window shortcut handler never checks defaultPrevented. Those same keys therefore navigate menu items and start camera panning or fly home.
+- Fix: Return early from the global key handler when defaultPrevented is true. Preserve unconditional key-release cleanup so interrupted panning cannot stick.
+
+### S23-F6 [low] The promised coarse-pointer target policy has gaps
+
+- Evidence: src/harbour/ui/harbour-ui.css:415; src/harbour/ui/harbour-ui.css:169; src/harbour/ui/harbour-ui.css:424; src/harbour/audio/sound-toggle.css:40; src/harbour/ui/Postcard.tsx:9
+- Detail: The stylesheet promises every touch control a 44px target, but Follow, postcard actions and sound-menu items lack that minimum. These controls retain compact text-plus-padding dimensions while neighboring controls expand.
+- Fix: Apply one shared coarse-pointer action rule to all these controls, retaining the existing compact desktop appearance.
+
+### S23-F7 [medium] Long tags cannot remain inside narrow windows
+
+- Evidence: src/harbour/ui/harbour-ui.css:124; src/harbour/ui/HoverTag.tsx:40; src/harbour/ui/facts.ts:70
+- Detail: Tags are unbounded, single-line flex containers. Boat facts can append both early-warning and maiden-voyage explanations. Position correction translates the tag but never limits its width; any tag wider than the viewport minus margins necessarily overflows. Vertical placement uses a fixed 64px threshold rather than measured tag height.
+- Fix: Bound tag width to the viewport, allow controlled wrapping, and use cached height for above/below placement. Preserve analytical qualifications rather than truncating them.
+
+### S23-F8 [low] Loaded search has no explicit touch dismissal
+
+- Evidence: src/harbour/ui/Search.tsx:70; src/harbour/ui/Search.tsx:90; src/harbour/ui/Search.tsx:108; src/harbour/ui/DetailFallback.tsx:45
+- Detail: Loaded search exposes Escape handling but no visible close action or outside-dismiss handler. Touch instructions omit Escape. The loading fallback does provide Close, so dismissal becomes less discoverable after loading completes.
+- Fix: Reuse the shared close control in loaded search and preserve focus restoration.
+
+### S23-F9 [low] Hover changes unnecessarily rebuild open panel content
+
+- Evidence: src/harbour/ui/hooks.ts:13; src/harbour/ui/Panel.tsx:83; src/harbour/ui/Panel.tsx:118; src/harbour/ui/store.ts:128
+- Detail: PanelContent subscribes to the complete snapshot despite primarily reading model. Every hover change therefore renders the active panel subtree, including charts and lists. BoatPanel additionally subscribes broadly for its slow whereabouts update. This is avoidable work, not a measured frame-time bottleneck.
+- Fix: Select model in PanelContent and subscribe explicitly to tick only in sections that read moving service state. Keep existing memoized ledger/search collections.
+
+## Ideas
+
+### S23-I1 Separate positioning from entrance motion
+
+*all-devices · ux · effort S · impact 5 · confidence 5*
+
+- What: Make hover-anchor fades opacity-only and replace the blanket reduced-motion transform reset with surface-specific rules. Keep search centering and world projection transforms intact. Addresses S23-F1 and S23-F2.
+- Visitor benefit: Names remain attached to ships, and reduced-motion visitors retain correctly positioned search and tags.
+- Data/DOM: n/a; preserves existing text and analytical mappings.
+- Where: src/harbour/ui/harbour-ui.css:60; src/harbour/ui/HoverTag.tsx:106
+- Perf: Estimated +0–150 bytes minified CSS; removes continuous transform-transition retargeting. No GPU world changes.
+- Risks: Verify all hb-fade consumers retain their intended final positions and immediate reduced-motion states.
+- Depends on: —
+
+### S23-I2 Coordinate ledger and detail layouts
+
+*all-devices · ux · effort M · impact 5 · confidence 5*
+
+- What: Define compact and simultaneous-pane modes from actual required widths. Hide compact ledger presentation during detail inspection while retaining mounted state, then restore it on close. Preserve the existing 900px camera/sheet contract unless changed together.
+- Visitor benefit: Tables and details remain readable throughout the 720–1100px range.
+- Data/DOM: n/a; existing records, sorting and filters remain unchanged.
+- Where: src/harbour/ui/harbour-ui.css:140; src/harbour/ui/harbour-ui.css:319; src/harbour/ui/store.ts:51; src/harbour/ui/DetailPanels.tsx:19
+- Perf: Estimated +300–600 bytes CSS and under 0.5 KiB gzip JS; no per-frame layout measurement needed.
+- Risks: Preserve focus return, ledger scroll/filter state and camera clearance. Container queries suit internal content, but cannot independently redefine camera framing.
+- Depends on: —
+
+### S23-I3 Expose a small chart-paper token vocabulary
+
+*professional · infra · effort M · impact 4 · confidence 5*
+
+- What: Extend existing root tokens with approximately eight type roles, six recurring spacing values, semantic interaction washes/rules and named layers. Reuse them across arrival and runtime CSS. Keep optical offsets literal and categorical data inks separate. Let the visual lane choose final values.
+- Visitor benefit: Panels, controls and arrival screens gain consistent rhythm without changing the established nautical voice.
+- Data/DOM: n/a; preserve CHAIN_INKS, DEWS_INK and PSI_INK semantics in src/harbour/ui/bits.tsx:30.
+- Where: public/arrival-shell.css:7; src/harbour/ui/harbour-ui.css:7; src/harbour/audio/sound-toggle.css:40
+- Perf: Estimated +0.5–1.5 KiB raw / +0.1–0.3 KiB gzip CSS before consolidation. In-memory five-color token trial measured +139 raw / +61 gzip bytes.
+- Risks: Tokens do not inherently save bytes. Avoid mechanically tokenizing every value or merging semantically different data colors.
+- Depends on: —
+
+### S23-I4 Unify close buttons and compact actions
+
+*professional · ux · effort S · impact 4 · confidence 5*
+
+- What: Promote the existing fallback Close helper into a shared component; reuse it in panel, ledger and loaded search. Consolidate action, focus, pressed and coarse-pointer styles, including Follow, sound-menu and postcard actions. Replace duplicated keyboard-cap rules with one base.
+- Visitor benefit: Dismissal, focus indication and touch targets behave consistently everywhere.
+- Data/DOM: n/a; retain accessible labels and existing action semantics.
+- Where: src/harbour/ui/DetailFallback.tsx:4; src/harbour/ui/Panel.tsx:52; src/harbour/ui/Ledger.tsx:34; src/harbour/ui/Search.tsx:71; src/harbour/ui/harbour-ui.css:99
+- Perf: Estimated CSS delta −100 to +400 bytes after consolidation; duplicated SVG/JSX removal offsets the small shared component.
+- Risks: Keep the close control above panel headers; preserve the earlier close-button stacking fix.
+- Depends on: S23-I3
+
+### S23-I5 Give interactive layers keyboard priority
+
+*professional · ux · effort S · impact 4 · confidence 5*
+
+- What: Honor defaultPrevented before world shortcuts and use native dialog modality for postcard preview. Restore focus on close and ensure arrows/Home operate only the active menu or dialog. Retain the non-modal ledger/details model.
+- Visitor benefit: Keyboard users can adjust sound and save postcards without moving the harbour or entering obscured controls.
+- Data/DOM: n/a; input routing only.
+- Where: src/harbour/ui/App.tsx:51; src/harbour/audio/SoundToggle.tsx:42; src/harbour/ui/Postcard.tsx:49
+- Perf: Estimated +0–0.5 KiB gzip JS and under 200 bytes CSS; native browser behavior avoids a focus-trap dependency.
+- Risks: Keep Escape priority and keyup cleanup correct; account for native dialog backdrop styling and gate-driven unmount.
+- Depends on: —
+
+### S23-I6 Subscribe panels to their actual inputs
+
+*all-devices · infra · effort S · impact 3 · confidence 5*
+
+- What: Replace broad useUI calls with existing identity slices. Subscribe moving text sections to tick explicitly; keep static charts and panel shells outside those updates. Add memoization only where render-count evidence still shows unnecessary subtree work.
+- Visitor benefit: Inspecting dense records leaves more main-thread headroom for the world.
+- Data/DOM: n/a; preserve 1 Hz whereabouts, storm-trend and live-stat text updates.
+- Where: src/harbour/ui/hooks.ts:19; src/harbour/ui/Panel.tsx:83; src/harbour/ui/Panel.tsx:361; src/harbour/ui/HoverTag.tsx:16
+- Perf: Approximately neutral bundle size. Eliminates unrelated renders; millisecond savings require profiling.
+- Risks: Do not accidentally freeze service-backed text that currently relies on broad subscriptions.
+- Depends on: —
+
+### S23-I7 Finish the existing DOM hot-path cleanup
+
+*all-devices · infra · effort S · impact 2 · confidence 4*
+
+- What: Reuse the analytic picker's cached canvas rectangle in its ground-ray branch. Investigate replacing chart leaders' changing height with a transform-scaled line and separately positioned pin. Retain cached dimensions and the read/write phases.
+- Visitor benefit: Reduces avoidable layout work during chart tracking and pointer movement.
+- Data/DOM: n/a; projection and leader endpoints retain the same meaning.
+- Where: src/harbour/ui/picking.ts:81; src/harbour/ui/picking.ts:221; src/harbour/ui/ChartLabels.tsx:71; src/harbour/ui/harbour-ui.css:308
+- Perf: Estimated under 200 bytes CSS; removes one uncached rect read per ground pick and up to ten changing leader heights per chart frame. No measured ms claim.
+- Risks: Separate the endpoint pin so scaleY does not distort it. Keep the simpler height implementation if hardware measurements show negligible benefit.
+- Depends on: —
+
+### S23-I8 Bound tags and compact toolbar content
+
+*all-devices · ux · effort M · impact 4 · confidence 4*
+
+- What: Constrain tag width and permit wrapping without dropping qualifications; place above/below using cached height. Bound the corner strip to available width, allowing a compact arrangement for long freshness text. Use container queries only for internal arrangements.
+- Visitor benefit: Long analytical explanations and stale-state copy remain accessible in narrow or tall admitted windows.
+- Data/DOM: n/a; preserve full early-warning and decorative qualifications from existing fact functions.
+- Where: src/harbour/ui/HoverTag.tsx:40; src/harbour/ui/harbour-ui.css:86; src/harbour/ui/harbour-ui.css:124; src/harbour/ui/CornerMark.tsx:59
+- Perf: Estimated +300–700 bytes CSS; reuse ResizeObserver measurements rather than adding per-frame layout reads.
+- Risks: Keep D11's quiet default wordmark. Test 600×720 as well as 720×600; both satisfy admission.
+- Depends on: S23-I1, S23-I3
+
+### S23-I9 Share font definitions and calibrate fallback metrics
+
+*professional · infra · effort M · impact 3 · confidence 4*
+
+- What: Use one existing font-family name across arrival, overlay and postcard composition. Remove duplicate runtime font-face declarations. Calibrate a local fallback with size-adjust and ascent/descent overrides, then verify delayed-font layout stability.
+- Visitor benefit: Typography changes less during loading and remains coherent across arrival and live UI.
+- Data/DOM: n/a; typography only.
+- Where: public/arrival-shell.css:3; src/harbour/ui/harbour-ui.css:3; src/harbour/ui/harbour-ui.css:21; src/harbour/ui/postcard.ts:78; index.html:14
+- Perf: Estimated live CSS reduction of 300–500 raw bytes, with 150–300 bytes of fallback descriptors added to arrival CSS. No extra font download required.
+- Risks: Platform fallback metrics differ. Do not claim current CLS failure or duplicate font downloads without measurement.
+- Depends on: S23-I3
+
+### S23-I10 Simplify layout-affecting entrance motion
+
+*all-devices · ux · effort S · impact 2 · confidence 4*
+
+- What: Make corner-strip grid expansion immediate while retaining its short opacity fade. Keep the shipped chart unroll only if shared-GPU profiling supports it; otherwise use the existing opacity/translation entrance. Respect reduced motion for every remaining transition.
+- Visitor benefit: Controls reveal promptly with less layout activity on weaker devices.
+- Data/DOM: n/a; improves existing motion rather than introducing a new cue.
+- Where: src/harbour/ui/harbour-ui.css:86; src/harbour/ui/harbour-ui.css:465; src/harbour/audio/sound-toggle.css:52
+- Perf: Estimated −50 to −250 bytes CSS. Removes grid-track interpolation; clip-path cost remains browser-dependent until measured.
+- Risks: Preserve focus-triggered disclosure and chart-paper character. Do not classify every clip-path transition as inherently slow.
+- Depends on: S23-I1
+
+### S23-I11 Track stylesheet cost without moving it into JavaScript
+
+*professional · infra · effort S · impact 3 · confidence 5*
+
+- What: Keep the existing 34/8.5 KiB runtime cap. Add separate arrival-CSS accounting and move postcard styles into reusable classes. Allocate approximately +2 KiB raw / +0.6 KiB gzip for the combined cleanup, then measure the actual build before accepting it.
+- Visitor benefit: Polish stays within a visible loading budget and shares consistent component styling.
+- Data/DOM: n/a; budget and style ownership only.
+- Where: scripts/bundle-budgets.mjs:49; scripts/check-bundle-size.mjs:25; public/arrival-shell.css:1; src/harbour/ui/Postcard.tsx:5
+- Perf: Arrival currently estimates 5,450 minified / 1,897 gzip bytes separately. Moving postcard styles increases CSS and decreases JS; total transfer must be compared.
+- Risks: The existing artifact predates this research session. A fresh production build is required for final byte approval; token estimates are not guaranteed savings.
+- Depends on: S23-I3, S23-I4, S23-I9
+
+### S23-I12 Cover overlay interaction and geometry contracts
+
+*professional · infra · effort M · impact 4 · confidence 5*
+
+- What: Add focused React tests for consumed keyboard events, explicit search dismissal and postcard focus behavior. Add shared-Chrome geometry assertions for reduced-motion placement, pane coexistence, long tags and touch targets across admitted narrow, tall and ultrawide sizes.
+- Visitor benefit: Future visual styling cannot silently break positioning or keyboard access.
+- Data/DOM: n/a; use existing fixture facts and preserve viewport-gate request assertions.
+- Where: tests/visual/harbour-dom.spec.ts:40; src/harbour/ui/details-loading.test.tsx:26; src/harbour/ui/measurements.test.ts:11; scripts/harbour/shared-browser.mjs
+- Perf: Zero production bytes; additional test execution only.
+- Risks: Current DOM tests mostly establish admission and mounting. Geometry checks need real layout; jsdom assertions cannot prove visual placement.
+- Depends on: S23-I1, S23-I2, S23-I4, S23-I5, S23-I8
+
+## Top picks
+
+1. S23-I1 — Tiny CSS change fixes two deterministic positioning problems, including reduced-motion access.
+2. S23-I5 — Existing browser primitives and one input guard resolve keyboard interference with little code.
+3. S23-I2 — Directly addresses mathematically overlapping panes across common laptop and tablet widths.
+4. S23-I4 — Small shared controls close touch-target and dismissal gaps while reducing duplicated markup.
+5. S23-I3 — Gives the visual lane stable styling controls; pair it with consolidation rather than promising automatic byte savings.
+
+## Operator decisions
+
+
+## Cross-lane hooks
+
+- Visual UI lane: choose the type-role values, spacing rhythm and compact toolbar arrangement after S23-I1 establishes correct positioning. Preserve the D12 serif/chart-paper direction.
+- Accessibility lane: coordinate postcard modality, focus return, search dismissal and complete touch-target coverage with S23-I4 and S23-I5.
+- Camera/responsiveness lane: keep CSS sheet geometry synchronized with PANEL_CLEARANCE_PX, SHEET_BELOW_PX and SHEET_FRACTION. src/harbour/ui/store.ts:51.
+- Performance lane: measure React commit counts and overlay layout/paint before assigning millisecond benefits to S23-I6, S23-I7 or S23-I10.
+- Budget owner: enforce 8.5 KiB gzip from source, despite the rounded 9 KiB runtime-facts description. Include arrival CSS and any JS-to-CSS movement in the combined accounting.
+- Skipped: browsers, captures, fresh builds, test execution and code changes. Risk: actual appearance, CLS and hardware timing remain unverified; only the existing artifact's bundle check was executed.
