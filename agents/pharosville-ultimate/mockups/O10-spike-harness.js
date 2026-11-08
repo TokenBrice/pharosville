@@ -10,7 +10,7 @@
   const H = window.__harbour, ctx = H.ctx, U = ctx.uniforms, cam = ctx.camera;
   const V3 = cam.position.constructor;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const until = async (fn, ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { try { if (fn()) return true; } catch (e) { /* not yet */ } await sleep(250); } return false; };
+  const until = async (fn, ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { try { if (fn()) return true; } catch { /* not yet */ } await sleep(250); } return false; };
   const O = window.__O10 = { log: [], err: [], pre: [], post: [], done: new Set(), probes: {} };
   const tod = ctx.timeOfDay, todUpd = tod.update.bind(tod);
   tod.update = function (...a) { const r = todUpd(...a); for (const f of O.pre) { try { f(); } catch (e) { O.err.push("pre:" + e.message); } } return r; };
