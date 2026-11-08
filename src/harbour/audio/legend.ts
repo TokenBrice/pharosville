@@ -1,0 +1,2 @@
+/** Shared with the Ledger's “By ear” section. */
+export const BY_EAR = "Surf follows sea state: the share of supply off peg. Wind, rain and thunder follow early-warning stress. The foghorn means stale data. The Pharos breath follows the beam’s reach and falls silent when its reading is unavailable or stale. Mint and Burn sounds follow their displayed activity and stop when banked. Other harbour sounds and music are decorative.";

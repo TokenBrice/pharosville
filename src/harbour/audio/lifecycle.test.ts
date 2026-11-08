@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../engine/types";
-import { Ambience } from "./ambience";
+import { Ambience, type AmbienceInputs } from "./ambience";
 import { ClipBank } from "./bank";
+import type { ClipKind } from "./dsp";
+import { SEA_STATES } from "../ocean/waves";
 import { getSoundController, type SoundController } from "./controller";
 
 class AudioParamStub {
@@ -123,6 +125,105 @@ describe("harbour sound: visibility and lifetime", () => {
     hidden = value;
     document.dispatchEvent(new Event("visibilitychange"));
   }
+
+  function scene(inputs: Partial<AmbienceInputs> = {}) {
+    const ac = new AudioContextStub(), amb = new Ambience(audioContext(ac), { seed: 7 });
+    ambiences.push(amb);
+    // Inspect scheduling and native gain targets, without rendering PCM or exposing test-only runtime APIs.
+    const graph = amb as unknown as {
+      rnd(): number;
+      play(kind: ClipKind, at: number, to: AudioNode, level: number, pan?: number, rate?: number): boolean;
+      next: { wave: number; press: number };
+      shoreBus: AudioNodeStub; bedGain: AudioNodeStub; reefBus: AudioNodeStub; sprayBus: AudioNodeStub; mintBus: AudioNodeStub;
+      windGain: AudioNodeStub; rainFine: AudioNodeStub; howlBus: AudioNodeStub;
+    };
+    vi.spyOn(graph, "rnd").mockReturnValue(0.5);
+    const play = vi.spyOn(graph, "play").mockReturnValue(true);
+    amb.set(inputs);
+    ac.currentTime = 10;
+    return { ac, amb, graph, play };
+  }
+
+  it("surf size, period and spray follow all four sea states independently of DEWS", () => {
+    const sizes: number[] = [], periods: number[] = [];
+    for (const state of SEA_STATES) {
+      const sea: AmbienceInputs["sea"] = [state.amp, state.chop, state.caps, state.bands];
+      const calm = scene({ sea, seaAvailable: true, storm: 0, wind: 0, rain: 0 });
+      const storm = scene({ sea, seaAvailable: true, storm: 1, wind: 1, rain: 1 });
+      calm.amb.step(); storm.amb.step();
+      const surf = (s: typeof calm) => s.play.mock.calls.filter(([k]) => k === "shore" || k === "reef").map(([kind, at, , level, pan, rate]) => [kind, at, level, pan, rate]);
+      expect(surf(storm)).toEqual(surf(calm));
+      for (const bus of ["shoreBus", "bedGain", "reefBus", "sprayBus"] as const) {
+        expect(storm.graph[bus].gain.setTargetAtTime.mock.calls).toEqual(calm.graph[bus].gain.setTargetAtTime.mock.calls);
+      }
+      expect(storm.graph.next.wave).toBe(calm.graph.next.wave);
+      const s = (state.amp - 0.1) / 0.75;
+      expect(calm.graph.next.wave - 10).toBeCloseTo(7.75 * (1 - 0.12 * s));
+      expect(calm.graph.sprayBus.gain.setTargetAtTime.mock.calls.at(-1)?.[0]).toBeCloseTo(0.4 * state.caps ** 2 * 0.65);
+      expect(storm.graph.windGain.gain.setTargetAtTime.mock.calls[0][0]).toBeGreaterThan(calm.graph.windGain.gain.setTargetAtTime.mock.calls[0][0]);
+      expect(storm.graph.rainFine.gain.setTargetAtTime.mock.calls[0][0]).toBeGreaterThan(0);
+      expect(storm.graph.howlBus.gain.setTargetAtTime.mock.calls[0][0]).toBeGreaterThan(0);
+      sizes.push(calm.play.mock.calls.find(([k]) => k === "shore")![3]);
+      periods.push(calm.graph.next.wave - 10);
+    }
+    for (let i = 1; i < sizes.length; i++) {
+      expect(sizes[i]).toBeGreaterThan(sizes[i - 1]);
+      expect(periods[i]).toBeLessThan(periods[i - 1]);
+    }
+  });
+
+  it("mutes analytical surf by default and when sea truth is lost, with neutral decorative laps", () => {
+    const { amb, ac, graph, play } = scene({ storm: 1, wind: 1 });
+    amb.step();
+    expect(play.mock.calls.some(([k]) => k === "shore" || k === "reef")).toBe(false);
+    expect(play.mock.calls.some(([k]) => k === "lap")).toBe(true);
+    amb.set({ seaAvailable: true, sea: [0.85, 1, 1, 1.35] });
+    ac.currentTime = 20;
+    amb.step();
+    expect(play.mock.calls.some(([k]) => k === "shore")).toBe(true);
+    play.mockClear();
+    amb.set({ seaAvailable: false });
+    ac.currentTime = 30;
+    amb.step();
+    expect(play.mock.calls.some(([k]) => k === "shore" || k === "reef")).toBe(false);
+    for (const bus of [graph.shoreBus, graph.bedGain, graph.reefBus, graph.sprayBus]) {
+      expect(bus.gain.setTargetAtTime.mock.calls.at(-1)?.[0]).toBe(0);
+    }
+  });
+
+  it("stops banked presses, clears their deadline and resumes one fresh idle stroke without catching up", () => {
+    const { amb, ac, graph, play } = scene({ mint: 1, mintRate: 0 });
+    amb.step();
+    expect(play.mock.calls.some(([k]) => k === "press")).toBe(false);
+    expect(graph.mintBus.gain.setTargetAtTime.mock.calls.at(-1)?.[0]).toBe(0);
+    amb.set({ mintAvailable: true });
+    amb.step();
+    expect(play.mock.calls.filter(([k]) => k === "press")).toHaveLength(1);
+    expect(graph.mintBus.gain.setTargetAtTime.mock.calls.at(-1)?.[0]).toBeGreaterThan(0);
+    amb.set({ mintAvailable: false });
+    ac.currentTime = 10.1;
+    amb.step();
+    expect(graph.next.press).toBe(10.1);
+    ac.currentTime = 3600;
+    amb.step();
+    expect(graph.next.press).toBe(3600);
+    expect(play.mock.calls.filter(([k]) => k === "press")).toHaveLength(1);
+    expect(graph.mintBus.gain.setTargetAtTime.mock.calls.at(-1)?.[0]).toBe(0);
+    amb.set({ mintAvailable: true });
+    amb.step();
+    expect(play.mock.calls.filter(([k]) => k === "press")).toHaveLength(2);
+    expect(graph.next.press).toBeGreaterThan(3600);
+    expect(graph.next.press - 3600).toBeCloseTo(0.62 / 0.6);
+  });
+
+  it.each([[0.2999, "drizzle"], [0.3, "rain"], [0.3001, "rain"], [0.32, "rain"]] as const)("prepares and plays the same patter at rain %s", (rain, kind) => {
+    const want = vi.spyOn(ClipBank.prototype, "want");
+    const { amb, play } = scene({ rain });
+    amb.step();
+    expect(want).toHaveBeenCalledWith(kind);
+    expect(want).not.toHaveBeenCalledWith(kind === "rain" ? "drizzle" : "rain");
+    expect(play.mock.calls.filter(([k]) => k === "rain" || k === "drizzle").map(([k]) => k)).toEqual([kind]);
+  });
 
   it("stops both intervals and the idle pump while hidden, then resumes only once on the frozen clock", async () => {
     const ctx = engineContext(), ctl = controller(ctx);
