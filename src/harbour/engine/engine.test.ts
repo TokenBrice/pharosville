@@ -195,7 +195,7 @@ describe("engine preparation and rendered readiness", () => {
 
   it.each([false, true])("passes raw visible timing separately from animation's clamp (profiled=%s)", (profiled) => {
     const { engine, composer } = frameEngine();
-    if (profiled) engine.profile = { frames: 0, ms: {}, max: {} };
+    if (profiled) engine.profile = new FrameProfile();
     engine.firstFrameMs = 1;
     engine.frame(250);
     expect(engine.frameState.delta).toBe(0.1);
