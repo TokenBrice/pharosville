@@ -10,10 +10,11 @@ export const HARBOUR_GUIDE: ReadonlyArray<{ term: string; text: string }> = [
 
 interface ArrivalShellProps {
   stage: string;
+  action?: React.ReactNode;
 }
 
 /** Overlay on the first-paint poster while the harbour loads (and the no-JS page in index.html). */
-export function ArrivalShell({ stage }: ArrivalShellProps) {
+export function ArrivalShell({ stage, action }: ArrivalShellProps) {
   return (
     <section className="pv-arrival" aria-label="PharosVille welcome">
       <h2 className="pv-arrival__mark">Pharos<i>Ville</i></h2>
@@ -24,6 +25,7 @@ export function ArrivalShell({ stage }: ArrivalShellProps) {
         </dl>
         <p className="pv-arrival__stage" role="status">{stage}</p>
         <nav aria-label="Pharos analytics">
+          {action}
           <a href="https://pharos.watch/">Open Pharos analytics</a>
           <a href="https://pharos.watch/stability-index/">Stability Index</a>
         </nav>

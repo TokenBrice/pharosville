@@ -32,6 +32,14 @@ const coin = (id: string): EmblemCoin => ({ id, symbol: "COIN", brandColor: "#54
 afterEach(() => vi.unstubAllGlobals());
 
 describe("combined emblem atlas", () => {
+  it("does not start fallback logos or paint after lifetime cancellation", async () => {
+    canvasHarness();
+    const controller = new AbortController(), store = { ...assets(), signal: controller.signal };
+    const atlas = await EmblemAtlas.load(store as unknown as AssetStore, 420);
+    const fetcher = vi.fn(() => new Promise<Response>(() => {})); vi.stubGlobal("fetch", fetcher);
+    const pending = atlas.loadLogos(); controller.abort(); await pending;
+    expect(fetcher).toHaveBeenCalledOnce(); atlas.dispose();
+  });
   it("keeps an awaiting-data atlas at one row rather than uploading blank logo rows", async () => {
     const { canvases } = canvasHarness();
     const store = assets();

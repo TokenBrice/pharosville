@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { readAssetPack, type AssetPack } from "./asset-pack";
+import { abortable, transport } from "./transport";
+import { BootFailure, isAbort } from "./failure";
 
 interface ModelTransport { url: string; entry?: string }
 interface AssetRegistry { urls: Record<string, string>; models: Record<string, ModelTransport> }
@@ -23,26 +25,30 @@ export class AssetStore {
   private disposed = false;
   private readonly resources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Texture>();
 
+  private readonly lifetime = new AbortController();
+  readonly signal: AbortSignal;
+
+  constructor(signal?: AbortSignal) {
+    this.signal = signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal;
+  }
+
   private static gz(url: string): boolean {
     return url.startsWith("/harbour/") && url.endsWith(".glb") && typeof DecompressionStream === "function";
   }
 
   /** One immutable JSON fetch/parse per engine, including prefetch and consumers. */
   json<T>(url: string): Promise<T> {
-    if (this.disposed) return Promise.reject(new Error("AssetStore disposed"));
+    if (this.disposed || this.signal.aborted) return Promise.reject(this.signal.reason ?? new DOMException("AssetStore disposed", "AbortError"));
     url = assetUrl(url);
     let p = this.jsons.get(url);
     if (!p) {
-      p = fetch(url).then((res) => {
+      p = transport(this.signal, async (signal) => {
+        const res = await fetch(url, { signal });
         if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
-        if (this.disposed) throw new Error("AssetStore disposed");
         return res.json() as Promise<unknown>;
-      }).then((value) => {
-        if (this.disposed) throw new Error("AssetStore disposed");
-        return value;
-      }).catch((error: unknown) => {
+      }).catch((cause: unknown) => {
         this.jsons.delete(url);
-        throw error;
+        throw isAbort(cause) ? cause : new BootFailure("loading", { cause }, cause instanceof Error ? cause.message : "loading");
       });
       this.jsons.set(url, p);
     }
@@ -50,28 +56,20 @@ export class AssetStore {
   }
 
   gltf(url: string): Promise<GLTF> {
-    if (this.disposed) return Promise.reject(new Error("AssetStore disposed"));
+    if (this.disposed || this.signal.aborted) return Promise.reject(this.signal.reason ?? new DOMException("AssetStore disposed", "AbortError"));
     let p = this.gltfs.get(url);
     if (!p) {
       const transport = registry.models[url];
       p = transport ? this.gltfTransport(url, transport)
-        : AssetStore.gz(url) ? this.gltfGz(url) : this.gltfLoader.loadAsync(url);
+        : AssetStore.gz(url) ? this.gltfGz(url) : this.fetchBytes(url).then((bytes) => this.parse(bytes, url));
       p = p.then((gltf) => {
-        for (const scene of gltf.scenes) scene.traverse((object) => {
-          if (!(object instanceof THREE.Mesh)) return;
-          this.resources.add(object.geometry);
-          for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-            this.resources.add(material);
-            for (const value of Object.values(material)) if (value instanceof THREE.Texture) this.resources.add(value);
-          }
-        });
-        if (this.disposed) {
-          for (const resource of this.resources) resource.dispose();
-          this.resources.clear();
-          throw new Error("AssetStore disposed");
+        if (this.signal.aborted) {
+          for (const resource of this.gltfResources(gltf)) resource.dispose();
+          this.signal.throwIfAborted();
         }
+        for (const resource of this.gltfResources(gltf)) this.resources.add(resource);
         return gltf;
-      });
+      }).catch((cause: unknown) => { throw isAbort(cause) ? cause : new BootFailure("loading", { cause }, cause instanceof Error ? cause.message : "loading"); });
       this.gltfs.set(url, p);
     }
     return p;
@@ -79,26 +77,48 @@ export class AssetStore {
 
   /** Fetch bytes only, preserving the island→scoped-pack frontier and parser scheduling. */
   prefetch(url: string): Promise<void> {
-    if (this.disposed) return Promise.resolve();
+    if (this.disposed || this.signal.aborted) return Promise.resolve();
     if (this.gltfs.has(url)) return Promise.resolve();
     const transport = registry.models[url];
     if (transport?.entry) return this.pack(transport.url).then(() => {}, () => {});
     if ((!transport && !AssetStore.gz(url)) || this.prefetched.has(url)) return Promise.resolve();
-    const p = transport ? AssetStore.fetchBytes(transport.url) : AssetStore.fetchGz(url);
+    const p = transport ? this.fetchBytes(transport.url) : this.fetchGz(url);
     this.prefetched.set(url, p);
     return p.then(() => {}, () => {});
   }
 
-  private static async fetchBytes(url: string): Promise<ArrayBuffer> {
-    const res = await fetch(url);
-    if (!res.ok || (res.headers.get("content-type") ?? "").includes("text/html")) throw new Error(`${url}: HTTP ${res.status}`);
-    return res.arrayBuffer();
+  private fetchBytes(url: string): Promise<ArrayBuffer> {
+    return transport(this.signal, async (signal) => {
+      const res = await fetch(url, { signal });
+      if (!res.ok || (res.headers.get("content-type") ?? "").includes("text/html")) throw new Error(`${url}: HTTP ${res.status}`);
+      return res.arrayBuffer();
+    });
+  }
+
+  private gltfResources(gltf: GLTF): Set<THREE.BufferGeometry | THREE.Material | THREE.Texture> {
+    const resources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Texture>();
+    for (const scene of gltf.scenes) scene.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      resources.add(object.geometry);
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        resources.add(material);
+        for (const value of Object.values(material)) if (value instanceof THREE.Texture) resources.add(value);
+      }
+    });
+    return resources;
+  }
+
+  private parse(bytes: ArrayBuffer, url: string): Promise<GLTF> {
+    const release = (gltf: GLTF) => { for (const resource of this.gltfResources(gltf)) resource.dispose(); };
+    return transport(this.signal, (signal) => abortable(
+      this.gltfLoader.parseAsync(bytes, url.slice(0, url.lastIndexOf("/") + 1)), signal, release,
+    ), release);
   }
 
   private pack(url: string): Promise<AssetPack> {
     let p = this.packs.get(url);
     if (!p) {
-      p = AssetStore.fetchBytes(url).then((bytes) => {
+      p = this.fetchBytes(url).then((bytes) => {
         if (this.disposed) throw new Error("AssetStore disposed");
         const pack = readAssetPack(bytes);
         this.packRemaining.set(url, new Set(Object.keys(pack.entries)));
@@ -115,7 +135,7 @@ export class AssetStore {
       if (!bounds) throw new Error(`Missing packed model ${transport.entry}`);
       try {
         // GLTFLoader needs an entry-owned ArrayBuffer; it cannot accept a view into a container.
-        return await this.gltfLoader.parseAsync(pack.bytes.slice(bounds[0], bounds[0] + bounds[1]), original.slice(0, original.lastIndexOf("/") + 1));
+        return await this.parse(pack.bytes.slice(bounds[0], bounds[0] + bounds[1]), original);
       } finally {
         const remaining = this.packRemaining.get(transport.url);
         remaining?.delete(transport.entry);
@@ -124,14 +144,16 @@ export class AssetStore {
     }
     const early = this.prefetched.get(original);
     this.prefetched.delete(original);
-    const bytes = await (early ?? AssetStore.fetchBytes(transport.url));
+    const bytes = await (early ?? this.fetchBytes(transport.url));
     if (!bytes) throw new Error(`Missing model ${original}`);
-    return this.gltfLoader.parseAsync(bytes, original.slice(0, original.lastIndexOf("/") + 1));
+    return this.parse(bytes, original);
   }
 
-  private static async fetchGz(url: string): Promise<ArrayBuffer | null> {
-    const res = await fetch(`${url}.gz`);
-    return res.ok && !(res.headers.get("content-type") ?? "").includes("text/html") ? res.arrayBuffer() : null;
+  private fetchGz(url: string): Promise<ArrayBuffer | null> {
+    return transport(this.signal, async (signal) => {
+      const res = await fetch(`${url}.gz`, { signal });
+      return res.ok && !(res.headers.get("content-type") ?? "").includes("text/html") ? res.arrayBuffer() : null;
+    });
   }
 
   private async gltfGz(url: string): Promise<GLTF> {
@@ -139,29 +161,38 @@ export class AssetStore {
     const early = this.prefetched.get(url);
     this.prefetched.delete(url);
     try {
-      const buf = await (early ?? AssetStore.fetchGz(url));
+      const buf = await (early ?? this.fetchGz(url));
       if (buf) {
         const b = new Uint8Array(buf, 0, Math.min(2, buf.byteLength));
         // Legacy gzip objects lack Content-Encoding; already HTTP-decoded GLBs bypass inflation.
         glb = b[0] === 0x1f && b[1] === 0x8b
-          ? await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer() : buf;
+          ? await transport(this.signal, () => new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer()) : buf;
       }
-    } catch (e) { console.warn(`[harbour] ${url}.gz unavailable, loading the plain GLB`, e); }
-    if (!glb) return this.gltfLoader.loadAsync(url);
-    return this.gltfLoader.parseAsync(glb, url.slice(0, url.lastIndexOf("/") + 1));
+    } catch (e) { if (isAbort(e) || this.signal.aborted || e instanceof BootFailure) throw e; console.warn(`[harbour] ${url}.gz unavailable, loading the plain GLB`, e); }
+    this.signal.throwIfAborted();
+    return this.parse(glb ?? await this.fetchBytes(url), url);
   }
 
   texture(url: string, srgb = true): Promise<THREE.Texture> {
-    if (this.disposed) return Promise.reject(new Error("AssetStore disposed"));
+    if (this.disposed || this.signal.aborted) return Promise.reject(this.signal.reason ?? new DOMException("AssetStore disposed", "AbortError"));
     url = assetUrl(url);
     let p = this.textures.get(url);
     if (!p) {
-      p = this.textureLoader.loadAsync(url).then((t) => {
-        if (this.disposed) { t.dispose(); throw new Error("AssetStore disposed"); }
+      p = transport(this.signal, async (signal) => {
+        const res = await fetch(url, { signal });
+        if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+        const blob = await res.blob();
+        signal.throwIfAborted();
+        const objectUrl = URL.createObjectURL(blob);
+        try {
+          return await abortable(this.textureLoader.loadAsync(objectUrl), signal, (t) => t.dispose());
+        } finally { URL.revokeObjectURL(objectUrl); }
+      }, (t) => t.dispose()).then((t) => {
+        if (this.signal.aborted) { t.dispose(); this.signal.throwIfAborted(); }
         if (srgb) t.colorSpace = THREE.SRGBColorSpace;
         this.resources.add(t);
         return t;
-      });
+      }).catch((cause: unknown) => { throw isAbort(cause) ? cause : new BootFailure("loading", { cause }, cause instanceof Error ? cause.message : "loading"); });
       this.textures.set(url, p);
     }
     return p;
@@ -171,6 +202,7 @@ export class AssetStore {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.lifetime.abort();
     this.gltfs.clear(); this.textures.clear(); this.jsons.clear(); this.prefetched.clear();
     this.packs.clear(); this.packRemaining.clear();
     for (const resource of this.resources) resource.dispose();

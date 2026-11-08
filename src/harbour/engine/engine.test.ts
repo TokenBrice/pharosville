@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { FrameProfile } from "./frame-profile";
+
+// Real-driver capability probes are covered by graphics.test.ts; the frame/lifecycle harness has no GL context.
+vi.mock("./graphics", async (importOriginal) => ({ ...(await importOriginal<typeof import("./graphics")>()), probeGraphics: vi.fn() }));
 import { Engine } from "./engine";
 import { CameraRig } from "./camera-rig";
 import { TimeOfDay } from "./time-of-day";
@@ -8,6 +11,8 @@ import { createWorldUniforms } from "./uniforms";
 import type { EngineContext, HarbourStats, RenderedFleetState, WorldSystem } from "./types";
 import { ProgramPreparation } from "./prepare";
 import { deferred } from "./deferred";
+import { GraphicsValidity } from "./graphics";
+import { BootFailure, type HarbourLifecycle } from "./failure";
 import { TIERS } from "./quality";
 import { QualityGovernor } from "./governor";
 import type { QualitySettings } from "./quality";
@@ -15,6 +20,15 @@ import type { PreparedPrograms } from "./prepare";
 
 interface EngineHarness {
   ctx: EngineContext;
+  graphics: GraphicsValidity;
+  lifecycle: HarbourLifecycle;
+  lifecycleListeners: Set<(state: HarbourLifecycle) => void>;
+  onLifecycle(cb: (state: HarbourLifecycle) => void): () => void;
+  onContextLost(event: Event): void;
+  onContextRestored(): void;
+  abort(): void;
+  stop(): void;
+  failedFrames: number;
   stats: HarbourStats;
   firstFrameMs: number | null;
   systems: WorldSystem[];
@@ -44,6 +58,7 @@ interface EngineHarness {
   prepareQuality(settings: QualitySettings): Promise<void>;
   warmQuality: Mock;
   initLater(): Promise<void>;
+  init(): Promise<void>;
   frame(now: number): void;
   profiledFrame(now: number): void;
   onRendered(cb: (state: RenderedFleetState) => void): () => void;
@@ -65,6 +80,8 @@ function frameEngine() {
   } as unknown as EngineContext;
   const engine = Object.assign(Object.create(Engine.prototype), {
     ctx, container: { clientWidth: 1000, clientHeight: 700 }, width: 0, height: 0, pixelRatio: 0,
+    graphics: new GraphicsValidity(), lifecycle: { state: "BOOTING", code: null }, lifecycleListeners: new Set(), failedFrames: 0,
+    lifetime: new AbortController(), stop: vi.fn(),
     firstFrameMs: null, startMs: 0, profile: null, clock: { last: 0, elapsed: 0 },
     frameState: { elapsed: 0, delta: 0, nowMs: 0 }, rendered: { revision: 0, boats: 0 },
     renderedListeners: new Set(), systems: [], ready: new Set(), later: [], begun: new Set(),
@@ -91,6 +108,14 @@ describe("engine preparation and rendered readiness", () => {
   });
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+  it("publishes terminal boot failures and cancels the lifetime before rejecting", async () => {
+    const { engine } = frameEngine(), states = vi.fn(), error = new BootFailure("loading");
+    Object.assign(engine, { initialize: async () => { throw error; } });
+    engine.onLifecycle(states);
+    await expect(engine.init()).rejects.toBe(error);
+    expect(engine.aborted).toBe(true);
+    expect(states).toHaveBeenLastCalledWith({ state: "FAILED", code: "loading" });
+  });
 
   it("prepares only post presets once, sharing idle and explicit requests and retaining their programs", async () => {
     const { engine } = frameEngine();
@@ -174,9 +199,61 @@ describe("engine preparation and rendered readiness", () => {
     const completed = vi.fn();
     engine.onRendered(completed);
     composer.render.mockImplementationOnce(() => { throw new Error("render failed"); });
-    expect(() => engine.frame(16)).toThrow("render failed");
+    expect(() => engine.frame(16)).not.toThrow();
+    expect(engine.failedFrames).toBe(1);
     expect(engine.stats.renderedRevision).toBe(0);
     expect(completed).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("balances frame queries, resets the failure streak, and stops after three failures (profile=%s)", (profile) => {
+    const { engine, composer } = frameEngine();
+    const governor = (engine as unknown as { governor: { begin: Mock; end: Mock } }).governor;
+    if (profile) { engine.firstFrameMs = 1; engine.profile = new FrameProfile(); }
+    const states: HarbourLifecycle[] = [];
+    engine.onLifecycle((state) => states.push(state));
+    composer.render.mockImplementationOnce(() => { throw new Error("draw"); });
+    engine.frame(16); expect(engine.failedFrames).toBe(1);
+    engine.frame(32); expect(engine.failedFrames).toBe(0);
+    composer.render.mockImplementation(() => { throw new Error("draw"); });
+    for (const time of [48, 64, 80, 96]) engine.frame(time);
+    expect(states.at(-1)).toEqual({ state: "FAILED", code: "frames" });
+    expect(engine.aborted).toBe(true);
+    expect(governor.begin).toHaveBeenCalledTimes(5);
+    expect(governor.end).toHaveBeenCalledTimes(5);
+  });
+
+  it("never publishes a shader diagnostic even when composer.render returns normally", () => {
+    const { engine, composer } = frameEngine(), published = vi.fn(), states = vi.fn();
+    engine.onRendered(published); engine.onLifecycle(states);
+    composer.render.mockImplementation(() => engine.graphics.onShaderError());
+    engine.frame(16);
+    expect(published).not.toHaveBeenCalled();
+    expect(states).toHaveBeenLastCalledWith({ state: "RECOVERING", code: "shader" });
+    expect(engine.stats.firstFleetFrameMs).toBeNull();
+  });
+
+  it("holds the context owner until restoration or the deadline and cancels feed/audio immediately", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("window", globalThis);
+    const { engine, ctx } = frameEngine(), states = vi.fn(), data = { name: "data", init() {}, update() {}, dispose: vi.fn() };
+    const sound = { dispose: vi.fn() }; ctx.services.set("sound", sound); engine.begun.add(data);
+    const off = engine.onLifecycle(states), event = new Event("webglcontextlost", { cancelable: true });
+    engine.onContextLost(event);
+    expect(event.defaultPrevented).toBe(true); expect(engine.aborted).toBe(true);
+    expect(data.dispose).toHaveBeenCalledOnce(); expect(sound.dispose).toHaveBeenCalledOnce();
+    expect(states).toHaveBeenLastCalledWith({ state: "RECOVERING", code: "context-lost" });
+    engine.onContextRestored();
+    expect(states).toHaveBeenLastCalledWith({ state: "BOOTING", code: "context-lost" });
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(states).not.toHaveBeenCalledWith({ state: "FAILED", code: "context-lost" });
+    off(); engine.onContextRestored();
+    expect(states).toHaveBeenCalledTimes(3);
+
+    const exhausted = frameEngine().engine, terminal = vi.fn(); exhausted.onLifecycle(terminal);
+    exhausted.onContextLost(new Event("webglcontextlost"));
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(terminal).toHaveBeenLastCalledWith({ state: "FAILED", code: "context-lost" });
+    exhausted.onContextRestored();
+    expect(terminal).toHaveBeenCalledTimes(3);
   });
 
   it("skips unchanged resize fanout but initializes newly ready systems on the boot resize", () => {
@@ -298,6 +375,7 @@ describe("engine preparation and rendered readiness", () => {
     const visibility = { hidden: false };
     vi.stubGlobal("document", visibility);
     const { engine } = frameEngine();
+    delete (engine as { stop?: unknown }).stop; // the harness stubs stop() for abort tests; this case needs the real one
     const ready = deferred<PreparedPrograms>();
     Object.assign(engine.post, { seal: vi.fn(), preparationEntries: () => ({ entries: [], dispose: vi.fn() }) });
     Object.assign(engine.preparation, { prepareWorld: () => ready.promise, adopt: vi.fn() });
@@ -474,7 +552,7 @@ describe("engine preparation and rendered readiness", () => {
       Object.assign(renderer, {
         properties: { get: (material: THREE.Material) => properties.get(material) },
         dispose: vi.fn(() => { expect(retainedRenderers).toBe(0); properties.clear(); }),
-        domElement: { remove: vi.fn() },
+        domElement: { remove: vi.fn(), removeEventListener: vi.fn() },
       });
       Object.assign(composer, { dispose: vi.fn() });
       Object.assign(ctx, { assets: { dispose: vi.fn() } });

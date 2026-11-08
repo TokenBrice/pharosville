@@ -5,6 +5,7 @@ import { createWorldUniforms } from "./uniforms";
 import type { EngineContext } from "./types";
 import { deferred } from "./deferred";
 import { EdgeDetectionMaterial, SMAAWeightsMaterial } from "postprocessing";
+import { GraphicsValidity } from "./graphics";
 
 function harness(parallel: boolean) {
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
@@ -36,6 +37,17 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("owned program preparation", () => {
+  it("rejects a reflected shader failure without publishing or poisoning the current variant", async () => {
+    const h = harness(false), graphics = new GraphicsValidity();
+    h.ctx.services.set("graphics-validity", graphics);
+    const material = new THREE.MeshBasicMaterial(), mesh = new THREE.Mesh(new THREE.BoxGeometry(), material); h.scene.add(mesh);
+    h.reflected.mockImplementationOnce(() => graphics.onShaderError());
+    const pending = h.preparation.prepareWorld(), rejected = expect(pending).rejects.toMatchObject({ code: "shader" });
+    await vi.advanceTimersByTimeAsync(1); await rejected;
+    expect(mesh.material).toBe(material); expect(h.target()).toBe(h.previous);
+    expect(() => graphics.assertValid()).not.toThrow();
+    h.preparation.dispose();
+  });
   it("restores target, lights and object materials before asynchronous compiler completion", async () => {
     const h = harness(true);
     const material = new THREE.MeshStandardMaterial();

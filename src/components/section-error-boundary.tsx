@@ -4,17 +4,20 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 interface SectionErrorBoundaryProps {
   children: ReactNode;
   name: string;
-  supportingText: string;
+  supportingText?: string;
+  fallback?: (retry: () => void, attempts: number) => ReactNode;
+  onRetry?: () => void;
 }
 
 interface SectionErrorBoundaryState {
   error: Error | null;
+  attempts: number;
 }
 
 export class SectionErrorBoundary extends Component<SectionErrorBoundaryProps, SectionErrorBoundaryState> {
-  state: SectionErrorBoundaryState = { error: null };
+  state: SectionErrorBoundaryState = { error: null, attempts: 0 };
 
-  static getDerivedStateFromError(error: Error): SectionErrorBoundaryState {
+  static getDerivedStateFromError(error: Error): Pick<SectionErrorBoundaryState, "error"> {
     return { error };
   }
 
@@ -25,6 +28,10 @@ export class SectionErrorBoundary extends Component<SectionErrorBoundaryProps, S
 
   render() {
     if (!this.state.error) return this.props.children;
+    if (this.props.fallback) return this.props.fallback(() => {
+      this.props.onRetry?.();
+      this.setState((state) => ({ error: null, attempts: state.attempts + 1 }));
+    }, this.state.attempts);
 
     return (
       <section className="pharosville-narrow" aria-labelledby="pharosville-error-title">

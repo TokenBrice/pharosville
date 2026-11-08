@@ -93,6 +93,7 @@ export class IdentitySystem implements WorldSystem {
       ctx.assets.texture("/harbour/crests.webp", true).catch(() => null),
     ]);
 
+    ctx.signal?.throwIfAborted();
     if (font && sdfTex && layout.seaZones?.length) {
       const ocean = ctx.services.get("ocean") as OceanService | undefined;
       const t0 = performance.now();

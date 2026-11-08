@@ -1,4 +1,5 @@
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import { abortable } from "../engine/transport";
 
 /** A static implementation import would put deferred people/gull code back in the main chunk. */
 export class LazyLifeSystem implements WorldSystem {
@@ -6,7 +7,9 @@ export class LazyLifeSystem implements WorldSystem {
   private system: WorldSystem | undefined;
 
   async init(ctx: EngineContext): Promise<void> {
-    const { LifeSystem } = await import("./life-system");
+    ctx.signal?.throwIfAborted();
+    const { LifeSystem } = await abortable(import("./life-system"), ctx.signal);
+    ctx.signal?.throwIfAborted();
     this.system = new LifeSystem();
     await this.system.init(ctx);
   }

@@ -1,4 +1,5 @@
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import { abortable } from "../engine/transport";
 
 /** A static implementation import would put deferred label/crest code back in the main chunk. */
 export class LazyIdentitySystem implements WorldSystem {
@@ -6,7 +7,9 @@ export class LazyIdentitySystem implements WorldSystem {
   private system: WorldSystem | undefined;
 
   async init(ctx: EngineContext): Promise<void> {
-    const { IdentitySystem } = await import("./identity-system");
+    ctx.signal?.throwIfAborted();
+    const { IdentitySystem } = await abortable(import("./identity-system"), ctx.signal);
+    ctx.signal?.throwIfAborted();
     this.system = new IdentitySystem();
     await this.system.init(ctx);
   }
