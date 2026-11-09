@@ -115,16 +115,17 @@ export async function runLinksSmoke({ url, canary, name, second, secondName, sna
     // Drive an actual deliberate search choice; no DEV store exposure is needed on a build.
     await page.keyboard.press("/");
     await page.getByRole("combobox", { name: "Search coins, chains and landmarks" }).fill(secondName);
-    await page.getByRole("option").filter({ hasText: secondName }).first().click();
+    const secondKind = { ship: "boat", chain: "harbour", yard: "yard", wreck: "wreck", place: "landmark" }[urls.secondSubject.split(".")[0]];
+    await page.getByRole("option").and(page.locator(`[data-kind="${secondKind}"]`)).filter({ hasText: secondName }).click();
     observation.second = { ...await panel(page, urls.secondSubject, secondName), historyBefore, historyAfter: await page.evaluate(() => history.length) };
-    await page.goBack(); observation.back = await panel(page, urls.firstSubject, name);
-    await page.goForward(); observation.forward = await panel(page, urls.secondSubject, secondName);
-    await page.goBack(); await panel(page, urls.firstSubject, name);
+    await page.goBack({ waitUntil: "commit" }); observation.back = await panel(page, urls.firstSubject, name);
+    await page.goForward({ waitUntil: "commit" }); observation.forward = await panel(page, urls.secondSubject, secondName);
+    await page.goBack({ waitUntil: "commit" }); await panel(page, urls.firstSubject, name);
     await page.getByRole("button", { name: "Copy link", exact: true }).click();
     await page.waitForFunction(() => window.__linksCopied?.length > 0);
     const copied = await page.evaluate(() => window.__linksCopied.at(-1));
     observation.copied = { pass: copied === urls.canonical, url: copied };
-    await page.goBack(); await ready(page);
+    await page.goBack({ waitUntil: "commit" }); await ready(page);
     await page.waitForFunction(() => !new URL(location.href).searchParams.has("sel") && !document.querySelector('.hb-panel[data-shown="true"]'));
     observation.closed = { pass: true, url: page.url() };
     const reopen = await fresh();
