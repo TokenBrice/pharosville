@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useStore, useUISlice } from "./hooks";
+import { ACTIONS } from "./KeyList";
 
 /** Replaces App's aria-hidden watch slip; all input uses the same store actions. */
 export function WatchControls() {
@@ -25,10 +26,10 @@ export function WatchControls() {
   }}>
     <span><span className="hb-sc">Harbourmaster’s watch</span> <b>{watch.symbol}</b> <span>{watch.line}</span></span>
     <div className="hb-keys">
-      <button type="button" onClick={() => store.watchPrevious()}>Previous</button>
-      <button type="button" onClick={() => store.watchNext()}>Next</button>
+      <button type="button" onClick={() => store.watchPrevious()}><kbd aria-hidden="true">{ACTIONS.left.cap}</kbd>Previous</button>
+      <button type="button" onClick={() => store.watchNext()}><kbd aria-hidden="true">{ACTIONS.right.cap}</kbd>Next</button>
       <button type="button" onClick={() => store.inspectWatch()}>Inspect</button>
-      <button type="button" onClick={() => store.stopWatch()}>Stop watch</button>
+      <button type="button" onClick={() => store.stopWatch()}><kbd aria-hidden="true">{ACTIONS.watch.cap}</kbd>Stop watch</button>
     </div>
   </section>;
 }

@@ -4,6 +4,7 @@ import { truthState } from "./bits";
 import { useUISlice } from "./hooks";
 import { useFeedHealth } from "./feed-health";
 import { ACTIONS, useHarbourAction } from "./KeyList";
+import { usePanelSpace } from "./panel-space";
 
 
 /**
@@ -21,10 +22,11 @@ export function CornerMark() {
   const t = truthState(model);
   const health = useFeedHealth();
   const live = t.word === "live" && !display && !health;
+  const mark = usePanelSpace("mark", true); // tags keep clear of the strip (store.tagSpace)
 
 
   return (
-    <div className="hb-mark hb-paper" data-live={live}>
+    <div ref={mark as React.RefObject<HTMLDivElement>} className="hb-mark hb-paper" data-live={live}>
       <button
         type="button"
         className="hb-mark-btn"

@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useStore } from "./hooks";
 
 /** Registration joins the store's batched overlay measurement pass. */
-export function usePanelSpace(kind: "panel" | "ledger", visible: boolean) {
+export function usePanelSpace(kind: "panel" | "ledger" | "mark", visible: boolean) {
   const store = useStore();
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {

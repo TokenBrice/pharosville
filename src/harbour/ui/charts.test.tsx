@@ -32,25 +32,32 @@ describe("dated PSI observations", () => {
     const mark = container.querySelector(".hb-chart-now")!;
     expect(mark.getAttribute("fill")).toBe("none");
     expect(mark.querySelector("title")?.textContent).toContain("Now · 12.0");
-    expect(screen.getByText("3 observations from 2026-11-07 00:00:00 to 2026-11-11 00:00:00 (UTC).")).toBeTruthy();
+    // a daily series is labelled by its dates alone (N6); every value is unchanged
+    expect(screen.getByText("3 observations from 2026-11-07 to 2026-11-11 (UTC).")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("2026-11-11 UTC · 9.0"); // opens on the latest observation
     const summary = screen.getByText("View values");
     expect(summary.closest("details")?.open).toBe(false);
     fireEvent.click(summary);
-    expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(5);
+    const rows = within(screen.getByRole("table")).getAllByRole("row");
+    expect(rows).toHaveLength(5);
+    expect(rows.slice(1, 4).map((r) => r.textContent)).toEqual(["2026-11-070.0v1", "2026-11-085.0v1", "2026-11-119.0v1"]);
+    expect(rows[4].textContent).toContain("Now · 2026-11-12 00:00:00"); // the live reading keeps its time
   });
 
   it("selects dated observations with native keyboard/touch controls without a world callback", () => {
     render(<Sparkline observations={[row(day, 0), row(day + 3600, 1)]} />);
     const previous = screen.getByRole("button", { name: "Previous observation" }) as HTMLButtonElement;
     const next = screen.getByRole("button", { name: "Next observation" }) as HTMLButtonElement;
-    expect(previous.disabled).toBe(true);
-    next.focus();
-    fireEvent.keyDown(next, { key: "Enter" });
-    fireEvent.click(next); // Native button activation (keyboard or touch) uses the same handler.
+    // it opens on the latest observation (an hourly series keeps its times)
     expect(screen.getByRole("status").textContent).toBe("2026-11-07 01:00:00 UTC · 1.0");
     expect(next.disabled).toBe(true);
-    fireEvent.click(previous);
+    previous.focus();
+    fireEvent.keyDown(previous, { key: "Enter" });
+    fireEvent.click(previous); // Native button activation (keyboard or touch) uses the same handler.
     expect(screen.getByRole("status").textContent).toBe("2026-11-07 00:00:00 UTC · 0.0");
+    expect(previous.disabled).toBe(true);
+    fireEvent.click(next);
+    expect(screen.getByRole("status").textContent).toBe("2026-11-07 01:00:00 UTC · 1.0");
   });
 
   it("retains single and stale dated observations, but never invents dates", () => {

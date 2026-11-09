@@ -32,7 +32,7 @@ export function DayBook({ open = true }: { open?: boolean }) {
   const shown = book.slice(0, visible);
   if (focused && !shown.some((e) => e.id === focused.id)) shown.push(focused);
   return (
-    <section className="hb-sec"><h3 className="hb-sec-h hb-sc">{`Day book · since you arrived at ${clock(ev.arrivedAtMs)}`}</h3>
+    <section className="hb-sec"><h3 className="hb-sec-h hb-sc"><span>Day book · since you arrived at <span className="hb-num">{clock(ev.arrivedAtMs)}</span></span></h3>
       <div className="hb-sr" aria-live="polite"><span key={notice.version}>{notice.text}</span></div>
       {book.length ? (
         <ol className="hb-list hb-daybook">

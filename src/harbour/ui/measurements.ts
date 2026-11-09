@@ -69,6 +69,9 @@ export function setStyle(el: HTMLElement, key: OverlayStyle, value: string): voi
   if (el.style[key] !== value) el.style[key] = value;
 }
 
+/** A screen position on the device-pixel grid, so text under `will-change: transform` draws crisp, not soft. */
+export const devicePx = (v: number): number => { const dpr = globalThis.devicePixelRatio || 1; return Math.round(v * dpr) / dpr; };
+
 /**
  * Project the whole qualification box; the leader may shorten near an edge. `free` is the area left by the open
  * side panel, sheet or ledger (12 px in from every edge), so a tag never runs underneath them; without it, the viewport.

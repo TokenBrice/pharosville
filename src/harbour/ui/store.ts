@@ -397,13 +397,13 @@ export class HarbourUIStore {
 
   private selectionEpoch: number | null = null;
   private readonly measurements = new ElementMeasurements();
-  private readonly panels = new Map<"panel" | "ledger", HTMLElement>();
+  private readonly panels = new Map<"panel" | "ledger" | "mark", HTMLElement>();
   private spaceKey = "";
   private space: ScreenRect | null = null;
-  /** The same free area 12 px in from every edge, read by the hover tag so it never runs under an open sheet. */
+  /** The same free area 12 px in from every edge, read by the hover tag so it never runs under an open sheet or the corner strip. */
   tagSpace: ScreenRect | null = null;
 
-  measurePanel(kind: "panel" | "ledger", element: HTMLElement): () => void {
+  measurePanel(kind: "panel" | "ledger" | "mark", element: HTMLElement): () => void {
     this.panels.set(kind, element);
     return () => { this.measurements.forget(element); if (this.panels.get(kind) === element) this.panels.delete(kind); };
   }
@@ -412,7 +412,13 @@ export class HarbourUIStore {
     const canvas = this.ctx.renderer.domElement, size = this.measurements.get(canvas);
     const width = size.w || canvas.clientWidth || innerWidth, height = size.h || canvas.clientHeight || innerHeight;
     const overlays: ScreenRect[] = [];
+    let mark: ScreenRect | null = null;
     for (const [kind, element] of this.panels) {
+      if (kind === "mark") { // the corner strip bounds tags only, never the camera's framing
+        const { w, h } = this.measurements.get(element);
+        if (w && h) mark = { left: 14, right: 14 + w, top: 14, bottom: 14 + h };
+        continue;
+      }
       if (kind === "ledger" && (!this.state.ledgerOpen || (this.state.selected && width < LEDGER_PANES_MIN_PX))) continue;
       if (kind === "panel" && !this.state.selected) continue;
       const { w, h } = this.measurements.get(element);
@@ -423,7 +429,7 @@ export class HarbourUIStore {
     }
     const space = usableSpace(width, height, overlays), key = `${width},${height},${space.left},${space.right},${space.top},${space.bottom}`;
     this.space = space;
-    this.tagSpace = usableSpace(width, height, overlays, 12);
+    this.tagSpace = usableSpace(width, height, mark ? [...overlays, mark] : overlays, 12);
     if (key === this.spaceKey) return;
     this.spaceKey = key;
     if (reframe && this.state.selected && this.selectionEpoch === this.ctx.rig.inputEpoch) this.flyTo(this.state.selected);

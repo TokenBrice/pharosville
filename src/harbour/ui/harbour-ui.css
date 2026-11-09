@@ -36,11 +36,12 @@
   --t-med:220ms;
   --t-slow:320ms;
   --t-palette:1200ms;
-  /* colour: the day chart. Contrast on --paper: ink 13.8, ink-2 8.4, ink-3 5.4, brass-ink 5.4, link 6.6, up 5.0,
-     down 5.7, stale-ink 5.1 (the word); non-text: rule 3.0, focus 5.0, live 3.6, stale 4.0 (the mark; was 2.6) */
+  /* colour: the day chart. Contrast on --paper: ink 13.8, ink-2 8.4, ink-3 5.4, brass-ink 5.4, link 6.6, up 5.4,
+     down 5.7, stale-ink 5.4 (the word); non-text: rule 3.0, focus 5.0, live 3.6, stale 4.0 (the mark; was 2.6). Every
+     text ink also keeps 4.5:1 on --paper-2 (hover), --paper-3 (pressed) and each wash over the paper (tokens.test.ts). */
   --paper:#f4ecda;
   --paper-2:#ebe0c6;
-  --paper-3:#e2d4b4;
+  --paper-3:#e6dabc;
   --ink:#23201a;
   --ink-2:#4a4236;
   --ink-3:#6a5e4b;
@@ -51,15 +52,15 @@
   --dot-rule:rgba(122,90,34,.45);
   --wash-1:rgba(166,130,66,.07);
   --wash-2:rgba(166,130,66,.13);
-  --wash-3:rgba(166,130,66,.2);
+  --wash-3:rgba(166,130,66,.17);
   --face:rgba(255,250,236,.55);
   --link:#1f5873;
-  --up:#3f6e52;
+  --up:#3c694e;
   --down:#a3372a;
   --focus:#1668a3;
   --live:#3f8a5e;
   --stale:#9c6a17;
-  --stale-ink:#865b14;
+  --stale-ink:#815713;
   --unavail:#8a7d66;
   --halo:rgba(244,236,218,.95);
   --sea-ink:#0f3a52;
@@ -111,11 +112,12 @@
    0.7 % begins near luminance 0.35-0.4; the ink is 0.335) yet reads on the paper as drawn (grain and sheen lift it
    to about 0.02): contrast on --paper ink 6.0, ink-2 5.7, ink-3 5.4, brass-ink 5.2, link 5.6, up 5.3, down 5.3,
    stale-ink 5.2 (4.7 or more as drawn); marks rule 5.0, focus 5.6, live 5.5, stale 5.2, unavail 4.6. The three
-   inks sit close at night (S-52 practice); size, weight and italics carry the hierarchy. */
+   inks sit close at night (S-52 practice); size, weight and italics carry the hierarchy. The dim inks leave little
+   headroom, so the hover, pressed and selected grounds stay close to the paper (every ink keeps 4.5:1 on them). */
 .hb-ui[data-palette="night"] {
   --paper:#18212b;
   --paper-2:#1f2a36;
-  --paper-3:#283543;
+  --paper-3:#202c38;
   --ink:#a39c8d;
   --ink-2:#9f988a;
   --ink-3:#989589;
@@ -125,8 +127,8 @@
   --edge:rgba(207,174,110,.38);
   --dot-rule:rgba(207,174,110,.26);
   --wash-1:rgba(207,174,110,.06);
-  --wash-2:rgba(207,174,110,.12);
-  --wash-3:rgba(207,174,110,.2);
+  --wash-2:rgba(207,174,110,.07);
+  --wash-3:rgba(207,174,110,.075);
   --face:rgba(255,255,255,.05);
   --link:#719db2;
   --up:#6f9e7d;
@@ -321,6 +323,7 @@
 .hb-sec { margin-top: var(--s5); }
 .hb-sec-h { display: flex; align-items: center; gap: 10px; color: var(--brass-ink); margin: 0 0 var(--s2); }
 .hb-sec-h::after { content: ""; flex: 1; height: 0; border-top: 0.5px solid var(--rule); opacity: 0.8; }
+.hb-sec-h .hb-num { white-space: nowrap; }
 .hb-big { font-size: var(--fs-display); font-weight: 600; line-height: 1; letter-spacing: -0.01em; margin-top: 6px; }
 .hb-big small { font-size: var(--fs-lead); font-weight: 400; color: var(--ink-2); margin-left: 8px; letter-spacing: 0; }
 
@@ -427,6 +430,11 @@
   border-left: 2px solid transparent;
 }
 .hb-result[aria-selected="true"] { background: var(--wash-2); border-left-color: var(--rule); }
+.hb-result[aria-selected="true"] em { color: var(--ink-2); }
+/* at night even a faint wash lifts the dark drawn paper by about half, and the italic name drops under 4.5:1 as drawn:
+   the active row keeps only its brass rule and sets the name in the brightest ink (UI art director B2) */
+.hb-ui[data-palette="night"] .hb-result[aria-selected="true"] { background: none; }
+.hb-ui[data-palette="night"] .hb-result[aria-selected="true"] em { color: var(--ink); }
 :is(.hb-result, .hb-yard) .hb-logo { width: 22px; height: 22px; }
 :is(.hb-result, .hb-yard, .hb-scope) .hb-logo { box-shadow: 0 0 0 0.5px var(--neat); }
 :is(.hb-result, .hb-yard) .hb-logo span { font-size: var(--fs-cap); }
@@ -570,13 +578,17 @@
 :is(.hb-slip, .hb-watch) .hb-sc { color: var(--brass-ink); }
 .hb-slip { transform: translateY(4px); visibility: hidden; transition: all var(--t-med) var(--ease); } /* visibility too: hidden only once faded */
 .hb-slip[data-shown="true"] { transform: none; visibility: visible; }
+.hb-watch .hb-keys { gap: 4px; padding-left: 10px; border-left: 0.5px solid var(--neat); }
+.hb-watch button { min-height: 28px; padding: 0 8px 0 5px; border: 1px solid var(--rule); color: var(--ink); }
 
 /* ------------------------------------------------------------------ sheets and cards over the world */
 .hb-help { position: fixed; top: 14px; right: 14px; z-index: 2; width: min(100% - 28px, 30em); max-height: calc(100dvh - 28px); display: flex; flex-direction: column; pointer-events: auto; }
 .hb-help-body { padding: 0 var(--s6) var(--s6); }
 .hb-help-preferences { display: grid; gap: var(--s3); margin-top: var(--s5); }
-/* the five-stop guide sits under the corner mark, on the ledger's margin */
-.hb-guide { position: fixed; inset: 72px auto auto 14px; width: min(30em, 100vw - 28px); max-height: calc(100dvh - 86px); overflow: auto; padding: var(--s6); pointer-events: auto; }
+/* the five-stop guide keeps clear of the Pharos it explains (the home view frames it top-left): top-right, and
+   bottom-left while a panel or the sheet is open, where its "How to read this" link opens it (UI art director B1) */
+.hb-guide { position: fixed; inset: 72px 14px auto auto; width: min(30em, 100vw - 28px); max-height: calc(100dvh - 86px); overflow: auto; padding: var(--s6); pointer-events: auto; }
+.hb-ui:has(.hb-panel) .hb-guide { inset: auto auto 14px 14px; }
 .hb-guide .hb-title { font-size: var(--fs-h3); line-height: 1.2; margin-top: 4px; }
 /* keyboard ways in and out, shown while focused: skip to the readings; back to the corner when a sheet covers it */
 .hb-skip { position: fixed; top: var(--s3); left: var(--s3); z-index: 4; transform: translateY(-200%); }
@@ -597,6 +609,7 @@
   .hb-mark-more { grid-template-columns: minmax(0, 1fr); opacity: 1; }
   .hb-mark-btn { padding-right: 8px; }
   :is(.hb-keys, .hb-slip) kbd { display: none; }
+  .hb-help { top: 72px; max-height: calc(100dvh - 86px); }
 }
 @media (any-pointer: coarse) {
   .hb-ui :is(button, a, summary, [role="option"], select, input:not([type="checkbox"]), label) { min-height: var(--ctl-touch); min-width: var(--ctl-touch); }
@@ -618,6 +631,9 @@
   .hb-panel-body { padding: 0 20px 18px; }
   .hb-panel-record { padding-inline: max(0px, (100% - 46em) / 2); }
   .hb-ui:has(.hb-panel) :is(.hb-slip, .hb-watch) { bottom: calc(50dvh + 12px); }
+  /* the sheet heads with the selection's own name and reading, and the camera frames the subject just under the
+     strip: its pinned tag would only repeat the sheet and, with no room above, cover the subject (the Pharos's lantern) */
+  .hb-ui:has(.hb-panel) .hb-tag-anchor[data-pinned="true"] { visibility: hidden; }
 }
 
 /* ------------------------------------------------------------------ chart-paper unroll (12-M9)
@@ -632,6 +648,7 @@
   .hb-panel[data-shown="true"] .hb-panel-head::after { transform: none; transition: transform var(--t-slow) var(--ease) 140ms; }
   .hb-ui:has(.hb-panel) :is(.hb-slip, .hb-watch) { right: 392px; }
   .hb-ui:has(.hb-ledger) :is(.hb-slip, .hb-watch) { left: 728px; }
+  .hb-ui:has(.hb-panel):has(.hb-guide) .hb-slip { left: 506px; }
 }
 @media (forced-colors: active) {
   .hb-ui :focus-visible { outline: 2px solid Highlight; }
