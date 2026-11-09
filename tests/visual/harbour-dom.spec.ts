@@ -1,4 +1,5 @@
 import { expect, test, type Request, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 
 /**
  * The Harbour's DOM contract. DOM state only, never pixels: looks and frame time
@@ -49,13 +50,14 @@ test.describe("small screen", () => {
 });
 
 // CI deliberately denies WebGL; this is a failure contract, never proof that graphics started.
-test("intentional WebGL denial retains the poster, useful status and links @visual-dom", async ({ page }) => {
+test("intentional WebGL denial retains the poster, useful status and links @visual-dom @visual-accessibility", async ({ page }) => {
   await deniedWebGL(page);
   await page.goto("/");
   await expect(page.getByRole("status")).toContainText(/could not start|graphics features/, { timeout: 45_000 });
   await expect(page.locator("#pv-poster")).toHaveCount(1);
   await expect(page.locator("html")).not.toHaveAttribute("data-pv-live");
   await expect(page.getByRole("link", { name: "Open Pharos analytics" })).toBeVisible();
+  expect((await new AxeBuilder({ page }).include(".pv-arrival").withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
 });
 
 for (const [width, height] of [[719, 600], [720, 599], [720, 600], [600, 720]]) test.describe(`${width}×${height} window boundary`, () => {

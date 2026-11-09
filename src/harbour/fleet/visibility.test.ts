@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
+import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import type { EngineContext, FrameState } from "../engine/types";
 import { PH_DOCKED, PH_SAILING } from "../sim/sim";
-import { FleetSystem, type FleetFrameState } from "./fleet-system";
+import { FleetSystem } from "./fleet-system";
 import { fleetShadowFrustum, rigRadius } from "./visibility";
 
 const frame: FrameState = { delta: 1 / 60, elapsed: 2, nowMs: 0 };
@@ -30,8 +31,8 @@ function fixture(shadows: boolean) {
   const wake = { stamp: vi.fn() };
   const sim = { pose: { count: 1, ids: ["coin"], position: [1000000, 0, 0], heading: [0], phase: [PH_DOCKED], sailState: [0], heel: [0.1], slot: [-1], lines: [0], event: [0], drift: [0, 0], pitch: [0], outing: [0] }, wind: { fromRad: -1, strength: 0.35 }, layout: { slots: [] } };
   const context = {
-    camera, renderer: { domElement: { clientHeight: 600 } }, rig: { distance: shadows ? 100 : 1000 },
-    services: new Map<string, unknown>([["model", model], ["sim", sim], ["ocean", ocean], ["wake", wake], ["sun", sun], ["readiness", { revision: 7, boats: 1, prepared: true }]]),
+    camera, renderer: { domElement: { clientHeight: 600 }, getPixelRatio: () => 1 }, rig: { distance: shadows ? 100 : 1000 },
+    services: new Map<string, unknown>([["model", model], ["sim", sim], ["ocean", ocean], ["wake", wake], ["sun", sun], ["readiness", { revision: 7, boats: 1, prepared: true }]]) as Services,
     uniforms: { uWindowGlow: { value: 0 }, uWindVec: { value: new THREE.Vector2() }, uHemiSky: { value: new THREE.Color(1, 1, 1) }, uSunColor: { value: new THREE.Color(1, 1, 1) }, uNight: { value: 0 } },
   } as unknown as EngineContext;
   Object.assign(system, { mesh, model, modelRevision: 7, boats: [boat], byId: new Map([[boat.id, boat]]), logosAsked: true, coveState: "done", lines: { begin() {}, end() {} }, riding: { begin() {}, end() {} } });
@@ -144,17 +145,17 @@ describe("conservative fleet visual culling", () => {
 });
 
 describe("fleet-frame submission evidence", () => {
-  it("publishes an entire first revision pose, then the actual culled count in the same service", () => {
+  it("publishes an entire first revision pose, then the actual culled count, keeping the drawable count (A17)", () => {
     const f = fixture(false);
     Object.assign(f.system, { needsFullPose: true });
     expect(f.context.services.has("fleet-frame")).toBe(false);
     f.system.update(frame, f.context);
-    const submitted = f.context.services.get("fleet-frame") as FleetFrameState;
-    expect(submitted).toEqual({ revision: 7, boats: 1 });
+    const submitted = f.context.services.get("fleet-frame")!;
+    expect(submitted).toEqual({ revision: 7, boats: 1, drawn: 1 });
     expect(f.mesh.setMatrixAt).toHaveBeenCalledTimes(1);
     f.system.update(frame, f.context);
     expect(f.context.services.get("fleet-frame")).toBe(submitted);
-    expect(submitted).toEqual({ revision: 7, boats: 0 });
+    expect(submitted).toEqual({ revision: 7, boats: 0, drawn: 1 }); // culled, not incomplete
     expect(f.mesh.setMatrixAt).toHaveBeenCalledTimes(1);
   });
 
@@ -163,7 +164,7 @@ describe("fleet-frame submission evidence", () => {
     f.context.services.set("readiness", { revision: 8, boats: 123, prepared: true });
     f.sim.pose.ids[0] = "not-installed";
     f.system.update(frame, f.context);
-    expect(f.context.services.get("fleet-frame")).toEqual({ revision: 7, boats: 0 });
+    expect(f.context.services.get("fleet-frame")).toEqual({ revision: 7, boats: 0, drawn: 0 });
     expect(f.mesh.setMatrixAt).not.toHaveBeenCalled();
   });
 
@@ -173,7 +174,7 @@ describe("fleet-frame submission evidence", () => {
       if (missing === "pose") f.sim.pose.count = 2;
       else Object.assign(f.system, { boats: [] });
       f.system.update(frame, f.context);
-      expect(f.context.services.get("fleet-frame")).toEqual({ revision: 7, boats: 0 });
+      expect(f.context.services.get("fleet-frame")).toEqual({ revision: 7, boats: 0, drawn: 0 });
       expect(f.mesh.setMatrixAt).not.toHaveBeenCalled();
     }
   });

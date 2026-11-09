@@ -6,10 +6,9 @@ import { Engine } from "../engine/engine";
 import { FAILURE_COPY, failureCode, isAbort, type BootFailureKind, type HarbourLifecycle } from "../engine/failure";
 import { canViewportShowMap, isWidescreenViewport } from "@/systems/viewport-gate";
 import { SYSTEMS } from "../systems";
+import { publishPresentation, renderedPresentation } from "../ui/presentation";
 import { mountHarbourUI } from "../ui/mount";
-import type { HarbourFeed } from "../data/fetch";
-import type { ReadinessState, RenderedFleetState, SimulationStatus } from "../engine/types";
-import type { HarbourModel } from "../model/types";
+import type { RenderedFleetState } from "../engine/types";
 import { dismissPoster, resetPosterState } from "./poster";
 import { startWake, wantsWake, WAKE_PULLBACK } from "./wake";
 import "./harbour-app.css";
@@ -70,6 +69,8 @@ export function HarbourApp() {
       stopWatching?.(); clearTimeout(shellTimer); stopWake?.(); stopWake = null;
       unmountUI?.(); unmountUI = null;
       resetPosterState(); setShellGone(false);
+      const arrival = document.querySelector<HTMLElement>(".pv-arrival");
+      if (arrival) arrival.inert = false;
     };
     const release = () => {
       stopLifecycle?.(); unmountUI?.(); unmountUI = null; engine?.dispose();
@@ -107,22 +108,25 @@ export function HarbourApp() {
       await engine.init();
       if (cancelled || !engine.canPublish) return;
       delete window.__harbourStats; // a previous mount's stats must not count as this world's first frame
-      const feed = engine.ctx.services.get("feed") as HarbourFeed | undefined;
-      const readiness = engine.ctx.services.get("readiness") as ReadinessState | undefined;
+      const feed = engine.ctx.services.get("feed");
+      const readiness = engine.ctx.services.get("readiness");
       let firstRenderedAt: number | undefined;
       let incompleteSince: number | undefined;
       let incompleteRevision: number | undefined;
-      const simulation = engine.ctx.services.get("simulation-status") as SimulationStatus | undefined;
+      let warnedIncompleteRevision: number | undefined;
+      const simulation = engine.ctx.services.get("simulation-status");
       let revealed = false;
       const reveal = (next: Exclude<Stage, "loading" | "failed" | "recovering">) => {
         if (cancelled || !engine?.canPublish) return;
         setStage(next);
-        if (next !== "waiting" && !(next === "unavailable" && simulation?.unavailable)) stopWatching?.();
         if (revealed) return;
         revealed = true;
         // the harbour wakes (wake.ts): the live camera starts pulled back and the poster shrinks to match
         const wake = !!engine && wantsWake(engine);
         if (wake && engine) stopWake = startWake(engine);
+        const arrival = document.querySelector<HTMLElement>(".pv-arrival");
+        if (arrival?.contains(document.activeElement)) (ui.querySelector<HTMLElement>(".hb-mark-btn") ?? document.querySelector<HTMLElement>("main"))?.focus({ preventScroll: true });
+        if (arrival) arrival.inert = true;
         dismissPoster("crossfade", wake ? 1 / (1 + WAKE_PULLBACK) : 1);
         void preloadDetails().catch(() => { /* A later interaction may retry a failed warmup. */ });
         shellTimer = window.setTimeout(() => {
@@ -131,9 +135,10 @@ export function HarbourApp() {
       };
       stopWatching = engine.onRendered((rendered: RenderedFleetState) => {
         if (cancelled || !engine?.canPublish) return;
+        publishPresentation(engine.ctx, renderedPresentation(rendered, readiness, simulation?.unavailable === true));
         const now = performance.now();
         firstRenderedAt ??= now;
-        const model = engine?.ctx.services.get("model") as HarbourModel | undefined;
+        const model = engine?.ctx.services.get("model");
         // A snapshot alone is not proof: the committed revision's entire fleet must have drawn.
         const complete = model?.hasFleet && readiness?.prepared && readiness.revision > 0
           && rendered.revision === readiness.revision && rendered.boats === readiness.boats;
@@ -141,13 +146,16 @@ export function HarbourApp() {
           reveal(readiness.boats === 0 ? "empty" : "live");
           return;
         }
-        const incomplete = readiness?.prepared && rendered.revision === readiness.revision && rendered.boats < readiness.boats;
+        const incomplete = readiness?.prepared && rendered.revision === readiness.revision && (rendered.drawn ?? rendered.boats) < readiness.boats;
         if (incomplete) {
           if (incompleteRevision !== readiness.revision) incompleteSince = undefined;
           incompleteRevision = readiness.revision;
           incompleteSince ??= now;
           if (now - incompleteSince > FLEET_WAIT_MS) {
-            console.warn("[harbour] revealing incomplete fleet", { revision: readiness.revision, rendered: rendered.boats, expected: readiness.boats });
+            if (warnedIncompleteRevision !== readiness.revision) {
+              warnedIncompleteRevision = readiness.revision;
+              console.warn("[harbour] revealing incomplete fleet", { revision: readiness.revision, rendered: rendered.drawn ?? rendered.boats, expected: readiness.boats });
+            }
             reveal("partial");
             return;
           }

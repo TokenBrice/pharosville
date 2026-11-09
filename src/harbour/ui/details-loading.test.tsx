@@ -8,7 +8,7 @@ const harness = vi.hoisted(() => {
   let resolve!: (value: { default: () => React.ReactNode }) => void;
   const pending = new Promise<{ default: () => React.ReactNode }>((done) => { resolve = done; });
   return {
-    state: { model: null, hover: null, selected: null as UIState["selected"], searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: false, tick: 0, follow: null, announce: "", capturing: false, watch: null },
+    state: { model: null, hover: null, shipChoices: [], selected: null as UIState["selected"], searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: false, tick: 0, follow: null, announce: "", capturing: false, watch: null },
     set: vi.fn(), select: vi.fn(), preload: vi.fn(() => pending), resolve,
   };
 });
@@ -18,7 +18,7 @@ vi.mock("./Postcard", () => ({ Postcard: () => null }));
 vi.mock("./CornerMark", () => ({ CornerMark: () => <button className="hb-mark-btn">PharosVille</button> }));
 vi.mock("./details", () => ({ preloadDetails: harness.preload }));
 vi.mock("./hooks", () => ({
-  useStore: () => ({ getSnapshot: () => harness.state, set: harness.set, select: harness.select, noteInput: vi.fn(), stopWatch: vi.fn() }),
+  useStore: () => ({ subscribe: () => () => {}, getSnapshot: () => harness.state, set: harness.set, select: harness.select, noteInput: vi.fn(), stopWatch: vi.fn() }),
   useUISlice: (select: (s: UIState) => unknown) => select(harness.state),
 }));
 afterEach(cleanup);
@@ -43,7 +43,7 @@ it("shows immediately closable, matching chrome for every early detail action wh
   expect(screen.getByRole("dialog", { name: "Find a coin" }).className).toContain("hb-search hb-paper");
   expect(screen.getByRole("status").textContent).toContain("Loading coins, chains and landmarks…");
   expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Search is loading" }));
-  fireEvent.click(screen.getByRole("button", { name: "Close (Esc)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close search" }));
   expect(harness.set).toHaveBeenCalledWith({ searchOpen: false });
   fireEvent.keyDown(window, { key: "Escape" });
   expect(harness.set).toHaveBeenLastCalledWith({ searchOpen: false });

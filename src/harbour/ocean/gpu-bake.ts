@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { EngineContext, PreparationEntry, PreparationService } from "../engine/types";
+import type { EngineContext, PreparationEntry } from "../engine/types";
 import { assertShaderReady } from "../engine/shader-failure";
 
 /**
@@ -77,7 +77,7 @@ export async function bakeTexture(ctx: EngineContext, fragmentShader: string, o:
     anisotropy: 4,
   });
   const pass = new FullscreenPass(fragmentShader, o.uniforms ?? {});
-  const preparation = ctx.services.get("preparation") as PreparationService;
+  const preparation = ctx.services.get("preparation")!;
   let batch;
   try {
     batch = await preparation.prepare([pass.preparationEntry(() => rt)], undefined, ctx.signal);

@@ -1,3 +1,4 @@
+import type { PresentationStatus } from "./presentation";
 import type { EndpointTruth } from "../model/types";
 
 export type ReadingName = "Supply" | "Chain comparisons" | "PSI" | "Peg readings" | "Stress readings" | "Safety grades" | "Flow readings";
@@ -5,6 +6,8 @@ type Truth = Pick<EndpointTruth, "state" | "reason" | "sourceUpdatedAtMs">;
 export type TruthCopyInput =
   | { kind: "reading"; reading: ReadingName; truth: Truth; coveragePct?: number }
   | { kind: "retained-heading" }
+  | { kind: "watch"; waiting: boolean }
+  | { kind: "presentation"; presentation: PresentationStatus }
   | { kind: "absent-row"; reading: "peg" | "stress" }
   | { kind: "grade"; grade: string | null | undefined; truth: Truth }
   | { kind: "observed-empty"; reading: "shoals" | "alerts" }
@@ -13,6 +16,14 @@ export type TruthCopyInput =
 /** One vocabulary for captions, accessible names and disclosures. No clock reads. */
 export function truthCopy(input: TruthCopyInput): string {
   switch (input.kind) {
+    case "presentation": {
+      const value = input.presentation;
+      if (value.status === "complete") return "";
+      if (value.status === "pending") return "The fleet’s readings are still arriving; boats are not shown yet.";
+      if (value.status === "failed") return "The fleet could not be prepared. Readings remain available in Pharos analytics.";
+      return `${value.displayed} of ${value.expected} boats displayed. This view is incomplete.`;
+    }
+    case "watch": return input.waiting ? "The watch is waiting for current readings." : "No qualifying watch subjects in current readings.";
     case "retained-heading": return "Last received values";
     case "absent-row": return `No ${input.reading} reading is available for this coin.`;
     case "observed-empty": return input.reading === "shoals"

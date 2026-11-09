@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Boat } from "../model/types";
 import { cullLabels } from "./cull";
+import { overlaps } from "./measurements";
 import { boatFact, circuitStops, landmarkFact, whereabouts, whyHere } from "./facts";
 import { bps, money, pctChange, pegName, share, vesselKind } from "./format";
 import { searchCoins } from "./search";
@@ -104,6 +105,12 @@ describe("circuit stops", () => {
 });
 
 describe("label culling", () => {
+  it("rejects chart names beneath any tool while preserving the existing label priority", () => {
+    const tool = { x: 10, y: 10, w: 100, h: 100, visible: true };
+    const names = [{ x: 20, y: 20, w: 50, h: 14, visible: true }, { x: 130, y: 20, w: 50, h: 14, visible: true }, { x: 140, y: 20, w: 50, h: 14, visible: true }];
+    for (const name of names) if (overlaps(name, tool, 6)) name.visible = false;
+    expect(cullLabels(names, 6, { w: 600, h: 720 })).toEqual([false, true, false]);
+  });
   it("keeps labels in priority order and drops overlaps", () => {
     const b = (x: number, y: number, visible = true) => ({ x, y, w: 50, h: 14, visible });
     expect(cullLabels([b(10, 10), b(30, 12), b(100, 10), b(200, 10, false)])).toEqual([true, false, true, false]);

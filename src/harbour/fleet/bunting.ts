@@ -79,6 +79,7 @@ export class Bunting {
 
   /** Once a frame before the hulls (once the readings are in): the maidens, the launch book, the dressing clock. */
   sync(maidens: readonly string[], nowMs: number, dt: number, reduced: boolean, camera: THREE.Vector3): void {
+    if (reduced) this.launched.clear();
     this.maidens = maidens;
     this.cam.copy(camera);
     for (const [id, until] of this.launched) if (nowMs > until) this.launched.delete(id);

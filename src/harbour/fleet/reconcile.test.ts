@@ -1,3 +1,4 @@
+import type { ServiceMap, Services } from "../engine/services";
 import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../engine/types";
@@ -48,7 +49,7 @@ function fixture() {
     manifest: { hulls: [], props: [] }, hulls: new Map([[usd.id, usd], [eur.id, eur]]),
     props: new Map(["wreck_a", "wreck_b", "wreck_c", "mooring_buoy"].map((id) => [id, { geometry, loa: 10, nodes: [] }])),
   };
-  const ctx = { scene: new THREE.Scene(), services: new Map<string, unknown>() } as unknown as EngineContext;
+  const ctx = { scene: new THREE.Scene(), services: new Map<string, unknown>() as Services } as unknown as EngineContext;
   const material = new THREE.MeshStandardMaterial();
   const system = new FleetSystem(), fleet = system as unknown as FleetHarness;
   const slots = new Map<string, number>();
@@ -204,7 +205,7 @@ describe("fleet refresh reconciliation", () => {
     expect(f.wrecks).toHaveBeenCalledTimes(1); f.clear();
     f.fleet.install(model([coin("a"), coin("dead")], [{ ...dead[0], peakMcap: 2000 }]));
     expect(f.wrecks).toHaveBeenCalledTimes(1); f.clear();
-    f.ctx.services.set("sim", { pose: { count: 2, slot: [3, -1] } });
+    f.ctx.services.set("sim", { pose: { count: 2, slot: [3, -1] } } as unknown as ServiceMap["sim"]);
     f.fleet.install(model([coin("a", { state: "wrecked" }), coin("dead")], [{ ...dead[0], peakMcap: 2000 }]));
     expect(f.wrecks).toHaveBeenCalledTimes(1);
     expect(f.buoys).not.toHaveBeenCalled();

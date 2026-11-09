@@ -21,7 +21,7 @@ export class GraphicsValidity {
 }
 
 export function graphicsValidity(ctx: EngineContext): GraphicsValidity | undefined {
-  return ctx.services.get("graphics-validity") as GraphicsValidity | undefined;
+  return ctx.services.get("graphics-validity");
 }
 
 /** Probe only formats actually used by the harbour; no recurring GL queries. */

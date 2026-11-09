@@ -28,6 +28,23 @@ export const SDF_COAST_RANGE = 128;
 export const SDF_DEPTH_RANGE = 40;
 export const SDF_STRUCT_RANGE = 16;
 
+/**
+ * E02: the baked SDF still holds the retired mainland polygon (until the next bake drops it). Its land begins
+ * 604.7 m from the layout-bounds centre (592.9 m with its shore band) and every island coast ends by 436 m, so
+ * between these radii the coast (R) and depth (G) fade to the SDF's own open-water encoding (1, 1): the sea knows
+ * only the island's coasts, and no ring appears where the fade ends. Structures and buoys (B) and the zones are
+ * untouched: the far ports' buoys lie out to 578 m. CPU (ocean-system coastAt / dampAt); the ocean shaders carry the
+ * same radii as literals (pinned to these by sea-sdf.test.ts).
+ */
+export const SDF_ISLAND_RADII: readonly [number, number] = [470, 560];
+/** The mainland fade at (x, z) about the layout-bounds centre (cx, cz): 0 within the island's coasts, 1 beyond. */
+export function sdfMainlandFade(x: number, z: number, cx: number, cz: number): number {
+  const dx = x - cx, dz = z - cz, d2 = dx * dx + dz * dz, [r0, r1] = SDF_ISLAND_RADII;
+  if (d2 <= r0 * r0) return 0;
+  const t = Math.min(1, (Math.sqrt(d2) - r0) / (r1 - r0));
+  return t * t * (3 - 2 * t);
+}
+
 /** Default sea bounds when the layout has no `sea` block: layout bounds padded to open water. */
 export function defaultSeaBounds(layout: HarbourLayout, pad = 260): Bounds4 {
   const { min, max } = layout.bounds;

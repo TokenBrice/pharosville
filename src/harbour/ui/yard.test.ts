@@ -4,14 +4,32 @@ import { RUNTIME_TRACKED_STABLECOINS } from "@shared/lib/stablecoins/runtime-reg
 import layout from "../data/layout.json";
 import prelaunch from "../data/prelaunch.json";
 import scenery from "virtual:pharosville-prelaunch";
+import type { EngineContext } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import { landmarkFact, PANEL_LANDMARKS } from "./facts";
 import { civicPlots, inPlot, officeChain, placeName, seaZones } from "./places";
-import { expectedKey, expectedLabel, groupYard, installYardBook, REGISTRY_YARD, sortYard, toYardCoin } from "./yard";
+import { expectedKey, expectedLabel, groupYard, installYardBook, REGISTRY_YARD, sortYard, toYardCoin, yardCoins, launchedFromYard } from "./yard";
 
 const L = layout as unknown as HarbourLayout;
 
 describe("the Shipyard's book", () => {
+  it("honours an authoritative empty civic list and falls back only when the service is absent", () => {
+    const services = new Map<string, unknown>();
+    const ctx = { services } as unknown as EngineContext;
+    expect(yardCoins(ctx)).toBe(REGISTRY_YARD);
+    services.set("civic", { yard: { coins: [] } });
+    expect(yardCoins(ctx)).toEqual([]);
+    services.delete("civic");
+    services.set("model", { boats: REGISTRY_YARD.map((c) => ({ id: c.llamaId ?? c.id, name: c.name, symbol: c.symbol })) });
+    expect(yardCoins(ctx)).toEqual([]);
+  });
+  it("recognises admission by alias and by normalised name plus symbol", () => {
+    const c = REGISTRY_YARD[0];
+    expect(launchedFromYard({ boats: [{ id: "live-id", name: ` ${c.name.toUpperCase()} `, symbol: c.symbol.toLowerCase() }] })).toEqual([{ id: "live-id", symbol: c.symbol.toLowerCase() }]);
+    const aliased = REGISTRY_YARD.find((r) => r.llamaId != null)!;
+    expect(aliased).toBeTruthy();
+    expect(launchedFromYard({ boats: [{ id: aliased.llamaId!, symbol: aliased.symbol }] })).toContainEqual({ id: aliased.llamaId, symbol: aliased.symbol });
+  });
   it("lists every tracked launch, each with a stage", () => {
     expect(REGISTRY_YARD.length).toBeGreaterThanOrEqual(43);
     expect(new Set(REGISTRY_YARD.map((c) => c.id)).size).toBe(REGISTRY_YARD.length);
@@ -90,7 +108,7 @@ describe("P6 places", () => {
 
   it("gives the new buildings a fact without the tide board", () => {
     expect(landmarkFact("mint", null, null).fact).toMatch(/no flow reading/);
-    expect(landmarkFact("slipway", null, null, { yard: 43 }).fact).toBe("43 coins building · pre-launch");
+    expect(landmarkFact("slipway", null, null, { yard: 43 }).fact).toBe("43 records · Awaiting admission to the tracked fleet.");
     expect(landmarkFact("customs-house", null, null).fact).not.toMatch(/tide/);
   });
 });

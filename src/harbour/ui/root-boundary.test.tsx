@@ -5,7 +5,7 @@ import type { Engine } from "../engine/engine";
 import { mountHarbourUI } from "./mount";
 
 const harness = vi.hoisted(() => ({ broken: true, created: vi.fn(), disposed: vi.fn() }));
-vi.mock("./store", () => ({ HarbourUIStore: class { constructor() { harness.created(); } dispose = harness.disposed; } }));
+vi.mock("./store", () => ({ HarbourUIStore: class { constructor() { harness.created(); } dispose = harness.disposed; getSnapshot = () => ({ palette: "night" }); } }));
 vi.mock("./App", () => ({ HarbourUI: () => { if (harness.broken) throw new Error("controls render"); return <button>Recovered controls</button>; } }));
 vi.mock("../../error-reporter", () => ({ reportClientError: vi.fn() }));
 afterEach(() => { document.body.innerHTML = ""; vi.restoreAllMocks(); });
@@ -16,7 +16,7 @@ it("retries root controls without adding another store or Engine system and offe
   let unmount!: () => void;
   await act(async () => { unmount = mountHarbourUI({} as Engine, host); });
   expect(screen.getByRole("heading", { name: "The harbour controls could not load." })).toBeTruthy();
-  expect(screen.getByRole("heading").closest(".hb-ui")).toBeTruthy();
+  expect(screen.getByRole("heading").closest(".hb-ui")?.getAttribute("data-palette")).toBe("night"); // the fallback root keeps the night bridge
   fireEvent.click(screen.getByRole("button", { name: "Retry controls" }));
   await screen.findByRole("button", { name: "Reload page" });
   harness.broken = false;

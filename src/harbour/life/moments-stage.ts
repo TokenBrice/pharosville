@@ -1,7 +1,7 @@
 import * as THREE from "three";
+import { ensureMotionService } from "../ui/services";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
-import type { Bunting } from "../fleet/bunting";
-import type { EventsService, StagedMoment } from "../model/event-hub";
+import type { StagedMoment } from "../model/event-hub";
 
 /**
  * Staging for the events service's moments (model/event-hub.ts): the DATA scheduler has already confirmed each
@@ -52,7 +52,7 @@ export class MomentsStage implements WorldSystem {
   private flareUntil = -1;
 
   init(ctx: EngineContext): void {
-    const shoals = (ctx.services.get("layout") as { zones?: { shoals?: { rocks?: number[][] } } } | undefined)?.zones?.shoals;
+    const shoals = ctx.services.get("layout")?.zones?.shoals;
     const rock = shoals?.rocks?.find((r) => r[2] === BEACON_ROCK_R);
     if (rock) {
       this.flareMat = new THREE.SpriteMaterial({ map: glowTexture(), color: new THREE.Color(FLARE_HEX), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
@@ -67,7 +67,7 @@ export class MomentsStage implements WorldSystem {
 
   private stage(ctx: EngineContext, m: StagedMoment): void {
     const e = m.event;
-    if (e.kind === "launch" && e.coinId) (ctx.services.get("bunting") as Bunting | undefined)?.launch(e.coinId, m.startMs);
+    if (e.kind === "launch" && e.coinId) ctx.services.get("bunting")?.launch(e.coinId, m.startMs);
     if (e.kind === "depeg" && this.flare) {
       this.flareFrom = m.startMs;
       this.flareUntil = Math.min(m.endMs, m.startMs + DEPEG_FLARES * FLARE_GAP_S * 1000);
@@ -75,7 +75,12 @@ export class MomentsStage implements WorldSystem {
   }
 
   update(frame: FrameState, ctx: EngineContext): void {
-    const cur = (ctx.services.get("events") as EventsService | undefined)?.current ?? null;
+    const cur = ctx.services.get("events")?.current ?? null;
+    if (ensureMotionService(ctx).reduced) {
+      this.seen = cur; this.flareFrom = this.flareUntil = -1;
+      if (this.flare) this.flare.visible = false;
+      return;
+    }
     if (cur && cur !== this.seen) { this.seen = cur; this.stage(ctx, cur); }
     if (!this.flare || !this.flareMat) return;
     const now = frame.nowMs;

@@ -1,3 +1,4 @@
+import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorldUniforms } from "../engine/uniforms";
@@ -18,7 +19,7 @@ async function beamWorld(opts: { lit?: boolean; reduced?: boolean; night?: numbe
     ["fx:textures", { refs: 1, noise: new THREE.Texture(), ripple: new THREE.Texture(), release() {} }],
     ["lighthouse", lighthouse],
     ["motion", { reduced: opts.reduced ?? false }],
-  ]);
+  ]) as Services;
   const composer = { passes: [{}, {}, {}], addPass: vi.fn(), removePass: vi.fn() };
   const ctx = { camera, scene: new THREE.Scene(), uniforms, services, composer } as unknown as EngineContext;
   const beam = new BeamSystem();
@@ -84,4 +85,25 @@ describe("E07 heat shimmer over the beacon", () => {
     expect(beamPassActive(0.0021, 0)).toBe(true);
     expect(beamPassActive(0, 0.0011)).toBe(true);
   });
+});
+
+it("holds beam intensity and decorative clocks under reduction while still accepting analytical reach", async () => {
+  vi.stubGlobal("location", { search: "" });
+  try {
+    const f = await beamWorld({ reduced: true, night: 1 });
+    f.look(at(100));
+    const h = f.beam as unknown as { U: { uTime: THREE.Uniform<number>; uIntensity: THREE.Uniform<number> }; SH: { uShT: THREE.Uniform<number>; uShAmt: THREE.Uniform<number> } };
+    const level = h.U.uIntensity.value;
+    const lighthouse = f.ctx.services.get("lighthouse") as { flicker: number };
+    for (let i = 0; i < 240; i++) {
+      lighthouse.flicker = (i % 10) / 10;
+      f.beam.update({ elapsed: i + 10, delta: 1 / 30, nowMs: i * 1000 }, f.ctx);
+      expect(h.U.uIntensity.value).toBe(level);
+      expect(h.U.uTime.value).toBe(0); expect(h.SH.uShT.value).toBe(0); expect(h.SH.uShAmt.value).toBe(0);
+    }
+    (f.ctx.services.get("beam") as { setReach(v: number): void }).setReach(0);
+    f.beam.update({ elapsed: 300, delta: 1, nowMs: 300_000 }, f.ctx);
+    expect(h.U.uIntensity.value).toBeLessThan(level);
+    f.beam.dispose(f.ctx);
+  } finally { vi.unstubAllGlobals(); }
 });

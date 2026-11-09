@@ -1,14 +1,10 @@
 import * as THREE from "three";
-import type { BeamService } from "../beam/beam-system";
+import { ensureMotionService, MotionClock } from "../ui/services";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
-import type { HarbourFeed } from "../data/fetch";
 import type { HarbourModel, StormFlag } from "../model/types";
 import { HarbourEventHub } from "../model/event-hub";
 import type { EventKind } from "../model/events";
-import type { OceanService } from "../ocean/ocean-system";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
-import type { LightsService } from "../lights/lights-service";
-import type { LighthouseService } from "../world/lighthouse-system";
 import { getHarbourMaterials } from "../world/materials";
 import {
   applyDevCueOverrides, applyDevOverrides, deriveTargets, DEV_OVERRIDE_KEYS, TIDE_FULL_SCALE_PCT,
@@ -67,7 +63,6 @@ export interface ReadingsService {
   subscribe(fn: () => void): () => void;
 }
 
-interface MotionLike { readonly reduced: boolean }
 
 /** Lantern glow colour per lamp step (linear-ish multipliers for the lighthouse glow sprite). */
 const LANTERN: Array<[number, number, number]> = [[1.0, 0.86, 0.62], [1.0, 0.58, 0.2], [1.0, 0.2, 0.11]];
@@ -90,6 +85,8 @@ export class ReadingsSystem implements WorldSystem {
   private readonly dev = import.meta.env.DEV && DEV_OVERRIDE_KEYS.some((k) => this.q.has(k));
   private fx: FxTextures | null = null;
   private fog: StaleFog | null = null;
+  private clock: MotionClock | null = null;
+  private readonly decorativeTime = new THREE.Uniform(0);
   private fogS = 0;
   private periodS = 12;
   private litS = 1;
@@ -114,7 +111,7 @@ export class ReadingsSystem implements WorldSystem {
 
   async init(ctx: EngineContext): Promise<void> {
     this.fx = await acquireFxTextures(ctx);
-    this.fog = new StaleFog(ctx.composer, ctx.camera, this.fx.noise, ctx.uniforms.uTime);
+    this.fog = new StaleFog(ctx.composer, ctx.camera, this.fx.noise, this.decorativeTime);
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- getters below read live system state
     const sys = this;
     const svc: ReadingsService = {
@@ -145,7 +142,7 @@ export class ReadingsSystem implements WorldSystem {
 
   /** After every model build: the event detector reads the accepted readings (the sim already reacted). */
   private observeEvents(ctx: EngineContext, model: HarbourModel, nowMs: number, reduced: boolean): void {
-    const feed = ctx.services.get("feed") as HarbourFeed | undefined;
+    const feed = ctx.services.get("feed");
     if (feed) this.events.observe(model, feed.payloads, nowMs, reduced);
     if (this.devMoment && model.hasFleet && model.boats.length) {
       const [kind, id] = this.devMoment.split(":");
@@ -175,7 +172,7 @@ export class ReadingsSystem implements WorldSystem {
   /** The station's signal rig (civic plot 'stormstation', manifest anchor 'signal'): hoist the DEWS shapes there. */
   private bindSignal(ctx: EngineContext): void {
     if (this.cones || this.signalMissing) return;
-    const civic = ctx.services.get("civic") as { plots?: ReadonlyMap<string, { kind: string; root: THREE.Object3D; anchors?: Record<string, unknown> }> } | undefined;
+    const civic = ctx.services.get("civic");
     if (!civic?.plots) return;
     let plot: { root: THREE.Object3D; anchors?: Record<string, unknown> } | undefined;
     for (const p of civic.plots.values()) if (p.kind === "stormstation") plot = p;
@@ -184,9 +181,9 @@ export class ReadingsSystem implements WorldSystem {
     if (!rig?.slots?.length) { this.signalMissing = true; return; }
     const mats = getHarbourMaterials(ctx);
     // moored bows point into the wind (layout.wind): the pennant streams the other way
-    const bow = (ctx.services.get("layout") as { wind?: { bowHeadingRad?: number } } | undefined)?.wind?.bowHeadingRad ?? -1.0;
+    const bow = ctx.services.get("layout")?.wind?.bowHeadingRad ?? -1.0;
     this.cones = new StormCones(plot.root, rig, mats.kit(), mats.emissive("#FF3A26", "#3A1712"),
-      ctx.services.get("lights") as LightsService | undefined, bow + Math.PI);
+      ctx.services.get("lights"), bow + Math.PI);
     this.cones.setCount(this.targets?.cones ?? null, this.targets?.pennant ?? false);
   }
 
@@ -212,7 +209,7 @@ export class ReadingsSystem implements WorldSystem {
   }
 
   private retarget(ctx: EngineContext, model: HarbourModel): void {
-    const feed = ctx.services.get("feed") as HarbourFeed | undefined;
+    const feed = ctx.services.get("feed");
     const chains = feed?.payloads.chains?.data;
     let t = deriveTargets({
       model,
@@ -230,8 +227,10 @@ export class ReadingsSystem implements WorldSystem {
 
   update(frame: FrameState, ctx: EngineContext): void {
     const dt = frame.delta;
-    const model = ctx.services.get("model") as HarbourModel | undefined;
-    const motion = ctx.services.get("motion") as MotionLike | undefined;
+    this.clock ??= new MotionClock(ensureMotionService(ctx));
+    this.decorativeTime.value = this.clock.step(dt);
+    const model = ctx.services.get("model");
+    const motion = ctx.services.get("motion");
     const reduced = motion?.reduced ?? (import.meta.env.DEV && this.q.get("motion") === "reduce");
     if (model && model !== this.model) { this.model = model; this.retarget(ctx, model); this.observeEvents(ctx, model, frame.nowMs, reduced); }
     this.events.tick(frame.nowMs, reduced);
@@ -243,9 +242,9 @@ export class ReadingsSystem implements WorldSystem {
 
     // ---- 1. PSI → the Pharos (rhythm, lamp colour, lit) and the beam (reach, colour)
     // until /api/stability-index has been tried the Pharos keeps its boot state (SYNCING is not "unlit")
-    const psiTried = this.dev || (ctx.services.get("feed") as HarbourFeed | undefined)?.payloads.stability !== undefined;
-    const lh = psiTried ? ctx.services.get("lighthouse") as LighthouseService | undefined : undefined;
-    const beam = psiTried ? ctx.services.get("beam") as BeamService | undefined : undefined;
+    const psiTried = this.dev || ctx.services.get("feed")?.payloads.stability !== undefined;
+    const lh = psiTried ? ctx.services.get("lighthouse") : undefined;
+    const beam = psiTried ? ctx.services.get("beam") : undefined;
     if (lh) {
       this.periodS += (t.psi.sweepSec - this.periodS) * (1 - Math.exp(-dt / SWEEP_TAU));
       if (Math.abs(lh.period - this.periodS) > 1e-3) lh.setSweep(this.periodS);
@@ -268,7 +267,7 @@ export class ReadingsSystem implements WorldSystem {
       this.lensLevel.value = litE * (1 + this.alertS * day * (DAY_LAMP + DAY_FLASH * flash));
       beam?.setDayPresence?.(this.alertS);
     }
-    const lhAny = ctx.services.get("lighthouse") as LighthouseService | undefined;
+    const lhAny = ctx.services.get("lighthouse");
     if (lhAny && this.heldFor !== reduced) {
       this.heldFor = reduced;
       lhAny.hold?.(reduced ? cameraLeftHeading(ctx.camera) : null);
@@ -290,7 +289,7 @@ export class ReadingsSystem implements WorldSystem {
     }
 
     // ---- 2. sea state (the ocean eases its own swell)
-    const ocean = ctx.services.get("ocean") as OceanService | undefined;
+    const ocean = ctx.services.get("ocean");
     if (ocean && t.sea !== this.lastSea && !this.q.has("sea")) {
       this.lastSea = t.sea;
       ocean.setSeaState(t.sea ?? 1);
@@ -309,7 +308,7 @@ export class ReadingsSystem implements WorldSystem {
 
     // ---- 5–6. landmarks: the storm signal (the station's mast), the tide gauge
     const glow = U.uWindowGlow.value;
-    this.cones?.update(dt, frame.elapsed, this.windS, reduced, ctx.camera.position);
+    this.cones?.update(dt, this.decorativeTime.value, this.windS, reduced, ctx.camera.position);
     this.gauge?.update(dt, t.tide.level, t.tide.pct != null, t.landmarks["tide-gauge"].state === "stale", glow, reduced);
   }
 

@@ -5,8 +5,8 @@
  *    plane's axes (u along the sail, v head → foot, read on the front face); the roundel is then re-sized to the
  *    largest circle inscribed in the sail's outline (small margin), and a second, slightly smaller roundel goes on
  *    the next biggest lower sail (a titan's fore and mizzen courses; never the artemon or a small or raked sail),
- *    wound to read the same way. The emblem square is sized so the LOGO (LOGO_R) fills that circle: the white disc and its brand ring
- *    are bigger than the circle, so the shader clamps them to the sail outline with a small margin (fleet-material).
+ *    wound to read the same way. The emblem square is sized so the LOGO (LOGO_R) fills a class share of that circle
+ *    (printFill, E04); the shader still clamps the disc and its brand ring to the sail outline with a small margin.
  *  - ROLES (aMeta.z on sail corners): how the brand dye takes on each cloth (fleet-material):
  *    body (dyed), headsail (jib / staysails: a light tint with a brand edge band), upper sail (topsails: lighter),
  *    band (a titan's painted head band: a deeper shade).
@@ -14,8 +14,14 @@
 export const ROLE_BODY = 0, ROLE_HEAD = 1, ROLE_UPPER = 2, ROLE_BAND = 3;
 /** Radius of the logo itself in emblem space (scripts/harbour/build-emblems.mjs LOGO_R / slot, through the 0.97 inset). */
 export const LOGO_R = 0.42;
-/** Share of the inscribed circle the logo fills: main sail, second sail. */
-const FILL_MAIN = 0.97, FILL_SECOND = 0.85;
+/**
+ * E04 (O5-I3): the device sits inside its sail. Share of the inscribed circle the logo fills on the main sail, by
+ * hull class (titans 0.92, large 0.88, medium 0.84, the smaller boats 0.80), so dyed cloth frames every device; the
+ * second sail's roundel keeps its old proportion to the main's (0.85 / 0.97).
+ */
+const PRINT_FILL: Readonly<Record<string, number>> = { flagship: 0.92, large: 0.88, medium: 0.84 };
+export function printFill(hullClass: string): number { return PRINT_FILL[hullClass] ?? 0.8; }
+const SECOND_SHARE = 0.85 / 0.97;
 const NO_EMBLEM: [number, number] = [-1, -1];
 
 export interface SailMeshIn {
@@ -46,7 +52,7 @@ const SKIP_SECOND = new Set(["sail_main", "sail_jib", "sail_spanker"]);
  */
 const SECOND_MIN_AREA = 0.35, SECOND_TILT = Math.cos((25 * Math.PI) / 180);
 
-export function planSails(meshes: SailMeshIn[]): SailMeshOut[] {
+export function planSails(meshes: SailMeshIn[], fill = printFill("")): SailMeshOut[] {
   const out = meshes.map((m): SailMeshOut => {
     const n = m.pos.length / 3;
     const emb = new Float32Array(n * 2);
@@ -101,12 +107,12 @@ export function planSails(meshes: SailMeshIn[]): SailMeshOut[] {
   const lower = rig.filter((c) => !c.upper && !SKIP_SECOND.has(meshes[c.mesh].name) && c.area >= mainComp.area * SECOND_MIN_AREA && parallel(c))
     .sort((a, b) => b.area - a.area);
   const seconds = lower.filter((c) => c.area >= lower[0].area * 0.8);
-  for (const [c, fill] of [[mainComp, FILL_MAIN] as const, ...seconds.map((x) => [x, FILL_SECOND] as const)]) {
+  for (const [c, share] of [[mainComp, fill] as const, ...seconds.map((x) => [x, fill * SECOND_SHARE] as const)]) {
     const m = meshes[c.mesh];
     const st = c.verts.map((v) => [dot3(m.pos, v, du), dot3(m.pos, v, dv)] as [number, number]);
     const circle = inscribedCircle(hull2d(st));
     if (!circle) continue;
-    const D = (circle.r * fill) / LOGO_R;
+    const D = (circle.r * share) / LOGO_R;
     const mirror = c !== mainComp && wind(c) !== mainWind;
     if (c === mainComp) out[c.mesh].frame = { du, dv, cx: circle.x, cy: circle.y, D, wind: mainWind };
     c.verts.forEach((v, k) => {

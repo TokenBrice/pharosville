@@ -42,7 +42,7 @@ export function DetailFallback({ closeLedger, closePanel, closeSearch }: {
         <svg width="17" height="17" viewBox="0 0 17 17" aria-hidden="true"><circle cx="7" cy="7" r="5.2" fill="none" stroke="currentColor" strokeWidth="1.3" /><path d="M11 11l4.5 4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
         <input ref={search} readOnly value="" placeholder="Loading search…" aria-label="Search is loading" />
       </div>
-      <div className="hb-search-hint" role="status">Loading coins, chains and landmarks… <button type="button" onClick={closeSearch}>Close (Esc)</button></div>
+      <div className="hb-search-hint" role="status">Loading coins, chains and landmarks… <button type="button" className="hb-textbtn" onClick={closeSearch}>Close search</button></div>
     </div>}
   </>;
 }

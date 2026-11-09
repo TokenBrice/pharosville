@@ -32,8 +32,12 @@ export const bundleBudgets = {
     // Fair Wind's lazy split: beam light, lamp wave, gust field, fronts, moon and meteors, events +
     // Day book, signals, moments, camera glides, postcard. Measured 896.7 KiB raw / 305.6 KiB gzip.
     // Cap = measured + ~10%.
-    maxRawBytes: 986 * 1024,
-    maxGzipBytes: 336 * 1024,
+    // Re-baselined 2026-11-09 for Clear Air v1.6.0 (agents/pharosville-ultimate): Pilot's Chart tokens and the night
+    // bridge palette, slips, dated charts with values tables, the help and controls sheet with lucide icons, the
+    // five-stop guide, Watch controls, ledger panes and filters, measured framing, the gesture/zoom/picking rework,
+    // typed services and checked shader patches. Measured 994.4 KiB raw / 337.5 KiB gzip. Cap = measured + ~10%.
+    maxRawBytes: 1094 * 1024,
+    maxGzipBytes: 371 * 1024,
     required: true,
   },
   renderer: {
@@ -54,8 +58,23 @@ export const bundleBudgets = {
     // Measured 18.3 KiB raw / 4.8 KiB gzip.
     // 2026-10-24 prettier sweep (postcard, sound menu, Day book, chart-paper
     // unroll, tide/storm panels): measured 29.1 KiB raw / 6.8 KiB gzip.
-    maxRawBytes: 34 * 1024,
-    maxGzipBytes: 8.5 * 1024,
+    // v1.6 reading panes and controls use 1 KiB of the approved +2 KiB CSS allowance.
+    // 2026-11-08 v1.6.0 u-polish (operator ruling U5: +2 KiB raw / +0.6 KiB gzip with offsetting deletions):
+    // the merged v1.6.0 lanes measured 38.0 KiB raw / 8.6 KiB gzip; one control family and the merges below bring
+    // it to 32.9 KiB raw / 8.0 KiB gzip (33,662 / 8,230 B). Cap = the ruling's ceiling. Deleted or merged (each proven unused or
+    // overridden by grep over src/ and tests/, or covered by a shared rule): the pre-v1.6 token aliases
+    // (--brass --brass-soft --sea --green --red --shadow) and the unused --chart-up; the prefers-reduced-motion
+    // block and the 1 ms unroll/sound overrides (.hb-reduced already cuts every transition); the (pointer: coarse)
+    // per-component 44 px heights the any-pointer rule already sets; .hb-reading-actions button and its states
+    // (now .hb-control); the second .hb-search-field/.hb-results/.hb-search-hint/.hb-mark/.hb-keys/.hb-tabs/
+    // .hb-watch/.hb-ledger-body blocks appended by later lanes; the focus-less :focus:not(:focus-visible)
+    // rules; the breath's three ::after hides; the duplicate trunc, ellipsis, list-reset, scroll and hover rules;
+    // the panel's 68 px bottom padding for the now focus-revealed "Back to harbour controls"; spaces inside
+    // token values (custom properties keep their text verbatim).
+    // 2026-11-09 UI art director fixes (B1 guide placement, B2 night washes and the active row, N1-N7): 34,323 B raw /
+    // 8,348 B gzip (33.5 / 8.2 KiB), inside the same cap.
+    maxRawBytes: 36 * 1024,
+    maxGzipBytes: 9.1 * 1024,
     required: true,
   },
 };

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -17,7 +17,11 @@ const smoothstep = (e0: number, e1: number, x: number) => {
 const powDriver = (x: number, y: number) => 2 ** (y * Math.log2(x));
 
 const SRC = resolve(__dirname, "..");
-const read = (path: string) => readFileSync(resolve(SRC, path), "utf8");
+const read = (path: string) => {
+  const source = readFileSync(resolve(SRC, path), "utf8");
+  const shaders = path === "world/materials.ts" ? "world/shaders" : path === "ocean/ocean-material.ts" ? "ocean/shaders" : null;
+  return shaders ? source + readdirSync(resolve(SRC, shaders)).filter((name) => name.endsWith(".ts")).map((name) => readFileSync(resolve(SRC, shaders, name), "utf8")).join("\n") : source;
+};
 
 /** Every GLSL-side call `name(...)` in a module (THREE.MathUtils / Math calls are JavaScript), with its arguments. */
 function calls(source: string, name: string): { line: number; args: string[] }[] {

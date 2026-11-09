@@ -56,6 +56,21 @@ const G0: Grade = { lift: [1, 1, 1], gamma: [1, 1, 1], gain: [1, 1, 1], saturati
 const BLOOM0: [number, number] = [0.5, 1.5];
 
 /**
+ * E03a hero value lock (O1-I1 at the O10 full strength): the day keys' horizon and haze are their authored colours
+ * × DAY_AIR in linear light (≈ −18 % sRGB), so the band and far sea behind the Pharos sit a step below its lit
+ * limewash. One air: the sky card, the sea's haze and reflection, the aerial tint and the stale bank all read
+ * these uniforms. Dawn, golden, dusk and night keys keep their own light.
+ */
+export const DAY_AIR = 0.64;
+/**
+ * The morning (8.5) key: on a short day the 9:00 sun stands low behind the Pharos, so its air is a step clearer
+ * than noon's (× MORNING_AIR on top of DAY_AIR) and its key a touch stronger (4.8, the afternoon's): the back-lit
+ * tower holds its band. Dawn, noon and the afternoon keep their air.
+ */
+export const MORNING_AIR = 0.85;
+const dayAir = (hex: string, k = 1): string => `#${new THREE.Color(hex).multiplyScalar(DAY_AIR * k).getHexString()}`;
+
+/**
  * Night (style C night still): deep navy-teal value structure. The sky is slate-indigo with a dark zenith,
  * so the sea (which reflects it) sits around 10–15 % value and the land, lit by a desaturated moon key
  * plus the moon fill (nightLift), reads slightly ABOVE the sea; warm lamps and windows carry the colour.
@@ -91,23 +106,23 @@ export const DEFAULT_KEYFRAMES: TimeKeyframe[] = [
     fogDensity: 0.0011, night: 0.25, windowGlow: 0.35, exposure: 0.3, bloom: [0.7, 1.2], lamp: 6, lens: 6,
     windowOcc: 0.3, nightLift: 0.012,
     grade: { lift: [0.99, 1.0, 1.04], gamma: [1, 1, 1], gain: [1.05, 1.0, 0.95], saturation: 1.22, contrast: 1.28, blueSat: 0.9, warmSat: 1.08 } },
-  { hour: 8.5, sunColor: "#FFE2C4", sunIntensity: 4.4, sunAz: 110, sunEl: 30,
+  { hour: 8.5, sunColor: "#FFE2C4", sunIntensity: 4.8, sunAz: 110, sunEl: 30,
     fillColor: "#A9C4EE", fillIntensity: 0.4, fillAz: 250, fillEl: 40,
     hemiSky: "#8AAAC8", hemiGround: "#CBCBC2", worldK: 0.6,
-    ambient: "#8AAAC8", zenith: "#5A8FCC", horizon: "#E6EEF0", haze: "#C2D3DC",
+    ambient: "#8AAAC8", zenith: "#5A8FCC", horizon: dayAir("#E6EEF0", MORNING_AIR), haze: dayAir("#C2D3DC", MORNING_AIR),
     fogDensity: 0.0008, night: 0, windowGlow: 0, exposure: 0.05, bloom: [0.35, 1.9], lamp: 0.4, lens: 3,
     grade: { lift: [0.99, 0.99, 1.0], gamma: [1, 1, 1], gain: [1.015, 1, 0.985], saturation: 1.12, contrast: 1.32, blueSat: 0.82, warmSat: 1.08 } },
   // noon (palette.json time_of_day.noon) — warmer key, firmer S-curve; the sea recedes, roofs/sails carry colour
   { hour: 12, sunColor: "#FFEDD6", sunIntensity: 4.5, sunAz: 160, sunEl: 58,
     fillColor: "#A9C4EE", fillIntensity: 0.35, fillAz: 30, fillEl: 40,
     hemiSky: "#8CA9C6", hemiGround: "#CECCBE", worldK: 0.58,
-    ambient: "#8CA9C6", zenith: "#5A8FCC", horizon: "#E8F1F4", haze: "#BCD3DF",
+    ambient: "#8CA9C6", zenith: "#5A8FCC", horizon: dayAir("#E8F1F4"), haze: dayAir("#BCD3DF"),
     fogDensity: 0.0007, night: 0, windowGlow: 0, exposure: 0, bloom: [0.3, 2.0], lamp: 0.4, lens: 3,
     grade: { lift: [0.985, 0.985, 0.995], gamma: [1, 1, 1], gain: [1.01, 1, 0.99], saturation: 1.1, contrast: 1.36, blueSat: 0.8, warmSat: 1.06 } },
   { hour: 16, sunColor: "#FFE0B8", sunIntensity: 4.8, sunAz: 240, sunEl: 30,
     fillColor: "#93A9DE", fillIntensity: 0.32, fillAz: 80, fillEl: 38,
     hemiSky: "#8AA0C4", hemiGround: "#CCC6BC", worldK: 0.59,
-    ambient: "#8AA0C4", zenith: "#5880BE", horizon: "#F2E6D6", haze: "#C9C6C8",
+    ambient: "#8AA0C4", zenith: "#5880BE", horizon: dayAir("#F2E6D6"), haze: dayAir("#C9C6C8"),
     fogDensity: 0.0008, night: 0, windowGlow: 0, exposure: 0.1, bloom: [0.4, 1.7], lamp: 0.8, lens: 3.5,
     grade: { lift: [0.985, 0.99, 1.01], gamma: [1, 1, 1], gain: [1.03, 1, 0.97], saturation: 1.14, contrast: 1.34, blueSat: 0.84, warmSat: 1.08 } },
   // golden (palette.json time_of_day.golden)
@@ -132,7 +147,7 @@ export const DEFAULT_KEYFRAMES: TimeKeyframe[] = [
   { hour: 19.7, sunColor: "#FF7448", sunIntensity: 2.1, sunAz: 298, sunEl: 1.5,
     fillColor: "#6A7CC0", fillIntensity: 0.3, fillAz: 120, fillEl: 35,
     hemiSky: "#56689E", hemiGround: "#9A8482", worldK: 0.75,
-    ambient: "#56689E", zenith: "#2F3D78", horizon: "#F09A78", haze: "#857288",
+    ambient: "#56689E", zenith: "#2F3D78", horizon: "#F09A78", haze: "#6E7890", // E11: cool dusk haze (was mauve #857288)
     fogDensity: 0.0011, night: 0.45, windowGlow: 0.7, exposure: 0.35, bloom: [0.9, 1.0], lamp: 22, lens: 10,
     windowOcc: 0.74, nightLift: 0.025,
     grade: { lift: [0.99, 0.99, 1.05], gamma: [1, 1, 1.02], gain: [1.04, 1.0, 0.96], saturation: 1.1, contrast: 1.3, shadowSat: 0.82, blueSat: 0.9, warmSat: 1.06 } },

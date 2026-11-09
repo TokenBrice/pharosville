@@ -30,6 +30,8 @@ import { ensureMotionService } from "../ui/services";
 /** Re-evaluate freshness this often even without new payloads (a silent feed must turn stale). */
 const TRUTH_RECHECK_MS = 30_000;
 
+export interface SimulationClock { shift(ms: number): void; now(): number }
+
 /** The sea SDF's coast channel (R), rows from minZ, or null (the sim then uses the layout's coast outline). */
 async function loadCoast(ctx: EngineContext, layout: HarbourLayout): Promise<CoastGrid | null> {
   const url = layout.sea?.sdf, bounds = layout.sea?.bounds as [number, number, number, number] | undefined;
@@ -86,7 +88,7 @@ export class DataSystem implements WorldSystem {
   async init(ctx: EngineContext): Promise<void> {
     ctx.services.set("readiness", this.readiness);
     ctx.services.set("simulation-status", this.status);
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    const layout = ctx.services.get("layout");
     if (!layout) {
       // Publish a terminal empty world too: reveal must never wait for a service this path cannot install.
       ctx.services.set("model", buildHarbourModel({}, Date.now()));

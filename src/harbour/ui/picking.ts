@@ -1,10 +1,11 @@
 /**
  * Analytic picking: no GPU readback, no scene raycast. Boats are tested in screen space against the
  * projected hull→masthead segment (from the sim pose buffer); buildings against their projected
- * base→roof segment; piers and sea areas by a ground-plane ray hit. Cost: one projection per boat
- * per pick (625 → well under 0.1 ms), and picks are throttled to the frame rate by the caller.
+ * base→roof segment; piers and sea areas by a ground-plane ray hit. Cost: two projections per boat
+ * per pick plus bounded terrain marches for hit candidates; picks are throttled by the caller.
  */
 import * as THREE from "three";
+import { terrainOccludes } from "./pick-visibility";
 import type { EngineContext } from "../engine/types";
 import type { HarbourLayout, Vec2 } from "../layout/types";
 import { pierIdFor } from "../model/classify";
@@ -42,6 +43,10 @@ function segDist(px: number, py: number, ax: number, ay: number, bx: number, by:
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
+
+interface BoatCandidate { id: string; direct: boolean; distance: number; depth: number }
+const rankCandidates = (a: BoatCandidate, b: BoatCandidate) => Number(b.direct) - Number(a.direct)
+  || a.distance - b.distance || a.depth - b.depth || a.id.localeCompare(b.id);
 
 export class AnalyticPicking implements PickingService {
   private rect = { left: 0, top: 0, width: 1, height: 1 };
@@ -121,31 +126,19 @@ export class AnalyticPicking implements PickingService {
     return (L?.deckY ?? 1.2) + (L?.hull.mastAboveDeck[cls] ?? 8);
   }
 
-  pick(clientX: number, clientY: number, boats = true): PickHit | null {
+  pick(clientX: number, clientY: number, coarse = false): PickHit | null {
+    const candidate = this.boatCandidates(clientX, clientY, coarse)[0];
+    return candidate ? { kind: "boat", id: candidate.id } : this.pickPlaces(clientX, clientY);
+  }
+
+  pickPlaces(clientX: number, clientY: number): PickHit | null {
     const L = this.layout;
     if (!L) return null;
     this.begin();
     const a = PA, b = PB;
 
-    // boats: nearest projected hull→masthead segment within the hull's projected half-beam
-    const sim = boats ? getSim(this.ctx) : null;
+    const sim = getSim(this.ctx);
     if (sim) {
-      const p = sim.pose, boats = sim.model.boats;
-      let best = -1, bestScore = 1;
-      for (let i = 0; i < p.count; i++) {
-        const x = p.position[i * 3], z = p.position[i * 3 + 2];
-        const cls = boats[i]?.hullClass ?? "boat";
-        this.project(x, 0.6, z, a);
-        if (!a.visible) continue;
-        const top = (L.deckY ?? 1.2) + (L.hull.mastAboveDeck[cls] ?? 8);
-        this.project(x, top, z, b);
-        const ppm = this.ppm(x, 0, z);
-        const r = Math.max(7, ((L.hull.loa[cls] ?? 10) * 0.32) * ppm);
-        const d = segDist(clientX, clientY, a.x, a.y, b.x, b.y);
-        const score = d / r;
-        if (score < bestScore) { bestScore = score; best = i; }
-      }
-      if (best >= 0) return { kind: "boat", id: p.ids[best] };
       // the harbour tug (07-M6): declared decorative, it answers as a place ("harbour tug"), never a coin
       for (let k = 0; k < sim.tugs.count; k++) {
         const x = sim.tugs.x[k], z = sim.tugs.z[k];
@@ -157,7 +150,7 @@ export class AnalyticPicking implements PickingService {
     }
 
     // the Shipyard's hulls (when the civic system has placed them): keel → deck-top segment
-    if (boats) {
+    {
       let yBest: string | null = null, yScore = 1;
       for (const c of yardCoins(this.ctx)) {
         const w = yardHullPosition(this.ctx, c.id);
@@ -173,7 +166,7 @@ export class AnalyticPicking implements PickingService {
     }
 
     // Wreck Cove: each dead coin's wreck and memorial post (once the cove is near enough to point at one)
-    const cove = boats ? getCove(this.ctx) : null;
+    const cove = getCove(this.ctx);
     if (cove) {
       let wBest: string | null = null, wScore = 1;
       for (const m of cove.marks) {
@@ -312,21 +305,31 @@ export class AnalyticPicking implements PickingService {
     return false;
   }
 
-  /** True when the island hides a point from the camera (height-field march toward the eye). */
-  private occluded(x: number, y: number, z: number): boolean {
-    const g = getGround(this.ctx);
-    if (!g) return false;
-    const c = this.ctx.camera.position;
-    let dx = c.x - x, dy = c.y - y, dz = c.z - z;
-    const len = Math.hypot(dx, dy, dz);
-    dx /= len; dy /= len; dz /= len;
-    if (dy <= 0) return false;
-    const horiz = Math.max(1e-4, Math.hypot(dx, dz));
-    const dt = 1 / horiz, tEnd = Math.min(len, (SKY_TOP - y) / dy);
-    for (let t = dt * 2; t < tEnd; t += dt) {
-      if (g.heightAt(x + dx * t, z + dz * t) > y + dy * t + 0.3) return true;
+  /** O(N) projections; terrain marches run only inside the pointer's small capsule shortlist. */
+  boatCandidates(clientX: number, clientY: number, coarse = false): BoatCandidate[] {
+    this.begin();
+    const sim = getSim(this.ctx), L = this.layout;
+    if (!sim || !L) return [];
+    const out: BoatCandidate[] = [], p = sim.pose;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.position[i * 3], z = p.position[i * 3 + 2];
+      const cls = sim.model.boats[i]?.hullClass ?? "boat";
+      const top = (L.deckY ?? 1.2) + (L.hull.mastAboveDeck[cls] ?? 8);
+      const a = this.project(x, 0.6, z, PA), b = this.project(x, top, z, PB);
+      if (!a.visible && !b.visible) continue;
+      const radius = (L.hull.loa[cls] ?? 10) * 0.32 * this.ppm(x, 0, z);
+      const distance = segDist(clientX, clientY, a.x, a.y, b.x, b.y);
+      if (distance > Math.max(coarse ? 12 : 7, radius)) continue;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const t = THREE.MathUtils.clamp(((clientX - a.x) * dx + (clientY - a.y) * dy) / (dx * dx + dy * dy || 1), 0, 1);
+      if (this.occluded(x, 0.6 + t * (top - 0.6), z)) continue;
+      out.push({ id: p.ids[i], direct: distance <= radius, distance, depth: this.ctx.camera.position.distanceTo(v.set(x, 0.6 + t * (top - 0.6), z)) });
     }
-    return false;
+    return out.sort(rankCandidates);
+  }
+
+  private occluded(x: number, y: number, z: number): boolean {
+    return terrainOccludes(getGround(this.ctx), this.ctx.camera.position, x, y, z);
   }
 
   waterline(id: string, out: ScreenPoint = { x: 0, y: 0, visible: false }): ScreenPoint | null {
@@ -429,7 +432,7 @@ export class AnalyticPicking implements PickingService {
     }
     if (hit.kind === "landmark") {
       if (hit.id === HARBOUR_TUG) { const T = getSim(this.ctx)?.tugs; return T?.count ? this.project(T.x[0], 6, T.z[0], out) : null; }
-      const lantern = hit.id === "pharos" ? (this.ctx.services.get("lighthouse") as { lanternPosition?: THREE.Vector3 } | undefined)?.lanternPosition : undefined;
+      const lantern = hit.id === "pharos" ? this.ctx.services.get("lighthouse")?.lanternPosition : undefined;
       if (lantern) return this.project(lantern.x, lantern.y + 7, lantern.z, out);
       const place = this.placeOf(hit.id);
       if (place) return this.project(place.top[0], place.top[1], place.top[2], out);
@@ -468,13 +471,25 @@ export class UIPicking implements PickingService {
   endFrame(): void { this.own.endFrame(); }
   dispose(): void { this.own.dispose(); }
 
-  pick(clientX: number, clientY: number): PickHit | null {
-    const world = getWorldPicking(this.ctx);
-    if (world) {
-      const h = world.pick(clientX, clientY);
-      if (h?.kind === "boat") return h;
+  private candidates(clientX: number, clientY: number, coarse: boolean): BoatCandidate[] {
+    const candidates = this.own.boatCandidates(clientX, clientY, coarse);
+    const hit = getWorldPicking(this.ctx)?.pick(clientX, clientY);
+    if (hit?.kind === "boat") {
+      const candidate = candidates.find((c) => c.id === hit.id);
+      if (candidate) candidate.direct = true;
+      else candidates.push({ id: hit.id, direct: true, distance: 0, depth: 0 });
     }
-    return this.own.pick(clientX, clientY);
+    return candidates.sort(rankCandidates);
+  }
+
+  choices(clientX: number, clientY: number): PickHit[] {
+    const candidates = this.candidates(clientX, clientY, true);
+    return candidates[0]?.direct ? [] : candidates.slice(0, 5).map(({ id }) => ({ kind: "boat", id }));
+  }
+
+  pick(clientX: number, clientY: number, coarse = false): PickHit | null {
+    const candidate = this.candidates(clientX, clientY, coarse)[0];
+    return candidate ? { kind: "boat", id: candidate.id } : this.own.pickPlaces(clientX, clientY);
   }
 
   screenPosition(hit: PickHit, out: ScreenPoint = { x: 0, y: 0, visible: false }): ScreenPoint | null {

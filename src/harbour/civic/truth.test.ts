@@ -1,3 +1,4 @@
+import type { ServiceMap, Services } from "../engine/services";
 import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext, FrameState } from "../engine/types";
@@ -8,7 +9,7 @@ import type { CivicBoards } from "./boards";
 import { CivicSystem } from "./civic-system";
 
 const frame = { delta: 0.016, elapsed: 0, nowMs: T0_MS } as FrameState;
-const context = (model: HarbourModel) => ({ services: new Map([["model", model]]) }) as unknown as EngineContext;
+const context = (model: HarbourModel) => ({ services: new Map([["model", model]]) as Services }) as unknown as EngineContext;
 afterEach(() => vi.unstubAllGlobals());
 function civic() { vi.stubGlobal("location", { search: "" }); return new CivicSystem(); }
 
@@ -48,7 +49,7 @@ describe("civic source truth transitions", () => {
     const payloads = makePayloads();
     const ctx = context(buildHarbourModel(payloads, T0_MS, { dead: [] }));
     const rows = [{ name: "Ethereum", id: "ethereum", change24hPct: 0.1 }];
-    ctx.services.set("feed", { payloads: { chains: { data: { chains: rows } } } });
+    ctx.services.set("feed", { payloads: { chains: { data: { chains: rows } } } } as unknown as ServiceMap["feed"]);
     system.update(frame, ctx); system["paintMovers"](ctx, [0, 0]);
     const currentKey = system["moversKey"];
     payloads.chains = { ...payloads.chains!, meta: null };

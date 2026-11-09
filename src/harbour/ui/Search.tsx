@@ -32,21 +32,21 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
     }));
     for (const h of model?.harbours ?? []) {
       out.push({ id: `chain:${h.chain}`, symbol: h.chain, name: h.piered ? `${h.chain} harbour` : `${h.chain}, a far port`, supply: h.supplyUsd,
-        hit: { kind: "harbour", id: h.chain }, logo: chainLogo(h.chain), color: "#1f5873", note: money(h.supplyUsd) });
+        hit: { kind: "harbour", id: h.chain }, logo: chainLogo(h.chain), color: "var(--fill-chain)", note: money(h.supplyUsd) });
     }
-    // pre-launch coins: hulls on the Shipyard's slips
+    // Admission records: hulls on the Shipyard's slips
     const live = new Set(out.map((o) => o.id));
     for (const c of yardCoins(store.ctx)) {
       if (live.has(c.id)) continue;
-      out.push({ id: c.id, symbol: c.symbol, name: c.name, supply: 0, hit: { kind: "yard", id: c.id }, logo: c.logo, color: "#7a5a22",
-        note: `pre-launch · ${c.phase ? PHASE_NAME[c.phase].toLowerCase() : "shipyard"}` });
+      out.push({ id: c.id, symbol: c.symbol, name: c.name, supply: 0, hit: { kind: "yard", id: c.id }, logo: c.logo, color: "var(--fill-yard)",
+        note: `Awaiting admission to the tracked fleet. · ${c.phase ? PHASE_NAME[c.phase].toLowerCase() : "shipyard"}` });
     }
     // the dead: each lies in Wreck Cove (a live hull in the dead list is already here as a boat); never outranks a
     // live coin of the same name (supply 0)
     for (const w of model?.readings.wrecks ?? []) {
       if (live.has(w.id)) continue;
       const r = deadRecords().get(w.id);
-      out.push({ id: w.id, symbol: w.symbol, name: w.name, supply: 0, hit: { kind: "wreck", id: w.id }, logo: r?.logo ?? null, color: "#8a7d66",
+      out.push({ id: w.id, symbol: w.symbol, name: w.name, supply: 0, hit: { kind: "wreck", id: w.id }, logo: r?.logo ?? null, color: "var(--fill-wreck)",
         note: `wreck · † ${w.deathDate.slice(0, 4)}` });
     }
     const L = getLayout(store.ctx);
@@ -56,19 +56,28 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
       if (!L?.landmarks.some((l) => l.id === id) && !plotFor(L, id) && !zoneIds.has(id)) continue;
       const name = placeName(L, id);
       out.push({ id: `lm:${id}`, symbol: name, name: name.replace(/^The /, ""), supply: 0,
-        hit: { kind: "landmark", id }, logo: null, color: "#a68242", note: zoneIds.has(id) ? "sea zone" : "landmark" });
+        hit: { kind: "landmark", id }, logo: null, color: "var(--rule)", note: zoneIds.has(id) ? "sea zone" : "landmark" });
     }
     return out;
   }, [model, store]);
+  const [viewport, setViewport] = useState(() => ({ left: 0, top: 0, width: innerWidth, height: innerHeight }));
   const results = useMemo(() => searchCoins(q, items, 7), [q, items]);
-  useEffect(() => { input.current?.focus(); }, []);
+  const activeIndex = Math.max(0, Math.min(active, results.length - 1));
+  useEffect(() => { if (shown) input.current?.focus(); }, [shown]);
+  useEffect(() => {
+    const v = window.visualViewport;
+    const update = () => setViewport({ left: v?.offsetLeft ?? 0, top: v?.offsetTop ?? 0, width: v?.width ?? innerWidth, height: v?.height ?? innerHeight });
+    update(); v?.addEventListener("resize", update); v?.addEventListener("scroll", update); addEventListener("resize", update);
+    return () => { v?.removeEventListener("resize", update); v?.removeEventListener("scroll", update); removeEventListener("resize", update); };
+  }, []);
 
   const choose = (i: number) => {
     const r = results[i];
     if (r) store.select(r.hit);
   };
   return (
-    <div className="hb-search hb-paper hb-fade" data-shown={shown} role="dialog" aria-label="Find a coin">
+    <div className="hb-search hb-paper hb-fade" data-shown={shown} role="dialog" aria-label="Find a coin"
+      style={{ left: viewport.left + viewport.width / 2, top: viewport.top + 12, maxWidth: viewport.width - 24, maxHeight: viewport.height - 24 }}>
       <div className="hb-search-field">
         <svg width="17" height="17" viewBox="0 0 17 17" aria-hidden="true"><circle cx="7" cy="7" r="5.2" fill="none" stroke="currentColor" strokeWidth="1.3" /><path d="M11 11l4.5 4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
         <input
@@ -80,22 +89,24 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
           role="combobox"
           aria-expanded={results.length > 0}
           aria-controls="hb-search-results"
-          aria-activedescendant={results.length ? `hb-sr-${active}` : undefined}
+          aria-activedescendant={results.length ? `hb-sr-${activeIndex}` : undefined}
           autoComplete="off"
           spellCheck={false}
           onKeyDown={(e) => {
-            if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => Math.min(results.length - 1, a + 1)); }
-            else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(0, a - 1)); }
-            else if (e.key === "Enter") { e.preventDefault(); choose(active); }
+            if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => Math.max(0, Math.min(results.length - 1, a + 1))); }
+            else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(0, Math.min(results.length - 1, a - 1))); }
+            else if (e.key === "Enter") { e.preventDefault(); choose(activeIndex); }
             else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
           }}
         />
+        <button type="button" className="hb-control" onClick={onClose}>Close search</button>
       </div>
+      <div className="hb-sr" role="status">{results.length ? `${results.length} matches.` : "No matches."}</div>
       {results.length > 0 && (
         <ul className="hb-results" id="hb-search-results" role="listbox" aria-label="Matches">
           {results.map((r, i) => (
-            <li key={r.id} id={`hb-sr-${i}`} role="option" aria-selected={i === active} className="hb-result" data-kind={r.hit.kind}
-              onMouseEnter={() => setActive(i)} onMouseDown={(e) => { e.preventDefault(); choose(i); }}>
+            <li key={r.id} id={`hb-sr-${i}`} role="option" aria-selected={i === activeIndex} className="hb-result" data-kind={r.hit.kind}
+              onMouseEnter={() => setActive(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(i)}>
               {r.hit.kind === "landmark" ? <span className="hb-logo hb-lm-glyph" aria-hidden="true" /> : <Logo src={r.logo} label={r.symbol} color={r.color} />}
               <b>{r.symbol}</b>
               <em>{r.hit.kind === "landmark" ? "" : r.name}</em>

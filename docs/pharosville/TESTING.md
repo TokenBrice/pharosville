@@ -1,6 +1,6 @@
 # PharosVille Testing and Visual Review
 
-Last updated: 2026-10-19
+Last updated: 2026-11-09
 
 Use the smallest check that proves the contract you changed. The production
 world is The Harbour (`src/harbour/`), one three.js WebGL2 Engine; if WebGL2
@@ -96,12 +96,18 @@ alternative “canvas or failure” pass. Boundary cases cover 719×600, 720×59
 720×600 and 600×720, plus denial/readmission and a small physical screen.
 
 `tests/visual/overlay-accessibility.spec.ts` bundles a test-only StoreContext
-harness in memory, using actual overlay components and canonical data projections.
-It runs axe WCAG A/AA checks on search, every ledger tab, coin/landmark details,
-sound choices, stale/outage details and existing recovery content, with keyboard,
-Escape and focus-return assertions. It works against either dev or dist and adds
-no production route. Browser execution is required before calling these scans
-passed; the small jsdom harness test proves only component/store wiring.
+harness in memory, using actual overlay components and canonical data projections;
+it stands in for the renderer by publishing each model's fleet as fully drawn.
+It runs axe WCAG 2.2 A/AA checks on search, every ledger tab, coin/landmark
+details, sound choices, stale/outage details, existing recovery content, the help
+and controls sheet with its preferences and the native postcard dialog, with
+keyboard, Escape and focus-return assertions, and checks that search and the
+sheet fit 600×720, 720×600 and 1100×640 in normal and reduced motion. It works
+against either dev or dist and adds no production route. `test:visual:dist`,
+`test:visual:dist:dom` and `test:visual:dist:dom:firefox` run it beside
+`harbour-dom.spec.ts`, so CI's visual job runs it in Chromium and Firefox and
+the deploy gate in Chromium. The small jsdom harness test proves only
+component/store wiring.
 
 `tests/fixtures/scenarios/` holds shared `{epoch, steps:[{atMs,responses}]}`
 replays for current, valid-empty, pending, storm, two-poll depeg/recovery,

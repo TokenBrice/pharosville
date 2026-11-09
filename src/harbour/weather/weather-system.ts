@@ -1,12 +1,7 @@
 import * as THREE from "three";
 import { getBeamUniforms } from "../beam/uniforms";
-import type { QualityService } from "../engine/quality";
-import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
-import type { HarbourLayout } from "../layout/types";
-import type { OceanService } from "../ocean/ocean-system";
+import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
-import type { ReadingsService } from "../readings/readings-system";
-import type { SkyService } from "../sky/sky-system";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { getHarbourMaterials } from "../world/materials";
 import {
@@ -54,8 +49,6 @@ export interface WeatherService {
   onLightning(cb: (e: StrikeEvent) => void): () => void;
 }
 
-interface SeasonLike { readonly weights?: SeasonWeights; readonly snowShare?: number; readonly sunrise?: number; readonly temperatureC?: number }
-interface SimLike { readonly wind?: { displayFromRad: number } }
 
 function calendarSeason(q: URLSearchParams): Season {
   const s = q.get("season");
@@ -126,13 +119,13 @@ export class WeatherSystem implements WorldSystem {
     // Uniform-only rain/snow/flash/recovery transitions share these four programs. No weather is advanced.
     const root = new THREE.Group();
     root.children = [this.precip.fall, this.precip.ground, this.lightning.mesh, this.rainbow.mesh];
-    await (ctx.services.get("preparation") as PreparationService | undefined)?.prepareGroup(root);
+    await ctx.services.get("preparation")?.prepareGroup(root);
   }
 
   /** Spray anchors along the surf: the outer coast, the breakwater and mole, the islets, the Shoals reef. */
   private buildAnchors(ctx: EngineContext): void {
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
-    const ocean = ctx.services.get("ocean") as OceanService | undefined;
+    const layout = ctx.services.get("layout");
+    const ocean = ctx.services.get("ocean");
     if (!layout || !ocean) return;
     this.anchorsBuilt = true;
     const lines: Array<Array<[number, number]>> = [];
@@ -184,9 +177,9 @@ export class WeatherSystem implements WorldSystem {
     const dt = frame.delta;
     this.elapsed += dt;
     const U = ctx.uniforms;
-    const readings = ctx.services.get("readings") as ReadingsService | undefined;
+    const readings = ctx.services.get("readings");
     const w = readings?.weather ?? null;
-    const season = ctx.services.get("season") as SeasonLike | undefined;
+    const season = ctx.services.get("season");
     const share = season?.snowShare ?? snowShare(season?.weights ?? this.fallbackWeights);
     const sunUp = THREE.MathUtils.smoothstep(U.uSunDir.value.y, 0.03, 0.25) * (1 - U.uNight.value);
     // W07: tonight's moon (decorative calendar, ?moon= in dev) can hang the recovery as a moonbow
@@ -216,7 +209,7 @@ export class WeatherSystem implements WorldSystem {
     const s = this.director.step(dt, input);
 
     // ---- wind: the prevailing direction (the hulls lie to it) × DEWS strength incl. gusts
-    const sim = ctx.services.get("sim") as SimLike | undefined;
+    const sim = ctx.services.get("sim");
     // (+ the sim's slow decorative veer, 07-M5: flags, gusts and the anchorage turn together)
     if (sim?.wind) { const to = sim.wind.displayFromRad + Math.PI; this.windTo.set(Math.sin(to), Math.cos(to)); }
     this.windVec.copy(this.windTo).multiplyScalar(s.windNow);
@@ -229,7 +222,7 @@ export class WeatherSystem implements WorldSystem {
     U.uPrecip.value.set(s.rain, s.snow);
 
     // ---- the sky: deck + wind (unless the engine's own ?cloud= / ?wind= pin them)
-    const sky = ctx.services.get("sky") as SkyService | undefined;
+    const sky = ctx.services.get("sky");
     if (sky && this.snapped) {
       if (!this.q.has("cloud")) sky.setCloudCover(s.cloud, snapNow);
       if (!this.q.has("wind")) sky.setWind(s.windNow, snapNow);
@@ -261,7 +254,7 @@ export class WeatherSystem implements WorldSystem {
     // ---- motion + quality
     const ptime = this.clock.step(dt);
     const reduced = this.clock.live < 0.5;
-    const tier = (ctx.services.get("quality") as QualityService | undefined)?.settings.tier ?? "high";
+    const tier = ctx.services.get("quality")?.settings.tier ?? "high";
 
     // ---- lightning (Warning / Danger), flash → uLightning (the sky lights the deck and the world with it)
     const horizon = sky?.horizonDistance() ?? 1500;

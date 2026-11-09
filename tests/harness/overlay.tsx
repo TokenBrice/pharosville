@@ -3,6 +3,10 @@ import { createRoot } from "react-dom/client";
 import { HarbourUI } from "../../src/harbour/ui/App";
 import { StoreContext } from "../../src/harbour/ui/hooks";
 import type { HarbourUIStore, UIState } from "../../src/harbour/ui/store";
+import { newLedgerContext, type LedgerContext, type LedgerTab, type LedgerView } from "../../src/harbour/ui/ledger-state";
+import { ensureMotionService } from "../../src/harbour/ui/services";
+import { publishPresentation } from "../../src/harbour/ui/presentation";
+import type { EngineContext } from "../../src/harbour/engine/types";
 import type { PickHit } from "../../src/harbour/ui/services";
 import type { SoundController, SoundMode } from "../../src/harbour/audio/controller";
 import { HarbourFeed } from "../../src/harbour/data/fetch";
@@ -17,9 +21,11 @@ export async function mountOverlayHarness(element: HTMLElement) {
   const feed = new HarbourFeed({ setTimer: () => 0, clearTimer: () => {} });
   await feed.start();
   const listeners = new Set<() => void>(), soundListeners = new Set<() => void>();
-  let state: UIState = { model: buildHarbourModel(feed.payloads, Date.now()), hover: null, selected: null, searchOpen: false, ledgerOpen: false, chartMode: false, reducedMotion: true, tick: 0, follow: null, announce: "", capturing: false, watch: null };
+  let state: UIState = { model: buildHarbourModel(feed.payloads, Date.now()), hover: null, shipChoices: [], selected: null, searchOpen: false, ledgerOpen: false, ledger: newLedgerContext(), chartMode: false, reducedMotion: true, tick: 0, follow: null, announce: "", capturing: false, watch: null };
   const set = (patch: Partial<UIState>) => { state = { ...state, ...patch }; listeners.forEach((fn) => fn()); };
   let mode: SoundMode = "off";
+  let postcardFailure = false;
+  const postcards = new Set<() => void>();
   const sound: SoundController = {
     get mode() { return mode; }, get on() { return mode !== "off"; }, get playing() { return false; },
     setMode(next) { mode = next; soundListeners.forEach((fn) => fn()); },
@@ -28,16 +34,39 @@ export async function mountOverlayHarness(element: HTMLElement) {
     cue() {}, stop() {}, dispose() {},
   };
   const services = new Map<string, unknown>([["feed", feed], ["sound", sound]]);
+  const ctx = { services, timeOfDay: { hour: 12 } } as unknown as EngineContext;
+  const motion = ensureMotionService(ctx);
+  motion.setStill(true);
+  // Stands in for the renderer: each model revision's whole fleet is drawn (a composer-completed frame).
+  let revision = 0;
+  const present = () => { const boats = state.model?.boats.length ?? 0; publishPresentation(ctx, { status: "complete", revision: ++revision, displayed: boats, expected: boats }); };
+  present();
   const store = {
-    ctx: { services, timeOfDay: { hour: 12 } },
+    ctx, motion,
     getSnapshot: () => state,
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     set,
+    updateLedger(patch: Partial<LedgerContext>) { set({ ledger: { ...state.ledger!, ...patch } }); },
+    updateLedgerView(tab: LedgerTab, patch: Partial<LedgerView>) {
+      set({ ledger: { ...state.ledger!, views: { ...state.ledger!.views, [tab]: { ...state.ledger!.views[tab], ...patch } } } });
+    },
+    hoverLedger(hover: PickHit | null) { set({ hover }); },
+    readLedger(selected: PickHit, locate = false) {
+      store.updateLedgerView(state.ledger!.tab, { row: selected.id });
+      set({ selected, searchOpen: false, ledgerOpen: !locate, ledgerOrigin: true });
+    },
+    returnToLedger() { set({ selected: null, ledgerOpen: true, ledgerOrigin: false, ledger: { ...state.ledger!, returning: true } }); },
     select(selected: PickHit | null) { set({ selected, searchOpen: false }); },
     boat: (id: string) => state.model?.boats.find((b) => b.id === id),
     whereaboutsOf: () => ({ kind: "unknown", place: null }), boatsInZone: () => [], underWay: () => 0,
-    onFrame: () => () => {}, onFrameWrite: () => () => {}, onPostcard: () => () => {},
-    noteInput() {}, stopWatch() {}, goHome() {}, keyPan() {}, keyZoom() {}, stepHull() {}, toggleFollow() {}, requestPostcard() {}, toggleWatch() {}, setFollow(follow: string | null) { set({ follow }); },
+    onFrame: () => () => {}, onFrameWrite: () => () => {},
+    onPostcard(fn: () => void) { postcards.add(fn); return () => { postcards.delete(fn); }; },
+    async captureFrame() {
+      if (postcardFailure) throw new Error("Test postcard failure");
+      const frame = document.createElement("canvas"); frame.width = 320; frame.height = 180; return frame;
+    },
+    holdHover() {},
+    noteInput() {}, dismissHover: () => false, stopAutomation() {}, stopWatch() {}, goHome() {}, keyPan() {}, keyZoom() {}, stepHull() {}, toggleFollow() {}, requestPostcard() { postcards.forEach((fn) => fn()); }, toggleWatch() {}, setFollow(follow: string | null) { set({ follow }); },
   } as unknown as HarbourUIStore;
   let showRecovery: (value: boolean) => void = () => {};
   let fail: () => void = () => {};
@@ -54,8 +83,9 @@ export async function mountOverlayHarness(element: HTMLElement) {
   return {
     store,
     recovery: (active: boolean) => showRecovery(active),
+    postcardFailure: (active: boolean) => { postcardFailure = active; },
     fail: () => fail(),
-    async refresh() { await Promise.all(["stablecoins", "chains", "stability", "pegSummary", "stress", "safetyGrades", "mintBurn"].map((key) => feed.refresh(key as Parameters<typeof feed.refresh>[0]))); set({ model: buildHarbourModel(feed.payloads, Date.now()), tick: state.tick + 1 }); },
-    dispose() { root.unmount(); feed.stop(); },
+    async refresh() { await Promise.all(["stablecoins", "chains", "stability", "pegSummary", "stress", "safetyGrades", "mintBurn"].map((key) => feed.refresh(key as Parameters<typeof feed.refresh>[0]))); set({ model: buildHarbourModel(feed.payloads, Date.now()), tick: state.tick + 1 }); present(); },
+    dispose() { root.unmount(); motion.dispose(); feed.stop(); },
   };
 }

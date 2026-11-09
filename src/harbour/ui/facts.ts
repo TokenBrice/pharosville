@@ -99,7 +99,7 @@ export const MAIDEN_LINE = "new to the register this week";
 /** DA-07 hover: the bunting she is dressed in, in the panel's words. */
 export const MAIDEN_HOVER = `dressed overall: ${MAIDEN_LINE}`;
 /** Hover for a coin launched during this visit, dressed for her first circuit (M8d: "launched today"). */
-export const LAUNCH_HOVER = "dressed overall: launched today";
+export const LAUNCH_HOVER = "Dressed overall: joined the tracked register this visit.";
 
 /** "USDT · $184.0B · alongside Tron" (+ " · signal hoisted: early warning, not a depeg" under a DA-04 signal). */
 export function boatFact(b: Boat, w: Whereabouts): string {
@@ -227,7 +227,7 @@ export function landmarkFact(id: string, m: HarbourModel | null, underWay: numbe
     }
     case "registry": return { fact: `${m?.payloadCount ?? 0} coins on the register` };
     case "harbourmaster": return { fact: underWay == null ? "keeps the harbour" : `${underWay} boats under way` };
-    case "slipway": return { fact: counts.yard != null ? `${counts.yard} ${counts.yard === 1 ? "coin" : "coins"} building · pre-launch` : "where new coins are built" };
+    case "slipway": return { fact: counts.yard != null ? `${counts.yard} records · Awaiting admission to the tracked fleet.` : "Awaiting admission to the tracked fleet." };
     case "keepers-cottage": return { fact: "the keeper’s home", decorative: true };
     case "oil-store": return { fact: "lamp oil for the Pharos", decorative: true };
     case "church": return { fact: "the town on the hill", decorative: true };
@@ -266,3 +266,22 @@ export function wreckFact(id: string): string {
 
 /** The obituary as the panel prints it: the register's own housekeeping notes left out. */
 export const obituaryText = (s: string) => s.replace(/\s*\((?:Excluded from|Note:)[^)]*\)/g, "").trim();
+
+/** The declared visual key, shared by the ledger and subject explanations. */
+export const SAIL_RULE = "Ordinary sail motion is decorative. Shoals placement, listing, distressed canvas and the checkered flag indicate an observed depeg; weather strength follows stress.";
+export const SEA_RULE = "Sea-state thresholds are below 0.5%, 0.5% to below 2%, 2% to below 10%, and 10% or more of tracked supply observed off peg.";
+export const LETTERING_RULE = "Sea zones are lettered on the water. Chain harbours use crests; optional chart labels name the chains.";
+export const OFFICE_RULE = "Office works begin at +8% over 30 days and remain until below +6%; furled awnings begin at −8% and remain until above −6%. Unavailable or stale comparisons leave offices neutral.";
+export const FLOW_RULE = "Mint and Burn activity uses 60% of the 24-hour mean and 40% of the latest completed hour, on a compressed scale. Direction is unavailable when net valuation is withheld.";
+export const TIDE_RULE = "The tide gauge shows seven-day global supply change on a signed square-root scale, full at ±2%; changes smaller than 0.01% are slack.";
+export const HULL_RULE = "Hull supply classes begin at $1M, $10M, $100M, $1B and $10B.";
+export const PRINT_RULE = "Coin marks are printed on cloth. At a distance their contrast softens; hover, select or search to inspect a coin.";
+export const WRECK_RULE = "Wreck form follows the recorded cause family; size follows peak-cap rank.";
+export const WREATH_RULE = "A fresh wreath marks the newest recorded death within 90 days; month-only dates count from month end.";
+export const ANNIVERSARY_RULE = "An anniversary requires a recorded full date from an earlier year; month-only dates have no anniversary day.";
+export const CEREMONY_RULE = "Confirmed visit events may stage brief ceremonies; the Day book also records events that receive no ceremony. Night and seasons follow the calendar and carry no market reading.";
+
+/** Shared guide/legend wording: teaching stays on demand and adds no analytical mapping. */
+export const PHAROS_GUIDE = "A fire in the lantern, thrown out to sea by a bronze mirror. A slow, wide sweep is a calm market; a faster, shorter beam is stress. A dark lantern means no reading. Its light passes over the ships and walls it reaches; a horn shutter narrows it when the index was computed without stress signals or depeg events.";
+export const BOATS_GUIDE = "Every stablecoin is one boat. Boats visit each chain in proportion to their supply there; sailing is not a bridge transfer.";
+export const FOG_GUIDE = "When the feed stops refreshing, fog rolls in and every boat finishes its leg and holds. Nothing pretends to be live.";

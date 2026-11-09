@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - World: The Harbour, one three.js WebGL2 Engine (`src/harbour/engine/`) mounted by `src/harbour/app/harbour-app.tsx`
 - Renderer failure fallback: the first-paint poster stays up with the arrival guide and Pharos links; no alternate renderer
 - Runtime media namespace: `/harbour/`
-- Latest app version: `v1.5.1` (`sailsByNight`)
-- Latest changelog entry: `2026-11-08-sails-by-night` / `v1.5.1` / 2026-11-08 / Sails by Night
+- Latest app version: `v1.6.0` (`clearAir`)
+- Latest changelog entry: `2026-11-09-clear-air` / `v1.6.0` / 2026-11-09 / Clear Air
 
 ## Viewport Gate
 
@@ -46,9 +46,9 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 ## Bundle Budgets
 
 - entry chunk: raw <= 10 KiB, gzip <= 4 KiB
-- Harbour lazy chunk: raw <= 986 KiB, gzip <= 336 KiB
+- Harbour lazy chunk: raw <= 1,094 KiB, gzip <= 371 KiB
 - Three.js renderer chunk: raw <= 960 KiB, gzip <= 276 KiB
-- Harbour CSS: raw <= 34 KiB, gzip <= 9 KiB
+- Harbour CSS: raw <= 36 KiB, gzip <= 9 KiB
 - Total JS: raw <= 2,650 KiB, gzip <= 852 KiB
 
 ## Workflow Gates

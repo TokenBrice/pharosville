@@ -1,9 +1,9 @@
 import * as THREE from "three";
 import layoutUrl from "../data/layout.json?url";
 import type { CameraPreset } from "../engine/camera-rig";
-import type { PostChain } from "../engine/post";
 import type { EngineContext, WorldSystem } from "../engine/types";
-import { fitPresetToAspect, heroPoints } from "./framing";
+import { fitPresetToAspect, footPoints, heroPoints } from "./framing";
+import { dockedRows } from "./docked-rows";
 import type { HarbourLayout, LayoutCameraPreset, Vec3 } from "./types";
 
 /** Preset used on first paint: "heart" (v2 default framing) when present, else "overview". */
@@ -13,6 +13,19 @@ export function defaultPresetName(layout: HarbourLayout): string {
 
 export function toCameraPreset(p: LayoutCameraPreset): CameraPreset {
   return { target: [...p.target], distance: p.distance, fovDeg: p.fovDeg, pitchDeg: p.pitchDeg, yawDeg: p.yawDeg };
+}
+
+/** URL framing is a development aid, bounded before it reaches camera math. */
+export function devCamera(raw: string | null, rig: EngineContext["rig"], dev: boolean): number[] | null {
+  if (!dev || !raw) return null;
+  const parts = raw.split(",");
+  if ((parts.length !== 4 && parts.length !== 5) || parts.some((v) => !v.trim())) return null;
+  const cam = parts.map(Number);
+  if (!cam.every(Number.isFinite) || cam[3] <= 0 || (cam.length === 5 && (cam[4] < 5 || cam[4] > 85))) return null;
+  cam[0] = THREE.MathUtils.clamp(cam[0], rig.bounds.min.x, rig.bounds.max.x);
+  cam[2] = THREE.MathUtils.clamp(cam[2], rig.bounds.min.y, rig.bounds.max.y);
+  cam[3] = THREE.MathUtils.clamp(cam[3], rig.minDistance, rig.maxDistance);
+  return cam;
 }
 
 /**
@@ -26,6 +39,7 @@ export class LayoutSystem implements WorldSystem {
   readonly name = "layout";
   private base: CameraPreset | null = null;
   private hero: Vec3[] = [];
+  private foot: Vec3[] = [];
   private fit = true;
   private applied: CameraPreset | null = null;
   private heartDistance = 0;
@@ -49,19 +63,22 @@ export class LayoutSystem implements WorldSystem {
     const name = asked && presets[asked] ? asked : defaultPresetName(layout);
     const preset = toCameraPreset(presets[name]);
     // dev/gate framing: ?cam=x,y,z,distance[,pitchDeg]
-    const cam = (q.get("cam") ?? "").split(",").map(Number);
-    if (cam.length >= 4 && cam.every(Number.isFinite)) {
+    const cam = devCamera(q.get("cam"), rig, import.meta.env.DEV);
+    if (cam) {
       preset.target = [cam[0], cam[1], cam[2]];
       preset.distance = cam[3];
-      if (cam.length >= 5) preset.pitchDeg = cam[4];
+      if (cam.length === 5) preset.pitchDeg = cam[4];
     }
     this.base = preset;
-    this.fit = !(cam.length >= 4 && cam.every(Number.isFinite)); // an explicit ?cam= framing is taken as given
+    this.fit = !cam; // an explicit ?cam= framing is taken as given
     this.hero = heroPoints(layout);
+    this.foot = footPoints(layout);
     // tilt-shift focus follows the Pharos (01-A6): its foot and lantern (heroPoints puts them first)
     const pharos = layout.landmarks.find((l) => l.id === "pharos");
-    const postSvc = ctx.services.get("post") as PostChain | undefined;
+    const postSvc = ctx.services.get("post");
     if (pharos && postSvc && this.hero.length >= 2) postSvc.tiltFocus = [new THREE.Vector3(...this.hero[0]), new THREE.Vector3(...this.hero[1])];
+    // E08: with the lantern, the inner harbour's docked rows bound the overview's sharp band
+    if (postSvc) postSvc.tiltDock = dockedRows(layout).map((p) => new THREE.Vector3(...p));
     this.heartDistance = presets.heart?.distance ?? presets.overview.distance * 0.45;
     this.overviewDistance = presets.overview.distance;
     ctx.services.set("home-view", () => (this.applied = this.home(ctx)));
@@ -72,12 +89,12 @@ export class LayoutSystem implements WorldSystem {
   /** The landing framing for the current aspect; also keeps the zoom limit and the tilt-shift range in step. */
   private home(ctx: EngineContext): CameraPreset {
     const base = this.base!;
-    const p = this.fit ? fitPresetToAspect(base, ctx.camera.aspect, this.hero) : base;
+    const p = this.fit ? fitPresetToAspect(base, ctx.camera.aspect, this.hero, this.foot) : base;
     const rig = ctx.rig;
     if (p.distance * 1.15 > rig.maxDistance) rig.maxDistance = p.distance * 1.15;
     // tilt-shift: none at the landing (heart) framing, full only out at the overview; a refit landing
     // that stands further back pushes the range out with it
-    const post = ctx.services.get("post") as PostChain | undefined;
+    const post = ctx.services.get("post");
     if (post) {
       const near = this.heartDistance * (p.distance / base.distance);
       post.tiltNear = near * 1.1;

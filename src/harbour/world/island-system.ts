@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
-import type { HarbourLayout } from "../layout/types";
 import { aoHeightTexture, renderGround, type GroundService } from "./ground";
 import { getLightsStore } from "../lights/lights-service";
 import { dequantizeForPatterns, getHarbourMaterials } from "./materials";
@@ -10,6 +9,24 @@ import { updateSway } from "./sway";
 import { graphicsValidity } from "../engine/graphics";
 
 export const ISLAND_URL = "/harbour/island.glb";
+/** The exported 3D mainland across the northern sound; retired at runtime (E02). */
+export const RETIRED_MAINLAND = "shakkei";
+
+/**
+ * E02: the far land is the sky card's painted ridges alone; the sea SDF keeps the mainland's coast. The exported
+ * mainland mesh stood nearer than the card whenever the camera stood back (zoomed out, squarer screens, pans to
+ * the north) and read as a faceted wall over the horizon. It is hidden and detached before the material port, the
+ * island merge, the ground height field and the static-depth registration, so none of them ever sees it (and it
+ * casts, draws and pre-depths nothing). The node leaves the export at the next island rebuild; until then this is
+ * the only place that knows it exists.
+ */
+export function retireMainland(root: THREE.Object3D): THREE.Object3D | null {
+  const mainland = root.getObjectByName(RETIRED_MAINLAND) ?? null;
+  if (!mainland) return null;
+  mainland.visible = false;
+  mainland.removeFromParent();
+  return mainland;
+}
 
 /**
  * The static island: public/harbour/island.glb (fetched pre-gzipped, engine/assets.ts) through the harbour
@@ -25,7 +42,7 @@ export class IslandSystem implements WorldSystem {
   private ground: GroundService | null = null;
 
   async init(ctx: EngineContext): Promise<void> {
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    const layout = ctx.services.get("layout");
     if (!layout) throw new Error("[harbour] island needs the layout service");
     const mats = getHarbourMaterials(ctx);
     getLightsStore(ctx); // register 'lights' early so the fleet can add riding lights in its own init
@@ -37,6 +54,7 @@ export class IslandSystem implements WorldSystem {
 
     try {
       const gltf = await ctx.assets.gltf(ISLAND_URL);
+      retireMainland(gltf.scene);
       mats.apply(gltf.scene, { deferStatic: (mesh) => mesh.name.startsWith("island_") });
       this.root = gltf.scene;
     } catch (e) {
@@ -54,8 +72,6 @@ export class IslandSystem implements WorldSystem {
     mergeStaticMeshes(chunks, this.root, "island");
     // A source rejected by the merger (for example a singleton fallback chunk) still needs its bake.
     this.root.traverse((o) => { if ((o as THREE.Mesh).isMesh) dequantizeForPatterns(o as THREE.Mesh); });
-    // shadow-caster budget: the far backdrop hills (shakkei) lie outside the fitted shadow box anyway
-    this.root.traverse((o) => { if (o.name === "shakkei") o.castShadow = false; });
     ctx.scene.add(this.root);
     this.root.updateMatrixWorld(true);
     const ground = renderGround(ctx.renderer, this.root, [min[0], min[2], max[0], max[2]], 1024);

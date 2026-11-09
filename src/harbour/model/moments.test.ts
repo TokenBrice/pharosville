@@ -81,6 +81,17 @@ describe("rarity scheduler", () => {
 });
 
 describe("events hub", () => {
+  it("retains 200 confirmations and counts discarded entries across midnight", () => {
+    const hub = new HarbourEventHub(Date.UTC(2026, 10, 7, 23, 59));
+    for (let i = 0; i < 201; i++) {
+      const at = hub.arrivedAtMs + i * 1000;
+      hub.inject(ev("grade", at), at, true);
+    }
+    expect(hub.book).toHaveLength(200);
+    expect(hub.droppedCount).toBe(1);
+    expect(hub.book.at(-1)?.atMs).toBe(hub.arrivedAtMs + 1000);
+    expect(hub.book[0].atMs).toBeGreaterThan(Date.UTC(2026, 10, 8));
+  });
   it("records every event newest first, flags the staged one, and notifies", () => {
     const hub = new HarbourEventHub(T);
     const seen: string[] = [];
@@ -103,4 +114,19 @@ describe("events hub", () => {
     expect(hub.book[0].staged).toBe(false);
     expect(hub.current).toBeNull();
   });
+});
+
+it("cancels active and queued ceremonies on reduction while retaining and accepting book records", () => {
+  const hub = new HarbourEventHub(T);
+  hub.inject(ev("depeg"), T, false);
+  hub.inject(ev("launch", T + 1), T + 1, false);
+  expect(hub.current).not.toBeNull();
+  hub.tick(T + 2, true);
+  expect(hub.current).toBeNull();
+  const retained = hub.book.length;
+  hub.inject(ev("death", T + 3), T + 3, true);
+  expect(hub.book).toHaveLength(retained + 1);
+  expect(hub.current).toBeNull();
+  hub.tick(T + MOMENT_GAP_MS + 2, false);
+  expect(hub.current).toBeNull();
 });

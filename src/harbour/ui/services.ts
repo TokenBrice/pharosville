@@ -3,10 +3,6 @@
  * e.g. 'model'), so nothing here caches a service object for longer than a frame.
  */
 import type { EngineContext } from "../engine/types";
-import type { HarbourFeed } from "../data/fetch";
-import type { HarbourLayout } from "../layout/types";
-import type { HarbourModel } from "../model/types";
-import type { HarbourSim } from "../sim/sim";
 
 export type PickKind = "boat" | "landmark" | "harbour" | "yard" | "wreck";
 
@@ -31,7 +27,8 @@ export interface PickingService {
   beginFrame(): void;
   endFrame(): void;
   dispose(): void;
-  pick(clientX: number, clientY: number): PickHit | null;
+  pick(clientX: number, clientY: number, coarse?: boolean): PickHit | null;
+  choices?(clientX: number, clientY: number): PickHit[];
   /** The object's tag anchor (above the mast / roof) in viewport CSS px. */
   screenPosition(hit: PickHit, out?: ScreenPoint): ScreenPoint | null;
   /** The object's ground position (x, y, z), for camera flights. */
@@ -58,26 +55,31 @@ export interface WorldPicking {
  */
 export interface MotionService {
   readonly reduced: boolean;
+  readonly still: boolean;
+  setStill(still: boolean): void;
   subscribe(fn: (reduced: boolean) => void): () => void;
   dispose(): void;
 }
 
 export function ensureMotionService(ctx: EngineContext): MotionService {
   if (ctx.signal?.aborted) throw new DOMException("Engine disposed", "AbortError");
-  const existing = ctx.services.get("motion") as MotionService | undefined;
+  const existing = ctx.services.get("motion");
   if (existing) return existing;
   const mq = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
-  const forced = new URLSearchParams(location.search).get("motion");
-  let reduced = forced === "reduce" ? true : forced === "full" ? false : mq?.matches ?? false;
+  const forced = import.meta.env.DEV && new URLSearchParams(location.search).get("motion") === "reduce";
+  let osReduced = mq?.matches ?? false, still = false;
+  let reduced = osReduced || forced || still;
   const listeners = new Set<(r: boolean) => void>();
-  const onChange = (e: MediaQueryListEvent) => {
-    if (forced) return;
-    reduced = e.matches;
+  const update = () => {
+    reduced = osReduced || forced || still;
     for (const fn of listeners) fn(reduced);
   };
+  const onChange = (e: MediaQueryListEvent) => { osReduced = e.matches; update(); };
   mq?.addEventListener("change", onChange);
   const svc: MotionService = {
     get reduced() { return reduced; },
+    get still() { return still; },
+    setStill(value) { if (still !== value) { still = value; update(); } },
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     dispose() {
       mq?.removeEventListener("change", onChange);
@@ -107,14 +109,14 @@ export class MotionClock {
   }
 }
 
-export const getModel = (ctx: EngineContext) => (ctx.services.get("model") as HarbourModel | undefined) ?? null;
-export const getSim = (ctx: EngineContext) => (ctx.services.get("sim") as HarbourSim | undefined) ?? null;
-export const getLayout = (ctx: EngineContext) => (ctx.services.get("layout") as HarbourLayout | undefined) ?? null;
-export const getFeed = (ctx: EngineContext) => (ctx.services.get("feed") as HarbourFeed | undefined) ?? null;
-export const getWorldPicking = (ctx: EngineContext) => (ctx.services.get("picking") as WorldPicking | undefined) ?? null;
+export const getModel = (ctx: EngineContext) => ctx.services.get("model") ?? null;
+export const getSim = (ctx: EngineContext) => ctx.services.get("sim") ?? null;
+export const getLayout = (ctx: EngineContext) => ctx.services.get("layout") ?? null;
+export const getFeed = (ctx: EngineContext) => ctx.services.get("feed") ?? null;
+export const getWorldPicking = (ctx: EngineContext) => ctx.services.get("picking") ?? null;
 /** The island's top-down height field (src/harbour/world/ground.ts), read structurally. */
 export interface GroundLike { heightAt(x: number, z: number): number }
-export const getGround = (ctx: EngineContext) => (ctx.services.get("ground") as GroundLike | undefined) ?? null;
+export const getGround = (ctx: EngineContext) => ctx.services.get("ground") ?? null;
 
 /** The fleet's 'cove' service (src/harbour/fleet/wreck-cove.ts CoveService), read structurally. */
 export interface CoveMarkLike { id: string; x: number; y: number; z: number; top: number; len: number; memorial: boolean; lamp: [number, number, number] | null }
@@ -123,10 +125,10 @@ export interface CoveLike {
   mark(id: string): CoveMarkLike | null;
   focus(hover: string | null, selected: string | null): void;
 }
-export const getCove = (ctx: EngineContext) => (ctx.services.get("cove") as CoveLike | undefined) ?? null;
+export const getCove = (ctx: EngineContext) => ctx.services.get("cove") ?? null;
 
 export interface LighthouseLike { readonly period: number; readonly lit: boolean }
-export const getLighthouse = (ctx: EngineContext) => (ctx.services.get("lighthouse") as LighthouseLike | undefined) ?? null;
+export const getLighthouse = (ctx: EngineContext) => ctx.services.get("lighthouse") ?? null;
 
 export const sameHit = (a: PickHit | null | undefined, b: PickHit | null | undefined) =>
   a === b || (!!a && !!b && a.kind === b.kind && a.id === b.id);

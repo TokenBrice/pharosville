@@ -33,7 +33,7 @@ export interface BeamUniforms {
 const KEY = "beam:uniforms";
 
 export function getBeamUniforms(ctx: EngineContext): BeamUniforms {
-  let u = ctx.services.get(KEY) as BeamUniforms | undefined;
+  let u = ctx.services.get(KEY);
   if (!u) {
     u = {
       uBeamPos: { value: new THREE.Vector3(0, -1000, 0) },

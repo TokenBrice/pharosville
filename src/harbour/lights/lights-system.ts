@@ -1,16 +1,32 @@
+import { patch } from "../engine/shader-patch";
 import * as THREE from "three";
-import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
-import type { HarbourLayout } from "../layout/types";
+import { ensureMotionService, MotionClock } from "../ui/services";
+import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { getLightsStore, type LightsStore } from "./lights-service";
-import type { QualityService, QualitySettings } from "../engine/quality";
+import type { QualitySettings } from "../engine/quality";
 import { BEAM_LIGHT_GLSL, beamLightUniforms } from "../beam/beam-light-glsl";
 import { getBeamUniforms } from "../beam/uniforms";
 import { LAMP_WAVE_GLSL, LAMP_WAVE_SPREAD, lampGlow, lampWaveUniforms, setLampWave } from "./lamp-wave";
 
 const MAX_POINT = 16;
 const POOL_RES = 2048;
+
+/**
+ * E09: point lights only where they show. The tier's whole count while the camera stands within 800 m of its
+ * target (the landing keeps every facade it lights: four lights there visibly dimmed the quay fronts), the
+ * nearest four out to 900 m and none beyond, at the overview and the zoomed-out frames, where a light's reach
+ * covers a few pixels and the projected pools carry the look. Each limit eases a slot out over the last 15 %
+ * before it, so a zoom never pops a facade dark, and the count of lit slots meets the limit exactly.
+ */
+export const POINT_BUDGET = { fullBelow: 800, fewBelow: 900, few: 4 } as const;
+
+/** Budget weight (0..1) of point-light slot `slot` (0 = nearest the focus) with the camera `distance` m out. */
+export function pointBudget(slot: number, distance: number): number {
+  const limit = slot < POINT_BUDGET.few ? POINT_BUDGET.fewBelow : POINT_BUDGET.fullBelow;
+  return 1 - THREE.MathUtils.smoothstep(distance, limit * 0.85, limit);
+}
 
 /**
  * All tiers keep sixteen shader slots (changing `visible` changes NUM_POINT_LIGHTS and recompiles
@@ -25,11 +41,7 @@ const POINT_SKIP = "if ( pointLight.color != vec3( 0.0 ) ) {";
 {
   const chunk = THREE.ShaderChunk.lights_fragment_begin;
   if (!chunk.includes(POINT_SKIP)) {
-    if (POINT_LOOP.test(chunk)) {
-      THREE.ShaderChunk.lights_fragment_begin = chunk.replace(POINT_LOOP, `$1\n\t\t${POINT_SKIP}$2if ( directLight.visible ) $3\n\t\t}$4`);
-    } else if (import.meta.env.DEV) {
-      throw new Error("[harbour] lights_fragment_begin point-light loop changed (three upgrade?): update the dark-light skip");
-    }
+    THREE.ShaderChunk.lights_fragment_begin = patch(chunk, POINT_LOOP, `$1\n\t\t${POINT_SKIP}$2if ( directLight.visible ) $3\n\t\t}$4`, { id: "lights.dark-point-loop" });
   }
 }
 
@@ -86,6 +98,8 @@ export class LightsSystem implements WorldSystem {
   private seenVersion = -1;
   private seenMove = -1;
   private pickTimer = 0;
+  private clock: MotionClock | null = null;
+  private readonly decorativeTime = new THREE.Uniform(0);
   private readonly uPx: THREE.IUniform<number> = { value: 0.001 };
   private ground: GroundService | undefined;
   private nearWater: Uint8Array = new Uint8Array(0);
@@ -97,8 +111,8 @@ export class LightsSystem implements WorldSystem {
 
   init(ctx: EngineContext): void {
     this.store = getLightsStore(ctx);
-    this.ground = ctx.services.get("ground") as GroundService | undefined;
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    this.ground = ctx.services.get("ground");
+    const layout = ctx.services.get("layout");
     for (const l of layout?.lights ?? []) this.store.add(l.kind, l.position, l.color);
     // the lamplighting wave (05-P3): ranked by distance from the Pharos out to the furthest layout light
     const ph = layout?.landmarks?.find((l) => l.id === "pharos")?.position ?? [0, 0, 0];
@@ -194,7 +208,7 @@ export class LightsSystem implements WorldSystem {
     const g = this.ground;
     const pillarMat = new THREE.ShaderMaterial({
       uniforms: {
-        uWindowGlow: u.uWindowGlow, uNight: u.uNight, uTime: u.uTime, ...lampWaveUniforms,
+        uWindowGlow: u.uWindowGlow, uNight: u.uNight, uTime: this.decorativeTime, ...lampWaveUniforms,
         uGround: { value: g?.texture ?? null }, uGroundB: { value: g ? new THREE.Vector4(g.bounds[0], g.bounds[3], 1 / (g.bounds[2] - g.bounds[0]), 1 / (g.bounds[3] - g.bounds[1])) : new THREE.Vector4() },
         uHasGround: { value: g ? 1 : 0 },
       },
@@ -251,10 +265,10 @@ export class LightsSystem implements WorldSystem {
       ctx.scene.add(p);
     }
     this.ensureCapacity(Math.max(256, this.store.lights.length));
-    this.offPreparation = (ctx.services.get("preparation") as PreparationService | undefined)?.register({
+    this.offPreparation = ctx.services.get("preparation")?.register({
       root: this.poolScene, camera: this.poolCam, target: () => this.poolRT,
     });
-    const quality = ctx.services.get("quality") as QualityService | undefined;
+    const quality = ctx.services.get("quality");
     if (quality) {
       this.applyQuality(quality.settings);
       this.offQuality = quality.onChange((settings) => this.applyQuality(settings));
@@ -338,6 +352,8 @@ export class LightsSystem implements WorldSystem {
   }
 
   update(frame: FrameState, ctx: EngineContext): void {
+    this.clock ??= new MotionClock(ensureMotionService(ctx));
+    this.decorativeTime.value = this.clock.step(frame.delta);
     const s = this.store;
     // the pillar start depends on the view azimuth (fixed in presets; re-derive if it ever changes)
     if (Math.abs(ctx.rig.yaw - this.wetYaw) > 0.05 || Number.isNaN(this.wetYaw)) { this.wetYaw = ctx.rig.yaw; this.seenVersion = -1; }
@@ -355,9 +371,9 @@ export class LightsSystem implements WorldSystem {
     if (this.pickTimer <= 0) { this.pickTimer = 0.2; this.pickPoints(ctx); }
     // the wave: reduced motion → today's global step; an unlit Pharos → it starts from the town edge
     const w = this.store.wave;
-    const reduced = (ctx.services.get("motion") as { reduced?: boolean } | undefined)?.reduced ?? false;
+    const reduced = ctx.services.get("motion")?.reduced ?? false;
     w.spread = reduced ? 0 : LAMP_WAVE_SPREAD;
-    const lh = ctx.services.get("lighthouse") as { lit?: boolean; position?: THREE.Vector3 } | undefined;
+    const lh = ctx.services.get("lighthouse");
     if (lh?.position && lh.position.lengthSq() > 0) { w.x = lh.position.x; w.z = lh.position.z; w.footY = lh.position.y; }
     const edge = lh?.lit === false ? 1 : 0;
     w.fromEdge += (edge - w.fromEdge) * (1 - Math.exp(-frame.delta / 3));
@@ -366,11 +382,13 @@ export class LightsSystem implements WorldSystem {
     // Zero RGB under additive blending and no depth writes; post clamps the opaque scene's alpha.
     // Never threshold a small glow: dawn/dusk contributions and all other lighting stay unchanged.
     this.sprites.visible = this.pillars.visible = g !== 0;
+    const distance = ctx.rig.distance;
     for (let k = 0; k < MAX_POINT; k++) {
       const p = this.points[k];
       const glow = THREE.MathUtils.smoothstep(lampGlow(g, this.store.rankAt(p.position), w.spread), 0.02, 0.55);
       const base = (p.userData.base as number | undefined) ?? 0;
-      p.intensity = base > 0 ? base * glow * (this.store.lights[this.bestI[k]]?.k ?? 1) : 0;
+      const budget = pointBudget(k, distance);
+      p.intensity = base > 0 && budget > 0 ? base * glow * budget * (this.store.lights[this.bestI[k]]?.k ?? 1) : 0;
     }
   }
 
@@ -387,8 +405,9 @@ export class LightsSystem implements WorldSystem {
   }
 
   /**
-   * Promote the N lights nearest the camera focus to real point lights (N by quality tier).
-   * Unpromoted slots remain exactly dark. Allocation-free top-N selection.
+   * Promote the N lights nearest the camera focus to real point lights (N by quality tier), nearest first, so
+   * the distance budget (pointBudget) keeps the nearest. Unpromoted slots remain exactly dark. Allocation-free
+   * top-N selection.
    */
   private pickPoints(ctx: EngineContext): void {
     const want = this.pointCount;

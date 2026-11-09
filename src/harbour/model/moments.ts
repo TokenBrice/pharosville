@@ -57,7 +57,7 @@ function better(a: HarbourEvent, b: HarbourEvent): boolean {
  */
 export function stepMoments(prev: MomentState, nowMs: number, incoming: readonly HarbourEvent[], opts: { reduced: boolean }): { state: MomentState; staged: StagedMoment | null; unstaged: HarbourEvent[] } {
   const starts = prev.starts.filter((t) => nowMs - t < HOUR_MS);
-  const current = prev.current && nowMs < prev.current.endMs ? prev.current : null;
+  const current = !opts.reduced && prev.current && nowMs < prev.current.endMs ? prev.current : null;
   const unstaged: HarbourEvent[] = [];
   let best: HarbourEvent | null = null;
   const cands = prev.queued ? [prev.queued, ...incoming] : [...incoming];

@@ -11,6 +11,14 @@ const model = (state: "current" | "stale", psi: { lit: boolean; score: number | 
 const NOW = Date.UTC(2026, 9, 24, 17, 10);
 
 describe("postcard caption", () => {
+  it.each([
+    ["partial", "2 of 3 boats displayed. This view is incomplete."],
+    ["pending", "The fleet’s readings are still arriving; boats are not shown yet."],
+    ["failed", "The fleet could not be prepared. Readings remain available in Pharos analytics."],
+  ] as const)("keeps %s presentation integrity in the printed and accessible caption", (status, sentence) => {
+    const cap = postcardCaption(model("current", { lit: true, score: 90, band: "BEDROCK" }), 12, NOW, { status, revision: 1, displayed: 2, expected: 3 });
+    expect(cap.fresh).toContain(sentence);
+  });
   it("names the date, the hour shown and the index with its band", () => {
     const c = postcardCaption(model("current", { lit: true, score: 78.4, band: "STEADY" }), 19.2, NOW);
     expect(c.title).toMatch(/^PharosVille · 24 October 2026 · 19:12 · Pharos Stability Index 78, Steady$/);

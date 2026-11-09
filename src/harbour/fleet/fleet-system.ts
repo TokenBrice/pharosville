@@ -1,21 +1,20 @@
 import * as THREE from "three";
+import { terrainOccludes } from "../ui/pick-visibility";
+import { getGround } from "../ui/services";
 import { Mastheads } from "./mastheads";
 import { BootFailure, isAbort } from "../engine/failure";
-import type { EngineContext, FrameState, PreparationService, ReadinessState, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { HarbourLayout, HullClass, Pier } from "../layout/types";
-import type { Boat, HarbourModel, StormFlag } from "../model/types";
+import type { Boat, HarbourModel } from "../model/types";
 import type { OceanService } from "../ocean/ocean-system";
-import type { WakeService } from "../ocean/wake";
 import { hullSwellCache } from "../ocean/waves";
 import type { HarbourSim } from "../sim/sim";
 import { EV_TO_SHOALS, EV_TOW, MAX_TUGS, PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING } from "../sim/sim";
-import type { GroundService } from "../world/ground";
 import { getHarbourMaterials } from "../world/materials";
 import { EmblemAtlas, type EmblemCoin } from "./emblems";
 import { createFleetMaterials, FLEET_DATA_TEXELS, type FleetUniforms } from "./fleet-material";
 import { loadKit, loadWreckKit, type HullVariant, type Kit, type WreckItem } from "./hull-kit";
 import { buildWreath, composeCove, CoveService, EpitaphBoards, freshDeath, PERCH_ITEMS, topVertex, type CoveDead, type CoveMark, type CovePiece, type CoveSlot } from "./wreck-cove";
-import type { LightsService } from "../lights/lights-service";
 import { HoverLantern } from "./hover-lantern";
 import { bollardFor, MooringLines } from "./mooring-lines";
 import { RidingLights } from "./riding-lights";
@@ -24,15 +23,14 @@ import { FLAG_BURGEE, FLAG_DISTRESS, FLAG_HOUSE, FLAG_STREAMER, HouseFlags } fro
 import { MastSignals } from "./storm-cones-mast";
 import { Bunting } from "./bunting";
 import { coastDistance } from "../sim/obstacles";
-import type { QualityService, QualityTier } from "../engine/quality";
+import type { QualityTier } from "../engine/quality";
 import { approach, hash01, indexVariants, pickVariant, sternLampLit, targetSwing, wrapAngle, wreckScale, type VariantIndex } from "./variants";
 import { ensureGustService } from "../weather/gust";
 import { inPoly, seaZones } from "../ui/places";
 import { titanFor } from "./titans";
-import { DECK, linear, liveryFor, sailDye, TOPSIDE, TRIM } from "./livery";
+import { DECK, flagPigment, linear, liveryFor, sailDye, TOPSIDE, TRIM } from "./livery";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { fleetShadowFrustum, rigRadius } from "./visibility";
-import type { SunRig } from "../world/sun";
 
 /**
  * FleetSystem: every stablecoin's hull, in ONE BatchedMesh multi-draw (+ its shadow pass), consuming
@@ -62,6 +60,8 @@ export interface PickingService {
 export interface FleetFrameState {
   revision: number;
   boats: number;
+  /** Boats this revision's full pose proved drawable; view culling afterwards is not incompleteness. */
+  drawn?: number;
 }
 
 /** Riding lights come on with the town (uWindowGlow), not at the first hint of golden hour. */
@@ -98,6 +98,18 @@ const COVE_ITEMS = ["wreck_great_hulk", "wreck_merchant_sunk", "wreck_stern_sect
   "wreck_mast_stump", "wreck_skiff", "wreck_dinghy", "wreck_cove_epitaph", "wreck_cove_bell", "wreck_cove_pennants"];
 const COVE_LAMP = new THREE.Color("#FFB36B");
 const BUOY_KIT = "mooring_buoy";
+/**
+ * E04 (O1-I4, ruling V10): the decorative mooring buoys recede. Their slot sentinel paints them a weathered ochre
+ * (shaders/print.ts), they ease to BUOY_FAR_SCALE between BUOY_EASE m, and below BUOY_HIDE_PX CSS px across they
+ * shrink away (gone by its first value). By camera distance only: a buoy never says whether her mooring is taken.
+ */
+export const BUOY_SLOT = -3, BUOY_FAR_SCALE = 0.7;
+export const BUOY_EASE: readonly [number, number] = [300, 450], BUOY_HIDE_PX: readonly [number, number] = [2.5, 3.5];
+/** A buoy's scale for its camera distance (m) and its CSS px per metre there; 0 = hidden. */
+export function buoyScale(dist: number, pxPerM: number, size: number): number {
+  const s = 1 - (1 - BUOY_FAR_SCALE) * THREE.MathUtils.smoothstep(dist, BUOY_EASE[0], BUOY_EASE[1]);
+  return s * THREE.MathUtils.smoothstep(size * s * pxPerM, BUOY_HIDE_PX[0], BUOY_HIDE_PX[1]);
+}
 const DATA_W = 256;
 /** Livery texels per instance (uFleetPaint): topside, trim, deck, coachroof, sail dye. */
 const PAINT_TEXELS = 5;
@@ -146,6 +158,8 @@ interface BoatRec {
   phi: number;
   slot: number; // emblem slot
   brand: THREE.Color;
+  /** E04: her flag's field: the brand at the earth-pigment chroma (the highlighted hull flies `brand` itself). */
+  flagBrand: THREE.Color;
   /** Replans may reuse a numeric index for a different immutable raft-berth object. */
   bollardSlot: HarbourSim["layout"]["slots"][number] | null;
   bow: [number, number, number] | null;
@@ -200,7 +214,9 @@ export class FleetSystem implements WorldSystem {
   private wreckSlots: number[] = [];
   private wreckInst: Array<{ inst: number; x: number; z: number; h: number; scale: number; heel: number; y: number; pitch: number; phi: number }> = [];
   private wrecksPosed = false;
-  private buoyInst: Array<{ inst: number; x: number; z: number; phi: number }> = [];
+  private buoyInst: Array<{ inst: number; x: number; z: number; phi: number; shown: boolean }> = [];
+  /** E04: the buoy's size on screen (m): its height above the water, from its kit geometry. */
+  private buoySize = 1;
   /** Wreck kit v2: loaded after the first frame (the cove is off the default views); its nameboards and lanterns. */
   private cove: Map<string, WreckItem> | null = null;
   private coveState: "wait" | "loading" | "done" = "wait";
@@ -215,7 +231,7 @@ export class FleetSystem implements WorldSystem {
     (m, hi) => this.writeData(m.inst, m.lit ? 1 : 0, 0, hi, 0.6, 0.6, 0.6, m.board >= 0 ? -10 - m.board : -9, 0),
     // the selected coin's lantern also throws a brighter pool of light on the sand (dusk and night)
     (lamp) => {
-      const lights = this.ctx?.services.get("lights") as LightsService | undefined;
+      const lights = this.ctx?.services.get("lights");
       if (this.coveGlow >= 0) lights?.remove(this.coveGlow);
       this.coveGlow = lamp && lights ? lights.add("harbourlight", lamp, COVE_LAMP, 8) : -1;
     },
@@ -227,6 +243,8 @@ export class FleetSystem implements WorldSystem {
   /** Each installed revision submits its complete fleet once before offscreen posing can be skipped. */
   private needsFullPose = false;
   private readonly fleetFrame: FleetFrameState = { revision: 0, boats: 0 };
+  private drawnRevision = -1;
+  private drawnBoats = 0;
   private layout: HarbourLayout | null = null;
   private piers = new Map<string, Pier>();
   private lines!: MooringLines;
@@ -291,12 +309,14 @@ export class FleetSystem implements WorldSystem {
       uFleetTime: { value: 0 },
       uBoards: { value: new THREE.Texture() },
       uBoardGrid: { value: new THREE.Vector4(1, 1, 1, 1) },
+      uFleetScreen: { value: new THREE.Vector2(1000, 1) },
+      uEmblemLetters: { value: 1e9 },
     };
   }
 
   async init(ctx: EngineContext): Promise<void> {
     this.ctx = ctx;
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    const layout = ctx.services.get("layout");
     if (!layout) { console.warn("[harbour] fleet: no layout"); return; }
     this.layout = layout;
     for (const p of layout.piers) this.piers.set(p.id, p);
@@ -313,6 +333,7 @@ export class FleetSystem implements WorldSystem {
     this.index = indexVariants(this.kit.manifest.hulls);
     this.uniforms.uEmblems.value = this.atlas.texture;
     this.uniforms.uEmblemGrid.value = this.atlas.grid;
+    this.uniforms.uEmblemLetters!.value = this.atlas.letterSlot;
     const { material, depth } = createFleetMaterials(getHarbourMaterials(ctx), ctx.uniforms, this.uniforms);
     this.material = material; this.depth = depth;
     this.buildMesh(ctx, 1500);
@@ -322,7 +343,7 @@ export class FleetSystem implements WorldSystem {
     ctx.scene.add(this.riding.object);
     this.fenders = new Fenders();
     ctx.scene.add(this.fenders.mesh);
-    this.flags = new HouseFlags({ ...ctx.uniforms, uTime: this.uniforms.uFleetTime }, this.atlas);
+    this.flags = new HouseFlags({ ...ctx.uniforms, uTime: this.uniforms.uFleetTime }, this.atlas, 1024, this.uniforms.uFleetScreen);
     ctx.scene.add(this.flags.mesh);
     this.mastSignals = new MastSignals(getHarbourMaterials(ctx).kit());
     ctx.scene.add(this.mastSignals.mesh);
@@ -336,7 +357,7 @@ export class FleetSystem implements WorldSystem {
     ctx.services.set("cove", this.coveSvc);
     ctx.services.set("mastheads", this.mastheads);
     this.clock = new MotionClock(ensureMotionService(ctx));
-    const quality = ctx.services.get("quality") as QualityService | undefined;
+    const quality = ctx.services.get("quality");
     if (quality) {
       this.tier = FLEET_TIERS[quality.tier] ?? FLEET_TIERS.high;
       this.unsubQuality = quality.onChange((q) => { this.tier = FLEET_TIERS[q.tier] ?? FLEET_TIERS.high; });
@@ -495,7 +516,7 @@ export class FleetSystem implements WorldSystem {
       this.atlas.end();
     }
     this.boats = boats; this.byId = byId;
-    const sim = this.ctx?.services.get("sim") as HarbourSim | undefined;
+    const sim = this.ctx?.services.get("sim");
     const taken: number[] = [];
     if (sim) for (let i = 0; i < sim.pose.count; i++) {
       if (model.boats[i]?.state === "wrecked" && sim.pose.slot[i] >= 0) taken.push(sim.pose.slot[i]);
@@ -510,7 +531,7 @@ export class FleetSystem implements WorldSystem {
         ids.has(w.id) !== this.liveIds.has(w.id);
     }) || taken.length !== this.wreckSlots.length || taken.some((slot, i) => slot !== this.wreckSlots[i]);
     this.model = model; this.liveIds = ids; this.wreckSlots = taken;
-    this.modelRevision = (this.ctx?.services.get("readiness") as ReadinessState | undefined)?.revision ?? 0;
+    this.modelRevision = this.ctx?.services.get("readiness")?.revision ?? 0;
     this.needsFullPose = true;
     if (wrecksChanged) {
       for (const w of this.wreckInst) mesh.deleteInstance(w.inst);
@@ -519,7 +540,7 @@ export class FleetSystem implements WorldSystem {
       this.wrecksPosed = false;
     } else if (this.cove) {
       // A refresh still expires a wreath when its death ages out; unchanged wrecks/boards stay installed.
-      const ground = this.ctx?.services.get("ground") as GroundService | undefined;
+      const ground = this.ctx?.services.get("ground");
       this.placeWreath(dead.filter((w) => !ids.has(w.id)), (x, z) => ground ? ground.heightAt(x, z) : 0.5);
     }
     if (!previous) { this.placeBuoys(); this.placeTugs(); } // fixed layout: never tear down/repaint the same buoys/tugs on a feed refresh
@@ -559,7 +580,7 @@ export class FleetSystem implements WorldSystem {
         Object.assign(prev, { variant, scale, loa, beam: variant.beam * scale, geomFull, geomLod, geomWreck,
           geomCur: geom, wrecked, dead: wrecked, top: variant.top * scale, visualRadius: radius * scale, bollardSlot: null });
       }
-      if (prev.source.brandColor !== boat.brandColor) prev.brand.set(boat.brandColor);
+      if (prev.source.brandColor !== boat.brandColor) { prev.brand.set(boat.brandColor); flagPigment(boat.brandColor, prev.flagBrand); }
       if (paintChanged) this.writePaint(prev.inst, wrecked || titan ? null : boat.id, variant.family, wrecked ? null : boat.brandColor);
       if (prev.source.nullPeg !== boat.nullPeg) {
         prev.reading = sternLampLit(boat, "under-way"); prev.lit = sternLampLit(boat, "moored");
@@ -580,7 +601,7 @@ export class FleetSystem implements WorldSystem {
       id: boat.id, source: boat, inst: this.addInstance(geomCur), variant, scale, loa, beam: variant.beam * scale,
       geomFull, geomLod, geomWreck, geomCur, wrecked, dead: wrecked,
       swing: 0, heel: 0, hi: 0, px: 0, pz: 0, vx: 0, vz: 0, seen: false,
-      phi: hash01(boat.id + "#bob") * Math.PI * 2, slot: -1, brand: new THREE.Color(boat.brandColor),
+      phi: hash01(boat.id + "#bob") * Math.PI * 2, slot: -1, brand: new THREE.Color(boat.brandColor), flagBrand: flagPigment(boat.brandColor),
       bollardSlot: null, bow: null, med: false, stern: null, visible: false, dist: 0,
       reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, flog: 0, row: 0, brail: 0, dox: 0, doz: 0, gyaw: 0, struck: false,
       mastK: titan ? 2 : hash01(boat.id + "#mast"), titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
@@ -647,7 +668,7 @@ export class FleetSystem implements WorldSystem {
     if (this.coveState !== "done" && this.kit?.manifest.wreck_kit) return; // the v2 cove lands shortly
     const L = sim?.layout;
     const kit = this.kit!;
-    const ground = this.ctx?.services.get("ground") as GroundService | undefined;
+    const ground = this.ctx?.services.get("ground");
     const taken = new Set<number>();
     if (sim) for (let i = 0; i < sim.pose.count; i++) if (model.boats[i]?.state === "wrecked" && sim.pose.slot[i] >= 0) taken.add(sim.pose.slot[i]);
     const gy = (x: number, z: number) => (ground ? ground.heightAt(x, z) : 0.5);
@@ -740,7 +761,7 @@ export class FleetSystem implements WorldSystem {
     if (this.model) {
       for (const w of this.wreckInst) mesh.deleteInstance(w.inst);
       this.wreckInst = [];
-      this.placeWrecks(this.model, ctx.services.get("sim") as HarbourSim | undefined);
+      this.placeWrecks(this.model, ctx.services.get("sim"));
       this.wrecksPosed = false;
     }
   }
@@ -753,8 +774,8 @@ export class FleetSystem implements WorldSystem {
   private placeCove(model: HarbourModel, sim: HarbourSim | undefined): void {
     const items = this.cove!, ctx = this.ctx;
     const L = sim?.layout;
-    const ground = ctx?.services.get("ground") as GroundService | undefined;
-    const lights = ctx?.services.get("lights") as LightsService | undefined;
+    const ground = ctx?.services.get("ground");
+    const lights = ctx?.services.get("lights");
     const coast = L?.field?.coast ?? null;
     const taken = new Set<number>();
     if (sim) for (let i = 0; i < sim.pose.count; i++) if (model.boats[i]?.state === "wrecked" && sim.pose.slot[i] >= 0) taken.add(sim.pose.slot[i]);
@@ -849,7 +870,7 @@ export class FleetSystem implements WorldSystem {
     w.userData.preparationKey = key;
     w.scale.setScalar(k); w.position.set(x, y, z); w.rotation.set(-0.3, f, 0, "YXZ");
     w.updateMatrixWorld(); w.matrixAutoUpdate = false;
-    const preparation = ctx.services.get("preparation") as PreparationService | undefined;
+    const preparation = ctx.services.get("preparation");
     const publish = () => { if (this.ctx === ctx && this.wreath === w && !this.failed) ctx.scene.add(w); };
     if (!preparation) { publish(); return; }
     void preparation.prepareGroup(w).then(publish).catch((error: unknown) => {
@@ -862,11 +883,14 @@ export class FleetSystem implements WorldSystem {
   private placeBuoys(): void {
     const geom = this.geomIds.get(BUOY_KIT);
     if (geom == null) return;
+    const g = this.kit?.props.get(BUOY_KIT)?.geometry;
+    if (g) { if (!g.boundingBox) g.computeBoundingBox(); this.buoySize = g.boundingBox!.max.y - g.boundingBox!.min.y; }
     for (const m of this.layout!.moorings ?? []) {
       const inst = this.addInstance(geom);
       this.writePaint(inst, null, "", null);
-      this.writeData(inst, 0, 0, 0, 0.8, 0.2, 0.1, -1);
-      this.buoyInst.push({ inst, x: m.position[0], z: m.position[2], phi: hash01(m.id) * 6.28 });
+      // E04: weathered ochre (the slot sentinel), not the bright red-and-white of a fairway mark
+      this.writeData(inst, 0, 0, 0, 0.45, 0.16, 0.10, BUOY_SLOT);
+      this.buoyInst.push({ inst, x: m.position[0], z: m.position[2], phi: hash01(m.id) * 6.28, shown: true });
     }
   }
 
@@ -879,30 +903,32 @@ export class FleetSystem implements WorldSystem {
     // Wreck Cove's kit is also deferred (the cove lies off both default views).
     if (this.coveState === "wait" && this.model) { this.coveState = "loading"; requestAnimationFrame(() => { void this.loadCove(); }); }
     const t0 = performance.now();
-    const model = ctx.services.get("model") as HarbourModel | undefined;
-    const sim = ctx.services.get("sim") as HarbourSim | undefined;
+    const model = ctx.services.get("model");
+    const sim = ctx.services.get("sim");
     if (model && model !== this.model) this.install(model);
-    this.ocean = (ctx.services.get("ocean") as OceanService | undefined) ?? null;
-    const wake = ctx.services.get("wake") as WakeService | undefined;
+    this.ocean = ctx.services.get("ocean") ?? null;
+    const wake = ctx.services.get("wake");
     const cam = ctx.camera;
     this.pv.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.pv);
     const viewH = ctx.renderer.domElement.clientHeight || innerHeight;
     const pxPerM = viewH / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));
+    // E04 / E27: the print law and the rig's hairline floor work in CSS px (effective DPR: render px per CSS px)
+    this.uniforms.uFleetScreen!.value.set(viewH, ctx.renderer.getPixelRatio());
     const dt = Math.max(1e-3, frame.delta);
     const time = this.time = this.clock ? this.clock.step(dt) : frame.elapsed;
     this.uniforms.uFleetTime.value = time;
     const tier = this.tier;
     // storm: the weather band the sky and the storm mast show (DEWS ALERT and worse)
-    const readings = ctx.services.get("readings") as { stormBand?: string | null } | undefined;
+    const readings = ctx.services.get("readings");
     const stormT = STORM_BY_BAND[readings?.stormBand ?? "CALM"] ?? 0;
     this.storm += (stormT - this.storm) * (1 - Math.exp(-dt * 0.35));
     const storm = this.storm;
     const contactK = contactStrength(storm);
-    const ground = ctx.services.get("ground") as GroundService | undefined;
+    const ground = ctx.services.get("ground");
     const mesh = this.mesh;
     mesh.castShadow = ctx.rig.distance < tier.shadowDist;
-    const sun = ctx.services.get("sun") as SunRig | undefined;
+    const sun = ctx.services.get("sun");
     const shadowFrustum = mesh.castShadow && sun ? fleetShadowFrustum(sun.key) : null;
 
     const st = this.stats;
@@ -929,7 +955,7 @@ export class FleetSystem implements WorldSystem {
     gustSvc.tick(ctx, frame);
     const windK = sim?.wind.strength ?? 0.35;
     const live = this.clock ? this.clock.live : 1;
-    const sigReadings = ctx.services.get("readings") as { version: number; stormFlags: readonly StormFlag[]; maidens: readonly string[] } | undefined;
+    const sigReadings = ctx.services.get("readings");
     const reducedMotion = ensureMotionService(ctx).reduced;
     this.mastSignals?.sync(sigReadings?.stormFlags ?? [], dt, reducedMotion);
     if (this.bunting && sim && !this.simEvents) {
@@ -1102,8 +1128,10 @@ export class FleetSystem implements WorldSystem {
         const v = b.variant;
         if (b.struck) { this.lampAt(v.sternCleat.x * 0.92, v.sternCleat.y, 0); this.v.y += 0.5 + size * 0.72; }
         else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += 0.3 + (this.mastSignals?.lift(b.id, b.loa) ?? 0); }
-        this.flags.add(this.v.x, this.v.y, this.v.z, size, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), b.slot, b.phi * 3, b.brand,
-          b.titan ? FLAG_HOUSE : FLAG_BURGEE);
+        // E04: her colours in the harbour's pigment and air; the hovered / selected / searched hull flies them full
+        const hiFlag = b.hi > 0.05;
+        this.flags.add(this.v.x, this.v.y, this.v.z, size, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), b.slot, b.phi * 3,
+          hiFlag ? b.brand : b.flagBrand, b.titan ? FLAG_HOUSE : FLAG_BURGEE, hiFlag);
         if (distress) {
           // hoisted above her colours (below them the yard and the brailed sail would hide it)
           const dSize = size * 0.7;
@@ -1111,7 +1139,8 @@ export class FleetSystem implements WorldSystem {
         }
         // 06-F7c a titan flies a long vexillum from the truck, above her house flag (decorative)
         if (b.titan && !distress && !b.struck) {
-          this.flags.add(this.v.x, this.v.y + 0.9, this.v.z, b.loa * 0.34, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 1.3, b.brand, FLAG_STREAMER);
+          this.flags.add(this.v.x, this.v.y + 0.9, this.v.z, b.loa * 0.34, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 1.3,
+            b.hi > 0.05 ? b.brand : b.flagBrand, FLAG_STREAMER, b.hi > 0.05);
         }
         b.flag = 0;
       }
@@ -1156,13 +1185,13 @@ export class FleetSystem implements WorldSystem {
       const fwd = b.vx * fx + b.vz * fz;
       if (wake && !b.wrecked && !onWays) {
         // the launch's splash: a burst of foam round her as she takes the water (07-M12)
-        if (pose!.pitch[i] > 0.04) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * 2.2, 2, b.loa * 0.8);
-        if (moving && Math.abs(fwd) > 0.15) { wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5); st.moving++; }
+        if (pose!.pitch[i] > 0.04) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * 2.2, 2, b.loa * 0.8, b.phi);
+        if (moving && Math.abs(fwd) > 0.15) { wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5, b.phi); st.moving++; }
         else if (ph === PH_ANCHORED) {
           // aground: surf breaks and churns round the hull, pulsing with the swell
           const surge = 0.5 + 0.5 * Math.sin(time * 1.4 + b.phi);
-          wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * (1.6 + 0.4 * surge), 1.4 + 0.6 * surge, b.loa * 0.7);
-        } else if (tier.contact || b.visible) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb, contactK, b.loa * 0.5);
+          wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * (1.6 + 0.4 * surge), 1.4 + 0.6 * surge, b.loa * 0.7, b.phi);
+        } else if (tier.contact || b.visible) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb, contactK, b.loa * 0.5, b.phi);
         st.wakes++;
       }
       if (ph === PH_DOCKED || ph === PH_MOORED) st.docked++;
@@ -1189,11 +1218,15 @@ export class FleetSystem implements WorldSystem {
       }
     }
 
-    // buoys bob on the swell (still under reduced motion)
+    // buoys bob on the swell (still under reduced motion); E04: they recede with distance and drop below a few px
     for (const bu of this.buoyInst) {
       const y = this.seaH(bu.x, bu.z);
+      const d = Math.hypot(cam.position.x - bu.x, cam.position.y - y, cam.position.z - bu.z);
+      const k = buoyScale(d, pxPerM / d, this.buoySize);
+      if ((k > 0) !== bu.shown) { bu.shown = k > 0; mesh.setVisibleAt(bu.inst, bu.shown); }
+      if (!bu.shown) continue;
       this.e.set(Math.sin(time * 1.3 + bu.phi) * 0.06, bu.phi, Math.sin(time * 1.1 + bu.phi * 2) * 0.06, "YZX");
-      this.m4.compose(this.v.set(bu.x, y - 0.05, bu.z), this.q.setFromEuler(this.e), this.s.setScalar(1));
+      this.m4.compose(this.v.set(bu.x, y - 0.05, bu.z), this.q.setFromEuler(this.e), this.s.setScalar(k));
       mesh.setMatrixAt(bu.inst, this.m4);
     }
 
@@ -1204,7 +1237,7 @@ export class FleetSystem implements WorldSystem {
       u.uHemiSky.value.g * 1.6 + u.uSunColor.value.g * 0.12,
       u.uHemiSky.value.b * 1.6 + u.uSunColor.value.b * 0.12,
     );
-    this.lines.end(this.ropeLight.setRGB(Math.min(1, light.x), Math.min(1, light.y), Math.min(1, light.z)));
+    this.lines.end(this.ropeLight.setRGB(Math.min(1, light.x), Math.min(1, light.y), Math.min(1, light.z)), tier.lineRange);
     this.fenders?.end();
     this.riding.end(glowK, Math.min(1, (sim?.wind.strength ?? 0.35) * 1.4));
     if (this.flags) {
@@ -1222,9 +1255,13 @@ export class FleetSystem implements WorldSystem {
     this.hoverLantern.update(ctx, this.hover ? this.byId.get(this.hover) : undefined);
     // Clear against the boats this fleet could install (a missing kit variant must not force full posing forever);
     // fleet-frame still reports the actual posed count, so the reveal compares it with readiness honestly.
-    if (this.needsFullPose && posed === this.boats.length) this.needsFullPose = false;
+    if (this.needsFullPose && posed === this.boats.length) {
+      this.needsFullPose = false;
+      this.drawnRevision = this.modelRevision; this.drawnBoats = posed;
+    }
     this.fleetFrame.revision = this.modelRevision;
     this.fleetFrame.boats = posed;
+    this.fleetFrame.drawn = this.drawnRevision === this.modelRevision ? this.drawnBoats : posed;
     ctx.services.set("fleet-frame", this.fleetFrame);
     this.cpuMs += (performance.now() - t0 - this.cpuMs) * 0.1;
     if (this.debug) this.updateDebug(frame, ctx, sim);
@@ -1390,7 +1427,7 @@ export class FleetSystem implements WorldSystem {
     ring.visible = this.ringK > 0.01 && !!(b || w);
     if (!ring.visible) return;
     if (b) {
-      const ocean = ctx.services.get("ocean") as OceanService | undefined;
+      const ocean = ctx.services.get("ocean");
       const y = (ocean ? ocean.heightAt(b.cx, b.cz) : 0) + 0.3;
       ring.position.set(b.cx, y, b.cz);
       ring.scale.setScalar(Math.max(4, b.loa * 0.66));
@@ -1399,7 +1436,7 @@ export class FleetSystem implements WorldSystem {
       ring.scale.setScalar(Math.max(4, w.len * 0.62));
     }
     const m = ring.material as THREE.ShaderMaterial;
-    m.uniforms.uTime.value = frame.elapsed;
+    m.uniforms.uTime.value = this.time;
     m.uniforms.uK.value = this.ringK;
   }
 
@@ -1424,15 +1461,18 @@ export class FleetSystem implements WorldSystem {
         const cam = ctx.camera;
         ray.origin.copy(cam.position);
         ray.direction.copy(ndc).unproject(cam).sub(cam.position).normalize();
-        let best: PickHit | null = null, bestT = Infinity;
+        let best: PickHit | null = null, bestT = Infinity, bestProximity = Infinity;
         for (const b of this.boats) {
           if (!b.visible) continue;
           // a slim capsule-ish test: the hull sphere, shrunk toward the mast line for long hulls
           sph.center.set(b.cx, b.cy, b.cz); sph.radius = Math.max(b.r * 0.75, 3);
           const hit = ray.intersectSphere(sph, tmp);
-          if (!hit) continue;
+          if (!hit || terrainOccludes(getGround(ctx), cam.position, tmp.x, tmp.y, tmp.z)) continue;
           const t = tmp.distanceTo(ray.origin);
-          if (t < bestT) { bestT = t; best = { kind: "boat", id: b.id }; }
+          const proximity = Math.sqrt(ray.distanceSqToPoint(sph.center)) / Math.max(1, cam.position.distanceTo(sph.center));
+          if (proximity < bestProximity || (proximity === bestProximity && (t < bestT || (t === bestT && b.id < (best?.id ?? ""))))) {
+            bestProximity = proximity; bestT = t; best = { kind: "boat", id: b.id };
+          }
         }
         if (best) return best;
         for (const lm of this.layout?.landmarks ?? []) {
@@ -1505,7 +1545,7 @@ export class FleetSystem implements WorldSystem {
 
   /** Hull capsules vs each other and vs the static island (ground height field). Dev only. */
   private runAudit(ctx: EngineContext): void {
-    const ground = ctx.services.get("ground") as GroundService | undefined;
+    const ground = ctx.services.get("ground");
     const cell = 24, grid = new Map<number, BoatRec[]>();
     const key = (x: number, z: number) => (Math.floor(x / cell) + 512) * 4096 + (Math.floor(z / cell) + 512);
     let hull = 0, land = 0, worst = "", worstD = 0;

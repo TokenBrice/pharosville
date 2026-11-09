@@ -2,13 +2,12 @@ import { ensureGustService } from "../weather/gust";
 import * as THREE from "three";
 import { getBeamUniforms } from "../beam/uniforms";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
-import type { QualityService } from "../engine/quality";
 import type { HarbourLayout } from "../layout/types";
-import type { SkyService, SkyShared } from "../sky/sky-system";
+import type { SkyShared } from "../sky/sky-system";
 import { cloudShadowUniforms } from "../sky/cloud-shadow";
 import { sunShadowUniforms } from "../world/sun-shadow";
 import { OCEAN_FRAG, OCEAN_VERT, SEA_PALETTE } from "./ocean-material";
-import { buildSeaSdf, defaultSeaBounds, landMaskFromHeights, SDF_COAST_RANGE, seaSdfInputFromLayout, type Bounds4, type HeightField } from "./sea-sdf";
+import { buildSeaSdf, defaultSeaBounds, landMaskFromHeights, SDF_COAST_RANGE, sdfMainlandFade, seaSdfInputFromLayout, type Bounds4, type HeightField } from "./sea-sdf";
 import { acquireFxTextures, type FxTextures } from "./textures";
 import { WakeField, type WakeService } from "./wake";
 import { updateAerial } from "../world/aerial";
@@ -18,6 +17,9 @@ import { ensureMotionService, MotionClock } from "../ui/services";
 import { buildZoneMask, type SeaZoneLike } from "./zone-mask";
 import { loadSdfImage } from "./sdf-image";
 import { getHarbourMaterials } from "../world/materials";
+import { TimeOfDay } from "../engine/time-of-day";
+import { createWorldUniforms } from "../engine/uniforms";
+import { seaHour } from "./sea-tone";
 
 /**
  * OCEAN: one large sea plane (fine grid over the sea bounds, a stretched far ring beyond), an unlit
@@ -50,10 +52,8 @@ const GRID_N = 256;
 const FAR_EXTENT = 7000;
 
 const coastOf = (r: number) => (r / 255 - 0.5) * SDF_COAST_RANGE;
-const DAMP_BY_BYTE = Float64Array.from({ length: 256 }, (_, r) => {
-  const coast = coastOf(r);
-  return THREE.MathUtils.smoothstep(coast, 0, 34) * 0.9 + 0.1 * THREE.MathUtils.smoothstep(coast, -2, 2);
-});
+const dampOf = (coast: number) => THREE.MathUtils.smoothstep(coast, 0, 34) * 0.9 + 0.1 * THREE.MathUtils.smoothstep(coast, -2, 2);
+const DAMP_BY_BYTE = Float64Array.from({ length: 256 }, (_, r) => dampOf(coastOf(r)));
 
 function oceanGeometry(bounds: Bounds4): THREE.BufferGeometry {
   const cx = (bounds[0] + bounds[2]) / 2, cz = (bounds[1] + bounds[3]) / 2;
@@ -106,6 +106,9 @@ export class OceanSystem implements WorldSystem {
   private bz0 = 0;
   private bw = 1;
   private bh = 1;
+  /** The layout-bounds centre (uSceneCenter): the SDF's mainland fade is about it (E02). */
+  private scx = 0;
+  private scz = 0;
   private fx!: FxTextures;
   private state: SeaState = 1;
   private readonly seaU = { value: new THREE.Vector4(SEA_STATES[1].amp, SEA_STATES[1].chop, SEA_STATES[1].caps, SEA_STATES[1].bands) };
@@ -118,12 +121,17 @@ export class OceanSystem implements WorldSystem {
   private awaitGround = false;
   private zoneTex: THREE.DataTexture | null = null;
   private debugMovers: Array<{ cx: number; cz: number; r: number; w: number; ph: number; hw: number }> = [];
+  /** E11: a private time-of-day evaluation (keys + season only: no weather, no moon phase) at this hour and at noon. */
+  private hourTod: TimeOfDay | null = null;
+  private readonly hourU = createWorldUniforms();
+  private readonly noonU = createWorldUniforms();
 
   async init(ctx: EngineContext): Promise<void> {
-    const layout = ctx.services.get("layout") as HarbourLayout | undefined;
+    const layout = ctx.services.get("layout");
     if (!layout) throw new Error("[harbour/ocean] needs the 'layout' service");
     this.bounds = (layout.sea?.bounds as Bounds4 | undefined) ?? defaultSeaBounds(layout);
     this.bx0 = this.bounds[0]; this.bz0 = this.bounds[1];
+    this.scx = (layout.bounds.min[0] + layout.bounds.max[0]) / 2; this.scz = (layout.bounds.min[2] + layout.bounds.max[2]) / 2;
     this.bw = this.bounds[2] - this.bounds[0]; this.bh = this.bounds[3] - this.bounds[1];
     this.fx = await acquireFxTextures(ctx);
 
@@ -152,7 +160,7 @@ export class OceanSystem implements WorldSystem {
     const wakeRes = Math.min(2048, THREE.MathUtils.ceilPowerOfTwo(Math.ceil(Math.max(this.bounds[2] - this.bounds[0], this.bounds[3] - this.bounds[1]) / 0.55)));
     this.wake = new WakeField(this.bounds, wakeRes, wakeRes);
 
-    const sky = ctx.services.get("sky") as SkyService | undefined;
+    const sky = ctx.services.get("sky");
     const skyShared: SkyShared | Record<string, THREE.IUniform> = sky?.shared ?? {
       uSkyBand: { value: null }, uSkyBandRange: { value: new THREE.Vector4(-48, 48, -1.5, 14) }, uFwdAz: { value: 0 },
       uHorizonDist: { value: 2500 }, uHorizonDepr: { value: 0.4 }, uGlintDir: { value: new THREE.Vector3(0, 0.6, -0.8) },
@@ -190,6 +198,8 @@ export class OceanSystem implements WorldSystem {
         uPrecip: W.uPrecip,
         uSceneCenter: { value: new THREE.Vector2((layout.bounds.min[0] + layout.bounds.max[0]) / 2, (layout.bounds.min[2] + layout.bounds.max[2]) / 2) },
         uSceneRadius: { value: Math.hypot(layout.bounds.max[0] - layout.bounds.min[0], layout.bounds.max[2] - layout.bounds.min[2]) / 2 },
+        // E11 the hour on the water / E13 the bloom ceiling for glints (sea-tone.ts; set every frame below)
+        uSeaHour: { value: new THREE.Vector4(1, 1, 1, 1) }, uSeaLow: { value: new THREE.Vector2(1, 0) }, uBloomT: { value: 1.5 },
       },
       fog: false,
       // the calendar is set before anything compiles (season system first): summer nights' glow only when it can show
@@ -205,7 +215,7 @@ export class OceanSystem implements WorldSystem {
       if (f.lite) shader.defines.HB_LITE = "";
     };
     // PERF: the Low tier's lighter sea (sea-tone.ts HB_LITE)
-    const quality = ctx.services.get("quality") as QualityService | undefined;
+    const quality = ctx.services.get("quality");
     if (quality) {
       const lite = (tier: string) => {
         this.lite = tier === "low";
@@ -269,15 +279,19 @@ export class OceanSystem implements WorldSystem {
     return Math.min(n - 1, Math.floor(v * n)) * n + Math.min(n - 1, Math.floor(u * n));
   }
 
+  /** The SDF coast at (x, z), the retired mainland faded to open water like the shaders (E02, sea-sdf.ts). */
   private coastAt(x: number, z: number): number {
     const i = this.texel(x, z);
-    return i < 0 ? 200 : coastOf(this.coastR[i]);
+    if (i < 0) return 200;
+    const c = coastOf(this.coastR[i]), k = sdfMainlandFade(x, z, this.scx, this.scz);
+    return k > 0 ? c + (SDF_COAST_RANGE / 2 - c) * k : c;
   }
 
-  /** Swell damping toward the coast: a function of the SDF byte alone, so a 256-entry table (same values). */
+  /** Swell damping toward the coast: a function of the SDF byte alone (a 256-entry table) within the island's coasts. */
   private dampAt(x: number, z: number): number {
     const i = this.texel(x, z);
-    return i < 0 ? 1 : DAMP_BY_BYTE[this.coastR[i]];
+    if (i < 0) return 1;
+    return sdfMainlandFade(x, z, this.scx, this.scz) > 0 ? dampOf(this.coastAt(x, z)) : DAMP_BY_BYTE[this.coastR[i]];
   }
 
   private seedDebugMovers(layout: HarbourLayout): void {
@@ -308,7 +322,7 @@ export class OceanSystem implements WorldSystem {
   update(frame: FrameState, ctx: EngineContext): void {
     this.syncFeatures();
     if (this.awaitGround) {
-      const ground = ctx.services.get("ground") as HeightField | undefined;
+      const ground = ctx.services.get("ground");
       if (ground?.heights) { this.awaitGround = false; this.rebuildFromGround(ground); }
     }
     this.clock ??= new MotionClock(ensureMotionService(ctx));
@@ -320,7 +334,7 @@ export class OceanSystem implements WorldSystem {
       const a = m.ph + this.time * m.w;
       const x = m.cx + Math.cos(a) * m.r, z = m.cz + Math.sin(a) * m.r;
       const vx = -Math.sin(a) * m.r * m.w, vz = Math.cos(a) * m.r * m.w;
-      this.wake.stamp(x, z, vx, vz, m.hw, 1);
+      this.wake.stamp(x, z, vx, vz, m.hw, 1, undefined, m.ph);
     }
     // aerial distance tint (decorative): zero inside the harbour radius, full ramp a little past the scene's edge
     const sc = this.material.uniforms.uSceneCenter.value as THREE.Vector2, sr = this.material.uniforms.uSceneRadius.value as number;
@@ -331,6 +345,23 @@ export class OceanSystem implements WorldSystem {
     const u = this.material.uniforms;
     u.uWake.value = this.wake.texture;
     u.uWakeLive.value = this.wake.live;
+    this.hourLight(ctx);
+  }
+
+  /**
+   * E11: the hour's light on the sea body relative to this day's noon, from the time-of-day keys and the season alone
+   * (a private evaluation: the sky's storm gloom and the moon's phase stay out, so storms keep their own grading).
+   * E13: the bloom threshold the glints stay under.
+   */
+  private hourLight(ctx: EngineContext): void {
+    const tod = ctx.timeOfDay, u = this.material.uniforms;
+    if (!tod) return;
+    u.uBloomT.value = tod.bloomThreshold;
+    const s = (this.hourTod ??= new TimeOfDay());
+    s.keyframes = tod.keyframes; s.season = tod.season;
+    s.hour = 12; s.apply(this.noonU);
+    s.hour = tod.hour; s.apply(this.hourU);
+    seaHour(this.hourU, this.noonU, u.uSeaHour.value as THREE.Vector4, u.uSeaLow.value as THREE.Vector2);
   }
 
   dispose(ctx: EngineContext): void {

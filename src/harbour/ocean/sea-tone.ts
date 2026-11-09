@@ -1,3 +1,5 @@
+import type * as THREE from "three";
+
 /**
  * The sea's value structure (FRAME lane, decorative only; no data reads). GLSL included by ocean-material after its
  * uniforms (uses uNoise). The zones keep their meaning: the Shoals (zm.r) are never touched, so they still read as the
@@ -13,10 +15,27 @@
  *    swash glows a faint pale cyan-green on summer nights. Never in open water, never in the Shoals (their own night
  *    glimmer stays theirs), kept far below the night bloom threshold; the pulse rides the sea clock (still when reduced).
  *
- * PERF: the Low tier compiles HB_LITE (no mirror clouds, no Posidonia: ≈ 3 texture taps per sea pixel); the summer
- * glow compiles in only when the visit's calendar has summer weight (HB_BIOLUM).
+ *  - polish #11 basin lift (hbBasinLift): the inner basin gets back part of v1.2.1's luminous turquoise by day, most
+ *    along the quays and in the shallows (+~18 % green-blue body, ≈ +8-10 % value on screen after the mirror; red held,
+ *    so it stays saturated), so the harbour reads light and the channel middle still sits a step deeper (the lift is
+ *    multiplicative and weaker there). The Shoals keep their own, lighter reef. E11 gates it by the sun's height.
+ *  - E11 the hour on the water (decorative: the time of day and the calendar only): the body takes the hour's light
+ *    relative to this day's noon (seaHour, below, on the CPU), the basin's luminous lift holds only while the sun is
+ *    well up, and a low sun lets the basin mirror a little more of the hour's sky. Noon is exactly unchanged. The
+ *    hour's light falls on every water, the reef included, so the Shoals keep their contrast with the sea round them.
+ *  - E13 glints the pixel can hold: sharp lobes widen by the normals' spread across the pixel with their energy held
+ *    (hbLobe) and no glint takes a pixel over 0.85 × the bloom threshold (hbGlintCap): no salt crawling, no specks
+ *    growing halos.
+ *
+ * PERF: the Low tier compiles HB_LITE (no mirror clouds, no Posidonia: ≈ 3 texture taps per sea pixel; E13: its glints
+ * read the calm normals only and the glitter column drops its twinkling facets, so Low never pays more); the summer
+ * glow compiles in only when the visit's calendar has summer weight (HB_BIOLUM). The GLSL comments stay terse: shader
+ * text ships in the first-frame bytes, so the reasoning lives here and in the shader modules' TS comments.
  */
 export const SEA_TONE_GLSL = /* glsl */ `
+uniform vec4 uSeaHour;
+uniform vec2 uSeaLow;
+uniform float uBloomT;
 vec3 hbSeaTone(vec3 body, float zb, float zr, float dep, float sdist, float sunUp, float nb, float camD) {
   // dredged channel: harbour water a step deeper and cooler mid-basin
   float chan = smoothstep(5.0, 13.0, dep) * zb * (1.0 - zr);
@@ -29,13 +48,22 @@ vec3 hbSeaTone(vec3 body, float zb, float zr, float dep, float sdist, float sunU
   body *= 1.0 - 0.12 * mid;
   return body;
 }
-// polish #11: the inner basin gets back part of v1.2.1's luminous turquoise by day, most along the quays and in the
-// shallows (+~18 % green-blue body, ≈ +8-10 % value on screen after the mirror; red held, so it stays saturated), so the harbour reads light and the channel middle
-// still sits a step deeper (the lift is multiplicative and weaker there). The Shoals keep their own, lighter reef.
 vec3 hbBasinLift(vec3 body, float zb, float zr, float dep, float coast) {
   float near = max(1.0 - smoothstep(6.0, 45.0, coast), 1.0 - smoothstep(2.0, 7.0, dep));
-  float w = zb * (1.0 - zr) * mix(0.45, 1.0, near) * (1.0 - uNight);
+  float w = zb * (1.0 - zr) * mix(0.45, 1.0, near) * uSeaLow.x;
   return body * (1.0 + w * vec3(-0.02, 0.22, 0.17));
+}
+vec3 hbSeaHour(vec3 body) {
+  body *= uSeaHour.rgb;
+  return mix(vec3(dot(body, vec3(0.2126, 0.7152, 0.0722))), body, uSeaHour.a);
+}
+float hbLobe(float c, float n, float spread) {
+  float m = n / (1.0 + n * spread);
+  return pow(c, m) * ((m + 2.0) / (n + 2.0));
+}
+vec3 hbGlintCap(vec3 glint, float base) {
+  float g = dot(glint, vec3(0.2126, 0.7152, 0.0722));
+  return glint * min(1.0, max(0.85 * uBloomT - base, 0.0) / max(g, 1e-4));
 }
 // Posidonia: dark sea-grass meadows in patches on the bed (not in the very shallows, never on the reef)
 vec3 hbPosidonia(vec3 bed, vec2 xz, float bedDep, float zr) {
@@ -86,3 +114,66 @@ vec3 hbBiolum(float churn, float zr, float t, float tw) {
   return vec3(0.16, 0.62, 0.5) * clamp(churn, 0.0, 1.0) * pulse * k * 0.11;
 }
 `;
+
+/** E11 tuning: the body follows 45 % of the hour light's hue and 60 % of its level, by day; twilight cuts its chroma. */
+export const SEA_HOUR = { hue: 0.45, level: 0.6, hueMin: 0.8, hueMax: 1.25, twilightChroma: 0.2, floor: 0.12, liftLow: 0.08, liftHigh: 0.35 } as const;
+
+/** The time-of-day outputs seaHour reads (WorldUniforms, or a scratch set the ocean evaluates at a given key hour). */
+export interface HourLight {
+  uAmbient: { value: THREE.Color };
+  uSunColor: { value: THREE.Color };
+  uSunDir: { value: THREE.Vector3 };
+  uNight: { value: number };
+}
+const LUMA = [0.2126, 0.7152, 0.0722] as const;
+const smooth = (e0: number, e1: number, x: number) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+const E = [0, 0, 0], N = [0, 0, 0];
+/** The light falling on level water (sky + key light on a horizontal plane, the body's 0.3 sun share), linear RGB. */
+function irradiance(l: HourLight, out: number[]): number[] {
+  const y = Math.max(l.uSunDir.value.y, 0) * 0.3, a = l.uAmbient.value, s = l.uSunColor.value;
+  out[0] = a.r + s.r * y; out[1] = a.g + s.g * y; out[2] = a.b + s.b * y;
+  return out;
+}
+const lum = (c: number[]) => LUMA[0] * c[0] + LUMA[1] * c[1] + LUMA[2] * c[2];
+
+/**
+ * E11 hour-coherent water (CPU, uniform-only; decorative: the time of day and the calendar, no weather, no data).
+ * `now` and `noon` are the time-of-day outputs at the current key hour and at this day's noon key (the same season):
+ * the body is tinted by the hour light's hue and level relative to noon, by day (uSeaHour.rgb), twilight (and, by
+ * three quarters, a low sun by day) cuts its chroma (uSeaHour.a), the basin lift follows the sun's height .08-.35
+ * (uSeaLow.x) and a low sun or twilight lays a Fresnel floor of up to .12 on the basin (uSeaLow.y). At noon
+ * now === noon: exactly (1, 1, 1, 1) and (1, 0).
+ */
+export function seaHour(now: HourLight, noon: HourLight, tint: THREE.Vector4, low: THREE.Vector2): void {
+  irradiance(now, E); irradiance(noon, N);
+  const lE = Math.max(lum(E), 1e-4), lN = Math.max(lum(N), 1e-4);
+  const night = Math.min(1, Math.max(0, now.uNight.value)), day = 1 - night;
+  const level = 1 + SEA_HOUR.level * day * (Math.min(lE / lN, 1) - 1);
+  const hue = (c: number) => {
+    const r = N[c] > 1e-6 ? (E[c] / lE) / (N[c] / lN) : 1;
+    return 1 + SEA_HOUR.hue * day * (Math.min(SEA_HOUR.hueMax, Math.max(SEA_HOUR.hueMin, r)) - 1);
+  };
+  // twilight: dawn, dusk and the blue hour (the night key's half-way band), never noon or deep night; a low sun by
+  // day (the golden hour) takes three quarters of the same chroma cut, so the evening basin deepens instead of glowing
+  const twilight = smooth(0, 0.3, night) * (1 - smooth(0.6, 1, night));
+  const sunY = now.uSunDir.value.y, high = smooth(SEA_HOUR.liftLow, SEA_HOUR.liftHigh, sunY), lowDay = (1 - high) * day;
+  tint.set(hue(0) * level, hue(1) * level, hue(2) * level, 1 - SEA_HOUR.twilightChroma * Math.max(twilight, 0.75 * lowDay));
+  low.set(high * day, SEA_HOUR.floor * Math.max(lowDay, twilight));
+}
+
+/**
+ * E13 reference twin of hbLobe (GLSL above): a specular lobe cos^n over a pixel across which the normals spread by
+ * `spread` (rad²; the ocean takes it from the pixel's footprint), widened Toksvig-style to n' = n / (1 + n spread)
+ * with its peak scaled by (n' + 2) / (n + 2): the energy is held and only the aliasing salt goes. Zero spread is the
+ * sharp lobe exactly. (The GLSL comments stay terse: shader text ships in the first-frame bytes.)
+ */
+export function lobe(c: number, n: number, spread: number): number {
+  const m = n / (1 + n * spread);
+  return Math.pow(c, m) * ((m + 2) / (n + 2));
+}
+/** E13 reference twin of hbGlintCap: scale the glint (hue kept) so base + glint stays at or under 0.85 × the bloom threshold. */
+export function glintCap(glint: [number, number, number], base: number, bloomT: number): [number, number, number] {
+  const g = LUMA[0] * glint[0] + LUMA[1] * glint[1] + LUMA[2] * glint[2];
+  const k = Math.min(1, Math.max(0.85 * bloomT - base, 0) / Math.max(g, 1e-4));
+  return [glint[0] * k, glint[1] * k, glint[2] * k];
+}

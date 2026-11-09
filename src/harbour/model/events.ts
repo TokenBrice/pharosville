@@ -131,18 +131,17 @@ export function eventSnapshot(model: HarbourModel, payloads: HarbourPayloads, at
   }
   const r = model.readings;
   let flowHour: EventSnapshot["flowHour"] = null;
-  const hourly = payloads.mintBurn?.data?.hourly ?? [];
+  const hourly = r.flows.hourly;
   if (hourly.length) {
-    const sorted = [...hourly].sort((a, b) => a.hourTs - b.hourTs).slice(-24);
-    const last = sorted[sorted.length - 1];
-    const n = sorted.length;
+    const last = hourly[hourly.length - 1];
+    const n = hourly.length;
     flowHour = {
       hourTs: last.hourTs,
-      mintUsd: last.mintVolumeUsd,
-      burnUsd: last.burnVolumeUsd,
-      complete: last.valuation === "complete" && last.netFlowUsd != null,
-      meanMintUsd: sorted.reduce((s, h) => s + (h.mintVolumeUsd || 0), 0) / n,
-      meanBurnUsd: sorted.reduce((s, h) => s + (h.burnVolumeUsd || 0), 0) / n,
+      mintUsd: last.mintUsd,
+      burnUsd: last.burnUsd,
+      complete: last.valuation === "complete" && last.netUsd != null,
+      meanMintUsd: hourly.reduce((s, h) => s + (h.mintUsd || 0), 0) / n,
+      meanBurnUsd: hourly.reduce((s, h) => s + (h.burnUsd || 0), 0) / n,
     };
   }
   return {
@@ -294,7 +293,7 @@ function eventFor(k: string, v: VarState, o: Obs, s: EventSnapshot, since: numbe
         ? mk("depeg", "pegSummary", "peg deviation", absBps(v.aux), `${absBps(o.aux)} bps`, `${sym} ran onto the Shoals`)
         : mk("recovery", "pegSummary", "peg deviation", absBps(v.aux), `${absBps(o.aux)} bps`, `${sym} left the Shoals`);
     case "live":
-      return o.value === "1" ? mk("launch", "stablecoins", "supply", null, money(o.aux), `${sym} launched`) : null;
+      return o.value === "1" ? mk("launch", "stablecoins", "supply", null, money(o.aux), `${sym} joined the tracked register.`) : null;
     case "wreck":
       return o.value === "1" ? mk("death", "stablecoins", "register", "live", "dead", `${sym} was towed to Wreck Cove`) : null;
     case "class": {

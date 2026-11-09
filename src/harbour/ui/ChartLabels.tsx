@@ -1,20 +1,19 @@
-import { useMemo, useRef } from "react";
-import type { HarbourLayout } from "../layout/types";
+import { useMemo, useRef, type RefObject } from "react";
 import { cullLabels, type LabelBox } from "./cull";
 import { useFrame, useFrameWrite, usePresence, useStore, useUISlice } from "./hooks";
 import { sameHit, type PickHit, type ScreenPoint } from "./services";
-import { setStyle, useMeasurements } from "./measurements";
+import { devicePx, overlaps, setStyle, useMeasurements } from "./measurements";
 
 interface ChartLabel { key: string; text: string; kind: "landmark" | "pier" | "boat"; hit: PickHit }
 
 /** 'C' Chart mode: landmark names, pier names and the top-10 boats, collision-culled in priority order. */
-export function ChartLabels() {
+export function ChartLabels({ overlays, tagBox }: { overlays?: RefObject<LabelBox[]>; tagBox?: RefObject<LabelBox> }) {
   const chartMode = useUISlice((s) => s.chartMode);
   const model = useUISlice((s) => s.model);
   const [mounted, shown] = usePresence(chartMode, 220);
   const store = useStore();
   const labels = useMemo<ChartLabel[]>(() => {
-    const L = store.ctx.services.get("layout") as HarbourLayout | undefined;
+    const L = store.ctx.services.get("layout");
     const out: ChartLabel[] = [];
     // priority: the Pharos, then piers, then the top boats, then the other landmarks
     const landmarks = (L?.labels ?? []).filter((l) => l.kind === "landmark" && !l.id.startsWith("hamlet-"));
@@ -56,6 +55,10 @@ export function ChartLabels() {
       box.w = w; box.h = h; box.visible = visible;
       box.x = (p?.x ?? 0) - w / 2; box.y = (p?.y ?? 0) - h - (l.kind === "boat" ? 10 : 0);
     }
+    const occupied = [...(overlays?.current ?? []), ...(tagBox ? [tagBox.current] : [])];
+    for (const box of boxes.current.slice(0, labels.length)) {
+      if (occupied.some((overlay) => overlay.visible && overlaps(box, overlay, 6))) box.visible = false;
+    }
     kept.current = cullLabels(boxes.current.slice(0, labels.length), 6, vp);
   });
 
@@ -66,7 +69,7 @@ export function ChartLabels() {
       const el = refs.current[i], b = boxes.current[i];
       if (!el) continue;
       setStyle(el, "opacity", keep[i] ? "1" : "0");
-      setStyle(el, "transform", `translate3d(${b.x.toFixed(1)}px, ${b.y.toFixed(1)}px, 0)`);
+      setStyle(el, "transform", `translate3d(${devicePx(b.x)}px, ${devicePx(b.y)}px, 0)`);
       const lead = leaders.current[i], foot = feet.current[i];
       if (lead && foot) setStyle(lead, "height", `${Math.max(0, foot.y - (b.y + b.h)).toFixed(1)}px`);
     }

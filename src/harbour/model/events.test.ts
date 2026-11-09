@@ -120,6 +120,7 @@ describe("detectEvents — the kinds", () => {
     const ev = run([{ w: world() }, { w: more }, { w: more }]).flat();
     expect(ev.map((e) => [e.kind, e.coinId])).toEqual([["launch", "newc"]]);
     expect(ev[0].to).toBe("$30.0M");
+    expect(ev[0].text).toBe("NEWC joined the tracked register.");
     const less = world({ coins: [{ id: "usdx", supply: 2e9 }] });
     expect(run([{ w: world() }, { w: less }, { w: less }, { w: world() }, { w: world() }]).flat()).toEqual([]);
   });
@@ -165,6 +166,14 @@ describe("big flow hour", () => {
 
   const hours = (n: number, last: { mint: number; burn: number; valuation?: string }) =>
     Array.from({ length: n }, (_, i) => (i === n - 1 ? { hourTs: 1000 + i * 3600, ...last } : { hourTs: 1000 + i * 3600, mint: 10e6, burn: 10e6 }));
+
+  it("uses the model's distinct hours for the completed-hour event mean", () => {
+    const hourly = hours(24, { mint: 400e6, burn: 10e6 });
+    hourly.push({ ...hourly[23], mint: 500e6 });
+    const pl = payloads(world({ hourly }), T0);
+    const model = buildHarbourModel(pl, T0, { dead: [] });
+    expect(eventSnapshot(model, pl, T0).flowHour?.meanMintUsd).toBe((23 * 10e6 + 500e6) / 24);
+  });
 
   it("judges each new closed hour once; the first hour seen is the baseline", () => {
     const base = world({ hourly: hours(24, { mint: 400e6, burn: 10e6 }) });

@@ -1,10 +1,11 @@
+import type { Services } from "../engine/services";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext, FrameState } from "../engine/types";
 import { LazyLifeSystem } from "../life/lazy-system";
 import { LazyIdentitySystem } from "../identity/lazy-system";
 import { deferred } from "../engine/deferred";
 
-const ctx = { services: new Map<string, unknown>() } as EngineContext;
+const ctx = { services: new Map<string, unknown>() as Services } as EngineContext;
 const frame: FrameState = { elapsed: 1, delta: 1 / 60, nowMs: 1000 };
 const events: string[] = [];
 const lifeLoaded = vi.fn();

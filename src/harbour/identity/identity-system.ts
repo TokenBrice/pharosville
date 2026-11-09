@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { EngineContext, FrameState, PreparationService, WorldSystem } from "../engine/types";
+import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import { getLightsStore } from "../lights/lights-service";
 import type { GroundService } from "../world/ground";
 import type { OceanService } from "../ocean/ocean-system";
@@ -28,13 +28,21 @@ export interface IdentityService {
   furl(chain: string, k: number): void;
 }
 
-/** The dominant harbour's house flag reads first: larger cloth on a taller topmast. */
-const FLAG_SCALE: Record<string, number> = { ethereum: 1.65 };
+/**
+ * The dominant harbour's house flag reads first, at the town's scale (E03b, ruling V6): somewhat larger cloth on a
+ * taller topmast (others fly on CrestFlags' 6 m), its top near the civic quarter's building line, not over it.
+ */
+export const FLAG_SCALE: Readonly<Record<string, number>> = { ethereum: 1.2 };
+export const FLAG_TOPMAST: Readonly<Record<string, number>> = { ethereum: 7 };
+/** E03b: seen from afar the house flags are dressed a little larger: up to +25 % from the heart's 650 m to 1000 m. */
+export function crestFarScale(distance: number): number { return 1 + 0.25 * THREE.MathUtils.smoothstep(distance, 650, 1000); }
+/** E03b (O2-I5, O10 M1): at night the crest is lit as cloth (the moon, dimmed with the facades: twice O6's dimming)
+ *  and by its truck lamp, a hoist-local glow of CREST_GLOW × the window glow. */
+export const CREST_NIGHT_DIM = 0.9, CREST_GLOW = 0.035;
 
 /** Roof/ridge heights above the plot (m) for the chart's line-of-sight test; others ~18 m. */
 const CIVIC_HEIGHT: Record<string, number> = { customs: 26, mint: 30, burn: 26, shipyard: 14, registry: 20, stormstation: 22 };
 
-interface LifeWind { readonly wind: number; readonly windTo: readonly [number, number] }
 
 /** Metres added to dry land in the sight grid for trees (not in the island's height field). */
 const TREE_ALLOWANCE = 11;
@@ -83,7 +91,7 @@ export class IdentitySystem implements WorldSystem {
   private labels: LabelSpec[] = [];
 
   async init(ctx: EngineContext): Promise<void> {
-    const layout = ctx.services.get("layout") as IdentityLayout | undefined;
+    const layout = ctx.services.get("layout");
     if (!layout) return;
     this.motion = ensureMotionService(ctx);
     const [font, atlas, sdfTex, crestTex] = await Promise.all([
@@ -95,9 +103,9 @@ export class IdentitySystem implements WorldSystem {
 
     ctx.signal?.throwIfAborted();
     if (font && sdfTex && layout.seaZones?.length) {
-      const ocean = ctx.services.get("ocean") as OceanService | undefined;
+      const ocean = ctx.services.get("ocean");
       const t0 = performance.now();
-      this.labels = this.fittedSpecs(layout, font, ocean, ctx.camera.aspect, ctx.services.get("ground") as GroundService | undefined);
+      this.labels = this.fittedSpecs(layout, font, ocean, ctx.camera.aspect, ctx.services.get("ground"));
       performance.measure("identity:labels", { start: t0 });
       this.lettering = new ChartLettering(this.labels, font, sdfTex, ctx.uniforms, ocean, layout.seaLevel ?? 0);
       ctx.scene.add(this.lettering.mesh);
@@ -109,13 +117,13 @@ export class IdentitySystem implements WorldSystem {
       crestTex.generateMipmaps = true;
       crestTex.minFilter = THREE.LinearMipmapLinearFilter;
       this.dresser = new OfficeDresser(atlas, crestTex, officePlots(layout.civic));
-      this.flags = new CrestFlags(crestTex);
+      this.flags = new CrestFlags(crestTex, ctx.uniforms);
       ctx.scene.add(this.flags.group);
       // chain-colour beacons and bollards on each harbour's pier head (one instanced draw)
-      const ground = ctx.services.get("ground") as GroundService | undefined;
+      const ground = ctx.services.get("ground");
       const piers = (layout as { piers?: MarkPier[] }).piers ?? [];
       if (ground && piers.length) {
-        const ocean = ctx.services.get("ocean") as OceanService | undefined;
+        const ocean = ctx.services.get("ocean");
         const sea = layout.seaLevel ?? 0;
         const sites = markSites(piers, ocean ? (x, z) => ocean.coastAt(x, z) > -5 : undefined)
           .map((m) => ({ ...m, y: ground.heightAt(m.x, m.z) }))
@@ -128,7 +136,7 @@ export class IdentitySystem implements WorldSystem {
     }
 
     // the Far Ports: a buoyed anchorage, its buoys lit at night (steady amber, the island owns the raft-end marks)
-    const fp = (ctx.services.get("layout") as { zones?: { farPorts?: { rows?: Array<{ line: Array<[number, number]> }> } } }).zones?.farPorts;
+    const fp = ctx.services.get("layout")!.zones?.farPorts;
     if (fp?.rows?.length) {
       const lights = getLightsStore(ctx);
       fp.rows.forEach((row, ri) => {
@@ -151,28 +159,28 @@ export class IdentitySystem implements WorldSystem {
       // the offices arrive whenever their placer has loaded them: look twice a second, then less often
       this.scanIn = this.scans++ < 60 ? 0.5 : 3;
       this.scanning = true;
-      void this.dresser.scan(ctx.scene, ctx.services.get("preparation") as PreparationService | undefined).then((sites) => {
+      void this.dresser.scan(ctx.scene, ctx.services.get("preparation")).then((sites) => {
         if (this.disposed) return;
         for (const s of sites) {
           const c = this.atlas!.chains[s.chain];
-          this.flags?.add({ x: s.top.x, y: s.top.y, z: s.top.z, rect: c.flag, phase: s.chain.length * 1.7 + s.top.x * 0.01, scale: FLAG_SCALE[s.chain] });
+          this.flags?.add({ x: s.top.x, y: s.top.y, z: s.top.z, rect: c.flag, phase: s.chain.length * 1.7 + s.top.x * 0.01, scale: FLAG_SCALE[s.chain], topmast: FLAG_TOPMAST[s.chain] });
         }
       }).catch((error: unknown) => console.error("[harbour] office dressing failed", error)).finally(() => { this.scanning = false; });
     }
     this.dresser?.setGlow(0.28 * u.uWindowGlow.value);
     if (this.flags) {
-      const life = ctx.services.get("life") as LifeWind | undefined;
-      const sky = ctx.services.get("sky") as { shared?: { uWeatherSea?: { value: THREE.Vector4 } } } | undefined;
+      const life = ctx.services.get("life");
+      const sky = ctx.services.get("sky");
       const wind = life?.wind ?? sky?.shared?.uWeatherSea?.value.y ?? 0.35;
       const windTo = life?.windTo ?? ([0.84, -0.54] as const);
-      const dim = 1 - 0.7 * u.uNight.value;
+      const dim = 1 - CREST_NIGHT_DIM * u.uNight.value;
       this.light.setRGB(
         Math.min(1.15, u.uHemiSky.value.r * 1.1 + u.uSunColor.value.r * 0.42) * dim,
         Math.min(1.15, u.uHemiSky.value.g * 1.1 + u.uSunColor.value.g * 0.42) * dim,
         Math.min(1.15, u.uHemiSky.value.b * 1.1 + u.uSunColor.value.b * 0.42) * dim,
       );
-      this.flags.farScale = 1 + 0.45 * THREE.MathUtils.smoothstep(ctx.rig.distance, 420, 900);
-      this.flags.update(frame.delta, !(this.motion?.reduced ?? false), windTo, wind, this.light, 0.16 * u.uWindowGlow.value, ctx.camera.position);
+      this.flags.farScale = crestFarScale(ctx.rig.distance);
+      this.flags.update(frame.delta, !(this.motion?.reduced ?? false), windTo, wind, this.light, CREST_GLOW * u.uWindowGlow.value, ctx.camera.position);
     }
   }
 

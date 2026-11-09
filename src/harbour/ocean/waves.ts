@@ -25,24 +25,46 @@ export const WAVES: Wave[] = SPEC.map(([off, length, amp, steep]) => {
 export const SWELL_DIR: [number, number] = [WAVES[0].dirX, WAVES[0].dirZ];
 
 const f = (v: number) => v.toFixed(6);
+/** A wave's phase as GLSL, in `p` (world xz) and `t` (the sea clock). */
+const phaseGLSL = (wv: Wave) => `(${f(wv.k)} * dot(vec2(${f(wv.dirX)}, ${f(wv.dirZ)}), p) - ${f(wv.w)} * t)`;
 
+/**
+ * E14 one swell phase: the main 62 m swell (WAVES[0]), the swell the hulls ride, as one GLSL clock. Its height is
+ * amp·sin(phase); the coast trains, the swash, the reef surf and the wet run-up on stone all read this phase plus
+ * fixed per-stretch offsets, so every arriving crest breaks, runs up and wets the stone in step with the hulls' bob.
+ * Standalone (the world kit's run-up includes it without the rest of the wave table).
+ */
+export const SWELL_PHASE_GLSL = /* glsl */ `
+float hbSwellPhase(vec2 p, float t) { return ${phaseGLSL(WAVES[0])}; }
+`;
+
+/** CPU twin of hbSwellPhase: the main swell's phase (rad) at (x, z), sea time t; its height is WAVES[0].amp·sin(·). */
+export function swellPhase(x: number, z: number, t: number): number {
+  const wv = WAVES[0];
+  return wv.k * (wv.dirX * x + wv.dirZ * z) - wv.w * t;
+}
+
+/**
+ * gerstnerDisp (vertex) and, for shading, gerstnerSums: the five phases evaluated once into the unit-amplitude slope
+ * sums g (x, z), the vertical term (y) and the crest, so the shading normal, the glitter normal (gerstnerNormalOf at
+ * their own amplitudes) and the crest share one evaluation; the per-wave products of separate normal functions did not
+ * share (≈ 48 fewer SPIR-V instructions per sea pixel). gerstnerNormalOf(g, amp) is the former gerstnerNormal(p, t, amp).
+ */
 export function wavesGLSL(): string {
-  let disp = "", nrm = "", hgt = "";
+  let disp = "", sums = "";
   const n = WAVES.length;
   for (const wv of WAVES) {
     const QA = wv.steep / (wv.k * n);
-    const ph = `(${f(wv.k)} * dot(vec2(${f(wv.dirX)}, ${f(wv.dirZ)}), p) - ${f(wv.w)} * t)`;
+    const ph = phaseGLSL(wv);
     disp += `  { float ph = ${ph}; float c = cos(ph), s = sin(ph); d.xz += ${f(QA)} * vec2(${f(wv.dirX)}, ${f(wv.dirZ)}) * c * amp; d.y += ${f(wv.amp)} * s * amp; }\n`;
-    nrm += `  { float ph = ${ph}; float c = cos(ph), s = sin(ph); float wa = ${f(wv.k * wv.amp)} * amp; nn.x -= ${f(wv.dirX)} * wa * c; nn.z -= ${f(wv.dirZ)} * wa * c; nn.y -= ${f(wv.steep / n)} * s * amp; }\n`;
-    hgt += `  h += ${f(wv.amp)} * sin(${ph});\n`;
+    sums += `  { float ph = ${ph}; float c = cos(ph), s = sin(ph); g += vec3(${f(wv.dirX * wv.k * wv.amp)} * c, ${f(wv.steep / n)} * s, ${f(wv.dirZ * wv.k * wv.amp)} * c); h += ${f(wv.amp)} * s; }\n`;
   }
-  return `
+  return `${SWELL_PHASE_GLSL}
 vec3 gerstnerDisp(vec2 p, float t, float amp) { vec3 d = vec3(0.0);
 ${disp}  return d; }
-vec3 gerstnerNormal(vec2 p, float t, float amp) { vec3 nn = vec3(0.0, 1.0, 0.0);
-${nrm}  return normalize(nn); }
-float gerstnerCrest(vec2 p, float t) { float h = 0.0;
-${hgt}  return h / ${f(WAVES.reduce((s, w) => s + w.amp, 0))}; }
+void gerstnerSums(vec2 p, float t, out vec3 g, out float crest) { g = vec3(0.0); float h = 0.0;
+${sums}  crest = h / ${f(WAVES.reduce((s, w) => s + w.amp, 0))}; }
+vec3 gerstnerNormalOf(vec3 g, float amp) { return normalize(vec3(-g.x * amp, 1.0 - g.y * amp, -g.z * amp)); }
 `;
 }
 

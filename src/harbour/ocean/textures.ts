@@ -42,17 +42,17 @@ void main() {
   gl_FragColor = vec4(slope * 0.5 + 0.5, 1.0, h / hn);
 }`;
 
-interface Shared extends FxTextures { refs: number }
+export interface SharedFxTextures extends FxTextures { refs: number }
 
 /** Ref-counted: every system that acquires calls release() in its dispose(). */
 export async function acquireFxTextures(ctx: EngineContext): Promise<FxTextures> {
-  let pending = ctx.services.get(KEY) as Promise<Shared> | undefined;
+  let pending = ctx.services.get(KEY);
   if (!pending) {
     pending = (async () => {
       const noiseRT = await bakeTexture(ctx, NOISE_FRAG, { width: 256, height: 256 });
       try {
         const rippleRT = await bakeTexture(ctx, RIPPLE_FRAG, { width: 512, height: 512 });
-        const fx: Shared = {
+        const fx: SharedFxTextures = {
           refs: 0, noise: noiseRT.texture, ripple: rippleRT.texture,
           release() { if (--fx.refs > 0) return; noiseRT.dispose(); rippleRT.dispose(); ctx.services.delete(KEY); },
         };

@@ -21,9 +21,9 @@ float hbHelioCoin(vec2 rel) {
   return coin * clamp(g / max(dot(uSunColor, vec3(0.3333)) * 0.2, 1e-4), 0.0, 1.0);
 }
 // the coin's glitter: the sun's own facets packed denser (a broader facet lobe) and brighter, still capped points
-vec3 hbHelioGlint(vec3 glint, float k, vec3 Nsp, vec3 Hs, float nBa, float sparkMask, float far01) {
+vec3 hbHelioGlint(vec3 glint, float k, float nh, float nBa, float sparkMask, float far01, float spread) {
   if (k < 0.002) return glint;
-  float dense = pow(max(dot(Nsp, Hs), 0.0), 380.0) * smoothstep(0.35, 0.75, nBa) * sparkMask * (1.0 - far01 * 0.85);
+  float dense = hbLobe(nh, 380.0, spread) * smoothstep(0.35, 0.75, nBa) * sparkMask * (1.0 - far01 * 0.85);
   return glint * (1.0 + 0.9 * k) + uSunColor * min(dense, 1.0) * 0.35 * k;
 }
 `;

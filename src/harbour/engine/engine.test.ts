@@ -1,3 +1,4 @@
+import type { ServiceMap, Services } from "./services";
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { FrameProfile } from "./frame-profile";
@@ -79,7 +80,7 @@ function frameEngine() {
   const ctx = {
     camera, renderer, composer, rig: new CameraRig(camera), timeOfDay: new TimeOfDay(),
     scene: new THREE.Scene(),
-    uniforms: createWorldUniforms(), services: new Map(),
+    uniforms: createWorldUniforms(), services: new Map() as Services,
   } as unknown as EngineContext;
   const engine = Object.assign(Object.create(Engine.prototype), {
     ctx, container: { clientWidth: 1000, clientHeight: 700 }, width: 0, height: 0, pixelRatio: 0,
@@ -225,7 +226,7 @@ describe("engine preparation and rendered readiness", () => {
     const completed: RenderedFleetState[] = [];
     const off = engine.onRendered((state) => completed.push({ ...state }));
     engine.frame(16);
-    expect(completed).toEqual([{ revision: 0, boats: 0 }]);
+    expect(completed).toEqual([{ revision: 0, boats: 0, drawn: 0 }]);
     expect(engine.stats.firstFleetFrameMs).toBeNull();
     Object.assign(readiness, { revision: 1, boats: 12, prepared: true });
     Object.assign(posed, { revision: 1, boats: 11 });
@@ -234,13 +235,13 @@ describe("engine preparation and rendered readiness", () => {
       expect(completed).toHaveLength(1);
     });
     engine.frame(32);
-    expect(completed[1]).toEqual({ revision: 1, boats: 11 }); // Desired readiness must not invent a posed boat.
+    expect(completed[1]).toEqual({ revision: 1, boats: 11, drawn: 11 }); // Desired readiness must not invent a posed boat.
     expect(engine.stats.firstFleetFrameMs).not.toBeNull();
     Object.assign(readiness, { revision: 2, boats: 14 });
     Object.assign(posed, { revision: 1, boats: 12 }); // New readiness was not posed yet.
     engine.profile = new FrameProfile();
     engine.profiledFrame(48);
-    expect(completed[2]).toEqual({ revision: 1, boats: 12 });
+    expect(completed[2]).toEqual({ revision: 1, boats: 12, drawn: 12 });
     expect(engine.stats).toMatchObject({ renderedRevision: 1, renderedBoats: 12, programs: 1, textures: 3, gpuMs: 2, gpuP10Ms: 2, gpuP50Ms: 3, gpuSamples: 30, gpuCompletedSamples: 50 });
     expect(mark.mock.calls.filter(([name]) => name === "pv:first-frame")).toHaveLength(1);
     expect(mark.mock.calls.filter(([name]) => name === "pv:first-fleet-frame")).toHaveLength(1);
@@ -292,7 +293,7 @@ describe("engine preparation and rendered readiness", () => {
   it("holds the context owner until restoration or the deadline and cancels feed/audio immediately", async () => {
     vi.useFakeTimers(); vi.stubGlobal("window", globalThis);
     const { engine, ctx } = frameEngine(), states = vi.fn(), data = { name: "data", init() {}, update() {}, dispose: vi.fn() };
-    const sound = { dispose: vi.fn() }; ctx.services.set("sound", sound); engine.begun.add(data);
+    const sound = { dispose: vi.fn() }; ctx.services.set("sound", sound as unknown as ServiceMap["sound"]); engine.begun.add(data);
     const off = engine.onLifecycle(states), event = new Event("webglcontextlost", { cancelable: true });
     engine.onContextLost(event);
     expect(event.defaultPrevented).toBe(true); expect(engine.aborted).toBe(true);
@@ -483,7 +484,7 @@ describe("engine preparation and rendered readiness", () => {
     const completed: RenderedFleetState[] = [];
     engine.onRendered((state) => completed.push({ ...state }));
     engine.frame(16);
-    expect(completed).toEqual([{ revision: 0, boats: 0 }]);
+    expect(completed).toEqual([{ revision: 0, boats: 0, drawn: 0 }]);
     expect(engine.stats.firstFleetFrameMs).toBeNull();
   });
 

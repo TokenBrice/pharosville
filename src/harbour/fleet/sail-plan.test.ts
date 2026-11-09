@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hull2d, inscribedCircle, LOGO_R, planSails, ROLE_BAND, ROLE_BODY, ROLE_HEAD, ROLE_UPPER, type SailMeshIn } from "./sail-plan";
+import { hull2d, inscribedCircle, LOGO_R, planSails, printFill, ROLE_BAND, ROLE_BODY, ROLE_HEAD, ROLE_UPPER, type SailMeshIn } from "./sail-plan";
 
 /** A flat sail in the x-y plane from its outline corners (fan-triangulated), with the kit's emblem UV (u = x / s, v = -y / s). */
 function sail(name: string, pts: Array<[number, number]>, opts: { emblem?: number; color?: [number, number, number] } = {}): SailMeshIn {
@@ -29,13 +29,18 @@ describe("planSails", () => {
   const top = sail("sail_2", [[1, 7.5], [3, 7.5], [1, 11]]);
   const jib = sail("sail_jib", [[5, 1], [8, 1], [5, 8]]);
 
-  it("sizes the main roundel so the logo fills the sail's inscribed circle", () => {
-    const [m] = planSails([main]);
+  it("sizes the main roundel so the logo fills its class's share of the sail's inscribed circle (E04: inside its sail)", () => {
     const c = inscribedCircle(hull2d([[-4, 1], [0, 1], [0, 9]]))!;
+    // titans 0.92, large 0.88, medium 0.84, the smaller boats 0.80 (an unknown class too)
+    for (const [cls, fill] of [["flagship", 0.92], ["large", 0.88], ["medium", 0.84], ["small", 0.8], ["boat", 0.8], ["skiff", 0.8], ["", 0.8]] as const) {
+      expect(printFill(cls)).toBe(fill);
+      const [f] = planSails([main], printFill(cls));
+      expect(((0 - -4) / (f.emb[2] - f.emb[0])) * LOGO_R).toBeCloseTo(c.r * fill, 6);
+    }
+    const [m] = planSails([main], printFill("medium"));
     // emblem u = (x - cx) / D + 0.5 along +x: D from two corners
     const D = (0 - -4) / (m.emb[2] - m.emb[0]);
-    expect(D * LOGO_R).toBeGreaterThan(c.r * 0.85);
-    expect(D * LOGO_R).toBeLessThan(c.r);
+    expect(D * LOGO_R).toBeCloseTo(c.r * 0.84, 6);
     // the incircle centre maps to the emblem centre; v runs head → foot like the kit's
     const u = (c.x - -4) / D + m.emb[0];
     expect(u).toBeCloseTo(0.5, 3);
@@ -51,7 +56,11 @@ describe("planSails", () => {
   });
 
   it("puts a second, smaller roundel on the next lower sail and none on the jib or topsails", () => {
-    const out = planSails([main, fore, top, jib]);
+    const out = planSails([main, fore, top, jib], printFill("flagship"));
+    // the second roundel keeps its old proportion to the main's (0.85 / 0.97)
+    const Dm = (0 - -4) / (out[0].emb[2] - out[0].emb[0]), Df = (4 - 1) / (out[1].emb[2] - out[1].emb[0]);
+    const cm = inscribedCircle(hull2d([[-4, 1], [0, 1], [0, 9]]))!, cf = inscribedCircle(hull2d([[1, 1], [4, 1], [1, 7]]))!;
+    expect((Df / cf.r) / (Dm / cm.r)).toBeCloseTo(0.85 / 0.97, 6);
     expect(Array.from(out[1].emb).every((v) => v !== -1)).toBe(true);
     expect(Array.from(out[2].emb).every((v) => v === -1)).toBe(true);
     expect(Array.from(out[3].emb).every((v) => v === -1)).toBe(true);

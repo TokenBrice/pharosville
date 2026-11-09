@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { useSyncExternalStore } from "react";
+import type { Services } from "../engine/services";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { projectedFixtures, TRUTH_COIN_ID, TRUTH_NOW, upstreamFixtures, type UpstreamFixtures } from "../__fixtures__/projection";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
@@ -15,19 +17,23 @@ import { SidePanel } from "./Panel";
 import { readingCoverage, readingSentence } from "./source-state";
 import type { PickHit } from "./services";
 import type { UIState } from "./store";
+import { newLedgerContext, type LedgerContext } from "./ledger-state";
 
 const { state, services, store } = vi.hoisted(() => {
-  const state = { model: null as HarbourModel | null, selected: null as PickHit | null, hover: null as PickHit | null, ledgerOpen: true, chartMode: false, reducedMotion: true, tick: 0 };
-  const services = new Map<string, unknown>();
+  const state = { ledger: undefined as LedgerContext | undefined, model: null as HarbourModel | null, selected: null as PickHit | null, hover: null as PickHit | null, ledgerOpen: true, chartMode: false, reducedMotion: true, tick: 0 };
+  const services = new Map<string, unknown>() as Services;
+  const listeners = new Set<() => void>();
   return { state, services, store: {
+    subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
+    updateLedger: (patch: Partial<LedgerContext>) => { state.ledger = { ...state.ledger!, ...patch }; for (const fn of listeners) fn(); },
     ctx: { services }, getSnapshot: () => state, select: vi.fn(), set: vi.fn(), goHome: vi.fn(),
-    boat: (id: string) => state.model?.boats.find((b) => b.id === id), underWay: () => 0, boatsInZone: () => [],
+    holdHover: vi.fn(), boat: (id: string) => state.model?.boats.find((b) => b.id === id), underWay: () => 0, boatsInZone: () => [],
     whereaboutsOf: () => ({ kind: "moored", place: "Ethereum" }),
   } };
 });
 vi.mock("./hooks", () => ({
   useStore: () => store, useUI: () => state,
-  useUISlice: (select: (s: UIState) => unknown) => select(state as UIState),
+  useUISlice: (select: (s: UIState) => unknown) => useSyncExternalStore(store.subscribe, () => select(state as UIState)),
   usePresence: (open: boolean) => [open, open], useSticky: (value: unknown) => value,
   useFrame: () => {}, useFrameWrite: () => {}, touchFirst: () => false,
 }));
@@ -65,7 +71,7 @@ function parity(hit: PickHit, sentence: string) {
 }
 
 beforeEach(() => {
-  vi.useFakeTimers(); vi.setSystemTime(TRUTH_NOW); services.clear(); state.model = null; state.selected = null; state.hover = null;
+  window.innerWidth = 1600; state.ledger = newLedgerContext(); vi.useFakeTimers(); vi.setSystemTime(TRUTH_NOW); services.clear(); state.model = null; state.selected = null; state.hover = null;
   window.history.replaceState({}, "", "/?intro=0");
   vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
 });
@@ -95,7 +101,7 @@ describe("projected source sentences in hover, panel and ledger", () => {
     if (stateKind === "unknown") {
       panel({ kind: "boat", id: TRUTH_COIN_ID });
       expect(screen.getAllByText("Last received values").length).toBeGreaterThan(0);
-      expect(within(screen.getByRole("heading", { name: "Supply" }).closest("section")!).getByText("$1.00B")).toBeTruthy();
+      expect(within(screen.getByRole("heading", { name: "Supply (USD)" }).closest("section")!).getByText("$1.00B")).toBeTruthy();
     }
   });
 
@@ -174,7 +180,7 @@ describe("projected source sentences in hover, panel and ledger", () => {
     for (const key of ["stablecoins", "pegSummary", "stress", "safetyGrades", "mintBurn"] as const) expect(screen.getAllByText(readingSentence(state.model, key)).length).toBeGreaterThan(0);
     expect(screen.getByText("No peg reading is available for this coin.")).toBeTruthy();
     expect(screen.getByText("Last received grade: A.")).toBeTruthy();
-    expect(within(screen.getByRole("heading", { name: "Supply" }).closest("section")!).getByText("$1.00B")).toBeTruthy();
+    expect(within(screen.getByRole("heading", { name: "Supply (USD)" }).closest("section")!).getByText("$1.00B")).toBeTruthy();
   });
 
   it("an unverified PSI remains a labelled retained value", async () => {
@@ -182,7 +188,7 @@ describe("projected source sentences in hover, panel and ledger", () => {
     parity(landmark("pharos"), "PSI: unavailable. Source freshness is unverified.");
     panel(landmark("pharos"));
     expect(screen.getByText("Last received values")).toBeTruthy();
-    expect(screen.getByText("91.0")).toBeTruthy();
+    expect(screen.getAllByText("91.0")[0]).toBeTruthy();
   });
 
   it("one visible-disclosure clock advances source ages without rebuilding the model and stops on close", async () => {
@@ -270,5 +276,39 @@ describe("transport health remains independent from observation freshness", () =
     const saved = { data: { peggedAssets: [] }, meta: null, fetchedAtMs: TRUTH_NOW };
     expect(transportCopy({ stablecoins: { ...saved, failureStreak: 2, failureKind: "invalid-payload" } }, true)).toBe("A reading could not be used. Showing saved readings.");
     expect(transportCopy({ stablecoins: saved }, true)).toBe("");
+  });
+});
+
+
+describe("truth-review PSI provenance and comparisons", () => {
+  it.each(["pharos", "chartroom"])("dates %s's live score from its installed computedAt, not publication or a newer feed", async (id) => {
+    const feed = await setup((input) => {
+      input.stability._meta = { updatedAt: TRUTH_NOW / 1000, ageSeconds: 0, status: "fresh" };
+      Object.assign(input.stability.current as object, { score: 91, computedAt: TRUTH_NOW / 1000 - 3600 });
+    });
+    const snapshot = feed.payloads.stability!;
+    feed.payloads.stability = { ...snapshot, data: { ...snapshot.data!, current: { ...snapshot.data!.current!, score: 50, computedAt: TRUTH_NOW / 1000 - 1800 } } };
+    const ui = panel(landmark(id));
+    expect(ui.container.querySelector(".hb-chart-now title")?.textContent).toBe("Now · 91.0 · 2026-11-08 11:00:00 UTC");
+    fireEvent.click(screen.getByText("View values"));
+    expect(within(screen.getByRole("table")).getByRole("rowheader", { name: "Now · 2026-11-08 11:00:00" })).toBeTruthy();
+  });
+
+  it.each(["pharos", "chartroom"])("omits %s's now mark when the installed computedAt is absent", async (id) => {
+    await setup((input) => { delete (input.stability.current as Record<string, unknown>).computedAt; });
+    const ui = panel(landmark(id));
+    expect(ui.container.querySelector(".hb-chart-now")).toBeNull();
+    fireEvent.click(screen.getByText("View values"));
+    expect(within(screen.getByRole("table")).queryByRole("rowheader", { name: /^Now/ })).toBeNull();
+  });
+
+  it.each(["pharos", "chartroom"])("withholds %s's range across methodology versions", async (id) => {
+    await setup((input) => { input.stability.history = [
+      { date: TRUTH_NOW / 1000 - 86400, score: 90, methodologyVersion: "v1" },
+      { date: TRUTH_NOW / 1000, score: 40, methodologyVersion: "v2" },
+    ]; });
+    const ui = panel(landmark(id));
+    const range = within(ui.container).getByText("Observation range").nextElementSibling;
+    expect(range?.textContent).toBe("Comparison unavailable across methodology versions.");
   });
 });

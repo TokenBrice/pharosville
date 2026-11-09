@@ -6,6 +6,7 @@
  * composition is browser-only.
  */
 import type { HarbourModel } from "../model/types";
+import { presentationCopy, type PresentationStatus } from "./presentation";
 import { truthState } from "./bits";
 import { age, titleCase } from "./format";
 
@@ -13,7 +14,7 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /** `hour`: the scene's local hour (decimal), the time the picture shows. */
-export function postcardCaption(model: HarbourModel | null, hour: number, nowMs: number): { title: string; fresh: string; stale: boolean; file: string } {
+export function postcardCaption(model: HarbourModel | null, hour: number, nowMs: number, presentation?: PresentationStatus): { title: string; fresh: string; stale: boolean; file: string } {
   const d = new Date(nowMs);
   const mins = Math.floor((((hour % 24) + 24) % 24) * 60 + 1e-6);
   const h = Math.floor(mins / 60) % 24, m = mins % 60;
@@ -32,6 +33,8 @@ export function postcardCaption(model: HarbourModel | null, hour: number, nowMs:
     const asOf = new Date(nowMs - (sc?.ageSec ?? 0) * 1000);
     fresh = `Readings as of ${pad(asOf.getUTCHours())}:${pad(asOf.getUTCMinutes())} UTC`;
   }
+  const display = presentationCopy(presentation);
+  if (display) fresh += ` ${display}`;
   const file = `pharosville-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(h)}${pad(m)}.png`;
   return { title, fresh, stale: t.state !== "current" || !!psi?.stale, file };
 }
@@ -50,6 +53,16 @@ function deckle(ctx: CanvasRenderingContext2D, w: number, h: number, amp: number
   ctx.closePath();
 }
 
+/**
+ * The print's inks and serif: the overlay's chart tokens (harbour-ui.css), read as the card is composed, so the
+ * print and the chrome share one palette and one family (EB Garamond, declared once in arrival-shell.css).
+ */
+function printInks() {
+  const s = getComputedStyle(document.querySelector(".hb-ui") ?? document.documentElement);
+  const v = (name: string) => s.getPropertyValue(name).trim();
+  return { paper: v("--paper"), sheenHi: v("--sheen-hi"), sheenLo: v("--sheen-lo"), rule: v("--rule"), ink: v("--ink"), note: v("--ink-3"), stale: v("--stale-ink"), serif: v("--serif") };
+}
+
 /** Compose the print around a captured frame. */
 export async function composePostcard(frame: HTMLCanvasElement, cap: { title: string; fresh: string; stale: boolean }): Promise<HTMLCanvasElement> {
   const w = frame.width, h = frame.height;
@@ -57,32 +70,32 @@ export async function composePostcard(frame: HTMLCanvasElement, cap: { title: st
   const k = Math.max(1, w / 1600);
   const titlePx = Math.round(Math.max(15, 22 * k)), freshPx = Math.round(Math.max(12, 16 * k));
   const foot = Math.round(m * 0.9 + titlePx * 1.5 + freshPx * 1.6);
+  const ink = printInks();
   const out = document.createElement("canvas");
   out.width = w + m * 2; out.height = h + m + foot;
   const c = out.getContext("2d")!;
   // paper (deckle edge on a transparent ground)
   deckle(c, out.width, out.height, Math.max(2, 3 * k));
-  c.fillStyle = "#f3ead5";
+  c.fillStyle = ink.paper;
   c.fill();
   const g = c.createRadialGradient(out.width / 2, out.height * 0.45, 0, out.width / 2, out.height * 0.45, out.width * 0.7);
-  g.addColorStop(0, "rgba(255,252,240,0.5)"); g.addColorStop(1, "rgba(150,118,64,0.12)");
+  g.addColorStop(0, ink.sheenHi); g.addColorStop(1, ink.sheenLo);
   c.fillStyle = g;
   c.fill();
   c.drawImage(frame, m, m);
   // hairline brass frame, standing just off the picture
   const off = Math.round(5 * k);
-  c.strokeStyle = "#a68242"; c.lineWidth = Math.max(1, k);
+  c.strokeStyle = ink.rule; c.lineWidth = Math.max(1, k);
   c.strokeRect(m - off + 0.5, m - off + 0.5, w + off * 2 - 1, h + off * 2 - 1);
-  // caption, in the wordmark serif
-  const serif = '"Harbour Garamond", "EB Garamond", "Iowan Old Style", Palatino, Georgia, serif';
-  try { await document.fonts?.load(`${titlePx}px "Harbour Garamond"`); } catch { /* the fallback serif will do */ }
+  // caption, in the wordmark serif (roman title, italic freshness line)
+  try { await Promise.all([document.fonts?.load(`${titlePx}px ${ink.serif}`), document.fonts?.load(`italic ${freshPx}px ${ink.serif}`)]); } catch { /* the fallback serif will do */ }
   c.textAlign = "center"; c.textBaseline = "alphabetic";
-  c.fillStyle = "#23201a";
-  c.font = `${titlePx}px ${serif}`;
+  c.fillStyle = ink.ink;
+  c.font = `${titlePx}px ${ink.serif}`;
   const ty = m + h + off + Math.round(m * 0.55) + titlePx;
   c.fillText(cap.title, out.width / 2, ty, w);
-  c.fillStyle = cap.stale ? "#8a4b22" : "#5c5446";
-  c.font = `italic ${freshPx}px ${serif}`;
+  c.fillStyle = cap.stale ? ink.stale : ink.note;
+  c.font = `italic ${freshPx}px ${ink.serif}`;
   c.fillText(cap.fresh, out.width / 2, ty + Math.round(freshPx * 1.5), w);
   return out;
 }

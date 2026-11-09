@@ -97,16 +97,20 @@ void main() {
   // fades: the coast (lettering never prints on the beach), the far haze
   a *= smoothstep(1.5, 7.0, vCoast);
   a *= 1.0 - smoothstep(1500.0, 2300.0, length(vWorld.xz - uCameraPos.xz));
-  // printed ink, unevenly taken by the water
+  // printed ink, unevenly taken by the water. Through dawn, the golden hour and sunset it stays a thinner dark print;
+  // it turns to the night's faint silver only after sunset (with the overlay's night chart, uNight ~ .5), so on the
+  // deepening evening sea the name sits in the water instead of glowing
   float grain = 0.88 + 0.12 * sin(vWorld.x * 0.9 + sin(vWorld.z * 0.7) * 2.0);
-  float dens = mix(0.86, 0.13, uNight) * grain;
-  vec3 ink = mix(uInkDay, uInkNight, uNight);
+  float silver = smoothstep(0.5, 0.65, uNight);
+  float dens = mix(mix(0.86, 0.55, smoothstep(0.0, 0.15, uNight)), 0.13, silver) * grain;
+  vec3 ink = mix(uInkDay, uInkNight, silver);
   // night: a faint silvery shimmer as if moonlit
   ink *= 1.0 + uNight * 0.1 * sin(uTime * 0.8 + vWorld.x * 0.05 + vWorld.z * 0.04);
   // two passes over the same quads: every halo first, then every letter, so no wash lands on a neighbour's ink
 #ifdef HALO_PASS
   if (vRule > 0.5) discard;
-  gl_FragColor = vec4(uHaloCol, halo * uHalo * (1.0 - uNight) * vA);
+  // the pale knock-out belongs to bright water: it is gone by sunset
+  gl_FragColor = vec4(uHaloCol, halo * uHalo * (1.0 - smoothstep(0.0, 0.12, uNight)) * vA);
 #else
   gl_FragColor = vec4(ink, a * dens * vA);
 #endif
@@ -193,7 +197,8 @@ export class ChartLettering {
         uInkDay: { value: new THREE.Color("#0B2233") },
         uInkNight: { value: new THREE.Color("#93A7C2") },
         uHaloCol: { value: new THREE.Color("#CFE3DF") },
-        uHalo: { value: 0.12 },
+        // a faint knock-out: on the deeper day sea a stronger wash reads as a pale rim round the print
+        uHalo: { value: 0.04 },
       },
       transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide,
       // far off and grazing, the swell's own crests would nibble the print: a little depth bias (hulls still occlude)

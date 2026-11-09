@@ -1,3 +1,4 @@
+import { datedObservations, validObservationDate } from "../../shared/lib/dated-observations";
 import { RUNTIME_ACTIVE_IDS } from "../../shared/lib/stablecoins/runtime-registry";
 import type { PharosVilleApiEndpointKey } from "../../shared/types/pharosville-endpoint-keys";
 
@@ -49,9 +50,9 @@ function projectStability(payload: ProjectionJson): ProjectionJson {
     if (Object.hasOwn(current, "inputDegradation")) projected.inputDegradation = pick(current.inputDegradation, ["dewsUnavailable", "depegEventsUnavailable"]);
     out.current = projected;
   }
-  // Exactly Panel's finite-score filter, ascending stable date sort and tail.
-  out.history = payload.history.filter((row): row is JsonObject => row !== null && typeof row === "object" && !Array.isArray(row) && Number.isFinite(row.score) && Number.isFinite(row.date) && Number(row.date) >= 0)
-    .sort((a, b) => Number(a.date) - Number(b.date)).slice(-30).map((row) => pick(row, ["date", "score", "methodologyVersion"]));
+  // Validate and resolve duplicate dates before the bounded tail, matching the plotted observations.
+  const history = payload.history.filter((row): row is JsonObject & { date: number } => row !== null && typeof row === "object" && !Array.isArray(row) && validObservationDate(row.date));
+  out.history = datedObservations(history).filter((row) => Number.isFinite(row.score)).slice(-30).map((row) => pick(row, ["date", "score", "methodologyVersion"]));
   return out;
 }
 

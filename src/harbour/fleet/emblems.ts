@@ -10,6 +10,8 @@ import { isAbort } from "../engine/failure";
  *
  * `load` reads only the slot map. Until `loadLogos` completes, logo slots show a plain brand-colour
  * roundel (a monogram if neither image loads). Installed monograms repaint only when their inputs change.
+ * E04 (O5-I6): a coin without a logo carries sail lettering, not a brand-colour disc: its slot (from `letterSlot` on)
+ * holds the letters alone as an alpha mask, inked by the shaders from the cloth they are printed on.
  */
 export const EMBLEMS_JSON = "/harbour/emblems.json";
 export const EMBLEMS_IMG = "/harbour/emblems.avif";
@@ -142,6 +144,9 @@ export class EmblemAtlas {
     }
   }
 
+  /** The first monogram slot: marks from here on are lettering (an alpha mask), not printed logos. */
+  get letterSlot(): number { return this.logoSlots; }
+
   /** Slot for a coin: its logo, or a monogram drawn on first request. -1 when the atlas is full. */
   slotFor(c: EmblemCoin): number {
     const hit = this.slots.get(c.id);
@@ -152,7 +157,7 @@ export class EmblemAtlas {
       if (!old || old.symbol !== c.symbol || old.brandColor !== c.brandColor) {
         if (hit >= this.rows * this.meta.cols) this.grow(Math.floor(hit / this.meta.cols) + 2);
         this.roundels.set(hit, { ...c });
-        this.drawRoundel(hit, c, !logo || this.logos === "done");
+        if (logo) this.drawRoundel(hit, c, this.logos === "done"); else this.drawLetters(hit, c);
         this.invalidate();
       }
       return hit;
@@ -160,7 +165,7 @@ export class EmblemAtlas {
     if (this.nextFree >= this.capacity) return -1;
     const s = this.nextFree++;
     if (s >= this.rows * this.meta.cols) this.grow(Math.floor(s / this.meta.cols) + 2);
-    this.drawRoundel(s, c, true);
+    this.drawLetters(s, c);
     this.slots.set(c.id, s);
     this.roundels.set(s, { ...c });
     this.invalidate();
@@ -209,6 +214,26 @@ export class EmblemAtlas {
     g.textAlign = "center"; g.textBaseline = "middle";
     g.font = `700 ${Math.round(S * size)}px Georgia, "Times New Roman", serif`;
     g.fillText(letters, cx, cy + S * 0.025, S * 0.66);
+    g.restore();
+  }
+
+  /**
+   * E04 (O5-I6): a monogram as sail lettering: the letters alone, white on a clear tile (an alpha mask), a little
+   * larger than they sat on the old disc. Shaders ink them from the cloth: cream on dark cloth, a deep shade of it on
+   * light. The symbol is the coin's identity; the brand colour stays on her cloth and flag.
+   */
+  private drawLetters(slot: number, c: EmblemCoin): void {
+    this.painted = true;
+    const S = this.meta.slot, g = this.g;
+    const x0 = (slot % this.meta.cols) * S, y0 = Math.floor(slot / this.meta.cols) * S;
+    const letters = monogram(c.symbol || c.id);
+    const size = letters.length <= 1 ? 0.56 : letters.length === 2 ? 0.46 : letters.length === 3 ? 0.35 : 0.28;
+    g.save();
+    g.clearRect(x0, y0, S, S);
+    g.fillStyle = "#FFFFFF";
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.font = `700 ${Math.round(S * size)}px Georgia, "Times New Roman", serif`;
+    g.fillText(letters, x0 + S / 2, y0 + S / 2 + S * 0.025, S * 0.78);
     g.restore();
   }
 

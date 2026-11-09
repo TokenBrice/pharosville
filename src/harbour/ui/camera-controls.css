@@ -1,0 +1,3 @@
+/* "Choose a ship": a section-captioned list of rows and the family's Cancel (harbour-ui.css), over the veil */
+.hb-ship-chooser.hb-paper { pointer-events: auto; position: fixed; margin: auto; padding: var(--s5) var(--s6); width: min(100vw - 28px, 22em); color: var(--ink); }
+.hb-ship-chooser .hb-control { margin-top: var(--s3); }

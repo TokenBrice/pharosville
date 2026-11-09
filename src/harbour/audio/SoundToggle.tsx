@@ -17,6 +17,7 @@ export function SoundToggle() {
   const store = useStore();
   const ctl = useMemo(() => getSoundController(store.ctx), [store]);
   const mode = useSyncExternalStore(ctl.subscribe, () => ctl.mode, () => "off" as SoundMode);
+  const reduced = useSyncExternalStore(store.motion.subscribe, () => store.motion.reduced);
   const [open, setOpen] = useState(false);
   const [reading, setReading] = useState(false);
   const btn = useRef<HTMLButtonElement>(null), caret = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
@@ -42,9 +43,9 @@ export function SoundToggle() {
 
   const close = (refocus: boolean) => { setOpen(false); if (refocus) caret.current?.focus(); };
   const onMenuKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"], [role="menuitem"]') ?? [])];
+    const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"], [role="menuitem"], input') ?? [])];
     const i = items.indexOf(document.activeElement as HTMLElement);
-    const go = (k: number) => { e.preventDefault(); items[(k + items.length) % items.length]?.focus(); };
+    const go = (k: number) => { e.preventDefault(); e.stopPropagation(); items[(k + items.length) % items.length]?.focus(); };
     if (e.key === "ArrowDown") go(i + 1);
     else if (e.key === "ArrowUp") go(i - 1);
     else if (e.key === "Home") go(0);
@@ -92,6 +93,7 @@ export function SoundToggle() {
             aria-describedby={reading ? "hb-sound-reading" : undefined} onClick={() => setReading((r) => !r)}>
             How to read the sounds
           </button>
+          {reduced && <p className="hb-sound-reading">Motion is still. Readings continue to update.</p>}
           {reading && <p id="hb-sound-reading" className="hb-sound-reading">{BY_EAR}</p>}
         </div>
       )}
