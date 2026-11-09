@@ -13,6 +13,7 @@ import { FLAME_VERT, FLAME_FRAG, EMBER_VERT, EMBER_FRAG, GLOW_VERT, GLOW_FRAG, P
 import { BACKDROP_VERT, BACKDROP_FRAG, BAND_FRAG } from "../sky/sky-system";
 import { DitherEffect, SCRUB_FRAG } from "./post";
 import { chainedKitMaterial, posedDepthMaterial } from "../life/figure-kit";
+import { CONTACT_FRAG, CONTACT_VERT } from "../world/contact-shadows";
 
 export type GeometryMode = "static" | "instanced" | "batched";
 export interface ShaderRecipe {
@@ -98,6 +99,7 @@ export function visitShaderRecipes(visit: (recipe: ShaderRecipe) => void): void 
       ["flame", FLAME_VERT, FLAME_FRAG], ["ember", EMBER_VERT, EMBER_FRAG], ["glow", GLOW_VERT, GLOW_FRAG], ["plume", PLUME_VERT, PLUME_FRAG],
     ]) raw(`beam/${name}`, vertex, fragment);
     raw("sky/dome", BACKDROP_VERT, BACKDROP_FRAG); raw("sky/band", FULLSCREEN_VERT, BAND_FRAG);
+    raw("world/contact-shadows", CONTACT_VERT, CONTACT_FRAG);
     raw("post/scrub", "varying vec2 vUv; void main() { vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 1.0, 1.0); }", SCRUB_FRAG);
     const camera = new THREE.PerspectiveCamera();
     const beam = new BeamSystem() as unknown as { U: Record<string, THREE.Uniform>; SH: Record<string, THREE.Uniform> };

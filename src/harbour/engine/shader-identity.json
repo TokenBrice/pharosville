@@ -1261,9 +1261,9 @@
   },
   "fleet/batched/depth": {
     "vertex": "3fa9bcbe8f147dffee920b4527ede70266e4bdcf70c0acf6c0639c4b5bf658e5",
-    "fragment": "08541d654d77b3adda45a3efa4bae66f2dd1b8c34fd0bfc65c2c192444891b77",
+    "fragment": "bc6af215463c8ca77e86027c7e1c3866827a78e73d0ae9bba814cc6e3de8597d",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-    "cacheKey": "hb_fleet_depth_v5"
+    "cacheKey": "hb_fleet_depth_v6"
   },
   "world/window": {
     "vertex": "898d3313170de2e5f8652a391108f01c10f81edb62612447412e29d01615749d",
@@ -1297,9 +1297,9 @@
   },
   "life/depth": {
     "vertex": "62a872d5bf70ac56c2f5e833bbfbfa4433a717a98f6deb62b3b574b054bd7a3f",
-    "fragment": "08541d654d77b3adda45a3efa4bae66f2dd1b8c34fd0bfc65c2c192444891b77",
+    "fragment": "838c7dd3a9e67cc3a9a8a7aca441483c288b88e87de3efad537d6ba1b0da5664",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-    "cacheKey": "hb_life_depth_identity"
+    "cacheKey": "hb_life_depth_v2_identity"
   },
   "fleet/flags": {
     "vertex": "1666d2ce7909e6380b536951d8df52823f4505a48a3a84ccfa647f48cdb4717a",
@@ -1370,6 +1370,12 @@
   "sky/band": {
     "vertex": "9ab5768fc1c4c41da8e062d0edf15bc8f1a361e6b23c98ca5699b1c98c07f376",
     "fragment": "278b801c3aba868d8e24cb9247bf86aae62297efd63fb408ee20e650e0f2f51a",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "world/contact-shadows": {
+    "vertex": "8d249cad1c742840c5c11da863729a62ec2517afa07a76a64672eeca93503fcc",
+    "fragment": "f963931960f21edf8aa5851d08a7322fdac24c1efd468d576ea3bfb53768db47",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
   },

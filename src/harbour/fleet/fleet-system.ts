@@ -33,6 +33,7 @@ import { titanFor } from "./titans";
 import { DECK, flagPigment, linear, liveryFor, sailDye, TOPSIDE, TRIM } from "./livery";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { fleetShadowFrustum, rigRadius } from "./visibility";
+import { castFadeUniforms, contactShare } from "../world/shadow-casters";
 
 /**
  * FleetSystem: every stablecoin's hull, in ONE BatchedMesh multi-draw (+ its shadow pass), consuming
@@ -288,6 +289,8 @@ export class FleetSystem implements WorldSystem {
   private logosAsked = false;
   private tier: FleetTier = FLEET_TIERS.high;
   private unsubQuality: (() => void) | null = null;
+  /** E05: the hulls are a dynamic caster (world/shadow-casters.ts) while they cast */
+  private unregisterCaster: (() => void) | null = null;
   /** 0 fair … 1 full storm (DEWS ALERT+), eased; drives pitch/roll, heel and line snubbing. */
   private storm = 0;
   /** The fleet's decorative clock (s) and motion level (1 full … 0 reduced): reduced motion freezes every sway in place. */
@@ -403,6 +406,7 @@ export class FleetSystem implements WorldSystem {
     this.mesh = mesh;
     this.ensureData(maxInstances);
     ctx.scene.add(mesh);
+    this.unregisterCaster = ctx.services.get("sun")?.casters.dynamic(mesh) ?? null;
   }
 
   private ensureData(maxInstances: number): void {
@@ -1055,8 +1059,12 @@ export class FleetSystem implements WorldSystem {
     const contactK = contactStrength(storm);
     const ground = ctx.services.get("ground");
     const mesh = this.mesh;
+    // E05: nearer than the tier's limit the hulls cast; from FADE_FROM× it their depth thins and contact quads take over
+    const handover = contactShare(ctx.rig.distance, tier.shadowDist);
     mesh.castShadow = ctx.rig.distance < tier.shadowDist;
+    castFadeUniforms.uHbFleetFade.value = handover;
     const sun = ctx.services.get("sun");
+    const contacts = handover > 0 ? sun?.contacts : undefined;
     const shadowFrustum = mesh.castShadow && sun ? fleetShadowFrustum(sun.key) : null;
 
     const st = this.stats;
@@ -1166,6 +1174,7 @@ export class FleetSystem implements WorldSystem {
       this.sphere.center.set(x, cy, z); this.sphere.radius = Math.max(b.loa * 0.55, b.top * 0.55);
       b.cx = x; b.cy = cy; b.cz = z; b.r = this.sphere.radius;
       b.visible = poseHull && this.frustum.intersectsSphere(this.sphere);
+      if (contacts && b.visible && !b.wrecked && !onWays) contacts.hull(x, h0, z, h, b.loa * 0.42, b.beam * 0.42, b.variant.bowCleat.y * b.scale, handover);
       if (poseHull !== b.posed) { mesh.setVisibleAt(b.inst, poseHull); b.posed = poseHull; }
       if (poseHull) {
         posed++;
@@ -1750,6 +1759,7 @@ export class FleetSystem implements WorldSystem {
     this.rigRadii.clear();
     this.debug?.remove();
     this.unsubQuality?.(); this.unsubQuality = null;
+    this.unregisterCaster?.(); this.unregisterCaster = null;
     ctx.services.delete("picking");
     ctx.services.delete("fleet-frame");
     ctx.services.delete("fleet-preparation");

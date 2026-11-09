@@ -6,6 +6,7 @@ import type { EngineContext, FrameState } from "../engine/types";
 import { PH_DOCKED, PH_SAILING } from "../sim/sim";
 import { FleetSystem } from "./fleet-system";
 import { fleetShadowFrustum, rigRadius } from "./visibility";
+import { castFadeUniforms, FADE_FROM } from "../world/shadow-casters";
 
 const frame: FrameState = { delta: 1 / 60, elapsed: 2, nowMs: 0 };
 
@@ -203,5 +204,51 @@ describe("fleet-frame submission evidence", () => {
     Object.assign(f.system, { uploadData: () => { throw new Error("upload failed"); } });
     expect(() => f.system.update(frame, f.context)).toThrow("upload failed");
     expect(f.context.services.has("fleet-frame")).toBe(false);
+  });
+});
+
+describe("E05 fleet shadow handover", () => {
+  /** A visible docked hull, the fleet's own zoom gate, and the sun rig's contact quads. */
+  function handover(distance: number, wrecked = false) {
+    const f = fixture(true);
+    const hull = vi.fn();
+    Object.assign(f.sun, { contacts: { hull } });
+    Object.assign(f.boat, { variant: { bowCleat: new THREE.Vector3(4, 1.4, 0) }, wrecked, dead: wrecked });
+    f.camera.position.set(1000000, 50, 100); f.camera.lookAt(1000000, 0, 0); f.camera.updateMatrixWorld(true);
+    (f.context.rig as { distance: number }).distance = distance;
+    f.system.update(frame, f.context);
+    return { ...f, hull };
+  }
+
+  it("leaves no step at the 640 m limit: 639 m casts a fully thinned depth and its contact quads are already whole", () => {
+    const near = handover(639), far = handover(641);
+    expect(near.mesh.castShadow).toBe(true);
+    const nearFade = castFadeUniforms.uHbFleetFade.value;
+    expect(far.mesh.castShadow).toBe(false);
+    expect(castFadeUniforms.uHbFleetFade.value).toBe(1);
+    expect(nearFade).toBeGreaterThan(0.999);
+    expect(near.hull).toHaveBeenCalledTimes(1);
+    expect(far.hull).toHaveBeenCalledTimes(1);
+    const [x, , z, heading, halfLength, halfBeam, height, share] = near.hull.mock.calls[0];
+    expect([x, z, heading]).toEqual([1000000, 0, 0]);
+    expect([halfLength, halfBeam, height]).toEqual([10 * 0.42, 2 * 0.42, 1.4]);
+    expect(share).toBeGreaterThan(0.999);
+    expect(far.hull.mock.calls[0][7]).toBe(1);
+  });
+
+  it("casts whole depth shadows nearer than the band and no contact quads there", () => {
+    const f = handover(FADE_FROM * 640 - 1);
+    expect(f.mesh.castShadow).toBe(true);
+    expect(castFadeUniforms.uHbFleetFade.value).toBe(0);
+    expect(f.hull).not.toHaveBeenCalled();
+  });
+
+  it("hands a hull over gradually inside the band, and never a wreck on the strand", () => {
+    const mid = handover(600);
+    expect(mid.mesh.castShadow).toBe(true);
+    const fade = castFadeUniforms.uHbFleetFade.value;
+    expect(fade).toBeGreaterThan(0.2); expect(fade).toBeLessThan(0.9);
+    expect(mid.hull.mock.calls[0][7]).toBeCloseTo(fade, 9);
+    expect(handover(700, true).hull).not.toHaveBeenCalled();
   });
 });
