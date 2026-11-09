@@ -14,7 +14,7 @@ import type { CoastGrid } from "./obstacles";
 import { buildSimLayout } from "./layout-graph";
 import { buildPlan, seedLegTimes } from "./plan";
 import { seedOutings } from "./outings";
-import { buildPlanLegPath, pathKey, planPathRequests } from "./plan-paths";
+import { buildPlanLegPath, pathKey, planPathRequests, reservePlanHolds } from "./plan-paths";
 import { HarbourSim, PH_SAILING } from "./sim";
 import { makePayloads, T0_MS } from "./test-fixtures";
 
@@ -25,6 +25,7 @@ import {buildSimLayout} from './src/harbour/sim/layout-graph.ts';
 import {buildPlan,seedLegTimes} from './src/harbour/sim/plan.ts';
 import {seedOutings} from './src/harbour/sim/outings.ts';
 import {buildPlanLegPath,planPathRequests} from './src/harbour/sim/plan-paths.ts';
+import * as pathApi from './src/harbour/sim/plan-paths.ts';
 import {legTiming,newLegTiming,HOLD_OUT_MAX,HOLD_IN_MAX} from './src/harbour/sim/path.ts';
 export function prepare(model,layout,coast,seeds,nowMs) {
   const L=buildSimLayout(layout,coast), base=L.slots.length;
@@ -33,14 +34,18 @@ export function prepare(model,layout,coast,seeds,nowMs) {
   const plan=buildPlan(model,L),plannerMs=performance.now()-warmAt;
   const sailing=plan.boats.filter((_,i)=>model.boats[i].state!=='shoals'&&model.boats[i].state!=='wrecked');
   const requests=planPathRequests(sailing,nowMs,()=>false);
-  let bad=0,paths=0;const built=new Map();
+  let bad=0,paths=0;const built=new Map(),preparedPaths=[];
   for(const r of [...requests.now,...requests.soon]) {
     const [from,to]=r;
     const result=buildPlanLegPath(L,base,...r);
+    preparedPaths.push([pathApi.pathKey(...r),result.path,result.bad]);
     if(model.exactAudit) built.set([r[0],r[1],r[2],r[3],r[4],r[5]].join('>'),result);
     if(result.bad&&from!==to) bad++;
     paths++;
   }
+  // Old immutable baselines predate reserved holds; include their cost in the current arm.
+  const reserve=Reflect.get(pathApi,'reservePlanHolds');
+  if(reserve) { reserve(L,sailing,preparedPaths); structuredClone(sailing.filter(p=>p.kind==='circuit')); }
   let exactMs=0,exactPaths=0,exactCachedPaths=0,maxDockDrift=0,worst='',auditedBoats=0;
   if (model.exactAudit) {
     const at=performance.now(),timings=new Map();
@@ -127,9 +132,11 @@ it.runIf(process.env.HARBOUR_PREP_BENCH === "1")("compares seeded cold worker pr
   const L = buildSimLayout(layout, coast), base = L.slots.length;
   seedLegTimes(L, seeds.legs); seedOutings(L, seeds.outings);
   const plan = buildPlan(model, L), req = planPathRequests(plan.boats, T0_MS, () => false);
-  const prepared = { plan: { key: plan.key, boats: plan.boats, stats: plan.stats }, rafts: L.slots.slice(base), paths: [...req.now, ...req.soon].map((r): [string, ReturnType<typeof buildPlanLegPath>["path"], boolean] => {
+  const pathsPrepared = [...req.now, ...req.soon].map((r): [string, ReturnType<typeof buildPlanLegPath>["path"], boolean] => {
     const result = buildPlanLegPath(L, base, ...r); return [pathKey(...r), result.path, result.bad];
-  }) };
+  });
+  const holds = reservePlanHolds(L, plan.boats, pathsPrepared);
+  const prepared = { plan: { key: plan.key, boats: plan.boats, stats: plan.stats }, rafts: L.slots.slice(base), paths: pathsPrepared, holds };
   const sim = new HarbourSim(buildHarbourModel({}, T0_MS), layout, T0_MS, coast);
   sim.seedLegTimes(seeds.legs); sim.seedOutings(seeds.outings);
   sim.setModel(model, T0_MS, structuredClone(prepared)); sim.poseAt(T0_MS);

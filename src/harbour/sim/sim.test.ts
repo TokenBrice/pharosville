@@ -503,6 +503,7 @@ describe("prepared plans and held poses", () => {
     const { path } = buildPlanLegPath(sim.layout, base, from, to, cls, 0, loa, beam);
     const key = pathKey(from, to, cls, 0, loa, beam), scenic = pathKey(from, to, cls, 1, loa, beam), raft = pathKey(base, to, cls, 0, loa, beam);
     sim.seedPaths(sim.plan, [[key, path, true], [scenic, path, false], [raft, path, false]]);
+    expect(sim.knownPlainPaths()).not.toContain(key);
     sim.setModel(buildHarbourModel(makePayloads({ n: 300 }), T0_MS, opts), T0_MS);
     // Test-only access to verify cache object identity, not just numerically equal routes.
     const internals = sim as unknown as { pathCache: Map<string, PathRec>; badOuting: Set<string> };

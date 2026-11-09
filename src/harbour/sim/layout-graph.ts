@@ -790,6 +790,8 @@ function laneSegments(L: SimLayout): Float64Array {
   return segs;
 }
 
+export class AnchorageUnavailable extends Error {}
+
 /**
  * Overflow raft slot k for `where`: hulls lie rafted side by side, six to a raft, bows to the wind, in
  * open water near the harbour's gate but clear of every lane, structure, still hull and other raft.
@@ -866,13 +868,13 @@ export function addRaftSlot(L: SimLayout, where: string, k: number, loa = L.loa.
       if (fits(qx, qz, laneM)) { px = qx; pz = qz; break; }
     }
   }
-  // last resort: any open water the gate can see (still clear of other rafts), else the gate itself
+  // Last resort relaxes lane distance, never clearance from berths or other rafts.
   for (let i = 0; i < 6000 && !Number.isFinite(px); i++) {
     const a = i * 2.399963, r = 20 + 4 * Math.sqrt(i);
     const qx = nx + Math.cos(a) * r, qz = nz + Math.sin(a) * r;
-    if (L.hard(qx, qz) >= cellL / 2 + 2 && !others.some((o) => hypot(o.x - qx, o.z - qz) < cellB * 0.95) && seen(qx, qz)) { px = qx; pz = qz; }
+    if (fits(qx, qz, -Infinity)) { px = qx; pz = qz; }
   }
-  if (!Number.isFinite(px)) { px = nx; pz = nz; }
+  if (!Number.isFinite(px)) throw new AnchorageUnavailable(`No clear overflow anchorage at ${where}`);
   const slot: Slot = {
     index: L.slots.length, id: `${where}/raft/${k + 1}`, where, cls: "large", kind: "raft", x: px, z: pz, heading: h, swing: 0,
     inNode: node, outNode: g ? g.outNode : node, approach: [[nx, nz], [px - fx * cellL * 1.6, pz - fz * cellL * 1.6], [px, pz]], astern: false,

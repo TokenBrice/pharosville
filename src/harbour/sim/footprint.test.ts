@@ -59,3 +59,34 @@ it("shares static raft clearance answers without changing placements as neighbou
   }
   expect(memo.size).toBeGreaterThan(0);
 });
+
+it("reserves different holding water for boats sharing a rejected leg, outside every berth and raft", async () => {
+  const { buildHarbourModel } = await import("../model/build");
+  const { buildPlan } = await import("./plan");
+  const { buildPlanLegPath, reservePlanHolds } = await import("./plan-paths");
+  const { makePayloads, PIERED, T0_MS } = await import("./test-fixtures");
+  const L = buildSimLayout(makeLayout({ berthsPerClass: 1 }));
+  const plan = buildPlan(buildHarbourModel(makePayloads({ n: 2 }), T0_MS, { pieredChains: PIERED, dead: [] }), L);
+  const p = plan.boats[0], twin = { ...p, id: "twin" }, seg = 1;
+  const key = pathKey(p.segFrom[seg], p.segSlot[seg], p.cls, p.segLoop[seg], p.loa, p.beam);
+  const path = buildPlanLegPath(L, L.slots.length, p.segFrom[seg], p.segSlot[seg], p.cls, p.segLoop[seg], p.loa, p.beam).path;
+  const holds = reservePlanHolds(L, [p, twin], [[key, path, true]]);
+  expect(holds).toHaveLength(2);
+  expect(holds[0][1].index).not.toBe(holds[1][1].index);
+  for (const [, hold] of holds) for (const other of L.slots) {
+    if (hold === other || other.kind === "wreck") continue;
+    const beam = other.beam ?? slotFootprint(other.cls, L).beam;
+    expect(Math.hypot(hold.x - other.x, hold.z - other.z)).toBeGreaterThan((hold.beam! + beam) / 2);
+  }
+  const count = L.slots.length;
+  expect(reservePlanHolds(L, [p, twin], [[key, path, true]])).toEqual(holds);
+  expect(L.slots).toHaveLength(count);
+});
+
+it("refuses an overflow slot when every search candidate is obstructed", async () => {
+  const { addRaftSlot } = await import("./layout-graph");
+  const L = buildSimLayout(makeLayout({ berthsPerClass: 1 })), count = L.slots.length;
+  L.hard = () => -10;
+  expect(() => addRaftSlot(L, "pier-ethereum", 0)).toThrow("No clear overflow anchorage");
+  expect(L.slots).toHaveLength(count);
+});

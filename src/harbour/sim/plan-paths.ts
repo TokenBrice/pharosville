@@ -1,5 +1,5 @@
 import type { HullClass } from "../layout/types";
-import type { SimLayout, Slot } from "./layout-graph";
+import { addRaftSlot, AnchorageUnavailable, type SimLayout, type Slot } from "./layout-graph";
 import { clearance, hullClearance } from "./obstacles";
 import { buildOutingPath, buildScenicPath, scenicClearOf } from "./outings";
 import type { PathRec } from "./path";
@@ -19,6 +19,29 @@ export interface PreparedPlan {
   plan: PlanData;
   rafts: Slot[];
   paths: Array<[string, PathRec, boolean]>;
+  holds?: Array<[string, Slot]>;
+}
+
+/** A rejected circuit outlives its berth window: reserve exclusive water, never its old berth. */
+export function reservePlanHolds(L: SimLayout, plans: Iterable<BoatPlan>, paths: ReadonlyArray<[string, PathRec, boolean]>): Array<[string, Slot]> {
+  const bad = new Set(paths.filter(([, , bad]) => bad).map(([key]) => key));
+  if (!bad.size) return [];
+  const holds: Array<[string, Slot]> = [], fits = new Map<string, boolean>();
+  for (const p of plans) {
+    if (p.kind !== "circuit" || p.outing) continue;
+    const seg = p.segKind.findIndex((kind, i) => kind !== SEG_DOCK && bad.has(pathKey(p.segFrom[i], p.segSlot[i], p.cls, p.segLoop[i], p.loa, p.beam)));
+    if (seg < 0) continue;
+    const id = `hold/${p.id}`;
+    let slot = L.slots.find((s) => s.id === id);
+    if (!slot) {
+      try { slot = addRaftSlot(L, L.slots[p.segFrom[seg]].where, L.slots.length, p.loa, p.beam, fits); }
+      // With no reachable water, retain the existing last-safe-pose fallback.
+      catch (error) { if (error instanceof AnchorageUnavailable) continue; throw error; }
+      slot.id = id;
+    }
+    holds.push([p.id, slot]);
+  }
+  return holds;
 }
 
 /** Transfer each owned path buffer once; the live coast/layout are never part of a reply. */

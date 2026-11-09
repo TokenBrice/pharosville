@@ -318,7 +318,7 @@ export class DataSystem implements WorldSystem {
     this.refilling = true;
     void warm.paths(revision, plan.key, legs).then((reply) => {
       if (this.sim !== sim || this.generation !== generation || sim.plan !== plan || reply.planRevision !== revision || reply.layoutKey !== plan.key) return;
-      sim.seedPaths(plan, reply.paths);
+      sim.seedPaths(plan, reply.paths, reply.holds);
     }, (error: unknown) => {
       if (this.sim === sim && this.generation === generation) this.workerUnavailable(ctx, feed, error);
     }).finally(() => { if (this.generation === generation) this.refilling = false; });
