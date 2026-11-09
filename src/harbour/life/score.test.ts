@@ -103,7 +103,7 @@ describe("the score's calendar", () => {
     expect(murmurationSeason(dayOfYear(2026, 1, 20))).toBe(true);
     expect(murmurationSeason(dayOfYear(2026, 6, 20))).toBe(false);
     const winter = overrideDay({ season: "winter" }, 2026, false)!;
-    expect(cueAllowed("murmuration", sky({ nDay: winter, clock: 17.0, sunset: 17.05 }))).toBe(true);
+    expect(cueAllowed("murmuration", sky({ nDay: winter, clock: 17.0, sunset: 17.05 }))).toBe(false); // v1.8.0 AD: the murmuration is not scheduled
     expect(cueAllowed("murmuration", sky({ nDay: winter, clock: 12, sunset: 17.05 }))).toBe(false);
     expect(cueAllowed("murmuration", sky({ nDay: winter, clock: 18, sunset: 17.05 }))).toBe(false);
     expect(cueAllowed("murmuration", sky({ nDay: 196, clock: 20.5, sunset: 20.6 }))).toBe(false);

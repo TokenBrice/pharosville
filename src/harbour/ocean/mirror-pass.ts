@@ -143,7 +143,7 @@ export class MirrorPass extends Pass {
   /** Shared with the ocean material. */
   readonly uniforms: MirrorUniforms = { uMirrorTex: { value: null }, uMirrorVP: { value: new THREE.Matrix4() }, uMirror: { value: new THREE.Vector4() }, uMirrorLift: { value: 0 } };
   strength = MIRROR_STRENGTH;
-  private quayLift = 1;
+  private quayLift = 0;   // V15 off (v1.8.0 art director: the quay lift keeps the basin's depth); `?v15=1` for the A/B
   private readonly material: THREE.ShaderMaterial;
   private target: THREE.WebGLRenderTarget | null = null;
   private active = false;

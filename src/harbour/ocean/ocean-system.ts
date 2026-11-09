@@ -132,7 +132,7 @@ export class OceanSystem implements WorldSystem {
   private hourTod: TimeOfDay | null = null;
   private readonly hourU = createWorldUniforms();
   private readonly noonU = createWorldUniforms();
-  /** E35 the harbour mirror (High only; `&extras=+mirror` until the art director rules): the SSR pass at composer index 1. */
+  /** E35 the harbour mirror (High only; on by the v1.8.0 art director, `&extras=-mirror` turns it off): the SSR pass at composer index 1. */
   private mirror: MirrorPass | null = null;
 
   async init(ctx: EngineContext): Promise<void> {

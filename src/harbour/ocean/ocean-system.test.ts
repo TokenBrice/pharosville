@@ -9,6 +9,8 @@ import { OceanSystem } from "./ocean-system";
 import { pointSwellCache, SEA_STATES, waveHeight } from "./waves";
 import { FullscreenPass } from "./gpu-bake";
 
+// These cases predate E35 and drive a bare engine context without a composer: keep the harbour mirror off here.
+vi.mock("../engine/extras", async (load) => ({ ...(await load<typeof import("../engine/extras")>()), extraEnabled: (name: string) => name !== "mirror" }));
 vi.mock("./textures", () => ({ acquireFxTextures: async () => ({ noise: new THREE.Texture(), ripple: new THREE.Texture(), release() {} }) }));
 vi.mock("./sdf-image", () => ({ loadSdfImage: async () => ({ width: 1, height: 1, data: new Uint8Array(4), coast: new Uint8Array(1) }) }));
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });

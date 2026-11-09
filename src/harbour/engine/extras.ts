@@ -1,7 +1,8 @@
 export const EXTRA_NAMES = ["crowns", "twilight", "nightsky", "storm", "precip", "score", "mirror", "supersample"] as const;
 export type ExtraName = typeof EXTRA_NAMES[number];
 
-const enabled = new Set<ExtraName>(EXTRA_NAMES.filter((name) => name !== "mirror"));
+// v1.8.0 art director: the harbour mirror ships on (High only; the pass itself gates the tier).
+const enabled = new Set<ExtraName>(EXTRA_NAMES);
 const edits = new URLSearchParams(typeof location === "undefined" ? "" : location.search.replace(/\+/g, "%2B")).get("extras");
 for (const edit of edits?.split(",") ?? []) {
   if (edit === "none") enabled.clear();

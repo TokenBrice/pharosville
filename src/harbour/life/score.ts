@@ -1,4 +1,4 @@
-import { cranePassage, murmurationSeason } from "../season/calendar";
+import { cranePassage } from "../season/calendar";
 import { rng } from "./walkways";
 
 /**
@@ -42,7 +42,8 @@ export interface ScoreSky {
 /** The cues the calendar and the clock allow: cranes by day in their passage, starlings at winter dusk, a splash by day in calm. */
 export function cueAllowed(cue: ScoreCue, s: ScoreSky): boolean {
   if (cue === "cranes") return cranePassage(s.nDay) !== null && s.clock > s.sunrise + 1 && s.clock < s.sunset - 1;
-  if (cue === "murmuration") return murmurationSeason(s.nDay) && s.clock > s.sunset - 0.75 && s.clock < s.sunset + 0.25;
+  // v1.8.0 art director: the murmuration never read on the real GPU, so it is not scheduled (the season window stays in season/calendar.ts for a future pass).
+  if (cue === "murmuration") return false;
   return s.dolphins && s.clock > s.sunrise + 0.5 && s.clock < s.sunset - 0.5;
 }
 
