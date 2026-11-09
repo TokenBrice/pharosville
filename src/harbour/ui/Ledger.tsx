@@ -3,7 +3,7 @@ import { FAMILIES, FAMILY_ORDER } from "../model/obituary";
 import type { Boat, EndpointKey, HarbourModel } from "../model/types";
 import { ANNIVERSARY_RULE, BOATS_GUIDE, FOG_GUIDE, PHAROS_GUIDE, landmarkFact, CEREMONY_RULE, FLOW_RULE, HULL_RULE, LETTERING_RULE, OFFICE_RULE, PRINT_RULE, SAIL_RULE, SEA_RULE, TIDE_RULE, WREATH_RULE, WRECK_RULE, REEF_FLARE_LINE, alertCountLine, allocationLine, BOAT_SIGNALS_RULE, BY_EAR, epitaphOf, FAR_PORTS_LINE, STATION_RULE, stationFact, wreckDate } from "./facts";
 import { bps, causeName, money, pegName, share, titleCase } from "./format";
-import { Freshness } from "./bits";
+import { Freshness, stamped } from "./bits";
 import { observedEmpty, readingSentence, qualificationCopy, READING_NAMES, sourceTruth } from "./source-state";
 import { truthCopy } from "./truth-copy";
 import { wreckHit } from "./Panel";
@@ -156,8 +156,8 @@ function Legend({ model }: { model: HarbourModel | null }) {
     <>
       <section className="hb-sec" aria-label="Harbour now">
         <h3 className="hb-sec-h hb-sc">Harbour now</h3>
-        {([["pharos", "Pharos Stability Index", "stability"], ["shoals", "Off peg", "pegSummary"], ["storm-mast", "Early warning", "stress"]] as const).map(([id, label, source]) => <p key={id} className="hb-caption">{label} — {landmarkFact(id, model, null).fact} {readingSentence(model, source)}</p>)}
-        <p className="hb-caption">Supply (USD) — {money(model?.supplyTotal)}. {readingSentence(model, "stablecoins")}</p>
+        {([["pharos", "Pharos Stability Index", "stability"], ["shoals", "Off peg", "pegSummary"], ["storm-mast", "Early warning", "stress"]] as const).map(([id, label, source]) => <p key={id} className="hb-caption">{label} — {landmarkFact(id, model, null).fact} {stamped(readingSentence(model, source))}</p>)}
+        <p className="hb-caption">Supply (USD) — {money(model?.supplyTotal)}. {stamped(readingSentence(model, "stablecoins"))}</p>
         <button type="button" className="hb-textbtn" onClick={() => store.select({ kind: "landmark", id: "keeperslog" }, { fly: false })}>The Keeper’s Log</button>
       </section>
       <p className="hb-legend-intro">The harbour is the data. Nothing moves without a declared meaning, and anything that is only decoration says so.</p>

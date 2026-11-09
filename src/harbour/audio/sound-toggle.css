@@ -50,3 +50,8 @@
    choices */
 .hb-sound-state { margin: 0; padding: 3px 10px 0 8px; }
 .hb-sound-menu .hb-sound-retry { color: var(--ink); margin-bottom: 4px; border-bottom: 0.5px solid var(--neat); border-radius: var(--r-ctl) var(--r-ctl) 0 0; }
+/* on desktop widths the open menu hangs from the plaque's left end, under the wordmark, clear of the Pharos's lantern */
+@media (min-width: 900px) {
+  .hb-mark > .hb-sound-wrap { position: static; }
+  .hb-mark > .hb-sound-wrap > .hb-sound-menu { left: 0; right: auto; }
+}

@@ -30,7 +30,7 @@ export function HelpSheet({ onClose, shortcuts, setShortcuts }: {
           {selected?.kind === "boat" && button("follow")}</div>
         <details><summary>View controls</summary><div className="hb-help-actions">
           {(["up", "down", "left", "right"] as const).map((id) => button(id))}
-          {button("zoomIn", ZoomIn)}{button("zoomOut", ZoomOut)}{button("home", House)}
+          {button("zoomIn", ZoomIn)}{button("zoomOut", ZoomOut)}
         </div></details>
       </details>
       <div className="hb-help-preferences">

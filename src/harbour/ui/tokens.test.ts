@@ -62,6 +62,11 @@ describe("Pilot's Chart tokens", () => {
     }
   });
 
+  it("keeps every night categorical ink at or under the night ink's luminance, so the fire owns the night (UI AD B1)", () => {
+    const Y = (v: string) => { const [r, g, b] = channels(v).map((c) => c / 255).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+    const ceiling = Y(NIGHT.get("--ink")!);
+    for (const ink of ["--chart-down", "--c1", "--c2", "--c3", "--c4", "--c5"]) expect(Y(NIGHT.get(ink)!), ink).toBeLessThanOrEqual(ceiling);
+  });
   it("keeps every text ink at 4.5:1 on the hover and pressed grounds and on each wash over the paper, by day and by night", () => {
     // the grounds text sits on when a control is hovered or pressed, a row is hovered or active, a chip is pressed
     for (const [name, set] of [["day", DAY], ["night", NIGHT]] as const) {

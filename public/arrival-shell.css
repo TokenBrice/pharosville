@@ -82,7 +82,7 @@ button, input, select, textarea { font: inherit; }
 .pv-arrival__card::before {
   content: ""; position: absolute; inset: 4px; border: 0.5px solid rgba(166, 130, 66, 0.55); pointer-events: none;
 }
-.pv-arrival__promise { margin: 0 0 10px; font-size: 1.45rem; font-style: italic; text-align: center; }
+.pv-arrival__promise { margin: 0 0 10px; font-size: 1.3125rem; font-style: italic; text-align: center; }
 .pv-arrival__guide {
   display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px;
   margin: 0 0 12px; padding: 10px 0 0; border-top: 0.5px solid var(--pv-brass);
@@ -167,3 +167,5 @@ button, input, select, textarea { font: inherit; }
     grid-column: 2; grid-row: 1 / 7; align-self: start; position: sticky; top: 24px; margin: 0;
   }
 }
+/* a coarse pointer's live mark is 50 px tall: the plaque matches it, so the reveal's crossfade is registered */
+@media (any-pointer: coarse) { .pv-arrival__mark { padding-block: 14px 15px; } }
