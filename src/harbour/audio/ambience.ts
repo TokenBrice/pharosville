@@ -342,7 +342,7 @@ export class Ambience {
   private readonly howlBus: GainNode;
   private readonly howlLoop: LazyLoop;
   private readonly thunderBus: GainNode;
-  private thunders: number[] = [];
+  private thunders: Array<{ at: number; end: number }> = [];
   private pendingThunder: PendingThunder[] = [];
   // season
   private readonly birdBus: GainNode;
@@ -386,6 +386,7 @@ export class Ambience {
   private swells = 0;
   private born: number;
   private breathEnd = 0;
+  private breaths: Array<{ gate: GainNode; end: number }> = [];
   private pressN = 0;
   private disposed = false;
   private readonly lanes = new Map<AudioNode, Array<StereoPannerNode | undefined>>();
@@ -618,6 +619,7 @@ export class Ambience {
   /** Pause JS work and discard pending event cues; beds and deadlines keep their audio clock. */
   pause(): void {
     this.paused = true;
+    this.cancelBeam();
     this.pendingThunder.length = 0;
     this.pending.length = 0;
     this.knell = null;
@@ -719,7 +721,10 @@ export class Ambience {
     p.setTargetAtTime(v, this.ac.currentTime, was === undefined ? 0.05 : tc);
   }
 
-  set(i: Partial<AmbienceInputs>): void { Object.assign(this.inputs, i); }
+  set(i: Partial<AmbienceInputs>): void {
+    Object.assign(this.inputs, i);
+    if (this.inputs.reduced) this.cancelBeam();
+  }
 
   /** Scheduler: levels follow the inputs; events are queued a little ahead of the audio clock. */
   step(): void {
@@ -1108,9 +1113,13 @@ export class Ambience {
     if (this.disposed || this.paused) return;
     const now = this.ac.currentTime;
     this.flushThunder();
-    if (this.thunders.length + this.pendingThunder.length >= 3) return;
     const d = Math.max(0.3, km), reduced = this.inputs.reduced;
     const near = d < 4 && !reduced;
+    if (this.pendingThunder.length >= 3) {
+      const farthest = this.pendingThunder.filter((e) => !e.near).sort((a, b) => b.at - a.at)[0];
+      if (!near || !farthest) return;
+      this.pendingThunder.splice(this.pendingThunder.indexOf(farthest), 1);
+    }
     const delay = delaySec <= 10 ? Math.max(0.2, delaySec) : Math.min(20, 10 + (delaySec - 10) * 0.3);
     const at = now + delay;
     const strength = 0.35 + 0.65 * Math.max(0, Math.min(1, intensity));
@@ -1123,10 +1132,15 @@ export class Ambience {
 
   private flushThunder(): void {
     const now = this.ac.currentTime;
-    this.thunders = this.thunders.filter((t) => t > now);
-    this.pendingThunder = this.pendingThunder.filter((event) => {
+    this.thunders = this.thunders.filter((t) => t.end > now);
+    this.pendingThunder = this.pendingThunder.sort((a, b) => a.at - b.at).filter((event) => {
+      if (event.at > now + 0.3) return true;
       if (now > event.at + THUNDER_LATENESS) return false;
       const at = Math.max(now, event.at);
+      const end = at + (event.near ? 10 : 16);
+      // Reserve only the audible interval, including any roll already scheduled inside the lookahead.
+      const times = [at, ...this.thunders.map((t) => t.at).filter((t) => t > at && t < end)];
+      if (times.some((t) => this.thunders.filter((s) => s.at <= t && s.end > t).length >= 3)) return false;
       if (!this.play(event.kind, at, this.thunderBus, event.level, event.pan, event.rate)) return true;
       if (event.near) {
         // Duck only for an audible clap, never for a cold or expired request.
@@ -1134,7 +1148,7 @@ export class Ambience {
         g.setTargetAtTime(k, at, 0.02);
         g.setTargetAtTime(1, at + 0.5, 1.2);
       }
-      this.thunders.push(at + (event.near ? 10 : 16));
+      this.thunders.push({ at, end });
       return false;
     });
   }
@@ -1260,20 +1274,35 @@ export class Ambience {
    * would hollow out the fifth. `at` is the audio time of the crossing the Feeder foresaw.
    */
   beamPass(peak: number, pan = 0, period = 12, at = this.ac.currentTime + 0.05): void {
-    if (this.disposed || this.paused || !(peak > 1e-4)) return;
+    if (this.disposed || this.paused || this.inputs.reduced || !(peak > 1e-4)) return;
     const ac = this.ac, start = Math.max(at, ac.currentTime);
     if (start < this.breathEnd) return;
     const len = Math.min(BREATH_SEC, 0.8 * period);
     this.breathEnd = start + len;
     const g = this.env(start, 0.25 * len, 0.07 * len, 0.68 * len, Math.min(BREATH_PEAK, peak) * settleRate(this.inputs.attention));
     const p = this.pan(Math.max(-0.6, Math.min(0.6, pan)));
-    g.connect(p).connect(this.out);
+    const gate = ac.createGain(); gate.gain.value = 1;
+    this.breaths = this.breaths.filter((b) => b.end > ac.currentTime);
+    this.breaths.push({ gate, end: this.breathEnd });
+    g.connect(p).connect(gate).connect(this.out);
     for (const [f, a] of BREATH) {
       const o = ac.createOscillator(); o.frequency.value = f * (0.999 + this.rnd() * 0.002);
       const og = ac.createGain(); og.gain.value = a;
       o.connect(og).connect(g);
       o.start(start); o.stop(start + len + 0.1);
     }
+  }
+
+  /** A separate envelope releases even a future breath without disturbing its scheduled attack. */
+  cancelBeam(): void {
+    if (!this.breaths.length) return;
+    const now = this.ac.currentTime;
+    for (const { gate } of this.breaths) {
+      gate.gain.setValueAtTime(1, now);
+      gate.gain.linearRampToValueAtTime(0, now + 0.03);
+    }
+    this.breaths.length = 0;
+    this.breathEnd = now + 0.03;
   }
 
   /** Release PCM, timers and context once. Toggle-off fades; teardown can interrupt that fade immediately. */

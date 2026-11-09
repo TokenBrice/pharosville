@@ -23,6 +23,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { captureLock, connectShared } from "../harbour/shared-browser.mjs";
 import { energyAbove, meter } from "./loudness.mts";
+import { mixTargets } from "./mix-targets.mts";
 
 const args = {};
 for (let i = 2; i < process.argv.length; i++) {
@@ -115,6 +116,11 @@ try {
       shortTermMax: r1(m.shortTermMax), shortTermMin: r1(m.shortTermMin), lra: r1(m.lra), samplePeak: r1(m.samplePeak), truePeak: r1(m.truePeak),
       breaths: info.breaths.length, strikes: info.strikes.length, phrases: info.phrases.map(r1), ms: Date.now() - t0,
     };
+    if (name === "storm-near") {
+      row.nearClaps = info.log.filter((e) => e.kind === "thunder" && e.ok).length;
+      // Gate the new peak case before display rounding can hide an over.
+      row.truePeak = m.truePeak;
+    }
     if (name.startsWith("breath-")) {
       row.energyAbove250 = Math.round(energyAbove(ch, info.sr, 250) * 1000) / 1000;
       row.duty = Math.round(duty(ch, info.sr, info.breaths[0] ?? 0) * 1000) / 1000;
@@ -131,30 +137,11 @@ try {
       };
     }
     scenes[name] = row;
-    console.log(`${name.padEnd(12)} I ${String(row.integrated).padStart(6)}  laptop ${String(row.laptop).padStart(6)}  Mmax ${String(row.momentaryMax).padStart(6)}  LRA ${String(row.lra).padStart(4)}  TP ${String(row.truePeak).padStart(6)}  (${row.ms} ms)`);
+    console.log(`${name.padEnd(12)} I ${String(row.integrated).padStart(6)}  laptop ${String(row.laptop).padStart(6)}  Mmax ${String(row.momentaryMax).padStart(6)}  LRA ${String(row.lra).padStart(4)}  TP ${String(r1(row.truePeak)).padStart(6)}  (${row.ms} ms)`);
   }
   const bank = await page.evaluate(() => window.__mix.bankTiming());
 
-  // ---- the targets
-  const T = [];
-  // pass null: reported, not gated
-  const target = (id, goal, value, pass) => T.push({ id, goal, value, pass: pass === null ? null : !!pass });
-  const calm = scenes.calm?.integrated;
-  if (calm != null) target("calm-loudness", "calm −26 ± 2 LUFS", calm, calm >= -28 && calm <= -24);
-  // every DEWS state, and the roughest sea state (the surf's own storm since it follows the sea, E30)
-  for (const s of ["breeze", "warning", "storm", "rough"]) {
-    if (scenes[s] && calm != null) target(`${s}-over-calm`, "≤ calm + 6 LU", r1(scenes[s].integrated - calm), scenes[s].integrated - calm <= 6);
-  }
-  if (scenes["storm-rough"] && calm != null) target("storm-rough-over-calm", "worst case, both storms at once (reported)", r1(scenes["storm-rough"].integrated - calm), null);
-  for (const [s, row] of Object.entries(scenes)) target(`${s}-true-peak`, "≤ −1 dBTP", row.truePeak, row.truePeak == null || row.truePeak <= -1);
-  if (scenes["music-alone"] && calm != null) {
-    const off = r1(calm - scenes["music-alone"].integrated);
-    target("music-under-calm", "6 ± 2 LU under the calm ambience", off, off >= 4 && off <= 8);
-  }
-  if (scenes["breath-12"]) target("breath-energy-above-250Hz", "≥ 60 %", scenes["breath-12"].energyAbove250, scenes["breath-12"].energyAbove250 >= 0.6);
-  for (const s of ["breath-12", "breath-4", "breath-2.5", "breath-1.2"]) {
-    if (scenes[s]) target(`${s}-one-at-a-time`, "sounding ≤ 85 % of the time", scenes[s].duty, scenes[s].duty <= 0.85);
-  }
+  const T = mixTargets(scenes);
   const report = {
     label, mute, url: base, date: new Date().toISOString(), browser: browser.version(), checkout: identity, apiRequests: api,
     seed: await page.evaluate(() => window.__mix.SEED), sampleRate: 48000, scenes, bank, targets: T,

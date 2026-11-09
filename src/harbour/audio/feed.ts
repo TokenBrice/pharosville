@@ -205,6 +205,7 @@ export class Feeder {
   private unsubStrike: (() => void) | null = null;
   /** the beam's heading minus the camera's bearing from the tower and its audio time, last reading; the last breath's crossing */
   private beamDelta = Number.NaN;
+  private beamAngle = Number.NaN;
   private beamTime = 0;
   private beamAt = -Infinity;
   /** the anniversary bell rings at most once per visit; it waits until the sound has played a while */
@@ -421,11 +422,26 @@ export class Feeder {
     const { ctx } = this;
     const lh = ctx.services.get("lighthouse");
     const lp = lh?.lanternPosition;
-    if (!lh?.sweepAngle || !lp) { this.beamDelta = Number.NaN; return; }
+    const psi = ctx.services.get("readings")?.psi;
+    const reach = ctx.services.get("beam")?.reach?.() ?? psi?.reach ?? 0;
+    const lit = (lh?.lit ?? true) && psi?.lit === true;
+    const peak = beamBreathPeak(reach, lit, inputs.night ?? 0, inputs.fog ?? 0);
+    if (inputs.reduced || !lh?.sweepAngle || !lp || !(peak > 1e-4)) {
+      this.beamDelta = this.beamAngle = Number.NaN; this.beamAt = -Infinity;
+      amb.cancelBeam();
+      return;
+    }
     const cam = ctx.rig.camera.position, now = amb.ac.currentTime;
-    const d = wrapPi(lh.sweepAngle() - Math.atan2(cam.x - lp.x, cam.z - lp.z));
+    const angle = lh.sweepAngle(), d = wrapPi(angle - Math.atan2(cam.x - lp.x, cam.z - lp.z));
     const prev = this.beamDelta, dt = now - this.beamTime;
+    const turning = dt > 0 && dt < 0.6 && wrapPi(angle - this.beamAngle) / dt > BEAM_TURNING;
+    this.beamAngle = angle;
     this.beamDelta = d; this.beamTime = now;
+    if (!turning) {
+      this.beamDelta = Number.NaN; this.beamAt = -Infinity;
+      amb.cancelBeam();
+      return;
+    }
     // the sweep's turn across the camera since the last reading (rad/s), ~0 while held; after a gap, start afresh
     const w = dt > 0 && dt < 0.6 ? wrapPi(d - prev) / dt : Number.NaN;
     if (!(w > BEAM_TURNING)) return;
@@ -434,10 +450,7 @@ export class Feeder {
     // (that crossing already has its breath)
     if (!(at >= this.beamAt + 0.5 * period)) return;
     this.beamAt = at;
-    const psi = ctx.services.get("readings")?.psi;
-    const reach = ctx.services.get("beam")?.reach?.() ?? psi?.reach ?? 0;
-    const lit = (lh.lit ?? true) && psi?.lit === true;
-    amb.beamPass(beamBreathPeak(reach, lit, inputs.night ?? 0, inputs.fog ?? 0), (inputs.firePan ?? 0) * 0.5, period, at);
+    amb.beamPass(peak, (inputs.firePan ?? 0) * 0.5, period, at);
   }
 
   /** A lightning strike: its thunder, delayed by its distance, from where it struck (azimuth 0 = -z, +π/2 = +x). */

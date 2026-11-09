@@ -246,9 +246,35 @@ describe("harbour sound: visibility and lifetime", () => {
     expect(ac.sources).toHaveLength(beds + 1);
   });
 
+  it("lets a near clap displace the farthest travelling rumble without consuming audible slots in flight", () => {
+    const { amb, ac, graph, play } = scene();
+    const thunder = graph as unknown as { pendingThunder: Array<{ at: number; near: boolean }> };
+    for (const delay of [5, 9, 19]) amb.thunder(20, 1, 0, delay);
+    amb.thunder(2, 1, 0, 0.2);
+    expect(play.mock.calls.filter(([kind]) => kind === "thunder").map(([, at]) => at)).toEqual([10.2]);
+    expect(thunder.pendingThunder.map((e) => e.at)).toEqual([15, 19]);
+    ac.currentTime = 14.8; amb.step();
+    ac.currentTime = 18.8; amb.step();
+    expect(play.mock.calls.filter(([kind]) => kind === "rumble").map(([, at]) => at)).toEqual([15, 19]);
+  });
+
+  it("defers travelling rolls and keeps the three-roll audible cap at arrival", () => {
+    const { amb, ac, play } = scene();
+    for (let i = 0; i < 3; i++) amb.thunder(20, 1, 0, 10);
+    expect(play).not.toHaveBeenCalled();
+    ac.currentTime = 19.8; amb.step();
+    expect(play.mock.calls.filter(([kind]) => kind === "rumble")).toHaveLength(3);
+    play.mockClear();
+    amb.thunder(2, 1, 0, 0.2);
+    expect(play.mock.calls.some(([kind]) => kind === "thunder")).toBe(false);
+    ac.currentTime = 36;
+    amb.thunder(2, 1, 0, 0.2);
+    expect(play.mock.calls.filter(([kind]) => kind === "thunder").map(([, at]) => at)).toEqual([36.2]);
+  });
+
   it("keeps at most three cold thunder requests, scheduling ducking and audible slots only when ready", () => {
     const { amb, ac, graph, play } = scene();
-    const thunder = graph as unknown as { thunders: number[]; pendingThunder: unknown[]; duck: AudioNodeStub };
+    const thunder = graph as unknown as { thunders: unknown[]; pendingThunder: unknown[]; duck: AudioNodeStub };
     play.mockReturnValue(false);
     for (let i = 0; i < 5; i++) amb.thunder(1, 1, 0.4, 0.4);
     expect(thunder.pendingThunder).toHaveLength(3);
@@ -270,7 +296,7 @@ describe("harbour sound: visibility and lifetime", () => {
 
   it("expires cold thunder against its original deadline without a late roll or duck", () => {
     const { amb, ac, graph, play } = scene();
-    const thunder = graph as unknown as { pendingThunder: unknown[]; thunders: number[]; duck: AudioNodeStub };
+    const thunder = graph as unknown as { pendingThunder: unknown[]; thunders: unknown[]; duck: AudioNodeStub };
     play.mockReturnValue(false);
     amb.thunder(1, 1, 0, 0.4);
     ac.currentTime = 11.401;
@@ -288,7 +314,7 @@ describe("harbour sound: visibility and lifetime", () => {
     play.mockReturnValue(false);
     amb.thunder(1, 1, 0.3, 4);
     play.mockReturnValue(true).mockClear();
-    ac.currentTime = 11;
+    ac.currentTime = 13.8;
     amb.step();
     expect(play.mock.calls.find(([kind]) => kind === "rumble")?.slice(0, 2)).toEqual(["rumble", 14]);
     expect(thunder.duck.gain.setTargetAtTime).not.toHaveBeenCalled();
