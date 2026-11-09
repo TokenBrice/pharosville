@@ -139,6 +139,15 @@ export class EmblemAtlas {
     }
     this.logos = "done";
     if (this.disposed || this.signal?.aborted) { img?.close(); return; }
+    if (img && preparation) {
+      try {
+        if (await this.stageLogos(img, preparation)) { img.close(); return; }
+      } catch (error) {
+        if (isAbort(error) || this.signal?.aborted) { img.close(); return; }
+        console.warn("[harbour] fleet: staged emblem logos failed, painting them in place", error);
+      }
+      if (this.disposed || this.signal?.aborted) { img.close(); return; }
+    }
     if (img) {
       this.batching = true;
       const rows = logoRows(this.meta);
@@ -158,6 +167,45 @@ export class EmblemAtlas {
       this.end();
     }
     if (preparation && !this.disposed) await preparation.stageTexture(this.texture, { signal: this.signal });
+  }
+
+  /**
+   * The logos into a detached copy of the atlas, one tile row per preparation slice (a canvas rasterises what a
+   * task drew when the task ends: one row keeps that small), then a staged upload and one swap. The live atlas
+   * keeps its roundels until the swap, and no frame uploads the whole canvas. Same pixels as one full-size draw:
+   * each 128 px source row lands on its own 96 px row (the 0.75 bilinear taps never leave a row).
+   */
+  private async stageLogos(img: ImageBitmap, preparation: PreparationService): Promise<boolean> {
+    const rows = logoRows(this.meta), signal = this.signal;
+    const fork = new EmblemAtlas(this.meta, this.extraSlots, signal);
+    let committed = false;
+    try {
+      fork.grow(Math.max(this.rows, rows + 1));
+      const srcRow = this.meta.height / rows;
+      // monogram rows first, copied as they are; then each logo row over the fork's clear canvas
+      for (let row = rows; row < this.rows; row++) {
+        await preparation.submit(() => {
+          const y = row * EMBLEM_SLOT_PX;
+          fork.g.drawImage(this.canvas, 0, y, this.canvas.width, EMBLEM_SLOT_PX, 0, y, fork.canvas.width, EMBLEM_SLOT_PX);
+        }, { signal });
+      }
+      for (let row = 0; row < rows; row++) {
+        await preparation.submit(() => {
+          fork.g.drawImage(img, 0, row * srcRow, this.meta.width, srcRow, 0, row * EMBLEM_SLOT_PX, fork.canvas.width, EMBLEM_SLOT_PX);
+        }, { signal });
+      }
+      fork.texture.needsUpdate = true;
+      await preparation.stageTexture(fork.texture, { signal });
+      if (this.disposed || signal?.aborted) return false;
+      const old = this.texture, canvas = this.canvas;
+      this.texture = fork.texture; this.uniform.value = fork.texture;
+      this.canvas = fork.canvas; this.g = fork.g; this.rows = fork.rows; this.grid.copy(fork.grid);
+      this.painted = true; this.logoLoaded = true;
+      committed = true;
+      old.dispose(); canvas.width = canvas.height = 0;
+      fork.heroUniform.value.dispose();
+      return true;
+    } finally { if (!committed) fork.dispose(); }
   }
 
   /** The first monogram slot: marks from here on are lettering (an alpha mask), not printed logos. */

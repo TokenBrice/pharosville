@@ -63,6 +63,27 @@ describe("conservative fleet visual culling", () => {
     } finally { vi.unstubAllGlobals(); }
   });
 
+  it("skips moorings outside the view and light frusta, and poses them again the frame they come back", () => {
+    const f = fixture(false);
+    const heightAt = vi.fn(() => 0.2);
+    Object.assign(f.ocean, { heightAt });
+    // one buoy at the view's centre, one far off it (and the boat is offscreen too)
+    const buoys = [{ inst: 7, x: 0, z: 0, phi: 0, shown: true }, { inst: 8, x: 1000000, z: 0, phi: 0, shown: true }];
+    Object.assign(f.system, { buoyInst: buoys, buoySize: 1, buoyReach: 1.5 });
+    f.system.update(frame, f.context);
+    expect(heightAt).toHaveBeenCalledTimes(1);
+    expect(f.mesh.setVisibleAt).toHaveBeenCalledWith(8, false);
+    expect(f.mesh.setMatrixAt).toHaveBeenCalledWith(7, expect.any(THREE.Matrix4));
+    expect(f.mesh.setMatrixAt).not.toHaveBeenCalledWith(8, expect.anything());
+    // the camera turns to the far buoy: this frame's camera, not last frame's matrices, decides
+    f.camera.position.set(1000000, 50, 100); f.camera.lookAt(1000000, 0, 0);
+    f.mesh.setVisibleAt.mockClear(); f.mesh.setMatrixAt.mockClear(); heightAt.mockClear();
+    f.system.update(frame, f.context);
+    expect(f.mesh.setVisibleAt).toHaveBeenCalledWith(8, true);
+    expect(f.mesh.setMatrixAt).toHaveBeenCalledWith(8, expect.any(THREE.Matrix4));
+    expect(f.mesh.setVisibleAt).toHaveBeenCalledWith(7, false);
+  });
+
   it("bounds furl, mirror and arbitrary pivot rotation without assuming a boom angle", () => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute([3, 4, 0], 3));

@@ -145,6 +145,9 @@ interface WreckPose { inst: number; x: number; z: number; h: number; scale: numb
 interface WreckStaging { instances: WreckPose[]; boards: EpitaphBoards | null; pieces: CovePiece[]; marks: CoveMark[]; lamps: Array<[number, number, number]> }
 interface FleetStaging { commits: Array<() => void>; allocated: number[] }
 
+/** A moored hull's cat's-paw sheer side, fixed by her id. */
+const sheerOf = (id: string): number => (hash01(id + "#sheer") < 0.5 ? 1 : -1);
+
 interface BoatRec {
   id: string;
   source: Boat;
@@ -198,6 +201,8 @@ interface BoatRec {
   cx: number; cy: number; cz: number; r: number; top: number;
   /** Her sea-sampling cache (ocean.hullHeights at rest). */
   swell: Float64Array;
+  /** Which way a cat's-paw sheers her on her mooring (±1, from her id: fixed for her lifetime). */
+  sheer?: number;
 }
 
 export class FleetSystem implements WorldSystem {
@@ -229,6 +234,8 @@ export class FleetSystem implements WorldSystem {
   private buoyInst: Array<{ inst: number; x: number; z: number; phi: number; shown: boolean }> = [];
   /** E04: the buoy's size on screen (m): its height above the water, from its kit geometry. */
   private buoySize = 1;
+  /** Farthest buoy vertex from its origin (scale ≤ 1, small rolls: rotation keeps the length). */
+  private buoyReach = 2;
   /** Wreck kit v2: loaded after the first frame (the cove is off the default views); its nameboards and lanterns. */
   private cove: Map<string, WreckItem> | null = null;
   private coveState: "wait" | "loading" | "done" = "wait";
@@ -667,7 +674,7 @@ export class FleetSystem implements WorldSystem {
       bollardSlot: null, bow: null, med: false, stern: null, visible: false, dist: 0,
       reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, flog: 0, row: 0, brail: 0, dox: 0, doz: 0, gyaw: 0, struck: false,
       mastK: titan ? 2 : hash01(boat.id + "#mast"), titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
-      swell: hullSwellCache(), posed: true, visualRadius: radius * scale,
+      swell: hullSwellCache(), posed: true, visualRadius: radius * scale, sheer: sheerOf(boat.id),
     };
     if (staging) { staging.allocated.push(rec.inst); mesh.setVisibleAt(rec.inst, false); rec.posed = false; }
     this.writePaint(rec.inst, wrecked || titan ? null : boat.id, variant.family, wrecked ? null : boat.brandColor);
@@ -1012,7 +1019,12 @@ export class FleetSystem implements WorldSystem {
     const geom = this.geomIds.get(BUOY_KIT);
     if (geom == null) return;
     const g = this.kit?.props.get(BUOY_KIT)?.geometry;
-    if (g) { if (!g.boundingBox) g.computeBoundingBox(); this.buoySize = g.boundingBox!.max.y - g.boundingBox!.min.y; }
+    if (g) {
+      if (!g.boundingBox) g.computeBoundingBox();
+      this.buoySize = g.boundingBox!.max.y - g.boundingBox!.min.y;
+      if (!g.boundingSphere) g.computeBoundingSphere();
+      this.buoyReach = g.boundingSphere!.center.length() + g.boundingSphere!.radius;
+    }
     for (const m of this.layout!.moorings ?? []) {
       const inst = this.addInstance(geom);
       this.writePaint(inst, null, "", null);
@@ -1039,19 +1051,29 @@ export class FleetSystem implements WorldSystem {
     }
   }
 
+  /**
+   * Start decorative loading after this frame, in the preparation queue's own post-frame task (not inside the next
+   * frame's task, where its request/parse kickoff would lengthen a frame); a lifetime abort drops it.
+   */
+  private afterFrame(ctx: EngineContext, start: () => void): void {
+    const preparation = ctx.services.get("preparation");
+    const run = () => { if (!ctx.signal?.aborted) start(); };
+    if (preparation) void preparation.submit(run, { signal: ctx.signal }).catch((error: unknown) => { if (!isAbort(error)) console.warn("[harbour] decoration start failed", error); });
+    else requestAnimationFrame(run);
+  }
+
   update(frame: FrameState, ctx: EngineContext): void {
     if (!this.mesh || this.failed) return;
     // B22: first-fleet bytes own the frontier; the Engine opens decoration after a readiness-matched fleet frame (or its
     // base-frame escape for valid-empty/waiting data). B17: logos then upload through the staged preparation queue.
     if (!this.logosAsked && ctx.assets.decorationsReady) {
       this.logosAsked = true;
-      requestAnimationFrame(() => {
-        if (ctx.signal?.aborted) return;
+      this.afterFrame(ctx, () => {
         void this.atlas?.loadLogos(ctx.services.get("preparation")).catch((error: unknown) => { if (!isAbort(error)) console.warn("[harbour] emblem upload failed", error); });
       });
     }
     // Wreck Cove's kit is also deferred (the cove lies off both default views).
-    if (this.coveState === "wait" && this.model && ctx.assets.decorationsReady) { this.coveState = "loading"; requestAnimationFrame(() => { if (!ctx.signal?.aborted) void this.loadCove(); }); }
+    if (this.coveState === "wait" && this.model && ctx.assets.decorationsReady) { this.coveState = "loading"; this.afterFrame(ctx, () => { void this.loadCove(); }); }
     const t0 = performance.now();
     const model = ctx.services.get("model");
     const sim = ctx.services.get("sim");
@@ -1076,9 +1098,11 @@ export class FleetSystem implements WorldSystem {
       for (const b of this.boats) { b.seen = false; b.vx = 0; b.vz = 0; b.dox = 0; b.doz = 0; b.gyaw = 0; b.swell.fill(NaN); }
     }
     const cam = ctx.camera;
+    // the rig moved the camera this frame (lookAt leaves its world matrix a frame behind): cull against where it is
+    cam.updateMatrixWorld();
     this.pv.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.pv);
-    const viewH = ctx.renderer.domElement.clientHeight || innerHeight;
+    const viewH = this.viewHeight(ctx);
     const pxPerM = viewH / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));
     // E04 / E27: the print law and the rig's hairline floor work in CSS px (effective DPR: render px per CSS px)
     this.uniforms.uFleetScreen!.value.set(viewH, ctx.renderer.getPixelRatio());
@@ -1112,6 +1136,10 @@ export class FleetSystem implements WorldSystem {
     this.uniforms.uWind.value = sim?.wind.strength ?? 0.35;
     const slots = sim?.layout.slots;
     const hiK = 1 - Math.exp(-dt * 8);
+    const ease = this.ease;
+    ease.dt = dt; ease.v = 1 - Math.exp(-dt * 4); ease.heel = 1 - Math.exp(-dt * 1.2); ease.gyaw = 1 - Math.exp(-dt * 2);
+    ease.flog = 1 - Math.exp(-dt * 5); ease.row = 1 - Math.exp(-dt * 0.8); ease.brail = 1 - Math.exp(-dt * 0.35);
+    const windReach = 0.08 * Math.abs(this.uniforms.uWind.value);
     const glow = ctx.uniforms.uWindowGlow.value;
     const glowK = THREE.MathUtils.smoothstep(glow, RIDING_GLOW - 0.12, RIDING_GLOW + 0.2);
     this.riding.begin();
@@ -1156,7 +1184,7 @@ export class FleetSystem implements WorldSystem {
       if (!b.seen) { b.px = x; b.pz = z; b.seen = true; }
       let vx = (x - b.px) / dt, vz = (z - b.pz) / dt;
       if (vx * vx + vz * vz > 900) { vx = 0; vz = 0; } // teleport (re-plan) — no wake streak
-      const vk = 1 - Math.exp(-dt * 4);
+      const vk = ease.v;
       b.vx += (vx - b.vx) * vk; b.vz += (vz - b.vz) * vk;
       b.px = x; b.pz = z;
 
@@ -1164,13 +1192,14 @@ export class FleetSystem implements WorldSystem {
       const target = b.wrecked ? 0 : targetSwing(h, windFrom, sail);
       b.swing = reconciled ? target : approach(b.swing, target, dt * 0.55);
       // canvas half loose and flogging: adrift to the Shoals, or aground there (07-M7)
-      const loose = pose!.event[i] === EV_TO_SHOALS || (ph === PH_ANCHORED && sim?.slotOf(i)?.kind === "shoals");
+      const shoaled = ph === PH_ANCHORED && sim?.slotOf(i)?.kind === "shoals";
+      const loose = pose!.event[i] === EV_TO_SHOALS || shoaled;
       const mo = this.motion(b, h, windFrom, sail, moving, target, gustSvc.at(x, z), windK, live, dt, loose);
       // in a storm the sail drawing heels her hard over (the sim's heel follows the model's wind); a passing
       // cat's-paw leans her a little further (07-M4)
       const heelT = pose!.heel[i] * brail * (moving ? 1 + 1.3 * storm : 1) + mo.heel;
       if (reconciled) b.heel = heelT;
-      else b.heel += (heelT - b.heel) * (1 - Math.exp(-dt * 1.2));
+      else b.heel += (heelT - b.heel) * ease.heel;
       const hiT = b.id === this.hover ? 1 : b.id === this.selected ? 0.5 : 0;
       b.hi += (hiT - b.hi) * hiK;
 
@@ -1178,7 +1207,7 @@ export class FleetSystem implements WorldSystem {
       // Launch/wreck ground heights and interaction/debug always take the exact path.
       this.sphere.center.set(x, b.top * 0.4, z);
       this.sphere.radius = Math.max(b.loa * 0.55, b.top * 0.55, b.visualRadius + b.top * 0.4)
-        + SWELL_ENVELOPE + Math.abs(mo.surge) + 1.35 * (0.25 + 0.012 * b.loa) + 0.05 + 0.08 * Math.abs(this.uniforms.uWind.value);
+        + SWELL_ENVELOPE + Math.abs(mo.surge) + 1.35 * (0.25 + 0.012 * b.loa) + 0.05 + windReach;
       const poseHull = this.needsFullPose || b.wrecked || pose!.position[i * 3 + 1] > 0.5
         || b.id === this.selected || b.id === this.hover || b.hi > 0.05 || this.debug !== null
         || this.frustum.intersectsSphere(this.sphere)
@@ -1201,7 +1230,7 @@ export class FleetSystem implements WorldSystem {
       b.dox = dox; b.doz = doz;
       const fwdV = b.vx * fx + b.vz * fz;
       const yawT = moving && ph === PH_SAILING && fwdV > 0.5 && Math.abs(lat) < 5 ? THREE.MathUtils.clamp(-Math.atan2(lat, fwdV), -GIVE_WAY_YAW, GIVE_WAY_YAW) : 0;
-      b.gyaw += (yawT - b.gyaw) * (1 - Math.exp(-dt * 2));
+      b.gyaw += (yawT - b.gyaw) * ease.gyaw;
       // 07-M12: on the launching ways her keel rides the slip (seated on the ground, pitched with its slope)
       const onWays = pose!.position[i * 3 + 1] > 0.5 && !!ground;
 
@@ -1284,7 +1313,7 @@ export class FleetSystem implements WorldSystem {
       // px (the overview: a dot of brand colour over each hull); a struck rig flies it from the stern staff. It
       // replaces the kit's plain pennant. Aground on the Shoals: she keeps her colours and flies the chequered distress
       // flag above them, so the coin still reads.
-      const distress = ph === PH_ANCHORED && sim?.slotOf(i)?.kind === "shoals";
+      const distress = shoaled;
       if (this.flags && !moving && !b.wrecked && b.visible && b.dist < tier.flagRange) {
         const pxM = pxPerM / b.dist;
         const base = b.titan ? b.loa * 0.3 : THREE.MathUtils.clamp(b.loa * 0.21, 1.3, 4.6);
@@ -1394,7 +1423,15 @@ export class FleetSystem implements WorldSystem {
     }
 
     // buoys bob on the swell (still under reduced motion); E04: they recede with distance and drop below a few px
+    // B19 for the moorings: a buoy outside the view and the light's frustum is neither seen nor casting this frame, so
+    // it takes no sea sample; hidden until then, it is posed again the frame it comes back
+    const buoyR = this.buoyReach + SWELL_ENVELOPE + 1;
     for (const bu of this.buoyInst) {
+      this.sphere.center.set(bu.x, 0, bu.z); this.sphere.radius = buoyR;
+      if (!this.frustum.intersectsSphere(this.sphere) && !(mesh.castShadow && (!shadowFrustum || shadowFrustum.intersectsSphere(this.sphere)))) {
+        if (bu.shown) { bu.shown = false; mesh.setVisibleAt(bu.inst, false); }
+        continue;
+      }
       const y = this.seaH(bu.x, bu.z);
       const d = Math.hypot(cam.position.x - bu.x, cam.position.y - y, cam.position.z - bu.z);
       const k = buoyScale(d, pxPerM / d, this.buoySize);
@@ -1453,7 +1490,8 @@ export class FleetSystem implements WorldSystem {
     const luff = moving ? sail * (1 - THREE.MathUtils.smoothstep(rel, 0.5, 0.78)) : 0;
     // a tack or gybe: the boom crossing over (target on the other side, or still near the centre line)
     const tacking = moving && sail > 0.3 && (target * b.swing < 0 || (Math.abs(b.swing) < 0.12 && Math.abs(target) > 0.15));
-    b.flog += ((tacking ? sail : 0) - b.flog) * (1 - Math.exp(-dt * (tacking ? 5 : 1.2)));
+    const ease = this.ease.dt === dt ? this.ease : null;
+    b.flog += ((tacking ? sail : 0) - b.flog) * (ease ? (tacking ? ease.flog : ease.heel) : 1 - Math.exp(-dt * (tacking ? 5 : 1.2)));
     const gk = g * (0.35 + 0.65 * windK);
     o.fill = moving ? sail * (1 - 0.75 * luff) * (0.5 + 0.3 * windK + 0.45 * gk) : sail * (0.12 + 0.3 * gk);
     o.shake = live * Math.min(1, Math.max(0.5 * luff, b.flog, loose ? 0.75 : 0));
@@ -1461,18 +1499,20 @@ export class FleetSystem implements WorldSystem {
     const sa = Math.sin(windFrom - h);
     o.heel = moving ? sa * Math.abs(sa) * sail * gk * 0.05 : 0;
     o.surge = moving ? 0.25 * gk * sail : -0.35 * gk;
-    o.yaw = moving ? 0 : 0.04 * gk * (hash01(b.id + "#sheer") < 0.5 ? 1 : -1);
-    b.row += ((b.variant.oars && moving ? 1 : 0) - b.row) * (1 - Math.exp(-dt * 0.8));
+    o.yaw = moving ? 0 : 0.04 * gk * (b.sheer ??= sheerOf(b.id));
+    b.row += ((b.variant.oars && moving ? 1 : 0) - b.row) * (ease ? ease.row : 1 - Math.exp(-dt * 0.8));
     return o;
   }
   private readonly mo = { fill: 0, shake: 0, heel: 0, surge: 0, yaw: 0 };
+  /** This frame's easing factors (1 − e^(−k·dt)), shared by every hull's histories. */
+  private readonly ease = { dt: -1, v: 0, heel: 0, gyaw: 0, flog: 0, row: 0, brail: 0 };
 
   /** 07-M2: how far a galley's canvas is brailed (0..1, eased): she is under way inside a harbour's waters. */
   private brailing(b: BoatRec, moving: boolean, x: number, z: number, dt: number): number {
     if (!b.variant.oars) return 0;
     if (!this.harbours && this.layout) this.harbours = seaZones(this.layout).filter((zn) => zn.kind === "harbour").map((zn) => zn.polygon);
     const inside = moving && !!this.harbours?.some((poly) => inPoly(x, z, poly));
-    b.brail += ((inside ? 1 : 0) - b.brail) * (1 - Math.exp(-dt * 0.35));
+    b.brail += ((inside ? 1 : 0) - b.brail) * (this.ease.dt === dt ? this.ease.brail : 1 - Math.exp(-dt * 0.35));
     return b.brail;
   }
   private harbours: Array<readonly [number, number][]> | null = null;
@@ -1704,7 +1744,14 @@ export class FleetSystem implements WorldSystem {
     return this.rect;
   }
 
-  resize(): void { this.rect = null; }
+  /** The canvas' CSS height, read once per resize (a layout read each frame can force a style/layout flush). */
+  private viewH = 0;
+  private viewHeight(ctx: EngineContext): number {
+    if (!this.viewH) this.viewH = ctx.renderer.domElement.clientHeight || innerHeight;
+    return this.viewH;
+  }
+
+  resize(): void { this.rect = null; this.viewH = 0; }
 
   // ------------------------------------------------------------------ dev overlay
 
