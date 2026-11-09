@@ -8,7 +8,7 @@ export class BootFailure extends Error {
 export const FAILURE_COPY: Record<BootFailureKind, string> = {
   loading: "The harbour’s scenery could not load. Check your connection and try again.",
   shader: "The harbour’s graphics could not be prepared.",
-  "graphics-buffers": "This device cannot provide the graphics features the harbour needs.",
+  "graphics-buffers": "This device cannot create the graphics buffers the harbour needs.",
   "context-lost": "The harbour’s graphics could not recover.",
   frames: "The harbour’s graphics could not recover.",
   unknown: "The harbour could not start.",

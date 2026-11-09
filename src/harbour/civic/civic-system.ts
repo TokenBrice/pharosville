@@ -206,9 +206,10 @@ export class CivicSystem implements WorldSystem {
     this.yardSlots = this.workers.slots.slice(MINT_WORKERS);
 
     // the painted boards and flags (one atlas, one draw)
-    this.boards = new CivicBoards();
+    this.boards = new CivicBoards(2048, ctx.renderer, ctx.services.get("preparation"), ctx.signal);
     this.group.add(this.boards.mesh);
     this.placeBoards(byKind, ctx);
+    await this.boards.stage();
 
     // Start the yard now: its hulls and boards can be visible on the first frame. A later boundary would
     // also have to move the hull-stages prefetch and guarantee identical first-visible content.
@@ -226,6 +227,8 @@ export class CivicSystem implements WorldSystem {
       const lp = (layout.zones as { slipway?: { launchPath?: number[][] } }).slipway?.launchPath?.[0];
       if (!this.boards) return;
       const yard = await Shipyard.build(yp, mats, this.boards, this.book, stageSpec, assets, lp ? [lp[0], lp[1]] : null);
+      if (this.disposed) { yard.dispose(); return; }
+      try { await this.boards.stage(); } catch (error) { yard.dispose(); throw error; }
       if (this.disposed) { yard.dispose(); return; }
       this.yard = yard;
       this.group.add(yard.group);

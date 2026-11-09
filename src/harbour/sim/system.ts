@@ -14,6 +14,8 @@
  * the clock runs on from where it was held (it then lags wall time by the pause), so nothing jumps.
  * The model and its freshness always read the real clock.
  */
+import { fleetPreparation, type PreparedFleet } from "../fleet/preparation";
+import { isAbort } from "../engine/failure";
 import type { EngineContext, FrameState, SimulationStatus, WorldSystem } from "../engine/types";
 import type { HarbourLayout } from "../layout/types";
 import { HarbourFeed } from "../data/fetch";
@@ -68,6 +70,7 @@ export class DataSystem implements WorldSystem {
   /** One task owns preparation; frames only consume an already installed coherent revision. */
   private queued: number | undefined;
   private preparing = false;
+  private fleetAbort: AbortController | null = null;
   private warmed = false;
   private workerFailed = false;
   private restartWarm: (() => void) | null = null;
@@ -86,6 +89,7 @@ export class DataSystem implements WorldSystem {
   readonly readiness = { revision: 0, boats: 0, prepared: false };
 
   async init(ctx: EngineContext): Promise<void> {
+    fleetPreparation(ctx);
     ctx.services.set("readiness", this.readiness);
     ctx.services.set("simulation-status", this.status);
     const layout = ctx.services.get("layout");
@@ -120,13 +124,14 @@ export class DataSystem implements WorldSystem {
     this.unsubMotion = motion.subscribe(hold);
     // the payloads are asked for first: the round trip overlaps the SDF decode and everything after it
     const feed = this.feed = new HarbourFeed();
-    feed.subscribe(() => { this.dirty = true; this.revision++; this.queuePreparation(ctx); });
+    feed.subscribe(() => { this.dirty = true; this.revision++; this.fleetAbort?.abort(); this.queuePreparation(ctx); });
     ctx.services.set("feed", feed);
     void feed.start();
     // the island's real coastline, from the baked sea SDF (the same bytes for every viewer)
     const coasting = loadCoast(ctx, layout);
     // One persistent owner starts alongside the coast/API requests; no partial public installs.
     const startWarm = this.restartWarm = () => {
+      this.fleetAbort?.abort();
       const generation = ++this.generation;
       this.warm?.stop();
       this.warmed = false; this.workerFailed = false; this.preparing = false; this.dirty = true;
@@ -170,7 +175,7 @@ export class DataSystem implements WorldSystem {
 
   private workerUnavailable(ctx: EngineContext, feed: HarbourFeed, error: unknown): void {
     if (this.feed !== feed || this.workerFailed) return;
-    this.warmed = false; this.workerFailed = true; this.dirty = true;
+    this.warmed = false; this.workerFailed = true; this.dirty = true; this.fleetAbort?.abort();
     this.warm?.stop();
     this.status.unavailable = this.installedPayloads === null;
     this.status.reason = error instanceof Error && "reason" in error && error.reason === "timeout" ? "timeout" : "crash";
@@ -239,7 +244,9 @@ export class DataSystem implements WorldSystem {
       const m = buildHarbourModel(payloads, this.simNow(now), { pieredChains: layout.piers.map((p) => p.chain), truthNowMs: now });
       return import.meta.env.DEV && this.devEvent ? this.stageDevEvent(m) : m;
     };
-    let phase: "model-build" | "worker" = "model-build";
+    let fleet: PreparedFleet | undefined;
+    let controller: AbortController | undefined;
+    let phase: "model-build" | "worker" | "fleet" = "model-build";
     try {
       let model = modelAt();
       phase = "worker";
@@ -254,8 +261,14 @@ export class DataSystem implements WorldSystem {
       if (latest.planKey !== model.planKey) { this.dirty = true; return; }
       model = latest;
       revision = this.revision;
+      phase = "fleet";
+      controller = this.fleetAbort = new AbortController();
+      const signal = ctx.signal ? AbortSignal.any([ctx.signal, controller.signal]) : controller.signal;
+      fleet = await fleetPreparation(ctx).prepareFleet(model, prepared, this.readiness.revision + 1, signal);
+      if (signal.aborted || this.feed !== feed || this.generation !== generation || revision !== this.revision || this.workerFailed !== recovering) { this.dirty = true; return; }
       sim.setModel(model, this.simClock(Date.now()), prepared);
       sim.poseAt(this.simClock(Date.now())); // boundary misses/transition paths are owned by this task
+      fleet.commit();
       this.preparedPose = true;
       this.consumedRevision = revision;
       this.dirty = false;
@@ -268,13 +281,15 @@ export class DataSystem implements WorldSystem {
       this.readiness.prepared = true;
       if (!recovering) Object.assign(this.status, { unavailable: false, phase: "ready", reason: null, attempt: 0, nextRetryAtMs: null, message: "" });
     } catch (error) {
-      if (this.generation !== generation) { /* a newer preparation owns the outcome */ }
+      if (this.generation !== generation || isAbort(error)) { /* a newer preparation owns the outcome */ }
       else if (phase === "worker") this.workerUnavailable(ctx, feed, error);
       else {
         this.status.unavailable = this.installedPayloads === null;
-        console.warn("[harbour] model-build unavailable", error);
+        console.warn(`[harbour] ${phase} unavailable`, error);
       }
     } finally {
+      fleet?.dispose();
+      if (this.fleetAbort === controller) this.fleetAbort = null;
       if (this.feed === feed && this.generation === generation) {
         this.preparing = false;
         this.queuePreparation(ctx);
@@ -351,6 +366,7 @@ export class DataSystem implements WorldSystem {
   }
 
   dispose(ctx: EngineContext): void {
+    this.fleetAbort?.abort();
     this.generation++;
     clearTimeout(this.retryTimer); this.retryTimer = undefined; this.retryPending = false;
     this.unsubscribeRecovery?.(); this.unsubscribeRecovery = null;

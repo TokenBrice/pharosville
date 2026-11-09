@@ -8,6 +8,7 @@
  * stale data (finish the leg, then hold). poseAt() writes preallocated typed arrays: no per-frame
  * allocation.
  */
+import { HullStations, HULL_STATION_OFFSETS as SEP_K } from "./hull-clearance";
 import type { HarbourLayout, HullClass } from "../layout/types";
 import { u01 } from "../model/classify";
 import type { HarbourModel } from "../model/types";
@@ -116,8 +117,6 @@ const LANE_V_MID = 3.0, LANE_V_SPAN = 1.6;
 const LANE_JITTER = 1.2;
 /** Give-way passes per frame (the second settles shoves the first one caused). */
 const SEP_PASSES = 2;
-/** Hull-length stations sampled for the give-way overlap (bow … stern). */
-const SEP_K = [-0.42, -0.21, 0, 0.21, 0.42];
 /** A voyage begun under way (re-plan, depeg, recovery) eases her give-way shove in over this long (s). */
 const PUSH_FADE_S = 12;
 /** The most a moored hull sheers round her buoy away from a hull passing close (rad). */
@@ -256,9 +255,7 @@ export class HarbourSim {
   private baseSlots = 0;
   private posed = false;
   private readonly tmp = new Float64Array(16);
-  /** Give-way scratch: the hull stations (heading × LOA × SEP_K) of hull i (x then z) and of the other hull j. */
-  private readonly stI = new Float64Array(10);
-  private readonly stJ = new Float64Array(10);
+  private readonly hullStations = new HullStations();
   /** Per hull, this frame: lane weight (0..1) of the leg being sailed, and the separation scratch. */
   private laneW = new Float32Array(0);
   private sepW = new Float32Array(0);
@@ -1176,6 +1173,7 @@ export class HarbourSim {
     p.drift.fill(0);
     let movers = 0;
     for (let i = 0; i < n; i++) {
+      this.hullStations.update(i, p.heading[i], rt[i].loa, n);
       const c = Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3] + O) / CELL))) * G + Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3 + 2] + O) / CELL)));
       next[i] = head[c]; head[c] = i;
       const ph = p.phase[i];
@@ -1184,25 +1182,27 @@ export class HarbourSim {
         movers++;
         const lw = this.laneW[i];
         if (lw > 0) {
-          const h = p.heading[i];
+          const oStation = i * HullStations.stride, stations = this.hullStations.data;
+          const fx = stations[oStation + 10], fz = stations[oStation + 11];
           // starboard (+) for the slow, port (-) for the fast, plus a little of her own
           const k = Math.min(1, Math.max(-1, (LANE_V_MID - this.legV[i]) / LANE_V_SPAN));
           let o = (k * LANE_HALF + rt[i].laneOff) * lw;
           // the lane is narrower past moorings and the reef, and where it runs near a quay or the shore
           const ko = L.keepOff;
           if (ko && o !== 0) {
-            const ox = pos[i * 3] - Math.cos(h) * o, oz = pos[i * 3 + 2] + Math.sin(h) * o;
+            const ox = pos[i * 3] - fz * o, oz = pos[i * 3 + 2] + fx * o;
             let c = clearance(ko, ox, oz) / 14;
             if (L.field) c = Math.min(c, (clearance(L.field, ox, oz) - rt[i].beam / 2) / 8);
             const f = Math.min(1, Math.max(0, c - rt[i].beam / 28));
             o *= f * f * (3 - 2 * f);
           }
-          lx[i] = -Math.cos(h) * o; lz[i] = Math.sin(h) * o;
+          lx[i] = -fz * o; lz[i] = fx * o;
           sx[i] = lx[i]; sz[i] = lz[i];
         }
       }
     }
     if (!movers) return;
+    const stations = this.hullStations.data;
     for (let pass = 0; pass < SEP_PASSES; pass++) {
       for (let i = 0; i < n; i++) {
         const ph = p.phase[i];
@@ -1211,12 +1211,10 @@ export class HarbourSim {
         // berthing / leaving a berth: slips and fairways are laid out with room; only true overlaps count
         const sw = this.sepW[i];
         const ramp = 1 + (SEP_RAMP - 1) * sw, gap = 0.4 + (SEP_GAP - 0.4) * sw;
-        const hi = p.heading[i], fx = Math.sin(hi), fz = Math.cos(hi), stx = -fz, stz = fx;
+        const oi = i * HullStations.stride, fx = stations[oi + 10], fz = stations[oi + 11], stx = -fz, stz = fx;
         // each pass shoves her afresh from her lane position, against the others' latest
         const x0 = pos[i * 3] + lx[i], z0 = pos[i * 3 + 2] + lz[i], xi = x0, zi = z0;
         const ci = Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3] + O) / CELL))), cj = Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3 + 2] + O) / CELL)));
-        const sI = this.stI, sJ = this.stJ, fxl = fx * r.loa, fzl = fz * r.loa;
-        for (let u = 0; u < 5; u++) { sI[u] = fxl * SEP_K[u]; sI[u + 5] = fzl * SEP_K[u]; }
         let push = 0;
         for (let a = Math.max(0, ci - 1); a <= Math.min(G - 1, ci + 1); a++) for (let b = Math.max(0, cj - 1); b <= Math.min(G - 1, cj + 1); b++) {
           for (let j = head[a * G + b]; j >= 0; j = next[j]) {
@@ -1226,13 +1224,11 @@ export class HarbourSim {
             const dx = xi - xj, dz = zi - zj;
             const reach = (r.loa + rj.loa) / 2 + gap + ramp;
             if (dx * dx + dz * dz > reach * reach) continue;
-            const hj = p.heading[j], gx = Math.sin(hj), gz = Math.cos(hj);
+            const oj = j * HullStations.stride, gx = stations[oj + 10], gz = stations[oj + 11];
             // deepest overlap of the stations: the nearest pair (one square root, not 25: the same value)
-            const gxl = gx * rj.loa, gzl = gz * rj.loa;
-            for (let v = 0; v < 5; v++) { sJ[v] = gxl * SEP_K[v]; sJ[v + 5] = gzl * SEP_K[v]; }
             let m2 = Infinity;
             for (let u = 0; u < 5; u++) for (let v = 0; v < 5; v++) {
-              const ex = dx + sI[u] - sJ[v], ez = dz + sI[u + 5] - sJ[v + 5];
+              const ex = dx + stations[oi + u] - stations[oj + v], ez = dz + stations[oi + u + 5] - stations[oj + v + 5];
               const d2 = ex * ex + ez * ez;
               if (d2 < m2) m2 = d2;
             }
@@ -1331,17 +1327,15 @@ export class HarbourSim {
    * the same rode, so she never drags), never more than MOORED_SHEER radians. Pure, like the give-way.
    */
   private mooredYield(): void {
-    const p = this.pose, n = p.count, rt = this.rt, L = this.layout, pos = p.position;
+    const p = this.pose, n = p.count, rt = this.rt, L = this.layout, pos = p.position, stations = this.hullStations.data;
     const G = 36, CELL = 36, O = 640, head = this.cellHead, next = this.cellNext;
     for (let i = 0; i < n; i++) {
       if (p.phase[i] !== PH_MOORED) continue;
       const s = L.slots[p.slot[i]];
       if (!s || s.swing <= 0) continue;
-      const r = rt[i], hi = p.heading[i], fx = Math.sin(hi), fz = Math.cos(hi);
+      const r = rt[i], oi = i * HullStations.stride;
       const xi = pos[i * 3], zi = pos[i * 3 + 2];
       const ci = Math.min(G - 1, Math.max(0, Math.floor((xi + O) / CELL))), cj = Math.min(G - 1, Math.max(0, Math.floor((zi + O) / CELL)));
-      const sI = this.stI, sJ = this.stJ, fxl = fx * r.loa, fzl = fz * r.loa;
-      for (let u = 0; u < 5; u++) { sI[u] = fxl * SEP_K[u]; sI[u + 5] = fzl * SEP_K[u]; }
       let px = 0, pz = 0;
       for (let a = Math.max(0, ci - 1); a <= Math.min(G - 1, ci + 1); a++) for (let b = Math.max(0, cj - 1); b <= Math.min(G - 1, cj + 1); b++) {
         for (let j = head[a * G + b]; j >= 0; j = next[j]) {
@@ -1351,15 +1345,13 @@ export class HarbourSim {
           const dx = xi - pos[j * 3], dz = zi - pos[j * 3 + 2];
           const reach = (r.loa + rj.loa) / 2 + 2;
           if (dx * dx + dz * dz > reach * reach) continue;
-          const hj = p.heading[j], gx = Math.sin(hj), gz = Math.cos(hj);
-          const gxl = gx * rj.loa, gzl = gz * rj.loa;
-          for (let v = 0; v < 5; v++) { sJ[v] = gxl * SEP_K[v]; sJ[v + 5] = gzl * SEP_K[v]; }
+          const oj = j * HullStations.stride;
           // deepest overlap between the two hulls' stations, and which way it pushes her (a pair no nearer than
           // the deepest so far, or than the overlap reach, cannot be deeper: its square root is skipped)
           const reachQ = (r.beam + rj.beam) / 2 + 0.8;
           let pen = 0, nx = 0, nz = 0, best2 = reachQ * reachQ * (1 + 1e-9);
           for (let u = 0; u < 5; u++) for (let v = 0; v < 5; v++) {
-            const ex = dx + sI[u] - sJ[v], ez = dz + sI[u + 5] - sJ[v + 5];
+            const ex = dx + stations[oi + u] - stations[oj + v], ez = dz + stations[oi + u + 5] - stations[oj + v + 5];
             const d2 = ex * ex + ez * ez;
             if (d2 > best2) continue;
             const d = Math.sqrt(d2), q = reachQ - d;

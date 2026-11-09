@@ -154,3 +154,4 @@ if not ONLY and COMPRESS:
     with open(mpath, 'w') as f:
         json.dump(M, f, indent=1)
     print('manifest merged', mpath)
+    subprocess.run(['node', os.path.join(ROOT, 'scripts/harbour/wreck-capacity.mjs')], cwd=ROOT, check=True)

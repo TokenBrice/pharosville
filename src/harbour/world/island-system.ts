@@ -74,7 +74,7 @@ export class IslandSystem implements WorldSystem {
     this.root.traverse((o) => { if ((o as THREE.Mesh).isMesh) dequantizeForPatterns(o as THREE.Mesh); });
     ctx.scene.add(this.root);
     this.root.updateMatrixWorld(true);
-    const ground = renderGround(ctx.renderer, this.root, [min[0], min[2], max[0], max[2]], 1024);
+    const ground = await renderGround(ctx.renderer, this.root, [min[0], min[2], max[0], max[2]], 1024, ctx.signal, ctx.services.get("preparation"));
     this.ground = ground;
     graphicsValidity(ctx)?.assertValid();
     ctx.services.set("ground", ground);

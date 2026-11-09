@@ -1,3 +1,4 @@
+import { HullStations } from "./hull-clearance";
 /**
  * Hull footprint audit in the real harbour (layout.json + the baked sea SDF): every hull's outline
  * (bow, stern and beam stations by LOA/beam) is sampled against the island's real coast and the pier
@@ -187,4 +188,22 @@ describe("hull footprints in the real harbour", () => {
     expect(r.land.length).toBe(0);
     expect(r.deck.length).toBe(0);
   }, 3_600_000);
+});
+
+describe("reusable separation stations", () => {
+  it("reproduces the original heading/station math exactly across heading changes and capacity growth", () => {
+    const cache = new HullStations(), offsets = [-0.42, -0.21, 0, 0.21, 0.42];
+    for (const count of [1, 32, 3]) {
+      for (let i = 0; i < count; i++) {
+        const heading = i * 0.71 - count * 0.13, loa = 5 + i * 0.7;
+        cache.update(i, heading, loa, count);
+        const o = i * HullStations.stride;
+        expect(cache.data[o + 10]).toBe(Math.sin(heading)); expect(cache.data[o + 11]).toBe(Math.cos(heading));
+        for (let k = 0; k < 5; k++) {
+          expect(cache.data[o + k]).toBe(Math.sin(heading) * loa * offsets[k]);
+          expect(cache.data[o + 5 + k]).toBe(Math.cos(heading) * loa * offsets[k]);
+        }
+      }
+    }
+  });
 });

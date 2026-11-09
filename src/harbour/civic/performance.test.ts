@@ -1,3 +1,5 @@
+import { CivicBoards, flagPlace, wallPlace } from "./boards";
+import { Shipyard, type YardHull } from "./shipyard";
 import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AssetStore } from "../engine/assets";
@@ -126,5 +128,82 @@ describe("audited merged local transforms", () => {
     expect(root.matrixAutoUpdate).toBe(true);
     expect(merged.matrixWorld.elements[12]).toBe(10);
     merged.geometry.dispose(); material.dispose();
+  });
+});
+
+describe("retained civic boards", () => {
+  function canvas() {
+    const g = { save() {}, restore() {}, clearRect() {}, beginPath() {}, rect() {}, clip() {}, drawImage: vi.fn() };
+    vi.stubGlobal("document", { createElement: () => ({ width: 0, height: 0, getContext: () => g }) });
+    return g;
+  }
+
+  it("retains geometry/UVs and touches only moved flag ranges, including hide/show", () => {
+    canvas();
+    const boards = new CivicBoards(128), slot = boards.alloc(32, 16)!;
+    boards.place("wall", slot, wallPlace(new THREE.Vector3(), new THREE.Vector3(0, 0, 1), 4, 2));
+    boards.place("flag", slot, flagPlace(new THREE.Vector3(5, 3, 0), [1, 0], 3, 2));
+    boards.update(0, false, 0, 0);
+    const g = boards.mesh.geometry, p = g.attributes.position as THREE.BufferAttribute, uv = g.attributes.uv;
+    const wall = p.array.slice(0, 12), oldUV = uv.array.slice(), index = g.index!, full = index.array.slice();
+    p.clearUpdateRanges(); (g.attributes.normal as THREE.BufferAttribute).clearUpdateRanges();
+    const indexVersion = index.version, uvVersion = (uv as THREE.BufferAttribute).version;
+    boards.move("flag", flagPlace(new THREE.Vector3(5, 3, 0), [0, 1], 3, 2));
+    boards.update(0, false, 0, 0.8);
+    expect(boards.mesh.geometry).toBe(g); expect(g.attributes.position).toBe(p); expect(g.attributes.uv).toBe(uv);
+    expect(p.array.slice(0, 12)).toEqual(wall); expect(uv.array).toEqual(oldUV);
+    expect(p.updateRanges).toEqual([{ start: 12, count: 66 }]);
+    expect(index.version).toBe(indexVersion); expect((uv as THREE.BufferAttribute).version).toBe(uvVersion);
+    expect(Array.from(uv.array.slice(0, 8))).toEqual([0, 0.875, 0.25, 0.875, 0, 1, 0.25, 1]);
+    boards.show("wall", false); boards.update(0, false, 0, 0);
+    expect(g.drawRange.count).toBe(60); expect(g.attributes.position).toBe(p);
+    boards.show("wall", true); boards.update(0, false, 0, 0);
+    expect(g.drawRange.count).toBe(66); expect(index.array).toEqual(full);
+    boards.dispose();
+  });
+
+  it("coalesces paints and image completions, then uploads only their small rectangles", async () => {
+    const g = canvas(), renderer = { initTexture: vi.fn(), copyTextureToTexture: vi.fn() };
+    const boards = new CivicBoards(2048, renderer as unknown as THREE.WebGLRenderer);
+    const a = boards.alloc(512, 128)!, b = boards.alloc(128, 64)!;
+    const start = boards.texture.version;
+    for (let i = 0; i < 5; i++) boards.paint(a, () => {});
+    boards.touch(b); await boards.stage();
+    expect(renderer.initTexture).toHaveBeenCalledOnce(); expect(boards.texture.version).toBe(start + 1);
+    const version = boards.texture.version;
+    boards.paint(a, () => {}); boards.touch(a); boards.touch(a); await boards.stage();
+    expect(renderer.initTexture).toHaveBeenCalledOnce(); expect(renderer.copyTextureToTexture).toHaveBeenCalledOnce();
+    expect(boards.texture.version).toBe(version); // no full-canvas invalidation after first allocation
+    const [source, destination, region, at] = renderer.copyTextureToTexture.mock.calls[0];
+    expect(source.image).toMatchObject({ width: 512, height: 128 }); expect(destination).toBe(boards.texture);
+    expect(region).toBeNull(); expect(at.toArray()).toEqual([a.x, 2048 - a.y - a.h]);
+    expect(g.drawImage).toHaveBeenCalledWith(boards.canvas, a.x, a.y, a.w, a.h, 0, 0, a.w, a.h);
+    expect(boards.material.map).toBe(boards.texture); expect(boards.material.emissiveMap).toBe(boards.texture);
+    boards.dispose(); boards.touch(a); await boards.stage(); expect(renderer.copyTextureToTexture).toHaveBeenCalledOnce();
+  });
+});
+
+describe("retained shipyard", () => {
+  it("launches/unlaunches hulls, posts and boards using only the retained index prefix", () => {
+    const material = new THREE.MeshStandardMaterial(), show = vi.fn();
+    const Constructor = Shipyard as unknown as new (plot: unknown, mats: unknown, boards: unknown) => Shipyard;
+    const yard = new Constructor({ nodes: new Map() }, { kit: () => material }, { show });
+    const internal = yard as unknown as { mesh: THREE.Mesh; placed: unknown[]; rebuild(): void };
+    for (const [i, id] of ["a", "b"].entries()) {
+      const hull = new THREE.BoxGeometry(); hull.deleteAttribute("uv");
+      hull.setAttribute("color", new THREE.BufferAttribute(new Float32Array(hull.attributes.position.count * 4), 4));
+      internal.placed.push({ place: { coin: { id } }, hull, extra: [], board: new THREE.Vector3(i * 10, 0, 0), boardW: 4 });
+      yard.hulls.push({ coin: { id }, launched: false } as YardHull);
+    }
+    internal.rebuild();
+    const mesh = internal.mesh, g = mesh.geometry, position = g.attributes.position, index = g.index!, full = index.array.slice();
+    const disposed = vi.fn(); g.addEventListener("dispose", disposed);
+    yard.setLaunched(new Set(["a"]));
+    expect(internal.mesh).toBe(mesh); expect(mesh.geometry).toBe(g); expect(g.attributes.position).toBe(position); expect(g.index).toBe(index);
+    expect(g.drawRange.count).toBe(108); expect(index.array.slice(0, 108)).toEqual(full.slice(108));
+    expect(yard.hulls[0].launched).toBe(true); expect(show).toHaveBeenCalledWith("yard:a", false);
+    yard.setLaunched(new Set(["a", "b"])); expect(mesh.visible).toBe(false); expect(g.drawRange.count).toBe(0);
+    yard.setLaunched(new Set()); expect(mesh.visible).toBe(true); expect(index.array).toEqual(full);
+    expect(disposed).not.toHaveBeenCalled(); yard.dispose(); expect(disposed).toHaveBeenCalledOnce(); material.dispose();
   });
 });

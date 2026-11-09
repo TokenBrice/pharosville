@@ -37,7 +37,7 @@
   },
   "fleet/0.0_bare_c11111/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "f3521f1aff5f3b5adc1478c53f9561a0d096cebb8cf344c2ff87bd4a49680160",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_bare_c11111"
   },
@@ -79,7 +79,7 @@
   },
   "fleet/0.0_bare_c11111_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "19e11f7077dd410bc72cc6c9f964fe0e8bccb0b76789ec4b5c962f23f252b8f3",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_bare_c11111_lite"
   },
@@ -121,7 +121,7 @@
   },
   "fleet/0.0_bare_c00000/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "19b89d24f958bf281823cf17d31aee493fb46b312cfd90676c11046760d4c2e9",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_bare_c00000"
   },
@@ -163,7 +163,7 @@
   },
   "fleet/0.0_bare_c00000_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "0d89943cef0d4696429e39c8a80e1c29fd6f57d5afc2c5962f8d28873ff5013f",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_bare_c00000_lite"
   },
@@ -205,7 +205,7 @@
   },
   "fleet/0.0_bare_c10000/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "c12e714b75c7c9d7064c3eb311d9c442483d3f10d32a5de776ca87d58f6e42ad",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_bare_c10000"
   },
@@ -247,7 +247,7 @@
   },
   "fleet/0.0_bare_c10000_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "ae528cd766ed95fb042301676553476a43d549be44ed714b768fff1a69920759",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_bare_c10000_lite"
   },
@@ -289,7 +289,7 @@
   },
   "fleet/0.0_leaf_c10000/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "400e40a53aa52e7e25573a0a69a607a58a86fd1fe57a32fe6a86f5b878179247",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c10000"
   },
@@ -331,7 +331,7 @@
   },
   "fleet/0.0_leaf_c10000_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "28aa978f382ab2ea7dace783b6b7a8b57a794bc21dd661a0abd640dd679d3970",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c10000_lite"
   },
@@ -373,7 +373,7 @@
   },
   "fleet/0.0_leaf_c11000/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "941a3d169246d330dcf80a1f7bfdf6a9ef46c76192480cef70fdf06eb7c44d48",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c11000"
   },
@@ -415,7 +415,7 @@
   },
   "fleet/0.0_leaf_c11000_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "31615fc19d10aef142b1f632a0c553d460beb6102b7db3de7478c2108e42a03e",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c11000_lite"
   },
@@ -457,7 +457,7 @@
   },
   "fleet/0.0_leaf_c21000/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "ea5bd94fb9aba5dbcb996a5c8942b1390ec53e63f58feda2a6b0045a1dee7fc7",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c21000"
   },
@@ -499,7 +499,7 @@
   },
   "fleet/0.0_leaf_c21000_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "c6440122f10201179f30649e6f5c427306162607106a7e7803b1dd3dfd593f14",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c21000_lite"
   },
@@ -541,7 +541,7 @@
   },
   "fleet/0.0_leaf_c21100/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "f7f793a2c8ee09f6bd3d16124b42f917cb8c07d03be490e3070fa985007cf3ee",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c21100"
   },
@@ -583,7 +583,7 @@
   },
   "fleet/0.0_leaf_c21100_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "6e0feea0a2de74ebb306aff7ac9df26fbb29ce3fb52c7220cf1a804df5dc3271",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c21100_lite"
   },
@@ -625,7 +625,7 @@
   },
   "fleet/0.0_leaf_c22100/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "0aee9b21ab01d211c04a3f738df32e0f917c3c608e1c87f5351062f48a4f9c04",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c22100"
   },
@@ -667,7 +667,7 @@
   },
   "fleet/0.0_leaf_c22100_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "663b5244f4b915dc495bf244ee48beef10ed3a7e1b521ec523f1aa1edb6b5b8c",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c22100_lite"
   },
@@ -709,7 +709,7 @@
   },
   "fleet/0.0_leaf_st_c22110/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "dfbb03b8e8a834b920daee30710b667213f871d38a3cfe184ff9f299402863f6",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_st_c22110"
   },
@@ -751,7 +751,7 @@
   },
   "fleet/0.0_leaf_st_c22110_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "958201eb1c418984333aa1cc4b5ba62998819f855438ac1ef3ba3066c0686ca4",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_st_c22110_lite"
   },
@@ -793,7 +793,7 @@
   },
   "fleet/0.0_leaf_st_c22210/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "6c03f5c06b4d4456c3729ff13b80ee9a1ee094e2746b38d9e6328772090a72f0",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_st_c22210"
   },
@@ -835,7 +835,7 @@
   },
   "fleet/0.0_leaf_st_c22210_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "4a8cea498bb3e6ae13f55b61a5a856a9ff453ddc703f926a17bee761de48aa14",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_st_c22210_lite"
   },
@@ -877,7 +877,7 @@
   },
   "fleet/0.0_leaf_st_c22220/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "f3a0695ccc8ca8efbc043b30b1bee70417f32bb1b8d6d2fcd66ca1cff9d6bd2f",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_st_c22220"
   },
@@ -919,7 +919,7 @@
   },
   "fleet/0.0_leaf_st_c22220_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "1740305c12a8891b702bf8d123cf51dcf336a4fb2204c8d1342909bb5d681a29",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_st_c22220_lite"
   },
@@ -961,7 +961,7 @@
   },
   "fleet/0.0_leaf_st_c22221/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "b55575889d3d83e7f8468e50389470155cf7d70b664eca8270a85800ebc1eaf8",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_st_c22221"
   },
@@ -1003,7 +1003,7 @@
   },
   "fleet/0.0_leaf_st_c22221_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "614ad30f8a4a2de4897930a80d6adc52c47c1b35a89c3490bb456d9833e215d6",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_st_c22221_lite"
   },
@@ -1045,7 +1045,7 @@
   },
   "fleet/0.0_leaf_c22221/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "9d5f3abd56b1a9008d71d990f62c752a0ac8d654e86ef610ab0cbc69f04cc387",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c22221"
   },
@@ -1087,7 +1087,7 @@
   },
   "fleet/0.0_leaf_c22221_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "c3b081b970c71d1c9207726d8254eb1a49d0cee64b0dc328eb978ad9c6c327e5",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c22221_lite"
   },
@@ -1129,7 +1129,7 @@
   },
   "fleet/0.0_leaf_c22222/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "211994b6fce12b8768592a5f12903c039ab1021575c769ee60adb326657e7b74",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c22222"
   },
@@ -1171,7 +1171,7 @@
   },
   "fleet/0.0_leaf_c22222_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "80a4ce793d74841938aebadb3241260f2f7ee5e123f0756b7760ea958975a36d",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_leaf_c22222_lite"
   },
@@ -1213,7 +1213,7 @@
   },
   "fleet/0.0_bare_c22222/batched/colour": {
     "vertex": "7c0884d9a62043c02093b8a6032088971c3a0e385189ea794d8b7c24fed3874e",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "d52662e34066e4837eb508cf8825db4d09408ba2ecd20de0e68c6f6cf5c00928",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_bare_c22222"
   },
@@ -1255,7 +1255,7 @@
   },
   "fleet/0.0_bare_c22222_lite/batched/colour": {
     "vertex": "c598cc2a329f2ccae0e4f05320d944fb5dd5cf3c37fa6d68069b7f86cd9b56ca",
-    "fragment": "6ea9c514c1c0b94f640204be6ea3a4bc6b37bf541616598248d69bded12ab6b4",
+    "fragment": "d103682b2383e21147a970c1d980e3dfda774ac4985e136d29fe5c429c5feb54",
     "defines": "196569dca65e9ce3043f44893c68ebe4c8df6c42b959263d0e517afc47b3b741",
     "cacheKey": "hb_fleet_v12_hb_kit_0.0_bare_c22222_lite"
   },
@@ -1303,7 +1303,7 @@
   },
   "fleet/flags": {
     "vertex": "1666d2ce7909e6380b536951d8df52823f4505a48a3a84ccfa647f48cdb4717a",
-    "fragment": "b292f2fa08d29869bd86dde674a1b9cbd6adb5578332f11cadb0e00a9567622a",
+    "fragment": "eaa107ed05cbc8d1ba22e3c3e1dddb8ee50a0368b19f04e533484068d042c057",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
   },
