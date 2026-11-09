@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "measuredAt": "2026-10-19T14:19:03.259Z",
-  "note": "Lossless registry/49+17 packs/exact sea measured in isolated /tmp/nfs-b1 build; first-frame totals + 5%, only downward revisions. Text estimates are not CDN wire measurements. Source-media inventory remains authoring/development bytes, not retained deployment payload. 2026-10-25 (Living Harbour v1.4.0 on Fair Wind v1.3.0): 23 media entries re-baselined to measured + 5% (hull/titan kits re-exported with stern lanterns and oars, new office-works and life_beasts kits); totals unchanged. 2026-11-09 (Clear Air v1.6.0, agents/pharosville-ultimate exec/DECISION-LOG X-018): first-frame totals re-measured on the legacy frontier (stored 6,503,845 / gzip 4,708,277 / Brotli 4,576,948 B; +49.5 KB stored vs v1.5.0, all in the harbour app chunk: design tokens and night palette, slips, dated charts with values tables, help and controls sheet, guide, Watch controls, ledger panes and filters, gesture/zoom/picking rework, typed services, checked shader patches) and ceilings reset to measured + 5%; javascript category 666,493 B gzip + 5%. Media and the other categories unchanged.",
+  "note": "Lossless registry/49+17 packs/exact sea measured in isolated /tmp/nfs-b1 build; first-frame totals + 5%, only downward revisions. Text estimates are not CDN wire measurements. Source-media inventory remains authoring/development bytes, not retained deployment payload. 2026-10-25 (Living Harbour v1.4.0 on Fair Wind v1.3.0): 23 media entries re-baselined to measured + 5% (hull/titan kits re-exported with stern lanterns and oars, new office-works and life_beasts kits); totals unchanged. 2026-11-09 (Clear Air v1.6.0, agents/pharosville-ultimate exec/DECISION-LOG X-018): first-frame totals re-measured on the legacy frontier (stored 6,503,845 / gzip 4,708,277 / Brotli 4,576,948 B; +49.5 KB stored vs v1.5.0, all in the harbour app chunk: design tokens and night palette, slips, dated charts with values tables, help and controls sheet, guide, Watch controls, ledger panes and filters, gesture/zoom/picking rework, typed services, checked shader patches) and ceilings reset to measured + 5%; javascript category 666,493 B gzip + 5%. Media and the other categories unchanged. 2026-11-09 (Lamplighter v1.7.0, e-arrival E28 night key art): the four night posters /harbour/poster-night-{1600,960}.{avif,webp} measured 74,788 / 91,406 / 32,036 / 37,964 B, budgeted at measured + 5 % (the night shell names them in place of the day posters, so a night first frame is lighter than the budgeted day one); the refreshed day key art (the v1.6 harbour, same encoder settings, scripts/harbour/render-posters.mjs) measured 99,509 / 149,228 / 43,494 / 64,572 B and stays inside its existing ceilings, unchanged.",
   "measuredTotals": {
     "firstFrameStoredBytes": 6503845,
     "firstFrameGzipBodyBytes": 4708277,
@@ -210,6 +210,10 @@
     "/harbour/poster-1600.webp": 154947,
     "/harbour/poster-960.avif": 49737,
     "/harbour/poster-960.webp": 69422,
+    "/harbour/poster-night-1600.avif": 78528,
+    "/harbour/poster-night-1600.webp": 95977,
+    "/harbour/poster-night-960.avif": 33638,
+    "/harbour/poster-night-960.webp": 39863,
     "/harbour/sea-sdf.webp": 864232,
     "/harbour/civic/office-works.glb": 23264,
     "/harbour/civic/office-works.glb.gz": 8286,

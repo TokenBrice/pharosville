@@ -25,14 +25,29 @@ button, input, select, textarea { font: inherit; }
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 
-/* ---- poster: full-bleed key art, the same framing as the live harbour's first view ---- */
+/* ---- poster: full-bleed key art, the same framing as the live harbour's first view ----
+   E28: as the live harbour takes over, the poster settles onto it (registered on the Pharos, wake.ts) while it fades.
+   Its mask rests oversized, the feather outside the window; as the poster settles the mask draws in to a wide feather
+   (15 % a side), so the poster dissolves into the live harbour round it, never a picture in a picture. Reduced motion:
+   an opacity crossfade, nothing moves. The night key art (data-pv-hour="night", chosen before first paint by
+   functions/index.ts) brings its own ground and card. */
 .pv-poster {
   position: fixed; inset: 0; z-index: 5; pointer-events: none;
-  background: linear-gradient(#e9c3a6, #c49a8c 30%, #1d5677 55%, var(--pv-night));
+  background: linear-gradient(#7f8293, #98725f 30%, #6b4e3a 55%, #3a4140); /* the key art's own rows, until it decodes */
   transition: opacity 1100ms var(--pv-ease);
 }
 .pv-poster img { display: block; width: 100%; height: 100%; max-width: none; object-fit: cover; }
 :root[data-pv-live] .pv-poster { opacity: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .pv-poster {
+    mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent), linear-gradient(transparent, #000 15%, #000 85%, transparent);
+    mask-composite: intersect;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: 145% 145%;
+  }
+  :root[data-pv-live] .pv-poster { mask-size: 100% 100%; }
+}
 
 /* ---- arrival: the corner wordmark (where the live one appears) + one chart-paper card ---- */
 .pv-arrival {
@@ -90,8 +105,26 @@ button, input, select, textarea { font: inherit; }
   .pv-arrival__guide dd { margin-bottom: 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pv-poster, .pv-arrival { transition-duration: 1ms; }
+  .pv-poster, .pv-arrival { transition-duration: 400ms; transition-timing-function: linear; }
 }
+
+/* ---- the night key art: its ground while the image loads, and the arrival card on the night bridge palette
+   (harbour-ui.css), so the card it crossfades into is the same dark chart and the fire keeps the brightest pixels ---- */
+:root[data-pv-hour="night"] {
+  --pv-paper: #18212b;
+  --pv-ink: #a39c8d;
+  --pv-ink-2: #9f988a;
+  --pv-brass: #a88a52;
+}
+:root[data-pv-hour="night"] .pv-poster { background: linear-gradient(#262836, #182137 30%, #1b2532 55%, #112236); }
+:root[data-pv-hour="night"] :is(.pv-arrival__mark, .pv-arrival__card) {
+  background-image: radial-gradient(120% 90% at 50% 40%, rgba(207, 174, 110, 0.05), rgba(207, 174, 110, 0) 60%, rgba(0, 0, 0, 0.2) 100%);
+  border-color: rgba(207, 174, 110, 0.38);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 14px 34px -10px rgba(0, 0, 0, 0.65);
+}
+:root[data-pv-hour="night"] .pv-arrival__card::before { border-color: rgba(207, 174, 110, 0.26); }
+:root[data-pv-hour="night"] .pv-arrival nav a { color: #ab8e5a; }
+:root[data-pv-hour="night"] .pv-arrival nav a:focus-visible { outline-color: #6a9cc8; }
 
 /* ---- gate pages: screens or windows too small to chart (size tests, never orientation) ---- */
 .pharosville-gate { min-height: 100svh; background: #16222f; color: #eef0ec; }
