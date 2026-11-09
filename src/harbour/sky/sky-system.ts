@@ -13,7 +13,7 @@ import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import { bakeCloudAtlas, CLOUD_CELLS } from "./clouds";
 import { cloudShadowUniforms } from "./cloud-shadow";
 import { applySkyPalette, createSkyPaletteUniforms } from "./palette";
-import { bankReveal, bankRevealByBand, seasonBankShape, seasonHighCloud } from "./season-sky";
+import { bankReveal, seasonBankShape, seasonHighCloud } from "./season-sky";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import {
   dayOfYear, METEOR_SHOWERS, meteorIntervalSec, meteorShowerOn, moonAge, moonIllumination, NOMINAL_LATITUDE, parseMoonOverride, SYNODIC_DAYS,
@@ -461,7 +461,7 @@ export class SkySystem implements WorldSystem {
       let th = b.th + b.drift + lateralDeg / b.dist;
       th = ((th + lim) % (2 * lim) + 2 * lim) % (2 * lim) - lim;
       const edge = THREE.MathUtils.smoothstep(lim - Math.abs(th), 0, 6);
-      const a = (extraEnabled("storm") ? bankRevealByBand : bankReveal)(coverAt(th), b.slot, MAX_BANKS) * edge;
+      const a = bankReveal(coverAt(th), b.slot, MAX_BANKS) * edge;
       this.u.uBanks.value[i].set(th, b.e, b.w * grow, b.h * grow);
       this.u.uBankB.value[i].set(b.cell, a, b.haze, b.mirror);
     });
