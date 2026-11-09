@@ -30,7 +30,11 @@ export function Logo({ src, label, color, size }: { src: string | null; label: s
   );
 }
 
-export const chainLogo = (chain: string) => `/chains/${chain.toLowerCase().replace(/\s+/g, "-")}.svg`;
+const chainLogos = import.meta.glob("../../../public/chains/*.svg", { eager: true, query: "?url&no-inline", import: "default" });
+export function chainLogo(chain: string): string | null {
+  const path = `/chains/${chain.toLowerCase().replace(/\s+/g, "-")}.svg`;
+  return Object.hasOwn(chainLogos, `../../../public${path}`) ? path : null;
+}
 
 /** Validated categorical inks on chart paper (dataviz validator: CVD ≥ 11, contrast ≥ 3:1), per palette: harbour-ui.css --c1…--c5. */
 export const CHAIN_INKS = ["var(--c1)", "var(--c2)", "var(--c3)", "var(--c4)", "var(--c5)"];
@@ -65,9 +69,10 @@ export function ChainSplit({ boat }: { boat: Boat }) {
 /** A chain's crest on its house colour (many crests are white on transparent). */
 export function Crest({ chain, color, size = 52 }: { chain: string; color: string; size?: number }) {
   const [broken, setBroken] = useState(false);
+  const src = chainLogo(chain);
   return (
     <span className="hb-crest" style={{ width: size, height: size, background: color }} aria-hidden="true">
-      {!broken ? <img src={chainLogo(chain)} alt="" onError={() => setBroken(true)} /> : <span>{chain.slice(0, 2)}</span>}
+      {src && !broken ? <img src={src} alt="" onError={() => setBroken(true)} /> : <span>{chain.slice(0, 2)}</span>}
     </span>
   );
 }
