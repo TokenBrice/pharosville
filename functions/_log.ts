@@ -37,6 +37,10 @@ const RATE_LIMIT_QUERY_PARAM = "rate-limit";
 const CLIENT_ERROR_EVENT = "PHAROSVILLE_CLIENT_ERROR";
 const CANARY_EVENT = "PHAROSVILLE_CANARY_PROBE";
 const CANARY_HEADER = "x-pharosville-canary";
+const CANARY_RUN_HEADER = "x-pharosville-canary-run";
+const STORAGE_HEADER = "x-pharosville-storage";
+const SYNTHETIC_STORAGE_TIMEOUT_MS = 2_000;
+type StorageSignal = "accepted" | "failed" | "not-configured";
 const KV_TTL_SECONDS = 30 * 24 * 60 * 60;
 const LOG_SECURITY_RESPONSE_HEADERS = {
   "cache-control": "no-store",
@@ -122,25 +126,34 @@ async function isRateLimited(context: PagesContext): Promise<boolean> {
   return false;
 }
 
-/**
- * Best-effort durable copy. One key per report rather than a per-day counter:
- * KV is eventually consistent, so concurrent read-modify-write increments lose
- * each other, while distinct keys never collide and `wrangler kv key list
- * --prefix <EVENT>:<date>` still yields the day's count along with the reports
- * themselves. Never throws and never blocks the response.
- */
-function storeReport(context: PagesContext, event: string, line: string): void {
+/** Real reports never wait for KV; only the synthetic probe receives its storage result. */
+function storeReport(context: PagesContext, event: string, line: string, runToken: string | null): Promise<StorageSignal> {
   try {
     const kv = context.env?.CLIENT_ERROR_KV;
-    if (!kv) return;
-    const key = `${event}:${new Date().toISOString()}:${crypto.randomUUID()}`;
-    waitUntilOrVoid(
-      context,
-      kv.put(key, line, { expirationTtl: KV_TTL_SECONDS }).catch(() => undefined),
-    );
+    if (!kv) return Promise.resolve("not-configured");
+    const key = event === CANARY_EVENT && runToken
+      ? `${CANARY_EVENT}:run:${runToken}`
+      : `${event}:${new Date().toISOString()}:${crypto.randomUUID()}`;
+    const storage = kv.put(key, line, { expirationTtl: KV_TTL_SECONDS })
+      .then(() => "accepted" as const, () => "failed" as const);
+    waitUntilOrVoid(context, storage);
+    return storage;
   } catch {
-    // A missing, misconfigured, or failing binding must never cost a report the
-    // console line that is otherwise the only record of it.
+    return Promise.resolve("failed");
+  }
+}
+
+async function syntheticStorageSignal(storage: Promise<StorageSignal>): Promise<StorageSignal> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      storage,
+      new Promise<StorageSignal>((resolve) => {
+        timeoutId = setTimeout(() => resolve("failed"), SYNTHETIC_STORAGE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -177,6 +190,8 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   }
 
   const synthetic = isSyntheticProbe(request);
+  const runToken = synthetic ? request.headers.get(CANARY_RUN_HEADER) : null;
+  if (runToken !== null && !/^[a-zA-Z0-9_-]{1,80}$/.test(runToken)) return rejected("Bad request", 400);
   if (await isRateLimited(context)) {
     const response = rejected("Too many requests", 429);
     response.headers.set("retry-after", String(RATE_LIMIT_WINDOW_SECONDS));
@@ -215,7 +230,9 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     ...projected,
   })}`;
   console.error(line);
-  storeReport(context, event, line);
+  const storage = storeReport(context, event, line, runToken);
 
-  return noContent();
+  const response = noContent();
+  if (synthetic) response.headers.set(STORAGE_HEADER, await syntheticStorageSignal(storage));
+  return response;
 }
