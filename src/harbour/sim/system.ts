@@ -261,17 +261,19 @@ export class DataSystem implements WorldSystem {
     try {
       let model = modelAt();
       phase = "worker";
-      const prepared = !recovering && model.boats.length > 0 && (model.planKey !== sim.plan.key || this.workerPlanKey !== model.planKey)
-        ? await warm.prepare(model, this.simClock(Date.now()), sim.knownPlainPaths())
-        : undefined;
+      const planning = !recovering && model.boats.length > 0 && (model.planKey !== sim.plan.key || this.workerPlanKey !== model.planKey);
+      const prepared = planning ? await warm.prepare(model, this.simClock(Date.now()), sim.knownPlainPaths()) : undefined;
       if (this.feed !== feed || this.sim !== sim || this.generation !== generation || this.workerFailed !== recovering || revision < this.consumedRevision) return;
       if (prepared) this.workerPlanKey = model.planKey;
       // Never publish an unseen intermediate structural model or replay its transitions.
       // Optional arrivals with identical planning inputs coalesce without restarting allocation.
-      phase = "model-build";
-      const latest = modelAt();
-      if (latest.planKey !== model.planKey) { this.dirty = true; return; }
-      model = latest;
+      // (Only the worker's wait lets newer payloads arrive: without it the first build is already the latest.)
+      if (planning) {
+        phase = "model-build";
+        const latest = modelAt();
+        if (latest.planKey !== model.planKey) { this.dirty = true; return; }
+        model = latest;
+      }
       revision = this.revision;
       phase = "fleet";
       controller = this.fleetAbort = new AbortController();

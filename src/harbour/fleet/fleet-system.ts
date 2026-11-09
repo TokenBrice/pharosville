@@ -602,6 +602,14 @@ export class FleetSystem implements WorldSystem {
   }
 
   private reconcileBoat(boat: Boat, prev: BoatRec | undefined, staging?: FleetStaging): BoatRec | undefined {
+    // unchanged hull, the common refresh: only her source reading moves, at commit; no staging copy of the record
+    if (staging && prev && prev.source.rig === boat.rig && prev.source.hullClass === boat.hullClass &&
+      prev.source.brandColor === boat.brandColor && prev.dead === (boat.state === "wrecked") &&
+      prev.source.nullPeg === boat.nullPeg) {
+      const rec = prev;
+      staging.commits.push(() => { rec.source = boat; });
+      return rec;
+    }
     const original = prev;
     if (staging && prev) prev = { ...prev, brand: prev.brand.clone(), flagBrand: prev.flagBrand.clone() };
     const finish = (rec: BoatRec) => {
@@ -1515,7 +1523,9 @@ export class FleetSystem implements WorldSystem {
   private brailing(b: BoatRec, moving: boolean, x: number, z: number, dt: number): number {
     if (!b.variant.oars) return 0;
     if (!this.harbours && this.layout) this.harbours = seaZones(this.layout).filter((zn) => zn.kind === "harbour").map((zn) => zn.polygon);
-    const inside = moving && !!this.harbours?.some((poly) => inPoly(x, z, poly));
+    let inside = false;
+    const harbours = this.harbours;
+    if (moving && harbours) for (let k = 0; k < harbours.length && !inside; k++) inside = inPoly(x, z, harbours[k]);
     b.brail += ((inside ? 1 : 0) - b.brail) * (this.ease.dt === dt ? this.ease.brail : 1 - Math.exp(-dt * 0.35));
     return b.brail;
   }

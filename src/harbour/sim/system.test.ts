@@ -9,7 +9,7 @@ interface Model { boats: unknown[]; hasFleet: boolean; planKey: string; truth: {
 interface Feed { payloads: Payloads; publish(key: string, count?: number | null): void }
 interface Sim { model: Model; plan: { key: string }; pose: { count: number }; setModel: Mock; poseAt: Mock }
 interface Warm { done: Promise<void>; prepare: Mock; paths?: Mock; stop: Mock }
-const state = vi.hoisted(() => ({ feed: null as Feed | null, warm: null as Warm | null, sims: [] as Sim[], buildError: false, fail: null as ((error: Error) => void) | null }));
+const state = vi.hoisted(() => ({ feed: null as Feed | null, warm: null as Warm | null, sims: [] as Sim[], buildError: false, builds: 0, fail: null as ((error: Error) => void) | null }));
 vi.mock("../data/fetch", () => ({ HarbourFeed: class {
   payloads: Payloads = {};
   listener: () => void = () => {};
@@ -24,6 +24,7 @@ vi.mock("../data/fetch", () => ({ HarbourFeed: class {
 } }));
 vi.mock("../model/build", () => ({ buildHarbourModel: (payloads: Payloads, nowMs: number): Model => {
   if (state.buildError) throw new Error("bad model");
+  state.builds++;
   return ({
   boats: Array.from({ length: payloads.stablecoins?.data?.count ?? 0 }),
   planKey: String(payloads.stablecoins?.data?.count ?? 0),
@@ -166,6 +167,19 @@ describe("single-owner prepared adoption", () => {
     await vi.runOnlyPendingTimersAsync();
     expect(state.warm!.prepare).toHaveBeenCalledOnce();
     expect(system.readiness.revision).toBe(2);
+  });
+
+  it("builds a refresh's model once unless a worker wait could let newer readings in (p-hitch2)", async () => {
+    await begin(); await startPreparation();
+    const planned = state.builds;
+    paths.resolve({}); await flush();
+    expect(state.builds - planned).toBe(1); // after the worker's wait, the latest readings are built again
+    state.feed!.publish("stress"); system.update(frame, ctx);
+    const refresh = state.builds;
+    await vi.runOnlyPendingTimersAsync();
+    expect(state.warm!.prepare).toHaveBeenCalledOnce();
+    expect(system.readiness.revision).toBe(2);
+    expect(state.builds - refresh).toBe(1);
   });
 
   it("does not publish late worker results after disposal", async () => {
