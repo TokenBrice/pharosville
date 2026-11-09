@@ -52,8 +52,8 @@ export const DEPLOY_GATE_VERDICT_PREFIX = "PHAROSVILLE_DEPLOY_GATE:";
 
 export function formatGateVerdict(perfOutcome) {
   return perfOutcome === "skipped"
-    ? `${DEPLOY_GATE_VERDICT_PREFIX} PASS_PERF_SKIPPED (every other check passed; Harbour real-GPU load performance was NOT measured)`
-    : `${DEPLOY_GATE_VERDICT_PREFIX} PASS (Harbour cold fast4g load and static byte tripwires passed)`;
+    ? `${DEPLOY_GATE_VERDICT_PREFIX} PASS_PERF_SKIPPED (every other check passed; Harbour real-GPU load/arrival checks were NOT measured)`
+    : `${DEPLOY_GATE_VERDICT_PREFIX} PASS (Harbour cold fast4g load, arrival readiness and static byte tripwires passed)`;
 }
 
 function formatCommand(command, args) {
@@ -177,7 +177,11 @@ async function runHarbourPerfTripwire({ cwd, dist, port, out }) {
     console.log(`${result.pass ? "PASS_PERF" : "FAIL_PERF"}: first-fleet median ${result.medianMs.toFixed(1)} ms; `
       + `baseline ${result.baselineMs.toFixed(1)} ms +15% = ${result.limitMs.toFixed(1)} ms `
       + `(${result.deltaPercent.toFixed(1)}%); static bytes passed${current.meta.machine.contended ? " [CONTENDED]" : ""}.`);
-    return result.pass ? 0 : 1;
+    const arrivalCode = await runPerfCommand(cwd, "scripts/harbour/arrival-smoke.mjs", [
+      "--url", `http://127.0.0.1:${port}/`, "--out", resolve(out, "arrival"),
+    ]);
+    if (arrivalCode !== 0 && arrivalCode !== PREVIEW_SKIP_EXIT_CODE) throw new Error(`Harbour arrival smoke exited ${arrivalCode}`);
+    return result.pass ? arrivalCode : 1;
   } finally {
     process.removeListener("SIGINT", stopOrigin);
     process.removeListener("SIGTERM", stopOrigin);

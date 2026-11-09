@@ -2,6 +2,7 @@
 
 // Usage: node scripts/smoke-live.mjs [--url <origin>] [--timeout-ms <ms>] [--strict-freshness]
 //
+// --receipt FILE --sha FULL_SHA  optional canonical smoke/build identity receipt
 // --url / SMOKE_UI_URL           origin to smoke (default https://pharosville.pharos.watch)
 // --timeout-ms / SMOKE_TIMEOUT_MS  per-request timeout (default 10000)
 // --strict-freshness / SMOKE_STRICT_FRESHNESS=1
@@ -13,6 +14,9 @@
 //     has watched the signal; on once they have, which is the only thing that
 //     keeps a warning from being decoration.
 
+import { createHash } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -28,6 +32,7 @@ const { CRON_INTERVALS_CLIENT } = require("../shared/lib/cron-intervals-client.t
 const args = process.argv.slice(2);
 let baseUrl = process.env.SMOKE_UI_URL ?? "https://pharosville.pharos.watch";
 let timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS ?? 10_000);
+let receiptPath, sourceSha;
 let strictFreshness = process.env.SMOKE_STRICT_FRESHNESS === "1";
 
 for (let index = 0; index < args.length; index += 1) {
@@ -37,6 +42,10 @@ for (let index = 0; index < args.length; index += 1) {
   } else if (args[index] === "--timeout-ms" && args[index + 1]) {
     timeoutMs = Number(args[index + 1]);
     index += 1;
+  } else if (args[index] === "--receipt" && args[index + 1]) {
+    receiptPath = resolve(args[++index]);
+  } else if (args[index] === "--sha" && args[index + 1]) {
+    sourceSha = args[++index];
   } else if (args[index] === "--strict-freshness") {
     strictFreshness = true;
   }
@@ -372,11 +381,29 @@ async function main() {
   const availability = reportAvailabilityWarnings(availabilityWarnings, strictFreshness);
   const payloads = reportPayloadWarnings(payloadWarnings, strictFreshness);
   const freshness = reportFreshness(freshnessProblems, strictFreshness);
+  if (receiptPath) {
+    const registry = await expectOk("/asset-registry.json");
+    assert((registry.headers.get("content-type") ?? "").includes("json"), "Missing asset registry identity");
+    const digest = (text) => createHash("sha256").update(text).digest("hex");
+    const registryText = await registry.text();
+    const identity = { documentHash: digest(await root.text()), assetRegistryHash: digest(registryText) };
+    const receipt = { schemaVersion: 1, tool: "smoke-live", date: new Date().toISOString(), status: "PASS", origin: base.href, sha: sourceSha ?? null,
+      headers: Object.fromEntries(REQUIRED_SECURITY_HEADERS.map(({ name }) => [name, root.headers.get(name)])), headerStatus: enforceSecurityHeaders ? "PASS" : "SKIP", registryRelease: JSON.parse(registryText).release ?? null,
+      identity, buildHash: digest(JSON.stringify(identity)),
+      endpointCount: endpointChecks.length, blockedVariants: PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS.length,
+      strictFreshness, availabilityWarnings, freshnessProblems, payloadWarnings };
+    await mkdir(dirname(receiptPath), { recursive: true });
+    await writeFile(receiptPath, JSON.stringify(receipt, null, 2) + "\n");
+  }
   console.log(`[smoke-live] ${base.toString()} OK (${endpointChecks.length} endpoints, ${PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS.length} blocked variants, ${availability}, ${freshness}, ${payloads})`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
+  main().catch(async (error) => {
+    if (receiptPath) {
+      await mkdir(dirname(receiptPath), { recursive: true });
+      await writeFile(receiptPath, JSON.stringify({ schemaVersion: 1, tool: "smoke-live", date: new Date().toISOString(), status: "FAIL", origin: base.href, sha: sourceSha ?? null, error: error.message }, null, 2) + "\n");
+    }
     console.error(error);
     process.exitCode = 1;
   });
