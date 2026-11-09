@@ -154,9 +154,18 @@ export class StormCones {
     parent.add(this.lanterns);
   }
 
-  setCount(n: number | null, pennant = false): void {
+  /**
+   * The signal to fly: the first `n` shapes (null: no reading, nothing up), the pennant at Danger. `immediate` places it
+   * at once instead of hauling (the first installed reading, on a fresh load or a tab return: a haul would state a lower
+   * band for seconds, e.g. a lone cone, Alert, while the reading is Danger); a live band change in view hauls.
+   */
+  setCount(n: number | null, pennant = false, immediate = false): void {
     this.count = Math.max(0, Math.min(this.shapes.length, n ?? 0));
     this.pennantUp = pennant;
+    if (!immediate) return;
+    const last = this.shapes.length - 1;
+    for (let i = 0; i <= last; i++) this.p[i] = i < this.count ? 1 : 0;
+    this.pennantP = pennant && (last < 0 || this.p[last] > 0.6) ? 1 : 0;
   }
 
   update(dt: number, time: number, wind: number, reduced: boolean, camera: THREE.Vector3): void {
