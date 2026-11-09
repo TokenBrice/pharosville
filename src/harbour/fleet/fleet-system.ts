@@ -27,7 +27,7 @@ import { MastSignals } from "./storm-cones-mast";
 import { Bunting } from "./bunting";
 import { coastDistance } from "../sim/obstacles";
 import type { QualityTier } from "../engine/quality";
-import { approach, hash01, indexVariants, pickVariant, sternLampLit, targetSwing, wrapAngle, wreckScale, type VariantIndex } from "./variants";
+import { approach, hash01, indexVariants, pickVariant, pegLampsLive, sternLampLit, targetSwing, wrapAngle, wreckScale, type VariantIndex } from "./variants";
 import { ensureGustService } from "../weather/gust";
 import { inPoly, seaZones } from "../ui/places";
 import { titanFor } from "./titans";
@@ -1084,6 +1084,7 @@ export class FleetSystem implements WorldSystem {
     if (this.coveState === "wait" && this.model && ctx.assets.decorationsReady) { this.coveState = "loading"; this.afterFrame(ctx, () => { void this.loadCove(); }); }
     const t0 = performance.now();
     const model = ctx.services.get("model");
+    const pegLive = pegLampsLive(model?.truth); // D11: analytical stern/anchor lamps need current peg + fleet sources
     const sim = ctx.services.get("sim");
     // A desired model is never installed from the render callback; DataSystem owns the barrier.
     const presence = sim?.resumeOpacity ?? 1;
@@ -1360,7 +1361,7 @@ export class FleetSystem implements WorldSystem {
         this.writeData(b.inst, b.wrecked ? 0 : 1 - sail, b.wrecked ? 0 : b.swing, b.hi, b.brand.r, b.brand.g, b.brand.b, b.wrecked ? -2 : b.slot, b.wrecked ? 0 : b.flag, far, b.struck);
         // 06-F6: the stern lantern's glass is lit exactly when her stern / riding lamp is (sternLampLit: a peg reading;
         // moored, the hash-picked minority) — the same flag as the riding light below, by day too (dimmed by uLamp)
-        const lantern = (moving || ph === PH_ANCHORED ? b.reading : b.lit) ? 1 : 0;
+        const lantern = pegLive && (moving || ph === PH_ANCHORED ? b.reading : b.lit) ? 1 : 0;
         if (b.wrecked) this.writeMotion(b.inst, 0, 0, 0, 0); else this.writeMotion(b.inst, mo.fill, mo.shake, lantern, b.row);
       }
 
@@ -1368,7 +1369,7 @@ export class FleetSystem implements WorldSystem {
       // moored, only some hulls show a dim one. Stern / anchor lamps are lit only with a peg reading: analytical (D11),
       // they show at once (as their lantern glass does), never held back by the lamp round or the arrival beat; the
       // masthead and sidelights are navigation decoration and keep both.
-      if (glowK > 0.001 && b.visible && !b.wrecked && (moving || (ph === PH_ANCHORED && b.reading) || b.lit)) {
+      if (glowK > 0.001 && b.visible && !b.wrecked && (moving || (pegLive && ((ph === PH_ANCHORED && b.reading) || b.lit)))) {
         const v = b.variant, rl = this.riding;
         const lampAt = this.lampAt;
         if (moving) {
@@ -1379,7 +1380,7 @@ export class FleetSystem implements WorldSystem {
           rl.add(pl.x, pl.y, pl.z, LAMP_RED.r * 3.2, LAMP_RED.g * 3.2, LAMP_RED.b * 3.2, 0.3, h0, 0.7);
           const sl = lampAt(bx, by, bz);
           rl.add(sl.x, sl.y, sl.z, LAMP_GREEN.r * 2.8, LAMP_GREEN.g * 2.8, LAMP_GREEN.b * 2.8, 0.3, h0, 0.7);
-          if (b.reading) {
+          if (b.reading && pegLive) {
             const sp = lampAt(v.sternLantern.x, v.sternLantern.y, v.sternLantern.z);
             rl.add(sp.x, sp.y, sp.z, LAMP_WARM.r * 2.2, LAMP_WARM.g * 2.2, LAMP_WARM.b * 2.2, 0.26, h0, 0.8, true);
           }

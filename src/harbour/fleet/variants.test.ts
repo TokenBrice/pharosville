@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { approach, indexVariants, MOORED_LIT, pickVariant, sternLampLit, targetSwing, wreckScale } from "./variants";
+import { approach, indexVariants, MOORED_LIT, pegLampsLive, pickVariant, sternLampLit, targetSwing, wreckScale } from "./variants";
 
 const HULLS = [
   { id: "usd_fisher_skiff", family: "usd", class: "skiff" },
@@ -65,5 +65,18 @@ describe("sternLampLit", () => {
     expect(lit).toBeGreaterThan(MOORED_LIT - 0.05);
     expect(lit).toBeLessThan(MOORED_LIT + 0.05);
     expect(sternLampLit({ id: "x", nullPeg: false }, "moored")).toBe(sternLampLit({ id: "x", nullPeg: false }, "moored"));
+  });
+});
+
+describe("pegLampsLive (D11 neutral pose)", () => {
+  it("lights the analytical stern/anchor lamps only while the fleet and peg sources are current", () => {
+    const at = (stablecoins: string, pegSummary: string) => pegLampsLive({ stablecoins: { state: stablecoins }, pegSummary: { state: pegSummary } });
+    expect(at("current", "current")).toBe(true);
+    for (const state of ["stale", "unknown", "unavailable"]) {
+      expect(at("current", state), `peg ${state}`).toBe(false);
+      expect(at(state, "current"), `fleet ${state}`).toBe(false);
+    }
+    expect(pegLampsLive(undefined)).toBe(false);
+    expect(pegLampsLive({ stablecoins: { state: "current" } })).toBe(false);
   });
 });
