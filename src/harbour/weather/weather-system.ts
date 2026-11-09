@@ -11,6 +11,7 @@ import {
 import { Lightning, type StrikeEvent } from "./lightning";
 import { MAX_SPRAY, PRECIP_BUDGET, Precipitation } from "./precip";
 import { Rainbow } from "./rainbow";
+import { ensureGustService } from "./gust";
 import { dewRime, dewUniforms } from "./dew";
 import { moonAge, moonIllumination, parseMoonOverride } from "../season/calendar";
 
@@ -292,10 +293,19 @@ export class WeatherSystem implements WorldSystem {
     this.precip.update({
       camera: cam, distance: rig.distance, target: this.target, rain: s.rain, snow: s.snow, wind: this.windVec,
       spray, flash: this.lightning.flash, ambient: this.amb, time: ptime, viewport: this.viewport, budget: PRECIP_BUDGET[tier],
+      ...this.sheets(ctx, frame, tier),
     });
 
     // ---- the recovery rainbow
     this.rainbow.update(s.rainbow, cam, U.uSunDir.value, U.uSunColor.value, rig.distance, horizon, sunUp > 0.15 ? 0 : 1);
+  }
+
+  /** E25 (M+; Low draws no sheets): rain in sheets along the shared gust field, scaled by the DEWS wind it already reads. */
+  private sheets(ctx: EngineContext, frame: FrameState, tier: string): { gust?: THREE.Vector4; sheets?: number } {
+    if (tier === "low") return {};
+    const gust = ensureGustService(ctx);
+    gust.tick(ctx, frame);
+    return { gust: gust.uniform.value, sheets: 0.35 + 0.65 * gust.amp };
   }
 
   dispose(ctx: EngineContext): void {
