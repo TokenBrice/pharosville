@@ -124,13 +124,59 @@ lists and `*`; a match returns bodyless 304 with the current freshness,
 cache and security headers. The browser reuses its cached body; the feed does
 not send manual validators or treat an exposed 304 as a JSON payload.
 The edge stores full 200 responses even when the requesting browser gets 304.
-Projection epoch `pv2` namespaces normal and last-good internal keys and ETags.
+Projection epoch `pv3` namespaces normal and last-good internal keys and ETags.
 Old-epoch representations are ignored, never re-projected as a new contract.
 The feed uses browser revalidation (`cache: "no-cache"`). A first post-cutover outage
 may have no compatible last-good observation and is reported unavailable.
 Last-good outage responses always send the full 200 body with `Warning: 110`,
 `no-store` and their age, even when a browser validator matches, so stale
 demotion never depends on browser-specific merging of 304 headers.
+
+## On-demand panel readings
+
+`shared/lib/pharosville-panel-endpoints.ts` is separate from the seven world endpoints;
+`HarbourFeed`, `WORLD_ENDPOINT_KEYS` and `PHAROSVILLE_API_ENDPOINT_KEYS` do not change.
+Only the admitted coin-panel slot (`ui/coin-readings`) may import `data/panel-fetch.ts`.
+It makes an explicit same-origin GET when opened, with no prefetch or polling, and
+the caller cancels on close, selection change or unmount. Blocked viewports never mount this slot.
+`shared/types/pharosville-panels.ts` owns these narrow standalone schemas. Each projector
+keeps `_meta`, nulls and absence without manufacturing readings.
+
+| Reading / canonical path | Retained fields | Cache lifetime |
+|---|---|---|
+| Depeg events — `/api/depeg-events?stablecoin=<id>&limit=30` | `events[].{startedAt,endedAt,direction,peakDeviationBps,source}`, `total`, `methodology.version` | 900 s per id |
+| Reserves — `/api/stablecoin-reserves/<id>` | `stablecoinId`, `mode`, `estimated`, `liveAt`, `reserves[].{name,pct,risk}`, `provenance.{evidenceClass,sourceModel,freshnessMode}`, `sync.{status,stale,lastSuccessAt}`, `displayUrl`, `evidenceUrls`, `metadata.sourceTimestamp` | 14,400 s per id (`sync-live-reserves`) |
+| DEX liquidity — `/api/dex-liquidity` | Runtime-active id map; each row's `totalTvlUsd`, `effectiveTvlUsd`, `liquidityScore`, `coverageClass`, `coverageConfidence`, `liquidityEvidenceClass`, `hasMeasuredLiquidityEvidence`, `updatedAt`, `methodologyVersion` | 1,800 s, one map shared across coin selections |
+
+Ids must be in `RUNTIME_ACTIVE_IDS`. Paths are compared exactly, including query order and
+`limit=30`, with a 128-character ceiling. Extra/repeated/missing parameters, uppercase ids,
+encoded characters/separators and trailing slashes return 404 before any upstream request.
+Live-only ids outside the register return unavailable in the client without a request.
+DEX rows outside the register are omitted; the fixture-fed budget test caps the projected map
+at 30 KB gzip. No per-coin DEX endpoint is invented.
+
+The panel proxy shares the world proxy's 8-second upstream deadline, security headers,
+projected-byte ETags, `pv3` cache namespace and 24-hour last-good retention. Upstream 5xx or
+transport failure can serve last-good with `Warning: 110` and `no-store`; 4xx remains 4xx.
+Normal browser/edge and in-memory visit caches never exceed producer cadence; stricter
+upstream HTTP policies survive. Warning-110 bodies are not stored in the visit cache.
+
+`fetchPanelReading(key, id, signal)` returns `{state, reason, sourceUpdatedAtMs, data}`.
+The states are `current`, `stale`, `unavailable`; an accepted payload with unknown age is
+`unavailable` with reason `unverified-source` and its data retained, so the UI can disclose
+“Freshness unverified” without describing it as current. No payload/HTTP failure/invalid
+schema returns unavailable with null data. Source evidence uses the world fetcher's
+`sourceFreshness` rules (`_meta` or `X-Data-Age`, plus CDN `Age`; Warning 110 always stale).
+Depeg and liquidity retain the shared 12× stale threshold; liquidity additionally uses the
+selected row's `updatedAt` conservatively. Cache hits re-evaluate age rather than freezing state.
+
+Reserves use their own evidence: verified, non-estimated `live` composition with `liveAt`
+(and an older `sync.lastSuccessAt`, when supplied) within eight hours is current;
+`live-stale`, `sync.stale`, or older verified live data is stale. Curated/template and
+unverified live evidence stay unverified, regardless of HTTP metadata. An unavailable mode
+or empty composition stays unavailable. Labels for estimates remain the UI's responsibility.
+Evidence URLs survive only if HTTPS without embedded credentials. Consumers label by hostname,
+use the existing new-tab wording and `rel="noopener noreferrer"`, and fetch no previews/favicons.
 
 ## Approval and delivery
 

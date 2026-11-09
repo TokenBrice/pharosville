@@ -98,6 +98,11 @@ function parseApiFacts(repoRoot) {
   );
   return {
     allowlist,
+    panelAllowlist: parseQuotedArray(
+      smokeMatrixSource,
+      /PHAROSVILLE_SMOKE_PANEL_ENDPOINTS\s*=\s*\[([\s\S]*?)]\s*as const/,
+      "on-demand panel canary endpoints",
+    ),
   };
 }
 
@@ -210,6 +215,11 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     "## API Allowlist",
     "",
     ...api.allowlist.map((path) => `- \`${path}\``),
+    "",
+    "### On-demand panel readings",
+    "",
+    "Coin panel only, above the size gate; never requested by the world feed. Canary paths below use one runtime-active id; other ids must be in `RUNTIME_ACTIVE_IDS`, with the exact same path/query shape.",
+    ...api.panelAllowlist.map((path) => `- \`${path}\``),
     "",
     "## Runtime Media",
     "",

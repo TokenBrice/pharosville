@@ -19,6 +19,8 @@ import {
 } from "../_shared";
 import type { PharosVilleApiEndpointKey } from "../../shared/types/pharosville-endpoint-keys";
 import { endpointProjector, type ProjectionJson } from "./_project";
+import { allowedPanelEndpoint, type PanelEndpointKey } from "../../shared/lib/pharosville-panel-endpoints";
+import { panelEndpointProjector } from "./_project-panels";
 
 interface Env {
   PHAROS_API_BASE?: string;
@@ -80,7 +82,9 @@ function normalizeBaseUrl(base: string | undefined): string | null {
 
 function getAllowedEndpoint(url: URL) {
   const path = `${url.pathname}${url.search}`;
-  return PHAROSVILLE_API_CLIENT_ENDPOINTS.find((endpoint) => endpoint.path === path) ?? null;
+  const world = PHAROSVILLE_API_CLIENT_ENDPOINTS.find((endpoint) => endpoint.path === path);
+  // URL.search omits an empty '?' marker; panel paths must still be exact.
+  return world ?? (url.href === `${url.origin}${path}` ? allowedPanelEndpoint(path) : null);
 }
 
 function buildUpstreamUrl(base: string, url: URL): string {
@@ -120,9 +124,10 @@ function conditionalResponse(request: Request, response: Response): Response {
   return new Response(null, { status: 304, statusText: "Not Modified", headers });
 }
 
-async function projectedResponse(response: Response, key: PharosVilleApiEndpointKey): Promise<Response> {
+async function projectedResponse(response: Response, key: PharosVilleApiEndpointKey | PanelEndpointKey): Promise<Response> {
   if (response.status !== 200 || !isJsonResponse(response)) return response;
-  const body = JSON.stringify(endpointProjector(key)(await response.json() as ProjectionJson));
+  const projector = key === "depegEvents" || key === "stablecoinReserves" || key === "dexLiquidity" ? panelEndpointProjector(key) : endpointProjector(key);
+  const body = JSON.stringify(projector(await response.json() as ProjectionJson));
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
   const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   const headers = new Headers(response.headers);
@@ -171,7 +176,7 @@ type UpstreamFetchResult =
   | { durationMs: number; ok: true; response: Response }
   | { durationMs: number; errorKind: "fetch-error" | "timeout"; ok: false };
 
-async function fetchUpstream(url: string, apiKey: string, key: PharosVilleApiEndpointKey): Promise<UpstreamFetchResult> {
+async function fetchUpstream(url: string, apiKey: string, key: PharosVilleApiEndpointKey | PanelEndpointKey): Promise<UpstreamFetchResult> {
   const controller = new AbortController();
   const startedAt = Date.now();
   let timedOut = false;
