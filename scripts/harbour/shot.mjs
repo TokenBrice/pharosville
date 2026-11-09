@@ -66,6 +66,7 @@ import { replaySnapshot, pinCaptureClock } from "../perf/snapshot-replay.mjs";
 import { createHash } from "node:crypto";
 import { classifyGpu } from "./capture-provenance.mjs";
 import { observeLongTasks } from "./long-tasks.mjs";
+import { isBrowserNotice } from "./console-notices.mjs";
 import { captureLock, connectShared } from "./shared-browser.mjs";
 import { mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -147,8 +148,8 @@ async function finish(code = 0) {
 const HARD_TIMEOUT = setTimeout(() => { console.error("shot.mjs: hard timeout, releasing the capture lock"); void finish(124); }, Number(args.timeout ?? Math.max(240, seconds + waitMs / 1000 + 180)) * 1000);
 HARD_TIMEOUT.unref?.();
 for (const ev of ["unhandledRejection", "uncaughtException"]) process.on(ev, (err) => { console.error(err); void finish(1); });
-const consoleErrors = [];
-page.on("console", (msg) => { if (msg.type() === "error" || msg.type() === "warning") consoleErrors.push(`[${msg.type()}] ${msg.text()}`.slice(0, 400)); });
+const consoleErrors = [], browserNotices = [];
+page.on("console", (msg) => { if (msg.type() === "error" || msg.type() === "warning") (isBrowserNotice(msg.text()) ? browserNotices : consoleErrors).push(`[${msg.type()}] ${msg.text()}`.slice(0, 400)); });
 page.on("pageerror", (err) => consoleErrors.push(`[pageerror] ${String(err).slice(0, 400)}`));
 const navigations = [];
 page.on("framenavigated", (frame) => { if (frame === page.mainFrame()) navigations.push({ url: frame.url(), ms: Date.now() - navWallMs }); });
@@ -248,7 +249,7 @@ if (args["warm-seed"]) {
   await page.waitForTimeout(Number(args["warm-seed"] === true ? 1800 : args["warm-seed"]));
   await page.goto("about:blank", { waitUntil: "load" });
   waterfall.clear(); networkStatus.clear(); requestRows.clear(); wfT0 = requestT0 = null; wireBytes = 0;
-  requests.length = consoleErrors.length = navigations.length = 0;
+  requests.length = consoleErrors.length = browserNotices.length = navigations.length = 0;
 }
 navWallMs = Date.now();
 await page.goto(url, { waitUntil: "load", timeout: Number(args["ready-timeout"] ?? 60) * 1000 });
@@ -449,7 +450,7 @@ const report = {
   frames: timing.deltas.length, fps: timing.elapsedMs > 0 ? +(timing.deltas.length * 1000 / timing.elapsedMs).toFixed(2) : null,
   p50: pct(0.5), p95: pct(0.95), max: sorted.at(-1) ?? null,
   gpuSampleDistribution,
-  timing, gpuPasses, gpuSamples, cpuProfile, longTasks, provenance, capabilities: identity, paced: !!args.paced, navigations, stats, consoleErrors: consoleErrors.slice(0, 20),
+  timing, gpuPasses, gpuSamples, cpuProfile, longTasks, provenance, capabilities: identity, paced: !!args.paced, navigations, stats, consoleErrors: consoleErrors.slice(0, 20), browserNotices: browserNotices.slice(0, 20),
   load: { apiLatency: args.snapshot ? "replayed (no live API latency)" : "live", firstFrameNavMs: Math.round(firstFrameNavMs), firstFrameMs: stats?.firstFrameMs ?? null, firstFleetFrameMs: stats?.firstFleetFrameMs ?? null, marks, ...navTiming, wireBytesAtFirstFrame, wireBytes,
     ...(throttle ? { throttle: args.throttle } : {}), ...(args["cpu-throttle"] ? { cpuThrottle: Number(args["cpu-throttle"]) } : {}), ...(args.cold ? { cold: true } : {}) },
   ...(evalResult === undefined ? {} : { evalResult }),

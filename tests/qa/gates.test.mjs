@@ -7,6 +7,7 @@ import { evaluateArrival, observeArrival } from "../../scripts/harbour/arrival-s
 import { buildReleaseReceipt, readEvidence } from "../../scripts/pharosville/release-receipt.mjs";
 import { probeShader } from "../../scripts/perf/frame.mjs";
 import { trackResources } from "../../scripts/perf/soak-scenarios.mjs";
+import { isBrowserNotice } from "../../scripts/harbour/console-notices.mjs";
 
 const provenance = () => ({ device: { platform: "Linux x86_64", input: "pointer", reducedMotion: false }, gpu: "ANGLE (NVIDIA GeForce RTX 5070 Ti, Vulkan)", browser: "Chrome/142", backend: "Vulkan", driver: "test",
   buildHash: "build-a", fixtureHash: "fixture-a", viewport: { width: 1600, height: 1000 }, dpr: 1,
@@ -206,5 +207,14 @@ describe("shader diagnostic transform", () => {
     expect(output).not.toContain("\\n");
     expect(() => probeShader(output, "position.x", "gl_Position.x")).toThrow(/contract/);
     expect(() => probeShader("void main()", "position.x", "gl_Position.x")).toThrow(/contract/);
+  });
+});
+
+describe("browser notices", () => {
+  it("sets aside only Chrome's parse warnings for the Permissions-Policy deny-list, never app output", () => {
+    for (const feature of ["ambient-light-sensor", "battery", "document-domain", "web-share"]) expect(isBrowserNotice(`Error with Permissions-Policy header: Unrecognized feature: '${feature}'.`)).toBe(true);
+    expect(isBrowserNotice("Error with Permissions-Policy header: Unrecognized feature: 'made-up'.")).toBe(false);
+    expect(isBrowserNotice("[harbour] emblem upload failed")).toBe(false);
+    expect(isBrowserNotice("Error with Permissions-Policy header: Unrecognized feature: 'battery'. extra")).toBe(false);
   });
 });
