@@ -586,7 +586,7 @@ export class HarbourUIStore {
     if (saved) this.set({ ledgerOpen: saved.ledgerOpen, ledgerOrigin: valid && saved.origin });
     const resolved = hit?.kind === "harbour" && valid ? { ...hit, id: model.harbours.find((h) => resolveChainId(h.chain) === hit.id)!.chain } : hit;
     if (valid) this.select(resolved, { fly: saved?.fly ?? true, history: "none" });
-    else if (hit || intent?.obsolete) {
+    else if (hit || intent?.obsolete || intent?.invalid) {
       this.select(null, { history: "none" });
       if (this.normalizeSubject) history.replaceState(null, "", "/");
       this.subjectNotice(intent?.obsolete ? "This place is no longer in the harbour." : "This subject is unavailable in the current harbour.");
