@@ -2,27 +2,46 @@
  * The harbourmaster's watch (12-M7b, opt-in `W`, D-5) and the idle breath (12-M7a). Pure logic, unit-tested.
  *
  * Watch subjects are ranked from named model fields, at most one per reason, in this order:
+ *  - the Pharos: its lamp burns amber or red (readings.psi.lamp, the PSI band), from a current stability reading;
  *  - mover: the largest absolute 24 h supply change (|supply − Σ circulatingPrevDay|), at least WATCH_MOVER_MIN_USD;
+ *  - the Shoals: at least WATCH_SHOALS_MIN boats off peg (readings.shoals), from current peg readings;
  *  - depeg: the worst current depeg (activeDepeg, largest |pegDeviationBps|);
+ *  - the Storm-signal Station: its shapes are hoisted (readings.weather.band Watch or worse), from current stress readings;
  *  - launch: the largest coin with the model’s qualified maiden flag.
+ * A landmark speaks its own hover tag's words (facts.ts), so the watch, the tag and the panel say the same thing, and
+ * it is a stop only while its reading is current (A15); every stop also needs current fleet readings.
  * The watch is never started by idleness; the idle breath never travels.
  */
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { FRESHNESS_RATIOS } from "@shared/lib/status-thresholds";
 import type { EndpointKey, HarbourModel } from "../model/types";
+import { landmarkFact, stationFact } from "./facts";
 import { money } from "./format";
+import { PLACE_NAME } from "./places";
 
 export const WATCH_MOVER_MIN_USD = 1e6;
 /** Dwell at each subject (s) once the glide has landed. */
 export const WATCH_DWELL_S = 20;
 
-export interface WatchCoin { id: string; symbol: string; supply: number; activeDepeg: boolean; pegDeviationBps: number | null; prevDay: number | null; maiden: boolean }
-export interface WatchStop { id: string; reason: "mover" | "depeg" | "launch"; line: string }
+/** The Shoals are a stop of their own from this many boats off peg (one is the depeg stop's ship). */
+export const WATCH_SHOALS_MIN = 2;
 
-export function rankWatch(coins: readonly WatchCoin[], current = { fleet: true, peg: true }): WatchStop[] {
+export interface WatchCoin { id: string; symbol: string; supply: number; activeDepeg: boolean; pegDeviationBps: number | null; prevDay: number | null; maiden: boolean }
+/** A ship (`id` = coin id) or a landmark (`id` = its landmark id, `name` = its place name). */
+export interface WatchStop { id: string; kind: "boat" | "landmark"; reason: "mover" | "depeg" | "launch" | "pharos" | "shoals" | "station"; line: string; name?: string }
+/** The landmark stops a reading supports now (watchLandmarks), each already in its tag's words. */
+export type WatchLandmarks = Partial<Record<"pharos" | "shoals" | "station", string>>;
+
+const LANDMARK_ID = { pharos: "pharos", shoals: "shoals", station: "storm-mast" } as const;
+const landmarkStop = (reason: keyof typeof LANDMARK_ID, line: string): WatchStop =>
+  ({ id: LANDMARK_ID[reason], kind: "landmark", reason, line, name: PLACE_NAME[LANDMARK_ID[reason]] });
+
+export function rankWatch(coins: readonly WatchCoin[], current = { fleet: true, peg: true }, landmarks: WatchLandmarks = {}): WatchStop[] {
   const out: WatchStop[] = [];
   const taken = new Set<string>();
-  const add = (c: WatchCoin | undefined, reason: WatchStop["reason"], line: string) => { if (c && !taken.has(c.id)) { taken.add(c.id); out.push({ id: c.id, reason, line }); } };
+  const add = (c: WatchCoin | undefined, reason: WatchStop["reason"], line: string) => { if (c && !taken.has(c.id)) { taken.add(c.id); out.push({ id: c.id, kind: "boat", reason, line }); } };
+  const place = (reason: keyof WatchLandmarks) => { const line = landmarks[reason]; if (line && current.fleet) out.push(landmarkStop(reason, line)); };
+  place("pharos");
 
   let mover: WatchCoin | undefined, dMax = WATCH_MOVER_MIN_USD;
   for (const c of coins) {
@@ -31,6 +50,7 @@ export function rankWatch(coins: readonly WatchCoin[], current = { fleet: true, 
     if (d >= dMax) { dMax = d; mover = c; }
   }
   if (mover && mover.prevDay != null) add(mover, "mover", `biggest supply change in 24 h (${money(mover.supply - mover.prevDay, { signed: true })})`);
+  if (current.peg) place("shoals");
 
   let depeg: WatchCoin | undefined, bMax = -1;
   for (const c of coins) {
@@ -39,6 +59,7 @@ export function rankWatch(coins: readonly WatchCoin[], current = { fleet: true, 
     if (b > bMax) { bMax = b; depeg = c; }
   }
   if (depeg) add(depeg, "depeg", `worst depeg now (${Math.round(depeg.pegDeviationBps ?? 0)} bps off peg)`);
+  place("station");
 
   let launch: WatchCoin | undefined;
   for (const c of coins) if (current.fleet && c.maiden && c.supply > 0 && (!launch || c.supply > launch.supply)) launch = c;
@@ -47,16 +68,33 @@ export function rankWatch(coins: readonly WatchCoin[], current = { fleet: true, 
 }
 
 /** Age the installed model's evidence; newer feed rows must never be joined to older boats. */
-export function watchSources(model: HarbourModel | null, nowMs: number): { fleet: boolean; peg: boolean } {
-  const current = (key: EndpointKey) => {
-    const truth = model?.truth[key];
-    return truth?.state === "current" && truth.sourceUpdatedAtMs != null
-      && Math.max(0, (nowMs - truth.sourceUpdatedAtMs) / 1000) <= PHAROSVILLE_ENDPOINT_REGISTRY[key].metaMaxAgeSec * FRESHNESS_RATIOS.DEGRADED;
-  };
-  return { fleet: current("stablecoins"), peg: current("pegSummary") };
+function currentSource(model: HarbourModel | null, key: EndpointKey, nowMs: number): boolean {
+  const truth = model?.truth[key];
+  return truth?.state === "current" && truth.sourceUpdatedAtMs != null
+    && Math.max(0, (nowMs - truth.sourceUpdatedAtMs) / 1000) <= PHAROSVILLE_ENDPOINT_REGISTRY[key].metaMaxAgeSec * FRESHNESS_RATIOS.DEGRADED;
 }
+export function watchSources(model: HarbourModel | null, nowMs: number): { fleet: boolean; peg: boolean } {
+  return { fleet: currentSource(model, "stablecoins", nowMs), peg: currentSource(model, "pegSummary", nowMs) };
+}
+
+/**
+ * The landmarks whose current readings make them worth a stop, each in its hover tag's words (never a reason the
+ * readings do not give): the Pharos while its lamp burns amber or red, the Shoals from WATCH_SHOALS_MIN boats off peg,
+ * the Storm-signal Station while its shapes are hoisted. A stale, aged or missing reading is no stop.
+ */
+export function watchLandmarks(model: HarbourModel | null, nowMs: number): WatchLandmarks {
+  const r = model?.readings, out: WatchLandmarks = {};
+  if (!model || !r) return out;
+  const psi = r.psi;
+  if (currentSource(model, "stability", nowMs) && psi.lit && !psi.stale && psi.score != null && (psi.lamp === "amber" || psi.lamp === "red")) out.pharos = landmarkFact("pharos", model, null).fact;
+  if (currentSource(model, "pegSummary", nowMs) && r.shoals.length >= WATCH_SHOALS_MIN) out.shoals = landmarkFact("shoals", model, null).fact;
+  const line = stationFact(model);
+  if (currentSource(model, "stress", nowMs) && r.weather.band != null && r.weather.band !== "CALM" && !line.endsWith("unavailable.")) out.station = line;
+  return out;
+}
+
 export function modelWatch(model: HarbourModel | null, nowMs: number): WatchStop[] {
-  return rankWatch((model?.boats ?? []).filter((b) => b.state !== "wrecked").map((b) => ({ id: b.id, symbol: b.symbol, supply: b.supply, prevDay: b.supplyPrevDay ?? null, maiden: b.maiden, activeDepeg: b.activeDepeg, pegDeviationBps: b.pegDeviationBps })), watchSources(model, nowMs));
+  return rankWatch((model?.boats ?? []).filter((b) => b.state !== "wrecked").map((b) => ({ id: b.id, symbol: b.symbol, supply: b.supply, prevDay: b.supplyPrevDay ?? null, maiden: b.maiden, activeDepeg: b.activeDepeg, pegDeviationBps: b.pegDeviationBps })), watchSources(model, nowMs), watchLandmarks(model, nowMs));
 }
 
 /** Idle breath: starts after this much stillness (s), one breath per period (s), ±3 % distance. */

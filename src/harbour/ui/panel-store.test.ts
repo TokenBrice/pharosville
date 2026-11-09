@@ -73,3 +73,35 @@ it("readmission waits for current readiness before restoring a valid selection a
   next.model.truth.stablecoins.state = "current"; next.frame();
   expect(next.store.getSnapshot().selected).toEqual(hit); expect(fly).toHaveBeenCalled();
 });
+
+describe("the watch at a landmark, and the moment slip's Look (O7-I4)", () => {
+  const stressed = () => {
+    const f = fixture(), now = Date.now();
+    const fresh = { state: "current" as const, ageSec: 0, sourceUpdatedAtMs: now, serverStatus: null };
+    f.model.truth = { ...f.model.truth, stability: { ...fresh }, stablecoins: { ...f.model.truth.stablecoins, ...fresh }, pegSummary: { ...f.model.truth.pegSummary, ...fresh } };
+    f.model.readings = { ...f.model.readings, psi: { ...f.model.readings.psi, lit: true, stale: false, score: 61, band: "FRACTURE", lamp: "red" } };
+    f.ctx.services.set("model", { ...f.model }); f.frame(); return f;
+  };
+  it("frames the Pharos as its selection would, holds it still, and inspects its panel", () => {
+    const f = stressed(), steer = vi.spyOn(f.rig, "steer");
+    f.store.startWatch();
+    expect(f.store.getSnapshot().watch).toEqual({ symbol: "The Pharos", line: "PSI 61.0 · Fracture" });
+    expect(f.store.getSnapshot().announce).toBe("Watch: The Pharos, PSI 61.0 · Fracture.");
+    expect(f.rig.gliding).toBe(true);
+    f.rig.stop(); f.frame(1); f.frame(1);
+    expect(steer).not.toHaveBeenCalled();
+    f.store.inspectWatch();
+    expect(f.store.getSnapshot()).toMatchObject({ watch: null, selected: { kind: "landmark", id: "pharos" } });
+  });
+  it("Look glides only to a subject out of view, and shows its tag either way", () => {
+    const f = fixture(), move = vi.spyOn(f.store, "moveTo"), hit = { kind: "boat" as const, id: f.model.boats[0].id };
+    f.store.look(hit); // worldPosition is the rig's own target here: in view
+    expect(move).not.toHaveBeenCalled();
+    expect(f.store.getSnapshot().hover).toEqual(hit);
+    vi.mocked(f.store.picking.worldPosition).mockReturnValue([2000, 0, 2000]);
+    f.store.look({ kind: "landmark", id: "pharos" });
+    expect(move).toHaveBeenCalledOnce();
+    expect(f.store.getSnapshot().hover).toEqual({ kind: "landmark", id: "pharos" });
+    expect(f.store.getSnapshot().selected).toBeNull();
+  });
+});

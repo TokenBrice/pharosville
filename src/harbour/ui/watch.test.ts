@@ -43,3 +43,26 @@ describe("idle breath", () => {
     expect(Math.abs(o.k)).toBeLessThan(0.0005);
   });
 });
+
+describe("the watch visits landmarks when their readings are notable (D14/A15)", () => {
+  const all = { pharos: "PSI 61.0 · Fracture", shoals: "3 boats off peg", station: "Station: Alert; two cones." };
+  it("runs the harbourmaster's round: the Pharos, the mover, the Shoals, the depeg, the station, the newcomer", () => {
+    const stops = rankWatch([
+      coin("b", { supply: 2e9, prevDay: 2.4e9 }),
+      coin("d", { activeDepeg: true, pegDeviationBps: 310 }),
+      coin("f", { supply: 9e7, prevDay: 9e7, maiden: true }),
+    ], { fleet: true, peg: true }, all);
+    expect(stops.map((s) => [s.kind, s.id, s.reason])).toEqual([
+      ["landmark", "pharos", "pharos"], ["boat", "b", "mover"], ["landmark", "shoals", "shoals"],
+      ["boat", "d", "depeg"], ["landmark", "storm-mast", "station"], ["boat", "f", "launch"],
+    ]);
+    expect(stops.filter((s) => s.kind === "landmark").map((s) => [s.name, s.line])).toEqual([
+      ["The Pharos", all.pharos], ["The Shoals", all.shoals], ["Storm-signal Station", all.station],
+    ]);
+  });
+  it("names no landmark without current fleet readings, and no Shoals without current peg readings", () => {
+    expect(rankWatch([], { fleet: false, peg: true }, all)).toEqual([]);
+    expect(rankWatch([], { fleet: true, peg: false }, all).map((s) => s.reason)).toEqual(["pharos", "station"]);
+    expect(rankWatch([], { fleet: true, peg: true }, {})).toEqual([]);
+  });
+});

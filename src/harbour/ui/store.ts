@@ -81,6 +81,9 @@ export const FOLLOW_OMEGA = 1.7;
 /** The watch frames each subject from this far (m). */
 const WATCH_DIST = 260;
 
+/** The pick a watch stop frames and pins: its ship, or its landmark. */
+const watchHit = (stop: WatchStop): PickHit => ({ kind: stop.kind === "landmark" ? "landmark" : "boat", id: stop.id });
+
 /** Exact critically damped spring step toward (gx, gz), independent of frame duration. */
 export function springStep(p: { x: number; z: number; vx: number; vz: number }, gx: number, gz: number, omega: number, dt: number): void {
   const k = Math.exp(-omega * dt);
@@ -638,7 +641,33 @@ export class HarbourUIStore {
 
   inspectWatch(): void {
     const stop = this.watchRun?.stops[this.watchRun.i];
-    if (stop && this.watchStops().some((s) => s.id === stop.id && s.reason === stop.reason)) this.select({ kind: "boat", id: stop.id });
+    if (stop && this.watchStops().some((s) => s.id === stop.id && s.reason === stop.reason)) this.select(watchHit(stop));
+  }
+
+  /**
+   * O7-I4, the moment slip's Look: on request only, an off-screen subject gets a glide (a cut when motion is still)
+   * and its tag shows. A subject already in the free area stays where it is; nothing opens.
+   */
+  look(hit: PickHit): void {
+    const subject = this.subjectBounds(hit);
+    if (!subject) return;
+    this.stopWatch(); this.setFollow(null);
+    const { camera, renderer } = this.ctx;
+    const width = renderer.domElement.clientWidth || innerWidth, height = renderer.domElement.clientHeight || innerHeight;
+    const space = this.space ?? usableSpace(width, height, []);
+    camera.updateMatrixWorld();
+    const p = new THREE.Vector3(...subject.center).project(camera);
+    const x = ((p.x + 1) / 2) * width, y = ((1 - p.y) / 2) * height;
+    if (!(Math.abs(p.z) <= 1 && x >= space.left && x <= space.right && y >= space.top && y <= space.bottom)) {
+      const pose = this.selectionPose(hit);
+      if (pose) this.moveTo(pose);
+    }
+    this.setHover(hit);
+  }
+
+  /** What a stop is called on the watch's controls: a ship's symbol, a landmark's place name. */
+  private watchName(stop: WatchStop): string | null {
+    return stop.kind === "landmark" ? stop.name ?? null : this.boat(stop.id)?.symbol ?? null;
   }
 
   watchNext(direction: 1 | -1 = 1): void {
@@ -650,17 +679,18 @@ export class HarbourUIStore {
     const at = previous ? w.stops.findIndex((s) => s.id === previous.id && s.reason === previous.reason) : -1;
     w.i = at < 0 ? (direction === 1 ? 0 : w.stops.length - 1) : (at + direction + w.stops.length) % w.stops.length;
     w.dwell = 0;
-    const stop = w.stops[w.i], b = this.boat(stop.id);
-    const pos = this.picking.worldPosition({ kind: "boat", id: stop.id });
-    if (!b || !pos) { this.stopWatch(); return; }
+    const stop = w.stops[w.i], name = this.watchName(stop), hit = watchHit(stop);
+    const pos = this.picking.worldPosition(hit);
+    if (!name || !pos) { this.stopWatch(); return; }
     const { rig, camera } = this.ctx;
-    this.moveTo({
+    // a ship is framed from WATCH_DIST and followed; a landmark is framed as its selection would be, and holds still
+    const pose = stop.kind === "landmark" ? this.selectionPose(hit) : null;
+    this.moveTo(pose ?? {
       target: [pos[0], 0, pos[2]], distance: THREE.MathUtils.clamp(WATCH_DIST, rig.minDistance, rig.maxDistance), fovDeg: camera.fov,
       pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
     });
-    const hit: PickHit = { kind: "boat", id: stop.id };
     this.picking.setHover(hit);
-    this.set({ hover: hit, watch: { symbol: b.symbol, line: stop.line }, announce: `Watch: ${b.symbol}, ${stop.line}.` });
+    this.set({ hover: hit, watch: { symbol: name, line: stop.line }, announce: `Watch: ${name}, ${stop.line}.` });
   }
 
   private watchFrame(dt: number): void {
@@ -679,14 +709,14 @@ export class HarbourUIStore {
       w.i = -1; this.watchNext(); return;
     }
     w.i = supported;
-    const stop = stops[supported], boat = this.boat(stop.id);
-    if (boat && (this.state.watch?.line !== stop.line || this.state.watch?.symbol !== boat.symbol)) this.set({ watch: { symbol: boat.symbol, line: stop.line } });
+    const stop = stops[supported], name = this.watchName(stop);
+    if (name && (this.state.watch?.line !== stop.line || this.state.watch?.symbol !== name)) this.set({ watch: { symbol: name, line: stop.line } });
     if (rig.gliding) { Object.assign(w.spring, { x: rig.target.x, z: rig.target.z, vx: 0, vz: 0 }); return; }
     if (this.state.reducedMotion) return;
     w.dwell += dt;
     if (w.dwell >= WATCH_DWELL_S) { this.watchNext(); return; }
-    // keep her in view while she sails (the follow spring, no panel to clear)
-    if (this.state.reducedMotion) return;
+    // keep her in view while she sails (the follow spring, no panel to clear); a landmark stays where it was framed
+    if (this.state.reducedMotion || stop.kind === "landmark") return;
     const p = this.picking.worldPosition({ kind: "boat", id: w.stops[w.i].id });
     if (!p) return;
     springStep(w.spring, p[0], p[2], FOLLOW_OMEGA, dt);

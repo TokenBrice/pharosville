@@ -47,7 +47,7 @@ vi.mock("../ui/mount", () => ({ mountHarbourUI: () => vi.fn() }));
 vi.mock("../ui/details", () => ({ preloadDetails: harness.preload }));
 vi.mock("../../error-reporter", () => ({ reportClientError: vi.fn() }));
 // The sweep's arrival drift-in (wake.ts) drives a real camera rig; this harness has none.
-vi.mock("./wake", () => ({ wantsWake: () => false, startWake: () => () => undefined, WAKE_PULLBACK: 0.12 }));
+vi.mock("./wake", () => ({ wantsWake: () => false, startWake: () => () => undefined, arrivalFade: () => ({}), WAKE_PULLBACK: 0.12 }));
 import { readPresentation, presentationCopy } from "../ui/presentation";
 import { HarbourApp } from "./harbour-app";
 

@@ -1,4 +1,5 @@
 import { RUNTIME_ACTIVE_META_BY_ID } from "../shared/lib/stablecoins/runtime-registry";
+import { nightShell, wantsNightPoster } from "./_poster";
 
 /**
  * Per-selection social cards for the app shell at `/`.
@@ -22,8 +23,9 @@ import { RUNTIME_ACTIVE_META_BY_ID } from "../shared/lib/stablecoins/runtime-reg
  */
 
 interface PagesContext {
-  next: () => Promise<Response>;
-  request: Request;
+  next: (input?: Request) => Promise<Response>;
+  /** Pages adds `cf` (request metadata from Cloudflare's edge); only its `timezone` is read, for the night key art. */
+  request: Request & { cf?: { timezone?: unknown } };
 }
 
 /**
@@ -193,6 +195,40 @@ export function rewriteSocialCard(response: Response, card: SocialCardCopy): Res
   return rewriter.transform(response);
 }
 
+/** The night shell's validator: the asset's own ETag marked as the night variant (weak or strong alike). */
+export function nightEtag(etag: string | null): string | null {
+  return etag && /"$/.test(etag) ? `${etag.slice(0, -1)}-night"` : null;
+}
+
+function ifNoneMatch(request: Request, etag: string): boolean {
+  const header = request.headers.get("if-none-match");
+  if (!header) return false;
+  const bare = (tag: string) => tag.trim().replace(/^W\//, "");
+  return header.split(",").some((tag) => tag.trim() === "*" || bare(tag) === bare(etag));
+}
+
+/**
+ * E28 night key art. Before first paint the shell names the poster for the visitor's own hour (`request.cf.timezone`,
+ * or a pinned `?t=`; functions/_poster.ts), so a night visit opens on the night harbour with no swap, no flash and no
+ * second image request; an unknown zone keeps the day key art. The night body is a different representation of the
+ * same URL, so it carries its own validator (`<asset etag>-night`, no Last-Modified) and is always built from a whole
+ * asset response: a conditional request is answered here, never by replaying a body cached at another hour. The
+ * security headers pass through unchanged, and nothing from the request is written into the page.
+ */
+async function nightResponse(context: PagesContext): Promise<Response> {
+  const asset = new Request(context.request.url, { headers: context.request.headers, method: "GET" });
+  for (const name of ["if-none-match", "if-modified-since", "if-match", "if-unmodified-since", "if-range"]) asset.headers.delete(name);
+  const response = await context.next(asset);
+  if (response.status !== 200 || !isHtmlResponse(response)) return response;
+  const headers = new Headers(response.headers);
+  const etag = nightEtag(headers.get("etag"));
+  headers.delete("content-length");
+  headers.delete("last-modified");
+  if (etag) headers.set("etag", etag); else headers.delete("etag");
+  if (etag && ifNoneMatch(context.request, etag)) return new Response(null, { headers, status: 304, statusText: "Not Modified" });
+  return new Response(nightShell(await response.text()), { headers, status: response.status, statusText: response.statusText });
+}
+
 /**
  * Cache correctness.
  *
@@ -202,25 +238,34 @@ export function rewriteSocialCard(response: Response, card: SocialCardCopy): Res
  * untouched, which keeps `/`'s existing revalidation profile and the `_headers`
  * security policy exactly as they are.
  *
- * The rewrite is a pure function of the `sel` query param. It reads no
- * User-Agent, no cookie, no request header at all: a crawler and a visitor on
- * the same URL get byte-identical HTML. That is what makes the route safe to
- * cache anywhere — there is no bot variant that could be stored and then served
- * to a person, so no `Vary` is needed and none is claimed. Variants cannot
- * collide either, since the query string is part of the cache key in every
- * layer that holds this (browser, Cloudflare edge, and the unfurl caches at
- * Slack and X): `?sel=ship.usdc` and `?sel=ship.usdt` are different keys.
+ * The social-card rewrite is a pure function of the `sel` query param. It
+ * reads no User-Agent, no cookie, no request header at all: a crawler and a
+ * visitor on the same URL get byte-identical HTML, so there is no bot variant
+ * that could be stored and then served to a person. Variants cannot collide
+ * either, since the query string is part of the cache key in every layer that
+ * holds this (browser, Cloudflare edge, and the unfurl caches at Slack and X):
+ * `?sel=ship.usdc` and `?sel=ship.usdt` are different keys.
  *
- * The shell is not delayed. A request with no `sel=`, or one naming something
- * unknown, returns the asset response object as it arrived — no HTMLRewriter is
- * constructed and no body is buffered. There is no upstream fetch on this path
- * at any point, for any request.
+ * The night key art (E28, `nightResponse`) is the one input beyond the URL: the
+ * edge's `cf.timezone` and the hour. Its body differs only in which poster
+ * image the page names, never in a reading, and it carries its own ETag, so
+ * the `max-age=0, must-revalidate` profile every layer applies to `/` keeps
+ * each revalidation honest: a validator from the other hour never matches.
+ *
+ * The shell is not delayed. A day request with no `sel=`, or one naming
+ * something unknown, returns the asset response object as it arrived — no
+ * HTMLRewriter is constructed and no body is buffered; a night request buffers
+ * the ~10 KB shell once. There is no upstream fetch on this path at any point,
+ * for any request.
  */
 export async function onRequest(context: PagesContext): Promise<Response> {
-  const response = await context.next();
+  const url = new URL(context.request.url);
+  const night = context.request.method === "GET"
+    && wantsNightPoster({ timeZone: context.request.cf?.timezone, nowMs: Date.now(), search: url.searchParams });
+  const response = night ? await nightResponse(context) : await context.next();
   if (context.request.method !== "GET" || !isHtmlResponse(response)) return response;
 
-  const card = socialCardForSelection(selectionFromUrl(new URL(context.request.url)));
+  const card = socialCardForSelection(selectionFromUrl(url));
   if (!card) return response;
 
   return rewriteSocialCard(response, card);

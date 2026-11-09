@@ -12,7 +12,9 @@ This runbook covers the standalone Cloudflare Pages app at
 - `functions/api/[[path]].ts` proxies allowlisted reads and holds the
   server-side `PHAROS_API_KEY` binding.
 - `functions/index.ts` serves `/` and rewrites the social-card text tags for a
-  recognised `?sel=`; it takes no binding and makes no upstream call.
+  recognised `?sel=`; it takes no binding and makes no upstream call. When the
+  visitor's own hour (`request.cf.timezone`, or a pinned `?t=`) is night it names
+  the night key art instead (E28, `functions/_poster.ts`), under its own ETag.
 - `public/_headers` governs static responses; the Function owns API headers.
 
 Initial Pages setup:
@@ -373,7 +375,21 @@ hold it open and `429` the canary probe into a red run.
 entity, so a link shared to one ship unfurls as that ship rather than as the
 homepage. It is text-only: `og:image` stays the single static `og-card.png` for
 every variant. It fetches nothing, holds no credential, and writes no cache
-entry; a request with no `sel=` gets the asset response untouched.
+entry; a day request with no `sel=` gets the asset response untouched.
+
+The same route picks the night key art (E28): when the visitor's hour, from the
+edge's `cf.timezone` or a pinned `?t=`, falls on the harbour's night (night share
+≥ 0.5, `functions/_poster.ts`), it names `poster-night-*` wherever the shell
+names the day poster and marks the root `data-pv-hour="night"`, before first
+paint. An unknown zone keeps the day poster. The night body carries
+`<asset etag>-night` and no `Last-Modified`, and is always built from a whole
+asset response, so a revalidation never replays a body cached at another hour.
+Headers are otherwise the asset's own. Check it after a deploy:
+
+```bash
+curl -s 'https://pharosville.pharos.watch/?t=22' | grep -o 'data-pv-hour="night"'
+curl -sI 'https://pharosville.pharos.watch/?t=22' | grep -i 'etag\|content-security-policy'
+```
 
 Two things need a human.
 
