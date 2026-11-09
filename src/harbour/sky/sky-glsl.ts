@@ -41,6 +41,7 @@ uniform vec4 uFrontA;        // W01 front: cover from, cover to, storm from, sto
 uniform vec4 uSquall;        // W09 squall: th (deg), strength, W03 sunbreaks 0..1, -
 uniform vec3 uClearZen, uClearHor;
 uniform vec4 uSeasonSky;     // W10: cirrus amount multiplier, autumn mackerel band 0..1, -, -
+uniform vec4 uTwilight;      // E22: wedge 0..1, anti-solar th (deg), Earth's-shadow top (deg), dawn rays 0..1
 uniform vec4 uNightSky;      // W05: Milky Way 0..1, star clock (s, stills with reduced motion), band azimuth offset (deg), summer core 0..1
 uniform vec4 uMeteor;        // W06: streak start th, e (deg), direction (unit, deg space)
 uniform vec4 uMeteorB;       // W06: life 0..1, length (deg), brightness, -   // W01: the hour's zenith and horizon before the storm grade (the clearing's sky)
@@ -147,6 +148,16 @@ vec3 skyBand(float th, float e, float pxDeg) {
     vec3 cc = mix(uClearHor, uClearZen, pow(t, 0.62));
     cc = mix(cc, uClearHor * 1.08, lift);
     c = mix(cc, c, gStorm / max(uStorm, 1e-3));
+  }
+  // ---- E22 twilight (calendar): the Earth's shadow, blue-grey on the horizon opposite the sun, under the pink belt
+  //      of Venus; it rises as the sun sinks and fades through the blue hour. Hue, not value: the belt keeps the
+  //      sky's own luminance (sub-bloom, below the Pharos), the shadow sits a step darker. Mirrored by the sea.
+  if (uTwilight.x > 0.002) {
+    float tk = uTwilight.x * smoothstep(-0.2, 1.0, cos(radians(th - uTwilight.y))) * (1.0 - smoothstep(0.35, 0.7, gCov));
+    float tl = dot(c, vec3(0.299, 0.587, 0.114));
+    float bd = (e - uTwilight.z - 0.5) / 0.42;
+    c = mix(c, vec3(0.80, 0.90, 1.16) * tl * 0.78, (1.0 - smoothstep(uTwilight.z - 0.3, uTwilight.z + 0.15, e)) * tk * 0.65);
+    c = mix(c, vec3(1.30, 0.80, 0.86) * tl * 1.05, exp(-bd * bd) * tk * 0.35);
   }
   // ---- glow toward the key light's azimuth (sun/moon), strongest at the horizon
   float dg = abs(th - uSunDisc.x);
@@ -334,13 +345,17 @@ vec3 skyBand(float th, float e, float pxDeg) {
     c += fc * uPrecipSky.z * (exp(-fd * 1.2) * 2.2 * body + exp(-fd * 0.35) * 0.35 + 0.12);
   }
   // ---- W03 sunbreaks: faint crepuscular shafts fanning down from the sun through the gaps in the cloud
-  if (uSquall.z > 0.002 && uSunDisc.w > 0.01) {
+  //      (E22: on a clear dawn the low sun throws them up through the bank beside it instead)
+  float rayK = max(uSquall.z, uTwilight.w);
+  if (rayK > 0.002 && uSunDisc.w > 0.01) {
     vec2 v = vec2(th - uSunDisc.x, e - uSunDisc.y);
+    float dawnRays = step(uSquall.z, uTwilight.w - 0.002);
+    v.y *= 1.0 - 2.0 * dawnRays;
     if (v.y < 0.0) {
       float r = length(v);
       float rays = smoothstep(0.5, 0.9, sbNoise1(atan(v.x, -v.y) * 9.0 + 3.0, 7.0));
-      float gap = smoothstep(0.4, 0.7, texture2D(uSkyNoise, vec2((th + uWeather.z * 2.0) * 0.02 + 0.4, e * 0.08 + 0.2)).g);
-      c += uSunColor * rays * gap * exp(-r / 9.0) * smoothstep(0.3, 1.5, r) * uSquall.z * uSunDisc.w * 0.16;
+      float gap = max(smoothstep(0.4, 0.7, texture2D(uSkyNoise, vec2((th + uWeather.z * 2.0) * 0.02 + 0.4, e * 0.08 + 0.2)).g), dawnRays);
+      c += uSunColor * rays * gap * exp(-r / mix(9.0, 4.5, dawnRays)) * smoothstep(0.3, 1.5, r) * rayK * uSunDisc.w * 0.16;
     }
   }
   // ---- W09 the passing squall: one darker bank with its own rain curtain, walking along the wind

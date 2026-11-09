@@ -7,6 +7,8 @@ import * as THREE from "three";
 import { styleCDirection } from "../engine/time-of-day";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import { FullscreenPass } from "../ocean/gpu-bake";
+import { extraEnabled } from "../engine/extras";
+import { antiSolarTh, isDusk, sunElevationDeg, twilightSunAzimuth, twilightWindow } from "./twilight";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import { bakeCloudAtlas, CLOUD_CELLS } from "./clouds";
 import { cloudShadowUniforms } from "./cloud-shadow";
@@ -14,7 +16,7 @@ import { applySkyPalette, createSkyPaletteUniforms } from "./palette";
 import { bankReveal, seasonBankShape, seasonHighCloud } from "./season-sky";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import {
-  dayOfYear, METEOR_SHOWERS, meteorIntervalSec, meteorShowerOn, moonAge, moonIllumination, parseMoonOverride, SYNODIC_DAYS,
+  dayOfYear, METEOR_SHOWERS, meteorIntervalSec, meteorShowerOn, moonAge, moonIllumination, NOMINAL_LATITUDE, parseMoonOverride, SYNODIC_DAYS,
   type MeteorShower,
 } from "../season/calendar";
 
@@ -124,6 +126,8 @@ export class SkySystem implements WorldSystem {
     uClearZen: { value: new THREE.Color() },
     uSquall: { value: new THREE.Vector4() },
     uSeasonSky: { value: new THREE.Vector4(1, 0, 0, 0) },
+    /** E22 (M+): wedge 0..1, anti-solar th (deg), Earth's-shadow top (deg), dawn rays 0..1 */
+    uTwilight: { value: new THREE.Vector4() },
     uClearHor: { value: new THREE.Color() },
     uFrontB: { value: new THREE.Vector4() },
   };
@@ -137,6 +141,7 @@ export class SkySystem implements WorldSystem {
   private readonly moonDir = new THREE.Vector3();
   private readonly glint = new THREE.Vector3();
   private readonly strikeDir = new THREE.Vector3();
+  private readonly twilightDir = new THREE.Vector3();
   private readonly tmpC = new THREE.Color();
   private shadowDrift = (Date.now() / 1000) % 5000;
   /** W04: tonight's moon (age days, illuminated fraction); recomputed once a minute */
@@ -188,6 +193,7 @@ export class SkySystem implements WorldSystem {
       this.u.uLight, this.u.uParallax, this.u.uStorm, this.u.uPrecipSky, this.u.uPrecipSkyB, this.shared.uSkyBandRange,
       // Living Harbour: the clearing haze tint and storm strip (uSunColor), the W01 front and the W09 squall
       W.uSunColor, this.u.uClearZen, this.u.uClearHor, this.u.uFrontA, this.u.uFrontB, this.u.uSquall,
+      this.u.uTwilight,
     ]);
     this.shared.uSkyBand.value = this.bandRT.texture;
 
@@ -263,6 +269,27 @@ export class SkySystem implements WorldSystem {
     this.meteorAge = 0;
     this.u.uMeteor.value.set(th0, e0, dx, dy);
     mb.set(0, 2.5 + Math.random() * 3, 0.5 + Math.random() * 0.5, 0);
+  }
+
+  /**
+   * E22 twilight structure (M+; Low keeps none): the real sun's height at the clock (calendar only) opens the wedge
+   * opposite the scene's sunset/sunrise; at a clear dawn the rays rise only through a bank beside the painted sun.
+   */
+  private updateTwilight(ctx: EngineContext, relAz: (d: THREE.Vector3) => number, sunTh: number): void {
+    const tw = this.u.uTwilight.value;
+    if (ctx.services.get("quality")?.tier === "low" || !extraEnabled("twilight")) { tw.set(0, 0, 0, 0); return; }
+    const season = ctx.services.get("season");
+    const rise = season?.sunrise ?? 6, set = season?.sunset ?? 19.85, clock = ctx.timeOfDay.clockHour;
+    const win = twilightWindow(sunElevationDeg(clock, rise, set, season?.southern ? -NOMINAL_LATITUDE : NOMINAL_LATITUDE));
+    if (win.k < 1e-3) { tw.set(0, 0, 0, 0); return; }
+    const dusk = isDusk(clock, rise, set);
+    const anti = antiSolarTh(relAz(styleCDirection(twilightSunAzimuth(dusk, rise, set), 0, this.twilightDir)));
+    let bank = 0;
+    if (!dusk) for (let i = 0; i < MAX_BANKS; i++) {
+      const b = this.u.uBanks.value[i], a = this.u.uBankB.value[i].y;
+      bank = Math.max(bank, a * (1 - THREE.MathUtils.smoothstep(Math.abs(b.x - sunTh), b.z * 0.5, b.z * 0.5 + 6)));
+    }
+    tw.set(win.k, anti, win.shadowTop, win.k * bank * 0.45 * (1 - THREE.MathUtils.smoothstep(this.coverS, 0.3, 0.5)));
   }
 
   private seedBanks(t0Override?: number): void {
@@ -416,6 +443,7 @@ export class SkySystem implements WorldSystem {
       this.u.uBanks.value[i].set(th, b.e, b.w * grow, b.h * grow);
       this.u.uBankB.value[i].set(b.cell, a, b.haze, b.mirror);
     });
+    this.updateTwilight(ctx, relAz, sunAz * COMP);
     this.u.uWeather.value.set(this.coverS, this.windS, this.cirrusDrift);
     this.updateNightSky(dt, live, driftT, fwdAz, halfH / D2R, ctx);
     // one wind field: the weather director's direction (uWindVec, the way the hulls lie) with a slow wobble

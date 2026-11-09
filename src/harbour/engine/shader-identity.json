@@ -1363,13 +1363,13 @@
   },
   "sky/dome": {
     "vertex": "29dd42bc4793c56c760a2ff0d2847e6fd6b4f71685b54932bd1286b192fdc67b",
-    "fragment": "367294f8aa86e576712845066927c2a9fe2de990cbd2e12a0864377152bb04a4",
+    "fragment": "af64265e5fb5cef51a0893b057fd9dcd756cbfb8f28d44bf25317b57f8deb64f",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
   },
   "sky/band": {
     "vertex": "9ab5768fc1c4c41da8e062d0edf15bc8f1a361e6b23c98ca5699b1c98c07f376",
-    "fragment": "278b801c3aba868d8e24cb9247bf86aae62297efd63fb408ee20e650e0f2f51a",
+    "fragment": "da16f0250765de8447edcad7fffc3e9e0b549987aa748b44221dc542050945ca",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
   },
