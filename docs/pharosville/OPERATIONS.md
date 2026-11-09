@@ -377,6 +377,12 @@ homepage. It is text-only: `og:image` stays the single static `og-card.png` for
 every variant. It fetches nothing, holds no credential, and writes no cache
 entry; a day request with no `sel=` gets the asset response untouched.
 
+The edge also fills `#pv-shared-subject` inside the welcome template with the
+validated static identity, on both day and night shells. It makes no claim about
+readings or position. Known active ships, known chain keys, the fixed panel
+places and pre-launch records in the bundled registry get named text. Wrecks,
+live-only yard records and unknown subjects keep the generic welcome and card.
+
 The same route picks the night key art (E28): when the visitor's hour, from the
 edge's `cf.timezone` or a pinned `?t=`, falls on the harbour's night (night share
 ≥ 0.5, `functions/_poster.ts`), it names `poster-night-*` wherever the shell
@@ -413,9 +419,34 @@ Then check that the rewrite actually fires:
 curl -s 'https://pharosville.pharos.watch/?sel=ship.usdc-circle' | grep 'og:title'
 ```
 
-**Selection links.** The Garden-era Copy link button wrote `?sel=…` links; the
-Harbour UI does not write selection URLs yet, so a shared link unfurls as the
-homepage unless it carries `sel=` itself. This route still reads only `sel`.
+**Stable subject-link contract for pharos.watch.** Use the runtime-neutral
+`shared/lib/selection-link.ts` codec: `canonicalSubjectUrl({ kind: "ship", id })`
+produces `https://pharosville.pharos.watch/?sel=ship.<id>`. The reciprocal link
+label is **“See this coin in PharosVille”**. IDs are the exact Pharos registry
+IDs (for example, `usdc-circle`), never guessed slugs or symbols. Chain links use
+`{ kind: "chain", id: <CHAIN_META key> }`, for example `chain.ethereum`.
+Other supported subjects are `yard.<id>`, `wreck.<id>` and `place.<id>`;
+`chart=1` optionally shows chart names. The entire selection is at most 128
+characters, with lowercase, structurally checked IDs. The destination resolves
+membership after the current fleet, layout and detail module are ready.
+
+Copy link emits this canonical origin and subject/chart only. Links always open
+latest readings; they carry no camera, time, quality or development state. The
+homepage remains the HTML canonical and every subject keeps the same OG image.
+The client also reads old `#sel=` fragments when the query has no `sel`, and
+normalizes `lighthouse` to `place.pharos`. Fragments never reach the edge, so old
+hash links have generic unfurls until copied again. The removed `pigeonnier`
+opens no panel and explains that the place is no longer in the harbour.
+
+Deliberate selections and close push history; ship stepping replaces the current
+entry. Back/Forward restore subjects without adding entries. Unknown subjects
+open no panel and show a brief polite notice. A phone keeps its subject URL and
+loads no world runtime or readings; an admitted larger window restores it.
+
+Outbound boat and chain panel links currently lead to the Stablecoins and Chains
+directories on pharos.watch, with explicit new-tab wording. Per-entity host
+routes and the reciprocal host change require separate confirmation and
+authorization; do not derive routes from IDs here.
 
 ## Rotate `PHAROS_API_KEY`
 

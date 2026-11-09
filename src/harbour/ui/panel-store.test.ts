@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { panelFixture } from "./__fixtures__/store";
 import { TRUTH_NOW } from "../__fixtures__/projection";
+import { preloadDetails } from "./details";
 
 const fixtures: ReturnType<typeof panelFixture>[] = [];
 const fixture = () => { const f = panelFixture(); fixtures.push(f); return f; };
@@ -27,7 +28,7 @@ describe("selection owns layout framing only until camera input", () => {
     f.store.returnToLedger(); expect(f.store.getSnapshot().ledger!.views.Coins.row).toBe(hit.id);
     f.store.readLedger(hit, true); expect(fly).toHaveBeenCalledOnce(); expect(f.store.getSnapshot().ledgerOpen).toBe(false);
   });
-  it("restores only identifiers after a new current installed model, discarding missing selections", () => {
+  it("restores only identifiers after a new current installed model, discarding missing selections", async () => {
     const f = fixture(); f.store.updateLedger({ tab: "Coins" }); f.store.updateLedgerView("Coins", { query: "USDC", scroll: 88, row: "gone" });
     f.store.set({ ledgerOpen: true }); f.store.select({ kind: "boat", id: "gone" }, { fly: false }); f.dispose(); fixtures.splice(fixtures.indexOf(f), 1);
     // New runtime starts with an unverified source: no saved selection is shown.
@@ -35,6 +36,7 @@ describe("selection owns layout framing only until camera input", () => {
     expect(next.store.getSnapshot().selected).toBeNull();
     expect(next.store.getSnapshot().ledger!.views.Coins.query).toBe("USDC");
     next.model.truth.stablecoins.state = "current"; next.frame();
+    await preloadDetails(); next.frame();
     expect(next.store.getSnapshot()).toMatchObject({ selected: null, ledgerOpen: true });
   });
 });
@@ -64,13 +66,14 @@ describe("visitor-paced current Watch", () => {
   });
 });
 
-it("readmission waits for current readiness before restoring a valid selection and camera intent", () => {
+it("readmission waits for current readiness before restoring a valid selection and camera intent", async () => {
   const f = fixture(), hit = { kind: "boat" as const, id: f.model.boats[0].id };
   f.store.select(hit); f.dispose(); fixtures.splice(fixtures.indexOf(f), 1);
   const next = panelFixture(834, 1112, { restore: true, current: false }); fixtures.push(next);
   expect(next.store.getSnapshot().selected).toBeNull();
   const fly = vi.spyOn(next.store, "flyTo"); next.frame(); expect(fly).not.toHaveBeenCalled();
   next.model.truth.stablecoins.state = "current"; next.frame();
+  await preloadDetails(); next.frame();
   expect(next.store.getSnapshot().selected).toEqual(hit); expect(fly).toHaveBeenCalled();
 });
 
