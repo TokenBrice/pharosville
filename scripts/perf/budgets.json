@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "measuredAt": "2026-10-19T14:19:03.259Z",
-  "note": "Lossless registry/49+17 packs/exact sea measured in isolated /tmp/nfs-b1 build; first-frame totals + 5%, only downward revisions. Text estimates are not CDN wire measurements. Source-media inventory remains authoring/development bytes, not retained deployment payload. 2026-10-25 (Living Harbour v1.4.0 on Fair Wind v1.3.0): 23 media entries re-baselined to measured + 5% (hull/titan kits re-exported with stern lanterns and oars, new office-works and life_beasts kits); totals unchanged. 2026-11-09 (Clear Air v1.6.0, agents/pharosville-ultimate exec/DECISION-LOG X-018): first-frame totals re-measured on the legacy frontier (stored 6,503,845 / gzip 4,708,277 / Brotli 4,576,948 B; +49.5 KB stored vs v1.5.0, all in the harbour app chunk: design tokens and night palette, slips, dated charts with values tables, help and controls sheet, guide, Watch controls, ledger panes and filters, gesture/zoom/picking rework, typed services, checked shader patches) and ceilings reset to measured + 5%; javascript category 666,493 B gzip + 5%. Media and the other categories unchanged.",
+  "note": "Lossless registry/49+17 packs/exact sea measured in isolated /tmp/nfs-b1 build; first-frame totals + 5%, only downward revisions. Text estimates are not CDN wire measurements. Source-media inventory remains authoring/development bytes, not retained deployment payload. 2026-10-25 (Living Harbour v1.4.0 on Fair Wind v1.3.0): 23 media entries re-baselined to measured + 5% (hull/titan kits re-exported with stern lanterns and oars, new office-works and life_beasts kits); totals unchanged. 2026-11-09 (Clear Air v1.6.0, agents/pharosville-ultimate exec/DECISION-LOG X-018): first-frame totals re-measured on the legacy frontier (stored 6,503,845 / gzip 4,708,277 / Brotli 4,576,948 B; +49.5 KB stored vs v1.5.0, all in the harbour app chunk: design tokens and night palette, slips, dated charts with values tables, help and controls sheet, guide, Watch controls, ledger panes and filters, gesture/zoom/picking rework, typed services, checked shader patches) and ceilings reset to measured + 5%; javascript category 666,493 B gzip + 5%. Media and the other categories unchanged. 2026-11-09 (Lamplighter v1.7.0, a-pharos E18/E15): /harbour/lighthouse.glb and .glb.gz re-baselined to measured + 5% (157,652 / 77,389 B, was 124,216 / 45,909 B): Pharos v2 re-exported from scripts/harbour/blender/pharos (re-proportioned tiers, quoins, cavetto cornices, tritons, larger mirror; E15 per-corner baked AO is most of the growth); totals and categories unchanged (same eager frontier).",
   "measuredTotals": {
     "firstFrameStoredBytes": 6503845,
     "firstFrameGzipBodyBytes": 4708277,
@@ -204,8 +204,8 @@
     "/harbour/kit/wreck_skiff.glb.gz": 14934,
     "/harbour/kit/wreck_stern_section.glb": 35839,
     "/harbour/kit/wreck_stern_section.glb.gz": 24588,
-    "/harbour/lighthouse.glb": 130427,
-    "/harbour/lighthouse.glb.gz": 48205,
+    "/harbour/lighthouse.glb": 165535,
+    "/harbour/lighthouse.glb.gz": 81259,
     "/harbour/poster-1600.avif": 110248,
     "/harbour/poster-1600.webp": 154947,
     "/harbour/poster-960.avif": 49737,
