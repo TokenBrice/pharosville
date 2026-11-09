@@ -12,12 +12,20 @@ import { ChimneySmoke } from "./smoke";
 import { SeasonalDrift } from "./drift";
 import { roleDensity, stormShare } from "./roles";
 import { smokeAmount, townDensity, type Walkways } from "./walkways";
+import { extraEnabled } from "../engine/extras";
+import type { CivicPlot } from "../civic/assemble";
+import { doveHour, shelters } from "./score";
 
 export const WALKWAYS_URL = "/harbour/walkways.json";
 
 /** Share of the cast on stage per quality tier (same art, fewer actors on Low). */
 const TIER_SHARE: Record<QualityTier, number> = { high: 1, medium: 0.75, low: 0.45 };
 const GULLS = 14;
+/**
+ * O7-I10: the doves' home inside the Tower of the Winds: the Customs House plot's flag-pole axis (public/harbour/civic/
+ * manifest.json customs flag_pole_top, plot-local z) and a height inside the tower top (m above the plot).
+ */
+const TOWER_AXIS_Z = -3.5, ROOST_Y = 18.5;
 
 /** 'life' service: the wind the life layer is showing (read by the ambience layer). */
 export interface LifeService {
@@ -75,6 +83,13 @@ export class LifeSystem implements WorldSystem {
   private wind = 0.35;
   private bustle = 0;
   private covePerched = false;
+  /** the decorative score (V26: the doves on the hour and the rare cues), the `score` extra */
+  private readonly scoreOn = extraEnabled("score");
+  /** the clock hour the doves last saw (the hour bell's own clock), -1 = not yet */
+  private doveHourSeen = -1;
+  /** dev `?doves=now`: the doves lift 3 s in, then every 40 s (a pinned `?t=` freezes the clock) */
+  private readonly dovesNow = import.meta.env.DEV && new URLSearchParams(location.search).get("doves") === "now";
+  private dovesNext = 3;
 
   async init(ctx: EngineContext): Promise<void> {
     this.group.name = "life";
@@ -139,7 +154,11 @@ export class LifeSystem implements WorldSystem {
       if (l.kind === "pierhead" || l.kind === "harbourlight") perches.push(V(l.position, 0.42));
     }
     const squares = walk.spots.filter((sp) => sp.kind === "square").map((sp) => V(sp.p));
-    this.gulls = new Gulls({ circles, perches, squares }, mats, GULLS);
+    const tower = this.scoreOn ? (layout as { civic?: CivicPlot[] }).civic?.find((c) => c.kind === "customs") : undefined;
+    const roost = tower ? new THREE.Vector3(
+      tower.position[0] + Math.sin(tower.rotationY ?? 0) * TOWER_AXIS_Z, tower.position[1] + ROOST_Y, tower.position[2] + Math.cos(tower.rotationY ?? 0) * TOWER_AXIS_Z,
+    ) : null;
+    this.gulls = new Gulls({ circles, perches, squares, roost }, mats, GULLS);
     this.gulls.busy = new URLSearchParams(location.search).get("gulls") === "busy";
     this.group.add(this.gulls.mesh);
 
@@ -208,6 +227,17 @@ export class LifeSystem implements WorldSystem {
     }
     // 09-L6: the fleet for the gulls (hulls casting off to trail, mastheads to stand on)
     this.gulls?.setShips(sim?.pose ?? null, ctx.services.get("mastheads") ?? null);
+    // O7-I10 the hour told by doves: on the hour bell's hours, 06–22 (the bell's own clock), unless life shelters
+    // (DEWS Warning / Danger), a staged moment holds the stage, or nothing may move
+    if (this.scoreOn && this.gulls) {
+      const hf = Math.floor(((ctx.timeOfDay.clockHour % 24) + 24) % 24);
+      const strike = this.doveHourSeen >= 0 && hf !== this.doveHourSeen && doveHour(hf);
+      this.doveHourSeen = hf;
+      const dev = this.dovesNow && frame.elapsed >= this.dovesNext;
+      if (dev) this.dovesNext = frame.elapsed + 40;
+      const staged = (ctx.services.get("events")?.current ?? null) !== null;
+      if ((strike || dev) && moving && !staged && !shelters(ctx.services.get("weather")?.state.level ?? null)) this.gulls.liftDoves();
+    }
     // 09-L7: swallows over the squares at dusk in spring and summer (fewer in a blow)
     const dusk = THREE.MathUtils.smoothstep(hour, 17.8, 18.5) * (1 - THREE.MathUtils.smoothstep(hour, 20.1, 20.8));
     this.gulls?.update(dt, moving, share > 0.5 ? 1 : 0.5, u.uNight.value, (spring + summer) * dusk * share * stormShare(this.wind));
