@@ -220,3 +220,21 @@ describe("B11 wake resizing", () => {
     blit.mockRestore(); wake.dispose();
   });
 });
+
+it("clears both history buffers and queued stamps at a resume boundary, restoring renderer state", async () => {
+  const field = new WakeField([-10, -10, 10, 10], 8, 8);
+  field.stamp(0, 0, 2, 0, 1, 1);
+  const previous = {}, targets: unknown[] = [];
+  let clearColor = new THREE.Color(0x112233), clearAlpha = 0.7, target: unknown = previous, clears = 0;
+  const renderer = {
+    getRenderTarget: () => target, setRenderTarget: (v: unknown) => { target = v; targets.push(v); },
+    getClearAlpha: () => clearAlpha, getClearColor: (out: THREE.Color) => out.copy(clearColor),
+    setClearColor: (v: number | THREE.Color, a: number) => { clearColor = new THREE.Color(v); clearAlpha = a; },
+    clear: () => { clears++; },
+  };
+  field.clear(renderer as never);
+  expect(clears).toBe(3); expect(targets).toHaveLength(4); expect(target).toBe(previous);
+  expect(clearColor.getHex()).toBe(0x112233); expect(clearAlpha).toBe(0.7);
+  expect((field as unknown as { count: number }).count).toBe(0);
+  field.dispose();
+});

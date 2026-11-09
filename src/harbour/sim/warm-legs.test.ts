@@ -109,3 +109,20 @@ describe("persistent worker ownership and cancellation", () => {
     expect(worker.terminate).toHaveBeenCalledOnce();
   });
 });
+
+describe("later transferable path jobs", () => {
+  it("correlates path revisions independently of preparation and cancels pending refill on worker loss", async () => {
+    const warm = warmLegsOffThread(layout, Promise.resolve(null), vi.fn(), vi.fn(), vi.fn());
+    const worker = WorkerDouble.created[0];
+    worker.onmessage!({ data: { legs: [], outings: {} } }); await warm.done;
+    const a = warm.paths(1, "old", [[0, 1, "medium", 0, 13, 4]]);
+    const b = warm.paths(2, "new", [[1, 2, "large", 0, 18, 6]]);
+    await Promise.resolve();
+    expect(worker.postMessage).toHaveBeenCalledWith({ type: "paths", id: 1, planRevision: 1, layoutKey: "old", legs: [[0, 1, "medium", 0, 13, 4]] });
+    worker.onmessage!({ data: { id: 2, planRevision: 2, layoutKey: "new", paths: [] } });
+    expect(await b).toEqual({ planRevision: 2, layoutKey: "new", paths: [] });
+    const rejected = expect(a).rejects.toThrow("could not be decoded");
+    worker.onmessageerror!(); await rejected;
+    await expect(warm.paths(3, "new", [])).rejects.toThrow("could not be decoded");
+  });
+});

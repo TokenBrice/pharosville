@@ -453,11 +453,10 @@ function outingMetresOf(L: SimLayout, slotIdx: number, cls: HullClass, v: number
 }
 
 /** The smoothed path of a slot's outing (loop variant v) for a hull class: off the berth, round the loop, back in. */
-export function buildOutingPath(L: SimLayout, slotIdx: number, cls: HullClass, v: number): PathRec | null {
+export function buildOutingPath(L: SimLayout, slotIdx: number, cls: HullClass, v: number, loa = L.loa[cls], beam = L.beam[cls]): PathRec | null {
   const s = L.slots[slotIdx];
   const loop = outingLoop(L, s.outNode, v);
   if (!loop) return null;
-  const loa = L.loa[cls], beam = L.beam[cls];
   const c = legControlPoints(L, s, null, s, loa, beam, loop);
   return buildPath(c.pts, loa, c.tail, L.field, beam, c.extras);
 }
@@ -498,11 +497,10 @@ function scenicExtraMetresOf(L: SimLayout, outNode: number, inNode: number, v: n
  * offshore loop `v`, then on to her destination across open water and the lanes. Null when the gate has
  * no offshore loop or no clear way on from it.
  */
-export function buildScenicPath(L: SimLayout, fromIdx: number, toIdx: number, cls: HullClass, v: number): PathRec | null {
+export function buildScenicPath(L: SimLayout, fromIdx: number, toIdx: number, cls: HullClass, v: number, loa = L.loa[cls], beam = L.beam[cls]): PathRec | null {
   const from = L.slots[fromIdx], to = L.slots[toIdx];
   const via = scenicVia(L, from.outNode, to.inNode, v);
   if (!via) return null;
-  const loa = L.loa[cls], beam = L.beam[cls];
   const c = legControlPoints(L, from, null, to, loa, beam, via);
   return buildPath(c.pts, loa, c.tail, L.field, beam, c.extras);
 }

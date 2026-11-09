@@ -178,13 +178,13 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
 }
 
 /**
- * Everything that shapes the sailing plan: ids, hull classes, quantized circuits and whether a
+ * Everything that shapes the sailing plan: ids, hull classes, rig families, quantized circuits and whether a
  * hull is wrecked. Peg state is deliberately absent: a boat on the Shoals keeps its reservations.
  */
 function planKeyOf(boats: Boat[]): string {
   const parts: string[] = [];
   for (const b of boats) {
-    parts.push(`${b.id}:${b.hullClass}:${b.state === "wrecked" ? "w" : ""}:${b.circuit.map((s) => `${s.where}=${Math.round(s.share * 100)}`).join(",")}`);
+    parts.push(`${b.id}:${b.hullClass}:${b.rig}:${b.state === "wrecked" ? "w" : ""}:${b.circuit.map((s) => `${s.where}=${Math.round(s.share * 100)}`).join(",")}`);
   }
   const s = parts.join("|");
   return `${boats.length}-${fnv1a(s).toString(16)}-${fnv1a("#" + s).toString(16)}`;

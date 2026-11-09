@@ -6,6 +6,7 @@ import { pierIdFor, u01 } from "../model/classify";
 import type { HarbourLayout, HullClass, Vec2 } from "../layout/types";
 import { buildKeepOffField, buildObstacleField, clearance, coastDistance, hullClearance, openWaterFactor, type CoastGrid, type ObstacleField } from "./obstacles";
 import { hypot } from "./math";
+import { slotFootprint } from "./footprint";
 
 export const CLASS_ORDER: readonly HullClass[] = ["flagship", "large", "medium", "small", "boat", "skiff"];
 export const DEFAULT_LOA: Record<HullClass, number> = { flagship: 26, large: 18, medium: 13, small: 10, boat: 7.5, skiff: 5 };
@@ -39,6 +40,9 @@ export interface Slot {
   line: Vec2 | null;
   /** Slots whose hull footprint overlaps this one's: never occupied at the same time. */
   conflicts: number[];
+  /** Physical capacity of an overflow raft; authored slots use the class envelope. */
+  loa?: number;
+  beam?: number;
 }
 
 export type SlotMode = "alongside" | "finger" | "pontoon" | "swing" | "anchor" | "beached" | "raft";
@@ -350,7 +354,9 @@ export const SHOALS_MAX = 40;
 export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = null): SimLayout {
   const field = buildObstacleField(layout, coast);
   const loa0 = { ...DEFAULT_LOA, ...(layout.hull?.loa ?? {}) } as Record<HullClass, number>;
-  const keepOff = field ? buildKeepOffField(field, stillHullDisks(layout, loa0), noGoZones(layout)) : null;
+  const beam0 = Object.fromEntries(CLASS_ORDER.map((cls) => [cls, layout.hull?.beam?.[cls] ?? loa0[cls] * 0.32])) as Record<HullClass, number>;
+  const physicalLoa = Object.fromEntries(CLASS_ORDER.map((cls) => [cls, slotFootprint(cls, { loa: loa0, beam: beam0 }).loa])) as Record<HullClass, number>;
+  const keepOff = field ? buildKeepOffField(field, stillHullDisks(layout, physicalLoa), noGoZones(layout)) : null;
   const graph = buildLaneGraph(layout, field, keepOff);
   const loa = { ...DEFAULT_LOA, ...(layout.hull?.loa ?? {}) } as Record<HullClass, number>;
   const beam = Object.fromEntries(CLASS_ORDER.map((k) => [k, layout.hull?.beam?.[k] ?? loa[k] * 0.32])) as Record<HullClass, number>;
@@ -718,9 +724,10 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
     gates.set(where, { inNode, outNode, x: x / all.length, z: z / all.length });
   }
 
+  const slotFeet = Object.fromEntries(CLASS_ORDER.map((cls) => [cls, slotFootprint(cls, { loa, beam })])) as Record<HullClass, { loa: number; beam: number }>;
   // footprints that overlap are never occupied together (adjacent alongside berths, close moorings)
   const foot = (s: Slot): Array<[number, number, number, number, number]> => {
-    const L = loa[s.cls], B = beam[s.cls];
+    const { loa: L, beam: B } = slotFeet[s.cls];
     const caps: Array<[number, number, number, number, number]> = [];
     const yaws = s.swing > 0 ? [-0.45, 0, 0.45] : [0];
     for (const dy of yaws) {
@@ -753,12 +760,12 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
         const so = slots[o];
         // berths only crowd berths of their own pier (piers are laid out apart); swinging hulls anyone
         if (s.swing === 0 && so.swing === 0 && s.where !== so.where) continue;
-        if (hypot(so.x - s.x, so.z - s.z) > (loa[s.cls] + loa[so.cls]) / 2 + s.swing + so.swing + 2) continue;
+        if (hypot(so.x - s.x, so.z - s.z) > (slotFeet[s.cls].loa + slotFeet[so.cls].loa) / 2 + s.swing + so.swing + 2) continue;
         const gap = s.swing > 0 || so.swing > 0 ? 0.8 : s.mode === "finger" && so.mode === "finger" ? 0.3 : 0.5;
         const fo = foot(so);
         // two buoys laid closer than their rodes allow (the hulls swing with wind, tide and yaw, ~±1.2 rad, far
         // past the footprints above): never occupied together either
-        const crowded = s.swing > 0 && so.swing > 0 && hypot(so.x - s.x, so.z - s.z) < (s.swing + so.swing + (loa[s.cls] + loa[so.cls]) / 2) * 0.6;
+        const crowded = s.swing > 0 && so.swing > 0 && hypot(so.x - s.x, so.z - s.z) < (s.swing + so.swing + (slotFeet[s.cls].loa + slotFeet[so.cls].loa) / 2) * 0.6;
         if (crowded || fs.some((a) => fo.some((b) => capDist(a, b) < gap))) { s.conflicts.push(o); so.conflicts.push(s.index); }
       }
     }
@@ -789,18 +796,19 @@ function laneSegments(L: SimLayout): Float64Array {
  * Cells are sized for a large hull so any class fits any raft slot. Created on demand by the planner
  * (rare when berths are sized from the plan's demand); deterministic.
  */
-export function addRaftSlot(L: SimLayout, where: string, k: number): Slot {
+export function addRaftSlot(L: SimLayout, where: string, k: number, loa = L.loa.large * 1.15, beam = L.beam.large * 1.25, staticFits = new Map<string, boolean>()): Slot {
   const g = L.gates.get(where);
   const node = g ? g.inNode : L.graph.through[0] ?? -1;
   const nx = node >= 0 ? L.graph.x[node] : 0, nz = node >= 0 ? L.graph.z[node] : 0;
-  const cellL = L.loa.large * 1.15, cellB = L.beam.large * 1.25;
+  const cellL = Math.max(L.loa.large * 1.15, loa), cellB = Math.max(L.beam.large * 1.25, beam);
+  const capacity = Object.fromEntries(CLASS_ORDER.map((cls) => [cls, slotFootprint(cls, L)])) as Record<HullClass, { loa: number; beam: number }>;
   const h = L.windFrom, fx = Math.sin(h), fz = Math.cos(h), sx = -fz, sz = fx;
   const segs = laneSegments(L);
   const others = L.slots.filter((s) => s.kind === "raft");
-  const hulls = L.slots.filter((s) => s.kind !== "wreck");
+  const hulls = L.slots.filter((s) => s.kind !== "wreck" && s.kind !== "raft");
   /** Closest approach between this cell's hull and slot o's (sampled capsules), less both half-beams. */
   const gapTo = (x: number, z: number, o: Slot): number => {
-    const ol = L.loa[o.cls], ob = L.beam[o.cls];
+    const ol = o.loa ?? capacity[o.cls].loa, ob = o.beam ?? capacity[o.cls].beam;
     const ocx = o.x - Math.sin(o.heading) * o.swing, ocz = o.z - Math.cos(o.heading) * o.swing;
     const ofx = Math.sin(o.heading), ofz = Math.cos(o.heading);
     let d = Infinity;
@@ -819,17 +827,25 @@ export function addRaftSlot(L: SimLayout, where: string, k: number): Slot {
     }
     return true;
   };
-  const fits = (x: number, z: number, laneM = 16): boolean => {
+  const fixedFits = (x: number, z: number, laneM: number): boolean => {
     for (const [a, b] of [[0, 0], [0.5, 0.5], [0.5, -0.5], [-0.5, 0.5], [-0.5, -0.5]]) {
       const px = x + fx * cellL * a + sx * cellB * b, pz = z + fz * cellL * a + sz * cellB * b;
       if (L.hard(px, pz) < 6) return false;
       if (L.keepOff && clearance(L.keepOff, px, pz) < 4) return false;
     }
     for (let i = 0; i < segs.length; i += 4) if (segDist(x, z, [segs[i], segs[i + 1]], [segs[i + 2], segs[i + 3]]) < laneM + cellL / 2) return false;
-    for (const o of others) if (hypot(o.x - x, o.z - z) < cellB * 0.95) return false;
-    for (const o of hulls) if (hypot(o.x - x, o.z - z) < (cellL + L.loa[o.cls]) / 2 + o.swing + 4 && o.kind !== "raft" && gapTo(x, z, o) < 2) return false;
-    for (const o of others) if (hypot(o.x - x, o.z - z) >= cellB * 0.95 && hypot(o.x - x, o.z - z) < cellL + 2 && gapTo(x, z, o) < 0.4) return false;
+    for (const o of hulls) if (hypot(o.x - x, o.z - z) < (cellL + (o.loa ?? capacity[o.cls].loa)) / 2 + o.swing + 4 && gapTo(x, z, o) < 2) return false;
     return seen(x, z);
+  };
+  const fits = (x: number, z: number, laneM = 16): boolean => {
+    for (const o of others) if (hypot(o.x - x, o.z - z) < cellB * 0.95) return false;
+    // Spiral candidates repeat within an allocation; only raft neighbours change between searches.
+    const key = `${where}>${cellL},${cellB}>${laneM}>${x},${z}`;
+    let fixed = staticFits.get(key);
+    if (fixed === undefined) { fixed = fixedFits(x, z, laneM); staticFits.set(key, fixed); }
+    if (!fixed) return false;
+    for (const o of others) if (hypot(o.x - x, o.z - z) >= cellB * 0.95 && hypot(o.x - x, o.z - z) < (cellL + (o.loa ?? capacity[o.cls].loa)) / 2 + 2 && gapTo(x, z, o) < 0.4) return false;
+    return true;
   };
   // the next berth in this harbour's raft: beside the last one, else a new raft somewhere clear
   const mine = others.filter((s) => s.where === where);
@@ -860,7 +876,7 @@ export function addRaftSlot(L: SimLayout, where: string, k: number): Slot {
   const slot: Slot = {
     index: L.slots.length, id: `${where}/raft/${k + 1}`, where, cls: "large", kind: "raft", x: px, z: pz, heading: h, swing: 0,
     inNode: node, outNode: g ? g.outNode : node, approach: [[nx, nz], [px - fx * cellL * 1.6, pz - fz * cellL * 1.6], [px, pz]], astern: false,
-    mode: "raft", warp: null, line: null, conflicts: [],
+    mode: "raft", warp: null, line: null, conflicts: [], loa: cellL, beam: cellB,
   };
   L.slots.push(slot);
   return slot;

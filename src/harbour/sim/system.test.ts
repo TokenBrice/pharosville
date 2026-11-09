@@ -8,7 +8,7 @@ type Payloads = Record<string, { data: { count: number } | null; fetchedAtMs: nu
 interface Model { boats: unknown[]; hasFleet: boolean; planKey: string; truth: { stablecoins: { state: string } } }
 interface Feed { payloads: Payloads; publish(key: string, count?: number | null): void }
 interface Sim { model: Model; plan: { key: string }; pose: { count: number }; setModel: Mock; poseAt: Mock }
-interface Warm { done: Promise<void>; prepare: Mock; stop: Mock }
+interface Warm { done: Promise<void>; prepare: Mock; paths?: Mock; stop: Mock }
 const state = vi.hoisted(() => ({ feed: null as Feed | null, warm: null as Warm | null, sims: [] as Sim[], buildError: false, fail: null as ((error: Error) => void) | null }));
 vi.mock("../data/fetch", () => ({ HarbourFeed: class {
   payloads: Payloads = {};
@@ -48,6 +48,13 @@ vi.mock("./sim", () => ({ PH_APPROACHING: 3, PH_DOCKED: 0, PH_MOORED: 4, Harbour
   seedLegTimes() {}
   seedOutings() {}
   knownPlainPaths() { return []; }
+  resumeOpacity = 1;
+  planRevision = 1;
+  seedPaths = vi.fn();
+  pathRequests = vi.fn(() => ({ now: [], soon: [] }));
+  resetHistory = vi.fn();
+  settleMotion() {}
+  resumeMotion() {}
 } }));
 
 function deferred<T>() {
@@ -358,4 +365,68 @@ describe("fleet publication barrier", () => {
     expect(state.sims[0].setModel).not.toHaveBeenCalled(); expect(commit).not.toHaveBeenCalled(); expect(dispose).toHaveBeenCalledOnce();
     expect(system.readiness.prepared).toBe(false);
   });
+});
+
+describe("ongoing paths and tab return", () => {
+  it("discards a late path reply after a newer plan is installed", async () => {
+    await begin(); await startPreparation(); paths.resolve({}); await flush();
+    const sim = ctx.services.get("sim")!;
+    const reply = deferred<{ planRevision: number; layoutKey: string; paths: [] }>();
+    state.warm!.paths = vi.fn(() => reply.promise);
+    vi.mocked(sim.pathRequests).mockReturnValue({ now: [[0, 1, "medium", 0]], soon: [] });
+    system.update(frame, ctx);
+    expect(state.warm!.paths).toHaveBeenCalledOnce();
+    state.feed!.publish("stablecoins", 3); await vi.runOnlyPendingTimersAsync(); await flush();
+    reply.resolve({ planRevision: 1, layoutKey: "2", paths: [] }); await flush();
+    expect(sim.seedPaths).not.toHaveBeenCalled();
+  });
+
+  it.each([1000, 21_600_000])("conceals a %i ms UTC catch-up with a 250 ms fade and one history reset", async (hiddenMs) => {
+    await begin(); await startPreparation(); paths.resolve({}); await flush();
+    const sim = ctx.services.get("sim")!;
+    Object.defineProperty(document, "hidden", { configurable: true, value: true }); document.dispatchEvent(new Event("visibilitychange"));
+    vi.setSystemTime(Date.now() + hiddenMs);
+    Object.defineProperty(document, "hidden", { configurable: true, value: false }); document.dispatchEvent(new Event("visibilitychange"));
+    const at = Date.now(), before = vi.mocked(sim.poseAt).mock.calls.length;
+    system.update({ ...frame, nowMs: at }, ctx);
+    system.update({ ...frame, nowMs: at + 100 }, ctx);
+    expect(sim.poseAt).toHaveBeenCalledTimes(before);
+    expect(sim.resumeOpacity).toBeCloseTo(0.2);
+    vi.mocked(sim.pathRequests).mockReturnValue({ now: [[0, 1, "medium", 0]], soon: [] });
+    system.update({ ...frame, nowMs: at + 125 }, ctx);
+    expect(sim.resetHistory).toHaveBeenCalledOnce(); expect(sim.resumeOpacity).toBe(0);
+    expect(sim.poseAt).toHaveBeenLastCalledWith(at + 125);
+    system.update({ ...frame, nowMs: at + 250 }, ctx);
+    expect(sim.resumeOpacity).toBe(1); expect(sim.resetHistory).toHaveBeenCalledOnce();
+  });
+});
+
+it.each(["revision", "layout", "valid"])("checks %s identity before adopting a route refill", async (kind) => {
+  await begin(); await startPreparation(); paths.resolve({}); await flush();
+  const sim = ctx.services.get("sim")!;
+  state.warm!.paths = vi.fn(async () => ({ planRevision: kind === "revision" ? 999 : sim.planRevision, layoutKey: kind === "layout" ? "wrong" : sim.plan.key, paths: [] }));
+  vi.mocked(sim.pathRequests).mockReturnValue({ now: [[0, 1, "medium", 0]], soon: [] });
+  system.update(frame, ctx); await flush();
+  expect(sim.seedPaths).toHaveBeenCalledTimes(kind === "valid" ? 1 : 0);
+});
+
+it("gives a restarted worker the installed plan even when the feed has not changed", async () => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  await begin(); await startPreparation(); paths.resolve({}); await flush();
+  state.fail!(new Error("lost worker"));
+  const prepare = vi.fn(async () => ({}));
+  state.warm = { done: Promise.resolve(), prepare, stop: vi.fn() };
+  await vi.advanceTimersByTimeAsync(1001); await flush();
+  expect(prepare).toHaveBeenCalledOnce();
+  expect(system.status.phase).toBe("ready"); expect(system.readiness.boats).toBe(2);
+});
+
+it("restores full presence when hidden again during a return fade", async () => {
+  await begin(); await startPreparation(); paths.resolve({}); await flush();
+  const sim = ctx.services.get("sim")!;
+  const hide = (hidden: boolean) => { Object.defineProperty(document, "hidden", { configurable: true, value: hidden }); document.dispatchEvent(new Event("visibilitychange")); };
+  hide(true); hide(false);
+  const now = Date.now(); system.update({ ...frame, nowMs: now }, ctx); system.update({ ...frame, nowMs: now + 100 }, ctx);
+  expect(sim.resumeOpacity).toBeCloseTo(0.2);
+  hide(true); expect(sim.resumeOpacity).toBe(1);
 });

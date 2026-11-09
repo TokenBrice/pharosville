@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import layoutJson from "../data/layout.json";
 import seedJson from "../data/sim-seeds.json";
+import footprints from "./hull-footprints.json";
 import type { HarbourLayout } from "../layout/types";
 import { buildHarbourModel } from "../model/build";
 import { buildSimLayout } from "./layout-graph";
@@ -40,6 +41,14 @@ describe("versioned exact layout seeds", () => {
     expect(await matchingSeeds(seed, layout, null)).toBe(false);
   });
 
+  it("rejects seeds when a rendered footprint changes at the same layout and coast", async () => {
+    const beam = footprints[0].beam_m;
+    try {
+      footprints[0].beam_m += 0.1;
+      expect(await matchingSeeds(seed, layout, coast)).toBe(false);
+    } finally { footprints[0].beam_m = beam; }
+  });
+
   it.each(["fleet", "class-crossing", "stale"])("preserves every plan, route and pose field bit for bit for %s", (scenario) => {
     const coins = makeCoins();
     if (scenario === "class-crossing") {
@@ -56,8 +65,8 @@ describe("versioned exact layout seeds", () => {
     expect(seeded.plan.boats).toStrictEqual(direct.plan.boats);
     expect(seeded.plan.stats).toStrictEqual(direct.plan.stats);
     const request = direct.pathRequests(now), base = direct.layout.slots.length - direct.rafts().length;
-    for (const [from, to, cls, loop] of [...request.now, ...request.soon]) {
-      expect(buildPlanLegPath(seeded.layout, base, from, to, cls, loop)).toStrictEqual(buildPlanLegPath(direct.layout, base, from, to, cls, loop));
+    for (const [from, to, cls, loop, loa, beam] of [...request.now, ...request.soon]) {
+      expect(buildPlanLegPath(seeded.layout, base, from, to, cls, loop, loa, beam)).toStrictEqual(buildPlanLegPath(direct.layout, base, from, to, cls, loop, loa, beam));
     }
     for (const delta of [0, 1, 1000, 60_000, 240_000]) expect(seeded.poseAt(now + delta)).toStrictEqual(direct.poseAt(now + delta));
   }, 120_000);

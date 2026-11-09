@@ -29,14 +29,51 @@ describe("allocation-only worker parity", () => {
     const requests = planPathRequests(sailing, now, () => false);
     const prepared: PreparedPlan = {
       plan: { key: plan.key, boats: plan.boats, stats: plan.stats }, rafts: L.slots.slice(base),
-      paths: [...requests.now, ...requests.soon].map(([from, to, cls, loop]) => {
-        const { path, bad } = buildPlanLegPath(L, base, from, to, cls, loop);
-        return [pathKey(from, to, cls, loop), path, bad];
+      paths: [...requests.now, ...requests.soon].map(([from, to, cls, loop, loa, beam]) => {
+        const { path, bad } = buildPlanLegPath(L, base, from, to, cls, loop, loa, beam);
+        return [pathKey(from, to, cls, loop, loa, beam), path, bad];
       }),
     };
     const main = new HarbourSim(buildHarbourModel({}, now, opts), layout, now);
     main.setModel(model, now, structuredClone(prepared));
     expect(main.plan.boats).toStrictEqual(direct.plan.boats);
-    for (const delta of [0, 1, 1000, 60_000, 240_000]) expect(main.poseAt(now + delta)).toStrictEqual(direct.poseAt(now + delta));
+    for (const delta of [0, 1, 1000, 60_000, 240_000]) {
+      const req = main.pathRequests(now + delta);
+      main.seedPaths(main.plan, [...req.now, ...req.soon].map((r) => { const result = buildPlanLegPath(L, base, ...r); return [pathKey(...r), result.path, result.bad]; }));
+      expect(main.poseAt(now + delta)).toStrictEqual(direct.poseAt(now + delta));
+    }
   }, 60_000);
+});
+
+it("transfers every route array once without cloning the live layout", async () => {
+  const { pathBuffers } = await import("./plan-paths");
+  const L = buildSimLayout(makeLayout({ berthsPerClass: 1 }));
+  const slots = [...L.pools.values()].map((p) => p.get("medium")![0]);
+  const result = buildPlanLegPath(L, L.slots.length, slots[0], slots[1], "medium", 0);
+  const bytes = result.path.pts.byteLength, entries: PreparedPlan["paths"] = [["route", result.path, result.bad]];
+  const buffers = pathBuffers(entries), copy = structuredClone(entries, { transfer: [...buffers] as ArrayBuffer[] });
+  expect(buffers.size).toBeGreaterThanOrEqual(5);
+  expect(result.path.pts.byteLength).toBe(0); expect(copy[0][1].pts.byteLength).toBe(bytes);
+  expect(L.graph.x.byteLength).toBeGreaterThan(0);
+});
+
+it("invalidates allocation when the rendered rig family changes at unchanged supply", () => {
+  const payloads = makePayloads({ n: 2 }), opts = { pieredChains: PIERED, dead: [] };
+  const a = buildHarbourModel(payloads, T0_MS, opts);
+  payloads.stablecoins!.data!.peggedAssets[0].pegType = "peggedUSD";
+  const b = buildHarbourModel(payloads, T0_MS, opts);
+  const id = payloads.stablecoins!.data!.peggedAssets[0].id, before = a.boats.find((boat) => boat.id === id)!, after = b.boats.find((boat) => boat.id === id)!;
+  expect(after.hullClass).toBe(before.hullClass);
+  expect(after.rig).not.toBe(before.rig); expect(b.planKey).not.toBe(a.planKey);
+});
+
+it("prefetches before the dock quarter-window can require a borrowed departure path", async () => {
+  const { CYCLE_S } = await import("./plan");
+  const plan = {
+    id: "long-dock", cls: "medium" as const, loa: 13, beam: 4, kind: "circuit" as const,
+    period: CYCLE_S, offset: 0, staticSlot: -1, outing: false, dwell: new Map(), legSeconds: 200,
+    segStart: Float64Array.of(0, 2000, 2100, 4000), segEnd: Float64Array.of(2000, 2100, 4000, CYCLE_S),
+    segKind: Uint8Array.of(0, 1, 0, 1), segFrom: Int32Array.of(0, 0, 1, 1), segSlot: Int32Array.of(0, 1, 1, 0), segLoop: new Uint8Array(4),
+  };
+  expect(planPathRequests([plan], 1_450_000, () => false)).toEqual({ now: [], soon: [[0, 1, "medium", 0, 13, 4]] });
 });

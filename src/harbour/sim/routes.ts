@@ -401,8 +401,7 @@ function roundHairpins(L: SimLayout, pts: Vec2[], from: number, loa: number, axi
 }
 
 /** Smoothed path for a slot-to-slot leg of a hull class. */
-export function buildLegPath(L: SimLayout, fromSlot: number, toSlot: number, cls: HullClass): PathRec {
-  const loa = L.loa[cls], beam = L.beam[cls];
+export function buildLegPath(L: SimLayout, fromSlot: number, toSlot: number, cls: HullClass, loa = L.loa[cls], beam = L.beam[cls]): PathRec {
   const c = legControlPoints(L, L.slots[fromSlot], null, L.slots[toSlot], loa, beam);
   return buildPath(c.pts, loa, c.tail, L.field, beam, c.extras);
 }

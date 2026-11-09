@@ -11,6 +11,8 @@ import { ACCEL, cruiseSpeed, legTiming, newLegTiming } from "./path";
 import { OFFSHORE_VARIANTS, outingMetres, outingTrack, outingVariants, scenicExtraMetres, trackClearOf } from "./outings";
 import { buildLegPath } from "./routes";
 import { hypot } from "./math";
+import { footprint, slotFootprint } from "./footprint";
+import { hullClearance } from "./obstacles";
 
 export const CYCLE_S = 6 * 3600;
 /** Divisors of the cycle, minutes. */
@@ -75,6 +77,8 @@ const TIMING = newLegTiming();
 export interface BoatPlan {
   id: string;
   cls: HullClass;
+  loa: number;
+  beam: number;
   /** "circuit" sails; "static" holds one slot for the whole cycle; "none" (wrecked) is not planned. */
   kind: "circuit" | "static" | "none";
   /** Circuit period (s) and phase offset (s); boat-local time u = (t + offset) mod CYCLE. */
@@ -223,7 +227,11 @@ function ladder(cls: HullClass): HullClass[] {
 
 export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
   const timelines: Timeline[] = [];
+  const feet = new Map(model.boats.map((b) => [b.id, footprint(b, L)]));
+  const fits = new Map<string, boolean>();
+  const capacities = new Map(CLASS_ORDER.map((cls) => [cls, slotFootprint(cls, L)]));
   const tl = (slot: number) => (timelines[slot] ??= new Timeline());
+  const raftFits = new Map<string, boolean>();
   const rafts = new Map<string, number[]>(); // where → raft slots
   let overflow = 0;
   const { legSeconds, laneMetres } = planTiming(L);
@@ -241,24 +249,25 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     return L.pools.has(w) ? w : "far";
   };
 
-  const takeRaft = (where: string, a: number, b: number): number => {
+  const takeRaft = (where: string, a: number, b: number, foot: { loa: number; beam: number }): number => {
     let list = rafts.get(where);
     if (!list) rafts.set(where, (list = []));
-    for (const s of list) if (tl(s).isFree(a, b)) return s;
-    const slot = addRaftSlot(L, where, list.length);
+    for (const s of list) if (L.slots[s].loa! >= foot.loa && L.slots[s].beam! >= foot.beam && tl(s).isFree(a, b)) return s;
+    const slot = addRaftSlot(L, where, list.length, foot.loa, foot.beam, raftFits);
     list.push(slot.index);
     return slot.index;
   };
 
   /** First free slot for [a, b) at `where`, walking the class ladder from a hash-rotated start. */
-  const findSlot = (where: string, cls: HullClass, a: number, b: number, seed: string, avoid: ReadonlyArray<[number, number, number]>): number => {
+  const findSlot = (where: string, cls: HullClass, a: number, b: number, seed: string, avoid: ReadonlyArray<[number, number, number]>, foot: { loa: number; beam: number }): number => {
     const byCls = L.pools.get(where);
     if (!byCls) return -1;
-    const avoided = (slot: number) => {
-      for (let k = 0; k < avoid.length; k++) { const v = avoid[k]; if (v[0] === slot && a < v[2] && v[1] < b) return true; }
-      return false;
-    };
+    const blocked = new Set<number>();
+    for (const [slot, start, end] of avoid) if (a < end && start < b) blocked.add(slot);
+    const avoided = (slot: number) => blocked.has(slot);
     for (const k of ladder(cls)) {
+      const capacity = capacities.get(k)!;
+      if (capacity.loa < foot.loa || capacity.beam < foot.beam) continue;
       const list = byCls.get(k);
       if (!list || list.length === 0) continue;
       const start = Math.floor(u01(seed + k) * list.length);
@@ -269,6 +278,14 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
         // a neighbour whose hull would overlap this one's is busy then: skip
         const cf = L.slots[s].conflicts;
         if (cf.length && cf.some((c) => !tl(c).isFree(a, b) || avoided(c))) continue;
+        const key = `${s}>${foot.loa},${foot.beam}`;
+        let fit = fits.get(key);
+        if (fit === undefined) {
+          const slot = L.slots[s], h = slot.heading;
+          fit = hullClearance(L.hard, slot.x - Math.sin(h) * slot.swing, slot.z - Math.cos(h) * slot.swing, h, foot.loa, foot.beam) >= -0.15;
+          fits.set(key, fit);
+        }
+        if (!fit) continue;
         return s;
       }
     }
@@ -280,7 +297,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
 
   const plans = new Map<string, BoatPlan>();
   const empty = (b: Boat, kind: BoatPlan["kind"]): BoatPlan => ({
-    id: b.id, cls: b.hullClass, kind, period: CYCLE_S, offset: 0,
+    id: b.id, cls: b.hullClass, ...footprint(b, L), kind, period: CYCLE_S, offset: 0,
     segStart: new Float64Array(0), segEnd: new Float64Array(0), segKind: new Uint8Array(0), segSlot: new Int32Array(0), segFrom: new Int32Array(0), segLoop: new Uint8Array(0),
     staticSlot: -1, outing: false, dwell: new Map(), legSeconds: 0,
   });
@@ -290,8 +307,8 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     if (b.state === "wrecked") { plans.set(b.id, empty(b, "none")); continue; }
     if (b.circuit.length !== 1) continue;
     const where = whereOfStop(b.circuit[0].chain);
-    let slot = findSlot(where, b.hullClass, 0, CYCLE_S, b.id, []);
-    if (slot < 0) { slot = takeRaft(where, 0, CYCLE_S); overflow++; }
+    let slot = findSlot(where, b.hullClass, 0, CYCLE_S, b.id, [], feet.get(b.id)!);
+    if (slot < 0) { slot = takeRaft(where, 0, CYCLE_S, feet.get(b.id)!); overflow++; }
     tl(slot).add(0, CYCLE_S);
     const p = empty(b, "static");
     p.staticSlot = slot;
@@ -342,8 +359,8 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     for (const s of stops) { const m = merged.find((x) => x.where === s.where); if (m) m.share += s.share; else merged.push({ ...s }); }
     if (merged.length === 1) { // degenerate circuit → static
       const where = merged[0].where;
-      let slot = findSlot(where, b.hullClass, 0, CYCLE_S, b.id, []);
-      if (slot < 0) { slot = takeRaft(where, 0, CYCLE_S); overflow++; }
+      let slot = findSlot(where, b.hullClass, 0, CYCLE_S, b.id, [], feet.get(b.id)!);
+      if (slot < 0) { slot = takeRaft(where, 0, CYCLE_S, feet.get(b.id)!); overflow++; }
       tl(slot).add(0, CYCLE_S);
       const p = empty(b, "static");
       p.staticSlot = slot;
@@ -411,7 +428,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
         if (sgm.kind !== SEG_DOCK) continue;
         const w = merged[sgm.stop].where;
         const a = r * T + sgm.a - offset - RESERVE_IN_S, e = r * T + sgm.e - offset + RESERVE_OUT_S;
-        const s = findSlot(w, b.hullClass, a, e, `${b.id}#${r}#${sgm.stop}`, avoid);
+        const s = findSlot(w, b.hullClass, a, e, `${b.id}#${r}#${sgm.stop}`, avoid, feet.get(b.id)!);
         if (s < 0) fails++;
         chosen.push(s);
         avoid.push([s, a, e]);
@@ -431,7 +448,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
       const w = merged[sgm.stop].where;
       const a = r * T + sgm.a - offset - RESERVE_IN_S, e = r * T + sgm.e - offset + RESERVE_OUT_S;
       let s = slots[si++];
-      if (s < 0) { s = takeRaft(w, a, e); overflow++; }
+      if (s < 0) { s = takeRaft(w, a, e, feet.get(b.id)!); overflow++; }
       tl(s).add(a, e);
       buckets(w)[bucketOf(r * T + sgm.a - offset)] = 1;
       buckets(w)[bucketOf(r * T + sgm.e - offset)] = 1;
