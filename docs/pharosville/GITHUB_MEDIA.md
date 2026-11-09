@@ -1,12 +1,12 @@
 # PharosVille GitHub Media
 
-Last updated: 2026-10-15
+Last updated: 2026-11-09
 
 Use this file to keep GitHub, README, and social-preview media consistent.
 
 ## Current Assets
 
-- OG card / README brand preview: `public/og-card.png` (1200×630), cropped from the Harbour key art (golden hour, the default heart framing). No text and no live numbers.
+- OG card / README brand preview: `public/og-card.png` (1200×630), cropped from the Harbour key art (golden hour, the default heart framing) with a discreet PharosVille wordmark lockup (the corner mark's paper plaque, top left; U6). No other text, no readings or live numbers, no token or chain names. Regenerate it after the key art changes with `node scripts/harbour/render-og-card.mjs --base <dev server>` (the shared real-GPU capture; its byte ceiling is `scripts/perf/budgets.json` `media["/og-card.png"]`).
 - First-paint poster and small-screen illustration: `public/harbour/poster-{960,1600}.{avif,webp}` (golden hour) and
   its night variant `public/harbour/poster-night-{960,1600}.{avif,webp}`, which the `/` Function names instead before
   first paint when the visitor's own hour is night (`functions/_poster.ts`).
