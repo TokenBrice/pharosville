@@ -21,7 +21,8 @@
  *     with a crunch of footsteps in the snow near the town.
  *
  * Distance works as in the open air: farther sources are quieter AND darker (lowpassed), and their pan
- * follows where they lie on screen. The master stays well below full scale; start and stop are slow ramps.
+ * follows where they lie on screen. The master meets a ceiling well below full scale; the start is a quick
+ * dB-linear on-ramp (a lap first, then the first wash), the stop a slow fade.
  *
  * Pure WebAudio + a small inputs record; no three.js and no engine imports, so the module stays lazy.
  */
@@ -127,7 +128,15 @@ export interface AmbienceOptions {
   seed?: number;
 }
 
-const MASTER = 0.7;
+const MASTER = 0.63;
+/** The on-ramp (E32): the master rises dB-linearly over ONRAMP s from a floor 24 dB down. */
+export const ONRAMP = 1.4, ONRAMP_FLOOR = 10 ** (-24 / 20);
+/** The composed arrival: the bell buoy answers the second swell if it comes this soon (s) after the start. */
+const ARRIVAL = 20;
+/** The beds' pocket while a music phrase plays (E34): 2 dB down. */
+export const POCKET = 10 ** (-2 / 20);
+/** Where the music joins the mix (musicIn()): an audio input whose phrases may open the beds' pocket. */
+export interface MusicInput extends AudioNode { pocket?(at: number, span: number): void }
 const TICK_MS = 120;
 /** at most this many one-shot events sound at once (the continuous beds and the data kinds always play) */
 const VOICES = 24;
@@ -150,6 +159,13 @@ export const EVENING_GUN_DELAY = 1.2;
 export const FAR_GAIN = 0.1;
 /** The passing hulls' bus (bow wash and a sail's flog): under a near lap (dsp.test.ts). */
 export const PASS_GAIN = 0.5;
+/**
+ * The Pharos's breath (E33): its partials [Hz, amplitude], D3 A3 D4 A4 (the amplitudes sum to 1, so the breath
+ * never peaks above its envelope); its longest envelope (a slow sweep's, s); its envelope's ceiling.
+ */
+export const BREATH: ReadonlyArray<readonly [number, number]> = [[146.83, 0.24], [220, 0.17], [293.66, 0.38], [440, 0.21]];
+export const BREATH_SEC = 5.9;
+export const BREATH_PEAK = 0.063;
 
 /**
  * The ten-minute settle: after a while unwatched the whole mix eases down 3 dB, and it always breathes a
@@ -329,6 +345,7 @@ export class Ambience {
   private readonly echo: DelayNode;
   // weather
   private readonly hush: BiquadFilterNode;
+  private readonly pocket: GainNode;
   private readonly duck: GainNode;
   private readonly rainFine: GainNode;
   private readonly rainBody: GainNode;
@@ -383,6 +400,10 @@ export class Ambience {
     rainA: 0, rainB: 0, drip: 0, bird: 0, cricket: 0, cicada: 0, crunch: 0, ship: 0, groan: 0, burn: 0, bellows: 0, owl: 0, nightjar: 0,
   };
   private setLeft = 0;
+  /** swells heard so far, the audio time the sound started, and when the Pharos's breath ends (one at a time) */
+  private swells = 0;
+  private readonly born: number;
+  private breathEnd = 0;
   private pressN = 0;
   private disposed = false;
   private readonly lanes = new Map<AudioNode, StereoPannerNode[]>();
@@ -397,21 +418,28 @@ export class Ambience {
 
     const comp = ac.createDynamicsCompressor();
     comp.threshold.value = -18; comp.knee.value = 12; comp.ratio.value = 2.5; comp.attack.value = 0.03; comp.release.value = 0.5;
+    // the ceiling (E31): a fast 20:1 limiter after the glue, so the loudest moment (a near clap over a storm)
+    // meets a ceiling near −2.6 dBFS long before the safety clip; its own makeup gain is part of MASTER's level
+    const ceiling = ac.createDynamicsCompressor();
+    ceiling.threshold.value = -6; ceiling.knee.value = 0; ceiling.ratio.value = 20; ceiling.attack.value = 0.002; ceiling.release.value = 0.25;
     this.out = ac.createGain();
-    this.out.gain.setValueAtTime(0, now);
-    this.out.gain.linearRampToValueAtTime(MASTER, now + 3);     // a slow fade in, never a jolt
+    // the on-ramp (E32): a dB-linear rise from a finite floor, never a jolt, and quick enough to hear the first lap
+    this.out.gain.setValueAtTime(MASTER * ONRAMP_FLOOR, now);
+    this.out.gain.exponentialRampToValueAtTime(MASTER, now + ONRAMP);
     // snow hushes the world: a high shelf over everything (snow on the ground and in the air soaks up the highs)
     this.hush = this.filter("highshelf", 2500, 0.7); this.hush.gain.value = 0;
-    // a safety soft clip after the glue compressor (linear to 0.8, then a smooth knee that never reaches 1):
-    // thunder over a storm surf can never clip, at the cost of a table lookup per sample
+    // a safety soft clip after the ceiling (linear to 0.8, then a smooth knee that never reaches 1):
+    // nothing can ever clip, at the cost of a table lookup per sample
     const safety = ac.createWaveShaper();
     safety.curve = softClipCurve();
     this.settle = ac.createGain();
     this.breathPhase = this.rnd() * Math.PI * 2;
-    this.out.connect(this.settle).connect(this.hush).connect(comp).connect(safety).connect(ac.destination);
+    this.out.connect(this.settle).connect(this.hush).connect(comp).connect(ceiling).connect(safety).connect(ac.destination);
+    // the beds (the far sea; the weather's wind, rain, spray and howl) step back 2 dB while a music phrase plays
+    this.pocket = ac.createGain(); this.pocket.connect(this.out);
     // the weather beds (wind, rain, spray, howl) pass through a duck that dips under a near thunderclap, so
     // the clap stands out of a downpour without pushing the mix toward full scale
-    this.duck = ac.createGain(); this.duck.connect(this.out);
+    this.duck = ac.createGain(); this.duck.connect(this.pocket);
 
     // a short, damp slap-back echo for the distant events (bell, horn, gulls): the harbour walls
     this.echo = ac.createDelay(1);
@@ -436,7 +464,7 @@ export class Ambience {
     this.bedLp = this.filter("lowpass", 800, 0.5);
     const bedHp = this.filter("highpass", 45, 0.6);
     this.loop(pink, this.bedLp);
-    this.bedLp.connect(bedHp).connect(this.bedSwell).connect(this.bedGain).connect(this.out);
+    this.bedLp.connect(bedHp).connect(this.bedSwell).connect(this.bedGain).connect(this.pocket);
 
     // ---- laps against hulls and piles
     this.lapBus = ac.createGain(); this.lapBus.gain.value = 0;
@@ -508,7 +536,8 @@ export class Ambience {
     this.rainFine = ac.createGain(); this.rainFine.gain.value = 0;
     this.rainBody = ac.createGain(); this.rainBody.gain.value = 0;
     this.rainGust = ac.createGain(); this.rainGust.gain.value = 1;
-    rainIn.connect(this.filter("bandpass", 6500, 0.5)).connect(this.rainFine).connect(this.rainGust);
+    // (the fine hiss sits where rain on water does, a 4 kHz band with nothing hissing above 9 kHz: not a white roar)
+    rainIn.connect(this.filter("bandpass", 4000, 0.5)).connect(this.filter("lowpass", 9000, 0.7)).connect(this.rainFine).connect(this.rainGust);
     rainIn.connect(this.filter("bandpass", 1500, 0.6)).connect(this.rainBody).connect(this.rainGust);
     this.rainGust.connect(this.duck);
     this.rainLoop = new LazyLoop(ac, white, rainIn);
@@ -517,12 +546,12 @@ export class Ambience {
     this.patterLp.connect(this.patterBus).connect(this.duck);
     this.dripBus = ac.createGain(); this.dripBus.gain.value = 0; this.dripBus.connect(this.out);
 
-    // ---- storm surf: the hiss of spray and whitecaps, thrown up with each break
-    this.spray = ac.createGain(); this.spray.gain.value = 0.15;
+    // ---- storm surf: the hiss of spray and whitecaps, thrown up with each break (a 3 kHz band, under the breakers)
+    this.spray = ac.createGain(); this.spray.gain.value = 0.06;
     this.sprayBus = ac.createGain(); this.sprayBus.gain.value = 0;
-    const sprayHp = this.filter("highpass", 1800, 0.5);
-    this.sprayLoop = new LazyLoop(ac, white, sprayHp);
-    sprayHp.connect(this.spray).connect(this.sprayBus).connect(this.duck);
+    const sprayBp = this.filter("bandpass", 3000, 0.8);
+    this.sprayLoop = new LazyLoop(ac, white, sprayBp);
+    sprayBp.connect(this.spray).connect(this.sprayBus).connect(this.duck);
 
     // ---- the howl of a storm round the buildings: three narrow bands crossfaded by the gusts (a moaning glide
     // without automating a cutoff)
@@ -536,7 +565,7 @@ export class Ambience {
     this.howlLoop = new LazyLoop(ac, white, howlIn);
 
     // ---- thunder (clips placed by the controller after each flash)
-    this.thunderBus = ac.createGain(); this.thunderBus.gain.value = 1.5; this.thunderBus.connect(this.out);
+    this.thunderBus = ac.createGain(); this.thunderBus.gain.value = 0.9; this.thunderBus.connect(this.out);
 
     // ---- season colour
     this.birdBus = ac.createGain(); this.birdBus.gain.value = 0; this.birdBus.connect(this.out);
@@ -568,9 +597,12 @@ export class Ambience {
     this.bellBus = ac.createGain(); this.bellBus.gain.value = 0.11; this.bellBus.connect(this.out); this.bellBus.connect(this.echo);
     this.hornBus = ac.createGain(); this.hornBus.gain.value = 0.26; this.hornBus.connect(this.out); this.hornBus.connect(this.echo);
 
+    // the composed arrival (E32): a lap first, the first full wash once the on-ramp is up, a gull near 4 s and
+    // the bell buoy on the second swell (step()); the beds rise with the on-ramp
     const t = now + 0.3;
+    this.born = now;
     this.next = {
-      wave: t + 0.2, lap: t + 0.6, reef: t + 1.5, gull: t + 3 + this.rnd() * 4, creak: t + 3, tap: t + 1.5, horn: t + 3, gust: t,
+      wave: now + 1.5, lap: t, reef: t + 1.5, gull: now + 3.7 + this.rnd() * 0.6, creak: t + 3, tap: t + 1.5, horn: t + 3, gust: t,
       crackle: t, press: t + 0.5, refresh: t + 20,
       rainA: t, rainB: t + 1.7, drip: t + 1, bird: t + 1 + this.rnd() * 3, cricket: t, cicada: t, crunch: t + 4,
       ship: t + 2, groan: t + 6, burn: t, bellows: t + 2,
@@ -668,12 +700,15 @@ export class Ambience {
     return ls[Math.max(0, Math.min(4, Math.round((pan + 0.8) / 0.4)))];
   }
 
-  /** Steer a level only when its target moved: an idle param stays cheap (no automation to evaluate). */
+  /**
+   * Steer a level only when its target moved: an idle param stays cheap (no automation to evaluate). The first
+   * aim lands at once: the on-ramp is the master's alone, so the arrival's first lap is heard (E32).
+   */
   private aim(p: AudioParam, v: number, tc: number): void {
     const was = this.aims.get(p);
     if (was !== undefined && Math.abs(v - was) <= Math.abs(was) * 0.01 + 1e-4) return;
     this.aims.set(p, v);
-    p.setTargetAtTime(v, this.ac.currentTime, tc);
+    p.setTargetAtTime(v, this.ac.currentTime, was === undefined ? 0.05 : tc);
   }
 
   set(i: Partial<AmbienceInputs>): void { Object.assign(this.inputs, i); }
@@ -700,7 +735,7 @@ export class Ambience {
     // ---- levels: nearer is louder AND brighter; surf follows the sea, independently of DEWS
     this.aim(this.shoreBus.gain, I.seaAvailable ? 0.5 * (0.3 + 0.7 * I.shore) * (1 - 0.3 * zoom) * (1 + 0.5 * s) : 0, tc);
     this.aim(this.shoreLp.frequency, air(I.shore * (1 - 0.4 * zoom), 900, 14000) * behind(I.shoreBack, 0.55), tc);
-    this.aim(this.bedGain.gain, I.seaAvailable ? (0.16 + 0.16 * zoom + 0.19 * s) * (1 - 0.5 * I.shore * near) * (1 - 0.2 * I.snowCover) : 0, tc);   // a near wave masks the far sea
+    this.aim(this.bedGain.gain, I.seaAvailable ? (0.16 + 0.16 * zoom + 0.1 * s) * (1 - 0.5 * I.shore * near) * (1 - 0.2 * I.snowCover) : 0, tc);   // a near wave masks the far sea
     this.aim(this.bedLp.frequency, air(1 - zoom, 420, 900), tc);
     this.aim(this.lapBus.gain, (0.06 + 1.1 * I.harbour * I.harbour) * point, tc);
     // Wreck Cove's hush: the laps there are darker, the gulls keep away, the wind hollows through the ribs
@@ -713,7 +748,7 @@ export class Ambience {
     this.aim(this.reefLp.frequency, air(I.reef, 380, 2600) * behind(I.reefBack, 0.4), tc);
     this.aim(this.reefPan.pan, I.reefPan * 0.8, tc);
     this.aim(this.windGain.gain, (0.05 + 0.42 * wind * wind) * (0.7 + 0.3 * zoom), tc);
-    this.aim(this.windLow.gain, 1.1 * wind * wind, tc);
+    this.aim(this.windLow.gain, 0.35 * wind * wind, tc);
     // the rigging sings in a blow, and in any storm from WARNING up
     const blow = Math.max(wind, storm > 0.6 ? 0.45 + 0.45 * storm : 0);
     this.whistleLoop.update(blow > 0.56, blow < 0.55, now, r);
@@ -741,8 +776,8 @@ export class Ambience {
     // ---- weather (data): snow's hush, rain on the sea and the roofs, drips, spray, the howl
     this.aim(this.hush.gain, -(11 * snow + 4 * I.snowCover), 1.5);
     this.rainLoop.update(rain > 0.01, rain < 0.005, now, r);
-    this.aim(this.rainFine.gain, 0.28 * Math.pow(rain, 0.7) * (0.8 + 0.2 * zoom), 1);
-    this.aim(this.rainBody.gain, 0.4 * rain * rain, 1);
+    this.aim(this.rainFine.gain, 0.042 * Math.pow(rain, 0.7) * (0.8 + 0.2 * zoom), 1);
+    this.aim(this.rainBody.gain, 0.08 * rain * rain, 1);
     this.aim(this.patterBus.gain, (0.25 + 0.75 * I.town) * clamp01(rain * 2.5), 1);
     this.aim(this.patterLp.frequency, air(I.town * (1 - 0.4 * zoom), 2200, 12000) * behind(I.townBack, 0.5), 1);
     this.aim(this.dripBus.gain, 0.5 * I.wet * (1 - snow) * (0.15 + 0.85 * I.town), 1);
@@ -750,7 +785,7 @@ export class Ambience {
     this.aim(this.sprayBus.gain, 0.4 * caps * caps * (0.3 + 0.7 * I.shore), 1);
     const howl = storm > 0.5 ? Math.pow((storm - 0.5) / 0.5, 1.5) : 0;
     this.howlLoop.update(howl > 0.02 && !I.lean, howl < 0.01 || I.lean, now, r);
-    this.aim(this.howlBus.gain, 2.4 * howl * (0.5 + 0.5 * gust) * (0.7 + 0.3 * zoom), 1);
+    this.aim(this.howlBus.gain, 0.9 * howl * (0.5 + 0.5 * gust) * (0.7 + 0.3 * zoom), 1);
 
     // ---- season colour (calendar): the weather silences it (no birdsong in a downpour)
     const day = 1 - night;
@@ -792,46 +827,47 @@ export class Ambience {
     if (I.clock > 5.5 && I.clock < 22.5) this.need("tolling");
 
     const N = this.next;
-    // ---- the swell: one wave per period, in sets; the shore, the bed, the laps and the bell answer it
+    // ---- the swell: one wave per period, in sets; the shore, the bed, the laps and the bell answer it. A wave
+    // whose wash is still being synthesised waits for it (E32), with its laps, bell and bed: never spent unheard
     if (N.wave < ahead) {
       const at = Math.max(N.wave, now);
       if (this.setLeft <= 0 && r() < 0.18 + 0.3 * s) this.setLeft = 3;
       const big = this.setLeft > 0 ? 1.25 : 1;
-      this.setLeft--;
-      const size = (0.55 + 0.45 * r()) * big * (0.85 + 0.3 * s) * (1 + 0.35 * s);
+      // (the arrival's first wash is a full one)
+      const size = (this.swells ? 0.55 + 0.45 * r() : 1) * big * (0.85 + 0.3 * s) * (1 + 0.35 * s);
       const deep = 1 - 0.08 * s;      // rough-sea breakers are bigger, slower, deeper
       // the main wash, and often a second one further along the beach
       // (the nearest stretch of beach pulls the main wash to its side of the screen)
       const lean = I.shorePan * 0.6 * I.shore;
-      if (I.seaAvailable) {
-        this.play("shore", at, this.shoreLp, 0.9 * size, lean + (r() - 0.5) * (1.2 - 0.6 * I.shore), (0.94 + r() * 0.1) * deep);
-        if (r() < 0.6 + 0.3 * s) this.play("shore", at + 0.8 + r() * 2.4, this.shoreLp, 0.45 * size * (0.6 + 0.4 * r()), r() * 1.6 - 0.8, (0.9 + r() * 0.12) * deep);
+      if (!I.seaAvailable || this.play("shore", at, this.shoreLp, 0.9 * size, lean + (r() - 0.5) * (1.2 - 0.6 * I.shore), (0.94 + r() * 0.1) * deep)) {
+        this.setLeft--;
+        const swell = ++this.swells;
+        if (I.seaAvailable && r() < 0.6 + 0.3 * s) this.play("shore", at + 0.8 + r() * 2.4, this.shoreLp, 0.45 * size * (0.6 + 0.4 * r()), r() * 1.6 - 0.8, (0.9 + r() * 0.12) * deep);
+        // spray flung off whitecaps
+        if (caps > 0) {
+          const sg = this.spray.gain;
+          sg.setTargetAtTime(0.18 + 0.22 * size, at + 0.8, 0.25);
+          sg.setTargetAtTime(0.06, at + 1.8, 1.4);
+        }
+        // the far bed swells a little ahead of the beach and ebbs after it
+        const g = this.bedSwell.gain;
+        g.setTargetAtTime(0.65 + 0.55 * size, at, 0.9);
+        g.setTargetAtTime(0.45, at + 2.2, 2.2);
+        // a cluster of laps as the swell runs through the moorings
+        const laps = 2 + Math.floor(r() * 3);
+        for (let k = 0; k < laps; k++) this.play("lap", at + 0.9 + k * (0.22 + r() * 0.5), this.lapLp, (0.5 + 0.5 * r()) * size, r() * 1.6 - 0.8, 0.85 + r() * 0.3);
+        // the bell buoy rolls with the same swell; the arrival rings it on the second swell
+        if (at - this.born < ARRIVAL ? swell === 2 : r() < 0.3 * thin) {
+          this.play("bell", at + 1 + r(), this.bellBus, 1, -0.4, 0.99 + r() * 0.02);
+          if (r() < 0.35) this.play("bell", at + 2.2 + r() * 0.6, this.bellBus, 0.55, -0.4, 0.99 + r() * 0.02);
+        }
+        N.wave = at + (6 + r() * 3.5) * (1 - 0.12 * s);
       }
-      // spray flung off whitecaps
-      if (caps > 0) {
-        const sg = this.spray.gain;
-        sg.setTargetAtTime(0.45 + 0.55 * size, at + 0.8, 0.25);
-        sg.setTargetAtTime(0.15, at + 1.8, 1.4);
-      }
-      // the far bed swells a little ahead of the beach and ebbs after it
-      const g = this.bedSwell.gain;
-      g.setTargetAtTime(0.65 + 0.55 * size, at, 0.9);
-      g.setTargetAtTime(0.45, at + 2.2, 2.2);
-      // a cluster of laps as the swell runs through the moorings
-      const laps = 2 + Math.floor(r() * 3);
-      for (let k = 0; k < laps; k++) this.play("lap", at + 0.9 + k * (0.22 + r() * 0.5), this.lapLp, (0.5 + 0.5 * r()) * size, r() * 1.6 - 0.8, 0.85 + r() * 0.3);
-      // the bell buoy rolls with the same swell
-      if (r() < 0.3 * thin) {
-        this.play("bell", at + 1 + r(), this.bellBus, 1, -0.4, 0.99 + r() * 0.02);
-        if (r() < 0.35) this.play("bell", at + 2.2 + r() * 0.6, this.bellBus, 0.55, -0.4, 0.99 + r() * 0.02);
-      }
-      N.wave = at + (6 + r() * 3.5) * (1 - 0.12 * s);
     }
-    // stray laps between the swells
+    // stray laps between the swells (the arrival's first sound: one waits for its clip rather than pass unheard)
     if (N.lap < ahead) {
       const at = Math.max(N.lap, now);
-      this.play("lap", at, this.lapLp, 0.25 + 0.4 * r(), r() * 1.8 - 0.9, 0.8 + r() * 0.4);
-      N.lap = at + (0.7 + r() * (2.6 - s * 1.2)) / thin;
+      if (this.play("lap", at, this.lapLp, 0.25 + 0.4 * r(), r() * 1.8 - 0.9, 0.8 + r() * 0.4)) N.lap = at + (0.7 + r() * (2.6 - s * 1.2)) / thin;
     }
     if (I.seaAvailable && N.reef < ahead) {
       const at = Math.max(N.reef, now);
@@ -1164,16 +1200,27 @@ export class Ambience {
   /** A titan home at her berth: a soft, distant conch from where she lies. */
   conch(level: number, pan: number): void { this.far("conch", 0.3, level, pan); }
 
-  private music: GainNode | null = null;
-  /** Where the (separately loaded) music joins the mix: after the settle and the snow hush, with a little of the slap-back. */
-  musicIn(): AudioNode {
+  private music: MusicInput | null = null;
+  /**
+   * Where the (separately loaded) music joins the mix, with a little of the slap-back; each of its phrases
+   * opens the beds' pocket through `pocket(at, span)` (E34).
+   */
+  musicIn(): MusicInput {
     if (!this.music) {
-      this.music = this.ac.createGain();
+      this.music = Object.assign(this.ac.createGain(), { pocket: (at: number, span: number) => this.makeRoom(at, span) });
       this.music.connect(this.out);
       const send = this.ac.createGain(); send.gain.value = 0.25;
       this.music.connect(send).connect(this.echo);
     }
     return this.music;
+  }
+
+  /** A music phrase from `at` for `span` s: the beds step back POCKET just before it and return after it. */
+  private makeRoom(at: number, span: number): void {
+    if (this.disposed) return;
+    const g = this.pocket.gain;
+    g.setTargetAtTime(POCKET, Math.max(this.ac.currentTime, at - 0.5), 0.2);
+    g.setTargetAtTime(1, at + span + 0.5, 1.5);
   }
 
   /** A UI cue: one tiny paper-or-wood sound, centred, dry (no echo, no distance). */
@@ -1185,22 +1232,26 @@ export class Ambience {
   }
 
   /**
-   * The beam passes over the listener: one breath, a sine and its octave near A2 (no pitch follows the score),
-   * a 1.5 s swell and a 4 s release, lowpassed and sent through the harbour walls' slap-back.
+   * The beam passes over the listener: one breath of the Pharos (E33), an open fifth in the harbour's key, D3 A3
+   * D4 A4 (no pitch follows the score; two thirds of its energy in the upper octave, which small speakers carry),
+   * swelling in and dying away within 0.8 of the sweep `period`: one breath at a time however fast the beam
+   * turns. Dry, unlike the harbour's far calls: on a held tone the walls' 0.31 s slap-back is only a comb that
+   * would hollow out the fifth. `at` is the audio time of the crossing the Feeder foresaw.
    */
-  beamPass(peak: number, pan = 0): void {
+  beamPass(peak: number, pan = 0, period = 12, at = this.ac.currentTime + 0.05): void {
     if (this.disposed || this.paused || !(peak > 1e-4)) return;
-    const ac = this.ac, at = ac.currentTime + 0.05;
-    const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 420; lp.Q.value = 0.5;
-    const g = this.env(at, 1.5, 0.4, 4, Math.min(0.045, peak) * settleRate(this.inputs.attention));
+    const ac = this.ac, start = Math.max(at, ac.currentTime);
+    if (start < this.breathEnd) return;
+    const len = Math.min(BREATH_SEC, 0.8 * period);
+    this.breathEnd = start + len;
+    const g = this.env(start, 0.25 * len, 0.07 * len, 0.68 * len, Math.min(BREATH_PEAK, peak) * settleRate(this.inputs.attention));
     const p = this.pan(Math.max(-0.6, Math.min(0.6, pan)));
-    lp.connect(g).connect(p);
-    p.connect(this.out); p.connect(this.echo);
-    for (const [f, a] of [[110, 1], [220.6, 0.3]] as const) {
-      const o = ac.createOscillator(); o.frequency.value = f * (0.995 + this.rnd() * 0.01);
+    g.connect(p).connect(this.out);
+    for (const [f, a] of BREATH) {
+      const o = ac.createOscillator(); o.frequency.value = f * (0.999 + this.rnd() * 0.002);
       const og = ac.createGain(); og.gain.value = a;
-      o.connect(og).connect(lp);
-      o.start(at); o.stop(at + 6.2);
+      o.connect(og).connect(g);
+      o.start(start); o.stop(start + len + 0.1);
     }
   }
 
