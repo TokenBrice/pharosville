@@ -193,6 +193,13 @@ describe("projected source sentences in hover, panel and ledger", () => {
     expect(section("Signals").querySelector("dd .hb-foot")).toBeNull();
   });
 
+  it("the harbour panel prints the chains foot once: Chain health reads the comparisons' foot", async () => {
+    await setup();
+    panel({ kind: "harbour", id: "Ethereum" });
+    expect(screen.getAllByText(readingSentence(state.model, "chains"))).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Chain health" }).closest("section")!.querySelector(".hb-foot")).toBeNull();
+  });
+
   it("an unverified PSI remains a labelled retained value", async () => {
     await setup((u) => { delete u.stability._meta; });
     parity(landmark("pharos"), "PSI: unavailable. Source freshness is unverified.");

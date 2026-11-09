@@ -670,11 +670,12 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
 
             {office && <p className="hb-caption">{office}.</p>}
             {model && <p className="hb-caption">{allocationLine(model.boats)}</p>}
+            {/* the health score is a chain comparison too: it reads the foot above the 24 h · 7 d · 30 d, printed once */}
+            <Sec title="Chain health">{h.healthScore != null ? <dl className="hb-dl"><dt>Health score</dt><dd>{Math.round(h.healthScore)}</dd></dl> : <p className="hb-caption">Chain health unavailable.</p>}</Sec>
             <Sec title="Largest reported holdings">
               <BoatList rows={visitors.slice(0, 10).map(({ b, usd }) => ({ id: b.id, label: <><b>{b.symbol}</b> <em>{share(usd / h.supplyUsd)}</em></>, value: money(usd) }))} />
             </Sec>
             <button type="button" className="hb-textbtn" onClick={() => store.coinsOnChain(chain)}>All coins on this chain</button>
-            <Sec title="Chain health"><Freshness model={model} source="chains" />{h.healthScore != null ? <dl className="hb-dl"><dt>Health score</dt><dd>{Math.round(h.healthScore)}</dd></dl> : <p className="hb-caption">Chain health unavailable.</p>}</Sec>
           </>
         )}
         <Scenery>

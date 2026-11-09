@@ -68,3 +68,23 @@ it.each([["paused", "Resume sound"], ["unavailable", "Try sound again"]])("keeps
   expect(harness.ctl.retry).toHaveBeenCalledOnce();
   expect(harness.ctl.toggle).not.toHaveBeenCalled();
 });
+
+it.each([["paused", "Sound paused", "Resume sound"], ["unavailable", "Sound unavailable", "Try sound again"]])("the %s menu opens on the status in words over its way back", (status, words, label) => {
+  harness.ctl.snapshot = { mode: "ambient", status };
+  render(<SoundToggle />);
+  fireEvent.click(screen.getByRole("button", { name: "Sound options" }));
+  const state = screen.getByRole("menu").querySelector(".hb-sound-state")!;
+  expect(state.textContent).toBe(words);
+  expect(state.getAttribute("aria-hidden")).toBe("true");
+  expect(state.nextElementSibling).toBe(screen.getByRole("menuitem", { name: label }));
+});
+
+it("names no status in the menu while the sound plays or is off", () => {
+  for (const snapshot of [{ mode: "ambient", status: "playing" }, { mode: "off", status: "off" }]) {
+    harness.ctl.snapshot = snapshot;
+    const ui = render(<SoundToggle />);
+    fireEvent.click(screen.getByRole("button", { name: "Sound options" }));
+    expect(screen.getByRole("menu").querySelector(".hb-sound-state")).toBeNull();
+    ui.unmount();
+  }
+});

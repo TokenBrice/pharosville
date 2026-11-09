@@ -13,7 +13,9 @@ const SAY: Record<SoundMode, string> = { off: "off", ambient: "ambient sound", m
  * The speaker beside the wordmark: opt-in sound (D13), off by default, remembered per visitor. One click on
  * the speaker turns the sound on or off (back to the visitor's last choice: the ambience, or the ambience with
  * music); the small caret beside it opens the menu of the three states (D-7). Drawn in the chart voice: a thin
- * ink speaker; sound waves when on, a hairline cross when off, a small note in place of the far wave when the music plays.
+ * ink speaker; sound waves while it plays, a hairline cross when off, a small note in place of the far wave when the
+ * music plays, two bars while paused and dotted waves when unavailable (C10: the menu then opens on the status in
+ * words and its way back).
  */
 export function SoundToggle() {
   const store = useStore();
@@ -70,6 +72,7 @@ export function SoundToggle() {
             <path d="M14.3 3.3c1.6 1.2 2.5 2.8 2.5 4.7s-.9 3.5-2.5 4.7" />
           </g>
           <path className="hb-sound-off" d="M12.4 5.6l4.6 4.8M17 5.6l-4.6 4.8" />
+          <path className="hb-sound-pause" d="M12.9 5.6v4.8M15.9 5.6v4.8" />
           <g className="hb-sound-note"><path d="M16.6 10V3.6c.9.3 1.6.9 1.9 1.8" /><ellipse cx="15.2" cy="10.2" rx="1.55" ry="1.15" transform="rotate(-20 15.2 10.2)" /></g>
         </svg>
       </button>
@@ -84,11 +87,14 @@ export function SoundToggle() {
       <span id="hb-sound-status" className="hb-sr" role="status">{STATUS[status]}</span>
       {open && (
         <div ref={menu} id="hb-sound-menu" role="menu" aria-label="Sound" className="hb-sound-menu hb-paper hb-neat" onKeyDown={onMenuKey}>
-          {(status === "paused" || status === "unavailable") && mode !== "off" && (
-            <button type="button" role="menuitem" tabIndex={-1} onClick={() => { ctl.retry(); close(true); }}>
+          {(status === "paused" || status === "unavailable") && mode !== "off" && (<>
+            {/* the status in words, in the corner's state-word voice, above its way back (C10); the polite status line
+                below already speaks it */}
+            <p className="hb-mark-state hb-sound-state" aria-hidden="true">{STATUS[status]}</p>
+            <button type="button" role="menuitem" className="hb-sound-retry" tabIndex={-1} onClick={() => { ctl.retry(); close(true); }}>
               {status === "unavailable" ? "Try sound again" : "Resume sound"}
             </button>
-          )}
+          </>)}
           {MODES.map(([m, label]) => (
             <button
               key={m} type="button" role="menuitemradio" aria-checked={mode === m} tabIndex={mode === m ? 0 : -1}
