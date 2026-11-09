@@ -1,6 +1,6 @@
 # PharosVille Operations
 
-Last updated: 2026-09-27
+Last updated: 2026-11-09
 
 This runbook covers the standalone Cloudflare Pages app at
 `https://pharosville.pharos.watch/`.
@@ -50,7 +50,7 @@ npx wrangler pages dev dist
 Keep Wrangler bindings in ignored local files. Do not debug missing ships until
 the local API and proxy smokes pass.
 
-## Deploy and rollback
+## Deploy and recovery
 
 Normal production changes deploy from protected `main`. A direct deploy is
 only for explicitly authorized operational recovery; it is not a versioned
@@ -63,9 +63,9 @@ npx wrangler pages deploy dist --project-name pharosville
 npm run smoke:live -- --url https://pharosville.pharos.watch
 ```
 
-For rollback, use the retained-artifact recovery procedure below, then rerun live smoke.
-Cloudflare dashboard rollback selects an immutable prior production deployment and has the
-old-tab limitation described below; preview deployments are not rollback targets.
+For the Ultimate pass, fix forward through the protected release path (EXECUTION.md §6);
+do not roll back. Retained-artifact recovery mechanics below document the asset contract for
+an explicitly authorized future recovery. Preview deployments are not production recovery targets.
 
 ### Immutable media and the two-release window
 
@@ -137,34 +137,99 @@ live checks for human production sign-off. Versioned releases follow
 
 ## Monitoring and incident response
 
-The reliability domains are static Pages delivery and the `/api/*` relay.
-Watch for:
+The reliability domains are static Pages delivery, the `/api/*` relay, upstream publications,
+and diagnostic KV persistence. A saved 200 proves useful service, not upstream recovery.
 
-- `/api/*` 5xx ratio above 1% over 10 minutes or five failures in five minutes;
-- three or more upstream timeout/502 responses in 10 minutes;
-- post-deploy smoke failure and failure of the scheduled canary;
-- warning annotations on an otherwise green canary run. `smoke:live` keeps two
-  tiers: essential endpoint and contract violations fail the run, while an
-  unavailable safety-grades enrichment feed, stale data, and schema-legal payload
-  findings are reported as GitHub Actions annotations. Safety grades shape ship
-  hulls but are not required to open a useful harbour, so an upstream outage
-  cannot falsely mark an otherwise successful Pages deployment as failed. Add
-  `--strict-freshness` (or `SMOKE_STRICT_FRESHNESS=1`) when operator sign-off
-  should promote every warning-tier finding to a failure.
+`functions/api/_outcomes.ts` owns the pure proxy and external-probe classifiers. Every world
+and panel response is classified; sampled records have exactly `event`, `endpoint`, `outcome`,
+`statusClass`, `latencyBucket`, `release`, and `sampleRate`:
 
-The deploy workflow probes the immutable deployment and
-`.github/workflows/canary-smoke.yml` probes the canonical host once a day
-(07:23 UTC). Both run on GitHub Actions, so an Actions outage or a skipped schedule
-removes the only alerting channel. See **External monitoring** below for the
-independent monitor that closes that gap.
+- `PHAROSVILLE_PROXY_OUTCOME`: `cache-hit`, `upstream-success`, `upstream-4xx`,
+  `upstream-5xx`, `timeout`, `fetch-error`, `stale-fallback`, `not-configured`, or `rejected`.
+- `PHAROSVILLE_PROXY_RESPONSE`: `outcome=response`, counting the final visitor status separately.
+  A 503 answered by last-good JSON emits upstream-5xx/5xx, stale-fallback/2xx and response/2xx.
+
+Failures and fallbacks are logged at 100%; normal hits/successes and their paired response counts
+at 1%. Weight each record by `1 / sampleRate`; never compute an exact failure ratio from raw
+sampled counts. One request may have both a failure and fallback outcome: do not add those as
+independent requests. Latency is total relay time, in `lt100ms`, `lt1s`, `lt8s`, `gte8s` buckets.
+Endpoint is an allowlisted key or `unlisted`, never a subject, path or query. No new ray, country,
+IP or user-agent dimension is emitted. Existing upstream transport-failure logs retain their
+current fields. `PHAROSVILLE_EDGE_CACHE_FAILED` remains unsampled for normal/last-good read/write
+failures, independently of success sampling. Logs are console-only and do not delay service on
+an external sink; Pages tails are not retained aggregates. No RUM or analytics is added.
+
+Watch for these sustained signals when a retained/weighted log view is available:
+
+- final `/api/*` 5xx ratio above 1% over 10 minutes or five failures in five minutes;
+- three upstream 5xx, timeouts or fetch errors in 10 minutes, even if stale responses are 200;
+- cache failures, missing proxy configuration, publication-age degradation, failed synthetic KV
+  storage/readback, post-deploy smoke failure and scheduled-canary failure.
+
+`smoke:live` fails essential endpoint/contract violations; unavailable safety grades, stale data
+and schema-legal findings are warning annotations. Safety grades are enrichment, so an outage
+need not block a useful harbour. `--strict-freshness` (or `SMOKE_STRICT_FRESHNESS=1`) promotes these
+warnings to failures. The daily canary uses strict freshness and confirms a failure five minutes
+later before failing its smoke step. Inspect annotations even on green runs.
+
+The deploy workflow probes the immutable deployment; `.github/workflows/canary-smoke.yml` probes
+the canonical host daily at 07:23 UTC. Both depend on GitHub Actions. **External monitoring** is
+the independent channel; repository code alone cannot activate it or prove delivery of alerts.
 
 On an incident:
 
-1. Run `npm run smoke:live -- --url https://pharosville.pharos.watch`.
-2. Check headers and branch posture with the commands above.
-3. Distinguish key/upstream failure from a code regression before rolling back.
-4. Re-run smoke after a rollback and retain the failing endpoint, error class,
-   workflow URL, and deployment/rollback evidence.
+1. Run `npm run smoke:live -- --url https://pharosville.pharos.watch`, then repeat with
+   `--strict-freshness` to distinguish contract/availability failure from delayed publications.
+2. Check root delivery and `/api/chains` status, Warning and source age. A Warning-110 200 is
+   degraded service; inspect upstream-failure outcomes before calling it recovery.
+3. In a Function tail, distinguish `not-configured` (check server bindings), forwarded upstream
+   4xx (key/allowlist/upstream request), upstream 5xx/timeout/fetch error, cache failure and schema
+   projection failure. Do not copy credentials into tickets, commands or logs.
+4. Check the three on-demand panel canaries below; panel failure must not become a world signal.
+   Check KV storage signal/readback separately: ingest acceptance alone is not persistence.
+5. Fix forward through the protected release path; check headers and branch posture with the
+   routine commands. Rerun live and strict smoke after the fix. Resolve after two successful
+   external observations. Retain endpoint key, outcome, source age, workflow URL and deploy SHA.
+
+### On-demand panel readings
+
+These supplement the seven world endpoints. Requests happen only when a supported viewport
+opens the corresponding coin-panel section; no background polling or new world cue is added.
+All paths are exact allowlists, projected and validated. Unknown ids, extra/reordered/encoded
+queries and altered limits are rejected with 404. GET alone is allowed (other methods: 405).
+The key stays server-side; browser requests remain same-origin.
+
+| Reading / log key | Allowlisted path | Producer cache cap | Source evidence |
+| --- | --- | --- | --- |
+| Depeg events / `depegEvents` | `/api/depeg-events?stablecoin=<runtime-id>&limit=30` | 900 s | `_meta` / source age, 900 s budget |
+| Reserves / `stablecoinReserves` | `/api/stablecoin-reserves/<runtime-id>` | 14,400 s | live/estimated/static provenance; liveAt and sync independently bounded to 8 hours |
+| DEX liquidity / `dexLiquidity` | `/api/dex-liquidity` | 1,800 s | shared runtime-active map; source age and each coin observation, 3,600 s budget |
+
+The registry and cron map are authoritative for producer caps. Normal cache keys are
+`https://pharosville.pharos.watch/api/__projection/pv3` plus the exact request path/query.
+Last-good keys prepend `/api/__last-good` to that epoch path; both internal prefixes return
+404/no-store to public requests. Projected-byte ETags support 304; upstream validators are not
+reused. Cache TTL never extends the source's freshness. Last-good copies survive at most 24 hours.
+5xx/timeout/fetch errors may return saved 200 JSON with Warning 110 and no-store; upstream 4xx
+is forwarded without fallback. This behavior and outcome logging are shared with world reads.
+
+The panel keeps the shared current/stale/unavailable vocabulary, labels source provenance and
+reserve estimates, and preserves unknown/partial evidence. Saved Warning-110 readings are
+qualified as stale; unverified source age never reads as current. No observation, schema failure
+or HTTP failure without usable data reads as unavailable. A missing reserve slice or liquidity
+score stays missing; an empty depeg history is not a failed request. These readings do not
+change fog, ship pose or any world threshold. UI copy comes from `ui/truth-copy.ts` and source-state.
+
+Live smoke includes these public, unauthenticated canaries plus blocked variants:
+
+```bash
+npm run smoke:live -- --url https://pharosville.pharos.watch
+npm run smoke:live -- --url https://pharosville.pharos.watch --strict-freshness
+```
+
+The canaries use `usdc-circle` for depegs/reserves and the shared DEX map. Smoke checks projected
+shapes, source age, Warning 110, and the actual DEX response's 30 KB gzip ceiling. If one fails,
+check upstream publication/provenance and server logs before changing a projector or age budget.
 
 ## External monitoring
 
@@ -180,20 +245,17 @@ Two targets, no more. A monitor is a liveness signal, not a second smoke suite;
 | Target | Expect | Proves |
 | --- | --- | --- |
 | `https://pharosville.pharos.watch/` | `200`, HTML | Pages static delivery |
-| `https://pharosville.pharos.watch/api/chains` | `200`, body contains `"chains"` | Function relay, key binding, upstream |
+| `https://pharosville.pharos.watch/api/chains` | `200`, body contains `"chains"`; classify Warning/age separately | Relay availability; publication health is separate |
 
-`/api/chains` is the correct data target because it carries the longest
-freshness lane of the six allowlisted endpoints (1800 s, see
-`API_FRESHNESS_MAX_AGE_SEC` in `shared/lib/api-freshness.ts`). The Function
-stores that response in the Cloudflare edge cache, so probes are served from
-the edge and reach upstream at most about twice an hour no matter how often the
-monitor runs. It is the cheapest read that still exercises the whole relay
-path.
+`/api/chains` is an inexpensive relay target with a 1800-second source freshness budget
+(`API_FRESHNESS_MAX_AGE_SEC` in `shared/lib/api-freshness.ts`). Its healthy response is cached
+for at most 900 seconds at each edge location, so a warm location normally reaches upstream
+about four times an hour. Different probe regions and cache/upstream failures can increase that
+load. An edge-cache hit does not exercise a new upstream fetch.
 
 Do not point a monitor at `/api/stablecoins`, `/api/safety-grades`, or
-`/api/stability-index?detail=true`. Those carry the largest payloads and the
-shortest freshness lanes, so frequent probes turn into real upstream load and
-real bandwidth for no extra signal.
+`/api/stability-index?detail=true`. Those carry large payloads, so repeated probes add bandwidth and upstream load
+without improving the basic relay signal.
 
 There is no health endpoint, and none should be invented for this.
 `/api/health` is asserted to return `404` in
@@ -206,16 +268,41 @@ unauthenticated same-origin `GET`s — `functions/api/[[path]].ts` injects
 field carrying that key to a monitor: third-party monitors surface their
 configuration in logs, exports, shared status pages, and support tickets.
 
+### Availability and degradation are separate
+
+Use the fixtures in `functions/api/outcomes.test.ts` when wiring the monitor's response check:
+
+| Probe class | Rule | Operational meaning |
+| --- | --- | --- |
+| available | 200, expected content, and (for chains) verified publication age ≤ 1800 s, no Warning 110 | Useful current response; cached success is not proof of a new upstream fetch |
+| degraded | 200 with Warning 110, source age > 1800 s, or unknown/invalid/future source age | Useful saved/unverified readings; upstream recovery is unproven |
+| unavailable | transport failure (status 0), non-200, or invalid expected content | Delivery/relay unavailable |
+
+For the root, check 200/HTML only: it has no publication clock. For chains, derive conservative
+publication age from `_meta.updatedAt`, `_meta.ageSeconds`, `X-Data-Age`, and CDN `Age` using the
+same source-age rules as `shared/lib/source-freshness.ts`: take the larger of time since valid
+publication and `max(valid metadata age, valid X-Data-Age) + Age`. `Age` alone never dates a
+publication; absent or invalid source evidence is degraded. Never use probe time as publication
+time. Feed this age, status and Warning to the pure `classifyProbe` contract.
+
+Apply the three-bad/two-good threshold independently to availability and degradation. A keyword-only
+UptimeRobot check cannot inspect source age or headers: keep its availability alarm, then configure
+a response-aware external check for degraded readings with the same cadence and owner/channel.
+Until that check exists, mark external degradation monitoring **not configured**; the daily strict
+canary is additional evidence, not independent five-minute coverage. Exercise failure and recovery
+once, retain the notification receipt and name the alert owner; repository tests cannot prove it.
+
 ### Option A — third-party monitor (primary)
 
-Use any external service; UptimeRobot's free tier is sufficient (50 monitors,
-5-minute floor, keyword monitors included). This is the primary signal because
+Use the operator's UptimeRobot availability monitors, or an external service that supports
+these settings. Confirm plan support for three-failure/two-success hysteresis; do not claim the
+thresholds are configured if the provider cannot express them. This is the primary signal because
 it is the only one outside both GitHub's and Cloudflare's failure domains.
 
 - [ ] Monitor 1 — HTTP(s), `GET https://pharosville.pharos.watch/`, expect `200`.
 - [ ] Monitor 2 — keyword monitor, `GET https://pharosville.pharos.watch/api/chains`, expect `200` and keyword `"chains"` present.
 - [ ] Interval: **5 minutes** on both.
-- [ ] Confirm-before-alert: **3 consecutive failures**.
+- [ ] Confirm-before-alert: **3 consecutive failures**; resolve after **2 consecutive successes**.
 - [ ] Request timeout: **10 seconds**.
 - [ ] Alerts: operator email plus one non-email channel (push or webhook).
 - [ ] Verify the alert path once by pausing a monitor or pointing it at a deliberately bad path, then restore it.
@@ -328,9 +415,10 @@ vanish when the tail closes. One namespace makes them survive 30 days.
    **Bindings** → **Add** → **KV namespace**. Variable name **must** be
    `CLIENT_ERROR_KV`; select the namespace from step 1.
 3. Redeploy — a binding only reaches a deployment built after it was added.
-4. Verify with the next canary run, then list the probe keys (below). Probes
-   land under their own prefix, so seeing one proves the whole path without
-   putting a fake failure in the real record.
+4. Verify the production deployment's Functions binding is named exactly `CLIENT_ERROR_KV`
+   and targets that namespace (not just the preview environment). Configure readback credentials
+   below, dispatch the canary and confirm independent retrieval of its exact run key. A 204 alone
+   does not verify the binding. Probes have their own prefix and never enter the real-error count.
 
 Read the stored reports, newest last (keys sort by timestamp):
 
@@ -339,8 +427,8 @@ npx wrangler kv key list --remote --namespace-id <id> --prefix "PHAROSVILLE_CLIE
 npx wrangler kv key get --remote --text --namespace-id <id> "<key>"
 ```
 
-The day's report count is the length of that listing. Each key is
-`<TOKEN>:<ISO timestamp>:<cf-ray>` and expires after 30 days
+The day's report count is the length of that listing. Each ordinary key is
+`<TOKEN>:<ISO timestamp>:<random UUID>` and expires after 30 days
 (`KV_TTL_SECONDS` in `functions/_log.ts`). One key per report rather than a
 per-day counter: KV is eventually consistent, so concurrent increments would
 lose each other, while distinct keys cannot collide.
@@ -350,23 +438,57 @@ once can exhaust that; the writes then fail silently and the console line
 remains the only record. That is the intended degradation — a full quota must
 never cost a visitor their response.
 
-### The canary probe
+### The canary probe and independent KV readback
 
-`.github/workflows/canary-smoke.yml` POSTs one synthetic report once a day
-and fails the run unless `/_log` answers `204` with
-`cache-control: no-store`. It also asserts that a `GET` is refused with `405`
-and a cross-origin POST with `403`. This is what distinguishes "the endpoint
-exists" from "the endpoint works": the real callers are browsers that have
-already failed, and a broken `/_log` cannot report that it is broken.
+`.github/workflows/canary-smoke.yml` POSTs one synthetic report daily and asserts 204/no-store,
+GET→405 and cross-origin POST→403. `x-pharosville-canary: 1` labels the caller as synthetic;
+anyone can send it, so it grants no authority or extra rate-limit budget. All reports from one
+client IP share the same ephemeral ten-second limiter bucket.
 
-The probe carries an `x-pharosville-canary: 1` header. Anyone can send that
-header, so it is treated as a label the caller applies to itself and never as
-authority. It does exactly one thing: it routes the report to the
-`PHAROSVILLE_CANARY_PROBE` token. The rate limiter ignores it and keys one
-bucket per client IP, which is the only shape with no way to win. Giving the
-marker its own bucket namespace would double the budget of anyone who toggled
-the header between requests; a bucket shared across callers would let a stranger
-hold it open and `429` the canary probe into a red run.
+A unique `x-pharosville-canary-run` token (run id, attempt and random UUID; 1–80 ASCII letters,
+digits, underscores or hyphens) chooses `PHAROSVILLE_CANARY_PROBE:run:<token>` in KV. The token
+is only in that synthetic key, never a real-visitor dimension. Invalid synthetic tokens get 400.
+Ordinary reports retain timestamp/UUID keys and never receive storage information.
+
+Only synthetic requests receive `x-pharosville-storage`: `accepted` after KV resolves,
+`not-configured` for an absent binding, or `failed` for a rejected/thrown write or a two-second
+storage deadline. Ingest remains best-effort 204/no-store in all three cases. Real visitor reports
+never wait for KV. The canary fails on `failed` or a missing/unrecognised signal; absent binding
+emits an explicit **not configured** notice, neither a persistence PASS nor an outage failure.
+
+To enable readback (operator-only):
+
+1. In Cloudflare **My Profile → API Tokens → Create Custom Token**, grant only account permission
+   **Workers KV Storage: Read**, restricted to the account owning this namespace. Do not grant edit,
+   zone or API-key access. KV tokens may cover the account's namespaces; use a dedicated account
+   if namespace isolation is required. Store the token directly as GitHub repository secret
+   `CF_KV_READ_TOKEN`, never in a file, command argument or monitor.
+2. Store the namespace id as repository secret `CLIENT_ERROR_KV_NAMESPACE_ID`. Reuse the existing
+   `CLOUDFLARE_ACCOUNT_ID` secret from deployment; confirm all three refer to the binding's account.
+   Enter values through **Repository Settings → Secrets and variables → Actions → New repository
+   secret**; do not paste values into issue comments or workflow output.
+3. Confirm the production `CLIENT_ERROR_KV` binding in Pages Settings → Bindings and redeploy if
+   changed. In **Actions → Canary smoke → Run workflow**, select the released main revision.
+4. Confirm storage `accepted` followed by “KV readback: retrieved the synthetic report”. Missing
+   secrets/binding yield **not configured**, not proof of durability. A green run with that notice
+   still requires operator setup. Wrong namespace/account or accepted-but-not-found fails readback.
+
+When all secrets exist and storage was accepted, `scripts/pharosville/kv-readback.mjs` reads the
+exact run key through the authenticated Cloudflare API, outside the app. No public read endpoint
+is added. Six attempts wait 0/5/10/15/30/15 seconds (75 seconds total propagation allowance), each
+with a ten-second request deadline; the workflow step is bounded to five minutes. Missing records,
+429/5xx and transport failures retry within that budget; authentication refusal and invalid records
+fail immediately. Exhaustion after acceptance is failure, never a skip. Response bodies, thrown
+messages, token values, namespace/account ids and request URLs are never printed by the script.
+If readback fails, verify account/namespace alignment, token permission, KV quota and the write
+signal before retrying. The stored report retains the 30-day TTL.
+
+Offline regression checks:
+
+```bash
+npx vitest run functions tests/qa/kv-readback.test.mjs
+node scripts/check-guards.test.mjs
+```
 
 ## Per-selection social cards
 

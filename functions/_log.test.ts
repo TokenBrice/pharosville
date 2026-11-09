@@ -270,3 +270,69 @@ it("enforces byte limits on multibyte streaming input and rejects invalid schema
   expect((await onRequest(makeContext(JSON.stringify({ category: "render", message: "界".repeat(1500) })))).status).toBe(413);
   expect((await onRequest(makeContext(JSON.stringify({ category: "invalid" })))).status).toBe(400);
 });
+
+it("reports storage configuration and failures only to synthetic callers", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const body = JSON.stringify({ category: "canary" });
+  const headers = { "x-pharosville-canary": "1", "x-pharosville-canary-run": "offline-run-1" };
+  const absent = await onRequest(makeContext(body, { headers }));
+  expect(absent.status).toBe(204);
+  expect(absent.headers.get("x-pharosville-storage")).toBe("not-configured");
+  for (const put of [() => Promise.reject(new Error("private binding detail")), () => { throw new Error("private binding detail"); }]) {
+    const env = { CLIENT_ERROR_KV: { put } };
+    const failed = await onRequest(makeContext(body, { headers, env }));
+    expect(failed.status).toBe(204);
+    expect(failed.headers.get("x-pharosville-storage")).toBe("failed");
+    expect([...failed.headers].join(" ")).not.toContain("private binding detail");
+    const real = await onRequest(makeContext(body, { env }));
+    expect(real.status).toBe(204);
+    expect(real.headers.has("x-pharosville-storage")).toBe(false);
+  }
+});
+
+it("puts the unique run token in a canary-only KV key, never the diagnostic record", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const kv = recordingKv();
+  for (const token of ["offline-run-1", "offline-run-2"]) {
+    const response = await onRequest(makeContext(JSON.stringify({ category: "canary" }), {
+      env: { CLIENT_ERROR_KV: kv.CLIENT_ERROR_KV },
+      headers: { "x-pharosville-canary": "1", "x-pharosville-canary-run": token },
+    }));
+    expect(response.status).toBe(204);
+    expect(response.headers.get("x-pharosville-storage")).toBe("accepted");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  }
+  expect(kv.calls.map(({ key }) => key)).toEqual(["PHAROSVILLE_CANARY_PROBE:run:offline-run-1", "PHAROSVILLE_CANARY_PROBE:run:offline-run-2"]);
+  expect(kv.calls[0]?.value).not.toContain("offline-run");
+  expect(kv.calls[0]?.options?.expirationTtl).toBe(30 * 24 * 60 * 60);
+  const real = await onRequest(makeContext(JSON.stringify({ category: "render" }), { env: { CLIENT_ERROR_KV: kv.CLIENT_ERROR_KV }, headers: { "x-pharosville-canary-run": "offline-run-1" } }));
+  expect(real.headers.has("x-pharosville-storage")).toBe(false);
+  expect(kv.calls[2]?.key).toMatch(/^PHAROSVILLE_CLIENT_ERROR:/);
+  expect(kv.calls[2]?.key).not.toContain("offline-run");
+});
+
+it.each(["", "a".repeat(81), "bad:token", "bad/token", "bad token"])("rejects invalid synthetic run token %j", async (token) => {
+  const response = await onRequest(makeContext(JSON.stringify({ category: "canary" }), { headers: { "x-pharosville-canary": "1", "x-pharosville-canary-run": token } }));
+  expect(response.status).toBe(400);
+});
+
+it("bounds a synthetic storage wait while real reports stay best-effort", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    const pending: Promise<unknown>[] = [];
+    const context = makeContext(JSON.stringify({ category: "canary" }), { env: { CLIENT_ERROR_KV: { put: () => new Promise<void>(() => {}) } }, headers: { "x-pharosville-canary": "1" } });
+    const request = onRequest({ ...context, waitUntil: (promise) => pending.push(promise) });
+    await vi.advanceTimersByTimeAsync(2_000);
+    const response = await request;
+    expect(response.status).toBe(204);
+    expect(response.headers.get("x-pharosville-storage")).toBe("failed");
+    expect(pending).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+    const real = await onRequest(makeContext(JSON.stringify({ category: "render" }), { env: context.env ?? {} }));
+    expect(real.status).toBe(204);
+    expect(real.headers.has("x-pharosville-storage")).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});

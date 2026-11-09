@@ -965,3 +965,89 @@ it("refuses the projection cache namespace with no-store", async () => {
     expect(fetcher).not.toHaveBeenCalled();
   } finally { vi.restoreAllMocks(); }
 });
+
+describe("structured proxy outcomes", () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  const readRecords = (spy: ReturnType<typeof vi.spyOn>): Record<string, unknown>[] => spy.mock.calls.map(([line]: unknown[]) => JSON.parse(String(line)) as Record<string, unknown>);
+
+  it.each([
+    { path: "/api/chains", key: "chains", payload: { chains: [] } },
+    ...PHAROSVILLE_PANEL_ENDPOINT_KEYS.map((key) => ({ path: panelEndpointPath(key, PANEL_COIN_ID)!, key, payload: panelUpstreamFixtures()[key] })),
+  ])("counts $key upstream failure even when last-good answers 200", async ({ path, key, payload }) => {
+    const cache = new MemoryEdgeCache();
+    installEdgeCache(cache);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    const waiting: Promise<unknown>[] = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(payload));
+    const url = `https://pharosville.pharos.watch${path}`;
+    await onRequest(makeContext(url, { waitUntilPromises: waiting }));
+    await Promise.all(waiting);
+    cache.responses.delete(epochCacheUrl(url));
+    fetchMock.mockResolvedValueOnce(Response.json({ error: "unavailable" }, { status: 503 }));
+    const response = await onRequest(makeContext(url));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("warning")).toContain("110");
+    expect(readRecords(log)).toEqual([
+      expect.objectContaining({ endpoint: key, outcome: "upstream-5xx", statusClass: "5xx", sampleRate: 1 }),
+      expect.objectContaining({ endpoint: key, outcome: "stale-fallback", statusClass: "2xx", sampleRate: 1 }),
+      expect.objectContaining({ endpoint: key, event: "PHAROSVILLE_PROXY_RESPONSE", outcome: "response", statusClass: "2xx", sampleRate: 1 }),
+    ]);
+  });
+
+  it("records configuration failures and rejections without the requested subject or identifiers", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    const response = await onRequest(makeContext(`https://pharosville.pharos.watch${panelEndpointPath("stablecoinReserves", PANEL_COIN_ID)}`, {
+      env: { PHAROS_API_KEY: undefined }, headers: { "cf-ray": "ignored-ray", "cf-ipcountry": "XX", "user-agent": "ignored-agent" },
+    }));
+    expect(response.status).toBe(500);
+    expect(readRecords(log)[0]).toMatchObject({ endpoint: "stablecoinReserves", outcome: "not-configured", statusClass: "5xx", sampleRate: 1 });
+    await onRequest(makeContext("https://pharosville.pharos.watch/api/health?private=subject"));
+    await onRequest(makeContext("https://pharosville.pharos.watch/api/chains", { method: "POST" }));
+    expect(readRecords(log).filter(({ outcome }) => outcome === "rejected")).toHaveLength(2);
+    expect(JSON.stringify(readRecords(log))).not.toMatch(new RegExp(`${PANEL_COIN_ID}|ignored-ray|ignored-agent|private|cf-ray|country|user-agent|test-proxy-key`));
+  });
+
+  it("keeps cache errors visible even when normal success is not sampled", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    const waiting: Promise<unknown>[] = [];
+    installEdgeCache({ match: async () => { throw new Error("cache unavailable"); }, put: async () => { throw new Error("cache unavailable"); } } as unknown as MemoryEdgeCache);
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ chains: [] }));
+    expect((await onRequest(makeContext("https://pharosville.pharos.watch/api/chains", { waitUntilPromises: waiting }))).status).toBe(200);
+    await Promise.all(waiting);
+    expect(readRecords(log)).toEqual([]);
+    expect(error.mock.calls.flat().join(" ")).toMatch(/PHAROSVILLE_EDGE_CACHE_FAILED/);
+    for (const scope of ["normal-read", "normal-write", "last-good-write"]) expect(error.mock.calls.flat().join(" ")).toContain(scope);
+  });
+
+  it("samples cache hits and upstream successes with separate 304 response status", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const cache = new MemoryEdgeCache();
+    installEdgeCache(cache);
+    const waiting: Promise<unknown>[] = [];
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ chains: [] }));
+    const url = "https://pharosville.pharos.watch/api/chains";
+    const first = await onRequest(makeContext(url, { waitUntilPromises: waiting }));
+    await Promise.all(waiting);
+    const hit = await onRequest(makeContext(url, { headers: { "if-none-match": first.headers.get("etag")! } }));
+    expect(hit.status).toBe(304);
+    expect(readRecords(log).map(({ outcome, statusClass }) => [outcome, statusClass])).toEqual([
+      ["upstream-success", "2xx"], ["response", "2xx"], ["cache-hit", "3xx"], ["response", "3xx"],
+    ]);
+    expect(readRecords(log).every(({ sampleRate }) => sampleRate === 0.01)).toBe(true);
+  });
+
+  it("records forwarded upstream 4xx without invoking last-good fallback", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ error: "not found" }, { status: 404 }));
+    const response = await onRequest(makeContext(`https://pharosville.pharos.watch${panelEndpointPath("stablecoinReserves", PANEL_COIN_ID)}`));
+    expect(response.status).toBe(404);
+    expect(response.headers.has("warning")).toBe(false);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(readRecords(log).map(({ outcome, statusClass }) => [outcome, statusClass])).toEqual([["upstream-4xx", "4xx"], ["response", "4xx"]]);
+  });
+});
