@@ -1,3 +1,4 @@
+import { canonicalSubjectUrl, parseSubjectUrl } from "../shared/lib/selection-link";
 import { MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX } from "./systems/viewport-gate";
 
 /**
@@ -5,18 +6,10 @@ import { MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX } from "./systems/viewport-gate";
  * (S08-I2, D18's allowlist; no native Share, U14; no QR, S5) and the live window gauge (O8-I5). Plain DOM, no data.
  */
 export const CANONICAL_ORIGIN = "https://pharosville.pharos.watch/";
-// D18's subject shape: an allowlisted kind and a lowercase id, at most 128 characters. Membership is checked where a
-// subject resolves (the edge and the harbour), never here. TODO(d-links merge): read this through the codec
-// (shared/lib/selection-link.ts, canonicalSubjectUrl) once it lands; until then a link that fails this shape
-// copies the homepage.
-const SUBJECT = /^(?:ship|chain|yard|wreck|place)\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
-
-/** The link the welcome hands to a larger screen: the canonical origin plus a valid subject only. */
+/** The link the welcome hands to a larger screen: the canonical origin plus a valid subject only (D18's codec). */
 export function harbourLink(search: string, hash: string): string {
-  const query = new URLSearchParams(search);
-  // the legacy fragment is read only when the query names no subject
-  const sel = query.has("sel") ? query.get("sel") : new URLSearchParams(hash.replace(/^#/, "")).get("sel");
-  return sel && sel.length <= 128 && SUBJECT.test(sel) ? `${CANONICAL_ORIGIN}?sel=${sel}` : CANONICAL_ORIGIN;
+  const link = parseSubjectUrl({ search, hash });
+  return canonicalSubjectUrl(link.subject);
 }
 
 const SIDES = [["Long side", MIN_LONG_SIDE_PX], ["Short side", MIN_SHORT_SIDE_PX]] as const;
