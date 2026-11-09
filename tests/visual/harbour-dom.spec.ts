@@ -89,6 +89,33 @@ test.describe("small screen", () => {
   });
 });
 
+// Q14: the first paint already shows the right page. Every animation frame from the first one records what is rendered.
+const PAINT_PROBE = `window.__pvFrames = [];
+(function tick() {
+  const shown = (selector) => { const el = document.querySelector(selector); return !!el && el.getClientRects().length > 0; };
+  if (document.body) window.__pvFrames.push({ welcome: shown("#pv-welcome"), card: shown(".pv-arrival__card"), poster: shown("#pv-poster") });
+  if (window.__pvFrames.length < 600) requestAnimationFrame(tick);
+})();`;
+for (const [name, width, height, admitted] of [["desktop", 1440, 900, true], ["phone", 390, 844, false]] as const) test.describe(`${name} first paint`, () => {
+  test.use({ viewport: { width, height }, contextOptions: { screen: { width, height } } });
+  test(`never paints the other page, not even before the entry runs @visual-dom`, async ({ page }) => {
+    await page.addInitScript({ content: PAINT_PROBE });
+    await deniedWebGL(page);
+    await page.goto("/");
+    await expect(page.locator(admitted ? ".pv-arrival__stage" : ".pharosville-narrow__reason:visible")).not.toHaveText("");
+    await page.waitForTimeout(500);
+    const frames = await page.evaluate(() => (window as unknown as { __pvFrames: Array<Record<string, boolean>> }).__pvFrames);
+    expect(frames.length).toBeGreaterThan(5);
+    if (admitted) {
+      expect(frames.filter((frame) => frame.welcome)).toEqual([]);
+      expect(frames.every((frame) => frame.card)).toBe(true);
+    } else {
+      expect(frames.filter((frame) => frame.card || frame.poster)).toEqual([]);
+      expect(frames.every((frame) => frame.welcome)).toBe(true);
+    }
+  });
+});
+
 // CI deliberately denies WebGL; this is a failure contract, never proof that graphics started.
 test("intentional WebGL denial retains the poster, useful status and links @visual-dom @visual-accessibility", async ({ page }) => {
   await deniedWebGL(page);
