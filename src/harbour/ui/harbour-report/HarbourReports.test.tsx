@@ -5,7 +5,7 @@ import { reportFixture } from "../../__fixtures__/report";
 import { StoreContext } from "../hooks";
 import type { HarbourUIStore, UIState } from "../store";
 import { HarbourReports, ReportSentences } from "./HarbourReports";
-import { harbourReport } from "./report";
+import { harbourReport, input } from "./report";
 import { browserObservation, READING_KEY, returnDigest, serializeObservation } from "./digest";
 
 const now = Date.UTC(2026, 10, 8, 12);
@@ -25,6 +25,27 @@ beforeEach(async () => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("expandable dated evidence", () => {
+  it("formats evidence without changing its sentence or comparison order", () => {
+    const text = "Comparison unavailable.";
+    const { container } = render(<ReportSentences sentences={[{ text, inputs: [
+      input("previous/current USD supply value", [176775397213.61206, 180123456789.123]),
+      input("Coverage", { coverageRatio: 0.583, score: 91.123456, netFlow24hUsd: -1234567.89 }),
+      input("Observed", "2026-11-08T13:59:00+02:00"),
+      input("Buckets", { current: { peggedUSD: 0 }, previous: { peggedUSD: null } }),
+      input("Missing", null),
+    ] }]} />);
+    fireEvent.click(screen.getByText(text, { selector: "summary" }));
+    expect(container.querySelector("details")!.open).toBe(true);
+    expect([...container.querySelectorAll("td")].map((el) => el.textContent)).toEqual([
+      "$176.8B → $180.1B",
+      "coverageRatio: 58%; score: 91.12; netFlow24hUsd: −$1.23M",
+      "2026-11-08 11:59:00 UTC",
+      "previous: peggedUSD: Unavailable → current: peggedUSD: $0",
+      "Unavailable",
+    ]);
+    expect(container.querySelector("summary")!.textContent).toBe(text);
+  });
+
   it("every report and digest sentence expands to all of its own underlying values and source times", () => {
     const f = reportFixture();
     const current = browserObservation(f.model, f.payloads, now)!;
