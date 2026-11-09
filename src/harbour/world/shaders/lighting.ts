@@ -21,6 +21,7 @@ ${LAMP_WAVE_GLSL}
 uniform sampler2D uPoolTex;
 uniform vec4 uPoolBounds;
 uniform float uWindowGlow;
+uniform float uLampFar;   // the decorative lamps' share of their light at this zoom (1 at the landing, lights-system.ts)
 // projected light pools: rgb = additive irradiance on up-facing surfaces, a = source height
 vec3 hbPool(vec3 worldPos, vec3 worldN) {
   if (uWindowGlow <= 0.02) return vec3(0.0); // the final smoothstep is exactly zero
@@ -34,9 +35,9 @@ vec3 hbPool(vec3 worldPos, vec3 worldN) {
   float band = exp(-dy * dy);                                         // walls: around the source height
   // the lamplighting wave (05-P3): a pool lies by its lamp, so the fragment's own rank stands in for the lamp's
   #ifdef HB_LITE
-  return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, uWindowGlow);   // (Low: no lamplighting wave)
+  return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, uWindowGlow) * uLampFar;   // (Low: no lamplighting wave)
   #else
-  return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, hbLampGlow(uWindowGlow, hbLampRank(worldPos, 0.5)));
+  return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, hbLampGlow(uWindowGlow, hbLampRank(worldPos, 0.5))) * uLampFar;
   #endif
 }
 `;

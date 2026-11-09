@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { createWorldUniforms } from "../engine/uniforms";
 import { chainedKitMaterial } from "../life/figure-kit";
+import { assembleShader } from "../engine/shader-recipes";
 import {
   bareOf, evergreenOf, HarbourMaterials, ICICLE_WALL_PATTERNS, leafSnowKeepOf, PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, patternIdOf, snowSlopeOf,
   windowKindOf, WINDOW_KIND, shaderFeatureDefines, shaderFeatureKey,
@@ -126,5 +127,30 @@ describe("seasonal colour/depth publication", () => {
     uniforms.uFoliage.value.set(0, 1, 0, 0);
     expect([kit.customProgramCacheKey(), life.customProgramCacheKey(), depth.customProgramCacheKey()]).toEqual(leaf);
     materials.dispose(); life.dispose(); actor.customDepthMaterial.dispose(); mesh.geometry.dispose();
+  });
+});
+
+describe("E09 overview lamps (uLampFar)", () => {
+  it("lets the decorative lamps' pools and glass ease at the overview while a signal's lantern keeps its light", () => {
+    const mats = new HarbourMaterials(createWorldUniforms());
+    const kit = assembleShader(mats.kit());
+    expect(kit.uniforms.uLampFar).toBe(mats.pool.uLampFar);
+    expect(kit.fragmentShader).toContain("hbLampGlow(uWindowGlow, hbLampRank(worldPos, 0.5))) * uLampFar;");
+    expect(kit.fragmentShader).toContain("smoothstep(0.02, 0.55, uWindowGlow) * uLampFar;   // (Low: no lamplighting wave)");
+    // the GLB lamps' glass (apply) takes the share; a lantern built directly (the storm cones') does not
+    const root = new THREE.Group();
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ name: "hb_emissive.002", color: 0x3b3a33 }));
+    root.add(glass);
+    mats.apply(root);
+    const lamp = glass.material as THREE.MeshStandardMaterial, signal = mats.emissive("#FF3A26", "#3A1712");
+    expect(lamp).toBe(mats.emissive("#FFAE57", "#3b3a33", true));
+    expect(lamp).not.toBe(mats.emissive("#FFAE57", "#3b3a33"));
+    const lampShader = assembleShader(lamp), signalShader = assembleShader(signal);
+    expect(lampShader.uniforms.uLampFar).toBe(mats.pool.uLampFar);
+    mats.pool.uLampFar.value = 0.4;
+    expect(signalShader.uniforms.uLampFar.value).toBe(1);
+    expect(lampShader.fragmentShader).toContain("totalEmissiveRadiance *= uLamp * uLampFar;");
+    expect(lamp.customProgramCacheKey()).toBe(signal.customProgramCacheKey()); // a binding, not a program variant
+    mats.dispose(); glass.geometry.dispose();
   });
 });

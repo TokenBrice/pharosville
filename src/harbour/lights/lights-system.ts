@@ -31,6 +31,19 @@ export function pointBudget(slot: number, distance: number): number {
 }
 
 /**
+ * E09 at the overview: lamps, not pearls. Out where the harbour turns miniature (the tilt-shift's own range, set from
+ * the landing's fitted distance: none at any landing, full at the overview) the decorative lamps keep this share of the
+ * light on their pools and their glass, so each reads as a small warm point instead of a white bead in a halo. Their
+ * sprites keep their own far law; the Pharos's fire and beam, the ships' lights and the storm signals never take it.
+ */
+export const OVERVIEW_LAMPS = 0.4;
+
+/** The decorative lamps' share (1 … OVERVIEW_LAMPS) with the rig `distance` m out, over the overview range [near, far]. */
+export function lampFar(distance: number, near: number, far: number): number {
+  return 1 - (1 - OVERVIEW_LAMPS) * THREE.MathUtils.smoothstep(distance, near, far);
+}
+
+/**
  * All tiers keep sixteen shader slots (changing `visible` changes NUM_POINT_LIGHTS and recompiles
  * every lit program). By day and beyond the tier's promotion budget the lights sit at
  * intensity 0 (uniform colour 0). Patch three's point-light loop to skip those (a uniform branch) and to
@@ -401,6 +414,9 @@ export class LightsSystem implements WorldSystem {
     // Never threshold a small glow: dawn/dusk contributions and all other lighting stay unchanged.
     this.sprites.visible = this.pillars.visible = g !== 0;
     const distance = ctx.rig.distance;
+    // E09 at the overview: the decorative lamps' pools and glass over the tilt-shift's range (layout-system.ts sets it)
+    const post = ctx.services.get("post");
+    getHarbourMaterials(ctx).pool.uLampFar.value = post ? lampFar(distance, post.tiltNear, post.tiltFar) : 1;
     for (let k = 0; k < MAX_POINT; k++) {
       const p = this.points[k];
       const glow = THREE.MathUtils.smoothstep(lampGlow(g, this.store.rankAt(p.position), w.spread), 0.02, 0.55);
