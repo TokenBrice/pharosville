@@ -8,6 +8,7 @@ import { TIERS, type QualitySettings } from "../engine/quality";
 import { MIRROR_STRENGTH, MirrorPass, mirrorTargetSize, OCEAN_FRAG_MIRROR } from "./mirror-pass";
 import { OCEAN_FRAG } from "./ocean-material";
 import { OceanSystem } from "./ocean-system";
+import { WakeField } from "./wake";
 
 vi.mock("../engine/extras", () => ({ extraEnabled: (name: string) => name === "mirror" }));
 vi.mock("./textures", () => ({ acquireFxTextures: async () => ({ noise: new THREE.Texture(), ripple: new THREE.Texture(), release() {} }) }));
@@ -76,11 +77,31 @@ describe("E35 mirror target", () => {
     mirror.setSize(1200, 900);
     expect(size(mirror)).toEqual([600, 450]);
     expect(mirror.uniforms.uMirror.value.x).toBe(0);
+    mirror.setConditions(0, 0);
+    expect(mirror.uniforms.uMirror.value.x).toBe(0);
     mirror.dispose();
   });
 });
 
 describe("E35 mirror pass", () => {
+  it.each([
+    ["stale fog", [[0, 0], [0.5, 0], [1, 0], [0.5, 0], [0, 0]]],
+    ["rain", [[0, 0], [0, 0.025], [0, 0.05], [0, 0.1], [0, 1], [0, 0.025], [0, 0]]],
+  ] as const)("suppresses and recovers strength entering and leaving %s", (_name, conditions) => {
+    const { mirror, renderer } = pass([1600, 1000], 1);
+    mirror.setActive(true);
+    settle(mirror, renderer);
+    for (const [fog, precip] of conditions) {
+      mirror.setConditions(fog, precip);
+      const expected = fog === 1 || precip >= 0.05 ? 0 : fog === 0 && precip === 0 ? MIRROR_STRENGTH : MIRROR_STRENGTH / 2;
+      // Updated before the ocean draws, and still suppressed after the mirror pass publishes the next frame.
+      expect(mirror.uniforms.uMirror.value.x).toBeCloseTo(expected);
+      settle(mirror, renderer);
+      expect(mirror.uniforms.uMirror.value.x).toBeCloseTo(expected);
+    }
+    mirror.dispose();
+  });
+
   it("never swaps the frame, needs the composer's depth and stays off until High", () => {
     const { mirror } = pass([1600, 1000], 1);
     expect(mirror.needsSwap).toBe(false);
@@ -197,6 +218,21 @@ describe("E35 the mirror's ocean", () => {
     tier("high");
     expect(mirror.enabled).toBe(true); expect(mirror.texture).not.toBeNull();
     expect(material.version).toBe(version);
+    vi.spyOn(WakeField.prototype, "update").mockImplementation(() => {});
+    const renderer = fakeRenderer([1600, 1000], 1);
+    settle(mirror, renderer);
+    const readings = { fog: 0.25 };
+    (ctx.services as Map<string, unknown>).set("readings", readings);
+    const update = () => system.update({ elapsed: 0, delta: 0, nowMs: 0 }, ctx);
+    update();
+    // The fog pass reads smoothstep(fogS), not the service's raw fade (0.25 -> 0.15625).
+    expect(mirror.uniforms.uMirror.value.x).toBeCloseTo(MIRROR_STRENGTH * (1 - 0.15625));
+    readings.fog = 1; update(); expect(mirror.uniforms.uMirror.value.x).toBe(0);
+    readings.fog = 0; update(); expect(mirror.uniforms.uMirror.value.x).toBe(MIRROR_STRENGTH);
+    for (const [rain, snow] of [[0.1, 0], [0, 0.05], [0, 0]]) {
+      ctx.uniforms.uPrecip.value.set(rain, snow); update();
+      expect(mirror.uniforms.uMirror.value.x).toBe(rain || snow ? 0 : MIRROR_STRENGTH);
+    }
     tier("medium");
     // Medium keeps the same ocean program while the reflection fades out, then the target goes
     expect(mirror.enabled).toBe(true);
