@@ -263,6 +263,8 @@ def build_heightfield():
 
 
 PAD_COL = {'shipyard': (lin('#A79E89'), 'cobble'), 'burn': (lin('#8F8A80'), 'cobble')}
+# E20 (O6-I9): the olive terraces' treads are worked earth (40 % toward #8B7558), not lawn: cultivation reads by tone
+TREAD = tuple(a * 0.6 + b * 0.4 for a, b in zip(lin('#93975A'), lin('#8B7558')))
 
 
 def hf_face(q):
@@ -276,7 +278,7 @@ def hf_face(q):
     if tw > 0.45:                                   # 08-T1: olive terraces - dry-stone risers, a dry grove floor
         if (tf > 1.0 - terrain.TERRACE_RISER - 0.03 or tf < 0.03) and nz < 0.97:
             return (jitter_col(lin('#9C9672'), 0.94 + 0.12 * nn), PT['grass'])    # REVIEW #4: a grassed bank under the coping
-        return (jitter_col(lin('#93975A'), 0.94 + 0.12 * nn), PT['grass'])
+        return (jitter_col(TREAD, 0.94 + 0.12 * nn), PT['grass'])
     if nz < 0.34:                                   # only the steepest ground shows granite; the flanks stay turf
         return ((PAL['rock'] if nn > 0.5 else lin('#8A8B86')), PT['rock'])
     if nz < 0.72:
@@ -409,6 +411,33 @@ def coast_skirt(name, poly, ztop, straight, rows=4, amp=1.3, seed=1, jag=0.8, sk
 
 exec(open(os.path.join(HERE_, 'hb_cliffs.py')).read())          # the coast: low rocky skirt + crafted granite strata cliffs
 
+# ------------------------------------------------------------------ E20 (O6-I7): warm built land
+# The retaining walls are Alexandrian limestone on a sandstone foot under a pale dressed coping (they were the Northern
+# 'granite' tower stone, which read as concrete). Same wall geometry; colour only.
+LIMESTONE, COPING_STONE, FOOT_STONE = lin('#BDAE8C'), lin('#D8CCB0'), lin('#A8956F')
+
+
+def foot_gradient(ob, foot=FOOT_STONE, top=LIMESTONE):
+    """E20: each wall face darkens to the sandstone foot at its lowest corners (the GPU blends it up the face); the
+    authored jitter and the pattern id (alpha) are kept."""
+    me = ob.data
+    col = me.color_attributes['Col']
+    n = len(me.loops)
+    buf = np.zeros(n * 4, np.float32); col.data.foreach_get('color', buf); buf = buf.reshape(-1, 4)
+    co = np.zeros(len(me.vertices) * 3, np.float32); me.vertices.foreach_get('co', co); co = co.reshape(-1, 3)
+    li = np.zeros(n, np.int64); me.loops.foreach_get('vertex_index', li)
+    k = np.array([foot[i] / max(top[i], 1e-6) for i in range(3)], np.float32)
+    for poly in me.polygons:
+        ls = np.array(poly.loop_indices)
+        zs = co[li[ls], 2]
+        if zs.max() - zs.min() < 0.05:
+            continue
+        t = (zs - zs.min()) / (zs.max() - zs.min())
+        buf[ls, :3] *= k[None, :] + (1.0 - k[None, :]) * t[:, None]
+    col.data.foreach_set('color', buf.ravel())
+    return ob
+
+
 # ------------------------------------------------------------------ the amphitheatre: curved retaining walls + coping + ivy
 set_coll(collection('town', ROOTC))
 tw_ = bmesh.new(); tc_ = bmesh.new(); ivy = bmesh.new(); ivyf = bmesh.new()
@@ -450,10 +479,10 @@ for k in range(1, len(RINGS)):
         if irng.random() < 0.45:
             for kk in range(3):
                 q = town_pt(th + irng.uniform(-1.2, 1.2), r0 - 1.5)
-                merge(ivyf, bm_ico(0.32, (q[0], q[1], z - irng.uniform(0.3, h_)), 0, seed=kk))
+                merge(ivyf, bm_pebble(0.32, (q[0], q[1], z - irng.uniform(0.3, h_)), seed=kk))
         th -= math.degrees((w_ + irng.uniform(3.0, 14.0)) / r0)
-obj('terrace_walls', tw_, PAL['granite'], PT['ashlar'], family='quay', bevel=0.04)
-obj('terrace_coping', tc_, PAL['granite_light'], PT['plain'], family='quay', bevel=0.04)
+foot_gradient(obj('terrace_walls', tw_, LIMESTONE, PT['ashlar'], family='quay', bevel=0.04))
+obj('terrace_coping', tc_, COPING_STONE, PT['plain'], family='quay', bevel=0.04)
 obj('terrace_ivy', ivy, face=lambda q: ((lin('#6E9046') if q.normal.z > 0.2 else lin('#587C3C')), PT['leaf']), family='veg', jitter=0.1)
 obj('terrace_ivy_flowers', ivyf, face=lambda q: ((PAL['flower_p'], PAL['flower_w'], PAL['rowan_berry'])[q.index // 20 % 3], 0), family='veg')
 
@@ -778,8 +807,8 @@ for pid, bm_ in CHAIN_BAND.items():
 
 # bollards (one merged object)
 bol = bmesh.new()
-for (x, y, z) in CJ['bollards']:
-    nl_kit.bollard(bol, (x, y, z + (0.06 if z > 2 else 0.0)), 0.75 if z < 2 else 1.0)
+for (x, y, z) in CJ['bollards']:      # B24: five sides (a 0.5 m iron post is a few pixels even at the closest zoom)
+    nl_kit.bollard(bol, (x, y, z + (0.06 if z > 2 else 0.0)), 0.75 if z < 2 else 1.0, segs=5)
 obj('bollards', bol, PAL['iron'], PT['metal'], family='quay')
 
 # ------------------------------------------------------------------ beacon columns (classical-town Q6): the harbour lights
@@ -923,8 +952,9 @@ for m in CJ.get('moles', []):
     walk = [f for f in frames_ if (f[0] - h).length > hr + 1.0]
     for (p, t, nl), (q, t2, n2) in zip(walk, walk[1:]):
         merge(mprom, nl_kit.beam((p.x, p.y, Z_SHORE + 0.08), (q.x, q.y, Z_SHORE + 0.08), pw, 0.24))      # its sides read as the kerbs
-    # the walk's furniture by arc length: the lamps stand every 24 m (compose LAMPS), a pair of benches back to back
-    # between each two, and a little planted tree in a stone tub every other gap
+    # the walk's furniture by arc length: the lamps stand on its 24 m stations (compose LAMPS; E09: at the root, the
+    # exedra and the head only), a pair of benches back to back between each two, and a little planted tree in a stone
+    # tub every other gap
     Lw = polyline_len([tuple(f[0]) for f in walk]); s_ = 24.0; k_ = 0
     wl = [tuple(f[0]) for f in walk]
     # 08-T7: a darker opus band across the walk under every lamp (12 + 24k), berth gear at a walk edge between (18 + 24k,
@@ -1072,8 +1102,8 @@ for fl in CJ.get('flats', []):           # integration G2: the battery platform'
             merge(pw_, nl_kit.beam((q0.x, q0.y, (lo + hi) / 2), (q1.x, q1.y, (lo + hi) / 2), 0.9, hi - lo))
             merge(pc_, nl_kit.beam((q0.x, q0.y, hi + 0.12), (q1.x, q1.y, hi + 0.12), 1.15, 0.26))
 if len(pw_.faces):
-    obj('civic_pad_walls', pw_, PAL['granite'], PT['ashlar'], family='quay', bevel=0.03)
-    obj('civic_pad_coping', pc_, PAL['granite_light'], PT['plain'], family='quay', jitter=0.06)
+    foot_gradient(obj('civic_pad_walls', pw_, LIMESTONE, PT['ashlar'], family='quay', bevel=0.03))
+    obj('civic_pad_coping', pc_, COPING_STONE, PT['plain'], family='quay', jitter=0.06)
 else:
     pw_.free(); pc_.free()
 
