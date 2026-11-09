@@ -37,9 +37,9 @@ export type ClipKind = "shore" | "lap" | "reef" | "crackle" | "press" | "halyard
   // a ship under way passing the listener (decorative mirror of the sim's motion)
   | "swish" | "flap";
 
-/** mulberry32: small, fast, seedable. */
-export function makeRng(seed: number): Rng {
-  let a = seed >>> 0;
+/** mulberry32; skip reserves a noise stream without generating its samples synchronously. */
+export function makeRng(seed: number, skip = 0): Rng {
+  let a = (seed + Math.imul(skip, 0x6d2b79f5)) >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
     let t = a;
@@ -97,7 +97,7 @@ function panGains(p: number): [number, number] {
  * Add a damped, slightly up-chirping sinusoid: a pebble click (short tau) or a Minnaert bubble (longer tau,
  * the pitch rising as the bubble shrinks). Writes straight into the clip with a per-grain pan.
  */
-function grain(L: Float32Array, R: Float32Array, sr: number, at: number, f0: number, tau: number, amp: number, pan: number, chirp: number, phase: number): void {
+function* grain(L: Float32Array, R: Float32Array, sr: number, at: number, f0: number, tau: number, amp: number, pan: number, chirp: number, phase: number): Generator<void> {
   const i0 = Math.floor(at * sr);
   const n = Math.min(L.length - i0, Math.ceil(tau * 5 * sr));
   if (i0 < 0 || n <= 0) return;
@@ -110,14 +110,22 @@ function grain(L: Float32Array, R: Float32Array, sr: number, at: number, f0: num
     const s = Math.sin(ph) * e * (i < 3 ? (i + 1) / 4 : 1);
     L[i0 + i] += s * gl; R[i0 + i] += s * gr;
     ph += w0 + dw * i; e *= decay;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
+  yield;
 }
 
 /** Fade the first and last samples to exact zero. */
-function seal(c: { L: Float32Array; R: Float32Array }, sr: number, fadeIn: number, fadeOut: number): void {
+function* seal(c: { L: Float32Array; R: Float32Array }, sr: number, fadeIn: number, fadeOut: number): Generator<void> {
   const n = c.L.length, a = Math.max(1, Math.floor(fadeIn * sr)), b = Math.max(1, Math.floor(fadeOut * sr));
-  for (let i = 0; i < a; i++) { const g = smooth(i / a); c.L[i] *= g; c.R[i] *= g; }
-  for (let i = 0; i < b; i++) { const g = smooth(i / b); c.L[n - 1 - i] *= g; c.R[n - 1 - i] *= g; }
+  for (let i = 0; i < a; i++) {
+    const g = smooth(i / a); c.L[i] *= g; c.R[i] *= g;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
+  for (let i = 0; i < b; i++) {
+    const g = smooth(i / b); c.L[n - 1 - i] *= g; c.R[n - 1 - i] *= g;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
 }
 
 export interface ShoreOpts { size?: number; stone?: boolean }
@@ -192,7 +200,9 @@ export function* shoreWash(seed: number, sr: number, o: ShoreOpts = {}): Generat
       const w = N(); lo += kk * (w - lo);
       const s = (w - lo) * a * (i < 24 ? i / 24 : Math.exp(-(i - 24) / (dur * sr)));
       L[i0 + i] += s * gl; R[i0 + i] += s * gr;
+      if ((i % SLICE) === SLICE - 1) yield;
     }
+    yield;
   }
   yield;
 
@@ -218,7 +228,7 @@ export function* shoreWash(seed: number, sr: number, o: ShoreOpts = {}): Generat
   for (let k = 0; k < foam; k++) {
     const at = w0 + Math.pow(r(), 1.4) * washDecay * 2.2;
     const f = logRange(r, 1100, 4200);
-    grain(L, R, sr, at, f, range(r, 5, 10) / f, (0.004 + 0.02 * Math.pow(r(), 3)) * size, range(r, -0.9, 0.9), 0.25, r() * TAU);
+    yield* grain(L, R, sr, at, f, range(r, 5, 10) / f, (0.004 + 0.02 * Math.pow(r(), 3)) * size, range(r, -0.9, 0.9), 0.25, r() * TAU);
   }
   yield;
 
@@ -247,18 +257,18 @@ export function* shoreWash(seed: number, sr: number, o: ShoreOpts = {}): Generat
     const p = profile(t);
     if (p <= 0) continue;
     const loud = Math.pow(r(), 4);
-    if (stone) grain(L, R, sr, t, logRange(r, 700, 3200), range(r, 0.0012, 0.004), (0.012 + 0.09 * loud) * p * size, range(r, -0.95, 0.95), 0.05, r() * TAU);
-    else grain(L, R, sr, t, logRange(r, 1900, 9500), range(r, 0.00025, 0.0011), (0.01 + 0.075 * loud) * p * size, range(r, -0.95, 0.95), 0.08, r() * TAU);
+    if (stone) yield* grain(L, R, sr, t, logRange(r, 700, 3200), range(r, 0.0012, 0.004), (0.012 + 0.09 * loud) * p * size, range(r, -0.95, 0.95), 0.05, r() * TAU);
+    else yield* grain(L, R, sr, t, logRange(r, 1900, 9500), range(r, 0.00025, 0.0011), (0.01 + 0.075 * loud) * p * size, range(r, -0.95, 0.95), 0.08, r() * TAU);
   }
   // rocks: a deep gurgle as the water drains out of the gaps
   if (stone) {
     const g = Math.floor(range(r, 25, 50) * backDur);
     for (let k = 0; k < g; k++) {
       const t = tbw + r() * backDur * 0.9, f = logRange(r, 180, 900);
-      grain(L, R, sr, t, f, range(r, 0.006, 0.016), 0.05 * profile(t) * size + 0.004, range(r, -0.8, 0.8), 0.4, r() * TAU);
+      yield* grain(L, R, sr, t, f, range(r, 0.006, 0.016), 0.05 * profile(t) * size + 0.004, range(r, -0.8, 0.8), 0.4, r() * TAU);
     }
   }
-  seal({ L, R }, sr, 0.01, 0.35);
+  yield* seal({ L, R }, sr, 0.01, 0.35);
   return { sr, L, R };
 }
 
@@ -292,11 +302,11 @@ export function* lap(seed: number, sr: number): Generator<void, Clip> {
   const bubbles = Math.floor(range(r, 5, 14));
   for (let k = 0; k < bubbles; k++) {
     const at = 0.05 + Math.pow(r(), 1.3) * (T - 0.35), f = logRange(r, 450, 2400);
-    grain(L, R, sr, at, f, (range(r, 6, 14) / f), 0.012 + 0.04 * Math.pow(r(), 2), pan + range(r, -0.45, 0.45), 0.3, r() * TAU);
+    yield* grain(L, R, sr, at, f, (range(r, 6, 14) / f), 0.012 + 0.04 * Math.pow(r(), 2), pan + range(r, -0.45, 0.45), 0.3, r() * TAU);
   }
   // the hollow "glug" of water slopping into the gap under a hull or round a pile
   const glugs = Math.floor(r() * 2.6);
-  for (let k = 0; k < glugs; k++) grain(L, R, sr, range(r, 0.04, 0.3), logRange(r, 160, 420), range(r, 0.015, 0.03), range(r, 0.05, 0.12), pan + range(r, -0.2, 0.2), 0.5, r() * TAU);
+  for (let k = 0; k < glugs; k++) yield* grain(L, R, sr, range(r, 0.04, 0.3), logRange(r, 160, 420), range(r, 0.015, 0.03), range(r, 0.05, 0.12), pan + range(r, -0.2, 0.2), 0.5, r() * TAU);
   // a soft splash-hiss as the slap falls back: band-limited, never a bright fizz
   const kh = onePole(1200, sr), kl = onePole(4500, sr);
   let hl = 0, hr = 0, ll = 0, lr = 0;
@@ -306,8 +316,9 @@ export function* lap(seed: number, sr: number): Generator<void, Clip> {
     hl += kh * (wl - hl); hr += kh * (wr - hr);
     ll += kl * (wl - hl - ll); lr += kl * (wr - hr - lr);
     L[i] += ll * e * gl; R[i] += lr * e * gr;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
-  seal({ L, R }, sr, 0.002, 0.12);
+  yield* seal({ L, R }, sr, 0.002, 0.12);
   return { sr, L, R };
 }
 
@@ -339,7 +350,7 @@ export function* reefSurf(seed: number, sr: number): Generator<void, Clip> {
     R[i] += (fR.lp * 0.34 * env + (xr - hr) * hiss * 0.5) * (0.6 + 0.4 * gr * 1.41) + m2 * boomEnv * 2.6 * gr;
     if ((i % SLICE) === SLICE - 1) yield;
   }
-  seal({ L, R }, sr, 0.05, 1.2);
+  yield* seal({ L, R }, sr, 0.05, 1.2);
   return { sr, L, R };
 }
 
@@ -367,7 +378,7 @@ export function* crackle(seed: number, sr: number): Generator<void, Clip> {
     const burst = r() < 0.12;
     t += burst ? range(r, 0.008, 0.04) : -Math.log(1 - r() * 0.9999) / 11;
     const big = Math.pow(r(), 5);
-    grain(L, R, sr, t, logRange(r, 1100, 6500), range(r, 0.0003, 0.0012) * (1 + 2 * big), 0.05 + 0.5 * big, range(r, -0.5, 0.5), 0.1, r() * TAU);
+    yield* grain(L, R, sr, t, logRange(r, 1100, 6500), range(r, 0.0003, 0.0012) * (1 + 2 * big), 0.05 + 0.5 * big, range(r, -0.5, 0.5), 0.1, r() * TAU);
   }
   yield;
   // sputters: short breathy bursts of escaping gas
@@ -381,9 +392,10 @@ export function* crackle(seed: number, sr: number): Generator<void, Clip> {
       const w = N(); h += kh * (w - h);
       const e = amp * smooth(i / (0.006 * sr)) * Math.exp(-i / (dur * sr));
       L[i0 + i] += (w - h) * e * gl; R[i0 + i] += (w - h) * e * gr;
+      if ((i % SLICE) === SLICE - 1) yield;
     }
   }
-  seal({ L, R }, sr, 0.5, 0.5);
+  yield* seal({ L, R }, sr, 0.5, 0.5);
   return { sr, L, R };
 }
 
@@ -413,7 +425,7 @@ export function* press(seed: number, sr: number): Generator<void, Clip> {
     L[i] = s * 0.95; R[i] = s;
     if ((i % SLICE) === SLICE - 1) yield;
   }
-  seal({ L, R }, sr, 0.001, 0.2);
+  yield* seal({ L, R }, sr, 0.001, 0.2);
   return { sr, L, R };
 }
 
@@ -428,18 +440,19 @@ export function* halyard(seed: number, sr: number): Generator<void, Clip> {
   const f = range(r, 1700, 3300), pan = range(r, -0.7, 0.7);
   for (const at of times) {
     const a = range(r, 0.5, 1);
-    grain(L, R, sr, at, f * range(r, 0.995, 1.005), range(r, 0.03, 0.06), 0.2 * a, pan, 0, r() * TAU);
-    grain(L, R, sr, at, f * 2.71, 0.014, 0.08 * a, pan, 0, r() * TAU);
+    yield* grain(L, R, sr, at, f * range(r, 0.995, 1.005), range(r, 0.03, 0.06), 0.2 * a, pan, 0, r() * TAU);
+    yield* grain(L, R, sr, at, f * 2.71, 0.014, 0.08 * a, pan, 0, r() * TAU);
     // the strike itself: a tick of band-limited noise
     const bp = new Svf(sr); bp.set(f, 6);
     const i0 = Math.floor(at * sr), m = Math.ceil(0.03 * sr), [gl, gr] = panGains(pan);
     for (let i = 0; i < m && i0 + i < n; i++) {
       bp.run(N() * 0.3 * a * Math.exp(-i / (0.006 * sr)) * (i < 48 ? i / 48 : 1));
       L[i0 + i] += (bp.bp / 6) * gl; R[i0 + i] += (bp.bp / 6) * gr;   // /Q: unity gain at the peak
+      if ((i % SLICE) === SLICE - 1) yield;
     }
   }
   yield;
-  seal({ L, R }, sr, 0.001, 0.05);
+  yield* seal({ L, R }, sr, 0.001, 0.05);
   return { sr, L, R };
 }
 
@@ -460,6 +473,7 @@ export function* bell(seed: number, sr: number): Generator<void, Clip> {
       L[i] += v; R[i] += v * 0.92;
       e *= decay;
       if (e < 1e-5) break;
+      if ((i % SLICE) === SLICE - 1) yield;
     }
     yield;
   }
@@ -468,8 +482,9 @@ export function* bell(seed: number, sr: number): Generator<void, Clip> {
   for (let i = 0, m = Math.ceil(0.05 * sr); i < m; i++) {
     ck.run(N() * 0.12 * Math.exp(-i / (0.008 * sr)) * (i < 24 ? i / 24 : 1));
     L[i] += ck.bp; R[i] += ck.bp * 0.92;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
-  seal({ L, R }, sr, 0.001, 0.3);
+  yield* seal({ L, R }, sr, 0.001, 0.3);
   return { sr, L, R };
 }
 
@@ -510,7 +525,7 @@ export function* gull(seed: number, sr: number): Generator<void, Clip> {
     L[i] = lo.lp * gl; R[i] = lo.lp * gr;
     if ((i % SLICE) === SLICE - 1) yield;
   }
-  seal({ L, R }, sr, 0.002, 0.05);
+  yield* seal({ L, R }, sr, 0.002, 0.05);
   return { sr, L, R };
 }
 
@@ -531,9 +546,10 @@ export function* creak(seed: number, sr: number): Generator<void, Clip> {
     const e = (t < 0.08 ? t / 0.08 : t < 0.08 + dur * 0.5 ? 1 : Math.exp(-(t - 0.08 - dur * 0.5) / (dur * 0.15))) * 0.7;
     bp.run((ph * 2 - 1) * (0.5 + 0.5 * tri) * e);
     L[i] = (bp.bp / 9) * gl; R[i] = (bp.bp / 9) * gr;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
   yield;
-  seal({ L, R }, sr, 0.002, 0.1);
+  yield* seal({ L, R }, sr, 0.002, 0.1);
   return { sr, L, R };
 }
 
@@ -545,7 +561,7 @@ export function* creak(seed: number, sr: number): Generator<void, Clip> {
 const lpRms = (fc: number, sr: number) => Math.sqrt(Math.min(1, (1.11 * fc) / (sr / 2)));
 
 /** A drop or leaf tick: a few ms of noise through a resonant band (unity gain at the peak), soft-started. */
-function tick(L: Float32Array, R: Float32Array, sr: number, at: number, f: number, q: number, tau: number, amp: number, pan: number, N: () => number): void {
+function* tick(L: Float32Array, R: Float32Array, sr: number, at: number, f: number, q: number, tau: number, amp: number, pan: number, N: () => number): Generator<void> {
   const i0 = Math.floor(at * sr), n = Math.min(L.length - i0, Math.ceil(tau * 6 * sr) + 4);
   if (i0 < 0 || n <= 0) return;
   const [gl, gr] = panGains(pan);
@@ -557,30 +573,40 @@ function tick(L: Float32Array, R: Float32Array, sr: number, at: number, f: numbe
     const s = bp.bp / q;
     L[i0 + i] += s * gl; R[i0 + i] += s * gr;
     e *= d;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
+  yield;
 }
 
 /**
  * An N-wave: the pressure jump of a thunder crack, then a linear fall through zero and a quick return. Its
  * duration sets its colour (short = bright tearing, long = a dull thud from farther along the channel).
  */
-function nwave(L: Float32Array, R: Float32Array, sr: number, at: number, dur: number, amp: number, pan: number): void {
+function* nwave(L: Float32Array, R: Float32Array, sr: number, at: number, dur: number, amp: number, pan: number): Generator<void> {
   const i0 = Math.floor(at * sr), m = Math.max(5, Math.round(dur * sr));
   if (i0 < 0 || i0 + m + 6 > L.length) return;
   const [gl, gr] = panGains(pan);
   for (let i = 0; i <= m + 5; i++) {
     const v = i < 3 ? (amp * (i + 1)) / 4 : i <= m ? amp * (1 - (2 * i) / m) : -amp * (1 - (i - m) / 6);
     L[i0 + i] += v * gl; R[i0 + i] += v * gr;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
+  yield;
 }
 
 /** Scale a clip down (never up) so its peak stays at or below `peak`: no new clip can approach full scale. */
-function limit(c: { L: Float32Array; R: Float32Array }, peak: number): void {
+function* limit(c: { L: Float32Array; R: Float32Array }, peak: number): Generator<void> {
   let p = 0;
-  for (let i = 0; i < c.L.length; i++) p = Math.max(p, Math.abs(c.L[i]), Math.abs(c.R[i]));
+  for (let i = 0; i < c.L.length; i++) {
+    p = Math.max(p, Math.abs(c.L[i]), Math.abs(c.R[i]));
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
   if (p <= peak) return;
   const k = peak / p;
-  for (let i = 0; i < c.L.length; i++) { c.L[i] *= k; c.R[i] *= k; }
+  for (let i = 0; i < c.L.length; i++) {
+    c.L[i] *= k; c.R[i] *= k;
+    if ((i % SLICE) === SLICE - 1) yield;
+  }
 }
 
 /**
@@ -610,17 +636,17 @@ export function* patter(seed: number, sr: number, rate: number, size: number): G
     const loud = Math.pow(r(), 3), pan = range(r, -0.95, 0.95);
     if (r() < 0.14) {
       const f = logRange(r, 1000, 3600);
-      grain(L, R, sr, t, f, range(r, 6, 14) / f, (0.008 + 0.05 * loud) * size, pan, 0.4, r() * TAU);
+      yield* grain(L, R, sr, t, f, range(r, 6, 14) / f, (0.008 + 0.05 * loud) * size, pan, 0.4, r() * TAU);
     } else if (r() < 0.04 * size) {
       // a fat drop off a gutter onto a plank: low and dull
-      tick(L, R, sr, t, logRange(r, 380, 900), 2, range(r, 0.003, 0.006), 0.22 * size, pan, N);
+      yield* tick(L, R, sr, t, logRange(r, 380, 900), 2, range(r, 0.003, 0.006), 0.22 * size, pan, N);
     } else {
-      tick(L, R, sr, t, logRange(r, 700, 6500), range(r, 1.5, 5), range(r, 0.0005, 0.003), (0.03 + 0.24 * loud) * size, pan, N);
+      yield* tick(L, R, sr, t, logRange(r, 700, 6500), range(r, 1.5, 5), range(r, 0.0005, 0.003), (0.03 + 0.24 * loud) * size, pan, N);
     }
   }
   yield;
-  seal({ L, R }, sr, 0.5, 0.5);
-  limit({ L, R }, 0.8);
+  yield* seal({ L, R }, sr, 0.5, 0.5);
+  yield* limit({ L, R }, 0.8);
   return { sr, L, R };
 }
 
@@ -632,12 +658,12 @@ export function* drip(seed: number, sr: number): Generator<void, Clip> {
   const pan = range(r, -0.8, 0.8), drops = 1 + Math.floor(r() * 2.6);
   for (let k = 0; k < drops; k++) {
     const at = 0.03 + r() * (T - 0.6), f = logRange(r, 700, 2400);
-    grain(L, R, sr, at, f, range(r, 10, 18) / f, range(r, 0.06, 0.14), pan + range(r, -0.1, 0.1), 0.45, r() * TAU);
-    tick(L, R, sr, at, f * range(r, 2.5, 3.5), 3, 0.0008, 0.06, pan, N);
+    yield* grain(L, R, sr, at, f, range(r, 10, 18) / f, range(r, 0.06, 0.14), pan + range(r, -0.1, 0.1), 0.45, r() * TAU);
+    yield* tick(L, R, sr, at, f * range(r, 2.5, 3.5), 3, 0.0008, 0.06, pan, N);
   }
   yield;
-  seal({ L, R }, sr, 0.002, 0.1);
-  limit({ L, R }, 0.8);
+  yield* seal({ L, R }, sr, 0.002, 0.1);
+  yield* limit({ L, R }, 0.8);
   return { sr, L, R };
 }
 
@@ -665,7 +691,7 @@ export function* thunder(seed: number, sr: number): Generator<void, Clip> {
   for (let t = t0; t < t0 + tear;) {
     const x = (t - t0) / tear;
     t += -Math.log(1 - r() * 0.9999) / (900 * (1 - x) * (1 - x) + 40);
-    nwave(L, R, sr, t, range(r, 0.0003, 0.0012) * (1 + 2.5 * x), (0.06 + 0.32 * Math.pow(r(), 2)) * (1 - 0.65 * x), pan0 + range(r, -0.5, 0.5));
+    yield* nwave(L, R, sr, t, range(r, 0.0003, 0.0012) * (1 + 2.5 * x), (0.06 + 0.32 * Math.pow(r(), 2)) * (1 - 0.65 * x), pan0 + range(r, -0.5, 0.5));
   }
   yield;
   // 2. the clap's boom and body, then 3. the roll (independent L/R so it fills the sky)
@@ -691,8 +717,8 @@ export function* thunder(seed: number, sr: number): Generator<void, Clip> {
     R[i] += mono + rr.lp * kRoll * re + gr.bp * 0.1 * re * (1 - smooth(u / 4));
     if ((i % SLICE) === SLICE - 1) yield;
   }
-  seal({ L, R }, sr, 0.003, 1.2);
-  limit({ L, R }, 0.85);
+  yield* seal({ L, R }, sr, 0.003, 1.2);
+  yield* limit({ L, R }, 0.85);
   return { sr, L, R };
 }
 
@@ -721,8 +747,8 @@ export function* rumble(seed: number, sr: number): Generator<void, Clip> {
     R[i] = fr.lp * k * e + gr.bp * grumble;
     if ((i % SLICE) === SLICE - 1) yield;
   }
-  seal({ L, R }, sr, 0.1, 1.5);
-  limit({ L, R }, 0.8);
+  yield* seal({ L, R }, sr, 0.1, 1.5);
+  yield* limit({ L, R }, 0.8);
   return { sr, L, R };
 }
 
@@ -783,7 +809,9 @@ export function* bird(seed: number, sr: number): Generator<void, Clip> {
       ph += (TAU * f) / sr;
       const e = smooth(x / 0.12) * smooth((1 - x) / 0.25) * nt.a * 0.3;
       D[i0 + i] += (Math.sin(ph) + h2 * Math.sin(2 * ph)) * e;
+      if ((i % SLICE) === SLICE - 1) yield;
     }
+    yield;
   }
   yield;
   // softened by the distance and the leaves, with a faint second arrival off the trunks
@@ -792,9 +820,10 @@ export function* bird(seed: number, sr: number): Generator<void, Clip> {
     soft += kSoft * (D[i] - soft);
     const v = soft + (i >= echo ? D[i - echo] * 0.14 : 0);
     L[i] = v * pl; R[i] = v * pr;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
-  seal({ L, R }, sr, 0.005, 0.12);
-  limit({ L, R }, 0.6);
+  yield* seal({ L, R }, sr, 0.005, 0.12);
+  yield* limit({ L, R }, 0.6);
   return { sr, L, R };
 }
 
@@ -816,7 +845,9 @@ export function* cricket(seed: number, sr: number): Generator<void, Clip> {
           ph += (TAU * fc * (1 - 0.02 * x)) / sr;
           const v = (Math.sin(ph) + 0.1 * Math.sin(2 * ph)) * e;
           L[i0 + i] += v * gl; R[i0 + i] += v * gr;
+          if ((i % SLICE) === SLICE - 1) yield;
         }
+        yield;
       }
     }
     yield;
@@ -834,8 +865,8 @@ export function* cricket(seed: number, sr: number): Generator<void, Clip> {
     L[i] += (bl.bp / 5) * e; R[i] += (br.bp / 5) * e;
     if ((i % SLICE) === SLICE - 1) yield;
   }
-  seal({ L, R }, sr, 0.5, 0.5);
-  limit({ L, R }, 0.6);
+  yield* seal({ L, R }, sr, 0.5, 0.5);
+  yield* limit({ L, R }, 0.6);
   return { sr, L, R };
 }
 
@@ -857,8 +888,8 @@ export function* cicada(seed: number, sr: number): Generator<void, Clip> {
       if ((i % SLICE) === SLICE - 1) yield;
     }
   }
-  seal({ L, R }, sr, 0.5, 0.5);
-  limit({ L, R }, 0.5);
+  yield* seal({ L, R }, sr, 0.5, 0.5);
+  yield* limit({ L, R }, 0.5);
   return { sr, L, R };
 }
 
@@ -876,7 +907,7 @@ export function* rustle(seed: number, sr: number): Generator<void, Clip> {
   for (let t = 0.01; t < T - 0.05;) {
     t += -Math.log(1 - r() * 0.9999) / (30 + 1100 * env(t));
     const e = env(t);
-    tick(L, R, sr, t, logRange(r, 1800, 9000), range(r, 1.2, 3), range(r, 0.0002, 0.0009), (0.05 + 0.5 * Math.pow(r(), 4)) * (0.3 + 0.7 * e), lerp(pan0, pan1, t / T) + range(r, -0.5, 0.5), N);
+    yield* tick(L, R, sr, t, logRange(r, 1800, 9000), range(r, 1.2, 3), range(r, 0.0002, 0.0009), (0.05 + 0.5 * Math.pow(r(), 4)) * (0.3 + 0.7 * e), lerp(pan0, pan1, t / T) + range(r, -0.5, 0.5), N);
   }
   yield;
   const kl = onePole(2200, sr);
@@ -891,12 +922,12 @@ export function* rustle(seed: number, sr: number): Generator<void, Clip> {
     let t = range(r, tp * 0.6, Math.min(T - 0.8, tp + decay));
     const pan = range(r, -0.7, 0.7);
     for (let j = 0, c = 5 + Math.floor(r() * 8); j < c; j++, t += range(r, 0.025, 0.06)) {
-      tick(L, R, sr, t, logRange(r, 2500, 6000), 2, range(r, 0.0004, 0.001), range(r, 0.2, 0.45), pan, N);
-      if (r() < 0.4) tick(L, R, sr, t, logRange(r, 900, 1500), 2, 0.002, 0.12, pan, N);
+      yield* tick(L, R, sr, t, logRange(r, 2500, 6000), 2, range(r, 0.0004, 0.001), range(r, 0.2, 0.45), pan, N);
+      if (r() < 0.4) yield* tick(L, R, sr, t, logRange(r, 900, 1500), 2, 0.002, 0.12, pan, N);
     }
   }
-  seal({ L, R }, sr, 0.01, 0.2);
-  limit({ L, R }, 0.7);
+  yield* seal({ L, R }, sr, 0.01, 0.2);
+  yield* limit({ L, R }, 0.7);
   return { sr, L, R };
 }
 
@@ -916,18 +947,19 @@ export function* crunch(seed: number, sr: number): Generator<void, Clip> {
     for (let u = 0; u < ds;) {
       u += -Math.log(1 - r() * 0.9999) / (200 + 2200 * env(u));
       const e = env(u);
-      if (e > 0.02) tick(L, R, sr, ts + u, logRange(r, 700, 4500), range(r, 1.2, 2), range(r, 0.0003, 0.0012), (0.03 + 0.1 * Math.pow(r(), 3)) * e, pan, N);
+      if (e > 0.02) yield* tick(L, R, sr, ts + u, logRange(r, 700, 4500), range(r, 1.2, 2), range(r, 0.0003, 0.0012), (0.03 + 0.1 * Math.pow(r(), 3)) * e, pan, N);
     }
     const i0 = Math.floor(ts * sr), m = Math.ceil(ds * sr), [gl, gr] = panGains(pan);
     for (let i = 0; i < m && i0 + i < n; i++) {
       thud.run(N());
       const v = thud.lp * kThud * env(i / sr);
       L[i0 + i] += v * gl; R[i0 + i] += v * gr;
+      if ((i % SLICE) === SLICE - 1) yield;
     }
     yield;
   }
-  seal({ L, R }, sr, 0.005, 0.1);
-  limit({ L, R }, 0.5);
+  yield* seal({ L, R }, sr, 0.005, 0.1);
+  yield* limit({ L, R }, 0.5);
   return { sr, L, R };
 }
 
@@ -956,10 +988,11 @@ export function* mallet(seed: number, sr: number): Generator<void, Clip> {
     // /Q: unity gain at each resonance
     const v = (lo.bp / qLo) * 2.2 + (hi.bp / qHi) * 1.6 * aHi + th * 1.2 * Math.exp(-t / 0.03);
     L[i] = v; R[i] = v;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
   yield;
-  seal({ L, R }, sr, 0.0005, 0.08);
-  limit({ L, R }, 0.5);
+  yield* seal({ L, R }, sr, 0.0005, 0.08);
+  yield* limit({ L, R }, 0.5);
   return { sr, L, R };
 }
 
@@ -978,13 +1011,14 @@ export function* adze(seed: number, sr: number): Generator<void, Clip> {
     bite.run(ex); body.run(ex);
     const v = (bite.bp / qB) * 0.9 + (body.bp / 6) * 1.4;
     L[i] = v; R[i] = v;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
   for (let k = 0, m = 2 + Math.floor(r() * 4); k < m; k++) {
-    tick(L, R, sr, range(r, 0.008, 0.08), logRange(r, 2200, 5200), 2.5, range(r, 0.0004, 0.001), range(r, 0.06, 0.16), 0, N);
+    yield* tick(L, R, sr, range(r, 0.008, 0.08), logRange(r, 2200, 5200), 2.5, range(r, 0.0004, 0.001), range(r, 0.06, 0.16), 0, N);
   }
   yield;
-  seal({ L, R }, sr, 0.0005, 0.06);
-  limit({ L, R }, 0.45);
+  yield* seal({ L, R }, sr, 0.0005, 0.06);
+  yield* limit({ L, R }, 0.45);
   return { sr, L, R };
 }
 
@@ -1014,8 +1048,8 @@ export function* saw(seed: number, sr: number): Generator<void, Clip> {
       if (((i0 + i) % SLICE) === SLICE - 1) yield;
     }
   }
-  seal({ L, R }, sr, 0.005, 0.08);
-  limit({ L, R }, 0.4);
+  yield* seal({ L, R }, sr, 0.005, 0.08);
+  yield* limit({ L, R }, 0.4);
   return { sr, L, R };
 }
 
@@ -1050,11 +1084,12 @@ export function* owl(seed: number, sr: number): Generator<void, Clip> {
       b += kb * (N() - b);
       const v = (Math.sin(ph) + 0.06 * Math.sin(2 * ph)) * e + b * e * 0.25;
       L[i0 + i] += v; R[i0 + i] += v;
+      if ((i % SLICE) === SLICE - 1) yield;
     }
   }
   yield;
-  seal({ L, R }, sr, 0.01, 0.15);
-  limit({ L, R }, 0.4);
+  yield* seal({ L, R }, sr, 0.01, 0.15);
+  yield* limit({ L, R }, 0.4);
   return { sr, L, R };
 }
 
@@ -1082,8 +1117,8 @@ export function* nightjar(seed: number, sr: number): Generator<void, Clip> {
     L[i] = v; R[i] = v;
     if ((i % SLICE) === SLICE - 1) yield;
   }
-  seal({ L, R }, sr, 0.01, 0.1);
-  limit({ L, R }, 0.3);
+  yield* seal({ L, R }, sr, 0.01, 0.1);
+  yield* limit({ L, R }, 0.3);
   return { sr, L, R };
 }
 
@@ -1106,6 +1141,7 @@ export function* tolling(seed: number, sr: number): Generator<void, Clip> {
       L[i] += Math.sin(ph + w * i) * e * b * (i < 400 ? i / 400 : 1);
       e *= decay;
       if (e < 1e-5) break;
+      if ((i % SLICE) === SLICE - 1) yield;
     }
     yield;
   }
@@ -1114,10 +1150,11 @@ export function* tolling(seed: number, sr: number): Generator<void, Clip> {
   for (let i = 0, m = Math.ceil(0.06 * sr); i < m; i++) {
     th.run(N() * 0.1 * Math.exp(-i / (0.012 * sr)) * (i < 24 ? i / 24 : 1));
     L[i] += th.lp;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
-  R.set(L);
-  seal({ L, R }, sr, 0.001, 0.6);
-  limit({ L, R }, 0.6);
+  for (let i = 0; i < L.length; i += SLICE) { R.set(L.subarray(i, i + SLICE), i); yield; }
+  yield* seal({ L, R }, sr, 0.001, 0.6);
+  yield* limit({ L, R }, 0.6);
   return { sr, L, R };
 }
 
@@ -1136,11 +1173,12 @@ export function* unroll(seed: number, sr: number): Generator<void, Clip> {
     if ((i & 15) === 0) bp.set(f0 * Math.pow(f1 / f0, x), 1.2);
     bp.run(N() * smooth(x / 0.25) * Math.pow(1 - x, 1.5) * 0.25);
     L[i] = bp.bp; R[i] = bp.bp;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
-  for (let k = 0, m = 3 + Math.floor(r() * 4); k < m; k++) tick(L, R, sr, range(r, 0.02, 0.12), logRange(r, 1800, 4500), 2, 0.0006, range(r, 0.04, 0.1), 0, N);
+  for (let k = 0, m = 3 + Math.floor(r() * 4); k < m; k++) yield* tick(L, R, sr, range(r, 0.02, 0.12), logRange(r, 1800, 4500), 2, 0.0006, range(r, 0.04, 0.1), 0, N);
   yield;
-  seal({ L, R }, sr, 0.003, 0.03);
-  limit({ L, R }, 0.6);
+  yield* seal({ L, R }, sr, 0.003, 0.03);
+  yield* limit({ L, R }, 0.6);
   return { sr, L, R };
 }
 
@@ -1156,10 +1194,11 @@ export function* latch(seed: number, sr: number): Generator<void, Clip> {
     a.run(ex); b.run(ex);
     const v = (a.bp / 8) * 1.6 + (b.bp / 7) * 0.9;
     L[i] = v; R[i] = v;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
   yield;
-  seal({ L, R }, sr, 0.0005, 0.03);
-  limit({ L, R }, 0.6);
+  yield* seal({ L, R }, sr, 0.0005, 0.03);
+  yield* limit({ L, R }, 0.6);
   return { sr, L, R };
 }
 
@@ -1174,11 +1213,12 @@ export function* flick(seed: number, sr: number): Generator<void, Clip> {
     if ((i & 15) === 0) bp.set(f0 * Math.pow(f1 / f0, smooth(x)), 0.9);
     bp.run(N() * Math.sin(Math.PI * Math.min(1, x / 0.85)) * 0.18);
     L[i] = bp.bp; R[i] = bp.bp;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
-  tick(L, R, sr, T * range(r, 0.7, 0.8), logRange(r, 2500, 4000), 2, 0.0008, 0.12, 0, N);
+  yield* tick(L, R, sr, T * range(r, 0.7, 0.8), logRange(r, 2500, 4000), 2, 0.0008, 0.12, 0, N);
   yield;
-  seal({ L, R }, sr, 0.004, 0.02);
-  limit({ L, R }, 0.6);
+  yield* seal({ L, R }, sr, 0.004, 0.02);
+  yield* limit({ L, R }, 0.6);
   return { sr, L, R };
 }
 
@@ -1215,9 +1255,9 @@ export function* conch(seed: number, sr: number): Generator<void, Clip> {
     L[i] = dark.lp;
     if ((i % SLICE) === SLICE - 1) yield;
   }
-  R.set(L);
-  seal({ L, R }, sr, 0.01, 0.2);
-  limit({ L, R }, 0.5);
+  for (let i = 0; i < L.length; i += SLICE) { R.set(L.subarray(i, i + SLICE), i); yield; }
+  yield* seal({ L, R }, sr, 0.01, 0.2);
+  yield* limit({ L, R }, 0.5);
   return { sr, L, R };
 }
 
@@ -1243,9 +1283,9 @@ export function* gun(seed: number, sr: number): Generator<void, Clip> {
     L[i] = thump.lp * kT * e + boom + roll.lp * kR * re;
     if ((i % SLICE) === SLICE - 1) yield;
   }
-  R.set(L);
-  seal({ L, R }, sr, 0.004, 0.6);
-  limit({ L, R }, 0.6);
+  for (let i = 0; i < L.length; i += SLICE) { R.set(L.subarray(i, i + SLICE), i); yield; }
+  yield* seal({ L, R }, sr, 0.004, 0.6);
+  yield* limit({ L, R }, 0.6);
   return { sr, L, R };
 }
 
@@ -1270,10 +1310,10 @@ export function* swish(seed: number, sr: number): Generator<void, Clip> {
   }
   for (let k = 0, m = 4 + Math.floor(r() * 6); k < m; k++) {
     const f = logRange(r, 500, 1800);
-    grain(L, R, sr, peakAt + range(r, 0, 0.9), f, range(r, 6, 12) / f, 0.01 + 0.02 * r(), 0, 0.3, r() * TAU);
+    yield* grain(L, R, sr, peakAt + range(r, 0, 0.9), f, range(r, 6, 12) / f, 0.01 + 0.02 * r(), 0, 0.3, r() * TAU);
   }
-  seal({ L, R }, sr, 0.05, 0.3);
-  limit({ L, R }, 0.5);
+  yield* seal({ L, R }, sr, 0.05, 0.3);
+  yield* limit({ L, R }, 0.5);
   return { sr, L, R };
 }
 
@@ -1294,10 +1334,11 @@ export function* flap(seed: number, sr: number): Generator<void, Clip> {
     body.run(w); cloth.run(w);
     const v = body.bp * 0.22 + cloth.bp * 0.06;
     L[i] = v; R[i] = v;
+    if ((i % SLICE) === SLICE - 1) yield;
   }
   yield;
-  seal({ L, R }, sr, 0.002, 0.2);
-  limit({ L, R }, 0.5);
+  yield* seal({ L, R }, sr, 0.002, 0.2);
+  yield* limit({ L, R }, 0.5);
   return { sr, L, R };
 }
 

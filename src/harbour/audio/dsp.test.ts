@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { SYNTHS, renderNow, rumble, shoreWash, thunder, type ClipKind } from "./dsp";
 import { CUE_GAIN, FAR_GAIN, PASS_GAIN } from "./ambience";
@@ -146,4 +147,20 @@ describe("harbour sound: passing hulls sit under the laps", () => {
     expect(loud("swish") * PASS_GAIN).toBeLessThan(0.7 * lap);
     expect(loud("flap") * PASS_GAIN * 0.6).toBeLessThan(0.7 * lap);
   });
+});
+
+it("preserves the pre-slicing seeded PCM for every clip kind", () => {
+  const hash = createHash("sha256");
+  for (const synth of Object.values(SYNTHS)) {
+    const clip = renderNow(synth(7, 24000));
+    hash.update(new Uint8Array(clip.L.buffer)); hash.update(new Uint8Array(clip.R.buffer));
+  }
+  expect(hash.digest("hex")).toBe("7b7f85381605df73e8c9b131ca6978fc52560427d35d93d9800e9c8d9b035fb4");
+});
+
+it.each(["bird", "tolling", "bell"] as const)("%s yields before a whole note or long partial is rendered", (kind) => {
+  const job = SYNTHS[kind](7, 24000);
+  let yields = 0, step = job.next();
+  while (!step.done) { yields++; step = job.next(); }
+  expect(yields).toBeGreaterThan(10);
 });

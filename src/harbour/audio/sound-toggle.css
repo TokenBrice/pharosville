@@ -49,3 +49,6 @@
 .hb-sound-menu button:hover, .hb-sound-menu button:focus-visible { background: var(--wash-2); color: var(--ink); }
 .hb-sound-menu button:focus-visible { outline-offset: -1px; }
 .hb-sound-reading { width: 280px; margin: 4px 8px 8px; line-height: 1.5; color: var(--ink-2); }
+
+.hb-sound:not([data-status="playing"]) .hb-sound-waves path,
+.hb-sound:not([data-status="playing"]) .hb-sound-note { opacity: 0; }

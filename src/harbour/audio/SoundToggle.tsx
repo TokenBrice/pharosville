@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { useStore } from "../ui/hooks";
-import { getSoundController, type SoundMode } from "./controller";
+import { getSoundController, type SoundMode, type SoundSnapshot, type SoundStatus } from "./controller";
 import { BY_EAR } from "./legend";
 import "./sound-toggle.css";
 
 const MODES: ReadonlyArray<[SoundMode, string]> = [["off", "Sound off"], ["ambient", "Ambient sound"], ["music", "Ambient sound and music"]];
+const OFF: SoundSnapshot = { mode: "off", status: "off" };
+const STATUS: Record<SoundStatus, string> = { off: "Sound off", starting: "Starting sound", playing: "Sound playing", paused: "Sound paused", unavailable: "Sound unavailable" };
 const SAY: Record<SoundMode, string> = { off: "off", ambient: "ambient sound", music: "ambient sound and music" };
 
 /**
@@ -16,7 +18,7 @@ const SAY: Record<SoundMode, string> = { off: "off", ambient: "ambient sound", m
 export function SoundToggle() {
   const store = useStore();
   const ctl = useMemo(() => getSoundController(store.ctx), [store]);
-  const mode = useSyncExternalStore(ctl.subscribe, () => ctl.mode, () => "off" as SoundMode);
+  const { mode, status } = useSyncExternalStore(ctl.subscribe, () => ctl.snapshot, () => OFF);
   const reduced = useSyncExternalStore(store.motion.subscribe, () => store.motion.reduced);
   const [open, setOpen] = useState(false);
   const [reading, setReading] = useState(false);
@@ -57,8 +59,8 @@ export function SoundToggle() {
   return (
     <span className="hb-sound-wrap">
       <button
-        ref={btn} type="button" className="hb-sound" data-mode={mode} aria-pressed={mode !== "off"}
-        aria-label="Sound" title={`Sound: ${SAY[mode]}`}
+        ref={btn} type="button" className="hb-sound" data-mode={mode} data-status={status} aria-pressed={mode !== "off"}
+        aria-label="Sound" aria-describedby="hb-sound-status" title={`Sound: ${SAY[mode]}. ${STATUS[status]}`}
         onClick={() => { setOpen(false); ctl.toggle(); }}
       >
         <svg viewBox="0 0 20 16" width="20" height="16" aria-hidden="true">
@@ -79,8 +81,14 @@ export function SoundToggle() {
       >
         <svg viewBox="0 0 8 16" width="8" height="16" aria-hidden="true"><path d="M1.5 6.5L4 9l2.5-2.5" /></svg>
       </button>
+      <span id="hb-sound-status" className="hb-sr" role="status">{STATUS[status]}</span>
       {open && (
         <div ref={menu} id="hb-sound-menu" role="menu" aria-label="Sound" className="hb-sound-menu hb-paper hb-neat" onKeyDown={onMenuKey}>
+          {(status === "paused" || status === "unavailable") && mode !== "off" && (
+            <button type="button" role="menuitem" tabIndex={-1} onClick={() => { ctl.retry(); close(true); }}>
+              {status === "unavailable" ? "Try sound again" : "Resume sound"}
+            </button>
+          )}
           {MODES.map(([m, label]) => (
             <button
               key={m} type="button" role="menuitemradio" aria-checked={mode === m} tabIndex={mode === m ? 0 : -1}
