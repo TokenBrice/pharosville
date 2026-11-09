@@ -9,6 +9,8 @@ import type { QualitySettings } from "../engine/quality";
 import { BEAM_LIGHT_GLSL, beamLightUniforms } from "../beam/beam-light-glsl";
 import { getBeamUniforms } from "../beam/uniforms";
 import { LAMP_WAVE_GLSL, LAMP_WAVE_SPREAD, lampGlow, lampWaveUniforms, setLampWave } from "./lamp-wave";
+import { FullscreenPass } from "../ocean/gpu-bake";
+import { COPY_FRAG } from "../engine/shaders/copy";
 
 const MAX_POINT = 16;
 const POOL_RES = 2048;
@@ -86,6 +88,7 @@ export class LightsSystem implements WorldSystem {
   private readonly spriteGeo = quad();
   private readonly pillarGeo = quad();
   private poolRT!: THREE.WebGLRenderTarget;
+  private readonly copy = new FullscreenPass(COPY_FRAG, { uSource: { value: null } }, { name: "hb_pool_resize" });
   private poolScene = new THREE.Scene();
   private readonly poolCam = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
   private sprites!: THREE.Mesh;
@@ -124,7 +127,8 @@ export class LightsSystem implements WorldSystem {
     const mats = getHarbourMaterials(ctx);
     const b = layout?.bounds;
     const [minX, minZ, maxX, maxZ] = b ? [b.min[0], b.min[2], b.max[0], b.max[2]] : [-500, -500, 500, 500];
-    this.poolRT = new THREE.WebGLRenderTarget(POOL_RES, POOL_RES, { type: THREE.HalfFloatType, depthBuffer: false, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter });
+    const poolRes = ctx.services.get("quality")?.settings.tier === "low" ? 1024 : POOL_RES;
+    this.poolRT = new THREE.WebGLRenderTarget(poolRes, poolRes, { type: THREE.HalfFloatType, depthBuffer: false, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter });
     mats.pool.uPoolTex.value = this.poolRT.texture;
     mats.pool.uPoolBounds.value.set(minX, minZ, 1 / (maxX - minX), 1 / (maxZ - minZ));
     const u = ctx.uniforms;
@@ -265,17 +269,31 @@ export class LightsSystem implements WorldSystem {
       ctx.scene.add(p);
     }
     this.ensureCapacity(Math.max(256, this.store.lights.length));
-    this.offPreparation = ctx.services.get("preparation")?.register({
+    const offPool = ctx.services.get("preparation")?.register({
       root: this.poolScene, camera: this.poolCam, target: () => this.poolRT,
     });
+    const offCopy = ctx.services.get("preparation")?.register(this.copy.preparationEntry(() => this.poolRT));
+    this.offPreparation = () => { offPool?.(); offCopy?.(); };
     const quality = ctx.services.get("quality");
     if (quality) {
-      this.applyQuality(quality.settings);
-      this.offQuality = quality.onChange((settings) => this.applyQuality(settings));
+      this.applyQuality(quality.settings, ctx);
+      this.offQuality = quality.onChange((settings) => this.applyQuality(settings, ctx));
     }
   }
 
-  private applyQuality(settings: QualitySettings): void {
+  private applyQuality(settings: QualitySettings, ctx: EngineContext): void {
+    const size = settings.tier === "low" ? 1024 : POOL_RES;
+    if (this.poolRT.width !== size) {
+      const previous = this.poolRT, next = previous.clone(); next.setSize(size, size);
+      try {
+        this.copy.material.uniforms.uSource.value = previous.texture;
+        this.copy.render(ctx.renderer, next, false);
+      } catch (error) { next.dispose(); throw error; }
+      finally { this.copy.material.uniforms.uSource.value = null; }
+      this.poolRT = next;
+      getHarbourMaterials(ctx).pool.uPoolTex.value = next.texture;
+      previous.dispose();
+    }
     const want = Math.min(MAX_POINT, settings.pointLights);
     if (want === this.pointCount) return;
     this.pointCount = want;
@@ -441,6 +459,7 @@ export class LightsSystem implements WorldSystem {
     this.offPreparation?.();
     ctx.scene.remove(this.sprites, this.pillars, ...this.points);
     this.poolRT.dispose();
+    this.copy.dispose();
     for (const g of [this.poolGeo, this.spriteGeo, this.pillarGeo]) g.dispose();
     (this.sprites.material as THREE.Material).dispose();
     (this.pillars.material as THREE.Material).dispose();

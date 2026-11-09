@@ -44,12 +44,19 @@ export const OCEAN_REFLECTION = /* glsl */ `  // -------------------------------
     vec3 acc = vec3(0.0);
     // calm water draws each light out into a longer column (03-O11): the taps stride further along the view
     float calmCol = (1.0 - smoothstep(0.35, 0.9, rough)) * (1.0 - uPrecip.x);
+    #ifdef HB_LITE
+    for (int tap = 0; tap < 2; tap++) {
+      int i = 1 + tap * 3;
+      float weight = tap == 0 ? 2.76 : 2.04;
+    #else
     for (int i = 0; i < 6; i++) {
+      float weight = 1.0 - 0.08 * float(i);
+    #endif
       float h = 1.2 + float(i) * 3.0;
       vec2 q = xz + away * (camD * h / Hc * (1.0 + 0.55 * calmCol) + wav * (0.4 + 0.12 * float(i)) + calmCol * float(i) * 1.1) + side * smear * (0.5 + 0.1 * float(i));
       vec2 puv = (q - uPoolBounds.xy) * uPoolBounds.zw;
       float ok = step(0.0, puv.x) * step(puv.x, 1.0) * step(0.0, puv.y) * step(puv.y, 1.0);
-      acc += texture2D(uPoolTex, clamp(puv, 0.0, 1.0)).rgb * ok * (1.0 - 0.08 * float(i));
+      acc += texture2D(uPoolTex, clamp(puv, 0.0, 1.0)).rgb * ok * weight;
     }
     // keep each pool's core (a column, not a round blob), broken into ripple-lit dashes
     acc *= smoothstep(0.03, 0.32, dot(acc, vec3(0.333))) * 1.5;

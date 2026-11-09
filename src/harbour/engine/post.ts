@@ -163,6 +163,26 @@ function setBloomLevels(pass: MipmapBlurPass, levels: number): void {
   mip.setSize(mip.resolution.x, mip.resolution.y);
 }
 
+/** The dependency scales only Bloom.Target; its luminance and mip sources need explicit sizes. */
+export class HarbourBloomEffect extends BloomEffect {
+  private lite = false;
+
+  setLite(lite: boolean): void {
+    if (this.lite === lite) return;
+    this.lite = lite;
+    this.setSize(this.resolution.baseWidth, this.resolution.baseHeight);
+  }
+
+  override setSize(width: number, height: number): void {
+    super.setSize(width, height);
+    if (this.lite) {
+      const w = Math.max(1, Math.round(width * 0.5)), h = Math.max(1, Math.round(height * 0.5));
+      this.luminancePass.setSize(w, h);
+      this.mipmapBlurPass.setSize(w, h);
+    }
+  }
+}
+
 /** E08: NDC margin kept sharp beyond the lantern and the docked rows; the soft zone's opacity cap. */
 export const TILT_MARGIN = 0.05;
 export const TILT_OPACITY = 0.35;
@@ -190,7 +210,7 @@ export function tiltBand(camera: THREE.Camera, lantern: THREE.Vector3, dock: rea
 }
 
 export class PostChain {
-  readonly bloom: BloomEffect;
+  readonly bloom: HarbourBloomEffect;
   readonly toneMapping: ToneMappingEffect;
   readonly tiltShift: TiltShiftEffect;
   readonly vignette: VignetteEffect;
@@ -224,7 +244,7 @@ export class PostChain {
     composer.addPass(new RenderPass(scene, camera));
     composer.addPass(this.scrub);
     this.tiltShift = new TiltShiftEffect({ focusArea: 0.6, feather: 0.38, offset: 0.06, kernelSize: KernelSize.MEDIUM, resolutionScale: 0.5 });
-    this.bloom = new BloomEffect({ intensity: 0.6, luminanceThreshold: 1.3, luminanceSmoothing: 0.35, mipmapBlur: true, radius: 0.72, levels: 8 });
+    this.bloom = new HarbourBloomEffect({ intensity: 0.6, luminanceThreshold: 1.3, luminanceSmoothing: 0.35, mipmapBlur: true, radius: 0.72, levels: 8 });
     this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
     this.lut = new LUT3DEffect(this.gradeLut.texture, { inputColorSpace: THREE.SRGBColorSpace });
     this.vignette = new VignetteEffect({ offset: 0.28, darkness: 0.42 });
@@ -262,6 +282,7 @@ export class PostChain {
   setQuality(q: QualitySettings): void {
     if (this.tier === q.tier) return;
     this.tier = q.tier;
+    this.bloom.setLite(q.tier === "low");
     setBloomLevels(this.bloom.mipmapBlurPass, q.bloomLevels);
     this.smaa.applyPreset(q.smaa === "high" ? SMAAPreset.HIGH : q.smaa === "medium" ? SMAAPreset.MEDIUM : SMAAPreset.LOW);
   }
@@ -293,7 +314,8 @@ export class PostChain {
         downsamplingMaterial: THREE.Material; upsamplingMaterial: THREE.Material;
         downsamplingMipmaps: THREE.WebGLRenderTarget[]; upsamplingMipmaps: THREE.WebGLRenderTarget[];
       };
-      add(this.bloom.luminancePass, () => (this.bloom as BloomEffect & { renderTarget: THREE.WebGLRenderTarget }).renderTarget);
+      const luminance = this.bloom.luminancePass as typeof this.bloom.luminancePass & { renderTarget: THREE.WebGLRenderTarget };
+      add(luminance, () => luminance.renderTarget);
       add(bloom, () => bloom.downsamplingMipmaps[0], bloom.downsamplingMaterial);
       add(bloom, () => bloom.upsamplingMipmaps[0], bloom.upsamplingMaterial);
       const tilt = this.tiltShift.blurPass as typeof this.tiltShift.blurPass & { renderTargetA: THREE.WebGLRenderTarget };

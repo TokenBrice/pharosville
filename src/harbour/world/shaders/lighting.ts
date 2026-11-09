@@ -49,8 +49,13 @@ float hbHeight(vec2 xz) { return texture2D(uAOTex, vec2((xz.x - uAOBounds.x) * u
 float hbAO(vec3 P, vec3 N) {
   if (uAOBounds.z <= 0.0) return 1.0;
   float occ = 0.0, wsum = 0.0;
-  for (int i = 0; i < 8; i++) {
-    float a = float(i) * 0.7853982 + 0.31;
+  #ifdef HB_LITE
+  const int directions = 4;
+  #else
+  const int directions = 8;
+  #endif
+  for (int i = 0; i < directions; i++) {
+    float a = float(i) * (6.2831856 / float(directions)) + 0.31;
     vec2 d = vec2(cos(a), sin(a));
     float r = (i - (i / 2) * 2 == 0) ? 2.0 : 5.5;
     float w = clamp(dot(vec3(d.x, 0.0, d.y), N) * 0.9 + N.y, 0.0, 1.0);

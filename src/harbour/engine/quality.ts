@@ -1,10 +1,10 @@
 /**
- * Quality tiers. Every tier renders the SAME art (geometry, materials, palette, grade); lower tiers only
- * drop effect cost: pixel ratio, shadow-map size / refresh rate / softness, real point lights, bloom depth,
- * anti-aliasing preset.
+ * Quality tiers. Every tier keeps the geometry, palette, grade and readings; lower tiers simplify decorative
+ * shading and reduce pixel ratio, shadow-map size / refresh rate / softness, real point lights, bloom and
+ * anti-aliasing cost.
  *
  * The governor selects quantized (tier, pixel ratio) rungs with one hysteresis policy. Resolution-only
- * changes publish without shader preparation; effect changes await resident SMAA preset programs.
+ * changes publish without shader preparation; effect changes await resident world and SMAA preset programs.
  */
 export type QualityTier = "high" | "medium" | "low";
 
@@ -27,7 +27,7 @@ export interface QualitySettings {
 export const TIERS: Record<QualityTier, QualitySettings> = {
   high: { tier: "high", shadowMapSize: 4096, shadowInterval: 0, shadowMinFrames: 1, pointLights: 16, bloomLevels: 8, smaa: "high" },
   medium: { tier: "medium", shadowMapSize: 2048, shadowInterval: 1 / 30, shadowMinFrames: 2, pointLights: 8, bloomLevels: 7, smaa: "medium" },
-  low: { tier: "low", shadowMapSize: 2048, shadowInterval: 1 / 15, shadowMinFrames: 2, pointLights: 4, bloomLevels: 6, smaa: "low" },
+  low: { tier: "low", shadowMapSize: 1024, shadowInterval: 1 / 15, shadowMinFrames: 2, pointLights: 4, bloomLevels: 6, smaa: "low" },
 };
 
 export interface QualityRung { readonly tier: QualityTier; readonly dpr: number }

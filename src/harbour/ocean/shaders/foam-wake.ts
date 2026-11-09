@@ -22,9 +22,12 @@ export const OCEAN_FOAM = /* glsl */ `  // -------------------------------------
   float coastFoam = max(fContact, band2 * 0.9 * bands) * step(-1.0, coast);
   // lace: a fine drifting net of bubble threads (shared by the swash, the eddies and old wakes);
   // beyond the heart view it melts into its mean coverage instead of shimmering
-  float lA = texture2D(uNoise, xz * 0.071 + t * vec2(0.003, -0.002)).b;
-  float lB = texture2D(uNoise, (rot * xz) * 0.083 - t * vec2(0.002, 0.003) + 0.61).b;
   float laceFar = smoothstep(260.0, 760.0, camD);
+  float lA = 0.5, lB = 0.5;
+  if (laceFar < 1.0) {
+    lA = textureGrad(uNoise, xz * 0.071 + t * vec2(0.003, -0.002), dx * 0.071, dy * 0.071).b;
+    lB = textureGrad(uNoise, (rot * xz) * 0.083 - t * vec2(0.002, 0.003) + 0.61, (rot * dx) * 0.083, (rot * dy) * 0.083).b;
+  }
   float lace = mix(hbNet(lA, lB, 0.05), 0.3, laceFar);
   // swash: a foam sheet runs in with each crest of the main swell and drains back, tearing open as it thins
   {

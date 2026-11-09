@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { BloomEffect, EdgeDetectionMaterial, SMAAEffect, SMAAPreset, SMAAWeightsMaterial, TiltShiftEffect, VignetteEffect } from "postprocessing";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fillGradeLUT, gradePixel, LUT_SIZE, PostChain, SlicedGradeLUT, TILT_MARGIN, TILT_OPACITY, tiltBand } from "./post";
+import { fillGradeLUT, gradePixel, HarbourBloomEffect, LUT_SIZE, PostChain, SlicedGradeLUT, TILT_MARGIN, TILT_OPACITY, tiltBand } from "./post";
 import { PreparationQueue } from "./preparation-queue";
 import type { PreparationService } from "./types";
 import { DEFAULT_KEYFRAMES, styleCDirection, TimeOfDay } from "./time-of-day";
@@ -106,8 +106,9 @@ describe("time of day", () => {
 
 describe("bloom mip ownership", () => {
   it("resizes only targets through 8→6→8→7→8 without disposing blur materials", () => {
-    const bloom = new BloomEffect({ mipmapBlur: true, levels: 8, radius: 0.72 });
+    const bloom = new HarbourBloomEffect({ mipmapBlur: true, levels: 8, radius: 0.72 });
     const pass = bloom.mipmapBlurPass;
+    const luminance = bloom.luminancePass as typeof bloom.luminancePass & { renderTarget: THREE.WebGLRenderTarget };
     const mip = pass as typeof pass & {
       downsamplingMaterial: THREE.ShaderMaterial;
       upsamplingMaterial: THREE.ShaderMaterial;
@@ -118,7 +119,7 @@ describe("bloom mip ownership", () => {
     const disposed = vi.fn();
     down.addEventListener("dispose", disposed);
     up.addEventListener("dispose", disposed);
-    pass.setSize(1600, 1000);
+    bloom.setSize(1600, 1000);
     const chain = Object.assign(Object.create(PostChain.prototype) as PostChain, {
       bloom, smaa: { applyPreset: vi.fn() },
     });
@@ -128,7 +129,7 @@ describe("bloom mip ownership", () => {
       const targetDisposed = vi.fn();
       for (const target of oldTargets) target.addEventListener("dispose", targetDisposed);
       chain.setQuality(TIERS[tier]);
-      expect(targetDisposed).toHaveBeenCalledTimes(oldTargets.length);
+      expect(targetDisposed.mock.calls.length).toBeGreaterThanOrEqual(oldTargets.length);
       // The output object is also sampled by BloomEffect's uniform: its identity must not change.
       expect(pass.texture).toBe(output);
       expect(pass.levels).toBe(TIERS[tier].bloomLevels);
@@ -136,7 +137,8 @@ describe("bloom mip ownership", () => {
       expect(mip.downsamplingMaterial).toBe(down);
       expect(mip.upsamplingMaterial).toBe(up);
       expect(disposed).not.toHaveBeenCalled();
-      let w = 1600, h = 1000;
+      let w = tier === "low" ? 800 : 1600, h = tier === "low" ? 500 : 1000;
+      expect([luminance.renderTarget.width, luminance.renderTarget.height]).toEqual([w, h]);
       for (const target of mip.downsamplingMipmaps) {
         w = Math.round(w * 0.5); h = Math.round(h * 0.5);
         expect([target.width, target.height]).toEqual([w, h]);
@@ -148,6 +150,26 @@ describe("bloom mip ownership", () => {
     }
     bloom.dispose();
     expect(disposed).toHaveBeenCalled();
+  });
+
+  it("keeps half-source luminance and mips through canvas/DPR resizes, restoring full sources above Low", () => {
+    const bloom = new HarbourBloomEffect({ mipmapBlur: true, levels: 6 });
+    const luminance = bloom.luminancePass as typeof bloom.luminancePass & { renderTarget: THREE.WebGLRenderTarget };
+    const source = luminance.renderTarget;
+    const mips = bloom.mipmapBlurPass as typeof bloom.mipmapBlurPass & { downsamplingMipmaps: THREE.WebGLRenderTarget[] };
+    const material = bloom.luminanceMaterial, version = material.version;
+    for (const lite of [true, false, true]) {
+      bloom.setLite(lite);
+      for (const [w, h] of [[5120, 3200], [2559, 1599], [1, 1]]) {
+        bloom.setSize(w, h);
+        const sw = lite ? Math.max(1, Math.round(w / 2)) : w, sh = lite ? Math.max(1, Math.round(h / 2)) : h;
+        expect([source.width, source.height]).toEqual([sw, sh]);
+        expect([mips.downsamplingMipmaps[0].width, mips.downsamplingMipmaps[0].height]).toEqual([Math.round(sw / 2), Math.round(sh / 2)]);
+        expect(luminance.renderTarget).toBe(source);
+        expect(material.version).toBe(version);
+      }
+    }
+    bloom.dispose();
   });
 });
 

@@ -21,9 +21,14 @@ varying vec2 vUv;
 varying float vAlpha;
 varying float vLife;
 void main() {
+  float on = step(aSeed.w, uSmokeAmt * 0.42);
+  if (on == 0.0) {
+    vUv = vec2(0.0); vLife = 0.0; vAlpha = 0.0;
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
   float rate = 0.075 + 0.03 * aSeed.y;                         // one puff cycle ≈ 10-13 s
   float life = fract(uSmokeT * rate + aSeed.x + aSeed.z);
-  float on = step(aSeed.w, uSmokeAmt * 0.42);
   float w = uWind.z;
   // rise slows as the wisp leans over; the wind carries it off, more the higher it gets
   float rise = (5.2 - 2.4 * w) * (1.0 - exp(-life * 2.6)) * 1.25;
