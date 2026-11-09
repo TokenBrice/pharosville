@@ -4,13 +4,16 @@ public/harbour/island.glb
   - static island merged per material into a few spatial chunks: hb_opaque / hb_window / hb_emissive
     (COLOR_0: rgb = albedo x baked AO, a = pattern id / 16, style C contract)
   - named runtime nodes kept separate: tide_board (flat board, UV u = hour 0..24, v = up), storm_mast (+ empties
-    storm_mast_cone_n0..4 / _s0..4), tide_gauge (+ tide_gauge_level), slipway, shakkei (distant hills)
+    storm_mast_cone_n0..4 / _s0..4), tide_gauge (+ tide_gauge_level), slipway
 (P6: public/harbour/lighthouse.glb, the Pharos of Alexandria, has its own builder: scripts/harbour/blender/pharos)
 outputs/harbour/island/window_lights.json  - layout lights (windows grouped per building + lamps)
 """
 import subprocess
 EXPORT_NORMALS = '--no-normals' not in ARGV    # the runtime material port reads NORMAL (patterns + lighting)
-EXPORT_SKIP_FAMILIES = {'keyart', 'life_keyart', 'sky', 'sea', 'fx', 'beam', 'life'}
+# E02 (V7): the mainland ('shakkei') is the sky card's painted ridges alone at runtime: it leaves the export.
+# 'mooring': the fleet places its kit buoy on every layout mooring and E04 recedes it with distance; a baked twin here
+# never receded (the far specks on the Roads), so the buoys belong to the fleet alone. Both stay in the key-art renders.
+EXPORT_SKIP_FAMILIES = {'keyart', 'life_keyart', 'sky', 'sea', 'fx', 'beam', 'life', 'shakkei', 'mooring'}
 OUT_PUB = os.path.join(ROOT, 'public/harbour')
 os.makedirs(OUT_PUB, exist_ok=True)
 t_exp = time.time()
@@ -83,6 +86,13 @@ for nm, col, em in (('hb_opaque', (1, 1, 1), None), ('hb_window', (0.13, 0.19, 0
     EXP_MAT[nm] = m
 
 EXC = bpy.data.collections.new('EXPORT'); scene.collection.children.link(EXC)
+# B24 (S12-I5): the runtime export drops the 2-6 cm edge bevels. The fixed camera never resolves them (about 0.3 m a
+# pixel at the landing, 4 cm at the closest zoom) and they cost a fifth of the island's vertices (3.7x on every box:
+# the civic-pad and terrace walls, mole crests, benches, crates, lamp pillars). The key-art renders keep them.
+BEVELS_OFF = [md for ob in scene.objects if ob.type == 'MESH' for md in ob.modifiers if md.type == 'BEVEL' and md.show_viewport]
+for _md in BEVELS_OFF:
+    _md.show_viewport = False
+bpy.context.view_layer.update()
 dg = bpy.context.evaluated_depsgraph_get()
 
 
@@ -218,7 +228,7 @@ for ob in list(scene.objects):
     role = mat_role(ob.data.materials[0] if ob.data.materials else None)
     if role is None:
         continue
-    nm = is_named(ob) or ('shakkei' if fam == 'shakkei' else None)
+    nm = is_named(ob)
     o = baked_copy(ob, ob.name + '_x')
     ensure_col(o.data)
     bake_sway(o, ob, fam)
@@ -321,12 +331,6 @@ for src_root in ('storm_mast', 'tide_gauge', 'slipway'):
     # the runtime looks the node up by its plain name
     e.name = src_root
 
-# shakkei: the mainland across the northern sound is its own node (render it with fog, no shadows needed)
-for o in NAMED_OUT:
-    if o.name.startswith('shakkei'):
-        o.name = 'shakkei'; o.data.name = 'shakkei'
-        o['runtime'] = 'mainland across the northern sound (shakkei): kit material + strong fog; cast no shadows'
-
 # ------------------------------------------------------------------ baked AO -> vertex colour (Cycles, GPU when available)
 def bake_ao(objs, distance=7.0, samples=48, strength=0.8):
     scene.render.engine = 'CYCLES'
@@ -390,7 +394,7 @@ def bake_ao(objs, distance=7.0, samples=48, strength=0.8):
         print('AO baked', o.name, round(float(occ.mean()), 3))
 
 
-opaque = [o for o in CHUNK_OBJS if o.get('role') == 'hb_opaque'] + [o for o in NAMED_OUT if o.type == 'MESH' and not o.name.startswith('shakkei')
+opaque = [o for o in CHUNK_OBJS if o.get('role') == 'hb_opaque'] + [o for o in NAMED_OUT if o.type == 'MESH'
                                                                        and o.data.materials and o.data.materials[0] == EXP_MAT['hb_opaque']]
 if '--no-ao' not in ARGV:
     bake_ao(opaque)
@@ -490,3 +494,5 @@ for ob in scene.objects:
     ob.hide_render = False
 for o in list(EXC.objects):
     o.hide_render = True
+for _md in BEVELS_OFF:          # a key-art render in the same run keeps its bevels
+    _md.show_viewport = True

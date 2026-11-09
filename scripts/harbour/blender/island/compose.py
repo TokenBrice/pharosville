@@ -813,12 +813,24 @@ HARBOUR_LIGHTS = [(BW_LINE[-1], 'red', 6.5)]       # the flame of hb_land's squa
 for _k, _sd in ((0.3, 1), (0.62, -1), (0.92, 1)):          # P6: lamps along the Pharos causeway's parapets
     _q = lerp(CW_A, CW_B, _k)
     LAMPS.append((_q[0] + _sd * (CW_W / 2 - 0.35), _q[1], 6.0, 'lamp', None))
+
+
+def mole_lamp_stations(n, k_exedra):
+    """E09 (O6-I8): the crest lamps light places, not a 24 m metronome: the walk's way in from the quay and its first
+    berths (three stations, two on a short mole), the pair flanking the exedra, and the approach to the pierhead
+    bastion and its harbour light (three / two); dark stretches between. About a third of the stations stay dark."""
+    g = 3 if n >= 11 else 2
+    return [k for k in range(n) if k < g or k >= n - g or k in (k_exedra, k_exedra + 1)]
+
+
 for _m in MOLES:          # the marina: a light on each pierhead (green to starboard coming in, red to port) + crest lamps
     HARBOUR_LIGHTS.append((_m['head'], 'green' if _m['name'] == 'grand' else 'red', Z_SHORE + 4.06))
-    _tot = polyline_len(_m['line']); _s = 12.0
-    while _s < _tot - _m['head_r'] - 8.0:
-        _p, _t = along(_m['line'], _s)
-        LAMPS.append((_p[0], _p[1], Z_SHORE, 'lamp', None)); _s += 24.0
+    _tot = polyline_len(_m['line'])
+    _n = int(math.ceil((_tot - _m['head_r'] - 8.0 - 12.0) / 24.0))      # the 24 m stations (12 + 24k) of the walk
+    _mid = 24.0 * max(1, round((_tot - _m['head_r'] - 1.0) / 48.0))     # the exedra (hb_land): between two stations
+    for _k in mole_lamp_stations(_n, int((_mid - 24.0) / 24.0)):
+        _p, _t = along(_m['line'], 12.0 + 24.0 * _k)
+        LAMPS.append((_p[0], _p[1], Z_SHORE, 'lamp', None))
     _p, _t = along(_m['line'], _tot - _m['head_r'] - 2.5)
     LAMPS.append((_p[0], _p[1], Z_SHORE, 'pierhead', PENNANT['pier-ethereum']))
 

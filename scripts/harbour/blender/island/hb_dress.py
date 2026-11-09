@@ -369,13 +369,14 @@ for fi, f in enumerate(terrain.FIELDS):
                 continue
             a_ = DRNG.uniform(0, 6.28); z_ = H(*q)
             merge(sheep, bm_ico(0.55, (q[0], q[1], z_ + 0.62), 1, (1.35, 0.85, 0.8), seed=DRNG.randint(0, 999), amp=0.12))
-            merge(sheep_h, bm_ico(0.24, (q[0] + math.cos(a_) * 0.75, q[1] + math.sin(a_) * 0.75, z_ + 0.72), 0, (1.2, 1.0, 1.0), seed=k))
+            merge(sheep_h, bm_pebble(0.24, (q[0] + math.cos(a_) * 0.75, q[1] + math.sin(a_) * 0.75, z_ + 0.72), (1.2, 1.0, 1.0), seed=k))
             for lx in (-0.3, 0.3):
                 merge(sheep_h, bm_cyl(0.07, 0.07, 0.4, 4, (q[0] + lx * math.cos(a_), q[1] + lx * math.sin(a_), z_)))
 refresh_occ()
 obj('field_walls', walls, PAL['rock'], PT['ashlar'], family='prop_wall', jitter=0.12)
-# 08-T1 terrace copings + the threshing-floor kerb: warm dry stone close to the grove floor's value (REVIEW #4: not grey)
-obj('terrace_lips', lips, lin('#A8A07C'), PT['rock'], family='prop_wall', jitter=0.08)
+# 08-T1 terrace copings + the threshing-floor kerb: warm dry stone close to the grove floor's value (REVIEW #4: not grey;
+# E20: a lower contrast against the worked-earth treads, so the terraces read by tone and not as pale planks)
+obj('terrace_lips', lips, lin('#9D9474'), PT['rock'], family='prop_wall', jitter=0.08)
 obj('field_vines', hedge, face=lambda q: ((PAL['vine_light'] if q.normal.z > 0.3 else PAL['vine']), PT['leaf']), family='veg', jitter=0.1)
 obj('field_sheep', sheep, lin('#EEE9DD'), PT['plain'], family='veg', jitter=0.04)
 obj('field_sheep_heads', sheep_h, lin('#2E2B29'), PT['plain'], family='veg')
@@ -478,13 +479,13 @@ def pine_variant(p, z):
     return 'young' if hsh < 0.3 else 'tiered'
 
 
-def place_pine(p, rng):
+def place_pine(p, rng, keep=True):
     z = H(*p)
     lb, tb = bmesh.new(), bmesh.new()
     z0 = z - 0.3
     nl_kit.umbrella_pine(lb, tb, (p[0], p[1], z0), rng.uniform(8.5, 12.5) * (1.0 if z > 12 else 0.85), rng)
     var = pine_variant(p, z)
-    PINE_VARIANTS[var] += 1
+    PINE_VARIANTS[var] += int(keep)
     if var == 'sheared':             # crown streamed downwind and pressed flat, the trunk leaning after it
         zs = [v.co.z for v in lb.verts]; zc = (min(zs) + max(zs)) / 2
         for b_ in (lb, tb):
@@ -495,15 +496,30 @@ def place_pine(p, rng):
             d = Vector((v.co.x - p[0], v.co.y - p[1]))
             v.co.x += WIND_TO.x * d.dot(WIND_TO) * 0.3; v.co.y += WIND_TO.y * d.dot(WIND_TO) * 0.3
             v.co.z = zc + (v.co.z - zc) * 0.78
-    elif var == 'young':             # a young pine: lower, its single crown rounder
+    elif var == 'young':             # a young pine: lower, its single crown rounder (E19: the pads are domed already)
         zs = [v.co.z for v in lb.verts]; zc = (min(zs) + max(zs)) / 2
         for v in lb.verts:
-            v.co.z = zc + (v.co.z - zc) * 1.5
+            v.co.z = zc + (v.co.z - zc) * 1.25
         for b_ in (lb, tb):
             for v in b_.verts:
                 v.co.x = p[0] + (v.co.x - p[0]) * 0.62; v.co.y = p[1] + (v.co.y - p[1]) * 0.62; v.co.z = z0 + (v.co.z - z0) * 0.62
+    if not keep:                     # E19: built (the scatter's draws stay the same) but not planted
+        lb.free(); tb.free()
+        return
     merge(LEAF['pine'], lb); merge(TRUNK['pine'], tb)
     TREES['pine'] += 1
+
+
+# E19 (O6-I6): the crest behind the amphitheatre is the heart frame's skyline above the Registry and the Customs House;
+# its pines stand in two groves with open hillside between and beside them (crest arc degrees round the amphitheatre
+# centre; 90 = straight behind it), not one even row of parasols. Cypresses still stand in the gaps.
+CREST_GAPS = ((82.0, 100.0), (106.0, 112.0))
+
+
+def place_crest_pine(p, rng):
+    u, v = uvp(*p)
+    a = math.degrees(math.atan2(v - CT_UV[1], u - CT_UV[0]))
+    place_pine(p, rng, keep=not any(lo <= a <= hi for lo, hi in CREST_GAPS))
 
 
 def place_cypress(p, rng):
@@ -549,7 +565,7 @@ for pid, cv in COVES.items():
             placer(('olive', 0.7), ('fig', 0.3)), 7.0, DRNG, max_try=300, grid=TREE_GRID)
 # the crest behind the amphitheatre: a band of umbrella pines against the sky, cypress spires among them
 CREST = [(CT_UV[0] + math.cos(math.radians(a)) * 133.0, CT_UV[1] + math.sin(math.radians(a)) * 133.0) for a in range(166, 8, -6)]
-scatter(120, crown_clear(line_sampler(CREST, 7.5), 1.5), place_pine, 4.6, DRNG, max_try=8000, grid=TREE_GRID)
+scatter(120, crown_clear(line_sampler(CREST, 7.5), 1.5), place_crest_pine, 4.6, DRNG, max_try=8000, grid=TREE_GRID)
 scatter(40, line_sampler(CREST, 9.0), place_cypress, 3.4, DRNG, max_try=2000, grid=TREE_GRID)
 scatter(80, crown_clear(line_sampler(terrain.WEST_SPINE, 9.0), 2.0), place_pine, 4.6, DRNG, max_try=8000, grid=TREE_GRID)
 scatter(70, crown_clear(line_sampler(terrain.EAST_SPINE, 8.5), 3.5), place_pine, 5.2, DRNG, max_try=5000, grid=TREE_GRID)
@@ -590,6 +606,18 @@ def seat_z(p, r):
 MQ_MIX = (('lavender', 0.25), ('rosemary', 0.25), ('broom', 0.15), ('oleander', 0.15), ('acanthus', 0.2))
 MQ_SHAPE = dict(lavender=(0.6, (1.4, 1.1, 0.55)), rosemary=(0.7, (1.25, 1.0, 0.7)), broom=(0.75, (1.0, 1.0, 1.15)),
                 oleander=(0.9, (1.1, 1.0, 1.05)), acanthus=(0.6, (1.35, 1.25, 0.45)))
+# B24 (S12-I5): the hinterland scrub (maquis clumps and garrigue cushions) is the island's most expensive transport per
+# triangle (noisy 20-face lumps, 11-13 B a face) and its densest decoration: about a third of the bushes, picked by
+# position, are built (the scatter's draws stay the same) but not planted. The ecological mask and the drifts remain;
+# the headland heath and the battery's ledge garden are kept whole.
+SCRUB_THIN = 0.36
+
+
+def plant_scrub(dst, bm_, p):
+    if terrain._hash(int(p[0] * 4.0), int(p[1] * 4.0), 59) < SCRUB_THIN:
+        bm_.free()
+    else:
+        merge(dst, bm_)
 
 
 def place_meadow(p, rng):
@@ -698,7 +726,7 @@ def place_eco(p, rng):
         for k_ in range(rng.randint(1, 3)):
             q = (p[0] + rng.uniform(-1.6, 1.6), p[1] + rng.uniform(-1.6, 1.6))
             rh = rng.uniform(0.45, 0.85)
-            merge(heath, bm_ico(rh, (q[0], q[1], seat_z(q, rh * 1.3) + 0.05), 0, (1.4, 1.0, 0.45), seed=rng.randint(0, 999), amp=0.3))
+            plant_scrub(heath, bm_ico(rh, (q[0], q[1], seat_z(q, rh * 1.3) + 0.05), 0, (1.4, 1.0, 0.45), seed=rng.randint(0, 999), amp=0.3), q)
         if k < 0.18:
             rr = rng.uniform(0.5, 1.2)
             merge(bould, bm_ico(rr, (p[0], p[1], seat_z(p, rr * 1.2) + 0.05), 1, (1.25, 1.0, 0.7), seed=rng.randint(0, 999), amp=0.35))
@@ -728,7 +756,7 @@ def place_eco(p, rng):
             r0, sc = MQ_SHAPE[sp]
             rr = r0 * rng.uniform(0.8, 1.25) * (1.0 if c_ == 0 else 0.75)
             sub_ = 1 if (c_ == 0 and rr > 0.8) else 0           # small satellites stay coarse (budget)
-            merge(MQ[sp], bm_ico(rr, (q[0], q[1], seat_z(q, rr) + rr * sc[2] * 0.55), sub_, sc, seed=rng.randint(0, 999), amp=0.3))
+            plant_scrub(MQ[sp], bm_ico(rr, (q[0], q[1], seat_z(q, rr) + rr * sc[2] * 0.55), sub_, sc, seed=rng.randint(0, 999), amp=0.3), q)
         return
     if k < 0.6:                          # the open meadow: tufts and flower drifts, the odd stone
         for q in range(3):
@@ -1019,7 +1047,7 @@ for (p, t, n) in CLUTTER:
         merge(nets, bm_ico(r, (q.x, q.y, Z_SHORE + 0.15), 2, (1.3, 1.0, 0.42), seed=int(abs(q.x)), amp=0.25))
         for k in range(5):
             a = DRNG.uniform(0, 6.28)
-            merge(corks, bm_ico(0.17, (q.x + math.cos(a) * r, q.y + math.sin(a) * r * 0.8, Z_SHORE + 0.45), 0, seed=k))
+            merge(corks, bm_pebble(0.17, (q.x + math.cos(a) * r, q.y + math.sin(a) * r * 0.8, Z_SHORE + 0.45), seed=k))
 for (x, y, z) in CJ['bollards'][::7]:
     t = bm_cyl(0.5, 0.5, 0.18, 10, (x + 1.2, y, z)); merge(t, bm_cyl(0.32, 0.32, 0.2, 10, (x + 1.2, y, z + 0.18)))
     merge(coils, t)
@@ -1205,9 +1233,13 @@ for b in CJ.get('beaches', []):
             top = q + nl * lean * 2.0
             merge(stakes, nl_kit.beam((q.x, q.y, -1.6), (top.x, top.y, SRNG.uniform(1.2, 2.4)), 0.28, 0.28))
     else:
-        for (q, t, nl) in strand_pts(line, 0.55, -0.3, 6.5, SRNG):                # the pebbles
+        for i_, (q, t, nl) in enumerate(strand_pts(line, 0.55, -0.3, 6.5, SRNG)):    # the pebbles (B24: every other one is laid)
             r_ = SRNG.uniform(0.12, 0.34)
-            merge(peb, bm_ico(r_, (q.x, q.y, max(H(q.x, q.y), 0.05) + r_ * 0.2), 0, (1.25, 1.0, 0.65), seed=SRNG.randint(0, 99)))
+            pb_ = bm_pebble(r_, (q.x, q.y, max(H(q.x, q.y), 0.05) + r_ * 0.2), (1.25, 1.0, 0.65), seed=SRNG.randint(0, 99))
+            if i_ % 2 == 0:
+                merge(peb, pb_)
+            else:
+                pb_.free()
         n_d = SRNG.randint(1, 2)
         for k in range(n_d):                                                      # dinghies drawn up, keel to the sky
             p, t = along(line, polyline_len(line) * SRNG.uniform(0.25, 0.85))
@@ -1480,7 +1512,7 @@ while _s < _Ls - 1.0:                                        # shingle at the wa
         q = Vector(p) + nl * _wrng.uniform(-0.6, 3.2) + t * _wrng.uniform(-1.2, 1.2)
         r_ = _wrng.uniform(0.16, 0.34)
         if point_in_poly(q.x, q.y, COAST) and _bare(q.x, q.y, r_):
-            merge(wpeb, bm_ico(r_, (q.x, q.y, H(q.x, q.y) + 0.02), 1, (1.0, 0.8, 0.45), seed=_k, amp=0.2))
+            merge(wpeb, bm_pebble(r_, (q.x, q.y, H(q.x, q.y) + 0.02), (1.0, 0.8, 0.45), seed=int(abs(q.x * 37.0 + q.y * 11.0))))
     _s += _wrng.uniform(1.4, 2.6)
 _s = 1.5
 while _s < _Ls - 1.5:                                        # marram grass in tussocks on the dunes behind the memorial
@@ -1493,7 +1525,8 @@ while _s < _Ls - 1.5:                                        # marram grass in t
             a_ = _wrng.uniform(0, 6.28); lean = _wrng.uniform(0.2, 0.6); hh = _wrng.uniform(0.9, 1.6)
             b0 = (q.x + math.cos(a_) * 0.15, q.y + math.sin(a_) * 0.15, zq)
             b1 = (b0[0] + math.cos(a_) * hh * lean, b0[1] + math.sin(a_) * hh * lean, zq + hh)
-            merge(wgrass, nl_kit.beam(b0, b1, 0.1, 0.04))
+            if _b % 3 != 2:                                    # B24: three-sided blades, two in three of them
+                merge(wgrass, bm_rod(b0, b1, 0.045, 3))
     _s += _wrng.uniform(0.9, 1.8)
 for _k in range(30):                                         # bleached driftwood strewn over the upper beach
     p, t = along(_strand, _wrng.uniform(0.04, 0.96) * _Ls)
