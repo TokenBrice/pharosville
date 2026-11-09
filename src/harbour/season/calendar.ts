@@ -185,3 +185,23 @@ export function meteorIntervalSec(on: { shower: MeteorShower; strength: number }
   const peak = 15 + 25 * (1 - Math.min(1, on.shower.zhr / 120));
   return 1 / (on.strength / peak + (1 - on.strength) / 300);
 }
+
+/**
+ * O7-I11 the cranes' passage over the harbour (the common crane's flyways), northern day of the year: spring
+ * 15 Feb – 30 Apr, autumn 20 Sep – 30 Nov. Calendar texture for the decorative score (life/score.ts), like the season.
+ */
+export const CRANE_PASSAGE: readonly (readonly [number, number])[] = [[46, 120], [263, 334]];
+/** O7-I11 starling murmurations at dusk: 1 Nov – 28 Feb (northern day of the year; the window wraps the new year). */
+export const MURMURATION_SEASON: readonly [number, number] = [305, 59];
+
+/** The cranes are passing on this northern-equivalent day: "spring" (bound north-east), "autumn" (south-west) or null. */
+export function cranePassage(nDay: number): "spring" | "autumn" | null {
+  if (nDay >= CRANE_PASSAGE[0][0] && nDay <= CRANE_PASSAGE[0][1]) return "spring";
+  if (nDay >= CRANE_PASSAGE[1][0] && nDay <= CRANE_PASSAGE[1][1]) return "autumn";
+  return null;
+}
+
+/** Starlings murmur at dusk on this northern-equivalent day. */
+export function murmurationSeason(nDay: number): boolean {
+  return nDay >= MURMURATION_SEASON[0] || nDay <= MURMURATION_SEASON[1];
+}
