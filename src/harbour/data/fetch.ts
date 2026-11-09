@@ -62,8 +62,8 @@ export function sanitizePayload(key: PharosVilleApiEndpointKey, data: unknown): 
         const clean: Record<string, unknown> = {};
         for (const [c, v] of Object.entries(cc)) if (v && typeof v.current === "number" && Number.isFinite(v.current)) clean[c] = v;
         const circ = (a.circulating ?? {}) as Record<string, unknown>;
-        const circClean: Record<string, number> = {};
-        for (const [k, v] of Object.entries(circ)) if (typeof v === "number" && Number.isFinite(v)) circClean[k] = v;
+        const circClean: Record<string, number | null> = {};
+        for (const [k, v] of Object.entries(circ)) circClean[k] = typeof v === "number" && Number.isFinite(v) ? v : null;
         return { ...a, chainCirculating: clean, circulating: circClean, chains: Array.isArray(a.chains) ? a.chains : [], symbol: String(a.symbol ?? a.id), name: String(a.name ?? a.id) };
       });
   }

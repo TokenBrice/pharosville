@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { truthCopy } from "../truth-copy";
 import { reportFixture } from "../../__fixtures__/report";
-import { browserObservation, createReadingSession, parseObservation, READING_KEY, READING_LIMIT, returnDigest, type BrowserObservation, type ReadingStorage } from "./digest";
+import { browserObservation, createReadingSession, parseObservation, READING_KEY, READING_LIMIT, returnDigest, serializeObservation, type BrowserObservation, type ReadingStorage } from "./digest";
 
 const now = Date.UTC(2026, 10, 8, 12);
 function observation(at = now): BrowserObservation {
@@ -16,13 +17,13 @@ const lines = (previous: BrowserObservation | null, current: BrowserObservation 
 describe("one bounded browser observation", () => {
   it("has no first-visit comparison, saves once and freezes the prior baseline", () => {
     const prior = observation(now - 86400e3), current = observation();
-    const disk = storage(JSON.stringify(prior)), session = createReadingSession(() => disk, now);
+    const disk = storage(serializeObservation(prior)), session = createReadingSession(() => disk, now);
     expect(session.getSnapshot().prior).toEqual(prior);
     expect(session.save(current)).toBe(true);
     expect(session.getSnapshot().prior).toEqual(prior);
     expect(session.save(observation(now + 1))).toBe(false);
     expect(disk.setItem).toHaveBeenCalledTimes(1);
-    expect(disk.setItem).toHaveBeenCalledWith(READING_KEY, JSON.stringify(current));
+    expect(disk.setItem).toHaveBeenCalledWith(READING_KEY, serializeObservation(current));
     const first = createReadingSession(() => storage(), now);
     expect(lines(first.getSnapshot().prior, current)).toEqual(["Comparison unavailable."]);
     expect(first.save(current)).toBe(true);
@@ -30,15 +31,23 @@ describe("one bounded browser observation", () => {
     expect(lines(prior, current)[0]).toBe("Compared with this browser's reading at 2026-11-07 12:00:00 UTC.");
   });
 
+  it("treats the old observation schema as no baseline", () => {
+    const old = JSON.stringify({ ...observation(), version: 1 });
+    expect(createReadingSession(() => storage(old), now).getSnapshot().prior).toBeNull();
+    const wire = JSON.parse(serializeObservation(observation()));
+    expect(wire.v).toBe(2);
+    for (const v of [1, 3]) expect(parseObservation(JSON.stringify({ ...wire, v }), now)).toBeNull();
+  });
+
   it("silently tolerates corrupt records and denied reads/writes/removals", () => {
-    for (const raw of ["{", "null", "[]", "{}", JSON.stringify({ ...observation(), version: 2 })]) {
+    for (const raw of ["{", "null", "[]", "{}", JSON.stringify({ ...observation(), version: 3 })]) {
       expect(createReadingSession(() => storage(raw), now).getSnapshot().prior).toBeNull();
     }
     const denied = createReadingSession(() => { throw new Error("denied"); }, now);
     expect(denied.getSnapshot().unavailable).toBe(true);
     expect(denied.save(observation())).toBe(false);
     expect(() => denied.forget()).not.toThrow();
-    const disk = storage(JSON.stringify(observation(now - 1)));
+    const disk = storage(serializeObservation(observation(now - 1)));
     disk.setItem = () => { throw new Error("quota"); };
     disk.removeItem = () => { throw new Error("denied"); };
     const session = createReadingSession(() => disk, now);
@@ -66,12 +75,33 @@ describe("one bounded browser observation", () => {
       (r) => { r.pegs[0].id = "outside-supply"; },
       (r) => { r.supply = []; },
     ];
-    for (const mutate of bad) { const record = observation(); mutate(record); expect(parseObservation(JSON.stringify(record), now)).toBeNull(); }
+    for (const mutate of bad) { const record = observation(); mutate(record); expect(parseObservation(serializeObservation(record), now)).toBeNull(); }
     const clock = vi.spyOn(Date, "now").mockReturnValue(now);
     const disk = storage(), session = createReadingSession(() => disk, now);
     expect(session.save(observation(now + 1))).toBe(false);
     expect(disk.setItem).not.toHaveBeenCalled();
     clock.mockRestore();
+  });
+
+  it("round-trips interned identities and rejects broken references and unknown fields", () => {
+    const record = observation();
+    record.supply[0].buckets = ["peggedUSD", "peggedEUR"];
+    record.pegs[0].method = "peg-row-2";
+    const raw = serializeObservation(record);
+    expect(parseObservation(raw, now)).toEqual(record);
+    const mutations = [
+      (w: Record<string, unknown>) => { w.g = 999; },
+      (w: Record<string, unknown>) => { (w.p as unknown[])[3] = 999; },
+      (w: Record<string, unknown>) => { (w.e as unknown[][])[0][0] = 999; },
+      (w: Record<string, unknown>) => { (w.e as unknown[][])[0][2] = 999; },
+      (w: Record<string, unknown>) => { (w.c as unknown[][])[0][3] = 999; },
+      (w: Record<string, unknown>) => { w.extra = true; },
+    ];
+    for (const mutate of mutations) {
+      const wire = JSON.parse(raw) as Record<string, unknown>;
+      mutate(wire);
+      expect(parseObservation(JSON.stringify(wire), now)).toBeNull();
+    }
   });
 
   it("records admitted current coherent sources only, preserving zero and null supply", () => {
@@ -100,6 +130,34 @@ describe("one bounded browser observation", () => {
     expect(browserObservation(null, {}, now)).toBeNull();
   });
 
+  it("keeps sanitized incomplete supply out of saved totals and digest movers", () => {
+    const f = reportFixture((u) => { (u.stablecoins.peggedAssets as Array<Record<string, unknown>>)[0].circulating = { peggedUSD: 10e6, peggedEUR: null }; });
+    const current = browserObservation(f.model, f.payloads, now)!;
+    expect(current.supply.find((r) => r.id === "usdc-circle")!.usd).toBeNull();
+    expect(parseObservation(serializeObservation(current), now)).toEqual(current);
+    const prior = observation(now - 1);
+    prior.supply.find((r) => r.id === "usdc-circle")!.usd = 8e6;
+    expect(lines(prior, current).some((s) => s.startsWith("USDC:"))).toBe(false);
+    expect(lines(prior, current)).toContain("1 coins lack a comparable reading.");
+  });
+
+  it("never compares PSI when either input coverage is degraded or unknown, even if flags match", () => {
+    for (const field of ["dewsUnavailable", "depegEventsUnavailable"] as const) {
+      for (const degradation of [true, null]) {
+        for (const side of ["prior", "current", "both"]) {
+          const prior = observation(now - 1), current = observation();
+          if (side !== "current") prior.psi[field] = degradation;
+          if (side !== "prior") current.psi[field] = degradation;
+          const line = lines(prior, current).find((s) => s.startsWith("PSI"))!;
+          expect(line).toContain("PSI comparison unavailable.");
+          if (degradation === true) expect(line).toContain(truthCopy({ kind: "psi-qualification", [field]: true }));
+        }
+      }
+    }
+    const f = reportFixture((u) => { delete (u.stability.current as Record<string, unknown>).inputDegradation; });
+    expect(browserObservation(f.model, f.payloads, now)!.psi.dewsUnavailable).toBeNull();
+  });
+
   it("compares only compatible PSI and peg methods/coverage; reports coverage separately", () => {
     const prior = observation(now - 86400e3), current = observation();
     prior.psi.score = 0; current.psi.score = 1;
@@ -108,11 +166,11 @@ describe("one bounded browser observation", () => {
     expect(lines(prior, current)).toContain("PSI comparison unavailable.");
     expect(lines(prior, current)).toContain("Off-peg comparison unavailable.");
     current.psi.method = `${prior.psi.method} `;
-    const untrimmed = parseObservation(JSON.stringify(current), now)!;
+    const untrimmed = parseObservation(serializeObservation(current), now)!;
     expect(untrimmed.psi.method).toBe(current.psi.method);
     expect(lines(prior, untrimmed)).toContain("PSI comparison unavailable.");
     current.psi.method = prior.psi.method; current.psi.dewsUnavailable = true;
-    expect(lines(prior, current)).toContain("PSI comparison unavailable.");
+    expect(lines(prior, current).find((s) => s.startsWith("PSI"))).toContain("PSI comparison unavailable.");
     current.pegMethod = prior.pegMethod;
     current.pegs[0].method = "peg-row-2";
     expect(lines(prior, current)).toContain("Off-peg comparison unavailable.");
@@ -134,7 +192,7 @@ describe("one bounded browser observation", () => {
   });
 
   it("forgets disk and frozen baseline and prevents this visit from silently saving it again", () => {
-    const disk = storage(JSON.stringify(observation(now - 1))), session = createReadingSession(() => disk, now), fn = vi.fn();
+    const disk = storage(serializeObservation(observation(now - 1))), session = createReadingSession(() => disk, now), fn = vi.fn();
     const unsubscribe = session.subscribe(fn);
     session.forget();
     expect(disk.removeItem).toHaveBeenCalledWith(READING_KEY);
@@ -145,14 +203,15 @@ describe("one bounded browser observation", () => {
     unsubscribe();
   });
 
-  it("benchmarks UTF-8 size and the validated serialization/save of a full 350-coin record", () => {
+  it("benchmarks UTF-8 size and the validated serialization/save of a full 625-coin fleet with 350 covered peg rows", () => {
     const f = reportFixture((u) => {
       const base = (u.stablecoins.peggedAssets as Array<Record<string, unknown>>)[0];
-      u.stablecoins.peggedAssets = Array.from({ length: 350 }, (_, i) => ({ ...base, id: `coin-${i}`, symbol: `C${i}`, circulating: { peggedUSD: i * 1e6 } })) as typeof u.stablecoins.peggedAssets;
-      u.pegSummary.coins = Array.from({ length: 350 }, (_, i) => ({ id: `coin-${i}`, currentDeviationBps: 0, activeDepeg: false, pegScore: 100, methodologyVersion: "peg-1" }));
+      u.stablecoins.peggedAssets = Array.from({ length: 625 }, (_, i) => ({ ...base, id: `stablecoin-test-coin-${i}`, symbol: `C${i}`, circulating: { peggedUSD: i * 1e6 } })) as typeof u.stablecoins.peggedAssets;
+      u.pegSummary.coins = Array.from({ length: 350 }, (_, i) => ({ id: `stablecoin-test-coin-${i}`, currentDeviationBps: 0, activeDepeg: false, pegScore: 100, methodologyVersion: "peg-1" }));
     });
     const record = browserObservation(f.model, f.payloads, now)!;
-    const serialized = JSON.stringify(record), bytes = new TextEncoder().encode(serialized).byteLength;
+    expect(record).not.toBeNull();
+    const serialized = serializeObservation(record), bytes = new TextEncoder().encode(serialized).byteLength;
     const timings: number[] = [];
     for (let i = 0; i < 20; i++) {
       const disk = storage(), session = createReadingSession(() => disk, now), start = performance.now();
@@ -161,7 +220,10 @@ describe("one bounded browser observation", () => {
     }
     const maxMs = Math.max(...timings);
     console.info(`digest benchmark: ${bytes} UTF-8 bytes; capture/validate/serialize/save max ${maxMs.toFixed(3)} ms (20 in-memory Storage writes)`);
-    expect(bytes).toBeLessThanOrEqual(READING_LIMIT);
+    expect(record.supply).toHaveLength(625);
+    expect(record.pegs).toHaveLength(350);
+    expect(parseObservation(serialized, now)).toEqual(record);
+    expect(bytes).toBeLessThanOrEqual(READING_LIMIT - 8 * 1024);
     expect(maxMs).toBeLessThan(50);
   });
 });

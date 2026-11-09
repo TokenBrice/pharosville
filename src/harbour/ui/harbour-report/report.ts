@@ -1,11 +1,11 @@
 import type { CoinRow, EndpointKey, HarbourModel, HarbourPayloads } from "../../model/types";
 import { endpointTruth } from "../../model/truth";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
-import { psiChange, psiObservations, utcObservation } from "../charts";
+import { psiObservations, utcObservation } from "../charts";
 import { coinNet, coverageLine, NET_UNAVAILABLE, VALUATION_UNKNOWN, type CoinFlow } from "../flow-copy";
 import { money, pctChange } from "../format";
 import { scopeName } from "../places";
-import { READING_NAMES, sourceTruth } from "../source-state";
+import { qualificationCopy, READING_NAMES, sourceTruth } from "../source-state";
 import { truthCopy } from "../truth-copy";
 
 export interface ReportSentence { text: string; inputs: Array<[string, string]> }
@@ -75,15 +75,9 @@ export function harbourReport(model: HarbourModel | null, payloads: HarbourPaylo
   const stability = payloads.stability?.data;
   const cur = stability?.current;
   const rows = psiObservations([...(stability?.history ?? []), ...(cur?.computedAt != null ? [{ date: cur.computedAt, score: cur.score, methodologyVersion: cur.methodologyVersion ?? stability?.methodology?.version ?? null }] : [])]).filter((r) => r.date * 1000 <= nowMs);
-  const end = rows.at(-1);
-  // Comparison buckets are dates, not a reconstructed path: a missing anchor date stays unavailable.
-  const targetDay = end ? Math.floor(end.date / 86400) - days : -1;
-  const start = rows.findLast((r) => Math.floor(r.date / 86400) === targetDay);
-  psiInputs.push(...rows.map((r) => input(`PSI at ${dated(r.date * 1000)}`, { score: r.score, methodology: r.methodologyVersion ?? null })));
-  const compatible = start && end && !!start.methodologyVersion?.trim() && start.methodologyVersion === end.methodologyVersion;
-  out.push({ text: currentSource(model, payloads, "stability", nowMs) && compatible
-    ? `PSI changed by ${psiChange([start, end]).replace(/\.$/, "")} between ${dated(start.date * 1000)} and ${dated(end.date * 1000)}.`
-    : "PSI comparison unavailable.", inputs: psiInputs });
+  psiInputs.push(input("Current PSI", cur), ...rows.map((r) => input(`PSI at ${dated(r.date * 1000)}`, { score: r.score, methodology: r.methodologyVersion ?? null })));
+  // History supplies no input-degradation evidence, so compatible coverage cannot be established.
+  out.push({ text: ["PSI comparison unavailable.", qualificationCopy(payloads)].filter(Boolean).join(" "), inputs: psiInputs });
 
   const flowInputs = [...sourceInputs("mintBurn"), input("Reported window", window)];
   // The projected rows retain every field these formatters consume, but omit unrelated upstream block heights.

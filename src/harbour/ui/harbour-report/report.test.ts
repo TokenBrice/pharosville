@@ -1,3 +1,4 @@
+import { qualificationCopy } from "../source-state";
 import { describe, expect, it } from "vitest";
 import { reportFixture } from "../../__fixtures__/report";
 import type { ProjectionJson } from "../../../../functions/api/_project";
@@ -38,6 +39,25 @@ describe("projected harbour report", () => {
     for (const value of [{ peggedUSD: NaN }, { peggedUSD: Infinity }, { peggedUSD: -1 }, { peggedUSD: 1, peggedEUR: null }, {}, null]) expect(completeSupply(value)).toBeNull();
   });
 
+  it("omits a sanitized mixed known/null supply instead of comparing its lower bound", () => {
+    const f = reportFixture((u) => { supplyRows(u)[0].circulating = { peggedUSD: 10e6, peggedEUR: null }; });
+    expect(f.payloads.stablecoins!.data!.peggedAssets[0].circulating).toEqual({ peggedUSD: 10e6, peggedEUR: null });
+    expect(texts(f)).not.toContain("USDC: +$2.00M reported USD supply value.");
+    expect(texts(f)).toContain("1 coins lack a comparable reading.");
+    expect(report(f)[0].inputs).toContainEqual(["Current total USD supply value", "5000000"]);
+  });
+
+  it("withholds PSI changes with degraded current inputs or unknown historical coverage and shares qualification copy", () => {
+    for (const degradation of [{ dewsUnavailable: true, depegEventsUnavailable: false }, { dewsUnavailable: false, depegEventsUnavailable: true }, null, {}]) {
+      const f = reportFixture((u) => { (u.stability.current as Record<string, ProjectionJson>).inputDegradation = degradation; });
+      const line = texts(f).find((s) => s.startsWith("PSI"))!;
+      expect(line).toContain("PSI comparison unavailable.");
+      if (qualificationCopy(f.payloads)) expect(line).toContain(qualificationCopy(f.payloads));
+      expect(line).not.toContain("PSI changed by");
+    }
+    expect(texts().find((s) => s.startsWith("PSI"))).toBe("PSI comparison unavailable.");
+  });
+
   it("does not double count duplicate IDs, fabricate totals without comparisons, or overflow", () => {
     const f = reportFixture((u) => {
       const rows = supplyRows(u);
@@ -59,17 +79,18 @@ describe("projected harbour report", () => {
     expect(texts(f).filter((s) => s.endsWith("reported USD supply value."))).toEqual(["a: +$1.00M reported USD supply value.", "b: +$1.00M reported USD supply value.", "d: +$1.00M reported USD supply value."]);
   });
 
-  it("cites actual PSI dates and refuses missing requested dates or incompatible/unknown methods", () => {
+  it("cites actual PSI dates but withholds comparisons without historical input coverage", () => {
     const f = reportFixture();
-    expect(texts(f)).toContain("PSI changed by +1.0 points between 2026-11-07 11:59:00 UTC and 2026-11-08 11:59:00 UTC.");
-    expect(texts(f, 7)).toContain("PSI changed by +11.0 points between 2026-11-01 11:59:00 UTC and 2026-11-08 11:59:00 UTC.");
-    for (const method of ["psi-2", null, ""]) {
+    expect(texts(f)).toContain("PSI comparison unavailable.");
+    expect(report(f).find((r) => r.text.startsWith("PSI"))!.inputs).toContainEqual(["PSI at 2026-11-07 11:59:00 UTC", '{"score":90,"methodology":"psi-1"}']);
+    expect(texts(f, 7)).toContain("PSI comparison unavailable.");
+    for (const method of ["psi-2", null, " "]) {
       const mismatch = reportFixture((u) => { (u.stability.history as Array<Record<string, ProjectionJson>>)[1].methodologyVersion = method; });
       expect(texts(mismatch)).toContain("PSI comparison unavailable.");
     }
     const sparse = reportFixture((u) => { u.stability.history = (u.stability.history as ProjectionJson[]).slice(0, 1); });
     expect(texts(sparse)).toContain("PSI comparison unavailable.");
-    expect(texts(sparse, 7).some((s) => s.startsWith("PSI changed by"))).toBe(true);
+    expect(texts(sparse, 7)).toContain("PSI comparison unavailable.");
   });
 
   it("reuses A08 qualifiers for all coverage statuses, withheld net and seven-day valuation/history", () => {
