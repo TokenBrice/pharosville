@@ -52,8 +52,8 @@ export const DEPLOY_GATE_VERDICT_PREFIX = "PHAROSVILLE_DEPLOY_GATE:";
 
 export function formatGateVerdict(perfOutcome) {
   return perfOutcome === "skipped"
-    ? `${DEPLOY_GATE_VERDICT_PREFIX} PASS_PERF_SKIPPED (every other check passed; Harbour real-GPU load/arrival checks were NOT measured)`
-    : `${DEPLOY_GATE_VERDICT_PREFIX} PASS (Harbour cold fast4g load, arrival readiness and static byte tripwires passed)`;
+    ? `${DEPLOY_GATE_VERDICT_PREFIX} PASS_PERF_SKIPPED (every other check passed; Harbour real-GPU load/arrival/links checks were NOT measured)`
+    : `${DEPLOY_GATE_VERDICT_PREFIX} PASS (Harbour cold fast4g load, arrival readiness, subject links and static byte tripwires passed)`;
 }
 
 function formatCommand(command, args) {
@@ -181,7 +181,11 @@ async function runHarbourPerfTripwire({ cwd, dist, port, out }) {
       "--url", `http://127.0.0.1:${port}/`, "--out", resolve(out, "arrival"),
     ]);
     if (arrivalCode !== 0 && arrivalCode !== PREVIEW_SKIP_EXIT_CODE) throw new Error(`Harbour arrival smoke exited ${arrivalCode}`);
-    return result.pass ? arrivalCode : 1;
+    const linksCode = await runPerfCommand(cwd, "scripts/harbour/links-smoke.mjs", [
+      "--url", `http://127.0.0.1:${port}/`, "--out", resolve(out, "links"),
+    ]);
+    if (linksCode !== 0 && linksCode !== PREVIEW_SKIP_EXIT_CODE) throw new Error(`Harbour links smoke exited ${linksCode}`);
+    return !result.pass ? 1 : [arrivalCode, linksCode].includes(PREVIEW_SKIP_EXIT_CODE) ? PREVIEW_SKIP_EXIT_CODE : 0;
   } finally {
     process.removeListener("SIGINT", stopOrigin);
     process.removeListener("SIGTERM", stopOrigin);

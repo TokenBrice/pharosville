@@ -1,3 +1,4 @@
+import { acceptanceChecks } from "./v180-fixtures.mjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
@@ -160,6 +161,7 @@ function release() {
   evidence.checks.push({ id: "steady-cpu4", file: "cpu.json", data: cpu });
   const control = steady(); control.meta.prof = "none"; control.meta.cpuThrottle = 1;
   evidence.checks.push({ id: "steady-control", file: "control.json", data: control });
+  evidence.checks.push(...acceptanceChecks());
   return { smoke, evidence };
 }
 
