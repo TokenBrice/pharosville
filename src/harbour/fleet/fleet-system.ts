@@ -602,12 +602,14 @@ export class FleetSystem implements WorldSystem {
   }
 
   private reconcileBoat(boat: Boat, prev: BoatRec | undefined, staging?: FleetStaging): BoatRec | undefined {
-    // unchanged hull, the common refresh: only her source reading moves, at commit; no staging copy of the record
-    if (staging && prev && prev.source.rig === boat.rig && prev.source.hullClass === boat.hullClass &&
+    if (prev && prev.source.rig === boat.rig && prev.source.hullClass === boat.hullClass &&
       prev.source.brandColor === boat.brandColor && prev.dead === (boat.state === "wrecked") &&
       prev.source.nullPeg === boat.nullPeg) {
+      // pose/sim owns every other reading; no geometry, colour, paint or atlas work. Staged (the common refresh),
+      // her new reading lands at commit, with no staged copy of the record.
       const rec = prev;
-      staging.commits.push(() => { rec.source = boat; });
+      if (staging) staging.commits.push(() => { rec.source = boat; });
+      else rec.source = boat;
       return rec;
     }
     const original = prev;
@@ -624,12 +626,6 @@ export class FleetSystem implements WorldSystem {
       const values = this.paintFor(id, family, color);
       staging.commits.push(() => { this.paint.set(values, inst * PAINT_TEXELS * 4); this.uniforms.uFleetPaint.value.needsUpdate = true; });
     };
-    if (prev && prev.source.rig === boat.rig && prev.source.hullClass === boat.hullClass &&
-      prev.source.brandColor === boat.brandColor && prev.dead === (boat.state === "wrecked") &&
-      prev.source.nullPeg === boat.nullPeg) {
-      prev.source = boat; // pose/sim owns every other reading; no geometry, colour, paint or atlas work
-      return finish(prev);
-    }
     const kit = this.kit!, layout = this.layout!, mesh = this.mesh!;
     const sameHull = prev && prev.source.rig === boat.rig && prev.source.hullClass === boat.hullClass;
     const hero = sameHull ? null : titanFor(boat.id, (v) => kit.hulls.has(v));
