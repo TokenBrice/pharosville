@@ -357,6 +357,10 @@ export class OceanSystem implements WorldSystem {
 
   update(frame: FrameState, ctx: EngineContext): void {
     this.syncFeatures();
+    this.mirror?.setConditions(
+      THREE.MathUtils.smoothstep(ctx.services.get("readings")?.fog ?? 0, 0, 1),
+      Math.max(ctx.uniforms.uPrecip.value.x, ctx.uniforms.uPrecip.value.y),
+    );
     if (this.awaitGround) {
       const ground = ctx.services.get("ground");
       if (ground?.heights) { this.awaitGround = false; this.rebuildFromGround(ground); }

@@ -149,6 +149,8 @@ export class MirrorPass extends Pass {
   private active = false;
   /** 0..1 eased toward `active` (MIRROR_FADE); the target lives until it reaches 0. */
   private shown = 0;
+  private visibility = 1;
+  private reflectionReady = false;
 
   constructor(private readonly view: THREE.PerspectiveCamera) {
     super(MIRROR_PASS_NAME);
@@ -180,12 +182,25 @@ export class MirrorPass extends Pass {
     const { width, height } = mirrorTargetSize(cssSize.x, cssSize.y);
     if (this.target.width === width && this.target.height === height) return;
     this.target.setSize(width, height);
+    this.reflectionReady = false;
     this.uniforms.uMirror.value.x = 0;   // the old reflection no longer matches the target
     this.uniforms.uMirror.value.w = 1.5 / height;
   }
 
   /** V15: 1 moves the quay-side lift while the mirror lays the walls' reflections (`?v15=0|1` for the A/B); it eases with the mirror. */
   setQuayLift(lift: number): void { this.quayLift = lift; }
+
+  /** Use the fog pass's eased amount and the weather's precipitation before the ocean draws. */
+  setConditions(fogAmount: number, precipitation: number): void {
+    this.visibility = (1 - fogAmount) * (1 - THREE.MathUtils.smoothstep(precipitation, 0, 0.05));
+    this.updateStrength();
+  }
+
+  private updateStrength(): void {
+    const eased = this.shown * this.shown * (3 - 2 * this.shown);
+    this.uniforms.uMirror.value.x = this.reflectionReady ? this.strength * eased * this.visibility : 0;
+    this.uniforms.uMirrorLift.value = this.quayLift * eased;
+  }
 
   /**
    * High entry creates the target (the ocean writes its mask from the next frame) and fades the mirror in; leaving High
@@ -213,6 +228,7 @@ export class MirrorPass extends Pass {
   private release(): void {
     this.enabled = false;
     this.shown = 0;
+    this.reflectionReady = false;
     this.target?.dispose();
     this.target = null;
     const u = this.uniforms;
@@ -239,9 +255,8 @@ export class MirrorPass extends Pass {
     } finally { renderer.setRenderTarget(previous); }
     // the ocean's next frame reads this reflection through the view-projection it was written with
     this.uniforms.uMirrorVP.value.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
-    const eased = this.shown * this.shown * (3 - 2 * this.shown);
-    this.uniforms.uMirror.value.x = this.strength * eased;
-    this.uniforms.uMirrorLift.value = this.quayLift * eased;
+    this.reflectionReady = true;
+    this.updateStrength();
   }
 
   /** Pass.dispose releases the material; the target goes first. */
