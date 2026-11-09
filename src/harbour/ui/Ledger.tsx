@@ -133,7 +133,7 @@ const LEGEND: Array<{ glyph: ReactNode; title: string; rule: string; more: strin
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M12 22h20a6 6 0 0 0 0-12 8 8 0 0 0-15-2 6 6 0 0 0-5 14zM16 26l-2 4M24 26l-2 4M32 26l-2 4" /></svg>,
-    title: "Weather", rule: "Weather is early-warning stress.", more: `${STATION_RULE} ${BOAT_SIGNALS_RULE} Weather rolling in from the horizon is the reading rising; a clearing line, a rainbow or a moonbow, a recovery.`,
+    title: "Weather", rule: "Weather is early-warning stress.", more: `${STATION_RULE} ${BOAT_SIGNALS_RULE} Weather rolling in from the horizon is the reading rising; a clearing line, a rainbow or a moonbow, a recovery. In rough weather the town and its animals take shelter.`,
   },
   {
     glyph: <svg viewBox="0 0 46 34" aria-hidden="true"><path {...G} d="M6 12h26M12 17h28M6 22h24M14 27h20" strokeDasharray="5 3" /></svg>,
