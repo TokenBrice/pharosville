@@ -141,3 +141,82 @@ reports retain all boxes. Transparent input is converted to sRGB with alpha remo
 Browser-free checks: `node scripts/perf/first-frame-bytes.test.mjs`,
 `node scripts/harbour/analyze-frame.test.mjs`, `node scripts/harbour/capture-provenance.test.mjs`
 and `node scripts/harbour/capture-hooks.test.mjs`. Engine profiler checks live in Vitest.
+
+## Lamplighter assertion gates and release receipt
+
+Run `npx vitest run tests/qa` for browser-free verdict and serialized-hook checks.
+The commands below are for the orchestrator on the shared real RTX browser. No
+hardware execution is implied by these tests.
+
+Soak asserts by default (`--assert` is explicit). Growth or an unrecovered scenario
+exits **1**; unsupported counters, missing phases or insufficient post-warmup
+measurements are **UNVERIFIED (78)**; an observed plateau exits **0**. Use
+`--diagnostic` explicitly to collect without asserting. Required counters include
+heap, logical GL geometry/texture/program counts, CDP page DOM listeners, workers
+and open audio contexts. Individual unsupported counters stay null/UNVERIFIED.
+Heap without `--gc` includes garbage; forced GC is intrusive. Neither logical GL
+counts nor a plateau establishes resident VRAM usage or proves absence of leaks.
+
+```bash
+npm run perf:soak -- --assert --snapshot outputs/perf/api-snapshot.json --out outputs/perf/soak-remount
+npm run perf:soak -- --assert --mode mounted --minutes 30 --interval 30000 --snapshot outputs/perf/api-snapshot.json --faults --out outputs/perf/soak-mounted
+npm run perf:soak -- --assert --mode mounted --minutes 30 --snapshot outputs/perf/api-snapshot.json --faults --reduced-motion --audio --out outputs/perf/soak-reduced-audio
+```
+
+Mounted mode keeps one tab and owner except its single intentional context rebuild.
+It refreshes all seven feeds, opens the ledger and Keeper's Log, synthesizes
+document visibility changes, checks renderer pause/wake, injects one worker error
+through the tracked worker and one actual `WEBGL_lose_context` loss/restore, and
+waits for coherent preparation. Synthetic visibility is labeled; it does not prove
+OS sleep/lock or audio-route behavior. Audio requires explicit `--audio`, uses a CDP
+user gesture and rapid off/on toggles. Reduced motion is installed before navigation.
+Replay advances monotonically within its one-day contract. Use a replay whose
+refreshes succeed for this recovery/growth run; outage semantics have separate tests.
+
+`perf:frame --assert --machine quiet --profiles standard --runs 3 --seconds 30`
+requires real RTX evidence, quiet load averages, pinned fixtures, day/night/storm
+coverage and stable quality/DPR/program populations. Frame-interval p95 must be
+≤16.7 ms; max is recorded separately. `--cpu-throttle 4 --prof 1` additionally
+requires CPU submission p95 ≤8 ms and zero Long Tasks after first fleet. `--prof gpu`
+requires completed, non-disjoint GPU samples; pair it with `--prof none` controls.
+The CPU ring and completed GPU populations are bounded windows; raw frame intervals
+cover the full 30 seconds. These are distinct clocks, not presentation timestamps.
+Use `--baseline FILE --max-gpu-ratio 0.7` for the Lite 30% GPU reduction gate, or
+ratio `1` for non-regression; baseline must match fixture, device/browser/backend,
+viewport and effective state and have a quiet PASS. No baseline is invented.
+Quiet load averages are a contention heuristic, not proof of isolation/thermal state.
+Use `--snapshot 'outputs/perf/{weather}.json'` for a built CALM/DANGER matrix.
+Storm fixture and `--weather` must actually agree on a production build (DEV overrides
+are ignored there). Single-state diagnostic matrices cannot pass the full steady gate.
+
+`node scripts/harbour/arrival-smoke.mjs --url http://127.0.0.1:4180/` checks the first
+nonempty fleet, simulation `ready`, lifecycle `READY`, posed and rendered `drawn ===
+readiness.boats` at the same revision, completed poster removal and zero console
+errors/warnings. It exits **0/1/78** for PASS/FAIL/no real GPU. `validate:release`
+runs this through the local non-CI GPU arm beside the existing load tripwire.
+
+After canonical deployment, extend the existing smoke rather than repeating asset
+transport verification:
+
+```bash
+npm run smoke:live -- --url https://pharosville.pharos.watch --sha FULL_COMMIT_SHA --receipt outputs/perf/canonical.json
+node scripts/pharosville/release-receipt.mjs --smoke outputs/perf/canonical.json --evidence outputs/perf/evidence.json --out outputs/perf/release-receipt.json
+```
+
+Evidence JSON contains `{sha, buildHash, fixtures: [fixtureHash], checks: [{id,file}],
+art: {status,reviewer,evidence}}`. Paths are relative to that JSON. Required IDs are
+`arrival`, `soak` (30+ minutes mounted, panels/wake/worker/context outcomes),
+`soak-remount`, `steady` (GPU profiler), `steady-cpu4` (CPU profiler at ×4), and
+`steady-control` (profiler off). Each references its existing summary. Raw summaries
+are embedded and re-evaluated; archive referenced capture JSON/logs alongside the
+receipt. Art PASS is a named review of native evidence, independently recorded.
+Missing required evidence is UNVERIFIED/78; measured failure remains FAIL/1.
+
+Canonical smoke records SHA, document/asset-registry identity, header/endpoint
+checks and freshness/availability warnings. Built capture identity uses the same
+document+registry digest, independent of which lazy panels a run opened. Captures
+must identify the same build/fixtures and match canonical delivery identity. DEV
+source hashes remain diagnostic; use the actual built artifact for release evidence.
+RTX rows are measured; Apple/D14, iGPU and other device/browser rows explicitly SKIP
+under PLAN §3. Emulation grants no physical-device claim. Receipt assembly is local
+evidence tooling; `.github/workflows/release.yml` retains sole publication ownership.
