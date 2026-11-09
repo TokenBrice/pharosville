@@ -1019,15 +1019,17 @@ export class FleetSystem implements WorldSystem {
 
   update(frame: FrameState, ctx: EngineContext): void {
     if (!this.mesh || this.failed) return;
-    // A completed fleet frame precedes decorative transport; first-fleet staging never waits on logos.
-    const ready = ctx.services.get("readiness");
-    const fleetDrawn = this.fleetFrame.revision > 0 && ready?.revision === this.fleetFrame.revision
-      && (this.fleetFrame.drawn ?? this.fleetFrame.boats) === ready.boats;
-    if (!this.logosAsked && fleetDrawn) {
+    // B22: first-fleet bytes own the frontier; the Engine opens decoration after a readiness-matched fleet frame (or its
+    // base-frame escape for valid-empty/waiting data). B17: logos then upload through the staged preparation queue.
+    if (!this.logosAsked && ctx.assets.decorationsReady) {
       this.logosAsked = true;
-      void this.atlas?.loadLogos(ctx.services.get("preparation")).catch((error: unknown) => { if (!isAbort(error)) console.warn("[harbour] emblem upload failed", error); });
+      requestAnimationFrame(() => {
+        if (ctx.signal?.aborted) return;
+        void this.atlas?.loadLogos(ctx.services.get("preparation")).catch((error: unknown) => { if (!isAbort(error)) console.warn("[harbour] emblem upload failed", error); });
+      });
     }
-    if (this.coveState === "wait" && fleetDrawn) { this.coveState = "loading"; void this.loadCove(); }
+    // Wreck Cove's kit is also deferred (the cove lies off both default views).
+    if (this.coveState === "wait" && this.model && ctx.assets.decorationsReady) { this.coveState = "loading"; requestAnimationFrame(() => { if (!ctx.signal?.aborted) void this.loadCove(); }); }
     const t0 = performance.now();
     const model = ctx.services.get("model");
     const sim = ctx.services.get("sim");

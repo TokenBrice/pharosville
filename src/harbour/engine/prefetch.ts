@@ -2,6 +2,8 @@ import { CIVIC_BASE, type CivicManifest } from "../civic/assemble";
 import { KIT_BASE, type KitManifest } from "../fleet/hull-kit";
 import { ISLAND_URL } from "../world/island-system";
 import { LIGHTHOUSE_URL } from "../world/lighthouse-system";
+import layoutUrl from "../data/layout.json?url";
+import type { HarbourLayout } from "../layout/types";
 import type { AssetStore } from "./assets";
 
 /**
@@ -17,13 +19,18 @@ export function prefetchHarbour(assets: AssetStore): void {
   void assets.prefetch(LIGHTHOUSE_URL);
   const civic = assets.json<CivicManifest>(`${CIVIC_BASE}manifest.json`).catch(() => null);
   const kit = assets.json<KitManifest>(`${KIT_BASE}manifest.json`).catch(() => null);
-  void island.then(async () => {
+  const layout = assets.json<HarbourLayout>(layoutUrl).catch(() => null);
+  void Promise.all([island, civic, layout]).then(([, manifest, layout]) => {
     if (assets.signal.aborted) return;
-    for (const spec of Object.values((await civic)?.kinds ?? {})) void assets.prefetch(CIVIC_BASE + spec.file);
-    for (const h of (await kit)?.hulls ?? []) {
+    const files = new Set(layout?.civic?.map((plot) => manifest?.kinds[plot.kind]?.file));
+    for (const file of files) if (file) void assets.prefetch(CIVIC_BASE + file);
+  });
+  void Promise.all([island, kit]).then(([, manifest]) => {
+    if (assets.signal.aborted) return;
+    for (const h of manifest?.hulls ?? []) {
       void assets.prefetch(KIT_BASE + h.file);
       if (h.lod) void assets.prefetch(KIT_BASE + h.lod);
     }
-    for (const p of (await kit)?.props ?? []) void assets.prefetch(KIT_BASE + p.file);
+    for (const p of manifest?.props ?? []) void assets.prefetch(KIT_BASE + p.file);
   });
 }

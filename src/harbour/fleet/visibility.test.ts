@@ -43,6 +43,25 @@ function fixture(shadows: boolean) {
 }
 
 describe("conservative fleet visual culling", () => {
+  it.each([false, true])("defers logos and Wreck Cove until the engine opens the frontier, respecting cancellation=%s", (cancelled) => {
+    const f = fixture(false), lifetime = new AbortController();
+    const callbacks: FrameRequestCallback[] = [], loadLogos = vi.fn(() => Promise.resolve()), loadCove = vi.fn(); // B17: staged uploads return a promise
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => callbacks.push(cb));
+    Object.assign(f.context, { assets: { decorationsReady: false }, signal: lifetime.signal });
+    Object.assign(f.system, { logosAsked: false, coveState: "wait", atlas: { loadLogos }, loadCove });
+    try {
+      f.system.update(frame, f.context);
+      expect(callbacks).toHaveLength(0);
+      f.context.assets.decorationsReady = true;
+      f.system.update(frame, f.context); f.system.update(frame, f.context);
+      expect(callbacks).toHaveLength(2);
+      if (cancelled) lifetime.abort();
+      for (const callback of callbacks) callback(0);
+      expect(loadLogos).toHaveBeenCalledTimes(cancelled ? 0 : 1);
+      expect(loadCove).toHaveBeenCalledTimes(cancelled ? 0 : 1);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it("bounds furl, mirror and arbitrary pivot rotation without assuming a boom angle", () => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute([3, 4, 0], 3));

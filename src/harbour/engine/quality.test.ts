@@ -6,12 +6,19 @@ import type { Grade } from "./time-of-day";
 describe("quality ladder", () => {
   it("never renders above the device pixel ratio and dedupes rungs", () => {
     const one = ladderFor(1);
-    expect(one.map((r) => `${r.tier}@${r.dpr}`)).toEqual(["low@1", "medium@1", "high@1"]);
+    expect(one.map((r) => `${r.tier}@${r.dpr}`)).toEqual(["low@0.5", "low@0.67", "low@0.8", "low@1", "medium@1", "high@1"]);
     const two = ladderFor(2);
     expect(two[two.length - 1]).toEqual({ tier: "high", dpr: 2 });
     expect(ladderFor(3)[ladderFor(3).length - 1].dpr).toBe(2);
     for (const r of ladderFor(1.5)) expect(r.dpr).toBeLessThanOrEqual(1.5);
-    expect(ladderFor(0.8).map((r) => r.dpr)).toEqual([0.8, 0.8, 0.8]); // Native zoom density, not rescue rungs.
+    expect(ladderFor(0.8).map((r) => r.dpr)).toEqual([0.5, 0.67, 0.8, 0.8, 0.8]);
+    expect(ladderFor(0.4).map((r) => r.dpr)).toEqual([0.4, 0.4, 0.4]);
+  });
+
+  it("keeps tier floors while deduplicating ceiling-clamped resolution states", () => {
+    const capped = ladderFor(2, 0.7);
+    expect(capped).toEqual([{ tier: "low", dpr: 0.5 }, { tier: "low", dpr: 0.67 }, { tier: "low", dpr: 0.7 }, { tier: "medium", dpr: 0.7 }, { tier: "high", dpr: 0.7 }]);
+    expect(ladderFor(2).filter((r) => r.tier !== "low").every((r) => r.dpr >= 1.25)).toBe(true);
   });
 
   it("starts integrated GPUs at Medium 1.5 and discrete GPUs at the top", () => {
@@ -58,12 +65,18 @@ describe("hard backing limits", () => {
     expect(backingLimitsFor(gl)).toEqual(expected);
   });
 
-  it("clamps before allocation, allowing below-one only when hard dimensions require it", () => {
+  it("clamps before allocation against hard dimensions and the 4 MP ceiling", () => {
     const limits = { width: 4096, height: 2048 };
     expect(backingDpr(1000, 700, 2, limits)).toBe(2);
-    expect(backingDpr(4000, 1000, 2, limits)).toBe(1.024);
+    expect(backingDpr(4000, 1000, 2, limits)).toBe(1);
     expect(backingDpr(1000, 4000, 2, limits)).toBe(0.512);
-    expect(backingDpr(8000, 4000, 1, limits)).toBe(0.512);
+    expect(backingDpr(8000, 4000, 1, limits)).toBe(Math.sqrt(0.125));
+  });
+
+  it.each([[3840, 2160], [2560, 1600], [1600, 2560], [9000, 4000]])("budgets %i×%i CSS pixels before any tier or override allocates", (width, height) => {
+    const dpr = backingDpr(width, height, 2, { width: 16384, height: 16384 });
+    expect(Math.floor(width * dpr) * Math.floor(height * dpr)).toBeLessThanOrEqual(4_000_000);
+    expect(dpr).toBeCloseTo(Math.sqrt(4_000_000 / (width * height)));
   });
 });
 
