@@ -44,6 +44,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   trueBearing: "v1.5.0",
   sailsByNight: "v1.5.1",
   clearAir: "v1.6.0",
+  lamplighter: "v1.7.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.clearAir;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.lamplighter;
