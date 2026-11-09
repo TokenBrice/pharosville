@@ -20,7 +20,7 @@ const FIRST_S = 180, FIRST_SPAN_S = 540;
 /** A chance that finds nothing allowed looks again this much later (s). */
 const RETRY_S = 5;
 /** How long each cue holds the sky (s), for the dev repeat (`?score=`). */
-export const CUE_S: Record<ScoreCue, number> = { cranes: 70, murmuration: 100, splash: 20 };
+export const CUE_S: Record<ScoreCue, number> = { cranes: 95, murmuration: 100, splash: 20 };
 
 /** DEWS level index (weather director: CALM 0 … WARNING 3, DANGER 4) at or above which life shelters. */
 export const SHELTER_LEVEL = 2.5;
@@ -67,21 +67,26 @@ export class Score {
 
   /**
    * @param seed the visit's seed (the same seed and the same sky give the same score)
-   * @param force dev `?score=`: that cue only, from 2 s in, again as soon as it has finished (captures, gates)
+   * @param force dev `?score=`: that cue only, whatever the calendar, from 2 s in and again as soon as it has finished
+   *   (captures, gates); the exclusions still hold
    */
   constructor(seed: number, private readonly force: ScoreCue | null = null) {
     this.r = rng(seed);
     this.next = force ? 2 : FIRST_S + this.r() * FIRST_SPAN_S;
   }
 
+  /** A chance is due (build the gate only then: no per-frame garbage). */
+  due(t: number): boolean { return t >= this.next; }
+
   /** The cue to start now, or null (one comparison on most frames). */
   step(g: ScoreGate): ScoreCue | null {
     if (g.t < this.next || !g.moving || g.staged || g.shelter) return null;
     let open = 0, pick: ScoreCue | null = null;
-    for (const c of SCORE_CUES) if ((this.force === null || c === this.force) && g.allowed(c)) open++;
+    const ok = (c: ScoreCue) => (this.force === null ? g.allowed(c) : c === this.force);
+    for (const c of SCORE_CUES) if (ok(c)) open++;
     if (!open) { this.next = g.t + RETRY_S; return null; }
     let k = Math.floor(this.r() * open);
-    for (const c of SCORE_CUES) if ((this.force === null || c === this.force) && g.allowed(c) && k-- === 0) { pick = c; break; }
+    for (const c of SCORE_CUES) if (ok(c) && k-- === 0) { pick = c; break; }
     if (!pick) return null;
     this.next = g.t + (this.force ? CUE_S[pick] + 5 : SCORE_GAP_S);
     this.log.push({ cue: pick, t: g.t });

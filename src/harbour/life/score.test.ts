@@ -65,6 +65,9 @@ describe("the decorative score", () => {
     expect(forced[1].t - forced[0].t).toBeCloseTo(CUE_S.cranes + 5, 1);
     expect(forced.every((c) => c.cue === "cranes")).toBe(true);
     expect(run(new Score(1, "cranes"), 200, () => ({ moving: true, staged: false, shelter: true, allowed: ALL }))).toEqual([]);
+    expect(run(new Score(1, "cranes"), 200, () => ({ moving: false, staged: false, shelter: false, allowed: ALL }))).toEqual([]);
+    // whatever the calendar (captures stage a cue at any hour)
+    expect(run(new Score(1, "murmuration"), 10, () => ({ moving: true, staged: false, shelter: false, allowed: () => false }))[0]?.cue).toBe("murmuration");
     expect(parseScoreForce("splash")).toBe("splash");
     expect(parseScoreForce("swarm")).toBeNull();
     expect(parseScoreForce(null)).toBeNull();

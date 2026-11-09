@@ -7,14 +7,15 @@ import { LandFlags } from "./flags";
 import { Townsfolk, type FolkGround } from "./folk";
 import { Dolphins } from "./dolphins";
 import { BEASTS_URL, beastGeometry, Herds, type CatSeat } from "./herds";
-import { Gulls } from "./gulls";
+import { Gulls, type ScoreSkies } from "./gulls";
 import { ChimneySmoke } from "./smoke";
 import { SeasonalDrift } from "./drift";
 import { roleDensity, stormShare } from "./roles";
 import { smokeAmount, townDensity, type Walkways } from "./walkways";
 import { extraEnabled } from "../engine/extras";
 import type { CivicPlot } from "../civic/assemble";
-import { doveHour, shelters } from "./score";
+import { cueAllowed, doveHour, parseScoreForce, Score, shelters, type ScoreGate, type ScoreSky } from "./score";
+import { cranePassage, northernDay } from "../season/calendar";
 
 export const WALKWAYS_URL = "/harbour/walkways.json";
 
@@ -26,6 +27,14 @@ const GULLS = 14;
  * manifest.json customs flag_pole_top, plot-local z) and a height inside the tower top (m above the plot).
  */
 const TOWER_AXIS_Z = -3.5, ROOST_Y = 18.5;
+/**
+ * O7-I11 the score's skies: the crane V crosses 160 m south-east of the heart at 70 m (below the Pharos on the
+ * landing view, never across it), bound south-west in autumn and north-east in spring; the murmuration gathers 32 m
+ * over the west lobe's near shore (its land, not the dark sea, behind it on the landing view), streams in from the
+ * north-west and pours down into the lobe's trees.
+ */
+const CRANE_OFFSET = 113, CRANE_Y = 70, CRANE_SW = -Math.PI / 4, CRANE_NE = (3 * Math.PI) / 4;
+const MURMUR_XZ: readonly [number, number] = [-195, 100], MURMUR_UP = 32;
 
 /** 'life' service: the wind the life layer is showing (read by the ambience layer). */
 export interface LifeService {
@@ -90,6 +99,10 @@ export class LifeSystem implements WorldSystem {
   /** dev `?doves=now`: the doves lift 3 s in, then every 40 s (a pinned `?t=` freezes the clock) */
   private readonly dovesNow = import.meta.env.DEV && new URLSearchParams(location.search).get("doves") === "now";
   private dovesNext = 3;
+  /** O7-I11 the rare cues' scheduler (life/score.ts); its sky and gate are reused (no per-frame garbage) */
+  private score: Score | null = null;
+  private readonly sky: ScoreSky = { nDay: 180, clock: 12, sunrise: 6.5, sunset: 18.5, dolphins: false };
+  private readonly gate: ScoreGate = { t: 0, moving: true, staged: false, shelter: false, allowed: (c) => cueAllowed(c, this.sky) };
 
   async init(ctx: EngineContext): Promise<void> {
     this.group.name = "life";
@@ -158,7 +171,17 @@ export class LifeSystem implements WorldSystem {
     const roost = tower ? new THREE.Vector3(
       tower.position[0] + Math.sin(tower.rotationY ?? 0) * TOWER_AXIS_Z, tower.position[1] + ROOST_Y, tower.position[2] + Math.cos(tower.rotationY ?? 0) * TOWER_AXIS_Z,
     ) : null;
-    this.gulls = new Gulls({ circles, perches, squares, roost }, mats, GULLS);
+    let skies: ScoreSkies | null = null;
+    if (this.scoreOn && heart) {
+      const [mx, mz] = MURMUR_XZ, gy = (x: number, z: number) => Math.max(0, ground?.heightAt(x, z) ?? 0), g0 = gy(mx, mz);
+      skies = {
+        cranes: new THREE.Vector3(heart[0] + CRANE_OFFSET, CRANE_Y, heart[2] + CRANE_OFFSET),
+        murmur: new THREE.Vector3(mx, g0 + MURMUR_UP, mz), murmurFrom: new THREE.Vector3(mx - 170, g0 + 140, mz - 260), murmurTo: new THREE.Vector3(mx, g0 - 6, mz),
+      };
+      // seeded by the visit (the same seed and the same sky give the same score)
+      this.score = new Score(Date.now() % 2_147_483_647, import.meta.env.DEV ? parseScoreForce(new URLSearchParams(location.search).get("score")) : null);
+    }
+    this.gulls = new Gulls({ circles, perches, squares, roost, skies }, mats, GULLS);
     this.gulls.busy = new URLSearchParams(location.search).get("gulls") === "busy";
     this.group.add(this.gulls.mesh);
 
@@ -227,8 +250,11 @@ export class LifeSystem implements WorldSystem {
     }
     // 09-L6: the fleet for the gulls (hulls casting off to trail, mastheads to stand on)
     this.gulls?.setShips(sim?.pose ?? null, ctx.services.get("mastheads") ?? null);
-    // O7-I10 the hour told by doves: on the hour bell's hours, 06–22 (the bell's own clock), unless life shelters
-    // (DEWS Warning / Danger), a staged moment holds the stage, or nothing may move
+    // the weather as life reads it: dolphins only in the calm bands of a fresh reading; life shelters in Warning / Danger
+    const level = ctx.services.get("weather")?.state.level ?? null;
+    const calm = level !== null && level < 1.5 && (ctx.services.get("readings")?.fog ?? 0) < 0.05;
+    // O7-I10 the hour told by doves: on the hour bell's hours, 06–22 (the bell's own clock), unless life shelters,
+    // a staged moment holds the stage, or nothing may move
     if (this.scoreOn && this.gulls) {
       const hf = Math.floor(((ctx.timeOfDay.clockHour % 24) + 24) % 24);
       const strike = this.doveHourSeen >= 0 && hf !== this.doveHourSeen && doveHour(hf);
@@ -236,7 +262,18 @@ export class LifeSystem implements WorldSystem {
       const dev = this.dovesNow && frame.elapsed >= this.dovesNext;
       if (dev) this.dovesNext = frame.elapsed + 40;
       const staged = (ctx.services.get("events")?.current ?? null) !== null;
-      if ((strike || dev) && moving && !staged && !shelters(ctx.services.get("weather")?.state.level ?? null)) this.gulls.liftDoves();
+      if ((strike || dev) && moving && !staged && !shelters(level)) this.gulls.liftDoves();
+      // O7-I11 the rare cues (≤ 1 per 20 min, life/score.ts): the gate is built only when a chance is due
+      if (this.score?.due(frame.elapsed)) {
+        const g = this.gate, k = this.sky;
+        g.t = frame.elapsed; g.moving = moving; g.staged = staged; g.shelter = shelters(level);
+        k.nDay = season ? northernDay(season.dayOfYear, season.southern) : 180; k.clock = ctx.timeOfDay.clockHour;
+        k.sunrise = season?.sunrise ?? 6.5; k.sunset = season?.sunset ?? 18.5; k.dolphins = calm && this.dolphins !== null;
+        const cue = this.score.step(g);
+        if (cue === "cranes") this.gulls.fly(cranePassage(k.nDay) === "spring" ? CRANE_NE : CRANE_SW);
+        else if (cue === "murmuration") this.gulls.murmur();
+        else if (cue === "splash") this.dolphins?.armSplash();
+      }
     }
     // 09-L7: swallows over the squares at dusk in spring and summer (fewer in a blow)
     const dusk = THREE.MathUtils.smoothstep(hour, 17.8, 18.5) * (1 - THREE.MathUtils.smoothstep(hour, 20.1, 20.8));
@@ -254,9 +291,7 @@ export class LifeSystem implements WorldSystem {
     this.folk.setCarter(this.herds?.carter() ?? null);
     if (this.dolphins) {
       // only in the calm bands (DEWS CALM / WATCH) of a fresh reading: no reading, stale fog or rough weather = none
-      const level = ctx.services.get("weather")?.state.level ?? null;
-      const fog = ctx.services.get("readings")?.fog ?? 0;
-      this.dolphins.update(dt, level !== null && level < 1.5 && fog < 0.05, moving, 0, ctx.services.get("wake"));
+      this.dolphins.update(dt, calm, moving, 0, ctx.services.get("wake"));
     }
   }
 
