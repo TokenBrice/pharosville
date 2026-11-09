@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../engine/types";
-import { Ambience, BREATH, BREATH_SEC, ONRAMP, ONRAMP_FLOOR, POCKET, type AmbienceInputs } from "./ambience";
+import { Ambience, BREATH, BREATH_SEC, HORN_GAIN, ONRAMP, ONRAMP_FLOOR, POCKET, STACK_DB, type AmbienceInputs } from "./ambience";
 import { ClipBank } from "./bank";
 import { makeRng, type ClipKind } from "./dsp";
 import { Feeder } from "./feed";
@@ -48,7 +48,8 @@ class Ctx {
   resume = vi.fn(async () => undefined); suspend = vi.fn(async () => undefined); close = vi.fn(async () => undefined);
 }
 interface Graph {
-  out: Node; pocket: Node; duck: Node; bedGain: Node; windLow: Node; howlBus: Node;
+  out: Node; pocket: Node; duck: Node; stack: Node; bedGain: Node; windLow: Node; howlBus: Node;
+  shoreBus: Node; reefBus: Node; lapBus: Node; thunderBus: Node; hornBus: Node;
   next: { wave: number; lap: number; gull: number };
   rnd(): number;
   play(kind: ClipKind, at: number, to: unknown, level: number, pan?: number, rate?: number): boolean;
@@ -218,6 +219,62 @@ describe("harbour sound mix (E31–E34)", () => {
       expect(o.to[0].to[0].to[0].to[0].gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0, 0.88);
     }
   });
+
+  it("S1: the foghorn still sounds over stale data, 12 dB under its first level (set against the stale harbour)", () => {
+    const { ac, amb, g } = ambience({ fog: 1, seaAvailable: false });
+    vi.spyOn(g, "play").mockReturnValue(true);
+    const from = ac.nodes.length;
+    run(ac, amb, 0.12, 4);
+    expect(g.hornBus.gain.value).toBe(HORN_GAIN);
+    expect(20 * Math.log10(HORN_GAIN / 0.26)).toBeCloseTo(-12, 0);
+    expect(ac.nodes.slice(from).filter((n) => n.type === "sawtooth")).toHaveLength(3);
+  });
+
+  it("S4: both storms at once trim both storms' beds by STACK_DB × min(storm, sea state); either storm alone is untouched", () => {
+    const rough: AmbienceInputs["sea"] = [0.85, 1, 1, 1.35], flat: AmbienceInputs["sea"] = [0.1, 0.35, 0, 0.8];
+    const trim = (inputs: Partial<AmbienceInputs>) => {
+      const { ac, amb, g } = ambience(inputs);
+      vi.spyOn(g, "play").mockReturnValue(true);
+      run(ac, amb, 0.12, 0.5);
+      return g.stack.gain.setTargetAtTime.mock.calls.at(-1)?.[0];
+    };
+    expect(trim({ storm: 1, rain: 1, wind: 1, seaAvailable: true, sea: rough })).toBeCloseTo(10 ** (STACK_DB / 20));
+    expect(trim({ storm: 0.5, seaAvailable: true, sea: rough })).toBeCloseTo(10 ** (STACK_DB / 40));
+    expect(trim({ storm: 1, rain: 1, wind: 1, seaAvailable: true, sea: flat })).toBe(1);
+    expect(trim({ storm: 0, seaAvailable: true, sea: rough })).toBe(1);
+    // no sea reading: the truth rule silences the surf, so nothing stacks
+    expect(trim({ storm: 1, seaAvailable: false, sea: rough })).toBe(1);
+    // the trim carries the weather beds (through the duck and the pocket) and the analytical surf; never the
+    // thunder, the laps, the foghorn or the music
+    const { amb, g } = ambience();
+    expect(g.duck.to).toEqual([g.pocket]);
+    expect(g.pocket.to).toEqual([g.stack]);
+    expect(g.stack.to).toEqual([g.out]);
+    expect(g.shoreBus.to).toEqual([g.stack]);
+    expect(g.reefBus.to).toEqual([g.stack]);
+    for (const n of [g.thunderBus, g.lapBus, g.hornBus, amb.musicIn() as unknown as Node]) expect(n.to).not.toContain(g.stack);
+  });
+
+  it("S7: each overlapped stream starts its next clip where the last one's fade-out begins, at that clip's playback rate", () => {
+    const stream = (inputs: Partial<AmbienceInputs>, kind: ClipKind, until: number) => {
+      const { ac, amb, g } = ambience(inputs);
+      vi.spyOn(g, "rnd").mockImplementation(makeRng(5));
+      const play = vi.spyOn(g, "play").mockReturnValue(true);
+      run(ac, amb, 0.12, until);
+      return play.mock.calls.filter((c) => c[0] === kind).map((c) => ({ at: c[1], pan: c[4] ?? 0, rate: c[5] ?? 1 }));
+    };
+    const joined = (clips: Array<{ at: number; rate: number }>, fadeOutAt: number) => {
+      expect(clips.length).toBeGreaterThan(3);
+      expect(new Set(clips.map((c) => c.rate)).size).toBeGreaterThan(1);
+      for (let k = 1; k < clips.length; k++) expect(clips[k].at - clips[k - 1].at).toBeCloseTo(fadeOutAt / clips[k - 1].rate, 9);
+    };
+    // a downpour's two streams of rain (one about the town's pan, one hard to a side), crickets, cicadas
+    const rain = stream({ rain: 1, town: 0.5, townPan: 0 }, "rain", 20);
+    joined(rain.filter((c) => Math.abs(c.pan) < 0.5), 3.5);
+    joined(rain.filter((c) => Math.abs(c.pan) === 0.6), 3.5);
+    joined(stream({ night: 1, autumn: 1, land: 0.4 }, "cricket", 20), 3.5);
+    joined(stream({ summer: 1, hour: 15, trees: 0.7 }, "cicada", 25), 4.5);
+  });
 });
 
 /** A lighthouse turning at `period`, a camera due south of it, and an ambience that records the breaths. */
@@ -322,7 +379,8 @@ describe("harbour music: audible and given room (E34)", () => {
     // the beds (the far sea, the weather) pass through the pocket; the music joins after it
     expect(g.bedGain.to).toContain(g.pocket);
     expect(g.duck.to).toContain(g.pocket);
-    expect(g.pocket.to).toEqual([g.out]);
+    expect(g.pocket.to).toEqual([g.stack]);
+    expect(g.stack.to).toEqual([g.out]);
     expect(input.to).toContain(g.out);
     const pocket = vi.spyOn(input, "pocket");
     const music = new Music(ac as unknown as BaseAudioContext, amb.musicIn(), 7);

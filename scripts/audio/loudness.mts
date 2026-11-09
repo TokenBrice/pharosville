@@ -211,6 +211,8 @@ export interface Meter {
   truePeak: number;
   /** momentary loudness every 100 ms (the 400 ms window ending there), for on-ramps and timelines */
   momentary: number[];
+  /** short-term loudness every 100 ms (entry k: the 3 s from k × 100 ms) */
+  shortTerm: number[];
 }
 
 /** Every meter at once for a stereo (or mono) render. */
@@ -223,6 +225,21 @@ export function meter(channels: readonly ArrayLike<number>[], sr: number): Meter
     integrated: integrated(blocks), laptop: integrated(lap),
     momentaryMax: Math.max(...blocks.map(lufs)), shortTermMax: st.length ? Math.max(...st) : -Infinity,
     shortTermMin: st.length ? Math.min(...st) : -Infinity, lra: loudnessRange(short),
-    samplePeak: pk.sample, truePeak: pk.truePeak, momentary: blocks.map(lufs),
+    samplePeak: pk.sample, truePeak: pk.truePeak, momentary: blocks.map(lufs), shortTerm: short.map(lufs),
   };
+}
+
+/**
+ * An event cue against the bed it sounds over (S1, the stale foghorn): the floor is the median short-term
+ * loudness of the 3 s windows from `from` s on that touch no cue's [at, at + span); each cue's level is the
+ * loudest momentary window inside its own span. `over` is the loudest cue minus the floor (null without a cue or
+ * a clear window). `momentary` and `shortTerm` as meter() gives them: entry k starts at k × 100 ms.
+ */
+export function cueOverFloor(momentary: readonly number[], shortTerm: readonly number[], cues: readonly number[], span: number, from: number): { floor: number | null; levels: number[]; over: number | null } {
+  const clear = (t0: number, t1: number) => cues.every((c) => t1 <= c || t0 >= c + span);
+  const bed = shortTerm.filter((_, k) => k / 10 >= from - 1e-9 && clear(k / 10, k / 10 + 3)).sort((a, b) => a - b);
+  const floor = bed.length ? bed[bed.length >> 1] : null;
+  const levels = cues.map((c) => Math.max(...momentary.filter((_, k) => k / 10 >= c - 1e-9 && k / 10 + 0.4 <= c + span + 1e-9)));
+  const top = levels.length ? Math.max(...levels) : -Infinity;
+  return { floor, levels, over: floor != null && Number.isFinite(top) ? top - floor : null };
 }
