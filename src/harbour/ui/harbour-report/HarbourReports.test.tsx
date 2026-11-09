@@ -6,7 +6,7 @@ import { StoreContext } from "../hooks";
 import type { HarbourUIStore, UIState } from "../store";
 import { HarbourReports, ReportSentences } from "./HarbourReports";
 import { harbourReport } from "./report";
-import { browserObservation, READING_KEY, returnDigest } from "./digest";
+import { browserObservation, READING_KEY, returnDigest, serializeObservation } from "./digest";
 
 const now = Date.UTC(2026, 10, 8, 12);
 function harness(f = reportFixture()) {
@@ -48,7 +48,7 @@ describe("expandable dated evidence", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
     const f = reportFixture(), h = harness(f);
     const old = reportFixture(() => {}, now - 86400e3);
-    localStorage.setItem(READING_KEY, JSON.stringify(browserObservation(old.model, old.payloads, old.nowMs)));
+    localStorage.setItem(READING_KEY, serializeObservation(browserObservation(old.model, old.payloads, old.nowMs)!));
     render(<StoreContext.Provider value={h.store}><HarbourReports /></StoreContext.Provider>);
     expect(screen.getByText("Since your last reading")).toBeTruthy();
     expect(screen.getByText("Compared with this browser's reading at 2026-11-07 12:00:00 UTC.")).toBeTruthy();

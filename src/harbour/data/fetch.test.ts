@@ -61,6 +61,13 @@ describe("HarbourFeed", () => {
     expect(nextRefreshDelayMs("stablecoins", null)).toBe(450_000);
   });
 
+  it("retains missing and invalid supply bucket identities as null markers", () => {
+    const out = sanitizePayload("stablecoins", { peggedAssets: [{
+      id: "a", pegType: "peggedUSD", circulating: { peggedUSD: 10e6, peggedEUR: null, invalid: Infinity },
+    }] }) as { peggedAssets: Array<{ circulating: Record<string, number | null> }> };
+    expect(out.peggedAssets[0].circulating).toEqual({ peggedUSD: 10e6, peggedEUR: null, invalid: null });
+  });
+
   it("tolerates null chain amounts instead of dropping the whole fleet", () => {
     const out = sanitizePayload("stablecoins", { peggedAssets: [
       { id: "a", name: "A", symbol: "A", pegType: "peggedUSD", circulating: { peggedUSD: 5 }, chainCirculating: { Arbitrum: { current: null }, Base: { current: 5 } }, chains: ["Base"] },

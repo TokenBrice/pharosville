@@ -1,9 +1,10 @@
 import { ApiMetaSchema } from "@shared/types/api-meta";
 import { projectedFixtures, upstreamFixtures, TRUTH_NOW, type UpstreamFixtures } from "./projection";
+import { sanitizePayload } from "../data/fetch";
 import { buildHarbourModel } from "../model/build";
 import type { EndpointKey, HarbourPayloads } from "../model/types";
 
-/** Upstream → production projector → standalone schemas → model; no fields restored after projection. */
+/** Upstream → production projector → standalone schemas → feed sanitizer → model; no fields restored after projection. */
 export function reportFixture(mutate: (input: UpstreamFixtures) => void = () => {}, nowMs = TRUTH_NOW) {
   const upstream = upstreamFixtures(nowMs);
   const asOf = nowMs / 1000 - 60;
@@ -18,7 +19,7 @@ export function reportFixture(mutate: (input: UpstreamFixtures) => void = () => 
   mutate(upstream);
   const projected = projectedFixtures(upstream);
   const payloads = Object.fromEntries((Object.keys(projected) as EndpointKey[]).map((key) => [key, {
-    data: projected[key], meta: ApiMetaSchema.parse((projected[key] as { _meta?: unknown })._meta), fetchedAtMs: nowMs,
+    data: sanitizePayload(key, projected[key]), meta: ApiMetaSchema.parse((projected[key] as { _meta?: unknown })._meta), fetchedAtMs: nowMs,
   }])) as HarbourPayloads;
   return { upstream, payloads, model: buildHarbourModel(payloads, nowMs, { dead: [] }), nowMs };
 }
