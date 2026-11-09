@@ -192,15 +192,16 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
 
         {!b.activeDepeg && pegReading}
         <Sec title="Supply by chain">
-          <Freshness model={model} source="stablecoins" />
           <ChainSplit boat={b} />
         </Sec>
 
         <Sec title="Signals">
+          <Freshness model={model} source="stress" />
+          <Freshness model={model} source="safetyGrades" />
           <dl className="hb-dl">
             <dt>Early warning</dt>
-            <dd><Freshness model={model} source="stress" />{b.dews ? <span className="hb-band" style={{ "--band": DEWS_INK[b.dews] } as React.CSSProperties}>{titleCase(b.dews)}{b.dewsScore != null ? <em>&nbsp;{Math.round(b.dewsScore)}</em> : null}</span> : <em>{truthCopy({ kind: "absent-row", reading: "stress" })}</em>}</dd>
-            <dt>Safety grade</dt><dd><Freshness model={model} source="safetyGrades" />{sourceTruth(model, "safetyGrades").state === "current" ? <span>{truthCopy({ kind: "grade", grade: b.grade, truth: sourceTruth(model, "safetyGrades") })}</span> : b.grade && <em>Last received grade: {b.grade}.</em>}</dd>
+            <dd>{b.dews ? <span className="hb-band" style={{ "--band": DEWS_INK[b.dews] } as React.CSSProperties}>{titleCase(b.dews)}{b.dewsScore != null ? <em>&nbsp;{Math.round(b.dewsScore)}</em> : null}</span> : <em>{truthCopy({ kind: "absent-row", reading: "stress" })}</em>}</dd>
+            <dt>Safety grade</dt><dd>{sourceTruth(model, "safetyGrades").state === "current" ? <span>{truthCopy({ kind: "grade", grade: b.grade, truth: sourceTruth(model, "safetyGrades") })}</span> : b.grade && <em>Last received grade: {b.grade}.</em>}</dd>
             {signal && <><dt>Storm signal</dt><dd>{signal}</dd></>}
           </dl>
         </Sec>

@@ -296,7 +296,7 @@
      4.8
     ]
    },
-   "kb": 139.6
+   "kb": 142.6
   },
   "burn": {
    "file": "burn.glb",
@@ -410,7 +410,7 @@
      ]
     ]
    },
-   "kb": 61.0
+   "kb": 61.3
   },
   "shipyard": {
    "file": "shipyard.glb",
@@ -1520,7 +1520,7 @@
      "wheel_radius_m": 2.5
     }
    ],
-   "kb": 251.3
+   "kb": 249.6
   },
   "customs": {
    "file": "customs.glb",
@@ -1585,7 +1585,7 @@
     ],
     "podium_y": 1.6
    },
-   "kb": 75.6
+   "kb": 75.4
   },
   "registry": {
    "file": "registry.glb",
@@ -1692,7 +1692,7 @@
      ]
     }
    },
-   "kb": 43.7
+   "kb": 43.6
   },
   "chartroom": {
    "file": "chartroom.glb",
@@ -1746,7 +1746,7 @@
      -0.6
     ]
    },
-   "kb": 49.5
+   "kb": 49.3
   },
   "stormstation": {
    "file": "stormstation.glb",
@@ -1840,7 +1840,7 @@
      ]
     }
    },
-   "kb": 23.5
+   "kb": 23.6
   },
   "harbourmaster": {
    "file": "harbourmaster.glb",
@@ -1916,7 +1916,7 @@
      ]
     }
    },
-   "kb": 48.5
+   "kb": 48.8
   },
   "keeperslog": {
    "file": "keeperslog.glb",
@@ -1980,7 +1980,7 @@
      -0.3
     ]
    },
-   "kb": 28.8
+   "kb": 29.0
   },
   "harbour-office:ethereum": {
    "file": "harbour-office-ethereum.glb",
@@ -2070,7 +2070,7 @@
      7.0
     ]
    },
-   "kb": 53.6
+   "kb": 53.9
   },
   "harbour-office:tron": {
    "file": "harbour-office-tron.glb",
@@ -2171,7 +2171,7 @@
      7.0
     ]
    },
-   "kb": 62.2
+   "kb": 62.5
   },
   "harbour-office:bsc": {
    "file": "harbour-office-bsc.glb",
@@ -2261,7 +2261,7 @@
      7.3
     ]
    },
-   "kb": 46.3
+   "kb": 46.4
   },
   "harbour-office:solana": {
    "file": "harbour-office-solana.glb",
@@ -2351,7 +2351,7 @@
      4.8
     ]
    },
-   "kb": 35.2
+   "kb": 35.5
   },
   "harbour-office:hyperliquid-l1": {
    "file": "harbour-office-hyperliquid-l1.glb",
@@ -2441,7 +2441,7 @@
      7.0
     ]
    },
-   "kb": 82.6
+   "kb": 83.2
   },
   "harbour-office:base": {
    "file": "harbour-office-base.glb",
@@ -2531,7 +2531,7 @@
      7.4
     ]
    },
-   "kb": 61.1
+   "kb": 61.7
   },
   "harbour-office:arbitrum": {
    "file": "harbour-office-arbitrum.glb",
@@ -2621,7 +2621,7 @@
      7.2
     ]
    },
-   "kb": 49.2
+   "kb": 49.6
   },
   "harbour-office:polygon": {
    "file": "harbour-office-polygon.glb",
@@ -2711,7 +2711,7 @@
      7.2
     ]
    },
-   "kb": 42.1
+   "kb": 42.5
   },
   "hull-stages": {
    "file": "hull-stages.glb",
@@ -2887,7 +2887,7 @@
     }
    },
    "note": "kit frame: +x along the flank wall, +z out from it, origin on the ground at the wall; flank.<chain> = kit origin + yaw (about +Y, applied first) in that office plot frame",
-   "kb": 21.6
+   "kb": 21.7
   }
  }
 }

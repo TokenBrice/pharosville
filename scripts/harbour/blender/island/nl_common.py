@@ -584,6 +584,23 @@ def bm_sphere(r, at=(0, 0, 0), u=8, v=5, scale=(1, 1, 1)):
     return bm
 
 
+def bm_pebble(r, at=(0, 0, 0), scale=(1, 1, 1), seed=0):
+    """B24: a pebble, cork float or flower head a few pixels across - an 8-face octahedron with its corners nudged by
+    its own seed (no shared random stream), not a 20-face icosphere."""
+    rng_ = random.Random(seed)
+    a = rng_.uniform(0.0, math.pi / 2)
+    ca, sa = math.cos(a), math.sin(a)
+    bm = bmesh.new()
+    vs = []
+    for x, y, z in ((ca, sa, 0.0), (-sa, ca, 0.0), (-ca, -sa, 0.0), (sa, -ca, 0.0), (0.0, 0.0, 1.0), (0.0, 0.0, -1.0)):
+        k = r * rng_.uniform(0.85, 1.15)
+        vs.append(bm.verts.new((x * k * scale[0] + at[0], y * k * scale[1] + at[1], z * k * scale[2] + at[2])))
+    for i in range(4):
+        bm.faces.new((vs[i], vs[(i + 1) % 4], vs[4]))
+        bm.faces.new((vs[(i + 1) % 4], vs[i], vs[5]))
+    return bm
+
+
 def bm_ico(r, at=(0, 0, 0), sub=1, scale=(1, 1, 1), seed=0, amp=0.0):
     bm = bmesh.new()
     bmesh.ops.create_icosphere(bm, subdivisions=sub, radius=r)

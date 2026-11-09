@@ -3,7 +3,7 @@ import type { HarbourLayout, Vec2, Vec3 } from "../layout/types";
 import { anniversaryToday, worldToday } from "../model/anniversary";
 import { TITANS } from "../fleet/titans";
 import { FRONT_HERE, FRONT_MIN, targetsForLevel } from "../weather/director";
-import { NEUTRAL_SEA, type Ambience, type AmbienceInputs } from "./ambience";
+import { BREATH_PEAK, NEUTRAL_SEA, type Ambience, type AmbienceInputs } from "./ambience";
 
 /**
  * World → sound, loaded lazily with the ambience (none of this is in the main chunk): every 250 ms the
@@ -122,18 +122,22 @@ export function burnRateOf(c: { burnRate?: number; banked?: boolean } | undefine
 }
 
 /**
- * The beam's passing: the peak gain (before the master) of the soft low breath when the sweep crosses the
+ * The beam's passing: the peak gain (before the master) of the Pharos's breath when the sweep crosses the
  * camera. Follows the beam's reach (PSI, the beam's own signal: no new mapping, no pitch), fuller at night,
- * nothing when the lamp is unlit, and muted as stale fog shows (stale data owns the voice: the foghorn).
- * Never above 0.045 (≈ −30 dBFS after the master).
+ * nothing when the lamp is unlit or its reading unavailable or stale, and muted as stale fog shows (stale data
+ * owns the voice: the foghorn). Never above BREATH_PEAK.
  */
 export function beamBreathPeak(reach: number, lit: boolean, night: number, fog: number): number {
   if (!lit || !Number.isFinite(reach)) return 0;
   const c = (x: number) => Math.max(0, Math.min(1, x));
-  return 0.045 * (0.35 + 0.65 * c(reach)) * (0.45 + 0.55 * c(night)) * (1 - c(fog * 2.5));
+  return BREATH_PEAK * (0.35 + 0.65 * c(reach)) * (0.45 + 0.55 * c(night)) * (1 - c(fog * 2.5));
 }
 
 const wrapPi = (a: number) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
+/** The breath foresees a crossing this far (s) ahead: two 4 Hz readings, so one late reading misses none. */
+const BEAM_AHEAD = 0.5;
+/** Below this turn across the camera (rad/s) the beam is held (reduced motion): no crossing, no breath. */
+const BEAM_TURNING = 0.05;
 
 /**
  * The sweep crossed the camera's bearing between two readings: the signed angle beam − bearing changed sign
@@ -199,9 +203,10 @@ export class Feeder {
   private src: Sources | null = null;
   private srcFor: unknown = null;
   private unsubStrike: (() => void) | null = null;
-  /** the beam's heading minus the camera's bearing from the tower, last reading; and the last breath's time */
+  /** the beam's heading minus the camera's bearing from the tower and its audio time, last reading; the last breath's crossing */
   private beamDelta = Number.NaN;
-  private beamAt = 0;
+  private beamTime = 0;
+  private beamAt = -Infinity;
   /** the anniversary bell rings at most once per visit; it waits until the sound has played a while */
   private rang = false;
   private readonly startedAt = performance.now();
@@ -406,24 +411,33 @@ export class Feeder {
     amb.anniversary(0.55 + 0.45 * (inputs.cove ?? 0), (inputs.covePan ?? 0) * 0.6);
   }
 
-  /** The beam's passing: one breath each time the sweep crosses the camera (never when held: reduced motion). */
+  /**
+   * The beam's passing (E33): one breath each time the sweep crosses the camera. The sweep's own turn across
+   * the camera, read four times a second, foresees the next crossing, and its breath is scheduled once on the
+   * audio clock (a 1.2 s sweep is neither aliased nor doubled); a crossing a late reading missed breathes at
+   * once. Never while the beam is held (reduced motion); silent when the PSI reading is unavailable or stale.
+   */
   private beam(amb: Ambience, inputs: Partial<AmbienceInputs>): void {
     const { ctx } = this;
     const lh = ctx.services.get("lighthouse");
     const lp = lh?.lanternPosition;
     if (!lh?.sweepAngle || !lp) { this.beamDelta = Number.NaN; return; }
-    const cam = ctx.rig.camera.position;
+    const cam = ctx.rig.camera.position, now = amb.ac.currentTime;
     const d = wrapPi(lh.sweepAngle() - Math.atan2(cam.x - lp.x, cam.z - lp.z));
-    const prev = this.beamDelta;
-    this.beamDelta = d;
-    if (!beamCrossed(prev, d)) return;
-    const t = performance.now();
-    if (t - this.beamAt < 1500) return;
-    this.beamAt = t;
+    const prev = this.beamDelta, dt = now - this.beamTime;
+    this.beamDelta = d; this.beamTime = now;
+    // the sweep's turn across the camera since the last reading (rad/s), ~0 while held; after a gap, start afresh
+    const w = dt > 0 && dt < 0.6 ? wrapPi(d - prev) / dt : Number.NaN;
+    if (!(w > BEAM_TURNING)) return;
+    const period = (2 * Math.PI) / w, next = (d < 0 ? -d : 2 * Math.PI - d) / w;
+    const at = next <= BEAM_AHEAD ? now + next : beamCrossed(prev, d) ? now : Number.NaN;
+    // (that crossing already has its breath)
+    if (!(at >= this.beamAt + 0.5 * period)) return;
+    this.beamAt = at;
     const psi = ctx.services.get("readings")?.psi;
     const reach = ctx.services.get("beam")?.reach?.() ?? psi?.reach ?? 0;
-    const lit = (lh.lit ?? true) && (psi?.lit ?? true);
-    amb.beamPass(beamBreathPeak(reach, lit, inputs.night ?? 0, inputs.fog ?? 0), (inputs.firePan ?? 0) * 0.5);
+    const lit = (lh.lit ?? true) && psi?.lit === true;
+    amb.beamPass(beamBreathPeak(reach, lit, inputs.night ?? 0, inputs.fog ?? 0), (inputs.firePan ?? 0) * 0.5, period, at);
   }
 
   /** A lightning strike: its thunder, delayed by its distance, from where it struck (azimuth 0 = -z, +π/2 = +x). */

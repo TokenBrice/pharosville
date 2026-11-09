@@ -1,6 +1,6 @@
 """The Pharos of Alexandria - Blender beauty stills (golden hour + night), Cycles GPU.
 
-    blender -b --factory-startup -P scripts/harbour/blender/pharos/render.py -- [--only golden|night] [--samples 96]
+    blender -b --factory-startup -P scripts/harbour/blender/pharos/render.py -- [--v1] [--only golden|night] [--samples 96]
             [--out agents/2026-10-13-pharosville-reboot/p6/pharos] [--res 1200x1500]
 
 Look-dev only (no data): the style C kit material (nl_common.build_kit_material, the same maths as the runtime
@@ -18,7 +18,6 @@ import bpy, bmesh
 from mathutils import Vector, Euler
 import nl_common as nl
 import hb_lib
-import pharos_geo
 from hb_lib import reset_scene, descendants, lin
 
 ARGV = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
@@ -30,6 +29,7 @@ RES = [int(x) for x in arg('--res', '1200x1500').split('x')]
 os.makedirs(OUT, exist_ok=True)
 
 reset_scene()
+pharos_geo = __import__('pharos_geo' if '--v1' in ARGV else 'pharos_v2')   # v2 by default, as export.py
 root, info = pharos_geo.build()
 scene = bpy.context.scene
 

@@ -183,6 +183,16 @@ describe("projected source sentences in hover, panel and ledger", () => {
     expect(within(screen.getByRole("heading", { name: "Supply (USD)" }).closest("section")!).getByText("$1.00B")).toBeTruthy();
   });
 
+  it("the ship panel prints each source's foot once: Supply by chain reads the Supply (USD) foot, Signals heads its two", async () => {
+    await setup();
+    panel({ kind: "boat", id: TRUTH_COIN_ID });
+    const section = (name: string) => screen.getByRole("heading", { name }).closest("section")!;
+    expect(screen.getAllByText(readingSentence(state.model, "stablecoins"))).toHaveLength(1);
+    expect(section("Supply by chain").querySelector(".hb-foot")).toBeNull();
+    expect(section("Signals").querySelectorAll(":scope > .hb-foot")).toHaveLength(2);
+    expect(section("Signals").querySelector("dd .hb-foot")).toBeNull();
+  });
+
   it("an unverified PSI remains a labelled retained value", async () => {
     await setup((u) => { delete u.stability._meta; });
     parity(landmark("pharos"), "PSI: unavailable. Source freshness is unverified.");

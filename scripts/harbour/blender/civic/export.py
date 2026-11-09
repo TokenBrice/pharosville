@@ -86,6 +86,54 @@ def node_info(root):
     return out
 
 
+AO_SKIP_KINDS = {'hull-stages'}     # four alternative stages in one place: they must not shade one another
+
+
+def bake_ao(root, distance=4.0, samples=48, strength=0.6):
+    """E15 (O6-I5): baked architectural AO. Each static hb_opaque face takes the open share of a cosine-weighted
+    hemisphere of `samples` rays from its centre (`distance` m, the whole building occluding) into its colour,
+    rgb x (1 - strength x occlusion); the alpha (pattern id) is kept. Per face, not per vertex as the island's Cycles
+    bake: the kit's interpenetrating pieces bury many corners, and a buried corner would shade its whole face black.
+    Windows, lamps and fire, crests, awning cloth and every animated node are left as they are; cornices, colonnades,
+    reveals and eaves read as carved. No runtime cost."""
+    import bmesh
+    import numpy as np
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+    bpy.context.view_layer.update()
+    allbm = bmesh.new()
+    for o in descendants(root):
+        if o.type == 'MESH':
+            m_ = o.data.copy(); m_.transform(o.matrix_world); allbm.from_mesh(m_); bpy.data.meshes.remove(m_)
+    bvh = BVHTree.FromBMesh(allbm)
+    allbm.free()
+    ga = math.pi * (3.0 - math.sqrt(5.0))
+    hemi = [Vector((math.sqrt((i + 0.5) / samples) * math.cos(i * ga), math.sqrt((i + 0.5) / samples) * math.sin(i * ga),
+                    math.sqrt(1.0 - (i + 0.5) / samples))) for i in range(samples)]
+    for o in descendants(root):
+        if o.type != 'MESH' or not o.data.materials or o.data.materials[0] is None or o.data.materials[0].name != 'hb_opaque':
+            continue
+        if 'anim' in o.keys() or o.data.color_attributes.get('Col') is None or not len(o.data.polygons):
+            continue
+        me = o.data
+        col = me.color_attributes['Col']
+        c = np.zeros(len(me.loops) * 4, np.float32); col.data.foreach_get('color', c); c = c.reshape(-1, 4)
+        mw = o.matrix_world; nm = mw.to_3x3().inverted_safe().transposed()
+        occ_all = []
+        for poly in me.polygons:
+            n = (nm @ poly.normal).normalized()
+            if n.length < 0.5:
+                continue
+            p0 = mw @ poly.center + n * 0.02
+            t = n.orthogonal().normalized(); b = n.cross(t)
+            hits = sum(1 for d in hemi if bvh.ray_cast(p0, t * d.x + b * d.y + n * d.z, distance)[0] is not None)
+            occ = hits / samples
+            occ_all.append(occ)
+            c[list(poly.loop_indices), :3] *= 1.0 - strength * occ
+        col.data.foreach_set('color', c.ravel())
+        print('AO baked', root.name, o.name, 'mean occlusion', round(float(np.mean(occ_all)), 3))
+
+
 def compress(src, dst):
     cmd = ['npx', '-y', '@gltf-transform/cli@4.1.1', 'meshopt', src, dst, '--level', 'medium']
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
@@ -119,6 +167,8 @@ for kind, fn in BUILDERS.items():
         continue
     reset_scene(); ensure_materials()
     root, info = fn()
+    if kind not in AO_SKIP_KINDS and '--no-ao' not in ARGV:
+        bake_ao(root)
     name = fname(kind)
     path, tris = export(root, name)
     budget = BUDGET.get(kind, 6000)

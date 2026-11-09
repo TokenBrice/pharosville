@@ -856,10 +856,10 @@ def build_boat(name, rig, cls, brand, state='docked', heel=0.0, tack=1, emblem=0
 
 
 # =================================================================== HARBOUR PIECES
-def bollard(bm, p, s=1.0):
+def bollard(bm, p, s=1.0, segs=8):
     x, y, z = p
-    merge(bm, bm_cyl(0.2 * s, 0.17 * s, 0.55 * s, 8, (x, y, z)))
-    merge(bm, bm_cyl(0.27 * s, 0.27 * s, 0.1 * s, 8, (x, y, z + 0.5 * s)))
+    merge(bm, bm_cyl(0.2 * s, 0.17 * s, 0.55 * s, segs, (x, y, z)))
+    merge(bm, bm_cyl(0.27 * s, 0.27 * s, 0.1 * s, segs, (x, y, z + 0.5 * s)))
 
 
 def lamp_post(name, p, h=3.6, parent=None, family='prop_lamp', lamps=None):
@@ -961,8 +961,19 @@ def _lean(rng, lo, hi):
     return Vector((math.cos(a) * t, math.sin(a) * t, 0.0))
 
 
+def _pine_pad(r, at, sy, seed, amp, top_k=0.5, under_k=0.2):
+    """E19 (O6-I6): one stone-pine pad - a domed top (top_k x r) over a flat, shadowed underside (under_k x r), not a
+    thin lens: the crown reads as an umbrella at the landing and overview, and the dark underside separates it from the
+    trunk at night. Same 20-face icosahedron (triangle-neutral)."""
+    pad = bm_ico(r, (0.0, 0.0, 0.0), 1, (1.0, sy, 1.0), seed=seed, amp=amp)
+    for v in pad.verts:
+        v.co.z *= top_k if v.co.z > 0.0 else under_k
+        v.co += Vector(at)
+    return pad
+
+
 def umbrella_pine(bm_leaf, bm_trunk, p, h, rng):
-    """Pinus pinea: a bare, leaning, slightly bent trunk under a flat, broad crown of 2-3 overlapping pads."""
+    """Pinus pinea: a bare, leaning, slightly bent trunk under a broad crown of 2-3 overlapping domed pads."""
     base = Vector(p)
     lean = _lean(rng, 0.08, 0.3)
     mid = base + Vector((0, 0, h * 0.42)) + lean * h * 0.3
@@ -971,15 +982,15 @@ def umbrella_pine(bm_leaf, bm_trunk, p, h, rng):
     merge(bm_trunk, bm_rod(base, mid, rt, 3))
     merge(bm_trunk, bm_rod(mid, top, rt * 0.75, 3))
     R = h * rng.uniform(0.3, 0.36)
-    merge(bm_leaf, bm_ico(R, (top.x, top.y, top.z + R * 0.12), 1, (1.0, rng.uniform(0.82, 1.0), 0.3), seed=rng.randint(0, 999), amp=0.18))
+    merge(bm_leaf, _pine_pad(R, (top.x, top.y, top.z + R * 0.12), rng.uniform(0.82, 1.0), rng.randint(0, 999), 0.18))
     a0 = rng.uniform(0, 6.283)
     for k in range(1 if h < 10.0 else 2):
         a = a0 + k * 2.4 + rng.uniform(-0.4, 0.4)
         o = Vector((math.cos(a), math.sin(a), 0.0)) * R * rng.uniform(0.5, 0.7)
-        if k == 0 and h >= 9.5:                      # a fork limb out to the side pad (big trees)
-            merge(bm_trunk, bm_rod(mid + (top - mid) * 0.6, top + o * 0.8 - Vector((0, 0, R * 0.12)), rt * 0.5, 3))
-        merge(bm_leaf, bm_ico(R * rng.uniform(0.55, 0.7), (top.x + o.x, top.y + o.y, top.z - R * 0.08), 1, (1.0, 1.0, 0.36),
-                              seed=rng.randint(0, 999), amp=0.2))
+        if k == 0 and h >= 9.5:                      # a fork limb out to the side pad (big trees), as thick as a bough
+            merge(bm_trunk, bm_rod(mid + (top - mid) * 0.6, top + o * 0.8 - Vector((0, 0, R * 0.12)), rt * 0.75, 3))
+        merge(bm_leaf, _pine_pad(R * rng.uniform(0.55, 0.7), (top.x + o.x, top.y + o.y, top.z - R * 0.08), 1.0, rng.randint(0, 999), 0.2,
+                                 top_k=0.46, under_k=0.18))
 
 
 def cypress(bm_leaf, p, h, rng):
