@@ -34,6 +34,14 @@ export function bankReveal(cover: number, slot: number, maxBanks: number): numbe
   return Math.min(1, Math.max(0, 5 + cover * maxBanks - slot));
 }
 
+/**
+ * T6 (O4-I9) calm skies you can count: the banks step by DEWS band (cover 0.15 + 0.22·level): Calm ≈ 3, Watch ≈ 5½,
+ * Alert and above all of them. Still linear in the eased cover, still never the season.
+ */
+export function bankRevealByBand(cover: number, slot: number, maxBanks: number): number {
+  return Math.min(1, Math.max(0, 1.3 + cover * maxBanks * 1.425 - slot));
+}
+
 /** Decorative high-cloud character: x cirrus amount multiplier, y autumn mackerel (altocumulus) band 0..1. */
 export function seasonHighCloud(weights: SkySeasonWeights): [number, number] {
   return [1 + 0.35 * weights[0] - 0.15 * weights[3], weights[2]];

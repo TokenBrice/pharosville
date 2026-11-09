@@ -1,5 +1,7 @@
 import * as THREE from "three";
+import { GUST_GLSL } from "./gust";
 import type { BeamUniforms } from "../beam/uniforms";
+import { extraEnabled } from "../engine/extras";
 
 /**
  * Precipitation, two GPU-instanced draws (no per-particle CPU work):
@@ -24,6 +26,8 @@ export const PRECIP_BUDGET: Record<"high" | "medium" | "low", PrecipBudget> = {
 const MAX_FALL = PRECIP_BUDGET.high.fall;
 const MAX_SPLASH = PRECIP_BUDGET.high.splash;
 export const MAX_SPRAY = 520;
+/** E24: the lightning's lift on falling drops (was 2.2: every drop flashed with the strike). */
+export const RAIN_FLASH_LIFT = extraEnabled("storm") ? 1.2 : 2.2;
 
 function rng(seed: number): () => number {
   let s = seed | 0;
@@ -40,6 +44,7 @@ uniform vec3 uBoxMin, uBoxSize;
 uniform float uPTime;
 uniform vec3 uAmbRain;        // sky-side light on a drop (linear)
 uniform float uFlashK;        // lightning flash 0..1
+uniform float uFlashLift;     // E24: how far a flash lifts the drops (2.2 → 1.2: the strike, not the rain, flashes)
 uniform sampler2D uPoolTex;
 uniform vec4 uPoolBounds;
 uniform float uWindowGlow;
@@ -51,7 +56,7 @@ uniform vec4 uAOBounds;
 float pHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 // light reaching a drop at p: sky, lamp pools (night), the Pharos beam, the lightning
 vec3 dropLight(vec3 p) {
-  vec3 L = uAmbRain + vec3(0.72, 0.78, 1.0) * uFlashK * 2.2;
+  vec3 L = uAmbRain + vec3(0.72, 0.78, 1.0) * uFlashK * uFlashLift;
   vec2 uv = (p.xz - uPoolBounds.xy) * uPoolBounds.zw;
   if (uWindowGlow > 0.02 && uv.x > 0.0 && uv.y > 0.0 && uv.x < 1.0 && uv.y < 1.0) {
     vec4 pool = texture2D(uPoolTex, uv);
@@ -78,8 +83,20 @@ float groundAt(vec2 xz) {
 }
 `;
 
+/**
+ * E25 precipitation depth: past FAR_FADE[0]·D of view depth the drops fade toward FAR_FLOOR and draw FAR_STREAK of
+ * their streak (D = the rig distance); the near fade and the DEWS instance count are untouched. TS twins for tests.
+ */
+export const FAR_FADE = [0.75, 1.35] as const, FAR_FLOOR = 0.45, FAR_STREAK = 0.55;
+const smooth01 = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+export function farDepthAlpha(depth: number, D: number): number { return 1 - smooth01(FAR_FADE[0] * D, FAR_FADE[1] * D, depth) * (1 - FAR_FLOOR); }
+export function farStreakShare(depth: number, D: number): number { return 1 + (FAR_STREAK - 1) * smooth01(FAR_FADE[0] * D, FAR_FADE[1] * D, depth); }
+
 const FALL_VERT = /* glsl */ `
 ${COMMON}
+${GUST_GLSL}
+uniform vec4 uDepthK;         // E25: far fade start, end (m view depth), far alpha floor, far streak share
+uniform vec4 uSheets;         // E25 (M+): gust downwind x, z, gust clock (s), sheet strength 0..1
 attribute vec4 aSeed;
 uniform float uSnowFrac;      // share of the drawn instances that are snow
 uniform vec3 uFall;           // rain fall (m/s), snow fall (m/s), streak exposure (s)
@@ -118,6 +135,11 @@ void main() {
   float fade = faceFade(p);
   float depth = dot(p - uCam, normalize(-vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2])));
   fade *= smoothstep(uNearFade, uNearFade * 1.8, depth);
+  // E25: far drops fade toward a floor and draw shorter streaks; on M+ the rain comes in sheets with the shared gust
+  //      field (density by alpha, the drawn count stays DEWS)
+  float far = smoothstep(uDepthK.x, uDepthK.y, depth);
+  fade *= 1.0 - far * (1.0 - uDepthK.z);
+  if (uSheets.w > 0.0) fade *= mix(1.0, 0.55 + 1.5 * hbGust(p.xz, uSheets.z, uSheets.xy), uSheets.w);
   vLight = dropLight(p);
   vSnow = snow;
   vSeed = h;
@@ -142,7 +164,7 @@ void main() {
     vUv = v2;
     vA = fade * (0.5 + 0.5 * h) * smoothstep(0.6, 1.6, rPx) * (1.0 - smoothstep(cap * 2.5, cap * 8.0, rRaw));
   } else {
-    vec3 tail = p - vel * uFall.z;
+    vec3 tail = p - vel * uFall.z * mix(1.0, uDepthK.w, far);
     vec4 c0 = projectionMatrix * viewMatrix * vec4(tail, 1.0);
     vec4 c1 = projectionMatrix * viewMatrix * vec4(p, 1.0);
     vec2 s0 = c0.xy / c0.w * uViewport, s1 = c1.xy / c1.w * uViewport;
@@ -300,6 +322,9 @@ export interface PrecipFrame {
   time: number;
   viewport: THREE.Vector2;
   budget: PrecipBudget;
+  /** E25 (M+): the shared gust field (dir x, dir z, -, clock) the rain sheets follow, and their strength (0 = none). */
+  gust?: THREE.Vector4;
+  sheets?: number;
 }
 
 export class Precipitation {
@@ -322,7 +347,7 @@ export class Precipitation {
     };
     this.common = {
       uBoxMin: { value: new THREE.Vector3() }, uBoxSize: { value: new THREE.Vector3(1, 1, 1) }, uPTime: { value: 0 },
-      uAmbRain: { value: new THREE.Color() }, uFlashK: { value: 0 },
+      uAmbRain: { value: new THREE.Color() }, uFlashK: { value: 0 }, uFlashLift: { value: RAIN_FLASH_LIFT },
       uPoolTex: shared.uPoolTex, uPoolBounds: shared.uPoolBounds, uWindowGlow: shared.uWindowGlow,
       uAOTex: shared.uAOTex, uAOBounds: shared.uAOBounds,
       uBeamPos: shared.beam.uBeamPos, uBeamCol: shared.beam.uBeamCol, uBeamAngle: shared.beam.uBeamAngle, uBeamShape: shared.beam.uBeamShape,
@@ -343,6 +368,7 @@ export class Precipitation {
         uSnowFrac: { value: 0 }, uFall: { value: new THREE.Vector3(60, 6, 0.04) }, uSize: { value: new THREE.Vector2(1.3, 0.6) },
         uViewport: { value: new THREE.Vector2(800, 500) }, uCam: { value: new THREE.Vector3() }, uNearFade: { value: 100 },
         uRainAlpha: { value: 0.4 }, uSnowDrive: { value: 0 },
+        uDepthK: { value: new THREE.Vector4(1e9, 2e9, 1, 1) }, uSheets: { value: new THREE.Vector4() },
       },
       transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
     });
@@ -416,6 +442,8 @@ export class Precipitation {
     fu.uViewport.value.set(f.viewport.x / 2, f.viewport.y / 2);
     fu.uCam.value.copy(cam);
     fu.uNearFade.value = D * 0.22;
+    if (extraEnabled("precip")) fu.uDepthK.value.set(FAR_FADE[0] * D, FAR_FADE[1] * D, FAR_FLOOR, FAR_STREAK);
+    fu.uSheets.value.set(f.gust?.x ?? 0, f.gust?.y ?? 0, f.gust?.w ?? 0, extraEnabled("precip") ? f.sheets ?? 0 : 0);
     // drizzle is fine and faint, a storm's sheets denser and brighter
     fu.uRainAlpha.value = 0.2 + 0.24 * Math.min(1, f.rain * 1.3);
 

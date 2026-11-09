@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { getBeamUniforms } from "../beam/uniforms";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import { extraEnabled } from "../engine/extras";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { getHarbourMaterials } from "../world/materials";
@@ -10,6 +11,7 @@ import {
 import { Lightning, type StrikeEvent } from "./lightning";
 import { MAX_SPRAY, PRECIP_BUDGET, Precipitation } from "./precip";
 import { Rainbow } from "./rainbow";
+import { ensureGustService } from "./gust";
 import { dewRime, dewUniforms } from "./dew";
 import { moonAge, moonIllumination, parseMoonOverride } from "../season/calendar";
 
@@ -266,9 +268,13 @@ export class WeatherSystem implements WorldSystem {
     const pitch = Math.asin(THREE.MathUtils.clamp(-fwd.y, -1, 1));
     const depr = Math.atan(cam.position.y / horizon);
     const bandTop = Math.max(0.5, THREE.MathUtils.radToDeg(depr - (pitch - THREE.MathUtils.degToRad(vfov / 2))));
+    // E24: strikes keep clear of the projected Pharos (±4°)
+    const pharos = extraEnabled("storm") ? ctx.services.get("layout")?.landmarks.find((l) => l.id === "pharos")?.position : undefined;
+    const pharosAz = pharos ? Math.atan2(pharos[0] - cam.position.x, -(pharos[2] - cam.position.z)) - fwdAz : 0;
     this.lightning.update({
       dt, rate: s.strikesPerMin, strikeKm: s.strikeKm, suppressed: reduced, camera: cam, horizon,
       halfFovDeg: halfH, bandTopDeg: bandTop, fwdAz, night: U.uNight.value,
+      avoidTh: pharos ? THREE.MathUtils.radToDeg(Math.atan2(Math.sin(pharosAz), Math.cos(pharosAz))) : null,
     });
     U.uLightning.value = this.lightning.flash;
     this.flash.azimuth = fwdAz + THREE.MathUtils.degToRad(this.lightning.flashTh);
@@ -287,10 +293,19 @@ export class WeatherSystem implements WorldSystem {
     this.precip.update({
       camera: cam, distance: rig.distance, target: this.target, rain: s.rain, snow: s.snow, wind: this.windVec,
       spray, flash: this.lightning.flash, ambient: this.amb, time: ptime, viewport: this.viewport, budget: PRECIP_BUDGET[tier],
+      ...this.sheets(ctx, frame, tier),
     });
 
     // ---- the recovery rainbow
     this.rainbow.update(s.rainbow, cam, U.uSunDir.value, U.uSunColor.value, rig.distance, horizon, sunUp > 0.15 ? 0 : 1);
+  }
+
+  /** E25 (M+; Low draws no sheets): rain in sheets along the shared gust field, scaled by the DEWS wind it already reads. */
+  private sheets(ctx: EngineContext, frame: FrameState, tier: string): { gust?: THREE.Vector4; sheets?: number } {
+    if (tier === "low") return {};
+    const gust = ensureGustService(ctx);
+    gust.tick(ctx, frame);
+    return { gust: gust.uniform.value, sheets: 0.35 + 0.65 * gust.amp };
   }
 
   dispose(ctx: EngineContext): void {

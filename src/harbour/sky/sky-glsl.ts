@@ -12,6 +12,9 @@ export const SKY_GRADIENT_DEG = 3.5;
 export const SKY_LIFT_DEG = 1.0;
 export const SKY_LIFT = 0.2;
 
+/** E23: the Milky Way's pixels stay under this sky luminance (linear, pre-grade): a fixed cap far below the lit beam. */
+export const MILKY_WAY_CAP = 0.13;
+
 /**
  * The painted sky band, evaluated in band space: th = azimuth (deg) relative to the view's forward
  * azimuth, e = elevation (deg) above the backdrop's base line (the pretend horizon). Shared by the
@@ -35,19 +38,24 @@ uniform sampler2D uSkyNoise;
 uniform vec4 uParallax;      // per-layer azimuth shift (deg): far hills, mid hills, near hills, clouds
 uniform vec3 uWeather;       // cloud cover, wind, cirrus drift (deg)
 uniform float uStorm;        // 0 fair … 1 storm deck (DEWS ALERT and above)
+uniform vec4 uDeckK;         // E24: deck structure after the grey grading 0/1, its gain (the result stays within ±25 %), -, -
 uniform vec4 uPrecipSky;     // rain, snow, lightning flash, flash azimuth (deg) — the weather director
 uniform vec4 uPrecipSkyB;    // flash elevation (deg), curtain wind slant, snow share, -
 uniform vec4 uFrontA;        // W01 front: cover from, cover to, storm from, storm to
 uniform vec4 uSquall;        // W09 squall: th (deg), strength, W03 sunbreaks 0..1, -
 uniform vec3 uClearZen, uClearHor;
 uniform vec4 uSeasonSky;     // W10: cirrus amount multiplier, autumn mackerel band 0..1, -, -
+uniform vec4 uTwilight;      // E22: wedge 0..1, anti-solar th (deg), Earth's-shadow top (deg), dawn rays 0..1
 uniform vec4 uNightSky;      // W05: Milky Way 0..1, star clock (s, stills with reduced motion), band azimuth offset (deg), summer core 0..1
 uniform vec4 uMeteor;        // W06: streak start th, e (deg), direction (unit, deg space)
+uniform vec4 uMilkyWay;      // E23: tilted 0/1, sin(lean), foot th (deg, view-relative), cos(lean)
 uniform vec4 uMeteorB;       // W06: life 0..1, length (deg), brightness, -   // W01: the hour's zenith and horizon before the storm grade (the clearing's sky)
 uniform vec4 uFrontB;        // W01 front: line azimuth (deg, band space), travel sign (+1 = toward +th), rain it brings, active 0/1
 
 // this pixel's cover and storm grade: the shown weather, or under a front the weather on its side of the line
 float gCov, gStorm, gBehind;
+// E24: the deck's cell/roll structure here and how much of the deck covers this pixel
+float gDeckS, gDeckA;
 // W01: 1 behind the front line (the new weather has arrived), 0 ahead of it. Ragged, and leaning: the deck aloft
 // runs ahead of its base, so the line sits further on higher up.
 float sbFrontSide(float th, float e) {
@@ -137,6 +145,7 @@ vec3 skyBand(float th, float e, float pxDeg) {
   gBehind = uFrontB.w > 0.5 ? sbFrontSide(th, e) : 0.0;
   gCov = uFrontB.w > 0.5 ? mix(uFrontA.x, uFrontA.y, gBehind) : uWeather.x;
   gStorm = uFrontB.w > 0.5 ? mix(uFrontA.z, uFrontA.w, gBehind) : uStorm;
+  gDeckS = 1.0; gDeckA = 0.0;
   // ---- gradient: compressed so the narrow visible band still spans horizon -> zenith
   float t = clamp(e / ${SKY_GRADIENT_DEG.toFixed(2)}, 0.0, 1.0);
   float lift = (1.0 - smoothstep(0.0, ${SKY_LIFT_DEG.toFixed(2)}, e)) * ${SKY_LIFT.toFixed(2)};
@@ -147,6 +156,16 @@ vec3 skyBand(float th, float e, float pxDeg) {
     vec3 cc = mix(uClearHor, uClearZen, pow(t, 0.62));
     cc = mix(cc, uClearHor * 1.08, lift);
     c = mix(cc, c, gStorm / max(uStorm, 1e-3));
+  }
+  // ---- E22 twilight (calendar): the Earth's shadow, blue-grey on the horizon opposite the sun, under the pink belt
+  //      of Venus; it rises as the sun sinks and fades through the blue hour. Hue, not value: the belt keeps the
+  //      sky's own luminance (sub-bloom, below the Pharos), the shadow sits a step darker. Mirrored by the sea.
+  if (uTwilight.x > 0.002) {
+    float tk = uTwilight.x * smoothstep(-0.2, 1.0, cos(radians(th - uTwilight.y))) * (1.0 - smoothstep(0.35, 0.7, gCov));
+    float tl = dot(c, vec3(0.299, 0.587, 0.114));
+    float bd = (e - uTwilight.z - 0.5) / 0.42;
+    c = mix(c, vec3(0.80, 0.90, 1.16) * tl * 0.78, (1.0 - smoothstep(uTwilight.z - 0.3, uTwilight.z + 0.15, e)) * tk * 0.65);
+    c = mix(c, vec3(1.30, 0.80, 0.86) * tl * 1.05, exp(-bd * bd) * tk * 0.35);
   }
   // ---- glow toward the key light's azimuth (sun/moon), strongest at the horizon
   float dg = abs(th - uSunDisc.x);
@@ -192,11 +211,24 @@ vec3 skyBand(float th, float e, float pxDeg) {
       float n1 = texture2D(uSkyNoise, vec2(mth * 0.021 + 0.17, e * 0.09 + 0.43)).r;
       float n2 = texture2D(uSkyNoise, vec2(mth * 0.07 + 0.61, e * 0.24 + 0.09)).g;
       float width = 0.9 + 0.5 * n1;
+      // E23: the band leans through the visible band instead, from its foot on the horizon out of the frame top:
+      //      narrower, ragged-edged and clumped into star clouds (a smooth shaft would read as a second beam)
+      if (uMilkyWay.x > 0.5) {
+        axis = (th - uMilkyWay.z) * uMilkyWay.y - e * uMilkyWay.w + (n2 - 0.5) * 0.7;
+        width = 0.45 + 0.4 * n1;
+      }
       float body = exp(-axis * axis / (width * width)) * (0.45 + 0.7 * n1);
+      if (uMilkyWay.x > 0.5) body *= 0.2 + 1.3 * smoothstep(0.25, 0.85, texture2D(uSkyNoise, vec2((th - uMilkyWay.z) * 0.21 + 0.29, e * 0.33 + 0.71)).b);
       float dust = smoothstep(0.55, 0.8, n2) * exp(-axis * axis / 0.35) * 0.45;
       float core = 1.0 + 0.8 * uNightSky.w * smoothstep(0.3, 1.0, cos(radians(mth)));
       vec3 mw = vec3(0.78, 0.8, 0.95) * body * (1.0 - dust) * core;
-      c += mw * uNightSky.x * 0.06 * fadeE * (1.0 - gCov * 0.7);
+      vec3 mwAdd = mw * uNightSky.x * 0.06 * fadeE * (1.0 - gCov * 0.7);
+      if (uMilkyWay.x > 0.5) {
+        // E23: 2.5x the light under a fixed palette cap, so the river never outranks the fire
+        mwAdd *= 2.5;
+        mwAdd *= clamp((${MILKY_WAY_CAP.toFixed(3)} - dot(c, vec3(0.299, 0.587, 0.114))) / max(dot(mwAdd, vec3(0.299, 0.587, 0.114)), 1e-5), 0.0, 1.0);
+      }
+      c += mwAdd;
     }
     // W06 a meteor: a thin warm streak with a fading tail, under a second (never a flash, never like lightning)
     if (uMeteorB.x > 0.0 && uMeteorB.x < 1.0) {
@@ -302,7 +334,9 @@ vec3 skyBand(float th, float e, float pxDeg) {
     float ld = dot(deckC, vec3(0.299, 0.587, 0.114));
     // cold slate (blue-grey, never the warm grey-white of the stale-data fog), darker in the cell cores
     deckC = mix(deckC, vec3(ld) * vec3(0.86, 0.94, 1.07), 0.7) * 0.8;
-    deckC *= mix(0.82, 1.1, smoothstep(0.35, 0.95, seam)) * mix(0.93, 1.04, roll);
+    gDeckS = mix(0.82, 1.1, smoothstep(0.35, 0.95, seam)) * mix(0.93, 1.04, roll);
+    deckC *= mix(gDeckS, 1.0, uDeckK.x);
+    gDeckA = max(deckA, nightDeck * smoothstep(0.3, 0.6, gStorm));
     // the closed night deck: the same slate, darker toward the zenith, a faint ragged base above the horizon
     vec3 nightC = deckC * (0.78 + 0.3 * smoothstep(0.3, 0.9, dn)) * mix(1.0, 0.72, smoothstep(1.0, 7.0, e));
     c = mix(c, mix(deckC, nightC, nightDeck), max(deckA * 0.92, nightDeck * smoothstep(0.0, 0.9, e + (dn - 0.5) * 0.8)));
@@ -334,13 +368,17 @@ vec3 skyBand(float th, float e, float pxDeg) {
     c += fc * uPrecipSky.z * (exp(-fd * 1.2) * 2.2 * body + exp(-fd * 0.35) * 0.35 + 0.12);
   }
   // ---- W03 sunbreaks: faint crepuscular shafts fanning down from the sun through the gaps in the cloud
-  if (uSquall.z > 0.002 && uSunDisc.w > 0.01) {
+  //      (E22: on a clear dawn the low sun throws them up through the bank beside it instead)
+  float rayK = max(uSquall.z, uTwilight.w);
+  if (rayK > 0.002 && uSunDisc.w > 0.01) {
     vec2 v = vec2(th - uSunDisc.x, e - uSunDisc.y);
+    float dawnRays = step(uSquall.z, uTwilight.w - 0.002);
+    v.y *= 1.0 - 2.0 * dawnRays;
     if (v.y < 0.0) {
       float r = length(v);
       float rays = smoothstep(0.5, 0.9, sbNoise1(atan(v.x, -v.y) * 9.0 + 3.0, 7.0));
-      float gap = smoothstep(0.4, 0.7, texture2D(uSkyNoise, vec2((th + uWeather.z * 2.0) * 0.02 + 0.4, e * 0.08 + 0.2)).g);
-      c += uSunColor * rays * gap * exp(-r / 9.0) * smoothstep(0.3, 1.5, r) * uSquall.z * uSunDisc.w * 0.16;
+      float gap = max(smoothstep(0.4, 0.7, texture2D(uSkyNoise, vec2((th + uWeather.z * 2.0) * 0.02 + 0.4, e * 0.08 + 0.2)).g), dawnRays);
+      c += uSunColor * rays * gap * exp(-r / mix(9.0, 4.5, dawnRays)) * smoothstep(0.3, 1.5, r) * rayK * uSunDisc.w * 0.16;
     }
   }
   // ---- W09 the passing squall: one darker bank with its own rain curtain, walking along the wind
@@ -419,6 +457,8 @@ vec3 skyBand(float th, float e, float pxDeg) {
     // (the frame's grade is still the storm's: lift the clearing a little so the opening reads)
     c = mix(c, c * vec3(0.9, 1.0, 1.12), -0.5 * dS) * (1.0 - 0.22 * dS);
   }
+  // ---- E24: the deck's cells and rolls land after the grey grading (W02 was crushed into a slab), ±25 % at most
+  if (uDeckK.x > 0.5) c *= 1.0 + clamp((gDeckS - 1.0) * uDeckK.y, -0.25, 0.25) * gDeckA;
   // ---- horizon haze band (matches the sea fog) + the glow on it
   float hzb = 1.0 - smoothstep(-0.05, 0.75, e);
   c = mix(c, hazeC, hzb * 0.85);

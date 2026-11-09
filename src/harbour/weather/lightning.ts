@@ -27,7 +27,29 @@ export interface StrikeEvent {
 
 const MAX_SEG = 220;
 
-interface Bolt { pts: Array<[number, number]>; width: number }
+export interface Bolt { pts: Array<[number, number]>; width: number }
+
+/** E24: the half-width (deg) of sky kept clear around the projected Pharos: a strike never seems to hit the hero. */
+export const PHAROS_CLEAR_DEG = 4;
+
+/**
+ * E24: a strike azimuth in [−span, span] outside avoid ± clear, mapped from ONE uniform sample over the free span
+ * (bounded: no reroll). If the hero fills the whole span, the strike stands just beyond its nearer clear edge.
+ */
+export function strikeTh(u: number, span: number, avoid: number | null, clear = PHAROS_CLEAR_DEG): number {
+  if (avoid === null || !Number.isFinite(avoid)) return (u * 2 - 1) * span;
+  const lo = Math.max(-span, avoid - clear), hi = Math.min(span, avoid + clear);
+  const gap = Math.max(0, hi - lo), free = 2 * span - gap;
+  if (free <= 1e-6) return avoid + (avoid > 0 ? -clear : clear);
+  const t = -span + u * free;
+  return gap > 0 && t >= lo ? t + gap : t;
+}
+
+/** E24: fold any bolt point that strays toward the hero back across the clear edge on the strike's side. */
+export function fenceBolts(bolts: Bolt[], avoid: number, th: number, clear = PHAROS_CLEAR_DEG): void {
+  const side = th >= avoid ? 1 : -1, edge = avoid + side * clear;
+  for (const b of bolts) for (const p of b.pts) if ((p[0] - edge) * side < 0) p[0] = 2 * edge - p[0];
+}
 
 function rng(seed: number): () => number {
   let s = seed | 0;
@@ -126,6 +148,8 @@ export interface LightningFrame {
   bandTopDeg: number;
   fwdAz: number;
   night: number;
+  /** E24: the projected Pharos (deg, view-relative) the strikes keep clear of, or null. */
+  avoidTh?: number | null;
 }
 
 export class Lightning {
@@ -178,7 +202,7 @@ export class Lightning {
   private strike(f: LightningFrame): void {
     const R = this.R;
     const span = Math.max(4, f.halfFovDeg * 0.85);
-    this.th = (R() * 2 - 1) * span;
+    this.th = strikeTh(R(), span, f.avoidTh ?? null);
     this.az = f.fwdAz + THREE.MathUtils.degToRad(this.th);
     const km = f.strikeKm[0] + (f.strikeKm[1] - f.strikeKm[0]) * R();
     // nearer strikes are brighter and taller (they reach higher into the visible band)
@@ -187,7 +211,9 @@ export class Lightning {
     const top = Math.min(Math.max(1.6, f.bandTopDeg * (0.55 + 0.4 * near)), 9);
     this.flashTh = this.th; this.flashE = top * 0.8;
     this.restrike = R() < 0.65 ? 0.08 + R() * 0.07 : -1;
-    this.build(buildBolt(0, this.th, top, R), 0.06 + 0.05 * near);
+    const bolts = buildBolt(0, this.th, top, R);
+    if (f.avoidTh != null) fenceBolts(bolts, f.avoidTh, this.th);
+    this.build(bolts, 0.06 + 0.05 * near);
     this.age = 0;
     const ev: StrikeEvent = { distanceKm: km, thunderDelaySec: (km * 1000) / 343, intensity: this.strength, azimuth: this.az };
     for (const cb of this.listeners) cb(ev);
