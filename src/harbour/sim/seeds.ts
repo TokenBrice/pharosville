@@ -1,10 +1,11 @@
+import hulls from "./hull-footprints.json";
 import type { HarbourLayout } from "../layout/types";
 import type { CoastGrid } from "./obstacles";
 import type { OutingSeed } from "./outings";
 import type { RepLeg } from "./plan";
 
-/** Bump when geometry/timing/outing semantics change, then run build-sim-seeds.mjs. 4: representative allocation restored within the preparation budget (S16-I3 deferred). */
-export const SIM_SEED_VERSION = 4;
+/** Bump when geometry/timing/outing semantics change, then run build-sim-seeds.mjs. 5: rendered hull footprints and footprint-aware path identity. */
+export const SIM_SEED_VERSION = 5;
 export interface SimSeeds {
   version: number;
   key: string;
@@ -19,7 +20,7 @@ export interface SimSeeds {
 export async function simSeedKey(layout: HarbourLayout, coast: CoastGrid | null): Promise<string> {
   const digest = async (bytes: Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>)), (b) => b.toString(16).padStart(2, "0")).join("");
   const coastKey = coast ? await digest(coast.data) : null;
-  return digest(new TextEncoder().encode(JSON.stringify([SIM_SEED_VERSION, layout, coast && [coast.size, coast.bounds, coastKey]])));
+  return digest(new TextEncoder().encode(JSON.stringify([SIM_SEED_VERSION, hulls, layout, coast && [coast.size, coast.bounds, coastKey]])));
 }
 
 export async function matchingSeeds(seed: SimSeeds, layout: HarbourLayout, coast: CoastGrid | null): Promise<boolean> {

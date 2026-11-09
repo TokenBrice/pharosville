@@ -83,6 +83,12 @@ export class DataSystem implements WorldSystem {
   private revision = 0;
   private consumedRevision = 0;
   private preparedPose = false;
+  private refilling = false;
+  private nextRefill = 0;
+  private workerPlanKey = "";
+  private returning = false;
+  private returnFadeAt: number | null = null;
+  private returnReconciled = false;
   readonly readiness = { revision: 0, boats: 0, prepared: false };
 
   async init(ctx: EngineContext): Promise<void> {
@@ -113,8 +119,8 @@ export class DataSystem implements WorldSystem {
     const motion = ensureMotionService(ctx);
     const hold = (reduced: boolean) => {
       const wall = this.simNow(Date.now()) - this.motionLag;
-      if (reduced && this.heldAt === null) this.heldAt = wall;
-      else if (!reduced && this.heldAt !== null) { this.motionLag += wall - this.heldAt; this.heldAt = null; }
+      if (reduced && this.heldAt === null) { this.heldAt = wall; this.sim?.settleMotion(wall); }
+      else if (!reduced && this.heldAt !== null) { this.motionLag += wall - this.heldAt; this.heldAt = null; this.sim?.resumeMotion(this.simClock(Date.now())); }
     };
     hold(motion.reduced);
     this.unsubMotion = motion.subscribe(hold);
@@ -129,7 +135,7 @@ export class DataSystem implements WorldSystem {
     const startWarm = this.restartWarm = () => {
       const generation = ++this.generation;
       this.warm?.stop();
-      this.warmed = false; this.workerFailed = false; this.preparing = false; this.dirty = true;
+      this.warmed = false; this.workerFailed = false; this.preparing = false; this.refilling = false; this.nextRefill = 0; this.workerPlanKey = ""; this.dirty = true;
       const current = () => this.feed === feed && this.generation === generation;
       const warm = this.warm = warmLegsOffThread(layout, coasting,
         (entries) => { if (current()) this.sim?.seedLegTimes(entries); },
@@ -148,11 +154,16 @@ export class DataSystem implements WorldSystem {
       this.scheduleRetry(feed, 0, false);
     };
     const resume = () => this.resumeRetry(feed);
-    document.addEventListener("visibilitychange", resume);
+    const visibility = () => {
+      resume();
+      if (document.hidden) { this.returning = true; this.returnFadeAt = null; this.returnReconciled = false; if (this.sim) { this.sim.resumeHolding = true; this.sim.resumeOpacity = 1; } }
+      else if (this.returning) { this.nextRefill = 0; this.refillPaths(ctx, this.simClock(Date.now())); }
+    };
+    document.addEventListener("visibilitychange", visibility);
     window.addEventListener("online", resume);
     window.addEventListener("offline", resume);
     this.unsubscribeRecovery = () => {
-      document.removeEventListener("visibilitychange", resume);
+      document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("online", resume);
       window.removeEventListener("offline", resume);
     };
@@ -243,10 +254,11 @@ export class DataSystem implements WorldSystem {
     try {
       let model = modelAt();
       phase = "worker";
-      const prepared = model.planKey !== sim.plan.key
+      const prepared = !recovering && model.boats.length > 0 && (model.planKey !== sim.plan.key || this.workerPlanKey !== model.planKey)
         ? await warm.prepare(model, this.simClock(Date.now()), sim.knownPlainPaths())
         : undefined;
       if (this.feed !== feed || this.sim !== sim || this.generation !== generation || this.workerFailed !== recovering || revision < this.consumedRevision) return;
+      if (prepared) this.workerPlanKey = model.planKey;
       // Never publish an unseen intermediate structural model or replay its transitions.
       // Optional arrivals with identical planning inputs coalesce without restarting allocation.
       phase = "model-build";
@@ -254,7 +266,7 @@ export class DataSystem implements WorldSystem {
       if (latest.planKey !== model.planKey) { this.dirty = true; return; }
       model = latest;
       revision = this.revision;
-      sim.setModel(model, this.simClock(Date.now()), prepared);
+      sim.setModel(model, this.simClock(Date.now()), prepared, this.heldAt !== null);
       sim.poseAt(this.simClock(Date.now())); // boundary misses/transition paths are owned by this task
       this.preparedPose = true;
       this.consumedRevision = revision;
@@ -280,6 +292,21 @@ export class DataSystem implements WorldSystem {
         this.queuePreparation(ctx);
       }
     }
+  }
+
+  private refillPaths(ctx: EngineContext, nowMs: number): void {
+    const sim = this.sim, warm = this.warm, feed = this.feed;
+    if (!sim || !warm || !feed || !this.warmed || this.workerFailed || this.preparing || this.refilling) return;
+    const requests = sim.pathRequests(nowMs), legs = [...requests.now, ...requests.soon];
+    if (!legs.length) return;
+    const plan = sim.plan, revision = sim.planRevision, generation = this.generation;
+    this.refilling = true;
+    void warm.paths(revision, plan.key, legs).then((reply) => {
+      if (this.sim !== sim || this.generation !== generation || sim.plan !== plan || reply.planRevision !== revision || reply.layoutKey !== plan.key) return;
+      sim.seedPaths(plan, reply.paths);
+    }, (error: unknown) => {
+      if (this.sim === sim && this.generation === generation) this.workerUnavailable(ctx, feed, error);
+    }).finally(() => { if (this.generation === generation) this.refilling = false; });
   }
 
   /** The model's clock: wall time (dev: scaled / offset). */
@@ -328,8 +355,22 @@ export class DataSystem implements WorldSystem {
       if (sig !== this.truthSig) { this.dirty = true; this.revision++; }
     }
     if (this.dirty) this.queuePreparation(ctx);
-    const pose = !this.readiness.prepared || this.preparedPose ? sim.pose : sim.poseAt(this.simClock(frame.nowMs));
+    let holdReturn = this.returning;
+    if (this.returning && !document.hidden) {
+      const reduced = this.heldAt !== null;
+      if (this.returnFadeAt !== null || reduced || this.workerFailed || !sim.pathRequests(this.simClock(frame.nowMs)).now.length) {
+        this.returnFadeAt ??= frame.nowMs;
+        const u = reduced ? 1 : Math.min(1, (frame.nowMs - this.returnFadeAt) / 250);
+        sim.resumeOpacity = Math.abs(1 - 2 * u);
+        if (u >= 0.5 && !this.returnReconciled) { sim.resetHistory(); this.returnReconciled = true; }
+        holdReturn = u < 0.5;
+        if (u === 1) { this.returning = false; this.returnFadeAt = null; }
+      }
+    }
+    sim.resumeHolding = holdReturn;
+    const pose = !this.readiness.prepared || this.preparedPose || holdReturn ? sim.pose : sim.poseAt(this.simClock(frame.nowMs));
     this.preparedPose = false;
+    if (frame.nowMs >= this.nextRefill) { this.nextRefill = frame.nowMs + 1000; this.refillPaths(ctx, this.simClock(frame.nowMs)); }
     this.markers?.update(sim);
     if (this.logEvery) {
       if (this.prevPhase.length !== pose.count) this.prevPhase = new Uint8Array(pose.count);
@@ -365,6 +406,7 @@ export class DataSystem implements WorldSystem {
     this.warmed = false; this.preparing = false; this.dirty = false; this.preparedPose = false;
     this.workerFailed = false; this.installedPayloads = null;
     this.restartWarm = null;
+    this.returning = false; this.returnFadeAt = null; this.returnReconciled = false;
     Object.assign(this.status, { unavailable: false, phase: "starting", reason: null, attempt: 0, nextRetryAtMs: null, message: "", retry: () => {} });
     this.readiness.prepared = false; this.readiness.boats = 0; this.readiness.revision = 0;
     this.revision = 0; this.consumedRevision = 0;

@@ -4,6 +4,7 @@ import { getGround } from "../ui/services";
 import { Mastheads } from "./mastheads";
 import { BootFailure, isAbort } from "../engine/failure";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import type { PreparedPrograms } from "../engine/prepare";
 import type { HarbourLayout, HullClass, Pier } from "../layout/types";
 import type { Boat, HarbourModel } from "../model/types";
 import type { OceanService } from "../ocean/ocean-system";
@@ -197,6 +198,8 @@ export class FleetSystem implements WorldSystem {
   private index: VariantIndex = {};
   private atlas: EmblemAtlas | null = null;
   private mesh: THREE.BatchedMesh | null = null;
+  private resumeRevision = 0;
+  private resumePrograms: PreparedPrograms[] = [];
   private material: THREE.MeshStandardMaterial | null = null;
   private depth: THREE.MeshDepthMaterial | null = null;
   private readonly uniforms: FleetUniforms;
@@ -896,6 +899,21 @@ export class FleetSystem implements WorldSystem {
 
   // ------------------------------------------------------------------ frame
 
+  async prepareIdle(ctx: EngineContext): Promise<void> {
+    const preparation = ctx.services.get("preparation"), mesh = this.mesh, material = this.material;
+    if (!preparation || !mesh || !material) return;
+    const mats = getHarbourMaterials(ctx);
+    for (const low of [false, true]) {
+      const programs = await preparation.prepare([{ root: mesh, camera: ctx.camera, target: () => ctx.composer.inputBuffer, scene: ctx.scene }], () => {
+        const restore = mats.preparationScope(low), transparent = material.transparent;
+        material.transparent = true;
+        return () => { material.transparent = transparent; restore(); };
+      });
+      if (programs.status !== "complete") { programs.dispose(); throw new Error("Fleet resume preparation timed out"); }
+      this.resumePrograms.push(programs);
+    }
+  }
+
   update(frame: FrameState, ctx: EngineContext): void {
     if (!this.mesh || this.failed) return;
     // Decode logos on the original first-update schedule into the combined canvas.
@@ -905,9 +923,24 @@ export class FleetSystem implements WorldSystem {
     const t0 = performance.now();
     const model = ctx.services.get("model");
     const sim = ctx.services.get("sim");
+    const presence = sim?.resumeOpacity ?? 1;
+    if (this.material) {
+      const transparent = presence < 1;
+      if (this.material.transparent !== transparent) { this.material.transparent = transparent; this.material.needsUpdate = true; }
+      this.material.opacity = presence;
+      this.material.depthWrite = !transparent;
+    }
+    if (sim?.resumeHolding) return;
     if (model && model !== this.model) this.install(model);
     this.ocean = ctx.services.get("ocean") ?? null;
     const wake = ctx.services.get("wake");
+    const revision = sim?.resumeRevision ?? 0;
+    const reconciled = revision !== this.resumeRevision;
+    if (reconciled) {
+      this.resumeRevision = revision;
+      wake?.clear(ctx.renderer);
+      for (const b of this.boats) { b.seen = false; b.vx = 0; b.vz = 0; b.dox = 0; b.doz = 0; b.gyaw = 0; b.swell.fill(NaN); }
+    }
     const cam = ctx.camera;
     this.pv.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.pv);
@@ -991,14 +1024,15 @@ export class FleetSystem implements WorldSystem {
 
       // rig pose
       const target = b.wrecked ? 0 : targetSwing(h, windFrom, sail);
-      b.swing = approach(b.swing, target, dt * 0.55);
+      b.swing = reconciled ? target : approach(b.swing, target, dt * 0.55);
       // canvas half loose and flogging: adrift to the Shoals, or aground there (07-M7)
       const loose = pose!.event[i] === EV_TO_SHOALS || (ph === PH_ANCHORED && sim?.slotOf(i)?.kind === "shoals");
       const mo = this.motion(b, h, windFrom, sail, moving, target, gustSvc.at(x, z), windK, live, dt, loose);
       // in a storm the sail drawing heels her hard over (the sim's heel follows the model's wind); a passing
       // cat's-paw leans her a little further (07-M4)
       const heelT = pose!.heel[i] * brail * (moving ? 1 + 1.3 * storm : 1) + mo.heel;
-      b.heel += (heelT - b.heel) * (1 - Math.exp(-dt * 1.2));
+      if (reconciled) b.heel = heelT;
+      else b.heel += (heelT - b.heel) * (1 - Math.exp(-dt * 1.2));
       const hiT = b.id === this.hover ? 1 : b.id === this.selected ? 0.5 : 0;
       b.hi += (hiT - b.hi) * hiK;
 
@@ -1603,6 +1637,7 @@ export class FleetSystem implements WorldSystem {
     this.bunting?.dispose();
     this.simEvents?.();
     ctx.services.delete("bunting");
+    for (const programs of this.resumePrograms) programs.dispose(); this.resumePrograms.length = 0;
     this.material?.dispose(); this.depth?.dispose();
     this.atlas?.dispose();
     this.boards?.dispose();

@@ -89,7 +89,7 @@ export class RouteLine {
   private mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null = null;
   private readonly mat: THREE.ShaderMaterial;
   private id: string | null = null;
-  private sig = "";
+  private itinerary: Itinerary | null | undefined;
   private refresh = 0;
   private total = 0;
   /** The current leg's resampled points (for her place along it). */
@@ -112,7 +112,7 @@ export class RouteLine {
   show(id: string | null): void {
     if (id === this.id) return;
     this.id = id;
-    this.sig = "";
+    this.itinerary = undefined;
     this.refresh = 0;
     this.drawT = 0;
   }
@@ -151,9 +151,8 @@ export class RouteLine {
   }
 
   private rebuild(it: Itinerary | null): void {
-    const sig = it ? `${it.legs.length}:${it.legs[0]?.pts[0]}:${it.legs[0]?.pts[1]}:${it.ports.length}` : "none";
-    if (sig === this.sig) return;
-    this.sig = sig;
+    if (it === this.itinerary) return;
+    this.itinerary = it;
     this.disposeMesh();
     if (!it || !it.legs.length) { this.cur = []; this.total = 0; return; }
     const pos: number[] = [], side: number[] = [], nrm: number[] = [], sArr: number[] = [], idx: number[] = [];

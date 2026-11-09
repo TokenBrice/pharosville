@@ -22,6 +22,7 @@ import type { PreparationEntry } from "../engine/types";
  * one evenly dotted pattern.
  */
 export interface WakeService {
+  clear(renderer: THREE.WebGLRenderer): void;
   preparationEntries(): PreparationEntry[];
   stamp(x: number, z: number, vx: number, vz: number, halfWidth: number, strength: number, halfLength?: number, seed?: number): void;
   readonly texture: THREE.Texture;
@@ -274,6 +275,16 @@ export class WakeField implements WakeService {
     renderer.setRenderTarget(prevTarget);
     if (decayNow) this.idx = 1 - this.idx;
     this.count = 0;
+  }
+
+  /** Tab return: no orphaned trails survive a UTC pose reconciliation. */
+  clear(renderer: THREE.WebGLRenderer): void {
+    const target = renderer.getRenderTarget(), alpha = renderer.getClearAlpha();
+    renderer.getClearColor(this.prevClear);
+    renderer.setClearColor(0x000000, 0);
+    for (const rt of [...this.hist, this.liveRT]) { renderer.setRenderTarget(rt); renderer.clear(true, false, false); }
+    renderer.setClearColor(this.prevClear, alpha); renderer.setRenderTarget(target);
+    this.count = 0; this.decayDt = 0;
   }
 
   dispose(): void {

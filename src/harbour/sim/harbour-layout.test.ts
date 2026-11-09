@@ -197,7 +197,7 @@ describe("the sim in the real harbour", () => {
     const { now } = b.pathRequests(T0_MS);
     expect(now.some(([f, t, , l]) => l > 0 && f !== t)).toBe(true); // scenic legs among them
     expect(now.some(([f, t, , l]) => l > 0 && f === t)).toBe(true); // and outings
-    b.seedPaths(b.plan, structuredClone(now.map(([f, t, c, l]): [string, PathRec, boolean] => { const r = buildPlanLegPath(W, base, f, t, c, l); return [pathKey(f, t, c, l), r.path, r.bad]; })));
+    b.seedPaths(b.plan, structuredClone(now.map(([f, t, c, l, loa, beam]): [string, PathRec, boolean] => { const r = buildPlanLegPath(W, base, f, t, c, l, loa, beam); return [pathKey(f, t, c, l, loa, beam), r.path, r.bad]; })));
     for (let k = 0; k < 40; k++) {
       const t = T0_MS + k * 3_000, pa = a.poseAt(t), pb = b.poseAt(t);
       expect(pb.position).toStrictEqual(pa.position);
