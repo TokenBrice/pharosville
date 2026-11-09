@@ -232,6 +232,25 @@ describe("bounded fleet installation", () => {
     return { jobs, step };
   }
 
+  it("culls hull by hull only: the batch's whole-object sphere, cached at its first test, never gates the fleet", async () => {
+    const f = fixture();
+    expect(f.fleet.mesh.perObjectFrustumCulled).toBe(true);
+    expect(f.fleet.mesh.frustumCulled).toBe(false);
+    // the sphere three would cache before the staged install poses a hull: empty, at the origin
+    f.fleet.mesh.computeBoundingSphere();
+    const first = f.fleet.mesh.boundingSphere!.clone();
+    await f.install(model([coin("a")]));
+    const a = f.fleet.byId.get("a")!;
+    f.fleet.mesh.setMatrixAt(a.inst, new THREE.Matrix4().makeTranslation(-350, 0, -60));
+    // a close camera on that hull (the Shoals' framing) does not see the stale sphere, yet the hull is in view
+    const camera = new THREE.PerspectiveCamera(25, 1.6, 5, 9000);
+    camera.position.set(-350 + 280 * Math.SQRT1_2 * Math.cos(0.454), 280 * Math.sin(0.454), -60 + 280 * Math.SQRT1_2 * Math.cos(0.454));
+    camera.lookAt(-350, 0, -60); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+    const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    expect(frustum.intersectsSphere(first)).toBe(false);
+    expect(frustum.containsPoint(new THREE.Vector3(-350, 0, -60))).toBe(true);
+  });
+
   it("stages hidden additions without changing live membership, colours or revision, and keeps history at commit", async () => {
     const f = fixture(); await f.install(model([coin("a")]));
     const old = f.fleet.byId.get("a")!, source = old.source, color = old.brand.clone(), q = queue(f);
