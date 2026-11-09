@@ -1,7 +1,7 @@
 /** Identity only: membership belongs to the model/registry at the point of resolution. */
 export type SubjectKind = "ship" | "chain" | "yard" | "wreck" | "place";
 export interface Subject { kind: SubjectKind; id: string }
-export interface SubjectLink { subject: Subject | null; chart: boolean; obsolete: boolean }
+export interface SubjectLink { subject: Subject | null; chart: boolean; obsolete: boolean; invalid: boolean }
 
 const KINDS = { ship: "boat", chain: "harbour", yard: "yard", wreck: "wreck", place: "landmark" } as const;
 export type SubjectPick = { kind: typeof KINDS[SubjectKind]; id: string };
@@ -22,8 +22,8 @@ export function formatSubject(subject: Subject): string | null {
 export function parseSubjectUrl(url: { search: string; hash: string }): SubjectLink {
   const query = new URLSearchParams(url.search), hash = new URLSearchParams(url.hash.replace(/^#/, ""));
   const params = query.has("sel") ? query : hash;
-  const raw = params.get("sel");
-  return { subject: parseSubject(raw), chart: (query.has("chart") ? query : params).get("chart") === "1", obsolete: raw === "pigeonnier" || raw === "place.pigeonnier" };
+  const raw = params.get("sel"), subject = parseSubject(raw);
+  return { subject, chart: (query.has("chart") ? query : params).get("chart") === "1", obsolete: raw === "pigeonnier" || raw === "place.pigeonnier", invalid: raw !== null && !subject };
 }
 
 export function canonicalSubjectUrl(subject: Subject | null, chart = false): string {

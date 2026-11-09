@@ -303,7 +303,7 @@ describe("PharosVille social card route", () => {
 
     it("returns the asset response untouched for an unknown or malformed selection", async () => {
       vi.stubGlobal("HTMLRewriter", FakeHtmlRewriter);
-      for (const selection of ["ship.not-a-real-coin", '"><script>alert(1)</script>', "dock.ethereum"]) {
+      for (const selection of ["bogus", "", "ship.not-a-real-coin", '"><script>alert(1)</script>', "dock.ethereum"]) {
         const { assetResponse, context } = makeContext(
           `https://pharosville.pharos.watch/?sel=${encodeURIComponent(selection)}`,
         );

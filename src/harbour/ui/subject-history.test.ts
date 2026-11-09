@@ -106,6 +106,9 @@ describe("subject restoration and browser history", () => {
   });
 
   it.each([
+    ["bogus", "This subject is unavailable in the current harbour."],
+    ["", "This subject is unavailable in the current harbour."],
+    ["ship.%3Cscript%3E", "This subject is unavailable in the current harbour."],
     ["ship.unknown", "This subject is unavailable in the current harbour."],
     ["chain.unknown", "This subject is unavailable in the current harbour."],
     ["place.unknown", "This subject is unavailable in the current harbour."],
@@ -117,6 +120,33 @@ describe("subject restoration and browser history", () => {
     expect(f.store.getSnapshot()).toMatchObject({ selected: null, linkNotice: line });
     expect(location.pathname + location.search + location.hash).toBe("/");
     vi.advanceTimersByTime(3500); expect(f.store.getSnapshot().linkNotice).toBeNull();
+  });
+
+  it("keeps an absent subject silent", async () => {
+    const f = fixture();
+    await settle(f);
+    expect(f.store.getSnapshot().selected).toBeNull();
+    expect(f.store.getSnapshot().linkNotice).toBeFalsy();
+  });
+
+  it("keeps invalid intent through gate teardown and readmission", async () => {
+    const f = fixture("/?sel=bogus", false);
+    f.dispose(); fixtures.splice(fixtures.indexOf(f), 1);
+    const next = fixture(location.pathname + location.search, false);
+    next.model.truth.stablecoins.state = "current"; await settle(next);
+    expect(next.store.getSnapshot()).toMatchObject({ selected: null, linkNotice: "This subject is unavailable in the current harbour." });
+    expect(location.pathname + location.search + location.hash).toBe("/");
+  });
+
+  it("closes an invalid popstate subject with a notice and no history writes", async () => {
+    const f = fixture("/?sel=place.pharos");
+    await settle(f);
+    history.replaceState(null, "", "/?sel=bogus");
+    const replace = vi.spyOn(history, "replaceState"), push = vi.spyOn(history, "pushState");
+    dispatchEvent(new PopStateEvent("popstate")); await settle(f);
+    expect(f.store.getSnapshot()).toMatchObject({ selected: null, linkNotice: "This subject is unavailable in the current harbour." });
+    expect(replace).not.toHaveBeenCalled(); expect(push).not.toHaveBeenCalled();
+    expect(location.search).toBe("?sel=bogus");
   });
 
   it("keeps unresolved intent through gate teardown and readmission", async () => {

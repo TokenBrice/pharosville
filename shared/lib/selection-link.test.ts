@@ -7,9 +7,20 @@ describe("durable subject codec", () => {
       const subject = { kind, id: "not-in-a-registry" };
       expect(parseSubject(formatSubject(subject))).toEqual(subject);
       expect(pickToSubject(subjectToPick(subject))).toEqual(subject);
-      expect(parseSubjectUrl(new URL(canonicalSubjectUrl(subject, true)))).toEqual({ subject, chart: true, obsolete: false });
+      expect(parseSubjectUrl(new URL(canonicalSubjectUrl(subject, true)))).toEqual({ subject, chart: true, obsolete: false, invalid: false });
     });
   }
+  it.each([
+    ["", null, false],
+    ["?chart=1", null, false],
+    ["?sel=bogus", null, true],
+    ["?sel=", null, true],
+    ["#sel=bogus", null, true],
+    ["?sel=bogus#sel=ship.usdc-circle", null, true],
+    ["?sel=ship.usdc-circle", { kind: "ship", id: "usdc-circle" }, false],
+  ])("distinguishes absent, invalid and valid intent in %s", (tail, subject, invalid) => {
+    expect(parseSubjectUrl(new URL(`https://example.org/${tail}`))).toMatchObject({ subject, invalid });
+  });
   it("keeps legacy ships and the lighthouse, and marks the removed pigeonnier", () => {
     expect(parseSubject("ship.usdc-circle")).toEqual({ kind: "ship", id: "usdc-circle" });
     expect(canonicalSubjectUrl(parseSubject("lighthouse"))).toBe("https://pharosville.pharos.watch/?sel=place.pharos");
