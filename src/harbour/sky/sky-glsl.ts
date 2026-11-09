@@ -12,6 +12,9 @@ export const SKY_GRADIENT_DEG = 3.5;
 export const SKY_LIFT_DEG = 1.0;
 export const SKY_LIFT = 0.2;
 
+/** E23: the Milky Way's pixels stay under this sky luminance (linear, pre-grade): a fixed cap far below the lit beam. */
+export const MILKY_WAY_CAP = 0.13;
+
 /**
  * The painted sky band, evaluated in band space: th = azimuth (deg) relative to the view's forward
  * azimuth, e = elevation (deg) above the backdrop's base line (the pretend horizon). Shared by the
@@ -44,6 +47,7 @@ uniform vec4 uSeasonSky;     // W10: cirrus amount multiplier, autumn mackerel b
 uniform vec4 uTwilight;      // E22: wedge 0..1, anti-solar th (deg), Earth's-shadow top (deg), dawn rays 0..1
 uniform vec4 uNightSky;      // W05: Milky Way 0..1, star clock (s, stills with reduced motion), band azimuth offset (deg), summer core 0..1
 uniform vec4 uMeteor;        // W06: streak start th, e (deg), direction (unit, deg space)
+uniform vec4 uMilkyWay;      // E23: tilted 0/1, sin(lean), foot th (deg, view-relative), cos(lean)
 uniform vec4 uMeteorB;       // W06: life 0..1, length (deg), brightness, -   // W01: the hour's zenith and horizon before the storm grade (the clearing's sky)
 uniform vec4 uFrontB;        // W01 front: line azimuth (deg, band space), travel sign (+1 = toward +th), rain it brings, active 0/1
 
@@ -203,11 +207,24 @@ vec3 skyBand(float th, float e, float pxDeg) {
       float n1 = texture2D(uSkyNoise, vec2(mth * 0.021 + 0.17, e * 0.09 + 0.43)).r;
       float n2 = texture2D(uSkyNoise, vec2(mth * 0.07 + 0.61, e * 0.24 + 0.09)).g;
       float width = 0.9 + 0.5 * n1;
+      // E23: the band leans through the visible band instead, from its foot on the horizon out of the frame top:
+      //      narrower, ragged-edged and clumped into star clouds (a smooth shaft would read as a second beam)
+      if (uMilkyWay.x > 0.5) {
+        axis = (th - uMilkyWay.z) * uMilkyWay.y - e * uMilkyWay.w + (n2 - 0.5) * 0.7;
+        width = 0.45 + 0.4 * n1;
+      }
       float body = exp(-axis * axis / (width * width)) * (0.45 + 0.7 * n1);
+      if (uMilkyWay.x > 0.5) body *= 0.2 + 1.3 * smoothstep(0.25, 0.85, texture2D(uSkyNoise, vec2((th - uMilkyWay.z) * 0.21 + 0.29, e * 0.33 + 0.71)).b);
       float dust = smoothstep(0.55, 0.8, n2) * exp(-axis * axis / 0.35) * 0.45;
       float core = 1.0 + 0.8 * uNightSky.w * smoothstep(0.3, 1.0, cos(radians(mth)));
       vec3 mw = vec3(0.78, 0.8, 0.95) * body * (1.0 - dust) * core;
-      c += mw * uNightSky.x * 0.06 * fadeE * (1.0 - gCov * 0.7);
+      vec3 mwAdd = mw * uNightSky.x * 0.06 * fadeE * (1.0 - gCov * 0.7);
+      if (uMilkyWay.x > 0.5) {
+        // E23: 2.5x the light under a fixed palette cap, so the river never outranks the fire
+        mwAdd *= 2.5;
+        mwAdd *= clamp((${MILKY_WAY_CAP.toFixed(3)} - dot(c, vec3(0.299, 0.587, 0.114))) / max(dot(mwAdd, vec3(0.299, 0.587, 0.114)), 1e-5), 0.0, 1.0);
+      }
+      c += mwAdd;
     }
     // W06 a meteor: a thin warm streak with a fading tail, under a second (never a flash, never like lightning)
     if (uMeteorB.x > 0.0 && uMeteorB.x < 1.0) {
