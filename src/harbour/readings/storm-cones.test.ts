@@ -14,4 +14,44 @@ describe("D11 the storm signal's lanterns", () => {
     expect(KINDS.signal.analytic).toBe(true);
     cones.dispose(); kit.dispose(); lantern.dispose();
   });
+
+  it("go out at once when the stress evidence lapses, while the canvas still comes down, and re-light only with current evidence", () => {
+    const on = new Map<number, boolean>();
+    let ids = 0;
+    const lights: LightsService = { add: () => ids++, setOn: (id, lit) => { on.set(id, lit); }, remove: () => undefined, setPosition: () => undefined };
+    const rig = { slots: [[0, 12, 0], [0, 9, 0], [0, 6, 0], [0, 3, 0]] as const, foot: [0, 1, 0] as const, masthead: [0, 14, 0] as const };
+    const kit = new THREE.MeshStandardMaterial(), lantern = new THREE.MeshStandardMaterial(), parent = new THREE.Group();
+    const cones = new StormCones(parent, rig, kit, lantern, lights);
+    const lanterns = parent.getObjectByName("storm_signal_lanterns") as THREE.InstancedMesh;
+    const canvas = parent.getObjectByName("storm_signal") as THREE.Mesh;
+    const camera = new THREE.Vector3(60, 20, 60);
+    let time = 0;
+    const frames = (count: number, reduced = false) => { for (let k = 0; k < count; k++) cones.update(1 / 60, time += 1 / 60, 0.5, reduced, camera); };
+    const lit = () => [0, 1, 2, 3].map((id) => on.get(id) ?? false);
+    // Warning on current evidence: three shapes up, three lanterns lit
+    cones.setCount(3);
+    frames(1, true);
+    expect([lanterns.count, lanterns.visible]).toEqual([3, true]);
+    expect(lit()).toEqual([true, true, true, false]);
+    // the evidence lapses (stale or unavailable stress: readings → cones null): the canvas starts down, the lanterns are out
+    cones.setCount(null);
+    frames(1);
+    expect(canvas.visible).toBe(true);
+    expect([lanterns.count, lanterns.visible]).toEqual([0, false]);
+    expect(lit()).toEqual([false, false, false, false]);
+    frames(30); // half a second into the haul: shapes still aloft, still dark
+    expect(canvas.visible).toBe(true);
+    expect([lanterns.count, lit().some(Boolean)]).toEqual([0, false]);
+    // current evidence returns: every shape of the signal that is aloft carries its lantern again at once
+    cones.setCount(3);
+    frames(1);
+    expect([lanterns.count, lanterns.visible]).toEqual([3, true]);
+    expect(lit()).toEqual([true, true, true, false]);
+    // a lower band on current evidence: the struck shape comes down dark too
+    cones.setCount(2);
+    frames(1);
+    expect(lanterns.count).toBe(2);
+    expect(lit()).toEqual([true, true, false, false]);
+    cones.dispose(); kit.dispose(); lantern.dispose();
+  });
 });

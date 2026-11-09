@@ -259,6 +259,8 @@ export class FleetSystem implements WorldSystem {
   private modelRevision = 0;
   /** Each installed revision submits its complete fleet once before offscreen posing can be skipped. */
   private needsFullPose = false;
+  /** D11: the peg evidence the analytical stern / anchor lamps were last drawn for (pegLampsLive), for change detection. */
+  private pegLampsShown = false;
   private readonly fleetFrame: FleetFrameState = { revision: 0, boats: 0 };
   private drawnRevision = -1;
   private drawnBoats = 0;
@@ -1085,6 +1087,12 @@ export class FleetSystem implements WorldSystem {
     const t0 = performance.now();
     const model = ctx.services.get("model");
     const pegLive = pegLampsLive(model?.truth); // D11: analytical stern/anchor lamps need current peg + fleet sources
+    // D11: the moment that evidence lapses its lamps go out, ahead of the resume hold below, which keeps drawing the
+    // last submitted fleet (lantern glass and riding sprites with it) through a whole path wait. Only on the change.
+    if (pegLive !== this.pegLampsShown) {
+      this.pegLampsShown = pegLive;
+      if (!pegLive) this.dousePegLamps();
+    }
     const sim = ctx.services.get("sim");
     // A desired model is never installed from the render callback; DataSystem owns the barrier.
     const presence = sim?.resumeOpacity ?? 1;
@@ -1529,6 +1537,16 @@ export class FleetSystem implements WorldSystem {
     return b.brail;
   }
   private harbours: Array<readonly [number, number][]> | null = null;
+
+  /**
+   * D11: every hull's lantern glass dark (uFleetData texel 2 .z, uploaded now) and the submitted analytical riding
+   * sprites out; the next full pose re-lights them from the evidence.
+   */
+  private dousePegLamps(): void {
+    for (const b of this.boats) this.writeDatum((b.inst * FLEET_DATA_TEXELS + 2) * 4 + 2, 0);
+    this.uploadData();
+    this.riding.douseAnalytic();
+  }
 
   /** uFleetData texel 2 (F-fleet3, fleet-material): sail fill, shake, lantern lit (reserved), oar stroke. */
   private writeMotion(inst: number, fill: number, shake: number, lit: number, row: number): void {
