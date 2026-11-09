@@ -171,9 +171,10 @@ export class EmblemAtlas {
 
   /**
    * The logos into a detached copy of the atlas, one tile row per preparation slice (a canvas rasterises what a
-   * task drew when the task ends: one row keeps that small), then a staged upload and one swap. The live atlas
-   * keeps its roundels until the swap, and no frame uploads the whole canvas. Same pixels as one full-size draw:
-   * each 128 px source row lands on its own 96 px row (the 0.75 bilinear taps never leave a row).
+   * task drew when the task ends: one row keeps that small), then a staged upload one tile row per slice too (the
+   * whole canvas was one 54 ms texSubImage2D at CPU ×4) and one swap. The live atlas keeps its roundels until the
+   * swap, and no frame uploads the whole canvas. Same pixels as one full-size draw: each 128 px source row lands on
+   * its own 96 px row (the 0.75 bilinear taps never leave a row).
    */
   private async stageLogos(img: ImageBitmap, preparation: PreparationService): Promise<boolean> {
     const rows = logoRows(this.meta), signal = this.signal;
@@ -195,7 +196,7 @@ export class EmblemAtlas {
         }, { signal });
       }
       fork.texture.needsUpdate = true;
-      await preparation.stageTexture(fork.texture, { signal });
+      await preparation.stageTextureRows(fork.texture, EMBLEM_SLOT_PX, { signal });
       if (this.disposed || signal?.aborted) return false;
       const old = this.texture, canvas = this.canvas;
       this.texture = fork.texture; this.uniform.value = fork.texture;

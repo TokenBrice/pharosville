@@ -68,6 +68,8 @@ export interface PreparationService {
   stageTextures(root: THREE.Object3D): void;
   submit<T>(work: (deadline: number) => T, options?: SubmissionOptions): Promise<T>;
   stageTexture(texture: THREE.Texture, options?: SubmissionOptions): Promise<void>;
+  /** A canvas texture's upload in bands of `rows` canvas rows, one band per submission (same texels). */
+  stageTextureRows(texture: THREE.Texture, rows: number, options?: SubmissionOptions): Promise<void>;
   prepare(entries: readonly PreparationEntry[], scope?: () => () => void, signal?: AbortSignal): Promise<PreparedPrograms>;
 }
 
