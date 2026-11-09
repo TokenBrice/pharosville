@@ -12,14 +12,22 @@ interface Submission {
   frame: number;
 }
 
-/** One allowance per presentation frame, shared by compilation, uploads, bakes and CPU slices. */
+/**
+ * One allowance per presentation frame, shared by compilation, uploads, bakes and CPU slices.
+ * The frame callback only marks the frame: the bounded work runs in its own task just after it, so an
+ * indivisible link, upload or bake never lengthens the task that updates, renders and commits the frame.
+ */
 export class PreparationQueue {
   private readonly pending: Submission[] = [];
   private scheduled = 0;
+  /** Token of the frame whose post-frame drain is in flight (0: none). */
+  private posted = 0;
+  private tokens = 0;
   private draining = false;
   private frame = 0;
   private disposed = false;
   private readonly native = typeof requestAnimationFrame === "function";
+  private channel: MessageChannel | null = null;
   readonly counters = { submitted: 0, overruns: 0, maxOverrunMs: 0, maxQueueAgeMs: 0 };
 
   get stats() {
@@ -38,7 +46,7 @@ export class PreparationQueue {
         const index = this.pending.indexOf(job);
         if (index >= 0) this.pending.splice(index, 1);
         clean(); reject(new DOMException("Preparation cancelled", "AbortError"));
-        if (!this.pending.length && this.scheduled) { this.cancelFrame(); this.scheduled = 0; }
+        if (!this.pending.length && (this.scheduled || this.posted)) this.cancelFrame();
       },
     };
     this.pending.push(job);
@@ -48,12 +56,31 @@ export class PreparationQueue {
   }
 
   private schedule(): void {
-    if (this.scheduled || this.draining || this.disposed || !this.pending.length) return;
-    this.scheduled = this.native ? requestAnimationFrame(() => { void this.drain(); }) : window.setTimeout(() => { void this.drain(); }, 16);
+    if (this.scheduled || this.posted || this.draining || this.disposed || !this.pending.length) return;
+    if (!this.native) { this.scheduled = window.setTimeout(() => { void this.drain(); }, 16); return; }
+    const token = ++this.tokens;
+    this.scheduled = requestAnimationFrame(() => {
+      this.scheduled = 0;
+      if (this.disposed) return;
+      this.posted = token;
+      const channel = this.postChannel();
+      if (channel) channel.port2.postMessage(token);
+      else window.setTimeout(() => { if (token === this.posted) void this.drain(); }, 0);
+    });
+  }
+
+  /** A message task runs as soon as the frame's task ends, with no timer clamping. */
+  private postChannel(): MessageChannel | null {
+    if (this.channel || typeof MessageChannel !== "function") return this.channel;
+    const channel = this.channel = new MessageChannel();
+    channel.port1.onmessage = (event: MessageEvent<number>) => { if (event.data === this.posted) void this.drain(); };
+    // Node test hosts: an idle port must not hold the process open.
+    (channel.port1 as MessagePort & { unref?: () => void }).unref?.();
+    return channel;
   }
 
   private async drain(): Promise<void> {
-    this.scheduled = 0; this.draining = true; this.frame++;
+    this.scheduled = 0; this.posted = 0; this.draining = true; this.frame++;
     const deadline = performance.now() + PREPARATION_ALLOWANCE_MS;
     try {
       while (this.pending.length && !this.disposed && performance.now() < deadline) {
@@ -76,12 +103,16 @@ export class PreparationQueue {
     } finally { this.draining = false; this.schedule(); }
   }
 
-  private cancelFrame(): void { if (this.native) cancelAnimationFrame(this.scheduled); else clearTimeout(this.scheduled); }
+  /** A post-frame drain already in flight is dropped by its stale token. */
+  private cancelFrame(): void {
+    if (this.scheduled) { if (this.native) cancelAnimationFrame(this.scheduled); else clearTimeout(this.scheduled); }
+    this.scheduled = 0; this.posted = 0;
+  }
 
   dispose(): void {
     this.disposed = true;
-    if (this.scheduled) this.cancelFrame();
-    this.scheduled = 0;
+    this.cancelFrame();
     for (const job of [...this.pending]) job.cancel();
+    if (this.channel) { this.channel.port1.onmessage = null; this.channel.port1.close(); this.channel.port2.close(); this.channel = null; }
   }
 }

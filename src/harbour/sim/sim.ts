@@ -317,6 +317,7 @@ export class HarbourSim {
   /** @param coast the baked sea SDF's coast channel: hulls then keep off the island's real coastline */
   constructor(model: HarbourModel, layout: HarbourLayout | SimLayout, nowMs = Date.now(), coast: CoastGrid | null = null, private readonly planner?: (model: HarbourModel, layout: SimLayout) => Plan) {
     this.layout = "graph" in layout ? layout : buildSimLayout(layout, coast);
+    this.slotSet = new Float64Array(this.layout.slots.length).fill(NaN);
     this.baseSlots = this.layout.slots.length;
     this.wind.fromRad = this.layout.windFrom;
     this.pose = { count: 0, ids: [], position: new Float32Array(0), heading: new Float32Array(0), heel: new Float32Array(0), sailState: new Float32Array(0), speed: new Float32Array(0), phase: new Uint8Array(0), slot: new Int32Array(0), event: new Uint8Array(0), lines: new Float32Array(0), outing: new Uint8Array(0), drift: new Float32Array(0), pitch: new Float32Array(0) };
@@ -1005,11 +1006,23 @@ export class HarbourSim {
    */
   private swingHeading(r: BoatRt, s: Slot): void {
     const t = this.t, TAU = 2 * Math.PI;
-    const tide = 0.22 * Math.sin(s.x / 95 + 0.4) + 0.16 * Math.cos(s.z / 70 - s.x / 160)
-      + 0.24 * Math.sin((TAU * t) / 1800 + s.x / 130 + s.z / 170);
-    this.tmp[10] = this.layout.windFrom + windVeer(t - r.lag) + tide + 0.1 * Math.sin((TAU * t) / 432)
+    // the set's fixed part across the bay (per authored slot: replans re-use the indices past them) and the bay-wide
+    // sweep (per instant) are taken once, not per hull
+    const authored = s.index < this.slotSet.length;
+    let set = authored ? this.slotSet[s.index] : NaN;
+    if (set !== set) {
+      set = 0.22 * Math.sin(s.x / 95 + 0.4) + 0.16 * Math.cos(s.z / 70 - s.x / 160);
+      if (authored) this.slotSet[s.index] = set;
+    }
+    if (t !== this.sweepT) { this.sweepT = t; this.sweep = 0.1 * Math.sin((TAU * t) / 432); }
+    const tide = set + 0.24 * Math.sin((TAU * t) / 1800 + s.x / 130 + s.z / 170);
+    this.tmp[10] = this.layout.windFrom + windVeer(t - r.lag) + tide + this.sweep
       + r.yawA * Math.sin((TAU * t) / r.yawP + r.phi) + 0.07 * Math.sin((TAU * t) / r.yawP2 + r.phi * 2.3);
   }
+  /** swingHeading's fixed set per authored slot (NaN: not yet taken) and its per-instant sweep. */
+  private readonly slotSet: Float64Array;
+  private sweepT = NaN;
+  private sweep = 0;
 
   /**
    * The fender bump, `tau` seconds after arrival (negative: just before): she carries a little way into

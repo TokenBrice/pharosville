@@ -26,6 +26,8 @@ import { assertShaderReady } from "./shader-failure";
  */
 const DEFERRED: ReadonlySet<string> = new Set(["life", "identity"]);
 const DEFERRED_PREPARATION_ATTEMPTS = 3;
+/** `?prof=1` stage tags, built once per stage name (a profiled frame laps ~25 stages). */
+const STAGE_TAGS = new Map<string, string>();
 
 /** Dev profiling (`?prof=1`): per-system update() cost, summed since the last reset (window.__harbourProf). */
 const PROF = typeof location !== "undefined" && new URLSearchParams(location.search).get("prof") === "1";
@@ -115,7 +117,9 @@ export class Engine {
   private readonly profile: FrameProfile | null = PROF ? new FrameProfile() : null;
   private lap(key: string, since: number): number {
     const now = performance.now(), p = this.profile!, d = now - since;
-    p.tag(`stage:${key}`);
+    let tag = STAGE_TAGS.get(key);
+    if (tag === undefined) { tag = `stage:${key}`; STAGE_TAGS.set(key, tag); }
+    p.tag(tag);
     p.ms[key] = (p.ms[key] ?? 0) + d;
     if (d > (p.max[key] ?? 0)) p.max[key] = d;
     return now;

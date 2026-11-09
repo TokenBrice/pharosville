@@ -364,7 +364,15 @@ function makeOccluded(view: PlaceView, heightAt: (x: number, z: number) => numbe
  * water. A candidate is judged on its glyph ink (3×3 samples per glyph): inside the zone polygon, clear of
  * piers, moles and the coast, and, in each view, on screen as that view wants it and not hidden behind land.
  */
-export function rankPlacements(spec: LabelSpec, zone: SeaZone, font: ChartFont, env: PlaceEnv = {}): Generator<Candidate> {
+export function* rankPlacements(spec: LabelSpec, zone: SeaZone, font: ChartFont, env: PlaceEnv = {}): Generator<Candidate> {
+  for (const c of rankSteps(spec, zone, font, env)) if (c) yield c;
+}
+
+/**
+ * rankPlacements as resumable steps: `undefined` marks a pause point between bounded pieces of the same pure
+ * work (a row of coarse candidates, one fine judgement), so a caller may yield the main thread there.
+ */
+function* rankSteps(spec: LabelSpec, zone: SeaZone, font: ChartFont, env: PlaceEnv = {}): Generator<Candidate | undefined> {
   const base = { ...spec, angle: readableAngle(spec.angle) };
   const rx = Math.cos(base.angle), rz = -Math.sin(base.angle), ux = -Math.sin(base.angle), uz = -Math.cos(base.angle);
   const main = spec.lines[spec.lines.length - 1];
@@ -442,11 +450,14 @@ export function rankPlacements(spec: LabelSpec, zone: SeaZone, font: ChartFont, 
     const lines = spec.lines.map((l) => ({ ...l, cap: l.cap * k }));
     if (lines[lines.length - 1].cap < 6.5) continue;
     const geometry = glyphGeometry({ ...base, lines }, font);
-    for (let i = -5; i <= 5; i++) for (let j = -5; j <= 5; j++) {
-      const du = (i / 5) * W * 0.9, dv = (j / 5) * Math.max(main.cap * 7, 130);
-      const anchor: [number, number] = [spec.anchor[0] + rx * du + ux * dv, spec.anchor[1] + rz * du + uz * dv];
-      const cand: LabelSpec = { ...base, lines, anchor };
-      all.push({ spec: cand, ...judge(cand, geometry, du, dv, k, false), du, dv, k, geometry });
+    for (let i = -5; i <= 5; i++) {
+      for (let j = -5; j <= 5; j++) {
+        const du = (i / 5) * W * 0.9, dv = (j / 5) * Math.max(main.cap * 7, 130);
+        const anchor: [number, number] = [spec.anchor[0] + rx * du + ux * dv, spec.anchor[1] + rz * du + uz * dv];
+        const cand: LabelSpec = { ...base, lines, anchor };
+        all.push({ spec: cand, ...judge(cand, geometry, du, dv, k, false), du, dv, k, geometry });
+      }
+      yield;
     }
   }
   all.sort((a, b) => b.score - a.score);
@@ -454,17 +465,15 @@ export function rankPlacements(spec: LabelSpec, zone: SeaZone, font: ChartFont, 
   // clipped serifs) runs lazily, a batch at a time, until the best judged placement beats every unjudged one.
   const judged: Candidate[] = [];
   let next = 0;
-  return (function* () {
-    for (;;) {
-      const bound = next < all.length ? all[next].score : -Infinity;
-      // (past a few batches the coarse order is trusted: deep in the list nothing scores well anyway)
-      if (judged.length && (judged[0].score >= bound - FINE_SLACK || next >= FINE_BATCH * 4)) { yield judged.shift()!; continue; }
-      if (next >= all.length) return;
-      for (const c of all.slice(next, next + FINE_BATCH)) judged.push({ spec: c.spec, ...judge(c.spec, c.geometry, c.du, c.dv, c.k, true) });
-      next += FINE_BATCH;
-      judged.sort((a, b) => b.score - a.score);
-    }
-  })();
+  for (;;) {
+    const bound = next < all.length ? all[next].score : -Infinity;
+    // (past a few batches the coarse order is trusted: deep in the list nothing scores well anyway)
+    if (judged.length && (judged[0].score >= bound - FINE_SLACK || next >= FINE_BATCH * 4)) { yield judged.shift()!; continue; }
+    if (next >= all.length) return;
+    for (const c of all.slice(next, next + FINE_BATCH)) { judged.push({ spec: c.spec, ...judge(c.spec, c.geometry, c.du, c.dv, c.k, true) }); yield; }
+    next += FINE_BATCH;
+    judged.sort((a, b) => b.score - a.score);
+  }
 }
 
 const SAFE = { x: 0.92, yMin: -0.88, yMax: 0.62 };
@@ -486,6 +495,14 @@ export function fitLabel(spec: LabelSpec, zone: SeaZone, font: ChartFont, env: P
  * plane, so names apart on the water stay apart on screen at every zoom and from every bearing.
  */
 export function placeLabels(specs: readonly LabelSpec[], zones: readonly SeaZone[], font: ChartFont, env: PlaceEnv = {}): LabelSpec[] {
+  const steps = placeLabelSteps(specs, zones, font, env);
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
+}
+
+/** placeLabels as resumable steps (the same pure work in the same order); each yield is a safe pause point. */
+export function* placeLabelSteps(specs: readonly LabelSpec[], zones: readonly SeaZone[], font: ChartFont, env: PlaceEnv = {}): Generator<void, LabelSpec[]> {
   const prio = (s: LabelSpec) => ZONE_PRIORITY[zones.find((z) => z.id === s.id)?.kind ?? "open"] ?? 1;
   const order = [...specs].sort((a, b) => prio(b) - prio(a) || b.lines[b.lines.length - 1].cap - a.lines[a.lines.length - 1].cap || a.id.localeCompare(b.id));
   const gap = env.gap ?? 0.35;
@@ -494,7 +511,8 @@ export function placeLabels(specs: readonly LabelSpec[], zones: readonly SeaZone
     const zone = zones.find((z) => z.id === spec.id);
     if (!zone) continue;
     let tries = 0;
-    for (const c of rankPlacements(spec, zone, font, env)) {
+    for (const c of rankSteps(spec, zone, font, env)) {
+      if (!c) { yield; continue; }
       if (++tries > MAX_TRIES) break;
       if (c.fit < MIN_FIT) continue;
       const cap = c.spec.lines[c.spec.lines.length - 1].cap;
