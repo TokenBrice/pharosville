@@ -115,15 +115,20 @@ function* grain(L: Float32Array, R: Float32Array, sr: number, at: number, f0: nu
   yield;
 }
 
-/** Fade the first and last samples to exact zero. */
-function* seal(c: { L: Float32Array; R: Float32Array }, sr: number, fadeIn: number, fadeOut: number): Generator<void> {
+/**
+ * Fade the first and last samples to exact zero. `power`: equal-power ends (√smoothstep) for the overlapped
+ * streams, whose clips are uncorrelated noise: one clip's fade-out and the next one's fade-in then sum to a
+ * constant power across the join (S7; equal-gain ends dip 3 dB there).
+ */
+function* seal(c: { L: Float32Array; R: Float32Array }, sr: number, fadeIn: number, fadeOut: number, power = false): Generator<void> {
   const n = c.L.length, a = Math.max(1, Math.floor(fadeIn * sr)), b = Math.max(1, Math.floor(fadeOut * sr));
+  const fade = power ? (x: number) => Math.sqrt(smooth(x)) : smooth;
   for (let i = 0; i < a; i++) {
-    const g = smooth(i / a); c.L[i] *= g; c.R[i] *= g;
+    const g = fade(i / a); c.L[i] *= g; c.R[i] *= g;
     if ((i % SLICE) === SLICE - 1) yield;
   }
   for (let i = 0; i < b; i++) {
-    const g = smooth(i / b); c.L[n - 1 - i] *= g; c.R[n - 1 - i] *= g;
+    const g = fade(i / b); c.L[n - 1 - i] *= g; c.R[n - 1 - i] *= g;
     if ((i % SLICE) === SLICE - 1) yield;
   }
 }
@@ -395,7 +400,7 @@ export function* crackle(seed: number, sr: number): Generator<void, Clip> {
       if ((i % SLICE) === SLICE - 1) yield;
     }
   }
-  yield* seal({ L, R }, sr, 0.5, 0.5);
+  yield* seal({ L, R }, sr, 0.5, 0.5, true);
   return { sr, L, R };
 }
 
@@ -645,7 +650,7 @@ export function* patter(seed: number, sr: number, rate: number, size: number): G
     }
   }
   yield;
-  yield* seal({ L, R }, sr, 0.5, 0.5);
+  yield* seal({ L, R }, sr, 0.5, 0.5, true);
   yield* limit({ L, R }, 0.8);
   return { sr, L, R };
 }
@@ -865,7 +870,7 @@ export function* cricket(seed: number, sr: number): Generator<void, Clip> {
     L[i] += (bl.bp / 5) * e; R[i] += (br.bp / 5) * e;
     if ((i % SLICE) === SLICE - 1) yield;
   }
-  yield* seal({ L, R }, sr, 0.5, 0.5);
+  yield* seal({ L, R }, sr, 0.5, 0.5, true);
   yield* limit({ L, R }, 0.6);
   return { sr, L, R };
 }
@@ -888,7 +893,7 @@ export function* cicada(seed: number, sr: number): Generator<void, Clip> {
       if ((i % SLICE) === SLICE - 1) yield;
     }
   }
-  yield* seal({ L, R }, sr, 0.5, 0.5);
+  yield* seal({ L, R }, sr, 0.5, 0.5, true);
   yield* limit({ L, R }, 0.5);
   return { sr, L, R };
 }
