@@ -7,8 +7,9 @@ import { MAX_CONES } from "./bind";
  * supply-weighted DEWS band, the same reading as the weather over the bay. Black canvas shapes on the halyard at the
  * station mast's left yardarm, top → down: nothing at Calm, a cone at Watch, two cones at Alert, two cones and a drum
  * at Warning, two cones and two drums at Danger plus a red pennant streaming from the masthead. Shapes run up one after
- * another (top slot first), come down in reverse and swing a little in the DEWS wind; each carries a red lantern at
- * night. Reduced motion: placed at once, no swing, no flutter.
+ * another (top slot first), come down in reverse and swing a little in the DEWS wind; each shape of the current signal
+ * carries a red lantern at night (D11: a shape being struck comes down dark). Reduced motion: placed at once, no swing,
+ * no flutter.
  */
 export type Shape = "cone" | "drum";
 /** The signal from the top: the first `level` shapes are hoisted. */
@@ -153,9 +154,18 @@ export class StormCones {
     parent.add(this.lanterns);
   }
 
-  setCount(n: number | null, pennant = false): void {
+  /**
+   * The signal to fly: the first `n` shapes (null: no reading, nothing up), the pennant at Danger. `immediate` places it
+   * at once instead of hauling (the first installed reading, on a fresh load or a tab return: a haul would state a lower
+   * band for seconds, e.g. a lone cone, Alert, while the reading is Danger); a live band change in view hauls.
+   */
+  setCount(n: number | null, pennant = false, immediate = false): void {
     this.count = Math.max(0, Math.min(this.shapes.length, n ?? 0));
     this.pennantUp = pennant;
+    if (!immediate) return;
+    const last = this.shapes.length - 1;
+    for (let i = 0; i <= last; i++) this.p[i] = i < this.count ? 1 : 0;
+    this.pennantP = pennant && (last < 0 || this.p[last] > 0.6) ? 1 : 0;
   }
 
   update(dt: number, time: number, wind: number, reduced: boolean, camera: THREE.Vector3): void {
@@ -209,8 +219,12 @@ export class StormCones {
       const dx = camera.x - w.x, dz = camera.z - w.z, dd = Math.hypot(dx, dz) || 1;
       const out = this.lampOut[i];
       w.set(w.x + (dx / dd) * out, w.y - 0.15, w.z + (dz / dd) * out);
-      if (this.lights) { this.lights.setPosition(this.lightIds[i], w); this.lights.setOn(this.lightIds[i], true); }
-      this.lanterns.setMatrixAt(lamps++, this.m.makeTranslation(this.parent.worldToLocal(w)));
+      // D11: the lantern is the current signal (the count: the band of current stress evidence, none when it is stale
+      // or unavailable), not the canvas's haul: a shape being struck comes down dark, its lantern out at once, and it
+      // re-lights only when current evidence hoists it again
+      const lit = i < this.count;
+      if (this.lights) { if (lit) this.lights.setPosition(this.lightIds[i], w); this.lights.setOn(this.lightIds[i], lit); }
+      if (lit) this.lanterns.setMatrixAt(lamps++, this.m.makeTranslation(this.parent.worldToLocal(w)));
     }
     if (this.updatePennant(dt, time, wind, reduced, camera, P, N)) any = true;
     pos.needsUpdate = true;

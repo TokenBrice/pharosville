@@ -142,6 +142,18 @@ export class RidingLights {
     this.n++;
   }
 
+  /**
+   * D11: put out the analytical lamps already submitted, at once (a held fleet frame keeps drawing them): their colour
+   * goes to zero; the next full frame (begin / add / end) rebuilds the points from the evidence.
+   */
+  douseAnalytic(): void {
+    let any = false;
+    for (let i = 0; i < this.n; i++) if (this.info[i * 4 + 3] >= 0.5) { this.col.fill(0, i * 3, i * 3 + 3); any = true; }
+    if (!any) return;
+    const at = this.geo.getAttribute("aColor") as THREE.BufferAttribute;
+    at.clearUpdateRanges(); at.addUpdateRange(0, this.n * 3); at.needsUpdate = true;
+  }
+
   end(glow: number, sea: number): void {
     this.mat.uniforms.uGlow.value = glow;
     this.mat.uniforms.uSea.value = sea;

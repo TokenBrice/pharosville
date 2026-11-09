@@ -609,12 +609,12 @@
 .hb-postcard-actions { display: flex; justify-content: flex-end; gap: var(--s2); margin-top: var(--s3); }
 .hb-ui.hb-capturing > :not(.hb-postcard) { visibility: hidden; }
 
-:root:not([data-pv-live]) .hb-mark-more { max-height: 0; }
 /* ------------------------------------------------------------------ touch and smaller screens
    Touch has no hover: the key strip stays open and its keyboard glyphs step aside; any coarse pointer makes every
    control a 44 px target. Under 900 px wide the panel is a bottom sheet of at most half the height (store.ts
    SHEET_BELOW_PX / SHEET_FRACTION keep a flown-to selection clear of it), its text a centred column of 46 em. */
 @media (hover: none) {
+  :root:not([data-pv-live]) .hb-mark-more { max-height: 0; }
   [data-pv-live] .hb-mark-more { grid-template-columns: minmax(0, 1fr); opacity: 1; }
   [data-pv-live] .hb-mark-btn { padding-right: 8px; }
   :is(.hb-keys, .hb-slip) kbd { display: none; }
