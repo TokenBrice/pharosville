@@ -96,9 +96,9 @@ it("slices native copies and preserves the exact mono conversion", () => {
   const bank = new ClipBank(ac, 12345);
   bank.buildAll();
   expect(Math.max(...copies)).toBeLessThanOrEqual(6144);
-  // The first lap is the second job in FIRST; its seed advances twice.
+  // The first lap is the first job in FIRST (E32: the lap leads the on-ramp); its seed advances once.
   let seed = 12345;
-  for (let i = 0; i < 2; i++) seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+  for (let i = 0; i < 1; i++) seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
   const source = renderNow(SYNTHS.lap(seed, 16000)), actual = bank.pick("lap", () => 0)!.getChannelData(0);
   const expected = Float32Array.from(source.L, (value, i) => (value + source.R[i]) * 0.5);
   expect(actual).toEqual(expected);
