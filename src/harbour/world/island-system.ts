@@ -94,6 +94,8 @@ export class IslandSystem implements WorldSystem {
     }
   }
 
+  resize(): void { this.sun.resize(); }
+
   update(frame: FrameState, ctx: EngineContext): void {
     this.sun.update(ctx, frame.delta);
     updateSway(ctx); // 08-T3: reduced motion stills the leaf / cloth sway

@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MotionClock } from "../ui/services";
 import { RUNUP_GLSL } from "../world/runup";
 import { OCEAN_FRAG } from "./ocean-material";
-import { hullSwell, hullSwellCache, SEA_STATES, SWELL_PHASE_GLSL, swellPhase, waveHeight, WAVES, wavesGLSL } from "./waves";
+import { hullSwell, hullSwellCache, pointSwell, pointSwellCache, SEA_STATES, SWELL_PHASE_GLSL, swellPhase, waveHeight, WAVES, wavesGLSL } from "./waves";
 
 /** Deterministic PRNG (mulberry32), so a failure reproduces. */
 function rng(seed: number): () => number {
@@ -56,6 +56,41 @@ describe("hullSwell", () => {
       }
     }
     expect(worst).toBeLessThan(1e-5);
+  });
+
+  it("keeps a resting hull's centre phase on the reference to rounding, with no trig while she lies within reach (P-PERF)", () => {
+    const r = rng(19), sin = vi.spyOn(Math, "sin"), cos = vi.spyOn(Math, "cos");
+    let worst = 0, quiet = 0;
+    for (let hull = 0; hull < 40; hull++) {
+      const cache = hullSwellCache();
+      const x0 = (r() - 0.5) * 2000, z0 = (r() - 0.5) * 2000, h = r() * Math.PI * 2, half = 2 + r() * 38, hb = 0.5 + r() * 6, amp = r();
+      const fx = Math.sin(h), fz = Math.cos(h);
+      for (let f = 0; f < 300; f++) {
+        // she surges a few centimetres on her lines (restPose), at a steady heading
+        const t = 100 + f / 60, x = x0 + 0.03 * Math.sin(t * 0.26), z = z0 + 0.03 * Math.cos(t * 0.26);
+        const want = reference(x, z, fx * half, fz * half, fz * hb, -fx * hb, t, amp);
+        const calls = sin.mock.calls.length + cos.mock.calls.length;
+        hullSwell(x, z, fx * half, fz * half, fz * hb, -fx * hb, t, amp, out, cache);
+        if (f > 0 && sin.mock.calls.length + cos.mock.calls.length - calls === 2 * WAVES.length) quiet++; // the wave clock only
+        for (let k = 0; k < 5; k++) worst = Math.max(worst, Math.abs(out[k] - want[k]));
+      }
+    }
+    sin.mockRestore(); cos.mockRestore();
+    expect(worst).toBeLessThan(1e-12);
+    expect(quiet).toBeGreaterThan(40 * 299 * 0.95);
+  });
+
+  it("a fixed point's swell is waveHeight to rounding, its phases taken once (P-PERF)", () => {
+    const r = rng(23);
+    let worst = 0;
+    for (let n = 0; n < 200; n++) {
+      const cache = pointSwellCache(), x = (r() - 0.5) * 3000, z = (r() - 0.5) * 3000, amp = r();
+      for (let f = 0; f < 50; f++) {
+        const t = 10 + f / 60 + n;
+        worst = Math.max(worst, Math.abs(pointSwell(x, z, t, amp, cache) - waveHeight(x, z, t, amp)));
+      }
+    }
+    expect(worst).toBeLessThan(1e-12);
   });
 
   it("the uncached path is the reference formula bit for bit", () => {

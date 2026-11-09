@@ -12,7 +12,7 @@ import { acquireFxTextures, type FxTextures } from "./textures";
 import { WakeField, type WakeService } from "./wake";
 import { updateAerial } from "../world/aerial";
 import { runupUniforms } from "../world/runup";
-import { hullSwell, SEA_STATES, waveHeight } from "./waves";
+import { hullSwell, POINT_DAMP_AT, pointSwell, SEA_STATES, waveHeight } from "./waves";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { buildZoneMask, type SeaZoneLike } from "./zone-mask";
 import { loadSdfImage } from "./sdf-image";
@@ -35,11 +35,14 @@ export interface OceanService {
   preparationScope(lite: boolean): () => void;
   setSeaState(state: SeaState): void;
   readonly seaState: SeaState;
-  /** Sea surface height (m) at world (x, z) now, for bobbing hulls. */
-  heightAt(x: number, z: number): number;
+  /**
+   * Sea surface height (m) at world (x, z) now, for bobbing hulls. `point` (waves.ts pointSwellCache, one per fixed point
+   * such as a buoy) keeps its phases and coast damping: no trig per frame (waves.ts pointSwell), the same height to rounding.
+   */
+  heightAt(x: number, z: number, point?: Float64Array): number;
   /**
    * heightAt at a hull's centre (x, z), bow / stern ± (bx, bz) and port / starboard ± (px, pz) into out[0..4],
-   * in one call. `cache` (waves.ts hullSwellCache, one per hull): for a hull at rest, 10 trig instead of 25.
+   * in one call. `cache` (waves.ts hullSwellCache, one per hull): for a hull at rest, no trig instead of 25.
    */
   hullHeights(x: number, z: number, bx: number, bz: number, px: number, pz: number, out: Float64Array, cache: Float64Array | null): void;
   /** P6 (identity): the sea's own clock, swell scale and SDF, so overlays on the water (chart lettering) ride the same swell. */
@@ -115,6 +118,8 @@ export class OceanSystem implements WorldSystem {
   private readonly seaGoal = new THREE.Vector4().copy(this.seaU.value);
   /** The sea's clock (swell, detail normals, foam): eases to a stop under reduced motion (MotionClock). */
   private time = 0;
+  /** Bumped whenever the CPU coast (coastR) changes: a fixed point's kept coast damping (heightAt) is re-taken. */
+  private sdfVersion = 0;
   private readonly seaTime = { value: 0 };
   private clock: MotionClock | null = null;
   private layout: HarbourLayout | null = null;
@@ -252,7 +257,12 @@ export class OceanSystem implements WorldSystem {
       preparationScope: (lite) => { const previous = this.lite; this.lite = lite; return () => { this.lite = previous; }; },
       setSeaState: (s) => this.setSeaState(s),
       get seaState() { return getState(); },
-      heightAt: (x, z) => waveHeight(x, z, this.time, this.seaU.value.x) * this.dampAt(x, z),
+      heightAt: (x, z, point) => {
+        if (!point) return waveHeight(x, z, this.time, this.seaU.value.x) * this.dampAt(x, z);
+        const D = POINT_DAMP_AT; // checked before pointSwell re-keys the point
+        if (!(point[0] === x && point[1] === z && point[D] === this.sdfVersion)) { point[D] = this.sdfVersion; point[D + 1] = this.dampAt(x, z); }
+        return pointSwell(x, z, this.time, this.seaU.value.x, point) * point[D + 1];
+      },
       hullHeights: (x, z, bx, bz, px, pz, out, cache) => {
         hullSwell(x, z, bx, bz, px, pz, this.time, this.seaU.value.x, out, cache);
         out[0] *= this.dampAt(x, z);
@@ -298,7 +308,10 @@ export class OceanSystem implements WorldSystem {
   private dampAt(x: number, z: number): number {
     const i = this.texel(x, z);
     if (i < 0) return 1;
-    return sdfMainlandFade(x, z, this.scx, this.scz) > 0 ? dampOf(this.coastAt(x, z)) : DAMP_BY_BYTE[this.coastR[i]];
+    const k = sdfMainlandFade(x, z, this.scx, this.scz);
+    if (!(k > 0)) return DAMP_BY_BYTE[this.coastR[i]];
+    const c = coastOf(this.coastR[i]); // coastAt(x, z), from the texel and fade already taken
+    return dampOf(c + (SDF_COAST_RANGE / 2 - c) * k);
   }
 
   private seedDebugMovers(layout: HarbourLayout): void {
@@ -324,6 +337,7 @@ export class OceanSystem implements WorldSystem {
     (tex.image.data as Uint8Array).set(data);
     tex.needsUpdate = true;
     for (let i = 0; i < n * n; i++) this.coastR[i] = data[i * 4];
+    this.sdfVersion++;
   }
 
   update(frame: FrameState, ctx: EngineContext): void {
