@@ -1,12 +1,9 @@
 import { TIERS, initialRungFor, ladderFor, parseTier, type CompletedGpuSample, type QualityRung, type QualityService, type QualitySettings, type QualityTier } from "./quality";
-import { extraEnabled } from "./extras";
 
 interface QuerySlot extends CompletedGpuSample { q: WebGLQuery | null; disjoint: boolean }
 const QUERY_CAPACITY = 4;
 const SAMPLE_CAPACITY = 256;
 const TARGET_SECONDS = 0.0167;
-/** Q3: exits under pressure after which a display stops climbing onto headroom rungs (no oscillation). */
-const HEADROOM_EXITS = 3;
 
 /**
  * Quality governor: walks the (tier, pixel ratio) ladder from measured frame cost. Exposed as the
@@ -15,11 +12,6 @@ const HEADROOM_EXITS = 3;
  *  - Raw visible rAF intervals count missed target slots; low-GPU CPU-bound windows hold their rung.
  *  - Two slow windows reduce cost; upgrades require fifteen clean seconds and measured GPU headroom.
  *    Without usable timer samples, reductions remain available but upgrades cannot prove headroom.
- *  - v1.8.0 Q3 headroom rungs (High above the 4 MP ceiling, and 1× supersampling; `?extras=-supersample` removes
- *    them): climbed by the same rule, left first and in one step under any pressure (back to the 4 MP High rung,
- *    before any tier change). On a headroom rung slow frames count as pressure even when the GPU timer reads idle:
- *    part of its cost (the compositor's downscale, presenting a bigger buffer) lies outside the timer. Each exit
- *    doubles the headroom clean window (15 → 30 → 60 s); after three, the display stops climbing above the base.
  *  - `?dpr=<x>` pins the pixel ratio, `?quality=high|medium|low` pins the tier (gate captures).
  *  - Allocation-free per frame (sample ring, no sorting of fresh arrays).
  */
@@ -68,10 +60,6 @@ export class QualityGovernor implements QualityService {
   private clean = 0;
   private deviceDpr: number;
   private maxDpr = 2;
-  /** Q3: the headroom rungs' ceiling (pixel ratio), and whether this GPU's start rung was the top (discrete). */
-  private headroomDpr = 0;
-  private readonly discrete: boolean;
-  private headroomExits = 0;
   private readonly listeners = new Set<(s: QualitySettings, dpr: number) => void>();
   private preparation: ((settings: QualitySettings, signal: AbortSignal) => Promise<void>) | undefined;
   private prepared: ((settings: QualitySettings) => boolean) | undefined;
@@ -89,8 +77,6 @@ export class QualityGovernor implements QualityService {
     const name = String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
     const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
     this.rung = initialRungFor(name, this.ladder, coarse);
-    const canonical = ladderFor(2);
-    this.discrete = initialRungFor(name, canonical, coarse) === canonical.length - 1;
     if (this.pinnedTier) this.rung = this.richest(this.pinnedTier);
     else if (this.pinnedDpr !== null) this.rung = this.ladder.length - 1;
     this.ext = measureGpu ? gl.getExtension("EXT_disjoint_timer_query_webgl2") as { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null : null;
@@ -99,12 +85,7 @@ export class QualityGovernor implements QualityService {
   get auto(): boolean { return this.pinnedDpr === null && this.pinnedTier === null; }
   get tier(): QualityTier { return this.ladder[this.rung].tier; }
   get settings(): QualitySettings { return TIERS[this.tier]; }
-  get dpr(): number {
-    const r = this.ladder[this.rung];
-    return this.pinnedDpr === null && r.headroom ? r.dpr : Math.min(this.maxDpr, this.pinnedDpr ?? r.dpr);
-  }
-  /** True on a Q3 headroom rung (above the 4 MP ceiling or the display ratio). */
-  get headroom(): boolean { return !!this.ladder[this.rung].headroom; }
+  get dpr(): number { return Math.min(this.maxDpr, this.pinnedDpr ?? this.ladder[this.rung].dpr); }
   /** Index of the current rung (for stats). */
   get level(): number { return this.rung; }
   get gpuMs(): number | null { return this.gpuP10Ms; }
@@ -144,28 +125,16 @@ export class QualityGovernor implements QualityService {
     for (const fn of this.listeners) fn(this.settings, this.dpr);
   }
 
-  /**
-   * Reconcile before allocation; the engine publishes after its backing dimensions are coherent. `headroomDpr` is
-   * the Q3 headroom ceiling (0 = none): a new display lands on a base rung and earns any headroom rung again.
-   */
-  reconcileDisplay(deviceDpr: number, maxDpr: number, headroomDpr = 0): boolean {
-    if (deviceDpr === this.deviceDpr && maxDpr === this.maxDpr && headroomDpr === this.headroomDpr) return false;
-    const headroom = headroomDpr > 0 && extraEnabled("supersample")
-      ? { ceiling: headroomDpr, supersample: this.discrete } : undefined;
-    if (deviceDpr === this.deviceDpr && maxDpr === this.maxDpr && !this.ladder[this.rung].headroom) {
-      // only the headroom ceiling moved: the base rungs, and this one, keep their places; nothing to publish
-      this.headroomDpr = headroomDpr;
-      this.ladder.splice(0, this.ladder.length, ...ladderFor(deviceDpr, maxDpr, headroom));
-      return false;
-    }
+  /** Reconcile before allocation; the engine publishes after its backing dimensions are coherent. */
+  reconcileDisplay(deviceDpr: number, maxDpr: number): boolean {
+    if (deviceDpr === this.deviceDpr && maxDpr === this.maxDpr) return false;
     const tier = this.tier, dpr = this.ladder[this.rung].dpr;
     this.pending?.abort(); this.pending = undefined;
-    this.deviceDpr = deviceDpr; this.maxDpr = maxDpr; this.headroomDpr = headroomDpr;
-    this.headroomExits = 0;
-    this.ladder.splice(0, this.ladder.length, ...ladderFor(deviceDpr, maxDpr, headroom));
+    this.deviceDpr = deviceDpr; this.maxDpr = maxDpr;
+    this.ladder.splice(0, this.ladder.length, ...ladderFor(deviceDpr, maxDpr));
     this.rung = this.richest(tier);
     if (this.pinnedTier !== tier) {
-      for (let i = 0; i < this.ladder.length; i++) if (this.ladder[i].tier === tier && !this.ladder[i].headroom &&
+      for (let i = 0; i < this.ladder.length; i++) if (this.ladder[i].tier === tier &&
         Math.abs(this.ladder[i].dpr - dpr) < Math.abs(this.ladder[this.rung].dpr - dpr)) this.rung = i;
     }
     this.resetTiming();
@@ -193,19 +162,10 @@ export class QualityGovernor implements QualityService {
     this.resetWindow();
   }
 
-  /** Richest base rung of `tier` (pins, overrides and reconciles never land on a headroom rung). */
   private richest(tier: QualityTier): number {
     let best = 0;
-    for (let i = 0; i < this.ladder.length; i++) if (this.ladder[i].tier === tier && !this.ladder[i].headroom) best = i;
+    for (let i = 0; i < this.ladder.length; i++) if (this.ladder[i].tier === tier) best = i;
     return best;
-  }
-
-  /** Q3: leave a headroom rung in one step (DPR-only), back to the 4 MP High rung, before any tier change. */
-  private exitHeadroom(): boolean {
-    if (!this.ladder[this.rung].headroom) return false;
-    this.headroomExits++;
-    this.go(this.richest("high"));
-    return true;
   }
 
   private go(next: number): void {
@@ -300,7 +260,6 @@ export class QualityGovernor implements QualityService {
       const severe = this.severeFrames > this.frames / 2;
       this.frames = this.severeFrames = 0; this.emergencyTime = 0;
       const gpu = this.gpuN ? this.lowTail() : null;
-      if (severe && this.exitHeadroom()) return;
       if (severe && (gpu === null || gpu > 0.8 * TARGET_SECONDS * 1000) && this.rung > 0) {
         if (this.preparation && this.tier !== "low" && !this.prepared?.(TIERS.low)) {
           // Save same-tier pixels immediately while the complete low variant prepares.
@@ -322,14 +281,13 @@ export class QualityGovernor implements QualityService {
 
     if (calibration) return;
     const slow = missedShare > 0.05 || gpuPressure;
-    this.slowWindows = slow && (actionable || this.headroom) ? this.slowWindows + 1 : 0;
-    if (this.slowWindows >= 2) { if (!this.exitHeadroom()) this.go(this.rung - 1); return; }
+    this.slowWindows = slow && actionable ? this.slowWindows + 1 : 0;
+    if (this.slowWindows >= 2) { this.go(this.rung - 1); return; }
     if (slow || missedShare >= 0.005) { this.clean = 0; return; }
     this.clean += windowSecs;
     if (this.clean < 15 || gpu === null || this.rung === this.ladder.length - 1) return;
     const next = this.ladder[this.rung + 1];
-    if (next.headroom && (this.headroomExits >= HEADROOM_EXITS || this.clean < 15 * 2 ** this.headroomExits)) return;
-    const growth = ((next.headroom ? next.dpr : Math.min(this.maxDpr, next.dpr)) / this.dpr) ** 2 * (next.tier !== this.tier ? 1.2 : 1);
+    const growth = (Math.min(this.maxDpr, next.dpr) / this.dpr) ** 2 * (next.tier !== this.tier ? 1.2 : 1);
     if (gpu * growth < 0.65 * TARGET_SECONDS * 1000) this.go(this.rung + 1);
   }
 

@@ -1,34 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { backingDpr, backingLimitsFor, HEADROOM_PIXELS, TIERS, initialRungFor, ladderFor, parseTier, type QualityRung } from "./quality";
+import { backingDpr, backingLimitsFor, TIERS, initialRungFor, ladderFor, parseTier } from "./quality";
 import { gradePixel } from "./post";
 import type { Grade } from "./time-of-day";
 
 describe("quality ladder", () => {
-  it("base rungs never render above the device pixel ratio; only Q3 headroom rungs may, on 1× screens", () => {
-    // v1.8.0 Q3 (amended): the base ladder (arrival, pins, rescue) stays at or under the display ratio and the
-    // 4 MP ceiling. Above it sit High-only headroom rungs under their own 8.3 MP ceiling: toward native where
-    // the 4 MP ceiling clamped it, and above display ratio 1 only with supersample (1×, discrete start, switch on).
-    const free = { width: 16384, height: 16384 };
-    const tag = (l: QualityRung[]) => l.map((r) => `${r.tier}@${+r.dpr.toFixed(3)}${r.headroom ? "+" : ""}`);
-    const at = (w: number, h: number, device: number, supersample: boolean) =>
-      ladderFor(device, backingDpr(w, h, 2, free), { ceiling: backingDpr(w, h, 2, free, HEADROOM_PIXELS), supersample });
-    expect(tag(at(1920, 1080, 1, true)).slice(-3)).toEqual(["high@1", "high@1.5+", "high@2+"]);
-    expect(tag(at(2560, 1440, 1, true)).slice(-2)).toEqual(["high@1", "high@1.5+"]);
-    expect(tag(at(1920, 1080, 1, false)).slice(-1)).toEqual(["high@1"]);       // integrated start / switch off
-    expect(tag(at(1600, 1000, 2, false)).slice(-3)).toEqual(["high@1.581", "high@1.75+", "high@2+"]);   // N5
-    expect(tag(at(2560, 1600, 2, true)).slice(-2)).toEqual(["high@0.988", "high@1.424+"]);   // no 1× supersampling at 2×
-    expect(tag(at(3840, 2160, 1, true)).slice(-2)).toEqual(["high@0.694", "high@1+"]);
-    expect(tag(at(1440, 900, 1.5, true)).slice(-1)).toEqual(["high@1.5"]);     // native fits 4 MP: nothing above it
-    for (const [w, h, device] of [[1920, 1080, 1], [2560, 1440, 1], [1600, 1000, 2], [2560, 1600, 2], [3840, 2160, 1], [1366, 768, 1]] as const) {
-      for (const r of at(w, h, device, true)) {
-        if (!r.headroom) expect(r.dpr).toBeLessThanOrEqual(Math.min(device, backingDpr(w, h, 2, free)));
-        else {
-          expect(r.tier).toBe("high");
-          expect(Math.floor(w * r.dpr) * Math.floor(h * r.dpr)).toBeLessThanOrEqual(HEADROOM_PIXELS);
-          if (r.dpr > device) expect(device).toBeLessThanOrEqual(1);
-        }
-      }
-    }
+  it("never renders above the device pixel ratio and dedupes rungs", () => {
     const one = ladderFor(1);
     expect(one.map((r) => `${r.tier}@${r.dpr}`)).toEqual(["low@0.5", "low@0.67", "low@0.8", "low@1", "medium@1", "high@1"]);
     const two = ladderFor(2);
@@ -51,10 +27,6 @@ describe("quality ladder", () => {
     expect(l[initialRungFor("ANGLE (Intel, Intel(R) Iris(R) Xe Graphics)", l)]).toEqual({ tier: "medium", dpr: 1.5 });
     expect(initialRungFor("ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 5070 Ti)", l)).toBe(l.length - 1);
     expect(initialRungFor("SwiftShader", l)).toBe(0);
-    // a headroom rung is never a start rung: a discrete GPU starts at the 4 MP High rung
-    const h = ladderFor(1, 1.39, { ceiling: 2, supersample: true });
-    expect(h[initialRungFor("NVIDIA GeForce RTX 5070 Ti", h)]).toEqual({ tier: "high", dpr: 1 });
-    expect(h[initialRungFor("Apple M3 Max", h)]).toEqual({ tier: "high", dpr: 1 });
   });
 
   it("starts phone and tablet GPUs, and any coarse-pointer device, at Medium 1.5", () => {

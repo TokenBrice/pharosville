@@ -30,16 +30,7 @@ export const TIERS: Record<QualityTier, QualitySettings> = {
   low: { tier: "low", shadowMapSize: 1024, shadowInterval: 1 / 15, shadowMinFrames: 2, pointLights: 4, bloomLevels: 6, smaa: "low" },
 };
 
-export interface QualityRung {
-  readonly tier: QualityTier;
-  readonly dpr: number;
-  /**
-   * v1.8.0 Q3 headroom rung (High only): above the 4 MP arrival/rescue ceiling, toward the display's native ratio,
-   * or above display ratio 1 on a 1× screen (O2-I3 supersampling). Entered only after the clean-headroom window,
-   * dropped first under pressure, never an arrival, pin or reconcile target.
-   */
-  readonly headroom?: true;
-}
+export interface QualityRung { readonly tier: QualityTier; readonly dpr: number }
 
 /** Cheapest → richest. Severe overload may bypass intermediate rungs. */
 export const LADDER: readonly QualityRung[] = [
@@ -55,39 +46,17 @@ export const LADDER: readonly QualityRung[] = [
   { tier: "high", dpr: 2 },
 ];
 
-/** O2-I3: supersample ratios above display ratio 1 (1× screens only; the 2:1 compositor downscale box-filters). */
-const SUPERSAMPLE: readonly number[] = [1.5, 2];
-
-/** Headroom rungs for this display (Q3): their own pixel ceiling, and whether 1× supersampling may run. */
-export interface HeadroomOptions {
-  /** The headroom ceiling as a pixel ratio (HEADROOM_PIXELS and the hard limits; backingDpr). */
-  readonly ceiling: number;
-  /** Display ratio ≤ 1, a discrete start rung and the extras switch: supersample rungs above 1 exist. */
-  readonly supersample: boolean;
-}
-
 /**
- * The ladder for this display: base pixel ratios clamped to the device's (max 2) and the 4 MP arrival/rescue
- * ceiling, duplicate rungs removed. Only Low adds rescue rungs; ceilings may clamp any tier below its floor.
- * With `headroom` (v1.8.0 Q3), High rungs follow the base top: back toward native where the 4 MP ceiling clamped it
- * (N5), and on 1× screens above the display (O2-I3), all under the separate headroom ceiling.
+ * The ladder for this display: pixel ratios clamped to the device's (never render above it, max 2),
+ * duplicate rungs removed. Only Low adds rescue rungs; ceilings may clamp any tier below its floor.
  */
-export function ladderFor(deviceDpr: number, maxDpr = 2, headroom?: HeadroomOptions): QualityRung[] {
+export function ladderFor(deviceDpr: number, maxDpr = 2): QualityRung[] {
   const cap = Math.min(2, deviceDpr, maxDpr);
   const out: QualityRung[] = [];
   for (const r of LADDER) {
     const rung = { tier: r.tier, dpr: Math.min(r.dpr, cap) };
     const last = out[out.length - 1];
     if (!last || last.tier !== rung.tier || last.dpr !== rung.dpr) out.push(rung);
-  }
-  if (!headroom) return out;
-  const native = Math.min(2, deviceDpr);
-  const wanted = LADDER.filter((r) => r.tier === "high").map((r) => Math.min(r.dpr, native));
-  if (headroom.supersample && deviceDpr <= 1) wanted.push(...SUPERSAMPLE);
-  let last = out[out.length - 1].dpr;
-  for (const want of wanted.sort((a, b) => a - b)) {
-    const dpr = Math.min(want, headroom.ceiling, 2);
-    if (dpr > last + 1e-3) { out.push({ tier: "high", dpr, headroom: true }); last = dpr; }
   }
   return out;
 }
@@ -101,20 +70,9 @@ export function backingLimitsFor(gl: WebGL2RenderingContext): BackingLimits {
   return { width: Math.min(attachment, viewport[0]), height: Math.min(attachment, viewport[1]) };
 }
 
-/** B25: the arrival and rescue backing ceiling (pixels), explicit pins included. */
-export const BACKING_PIXELS = 4_000_000;
-/** v1.8.0 Q3: headroom rungs' backing ceiling (pixels): what the RTX already renders at 1920×1080 @2. */
-export const HEADROOM_PIXELS = 8_300_000;
-/**
- * Render-target bytes per backing pixel (estimate, logged): drawing buffer RGBA8 + depth-stencil (8), the composer's
- * two half-float RGBA buffers (16) and depth (4), SMAA edges + weights (8), the bloom pyramid (~3). V21 put 3200×2000
- * at ~250 MB (39 B/px).
- */
-export const RT_BYTES_PER_PIXEL = 39;
-
 /** The backing ceiling includes explicit pins; CSS framing and picking retain the logical size. */
-export function backingDpr(width: number, height: number, requested: number, limits: BackingLimits, pixels = BACKING_PIXELS): number {
-  return Math.min(requested, limits.width / width, limits.height / height, Math.sqrt(pixels / (width * height)));
+export function backingDpr(width: number, height: number, requested: number, limits: BackingLimits): number {
+  return Math.min(requested, limits.width / width, limits.height / height, Math.sqrt(4_000_000 / (width * height)));
 }
 
 /** Phone and tablet GPUs by WEBGL_debug_renderer_info name (Android ANGLE strings carry the same names). */
@@ -129,12 +87,11 @@ const MOBILE_GPU = /adreno|mali|immortalis|powervr|apple gpu|xclipse|maleoon|vid
  */
 export function initialRungFor(renderer: string, ladder: readonly QualityRung[], coarsePointer = false): number {
   const r = renderer.toLowerCase();
-  let top = ladder.length - 1;   // the base top: a headroom rung is never a start rung
-  while (top > 0 && ladder[top].headroom) top--;
+  const top = ladder.length - 1;
   /** richest rung of `tier` whose pixel ratio is ≤ dpr */
   const at = (tier: QualityTier, dpr: number) => {
     let best = -1;
-    for (let i = 0; i <= top; i++) if (ladder[i].tier === tier && ladder[i].dpr <= dpr + 1e-3) best = i;
+    for (let i = 0; i < ladder.length; i++) if (ladder[i].tier === tier && ladder[i].dpr <= dpr + 1e-3) best = i;
     return best < 0 ? top : best;
   };
   if (/swiftshader|llvmpipe|software|microsoft basic/.test(r)) return 0;
