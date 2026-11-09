@@ -3,7 +3,7 @@ import { truthCopy, type ReadingName } from "./truth-copy";
 
 const stamp = Date.UTC(2026, 10, 8, 12, 34, 56);
 describe("shared truth sentences", () => {
-  it.each<ReadingName>(["Supply", "Chain comparisons", "PSI", "Peg readings", "Stress readings", "Safety grades", "Flow readings"])("formats dated current and stale %s", (reading) => {
+  it.each<ReadingName>(["Supply", "Chain comparisons", "PSI", "Peg readings", "Stress readings", "Safety grades", "Flow readings", "Depeg events", "Reserves", "DEX liquidity"])("formats dated current and stale %s", (reading) => {
     expect(truthCopy({ kind: "reading", reading, truth: { state: "current", sourceUpdatedAtMs: stamp } })).toBe(`${reading}: current. Updated 2026-11-08 12:34:56 UTC.`);
     expect(truthCopy({ kind: "reading", reading, truth: { state: "stale", sourceUpdatedAtMs: stamp } })).toBe(`${reading}: stale. Last observed 2026-11-08 12:34:56 UTC.`);
   });
