@@ -28,6 +28,44 @@ test.describe("first paint", () => {
     await expect(page.locator("#pv-poster img")).toHaveCount(1);
     await expect(page.locator("#root dt")).toHaveText(["Boats", "Lighthouse", "Sea and sky"]);
     await expect(page.getByRole("link", { name: "Open Pharos analytics" })).toHaveAttribute("href", "https://pharos.watch/");
+    // D20: a finished card, never a loading promise without JavaScript; the welcome waits below the gate
+    await expect(page.locator("#root [role=status]")).toHaveText("");
+    await expect(page.getByText("Raising the harbour.")).toHaveCount(0);
+    await expect(page.locator("#pv-welcome")).toBeHidden();
+  });
+
+  for (const [width, height] of [[390, 844], [320, 568]] as const) test.describe(`${width}×${height} without JavaScript`, () => {
+    test.use({ viewport: { width, height } });
+    test("is the finished welcome from the first byte @visual-dom @visual-accessibility", async ({ page }) => {
+      await page.goto("/");
+      await expect(page.getByRole("heading", { level: 1, name: "PharosVille" })).toBeVisible();
+      await expect(page.getByText("The live harbour needs a larger screen. Explore the same readings on Pharos.")).toBeVisible();
+      await expect(page.getByText(/The harbour opens automatically/)).toBeHidden();
+      await expect(page.getByRole("link", { name: "Open Pharos analytics" })).toBeVisible();
+      await expect(page.getByText("Illustration, not live readings", { exact: true })).toBeVisible();
+      await expect(page.locator("details summary")).toHaveText(["Sea and weather", "Unavailable readings"]);
+      await expect(page.getByRole("navigation", { name: "Pharos analytics" }).getByRole("link")).toHaveCount(5);
+      await expect(page.getByRole("button", { name: "Copy harbour link" })).toHaveCount(0);
+      await expect(page.locator(".pv-arrival")).toBeHidden();
+      await expect(page.locator("#pv-poster")).toBeHidden();
+    });
+  });
+});
+
+// S08-I4: 320 CSS px (WCAG reflow) keeps one column, no sideways scroll, and every part reachable from the start.
+test.describe("320 px reflow", () => {
+  test.use({ viewport: { width: 320, height: 568 }, contextOptions: { screen: { width: 320, height: 568 } } });
+  test("keeps the welcome in one scrollable column @visual-dom @visual-accessibility", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("button", { name: "Copy harbour link" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+    const top = await page.getByRole("heading", { level: 1, name: "PharosVille" }).boundingBox();
+    expect(top!.y).toBeGreaterThanOrEqual(0);
+    for (const summary of await page.locator("details summary").all()) await summary.click();
+    const last = page.getByRole("link", { name: "Cemetery — stablecoins lost at sea" });
+    await last.scrollIntoViewIfNeeded();
+    await expect(last).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
   });
 });
 
@@ -39,10 +77,12 @@ test.describe("small screen", () => {
     const worldRequests: string[] = [];
     page.on("request", (request: Request) => { if (isWorld(request.url())) worldRequests.push(request.url()); });
     await page.goto("/");
-    await expect(page.getByRole("heading", { level: 2, name: "PharosVille" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "PharosVille" })).toBeVisible();
     // Firefox does not emulate `screen`, so it may take the window-too-small branch: both are the gate.
-    await expect(page.getByText(/open a larger screen|Give this window more room/)).toBeVisible();
+    await expect(page.locator(".pharosville-narrow__reason:visible")).toHaveText(/The live harbour needs a larger screen|Give this window at least 720×600/);
     await expect(page.getByRole("navigation", { name: "Pharos analytics" }).getByRole("link")).toHaveCount(5);
+    await expect(page.getByRole("button", { name: "Copy harbour link" })).toBeVisible();
+    expect((await new AxeBuilder({ page }).include("#pv-welcome").withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
     await expect(page.locator("#pv-poster")).toHaveCount(0);
     await page.waitForTimeout(1000);
     expect(worldRequests).toEqual([]);
@@ -53,7 +93,7 @@ test.describe("small screen", () => {
 test("intentional WebGL denial retains the poster, useful status and links @visual-dom @visual-accessibility", async ({ page }) => {
   await deniedWebGL(page);
   await page.goto("/");
-  await expect(page.getByRole("status")).toContainText(/could not start|graphics features/, { timeout: 45_000 });
+  await expect(page.getByRole("status")).toContainText(/could not start|graphics features|graphics buffers/, { timeout: 45_000 });
   await expect(page.locator("#pv-poster")).toHaveCount(1);
   await expect(page.locator("html")).not.toHaveAttribute("data-pv-live");
   await expect(page.getByRole("link", { name: "Open Pharos analytics" })).toBeVisible();
@@ -70,20 +110,20 @@ for (const [width, height] of [[719, 600], [720, 599], [720, 600], [600, 720]]) 
     await page.goto("/");
     const denied = width < 720 && height < 720 || Math.min(width, height) < 600;
     if (denied) {
-      await expect(page.getByText(/Give this window more room/)).toBeVisible();
+      await expect(page.locator(".pharosville-narrow__reason:visible")).toHaveText(/Give this window at least 720×600/);
       await page.waitForTimeout(1000); expect(requests).toEqual([]);
       await expect(page.locator("#pv-poster")).toHaveCount(0);
     } else {
-      await expect(page.getByRole("status")).toContainText(/could not start|graphics features/, { timeout: 45_000 });
+      await expect(page.getByRole("status")).toContainText(/could not start|graphics features|graphics buffers/, { timeout: 45_000 });
       expect(requests.length).toBeGreaterThan(0);
     }
     await page.setViewportSize({ width: 719, height: 600 });
     // Playwright's emulated screen follows the resized viewport, so either denied copy is correct here.
-    await expect(page.getByText(/Give this window more room|open a larger screen/)).toBeVisible();
+    await expect(page.locator(".pharosville-narrow__reason:visible")).toHaveText(/Give this window at least 720×600|The live harbour needs a larger screen/);
     await expect(page.locator(".pv-world canvas")).toHaveCount(0);
     requests.length = 0; await page.waitForTimeout(1000); expect(requests).toEqual([]);
     await page.setViewportSize({ width: 600, height: 720 });
-    await expect(page.getByRole("status")).toContainText(/could not start|graphics features/, { timeout: 45_000 });
+    await expect(page.getByRole("status")).toContainText(/could not start|graphics features|graphics buffers/, { timeout: 45_000 });
     await expect(page.locator("#pv-poster")).toHaveCount(1);
   });
 });
