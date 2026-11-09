@@ -19,7 +19,7 @@ function duration(start: number, end: number) {
 export function DepegHistory({ data }: { data: PanelPayload<"depegEvents"> }) {
   const events = [...data.events].sort((a, b) => b.startedAt - a.startedAt).slice(0, 30);
   return <>
-    {events.length ? <ol className="hb-caption" aria-label="Depeg events, newest first">
+    {events.length ? <ol className="hb-list hb-events" aria-label="Depeg events, newest first">
       {events.map((event, index) => <li key={index}>
         <p>Started <EventTime seconds={event.startedAt} />.</p>
         <p>{event.endedAt == null ? "Ongoing recorded event" : <>Ended <EventTime seconds={event.endedAt} />. {duration(event.startedAt, event.endedAt)}</>}</p>

@@ -18,8 +18,8 @@ export function Backing({ data, unverified }: { data: PanelPayload<"stablecoinRe
     {data.mode !== "unavailable" && data.reserves.length ? <>
       <table className="hb-table">
         <caption>Reserves · {estimated ? "Estimated reserve composition" : "Reported reserve composition"}</caption>
-        <thead><tr><th scope="col"><span>Name</span></th><th scope="col"><span>Share</span></th><th scope="col"><span>Risk</span></th></tr></thead>
-        <tbody>{data.reserves.map((slice, index) => <tr key={index}><th scope="row">{slice.name}</th><td>{slice.pct}%</td><td className="hb-wrap">{words(slice.risk)}</td></tr>)}</tbody>
+        <thead><tr><th scope="col"><span className="hb-sc">Name</span></th><th scope="col" className="r"><span className="hb-sc">Share</span></th><th scope="col"><span className="hb-sc">Risk</span></th></tr></thead>
+        <tbody>{data.reserves.map((slice, index) => <tr key={index}><th scope="row">{slice.name}</th><td className="r">{slice.pct}%</td><td className="hb-wrap">{words(slice.risk)}</td></tr>)}</tbody>
       </table>
       {Math.abs(sum - 100) > 0.000001 && <p className="hb-caption">Reported shares total {Number(sum.toFixed(6))}%; they do not reconcile to 100%.</p>}
     </> : <p className="hb-empty">No reserve slices are available.</p>}

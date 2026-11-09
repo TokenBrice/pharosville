@@ -7,7 +7,7 @@ import { harbourReport, type ReportSentence } from "./report";
 import { readingSession } from "./recorder";
 
 export function ReportSentences({ sentences }: { sentences: ReportSentence[] }) {
-  return <>{sentences.map((sentence, i) => <details className="hb-sources" key={i}>
+  return <>{sentences.map((sentence, i) => <details className="hb-evidence" key={i}>
     <summary>{sentence.text}</summary>
     <table className="hb-table"><caption>Underlying readings</caption><tbody>{sentence.inputs.map(([label, value], j) => <tr key={j}><th scope="row">{label}</th><td className="hb-wrap">{value}</td></tr>)}</tbody></table>
   </details>)}</>;
@@ -30,9 +30,9 @@ export function HarbourReports() {
     <details className="hb-sec" onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary className="hb-sec-h hb-sc">Harbour report</summary>
       {open && <>
-        <div className="hb-reading-actions" role="group" aria-label="Report comparison window">
-          <button type="button" className="hb-control" aria-pressed={days === 1} onClick={() => setDays(1)}>24-hour comparison</button>{" "}
-          <button type="button" className="hb-control" aria-pressed={days === 7} onClick={() => setDays(7)}>Seven-day comparison</button>
+        <div className="hb-tabs" role="group" aria-label="Report comparison window">
+          <button type="button" className="hb-tab" aria-pressed={days === 1} onClick={() => setDays(1)}>24-hour comparison</button>{" "}
+          <button type="button" className="hb-tab" aria-pressed={days === 7} onClick={() => setDays(7)}>Seven-day comparison</button>
         </div>
         <ReportSentences sentences={report} />
       </>}
