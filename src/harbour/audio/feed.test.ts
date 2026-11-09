@@ -14,7 +14,7 @@ function world() {
   } as unknown as EngineContext;
   services.set("layout", { camera: { minDistance: 90, maxDistance: 1150 }, civic: [{ kind: "mint", position: [0, 0, 0] }] } as unknown as ServiceMap["layout"]);
   const set = vi.fn();
-  const feeder = new Feeder(ctx, { set } as unknown as Ambience);
+  const feeder = new Feeder(ctx, { set, cancelBeam: vi.fn() } as unknown as Ambience);
   return { services, feeder, set };
 }
 

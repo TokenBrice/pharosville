@@ -59,9 +59,11 @@ interface Scene {
   inputs(t: number): Partial<AmbienceInputs>;
   /** DEWS level of the lightning (its strike rate and distances) */
   lightning?: number;
+  /** Forced strikes replace the random lightning schedule for a reproducible peak case. */
+  strikes?: Array<{ t: number; km: number; intensity: number; pan: number }>;
   breath?: Breath;
   music?: boolean;
-  /** record every clip the scheduler plays (the first ten seconds) */
+  /** Record every clip the scheduler plays, including failed attempts. */
   log?: boolean;
 }
 
@@ -83,6 +85,7 @@ export const SCENES: Record<string, Scene> = {
   // the harbour can be
   rough: { seconds: 40, stepped: true, inputs: day(0, 3), breath: beam },
   "storm-rough": { seconds: 40, stepped: true, inputs: day(4, 3), lightning: 4, breath: beam },
+  "storm-near": { seconds: 40, stepped: true, inputs: day(4, 3), strikes: [{ t: 12, km: 2, intensity: 1, pan: 0 }], breath: beam, log: true },
   // stale data: the fog and the foghorn; no analytical surf, no Mint, no breath (the PSI reading is stale too)
   stale: {
     seconds: 40, stepped: true, inputs: (t) => ({ ...day(0, 0)(t), ...weatherInputs(undefined, { weights: [0, 0, 1, 0] }, 0.3, 0), fog: 1, sea: NEUTRAL_SEA, seaAvailable: false, mintAvailable: false, burnRate: 0 }),
@@ -169,11 +172,9 @@ export async function render(name: string, mute: readonly string[] = []): Promis
   }
   // the ambience's own scheduler, every 120 ms from its construction
   if (S.stepped) for (let t = 0.12; t < S.seconds; t += 0.12) at(ac, jobs, t, () => amb.step());
-  if (S.lightning != null) {
-    for (const s of strikes(S.lightning, S.seconds)) {
-      out.strikes.push({ t: s.t, km: s.km, intensity: s.intensity });
-      at(ac, jobs, s.t, () => amb.thunder(s.km, s.intensity, s.pan, (s.km * 1000) / 343));
-    }
+  for (const s of S.strikes ?? (S.lightning != null ? strikes(S.lightning, S.seconds) : [])) {
+    out.strikes.push({ t: s.t, km: s.km, intensity: s.intensity });
+    at(ac, jobs, s.t, () => amb.thunder(s.km, s.intensity, s.pan, (s.km * 1000) / 343));
   }
   if (S.breath) {
     const B = S.breath;

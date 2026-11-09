@@ -175,16 +175,53 @@ describe("harbour sound mix (E31–E34)", () => {
     expect(env.gain.linearRampToValueAtTime.mock.calls[0][0]).toBeCloseTo(0.05);
     // dry: the walls' slap-back would comb the held fifth
     expect(env.to[0].to).toHaveLength(1);
-    expect(env.to[0].to[0]).toBe((amb as unknown as Graph).out);
+    expect(env.to[0].to[0].to[0]).toBe((amb as unknown as Graph).out);
+    expect(env.to[0].to[0].gain.value).toBe(1);
     amb.beamPass(0.05, 0, period, 10 + 0.5 * len);
     expect(breaths()).toHaveLength(4);
     amb.beamPass(0.05, 0, period, 10 + period);
     expect(breaths()).toHaveLength(8);
   });
+
+  it.each(["stale", "missing", "reduced", "held"] as const)("releases queued and active breaths when the beam becomes %s", (invalid) => {
+    for (const time of [10.6, 11]) {
+      const { ac, amb } = ambience(), w = beamWorld(12, {}, amb);
+      for (const t of [10, 10.25, 10.5]) { ac.currentTime = w.clock.t = t; w.feeder.feed(0); }
+      const from = ac.nodes.length;
+      amb.beamPass(0.05, 0, 12, 10.75);
+      const oscillator = ac.nodes.slice(from).find((n) => n.kind === "oscillator")!;
+      const env = oscillator.to[0].to[0], gate = env.to[0].to[0];
+      if (invalid === "missing") w.services.delete("readings");
+      else if (invalid === "stale") (w.services.get("readings") as { psi: { lit: boolean } }).psi.lit = false;
+      else if (invalid === "reduced") w.motion.reduced = true;
+      else {
+        const lh = w.services.get("lighthouse") as { sweepAngle(): number };
+        const held = lh.sweepAngle(); lh.sweepAngle = () => held;
+      }
+      ac.currentTime = w.clock.t = time; w.feeder.feed(0);
+      expect(gate.gain.setValueAtTime).toHaveBeenLastCalledWith(1, time);
+      expect(gate.gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0, time + 0.03);
+      expect(env.gain.exponentialRampToValueAtTime).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("releases both an active breath and the following queued breath at a fast sweep", () => {
+    const { ac, amb } = ambience(), from = ac.nodes.length;
+    amb.beamPass(0.05, 0, 1.2, 0);
+    ac.currentTime = 0.8;
+    amb.beamPass(0.05, 0, 1.2, 1.2);
+    const oscillators = ac.nodes.slice(from).filter((n) => n.kind === "oscillator");
+    expect(oscillators).toHaveLength(8);
+    ac.currentTime = 0.85;
+    amb.cancelBeam();
+    for (const o of [oscillators[0], oscillators[4]]) {
+      expect(o.to[0].to[0].to[0].to[0].gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0, 0.88);
+    }
+  });
 });
 
 /** A lighthouse turning at `period`, a camera due south of it, and an ambience that records the breaths. */
-function beamWorld(period: number, o: { lit?: boolean; readings?: boolean; held?: boolean } = {}) {
+function beamWorld(period: number, o: { lit?: boolean; readings?: boolean; held?: boolean } = {}, realAmb?: Ambience) {
   const services = new Map<string, unknown>(), clock = { t: 0 };
   services.set("lighthouse", {
     lanternPosition: { x: 0, y: 80, z: 0 }, period, lit: true,
@@ -193,9 +230,11 @@ function beamWorld(period: number, o: { lit?: boolean; readings?: boolean; held?
   if (o.readings !== false) services.set("readings", { psi: { lit: o.lit ?? true, reach: 0.8 }, fog: 0 });
   services.set("beam", { reach: () => 0.8 });
   const ctx = { services, rig: { distance: 500, camera: { position: { x: 0, y: 200, z: 500 } } }, uniforms: { uNight: { value: 1 } }, timeOfDay: { hour: 23, clockHour: 23 } };
+  const motion = { reduced: false };
+  services.set("motion", motion);
   const beamPass = vi.fn();
-  const amb = { ac: { get currentTime() { return clock.t; } }, set: vi.fn(), beamPass } as unknown as Ambience;
-  return { feeder: new Feeder(ctx as unknown as EngineContext, amb), clock, beamPass };
+  const amb = realAmb ?? { ac: { get currentTime() { return clock.t; } }, set: vi.fn(), beamPass, cancelBeam: vi.fn() } as unknown as Ambience;
+  return { feeder: new Feeder(ctx as unknown as EngineContext, amb), clock, beamPass, ctx, services, motion };
 }
 /**
  * Feed every 200–300 ms through `revolutions` sweeps; `late`: on time every 250 ms, but for one reading that
@@ -216,6 +255,17 @@ function feedFor(w: ReturnType<typeof beamWorld>, period: number, revolutions: n
 }
 
 describe("harbour sound: the Pharos's breath follows the sweep (E33)", () => {
+  it.each([false, true])("does not voice a held beam when the camera moves toward it (reduced=%s)", (reduced) => {
+    const w = beamWorld(4, { held: true });
+    w.motion.reduced = reduced;
+    for (let t = 0; t <= 1; t += 0.25) {
+      const bearing = 1.4 - 0.5 * t;
+      Object.assign(w.ctx.rig.camera.position, { x: 500 * Math.sin(bearing), z: 500 * Math.cos(bearing) });
+      w.clock.t = t; w.feeder.feed(0);
+    }
+    expect(w.beamPass).not.toHaveBeenCalled();
+  });
+
   it.each([12, 9, 4, 2.5, 1.2])("foresees each crossing of a %s s sweep once, on the audio clock", (period) => {
     const w = beamWorld(period), crossings = feedFor(w, period, 6);
     const breaths = w.beamPass.mock.calls;
@@ -236,8 +286,7 @@ describe("harbour sound: the Pharos's breath follows the sweep (E33)", () => {
     for (const o of [{ lit: false }, { readings: false }]) {
       const w = beamWorld(4, o);
       feedFor(w, 4, 3);
-      expect(w.beamPass.mock.calls.length).toBeGreaterThan(0);
-      for (const c of w.beamPass.mock.calls) expect(c[0]).toBe(0);
+      expect(w.beamPass).not.toHaveBeenCalled();
     }
     const held = beamWorld(4, { held: true });
     feedFor(held, 4, 3);

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { energyAbove, integrated, loudnessRange, meter, peaks, segments, windows } from "../../../scripts/audio/loudness.mjs";
+import { SCENES } from "../../../scripts/audio/mix-scenes";
+import { mixTargets } from "../../../scripts/audio/mix-targets.mjs";
 
 /** Self-tests of the offline mix gate's meters (scripts/audio/loudness.mts) against EBU Tech 3341/3342 cases. */
 const SR = 48000;
@@ -16,6 +18,50 @@ function tones(parts: ReadonlyArray<readonly [number, number]>, hz = 1000, phase
 }
 const stereo = (x: Float32Array) => [x, x];
 const loud = (ch: Float32Array[]) => integrated(windows(segments(ch, SR), 4));
+
+describe("offline mix gate: forced near clap", () => {
+  it("renders a Danger storm over rough seas with exactly one full near strike inside the window", () => {
+    const scene = SCENES["storm-near"];
+    expect(scene).toBeDefined();
+    expect(scene.inputs(12)).toMatchObject({ storm: 1, seaAvailable: true, sea: SCENES["storm-rough"].inputs(12).sea });
+    expect(scene.lightning).toBeUndefined();
+    expect(scene.log).toBe(true);
+    expect(scene.strikes).toHaveLength(1);
+    const strike = scene.strikes![0];
+    expect(strike.km).toBeGreaterThan(0);
+    expect(strike.km).toBeLessThanOrEqual(2);
+    expect(strike.intensity).toBe(1);
+    expect(strike.t).toBeGreaterThan(1.4);
+    expect(strike.t + strike.km * 1000 / 343 + 10).toBeLessThan(scene.seconds);
+  });
+
+  it("gates the near-clap true peak at −1 dBTP and reports its integrated LU over storm", () => {
+    const scenes = { storm: { integrated: -21, truePeak: -4 }, "storm-near": { integrated: -18, truePeak: -1, nearClaps: 1 } };
+    expect(mixTargets(scenes)).toContainEqual({ id: "storm-near-over-storm", goal: "LU over storm (reported)", value: 3, pass: null });
+    const peak = () => mixTargets(scenes).find((t) => t.id === "storm-near-true-peak");
+    expect(peak()?.pass).toBe(true);
+    scenes["storm-near"].truePeak = -0.9;
+    expect(peak()?.pass).toBe(false);
+    scenes["storm-near"].truePeak = -0.99;
+    expect(peak()?.pass).toBe(false);
+    expect(mixTargets(scenes).find((t) => t.id === "storm-near-clap")?.pass).toBe(true);
+    scenes["storm-near"].nearClaps = 0;
+    expect(mixTargets(scenes).find((t) => t.id === "storm-near-clap")?.pass).toBe(false);
+    expect(mixTargets({ "storm-near": { integrated: -18, truePeak: null, nearClaps: 1 } }).find((t) => t.id === "storm-near-true-peak")?.pass).toBe(false);
+  });
+
+  it("preserves the existing scene targets, including failed silent storm and music renders", () => {
+    const targets = mixTargets({
+      calm: { integrated: -26, truePeak: -1 }, storm: { integrated: -20, truePeak: -1 },
+      "music-alone": { integrated: -32, truePeak: -1 }, "breath-12": { integrated: -36, truePeak: -1, energyAbove250: 0.6, duty: 0.85 },
+    });
+    expect(targets).toHaveLength(9);
+    expect(targets.every((t) => t.pass === true)).toBe(true);
+    const silent = mixTargets({ calm: { integrated: -26, truePeak: -1 }, storm: { integrated: null, truePeak: null }, "music-alone": { integrated: null, truePeak: null } });
+    expect(silent.find((t) => t.id === "storm-over-calm")?.pass).toBe(false);
+    expect(silent.find((t) => t.id === "music-under-calm")?.pass).toBe(false);
+  });
+});
 
 describe("offline mix gate: BS.1770-4 meters", () => {
   it("a stereo 1 kHz sine at −23 / −33 dBFS reads −23 / −33 LUFS, momentary and short-term alike (Tech 3341 #1, #2)", () => {
