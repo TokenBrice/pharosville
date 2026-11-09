@@ -4,8 +4,8 @@ import seedsUrl from "../data/sim-seeds.json?url";
 import { buildSimLayout, type SimLayout } from "./layout-graph";
 import type { CoastGrid } from "./obstacles";
 import { outingSeed, seedOutings } from "./outings";
-import { buildPlan, legTimes, seedLegTimes } from "./plan";
-import { buildPlanLegPath, pathBuffers, pathKey, planPathRequests, type PreparedPlan, type PathRequest } from "./plan-paths";
+import { buildPlan, legTimes, seedLegTimes, type BoatPlan } from "./plan";
+import { buildPlanLegPath, pathBuffers, pathKey, planPathRequests, reservePlanHolds, type PreparedPlan, type PathRequest } from "./plan-paths";
 import { matchingSeeds, type SimSeeds } from "./seeds";
 
 type Msg =
@@ -18,6 +18,7 @@ const fetchingSeeds = fetch(seedsUrl);
 void fetchingSeeds.catch(() => {});
 let L: SimLayout | null = null, base = 0;
 let layoutKey = "";
+let holdingPlans: BoatPlan[] = [];
 let queue = Promise.resolve();
 scope.onmessage = ({ data: m }) => {
   // Initialization hashes asynchronously; preserve message order through it and every later job.
@@ -48,7 +49,8 @@ scope.onmessage = ({ data: m }) => {
         const { path, bad } = buildPlanLegPath(L, base, ...request);
         paths.push([pathKey(...request), path, bad]);
       }
-      scope.postMessage({ id: m.id, planRevision: m.planRevision, layoutKey: m.layoutKey, paths }, [...pathBuffers(paths)] as Transferable[]);
+      const holds = reservePlanHolds(L, holdingPlans, paths);
+      scope.postMessage({ id: m.id, planRevision: m.planRevision, layoutKey: m.layoutKey, paths, holds }, [...pathBuffers(paths)] as Transferable[]);
       return;
     }
     L.slots.length = base;
@@ -70,6 +72,10 @@ scope.onmessage = ({ data: m }) => {
       // sim handles it per boat (badOuting / route-unavailable hold), as before S16-I6.
       prepared.paths.push([key, path, bad]);
     }
+    prepared.holds = reservePlanHolds(L, sailing, prepared.paths);
+    prepared.rafts = L.slots.slice(base);
+    // The reply transfers the plan arrays; retain circuit identities for later rejected paths.
+    holdingPlans = structuredClone(sailing.filter((p) => p.kind === "circuit"));
     const buffers = pathBuffers(prepared.paths);
     for (const b of prepared.plan.boats) for (const a of [b.segStart, b.segEnd, b.segKind, b.segSlot, b.segFrom, b.segLoop]) buffers.add(a.buffer);
     scope.postMessage({ id: m.id, prepared }, [...buffers] as Transferable[]);

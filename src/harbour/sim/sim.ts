@@ -21,7 +21,7 @@ import { boatLocalTime, emptyPlan, hydratePlan, seedLegTimes, CYCLE_S, findSegme
 import { hypot } from "./math";
 import { snapshotStill, writeStill, type StillPose } from "./still-pose";
 import { slotFootprint } from "./footprint";
-import { pathClear, buildPlanLegPath, pathKey, planPathRequests, PREFETCH_S, sailSetAt, type PathRequest, type PreparedPlan } from "./plan-paths";
+import { pathClear, buildPlanLegPath, pathKey, planPathRequests, PREFETCH_S, reservePlanHolds, sailSetAt, type PathRequest, type PreparedPlan } from "./plan-paths";
 
 export const PHASES = ["docked", "casting-off", "sailing", "approaching", "moored", "anchored"] as const;
 export type Phase = (typeof PHASES)[number];
@@ -293,6 +293,7 @@ export class HarbourSim {
   private cellHead = new Int32Array(4096);
   /** Rejected plan-path keys: these routes are never sailed, including across plain-path cache reuse. */
   private badOuting = new Set<string>();
+  private holdSlots = new Map<string, number>();
   /** Last frame's phase per hull (255 = not yet posed): arrivals are counted from it. */
   private prevPhase = new Uint8Array(0);
   private cellNext = new Int32Array(0);
@@ -371,7 +372,7 @@ export class HarbourSim {
   knownPlainPaths(): string[] {
     return [...this.pathCache.keys()].filter((key) => {
       const [from, to, , loop] = key.split(">");
-      return !loop?.startsWith("s") && +from < this.baseSlots && +to < this.baseSlots;
+      return !this.badOuting.has(key) && !loop?.startsWith("s") && +from < this.baseSlots && +to < this.baseSlots;
     });
   }
 
@@ -401,8 +402,13 @@ export class HarbourSim {
   }
 
   /** Plan leg paths built elsewhere for this very plan (sim/warm-legs): the same values legPathFor would build. */
-  seedPaths(plan: Plan, entries: ReadonlyArray<[string, PathRec, boolean]>): void {
+  seedPaths(plan: Plan, entries: ReadonlyArray<[string, PathRec, boolean]>, holds: PreparedPlan["holds"] = []): void {
     if (plan !== this.plan) return;
+    for (const [id, slot] of holds) {
+      let index = this.layout.slots.findIndex((s) => s.id === slot.id);
+      if (index < 0) { index = this.layout.slots.length; this.layout.slots.push({ ...slot, index }); }
+      this.holdSlots.set(id, index);
+    }
     for (const [k, p, bad] of entries) {
       if (this.pathCache.has(k)) continue;
       if (bad) this.badOuting.add(k);
@@ -452,7 +458,7 @@ export class HarbourSim {
 
   private install(model: HarbourModel, nowMs: number, first: boolean, prepared?: PreparedPlan, reduced = false): void {
     if (prepared && prepared.plan.key !== model.planKey) throw new Error("Prepared plan/model mismatch");
-    if (prepared && this.plan?.key === prepared.plan.key) this.seedPaths(this.plan, prepared.paths);
+    if (prepared && this.plan?.key === prepared.plan.key) this.seedPaths(this.plan, prepared.paths, prepared.holds);
     const t = nowMs / 1000;
     const prev = this.model;
     const prevRt = this.rt;
@@ -481,6 +487,7 @@ export class HarbourSim {
     this.model = model;
     this.poseVersion++;
     if (replan) {
+      this.holdSlots.clear();
       this.planRevision++; this.itineraryCache.clear(); this.itineraryRequests.clear(); this.missingPaths.clear(); this.pathPins.clear();
       // drop rafts and extra anchorages made for the previous plan (and forget who was on them)
       this.layout.slots.length = this.baseSlots;
@@ -498,7 +505,7 @@ export class HarbourSim {
         if (+from >= this.baseSlots || +to >= this.baseSlots || loop?.startsWith("s")) this.pathCache.delete(k);
       }
       for (const key of this.badOuting) if (!this.pathCache.has(key)) this.badOuting.delete(key);
-      if (prepared) this.seedPaths(this.plan, prepared.paths);
+      if (prepared) this.seedPaths(this.plan, prepared.paths, prepared.holds);
       this.prefetch.length = 0; this.prefetchKeys.clear();
     }
     this.stats.overflow = this.plan.stats.overflow;
@@ -761,7 +768,8 @@ export class HarbourSim {
     // The injected planner is the synchronous, test-only reference implementation.
     if (!p && this.planner) {
       const b = buildPlanLegPath(this.layout, this.baseSlots, fromSlot, toSlot, r.cls, loop, r.loa, r.beam);
-      this.seedPaths(this.plan, [[key, b.path, b.bad]]); p = b.path;
+      const entries: PreparedPlan["paths"] = [[key, b.path, b.bad]];
+      this.seedPaths(this.plan, entries, reservePlanHolds(this.layout, this.plan.boats, entries)); p = b.path;
       this.builtThisFrame++;
     }
     if (!p && !this.missingPaths.has(key)) { this.missingPaths.add(key); this.stats.pathMisses++; }
@@ -1247,7 +1255,7 @@ export class HarbourSim {
       if (!plan.outing) {
         const from = L.slots[plan.segFrom[c]];
         r.safePose = this.posed ? { x: p.position[i * 3], z: p.position[i * 3 + 2], h: p.heading[i] } : { x: from.x, z: from.z, h: from.heading };
-        r.mode = MODE_HOLD; r.holdSlot = -1;
+        r.mode = MODE_HOLD; r.holdSlot = this.holdSlots.get(r.id) ?? -1; r.holdPhase = PH_ANCHORED;
         this.evalBoat(i);
       } else { this.blend = 1; this.restPose(i, r, L.slots[plan.segFrom[c]], PH_DOCKED); }
       return;
@@ -1422,7 +1430,6 @@ export class HarbourSim {
       }
     }
     const cw = Math.min(1, Math.max(0, (this.t - this.carryT0) / PUSH_FADE_S)), carry = cw < 1 ? 1 - cw * cw * (3 - 2 * cw) : 0;
-    const drift = p.drift;
     for (let i = 0; i < n; i++) {
       if (this.pendingBoat[i]) continue;
       if (carry > 0 && (this.carryX[i] !== 0 || this.carryZ[i] !== 0)) {
@@ -1433,10 +1440,50 @@ export class HarbourSim {
       }
       if (sx[i] === 0 && sz[i] === 0) continue;
       this.keepOffHard(i);
+    }
+    this.mooredYield();
+    // Summed give-way forces can squeeze a smaller hull between two larger neighbours.
+    // Merge their forbidden lateral intervals before choosing the nearest clear side.
+    for (let pass = 0; pass < SEP_PASSES; pass++) for (let i = 0; i < n; i++) {
+      const ph = p.phase[i];
+      if (this.pendingBoat[i] || !(ph === PH_CASTING_OFF || ph === PH_SAILING || ph === PH_APPROACHING)) continue;
+      const r = rt[i], oi = i * HullStations.stride, stx = -stations[oi + 11], stz = stations[oi + 10];
+      const xi = pos[i * 3] + sx[i], zi = pos[i * 3 + 2] + sz[i];
+      const ci = Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3] + O) / CELL))), cj = Math.min(G - 1, Math.max(0, Math.floor((pos[i * 3 + 2] + O) / CELL)));
+      let left = 0, right = 0, changed = true;
+      while (changed) {
+        changed = false;
+        for (let a = Math.max(0, ci - 1); a <= Math.min(G - 1, ci + 1); a++) for (let b = Math.max(0, cj - 1); b <= Math.min(G - 1, cj + 1); b++) {
+          for (let j = head[a * G + b]; j >= 0; j = next[j]) {
+            if (j === i) continue;
+            const phj = p.phase[j], moving = !this.pendingBoat[j] && (phj === PH_CASTING_OFF || phj === PH_SAILING || phj === PH_APPROACHING);
+            if (moving && (r.loa > rt[j].loa || r.loa === rt[j].loa && i < j)) continue;
+            const dx = xi - pos[j * 3] - sx[j], dz = zi - pos[j * 3 + 2] - sz[j];
+            const gap = (r.beam + rt[j].beam) / 2 + 0.4, along = dx * stz - dz * stx;
+            if (along * along >= gap * gap) continue;
+            const lateral = dx * stx + dz * stz, dl = lateral + left, dr = lateral + right, reach2 = gap * gap - along * along;
+            if (dl * dl >= reach2 && dr * dr >= reach2) continue;
+            const half = Math.sqrt(reach2);
+            const lo = -lateral - half, hi = -lateral + half;
+            if (left > lo && left < hi) { left = lo; changed = true; }
+            if (right > lo && right < hi) { right = hi; changed = true; }
+          }
+        }
+      }
+      if (left === 0 && right === 0) continue;
+      let shift = -left < right ? left : right;
+      const want = Math.min(hullClearance(L.hard, xi, zi, p.heading[i], r.loa, r.beam), hullMargin(r.loa) * 0.8);
+      if (hullClearance(L.hard, xi + stx * shift, zi + stz * shift, p.heading[i], r.loa, r.beam) < want) shift = shift === left ? right : left;
+      sx[i] += stx * shift; sz[i] += stz * shift;
+      this.keepOffHard(i);
+      this.pushX[i] = sx[i] - lx[i]; this.pushZ[i] = sz[i] - lz[i];
+    }
+    const drift = p.drift;
+    for (let i = 0; i < n; i++) {
+      if (this.pendingBoat[i]) continue;
       pos[i * 3] += sx[i]; pos[i * 3 + 2] += sz[i];
       drift[i * 2] = sx[i]; drift[i * 2 + 1] = sz[i];
     }
-    this.mooredYield();
   }
 
   /**
@@ -1482,7 +1529,7 @@ export class HarbourSim {
           const phj = p.phase[j];
           if (!(phj === PH_CASTING_OFF || phj === PH_SAILING || phj === PH_APPROACHING)) continue;
           const rj = rt[j];
-          const dx = xi - pos[j * 3], dz = zi - pos[j * 3 + 2];
+          const dx = xi - pos[j * 3] - this.sepX[j], dz = zi - pos[j * 3 + 2] - this.sepZ[j];
           const reach = (r.loa + rj.loa) / 2 + 2;
           if (dx * dx + dz * dz > reach * reach) continue;
           const oj = j * HullStations.stride;

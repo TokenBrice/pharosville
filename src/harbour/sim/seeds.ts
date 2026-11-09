@@ -4,8 +4,8 @@ import type { CoastGrid } from "./obstacles";
 import type { OutingSeed } from "./outings";
 import type { RepLeg } from "./plan";
 
-/** Bump when geometry/timing/outing semantics change, then run build-sim-seeds.mjs. 5: rendered hull footprints and footprint-aware path identity. */
-export const SIM_SEED_VERSION = 5;
+/** Bump when geometry/timing/outing semantics change, then run build-sim-seeds.mjs. 6: overflow searches always preserve hull clearance. */
+export const SIM_SEED_VERSION = 6;
 export interface SimSeeds {
   version: number;
   key: string;

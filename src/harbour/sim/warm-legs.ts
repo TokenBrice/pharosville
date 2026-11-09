@@ -12,7 +12,7 @@ export interface WarmLegs {
   stop(): void;
 }
 
-export interface PathReply { planRevision: number; layoutKey: string; paths: PreparedPlan["paths"] }
+export interface PathReply { planRevision: number; layoutKey: string; paths: PreparedPlan["paths"]; holds?: PreparedPlan["holds"] }
 
 export class SimulationWorkerError extends Error {
   constructor(message: string, readonly reason: "timeout" | "crash" = "crash") { super(message); }
@@ -46,14 +46,14 @@ export function warmLegsOffThread(layout: HarbourLayout, coast: Promise<CoastGri
   };
   try {
     worker = new Worker(new URL("./warm-legs.worker.ts", import.meta.url), { type: "module" });
-    worker.onmessage = (event: MessageEvent<{ id?: number; error?: string; legs?: Array<[string, RepLeg]>; outings?: OutingSeed; prepared?: PreparedPlan; planRevision?: number; layoutKey?: string; paths?: PreparedPlan["paths"] }>) => {
+    worker.onmessage = (event: MessageEvent<{ id?: number; error?: string; legs?: Array<[string, RepLeg]>; outings?: OutingSeed; prepared?: PreparedPlan; planRevision?: number; layoutKey?: string; paths?: PreparedPlan["paths"]; holds?: PreparedPlan["holds"] }>) => {
       if (failure) return;
       const m = event.data;
       if (m.error) { fail(new Error(m.error)); return; }
       if (m.legs && m.outings) { clearTimeout(warmTimer); onShare(m.legs); onOutings(m.outings); ready(); return; }
       if (m.id != null && m.paths && m.planRevision != null && m.layoutKey != null) {
         const p = pathPending.get(m.id);
-        if (p) { clearTimeout(p.timer); p.resolve({ planRevision: m.planRevision, layoutKey: m.layoutKey, paths: m.paths }); pathPending.delete(m.id); }
+        if (p) { clearTimeout(p.timer); p.resolve({ planRevision: m.planRevision, layoutKey: m.layoutKey, paths: m.paths, holds: m.holds }); pathPending.delete(m.id); }
         return;
       }
       if (m.id != null && m.prepared) {
