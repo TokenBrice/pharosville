@@ -95,11 +95,11 @@ button, input, select, textarea { font: inherit; }
   font-style: italic; color: var(--pv-ink-2); text-align: center;
 }
 .pv-arrival nav { display: flex; justify-content: center; flex-wrap: wrap; gap: 0 22px; }
-.pv-arrival nav a {
-  display: inline-flex; align-items: center; min-height: 36px;
-  color: #7a5a22; text-underline-offset: 3px; text-decoration-thickness: 0.5px;
-}
-.pv-arrival nav a:focus-visible { outline: 2px solid #1668a3; outline-offset: 2px; }
+/* the links and a failed arrival's action (Retry harbour, Reload page; drawn in harbour-app.css): 44 px under touch */
+.pv-arrival nav :is(a, button) { display: inline-flex; align-items: center; min-height: 36px; }
+.pv-arrival nav a { color: #7a5a22; text-underline-offset: 3px; text-decoration-thickness: 0.5px; }
+.pv-arrival nav :is(a, button):focus-visible { outline: 2px solid #1668a3; outline-offset: 2px; }
+@media (any-pointer: coarse) { .pv-arrival nav :is(a, button) { min-height: 44px; } }
 @media (max-width: 640px) {
   .pv-arrival__guide { grid-template-columns: 1fr; }
   .pv-arrival__guide dd { margin-bottom: 6px; }
@@ -124,7 +124,7 @@ button, input, select, textarea { font: inherit; }
 }
 :root[data-pv-hour="night"] .pv-arrival__card::before { border-color: rgba(207, 174, 110, 0.26); }
 :root[data-pv-hour="night"] .pv-arrival nav a { color: #ab8e5a; }
-:root[data-pv-hour="night"] .pv-arrival nav a:focus-visible { outline-color: #6a9cc8; }
+:root[data-pv-hour="night"] .pv-arrival nav :is(a, button):focus-visible { outline-color: #6a9cc8; }
 
 /* ---- gate pages: screens or windows too small to chart (size tests, never orientation) ---- */
 .pharosville-gate { min-height: 100svh; background: #16222f; color: #eef0ec; }

@@ -406,6 +406,8 @@
 }
 .hb-foot > :nth-child(2) { flex: 1 1 220px; min-width: 0; }
 .hb-foot .hb-dot { top: 0; }
+/* feet stacked together read as one block of sources under one rule (the five above the ledger's Coins, Signals) */
+.hb-foot + .hb-foot { margin-top: 0; padding-top: 3px; border-top: 0; }
 
 :is(.hb-spark, .hb-bars, .hb-flowbars) { display: block; width: 100%; overflow: visible; }
 .hb-spark { height: 56px; }
@@ -487,6 +489,7 @@
 .hb-ledger-body { flex: 1; padding: 14px var(--s6) calc(var(--ctl-touch) + var(--s6)); container-type: inline-size; }
 .hb-ledger :focus { scroll-margin-block: var(--s6) calc(var(--ctl-touch) + var(--s6)); }
 .hb-filter { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
+:is(.hb-foot, .hb-caption) + .hb-filter { margin-top: var(--s3); }
 .hb-filter input {
   flex: 1; font: inherit; padding: 5px 10px; border: 0.5px solid var(--rule); background: var(--face); color: var(--ink);
   border-radius: var(--r-sheet);
@@ -620,6 +623,8 @@
   .hb-ui :is(button, a, summary, [role="option"], select, input:not([type="checkbox"]), label) { min-height: var(--ctl-touch); min-width: var(--ctl-touch); }
   .hb-keys { margin-right: 0; }
   .hb-keys button { padding: 0 9px; }
+  /* a short symbol ("DAI") still makes a 44 px target: the ellipsis rule's min-width: 0 out-ranks the rule above */
+  .hb-ledger td:first-child button { min-width: var(--ctl-touch); }
   .hb-close { top: 6px; right: 6px; }
   .hb-list .hb-row { align-items: center; }
 }

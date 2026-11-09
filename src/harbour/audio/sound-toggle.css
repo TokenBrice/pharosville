@@ -1,36 +1,33 @@
-/* The sound toggle: a small ink speaker in the corner mark, after a brass hairline (chart voice, D12). */
+/* The sound toggle: a small ink speaker in the corner mark, after a brass hairline (chart voice, D12), and the caret
+   beside it that opens the menu of the three states. */
 .hb-sound-wrap { position: relative; align-self: stretch; display: flex; }
-.hb-sound {
-  position: relative; align-self: stretch; display: grid; place-items: center;
-  width: 34px; padding: 0 2px 0 1px; color: var(--ink-3);
+:is(.hb-sound, .hb-sound-more) {
+  align-self: stretch; display: grid; place-items: center; color: var(--ink-3);
   transition: color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
 }
+.hb-sound { position: relative; width: 34px; padding: 0 2px 0 1px; }
+.hb-sound-more { width: var(--ctl); padding: 0 3px 0 0; }
 .hb-sound::before {
   content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 0.5px; background: var(--neat);
 }
-.hb-sound:hover, .hb-sound-more:hover, .hb-sound-more[aria-expanded="true"] { color: var(--ink); background: var(--wash-2); }
-.hb-sound:focus-visible, .hb-sound-more:focus-visible { outline-offset: -2px; }
-/* the caret beside the speaker: the menu of the three states */
-.hb-sound-more {
-  align-self: stretch; display: grid; place-items: center; width: var(--ctl); padding: 0 3px 0 0;
-  color: var(--ink-3); transition: color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
-}
-.hb-sound-more svg { display: block; }
-.hb-sound-more path { fill: none; stroke: currentColor; stroke-width: 1.1; stroke-linecap: round; stroke-linejoin: round; }
-.hb-sound svg { display: block; overflow: visible; }
-.hb-sound svg path { fill: none; stroke: currentColor; stroke-width: 1.15; stroke-linecap: round; stroke-linejoin: round; }
+:is(.hb-sound, .hb-sound-more):hover, .hb-sound-more[aria-expanded="true"] { color: var(--ink); background: var(--wash-2); }
+:is(.hb-sound, .hb-sound-more):focus-visible { outline-offset: -2px; }
+:is(.hb-sound, .hb-sound-more) svg { display: block; overflow: visible; }
+:is(.hb-sound, .hb-sound-more) path { fill: none; stroke: currentColor; stroke-width: 1.15; stroke-linecap: round; stroke-linejoin: round; }
+/* the speaker says the playback state (C10): a cross when off; waves while it plays (with the music, a note for the far
+   wave); two bars while paused; dotted waves when unavailable; the bare speaker while it starts */
 .hb-sound .hb-sound-body { fill: var(--wash-2); }
-.hb-sound .hb-sound-waves path { transition: opacity var(--t-med) var(--ease); opacity: 0; }
-.hb-sound .hb-sound-off { stroke-width: 1; opacity: 0.75; transition: opacity var(--t-med) var(--ease); }
-.hb-sound .hb-sound-note { opacity: 0; transition: opacity var(--t-med) var(--ease); }
-.hb-sound .hb-sound-note path { stroke-width: 1; }
+.hb-sound :is(.hb-sound-waves path, .hb-sound-off, .hb-sound-note, .hb-sound-pause) { opacity: 0; transition: opacity var(--t-med) var(--ease); }
+.hb-sound :is(.hb-sound-off, .hb-sound-note path) { stroke-width: 1; }
 .hb-sound .hb-sound-note ellipse { fill: currentColor; stroke: none; }
 .hb-sound:not([data-mode="off"]) { color: var(--ink-2); }
-.hb-sound:not([data-mode="off"]) .hb-sound-waves path { opacity: 1; }
-.hb-sound:not([data-mode="off"]) .hb-sound-waves path + path { opacity: 0.55; }
-.hb-sound:not([data-mode="off"]) .hb-sound-off { opacity: 0; }
-.hb-sound[data-mode="music"] .hb-sound-note { opacity: 0.9; }
-.hb-sound[data-mode="music"] .hb-sound-waves path + path { opacity: 0; }
+.hb-sound[data-mode="off"] .hb-sound-off { opacity: 0.75; }
+.hb-sound:is([data-status="playing"], [data-status="unavailable"]) .hb-sound-waves path { opacity: 1; }
+.hb-sound[data-status="playing"] .hb-sound-waves path + path { opacity: 0.55; }
+.hb-sound[data-mode="music"][data-status="playing"] .hb-sound-waves path + path { opacity: 0; }
+.hb-sound[data-mode="music"][data-status="playing"] .hb-sound-note { opacity: 0.9; }
+.hb-sound[data-status="paused"] .hb-sound-pause { opacity: 1; }
+.hb-sound[data-status="unavailable"] .hb-sound-waves path { stroke-width: 1.6; stroke-dasharray: 0 2.5; }
 /* the three states: a small chart-paper menu under the speaker (out-ranks .hb-paper's position) */
 .hb-sound-wrap > .hb-sound-menu {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 2; min-width: 214px; padding: 5px;
@@ -38,7 +35,7 @@
 }
 .hb-sound-menu button {
   display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 8px; border-radius: var(--r-ctl);
-  font-size: var(--fs-body); color: var(--ink-2); text-align: left; white-space: nowrap;
+  color: var(--ink-2); text-align: left; white-space: nowrap;
   transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 .hb-sound-menu button[role="menuitemradio"]::before {
@@ -46,9 +43,10 @@
 }
 .hb-sound-menu button[aria-checked="true"] { color: var(--ink); }
 .hb-sound-menu button[aria-checked="true"]::before { background: var(--rule); box-shadow: none; }
-.hb-sound-menu button:hover, .hb-sound-menu button:focus-visible { background: var(--wash-2); color: var(--ink); }
+.hb-sound-menu button:is(:hover, :focus-visible) { background: var(--wash-2); color: var(--ink); }
 .hb-sound-menu button:focus-visible { outline-offset: -1px; }
 .hb-sound-reading { width: 280px; margin: 4px 8px 8px; line-height: 1.5; color: var(--ink-2); }
-
-.hb-sound:not([data-status="playing"]) .hb-sound-waves path,
-.hb-sound:not([data-status="playing"]) .hb-sound-note { opacity: 0; }
+/* paused or unavailable: the status word (the corner's state word, .hb-mark-state) over its way back, ruled off from the
+   choices */
+.hb-sound-state { margin: 0; padding: 3px 10px 0 8px; }
+.hb-sound-menu .hb-sound-retry { color: var(--ink); margin-bottom: 4px; border-bottom: 0.5px solid var(--neat); border-radius: var(--r-ctl) var(--r-ctl) 0 0; }
