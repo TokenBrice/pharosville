@@ -22,6 +22,8 @@ describe("React-free admission", () => {
     vi.clearAllMocks();
     const html = new DOMParser().parseFromString(readFileSync(resolve("index.html"), "utf8"), "text/html");
     document.documentElement.innerHTML = html.documentElement.innerHTML;
+    document.documentElement.removeAttribute("data-pv-gate");
+    document.documentElement.removeAttribute("data-pv-live");
     const hint = document.createElement("link");
     hint.dataset.pvPreload = "modulepreload";
     hint.href = "/assets/harbour-test.js";
@@ -42,10 +44,18 @@ describe("React-free admission", () => {
       await flush();
       expect(imported).not.toHaveBeenCalled();
       expect(document.querySelector("link[data-pv-preload]")?.getAttribute("rel")).toBeNull();
-      expect(document.querySelectorAll("#root nav a")).toHaveLength(5);
-      expect(document.querySelectorAll("#root dd")).toHaveLength(3);
-      expect(document.querySelector("#root")?.textContent).toContain(sw === 390 ? "open a larger screen" : "Give this window more room");
+      // the first-byte welcome stays; the arrival card leaves the root and the gate hands the page to it
+      expect(document.documentElement.dataset.pvGate).toBe("welcome");
+      expect(document.getElementById("root")?.childElementCount).toBe(0);
+      const page = document.getElementById("pv-welcome")!;
+      expect(page.dataset.screenCapable).toBe(String(sw !== 390));
+      expect(page.querySelectorAll("nav a")).toHaveLength(5);
+      expect(page.querySelectorAll(".pharosville-narrow__guide dd")).toHaveLength(3);
+      expect(page.textContent).toContain(sw === 390 ? "open a larger screen" : "Give this window at least 720×600 CSS pixels");
       expect(document.getElementById("pv-poster")).toBeNull();
+      // the welcome's own module (Copy harbour link, the gauge) wires up; nothing of the world loads
+      expect(page.querySelector<HTMLButtonElement>("[data-pv-copy]")?.hidden).toBe(false);
+      expect(page.querySelectorAll(".pharosville-gauge__side")).toHaveLength(2);
     },
   );
 
@@ -80,5 +90,72 @@ describe("React-free admission", () => {
     expect(document.querySelectorAll("#root dd")).toHaveLength(3);
     expect(document.querySelectorAll("#root nav a")).toHaveLength(2);
     expect(report).toHaveBeenCalled();
+  });
+
+  it("installs \"Raising the harbour.\" only on JavaScript admission, and hands the page to the arrival", async () => {
+    expect(document.querySelector("#root [role=status]")?.textContent).toBe("");
+    dimensions(1440, 900, 1440, 900);
+    dispose = (await import("../../main")).disposeAdmission;
+    expect(document.querySelector("#root [role=status]")?.textContent).toBe("Raising the harbour.");
+    expect(document.documentElement.dataset.pvGate).toBe("arrival");
+    expect(document.getElementById("pv-welcome")).not.toBeNull();
+    await flush();
+    expect(mounted).toHaveBeenCalledTimes(1);
+  });
+
+  // S08-I6: the boundary races at the real admission owner.
+  it("never mounts a world whose import settles after the window shrank below the gate", async () => {
+    let settle!: () => void;
+    vi.doMock("./react-entry", async () => {
+      await new Promise<void>((resolve) => { settle = resolve; });
+      imported();
+      return { mountApp: () => { mounted(); return unmounted; } };
+    });
+    dimensions(2560, 1440, 1600, 1000);
+    dispose = (await import("../../main")).disposeAdmission;
+    await vi.waitFor(() => expect(settle).toBeTypeOf("function"));
+    dimensions(2560, 1440, 719, 600);
+    window.dispatchEvent(new Event("resize"));
+    settle();
+    await flush();
+    await vi.waitFor(() => expect(imported).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(mounted).not.toHaveBeenCalled();
+    expect(document.documentElement.dataset.pvGate).toBe("welcome");
+    expect(document.getElementById("root")?.childElementCount).toBe(0);
+    expect(document.getElementById("pv-poster")).toBeNull();
+  });
+
+  it("restores one poster and one world after a rapid deny-and-readmit", async () => {
+    dimensions(2560, 1440, 719, 600);
+    dispose = (await import("../../main")).disposeAdmission;
+    dimensions(2560, 1440, 1600, 1000);
+    window.dispatchEvent(new Event("resize"));
+    await flush();
+    expect(mounted).toHaveBeenCalledTimes(1);
+    // shrink and readmit inside one task (a fold and unfold, a snapped window): one teardown, one new world.
+    // (Two world imports in flight at once trip Vitest's doMock and load the real module, so the stale-ticket race
+    // is covered by the pending-import case above.)
+    for (const [w, h] of [[700, 560], [600, 720]] as const) {
+      dimensions(2560, 1440, w, h);
+      window.dispatchEvent(new Event("resize"));
+    }
+    await flush();
+    expect(unmounted).toHaveBeenCalledTimes(1);
+    expect(mounted).toHaveBeenCalledTimes(2);
+    expect(document.querySelectorAll("#pv-poster")).toHaveLength(1);
+    expect(document.getElementById("root")?.textContent).toBe("world runtime");
+    expect(document.documentElement.dataset.pvGate).toBe("arrival");
+  });
+
+  it("denies a small physical screen even when its window reports desktop room", async () => {
+    dimensions(390, 844, 1920, 1080);
+    dispose = (await import("../../main")).disposeAdmission;
+    window.dispatchEvent(new Event("resize"));
+    await flush();
+    expect(imported).not.toHaveBeenCalled();
+    expect(document.querySelector("link[data-pv-preload]")?.getAttribute("rel")).toBeNull();
+    expect(document.querySelector(".pv-arrival")).toBeNull();
+    expect(document.getElementById("pv-welcome")?.dataset.screenCapable).toBe("false");
   });
 });

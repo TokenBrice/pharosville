@@ -328,44 +328,66 @@ const viewportGateSource = [
   "export const MIN_LONG_SIDE_PX = 720;",
   "export const MIN_SHORT_SIDE_PX = 600;",
 ].join("\n");
-const viewportGateClient = [
+const viewportGateEntry = [
   'import { canViewportShowMap, isWidescreenViewport } from "./systems/viewport-gate";',
   'import { dismissPoster } from "./harbour/app/poster";',
-  'const HarbourApp = lazy(() => import("./harbour/app/harbour-app"));',
-  "isWidescreenViewport(window.screen.width, window.screen.height);",
-  "canViewportShowMap(window.innerWidth, window.innerHeight);",
+  "const screenCapable = isWidescreenViewport(window.screen.width, window.screen.height);",
+  "const next = screenCapable && canViewportShowMap(window.innerWidth, window.innerHeight);",
+  'if (!next) { void import("./welcome-handoff"); }',
+  'for (const hint of document.querySelectorAll("link[data-pv-preload]")) hint.rel = "modulepreload";',
+  'void import("./harbour/app/react-entry");',
 ].join("\n");
+const viewportGateWelcome = 'import { MIN_LONG_SIDE_PX } from "./systems/viewport-gate";\nimport { canonicalSubjectUrl } from "../shared/lib/selection-link";';
 const viewportGateCheck = checkViewportGate({
   gateSource: viewportGateSource,
-  clientSource: viewportGateClient,
+  entrySource: viewportGateEntry,
+  welcomeSource: viewportGateWelcome,
 });
 assert.deepEqual(viewportGateCheck.errors, []);
 assert.deepEqual(viewportGateCheck.gate, {
   longSide: 720,
   shortSide: 600,
 });
+// The guard reads the real admission owner, src/main.tsx (S08-I6), not the React client.
+assert.deepEqual(checkViewportGate().errors, []);
 
 const driftedViewportGateCheck = checkViewportGate({
   gateSource: viewportGateSource,
-  clientSource: viewportGateClient.replace(
-    'import("./harbour/app/harbour-app")',
+  entrySource: viewportGateEntry.replace(
+    'import("./harbour/app/react-entry")',
     'import("./world")',
   ),
+  welcomeSource: viewportGateWelcome,
 });
 assert.deepEqual(driftedViewportGateCheck.errors, [
-  "src/client.tsx must lazy-import ./harbour/app/harbour-app after the viewport gate.",
+  "src/main.tsx must lazy-import ./harbour/app/react-entry after the viewport gate.",
+  "src/main.tsx may import only the shell, the gate, the poster, the welcome and (lazily) the world: ./world.",
 ]);
 assert.deepEqual(checkViewportGate({
   gateSource: viewportGateSource,
-  clientSource: `${viewportGateClient}\nimport { Engine } from "./harbour/engine/engine";\nmatchMedia("(orientation: portrait)");`,
+  entrySource: `${viewportGateEntry}\nimport { Engine } from "./harbour/engine/engine";\nmatchMedia("(orientation: portrait)");`,
+  welcomeSource: viewportGateWelcome,
 }).errors, [
-  "src/client.tsx must not gate on (orientation: portrait); both gate halves are size tests.",
-  "src/client.tsx must not statically import the Harbour runtime (only ./harbour/app/poster).",
+  "src/main.tsx must not gate on (orientation: portrait); both gate halves are size tests.",
+  "src/main.tsx may import only the shell, the gate, the poster, the welcome and (lazily) the world: ./harbour/engine/engine.",
+  "src/main.tsx must not statically import the Harbour runtime (only ./harbour/app/poster).",
 ]);
+// The world's hints wake only past the denied branch; the welcome's module stays off the world.
+assert.deepEqual(checkViewportGate({
+  gateSource: viewportGateSource,
+  entrySource: viewportGateEntry.replace('if (!next) { void import("./welcome-handoff"); }\n', "").replace("void import", 'if (!next) return;\nvoid import'),
+  welcomeSource: viewportGateWelcome,
+}).errors, ["src/main.tsx must activate the inert world hints (data-pv-preload) only after the denied branch returns."]);
+assert.deepEqual(checkViewportGate({
+  gateSource: viewportGateSource,
+  entrySource: viewportGateEntry,
+  welcomeSource: `${viewportGateWelcome}\nimport { HarbourApp } from "./harbour/app/harbour-app";`,
+}).errors, ["src/welcome-handoff.ts loads below the gate and may import only the gate and the subject codec: ./harbour/app/harbour-app."]);
 assert.throws(
   () => checkViewportGate({
     gateSource: "export const MIN_LONG_SIDE_PX = 720;",
-    clientSource: viewportGateClient,
+    entrySource: viewportGateEntry,
+    welcomeSource: viewportGateWelcome,
   }),
   /Could not parse the size-profile thresholds/,
 );

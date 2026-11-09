@@ -25,6 +25,10 @@
  *     [--log-requests]      record every request from navigation on; the report gains `requests`
  *                           ({ url, type, status, bytes }), `apiRequests` (same-origin /api/* URLs) and
  *                           `transferBytes`. Use it for the desktop gate: a blocked viewport must show 0 apiRequests.
+ *     [--no-world]          a page below the desktop gate (the welcome): no engine is awaited; after load + --wait
+ *                           the frame (and any --burst) is captured with --eval/--frame-eval, and the report carries
+ *                           the requests, console errors and the browser's GPU, read from a throwaway probe canvas
+ *                           (a software rasteriser is still refused). No frame timing.
  *   Load / perf measurement (all via CDP on the capture tab; additive, off by default):
  *     [--throttle <name>]   network emulation (Network.emulateNetworkConditions) from navigation on:
  *                             3g      1.6 Mbps down / 0.75 Mbps up, 400 ms RTT
@@ -251,8 +255,52 @@ if (args["warm-seed"]) {
   waterfall.clear(); networkStatus.clear(); requestRows.clear(); wfT0 = requestT0 = null; wireBytes = 0;
   requests.length = consoleErrors.length = browserNotices.length = navigations.length = 0;
 }
+// --no-world: the gate's welcome mounts no engine, so the GPU is read from a throwaway probe canvas instead.
+async function captureWithoutWorld() {
+  await page.waitForTimeout(waitMs);
+  const gpu = await page.evaluate(() => {
+    const gl = document.createElement("canvas").getContext("webgl");
+    const ext = gl?.getExtension("WEBGL_debug_renderer_info");
+    const renderer = gl && ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : "none";
+    gl?.getExtension("WEBGL_lose_context")?.loseContext();
+    return renderer;
+  });
+  if (classifyGpu(gpu) !== "hardware") {
+    console.error(`REFUSED: unknown or software renderer (${gpu}). Not a real-GPU frame.`);
+    await finish(78);
+  }
+  let evalResult;
+  if (args.eval) {
+    evalResult = await page.evaluate((code) => (0, eval)(code), String(args.eval));
+    await page.waitForTimeout(Number(args["eval-wait"] ?? 1200));
+  }
+  await mkdir(dirname(outPath), { recursive: true });
+  const frame = async (path, index) => {
+    if (args["frame-eval"]) await page.evaluate(async ({ code, index }) => { window.__captureFrameIndex = index; return await (0, eval)(code); }, { code: String(args["frame-eval"]), index });
+    await capture(path);
+  };
+  await frame(outPath, 0);
+  for (let i = 0; i < Number(args.burst ?? 0); i++) {
+    await page.waitForTimeout(Number(args.interval ?? 600));
+    await frame(outPath.replace(/\.png$/, `-${String(i).padStart(2, "0")}.png`), i + 1);
+  }
+  const report = {
+    url, out: outPath, viewport: `${width}x${height}@${dpr}${args.mobile ? " mobile" : ""}${args.touch ? " touch" : ""}`, world: false, gpu,
+    navigations, consoleErrors: consoleErrors.slice(0, 20), browserNotices: browserNotices.slice(0, 20),
+    ...(evalResult === undefined ? {} : { evalResult }),
+    ...(args["log-requests"] ? {
+      apiRequests: requests.filter((r) => new URL(r.url).pathname.startsWith("/api/")).map((r) => r.url),
+      transferBytes: requests.reduce((sum, r) => sum + (r.bytes ?? 0), 0),
+      requests,
+    } : {}),
+  };
+  console.log(JSON.stringify(report, null, 1));
+  if (args.json) { await mkdir(dirname(resolve(args.json)), { recursive: true }); await writeFile(resolve(args.json), JSON.stringify(report, null, 1)); }
+  await finish(0);
+}
 navWallMs = Date.now();
 await page.goto(url, { waitUntil: "load", timeout: Number(args["ready-timeout"] ?? 60) * 1000 });
+if (args["no-world"]) await captureWithoutWorld();
 // A missing engine/first frame is a failed capture, never a plausible report from an empty page.
 const firstFrameNavMs = await page.waitForFunction(() => window.__harbour && window.__harbourStats?.firstFrameMs != null && performance.now(), null, { timeout: Number(args["ready-timeout"] ?? 60) * 1000 })
   .then((h) => h.jsonValue());
