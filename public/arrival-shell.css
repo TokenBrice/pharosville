@@ -33,7 +33,7 @@ button, input, select, textarea { font: inherit; }
    functions/index.ts) brings its own ground and card. */
 .pv-poster {
   position: fixed; inset: 0; z-index: 5; pointer-events: none;
-  background: linear-gradient(#7f8293, #98725f 30%, #6b4e3a 55%, #3a4140); /* the key art's own rows, until it decodes */
+  background: linear-gradient(#8e8991, #96715f 30%, #754e3b 55%, #3e4242); /* the key art's own rows, until it decodes */
   transition: opacity 1100ms var(--pv-ease);
 }
 .pv-poster img { display: block; width: 100%; height: 100%; max-width: none; object-fit: cover; }
@@ -116,7 +116,7 @@ button, input, select, textarea { font: inherit; }
   --pv-ink-2: #9f988a;
   --pv-brass: #a88a52;
 }
-:root[data-pv-hour="night"] .pv-poster { background: linear-gradient(#262836, #182137 30%, #1b2532 55%, #112236); }
+:root[data-pv-hour="night"] .pv-poster { background: linear-gradient(#282b3c, #182238 30%, #1e2633 55%, #122337); }
 :root[data-pv-hour="night"] :is(.pv-arrival__mark, .pv-arrival__card) {
   background-image: radial-gradient(120% 90% at 50% 40%, rgba(207, 174, 110, 0.05), rgba(207, 174, 110, 0) 60%, rgba(0, 0, 0, 0.2) 100%);
   border-color: rgba(207, 174, 110, 0.38);
