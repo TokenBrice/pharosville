@@ -1,13 +1,4 @@
 /**
- * E21: the sails' low-sun window below (4°..22°, sin; nothing below the horizon) as a function of the sun's height,
- * for the backlit crowns (world/shaders/crowns.ts). hbSailGlow keeps its own literal copy (its program text is
- * unchanged); sail-light.test.ts holds the two to the same edges.
- */
-export const LOW_SUN_GLSL = /* glsl */ `
-float hbLowSun(float y) { return (1.0 - smoothstep(0.07, 0.375, y)) * smoothstep(-0.02, 0.03, y); }
-`;
-
-/**
  * 02-L2 low-sun sail translucency + 06-F12 backlit seams and emblems (decorative: time of day only; the hue is
  * always the sail's own dye, never a data colour). When the sun stands low behind the cloth, sails glow like paper
  * lanterns: view-dependent (strongest looking toward the sun), elevation-dependent (a high sun barely shows through),
