@@ -20,10 +20,12 @@ import { dirname, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
+import { gzipSync } from "node:zlib";
 
 const require = createRequire(import.meta.url);
 const {
   PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS,
+  PHAROSVILLE_SMOKE_PANEL_ENDPOINTS,
   PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS,
   PHAROSVILLE_SMOKE_WARNING_ENDPOINTS,
 } = require("../shared/lib/pharosville-smoke-matrix.ts");
@@ -165,7 +167,7 @@ async function expectJson(path) {
 
   const json = await response.json();
   assert(isRecord(json), `${path} returned a non-object JSON payload`);
-  return json;
+  return { json, response };
 }
 
 async function expectBlocked(path, expectedStatuses, init) {
@@ -176,6 +178,47 @@ async function expectBlocked(path, expectedStatuses, init) {
 }
 
 const endpointValidatorsByPath = {
+  "/api/depeg-events?stablecoin=usdc-circle&limit=30": (json) => {
+    assertArray(json.events, "depegEvents.events");
+    assertNumber(json.total, "depegEvents.total");
+    for (const event of json.events) {
+      assert(isRecord(event), "depegEvents event must be an object");
+      assertNumber(event.startedAt, "event.startedAt");
+      if (event.endedAt !== null) assertNumber(event.endedAt, "event.endedAt");
+      assertNumber(event.peakDeviationBps, "event.peakDeviationBps");
+      assert(["above", "below"].includes(event.direction), "Invalid depeg direction");
+      assert(["live", "backfill"].includes(event.source), "Invalid depeg source");
+    }
+  },
+  "/api/stablecoin-reserves/usdc-circle": (json) => {
+    assert(json.stablecoinId === "usdc-circle", "Reserves subject mismatch");
+    assert(["live", "live-stale", "curated-fallback", "template-fallback", "unavailable"].includes(json.mode), "Invalid reserves mode");
+    assert(typeof json.estimated === "boolean", "Missing reserve estimate evidence");
+    assertArray(json.reserves, "reserves.reserves");
+    for (const slice of json.reserves) {
+      assert(typeof slice.name === "string", "Missing reserve slice name");
+      assertNumber(slice.pct, "reserves.pct");
+      assert(slice.pct > 0 && slice.pct <= 100, "Invalid reserve percentage");
+      assert(["very-low", "low", "medium", "high", "very-high"].includes(slice.risk), "Invalid reserve risk");
+    }
+    for (const link of [json.displayUrl, ...(json.evidenceUrls ?? [])].filter((value) => value != null)) {
+      const url = new URL(link);
+      assert(url.protocol === "https:" && !url.username && !url.password, "Unsafe reserve evidence URL");
+    }
+  },
+  "/api/dex-liquidity": (json) => {
+    assert(gzipSync(JSON.stringify(json)).byteLength <= 30_000, "Projected DEX liquidity exceeds the 30 KB gzip budget");
+    for (const [id, row] of Object.entries(json)) {
+      if (id === "_meta") continue;
+      assert(isRecord(row), "Liquidity row must be an object");
+      for (const field of ["totalTvlUsd", "effectiveTvlUsd", "coverageConfidence", "updatedAt"]) assertNumber(row[field], `liquidity.${field}`);
+      if (row.liquidityScore !== null) assertNumber(row.liquidityScore, "liquidity.liquidityScore");
+      assert([null, "primary", "mixed", "fallback", "legacy", "unobserved"].includes(row.coverageClass), "Invalid liquidity coverage class");
+      assert(["unobserved", "measured", "partial_measured", "observed_unmeasured"].includes(row.liquidityEvidenceClass), "Invalid liquidity evidence class");
+      assert(typeof row.hasMeasuredLiquidityEvidence === "boolean" && typeof row.methodologyVersion === "string", "Missing liquidity methodology/evidence");
+    }
+    return json["usdc-circle"] ? [] : ["/api/dex-liquidity carries no usdc-circle observation"];
+  },
   "/api/stablecoins": (json) => {
     assertArray(json.peggedAssets, "stablecoins.peggedAssets", { nonEmpty: true });
   },
@@ -242,6 +285,11 @@ const producerIntervalsByKey = parseProducerIntervalsByKey(
   readFileSync(new URL("../shared/lib/pharosville-endpoint-registry.ts", import.meta.url), "utf8"),
   CRON_INTERVALS_CLIENT,
 );
+Object.assign(producerIntervalsByKey, {
+  depegEvents: CRON_INTERVALS_CLIENT["sync-stablecoins"],
+  stablecoinReserves: CRON_INTERVALS_CLIENT["sync-live-reserves"],
+  dexLiquidity: CRON_INTERVALS_CLIENT["sync-dex-liquidity"],
+});
 
 // Where each payload carries its publication time. The Pages Function projects responses
 // (docs/pharosville/CONTRACTS.md) and keeps `_meta`, so `_meta.updatedAt` is the fallback when a
@@ -249,6 +297,9 @@ const producerIntervalsByKey = parseProducerIntervalsByKey(
 // an `_meta` envelope get the status/ageSeconds half of the check.
 const metaUpdatedAt = (json) => json._meta?.updatedAt;
 const freshnessSourcesByPath = {
+  "/api/depeg-events?stablecoin=usdc-circle&limit=30": { key: "depegEvents", readUpdatedAt: metaUpdatedAt },
+  "/api/stablecoin-reserves/usdc-circle": { key: "stablecoinReserves", readUpdatedAt: (json) => typeof json.sync?.lastSuccessAt === "number" ? Math.min(json.liveAt, json.sync.lastSuccessAt) : json.liveAt, maxAgeSec: 8 * 3600 },
+  "/api/dex-liquidity": { key: "dexLiquidity", readUpdatedAt: (json) => json["usdc-circle"]?.updatedAt ?? metaUpdatedAt(json) },
   "/api/stablecoins": { key: "stablecoins", readUpdatedAt: metaUpdatedAt },
   "/api/chains": { key: "chains", readUpdatedAt: (json) => json.updatedAt ?? metaUpdatedAt(json) },
   "/api/stability-index?detail=true": { key: "stability", readUpdatedAt: (json) => json.current?.computedAt ?? metaUpdatedAt(json) },
@@ -258,15 +309,34 @@ const freshnessSourcesByPath = {
   "/api/mint-burn-flows": { key: "mintBurn", readUpdatedAt: (json) => json.updatedAt ?? metaUpdatedAt(json) },
 };
 
-export function findFreshnessProblems(path, json, freshness, nowSec) {
-  const budgetSec = freshness.producerIntervalSec * FRESHNESS_INTERVAL_MULTIPLIER;
+export function findFreshnessProblems(path, json, freshness, nowSec, headers) {
+  const budgetSec = freshness.maxAgeSec ?? freshness.producerIntervalSec * FRESHNESS_INTERVAL_MULTIPLIER;
   const problems = [];
+  if (/(?:^|,\s*)110\b/.test(headers?.get("warning") ?? "")) problems.push(`${path} is a stale last-good response (Warning 110)`);
+  if (freshness.key === "stablecoinReserves") {
+    if (json.mode === "live-stale" || json.sync?.stale) problems.push(`${path} reports stale reserve sync`);
+    if (json.mode !== "live" || json.estimated || json.provenance?.freshnessMode !== "verified") {
+      problems.push(`${path} reserve freshness is unverified (${json.mode})`);
+      return problems;
+    }
+  }
 
-  const updatedAt = freshness.readUpdatedAt(json);
+  let updatedAt = freshness.readUpdatedAt(json);
+  if (freshness.key !== "stablecoinReserves") {
+    const ageHeader = (name) => {
+      const raw = headers?.get(name);
+      const value = raw == null || !raw.trim() ? NaN : Number(raw);
+      return Number.isFinite(value) && value >= 0 ? value : null;
+    };
+    const dataAge = ageHeader("x-data-age");
+    if (dataAge != null) updatedAt = Math.min(typeof updatedAt === "number" ? updatedAt : Infinity, nowSec - dataAge);
+    if (typeof updatedAt === "number") updatedAt -= ageHeader("age") ?? 0;
+  }
   if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) {
     problems.push(`${path} exposes no publication timestamp to age-check`);
   } else {
     const ageSec = Math.round(nowSec - updatedAt);
+    if (updatedAt < 0 || ageSec < 0) problems.push(`${path} exposes an invalid publication timestamp`);
     if (ageSec > budgetSec) {
       problems.push(`${path} was published ${ageSec}s ago, over the ${budgetSec}s budget (${FRESHNESS_INTERVAL_MULTIPLIER}x the ${freshness.producerIntervalSec}s producer interval)`);
     }
@@ -332,7 +402,7 @@ export function reportAvailabilityWarnings(warnings, strict, log = console.error
   return `${warnings.length} availability warning(s)`;
 }
 
-export const endpointChecks = PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS.map((path) => {
+export const endpointChecks = [...PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS, ...PHAROSVILLE_SMOKE_PANEL_ENDPOINTS].map((path) => {
   const validate = endpointValidatorsByPath[path];
   if (!validate) {
     throw new Error(`Missing smoke validator for allowlisted endpoint: ${path}`);
@@ -364,9 +434,9 @@ async function main() {
   const payloadWarnings = [];
   for (const endpoint of endpointChecks) {
     try {
-      const json = await expectJson(endpoint.path);
+      const { json, response } = await expectJson(endpoint.path);
       payloadWarnings.push(...(endpoint.validate(json) ?? []));
-      freshnessProblems.push(...findFreshnessProblems(endpoint.path, json, endpoint.freshness, nowSec));
+      freshnessProblems.push(...findFreshnessProblems(endpoint.path, json, endpoint.freshness, nowSec, response.headers));
     } catch (error) {
       if (!endpoint.warningOnly) throw error;
       const message = error instanceof Error ? error.message : String(error);

@@ -15,6 +15,10 @@ import { endpointProjector, type ProjectionJson } from "./_project";
 import type { PharosVilleApiEndpointKey } from "../../shared/types/pharosville-endpoint-keys";
 import { PHAROSVILLE_API_PAYLOAD_SCHEMAS } from "../../shared/types/pharosville";
 import { isRenderableWorldPayload } from "../../src/lib/world-payload-guard";
+import { panelUpstreamFixtures, PANEL_COIN_ID } from "../../src/harbour/__fixtures__/panels";
+import { PHAROSVILLE_PANEL_ENDPOINT_KEYS, PHAROSVILLE_PANEL_ENDPOINT_REGISTRY, panelEndpointPath } from "../../shared/lib/pharosville-panel-endpoints";
+import { panelEndpointProjector } from "./_project-panels";
+import { PHAROSVILLE_PANEL_SCHEMAS } from "../../shared/types/pharosville-panels";
 
 function makeContext(url: string, init?: {
   env?: Record<string, string | undefined>;
@@ -112,6 +116,53 @@ describe("PharosVille API proxy", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it.each(PHAROSVILLE_PANEL_ENDPOINT_KEYS)("projects/caches/conditionally serves the canonical %s panel path", async (key) => {
+    const cache = new MemoryEdgeCache();
+    installEdgeCache(cache);
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const path = panelEndpointPath(key, PANEL_COIN_ID)!;
+    const input = panelUpstreamFixtures()[key];
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(input, {
+      headers: { etag: '"upstream"', "cache-control": "public, max-age=86400", "x-data-age": "60" },
+    }));
+    const first = await onRequest(makeContext(`https://pharosville.pharos.watch${path}`, { waitUntilPromises }));
+    expect(first.status).toBe(200);
+    const body = await first.json();
+    expect(body).toEqual(panelEndpointProjector(key)(input));
+    expect(PHAROSVILLE_PANEL_SCHEMAS[key].safeParse(body).success).toBe(true);
+    expect(first.headers.get("cache-control")).toBe(`public, max-age=${PHAROSVILLE_PANEL_ENDPOINT_REGISTRY[key].cacheTtlSec}`);
+    expect(first.headers.get("etag")).toMatch(/^"pv3-[a-f0-9]{64}"$/);
+    expect(first.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(first.headers.get("x-api-key")).toBeNull();
+    expect(JSON.stringify(body)).not.toContain("test-proxy-key");
+    await Promise.all(waitUntilPromises);
+    const second = await onRequest(makeContext(`https://pharosville.pharos.watch${path}`, { headers: { "if-none-match": first.headers.get("etag")! } }));
+    expect(second.status).toBe(304);
+    expect(second.body).toBeNull();
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(cache.putUrls.every((url) => url.includes("/__projection/pv3/") && !url.includes("test-proxy-key"))).toBe(true);
+  });
+
+  it.each(PHAROSVILLE_PANEL_ENDPOINT_KEYS)("keeps %s panel 4xx honest and demotes 5xx to Warning-110 last-good", async (key) => {
+    const cache = new MemoryEdgeCache();
+    installEdgeCache(cache);
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const url = `https://pharosville.pharos.watch${panelEndpointPath(key, PANEL_COIN_ID)!}`;
+    const request = vi.spyOn(globalThis, "fetch").mockImplementationOnce(async () => Response.json(panelUpstreamFixtures()[key], { headers: { "x-data-age": "60" } }));
+    const first = await onRequest(makeContext(url, { waitUntilPromises }));
+    const firstBody = await first.json();
+    await Promise.all(waitUntilPromises);
+    cache.responses.delete(epochCacheUrl(url));
+    request.mockResolvedValueOnce(Response.json({ error: "missing" }, { status: 404 }));
+    expect((await onRequest(makeContext(url))).status).toBe(404);
+    request.mockResolvedValueOnce(Response.json({ error: "outage" }, { status: 503 }));
+    const fallback = await onRequest(makeContext(url, { headers: { "if-none-match": first.headers.get("etag")! } }));
+    expect(fallback.status).toBe(200);
+    expect(fallback.headers.get("warning")).toContain("110");
+    expect(fallback.headers.get("cache-control")).toBe("no-store");
+    expect(await fallback.json()).toEqual(firstBody);
   });
 
   it.each(projectionFixtures)("preserves the complete $key world and panel fixture", ({ key, input, expected }) => {

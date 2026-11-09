@@ -30,6 +30,13 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - `/api/safety-grades`
 - `/api/mint-burn-flows`
 
+### On-demand panel readings
+
+Coin panel only, above the size gate; never requested by the world feed. Canary paths below use one runtime-active id; other ids must be in `RUNTIME_ACTIVE_IDS`, with the exact same path/query shape.
+- `/api/depeg-events?stablecoin=usdc-circle&limit=30`
+- `/api/stablecoin-reserves/usdc-circle`
+- `/api/dex-liquidity`
+
 ## Runtime Media
 
 - Stablecoin emblems: one atlas, `/harbour/emblems.avif` (`/harbour/emblems.webp` when AVIF fails) + `/harbour/emblems.json`; panel and search medallions load same-origin `/logos/` and `/chains/` marks.
