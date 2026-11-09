@@ -203,7 +203,7 @@
 .hb-control:active:not(:disabled) { background-color: var(--paper-3); }
 .hb-control:disabled { color: var(--ink-3); cursor: default; }
 .hb-control svg { width: var(--fs-body); height: var(--fs-body); flex: none; }
-:is(.hb-control, .hb-close, .hb-chip, .hb-keys button, .hb-slip button) { transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+:is(.hb-control, .hb-close, .hb-copy, .hb-chip, .hb-keys button, .hb-slip button) { transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 :is(.hb-keys, .hb-slip, .hb-sorts) button { padding: 3px 6px 3px 4px; border-radius: var(--r-ctl); color: var(--ink-3); }
 :is(.hb-keys, .hb-slip, .hb-sorts) button:hover, :is(.hb-chip, .hb-follow):hover { background: var(--wash-2); color: var(--ink); }
 /* a pressed mode or an open layer keeps a brass underline */
@@ -271,7 +271,9 @@
   display: flex; align-items: baseline; gap: 8px;
 }
 .hb-tag-name { font-weight: 600; letter-spacing: 0.005em; }
-.hb-tag-fact { font-size: var(--fs-small); color: var(--ink-2); }
+/* the small roman ink-2 line: a tag's fact, a row's or result's figure, Copy link's and the postcard's answers (a slip's
+   voice), depeg records */
+.hb-tag-fact, .hb-list .hb-row span.hb-num, .hb-result .hb-num, .hb-link-status, .hb-postcard [role="status"], .hb-events { font-size: var(--fs-small); color: var(--ink-2); }
 .hb-tag-fact.decorative { font-style: italic; color: var(--ink-3); }
 :is(.hb-tag-leader, .hb-tag-pin) { position: absolute; pointer-events: auto; }
 .hb-tag-leader { left: -0.5px; bottom: 3px; width: 1px; height: 12px; background: var(--rule); }
@@ -291,14 +293,21 @@
 .hb-panel-body { padding: 0 var(--s6) var(--s5); flex: 1; }
 .hb-panel-record { min-height: 0; }
 .hb-panel-record .hb-panel-body { overflow: visible; }
-.hb-return, .hb-how, .hb-sources { margin: var(--s3) var(--s6); }
-.hb-close {
-  position: absolute; top: 12px; right: 12px; z-index: 1; width: var(--ctl); height: var(--ctl); border-radius: 50%;
-  display: grid; place-items: center; color: var(--ink-3); background: var(--paper-2);
+.hb-return, .hb-how, .hb-sources, .hb-panel-record > .hb-caption { margin: var(--s3) var(--s6); } /* the record's own lines (the analytics directory link) keep the panel inset */
+/* Close, round, with Copy link to its left (O8 §4): one pair on the sheet's sheened corner (paper-2, both palettes),
+   so what scrolls beneath never shows through. The kicker keeps clear of the pair; Copy link answers in a slip's
+   voice (a roman small line, or the field to copy by hand) between the pair and the head */
+:is(.hb-close, .hb-copy) {
+  position: absolute; top: 12px; right: 12px; z-index: 1; height: var(--ctl); border-radius: 99px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--ink-3); background: var(--paper-2);
 }
-/* the disc matches the sheet's sheened corner (paper-2, both palettes), so what scrolls beneath never shows through */
-.hb-close:hover { background: var(--paper-3); color: var(--ink); }
+.hb-close { width: var(--ctl); }
+.hb-copy { right: 52px; padding: 0 12px 0 10px; font-size: var(--fs-small); color: var(--ink-2); } /* ink-3 drew 4.3:1 on paper-2 by day */
+:is(.hb-close, .hb-copy):hover { background: var(--paper-3); color: var(--ink); }
+.hb-link-status:not(:empty) { margin: 52px var(--s6) 0; }
+:is(.hb-link-status, .hb-postcard) label { display: grid; gap: 4px; }
 .hb-kicker { color: var(--brass-ink); display: block; margin-bottom: var(--s2); }
+.hb-panel-head .hb-kicker { margin-right: 144px; }
 .hb-title-row { display: flex; align-items: center; gap: var(--s3); }
 .hb-title { font-size: var(--fs-title); font-weight: 600; line-height: 1; margin: 0; letter-spacing: -0.005em; width: fit-content; } /* its focus ring hugs the words, clear of the close */
 /* a title takes focus only by script (tabindex -1, never in the Tab order) so a reader starts there; it draws no ring
@@ -324,6 +333,22 @@
 .hb-sec-h { display: flex; align-items: center; gap: 10px; color: var(--brass-ink); margin: 0 0 var(--s2); }
 .hb-sec-h::after { content: ""; flex: 1; height: 0; border-top: 0.5px solid var(--rule); opacity: 0.8; }
 .hb-sec-h .hb-num { white-space: nowrap; }
+/* an on-demand section (a coin's readings, the harbour report): its head is the disclosure, a brass caret turns open */
+summary.hb-sec-h { color: var(--brass-ink); }
+summary.hb-sec-h::-webkit-details-marker { display: none; }
+summary.hb-sec-h::before { content: ""; border: 4px solid transparent; border-left: 5px solid; margin-right: -5px; }
+[open] > summary.hb-sec-h::before { transform: rotate(90deg); }
+/* a report sentence opens on its dated readings: the wrapped sentence hangs past the marker; a fixed two-column table */
+.hb-evidence { margin-top: 6px; }
+.hb-evidence summary { padding-left: 1.1em; text-indent: -1.1em; }
+.hb-evidence .hb-table { table-layout: fixed; margin-bottom: var(--s2); }
+.hb-evidence tbody th { width: 42%; color: var(--ink-2); }
+.hb-evidence :is(th, td) { overflow-wrap: anywhere; }
+.hb-evidence ~ .hb-textbtn { display: inline-block; margin-top: var(--s2); }
+/* a coin's depeg events (.hb-list rows): one dotted record each, roman (readings), the start in ink */
+.hb-events li { padding: 5px 0 4px; }
+.hb-events p { margin: 0; }
+.hb-events p:first-child { color: var(--ink); }
 .hb-big { font-size: var(--fs-display); font-weight: 600; line-height: 1; letter-spacing: -0.01em; margin-top: 6px; }
 .hb-big small { font-size: var(--fs-lead); font-weight: 400; color: var(--ink-2); margin-left: 8px; letter-spacing: 0; }
 
@@ -356,7 +381,6 @@
 .hb-list .hb-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: baseline; padding: 6px 0 5px; width: 100%; text-align: left; }
 .hb-list button.hb-row:hover { background: linear-gradient(90deg, var(--wash-2), transparent); }
 .hb-list .hb-row b { font-weight: 600; }
-.hb-list .hb-row span.hb-num { color: var(--ink-2); font-size: var(--fs-small); }
 .hb-list .hb-row em { color: var(--ink-3); }
 .hb-stops .hb-row > span:first-child { display: flex; align-items: baseline; min-width: 0; }
 .hb-stops .hb-row b { flex: none; white-space: nowrap; }
@@ -442,7 +466,6 @@
 :is(.hb-result, .hb-yard) .hb-logo span { font-size: var(--fs-cap); }
 .hb-result b { font-weight: 600; font-size: var(--fs-lead); }
 .hb-result em { color: var(--ink-3); font-size: var(--fs-small); }
-.hb-result .hb-num { color: var(--ink-2); font-size: var(--fs-small); }
 .hb-result-kind { color: var(--ink-3); font-size: var(--fs-note); font-style: italic; }
 .hb-lm-glyph { position: relative; }
 .hb-lm-glyph::before { content: ""; width: 7px; height: 7px; transform: rotate(45deg); background: var(--rule); }
@@ -483,14 +506,15 @@
 .hb-ledger-head { padding: var(--s5) var(--s6) 0; }
 .hb-tabs { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5); margin-top: 14px; border-bottom: 0.5px solid var(--rule); }
 .hb-tab { padding: 6px 0 7px; color: var(--ink-3); position: relative; }
-.hb-tab[aria-selected="true"] { color: var(--ink); }
-.hb-tab[aria-selected="true"]::after { content: ""; position: absolute; inset: auto 0 -1px; height: 2px; background: var(--rule); }
+.hb-tab:is([aria-selected="true"], [aria-pressed="true"]) { color: var(--ink); }
+.hb-sec .hb-tabs { font-size: var(--fs-small); } /* the report's two periods, roman, side by side in the panel */
+.hb-tab:is([aria-selected="true"], [aria-pressed="true"])::after { content: ""; position: absolute; inset: auto 0 -1px; height: 2px; background: var(--rule); }
 /* the bottom keeps a slip's height clear (on narrow screens the slip can sit over the ledger) */
 .hb-ledger-body { flex: 1; padding: 14px var(--s6) calc(var(--ctl-touch) + var(--s6)); container-type: inline-size; }
 .hb-ledger :focus { scroll-margin-block: var(--s6) calc(var(--ctl-touch) + var(--s6)); }
 .hb-filter { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
 :is(.hb-foot, .hb-caption) + .hb-filter { margin-top: var(--s3); }
-.hb-filter input {
+:is(.hb-filter, .hb-link-status) input, .hb-postcard textarea {
   flex: 1; font: inherit; padding: 5px 10px; border: 0.5px solid var(--rule); background: var(--face); color: var(--ink);
   border-radius: var(--r-sheet);
 }
@@ -586,6 +610,7 @@
 :is(.hb-slip, .hb-watch) .hb-sc { color: var(--brass-ink); }
 .hb-slip { transform: translateY(4px); visibility: hidden; transition: all var(--t-med) var(--ease); } /* visibility too: hidden only once faded */
 .hb-slip[data-shown="true"] { transform: none; visibility: visible; }
+.hb-slip[data-mode="link"] { padding-right: 14px; }
 .hb-watch .hb-keys { gap: 4px; padding-left: 10px; border-left: 0.5px solid var(--neat); }
 .hb-watch button { min-height: 28px; padding: 0 8px 0 5px; border: 1px solid var(--rule); color: var(--ink); }
 
@@ -602,11 +627,13 @@
 .hb-skip { position: fixed; top: var(--s3); left: var(--s3); z-index: 4; transform: translateY(-200%); }
 .hb-back-controls { position: fixed; bottom: var(--s3); left: var(--s3); z-index: 3; transform: translateY(200%); }
 :is(.hb-skip, .hb-back-controls):focus { transform: none; }
-/* the postcard (P, 12-M10): a native dialog over the veil; the print keeps its own frame */
+/* the postcard (P, 12-M10): a native dialog over the veil; the print keeps its own frame and gives way, so the
+   caption (its footer, selectable) and the actions stay in view */
 .hb-postcard { width: min(78vw, 70em); max-height: calc(100dvh - var(--s6)); padding: var(--s5); color: var(--ink); pointer-events: auto; }
+.hb-postcard[open] { display: flex; flex-direction: column; gap: 6px; }
 :is(.hb-postcard, .hb-ship-chooser)::backdrop { background: var(--veil); }
-.hb-postcard img { display: block; width: 100%; max-height: calc(100dvh - var(--ctl) - var(--s6) * 4); object-fit: contain; }
-.hb-postcard-actions { display: flex; justify-content: flex-end; gap: var(--s2); margin-top: var(--s3); }
+.hb-postcard img { display: block; width: 100%; min-height: 40dvh; flex: 0 1 auto; object-fit: contain; }
+.hb-postcard-actions { display: flex; justify-content: flex-end; gap: var(--s2); margin-top: 6px; }
 .hb-ui.hb-capturing > :not(.hb-postcard) { visibility: hidden; }
 
 /* ------------------------------------------------------------------ touch and smaller screens
@@ -626,7 +653,12 @@
   .hb-keys button { padding: 0 9px; }
   /* a short symbol ("DAI") still makes a 44 px target: the ellipsis rule's min-width: 0 out-ranks the rule above */
   .hb-ledger td:first-child button { min-width: var(--ctl-touch); }
-  .hb-close { top: 6px; right: 6px; }
+  /* the 44 px pair stands 6 px in; the side panel's head starts under it, so a long title clears Copy link */
+  :is(.hb-close, .hb-copy) { top: 6px; right: 6px; }
+  .hb-copy { right: 56px; }
+  .hb-out { display: inline-block; line-height: var(--ctl-touch); } /* a link on its own line (a source, the analytics directory) is a 44 px target too */
+  .hb-link-status:not(:empty) { margin-top: 56px; }
+  .hb-panel .hb-panel-head { padding-top: 28px; }
   .hb-list .hb-row { align-items: center; }
 }
 @media (max-width: 899.98px) {
@@ -641,6 +673,7 @@
   .hb-panel .hb-panel-head { padding: 16px 60px 10px 20px; }
   .hb-panel-body { padding: 0 20px 18px; }
   .hb-panel-record { padding-inline: max(0px, (100% - 46em) / 2); }
+  .hb-link-status:not(:empty) { margin-inline: max(20px, (100% - 696px) / 2); }
   .hb-ui:has(.hb-panel) :is(.hb-slip, .hb-watch) { bottom: calc(50dvh + 12px); }
   /* the sheet heads with the selection's own name and reading, and the camera frames the subject just under the
      strip: its pinned tag would only repeat the sheet and, with no room above, cover the subject (the Pharos's lantern) */

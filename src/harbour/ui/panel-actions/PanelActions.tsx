@@ -17,11 +17,14 @@ export function PanelActions() {
       setResult({ url, copied: true });
     } catch { setResult({ url, copied: false }); }
   };
-  return <div className="hb-panel-actions" style={{ minHeight: 44 }}>
-    <button type="button" className="hb-control hb-textbtn" style={{ minWidth: 44, minHeight: 44, position: "absolute", top: 12, right: "calc(20px + var(--ctl))" }} onClick={() => void copy()}>Copy link</button>
-    <div className="hb-caption" role="status" aria-live="polite" style={{ paddingTop: result?.url === url ? 44 : undefined }}>
+  return <div className="hb-panel-actions">
+    <button type="button" className="hb-copy" onClick={() => void copy()}>
+      <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.6 9.4l2.8-2.8M7.2 4.6l1.1-1.1a2.6 2.6 0 0 1 3.7 3.7l-1.1 1.1M8.8 11.4l-1.1 1.1A2.6 2.6 0 0 1 4 8.8l1.1-1.1" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
+      Copy link
+    </button>
+    <div className="hb-link-status" role="status" aria-live="polite">
       {result?.url === url && (result.copied ? "Link copied. Opens latest readings." : <label>Copy this link:
-        <input aria-label="Copy this link:" readOnly value={url} onFocus={(e) => e.currentTarget.select()} style={{ width: "100%", minHeight: 44 }} />
+        <input aria-label="Copy this link:" readOnly value={url} onFocus={(e) => e.currentTarget.select()} />
       </label>)}
     </div>
   </div>;

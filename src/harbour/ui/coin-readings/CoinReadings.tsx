@@ -16,7 +16,7 @@ function ReadingSection({ id, endpoint, title }: typeof SECTIONS[number] & { id:
   const [attempt, setAttempt] = useState(0);
   const reading = PHAROSVILLE_PANEL_ENDPOINT_REGISTRY[endpoint].label;
   return <details className="hb-sec" onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary>{title}</summary>
+    <summary className="hb-sec-h hb-sc">{title}</summary>
     {open && (RUNTIME_ACTIVE_IDS.has(id)
       ? <ReadingContent key={attempt} id={id} endpoint={endpoint} reading={reading} retry={() => setAttempt((value) => value + 1)} />
       : <p className="hb-empty">{truthCopy({ kind: "reading", reading, truth: { state: "unavailable" } })}</p>)}

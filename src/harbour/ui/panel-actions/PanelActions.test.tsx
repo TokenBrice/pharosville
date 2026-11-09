@@ -22,7 +22,8 @@ it("copies the canonical subject/chart URL, excluding view, time and diagnostics
   history.replaceState(null, "", "/?sel=ship.usdc-circle&t=22&cam=bad&quality=low&dev=1");
   act(() => f.store.set({ chartMode: true }));
   const button = screen.getByRole("button", { name: "Copy link" });
-  expect(button.style.minHeight).toBe("44px"); expect(button.style.minWidth).toBe("44px");
+  // drawn by harbour-ui.css: the pair beside Close, 32 px, 44 px under any coarse pointer (the family touch rule)
+  expect(button.className).toBe("hb-copy"); expect(button.getAttribute("style")).toBeNull();
   await act(async () => { fireEvent.click(button); });
   expect(writeText).toHaveBeenCalledWith("https://pharosville.pharos.watch/?sel=ship.usdc-circle&chart=1");
   expect(screen.getByRole("status").textContent).toBe("Link copied. Opens latest readings.");
