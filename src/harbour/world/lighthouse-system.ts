@@ -107,6 +107,9 @@ export class LighthouseSystem implements WorldSystem {
     const node = (n: string) => root.getObjectByName(n);
     this.mirror = node("mirror") ?? null;
     this.mirrorTilt0 = this.mirror?.rotation.x ?? 0;
+    // E05 caster audit: the turning mirror is a small moving part and casts no shadow (its disc never did; its frame threw
+    // a sweeping blot ~250 m off the tower and kept the still map re-rendering, world/shadow-casters.ts)
+    this.mirror?.traverse((o) => { o.castShadow = false; });
     const at = (n: string, fallbackY: number) => {
       const o = node(n);
       return o ? o.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(x, y + fallbackY, z);
