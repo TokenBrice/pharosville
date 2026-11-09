@@ -6,17 +6,18 @@ import { getLightsStore } from "./lights-service";
 import { CameraRig } from "../engine/camera-rig";
 import { TIERS } from "../engine/quality";
 import { createWorldUniforms } from "../engine/uniforms";
-import type { EngineContext } from "../engine/types";
+import type { EngineContext, PreparationEntry, PreparationService } from "../engine/types";
 import type { QualitySettings } from "../engine/quality";
 
-function lightContext() {
+function lightContext(tier: keyof typeof TIERS = "medium") {
   const camera = new THREE.PerspectiveCamera();
   const scene = new THREE.Scene();
   let changed: ((settings: QualitySettings, dpr: number) => void) | undefined;
   const unsubscribe = vi.fn();
-  const quality = { settings: TIERS.medium, onChange: (fn: typeof changed) => { changed = fn; return unsubscribe; } };
+  const quality = { settings: TIERS[tier], onChange: (fn: typeof changed) => { changed = fn; return unsubscribe; } };
   const renderer = {
     domElement: { height: 700 }, getRenderTarget: () => null,
+    getActiveCubeFace: () => 0, getActiveMipmapLevel: () => 0,
     getClearColor: (out: THREE.Color) => out.setRGB(0, 0, 0), getClearAlpha: () => 1,
     setRenderTarget: vi.fn(), setClearColor: vi.fn(), clear: vi.fn(), render: vi.fn(),
   };
@@ -92,6 +93,61 @@ describe("light quality and zero glow visibility", () => {
     lights.dispose(ctx);
     expect(dispose).not.toHaveBeenCalled();
     dispose();
+  });
+});
+
+describe("B11 pool resizing", () => {
+  const poolOf = (lights: LightsSystem) => (lights as unknown as { poolRT: THREE.WebGLRenderTarget }).poolRT;
+
+  it("starts Low at 1024² and prepares the copy against the actual target", () => {
+    const { ctx } = lightContext("low"), entries: PreparationEntry[] = [], off = vi.fn();
+    ctx.services.set("preparation", { register: (entry: PreparationEntry) => { entries.push(entry); return off; } } as unknown as PreparationService);
+    const lights = new LightsSystem(); lights.init(ctx);
+    expect([poolOf(lights).width, poolOf(lights).height]).toEqual([1024, 1024]);
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.target())).toEqual([poolOf(lights), poolOf(lights)]);
+    const copy = (entries[1].root.children[0] as THREE.Mesh).material as THREE.ShaderMaterial;
+    expect(copy.name).toBe("hb_pool_resize");
+    lights.dispose(ctx); expect(off).toHaveBeenCalledTimes(2);
+  });
+
+  it("copies full RGBA pool contents and rebinds shared consumers before disposal, with no same-size churn", () => {
+    const { ctx, publish } = lightContext(), lights = new LightsSystem(); lights.init(ctx);
+    const pool = ctx.services.get("materials")!.pool.uPoolTex;
+    const renderer = ctx.renderer as unknown as { render: ReturnType<typeof vi.fn> };
+    for (const tier of ["low", "medium", "low", "high"] as const) {
+      const previous = poolOf(lights), disposed = vi.fn(() => { expect(pool.value).toBe(poolOf(lights).texture); expect(pool.value).not.toBe(previous.texture); });
+      previous.addEventListener("dispose", disposed);
+      renderer.render.mockImplementationOnce((scene: THREE.Scene) => {
+        const mat = (scene.children[0] as THREE.Mesh).material as THREE.ShaderMaterial;
+        expect(mat.uniforms.uSource.value).toBe(previous.texture);
+        expect(mat.fragmentShader).toContain("gl_FragColor = texture2D(uSource, vUv);");
+        expect(pool.value).toBe(previous.texture); expect(disposed).not.toHaveBeenCalled();
+      });
+      publish(TIERS[tier]);
+      expect(disposed).toHaveBeenCalledOnce();
+      const target = poolOf(lights), size = tier === "low" ? 1024 : 2048;
+      expect([target.width, target.height]).toEqual([size, size]);
+      expect([target.texture.type, target.texture.format]).toEqual([THREE.HalfFloatType, THREE.RGBAFormat]);
+      renderer.render.mockClear(); publish(TIERS[tier]);
+      expect(renderer.render).not.toHaveBeenCalled(); expect(poolOf(lights)).toBe(target);
+    }
+    lights.dispose(ctx);
+  });
+
+  it("retains the old pool and renderer state if a resize copy fails", () => {
+    const { ctx, publish } = lightContext(), lights = new LightsSystem(); lights.init(ctx);
+    const previous = poolOf(lights), disposed = vi.fn(); previous.addEventListener("dispose", disposed);
+    const renderer = ctx.renderer as unknown as { render: ReturnType<typeof vi.fn>; autoClear: boolean; setRenderTarget: ReturnType<typeof vi.fn> };
+    renderer.autoClear = true;
+    renderer.render.mockImplementationOnce(() => { throw new Error("copy failed"); });
+    expect(() => publish(TIERS.low)).toThrow("copy failed");
+    expect(disposed).not.toHaveBeenCalled();
+    expect(poolOf(lights)).toBe(previous);
+    expect(ctx.services.get("materials")!.pool.uPoolTex.value).toBe(previous.texture);
+    expect(renderer.autoClear).toBe(true);
+    expect(renderer.setRenderTarget).toHaveBeenLastCalledWith(null, 0, 0);
+    lights.dispose(ctx);
   });
 });
 

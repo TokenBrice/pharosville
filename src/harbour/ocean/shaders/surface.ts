@@ -97,6 +97,7 @@ float hbNet(float a, float b, float w) {
 
 void main() {
   vec2 xz = vWorld.xz;
+  vec2 dx = dFdx(xz), dy = dFdy(xz);
   vec3 toCam = uCameraPos - vWorld;
   float camD = length(toCam.xz);
   // depth along the view: the backdrop is a flat card, so the haze line must be straight too
@@ -154,14 +155,23 @@ void main() {
   mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
   float sp = 0.6 + 1.2 * wind;
   vec4 r1 = texture2D(uRipple, xz * 0.043 + wdir * t * 0.010 * sp);
+  #ifdef HB_LITE
+  vec4 r2 = texture2D(uRipple, (rot * rot * xz) * 0.0093 + wdir * t * 0.0025);
+  vec2 d1 = r1.rg * 2.0 - 1.0, d2 = r2.rg * 2.0 - 1.0;
+  #else
   vec4 r2 = texture2D(uRipple, (rot * xz) * 0.107 - vec2(wdir.y, -wdir.x) * t * 0.014 * sp);
   vec4 r3 = texture2D(uRipple, (rot * rot * xz) * 0.0093 + wdir * t * 0.0025);
   vec4 r4 = texture2D(uRipple, (rot * xz.yx) * 0.0061 - wdir * t * 0.0017 + 0.37);
   r3 = mix(r3, r4, 0.5 + 0.35 * (nA.r - 0.5) * 2.0);
   vec2 d1 = r1.rg * 2.0 - 1.0, d2 = r2.rg * 2.0 - 1.0, d3 = r3.rg * 2.0 - 1.0;
+  #endif
   float shoreCalm = mix(0.45, 1.0, smoothstep(1.0, 18.0, coast)) * (1.0 - 0.3 * zm.b);
   float dk = (0.16 + 0.12 * uSea.y) * rough * shoreCalm;
+  #ifdef HB_LITE
+  vec2 dn = (d1 * (1.0 - far01 * 0.7) + d2 * (0.45 + 0.5 * far01)) * dk;
+  #else
   vec2 dn = (d1 * (1.0 - far01 * 0.7) + d2 * 0.75 * (1.0 - far01) + d3 * (0.45 + 0.5 * far01)) * dk;
+  #endif
   // wakes rough up the surface
   dn += (d2 - d1) * 0.25 * clamp(trail + live.r, 0.0, 1.0);
   // rain rings (and snowflakes landing): near the camera only, where a ring is a few pixels wide
@@ -219,18 +229,17 @@ void main() {
     bed = hbPosidonia(bed, xz, bedDep, zm.r);
     vec3 absorb = exp(-bedDep * vec3(0.55, 0.17, 0.13));
     vec3 seen = bed * absorb * mix(vec3(1.0), uSunlitShoal * 1.6, 0.35);
-    // caustics only ever appear scaled by cGain: with no sun (uniform, so the branch is coherent and the
-    // derivatives inside stay defined) they are exactly zero, so skip their taps
+    // Explicit gradients keep conditional detail reads safe; hbNet runs after the lanes reconverge.
     float cSun = sunUp * (1.0 - cover * 0.7);
-    float caus = 0.0;
-    if (cSun > 0.0) {
-      float cs = 1.0 - smoothstep(180.0, 650.0, camD);
-      vec2 cuv = xz * 0.043;
-      float cA = texture2D(uNoise, cuv + t * vec2(0.011, 0.007)).g;
-      float cB = texture2D(uNoise, (rot * cuv) * 1.19 - t * vec2(0.006, -0.009) + 0.5).g;
-      caus = hbNet(cA, cB, 0.06) * cs * (0.55 + 0.45 * smoothstep(0.3, 0.7, nC.g));
-    }
+    float cs = 1.0 - smoothstep(180.0, 650.0, camD);
     float cGain = cSun * (1.0 - smoothstep(0.2, 5.5, bedDep));
+    float cA = 0.0, cB = 0.0;
+    if (cGain > 0.0 && cs > 0.0) {
+      vec2 cuv = xz * 0.043;
+      cA = textureGrad(uNoise, cuv + t * vec2(0.011, 0.007), dx * 0.043, dy * 0.043).g;
+      cB = textureGrad(uNoise, (rot * cuv) * 1.19 - t * vec2(0.006, -0.009) + 0.5, (rot * dx) * (0.043 * 1.19), (rot * dy) * (0.043 * 1.19)).g;
+    }
+    float caus = hbNet(cA, cB, 0.06) * cs * (0.55 + 0.45 * smoothstep(0.3, 0.7, nC.g));
     seen *= 0.85 + 0.15 * smoothstep(0.35, 0.65, nC.g);
     seen += vec3(1.0, 0.97, 0.85) * uSunColor * caus * 0.05 * cGain;
     body = mix(body, seen * mix(0.95, 1.0, sunUp), seeBed * 0.62);

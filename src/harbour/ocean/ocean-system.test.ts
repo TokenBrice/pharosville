@@ -7,10 +7,11 @@ import { preparationMaterial } from "../engine/prepare";
 import { TIERS, type QualitySettings } from "../engine/quality";
 import { OceanSystem } from "./ocean-system";
 import { SEA_STATES, waveHeight } from "./waves";
+import { FullscreenPass } from "./gpu-bake";
 
 vi.mock("./textures", () => ({ acquireFxTextures: async () => ({ noise: new THREE.Texture(), ripple: new THREE.Texture(), release() {} }) }));
 vi.mock("./sdf-image", () => ({ loadSdfImage: async () => ({ width: 1, height: 1, data: new Uint8Array(4), coast: new Uint8Array(1) }) }));
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("ocean feature preparation", () => {
   it("prepares explicit biolum/lite recipes without changing live defines, and invalidates once per tier change", async () => {
@@ -39,6 +40,34 @@ describe("ocean feature preparation", () => {
       for (const fn of listeners) fn(TIERS[tier as "low" | "medium"]);
       for (const fn of listeners) fn(TIERS[tier as "low" | "medium"]);
       expect(material.version).toBe(version + index + 1);
+    }
+    system.dispose(ctx);
+  });
+
+  it.each(["low", "medium"] as const)("starts %s with the right wake size and rebinds both layers on each tier crossing", async (tier) => {
+    vi.stubGlobal("location", { search: "", hash: "" });
+    const listeners = new Set<(q: QualitySettings) => void>();
+    const quality = { tier: tier as string, onChange: (fn: (q: QualitySettings) => void) => { listeners.add(fn); return () => listeners.delete(fn); } };
+    const ctx = { scene: new THREE.Scene(), uniforms: createWorldUniforms(), services: new Map<string, unknown>([
+      ["layout", { bounds: { min: [-10, 0, -10], max: [10, 10, 10] }, sea: { bounds: [-1000, -1000, 1000, 1000] } }], ["quality", quality],
+    ]) as Services } as unknown as EngineContext;
+    const system = new OceanSystem(); await system.init(ctx);
+    const material = (ctx.scene.getObjectByName("ocean") as THREE.Mesh).material as THREE.ShaderMaterial;
+    const wake = ctx.services.get("wake")!, sizeOf = (texture: THREE.Texture) => (texture.image as { width: number }).width;
+    expect([sizeOf(wake.texture), sizeOf(wake.live)]).toEqual(tier === "low" ? [1024, 1024] : [2048, 2048]);
+    const blit = vi.spyOn(FullscreenPass.prototype, "render").mockImplementation(() => {});
+    for (const targetTier of ["low", "medium", "high", "low"] as const) {
+      const previous = wake.texture;
+      quality.tier = targetTier;
+      for (const listener of listeners) listener(TIERS[targetTier]);
+      const expected = targetTier === "low" ? 1024 : 2048;
+      expect([sizeOf(wake.texture), sizeOf(wake.live)]).toEqual([expected, expected]);
+      expect(material.uniforms.uWake.value).toBe(wake.texture);
+      expect(material.uniforms.uWakeLive.value).toBe(wake.live);
+      const resized = sizeOf(previous) !== expected;
+      expect(blit).toHaveBeenCalledTimes(resized ? 3 : 0);
+      if (resized) expect(wake.texture).not.toBe(previous);
+      blit.mockClear();
     }
     system.dispose(ctx);
   });

@@ -1,5 +1,6 @@
 import { GLSL_NOISE, GLSL_PATTERNS } from "./shaders/patterns";
 import { GLSL_ENV, GLSL_POOL, GLSL_AO } from "./shaders/lighting";
+import { liteShadow } from "./shaders/shadow";
 import { GLSL_LEAF_FALL, GLSL_SEASON } from "./shaders/season";
 import { PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, SNOW_SLOPE, SNOW_LEAF_KEEP, SNOW_CROWN_KEEP } from "./shaders/constants";
 export { PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, PATTERN_CROP, SNOW_SLOPE, SNOW_LEAF_KEEP, SNOW_CROWN_KEEP, ICICLE_WALL_PATTERNS } from "./shaders/constants";
@@ -312,6 +313,7 @@ export class HarbourMaterials {
       shader.vertexShader = patch(shader.vertexShader, "#include <begin_vertex>", `#include <begin_vertex>\n${SWAY_VERTEX_APPLY}`, { id: "world.9.begin_vertex" });
       // winter / late-autumn bare crowns discard: compiled in only when the calendar can need it
       shader.defines = { ...shader.defines, ...shaderFeatureDefines(features) };
+      if (features.lite) shader.fragmentShader = patch(shader.fragmentShader, "#include <shadowmap_pars_fragment>", liteShadow(), { id: "world.lite-shadow" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}\n${AERIAL_GLSL}\n${RUNUP_GLSL}\n${BEAM_LIGHT_GLSL}\n${LANDMARK_HOVER_GLSL}\n${METAL_GLSL}`, { id: "world.10.common" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <color_fragment>", `
   vec3 hbVc = vec3(1.0);

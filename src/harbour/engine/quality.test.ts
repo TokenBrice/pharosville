@@ -36,6 +36,8 @@ describe("quality ladder", () => {
   });
 
   it("refreshes interval-driven shadows at most every other frame below High", () => {
+    expect([TIERS.low.shadowMapSize, TIERS.medium.shadowMapSize, TIERS.high.shadowMapSize]).toEqual([1024, 2048, 4096]);
+    expect(TIERS.low.shadowInterval).toBe(1 / 15);
     expect(TIERS.high.shadowInterval).toBe(0);
     expect(TIERS.high.shadowMinFrames).toBe(1);
     expect(TIERS.medium.shadowMinFrames).toBe(2);
