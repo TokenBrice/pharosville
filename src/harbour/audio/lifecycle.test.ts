@@ -2,7 +2,7 @@
 import type { ServiceMap, Services } from "../engine/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../engine/types";
-import { Ambience, type AmbienceInputs } from "./ambience";
+import { Ambience, ONRAMP, ONRAMP_FLOOR, type AmbienceInputs } from "./ambience";
 import { ClipBank } from "./bank";
 import type { ClipKind } from "./dsp";
 import { Music } from "./music";
@@ -537,6 +537,32 @@ describe("harbour sound: visibility and lifetime", () => {
     for (const source of beds) expect(source.start).toHaveBeenCalledOnce();
     await amb.dispose(false);
     for (const source of beds) expect(source.buffer).toBeNull();
+  });
+
+  it("anchors the full on-ramp and arrival deadlines to beds starting after delayed noise preparation", () => {
+    const ac = new AudioContextStub(); ac.sampleRate = 48000;
+    const amb = new Ambience(audioContext(ac), { seed: 7 });
+    ambiences.push(amb);
+    const graph = amb as unknown as { out: AudioNodeStub; born: number; next: Record<string, number>; play(kind: ClipKind, at: number): boolean };
+    const deadlines = { ...graph.next }, beds = ac.sources.slice();
+    const play = vi.spyOn(graph, "play").mockReturnValue(true);
+    amb.set({ seaAvailable: true });
+    ac.currentTime = 5;
+    amb.step();
+    expect(play).not.toHaveBeenCalled();
+    const [id, callback] = [...idle.entries()][0];
+    idle.delete(id);
+    callback({ timeRemaining: () => 6, didTimeout: false });
+    expect(graph.born).toBe(5);
+    for (const [key, at] of Object.entries(deadlines)) expect(graph.next[key]).toBeCloseTo(at + 5);
+    expect(graph.out.gain.setValueAtTime).toHaveBeenLastCalledWith(0.63 * ONRAMP_FLOOR, 5);
+    expect(graph.out.gain.exponentialRampToValueAtTime).toHaveBeenCalledExactlyOnceWith(0.63, 5 + ONRAMP);
+    for (const bed of beds) expect(bed.start).toHaveBeenCalledExactlyOnceWith(5, expect.any(Number));
+    ac.currentTime = 5.12; amb.step();
+    expect(play.mock.calls.find(([kind]) => kind === "lap")?.[1]).toBeCloseTo(5.3);
+    expect(play.mock.calls.some(([kind]) => kind === "shore")).toBe(false);
+    ac.currentTime = 6.32; amb.step();
+    expect(play.mock.calls.find(([kind]) => kind === "shore")?.[1]).toBeCloseTo(6.5);
   });
 
   it("runs the real music scheduler across hours, delayed ticks and pauses without catching up or surviving disposal", async () => {

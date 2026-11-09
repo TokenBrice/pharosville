@@ -20,7 +20,7 @@ const MUSIC_KEY = "harbour.music";
 /** The three sound states: off → the ambience → the ambience with music. */
 export type SoundMode = "off" | "ambient" | "music";
 export type SoundStatus = "off" | "starting" | "playing" | "paused" | "unavailable";
-export interface SoundSnapshot { readonly mode: SoundMode; readonly status: SoundStatus }
+export interface SoundSnapshot { readonly mode: SoundMode; readonly status: SoundStatus; readonly musicFailed?: boolean }
 
 export interface SoundController {
   /** the visitor's choice: any sound at all */
@@ -73,6 +73,7 @@ class Controller implements SoundController {
   private amb: Ambience | null = null;
   private music: Music | null = null;
   private musicLoading = false;
+  private musicFailed = false;
   private ac: AudioContext | null = null;
   private poll = 0;
   private starting = false;
@@ -86,7 +87,7 @@ class Controller implements SoundController {
   private readonly listeners = new Set<() => void>();
   private lastInput = 0;
   private readonly onInput = () => { this.lastInput = performance.now(); };
-  private readonly onGesture = () => { this.disarm(); if (this.on) this.start(); };
+  private readonly onGesture = () => { if (this.on) this.retry(); };
   private readonly onState = () => { this.reconcile(); };
   private readonly onVisibility = () => {
     if (this.disposed) return;
@@ -117,14 +118,16 @@ class Controller implements SoundController {
   private emit(): void {
     const status: SoundStatus = !this.on ? "off" : this.failed || this.ac?.state === "closed" ? "unavailable"
       : this.starting ? "starting" : this.amb && this.ac?.state === "running" && !document.hidden ? "playing" : "paused";
-    if (this.snapshot.mode === this.mode && this.snapshot.status === status) return;
-    this.snapshot = { mode: this.mode, status };
+    const musicFailed = this.mode === "music" && this.musicFailed;
+    if (this.snapshot.mode === this.mode && this.snapshot.status === status && !!this.snapshot.musicFailed === musicFailed) return;
+    this.snapshot = { mode: this.mode, status, ...(musicFailed ? { musicFailed: true } : {}) };
     for (const fn of this.listeners) fn();
   }
 
   private reconcile(): void {
     if (this.disposed) return;
     if (this.on && !this.failed && this.ac?.state === "running" && !document.hidden) {
+      this.disarm();
       // Refresh event bindings while still paused: cues missed during an interruption stay silent.
       this.feed();
       this.amb?.resume();
@@ -134,16 +137,24 @@ class Controller implements SoundController {
       this.pausePolling();
       this.amb?.pause();
       this.music?.pause();
+      if (this.failed && this.ac?.state === "running") {
+        const ac = this.ac;
+        void ac.suspend().then(() => {
+          // A late failure suspension must not defeat a newer successful gesture.
+          if (this.ac === ac && !this.failed && !document.hidden) this.onVisibility();
+        }).catch(() => undefined);
+      }
     }
     this.emit();
   }
 
   retry(): void {
     if (this.disposed || !this.on) return;
-    this.disarm();
+    const musicOnly = this.playing && this.musicFailed;
     if (this.ac?.state === "closed") this.stop();
     this.failed = false;
-    this.start();
+    this.musicFailed = false;
+    if (!musicOnly) this.start();
     this.tune();
     this.emit();
   }
@@ -152,7 +163,7 @@ class Controller implements SoundController {
 
   setMode(mode: SoundMode): void {
     if (this.disposed) return;
-    if (mode === this.mode) { if (this.on && !this.playing) this.retry(); return; }
+    if (mode === this.mode) { if (this.on && (!this.playing || this.musicFailed)) this.retry(); return; }
     this.mode = mode;
     if (mode !== "off") this.lastOn = mode;
     writeChoice(mode);
@@ -169,7 +180,7 @@ class Controller implements SoundController {
       return;
     }
     const amb = this.amb, ac = this.ac;
-    if (!amb || !ac || this.music || this.musicLoading) return;
+    if (!amb || !ac || this.music || this.musicLoading || this.musicFailed) return;
     this.musicLoading = true;
     void import("./music").then(({ Music, daySeed }) => {
       this.musicLoading = false;
@@ -179,7 +190,7 @@ class Controller implements SoundController {
       this.reconcile();
     }).catch(() => {
       this.musicLoading = false;
-      if (!this.disposed && this.mode === "music") { this.failed = true; this.reconcile(); }
+      if (!this.disposed && this.mode === "music") { this.musicFailed = true; this.emit(); }
     });
   }
 
@@ -188,10 +199,14 @@ class Controller implements SoundController {
   /** Remembered "on": wait for the first gesture of this visit. */
   private arm(): void {
     addEventListener("pointerdown", this.onGesture, { capture: true });
+    addEventListener("pointerup", this.onGesture, { capture: true });
+    addEventListener("click", this.onGesture, { capture: true });
     addEventListener("keydown", this.onGesture, { capture: true });
   }
   private disarm(): void {
     removeEventListener("pointerdown", this.onGesture, { capture: true });
+    removeEventListener("pointerup", this.onGesture, { capture: true });
+    removeEventListener("click", this.onGesture, { capture: true });
     removeEventListener("keydown", this.onGesture, { capture: true });
   }
 
@@ -265,6 +280,7 @@ class Controller implements SoundController {
     this.amb = null; this.ac = null; this.music = null;
     this.starting = false;
     this.failed = false;
+    this.musicFailed = false;
     ac?.removeEventListener("statechange", this.onState);
     const fade = !this.disposed && !document.hidden;
     if (music) void music.dispose(fade);

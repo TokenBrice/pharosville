@@ -84,6 +84,13 @@ describe("harbour sound: the Burn's furnace", () => {
 });
 
 describe("harbour sound: the beam's passing", () => {
+  it("keeps the daytime breath at 70 percent of night, with the night ceiling unchanged", () => {
+    expect(beamBreathPeak(1, true, 1, 0)).toBe(BREATH_PEAK);
+    for (const reach of [0, 0.5, 1]) {
+      expect(beamBreathPeak(reach, true, 0, 0)).toBeCloseTo(0.7 * beamBreathPeak(reach, true, 1, 0), 8);
+    }
+  });
+
   it("is heard once, as the sweep crosses the camera's bearing (not at the far side)", () => {
     expect(beamCrossed(-0.1, 0.05)).toBe(true);
     expect(beamCrossed(0.1, -0.05)).toBe(true);

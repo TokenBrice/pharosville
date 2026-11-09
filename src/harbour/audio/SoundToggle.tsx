@@ -20,7 +20,9 @@ const SAY: Record<SoundMode, string> = { off: "off", ambient: "ambient sound", m
 export function SoundToggle() {
   const store = useStore();
   const ctl = useMemo(() => getSoundController(store.ctx), [store]);
-  const { mode, status } = useSyncExternalStore(ctl.subscribe, () => ctl.snapshot, () => OFF);
+  const { mode, status, musicFailed } = useSyncExternalStore(ctl.subscribe, () => ctl.snapshot, () => OFF);
+  const soundRetry = status === "paused" || status === "unavailable";
+  const words = `${STATUS[status]}${musicFailed ? ". Music unavailable" : ""}`;
   const reduced = useSyncExternalStore(store.motion.subscribe, () => store.motion.reduced);
   const [open, setOpen] = useState(false);
   const [reading, setReading] = useState(false);
@@ -62,8 +64,8 @@ export function SoundToggle() {
     <span className="hb-sound-wrap">
       <button
         ref={btn} type="button" className="hb-sound" data-mode={mode} data-status={status} aria-pressed={mode !== "off"}
-        aria-label="Sound" aria-describedby="hb-sound-status" title={`Sound: ${SAY[mode]}. ${STATUS[status]}`}
-        onClick={() => { setOpen(false); ctl.toggle(); }}
+        aria-label="Sound" aria-describedby="hb-sound-status" title={`Sound: ${SAY[mode]}. ${words}`}
+        onClick={() => { setOpen(false); if (soundRetry) ctl.retry(); else ctl.toggle(); }}
       >
         <svg viewBox="0 0 20 16" width="20" height="16" aria-hidden="true">
           <path className="hb-sound-body" d="M2.5 5.6h2.8L9.2 2.3v11.4L5.3 10.4H2.5z" />
@@ -84,15 +86,15 @@ export function SoundToggle() {
       >
         <svg viewBox="0 0 8 16" width="8" height="16" aria-hidden="true"><path d="M1.5 6.5L4 9l2.5-2.5" /></svg>
       </button>
-      <span id="hb-sound-status" className="hb-sr" role="status">{STATUS[status]}</span>
+      <span id="hb-sound-status" className="hb-sr" role="status">{words}</span>
       {open && (
         <div ref={menu} id="hb-sound-menu" role="menu" aria-label="Sound" className="hb-sound-menu hb-paper hb-neat" onKeyDown={onMenuKey}>
-          {(status === "paused" || status === "unavailable") && mode !== "off" && (<>
+          {(soundRetry || musicFailed) && mode !== "off" && (<>
             {/* the status in words, in the corner's state-word voice, above its way back (C10); the polite status line
                 below already speaks it */}
-            <p className="hb-mark-state hb-sound-state" aria-hidden="true">{STATUS[status]}</p>
+            <p className="hb-mark-state hb-sound-state" aria-hidden="true">{soundRetry ? STATUS[status] : "Music unavailable"}</p>
             <button type="button" role="menuitem" className="hb-sound-retry" tabIndex={-1} onClick={() => { ctl.retry(); close(true); }}>
-              {status === "unavailable" ? "Try sound again" : "Resume sound"}
+              {status === "unavailable" ? "Try sound again" : soundRetry ? "Resume sound" : "Try again"}
             </button>
           </>)}
           {MODES.map(([m, label]) => (

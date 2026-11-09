@@ -130,7 +130,7 @@ export function burnRateOf(c: { burnRate?: number; banked?: boolean } | undefine
 export function beamBreathPeak(reach: number, lit: boolean, night: number, fog: number): number {
   if (!lit || !Number.isFinite(reach)) return 0;
   const c = (x: number) => Math.max(0, Math.min(1, x));
-  return BREATH_PEAK * (0.35 + 0.65 * c(reach)) * (0.45 + 0.55 * c(night)) * (1 - c(fog * 2.5));
+  return BREATH_PEAK * (0.35 + 0.65 * c(reach)) * (0.7 + 0.3 * c(night)) * (1 - c(fog * 2.5));
 }
 
 const wrapPi = (a: number) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));

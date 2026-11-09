@@ -3,12 +3,13 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { SoundToggle } from "./SoundToggle";
 import { BY_EAR } from "./legend";
+import type { SoundSnapshot } from "./controller";
 
 const harness = vi.hoisted(() => {
   const snapshot = { selected: null, ledgerOpen: false };
   return {
     store: { motion: { reduced: false, still: false, subscribe: () => () => undefined, setStill: vi.fn() }, ctx: {}, subscribe: () => () => undefined, getSnapshot: () => snapshot },
-    ctl: { snapshot: { mode: "off", status: "off" }, retry: vi.fn(), subscribe: () => () => undefined, toggle: vi.fn(), setMode: vi.fn(), cue: vi.fn() },
+    ctl: { snapshot: { mode: "off", status: "off" } as SoundSnapshot, retry: vi.fn(), subscribe: () => () => undefined, toggle: vi.fn(), setMode: vi.fn(), cue: vi.fn() },
   };
 });
 vi.mock("../ui/hooks", () => ({ useStore: () => harness.store }));
@@ -52,7 +53,7 @@ it("includes the reading entry in menu keyboard navigation and restores caret fo
   expect(document.activeElement).toBe(caret);
 });
 
-it.each([["paused", "Resume sound"], ["unavailable", "Try sound again"]])("keeps the preference selected while %s and exposes a keyboard retry", (status, label) => {
+it.each([["paused", "Resume sound"], ["unavailable", "Try sound again"]] as const)("keeps the preference selected while %s and exposes a keyboard retry", (status, label) => {
   harness.ctl.snapshot = { mode: "music", status };
   render(<SoundToggle />);
   const sound = screen.getByRole("button", { name: "Sound", pressed: true });
@@ -69,7 +70,7 @@ it.each([["paused", "Resume sound"], ["unavailable", "Try sound again"]])("keeps
   expect(harness.ctl.toggle).not.toHaveBeenCalled();
 });
 
-it.each([["paused", "Sound paused", "Resume sound"], ["unavailable", "Sound unavailable", "Try sound again"]])("the %s menu opens on the status in words over its way back", (status, words, label) => {
+it.each([["paused", "Sound paused", "Resume sound"], ["unavailable", "Sound unavailable", "Try sound again"]] as const)("the %s menu opens on the status in words over its way back", (status, words, label) => {
   harness.ctl.snapshot = { mode: "ambient", status };
   render(<SoundToggle />);
   fireEvent.click(screen.getByRole("button", { name: "Sound options" }));
@@ -80,11 +81,37 @@ it.each([["paused", "Sound paused", "Resume sound"], ["unavailable", "Sound unav
 });
 
 it("names no status in the menu while the sound plays or is off", () => {
-  for (const snapshot of [{ mode: "ambient", status: "playing" }, { mode: "off", status: "off" }]) {
+  for (const snapshot of [{ mode: "ambient", status: "playing" }, { mode: "off", status: "off" }] as const) {
     harness.ctl.snapshot = snapshot;
     const ui = render(<SoundToggle />);
     fireEvent.click(screen.getByRole("button", { name: "Sound options" }));
     expect(screen.getByRole("menu").querySelector(".hb-sound-state")).toBeNull();
     ui.unmount();
   }
+});
+
+it.each(["paused", "unavailable"] as const)("the %s speaker retries in one click and keeps Sound off in the menu", (status) => {
+  harness.ctl.snapshot = { mode: "music", status };
+  render(<SoundToggle />);
+  fireEvent.click(screen.getByRole("button", { name: "Sound" }));
+  expect(harness.ctl.retry).toHaveBeenCalledOnce();
+  expect(harness.ctl.toggle).not.toHaveBeenCalled();
+  expect(harness.ctl.setMode).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Sound options" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Sound off" }));
+  expect(harness.ctl.setMode).toHaveBeenCalledWith("off");
+});
+
+it("offers a keyboard music retry while reporting that ambience still plays", () => {
+  harness.ctl.snapshot = { mode: "music", status: "playing", musicFailed: true };
+  render(<SoundToggle />);
+  expect(screen.getByRole("status").textContent).toBe("Sound playing. Music unavailable");
+  fireEvent.click(screen.getByRole("button", { name: "Sound options" }));
+  expect(screen.getByRole("menu").querySelector(".hb-sound-state")?.textContent).toBe("Music unavailable");
+  fireEvent.keyDown(screen.getByRole("menuitemradio", { name: "Ambient sound and music" }), { key: "Home" });
+  const retry = screen.getByRole("menuitem", { name: "Try again" });
+  expect(document.activeElement).toBe(retry);
+  fireEvent.click(retry);
+  expect(harness.ctl.retry).toHaveBeenCalledOnce();
+  expect(harness.ctl.setMode).not.toHaveBeenCalled();
 });
