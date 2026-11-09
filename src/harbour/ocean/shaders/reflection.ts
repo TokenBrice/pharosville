@@ -44,10 +44,13 @@ export const OCEAN_REFLECTION = /* glsl */ `  // -------------------------------
     vec3 acc = vec3(0.0);
     // calm water draws each light out into a longer column (03-O11): the taps stride further along the view
     float calmCol = (1.0 - smoothstep(0.35, 0.9, rough)) * (1.0 - uPrecip.x);
+    // Lite: the column's taps 1 and 2 (4.2 and 7.2 m, the quay lamps' and the windows' heights) at twice the richer tiers'
+    // weights, so each light's reflection lies by its quay and the basin keeps the richer tiers' value (taps 1 and 4 left
+    // each pool a bright copy floating 45-65 m out in the basin)
     #ifdef HB_LITE
     for (int tap = 0; tap < 2; tap++) {
-      int i = 1 + tap * 3;
-      float weight = tap == 0 ? 2.76 : 2.04;
+      int i = 1 + tap;
+      float weight = tap == 0 ? 1.84 : 1.68;
     #else
     for (int i = 0; i < 6; i++) {
       float weight = 1.0 - 0.08 * float(i);

@@ -17,15 +17,15 @@ describe("B09 Lite water", () => {
     expect(full.match(/texture2D\(uRipple/g)).toHaveLength(3); // plus r1 before the conditional
   });
 
-  it("uses reflection indices 1/4, preserving the six-tap energy with 2.76/2.04 weights", () => {
+  it("uses the adjacent reflection taps 1/2 at twice the six-tap weights, so no copy floats out in the basin", () => {
     expect(OCEAN_REFLECTION).toContain("#ifdef HB_LITE\n    for (int tap = 0; tap < 2; tap++)");
-    expect(OCEAN_REFLECTION).toContain("int i = 1 + tap * 3;");
-    expect(OCEAN_REFLECTION).toContain("float weight = tap == 0 ? 2.76 : 2.04;");
+    expect(OCEAN_REFLECTION).toContain("int i = 1 + tap;");
+    expect(OCEAN_REFLECTION).toContain("float weight = tap == 0 ? 1.84 : 1.68;");
     expect(OCEAN_REFLECTION).toContain("for (int i = 0; i < 6; i++)");
     expect(OCEAN_REFLECTION).toContain("* ok * weight;");
-    const six = Array.from({ length: 6 }, (_, i) => 1 - 0.08 * i).reduce((a, b) => a + b);
-    expect(2.76 + 2.04).toBeCloseTo(six, 12);
-    for (const constant of [0, 0.02, 0.5, 4]) expect(constant * (2.76 + 2.04)).toBeCloseTo(constant * six, 12);
+    const six = (i: number) => 1 - 0.08 * i;
+    expect(1.84).toBeCloseTo(2 * six(1), 12);
+    expect(1.68).toBeCloseTo(2 * six(2), 12);
   });
 
   it("skips only fully faded detail taps with explicit gradients, evaluating net derivatives outside the branch", () => {

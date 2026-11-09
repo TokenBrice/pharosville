@@ -404,6 +404,10 @@ export class FleetSystem implements WorldSystem {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.perObjectFrustumCulled = true;
+    // the fleet spans the harbour: cull hull by hull only. three caches a batch's whole-object bounding sphere the
+    // first time it is tested and never refreshes it, and the staged install (B14) is first tested before any hull is
+    // posed, so that sphere culled the whole fleet from every close view that does not see the origin
+    mesh.frustumCulled = false;
     mesh.sortObjects = false;
     for (const [id, g] of geos) this.geomIds.set(id, mesh.addGeometry(g));
     this.mesh = mesh;

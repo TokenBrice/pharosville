@@ -1,7 +1,7 @@
 import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
-import { LightsSystem, POINT_BUDGET, pointBudget } from "./lights-system";
+import { LightsSystem, OVERVIEW_LAMPS, POINT_BUDGET, lampFar, pointBudget } from "./lights-system";
 import { getLightsStore } from "./lights-service";
 import { CameraRig } from "../engine/camera-rig";
 import { TIERS } from "../engine/quality";
@@ -23,7 +23,7 @@ function lightContext(tier: keyof typeof TIERS = "medium") {
   };
   const ctx = {
     camera, scene, renderer, rig: new CameraRig(camera), uniforms: createWorldUniforms(),
-    services: new Map<string, unknown>([["motion", { reduced: false }], ["quality", quality], ["materials", { pool: { uPoolTex: { value: null }, uPoolBounds: { value: new THREE.Vector4() } } }]]) as Services,
+    services: new Map<string, unknown>([["motion", { reduced: false }], ["quality", quality], ["materials", { pool: { uPoolTex: { value: null }, uPoolBounds: { value: new THREE.Vector4() }, uLampFar: { value: 1 } } }]]) as Services,
   } as unknown as EngineContext;
   return { ctx, unsubscribe, publish: (settings: QualitySettings) => { quality.settings = settings; changed?.(settings, 1); } };
 }
@@ -219,6 +219,33 @@ describe("E09 lamp economy", () => {
     const { ctx, lights, at } = night("low");
     expect(at(650)).toHaveLength(TIERS.low.pointLights);
     expect(pointBudget(TIERS.low.pointLights - 1, 650)).toBe(1);
+    lights.dispose(ctx);
+  });
+
+  it("eases the decorative lamps to OVERVIEW_LAMPS over the overview range, continuously and never at a landing", () => {
+    expect(OVERVIEW_LAMPS).toBeGreaterThan(0.2);
+    expect(OVERVIEW_LAMPS).toBeLessThan(1);
+    for (const d of [90, 650, 715]) expect(lampFar(d, 715, 1000)).toBe(1);
+    for (const d of [1000, 1150]) expect(lampFar(d, 715, 1000)).toBeCloseTo(OVERVIEW_LAMPS, 12);
+    let last = 1;
+    for (let d = 700; d <= 1020; d++) {
+      const k = lampFar(d, 715, 1000);
+      expect(k).toBeLessThanOrEqual(last);
+      expect(last - k).toBeLessThan(0.01); // no visible step per metre of zoom
+      last = k;
+    }
+  });
+
+  it("drives the shared pool/glass share from the rig over the tilt-shift's range, landing-relative on every aspect", () => {
+    const { ctx, lights, at } = night("high");
+    const share = () => (ctx.services.get("materials") as unknown as { pool: { uLampFar: { value: number } } }).pool.uLampFar.value;
+    at(1000);
+    expect(share()).toBe(1); // no post service: untouched
+    ctx.services.set("post", { tiltNear: 715, tiltFar: 1000 } as never); // the 16:10 landing (650 m)
+    for (const [d, k] of [[650, 1], [702, 1], [1000, OVERVIEW_LAMPS], [1150, OVERVIEW_LAMPS]] as const) { at(d); expect(share()).toBeCloseTo(k, 12); }
+    ctx.services.set("post", { tiltNear: 1198, tiltFar: 1675 } as never); // the 834×1112 landing stands at 1089 m
+    at(1089);
+    expect(share()).toBe(1);
     lights.dispose(ctx);
   });
 });
