@@ -114,7 +114,8 @@ export class StormCones {
       this.slotX.push(slot[0]); this.slotY.push(slot[1]); this.slotZ.push(slot[2]);
       this.lampOut.push((kind === "cone" ? CONE_R * 0.5 : DRUM_R) + 0.2);
       if (lights) {
-        const id = lights.add("riding", [0, -100, 0], LANTERN_HEX);
+        // analytical (D11): the lantern's glow shows the hoisted signal at once, never the decorative lamp round or beat
+        const id = lights.add("signal", [0, -100, 0], LANTERN_HEX);
         lights.setOn(id, false);
         this.lightIds.push(id);
       }

@@ -535,7 +535,9 @@ export class HarbourMaterials {
 
   /**
    * Lamp glass / beacons: base colour + emission × uLamp. `decorative` (the GLB lamps' glass) also takes the zoom's lamp
-   * share (uLampFar: it eases at the overview, lights-system.ts); a signal's lantern (the storm cones) keeps its light.
+   * share (uLampFar: it eases at the overview, lights-system.ts), the lamp round and the arrival beat (lamp-wave.ts); a
+   * signal's lantern (the storm cones) is analytical (D11): it keeps its light and shows its state at once, on the
+   * clock's glow alone (uLampAnalytic = 1, a binding like uLampFar, not a program variant).
    */
   emissive(glowHex = "#FFAE57", baseHex = "#3B3A33", decorative = false): THREE.MeshStandardMaterial {
     const key = `emissive:${glowHex}:${baseHex}${decorative ? ":lamp" : ""}`;
@@ -544,11 +546,13 @@ export class HarbourMaterials {
     const m = new THREE.MeshStandardMaterial({ color: new THREE.Color(baseHex), roughness: 0.15, metalness: 0, emissive: new THREE.Color(glowHex) });
     m.name = "hb_emissive";
     const far = decorative ? this.pool.uLampFar : { value: 1 };
+    const analytic = { value: decorative ? 0 : 1 };
     m.onBeforeCompile = (shader) => {
       shader.uniforms.uLamp = this.uniforms.uLamp;
       shader.uniforms.uLampFar = far;
+      shader.uniforms.uLampAnalytic = analytic;
       Object.assign(shader.uniforms, { uWindowGlow: this.uniforms.uWindowGlow }, lampWaveUniforms);
-      // the lamplighting wave (05-P3): the glass lights with its own lamp's moment, not the global clock
+      // the lamplighting wave (05-P3): a lamp's glass lights with its own lamp's moment, not the global clock
       shader.vertexShader = patch(shader.vertexShader, "#include <common>", "#include <common>\nvarying vec3 vHbLw;", { id: "world.31.common" });
       shader.vertexShader = patch(shader.vertexShader, "#include <worldpos_vertex>", `#include <worldpos_vertex>
   {
@@ -558,10 +562,10 @@ export class HarbourMaterials {
     #endif
     vHbLw = (modelMatrix * hbW).xyz;
   }`, { id: "world.32.worldpos_vertex" });
-      shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\nuniform float uLamp;\nuniform float uLampFar;\nuniform float uWindowGlow;\nvarying vec3 vHbLw;\n${LAMP_WAVE_GLSL}`, { id: "world.33.common" });
+      shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\nuniform float uLamp;\nuniform float uLampFar;\nuniform float uLampAnalytic;\nuniform float uWindowGlow;\nvarying vec3 vHbLw;\n${LAMP_WAVE_GLSL}`, { id: "world.33.common" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <emissivemap_fragment>", `#include <emissivemap_fragment>
 totalEmissiveRadiance *= uLamp * uLampFar;
-if (uWindowGlow > 1e-3) totalEmissiveRadiance *= mix(1.0, hbLampGlow(uWindowGlow, hbLampRank(vHbLw, hbLampJitter(vHbLw.xz))) / uWindowGlow, smoothstep(0.0, 0.05, uWindowGlow));`, { id: "world.34.emissivemap_fragment" });
+if (uWindowGlow > 1e-3 && uLampAnalytic < 0.5) totalEmissiveRadiance *= mix(1.0, hbLampGlow(uWindowGlow, hbLampRank(vHbLw, hbLampJitter(vHbLw.xz))) / uWindowGlow, smoothstep(0.0, 0.05, uWindowGlow));`, { id: "world.34.emissivemap_fragment" });
     };
     m.customProgramCacheKey = () => "hb_emissive_w1";
     this.cache.set(key, m);

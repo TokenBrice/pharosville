@@ -1361,7 +1361,9 @@ export class FleetSystem implements WorldSystem {
       }
 
       // night: under way, masthead + red/green sidelights (+ the stern light); anchored, an anchor light;
-      // moored, only some hulls show a dim one. Stern / anchor lamps are lit only with a peg reading.
+      // moored, only some hulls show a dim one. Stern / anchor lamps are lit only with a peg reading: analytical (D11),
+      // they show at once (as their lantern glass does), never held back by the lamp round or the arrival beat; the
+      // masthead and sidelights are navigation decoration and keep both.
       if (glowK > 0.001 && b.visible && !b.wrecked && (moving || (ph === PH_ANCHORED && b.reading) || b.lit)) {
         const v = b.variant, rl = this.riding;
         const lampAt = this.lampAt;
@@ -1375,7 +1377,7 @@ export class FleetSystem implements WorldSystem {
           rl.add(sl.x, sl.y, sl.z, LAMP_GREEN.r * 2.8, LAMP_GREEN.g * 2.8, LAMP_GREEN.b * 2.8, 0.3, h0, 0.7);
           if (b.reading) {
             const sp = lampAt(v.sternLantern.x, v.sternLantern.y, v.sternLantern.z);
-            rl.add(sp.x, sp.y, sp.z, LAMP_WARM.r * 2.2, LAMP_WARM.g * 2.2, LAMP_WARM.b * 2.2, 0.26, h0, 0.8);
+            rl.add(sp.x, sp.y, sp.z, LAMP_WARM.r * 2.2, LAMP_WARM.g * 2.2, LAMP_WARM.b * 2.2, 0.26, h0, 0.8, true);
           }
         } else {
           const k = ph === PH_ANCHORED ? 1.3 : 0.65;
@@ -1383,7 +1385,7 @@ export class FleetSystem implements WorldSystem {
           // light is her stern lantern (06-F6)
           const mh = ph !== PH_ANCHORED ? lampAt(v.sternLantern.x, v.sternLantern.y, v.sternLantern.z)
             : b.struck ? lampAt(v.bowCleat.x * 0.8, v.bowCleat.y + 1.2, 0) : lampAt(v.masthead.x, v.masthead.y, v.masthead.z);
-          rl.add(mh.x, mh.y, mh.z, LAMP_WARM.r * k, LAMP_WARM.g * k, LAMP_WARM.b * k, ph === PH_ANCHORED ? 0.26 : 0.17, h0, 0.5);
+          rl.add(mh.x, mh.y, mh.z, LAMP_WARM.r * k, LAMP_WARM.g * k, LAMP_WARM.b * k, ph === PH_ANCHORED ? 0.26 : 0.17, h0, 0.5, true);
         }
       }
 

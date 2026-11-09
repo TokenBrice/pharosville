@@ -1273,7 +1273,7 @@
   },
   "world/emissive": {
     "vertex": "5274754b67f033f8ff08a2d24cbe2ebd2b9c6ef00f392e7840762287ff76b173",
-    "fragment": "acd3f7361fbf5d5cfb50bc8c261ee803b79482e3017e75494208eb90a341a758",
+    "fragment": "da68d4701e7d0ce42375fa569b416f1f9aee3597cb037ff3732edd3df2df6cd8",
     "defines": "066347ea2a4d7578c920ce459eb2c63433bc9693b6090ecdfb5ac745b141e930",
     "cacheKey": "hb_emissive_w1"
   },

@@ -11,7 +11,7 @@ import { lampJitter, lampRank, type LampWaveParams } from "./lamp-wave";
  * Pure data store; the LightsSystem owns the GPU side. Registered early (by the island system) so any
  * later system (fleet riding lights) can add lights during its own init.
  */
-export type LightKind = "window" | "lamp" | "pierhead" | "harbourlight" | "riding" | "hearth" | (string & {});
+export type LightKind = "window" | "lamp" | "pierhead" | "harbourlight" | "riding" | "signal" | "hearth" | (string & {});
 
 export interface LightsService {
   add(kind: LightKind, position: THREE.Vector3Like | [number, number, number], color?: string | THREE.Color, radius?: number): number;
@@ -41,6 +41,12 @@ export interface KindSpec {
   point: number;
   /** Mounting height above the surface it lights (for the pool height test). */
   mount: number;
+  /**
+   * D11 analytical light (a reading's lantern, the keeper's vigil): shows its state at once, on the clock's glow alone,
+   * never a lamp's moment in the lamp round or the arrival beat (lamp-wave.ts). No pool: pools take the round where
+   * they fall.
+   */
+  analytic?: true;
 }
 
 export const KINDS: Record<string, KindSpec> = {
@@ -49,8 +55,10 @@ export const KINDS: Record<string, KindSpec> = {
   pierhead: { color: "#FFD9A0", pool: 6.0, poolK: 0.42, sprite: 0.6, spriteK: 16, point: 26, mount: 4.6 },
   harbourlight: { color: "#FF5A3C", pool: 4.0, poolK: 0.35, sprite: 1.0, spriteK: 26, point: 30, mount: 4.0 },
   riding: { color: "#FFF2D6", pool: 0, poolK: 0, sprite: 0.32, spriteK: 18, point: 0, mount: 0 },
-  /** The Pharos keeper's vigil lamp (05-P4): a tiny cool pinprick while the fire is banked (PSI unlit). */
-  vigil: { color: "#DCE6F2", pool: 0, poolK: 0, sprite: 0.16, spriteK: 22, point: 0, mount: 0 },
+  /** The storm signal's red lanterns (readings/storm-cones.ts): a riding light's glow on each hoisted shape, analytical. */
+  signal: { color: "#FF4430", pool: 0, poolK: 0, sprite: 0.32, spriteK: 18, point: 0, mount: 0, analytic: true },
+  /** The Pharos keeper's vigil lamp (05-P4): a tiny cool pinprick while the fire is banked (PSI unlit), analytical. */
+  vigil: { color: "#DCE6F2", pool: 0, poolK: 0, sprite: 0.16, spriteK: 22, point: 0, mount: 0, analytic: true },
   // 08-T9: hinterland hearths (farm doors, the windmill, the hill sanctuary, wayside lamps): warm, small and dim —
   // well under the town's lamps, never promoted to a point light
   hearth: { color: "#FF9A48", pool: 3.2, poolK: 0.16, sprite: 0.34, spriteK: 8, point: 0, mount: 1.8 },

@@ -2,7 +2,8 @@ import type { Services } from "../engine/services";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import { LightsSystem, OVERVIEW_LAMPS, POINT_BUDGET, lampFar, pointBudget } from "./lights-system";
-import { getLightsStore } from "./lights-service";
+import { getLightsStore, KINDS } from "./lights-service";
+import { lampWaveUniforms } from "./lamp-wave";
 import { CameraRig } from "../engine/camera-rig";
 import { TIERS } from "../engine/quality";
 import { createWorldUniforms } from "../engine/uniforms";
@@ -247,5 +248,68 @@ describe("E09 lamp economy", () => {
     at(1089);
     expect(share()).toBe(1);
     lights.dispose(ctx);
+  });
+});
+
+describe("D11 analytical lights skip the lamp round and the arrival beat", () => {
+  it("marks the storm signal's glows and the keeper's vigil analytical on the GPU, and only they skip hbLampGlow", () => {
+    expect(KINDS.signal.analytic).toBe(true);
+    expect(KINDS.vigil.analytic).toBe(true);
+    for (const kind of ["window", "lamp", "pierhead", "harbourlight", "riding", "hearth"]) expect(KINDS[kind].analytic).toBeUndefined();
+    // no pool: a pool takes the round where it falls, so an analytical light never throws one
+    expect([KINDS.signal.pool, KINDS.vigil.pool]).toEqual([0, 0]);
+    const { ctx } = lightContext();
+    const lights = new LightsSystem();
+    lights.init(ctx);
+    const store = getLightsStore(ctx);
+    const ids = ["lamp", "signal", "riding", "vigil", "window"].map((kind, i) => store.add(kind, [i * 9, 4, 0]));
+    ctx.uniforms.uWindowGlow.value = 1;
+    lights.update({ elapsed: 0, delta: 0, nowMs: 0 }, ctx);
+    for (const name of ["harbour-light-sprites", "harbour-light-pillars"]) {
+      const mesh = ctx.scene.getObjectByName(name) as THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+      const flag = mesh.geometry.getAttribute("iAna");
+      expect(ids.map((id) => flag.getX(id))).toEqual([0, 1, 0, 1, 0]);
+      const vertex = mesh.material.vertexShader;
+      expect(vertex).toContain("attribute float iAna;");
+      expect(vertex).toContain("float g = analytic > 0.5 ? uWindowGlow : hbLampGlow(uWindowGlow, hbLampRank(pos, hbLampJitter(pos.xz)));");
+      expect(vertex).toContain("lhGlowAt(iPar.y, iPos, iAna)");
+      expect(vertex).not.toContain("lhGlowAt(iPar.y, iPos)");
+    }
+    lights.dispose(ctx);
+  });
+
+  it("shows an analytical light's point light on the clock at once (the CPU mirror) while a decorative lamp waits", () => {
+    KINDS["d11-test-lantern"] = { ...KINDS.lamp, analytic: true };
+    const { ctx } = lightContext();
+    const lights = new LightsSystem();
+    try {
+      lights.init(ctx);
+      ctx.rig.distance = 650;
+      const store = getLightsStore(ctx);
+      // far out from the Pharos (rank ≈ 1): the last lamp of the round, the last to catch in the beat
+      const at = (x: number) => ctx.scene.children.find((o): o is THREE.PointLight => o instanceof THREE.PointLight && o.position.x === x)!;
+      store.add("lamp", [400, 4, 0]);
+      store.add("d11-test-lantern", [404, 4, 0]);
+      expect(store.rankAt({ x: 400, y: 4, z: 0 })).toBeGreaterThan(0.9);
+      const night = (glow: number, arrive: number) => {
+        ctx.uniforms.uWindowGlow.value = glow;
+        lampWaveUniforms.uLampArrive.value = arrive;
+        lights.update({ elapsed: 0, delta: 0, nowMs: 0 }, ctx);
+        return [at(400).intensity, at(404).intensity];
+      };
+      const [lamp, lantern] = night(1, 1);
+      expect(lamp).toBeGreaterThan(0);
+      expect(lantern).toBeCloseTo(lamp, 9);
+      // mid lamp round: the decorative lamp is not yet lit; the analytical one shows the clock's state at once
+      expect(night(0.6, 1)).toEqual([0, THREE.MathUtils.smoothstep(0.6, 0.02, 0.55) * lantern]);
+      // the arrival beat's first moment: every decorative lamp dark, the analytical light untouched
+      expect(night(1, 0)).toEqual([0, lantern]);
+      // its state still follows the clock itself: dark by day
+      expect(night(0, 0)).toEqual([0, 0]);
+    } finally {
+      lampWaveUniforms.uLampArrive.value = 1;
+      delete KINDS["d11-test-lantern"];
+      lights.dispose(ctx);
+    }
   });
 });

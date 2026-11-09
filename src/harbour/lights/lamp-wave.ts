@@ -19,6 +19,11 @@ import * as THREE from "three";
  * in the same rank order, then rest on the clock's true state (1). The Pharos's own fire and beam are analytical
  * light and never read this uniform.
  *
+ * D11: the wave and the beat are decorative timing, so no analytical light takes either; each shows its state at once,
+ * on the clock's glow alone, at every hour and at the arrival: the storm signal's lanterns (hb_emissive's
+ * `uLampAnalytic`, world/materials.ts), the analytical lights' glows (`KindSpec.analytic`: the signal and the keeper's
+ * vigil, lights-system.ts `iAna`) and the hulls' peg-reading stern and anchor lamps (fleet/riding-lights.ts `aInfo.w`).
+ *
  * Unlit Pharos (PSI unknown): the wave starts from the town edge and reaches the dark tower last
  * (`fromEdge` → 1). Reduced motion: spread 0 → today's single global step.
  *
