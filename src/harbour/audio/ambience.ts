@@ -28,6 +28,7 @@
  */
 
 import { ClipBank } from "./bank";
+import { fillNoise } from "./noise";
 import { makeRng, type ClipKind } from "./dsp";
 
 export interface AmbienceInputs {
@@ -214,32 +215,6 @@ export function gustSwell(paw: number, wind: number, gust: number, flutter: numb
 /** Event-rate multiplier of the settle: 1 while watched … 0.7 (~30 % sparser) when settled. */
 export const settleRate = (attention: number) => 0.7 + 0.3 * Math.max(0, Math.min(1, attention));
 
-/** A stereo noise buffer with independent channels (width without phasiness) and a crossfaded seam. */
-function noiseBuffer(ac: BaseAudioContext, seconds: number, color: "white" | "pink", rnd: () => number): AudioBuffer {
-  const n = Math.floor(ac.sampleRate * seconds);
-  const buf = ac.createBuffer(2, n, ac.sampleRate);
-  for (let ch = 0; ch < 2; ch++) {
-    const d = new Float32Array(n);
-    let b0 = 0, b1 = 0, b2 = 0;
-    for (let i = 0; i < n; i++) {
-      const w = rnd() * 2 - 1;
-      if (color === "white") d[i] = w * 0.5;
-      else {
-        b0 = 0.99765 * b0 + w * 0.099046; b1 = 0.963 * b1 + w * 0.2965164; b2 = 0.57 * b2 + w * 1.0526913;
-        d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.11;
-      }
-    }
-    // equal-power crossfade of the loop seam (uncorrelated noise: cos/sin keeps the level)
-    const f = Math.min(ac.sampleRate >> 1, n >> 3);
-    for (let i = 0; i < f; i++) {
-      const a = (i / f) * Math.PI * 0.5;
-      d[n - f + i] = d[n - f + i] * Math.cos(a) + d[i] * Math.sin(a);
-    }
-    buf.copyToChannel(d, ch);
-  }
-  return buf;
-}
-
 /** Identity to ±0.8, then a tanh knee that approaches (never reaches) ±0.98. */
 function softClipCurve(): Float32Array<ArrayBuffer> {
   const n = 2049, c = new Float32Array(n);
@@ -286,6 +261,10 @@ export function birdThinning(cicada: number): number {
   return 1 - 0.65 * Math.max(0, Math.min(1, cicada));
 }
 
+interface PendingThunder { kind: ClipKind; at: number; level: number; pan: number; rate: number; near: boolean }
+/** A cold roll may trail its original deadline by at most one second. */
+const THUNDER_LATENESS = 1;
+
 export class Ambience {
   private readonly out: GainNode;
   private readonly sources: AudioBufferSourceNode[] = [];
@@ -299,6 +278,8 @@ export class Ambience {
     burn: 0, burnPan: 0, burnBack: 0, burnRate: 0, cove: 0, covePan: 0,
   };
   private readonly rnd: () => number;
+  private noiseJob: Generator<void> | null = null;
+  private readonly loopStarts: Array<{ source: AudioBufferSourceNode; offset: number }> = [];
   private readonly bank: ClipBank;
   // the sea
   private readonly shoreBus: GainNode;
@@ -362,6 +343,7 @@ export class Ambience {
   private readonly howlLoop: LazyLoop;
   private readonly thunderBus: GainNode;
   private thunders: number[] = [];
+  private pendingThunder: PendingThunder[] = [];
   // season
   private readonly birdBus: GainNode;
   private readonly cricketBus: GainNode;
@@ -406,13 +388,14 @@ export class Ambience {
   private breathEnd = 0;
   private pressN = 0;
   private disposed = false;
-  private readonly lanes = new Map<AudioNode, StereoPannerNode[]>();
+  private readonly lanes = new Map<AudioNode, Array<StereoPannerNode | undefined>>();
   private readonly aims = new Map<AudioParam, number>();
 
   constructor(readonly ac: BaseAudioContext, opts: AmbienceOptions = {}) {
     this.manual = !!opts.manual;
     this.paused = !!opts.paused;
-    this.rnd = makeRng(opts.seed ?? Math.floor(Math.random() * 2 ** 31));
+    const seed = opts.seed ?? Math.floor(Math.random() * 2 ** 31);
+    this.rnd = makeRng(seed);
     this.bank = new ClipBank(ac, Math.floor(this.rnd() * 2 ** 31));
     const now = ac.currentTime;
 
@@ -450,8 +433,11 @@ export class Ambience {
     const echoOut = ac.createGain(); echoOut.gain.value = 0.45;
     damp.connect(echoOut).connect(this.out);
 
-    const white = noiseBuffer(ac, 8.7, "white", this.rnd);
-    const pink = noiseBuffer(ac, 9.3, "pink", this.rnd);
+    const white = ac.createBuffer(2, Math.floor(ac.sampleRate * 8.7), ac.sampleRate);
+    const pink = ac.createBuffer(2, Math.floor(ac.sampleRate * 9.3), ac.sampleRate);
+    const noiseRng = makeRng(seed, 2);
+    // Reserve the original noise draws so slicing cannot change event times or seeded PCM.
+    this.rnd = makeRng(seed, 2 + 2 * (white.length + pink.length));
 
     // ---- the shore: wave clips → distance lowpass → bus
     this.shoreBus = ac.createGain(); this.shoreBus.gain.value = 0;
@@ -608,16 +594,30 @@ export class Ambience {
       ship: t + 2, groan: t + 6, burn: t, bellows: t + 2,
       owl: t + 20 + this.rnd() * 40, nightjar: t + 10 + this.rnd() * 30,
     };
-    if (opts.manual) this.bank.buildAll();
-    else if (!this.paused) {
+    const prepare = function* (owner: Ambience): Generator<void> {
+      yield* fillNoise(white, "white", noiseRng);
+      yield* fillNoise(pink, "pink", noiseRng);
+      for (const { source, offset } of owner.loopStarts) source.start(ac.currentTime, offset);
+      owner.loopStarts.length = 0;
+    };
+    this.noiseJob = prepare(this);
+    if (this.noiseJob.next().done) this.noiseJob = null;
+    if (opts.manual) {
+      while (this.noiseJob) if (this.noiseJob.next().done) this.noiseJob = null;
+      this.bank.buildAll();
+    } else if (!this.paused) {
       this.pump();
       this.timer = window.setInterval(() => this.step(), TICK_MS);
     }
   }
 
-  /** Pause JS work without touching beds or deadlines: all are on the owner's frozen audio clock. */
+  /** Pause JS work and discard pending event cues; beds and deadlines keep their audio clock. */
   pause(): void {
     this.paused = true;
+    this.pendingThunder.length = 0;
+    this.pending.length = 0;
+    this.knell = null;
+    this.lastHour = -1;
     clearInterval(this.timer); this.timer = 0;
     this.pumpEpoch++;
     if (this.idle !== null) {
@@ -627,7 +627,7 @@ export class Ambience {
     }
   }
 
-  /** Resume once, preserving queued sounds, partially synthesised clips and continuous beds. */
+  /** Resume once, preserving partially synthesised clips, deadlines and continuous beds. */
   resume(): void {
     if (this.disposed || !this.paused) return;
     this.paused = false;
@@ -639,13 +639,17 @@ export class Ambience {
 
   /** Synthesise the bank in idle slices, retaining cancellable handles for both scheduling paths. */
   private pump = (): void => {
-    if (this.disposed || this.paused || this.manual || this.idle !== null || !this.bank.pending) return;
+    if (this.disposed || this.paused || this.manual || this.idle !== null || (!this.noiseJob && !this.bank.pending)) return;
     const epoch = this.pumpEpoch;
     const ric = globalThis.requestIdleCallback;
     const go = (budget: number) => {
       if (this.disposed || this.paused || epoch !== this.pumpEpoch) return;
       this.idle = null;
-      if (this.bank.work(budget)) {
+      const started = performance.now();
+      while (this.noiseJob && performance.now() - started < budget) {
+        if (this.noiseJob.next().done) this.noiseJob = null;
+      }
+      if (this.noiseJob || this.bank.work(Math.max(0, budget - (performance.now() - started)))) {
         this.idleCallback = false;
         this.idle = window.setTimeout(() => {
           if (epoch !== this.pumpEpoch) return;
@@ -667,7 +671,7 @@ export class Ambience {
     const s = this.ac.createBufferSource();
     s.buffer = buf; s.loop = true;
     s.connect(to);
-    s.start(this.ac.currentTime, this.rnd() * buf.duration);
+    this.loopStarts.push({ source: s, offset: this.rnd() * buf.duration });
     this.sources.push(s);
   }
 
@@ -693,11 +697,11 @@ export class Ambience {
   /** Five fixed pan lanes per destination: a placed one-shot costs two nodes, not three. */
   private lane(to: AudioNode, pan: number): AudioNode {
     let ls = this.lanes.get(to);
-    if (!ls) {
-      ls = [-0.8, -0.4, 0, 0.4, 0.8].map((v) => { const p = this.pan(v); p.connect(to); return p; });
-      this.lanes.set(to, ls);
-    }
-    return ls[Math.max(0, Math.min(4, Math.round((pan + 0.8) / 0.4)))];
+    if (!ls) { ls = []; this.lanes.set(to, ls); }
+    const index = Math.max(0, Math.min(4, Math.round((pan + 0.8) / 0.4)));
+    let lane = ls[index];
+    if (!lane) { lane = this.pan([-0.8, -0.4, 0, 0.4, 0.8][index]); lane.connect(to); ls[index] = lane; }
+    return lane;
   }
 
   /**
@@ -715,8 +719,9 @@ export class Ambience {
 
   /** Scheduler: levels follow the inputs; events are queued a little ahead of the audio clock. */
   step(): void {
-    if (this.disposed || this.paused) return;
+    if (this.disposed || this.paused || this.noiseJob) return;
     const ac = this.ac, now = ac.currentTime, ahead = now + 0.3, r = this.rnd;
+    this.flushThunder();
     const I = this.inputs, { zoom, wind, fog, night, rain, snow, storm, gust } = I;
     const near = Math.max(0, Math.min(1, 1 - zoom));
     const tc = 0.8;
@@ -1098,8 +1103,8 @@ export class Ambience {
   thunder(km: number, intensity = 1, pan = 0, delaySec = (km * 1000) / 343): void {
     if (this.disposed || this.paused) return;
     const now = this.ac.currentTime;
-    this.thunders = this.thunders.filter((t) => t > now);
-    if (this.thunders.length >= 3) return;
+    this.flushThunder();
+    if (this.thunders.length + this.pendingThunder.length >= 3) return;
     const d = Math.max(0.3, km), reduced = this.inputs.reduced;
     const near = d < 4 && !reduced;
     const delay = delaySec <= 10 ? Math.max(0.2, delaySec) : Math.min(20, 10 + (delaySec - 10) * 0.3);
@@ -1108,14 +1113,26 @@ export class Ambience {
     const lvl = strength * (near ? 0.85 * Math.min(1, Math.sqrt(2.5 / d)) : Math.max(0.6, Math.min(0.9, 6 / d))) * (reduced ? 0.6 : 1);
     const kind = near ? "thunder" : "rumble";
     this.need(kind);
-    this.play(kind, at, this.thunderBus, lvl, pan, 0.88 + this.rnd() * 0.2);
-    if (near) {
-      // dip the weather beds under the clap, then let them back over the roll
-      const g = this.duck.gain, k = 1 - 0.55 * lvl;
-      g.setTargetAtTime(k, at, 0.02);
-      g.setTargetAtTime(1, at + 0.5, 1.2);
-    }
-    this.thunders.push(at + (near ? 10 : 16));
+    this.pendingThunder.push({ kind, at, level: lvl, pan, rate: 0.88 + this.rnd() * 0.2, near });
+    this.flushThunder();
+  }
+
+  private flushThunder(): void {
+    const now = this.ac.currentTime;
+    this.thunders = this.thunders.filter((t) => t > now);
+    this.pendingThunder = this.pendingThunder.filter((event) => {
+      if (now > event.at + THUNDER_LATENESS) return false;
+      const at = Math.max(now, event.at);
+      if (!this.play(event.kind, at, this.thunderBus, event.level, event.pan, event.rate)) return true;
+      if (event.near) {
+        // Duck only for an audible clap, never for a cold or expired request.
+        const g = this.duck.gain, k = 1 - 0.55 * event.level;
+        g.setTargetAtTime(k, at, 0.02);
+        g.setTargetAtTime(1, at + 0.5, 1.2);
+      }
+      this.thunders.push(at + (event.near ? 10 : 16));
+      return false;
+    });
   }
 
   private env(at: number, attack: number, hold: number, release: number, peak: number): GainNode {
@@ -1225,7 +1242,7 @@ export class Ambience {
 
   /** A UI cue: one tiny paper-or-wood sound, centred, dry (no echo, no distance). */
   cue(name: CueName): void {
-    if (this.disposed) return;
+    if (this.disposed || this.paused) return;
     if (name === "evening-gun") { this.far("gun", EVENING_GUN_DELAY, 1 - 0.5 * this.inputs.storm, this.inputs.firePan * 0.4); return; }
     const kind = CUE_KIND[name];
     if (kind) this.play(kind, this.ac.currentTime + 0.01, this.cueBus, 1, 0, 0.97 + this.rnd() * 0.06);
@@ -1264,6 +1281,8 @@ export class Ambience {
     this.disposed = true;
     this.pause();
     this.bank.dispose();
+    this.noiseJob = null;
+    this.loopStarts.length = 0;
     this.disposal = this.release(fade);
     return this.disposal;
   }

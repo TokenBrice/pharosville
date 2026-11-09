@@ -8,7 +8,7 @@ import { ensureMotionService } from "./services";
 import type { HarbourUIStore } from "./store";
 import type { EngineContext } from "../engine/types";
 
-vi.mock("../audio/controller", () => ({ getSoundController: () => ({ mode: "off", subscribe: () => () => {}, cue() {}, toggle() {}, setMode() {} }) }));
+vi.mock("../audio/controller", () => ({ getSoundController: () => ({ snapshot: { mode: "off", status: "off" }, subscribe: () => () => {}, cue() {}, toggle() {}, setMode() {} }) }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 it("shows at most five named ships and offers selection, Cancel and native Escape", () => {

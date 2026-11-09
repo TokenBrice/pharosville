@@ -190,6 +190,7 @@ export class Music {
   private readonly inputs: MusicInputs = { night: 0, storm: 0, rain: 0, attention: 1 };
   private next: number;
   private timer = 0;
+  private gainTarget: number | null = null;
   private disposed = false;
 
   constructor(private readonly ac: BaseAudioContext, private readonly dest: MusicInput, seed: number) {
@@ -227,7 +228,11 @@ export class Music {
     if (this.disposed) return;
     const now = this.ac.currentTime, I = this.inputs;
     const mute = musicMute(I.storm, I.rain);
-    this.bus.gain.setTargetAtTime(MUSIC_GAIN * mute, now, 1.5);
+    const gain = MUSIC_GAIN * mute;
+    if (gain !== this.gainTarget) {
+      this.bus.gain.setTargetAtTime(gain, now, 1.5);
+      this.gainTarget = gain;
+    }
     if (this.next > now + 0.4) return;
     const r = this.rnd, thin = 0.7 + 0.3 * Math.max(0, Math.min(1, I.attention));
     if (mute < 0.2) { this.next = now + 10; return; }

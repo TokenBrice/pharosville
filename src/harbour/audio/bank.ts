@@ -41,7 +41,31 @@ const LAZY = new Set<ClipKind>(["drizzle", "rain", "drip", "thunder", "rumble", 
 const FIRST: ClipKind[] = ["lap", "shore", "reef", "shore", "lap", "halyard", "gull", "creak", "bell", "crackle", "press"];
 const REFRESH: ClipKind[] = ["shore", "lap", "reef", "shore", "gull", "lap", "halyard", "creak"];
 
-interface Job { kind: ClipKind; slot: number; gen: Generator<void, Clip> }
+const ACTIVE_SECONDS = 30;
+const RETAIN_SECONDS = 120;
+const COPY_SAMPLES = 6144;
+
+/** Conversion and native copies share the same pump budget as synthesis. */
+function* render(ac: BaseAudioContext, kind: ClipKind, seed: number): Generator<void, AudioBuffer> {
+  const c: Clip = yield* SYNTHS[kind](seed, RATE[kind]);
+  const mono = MONO.has(kind), buf = ac.createBuffer(mono ? 1 : 2, c.L.length, c.sr);
+  yield;
+  for (let i = 0; i < c.L.length; i += COPY_SAMPLES) {
+    const end = Math.min(c.L.length, i + COPY_SAMPLES);
+    if (mono) {
+      const m = new Float32Array(end - i);
+      for (let j = i; j < end; j++) m[j - i] = (c.L[j] + c.R[j]) * 0.5;
+      buf.copyToChannel(m, 0, i);
+    } else {
+      buf.copyToChannel(c.L.subarray(i, end) as Float32Array<ArrayBuffer>, 0, i);
+      buf.copyToChannel(c.R.subarray(i, end) as Float32Array<ArrayBuffer>, 1, i);
+    }
+    yield;
+  }
+  return buf;
+}
+
+interface Job { kind: ClipKind; slot: number; gen: Generator<void, AudioBuffer> }
 
 export class ClipBank {
   private readonly clips = Object.fromEntries(Object.keys(PLAN).map((k) => [k, []])) as unknown as Record<ClipKind, AudioBuffer[]>;
@@ -50,7 +74,7 @@ export class ClipBank {
   private job: Job | null = null;
   private seed: number;
   private refreshN = 0;
-  private readonly wanted: ClipKind[] = [];
+  private readonly wanted = new Map<ClipKind, number>();
 
   constructor(private readonly ac: BaseAudioContext, seed: number) {
     this.seed = seed >>> 0;
@@ -61,8 +85,10 @@ export class ClipBank {
 
   /** Ask for a lazy kind: queues its variants the first time (true), no-op after. */
   want(kind: ClipKind): boolean {
-    if (!LAZY.has(kind) || this.wanted.includes(kind)) return false;
-    this.wanted.push(kind);
+    if (!LAZY.has(kind)) return false;
+    const wanted = this.wanted.has(kind);
+    this.wanted.set(kind, this.ac.currentTime);
+    if (wanted) return false;
     for (let i = 0; i < PLAN[kind]; i++) this.queue.push({ kind, slot: i });
     return true;
   }
@@ -81,8 +107,18 @@ export class ClipBank {
 
   /** Queue one replacement variant (call every ~20 s while playing). */
   refresh(): void {
+    const now = this.ac.currentTime;
+    for (const [kind, at] of this.wanted) {
+      if (now - at < RETAIN_SECONDS) continue;
+      this.wanted.delete(kind);
+      this.clips[kind].length = 0;
+      this.last[kind] = -1;
+      for (let i = this.queue.length - 1; i >= 0; i--) if (this.queue[i].kind === kind) this.queue.splice(i, 1);
+      if (this.job?.kind === kind) this.job = null;
+    }
     if (this.pending) return;
-    const pool = this.wanted.length ? [...REFRESH, ...this.wanted] : REFRESH;
+    const active = [...this.wanted].filter(([, at]) => now - at < ACTIVE_SECONDS).map(([kind]) => kind);
+    const pool = [...REFRESH, ...active];
     const kind = pool[this.refreshN++ % pool.length];
     this.queue.push({ kind, slot: Math.floor(makeRng(this.seed + this.refreshN)() * PLAN[kind]) });
   }
@@ -95,22 +131,11 @@ export class ClipBank {
         const next = this.queue.shift();
         if (!next) return false;
         this.seed = (Math.imul(this.seed, 1664525) + 1013904223) >>> 0;
-        this.job = { ...next, gen: SYNTHS[next.kind](this.seed, RATE[next.kind]) };
+        this.job = { ...next, gen: render(this.ac, next.kind, this.seed) };
       }
       const s = this.job.gen.next();
       if (s.done) {
-        const c = s.value;
-        let buf: AudioBuffer;
-        if (MONO.has(this.job.kind)) {
-          const m = new Float32Array(c.L.length);
-          for (let i = 0; i < m.length; i++) m[i] = (c.L[i] + c.R[i]) * 0.5;
-          buf = this.ac.createBuffer(1, m.length, c.sr);
-          buf.copyToChannel(m, 0);
-        } else {
-          buf = this.ac.createBuffer(2, c.L.length, c.sr);
-          buf.copyToChannel(c.L as Float32Array<ArrayBuffer>, 0); buf.copyToChannel(c.R as Float32Array<ArrayBuffer>, 1);
-        }
-        this.clips[this.job.kind][this.job.slot] = buf;
+        this.clips[this.job.kind][this.job.slot] = s.value;
         // keep the list dense even if slots fill out of order
         this.clips[this.job.kind] = this.clips[this.job.kind].filter(Boolean);
         this.job = null;
@@ -133,7 +158,7 @@ export class ClipBank {
   dispose(): void {
     this.job = null;
     this.queue.length = 0;
-    this.wanted.length = 0;
+    this.wanted.clear();
     for (const kind of Object.keys(PLAN) as ClipKind[]) this.clips[kind].length = 0;
   }
 }
