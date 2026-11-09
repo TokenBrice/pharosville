@@ -201,6 +201,20 @@ describe("depeg event records", () => {
 });
 
 describe("reserve provenance and composition", () => {
+  it("formats reserve percentages without exposing floating-point precision", async () => {
+    input.stablecoinReserves.reserves = [
+      { name: "Treasuries", pct: 100 / 3, risk: "low" },
+      { name: "Cash", pct: 2 / 3, risk: "low" },
+      { name: "Other", pct: 0.0004, risk: "high" },
+    ];
+    requests(); mount(); await toggle("Backing");
+    const table = screen.getByRole("table");
+    expect(within(table).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
+      "33%", "low", "0.7%", "low", "<0.1%", "high",
+    ]);
+    expect(screen.getByText("Reported shares total 34%; they do not reconcile to 100%.")).toBeTruthy();
+  });
+
   it.each([
     ["live", false, "Live", "current"], ["live-stale", false, "Live, stale", "stale"],
     ["curated-fallback", true, "Curated fallback", "unavailable"], ["template-fallback", true, "Template fallback", "unavailable"],
@@ -249,8 +263,8 @@ describe("reserve provenance and composition", () => {
     const fetch = requests(); mount(); await toggle("Backing");
     const table = screen.getByRole("table", { name: "Reserves · Reported reserve composition" });
     expect(within(table).getAllByRole("columnheader").map((el) => el.textContent)).toEqual(["Name", "Share", "Risk"]);
-    expect(within(table).getByText("80.5%")).toBeTruthy();
-    expect(screen.getByText("Reported shares total 95.5%; they do not reconcile to 100%.")).toBeTruthy();
+    expect(within(table).getByText("81%")).toBeTruthy();
+    expect(screen.getByText("Reported shares total 96%; they do not reconcile to 100%.")).toBeTruthy();
     const links = screen.getAllByRole("link"); expect(links).toHaveLength(2);
     for (const link of links) {
       expect(link.getAttribute("href")).toMatch(/^https:\/\//);
