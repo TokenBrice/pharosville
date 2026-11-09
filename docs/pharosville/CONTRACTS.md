@@ -136,7 +136,7 @@ demotion never depends on browser-specific merging of 304 headers.
 
 `shared/lib/pharosville-panel-endpoints.ts` is separate from the seven world endpoints;
 `HarbourFeed`, `WORLD_ENDPOINT_KEYS` and `PHAROSVILLE_API_ENDPOINT_KEYS` do not change.
-Only the admitted coin-panel slot (`ui/coin-readings`) may import `data/panel-fetch.ts`.
+Only the admitted coin-panel slot (`ui/coin-readings`) may import `src/harbour/data/panel-fetch.ts`.
 It makes an explicit same-origin GET when opened, with no prefetch or polling, and
 the caller cancels on close, selection change or unmount. Blocked viewports never mount this slot.
 `shared/types/pharosville-panels.ts` owns these narrow standalone schemas. Each projector
