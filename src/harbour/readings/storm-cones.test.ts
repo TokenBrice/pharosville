@@ -54,4 +54,34 @@ describe("D11 the storm signal's lanterns", () => {
     expect(lit()).toEqual([true, true, false, false]);
     cones.dispose(); kit.dispose(); lantern.dispose();
   });
+
+  it("place a first installed reading at once (every shape, lantern and the pennant on the first frame) and haul live changes", () => {
+    const rig = { slots: [[0, 12, 0], [0, 9, 0], [0, 6, 0], [0, 3, 0]] as const, foot: [0, 1, 0] as const, masthead: [0, 14, 0] as const };
+    const kit = new THREE.MeshStandardMaterial(), lantern = new THREE.MeshStandardMaterial(), parent = new THREE.Group();
+    const cones = new StormCones(parent, rig, kit, lantern);
+    const lanterns = parent.getObjectByName("storm_signal_lanterns") as THREE.InstancedMesh;
+    const canvas = parent.getObjectByName("storm_signal") as THREE.Mesh;
+    const camera = new THREE.Vector3(60, 20, 60);
+    const top = () => { canvas.geometry.computeBoundingBox(); return canvas.geometry.boundingBox!.max.y; };
+    const pennantOut = () => { const p = canvas.geometry.attributes.position.array as Float32Array; return p.slice(p.length - 6).some((v) => v !== 0); };
+    // Danger on the first installed reading: on the very first (not reduced) frame, four shapes, four lanterns, the pennant
+    cones.setCount(4, true, true);
+    cones.update(1 / 60, 0, 0.5, false, camera);
+    expect(lanterns.count).toBe(4);
+    expect(top()).toBeGreaterThan(12); // the top cone at its slot, not climbing from the foot
+    expect(pennantOut()).toBe(true);
+    // a live change in view hauls: down to Alert (the struck drums still coming down, dark), then back up a shape at a time
+    const p = (cones as unknown as { p: Float32Array }).p;
+    cones.setCount(2, false);
+    cones.update(1 / 60, 1 / 60, 0.5, false, camera);
+    expect(lanterns.count).toBe(2);
+    expect(p[3]).toBeGreaterThan(0.9);
+    for (let k = 0; k < 900; k++) cones.update(1 / 60, k / 60, 0.5, false, camera);
+    expect([p[2], p[3]]).toEqual([0, 0]);
+    cones.setCount(4, true);
+    cones.update(1 / 60, 15, 0.5, false, camera);
+    expect(p[2]).toBeLessThan(0.1);
+    expect(p[3]).toBe(0);
+    cones.dispose(); kit.dispose(); lantern.dispose();
+  });
 });
