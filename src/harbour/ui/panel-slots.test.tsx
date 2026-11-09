@@ -8,9 +8,13 @@ import { StoreContext } from "./hooks";
 import { SidePanel } from "./Panel";
 import { panelFixture } from "./__fixtures__/store";
 
+vi.mock("./coin-readings/CoinReadings", () => ({ CoinReadings: vi.fn(() => null) }));
+vi.mock("./harbour-report/HarbourReports", () => ({ HarbourReports: vi.fn(() => null) }));
+vi.mock("./panel-actions/PanelActions", () => ({ PanelActions: vi.fn(() => null), PanelOutbound: vi.fn(() => null) }));
+
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-it.each(["boat", "harbourmaster"])("mounts empty %s slots without adding DOM", (kind) => {
+it.each(["boat", "harbourmaster"])("mounts %s scaffold slots in their reserved positions", (kind) => {
   const f = panelFixture();
   const slots = [vi.spyOn(coin, "CoinReadings"), vi.spyOn(reports, "HarbourReports"), vi.spyOn(actions, "PanelActions"), vi.spyOn(actions, "PanelOutbound")];
   f.store.select(kind === "boat" ? { kind: "boat", id: f.model.boats[0].id } : { kind: "landmark", id: "harbourmaster" }, { fly: false });
