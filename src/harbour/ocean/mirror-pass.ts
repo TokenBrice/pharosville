@@ -19,8 +19,11 @@ export const MIRROR_PASS_NAME = "MirrorPass";
 export const MIRROR_STRENGTH = 0.3;
 /** Sea-clock wobble: uv per unit of the smoothed surface slope, mostly along the view (vertical strokes). */
 export const MIRROR_WOBBLE = 0.05;
-/** The longest reflected ray (m): the Pharos lantern from the water before it at the hero pitch. */
-export const MIRROR_RAY = 240;
+/** The longest reflected ray (m). At the hero's 26° pitch a reflection of height h lands ~2h in front of its object, and
+ * the march fades over 60–100 % of the ray: 150 m mirrors in full up to ~40 m (hulls, masts, walls, lamps, the tower's
+ * foot) and nothing above ~66 m, so the upper Pharos no longer floats as a detached ghost in the inner basin beyond the
+ * brazier island (w-polish, v1.8.0; 240 reached the lantern, and that was the ghost). */
+export const MIRROR_RAY = 150;
 /** A tier switch eases the mirror in or out over this long (s), never a pop; Low (another ocean program) cuts at once. */
 export const MIRROR_FADE = 0.6;
 
