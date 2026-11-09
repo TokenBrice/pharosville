@@ -5,7 +5,8 @@ import { StoreContext } from "../../src/harbour/ui/hooks";
 import type { HarbourUIStore, UIState } from "../../src/harbour/ui/store";
 import { newLedgerContext, type LedgerContext, type LedgerTab, type LedgerView } from "../../src/harbour/ui/ledger-state";
 import { ensureMotionService } from "../../src/harbour/ui/services";
-import { publishPresentation } from "../../src/harbour/ui/presentation";
+import { postcardReceipt } from "../../src/harbour/ui/postcard";
+import { readPresentation, publishPresentation } from "../../src/harbour/ui/presentation";
 import type { EngineContext } from "../../src/harbour/engine/types";
 import type { PickHit } from "../../src/harbour/ui/services";
 import type { SoundController, SoundMode, SoundSnapshot } from "../../src/harbour/audio/controller";
@@ -65,7 +66,8 @@ export async function mountOverlayHarness(element: HTMLElement) {
     onPostcard(fn: () => void) { postcards.add(fn); return () => { postcards.delete(fn); }; },
     async captureFrame() {
       if (postcardFailure) throw new Error("Test postcard failure");
-      const frame = document.createElement("canvas"); frame.width = 320; frame.height = 180; return frame;
+      const frame = document.createElement("canvas"); frame.width = 320; frame.height = 180;
+      return { frame, receipt: postcardReceipt(state.model, 12, Date.now(), readPresentation(ctx), state.selected, state.chartMode) };
     },
     holdHover() {},
     noteInput() {}, dismissHover: () => false, stopAutomation() {}, stopWatch() {}, goHome() {}, keyPan() {}, keyZoom() {}, stepHull() {}, toggleFollow() {}, requestPostcard() { postcards.forEach((fn) => fn()); }, toggleWatch() {}, setFollow(follow: string | null) { set({ follow }); },

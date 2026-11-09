@@ -34,6 +34,7 @@ describe("projector → standalone schema → fetcher/feed → model → targets
     const { model, targets, payloads } = await observe(input);
     expect(payloads.stability?.data?.current?.inputDegradation).toEqual({ dewsUnavailable, depegEventsUnavailable });
     expect(model.readings.psi.qualified).toBe(dewsUnavailable || depegEventsUnavailable);
+    expect(model.readings.psi.inputDegradation).toEqual({ dewsUnavailable, depegEventsUnavailable });
     expect(targets.psi).toMatchObject({ lit: true, qualified: dewsUnavailable || depegEventsUnavailable });
     expect(payloads.stability?.data?.current?.computedAt).toBe(TRUTH_NOW / 1000 - 60);
   });
