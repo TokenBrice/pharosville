@@ -188,6 +188,10 @@ describe("built subject links smoke", () => {
     const smoke = readFileSync(new URL("../../scripts/harbour/links-smoke.mjs", import.meta.url), "utf8");
     expect(smoke).toContain("await captureLock()"); expect(smoke).toContain("await connectShared()");
     expect(smoke).not.toMatch(/chromium\.launch|readText\(|grantPermissions/);
+    expect(smoke).toContain('place: "landmark"');
+    expect(smoke).toContain('page.getByRole("option").and(page.locator(`[data-kind="${secondKind}"]`)).filter({ hasText: secondName }).click()');
+    expect(smoke.match(/page\.go(?:Back|Forward)\(/g)).toHaveLength(4);
+    expect(smoke.match(/page\.go(?:Back|Forward)\(\{ waitUntil: "commit" \}\)/g)).toHaveLength(4);
   });
 });
 
