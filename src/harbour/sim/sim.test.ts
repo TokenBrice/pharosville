@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildHarbourModel } from "../model/build";
-import { buildSimLayout } from "./layout-graph";
+import { buildSimLayout, type Slot } from "./layout-graph";
 import type { PathRec } from "./path";
-import { buildPlan, CYCLE_S, SEG_DOCK, SPEED } from "./plan";
+import { buildPlan, hydratePlan, CYCLE_S, SEG_DOCK, SPEED, type PlanData } from "./plan";
 import { EV_LAUNCH, EV_TO_SHOALS, HarbourSim, PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING, type PoseBuffer } from "./sim";
 import { buildPlanLegPath, pathKey, type PathRequest } from "./plan-paths";
 import { makeCoins, makeLayout, makePayloads, PIERED, T0_MS } from "./test-fixtures";
@@ -10,6 +10,21 @@ import { makeCoins, makeLayout, makePayloads, PIERED, T0_MS } from "./test-fixtu
 const opts = { pieredChains: PIERED, dead: [] };
 const layout = makeLayout();
 const model = buildHarbourModel(makePayloads(), T0_MS, opts);
+
+// Reuse this immutable fixture's allocation; each replay still owns fresh plan arrays and rafts.
+let fixture: { data: PlanData; rafts: Slot[]; base: number } | undefined;
+const fixturePlan: typeof buildPlan = (current, L) => {
+  if (current !== model) return buildPlan(current, L);
+  if (!fixture) {
+    const base = L.slots.length, plan = buildPlan(current, L);
+    fixture = structuredClone({ data: { key: plan.key, boats: plan.boats, stats: plan.stats }, rafts: L.slots.slice(base), base });
+    return plan;
+  }
+  expect(L.slots.length).toBe(fixture.base);
+  const copy = structuredClone(fixture);
+  L.slots.push(...copy.rafts);
+  return hydratePlan(copy.data, L);
+};
 
 const still = (ph: number) => ph === PH_DOCKED || ph === PH_MOORED || ph === PH_ANCHORED;
 const moving = (ph: number) => ph === PH_CASTING_OFF || ph === PH_SAILING || ph === PH_APPROACHING;
@@ -28,8 +43,8 @@ function doubleBooked(p: PoseBuffer): number {
 
 describe("HarbourSim", () => {
   it("is deterministic from (model, layout, UTC) and independent of history", () => {
-    const a = new HarbourSim(model, layout, T0_MS, null, buildPlan);
-    const b = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const a = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
+    const b = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     for (let k = 0; k < 400; k++) a.poseAt(T0_MS + k * 9_000); // a has history, b none
     const t = T0_MS + 400 * 9_000;
     const pa = a.poseAt(t);
@@ -39,13 +54,13 @@ describe("HarbourSim", () => {
     expect(Array.from(pb.position)).toEqual(Array.from(snapA));
     expect(Array.from(pb.heading)).toEqual(Array.from(headA));
     // and the 6 h cycle repeats exactly
-    const c = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const c = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const pc = c.poseAt(t + CYCLE_S * 1000);
     for (let i = 0; i < pc.count * 3; i++) expect(pc.position[i]).toBeCloseTo(snapA[i], 2);
   });
 
   it("reconciles counts: one pose per payload coin", () => {
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const p = sim.poseAt(T0_MS);
     expect(model.payloadCount).toBe(625);
     expect(model.boats.length).toBe(model.payloadCount);
@@ -54,7 +69,7 @@ describe("HarbourSim", () => {
   });
 
   it("never double-books a berth over a 3-hour sweep", () => {
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     let worst = 0;
     for (let k = 0; k < (3 * 3600) / 5; k++) worst = Math.max(worst, doubleBooked(sim.poseAt(T0_MS + k * 5_000)));
     expect(worst).toBe(0);
@@ -63,7 +78,7 @@ describe("HarbourSim", () => {
   // (the D22 bands, ~30% under way and 7-16 dockings a minute, are held in the real harbour:
   // harbour-layout.test.ts; this ring harbour funnels every pier through one lane node)
   it("keeps the harbour busy but calm: ~8-18% under way, 6-15 dockings a minute, outings included", () => {
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const prev = new Uint8Array(model.boats.length).fill(255);
     let uw = 0, out = 0, samples = 0, arrivals = 0;
     const minutes = 120;
@@ -89,7 +104,7 @@ describe("HarbourSim", () => {
   });
 
   it("harbour outings (decorative) are flagged, staggered, and come back to the same berth", () => {
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const outers = sim.plan.boats.map((b, i) => (b.outing ? i : -1)).filter((i) => i >= 0);
     expect(outers.length).toBeGreaterThan(50);
     const left = new Map<number, number>(); // hull → the slot she left from
@@ -124,7 +139,7 @@ describe("HarbourSim", () => {
   });
 
   it("docks each hull at each stop for time ∝ its supply share there", () => {
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     let checked = 0;
     model.boats.forEach((b, i) => {
       const plan = sim.plan.boats[i];
@@ -150,7 +165,7 @@ describe("HarbourSim", () => {
 
   // S16-I3 is deferred: keep its strict target opt-in; dwell.test.ts reports the measured drift.
   it.runIf(process.env.HARBOUR_D10_STRICT === "1")("empirically: over a cycle, docked time per harbour follows the shares", () => {
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const circuit = model.boats.map((_, i) => (sim.plan.boats[i].kind === "circuit" ? i : -1)).filter((i) => i >= 0).slice(0, 25);
     const acc = circuit.map(() => new Map<string, number>());
     const step = 20;
@@ -174,7 +189,7 @@ describe("HarbourSim", () => {
   it("stale data: hulls under way finish their leg, then everything holds", () => {
     const staleModel = buildHarbourModel(makePayloads({ stale: true }), T0_MS, opts);
     expect(staleModel.truth.stablecoins.state).toBe("stale");
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     sim.poseAt(T0_MS + 600_000);
     const before = sim.stats.underWay;
     expect(before).toBeGreaterThan(0);
@@ -295,7 +310,7 @@ describe("HarbourSim", () => {
   });
 
   it("legs are smooth: no position jumps or heading snaps while under way", () => {
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const n = model.boats.length;
     const px = new Float32Array(n), pz = new Float32Array(n), ph = new Float32Array(n);
     let maxJump = 0, maxTurn = 0, shoved = 0, samples = 0;
@@ -323,7 +338,7 @@ describe("HarbourSim", () => {
   });
 
   it("casts off without spinning: no hull turns tighter than ~0.6 LOA while making way", () => {
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const n = model.boats.length;
     const px = new Float32Array(n), pz = new Float32Array(n), ph = new Float32Array(n);
     const loa = model.boats.map((b) => sim.layout.loa[b.hullClass]);
@@ -349,7 +364,7 @@ describe("HarbourSim", () => {
   });
 
   it("keeps sailing speeds sane: harbour pace, no surges", () => {
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     let maxV = 0, maxA = 0;
     const prev = new Float32Array(model.boats.length);
     for (let k = 0; k < 1800; k++) {
@@ -382,25 +397,25 @@ describe("boot work off the main thread (sim/warm-legs)", () => {
   const workerPaths = (sim: HarbourSim, reqs: PathRequest[]): Array<[string, PathRec, boolean]> => {
     const L = buildSimLayout(layout), base = L.slots.length;
     L.slots.push(...structuredClone(sim.rafts()));
-    return structuredClone(reqs.map(([f, t, c, l]): [string, PathRec, boolean] => { const b = buildPlanLegPath(L, base, f, t, c, l); return [pathKey(f, t, c, l), b.path, b.bad]; }));
+    return structuredClone(reqs.map(([f, t, c, l, loa, beam]): [string, PathRec, boolean] => { const b = buildPlanLegPath(L, base, f, t, c, l, loa, beam); return [pathKey(f, t, c, l, loa, beam), b.path, b.bad]; }));
   };
 
   it("builds every plan leg the first poses need bit for bit as the main thread does", () => {
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const { now, soon } = sim.pathRequests(T0_MS);
     expect(now.length).toBeGreaterThan(20);
     expect(soon.length).toBeGreaterThan(5);
     const reqs = [...now, ...soon], base = sim.layout.slots.length - sim.rafts().length;
     const fromWorker = workerPaths(sim, reqs);
-    reqs.forEach(([f, t, c, l], k) => {
-      const main = buildPlanLegPath(sim.layout, base, f, t, c, l);
+    reqs.forEach(([f, t, c, l, loa, beam], k) => {
+      const main = buildPlanLegPath(sim.layout, base, f, t, c, l, loa, beam);
       expect(fromWorker[k][2]).toBe(main.bad);
       expect(fromWorker[k][1]).toStrictEqual(main.path); // typed arrays element by element (Object.is): the same bits
     });
   });
 
   it("poses a sim seeded with worker-built legs exactly as one that builds its own, and asks for nothing it then builds", () => {
-    const a = new HarbourSim(model, layout, T0_MS, null, buildPlan), b = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const a = new HarbourSim(model, layout, T0_MS, null, fixturePlan), b = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const { now, soon } = b.pathRequests(T0_MS + 1_000);
     b.seedPaths(b.plan, workerPaths(b, [...now, ...soon]));
     expect(b.pathRequests(T0_MS + 1_000)).toEqual({ now: [], soon: [] });
@@ -413,7 +428,7 @@ describe("boot work off the main thread (sim/warm-legs)", () => {
   });
 
   it("ignores legs built for another plan", () => {
-    const a = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const a = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const plan = a.plan, built = workerPaths(a, a.pathRequests(T0_MS).now);
     a.setModel(buildHarbourModel(makePayloads({ n: 300 }), T0_MS, opts), T0_MS);
     expect(a.plan).not.toBe(plan);
@@ -425,23 +440,27 @@ describe("boot work off the main thread (sim/warm-legs)", () => {
 
 describe("prepared plans and held poses", () => {
   it("hydrates a transferred plan and every pose field exactly without a main-thread planner", () => {
-    const worker = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const worker = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const { now, soon } = worker.pathRequests(T0_MS);
     const base = worker.layout.slots.length - worker.rafts().length;
-    const paths = [...now, ...soon].map(([from, to, cls, loop]): [string, PathRec, boolean] => {
-      const { path, bad } = buildPlanLegPath(worker.layout, base, from, to, cls, loop);
-      return [pathKey(from, to, cls, loop), path, bad];
+    const paths = [...now, ...soon].map(([from, to, cls, loop, loa, beam]): [string, PathRec, boolean] => {
+      const { path, bad } = buildPlanLegPath(worker.layout, base, from, to, cls, loop, loa, beam);
+      return [pathKey(from, to, cls, loop, loa, beam), path, bad];
     });
     worker.seedPaths(worker.plan, paths);
     const main = new HarbourSim(buildHarbourModel({}, T0_MS, opts), layout, T0_MS);
     main.setModel(model, T0_MS, structuredClone({ plan: { key: worker.plan.key, boats: worker.plan.boats, stats: worker.plan.stats }, rafts: worker.rafts().filter((s) => s.kind === "raft"), paths }));
     expect(main.plan.boats).toStrictEqual(worker.plan.boats);
     expect(main.plan.stats).toStrictEqual(worker.plan.stats);
-    for (let i = 0; i < 20; i++) expect(main.poseAt(T0_MS + i * 1000)).toStrictEqual(worker.poseAt(T0_MS + i * 1000));
+    for (let i = 0; i < 20; i++) {
+      const nowMs = T0_MS + i * 1000, req = main.pathRequests(nowMs);
+      main.seedPaths(main.plan, [...req.now, ...req.soon].map((r) => { const result = buildPlanLegPath(worker.layout, base, ...r); return [pathKey(...r), result.path, result.bad]; }));
+      expect(main.poseAt(nowMs)).toStrictEqual(worker.poseAt(nowMs));
+    }
   });
 
   it("retains runtime objects for identical/nonstructural refreshes", () => {
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     sim.poseAt(T0_MS);
     const internals = sim as unknown as { rt: object[] };
     const runtimes = internals.rt;
@@ -454,7 +473,7 @@ describe("prepared plans and held poses", () => {
   });
 
   it("reuses complete held poses while draining lookahead and invalidates on wind/model changes", () => {
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const internals = sim as unknown as { separate(): void; drainLookahead(): void; prefetch: unknown[] };
     const separate = vi.spyOn(internals, "separate"), drain = vi.spyOn(internals, "drainLookahead");
     // Drain the initial independent lookahead, including version changes from seeded paths.
@@ -476,19 +495,21 @@ describe("prepared plans and held poses", () => {
   });
 
   it("keeps plain authored paths across real replans but drops scenic and raft-dependent paths", () => {
-    const sim = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const sim = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const base = sim.layout.slots.length - sim.rafts().length;
     const plain = sim.pathRequests(T0_MS).now.find(([from, to, , loop]) => !loop && from < base && to < base)!;
     expect(plain).toBeDefined();
-    const [from, to, cls] = plain;
-    const { path } = buildPlanLegPath(sim.layout, base, from, to, cls, 0);
-    const key = pathKey(from, to, cls, 0), scenic = pathKey(from, to, cls, 1), raft = pathKey(base, to, cls, 0);
-    sim.seedPaths(sim.plan, [[key, path, false], [scenic, path, false], [raft, path, false]]);
+    const [from, to, cls, , loa, beam] = plain;
+    const { path } = buildPlanLegPath(sim.layout, base, from, to, cls, 0, loa, beam);
+    const key = pathKey(from, to, cls, 0, loa, beam), scenic = pathKey(from, to, cls, 1, loa, beam), raft = pathKey(base, to, cls, 0, loa, beam);
+    sim.seedPaths(sim.plan, [[key, path, true], [scenic, path, false], [raft, path, false]]);
+    expect(sim.knownPlainPaths()).not.toContain(key);
     sim.setModel(buildHarbourModel(makePayloads({ n: 300 }), T0_MS, opts), T0_MS);
     // Test-only access to verify cache object identity, not just numerically equal routes.
-    const internals = sim as unknown as { pathCache: Map<string, PathRec> };
+    const internals = sim as unknown as { pathCache: Map<string, PathRec>; badOuting: Set<string> };
     const cache = internals.pathCache;
     expect(cache.get(key)).toBe(path);
+    expect(internals.badOuting.has(key)).toBe(true);
     expect(cache.get(scenic)).not.toBe(path);
     expect(cache.get(raft)).not.toBe(path);
   });
@@ -496,16 +517,16 @@ describe("prepared plans and held poses", () => {
 
 describe("prepared refresh parity", () => {
   it("preserves real replan voyages and poses exactly when allocation arrives from a worker", () => {
-    const direct = new HarbourSim(model, layout, T0_MS, null, buildPlan);
-    const prepared = new HarbourSim(model, layout, T0_MS, null, buildPlan);
+    const direct = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
+    const prepared = new HarbourSim(model, layout, T0_MS, null, fixturePlan);
     const at = T0_MS + 60_000;
     direct.poseAt(at); prepared.poseAt(at);
     const next = buildHarbourModel(makePayloads({ n: 300 }), T0_MS, opts);
     const worker = new HarbourSim(next, layout, at, null, buildPlan);
     const requests = worker.pathRequests(at), base = worker.layout.slots.length - worker.rafts().length;
-    const paths = [...requests.now, ...requests.soon].map(([from, to, cls, loop]): [string, PathRec, boolean] => {
-      const result = buildPlanLegPath(worker.layout, base, from, to, cls, loop);
-      return [pathKey(from, to, cls, loop), result.path, result.bad];
+    const paths = [...requests.now, ...requests.soon].map(([from, to, cls, loop, loa, beam]): [string, PathRec, boolean] => {
+      const result = buildPlanLegPath(worker.layout, base, from, to, cls, loop, loa, beam);
+      return [pathKey(from, to, cls, loop, loa, beam), result.path, result.bad];
     });
     worker.seedPaths(worker.plan, paths);
     direct.setModel(next, at);

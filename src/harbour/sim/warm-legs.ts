@@ -3,13 +3,16 @@ import type { HarbourModel } from "../model/types";
 import type { CoastGrid } from "./obstacles";
 import type { OutingSeed } from "./outings";
 import type { RepLeg } from "./plan";
-import type { PreparedPlan } from "./plan-paths";
+import type { PathRequest, PreparedPlan } from "./plan-paths";
 
 export interface WarmLegs {
   done: Promise<void>;
   prepare(model: HarbourModel, nowMs: number, knownPlainPaths: string[]): Promise<PreparedPlan>;
+  paths(planRevision: number, layoutKey: string, legs: PathRequest[]): Promise<PathReply>;
   stop(): void;
 }
+
+export interface PathReply { planRevision: number; layoutKey: string; paths: PreparedPlan["paths"]; holds?: PreparedPlan["holds"] }
 
 export class SimulationWorkerError extends Error {
   constructor(message: string, readonly reason: "timeout" | "crash" = "crash") { super(message); }
@@ -27,6 +30,7 @@ export function warmLegsOffThread(layout: HarbourLayout, coast: Promise<CoastGri
   let ready!: () => void, rejectReady!: (error: Error) => void;
   const done = new Promise<void>((resolve, reject) => { ready = resolve; rejectReady = reject; });
   const pending = new Map<number, { resolve(value: PreparedPlan): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
+  const pathPending = new Map<number, { resolve(value: PathReply): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
   const warmTimer = setTimeout(() => fail(new SimulationWorkerError("Fleet warmup timed out", "timeout")), DEADLINE_MS);
   const fail = (error: Error, notify = true) => {
     if (failure) return;
@@ -36,15 +40,22 @@ export function warmLegsOffThread(layout: HarbourLayout, coast: Promise<CoastGri
     rejectReady(error);
     for (const p of pending.values()) { clearTimeout(p.timer); p.reject(error); }
     pending.clear();
+    for (const p of pathPending.values()) { clearTimeout(p.timer); p.reject(error); }
+    pathPending.clear();
     if (notify) onError(error);
   };
   try {
     worker = new Worker(new URL("./warm-legs.worker.ts", import.meta.url), { type: "module" });
-    worker.onmessage = (event: MessageEvent<{ id?: number; error?: string; legs?: Array<[string, RepLeg]>; outings?: OutingSeed; prepared?: PreparedPlan }>) => {
+    worker.onmessage = (event: MessageEvent<{ id?: number; error?: string; legs?: Array<[string, RepLeg]>; outings?: OutingSeed; prepared?: PreparedPlan; planRevision?: number; layoutKey?: string; paths?: PreparedPlan["paths"]; holds?: PreparedPlan["holds"] }>) => {
       if (failure) return;
       const m = event.data;
       if (m.error) { fail(new Error(m.error)); return; }
       if (m.legs && m.outings) { clearTimeout(warmTimer); onShare(m.legs); onOutings(m.outings); ready(); return; }
+      if (m.id != null && m.paths && m.planRevision != null && m.layoutKey != null) {
+        const p = pathPending.get(m.id);
+        if (p) { clearTimeout(p.timer); p.resolve({ planRevision: m.planRevision, layoutKey: m.layoutKey, paths: m.paths, holds: m.holds }); pathPending.delete(m.id); }
+        return;
+      }
       if (m.id != null && m.prepared) {
         const p = pending.get(m.id);
         if (p) { clearTimeout(p.timer); p.resolve(m.prepared); pending.delete(m.id); }
@@ -68,6 +79,17 @@ export function warmLegsOffThread(layout: HarbourLayout, coast: Promise<CoastGri
         const timer = setTimeout(() => fail(new SimulationWorkerError("Fleet preparation timed out", "timeout")), DEADLINE_MS);
         pending.set(id, { resolve, reject, timer });
         try { worker!.postMessage({ type: "prepare", id, model, nowMs, knownPlainPaths }); }
+        catch (error) { fail(error instanceof Error ? error : new Error(String(error))); }
+      });
+    },
+    async paths(planRevision, layoutKey, legs) {
+      await done;
+      if (failure || !worker) throw failure ?? new Error("Simulation worker stopped");
+      const id = ++serial;
+      return new Promise<PathReply>((resolve, reject) => {
+        const timer = setTimeout(() => fail(new SimulationWorkerError("Fleet paths timed out", "timeout")), DEADLINE_MS);
+        pathPending.set(id, { resolve, reject, timer });
+        try { worker!.postMessage({ type: "paths", id, planRevision, layoutKey, legs }); }
         catch (error) { fail(error instanceof Error ? error : new Error(String(error))); }
       });
     },

@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import * as THREE from "three";
+import { describe, expect, it, vi } from "vitest";
 import { OCEAN_FRAG } from "./ocean-material";
 import { WakeField, type WakeService } from "./wake";
+import { FullscreenPass } from "./gpu-bake";
 
 /**
  * E12 feathered wakes (O3-I3, O1-I11). TS twins of the stamp shader's Kelvin arm (wake.ts STAMP_FRAG) and of the
@@ -158,4 +160,81 @@ describe("E12 feathered wakes", () => {
     for (const call of calls) expect(call).toMatch(/, b\.phi\)$/);
     field.dispose();
   });
+});
+
+describe("B11 wake resizing", () => {
+  const internals = (wake: WakeField) => wake as unknown as {
+    hist: THREE.WebGLRenderTarget[]; liveRT: THREE.WebGLRenderTarget; idx: number; count: number;
+    decayDt: number; copy: FullscreenPass; decay: FullscreenPass;
+  };
+
+  it("copies both histories and every live channel before atomic rebind/disposal, preserving pending stamps and decay", () => {
+    const wake = new WakeField([-100, -100, 100, 100]), state = internals(wake);
+    const copies: Array<[THREE.Texture, THREE.WebGLRenderTarget]> = [];
+    const blit = vi.spyOn(state.copy, "render").mockImplementation((_r, target) => { copies.push([state.copy.material.uniforms.uSource.value as THREE.Texture, target!]); });
+    state.idx = 1; state.decayDt = 0.03;
+    wake.stamp(1, 2, 3, 0, 1, 0.7, 4);
+    const pending = wake.preparationEntries();
+    expect(pending.slice(0, 2).map((entry) => entry.target())).toEqual([state.hist[1], state.liveRT]);
+    const renderer = {} as THREE.WebGLRenderer;
+    for (const size of [1024, 2048, 1024]) {
+      const previous = [...state.hist, state.liveRT], oldTextures = previous.map((target) => target.texture);
+      let rebound = false, disposed = 0;
+      for (const target of previous) target.addEventListener("dispose", () => { expect(rebound).toBe(true); disposed++; });
+      copies.length = 0;
+      const rebind = vi.fn(() => {
+        rebound = true;
+        expect(disposed).toBe(0);
+        expect(wake.texture).toBe(state.hist[1].texture);
+        expect(wake.live).toBe(state.liveRT.texture);
+        expect(oldTextures).not.toContain(wake.texture);
+        expect(copies.map(([source]) => source)).toEqual(oldTextures);
+      });
+      wake.resize(renderer, size, rebind);
+      expect(rebind).toHaveBeenCalledOnce(); expect(disposed).toBe(3);
+      expect(copies.map(([, target]) => [target.width, target.height])).toEqual([[size, size], [size, size], [size, size]]);
+      expect(state.hist.map((target) => [target.texture.format, target.texture.type])).toEqual([[THREE.RedFormat, THREE.HalfFloatType], [THREE.RedFormat, THREE.HalfFloatType]]);
+      expect(state.liveRT.texture.format).toBe(THREE.RGBAFormat);
+      expect(state.decay.material.uniforms.uTexel.value.toArray()).toEqual([1 / size, 1 / size]);
+      expect([state.idx, state.count, state.decayDt]).toEqual([1, 1, 0.03]);
+      expect(pending[0].target()).toBe(state.hist[1]);
+      expect(pending[1].target()).toBe(state.liveRT);
+      blit.mockClear(); wake.resize(renderer, size, rebind);
+      expect(blit).not.toHaveBeenCalled(); expect(rebind).toHaveBeenCalledOnce();
+    }
+    blit.mockRestore(); wake.dispose();
+  });
+
+  it("keeps old textures bound and releases partial replacements when a blit fails", () => {
+    const wake = new WakeField([-100, -100, 100, 100]), state = internals(wake);
+    const previous = [...state.hist, state.liveRT], oldTexture = wake.texture, oldLive = wake.live;
+    const oldDispose = vi.fn(); for (const target of previous) target.addEventListener("dispose", oldDispose);
+    const released = vi.fn(), blit = vi.spyOn(state.copy, "render").mockImplementation((_r, target) => {
+      target!.addEventListener("dispose", released); throw new Error("copy failed");
+    });
+    const publish = vi.fn();
+    expect(() => wake.resize({} as THREE.WebGLRenderer, 1024, publish)).toThrow("copy failed");
+    expect(publish).not.toHaveBeenCalled(); expect(oldDispose).not.toHaveBeenCalled(); expect(released).toHaveBeenCalledOnce();
+    expect(wake.texture).toBe(oldTexture); expect(wake.live).toBe(oldLive);
+    expect(state.copy.material.uniforms.uSource.value).toBeNull();
+    blit.mockRestore(); wake.dispose();
+  });
+});
+
+it("clears both history buffers and queued stamps at a resume boundary, restoring renderer state", async () => {
+  const field = new WakeField([-10, -10, 10, 10], 8, 8);
+  field.stamp(0, 0, 2, 0, 1, 1);
+  const previous = {}, targets: unknown[] = [];
+  let clearColor = new THREE.Color(0x112233), clearAlpha = 0.7, target: unknown = previous, clears = 0;
+  const renderer = {
+    getRenderTarget: () => target, setRenderTarget: (v: unknown) => { target = v; targets.push(v); },
+    getClearAlpha: () => clearAlpha, getClearColor: (out: THREE.Color) => out.copy(clearColor),
+    setClearColor: (v: number | THREE.Color, a: number) => { clearColor = new THREE.Color(v); clearAlpha = a; },
+    clear: () => { clears++; },
+  };
+  field.clear(renderer as never);
+  expect(clears).toBe(3); expect(targets).toHaveLength(4); expect(target).toBe(previous);
+  expect(clearColor.getHex()).toBe(0x112233); expect(clearAlpha).toBe(0.7);
+  expect((field as unknown as { count: number }).count).toBe(0);
+  field.dispose();
 });

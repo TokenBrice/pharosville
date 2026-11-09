@@ -98,7 +98,37 @@ function checkHull(file) {
   }
 }
 
+// The Pharos (scripts/harbour/blender/pharos, E18): world/lighthouse-system.ts finds these nodes by name. The lantern is
+// the beam origin (FIRE_Z 88.2), the mirror the beam pivot; the emitters seat the fire, the plume and the statue's
+// firelight. A moved anchor must move its runtime constant in the same change, so the export and this check pin them.
+const PHAROS = {
+  file: join(root, "public/harbour/lighthouse.glb"),
+  meshes: { tower: "hb_opaque", tower_windows: "hb_window", statue: "hb_opaque", fire_core: "hb_fire", mirror_disc: "hb_mirror", mirror_frame: "hb_opaque" },
+  anchors: { lantern: [0, 88.2, 0], mirror: [0, 87.4, 0], fire_emitter: [0, 87.55, 0], smoke_emitter: [0, 96.35, 0] },
+  maxTriangles: 8179 + 14000, // v1 + PLAN section 7's E18 allowance
+};
+
+function checkPharos() {
+  const gltf = readGltf(PHAROS.file);
+  const byName = new Map((gltf.nodes ?? []).map((n) => [n.name, n]));
+  for (const [name, material] of Object.entries(PHAROS.meshes)) {
+    const node = byName.get(name);
+    const prim = node?.mesh !== undefined ? gltf.meshes[node.mesh].primitives[0] : undefined;
+    if (!prim) fail("lighthouse", `missing mesh node: ${name}`);
+    else if (gltf.materials?.[prim.material]?.name !== material) fail("lighthouse", `${name} must use ${material}`);
+  }
+  for (const [name, at] of Object.entries(PHAROS.anchors)) {
+    const t = byName.get(name)?.translation ?? [0, 0, 0];
+    if (!byName.has(name)) fail("lighthouse", `missing anchor node: ${name}`);
+    else if (t.some((v, i) => Math.abs(v - at[i]) > 1e-3)) fail("lighthouse", `${name} at [${t}] (the runtime expects [${at}])`);
+  }
+  const tris = (gltf.meshes ?? []).flatMap((m) => m.primitives)
+    .reduce((sum, p) => sum + gltf.accessors[p.indices ?? p.attributes.POSITION].count / 3, 0);
+  if (tris > PHAROS.maxTriangles) fail("lighthouse", `${tris} triangles > ${PHAROS.maxTriangles} (E18 ceiling)`);
+}
+
 checkCivic();
+checkPharos();
 const hulls = readdirSync(kitDir).filter((f) => /^(hull|titan)_.*\.glb$/.test(f) && !f.endsWith("_lod.glb"));
 if (hulls.length === 0) fail("hulls", "no hull_*/titan_* GLBs found in public/harbour/kit");
 for (const f of hulls) checkHull(join(kitDir, f));
@@ -111,4 +141,4 @@ if (failures.length) {
   console.error(`check-civic-contract: ${failures.length} failure(s)\n  ${failures.join("\n  ")}`);
   process.exit(1);
 }
-console.log(`check-civic-contract: ok (${Object.keys(CIVIC).length} civic kinds, ${hulls.length} hulls/titans)`);
+console.log(`check-civic-contract: ok (${Object.keys(CIVIC).length} civic kinds, ${hulls.length} hulls/titans, the Pharos)`);

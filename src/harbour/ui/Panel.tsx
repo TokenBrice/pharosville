@@ -192,15 +192,16 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
 
         {!b.activeDepeg && pegReading}
         <Sec title="Supply by chain">
-          <Freshness model={model} source="stablecoins" />
           <ChainSplit boat={b} />
         </Sec>
 
         <Sec title="Signals">
+          <Freshness model={model} source="stress" />
+          <Freshness model={model} source="safetyGrades" />
           <dl className="hb-dl">
             <dt>Early warning</dt>
-            <dd><Freshness model={model} source="stress" />{b.dews ? <span className="hb-band" style={{ "--band": DEWS_INK[b.dews] } as React.CSSProperties}>{titleCase(b.dews)}{b.dewsScore != null ? <em>&nbsp;{Math.round(b.dewsScore)}</em> : null}</span> : <em>{truthCopy({ kind: "absent-row", reading: "stress" })}</em>}</dd>
-            <dt>Safety grade</dt><dd><Freshness model={model} source="safetyGrades" />{sourceTruth(model, "safetyGrades").state === "current" ? <span>{truthCopy({ kind: "grade", grade: b.grade, truth: sourceTruth(model, "safetyGrades") })}</span> : b.grade && <em>Last received grade: {b.grade}.</em>}</dd>
+            <dd>{b.dews ? <span className="hb-band" style={{ "--band": DEWS_INK[b.dews] } as React.CSSProperties}>{titleCase(b.dews)}{b.dewsScore != null ? <em>&nbsp;{Math.round(b.dewsScore)}</em> : null}</span> : <em>{truthCopy({ kind: "absent-row", reading: "stress" })}</em>}</dd>
+            <dt>Safety grade</dt><dd>{sourceTruth(model, "safetyGrades").state === "current" ? <span>{truthCopy({ kind: "grade", grade: b.grade, truth: sourceTruth(model, "safetyGrades") })}</span> : b.grade && <em>Last received grade: {b.grade}.</em>}</dd>
             {signal && <><dt>Storm signal</dt><dd>{signal}</dd></>}
           </dl>
         </Sec>
@@ -669,11 +670,12 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
 
             {office && <p className="hb-caption">{office}.</p>}
             {model && <p className="hb-caption">{allocationLine(model.boats)}</p>}
+            {/* the health score is a chain comparison too: it reads the foot above the 24 h · 7 d · 30 d, printed once */}
+            <Sec title="Chain health">{h.healthScore != null ? <dl className="hb-dl"><dt>Health score</dt><dd>{Math.round(h.healthScore)}</dd></dl> : <p className="hb-caption">Chain health unavailable.</p>}</Sec>
             <Sec title="Largest reported holdings">
               <BoatList rows={visitors.slice(0, 10).map(({ b, usd }) => ({ id: b.id, label: <><b>{b.symbol}</b> <em>{share(usd / h.supplyUsd)}</em></>, value: money(usd) }))} />
             </Sec>
             <button type="button" className="hb-textbtn" onClick={() => store.coinsOnChain(chain)}>All coins on this chain</button>
-            <Sec title="Chain health"><Freshness model={model} source="chains" />{h.healthScore != null ? <dl className="hb-dl"><dt>Health score</dt><dd>{Math.round(h.healthScore)}</dd></dl> : <p className="hb-caption">Chain health unavailable.</p>}</Sec>
           </>
         )}
         <Scenery>

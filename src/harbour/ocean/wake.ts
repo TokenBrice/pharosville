@@ -3,6 +3,7 @@ import { FullscreenPass } from "./gpu-bake";
 import type { Bounds4 } from "./sea-sdf";
 import { SWELL_DIR } from "./waves";
 import type { PreparationEntry } from "../engine/types";
+import { COPY_FRAG } from "../engine/shaders/copy";
 
 /**
  * WAKE service ('wake'): a world-space wake/foam field over the sea bounds that every hull stamps into.
@@ -22,6 +23,7 @@ import type { PreparationEntry } from "../engine/types";
  * one evenly dotted pattern.
  */
 export interface WakeService {
+  clear(renderer: THREE.WebGLRenderer): void;
   preparationEntries(): PreparationEntry[];
   stamp(x: number, z: number, vx: number, vz: number, halfWidth: number, strength: number, halfLength?: number, seed?: number): void;
   readonly texture: THREE.Texture;
@@ -149,8 +151,8 @@ void main() {
 
 export class WakeField implements WakeService {
   readonly bounds: Bounds4;
-  private readonly hist: THREE.WebGLRenderTarget[];
-  private readonly liveRT: THREE.WebGLRenderTarget;
+  private hist: THREE.WebGLRenderTarget[];
+  private liveRT: THREE.WebGLRenderTarget;
   private idx = 0;
   private count = 0;
   /** PERF: the history decays/diffuses every other frame (on the summed dt); stamps still land every frame */
@@ -166,6 +168,7 @@ export class WakeField implements WakeService {
   private readonly cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly mesh: THREE.Mesh;
   private readonly decay: FullscreenPass;
+  private readonly copy = new FullscreenPass(COPY_FRAG, { uSource: { value: null } }, { name: "hb_wake_resize" });
   private readonly bufA: Float32Array;
   private readonly bufB: Float32Array;
   /** Downwind direction (world xz, unit) for the lee slicks; the ocean system sets it from the weather. */
@@ -210,6 +213,8 @@ export class WakeField implements WakeService {
   preparationEntries(): PreparationEntry[] {
     // Separate proxies retain both stamp materials without touching history, count or the ping-pong index.
     return [
+      this.copy.preparationEntry(() => this.hist[this.idx]),
+      this.copy.preparationEntry(() => this.liveRT),
       this.decay.preparationEntry(() => this.hist[1 - this.idx]),
       { root: new THREE.Mesh(this.geo, this.trailMat), camera: this.cam, target: () => this.hist[1 - this.idx] },
       { root: new THREE.Mesh(this.geo, this.liveMat), camera: this.cam, target: () => this.liveRT },
@@ -218,6 +223,25 @@ export class WakeField implements WakeService {
 
   get texture(): THREE.Texture { return this.hist[this.idx].texture; }
   get live(): THREE.Texture { return this.liveRT.texture; }
+
+  /** Publish all three resampled layers together, before releasing any texture a consumer held. */
+  resize(renderer: THREE.WebGLRenderer, size: number, rebind: () => void): void {
+    if (this.hist[0].width === size && this.liveRT.width === size) return;
+    const previous = [...this.hist, this.liveRT];
+    const next = previous.map((target) => { const copy = target.clone(); copy.setSize(size, size); return copy; });
+    try {
+      for (let i = 0; i < next.length; i++) {
+        this.copy.material.uniforms.uSource.value = previous[i].texture;
+        this.copy.render(renderer, next[i], false);
+      }
+    } catch (error) { for (const target of next) target.dispose(); throw error; }
+    finally { this.copy.material.uniforms.uSource.value = null; }
+    this.hist = next.slice(0, 2); this.liveRT = next[2];
+    this.decay.material.uniforms.uPrev.value = this.texture;
+    this.decay.material.uniforms.uTexel.value.set(1 / size, 1 / size);
+    rebind();
+    for (const target of previous) target.dispose();
+  }
 
   stamp(x: number, z: number, vx: number, vz: number, halfWidth: number, strength: number, halfLength?: number, seed = 0): void {
     if (this.count >= MAX_STAMPS) return;
@@ -276,9 +300,19 @@ export class WakeField implements WakeService {
     this.count = 0;
   }
 
+  /** Tab return: no orphaned trails survive a UTC pose reconciliation. */
+  clear(renderer: THREE.WebGLRenderer): void {
+    const target = renderer.getRenderTarget(), alpha = renderer.getClearAlpha();
+    renderer.getClearColor(this.prevClear);
+    renderer.setClearColor(0x000000, 0);
+    for (const rt of [...this.hist, this.liveRT]) { renderer.setRenderTarget(rt); renderer.clear(true, false, false); }
+    renderer.setClearColor(this.prevClear, alpha); renderer.setRenderTarget(target);
+    this.count = 0; this.decayDt = 0;
+  }
+
   dispose(): void {
     for (const rt of this.hist) rt.dispose();
     this.liveRT.dispose();
-    this.geo.dispose(); this.trailMat.dispose(); this.liveMat.dispose(); this.decay.dispose();
+    this.geo.dispose(); this.trailMat.dispose(); this.liveMat.dispose(); this.decay.dispose(); this.copy.dispose();
   }
 }

@@ -25,14 +25,36 @@ button, input, select, textarea { font: inherit; }
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 
-/* ---- poster: full-bleed key art, the same framing as the live harbour's first view ---- */
+/* ---- poster: full-bleed key art, the same framing as the live harbour's first view ----
+   E28: as the live harbour takes over, the poster settles onto it (registered on the Pharos, wake.ts) while it fades.
+   Its mask rests oversized, the feather outside the window; as the poster settles the mask draws in to a wide feather
+   (15 % a side), so the poster dissolves into the live harbour round it, never a picture in a picture. Reduced motion:
+   an opacity crossfade, nothing moves. The night key art (data-pv-hour="night", chosen before first paint by
+   functions/index.ts) brings its own ground and card.
+   B1: a poster that settles well inside the window (registration scale s < 0.85, a portrait tablet) lays its mask on its
+   own box at the reveal and grows the feather from nothing to min(40 %, 15 % / s) of the box as it settles (poster.ts),
+   so no box edge shows while it shrinks and the edge on screen ends as soft as landscape's. */
+@property --pv-feather { syntax: "<percentage>"; inherits: false; initial-value: 15%; }
+@keyframes pv-feather-in { from { --pv-feather: 0%; } }
 .pv-poster {
   position: fixed; inset: 0; z-index: 5; pointer-events: none;
-  background: linear-gradient(#e9c3a6, #c49a8c 30%, #1d5677 55%, var(--pv-night));
+  background: linear-gradient(#8e8991, #96715f 30%, #754e3b 55%, #3e4242); /* the key art's own rows, until it decodes */
   transition: opacity 1100ms var(--pv-ease);
 }
 .pv-poster img { display: block; width: 100%; height: 100%; max-width: none; object-fit: cover; }
 :root[data-pv-live] .pv-poster { opacity: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .pv-poster {
+    mask-image:
+      linear-gradient(90deg, transparent, #000 var(--pv-feather, 15%), #000 calc(100% - var(--pv-feather, 15%)), transparent),
+      linear-gradient(transparent, #000 var(--pv-feather, 15%), #000 calc(100% - var(--pv-feather, 15%)), transparent);
+    mask-composite: intersect;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: 145% 145%;
+  }
+  :root[data-pv-live] .pv-poster { mask-size: 100% 100%; }
+}
 
 /* ---- arrival: the corner wordmark (where the live one appears) + one chart-paper card ---- */
 .pv-arrival {
@@ -67,7 +89,7 @@ button, input, select, textarea { font: inherit; }
 .pv-arrival__card::before {
   content: ""; position: absolute; inset: 4px; border: 0.5px solid rgba(166, 130, 66, 0.55); pointer-events: none;
 }
-.pv-arrival__promise { margin: 0 0 10px; font-size: 1.45rem; font-style: italic; text-align: center; }
+.pv-arrival__promise { margin: 0 0 10px; font-size: 1.3125rem; font-style: italic; text-align: center; }
 .pv-arrival__guide {
   display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px;
   margin: 0 0 12px; padding: 10px 0 0; border-top: 0.5px solid var(--pv-brass);
@@ -80,18 +102,36 @@ button, input, select, textarea { font: inherit; }
   font-style: italic; color: var(--pv-ink-2); text-align: center;
 }
 .pv-arrival nav { display: flex; justify-content: center; flex-wrap: wrap; gap: 0 22px; }
-.pv-arrival nav a {
-  display: inline-flex; align-items: center; min-height: 36px;
-  color: #7a5a22; text-underline-offset: 3px; text-decoration-thickness: 0.5px;
-}
-.pv-arrival nav a:focus-visible { outline: 2px solid #1668a3; outline-offset: 2px; }
+/* the links and a failed arrival's action (Retry harbour, Reload page; drawn in harbour-app.css): 44 px under touch */
+.pv-arrival nav :is(a, button) { display: inline-flex; align-items: center; min-height: 36px; }
+.pv-arrival nav a { color: #7a5a22; text-underline-offset: 3px; text-decoration-thickness: 0.5px; }
+.pv-arrival nav :is(a, button):focus-visible { outline: 2px solid #1668a3; outline-offset: 2px; }
+@media (any-pointer: coarse) { .pv-arrival nav :is(a, button) { min-height: 44px; } }
 @media (max-width: 640px) {
   .pv-arrival__guide { grid-template-columns: 1fr; }
   .pv-arrival__guide dd { margin-bottom: 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pv-poster, .pv-arrival { transition-duration: 1ms; }
+  .pv-poster, .pv-arrival { transition-duration: 400ms; transition-timing-function: linear; }
 }
+
+/* ---- the night key art: its ground while the image loads, and the arrival card on the night bridge palette
+   (harbour-ui.css), so the card it crossfades into is the same dark chart and the fire keeps the brightest pixels ---- */
+:root[data-pv-hour="night"] {
+  --pv-paper: #18212b;
+  --pv-ink: #a39c8d;
+  --pv-ink-2: #9f988a;
+  --pv-brass: #a88a52;
+}
+:root[data-pv-hour="night"] .pv-poster { background: linear-gradient(#282b3c, #182238 30%, #1e2633 55%, #122337); }
+:root[data-pv-hour="night"] :is(.pv-arrival__mark, .pv-arrival__card) {
+  background-image: radial-gradient(120% 90% at 50% 40%, rgba(207, 174, 110, 0.05), rgba(207, 174, 110, 0) 60%, rgba(0, 0, 0, 0.2) 100%);
+  border-color: rgba(207, 174, 110, 0.38);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 14px 34px -10px rgba(0, 0, 0, 0.65);
+}
+:root[data-pv-hour="night"] .pv-arrival__card::before { border-color: rgba(207, 174, 110, 0.26); }
+:root[data-pv-hour="night"] .pv-arrival nav a { color: #ab8e5a; }
+:root[data-pv-hour="night"] .pv-arrival nav :is(a, button):focus-visible { outline-color: #6a9cc8; }
 
 /* ---- gate pages: screens or windows too small to chart (size tests, never orientation) ---- */
 .pharosville-gate { min-height: 100svh; background: #16222f; color: #eef0ec; }
@@ -134,3 +174,5 @@ button, input, select, textarea { font: inherit; }
     grid-column: 2; grid-row: 1 / 7; align-self: start; position: sticky; top: 24px; margin: 0;
   }
 }
+/* a coarse pointer's live mark is 50 px tall: the plaque matches it, so the reveal's crossfade is registered */
+@media (any-pointer: coarse) { .pv-arrival__mark { padding-block: 14px 15px; } }

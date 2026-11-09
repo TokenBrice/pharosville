@@ -7,8 +7,22 @@ import * as THREE from "three";
  * RANK 0..1 (distance from the Pharos + a little jitter). Each light SWITCHES ON over a short ramp
  * (`LAMP_RAMP` of glow) once the global uWindowGlow passes its own moment `LAMP_WAVE_START + spread × rank`,
  * then follows the global clock, so at dusk lit and unlit lamps stand apart along the moles while the front walks
- * outward, and full night is unchanged. The wave sits where dusk is seen: uWindowGlow climbs ~0.3 → 0.7 over the
- * ~45 min around sunset (the glow already creeps up through the afternoon, where a wave would go unseen).
+ * outward, and full night is unchanged.
+ *
+ * E26 the visible lamp round: the wave starts at glow 0.45 and ends at 0.85, from about half an hour before sunset
+ * into the early blue hour (glow 0.45 → 0.85 is the light the lamps are seen against), and each lamp ignites over
+ * 0.002 of glow (seconds to a few tens of seconds of the real clock, so a visitor can watch one catch) instead of
+ * fading over minutes. No overshoot and no lamplighter figure. GLSL constants are written with at least four decimals
+ * (`glslFloat`): three would turn a smaller ramp into zero.
+ *
+ * E29 the arrival beat (`uLampArrive`, wake.ts): after the poster the decorative lamps start dark and catch outward
+ * in the same rank order, then rest on the clock's true state (1). The Pharos's own fire and beam are analytical
+ * light and never read this uniform.
+ *
+ * D11: the wave and the beat are decorative timing, so no analytical light takes either; each shows its state at once,
+ * on the clock's glow alone, at every hour and at the arrival: the storm signal's lanterns (hb_emissive's
+ * `uLampAnalytic`, world/materials.ts), the analytical lights' glows (`KindSpec.analytic`: the signal and the keeper's
+ * vigil, lights-system.ts `iAna`) and the hulls' peg-reading stern and anchor lamps (fleet/riding-lights.ts `aInfo.w`).
  *
  * Unlit Pharos (PSI unknown): the wave starts from the town edge and reaches the dark tower last
  * (`fromEdge` → 1). Reduced motion: spread 0 → today's single global step.
@@ -34,19 +48,30 @@ export interface LampWaveParams {
 
 /** The whole wave in glow units (the first lamp at LAMP_WAVE_START, the last one this much later). */
 export const LAMP_WAVE_SPREAD = 0.4;
-/** Global glow at which the first (rank 0) lights switch on. */
-export const LAMP_WAVE_START = 0.3;
-/** One light's own switch-on ramp (glow units): short, so lit and unlit read apart. */
-export const LAMP_RAMP = 0.04;
+/** Global glow at which the first (rank 0) lights switch on (E26: about half an hour before sunset). */
+export const LAMP_WAVE_START = 0.45;
+/** One light's own ignition (glow units): short enough to watch it catch, so lit and unlit read apart. */
+export const LAMP_RAMP = 0.002;
 /** Share of the rank range the tower's own windows take (they light first, top-down). */
 export const TOWER_BAND = 0.06;
 const JITTER = 0.04;
+/** E29: one lamp's catch as a share of the arrival beat (the beat runs 0 → 1; a lamp of rank r catches at r × (1 − w)). */
+export const LAMP_ARRIVE_WIDTH = 0.15;
+
+/** A GLSL float literal with at least four decimals (and as many more as the value needs, up to eight). */
+export function glslFloat(v: number): string {
+  let digits = 4;
+  while (digits < 8 && Number(v.toFixed(digits)) !== v) digits++;
+  return v.toFixed(digits);
+}
 
 export const lampWaveUniforms = {
   /** x, z Pharos; z spread; w fromEdge */
   uLampWave: { value: new THREE.Vector4(0, 0, 0, 0) },
   /** x rMin, y 1/(rMax - rMin), z foot y, w tower height */
   uLampWaveR: { value: new THREE.Vector4(20, 1 / 400, 0, 92) },
+  /** E29 the arrival beat: 0 = every decorative lamp dark … 1 = the clock's true state (the default; wake.ts drives it). */
+  uLampArrive: { value: 1 },
 };
 
 export function setLampWave(p: LampWaveParams): void {
@@ -57,20 +82,28 @@ export function setLampWave(p: LampWaveParams): void {
 export const LAMP_WAVE_GLSL = /* glsl */ `
 uniform vec4 uLampWave;
 uniform vec4 uLampWaveR;
+uniform float uLampArrive;
 float hbLampJitter(vec2 xz) { return fract(sin(dot(floor(xz * 2.0), vec2(12.9898, 78.233))) * 43758.5453); }
 float hbLampRank(vec3 p, float jitter) {
   float r = length(p.xz - uLampWave.xy);
   float rank = r < uLampWaveR.x
-    ? ${TOWER_BAND.toFixed(3)} * (1.0 - clamp((p.y - uLampWaveR.z) / max(uLampWaveR.w, 1.0), 0.0, 1.0))
-    : ${TOWER_BAND.toFixed(3)} + ${(1 - TOWER_BAND).toFixed(3)} * clamp((r - uLampWaveR.x) * uLampWaveR.y, 0.0, 1.0);
-  rank = clamp(rank * ${(1 - JITTER).toFixed(3)} + jitter * ${JITTER.toFixed(3)}, 0.0, 1.0);
+    ? ${glslFloat(TOWER_BAND)} * (1.0 - clamp((p.y - uLampWaveR.z) / max(uLampWaveR.w, 1.0), 0.0, 1.0))
+    : ${glslFloat(TOWER_BAND)} + ${glslFloat(1 - TOWER_BAND)} * clamp((r - uLampWaveR.x) * uLampWaveR.y, 0.0, 1.0);
+  rank = clamp(rank * ${glslFloat(1 - JITTER)} + jitter * ${glslFloat(JITTER)}, 0.0, 1.0);
   return mix(rank, 1.0 - rank, uLampWave.w);
+}
+// E29 the arrival beat: a light of this rank catches at its own moment of the beat (1 = the clock's true state)
+float hbLampArrive(float rank) {
+  if (uLampArrive >= 1.0) return 1.0;
+  float a = rank * ${glslFloat(1 - LAMP_ARRIVE_WIDTH)};
+  return smoothstep(a, a + ${glslFloat(LAMP_ARRIVE_WIDTH)}, uLampArrive);
 }
 // the global glow g as seen by a light of this rank: switched on at its own moment, then the global clock
 float hbLampGlow(float g, float rank) {
-  if (uLampWave.z <= 0.0) return g;
-  float d = ${LAMP_WAVE_START.toFixed(3)} + uLampWave.z * rank;
-  return smoothstep(d, d + ${LAMP_RAMP.toFixed(3)}, g) * g;
+  float arrive = hbLampArrive(rank);
+  if (uLampWave.z <= 0.0) return g * arrive;
+  float d = ${glslFloat(LAMP_WAVE_START)} + uLampWave.z * rank;
+  return smoothstep(d, d + ${glslFloat(LAMP_RAMP)}, g) * g * arrive;
 }
 `;
 
@@ -91,10 +124,19 @@ export function lampRank(x: number, y: number, z: number, jitter: number, p: Lam
   return rank + (1 - 2 * rank) * p.fromEdge;
 }
 
-/** CPU mirror of hbLampGlow. */
-export function lampGlow(g: number, rank: number, spread: number): number {
-  if (spread <= 0) return g;
+/** CPU mirror of hbLampArrive. */
+export function lampArrive(rank: number, arrive: number): number {
+  if (arrive >= 1) return 1;
+  const a = rank * (1 - LAMP_ARRIVE_WIDTH);
+  const t = Math.min(1, Math.max(0, (arrive - a) / LAMP_ARRIVE_WIDTH));
+  return t * t * (3 - 2 * t);
+}
+
+/** CPU mirror of hbLampGlow; `arrive` defaults to the live arrival beat, as the shaders read it. */
+export function lampGlow(g: number, rank: number, spread: number, arrive = lampWaveUniforms.uLampArrive.value): number {
+  const k = lampArrive(rank, arrive);
+  if (spread <= 0) return g * k;
   const d = LAMP_WAVE_START + spread * rank;
   const t = Math.min(1, Math.max(0, (g - d) / LAMP_RAMP));
-  return t * t * (3 - 2 * t) * g;
+  return t * t * (3 - 2 * t) * g * k;
 }

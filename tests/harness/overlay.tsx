@@ -8,7 +8,7 @@ import { ensureMotionService } from "../../src/harbour/ui/services";
 import { publishPresentation } from "../../src/harbour/ui/presentation";
 import type { EngineContext } from "../../src/harbour/engine/types";
 import type { PickHit } from "../../src/harbour/ui/services";
-import type { SoundController, SoundMode } from "../../src/harbour/audio/controller";
+import type { SoundController, SoundMode, SoundSnapshot } from "../../src/harbour/audio/controller";
 import { HarbourFeed } from "../../src/harbour/data/fetch";
 import { buildHarbourModel } from "../../src/harbour/model/build";
 import { ArrivalModuleFailure } from "../../src/components/arrival-shell";
@@ -26,9 +26,11 @@ export async function mountOverlayHarness(element: HTMLElement) {
   let mode: SoundMode = "off";
   let postcardFailure = false;
   const postcards = new Set<() => void>();
+  let soundSnapshot: SoundSnapshot = { mode, status: "off" };
   const sound: SoundController = {
+    get snapshot() { return soundSnapshot; }, retry() {},
     get mode() { return mode; }, get on() { return mode !== "off"; }, get playing() { return false; },
-    setMode(next) { mode = next; soundListeners.forEach((fn) => fn()); },
+    setMode(next) { mode = next; soundSnapshot = { mode, status: mode === "off" ? "off" : "paused" }; soundListeners.forEach((fn) => fn()); },
     toggle() { sound.setMode(mode === "off" ? "ambient" : "off"); },
     subscribe(fn) { soundListeners.add(fn); return () => { soundListeners.delete(fn); }; },
     cue() {}, stop() {}, dispose() {},

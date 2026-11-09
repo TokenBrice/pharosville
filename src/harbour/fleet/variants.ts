@@ -85,6 +85,15 @@ export const MOORED_LIT = 0.3;
  * anchor; at a mooring or berth only a deterministic minority (MOORED_LIT, chosen by id).
  * (Masthead and sidelights under way are navigation decoration, not a reading.)
  */
+/**
+ * D11: stern and anchor lamps (and their lantern glass) are analytical; they mean "she has a peg reading". They show
+ * only while the fleet and peg sources are current: a stale, unverified or unavailable reading leaves them dark, the
+ * neutral pose, whatever the last installed values said.
+ */
+export function pegLampsLive(truth: Partial<Record<"stablecoins" | "pegSummary", { state: string }>> | null | undefined): boolean {
+  return truth?.stablecoins?.state === "current" && truth?.pegSummary?.state === "current";
+}
+
 export function sternLampLit(boat: { id: string; nullPeg: boolean }, at: "under-way" | "anchored" | "moored"): boolean {
   if (boat.nullPeg) return false;
   return at !== "moored" || hash01(boat.id + "#lamp") < MOORED_LIT;

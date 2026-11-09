@@ -8,12 +8,12 @@ import { LAMP_WAVE_GLSL, lampWaveUniforms } from "../lights/lamp-wave";
  * (red/green) and stern lights; anchored and moored hulls a dim oil anchor light (only some of
  * them, chosen by the caller). No light pools and no long pillars: those belong to the quay lamps.
  *
- * Per point: world position, colour (linear, pre-scaled), size (m), kind (0 lamp, 1 streak) and the
- * water height under it (streak anchor).
+ * Per point: world position, colour (linear, pre-scaled), size (m), kind (0 lamp, 1 streak), the
+ * water height under it (streak anchor) and whether it is analytical (1: a peg-reading stern / anchor lamp, D11).
  */
 const VERT = /* glsl */ `
 attribute vec3 aColor;
-attribute vec3 aInfo;   // size (m), kind (0 lamp | 1 streak), water y
+attribute vec4 aInfo;   // size (m), kind (0 lamp | 1 streak), water y, analytical (0 | 1)
 uniform vec2 uResolution;
 uniform float uGlow;
 uniform float uSea;     // 0 calm … 1 rough: streak length and break-up
@@ -50,9 +50,10 @@ void main() {
   gl_PointSize = px;
   gl_Position = c;
   vColor = aColor * uGlow;
-  // the lamplighting wave (05-P3): the riding lights take their moment from where the hull lies
+  // the lamplighting wave (05-P3): the decorative riding lights take their moment from where the hull lies; a
+  // peg-reading stern / anchor lamp is analytical (D11) and shows on the clock alone, never held back by the round or beat
   float wg = smoothstep(0.18, 0.5, uWindowGlow);
-  if (wg > 1e-3) vColor *= smoothstep(0.18, 0.5, hbLampGlow(uWindowGlow, hbLampRank(position, vSeed))) / wg;
+  if (wg > 1e-3 && aInfo.w < 0.5) vColor *= smoothstep(0.18, 0.5, hbLampGlow(uWindowGlow, hbLampRank(position, vSeed))) / wg;
 }`;
 
 const FRAG = /* glsl */ `
@@ -98,11 +99,11 @@ export class RidingLights {
     this.max = max;
     this.pos = new Float32Array(max * 3);
     this.col = new Float32Array(max * 3);
-    this.info = new Float32Array(max * 3);
+    this.info = new Float32Array(max * 4);
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute("aColor", new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute("aInfo", new THREE.BufferAttribute(this.info, 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("aInfo", new THREE.BufferAttribute(this.info, 4).setUsage(THREE.DynamicDrawUsage));
     g.setDrawRange(0, 0);
     this.geo = g;
     this.mat = new THREE.ShaderMaterial({
@@ -121,20 +122,36 @@ export class RidingLights {
 
   begin(): void { this.n = 0; }
 
-  /** A lamp (and its streak when `streak`) at (x,y,z) over water at height wy. */
-  add(x: number, y: number, z: number, r: number, g: number, b: number, size: number, wy: number, streak: number): void {
+  /**
+   * A lamp (and its streak when `streak`) at (x,y,z) over water at height wy. `analytic`: a peg-reading stern / anchor
+   * lamp (D11), lit on the clock alone; the default is decorative (the lamp round and the arrival beat).
+   */
+  add(x: number, y: number, z: number, r: number, g: number, b: number, size: number, wy: number, streak: number, analytic = false): void {
     if (this.n + 2 > this.max) return;
-    let k = this.n * 3;
+    const a = analytic ? 1 : 0;
+    let k = this.n * 3, q = this.n * 4;
     this.pos[k] = x; this.pos[k + 1] = y; this.pos[k + 2] = z;
     this.col[k] = r; this.col[k + 1] = g; this.col[k + 2] = b;
-    this.info[k] = size; this.info[k + 1] = 0; this.info[k + 2] = wy;
+    this.info[q] = size; this.info[q + 1] = 0; this.info[q + 2] = wy; this.info[q + 3] = a;
     this.n++;
     if (streak <= 0) return;
-    k = this.n * 3;
+    k = this.n * 3; q = this.n * 4;
     this.pos[k] = x; this.pos[k + 1] = y; this.pos[k + 2] = z;
     this.col[k] = r * streak; this.col[k + 1] = g * streak; this.col[k + 2] = b * streak;
-    this.info[k] = size; this.info[k + 1] = 1; this.info[k + 2] = wy;
+    this.info[q] = size; this.info[q + 1] = 1; this.info[q + 2] = wy; this.info[q + 3] = a;
     this.n++;
+  }
+
+  /**
+   * D11: put out the analytical lamps already submitted, at once (a held fleet frame keeps drawing them): their colour
+   * goes to zero; the next full frame (begin / add / end) rebuilds the points from the evidence.
+   */
+  douseAnalytic(): void {
+    let any = false;
+    for (let i = 0; i < this.n; i++) if (this.info[i * 4 + 3] >= 0.5) { this.col.fill(0, i * 3, i * 3 + 3); any = true; }
+    if (!any) return;
+    const at = this.geo.getAttribute("aColor") as THREE.BufferAttribute;
+    at.clearUpdateRanges(); at.addUpdateRange(0, this.n * 3); at.needsUpdate = true;
   }
 
   end(glow: number, sea: number): void {
@@ -144,7 +161,7 @@ export class RidingLights {
     this.geo.setDrawRange(0, this.n);
     for (const name of ["position", "aColor", "aInfo"]) {
       const at = this.geo.getAttribute(name) as THREE.BufferAttribute;
-      at.clearUpdateRanges(); at.addUpdateRange(0, this.n * 3); at.needsUpdate = true;
+      at.clearUpdateRanges(); at.addUpdateRange(0, this.n * at.itemSize); at.needsUpdate = true;
     }
   }
 

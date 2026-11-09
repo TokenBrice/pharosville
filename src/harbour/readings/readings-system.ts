@@ -98,6 +98,12 @@ export class ReadingsSystem implements WorldSystem {
   private gauge: TideGauge | null = null;
   private cones: StormCones | null = null;
   private signalMissing = false;
+  /**
+   * The visitor has watched the station's current reading fly, so a band change hauls in view. False until the first
+   * known reading is up, and again from a tab hide: the reading found on the return is placed at once, not hauled.
+   */
+  private signalSeen = false;
+  private readonly onVisibility = (): void => { if (document.hidden) this.signalSeen = false; };
   private landmarksBound = false;
   private bindTries = 0;
   private heldFor: boolean | null = null;
@@ -110,6 +116,7 @@ export class ReadingsSystem implements WorldSystem {
   private devMoment: string | null = import.meta.env.DEV ? this.q.get("moment") : null;
 
   async init(ctx: EngineContext): Promise<void> {
+    document.addEventListener("visibilitychange", this.onVisibility);
     this.fx = await acquireFxTextures(ctx);
     this.fog = new StaleFog(ctx.composer, ctx.camera, this.fx.noise, this.decorativeTime);
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- getters below read live system state
@@ -236,6 +243,12 @@ export class ReadingsSystem implements WorldSystem {
     this.events.tick(frame.nowMs, reduced);
     this.bindLandmarks(ctx);
     this.bindSignal(ctx);
+    // the first installed reading (a fresh load, a tab return) flies at once: a haul would state a lower band for
+    // seconds (a lone cone reads Alert while the reading is Danger); once a known reading is up, band changes haul
+    if (!this.signalSeen && this.cones && this.targets) {
+      this.cones.setCount(this.targets.cones, this.targets.pennant, true);
+      this.signalSeen = this.targets.cones !== null;
+    }
     const t = this.targets;
     if (!t) return;
     const U = ctx.uniforms;
@@ -313,6 +326,7 @@ export class ReadingsSystem implements WorldSystem {
   }
 
   dispose(ctx: EngineContext): void {
+    document.removeEventListener("visibilitychange", this.onVisibility);
     this.fog?.dispose();
     this.fx?.release();
     this.gauge?.dispose();

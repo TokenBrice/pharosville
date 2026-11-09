@@ -21,6 +21,7 @@ ${LAMP_WAVE_GLSL}
 uniform sampler2D uPoolTex;
 uniform vec4 uPoolBounds;
 uniform float uWindowGlow;
+uniform float uLampFar;   // the decorative lamps' share of their light at this zoom (1 at the landing, lights-system.ts)
 // projected light pools: rgb = additive irradiance on up-facing surfaces, a = source height
 vec3 hbPool(vec3 worldPos, vec3 worldN) {
   if (uWindowGlow <= 0.02) return vec3(0.0); // the final smoothstep is exactly zero
@@ -34,9 +35,9 @@ vec3 hbPool(vec3 worldPos, vec3 worldN) {
   float band = exp(-dy * dy);                                         // walls: around the source height
   // the lamplighting wave (05-P3): a pool lies by its lamp, so the fragment's own rank stands in for the lamp's
   #ifdef HB_LITE
-  return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, uWindowGlow);   // (Low: no lamplighting wave)
+  return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, uWindowGlow) * uLampFar;   // (Low: no lamplighting wave)
   #else
-  return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, hbLampGlow(uWindowGlow, hbLampRank(worldPos, 0.5)));
+  return p.rgb * mix(band * 0.6, below, upw) * smoothstep(0.02, 0.55, hbLampGlow(uWindowGlow, hbLampRank(worldPos, 0.5))) * uLampFar;
   #endif
 }
 `;
@@ -49,8 +50,13 @@ float hbHeight(vec2 xz) { return texture2D(uAOTex, vec2((xz.x - uAOBounds.x) * u
 float hbAO(vec3 P, vec3 N) {
   if (uAOBounds.z <= 0.0) return 1.0;
   float occ = 0.0, wsum = 0.0;
-  for (int i = 0; i < 8; i++) {
-    float a = float(i) * 0.7853982 + 0.31;
+  #ifdef HB_LITE
+  const int directions = 4;
+  #else
+  const int directions = 8;
+  #endif
+  for (int i = 0; i < directions; i++) {
+    float a = float(i) * (6.2831856 / float(directions)) + 0.31;
     vec2 d = vec2(cos(a), sin(a));
     float r = (i - (i / 2) * 2 == 0) ? 2.0 : 5.5;
     float w = clamp(dot(vec3(d.x, 0.0, d.y), N) * 0.9 + N.y, 0.0, 1.0);

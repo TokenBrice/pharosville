@@ -90,7 +90,8 @@ export function placeName(L: HarbourLayout | null, id: string): string {
 export function inPoly(x: number, z: number, poly: readonly Vec2[]): boolean {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, zi] = poly[i], [xj, zj] = poly[j];
+    // indexed, not destructured: no iterator per vertex on a per-frame path (galleys' brailing)
+    const pi = poly[i], pj = poly[j], xi = pi[0], zi = pi[1], xj = pj[0], zj = pj[1];
     if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
   }
   return inside;

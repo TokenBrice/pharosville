@@ -3,6 +3,7 @@ export { FLEET_DATA_TEXELS } from "./shaders/pose";
 import { FRAG_PARS } from "./shaders/print";
 import { HOVER_SHEEN, FLEET_LIGHTING } from "./shaders/lighting";
 import { patch } from "../engine/shader-patch";
+import { castFadeGlsl, castFadeUniforms } from "../world/shadow-casters";
 import * as THREE from "three";
 import type { HarbourMaterials } from "../world/materials";
 import type { WorldUniforms } from "../engine/uniforms";
@@ -34,6 +35,8 @@ export interface FleetUniforms {
   uFleetData: THREE.IUniform<THREE.DataTexture>;
   uFleetPaint: THREE.IUniform<THREE.DataTexture>;
   uEmblems: THREE.IUniform<THREE.Texture>;
+  uHeroEmblems?: THREE.IUniform<THREE.Texture>;
+  uHeroSlots?: THREE.IUniform<THREE.Vector2>;
   /** (cols, rows, 1/cols, 1/rows) */
   uEmblemGrid: THREE.IUniform<THREE.Vector4>;
   uWind: THREE.IUniform<number>;
@@ -57,7 +60,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
     baseHook(shader, renderer);
     shader.defines = { ...shader.defines, HB_FLEET: "" };   // world/metal.ts: only unpainted hull trim turns metal
     // (the print and rig uniforms default to a 1000 px DPR-1 screen and no lettering until the fleet binds its own)
-    Object.assign(shader.uniforms, { uFleetScreen: { value: new THREE.Vector2(1000, 1) }, uEmblemLetters: { value: 1e9 } }, fleet,
+    Object.assign(shader.uniforms, { uFleetScreen: { value: new THREE.Vector2(1000, 1) }, uEmblemLetters: { value: 1e9 }, uHeroEmblems: fleet.uEmblems, uHeroSlots: { value: new THREE.Vector2(-1, -1) } }, fleet,
       { uSunDir: u.uSunDir, uSunColor: u.uSunColor, uTime: fleet.uFleetTime, uLamp: u.uLamp });
     shader.vertexShader = patch(shader.vertexShader, "#include <batching_pars_vertex>", `#include <batching_pars_vertex>\nuniform float uTime;\n${VERT_PARS}`, { id: "fleet.1.batching_pars_vertex" });
     shader.vertexShader = patch(shader.vertexShader, "#include <beginnormal_vertex>", "hbFleetPose(position, normal);\nvec3 objectNormal = hbFleetN;\n#ifdef USE_TANGENT\nvec3 objectTangent = vec3(tangent.xyz);\n#endif", { id: "fleet.2.beginnormal_vertex" });
@@ -78,11 +81,16 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
 
   const depth = new THREE.MeshDepthMaterial();
   depth.name = "hb_fleet_depth";
+  // E05: inside the handover band (world/shadow-casters.ts) the hulls' depth thins by a world-anchored texel dither
+  const fade = castFadeGlsl("uHbFleetFade");
   depth.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, { uFleetData: fleet.uFleetData, uFleetPaint: fleet.uFleetPaint, uTime: fleet.uFleetTime });
+    Object.assign(shader.uniforms, { uFleetData: fleet.uFleetData, uFleetPaint: fleet.uFleetPaint, uTime: fleet.uFleetTime,
+      uHbFleetFade: castFadeUniforms.uHbFleetFade, uHbCastPhase: castFadeUniforms.uHbCastPhase });
     shader.vertexShader = patch(shader.vertexShader, "#include <batching_pars_vertex>", `#include <batching_pars_vertex>\n${DEPTH_VERT_PARS}`, { id: "fleet.11.batching_pars_vertex" });
     shader.vertexShader = patch(shader.vertexShader, "#include <begin_vertex>", "vec3 transformed = hbFleetPoseP(position);", { id: "fleet.12.begin_vertex" });
+    shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\n${fade.pars}`, { id: "fleet.13.common" });
+    shader.fragmentShader = patch(shader.fragmentShader, "#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>\n  ${fade.discard}`, { id: "fleet.14.clipping_planes_fragment" });
   };
-  depth.customProgramCacheKey = () => "hb_fleet_depth_v5";
+  depth.customProgramCacheKey = () => "hb_fleet_depth_v6";
   return { material: m, depth };
 }

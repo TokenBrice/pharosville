@@ -57,16 +57,18 @@ async function setup(mutate: (upstream: UpstreamFixtures) => void = () => {}, op
 }
 function panel(hit: PickHit) { state.selected = hit; return render(<SidePanel onClose={() => {}} />); }
 const landmark = (id: string): PickHit => ({ kind: "landmark", id });
+/** UI AD N2 sets a reading's UTC stamp in a nowrap span: a sentence is matched by its element's whole text. */
+const whole = (text: string) => (_: string, el: Element | null) => el?.textContent === text && ![...(el?.children ?? [])].some((c) => c.textContent === text);
 function parity(hit: PickHit, sentence: string) {
   state.hover = hit;
   let ui = render(<HoverTag />);
-  expect(within(ui.container).getAllByText(sentence).length).toBeGreaterThan(0);
+  expect(within(ui.container).getAllByText(whole(sentence)).length).toBeGreaterThan(0);
   ui.unmount(); state.hover = null;
   ui = panel(hit);
-  expect(within(ui.container).getAllByText(sentence).length).toBeGreaterThan(0);
+  expect(within(ui.container).getAllByText(whole(sentence)).length).toBeGreaterThan(0);
   ui.unmount();
   ui = render(<Ledger onClose={() => {}} />);
-  expect(within(ui.container).getAllByText(sentence).length).toBeGreaterThan(0);
+  expect(within(ui.container).getAllByText(whole(sentence)).length).toBeGreaterThan(0);
   ui.unmount();
 }
 
@@ -177,10 +179,27 @@ describe("projected source sentences in hover, panel and ledger", () => {
       u.pegSummary.coins = [];
     });
     panel({ kind: "boat", id: TRUTH_COIN_ID });
-    for (const key of ["stablecoins", "pegSummary", "stress", "safetyGrades", "mintBurn"] as const) expect(screen.getAllByText(readingSentence(state.model, key)).length).toBeGreaterThan(0);
+    for (const key of ["stablecoins", "pegSummary", "stress", "safetyGrades", "mintBurn"] as const) expect(screen.getAllByText(whole(readingSentence(state.model, key))).length).toBeGreaterThan(0);
     expect(screen.getByText("No peg reading is available for this coin.")).toBeTruthy();
     expect(screen.getByText("Last received grade: A.")).toBeTruthy();
     expect(within(screen.getByRole("heading", { name: "Supply (USD)" }).closest("section")!).getByText("$1.00B")).toBeTruthy();
+  });
+
+  it("the ship panel prints each source's foot once: Supply by chain reads the Supply (USD) foot, Signals heads its two", async () => {
+    await setup();
+    panel({ kind: "boat", id: TRUTH_COIN_ID });
+    const section = (name: string) => screen.getByRole("heading", { name }).closest("section")!;
+    expect(screen.getAllByText(whole(readingSentence(state.model, "stablecoins")))).toHaveLength(1);
+    expect(section("Supply by chain").querySelector(".hb-foot")).toBeNull();
+    expect(section("Signals").querySelectorAll(":scope > .hb-foot")).toHaveLength(2);
+    expect(section("Signals").querySelector("dd .hb-foot")).toBeNull();
+  });
+
+  it("the harbour panel prints the chains foot once: Chain health reads the comparisons' foot", async () => {
+    await setup();
+    panel({ kind: "harbour", id: "Ethereum" });
+    expect(screen.getAllByText(whole(readingSentence(state.model, "chains")))).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Chain health" }).closest("section")!.querySelector(".hb-foot")).toBeNull();
   });
 
   it("an unverified PSI remains a labelled retained value", async () => {
@@ -206,10 +225,10 @@ describe("projected source sentences in hover, panel and ledger", () => {
   it("chain holdings and comparisons, Registry and movers expose their actual source", async () => {
     await setup((u) => { delete u.chains._meta; });
     const ui = panel({ kind: "harbour", id: "Ethereum" });
-    expect(screen.getAllByText(readingSentence(state.model, "stablecoins")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(whole(readingSentence(state.model, "stablecoins"))).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Chain comparisons: unavailable. Source freshness is unverified.").length).toBeGreaterThan(0);
     ui.unmount(); const registry = panel(landmark("registry"));
-    expect(screen.getByText(readingSentence(state.model, "safetyGrades"))).toBeTruthy();
+    expect(screen.getByText(whole(readingSentence(state.model, "safetyGrades")))).toBeTruthy();
     registry.unmount(); panel(landmark("harbourmaster"));
     expect(screen.getByText("Chain comparisons: unavailable. Source freshness is unverified.")).toBeTruthy();
   });

@@ -1,10 +1,10 @@
 /**
- * Quality tiers. Every tier renders the SAME art (geometry, materials, palette, grade); lower tiers only
- * drop effect cost: pixel ratio, shadow-map size / refresh rate / softness, real point lights, bloom depth,
- * anti-aliasing preset.
+ * Quality tiers. Every tier keeps the geometry, palette, grade and readings; lower tiers simplify decorative
+ * shading and reduce pixel ratio, shadow-map size / refresh rate / softness, real point lights, bloom and
+ * anti-aliasing cost.
  *
  * The governor selects quantized (tier, pixel ratio) rungs with one hysteresis policy. Resolution-only
- * changes publish without shader preparation; effect changes await resident SMAA preset programs.
+ * changes publish without shader preparation; effect changes await resident world and SMAA preset programs.
  */
 export type QualityTier = "high" | "medium" | "low";
 
@@ -27,13 +27,16 @@ export interface QualitySettings {
 export const TIERS: Record<QualityTier, QualitySettings> = {
   high: { tier: "high", shadowMapSize: 4096, shadowInterval: 0, shadowMinFrames: 1, pointLights: 16, bloomLevels: 8, smaa: "high" },
   medium: { tier: "medium", shadowMapSize: 2048, shadowInterval: 1 / 30, shadowMinFrames: 2, pointLights: 8, bloomLevels: 7, smaa: "medium" },
-  low: { tier: "low", shadowMapSize: 2048, shadowInterval: 1 / 15, shadowMinFrames: 2, pointLights: 4, bloomLevels: 6, smaa: "low" },
+  low: { tier: "low", shadowMapSize: 1024, shadowInterval: 1 / 15, shadowMinFrames: 2, pointLights: 4, bloomLevels: 6, smaa: "low" },
 };
 
 export interface QualityRung { readonly tier: QualityTier; readonly dpr: number }
 
 /** Cheapest → richest. Severe overload may bypass intermediate rungs. */
 export const LADDER: readonly QualityRung[] = [
+  { tier: "low", dpr: 0.5 },
+  { tier: "low", dpr: 0.67 },
+  { tier: "low", dpr: 0.8 },
   { tier: "low", dpr: 1 },
   { tier: "low", dpr: 1.25 },
   { tier: "medium", dpr: 1.25 },
@@ -45,10 +48,10 @@ export const LADDER: readonly QualityRung[] = [
 
 /**
  * The ladder for this display: pixel ratios clamped to the device's (never render above it, max 2),
- * duplicate rungs removed. A 1× display gets low@1 → medium@1 → high@1.
+ * duplicate rungs removed. Only Low adds rescue rungs; ceilings may clamp any tier below its floor.
  */
-export function ladderFor(deviceDpr: number): QualityRung[] {
-  const cap = Math.min(2, deviceDpr);
+export function ladderFor(deviceDpr: number, maxDpr = 2): QualityRung[] {
+  const cap = Math.min(2, deviceDpr, maxDpr);
   const out: QualityRung[] = [];
   for (const r of LADDER) {
     const rung = { tier: r.tier, dpr: Math.min(r.dpr, cap) };
@@ -67,8 +70,9 @@ export function backingLimitsFor(gl: WebGL2RenderingContext): BackingLimits {
   return { width: Math.min(attachment, viewport[0]), height: Math.min(attachment, viewport[1]) };
 }
 
+/** The backing ceiling includes explicit pins; CSS framing and picking retain the logical size. */
 export function backingDpr(width: number, height: number, requested: number, limits: BackingLimits): number {
-  return Math.min(requested, limits.width / width, limits.height / height);
+  return Math.min(requested, limits.width / width, limits.height / height, Math.sqrt(4_000_000 / (width * height)));
 }
 
 /** Phone and tablet GPUs by WEBGL_debug_renderer_info name (Android ANGLE strings carry the same names). */

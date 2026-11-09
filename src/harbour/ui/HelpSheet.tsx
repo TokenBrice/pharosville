@@ -1,7 +1,8 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
-import { Search, BookOpen, House, CircleHelp, Binoculars, Camera, ZoomIn, ZoomOut } from "lucide-react";
+import { Search, BookOpen, House, CircleHelp, Camera, ZoomIn, ZoomOut } from "lucide-react";
 import { ACTIONS, type HarbourAction, useHarbourAction } from "./KeyList";
 import { useStore, useUISlice } from "./hooks";
+import { WatchStartButton } from "./WatchControls";
 
 export function HelpSheet({ onClose, shortcuts, setShortcuts }: {
   onClose: () => void; shortcuts: boolean; setShortcuts: (enabled: boolean) => void;
@@ -23,13 +24,13 @@ export function HelpSheet({ onClose, shortcuts, setShortcuts }: {
     </button>
     <div className="hb-help-body">
       <p>Explore at your pace.</p>
-      <div className="hb-help-actions">{button("search", Search)}{button("ledger", BookOpen)}{button("home", House)}{button("reading", CircleHelp)}</div>
+      <div className="hb-help-actions">{button("search", Search)}{button("ledger", BookOpen)}{button("home", House)}{button("reading", CircleHelp)}<WatchStartButton onStart={onClose} /></div>
       <details><summary>Explore further</summary>
-        <div className="hb-help-actions">{button("watch", Binoculars)}{button("postcard", Camera)}{button("previous")}{button("next")}
+        <div className="hb-help-actions">{button("postcard", Camera)}{button("previous")}{button("next")}
           {selected?.kind === "boat" && button("follow")}</div>
         <details><summary>View controls</summary><div className="hb-help-actions">
           {(["up", "down", "left", "right"] as const).map((id) => button(id))}
-          {button("zoomIn", ZoomIn)}{button("zoomOut", ZoomOut)}{button("home", House)}
+          {button("zoomIn", ZoomIn)}{button("zoomOut", ZoomOut)}
         </div></details>
       </details>
       <div className="hb-help-preferences">

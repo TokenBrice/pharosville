@@ -1,7 +1,7 @@
 import type { ServiceMap, Services } from "../engine/services";
 import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { EngineContext } from "../engine/types";
+import type { EngineContext, PreparationService } from "../engine/types";
 import type { Boat, HarbourModel } from "../model/types";
 import type { HarbourSim } from "../sim/sim";
 import { FleetSystem } from "./fleet-system";
@@ -20,10 +20,9 @@ interface FleetHarness {
   modelRevision: number; needsFullPose: boolean;
   uniforms: { uFleetPaint: THREE.IUniform<THREE.DataTexture>; uFleetData: THREE.IUniform<THREE.DataTexture> };
   buildMesh(ctx: EngineContext, n: number): void;
-  install(model: HarbourModel): void;
   placeWrecks(model: HarbourModel, sim: unknown): void;
   placeBuoys(): void;
-  writePaint(inst: number, id: string | null, family: string, brandColor: string | null): void;
+  paintFor(id: string | null, family: string, brandColor: string | null): Float32Array;
   mooringLines(b: RecordHarness, s: SimSlot, x: number, z: number, lines: number, bob: number): void;
 }
 
@@ -53,58 +52,66 @@ function fixture() {
   const material = new THREE.MeshStandardMaterial();
   const system = new FleetSystem(), fleet = system as unknown as FleetHarness;
   const slots = new Map<string, number>();
-  const atlas = { begin: vi.fn(), end: vi.fn(), slotFor: vi.fn((b: Boat) => {
+  const atlas = { setHeroes: vi.fn().mockResolvedValue(undefined), begin: vi.fn(), end: vi.fn(), slotFor: vi.fn((b: Boat) => {
     if (!slots.has(b.id)) slots.set(b.id, slots.size);
     return slots.get(b.id)!;
   }) };
+  Object.assign(atlas, { prepareCoins: async (coins: Boat[]) => {
+    const assigned = new Map(coins.map((b) => [b.id, atlas.slotFor(b)]));
+    return { slots: assigned, commit: () => { atlas.begin(); atlas.end(); }, dispose() {} };
+  } });
   Object.assign(system, { kit, ctx, material, layout: { moorings: [{ id: "buoy", position: [3, 0, 4] }] },
     index: indexVariants([{ id: usd.id, family: usd.family, class: usd.cls }, { id: eur.id, family: eur.family, class: eur.cls }]), atlas });
   fleet.buildMesh(ctx, 32);
   const add = vi.spyOn(fleet.mesh, "addInstance"), remove = vi.spyOn(fleet.mesh, "deleteInstance");
-  const geometryChange = vi.spyOn(fleet.mesh, "setGeometryIdAt"), paint = vi.spyOn(fleet, "writePaint");
+  const geometryChange = vi.spyOn(fleet.mesh, "setGeometryIdAt"), paint = vi.spyOn(fleet, "paintFor");
   const wrecks = vi.spyOn(fleet, "placeWrecks"), buoys = vi.spyOn(fleet, "placeBuoys");
   const clear = () => { for (const spy of [add, remove, geometryChange, paint, wrecks, buoys, atlas.begin, atlas.end, atlas.slotFor]) spy.mockClear(); };
   cleanups.push(() => { fleet.mesh.dispose(); material.dispose(); geometry.dispose(); fleet.uniforms.uFleetPaint.value.dispose(); fleet.uniforms.uFleetData.value.dispose(); });
-  return { fleet, ctx, atlas, add, remove, geometryChange, paint, wrecks, buoys, clear, usd, eur };
+  const install = async (next: HarbourModel) => {
+    const delta = await system.prepareFleet(next, undefined, ctx.services.get("readiness")?.revision ?? 0);
+    delta.commit(); delta.dispose();
+  };
+  return { system, install, fleet, ctx, atlas, add, remove, geometryChange, paint, wrecks, buoys, clear, usd, eur };
 }
 
 describe("fleet refresh reconciliation", () => {
-  it("keeps original model-order rig phases independent of partial-model instance allocation", () => {
+  it("keeps original model-order rig phases independent of partial-model instance allocation", async () => {
     const f = fixture();
-    f.fleet.install(model([coin("early")]));
-    f.fleet.install(model([coin("a"), coin("early")]));
+    await f.install(model([coin("early")]));
+    await f.install(model([coin("a"), coin("early")]));
     const a = f.fleet.byId.get("a")!, early = f.fleet.byId.get("early")!;
     expect(a.inst).toBeGreaterThan(0); // the fixture also allocates a buoy between installs
     expect(early.inst).toBe(0);
     expect(f.fleet.paint[a.inst * 20 + 11]).toBe(0);
     expect(f.fleet.paint[early.inst * 20 + 11]).toBe(1);
   });
-  it("captures the installed readiness revision and requires one complete pose on each install", () => {
+  it("captures the installed readiness revision and requires one complete pose on each install", async () => {
     const f = fixture();
     const readiness = { revision: 3, boats: 1, prepared: true };
     f.ctx.services.set("readiness", readiness);
-    f.fleet.install(model([coin("a")]));
+    await f.install(model([coin("a")]));
     expect(f.fleet.modelRevision).toBe(3);
     expect(f.fleet.needsFullPose).toBe(true);
     f.fleet.needsFullPose = false;
     readiness.revision = 4;
     // A readiness mutation alone is not submission evidence for the previously installed model.
     expect(f.fleet.modelRevision).toBe(3);
-    f.fleet.install(model([coin("a")]));
+    await f.install(model([coin("a")]));
     expect(f.fleet.modelRevision).toBe(4);
     expect(f.fleet.needsFullPose).toBe(true);
   });
 
-  it("keeps instances, texels, slots, matrices and motion history on identical/reordered/reading-only refreshes", () => {
+  it("keeps instances, texels, slots, matrices and motion history on identical/reordered/reading-only refreshes", async () => {
     const f = fixture(), a = coin("a"), b = coin("b");
-    f.fleet.install(model([a, b]));
+    await f.install(model([a, b]));
     const oldA = f.fleet.byId.get("a")!, oldB = f.fleet.byId.get("b")!;
     Object.assign(oldA, { swing: 0.4, heel: 0.2, hi: 0.6, px: 5, pz: 6, vx: 0.7, vz: -0.2, flag: 0, struck: true, posed: false, bollardSlot: { index: 7 }, bow: [1, 2, 3] });
     const history = { ...oldA }, paint = f.fleet.paint.slice(), version = f.fleet.uniforms.uFleetPaint.value.version;
     const matrix = new THREE.Matrix4().makeTranslation(4, 5, 6);
     f.fleet.mesh.setMatrixAt(oldA.inst, matrix);
     f.clear();
-    f.fleet.install(model([{ ...b }, { ...a, name: "New name", supply: 2000, pegDeviationBps: 3, grade: "A", dews: "WATCH" }]));
+    await f.install(model([{ ...b }, { ...a, name: "New name", supply: 2000, pegDeviationBps: 3, grade: "A", dews: "WATCH" }]));
     expect(f.fleet.boats).toEqual([oldB, oldA]);
     expect(f.fleet.byId.get("a")).toBe(oldA);
     expect({ ...oldA, source: history.source }).toEqual(history);
@@ -119,12 +126,28 @@ describe("fleet refresh reconciliation", () => {
     for (const spy of [f.add, f.remove, f.geometryChange, f.paint, f.wrecks, f.buoys, f.atlas.begin, f.atlas.slotFor]) expect(spy).not.toHaveBeenCalled();
   });
 
-  it("only adds/removes actual membership changes and preserves a survivor's slot and instance", () => {
+  it("moves an unchanged hull's reading only at commit, without a staged copy of her record (p-hitch2)", async () => {
+    const f = fixture(), a = coin("a");
+    await f.install(model([a]));
+    const rec = f.fleet.byId.get("a")!, brand = rec.brand;
+    const abandoned = await f.system.prepareFleet(model([{ ...a, supply: 3000 }]), undefined, 0);
+    abandoned.dispose();
+    expect(rec.source).toBe(a);
+    const next = { ...a, supply: 2000, pegDeviationBps: 4 };
+    const delta = await f.system.prepareFleet(model([next]), undefined, 0);
+    expect(rec.source).toBe(a); // nothing is published before the commit
+    delta.commit(); delta.dispose();
+    expect(f.fleet.byId.get("a")).toBe(rec);
+    expect(rec.source).toBe(next);
+    expect(rec.brand).toBe(brand); // the same colour object: no clone was staged and swapped in
+  });
+
+  it("only adds/removes actual membership changes and preserves a survivor's slot and instance", async () => {
     const f = fixture();
-    f.fleet.install(model([coin("a"), coin("b")]));
+    await f.install(model([coin("a"), coin("b")]));
     const a = f.fleet.byId.get("a")!, b = f.fleet.byId.get("b")!;
     f.clear();
-    f.fleet.install(model([coin("c"), coin("b")]));
+    await f.install(model([coin("c"), coin("b")]));
     expect(f.remove).toHaveBeenCalledExactlyOnceWith(a.inst);
     expect(f.add).toHaveBeenCalledTimes(1);
     expect(f.paint).toHaveBeenCalledTimes(1);
@@ -134,54 +157,54 @@ describe("fleet refresh reconciliation", () => {
     expect(f.buoys).not.toHaveBeenCalled();
   });
 
-  it("updates livery, brand and monogram inputs without resetting history or touching other boats", () => {
+  it("updates livery, brand and monogram inputs without resetting history or touching other boats", async () => {
     const f = fixture();
-    f.fleet.install(model([coin("a"), coin("b")]));
+    await f.install(model([coin("a"), coin("b")]));
     const a = f.fleet.byId.get("a")!, b = f.fleet.byId.get("b")!, slot = a.slot;
     a.vx = 2; a.hi = 0.5;
     f.clear();
     const changed = coin("a", { brandColor: "#AA6633", symbol: "NEW" });
-    f.fleet.install(model([changed, coin("b")]));
+    await f.install(model([changed, coin("b")]));
     expect(f.fleet.byId.get("a")).toBe(a); expect(f.fleet.byId.get("b")).toBe(b);
     expect(a.brand.equals(new THREE.Color(changed.brandColor))).toBe(true);
     expect([a.vx, a.hi, a.slot]).toEqual([2, 0.5, slot]);
-    expect(f.paint).toHaveBeenCalledExactlyOnceWith(a.inst, "a", "usd", changed.brandColor);
+    expect(f.paint).toHaveBeenCalledExactlyOnceWith("a", "usd", changed.brandColor);
     expect(f.atlas.slotFor).toHaveBeenCalledExactlyOnceWith(changed);
     for (const spy of [f.add, f.remove, f.geometryChange]) expect(spy).not.toHaveBeenCalled();
     f.clear();
-    f.fleet.install(model([{ ...changed, symbol: "OTHER" }, coin("b")]));
+    await f.install(model([{ ...changed, symbol: "OTHER" }, coin("b")]));
     expect(f.paint).not.toHaveBeenCalled();
     expect(f.atlas.slotFor).toHaveBeenCalledTimes(1);
   });
 
-  it("reconciles geometry, dimensions, mooring caches, wreck state and peg-light truth in place", () => {
+  it("reconciles geometry, dimensions, mooring caches, wreck state and peg-light truth in place", async () => {
     const f = fixture();
-    f.fleet.install(model([coin("a")]));
+    await f.install(model([coin("a")]));
     const a = f.fleet.byId.get("a")!, inst = a.inst, slot = a.slot;
     a.swing = 0.2;
     f.clear();
-    f.fleet.install(model([coin("a", { rig: "eur", hullClass: "large" })]));
+    await f.install(model([coin("a", { rig: "eur", hullClass: "large" })]));
     expect(a.variant).toBe(f.eur);
     expect([a.inst, a.slot, a.swing, a.loa, a.beam, a.top, a.bollardSlot]).toEqual([inst, slot, 0.2, 18, 2, 8, null]);
     expect(f.geometryChange).toHaveBeenCalledTimes(1);
-    expect(f.paint).toHaveBeenCalledExactlyOnceWith(inst, "a", "eur", "#5588AA");
+    expect(f.paint).toHaveBeenCalledExactlyOnceWith("a", "eur", "#5588AA");
     f.clear();
-    f.fleet.install(model([coin("a", { rig: "eur", hullClass: "large", nullPeg: true })]));
+    await f.install(model([coin("a", { rig: "eur", hullClass: "large", nullPeg: true })]));
     expect(a.reading).toBe(false); expect(a.lit).toBe(false);
     expect(f.paint).not.toHaveBeenCalled(); expect(f.atlas.slotFor).not.toHaveBeenCalled();
-    f.fleet.install(model([coin("a", { rig: "eur", hullClass: "large", state: "wrecked" })]));
+    await f.install(model([coin("a", { rig: "eur", hullClass: "large", state: "wrecked" })]));
     expect(a.wrecked).toBe(true); expect(a.geomCur).toBe(a.geomWreck);
     expect(f.fleet.paint.slice(inst * 20, inst * 20 + 20)).toEqual(new Float32Array(20));
-    f.fleet.install(model([coin("a", { rig: "eur", hullClass: "large" })]));
+    await f.install(model([coin("a", { rig: "eur", hullClass: "large" })]));
     expect(a.wrecked).toBe(false); expect(a.reading).toBe(true);
     expect(a.lit).toBe(sternLampLit(coin("a"), "moored"));
     expect(a.geomCur === a.geomFull || a.geomCur === a.geomLod).toBe(true);
     expect(f.add).not.toHaveBeenCalled(); expect(f.remove).not.toHaveBeenCalled();
   });
 
-  it("invalidates berth endpoints when a raft replan reuses the same numeric slot index", () => {
+  it("invalidates berth endpoints when a raft replan reuses the same numeric slot index", async () => {
     const f = fixture();
-    f.fleet.install(model([coin("a")]));
+    await f.install(model([coin("a")]));
     const a = f.fleet.byId.get("a")!;
     // Only berth fields read by mooringLines are relevant; no sim/renderer is needed.
     const oldSlot = { kind: "berth", index: 7, id: "old/raft", heading: 0, x: 0, z: 0 } as SimSlot;
@@ -194,20 +217,82 @@ describe("fleet refresh reconciliation", () => {
     expect(a.bow).toBeNull(); // neither fixture pier exists: recomputation must clear the old endpoint
   });
 
-  it("rebuilds wreck scenery only when dead fields, live exclusions or occupied wreck slots change", () => {
+  it("rebuilds wreck scenery only when dead fields, live exclusions or occupied wreck slots change", async () => {
     const f = fixture();
     f.wrecks.mockImplementation(() => {}); // exercise invalidation without requiring authored cove/ground fixtures
     const dead: HarbourModel["readings"]["wrecks"] = [{ id: "dead", name: "Dead", symbol: "D", cause: "Cause", family: "exploit", deathDate: "2025-01-01", peakMcap: 1000 }];
-    f.fleet.install(model([coin("a")], dead)); f.clear();
-    f.fleet.install(model([coin("a")], dead.map((w) => ({ ...w }))));
+    await f.install(model([coin("a")], dead)); f.clear();
+    await f.install(model([coin("a")], dead.map((w) => ({ ...w }))));
     expect(f.wrecks).not.toHaveBeenCalled();
-    f.fleet.install(model([coin("a")], [{ ...dead[0], peakMcap: 2000 }]));
+    await f.install(model([coin("a")], [{ ...dead[0], peakMcap: 2000 }]));
     expect(f.wrecks).toHaveBeenCalledTimes(1); f.clear();
-    f.fleet.install(model([coin("a"), coin("dead")], [{ ...dead[0], peakMcap: 2000 }]));
+    await f.install(model([coin("a"), coin("dead")], [{ ...dead[0], peakMcap: 2000 }]));
     expect(f.wrecks).toHaveBeenCalledTimes(1); f.clear();
     f.ctx.services.set("sim", { pose: { count: 2, slot: [3, -1] } } as unknown as ServiceMap["sim"]);
-    f.fleet.install(model([coin("a", { state: "wrecked" }), coin("dead")], [{ ...dead[0], peakMcap: 2000 }]));
+    await f.install(model([coin("a", { state: "wrecked" }), coin("dead")], [{ ...dead[0], peakMcap: 2000 }]));
     expect(f.wrecks).toHaveBeenCalledTimes(1);
     expect(f.buoys).not.toHaveBeenCalled();
+  });
+});
+
+describe("bounded fleet installation", () => {
+  function queue(f: ReturnType<typeof fixture>) {
+    const jobs: Array<() => void> = [];
+    f.ctx.services.set("preparation", {
+      submit: <T>(work: (deadline: number) => T, options: { signal?: AbortSignal }) => new Promise<T>((resolve, reject) => {
+        jobs.push(() => { try { options.signal?.throwIfAborted(); resolve(work(-Infinity)); } catch (error) { reject(error); } });
+      }),
+      stageTexture: async () => {},
+    } as unknown as PreparationService);
+    const step = async () => { jobs.shift()?.(); for (let i = 0; i < 6; i++) await Promise.resolve(); };
+    return { jobs, step };
+  }
+
+  it("culls hull by hull only: the batch's whole-object sphere, cached at its first test, never gates the fleet", async () => {
+    const f = fixture();
+    expect(f.fleet.mesh.perObjectFrustumCulled).toBe(true);
+    expect(f.fleet.mesh.frustumCulled).toBe(false);
+    // the sphere three would cache before the staged install poses a hull: empty, at the origin
+    f.fleet.mesh.computeBoundingSphere();
+    const first = f.fleet.mesh.boundingSphere!.clone();
+    await f.install(model([coin("a")]));
+    const a = f.fleet.byId.get("a")!;
+    f.fleet.mesh.setMatrixAt(a.inst, new THREE.Matrix4().makeTranslation(-350, 0, -60));
+    // a close camera on that hull (the Shoals' framing) does not see the stale sphere, yet the hull is in view
+    const camera = new THREE.PerspectiveCamera(25, 1.6, 5, 9000);
+    camera.position.set(-350 + 280 * Math.SQRT1_2 * Math.cos(0.454), 280 * Math.sin(0.454), -60 + 280 * Math.SQRT1_2 * Math.cos(0.454));
+    camera.lookAt(-350, 0, -60); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+    const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    expect(frustum.intersectsSphere(first)).toBe(false);
+    expect(frustum.containsPoint(new THREE.Vector3(-350, 0, -60))).toBe(true);
+  });
+
+  it("stages hidden additions without changing live membership, colours or revision, and keeps history at commit", async () => {
+    const f = fixture(); await f.install(model([coin("a")]));
+    const old = f.fleet.byId.get("a")!, source = old.source, color = old.brand.clone(), q = queue(f);
+    const pending = f.system.prepareFleet(model([coin("a", { brandColor: "#AA6633" }), coin("b"), coin("c")]), undefined, 9);
+    await q.step();
+    expect(f.fleet.boats).toEqual([old]); expect(old.source).toBe(source); expect(old.brand.equals(color)).toBe(true);
+    expect(f.fleet.modelRevision).toBe(0); expect(q.jobs).toHaveLength(1);
+    await q.step();
+    const inst = f.add.mock.results.at(-1)!.value as number;
+    expect(f.fleet.mesh.getVisibleAt(inst)).toBe(false); expect(f.fleet.byId.has("b")).toBe(false);
+    old.vx = 3; old.swing = 0.7; // the old fleet keeps running during preparation
+    await q.step(); const prepared = await pending;
+    expect(old.source).toBe(source); prepared.commit(); prepared.dispose();
+    expect(f.fleet.byId.get("a")).toBe(old); expect([old.vx, old.swing]).toEqual([3, 0.7]);
+    expect(f.fleet.modelRevision).toBe(9); expect(f.fleet.needsFullPose).toBe(true);
+    expect(f.fleet.boats.map((b) => b.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("releases superseded hidden instances and never publishes its changed source or atlas", async () => {
+    const f = fixture(); await f.install(model([coin("a")])); f.clear();
+    const old = f.fleet.byId.get("a")!, source = old.source, q = queue(f), controller = new AbortController();
+    const pending = f.system.prepareFleet(model([coin("new"), coin("a", { symbol: "CHANGED" })]), undefined, 7, controller.signal);
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await q.step(); const allocated = f.add.mock.results[0].value as number;
+    controller.abort(); await q.step(); await rejected;
+    expect(f.remove).toHaveBeenCalledExactlyOnceWith(allocated); expect(old.source).toBe(source);
+    expect(f.fleet.boats).toEqual([old]); expect(f.atlas.begin).not.toHaveBeenCalled();
   });
 });

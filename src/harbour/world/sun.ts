@@ -1,7 +1,10 @@
 import * as THREE from "three";
 import type { EngineContext, PreparationEntry } from "../engine/types";
 import type { QualitySettings } from "../engine/quality";
+import type { WorldUniforms } from "../engine/uniforms";
 import { SeaShadowMask, sunShadowUniforms } from "./sun-shadow";
+import { castFadeUniforms, contactShare, FIGURE_SHADOW_DIST, ShadowCasters, type CasterState, type CasterView } from "./shadow-casters";
+import { ContactShadows } from "./contact-shadows";
 
 const UP_Y = new THREE.Vector3(0, 1, 0);
 const UP_Z = new THREE.Vector3(0, 0, 1);
@@ -13,6 +16,11 @@ const UP_Z = new THREE.Vector3(0, 0, 1);
  * Shadow fit: the view frustum's ground footprint (y = 0 and y = top) is clipped to the island bounds,
  * projected into light space, and the ortho box is quantised (extent steps + texel-snapped centre) so
  * panning/zooming never swims the shadow edges.
+ *
+ * E05 still shadows: the map is a cache. update() (before the casters) fits it and resolves the sea mask of the last
+ * map; finalize() (scene.onBeforeRender: after every caster updated, before three renders the map) asks the caster
+ * registry (world/shadow-casters.ts) what changed and re-renders only on a fit / sun-drift / tier change, a change of
+ * what the map holds, or at the tier cadence while a dynamic caster is in it. A held frame does no shadow or mask work.
  */
 export class SunRig {
   readonly key = new THREE.DirectionalLight(0xffffff, 1);
@@ -40,6 +48,21 @@ export class SunRig {
   private readonly seaMask = new SeaShadowMask();
   private seaMaskDirty = false;
   private seaMaskValid = false;
+  /** E05: what the map holds, and the contact quads far casters hand their shadow over to */
+  readonly casters = new ShadowCasters();
+  readonly contacts = new ContactShadows();
+  /** E05 diagnostics (dev captures): map renders asked vs frames held, and why the last render was asked */
+  readonly stats = { renders: 0, holds: 0, live: false, reason: "" };
+  private ctx: EngineContext | null = null;
+  private scene: THREE.Scene | null = null;
+  private sceneBeforeRender: THREE.Object3D["onBeforeRender"] | null = null;
+  /** update() → finalize(): a forced (tier) or moved (fit / sun) map, and the tier cadence having elapsed */
+  private readonly pending = { force: false, moved: false, cadence: false };
+  private finalized = true;
+  private wasLive = false;
+  private readonly casterState: CasterState = { live: false, changed: false };
+  private readonly casterView: { camera: THREE.PerspectiveCamera; viewHeight: number; sun: THREE.Vector3; frustum: THREE.Frustum | null } =
+    { camera: new THREE.PerspectiveCamera(), viewHeight: 1, sun: this.heldSun, frustum: null };
 
   constructor(mapSize = 4096) {
     this.mapSize = mapSize;
@@ -51,20 +74,40 @@ export class SunRig {
     k.shadow.camera.near = 1;
     k.shadow.camera.far = 2000;
     this.fill.castShadow = false;
-    this.group.add(k, k.target, this.fill, this.fill.target, this.hemi);
+    this.group.add(k, k.target, this.fill, this.fill.target, this.hemi, this.contacts.mesh);
     this.group.name = "harbour-sun-rig";
   }
 
   preparationEntry(): PreparationEntry { return this.seaMask.preparationEntry(); }
 
+  /** Follow this scene: census its casters, watch the depth twin's uniforms, and finalize each frame before its render. */
+  private attach(scene: THREE.Scene, u: WorldUniforms): void {
+    this.detach();
+    this.scene = scene;
+    this.casters.attach(scene);
+    // the kit's shadow twin drops bare crowns by these (world/materials.ts kitDepth): a season step re-renders the map
+    this.casters.watch(u.uFoliage); this.casters.watch(u.uSeasonPhase);
+    const before = this.sceneBeforeRender = scene.onBeforeRender;
+    scene.onBeforeRender = (...args: Parameters<THREE.Object3D["onBeforeRender"]>) => { before.apply(scene, args); this.finalize(); };
+  }
+
+  private detach(): void {
+    if (this.scene && this.sceneBeforeRender) this.scene.onBeforeRender = this.sceneBeforeRender;
+    this.scene = null; this.sceneBeforeRender = null;
+    this.casters.detach();
+  }
+
   /**
    * Shadow-map caching: the map is re-rendered only when the fitted light frustum moved (pan/zoom, sun
-   * drift beyond ~0.1°), when the quality tier changed, or on the tier's refresh interval (moving boats).
-   * High refreshes every frame; Medium/Low at 30/15 Hz while the camera is still, and never two frames
+   * drift beyond ~0.1°), when the quality tier changed, when what it holds changed (finalize), or on the
+   * tier's refresh interval while a dynamic caster is in it (boats, figures near the camera). High
+   * refreshes every frame then; Medium/Low at 30/15 Hz while the camera is still, and never two frames
    * running on the interval alone (at 15-30 fps the interval would otherwise elapse every frame).
    */
   update(ctx: EngineContext, delta = 0): void {
     const u = ctx.uniforms;
+    this.ctx = ctx;
+    if (this.scene !== ctx.scene && ctx.scene) this.attach(ctx.scene, u);
     const q = ctx.services.get("quality")?.settings;
     let force = false;
     if (q && q !== this.quality) {
@@ -89,12 +132,12 @@ export class SunRig {
     // 02-L6: a low sun's long shadows soften with distance (penumbra by elevation; the tap count is unchanged)
     const elDeg = Math.asin(THREE.MathUtils.clamp(u.uSunDir.value.y, -1, 1)) * THREE.MathUtils.RAD2DEG;
     this.key.shadow.radius = 2.2 + 2.5 * u.uNight.value + 3.0 * (1 - THREE.MathUtils.smoothstep(elDeg, 6, 30)) * (1 - u.uNight.value);
-    // hold the shadow sun until it drifted ~0.1° (or a refresh is due): a running clock must not force a re-render
+    // hold the shadow sun until it drifted ~0.1° (or a live refresh is due): a running clock must not force a re-render
     const interval = q?.shadowInterval ?? 0;
     this.sinceShadow += delta;
     this.framesSinceShadow++;
-    const due = force || (this.sinceShadow >= interval && (interval <= 0 || this.framesSinceShadow >= (q?.shadowMinFrames ?? 1)));
-    if (due || this.heldSun.angleTo(u.uSunDir.value) > 0.002) this.heldSun.copy(u.uSunDir.value);
+    const cadence = this.sinceShadow >= interval && (interval <= 0 || this.framesSinceShadow >= (q?.shadowMinFrames ?? 1));
+    if (force || (cadence && this.wasLive) || this.heldSun.angleTo(u.uSunDir.value) > 0.002) this.heldSun.copy(u.uSunDir.value);
     const moved = this.fitShadow(ctx.camera, this.heldSun);
     const sm = ctx.renderer.shadowMap;
     sm.autoUpdate = false;
@@ -110,7 +153,47 @@ export class SunRig {
       this.seaMaskDirty = !this.seaMaskValid;
     }
     ss.uKeyShadowP.value.x = consumer && map && this.seaMaskValid ? 1 : 0;
-    if (due || moved) { sm.needsUpdate = true; this.seaMaskDirty = true; this.sinceShadow = 0; this.framesSinceShadow = 0; }
+    const p = this.pending;
+    p.force ||= force; p.moved ||= moved; p.cadence = cadence;
+    this.finalized = false;
+    this.contacts.begin(q?.tier !== "low");
+  }
+
+  /**
+   * E05: after every caster updated, before three renders the map (scene.onBeforeRender, once a frame): gate the
+   * figure crowds for the zoom, ask the registry what the map holds, and request a render only when needed.
+   */
+  finalize(): void {
+    const ctx = this.ctx;
+    if (this.finalized || !ctx || !this.scene) return;
+    this.finalized = true;
+    const distance = ctx.rig.distance;
+    this.casters.gateFigures(distance, this.scene);
+    castFadeUniforms.uHbFigureFade.value = contactShare(distance, FIGURE_SHADOW_DIST);
+    const view = this.view(ctx);
+    const s = this.casters.check(this.scene, view, this.casterState), p = this.pending;
+    const reason = p.force ? "tier" : p.moved ? "fit" : s.changed ? "casters" : s.live && p.cadence ? "live" : "";
+    const sm = ctx.renderer.shadowMap;
+    if (reason) {
+      sm.needsUpdate = true; this.seaMaskDirty = true; this.sinceShadow = 0; this.framesSinceShadow = 0;
+      this.casters.drawn(view);
+      this.stats.renders++; this.stats.reason = reason;
+    } else this.stats.holds++;
+    this.stats.live = this.wasLive = s.live;
+    p.force = p.moved = false;
+    this.contacts.end(ctx.uniforms, this.key.shadow.intensity, this.casters.crowds, castFadeUniforms.uHbFigureFade.value, this.scene);
+  }
+
+  /** This frame's view of the casters: the camera, its CSS height, the map's sun and its light frustum (fitted). */
+  private view(ctx: EngineContext): CasterView {
+    const v = this.casterView, k = this.key;
+    v.camera = ctx.camera;
+    v.viewHeight = ctx.renderer.domElement.clientHeight || innerHeight;
+    k.updateWorldMatrix(true, false);
+    k.target.updateWorldMatrix(true, false);
+    k.shadow.updateMatrices(k);
+    v.frustum = k.shadow.getFrustum();
+    return v;
   }
 
   /** Fits the shadow camera; returns true when the light frustum changed (the cached map is stale). */
@@ -153,8 +236,11 @@ export class SunRig {
     const half = Math.ceil(((maxX - minX) * 0.5 + 6) / step) * step;
     const halfY = Math.ceil(((maxY - minY) * 0.5 + 6) / step) * step;
     const texel = (2 * half) / this.mapSize, texelY = (2 * halfY) / this.mapSize;
-    const cx = Math.round((minX + maxX) * 0.5 / texel) * texel;
-    const cy = Math.round((minY + maxY) * 0.5 / texelY) * texelY;
+    const ix = Math.round((minX + maxX) * 0.5 / texel), iy = Math.round((minY + maxY) * 0.5 / texelY);
+    const cx = ix * texel, cy = iy * texelY;
+    // E05: the map's first column / row as a global texel index, mod 4 (the handover dither's world anchor;
+    // mapSize / 2 is a multiple of 4)
+    castFadeUniforms.uHbCastPhase.value.set(((ix % 4) + 4) % 4, ((iy % 4) + 4) % 4);
 
     // depth range: the island box in light space
     let minZ = Infinity, maxZ = -Infinity;
@@ -180,6 +266,9 @@ export class SunRig {
   }
 
   dispose(): void {
+    this.detach();
+    this.casters.dispose();
+    this.contacts.dispose();
     this.key.shadow.dispose();
     this.seaMask.dispose();
     this.group.removeFromParent();

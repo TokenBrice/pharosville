@@ -1,6 +1,18 @@
 import { useEffect } from "react";
+import { Binoculars } from "lucide-react";
 import { useStore, useUISlice } from "./hooks";
 import { ACTIONS } from "./KeyList";
+
+/**
+ * The watch's start for touch and pointer (D14, O7-F7): the help sheet carries it with the essentials, and the sheet
+ * steps aside as the watch begins, so its first stop is seen. While a watch runs it stops it, and says so.
+ */
+export function WatchStartButton({ onStart }: { onStart?: () => void }) {
+  const store = useStore(), watching = useUISlice((s) => s.watch != null);
+  return <button type="button" className="hb-control" onClick={() => { if (!watching) onStart?.(); store.toggleWatch(); }}>
+    <Binoculars aria-hidden="true" strokeWidth={1.25} /><span>{watching ? "Stop watch" : ACTIONS.watch.label}</span><kbd aria-hidden="true">{ACTIONS.watch.cap}</kbd>
+  </button>;
+}
 
 /** Replaces App's aria-hidden watch slip; all input uses the same store actions. */
 export function WatchControls() {

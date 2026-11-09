@@ -4,21 +4,26 @@ import seedsUrl from "../data/sim-seeds.json?url";
 import { buildSimLayout, type SimLayout } from "./layout-graph";
 import type { CoastGrid } from "./obstacles";
 import { outingSeed, seedOutings } from "./outings";
-import { buildPlan, legTimes, seedLegTimes } from "./plan";
-import { buildPlanLegPath, pathKey, planPathRequests, type PreparedPlan } from "./plan-paths";
+import { buildPlan, legTimes, seedLegTimes, type BoatPlan } from "./plan";
+import { buildPlanLegPath, pathBuffers, pathKey, planPathRequests, reservePlanHolds, type PreparedPlan, type PathRequest } from "./plan-paths";
 import { matchingSeeds, type SimSeeds } from "./seeds";
 
 type Msg =
   | { type: "warm"; layout: HarbourLayout; coast: CoastGrid | null }
-  | { type: "prepare"; id: number; model: HarbourModel; nowMs: number; knownPlainPaths: string[] };
+  | { type: "prepare"; id: number; model: HarbourModel; nowMs: number; knownPlainPaths: string[] }
+  | { type: "paths"; id: number; planRevision: number; layoutKey: string; legs: PathRequest[] };
 const scope = self as unknown as { onmessage: ((e: MessageEvent<Msg>) => void) | null; postMessage(m: unknown, transfer?: Transferable[]): void };
+const fetchingSeeds = fetch(seedsUrl);
+// Own early rejection while coast/layout are still loading; the warm job reports the failure.
+void fetchingSeeds.catch(() => {});
 let L: SimLayout | null = null, base = 0;
+let layoutKey = "";
+let holdingPlans: BoatPlan[] = [];
 let queue = Promise.resolve();
 scope.onmessage = ({ data: m }) => {
   // Initialization hashes asynchronously; preserve message order through it and every later job.
   queue = queue.then(async () => {
     if (m.type === "warm") {
-      const fetchingSeeds = fetch(seedsUrl);
       L = buildSimLayout(m.layout, m.coast);
       base = L.slots.length;
       const response = await fetchingSeeds;
@@ -38,7 +43,18 @@ scope.onmessage = ({ data: m }) => {
       return;
     }
     if (!L) throw new Error("Simulation worker has no layout");
+    if (m.type === "paths") {
+      const paths: PreparedPlan["paths"] = [];
+      if (layoutKey === m.layoutKey) for (const request of m.legs) {
+        const { path, bad } = buildPlanLegPath(L, base, ...request);
+        paths.push([pathKey(...request), path, bad]);
+      }
+      const holds = reservePlanHolds(L, holdingPlans, paths);
+      scope.postMessage({ id: m.id, planRevision: m.planRevision, layoutKey: m.layoutKey, paths, holds }, [...pathBuffers(paths)] as Transferable[]);
+      return;
+    }
     L.slots.length = base;
+    layoutKey = m.model.planKey;
     // Allocate directly: playback, separation and one-off voyages belong only to the main sim.
     const plan = buildPlan(m.model, L);
     const known = new Set(m.knownPlainPaths);
@@ -49,16 +65,19 @@ scope.onmessage = ({ data: m }) => {
       rafts: L.slots.slice(base),
       paths: [],
     };
-    for (const [from, to, cls, loop] of [...requests.now, ...requests.soon]) {
-      const key = pathKey(from, to, cls, loop);
-      const { path, bad } = buildPlanLegPath(L, base, from, to, cls, loop);
+    for (const request of [...requests.now, ...requests.soon]) {
+      const key = pathKey(...request);
+      const { path, bad } = buildPlanLegPath(L, base, ...request);
       // One unsafe leg must never fail the whole fleet: the flag travels with the path and the main
       // sim handles it per boat (badOuting / route-unavailable hold), as before S16-I6.
       prepared.paths.push([key, path, bad]);
     }
-    const buffers = new Set<ArrayBufferLike>();
+    prepared.holds = reservePlanHolds(L, sailing, prepared.paths);
+    prepared.rafts = L.slots.slice(base);
+    // The reply transfers the plan arrays; retain circuit identities for later rejected paths.
+    holdingPlans = structuredClone(sailing.filter((p) => p.kind === "circuit"));
+    const buffers = pathBuffers(prepared.paths);
     for (const b of prepared.plan.boats) for (const a of [b.segStart, b.segEnd, b.segKind, b.segSlot, b.segFrom, b.segLoop]) buffers.add(a.buffer);
-    for (const [, p] of prepared.paths) for (const a of [p.pts, p.hdg, p.vrel, p.q, p.sOfQ, p.w0, p.w1, p.rev?.pts, p.rev?.hdg]) if (a) buffers.add(a.buffer);
     scope.postMessage({ id: m.id, prepared }, [...buffers] as Transferable[]);
   }).catch((error: unknown) => {
     scope.postMessage({ error: error instanceof Error ? error.message : String(error) });

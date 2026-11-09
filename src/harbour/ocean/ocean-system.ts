@@ -158,7 +158,8 @@ export class OceanSystem implements WorldSystem {
     this.sdfTex.needsUpdate = true;
 
     const wakeRes = Math.min(2048, THREE.MathUtils.ceilPowerOfTwo(Math.ceil(Math.max(this.bounds[2] - this.bounds[0], this.bounds[3] - this.bounds[1]) / 0.55)));
-    this.wake = new WakeField(this.bounds, wakeRes, wakeRes);
+    const initialWakeRes = ctx.services.get("quality")?.tier === "low" ? Math.min(1024, wakeRes) : wakeRes;
+    this.wake = new WakeField(this.bounds, initialWakeRes, initialWakeRes);
 
     const sky = ctx.services.get("sky");
     const skyShared: SkyShared | Record<string, THREE.IUniform> = sky?.shared ?? {
@@ -222,7 +223,13 @@ export class OceanSystem implements WorldSystem {
         this.syncFeatures();
       };
       lite(quality.tier);
-      this.unsubQuality = quality.onChange((q) => lite(q.tier));
+      this.unsubQuality = quality.onChange((q) => {
+        lite(q.tier);
+        this.wake.resize(ctx.renderer, q.tier === "low" ? Math.min(1024, wakeRes) : wakeRes, () => {
+          this.material.uniforms.uWake.value = this.wake.texture;
+          this.material.uniforms.uWakeLive.value = this.wake.live;
+        });
+      });
     }
     this.mesh = new THREE.Mesh(oceanGeometry(this.bounds), this.material);
     this.mesh.frustumCulled = false;

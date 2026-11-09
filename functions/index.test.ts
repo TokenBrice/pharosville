@@ -336,3 +336,112 @@ describe("PharosVille social card route", () => {
     });
   });
 });
+
+describe("E28 night key art on the shell route", () => {
+  const NIGHT_IN_BELGRADE = "2026-11-09T21:00:00Z"; // 22:00 local
+  const DAY_IN_BELGRADE = "2026-11-09T10:00:00Z"; // 11:00 local
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  function nightContext(url: string, opts: { at?: string; timezone?: unknown; method?: string; headers?: Record<string, string>; asset?: Response } = {}) {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(opts.at ?? NIGHT_IN_BELGRADE));
+    const assetResponse = opts.asset ?? new Response(SHELL_HTML, {
+      headers: {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-length": String(SHELL_HTML.length),
+        "content-security-policy": "default-src 'self'; frame-ancestors 'none'",
+        "content-type": "text/html; charset=utf-8",
+        etag: '"5f2c0a"',
+        "last-modified": "Mon, 09 Nov 2026 00:00:00 GMT",
+        "x-frame-options": "DENY",
+      },
+    });
+    const seen: Request[] = [];
+    const request = Object.assign(new Request(url, { method: opts.method ?? "GET", headers: opts.headers ?? {} }), {
+      cf: { timezone: "timezone" in opts ? opts.timezone : "Europe/Belgrade" },
+    });
+    return { assetResponse, seen, context: { next: async (input?: Request) => { seen.push(input ?? request); return assetResponse; }, request } };
+  }
+
+  it("opens a night visit on the night poster, with the security policy and revalidation profile intact", async () => {
+    const { context, seen } = nightContext("https://pharosville.pharos.watch/");
+    const response = await onRequest(context);
+    const html = await response.text();
+    expect(response.status).toBe(200);
+    expect(html).toContain('<html lang="en" data-pv-hour="night">');
+    expect(html).toContain('srcset="/harbour/poster-night-960.avif 960w, /harbour/poster-night-1600.avif 1600w"');
+    expect(html).not.toMatch(/poster-(?:960|1600)\./);
+    expect(response.headers.get("x-frame-options")).toBe("DENY");
+    expect(response.headers.get("content-security-policy")).toBe("default-src 'self'; frame-ancestors 'none'");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
+    expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    // its own validator, and nothing that could revalidate it against the day body
+    expect(response.headers.get("etag")).toBe('"5f2c0a-night"');
+    expect(response.headers.get("last-modified")).toBeNull();
+    expect(response.headers.get("content-length")).toBeNull();
+    expect(seen).toHaveLength(1);
+  });
+
+  it("answers conditional requests for the night shell itself, never with a body cached at another hour", async () => {
+    const same = nightContext("https://pharosville.pharos.watch/", { headers: { "if-none-match": 'W/"5f2c0a-night"', "if-modified-since": "Mon, 09 Nov 2026 00:00:00 GMT" } });
+    const notModified = await onRequest(same.context);
+    expect(notModified.status).toBe(304);
+    expect(await notModified.text()).toBe("");
+    expect(notModified.headers.get("etag")).toBe('"5f2c0a-night"');
+    expect(notModified.headers.get("x-frame-options")).toBe("DENY");
+    // the asset is always fetched whole: the edge never answers a night request with the day 304
+    for (const header of ["if-none-match", "if-modified-since"]) expect(same.seen[0]!.headers.get(header)).toBeNull();
+
+    const dayCached = nightContext("https://pharosville.pharos.watch/", { headers: { "if-none-match": '"5f2c0a"' } });
+    const fresh = await onRequest(dayCached.context);
+    expect(fresh.status).toBe(200);
+    expect(await fresh.text()).toContain('data-pv-hour="night"');
+
+    // by day the asset route's own conditional handling is untouched: a night validator simply does not match there
+    const nightCachedByDay = nightContext("https://pharosville.pharos.watch/", { at: DAY_IN_BELGRADE, headers: { "if-none-match": '"5f2c0a-night"' } });
+    expect(await onRequest(nightCachedByDay.context)).toBe(nightCachedByDay.assetResponse);
+    expect(nightCachedByDay.seen[0]!.headers.get("if-none-match")).toBe('"5f2c0a-night"');
+  });
+
+  it("keeps the asset response untouched by day, for an unknown or missing zone and for HEAD", async () => {
+    for (const opts of [{ at: DAY_IN_BELGRADE }, { timezone: "Not/AZone" }, { timezone: undefined }, { timezone: "" }, { method: "HEAD" }]) {
+      const { assetResponse, context } = nightContext("https://pharosville.pharos.watch/", opts);
+      expect(await onRequest(context), JSON.stringify(opts)).toBe(assetResponse);
+    }
+  });
+
+  it("follows a pinned ?t= as the harbour's clock does", async () => {
+    const pinnedNight = nightContext("https://pharosville.pharos.watch/?t=22", { at: DAY_IN_BELGRADE, timezone: undefined });
+    expect(await (await onRequest(pinnedNight.context)).text()).toContain('data-pv-hour="night"');
+    const pinnedDay = nightContext("https://pharosville.pharos.watch/?t=11");
+    expect(await onRequest(pinnedDay.context)).toBe(pinnedDay.assetResponse);
+  });
+
+  it("never writes a request value into the page", async () => {
+    const hostile = '"><script>alert(1)</script>';
+    const zone = nightContext("https://pharosville.pharos.watch/", { timezone: hostile });
+    expect(await onRequest(zone.context)).toBe(zone.assetResponse);
+    const query = nightContext(`https://pharosville.pharos.watch/?t=22&season=${encodeURIComponent(hostile)}&month=${encodeURIComponent(hostile)}`);
+    const html = await (await onRequest(query.context)).text();
+    expect(html).not.toContain("alert(1)");
+    expect(html.match(/<script\b/g)).toEqual(SHELL_HTML.match(/<script\b/g));
+  });
+
+  it("passes a non-HTML or failed asset response through at night", async () => {
+    const json = new Response("{}", { headers: { "content-type": "application/json" } });
+    const a = nightContext("https://pharosville.pharos.watch/", { asset: json });
+    expect(await onRequest(a.context)).toBe(json);
+    const missing = new Response("gone", { status: 404, headers: { "content-type": "text/html" } });
+    const b = nightContext("https://pharosville.pharos.watch/", { asset: missing });
+    expect(await onRequest(b.context)).toBe(missing);
+  });
+
+  it("combines with a social card: the night poster and the ship's text", async () => {
+    vi.stubGlobal("HTMLRewriter", FakeHtmlRewriter);
+    const { context } = nightContext(`https://pharosville.pharos.watch/?sel=ship.${A_KNOWN_SHIP.id}`);
+    const html = await (await onRequest(context)).text();
+    expect(html).toContain('data-pv-hour="night"');
+    expect(metaContent(html, 'meta[property="og:title"]')).toContain(A_KNOWN_SHIP.symbol);
+    expect(metaContent(html, 'meta[property="og:image"]')).toBe("https://pharosville.pharos.watch/og-card.png");
+  });
+});

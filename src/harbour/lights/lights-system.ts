@@ -9,6 +9,8 @@ import type { QualitySettings } from "../engine/quality";
 import { BEAM_LIGHT_GLSL, beamLightUniforms } from "../beam/beam-light-glsl";
 import { getBeamUniforms } from "../beam/uniforms";
 import { LAMP_WAVE_GLSL, LAMP_WAVE_SPREAD, lampGlow, lampWaveUniforms, setLampWave } from "./lamp-wave";
+import { FullscreenPass } from "../ocean/gpu-bake";
+import { COPY_FRAG } from "../engine/shaders/copy";
 
 const MAX_POINT = 16;
 const POOL_RES = 2048;
@@ -26,6 +28,19 @@ export const POINT_BUDGET = { fullBelow: 800, fewBelow: 900, few: 4 } as const;
 export function pointBudget(slot: number, distance: number): number {
   const limit = slot < POINT_BUDGET.few ? POINT_BUDGET.fewBelow : POINT_BUDGET.fullBelow;
   return 1 - THREE.MathUtils.smoothstep(distance, limit * 0.85, limit);
+}
+
+/**
+ * E09 at the overview: lamps, not pearls. Out where the harbour turns miniature (the tilt-shift's own range, set from
+ * the landing's fitted distance: none at any landing, full at the overview) the decorative lamps keep this share of the
+ * light on their pools and their glass, so each reads as a small warm point instead of a white bead in a halo. Their
+ * sprites keep their own far law; the Pharos's fire and beam, the ships' lights and the storm signals never take it.
+ */
+export const OVERVIEW_LAMPS = 0.4;
+
+/** The decorative lamps' share (1 … OVERVIEW_LAMPS) with the rig `distance` m out, over the overview range [near, far]. */
+export function lampFar(distance: number, near: number, far: number): number {
+  return 1 - (1 - OVERVIEW_LAMPS) * THREE.MathUtils.smoothstep(distance, near, far);
 }
 
 /**
@@ -53,13 +68,15 @@ float lhNoise(vec2 p) { vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 -
 
 /**
  * Light glow per kind from the shared clock: windows follow uWindowGlow; lamps come on a little earlier.
- * Each light sees the clock through the lamplighting wave (lamp-wave.ts): later the further from the Pharos.
+ * Each decorative light sees the clock through the lamplighting wave (lamp-wave.ts): later the further from the Pharos.
+ * An analytical light (iAna = 1, KindSpec.analytic: the storm signal's lanterns, the keeper's vigil) sees the clock
+ * itself (D11): its state shows at once, never held back by the lamp round or the arrival beat.
  */
 const GLSL_GLOW = /* glsl */ `
 uniform float uWindowGlow;
 ${LAMP_WAVE_GLSL}
-float lhGlowAt(float kind, vec3 pos) {
-  float g = hbLampGlow(uWindowGlow, hbLampRank(pos, hbLampJitter(pos.xz)));
+float lhGlowAt(float kind, vec3 pos, float analytic) {
+  float g = analytic > 0.5 ? uWindowGlow : hbLampGlow(uWindowGlow, hbLampRank(pos, hbLampJitter(pos.xz)));
   return kind < 0.0 ? g : smoothstep(0.02, 0.55, g);
 }
 `;
@@ -86,6 +103,7 @@ export class LightsSystem implements WorldSystem {
   private readonly spriteGeo = quad();
   private readonly pillarGeo = quad();
   private poolRT!: THREE.WebGLRenderTarget;
+  private readonly copy = new FullscreenPass(COPY_FRAG, { uSource: { value: null } }, { name: "hb_pool_resize" });
   private poolScene = new THREE.Scene();
   private readonly poolCam = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
   private sprites!: THREE.Mesh;
@@ -105,6 +123,8 @@ export class LightsSystem implements WorldSystem {
   private nearWater: Uint8Array = new Uint8Array(0);
   /** Metres from the light to open water along the (fixed-yaw) view direction: the pillar starts there. */
   private iWet!: THREE.InstancedBufferAttribute;
+  /** 1 = an analytical light (KindSpec.analytic): its sprite and pillar skip the lamp round and the arrival beat (D11). */
+  private iAna!: THREE.InstancedBufferAttribute;
   private wetYaw = NaN;
   private offQuality: (() => void) | undefined;
   private offPreparation: (() => void) | undefined;
@@ -124,7 +144,8 @@ export class LightsSystem implements WorldSystem {
     const mats = getHarbourMaterials(ctx);
     const b = layout?.bounds;
     const [minX, minZ, maxX, maxZ] = b ? [b.min[0], b.min[2], b.max[0], b.max[2]] : [-500, -500, 500, 500];
-    this.poolRT = new THREE.WebGLRenderTarget(POOL_RES, POOL_RES, { type: THREE.HalfFloatType, depthBuffer: false, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter });
+    const poolRes = ctx.services.get("quality")?.settings.tier === "low" ? 1024 : POOL_RES;
+    this.poolRT = new THREE.WebGLRenderTarget(poolRes, poolRes, { type: THREE.HalfFloatType, depthBuffer: false, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter });
     mats.pool.uPoolTex.value = this.poolRT.texture;
     mats.pool.uPoolBounds.value.set(minX, minZ, 1 / (maxX - minX), 1 / (maxZ - minZ));
     const u = ctx.uniforms;
@@ -169,7 +190,7 @@ export class LightsSystem implements WorldSystem {
         ${GLSL_GLOW}
         ${BEAM_LIGHT_GLSL}
         uniform float uPx;
-        attribute vec3 iPos; attribute vec4 iCol; attribute vec4 iPar;
+        attribute vec3 iPos; attribute vec4 iCol; attribute vec4 iPar; attribute float iAna;
         varying vec2 vQ; varying vec3 vC; varying float vHalo;
         void main() {
           vQ = position.xy * 2.0;
@@ -184,7 +205,7 @@ export class LightsSystem implements WorldSystem {
           vHalo = mix(0.10, 0.03, far);
           mv.xy += position.xy * size * 3.0;
           mv.z += 0.6;
-          vC = iCol.rgb * iCol.a * lhGlowAt(iPar.y, iPos) * (0.35 + 0.65 * k) * (1.0 - 0.5 * far);
+          vC = iCol.rgb * iCol.a * lhGlowAt(iPar.y, iPos, iAna) * (0.35 + 0.65 * k) * (1.0 - 0.5 * far);
           // the quay lamps answer the beam as it passes over them (05-P1)
           vC *= 1.0 + 0.8 * dot(hbBeamLight(iPos, vec3(0.0, 1.0, 0.0)), vec3(0.3333));
           gl_Position = iPar.x > 0.0 && iCol.a > 0.0 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
@@ -214,7 +235,7 @@ export class LightsSystem implements WorldSystem {
       },
       vertexShader: /* glsl */ `
         ${GLSL_GLOW}
-        attribute vec3 iPos; attribute vec4 iCol; attribute vec4 iPar; attribute float iWet;
+        attribute vec3 iPos; attribute vec4 iCol; attribute vec4 iPar; attribute float iWet; attribute float iAna;
         varying vec2 vQ; varying vec3 vC; varying vec2 vW; varying vec2 vL;
         void main() {
           vec2 toCam = normalize(cameraPosition.xz - iPos.xz);
@@ -228,7 +249,7 @@ export class LightsSystem implements WorldSystem {
           vL = vec2(position.x * wid, t * len + iPos.x * 0.37 + iPos.z * 0.61);   // pillar frame (m), per-light phase
           // fade with distance (the overview keeps a hint), and riding lights (small sprites) stay modest
           float camD = distance(cameraPosition, iPos);
-          vC = iCol.rgb * lhGlowAt(iPar.y, iPos) * 0.85 * mix(1.0, 0.3, smoothstep(220.0, 900.0, camD)) * (iPar.x < 0.4 ? 0.5 : 1.0);
+          vC = iCol.rgb * lhGlowAt(iPar.y, iPos, iAna) * 0.85 * mix(1.0, 0.3, smoothstep(220.0, 900.0, camD)) * (iPar.x < 0.4 ? 0.5 : 1.0);
           bool show = iCol.a > 0.0 && iPar.w < 0.0;
           gl_Position = show ? projectionMatrix * viewMatrix * vec4(p.x, 1.1, p.y, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);   // above the swell crests
         }`,
@@ -265,17 +286,31 @@ export class LightsSystem implements WorldSystem {
       ctx.scene.add(p);
     }
     this.ensureCapacity(Math.max(256, this.store.lights.length));
-    this.offPreparation = ctx.services.get("preparation")?.register({
+    const offPool = ctx.services.get("preparation")?.register({
       root: this.poolScene, camera: this.poolCam, target: () => this.poolRT,
     });
+    const offCopy = ctx.services.get("preparation")?.register(this.copy.preparationEntry(() => this.poolRT));
+    this.offPreparation = () => { offPool?.(); offCopy?.(); };
     const quality = ctx.services.get("quality");
     if (quality) {
-      this.applyQuality(quality.settings);
-      this.offQuality = quality.onChange((settings) => this.applyQuality(settings));
+      this.applyQuality(quality.settings, ctx);
+      this.offQuality = quality.onChange((settings) => this.applyQuality(settings, ctx));
     }
   }
 
-  private applyQuality(settings: QualitySettings): void {
+  private applyQuality(settings: QualitySettings, ctx: EngineContext): void {
+    const size = settings.tier === "low" ? 1024 : POOL_RES;
+    if (this.poolRT.width !== size) {
+      const previous = this.poolRT, next = previous.clone(); next.setSize(size, size);
+      try {
+        this.copy.material.uniforms.uSource.value = previous.texture;
+        this.copy.render(ctx.renderer, next, false);
+      } catch (error) { next.dispose(); throw error; }
+      finally { this.copy.material.uniforms.uSource.value = null; }
+      this.poolRT = next;
+      getHarbourMaterials(ctx).pool.uPoolTex.value = next.texture;
+      previous.dispose();
+    }
     const want = Math.min(MAX_POINT, settings.pointLights);
     if (want === this.pointCount) return;
     this.pointCount = want;
@@ -294,6 +329,9 @@ export class LightsSystem implements WorldSystem {
     this.iPar = new THREE.InstancedBufferAttribute(new Float32Array(this.cap * 4), 4).setUsage(THREE.DynamicDrawUsage);
     this.iWet = new THREE.InstancedBufferAttribute(new Float32Array(this.cap), 1).setUsage(THREE.DynamicDrawUsage);
     this.pillarGeo.setAttribute("iWet", this.iWet);
+    this.iAna = new THREE.InstancedBufferAttribute(new Float32Array(this.cap), 1).setUsage(THREE.DynamicDrawUsage);
+    this.spriteGeo.setAttribute("iAna", this.iAna);
+    this.pillarGeo.setAttribute("iAna", this.iAna);
     for (const g of [this.poolGeo, this.spriteGeo, this.pillarGeo]) {
       g.setAttribute("iPos", this.iPos); g.setAttribute("iCol", this.iCol); g.setAttribute("iPar", this.iPar);
     }
@@ -333,6 +371,7 @@ export class LightsSystem implements WorldSystem {
       const on = l.alive && l.on;
       if (on && this.nearWater[i] === 0) this.nearWater[i] = this.isNearWater(l.position.x, l.position.z, l.position.y) ? 2 : 1;
       (this.iWet.array as Float32Array)[i] = this.nearWater[i] === 2 ? this.wetDistance(l.position.x, l.position.z) : 0;
+      (this.iAna.array as Float32Array)[i] = l.spec.analytic ? 1 : 0;
       C[i * 4] = l.color.r * l.k; C[i * 4 + 1] = l.color.g * l.k; C[i * 4 + 2] = l.color.b * l.k;
       C[i * 4 + 3] = on ? Math.max(l.spec.spriteK, 0.001) : 0;
       Q[i * 4] = l.spec.sprite;
@@ -348,6 +387,7 @@ export class LightsSystem implements WorldSystem {
       this.iCol.addUpdateRange(0, L.length * 4); this.iCol.needsUpdate = true;
       this.iPar.addUpdateRange(0, L.length * 4); this.iPar.needsUpdate = true;
       this.iWet.addUpdateRange(0, L.length); this.iWet.needsUpdate = true;
+      this.iAna.addUpdateRange(0, L.length); this.iAna.needsUpdate = true;
     }
   }
 
@@ -383,12 +423,16 @@ export class LightsSystem implements WorldSystem {
     // Never threshold a small glow: dawn/dusk contributions and all other lighting stay unchanged.
     this.sprites.visible = this.pillars.visible = g !== 0;
     const distance = ctx.rig.distance;
+    // E09 at the overview: the decorative lamps' pools and glass over the tilt-shift's range (layout-system.ts sets it)
+    const post = ctx.services.get("post");
+    getHarbourMaterials(ctx).pool.uLampFar.value = post ? lampFar(distance, post.tiltNear, post.tiltFar) : 1;
     for (let k = 0; k < MAX_POINT; k++) {
-      const p = this.points[k];
-      const glow = THREE.MathUtils.smoothstep(lampGlow(g, this.store.rankAt(p.position), w.spread), 0.02, 0.55);
+      const p = this.points[k], l = this.store.lights[this.bestI[k]];
+      // lhGlowAt on the CPU: an analytical light sees the clock itself (D11), a decorative one its lamp's moment
+      const glow = THREE.MathUtils.smoothstep(l?.spec.analytic ? g : lampGlow(g, this.store.rankAt(p.position), w.spread), 0.02, 0.55);
       const base = (p.userData.base as number | undefined) ?? 0;
       const budget = pointBudget(k, distance);
-      p.intensity = base > 0 && budget > 0 ? base * glow * budget * (this.store.lights[this.bestI[k]]?.k ?? 1) : 0;
+      p.intensity = base > 0 && budget > 0 ? base * glow * budget * (l?.k ?? 1) : 0;
     }
   }
 
@@ -441,6 +485,7 @@ export class LightsSystem implements WorldSystem {
     this.offPreparation?.();
     ctx.scene.remove(this.sprites, this.pillars, ...this.points);
     this.poolRT.dispose();
+    this.copy.dispose();
     for (const g of [this.poolGeo, this.spriteGeo, this.pillarGeo]) g.dispose();
     (this.sprites.material as THREE.Material).dispose();
     (this.pillars.material as THREE.Material).dispose();

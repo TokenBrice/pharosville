@@ -11,6 +11,7 @@ import type { OutputBundle, OutputChunk } from "rollup";
 import { onRequest as pharosVilleApiProxy } from "./functions/api/[[path]]";
 import { loadWorktreeSharedPharosEnv } from "./scripts/pharosville/local-api-env.mjs";
 import { staticDataProjections } from "./scripts/vite/static-data-plugin";
+import { posterVariantDev } from "./scripts/vite/poster-variant-plugin";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const pharosVilleDesktopChunkName = "harbour-app";
@@ -240,6 +241,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       staticDataProjections(),
+      posterVariantDev(),
       localCheckoutIdentity(),
       localPharosVilleApiProxy({
         PHAROS_API_BASE: env.PHAROS_API_BASE ?? "https://api.pharos.watch",

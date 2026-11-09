@@ -6,6 +6,7 @@ import type { EngineContext, FrameState } from "../engine/types";
 import { PH_DOCKED, PH_SAILING } from "../sim/sim";
 import { FleetSystem } from "./fleet-system";
 import { fleetShadowFrustum, rigRadius } from "./visibility";
+import { castFadeUniforms, FADE_FROM } from "../world/shadow-casters";
 
 const frame: FrameState = { delta: 1 / 60, elapsed: 2, nowMs: 0 };
 
@@ -43,6 +44,46 @@ function fixture(shadows: boolean) {
 }
 
 describe("conservative fleet visual culling", () => {
+  it.each([false, true])("defers logos and Wreck Cove until the engine opens the frontier, respecting cancellation=%s", (cancelled) => {
+    const f = fixture(false), lifetime = new AbortController();
+    const callbacks: FrameRequestCallback[] = [], loadLogos = vi.fn(() => Promise.resolve()), loadCove = vi.fn(); // B17: staged uploads return a promise
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => callbacks.push(cb));
+    Object.assign(f.context, { assets: { decorationsReady: false }, signal: lifetime.signal });
+    Object.assign(f.system, { logosAsked: false, coveState: "wait", atlas: { loadLogos }, loadCove });
+    try {
+      f.system.update(frame, f.context);
+      expect(callbacks).toHaveLength(0);
+      f.context.assets.decorationsReady = true;
+      f.system.update(frame, f.context); f.system.update(frame, f.context);
+      expect(callbacks).toHaveLength(2);
+      if (cancelled) lifetime.abort();
+      for (const callback of callbacks) callback(0);
+      expect(loadLogos).toHaveBeenCalledTimes(cancelled ? 0 : 1);
+      expect(loadCove).toHaveBeenCalledTimes(cancelled ? 0 : 1);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("skips moorings outside the view and light frusta, and poses them again the frame they come back", () => {
+    const f = fixture(false);
+    const heightAt = vi.fn(() => 0.2);
+    Object.assign(f.ocean, { heightAt });
+    // one buoy at the view's centre, one far off it (and the boat is offscreen too)
+    const buoys = [{ inst: 7, x: 0, z: 0, phi: 0, shown: true }, { inst: 8, x: 1000000, z: 0, phi: 0, shown: true }];
+    Object.assign(f.system, { buoyInst: buoys, buoySize: 1, buoyReach: 1.5 });
+    f.system.update(frame, f.context);
+    expect(heightAt).toHaveBeenCalledTimes(1);
+    expect(f.mesh.setVisibleAt).toHaveBeenCalledWith(8, false);
+    expect(f.mesh.setMatrixAt).toHaveBeenCalledWith(7, expect.any(THREE.Matrix4));
+    expect(f.mesh.setMatrixAt).not.toHaveBeenCalledWith(8, expect.anything());
+    // the camera turns to the far buoy: this frame's camera, not last frame's matrices, decides
+    f.camera.position.set(1000000, 50, 100); f.camera.lookAt(1000000, 0, 0);
+    f.mesh.setVisibleAt.mockClear(); f.mesh.setMatrixAt.mockClear(); heightAt.mockClear();
+    f.system.update(frame, f.context);
+    expect(f.mesh.setVisibleAt).toHaveBeenCalledWith(8, true);
+    expect(f.mesh.setMatrixAt).toHaveBeenCalledWith(8, expect.any(THREE.Matrix4));
+    expect(f.mesh.setVisibleAt).toHaveBeenCalledWith(7, false);
+  });
+
   it("bounds furl, mirror and arbitrary pivot rotation without assuming a boom angle", () => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute([3, 4, 0], 3));
@@ -69,7 +110,7 @@ describe("conservative fleet visual culling", () => {
     expect(f.boat.posed).toBe(false);
     expect(f.mesh.setVisibleAt).toHaveBeenCalledWith(0, false);
     expect(f.mesh.setMatrixAt).not.toHaveBeenCalled();
-    expect(f.ocean.hullHeights).toHaveBeenCalledTimes(1);
+    expect(f.ocean.hullHeights).not.toHaveBeenCalled();
     expect(f.wake.stamp).toHaveBeenCalledTimes(1);
   });
 
@@ -114,16 +155,16 @@ describe("conservative fleet visual culling", () => {
     expect(f.mesh.setMatrixAt).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps exact picking/history/contact updates offscreen and fully recomputes on fast reentry", () => {
+  it("keeps velocity/rig/contact history offscreen and fully recomputes on fast reentry", () => {
     const f = fixture(false), reference = fixture(false);
     reference.boat.visualRadius = 2000000; // always pose the reference without changing temporal state
     f.system.update(frame, f.context); reference.system.update(frame, reference.context);
     expect(f.boat.posed).toBe(false);
     expect(f.mesh.setVisibleAt).toHaveBeenCalledWith(0, false);
     expect(f.mesh.setMatrixAt).not.toHaveBeenCalled();
-    expect(f.ocean.hullHeights).toHaveBeenCalledTimes(1);
+    expect(f.ocean.hullHeights).not.toHaveBeenCalled();
     expect(f.wake.stamp.mock.calls).toEqual(reference.wake.stamp.mock.calls);
-    expect([f.boat.cx, f.boat.cy, f.boat.cz, f.boat.swing, f.boat.heel]).toEqual([reference.boat.cx, reference.boat.cy, reference.boat.cz, reference.boat.swing, reference.boat.heel]);
+    expect([f.boat.cx, f.boat.cz, f.boat.swing, f.boat.heel]).toEqual([reference.boat.cx, reference.boat.cz, reference.boat.swing, reference.boat.heel]);
     for (const world of [f, reference]) {
       world.sim.pose.position[0] += 1;
       world.sim.pose.phase[0] = PH_SAILING;
@@ -184,5 +225,51 @@ describe("fleet-frame submission evidence", () => {
     Object.assign(f.system, { uploadData: () => { throw new Error("upload failed"); } });
     expect(() => f.system.update(frame, f.context)).toThrow("upload failed");
     expect(f.context.services.has("fleet-frame")).toBe(false);
+  });
+});
+
+describe("E05 fleet shadow handover", () => {
+  /** A visible docked hull, the fleet's own zoom gate, and the sun rig's contact quads. */
+  function handover(distance: number, wrecked = false) {
+    const f = fixture(true);
+    const hull = vi.fn();
+    Object.assign(f.sun, { contacts: { hull } });
+    Object.assign(f.boat, { variant: { bowCleat: new THREE.Vector3(4, 1.4, 0) }, wrecked, dead: wrecked });
+    f.camera.position.set(1000000, 50, 100); f.camera.lookAt(1000000, 0, 0); f.camera.updateMatrixWorld(true);
+    (f.context.rig as { distance: number }).distance = distance;
+    f.system.update(frame, f.context);
+    return { ...f, hull };
+  }
+
+  it("leaves no step at the 640 m limit: 639 m casts a fully thinned depth and its contact quads are already whole", () => {
+    const near = handover(639), far = handover(641);
+    expect(near.mesh.castShadow).toBe(true);
+    const nearFade = castFadeUniforms.uHbFleetFade.value;
+    expect(far.mesh.castShadow).toBe(false);
+    expect(castFadeUniforms.uHbFleetFade.value).toBe(1);
+    expect(nearFade).toBeGreaterThan(0.999);
+    expect(near.hull).toHaveBeenCalledTimes(1);
+    expect(far.hull).toHaveBeenCalledTimes(1);
+    const [x, , z, heading, halfLength, halfBeam, height, share] = near.hull.mock.calls[0];
+    expect([x, z, heading]).toEqual([1000000, 0, 0]);
+    expect([halfLength, halfBeam, height]).toEqual([10 * 0.42, 2 * 0.42, 1.4]);
+    expect(share).toBeGreaterThan(0.999);
+    expect(far.hull.mock.calls[0][7]).toBe(1);
+  });
+
+  it("casts whole depth shadows nearer than the band and no contact quads there", () => {
+    const f = handover(FADE_FROM * 640 - 1);
+    expect(f.mesh.castShadow).toBe(true);
+    expect(castFadeUniforms.uHbFleetFade.value).toBe(0);
+    expect(f.hull).not.toHaveBeenCalled();
+  });
+
+  it("hands a hull over gradually inside the band, and never a wreck on the strand", () => {
+    const mid = handover(600);
+    expect(mid.mesh.castShadow).toBe(true);
+    const fade = castFadeUniforms.uHbFleetFade.value;
+    expect(fade).toBeGreaterThan(0.2); expect(fade).toBeLessThan(0.9);
+    expect(mid.hull.mock.calls[0][7]).toBeCloseTo(fade, 9);
+    expect(handover(700, true).hull).not.toHaveBeenCalled();
   });
 });

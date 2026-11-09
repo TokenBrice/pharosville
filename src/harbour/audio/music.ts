@@ -6,17 +6,19 @@
  * its mode follows the light (Dorian on D by day, Phrygian on D at night). The weather may only MUTE it: from a
  * WARNING storm up, or in rain, the music stops, because the scene already says so.
  *
- * Three voices, all quiet: a plucked lyre (Karplus-Strong, rendered once per base pitch and transposed by a
- * couple of semitones), a breathy aulos (a live double pipe: a reed line over a held drone, with breath), and
- * now and then a soft frame drum on a phrase's downbeat. A phrase every 20–60 s, the rest silence (≥ 60 %).
+ * Three voices, quiet but heard (about 6 LU under the harbour, E34): a plucked lyre (Karplus-Strong, rendered
+ * once per base pitch and transposed by a couple of semitones), a breathy aulos (a live double pipe: a reed line
+ * over a held drone, with breath), and now and then a soft frame drum on a phrase's downbeat. A phrase every
+ * 20–60 s, the rest silence (≥ 60 %); while one plays, the harbour's beds step back 2 dB to let it through.
  * A day's piece is three motifs, varied (moved along the mode, turned back, cut short).
  */
 
+import type { MusicInput } from "./ambience";
 import { makeRng, type Rng } from "./dsp";
 
 export const DORIAN = [0, 2, 3, 5, 7, 9, 10] as const;
 export const PHRYGIAN = [0, 1, 3, 5, 7, 8, 10] as const;
-/** D3: the lyre's lowest degree; the aulos plays an octave up. */
+/** D3: the mode's root; the lyre and the aulos both play an octave up, around D4, above the sea's low roar. */
 const ROOT = 50;
 
 /** A seed from the visitor's calendar day (local Y-M-D): one piece per day. */
@@ -76,7 +78,7 @@ export function composePhrase(r: Rng, motifs: readonly Motif[], night: boolean):
     const beat = 0.5 + r() * 0.2;
     let t = 0;
     deg.forEach((d, i) => {
-      ev.push({ t, dur: 2.2, voice: "lyre", midi: degreeToMidi(d, mode), vel: 0.6 + 0.3 * r() * (i === 0 ? 1.2 : 1) });
+      ev.push({ t, dur: 2.2, voice: "lyre", midi: degreeToMidi(d, mode) + 12, vel: 0.6 + 0.3 * r() * (i === 0 ? 1.2 : 1) });
       t += len[i] * beat;
     });
     if (aulos) ev.push({ t: 0, dur: t + 1.2, voice: "drone", midi: degreeToMidi(r() < 0.5 ? 7 : 4, mode), vel: 0.5 });
@@ -168,11 +170,14 @@ function seal(x: Float32Array, sr: number, a: number, b: number, peak: number): 
 
 export interface MusicInputs { night: number; storm: number; rain: number; attention: number }
 
-/** The music's bus gain: a lyre note's peak (0.5) lands near −28 dBFS after the master, well under the sea. */
-export const MUSIC_GAIN = 0.1;
+/**
+ * The music's bus gain: +9 dB on the first harbour mix (0.1), which the sea masked (13 LU under it); a phrase now
+ * sits about 6 LU under the calm harbour (the offline mix gate, scripts/audio/mix-report.mjs).
+ */
+export const MUSIC_GAIN = 0.2;
 const SR = 16000;
-/** the lyre is rendered at these pitches and transposed at most ±2 semitones */
-const BASES = [50, 55, 60, 65, 70, 75];
+/** the lyre is rendered at these pitches and transposed at most ±2.5 semitones */
+const BASES = [57, 62, 67, 72, 77, 82];
 
 export class Music {
   private readonly bus: GainNode;
@@ -185,9 +190,10 @@ export class Music {
   private readonly inputs: MusicInputs = { night: 0, storm: 0, rain: 0, attention: 1 };
   private next: number;
   private timer = 0;
+  private gainTarget: number | null = null;
   private disposed = false;
 
-  constructor(private readonly ac: BaseAudioContext, dest: AudioNode, seed: number) {
+  constructor(private readonly ac: BaseAudioContext, private readonly dest: MusicInput, seed: number) {
     this.rnd = makeRng(seed);
     const pr = makeRng(seed ^ 0x9e3779b9);
     this.motifs = [makeMotif(pr), makeMotif(pr), makeMotif(pr)];
@@ -222,13 +228,18 @@ export class Music {
     if (this.disposed) return;
     const now = this.ac.currentTime, I = this.inputs;
     const mute = musicMute(I.storm, I.rain);
-    this.bus.gain.setTargetAtTime(MUSIC_GAIN * mute, now, 1.5);
+    const gain = MUSIC_GAIN * mute;
+    if (gain !== this.gainTarget) {
+      this.bus.gain.setTargetAtTime(gain, now, 1.5);
+      this.gainTarget = gain;
+    }
     if (this.next > now + 0.4) return;
     const r = this.rnd, thin = 0.7 + 0.3 * Math.max(0, Math.min(1, I.attention));
     if (mute < 0.2) { this.next = now + 10; return; }
     const ev = composePhrase(r, this.motifs, I.night > 0.5);
     const at = Math.max(this.next, now + 0.1);
     for (const e of ev) this.voice(e, at);
+    this.dest.pocket?.(at, sounding(ev).span);
     this.next = at + sounding(ev).span + phraseGap(r, sounding(ev).span) / thin;
   }
 

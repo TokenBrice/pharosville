@@ -1,22 +1,28 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { useStore } from "../ui/hooks";
-import { getSoundController, type SoundMode } from "./controller";
+import { getSoundController, type SoundMode, type SoundSnapshot, type SoundStatus } from "./controller";
 import { BY_EAR } from "./legend";
 import "./sound-toggle.css";
 
 const MODES: ReadonlyArray<[SoundMode, string]> = [["off", "Sound off"], ["ambient", "Ambient sound"], ["music", "Ambient sound and music"]];
+const OFF: SoundSnapshot = { mode: "off", status: "off" };
+const STATUS: Record<SoundStatus, string> = { off: "Sound off", starting: "Starting sound", playing: "Sound playing", paused: "Sound paused", unavailable: "Sound unavailable" };
 const SAY: Record<SoundMode, string> = { off: "off", ambient: "ambient sound", music: "ambient sound and music" };
 
 /**
  * The speaker beside the wordmark: opt-in sound (D13), off by default, remembered per visitor. One click on
  * the speaker turns the sound on or off (back to the visitor's last choice: the ambience, or the ambience with
  * music); the small caret beside it opens the menu of the three states (D-7). Drawn in the chart voice: a thin
- * ink speaker; sound waves when on, a hairline cross when off, a small note in place of the far wave when the music plays.
+ * ink speaker; sound waves while it plays, a hairline cross when off, a small note in place of the far wave when the
+ * music plays, two bars while paused and dotted waves when unavailable (C10: the menu then opens on the status in
+ * words and its way back).
  */
 export function SoundToggle() {
   const store = useStore();
   const ctl = useMemo(() => getSoundController(store.ctx), [store]);
-  const mode = useSyncExternalStore(ctl.subscribe, () => ctl.mode, () => "off" as SoundMode);
+  const { mode, status, musicFailed } = useSyncExternalStore(ctl.subscribe, () => ctl.snapshot, () => OFF);
+  const soundRetry = status === "paused" || status === "unavailable";
+  const words = `${STATUS[status]}${musicFailed ? ". Music unavailable" : ""}`;
   const reduced = useSyncExternalStore(store.motion.subscribe, () => store.motion.reduced);
   const [open, setOpen] = useState(false);
   const [reading, setReading] = useState(false);
@@ -57,9 +63,9 @@ export function SoundToggle() {
   return (
     <span className="hb-sound-wrap">
       <button
-        ref={btn} type="button" className="hb-sound" data-mode={mode} aria-pressed={mode !== "off"}
-        aria-label="Sound" title={`Sound: ${SAY[mode]}`}
-        onClick={() => { setOpen(false); ctl.toggle(); }}
+        ref={btn} type="button" className="hb-sound" data-mode={mode} data-status={status} aria-pressed={mode !== "off"}
+        aria-label="Sound" aria-describedby="hb-sound-status" title={`Sound: ${SAY[mode]}. ${words}`}
+        onClick={() => { setOpen(false); if (soundRetry) ctl.retry(); else ctl.toggle(); }}
       >
         <svg viewBox="0 0 20 16" width="20" height="16" aria-hidden="true">
           <path className="hb-sound-body" d="M2.5 5.6h2.8L9.2 2.3v11.4L5.3 10.4H2.5z" />
@@ -68,6 +74,7 @@ export function SoundToggle() {
             <path d="M14.3 3.3c1.6 1.2 2.5 2.8 2.5 4.7s-.9 3.5-2.5 4.7" />
           </g>
           <path className="hb-sound-off" d="M12.4 5.6l4.6 4.8M17 5.6l-4.6 4.8" />
+          <path className="hb-sound-pause" d="M12.9 5.6v4.8M15.9 5.6v4.8" />
           <g className="hb-sound-note"><path d="M16.6 10V3.6c.9.3 1.6.9 1.9 1.8" /><ellipse cx="15.2" cy="10.2" rx="1.55" ry="1.15" transform="rotate(-20 15.2 10.2)" /></g>
         </svg>
       </button>
@@ -79,8 +86,17 @@ export function SoundToggle() {
       >
         <svg viewBox="0 0 8 16" width="8" height="16" aria-hidden="true"><path d="M1.5 6.5L4 9l2.5-2.5" /></svg>
       </button>
+      <span id="hb-sound-status" className="hb-sr" role="status">{words}</span>
       {open && (
         <div ref={menu} id="hb-sound-menu" role="menu" aria-label="Sound" className="hb-sound-menu hb-paper hb-neat" onKeyDown={onMenuKey}>
+          {(soundRetry || musicFailed) && mode !== "off" && (<>
+            {/* the status in words, in the corner's state-word voice, above its way back (C10); the polite status line
+                below already speaks it */}
+            <p className="hb-mark-state hb-sound-state" aria-hidden="true">{soundRetry ? STATUS[status] : "Music unavailable"}</p>
+            <button type="button" role="menuitem" className="hb-sound-retry" tabIndex={-1} onClick={() => { ctl.retry(); close(true); }}>
+              {status === "unavailable" ? "Try sound again" : soundRetry ? "Resume sound" : "Try again"}
+            </button>
+          </>)}
           {MODES.map(([m, label]) => (
             <button
               key={m} type="button" role="menuitemradio" aria-checked={mode === m} tabIndex={mode === m ? 0 : -1}

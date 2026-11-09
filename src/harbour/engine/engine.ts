@@ -26,6 +26,8 @@ import { assertShaderReady } from "./shader-failure";
  */
 const DEFERRED: ReadonlySet<string> = new Set(["life", "identity"]);
 const DEFERRED_PREPARATION_ATTEMPTS = 3;
+/** `?prof=1` stage tags, built once per stage name (a profiled frame laps ~25 stages). */
+const STAGE_TAGS = new Map<string, string>();
 
 /** Dev profiling (`?prof=1`): per-system update() cost, summed since the last reset (window.__harbourProf). */
 const PROF = typeof location !== "undefined" && new URLSearchParams(location.search).get("prof") === "1";
@@ -43,6 +45,7 @@ export class Engine {
   private lifecycle: HarbourLifecycle = { state: "BOOTING", code: null };
   private readonly lifecycleListeners = new Set<(state: HarbourLifecycle) => void>();
   private failedFrames = 0;
+  private firstRenderedAt: number | undefined;
   private restorationTimer = 0;
 
   get canPublish(): boolean {
@@ -114,7 +117,9 @@ export class Engine {
   private readonly profile: FrameProfile | null = PROF ? new FrameProfile() : null;
   private lap(key: string, since: number): number {
     const now = performance.now(), p = this.profile!, d = now - since;
-    p.tag(`stage:${key}`);
+    let tag = STAGE_TAGS.get(key);
+    if (tag === undefined) { tag = `stage:${key}`; STAGE_TAGS.set(key, tag); }
+    p.tag(tag);
     p.ms[key] = (p.ms[key] ?? 0) + d;
     if (d > (p.max[key] ?? 0)) p.max[key] = d;
     return now;
@@ -532,6 +537,17 @@ export class Engine {
     this.rendered.drawn = fleet?.drawn ?? this.rendered.boats;
     this.stats.renderedRevision = this.rendered.revision;
     this.stats.renderedBoats = this.rendered.boats;
+    if (!this.ctx.assets.decorationsReady) {
+      const now = performance.now();
+      this.firstRenderedAt ??= now;
+      const readiness = this.ctx.services.get("readiness"), model = this.ctx.services.get("model");
+      const complete = model?.hasFleet && readiness?.prepared && readiness.revision > 0
+        && this.rendered.revision === readiness.revision && this.rendered.boats === readiness.boats;
+      const snapshot = this.ctx.services.get("feed")?.payloads.stablecoins;
+      const boatless = model?.boats.length === 0 && this.rendered.boats === 0;
+      const waiting = snapshot === undefined || snapshot.data === null || this.ctx.services.get("simulation-status")?.unavailable;
+      this.ctx.assets.decorationsReady = !!complete || (!!boatless && !!waiting && now - this.firstRenderedAt >= 2000);
+    }
     if (this.firstFrameMs === null) performance.mark("pv:first-frame");
     if (this.stats.firstFleetFrameMs === null && this.rendered.boats > 0) {
       this.stats.firstFleetFrameMs = Math.round(performance.now() - this.startMs);
@@ -578,7 +594,7 @@ export class Engine {
     const dpr = this.governor.dpr;
     const changed = w !== this.width || h !== this.height || dpr !== this.pixelRatio;
     if (changed) {
-      this.preparation?.invalidate();
+      if (w !== this.width || h !== this.height) this.preparation?.invalidate();
       this.width = w; this.height = h; this.pixelRatio = dpr;
       this.governor.resetTiming();
       renderer.setDrawingBufferSize(w, h, dpr);

@@ -98,18 +98,24 @@ vec3 hbPattern(float pid, out float rough) {
     f = (1.0 + (hbWhite(vec3(pk, 5.0, 0.0)) * 0.22 - 0.11) * fine) * (1.0 - hbLine(P.x, 0.32, 0.09, dP.x) * 0.55);
     hue = vec3(0.03, 0.0, -0.035) * (hbWhite(vec3(pk, 6.0, 2.0)) - 0.5) * fine;
   } else if (pid < 4.5) {            // 4 cobbles: voronoi setts
-    vec2 v = hbVoronoi(P.xy * 1.7);
     float fine = hbFine(dP.x, 0.6);
-    float edge = mix(0.55, 1.0, smoothstep(0.0, 0.09, v.y));
-    f = mix(0.86, (0.9 + v.x * 0.22) * edge, fine);
+    f = 0.86;
+    if (fine > 0.0) {
+      vec2 v = hbVoronoi(P.xy * 1.7);
+      float edge = mix(0.55, 1.0, smoothstep(0.0, 0.09, v.y));
+      f = mix(f, (0.9 + v.x * 0.22) * edge, fine);
+    }
   } else if (pid < 5.5) {            // 5 rock: strata bands + speckle
     float sn = hbFbm(P * 0.108);
     float band = sin(P.z * 1.1 + sn * 6.0) * 0.5 + 0.5;
-    f = 0.86 + band * 0.2 + (hbFbm(P * 2.6) - 0.5) * 0.18 * hbFine(dP.z, 0.4);
+    float fine = hbFine(dP.z, 0.4);
+    f = 0.86 + band * 0.2;
+    if (fine > 0.0) f += (hbFbm(P * 2.6) - 0.5) * 0.18 * fine;
   } else if (pid < 6.5) {            // 6 grass: two-scale mottling
     float g1 = hbFbm(P * 0.08);
-    float g2 = hbFbm(P * 1.4);
-    f = 0.82 + smoothstep(0.35, 0.65, g1) * 0.28 + (g2 - 0.5) * 0.16 * hbFine(dP.x, 0.7);
+    float fine = hbFine(dP.x, 0.7);
+    f = 0.82 + smoothstep(0.35, 0.65, g1) * 0.28;
+    if (fine > 0.0) f += (hbFbm(P * 1.4) - 0.5) * 0.16 * fine;
     hue = vec3(-0.02, 0.0, 0.02) * (g1 - 0.5);
   } else if (pid < 7.5) {            // 7 tiles: vertical joints, rows are geometry
     float trow = floor(P.z / 0.36);
@@ -129,7 +135,9 @@ vec3 hbPattern(float pid, out float rough) {
     f = (1.0 + (hbWhite(vec3(pk, 7.0, 0.0)) * 0.22 - 0.11) * fine) * (1.0 - hbLine(P.y, 0.32, 0.09, dP.y) * 0.55);
     hue = vec3(0.03, 0.0, -0.035) * (hbWhite(vec3(pk, 8.0, 2.0)) - 0.5) * fine;
   } else if (pid < 12.5) {           // 12 metal
-    f = 0.95 + hbNoise(P * 4.0) * 0.1 * hbFine(dP.x, 0.3);
+    float fine = hbFine(dP.x, 0.3);
+    f = 0.95;
+    if (fine > 0.0) f += hbNoise(P * 4.0) * 0.1 * fine;
     rough = 0.48;
   } else if (pid < 13.5) {           // 13 slate: small staggered slates
     float srow = floor(P.z / 0.26);
@@ -138,9 +146,14 @@ vec3 hbPattern(float pid, out float rough) {
         (1.0 - hbLine(u + srow * 0.2, 0.4, 0.06, du) * 0.3);
   }
   // world-space large breakup (cloud-like value drift)
+  #ifdef HB_LITE
+  float wn = hbNoise(W * 0.035);
+  #else
   float wn = hbFbm(W * 0.035);
-  float wn2 = hbNoise(W * 0.4);
-  float fworld = 0.93 + wn * 0.14 + (wn2 - 0.5) * 0.06 * hbFine(dW, 1.5);
+  #endif
+  float fine = hbFine(dW, 1.5);
+  float fworld = 0.93 + wn * 0.14;
+  if (fine > 0.0) fworld += (hbNoise(W * 0.4) - 0.5) * 0.06 * fine;
   // flat-shaded facet value jitter (Bad North crystal read): one value per facet orientation
   float facet = hbWhite(floor(vHbLocalN * 23.0) + 3.0) - 0.5;
   return f * fworld * (1.0 + facet * 0.05) * (1.0 + hue);

@@ -1,3 +1,4 @@
+import type { FleetPreparation } from "../fleet/preparation";
 import type { SoundController } from "../audio/controller";
 import type { BeamService } from "../beam/beam-system";
 import type { BeamUniforms } from "../beam/uniforms";
@@ -38,6 +39,7 @@ import type { PreparationService, ReadinessState, SimulationStatus } from "./typ
 export interface ServiceMap {
   "beam:uniforms": BeamUniforms;
   "fleet-frame": FleetFrameState;
+  "fleet-preparation": FleetPreparation;
   "fx:textures": Promise<SharedFxTextures>;
   "graphics-validity": GraphicsValidity;
   "home-view": () => CameraPreset;

@@ -19,7 +19,7 @@ import { allocateYard, type HullStage, type PrelaunchCoin, type YardPlace } from
  * of its berth, facing the harbour's camera side. Shipwrights hammer at the hulls, the treadwheel cranes
  * run slowly on their rails. A coin that appears live leaves the yard (the sim sails it out from the Slipway).
  *
- * The whole yard is ONE merged kit mesh (rebuilt only when a coin launches); the name boards are painted into the
+ * The whole yard is ONE merged kit mesh (retained when a coin launches); the name boards are painted into the
  * quarter's shared board atlas (boards.ts). A launched coin's hull, posts AND board leave together: its berth stays
  * empty until the registry's book (re-synced) puts the next coin there.
  */
@@ -155,6 +155,8 @@ export class Shipyard {
   readonly group = new THREE.Group();
   readonly hulls: YardHull[] = [];
   private mesh: THREE.Mesh | null = null;
+  private indices = new Uint32Array(0);
+  private readonly spans: Array<{ id: string; start: number; count: number }> = [];
   private readonly cranes: Array<{ node: THREE.Object3D; z: number; ph: number; wheel: { node: THREE.Object3D; z: number } | null }> = [];
   private placed: Placed[] = [];
   /** Sawdust where the frames are being faired (two hulls, decorative). */
@@ -295,33 +297,49 @@ export class Shipyard {
     return y;
   }
 
-  /** The yard mesh without the launched hulls (and their boards' posts). */
+  /** Merge once; a launch changes only the retained index prefix, including its board posts. */
   private rebuild(): void {
-    if (this.mesh) { this.group.remove(this.mesh); this.mesh.geometry.dispose(); }
-    const parts: THREE.BufferGeometry[] = [];
-    const face = new THREE.Vector3(Math.SQRT1_2, 0, Math.SQRT1_2);
-    for (const pl of this.placed) {
-      if (this.launched.has(pl.place.coin.id)) continue;
-      parts.push(pl.hull, ...pl.extra);
-      // posts
-      const side = new THREE.Vector3(face.z, 0, -face.x);
-      for (const s of [-1, 1]) {
-        const post = boxGeo(0.18, 2.6, 0.18, "#5B4632", 1);
-        post.translate(pl.board.x + side.x * s * (pl.boardW / 2 - 0.3), pl.board.y + 1.3, pl.board.z + side.z * s * (pl.boardW / 2 - 0.3));
-        parts.push(post);
+    if (!this.mesh) {
+      const parts: THREE.BufferGeometry[] = [], posts: THREE.BufferGeometry[] = [];
+      const face = new THREE.Vector3(Math.SQRT1_2, 0, Math.SQRT1_2);
+      let start = 0;
+      for (const pl of this.placed) {
+        const first = parts.length;
+        parts.push(pl.hull, ...pl.extra);
+        const side = new THREE.Vector3(face.z, 0, -face.x);
+        for (const s of [-1, 1]) {
+          const post = boxGeo(0.18, 2.6, 0.18, "#5B4632", 1);
+          post.translate(pl.board.x + side.x * s * (pl.boardW / 2 - 0.3), pl.board.y + 1.3, pl.board.z + side.z * s * (pl.boardW / 2 - 0.3));
+          parts.push(post); posts.push(post);
+        }
+        const count = parts.slice(first).reduce((n, g) => n + g.index!.count, 0);
+        this.spans.push({ id: pl.place.coin.id, start, count }); start += count;
       }
+      if (!parts.length) return;
+      const geo = mergeGeometries(parts, false);
+      for (const post of posts) post.dispose();
+      if (!geo) return;
+      this.indices = Uint32Array.from(geo.index!.array);
+      geo.index!.setUsage(THREE.DynamicDrawUsage);
+      geo.computeBoundingSphere();
+      this.mesh = new THREE.Mesh(geo, this.mats.kit());
+      this.mesh.name = "shipyard-hulls";
+      this.mesh.castShadow = true;
+      this.mesh.receiveShadow = true;
+      this.mesh.matrixAutoUpdate = false;
+      this.mesh.updateMatrix();
+      this.group.add(this.mesh);
     }
-    if (!parts.length) { this.mesh = null; return; }
-    const geo = mergeGeometries(parts, false);
-    if (!geo) return;
-    geo.computeBoundingSphere();
-    this.mesh = new THREE.Mesh(geo, this.mats.kit());
-    this.mesh.name = "shipyard-hulls";
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = true;
-    this.mesh.matrixAutoUpdate = false;
-    this.mesh.updateMatrix();
-    this.group.add(this.mesh);
+    const g = this.mesh.geometry, index = g.index!;
+    let count = 0;
+    for (const span of this.spans) {
+      if (this.launched.has(span.id)) continue;
+      index.array.set(this.indices.subarray(span.start, span.start + span.count), count);
+      count += span.count;
+    }
+    if (count) { index.clearUpdateRanges(); index.addUpdateRange(0, count); index.needsUpdate = true; }
+    g.setDrawRange(0, count);
+    this.mesh.visible = count > 0;
   }
 
   private buildBoards(): void {
@@ -330,7 +348,7 @@ export class Shipyard {
     for (const pl of this.placed) {
       const slot = this.boards.alloc(512, 128);
       if (!slot || !ctx) continue;
-      this.boards.paint(slot, () => this.drawBoard(ctx, pl.place, slot.x, slot.y, slot.w, slot.h, () => this.boards.touch()));
+      this.boards.paint(slot, () => this.drawBoard(ctx, pl.place, slot.x, slot.y, slot.w, slot.h, () => this.boards.touch(slot)));
       const w = pl.boardW, h = w * (slot.h / slot.w);
       const centre = pl.board.clone().setY(pl.board.y + 2.6 + h / 2 - 0.25).addScaledVector(face, 0.12);
       this.boards.place(`yard:${pl.place.coin.id}`, slot, { centre, right: side.clone(), up, w, h }, !this.launched.has(pl.place.coin.id));

@@ -1,0 +1,156 @@
+[
+  {
+    "id": "usd_fisher_skiff",
+    "family": "usd",
+    "class": "skiff",
+    "loa_m": 5.0,
+    "beam_m": 1.9
+  },
+  {
+    "id": "usd_coaster_boat",
+    "family": "usd",
+    "class": "boat",
+    "loa_m": 7.5,
+    "beam_m": 2.48
+  },
+  {
+    "id": "usd_coaster_small",
+    "family": "usd",
+    "class": "small",
+    "loa_m": 10.0,
+    "beam_m": 3.3
+  },
+  {
+    "id": "usd_corbita_medium",
+    "family": "usd",
+    "class": "medium",
+    "loa_m": 13.0,
+    "beam_m": 3.9
+  },
+  {
+    "id": "usd_merchant_large",
+    "family": "usd",
+    "class": "large",
+    "loa_m": 18.0,
+    "beam_m": 5.22
+  },
+  {
+    "id": "usd_grain_flagship",
+    "family": "usd",
+    "class": "flagship",
+    "loa_m": 30.0,
+    "beam_m": 8.1
+  },
+  {
+    "id": "eur_greek_boat",
+    "family": "eur",
+    "class": "boat",
+    "loa_m": 7.5,
+    "beam_m": 2.33
+  },
+  {
+    "id": "eur_greek_small",
+    "family": "eur",
+    "class": "small",
+    "loa_m": 10.0,
+    "beam_m": 3.1
+  },
+  {
+    "id": "eur_greek_medium",
+    "family": "eur",
+    "class": "medium",
+    "loa_m": 13.0,
+    "beam_m": 4.03
+  },
+  {
+    "id": "eur_greek_large",
+    "family": "eur",
+    "class": "large",
+    "loa_m": 18.0,
+    "beam_m": 5.58
+  },
+  {
+    "id": "gold_bireme_medium",
+    "family": "gold",
+    "class": "medium",
+    "loa_m": 13.0,
+    "beam_m": 1.82
+  },
+  {
+    "id": "gold_trireme_large",
+    "family": "gold",
+    "class": "large",
+    "loa_m": 18.0,
+    "beam_m": 2.52
+  },
+  {
+    "id": "fiat_hippos_boat",
+    "family": "fiat",
+    "class": "boat",
+    "loa_m": 7.5,
+    "beam_m": 2.93
+  },
+  {
+    "id": "fiat_hippos_small",
+    "family": "fiat",
+    "class": "small",
+    "loa_m": 10.0,
+    "beam_m": 3.9
+  },
+  {
+    "id": "fiat_hippos_medium",
+    "family": "fiat",
+    "class": "medium",
+    "loa_m": 13.0,
+    "beam_m": 5.07
+  },
+  {
+    "id": "other_sprit_skiff",
+    "family": "other",
+    "class": "skiff",
+    "loa_m": 5.0,
+    "beam_m": 1.55
+  },
+  {
+    "id": "other_sprit_boat",
+    "family": "other",
+    "class": "boat",
+    "loa_m": 7.5,
+    "beam_m": 2.33
+  },
+  {
+    "id": "other_sprit_small",
+    "family": "other",
+    "class": "small",
+    "loa_m": 10.0,
+    "beam_m": 3.1
+  },
+  {
+    "id": "titan_usdt",
+    "family": "titan",
+    "class": "flagship",
+    "loa_m": 32.0,
+    "beam_m": 8.64
+  },
+  {
+    "id": "titan_usdc",
+    "family": "titan",
+    "class": "flagship",
+    "loa_m": 30.0,
+    "beam_m": 7.8
+  },
+  {
+    "id": "titan_usde",
+    "family": "titan",
+    "class": "flagship",
+    "loa_m": 22.0,
+    "beam_m": 6.16
+  },
+  {
+    "id": "titan_usds",
+    "family": "titan",
+    "class": "flagship",
+    "loa_m": 22.0,
+    "beam_m": 6.38
+  }
+]

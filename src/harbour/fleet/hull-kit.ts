@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
+import type { PreparationService } from "../engine/types";
 import type { AssetStore } from "../engine/assets";
 import { planSails, printFill, ROLE_BODY, type EmblemFrame, type SailMeshOut } from "./sail-plan";
 
@@ -38,7 +39,8 @@ export interface ManifestHull {
   nodes: ManifestNode[];
 }
 export interface ManifestProp { id: string; file: string; family: string; loa_m?: number; nodes: ManifestNode[] }
-export interface ManifestWreckItem { id: string; file: string; kind: string; size_class?: string; loa_m?: number; sits?: string; nodes: ManifestNode[] }
+export interface GeometryCapacity { vertices: number; indices: number }
+export interface ManifestWreckItem { capacity: { full: GeometryCapacity; bare?: GeometryCapacity }; id: string; file: string; kind: string; size_class?: string; loa_m?: number; sits?: string; nodes: ManifestNode[] }
 export interface KitManifest { hulls: ManifestHull[]; props: ManifestProp[]; wreck_kit?: { items: ManifestWreckItem[] } }
 
 export interface HullVariant {
@@ -555,21 +557,43 @@ export interface WreckItem {
   light: THREE.Vector3 | null;
 }
 
+/** Reject stale metadata before adding any deferred geometry to the live reserved batch. */
+export function validateWreckCapacity(item: ManifestWreckItem, full: THREE.BufferGeometry, bare: THREE.BufferGeometry | null): void {
+  for (const [geometry, capacity] of [[full, item.capacity?.full], [bare, item.capacity?.bare]] as const) {
+    if (!geometry && !capacity) continue;
+    if (!geometry || !capacity || geometry.attributes.position.count !== capacity.vertices || geometry.index?.count !== capacity.indices) {
+      throw new Error(`Wreck capacity mismatch: ${item.id}`);
+    }
+  }
+}
+
 /** The wreck kit v2 (manifest `wreck_kit`): the wrecks and the memorial furniture (epitaph post, bell, pennants). */
-export async function loadWreckKit(assets: AssetStore, manifest: KitManifest, ids: ReadonlySet<string>): Promise<Map<string, WreckItem>> {
+export async function loadWreckKit(assets: AssetStore, manifest: KitManifest, ids: ReadonlySet<string>, preparation?: PreparationService): Promise<Map<string, WreckItem>> {
   const out = new Map<string, WreckItem>();
   const items = (manifest.wreck_kit?.items ?? []).filter((it) => ids.has(it.id));
-  await Promise.all(items.map(async (it) => {
+  const loaded = await Promise.allSettled(items.map(async (it) => {
     const g = await assets.gltf(KIT_BASE + it.file);
     g.scene.updateMatrixWorld(true);
     const lightObj = g.scene.getObjectByName("epitaph_light");
     const light = lightObj ? lightObj.getWorldPosition(new THREE.Vector3()) : null;
     const hasPost = it.nodes.some((n) => n.name === "epitaph") && it.kind === "wreck";
-    out.set(it.id, {
+    const bake = (bare = false) => bakeGltf(g, it.nodes, { wreck: true, loa: it.loa_m ?? 2, ...(bare ? { skip: new Set(["epitaph"]) } : {}) });
+    const full = preparation ? await preparation.submit(() => bake(), { signal: assets.signal }) : bake();
+    let bare: THREE.BufferGeometry | null = null;
+    try { if (hasPost) bare = preparation ? await preparation.submit(() => bake(true), { signal: assets.signal }) : bake(true); }
+    catch (error) { full.dispose(); throw error; }
+    const item: WreckItem = {
       id: it.id, loa: it.loa_m ?? 2, sits: it.sits === "water" ? "water" : "sand", light,
-      full: bakeGltf(g, it.nodes, { wreck: true, loa: it.loa_m ?? 2 }),
-      bare: hasPost ? bakeGltf(g, it.nodes, { wreck: true, loa: it.loa_m ?? 2, skip: new Set(["epitaph"]) }) : null,
-    });
+      full, bare,
+    };
+    try { validateWreckCapacity(it, item.full, item.bare); }
+    catch (error) { item.full.dispose(); item.bare?.dispose(); throw error; }
+    out.set(it.id, item);
   }));
+  const failed = loaded.find((result) => result.status === "rejected");
+  if (failed?.status === "rejected") {
+    for (const item of out.values()) { item.full.dispose(); item.bare?.dispose(); }
+    throw failed.reason;
+  }
   return out;
 }

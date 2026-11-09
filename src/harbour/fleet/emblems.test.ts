@@ -1,3 +1,5 @@
+import * as THREE from "three";
+import type { PreparationService } from "../engine/types";
 import type { ShaderMaterial } from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AssetStore } from "../engine/assets";
@@ -7,7 +9,7 @@ import { HouseFlags } from "./house-flags";
 
 function canvasHarness() {
   const drawImage = vi.fn();
-  const g = { drawImage, save: vi.fn(), restore: vi.fn(), clearRect: vi.fn(), beginPath: vi.fn(), arc: vi.fn(), fill: vi.fn(), stroke: vi.fn(), fillText: vi.fn() };
+  const g = { drawImage, save: vi.fn(), restore: vi.fn(), clearRect: vi.fn(), beginPath: vi.fn(), arc: vi.fn(), fill: vi.fn(), stroke: vi.fn(), clip: vi.fn(), fillText: vi.fn() };
   const canvases: Array<{ width: number; height: number; getContext: () => typeof g }> = [];
   vi.stubGlobal("document", { createElement: () => {
     const canvas = { width: 0, height: 0, getContext: () => g };
@@ -47,11 +49,11 @@ describe("combined emblem atlas", () => {
     expect(store.json).toHaveBeenCalledWith(EMBLEMS_JSON);
     atlas.begin([]); atlas.end();
     expect(canvases).toHaveLength(1);
-    expect(atlas.texture.image.height).toBe(128);
+    expect(atlas.texture.image.height).toBe(96);
     atlas.dispose();
   });
 
-  it("reserves once before painting, preserves logical slots and the original combined mip dimensions", async () => {
+  it("reserves once before painting, preserves logical slots with 96 px combined mip dimensions", async () => {
     const { canvases, drawImage } = canvasHarness();
     const atlas = await EmblemAtlas.load(assets() as unknown as AssetStore, 420);
     const coins = [coin("logo-619"), ...Array.from({ length: 70 }, (_, i) => coin(`new-${i}`))];
@@ -65,7 +67,7 @@ describe("combined emblem atlas", () => {
     expect(canvases).toHaveLength(2);
     expect(drawImage).not.toHaveBeenCalled();
     expect(atlas.grid.toArray()).toEqual([32, 23, 1 / 32, 1 / 23]);
-    expect(atlas.texture.image.height).toBe(23 * 128);
+    expect(atlas.texture.image.height).toBe(23 * 96);
     const later = Array.from({ length: 60 }, (_, i) => coin(`later-${i}`));
     atlas.begin(later); later.forEach((c) => atlas.slotFor(c)); atlas.end();
     expect(canvases).toHaveLength(3);
@@ -82,8 +84,8 @@ describe("combined emblem atlas", () => {
     const texture = atlas.texture, version = texture.version;
     await atlas.loadLogos();
     expect(createImageBitmap).toHaveBeenCalledWith(expect.any(Blob), { premultiplyAlpha: "none" });
-    expect(g.clearRect).toHaveBeenCalledWith(0, 0, 4096, 2560);
-    expect(drawImage).toHaveBeenCalledWith(image, 0, 0);
+    expect(g.clearRect).toHaveBeenCalledWith(0, 0, 3072, 1920);
+    expect(drawImage).toHaveBeenCalledWith(image, 0, 0, 4096, 2560, 0, 0, 3072, 1920);
     expect(image.close).toHaveBeenCalledTimes(1);
     expect(atlas.texture).toBe(texture);
     expect(atlas.texture.version).toBe(version + 1);
@@ -95,7 +97,7 @@ describe("combined emblem atlas", () => {
     coins.forEach((c) => atlas.slotFor(c)); atlas.end();
     expect(drawImage).toHaveBeenCalledWith(canvas, 0, 0);
     expect(atlas.grid.y).toBe(23);
-    expect(atlas.texture.image.height).toBe(23 * 128);
+    expect(atlas.texture.image.height).toBe(23 * 96);
     atlas.dispose();
     expect(image.close).toHaveBeenCalledTimes(1);
   });
@@ -176,8 +178,8 @@ describe("monograms as sail lettering", () => {
     expect(atlas.slotFor(coin("new"))).toBe(640);
     atlas.end();
     expect(g.arc).not.toHaveBeenCalled();                  // no disc, no ring
-    expect(g.clearRect).toHaveBeenCalledWith(0, 20 * 128, 128, 128);
-    expect(g.fillText).toHaveBeenCalledWith("COIN", 64, 20 * 128 + 64 + 128 * 0.025, 128 * 0.78);
+    expect(g.clearRect).toHaveBeenCalledWith(0, 20 * 96, 96, 96);
+    expect(g.fillText).toHaveBeenCalledWith("COIN", 48, 20 * 96 + 48 + 96 * 0.025, 96 * 0.78);
     expect(fills).toEqual(["#FFFFFF"]);                    // white ink: the shaders colour it from the cloth
     atlas.dispose();
   });
@@ -191,6 +193,98 @@ describe("monograms as sail lettering", () => {
     expect(g.fillText).not.toHaveBeenCalled();
     await atlas.loadLogos();
     expect(g.fillText).toHaveBeenCalledTimes(1);           // the failed logo's lettered roundel
+    atlas.dispose();
+  });
+});
+
+describe("staged atlas identity", () => {
+  it("keeps the visible texture/grid unchanged until the complete painted upload can commit", async () => {
+    canvasHarness();
+    const atlas = await EmblemAtlas.load(assets() as unknown as AssetStore, 420);
+    const original = atlas.texture, originalGrid = atlas.grid.clone();
+    const submit = vi.fn(async (work: (deadline: number) => void) => work(-Infinity));
+    const stageTexture = vi.fn(async () => {});
+    const preparation = { submit, stageTexture } as unknown as PreparationService;
+    const delta = await atlas.prepareCoins([coin("new")], preparation);
+    expect(atlas.texture).toBe(original); expect(atlas.grid.equals(originalGrid)).toBe(true);
+    expect(submit.mock.calls.length).toBeGreaterThan(1); expect(stageTexture).toHaveBeenCalledOnce();
+    expect(delta.slots.get("new")).toBe(640);
+    delta.commit(); delta.dispose();
+    expect(atlas.uniform.value).toBe(atlas.texture); expect(atlas.texture).not.toBe(original);
+    expect(atlas.texture.image).toMatchObject({ width: 3072, height: 21 * 96 });
+    const flags = new HouseFlags({ uTime: { value: 0 } } as WorldUniforms, atlas, 1);
+    expect((flags.mesh.material as ShaderMaterial).uniforms.uEmblems).toBe(atlas.uniform);
+    flags.dispose(); atlas.dispose();
+  });
+
+  it("paints decoded logos into a detached atlas one tile row per slice, uploads it staged, then swaps it in", async () => {
+    const { drawImage } = canvasHarness(); const image = decodedLogo();
+    const atlas = await EmblemAtlas.load(assets() as unknown as AssetStore, 420);
+    atlas.begin([coin("logo-0"), coin("mono")]); atlas.slotFor(coin("logo-0")); atlas.slotFor(coin("mono")); atlas.end();
+    const original = atlas.texture, version = original.version, liveCanvas = original.image as HTMLCanvasElement, rows = atlas.grid.y;
+    const disposed = vi.fn(); original.addEventListener("dispose", disposed);
+    const draws: number[] = [];
+    const submit = vi.fn(async (work: (deadline: number) => void) => { const before = drawImage.mock.calls.length; work(-Infinity); draws.push(drawImage.mock.calls.length - before); });
+    const stageTexture = vi.fn(async (texture: THREE.Texture) => {
+      // staged while the live atlas still shows its roundels, untouched
+      expect(texture).not.toBe(original); expect(atlas.texture).toBe(original); expect(original.version).toBe(version);
+    });
+    await atlas.loadLogos({ submit, stageTexture } as unknown as PreparationService);
+    // every slice draws exactly one row: the monogram rows copied 1:1, then each 128 px logo row onto its 96 px row
+    expect(draws.every((n) => n === 1)).toBe(true);
+    expect(submit).toHaveBeenCalledTimes(rows);
+    for (let row = 20; row < rows; row++) expect(drawImage).toHaveBeenCalledWith(liveCanvas, 0, row * 96, 3072, 96, 0, row * 96, 3072, 96);
+    for (let row = 0; row < 20; row++) expect(drawImage).toHaveBeenCalledWith(image, 0, row * 128, 4096, 128, 0, row * 96, 3072, 96);
+    expect(stageTexture).toHaveBeenCalledOnce();
+    expect(atlas.texture).toBe(stageTexture.mock.calls[0][0]); expect(atlas.uniform.value).toBe(atlas.texture);
+    expect(atlas.grid.y).toBe(rows); expect(disposed).toHaveBeenCalledOnce(); expect(image.close).toHaveBeenCalledOnce();
+    expect(atlas.slotFor(coin("logo-0"))).toBe(0); // a loaded logo slot needs no roundel any more
+    atlas.dispose();
+  });
+
+  it("disposes a superseded detached atlas without consuming live slots or changing its version", async () => {
+    canvasHarness();
+    const atlas = await EmblemAtlas.load(assets() as unknown as AssetStore, 420), original = atlas.texture;
+    const controller = new AbortController(), disposed = vi.fn();
+    const preparation = {
+      submit: async (work: (deadline: number) => void) => work(-Infinity),
+      stageTexture: async (texture: THREE.Texture) => { texture.addEventListener("dispose", disposed); controller.abort(); },
+    } as unknown as PreparationService;
+    await expect(atlas.prepareCoins([coin("cancelled")], preparation, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(disposed).toHaveBeenCalledOnce(); expect(atlas.texture).toBe(original); expect(atlas.grid.y).toBe(1);
+    expect(atlas.slotFor(coin("first"))).toBe(640); atlas.dispose();
+  });
+
+  it("restores hover and selection/search into two 256 px tiles with shared shader uniforms", async () => {
+    const { g } = canvasHarness(); const image = decodedLogo();
+    const atlas = await EmblemAtlas.load(assets() as unknown as AssetStore, 420);
+    const logo = { ...coin("logo-1"), logo: "/logos/test.png" }, letters = coin("letters");
+    atlas.begin([logo, letters]); atlas.slotFor(logo); atlas.slotFor(letters); atlas.end();
+    const base = atlas.texture, stageTexture = vi.fn(async () => {});
+    await atlas.setHeroes([logo, letters], { stageTexture } as unknown as PreparationService);
+    expect(atlas.heroUniform.value.image).toMatchObject({ width: 512, height: 256 });
+    expect(atlas.heroSlots.value.toArray()).toEqual([1, 640]); expect(atlas.texture).toBe(base);
+    expect(stageTexture).toHaveBeenCalledOnce(); expect(image.close).toHaveBeenCalledOnce();
+    expect(g.fillText).toHaveBeenLastCalledWith("COIN", 384, 128 + 256 * 0.025, 256 * 0.78);
+    const flags = new HouseFlags({ uTime: { value: 0 } } as WorldUniforms, atlas, 1), u = (flags.mesh.material as ShaderMaterial).uniforms;
+    expect(u.uHeroEmblems).toBe(atlas.heroUniform); expect(u.uHeroSlots).toBe(atlas.heroSlots);
+    await atlas.setHeroes([logo, letters]); expect(stageTexture).toHaveBeenCalledOnce();
+    await atlas.setHeroes([]); expect(atlas.heroSlots.value.toArray()).toEqual([-1, -1]);
+    flags.dispose(); atlas.dispose();
+  });
+
+  it("closes a superseded inspection decode and never publishes its old coin", async () => {
+    canvasHarness();
+    const atlas = await EmblemAtlas.load(assets() as unknown as AssetStore, 420);
+    atlas.begin([coin("logo-1"), coin("other")]); atlas.slotFor(coin("logo-1")); atlas.slotFor(coin("other")); atlas.end();
+    const image = decodedLogo();
+    let resolve!: (image: unknown) => void;
+    vi.stubGlobal("createImageBitmap", vi.fn(() => new Promise((done) => { resolve = done; })));
+    const old = atlas.setHeroes([{ ...coin("logo-1"), logo: "/logos/test.png" }]);
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    await atlas.setHeroes([coin("other")]); resolve(image); await old;
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+    expect(image.close).toHaveBeenCalledOnce(); expect(atlas.heroSlots.value.x).toBe(640);
     atlas.dispose();
   });
 });

@@ -348,18 +348,32 @@ export class EpitaphBoards {
   static CELL_H = 108;
 
   static build(coins: readonly CoveDead[]): EpitaphBoards {
+    const stages = this.stages(coins);
+    let step = stages.next();
+    while (!step.done) step = stages.next();
+    return step.value;
+  }
+
+  static *stages(coins: readonly CoveDead[]): Generator<void, EpitaphBoards> {
     const cols = 5, rows = Math.max(1, Math.ceil(coins.length / cols));
     const cv = document.createElement("canvas");
     cv.width = cols * EpitaphBoards.CELL_W; cv.height = rows * EpitaphBoards.CELL_H;
     const b = new EpitaphBoards(cv, cols, rows);
     const g = cv.getContext("2d")!;
-    coins.forEach((c, i) => { b.slots.set(c.id, i); drawBoard(g, (i % cols) * EpitaphBoards.CELL_W, Math.floor(i / cols) * EpitaphBoards.CELL_H, c); });
-    b.texture.needsUpdate = true;
-    return b;
+    let complete = false;
+    try {
+      for (let i = 0; i < coins.length; i++) {
+        const c = coins[i]; b.slots.set(c.id, i);
+        drawBoard(g, (i % cols) * EpitaphBoards.CELL_W, Math.floor(i / cols) * EpitaphBoards.CELL_H, c);
+        yield;
+      }
+      b.texture.needsUpdate = true; complete = true;
+      return b;
+    } finally { if (!complete) b.dispose(); }
   }
 
   slotOf(id: string): number { return this.slots.get(id) ?? -1; }
-  dispose(): void { this.texture.dispose(); }
+  dispose(): void { this.texture.dispose(); this.canvas.width = this.canvas.height = 0; }
 }
 
 function drawBoard(g: CanvasRenderingContext2D, x0: number, y0: number, c: CoveDead): void {

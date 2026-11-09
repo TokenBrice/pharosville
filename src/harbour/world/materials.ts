@@ -1,5 +1,6 @@
 import { GLSL_NOISE, GLSL_PATTERNS } from "./shaders/patterns";
 import { GLSL_ENV, GLSL_POOL, GLSL_AO } from "./shaders/lighting";
+import { liteShadow } from "./shaders/shadow";
 import { GLSL_LEAF_FALL, GLSL_SEASON } from "./shaders/season";
 import { PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, SNOW_SLOPE, SNOW_LEAF_KEEP, SNOW_CROWN_KEEP } from "./shaders/constants";
 export { PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, PATTERN_CROP, SNOW_SLOPE, SNOW_LEAF_KEEP, SNOW_CROWN_KEEP, ICICLE_WALL_PATTERNS } from "./shaders/constants";
@@ -102,6 +103,8 @@ export interface PoolUniforms {
   uPoolTex: THREE.IUniform<THREE.Texture>;
   /** (minX, minZ, 1/sizeX, 1/sizeZ) of the pool texture in world x/z. */
   uPoolBounds: THREE.IUniform<THREE.Vector4>;
+  /** The decorative lamps' share of their light at this zoom, on their pools and their glass (lights-system.ts lampFar). */
+  uLampFar: THREE.IUniform<number>;
 }
 
 /** Late-autumn / winter leaf fall at compile time (mirrors hbLeafFall): > 0 compiles the bare-crown discard in. */
@@ -236,7 +239,7 @@ export class HarbourMaterials {
   constructor(readonly uniforms: WorldUniforms) {
     const black = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
     black.needsUpdate = true;
-    this.pool = { uPoolTex: { value: black }, uPoolBounds: { value: new THREE.Vector4(0, 0, 0, 0) } };
+    this.pool = { uPoolTex: { value: black }, uPoolBounds: { value: new THREE.Vector4(0, 0, 0, 0) }, uLampFar: { value: 1 } };
     this.ao = { uAOTex: { value: black }, uAOBounds: { value: new THREE.Vector4(0, 0, 0, 0) } };
     this.publishedFeatures = this.kitKey();
   }
@@ -276,7 +279,7 @@ export class HarbourMaterials {
       uTime: u.uTime, uHemiSky: u.uHemiSky, uHemiGround: u.uHemiGround, uHorizon: u.uHorizon,
       uWindowGlow: u.uWindowGlow, uLamp: u.uLamp, uLens: u.uLens, uNight: u.uNight,
       uWindowOcc: u.uWindowOcc, uNightLift: u.uNightLift,
-      uPoolTex: this.pool.uPoolTex, uPoolBounds: this.pool.uPoolBounds, uRimK: this.rimK,
+      uPoolTex: this.pool.uPoolTex, uPoolBounds: this.pool.uPoolBounds, uLampFar: this.pool.uLampFar, uRimK: this.rimK,
       uAOTex: this.ao.uAOTex, uAOBounds: this.ao.uAOBounds,
       uSnowCover: u.uSnowCover, uWetness: u.uWetness, uFoliage: u.uFoliage, uSeasonPhase: u.uSeasonPhase,
       uHbSunDir: u.uSunDir, uHbSunColor: u.uSunColor,
@@ -312,6 +315,7 @@ export class HarbourMaterials {
       shader.vertexShader = patch(shader.vertexShader, "#include <begin_vertex>", `#include <begin_vertex>\n${SWAY_VERTEX_APPLY}`, { id: "world.9.begin_vertex" });
       // winter / late-autumn bare crowns discard: compiled in only when the calendar can need it
       shader.defines = { ...shader.defines, ...shaderFeatureDefines(features) };
+      if (features.lite) shader.fragmentShader = patch(shader.fragmentShader, "#include <shadowmap_pars_fragment>", liteShadow(), { id: "world.lite-shadow" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}\n${AERIAL_GLSL}\n${RUNUP_GLSL}\n${BEAM_LIGHT_GLSL}\n${LANDMARK_HOVER_GLSL}\n${METAL_GLSL}`, { id: "world.10.common" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <color_fragment>", `
   vec3 hbVc = vec3(1.0);
@@ -529,17 +533,26 @@ export class HarbourMaterials {
     return m;
   }
 
-  /** Lamp glass / beacons: base colour + emission × uLamp. */
-  emissive(glowHex = "#FFAE57", baseHex = "#3B3A33"): THREE.MeshStandardMaterial {
-    const key = `emissive:${glowHex}:${baseHex}`;
+  /**
+   * Lamp glass / beacons: base colour + emission × uLamp. `decorative` (the GLB lamps' glass) also takes the zoom's lamp
+   * share (uLampFar: it eases at the overview, lights-system.ts), the lamp round and the arrival beat (lamp-wave.ts); a
+   * signal's lantern (the storm cones) is analytical (D11): it keeps its light and shows its state at once, on the
+   * clock's glow alone (uLampAnalytic = 1, a binding like uLampFar, not a program variant).
+   */
+  emissive(glowHex = "#FFAE57", baseHex = "#3B3A33", decorative = false): THREE.MeshStandardMaterial {
+    const key = `emissive:${glowHex}:${baseHex}${decorative ? ":lamp" : ""}`;
     const hit = this.cache.get(key);
     if (hit) return hit as THREE.MeshStandardMaterial;
     const m = new THREE.MeshStandardMaterial({ color: new THREE.Color(baseHex), roughness: 0.15, metalness: 0, emissive: new THREE.Color(glowHex) });
     m.name = "hb_emissive";
+    const far = decorative ? this.pool.uLampFar : { value: 1 };
+    const analytic = { value: decorative ? 0 : 1 };
     m.onBeforeCompile = (shader) => {
       shader.uniforms.uLamp = this.uniforms.uLamp;
+      shader.uniforms.uLampFar = far;
+      shader.uniforms.uLampAnalytic = analytic;
       Object.assign(shader.uniforms, { uWindowGlow: this.uniforms.uWindowGlow }, lampWaveUniforms);
-      // the lamplighting wave (05-P3): the glass lights with its own lamp's moment, not the global clock
+      // the lamplighting wave (05-P3): a lamp's glass lights with its own lamp's moment, not the global clock
       shader.vertexShader = patch(shader.vertexShader, "#include <common>", "#include <common>\nvarying vec3 vHbLw;", { id: "world.31.common" });
       shader.vertexShader = patch(shader.vertexShader, "#include <worldpos_vertex>", `#include <worldpos_vertex>
   {
@@ -549,10 +562,10 @@ export class HarbourMaterials {
     #endif
     vHbLw = (modelMatrix * hbW).xyz;
   }`, { id: "world.32.worldpos_vertex" });
-      shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\nuniform float uLamp;\nuniform float uWindowGlow;\nvarying vec3 vHbLw;\n${LAMP_WAVE_GLSL}`, { id: "world.33.common" });
+      shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\nuniform float uLamp;\nuniform float uLampFar;\nuniform float uLampAnalytic;\nuniform float uWindowGlow;\nvarying vec3 vHbLw;\n${LAMP_WAVE_GLSL}`, { id: "world.33.common" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <emissivemap_fragment>", `#include <emissivemap_fragment>
-totalEmissiveRadiance *= uLamp;
-if (uWindowGlow > 1e-3) totalEmissiveRadiance *= mix(1.0, hbLampGlow(uWindowGlow, hbLampRank(vHbLw, hbLampJitter(vHbLw.xz))) / uWindowGlow, smoothstep(0.0, 0.05, uWindowGlow));`, { id: "world.34.emissivemap_fragment" });
+totalEmissiveRadiance *= uLamp * uLampFar;
+if (uWindowGlow > 1e-3 && uLampAnalytic < 0.5) totalEmissiveRadiance *= mix(1.0, hbLampGlow(uWindowGlow, hbLampRank(vHbLw, hbLampJitter(vHbLw.xz))) / uWindowGlow, smoothstep(0.0, 0.05, uWindowGlow));`, { id: "world.34.emissivemap_fragment" });
     };
     m.customProgramCacheKey = () => "hb_emissive_w1";
     this.cache.set(key, m);
@@ -615,7 +628,7 @@ if (uWindowGlow > 1e-3) totalEmissiveRadiance *= mix(1.0, hbLampGlow(uWindowGlow
           case "window": return this.window();
           case "emissive": {
             const glow = mat.name.toLowerCase().startsWith("beacon") ? "#FF5A3C" : "#FFAE57";
-            return this.emissive(glow, src.color ? `#${src.color.getHexString()}` : "#3B3A33");
+            return this.emissive(glow, src.color ? `#${src.color.getHexString()}` : "#3B3A33", true);
           }
           case "lens": return this.lens(lensLit);
           case "glass": return this.glass();

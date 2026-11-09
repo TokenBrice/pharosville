@@ -10,7 +10,7 @@ import { publishPresentation, renderedPresentation } from "../ui/presentation";
 import { mountHarbourUI } from "../ui/mount";
 import type { RenderedFleetState } from "../engine/types";
 import { dismissPoster, resetPosterState } from "./poster";
-import { startWake, wantsWake, WAKE_PULLBACK } from "./wake";
+import { arrivalFade, startWake, wantsWake } from "./wake";
 import "./harbour-app.css";
 
 /** Pending-only hold, measured from this mount's first composer-completed frame, not navigation/init. */
@@ -121,13 +121,14 @@ export function HarbourApp() {
         setStage(next);
         if (revealed) return;
         revealed = true;
-        // the harbour wakes (wake.ts): the live camera starts pulled back and the poster shrinks to match
+        // the harbour wakes (wake.ts): the live camera starts pulled back about the Pharos and the lamps dark
         const wake = !!engine && wantsWake(engine);
         if (wake && engine) stopWake = startWake(engine);
         const arrival = document.querySelector<HTMLElement>(".pv-arrival");
         if (arrival?.contains(document.activeElement)) (ui.querySelector<HTMLElement>(".hb-mark-btn") ?? document.querySelector<HTMLElement>("main"))?.focus({ preventScroll: true });
         if (arrival) arrival.inert = true;
-        dismissPoster("crossfade", wake ? 1 / (1 + WAKE_PULLBACK) : 1);
+        // E28: the poster settles onto that first frame (registered on the hero), dimmed toward the live hour
+        dismissPoster("crossfade", engine ? arrivalFade(engine) : {});
         void preloadDetails().catch(() => { /* A later interaction may retry a failed warmup. */ });
         shellTimer = window.setTimeout(() => {
           setShellGone(true);

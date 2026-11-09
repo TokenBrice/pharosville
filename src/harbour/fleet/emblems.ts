@@ -1,12 +1,14 @@
 import * as THREE from "three";
 import type { AssetStore } from "../engine/assets";
 import { abortable, transport } from "../engine/transport";
+import type { PreparationService } from "../engine/types";
+import { runtimeLogoPath } from "../../lib/logos";
 import { isAbort } from "../engine/failure";
 
 /**
  * Sail-emblem atlas: decoded logos and generated monograms share one canvas and mip chain.
- * Keep the original canvas decode/upload path and combined dimensions: a separate logo texture
- * changes tiny roundel/flag pixels even when its source artwork and filtering are identical.
+ * Runtime slots are 96 px; two 256 px inspection tiles restore the full mark at close range.
+ * Logical logo/letter slots, filtering and UV orientation stay shared by sails, covers and flags.
  *
  * `load` reads only the slot map. Until `loadLogos` completes, logo slots show a plain brand-colour
  * roundel (a monogram if neither image loads). Installed monograms repaint only when their inputs change.
@@ -19,10 +21,17 @@ export const EMBLEMS_IMG_FALLBACK = "/harbour/emblems.webp";
 
 interface AtlasMeta { slot: number; cols: number; width: number; height: number; ids: Record<string, number> }
 
-export interface EmblemCoin { id: string; symbol: string; brandColor: string }
+export interface EmblemCoin { id: string; symbol: string; brandColor: string; logo?: string | null }
+export const EMBLEM_SLOT_PX = 96, HERO_TILE_PX = 256;
 
 export class EmblemAtlas {
-  readonly texture: THREE.CanvasTexture;
+  texture: THREE.CanvasTexture;
+  readonly uniform: THREE.IUniform<THREE.Texture>;
+  readonly heroUniform: THREE.IUniform<THREE.Texture> = { value: new THREE.Texture() };
+  readonly heroSlots = { value: new THREE.Vector2(-1, -1) };
+  private heroAbort: AbortController | null = null;
+  private heroKey = "";
+  private logoTask: Promise<void> | null = null;
   /** (cols, rows, 1/cols, 1/rows) for the shader. */
   readonly grid = new THREE.Vector4(32, 1, 1 / 32, 1);
   private canvas: HTMLCanvasElement;
@@ -42,14 +51,14 @@ export class EmblemAtlas {
   private dirty = false;
   private batching = false;
 
-  private constructor(private readonly meta: AtlasMeta, extraSlots: number, private readonly signal?: AbortSignal) {
+  private constructor(private readonly meta: AtlasMeta, private readonly extraSlots: number, private readonly signal?: AbortSignal) {
     const rowsLogos = logoRows(meta);
     this.logoSlots = rowsLogos * meta.cols;
     this.capacity = Math.max(1, Math.min(meta.cols, rowsLogos + Math.ceil(extraSlots / meta.cols) + 1)) * meta.cols;
     this.rows = 1; // no unused logo backing store / upload before the first fleet install
     this.canvas = document.createElement("canvas");
-    this.canvas.width = meta.width;
-    this.canvas.height = this.rows * meta.slot;
+    this.canvas.width = meta.cols * EMBLEM_SLOT_PX;
+    this.canvas.height = this.rows * EMBLEM_SLOT_PX;
     this.g = this.canvas.getContext("2d", { willReadFrequently: false })!;
     for (const [id, s] of Object.entries(meta.ids)) this.slots.set(id, s);
     this.nextFree = rowsLogos * meta.cols; // monograms start on a fresh row (logos may be re-built)
@@ -62,6 +71,7 @@ export class EmblemAtlas {
     t.magFilter = THREE.LinearFilter;
     t.anisotropy = 4;
     this.texture = t;
+    this.uniform = { value: t };
   }
 
   /** The slot map only (small); the logo image comes later through loadLogos. */
@@ -106,7 +116,12 @@ export class EmblemAtlas {
   }
 
   /** Copy decoded logos into the combined canvas once; finish pending monograms on failure. */
-  async loadLogos(): Promise<void> {
+  async loadLogos(preparation?: PreparationService): Promise<void> {
+    if (!this.logoTask) this.logoTask = this.decodeLogos(preparation);
+    return this.logoTask;
+  }
+
+  private async decodeLogos(preparation?: PreparationService): Promise<void> {
     if (this.logos !== "wait" || this.disposed || this.signal?.aborted) return;
     this.logos = "loading";
     let img: ImageBitmap | null = null;
@@ -124,12 +139,21 @@ export class EmblemAtlas {
     }
     this.logos = "done";
     if (this.disposed || this.signal?.aborted) { img?.close(); return; }
+    if (img && preparation) {
+      try {
+        if (await this.stageLogos(img, preparation)) { img.close(); return; }
+      } catch (error) {
+        if (isAbort(error) || this.signal?.aborted) { img.close(); return; }
+        console.warn("[harbour] fleet: staged emblem logos failed, painting them in place", error);
+      }
+      if (this.disposed || this.signal?.aborted) { img.close(); return; }
+    }
     if (img) {
       this.batching = true;
       const rows = logoRows(this.meta);
       if (this.rows < rows + 1) this.grow(rows + 1);
-      this.g.clearRect(0, 0, this.canvas.width, Math.min(img.height, rows * this.meta.slot));
-      this.g.drawImage(img, 0, 0);
+      this.g.clearRect(0, 0, this.canvas.width, rows * EMBLEM_SLOT_PX);
+      this.g.drawImage(img, 0, 0, this.meta.width, this.meta.height, 0, 0, this.canvas.width, rows * EMBLEM_SLOT_PX);
       img.close();
       this.painted = true;
       this.logoLoaded = true;
@@ -142,6 +166,46 @@ export class EmblemAtlas {
       }
       this.end();
     }
+    if (preparation && !this.disposed) await preparation.stageTexture(this.texture, { signal: this.signal });
+  }
+
+  /**
+   * The logos into a detached copy of the atlas, one tile row per preparation slice (a canvas rasterises what a
+   * task drew when the task ends: one row keeps that small), then a staged upload and one swap. The live atlas
+   * keeps its roundels until the swap, and no frame uploads the whole canvas. Same pixels as one full-size draw:
+   * each 128 px source row lands on its own 96 px row (the 0.75 bilinear taps never leave a row).
+   */
+  private async stageLogos(img: ImageBitmap, preparation: PreparationService): Promise<boolean> {
+    const rows = logoRows(this.meta), signal = this.signal;
+    const fork = new EmblemAtlas(this.meta, this.extraSlots, signal);
+    let committed = false;
+    try {
+      fork.grow(Math.max(this.rows, rows + 1));
+      const srcRow = this.meta.height / rows;
+      // monogram rows first, copied as they are; then each logo row over the fork's clear canvas
+      for (let row = rows; row < this.rows; row++) {
+        await preparation.submit(() => {
+          const y = row * EMBLEM_SLOT_PX;
+          fork.g.drawImage(this.canvas, 0, y, this.canvas.width, EMBLEM_SLOT_PX, 0, y, fork.canvas.width, EMBLEM_SLOT_PX);
+        }, { signal });
+      }
+      for (let row = 0; row < rows; row++) {
+        await preparation.submit(() => {
+          fork.g.drawImage(img, 0, row * srcRow, this.meta.width, srcRow, 0, row * EMBLEM_SLOT_PX, fork.canvas.width, EMBLEM_SLOT_PX);
+        }, { signal });
+      }
+      fork.texture.needsUpdate = true;
+      await preparation.stageTexture(fork.texture, { signal });
+      if (this.disposed || signal?.aborted) return false;
+      const old = this.texture, canvas = this.canvas;
+      this.texture = fork.texture; this.uniform.value = fork.texture;
+      this.canvas = fork.canvas; this.g = fork.g; this.rows = fork.rows; this.grid.copy(fork.grid);
+      this.painted = true; this.logoLoaded = true;
+      committed = true;
+      old.dispose(); canvas.width = canvas.height = 0;
+      fork.heroUniform.value.dispose();
+      return true;
+    } finally { if (!committed) fork.dispose(); }
   }
 
   /** The first monogram slot: marks from here on are lettering (an alpha mask), not printed logos. */
@@ -177,7 +241,7 @@ export class EmblemAtlas {
     const rows = Math.min(this.capacity / this.meta.cols, want);
     const canvas = document.createElement("canvas");
     canvas.width = this.canvas.width;
-    canvas.height = rows * this.meta.slot;
+    canvas.height = rows * EMBLEM_SLOT_PX;
     const g = canvas.getContext("2d", { willReadFrequently: false })!;
     if (this.painted) g.drawImage(this.canvas, 0, 0); // blank initial reserve needs no full-canvas copy
     this.canvas.width = this.canvas.height = 0; // release the old backing store now
@@ -191,7 +255,7 @@ export class EmblemAtlas {
   /** The coin's brand-colour roundel, lettered with its monogram or (a placeholder) plain. */
   private drawRoundel(slot: number, c: EmblemCoin, lettered: boolean): void {
     this.painted = true;
-    const S = this.meta.slot, g = this.g;
+    const S = EMBLEM_SLOT_PX, g = this.g;
     const x0 = (slot % this.meta.cols) * S, y0 = Math.floor(slot / this.meta.cols) * S;
     const cx = x0 + S / 2, cy = y0 + S / 2;
     const brand = new THREE.Color(c.brandColor);
@@ -222,10 +286,8 @@ export class EmblemAtlas {
    * larger than they sat on the old disc. Shaders ink them from the cloth: cream on dark cloth, a deep shade of it on
    * light. The symbol is the coin's identity; the brand colour stays on her cloth and flag.
    */
-  private drawLetters(slot: number, c: EmblemCoin): void {
+  private drawLetters(slot: number, c: EmblemCoin, g = this.g, S = EMBLEM_SLOT_PX, x0 = (slot % this.meta.cols) * S, y0 = Math.floor(slot / this.meta.cols) * S): void {
     this.painted = true;
-    const S = this.meta.slot, g = this.g;
-    const x0 = (slot % this.meta.cols) * S, y0 = Math.floor(slot / this.meta.cols) * S;
     const letters = monogram(c.symbol || c.id);
     const size = letters.length <= 1 ? 0.56 : letters.length === 2 ? 0.46 : letters.length === 3 ? 0.35 : 0.28;
     g.save();
@@ -237,9 +299,111 @@ export class EmblemAtlas {
     g.restore();
   }
 
+  /** Detached atlas delta: row copies/paint/upload finish before its single publication. */
+  async prepareCoins(coins: readonly EmblemCoin[], preparation?: PreparationService, signal?: AbortSignal): Promise<{ slots: Map<string, number>; commit(): void; dispose(): void }> {
+    if (this.logoTask) await abortable(this.logoTask, signal);
+    signal?.throwIfAborted();
+    const fork = new EmblemAtlas(this.meta, this.extraSlots, this.signal), slots = new Map<string, number>();
+    let committed = false;
+    const dispose = () => { if (!committed) fork.dispose(); };
+    try {
+      fork.slots.clear(); for (const [id, slot] of this.slots) fork.slots.set(id, slot);
+      for (const [slot, coin] of this.roundels) fork.roundels.set(slot, coin);
+      fork.nextFree = this.nextFree; fork.logos = this.logos; fork.logoLoaded = this.logoLoaded;
+      fork.begin(coins);
+      if (fork.rows < this.rows) fork.grow(this.rows);
+      let row = 0, cursor = 0;
+      const slice = (deadline: number) => {
+        signal?.throwIfAborted();
+        do {
+          if (row < this.rows) {
+            const y = row++ * EMBLEM_SLOT_PX;
+            fork.g.drawImage(this.canvas, 0, y, this.canvas.width, EMBLEM_SLOT_PX, 0, y, this.canvas.width, EMBLEM_SLOT_PX);
+            fork.painted = this.painted;
+          } else if (cursor < coins.length) {
+            const coin = coins[cursor++]; slots.set(coin.id, fork.slotFor(coin));
+          }
+        } while ((row < this.rows || cursor < coins.length) && performance.now() < deadline);
+      };
+      while (row < this.rows || cursor < coins.length) {
+        if (preparation) await preparation.submit(slice, { signal }); else slice(Infinity);
+      }
+      fork.end();
+      if (preparation) await preparation.stageTexture(fork.texture, { signal });
+      signal?.throwIfAborted();
+      return { slots, dispose, commit: () => {
+        signal?.throwIfAborted();
+        if (this.disposed) throw new DOMException("Atlas disposed", "AbortError");
+        const old = this.texture, canvas = this.canvas;
+        this.texture = fork.texture; this.uniform.value = fork.texture;
+        this.canvas = fork.canvas; this.g = fork.g; this.rows = fork.rows; this.grid.copy(fork.grid);
+        this.slots.clear(); for (const [id, slot] of fork.slots) this.slots.set(id, slot);
+        this.roundels.clear(); for (const [slot, coin] of fork.roundels) this.roundels.set(slot, coin);
+        this.nextFree = fork.nextFree; this.painted = fork.painted;
+        committed = true; old.dispose(); canvas.width = canvas.height = 0;
+        fork.heroUniform.value.dispose();
+      } };
+    } catch (error) { dispose(); throw error; }
+  }
+
+  /** Two inspection tiles cover hover and selection/search; stale decodes never replace current identity. */
+  async setHeroes(coins: readonly EmblemCoin[], preparation?: PreparationService): Promise<void> {
+    const active = coins.filter((coin, i) => coins.findIndex((other) => other.id === coin.id) === i).slice(0, 2);
+    const key = active.map((coin) => `${coin.id}:${coin.symbol}:${coin.brandColor}:${coin.logo ?? ""}`).join("|");
+    if (key === this.heroKey || this.disposed) return;
+    this.heroKey = key; this.heroAbort?.abort();
+    const controller = this.heroAbort = new AbortController();
+    const signal = this.signal ? AbortSignal.any([this.signal, controller.signal]) : controller.signal;
+    if (!active.length) { this.heroSlots.value.set(-1, -1); this.heroUniform.value.dispose(); this.heroUniform.value = new THREE.Texture(); return; }
+    const canvas = document.createElement("canvas");
+    canvas.width = HERO_TILE_PX * 2; canvas.height = HERO_TILE_PX;
+    const g = canvas.getContext("2d")!, texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace; texture.premultiplyAlpha = true; texture.anisotropy = 4;
+    const slots = new THREE.Vector2(-1, -1);
+    try {
+      for (let i = 0; i < active.length; i++) {
+        const coin = active[i], slot = this.slots.get(coin.id) ?? -1, x = i * HERO_TILE_PX;
+        if (slot < 0) continue;
+        slots.setComponent(i, slot);
+        let image: ImageBitmap | null = null;
+        if (coin.logo?.startsWith("/logos/")) {
+          try {
+            image = await transport(signal, async (lifetime) => {
+              const response = await fetch(runtimeLogoPath(coin.logo!), { signal: lifetime });
+              if (!response.ok) return null;
+              return abortable(createImageBitmap(await response.blob(), { premultiplyAlpha: "none" }), lifetime, (bitmap) => bitmap.close());
+            }, (bitmap) => bitmap?.close());
+          } catch (error) { if (signal.aborted) throw error; }
+        }
+        signal.throwIfAborted();
+        if (image) {
+          try {
+            const S = HERO_TILE_PX, cx = x + S / 2, cy = S / 2;
+            g.beginPath(); g.arc(cx, cy, S * (62.6 / 128), 0, Math.PI * 2); g.fillStyle = "#BDB2A0"; g.fill();
+            g.beginPath(); g.arc(cx, cy, S * (59.6 / 128), 0, Math.PI * 2); g.fillStyle = "#FFFFFF"; g.fill();
+            g.save(); g.beginPath(); g.arc(cx, cy, S * (52 / 128), 0, Math.PI * 2); g.clip();
+            const scale = S * (104 / 128) / Math.max(image.width, image.height);
+            g.drawImage(image, cx - image.width * scale / 2, cy - image.height * scale / 2, image.width * scale, image.height * scale);
+            g.restore();
+          } finally { image.close(); }
+        } else if (slot >= this.logoSlots) this.drawLetters(slot, coin, g, HERO_TILE_PX, x, 0);
+        else g.drawImage(this.canvas, (slot % this.meta.cols) * EMBLEM_SLOT_PX, Math.floor(slot / this.meta.cols) * EMBLEM_SLOT_PX, EMBLEM_SLOT_PX, EMBLEM_SLOT_PX, x, 0, HERO_TILE_PX, HERO_TILE_PX);
+      }
+      if (preparation) await preparation.stageTexture(texture, { signal });
+      signal.throwIfAborted();
+      const old = this.heroUniform.value;
+      this.heroUniform.value = texture; this.heroSlots.value.copy(slots); old.dispose();
+      const oldCanvas = old.image as HTMLCanvasElement | undefined;
+      if (oldCanvas?.getContext) oldCanvas.width = oldCanvas.height = 0;
+    } catch (error) { texture.dispose(); canvas.width = canvas.height = 0; if (!isAbort(error)) throw error; }
+  }
+
   dispose(): void {
-    this.disposed = true;
+    if (this.disposed) return;
+    this.disposed = true; this.heroAbort?.abort();
+    this.heroUniform.value.dispose();
     this.texture.dispose();
+    this.canvas.width = this.canvas.height = 0;
   }
 }
 

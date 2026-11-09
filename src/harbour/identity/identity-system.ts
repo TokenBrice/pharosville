@@ -4,8 +4,9 @@ import { getLightsStore } from "../lights/lights-service";
 import type { GroundService } from "../world/ground";
 import type { OceanService } from "../ocean/ocean-system";
 import { ensureMotionService, type MotionService } from "../ui/services";
+import { runIdleSteps } from "../engine/idle-steps";
 import { CrestFlags } from "./crest-flags";
-import { labelSpecs, placeLabels, type FitObstacle, type LabelSpec, type PlaceView } from "./labels";
+import { labelSpecs, placeLabelSteps, type FitObstacle, type LabelSpec, type PlaceView } from "./labels";
 import { ChartLettering } from "./lettering";
 import { OfficeDresser, officePlots } from "./offices";
 import { markSites, PierMarks, type MarkPier } from "./pier-marks";
@@ -47,11 +48,19 @@ const CIVIC_HEIGHT: Record<string, number> = { customs: 26, mint: 30, burn: 26, 
 /** Metres added to dry land in the sight grid for trees (not in the island's height field). */
 const TREE_ALLOWANCE = 11;
 
+/** A building outside the island model, for the sight grid: centre, half extents along its own axes, turn, top (m). */
+export interface SightBlock { x: number; z: number; hx: number; hz: number; r: number; h: number }
+
+/** Rows of the height field pooled per step of sightGridSteps. */
+const SIGHT_ROWS_PER_STEP = 32;
+
 /**
  * A coarse (4 m) max-pooled height grid for the chart's line-of-sight test: the island's height field plus
- * whatever stands outside the island model (extra(x, z), -Infinity where nothing does). O(1) per lookup.
+ * whatever stands outside the island model (the Pharos's square tiers, the civic buildings). O(1) per lookup.
+ * Resumable steps: rows of the height field, then each building stamped into the cells round it with the
+ * same per-cell test (and max) as testing every building at every cell, so the same grid.
  */
-function sightGrid(ground: GroundService, extra: (x: number, z: number) => number, cell = 4): (x: number, z: number) => number {
+export function* sightGridSteps(ground: Pick<GroundService, "bounds" | "size" | "heights">, tall: readonly SightBlock[], pharos: readonly number[] | undefined, cell = 4): Generator<void, (x: number, z: number) => number> {
   const [minX, minZ, maxX, maxZ] = ground.bounds, N = ground.size;
   const nx = Math.ceil((maxX - minX) / cell), nz = Math.ceil((maxZ - minZ) / cell);
   const g = new Float32Array(nx * nz).fill(-8);
@@ -64,10 +73,26 @@ function sightGrid(ground: GroundService, extra: (x: number, z: number) => numbe
       const h0 = ground.heights[r * N + c], h = h0 > 1.5 ? h0 + TREE_ALLOWANCE : h0;
       if (h > g[k]) g[k] = h;
     }
+    if (r % SIGHT_ROWS_PER_STEP === SIGHT_ROWS_PER_STEP - 1) yield;
   }
-  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
-    const h = extra(minX + (i + 0.5) * cell, minZ + (j + 0.5) * cell);
-    if (h > g[j * nx + i]) g[j * nx + i] = h;
+  // every cell whose centre lies in [x0, x1] × [z0, z1] (one cell of slack), tested exactly at its centre
+  const stamp = (x0: number, z0: number, x1: number, z1: number, h: number, inside: (x: number, z: number) => boolean) => {
+    const i0 = Math.max(0, Math.floor((x0 - minX) / cell) - 1), i1 = Math.min(nx - 1, Math.ceil((x1 - minX) / cell) + 1);
+    const j0 = Math.max(0, Math.floor((z0 - minZ) / cell) - 1), j1 = Math.min(nz - 1, Math.ceil((z1 - minZ) / cell) + 1);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const x = minX + (i + 0.5) * cell, z = minZ + (j + 0.5) * cell, k = j * nx + i;
+      if (h > g[k] && inside(x, z)) g[k] = h;
+    }
+  };
+  // the Pharos: its square tiers and corner statues, a little generous
+  if (pharos) stamp(pharos[0] - 22, pharos[2] - 22, pharos[0] + 22, pharos[2] + 22, 100, (x, z) => Math.max(Math.abs(x - pharos[0]), Math.abs(z - pharos[2])) < 22);
+  for (const b of tall) {
+    const c = Math.cos(b.r), s = Math.sin(b.r), reach = Math.hypot(b.hx, b.hz);
+    stamp(b.x - reach, b.z - reach, b.x + reach, b.z + reach, b.h, (x, z) => {
+      const dx = x - b.x, dz = z - b.z;
+      return Math.abs(dx * c - dz * s) < b.hx && Math.abs(dx * s + dz * c) < b.hz;
+    });
+    yield;
   }
   return (x, z) => {
     const i = Math.floor((x - minX) / cell), j = Math.floor((z - minZ) / cell);
@@ -102,27 +127,42 @@ export class IdentitySystem implements WorldSystem {
     ]);
 
     ctx.signal?.throwIfAborted();
-    if (font && sdfTex && layout.seaZones?.length) {
+    const lettered = !!(font && sdfTex && layout.seaZones?.length);
+    if (lettered) {
       const ocean = ctx.services.get("ocean");
       const t0 = performance.now();
-      this.labels = this.fittedSpecs(layout, font, ocean, ctx.camera.aspect, ctx.services.get("ground"));
+      // the fitting is pure CPU work: idle slices keep it from becoming one long task (the names land a little later)
+      this.labels = await runIdleSteps(this.fittedSteps(layout, font!, ocean, ctx.camera.aspect, ctx.services.get("ground")), ctx.signal);
+      ctx.signal?.throwIfAborted();
       performance.measure("identity:labels", { start: t0 });
-      this.lettering = new ChartLettering(this.labels, font, sdfTex, ctx.uniforms, ocean, layout.seaLevel ?? 0);
+    }
+    // the lettering and the heraldry are built in idle slices of their own, never on the tail of the fitting's last one
+    await runIdleSteps(this.dressSteps(ctx, layout, lettered ? font : null, sdfTex, atlas, crestTex), ctx.signal);
+  }
+
+  /** The chart lettering, the offices' heraldry and the anchorage lights, one construction per step (same order). */
+  private *dressSteps(ctx: EngineContext, layout: IdentityLayout, font: ChartFont | null, sdfTex: THREE.Texture | null, atlas: CrestAtlas | null, crestTex: THREE.Texture | null): Generator<void, void> {
+    if (font && sdfTex) {
+      yield;
+      this.lettering = new ChartLettering(this.labels, font, sdfTex, ctx.uniforms, ctx.services.get("ocean"), layout.seaLevel ?? 0);
       ctx.scene.add(this.lettering.mesh);
     }
 
     if (atlas && crestTex) {
+      yield;
       this.atlas = atlas;
       crestTex.anisotropy = 8;
       crestTex.generateMipmaps = true;
       crestTex.minFilter = THREE.LinearMipmapLinearFilter;
       this.dresser = new OfficeDresser(atlas, crestTex, officePlots(layout.civic));
+      yield;
       this.flags = new CrestFlags(crestTex, ctx.uniforms);
       ctx.scene.add(this.flags.group);
       // chain-colour beacons and bollards on each harbour's pier head (one instanced draw)
       const ground = ctx.services.get("ground");
       const piers = (layout as { piers?: MarkPier[] }).piers ?? [];
       if (ground && piers.length) {
+        yield;
         const ocean = ctx.services.get("ocean");
         const sea = layout.seaLevel ?? 0;
         const sites = markSites(piers, ocean ? (x, z) => ocean.coastAt(x, z) > -5 : undefined)
@@ -188,7 +228,7 @@ export class IdentitySystem implements WorldSystem {
    * Names placed in their own water with collision avoidance (labels.ts placeLabels): clear of piers and of
    * each other, uncut by the frame edge and not hidden behind the town, in both default views.
    */
-  private fittedSpecs(layout: IdentityLayout, font: ChartFont, ocean: OceanService | undefined, aspect: number, ground: GroundService | undefined) {
+  private *fittedSteps(layout: IdentityLayout, font: ChartFont, ocean: OceanService | undefined, aspect: number, ground: GroundService | undefined): Generator<void, LabelSpec[]> {
     const zones = layout.seaZones ?? [];
     const piers = (layout as { piers?: Array<{ segments: Array<{ a: [number, number]; b: [number, number]; width: number }> }> }).piers ?? [];
     const obstacles: FitObstacle[] = piers.flatMap((p) => p.segments.map((g) => ({ a: g.a, b: g.b, halfWidth: g.width / 2 })));
@@ -222,23 +262,14 @@ export class IdentitySystem implements WorldSystem {
     const seaLevel = layout.seaLevel ?? 0;
     const tall = (layout.civic ?? []).map((c) => ({ x: c.position[0], z: c.position[2], hx: c.footprint[0] / 2, hz: c.footprint[1] / 2, r: c.rotationY, h: c.position[1] + (CIVIC_HEIGHT[c.kind] ?? 18) }));
     const pharos = (layout as { pharos?: { position: [number, number, number] } }).pharos?.position;
-    const heightAt = ground ? sightGrid(ground, (x, z) => {
-      let h = -Infinity;
-      // the Pharos: its square tiers and corner statues, a little generous
-      if (pharos && Math.max(Math.abs(x - pharos[0]), Math.abs(z - pharos[2])) < 22) h = 100;
-      for (const b of tall) {
-        const dx = x - b.x, dz = z - b.z, c = Math.cos(b.r), s = Math.sin(b.r);
-        if (Math.abs(dx * c - dz * s) < b.hx && Math.abs(dx * s + dz * c) < b.hz) h = Math.max(h, b.h);
-      }
-      return h;
-    }) : undefined;
+    const heightAt = ground ? yield* sightGridSteps(ground, tall, pharos) : undefined;
     // anchored hulls, buoys and reef rocks of the sea zones (layout.zones.*: slots/buoys [x, y, z], rocks [x, z, r])
     const crowd: FitObstacle[] = [];
     for (const zv of Object.values((layout as { zones?: Record<string, Record<string, unknown>> }).zones ?? {})) {
       for (const key of ["slots", "buoys"]) for (const q of (Array.isArray(zv[key]) ? zv[key] : []) as number[][]) if (q.length >= 3) crowd.push({ a: [q[0], q[2]], b: [q[0], q[2]], halfWidth: 6 });
       for (const q of (Array.isArray(zv.rocks) ? zv.rocks : []) as number[][]) if (q.length >= 3) crowd.push({ a: [q[0], q[1]], b: [q[0], q[1]], halfWidth: q[2] + 1 });
     }
-    return placeLabels(labelSpecs(zones), zones, font, { obstacles, crowd, coastAt: ocean?.coastAt, heightAt, seaLevel, views });
+    return yield* placeLabelSteps(labelSpecs(zones), zones, font, { obstacles, crowd, coastAt: ocean?.coastAt, heightAt, seaLevel, views });
   }
 
   dispose(ctx: EngineContext): void {

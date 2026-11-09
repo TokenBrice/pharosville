@@ -1,5 +1,5 @@
 /** Small shared pieces: logo medallion, chart glyphs (sparkline, tide bars, chain split), freshness. */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { Boat, DewsBand, EndpointKey, Freshness, HarbourModel } from "../model/types";
 import { age, money, share } from "./format";
 import { runtimeLogoPath } from "../../lib/logos";
@@ -72,6 +72,13 @@ export function Crest({ chain, color, size = 52 }: { chain: string; color: strin
   );
 }
 
+/** UI AD N2: a reading's UTC timestamp never breaks at its hyphens or space; the sentence's text is unchanged. */
+const STAMP = /(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC)/;
+export function stamped(text: string): ReactNode {
+  const parts = text.split(STAMP);
+  return parts.length === 1 ? text : parts.map((part, i) => (i % 2 ? <span key={i} className="hb-stamp">{part}</span> : part));
+}
+
 export function Freshness({ model, source }: { model: HarbourModel | null; source: EndpointKey }) {
   const now = useReadingNow();
   const truth = sourceTruth(model, source);
@@ -83,7 +90,7 @@ export function Freshness({ model, source }: { model: HarbourModel | null; sourc
       {(truth.state === "unknown" || (truth.state !== "unavailable" && !dated)) && <p className="hb-caption">{truthCopy({ kind: "retained-heading" })}</p>}
       <div className="hb-foot">
         <span className="hb-dot" data-state={truth.state} aria-hidden="true" />
-        <span>{readingSentence(model, source)}</span>
+        <span>{stamped(readingSentence(model, source))}</span>
         {elapsed != null && <span>{elapsed < 90 ? "Observed just now." : `Observed ${age(elapsed)} ago.`}</span>}
       </div>
     </>

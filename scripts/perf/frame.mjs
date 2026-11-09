@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /** Steady real-GPU matrix. All browser work goes through npm run preview and its shared lock. */
+import os from "node:os";
+import { evaluateSteady } from "./steady-gate.mjs";
 import { spawn } from "node:child_process";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -10,6 +12,8 @@ import { parseArgs } from "node:util";
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 export async function runShot(args, base) {
   if (process.env.CI && process.env.CI !== "false") throw Object.assign(new Error("SKIP: real-GPU performance captures are unavailable in CI (not PASS)"), { exitCode: 78 });
+  const chrome = process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "/opt/google/chrome/chrome";
+  if (!existsSync(chrome)) throw Object.assign(new Error("SKIP: operator real-GPU Chrome unavailable"), { exitCode: 78 });
   await mkdir(dirname(base), { recursive: true });
   const log = createWriteStream(`${base}.log`);
   const code = await new Promise((done, reject) => {
@@ -37,17 +41,22 @@ async function main() {
     quality: { type: "string", default: "high" }, prof: { type: "string", default: "gpu" }, machine: { type: "string", default: "contended" },
     width: { type: "string", default: "1600" }, height: { type: "string", default: "1000" }, "ready-timeout": { type: "string", default: "120" },
     paced: { type: "boolean" }, "live-clock": { type: "boolean" }, snapshot: { type: "string" }, "multi-draw-disabled": { type: "boolean" },
+    assert: { type: "boolean" }, baseline: { type: "string" }, "max-gpu-ratio": { type: "string", default: "1" }, "cpu-throttle": { type: "string", default: "1" },
     probes: { type: "string", default: "baseline" }, timerless: { type: "boolean" }, "init-script": { type: "string" },
   } });
   if (a.help) {
     console.log(`Usage: node scripts/perf/frame.mjs [options]
+  --assert                    require quiet RTX 3×30s, p95 ≤16.7 ms, complete raw evidence
+  --cpu-throttle 4             additionally CPU submission p95 ≤8 ms, zero post-fleet Long Tasks
+  --baseline FILE --max-gpu-ratio 0.7  matched GPU p95 comparison (Lite ≥30% reduction)
   --origin URL                 production-faithful origin (default http://127.0.0.1:4180/)
   --out DIR --runs 3 --seconds 6 --wait 6000 --settle 3500
   --views heart,overview,closest --hours 12.5,18.5,22 --seasons summer,winter
   --weather CALM,DANGER | --dews 0,4  DEV overrides; effective weather is always recorded
   --profiles standard,igpu --dprs 1,2 --quality high|medium|low|auto
   --paced --seconds 900 --quality auto   display-paced session (no uncapped browser)
-  --snapshot FILE --multi-draw-disabled --live-clock
+  --snapshot FILE             {weather} in FILE selects a matching CALM/DANGER replay in built matrices
+  --multi-draw-disabled --live-clock
   --prof 1|gpu|none --timerless --machine contended|quiet --width 1600 --height 1000
   --probes baseline,island-fragment-flat,ocean-fragment-flat,island-vertex-work,ocean-vertex-work,island-fragment-work,ocean-fragment-work
   --init-script FILE --ready-timeout 120
@@ -68,12 +77,13 @@ Production ignores DEV weather overrides: requested vs effective weather is chec
   if (profiles.some((v) => !["standard", "igpu"].includes(v)) || dprs.some((v) => !["1", "2"].includes(v)) || views.some((v) => !["heart", "overview", "closest"].includes(v))) throw new Error("invalid profile, DPR, or view");
   const allowedProbes = ["baseline", "island-fragment-flat", "ocean-fragment-flat", "island-vertex-work", "ocean-vertex-work", "island-fragment-work", "ocean-fragment-work"];
   if (probes.some((v) => !allowedProbes.includes(v))) throw new Error("unknown source probe");
+  if (![a["cpu-throttle"], a["max-gpu-ratio"]].every((v) => Number.isFinite(Number(v)) && Number(v) > 0)) throw new Error("Invalid CPU throttle/GPU ratio");
   const out = resolve(a.out);
   await mkdir(out, { recursive: true });
   const init = (a["multi-draw-disabled"] ? `;(() => { const original = WebGL2RenderingContext.prototype.getExtension; WebGL2RenderingContext.prototype.getExtension = function(name) { return name === "WEBGL_multi_draw" ? null : original.call(this, name); }; })();` : "") + (a["init-script"] ? await readFile(resolve(a["init-script"]), "utf8") : "") + (a.timerless ? `;(() => { const original = WebGL2RenderingContext.prototype.getExtension; WebGL2RenderingContext.prototype.getExtension = function(name) { return name === 'EXT_disjoint_timer_query_webgl2' ? null : original.call(this, name); }; })();` : "");
   const initFile = resolve(out, "capture-init.js");
   if (init) await writeFile(initFile, init);
-  const summary = { meta: { tool: "frame", date: new Date().toISOString(), origin: a.origin, machine: a.machine, uncapped: !a.paced, paced: !!a.paced, apiLatency: a.snapshot ? "replayed" : "live", prof: a.prof, timerless: !!a.timerless, quality: a.quality, displayDprs: dprs, thermal: "not recorded", browser: "shared Chrome; GPU identity in each run", notes: "No CI GPU pass implied. Compare quiet same-state runs only." }, scenarios: [] };
+  const summary = { meta: { tool: "frame", date: new Date().toISOString(), origin: a.origin, machine: a.machine, warmupMs: Number(a.settle), cpuThrottle: Number(a["cpu-throttle"]), maxLoad: Math.min(4, os.availableParallelism() * 0.75), loadavgStart: os.loadavg(), contended: false, uncapped: !a.paced, paced: !!a.paced, apiLatency: a.snapshot ? "replayed" : "live", prof: a.prof, timerless: !!a.timerless, quality: a.quality, displayDprs: dprs, thermal: "not recorded", browser: "shared Chrome; GPU identity in each run", notes: "No CI GPU pass implied. Compare quiet same-state runs only." }, scenarios: [] };
   let failure;
   outer: for (const profile of profiles) for (const dpr of dprs) for (const view of views) for (const hour of hours) for (const season of seasons) for (const state of weather) for (const probe of probes) {
     const id = `${profile}-d${dpr}-${view}-t${hour}-${season}-${state}-${probe}`;
@@ -83,12 +93,15 @@ Production ignores DEV weather overrides: requested vs effective weather is chec
       const url = new URL(a.origin);
       for (const key of ["view", "t", "season", "weather", "dews", "quality", "dpr", "prof"]) url.searchParams.delete(key);
       for (const [k, v] of Object.entries({ view: view === "closest" ? "heart" : view, ...(a["live-clock"] ? {} : { t: hour }), season, [a.dews ? "dews" : "weather"]: state, intro: "0", ...(a.quality === "auto" ? {} : { quality: a.quality, dpr }), ...(a.prof !== "none" ? { prof: a.prof } : {}) })) url.searchParams.set(k, v);
-      const evaluate = `(${prepareFrame.toString()})(${JSON.stringify({ settle: Number(a.settle), closest: view === "closest", probe, requestedWeather: a.dews ? null : state })})`;
+      const evaluate = `(${prepareFrame.toString()})(${JSON.stringify({ settle: Number(a.settle), closest: view === "closest", probe, requestedWeather: a.dews ? null : state })}, ${probeShader.toString()})`;
       const base = resolve(out, id, `run-${run}`);
       try {
-        const report = await runShot(["--url", url.href, ...(a.paced ? ["--paced"] : ["--uncapped"]), ...(a.snapshot ? ["--snapshot", a.snapshot] : []), ...(profile === "igpu" ? ["--igpu"] : []), "--dpr", dpr, "--width", a.width, "--height", a.height, "--seconds", a.seconds, "--wait", a.wait, "--ready-timeout", a["ready-timeout"], "--eval", evaluate, "--eval-wait", "0", ...(init ? ["--init-script-file", initFile] : [])], base);
-        scenario.runs.push({ run, file: `${id}/run-${run}.json`, fps: report.fps, p50Ms: report.p50, p95Ms: report.p95, maxMs: report.max, elapsedMs: report.timing.elapsedMs, gpu: report.gpu, gpuTotal: report.gpuPasses?.total ?? report.gpuSampleDistribution, gpuSamples: report.gpuPasses?.sampledFrames ?? report.gpuSampleDistribution.samples, pendingQueries: report.gpuPasses?.currentPendingQueries ?? report.stats?.gpuPendingQueries ?? 0, disjointPolls: report.gpuPasses?.disjointPolls ?? 0, stats: report.stats, setup: report.evalResult, steadyProgramsCreated: report.stats.programs - report.evalResult.programs, consoleErrors: report.consoleErrors });
-      } catch (error) { scenario.runs.push({ run, error: error.message }); failure = error; break outer; }
+        const loadavgBefore = os.loadavg();
+        const report = await runShot(["--url", url.href, "--cpu-throttle", a["cpu-throttle"], ...(a.paced ? ["--paced"] : ["--uncapped"]), ...(a.snapshot ? ["--snapshot", a.snapshot.replaceAll("{weather}", state)] : []), ...(profile === "igpu" ? ["--igpu"] : []), "--dpr", dpr, "--width", a.width, "--height", a.height, "--seconds", a.seconds, "--wait", a.wait, "--ready-timeout", a["ready-timeout"], "--eval", evaluate, "--eval-wait", "0", ...(init ? ["--init-script-file", initFile] : [])], base);
+        const loadavgAfter = os.loadavg();
+        summary.meta.contended ||= [...loadavgBefore, ...loadavgAfter].some((n) => n > summary.meta.maxLoad);
+        scenario.runs.push({ provenance: report.provenance, timing: report.timing, cpuProfile: report.cpuProfile, longTasks: report.longTasks, rawGpuSamples: report.gpuPasses?.samples ?? report.gpuSamples, firstFleetMs: (report.marks ?? report.load?.marks)?.["pv:first-fleet-frame"], loadavgBefore, loadavgAfter, run, file: `${id}/run-${run}.json`, fps: report.fps, p50Ms: report.p50, p95Ms: report.p95, maxMs: report.max, elapsedMs: report.timing.elapsedMs, gpu: report.gpu, gpuTotal: report.gpuPasses?.total ?? report.gpuSampleDistribution, gpuSamples: report.gpuPasses?.sampledFrames ?? report.gpuSampleDistribution.samples, pendingQueries: report.gpuPasses?.currentPendingQueries ?? report.stats?.gpuPendingQueries ?? 0, disjointPolls: report.gpuPasses?.disjointPolls ?? 0, stats: report.stats, setup: report.evalResult, steadyProgramsCreated: report.stats.programs - report.evalResult.programs, consoleErrors: report.consoleErrors });
+      } catch (error) { scenario.runs.push({ run, status: error.exitCode === 78 ? "SKIP" : "FAIL", error: error.message }); failure = error; break outer; }
     }
     scenario.medians = Object.fromEntries(["fps", "p50Ms", "p95Ms", "maxMs", "elapsedMs", "gpuSamples", "steadyProgramsCreated"].map((key) => [key, median(scenario.runs.map((r) => r[key]))]));
     scenario.gpuMedians = Object.fromEntries(["p10Ms", "p50Ms", "p95Ms"].map((key) => [key, median(scenario.runs.map((r) => r.gpuTotal?.[key]))]));
@@ -96,11 +109,26 @@ Production ignores DEV weather overrides: requested vs effective weather is chec
     await writeFile(resolve(out, "summary.json"), JSON.stringify(summary, null, 2));
   }
   await writeFile(resolve(out, "summary.json"), JSON.stringify(summary, null, 2));
+  if (a.assert) {
+    const baseline = a.baseline ? JSON.parse(await readFile(resolve(a.baseline), "utf8")) : null;
+    const gate = evaluateSteady(summary, baseline, Number(a["max-gpu-ratio"]));
+    Object.assign(summary, gate);
+    await writeFile(resolve(out, "summary.json"), JSON.stringify(summary, null, 2));
+    process.exitCode = gate.exitCode;
+  }
   console.log(`Frame matrix: ${resolve(out, "summary.json")} (${a.machine})`);
   if (failure) throw failure;
 }
 
-async function prepareFrame({ settle, closest, probe, requestedWeather }) {
+/** Source probe must insert actual GLSL, once, outside the shipping material recipes. */
+export function probeShader(source, input, output) {
+  if (!/}\s*$/.test(source) || source.includes("pvProbeZero")) throw new Error("Source probe insertion contract changed");
+  const result = `uniform float pvProbeZero;\n${source}`.replace(/}\s*$/, `float pvProbe = ${input}; for (int pvI=0; pvI<32; pvI++) { pvProbe = sin(pvProbe) * 1.0001 + float(pvI) * 0.01; } ${output} += pvProbe * pvProbeZero; }`);
+  if (result.split("float pvProbe =").length !== 2) throw new Error("Expected exactly one source probe insertion");
+  return result;
+}
+
+async function prepareFrame({ settle, closest, probe, requestedWeather }, probeShader) {
   const e = window.__harbour;
   if (!e) throw new Error("No Harbour engine");
   const end = performance.now() + 120000;
@@ -133,7 +161,7 @@ async function prepareFrame({ settle, closest, probe, requestedWeather }) {
             shader.uniforms.pvProbeZero = { value: 0 };
             const input = vertex ? "position.x + position.z" : "gl_FragCoord.x + gl_FragCoord.y";
             const output = vertex ? "gl_Position.x" : "gl_FragColor.x";
-            shader[key] = `uniform float pvProbeZero;\\n${shader[key]}`.replace(/}\\s*$/, `float pvProbe = ${input}; for (int pvI=0; pvI<32; pvI++) { pvProbe = sin(pvProbe) * 1.0001 + float(pvI) * 0.01; } ${output} += pvProbe * pvProbeZero; }`);
+            shader[key] = probeShader(shader[key], input, output);
           }
         };
         material.customProgramCacheKey = () => `${source.customProgramCacheKey()}:perf-source-probe:${probe}`;

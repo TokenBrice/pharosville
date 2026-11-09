@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { anniversaryToday } from "../model/anniversary";
 import { attentionFor, beamBreathPeak, beamCrossed, behindOf, burnRateOf, CONCH_GAP_SEC, conchDue, frontThunderDue, momentCue, passAllowed, weatherInputs } from "./feed";
-import { birdThinning, cicadaLevel, dayClock, hourStrikes, settleDb, settleRate, gustSwell } from "./ambience";
+import { BREATH_PEAK, birdThinning, cicadaLevel, dayClock, hourStrikes, settleDb, settleRate, gustSwell } from "./ambience";
 
 describe("harbour sound: weather and season inputs", () => {
   it("absent services read as fair weather with no season colour", () => {
@@ -84,6 +84,13 @@ describe("harbour sound: the Burn's furnace", () => {
 });
 
 describe("harbour sound: the beam's passing", () => {
+  it("keeps the daytime breath at 70 percent of night, with the night ceiling unchanged", () => {
+    expect(beamBreathPeak(1, true, 1, 0)).toBe(BREATH_PEAK);
+    for (const reach of [0, 0.5, 1]) {
+      expect(beamBreathPeak(reach, true, 0, 0)).toBeCloseTo(0.7 * beamBreathPeak(reach, true, 1, 0), 8);
+    }
+  });
+
   it("is heard once, as the sweep crosses the camera's bearing (not at the far side)", () => {
     expect(beamCrossed(-0.1, 0.05)).toBe(true);
     expect(beamCrossed(0.1, -0.05)).toBe(true);
@@ -92,11 +99,11 @@ describe("harbour sound: the beam's passing", () => {
     expect(beamCrossed(Number.NaN, 0.1)).toBe(false);
   });
 
-  it("follows the beam's reach, is nothing unlit, mutes under stale fog, never above −30 dBFS", () => {
+  it("follows the beam's reach, is nothing unlit, mutes under stale fog, never above its ceiling (−28 dBFS after the master)", () => {
     expect(beamBreathPeak(0.8, false, 1, 0)).toBe(0);
     expect(beamBreathPeak(0.8, true, 1, 0.5)).toBe(0);
-    expect(beamBreathPeak(1, true, 1, 0)).toBeLessThanOrEqual(0.045);
-    expect(beamBreathPeak(1, true, 1, 0) * 0.7).toBeLessThan(10 ** (-30 / 20) + 1e-9);
+    expect(beamBreathPeak(1, true, 1, 0)).toBeLessThanOrEqual(BREATH_PEAK);
+    expect(beamBreathPeak(1, true, 1, 0) * 0.63).toBeLessThan(10 ** (-28 / 20) + 1e-9);
     expect(beamBreathPeak(0.9, true, 1, 0)).toBeGreaterThan(beamBreathPeak(0.2, true, 1, 0));
     expect(beamBreathPeak(0.9, true, 0, 0)).toBeLessThan(beamBreathPeak(0.9, true, 1, 0));
   });

@@ -7,7 +7,9 @@ Use this file to keep GitHub, README, and social-preview media consistent.
 ## Current Assets
 
 - OG card / README brand preview: `public/og-card.png` (1200×630), cropped from the Harbour key art (golden hour, the default heart framing). No text and no live numbers.
-- First-paint poster and small-screen illustration: `public/harbour/poster-{960,1600}.{avif,webp}`, from the same key art.
+- First-paint poster and small-screen illustration: `public/harbour/poster-{960,1600}.{avif,webp}` (golden hour) and
+  its night variant `public/harbour/poster-night-{960,1600}.{avif,webp}`, which the `/` Function names instead before
+  first paint when the visitor's own hour is night (`functions/_poster.ts`).
 - README product screenshot: `docs/pharosville/media/pharosville-desktop-shell.png` (1200px-wide Harbour view)
 - Canonical app URL: `https://pharosville.pharos.watch/`
 - Repository URL: `https://github.com/TokenBrice/pharosville`
@@ -43,11 +45,20 @@ for scratch captures before promoting anything into docs.
 The key art is a real-GPU runtime capture of the classical harbour
 (`agents/2026-10-15-classical-town/p8/key-heart-golden.jpg`: `shot.mjs` on the
 heart view, `?t=18.5&season=summer&dews=CALM`, with the DOM overlay hidden so
-only the canvas shows). The poster and the OG card are offline crops and
-encodes of it (ImageMagick, cwebp, avifenc, pngquant); never bake numerical
-readings, token names or chain
-names into promotional art, and keep the alt text saying "Illustration, not
-live readings".
+only the canvas shows). The OG card is an offline crop and encode of it
+(ImageMagick, pngquant). The posters, day and night, are rendered from the
+current build and encoded by one script, which also fixes their framing (the
+arrival registers the poster onto the live first frame through the same
+preset) and encoder settings:
+
+```bash
+node scripts/harbour/render-posters.mjs --base http://localhost:5204
+```
+
+Re-run it after the hero assets change, look at both masters, and re-budget the
+files in `scripts/perf/budgets.json`. Never bake numerical readings, token names
+or chain names into promotional art, and keep the alt text saying
+"Illustration, not live readings".
 
 - Do not commit `test-results/`, `playwright-report/`, `dist/`, local env files, or scratch captures.
 - Do not use generated remote URLs at runtime.

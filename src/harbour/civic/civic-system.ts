@@ -79,6 +79,8 @@ export class CivicSystem implements WorldSystem {
   private burn: BurnFurnace | null = null;
   private yard: Shipyard | null = null;
   private workers: Workers | null = null;
+  /** E05: the workers cast near the camera and wear foot blobs beyond (world/shadow-casters.ts) */
+  private unregisterWorkers: (() => void) | null = null;
   private mintSlots: WorkerSlot[] = [];
   private yardSlots: WorkerSlot[] = [];
   private motion: MotionService | null = null;
@@ -193,8 +195,9 @@ export class CivicSystem implements WorldSystem {
       this.burnLee = plumeLee([this.burn.bowl.x, this.burn.bowl.z], [pharos[0], pharos[2]], yaw);
     }
 
-    // small moving parts cast no shadow (a draw each in the shadow pass for a few pixels); the gantries do
-    for (const p of this.plots) p.nodes.forEach((o, name) => { if (/^(press_\d+|wheel)$/.test(name)) o.castShadow = false; });
+    // small moving parts cast no shadow (a draw each in the shadow pass for a few pixels); the gantries do. E05: that
+    // includes the yard cranes' treadwheels, whose turning kept the still shadow map re-rendering (world/shadow-casters.ts)
+    for (const p of this.plots) p.nodes.forEach((o, name) => { if (/^(press_\d+|wheel|crane_\d+_wheel)$/.test(name)) o.castShadow = false; });
 
     // one draw per material for every still part of every building
     for (const m of mergeStatic(this.plots.map((p) => p.root))) this.group.add(m);
@@ -202,13 +205,15 @@ export class CivicSystem implements WorldSystem {
 
     this.workers = new Workers(mats, WORKERS, 17);
     this.group.add(this.workers.mesh);
+    this.unregisterWorkers = ctx.services.get("sun")?.casters.figures(this.workers.mesh, 1.75) ?? null;
     this.mintSlots = this.workers.slots.slice(0, MINT_WORKERS);
     this.yardSlots = this.workers.slots.slice(MINT_WORKERS);
 
     // the painted boards and flags (one atlas, one draw)
-    this.boards = new CivicBoards();
+    this.boards = new CivicBoards(2048, ctx.renderer, ctx.services.get("preparation"), ctx.signal);
     this.group.add(this.boards.mesh);
     this.placeBoards(byKind, ctx);
+    await this.boards.stage();
 
     // Start the yard now: its hulls and boards can be visible on the first frame. A later boundary would
     // also have to move the hull-stages prefetch and guarantee identical first-visible content.
@@ -226,6 +231,8 @@ export class CivicSystem implements WorldSystem {
       const lp = (layout.zones as { slipway?: { launchPath?: number[][] } }).slipway?.launchPath?.[0];
       if (!this.boards) return;
       const yard = await Shipyard.build(yp, mats, this.boards, this.book, stageSpec, assets, lp ? [lp[0], lp[1]] : null);
+      if (this.disposed) { yard.dispose(); return; }
+      try { await this.boards.stage(); } catch (error) { yard.dispose(); throw error; }
       if (this.disposed) { yard.dispose(); return; }
       this.yard = yard;
       this.group.add(yard.group);
@@ -428,6 +435,7 @@ export class CivicSystem implements WorldSystem {
     const lights = ctx.services.get("lights");
     for (const id of this.lightIds) lights?.remove(id);
     this.mint?.dispose(); this.burn?.dispose(); this.yard?.dispose(); this.workers?.dispose();
+    this.unregisterWorkers?.(); this.unregisterWorkers = null;
     this.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && m.name.startsWith("civic-merged")) m.geometry.dispose(); });
     this.fx?.release();
   }

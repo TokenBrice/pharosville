@@ -120,7 +120,7 @@
   --paper-3:#202c38;
   --ink:#a39c8d;
   --ink-2:#9f988a;
-  --ink-3:#989589;
+  --ink-3:#9f988a;
   --brass-ink:#ab8e5a;
   --rule:#a88a52;
   --neat:rgba(207,174,110,.26);
@@ -146,12 +146,12 @@
   --sheen-lo:rgba(0,0,0,.2);
   --lift:0 0 0 1px rgba(0,0,0,.35),0 14px 34px -10px rgba(0,0,0,.65);
   --grain:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .92 0 0 0 0 .86 0 0 0 0 .72 0 0 0 .035 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-  --chart-down:#e2897b;
-  --c1:#6fa8d6;
-  --c2:#d9a052;
-  --c3:#b294d6;
-  --c4:#4cbcae;
-  --c5:#e2897b;
+  --chart-down:#e08273;
+  --c1:#64a1d3;
+  --c2:#d28d30;
+  --c3:#ae8ed4;
+  --c4:#40ac9e;
+  --c5:#e08273;
   --c-other:#8f8775;
   color-scheme: dark;
 }
@@ -329,7 +329,7 @@
 
 .hb-dl { display: grid; grid-template-columns: 1fr auto; margin: 0; }
 .hb-dl dt, .hb-dl dd { padding: 5px 0 4px; border-bottom: 0.5px dotted var(--dot-rule); margin: 0; }
-.hb-dl dt { color: var(--ink-2); font-size: var(--fs-small); }
+.hb-dl dt { color: var(--ink-2); font-size: var(--fs-small); min-width: 6em; } /* a term keeps its line beside a long reading */
 .hb-dl dd { padding-left: 14px; text-align: right; font-variant-numeric: tabular-nums; }
 .hb-dl dd em { color: var(--ink-3); font-size: var(--fs-note); }
 .hb-changes { display: flex; margin-top: 10px; border-block: 0.5px solid var(--neat); }
@@ -406,6 +406,8 @@
 }
 .hb-foot > :nth-child(2) { flex: 1 1 220px; min-width: 0; }
 .hb-foot .hb-dot { top: 0; }
+/* feet stacked together read as one block of sources under one rule (the five above the ledger's Coins, Signals) */
+.hb-foot + .hb-foot { margin-top: 0; padding-top: 3px; border-top: 0; }
 
 :is(.hb-spark, .hb-bars, .hb-flowbars) { display: block; width: 100%; overflow: visible; }
 .hb-spark { height: 56px; }
@@ -453,6 +455,11 @@
   /* a halo of the active paper (soft, not an outline) so names read over roofs, water and night alike */
   text-shadow: 0 0 1px var(--halo), 0 0 2px var(--halo), 0 0 3px var(--halo), 0 0 6px var(--halo), 0 0 12px color-mix(in srgb, var(--halo) 58%, transparent);
 }
+/* the dim night ink leaves the contrast to the halo: four 1 px offsets carry it to the strokes' edges, so a name over a
+   light (the Pharos over its own glow) keeps 4.5:1 there */
+.hb-ui[data-palette="night"] .hb-label {
+  text-shadow: 1px 0 2px var(--halo), -1px 0 2px var(--halo), 0 1px 2px var(--halo), 0 -1px 2px var(--halo), 0 0 3px var(--halo), 0 0 6px var(--halo), 0 0 12px color-mix(in srgb, var(--halo) 58%, transparent);
+}
 .hb-label[data-kind="landmark"] { font-size: var(--fs-note); font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; }
 .hb-label[data-kind="pier"] { font-size: var(--fs-h3); font-style: italic; font-weight: 600; color: var(--sea-ink); letter-spacing: 0.035em; }
 .hb-label[data-kind="boat"] { font-weight: 600; padding: 0 1px; }
@@ -482,6 +489,7 @@
 .hb-ledger-body { flex: 1; padding: 14px var(--s6) calc(var(--ctl-touch) + var(--s6)); container-type: inline-size; }
 .hb-ledger :focus { scroll-margin-block: var(--s6) calc(var(--ctl-touch) + var(--s6)); }
 .hb-filter { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
+:is(.hb-foot, .hb-caption) + .hb-filter { margin-top: var(--s3); }
 .hb-filter input {
   flex: 1; font: inherit; padding: 5px 10px; border: 0.5px solid var(--rule); background: var(--face); color: var(--ink);
   border-radius: var(--r-sheet);
@@ -606,8 +614,9 @@
    control a 44 px target. Under 900 px wide the panel is a bottom sheet of at most half the height (store.ts
    SHEET_BELOW_PX / SHEET_FRACTION keep a flown-to selection clear of it), its text a centred column of 46 em. */
 @media (hover: none) {
-  .hb-mark-more { grid-template-columns: minmax(0, 1fr); opacity: 1; }
-  .hb-mark-btn { padding-right: 8px; }
+  :root:not([data-pv-live]) .hb-mark-more { max-height: 0; }
+  [data-pv-live] .hb-mark-more { grid-template-columns: minmax(0, 1fr); opacity: 1; }
+  [data-pv-live] .hb-mark-btn { padding-right: 8px; }
   :is(.hb-keys, .hb-slip) kbd { display: none; }
   .hb-help { top: 72px; max-height: calc(100dvh - 86px); }
 }
@@ -615,6 +624,8 @@
   .hb-ui :is(button, a, summary, [role="option"], select, input:not([type="checkbox"]), label) { min-height: var(--ctl-touch); min-width: var(--ctl-touch); }
   .hb-keys { margin-right: 0; }
   .hb-keys button { padding: 0 9px; }
+  /* a short symbol ("DAI") still makes a 44 px target: the ellipsis rule's min-width: 0 out-ranks the rule above */
+  .hb-ledger td:first-child button { min-width: var(--ctl-touch); }
   .hb-close { top: 6px; right: 6px; }
   .hb-list .hb-row { align-items: center; }
 }
@@ -647,6 +658,7 @@
   .hb-panel-head::after { content: ""; position: absolute; inset: auto var(--s6) 0; height: 1px; background: var(--neat); transform: scaleX(0); transform-origin: left; transition: transform 0s var(--t-fast); }
   .hb-panel[data-shown="true"] .hb-panel-head::after { transform: none; transition: transform var(--t-slow) var(--ease) 140ms; }
   .hb-ui:has(.hb-panel) :is(.hb-slip, .hb-watch) { right: 392px; }
+  .hb-ui:has(.hb-help) :is(.hb-slip, .hb-watch) { right: 508px; }
   .hb-ui:has(.hb-ledger) :is(.hb-slip, .hb-watch) { left: 728px; }
   .hb-ui:has(.hb-panel):has(.hb-guide) .hb-slip { left: 506px; }
 }
@@ -655,3 +667,4 @@
   .hb-ui :is([aria-selected="true"], [aria-checked="true"], [aria-pressed="true"]) { outline: 2px solid Highlight; outline-offset: -2px; }
   .hb-control { border-color: ButtonText; }
 }
+.hb-stamp { white-space: nowrap; }

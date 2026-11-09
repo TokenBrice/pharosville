@@ -58,6 +58,8 @@ function catSeats(walk: Walkways, g: FolkGround, focus: [number, number] | undef
 export class LifeSystem implements WorldSystem {
   readonly name = "life";
   private folk: Townsfolk | null = null;
+  /** E05: the townsfolk cast near the camera and wear foot blobs beyond (world/shadow-casters.ts) */
+  private unregisterFolk: (() => void) | null = null;
   private gulls: Gulls | null = null;
   private smoke: ChimneySmoke | null = null;
   private flags: LandFlags | null = null;
@@ -114,6 +116,7 @@ export class LifeSystem implements WorldSystem {
     const lights = ctx.services.get("lights");
     this.folk = new Townsfolk(walk, mats, { walkers: 150, standers: 34 }, folkGround, ht ? [ht[0], ht[2]] : undefined, lights);
     this.group.add(this.folk.mesh);
+    this.unregisterFolk = ctx.services.get("sun")?.casters.figures(this.folk.mesh, 1.75) ?? null;
     // dev captures: the cast by role (window.__harbourLife)
     if (import.meta.env.DEV) (window as unknown as { __harbourLife?: unknown }).__harbourLife = { roles: this.folk.roleCounts(), life: this, rig: ctx.rig };
 
@@ -230,6 +233,7 @@ export class LifeSystem implements WorldSystem {
   dispose(ctx: EngineContext): void {
     ctx.scene.remove(this.group);
     ctx.services.delete("life");
+    this.unregisterFolk?.(); this.unregisterFolk = null;
     this.folk?.dispose(); this.gulls?.dispose(); this.smoke?.dispose(); this.flags?.dispose(); this.drift?.dispose(); this.dolphins?.dispose(); this.herds?.dispose();
     this.folk = this.gulls = this.smoke = this.flags = null;
     this.drift = null; this.dolphins = null; this.herds = null;

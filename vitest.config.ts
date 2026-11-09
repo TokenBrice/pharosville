@@ -19,6 +19,7 @@ export default defineConfig({
       "src/**/*.test.tsx",
       "functions/**/*.test.ts",
       "shared/**/*.test.ts",
+      "tests/qa/**/*.test.mjs",
     ],
     setupFiles: ["./src/test-setup.ts"],
     // Vitest's 5 s default is wrong for this suite. Many cases build a whole

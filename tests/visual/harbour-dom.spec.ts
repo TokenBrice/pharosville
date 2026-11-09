@@ -53,7 +53,7 @@ test.describe("small screen", () => {
 test("intentional WebGL denial retains the poster, useful status and links @visual-dom @visual-accessibility", async ({ page }) => {
   await deniedWebGL(page);
   await page.goto("/");
-  await expect(page.getByRole("status")).toContainText(/could not start|graphics features/, { timeout: 45_000 });
+  await expect(page.getByRole("status")).toContainText(/could not start|graphics features|graphics buffers/, { timeout: 45_000 });
   await expect(page.locator("#pv-poster")).toHaveCount(1);
   await expect(page.locator("html")).not.toHaveAttribute("data-pv-live");
   await expect(page.getByRole("link", { name: "Open Pharos analytics" })).toBeVisible();
@@ -74,7 +74,7 @@ for (const [width, height] of [[719, 600], [720, 599], [720, 600], [600, 720]]) 
       await page.waitForTimeout(1000); expect(requests).toEqual([]);
       await expect(page.locator("#pv-poster")).toHaveCount(0);
     } else {
-      await expect(page.getByRole("status")).toContainText(/could not start|graphics features/, { timeout: 45_000 });
+      await expect(page.getByRole("status")).toContainText(/could not start|graphics features|graphics buffers/, { timeout: 45_000 });
       expect(requests.length).toBeGreaterThan(0);
     }
     await page.setViewportSize({ width: 719, height: 600 });
@@ -83,7 +83,7 @@ for (const [width, height] of [[719, 600], [720, 599], [720, 600], [600, 720]]) 
     await expect(page.locator(".pv-world canvas")).toHaveCount(0);
     requests.length = 0; await page.waitForTimeout(1000); expect(requests).toEqual([]);
     await page.setViewportSize({ width: 600, height: 720 });
-    await expect(page.getByRole("status")).toContainText(/could not start|graphics features/, { timeout: 45_000 });
+    await expect(page.getByRole("status")).toContainText(/could not start|graphics features|graphics buffers/, { timeout: 45_000 });
     await expect(page.locator("#pv-poster")).toHaveCount(1);
   });
 });

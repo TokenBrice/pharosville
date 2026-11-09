@@ -1,6 +1,7 @@
 import { patch } from "../engine/shader-patch";
 import * as THREE from "three";
 import type { HarbourMaterials } from "../world/materials";
+import { castFadeGlsl, castFadeUniforms } from "../world/shadow-casters";
 
 /**
  * Tiny low-poly geometry helpers for the life layer (townsfolk, gulls, flags), plus the one trick every life
@@ -124,14 +125,20 @@ export function chainedKitMaterial(mats: HarbourMaterials, key: string, hooks: L
   return m;
 }
 
-/** The shadow-pass twin of a posed life material (same pose, so shadows walk with their owners). */
+/**
+ * The shadow-pass twin of a posed life material (same pose, so shadows walk with their owners). Its users are
+ * figures (townsfolk, civic workers): E05 thins their depth inside the figure handover band (world/shadow-casters.ts).
+ */
 export function posedDepthMaterial(key: string, hooks: LifeShaderHooks): THREE.MeshDepthMaterial {
   const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  const fade = castFadeGlsl("uHbFigureFade");
   m.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, hooks.uniforms);
+    Object.assign(shader.uniforms, hooks.uniforms, { uHbFigureFade: castFadeUniforms.uHbFigureFade, uHbCastPhase: castFadeUniforms.uHbCastPhase });
     shader.vertexShader = patch(shader.vertexShader, "#include <common>", `#include <common>\n${hooks.vertexHead}`, { id: "life.7.common" });
     shader.vertexShader = patch(shader.vertexShader, "#include <begin_vertex>", `#include <begin_vertex>\n${hooks.vertexPose}`, { id: "life.8.begin_vertex" });
+    shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\n${fade.pars}`, { id: "life.9.common" });
+    shader.fragmentShader = patch(shader.fragmentShader, "#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>\n  ${fade.discard}`, { id: "life.10.clipping_planes_fragment" });
   };
-  m.customProgramCacheKey = () => `hb_life_depth_${key}`;
+  m.customProgramCacheKey = () => `hb_life_depth_v2_${key}`;
   return m;
 }

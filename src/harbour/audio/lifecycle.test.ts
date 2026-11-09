@@ -2,9 +2,10 @@
 import type { ServiceMap, Services } from "../engine/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../engine/types";
-import { Ambience, type AmbienceInputs } from "./ambience";
+import { Ambience, ONRAMP, ONRAMP_FLOOR, type AmbienceInputs } from "./ambience";
 import { ClipBank } from "./bank";
 import type { ClipKind } from "./dsp";
+import { Music } from "./music";
 import { SEA_STATES } from "../ocean/waves";
 import { getSoundController, type SoundController } from "./controller";
 
@@ -37,7 +38,7 @@ class AudioNodeStub {
   connect(node: AudioNodeStub): AudioNodeStub { return node; }
 }
 
-class AudioContextStub {
+class AudioContextStub extends EventTarget {
   static instances: AudioContextStub[] = [];
   sampleRate = 100;
   currentTime = 0;
@@ -47,7 +48,7 @@ class AudioContextStub {
   resume = vi.fn(async () => { this.state = "running"; });
   suspend = vi.fn(async () => { this.state = "suspended"; });
   close = vi.fn(async () => { this.state = "closed"; });
-  constructor() { AudioContextStub.instances.push(this); }
+  constructor() { super(); AudioContextStub.instances.push(this); }
   createGain = () => new AudioNodeStub();
   createBiquadFilter = () => new AudioNodeStub();
   createStereoPanner = () => new AudioNodeStub();
@@ -63,7 +64,7 @@ class AudioContextStub {
   createBuffer(channels: number, length: number, sr: number): AudioBuffer {
     const data = Array.from({ length: channels }, () => new Float32Array(length));
     // Only the PCM API used by the synthesiser is modelled at this Web Audio test boundary.
-    const buffer = { duration: length / sr, copyToChannel: (pcm: Float32Array, ch: number) => data[ch].set(pcm) } as AudioBuffer;
+    const buffer = { length, sampleRate: sr, numberOfChannels: channels, duration: length / sr, copyToChannel: (pcm: Float32Array, ch: number, offset = 0) => data[ch].set(pcm, offset) } as AudioBuffer;
     return buffer;
   }
 }
@@ -226,6 +227,123 @@ describe("harbour sound: visibility and lifetime", () => {
     expect(play.mock.calls.filter(([k]) => k === "rain" || k === "drizzle").map(([k]) => k)).toEqual([kind]);
   });
 
+  it("starts the first cold thunder source when its bank variant becomes ready", () => {
+    const { amb, ac, play } = scene();
+    play.mockRestore();
+    let ready = false;
+    const clip = ac.createBuffer(1, 100, 100);
+    vi.spyOn(ClipBank.prototype, "pick").mockImplementation((kind) => ready && kind === "thunder" ? clip : null);
+    const beds = ac.sources.length;
+    amb.thunder(1, 1, 0.2, 0.4);
+    expect(ac.sources).toHaveLength(beds);
+    ready = true;
+    ac.currentTime = 10.2;
+    amb.step();
+    expect(ac.sources).toHaveLength(beds + 1);
+    expect(ac.sources.at(-1)!.start).toHaveBeenCalledWith(10.4);
+    ac.currentTime = 10.3;
+    amb.step();
+    expect(ac.sources).toHaveLength(beds + 1);
+  });
+
+  it("lets a near clap displace the farthest travelling rumble without consuming audible slots in flight", () => {
+    const { amb, ac, graph, play } = scene();
+    const thunder = graph as unknown as { pendingThunder: Array<{ at: number; near: boolean }> };
+    for (const delay of [5, 9, 19]) amb.thunder(20, 1, 0, delay);
+    amb.thunder(2, 1, 0, 0.2);
+    expect(play.mock.calls.filter(([kind]) => kind === "thunder").map(([, at]) => at)).toEqual([10.2]);
+    expect(thunder.pendingThunder.map((e) => e.at)).toEqual([15, 19]);
+    ac.currentTime = 14.8; amb.step();
+    ac.currentTime = 18.8; amb.step();
+    expect(play.mock.calls.filter(([kind]) => kind === "rumble").map(([, at]) => at)).toEqual([15, 19]);
+  });
+
+  it("defers travelling rolls and keeps the three-roll audible cap at arrival", () => {
+    const { amb, ac, play } = scene();
+    for (let i = 0; i < 3; i++) amb.thunder(20, 1, 0, 10);
+    expect(play).not.toHaveBeenCalled();
+    ac.currentTime = 19.8; amb.step();
+    expect(play.mock.calls.filter(([kind]) => kind === "rumble")).toHaveLength(3);
+    play.mockClear();
+    amb.thunder(2, 1, 0, 0.2);
+    expect(play.mock.calls.some(([kind]) => kind === "thunder")).toBe(false);
+    ac.currentTime = 36;
+    amb.thunder(2, 1, 0, 0.2);
+    expect(play.mock.calls.filter(([kind]) => kind === "thunder").map(([, at]) => at)).toEqual([36.2]);
+  });
+
+  it("keeps at most three cold thunder requests, scheduling ducking and audible slots only when ready", () => {
+    const { amb, ac, graph, play } = scene();
+    const thunder = graph as unknown as { thunders: unknown[]; pendingThunder: unknown[]; duck: AudioNodeStub };
+    play.mockReturnValue(false);
+    for (let i = 0; i < 5; i++) amb.thunder(1, 1, 0.4, 0.4);
+    expect(thunder.pendingThunder).toHaveLength(3);
+    expect(thunder.thunders).toHaveLength(0);
+    expect(thunder.duck.gain.setTargetAtTime).not.toHaveBeenCalled();
+    play.mockReturnValue(true).mockClear();
+    ac.currentTime = 10.6;
+    amb.step();
+    const rolls = play.mock.calls.filter(([kind]) => kind === "thunder");
+    expect(rolls).toHaveLength(3);
+    expect(rolls.map(([, at]) => at)).toEqual([10.6, 10.6, 10.6]);
+    expect(thunder.pendingThunder).toHaveLength(0);
+    expect(thunder.thunders).toHaveLength(3);
+    expect(thunder.duck.gain.setTargetAtTime).toHaveBeenCalledTimes(6);
+    play.mockClear();
+    amb.thunder(1);
+    expect(play.mock.calls.some(([kind]) => kind === "thunder")).toBe(false);
+  });
+
+  it("expires cold thunder against its original deadline without a late roll or duck", () => {
+    const { amb, ac, graph, play } = scene();
+    const thunder = graph as unknown as { pendingThunder: unknown[]; thunders: unknown[]; duck: AudioNodeStub };
+    play.mockReturnValue(false);
+    amb.thunder(1, 1, 0, 0.4);
+    ac.currentTime = 11.401;
+    play.mockReturnValue(true).mockClear();
+    amb.step();
+    expect(play.mock.calls.some(([kind]) => kind === "thunder")).toBe(false);
+    expect(thunder.pendingThunder).toHaveLength(0);
+    expect(thunder.thunders).toHaveLength(0);
+    expect(thunder.duck.gain.setTargetAtTime).not.toHaveBeenCalled();
+  });
+
+  it("preserves the distance deadline and reduced-motion softening, discarding pending cues on interruption", () => {
+    const { amb, ac, graph, play } = scene({ reduced: true });
+    const thunder = graph as unknown as { pendingThunder: unknown[]; duck: AudioNodeStub };
+    play.mockReturnValue(false);
+    amb.thunder(1, 1, 0.3, 4);
+    play.mockReturnValue(true).mockClear();
+    ac.currentTime = 13.8;
+    amb.step();
+    expect(play.mock.calls.find(([kind]) => kind === "rumble")?.slice(0, 2)).toEqual(["rumble", 14]);
+    expect(thunder.duck.gain.setTargetAtTime).not.toHaveBeenCalled();
+    play.mockReturnValue(false);
+    amb.thunder(20, 1, 0, 0.4);
+    expect(thunder.pendingThunder).toHaveLength(1);
+    amb.pause();
+    amb.cue("open"); amb.thunder(1);
+    expect(thunder.pendingThunder).toHaveLength(0);
+    amb.resume();
+    play.mockReturnValue(true).mockClear();
+    ac.currentTime = 50;
+    amb.step();
+    expect(play.mock.calls.some(([kind]) => kind === "rumble" || kind === "thunder")).toBe(false);
+  });
+
+  it("creates only the pan lanes that are actually used and reuses their quantized position", () => {
+    const { amb, ac, graph } = scene();
+    const panners = vi.spyOn(ac, "createStereoPanner");
+    const lanes = graph as unknown as { lane(to: AudioNode, pan: number): AudioNode };
+    const to = new AudioNodeStub() as unknown as AudioNode;
+    const first = lanes.lane(to, 0.1);
+    expect(lanes.lane(to, 0)).toBe(first);
+    expect(panners).toHaveBeenCalledOnce();
+    expect(lanes.lane(to, 0.8)).not.toBe(first);
+    expect(panners).toHaveBeenCalledTimes(2);
+    void amb.dispose(false);
+  });
+
   it("stops both intervals and the idle pump while hidden, then resumes only once on the frozen clock", async () => {
     const ctx = engineContext(), ctl = controller(ctx);
     ctl.toggle();
@@ -251,6 +369,7 @@ describe("harbour sound: visibility and lifetime", () => {
 
     visibility(false);
     visibility(false);
+    await (ctl as unknown as { contextTask: Promise<void> }).contextTask;
     expect(vi.getTimerCount()).toBe(2);
     expect(idle.size).toBe(1);
     oldIdle({ timeRemaining: () => 6, didTimeout: false });
@@ -311,10 +430,12 @@ describe("harbour sound: visibility and lifetime", () => {
     ctl.toggle();
     visibility(true);
     await vi.dynamicImportSettled();
-    expect(ctl.playing).toBe(true);
+    expect(ctl.playing).toBe(false);
+    expect(ctl.snapshot.status).toBe("paused");
     expect(vi.getTimerCount()).toBe(0);
     expect(idle.size).toBe(0);
     visibility(false);
+    await (ctl as unknown as { contextTask: Promise<void> }).contextTask;
     expect(vi.getTimerCount()).toBe(2);
     expect(idle.size).toBe(1);
   });
@@ -335,7 +456,7 @@ describe("harbour sound: visibility and lifetime", () => {
     expect(ac.resume).toHaveBeenCalledOnce();
     finishSuspend();
     // Drain both serialized transitions, including their await/catch continuations.
-    for (let n = 0; n < 8; n++) await Promise.resolve();
+    await (ctl as unknown as { contextTask: Promise<void> }).contextTask;
     expect(ac.state).toBe("running");
     expect(ac.resume).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(2);
@@ -350,10 +471,12 @@ describe("harbour sound: visibility and lifetime", () => {
     await vi.dynamicImportSettled();
     const ac = AudioContextStub.instances[0], oldIdle = [...idle.values()][0];
     const disposeBank = vi.spyOn(ClipBank.prototype, "dispose");
+    const removeState = vi.spyOn(ac, "removeEventListener");
     ctl.dispose();
     ctl.dispose();
     expect(unsub).toHaveBeenCalledOnce();
     expect(disposeBank).toHaveBeenCalledOnce();
+    expect(removeState).toHaveBeenCalledWith("statechange", expect.any(Function));
     expect(ac.close).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
     expect(idle.size).toBe(0);
@@ -421,6 +544,112 @@ describe("harbour sound: visibility and lifetime", () => {
     expect(ac.close).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
     expect(ClipBank.prototype.work).not.toHaveBeenCalled();
+  });
+
+  it("warms noise in cancellable slices before starting beds, including interruption during preparation", async () => {
+    const ac = new AudioContextStub(); ac.sampleRate = 48000;
+    const amb = new Ambience(audioContext(ac), { seed: 7 });
+    ambiences.push(amb);
+    const beds = ac.sources.slice();
+    for (const source of beds) expect(source.start).not.toHaveBeenCalled();
+    const oldIdle = [...idle.values()][0];
+    amb.pause();
+    oldIdle({ timeRemaining: () => 6, didTimeout: false });
+    for (const source of beds) expect(source.start).not.toHaveBeenCalled();
+    amb.resume();
+    const [id, callback] = [...idle.entries()][0];
+    idle.delete(id);
+    callback({ timeRemaining: () => 6, didTimeout: false });
+    for (const source of beds) expect(source.start).toHaveBeenCalledOnce();
+    await amb.dispose(false);
+    for (const source of beds) expect(source.buffer).toBeNull();
+  });
+
+  it("anchors the full on-ramp and arrival deadlines to beds starting after delayed noise preparation", () => {
+    const ac = new AudioContextStub(); ac.sampleRate = 48000;
+    const amb = new Ambience(audioContext(ac), { seed: 7 });
+    ambiences.push(amb);
+    const graph = amb as unknown as { out: AudioNodeStub; born: number; next: Record<string, number>; play(kind: ClipKind, at: number): boolean };
+    const deadlines = { ...graph.next }, beds = ac.sources.slice();
+    const play = vi.spyOn(graph, "play").mockReturnValue(true);
+    amb.set({ seaAvailable: true });
+    ac.currentTime = 5;
+    amb.step();
+    expect(play).not.toHaveBeenCalled();
+    const [id, callback] = [...idle.entries()][0];
+    idle.delete(id);
+    callback({ timeRemaining: () => 6, didTimeout: false });
+    expect(graph.born).toBe(5);
+    for (const [key, at] of Object.entries(deadlines)) expect(graph.next[key]).toBeCloseTo(at + 5);
+    expect(graph.out.gain.setValueAtTime).toHaveBeenLastCalledWith(0.63 * ONRAMP_FLOOR, 5);
+    expect(graph.out.gain.exponentialRampToValueAtTime).toHaveBeenCalledExactlyOnceWith(0.63, 5 + ONRAMP);
+    for (const bed of beds) expect(bed.start).toHaveBeenCalledExactlyOnceWith(5, expect.any(Number));
+    ac.currentTime = 5.12; amb.step();
+    expect(play.mock.calls.find(([kind]) => kind === "lap")?.[1]).toBeCloseTo(5.3);
+    expect(play.mock.calls.some(([kind]) => kind === "shore")).toBe(false);
+    ac.currentTime = 6.32; amb.step();
+    expect(play.mock.calls.find(([kind]) => kind === "shore")?.[1]).toBeCloseTo(6.5);
+  });
+
+  it("runs the real music scheduler across hours, delayed ticks and pauses without catching up or surviving disposal", async () => {
+    const ac = new AudioContextStub(), music = new Music(audioContext(ac), new AudioNodeStub() as unknown as AudioNode, 7);
+    try {
+      let previous = 0;
+      for (let hour = 0; hour < 6; hour++) {
+        for (let minute = 0; minute < 60; minute++) {
+          ac.currentTime = hour * 3600 + minute * 60;
+          music.set({ night: hour % 2, storm: 0, rain: 0 });
+          vi.advanceTimersByTime(250);
+          const fresh = ac.sources.slice(previous);
+          expect(fresh.length).toBeLessThan(32);
+          for (const source of fresh) expect(source.start.mock.calls[0][0]).toBeGreaterThanOrEqual(ac.currentTime + 0.1);
+          previous = ac.sources.length;
+        }
+        music.pause(); music.pause();
+        expect(vi.getTimerCount()).toBe(0);
+        vi.advanceTimersByTime(60_000);
+        expect(ac.sources).toHaveLength(previous);
+        music.resume(); music.resume();
+        expect(vi.getTimerCount()).toBe(1);
+      }
+      await music.dispose(false);
+      music.resume();
+      ac.currentTime += 3600;
+      vi.advanceTimersByTime(60_000);
+      expect(ac.sources).toHaveLength(previous);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { await music.dispose(false); }
+  });
+
+  it("automates the music gain only when the existing mix target changes", async () => {
+    const ac = new AudioContextStub(), music = new Music(audioContext(ac), new AudioNodeStub() as unknown as AudioNode, 7);
+    const graph = music as unknown as { bus: AudioNodeStub };
+    try {
+      vi.advanceTimersByTime(1000);
+      expect(graph.bus.gain.setTargetAtTime).toHaveBeenCalledOnce();
+      const calm = graph.bus.gain.setTargetAtTime.mock.calls[0][0];
+      music.set({ storm: 1, rain: 1 });
+      vi.advanceTimersByTime(1000);
+      expect(graph.bus.gain.setTargetAtTime).toHaveBeenCalledTimes(2);
+      expect(graph.bus.gain.setTargetAtTime.mock.calls[1][0]).toBeLessThan(calm);
+      music.set({ storm: 0, rain: 0 });
+      vi.advanceTimersByTime(1000);
+      expect(graph.bus.gain.setTargetAtTime).toHaveBeenCalledTimes(3);
+      expect(graph.bus.gain.setTargetAtTime.mock.calls[2][0]).toBe(calm);
+    } finally { await music.dispose(false); }
+  });
+
+  it("does not ring hours or replay queued event cues that passed while interrupted", () => {
+    const { amb, ac, play } = scene({ clock: 9 });
+    amb.step();
+    amb.pause();
+    amb.conch(1, 0); amb.coveBell(1, 0); amb.launchBell(0);
+    amb.set({ clock: 12 });
+    amb.resume();
+    play.mockClear();
+    ac.currentTime = 3600;
+    amb.step();
+    expect(play.mock.calls.some(([kind]) => kind === "tolling" || kind === "conch" || kind === "bell")).toBe(false);
   });
 
   it("drops queued bank work on repeated disposal", () => {

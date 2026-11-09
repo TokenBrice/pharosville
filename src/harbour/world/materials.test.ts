@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { createWorldUniforms } from "../engine/uniforms";
 import { chainedKitMaterial } from "../life/figure-kit";
+import { assembleShader } from "../engine/shader-recipes";
+import { lampWaveUniforms } from "../lights/lamp-wave";
 import {
   bareOf, evergreenOf, HarbourMaterials, ICICLE_WALL_PATTERNS, leafSnowKeepOf, PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, patternIdOf, snowSlopeOf,
   windowKindOf, WINDOW_KIND, shaderFeatureDefines, shaderFeatureKey,
@@ -126,5 +128,60 @@ describe("seasonal colour/depth publication", () => {
     uniforms.uFoliage.value.set(0, 1, 0, 0);
     expect([kit.customProgramCacheKey(), life.customProgramCacheKey(), depth.customProgramCacheKey()]).toEqual(leaf);
     materials.dispose(); life.dispose(); actor.customDepthMaterial.dispose(); mesh.geometry.dispose();
+  });
+});
+
+describe("E09 overview lamps (uLampFar)", () => {
+  it("lets the decorative lamps' pools and glass ease at the overview while a signal's lantern keeps its light", () => {
+    const mats = new HarbourMaterials(createWorldUniforms());
+    const kit = assembleShader(mats.kit());
+    expect(kit.uniforms.uLampFar).toBe(mats.pool.uLampFar);
+    expect(kit.fragmentShader).toContain("hbLampGlow(uWindowGlow, hbLampRank(worldPos, 0.5))) * uLampFar;");
+    expect(kit.fragmentShader).toContain("smoothstep(0.02, 0.55, uWindowGlow) * uLampFar;   // (Low: no lamplighting wave)");
+    // the GLB lamps' glass (apply) takes the share; a lantern built directly (the storm cones') does not
+    const root = new THREE.Group();
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ name: "hb_emissive.002", color: 0x3b3a33 }));
+    root.add(glass);
+    mats.apply(root);
+    const lamp = glass.material as THREE.MeshStandardMaterial, signal = mats.emissive("#FF3A26", "#3A1712");
+    expect(lamp).toBe(mats.emissive("#FFAE57", "#3b3a33", true));
+    expect(lamp).not.toBe(mats.emissive("#FFAE57", "#3b3a33"));
+    const lampShader = assembleShader(lamp), signalShader = assembleShader(signal);
+    expect(lampShader.uniforms.uLampFar).toBe(mats.pool.uLampFar);
+    mats.pool.uLampFar.value = 0.4;
+    expect(signalShader.uniforms.uLampFar.value).toBe(1);
+    expect(lampShader.fragmentShader).toContain("totalEmissiveRadiance *= uLamp * uLampFar;");
+    expect(lamp.customProgramCacheKey()).toBe(signal.customProgramCacheKey()); // a binding, not a program variant
+    mats.dispose(); glass.geometry.dispose();
+  });
+});
+
+describe("D11 analytical emissives (uLampAnalytic)", () => {
+  it("lets a signal's lantern skip the lamp round and the arrival beat while the GLB lamps' glass keeps both, in one program", () => {
+    const mats = new HarbourMaterials(createWorldUniforms());
+    const root = new THREE.Group();
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ name: "hb_emissive.002", color: 0x3b3a33 }));
+    root.add(glass);
+    mats.apply(root);
+    const lamp = glass.material as THREE.MeshStandardMaterial, signal = mats.emissive("#FF3A26", "#3A1712");
+    const lampShader = assembleShader(lamp), signalShader = assembleShader(signal);
+    // per-material switch: the decorative glass 0, the storm signal's lantern 1; never shared, and the same program
+    expect(lampShader.uniforms.uLampAnalytic.value).toBe(0);
+    expect(signalShader.uniforms.uLampAnalytic.value).toBe(1);
+    expect(signalShader.uniforms.uLampAnalytic).not.toBe(lampShader.uniforms.uLampAnalytic);
+    expect(signalShader.fragmentShader).toBe(lampShader.fragmentShader);
+    expect(signal.customProgramCacheKey()).toBe(lamp.customProgramCacheKey());
+    // both bind the live beat and wave, so a decorative lamp follows them; the one line that reads them (the lamp's rank
+    // moment and uLampArrive, through hbLampGlow) runs only for a decorative lamp, after the clock's own uLamp
+    for (const s of [lampShader, signalShader]) {
+      expect(s.uniforms.uLampArrive).toBe(lampWaveUniforms.uLampArrive);
+      expect(s.uniforms.uLampWave).toBe(lampWaveUniforms.uLampWave);
+    }
+    const emission = signalShader.fragmentShader.slice(signalShader.fragmentShader.indexOf("totalEmissiveRadiance *= uLamp * uLampFar;"));
+    const reads = emission.split("\n").filter((line) => /hbLampGlow|hbLampRank|uLampArrive/.test(line));
+    expect(reads).toEqual([
+      "if (uWindowGlow > 1e-3 && uLampAnalytic < 0.5) totalEmissiveRadiance *= mix(1.0, hbLampGlow(uWindowGlow, hbLampRank(vHbLw, hbLampJitter(vHbLw.xz))) / uWindowGlow, smoothstep(0.0, 0.05, uWindowGlow));",
+    ]);
+    mats.dispose(); glass.geometry.dispose();
   });
 });

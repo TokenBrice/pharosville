@@ -65,8 +65,8 @@ describe("harbour music (D-7): decorative, sparse, modal", () => {
       const rms = (a: number, b: number) => { let s = 0; for (let i = a; i < b; i++) s += x[i] * x[i]; return Math.sqrt(s / (b - a)); };
       expect(rms(Math.floor(x.length * 0.9), x.length)).toBeLessThan(0.05 * rms(0, Math.floor(x.length * 0.1)));
     }
-    // a note's peak after the bus and the master (0.7) stays near −28 dBFS
-    expect(0.5 * MUSIC_GAIN * 0.7).toBeLessThan(10 ** (-27 / 20));
+    // a note's peak after the bus and the master (0.63), before the glue and the ceiling: heard (E34), never loud
+    expect(0.5 * MUSIC_GAIN * 0.63).toBeLessThan(10 ** (-22 / 20));
   });
 
   it("the frame drum is finite, sealed, and no louder than the lyre", () => {
