@@ -87,6 +87,14 @@ describe("E35 mirror pass", () => {
     expect(mirror.needsDepthTexture).toBe(true);
     expect(mirror.enabled).toBe(false);
     expect(mirror.texture).toBeNull();
+    // V15: the quay-side lift moves only while the mirror runs, easing with it
+    const r = { getRenderTarget: () => null, setRenderTarget() {}, render() {} };
+    expect(mirror.uniforms.uMirrorLift.value).toBe(0);
+    mirror.setQuayLift(1); expect(mirror.uniforms.uMirrorLift.value).toBe(0);
+    mirror.setActive(true); settle(mirror, r); expect(mirror.uniforms.uMirrorLift.value).toBe(1);
+    mirror.setActive(false); settle(mirror, r); expect(mirror.uniforms.uMirrorLift.value).toBe(0);
+    mirror.setQuayLift(0); mirror.setActive(true); settle(mirror, r); expect(mirror.uniforms.uMirrorLift.value).toBe(0);
+    mirror.setActive(false, true);
     const depth = new THREE.DepthTexture(1, 1);
     mirror.setDepthTexture(depth);
     expect((mirror.fullscreenMaterial as THREE.ShaderMaterial).uniforms.depthBuffer.value).toBe(depth);
@@ -161,7 +169,7 @@ describe("E35 mirror pass", () => {
 describe("E35 the mirror's ocean", () => {
   it("patches the ocean (uniforms, mix, glint, mask) and leaves the shared text alone", () => {
     expect(OCEAN_FRAG_MIRROR).not.toBe(OCEAN_FRAG);
-    for (const s of ["uniform sampler2D uMirrorTex;", "uMirrorVP * vec4(vWorld, 1.0)", "(1.0 - 0.85 * mirrorCov)", "0.05 + 0.45 * clamp(mirrorW"]) {
+    for (const s of ["uniform sampler2D uMirrorTex;", "uMirrorVP * vec4(vWorld, 1.0)", "(1.0 - 0.85 * mirrorCov)", "0.05 + 0.45 * clamp(mirrorW", "hbBasinLiftMoved(body, zm.b, zm.r, dep, coast, sdist)"]) {
       expect(OCEAN_FRAG_MIRROR).toContain(s);
       expect(OCEAN_FRAG).not.toContain(s);
     }

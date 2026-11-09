@@ -84,10 +84,23 @@ void main() {
 }`;
 
 /** The ocean's half of the mirror, through patch(): uniforms, last frame's reflection mixed in, the water mask written. */
-export const OCEAN_FRAG_MIRROR = patch(patch(patch(patch(OCEAN_FRAG,
+export const OCEAN_FRAG_MIRROR = patch(patch(patch(patch(patch(patch(OCEAN_FRAG,
   "uniform float uSceneRadius;\n",
-  "uniform float uSceneRadius;\nuniform sampler2D uMirrorTex;\nuniform mat4 uMirrorVP;\nuniform vec4 uMirror;   // E35: x strength (0 until a reflection exists), y wobble, z mask on, w stroke (uv)\n",
+  "uniform float uSceneRadius;\nuniform sampler2D uMirrorTex;\nuniform mat4 uMirrorVP;\nuniform vec4 uMirror;   // E35: x strength (0 until a reflection exists), y wobble, z mask on, w stroke (uv)\nuniform float uMirrorLift;   // V15\n",
   { id: "ocean.mirror.uniforms" }),
+"vec3 hbSeaHour(vec3 body) {\n",
+`// V15: with the mirror laying the walls' reflections, the luminous lift leaves the quay walls for natural shores and mid-basin
+vec3 hbBasinLiftMoved(vec3 body, float zb, float zr, float dep, float coast, float sdist) {
+  float near = max(1.0 - smoothstep(6.0, 45.0, coast), 1.0 - smoothstep(2.0, 7.0, dep));
+  near = mix(near, near * smoothstep(3.0, 14.0, sdist), uMirrorLift);
+  float w = zb * (1.0 - zr) * mix(mix(0.45, 0.7, uMirrorLift), 1.0, near) * uSeaLow.x;
+  return body * (1.0 + w * vec3(-0.02, 0.22, 0.17));
+}
+vec3 hbSeaHour(vec3 body) {
+`, { id: "ocean.mirror.lift" }),
+"  body = hbBasinLift(body, zm.b, zm.r, dep, coast);\n",
+"  body = hbBasinLiftMoved(body, zm.b, zm.r, dep, coast, sdist);\n",
+{ id: "ocean.mirror.lift-call" }),
 "  col *= mix(1.0, cShade, 0.55);\n",
 `  col *= mix(1.0, cShade, 0.55);
   // E35 the harbour mirror: last frame's reflection (mirror-pass.ts) reprojected through the view-projection it was
@@ -116,6 +129,8 @@ export interface MirrorUniforms {
   uMirrorTex: THREE.IUniform<THREE.Texture | null>;
   uMirrorVP: THREE.IUniform<THREE.Matrix4>;
   uMirror: THREE.IUniform<THREE.Vector4>;
+  /** V15 (decided on A/B): 1 moves the basin's quay-side lift to natural shores and mid-basin while the mirror runs. */
+  uMirrorLift: THREE.IUniform<number>;
 }
 
 const cssSize = new THREE.Vector2();
@@ -123,8 +138,9 @@ const cssSize = new THREE.Vector2();
 /** The SSR pass; it never swaps the composer's buffers (the frame passes through it untouched). */
 export class MirrorPass extends Pass {
   /** Shared with the ocean material. */
-  readonly uniforms: MirrorUniforms = { uMirrorTex: { value: null }, uMirrorVP: { value: new THREE.Matrix4() }, uMirror: { value: new THREE.Vector4() } };
+  readonly uniforms: MirrorUniforms = { uMirrorTex: { value: null }, uMirrorVP: { value: new THREE.Matrix4() }, uMirror: { value: new THREE.Vector4() }, uMirrorLift: { value: 0 } };
   strength = MIRROR_STRENGTH;
+  private quayLift = 1;
   private readonly material: THREE.ShaderMaterial;
   private target: THREE.WebGLRenderTarget | null = null;
   private active = false;
@@ -165,6 +181,9 @@ export class MirrorPass extends Pass {
     this.uniforms.uMirror.value.w = 1.5 / height;
   }
 
+  /** V15: 1 moves the quay-side lift while the mirror lays the walls' reflections (`?v15=0|1` for the A/B); it eases with the mirror. */
+  setQuayLift(lift: number): void { this.quayLift = lift; }
+
   /**
    * High entry creates the target (the ocean writes its mask from the next frame) and fades the mirror in; leaving High
    * fades it out first and disposes the target at zero. `immediate` (Low: the lite ocean has no mirror) cuts at once.
@@ -196,6 +215,7 @@ export class MirrorPass extends Pass {
     const u = this.uniforms;
     u.uMirror.value.set(0, MIRROR_WOBBLE, 0, 0);
     u.uMirrorTex.value = null;
+    u.uMirrorLift.value = 0;
   }
 
   override render(renderer: THREE.WebGLRenderer, inputBuffer: THREE.WebGLRenderTarget, _outputBuffer?: THREE.WebGLRenderTarget | null, deltaTime = 1 / 60): void {
@@ -216,7 +236,9 @@ export class MirrorPass extends Pass {
     } finally { renderer.setRenderTarget(previous); }
     // the ocean's next frame reads this reflection through the view-projection it was written with
     this.uniforms.uMirrorVP.value.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
-    this.uniforms.uMirror.value.x = this.strength * this.shown * this.shown * (3 - 2 * this.shown);
+    const eased = this.shown * this.shown * (3 - 2 * this.shown);
+    this.uniforms.uMirror.value.x = this.strength * eased;
+    this.uniforms.uMirrorLift.value = this.quayLift * eased;
   }
 
   /** Pass.dispose releases the material; the target goes first. */

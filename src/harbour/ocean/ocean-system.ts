@@ -258,6 +258,8 @@ export class OceanSystem implements WorldSystem {
     if (q.has("sea")) this.setSeaState(Number(q.get("sea")) as SeaState);
     // the V14 strength A/B (25–35 %)
     if (this.mirror && q.has("mirrorK")) this.mirror.strength = THREE.MathUtils.clamp(Number(q.get("mirrorK")) || 0, 0, 1);
+    // V15 A/B: 0 keeps the quay-side lift at the quays (the default moves it while the mirror runs)
+    if (this.mirror && q.has("v15")) this.mirror.setQuayLift(q.get("v15") === "0" ? 0 : 1);
     this.seaU.value.copy(this.seaGoal);
 
     const getState = () => this.state;
