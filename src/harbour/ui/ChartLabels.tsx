@@ -39,6 +39,7 @@ export function ChartLabels({ overlays, tagBox }: { overlays?: RefObject<LabelBo
     if (!mounted) return;
     const vp = { w: innerWidth, h: innerHeight };
     const { hover, selected } = store.getSnapshot();
+    const lettered = store.ctx.services.get("identity")?.labels, distance = store.ctx.rig.distance;
     for (let i = 0; i < labels.length; i++) {
       const l = labels[i], el = refs.current[i];
       const pt = (pts.current[i] ??= { x: 0, y: 0, visible: false });
@@ -47,6 +48,10 @@ export function ChartLabels({ overlays, tagBox }: { overlays?: RefObject<LabelBo
       const box = (boxes.current[i] ??= { x: 0, y: 0, w: 0, h: 0, visible: false });
       // the hover tag already names this target: one name per object
       let visible = !!p?.visible && w > 0 && !sameHit(l.hit, hover) && !sameHit(l.hit, selected);
+      // so does the sea's own lettering (D18), the chart's convention for its zones: while the print is past half
+      // ink at this zoom (its fade band), the zone's chart name stands down
+      const fade = l.kind === "landmark" ? lettered?.find((s) => s.id === l.hit.id)?.fade : undefined;
+      if (fade && distance > (fade[0] + fade[1]) / 2 && distance < (fade[2] + fade[3]) / 2) visible = false;
       if (visible && l.kind === "boat") {
         // a boat label must point at a hull you can see: off-screen or behind the town, it stands down
         const foot = store.picking.waterline(l.hit.id, (feet.current[i] ??= { x: 0, y: 0, visible: false }));
