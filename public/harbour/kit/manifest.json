@@ -5077,7 +5077,17 @@
       "anim": "tattered canvas, two-sided: optional flutter (sway grows with depth below its top edge; gentle, wind-driven)"
      }
     ],
-    "kb": 61.1
+    "kb": 61.1,
+    "capacity": {
+     "full": {
+      "vertices": 4739,
+      "indices": 7212
+     },
+     "bare": {
+      "vertices": 4404,
+      "indices": 6741
+     }
+    }
    },
    {
     "id": "wreck_merchant_sunk",
@@ -5150,7 +5160,17 @@
       "anim": "tattered canvas, two-sided: optional flutter (sway grows with depth below its top edge; gentle, wind-driven)"
      }
     ],
-    "kb": 32.3
+    "kb": 32.3,
+    "capacity": {
+     "full": {
+      "vertices": 2159,
+      "indices": 3153
+     },
+     "bare": {
+      "vertices": 1824,
+      "indices": 2682
+     }
+    }
    },
    {
     "id": "wreck_stern_section",
@@ -5211,7 +5231,17 @@
       "tris": 996
      }
     ],
-    "kb": 33.3
+    "kb": 33.3,
+    "capacity": {
+     "full": {
+      "vertices": 2333,
+      "indices": 3459
+     },
+     "bare": {
+      "vertices": 1998,
+      "indices": 2988
+     }
+    }
    },
    {
     "id": "wreck_capsized",
@@ -5272,7 +5302,17 @@
       "tris": 1034
      }
     ],
-    "kb": 35.4
+    "kb": 35.4,
+    "capacity": {
+     "full": {
+      "vertices": 2623,
+      "indices": 3573
+     },
+     "bare": {
+      "vertices": 2288,
+      "indices": 3102
+     }
+    }
    },
    {
     "id": "wreck_burned",
@@ -5333,7 +5373,17 @@
       "tris": 994
      }
     ],
-    "kb": 31.1
+    "kb": 31.1,
+    "capacity": {
+     "full": {
+      "vertices": 2445,
+      "indices": 3453
+     },
+     "bare": {
+      "vertices": 2110,
+      "indices": 2982
+     }
+    }
    },
    {
     "id": "wreck_rib_cage",
@@ -5394,7 +5444,17 @@
       "tris": 938
      }
     ],
-    "kb": 30.4
+    "kb": 30.4,
+    "capacity": {
+     "full": {
+      "vertices": 2239,
+      "indices": 3285
+     },
+     "bare": {
+      "vertices": 1904,
+      "indices": 2814
+     }
+    }
    },
    {
     "id": "wreck_mast_stump",
@@ -5467,7 +5527,17 @@
       "anim": "tattered canvas, two-sided: optional flutter (sway grows with depth below its top edge; gentle, wind-driven)"
      }
     ],
-    "kb": 24.0
+    "kb": 24.0,
+    "capacity": {
+     "full": {
+      "vertices": 1459,
+      "indices": 2091
+     },
+     "bare": {
+      "vertices": 1124,
+      "indices": 1620
+     }
+    }
    },
    {
     "id": "wreck_skiff",
@@ -5528,7 +5598,17 @@
       "tris": 471
      }
     ],
-    "kb": 21.3
+    "kb": 21.3,
+    "capacity": {
+     "full": {
+      "vertices": 1302,
+      "indices": 1884
+     },
+     "bare": {
+      "vertices": 967,
+      "indices": 1413
+     }
+    }
    },
    {
     "id": "wreck_dinghy",
@@ -5589,7 +5669,17 @@
       "tris": 324
      }
     ],
-    "kb": 17.6
+    "kb": 17.6,
+    "capacity": {
+     "full": {
+      "vertices": 989,
+      "indices": 1443
+     },
+     "bare": {
+      "vertices": 654,
+      "indices": 972
+     }
+    }
    },
    {
     "id": "wreck_cove_driftwood",
@@ -5611,7 +5701,13 @@
       "tris": 235
      }
     ],
-    "kb": 8.2
+    "kb": 8.2,
+    "capacity": {
+     "full": {
+      "vertices": 463,
+      "indices": 705
+     }
+    }
    },
    {
     "id": "wreck_cove_lobster_pots",
@@ -5633,7 +5729,13 @@
       "tris": 574
      }
     ],
-    "kb": 14.7
+    "kb": 14.7,
+    "capacity": {
+     "full": {
+      "vertices": 1150,
+      "indices": 1722
+     }
+    }
    },
    {
     "id": "wreck_cove_warden_hut",
@@ -5701,7 +5803,13 @@
       "anim": "lantern centre: point light / glow sprite"
      }
     ],
-    "kb": 13.4
+    "kb": 13.4,
+    "capacity": {
+     "full": {
+      "vertices": 787,
+      "indices": 1167
+     }
+    }
    },
    {
     "id": "wreck_cove_lifeboat_station",
@@ -5769,7 +5877,13 @@
       "anim": "hb_window panes (r = lit, g = warmth)"
      }
     ],
-    "kb": 13.8
+    "kb": 13.8,
+    "capacity": {
+     "full": {
+      "vertices": 818,
+      "indices": 1230
+     }
+    }
    },
    {
     "id": "wreck_cove_tidepool",
@@ -5791,7 +5905,13 @@
       "tris": 300
      }
     ],
-    "kb": 9.0
+    "kb": 9.0,
+    "capacity": {
+     "full": {
+      "vertices": 676,
+      "indices": 900
+     }
+    }
    },
    {
     "id": "wreck_cove_anchor",
@@ -5813,7 +5933,13 @@
       "tris": 180
      }
     ],
-    "kb": 7.2
+    "kb": 7.2,
+    "capacity": {
+     "full": {
+      "vertices": 370,
+      "indices": 540
+     }
+    }
    },
    {
     "id": "wreck_cove_flotsam",
@@ -5835,7 +5961,13 @@
       "tris": 384
      }
     ],
-    "kb": 11.5
+    "kb": 11.5,
+    "capacity": {
+     "full": {
+      "vertices": 740,
+      "indices": 1152
+     }
+    }
    },
    {
     "id": "wreck_cove_bell",
@@ -5869,7 +6001,13 @@
       "tris": 179
      }
     ],
-    "kb": 11.0
+    "kb": 11.0,
+    "capacity": {
+     "full": {
+      "vertices": 629,
+      "indices": 933
+     }
+    }
    },
    {
     "id": "wreck_cove_pennants",
@@ -5927,7 +6065,13 @@
       "anim": "pennant: origin at the hoist, fly along local +x; flutter = sway growing with x"
      }
     ],
-    "kb": 12.2
+    "kb": 12.2,
+    "capacity": {
+     "full": {
+      "vertices": 529,
+      "indices": 771
+     }
+    }
    },
    {
     "id": "wreck_cove_gull_perches",
@@ -5949,7 +6093,13 @@
       "tris": 208
      }
     ],
-    "kb": 8.2
+    "kb": 8.2,
+    "capacity": {
+     "full": {
+      "vertices": 536,
+      "indices": 624
+     }
+    }
    },
    {
     "id": "wreck_cove_epitaph",
@@ -5996,7 +6146,13 @@
       "anim": "lantern centre: point light / glow sprite"
      }
     ],
-    "kb": 7.7
+    "kb": 7.7,
+    "capacity": {
+     "full": {
+      "vertices": 335,
+      "indices": 471
+     }
+    }
    }
   ]
  }

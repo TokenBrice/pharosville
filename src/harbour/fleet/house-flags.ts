@@ -62,6 +62,8 @@ void main() {
 
 const FRAG = /* glsl */ `
 uniform sampler2D uEmblems;
+uniform sampler2D uHeroEmblems;
+uniform vec2 uHeroSlots;
 uniform vec4 uEmblemGrid;
 uniform vec3 uLight;
 uniform vec3 uHorizon;
@@ -123,7 +125,11 @@ void main() {
       if (e.x >= 0.0 && e.x <= 1.0 && e.y >= 0.0 && e.y <= 1.0) {
         vec2 cell = vec2(mod(slot, uEmblemGrid.x), floor(slot / uEmblemGrid.x));
         vec2 uv = vec2((cell.x + e.x) * uEmblemGrid.z, 1.0 - (cell.y + e.y) * uEmblemGrid.w);
-        vec4 t = texture2D(uEmblems, uv);     // premultiplied
+        vec4 t;
+        if (slot == uHeroSlots.x || slot == uHeroSlots.y) {
+          float tile = slot == uHeroSlots.x ? 0.0 : 1.0;
+          t = texture2D(uHeroEmblems, vec2((tile + e.x) * 0.5, 1.0 - e.y));
+        } else t = texture2D(uEmblems, uv);     // premultiplied
         // E04 print law (the roundel's diameter, 2R flag units, in CSS px)
         float k = max(smoothstep(${f2(PRINT_SOFT_PX)}, ${f2(PRINT_FULL_PX)}, 2.0 * R / (ax * max(uFleetScreen.y, 0.25))), hi);
         vec3 ink = t.rgb / max(t.a, 1e-4), ground = CLOTH * 0.78;
@@ -173,7 +179,7 @@ export class HouseFlags {
     g.translate(0.5, -0.36, 0);
     this.mat = new THREE.ShaderMaterial({
       uniforms: {
-        uTime: u.uTime, uWind: { value: 0.35 }, uEmblems: { value: atlas.texture }, uEmblemGrid: { value: atlas.grid },
+        uTime: u.uTime, uWind: { value: 0.35 }, uEmblems: atlas.uniform ?? { value: atlas.texture }, uHeroEmblems: atlas.heroUniform ?? { value: atlas.texture }, uHeroSlots: atlas.heroSlots ?? { value: new THREE.Vector2(-1, -1) }, uEmblemGrid: { value: atlas.grid },
         uLight: { value: new THREE.Color(1, 1, 1) },
         // E04: the print law, lettering and the harbour's air (the shared aerial uniforms; off until the ocean binds them)
         uFleetScreen: screen, uEmblemLetters: { value: atlas.letterSlot ?? 1e9 },

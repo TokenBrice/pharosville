@@ -69,7 +69,7 @@ describe("conservative fleet visual culling", () => {
     expect(f.boat.posed).toBe(false);
     expect(f.mesh.setVisibleAt).toHaveBeenCalledWith(0, false);
     expect(f.mesh.setMatrixAt).not.toHaveBeenCalled();
-    expect(f.ocean.hullHeights).toHaveBeenCalledTimes(1);
+    expect(f.ocean.hullHeights).not.toHaveBeenCalled();
     expect(f.wake.stamp).toHaveBeenCalledTimes(1);
   });
 
@@ -114,16 +114,16 @@ describe("conservative fleet visual culling", () => {
     expect(f.mesh.setMatrixAt).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps exact picking/history/contact updates offscreen and fully recomputes on fast reentry", () => {
+  it("keeps velocity/rig/contact history offscreen and fully recomputes on fast reentry", () => {
     const f = fixture(false), reference = fixture(false);
     reference.boat.visualRadius = 2000000; // always pose the reference without changing temporal state
     f.system.update(frame, f.context); reference.system.update(frame, reference.context);
     expect(f.boat.posed).toBe(false);
     expect(f.mesh.setVisibleAt).toHaveBeenCalledWith(0, false);
     expect(f.mesh.setMatrixAt).not.toHaveBeenCalled();
-    expect(f.ocean.hullHeights).toHaveBeenCalledTimes(1);
+    expect(f.ocean.hullHeights).not.toHaveBeenCalled();
     expect(f.wake.stamp.mock.calls).toEqual(reference.wake.stamp.mock.calls);
-    expect([f.boat.cx, f.boat.cy, f.boat.cz, f.boat.swing, f.boat.heel]).toEqual([reference.boat.cx, reference.boat.cy, reference.boat.cz, reference.boat.swing, reference.boat.heel]);
+    expect([f.boat.cx, f.boat.cz, f.boat.swing, f.boat.heel]).toEqual([reference.boat.cx, reference.boat.cz, reference.boat.swing, reference.boat.heel]);
     for (const world of [f, reference]) {
       world.sim.pose.position[0] += 1;
       world.sim.pose.phase[0] = PH_SAILING;

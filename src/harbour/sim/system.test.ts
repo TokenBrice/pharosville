@@ -1,6 +1,7 @@
 import type { Services } from "../engine/services";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { EngineContext, FrameState } from "../engine/types";
+import { FleetPreparation, fleetPreparation, type PreparedFleet } from "../fleet/preparation";
 import { DataSystem } from "./system";
 
 type Payloads = Record<string, { data: { count: number } | null; fetchedAtMs: number; error?: string }>;
@@ -71,13 +72,14 @@ beforeEach(() => {
   state.warm = { done: warm.promise, prepare: vi.fn(() => paths.promise), stop: vi.fn() };
   system = new DataSystem();
   ctx = { services: new Map([["layout", { piers: [] }]]) as unknown as Services } as unknown as EngineContext;
+  fleetPreparation(ctx).register(async (_model, _plan, revision) => ({ revision, commit() {}, dispose() {} }));
 });
 afterEach(() => { system.dispose(ctx); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 async function begin() {
   await system.init(ctx);
   state.feed!.publish("stablecoins"); state.feed!.publish("pegSummary");
 }
-async function flush() { for (let i = 0; i < 8; i++) await Promise.resolve(); }
+async function flush() { for (let i = 0; i < 16; i++) await Promise.resolve(); }
 async function startPreparation() { warm.resolve(); await flush(); await vi.runOnlyPendingTimersAsync(); }
 
 describe("single-owner prepared adoption", () => {
@@ -331,5 +333,29 @@ describe("model-build failure containment", () => {
     expect(state.warm!.prepare).toHaveBeenCalledTimes(2);
     expect(state.sims[0].model.boats).toHaveLength(3);
     expect(system.readiness.prepared).toBe(true);
+  });
+});
+
+describe("fleet publication barrier", () => {
+  it("waits for rendering preparation before installing model/sim/readiness together", async () => {
+    const bridge = new FleetPreparation(), rendering = deferred<PreparedFleet>(), commit = vi.fn(), dispose = vi.fn();
+    ctx.services.set("fleet-preparation", bridge);
+    bridge.register(async () => rendering.promise);
+    await begin(); await startPreparation(); paths.resolve({}); await flush();
+    expect(state.sims[0].setModel).not.toHaveBeenCalled(); expect(system.readiness.prepared).toBe(false);
+    rendering.resolve({ revision: 1, commit, dispose }); await flush();
+    expect(state.sims[0].setModel).toHaveBeenCalledOnce(); expect(commit).toHaveBeenCalledOnce(); expect(dispose).toHaveBeenCalledOnce();
+    expect(system.readiness).toEqual({ revision: 1, boats: 2, prepared: true });
+  });
+
+  it("disposes a superseded render delta without publishing that revision", async () => {
+    const bridge = new FleetPreparation(), rendering = deferred<PreparedFleet>(), commit = vi.fn(), dispose = vi.fn();
+    ctx.services.set("fleet-preparation", bridge);
+    bridge.register(async () => rendering.promise);
+    await begin(); await startPreparation(); paths.resolve({}); await flush();
+    state.feed!.publish("stablecoins", 3);
+    rendering.resolve({ revision: 1, commit, dispose }); await flush();
+    expect(state.sims[0].setModel).not.toHaveBeenCalled(); expect(commit).not.toHaveBeenCalled(); expect(dispose).toHaveBeenCalledOnce();
+    expect(system.readiness.prepared).toBe(false);
   });
 });

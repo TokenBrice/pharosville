@@ -34,6 +34,8 @@ export interface FleetUniforms {
   uFleetData: THREE.IUniform<THREE.DataTexture>;
   uFleetPaint: THREE.IUniform<THREE.DataTexture>;
   uEmblems: THREE.IUniform<THREE.Texture>;
+  uHeroEmblems?: THREE.IUniform<THREE.Texture>;
+  uHeroSlots?: THREE.IUniform<THREE.Vector2>;
   /** (cols, rows, 1/cols, 1/rows) */
   uEmblemGrid: THREE.IUniform<THREE.Vector4>;
   uWind: THREE.IUniform<number>;
@@ -57,7 +59,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
     baseHook(shader, renderer);
     shader.defines = { ...shader.defines, HB_FLEET: "" };   // world/metal.ts: only unpainted hull trim turns metal
     // (the print and rig uniforms default to a 1000 px DPR-1 screen and no lettering until the fleet binds its own)
-    Object.assign(shader.uniforms, { uFleetScreen: { value: new THREE.Vector2(1000, 1) }, uEmblemLetters: { value: 1e9 } }, fleet,
+    Object.assign(shader.uniforms, { uFleetScreen: { value: new THREE.Vector2(1000, 1) }, uEmblemLetters: { value: 1e9 }, uHeroEmblems: fleet.uEmblems, uHeroSlots: { value: new THREE.Vector2(-1, -1) } }, fleet,
       { uSunDir: u.uSunDir, uSunColor: u.uSunColor, uTime: fleet.uFleetTime, uLamp: u.uLamp });
     shader.vertexShader = patch(shader.vertexShader, "#include <batching_pars_vertex>", `#include <batching_pars_vertex>\nuniform float uTime;\n${VERT_PARS}`, { id: "fleet.1.batching_pars_vertex" });
     shader.vertexShader = patch(shader.vertexShader, "#include <beginnormal_vertex>", "hbFleetPose(position, normal);\nvec3 objectNormal = hbFleetN;\n#ifdef USE_TANGENT\nvec3 objectTangent = vec3(tangent.xyz);\n#endif", { id: "fleet.2.beginnormal_vertex" });

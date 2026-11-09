@@ -30,6 +30,8 @@ const f1 = (x: number) => x.toFixed(2);
 
 export const FRAG_PARS = /* glsl */ `
 uniform sampler2D uEmblems;
+uniform sampler2D uHeroEmblems;
+uniform vec2 uHeroSlots;
 uniform vec4 uEmblemGrid;
 uniform vec2 uFleetScreen;     // CSS height px, effective DPR
 uniform float uEmblemLetters;  // first monogram slot
@@ -191,7 +193,11 @@ void hbFleetColor(inout vec3 c) {
       vec2 uv = vec2((cell.x + q.x) * uEmblemGrid.z, 1.0 - (cell.y + q.y) * uEmblemGrid.w);
       vec2 gx = vec2(ex.x * sx * uEmblemGrid.z, -ex.y * uEmblemGrid.w);
       vec2 gy = vec2(ey.x * sx * uEmblemGrid.z, -ey.y * uEmblemGrid.w);
-      vec4 t = textureGrad(uEmblems, uv, gx, gy);  // premultiplied
+      vec4 t;
+      if (slot == uHeroSlots.x || slot == uHeroSlots.y) {
+        float tile = slot == uHeroSlots.x ? 0.0 : 1.0;
+        t = textureGrad(uHeroEmblems, vec2((tile + q.x) * 0.5, 1.0 - q.y), vec2(ex.x * sx * 0.5, -ex.y), vec2(ey.x * sx * 0.5, -ey.y));
+      } else t = textureGrad(uEmblems, uv, gx, gy);  // premultiplied
       c = hbPrint(c, fam, t, t.a * show, hbPrintK(era), slot >= uEmblemLetters);
     }
     c *= 1.0 - ties * 0.22;                                // lacing over the print
@@ -247,7 +253,11 @@ void hbFleetColor(inout vec3 c) {
       vec2 uv = vec2((cell.x + inset.x) * uEmblemGrid.z, 1.0 - (cell.y + inset.y) * uEmblemGrid.w);
       vec2 gx = vec2(ex.x * sx * 0.97 * uEmblemGrid.z, -ex.y * 0.97 * uEmblemGrid.w);
       vec2 gy = vec2(ey.x * sx * 0.97 * uEmblemGrid.z, -ey.y * 0.97 * uEmblemGrid.w);
-      vec4 t = textureGrad(uEmblems, uv, gx, gy); // premultiplied
+      vec4 t;
+      if (slot == uHeroSlots.x || slot == uHeroSlots.y) {
+        float tile = slot == uHeroSlots.x ? 0.0 : 1.0;
+        t = textureGrad(uHeroEmblems, vec2((tile + inset.x) * 0.5, 1.0 - inset.y), vec2(ex.x * sx * 0.97 * 0.5, -ex.y * 0.97), vec2(ey.x * sx * 0.97 * 0.5, -ey.y * 0.97));
+      } else t = textureGrad(uEmblems, uv, gx, gy); // premultiplied
       float a = t.a * show;
       c = hbPrint(c, fam, t, a, k, letters);
       c *= mix(1.0, 0.97 + 0.05 * mott, a);
