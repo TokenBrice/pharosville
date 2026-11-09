@@ -15,6 +15,8 @@ export function assetUrl(url: string): string { return registry.urls[url] ?? url
 
 /** Per-engine caches. Production Brotli is decoded by HTTP, never JavaScript. Dev retains gzip. */
 export class AssetStore {
+  /** Engine opens this frontier after a complete fleet render or a bounded boatless wait. */
+  decorationsReady = false;
   private readonly gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   private readonly textureLoader = new THREE.TextureLoader();
   private readonly gltfs = new Map<string, Promise<GLTF>>();

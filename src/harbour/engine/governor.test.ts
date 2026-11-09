@@ -292,12 +292,12 @@ describe("target-budget pressure and recovery", () => {
     expect(g.level).toBe(start);
   });
 
-  it("jumps to an already-ready low@1 within 1.5 seconds of severe overload", () => {
+  it("jumps to an already-ready low@0.5 within 1.5 seconds of severe overload", () => {
     const applied = vi.fn(), prepare = vi.fn(async () => {});
     const g = new QualityGovernor(timedGl("NVIDIA RTX 4070", { ms: 70 }), applied);
     g.setPreparation(prepare, (settings) => settings.tier === "low");
     runTimed(g, 1.5, 100);
-    expect([g.tier, g.dpr]).toEqual(["low", 1]);
+    expect([g.tier, g.dpr]).toEqual(["low", 0.5]);
     expect(prepare).not.toHaveBeenCalled();
     expect(applied).toHaveBeenCalledTimes(1);
   });
@@ -309,7 +309,7 @@ describe("target-budget pressure and recovery", () => {
     runTimed(g, 2.4, 16.7);
     gpu.ms = 70;
     runTimed(g, 1.4, 100);
-    expect([g.tier, g.dpr]).toEqual(["low", 1]);
+    expect([g.tier, g.dpr]).toEqual(["low", 0.5]);
   });
 
   it("uses same-tier resolution while emergency low prepares, then recovers slowly", async () => {
@@ -322,7 +322,7 @@ describe("target-budget pressure and recovery", () => {
     expect(prepare).toHaveBeenCalledTimes(1);
     ready.resolve();
     await ready.promise; await Promise.resolve(); await Promise.resolve();
-    expect([g.tier, g.dpr]).toEqual(["low", 1]);
+    expect([g.tier, g.dpr]).toEqual(["low", 0.5]);
     gpu.ms = 2;
     runTimed(g, 15, 16.7);
     expect(g.level).toBe(0);
@@ -341,7 +341,7 @@ describe("target-budget pressure and recovery", () => {
     const { state, governor: g } = controlledGl();
     state.ready = false;
     runTimed(g, 8, 33.3);
-    expect(g.level).toBeLessThan(6);
+    expect(g.level).toBeLessThan(g.ladder.length - 1);
     const low = g.level;
     runTimed(g, 60, 16.7);
     expect(g.level).toBe(low);
@@ -362,6 +362,47 @@ describe("target-budget pressure and recovery", () => {
   });
 });
 
+describe("rescue resolution traces", () => {
+  beforeEach(() => { vi.stubGlobal("location", { search: "" }); vi.stubGlobal("devicePixelRatio", 1); });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("steps Low through 0.8/0.67/0.5, holds the floor and returns one rung per clean interval without preparation", () => {
+    const gpu = { ms: 17 }, applied = vi.fn(), prepare = vi.fn(async () => {});
+    const g = new QualityGovernor(timedGl("NVIDIA RTX 4070", gpu), applied);
+    g.set("low"); g.set("auto"); applied.mockClear(); g.setPreparation(prepare);
+    for (const dpr of [0.8, 0.67, 0.5]) {
+      runTimed(g, 3.2, 33.3);
+      expect([g.tier, g.dpr]).toEqual(["low", dpr]);
+    }
+    runTimed(g, 30, 33.3);
+    expect(g.dpr).toBe(0.5);
+    expect(applied.mock.calls.map(([, dpr]) => dpr)).toEqual([0.8, 0.67, 0.5]);
+    gpu.ms = 2;
+    runTimed(g, 14, 16.7); expect(g.dpr).toBe(0.5);
+    runTimed(g, 3, 16.7); expect(g.dpr).toBe(0.67);
+    for (const dpr of [0.8, 1]) {
+      runTimed(g, 16.5, 16.7);
+      expect([g.tier, g.dpr]).toEqual(["low", dpr]);
+    }
+    expect(prepare).not.toHaveBeenCalled();
+    g.dispose();
+  });
+
+  it("deduplicates ceiling-clamped rungs and climbs using actual pixel growth", () => {
+    const gpu = { ms: 17 }, applied = vi.fn();
+    const g = new QualityGovernor(timedGl("NVIDIA RTX 4070", gpu), applied);
+    g.reconcileDisplay(1, 0.7);
+    for (const [tier, dpr] of [["medium", 0.7], ["low", 0.7], ["low", 0.67], ["low", 0.5]]) {
+      runTimed(g, 3.2, 33.3);
+      expect([g.tier, g.dpr]).toEqual([tier, dpr]);
+    }
+    gpu.ms = 2; runTimed(g, 100, 16.7);
+    expect([g.tier, g.dpr]).toEqual(["high", 0.7]);
+    expect(applied.mock.calls.every(([, dpr]) => dpr <= 0.7)).toBe(true);
+    g.dispose();
+  });
+});
+
 describe("display and lifecycle decision generations", () => {
   beforeEach(() => { vi.stubGlobal("location", { search: "" }); vi.stubGlobal("devicePixelRatio", 2); });
   afterEach(() => vi.unstubAllGlobals());
@@ -369,11 +410,11 @@ describe("display and lifecycle decision generations", () => {
   it("rebuilds 2↔1 DPR ladders and keeps the nearest valid state on return", () => {
     const g = new QualityGovernor(fakeGl("NVIDIA RTX 4070"), vi.fn());
     expect(g.reconcileDisplay(1, 2)).toBe(true);
-    expect(g.ladder).toHaveLength(3);
+    expect(g.ladder).toHaveLength(6);
     expect([g.tier, g.dpr]).toEqual(["high", 1]);
     expect(g.reconcileDisplay(2, 2)).toBe(true);
     expect([g.tier, g.dpr]).toEqual(["high", 1.5]);
-    expect(g.ladder).toHaveLength(7);
+    expect(g.ladder).toHaveLength(10);
     expect(g.reconcileDisplay(2, 2)).toBe(false);
   });
 
@@ -403,7 +444,7 @@ describe("display and lifecycle decision generations", () => {
     expect(g.gpuSamples).toBe(0);
     expect(g.gpuCompletedSamples).toBe(1); // Retained for diagnosis, excluded from the new decision state.
     runTimed(g, 0.4, 100);
-    expect(g.level).toBe(6);
+    expect(g.level).toBe(g.ladder.length - 1);
     runTimed(g, 0.8, 100);
     expect(g.level).toBe(0);
     expect(g.completedGpuSamples().at(-1)?.state).toBeGreaterThan(0);

@@ -898,10 +898,10 @@ export class FleetSystem implements WorldSystem {
 
   update(frame: FrameState, ctx: EngineContext): void {
     if (!this.mesh || this.failed) return;
-    // Decode logos on the original first-update schedule into the combined canvas.
-    if (!this.logosAsked) { this.logosAsked = true; requestAnimationFrame(() => { void this.atlas?.loadLogos(); }); }
+    // First-fleet bytes own the frontier; Engine opens decoration after a completed render.
+    if (!this.logosAsked && ctx.assets.decorationsReady) { this.logosAsked = true; requestAnimationFrame(() => { if (!ctx.signal?.aborted) void this.atlas?.loadLogos(); }); }
     // Wreck Cove's kit is also deferred (the cove lies off both default views).
-    if (this.coveState === "wait" && this.model) { this.coveState = "loading"; requestAnimationFrame(() => { void this.loadCove(); }); }
+    if (this.coveState === "wait" && this.model && ctx.assets.decorationsReady) { this.coveState = "loading"; requestAnimationFrame(() => { if (!ctx.signal?.aborted) void this.loadCove(); }); }
     const t0 = performance.now();
     const model = ctx.services.get("model");
     const sim = ctx.services.get("sim");

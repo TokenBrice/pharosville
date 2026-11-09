@@ -27,6 +27,20 @@ function fixture(boats = [{ id: "hidden", x: 0, z: 0 }, { id: "visible", x: 0, z
 }
 
 describe("visible candidate selection", () => {
+  it.each([2, 1, 0.8, 0.67, 0.5, 0.4])("keeps CSS projection, picking and touch targets native at backing DPR %s", (dpr) => {
+    const f = fixture([{ id: "coin", x: 0, z: 0 }]);
+    const canvas = f.ctx.renderer.domElement;
+    canvas.width = Math.floor(1600 * dpr); canvas.height = Math.floor(1000 * dpr);
+    const position = f.analytic.screenPosition({ kind: "boat", id: "coin" })!;
+    const [x, y] = f.point(0, 9.5, 0);
+    expect(position.x).toBeCloseTo(x); expect(position.y).toBeCloseTo(y);
+    const [hullX, hullY] = f.point(0, 4, 0);
+    expect(f.analytic.pick(hullX, hullY)).toEqual({ kind: "boat", id: "coin" });
+    expect(f.rendered.pick(hullX, hullY)).toEqual({ kind: "boat", id: "coin" });
+    expect(f.analytic.boatCandidates(hullX + 8, hullY)).toHaveLength(0);
+    expect(f.analytic.boatCandidates(hullX + 8, hullY, true)).toHaveLength(1);
+  });
+
   it("rejects a hidden nearer candidate inside both searches and keeps looking", () => {
     // A narrow ridge hides the nearest screen-space axis, but leaves its neighbour visible.
     const f = fixture([{ id: "hidden", x: 0, z: 0 }, { id: "visible", x: 0.4, z: 0 }], (x, z) => Math.abs(x) < 0.15 && z > 2 && z < 8 ? 40 : -10);

@@ -80,6 +80,7 @@ function frameEngine() {
   const ctx = {
     camera, renderer, composer, rig: new CameraRig(camera), timeOfDay: new TimeOfDay(),
     scene: new THREE.Scene(),
+    assets: { decorationsReady: false },
     uniforms: createWorldUniforms(), services: new Map() as Services,
   } as unknown as EngineContext;
   const engine = Object.assign(Object.create(Engine.prototype), {
@@ -214,6 +215,58 @@ describe("engine preparation and rendered readiness", () => {
     expect(states.at(-1)).toMatchObject({ state: "RECOVERING", code: "shader" });
     expect(engine.stats.renderedRevision).toBe(0); expect(rendered).not.toHaveBeenCalled();
     uninstall();
+  });
+
+  it.each([0, 12])("opens decoration only after the prepared revision's complete %i-boat render", (boats) => {
+    const { engine, ctx, composer } = frameEngine();
+    ctx.services.set("model", { hasFleet: true, boats: Array(boats).fill({}) } as ServiceMap["model"]);
+    const readiness = { revision: 2, boats, prepared: false }, posed = { revision: 1, boats };
+    ctx.services.set("readiness", readiness); ctx.services.set("fleet-frame", posed);
+    engine.frame(16);
+    expect(ctx.assets.decorationsReady).toBe(false);
+    posed.revision = 2; engine.frame(32);
+    expect(ctx.assets.decorationsReady).toBe(false);
+    readiness.prepared = true;
+    composer.render.mockImplementationOnce(() => expect(ctx.assets.decorationsReady).toBe(false));
+    engine.profile = new FrameProfile(); engine.profiledFrame(48);
+    expect(ctx.assets.decorationsReady).toBe(true);
+  });
+
+  it.each(["pending", "unavailable", "worker-unavailable"])("opens %s decoration two seconds after the first successful base frame", (state) => {
+    vi.useFakeTimers();
+    const { engine, ctx, composer } = frameEngine();
+    ctx.services.set("model", { hasFleet: false, boats: [] } as unknown as ServiceMap["model"]);
+    ctx.services.set("feed", { payloads: state === "unavailable" ? { stablecoins: { data: null } } : {} } as ServiceMap["feed"]);
+    if (state === "worker-unavailable") {
+      ctx.services.set("feed", { payloads: { stablecoins: { data: {} } } } as ServiceMap["feed"]);
+      ctx.services.set("simulation-status", { unavailable: true } as ServiceMap["simulation-status"]);
+    }
+    vi.advanceTimersByTime(10_000);
+    composer.render.mockImplementationOnce(() => { throw new Error("no base frame yet"); });
+    engine.frame(16);
+    vi.advanceTimersByTime(3000);
+    engine.frame(32);
+    vi.advanceTimersByTime(1999); engine.frame(48);
+    expect(ctx.assets.decorationsReady).toBe(false);
+    vi.advanceTimersByTime(1); engine.frame(64);
+    expect(ctx.assets.decorationsReady).toBe(true);
+  });
+
+  it("keeps successful but unprepared or mismatched fleets ahead of decoration after the escape time", () => {
+    vi.useFakeTimers();
+    const { engine, ctx } = frameEngine();
+    ctx.services.set("model", { hasFleet: false, boats: [] } as unknown as ServiceMap["model"]);
+    ctx.services.set("feed", { payloads: { stablecoins: { data: {} } } } as ServiceMap["feed"]);
+    engine.frame(16);
+    vi.advanceTimersByTime(3000); engine.frame(32);
+    expect(ctx.assets.decorationsReady).toBe(false);
+    ctx.services.set("model", { hasFleet: true, boats: [{}] } as ServiceMap["model"]);
+    ctx.services.set("readiness", { revision: 2, boats: 1, prepared: true });
+    ctx.services.set("fleet-frame", { revision: 1, boats: 1 });
+    engine.frame(48);
+    expect(ctx.assets.decorationsReady).toBe(false);
+    ctx.services.set("fleet-frame", { revision: 2, boats: 0 }); engine.frame(64);
+    expect(ctx.assets.decorationsReady).toBe(false);
   });
 
   it("publishes only composer-completed revisions, marks first fleet once, and shares the profiled path", () => {
@@ -367,6 +420,34 @@ describe("engine preparation and rendered readiness", () => {
     engine.resize();
     expect(renderer.setDrawingBufferSize).toHaveBeenLastCalledWith(1000, 700, 1.5);
     expect(governor.ladder.at(-1)?.dpr).toBe(2);
+  });
+
+  it("changes rescue backing size without invalidating shader preparation or logical framing", () => {
+    const { engine, ctx, renderer, composer } = frameEngine();
+    engine.resize();
+    const aspect = ctx.camera.aspect;
+    engine.preparation.invalidate.mockClear();
+    engine.governor.dpr = 0.67; engine.resize();
+    expect(renderer.setDrawingBufferSize).toHaveBeenLastCalledWith(1000, 700, 0.67);
+    expect(composer.setSize).toHaveBeenLastCalledWith(1000, 700);
+    expect(ctx.uniforms.uResolution.value.toArray()).toEqual([670, 469]);
+    expect(ctx.camera.aspect).toBe(aspect);
+    expect(engine.preparation.invalidate).not.toHaveBeenCalled();
+  });
+
+  it("enforces 4 MP on a 4K CSS viewport while retaining CSS camera and composer dimensions", () => {
+    const { engine, ctx, renderer, composer } = frameEngine();
+    vi.stubGlobal("devicePixelRatio", 2);
+    const gl = { RENDERER: 1, getExtension: () => null, getParameter: () => "NVIDIA RTX 4070" } as unknown as WebGL2RenderingContext;
+    const governor = new QualityGovernor(gl, () => engine.resize());
+    Object.assign(engine, { governor });
+    engine.container.clientWidth = 3840; engine.container.clientHeight = 2160;
+    engine.resize();
+    const dpr = Math.sqrt(4_000_000 / (3840 * 2160));
+    expect(renderer.setDrawingBufferSize).toHaveBeenLastCalledWith(3840, 2160, dpr);
+    expect(composer.setSize).toHaveBeenLastCalledWith(3840, 2160);
+    expect(ctx.camera.aspect).toBe(3840 / 2160);
+    expect(governor.dpr).toBe(dpr); expect(engine.stats.dpr).toBe(dpr);
   });
 
   it("renews the resolution listener for zoom without a CSS resize and removes the old listener", () => {

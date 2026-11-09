@@ -131,7 +131,7 @@ export class QualityGovernor implements QualityService {
     const tier = this.tier, dpr = this.ladder[this.rung].dpr;
     this.pending?.abort(); this.pending = undefined;
     this.deviceDpr = deviceDpr; this.maxDpr = maxDpr;
-    this.ladder.splice(0, this.ladder.length, ...ladderFor(deviceDpr));
+    this.ladder.splice(0, this.ladder.length, ...ladderFor(deviceDpr, maxDpr));
     this.rung = this.richest(tier);
     if (this.pinnedTier !== tier) {
       for (let i = 0; i < this.ladder.length; i++) if (this.ladder[i].tier === tier &&

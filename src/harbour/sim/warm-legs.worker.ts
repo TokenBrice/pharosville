@@ -12,13 +12,15 @@ type Msg =
   | { type: "warm"; layout: HarbourLayout; coast: CoastGrid | null }
   | { type: "prepare"; id: number; model: HarbourModel; nowMs: number; knownPlainPaths: string[] };
 const scope = self as unknown as { onmessage: ((e: MessageEvent<Msg>) => void) | null; postMessage(m: unknown, transfer?: Transferable[]): void };
+const fetchingSeeds = fetch(seedsUrl);
+// Own early rejection while coast/layout are still loading; the warm job reports the failure.
+void fetchingSeeds.catch(() => {});
 let L: SimLayout | null = null, base = 0;
 let queue = Promise.resolve();
 scope.onmessage = ({ data: m }) => {
   // Initialization hashes asynchronously; preserve message order through it and every later job.
   queue = queue.then(async () => {
     if (m.type === "warm") {
-      const fetchingSeeds = fetch(seedsUrl);
       L = buildSimLayout(m.layout, m.coast);
       base = L.slots.length;
       const response = await fetchingSeeds;
