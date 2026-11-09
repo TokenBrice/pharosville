@@ -149,6 +149,16 @@ HarbourFeed (/api/*, per-endpoint cadence) → off-frame model/worker preparatio
   elapsed-time queries do not nest; unavailable/disjoint samples are not
   invented. This is measurement tooling, not an alternate rendering mode.
 
+The Harbourmaster's “Since your last reading” uses one browser-local v1
+observation at localStorage key `pharosville.reading.v1`, bounded to 64 KiB
+of UTF-8 JSON. It contains the save time, source times, methodology identities,
+PSI, covered off-peg coin IDs and per-ID reported USD supply values and bucket
+identities. Malformed, oversized or future-dated records are rejected. The prior
+baseline stays fixed for the visit; one replacement is scheduled at idle after
+current, coherent admitted readings arrive. “Forget saved reading” removes the
+record and prevents another save during that visit; storage denial silently
+withholds the comparison. This record is never transmitted.
+
 ## Contracts and budgets
 
 Bundle caps are enforced by `npm run check:bundle-size`

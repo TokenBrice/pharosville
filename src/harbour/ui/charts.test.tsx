@@ -34,7 +34,7 @@ describe("dated PSI observations", () => {
     expect(mark.querySelector("title")?.textContent).toContain("Now · 12.0");
     // a daily series is labelled by its dates alone (N6); every value is unchanged
     expect(screen.getByText("3 observations from 2026-11-07 to 2026-11-11 (UTC).")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe("2026-11-11 UTC · 9.0"); // opens on the latest observation
+    expect(screen.getByRole("status").textContent).toBe("PSI 9.0 on 2026-11-11 UTC"); // opens on the latest observation
     const summary = screen.getByText("View values");
     expect(summary.closest("details")?.open).toBe(false);
     fireEvent.click(summary);
@@ -49,15 +49,15 @@ describe("dated PSI observations", () => {
     const previous = screen.getByRole("button", { name: "Previous observation" }) as HTMLButtonElement;
     const next = screen.getByRole("button", { name: "Next observation" }) as HTMLButtonElement;
     // it opens on the latest observation (an hourly series keeps its times)
-    expect(screen.getByRole("status").textContent).toBe("2026-11-07 01:00:00 UTC · 1.0");
+    expect(screen.getByRole("status").textContent).toBe("PSI 1.0 on 2026-11-07 01:00:00 UTC");
     expect(next.disabled).toBe(true);
     previous.focus();
     fireEvent.keyDown(previous, { key: "Enter" });
     fireEvent.click(previous); // Native button activation (keyboard or touch) uses the same handler.
-    expect(screen.getByRole("status").textContent).toBe("2026-11-07 00:00:00 UTC · 0.0");
+    expect(screen.getByRole("status").textContent).toBe("PSI 0.0 on 2026-11-07 00:00:00 UTC");
     expect(previous.disabled).toBe(true);
     fireEvent.click(next);
-    expect(screen.getByRole("status").textContent).toBe("2026-11-07 01:00:00 UTC · 1.0");
+    expect(screen.getByRole("status").textContent).toBe("PSI 1.0 on 2026-11-07 01:00:00 UTC");
   });
 
   it("retains single and stale dated observations, but never invents dates", () => {
@@ -84,6 +84,20 @@ describe("dated PSI observations", () => {
     expect(psiChange([row(day, 3), row(day + 86400, 1)])).toBe("−2.0 points.");
     expect(psiChange([row(day, 1), row(day + 86400, 3, "v2")])).toBe(PSI_COMPARISON_UNAVAILABLE);
     expect(psiChange([{ date: day, score: 1 }, { date: day + 1, score: 2 }])).toBe(PSI_COMPARISON_UNAVAILABLE);
+  });
+
+  it("shows only the selected observation's adjacent dated change across gaps, duplicates and method boundaries", () => {
+    render(<Sparkline observations={[row(day, 0), row(day + 86400, 8), row(day + 86400, 2), row(day + 5 * 86400, 12, "v2"), row(day + 6 * 86400, 15, "v2")]} />);
+    expect(screen.getByRole("status").textContent).toBe("PSI 15.0 on 2026-11-13 UTC");
+    expect(screen.getByText("+3.0 points. Previous observation: 2026-11-12 UTC.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Previous observation" }));
+    expect(screen.getByRole("status").textContent).toBe("PSI 12.0 on 2026-11-12 UTC");
+    expect(screen.getByText("Comparison unavailable across methodology versions. Previous observation: 2026-11-08 UTC.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Previous observation" }));
+    expect(screen.getByRole("status").textContent).toBe("PSI 2.0 on 2026-11-08 UTC");
+    expect(screen.getByText("+2.0 points. Previous observation: 2026-11-07 UTC.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Previous observation" }));
+    expect(screen.queryByText(/Previous observation:/)).toBeNull();
   });
 });
 
