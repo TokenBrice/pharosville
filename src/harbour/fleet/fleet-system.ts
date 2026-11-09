@@ -602,6 +602,16 @@ export class FleetSystem implements WorldSystem {
   }
 
   private reconcileBoat(boat: Boat, prev: BoatRec | undefined, staging?: FleetStaging): BoatRec | undefined {
+    if (prev && prev.source.rig === boat.rig && prev.source.hullClass === boat.hullClass &&
+      prev.source.brandColor === boat.brandColor && prev.dead === (boat.state === "wrecked") &&
+      prev.source.nullPeg === boat.nullPeg) {
+      // pose/sim owns every other reading; no geometry, colour, paint or atlas work. Staged (the common refresh),
+      // her new reading lands at commit, with no staged copy of the record.
+      const rec = prev;
+      if (staging) staging.commits.push(() => { rec.source = boat; });
+      else rec.source = boat;
+      return rec;
+    }
     const original = prev;
     if (staging && prev) prev = { ...prev, brand: prev.brand.clone(), flagBrand: prev.flagBrand.clone() };
     const finish = (rec: BoatRec) => {
@@ -616,12 +626,6 @@ export class FleetSystem implements WorldSystem {
       const values = this.paintFor(id, family, color);
       staging.commits.push(() => { this.paint.set(values, inst * PAINT_TEXELS * 4); this.uniforms.uFleetPaint.value.needsUpdate = true; });
     };
-    if (prev && prev.source.rig === boat.rig && prev.source.hullClass === boat.hullClass &&
-      prev.source.brandColor === boat.brandColor && prev.dead === (boat.state === "wrecked") &&
-      prev.source.nullPeg === boat.nullPeg) {
-      prev.source = boat; // pose/sim owns every other reading; no geometry, colour, paint or atlas work
-      return finish(prev);
-    }
     const kit = this.kit!, layout = this.layout!, mesh = this.mesh!;
     const sameHull = prev && prev.source.rig === boat.rig && prev.source.hullClass === boat.hullClass;
     const hero = sameHull ? null : titanFor(boat.id, (v) => kit.hulls.has(v));
@@ -1515,7 +1519,9 @@ export class FleetSystem implements WorldSystem {
   private brailing(b: BoatRec, moving: boolean, x: number, z: number, dt: number): number {
     if (!b.variant.oars) return 0;
     if (!this.harbours && this.layout) this.harbours = seaZones(this.layout).filter((zn) => zn.kind === "harbour").map((zn) => zn.polygon);
-    const inside = moving && !!this.harbours?.some((poly) => inPoly(x, z, poly));
+    let inside = false;
+    const harbours = this.harbours;
+    if (moving && harbours) for (let k = 0; k < harbours.length && !inside; k++) inside = inPoly(x, z, harbours[k]);
     b.brail += ((inside ? 1 : 0) - b.brail) * (this.ease.dt === dt ? this.ease.brail : 1 - Math.exp(-dt * 0.35));
     return b.brail;
   }

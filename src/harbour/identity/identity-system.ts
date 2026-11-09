@@ -127,29 +127,42 @@ export class IdentitySystem implements WorldSystem {
     ]);
 
     ctx.signal?.throwIfAborted();
-    if (font && sdfTex && layout.seaZones?.length) {
+    const lettered = !!(font && sdfTex && layout.seaZones?.length);
+    if (lettered) {
       const ocean = ctx.services.get("ocean");
       const t0 = performance.now();
       // the fitting is pure CPU work: idle slices keep it from becoming one long task (the names land a little later)
-      this.labels = await runIdleSteps(this.fittedSteps(layout, font, ocean, ctx.camera.aspect, ctx.services.get("ground")), ctx.signal);
+      this.labels = await runIdleSteps(this.fittedSteps(layout, font!, ocean, ctx.camera.aspect, ctx.services.get("ground")), ctx.signal);
       ctx.signal?.throwIfAborted();
       performance.measure("identity:labels", { start: t0 });
-      this.lettering = new ChartLettering(this.labels, font, sdfTex, ctx.uniforms, ocean, layout.seaLevel ?? 0);
+    }
+    // the lettering and the heraldry are built in idle slices of their own, never on the tail of the fitting's last one
+    await runIdleSteps(this.dressSteps(ctx, layout, lettered ? font : null, sdfTex, atlas, crestTex), ctx.signal);
+  }
+
+  /** The chart lettering, the offices' heraldry and the anchorage lights, one construction per step (same order). */
+  private *dressSteps(ctx: EngineContext, layout: IdentityLayout, font: ChartFont | null, sdfTex: THREE.Texture | null, atlas: CrestAtlas | null, crestTex: THREE.Texture | null): Generator<void, void> {
+    if (font && sdfTex) {
+      yield;
+      this.lettering = new ChartLettering(this.labels, font, sdfTex, ctx.uniforms, ctx.services.get("ocean"), layout.seaLevel ?? 0);
       ctx.scene.add(this.lettering.mesh);
     }
 
     if (atlas && crestTex) {
+      yield;
       this.atlas = atlas;
       crestTex.anisotropy = 8;
       crestTex.generateMipmaps = true;
       crestTex.minFilter = THREE.LinearMipmapLinearFilter;
       this.dresser = new OfficeDresser(atlas, crestTex, officePlots(layout.civic));
+      yield;
       this.flags = new CrestFlags(crestTex, ctx.uniforms);
       ctx.scene.add(this.flags.group);
       // chain-colour beacons and bollards on each harbour's pier head (one instanced draw)
       const ground = ctx.services.get("ground");
       const piers = (layout as { piers?: MarkPier[] }).piers ?? [];
       if (ground && piers.length) {
+        yield;
         const ocean = ctx.services.get("ocean");
         const sea = layout.seaLevel ?? 0;
         const sites = markSites(piers, ocean ? (x, z) => ocean.coastAt(x, z) > -5 : undefined)

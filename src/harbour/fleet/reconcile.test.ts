@@ -126,6 +126,22 @@ describe("fleet refresh reconciliation", () => {
     for (const spy of [f.add, f.remove, f.geometryChange, f.paint, f.wrecks, f.buoys, f.atlas.begin, f.atlas.slotFor]) expect(spy).not.toHaveBeenCalled();
   });
 
+  it("moves an unchanged hull's reading only at commit, without a staged copy of her record (p-hitch2)", async () => {
+    const f = fixture(), a = coin("a");
+    await f.install(model([a]));
+    const rec = f.fleet.byId.get("a")!, brand = rec.brand;
+    const abandoned = await f.system.prepareFleet(model([{ ...a, supply: 3000 }]), undefined, 0);
+    abandoned.dispose();
+    expect(rec.source).toBe(a);
+    const next = { ...a, supply: 2000, pegDeviationBps: 4 };
+    const delta = await f.system.prepareFleet(model([next]), undefined, 0);
+    expect(rec.source).toBe(a); // nothing is published before the commit
+    delta.commit(); delta.dispose();
+    expect(f.fleet.byId.get("a")).toBe(rec);
+    expect(rec.source).toBe(next);
+    expect(rec.brand).toBe(brand); // the same colour object: no clone was staged and swapped in
+  });
+
   it("only adds/removes actual membership changes and preserves a survivor's slot and instance", async () => {
     const f = fixture();
     await f.install(model([coin("a"), coin("b")]));
