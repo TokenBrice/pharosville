@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { BeamUniforms } from "../beam/uniforms";
+import { extraEnabled } from "../engine/extras";
 
 /**
  * Precipitation, two GPU-instanced draws (no per-particle CPU work):
@@ -24,6 +25,8 @@ export const PRECIP_BUDGET: Record<"high" | "medium" | "low", PrecipBudget> = {
 const MAX_FALL = PRECIP_BUDGET.high.fall;
 const MAX_SPLASH = PRECIP_BUDGET.high.splash;
 export const MAX_SPRAY = 520;
+/** E24: the lightning's lift on falling drops (was 2.2: every drop flashed with the strike). */
+export const RAIN_FLASH_LIFT = extraEnabled("storm") ? 1.2 : 2.2;
 
 function rng(seed: number): () => number {
   let s = seed | 0;
@@ -40,6 +43,7 @@ uniform vec3 uBoxMin, uBoxSize;
 uniform float uPTime;
 uniform vec3 uAmbRain;        // sky-side light on a drop (linear)
 uniform float uFlashK;        // lightning flash 0..1
+uniform float uFlashLift;     // E24: how far a flash lifts the drops (2.2 → 1.2: the strike, not the rain, flashes)
 uniform sampler2D uPoolTex;
 uniform vec4 uPoolBounds;
 uniform float uWindowGlow;
@@ -51,7 +55,7 @@ uniform vec4 uAOBounds;
 float pHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 // light reaching a drop at p: sky, lamp pools (night), the Pharos beam, the lightning
 vec3 dropLight(vec3 p) {
-  vec3 L = uAmbRain + vec3(0.72, 0.78, 1.0) * uFlashK * 2.2;
+  vec3 L = uAmbRain + vec3(0.72, 0.78, 1.0) * uFlashK * uFlashLift;
   vec2 uv = (p.xz - uPoolBounds.xy) * uPoolBounds.zw;
   if (uWindowGlow > 0.02 && uv.x > 0.0 && uv.y > 0.0 && uv.x < 1.0 && uv.y < 1.0) {
     vec4 pool = texture2D(uPoolTex, uv);
@@ -322,7 +326,7 @@ export class Precipitation {
     };
     this.common = {
       uBoxMin: { value: new THREE.Vector3() }, uBoxSize: { value: new THREE.Vector3(1, 1, 1) }, uPTime: { value: 0 },
-      uAmbRain: { value: new THREE.Color() }, uFlashK: { value: 0 },
+      uAmbRain: { value: new THREE.Color() }, uFlashK: { value: 0 }, uFlashLift: { value: RAIN_FLASH_LIFT },
       uPoolTex: shared.uPoolTex, uPoolBounds: shared.uPoolBounds, uWindowGlow: shared.uWindowGlow,
       uAOTex: shared.uAOTex, uAOBounds: shared.uAOBounds,
       uBeamPos: shared.beam.uBeamPos, uBeamCol: shared.beam.uBeamCol, uBeamAngle: shared.beam.uBeamAngle, uBeamShape: shared.beam.uBeamShape,

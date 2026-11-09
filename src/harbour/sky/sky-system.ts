@@ -121,6 +121,8 @@ export class SkySystem implements WorldSystem {
     uParallax: { value: new THREE.Vector4() },
     uWeather: { value: new THREE.Vector3() },
     uStorm: { value: 0 },
+    /** E24 (all tiers): the deck structure after the grey grading (0/1), its gain (clamped to ±25 % in the shader) */
+    uDeckK: { value: new THREE.Vector4(extraEnabled("storm") ? 1 : 0, 1.6, 0, 0) },
     /** rain, snow (0..1), lightning flash (0..1), flash azimuth (deg, band space) */
     uPrecipSky: { value: new THREE.Vector4() },
     /** flash elevation (deg), wind slant of the curtains, -, - */
@@ -193,7 +195,7 @@ export class SkySystem implements WorldSystem {
     this.band.setInputs([
       W.uNight, W.uZenith, W.uHorizon, W.uHaze, this.u.uGlowCol, this.u.uCloudLight, this.u.uCloudMid,
       this.u.uCloudShade, this.u.uMount, this.u.uMountLit, this.u.uSkyK, this.u.uSunDisc, this.u.uMoonDisc,
-      this.u.uLight, this.u.uParallax, this.u.uStorm, this.u.uPrecipSky, this.u.uPrecipSkyB, this.shared.uSkyBandRange,
+      this.u.uLight, this.u.uParallax, this.u.uStorm, this.u.uDeckK, this.u.uPrecipSky, this.u.uPrecipSkyB, this.shared.uSkyBandRange,
       // Living Harbour: the clearing haze tint and storm strip (uSunColor), the W01 front and the W09 squall
       W.uSunColor, this.u.uClearZen, this.u.uClearHor, this.u.uFrontA, this.u.uFrontB, this.u.uSquall,
       this.u.uTwilight,

@@ -38,6 +38,7 @@ uniform sampler2D uSkyNoise;
 uniform vec4 uParallax;      // per-layer azimuth shift (deg): far hills, mid hills, near hills, clouds
 uniform vec3 uWeather;       // cloud cover, wind, cirrus drift (deg)
 uniform float uStorm;        // 0 fair … 1 storm deck (DEWS ALERT and above)
+uniform vec4 uDeckK;         // E24: deck structure after the grey grading 0/1, its gain (the result stays within ±25 %), -, -
 uniform vec4 uPrecipSky;     // rain, snow, lightning flash, flash azimuth (deg) — the weather director
 uniform vec4 uPrecipSkyB;    // flash elevation (deg), curtain wind slant, snow share, -
 uniform vec4 uFrontA;        // W01 front: cover from, cover to, storm from, storm to
@@ -53,6 +54,8 @@ uniform vec4 uFrontB;        // W01 front: line azimuth (deg, band space), trave
 
 // this pixel's cover and storm grade: the shown weather, or under a front the weather on its side of the line
 float gCov, gStorm, gBehind;
+// E24: the deck's cell/roll structure here and how much of the deck covers this pixel
+float gDeckS, gDeckA;
 // W01: 1 behind the front line (the new weather has arrived), 0 ahead of it. Ragged, and leaning: the deck aloft
 // runs ahead of its base, so the line sits further on higher up.
 float sbFrontSide(float th, float e) {
@@ -142,6 +145,7 @@ vec3 skyBand(float th, float e, float pxDeg) {
   gBehind = uFrontB.w > 0.5 ? sbFrontSide(th, e) : 0.0;
   gCov = uFrontB.w > 0.5 ? mix(uFrontA.x, uFrontA.y, gBehind) : uWeather.x;
   gStorm = uFrontB.w > 0.5 ? mix(uFrontA.z, uFrontA.w, gBehind) : uStorm;
+  gDeckS = 1.0; gDeckA = 0.0;
   // ---- gradient: compressed so the narrow visible band still spans horizon -> zenith
   float t = clamp(e / ${SKY_GRADIENT_DEG.toFixed(2)}, 0.0, 1.0);
   float lift = (1.0 - smoothstep(0.0, ${SKY_LIFT_DEG.toFixed(2)}, e)) * ${SKY_LIFT.toFixed(2)};
@@ -330,7 +334,9 @@ vec3 skyBand(float th, float e, float pxDeg) {
     float ld = dot(deckC, vec3(0.299, 0.587, 0.114));
     // cold slate (blue-grey, never the warm grey-white of the stale-data fog), darker in the cell cores
     deckC = mix(deckC, vec3(ld) * vec3(0.86, 0.94, 1.07), 0.7) * 0.8;
-    deckC *= mix(0.82, 1.1, smoothstep(0.35, 0.95, seam)) * mix(0.93, 1.04, roll);
+    gDeckS = mix(0.82, 1.1, smoothstep(0.35, 0.95, seam)) * mix(0.93, 1.04, roll);
+    deckC *= mix(gDeckS, 1.0, uDeckK.x);
+    gDeckA = max(deckA, nightDeck * smoothstep(0.3, 0.6, gStorm));
     // the closed night deck: the same slate, darker toward the zenith, a faint ragged base above the horizon
     vec3 nightC = deckC * (0.78 + 0.3 * smoothstep(0.3, 0.9, dn)) * mix(1.0, 0.72, smoothstep(1.0, 7.0, e));
     c = mix(c, mix(deckC, nightC, nightDeck), max(deckA * 0.92, nightDeck * smoothstep(0.0, 0.9, e + (dn - 0.5) * 0.8)));
@@ -451,6 +457,8 @@ vec3 skyBand(float th, float e, float pxDeg) {
     // (the frame's grade is still the storm's: lift the clearing a little so the opening reads)
     c = mix(c, c * vec3(0.9, 1.0, 1.12), -0.5 * dS) * (1.0 - 0.22 * dS);
   }
+  // ---- E24: the deck's cells and rolls land after the grey grading (W02 was crushed into a slab), ±25 % at most
+  if (uDeckK.x > 0.5) c *= 1.0 + clamp((gDeckS - 1.0) * uDeckK.y, -0.25, 0.25) * gDeckA;
   // ---- horizon haze band (matches the sea fog) + the glow on it
   float hzb = 1.0 - smoothstep(-0.05, 0.75, e);
   c = mix(c, hazeC, hzb * 0.85);

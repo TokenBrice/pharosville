@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { getBeamUniforms } from "../beam/uniforms";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import { extraEnabled } from "../engine/extras";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { getHarbourMaterials } from "../world/materials";
@@ -266,9 +267,13 @@ export class WeatherSystem implements WorldSystem {
     const pitch = Math.asin(THREE.MathUtils.clamp(-fwd.y, -1, 1));
     const depr = Math.atan(cam.position.y / horizon);
     const bandTop = Math.max(0.5, THREE.MathUtils.radToDeg(depr - (pitch - THREE.MathUtils.degToRad(vfov / 2))));
+    // E24: strikes keep clear of the projected Pharos (±4°)
+    const pharos = extraEnabled("storm") ? ctx.services.get("layout")?.landmarks.find((l) => l.id === "pharos")?.position : undefined;
+    const pharosAz = pharos ? Math.atan2(pharos[0] - cam.position.x, -(pharos[2] - cam.position.z)) - fwdAz : 0;
     this.lightning.update({
       dt, rate: s.strikesPerMin, strikeKm: s.strikeKm, suppressed: reduced, camera: cam, horizon,
       halfFovDeg: halfH, bandTopDeg: bandTop, fwdAz, night: U.uNight.value,
+      avoidTh: pharos ? THREE.MathUtils.radToDeg(Math.atan2(Math.sin(pharosAz), Math.cos(pharosAz))) : null,
     });
     U.uLightning.value = this.lightning.flash;
     this.flash.azimuth = fwdAz + THREE.MathUtils.degToRad(this.lightning.flashTh);
