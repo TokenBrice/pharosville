@@ -3,13 +3,38 @@ import { endpointTruth } from "../../model/truth";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { psiObservations, utcObservation } from "../charts";
 import { coinNet, coverageLine, NET_UNAVAILABLE, VALUATION_UNKNOWN, type CoinFlow } from "../flow-copy";
-import { money, pctChange } from "../format";
+import { money, pctChange, share } from "../format";
 import { scopeName } from "../places";
 import { qualificationCopy, READING_NAMES, sourceTruth } from "../source-state";
 import { truthCopy } from "../truth-copy";
 
 export interface ReportSentence { text: string; inputs: Array<[string, string]> }
-export const input = (label: string, value: unknown): [string, string] => [label, value == null ? "Unavailable" : typeof value === "string" ? value : JSON.stringify(value)];
+const plainNumber = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+function evidenceValue(label: string, value: unknown): string {
+  if (value == null) return "Unavailable";
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return "Unavailable";
+    if (/usd|^pegged/i.test(label)) return money(value);
+    if (/ratio|share/i.test(label)) return share(value);
+    if (/^(computedAt|historyStartAt)$/.test(label)) return dated(value * 1000);
+    if (label === "date") return dated(value);
+    return plainNumber.format(value);
+  }
+  if (typeof value === "string") {
+    if (/^\d{4}-\d{2}-\d{2}T/.test(value) && Number.isFinite(Date.parse(value))) return dated(Date.parse(value));
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((v) => evidenceValue(label, v)).join(/previous\/current/i.test(label) ? " → " : ", ") || "None";
+  if (typeof value === "object") {
+    const fields = Object.entries(value);
+    if (fields.length === 2 && "previous" in value && "current" in value) {
+      return `previous: ${evidenceValue(label, value.previous)} → current: ${evidenceValue(label, value.current)}`;
+    }
+    return fields.map(([key, v]) => `${key}: ${evidenceValue(key, v)}`).join("; ") || "None";
+  }
+  return String(value);
+}
+export const input = (label: string, value: unknown): [string, string] => [label, evidenceValue(label, value)];
 export const dated = (ms: number | null | undefined): string => ms != null && Number.isFinite(ms) ? `${utcObservation(ms / 1000)} UTC` : "Unavailable";
 export const byId = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
 

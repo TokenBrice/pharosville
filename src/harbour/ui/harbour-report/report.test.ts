@@ -16,8 +16,8 @@ describe("projected harbour report", () => {
     expect(texts(f, 7)).toContain("Reported USD supply value changed by +$3.00M across 2 comparable coins.");
     expect(texts(f)).toContain("0 coins lack a comparable reading.");
     const evidence = report(f)[0].inputs;
-    expect(evidence).toContainEqual(["Previous total USD supply value", "15000000"]);
-    expect(evidence).toContainEqual(["Current total USD supply value", "15000000"]);
+    expect(evidence).toContainEqual(["Previous total USD supply value", "$15.0M"]);
+    expect(evidence).toContainEqual(["Current total USD supply value", "$15.0M"]);
     expect(evidence).toContainEqual(["Source updated (UTC)", "2026-11-08 11:59:00 UTC"]);
     expect(evidence).toContainEqual(["Comparison bucket", "circulatingPrevDay"]);
   });
@@ -44,7 +44,7 @@ describe("projected harbour report", () => {
     expect(f.payloads.stablecoins!.data!.peggedAssets[0].circulating).toEqual({ peggedUSD: 10e6, peggedEUR: null });
     expect(texts(f)).not.toContain("USDC: +$2.00M reported USD supply value.");
     expect(texts(f)).toContain("1 coins lack a comparable reading.");
-    expect(report(f)[0].inputs).toContainEqual(["Current total USD supply value", "5000000"]);
+    expect(report(f)[0].inputs).toContainEqual(["Current total USD supply value", "$5.00M"]);
   });
 
   it("withholds PSI changes with degraded current inputs or unknown historical coverage and shares qualification copy", () => {
@@ -82,7 +82,7 @@ describe("projected harbour report", () => {
   it("cites actual PSI dates but withholds comparisons without historical input coverage", () => {
     const f = reportFixture();
     expect(texts(f)).toContain("PSI comparison unavailable.");
-    expect(report(f).find((r) => r.text.startsWith("PSI"))!.inputs).toContainEqual(["PSI at 2026-11-07 11:59:00 UTC", '{"score":90,"methodology":"psi-1"}']);
+    expect(report(f).find((r) => r.text.startsWith("PSI"))!.inputs).toContainEqual(["PSI at 2026-11-07 11:59:00 UTC", "score: 90; methodology: psi-1"]);
     expect(texts(f, 7)).toContain("PSI comparison unavailable.");
     for (const method of ["psi-2", null, " "]) {
       const mismatch = reportFixture((u) => { (u.stability.history as Array<Record<string, ProjectionJson>>)[1].methodologyVersion = method; });
