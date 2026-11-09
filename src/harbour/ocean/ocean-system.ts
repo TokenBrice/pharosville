@@ -20,6 +20,8 @@ import { getHarbourMaterials } from "../world/materials";
 import { TimeOfDay } from "../engine/time-of-day";
 import { createWorldUniforms } from "../engine/uniforms";
 import { seaHour } from "./sea-tone";
+import { extraEnabled } from "../engine/extras";
+import { MirrorPass, OCEAN_FRAG_MIRROR } from "./mirror-pass";
 
 /**
  * OCEAN: one large sea plane (fine grid over the sea bounds, a stretched far ring beyond), an unlit
@@ -125,6 +127,8 @@ export class OceanSystem implements WorldSystem {
   private hourTod: TimeOfDay | null = null;
   private readonly hourU = createWorldUniforms();
   private readonly noonU = createWorldUniforms();
+  /** E35 the harbour mirror (High only; `&extras=+mirror` until the art director rules): the SSR pass at composer index 1. */
+  private mirror: MirrorPass | null = null;
 
   async init(ctx: EngineContext): Promise<void> {
     const layout = ctx.services.get("layout");
@@ -169,6 +173,9 @@ export class OceanSystem implements WorldSystem {
     };
     const W = ctx.uniforms;
     const col = (h: string) => ({ value: new THREE.Color(h) });
+    // before the first render (a depth pass added to a running composer re-creates its buffers), right after the
+    // RenderPass and ahead of the stale fog (PostChain.seal keeps it there)
+    if (extraEnabled("mirror")) { this.mirror = new MirrorPass(ctx.camera); ctx.composer.addPass(this.mirror, 1); }
     this.material = new THREE.ShaderMaterial({
       vertexShader: OCEAN_VERT,
       fragmentShader: OCEAN_FRAG,
@@ -201,15 +208,18 @@ export class OceanSystem implements WorldSystem {
         uSceneRadius: { value: Math.hypot(layout.bounds.max[0] - layout.bounds.min[0], layout.bounds.max[2] - layout.bounds.min[2]) / 2 },
         // E11 the hour on the water / E13 the bloom ceiling for glints (sea-tone.ts; set every frame below)
         uSeaHour: { value: new THREE.Vector4(1, 1, 1, 1) }, uSeaLow: { value: new THREE.Vector2(1, 0) }, uBloomT: { value: 1.5 },
+        ...this.mirror?.uniforms,
       },
       fog: false,
       // the calendar is set before anything compiles (season system first): summer nights' glow only when it can show
       defines: W.uFoliage.value.y > 0.001 ? { HB_BIOLUM: "" } : {},
     });
-    const features = () => Object.freeze({ biolum: W.uFoliage.value.y > 0.001, lite: this.lite });
-    this.material.customProgramCacheKey = () => { const f = features(); return `hb_ocean_${Number(f.biolum)}_${Number(f.lite)}`; };
+    // the mirror's ocean (mirror-pass.ts) is one program for Medium and High (a uniform turns it on): no compile on a switch
+    const features = () => Object.freeze({ biolum: W.uFoliage.value.y > 0.001, lite: this.lite, mirror: this.mirror !== null && !this.lite });
+    this.material.customProgramCacheKey = () => { const f = features(); return `hb_ocean_${Number(f.biolum)}_${Number(f.lite)}${f.mirror ? "_m" : ""}`; };
     this.material.onBeforeCompile = (shader) => {
       const f = features();
+      if (f.mirror) shader.fragmentShader = OCEAN_FRAG_MIRROR;
       shader.defines = { ...shader.defines };
       delete shader.defines.HB_BIOLUM; delete shader.defines.HB_LITE;
       if (f.biolum) shader.defines.HB_BIOLUM = "";
@@ -220,6 +230,7 @@ export class OceanSystem implements WorldSystem {
     if (quality) {
       const lite = (tier: string) => {
         this.lite = tier === "low";
+        this.mirror?.setActive(tier === "high", tier === "low");
         this.syncFeatures();
       };
       lite(quality.tier);
@@ -245,6 +256,8 @@ export class OceanSystem implements WorldSystem {
     }
     if (q.has("debugSea")) this.material.uniforms.uDebug.value = Number(q.get("debugSea"));
     if (q.has("sea")) this.setSeaState(Number(q.get("sea")) as SeaState);
+    // the V14 strength A/B (25–35 %)
+    if (this.mirror && q.has("mirrorK")) this.mirror.strength = THREE.MathUtils.clamp(Number(q.get("mirrorK")) || 0, 0, 1);
     this.seaU.value.copy(this.seaGoal);
 
     const getState = () => this.state;
@@ -373,6 +386,7 @@ export class OceanSystem implements WorldSystem {
 
   dispose(ctx: EngineContext): void {
     this.unsubQuality?.();
+    if (this.mirror) { ctx.composer.removePass(this.mirror); this.mirror.dispose(); this.mirror = null; }
     ctx.scene.remove(this.mesh);
     this.mesh.geometry.dispose();
     this.material.dispose();

@@ -7,6 +7,7 @@ import { seasonWeights } from "../season/calendar";
 import { createFleetMaterials, type FleetUniforms } from "../fleet/fleet-material";
 import { HouseFlags } from "../fleet/house-flags";
 import { OCEAN_VERT, OCEAN_FRAG } from "../ocean/ocean-material";
+import { MIRROR_FRAG, MIRROR_VERT, OCEAN_FRAG_MIRROR } from "../ocean/mirror-pass";
 import { FULLSCREEN_VERT } from "../ocean/gpu-bake";
 import { BeamEffect, BeamSystem, ShimmerEffect, HALO_VERT, HALO_FRAG } from "../beam/beam-system";
 import { FLAME_VERT, FLAME_FRAG, EMBER_VERT, EMBER_FRAG, GLOW_VERT, GLOW_FRAG, PLUME_VERT, PLUME_FRAG } from "../beam/fire";
@@ -94,6 +95,13 @@ export function visitShaderRecipes(visit: (recipe: ShaderRecipe) => void): void 
       material.customProgramCacheKey = () => `hb_ocean_${Number(biolum)}_${Number(lite)}`;
       emit(`ocean/${biolum ? "summer" : "other"}/${lite ? "low" : "full"}`, material); material.dispose();
     }
+    // E35 (extras +mirror): Medium and High share the mirror's ocean; Low keeps the lite ocean
+    for (const biolum of [false, true]) {
+      const material = new THREE.ShaderMaterial({ vertexShader: OCEAN_VERT, fragmentShader: OCEAN_FRAG_MIRROR, defines: biolum ? { HB_BIOLUM: "" } : {} });
+      material.customProgramCacheKey = () => `hb_ocean_${Number(biolum)}_0_m`;
+      emit(`ocean/${biolum ? "summer" : "other"}/full-mirror`, material); material.dispose();
+    }
+    raw("post/mirror", MIRROR_VERT, MIRROR_FRAG);
     raw("beam/halo", HALO_VERT, HALO_FRAG);
     for (const [name, vertex, fragment] of [
       ["flame", FLAME_VERT, FLAME_FRAG], ["ember", EMBER_VERT, EMBER_FRAG], ["glow", GLOW_VERT, GLOW_FRAG], ["plume", PLUME_VERT, PLUME_FRAG],
