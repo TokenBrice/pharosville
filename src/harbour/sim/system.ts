@@ -334,7 +334,20 @@ export class DataSystem implements WorldSystem {
     return this.heldAt ?? this.simNow(nowMs) - this.motionLag;
   }
 
-  // Installation deliberately has no animation-frame entry point.
+  // Fleet/pose installation deliberately has no animation-frame entry point.
+
+  /** Returning tabs must age the installed readings before paths or fleet preparation can release the hold. */
+  private recheckReturnTruth(ctx: EngineContext, nowMs: number): void {
+    if (!this.sim || !this.installedPayloads || !this.layout) return;
+    const sig = Object.values(allTruth(this.installedPayloads, nowMs)).map((t) => t.state).join();
+    if (sig === this.truthSig) return;
+    const model = buildHarbourModel(this.installedPayloads, this.simNow(nowMs), { pieredChains: this.layout.piers.map((p) => p.chain), truthNowMs: nowMs });
+    this.sim.model = import.meta.env.DEV && this.devEvent ? this.stageDevEvent(model) : model;
+    ctx.services.set("model", this.sim.model);
+    this.truthSig = sig;
+    this.dirty = true; this.revision++;
+    this.fleetAbort?.abort(); // an older render candidate must not republish unaged readings
+  }
 
   /** Dev (?simevent): before it fires, a launch's coin is left out; once fired, the coin dies / depegs / is back. */
   private stageDevEvent(model: HarbourModel): HarbourModel {
@@ -361,6 +374,7 @@ export class DataSystem implements WorldSystem {
   update(frame: FrameState, ctx: EngineContext): void {
     const sim = this.sim;
     if (!sim) return;
+    if (this.returning && !document.hidden) this.recheckReturnTruth(ctx, frame.nowMs);
     if (this.devEvent && !this.devEvent.fired && Date.now() >= this.devEvent.at) { this.devEvent.fired = true; this.dirty = true; this.revision++; }
     if (this.readiness.prepared && !this.dirty && frame.nowMs - this.lastBuild > TRUTH_RECHECK_MS && this.feed) {
       // a silent feed must still age into stale: re-check freshness (cheap), rebuild only on a change
