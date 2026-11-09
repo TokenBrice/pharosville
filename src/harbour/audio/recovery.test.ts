@@ -54,6 +54,94 @@ beforeEach(() => {
 afterEach(() => { ctl?.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("sound recovery follows the current opted-in owner", () => {
+  it("keeps ambience playing after a rejected music import and retries only the missing music", async () => {
+    vi.doMock("./music", () => { throw new Error("offline chunk"); });
+    const ctl = await controller();
+    ctl.setMode("music");
+    await vi.dynamicImportSettled();
+    const ac = Context.instances[0], amb = harness.Ambience.mock.results[0].value;
+    expect(ctl.snapshot).toMatchObject({ mode: "music", status: "playing", musicFailed: true });
+    expect(ac.state).toBe("running");
+    expect(amb.pause).not.toHaveBeenCalled();
+    expect(ac.suspend).not.toHaveBeenCalled();
+    ctl.cue("open");
+    expect(amb.cue).toHaveBeenCalledWith("open");
+    vi.doMock("./music", () => ({ Music: harness.Music, daySeed: () => 7 }));
+    ctl.retry();
+    await vi.dynamicImportSettled();
+    expect(harness.Music).toHaveBeenCalledOnce();
+    expect(ctl.snapshot).toMatchObject({ mode: "music", status: "playing" });
+    expect(ctl.snapshot).not.toMatchObject({ musicFailed: true });
+    expect(harness.Ambience).toHaveBeenCalledOnce();
+    expect(ac.resume).toHaveBeenCalledOnce();
+    expect(localStorage.getItem("harbour.sound")).toBe("on");
+    expect(localStorage.getItem("harbour.music")).toBe("on");
+  });
+
+  it("suspends native beds when a resume fails with the context still running", async () => {
+    const ctl = await controller();
+    ctl.toggle();
+    await vi.dynamicImportSettled();
+    const ac = Context.instances[0], amb = harness.Ambience.mock.results[0].value;
+    ac.resume.mockRejectedValueOnce(new Error("device lost"));
+    ctl.retry();
+    await vi.dynamicImportSettled();
+    expect(ctl.snapshot.status).toBe("unavailable");
+    expect(amb.pause).toHaveBeenCalled();
+    expect(ac.suspend).toHaveBeenCalledOnce();
+    expect(ac.state).toBe("suspended");
+    ctl.retry();
+    await vi.dynamicImportSettled();
+    expect(ctl.playing).toBe(true);
+  });
+
+  it.each(["pointerup", "click"])("keeps remembered-on activation armed through denied touch attempts until %s runs the context", async (gesture) => {
+    localStorage.setItem("harbour.sound", "on");
+    class TouchContext extends Context {
+      resume = vi.fn(async () => this.change("running"))
+        .mockRejectedValueOnce(new Error("touch down is not activation"))
+        .mockImplementationOnce(async () => {});
+    }
+    vi.stubGlobal("AudioContext", TouchContext);
+    const ctl = await controller();
+    window.dispatchEvent(new Event("pointerdown"));
+    await vi.dynamicImportSettled();
+    expect(ctl.playing).toBe(false);
+    window.dispatchEvent(new Event(gesture));
+    await vi.dynamicImportSettled();
+    expect(ctl.snapshot.status).toBe("paused");
+    window.dispatchEvent(new Event(gesture));
+    expect(Context.instances[0].resume).toHaveBeenCalledTimes(3);
+    await vi.dynamicImportSettled();
+    expect(ctl.playing).toBe(true);
+    for (const type of ["pointerdown", "pointerup", "click", "keydown"]) window.dispatchEvent(new Event(type));
+    expect(Context.instances[0].resume).toHaveBeenCalledTimes(3);
+    expect(localStorage.getItem("harbour.sound")).toBe("on");
+  });
+
+  it("lets a newer retry recover after a failure's native suspension settles late", async () => {
+    const ctl = await controller();
+    ctl.toggle();
+    await vi.dynamicImportSettled();
+    const ac = Context.instances[0];
+    let finishSuspend: () => void = () => { throw new Error("suspend was not requested"); };
+    ac.suspend.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finishSuspend = () => { ac.change("suspended"); resolve(); };
+    }));
+    ac.resume.mockRejectedValueOnce(new Error("device lost"));
+    ctl.retry();
+    await vi.dynamicImportSettled();
+    expect(ctl.snapshot.status).toBe("unavailable");
+    expect(ac.suspend).toHaveBeenCalledOnce();
+    ctl.retry();
+    await vi.dynamicImportSettled();
+    expect(ctl.playing).toBe(true);
+    finishSuspend();
+    await vi.dynamicImportSettled();
+    expect(ac.state).toBe("running");
+    expect(ctl.playing).toBe(true);
+  });
+
   it.each(["interrupted", "suspended"])("reports %s honestly and resumes the same context synchronously from a retry", async (state) => {
     const ctl = await controller(), changed = vi.fn();
     ctl.subscribe(changed);

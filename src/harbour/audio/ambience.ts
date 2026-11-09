@@ -384,7 +384,7 @@ export class Ambience {
   private setLeft = 0;
   /** swells heard so far, the audio time the sound started, and when the Pharos's breath ends (one at a time) */
   private swells = 0;
-  private readonly born: number;
+  private born: number;
   private breathEnd = 0;
   private pressN = 0;
   private disposed = false;
@@ -406,9 +406,7 @@ export class Ambience {
     const ceiling = ac.createDynamicsCompressor();
     ceiling.threshold.value = -6; ceiling.knee.value = 0; ceiling.ratio.value = 20; ceiling.attack.value = 0.002; ceiling.release.value = 0.25;
     this.out = ac.createGain();
-    // the on-ramp (E32): a dB-linear rise from a finite floor, never a jolt, and quick enough to hear the first lap
-    this.out.gain.setValueAtTime(MASTER * ONRAMP_FLOOR, now);
-    this.out.gain.exponentialRampToValueAtTime(MASTER, now + ONRAMP);
+    this.out.gain.value = MASTER * ONRAMP_FLOOR;
     // snow hushes the world: a high shelf over everything (snow on the ground and in the air soaks up the highs)
     this.hush = this.filter("highshelf", 2500, 0.7); this.hush.gain.value = 0;
     // a safety soft clip after the ceiling (linear to 0.8, then a smooth knee that never reaches 1):
@@ -597,7 +595,13 @@ export class Ambience {
     const prepare = function* (owner: Ambience): Generator<void> {
       yield* fillNoise(white, "white", noiseRng);
       yield* fillNoise(pink, "pink", noiseRng);
-      for (const { source, offset } of owner.loopStarts) source.start(ac.currentTime, offset);
+      // Noise preparation may outlast the arrival: start its clock and on-ramp with the beds.
+      const start = ac.currentTime, delay = start - owner.born;
+      owner.born = start;
+      for (const key of Object.keys(owner.next) as Array<keyof typeof owner.next>) owner.next[key] += delay;
+      owner.out.gain.setValueAtTime(MASTER * ONRAMP_FLOOR, start);
+      owner.out.gain.exponentialRampToValueAtTime(MASTER, start + ONRAMP);
+      for (const { source, offset } of owner.loopStarts) source.start(start, offset);
       owner.loopStarts.length = 0;
     };
     this.noiseJob = prepare(this);
