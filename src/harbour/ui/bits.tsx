@@ -30,10 +30,12 @@ export function Logo({ src, label, color, size }: { src: string | null; label: s
   );
 }
 
-const chainLogos = import.meta.glob("../../../public/chains/*.svg", { eager: true, query: "?url&no-inline", import: "default" });
+/** The chain crests shipped in public/chains (bits.test.tsx checks the list against the folder). */
+export const CHAIN_LOGOS: ReadonlySet<string> = new Set(["aptos", "arbitrum", "avalanche", "base", "bsc", "ethereum", "hyperliquid-l1", "polygon", "solana", "ton", "tron"]);
+/** A chain's crest path, or null when no crest ships (no request, so no 404): the Crest falls back to initials. */
 export function chainLogo(chain: string): string | null {
-  const path = `/chains/${chain.toLowerCase().replace(/\s+/g, "-")}.svg`;
-  return Object.hasOwn(chainLogos, `../../../public${path}`) ? path : null;
+  const slug = chain.toLowerCase().replace(/\s+/g, "-");
+  return CHAIN_LOGOS.has(slug) ? "/chains/" + slug + ".svg" : null;
 }
 
 /** Validated categorical inks on chart paper (dataviz validator: CVD ≥ 11, contrast ≥ 3:1), per palette: harbour-ui.css --c1…--c5. */
