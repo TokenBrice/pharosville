@@ -37,8 +37,8 @@ const MONO = new Set<ClipKind>(["lap", "reef", "crackle", "press", "halyard", "b
  * summer noon never spends a millisecond or a megabyte on thunder or snow.
  */
 const LAZY = new Set<ClipKind>(["drizzle", "rain", "drip", "thunder", "rumble", "bird", "cricket", "cicada", "rustle", "crunch", "mallet", "adze", "saw", "owl", "nightjar", "tolling", "conch", "gun", "swish", "flap"]);
-/** the first of each kind comes first, so the scene is audible within a few hundred ms */
-const FIRST: ClipKind[] = ["shore", "lap", "reef", "shore", "lap", "halyard", "gull", "creak", "bell", "crackle", "press"];
+/** the first of each kind comes first, so the scene is audible within a few hundred ms: a lap (small, quick) first of all */
+const FIRST: ClipKind[] = ["lap", "shore", "reef", "shore", "lap", "halyard", "gull", "creak", "bell", "crackle", "press"];
 const REFRESH: ClipKind[] = ["shore", "lap", "reef", "shore", "gull", "lap", "halyard", "creak"];
 
 interface Job { kind: ClipKind; slot: number; gen: Generator<void, Clip> }
