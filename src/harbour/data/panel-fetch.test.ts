@@ -9,6 +9,7 @@ import { WORLD_ENDPOINT_KEYS } from "@shared/lib/pharosville-endpoint-registry";
 import { panelUpstreamFixtures, PANEL_NOW, PANEL_COIN_ID } from "../__fixtures__/panels";
 import { PanelFetcher } from "./panel-fetch";
 import { PanelLiquidityRowSchema } from "@shared/types/pharosville-panels";
+import runtimeSlim from "@shared/data/stablecoins/runtime-slim.json";
 
 const signal = () => new AbortController().signal;
 function mockReading(key: typeof PHAROSVILLE_PANEL_ENDPOINT_KEYS[number], change: Record<string, ProjectionJson> = {}, headers: HeadersInit = {}) {
@@ -31,9 +32,9 @@ describe("coin-panel fetch path", () => {
     expect((request.mock.calls[0][0] as string).startsWith("/api/")).toBe(true);
   });
 
-  it("never requests a live-only or malformed subject", async () => {
+  it("never requests a pre-launch, frozen, live-only or malformed subject", async () => {
     const request = mockReading("depegEvents");
-    for (const key of PHAROSVILLE_PANEL_ENDPOINT_KEYS) for (const id of ["unknown", "USDC-CIRCLE", "usdc-circle/extra"]) {
+    for (const key of PHAROSVILLE_PANEL_ENDPOINT_KEYS) for (const id of ["unknown", "USDC-CIRCLE", "usdc-circle/extra", ...runtimeSlim.map((coin) => coin.id)]) {
       expect(await new PanelFetcher().fetch(key, id, signal())).toMatchObject({ state: "unavailable", data: null });
     }
     expect(request).not.toHaveBeenCalled();

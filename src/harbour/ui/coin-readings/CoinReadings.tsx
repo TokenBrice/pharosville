@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RUNTIME_ACTIVE_IDS } from "@shared/lib/stablecoins/runtime-registry";
+import { RUNTIME_ACTIVE_IDS } from "@shared/lib/stablecoins/runtime-active-ids";
 import { PHAROSVILLE_PANEL_ENDPOINT_REGISTRY, type PanelEndpointKey } from "@shared/lib/pharosville-panel-endpoints";
 import type { HarbourModel } from "../../model/types";
 import { truthCopy } from "../truth-copy";

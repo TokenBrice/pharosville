@@ -1,6 +1,6 @@
 import { API_FRESHNESS_MAX_AGE_SEC } from "./api-freshness";
 import { CRON_INTERVALS_CLIENT as CRON_INTERVALS } from "./cron-intervals-client";
-import { RUNTIME_ACTIVE_IDS } from "./stablecoins/runtime-registry";
+import { RUNTIME_ACTIVE_IDS } from "./stablecoins/runtime-active-ids";
 
 export const PHAROSVILLE_PANEL_ENDPOINT_KEYS = ["depegEvents", "stablecoinReserves", "dexLiquidity"] as const;
 export type PanelEndpointKey = typeof PHAROSVILLE_PANEL_ENDPOINT_KEYS[number];

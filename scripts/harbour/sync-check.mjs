@@ -4,7 +4,7 @@
  * FAILS when the order book or the logo book points at a file that is not in public/ (or a yard logo is not in
  * data/logos.json). WARNS, never fails, when the sync stamp (data/pharos-watch-sync.json) is missing or older than
  * 30 days: run `npm run sync:pharos-watch -- --source <pharos-watch checkout>` (docs/pharosville/OPERATIONS.md).
- * Also FAILS when shared/data/stablecoins/runtime-slim.json is stale against coins.generated.json + canonical-order.json.
+ * Also FAILS when the browser registry cuts are stale against coins.generated.json + canonical-order.json.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -15,6 +15,15 @@ const MAX_AGE_DAYS = 30;
 const readJson = (rel) => JSON.parse(readFileSync(join(ROOT, rel), "utf8"));
 
 export const RUNTIME_SLIM = "shared/data/stablecoins/runtime-slim.json";
+export const RUNTIME_ACTIVE_IDS = "shared/data/stablecoins/runtime-active-ids.json";
+/** Same canonical membership and status filter as shared/lib/stablecoins/runtime-registry.ts. */
+export function buildRuntimeActiveIds(coins = readJson("shared/data/stablecoins/coins.generated.json"), order = readJson("shared/data/stablecoins/canonical-order.json")) {
+  const byId = new Map(coins.map((coin) => [coin.id, coin]));
+  return `${JSON.stringify(order.filter((id) => {
+    const coin = byId.get(id);
+    return coin && coin.status !== "pre-launch" && coin.status !== "frozen";
+  }), null, 1)}\n`;
+}
 /** The fields the browser reads from a pre-launch coin (src/harbour/ui/yard.ts) or a frozen one (shared/lib/cemetery-runtime.ts's shape). */
 const SLIM_KEYS = ["id", "name", "symbol", "status", "llamaId", "flags", "launchPhase", "launchPhaseDetail", "expectedLaunchDate", "milestones", "obituary", "contracts"];
 /**
@@ -57,9 +66,11 @@ function main() {
     console.warn(`WARN pharos-watch data last changed by a sync ${age} days ago (${stamp.syncedAt}, source ${String(stamp.commit).slice(0, 12)}): run \`npm run sync:pharos-watch\` (no diff simply means it is still current)`);
   }
 
-  let slimText = null;
-  try { slimText = readFileSync(join(ROOT, RUNTIME_SLIM), "utf8"); } catch { /* reported below */ }
-  if (slimText !== buildRuntimeSlim()) errors.push(`${RUNTIME_SLIM} is stale against coins.generated.json + canonical-order.json: run \`npm run sync:pharos-watch\``);
+  for (const [path, build] of [[RUNTIME_SLIM, buildRuntimeSlim], [RUNTIME_ACTIVE_IDS, buildRuntimeActiveIds]]) {
+    let text = null;
+    try { text = readFileSync(join(ROOT, path), "utf8"); } catch { /* reported below */ }
+    if (text !== build()) errors.push(`${path} is stale against coins.generated.json + canonical-order.json: run \`npm run sync:pharos-watch\``);
+  }
 
   if (errors.length) {
     console.error("pharos-watch vendored data check failed:");

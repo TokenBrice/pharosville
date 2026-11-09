@@ -1,7 +1,7 @@
 import {
   panelEndpointPath, PHAROSVILLE_PANEL_ENDPOINT_REGISTRY, PANEL_RESERVES_MAX_AGE_SEC, type PanelEndpointKey,
 } from "@shared/lib/pharosville-panel-endpoints";
-import { RUNTIME_ACTIVE_IDS } from "@shared/lib/stablecoins/runtime-registry";
+import { RUNTIME_ACTIVE_IDS } from "@shared/lib/stablecoins/runtime-active-ids";
 import { FRESHNESS_RATIOS } from "@shared/lib/status-thresholds";
 import { PHAROSVILLE_PANEL_SCHEMAS, type PanelPayload } from "@shared/types/pharosville-panels";
 import type { ApiMeta } from "@shared/types/api-meta";

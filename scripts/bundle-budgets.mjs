@@ -36,8 +36,23 @@ export const bundleBudgets = {
     // bridge palette, slips, dated charts with values tables, the help and controls sheet with lucide icons, the
     // five-stop guide, Watch controls, ledger panes and filters, measured framing, the gesture/zoom/picking rework,
     // typed services and checked shader patches. Measured 994.4 KiB raw / 337.5 KiB gzip. Cap = measured + ~10%.
-    maxRawBytes: 1094 * 1024,
-    maxGzipBytes: 371 * 1024,
+    // Re-baselined 2026-11-09 for Golden Hour v1.8.0 (since 00f9a9bc): coin-panel readings (i-panel),
+    // harbour report/digest (d-report), subject links (d-links), postcard receipt (a-postcard), sky extras
+    // (e-sky), harbour mirror (e-mirror), decorative score (e-score), live welcome HTML/OG card (u-welcome).
+    // After the compact active-id fix: 1,225,517 B raw / 409,031 B gzip (hash-only gzip change).
+    // Cap = measured + 10%, rounded up to whole bytes.
+    maxRawBytes: 1_348_069,
+    maxGzipBytes: 449_935,
+    required: true,
+  },
+  detailPanels: {
+    label: "Detail panels lazy chunk",
+    pattern: /^DetailPanels-[A-Za-z0-9_-]+\.js$/,
+    // 2026-11-09 v1.8.0: client active IDs now come from a generated ID-only registry cut.
+    // Removing full coin metadata reduced 607,352 B raw / 157,807 B gzip to 159,215 / 49,488 B.
+    // Cap = measured + 10%, rounded up; guards against metadata returning to the panel path.
+    maxRawBytes: 175_137,
+    maxGzipBytes: 54_437,
     required: true,
   },
   renderer: {
@@ -93,8 +108,13 @@ export const aggregateBudgets = {
   // growth is lazy (detail panels, prelaunch book, planner worker), not first-frame JS.
   // Re-baselined 2026-10-25 (Living Harbour v1.4.0 on Fair Wind v1.3.0): measured 2,408.3 KiB raw /
   // 774.1 KiB gzip in total (incl. the lazy sound and music chunks). Cap = measured + ~10%.
-  maxJsRawBytes: 2_650 * 1024,
-  maxJsGzipBytes: 852 * 1024,
+  // Re-baselined 2026-11-09 for Golden Hour v1.8.0: the feature lanes recorded above also grow
+  // on-demand panels and the welcome/subject-link chunks. Measured 3,281,891 B raw / 1,017,204 B gzip.
+  // Compact client active IDs remove full coin metadata from DetailPanels: re-measured
+  // 2,833,754 B raw / 908,869 B gzip; the feature growth above remains included.
+  // Cap = measured + 10%, rounded up to whole bytes; HTML and the OG image are outside this JS total.
+  maxJsRawBytes: 3_117_130,
+  maxJsGzipBytes: 999_756,
 };
 
 export const forbiddenBundleChunks = [
