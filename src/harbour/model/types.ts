@@ -194,6 +194,8 @@ export interface PsiReading {
    * `.depegEventsUnavailable` true): the horn shutter narrows the beam; the Pharos panel says so.
    */
   qualified: boolean;
+  /** Qualification evidence travels with the installed score, even while a newer feed is preparing. */
+  inputDegradation?: Readonly<{ dewsUnavailable: boolean; depegEventsUnavailable: boolean }>;
 }
 
 export interface SeaStateReading {

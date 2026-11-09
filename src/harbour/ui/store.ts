@@ -17,6 +17,8 @@ import { UIPicking } from "./picking";
 import { civicTop, inPoly, plotFor, seaZones } from "./places";
 import { idleBreath, modelWatch, watchSources, WATCH_DWELL_S, type WatchStop } from "./watch";
 import { truthCopy } from "./truth-copy";
+import { postcardReceipt, type PostcardFrame } from "./postcard";
+import { renderedPresentation } from "./presentation";
 import { nextPalette, registerPaletteTokens, type Palette } from "./palette";
 import { ElementMeasurements } from "./measurements";
 import { footprintBounds, frameSubject, usableSpace, type ScreenRect, type SubjectBounds } from "./camera-moves";
@@ -793,26 +795,34 @@ export class HarbourUIStore {
   onPostcard(fn: () => void): () => void { this.postcardFns.add(fn); return () => this.postcardFns.delete(fn); }
   requestPostcard(): void { for (const fn of this.postcardFns) fn(); }
 
-  /**
-   * The next rendered frame, copied at display resolution. The overlay UI and the hover step aside for
-   * it (`capturing`); the copy is taken in a rAF callback queued after the engine's own, so the drawing
-   * buffer still holds the frame just rendered (no preserveDrawingBuffer needed).
-   */
-  async captureFrame(): Promise<HTMLCanvasElement> {
+  /** Copy pixels and provenance inside the same successful composer render, at display resolution. */
+  async captureFrame(): Promise<PostcardFrame> {
     this.setHover(null);
     this.set({ capturing: true });
     try {
       // let the hover lift fade from the hulls (~250 ms) before the shutter
       await new Promise((r) => setTimeout(r, 320));
-      return await new Promise<HTMLCanvasElement>((resolve, reject) => requestAnimationFrame(() => requestAnimationFrame(() => {
-        try {
-          const src = this.ctx.renderer.domElement;
-          const c = document.createElement("canvas");
-          c.width = src.width; c.height = src.height;
-          c.getContext("2d")!.drawImage(src, 0, 0);
-          resolve(c);
-        } catch (error) { reject(error); }
-      })));
+      return await new Promise<PostcardFrame>((resolve, reject) => {
+        const signal = this.ctx.signal;
+        if (signal?.aborted) { reject(new DOMException("Capture cancelled", "AbortError")); return; }
+        const finish = () => { unsubscribe(); clearTimeout(timeout); signal?.removeEventListener("abort", abort); };
+        const abort = () => { finish(); reject(new DOMException("Capture cancelled", "AbortError")); };
+        const timeout = setTimeout(() => { finish(); reject(new Error("No completed postcard frame")); }, 5000);
+        const unsubscribe = this.engine.onRendered((rendered) => {
+          finish();
+          try {
+            const receipt = postcardReceipt(this.readModel(), this.ctx.timeOfDay.clockHour, Date.now(),
+              renderedPresentation(rendered, this.ctx.services.get("readiness"), this.ctx.services.get("simulation-status")?.unavailable === true),
+              this.state.selected, this.state.chartMode);
+            const src = this.ctx.renderer.domElement;
+            const frame = document.createElement("canvas");
+            frame.width = src.width; frame.height = src.height;
+            frame.getContext("2d")!.drawImage(src, 0, 0);
+            resolve({ frame, receipt });
+          } catch (error) { reject(error); }
+        });
+        signal?.addEventListener("abort", abort, { once: true });
+      });
     } finally { this.set({ capturing: false }); }
   }
 

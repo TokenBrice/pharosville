@@ -34,6 +34,8 @@ export function psiReading(stability: StabilityPayload | null, truth: EndpointTr
       : band === "TREMOR" || band === "FRACTURE" ? "amber" : "red",
     stale: truth.state === "stale",
     qualified: lit && psiQualified(cur?.inputDegradation),
+    inputDegradation: { dewsUnavailable: cur?.inputDegradation?.dewsUnavailable === true,
+      depegEventsUnavailable: cur?.inputDegradation?.depegEventsUnavailable === true },
   };
 }
 
