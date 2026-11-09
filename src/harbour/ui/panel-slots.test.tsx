@@ -12,7 +12,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 it.each(["boat", "harbourmaster"])("mounts empty %s slots without adding DOM", (kind) => {
   const f = panelFixture();
-  const slots = [vi.spyOn(coin, "CoinReadings"), vi.spyOn(reports, "HarbourReports"), vi.spyOn(actions, "PanelActions"), vi.spyOn(actions, "PanelOutbound")];
+  const slots = [vi.spyOn(coin, "CoinReadings"), vi.spyOn(reports, "HarbourReports"), vi.spyOn(actions, "PanelActions").mockReturnValue(null), vi.spyOn(actions, "PanelOutbound").mockReturnValue(null)];
   f.store.select(kind === "boat" ? { kind: "boat", id: f.model.boats[0].id } : { kind: "landmark", id: "harbourmaster" }, { fly: false });
   const ui = render(<StoreContext.Provider value={f.store}><SidePanel onClose={() => {}} /></StoreContext.Provider>);
   try {

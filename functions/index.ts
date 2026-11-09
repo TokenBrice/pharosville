@@ -1,4 +1,6 @@
-import { RUNTIME_ACTIVE_META_BY_ID } from "../shared/lib/stablecoins/runtime-registry";
+import { RUNTIME_TRACKED_STABLECOINS, RUNTIME_ACTIVE_META_BY_ID } from "../shared/lib/stablecoins/runtime-registry";
+import { CHAIN_META } from "../shared/lib/chains";
+import { canonicalSubjectUrl, parseSubject } from "../shared/lib/selection-link";
 import { nightShell, wantsNightPoster } from "./_poster";
 
 /**
@@ -35,6 +37,7 @@ interface PagesContext {
  */
 interface HtmlRewriterElement {
   setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
   setInnerContent(content: string, options?: { html?: boolean }): void;
 }
 
@@ -49,33 +52,15 @@ export interface SocialCardCopy {
   description: string;
   title: string;
   url: string;
+  subjectLine: string;
 }
 
-const CANONICAL_ORIGIN = "https://pharosville.pharos.watch";
-
-/**
- * The shape a PharosVille detail id may take, checked before the id is looked
- * up and before any of it is used to build a URL. Membership in a known-entity
- * set is the real gate below; this is the cheap structural reject that keeps
- * anything markup-shaped, spaced or protocol-relative from reaching that far.
- */
-const SELECTION_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
-
-const SHIP_ID_PREFIX = "ship.";
-
-/**
- * Landmarks carry fixed copy because they are fixed places. Ships are looked up
- * in the checked-in fleet registry instead — see `shipCardCopy`.
- */
-const LANDMARK_CARD_COPY: Record<string, Omit<SocialCardCopy, "url">> = {
-  lighthouse: {
-    description: "The Pharos lighthouse reads the whole fleet at once: its beam and its band carry the Pharos Stability Index, and it sweeps faster the less steady the seas are.",
-    title: "The Pharos lighthouse — PharosVille",
-  },
-  pigeonnier: {
-    description: "The pigeonnier carries word in and out of PharosVille, where live Pharos stablecoin signals are drawn as a working port.",
-    title: "The pigeonnier — PharosVille",
-  },
+/** Fixed identities only; keep in step with the client's PANEL_LANDMARKS (tested below). */
+const PLACE_NAMES: Record<string, string> = {
+  pharos: "The Pharos lighthouse", shoals: "The Shoals", "customs-house": "Customs House", "tide-board": "Customs House",
+  "storm-mast": "Storm-signal Station", "wreck-cove": "Wreck Cove", "far-ports": "The Far Ports", registry: "The Registry",
+  harbourmaster: "Harbourmaster’s Office", slipway: "The Shipyard", "tide-gauge": "Tide Gauge", mint: "The Mint", burn: "The Burn",
+  chartroom: "The Chart Room", keeperslog: "The Keeper’s Log", "the-roads": "The Roads",
 };
 
 /**
@@ -87,7 +72,7 @@ const LANDMARK_CARD_COPY: Record<string, Omit<SocialCardCopy, "url">> = {
  * into a literal `fleet&#39;s` in the unfurl. What keeps markup out of the page
  * is upstream of both — every value written is a literal in this file or a name
  * from the checked-in fleet registry, reached only through an id that matched
- * `SELECTION_ID_PATTERN` and resolved to a known entity.
+ * the shared codec and resolved to a known entity.
  */
 export function escapeHtml(value: string): string {
   return value
@@ -98,60 +83,36 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function permalinkFor(selectionId: string): string {
-  return `${CANONICAL_ORIGIN}/?sel=${encodeURIComponent(selectionId)}`;
-}
-
-function shipCardCopy(selectionId: string): Omit<SocialCardCopy, "url"> | null {
-  const assetId = selectionId.slice(SHIP_ID_PREFIX.length);
-  const meta = RUNTIME_ACTIVE_META_BY_ID.get(assetId);
-  if (!meta) return null;
-
-  const named = meta.symbol === meta.name ? meta.symbol : `${meta.name} (${meta.symbol})`;
-  return {
-    description: `Watch ${named} in PharosVille: the water under its hull is peg risk, the harbour it docks in is its chain, and the lighthouse beam reads the fleet's stability.`,
-    title: `${meta.symbol} — ${meta.name} in PharosVille`,
-  };
-}
-
-/**
- * The card for a `sel=` value, or `null` to leave the static tags alone.
- *
- * `null` is the answer for every input that is not a selection this world can
- * actually show — absent, wrongly shaped, or well-shaped but naming no known
- * entity. Chain docks fall in that last group on purpose: their ids come from
- * live `/api/chains` data, so there is no fixed set to check them against, and
- * a card is not worth a fetch on the shell route.
- *
- * The raw parameter is never echoed. Everything that reaches the page is either
- * a literal from this file or a name from the checked-in fleet registry, and
- * both are escaped anyway.
- */
+/** The edge resolves static identity only; live-only subjects keep the generic shell. */
 export function socialCardForSelection(rawSelection: string | null): SocialCardCopy | null {
-  if (!rawSelection || !SELECTION_ID_PATTERN.test(rawSelection)) return null;
-
-  const copy = rawSelection.startsWith(SHIP_ID_PREFIX)
-    ? shipCardCopy(rawSelection)
-    : Object.hasOwn(LANDMARK_CARD_COPY, rawSelection)
-      ? LANDMARK_CARD_COPY[rawSelection]
-      : null;
-  if (!copy) return null;
-
-  return { ...copy, url: permalinkFor(rawSelection) };
-}
-
-/**
- * Reads `sel=` from the query string the same way `parseInitialWorldUrlState`
- * does when the search string owns the world params, so a `?sel=` link resolves
- * to the same entity on both sides of the request.
- *
- * The app's own Copy link button currently emits the HASH form
- * (`/#sel=ship.usdc`), and a fragment is never sent to a server — no Function
- * can see it. This route therefore only fires for the query form. See
- * `docs/pharosville/OPERATIONS.md`.
- */
-function selectionFromUrl(url: URL): string | null {
-  return url.searchParams.get("sel");
+  const subject = parseSubject(rawSelection);
+  if (!subject) return null;
+  let name: string, title: string, description: string;
+  if (subject.kind === "ship") {
+    const meta = RUNTIME_ACTIVE_META_BY_ID.get(subject.id);
+    if (!meta) return null;
+    name = meta.symbol === meta.name ? meta.symbol : `${meta.name} (${meta.symbol})`;
+    title = `${meta.symbol} — ${meta.name} in PharosVille`;
+    description = `Watch ${name} in PharosVille: the water under its hull is peg risk, the harbour it docks in is its chain, and the lighthouse beam reads the fleet's stability.`;
+  } else if (subject.kind === "place") {
+    if (!Object.hasOwn(PLACE_NAMES, subject.id)) return null;
+    name = PLACE_NAMES[subject.id];
+    title = `${name} — PharosVille`;
+    description = `Explore ${name} in PharosVille, where Pharos stablecoin signals are drawn as a working port.`;
+  } else if (subject.kind === "chain") {
+    if (!Object.hasOwn(CHAIN_META, subject.id)) return null;
+    name = CHAIN_META[subject.id].name;
+    title = `${name} — PharosVille`;
+    description = `Explore ${name} in PharosVille: harbours show stablecoin supply by chain.`;
+  } else if (subject.kind === "yard") {
+    // Reuse the registry already bundled here; the larger launch book stays out of the shell Function.
+    const meta = RUNTIME_TRACKED_STABLECOINS.find((coin) => coin.id === subject.id && coin.status === "pre-launch");
+    if (!meta) return null;
+    name = meta.symbol === meta.name ? meta.symbol : `${meta.name} (${meta.symbol})`;
+    title = `${meta.symbol} — ${meta.name} in the PharosVille Shipyard`;
+    description = `Explore the Shipyard record for ${name} in PharosVille.`;
+  } else return null; // Wreck narratives stay in the deferred detail chunk.
+  return { title, description, url: canonicalSubjectUrl(subject), subjectLine: `Shared subject: ${name}.` };
 }
 
 function isHtmlResponse(response: Response): boolean {
@@ -192,6 +153,13 @@ export function rewriteSocialCard(response: Response, card: SocialCardCopy): Res
     });
   }
 
+  // Template contents are inert until admission chooses the welcome; no runtime or data is needed.
+  rewriter = rewriter.on("#pv-shared-subject", {
+    element(element) {
+      element.removeAttribute("hidden");
+      element.setInnerContent(escapeHtml(card.subjectLine), { html: true });
+    },
+  });
   return rewriter.transform(response);
 }
 
@@ -265,7 +233,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   const response = night ? await nightResponse(context) : await context.next();
   if (context.request.method !== "GET" || !isHtmlResponse(response)) return response;
 
-  const card = socialCardForSelection(selectionFromUrl(url));
+  const card = socialCardForSelection(url.searchParams.get("sel"));
   if (!card) return response;
 
   return rewriteSocialCard(response, card);

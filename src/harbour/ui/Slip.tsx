@@ -55,6 +55,7 @@ export function Slip() {
   const still = useUISlice((s) => !!s.still);
   const watch = useUISlice((s) => s.watch);
   const moment = useMoment(store);
+  const linkNotice = useUISlice((s) => s.linkNotice);
   const top: SlipMode | "moment" | null = watch ? null : moment ? "moment" : still ? "still" : names ? "names" : null;
   // what the slip last said stays drawn while it fades out
   const [last, setLast] = useState<SlipMode | "moment" | null>(null);
@@ -64,6 +65,7 @@ export function Slip() {
   useEffect(() => {
     if (moment && !watch) store.set({ announce: `Day book: ${momentLine(moment)}` });
   }, [store, moment, watch]);
+  if (linkNotice) return <div className="hb-slip hb-paper" role="status" aria-live="polite" data-shown="true" data-mode="link">{linkNotice}</div>;
   if (last === "moment" && shownMoment) {
     const subject = momentSubject(store, shownMoment);
     return (

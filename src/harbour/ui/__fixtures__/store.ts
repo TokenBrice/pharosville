@@ -9,15 +9,18 @@ import type { HarbourPayloads } from "../../model/types";
 import { projectedFixtures, TRUTH_NOW } from "../../__fixtures__/projection";
 import { HarbourUIStore } from "../store";
 import { newLedgerContext } from "../ledger-state";
+import layout from "../../data/layout.json";
+import type { HarbourLayout } from "../../layout/types";
 
 export function panelFixture(width = 1600, height = 1000, opts: { restore?: boolean; current?: boolean } = {}) {
+  if (!opts.restore) history.replaceState(null, "", "/");
   const payloads = Object.fromEntries(Object.entries(projectedFixtures()).map(([key, data]) => [key, { data, meta: (data as { _meta?: unknown })._meta, fetchedAtMs: TRUTH_NOW }])) as HarbourPayloads;
   const model = buildHarbourModel(payloads, TRUTH_NOW);
   if (opts.current === false) model.truth.stablecoins.state = "unknown";
   const canvas = document.createElement("canvas"), camera = new THREE.PerspectiveCamera(25, width / height), rig = new CameraRig(camera);
   let w = width, h = height;
   Object.defineProperties(canvas, { clientWidth: { get: () => w }, clientHeight: { get: () => h }, offsetWidth: { get: () => w }, offsetHeight: { get: () => h } });
-  const ctx = { camera, rig, scene: new THREE.Scene(), uniforms: createWorldUniforms(), services: new Map<string, unknown>([["model", model], ["feed", { payloads }]]), renderer: { domElement: canvas } } as unknown as EngineContext;
+  const ctx = { camera, rig, scene: new THREE.Scene(), uniforms: createWorldUniforms(), services: new Map<string, unknown>([["model", model], ["feed", { payloads }], ["layout", layout as unknown as HarbourLayout]]), renderer: { domElement: canvas } } as unknown as EngineContext;
   rig.applyPreset({ target: [0, 0, 0], distance: 300, fovDeg: 25, pitchDeg: 26, yawDeg: 0 }, true);
   let system!: WorldSystem;
   const store = new HarbourUIStore({ ctx, add: (s: WorldSystem) => { system = s; } } as unknown as Engine);
