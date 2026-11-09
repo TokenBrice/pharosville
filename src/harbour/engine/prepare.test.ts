@@ -148,6 +148,36 @@ describe("owned program preparation", () => {
     h.preparation.dispose();
   });
 
+  it("uploads a canvas texture in row bands, one per submission, at their flipped offsets with one mip build", async () => {
+    const h = harness(false);
+    const draws: unknown[][] = [], bands: Array<{ y: number; h: number; mips: boolean }> = [], conversions: number[] = [];
+    const band = { width: 0, height: 0, getContext: () => ({ clearRect: vi.fn(), drawImage: (...a: unknown[]) => draws.push(a) }) };
+    vi.stubGlobal("document", { createElement: () => band });
+    const gl = { NONE: 0, BROWSER_DEFAULT_WEBGL: 0x9244, UNPACK_COLORSPACE_CONVERSION_WEBGL: 0x9243 };
+    const source = { width: 3072, height: 250 }, texture = new THREE.CanvasTexture(source as unknown as HTMLCanvasElement);
+    texture.colorSpace = THREE.SRGBColorSpace; texture.needsUpdate = true;
+    const renderer = h.renderer as unknown as Record<string, unknown>;
+    renderer.getContext = () => gl;
+    renderer.state = { pixelStorei: (name: number, value: number) => { if (name === gl.UNPACK_COLORSPACE_CONVERSION_WEBGL) conversions.push(value); } };
+    h.renderer.initTexture.mockImplementation((t: THREE.Texture) => { expect(t.source.dataReady).toBe(false); });
+    renderer.copyTextureToTexture = vi.fn((src: THREE.Texture, dst: THREE.Texture, region: null, at: THREE.Vector2) => {
+      expect(src.image).toBe(band); expect(dst).toBe(texture); expect(region).toBeNull();
+      bands.push({ y: at.y, h: band.height, mips: dst.generateMipmaps });
+    });
+    const submit = vi.spyOn(h.preparation, "submit");
+    const staged = h.preparation.stageTextureRows(texture, 96);
+    await vi.advanceTimersByTimeAsync(500); await staged;
+    expect(h.renderer.initTexture).toHaveBeenCalledExactlyOnceWith(texture); expect(texture.source.dataReady).toBe(true);
+    expect(submit).toHaveBeenCalledTimes(4); // the allocation, then one band each
+    // canvas rows [0, 96) [96, 192) [192, 250) land flipped: texture rows 154, 58 and 0
+    expect(draws).toEqual([[source, 0, 0, 3072, 96, 0, 0, 3072, 96], [source, 0, 96, 3072, 96, 0, 0, 3072, 96], [source, 0, 192, 3072, 58, 0, 0, 3072, 58]]);
+    expect(bands).toEqual([{ y: 154, h: 96, mips: false }, { y: 58, h: 96, mips: false }, { y: 0, h: 58, mips: true }]);
+    expect(conversions).toEqual([gl.NONE, gl.NONE, gl.NONE]); expect(texture.generateMipmaps).toBe(true);
+    await h.preparation.stageTexture(texture); // the banded version counts as uploaded
+    expect(h.renderer.initTexture).toHaveBeenCalledOnce();
+    h.preparation.dispose();
+  });
+
   it("shares render-target uniforms without cloning textures, warning or losing shader subclasses", () => {
     const target = new THREE.WebGLRenderTarget();
     const textureClone = vi.spyOn(target.texture, "clone");

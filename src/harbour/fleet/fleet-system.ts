@@ -10,7 +10,7 @@ import type { PreparedPrograms } from "../engine/prepare";
 import type { HarbourLayout, HullClass, Pier } from "../layout/types";
 import type { Boat, HarbourModel } from "../model/types";
 import type { OceanService } from "../ocean/ocean-system";
-import { hullSwellCache, WAVES } from "../ocean/waves";
+import { hullSwellCache, pointSwellCache, WAVES } from "../ocean/waves";
 import type { HarbourSim } from "../sim/sim";
 import { EV_TO_SHOALS, EV_TOW, MAX_TUGS, PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING } from "../sim/sim";
 import { getHarbourMaterials } from "../world/materials";
@@ -231,7 +231,7 @@ export class FleetSystem implements WorldSystem {
   private wreckInst: WreckPose[] = [];
   private wreckAbort: AbortController | null = null;
   private wrecksPosed = false;
-  private buoyInst: Array<{ inst: number; x: number; z: number; phi: number; shown: boolean }> = [];
+  private buoyInst: Array<{ inst: number; x: number; z: number; phi: number; shown: boolean; swell: Float64Array }> = [];
   /** E04: the buoy's size on screen (m): its height above the water, from its kit geometry. */
   private buoySize = 1;
   /** Farthest buoy vertex from its origin (scale ≤ 1, small rolls: rotation keeps the length). */
@@ -312,7 +312,7 @@ export class FleetSystem implements WorldSystem {
   private readonly flagLight = new THREE.Color();
   private ocean: OceanService | null = null;
   /** Sea height under (x, z): a method, not a per-frame closure. */
-  private seaH(x: number, z: number): number { return this.ocean ? this.ocean.heightAt(x, z) : 0; }
+  private seaH(x: number, z: number, point?: Float64Array): number { return this.ocean ? this.ocean.heightAt(x, z, point) : 0; }
   /** Sea heights under a hull: centre, bow, stern, port, starboard. */
   private readonly hullH = new Float64Array(5);
   /** A lamp's anchor in the current hull frame (this.m4) → world (this.v). Bound once, not per hull. */
@@ -1040,7 +1040,7 @@ export class FleetSystem implements WorldSystem {
       this.writePaint(inst, null, "", null);
       // E04: weathered ochre (the slot sentinel), not the bright red-and-white of a fairway mark
       this.writeData(inst, 0, 0, 0, 0.45, 0.16, 0.10, BUOY_SLOT);
-      this.buoyInst.push({ inst, x: m.position[0], z: m.position[2], phi: hash01(m.id) * 6.28, shown: true });
+      this.buoyInst.push({ inst, x: m.position[0], z: m.position[2], phi: hash01(m.id) * 6.28, shown: true, swell: pointSwellCache() });
     }
   }
 
@@ -1451,7 +1451,7 @@ export class FleetSystem implements WorldSystem {
         if (bu.shown) { bu.shown = false; mesh.setVisibleAt(bu.inst, false); }
         continue;
       }
-      const y = this.seaH(bu.x, bu.z);
+      const y = this.seaH(bu.x, bu.z, bu.swell);
       const d = Math.hypot(cam.position.x - bu.x, cam.position.y - y, cam.position.z - bu.z);
       const k = buoyScale(d, pxPerM / d, this.buoySize);
       if ((k > 0) !== bu.shown) { bu.shown = k > 0; mesh.setVisibleAt(bu.inst, bu.shown); }

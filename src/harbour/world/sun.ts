@@ -63,6 +63,8 @@ export class SunRig {
   private readonly casterState: CasterState = { live: false, changed: false };
   private readonly casterView: { camera: THREE.PerspectiveCamera; viewHeight: number; sun: THREE.Vector3; frustum: THREE.Frustum | null } =
     { camera: new THREE.PerspectiveCamera(), viewHeight: 1, sun: this.heldSun, frustum: null };
+  /** The canvas CSS height, read once per resize (P-PERF: read each frame, it forced a style and layout pass mid-frame). */
+  private viewH = 0;
 
   constructor(mapSize = 4096) {
     this.mapSize = mapSize;
@@ -184,11 +186,14 @@ export class SunRig {
     this.contacts.end(ctx.uniforms, this.key.shadow.intensity, this.casters.crowds, castFadeUniforms.uHbFigureFade.value, this.scene);
   }
 
+  /** The canvas may have changed size: its height is read again on the next frame. */
+  resize(): void { this.viewH = 0; }
+
   /** This frame's view of the casters: the camera, its CSS height, the map's sun and its light frustum (fitted). */
   private view(ctx: EngineContext): CasterView {
     const v = this.casterView, k = this.key;
     v.camera = ctx.camera;
-    v.viewHeight = ctx.renderer.domElement.clientHeight || innerHeight;
+    v.viewHeight = this.viewH ||= ctx.renderer.domElement.clientHeight || innerHeight;
     k.updateWorldMatrix(true, false);
     k.target.updateWorldMatrix(true, false);
     k.shadow.updateMatrices(k);
