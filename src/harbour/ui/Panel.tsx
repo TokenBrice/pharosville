@@ -30,6 +30,9 @@ import { DayBook } from "./DayBook";
 import { DecorativeCalendar } from "./DecorativeCalendar";
 import { usePanelSpace } from "./panel-space";
 import { guideStopFor } from "./Guide";
+import { CoinReadings } from "./coin-readings/CoinReadings";
+import { HarbourReports } from "./harbour-report/HarbourReports";
+import { PanelActions, PanelOutbound } from "./panel-actions/PanelActions";
 
 type Raw = Record<string, unknown>;
 const raw = (store: HarbourUIStore, key: string): Raw | null => {
@@ -60,6 +63,7 @@ export function SidePanel({ onClose }: { onClose: () => void }) {
   if (!mounted || !hit) return null;
   return (
     <aside ref={panel} inert={selected == null} className="hb-panel hb-paper hb-neat hb-fade" data-shown={shown && selected != null} aria-labelledby="hb-panel-title" role="complementary">
+      <PanelActions />
       <button type="button" className="hb-close" aria-label="Close panel (Esc)" onClick={onClose}>
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
       </button>
@@ -67,6 +71,7 @@ export function SidePanel({ onClose }: { onClose: () => void }) {
       {origin && <button type="button" className="hb-return hb-textbtn" onClick={() => store.returnToLedger()}>Return to ledger</button>}
       <div className="hb-panel-record">
         <PanelContent hit={hit} titleRef={titleRef} key={key} />
+        <PanelOutbound />
         {guideStop != null && <button type="button" className="hb-textbtn hb-how" onClick={() => store.startGuide(guideStop)}>How to read this</button>}
         <PanelSources hit={hit} />
       </div>
@@ -223,6 +228,7 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
             </>}
           </> : <p className="hb-empty">No flow reading is available for this coin.</p>}
         </Sec>
+        <CoinReadings id={b.id} model={model} />
         <Scenery>
         {whereLine(b, w) && <div className="hb-where">{titleCase(whereLine(b, w).charAt(0)) + whereLine(b, w).slice(1)}</div>}
         <FollowToggle id={b.id} underWay={w.kind === "sailing" || w.kind === "casting-off" || w.kind === "outing"} />
@@ -605,6 +611,7 @@ function HarbourmasterPanel({ titleRef }: { titleRef: P["titleRef"] }) {
             {s.stats.outings != null && <p className="hb-caption">A boat out for a sail is decoration: a loop out of its own harbour and back to the same berth.</p>}
           </Sec>
         )}
+        <HarbourReports />
         <DayBook open={store.getSnapshot().selected?.id === "harbourmaster"} />
         <Scenery>
         <p className="hb-why">Boats follow deterministic schedules shared by visitors.</p>

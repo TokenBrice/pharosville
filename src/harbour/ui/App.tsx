@@ -18,6 +18,7 @@ import { ACTIONS, ActionContext, performAction, type HarbourAction } from "./Key
 import { readShortcuts, saveShortcuts } from "./shortcuts";
 import { useOverlayRects } from "./measurements";
 import type { LabelBox } from "./cull";
+import { recordReading } from "./harbour-report/recorder";
 
 /** Arrow keys pan. (No WASD: W is the opt-in watch, D-5, and half a WASD set would only confuse.) */
 const PAN_KEYS: Record<string, "up" | "down" | "left" | "right"> = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
@@ -27,6 +28,7 @@ const ownsNavigation = (t: EventTarget | null) => t instanceof HTMLElement && !!
 
 export function HarbourUI() {
   const store = useStore();
+  useEffect(() => recordReading(store), [store]);
   const searchOpen = useUISlice((s) => s.searchOpen);
   const shipChoices = useUISlice((s) => s.shipChoices);
   const selected = useUISlice((s) => s.selected);
