@@ -71,13 +71,15 @@ export async function freezeCapture({ elapsed, epoch, closest, band, filmstrip, 
   }
   if (!image) throw new Error("Golden emblem image did not decode");
   try {
-    const { slot: size, cols, ids } = fleet.atlas.meta;
-    const slot = Math.min(...Object.values(ids)), x = slot % cols * size, y = Math.floor(slot / cols) * size;
+    const { cols, ids, width, height } = fleet.atlas.meta;
+    const size = logoTexture.image.width / cols, rows = logoCount / cols, srcRow = height / rows;
+    const slot = Math.min(...Object.values(ids)), row = Math.floor(slot / cols), x = slot % cols * size, y = row * size;
     const reference = document.createElement("canvas");
-    reference.width = reference.height = size;
+    reference.width = logoTexture.image.width; reference.height = size;
     const context = reference.getContext("2d");
-    context.drawImage(image, x, y, size, size, 0, 0, size, size);
-    const expected = context.getImageData(0, 0, size, size).data;
+    // Match stageLogos' full-row scaling; metadata slots describe the source, not the runtime atlas.
+    context.drawImage(image, 0, row * srcRow, width, srcRow, 0, 0, reference.width, size);
+    const expected = context.getImageData(x, 0, size, size).data;
     const actual = logoTexture.image.getContext("2d").getImageData(x, y, size, size).data;
     if (!expected.some((value, i) => i % 4 === 3 && value > 0) || !actual.every((value, i) => value === expected[i])) throw new Error("Golden atlas does not contain the decoded logo tile");
   } finally { image.close(); }
