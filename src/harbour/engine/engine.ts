@@ -14,7 +14,7 @@ import { createWorldUniforms } from "./uniforms";
 import type { EngineContext, HarbourStats, RenderedFleetState, WorldSystem } from "./types";
 import { isPreparationAbort, preparationConsumer, ProgramPreparation, type PreparedPrograms } from "./prepare";
 import type { PreparationPriority } from "./preparation-queue";
-import { backingDpr, backingLimitsFor, TIERS, type BackingLimits, type QualitySettings } from "./quality";
+import { backingDpr, backingLimitsFor, HEADROOM_PIXELS, RT_BYTES_PER_PIXEL, TIERS, type BackingLimits, type QualitySettings } from "./quality";
 import { BootFailure, failureCode, type HarbourLifecycle } from "./failure";
 import { GraphicsValidity, probeGraphics } from "./graphics";
 import { getHarbourMaterials, shaderFeatureKey } from "../world/materials";
@@ -108,6 +108,8 @@ export class Engine {
   private width = 0;
   private height = 0;
   private pixelRatio = 0;
+  /** The drawing buffer and its estimated render-target memory (Q3: logged on every headroom-rung transition). */
+  readonly backing = { width: 0, height: 0, rtMB: 0, headroom: false };
   /** Reused every frame (no per-frame allocation). */
   private readonly frameState: { elapsed: number; delta: number; nowMs: number } = { elapsed: 0, delta: 0, nowMs: 0 };
   private readonly stats: HarbourStats = {
@@ -590,7 +592,9 @@ export class Engine {
       this.resolution = typeof matchMedia === "function" ? matchMedia(`(resolution: ${devicePixelRatio}dppx)`) : undefined;
       this.resolution?.addEventListener("change", this.onResize);
     }
-    const displayChanged = this.governor.reconcileDisplay(devicePixelRatio, backingDpr(w, h, 2, this.backingLimits));
+    // B25's 4 MP ceiling governs arrival, pins and rescue; Q3's headroom rungs have their own 8.3 MP ceiling
+    const displayChanged = this.governor.reconcileDisplay(devicePixelRatio, backingDpr(w, h, 2, this.backingLimits),
+      backingDpr(w, h, 2, this.backingLimits, HEADROOM_PIXELS));
     const dpr = this.governor.dpr;
     const changed = w !== this.width || h !== this.height || dpr !== this.pixelRatio;
     if (changed) {
@@ -602,6 +606,10 @@ export class Engine {
       if (camera.aspect !== w / h) { camera.aspect = w / h; camera.updateProjectionMatrix(); }
       uniforms.uResolution.value.set(Math.floor(w * dpr), Math.floor(h * dpr));
       this.stats.dpr = dpr;
+      const b = this.backing, headroom = this.governor.headroom, was = b.headroom;
+      b.width = Math.floor(w * dpr); b.height = Math.floor(h * dpr); b.headroom = headroom;
+      b.rtMB = Math.round(b.width * b.height * RT_BYTES_PER_PIXEL / 1e6);
+      if (headroom || was) console.info(`[harbour] backing ${b.width}×${b.height} (DPR ${dpr.toFixed(2)}, ≈${b.rtMB} MB render targets)${headroom ? " on a headroom rung" : ""}`);
     }
     if (changed || forceSystems) for (const s of this.systems) if (this.ready.has(s)) s.resize?.(w, h, this.ctx);
     if (displayChanged) this.governor.publish();

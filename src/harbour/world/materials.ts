@@ -22,6 +22,8 @@ import { LAMP_WAVE_GLSL, lampWaveUniforms } from "../lights/lamp-wave";
 import { dewUniforms } from "../weather/dew";
 import { SWAY_VERTEX_APPLY, SWAY_VERTEX_DECL, swayUniforms } from "./sway";
 import { METAL_GLSL } from "./metal";
+import { CROWN_CALL_GLSL, CROWN_GLSL } from "./shaders/crowns";
+import { extraEnabled } from "../engine/extras";
 
 /**
  * THE HARBOUR MATERIAL PORT — style C "Northern Light" (p1/style-c/nl_common.py build_kit_material,
@@ -392,6 +394,11 @@ export class HarbourMaterials {
   }
   hbAerial(outgoingLight, vHbWorld, 0.0);   // distance (decorative, world/aerial.ts)
   #include <opaque_fragment>`, { id: "world.17.opaque_fragment" });
+      // E21 backlit crowns (world/shaders/crowns.ts): Medium and High only, and only with the boot's extras switch
+      if (!features.lite && extraEnabled("crowns")) {
+        shader.fragmentShader = patch(shader.fragmentShader, "#include <shadowmap_pars_fragment>", `#include <shadowmap_pars_fragment>\n${CROWN_GLSL}`, { id: "world.crowns.pars" });
+        shader.fragmentShader = patch(shader.fragmentShader, "\n    outgoingLight += hbLmHoverRim(", `${CROWN_CALL_GLSL}\n    outgoingLight += hbLmHoverRim(`, { id: "world.crowns.call" });
+      }
     };
     m.customProgramCacheKey = () => `hb_kit_${shaderFeatureKey(this.featureIdentity(opts.pattern ?? 0))}`;
     this.cache.set(key, m);

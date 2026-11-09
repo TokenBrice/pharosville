@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QualityGovernor } from "./governor";
 import type { QualitySettings } from "./quality";
 import { deferred } from "./deferred";
+import { printContrast } from "../fleet/shaders/print";
 
 /** A WebGL2 stand-in with no timer-query extension (Safari / Chrome-on-Mac path) and a named GPU. */
 function fakeGl(renderer: string): WebGL2RenderingContext {
@@ -486,5 +487,139 @@ describe("display and lifecycle decision generations", () => {
     ready.resolve(); await ready.promise; await Promise.resolve();
     expect([g.tier, g.dpr]).toEqual(["low", 1]);
     expect(applied).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("v1.8.0 Q3 headroom rungs (1× supersampling, N5)", () => {
+  beforeEach(() => { vi.stubGlobal("location", { search: "" }); vi.stubGlobal("devicePixelRatio", 1); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+  const RTX = "ANGLE (NVIDIA, Vulkan 1.4 (NVIDIA GeForce RTX 5070 Ti), NVIDIA)";
+  /** 1920×1080 @1: 4 MP base ceiling 1.389, 8.3 MP headroom ceiling 2.0007; GPU cost ∝ backing pixels. */
+  const hd = (renderer = RTX, baseMs = 2.4) => {
+    const gpu = { ms: baseMs }, trace: string[] = [], prepare = vi.fn(async () => {});
+    const g = new QualityGovernor(timedGl(renderer, gpu), (s, dpr) => { gpu.ms = baseMs * dpr * dpr; trace.push(`${s.tier}@${dpr}`); });
+    g.setPreparation(prepare, () => false);
+    g.reconcileDisplay(1, Math.sqrt(4e6 / (1920 * 1080)), Math.sqrt(8.3e6 / (1920 * 1080)));
+    return { g, gpu, trace, prepare };
+  };
+
+  it("arrives at the 4 MP High rung and climbs 1.5 → 2 only after the clean-headroom window, DPR-only", () => {
+    const { g, trace, prepare } = hd();
+    expect([g.tier, g.dpr, g.headroom]).toEqual(["high", 1, false]);
+    expect(g.ladder.slice(-2)).toEqual([{ tier: "high", dpr: 1.5, headroom: true }, { tier: "high", dpr: 2, headroom: true }]);
+    runTimed(g, 15, 16.7);
+    expect(g.dpr).toBe(1);
+    runTimed(g, 2, 16.7);
+    expect([g.dpr, g.headroom]).toEqual([1.5, true]);
+    runTimed(g, 17, 16.7);
+    expect(g.dpr).toBe(2);
+    runTimed(g, 120, 16.7);
+    expect(trace).toEqual(["high@1.5", "high@2"]);   // climbs once, holds: no oscillation on a cheap scene
+    expect(prepare).not.toHaveBeenCalled();
+    g.dispose();
+  });
+
+  it("leaves first and in one step under pressure, before any tier change; severe overload too", async () => {
+    const { g, gpu, trace, prepare } = hd();
+    runTimed(g, 40, 16.7);
+    expect(g.dpr).toBe(2);
+    gpu.ms = 30;                                  // a heavy view: the GPU is the bottleneck
+    runTimed(g, 3.2, 33.3);
+    expect([g.tier, g.dpr, g.headroom]).toEqual(["high", 1, false]);   // straight past 1.5
+    expect(prepare).not.toHaveBeenCalled();       // the exit is DPR-only
+    gpu.ms = 30; runTimed(g, 3.2, 33.3);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(g.tier).toBe("medium");                // only then the ordinary ladder (prepared tier change)
+    expect(trace).toEqual(["high@1.5", "high@2", "high@1", "medium@1"]);
+    g.dispose();
+
+    const severe = hd();
+    runTimed(severe.g, 40, 16.7);
+    severe.gpu.ms = 70; runTimed(severe.g, 1.2, 70);
+    expect([severe.g.tier, severe.g.dpr]).toEqual(["high", 1]);
+    expect(severe.trace.slice(-1)).toEqual(["high@1"]);
+    severe.g.dispose();
+  });
+
+  it("doubles the headroom window after each exit and stops after three (hysteresis, no oscillation)", () => {
+    const { g, gpu, trace } = hd();
+    runTimed(g, 40, 16.7);
+    const pulse = () => { gpu.ms = 30; runTimed(g, 3.2, 33.3); gpu.ms = 2.4; };
+    pulse();
+    expect(g.dpr).toBe(1);
+    runTimed(g, 28, 16.7);
+    expect(g.dpr).toBe(1);                        // 15 s is no longer enough
+    runTimed(g, 5, 16.7);
+    expect(g.dpr).toBe(1.5);
+    runTimed(g, 40, 16.7);
+    pulse();
+    runTimed(g, 58, 16.7);
+    expect(g.dpr).toBe(1);                        // 60 s now
+    runTimed(g, 5, 16.7);
+    expect(g.dpr).toBe(1.5);
+    runTimed(g, 40, 16.7);
+    pulse();
+    runTimed(g, 600, 16.7);
+    expect(g.dpr).toBe(1);                        // three exits: this display stops climbing
+    expect(trace.filter((t) => t === "high@1").length).toBe(3);
+    g.dispose();
+  });
+
+  it("counts slow frames on a headroom rung as pressure even when the GPU timer reads idle", () => {
+    const { g, trace, prepare } = hd();
+    runTimed(g, 40, 16.7);
+    expect(g.dpr).toBe(2);
+    runTimed(g, 1.5, 76);                         // presentation-bound at 2× (outside the timer): severe → exit first
+    expect([g.tier, g.dpr]).toEqual(["high", 1]);
+    runTimed(g, 30, 33.3);                        // the same CPU-bound frames at the base rung hold it, as before
+    expect([g.tier, g.dpr]).toEqual(["high", 1]);
+    expect(trace).toEqual(["high@1.5", "high@2", "high@1"]);
+    expect(prepare).not.toHaveBeenCalled();
+    g.dispose();
+  });
+
+  it("never enters a rung its measured cost cannot afford", () => {
+    const { g, trace } = hd(RTX, 6);             // 6 ms × 2.25 > 0.65 of the budget
+    runTimed(g, 300, 16.7);
+    expect(trace).toEqual([]);
+    g.dispose();
+  });
+
+  it("exists only for a discrete start, an unpinned tier and the switch", async () => {
+    const apple = hd("ANGLE (Apple, Apple M2, OpenGL 4.1)");
+    expect(apple.g.ladder.some((r) => r.headroom)).toBe(false);   // 1×, integrated start: no supersampling
+    apple.g.dispose();
+    vi.stubGlobal("location", { search: "?quality=high" });
+    const pinned = hd();
+    runTimed(pinned.g, 60, 16.7);
+    expect([pinned.g.tier, pinned.g.dpr]).toEqual(["high", 1]);
+    pinned.g.dispose();
+    vi.stubGlobal("location", { search: "?extras=-supersample" });
+    vi.resetModules();
+    const { QualityGovernor: Fresh } = await import("./governor");
+    const off = new Fresh(timedGl(RTX, { ms: 2.4 }), vi.fn());
+    off.reconcileDisplay(1, 1.389, 2);
+    expect(off.ladder.some((r) => r.headroom)).toBe(false);
+    off.dispose();
+  });
+
+  it("prints coins identically at the supersample rungs: the effective DPR is the rung's own", () => {
+    const { g } = hd();
+    runTimed(g, 40, 16.7);
+    expect(g.dpr).toBe(2);   // what the engine hands setDrawingBufferSize, and the fleet reads back as uFleetScreen.y
+    for (const k of [1.5, 2]) for (const css of [9, 12, 18, 24, 30, 40]) expect(printContrast(css * k, k)).toBeCloseTo(printContrast(css, 1), 10);
+    g.dispose();
+  });
+
+  it("N5: on a 2× display High climbs back above the 4 MP ceiling toward native, and a resize lands on a base rung", () => {
+    vi.stubGlobal("devicePixelRatio", 2);
+    const gpu = { ms: 2 }, g = new QualityGovernor(timedGl(RTX, gpu), (_s, dpr) => { gpu.ms = 2 * (dpr / 1.581) ** 2; });
+    g.reconcileDisplay(2, Math.sqrt(4e6 / 1.6e6), Math.sqrt(8.3e6 / 1.6e6));   // 1600×1000 @2
+    expect(g.dpr).toBeCloseTo(1.581, 3);
+    runTimed(g, 40, 16.7);
+    expect([g.dpr, g.headroom]).toEqual([2, true]);
+    g.reconcileDisplay(2, Math.sqrt(4e6 / 4.096e6), Math.sqrt(8.3e6 / 4.096e6));   // resized to 2560×1600
+    expect([g.dpr, g.headroom]).toEqual([Math.sqrt(4e6 / 4.096e6), false]);
+    g.dispose();
   });
 });

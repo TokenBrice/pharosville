@@ -92,7 +92,7 @@ function frameEngine() {
     renderedListeners: new Set(), systems: [], ready: new Set(), later: [], begun: new Set(),
     disposed: false, aborted: false, preparation: { prepareGroup: vi.fn(async () => {}), invalidate: vi.fn(), prepare: vi.fn(), prepareWorld: vi.fn(), generation: 0 },
     qualityPreparation: new Map(), qualityPrograms: new Set(), qualityReady: new Set(), warmQuality: vi.fn(),
-    backingLimits: { width: 8192, height: 8192 }, resolutionDpr: 0,
+    backingLimits: { width: 8192, height: 8192 }, resolutionDpr: 0, backing: { width: 0, height: 0, rtMB: 0, headroom: false },
     booted: false, requestedRunning: false, running: false, raf: 0,
     stats: { backend: "webgl2", drawCalls: 0, triangles: 0, textures: 0, programs: 0, hour: 0, systems: [], firstFrameMs: null, firstFleetFrameMs: null, renderedRevision: 0, renderedBoats: 0 },
     input: { update: vi.fn() }, post: { update: vi.fn(), prepareGrade: vi.fn(async () => {}) },
@@ -435,6 +435,28 @@ describe("engine preparation and rendered readiness", () => {
     expect(engine.preparation.invalidate).not.toHaveBeenCalled();
   });
 
+  it("allocates a Q3 supersample rung above the display ratio with native CSS framing, and logs its memory", () => {
+    const { engine, ctx, renderer, composer } = frameEngine();
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.stubGlobal("devicePixelRatio", 1);
+    engine.resize();
+    expect(engine.governor.reconcileDisplay).toHaveBeenLastCalledWith(1, 2, Math.min(2, Math.sqrt(8_300_000 / (1000 * 700))));
+    const aspect = ctx.camera.aspect;
+    engine.preparation.invalidate.mockClear();
+    Object.assign(engine.governor, { dpr: 2, headroom: true }); engine.resize();
+    expect(renderer.setDrawingBufferSize).toHaveBeenLastCalledWith(1000, 700, 2);
+    expect(composer.setSize).toHaveBeenLastCalledWith(1000, 700);
+    expect(ctx.uniforms.uResolution.value.toArray()).toEqual([2000, 1400]);
+    expect(ctx.camera.aspect).toBe(aspect);
+    expect(engine.preparation.invalidate).not.toHaveBeenCalled();
+    expect((engine as unknown as { backing: object }).backing).toEqual({ width: 2000, height: 1400, rtMB: 109, headroom: true });
+    expect(info).toHaveBeenLastCalledWith("[harbour] backing 2000×1400 (DPR 2.00, ≈109 MB render targets) on a headroom rung");
+    Object.assign(engine.governor, { dpr: 1, headroom: false }); engine.resize();
+    expect(info).toHaveBeenLastCalledWith("[harbour] backing 1000×700 (DPR 1.00, ≈27 MB render targets)");
+    expect(info).toHaveBeenCalledTimes(2);
+    info.mockRestore();
+  });
+
   it("enforces 4 MP on a 4K CSS viewport while retaining CSS camera and composer dimensions", () => {
     const { engine, ctx, renderer, composer } = frameEngine();
     vi.stubGlobal("devicePixelRatio", 2);
@@ -464,7 +486,7 @@ describe("engine preparation and rendered readiness", () => {
     listener();
     expect(queries[0].removeEventListener).toHaveBeenCalledWith("change", listener);
     expect(media).toHaveBeenLastCalledWith("(resolution: 1.25dppx)");
-    expect(engine.governor.reconcileDisplay).toHaveBeenLastCalledWith(1.25, 2);
+    expect(engine.governor.reconcileDisplay).toHaveBeenLastCalledWith(1.25, 2, 2);
     engine.resize();
     expect(queries).toHaveLength(2);
   });
