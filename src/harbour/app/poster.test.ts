@@ -59,21 +59,54 @@ describe("poster fade ownership", () => {
 describe("E28 the seamless arrival", () => {
   it("settles the poster onto the live first frame (registered) and dims day key art toward night with its fade", () => {
     const poster = document.getElementById("pv-poster")!;
-    dismissPoster("crossfade", { register: { s: 0.84, x: 120.5, y: -33.25 }, dip: 1 });
+    // the landscape landing's registration (1600×1000: s 0.922)
+    dismissPoster("crossfade", { register: { s: 0.92184, x: 120.5, y: -33.25 }, dip: 1 });
     expect(poster.style.transformOrigin).toBe("0 0");
-    expect(poster.style.transform).toBe("translate(120.50px,-33.25px) scale(0.84000)");
+    expect(poster.style.transform).toBe("translate(120.50px,-33.25px) scale(0.92184)");
     expect(poster.style.filter).toBe("brightness(0.400) saturate(0.600)");
     // the settle and the dip run ahead of the 1.1 s fade, so the poster lies over its own world before it is half gone
     expect(poster.style.transition).toMatch(/opacity 1100ms/);
     expect(poster.style.transition).toMatch(/transform 800ms/);
     expect(poster.style.transition).toMatch(/filter 800ms/);
     expect(poster.style.transition).toMatch(/mask-size 800ms/);
+    // landscape keeps E28's feather (arrival-shell.css: 15 % a side)
+    expect(poster.style.transition).not.toMatch(/--pv-feather/);
+    expect(poster.style.getPropertyValue("--pv-feather")).toBe("");
     // only the opacity's end removes it: the shorter transform and filter ends do not cut the fade short
     poster.dispatchEvent(transitionEnd("transform"));
     poster.dispatchEvent(transitionEnd("filter"));
     expect(document.getElementById("pv-poster")).not.toBeNull();
     poster.dispatchEvent(transitionEnd("opacity"));
     expect(document.getElementById("pv-poster")).toBeNull();
+  });
+
+  it("B1: a poster settling well inside the window fades front-loaded and widens its feather to min(40 %, 15 % / s)", () => {
+    const poster = document.getElementById("pv-poster")!;
+    // the portrait tablet's registration (834×1112 touch: s 0.562): the 15 % feather would be ≈ 40–75 px on screen
+    dismissPoster("crossfade", { register: { s: 0.56233, x: 84.26, y: 222.35 } });
+    expect(poster.style.transform).toBe("translate(84.26px,222.35px) scale(0.56233)");
+    expect(poster.style.getPropertyValue("--pv-feather")).toBe("26.67%"); // 15 % / s: 125 px a side on screen
+    expect(poster.style.transition).toMatch(/opacity 900ms cubic-bezier\(\.2, ?\.6, ?\.4, ?1\)/);
+    expect(poster.style.transition).toMatch(/transform 800ms/);
+    // the mask lies on its box at once (no oversize drawing in to cut the box edge) and the feather grows with the settle
+    expect(poster.style.transition).not.toMatch(/mask-size|--pv-feather/);
+    expect(poster.style.animation).toMatch(/pv-feather-in 800ms/);
+    // the opacity's own end removes it; the fallback follows the shorter fade
+    vi.advanceTimersByTime(1099);
+    expect(document.getElementById("pv-poster")).not.toBeNull();
+    vi.advanceTimersByTime(1);
+    expect(document.getElementById("pv-poster")).toBeNull();
+    resetPosterState();
+    // the feather never passes 40 % (a very small registration), and readmission clears it with the settle
+    const again = document.getElementById("pv-poster")!;
+    dismissPoster("crossfade", { register: { s: 0.3, x: 0, y: 0 } });
+    expect(again.style.getPropertyValue("--pv-feather")).toBe("40.00%");
+    resetPosterState();
+    expect(again.getAttribute("style")).toBeNull();
+    // the threshold: at 0.85 and above (landscape) nothing changes
+    dismissPoster("crossfade", { register: { s: 0.85, x: 0, y: 0 } });
+    expect(again.style.transition).toMatch(/opacity 1100ms/);
+    expect(again.style.getPropertyValue("--pv-feather")).toBe("");
   });
 
   it("scales the dip with the live night share and adds no filter by day or for the night key art", () => {
