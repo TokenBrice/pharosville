@@ -1,6 +1,6 @@
 # PharosVille Releases
 
-Last updated: 2026-09-27
+Last updated: 2026-11-09
 
 This is the canonical runbook for versioned releases. A PharosVille version is
 released only when all three records exist and agree:

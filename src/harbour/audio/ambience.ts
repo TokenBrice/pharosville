@@ -136,6 +136,13 @@ export const ONRAMP = 1.4, ONRAMP_FLOOR = 10 ** (-24 / 20);
 const ARRIVAL = 20;
 /** The beds' pocket while a music phrase plays (E34): 2 dB down. */
 export const POCKET = 10 ** (-2 / 20);
+/**
+ * Both storms at once (S4): a DEWS Danger over the roughest sea (the likely crisis) stacks the storm's wind and
+ * rain on the surf's breakers and spray. The beds of both storms (the weather's wind, rain, spray and howl; the
+ * analytical surf's shore, reef and sea bed) step down STACK_DB × min(storm, sea state) dB: only the stacked
+ * excess, so either storm alone is untouched, and thunder, laps and every event keep their level.
+ */
+export const STACK_DB = -2.5;
 /** Where the music joins the mix (musicIn()): an audio input whose phrases may open the beds' pocket. */
 export interface MusicInput extends AudioNode { pocket?(at: number, span: number): void }
 const TICK_MS = 120;
@@ -160,6 +167,13 @@ export const EVENING_GUN_DELAY = 1.2;
 export const FAR_GAIN = 0.1;
 /** The passing hulls' bus (bow wash and a sail's flog): under a near lap (dsp.test.ts). */
 export const PASS_GAIN = 0.5;
+/**
+ * The foghorn's bus (S1). The horn sounds only over stale data, where the truth rule has silenced the surf, so it
+ * is set against that quieter harbour: its loudest moment ≈ +7 LU over the stale floor (the gate holds it ≤ +8),
+ * and 17 dB over the floor in its own low band, still plainly the stale cue, without the +15 LU start it gave at
+ * 0.26 (a level set against the full harbour).
+ */
+export const HORN_GAIN = 0.065;
 /**
  * The Pharos's breath (E33): its partials [Hz, amplitude], D3 A3 D4 A4 (the amplitudes sum to 1, so the breath
  * never peaks above its envelope); its longest envelope (a slow sweep's, s); its envelope's ceiling.
@@ -327,6 +341,7 @@ export class Ambience {
   // weather
   private readonly hush: BiquadFilterNode;
   private readonly pocket: GainNode;
+  private readonly stack: GainNode;
   private readonly duck: GainNode;
   private readonly rainFine: GainNode;
   private readonly rainBody: GainNode;
@@ -417,8 +432,11 @@ export class Ambience {
     this.settle = ac.createGain();
     this.breathPhase = this.rnd() * Math.PI * 2;
     this.out.connect(this.settle).connect(this.hush).connect(comp).connect(ceiling).connect(safety).connect(ac.destination);
+    // the beds of both storms (the weather's and the surf's) meet in a trim that keeps them from stacking when
+    // both rage at once (STACK_DB)
+    this.stack = ac.createGain(); this.stack.connect(this.out);
     // the beds (the far sea; the weather's wind, rain, spray and howl) step back 2 dB while a music phrase plays
-    this.pocket = ac.createGain(); this.pocket.connect(this.out);
+    this.pocket = ac.createGain(); this.pocket.connect(this.stack);
     // the weather beds (wind, rain, spray, howl) pass through a duck that dips under a near thunderclap, so
     // the clap stands out of a downpour without pushing the mix toward full scale
     this.duck = ac.createGain(); this.duck.connect(this.pocket);
@@ -441,7 +459,7 @@ export class Ambience {
     // ---- the shore: wave clips → distance lowpass → bus
     this.shoreBus = ac.createGain(); this.shoreBus.gain.value = 0;
     this.shoreLp = this.filter("lowpass", 6000, 0.5);
-    this.shoreLp.connect(this.shoreBus).connect(this.out);
+    this.shoreLp.connect(this.shoreBus).connect(this.stack);
 
     // ---- the sea bed: every far wave along the coast merged, breathing with the swell
     this.bedGain = ac.createGain(); this.bedGain.gain.value = 0;
@@ -460,7 +478,7 @@ export class Ambience {
     this.reefBus = ac.createGain(); this.reefBus.gain.value = 0;
     this.reefLp = this.filter("lowpass", 900, 0.5);
     this.reefPan = ac.createStereoPanner();
-    this.reefLp.connect(this.reefPan).connect(this.reefBus).connect(this.out);
+    this.reefLp.connect(this.reefPan).connect(this.reefBus).connect(this.stack);
 
     // ---- wind: noise in gusts whose colour wanders between a low and a high band (a crossfade of two FIXED
     // filters: automating a filter's cutoff costs a coefficient update per sample), a low buffeting, and a
@@ -580,7 +598,7 @@ export class Ambience {
     this.harbourBus = ac.createGain(); this.harbourBus.gain.value = 0; this.harbourBus.connect(this.out);
     this.gullBus = ac.createGain(); this.gullBus.gain.value = 0; this.gullBus.connect(this.out); this.gullBus.connect(this.echo);
     this.bellBus = ac.createGain(); this.bellBus.gain.value = 0.11; this.bellBus.connect(this.out); this.bellBus.connect(this.echo);
-    this.hornBus = ac.createGain(); this.hornBus.gain.value = 0.26; this.hornBus.connect(this.out); this.hornBus.connect(this.echo);
+    this.hornBus = ac.createGain(); this.hornBus.gain.value = HORN_GAIN; this.hornBus.connect(this.out); this.hornBus.connect(this.echo);
 
     // the composed arrival (E32): a lap first, the first full wash once the on-ramp is up, a gull near 4 s and
     // the bell buoy on the second swell (step()); the beds rise with the on-ramp
@@ -789,6 +807,7 @@ export class Ambience {
 
     // ---- weather (data): snow's hush, rain on the sea and the roofs, drips, spray, the howl
     this.aim(this.hush.gain, -(11 * snow + 4 * I.snowCover), 1.5);
+    this.aim(this.stack.gain, Math.pow(10, (STACK_DB * Math.min(storm, s)) / 20), 1.5);
     this.rainLoop.update(rain > 0.01, rain < 0.005, now, r);
     this.aim(this.rainFine.gain, 0.042 * Math.pow(rain, 0.7) * (0.8 + 0.2 * zoom), 1);
     this.aim(this.rainBody.gain, 0.08 * rain * rain, 1);
@@ -911,18 +930,20 @@ export class Ambience {
       if (rustle > 0.01 && r() < 0.25 + 0.6 * wind) this.play("rustle", at + d * 0.15, this.rustleLp, 0.5 + 0.5 * hi, I.treesPan * 0.4 + r() * 1.4 - 0.7, 0.9 + r() * 0.2);
       N.gust = at + d;
     }
-    // ---- rain on roofs and quays: overlapped 4 s clips (seamless); a second stream doubles a downpour
+    // ---- rain on roofs and quays: overlapped 4 s clips; a second stream doubles a downpour. Each next clip
+    // starts where its predecessor's equal-power fade-out begins (3.5 s in, at its own playback rate): the
+    // join is seamless (S7)
     if (rain > 0.01) {
       if (N.rainA < ahead) {
-        const at = Math.max(N.rainA, now);
-        this.play(rainKind, at, this.patterLp, 0.9, I.townPan * 0.3 + r() * 0.4 - 0.2, 0.95 + r() * 0.1);
-        N.rainA = at + 3.45 + r() * 0.1;
+        const at = Math.max(N.rainA, now), pan = I.townPan * 0.3 + r() * 0.4 - 0.2, rate = 0.95 + r() * 0.1;
+        this.play(rainKind, at, this.patterLp, 0.9, pan, rate);
+        N.rainA = at + 3.5 / rate;
       }
       if (rain > 0.6 && !I.lean) {
         if (N.rainB < ahead) {
-          const at = Math.max(N.rainB, now);
-          this.play("rain", at, this.patterLp, 0.8 * clamp01((rain - 0.6) / 0.3), r() < 0.5 ? -0.6 : 0.6, 0.9 + r() * 0.15);
-          N.rainB = at + 3.45 + r() * 0.1;
+          const at = Math.max(N.rainB, now), pan = r() < 0.5 ? -0.6 : 0.6, rate = 0.9 + r() * 0.15;
+          this.play("rain", at, this.patterLp, 0.8 * clamp01((rain - 0.6) / 0.3), pan, rate);
+          N.rainB = at + 3.5 / rate;
         }
       } else N.rainB = Math.max(N.rainB, now + 1.7);
     } else N.rainA = Math.max(N.rainA, now);
@@ -978,20 +999,20 @@ export class Ambience {
       this.lastHour = hf;
       for (let k = 0, m = hourStrikes(hf); k < m; k++) this.play("tolling", now + 0.2 + k * 3.4, this.tollLp, 1 - 0.5 * storm, I.townPan * 0.6, 0.995 + r() * 0.01);
     }
-    // crickets: overlapped 4 s clips like the fire
+    // crickets: overlapped 4 s clips like the rain, joined where the fade-out begins
     if (crickets > 0.01) {
       if (N.cricket < ahead) {
-        const at = Math.max(N.cricket, now);
-        this.play("cricket", at, this.cricketBus, 0.8, I.treesPan * 0.3 + r() * 0.6 - 0.3, 0.97 + r() * 0.06);
-        N.cricket = at + 3.45 + r() * 0.1;
+        const at = Math.max(N.cricket, now), pan = I.treesPan * 0.3 + r() * 0.6 - 0.3, rate = 0.97 + r() * 0.06;
+        this.play("cricket", at, this.cricketBus, 0.8, pan, rate);
+        N.cricket = at + 3.5 / rate;
       }
     } else N.cricket = Math.max(N.cricket, now);
-    // cicadas: overlapped 5 s clips, only on summer afternoons
+    // cicadas: overlapped 5 s clips, only on summer afternoons, joined where the fade-out begins (4.5 s in)
     if (cicadas > 0.01) {
       if (N.cicada < ahead) {
-        const at = Math.max(N.cicada, now);
-        this.play("cicada", at, this.cicadaBus, 0.8, I.treesPan * 0.3 + r() * 0.6 - 0.3, 0.97 + r() * 0.06);
-        N.cicada = at + 4.45 + r() * 0.1;
+        const at = Math.max(N.cicada, now), pan = I.treesPan * 0.3 + r() * 0.6 - 0.3, rate = 0.97 + r() * 0.06;
+        this.play("cicada", at, this.cicadaBus, 0.8, pan, rate);
+        N.cicada = at + 4.5 / rate;
       }
     } else N.cicada = Math.max(N.cicada, now);
     // footsteps in the snow, now and then, near the town
@@ -1007,7 +1028,7 @@ export class Ambience {
       if (N.crackle < ahead) {
         const at = Math.max(N.crackle, now);
         this.play("crackle", at, this.firePan, 0.5, r() * 0.3 - 0.15);
-        N.crackle = at + 3.45 + r() * 0.1;     // 4 s clips, half-second fades: a seamless overlap
+        N.crackle = at + 3.45 + r() * 0.1;     // 4 s clips at rate 1, half-second equal-power fades: a seamless overlap
       }
     } else N.crackle = Math.max(N.crackle, now);
     // the Burn: overlapped fire clips slowed to a deeper roar (5.3 s at 0.75, faded 0.67 s), and a bellows

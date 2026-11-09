@@ -13,16 +13,16 @@
  *     [--wav outputs/audio/wav]   also write each render as a 16-bit stereo WAV, for a pair of ears
  *
  * The page opens at 400×700, under the desktop gate: the world never mounts and no /api request is made.
- * Targets (PLAN §5 v1.7.0, O9-I1/I3/I5): calm −26 ± 2 LUFS; every DEWS state, and the roughest sea state,
- * ≤ calm + 6 LU (both storms at once are reported as the worst case); true peak
- * ≤ −1 dBTP in every scene; music 6 ± 2 LU under the calm ambience; the Pharos breath with ≥ 60 % of its energy
- * above 250 Hz, one breath at a time (sounding ≤ 85 % of the time at every sweep, 12 s down to 1.2 s).
+ * Targets (PLAN §5 v1.7.0, O9-I1/I3/I5; v1.8.0 S1/S4): calm −26 ± 2 LUFS; every DEWS state, and the roughest sea
+ * state, ≤ calm + 6 LU; both storms at once ≤ calm + 7 LU; true peak ≤ −1 dBTP in every scene; the stale foghorn
+ * ≤ +8 LU over the stale harbour's floor; music 6 ± 2 LU under the calm ambience; the Pharos breath with ≥ 60 % of
+ * its energy above 250 Hz, one breath at a time (sounding ≤ 85 % of the time at every sweep, 12 s down to 1.2 s).
  * Exit 0 when every target passes, 1 when one fails, 2 on a setup error.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { captureLock, connectShared } from "../harbour/shared-browser.mjs";
-import { energyAbove, meter } from "./loudness.mts";
+import { cueOverFloor, energyAbove, meter } from "./loudness.mts";
 import { mixTargets } from "./mix-targets.mts";
 
 const args = {};
@@ -39,6 +39,8 @@ const label = String(args.label ?? "");
 const mute = typeof args.mute === "string" ? args.mute.split(",") : [];
 const wavDir = typeof args.wav === "string" ? resolve(args.wav) : null;
 const CHUNK = 1 << 20;
+/** A foghorn blast's span: 2.6 s of horn, its 1.4 s release and the harbour walls' slap-back. */
+const HORN_SPAN = 5;
 
 /** A 16-bit PCM stereo WAV of the render (dithered by rounding only: listening copies, not measurements). */
 function wav([L, R], sr) {
@@ -121,6 +123,11 @@ try {
       // Gate the new peak case before display rounding can hide an over.
       row.truePeak = m.truePeak;
     }
+    if (info.horns.length) {
+      // the stale cue over the harbour it sounds over (S1): the floor from the end of the on-ramp, clear of every blast
+      const cue = cueOverFloor(m.momentary, m.shortTerm, info.horns, HORN_SPAN, 2);
+      row.horns = info.horns.map(r1); row.hornFloor = r1(cue.floor); row.hornLevels = cue.levels.map(r1); row.hornOverFloor = r1(cue.over);
+    }
     if (name.startsWith("breath-")) {
       row.energyAbove250 = Math.round(energyAbove(ch, info.sr, 250) * 1000) / 1000;
       row.duty = Math.round(duty(ch, info.sr, info.breaths[0] ?? 0) * 1000) / 1000;
@@ -138,6 +145,7 @@ try {
     }
     scenes[name] = row;
     console.log(`${name.padEnd(12)} I ${String(row.integrated).padStart(6)}  laptop ${String(row.laptop).padStart(6)}  Mmax ${String(row.momentaryMax).padStart(6)}  LRA ${String(row.lra).padStart(4)}  TP ${String(r1(row.truePeak)).padStart(6)}  (${row.ms} ms)`);
+    if (row.horns) console.log(`${"".padEnd(12)} foghorn at ${row.horns.join(", ")} s: ${row.hornLevels.join(" / ")} LUFS over a floor of ${row.hornFloor} → +${row.hornOverFloor} LU`);
   }
   const bank = await page.evaluate(() => window.__mix.bankTiming());
 

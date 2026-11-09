@@ -75,8 +75,45 @@ export function waveHeight(x: number, z: number, t: number, amp: number): number
   return h * amp;
 }
 
-/** A hull's hullSwell cache: per wave, the bow and beam offset phases (a, b) last taken through sin / cos, and those (NaN: none yet). */
-export const hullSwellCache = (): Float64Array => new Float64Array(WAVES.length * 6).fill(NaN);
+/** Where a hull cache keeps, per wave, its centre's spatial phase p = k·(dir·(x, z)) last taken through sin / cos, and those. */
+const CENTRE_AT = WAVES.length * 6;
+/**
+ * A hull's hullSwell cache: per wave, the bow and beam offset phases (a, b) last taken through sin / cos, and those, then
+ * the centre's spatial phase and its sin / cos (NaN: none yet).
+ */
+export const hullSwellCache = (): Float64Array => new Float64Array(CENTRE_AT + WAVES.length * 3).fill(NaN);
+
+/**
+ * The sea clock's half of every phase, sin / cos of w·t per wave, taken once per sea time (P-PERF): a cached phase
+ * k·(dir·x) − w·t then needs no trig, by sin(p − wt) = sin p cos wt − cos p sin wt (and the same for cos).
+ */
+const clockSin = new Float64Array(WAVES.length), clockCos = new Float64Array(WAVES.length);
+let clockT = NaN;
+function waveClock(t: number): void {
+  if (t === clockT) return;
+  clockT = t;
+  for (let i = 0; i < WAVES.length; i++) { const wt = WAVES[i].w * t; clockSin[i] = Math.sin(wt); clockCos[i] = Math.cos(wt); }
+}
+
+/** Where a pointSwell cache keeps the point's coast damping for the ocean (ocean-system heightAt): SDF version, damping. */
+export const POINT_DAMP_AT = 2 + WAVES.length * 2;
+/** A fixed point's pointSwell cache (a buoy's): x, z, per wave sin / cos of its spatial phase, then POINT_DAMP_AT (NaN: none yet). */
+export const pointSwellCache = (): Float64Array => new Float64Array(POINT_DAMP_AT + 2).fill(NaN);
+
+/**
+ * waveHeight at a point that does not move (a buoy), with its spatial phases kept in `cache`: no trig per frame beyond the
+ * wave clock's. Equal to waveHeight to rounding (~1e-13 m: the phase difference is never rounded on its own).
+ */
+export function pointSwell(x: number, z: number, t: number, amp: number, cache: Float64Array): number {
+  if (!(cache[0] === x && cache[1] === z)) {
+    cache[0] = x; cache[1] = z;
+    for (let i = 0; i < WAVES.length; i++) { const wv = WAVES[i], p = wv.k * (wv.dirX * x + wv.dirZ * z); cache[2 + i * 2] = Math.sin(p); cache[3 + i * 2] = Math.cos(p); }
+  }
+  waveClock(t);
+  let h = 0;
+  for (let i = 0; i < WAVES.length; i++) h += WAVES[i].amp * (cache[2 + i * 2] * clockCos[i] - cache[3 + i * 2] * clockSin[i]);
+  return h * amp;
+}
 /** A cached offset phase is reused while the live one is within this (rad): the series below stays exact (< 1e-14). */
 const DRIFT_MAX = 0.1;
 
@@ -86,10 +123,13 @@ const DRIFT_MAX = 0.1;
  * (a hull lying alongside, moored or at anchor): each wave's centre phase φ once (sin, cos) and the four
  * offsets by angle addition, sin(φ ± a) = sin φ cos a ± cos φ sin a, where a = k·(dir·Δ) is near-constant for
  * a hull that only yaws a little: sin / cos of a come from the cached a₀ plus a short series in a − a₀, and
- * are re-taken (4 trig) only when the hull has swung more than DRIFT_MAX of phase. 10 trig instead of 25.
+ * are re-taken (4 trig) only when the hull has swung more than DRIFT_MAX of phase. The centre phase φ = p − w·t the
+ * same way (P-PERF): sin / cos of the spatial phase p from its cached p₀ and the series (a hull at rest only surges and
+ * swings on her mooring), times the wave clock's sin / cos of w·t. No trig while she lies within DRIFT_MAX of p₀, instead of 25.
  */
 export function hullSwell(x: number, z: number, bx: number, bz: number, px: number, pz: number, t: number, amp: number, out: Float64Array, cache: Float64Array | null): void {
   let h0 = 0, h1 = 0, h2 = 0, h3 = 0, h4 = 0;
+  if (cache) waveClock(t);
   for (let i = 0; i < WAVES.length; i++) {
     const wv = WAVES[i], k = wv.k, dx = wv.dirX, dz = wv.dirZ, wt = wv.w * t, A = wv.amp;
     if (!cache) {
@@ -100,7 +140,12 @@ export function hullSwell(x: number, z: number, bx: number, bz: number, px: numb
       h4 += A * Math.sin(k * (dx * (x - px) + dz * (z - pz)) - wt);
       continue;
     }
-    const ph = k * (dx * x + dz * z) - wt, s = Math.sin(ph), c = Math.cos(ph);
+    const p = k * (dx * x + dz * z), jc = CENTRE_AT + i * 3;
+    if (!(Math.abs(p - cache[jc]) <= DRIFT_MAX)) { cache[jc] = p; cache[jc + 1] = Math.sin(p); cache[jc + 2] = Math.cos(p); }
+    const e = p - cache[jc], e2 = e * e;
+    const se = e * (1 - e2 / 6 * (1 - e2 / 20 * (1 - e2 / 42))), ce = 1 - e2 / 2 * (1 - e2 / 12 * (1 - e2 / 30));
+    const sp = cache[jc + 1] * ce + cache[jc + 2] * se, cp = cache[jc + 2] * ce - cache[jc + 1] * se;
+    const s = sp * clockCos[i] - cp * clockSin[i], c = cp * clockCos[i] + sp * clockSin[i];
     const j = i * 6;
     const a = k * (dx * bx + dz * bz), b = k * (dx * px + dz * pz);
     if (!(Math.abs(a - cache[j]) <= DRIFT_MAX)) { cache[j] = a; cache[j + 1] = Math.sin(a); cache[j + 2] = Math.cos(a); }

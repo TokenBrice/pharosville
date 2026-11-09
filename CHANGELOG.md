@@ -2,6 +2,25 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v1.8.0 - 2026-11-09 - Golden Hour
+
+The harbour holds the golden hour: richer skies and sunlit trees frame a quieter town, readings open into evidence you can inspect and carry away, shared links keep their subject, and even the smallest screen gets a finished welcome.
+
+Collected from `release/v1.8.0` after v1.7.0: the fourth and final release of the ultimate enhancement pass (see `agents/pharosville-ultimate/PLAN.md`). Promise amendments: the return digest keeps one local, forgettable reading, described as "this browser's reading" and never transmitted; the Open Graph card carries a small PharosVille wordmark; and the welcome is first-byte HTML, complete without JavaScript. The Weather legend now explains that the town and its animals take shelter in rough weather. No analytical mapping changed.
+
+- The golden hour reaches further: at sunset and through the blue hour a soft pink belt rests above the Earth's blue-grey shadow opposite the sun, and the sea takes its colours; clear mornings gain rays beside the rising sun. On Medium and High, low sunlight glows through the edges of pines and trees.
+- A sky with depth: the Milky Way turns through clear, dark nights and shooting stars fall within view, no more often than before. Storms gain darker cells and paler seams, lightning stays clear of the Pharos, and rain and snow recede into the distance.
+- On High, the harbour mirrors what stands on it: hulls, sails, quay walls and the lit town lie in the calm basin as soft, wavering strokes, broken by foam and chop; rain and stale-data fog clear them away.
+- The town keeps the hour with silent flights from the Tower of the Winds, and occasional seasonal visitors and small movements on the water reward a longer stay. These quiet cues carry no readings, move no camera and make no sound; reduced motion and Still world stop them, and no new cue starts during a staged moment or rough weather.
+- A coin's evidence, when you ask for it: open recent depeg events, reserve composition and DEX liquidity from its panel. Estimates, source evidence and stale or unverified readings keep their qualifications beside the values, and liquidity explains why the value held in a pool is not the amount you can necessarily sell into it.
+- A reading to return to: compare current readings with this browser's previous reading, kept only here, with a control to forget it. Daily and weekly harbour reports let you expand each sentence into its dated evidence, and stepping through the Stability Index shows the selected score, date and change from a compatible previous observation.
+- Links keep their subject: copy a coin, chain or harbour place and open its latest readings, with Back and Forward retracing your inspections. A shared subject is named in the phone welcome and supported link previews; a missing place explains itself, and coin and chain panels link to the matching Pharos analytics directories.
+- Postcards carry their reading: the saved picture records separate scene and capture times, all seven sources, Stability Index qualifications and any incomplete fleet warning. Copy its caption or select the text directly, follow its source link to the subject's current readings, and save a footer that wraps on tablets with a filename dated in UTC.
+- A finished welcome from the first byte: phones, folded foldables and small windows get a chart-paper field guide, a reason the live harbour needs more room, Open Pharos analytics and Copy harbour link. Small desktop windows show a live size gauge; pages are complete without JavaScript, and link previews show the current harbour with a small PharosVille wordmark.
+- A quieter harbour by ear: the stale-data foghorn sounds at about the calm harbour's own loudness, a storm and rough sea together no longer overwhelm either alone, and rain, crickets, cicadas and the fire no longer pulse quietly every few seconds.
+- Less work between frames: the fleet's ride on the swell and the buoys cost less to draw, and coin logos arrive without a pause. The harbour keeps the same appearance, with the work behind its movement and arrivals spread more gently.
+- Checks follow the visit: copied subject links and Back and Forward are exercised before release, optional effects require measured performance evidence, and missing evidence stays explicit. Upstream delays can be told apart from successful delivery of saved readings; the daily check can also test diagnostic storage when its production connection is configured.
+
 ## v1.7.0 - 2026-11-09 - Lamplighter
 
 The harbour arrives without a seam and lights its own lamps: the picture settles onto the live world at your own hour, the lamplighter's round walks out from a rebuilt Pharos over a warmer island, shadows hold still, the harbour sounds calm and balanced, and lighter shading and steadier frames keep it smooth on more machines.

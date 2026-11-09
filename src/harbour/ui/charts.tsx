@@ -47,7 +47,8 @@ export function Sparkline({ observations, now, nowAt, label = "PSI observations"
     </svg>
     <p className="hb-caption">{caption}</p>
     {selected && <>
-      <div className="hb-axis-note" role="status" aria-live="polite">{at(selected.date)} UTC · {selected.score.toFixed(1)}</div>
+      <div className="hb-axis-note" role="status" aria-live="polite">PSI {selected.score.toFixed(1)} on {at(selected.date)} UTC</div>
+      {index > 0 && <p className="hb-caption">{psiChange(rows.slice(index - 1, index + 1))} {`Previous observation: ${at(rows[index - 1].date)} UTC.`}</p>}
       <div className="hb-chart-controls hb-reading-actions">
         <button type="button" className="hb-control" disabled={index === 0} onClick={() => setSelectedDate(rows[index - 1].date)}>Previous observation</button>{" "}
         <button type="button" className="hb-control" disabled={index === rows.length - 1} onClick={() => setSelectedDate(rows[index + 1].date)}>Next observation</button>

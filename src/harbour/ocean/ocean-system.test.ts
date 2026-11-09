@@ -6,9 +6,11 @@ import { createWorldUniforms } from "../engine/uniforms";
 import { preparationMaterial } from "../engine/prepare";
 import { TIERS, type QualitySettings } from "../engine/quality";
 import { OceanSystem } from "./ocean-system";
-import { SEA_STATES, waveHeight } from "./waves";
+import { pointSwellCache, SEA_STATES, waveHeight } from "./waves";
 import { FullscreenPass } from "./gpu-bake";
 
+// These cases predate E35 and drive a bare engine context without a composer: keep the harbour mirror off here.
+vi.mock("../engine/extras", async (load) => ({ ...(await load<typeof import("../engine/extras")>()), extraEnabled: (name: string) => name !== "mirror" }));
 vi.mock("./textures", () => ({ acquireFxTextures: async () => ({ noise: new THREE.Texture(), ripple: new THREE.Texture(), release() {} }) }));
 vi.mock("./sdf-image", () => ({ loadSdfImage: async () => ({ width: 1, height: 1, data: new Uint8Array(4), coast: new Uint8Array(1) }) }));
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -88,9 +90,40 @@ describe("E02 the retired mainland in the CPU sea", () => {
     expect(ocean.coastAt(-600, 0)).toBeCloseTo(64, 9);
     const mid = ocean.coastAt(515, 0);
     expect(mid).toBeGreaterThan(-64); expect(mid).toBeLessThan(64);
+    // the swell's damping there is the faded coast's, to the bit (P-PERF: dampAt reuses its texel and fade)
+    const s = THREE.MathUtils.smoothstep, damp = s(mid, 0, 34) * 0.9 + 0.1 * s(mid, -2, 2);
+    expect(ocean.heightAt(515, 0)).toBe(waveHeight(515, 0, 0, SEA_STATES[1].amp) * damp);
     // hulls bob with the water the vertex shader moves: none on land, the full swell past the fade
     expect(ocean.heightAt(0, 100)).toBe(0);
     expect(ocean.heightAt(0, 600)).toBeCloseTo(waveHeight(0, 600, 0, SEA_STATES[1].amp), 12);
+    system.dispose(ctx);
+  });
+});
+
+describe("a fixed point's kept swell (P-PERF)", () => {
+  it("gives a buoy the height heightAt gives, at every sea time; a moved point or a new SDF re-takes its damping", async () => {
+    vi.stubGlobal("location", { search: "", hash: "" });
+    const ctx = { scene: new THREE.Scene(), uniforms: createWorldUniforms(), services: new Map<string, unknown>([
+      ["layout", { bounds: { min: [-10, 0, -10], max: [10, 10, 10] }, sea: { bounds: [-1000, -1000, 1000, 1000] } }],
+    ]) as Services } as unknown as EngineContext;
+    const system = new OceanSystem(); await system.init(ctx);
+    const ocean = ctx.services.get("ocean")!;
+    const internals = system as unknown as { coastR: Uint8Array; sdfVersion: number; time: number };
+    const point = pointSwellCache();
+    // the mainland fade (≈ 505–520 m) and inside the island's coasts (100 m: the SDF byte alone)
+    const steps = [[505, 12], [505, 12], [520, -8], [100, 0], "sdf", [100, 0], [505, 12]] as const;
+    let worst = 0, water = 0;
+    for (const step of steps) {
+      if (step === "sdf") { internals.coastR[0] = 255; internals.sdfVersion++; continue; } // what rebuildFromGround does
+      for (const t of [0, 0.016, 1, 3600.5, 86400.25]) {
+        internals.time = t;
+        const want = ocean.heightAt(step[0], step[1]);
+        worst = Math.max(worst, Math.abs(ocean.heightAt(step[0], step[1], point) - want));
+        if (step[0] === 100 && want !== 0) water++;
+      }
+    }
+    expect(worst).toBeLessThan(1e-12);
+    expect(water).toBeGreaterThan(0); // the rebuilt coast reached the kept point
     system.dispose(ctx);
   });
 });

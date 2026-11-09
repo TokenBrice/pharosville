@@ -18,8 +18,16 @@ import { rng } from "./walkways";
  * schedules the pod and mirrors the timing for the foam rings.
  */
 
-const P_BODY = 0, P_TAIL = 1;
+const P_BODY = 0, P_TAIL = 1, P_RING_IN = 2, P_RING_OUT = 3;
 const POD = 3;
+/**
+ * O7-I11 the splash ring (the decorative score, life/score.ts): when the score calls it, the next pod's lead clears
+ * the water and a white ring spreads where it falls back in, thinning away. Drawn by a fourth instance of this draw
+ * (the ring parts; the dolphins' instances collapse them).
+ */
+const RING_SEGS = 28, RING_S = 2.4;
+/** seconds an armed splash waits for its pod before the call lapses */
+const ARM_S = 60;
 /** Drawn a little larger than life (≈ 3 m) so the roll reads at harbour zoom, the gulls' licence. */
 const SCALE = 1.3;
 const ROLL_D = 1.5, ROLL_GAP = 3.4, ROLLS = 3, SPEED = 5.2;
@@ -61,6 +69,16 @@ function dolphinGeometry(): THREE.BufferGeometry {
     push(V(s * 0.2, -0.08, 0.55), V(s * 0.48, -0.2, 0.25), V(s * 0.2, -0.1, 0.32), P_BODY);
     push(V(0, 0, -0.95), V(s * 0.5, 0.0, -1.32), V(s * 0.12, 0.0, -1.22), P_TAIL);
   }
+  // the splash ring: a flat band on the unit circle, inner and outer edges told apart by part (posed per frame)
+  const white = new THREE.Color("#E8EFEE");
+  const rim = (j: number, part: number) => {
+    const a = (j / RING_SEGS) * Math.PI * 2;
+    m.pos.push(Math.cos(a), 0, Math.sin(a)); m.nor.push(0, 1, 0); m.col.push(white.r, white.g, white.b); m.part.push(part);
+  };
+  for (let j = 0; j < RING_SEGS; j++) {
+    rim(j, P_RING_IN); rim(j + 1, P_RING_OUT); rim(j, P_RING_OUT);
+    rim(j, P_RING_IN); rim(j + 1, P_RING_IN); rim(j + 1, P_RING_OUT);
+  }
   return buildGeometry(m);
 }
 
@@ -70,10 +88,24 @@ attribute vec4 aDol;          // x lateral offset, y along offset, z start delay
 uniform float uDolT;          // pod clock (s), < 0 = no pod
 uniform vec4 uDolA;           // start x, z; heading unit x, z
 uniform vec4 uDolB;           // speed, sea level, scale, -
+uniform vec4 uDolR;           // splash ring: centre x, z, start (pod clock, s), on (1)
 varying float vDolY;
 vec3 dlRotX(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(p.x, p.y * c - p.z * s, p.y * s + p.z * c); }
 vec3 dlRotY(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c); }
 vec3 dolPose(vec3 p, float dir) {
+  // the splash ring: its parts, drawn by the ring instance only (aDol.w 2), spreading fast then slowing, thinning away
+  if (aPart > 1.5 || aDol.w > 1.5) {
+    float age = uDolT - uDolR.z;
+    if (aPart < 1.5 || aDol.w < 1.5 || uDolR.w < 0.5 || age < 0.0 || age > ${RING_S.toFixed(2)}) return dir > 0.5 ? p : vec3(uDolA.x, -60.0, uDolA.y);
+    if (dir > 0.5) return p;
+    float k = age / ${RING_S.toFixed(2)};
+    float r = 0.8 + 3.8 * (1.0 - (1.0 - k) * (1.0 - k));
+    // foam, not a drawn circle: the band beads thick and thin round the ring and the rim wanders
+    float a = atan(p.z, p.x);
+    float w = 0.75 * (1.0 - k) * (0.3 + 0.7 * (0.5 + 0.5 * sin(7.0 * a + 1.3)) + 0.15 * sin(11.0 * a));
+    float rr = (aPart > 2.5 ? r + w : max(0.0, r - w)) * (1.0 + 0.08 * sin(3.0 * a + 0.6) + 0.04 * sin(5.0 * a + 2.1));
+    return vec3(uDolR.x + p.x * rr, uDolB.y + 0.05 + 0.12 * (1.0 - k), uDolR.y + p.z * rr);
+  }
   float t = uDolT - aDol.z;
   float k = floor(t / ${ROLL_GAP.toFixed(2)});
   float u = (t - k * ${ROLL_GAP.toFixed(2)}) / ${ROLL_D.toFixed(2)};
@@ -110,7 +142,10 @@ export class Dolphins {
     uDolT: { value: -1 },
     uDolA: { value: new THREE.Vector4(0, 0, 0, 1) },
     uDolB: { value: new THREE.Vector4(SPEED, 0, SCALE, 0) },
+    uDolR: { value: new THREE.Vector4(0, 0, 0, 0) },
   };
+  /** seconds left for an armed splash (the score's call), 0 = none */
+  private armed = 0;
   private readonly r: () => number;
   private readonly leap = new Float32Array(POD);
   private readonly dol: THREE.InstancedBufferAttribute;
@@ -125,8 +160,9 @@ export class Dolphins {
     this.r = rng(seed);
     this.wait = force === "now" ? 2 : 40 + this.r() * 80;
     const geo = dolphinGeometry();
-    const a = new Float32Array(POD * 4);
+    const a = new Float32Array((POD + 1) * 4);
     FORMATION.forEach(([lat, along, delay], i) => { a[i * 4] = lat; a[i * 4 + 1] = along; a[i * 4 + 2] = delay; });
+    a[POD * 4 + 3] = 2;                                  // the ring instance
     this.dol = new THREE.InstancedBufferAttribute(a, 4);
     geo.setAttribute("aDol", this.dol);
     const mat = chainedKitMaterial(mats, "dolphin", {
@@ -138,14 +174,14 @@ export class Dolphins {
       normalPose: "objectNormal = normalize(dolPose(objectNormal, 1.0));",
       uniforms: this.uniforms,
     }, THREE.DoubleSide);
-    this.mesh = new THREE.InstancedMesh(geo, mat, POD);
+    this.mesh = new THREE.InstancedMesh(geo, mat, POD + 1);
     this.mesh.name = "life-dolphins";
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
     // the pose builds world positions itself: identity instance matrices
     const id = new THREE.Matrix4();
-    for (let i = 0; i < POD; i++) this.mesh.setMatrixAt(i, id);
+    for (let i = 0; i <= POD; i++) this.mesh.setMatrixAt(i, id);
     this.mesh.visible = false;
   }
 
@@ -162,14 +198,31 @@ export class Dolphins {
       for (let s = 0; s <= len && ok; s += 6) for (const o of [-5, 0, 5]) if (S.clear && !S.clear(x0 + dx * s - dz * o, z0 + dz * s + dx * o)) ok = false;
       if (!ok) continue;
       A.set(x0, z0, dx, dz);
-      // about one pod in five has one dolphin that clears the water on its second roll
-      const leaper = this.r() < 0.2 ? Math.floor(this.r() * POD) : -1;
+      // about one pod in five has one dolphin that clears the water on its second roll (the score's splash: the lead)
+      const splash = this.armed > 0;
+      const leaper = splash ? 0 : this.r() < 0.2 ? Math.floor(this.r() * POD) : -1;
       for (let i = 0; i < POD; i++) this.leap[i] = i === leaper ? 1 : 0;
       for (let i = 0; i < POD; i++) (this.dol.array as Float32Array)[i * 4 + 3] = this.leap[i];
       this.dol.needsUpdate = true;
+      const R = this.uniforms.uDolR.value;
+      R.w = 0;
+      if (splash) {
+        // where (and when, on the pod clock) the lead falls back in: the body crosses the surface on the way down
+        this.armed = 0;
+        const [lat, along, delay] = FORMATION[0];
+        const uc = Math.asin(Math.min(1, -BASE / LEAP_A)) / Math.PI;
+        const t = ROLL_GAP + ROLL_D * (1 - uc), s = SPEED * t + along;
+        R.set(x0 + dx * s - dz * lat, z0 + dz * s + dx * lat, delay + t - 0.05, 1);
+      }
       return true;
     }
     return false;
+  }
+
+  /** O7-I11: the score calls the splash: the next pod (soon) has its lead clear the water, and a white ring where it falls. */
+  armSplash(): void {
+    this.armed = ARM_S;
+    if (this.t < 0) this.wait = Math.min(this.wait, 4);
   }
 
   /**
@@ -180,12 +233,14 @@ export class Dolphins {
     const U = this.uniforms;
     U.uDolB.value.y = seaY;
     const frozen = this.force !== null && this.force !== "now" && Number.isFinite(Number(this.force));
-    if (!moving) { this.mesh.visible = false; if (!frozen) { this.t = -1; U.uDolT.value = -1; } return; }
+    if (!moving) { this.mesh.visible = false; this.armed = 0; if (!frozen) { this.t = -1; U.uDolT.value = -1; } return; }
+    this.armed = Math.max(0, this.armed - dt);
     if (frozen) {
-      if (this.t < 0 && allowed && this.plan()) this.t = Number(this.force);
+      // (an armed splash re-plans the frozen pod, so captures can hold the ring at an age)
+      if ((this.t < 0 || this.armed > 0) && allowed && this.plan()) this.t = Number(this.force);
     } else if (this.t >= 0) {
       this.t += dt;
-      if (this.t > EVENT_LEN) { this.t = -1; this.wait = this.force === "now" ? 20 : 80 + this.r() * 60; }
+      if (this.t > EVENT_LEN) { this.t = -1; this.wait = this.armed > 0 ? 4 : this.force === "now" ? 20 : 80 + this.r() * 60; }
     } else {
       this.wait -= dt;
       if (this.wait <= 0) {

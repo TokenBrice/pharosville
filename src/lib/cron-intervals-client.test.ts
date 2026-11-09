@@ -3,6 +3,9 @@ import { CRON_INTERVALS_CLIENT } from "@shared/lib/cron-intervals-client";
 import { CRON_INTERVALS } from "@shared/lib/cron-jobs";
 
 describe("CRON_INTERVALS_CLIENT", () => {
+  it("includes the four-hour reserve producer for the on-demand cache", () => {
+    expect(CRON_INTERVALS_CLIENT["sync-live-reserves"]).toBe(4 * 3600);
+  });
   it("matches the canonical CRON_INTERVALS value for every key it ships", () => {
     // NFS4 #4: server cadence is the source of truth. If any of these drift,
     // the client map must be updated in the same change-set so the desktop

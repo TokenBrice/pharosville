@@ -93,8 +93,9 @@ test("help preferences and native postcard success/failure retain focus and keyb
   await postcard.getByRole("button", { name: "Try again" }).click();
   await expect(postcard.getByRole("link", { name: "Save" })).toBeFocused(); await scan(page);
   // Native modality keeps the inert page out of the Tab order; past the last control, focus leaves for the browser's
-  // own UI (Chromium) or stays put (headless Firefox), and comes back into the dialog.
-  for (let i = 0; i < 6; i++) {
+  // own UI (Chromium) or stays put (headless Firefox), and comes back into the dialog. The cycle's length follows the
+  // number of controls (v1.8.0 added Copy caption beside Save and Close), so keep tabbing until focus is back.
+  for (let i = 0; i < 6 || (i < 10 && !(await postcard.evaluate((dialog) => dialog.contains(document.activeElement)))); i++) {
     await page.keyboard.press("Tab");
     expect(await postcard.evaluate((dialog) => dialog.contains(document.activeElement) || !document.hasFocus())).toBe(true);
   }

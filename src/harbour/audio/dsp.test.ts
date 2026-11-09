@@ -149,14 +149,48 @@ describe("harbour sound: passing hulls sit under the laps", () => {
   });
 });
 
-it("preserves the pre-slicing seeded PCM for every clip kind", () => {
+/** The overlapped streams: their clips end in equal-power fades since v1.8.0 (S7); every other kind's PCM is unchanged. */
+const STREAMS = new Set<ClipKind>(["crackle", "drizzle", "rain", "cricket", "cicada"]);
+function pcmHash(pick: (kind: ClipKind) => boolean): string {
   const hash = createHash("sha256");
-  for (const synth of Object.values(SYNTHS)) {
+  for (const [kind, synth] of Object.entries(SYNTHS) as Array<[ClipKind, (typeof SYNTHS)[ClipKind]]>) {
+    if (!pick(kind)) continue;
     const clip = renderNow(synth(7, 24000));
     hash.update(new Uint8Array(clip.L.buffer)); hash.update(new Uint8Array(clip.R.buffer));
   }
-  expect(hash.digest("hex")).toBe("7b7f85381605df73e8c9b131ca6978fc52560427d35d93d9800e9c8d9b035fb4");
+  return hash.digest("hex");
+}
+
+it("preserves the pre-slicing seeded PCM for every clip kind but the overlapped streams", () => {
+  expect(pcmHash((k) => !STREAMS.has(k))).toBe("f25a5a4854dbd27995dea08e8bd243277c16b9fc67c010c19a285015a7ce7ba1");
 });
+
+it("pins the overlapped streams' seeded PCM with their equal-power ends (S7)", () => {
+  expect(pcmHash((k) => STREAMS.has(k))).toBe("e57cbd288262e67f8bf52dd2659d395e2b48b8cd19a2693625ad9b9a42295cf1");
+});
+
+it.each([["crackle", 16000], ["drizzle", 24000], ["rain", 24000], ["cicada", 24000]] as const)(
+  "%s: two clips joined where the first one's fade-out begins hold their power through the join (S7)",
+  (kind, sr) => {
+    // eight joins pooled: the central 0.3 s of each overlap against the two clips' interiors (equal-gain ends: −2 dB)
+    const fade = Math.floor(0.5 * sr), mid = Math.round(0.15 * sr);
+    const clips = [11, 22, 33, 44, 55, 66, 77, 88, 99].map((seed) => renderNow(SYNTHS[kind](seed, sr)));
+    const power = (c: { L: Float32Array; R: Float32Array }, i0: number, i1: number) => {
+      let s = 0;
+      for (let i = i0; i < i1; i++) s += c.L[i] ** 2 + c.R[i] ** 2;
+      return s / (i1 - i0);
+    };
+    let join = 0, inner = 0;
+    for (let k = 1; k < clips.length; k++) {
+      const a = clips[k - 1], b = clips[k], n = a.L.length;
+      let s = 0;
+      for (let i = fade / 2 - mid; i < fade / 2 + mid; i++) s += (a.L[n - fade + i] + b.L[i]) ** 2 + (a.R[n - fade + i] + b.R[i]) ** 2;
+      join += s / (2 * mid);
+      inner += (power(a, fade, n - fade) + power(b, fade, b.L.length - fade)) / 2;
+    }
+    expect(Math.abs(10 * Math.log10(join / inner))).toBeLessThan(0.75);
+  },
+);
 
 it.each(["bird", "tolling", "bell"] as const)("%s yields before a whole note or long partial is rendered", (kind) => {
   const job = SYNTHS[kind](7, 24000);

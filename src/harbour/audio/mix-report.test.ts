@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { energyAbove, integrated, loudnessRange, meter, peaks, segments, windows } from "../../../scripts/audio/loudness.mjs";
+import { cueOverFloor, energyAbove, integrated, loudnessRange, meter, peaks, segments, windows } from "../../../scripts/audio/loudness.mjs";
 import { SCENES } from "../../../scripts/audio/mix-scenes";
 import { mixTargets } from "../../../scripts/audio/mix-targets.mjs";
 
@@ -60,6 +60,34 @@ describe("offline mix gate: forced near clap", () => {
     const silent = mixTargets({ calm: { integrated: -26, truePeak: -1 }, storm: { integrated: null, truePeak: null }, "music-alone": { integrated: null, truePeak: null } });
     expect(silent.find((t) => t.id === "storm-over-calm")?.pass).toBe(false);
     expect(silent.find((t) => t.id === "music-under-calm")?.pass).toBe(false);
+  });
+});
+
+describe("offline mix gate: v1.8.0 targets (S1, S4)", () => {
+  it("gates both storms at once at calm + 7 LU", () => {
+    const over = (storm: number) => mixTargets({ calm: { integrated: -26, truePeak: -10 }, "storm-rough": { integrated: storm, truePeak: -3 } })
+      .find((t) => t.id === "storm-rough-over-calm");
+    expect(over(-19)).toEqual({ id: "storm-rough-over-calm", goal: "both storms at once ≤ calm + 7 LU", value: 7, pass: true });
+    expect(over(-18.9)?.pass).toBe(false);
+  });
+
+  it("gates the stale foghorn at +8 LU over the stale floor, and fails a stale render without a horn", () => {
+    const horn = (hornOverFloor: number | null) => mixTargets({ stale: { integrated: -31, truePeak: -14, hornOverFloor } })
+      .find((t) => t.id === "stale-horn-over-floor");
+    expect(horn(8)).toEqual({ id: "stale-horn-over-floor", goal: "foghorn ≤ +8 LU over the stale floor", value: 8, pass: true });
+    expect(horn(8.1)?.pass).toBe(false);
+    expect(horn(null)?.pass).toBe(false);
+    expect(mixTargets({ calm: { integrated: -26, truePeak: -10 } }).some((t) => t.id === "stale-horn-over-floor")).toBe(false);
+  });
+
+  it("measures a cue's loudest moment over the median floor of the 3 s windows clear of every cue", () => {
+    // 10 s at 100 ms: an on-ramp (−45) until 2.5 s, a floor at −33, one cue at 6 s for 3 s. The 3 s windows that
+    // touch the cue read −20 and outnumber the clear ones; with the ramp's they would hold the median
+    const cue = 6, span = 3, k10 = (k: number) => k / 10;
+    const shortTerm = Array.from({ length: 100 }, (_, k) => (k < 25 ? -45 : k10(k) + 3 > cue && k10(k) < cue + span ? -20 : -33));
+    const momentary = Array.from({ length: 100 }, (_, k) => (k10(k) >= cue && k10(k) + 0.4 <= cue + span ? (k === 70 ? -26 : -29) : -35));
+    expect(cueOverFloor(momentary, shortTerm, [cue], span, 2.5)).toEqual({ floor: -33, levels: [-26], over: 7 });
+    expect(cueOverFloor(momentary, shortTerm, [], span, 2.5).over).toBeNull();
   });
 });
 

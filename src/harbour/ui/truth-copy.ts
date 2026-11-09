@@ -1,7 +1,7 @@
 import type { PresentationStatus } from "./presentation";
 import type { EndpointTruth } from "../model/types";
 
-export type ReadingName = "Supply" | "Chain comparisons" | "PSI" | "Peg readings" | "Stress readings" | "Safety grades" | "Flow readings";
+export type ReadingName = "Supply" | "Chain comparisons" | "PSI" | "Peg readings" | "Stress readings" | "Safety grades" | "Flow readings" | "Depeg events" | "Reserves" | "DEX liquidity";
 type Truth = Pick<EndpointTruth, "state" | "reason" | "sourceUpdatedAtMs">;
 export type TruthCopyInput =
   | { kind: "reading"; reading: ReadingName; truth: Truth; coveragePct?: number }

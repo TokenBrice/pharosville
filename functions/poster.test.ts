@@ -103,7 +103,8 @@ describe("the night shell", () => {
       "/harbour/poster-night-960.webp 960w, /harbour/poster-night-1600.webp 1600w",
       "/harbour/poster-night-1600.webp",
     ]);
-    const welcome = (doc.getElementById("pv-welcome") as HTMLTemplateElement).content;
+    // the welcome is first-byte HTML beside the arrival (D20), no longer a template
+    const welcome = doc.getElementById("pv-welcome")!;
     expect(welcome.querySelector("img")?.getAttribute("src")).toBe("/harbour/poster-night-960.webp");
     expect(welcome.querySelector("img")?.getAttribute("alt")).toMatch(/^The PharosVille harbour at night: .*Illustration, not live readings\.$/);
     expect([...welcome.querySelectorAll("source")].map((s) => s.getAttribute("srcset"))).toEqual(urls.slice(1, 3));

@@ -19,6 +19,9 @@ import {
 } from "../_shared";
 import type { PharosVilleApiEndpointKey } from "../../shared/types/pharosville-endpoint-keys";
 import { endpointProjector, type ProjectionJson } from "./_project";
+import { allowedPanelEndpoint, type PanelEndpointKey } from "../../shared/lib/pharosville-panel-endpoints";
+import { panelEndpointProjector } from "./_project-panels";
+import { proxyOutcomeRecords, type ProxyEvidence } from "./_outcomes";
 
 interface Env {
   PHAROS_API_BASE?: string;
@@ -80,7 +83,9 @@ function normalizeBaseUrl(base: string | undefined): string | null {
 
 function getAllowedEndpoint(url: URL) {
   const path = `${url.pathname}${url.search}`;
-  return PHAROSVILLE_API_CLIENT_ENDPOINTS.find((endpoint) => endpoint.path === path) ?? null;
+  const world = PHAROSVILLE_API_CLIENT_ENDPOINTS.find((endpoint) => endpoint.path === path);
+  // URL.search omits an empty '?' marker; panel paths must still be exact.
+  return world ?? (url.href === `${url.origin}${path}` ? allowedPanelEndpoint(path) : null);
 }
 
 function buildUpstreamUrl(base: string, url: URL): string {
@@ -120,9 +125,10 @@ function conditionalResponse(request: Request, response: Response): Response {
   return new Response(null, { status: 304, statusText: "Not Modified", headers });
 }
 
-async function projectedResponse(response: Response, key: PharosVilleApiEndpointKey): Promise<Response> {
+async function projectedResponse(response: Response, key: PharosVilleApiEndpointKey | PanelEndpointKey): Promise<Response> {
   if (response.status !== 200 || !isJsonResponse(response)) return response;
-  const body = JSON.stringify(endpointProjector(key)(await response.json() as ProjectionJson));
+  const projector = key === "depegEvents" || key === "stablecoinReserves" || key === "dexLiquidity" ? panelEndpointProjector(key) : endpointProjector(key);
+  const body = JSON.stringify(projector(await response.json() as ProjectionJson));
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
   const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   const headers = new Headers(response.headers);
@@ -171,7 +177,7 @@ type UpstreamFetchResult =
   | { durationMs: number; ok: true; response: Response }
   | { durationMs: number; errorKind: "fetch-error" | "timeout"; ok: false };
 
-async function fetchUpstream(url: string, apiKey: string, key: PharosVilleApiEndpointKey): Promise<UpstreamFetchResult> {
+async function fetchUpstream(url: string, apiKey: string, key: PharosVilleApiEndpointKey | PanelEndpointKey): Promise<UpstreamFetchResult> {
   const controller = new AbortController();
   const startedAt = Date.now();
   let timedOut = false;
@@ -227,28 +233,36 @@ function logUpstreamFailure(context: PagesContext, endpointPath: string, failure
 }
 
 export async function onRequest(context: PagesContext): Promise<Response> {
+  const startedAt = Date.now();
+  const url = new URL(context.request.url);
+  const endpoint = getAllowedEndpoint(url);
+  const finish = (response: Response, evidence: Omit<ProxyEvidence, "status" | "warning">): Response => {
+    // Console-only: no external sink or retained request identifier on this path.
+    for (const record of proxyOutcomeRecords(endpoint?.key ?? "unlisted", {
+      ...evidence, status: response.status, warning: response.headers.get("warning"),
+    }, Date.now() - startedAt, Math.random())) console.log(JSON.stringify(record));
+    return response;
+  };
   if (context.request.method !== "GET") {
-    return jsonError("Method not allowed", 405, { Allow: "GET" });
+    return finish(jsonError("Method not allowed", 405, { Allow: "GET" }), { source: "rejected" });
   }
 
-  const url = new URL(context.request.url);
   // The last-good copies live under this prefix in `caches.default`, the same
   // store the CDN serves this zone from. The allowlist below would 404 the
   // prefix anyway; what matters here is `no-store`, so the refusal can never be
   // cached onto a key and disable the fallback for the next 24 hours.
   if (url.pathname.startsWith(LAST_GOOD_CACHE_PATH_PREFIX) || url.pathname.startsWith("/api/__projection/")) {
-    return jsonError("Not found", 404, { "cache-control": "no-store" });
+    return finish(jsonError("Not found", 404, { "cache-control": "no-store" }), { source: "rejected" });
   }
 
-  const endpoint = getAllowedEndpoint(url);
   if (!endpoint) {
-    return jsonError("Not found", 404);
+    return finish(jsonError("Not found", 404), { source: "rejected" });
   }
 
   const base = normalizeBaseUrl(context.env.PHAROS_API_BASE);
   const apiKey = context.env.PHAROS_API_KEY?.trim();
   if (!base || !apiKey) {
-    return jsonError("PharosVille API proxy is not configured", 500);
+    return finish(jsonError("PharosVille API proxy is not configured", 500), { source: "not-configured" });
   }
 
   const cache = getEdgeCache();
@@ -260,7 +274,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     return undefined;
   });
   if (cached?.headers.get("etag")?.startsWith(`"${PHAROSVILLE_PROJECTION_EPOCH}-`)) {
-    return withSecurityHeaders(conditionalResponse(context.request, cached), API_SECURITY_RESPONSE_HEADERS);
+    return finish(withSecurityHeaders(conditionalResponse(context.request, cached), API_SECURITY_RESPONSE_HEADERS), { source: "cache" });
   }
 
   const lastGoodCacheKey = buildLastGoodCacheKey(epochUrl, CACHE_KEY_ORIGIN);
@@ -268,16 +282,16 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   if (!upstream.ok) {
     logUpstreamFailure(context, endpoint.path, upstream);
     const lastGood = await readLastGoodEdgeCache(cache, lastGoodCacheKey);
-    return lastGood?.response.headers.get("etag")?.startsWith(`"${PHAROSVILLE_PROJECTION_EPOCH}-`)
+    return finish(lastGood?.response.headers.get("etag")?.startsWith(`"${PHAROSVILLE_PROJECTION_EPOCH}-`)
       ? await staleLastGoodResponse(lastGood)
-      : jsonError("PharosVille API upstream request failed", 502);
+      : jsonError("PharosVille API upstream request failed", 502), { source: "upstream", errorKind: upstream.errorKind, upstreamStatus: 502 });
   }
 
   // An upstream 5xx is the same outage from the visitor's side. A 4xx is not —
   // that is an answer about the request, and forwarding it stays honest.
   if (upstream.response.status >= 500) {
     const lastGood = await readLastGoodEdgeCache(cache, lastGoodCacheKey);
-    if (lastGood?.response.headers.get("etag")?.startsWith(`"${PHAROSVILLE_PROJECTION_EPOCH}-`)) return staleLastGoodResponse(lastGood);
+    if (lastGood?.response.headers.get("etag")?.startsWith(`"${PHAROSVILLE_PROJECTION_EPOCH}-`)) return finish(await staleLastGoodResponse(lastGood), { source: "upstream", upstreamStatus: upstream.response.status });
   }
 
   const body = upstream.response.body;
@@ -290,5 +304,5 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     maybeStoreEdgeCache(context, cache, cacheKey, response);
     maybeStoreLastGoodEdgeCache(context, cache, lastGoodCacheKey, response);
   }
-  return withSecurityHeaders(conditionalResponse(context.request, response), API_SECURITY_RESPONSE_HEADERS);
+  return finish(withSecurityHeaders(conditionalResponse(context.request, response), API_SECURITY_RESPONSE_HEADERS), { source: "upstream", upstreamStatus: upstream.response.status });
 }

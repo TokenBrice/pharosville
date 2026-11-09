@@ -12,7 +12,7 @@ import { acquireFxTextures, type FxTextures } from "./textures";
 import { WakeField, type WakeService } from "./wake";
 import { updateAerial } from "../world/aerial";
 import { runupUniforms } from "../world/runup";
-import { hullSwell, SEA_STATES, waveHeight } from "./waves";
+import { hullSwell, POINT_DAMP_AT, pointSwell, SEA_STATES, waveHeight } from "./waves";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { buildZoneMask, type SeaZoneLike } from "./zone-mask";
 import { loadSdfImage } from "./sdf-image";
@@ -20,6 +20,8 @@ import { getHarbourMaterials } from "../world/materials";
 import { TimeOfDay } from "../engine/time-of-day";
 import { createWorldUniforms } from "../engine/uniforms";
 import { seaHour } from "./sea-tone";
+import { extraEnabled } from "../engine/extras";
+import { MirrorPass, OCEAN_FRAG_MIRROR } from "./mirror-pass";
 
 /**
  * OCEAN: one large sea plane (fine grid over the sea bounds, a stretched far ring beyond), an unlit
@@ -35,11 +37,14 @@ export interface OceanService {
   preparationScope(lite: boolean): () => void;
   setSeaState(state: SeaState): void;
   readonly seaState: SeaState;
-  /** Sea surface height (m) at world (x, z) now, for bobbing hulls. */
-  heightAt(x: number, z: number): number;
+  /**
+   * Sea surface height (m) at world (x, z) now, for bobbing hulls. `point` (waves.ts pointSwellCache, one per fixed point
+   * such as a buoy) keeps its phases and coast damping: no trig per frame (waves.ts pointSwell), the same height to rounding.
+   */
+  heightAt(x: number, z: number, point?: Float64Array): number;
   /**
    * heightAt at a hull's centre (x, z), bow / stern ± (bx, bz) and port / starboard ± (px, pz) into out[0..4],
-   * in one call. `cache` (waves.ts hullSwellCache, one per hull): for a hull at rest, 10 trig instead of 25.
+   * in one call. `cache` (waves.ts hullSwellCache, one per hull): for a hull at rest, no trig instead of 25.
    */
   hullHeights(x: number, z: number, bx: number, bz: number, px: number, pz: number, out: Float64Array, cache: Float64Array | null): void;
   /** P6 (identity): the sea's own clock, swell scale and SDF, so overlays on the water (chart lettering) ride the same swell. */
@@ -115,6 +120,8 @@ export class OceanSystem implements WorldSystem {
   private readonly seaGoal = new THREE.Vector4().copy(this.seaU.value);
   /** The sea's clock (swell, detail normals, foam): eases to a stop under reduced motion (MotionClock). */
   private time = 0;
+  /** Bumped whenever the CPU coast (coastR) changes: a fixed point's kept coast damping (heightAt) is re-taken. */
+  private sdfVersion = 0;
   private readonly seaTime = { value: 0 };
   private clock: MotionClock | null = null;
   private layout: HarbourLayout | null = null;
@@ -125,6 +132,8 @@ export class OceanSystem implements WorldSystem {
   private hourTod: TimeOfDay | null = null;
   private readonly hourU = createWorldUniforms();
   private readonly noonU = createWorldUniforms();
+  /** E35 the harbour mirror (High only; on by the v1.8.0 art director, `&extras=-mirror` turns it off): the SSR pass at composer index 1. */
+  private mirror: MirrorPass | null = null;
 
   async init(ctx: EngineContext): Promise<void> {
     const layout = ctx.services.get("layout");
@@ -169,6 +178,9 @@ export class OceanSystem implements WorldSystem {
     };
     const W = ctx.uniforms;
     const col = (h: string) => ({ value: new THREE.Color(h) });
+    // before the first render (a depth pass added to a running composer re-creates its buffers), right after the
+    // RenderPass and ahead of the stale fog (PostChain.seal keeps it there)
+    if (extraEnabled("mirror")) { this.mirror = new MirrorPass(ctx.camera); ctx.composer.addPass(this.mirror, 1); }
     this.material = new THREE.ShaderMaterial({
       vertexShader: OCEAN_VERT,
       fragmentShader: OCEAN_FRAG,
@@ -201,15 +213,18 @@ export class OceanSystem implements WorldSystem {
         uSceneRadius: { value: Math.hypot(layout.bounds.max[0] - layout.bounds.min[0], layout.bounds.max[2] - layout.bounds.min[2]) / 2 },
         // E11 the hour on the water / E13 the bloom ceiling for glints (sea-tone.ts; set every frame below)
         uSeaHour: { value: new THREE.Vector4(1, 1, 1, 1) }, uSeaLow: { value: new THREE.Vector2(1, 0) }, uBloomT: { value: 1.5 },
+        ...this.mirror?.uniforms,
       },
       fog: false,
       // the calendar is set before anything compiles (season system first): summer nights' glow only when it can show
       defines: W.uFoliage.value.y > 0.001 ? { HB_BIOLUM: "" } : {},
     });
-    const features = () => Object.freeze({ biolum: W.uFoliage.value.y > 0.001, lite: this.lite });
-    this.material.customProgramCacheKey = () => { const f = features(); return `hb_ocean_${Number(f.biolum)}_${Number(f.lite)}`; };
+    // the mirror's ocean (mirror-pass.ts) is one program for Medium and High (a uniform turns it on): no compile on a switch
+    const features = () => Object.freeze({ biolum: W.uFoliage.value.y > 0.001, lite: this.lite, mirror: this.mirror !== null && !this.lite });
+    this.material.customProgramCacheKey = () => { const f = features(); return `hb_ocean_${Number(f.biolum)}_${Number(f.lite)}${f.mirror ? "_m" : ""}`; };
     this.material.onBeforeCompile = (shader) => {
       const f = features();
+      if (f.mirror) shader.fragmentShader = OCEAN_FRAG_MIRROR;
       shader.defines = { ...shader.defines };
       delete shader.defines.HB_BIOLUM; delete shader.defines.HB_LITE;
       if (f.biolum) shader.defines.HB_BIOLUM = "";
@@ -220,6 +235,7 @@ export class OceanSystem implements WorldSystem {
     if (quality) {
       const lite = (tier: string) => {
         this.lite = tier === "low";
+        this.mirror?.setActive(tier === "high", tier === "low");
         this.syncFeatures();
       };
       lite(quality.tier);
@@ -245,6 +261,10 @@ export class OceanSystem implements WorldSystem {
     }
     if (q.has("debugSea")) this.material.uniforms.uDebug.value = Number(q.get("debugSea"));
     if (q.has("sea")) this.setSeaState(Number(q.get("sea")) as SeaState);
+    // the V14 strength A/B (25–35 %)
+    if (this.mirror && q.has("mirrorK")) this.mirror.strength = THREE.MathUtils.clamp(Number(q.get("mirrorK")) || 0, 0, 1);
+    // V15 A/B: 0 keeps the quay-side lift at the quays (the default moves it while the mirror runs)
+    if (this.mirror && q.has("v15")) this.mirror.setQuayLift(q.get("v15") === "0" ? 0 : 1);
     this.seaU.value.copy(this.seaGoal);
 
     const getState = () => this.state;
@@ -252,7 +272,12 @@ export class OceanSystem implements WorldSystem {
       preparationScope: (lite) => { const previous = this.lite; this.lite = lite; return () => { this.lite = previous; }; },
       setSeaState: (s) => this.setSeaState(s),
       get seaState() { return getState(); },
-      heightAt: (x, z) => waveHeight(x, z, this.time, this.seaU.value.x) * this.dampAt(x, z),
+      heightAt: (x, z, point) => {
+        if (!point) return waveHeight(x, z, this.time, this.seaU.value.x) * this.dampAt(x, z);
+        const D = POINT_DAMP_AT; // checked before pointSwell re-keys the point
+        if (!(point[0] === x && point[1] === z && point[D] === this.sdfVersion)) { point[D] = this.sdfVersion; point[D + 1] = this.dampAt(x, z); }
+        return pointSwell(x, z, this.time, this.seaU.value.x, point) * point[D + 1];
+      },
       hullHeights: (x, z, bx, bz, px, pz, out, cache) => {
         hullSwell(x, z, bx, bz, px, pz, this.time, this.seaU.value.x, out, cache);
         out[0] *= this.dampAt(x, z);
@@ -298,7 +323,10 @@ export class OceanSystem implements WorldSystem {
   private dampAt(x: number, z: number): number {
     const i = this.texel(x, z);
     if (i < 0) return 1;
-    return sdfMainlandFade(x, z, this.scx, this.scz) > 0 ? dampOf(this.coastAt(x, z)) : DAMP_BY_BYTE[this.coastR[i]];
+    const k = sdfMainlandFade(x, z, this.scx, this.scz);
+    if (!(k > 0)) return DAMP_BY_BYTE[this.coastR[i]];
+    const c = coastOf(this.coastR[i]); // coastAt(x, z), from the texel and fade already taken
+    return dampOf(c + (SDF_COAST_RANGE / 2 - c) * k);
   }
 
   private seedDebugMovers(layout: HarbourLayout): void {
@@ -324,10 +352,15 @@ export class OceanSystem implements WorldSystem {
     (tex.image.data as Uint8Array).set(data);
     tex.needsUpdate = true;
     for (let i = 0; i < n * n; i++) this.coastR[i] = data[i * 4];
+    this.sdfVersion++;
   }
 
   update(frame: FrameState, ctx: EngineContext): void {
     this.syncFeatures();
+    this.mirror?.setConditions(
+      THREE.MathUtils.smoothstep(ctx.services.get("readings")?.fog ?? 0, 0, 1),
+      Math.max(ctx.uniforms.uPrecip.value.x, ctx.uniforms.uPrecip.value.y),
+    );
     if (this.awaitGround) {
       const ground = ctx.services.get("ground");
       if (ground?.heights) { this.awaitGround = false; this.rebuildFromGround(ground); }
@@ -373,6 +406,7 @@ export class OceanSystem implements WorldSystem {
 
   dispose(ctx: EngineContext): void {
     this.unsubQuality?.();
+    if (this.mirror) { ctx.composer.removePass(this.mirror); this.mirror.dispose(); this.mirror = null; }
     ctx.scene.remove(this.mesh);
     this.mesh.geometry.dispose();
     this.material.dispose();

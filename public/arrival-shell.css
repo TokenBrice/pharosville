@@ -85,6 +85,9 @@ button, input, select, textarea { font: inherit; }
   box-sizing: border-box;
   padding: 18px 24px 16px;
   font-size: 16px; line-height: 1.4;
+  /* S08-I4: a card taller than its window (a short window, enlarged text, a terminal failure) scrolls from its own start,
+     below the corner mark; where it fits nothing changes. Inert from the reveal on, so it never catches the world's input */
+  max-height: calc(100% - max(28px, 4vh) - 72px); overflow-y: auto; pointer-events: auto;
 }
 .pv-arrival__card::before {
   content: ""; position: absolute; inset: 4px; border: 0.5px solid rgba(166, 130, 66, 0.55); pointer-events: none;
@@ -101,6 +104,8 @@ button, input, select, textarea { font: inherit; }
   margin: 0; padding-top: 10px; border-top: 0.5px solid var(--pv-brass);
   font-style: italic; color: var(--pv-ink-2); text-align: center;
 }
+/* D20: only JavaScript admission writes "Raising the harbour." (main.tsx); its line is held open, so the card never moves */
+.pv-arrival__stage:empty::before { content: "\a0"; }
 .pv-arrival nav { display: flex; justify-content: center; flex-wrap: wrap; gap: 0 22px; }
 /* the links and a failed arrival's action (Retry harbour, Reload page; drawn in harbour-app.css): 44 px under touch */
 .pv-arrival nav :is(a, button) { display: inline-flex; align-items: center; min-height: 36px; }
@@ -133,46 +138,89 @@ button, input, select, textarea { font: inherit; }
 :root[data-pv-hour="night"] .pv-arrival nav a { color: #ab8e5a; }
 :root[data-pv-hour="night"] .pv-arrival nav :is(a, button):focus-visible { outline-color: #6a9cc8; }
 
-/* ---- gate pages: screens or windows too small to chart (size tests, never orientation) ---- */
-.pharosville-gate { min-height: 100svh; background: #16222f; color: #eef0ec; }
-.pharosville-gate__illustration { margin: 24px 0; }
-.pharosville-gate__still { display: block; width: 100%; height: auto; }
-.pharosville-gate__illustration figcaption { padding: 12px 0; font: 0.875rem/1.5 var(--pv-ui); }
+/* ---- D20/Q14 the first paint: the window's own size picks the arrival card or the welcome, the sorted 720×600 test as
+   two OR'd size queries (never orientation). main.tsx then stamps data-pv-gate and stays the authority (it adds the
+   physical-screen half); without JavaScript these rules are the whole gate, and either page is finished. ---- */
+:root:not([data-pv-gate]) :is(#root, .pv-poster) { display: none; }
+@media (min-width: 720px) and (min-height: 600px), (min-width: 600px) and (min-height: 720px) {
+  :root:not([data-pv-gate]) :is(#root, .pv-poster) { display: block; }
+  :root:not([data-pv-gate]) .pv-welcome { display: none; }
+}
+:root[data-pv-gate="arrival"] .pv-welcome { display: none; }
+
+/* ---- the welcome (O8-I5): screens or windows too small to chart, in the harbour's own voice — one chart-paper sheet,
+   EB Garamond only, the reason and the action first; the night bridge palette when the edge opens on the night key art ---- */
+.pv-welcome, .pharosville-gate {
+  --w-paper: #f4ecda; --w-paper-2: #ebe0c6; --w-ink: #23201a; --w-ink-2: #4a4236; --w-ink-3: #6a5e4b;
+  --w-brass: #7a5a22; --w-rule: #a68242; --w-link: #1f5873; --w-focus: #1668a3; --w-up: #3f6e52;
+  box-sizing: border-box; min-height: 100svh; padding: 16px 12px 40px;
+  background: linear-gradient(#0d1b2a, #16222f 45%);
+}
+:root[data-pv-hour="night"] :is(.pv-welcome, .pharosville-gate) {
+  --w-paper: #18212b; --w-paper-2: #1f2a36; --w-ink: #e6dcc6; --w-ink-2: #c8bda5; --w-ink-3: #aba18c;
+  --w-brass: #cfae6e; --w-rule: #a88a52; --w-link: #8ec1d9; --w-focus: #7fb8ea; --w-up: #8fc7a0;
+  background: linear-gradient(#070d14, #0d1621 45%);
+}
+.pv-welcome[data-screen-capable="true"] [data-pv-branch="screen"],
+.pv-welcome:not([data-screen-capable="true"]) [data-pv-branch="window"] { display: none; }
 .pharosville-narrow {
-  position: relative; z-index: 30; box-sizing: border-box; min-height: 100svh; padding: 32px 24px 40px;
-  background: #16222f; color: #eef0ec; font-family: var(--pv-ui);
+  position: relative; box-sizing: border-box; width: min(100%, 38rem); margin: 0 auto; padding: 24px 20px 22px;
+  color: var(--w-ink); font: 400 1rem/1.5 var(--pv-serif);
+  background: var(--w-paper) radial-gradient(120% 90% at 50% 40%, rgba(255, 252, 240, 0.55), rgba(255, 252, 240, 0) 60%, rgba(150, 118, 64, 0.1) 100%);
+  border: 1px solid rgba(110, 84, 40, 0.55); border-radius: 1px; box-shadow: 0 10px 30px -6px rgba(0, 0, 0, 0.5);
 }
-.pharosville-narrow__inner { width: min(100%, 620px); margin: auto; }
-.pharosville-narrow h2 { margin: 0; font: 600 2.125rem/1.1 var(--pv-serif); text-wrap: balance; }
-.pharosville-narrow p { margin: 18px 0 0; font-size: 1rem; line-height: 1.6; text-wrap: pretty; }
-.pharosville-narrow .pharosville-narrow__promise { margin-top: 8px; font: italic 1.25rem/1.4 var(--pv-serif); }
-.pharosville-narrow__guide { margin: 28px 0; }
-.pharosville-narrow__guide > div { margin: 16px 0; }
+.pharosville-narrow::before { content: ""; position: absolute; inset: 4px; border: 0.5px solid rgba(166, 130, 66, 0.55); pointer-events: none; }
+:root[data-pv-hour="night"] .pharosville-narrow {
+  background-image: radial-gradient(120% 90% at 50% 40%, rgba(207, 174, 110, 0.05), rgba(207, 174, 110, 0) 60%, rgba(0, 0, 0, 0.2) 100%);
+  border-color: rgba(207, 174, 110, 0.38);
+}
+:root[data-pv-hour="night"] .pharosville-narrow::before { border-color: rgba(207, 174, 110, 0.26); }
+.pharosville-narrow p { margin: 14px 0 0; text-wrap: pretty; }
+.pharosville-narrow__mark { margin: 0; font: 600 2.125rem/1.1 var(--pv-serif); letter-spacing: 0.01em; }
+.pharosville-narrow__mark i { font-weight: 400; }
+.pharosville-narrow .pharosville-narrow__promise { margin-top: 2px; font-size: 1.1875rem; font-style: italic; color: var(--w-ink-2); }
+.pharosville-narrow .pharosville-narrow__subject { padding: 6px 12px; border-left: 2px solid var(--w-rule); background: var(--w-paper-2); }
+.pharosville-narrow__gate { margin-top: 16px; padding: 14px 0 16px; border-block: 1px solid var(--w-rule); }
+.pharosville-narrow .pharosville-narrow__reason { margin: 0; font-size: 1.09375rem; line-height: 1.45; }
+.pharosville-narrow .pharosville-narrow__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.pharosville-narrow__actions > * { min-height: 44px; box-sizing: border-box; border-radius: 2px; font-size: 1rem; }
+.pharosville-narrow__primary { display: inline-flex; align-items: center; padding: 0 18px; background: var(--w-ink); color: var(--w-paper); font-weight: 600; text-decoration: none; }
+.pharosville-narrow__primary:hover { background: var(--w-ink-2); }
+.pharosville-narrow__copy { padding: 0 16px; border: 1px solid var(--w-rule); background: transparent; color: var(--w-ink); cursor: pointer; }
+.pharosville-narrow__copy:hover { background: var(--w-paper-2); }
+.pharosville-narrow .pharosville-narrow__status { margin-top: 8px; font-style: italic; color: var(--w-ink-2); }
+.pharosville-narrow__status:empty { display: none; }
+.pharosville-narrow__status label { font-style: normal; }
+.pharosville-narrow__status input {
+  display: block; box-sizing: border-box; width: 100%; min-height: 44px; margin-top: 6px; padding: 0 10px;
+  border: 1px solid var(--w-rule); border-radius: 2px; background: var(--w-paper-2); color: var(--w-ink); font: 0.9375rem var(--pv-serif);
+}
+.pharosville-gauge { margin-top: 12px; }
+.pharosville-narrow .pharosville-gauge__side {
+  display: grid; grid-template-columns: 5.5em 1fr auto; align-items: center; gap: 10px; margin: 4px 0 0;
+  color: var(--w-ink-2); font-size: 0.9375rem; font-variant-numeric: lining-nums tabular-nums;
+}
+.pharosville-gauge__bar { height: 6px; border: 1px solid var(--w-rule); background: var(--w-paper-2); }
+.pharosville-gauge__bar > span { display: block; width: calc(var(--pv-fill, 0) * 100%); height: 100%; background: var(--w-ink-2); }
+.pharosville-gauge__side[data-met="true"] .pharosville-gauge__bar > span { background: var(--w-up); }
+.pharosville-gate__illustration { margin: 18px 0 0; }
+.pharosville-gate__still { display: block; width: 100%; height: auto; border: 1px solid rgba(110, 84, 40, 0.55); }
+.pharosville-gate__illustration figcaption { padding-top: 6px; font-size: 0.84375rem; font-style: italic; color: var(--w-ink-3); }
+.pharosville-narrow__guide { margin: 18px 0 0; padding-top: 4px; border-top: 0.5px solid var(--w-rule); }
+.pharosville-narrow__guide > div { margin: 10px 0 0; }
 .pharosville-narrow__guide dt { font-weight: 600; }
-.pharosville-narrow__guide dd { margin: 4px 0 0; line-height: 1.6; }
-.pharosville-narrow__links { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.pharosville-narrow__links a {
-  display: inline-flex; align-items: center; min-height: 44px;
-  color: inherit; font-size: 0.875rem; text-underline-offset: 4px;
-}
-.pharosville-narrow__links a:hover { text-decoration-thickness: 2px; }
-.pharosville-narrow__links a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
-.pharosville-narrow .pharosville-narrow__size {
-  margin-top: 28px; padding-top: 20px; border-top: 1px solid #64717c; font-size: 0.875rem;
-}
-.pharosville-narrow button {
-  min-height: 44px; margin-top: 20px; padding: 8px 16px;
-  border: 1px solid #64717c; background: transparent; color: inherit; cursor: pointer;
-}
-@media (min-width: 700px) {
-  .pharosville-narrow__inner:has(.pharosville-gate__illustration) {
-    width: min(100%, 1080px);
-    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 32px;
-  }
-  .pharosville-narrow__inner > :not(.pharosville-gate__illustration) { grid-column: 1; }
-  .pharosville-gate__illustration {
-    grid-column: 2; grid-row: 1 / 7; align-self: start; position: sticky; top: 24px; margin: 0;
-  }
-}
+.pharosville-narrow__guide dd { margin: 2px 0 0; color: var(--w-ink-2); }
+.pharosville-narrow__more { margin-top: 10px; border-bottom: 0.5px dotted var(--w-rule); }
+.pharosville-narrow__more + .pharosville-narrow__more { margin-top: 0; }
+.pharosville-narrow__more summary { padding: 10px 0; font-weight: 600; cursor: pointer; }
+.pharosville-narrow__more summary::marker { color: var(--w-brass); }
+.pharosville-narrow__more p { margin: 0 0 10px; color: var(--w-ink-2); }
+.pharosville-narrow__links { display: flex; flex-direction: column; margin-top: 14px; }
+.pharosville-narrow__links a { display: flex; align-items: center; min-height: 44px; border-bottom: 0.5px dotted var(--w-rule); }
+.pharosville-narrow :is(.pharosville-narrow__more, .pharosville-narrow__links) a { color: var(--w-link); text-underline-offset: 3px; text-decoration-thickness: 0.5px; }
+.pharosville-narrow__more a { display: inline-flex; align-items: center; min-height: 44px; }
+.pharosville-narrow .pharosville-narrow__size { margin-top: 18px; color: var(--w-ink-3); font-size: 0.875rem; }
+.pharosville-narrow :is(a, button, summary, input):focus-visible { outline: 2px solid var(--w-focus); outline-offset: 2px; }
+@media (min-width: 480px) { .pv-welcome, .pharosville-gate { padding: 32px 24px 48px; } .pharosville-narrow { padding: 28px 32px 26px; } }
 /* a coarse pointer's live mark is 50 px tall: the plaque matches it, so the reveal's crossfade is registered */
 @media (any-pointer: coarse) { .pv-arrival__mark { padding-block: 14px 15px; } }

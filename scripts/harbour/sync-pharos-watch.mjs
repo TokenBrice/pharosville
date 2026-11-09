@@ -12,7 +12,8 @@
  * sync-prelaunch.mjs) → the cemetery (shared/data/dead-stablecoins.json: Wreck Cove's names, causes, epitaphs and
  * obituaries, projected onto shared/'s strict schema; schema-gated by sync-schema.mjs) → the browser's slim registry
  * (shared/data/stablecoins/runtime-slim.json: the pre-launch and frozen coins of this repo's coins.generated.json, in
- * canonical order; sync-check.mjs fails when it is stale). Everything is planned and
+ * canonical order, plus runtime-active-ids.json for the active coin-panel allowlist;
+ * sync-check.mjs fails when either is stale). Everything is planned and
  * validated in memory first: on any schema violation it prints them, writes NOTHING and exits 1.
  * Deterministic and idempotent: a second run against the same source changes no byte. The stamp
  * data/pharos-watch-sync.json (source commit, sync date) is rewritten only when data changed.
@@ -28,7 +29,7 @@ import { findMediaFileProblems } from "../pharosville/validate-runtime-media.mjs
 import { BRAND_ENTRY, planBrandColors } from "./sync-brand-colors.mjs";
 import { planLogos } from "./sync-logos.mjs";
 import { buildPrelaunchBook } from "./sync-prelaunch.mjs";
-import { buildRuntimeSlim, RUNTIME_SLIM } from "./sync-check.mjs";
+import { buildRuntimeSlim, RUNTIME_SLIM, buildRuntimeActiveIds, RUNTIME_ACTIVE_IDS } from "./sync-check.mjs";
 import { loadRedirects, loadRegistry, SOURCE_PATHS } from "./sync-source.mjs";
 
 const run = promisify(execFile);
@@ -43,6 +44,7 @@ const FILES = {
   prelaunch: "src/harbour/data/prelaunch.json",
   dead: "shared/data/dead-stablecoins.json",
   slim: RUNTIME_SLIM,
+  activeIds: RUNTIME_ACTIVE_IDS,
 };
 /** shared/'s DeadStablecoinAssetSchema is strict: the source's extra fields (logo, mechanismArchetype, recordedAt, …) are dropped. */
 const DEAD_KEYS = new Set(["id", "name", "symbol", "llamaId", "pegCurrency", "causeOfDeath", "deathDate", "peakMcap", "epitaph", "obituary", "sourceUrl", "sourceLabel", "contracts"]);
@@ -157,6 +159,7 @@ try {
       [FILES.prelaunch, `${JSON.stringify(P.book, null, 1)}\n`],
       [FILES.dead, deadText],
       [FILES.slim, buildRuntimeSlim()],
+      [FILES.activeIds, buildRuntimeActiveIds()],
     ];
     const changed = [];
     for (const [rel, text] of outputs) {

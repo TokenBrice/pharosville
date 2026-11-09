@@ -15,6 +15,10 @@ import { endpointProjector, type ProjectionJson } from "./_project";
 import type { PharosVilleApiEndpointKey } from "../../shared/types/pharosville-endpoint-keys";
 import { PHAROSVILLE_API_PAYLOAD_SCHEMAS } from "../../shared/types/pharosville";
 import { isRenderableWorldPayload } from "../../src/lib/world-payload-guard";
+import { panelUpstreamFixtures, PANEL_COIN_ID } from "../../src/harbour/__fixtures__/panels";
+import { PHAROSVILLE_PANEL_ENDPOINT_KEYS, PHAROSVILLE_PANEL_ENDPOINT_REGISTRY, panelEndpointPath } from "../../shared/lib/pharosville-panel-endpoints";
+import { panelEndpointProjector } from "./_project-panels";
+import { PHAROSVILLE_PANEL_SCHEMAS } from "../../shared/types/pharosville-panels";
 
 function makeContext(url: string, init?: {
   env?: Record<string, string | undefined>;
@@ -112,6 +116,53 @@ describe("PharosVille API proxy", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it.each(PHAROSVILLE_PANEL_ENDPOINT_KEYS)("projects/caches/conditionally serves the canonical %s panel path", async (key) => {
+    const cache = new MemoryEdgeCache();
+    installEdgeCache(cache);
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const path = panelEndpointPath(key, PANEL_COIN_ID)!;
+    const input = panelUpstreamFixtures()[key];
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(input, {
+      headers: { etag: '"upstream"', "cache-control": "public, max-age=86400", "x-data-age": "60" },
+    }));
+    const first = await onRequest(makeContext(`https://pharosville.pharos.watch${path}`, { waitUntilPromises }));
+    expect(first.status).toBe(200);
+    const body = await first.json();
+    expect(body).toEqual(panelEndpointProjector(key)(input));
+    expect(PHAROSVILLE_PANEL_SCHEMAS[key].safeParse(body).success).toBe(true);
+    expect(first.headers.get("cache-control")).toBe(`public, max-age=${PHAROSVILLE_PANEL_ENDPOINT_REGISTRY[key].cacheTtlSec}`);
+    expect(first.headers.get("etag")).toMatch(/^"pv3-[a-f0-9]{64}"$/);
+    expect(first.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(first.headers.get("x-api-key")).toBeNull();
+    expect(JSON.stringify(body)).not.toContain("test-proxy-key");
+    await Promise.all(waitUntilPromises);
+    const second = await onRequest(makeContext(`https://pharosville.pharos.watch${path}`, { headers: { "if-none-match": first.headers.get("etag")! } }));
+    expect(second.status).toBe(304);
+    expect(second.body).toBeNull();
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(cache.putUrls.every((url) => url.includes("/__projection/pv3/") && !url.includes("test-proxy-key"))).toBe(true);
+  });
+
+  it.each(PHAROSVILLE_PANEL_ENDPOINT_KEYS)("keeps %s panel 4xx honest and demotes 5xx to Warning-110 last-good", async (key) => {
+    const cache = new MemoryEdgeCache();
+    installEdgeCache(cache);
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const url = `https://pharosville.pharos.watch${panelEndpointPath(key, PANEL_COIN_ID)!}`;
+    const request = vi.spyOn(globalThis, "fetch").mockImplementationOnce(async () => Response.json(panelUpstreamFixtures()[key], { headers: { "x-data-age": "60" } }));
+    const first = await onRequest(makeContext(url, { waitUntilPromises }));
+    const firstBody = await first.json();
+    await Promise.all(waitUntilPromises);
+    cache.responses.delete(epochCacheUrl(url));
+    request.mockResolvedValueOnce(Response.json({ error: "missing" }, { status: 404 }));
+    expect((await onRequest(makeContext(url))).status).toBe(404);
+    request.mockResolvedValueOnce(Response.json({ error: "outage" }, { status: 503 }));
+    const fallback = await onRequest(makeContext(url, { headers: { "if-none-match": first.headers.get("etag")! } }));
+    expect(fallback.status).toBe(200);
+    expect(fallback.headers.get("warning")).toContain("110");
+    expect(fallback.headers.get("cache-control")).toBe("no-store");
+    expect(await fallback.json()).toEqual(firstBody);
   });
 
   it.each(projectionFixtures)("preserves the complete $key world and panel fixture", ({ key, input, expected }) => {
@@ -913,4 +964,90 @@ it("refuses the projection cache namespace with no-store", async () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(fetcher).not.toHaveBeenCalled();
   } finally { vi.restoreAllMocks(); }
+});
+
+describe("structured proxy outcomes", () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  const readRecords = (spy: ReturnType<typeof vi.spyOn>): Record<string, unknown>[] => spy.mock.calls.map(([line]: unknown[]) => JSON.parse(String(line)) as Record<string, unknown>);
+
+  it.each([
+    { path: "/api/chains", key: "chains", payload: { chains: [] } },
+    ...PHAROSVILLE_PANEL_ENDPOINT_KEYS.map((key) => ({ path: panelEndpointPath(key, PANEL_COIN_ID)!, key, payload: panelUpstreamFixtures()[key] })),
+  ])("counts $key upstream failure even when last-good answers 200", async ({ path, key, payload }) => {
+    const cache = new MemoryEdgeCache();
+    installEdgeCache(cache);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    const waiting: Promise<unknown>[] = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(payload));
+    const url = `https://pharosville.pharos.watch${path}`;
+    await onRequest(makeContext(url, { waitUntilPromises: waiting }));
+    await Promise.all(waiting);
+    cache.responses.delete(epochCacheUrl(url));
+    fetchMock.mockResolvedValueOnce(Response.json({ error: "unavailable" }, { status: 503 }));
+    const response = await onRequest(makeContext(url));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("warning")).toContain("110");
+    expect(readRecords(log)).toEqual([
+      expect.objectContaining({ endpoint: key, outcome: "upstream-5xx", statusClass: "5xx", sampleRate: 1 }),
+      expect.objectContaining({ endpoint: key, outcome: "stale-fallback", statusClass: "2xx", sampleRate: 1 }),
+      expect.objectContaining({ endpoint: key, event: "PHAROSVILLE_PROXY_RESPONSE", outcome: "response", statusClass: "2xx", sampleRate: 1 }),
+    ]);
+  });
+
+  it("records configuration failures and rejections without the requested subject or identifiers", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    const response = await onRequest(makeContext(`https://pharosville.pharos.watch${panelEndpointPath("stablecoinReserves", PANEL_COIN_ID)}`, {
+      env: { PHAROS_API_KEY: undefined }, headers: { "cf-ray": "ignored-ray", "cf-ipcountry": "XX", "user-agent": "ignored-agent" },
+    }));
+    expect(response.status).toBe(500);
+    expect(readRecords(log)[0]).toMatchObject({ endpoint: "stablecoinReserves", outcome: "not-configured", statusClass: "5xx", sampleRate: 1 });
+    await onRequest(makeContext("https://pharosville.pharos.watch/api/health?private=subject"));
+    await onRequest(makeContext("https://pharosville.pharos.watch/api/chains", { method: "POST" }));
+    expect(readRecords(log).filter(({ outcome }) => outcome === "rejected")).toHaveLength(2);
+    expect(JSON.stringify(readRecords(log))).not.toMatch(new RegExp(`${PANEL_COIN_ID}|ignored-ray|ignored-agent|private|cf-ray|country|user-agent|test-proxy-key`));
+  });
+
+  it("keeps cache errors visible even when normal success is not sampled", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    const waiting: Promise<unknown>[] = [];
+    installEdgeCache({ match: async () => { throw new Error("cache unavailable"); }, put: async () => { throw new Error("cache unavailable"); } } as unknown as MemoryEdgeCache);
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ chains: [] }));
+    expect((await onRequest(makeContext("https://pharosville.pharos.watch/api/chains", { waitUntilPromises: waiting }))).status).toBe(200);
+    await Promise.all(waiting);
+    expect(readRecords(log)).toEqual([]);
+    expect(error.mock.calls.flat().join(" ")).toMatch(/PHAROSVILLE_EDGE_CACHE_FAILED/);
+    for (const scope of ["normal-read", "normal-write", "last-good-write"]) expect(error.mock.calls.flat().join(" ")).toContain(scope);
+  });
+
+  it("samples cache hits and upstream successes with separate 304 response status", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const cache = new MemoryEdgeCache();
+    installEdgeCache(cache);
+    const waiting: Promise<unknown>[] = [];
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ chains: [] }));
+    const url = "https://pharosville.pharos.watch/api/chains";
+    const first = await onRequest(makeContext(url, { waitUntilPromises: waiting }));
+    await Promise.all(waiting);
+    const hit = await onRequest(makeContext(url, { headers: { "if-none-match": first.headers.get("etag")! } }));
+    expect(hit.status).toBe(304);
+    expect(readRecords(log).map(({ outcome, statusClass }) => [outcome, statusClass])).toEqual([
+      ["upstream-success", "2xx"], ["response", "2xx"], ["cache-hit", "3xx"], ["response", "3xx"],
+    ]);
+    expect(readRecords(log).every(({ sampleRate }) => sampleRate === 0.01)).toBe(true);
+  });
+
+  it("records forwarded upstream 4xx without invoking last-good fallback", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ error: "not found" }, { status: 404 }));
+    const response = await onRequest(makeContext(`https://pharosville.pharos.watch${panelEndpointPath("stablecoinReserves", PANEL_COIN_ID)}`));
+    expect(response.status).toBe(404);
+    expect(response.headers.has("warning")).toBe(false);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(readRecords(log).map(({ outcome, statusClass }) => [outcome, statusClass])).toEqual([["upstream-4xx", "4xx"], ["response", "4xx"]]);
+  });
 });

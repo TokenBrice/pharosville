@@ -19,6 +19,7 @@ export const CRON_INTERVALS_CLIENT = Object.freeze({
   "sync-fx-rates": 1800,
   "sync-bluechip": 86_400,
   "sync-dex-liquidity": 1800,
+  "sync-live-reserves": 4 * 3600,
   "sync-yield-data": 3600,
   "compute-dews": 1800,
   "stability-index": 1800,

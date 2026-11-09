@@ -5,6 +5,8 @@ interface MixRow {
   energyAbove250?: number;
   duty?: number;
   nearClaps?: number;
+  /** the loudest foghorn blast over the stale floor, LU (scenes that sound the horn) */
+  hornOverFloor?: number | null;
 }
 const r1 = (x: number) => Math.round(x * 10) / 10;
 
@@ -19,10 +21,17 @@ export function mixTargets(scenes: Record<string, MixRow>) {
       target(`${s}-over-calm`, "≤ calm + 6 LU", r1(over), over <= 6);
     }
   }
-  if (scenes["storm-rough"] && calm != null) target("storm-rough-over-calm", "worst case, both storms at once (reported)", r1(Number(scenes["storm-rough"].integrated) - calm), null);
+  if (scenes["storm-rough"] && calm != null) {
+    const over = Number(scenes["storm-rough"].integrated) - calm;
+    target("storm-rough-over-calm", "both storms at once ≤ calm + 7 LU", r1(over), over <= 7);
+  }
   const near = scenes["storm-near"]?.integrated, storm = scenes.storm?.integrated;
   if (near != null && storm != null) target("storm-near-over-storm", "LU over storm (reported)", r1(near - storm), null);
   if (scenes["storm-near"]) target("storm-near-clap", "one near clap scheduled", scenes["storm-near"].nearClaps, scenes["storm-near"].nearClaps === 1);
+  if (scenes.stale) {
+    const horn = scenes.stale.hornOverFloor;
+    target("stale-horn-over-floor", "foghorn ≤ +8 LU over the stale floor", horn, horn != null && horn <= 8);
+  }
   for (const [s, row] of Object.entries(scenes)) {
     target(`${s}-true-peak`, "≤ −1 dBTP", row.truePeak, s === "storm-near" ? row.truePeak != null && row.truePeak <= -1 : row.truePeak == null || row.truePeak <= -1);
   }

@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { RUNTIME_ACTIVE_STABLECOINS } from "../shared/lib/stablecoins/runtime-registry";
+import { RUNTIME_ACTIVE_STABLECOINS, RUNTIME_TRACKED_STABLECOINS } from "../shared/lib/stablecoins/runtime-registry";
+import { CHAIN_META } from "../shared/lib/chains";
+import { canonicalSubjectUrl, parseSubjectUrl, subjectToPick } from "../shared/lib/selection-link";
+import { PANEL_LANDMARKS } from "../src/harbour/ui/facts";
 import { escapeHtml, onRequest, socialCardForSelection } from "./index";
 
 const SHELL_HTML = readFileSync(fileURLToPath(new URL("../index.html", import.meta.url)), "utf8");
@@ -46,6 +49,7 @@ class FakeHtmlRewriter {
 interface FakeElement {
   getAttribute(name: string): string | null;
   setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
   setInnerContent(content: string, options?: { html?: boolean }): void;
 }
 
@@ -59,6 +63,15 @@ function applySelector(
       let content = inner;
       handler.element(makeElement(new Map(), (next) => { content = next; }));
       return `<title>${content}</title>`;
+    });
+  }
+  if (selector === "#pv-shared-subject") {
+    return html.replace(/<p\b([^>]*id="pv-shared-subject"[^>]*)>([\s\S]*?)<\/p>/, (_match, attrs: string, inner: string) => {
+      const attributes = parseAttributes(`<p ${attrs}>`);
+      if (/\bhidden\b/.test(attrs)) attributes.set("hidden", "");
+      let content = inner;
+      handler.element(makeElement(attributes, (next) => { content = next; }));
+      return `<p ${[...attributes].map(([name, value]) => `${name}="${value}"`).join(" ")}>${content}</p>`;
     });
   }
 
@@ -103,6 +116,7 @@ function makeElement(attributes: Map<string, string>, setContent: (value: string
   return {
     getAttribute: (name) => attributes.get(name) ?? null,
     setAttribute: (name, value) => { attributes.set(name, escapeAttributeValue(value)); },
+    removeAttribute: (name) => { attributes.delete(name); },
     setInnerContent: (content, options) => {
       setContent(options?.html ? content : escapeTextContent(content));
     },
@@ -167,7 +181,29 @@ describe("PharosVille social card route", () => {
 
     it("builds cards for the fixed landmarks", () => {
       expect(socialCardForSelection("lighthouse")?.title).toContain("lighthouse");
-      expect(socialCardForSelection("pigeonnier")?.title).toContain("pigeonnier");
+      expect(socialCardForSelection("pigeonnier")).toBeNull();
+      expect(socialCardForSelection("lighthouse")?.url).toContain("sel=place.pharos");
+    });
+
+    it("round trips every static place, chain and registry yard identity to the client", () => {
+      const yard = RUNTIME_TRACKED_STABLECOINS.filter((coin) => coin.status === "pre-launch").map((coin) => `yard.${coin.id}`);
+      expect(yard.length).toBeGreaterThan(0);
+      for (const raw of [...PANEL_LANDMARKS].map((id) => `place.${id}`).concat(Object.keys(CHAIN_META).map((id) => `chain.${id}`), yard, [`ship.${A_KNOWN_SHIP.id}`, "lighthouse"])) {
+        const card = socialCardForSelection(raw);
+        expect(card, raw).not.toBeNull();
+        const link = parseSubjectUrl(new URL(card!.url));
+        expect(canonicalSubjectUrl(link.subject)).toBe(card!.url);
+        expect(subjectToPick(link.subject!).id).not.toBe("");
+        expect(card!.subjectLine).toMatch(/^Shared subject: .+\.$/);
+      }
+    });
+
+    it("keeps wrecks and live-only yards generic without losing their client URL contract", () => {
+      for (const kind of ["wreck", "yard"] as const) {
+        const url = canonicalSubjectUrl({ kind, id: "live-only" });
+        expect(subjectToPick(parseSubjectUrl(new URL(url)).subject!)).toEqual({ kind, id: "live-only" });
+        expect(socialCardForSelection(`${kind}.live-only`)).toBeNull();
+      }
     });
 
     it("names every active ship without ever repeating a symbol twice", () => {
@@ -223,6 +259,10 @@ describe("PharosVille social card route", () => {
       const { context } = makeContext(`https://pharosville.pharos.watch/?sel=ship.${A_KNOWN_SHIP.id}`);
       const html = await (await onRequest(context)).text();
 
+      expect(html).toContain(`>${socialCardForSelection(`ship.${A_KNOWN_SHIP.id}`)!.subjectLine}</p>`);
+      expect(html).not.toMatch(/id="pv-shared-subject"[^>]*hidden/);
+      expect(html).toContain('<link rel="canonical" href="https://pharosville.pharos.watch/"');
+
       expect(titleText(html)).toContain(A_KNOWN_SHIP.symbol);
       expect(metaContent(html, 'meta[property="og:title"]')).toContain(A_KNOWN_SHIP.symbol);
       expect(metaContent(html, 'meta[name="twitter:title"]')).toContain(A_KNOWN_SHIP.symbol);
@@ -263,7 +303,7 @@ describe("PharosVille social card route", () => {
 
     it("returns the asset response untouched for an unknown or malformed selection", async () => {
       vi.stubGlobal("HTMLRewriter", FakeHtmlRewriter);
-      for (const selection of ["ship.not-a-real-coin", '"><script>alert(1)</script>', "dock.ethereum"]) {
+      for (const selection of ["bogus", "", "ship.not-a-real-coin", '"><script>alert(1)</script>', "dock.ethereum"]) {
         const { assetResponse, context } = makeContext(
           `https://pharosville.pharos.watch/?sel=${encodeURIComponent(selection)}`,
         );
@@ -293,6 +333,28 @@ describe("PharosVille social card route", () => {
       expect(html).not.toContain("<script>alert(1)</script>");
       expect(html).not.toContain("alert(1)");
       expect(html).toBe(SHELL_HTML);
+    });
+
+    it("keeps inherited, encoded and live-only identities generic at the welcome hook", async () => {
+      vi.stubGlobal("HTMLRewriter", FakeHtmlRewriter);
+      for (const sel of ["place.constructor", "chain.constructor", "yard.live-only", "wreck.ust-terra", "pigeonnier", "ship.%3Cscript%3E", "ship.usdc-circle<script>"]) {
+        const { context } = makeContext(`https://pharosville.pharos.watch/?sel=${encodeURIComponent(sel)}`);
+        expect(await (await onRequest(context)).text(), sel).toBe(SHELL_HTML);
+      }
+    });
+
+    it("escapes static identity text at the welcome hook exactly once", async () => {
+      vi.stubGlobal("HTMLRewriter", FakeHtmlRewriter);
+      const name = A_KNOWN_SHIP.name;
+      try {
+        A_KNOWN_SHIP.name = 'Test <coin> & "name"';
+        const { context } = makeContext(`https://pharosville.pharos.watch/?sel=ship.${A_KNOWN_SHIP.id}`);
+        const html = await (await onRequest(context)).text();
+        const line = /id="pv-shared-subject">([^<]*)<\/p>/.exec(html)?.[1];
+        expect(line).toContain('Shared subject: Test &lt;coin&gt; &amp; &quot;name&quot;');
+        expect(line).not.toContain("<coin>");
+        expect(line).not.toContain("&amp;lt;");
+      } finally { A_KNOWN_SHIP.name = name; }
     });
 
     it("carries no credential or environment value into the page", async () => {
@@ -443,5 +505,7 @@ describe("E28 night key art on the shell route", () => {
     expect(html).toContain('data-pv-hour="night"');
     expect(metaContent(html, 'meta[property="og:title"]')).toContain(A_KNOWN_SHIP.symbol);
     expect(metaContent(html, 'meta[property="og:image"]')).toBe("https://pharosville.pharos.watch/og-card.png");
+    expect(html).toContain(`>${socialCardForSelection(`ship.${A_KNOWN_SHIP.id}`)!.subjectLine}</p>`);
+    expect(html).not.toMatch(/id="pv-shared-subject"[^>]*hidden/);
   });
 });

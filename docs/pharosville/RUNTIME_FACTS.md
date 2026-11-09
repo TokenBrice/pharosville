@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - World: The Harbour, one three.js WebGL2 Engine (`src/harbour/engine/`) mounted by `src/harbour/app/harbour-app.tsx`
 - Renderer failure fallback: the first-paint poster stays up with the arrival guide and Pharos links; no alternate renderer
 - Runtime media namespace: `/harbour/`
-- Latest app version: `v1.7.0` (`lamplighter`)
-- Latest changelog entry: `2026-11-09-lamplighter` / `v1.7.0` / 2026-11-09 / Lamplighter
+- Latest app version: `v1.8.0` (`goldenHour`)
+- Latest changelog entry: `2026-11-09-golden-hour` / `v1.8.0` / 2026-11-09 / Golden Hour
 
 ## Viewport Gate
 
@@ -30,6 +30,13 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - `/api/safety-grades`
 - `/api/mint-burn-flows`
 
+### On-demand panel readings
+
+Coin panel only, above the size gate; never requested by the world feed. Canary paths below use one runtime-active id; other ids must be in `RUNTIME_ACTIVE_IDS`, with the exact same path/query shape.
+- `/api/depeg-events?stablecoin=usdc-circle&limit=30`
+- `/api/stablecoin-reserves/usdc-circle`
+- `/api/dex-liquidity`
+
 ## Runtime Media
 
 - Stablecoin emblems: one atlas, `/harbour/emblems.avif` (`/harbour/emblems.webp` when AVIF fails) + `/harbour/emblems.json`; panel and search medallions load same-origin `/logos/` and `/chains/` marks.
@@ -46,10 +53,11 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 ## Bundle Budgets
 
 - entry chunk: raw <= 10 KiB, gzip <= 4 KiB
-- Harbour lazy chunk: raw <= 1,094 KiB, gzip <= 371 KiB
+- Harbour lazy chunk: raw <= 1,316 KiB, gzip <= 439 KiB
+- Detail panels lazy chunk: raw <= 171 KiB, gzip <= 53 KiB
 - Three.js renderer chunk: raw <= 960 KiB, gzip <= 276 KiB
 - Harbour CSS: raw <= 36 KiB, gzip <= 9 KiB
-- Total JS: raw <= 2,650 KiB, gzip <= 852 KiB
+- Total JS: raw <= 3,044 KiB, gzip <= 976 KiB
 
 ## Workflow Gates
 

@@ -225,18 +225,20 @@ describe("staged atlas identity", () => {
     const disposed = vi.fn(); original.addEventListener("dispose", disposed);
     const draws: number[] = [];
     const submit = vi.fn(async (work: (deadline: number) => void) => { const before = drawImage.mock.calls.length; work(-Infinity); draws.push(drawImage.mock.calls.length - before); });
-    const stageTexture = vi.fn(async (texture: THREE.Texture) => {
-      // staged while the live atlas still shows its roundels, untouched
+    const stageTexture = vi.fn(async () => {});
+    const stageTextureRows = vi.fn(async (texture: THREE.Texture, rows: number) => {
+      // staged one 96 px tile row per slice while the live atlas still shows its roundels, untouched
+      expect(rows).toBe(96);
       expect(texture).not.toBe(original); expect(atlas.texture).toBe(original); expect(original.version).toBe(version);
     });
-    await atlas.loadLogos({ submit, stageTexture } as unknown as PreparationService);
+    await atlas.loadLogos({ submit, stageTexture, stageTextureRows } as unknown as PreparationService);
     // every slice draws exactly one row: the monogram rows copied 1:1, then each 128 px logo row onto its 96 px row
     expect(draws.every((n) => n === 1)).toBe(true);
     expect(submit).toHaveBeenCalledTimes(rows);
     for (let row = 20; row < rows; row++) expect(drawImage).toHaveBeenCalledWith(liveCanvas, 0, row * 96, 3072, 96, 0, row * 96, 3072, 96);
     for (let row = 0; row < 20; row++) expect(drawImage).toHaveBeenCalledWith(image, 0, row * 128, 4096, 128, 0, row * 96, 3072, 96);
-    expect(stageTexture).toHaveBeenCalledOnce();
-    expect(atlas.texture).toBe(stageTexture.mock.calls[0][0]); expect(atlas.uniform.value).toBe(atlas.texture);
+    expect(stageTextureRows).toHaveBeenCalledOnce(); expect(stageTexture).not.toHaveBeenCalled();
+    expect(atlas.texture).toBe(stageTextureRows.mock.calls[0][0]); expect(atlas.uniform.value).toBe(atlas.texture);
     expect(atlas.grid.y).toBe(rows); expect(disposed).toHaveBeenCalledOnce(); expect(image.close).toHaveBeenCalledOnce();
     expect(atlas.slotFor(coin("logo-0"))).toBe(0); // a loaded logo slot needs no roundel any more
     atlas.dispose();

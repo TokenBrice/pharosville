@@ -21,10 +21,45 @@ import type { MastheadService } from "../fleet/mastheads";
 const P_BODY = 0, P_WING_IN_L = 1, P_WING_OUT_L = 2, P_WING_IN_R = 3, P_WING_OUT_R = 4, P_FORK = 5;
 /** 09-L7 swallows over the squares at dusk (spring / summer): the same draw, small, dark, a forked tail. */
 const SWALLOWS = 16;
+/** aKind per instance: the one draw carries every bird (the shader tints and tails them by kind). */
+const K_SWALLOW = 1, K_DOVE = 2, K_CRANE = 3, K_STARLING = 4;
+/**
+ * O7-I10 the hour told by doves (the decorative score, V26): on each hour bell from 06 to 22 a flock lifts from the
+ * Tower of the Winds, circles it about 25 s and settles back into it. Extra instances in this draw.
+ */
+export const DOVES = 12;
+const DOVE_SCALE = 1.1;
+const DOVE_R = 19, DOVE_UP = 11, DOVE_W = 0.42, DOVE_FLIGHT = 28;
+/**
+ * O7-I11 seasonal skies (the score's rare cues, life/score.ts): a crane V crossing high in its passage, and a starling
+ * murmuration over the west lobe at winter dusk. Extra instances in this draw, drawn only while they fly.
+ */
+export const CRANES = 15, STARLINGS = 160;
+/** cranes: big, dark ash grey and long (neck out, legs trailing: the body axis stretched) so they never read as gulls or sails */
+const CRANE_SCALE = 2.5, CRANE_LONG = 1.8;
+/** starlings: dark specks in one dense cloud (drawn a little larger than life, the gulls' licence) */
+const STARLING_SCALE = 0.42;
+/** ground speed (m/s), metres from mid-crossing where a crane is drawn, rank spacing behind / aside (m) */
+const CRANE_V = 13, CRANE_HALF = 560, CRANE_BACK = 8, CRANE_SIDE = 7;
+const CRANE_RANKS = (CRANES - 1) / 2;
+/** the murmuration's whole run (s): streaming in, murmuring, pouring down to the roost */
+const MUR_S = 100;
 const SWALLOW_SCALE = 0.3;
 const SPAN_IN = 0.55, SPAN_OUT = 1.2;
 /** Drawn larger than life so a gull reads as a bird, not a speck, at harbour zoom (key-art licence). */
 const GULL_SCALE = 1.35;
+
+const smooth = (x: number) => { const t = Math.min(1, Math.max(0, x)); return t * t * (3 - 2 * t); };
+
+/** Write a yaw (about y) · roll (about the flight line) · uniform scale matrix into the instance buffer (no Euler). */
+function place(e: Float32Array, i: number, p: THREE.Vector3, yaw: number, roll: number, sc: number, long = 1): void {
+  const cy = Math.cos(yaw) * sc, sy = Math.sin(yaw) * sc, cr = Math.cos(roll), sr = Math.sin(roll), o = i * 16;
+  // Ry · Rz · S (the gulls' YXZ Euler without pitch; `long` stretches the body axis), column-major
+  e[o] = cy * cr; e[o + 1] = sr * sc; e[o + 2] = -sy * cr; e[o + 3] = 0;
+  e[o + 4] = -cy * sr; e[o + 5] = cr * sc; e[o + 6] = sy * sr; e[o + 7] = 0;
+  e[o + 8] = sy * long; e[o + 9] = 0; e[o + 10] = cy * long; e[o + 11] = 0;
+  e[o + 12] = p.x; e[o + 13] = p.y; e[o + 14] = p.z; e[o + 15] = 1;
+}
 
 function gullGeometry(): THREE.BufferGeometry {
   const m = newPartMesh();
@@ -84,7 +119,7 @@ vec3 gRotZ(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(p.x * c 
 vec3 gullPose(vec3 p, float dir) {
   float part = aPart;
   if (part < 0.5) return p;
-  if (part > 4.5) return (aKind > 0.5 || dir > 0.5) ? p : vec3(0.0);
+  if (part > 4.5) return ((aKind > 0.5 && aKind < 1.5) || dir > 0.5) ? p : vec3(0.0);
   float s = (part < 2.5) ? -1.0 : 1.0;
   bool outer = part > 1.5 && part < 2.5 || part > 3.5;
   float ph = uLifeT * aWing.w + aWing.y;
@@ -140,6 +175,12 @@ interface Gull {
   visible: boolean;
 }
 
+interface Crane { rank: number; side: number; ph: number }
+interface Starling { o: THREE.Vector3; enter: number; ph: number; pos: THREE.Vector3; prev: THREE.Vector3; yaw: number }
+
+/** A dove of the hour's flock: take-off stagger (s), place in the flock (rad along the circle), radial and height offsets. */
+interface Dove { delay: number; lag: number; dr: number; dy: number; ph: number; pos: THREE.Vector3; prev: THREE.Vector3; yaw: number; roll: number }
+
 interface Swallow { c: THREE.Vector3; rx: number; rz: number; wx: number; wz: number; wy: number; p1: number; p2: number; h: number; rank: number; pos: THREE.Vector3; prev: THREE.Vector3; yaw: number; roll: number }
 
 export interface GullSites {
@@ -149,12 +190,38 @@ export interface GullSites {
   perches: THREE.Vector3[];
   /** open squares the swallows hawk over at dusk */
   squares?: THREE.Vector3[];
+  /** O7-I10: where the doves live, inside the Tower of the Winds (none = no doves) */
+  roost?: THREE.Vector3 | null;
+  /** O7-I11: the score's skies (none = no cranes or starlings) */
+  skies?: ScoreSkies | null;
+}
+
+/** Where the rare skies fly: the crane V's line, and the murmuration's cloud, entry and roost. */
+export interface ScoreSkies {
+  /** the point the lead crane passes at mid-crossing (its height is the V's) */
+  cranes: THREE.Vector3;
+  /** the cloud's centre over the west lobe; where the birds stream in from (far, high); where they pour down to (below the trees) */
+  murmur: THREE.Vector3; murmurFrom: THREE.Vector3; murmurTo: THREE.Vector3;
 }
 
 export class Gulls {
   readonly mesh: THREE.InstancedMesh;
   private readonly gulls: Gull[] = [];
   private readonly swallows: Swallow[] = [];
+  /** first instance after the gulls and swallows; the doves' first instance */
+  private readonly base: number;
+  private readonly doveBase: number;
+  private readonly doves: Dove[] = [];
+  /** seconds into the doves' flight (-1 = home in the tower) */
+  private doveT = -1;
+  private readonly craneBase: number;
+  private readonly starBase: number;
+  private readonly cranes: Crane[] = [];
+  private readonly starlings: Starling[] = [];
+  /** seconds into the crane V's crossing / the murmuration (-1 = none); the V's heading (rad) */
+  private craneT = -1;
+  private craneH = 0;
+  private murT = -1;
   private readonly wing: THREE.InstancedBufferAttribute;
   readonly uniforms = { uLifeT: { value: 0 } };
   private taken: Int8Array;
@@ -162,20 +229,47 @@ export class Gulls {
   private readonly q = new THREE.Quaternion();
   private readonly e = new THREE.Euler(0, 0, 0, "YXZ");
   private readonly s = new THREE.Vector3();
+  private readonly tmp = new THREE.Vector3();
 
   constructor(private readonly sites: GullSites, mats: HarbourMaterials, n: number, seed = 31) {
     const r = rng(seed);
     this.taken = new Int8Array(sites.perches.length);
     const geo = gullGeometry();
-    const wing = new Float32Array(n * 4);
+    const sq = sites.squares?.length ? sites.squares : [];
+    const ns = sq.length ? SWALLOWS : 0;
+    // the score's birds after the gulls and swallows (drawn only while they fly: mesh.count)
+    this.base = n + ns;
+    this.doveBase = this.base;
+    const nd = sites.roost ? DOVES : 0;
+    this.craneBase = this.base + nd;
+    const nc = sites.skies ? CRANES : 0, nst = sites.skies ? STARLINGS : 0;
+    this.starBase = this.craneBase + nc;
+    const total = this.starBase + nst;
+    // one wing record per instance (swallows included)
+    const wing = new Float32Array(total * 4);
     this.wing = new THREE.InstancedBufferAttribute(wing, 4);
     this.wing.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute("aWing", this.wing);
-    const sq = sites.squares?.length ? sites.squares : [];
-    const ns = sq.length ? SWALLOWS : 0;
-    const kind = new Float32Array(n + ns);
+    const kind = new Float32Array(total);
+    for (let k = 0; k < nd; k++) {
+      kind[this.doveBase + k] = K_DOVE;
+      const dr = rng(seed * 577 + k * 23);
+      this.doves.push({ delay: k * 0.17 + dr() * 0.25, lag: (k / DOVES - 0.5) * 0.9 + (dr() - 0.5) * 0.12, dr: (dr() - 0.5) * 6, dy: (dr() - 0.5) * 5, ph: dr() * 6.28, pos: new THREE.Vector3(), prev: new THREE.Vector3(), yaw: 0, roll: 0 });
+    }
+    // the V: the lead, then the two arms rank by rank
+    for (let k = 0; k < nc; k++) {
+      kind[this.craneBase + k] = K_CRANE;
+      this.cranes.push({ rank: Math.ceil(k / 2), side: k === 0 ? 0 : k % 2 ? -1 : 1, ph: rng(seed * 211 + k * 7)() * 6.28 });
+    }
+    // the murmuration: a flattened ball of birds (the cloud's own shape is posed per frame)
+    for (let k = 0; k < nst; k++) {
+      kind[this.starBase + k] = K_STARLING;
+      const sr = rng(seed * 389 + k * 59 + 7);
+      const u = sr() * 2 - 1, a = sr() * Math.PI * 2, rad = Math.cbrt(sr()), q = Math.sqrt(1 - u * u);
+      this.starlings.push({ o: new THREE.Vector3(q * Math.cos(a) * rad, u * rad, q * Math.sin(a) * rad), enter: sr() * 10, ph: sr() * 6.28, pos: new THREE.Vector3(), prev: new THREE.Vector3(), yaw: 0 });
+    }
     for (let k = 0; k < ns; k++) {
-      kind[n + k] = 1;
+      kind[n + k] = K_SWALLOW;
       const sr = rng(seed * 389 + k * 41);
       this.swallows.push({
         c: sq[k % sq.length], rx: 7 + sr() * 9, rz: 7 + sr() * 9, wx: 0.8 + sr() * 0.5, wz: 0.8 + sr() * 0.5, wy: 0.5 + sr() * 0.4,
@@ -200,9 +294,11 @@ export class Gulls {
     void r;
     const mat = chainedKitMaterial(mats, "gull", {
       vertexHead: VERTEX_HEAD, vertexPose: "transformed = gullPose(transformed, 0.0);", normalPose: "objectNormal = normalize(gullPose(objectNormal, 1.0));",
-      colorPose: "#ifdef USE_COLOR\n  if (aKind > 0.5) vColor.rgb *= vec3(0.16, 0.17, 0.25);\n#endif", uniforms: this.uniforms,
+      // swallows dark, doves white (no dark wing tips), cranes ash grey, starlings near black
+      colorPose: "#ifdef USE_COLOR\n  if (aKind > 0.5 && aKind < 1.5) vColor.rgb *= vec3(0.16, 0.17, 0.25);\n  else if (aKind > 1.5 && aKind < 2.5) vColor.rgb = mix(vColor.rgb, vec3(0.9, 0.9, 0.88), 0.8);\n  else if (aKind > 2.5 && aKind < 3.5) vColor.rgb = mix(vColor.rgb, vec3(0.2, 0.21, 0.23), 0.85);\n  else if (aKind > 3.5) vColor.rgb *= vec3(0.1, 0.1, 0.12);\n#endif", uniforms: this.uniforms,
     }, THREE.FrontSide);
-    this.mesh = new THREE.InstancedMesh(geo, mat, n + ns);
+    this.mesh = new THREE.InstancedMesh(geo, mat, total);
+    this.mesh.count = this.base;
     this.mesh.name = "life-gulls";
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
@@ -333,8 +429,108 @@ export class Gulls {
       this.m4.toArray(e, i * 16);
     }
     this.updateSwallows(T, moving ? swallows : 0, w, e);
+    // the score's birds are drawn only while they fly (and only their records are uploaded); a resting group
+    // below a flying one is collapsed
+    const doves = this.updateDoves(dt, moving, T, w, e);
+    const cranes = this.updateCranes(dt, moving, w, e);
+    const stars = this.updateStarlings(dt, moving, T, w, e);
+    const count = stars ? this.starBase + this.starlings.length : cranes ? this.starBase : doves ? this.craneBase : this.base;
+    if (!doves && count > this.doveBase) e.fill(0, this.doveBase * 16, this.craneBase * 16);
+    if (!cranes && count > this.craneBase) e.fill(0, this.craneBase * 16, this.starBase * 16);
+    this.mesh.count = count;
+    this.wing.clearUpdateRanges(); this.wing.addUpdateRange(0, count * 4);
+    this.mesh.instanceMatrix.clearUpdateRanges(); this.mesh.instanceMatrix.addUpdateRange(0, count * 16);
     this.wing.needsUpdate = true;
     this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** O7-I11: a crane V crosses now, bound along `heading` (rad; spring north-east, autumn south-west). */
+  fly(heading: number): void { if (this.cranes.length && this.craneT < 0) { this.craneT = 0; this.craneH = heading; } }
+  /** O7-I11: the starlings gather over the west lobe now. */
+  murmur(): void { if (this.starlings.length && this.murT < 0) this.murT = 0; }
+  /** A rare sky is out (captures, tests). */
+  get skyOut(): boolean { return this.craneT >= 0 || this.murT >= 0; }
+
+  /** The V: high, steady, straight across; slow deep beats rippling down the arms. Drawn far beyond the view at both ends. */
+  private updateCranes(dt: number, moving: boolean, w: Float32Array, e: Float32Array): boolean {
+    const S = this.sites.skies;
+    if (!S || this.craneT < 0) return false;
+    if (!moving) { this.craneT = -1; return false; }
+    const t = (this.craneT += dt);
+    const lead = CRANE_V * t - CRANE_HALF;
+    if (lead - CRANE_RANKS * CRANE_BACK > CRANE_HALF) { this.craneT = -1; return false; }
+    const dx = Math.sin(this.craneH), dz = Math.cos(this.craneH);
+    for (let k = 0; k < this.cranes.length; k++) {
+      const c = this.cranes[k], i = this.craneBase + k;
+      const along = lead - c.rank * CRANE_BACK, side = c.side * c.rank * CRANE_SIDE;
+      this.tmp.set(S.cranes.x + dx * along + dz * side, S.cranes.y + 0.8 * Math.sin(0.45 * t + c.ph), S.cranes.z + dz * along - dx * side);
+      w[i * 4] = 0.38; w[i * 4 + 1] = c.ph * 0.15 - c.rank * 0.55; w[i * 4 + 2] = 0; w[i * 4 + 3] = 5.5;
+      place(e, i, this.tmp, this.craneH, 0, CRANE_SCALE * smooth((CRANE_HALF - Math.abs(along)) / 60), CRANE_LONG);
+    }
+    return true;
+  }
+
+  /**
+   * The murmuration: the birds stream in from far and high, murmur as one cloud that breathes, turns and folds over
+   * the west lobe, then pour down into the roost below the trees.
+   */
+  private updateStarlings(dt: number, moving: boolean, T: number, w: Float32Array, e: Float32Array): boolean {
+    const S = this.sites.skies;
+    if (!S || this.murT < 0) return false;
+    if (!moving) { this.murT = -1; return false; }
+    const t = (this.murT += dt);
+    if (t > MUR_S) { this.murT = -1; return false; }
+    const C = S.murmur, F = S.murmurFrom, R = S.murmurTo;
+    const sx = 18 * (1 + 0.4 * Math.sin(0.21 * t + 0.5)), sy = 6 * (1 + 0.6 * Math.sin(0.29 * t + 2)), sz = 13 * (1 + 0.4 * Math.sin(0.17 * t + 4));
+    const th = 0.6 * Math.sin(0.05 * t) + 0.1 * t, ct = Math.cos(th), st = Math.sin(th);
+    const cx = C.x + 20 * Math.sin(0.06 * t), cy = C.y + 4 * Math.sin(0.09 * t), cz = C.z + 15 * Math.sin(0.045 * t + 1);
+    for (let k = 0; k < this.starlings.length; k++) {
+      const b = this.starlings[k], i = this.starBase + k;
+      let lx = b.o.x * sx, ly = b.o.y * sy;
+      const lz = b.o.z * sz;
+      ly += 4 * Math.sin(0.14 * lx + 0.9 * t); lx += 3.5 * Math.sin(0.17 * lz + 0.7 * t);
+      const into = smooth((t - b.enter) / 14), down = smooth((t - 78 - 0.6 * b.enter) / 15);
+      const px = cx + lx * ct - lz * st, py = cy + ly, pz = cz + lx * st + lz * ct;
+      b.prev.copy(b.pos);
+      b.pos.set(F.x + (px - F.x) * into, F.y + (py - F.y) * into, F.z + (pz - F.z) * into);
+      b.pos.set(b.pos.x + (R.x - b.pos.x) * down, b.pos.y + (R.y - b.pos.y) * down, b.pos.z + (R.z - b.pos.z) * down);
+      const dx = b.pos.x - b.prev.x, dz = b.pos.z - b.prev.z;
+      if (dx * dx + dz * dz > 1e-8) b.yaw = Math.atan2(dx, dz);
+      const burst = Math.max(0, Math.sin(T * 1.3 + b.ph)) ** 2;
+      w[i * 4] = 0.15 + 0.45 * burst; w[i * 4 + 1] = b.ph; w[i * 4 + 2] = 0; w[i * 4 + 3] = 26;
+      place(e, i, b.pos, b.yaw, 0, t > b.enter && down < 0.999 ? STARLING_SCALE * smooth((t - b.enter) / 2) : 0);
+    }
+    return true;
+  }
+
+  /** O7-I10: the doves lift from the tower now (the caller keeps the hour bell, the weather and the motion). */
+  liftDoves(): void { if (this.doves.length && this.doveT < 0) this.doveT = 0; }
+  /** The doves are out (captures, tests). */
+  get dovesOut(): boolean { return this.doveT >= 0; }
+
+  /** Out of the tower, round it as one loose flock and home again (a spiral out and back); false = all home. */
+  private updateDoves(dt: number, moving: boolean, T: number, w: Float32Array, e: Float32Array): boolean {
+    const R = this.sites.roost;
+    if (!R || this.doveT < 0) return false;
+    // reduced motion / Still world: they are home (nothing flies)
+    if (!moving) { this.doveT = -1; return false; }
+    const t0 = (this.doveT += dt);
+    if (t0 > DOVE_FLIGHT + 3) { this.doveT = -1; return false; }
+    for (let k = 0; k < this.doves.length; k++) {
+      const d = this.doves[k], i = this.doveBase + k, t = t0 - d.delay;
+      const out = smooth(t / 5) * (1 - smooth((t - (DOVE_FLIGHT - 6)) / 5.5));
+      const a = DOVE_W * t + d.lag, r = (DOVE_R + d.dr) * out;
+      d.prev.copy(d.pos);
+      d.pos.set(R.x + Math.cos(a) * r, R.y + (DOVE_UP + d.dy + 1.4 * Math.sin(1.1 * T + d.ph)) * out, R.z + Math.sin(a) * r);
+      const dx = d.pos.x - d.prev.x, dz = d.pos.z - d.prev.z;
+      if (dx * dx + dz * dz > 1e-8) d.yaw = Math.atan2(dx, dz);
+      // banked into the circle; beating harder out of and back into the tower
+      d.roll = 0.38 * out;
+      const burst = Math.max(0, Math.sin(T * 0.8 + d.ph)) ** 2;
+      w[i * 4] = 0.28 + 0.32 * burst + 0.25 * (1 - out); w[i * 4 + 1] = d.ph; w[i * 4 + 2] = 0; w[i * 4 + 3] = 13;
+      place(e, i, d.pos, d.yaw, d.roll, t > 0 && t < DOVE_FLIGHT ? DOVE_SCALE : 0);
+    }
+    return true;
   }
 
   /** Swallows hawking low over the squares: fast swooping loops (a Lissajous figure each), wings a-flicker. */

@@ -116,6 +116,50 @@ export class ProgramPreparation implements PreparationService {
     try { await upload; } finally { if (this.pendingUploads.get(texture) === upload) this.pendingUploads.delete(texture); }
   }
 
+  /**
+   * A canvas texture uploaded in bands of `rows` canvas rows, one band per submission: a whole large canvas is one
+   * indivisible texSubImage2D (B17's 3072×2400 logo atlas: 54 ms at CPU ×4). The storage is allocated first with no
+   * pixels (three's `dataReady`); each band is copied 1:1 onto a band-sized canvas and uploaded at its (flipped)
+   * offset with the same unpack state, and the last band generates the mip chain. Same texels as stageTexture.
+   */
+  async stageTextureRows(texture: THREE.Texture, rows: number, options: SubmissionOptions = {}): Promise<void> {
+    const image = texture.image as HTMLCanvasElement | undefined;
+    if (texture.isRenderTargetTexture || !image || this.uploads.get(texture) === texture.version) return;
+    if (this.pendingUploads.has(texture) || !(rows > 0 && rows < image.height)) return this.stageTexture(texture, options);
+    const renderer = this.ctx.renderer, gl = renderer.getContext(), { width, height } = image;
+    const canvas = document.createElement("canvas");
+    canvas.width = width; canvas.height = rows;
+    const g = canvas.getContext("2d")!, band = new THREE.CanvasTexture(canvas), at = new THREE.Vector2();
+    const version = texture.version, mips = texture.generateMipmaps;
+    // uploadTexture's colour-space unpack for this texture (copyTextureToTexture leaves it as last set)
+    const working = THREE.ColorManagement.getPrimaries(THREE.ColorManagement.workingColorSpace);
+    const conversion = texture.colorSpace === THREE.NoColorSpace || THREE.ColorManagement.getPrimaries(texture.colorSpace) === working ? gl.NONE : gl.BROWSER_DEFAULT_WEBGL;
+    const upload = (async () => {
+      await this.submit(() => {
+        texture.source.dataReady = false;
+        try { renderer.initTexture(texture); } finally { texture.source.dataReady = true; }
+      }, options);
+      for (let y = 0; y < height; y += rows) {
+        await this.submit(() => {
+          const h = Math.min(rows, height - y);
+          if (canvas.height !== h) canvas.height = h;
+          g.clearRect(0, 0, width, h);
+          g.drawImage(image, 0, y, width, h, 0, 0, width, h);
+          renderer.state.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, conversion);
+          texture.generateMipmaps = mips && y + h >= height;
+          try { renderer.copyTextureToTexture(band, texture, null, at.set(0, texture.flipY ? height - y - h : y)); }
+          finally { texture.generateMipmaps = mips; }
+        }, options);
+      }
+      this.uploads.set(texture, version);
+    })();
+    this.pendingUploads.set(texture, upload);
+    try { await upload; } finally {
+      if (this.pendingUploads.get(texture) === upload) this.pendingUploads.delete(texture);
+      canvas.width = canvas.height = 0;
+    }
+  }
+
   stageTextures(root: THREE.Object3D): void {
     const textures = new Set<THREE.Texture>();
     root.traverse((object) => {

@@ -30,7 +30,13 @@ export function Logo({ src, label, color, size }: { src: string | null; label: s
   );
 }
 
-export const chainLogo = (chain: string) => `/chains/${chain.toLowerCase().replace(/\s+/g, "-")}.svg`;
+/** The chain crests shipped in public/chains (bits.test.tsx checks the list against the folder). */
+export const CHAIN_LOGOS: ReadonlySet<string> = new Set(["aptos", "arbitrum", "avalanche", "base", "bsc", "ethereum", "hyperliquid-l1", "polygon", "solana", "ton", "tron"]);
+/** A chain's crest path, or null when no crest ships (no request, so no 404): the Crest falls back to initials. */
+export function chainLogo(chain: string): string | null {
+  const slug = chain.toLowerCase().replace(/\s+/g, "-");
+  return CHAIN_LOGOS.has(slug) ? "/chains/" + slug + ".svg" : null;
+}
 
 /** Validated categorical inks on chart paper (dataviz validator: CVD ≥ 11, contrast ≥ 3:1), per palette: harbour-ui.css --c1…--c5. */
 export const CHAIN_INKS = ["var(--c1)", "var(--c2)", "var(--c3)", "var(--c4)", "var(--c5)"];
@@ -65,9 +71,10 @@ export function ChainSplit({ boat }: { boat: Boat }) {
 /** A chain's crest on its house colour (many crests are white on transparent). */
 export function Crest({ chain, color, size = 52 }: { chain: string; color: string; size?: number }) {
   const [broken, setBroken] = useState(false);
+  const src = chainLogo(chain);
   return (
     <span className="hb-crest" style={{ width: size, height: size, background: color }} aria-hidden="true">
-      {!broken ? <img src={chainLogo(chain)} alt="" onError={() => setBroken(true)} /> : <span>{chain.slice(0, 2)}</span>}
+      {src && !broken ? <img src={src} alt="" onError={() => setBroken(true)} /> : <span>{chain.slice(0, 2)}</span>}
     </span>
   );
 }

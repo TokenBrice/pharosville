@@ -4,7 +4,9 @@ import ts from "typescript";
 
 interface Registry { urls?: Record<string, string>; models?: Record<string, { url: string }>; files?: Array<{ url: string }> }
 interface BuildGraph { [url: string]: { imports: string[] } }
-const SHELL = ["/", "/index.html", "/favicon.svg", "/manifest.webmanifest", "/arrival-shell.css", "/harbour/poster-960.avif", "/og-card.png", "/@vite/client", "/node_modules/vite/dist/client/env.mjs", "/@react-refresh", "/src/main.tsx", "/src/error-reporter.ts", "/src/error-diagnostic.ts", "/src/content/pharosville-version.ts", "/src/systems/viewport-gate.ts", "/src/harbour/app/poster.ts"];
+const SHELL = ["/", "/index.html", "/favicon.svg", "/manifest.webmanifest", "/arrival-shell.css", "/harbour/poster-960.avif", "/og-card.png", "/@vite/client", "/node_modules/vite/dist/client/env.mjs", "/@react-refresh", "/src/main.tsx", "/src/error-reporter.ts", "/src/error-diagnostic.ts", "/src/content/pharosville-version.ts", "/src/systems/viewport-gate.ts", "/src/harbour/app/poster.ts", "/src/welcome-handoff.ts"];
+/** The welcome's own lazy chunk (main.tsx loads it below the gate alone): allowed by name, never by extension. */
+const WELCOME_CHUNK = /\bimport\(\s*["']\.\/(welcome-handoff-[\w-]+\.js)["']\s*\)/g;
 
 export function requestClassifier(registry: Registry = {}, graph: BuildGraph = {}, entries: string[] = []) {
   const allowed = new Set(SHELL);
@@ -41,6 +43,10 @@ export function loadRequestClassifier(root = process.cwd()) {
       if ((!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) || !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
       const target = new URL(statement.moduleSpecifier.text, `https://scenario.invalid${url}`).pathname;
       if (target.endsWith(".js")) { graph[url]!.imports.push(target); read(target); }
+    }
+    for (const [, chunk] of text.matchAll(WELCOME_CHUNK)) {
+      const target = new URL(chunk!, `https://scenario.invalid${url}`).pathname;
+      graph[url]!.imports.push(target); read(target);
     }
   };
   const html = readFileSync(index, "utf8");

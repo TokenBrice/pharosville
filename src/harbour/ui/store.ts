@@ -5,6 +5,8 @@
  * the sim have advanced and before the composer renders, so DOM tags never lag the hulls.
  */
 import * as THREE from "three";
+import { CHAIN_META, resolveChainId } from "@shared/lib/chains";
+import { formatSubject, parseSubjectUrl, pickToSubject, subjectToPick, type SubjectLink } from "@shared/lib/selection-link";
 import { primaryPointer, TOUCH_COMMIT_PX } from "../engine/input";
 import { glideSeconds, glideTravel, type CameraPreset } from "../engine/camera-rig";
 import type { Engine } from "../engine/engine";
@@ -15,6 +17,8 @@ import { UIPicking } from "./picking";
 import { civicTop, inPoly, plotFor, seaZones } from "./places";
 import { idleBreath, modelWatch, watchSources, WATCH_DWELL_S, type WatchStop } from "./watch";
 import { truthCopy } from "./truth-copy";
+import { postcardReceipt, type PostcardFrame } from "./postcard";
+import { renderedPresentation } from "./presentation";
 import { nextPalette, registerPaletteTokens, type Palette } from "./palette";
 import { ElementMeasurements } from "./measurements";
 import { footprintBounds, frameSubject, usableSpace, type ScreenRect, type SubjectBounds } from "./camera-moves";
@@ -23,6 +27,7 @@ import { deadSummaries } from "../model/obituary";
 import { yardCoins } from "./yard";
 import { RouteLine } from "../fleet/route-line";
 import { landmarkHover } from "../world/landmark-hover";
+import { preloadDetails } from "./details";
 import { PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "../sim/sim";
 import { ensureMotionService, getCove, getLayout, getModel, getSim, sameHit, type MotionService, type PickHit, type PickingService } from "./services";
 
@@ -52,10 +57,12 @@ export interface UIState {
   palette?: Palette;
   /** The visitor's own Still world (Sound options), as the motion service reports it; its slip shows while it is on. */
   still?: boolean;
+  /** A failed subject link answers once in the polite, transient slip. */
+  linkNotice?: string | null;
 }
 
 // Identifiers and research intent survive size-gate teardown; no readings or runtime are retained.
-let readingSession: { selected: PickHit | null; ledger: LedgerContext; ledgerOpen: boolean; origin: boolean; fly: boolean } | null = null;
+let readingSession: { selected: PickHit | null; ledger: LedgerContext; ledgerOpen: boolean; origin: boolean; fly: boolean; url: string; pending: SubjectLink | null } | null = null;
 
 type FrameFn = (frame: FrameState) => void;
 
@@ -120,6 +127,12 @@ export class HarbourUIStore {
   private readonly devStale = import.meta.env.DEV ? new URLSearchParams(location.search).get("stale") : null;
   private staleSrc: HarbourModel | null = null;
   private staleOut: HarbourModel | null = null;
+  private pendingSubject: SubjectLink | null = parseSubjectUrl(location);
+  private detailsReady = false;
+  private detailsStarted = false;
+  private disposed = false;
+  private normalizeSubject = true;
+  private linkNoticeTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(readonly engine: Engine) {
     const ctx = engine.ctx;
@@ -132,11 +145,25 @@ export class HarbourUIStore {
     };
     registerPaletteTokens();
     this.state = {
-      model: this.readModel(), hover: null, shipChoices: [], selected: null, searchOpen: false, ledgerOpen: false, chartMode: false,
+      model: this.readModel(), hover: null, shipChoices: [], selected: null, searchOpen: false, ledgerOpen: false, chartMode: this.pendingSubject!.chart,
       ledger: readingSession?.ledger ?? newLedgerContext(), ledgerOrigin: false, guideStop: null,
       reducedMotion: this.motion.reduced, tick: 0, follow: null, announce: "", capturing: false, watch: null,
       palette: nextPalette(null, ctx.uniforms.uNight.value), still: this.motion.still,
     };
+    if (readingSession?.url !== location.href) readingSession = null;
+    if (readingSession) this.pendingSubject = readingSession.pending;
+    this.writeSubject(this.pendingSubject?.subject ? subjectToPick(this.pendingSubject.subject) : readingSession?.selected ?? null, "replace");
+    const pop = () => {
+      readingSession = null;
+      const intent = parseSubjectUrl(location);
+      this.set({ chartMode: intent.chart, linkNotice: null });
+      this.select(null, { history: "none" });
+      this.pendingSubject = intent;
+      this.normalizeSubject = false;
+      this.restoreReadingSession();
+    };
+    addEventListener("popstate", pop);
+    this.cleanups.push(() => { removeEventListener("popstate", pop); clearTimeout(this.linkNoticeTimer); });
     this.cleanups.push(this.motion.subscribe((reduced) => { this.set({ reducedMotion: reduced, still: this.motion.still }); if (reduced) { this.setFollow(null); this.ctx.rig.stop(); this.keyVel.x = this.keyVel.y = 0; } }));
     this.attachPointer(ctx.renderer.domElement);
     this.route = new RouteLine(ctx, (id) => getSim(this.ctx)?.itineraryOf?.(id) ?? null);
@@ -388,14 +415,34 @@ export class HarbourUIStore {
     return hit.kind !== "landmark" || PANEL_LANDMARKS.has(hit.id);
   }
 
-  select(hit: PickHit | null, opts: { fly?: boolean } = {}): void {
+  select(hit: PickHit | null, opts: { fly?: boolean; history?: "push" | "replace" | "none" } = {}): void {
+    this.pendingSubject = null;
+    if (opts.history !== "none") readingSession = null;
+    this.writeSubject(hit, opts.history ?? "push");
     if (this.state.watch) this.stopWatch();
     if (!sameHit(hit, this.state.selected) || !hit) this.setFollow(null);
     this.picking.setSelected(hit);
     this.route.show(hit?.kind === "boat" ? hit.id : null);
-    this.set({ selected: hit, searchOpen: false, shipChoices: [], ...(hit && opts.fly !== false ? { ledgerOpen: false } : {}) });
+    this.set({ selected: hit, searchOpen: false, shipChoices: [], linkNotice: null, ...(hit && opts.fly !== false ? { ledgerOpen: false } : {}) });
     this.selectionEpoch = hit && opts.fly !== false ? this.ctx.rig.inputEpoch : null;
     if (hit && opts.fly !== false) this.flyTo(hit);
+  }
+
+  private writeSubject(hit: PickHit | null, mode: "push" | "replace" | "none"): void {
+    if (mode === "none") return;
+    const subject = hit && pickToSubject(hit);
+    if (subject?.kind === "chain") subject.id = resolveChainId(subject.id) ?? subject.id;
+    const raw = subject && formatSubject(subject), url = new URL(location.href);
+    if (raw) url.searchParams.set("sel", raw); else url.searchParams.delete("sel");
+    if (this.state.chartMode) url.searchParams.set("chart", "1"); else url.searchParams.delete("chart");
+    if (new URLSearchParams(url.hash.slice(1)).has("sel")) url.hash = "";
+    if (url.href !== location.href) history[mode === "push" ? "pushState" : "replaceState"](null, "", url);
+  }
+
+  private subjectNotice(line: string): void {
+    this.set({ linkNotice: line });
+    clearTimeout(this.linkNoticeTimer);
+    this.linkNoticeTimer = setTimeout(() => this.set({ linkNotice: null }), 3500);
   }
 
   private selectionEpoch: number | null = null;
@@ -518,15 +565,34 @@ export class HarbourUIStore {
 
   private restoreReadingSession(): void {
     const saved = readingSession, model = this.state.model;
-    if (!saved || !model?.hasFleet || model.truth.stablecoins.state !== "current") return;
+    const intent = this.pendingSubject;
+    if ((!saved && !intent) || !model?.hasFleet || model.truth.stablecoins.state !== "current") return;
+    const candidate = intent?.subject ? subjectToPick(intent.subject) : saved?.selected ?? null;
+    const hit = !intent?.subject && candidate?.kind === "harbour" ? { ...candidate, id: resolveChainId(candidate.id) ?? candidate.id } : candidate;
+    if (hit || intent?.obsolete) {
+      if (!getLayout(this.ctx)) return;
+      if (!this.detailsStarted) {
+        this.detailsStarted = true;
+        void preloadDetails().then(() => { this.detailsReady = true; }, () => {
+          if (!this.disposed) this.subjectNotice("The subject details could not load. Reload to try again.");
+        });
+      }
+      if (!this.detailsReady) return;
+    }
+    this.pendingSubject = null;
     readingSession = null;
-    const hit = saved.selected;
     const valid = !hit ? false : hit.kind === "boat" ? model.boats.some((b) => b.id === hit.id)
       : hit.kind === "wreck" ? deadSummaries().has(hit.id) || model.readings.wrecks.some((w) => w.id === hit.id)
         : hit.kind === "yard" ? yardCoins(this.ctx).some((c) => c.id === hit.id)
-          : hit.kind === "harbour" ? model.harbours.some((h) => h.chain === hit.id) : PANEL_LANDMARKS.has(hit.id);
-    this.set({ ledgerOpen: saved.ledgerOpen, ledgerOrigin: valid && saved.origin });
-    if (valid) this.select(hit, { fly: saved.fly });
+          : hit.kind === "harbour" ? Object.hasOwn(CHAIN_META, hit.id) && model.harbours.some((h) => resolveChainId(h.chain) === hit.id) : PANEL_LANDMARKS.has(hit.id);
+    if (saved) this.set({ ledgerOpen: saved.ledgerOpen, ledgerOrigin: valid && saved.origin });
+    const resolved = hit?.kind === "harbour" && valid ? { ...hit, id: model.harbours.find((h) => resolveChainId(h.chain) === hit.id)!.chain } : hit;
+    if (valid) this.select(resolved, { fly: saved?.fly ?? true, history: "none" });
+    else if (hit || intent?.obsolete || intent?.invalid) {
+      this.select(null, { history: "none" });
+      if (this.normalizeSubject) history.replaceState(null, "", "/");
+      this.subjectNotice(intent?.obsolete ? "This place is no longer in the harbour." : "This subject is unavailable in the current harbour.");
+    }
   }
 
   /** A programmatic camera move: a glide, or a cut under reduced motion. */
@@ -609,7 +675,7 @@ export class HarbourUIStore {
   startWatch(): void {
     const stops = this.watchStops();
     if (!stops.length) { this.set({ announce: this.watchEmpty() }); return; }
-    if (this.state.selected) this.select(null);
+    if (this.state.selected) this.select(null, { history: "none" });
     this.setFollow(null);
     this.set({ ledgerOpen: false, searchOpen: false, guideStop: null });
     const rig = this.ctx.rig;
@@ -641,7 +707,7 @@ export class HarbourUIStore {
 
   inspectWatch(): void {
     const stop = this.watchRun?.stops[this.watchRun.i];
-    if (stop && this.watchStops().some((s) => s.id === stop.id && s.reason === stop.reason)) this.select(watchHit(stop));
+    if (stop && this.watchStops().some((s) => s.id === stop.id && s.reason === stop.reason)) this.select(watchHit(stop), { history: "none" });
   }
 
   /**
@@ -729,26 +795,34 @@ export class HarbourUIStore {
   onPostcard(fn: () => void): () => void { this.postcardFns.add(fn); return () => this.postcardFns.delete(fn); }
   requestPostcard(): void { for (const fn of this.postcardFns) fn(); }
 
-  /**
-   * The next rendered frame, copied at display resolution. The overlay UI and the hover step aside for
-   * it (`capturing`); the copy is taken in a rAF callback queued after the engine's own, so the drawing
-   * buffer still holds the frame just rendered (no preserveDrawingBuffer needed).
-   */
-  async captureFrame(): Promise<HTMLCanvasElement> {
+  /** Copy pixels and provenance inside the same successful composer render, at display resolution. */
+  async captureFrame(): Promise<PostcardFrame> {
     this.setHover(null);
     this.set({ capturing: true });
     try {
       // let the hover lift fade from the hulls (~250 ms) before the shutter
       await new Promise((r) => setTimeout(r, 320));
-      return await new Promise<HTMLCanvasElement>((resolve, reject) => requestAnimationFrame(() => requestAnimationFrame(() => {
-        try {
-          const src = this.ctx.renderer.domElement;
-          const c = document.createElement("canvas");
-          c.width = src.width; c.height = src.height;
-          c.getContext("2d")!.drawImage(src, 0, 0);
-          resolve(c);
-        } catch (error) { reject(error); }
-      })));
+      return await new Promise<PostcardFrame>((resolve, reject) => {
+        const signal = this.ctx.signal;
+        if (signal?.aborted) { reject(new DOMException("Capture cancelled", "AbortError")); return; }
+        const finish = () => { unsubscribe(); clearTimeout(timeout); signal?.removeEventListener("abort", abort); };
+        const abort = () => { finish(); reject(new DOMException("Capture cancelled", "AbortError")); };
+        const timeout = setTimeout(() => { finish(); reject(new Error("No completed postcard frame")); }, 5000);
+        const unsubscribe = this.engine.onRendered((rendered) => {
+          finish();
+          try {
+            const receipt = postcardReceipt(this.readModel(), this.ctx.timeOfDay.clockHour, Date.now(),
+              renderedPresentation(rendered, this.ctx.services.get("readiness"), this.ctx.services.get("simulation-status")?.unavailable === true),
+              this.state.selected, this.state.chartMode);
+            const src = this.ctx.renderer.domElement;
+            const frame = document.createElement("canvas");
+            frame.width = src.width; frame.height = src.height;
+            frame.getContext("2d")!.drawImage(src, 0, 0);
+            resolve({ frame, receipt });
+          } catch (error) { reject(error); }
+        });
+        signal?.addEventListener("abort", abort, { once: true });
+      });
     } finally { this.set({ capturing: false }); }
   }
 
@@ -805,7 +879,7 @@ export class HarbourUIStore {
     const cur = this.state.selected?.kind === "boat" ? list.indexOf(this.state.selected.id) : -1;
     const i = cur < 0 ? (dir > 0 ? 0 : list.length - 1) : (cur + dir + list.length) % list.length;
     const b = this.boat(list[i]);
-    this.select({ kind: "boat", id: list[i] });
+    this.select({ kind: "boat", id: list[i] }, { history: "replace" });
     if (b) this.set({ announce: `${b.symbol}, ${i + 1} of ${list.length} in view.` });
   }
 
@@ -909,8 +983,9 @@ export class HarbourUIStore {
   }
 
   dispose(): void {
+    this.disposed = true;
     readingSession = { selected: this.state.selected, ledger: this.state.ledger!, ledgerOpen: this.state.ledgerOpen,
-      origin: !!this.state.ledgerOrigin, fly: this.selectionEpoch === this.ctx.rig.inputEpoch };
+      origin: !!this.state.ledgerOrigin, fly: this.selectionEpoch === this.ctx.rig.inputEpoch, url: location.href, pending: this.pendingSubject };
     this.measurements.dispose();
     for (const c of this.cleanups) c();
     this.picking.dispose();

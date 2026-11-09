@@ -128,6 +128,8 @@ export interface Rendered {
   breaths: number[];
   strikes: Array<{ t: number; km: number; intensity: number }>;
   phrases: number[];
+  /** when each foghorn blast began (the stale cue) */
+  horns: number[];
 }
 const renders = new Map<string, Float32Array[]>();
 
@@ -141,7 +143,10 @@ export async function render(name: string, mute: readonly string[] = []): Promis
   const ac = new OfflineAudioContext(2, Math.round(S.seconds * SR), SR);
   const amb = new Ambience(ac, { manual: true, seed: SEED });
   for (const k of mute) (amb as unknown as Record<string, AudioNode | undefined>)[k]?.disconnect();
-  const out: Rendered = { sr: SR, length: ac.length, log: [], breaths: [], strikes: [], phrases: [] };
+  const out: Rendered = { sr: SR, length: ac.length, log: [], breaths: [], strikes: [], phrases: [], horns: [] };
+  const h = amb as unknown as { horn(at: number): void };
+  const horn = h.horn.bind(amb);
+  h.horn = (t) => { out.horns.push(t); horn(t); };
   if (S.log) {
     const g = amb as unknown as { play(kind: ClipKind, at: number, to: AudioNode, level: number, pan?: number, rate?: number): boolean };
     const play = g.play.bind(amb);
