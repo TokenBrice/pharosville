@@ -329,7 +329,7 @@
 
 .hb-dl { display: grid; grid-template-columns: 1fr auto; margin: 0; }
 .hb-dl dt, .hb-dl dd { padding: 5px 0 4px; border-bottom: 0.5px dotted var(--dot-rule); margin: 0; }
-.hb-dl dt { color: var(--ink-2); font-size: var(--fs-small); }
+.hb-dl dt { color: var(--ink-2); font-size: var(--fs-small); min-width: 6em; } /* a term keeps its line beside a long reading */
 .hb-dl dd { padding-left: 14px; text-align: right; font-variant-numeric: tabular-nums; }
 .hb-dl dd em { color: var(--ink-3); font-size: var(--fs-note); }
 .hb-changes { display: flex; margin-top: 10px; border-block: 0.5px solid var(--neat); }
@@ -452,6 +452,11 @@
   position: absolute; left: 0; top: 0; white-space: nowrap; will-change: transform; transition: opacity var(--t-fast) var(--ease);
   /* a halo of the active paper (soft, not an outline) so names read over roofs, water and night alike */
   text-shadow: 0 0 1px var(--halo), 0 0 2px var(--halo), 0 0 3px var(--halo), 0 0 6px var(--halo), 0 0 12px color-mix(in srgb, var(--halo) 58%, transparent);
+}
+/* the dim night ink leaves the contrast to the halo: four 1 px offsets carry it to the strokes' edges, so a name over a
+   light (the Pharos over its own glow) keeps 4.5:1 there */
+.hb-ui[data-palette="night"] .hb-label {
+  text-shadow: 1px 0 2px var(--halo), -1px 0 2px var(--halo), 0 1px 2px var(--halo), 0 -1px 2px var(--halo), 0 0 3px var(--halo), 0 0 6px var(--halo), 0 0 12px color-mix(in srgb, var(--halo) 58%, transparent);
 }
 .hb-label[data-kind="landmark"] { font-size: var(--fs-note); font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; }
 .hb-label[data-kind="pier"] { font-size: var(--fs-h3); font-style: italic; font-weight: 600; color: var(--sea-ink); letter-spacing: 0.035em; }
