@@ -214,27 +214,48 @@ def colonnade(mb, x0, x1, y, z0, h, n, r, col, cap_col=None):
     return xs
 
 
-def pediment(mb, x0, x1, yf, yb, z, rise, col, tymp=None, cornice=0.45, pat=0):
-    """Triangular gable front at yf (facing -y) running back to yb, with a projecting raking cornice."""
+def pediment(mb, x0, x1, yf, yb, z, rise, col, tymp=None, cornice=0.45, pat=0, dentils=True):
+    """Triangular gable front at yf (facing -y) running back to yb, with a projecting raking cornice & dentils."""
     xm = (x0 + x1) / 2
     tp = tymp or col
-    # tympanum (recessed) + roof slopes
+    # tympanum (recessed) + inner shadow reveal border
     poly(mb, ((x0, yf + 0.25, z), (x1, yf + 0.25, z), (xm, yf + 0.25, z + rise)), tp, pat, nrm=(0, -1, 0))
-    # raking cornices (front)
+    # crisp projecting raking cornices (front) with stepped upper crown
     for (xa, za), (xb, zb) in (((x0 - cornice, z - 0.1), (xm, z + rise + cornice * 0.45)), ((xm, z + rise + cornice * 0.45), (x1 + cornice, z - 0.1))):
-        beam(mb, (xa, yf, za), (xb, yf, zb), 0.7, 0.5, col)
-    box2(mb, x0 - cornice, yf - 0.1, z - 0.55, x1 + cornice, yb, z, col, 0)    # horizontal cornice
+        beam(mb, (xa, yf, za), (xb, yf, zb), 0.72, 0.48, col)
+        beam(mb, (xa, yf - 0.12, za + 0.20), (xb, yf - 0.12, zb + 0.20), 0.56, 0.18, PAL['marble'])
+    box2(mb, x0 - cornice, yf - 0.12, z - 0.55, x1 + cornice, yb, z, col, 0)    # horizontal cornice
+    if dentils and (x1 - x0) >= 4.0:
+        span = x1 - x0
+        nd = min(14, max(5, int(span / 1.05)))
+        for i in range(nd):
+            dx = x0 + 0.35 + (span - 0.7) * i / max(1, nd - 1)
+            box2(mb, dx - 0.15, yf - 0.08, z - 0.78, dx + 0.15, yf + 0.18, z - 0.55, PAL['marble'], 0, skip=('+y', '+z'))
 
 
 def gable_roof(mb, x0, y0, x1, y1, z, rise, col, pat=PT['tiles'], ov=0.6, end_col=None, end_pat=PT['ashlar'], axis='x',
-               ends=True, th=0.28, fascia=None):
-    """Pitched roof over the rectangle; ridge along `axis`. Gable ends filled in end_col."""
+               ends=True, th=0.28, fascia=None, courses=1):
+    """Pitched roof over the rectangle; ridge along `axis`. Gable ends filled in end_col.
+    When courses > 1, splits each slope into subtle stepped overlapping tile courses."""
     if axis == 'x':
         ym = (y0 + y1) / 2; half = (y1 - y0) / 2
         drop = ov * rise / half
         for s, ye in ((-1, y0 - ov), (1, y1 + ov)):
-            pts = ((x0 - ov, ye, z - drop), (x1 + ov, ye, z - drop), (x1 + ov, ym, z + rise), (x0 - ov, ym, z + rise))
-            poly(mb, pts, col, pat, nrm=(0, s, 1))
+            if courses <= 1:
+                pts = ((x0 - ov, ye, z - drop), (x1 + ov, ye, z - drop), (x1 + ov, ym, z + rise), (x0 - ov, ym, z + rise))
+                poly(mb, pts, col, pat, nrm=(0, s, 1))
+            else:
+                for ci in range(courses):
+                    t0, t1 = ci / courses, (ci + 1) / courses
+                    ya = ye + (ym - ye) * t0; yb_ = ye + (ym - ye) * t1
+                    za = (z - drop) + (rise + drop) * t0; zb_ = (z - drop) + (rise + drop) * t1
+                    step_z = 0.055 * ci
+                    cc = mul(col, 0.96 + 0.04 * (ci % 2))
+                    poly(mb, ((x0 - ov, ya, za + step_z), (x1 + ov, ya, za + step_z), (x1 + ov, yb_, zb_ + step_z), (x0 - ov, yb_, zb_ + step_z)),
+                         cc, pat, nrm=(0, s, 1))
+                    if ci > 0:
+                        poly(mb, ((x0 - ov, ya, za + step_z - 0.06), (x1 + ov, ya, za + step_z - 0.06), (x1 + ov, ya, za + step_z), (x0 - ov, ya, za + step_z)),
+                             mul(col, 0.72), 0, nrm=(0, s, 0), jitter=0.0)
             poly(mb, ((x0 - ov, ye, z - drop - th), (x1 + ov, ye, z - drop - th), (x1 + ov, ye, z - drop), (x0 - ov, ye, z - drop)),
                  fascia or mul(col, 0.7), 0, nrm=(0, s, 0))
         for s, xe in ((-1, x0 - ov), (1, x1 + ov)):   # verge edges
@@ -248,8 +269,21 @@ def gable_roof(mb, x0, y0, x1, y1, z, rise, col, pat=PT['tiles'], ov=0.6, end_co
         xm = (x0 + x1) / 2; half = (x1 - x0) / 2
         drop = ov * rise / half
         for s, xe in ((-1, x0 - ov), (1, x1 + ov)):
-            pts = ((xe, y0 - ov, z - drop), (xe, y1 + ov, z - drop), (xm, y1 + ov, z + rise), (xm, y0 - ov, z + rise))
-            poly(mb, pts, col, pat, nrm=(s, 0, 1))
+            if courses <= 1:
+                pts = ((xe, y0 - ov, z - drop), (xe, y1 + ov, z - drop), (xm, y1 + ov, z + rise), (xm, y0 - ov, z + rise))
+                poly(mb, pts, col, pat, nrm=(s, 0, 1))
+            else:
+                for ci in range(courses):
+                    t0, t1 = ci / courses, (ci + 1) / courses
+                    xa = xe + (xm - xe) * t0; xb_ = xe + (xm - xe) * t1
+                    za = (z - drop) + (rise + drop) * t0; zb_ = (z - drop) + (rise + drop) * t1
+                    step_z = 0.055 * ci
+                    cc = mul(col, 0.96 + 0.04 * (ci % 2))
+                    poly(mb, ((xa, y0 - ov, za + step_z), (xa, y1 + ov, za + step_z), (xb_, y1 + ov, zb_ + step_z), (xb_, y0 - ov, zb_ + step_z)),
+                         cc, pat, nrm=(s, 0, 1))
+                    if ci > 0:
+                        poly(mb, ((xa, y0 - ov, za + step_z - 0.06), (xa, y1 + ov, za + step_z - 0.06), (xa, y1 + ov, za + step_z), (xa, y0 - ov, za + step_z)),
+                             mul(col, 0.72), 0, nrm=(s, 0, 0), jitter=0.0)
             poly(mb, ((xe, y0 - ov, z - drop - th), (xe, y1 + ov, z - drop - th), (xe, y1 + ov, z - drop), (xe, y0 - ov, z - drop)),
                  fascia or mul(col, 0.7), 0, nrm=(s, 0, 0))
         for s, ye in ((-1, y0 - ov), (1, y1 + ov)):
@@ -282,13 +316,23 @@ def hip_roof(mb, x0, y0, x1, y1, z, rise, col, pat=PT['slate'], ov=0.5, th=0.3, 
         poly(mb, (p, q, (q[0], q[1], q[2] - th), (p[0], p[1], p[2] - th)), fc, 0, nrm=n)
 
 
-def pyramid_roof(mb, cx, cy, half, z, rise, col, pat=PT['slate'], ov=0.3, segs=4, rot=math.pi / 4):
+def pyramid_roof(mb, cx, cy, half, z, rise, col, pat=PT['slate'], ov=0.3, segs=4, rot=math.pi / 4, ribs=True):
     r = (half + ov) / math.cos(math.pi / segs)
     pts = [Vector((cx + r * math.cos(rot + 2 * math.pi * k / segs), cy + r * math.sin(rot + 2 * math.pi * k / segs), z - ov * 0.4))
            for k in range(segs)]
     ap = Vector((cx, cy, z + rise))
     for k in range(segs):
-        poly(mb, (pts[k], pts[(k + 1) % segs], ap), col, pat, nrm=(0, 0, 1))
+        p0, p1 = pts[k], pts[(k + 1) % segs]
+        poly(mb, (p0, p1, ap), col, pat, nrm=(0, 0, 1))
+        if ribs and pat == PT['tiles']:
+            nrm = (p1 - p0).cross(ap - p0)
+            if nrm.z < 0:
+                nrm = -nrm
+            nrm.normalize()
+            for f in (0.33, 0.67):
+                qe = p0.lerp(p1, f)
+                pe = ap.lerp(p0 if f < 0.5 else p1, 0.14)
+                imbrex_rib(mb, pe, qe, nrm, w=0.20, h=0.14, col=mul(col, 0.90))
 
 
 def extrude_roof(mb, x0, x1, prof, col, pat=PT['slate'], end_col=None, end_pat=PT['ashlar'], ends=True, cols=None):
@@ -569,12 +613,114 @@ def rise_for(span, pitch):
     return span * math.tan(math.radians(pitch))
 
 
-def ridge_cap(mb, p, q, col=None):
-    """Rounded-tile ridge / hip cap along p -> q."""
-    beam(mb, p, q, 0.34, 0.24, col or PAL['tile_ridge'], PT['tiles'])
+def ridge_cap(mb, p, q, col=None, w=0.38, h=0.26):
+    """Peaked terracotta saddle ridge / hip cap along p -> q (6 tris vs 12 for a flat beam, crisp sunlit spine)."""
+    p, q = Vector(p), Vector(q)
+    d = q - p
+    L = d.length
+    if L < 1e-4:
+        return
+    a = d / L
+    up = Vector((0, 0, 1))
+    s_ = a.cross(up)
+    if s_.length < 1e-4:
+        s_ = Vector((1, 0, 0))
+    else:
+        s_.normalize()
+    n = s_.cross(a).normalized()
+    if n.z < 0:
+        n = -n
+    c_main = col or PAL['tile_ridge']
+    c_hi = mul(c_main, 1.15)
+    pL, pR, pT = p - s_ * (w / 2) - n * 0.04, p + s_ * (w / 2) - n * 0.04, p + n * h
+    qL, qR, qT = q - s_ * (w / 2) - n * 0.04, q + s_ * (w / 2) - n * 0.04, q + n * h
+    poly(mb, (pL, qL, qT, pT), c_hi, PT['tiles'], nrm=n - s_, jitter=0.02)
+    poly(mb, (pT, qT, qR, pR), c_main, PT['tiles'], nrm=n + s_, jitter=0.02)
+    poly(mb, (pL, pR, pT), c_main, 0, nrm=-a, jitter=0.0)
+    poly(mb, (qR, qL, qT), c_main, 0, nrm=a, jitter=0.0)
 
 
-def antefix_row(mb, a, b, n_out, step=1.15, col=None, h=0.48, w=0.4):
+def imbrex_rib(mb, p, q, nrm, w=0.20, h=0.14, col=None, pat=PT['tiles']):
+    """Raised triangular-ridge terracotta imbrex cover-tile rib from ridge p -> eave q (5 tris!)."""
+    p, q = Vector(p), Vector(q)
+    d = q - p
+    if d.length < 0.35:
+        return
+    d.normalize()
+    n = Vector(nrm).normalized()
+    s = d.cross(n)
+    if s.length < 1e-4:
+        return
+    s.normalize()
+    cc = col or PAL['tile_ridge']
+    pL, pR, pT = p - s * (w / 2), p + s * (w / 2), p + n * h
+    qL, qR, qT = q - s * (w / 2), q + s * (w / 2), q + n * h
+    poly(mb, (pL, qL, qT, pT), mul(cc, 1.06), pat, nrm=n - s, jitter=0.025)
+    poly(mb, (pT, qT, qR, pR), mul(cc, 0.94), pat, nrm=n + s, jitter=0.025)
+    poly(mb, (qL, qR, qT), mul(cc, 0.85), 0, nrm=d, jitter=0.0)
+
+
+def eave_rafters(mb, a, b, n_out, step=1.9, col=None, proj=0.34, w=0.14, h=0.16):
+    """Projecting timber rafter tails / cornice dentils under an overhanging eave a -> b (8 tris each)."""
+    a, b = Vector(a), Vector(b)
+    L = (b - a).length
+    if L < 1.2:
+        return
+    t = (b - a) / L
+    n = Vector(n_out).normalized()
+    up = Vector((0, 0, 1))
+    col = col or PAL['oak_dark']
+    n_r = min(14, max(2, round(L / step)))
+    for i in range(n_r):
+        p = a + t * (L * (i + 0.5) / n_r)
+        obox(mb, p - n * (proj * 0.35) - up * (h * 0.55), t, n, w, proj, h, col, 0, skip=('-y', '+z'), jitter=0.02)
+
+
+def acroterion(mb, c, n_out=(0, -1, 0), h=0.95, col=None, kind='palmette', base_col=None):
+    """Sculpted 3D classical pediment acroterion ('palmette' fan or 'urn' finial, visible from all angles)."""
+    c = Vector(c)
+    f = Vector(n_out).normalized()
+    t = Vector((-f.y, f.x, 0.0)).normalized()
+    up = Vector((0, 0, 1))
+    col = col or PAL['gilt']
+    pat = PT['metal'] if col in (PAL['gilt'], PAL['gold'], PAL['bronze'], PAL['bronze_light']) else 0
+    # Stepped marble base block
+    obox(mb, c + up * (h * 0.09), t, f, h * 0.54, h * 0.36, h * 0.18, base_col or PAL['marble'], 0, skip=('-z',), jitter=0.0)
+    if kind == 'urn':
+        z0 = c.z + h * 0.18
+        s = h * 0.85
+        lathe(mb, (c.x, c.y), [(0.16 * s, z0), (0.34 * s, z0 + 0.38 * s), (0.14 * s, z0 + 0.68 * s), (0.24 * s, z0 + 0.88 * s), (0.0, z0 + 1.0 * s)],
+              col, pat, segs=6, smooth=True)
+        return
+    # 3D sculpted flared palmette fan
+    z0 = h * 0.18
+    w, d = h * 0.42, h * 0.12
+    pts_f = [c + up * z0 - t * (w * 0.55) + f * d, c + up * z0 + t * (w * 0.55) + f * d,
+             c + up * (z0 + h * 0.34) + t * w + f * (d * 0.75), c + up * (z0 + h * 0.86) + f * (d * 0.35),
+             c + up * (z0 + h * 0.34) - t * w + f * (d * 0.75)]
+    pts_b = [p - f * (2 * d if i < 2 else (1.5 * d if i in (2, 4) else 0.7 * d)) for i, p in enumerate(pts_f)]
+    fi = [mb.vert(p) for p in pts_f]
+    bi = [mb.vert(p) for p in pts_b]
+    mb.face(fi, col, pat, jitter=0.01)
+    mb.face(bi[::-1], col, pat, jitter=0.01)
+    for k in range(len(fi)):
+        k2 = (k + 1) % len(fi)
+        mb.face((fi[k], bi[k], bi[k2], fi[k2]), col, pat, jitter=0.01)
+
+
+def pilaster(mb, x, y, z0, z1, n_out, w=0.62, d=0.14, col=None, cap_col=None, pat=PT['ashlar']):
+    """Carved stone wall pilaster: base plinth, proud shaft, moulded capital (~24 tris; d <= 0.16 m)."""
+    t, n, up = frame3(n_out)
+    col = col or PAL['lime']
+    cap_col = cap_col or PAL['marble']
+    c = Vector((x, y, 0.0)) + n * (d / 2)
+    bh, ch = min(0.55, (z1 - z0) * 0.12), min(0.45, (z1 - z0) * 0.10)
+    obox(mb, c + up * (z0 + bh / 2), t, n, w + 0.14, d + 0.06, bh, cap_col, 0, skip=('-y', '-z'))
+    obox(mb, c + up * ((z0 + bh + z1 - ch) / 2), t, n, w, d, (z1 - ch) - (z0 + bh), col, pat, skip=('-y', '-z', '+z'))
+    obox(mb, c + up * (z1 - ch / 2), t, n, w + 0.18, d + 0.08, ch, cap_col, 0, skip=('-y',))
+
+
+def antefix_row(mb, a, b, n_out, step=1.35, col=None, h=0.48, w=0.4):
     """Palmette antefixes standing along an eave a -> b (3D points on the eave line), faces toward n_out."""
     a, b = Vector(a), Vector(b)
     L = (b - a).length
@@ -598,44 +744,75 @@ def eave_x(y0, y1, z, rise, ov):
 
 
 def tiled_gable(mb, x0, y0, x1, y1, z, pitch=21.0, col=None, axis='x', ov=0.45, end_col=None, end_pat=PT['render'],
-                ends=True, antefix='front', ridge=True):
-    """Low terracotta gable: tiles, ridge cap, antefixes ('front' = the -y eave, 'both', None; axis 'y' puts them on
-    both side eaves). Returns the rise."""
+                ends=True, antefix='front', ridge=True, ribs=True, rafters=True, finials=False):
+    """Sculptural low terracotta gable: coursed pan tiles, raised imbrex cover-tile ribs, peaked saddle
+    ridge cap, projecting rafter tails, palmette antefixes and optional terracotta/gilt ridge finials."""
     col = col or PAL['tile_a']
     half = ((y1 - y0) if axis == 'x' else (x1 - x0)) / 2
+    span_len = (x1 - x0) if axis == 'x' else (y1 - y0)
     rise = rise_for(half, pitch)
+    courses = 2 if half >= 3.0 else 1
     gable_roof(mb, x0, y0, x1, y1, z, rise, col, PT['tiles'], ov=ov, end_col=end_col, end_pat=end_pat, axis=axis, ends=ends,
-               th=0.22, fascia=PAL['tile_ridge'])
+               th=0.24, fascia=PAL['tile_ridge'], courses=courses)
     drop = ov * rise / half
+    rib_col = mix(col, PAL['tile_ridge'], 0.35)
+    z_top = z + rise + (0.055 if courses > 1 else 0.0)
     if axis == 'x':
         ym = (y0 + y1) / 2
         if ridge:
-            ridge_cap(mb, (x0 - ov, ym, z + rise + 0.04), (x1 + ov, ym, z + rise + 0.04))
+            ridge_cap(mb, (x0 - ov, ym, z_top + 0.02), (x1 + ov, ym, z_top + 0.02))
+        if finials and span_len >= 4.0:
+            for xe, n_x in ((x0 - ov + 0.15, (-1, 0, 0)), (x1 + ov - 0.15, (1, 0, 0))):
+                acroterion(mb, (xe, ym, z_top + 0.14), n_x, h=0.68, col=PAL['tile_c'], kind='palmette', base_col=PAL['tile_ridge'])
+        if ribs and span_len >= 2.2:
+            L = (x1 - x0) + 2 * ov
+            n_r = max(4, min(14, (round(L / max(1.5, L / 12)) // 2) * 2))
+            for s, ye in ((-1, y0 - ov), (1, y1 + ov)):
+                nrm = Vector((0, s * (rise + drop), half + ov)).normalized()
+                for i in range(n_r):
+                    rx = (x0 - ov) + L * (i + 0.5) / n_r
+                    imbrex_rib(mb, (rx, ym, z_top), (rx, ye, z - drop), nrm, w=0.20, h=0.14, col=rib_col)
         eaves = [((x0 - ov + 0.2, y0 - ov, z - drop), (x1 + ov - 0.2, y0 - ov, z - drop), (0, -1, 0))]
         if antefix == 'both':
             eaves.append(((x0 - ov + 0.2, y1 + ov, z - drop), (x1 + ov - 0.2, y1 + ov, z - drop), (0, 1, 0)))
+        if rafters and ov >= 0.25 and span_len >= 3.0:
+            for a, b, n_ in eaves:
+                eave_rafters(mb, Vector(a) - Vector((0, 0, 0.20)), Vector(b) - Vector((0, 0, 0.20)), n_, step=max(1.8, span_len / 10))
     else:
         xm = (x0 + x1) / 2
         if ridge:
-            ridge_cap(mb, (xm, y0 - ov, z + rise + 0.04), (xm, y1 + ov, z + rise + 0.04))
+            ridge_cap(mb, (xm, y0 - ov, z_top + 0.02), (xm, y1 + ov, z_top + 0.02))
+        if finials and span_len >= 4.0:
+            acroterion(mb, (xm, y1 + ov - 0.15, z_top + 0.14), (0, 1, 0), h=0.72, col=PAL['tile_c'], kind='palmette', base_col=PAL['tile_ridge'])
+        if ribs and span_len >= 2.2:
+            L = (y1 - y0) + 2 * ov
+            n_r = max(4, min(14, (round(L / max(1.5, L / 12)) // 2) * 2))
+            for s, xe in ((-1, x0 - ov), (1, x1 + ov)):
+                nrm = Vector((s * (rise + drop), 0, half + ov)).normalized()
+                for i in range(n_r):
+                    ry = (y0 - ov) + L * (i + 0.5) / n_r
+                    imbrex_rib(mb, (xm, ry, z_top), (xe, ry, z - drop), nrm, w=0.20, h=0.14, col=rib_col)
         eaves = [((x0 - ov, y0 - ov + 0.2, z - drop), (x0 - ov, y1 + ov - 0.2, z - drop), (-1, 0, 0)),
                  ((x1 + ov, y0 - ov + 0.2, z - drop), (x1 + ov, y1 + ov - 0.2, z - drop), (1, 0, 0))]
+        if rafters and ov >= 0.25 and span_len >= 3.0:
+            for a, b, n_ in eaves:
+                eave_rafters(mb, Vector(a) - Vector((0, 0, 0.20)), Vector(b) - Vector((0, 0, 0.20)), n_, step=max(1.8, span_len / 10))
     if antefix:
         for a, b, n in eaves:
             antefix_row(mb, a, b, n)
     return rise
 
 
-def tiled_hip(mb, x0, y0, x1, y1, z, pitch=22.0, col=None, ov=0.45, antefix='front'):
-    """Low terracotta hip roof with ridge + hip caps; antefixes on the -y eave ('front'), all four ('all') or none.
-    Returns the rise."""
+def tiled_hip(mb, x0, y0, x1, y1, z, pitch=22.0, col=None, ov=0.45, antefix='front', ribs=True, rafters=True, finials=True):
+    """Sculptural low terracotta hip roof with peaked ridge + hip ribs, raised imbrex cover-tile ribs on
+    all 4 slopes, projecting eaves rafters, antefixes and ridge-end finials. Returns the rise."""
     col = col or PAL['tile_a']
     rise = rise_for(min(x1 - x0, y1 - y0) / 2, pitch)
-    hip_roof(mb, x0, y0, x1, y1, z, rise, col, PT['tiles'], ov=ov, th=0.22, fascia=PAL['tile_ridge'])
+    hip_roof(mb, x0, y0, x1, y1, z, rise, col, PT['tiles'], ov=ov, th=0.24, fascia=PAL['tile_ridge'])
     X0, Y0, X1, Y1 = x0 - ov, y0 - ov, x1 + ov, y1 + ov
     w, d = X1 - X0, Y1 - Y0
     zo = z - ov * rise / (min(w, d) / 2)
-    zr = z + rise + 0.04
+    zr = z + rise + 0.03
     if w >= d:
         a, b = Vector((X0 + d / 2, (Y0 + Y1) / 2, zr)), Vector((X1 - d / 2, (Y0 + Y1) / 2, zr))
     else:
@@ -644,7 +821,63 @@ def tiled_hip(mb, x0, y0, x1, y1, z, pitch=22.0, col=None, ov=0.45, antefix='fro
         ridge_cap(mb, a, b)
     for cx, cy in ((X0, Y0), (X0, Y1), (X1, Y0), (X1, Y1)):
         e = (a if cx == X0 else b) if w >= d else (a if cy == Y0 else b)
-        ridge_cap(mb, (cx, cy, zo + 0.05), e)
+        ridge_cap(mb, (cx, cy, zo + 0.04), e, w=0.34, h=0.22)
+    # Sculpted terracotta finials crowning both ends of the hip ridge
+    if finials and min(w, d) >= 3.5:
+        for pt in ((a, b) if (a - b).length > 0.4 else (a,)):
+            acroterion(mb, (pt.x, pt.y, zr + 0.14), (0, -1, 0), h=0.62, col=PAL['gilt'], kind='palmette', base_col=PAL['tile_ridge'])
+    # Exact geometric imbrex cover-tile ribs running down all 4 slopes cleanly to the hip/ridge edges
+    if ribs and min(w, d) >= 2.8:
+        rib_col = mix(col, PAL['tile_ridge'], 0.35)
+        xm, ym = (X0 + X1) / 2, (Y0 + Y1) / 2
+        if w >= d:
+            half = d / 2
+            n_x = max(4, min(12, (round(w / max(1.6, w / 12)) // 2) * 2))
+            n_y = max(2, min(6, (round(d / max(1.8, d / 6)) // 2) * 2))
+            for s, ye in ((-1, Y0), (1, Y1)):
+                nrm = Vector((0, s * (zr - zo), half)).normalized()
+                for i in range(n_x):
+                    rx = X0 + 0.7 + (w - 1.4) * i / max(1, n_x - 1)
+                    if rx < a.x:
+                        t_ = (rx - X0) / max(1e-4, a.x - X0)
+                        top = Vector((rx, ye + (ym - ye) * t_, zo + (zr - zo) * t_))
+                    elif rx > b.x:
+                        t_ = (X1 - rx) / max(1e-4, X1 - b.x)
+                        top = Vector((rx, ye + (ym - ye) * t_, zo + (zr - zo) * t_))
+                    else:
+                        top = Vector((rx, ym, zr))
+                    imbrex_rib(mb, top, (rx, ye, zo), nrm, w=0.20, h=0.14, col=rib_col)
+            for s, xe, end_p in ((-1, X0, a), (1, X1, b)):
+                nrm = Vector((s * (zr - zo), 0, half)).normalized()
+                for i in range(n_y):
+                    ry = Y0 + 0.7 + (d - 1.4) * i / max(1, n_y - 1)
+                    t_ = 1.0 - abs(ry - ym) / max(1e-4, half)
+                    top = Vector((xe + (end_p.x - xe) * t_, ry, zo + (zr - zo) * t_))
+                    imbrex_rib(mb, top, (xe, ry, zo), nrm, w=0.20, h=0.14, col=rib_col)
+        else:
+            half = w / 2
+            n_y = max(4, min(12, (round(d / max(1.6, d / 10)) // 2) * 2))
+            n_x = max(2, min(6, (round(w / max(1.8, w / 5)) // 2) * 2))
+            for s, xe in ((-1, X0), (1, X1)):
+                nrm = Vector((s * (zr - zo), 0, half)).normalized()
+                for i in range(n_y):
+                    ry = Y0 + 0.7 + (d - 1.4) * i / max(1, n_y - 1)
+                    if ry < a.y:
+                        t_ = (ry - Y0) / max(1e-4, a.y - Y0)
+                        top = Vector((xe + (xm - xe) * t_, ry, zo + (zr - zo) * t_))
+                    elif ry > b.y:
+                        t_ = (Y1 - ry) / max(1e-4, Y1 - b.y)
+                        top = Vector((xe + (xm - xe) * t_, ry, zo + (zr - zo) * t_))
+                    else:
+                        top = Vector((xm, ry, zr))
+                    imbrex_rib(mb, top, (xe, ry, zo), nrm, w=0.20, h=0.14, col=rib_col)
+            for s, ye, end_p in ((-1, Y0, a), (1, Y1, b)):
+                nrm = Vector((0, s * (zr - zo), half)).normalized()
+                for i in range(n_x):
+                    rx = X0 + 0.7 + (w - 1.4) * i / max(1, n_x - 1)
+                    t_ = 1.0 - abs(rx - xm) / max(1e-4, half)
+                    top = Vector((rx, ye + (end_p.y - ye) * t_, zo + (zr - zo) * t_))
+                    imbrex_rib(mb, top, (rx, ye, zo), nrm, w=0.20, h=0.14, col=rib_col)
     if antefix:
         sides = [((X0 + 0.5, Y0, zo), (X1 - 0.5, Y0, zo), (0, -1, 0))]
         if antefix == 'all':
@@ -652,11 +885,14 @@ def tiled_hip(mb, x0, y0, x1, y1, z, pitch=22.0, col=None, ov=0.45, antefix='fro
                       ((X1, Y0 + 0.5, zo), (X1, Y1 - 0.5, zo), (1, 0, 0))]
         for p, q, n in sides:
             antefix_row(mb, p, q, n)
+        if rafters and ov >= 0.25:
+            for p, q, n in sides:
+                eave_rafters(mb, Vector(p) - Vector((0, 0, 0.22)), Vector(q) - Vector((0, 0, 0.22)), n, step=max(2.0, (Vector(q) - Vector(p)).length / 10))
     return rise
 
 
-def lean_to(mb, x0, x1, yf, zf, yb, zb, col=None, ov=0.45, th=0.22, antefix=True):
-    """Single-pitch stoa roof from the front eave (yf, zf) up to (yb, zb) against a wall. Returns the eave (y, z)."""
+def lean_to(mb, x0, x1, yf, zf, yb, zb, col=None, ov=0.45, th=0.22, antefix=True, ribs=True):
+    """Single-pitch stoa roof from the front eave (yf, zf) up to (yb, zb) against a wall, with imbrex ribs."""
     col = col or PAL['tile_a']
     s = (zb - zf) / (yb - yf)
     y0, z0 = yf - ov, zf - ov * s
@@ -664,8 +900,17 @@ def lean_to(mb, x0, x1, yf, zf, yb, zb, col=None, ov=0.45, th=0.22, antefix=True
     poly(mb, ((x0 - ov, y0, z0 - th), (x1 + ov, y0, z0 - th), (x1 + ov, y0, z0), (x0 - ov, y0, z0)), PAL['tile_ridge'], 0, nrm=(0, -1, 0))
     for xe, s_ in ((x0 - ov, -1), (x1 + ov, 1)):
         poly(mb, ((xe, y0, z0 - th), (xe, y0, z0), (xe, yb, zb), (xe, yb, zb - th)), PAL['tile_ridge'], 0, nrm=(s_, 0, 0))
+    if ribs:
+        L = (x1 - x0) + 2 * ov
+        n_r = max(4, min(12, (round(L / 1.7) // 2) * 2))
+        nrm = Vector((0, -(zb - z0), yb - y0)).normalized()
+        rib_col = mix(col, PAL['tile_ridge'], 0.35)
+        for i in range(n_r):
+            rx = (x0 - ov) + L * (i + 0.5) / n_r
+            imbrex_rib(mb, (rx, yb, zb), (rx, y0, z0), nrm, w=0.20, h=0.13, col=rib_col)
     if antefix:
         antefix_row(mb, (x0 - ov + 0.2, y0, z0), (x1 + ov - 0.2, y0, z0), (0, -1, 0))
+        eave_rafters(mb, (x0 - ov + 0.2, y0, z0 - th), (x1 + ov - 0.2, y0, z0 - th), (0, -1, 0), step=2.0)
     return y0, z0
 
 
@@ -714,12 +959,18 @@ def frieze(mb, a, b, z, h, n_out, kind='meander', **kw):
     (meander if kind == 'meander' else triglyph_band)(mb, a, b, z, h, n_out, **kw)
 
 
-def entablature(mb, x0, x1, yf, yb, z, col=None, cornice=None, kind='triglyph'):
-    """Architrave + painted frieze + projecting cornice over a colonnade front at yf (facing -y). Returns the top z."""
+def entablature(mb, x0, x1, yf, yb, z, col=None, cornice=None, kind='triglyph', dentils=True):
+    """Architrave + painted frieze + dentil course + projecting cornice over a colonnade front at yf (facing -y). Returns the top z."""
     col = col or PAL['lime']
     box2(mb, x0, yf, z, x1, yb, z + 0.75, col, 0)
     box2(mb, x0, yf + 0.1, z + 0.75, x1, yb, z + 1.55, col, 0, skip=('-z',))
     frieze(mb, (x0 + 0.3, yf + 0.1), (x1 - 0.3, yf + 0.1), z + 0.75, 0.8, (0, -1, 0), kind)
+    if dentils and (x1 - x0) >= 4.0:
+        span = x1 - x0
+        nd = min(14, max(5, int(span / 1.15)))
+        for i in range(nd):
+            dx = x0 + 0.4 + (span - 0.8) * i / max(1, nd - 1)
+            box2(mb, dx - 0.14, yf - 0.16, z + 1.38, dx + 0.14, yf + 0.10, z + 1.55, cornice or PAL['marble'], 0, skip=('+y', '+z'))
     box2(mb, x0 - 0.35, yf - 0.35, z + 1.55, x1 + 0.35, yb, z + 1.9, cornice or PAL['marble'], 0)
     return z + 1.9
 
@@ -728,7 +979,7 @@ def ionic_colonnade(mb, x0, x1, y, z0, h, n, r, col=None, cap_col=None, segs=8):
     """Ionic columns (the senior order): a moulded base, a slender shaft and a cushion capital whose volutes are short
     cylinders along y either side of the abacus, so the scrolls read from the front. Returns the x positions."""
     col, cap_col = col or PAL['marble'], cap_col or PAL['lime']
-    xs = [x0 + (x1 - x0) * i / (n - 1) for i in range(n)]
+    xs = [x0] if n <= 1 else [x0 + (x1 - x0) * i / (n - 1) for i in range(n)]
     for x in xs:
         cyl(mb, (x, y), r * 1.35, r * 1.35, z0, z0 + r * 0.45, col, 0, segs)
         cyl(mb, (x, y), r * 1.15, r * 1.0, z0 + r * 0.45, z0 + r * 0.8, col, 0, segs, top=False)
@@ -742,8 +993,9 @@ def ionic_colonnade(mb, x0, x1, y, z0, h, n, r, col=None, cap_col=None, segs=8):
 
 
 def socle(mb, x0, y0, x1, y1, z, h=0.9, col=None, proud=0.12):
-    """Sandstone ashlar base course round a block."""
-    box2(mb, x0 - proud, y0 - proud, z, x1 + proud, y1 + proud, z + h, col or PAL['sandstone'], PT['ashlar'], skip=('-z',))
+    """Sandstone ashlar base course round a block with a crisp projecting limestone coping lip."""
+    box2(mb, x0 - proud, y0 - proud, z, x1 + proud, y1 + proud, z + h - 0.14, col or PAL['sandstone'], PT['ashlar'], skip=('-z', '+z'))
+    box2(mb, x0 - proud - 0.05, y0 - proud - 0.05, z + h - 0.14, x1 + proud + 0.05, y1 + proud + 0.05, z + h, PAL['lime'], 0, skip=('-z',))
 
 
 # ------------------------------------------------------------------ openings
@@ -768,17 +1020,18 @@ def shutters(mb, c, n, w, h, col=None, closed=False, gap=0.12):
 
 
 def plain_window(K, c, n, w=0.8, h=1.1, wall=None, arch=False, shutter=None, closed=False, sill=True, reveal=0.28, lit=None,
-                 warm=None):
-    """Small deep-set opening: reveals in the wall colour (no white trim, no mullion), a stone sill, optional board
+                 warm=None, lintel=True):
+    """Small deep-set opening: reveals in the wall colour, a stone sill & subtle lintel hood, optional board
     shutters; the pane is kind WIN_PLAIN so the runtime draws no frame or cross."""
     wall = wall or PAL['wash_cream']
-    window(K, c, n, w, h, frame=mul(wall, 0.84), arch=arch, sill=sill, lit=lit, warm=warm, depth=reveal, kind=WIN_PLAIN)
+    head_col = PAL['lime'] if (lintel and not arch) else None
+    window(K, c, n, w, h, frame=mul(wall, 0.84), arch=arch, sill=sill, lit=lit, warm=warm, depth=reveal, head=head_col, kind=WIN_PLAIN)
     if shutter is not None:
         shutters(K.op, Vector(c) + frame3(n)[1] * (reveal - 0.05 if not closed else 0.0), n, w + 0.1, h, shutter, closed)
 
 
 def arch_door(K, c, n, w, h, col=None, frame=None, step=True, fanlight=False):
-    """Round-headed painted door in a stone surround (jambs, voussoir ring, keystone); h = springing + w/2."""
+    """Round-headed painted or bronze door in a stone surround (jambs, voussoir ring, keystone, bronze hardware)."""
     t, n, up = frame3(n)
     c = Vector(c)
     op = K.op
@@ -786,12 +1039,18 @@ def arch_door(K, c, n, w, h, col=None, frame=None, step=True, fanlight=False):
     frame = frame or PAL['lime']
     hs = h - w / 2
     g = c + n * 0.06
-    poly(op, [g - t * w / 2, g + t * w / 2, g + t * w / 2 + up * hs, g - t * w / 2 + up * hs], col, PT['boards'], nrm=n)
+    is_bronze = col in (PAL['bronze'], PAL['bronze_dark'])
+    poly(op, [g - t * w / 2, g + t * w / 2, g + t * w / 2 + up * hs, g - t * w / 2 + up * hs], col, PT['metal'] if is_bronze else PT['boards'], nrm=n)
+    if is_bronze:
+        # Crisp bronze double-leaf centre astragal + gilded boss handles
+        obox(op, g + n * 0.03 + up * (hs / 2), t, n, 0.08, 0.06, hs, PAL['bronze_dark'], PT['metal'], skip=('-y',))
+        for sd in (-1, 1):
+            obox(op, g + n * 0.04 + t * (sd * w * 0.16) + up * (hs * 0.48), t, n, 0.14, 0.08, 0.14, PAL['gilt'], PT['metal'], skip=('-y',))
     head = [g + up * hs + t * (w / 2 * math.cos(math.pi * k / 6)) + up * (w / 2 * math.sin(math.pi * k / 6)) for k in range(7)]
     if fanlight:
         lit_opening(K, [p + n * 0.02 for p in head], n)
     else:
-        poly(op, head, col, PT['boards'], nrm=n)
+        poly(op, head, col, PT['metal'] if is_bronze else PT['boards'], nrm=n)
     fw = 0.32
     for s in (-1, 1):
         obox(op, c + n * 0.1 + t * s * (w / 2 + fw / 2) + up * (hs / 2), t, n, fw, 0.2, hs, frame, skip=('-y',))
@@ -976,6 +1235,12 @@ def exedra(mb, c, r, z0, h=4.2, n=7, facing=-math.pi / 2, span=math.pi, col=None
     I, O = _ring(c, ri, zi, segs, a0, a1, False), _ring(c, ro, zo + 0.1, segs, a0, a1, False)
     for i in range(segs):
         poly(mb, (I[i], I[i + 1], O[i + 1], O[i]), roof, PT['tiles'], nrm=(0, 0, 1))
+    # Radial sculptural imbrex ribs across the curved exedra roof
+    rib_col = mix(roof, PAL['tile_ridge'], 0.35)
+    for i in range(0, segs + 1, 2):
+        a = a0 + (a1 - a0) * i / segs
+        nrm = Vector((-math.cos(a) * (zo - zi), -math.sin(a) * (zo - zi), ro - ri)).normalized()
+        imbrex_rib(mb, O[i], I[i], nrm, w=0.18, h=0.12, col=rib_col)
     for k, s_ in ((0, 1), (segs, -1)):   # close the roof ends over the end columns
         a = a0 if k == 0 else a1
         tn = Vector((math.sin(a), -math.cos(a), 0)) * s_
@@ -991,7 +1256,7 @@ def exedra(mb, c, r, z0, h=4.2, n=7, facing=-math.pi / 2, span=math.pi, col=None
 
 def tholos(mb, c, r, z0, h=4.0, n=8, col=None, cap_col=None, roof=None, cella=None, steps=2, finial=None):
     """Round temple: stepped round base, a ring of n columns, a ring entablature with a painted band, a low cone of
-    tiles with a ridge ring and a bronze finial; `cella` = (radius, wall colour) for a closed core. Returns the apex z."""
+    ribbed terracotta tiles with radial imbrex ribs, antefixes and a bronze finial. Returns the apex z."""
     col, cap_col, roof = col or PAL['marble'], cap_col or PAL['lime'], roof or PAL['tile_a']
     segs = 2 * n
     z = z0
@@ -1010,6 +1275,16 @@ def tholos(mb, c, r, z0, h=4.0, n=8, col=None, cap_col=None, roof=None, cella=No
     zr = zt + 1.35
     rise = rise_for(r + 0.8, 24.0)
     lathe(mb, c, [(r + 1.1, zr - 0.1), (r * 0.25, zr + rise * 0.8), (0.0, zr + rise)], roof, PT['tiles'], segs, smooth=False)
+    # Radial terracotta imbrex ribs + eave antefixes round the conical roof
+    rib_col = mix(roof, PAL['tile_ridge'], 0.35)
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        dv = Vector((math.cos(a), math.sin(a), 0))
+        p_eave = Vector((c[0], c[1], zr - 0.1)) + dv * (r + 1.1)
+        p_top = Vector((c[0], c[1], zr + rise * 0.88)) + dv * 0.35
+        nrm = (dv * rise + Vector((0, 0, r + 1.1))).normalized()
+        imbrex_rib(mb, p_top, p_eave, nrm, w=0.18, h=0.12, col=rib_col)
+        antefix(mb, p_eave, (-dv.y, dv.x, 0), dv, col=PAL['tile_c'], h=0.42, w=0.34)
     cyl(mb, c, 0.32, 0.18, zr + rise - 0.1, zr + rise + 0.5, finial or PAL['bronze'], PT['metal'], 6)
     sphere(mb, (c[0], c[1], zr + rise + 0.75), 0.3, finial or PAL['bronze_light'], 6, 3)
     return zr + rise + 1.05

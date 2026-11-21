@@ -7,6 +7,7 @@ import { getBeamUniforms, type BeamUniforms } from "../beam/uniforms";
 import { getHarbourMaterials } from "./materials";
 import { limewash } from "./limewash";
 import { getLightsStore } from "../lights/lights-service";
+import { LAMP_WAVE_SPREAD, lampGlow, lampWaveUniforms } from "../lights/lamp-wave";
 
 export const LIGHTHOUSE_URL = "/harbour/lighthouse.glb";
 
@@ -61,6 +62,8 @@ export class LighthouseSystem implements WorldSystem {
   private readonly statueAt = new THREE.Vector3();
   private ember: THREE.MeshBasicMaterial | null = null;
   private mirrorMat: THREE.MeshStandardMaterial | null = null;
+  /** Decorative courtyard brazier coal beds: dark charcoal by day & at arrival beat, glowing ember with the lamp wave. */
+  private courtyardEmberMat: THREE.MeshStandardMaterial | null = null;
   private readonly position = new THREE.Vector3();
   private readonly lantern = new THREE.Vector3();
   private readonly tmp = new THREE.Vector3();
@@ -70,6 +73,7 @@ export class LighthouseSystem implements WorldSystem {
   private mirrorTilt0 = 0;
   private vigil = -1;
   private vigilOn = false;
+  private brazierIds: number[] = [];
   private emberT = 0;
 
   async init(ctx: EngineContext): Promise<void> {
@@ -120,14 +124,28 @@ export class LighthouseSystem implements WorldSystem {
     // on a hook beside the brazier, on the side the overview looks from (+x, +z)
     this.vigil = lights.add("vigil", [this.lantern.x + 1.8, this.lantern.y + 1.1, this.lantern.z + 2.4]);
     lights.setOn(this.vigil, false);
+    // Decorative courtyard braziers (follow the lamp wave & uLampArrive, never analytic, never tied to PSI fire)
+    for (let i = 0; i < 4; i++) {
+      const bn = node(`brazier_${i}`);
+      if (bn) this.brazierIds.push(lights.add("brazier", bn.getWorldPosition(new THREE.Vector3())));
+    }
     this.statueAt.copy(at("smoke_emitter", 96));
 
-    // ember bed + polished mirror: own materials (the port leaves unknown names alone)
+    // ember bed + polished mirror + courtyard brazier coals: own materials (the port leaves unknown names alone)
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || Array.isArray(mesh.material)) return;
       const name = mesh.material.name;
-      if (name.startsWith("hb_fire")) {
+      if (mesh.name === "courtyard_embers" || mesh.name.startsWith("courtyard_embers")) {
+        // Dark charred coal by day and at arrival beat (uLampArrive = 0); driven by lampGlow() in update().
+        this.courtyardEmberMat ??= new THREE.MeshStandardMaterial({
+          color: new THREE.Color("#22140F"), roughness: 0.92, metalness: 0.04,
+          emissive: new THREE.Color("#FF4A0C"), emissiveIntensity: 0,
+        });
+        this.courtyardEmberMat.name = "hb_pharos_courtyard_embers";
+        mesh.material = this.courtyardEmberMat;
+        mesh.castShadow = false;
+      } else if (name.startsWith("hb_fire")) {
         this.ember ??= new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 1.6, 0.4), fog: false });
         mesh.material = this.ember;
         mesh.castShadow = false;
@@ -218,6 +236,17 @@ export class LighthouseSystem implements WorldSystem {
       const breathe = reduced ? 1 : 0.85 + 0.15 * Math.sin(this.emberT * 0.9);
       const eb = banked * breathe * (0.35 + 0.65 * night);
       this.ember.color.r += 0.13 * eb; this.ember.color.g += 0.07 * eb; this.ember.color.b += 0.045 * eb;
+    } else if (!reduced && this.courtyardEmberMat) {
+      this.emberT += frame.delta;
+    }
+    // Decorative courtyard brazier coal beds: follow the lamp wave & arrival beat (dark by day, golden hour & uLampArrive = 0)
+    if (this.courtyardEmberMat) {
+      const g = ctx.uniforms.uWindowGlow.value;
+      const rank = lightsSvc?.rankOf && this.brazierIds.length > 0 ? Math.max(0, lightsSvc.rankOf(this.brazierIds[0])) : 0.09;
+      const waveGlow = lampGlow(g, rank, reduced ? 0 : LAMP_WAVE_SPREAD, lampWaveUniforms.uLampArrive.value);
+      const coalGate = THREE.MathUtils.smoothstep(g, 0.45, 0.85);
+      const coalBreath = reduced ? 1 : 0.92 + 0.08 * Math.sin(this.emberT * 2.8);
+      this.courtyardEmberMat.emissiveIntensity = waveGlow * coalGate * 1.15 * coalBreath;
     }
     // 05-P5 firelight down the tower, triton and Helios flares (kit shader, beam-light-glsl.ts hbPharosFire)
     if (this.bu) {
@@ -241,6 +270,13 @@ export class LighthouseSystem implements WorldSystem {
   }
 
   dispose(ctx: EngineContext): void {
+    const lights = ctx.services.get("lights");
+    if (lights) {
+      if (this.vigil >= 0) lights.remove(this.vigil);
+      for (const id of this.brazierIds) lights.remove(id);
+    }
+    this.brazierIds = [];
+    this.vigil = -1;
     if (this.root) ctx.scene.remove(this.root);
     if (this.fire) { ctx.scene.remove(this.fire.group); this.fire.dispose(); }
     ctx.scene.remove(this.light, this.upLight);
@@ -248,6 +284,8 @@ export class LighthouseSystem implements WorldSystem {
     this.upLight.dispose();
     this.ember?.dispose();
     this.mirrorMat?.dispose();
+    this.courtyardEmberMat?.dispose();
+    this.courtyardEmberMat = null;
     this.fx?.release();
     ctx.services.delete("lighthouse");
   }

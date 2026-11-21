@@ -255,20 +255,20 @@ describe("D11 analytical lights skip the lamp round and the arrival beat", () =>
   it("marks the storm signal's glows and the keeper's vigil analytical on the GPU, and only they skip hbLampGlow", () => {
     expect(KINDS.signal.analytic).toBe(true);
     expect(KINDS.vigil.analytic).toBe(true);
-    for (const kind of ["window", "lamp", "pierhead", "harbourlight", "riding", "hearth"]) expect(KINDS[kind].analytic).toBeUndefined();
+    for (const kind of ["window", "lamp", "pierhead", "harbourlight", "riding", "hearth", "brazier"]) expect(KINDS[kind].analytic).toBeUndefined();
     // no pool: a pool takes the round where it falls, so an analytical light never throws one
     expect([KINDS.signal.pool, KINDS.vigil.pool]).toEqual([0, 0]);
     const { ctx } = lightContext();
     const lights = new LightsSystem();
     lights.init(ctx);
     const store = getLightsStore(ctx);
-    const ids = ["lamp", "signal", "riding", "vigil", "window"].map((kind, i) => store.add(kind, [i * 9, 4, 0]));
+    const ids = ["lamp", "signal", "riding", "vigil", "window", "brazier"].map((kind, i) => store.add(kind, [i * 9, 4, 0]));
     ctx.uniforms.uWindowGlow.value = 1;
     lights.update({ elapsed: 0, delta: 0, nowMs: 0 }, ctx);
     for (const name of ["harbour-light-sprites", "harbour-light-pillars"]) {
       const mesh = ctx.scene.getObjectByName(name) as THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
       const flag = mesh.geometry.getAttribute("iAna");
-      expect(ids.map((id) => flag.getX(id))).toEqual([0, 1, 0, 1, 0]);
+      expect(ids.map((id) => flag.getX(id))).toEqual([0, 1, 0, 1, 0, 0]);
       const vertex = mesh.material.vertexShader;
       expect(vertex).toContain("attribute float iAna;");
       expect(vertex).toContain("float g = analytic > 0.5 ? uWindowGlow : hbLampGlow(uWindowGlow, hbLampRank(pos, hbLampJitter(pos.xz)));");
@@ -309,6 +309,30 @@ describe("D11 analytical lights skip the lamp round and the arrival beat", () =>
     } finally {
       lampWaveUniforms.uLampArrive.value = 1;
       delete KINDS["d11-test-lantern"];
+      lights.dispose(ctx);
+    }
+  });
+
+  it("keeps courtyard braziers decorative: dark by day/golden hour and at arrival beat, lit with the lamp wave", () => {
+    const { ctx } = lightContext("high");
+    const lights = new LightsSystem();
+    try {
+      lights.init(ctx);
+      ctx.rig.distance = 650;
+      const store = getLightsStore(ctx);
+      store.add("brazier", [24, 4, 24]);
+      const pt = () => ctx.scene.children.find((o): o is THREE.PointLight => o instanceof THREE.PointLight && o.position.x === 24)!;
+      const run = (glow: number, arrive: number) => {
+        ctx.uniforms.uWindowGlow.value = glow;
+        lampWaveUniforms.uLampArrive.value = arrive;
+        lights.update({ elapsed: 0, delta: 0, nowMs: 0 }, ctx);
+        return pt().intensity;
+      };
+      expect(run(0.2, 1)).toBe(0); // golden hour (uWindowGlow 0.2 < LAMP_WAVE_START 0.45): dark
+      expect(run(1, 0)).toBe(0); // arrival beat (uLampArrive = 0): dark
+      expect(run(1, 1)).toBeGreaterThan(0); // full night after wave: lit
+    } finally {
+      lampWaveUniforms.uLampArrive.value = 1;
       lights.dispose(ctx);
     }
   });

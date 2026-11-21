@@ -103,6 +103,14 @@ def neosoikos(K, x0, x1, nb, yc, half, h=6.2, pitch=22.0, tile=None, lamps=()):
     yt, zt = ye + (yc - ye) * ft, ze + (zr + 0.18 - ze) * ft
     col = tile or PAL['tile_a']
     poly(op, ((x0 - 0.8, ye, ze), (x1 + 0.8, ye, ze), (x1 + 0.8, yt, zt), (x0 - 0.8, yt, zt)), col, PT['tiles'], nrm=(0, -1, 2.5))
+    # Sculptural terracotta imbrex cover-tile ribs down the water-side neosoikos pitch
+    L_ns = (x1 - x0) + 1.6
+    n_ns = max(6, (round(L_ns / 2.7) // 2) * 2)
+    nrm_ns = Vector((0, -(zt - ze), yt - ye)).normalized()
+    rib_ns = mix(col, PAL['tile_ridge'], 0.35)
+    for ri in range(n_ns):
+        rx = (x0 - 0.8) + L_ns * (ri + 0.5) / n_ns
+        imbrex_rib(op, (rx, yt, zt), (rx, ye, ze), nrm_ns, w=0.22, h=0.14, col=rib_ns)
     poly(op, ((x0 - 0.8, ye, ze - 0.24), (x1 + 0.8, ye, ze - 0.24), (x1 + 0.8, ye, ze), (x0 - 0.8, ye, ze)), PAL['tile_ridge'], 0, nrm=(0, -1, 0))
     for xe, sx in ((x0 - 0.8, -1), (x1 + 0.8, 1)):    # verges
         poly(op, ((xe, ye, ze - 0.24), (xe, ye, ze), (xe, yt, zt), (xe, yt, zt - 0.24)), PAL['tile_ridge'], 0, nrm=(sx, 0, 0))
@@ -287,7 +295,7 @@ def build_shipyard(coll=None):
             box2(op, x - 0.22, y + s * 0.12 - 0.2, 1.0, x + 0.22, y + s * 0.12 + 0.2, MZ, PAL['oak_dark'], 0, skip=('-z', '+z'))
     for y, s in ((MY0, -1), (MY1, 1)):
         beam(op, (MX0 - 0.2, y + s * 0.15, MZ - 0.25), (MX1 + 0.2, y + s * 0.15, MZ - 0.25), 0.42, 0.5, PAL['oak_dark'])
-    tiled_gable(op, MX0, MY0, MX1, MY1, MZ, 21.0, PAL['tile_b'], 'x', ov=0.6, end_col=PAL['timber_grey'], end_pat=PT['boards'])
+    tiled_gable(op, MX0, MY0, MX1, MY1, MZ, 21.0, PAL['tile_b'], 'x', ov=0.6, end_col=PAL['timber_grey'], end_pat=PT['boards'], finials=True)
     for x in [MX0 + 2.0 + 4.0 * k for k in range(10)]:
         if abs(x - (MX0 + MX1) / 2) < 3:
             continue
@@ -297,7 +305,7 @@ def build_shipyard(coll=None):
     SXa, SXb, SYa, SYb = -26.0, -14.0, 29.0, 38.0
     socle(op, SXa, SYa, SXb, SYb, 0.0, 0.7)
     box2(op, SXa, SYa, 0.7, SXb, SYb, 5.0, PAL['stone'], PT['ashlar'], skip=('-z',))
-    tiled_gable(op, SXa, SYa, SXb, SYb, 5.0, 21.0, PAL['tile_a'], 'y', ov=0.4, end_col=PAL['stone'], end_pat=PT['ashlar'])
+    tiled_gable(op, SXa, SYa, SXb, SYb, 5.0, 21.0, PAL['tile_a'], 'y', ov=0.4, end_col=PAL['stone'], end_pat=PT['ashlar'], finials=True)
     box2(op, SXb - 2.4, SYb - 3.0, 0.0, SXb - 0.6, SYb - 1.2, 9.5, PAL['lime_dark'], PT['ashlar'])           # forge flue
     box2(op, SXb - 2.6, SYb - 3.2, 9.5, SXb - 0.4, SYb - 1.0, 9.9, PAL['soot2'], 0)
     arch_door(K, ((SXa + SXb) / 2, SYa, 0.0), (0, -1, 0), 2.6, 3.4, PAL['shutter_green'], PAL['lime'], step=False)

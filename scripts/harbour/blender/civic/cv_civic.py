@@ -56,8 +56,16 @@ def tower_of_winds(K, root, c, z0, z1, ap, coll=None):
         beam(op, g, g + n * 0.9 - Vector((0, 0, 0.35)), 0.08, 0.08, PAL['bronze'])
     rise = rise_for(R + 0.3, 24.0)
     lathe(op, c, [(R + 0.55, z1 - 0.05), (0.0, z1 + rise)], PAL['tile_a'], PT['tiles'], 8, smooth=False, rot=math.pi / 8)
+    rib_col = mix(PAL['tile_a'], PAL['tile_ridge'], 0.35)
+    for k in range(8):
+        a = math.pi / 8 + 2 * math.pi * k / 8
+        dv = Vector((math.cos(a), math.sin(a), 0))
+        pe = Vector((c.x, c.y, z1 - 0.05)) + dv * (R + 0.55)
+        pt = Vector((c.x, c.y, z1 + rise * 0.90)) + dv * 0.25
+        nrm = (dv * rise + Vector((0, 0, R + 0.55))).normalized()
+        imbrex_rib(op, pt, pe, nrm, w=0.16, h=0.11, col=rib_col)
     zt = z1 + rise
-    cyl(op, c, 0.3, 0.16, zt - 0.2, zt + 0.5, PAL['bronze'], PT['metal'], 6)
+    cyl(op, c, 0.36, 0.20, zt - 0.2, zt + 0.5, PAL['gilt'], PT['metal'], 6)
     cyl(op, c, 0.07, 0.07, zt + 0.5, zt + 3.4, PAL['bronze_dark'], PT['metal'], 4)
     # the Triton: a bronze body with a fish tail and a pointing wand, turned to the wind
     vz = zt + 1.6
@@ -90,6 +98,8 @@ def build_customs(coll=None):
     for (a, b, n) in (((X0, Y0), (X1, Y0), (0, -1, 0)), ((X1, Y0), (X1, Y1), (1, 0, 0)), ((X0, Y1), (X0, Y0), (-1, 0, 0))):
         frieze(op, a, b, E - 1.95, 0.6, n)
     box2(op, X0 - 0.45, Y0 - 0.45, E, X1 + 0.45, Y1 + 0.45, E + 0.55, PAL['marble'], 0)              # cornice
+    for s in (-1, 1):                                                                                # corner pilasters
+        pilaster(op, s * (X1 - 0.45), Y0, G + 0.35, E, (0, -1, 0), w=0.75, d=0.14, col=PAL['lime'], cap_col=PAL['marble'])
     tiled_hip(op, X0, Y0, X1, Y1, E + 0.55, 21.0, PAL['tile_a'], ov=0.35, antefix='all')
     # windows: ground arches + upper plain openings (no shutters on the senior building), sides alike
     for x in (-16.0, -13.2, -10.4, 10.4, 13.2, 16.0):
@@ -105,10 +115,9 @@ def build_customs(coll=None):
     zt = entablature(op, -9.4, 9.4, -13.0, Y0, ZC, kind='meander')
     PR = rise_for(9.6, 21.0)
     pediment(op, -9.6, 9.6, -13.3, Y0, zt + 0.5, PR, PAL['marble'], tymp=PAL['poly_blue'], cornice=0.45)
-    tiled_gable(op, -9.6, -13.3, 9.6, Y0 + 3.0, zt + 0.5, 21.0, PAL['tile_a'], 'y', ov=0.0, ends=False, antefix=None)
-    for (x, z, h) in ((0.0, zt + 0.5 + PR + 0.25, 1.3), (-9.9, zt + 0.45, 0.9), (9.9, zt + 0.45, 0.9)):    # gilt acroteria
-        poly(op, ((x - 0.45, -13.75, z), (x + 0.45, -13.75, z), (x + 0.22, -13.75, z + h * 0.6), (x, -13.75, z + h),
-                  (x - 0.22, -13.75, z + h * 0.6)), PAL['gilt'], 0, nrm=(0, -1, 0), jitter=0.0)
+    tiled_gable(op, -9.6, -13.3, 9.6, Y0 + 3.0, zt + 0.5, 21.0, PAL['tile_a'], 'y', ov=0.0, ends=False, antefix=None, rafters=False)
+    for (x, z, h) in ((0.0, zt + 0.5 + PR + 0.25, 1.35), (-9.85, zt + 0.45, 0.95), (9.85, zt + 0.45, 0.95)):    # 3D gilt acroteria
+        acroterion(op, (x, -13.55, z), (0, -1, 0), h=h, col=PAL['gilt'], kind='palmette')
     az = zt + 0.9
     yr = -13.15
     beam(op, (0, yr, az), (0, yr, az + 2.0), 0.26, 0.28, PAL['gold'], PT['metal'])                 # anchor shank
@@ -146,6 +155,11 @@ def build_registry(coll=None):
     # sandstone base course + a string course: a counting house, not a nave; the painted band under the far eave
     box2(op, X0 - 0.15, Y0 - 0.15, P, X1 + 0.15, Y1 + 0.15, P + 1.4, PAL['sandstone'], PT['ashlar'])
     box2(op, X0 - 0.2, Y0 - 0.2, P + 5.6, X1 + 0.2, Y1 + 0.2, P + 5.9, PAL['marble'], 0)
+    # Carved stone corner & anta pilasters framing the Registry facades
+    for s in (-1, 1):
+        pilaster(op, s * (X1 - 0.45), Y0, P + 1.4, E, (0, -1, 0), w=0.72, d=0.14, col=PAL['lime'], cap_col=PAL['marble'])
+        for yp in (Y0 + 0.55, Y1 - 0.55):
+            pilaster(op, s * X1, yp, P + 1.4, E, (s, 0, 0), w=0.72, d=0.14, col=PAL['lime'], cap_col=PAL['marble'])
     frieze(op, (X1, Y0), (X1, Y1), E - 1.9, 0.55, (1, 0, 0))
     frieze(op, (X1, Y1), (X0, Y1), E - 1.9, 0.55, (0, 1, 0))
     for y in (-1.5, 2.5, 6.5):   # deep-set plain openings, two storeys (the far side; the near side carries the board)
@@ -170,8 +184,12 @@ def build_registry(coll=None):
         plain_window(K, (x, Y0, P + 5.6), (0, -1, 0), 1.5, 2.6, PAL['wash_cream'], arch=True)
     pediment(op, -9.8, 9.8, -8.2, Y0, P + 10.2, 3.4, PAL['marble'], tymp=PAL['poly_blue'])
     box2(op, -9.8, -8.2, P + 9.9, 9.8, Y0, P + 10.2, PAL['marble'], 0)
-    tiled_gable(op, X0, -8.2, X1, Y1, E + 0.7, math.degrees(math.atan2(3.4, (X1 - X0) / 2)), PAL['tile_b'], 'y', ov=0.3, ends=False)
+    tiled_gable(op, X0, -8.2, X1, Y1, E + 0.7, math.degrees(math.atan2(3.4, (X1 - X0) / 2)), PAL['tile_b'], 'y', ov=0.3, ends=False, finials=True)
     poly(op, ((X0, Y1 + 0.3, E + 0.7), (X1, Y1 + 0.3, E + 0.7), (0, Y1 + 0.3, E + 4.1)), PAL['stone_light'], PT['ashlar'], nrm=(0, 1, 0))
+    # 3D sculpted gilded acroteria crowning the Registry pediment (apex + corners)
+    acroterion(op, (0.0, -8.35, P + 10.2 + 3.4 + 0.28), (0, -1, 0), h=1.35, col=PAL['gilt'], kind='palmette')
+    for s in (-1, 1):
+        acroterion(op, (s * 10.05, -8.35, P + 10.15), (0, -1, 0), h=0.92, col=PAL['gilt'], kind='palmette')
     # the relief: a great fouled anchor over an open ledger, gilt on the blue tympanum
     yr = -8.0          # proud of the tympanum (at yf + 0.25 = -7.95)
     z0 = P + 10.2
@@ -295,6 +313,8 @@ def build_chartroom(coll=None):
     WX0, WX1, WY0, WY1, WE = 4.6, 8.6, -2.6, 6.2, P + 5.2
     box2(op, WX0, WY0, P, WX1, WY1, WE, PAL['wash_cream'], PT['render'])
     socle(op, WX0, WY0, WX1, WY1, P, 0.7)
+    for px in (WX0 + 0.35, WX1 - 0.35):
+        pilaster(op, px, WY0, P + 0.7, WE, (0, -1, 0), w=0.45, d=0.12, col=PAL['lime'], cap_col=PAL['marble'])
     frieze(op, (WX0, WY0), (WX1, WY0), WE - 0.9, 0.5, (0, -1, 0))
     frieze(op, (WX0, WY1), (WX0, WY0), WE - 0.9, 0.5, (-1, 0, 0))
     frieze(op, (WX1, WY0), (WX1, WY1), WE - 0.9, 0.5, (1, 0, 0))
@@ -334,10 +354,12 @@ def build_stormstation(coll=None):
     HX0, HX1, HY0, HY1, HE = -6.2, 1.4, 0.6, 6.4, P + 4.4
     box2(op, HX0, HY0, P, HX1, HY1, HE, PAL['wash_ochre'], PT['render'])
     socle(op, HX0, HY0, HX1, HY1, P, 0.8)
+    for px in (HX0 + 0.35, HX1 - 0.35):
+        pilaster(op, px, HY0, P + 0.8, HE, (0, -1, 0), w=0.45, d=0.12, col=PAL['lime'], cap_col=PAL['marble'])
     frieze(op, (HX0, HY0), (HX1, HY0), HE - 0.8, 0.45, (0, -1, 0))
     frieze(op, (HX1, HY0), (HX1, HY1), HE - 0.8, 0.45, (1, 0, 0))
     box2(op, HX0 - 0.2, HY0 - 0.2, HE, HX1 + 0.2, HY1 + 0.2, HE + 0.28, PAL['lime'], 0)
-    rr = tiled_gable(op, HX0 - 0.2, HY0 - 0.2, HX1 + 0.2, HY1 + 0.2, HE + 0.28, 22.0, PAL['tile_c'], 'x', ov=0.4, end_col=PAL['wash_ochre'])
+    rr = tiled_gable(op, HX0 - 0.2, HY0 - 0.2, HX1 + 0.2, HY1 + 0.2, HE + 0.28, 22.0, PAL['tile_c'], 'x', ov=0.4, end_col=PAL['wash_ochre'], finials=True)
     for x in (-4.6, -0.6):
         plain_window(K, (x, HY0, P + 2.3), (0, -1, 0), 0.9, 1.2, PAL['wash_ochre'], shutter=PAL['shutter_ox'])
     arch_door(K, (-2.6, HY0, P), (0, -1, 0), 1.2, 2.6, PAL['shutter_ox'], PAL['lime'])
@@ -366,6 +388,9 @@ def build_stormstation(coll=None):
     for y in (0.9, 6.1):
         beam(op, (6.5, y, P + 0.4), (6.5, y, P + 2.6), 0.18, 0.18, PAL['oak_dark'])
     poly(op, ((6.8, 0.4, P + 2.6), (6.8, 6.6, P + 2.6), (HX1 + 0.2, 6.6, P + 3.6), (HX1 + 0.2, 0.4, P + 3.6)), PAL['tile_b'], PT['tiles'], nrm=(1, 0, 1))
+    nrm_st = Vector((1.0, 0.0, 6.8 - (HX1 + 0.2))).normalized()
+    for ry in (1.2, 2.7, 4.2, 5.7):
+        imbrex_rib(op, (HX1 + 0.2, ry, P + 3.6), (6.8, ry, P + 2.6), nrm_st, w=0.18, h=0.12, col=PAL['tile_ridge'])
     beam(op, (6.8, 0.4, P + 2.55), (6.8, 6.6, P + 2.55), 0.22, 0.2, PAL['tile_ridge'])
     # lamps: a bronze tripod by the door, an oil lamp under the board hood
     tripod_lamp(K, (-0.2, HY0 - 1.4, P), 1.5)
@@ -414,6 +439,8 @@ def build_harbourmaster(coll=None):
     W = PAL['wash_sienna']
     box2(op, OX0, OY0, P, OX1, OY1, E, W, PT['render'])
     socle(op, OX0, OY0, OX1, OY1, P, 0.9)
+    for px in (OX0 + 0.4, OX1 - 0.4):
+        pilaster(op, px, OY0, P + 0.9, E, (0, -1, 0), w=0.52, d=0.13, col=PAL['lime'], cap_col=PAL['marble'])
     box2(op, OX0 - 0.12, OY0 - 0.12, P + 3.7, OX1 + 0.12, OY1 + 0.12, P + 3.95, PAL['lime'], 0)
     frieze(op, (OX0, OY0), (OX1, OY0), E - 0.85, 0.5, (0, -1, 0))
     frieze(op, (OX0, OY1), (OX0, OY0), E - 0.85, 0.5, (-1, 0, 0))
@@ -593,13 +620,12 @@ def build_stoa_office(chain, coll=None):
         poly(op, ((a, AY0 - 0.03, b), (c_, AY0 - 0.03, b), (c_, AY0 - 0.03, d), (a, AY0 - 0.03, d)), PAL['poly_red'], 0, nrm=(0, -1, 0), jitter=0.0)
     pr = rise_for((AX1 - AX0) / 2 + 0.1, 24.0)
     pediment(op, AX0 - 0.1, AX1 + 0.1, AY0 - 0.2, AY1, AZ1 + 0.55, pr, PAL['marble'], tymp=PAL['poly_blue'], cornice=0.35)
-    gable_roof(op, AX0 - 0.1, AY0 - 0.2, AX1 + 0.1, AY1, AZ1 + 0.55, pr, PAL['tile_a'], PT['tiles'], ov=0.0, axis='y', ends=False,
-               th=0.2, fascia=PAL['tile_ridge'])
-    ridge_cap(op, (0.0, AY0 - 0.2, AZ1 + 0.6 + pr), (0.0, AY1, AZ1 + 0.6 + pr))
+    tiled_gable(op, AX0 - 0.1, AY0 - 0.2, AX1 + 0.1, AY1, AZ1 + 0.55, 24.0, PAL['tile_a'], 'y', ov=0.0, ends=False, antefix=None, rafters=False)
     poly(op, ((AX0 - 0.1, AY1, AZ1 + 0.55), (AX1 + 0.1, AY1, AZ1 + 0.55), (0, AY1, AZ1 + 0.55 + pr)), PAL['wash_white'], PT['render'], nrm=(0, 1, 0))
-    for (x, z, h) in ((0.0, AZ1 + 0.6 + pr + 0.2, 1.1), (AX0 - 0.35, AZ1 + 0.5, 0.75), (AX1 + 0.35, AZ1 + 0.5, 0.75)):   # gilt acroteria
-        poly(op, ((x - 0.4, AY0 - 0.45, z), (x + 0.4, AY0 - 0.45, z), (x + 0.2, AY0 - 0.45, z + h * 0.6), (x, AY0 - 0.45, z + h),
-                  (x - 0.2, AY0 - 0.45, z + h * 0.6)), PAL['gilt'], 0, nrm=(0, -1, 0), jitter=0.0)
+    for (x, z, h) in ((0.0, AZ1 + 0.6 + pr + 0.2, 1.15), (AX0 - 0.35, AZ1 + 0.5, 0.78), (AX1 + 0.35, AZ1 + 0.5, 0.78)):   # 3D gilt acroteria
+        acroterion(op, (x, AY0 - 0.32, z), (0, -1, 0), h=h, col=PAL['gilt'], kind='palmette')
+    for s in (-1, 1):   # end-gable terracotta apex finials on main stoa roof
+        acroterion(op, (s * (X1 + 0.45), ym, zt + RS + 0.14), (s, 0, 0), h=0.72, col=PAL['gilt'], kind='palmette', base_col=PAL['marble'])
     cz, cs = (zt + AZ1) / 2, 2.6
     crest_panel(K, root, (0.0, AY0 - 0.02, cz), cs, PAL['gilt'], coll)
     velarium(K, (X0 - 0.2, YS - 1.0), (-2.0, YS - 1.0), 2.7, P + 3.7, P + 3.3, ground=P)
@@ -705,7 +731,7 @@ def build_office_tron(K, root, chain, coll):
         plain_window(K, (x, YB, ZS + 2.2), (0, 1, 0), 0.9, 1.3, STUCCO_RED)
     box2(op, X0 - 0.4, YC - 0.6, U1, X1 + 0.4, YB + 0.4, U1 + 0.3, PAL['lime'], 0)
     RS = tiled_gable(op, X0 - 0.4, YC - 0.6, X1 + 0.4, YB + 0.4, U1 + 0.3, 21.0, PAL['tile_c'], 'x', ov=0.45, end_col=PAL['lime'], end_pat=0,
-                     antefix='both')
+                     antefix='both', finials=True)
     ym = (YC - 0.6 + YB + 0.4) / 2
     for s in (-1, 1):
         xa = s * (X1 + 0.45)
@@ -758,6 +784,9 @@ def build_office_bsc(K, root, chain, coll):
         frieze(op, (xo, -3.4 if s > 0 else HY1), (xo, HY1 if s > 0 else -3.4), AE - 0.75, 0.45, (s, 0, 0))
         poly(op, ((xo + s * 0.4, -3.8, AE - 0.1), (xo + s * 0.4, HY1 + 0.4, AE - 0.1), (s * HX, HY1 + 0.4, AE + 1.6), (s * HX, -3.8, AE + 1.6)),
              PAL['tile_b'], PT['tiles'], nrm=(s, 0, 1))
+        nrm_a = Vector((s * 1.7, 0, abs(xo + s * 0.4 - s * HX))).normalized()
+        for ry in (-2.5, -0.5, 2.5, 4.7):
+            imbrex_rib(op, (s * HX, ry, AE + 1.6), (xo + s * 0.4, ry, AE - 0.1), nrm_a, w=0.18, h=0.12, col=PAL['tile_ridge'])
         beam(op, (xo + s * 0.4, -3.8, AE - 0.15), (xo + s * 0.4, HY1 + 0.4, AE - 0.15), 0.22, 0.22, PAL['tile_ridge'])
         antefix_row(op, (xo + s * 0.4, -3.6, AE - 0.05), (xo + s * 0.4, HY1 + 0.2, AE - 0.05), (s, 0, 0))
         poly(op, ((xa, -3.82, AE - 0.1), (xb, -3.82, AE - 0.1), (s * HX, -3.82, AE + 1.6)) if s < 0 else
@@ -784,16 +813,13 @@ def build_office_bsc(K, root, chain, coll):
     box2(op, -HX - 0.4, HY0 - 0.3, AT, HX + 0.4, HY1 + 0.3, AT + 0.4, PAL['marble'], 0)
     PR = rise_for(HX + 0.4, 22.0)
     pediment(op, -HX - 0.4, HX + 0.4, HY0 - 0.4, HY1 + 0.3, AT + 0.85, PR, PAL['marble'], tymp=PAL['poly_blue'], cornice=0.4)
-    gable_roof(op, -HX - 0.4, HY0 - 0.4, HX + 0.4, HY1 + 0.3, AT + 0.85, PR, PAL['tile_a'], PT['tiles'], ov=0.3, axis='y', ends=False, th=0.22,
-               fascia=PAL['tile_ridge'])
-    ridge_cap(op, (0.0, HY0 - 0.4, AT + 0.9 + PR), (0.0, HY1 + 0.6, AT + 0.9 + PR))
+    tiled_gable(op, -HX - 0.4, HY0 - 0.4, HX + 0.4, HY1 + 0.3, AT + 0.85, 22.0, PAL['tile_a'], 'y', ov=0.3, ends=False, antefix=None, finials=True)
     poly(op, ((-HX - 0.4, HY1 + 0.3, AT + 0.85), (HX + 0.4, HY1 + 0.3, AT + 0.85), (0, HY1 + 0.3, AT + 0.85 + PR)), W, PT['render'], nrm=(0, 1, 0))
-    # the gilt shield in the tympanum, gilt acroteria
+    # the gilt shield in the tympanum, 3D sculpted gilt acroteria
     disc(op, (0.0, HY0 - 0.2, AT + 0.85 + PR * 0.42), (0, -1, 0), 0.62, 0.14, PAL['gilt'], 10, PT['metal'])
     disc(op, (0.0, HY0 - 0.06, AT + 0.85 + PR * 0.42), (0, -1, 0), 0.28, 0.12, PAL['bronze'], 8, PT['metal'])
     for (x, z, h) in ((0.0, AT + 0.85 + PR + 0.2, 1.3), (-HX - 0.75, AT + 0.8, 0.95), (HX + 0.75, AT + 0.8, 0.95)):
-        poly(op, ((x - 0.45, HY0 - 0.85, z), (x + 0.45, HY0 - 0.85, z), (x + 0.22, HY0 - 0.85, z + h * 0.6), (x, HY0 - 0.85, z + h),
-                  (x - 0.22, HY0 - 0.85, z + h * 0.6)), PAL['gilt'], 0, nrm=(0, -1, 0), jitter=0.0)
+        acroterion(op, (x, HY0 - 0.65, z), (0, -1, 0), h=h, col=PAL['gilt'], kind='palmette')
     for s in (-1, 1):
         plain_window(K, (s * HX, 2.4, AE + 2.6), (s, 0, 0), 0.8, 1.2, W)
     velarium(K, (-8.8, -5.6), (-HX - 0.4, -5.6), 2.2, P + 3.4, P + 3.0, ground=P)
@@ -875,7 +901,10 @@ def build_office_solana(K, root, chain, coll):
     GZ = ZS + 7.4
     box2(op, -2.0, -4.0, ZS, 2.0, 0.6, GZ, BASALT, PT['ashlar'])
     box2(op, -2.3, -4.3, GZ, 2.3, 0.9, GZ + 0.6, BASALT_LIGHT, 0)
-    poly(op, ((-1.1, -4.03, ZS), (1.1, -4.03, ZS), (1.1, -4.03, ZS + 3.6), (-1.1, -4.03, ZS + 3.6)), PAL['bronze'], PT['boards'], nrm=(0, -1, 0))
+    poly(op, ((-1.1, -4.03, ZS), (1.1, -4.03, ZS), (1.1, -4.03, ZS + 3.6), (-1.1, -4.03, ZS + 3.6)), PAL['bronze'], PT['metal'], nrm=(0, -1, 0))
+    box2(op, -0.06, -4.08, ZS, 0.06, -4.02, ZS + 3.6, PAL['bronze_dark'], PT['metal'])
+    for sd in (-1, 1):
+        box2(op, sd * 0.36 - 0.08, -4.10, ZS + 1.65, sd * 0.36 + 0.08, -4.02, ZS + 1.85, PAL['gilt'], PT['metal'])
     beam(op, (-1.3, -4.1, ZS + 3.75), (1.3, -4.1, ZS + 3.75), 0.3, 0.3, PAL['poly_ochre'])
     cs, cz = 2.4, ZS + 5.6
     crest_frame(op, (0.0, -4.02, cz), cs - 0.5, PAL['poly_blue'])
@@ -928,7 +957,7 @@ def build_office_hyperliquid(K, root, chain, coll):
     for k, x in enumerate(xs):
         if k == 3:
             continue
-        ionic_colonnade(op, x, x + 1e-3, YC, zt + 0.25, 3.3, 2, 0.3, PAL['marble'], PAL['lime'])
+        ionic_colonnade(op, x, x, YC, zt + 0.25, 3.3, 1, 0.3, PAL['marble'], PAL['lime'])
     for x in (xc - 4.6, xc + 4.6, xc - 7.0, xc + 7.0):
         plain_window(K, (x, YW + 0.4, zt + 1.9), (0, -1, 0), 0.9, 1.6, W)
     # the centre bay is closed by a marble tablet on the gallery line carrying the crest (in the sun, not in the loggia)
@@ -942,9 +971,8 @@ def build_office_hyperliquid(K, root, chain, coll):
     # a small pedimented gable over the crest bay, breaking the hip's front slope
     pr = rise_for(2.3, 24.0)
     pediment(op, xc - 2.2, xc + 2.2, YC - 0.75, YC + 2.2, U1 + 0.6, pr, PAL['marble'], tymp=TEAL_GLAZE, cornice=0.3)
-    gable_roof(op, xc - 2.2, YC - 0.75, xc + 2.2, YC + 2.6, U1 + 0.6, pr, PAL['tile_b'], PT['tiles'], ov=0.0, axis='y', ends=False, th=0.2,
-               fascia=PAL['tile_ridge'])
-    sphere(op, (xc, YC - 0.9, U1 + 0.6 + pr + 0.3), 0.3, PAL['gilt'], 6, 3)
+    tiled_gable(op, xc - 2.2, YC - 0.75, xc + 2.2, YC + 2.6, U1 + 0.6, 24.0, PAL['tile_b'], 'y', ov=0.0, ends=False, antefix=None, rafters=False)
+    acroterion(op, (xc, YC - 0.85, U1 + 0.6 + pr + 0.16), (0, -1, 0), h=0.90, col=PAL['gilt'], kind='palmette')
     # the fountain house on the -x end: a teal-glazed niche between two little columns under a pediment, bronze spouts,
     # a marble basin
     FX = X0 - 0.3
@@ -1022,13 +1050,10 @@ def build_office_base(K, root, chain, coll):
     zt = entablature(op, CX0 - 0.3, CX1 + 0.3, -5.8, CY1 + 0.3, CE, kind='meander')
     PR = rise_for(CX1 + 0.6, 22.0)
     pediment(op, CX0 - 0.6, CX1 + 0.6, -6.1, CY1 + 0.6, zt + 0.5, PR, PAL['marble'], tymp=PAL['poly_blue'], cornice=0.4)
-    gable_roof(op, CX0 - 0.6, -6.1, CX1 + 0.6, CY1 + 0.6, zt + 0.5, PR, PAL['tile_c'], PT['tiles'], ov=0.3, axis='y', ends=False, th=0.22,
-               fascia=PAL['tile_ridge'])
-    ridge_cap(op, (0.0, -6.1, zt + 0.55 + PR), (0.0, CY1 + 0.9, zt + 0.55 + PR))
+    tiled_gable(op, CX0 - 0.6, -6.1, CX1 + 0.6, CY1 + 0.6, zt + 0.5, 22.0, PAL['tile_c'], 'y', ov=0.3, ends=False, antefix=None, finials=True)
     poly(op, ((CX0 - 0.6, CY1 + 0.6, zt + 0.5), (CX1 + 0.6, CY1 + 0.6, zt + 0.5), (0, CY1 + 0.6, zt + 0.5 + PR)), W, PT['render'], nrm=(0, 1, 0))
-    for (x, z, h) in ((0.0, zt + 0.5 + PR + 0.2, 1.0), (CX0 - 0.95, zt + 0.45, 0.7), (CX1 + 0.95, zt + 0.45, 0.7)):
-        poly(op, ((x - 0.4, -6.55, z), (x + 0.4, -6.55, z), (x + 0.2, -6.55, z + h * 0.6), (x, -6.55, z + h), (x - 0.2, -6.55, z + h * 0.6)),
-             PAL['gilt'], 0, nrm=(0, -1, 0), jitter=0.0)
+    for (x, z, h) in ((0.0, zt + 0.5 + PR + 0.2, 1.05), (CX0 - 0.95, zt + 0.45, 0.75), (CX1 + 0.95, zt + 0.45, 0.75)):
+        acroterion(op, (x, -6.35, z), (0, -1, 0), h=h, col=PAL['gilt'], kind='palmette')
     # the Cycladic cubes either side: whitewash, blue doors and shutters, a roof terrace with a pergola on one
     for s in (-1, 1):
         xa, xb = (5.4, 9.4) if s > 0 else (-9.4, -5.4)
@@ -1072,6 +1097,14 @@ def build_office_arbitrum(K, root, chain, coll):
     W = PAL['wash_cream']
     cyl(op, C, DR, DR, ZS, DZ, W, PT['render'], 16, top=False)
     lathe(op, C, [(R + 1.1, zt + 1.25), (DR + 0.05, zt + 2.3)], PAL['tile_a'], PT['tiles'], 16, smooth=False, cap=False)
+    rib_col_a = mix(PAL['tile_a'], PAL['tile_ridge'], 0.35)
+    for i in range(8):
+        a = 2 * math.pi * i / 8
+        dv = Vector((math.cos(a), math.sin(a), 0))
+        pe = Vector((C.x, C.y, zt + 1.25)) + dv * (R + 1.1)
+        pt = Vector((C.x, C.y, zt + 2.3)) + dv * (DR + 0.05)
+        nrm = (dv * 1.05 + Vector((0, 0, R + 1.1 - DR))).normalized()
+        imbrex_rib(op, pt, pe, nrm, w=0.18, h=0.12, col=rib_col_a)
     for i in range(16):        # antefixes on the ring eave
         a = 2 * math.pi * (i + 0.5) / 16
         antefix(op, (C.x + (R + 1.1) * math.cos(a), C.y + (R + 1.1) * math.sin(a), zt + 1.25), (-math.sin(a), math.cos(a), 0), (math.cos(a), math.sin(a), 0))
@@ -1079,6 +1112,13 @@ def build_office_arbitrum(K, root, chain, coll):
     cyl(op, C, DR + 0.45, DR + 0.45, DZ - 0.4, DZ, PAL['marble'], 0, 16)
     rise = rise_for(DR + 0.6, 24.0)
     lathe(op, C, [(DR + 0.75, DZ - 0.1), (0.4, DZ + rise * 0.9), (0.0, DZ + rise)], PAL['tile_a'], PT['tiles'], 16, smooth=False)
+    for i in range(8):
+        a = 2 * math.pi * i / 8
+        dv = Vector((math.cos(a), math.sin(a), 0))
+        pe = Vector((C.x, C.y, DZ - 0.1)) + dv * (DR + 0.75)
+        pt = Vector((C.x, C.y, DZ + rise * 0.90)) + dv * 0.4
+        nrm = (dv * rise + Vector((0, 0, DR + 0.75))).normalized()
+        imbrex_rib(op, pt, pe, nrm, w=0.16, h=0.11, col=rib_col_a)
     cyl(op, C, 0.3, 0.16, DZ + rise - 0.1, DZ + rise + 0.6, PAL['bronze'], PT['metal'], 6)
     sphere(op, (C.x, C.y, DZ + rise + 0.85), 0.32, PAL['gilt'], 6, 3)
     # the crest on the drum front, above the peristyle roof; clerestory openings round the rest

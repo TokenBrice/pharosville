@@ -91,6 +91,9 @@ def build_mint(coll=None):
     for x in xs:
         cyl(op, (x, TY0 + 0.4), 0.56, 0.56, ZC + 6.45, ZC + 6.7, PAL['poly_red'], 0, 8, top=False)
     box2(op, TX0 + 0.6, TY0 + 3.2, ZC, TX1 - 0.6, TY1, ZC + 7.4, PAL['wash_cream'], PT['render'])          # cella
+    for s in (-1, 1):                                                                                       # cella corner pilasters
+        pilaster(op, s * (TX1 - 0.6), TY0 + 3.6, ZC, ZC + 7.4, (s, 0, 0), w=0.68, d=0.14, col=PAL['lime'], cap_col=PAL['marble'])
+        pilaster(op, s * (TX1 - 0.6), TY1 - 0.5, ZC, ZC + 7.4, (s, 0, 0), w=0.68, d=0.14, col=PAL['lime'], cap_col=PAL['marble'])
     arch_door(K, (0.0, TY0 + 3.17, ZC), (0, -1, 0), 2.8, 5.0, PAL['bronze'], PAL['marble'], step=False, fanlight=True)
     for x in (-4.6, 4.6):        # gilt shields on the pronaos wall
         disc(op, (x, TY0 + 3.17, ZC + 3.6), (0, -1, 0), 1.0, 0.12, PAL['gilt'], 10, col_side=PAL['bronze'])
@@ -115,9 +118,8 @@ def build_mint(coll=None):
     disc(op, (0.0, TY0 + 0.05, za + 1.95), (0, -1, 0), 1.6, 0.4, PAL['gold'], 16, PT['metal'], col_side=PAL['gilt'])
     disc(op, (0.0, TY0 - 0.4, za + 1.95), (0, -1, 0), 1.2, 0.06, PAL['gilt'], 16, PT['metal'])
     disc(op, (0.0, TY0 + 0.05, za + 1.95), (0, 1, 0), 1.6, 0.06, PAL['gold'], 16, PT['metal'])
-    for (x, z, h) in ((TX0 - 0.4, zt + 0.5, 0.95), (TX1 + 0.4, zt + 0.5, 0.95)):   # gilt corner acroteria
-        poly(op, ((x - 0.5, TY0 - 1.0, z), (x + 0.5, TY0 - 1.0, z), (x + 0.25, TY0 - 1.0, z + h * 0.6), (x, TY0 - 1.0, z + h),
-                  (x - 0.25, TY0 - 1.0, z + h * 0.6)), PAL['gilt'], 0, nrm=(0, -1, 0), jitter=0.0)
+    for (x, z, h) in ((TX0 - 0.4, zt + 0.5, 1.05), (TX1 + 0.4, zt + 0.5, 1.05)):   # 3D gilt corner acroteria
+        acroterion(op, (x, TY0 - 0.78, z), (0, -1, 0), h=h, col=PAL['gilt'], kind='palmette')
 
     # ---- the coining workshop (left, on the plot front): an arcade of three bays, a press in each arch mouth
     WX0, WX1, WY0, WY1, WZ = -31.0, -13.0, -19.0, -8.0, Z0 + 6.4
@@ -127,7 +129,7 @@ def build_mint(coll=None):
     box2(op, WX0 - 0.2, WY0 - 0.2, Z0, WX1 + 0.2, WY0 + 0.8, Z0 + 0.6, PAL['sandstone'], PT['ashlar'])
     frieze(op, (WX0, WY0), (WX1, WY0), WZ - 1.9, 0.5, (0, -1, 0))
     frieze(op, (WX1, WY0), (WX1, WY1), WZ - 1.9, 0.5, (1, 0, 0))
-    tiled_gable(op, WX0, WY0, WX1, WY1, WZ, 21.0, PAL['tile_b'], 'x', ov=0.45, end_col=PAL['wash_ochre'])
+    tiled_gable(op, WX0, WY0, WX1, WY1, WZ, 21.0, PAL['tile_b'], 'x', ov=0.45, end_col=PAL['wash_ochre'], finials=True)
     for y in (-14.5, -10.5):
         plain_window(K, (WX1, y, Z0 + 3.0), (1, 0, 0), 0.9, 1.3, PAL['wash_ochre'], shutter=PAL['shutter_green'])
     arch_door(K, (WX1, -12.5, Z0), (1, 0, 0), 1.4, 2.8, PAL['oak_dark'], PAL['lime'])
@@ -175,7 +177,7 @@ def build_mint(coll=None):
     box2(op, HX0, HY0, Z0, HX1, HY1, Z0 + 6.6, PAL['wash_sienna'], PT['render'])
     socle(op, HX0, HY0, HX1, HY1, Z0, 0.9)
     frieze(op, (HX0, HY0), (HX1, HY0), Z0 + 4.6, 0.5, (0, -1, 0), ground=PAL['poly_blue'], key=PAL['wash_white'])
-    tiled_gable(op, HX0, HY0, HX1, HY1, Z0 + 6.6, 21.0, PAL['tile_c'], 'x', ov=0.45, end_col=PAL['wash_sienna'])
+    tiled_gable(op, HX0, HY0, HX1, HY1, Z0 + 6.6, 21.0, PAL['tile_c'], 'x', ov=0.45, end_col=PAL['wash_sienna'], finials=True)
     for x in (13.5, 16.5, 25.5, 28.5):
         plain_window(K, (x, HY0, Z0 + 3.2), (0, -1, 0), 0.9, 1.3, PAL['wash_sienna'], shutter=PAL['shutter_green'])
     arch_door(K, (26.5, HY0, Z0), (0, -1, 0), 1.6, 3.0, PAL['oak_dark'], PAL['lime'])
