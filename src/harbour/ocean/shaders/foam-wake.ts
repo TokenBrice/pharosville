@@ -70,10 +70,10 @@ export const OCEAN_FOAM = /* glsl */ `  // -------------------------------------
   // calm water keeps only a faint broken meniscus round piles, buoys and quays; foam builds with sea state and rain
   fStruct *= mix(0.24, 1.0, max(storm, uPrecip.x)) * mix(1.0, 0.55, shelter);
   // broken, translucent foam: noise eats the wake so it reads as lines of bubbles, not ribbons
-  float fTrail = smoothstep(0.25, 0.85, trail * (0.2 + 1.3 * nC.g * nB.b * 1.6)) * (0.4 + 0.35 * smoothstep(0.4, 1.0, trail));
+  float fTrail = smoothstep(0.14, 0.68, trail * (0.35 + 1.15 * nC.g * nB.b * 1.4)) * (0.48 + 0.42 * smoothstep(0.25, 0.85, trail));
   // as a wake ages it breaks into lace threads and drifting patches before it is gone
   fTrail = max(fTrail, lace * smoothstep(0.06, 0.3, trail) * (1.0 - smoothstep(0.55, 0.95, trail)) * (0.35 + 0.4 * nB.g) * (1.0 - laceFar * 0.6));
-  float fKel = smoothstep(0.3, 0.62, live.r * (0.45 + 1.0 * nC.r)) * 0.6 * (1.0 - 0.65 * smoothstep(0.8, 2.0, fp));
+  float fKel = smoothstep(0.16, 0.52, live.r * (0.55 + 0.9 * nC.r)) * 0.75 * (1.0 - 0.45 * smoothstep(1.0, 2.5, fp));
   float fRing = smoothstep(0.3, 0.75, live.g * (0.35 + 1.0 * nC.b)) * 0.5;
   // E08: a hull's contact ring has a fixed world width; under ~2 px (overview) it would print a white outline, so it
   // fades with the pixel footprint (the coast's own contact line is kept)
@@ -127,9 +127,11 @@ export const OCEAN_FOAM = /* glsl */ `  // -------------------------------------
   col += glint * overcast * (1.0 - foam) * cShade;
   col += beam * (1.0 - foam * 0.5);
   // thin aerated foam fringes tint toward translucent turquoise-jade before thick crests turn crisp sunlit white
-  // (a rough sea keeps its spindrift lanes, whitecaps and wakes crisp white: the jade fringe is for calm water)
-  vec3 foamEdge = mix(col + uSunlitShoal * 0.16 * mix(1.0, 0.25, uNight) * (1.0 - cover * 0.5), foamLit, mix(smoothstep(0.14, 0.82, foam), 1.0, roughFoam));
-  col = mix(col, foamEdge, mix(smoothstep(0.03, 0.92, foam), foam, roughFoam));
+  // (a rough sea and active wake crests stay crisp white rather than crushing through the calm double-smoothstep)
+  float wakeWhite = max(fKel, fTrail * 0.85);
+  float foamWhite = max(mix(smoothstep(0.14, 0.82, foam), 1.0, roughFoam), smoothstep(0.12, 0.55, wakeWhite));
+  vec3 foamEdge = mix(col + uSunlitShoal * 0.16 * mix(1.0, 0.25, uNight) * (1.0 - cover * 0.5), foamLit, foamWhite);
+  col = mix(col, foamEdge, max(mix(smoothstep(0.03, 0.92, foam), foam, roughFoam), smoothstep(0.04, 0.65, wakeWhite)));
   // summer nights: the churned water of wakes, contact rings and the swash glows faintly (decorative, sea-tone.ts)
   col += hbBiolum(trail * 0.9 + live.r * 1.4 + live.g * 0.7 + max(coastFoam - fContact * 0.6, 0.0) * step(dnC, 7.0), zm.r, t, nC.a);
 

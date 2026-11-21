@@ -223,8 +223,8 @@ void main() {
 
 const GROUND_VERT = /* glsl */ `
 ${COMMON}
-attribute vec4 aSeed;          // splash: xz seed, phase, size | spray: phase, -, -, size
-attribute vec4 aAnchor;        // spray: x, z, outward nx, nz (w = 1) | splash: w = 0
+attribute vec4 aSeed;          // splash: xz seed, phase (>= 0), size | spray: phase, rand, -1, size
+attribute vec4 aAnchor;        // spray: x, z, outward nx, nz | splash: unused
 uniform float uSplashRate;     // splash cycles per second
 uniform float uSplashSize;     // ring radius (m)
 uniform float uSpray;          // spray strength 0..1
@@ -238,7 +238,7 @@ varying float vLife;
 varying vec3 vLight;
 void main() {
   vec2 corner = position.xy * 2.0 - 1.0;
-  if (aAnchor.w > 0.5) {
+  if (aSeed.z < 0.0) {
     // ---- windblown sea-spray mist plume: torn off breaking surf, stretched downwind as fine spindrift
     float cyc = uPTime / (2.0 + aSeed.y * 1.7) + aSeed.x;
     float life = fract(cyc);
@@ -401,6 +401,8 @@ export class Precipitation {
         uDepthK: { value: new THREE.Vector4(1e9, 2e9, 1, 1) }, uSheets: { value: new THREE.Vector4() },
       },
       transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     this.fall = new THREE.Mesh(this.fallGeo, this.fallMat);
     this.fall.frustumCulled = false;
@@ -423,6 +425,8 @@ export class Precipitation {
         uNoise: { value: shared.noise }, uSplashAlpha: { value: 0.24 },
       },
       transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     this.ground = new THREE.Mesh(this.groundGeo, this.groundMat);
     this.ground.frustumCulled = false;
@@ -435,12 +439,17 @@ export class Precipitation {
   setSprayAnchors(points: ReadonlyArray<readonly [number, number, number, number]>): void {
     const n = Math.min(MAX_SPRAY, points.length);
     const a = this.groundGeo.getAttribute("aAnchor") as THREE.InstancedBufferAttribute;
-    const arr = a.array as Float32Array;
-    for (let i = 0; i < n; i++) { const p = points[i]; arr.set([p[0], p[1], p[2], p[3]], i * 4); }
-    for (let i = n; i < MAX_SPRAY + MAX_SPLASH; i++) arr[i * 4 + 3] = 0;
-    // splashes sit after the anchors; their anchor.w stays 0
-    for (let i = 0; i < n; i++) arr[i * 4 + 3] = 1;
+    const s = this.groundGeo.getAttribute("aSeed") as THREE.InstancedBufferAttribute;
+    const arr = a.array as Float32Array, sArr = s.array as Float32Array;
+    for (let i = 0; i < n; i++) {
+      const p = points[i];
+      arr.set([p[0], p[1], p[2], p[3]], i * 4);
+      // Flag spray via negative aSeed.z so aAnchor.zw preserves the outward normal (nx, nz).
+      sArr[i * 4 + 2] = -Math.max(1e-4, Math.abs(sArr[i * 4 + 2]));
+    }
+    for (let i = n; i < MAX_SPRAY + MAX_SPLASH; i++) sArr[i * 4 + 2] = Math.abs(sArr[i * 4 + 2]);
     a.needsUpdate = true;
+    s.needsUpdate = true;
     this.sprayCount = n;
   }
 

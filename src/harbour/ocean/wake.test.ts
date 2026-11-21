@@ -29,7 +29,9 @@ const echelonBefore = (ec: number) => smoothstep(-0.1, 0.7, Math.sin(ec * 6.2831
 interface Hull { hl: number; hb: number; spd: number }
 /** STAMP_FRAG's moving-hull R channel (before × strength): Kelvin arms + transverse waves + bow wave. */
 function kelvin(qx: number, qy: number, { hl, hb, spd }: Hull, seed: number, before = false): number {
-  const sp = smoothstep(0.8, 1.6, spd) * (0.35 + 0.65 * smoothstep(1.6, 5.0, spd)) * Math.min(1, Math.max(0.5, hl / 7));
+  const sp = before
+    ? smoothstep(0.8, 1.6, spd) * (0.35 + 0.65 * smoothstep(1.6, 5.0, spd)) * Math.min(1, Math.max(0.5, hl / 7))
+    : smoothstep(0.45, 1.35, spd) * (0.48 + 0.52 * smoothstep(1.35, 3.8, spd)) * Math.min(1, Math.max(0.62, hl / 4.5));
   const u = hl * 0.75 - qx;
   const wl = hl * (3 + 4 * smoothstep(1.2, 6.0, spd));
   const arm = Math.abs(Math.abs(qy) - (hb * 0.6 + u * 0.354));
@@ -42,8 +44,8 @@ function kelvin(qx: number, qy: number, { hl, hb, spd }: Hull, seed: number, bef
   const bx = (qx - hl * 0.9) / (hl * 0.12), by = qy / (hb * 1.05);
   return (kel + Math.exp(-(bx * bx + by * by)) * 0.45) * sp;
 }
-/** The ocean's white Kelvin foam from the live R channel (nC.r = its mean, 0.5), now and in v1.5.0. */
-const fKel = (r: number, fp: number) => smoothstep(0.3, 0.62, r * 0.95) * 0.6 * (1 - 0.65 * smoothstep(0.8, 2.0, fp));
+/** The ocean's white Kelvin foam from the live R channel (nC.r = its mean, 0.5 -> factor 1.0), now and in v1.5.0. */
+const fKel = (r: number, fp: number) => smoothstep(0.16, 0.52, r) * 0.75 * (1 - 0.45 * smoothstep(1.0, 2.5, fp));
 const fKelBefore = (r: number) => smoothstep(0.07, 0.38, r * 0.95) * 0.85;
 
 /** Crest centres of one arm (argmax of the arm's echelon in each crest cell) over `n` crests. */
@@ -105,12 +107,17 @@ describe("E12 feathered wakes", () => {
       return n;
     };
     expect(white(false)).toBeGreaterThanOrEqual(1);
-    expect(white(false)).toBeLessThanOrEqual(4);
-    expect(white(true)).toBeGreaterThan(white(false) * 2);       // v1.5.0: a long row of white dashes
+    expect(white(false)).toBeLessThanOrEqual(6);
+    expect(white(true)).toBeGreaterThan(white(false));           // v1.5.0: a longer row of white dashes
     // the arm still lightens the water past its white crests (the live R channel the body tint and normals read)
-    const tail = kelvin(hull.hl * 0.75 - 30, hull.hb * 0.6 + 30 * 0.354, hull, 1.3);
+    const tail = kelvin(hull.hl * 0.75 - 40, hull.hb * 0.6 + 40 * 0.354, hull, 1.3);
     expect(tail).toBeGreaterThan(0.05);
     expect(fKel(tail, 0.5)).toBe(0);
+    // a cruising skiff (1.86 m/s) now clears the fKel floor
+    const skiff: Hull = { hl: 2.5, hb: 0.95, spd: 1.86 };
+    let skiffPeak = 0;
+    for (let u = 0; u < 30; u += 0.1) skiffPeak = Math.max(skiffPeak, fKel(kelvin(skiff.hl * 0.75 - u, skiff.hb * 0.6 + u * 0.354, skiff, 1.3), 0.5));
+    expect(skiffPeak).toBeGreaterThan(0.05);
   });
 
   it("keeps the bow wave and the transverse waves, and fades the arms sooner behind the stern", () => {
@@ -124,14 +131,14 @@ describe("E12 feathered wakes", () => {
     expect(Math.exp(-u / (wl * 0.42))).toBeLessThan(Math.exp(-u / (wl * 0.5)));
   });
 
-  it("raises the white threshold to .3, caps it at .6 and fades it by footprint far off", () => {
-    expect(fKel(0.3 / 0.95, 0.5)).toBe(0);
-    expect(fKel(1, 0.5)).toBeCloseTo(0.6, 12);
-    for (let r = 0; r <= 2; r += 0.01) expect(fKel(r, 0.5)).toBeLessThanOrEqual(0.6);
+  it("calibrates the white threshold to .16, caps it at .75 and fades it by footprint far off", () => {
+    expect(fKel(0.16, 0.5)).toBe(0);
+    expect(fKel(1, 0.5)).toBeCloseTo(0.75, 12);
+    for (let r = 0; r <= 2; r += 0.01) expect(fKel(r, 0.5)).toBeLessThanOrEqual(0.75);
     let prev = Infinity;
     for (let fp = 0; fp <= 3; fp += 0.05) { const v = fKel(1, fp); expect(v).toBeLessThanOrEqual(prev + 1e-12); prev = v; }
-    expect(fKel(1, 0.8)).toBeCloseTo(0.6, 12);       // heart and closer: the full white
-    expect(fKel(1, 2.5)).toBeCloseTo(0.6 * 0.35, 12);
+    expect(fKel(1, 1.0)).toBeCloseTo(0.75, 12);       // heart and closer: the full white
+    expect(fKel(1, 2.5)).toBeCloseTo(0.75 * 0.55, 12);
   });
 
   it("carries the seed in the stamp's free component, through the service interface, from every fleet stamp", () => {
@@ -151,7 +158,7 @@ describe("E12 feathered wakes", () => {
     expect(live.fragmentShader).toContain("kel = exp(-(arm * arm) / (w * w)) * fall * (0.4 + 0.6 * ech);");
     expect(live.fragmentShader).toContain("kel += inside * pow(0.5 + 0.5 * cos(u * 6.2831 / max(2.0, hl * 0.9)), 6.0) * fall * 0.18;");
     expect(live.fragmentShader).toContain("kel = (kel + bow * 0.45) * sp;");
-    expect(OCEAN_FRAG).toContain("float fKel = smoothstep(0.3, 0.62, live.r * (0.45 + 1.0 * nC.r)) * 0.6 * (1.0 - 0.65 * smoothstep(0.8, 2.0, fp));");
+    expect(OCEAN_FRAG).toContain("float fKel = smoothstep(0.16, 0.52, live.r * (0.55 + 0.9 * nC.r)) * 0.75 * (1.0 - 0.45 * smoothstep(1.0, 2.5, fp));");
     expect(OCEAN_FRAG).toContain("float fp = length(fwidth(xz));");
     // every hull stamp in the fleet passes its own stable seed (stamp arguments only)
     const fleet = readFileSync(resolve(__dirname, "../fleet/fleet-system.ts"), "utf8");

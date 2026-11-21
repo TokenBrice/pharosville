@@ -190,9 +190,9 @@ export class MirrorPass extends Pass {
   /** V15: 1 moves the quay-side lift while the mirror lays the walls' reflections (`?v15=0|1` for the A/B); it eases with the mirror. */
   setQuayLift(lift: number): void { this.quayLift = lift; }
 
-  /** Use the fog pass's eased amount and the weather's precipitation before the ocean draws. */
+  /** Use the fog pass's eased amount and the weather's precipitation before the ocean draws (D-2: stays on through drizzle). */
   setConditions(fogAmount: number, precipitation: number): void {
-    this.visibility = (1 - fogAmount) * (1 - THREE.MathUtils.smoothstep(precipitation, 0, 0.05));
+    this.visibility = (1 - fogAmount) * (1 - THREE.MathUtils.smoothstep(precipitation, 0.08, 0.3));
     this.updateStrength();
   }
 
@@ -242,6 +242,7 @@ export class MirrorPass extends Pass {
     const step = Math.min(Math.max(deltaTime, 0), 0.25) / MIRROR_FADE;
     this.shown = this.active ? Math.min(1, this.shown + step) : Math.max(0, this.shown - step);
     if (!this.active && this.shown <= 0) { this.release(); return; }
+    if (this.visibility <= 0.001) { this.updateStrength(); return; }
     const u = this.material.uniforms, cam = this.view;
     u.inputBuffer.value = inputBuffer.texture;
     u.uProj.value.copy(cam.projectionMatrix);

@@ -179,10 +179,13 @@ describe("harbour sound: event cues", () => {
     expect(momentCue("death")).toBe("cove-bell");
     for (const k of ["depeg", "recovery", "psi-band", "dews-band", "flow-hour", "hull-class", "grade"]) expect(momentCue(k)).toBeNull();
   });
-  it("the conch: only the four titans, at most one per three minutes, never over a staged moment", () => {
+  it("the conch: only the four original titans (D-5), at most one per three minutes, never over a staged moment", () => {
     expect(conchDue("usdt-tether", 1000, -Infinity, false)).toBe(true);
     expect(conchDue("usds-sky", 1000, -Infinity, false)).toBe(true);
-    expect(conchDue("dai-makerdao", 1000, -Infinity, false)).toBe(false);
+    expect(conchDue("usde-ethena", 1000, -Infinity, false)).toBe(true);
+    for (const id of ["dai-makerdao", "rlusd-ripple", "usd1-world-liberty-financial", "xaut-tether", "usdg-paxos", "pyusd-paypal"]) {
+      expect(conchDue(id, 1000, -Infinity, false)).toBe(false);
+    }
     expect(conchDue("usdc-circle", 1000, 1000 - CONCH_GAP_SEC + 1, false)).toBe(false);
     expect(conchDue("usdc-circle", 1000, 1000 - CONCH_GAP_SEC, false)).toBe(true);
     expect(conchDue("usde-ethena", 1000, -Infinity, true)).toBe(false);

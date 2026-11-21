@@ -137,4 +137,26 @@ describe("atmospheric rain, splashes and storm lightning", () => {
     expect(l.mesh.visible).toBe(false);
     l.dispose();
   });
+
+  it("preserves outward breakwater normal (nx, nz) in aAnchor.zw and flags spray via negative aSeed.z", () => {
+    const p = makePrecip();
+    const anchors: ReadonlyArray<readonly [number, number, number, number]> = [
+      [10, -20, -0.6, -0.8],
+      [30, 40, 0.8, -0.6],
+    ];
+    p.setSprayAnchors(anchors);
+    const geo = p.ground.geometry as THREE.InstancedBufferGeometry;
+    const aArr = (geo.getAttribute("aAnchor") as THREE.InstancedBufferAttribute).array as Float32Array;
+    const sArr = (geo.getAttribute("aSeed") as THREE.InstancedBufferAttribute).array as Float32Array;
+    expect(aArr[0]).toBeCloseTo(10, 5);
+    expect(aArr[1]).toBeCloseTo(-20, 5);
+    expect(aArr[2]).toBeCloseTo(-0.6, 5);
+    expect(aArr[3]).toBeCloseTo(-0.8, 5);
+    expect(aArr[6]).toBeCloseTo(0.8, 5);
+    expect(aArr[7]).toBeCloseTo(-0.6, 5);
+    expect(sArr[2]).toBeLessThan(0);
+    expect(sArr[6]).toBeLessThan(0);
+    expect(sArr[10]).toBeGreaterThanOrEqual(0);
+    p.dispose();
+  });
 });

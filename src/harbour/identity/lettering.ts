@@ -213,6 +213,8 @@ export class ChartLettering {
         uHalo: { value: 0.04 },
       },
       transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
       // far off and grazing, the swell's own crests would nibble the print: a little depth bias (hulls still occlude)
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6,
     });

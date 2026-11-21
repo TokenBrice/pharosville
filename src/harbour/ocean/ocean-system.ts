@@ -127,6 +127,7 @@ export class OceanSystem implements WorldSystem {
   private layout: HarbourLayout | null = null;
   private awaitGround = false;
   private zoneTex: THREE.DataTexture | null = null;
+  private dynPoolFallback: THREE.DataTexture | null = null;
   private debugMovers: Array<{ cx: number; cz: number; r: number; w: number; ph: number; hw: number }> = [];
   /** E11: a private time-of-day evaluation (keys + season only: no weather, no moon phase) at this hour and at noon. */
   private hourTod: TimeOfDay | null = null;
@@ -206,6 +207,9 @@ export class OceanSystem implements WorldSystem {
         uGust: ensureGustService(ctx).uniform,
         // the lights system's top-down pool RT, read back along the view ray as the town's reflection
         uPoolTex: getHarbourMaterials(ctx).pool.uPoolTex, uPoolBounds: getHarbourMaterials(ctx).pool.uPoolBounds,
+        // S-2 seam: dynamic boat/Titan night water pools (1x1 black fallback until W2 binds the real RT)
+        uDynPoolTex: { value: (this.dynPoolFallback = Object.assign(new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1), { needsUpdate: true })) },
+        uDynPool: { value: new THREE.Vector4(0, 0, 0, 0) },
         uWindowGlow: W.uWindowGlow,
         // the weather director: rain rings / melting snowflakes on the water
         uPrecip: W.uPrecip,
@@ -413,6 +417,8 @@ export class OceanSystem implements WorldSystem {
     this.wake.dispose();
     this.sdfTex.dispose();
     this.zoneTex?.dispose();
+    this.dynPoolFallback?.dispose();
+    this.dynPoolFallback = null;
     this.fx.release();
     ctx.services.delete("ocean");
     ctx.services.delete("wake");
