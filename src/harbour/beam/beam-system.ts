@@ -150,7 +150,9 @@ export class BeamSystem implements WorldSystem {
     this.haloMat = new THREE.ShaderMaterial({
       vertexShader: HALO_VERT, fragmentShader: HALO_FRAG,
       uniforms: { uColor: { value: new THREE.Color() }, uSize: { value: 30 }, uCore: { value: 1 }, uGlow: { value: 1 }, uStreak: { value: 0 } },
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+      transparent: true, depthWrite: false, fog: false,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     this.halo = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.haloMat);
     this.halo.frustumCulled = false;

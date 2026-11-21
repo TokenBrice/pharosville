@@ -86,19 +86,39 @@ describe("E35 mirror target", () => {
 describe("E35 mirror pass", () => {
   it.each([
     ["stale fog", [[0, 0], [0.5, 0], [1, 0], [0.5, 0], [0, 0]]],
-    ["rain", [[0, 0], [0, 0.025], [0, 0.05], [0, 0.1], [0, 1], [0, 0.025], [0, 0]]],
+    ["rain", [[0, 0], [0, 0.065], [0, 0.08], [0, 0.19], [0, 0.3], [0, 1], [0, 0.19], [0, 0]]],
   ] as const)("suppresses and recovers strength entering and leaving %s", (_name, conditions) => {
     const { mirror, renderer } = pass([1600, 1000], 1);
     mirror.setActive(true);
     settle(mirror, renderer);
     for (const [fog, precip] of conditions) {
       mirror.setConditions(fog, precip);
-      const expected = fog === 1 || precip >= 0.05 ? 0 : fog === 0 && precip === 0 ? MIRROR_STRENGTH : MIRROR_STRENGTH / 2;
+      const expected = fog === 1 || precip >= 0.3 ? 0 : fog === 0 && precip <= 0.08 ? MIRROR_STRENGTH : MIRROR_STRENGTH / 2;
       // Updated before the ocean draws, and still suppressed after the mirror pass publishes the next frame.
       expect(mirror.uniforms.uMirror.value.x).toBeCloseTo(expected);
       settle(mirror, renderer);
       expect(mirror.uniforms.uMirror.value.x).toBeCloseTo(expected);
     }
+    mirror.dispose();
+  });
+
+  it("early-outs render without touching targets when visibility is near zero (D-2)", () => {
+    const { mirror, renderer } = pass([1600, 1000], 1);
+    const input = new THREE.WebGLRenderTarget(1, 1);
+    mirror.setActive(true);
+    settle(mirror, renderer, input);
+    for (const [fog, precip] of [[0, 0.3], [0, 1], [1, 0]] as const) {
+      renderer.calls.length = 0;
+      mirror.setConditions(fog, precip);
+      mirror.render(renderer as unknown as THREE.WebGLRenderer, input, null, 0.016);
+      expect(renderer.calls).toEqual([]);
+      expect(mirror.uniforms.uMirror.value.x).toBe(0);
+    }
+    renderer.calls.length = 0;
+    mirror.setConditions(0, 0.065);
+    mirror.render(renderer as unknown as THREE.WebGLRenderer, input, null, 0.016);
+    expect(renderer.calls.length).toBeGreaterThan(0);
+    expect(mirror.uniforms.uMirror.value.x).toBe(MIRROR_STRENGTH);
     mirror.dispose();
   });
 
@@ -229,9 +249,9 @@ describe("E35 the mirror's ocean", () => {
     expect(mirror.uniforms.uMirror.value.x).toBeCloseTo(MIRROR_STRENGTH * (1 - 0.15625));
     readings.fog = 1; update(); expect(mirror.uniforms.uMirror.value.x).toBe(0);
     readings.fog = 0; update(); expect(mirror.uniforms.uMirror.value.x).toBe(MIRROR_STRENGTH);
-    for (const [rain, snow] of [[0.1, 0], [0, 0.05], [0, 0]]) {
+    for (const [rain, snow, want] of [[0.065, 0, MIRROR_STRENGTH], [0.3, 0, 0], [0, 0.3, 0], [0, 0, MIRROR_STRENGTH]]) {
       ctx.uniforms.uPrecip.value.set(rain, snow); update();
-      expect(mirror.uniforms.uMirror.value.x).toBe(rain || snow ? 0 : MIRROR_STRENGTH);
+      expect(mirror.uniforms.uMirror.value.x).toBe(want);
     }
     tier("medium");
     // Medium keeps the same ocean program while the reflection fades out, then the target goes

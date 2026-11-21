@@ -128,7 +128,11 @@ export class Smoke {
     g.setAttribute("aOrigin", new THREE.InstancedBufferAttribute(o, 3));
     g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(s, 4));
     g.instanceCount = n;
-    const m = new THREE.ShaderMaterial({ vertexShader: SMOKE_VERT, fragmentShader: SMOKE_FRAG, uniforms: this.u, transparent: true, depthWrite: false });
+    const m = new THREE.ShaderMaterial({
+      vertexShader: SMOKE_VERT, fragmentShader: SMOKE_FRAG, uniforms: this.u, transparent: true, depthWrite: false,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+    });
     m.name = "hb_civic_smoke";
     this.mesh = new THREE.Mesh(g, m);
     this.mesh.frustumCulled = false;
@@ -338,7 +342,11 @@ export class Embers {
     for (let i = 0; i < s.length; i++) s[i] = r();
     g.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(count * 3), 3));
     g.setAttribute("aSeed", new THREE.Float32BufferAttribute(s, 4));
-    const m = new THREE.ShaderMaterial({ vertexShader: EMBER_VERT, fragmentShader: EMBER_FRAG, uniforms: this.u, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const m = new THREE.ShaderMaterial({
+      vertexShader: EMBER_VERT, fragmentShader: EMBER_FRAG, uniforms: this.u, transparent: true, depthWrite: false,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+    });
     m.name = "hb_civic_embers";
     this.points = new THREE.Points(g, m);
     this.points.frustumCulled = false;
@@ -403,7 +411,11 @@ export class Glints {
     this.k.setUsage(THREE.DynamicDrawUsage);
     g.setAttribute("aK", this.k);
     g.instanceCount = at.length;
-    const m = new THREE.ShaderMaterial({ vertexShader: GLINT_VERT, fragmentShader: GLINT_FRAG, uniforms: this.u, transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending });
+    const m = new THREE.ShaderMaterial({
+      vertexShader: GLINT_VERT, fragmentShader: GLINT_FRAG, uniforms: this.u, transparent: true, depthWrite: false, depthTest: true,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+    });
     m.name = "hb_civic_glints";
     this.mesh = new THREE.Mesh(g, m);
     this.mesh.frustumCulled = false;

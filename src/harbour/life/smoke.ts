@@ -98,6 +98,8 @@ export class ChimneySmoke {
     const mat = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG, uniforms: this.uniforms,
       transparent: true, depthWrite: false, depthTest: true,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     mat.name = "hb_life_smoke";
     this.mesh = new THREE.Mesh(g, mat);

@@ -47,6 +47,8 @@ uniform float uDebug;
 // town lights (lights system's top-down pool RT): reflected in the water at night
 uniform sampler2D uPoolTex;
 uniform vec4 uPoolBounds;
+uniform sampler2D uDynPoolTex;  // S-2 seam: dynamic boat/Titan night water pools (same bounds as uWakeLive)
+uniform vec4 uDynPool;          // x = intensity (0 = off)
 uniform float uWindowGlow;
 uniform vec2 uSceneCenter;
 uniform float uSceneRadius;
@@ -264,8 +266,12 @@ void main() {
     vec3 stoneFooting = vec3(0.24, 0.25, 0.22) * (0.78 + 0.32 * nC.r);
     bed = mix(bed, stoneFooting, quayFooting * (1.0 - smoothstep(0.5, 3.2, max(coast, 0.0))) * 0.82);
     bed = hbPosidonia(bed, xz, bedDep, zm.r);
-    vec3 absorb = exp(-bedDep * vec3(0.55, 0.16, 0.12));
-    vec3 seen = bed * absorb * mix(vec3(1.0), uSunlitShoal * 1.65, 0.38);
+    float cosT = sqrt(max(1.0 - (1.0 - V.y * V.y) * 0.5625, 0.12));
+    float optLen = bedDep / cosT;
+    vec3 absorb = exp(-optLen * vec3(0.42, 0.12, 0.09));
+    vec3 downIrr = uAmbient * 2.0 + uSunColor * max(uSunDir.y, 0.0) * 0.18 * sunSh * hbCloudShadow(xz) * (1.0 - uNight);
+    float bedLight = clamp(dot(downIrr, vec3(0.2126, 0.7152, 0.0722)) * 0.95, 0.0, 1.0);
+    vec3 seen = bed * absorb * mix(vec3(1.0), uSunlitShoal * 1.65, 0.38) * mix(vec3(bedLight), uAmbient * 0.85, uNight);
     // crisp refracted sunlight caustic filaments. Explicit gradients keep the conditional reads safe; the nets run
     // after the lanes reconverge (the Shoals reef reads them too, past the bed's own depth gain)
     float cs = 1.0 - smoothstep(160.0, 620.0, camD);

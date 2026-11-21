@@ -118,7 +118,9 @@ export class PharosFire {
     eg.setAttribute("aSeed", new THREE.Float32BufferAttribute(eSeed, 4));
     const emberMat = new THREE.ShaderMaterial({
       vertexShader: EMBER_VERT, fragmentShader: EMBER_FRAG, uniforms: this.fu,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+      transparent: true, depthWrite: false, fog: false,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     emberMat.name = "hb_pharos_embers";
     this.embers = new THREE.Points(eg, emberMat);
@@ -128,7 +130,9 @@ export class PharosFire {
     // ---- glow halo
     const glowMat = new THREE.ShaderMaterial({
       vertexShader: GLOW_VERT, fragmentShader: GLOW_FRAG, uniforms: this.gu,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+      transparent: true, depthWrite: false, fog: false,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     glowMat.name = "hb_pharos_glow";
     this.glow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), glowMat);
@@ -147,6 +151,8 @@ export class PharosFire {
     const plumeMat = new THREE.ShaderMaterial({
       vertexShader: PLUME_VERT, fragmentShader: PLUME_FRAG, uniforms: this.pu,
       transparent: true, depthWrite: false, depthTest: true,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     plumeMat.name = "hb_pharos_plume";
     this.plume = new THREE.Mesh(pg, plumeMat);

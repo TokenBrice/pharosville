@@ -20,6 +20,7 @@ export const RUNUP_GLSL = /* glsl */ `
 uniform vec2 uRunup;
 ${SWELL_PHASE_GLSL}
 void hbRunup(inout vec3 alb, inout float rough, vec3 W, vec3 N, float pid) {
+#ifndef HB_FLEET
   float stone = hbIs(pid, 2.0) + hbIs(pid, 5.0) + hbIs(pid, 10.0) + hbIs(pid, 0.0) * 0.6;
   if (stone <= 0.0 || W.y > 2.0 || W.y < -0.6) return;
   float steep = 1.0 - smoothstep(0.45, 0.8, N.y);
@@ -29,5 +30,6 @@ void hbRunup(inout vec3 alb, inout float rough, vec3 W, vec3 N, float pid) {
   float wet = (1.0 - smoothstep(reach - 0.06, reach + 0.1, W.y)) * steep * stone;
   alb *= 1.0 - 0.32 * wet;
   rough = mix(rough, 0.32, wet * 0.6);
+#endif
 }
 `;

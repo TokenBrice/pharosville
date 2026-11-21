@@ -218,7 +218,9 @@ export class LightsSystem implements WorldSystem {
           float halo = exp(-r2 * 1.1) * vHalo;
           gl_FragColor = vec4(vC * (core + halo), 1.0);
         }`,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+      transparent: true, depthWrite: false, fog: false,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     this.sprites = new THREE.Mesh(this.spriteGeo, spriteMat);
     this.sprites.frustumCulled = false;
@@ -270,7 +272,9 @@ export class LightsSystem implements WorldSystem {
           float shimmer = smoothstep(0.35, 0.85, n * 0.7 + n2 * 0.45);
           gl_FragColor = vec4(vC * across * along * (0.3 + 1.6 * shimmer), 1.0);
         }`,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide,
+      transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     this.pillars = new THREE.Mesh(this.pillarGeo, pillarMat);
     this.pillars.frustumCulled = false;

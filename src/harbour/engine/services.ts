@@ -35,6 +35,16 @@ import type { PostChain } from "./post";
 import type { QualityService } from "./quality";
 import type { PreparationService, ReadinessState, SimulationStatus } from "./types";
 
+/** S-3: High-only instanced hull waterline collars, bow mustaches and galley oar ripples (registered by W2). */
+export interface WakeCollarService {
+  push(x: number, z: number, fx: number, fz: number, loa: number, beam: number, speed: number, kind: 0 | 1, oarPhase: number): void;
+}
+
+/** S-3: High-only dynamic per-frame boat/Titan water light pools at night (registered by W2). */
+export interface DynPoolService {
+  light(x: number, z: number, y: number, radius: number, r: number, g: number, b: number): void;
+}
+
 /** Fixed service keys and their publishers' contracts. Services may arrive after their consumers. */
 export interface ServiceMap {
   "beam:uniforms": BeamUniforms;
@@ -48,6 +58,7 @@ export interface ServiceMap {
   bunting: Bunting;
   civic: CivicService;
   cove: CoveService;
+  dynPool: DynPoolService;
   events: EventsService;
   feed: HarbourFeed;
   ground: GroundService;
@@ -75,6 +86,7 @@ export interface ServiceMap {
   sound: SoundController;
   sun: SunRig;
   wake: WakeService;
+  wakeCollars: WakeCollarService;
   weather: WeatherService;
 }
 

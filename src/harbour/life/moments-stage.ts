@@ -55,7 +55,11 @@ export class MomentsStage implements WorldSystem {
     const shoals = ctx.services.get("layout")?.zones?.shoals;
     const rock = shoals?.rocks?.find((r) => r[2] === BEACON_ROCK_R);
     if (rock) {
-      this.flareMat = new THREE.SpriteMaterial({ map: glowTexture(), color: new THREE.Color(FLARE_HEX), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
+      this.flareMat = new THREE.SpriteMaterial({
+        map: glowTexture(), color: new THREE.Color(FLARE_HEX), transparent: true, depthWrite: false, opacity: 0,
+        blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+        blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+      });
       this.flare = new THREE.Sprite(this.flareMat);
       this.flare.name = "moments-reef-flare";
       this.flare.position.set(rock[0], BEACON_Y, rock[1]);

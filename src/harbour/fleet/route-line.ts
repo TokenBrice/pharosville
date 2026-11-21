@@ -105,6 +105,8 @@ export class RouteLine {
         uK: { value: 0 }, uDash: { value: DASH_M }, uWidth: { value: 0.6 },
       },
       transparent: true, depthWrite: false, depthTest: true, fog: false,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
   }
 

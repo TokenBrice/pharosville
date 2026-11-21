@@ -1,7 +1,6 @@
 import type { EngineContext } from "../engine/types";
 import type { HarbourLayout, Vec2, Vec3 } from "../layout/types";
 import { anniversaryToday, worldToday } from "../model/anniversary";
-import { TITANS } from "../fleet/titans";
 import { FRONT_HERE, FRONT_MIN, targetsForLevel } from "../weather/director";
 import { BREATH_PEAK, NEUTRAL_SEA, type Ambience, type AmbienceInputs } from "./ambience";
 
@@ -175,12 +174,15 @@ export function momentCue(kind: string): MomentCue {
   return kind === "launch" ? "launch-bell" : kind === "death" ? "cove-bell" : null;
 }
 
+/** D-5: the conch stays bound to the original four Titans regardless of fleet roster additions. */
+const CONCH_TITANS: ReadonlySet<string> = new Set(["usdt-tether", "usdc-circle", "usde-ethena", "usds-sky"]);
+
 /**
- * A titan home at her berth (sim docking of one of the four TITANS): the conch sounds unless one sounded in
+ * A titan home at her berth (sim docking of one of the four CONCH_TITANS): the conch sounds unless one sounded in
  * the last CONCH_GAP_SEC, or a staged moment holds the stage (the scheduler's moment is never talked over).
  */
 export function conchDue(id: string, nowSec: number, lastSec: number, staging: boolean): boolean {
-  return !!TITANS[id] && !staging && !(nowSec - lastSec < CONCH_GAP_SEC);
+  return CONCH_TITANS.has(id) && !staging && !(nowSec - lastSec < CONCH_GAP_SEC);
 }
 
 /** A ship passes the listener within this (m, on the water), under way at least PASS_MIN_SPEED (m/s). */

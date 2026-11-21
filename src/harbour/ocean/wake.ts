@@ -88,7 +88,7 @@ void main() {
     float sd = (abs(q.y) - hb * 1.0) / (hb * 0.22);
     float sides = exp(-sd * sd) * (1.0 - smoothstep(0.0, hl * 1.05, abs(q.x))) * 0.08;
     float rate = spd / (sternL * 1.77);
-    float sK = smoothstep(0.8, 1.6, spd) * (0.3 + 0.7 * smoothstep(1.6, 5.0, spd)) * clamp(hl / 7.0, 0.5, 1.0);
+    float sK = smoothstep(0.45, 1.35, spd) * (0.48 + 0.52 * smoothstep(1.35, 3.8, spd)) * clamp(hl / 4.5, 0.62, 1.0);
     gl_FragColor = vec4((stern + sides) * rate * k * sK * uDt * 0.75, 0.0, 0.0, 1.0);
     return;
   }
@@ -98,8 +98,8 @@ void main() {
   float occl = 1.0 - smoothstep(0.75, 1.35, e);
   float kel = 0.0;
   if (spd > 0.25) {
-    // speed^2-ish and hull length: a harbour hull at ~4 m/s draws thin lines; nothing below ~1.5 m/s
-    float sp = smoothstep(0.8, 1.6, spd) * (0.35 + 0.65 * smoothstep(1.6, 5.0, spd)) * clamp(hl / 7.0, 0.5, 1.0);
+    // calibrated to actual harbour cruise speeds (skiff 1.86 m/s .. titan 4.71 m/s)
+    float sp = smoothstep(0.45, 1.35, spd) * (0.48 + 0.52 * smoothstep(1.35, 3.8, spd)) * clamp(hl / 4.5, 0.62, 1.0);
     float u = hl * 0.75 - q.x;                                        // distance aft of the bow shoulder
     float wl = hl * (3.0 + 4.0 * smoothstep(1.2, 6.0, spd));
     float arm = abs(abs(q.y) - (hb * 0.6 + u * 0.354));               // Kelvin half-angle 19.47 deg
@@ -265,8 +265,8 @@ export class WakeField implements WakeService {
     if (decayNow) {
       const u = this.decay.material.uniforms;
       u.uPrev.value = src.texture;
-      u.uDecay.value = Math.exp(-this.decayDt / 6.5);
-      u.uSpread.value = Math.min(1, this.decayDt * 7);
+      u.uDecay.value = Math.exp(-this.decayDt / 8.0);
+      u.uSpread.value = Math.min(0.28, this.decayDt * 1.8);
       // The decay triangle writes every history texel (no discard/blending); initialization/live clears stay intact.
       this.decay.render(renderer, dst, false);
       this.decayDt = 0;

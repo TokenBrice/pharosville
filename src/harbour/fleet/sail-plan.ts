@@ -15,12 +15,13 @@ export const ROLE_BODY = 0, ROLE_HEAD = 1, ROLE_UPPER = 2, ROLE_BAND = 3;
 /** Radius of the logo itself in emblem space (scripts/harbour/build-emblems.mjs LOGO_R / slot, through the 0.97 inset). */
 export const LOGO_R = 0.42;
 /**
- * E04 (O5-I3): the device sits inside its sail. Share of the inscribed circle the logo fills on the main sail, by
- * hull class (titans 0.92, large 0.88, medium 0.84, the smaller boats 0.80), so dyed cloth frames every device; the
- * second sail's roundel keeps its old proportion to the main's (0.85 / 0.97).
+ * E04 (O5-I3) / D-3: the device and its brand ring (outer edge 0.535 in emblem space) sit cleanly inside the sail
+ * with 13–17 % woven-cloth margin on each side. Share of the inscribed circle the logo (LOGO_R = 0.42) fills on the
+ * main sail by hull class (flagship 0.58, large 0.56, medium 0.54, smaller 0.52); the second sail keeps its old
+ * proportion to the main's (0.85 / 0.97).
  */
-const PRINT_FILL: Readonly<Record<string, number>> = { flagship: 0.92, large: 0.88, medium: 0.84 };
-export function printFill(hullClass: string): number { return PRINT_FILL[hullClass] ?? 0.8; }
+const PRINT_FILL: Readonly<Record<string, number>> = { flagship: 0.58, large: 0.56, medium: 0.54 };
+export function printFill(hullClass: string): number { return PRINT_FILL[hullClass] ?? 0.52; }
 const SECOND_SHARE = 0.85 / 0.97;
 const NO_EMBLEM: [number, number] = [-1, -1];
 

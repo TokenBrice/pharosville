@@ -315,7 +315,7 @@ function mirrorLodEmblem(P: number[], I: number[], EU: number[], verts: number[]
  * Brailed bundle: fore-aft depth kept, how far its festoons hang (× authored), and the share of the beam it may reach
  * out to either side (G6b: docked, the sail is brailed in to the middle of the yard, never a cylinder over the quay).
  */
-const BUNDLE_DEPTH = 0.45, BUNDLE_DROP = 1.4, BUNDLE_BEAM = 0.9;
+const BUNDLE_DEPTH = 0.8, BUNDLE_DROP = 0.85, BUNDLE_BEAM = 0.9;
 
 /**
  * A square rig's brailed-sail bundle (sail_cover parented to _heel, braced with the yard): its axis is the yard, not

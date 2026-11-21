@@ -192,7 +192,9 @@ export class Lightning {
         uCam: { value: new THREE.Vector3() }, uFwdAz: { value: 0 }, uR: { value: 1500 },
         uBoltCol: { value: new THREE.Color(0.78, 0.84, 1.0) }, uBoltK: { value: 0 }, uTopE: { value: 3.0 },
       },
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide,
+      transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     this.mesh = new THREE.Mesh(this.geo, this.mat);
     this.mesh.frustumCulled = false;

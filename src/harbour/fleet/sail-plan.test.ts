@@ -31,8 +31,8 @@ describe("planSails", () => {
 
   it("sizes the main roundel so the logo fills its class's share of the sail's inscribed circle (E04: inside its sail)", () => {
     const c = inscribedCircle(hull2d([[-4, 1], [0, 1], [0, 9]]))!;
-    // titans 0.92, large 0.88, medium 0.84, the smaller boats 0.80 (an unknown class too)
-    for (const [cls, fill] of [["flagship", 0.92], ["large", 0.88], ["medium", 0.84], ["small", 0.8], ["boat", 0.8], ["skiff", 0.8], ["", 0.8]] as const) {
+    // D-3: flagship 0.58, large 0.56, medium 0.54, smaller boats 0.52 (leaving 13–17 % cloth margin outside the 0.535 ring)
+    for (const [cls, fill] of [["flagship", 0.58], ["large", 0.56], ["medium", 0.54], ["small", 0.52], ["boat", 0.52], ["skiff", 0.52], ["", 0.52]] as const) {
       expect(printFill(cls)).toBe(fill);
       const [f] = planSails([main], printFill(cls));
       expect(((0 - -4) / (f.emb[2] - f.emb[0])) * LOGO_R).toBeCloseTo(c.r * fill, 6);
@@ -40,7 +40,7 @@ describe("planSails", () => {
     const [m] = planSails([main], printFill("medium"));
     // emblem u = (x - cx) / D + 0.5 along +x: D from two corners
     const D = (0 - -4) / (m.emb[2] - m.emb[0]);
-    expect(D * LOGO_R).toBeCloseTo(c.r * 0.84, 6);
+    expect(D * LOGO_R).toBeCloseTo(c.r * 0.54, 6);
     // the incircle centre maps to the emblem centre; v runs head → foot like the kit's
     const u = (c.x - -4) / D + m.emb[0];
     expect(u).toBeCloseTo(0.5, 3);
