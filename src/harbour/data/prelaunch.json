@@ -2,9 +2,9 @@
  "source": "pharos-watch shared/data/stablecoins/coins.generated.json (status: pre-launch)",
  "count": 43,
  "phases": {
-  "announced": 21,
+  "announced": 20,
   "launching-soon": 6,
-  "testnet": 7,
+  "testnet": 8,
   "beta": 5,
   "auditing": 2,
   "null": 2
@@ -138,8 +138,8 @@
    "symbol": "BRL-B3",
    "pegCurrency": "BRL",
    "pegType": "peggedBRL",
-   "launchPhase": "launching-soon",
-   "launchPhaseDetail": "Latin America's largest stock exchange (B3/Sao Paulo) is developing B3RL, its own BRL settlement stablecoin for tokenized-asset trading. At B3's Tokenization Day (May 26-27 2026), coverage indicated a later-2026 / H2 2026 window for B3RL and the tokenized-asset registry; the prior H1 2026 window elapsed with no on-chain deployment visible. At Expert XP on July 23-24 2026 B3 placed the launch between August and September 2026, and its Q2 2026 results note (August 11) confirmed infrastructure testing of B3RL had begun, the first B3-owned confirmation of the ticker. That window also lapsed: at B3 Week on September 15 2026 digital-assets director Felipe Paiva said infrastructure for new use cases, including tokenized collateral, would be ready at the start of 2027, and September reporting frames B3RL as a 2027 launch. Backing is mainly cash and Tesouro Nacional securities, with Polygon named in Brazilian press and by Paiva. No deployment was visible as of September 27 2026, and Pharos moved the expected launch to 2027 on September 27 2026.",
+   "launchPhase": "testnet",
+   "launchPhaseDetail": "Latin America's largest stock exchange (B3/Sao Paulo) is developing B3RL, its own BRL settlement stablecoin for tokenized-asset trading. At B3's Tokenization Day (May 26-27 2026), coverage indicated a later-2026 / H2 2026 window for B3RL and the tokenized-asset registry; the prior H1 2026 window elapsed with no on-chain deployment visible. At Expert XP on July 23-24 2026 B3 placed the launch between August and September 2026, and its Q2 2026 results note (August 11) confirmed infrastructure testing of B3RL had begun, the first B3-owned confirmation of the ticker. That window also lapsed: at B3 Week on September 15 2026 digital-assets director Felipe Paiva said infrastructure for new use cases, including tokenized collateral, would be ready at the start of 2027, and September reporting frames B3RL as a 2027 launch. Backing is mainly cash and Tesouro Nacional securities, with Polygon named in Brazilian press and by Paiva. No deployment was visible as of September 27 2026, and Pharos moved the expected launch to 2027 on September 27 2026. On October 8 2026 B3 said B3RL will not settle the first tokenized shares targeted for early 2027 and that the settlement currency remains undecided. Pharos moved the launch phase from launching-soon to testnet on October 18 2026, reflecting infrastructure testing with no near-term settlement role.",
    "expectedLaunchDate": "2027",
    "announcedDate": "2025-12",
    "milestones": [
@@ -177,6 +177,11 @@
      "date": "2026-09-15",
      "type": "delay",
      "title": "B3 Week: B3RL still in testing; tokenization infrastructure readiness targeted for early 2027 as the August-September window lapses"
+    },
+    {
+     "date": "2026-10-08",
+     "type": "milestone",
+     "title": "B3 says B3RL will not settle the first tokenized shares"
     }
    ],
    "issuer": "Brazil",
@@ -319,7 +324,7 @@
    "pegCurrency": "EUR",
    "pegType": "peggedEUR",
    "launchPhase": "announced",
-   "launchPhaseDetail": "37-bank consortium across 15 countries (May 20 expansion added ~20 members incl. ABN Amro, Intesa Sanpaolo, Rabobank, Nordea, Raiffeisen Bank International, up from 17); Fireblocks selected as core infrastructure partner Apr 21; French Finance Minister Lescure publicly endorses project (Apr 17); EMI license application with De Nederlandsche Bank pending. Qivalis says it will launch immediately on approval; ERC-20F standard with built-in governance/AML/KYC; launching on Ethereum (primary), Polygon, Base with permissioned KYC layer; ticker not yet published by Qivalis. As of September 13 2026 qivalis.eu still states the EMI application is pending before DNB and that it does not issue electronic money; the H2 2026 target stands, and September 8 2026 secondary reports reaffirmed public Ethereum as the issuance chain without a Qivalis press release",
+   "launchPhaseDetail": "37-bank consortium across 15 countries (May 20 expansion added ~20 members incl. ABN Amro, Intesa Sanpaolo, Rabobank, Nordea, Raiffeisen Bank International, up from 17); Fireblocks selected as core infrastructure partner Apr 21; French Finance Minister Lescure publicly endorses project (Apr 17); De Nederlandsche Bank granted Qivalis electronic money institution authorisation, announced October 14 2026; Qivalis says issuance will begin in the coming months once MiCA requirements are met and the token white paper is published; ERC-20F standard with built-in governance/AML/KYC; launching on Ethereum (primary), Polygon, Base with permissioned KYC layer; ticker not yet published by Qivalis. No launch date accompanied the authorisation and the H2 2026 target stands; September 8 2026 secondary reports reaffirmed public Ethereum as the issuance chain without a Qivalis press release",
    "expectedLaunchDate": "2026-Q4",
    "announcedDate": "2025-09",
    "milestones": [
@@ -382,6 +387,11 @@
      "date": "2026-10-05",
      "type": "announcement",
      "title": "Qivalis appoints Olga Elsenga as Chief Risk and Compliance Officer"
+    },
+    {
+     "date": "2026-10-14",
+     "type": "regulatory",
+     "title": "De Nederlandsche Bank authorises Qivalis as an electronic money institution"
     }
    ],
    "issuer": "Netherlands",
@@ -718,6 +728,11 @@
      "date": "2026-09-27",
      "type": "milestone",
      "title": "HKDAP circulating supply roughly doubles to about 1.01 million HKDAP; still no price field"
+    },
+    {
+     "date": "2026-10-16",
+     "type": "partnership",
+     "title": "Finloop and QFPay HK complete an HKDAP payment transaction with Anchorpoint"
     }
    ],
    "issuer": "Hong Kong",
@@ -801,7 +816,7 @@
    "pegCurrency": "JPY",
    "pegType": "peggedJPY",
    "launchPhase": "announced",
-   "launchPhaseDetail": "Announced June 10 2026 by MUFG Bank, Mizuho Bank, and Sumitomo Mitsui Banking Corporation, Japan's three largest banks, which entered a memorandum of understanding to establish a voluntary council for jointly examining operational frameworks, governance, and related matters toward a jointly issued stablecoin. The Three Banks aim to conduct actual commercial transactions during fiscal year 2026 (ending March 2027) using a stablecoin issued pursuant to a trust agreement under which they act as joint settlors and a trust bank or similar institution acts as trustee; the trustee is not yet named. The council examines issuance infrastructure, system and scheme design, and governance, and will consider collaboration with other financial institutions that may participate in the future. The initiative builds on a demonstration experiment selected in November 2025 as a supported project under the Financial Services Agency's FinTech Proof-of-Concept Hub, part of the joint exploration the three banks have conducted since 2024 under the Project Pax lineage. Nikkei reporting on June 9 2026 described a yen-denominated token issued on MUFG's Progmat platform with a US dollar version to follow and a one trillion yen business-to-business volume target by 2028; the banks' own release names neither denomination nor platform. No ticker, chain, trustee, reserve composition, or attestation arrangement has been announced.",
+   "launchPhaseDetail": "Announced June 10 2026 by MUFG Bank, Mizuho Bank, and Sumitomo Mitsui Banking Corporation, Japan's three largest banks, which entered a memorandum of understanding to establish a voluntary council for jointly examining operational frameworks, governance, and related matters toward a jointly issued stablecoin. The Three Banks aim to conduct actual commercial transactions during fiscal year 2026 (ending March 2027) using a stablecoin issued pursuant to a trust agreement under which they act as joint settlors and a trust bank or similar institution acts as trustee; the production trustee is not yet named. The council examines issuance infrastructure, system and scheme design, and governance, and will consider collaboration with other financial institutions that may participate in the future. The initiative builds on a demonstration experiment selected in November 2025 as a supported project under the Financial Services Agency's FinTech Proof-of-Concept Hub, part of the joint exploration the three banks have conducted since 2024 under the Project Pax lineage. Nikkei reporting on June 9 2026 described a yen-denominated token issued on MUFG's Progmat platform with a US dollar version to follow and a one trillion yen business-to-business volume target by 2028; the banks' own release names neither denomination nor platform. On October 16 2026 the banks reported a July 17 to 23 trial of the jointly issued model with Mitsubishi UFJ Trust and Banking as trustee, trust assets held in bank deposits, no issuance cap, and circulation limited to bank-verified users; the release calls the design provisional. No ticker, production chain, production trustee, reserve composition, or attestation arrangement has been announced.",
    "expectedLaunchDate": "2027",
    "announcedDate": "2026-06-10",
    "milestones": [
@@ -814,6 +829,11 @@
      "date": "2026-06-10",
      "type": "announcement",
      "title": "MUFG, Mizuho, and SMBC sign MOU for a jointly issued stablecoin with live transactions targeted in FY2026"
+    },
+    {
+     "date": "2026-10-16",
+     "type": "testnet",
+     "title": "MUFG, Mizuho and SMBC report a jointly issued yen stablecoin trial"
     }
    ],
    "issuer": "Japan",
@@ -828,11 +848,16 @@
    "symbol": "JPYdf",
    "pegCurrency": "JPY",
    "pegType": "peggedJPY",
-   "launchPhase": "announced",
-   "launchPhaseDetail": "DeltaForesight announced JPY DeFi development before mainnet on September 25, 2026. Features, eligibility and launch timing remain subject to development and legal review. Its September 29 announcement plans related Fusion by IPOR vaults after mainnet; those vaults are concept-stage plans, with strategies, target chains and offering terms still to be determined. The vault-share ERC-4626 standard does not establish JPYdf itself as a yield-bearing vault token.",
+   "launchPhase": "launching-soon",
+   "launchPhaseDetail": "JPY DeFi launched on Ethereum mainnet on October 15 2026, so JPYdf is live. Pharos tracks it pre-launch only because no runtime price source admits it: on launch day DefiLlama and CoinGecko listed neither the token nor the protocol, and the DefiLlama contract-price endpoint returned no quote. The token is 0xb122f4a154f84708407213d6a715181180012f45 (18 decimals, Ethereum only, no registered bridge minter). At block 26196851 (08:54 UTC on October 15), supply was 91,738,933 JPYdf, about $581,000 at that day's yen rate, with 69.4 million borrowed against USDC and 22.3 million against wstETH. Trading was confined to one Uniswap v4 JPYdf/USDC pool created that morning with about $552,000 of liquidity. The token and the Liquity v2 core are non-upgradeable and the token owner is renounced. The dToken vault and strategy layer is upgradeable and pausable, and governance can recognize collateral losses, replace oracle sources after a 12-hour timelock and resume paused branches without delay. The governance, operator and guardian Safes are each 2-of-3 with the same three signers, although the documentation describes a higher quorum for loss recognition. The deployed JPY/USD staleness threshold is 30 hours, while the documentation describes 72 hours. Chain Defenders and Guardian reviewed the JPYdf-specific code; the bug bounty and confidential disclosure channel were not active at launch. JPYdf Foundation DAO LLC operates the app, which excludes Japanese residents, and does not disclose its domicile.",
    "expectedLaunchDate": null,
    "announcedDate": "2026-09-25",
    "milestones": [
+    {
+     "date": "2026-08",
+     "type": "audit",
+     "title": "Chain Defenders completes two JPYdf security reviews"
+    },
     {
      "date": "2026-09-25",
      "type": "announcement",
@@ -842,6 +867,16 @@
      "date": "2026-09-29",
      "type": "partnership",
      "title": "DeltaForesight plans related vaults using Fusion by IPOR"
+    },
+    {
+     "date": "2026-10-09",
+     "type": "audit",
+     "title": "Guardian issues updated review of JPYdf-specific changes"
+    },
+    {
+     "date": "2026-10-15",
+     "type": "milestone",
+     "title": "JPY DeFi launches on Ethereum mainnet"
     }
    ],
    "issuer": "Japan",
@@ -966,6 +1001,11 @@
      "date": "2026-06-29",
      "type": "milestone",
      "title": "Kaia confirms KB Kookmin's May pilot"
+    },
+    {
+     "date": "2026-09-29",
+     "type": "partnership",
+     "title": "MoonPay names KB Kookmin Bank as a Korean stablecoin partner"
     }
    ],
    "issuer": "South Korea",
@@ -981,7 +1021,7 @@
    "pegCurrency": "KRW",
    "pegType": "peggedKRW",
    "launchPhase": "beta",
-   "launchPhaseDetail": "Pilot phase following successful September 2025 proof of concept; not yet in public circulation. BDACS is South Korea's regulated digital-asset custodian; Woori Bank holds the won reserves and participated directly in the PoC. Initial deployment on Avalanche (cited by KISA for reliability in public-sector use); KRW1 expanded to Polygon in December 2025 for broader payments, remittances, and enterprise reach. October 2025 MoU with Circle positions KRW1 for deployment on Arc (Circle's new Layer 1), where it joins national stablecoin issuers from Japan, Brazil, Mexico, and the Philippines. February 2026 Plume partnership positions KRW1 as Korean institutional settlement rail for tokenized RWA. May 2026 Aptos Foundation partnership brings KRW1 to its first non-EVM chain, leveraging Aptos's payment infrastructure for cross-border remittances and RWA tokenisation. A February 2026 MoU with Com2uS Holdings targets KRW1-based payment infrastructure on the XPLA/CONX chain. KRW1 is live on Aptos with 30M tokens per rwa.xyz, which reported 141.8M KRW1 (about $97K) across Polygon, Aptos, Plume, Ethereum, and BNB Chain with 33 holders on September 13 2026. On September 7 2026 BDACS adopted LayerZero's OFT standard to unify that supply across chains, and on September 8 agreed card-payment rails with XBITU. Korea's Digital Asset Basic Act (the gate for commercial launch) was excluded from the National Assembly's pre-recess agenda on May 12 2026; the first public hearing planned for late September was effectively cancelled on September 22 2026 after the government bill was delayed, with the FSC targeting a November subcommittee and year-end passage uncertain. September 2026 brought a dense partnership run (Rain/Visa card rails, Arc mainnet at launch, Fireblocks custody) alongside scrutiny of the 2026 whitepaper's claim that KRW1 is a commercial product in operation, which BDACS said it would review; commercial launch remains contingent on the unenacted framework.",
+   "launchPhaseDetail": "Pilot phase following successful September 2025 proof of concept; not yet in public circulation. BDACS is South Korea's regulated digital-asset custodian; Woori Bank holds the won reserves and participated directly in the PoC. Initial deployment on Avalanche (cited by KISA for reliability in public-sector use); KRW1 expanded to Polygon in December 2025 for broader payments, remittances, and enterprise reach. October 2025 MoU with Circle positions KRW1 for deployment on Arc (Circle's new Layer 1), where it joins national stablecoin issuers from Japan, Brazil, Mexico, and the Philippines. February 2026 Plume partnership positions KRW1 as Korean institutional settlement rail for tokenized RWA. May 2026 Aptos Foundation partnership brings KRW1 to its first non-EVM chain, leveraging Aptos's payment infrastructure for cross-border remittances and RWA tokenisation. A February 2026 MoU with Com2uS Holdings targets KRW1-based payment infrastructure on the XPLA/CONX chain. KRW1 is live on Aptos with 30M tokens per rwa.xyz, which reported 141.8M KRW1 (about $97K) across Polygon, Aptos, Plume, Ethereum, and BNB Chain with 33 holders on September 13 2026. On September 7 2026 BDACS adopted LayerZero's OFT standard to unify that supply across chains, and on September 8 agreed card-payment rails with XBITU. Korea's Digital Asset Basic Act (the gate for commercial launch) was excluded from the National Assembly's pre-recess agenda on May 12 2026; the first public hearing planned for late September was effectively cancelled on September 22 2026 after the government bill was delayed, with the FSC targeting a November subcommittee and year-end passage uncertain. September 2026 brought a dense partnership run (Rain/Visa card rails, Arc mainnet at launch, Fireblocks custody) alongside scrutiny of the 2026 whitepaper's claim that KRW1 is a commercial product in operation, which BDACS said it would review; commercial launch remains contingent on the unenacted framework. On October 18 2026 Pharos replaced the registry's zero-supply proof-of-concept Ethereum and Avalanche contracts with the July 2026 production contracts named in BDACS's September 2026 accountant reserve report (Ethereum, Avalanche and Arc, 18 decimals), linked DefiLlama id 429 and CoinGecko id krw1, and dropped the BSC, Polygon and Plume proof-of-concept rows that krw1.kr lists as PoC only.",
    "expectedLaunchDate": "2026",
    "announcedDate": "2025-09",
    "milestones": [
@@ -1089,8 +1129,8 @@
    "issuer": "South Korea",
    "logo": "/logos/krw1-bdacs.png",
    "brandColor": "#161a35",
-   "llamaId": null,
-   "geckoId": null
+   "llamaId": "429",
+   "geckoId": "krw1"
   },
   {
    "id": "kusd-kerne",
@@ -1256,7 +1296,7 @@
    "pegCurrency": "PLN",
    "pegType": "peggedPLN",
    "launchPhase": "announced",
-   "launchPhaseDetail": "PLNQ is deployed on Ethereum but the issuer states no tokens are in circulation and no reserve exists. Ethereum block 26107706 observed 2026-10-02 confirms symbol PLNQ, six decimals and zero totalSupply; the exact-contract DefiLlama price response is empty. The whitepaper plans Polygon, Algorand, XRP Ledger and Xahau, but those production identities are not verified. No CoinGecko identity or launch date is published. The cover states original AFM notification on 6 April 2026, while ESMA records notification on 7 April and the whitepaper was amended on 30 April.",
+   "launchPhaseDetail": "Quantoz announced PLNQ on April 14 2026 with Zodia Markets supporting initial distribution, and PLNQ is deployed on Ethereum, but the issuer states no tokens are in circulation and no reserve exists. Ethereum block 26107706 observed 2026-10-02 confirms symbol PLNQ, six decimals and zero totalSupply; the exact-contract DefiLlama price response is empty. The whitepaper plans Polygon, Algorand, XRP Ledger and Xahau, but those production identities are not verified. No CoinGecko identity or launch date is published. The cover states original AFM notification on 6 April 2026, while ESMA records notification on 7 April and the whitepaper was amended on 30 April.",
    "expectedLaunchDate": null,
    "announcedDate": "2026-04-07",
    "milestones": [
@@ -1269,6 +1309,11 @@
      "date": "2026-04-07",
      "type": "regulatory",
      "title": "ESMA records PLNQ whitepaper notification"
+    },
+    {
+     "date": "2026-04-14",
+     "type": "announcement",
+     "title": "Quantoz Payments announces PLNQ and GBPQ"
     },
     {
      "date": "2026-04-30",
@@ -1374,6 +1419,11 @@
    "expectedLaunchDate": null,
    "announcedDate": "2026-02-25",
    "milestones": [
+    {
+     "date": "2025-11-18",
+     "type": "milestone",
+     "title": "ReStabilise raises a 2.82 million pound pre-seed round led by Project A"
+    },
     {
      "date": "2026-02-25",
      "type": "regulatory",
@@ -1701,7 +1751,7 @@
    "pegCurrency": "USD",
    "pegType": "peggedUSD",
    "launchPhase": "beta",
-   "launchPhaseDetail": "USDB powers Stripe's Stablecoin Financial Accounts in 101 countries; 1:1 backed by USD held in cash and BlackRock money market funds; Bridge received conditional OCC national trust bank charter Feb 2026. At Stripe Sessions 2026 (Apr 29) Bridge expanded stablecoin-backed cards to 30 countries (targeting 100+ by year-end via Visa) and added Tempo/Plasma/Celo/Sui support, COP/GBP on-off-ramps, and SWIFT/FedNow/ACH integration. Bridge Open Issuance now also powers MoneyGram's MGUSD (Stellar, Jun 2) and Deel's DLUSD (Tempo, Jun 3) alongside USDH, CASH, and USDSui; distinct from Blast's USDB (usdb-blast). Since September 9 2026 DefiLlama tracks the Tempo deployment as stablecoin id 439 'USDBridge' (about $31.7M circulating on September 13, matching on-chain supply; the Tempo supply then jumped from $30.5M on September 18 to $76.9M on September 19 and 77,921,948.94 USDB on-chain on September 20, with no Bridge statement explaining the mint), distinct from the Blast USDB and FantOHM rows that share the symbol. The listing's price is null and CoinGecko has no entry, so promotion to active is still pending a verified runtime price path. Bridge's docs describe USDB as a closed-loop stablecoin, so whether the Tempo supply is the whole float is unknown",
+   "launchPhaseDetail": "USDB powered Stripe's Stablecoin Financial Accounts in 101 countries until Open USD (ousd-open-standard) launched on September 30 2026; Stripe now lists only OUSD and USDC for stablecoin balances, while Bridge keeps USDB in its API for closed-loop use and names no sunset date. DefiLlama id 439 showed about $97.0M circulating on October 18 2026; 1:1 backed by USD held in cash and BlackRock money market funds; Bridge received conditional OCC national trust bank charter Feb 2026. At Stripe Sessions 2026 (Apr 29) Bridge expanded stablecoin-backed cards to 30 countries (targeting 100+ by year-end via Visa) and added Tempo/Plasma/Celo/Sui support, COP/GBP on-off-ramps, and SWIFT/FedNow/ACH integration. Bridge Open Issuance now also powers MoneyGram's MGUSD (Stellar, Jun 2) and Deel's DLUSD (Tempo, Jun 3) alongside USDH, CASH, and USDSui; distinct from Blast's USDB (usdb-blast). Since September 9 2026 DefiLlama tracks the Tempo deployment as stablecoin id 439 'USDBridge' (about $31.7M circulating on September 13, matching on-chain supply; the Tempo supply then jumped from $30.5M on September 18 to $76.9M on September 19 and 77,921,948.94 USDB on-chain on September 20, with no Bridge statement explaining the mint), distinct from the Blast USDB and FantOHM rows that share the symbol. The listing's price is null and CoinGecko has no entry, so promotion to active is still pending a verified runtime price path. Bridge's docs describe USDB as a closed-loop stablecoin, so whether the Tempo supply is the whole float is unknown",
    "expectedLaunchDate": null,
    "announcedDate": null,
    "milestones": [
@@ -1749,6 +1799,11 @@
      "date": "2026-09-27",
      "type": "milestone",
      "title": "USDB Tempo float grows to about $83.6 million; still no price listing"
+    },
+    {
+     "date": "2026-09-30",
+     "type": "milestone",
+     "title": "Open USD launches and Bridge limits USDB to closed-loop use"
     }
    ],
    "issuer": "United States",
@@ -1792,12 +1847,12 @@
   },
   {
    "id": "usdvb-versabank",
-   "name": "VersaBank Real Bank Deposit Token USD",
-   "symbol": "USDVB",
+   "name": "VersaBank VUSD",
+   "symbol": "VUSD",
    "pegCurrency": "USD",
    "pegType": "peggedUSD",
    "launchPhase": null,
-   "launchPhaseDetail": "Internal USDVB pilot announced August 26, 2025, with limited designated external deposit-partner/client deployment planned. Pilot is not a supported catalog launch-phase enum, so no launchPhase is assigned. Commercial launch requires the bank’s stated OCC non-objection process; the September 1, 2026 filing still seeks regulatory confirmation of deposit-insurance eligibility and the ability to pay interest. No current launch window or official chain-qualified asset addresses are established.",
+   "launchPhaseDetail": "Internal USDVB pilot announced August 26, 2025, with limited designated external deposit-partner/client deployment planned. Pilot is not a supported catalog launch-phase enum, so no launchPhase is assigned. Commercial launch requires the bank’s stated OCC non-objection process; the September 1, 2026 filing still seeks regulatory confirmation of deposit-insurance eligibility and the ability to pay interest. On October 15 2026 VersaBank announced the US commercial phase, under which VersaBank USA is to issue a tokenized deposit branded VUSD; the release names no chain or date. Pharos tracks the commercial token as VUSD from October 15 2026; USDVB remains the pilot name. No current launch window or official chain-qualified asset addresses are established.",
    "expectedLaunchDate": null,
    "announcedDate": "2025-08-26",
    "milestones": [
@@ -1810,6 +1865,11 @@
      "date": "2026-09-01",
      "type": "regulatory",
      "title": "Quarterly filing retains conditional tokenized-deposit strategy"
+    },
+    {
+     "date": "2026-10-15",
+     "type": "announcement",
+     "title": "VersaBank announces the US commercial phase of its tokenized deposits with VUSD"
     }
    ],
    "issuer": "United States",
