@@ -4,6 +4,8 @@ import { SCRUB_FRAG } from "./shaders/scrub";
 export { SCRUB_FRAG } from "./shaders/scrub";
 import { DITHER_FRAG } from "./shaders/dither";
 export { DITHER_FRAG } from "./shaders/dither";
+import { GtaoEffect } from "./shaders/gtao";
+export { GtaoEffect, GTAO_AO_FRAG, GTAO_BLUR_FRAG, GTAO_COMPOSITE_FRAG, gtaoDirsFor, gtaoStepsFor } from "./shaders/gtao";
 import * as THREE from "three";
 import {
   BloomEffect, Effect, EffectComposer, EffectPass, KernelSize, LUT3DEffect, type MipmapBlurPass, Pass, RenderPass, SMAAEffect, SMAAPreset,
@@ -25,7 +27,7 @@ export interface PostPreparation {
 
 /**
  * The WebGL2 post chain (NaN scrub, one merged EffectPass + SMAA):
- *   scrub → tilt-shift (overview only) → bloom → AgX → per-hour 3D LUT grade → vignette → dither (+ paper tooth) → SMAA.
+ *   scrub → half-res GTAO → tilt-shift (overview only) → bloom → AgX → per-hour 3D LUT grade → vignette → dither (+ paper tooth) → SMAA.
  * The LUT is generated on the CPU from style C's grade (lift/gamma/gain + saturation + AgX look contrast)
  * and regenerated only when the interpolated grade actually changes.
  */
@@ -211,6 +213,7 @@ export function tiltBand(camera: THREE.Camera, lantern: THREE.Vector3, dock: rea
 }
 
 export class PostChain {
+  readonly gtao: GtaoEffect;
   readonly bloom: HarbourBloomEffect;
   readonly toneMapping: ToneMappingEffect;
   readonly tiltShift: TiltShiftEffect;
@@ -244,17 +247,18 @@ export class PostChain {
     this.cam = camera;
     composer.addPass(new RenderPass(scene, camera));
     composer.addPass(this.scrub);
+    this.gtao = new GtaoEffect(camera);
     this.tiltShift = new TiltShiftEffect({ focusArea: 0.6, feather: 0.38, offset: 0.06, kernelSize: KernelSize.MEDIUM, resolutionScale: 0.5 });
-    this.bloom = new HarbourBloomEffect({ intensity: 0.6, luminanceThreshold: 1.3, luminanceSmoothing: 0.35, mipmapBlur: true, radius: 0.72, levels: 8 });
+    this.bloom = new HarbourBloomEffect({ intensity: 0.6, luminanceThreshold: 1.3, luminanceSmoothing: 0.30, mipmapBlur: true, radius: 0.68, levels: 8 });
     this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
     this.lut = new LUT3DEffect(this.gradeLut.texture, { inputColorSpace: THREE.SRGBColorSpace });
-    this.vignette = new VignetteEffect({ offset: 0.28, darkness: 0.42 });
+    this.vignette = new VignetteEffect({ offset: 0.30, darkness: 0.36 });
     // the tilt-shift blur pass runs even at opacity 0: skip it while the effect is faded out (heart/close)
     const tiltUpdate = this.tiltShift.update.bind(this.tiltShift);
     this.tiltShift.update = (r, input, dt) => { if (this.tiltShift.blendMode.opacity.value > 0.002) tiltUpdate(r, input, dt); };
     const toothQ = typeof location !== "undefined" ? new URLSearchParams(location.search).get("tooth") : null;
     this.dither = new DitherEffect(toothQ === null ? PAPER_TOOTH * 0.015 : toothQ === "0" ? 0 : 0.015);
-    this.main = new EffectPass(camera, this.tiltShift, this.bloom, this.toneMapping, this.lut, this.vignette, this.dither);
+    this.main = new EffectPass(camera, this.gtao, this.tiltShift, this.bloom, this.toneMapping, this.lut, this.vignette, this.dither);
     composer.addPass(this.main);
     this.smaa = new SMAAEffect({ preset: SMAAPreset.HIGH });
     composer.addPass(new EffectPass(camera, this.smaa));
@@ -290,6 +294,7 @@ export class PostChain {
     if (this.tier === q.tier) return;
     this.tier = q.tier;
     this.bloom.setLite(q.tier === "low");
+    this.gtao?.setQuality(q.gtao);
     setBloomLevels(this.bloom.mipmapBlurPass, q.bloomLevels);
     this.smaa.applyPreset(q.smaa === "high" ? SMAAPreset.HIGH : q.smaa === "medium" ? SMAAPreset.MEDIUM : SMAAPreset.LOW);
   }
@@ -316,6 +321,12 @@ export class PostChain {
     if (!next) {
       for (const pass of this.composer.passes) {
         if (!(pass instanceof RenderPass) && !(pass instanceof StaticDepthPass)) add(pass, () => pass.renderToScreen ? null : this.composer.outputBuffer);
+      }
+      if (this.gtao) {
+        entries.push(
+          { root: this.gtao.aoScene, camera: this.gtao.passCamera, target: () => this.gtao.aoTargetA, scene: this.gtao.aoScene },
+          { root: this.gtao.blurScene, camera: this.gtao.passCamera, target: () => this.gtao.aoTargetB, scene: this.gtao.blurScene },
+        );
       }
       const bloom = this.bloom.mipmapBlurPass as MipmapBlurPass & {
         downsamplingMaterial: THREE.Material; upsamplingMaterial: THREE.Material;
@@ -349,6 +360,7 @@ export class PostChain {
     this.renderer.toneMappingExposure = Math.pow(2, tod.exposure);
     this.bloom.intensity = tod.bloomIntensity;
     this.bloom.luminanceMaterial.threshold = tod.bloomThreshold;
+    this.gtao?.syncTimeOfDay(this.cam, tod);
     // Tilt-shift: a miniature cue at overview zoom only; fades out as you zoom in.
     const z = THREE.MathUtils.smoothstep(rig.distance, this.tiltNear, this.tiltFar);
     this.tiltShift.blendMode.opacity.value = z * TILT_OPACITY;
@@ -366,7 +378,7 @@ export class PostChain {
       const want = Math.max((yb + yt) * 0.5, yt - sharp - 0.06);
       this.tiltShift.offset = THREE.MathUtils.clamp(Number.isFinite(want) ? want : 0.06, 0.06, 0.5);
     }
-    this.vignette.darkness = 0.36 + 0.12 * z;
+    this.vignette.darkness = 0.32 + 0.12 * z;
     // LUT: regenerate when the grade moved (throttled to 4 Hz while the clock runs).
     this.lutAge += delta;
     if (this.lutAge > 0.25) {
@@ -379,5 +391,5 @@ export class PostChain {
     }
   }
 
-  dispose(): void { this.depthPrepass?.dispose(); this.gradeLut.dispose(); this.scrub.dispose(); }
+  dispose(): void { this.depthPrepass?.dispose(); this.gtao?.dispose(); this.gradeLut.dispose(); this.scrub.dispose(); }
 }

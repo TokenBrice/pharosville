@@ -17,7 +17,10 @@ export const CROWN_SUN_STEP_M = 2;
  */
 export const CROWN_GLSL = /* glsl */ `
 ${LOW_SUN_GLSL}
+#ifndef HB_DECL_UNIGHT
+#define HB_DECL_UNIGHT
 uniform float uNight;
+#endif
 #if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0 && defined( SHADOWMAP_TYPE_PCF )
 uniform mat4 directionalShadowMatrix[ NUM_DIR_LIGHT_SHADOWS ];
 #endif

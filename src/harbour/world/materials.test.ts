@@ -129,6 +129,30 @@ describe("seasonal colour/depth publication", () => {
     expect([kit.customProgramCacheKey(), life.customProgramCacheKey(), depth.customProgramCacheKey()]).toEqual(leaf);
     materials.dispose(); life.dispose(); actor.customDepthMaterial.dispose(); mesh.geometry.dispose();
   });
+
+  it("wires procedural bump perturbation, foliage SSS, warm bounce fill & verdigris bronze into the kit shader", () => {
+    const u = createWorldUniforms(), mats = new HarbourMaterials(u);
+    const kit = mats.kit();
+    const shader = { vertexShader: THREE.ShaderLib.standard.vertexShader, fragmentShader: THREE.ShaderLib.standard.fragmentShader, uniforms: {}, defines: {} } as THREE.WebGLProgramParametersWithUniforms;
+    kit.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    expect(shader.fragmentShader).toContain("hbPattern(hbPid, hbRough, hbBumpH)");
+    expect(shader.fragmentShader).toContain("normal = hbApplyBump(normal, hbBumpH, hbPid, vHbLocalN);");
+    expect(shader.fragmentShader).toContain("hbSmoothGrassNormal(vHbWorld, inverseTransformDirection(normal, viewMatrix))");
+    expect(shader.fragmentShader).toContain("hbBounceFill(diffuseColor.rgb, hbNw, uHbSunDir, uHbSunColor, hbOcc, uNight)");
+    expect(shader.fragmentShader).toContain("hbFoliageSSS(diffuseColor.rgb, hbNw, hbVw, uHbSunDir, uHbSunColor, hbOcc, hbCs, hbSnow, uNight)");
+    expect(shader.fragmentShader).toContain("hbMetalLight(metalnessFactor, diffuseColor.rgb, hbNw, hbVw, roughnessFactor, reflectedLight.directSpecular, hbFire)");
+    // Round 2 & 3: restrained foliage wrap (0.28), blue-floor dawn SSS guard, winter canopy hoarfrost,
+    // macro canopy needle-clump dappling & macro coastal sand swash ripples
+    expect(shader.fragmentShader).toContain("(ndl + 0.28) / 1.28");
+    expect(shader.fragmentShader).toContain("calmHue.b = max(calmHue.b, 0.74 * hueL);");
+    expect(shader.fragmentShader).toContain("float crownCap = uSnowCover * crownUp");
+    expect(shader.fragmentShader).toContain("float wetSand = (1.0 - smoothstep(0.18, 1.48");
+    expect(shader.fragmentShader).toContain("hbBumpFade(dW, 3.2)");
+    expect(shader.fragmentShader).toContain("hbBumpFade(dPleaf, 2.0)");
+    // HB_LITE skips procedural bump math completely
+    expect(shader.fragmentShader).toContain("#ifndef HB_LITE\n// Mikkelsen");
+    mats.dispose();
+  });
 });
 
 describe("E09 overview lamps (uLampFar)", () => {

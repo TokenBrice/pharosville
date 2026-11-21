@@ -14,18 +14,18 @@ export interface SkyKey {
 }
 
 export const SKY_KEYS: SkyKey[] = [
-  { hour: 0,    glow: "#6C82C0", glowK: 0.55, cloudLight: "#8A9BC4", cloudMid: "#43528A", cloudShade: "#1E2850", cloudRim: "#D3DEFF", rimK: 1.0, mount: "#1A2443", mountLit: "#33446E", snow: 0.25, stars: 1, sun: 0, moon: 1 },
-  { hour: 5.0,  glow: "#6C82C0", glowK: 0.5,  cloudLight: "#8A9BC4", cloudMid: "#43528A", cloudShade: "#1E2850", cloudRim: "#D3DEFF", rimK: 1.0, mount: "#1C2646", mountLit: "#33446E", snow: 0.25, stars: 0.85, sun: 0, moon: 0.9 },
-  { hour: 6.2,  glow: "#FFB59A", glowK: 0.9,  cloudLight: "#FFD5C2", cloudMid: "#C99AA8", cloudShade: "#5E5F8A", cloudRim: "#FFC3A0", rimK: 0.9, mount: "#4A4E74", mountLit: "#A88A9A", snow: 0.5, stars: 0.15, sun: 0.8, moon: 0.3 },
+  { hour: 0,    glow: "#4F669E", glowK: 0.45, cloudLight: "#344566", cloudMid: "#202E4A", cloudShade: "#121B2E", cloudRim: "#8BA6D8", rimK: 0.72, mount: "#101830", mountLit: "#1E2D50", snow: 0.2, stars: 1, sun: 0, moon: 1 },
+  { hour: 5.0,  glow: "#4F669E", glowK: 0.42, cloudLight: "#344566", cloudMid: "#202E4A", cloudShade: "#121B2E", cloudRim: "#8BA6D8", rimK: 0.72, mount: "#121A34", mountLit: "#202F52", snow: 0.2, stars: 0.85, sun: 0, moon: 0.9 },
+  { hour: 6.2,  glow: "#FFB392", glowK: 0.95, cloudLight: "#FFE0CC", cloudMid: "#CF9AA8", cloudShade: "#546090", cloudRim: "#FFC496", rimK: 0.95, mount: "#484E7E", mountLit: "#A08094", snow: 0.45, stars: 0.15, sun: 0.8, moon: 0.3 },
   // E03a: a silver morning and noon keep a quieter sun glow (.45 → .15, .25 → .15): the haze beside the hero stays
   // below the Pharos' lit face while the back-lit morning key leaves it a rim; dawn, golden and night keep theirs
-  { hour: 7.5,  glow: "#FFE2C0", glowK: 0.15, cloudLight: "#FFF6EA", cloudMid: "#E2E4EE", cloudShade: "#9AA6C2", cloudRim: "#FFF0DD", rimK: 0.5, mount: "#7E92B0", mountLit: "#B2BCCC", snow: 0.8, stars: 0, sun: 1, moon: 0 },
-  { hour: 12,   glow: "#FFFFFF", glowK: 0.15, cloudLight: "#FFFFFF", cloudMid: "#E6ECF4", cloudShade: "#A2B3CC", cloudRim: "#FFFFFF", rimK: 0.4, mount: "#8FA8C2", mountLit: "#B9C9D8", snow: 1, stars: 0, sun: 1, moon: 0 },
-  { hour: 16.5, glow: "#FFE8C8", glowK: 0.35, cloudLight: "#FFF6E8", cloudMid: "#E8E4E8", cloudShade: "#9EA6C4", cloudRim: "#FFE9C8", rimK: 0.55, mount: "#8796B4", mountLit: "#C2BCC0", snow: 0.8, stars: 0, sun: 1, moon: 0 },
-  { hour: 18.6, glow: "#FFD39A", glowK: 1.0,  cloudLight: "#FFDCB0", cloudMid: "#E8A493", cloudShade: "#77719C", cloudRim: "#FFAA62", rimK: 1.0, mount: "#7F7F9E", mountLit: "#C9A089", snow: 0.4, stars: 0, sun: 1, moon: 0 },
-  { hour: 19.6, glow: "#F09A7A", glowK: 0.8,  cloudLight: "#E8A6A0", cloudMid: "#8E6F92", cloudShade: "#3C3F6E", cloudRim: "#FFB08A", rimK: 0.8, mount: "#3E4068", mountLit: "#7A6280", snow: 0.3, stars: 0.3, sun: 0.4, moon: 0.6 },
-  { hour: 20.8, glow: "#6C82C0", glowK: 0.55, cloudLight: "#8A9BC4", cloudMid: "#43528A", cloudShade: "#1E2850", cloudRim: "#D3DEFF", rimK: 1.0, mount: "#1A2443", mountLit: "#33446E", snow: 0.25, stars: 1, sun: 0, moon: 1 },
-  { hour: 24,   glow: "#6C82C0", glowK: 0.55, cloudLight: "#8A9BC4", cloudMid: "#43528A", cloudShade: "#1E2850", cloudRim: "#D3DEFF", rimK: 1.0, mount: "#1A2443", mountLit: "#33446E", snow: 0.25, stars: 1, sun: 0, moon: 1 },
+  { hour: 7.5,  glow: "#FFE2C0", glowK: 0.15, cloudLight: "#FFF9F0", cloudMid: "#DFE5F0", cloudShade: "#8CA0C4", cloudRim: "#FFF2DF", rimK: 0.55, mount: "#5C78A4", mountLit: "#8EA6C6", snow: 0.75, stars: 0, sun: 1, moon: 0 },
+  { hour: 12,   glow: "#FFFFFF", glowK: 0.15, cloudLight: "#FFFDF8", cloudMid: "#E2EBF6", cloudShade: "#8CA6CA", cloudRim: "#FFFFFF", rimK: 0.48, mount: "#5A76A6", mountLit: "#90A8C8", snow: 0.9, stars: 0, sun: 1, moon: 0 },
+  { hour: 16.5, glow: "#FFE5C0", glowK: 0.40, cloudLight: "#FFF6E6", cloudMid: "#E6E2EA", cloudShade: "#8E9EC2", cloudRim: "#FFE6BE", rimK: 0.62, mount: "#60749E", mountLit: "#A4A2B4", snow: 0.75, stars: 0, sun: 1, moon: 0 },
+  { hour: 18.6, glow: "#FFD090", glowK: 1.05, cloudLight: "#FFE4BA", cloudMid: "#E6A08E", cloudShade: "#686C9E", cloudRim: "#FFB464", rimK: 1.08, mount: "#5B5D8A", mountLit: "#B28680", snow: 0.35, stars: 0, sun: 1, moon: 0 },
+  { hour: 19.6, glow: "#F49876", glowK: 0.85, cloudLight: "#EDA89E", cloudMid: "#8A6D96", cloudShade: "#343B6E", cloudRim: "#FFAE82", rimK: 0.88, mount: "#343A68", mountLit: "#725E80", snow: 0.25, stars: 0.3, sun: 0.4, moon: 0.6 },
+  { hour: 20.8, glow: "#4F669E", glowK: 0.45, cloudLight: "#344566", cloudMid: "#202E4A", cloudShade: "#121B2E", cloudRim: "#8BA6D8", rimK: 0.72, mount: "#101830", mountLit: "#1E2D50", snow: 0.2, stars: 1, sun: 0, moon: 1 },
+  { hour: 24,   glow: "#4F669E", glowK: 0.45, cloudLight: "#344566", cloudMid: "#202E4A", cloudShade: "#121B2E", cloudRim: "#8BA6D8", rimK: 0.72, mount: "#101830", mountLit: "#1E2D50", snow: 0.2, stars: 1, sun: 0, moon: 1 },
 ];
 
 export interface SkyPaletteUniforms {

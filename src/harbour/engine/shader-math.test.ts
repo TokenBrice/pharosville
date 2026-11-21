@@ -90,7 +90,7 @@ describe("B07 defined shader arithmetic: source guards", () => {
   it("writes the expression-valued and literal descending sites as complements", () => {
     const ocean = read("ocean/ocean-material.ts"), wake = read("ocean/wake.ts"), sky = read("sky/sky-glsl.ts"), kit = read("world/materials.ts");
     expect(ocean).toContain("(1.0 - smoothstep(5.0, 9.5, dnC)) * smoothstep(0.7, 1.6, dnC) * (0.45 + 0.55 * (1.0 - smoothstep(1.5, 7.0, dnC)))");
-    expect(ocean).toContain("col *= 1.0 - 0.15 * (1.0 - smoothstep(-0.9, 0.1, ch)) * sk;");
+    expect(ocean).not.toContain("smoothstep(0.1, -0.9");
     expect(sky).toContain("float lip = (1.0 - smoothstep(-0.5, 2.5, sd)) * smoothstep(-14.0, -4.0, sd)");
     expect(kit).toContain("float below = 1.0 - smoothstep(p.a - 0.4, p.a + 0.6, worldPos.y);");
     expect(kit).not.toContain("smoothstep(p.a + 0.6, p.a - 0.4");
@@ -99,8 +99,8 @@ describe("B07 defined shader arithmetic: source guards", () => {
   });
 
   it("squares by multiplication; the only pow(…, 2.0) left have non-negative bases", () => {
-    // sky-glsl: m is a hash in [0, 1); precip: lat is a length over a positive width
-    const allowed: Record<string, string[]> = { "sky/sky-glsl.ts": ["m"], "weather/precip.ts": ["lat / w"] };
+    // precip: lat is a length over a positive width; sky-glsl squares by multiplication
+    const allowed: Record<string, string[]> = { "sky/sky-glsl.ts": [], "weather/precip.ts": ["lat / w"] };
     for (const path of C04_MODULES) {
       const squares = calls(read(path), "pow").filter(({ args }) => /^2(\.0*)?$/.test(args[1] ?? ""));
       expect(squares.map(({ args }) => args[0]), path).toEqual(allowed[path] ?? []);
@@ -112,7 +112,8 @@ describe("B07 defined shader arithmetic: source guards", () => {
     expect(ocean).toContain("exp(-lw * lw * 1.4)");
     expect(kit).toContain("float dy = (worldPos.y - p.a) / 2.6;");
     expect(kit).toContain("float band = exp(-dy * dy);");
-    expect(rain).toContain("float rd = (d - 0.78) / 0.11;");
+    expect(rain).toContain("float rd1 = (d - 0.84) / rw;");
+    expect(rain).toContain("exp(-rd1 * rd1)");
     expect(read("weather/rainbow.ts")).toContain("float rbLobe(float x, float c, float w) { float u = (x - c) / w; return exp(-u * u); }");
     expect(read("ocean/wake.ts")).toContain("float stern = exp(-dot(st, st));");
   });

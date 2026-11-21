@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorldUniforms } from "../engine/uniforms";
 import type { EngineContext } from "../engine/types";
+import { TIERS, type QualityService, type QualitySettings } from "../engine/quality";
 import { BeamSystem, beamPassActive, shimmerAmount } from "./beam-system";
 
 interface BeamHarness { SH: { uShAmt: THREE.Uniform<number> }; U: { uIntensity: THREE.Uniform<number> }; pass: { enabled: boolean } }
@@ -105,5 +106,27 @@ it("holds beam intensity and decorative clocks under reduction while still accep
     f.beam.update({ elapsed: 300, delta: 1, nowMs: 300_000 }, f.ctx);
     expect(h.U.uIntensity.value).toBeLessThan(level);
     f.beam.dispose(f.ctx);
+  } finally { vi.unstubAllGlobals(); }
+});
+
+it("scales volumetric shaft raymarch steps with quality tier and unsubscribes on dispose", async () => {
+  vi.stubGlobal("location", { search: "" });
+  try {
+    let listener: ((s: QualitySettings, dpr: number) => void) | undefined;
+    const unsubscribe = vi.fn();
+    const quality = { settings: TIERS.high, onChange: (fn: typeof listener) => { listener = fn; return unsubscribe; } };
+    const f = await beamWorld({ night: 1 });
+    f.beam.dispose(f.ctx);
+    f.ctx.services.set("quality", quality as unknown as QualityService);
+    const beam = new BeamSystem();
+    await beam.init(f.ctx);
+    const uSteps = (beam as unknown as { U: { uSteps: THREE.Uniform<number> } }).U.uSteps;
+    expect(uSteps.value).toBe(28);
+    listener?.(TIERS.medium, 1.5);
+    expect(uSteps.value).toBe(20);
+    listener?.(TIERS.low, 1);
+    expect(uSteps.value).toBe(14);
+    beam.dispose(f.ctx);
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
   } finally { vi.unstubAllGlobals(); }
 });

@@ -22,25 +22,41 @@ attribute float aPhase;
 uniform float uFlagT;
 uniform float uWind;
 varying vec2 vUv;
+varying vec2 vFlagUv;
 varying float vShade;
 varying float vHoist;
+varying vec3 vWorldN;
+varying vec3 vWorldPos;
 ${AERIAL_VERT_GLSL}
 void main() {
   vec2 q = uv;
+  vFlagUv = uv;
   vUv = vec2(mix(aRect.x, aRect.z, uv.x), mix(aRect.y, aRect.w, uv.y));
   vec3 p = position;
   float fly = uv.x;                       // 0 at the hoist … 1 at the fly
   float w = clamp(uWind, 0.0, 1.0);
   float ph = uFlagT * (3.2 + 3.0 * w) + aPhase;
-  float wave = sin(ph - fly * 6.0) + 0.45 * sin(ph * 1.7 - fly * 11.0 + 1.3);
-  p.z += wave * (0.10 + 0.10 * w) * fly;
+  float diag = (1.0 - uv.y) * 0.85;
+  float a1 = ph - fly * 6.0 + diag;
+  float a2 = ph * 1.7 - fly * 11.0 + 1.3 + diag * 0.5;
+  float wave = sin(a1) + 0.45 * sin(a2);
+  float amp = 0.10 + 0.10 * w;
+  p.z += wave * amp * fly;
   // a calm lets the fly sag; a breeze lifts it out
   float sag = (1.0 - smoothstep(0.1, 0.65, w)) * 0.22;
   p.y -= sag * fly * fly;
   p.x *= 1.0 - sag * 0.3 * fly;
-  vShade = 0.84 + 0.16 * cos(ph - fly * 6.0);
+  // analytic deformed cloth tangents -> world-space normal (handles non-uniform instance scale cleanly)
+  float dWaveDx = -6.0 * cos(a1) - 4.95 * cos(a2);
+  float dWaveDy = -0.85 * cos(a1) - 0.19125 * cos(a2);
+  vec3 locT = vec3(1.0 - sag * 0.6 * fly, -2.0 * sag * fly, amp * (wave + fly * dWaveDx));
+  vec3 locB = vec3(0.0, 1.0, amp * fly * dWaveDy);
+  mat3 wm = mat3(modelMatrix) * mat3(instanceMatrix);
+  vWorldN = normalize(cross(wm * locT, wm * locB));
+  vShade = 0.82 + 0.18 * cos(a1);
   vHoist = length(vec2(q.x, (1.0 - q.y) * ${ASPECT.toFixed(3)}));
-  hbAerialVert((modelMatrix * instanceMatrix * vec4(p, 1.0)).xyz);
+  vWorldPos = (modelMatrix * instanceMatrix * vec4(p, 1.0)).xyz;
+  hbAerialVert(vWorldPos);
   gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(p, 1.0);
 }`;
 
@@ -49,14 +65,41 @@ uniform sampler2D uCrests;
 uniform vec3 uLight;
 uniform float uGlow;
 uniform vec3 uHorizon;
+uniform vec3 uSunDir;
+uniform vec3 uSunColor;
+uniform float uNight;
 varying vec2 vUv;
+varying vec2 vFlagUv;
 varying float vShade;
 varying float vHoist;
+varying vec3 vWorldN;
+varying vec3 vWorldPos;
 ${AERIAL_GLSL}
 void main() {
   vec4 t = texture2D(uCrests, vUv);
+  vec3 N = normalize(vWorldN) * (gl_FrontFacing ? 1.0 : -1.0);
+  vec3 V = normalize(cameraPosition - vWorldPos);
+  // subtle woven linen cloth grain & stitched hem border (AA-faded to 1.0 at overview)
+  vec2 fw = fwidth(vFlagUv) + 1e-4;
+  float weaveFine = 1.0 - smoothstep(0.012, 0.045, max(fw.x, fw.y));
+  float weave = ((sin(vFlagUv.x * 150.0) * 0.5 + 0.5) * 0.55 + (sin(vFlagUv.y * 100.0) * 0.5 + 0.5) * 0.45 - 0.5) * weaveFine;
+  float edgeD = min(min(vFlagUv.x, 1.0 - vFlagUv.x), min(vFlagUv.y, 1.0 - vFlagUv.y));
+  float hem = 1.0 - smoothstep(0.018, 0.045, edgeD);
+  float clothTex = 1.0 + weave * 0.065 - hem * 0.07 * weaveFine;
+  // directional sunlight fold contrast + soft cloth rim sheen + warm golden backlit linen translucency
+  float daySun = smoothstep(-0.02, 0.05, uSunDir.y) * (1.0 - uNight);
+  float sunFace = max(dot(N, uSunDir), 0.0);
+  float shade = vShade * (0.92 + 0.16 * sunFace * daySun);
+  float back = max(0.0, dot(-N, uSunDir));
+  float low = 1.0 - smoothstep(0.08, 0.50, uSunDir.y);
+  float toward = 0.26 + 0.74 * pow(max(0.0, dot(-V, uSunDir)), 2.4);
+  vec3 sss = t.rgb * uSunColor * mix(vec3(1.05, 0.96, 0.80), vec3(1.18, 0.88, 0.50), low)
+           * back * toward * daySun * (1.0 - hem * 0.45) * 0.28;
+  float ls = dot(sss, vec3(0.2126, 0.7152, 0.0722));
+  sss *= min(1.0, 0.36 / max(ls, 1e-4));
+  vec3 rim = t.rgb * uSunColor * pow(1.0 - clamp(abs(dot(N, V)), 0.0, 1.0), 3.0) * sunFace * daySun * 0.10;
   // lit as cloth; the truck lamp at the hoist head
-  vec3 c = t.rgb * (uLight * vShade + uGlow * (1.0 - smoothstep(0.0, ${CREST_GLOW_REACH.toFixed(2)}, vHoist)));
+  vec3 c = t.rgb * clothTex * (uLight * shade + uGlow * (1.0 - smoothstep(0.0, ${CREST_GLOW_REACH.toFixed(2)}, vHoist))) + sss + rim;
   hbAerial(c, vec3(0.0), ${(1 - CREST_AIR).toFixed(2)});
   gl_FragColor = vec4(c, 1.0);
 }`;
@@ -93,8 +136,15 @@ export class CrestFlags {
   /** 1 close in … ~1.6 at the overview (set by the owner from the camera distance). */
   farScale = 1;
 
-  /** air: the world's haze uniforms (the crest's share of the distance air); fly: flag length (m); aspect h/w; topmast (m) raised above the office pole. */
-  constructor(crests: THREE.Texture, air?: Pick<WorldUniforms, "uFogDensity" | "uHaze" | "uHorizon">, private readonly fly = 11, private readonly aspect = ASPECT, readonly topmast = 6, max = 16) {
+  /** air: the world's haze & sun uniforms (the crest's share of the distance air & backlit linen light); fly: flag length (m); aspect h/w; topmast (m) raised above the office pole. */
+  constructor(
+    crests: THREE.Texture,
+    air?: Pick<WorldUniforms, "uFogDensity" | "uHaze" | "uHorizon"> & Partial<Pick<WorldUniforms, "uSunDir" | "uSunColor" | "uNight">>,
+    private readonly fly = 11,
+    private readonly aspect = ASPECT,
+    readonly topmast = 6,
+    max = 16,
+  ) {
     const g = new THREE.PlaneGeometry(1, 1, 12, 3);
     g.translate(0.5, -0.5, 0);
     this.rect = new THREE.InstancedBufferAttribute(new Float32Array(max * 4), 4);
@@ -107,6 +157,9 @@ export class CrestFlags {
         uCrests: { value: crests }, uFlagT: { value: 0 }, uWind: { value: 0.35 }, uLight: { value: new THREE.Color(1, 1, 1) }, uGlow: { value: 0 },
         ...aerialUniforms, uAerialDensity: air?.uFogDensity ?? { value: 0 }, uAerialHaze: air?.uHaze ?? { value: new THREE.Color() },
         uHorizon: air?.uHorizon ?? { value: new THREE.Color() },
+        uSunDir: air?.uSunDir ?? { value: new THREE.Vector3(0.4, 0.5, 0.3).normalize() },
+        uSunColor: air?.uSunColor ?? { value: new THREE.Color(0, 0, 0) },
+        uNight: air?.uNight ?? { value: 0 },
       },
     });
     this.flags = new THREE.InstancedMesh(g, this.mat, max);

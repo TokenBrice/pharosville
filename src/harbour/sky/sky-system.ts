@@ -246,7 +246,9 @@ export class SkySystem implements WorldSystem {
     const dark = THREE.MathUtils.smoothstep(night, 0.6, 0.95) * clear;
     const w = ctx.services.get("season")?.weights ?? [0, 1, 0, 0];
     const seasonK = 0.7 * w[0] + 1 * w[1] + 0.7 * w[2] + 0.45 * w[3];
-    const mw = dark * (1 - THREE.MathUtils.smoothstep(this.moonIllum, 0.15, 0.45)) * seasonK;
+    // clear moonlit nights keep a calm celestial whisper (0.24 floor); dark new-moon nights blaze at full richness
+    const moonDim = THREE.MathUtils.lerp(1, 0.24, THREE.MathUtils.smoothstep(this.moonIllum, 0.15, 0.55));
+    const mw = dark * moonDim * seasonK;
     // the band keeps its place in the world (az 200), the view moves across it
     let off = 200 - fwdAz / D2R;
     off = ((off + 180) % 360 + 360) % 360 - 180;
@@ -315,24 +317,24 @@ export class SkySystem implements WorldSystem {
   }
 
   private seedBanks(t0Override?: number): void {
-    // hand-placed composition in three depth layers (far to near): th, e base, height (deg), cell, slot,
-    // distance (m, drives parallax) and aerial haze. Far banks sit low, small and hazy on the horizon;
-    // near banks are big, lifted and crop at the frame top like style C. Cover reveals them in slot order.
+    // asymmetrical Mediterranean composition in three depth layers (far to near): th, e base, height (deg), cell, slot,
+    // distance (m, drives parallax) and aerial haze. Sweeping off-center cumulus formations & wispy horizon ribbons
+    // frame the Pharos without centered stage-prop symmetry. DEWS cover reveals them in slot order 0..7.
     const spec: Array<[number, number, number, number, number, number, number]> = [
       // th,   e,    h,    cell, slot, dist,  haze
-      [ 21,  0.25, 1.5,  1, 0, 16000, 0.42],
-      [-27,  0.3,  1.8,  7, 3, 14000, 0.4],
-      [  4,  0.45, 1.3,  6, 5, 15000, 0.45],
-      [-12,  0.9,  3.4,  3, 1, 9000,  0.2],
-      [ 30,  1.15, 3.0,  4, 4, 8000,  0.18],
-      [ 12,  1.7,  4.4,  0, 2, 5200,  0.08],
-      [-36,  1.9,  5.0,  2, 6, 4800,  0.07],
-      [ -4,  2.6,  5.6,  5, 7, 4200,  0.05],
+      [ 22,  0.22, 1.65, 1, 0, 16000, 0.46],
+      [-28,  0.28, 1.85, 7, 3, 14500, 0.44],
+      [ -5,  0.38, 1.45, 6, 5, 15500, 0.48],
+      [ 12,  0.88, 3.35, 0, 1, 9200,  0.20],
+      [-21,  0.98, 3.05, 4, 4, 8200,  0.19],
+      [ 27,  1.45, 4.15, 2, 2, 5400,  0.10],
+      [-33,  1.60, 4.70, 5, 6, 4900,  0.08],
+      [  4,  2.15, 5.20, 3, 7, 4300,  0.06],
     ];
     // the composition drifts with the wall clock, so each visit (and each hour) frames it differently
     const t0 = t0Override ?? (Date.now() / 1000) % 1e6;
     this.banks = spec.map(([th, e, h, cell, slot, dist, haze], i) => {
-      const w = h * 4 * (0.9 + 0.2 * ((i * 37) % 7) / 7);
+      const w = h * 4.55 * (0.92 + 0.18 * ((i * 37) % 7) / 7);
       return { th, e, h, w, h0: h, w0: w, cell: cell % CLOUD_CELLS, mirror: i % 2, slot, drift: t0 * 0.012 * (3000 / dist), dist, haze };
     });
   }

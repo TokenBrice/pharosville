@@ -106,6 +106,7 @@ uniform vec2 uViewport;
 uniform vec3 uCam;
 uniform float uNearFade;      // view depth (m) under which drops fade (no giant streaks at the lens)
 uniform float uRainAlpha;
+uniform float uDownpour;      // 0 drizzle … 1 downpour: the drizzle's soft curtains give way to the storm's sheets
 uniform float uSnowDrive;     // 0 drifting … 1 driven (wind)
 varying vec2 vUv;
 varying float vSnow;
@@ -164,7 +165,7 @@ void main() {
     vUv = v2;
     vA = fade * (0.5 + 0.5 * h) * smoothstep(0.6, 1.6, rPx) * (1.0 - smoothstep(cap * 2.5, cap * 8.0, rRaw));
   } else {
-    vec3 tail = p - vel * uFall.z * mix(1.0, uDepthK.w, far);
+    vec3 tail = p - vel * uFall.z * mix(1.0, uDepthK.w, far) * (0.78 + 0.42 * h);
     vec4 c0 = projectionMatrix * viewMatrix * vec4(tail, 1.0);
     vec4 c1 = projectionMatrix * viewMatrix * vec4(p, 1.0);
     vec2 s0 = c0.xy / c0.w * uViewport, s1 = c1.xy / c1.w * uViewport;
@@ -173,16 +174,24 @@ void main() {
     vec2 dir = len > 1e-3 ? d / len : vec2(0.0, -1.0);
     vec2 n = vec2(-dir.y, dir.x);
     vec4 c = mix(c0, c1, corner.y);
-    float w = uSize.x * (0.8 + 0.5 * h);
+    // depth-layered atmospheric rain curtains: closer streaks stay slimmer & softer, mid-distance sweeps into squall veils
+    float depthFrac = clamp((depth - uNearFade) / max(uBoxSize.x * 1.1, 1.0), 0.0, 1.0);
+    vec2 wDir = length(uWindV) > 1e-3 ? normalize(uWindV) : vec2(0.8, -0.6);
+    vec2 wPerp = vec2(-wDir.y, wDir.x);
+    float curtain = 0.45 + 0.55 * (0.5 + 0.5 * sin(dot(p.xz, wPerp) * 0.017 + dot(p.xz, wDir) * 0.006 - uPTime * 0.42));
+    curtain = mix(curtain, 1.0, uDownpour * 0.6);
+    float layerFade = mix(smoothstep(0.0, 0.18, depthFrac) * (1.0 - smoothstep(0.68, 1.0, depthFrac) * 0.55), 1.0, uDownpour);
+    float w = uSize.x * (0.72 + 0.48 * h) * mix(0.85, 1.15, depthFrac);
     c.xy += n * corner.x * w / uViewport * c.w;
     gl_Position = c;
     vUv = corner;
-    // thin far drops stay faint; a short streak (seen end-on) does not flash bright
-    vA = fade * uRainAlpha * (0.45 + 0.55 * h) * smoothstep(1.0, 6.0, len);
+    // soft translucent rain streaks grouped in depth-layered sweeping curtains (never harsh white film scratches)
+    vA = fade * layerFade * curtain * uRainAlpha * (0.42 + 0.58 * h) * smoothstep(1.2, 7.5, len);
   }
 }`;
 
 const FALL_FRAG = /* glsl */ `
+uniform float uDownpour;
 varying vec2 vUv;
 varying float vSnow;
 varying float vA;
@@ -200,11 +209,15 @@ void main() {
     a = pow(body, 1.4) * vA;
     c = vLight * 1.3 + 0.05;
   } else {
-    float across = 1.0 - abs(vUv.x);
-    a = across * across * smoothstep(0.0, 0.55, vUv.y) * vA;
-    c = vLight;
+    // feathery Gaussian cross-section + soft tapered comet streak catching ambient sky light subtly
+    float across = exp(-vUv.x * vUv.x * 4.4);
+    float along = smoothstep(0.0, 0.64, vUv.y) * (1.0 - smoothstep(0.84, 1.0, vUv.y));
+    a = across * along * vA;
+    // softly compress hot sunlit highlights so drizzle reads as misty translucent water, not white scratches
+    vec3 softL = vLight / (1.0 + vLight * 0.48);
+    c = mix(softL * vec3(0.88, 0.93, 1.0) * (0.74 + 0.28 * vSeed), vLight, uDownpour);
   }
-  if (a < 0.003) discard;
+  if (a < 0.002) discard;
   gl_FragColor = vec4(c, a);
 }`;
 
@@ -217,6 +230,7 @@ uniform float uSplashSize;     // ring radius (m)
 uniform float uSpray;          // spray strength 0..1
 uniform vec2 uWindV;
 uniform float uSprayScale;     // plume size (m)
+uniform vec3 uCam;
 varying vec2 vUv;
 varying float vA;
 varying float vKind;
@@ -225,40 +239,47 @@ varying vec3 vLight;
 void main() {
   vec2 corner = position.xy * 2.0 - 1.0;
   if (aAnchor.w > 0.5) {
-    // ---- spray plume: bursts off the surf, blown downwind, rising and thinning
-    float cyc = uPTime / (2.2 + aSeed.y * 1.6) + aSeed.x;
+    // ---- windblown sea-spray mist plume: torn off breaking surf, stretched downwind as fine spindrift
+    float cyc = uPTime / (2.0 + aSeed.y * 1.7) + aSeed.x;
     float life = fract(cyc);
-    float on = step(pHash(vec2(floor(cyc), aSeed.x * 91.0)), uSpray * 0.45);
+    float on = step(pHash(vec2(floor(cyc), aSeed.x * 91.0)), uSpray * 0.58);
     vec2 wdir = uWindV / max(length(uWindV), 1e-3);
     vec2 base = aAnchor.xy + aAnchor.zw * 2.0;
-    vec2 xz = base + wdir * life * uSprayScale * 1.6 + aAnchor.zw * life * uSprayScale * 0.3;
-    float rise = uSprayScale * (0.2 + 1.1 * life) * (0.6 + 0.6 * aSeed.w);
-    float r = uSprayScale * (0.35 + 0.9 * life) * (0.7 + 0.6 * aSeed.w);
+    vec2 xz = base + wdir * life * uSprayScale * 2.3 + aAnchor.zw * life * uSprayScale * 0.4;
+    float rise = uSprayScale * (0.18 + 0.95 * life) * (0.55 + 0.65 * aSeed.w);
+    float r = uSprayScale * (0.36 + 1.05 * life) * (0.7 + 0.6 * aSeed.w);
     vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
     vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
+    vec3 wind3 = vec3(wdir.x, 0.14, wdir.y);
+    // elongate gently along the wind vector in billboard space for horizontal spindrift mist ribbons
+    vec3 streakAxis = normalize(mix(right, wind3, 0.55));
     vec3 c = vec3(xz.x, rise, xz.y);
-    vec3 wp = c + (right * corner.x + up * corner.y) * r * on;
+    vec3 wp = c + (streakAxis * corner.x * (1.2 + 0.55 * life) + up * corner.y * 0.78) * r * on;
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
     vUv = corner;
-    vA = sin(3.14159 * life) * smoothstep(0.0, 0.12, life) * uSpray * on;
+    vA = sin(3.14159 * life) * smoothstep(0.0, 0.14, life) * uSpray * on;
     vKind = 1.0;
     vLife = life;
     vLight = dropLight(c);
   } else {
-    // ---- rain splash: a ring spreading on whatever the drop hit, at a new spot every cycle
-    float cyc = uPTime * uSplashRate * (0.8 + 0.4 * aSeed.w) + aSeed.z;
+    // ---- delicate realistically-scaled concentric rain ripple ring (~0.25-0.45 m)
+    float cyc = uPTime * uSplashRate * (0.8 + 0.45 * aSeed.w) + aSeed.z;
     float life = fract(cyc);
     float id = floor(cyc);
     vec2 q = vec2(pHash(aSeed.xy * 97.0 + id * 1.37), pHash(aSeed.yx * 89.0 + id * 2.11));
     vec2 xz = uBoxMin.xz + q * uBoxSize.xz;
-    float y = groundAt(xz) + 0.06;
-    float r = uSplashSize * (0.25 + 0.95 * life) * (0.7 + 0.6 * aSeed.w);
+    float y = groundAt(xz) + 0.05;
+    float r = uSplashSize * (0.20 + 0.88 * life) * (0.76 + 0.44 * aSeed.w);
     vec3 wp = vec3(xz.x + corner.x * r, y, xz.y + corner.y * r);
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
     vUv = corner;
     vec3 qb = (vec3(xz.x, 0.0, xz.y) - uBoxMin) / uBoxSize;
     float edge = smoothstep(0.0, 0.08, qb.x) * (1.0 - smoothstep(0.92, 1.0, qb.x)) * smoothstep(0.0, 0.08, qb.z) * (1.0 - smoothstep(0.92, 1.0, qb.z));
-    vA = (1.0 - life) * edge;
+    float camDist = length(vec3(xz.x, y, xz.y) - uCam);
+    // (a ring fades once it is a few pixels wide: a downpour's larger rings carry further)
+    float distFade = 1.0 - smoothstep(260.0, 680.0, camDist * 0.46 / max(uSplashSize, 0.46));
+    // (a downpour's rings fade linearly, as they spread, so they read; drizzle rings vanish quickly)
+    vA = mix((1.0 - life) * (1.0 - life), 1.0 - life, smoothstep(0.46, 1.2, uSplashSize)) * smoothstep(0.0, 0.10, life) * edge * distFade;
     vKind = 0.0;
     vLife = life;
     vLight = dropLight(vec3(xz.x, y + 1.0, xz.y));
@@ -268,6 +289,7 @@ void main() {
 const GROUND_FRAG = /* glsl */ `
 uniform sampler2D uNoise;
 uniform float uSplashAlpha;
+uniform float uSplashSize;
 varying vec2 vUv;
 varying float vA;
 varying float vKind;
@@ -278,19 +300,27 @@ void main() {
   float a;
   vec3 c;
   if (vKind > 0.5) {
-    float n = texture2D(uNoise, vUv * 0.22 + vLife * 0.13 + 0.31).r * 0.7 + texture2D(uNoise, vUv * 0.5 - vLife * 0.21).g * 0.5;
-    // torn mist, not a puff: noise eats most of the disc, the core thins as it rises
-    float m = 1.0 - smoothstep(0.15, 1.0, d + (n - 0.55) * 0.9);
-    a = m * smoothstep(0.4, 0.8, n + 0.25 * (1.0 - d)) * vA * 0.38;
-    c = vLight * 1.15 + 0.03;
+    float n = texture2D(uNoise, vUv * vec2(0.18, 0.28) + vLife * 0.14 + 0.31).r * 0.68 + texture2D(uNoise, vUv * 0.48 - vLife * 0.22).g * 0.52;
+    // torn windblown sea-spray spindrift mist, soft core dissolving downwind
+    float m = 1.0 - smoothstep(0.12, 1.0, d + (n - 0.54) * 0.85);
+    a = m * smoothstep(0.36, 0.78, n + 0.26 * (1.0 - d)) * vA * 0.32;
+    vec3 softL = vLight / (1.0 + vLight * 0.38);
+    c = softL * vec3(0.92, 0.96, 1.02) + 0.025;
   } else {
-    float rd = (d - 0.78) / 0.11;   // (signed inside the ring: squared by multiplication, never pow)
-    float ring = exp(-rd * rd);
-    float drop = (1.0 - smoothstep(0.0, 0.22, d)) * (1.0 - smoothstep(0.0, 0.25, vLife));
-    a = (ring * 0.8 + drop) * vA * uSplashAlpha * step(d, 1.0);
-    c = vLight * 1.3 + 0.02;
+    // delicate double-concentric expanding ripple rings + fleeting central impact droplet
+    // a downpour's larger rings keep a stroke that still reads at the heart view (drizzle keeps the fine line)
+    float big = smoothstep(0.46, 1.2, uSplashSize);
+    float rw = mix(0.058, 0.11, big);
+    float rd1 = (d - 0.84) / rw;
+    float rd2 = (d - 0.52) / 0.072;
+    float ring1 = exp(-rd1 * rd1);
+    float ring2 = exp(-rd2 * rd2) * smoothstep(0.14, 0.45, vLife) * 0.52;
+    float drop = (1.0 - smoothstep(0.0, 0.15, d)) * (1.0 - smoothstep(0.0, 0.20, vLife)) * 0.85;
+    a = (ring1 * 0.78 + ring2 + drop) * vA * uSplashAlpha * step(d, 1.0);
+    vec3 softL = vLight / (1.0 + vLight * 0.52);
+    c = mix(softL * vec3(0.90, 0.95, 1.02) + 0.015, vLight * 1.3 + 0.02, big);
   }
-  if (a < 0.003) discard;
+  if (a < 0.002) discard;
   gl_FragColor = vec4(c, a);
 }`;
 
@@ -347,7 +377,7 @@ export class Precipitation {
     };
     this.common = {
       uBoxMin: { value: new THREE.Vector3() }, uBoxSize: { value: new THREE.Vector3(1, 1, 1) }, uPTime: { value: 0 },
-      uAmbRain: { value: new THREE.Color() }, uFlashK: { value: 0 }, uFlashLift: { value: RAIN_FLASH_LIFT },
+      uAmbRain: { value: new THREE.Color() }, uFlashK: { value: 0 }, uFlashLift: { value: RAIN_FLASH_LIFT }, uCam: { value: new THREE.Vector3() },
       uPoolTex: shared.uPoolTex, uPoolBounds: shared.uPoolBounds, uWindowGlow: shared.uWindowGlow,
       uAOTex: shared.uAOTex, uAOBounds: shared.uAOBounds,
       uBeamPos: shared.beam.uBeamPos, uBeamCol: shared.beam.uBeamCol, uBeamAngle: shared.beam.uBeamAngle, uBeamShape: shared.beam.uBeamShape,
@@ -365,9 +395,9 @@ export class Precipitation {
       name: "hb_weather_fall", vertexShader: FALL_VERT, fragmentShader: FALL_FRAG,
       uniforms: {
         ...this.common,
-        uSnowFrac: { value: 0 }, uFall: { value: new THREE.Vector3(60, 6, 0.04) }, uSize: { value: new THREE.Vector2(1.3, 0.6) },
-        uViewport: { value: new THREE.Vector2(800, 500) }, uCam: { value: new THREE.Vector3() }, uNearFade: { value: 100 },
-        uRainAlpha: { value: 0.4 }, uSnowDrive: { value: 0 },
+        uSnowFrac: { value: 0 }, uFall: { value: new THREE.Vector3(60, 6, 0.036) }, uSize: { value: new THREE.Vector2(0.7, 0.6) },
+        uViewport: { value: new THREE.Vector2(800, 500) }, uNearFade: { value: 100 },
+        uRainAlpha: { value: 0.16 }, uDownpour: { value: 0 }, uSnowDrive: { value: 0 },
         uDepthK: { value: new THREE.Vector4(1e9, 2e9, 1, 1) }, uSheets: { value: new THREE.Vector4() },
       },
       transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
@@ -389,8 +419,8 @@ export class Precipitation {
       name: "hb_weather_ground", vertexShader: GROUND_VERT, fragmentShader: GROUND_FRAG,
       uniforms: {
         ...this.common,
-        uSplashRate: { value: 2.2 }, uSplashSize: { value: 1.2 }, uSpray: { value: 0 }, uSprayScale: { value: 6 },
-        uNoise: { value: shared.noise }, uSplashAlpha: { value: 0.5 },
+        uSplashRate: { value: 2.5 }, uSplashSize: { value: 0.36 }, uSpray: { value: 0 }, uSprayScale: { value: 6 },
+        uNoise: { value: shared.noise }, uSplashAlpha: { value: 0.24 },
       },
       transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
     });
@@ -427,36 +457,41 @@ export class Precipitation {
     this.common.uPTime.value = f.time;
     this.common.uAmbRain.value.copy(f.ambient);
     this.common.uFlashK.value = f.flash;
+    this.common.uCam.value.copy(cam);
     const windSpeed = 0.11 * S;            // stylised: the drift reads at diorama scale
     this.common.uWindV.value.set(f.wind.x * windSpeed, f.wind.y * windSpeed);
 
     const precip = f.rain + f.snow;
+    const rain01 = Math.min(1, Math.max(0, f.rain));
     const fu = this.fallMat.uniforms;
     const nFall = Math.round(f.budget.fall * Math.min(1, precip));
     this.fallGeo.instanceCount = nFall;
     this.fall.visible = nFall > 0;
     fu.uSnowFrac.value = precip > 1e-4 ? f.snow / precip : 0;
-    fu.uFall.value.set(0.13 * S, 0.016 * S, 0.042);
-    fu.uSize.value.set(0.95, 0.0006 * S);
+    fu.uFall.value.set(0.13 * S, 0.016 * S, 0.029 + 0.015 * rain01);
+    fu.uSize.value.set(0.56 + 0.44 * rain01, 0.0006 * S);
     fu.uSnowDrive.value = Math.min(1, Math.max(0, (f.wind.length() - 0.5) / 0.5));
     fu.uViewport.value.set(f.viewport.x / 2, f.viewport.y / 2);
-    fu.uCam.value.copy(cam);
-    fu.uNearFade.value = D * 0.22;
+    fu.uNearFade.value = D * 0.28;
     if (extraEnabled("precip")) fu.uDepthK.value.set(FAR_FADE[0] * D, FAR_FADE[1] * D, FAR_FLOOR, FAR_STREAK);
     fu.uSheets.value.set(f.gust?.x ?? 0, f.gust?.y ?? 0, f.gust?.w ?? 0, extraEnabled("precip") ? f.sheets ?? 0 : 0);
-    // drizzle is fine and faint, a storm's sheets denser and brighter
-    fu.uRainAlpha.value = 0.2 + 0.24 * Math.min(1, f.rain * 1.3);
+    // barely a whisper in WATCH drizzle, heavy slate-silver curtains in WARNING/DANGER
+    fu.uRainAlpha.value = 0.036 + 0.44 * Math.pow(rain01, 1.35);
+    const downpour = Math.max(0, (rain01 - 0.3) / 0.7);
+    fu.uDownpour.value = downpour;
 
     const gu = this.groundMat.uniforms;
-    const nSplash = Math.round(f.budget.splash * Math.min(1, f.rain * 1.2));
+    const nSplash = Math.round(f.budget.splash * Math.min(1, rain01 * 1.15));
     const spray = f.spray > 0.01 ? this.sprayCount : 0;
     // instances [0, sprayCount) are spray anchors: draw them only when there is spray, splashes after them
     this.groundGeo.instanceCount = nSplash > 0 ? this.sprayCount + nSplash : spray;
     this.ground.visible = this.groundGeo.instanceCount > 0;
     gu.uSpray.value = f.spray;
-    gu.uSprayScale.value = 0.0042 * S;
-    gu.uSplashSize.value = 0.0021 * S;
-    gu.uSplashAlpha.value = 0.35 + 0.35 * Math.min(1, f.rain);
+    gu.uSprayScale.value = 0.0048 * S;
+    // realistically scaled concentric ripple rings (~0.25-0.45 m radius) instead of giant 1.4-2 m cartoon rings
+    // a downpour's rings grow so the storm reads at the heart view (drizzle keeps the small rings)
+    gu.uSplashSize.value = Math.min(0.46, Math.max(0.26, 0.00058 * S)) * (1 + 3.0 * downpour * downpour);
+    gu.uSplashAlpha.value = 0.09 + 0.6 * Math.pow(rain01, 1.1);
   }
 
   /** Current box scale (tests / debug). */
