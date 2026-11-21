@@ -6,9 +6,11 @@ import type { EmblemAtlas } from "./emblems";
 import { createFleetMaterials, type FleetUniforms } from "./fleet-material";
 import { FleetSystem } from "./fleet-system";
 import { HouseFlags } from "./house-flags";
-import { tubeRadii } from "./hull-kit";
+import { bakeGltf, tubeRadii } from "./hull-kit";
 import { RIG_AIR } from "./shaders/lighting";
 import { RIG_FLOOR_PX, rigCoverage } from "./shaders/pose";
+import { TITANS, titanFor } from "./titans";
+import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 interface FleetHarness { uniforms: FleetUniforms }
 
@@ -211,5 +213,74 @@ describe("hover / selection sail sheen at night", () => {
     expect(factor(0.4)).toBeCloseTo(0.6, 6);
     for (const lamp of [1, 2, 20, 40.4]) expect(factor(lamp)).toBe(0);
     material.dispose(); depth.dispose(); materials.dispose();
+  });
+});
+
+describe("W3 fleet shaders, E15 _AO, docked diversity & Top-10 Titans", () => {
+  it("packs _AO (default 1.0) into aPaint.z -> vPaintC.w, preserves yard colors, and bumps cache keys", () => {
+    const gWithAo = new THREE.BoxGeometry(1, 1, 1); gWithAo.clearGroups();
+    const n = gWithAo.attributes.position.count;
+    gWithAo.setAttribute("_ao", new THREE.Float32BufferAttribute(new Float32Array(n).fill(0.55), 1));
+    gWithAo.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(n * 4).fill(0.8), 4));
+    const meshA = new THREE.Mesh(gWithAo, new THREE.MeshStandardMaterial({ name: "hb_opaque" }));
+    meshA.name = "yards";
+    const gNoAo = new THREE.BoxGeometry(1, 1, 1); gNoAo.clearGroups();
+    const meshB = new THREE.Mesh(gNoAo, new THREE.MeshStandardMaterial({ name: "hb_opaque" }));
+    meshB.name = "hull";
+    const scene = new THREE.Group(); scene.add(meshA, meshB);
+    const baked = bakeGltf({ scene } as unknown as GLTF, [], { loa: 10, beam: 3 });
+    const aPaint = baked.getAttribute("aPaint") as THREE.BufferAttribute;
+    const color = baked.getAttribute("color") as THREE.BufferAttribute;
+    expect(aPaint.itemSize).toBe(3);
+    expect(aPaint.getZ(0)).toBeCloseTo(0.55, 5);
+    expect(aPaint.getZ(n)).toBeCloseTo(1.0, 5);
+    // yard authored color is preserved instead of forced tarred brown
+    expect(color.getX(0)).toBeCloseTo(0.8, 5);
+    gWithAo.dispose(); gNoAo.dispose(); baked.dispose();
+
+    const materials = new HarbourMaterials(createWorldUniforms());
+    const kit = materials.kit();
+    const fleet = (new FleetSystem() as unknown as FleetHarness).uniforms;
+    const { material, depth } = createFleetMaterials({ kit: () => kit, kitKey: () => "", track: () => undefined } as unknown as HarbourMaterials, createWorldUniforms(), fleet);
+    expect(material.customProgramCacheKey()).toMatch(/^hb_fleet_v14_/);
+    expect(depth.customProgramCacheKey()).toBe("hb_fleet_depth_v7");
+    const shader = { ...THREE.ShaderLib.standard, uniforms: {} } as THREE.WebGLProgramParametersWithUniforms;
+    material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    expect(shader.vertexShader).toContain("attribute vec3 aPaint;");
+    expect(shader.vertexShader).toContain("varying vec4 vPaintC;");
+    expect(shader.vertexShader).toContain("hbDockedYardJitter(");
+    expect(shader.vertexShader).toContain("hbDeckModuleDropped(");
+    expect(shader.fragmentShader).toContain("varying vec4 vPaintC;");
+    expect(shader.fragmentShader).toContain("float hbBoatAO = vPaintC.w;");
+    expect(shader.fragmentShader).toContain("hbHullWaterline(diffuseColor.rgb, vHbLocal, vHbWorld, uTime);");
+    expect(shader.fragmentShader).toContain("hbMetal(hbPid, diffuseColor.rgb, hbVc, roughnessFactor)");
+    expect(shader.fragmentShader).toContain("hbLampGlow(uWindowGlow, hbLampRank(vHbWorld, wJitter))");
+    const depthShader = { ...THREE.ShaderLib.depth, uniforms: {} } as THREE.WebGLProgramParametersWithUniforms;
+    depth.onBeforeCompile(depthShader, {} as THREE.WebGLRenderer);
+    expect(depthShader.vertexShader).toContain("attribute vec3 aPaint;");
+    expect(depthShader.vertexShader).toContain("hbDockedYardJitter(");
+    expect(depthShader.vertexShader).toContain("hbDeckModuleDropped(");
+    material.dispose(); depth.dispose(); materials.dispose();
+    for (const uniform of [fleet.uFleetData, fleet.uFleetPaint, fleet.uEmblems, fleet.uBoards]) uniform.value.dispose();
+  });
+
+  it("registers all Top-10 Titans and falls back safely when GLBs are not loaded yet", () => {
+    expect(Object.keys(TITANS)).toHaveLength(10);
+    for (const [coin, variant] of [
+      ["usdt-tether", "titan_usdt"],
+      ["usdc-circle", "titan_usdc"],
+      ["usde-ethena", "titan_usde"],
+      ["dai-makerdao", "titan_dai"],
+      ["usds-sky", "titan_usds"],
+      ["rlusd-ripple", "titan_rlusd"],
+      ["usd1-world-liberty-financial", "titan_usd1"],
+      ["xaut-tether", "titan_xaut"],
+      ["usdg-paxos", "titan_usdg"],
+      ["pyusd-paypal", "titan_pyusd"],
+    ] as const) {
+      expect(TITANS[coin]).toBe(variant);
+      expect(titanFor(coin, (id) => id === variant)).toBe(variant);
+      expect(titanFor(coin, () => false)).toBeNull();
+    }
   });
 });

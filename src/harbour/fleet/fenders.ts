@@ -1,14 +1,56 @@
 import * as THREE from "three";
 
 /**
- * Fenders: the small canvas-white bolsters a hull hangs over her side at a berth, one InstancedMesh for
- * the whole harbour. Only hulls lying at a berth near the camera hang them (a close-zoom read); each is
- * placed in the hull's own frame, so it rides, rolls and tugs with her.
+ * Fenders: woven-hemp ribbed rope bolsters a hull hangs over her side at a berth, one InstancedMesh for
+ * the whole harbour. Inherits the shared `hb_kit` material (shadows, height-field AO, light pools, aerial)
+ * when passed one, keeping a standalone vertex-coloured fallback for headless unit tests. Only hulls lying
+ * at a berth near the camera hang them (a close-zoom read); each rides, rolls and tugs in her hull frame.
  */
 const MAX = 900;
 
+/** Sculpt a coiled, ribbed woven-hemp fender bolster with per-vertex linear hemp/tarred-collar shading (RGBA, a = 0 plain). */
+function buildHempBolster(): THREE.BufferGeometry {
+  const rings = 12, radial = 8, halfH = 0.34;
+  const pos: number[] = [], col: number[] = [], idx: number[] = [];
+  const cCrest = new THREE.Color("#B4986E");
+  const cGroove = new THREE.Color("#6D5436");
+  const cCollar = new THREE.Color("#4B3A26");
+  const tmp = new THREE.Color();
+  for (let i = 0; i <= rings; i++) {
+    const t = i / rings; // 0 bottom .. 1 top
+    const y = (t - 0.5) * 2 * halfH;
+    // plump tapered rope bolster with 6 circumferential hemp ribs & cinched end collars
+    const endCap = Math.sin(Math.PI * t);
+    const body = Math.pow(Math.max(endCap, 0), 0.42);
+    const rib = Math.sin(t * 11 * Math.PI); // alternating ridges & grooves
+    const collar = t < 0.14 || t > 0.86 ? 1 : 0;
+    const r = (0.045 + 0.115 * body) * (1 + (collar ? -0.14 : 0.085 * rib));
+    const shade = 0.78 + 0.22 * Math.min(1, t * 1.45); // darker wet lower end
+    tmp.copy(collar ? cCollar : cGroove).lerp(cCrest, collar ? 0.12 : 0.5 + 0.5 * rib).multiplyScalar(shade);
+    for (let j = 0; j < radial; j++) {
+      const a = (j / radial) * Math.PI * 2 + (i % 2) * (Math.PI / radial); // staggered braid facets
+      pos.push(Math.cos(a) * r, y, Math.sin(a) * r);
+      col.push(tmp.r, tmp.g, tmp.b, 0);
+    }
+  }
+  for (let i = 0; i < rings; i++) {
+    for (let j = 0; j < radial; j++) {
+      const j2 = (j + 1) % radial;
+      const a = i * radial + j, b = i * radial + j2, c = (i + 1) * radial + j2, d = (i + 1) * radial + j;
+      idx.push(a, b, c, a, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 4));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
 export class Fenders {
   readonly mesh: THREE.InstancedMesh;
+  private readonly ownsMaterial: boolean;
   private n = 0;
   private readonly m = new THREE.Matrix4();
   private readonly local = new THREE.Matrix4();
@@ -17,9 +59,10 @@ export class Fenders {
   private readonly s = new THREE.Vector3();
   private readonly tilt = new THREE.Euler();
 
-  constructor() {
-    const g = new THREE.CapsuleGeometry(0.15, 0.42, 3, 8);
-    const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color("#DDD6C4"), roughness: 0.62, metalness: 0 });
+  constructor(material?: THREE.Material) {
+    const g = buildHempBolster();
+    const mat = material ?? new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.88, metalness: 0 });
+    this.ownsMaterial = !material;
     this.mesh = new THREE.InstancedMesh(g, mat, MAX);
     this.mesh.name = "harbour-fenders";
     this.mesh.count = 0;
@@ -62,5 +105,8 @@ export class Fenders {
     }
   }
 
-  dispose(): void { this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); }
+  dispose(): void {
+    this.mesh.geometry.dispose();
+    if (this.ownsMaterial) (this.mesh.material as THREE.Material).dispose();
+  }
 }

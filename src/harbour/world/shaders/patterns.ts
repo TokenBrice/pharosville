@@ -252,15 +252,30 @@ vec3 hbPattern(float pid, out float rough, out float bumpH) {
             + (tuft - 0.5) * 0.06 * hbBumpFade(dPleaf, 0.45)
             + sprig * 0.018 * hbBumpFade(dPleaf, 0.18);
     #endif
-  } else if (pid < 9.5) {            // 9 strakes: wooden hull planking seams & oiled grain
-    float fineS = hbFine(dP.z, 0.36);
-    float seam = hbLine(P.z, 0.36, 0.06, dP.z);
-    float grain = hbNoise(vec3(P.x * 1.4, P.y * 1.4, P.z * 9.0)) - 0.5;
-    f = (1.0 - seam * 0.24) * (1.0 + grain * 0.05 * fineS);
-    rough = mix(0.44 + grain * 0.06 * fineS, 0.76, seam);
+  } else if (pid < 9.5) {            // 9 strakes: sheer-aligned carvel planking, per-strake tone & oiled-crest/caulk relief
+    #ifdef HB_FLEET
+      float ux = clamp(vPaintC.x, -1.2, 1.2);
+      float sz = P.z - 0.065 * P.x * ux;
+      float sp = 0.28;
+      float dS = dP.z + dP.x * 0.14;
+    #else
+      float sz = P.z;
+      float sp = 0.36;
+      float dS = dP.z;
+    #endif
+    float fineS = hbFine(dS, sp);
+    float si = floor(sz / sp);
+    float stRnd = hbWhite(vec3(si, 4.0, 9.0)) - 0.5;
+    float seam = hbLine(sz, sp, 0.065, dS);
+    float grain = hbNoise(vec3(P.x * 1.4, P.y * 1.4, sz * 11.0)) - 0.5;
+    f = (1.0 - seam * 0.28) * (1.0 + stRnd * 0.10 * fineS + grain * 0.055 * fineS);
+    hue = vec3(0.022, 0.005, -0.020) * (hbWhite(vec3(si, 11.0, 3.0)) - 0.5) * fineS;
+    rough = mix(0.42 + stRnd * 0.05 * fineS + grain * 0.06 * fineS, 0.78, seam);
     #ifndef HB_LITE
-      float lap = fract(P.z / 0.36);
-      bumpH = ((hbGroove(P.z, 0.36, 0.065, dP.z) - 0.86) * 0.016 + (lap - 0.5) * 0.005 + grain * 0.004) * hbBumpFade(dP.z, 0.36);
+      float lap = fract(sz / sp);
+      float crest = sin(lap * 3.14159265);
+      float caulk = hbGroove(sz, sp, 0.065, dS) - 0.88;
+      bumpH = (caulk * 0.024 + (crest - 0.5) * 0.008 + grain * 0.004) * hbBumpFade(dS, sp);
     #endif
   } else if (pid < 10.5) {           // 10 render: hand-troweled Mediterranean limewash stucco
     float st1 = hbFbm(P * vec3(0.6, 0.6, 0.14));
@@ -271,17 +286,21 @@ vec3 hbPattern(float pid, out float rough, out float bumpH) {
       bumpH = (hbFbm(P * vec3(1.15, 1.15, 0.72)) - 0.5) * 0.018 * hbBumpFade(dPxyz, 0.6)
             + (hbNoise(P * 5.8) - 0.5) * 0.005 * hbBumpFade(dPxyz, 0.2);
     #endif
-  } else if (pid < 11.5) {           // 11 planks_y: deck boards across y
-    float pk = floor(P.y / 0.32);
-    float fine = hbFine(dP.y, 0.32);
-    float h = hbWhite(vec3(pk, 7.0, 0.0));
-    float seam = hbLine(P.y, 0.32, 0.09, dP.y);
-    float grain = hbNoise(vec3(P.x * 1.2, P.y * 7.0, P.z * 4.0)) - 0.5;
-    f = (1.0 + (h * 0.22 - 0.11) * fine + grain * 0.04 * fine) * (1.0 - seam * 0.55);
-    hue = vec3(0.03, 0.0, -0.035) * (hbWhite(vec3(pk, 8.0, 2.0)) - 0.5) * fine;
-    rough = mix(0.70 + (h - 0.5) * 0.08 * fine, 0.92, seam);
+  } else if (pid < 11.5) {           // 11 planks_y: deck boards across y with staggered butt-joints
+    float pk = floor(P.y / 0.30);
+    float fine = hbFine(dP.y, 0.30);
+    float buttStagger = hbWhite(vec3(pk, 13.0, 5.0)) * 2.4;
+    float buttCoord = P.x + buttStagger;
+    float buttCell = floor(buttCoord / 2.4);
+    float h = hbWhite(vec3(pk, buttCell, 7.0));
+    float seam = max(hbLine(P.y, 0.30, 0.085, dP.y), hbLine(buttCoord, 2.4, 0.014, dP.x) * 0.85);
+    float grain = hbNoise(vec3(P.x * 1.2, P.y * 7.5, P.z * 4.0)) - 0.5;
+    f = (1.0 + (h * 0.22 - 0.11) * fine + grain * 0.045 * fine) * (1.0 - seam * 0.52);
+    hue = vec3(0.03, 0.0, -0.035) * (hbWhite(vec3(pk, buttCell, 2.0)) - 0.5) * fine;
+    rough = mix(0.68 + (h - 0.5) * 0.08 * fine, 0.92, seam);
     #ifndef HB_LITE
-      bumpH = ((hbGroove(P.y, 0.32, 0.08, dP.y) - 0.85) * 0.018 + grain * 0.005) * hbBumpFade(dP.y, 0.32);
+      float gPlank = min(hbGroove(P.y, 0.30, 0.08, dP.y), mix(1.0, hbGroove(buttCoord, 2.4, 0.016, dP.x), hbBumpFade(dP.x, 2.4)));
+      bumpH = ((gPlank - 0.86) * 0.022 + grain * 0.005) * hbBumpFade(dP.y, 0.30);
     #endif
   } else if (pid < 12.5) {           // 12 metal: hammered / cast bronze micro-texture
     float fineM = hbFine(dPxy, 0.3);
@@ -322,11 +341,15 @@ vec3 hbPattern(float pid, out float rough, out float bumpH) {
   float fine = hbFine(dW, 1.5);
   float fworld = 0.93 + wn * 0.14;
   if (fine > 0.0) fworld += (hbNoise(W * 0.4) - 0.5) * 0.06 * fine;
-  // flat-shaded facet value jitter on architecture/stone/props; suppressed on natural terrain, rock, foliage & crops
-  // so hillsides, cliffs and tree canopies read organically instead of triangulated checkerboard facets
-  float organic = step(abs(pid - 5.0), 0.25) + step(abs(pid - 6.0), 0.25) + step(abs(pid - 8.0), 0.25)
-                + step(abs(pid - ${PATTERN_LEAF_EVERGREEN.toFixed(1)}), 0.25) + step(abs(pid - 15.0), 0.25);
-  float facet = (hbWhite(floor(vHbLocalN * 23.0) + 3.0) - 0.5) * (1.0 - min(organic, 1.0));
+  // flat-shaded facet value jitter on architecture/stone/props; suppressed on natural terrain, rock, foliage, crops & fleet
+  // so hillsides, cliffs, tree canopies and smooth curved hulls/sails never swim with triangulated speckle
+  #ifdef HB_FLEET
+    float facet = 0.0;
+  #else
+    float organic = step(abs(pid - 5.0), 0.25) + step(abs(pid - 6.0), 0.25) + step(abs(pid - 8.0), 0.25)
+                  + step(abs(pid - ${PATTERN_LEAF_EVERGREEN.toFixed(1)}), 0.25) + step(abs(pid - 15.0), 0.25);
+    float facet = (hbWhite(floor(vHbLocalN * 23.0) + 3.0) - 0.5) * (1.0 - min(organic, 1.0));
+  #endif
   return f * fworld * (1.0 + facet * 0.05) * (1.0 + hue);
 }
 

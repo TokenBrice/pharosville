@@ -21,6 +21,24 @@ bool hbFleetStruck(float w) {
   if (aMeta.w > 0.5) return true;                                              // pennant
   return aMeta.x > 0.5 && aMeta.x < 1.5 && (aMeta.y < 1.5 || aMeta.y > 3.5);  // jib, square sails
 }
+// Decorative _PAINT deck-module variants (20/21/22): pick 1 of 3 per boat from phase (0 extra draws)
+bool hbDeckModuleDropped(float phase) {
+  float code = aPaint.x;
+  if (code < 19.5 || code > 22.5) return false;
+  float pick = min(2.0, floor(fract(sin(phase * 41.31 + 1.7) * 43758.5453) * 3.0));
+  return abs(floor(code - 19.5) - pick) > 0.5;
+}
+// Docked square-rig yard yaw jitter (±14°) + cockbill (±3.5°) about aPivot mast-hinge (breaks piano-key rows)
+void hbDockedYardJitter(inout vec3 p, inout vec3 n, float node, float furl, float phase) {
+  if (abs(node - 1.0) > 0.5 || aPivot.y < 0.25 || furl <= 0.7) return;
+  float dockK = smoothstep(0.7, 0.92, furl);
+  float h1 = fract(sin(phase * 12.9898 + aPivot.x * 3.17) * 43758.5453) * 2.0 - 1.0;
+  float h2 = fract(sin(phase * 78.233 + aPivot.y * 5.13) * 43758.5453) * 2.0 - 1.0;
+  mat3 Ry = hbRotAxis(vec3(0.0, 1.0, 0.0), h1 * 0.2443 * dockK)
+          * hbRotAxis(vec3(1.0, 0.0, 0.0), h2 * 0.0611 * dockK);
+  p = aPivot + Ry * (p - aPivot);
+  n = Ry * n;
+}
 `;
 
 /** uFleetData texels per batch instance (F-fleet3: texel 2 = motion, see FleetUniforms). */
@@ -52,14 +70,14 @@ attribute vec3 aFurl;
 attribute vec3 aFurlN;
 attribute vec2 aSailUV;
 attribute vec2 aEmbUV;
-attribute vec2 aPaint;
+attribute vec3 aPaint;
 uniform highp sampler2D uFleetData;
 uniform highp sampler2D uFleetPaint;
 uniform float uWind;
 uniform vec2 uFleetScreen;
 varying vec4 vPaintA;       // livery rgb, mode (0 keep · 1 paint · 2 topsides · 3 deck (keeps the grain) · 4 LOD topsides · 5 spar)
 varying vec4 vPaintB;       // trim rgb, topside height t
-varying vec3 vPaintC;       // x / half loa, name board, far (0 near … 1 a few px: spars recede, margins widen)
+varying vec4 vPaintC;       // x / half loa, name board, far (0 near … 1 a few px: spars recede, margins widen), E15 _AO
 varying vec4 vFleetBrand;   // rgb, slot
 varying vec4 vFleetMisc;    // highlight, flip (mirrored node now), kind, brand mask | sail role
 varying vec4 vFleetUV;      // sail uv, emblem uv
@@ -84,13 +102,13 @@ vec4 hbPaintTexel(int idx, int k) {
 }
 // the instance's livery for this corner's kit region (decorative: hash-picked per coin, never data)
 void hbFleetLivery(int idx, float far) {
-  vPaintA = vec4(0.0); vPaintB = vec4(0.0); vPaintC = vec3(aPaint.y, 0.0, far);
+  vPaintA = vec4(0.0); vPaintB = vec4(0.0); vPaintC = vec4(aPaint.y, 0.0, far, aPaint.z);
   float code = aPaint.x;
-  if (code < 0.5) return;
+  if (code < 0.5 || code > 19.5) return;
   if (code > 7.5 && code < 9.5) { vPaintA.w = 5.0; return; }
   vec4 trim = hbPaintTexel(idx, 1);
   if (trim.w < 0.5) return;
-  if (code < 2.5 || code > 10.5) {
+  if (code < 2.5 || (code > 10.5 && code < 13.5)) {
     vec4 top = hbPaintTexel(idx, 0);
     bool lod = code > 10.5;
     vPaintA = vec4(top.rgb, lod ? 4.0 : 2.0);
@@ -127,8 +145,22 @@ void hbFleetPose(vec3 p, vec3 n) {
   p += aFurl * mf;
   vec3 nn = n + aFurlN * mf;
   n = dot(nn, nn) > 1e-6 ? normalize(nn) : vec3(0.0, 1.0, 0.0);
-  p = hbSailBreath(p, mo, furl, node, phase);
+  p = hbSailBreath(p, n, mo, furl, node, phase);
   p = hbOarStroke(p, n, mo, node, phase);
+  hbDockedYardJitter(p, n, node, furl, phase);
+  // USDS signal-tower brazier flame gentle vertex waver (unpainted opaque flame cones above deck)
+  #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+    if (aMeta.x < 0.5 && aPaint.x < 0.5 && aMeta.w < 0.5 && p.y > 3.5) {
+      bool fOut = color.r > 0.78 && color.g > 0.14 && color.g < 0.42 && color.b < 0.06;
+      bool fIn  = color.r > 0.94 && color.g > 0.52 && color.g < 0.78 && color.b < 0.16;
+      if (fOut || fIn) {
+        float flW = uTime * 7.5 + phase * 3.1;
+        p.x += sin(flW + p.y * 4.0) * 0.045;
+        p.z += cos(flW * 1.23 + p.y * 5.0) * 0.045;
+        p.y += sin(flW * 1.7 + p.x * 3.0) * 0.03;
+      }
+    }
+  #endif
   float flip = (node > 0.5 && node < 4.5 && swing > 0.0) ? 1.0 : 0.0;
   if (flip > 0.5) { p.z = -p.z; n.z = -n.z; }
   if (node > 1.5 && node < 4.5) {
@@ -147,6 +179,7 @@ void hbFleetPose(vec3 p, vec3 n) {
   hbRigR = aPaint.x > 7.5 && aPaint.x < 10.5 ? aPaint.y : 0.0;
   if (aMeta.w > 0.5 && a.w < 0.5) p = vec3(0.0); // pennant struck (small hulls seen from afar)
   if (hbFleetStruck(a.w)) { p = vec3(0.0); hbRigR = 0.0; }
+  if (hbDeckModuleDropped(phase)) { p = vec3(0.0); }
   hbFleetLivery(idx, hbFleetFar(a.w).x);
   hbFleetP = p; hbFleetN = n;
   vFleetBrand = b;
@@ -174,7 +207,7 @@ attribute vec4 aMeta;
 attribute vec3 aPivot;
 attribute vec3 aAxis;
 attribute vec3 aFurl;
-attribute vec2 aPaint;
+attribute vec3 aPaint;
 attribute vec2 aSailUV;
 uniform highp sampler2D uFleetData;
 uniform highp sampler2D uFleetPaint;
@@ -206,10 +239,12 @@ vec3 hbFleetPoseP(vec3 p) {
   float node = aMeta.y;
   p += aFurl * hbOarFurl(node, furl, mo);
   vec3 n0 = vec3(0.0, 1.0, 0.0);
-  p = hbSailBreath(p, mo, furl, node, phase);
+  p = hbSailBreath(p, n0, mo, furl, node, phase);
   p = hbOarStroke(p, n0, mo, node, phase);
+  hbDockedYardJitter(p, n0, node, furl, phase);
   if (aMeta.w > 0.5 && a.w < 0.5) p = vec3(0.0);
   if (hbFleetStruck(a.w)) p = vec3(0.0);
+  if (hbDeckModuleDropped(phase)) p = vec3(0.0);
   if (node > 0.5 && node < 4.5 && swing > 0.0) p.z = -p.z;
   if (node > 1.5 && node < 4.5) {
     float ang = (node < 3.5 ? swing : 0.6 * swing) + sin(uTime * 0.9 + phase * 1.7) * 0.025 * (1.0 - furl);

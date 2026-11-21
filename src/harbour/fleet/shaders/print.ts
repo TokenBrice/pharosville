@@ -48,10 +48,11 @@ varying vec4 vSailDye;
 varying float vFleetLamp;
 varying vec4 vPaintA;
 varying vec4 vPaintB;
-varying vec3 vPaintC;
+varying vec4 vPaintC;
 ${SAIL_LIGHT_GLSL}
 float hbFleetBump = 0.0;
 float hbFleetWaterline = 0.0;
+float hbPrintPaper = 0.0;
 // E04 (O5-F1): the emblem slot / sentinel rides an interpolated varying that lands at 320 ± ε: rounded before any
 // mod / floor, or a slot on atlas column 0 (a multiple of the grid width: USDe's 320) flips per pixel between its
 // own tile and the clamped edge of the row above. Integers round to themselves, so -1 / -2 / -10 - n stay put.
@@ -83,6 +84,7 @@ vec3 hbPrint(vec3 c, vec3 fam, vec4 t, float a, float k, bool letters) {
     ground = mix(canvas, vec3(0.92), hi);
   }
   // far: half the value contrast, the ink's hue kept
+  hbPrintPaper = paper;
   vec3 inkSoft = max(ink + 0.5 * (dot(soft, vec3(0.2126, 0.7152, 0.0722)) - dot(ink, vec3(0.2126, 0.7152, 0.0722))), vec3(0.0));
   return mix(c, mix(mix(inkSoft, ink, k), mix(soft, ground, k), paper), a);
 }
@@ -146,8 +148,10 @@ void hbFleetColor(inout vec3 c) {
   vec2 ex = dFdx(e), ey = dFdy(e);
   vec2 su = vFleetUV.xy;
   float seams = hbSeam(su.y, 0.125, 0.006);
-  float tabling = max(1.0 - smoothstep(0.015, 0.03, min(su.x, 1.0 - su.x)), 1.0 - smoothstep(0.02, 0.035, su.y));
+  float brails = hbSeam(su.x, 0.2, 0.005) * smoothstep(0.05, 0.10, min(su.x, 1.0 - su.x));
+  float tabling = max(1.0 - smoothstep(0.015, 0.032, min(su.x, 1.0 - su.x)), 1.0 - smoothstep(0.018, 0.036, min(su.y, 1.0 - su.y)));
   float fine = 1.0 - smoothstep(0.02, 0.08, fwidth(su.y));
+  float fineX = 1.0 - smoothstep(0.02, 0.08, fwidth(su.x));
   vec2 sx2 = dFdx(su), sy2 = dFdy(su);
   vec2 sw = fwidth(su) + 1e-4;
   float weaveFine = 1.0 - smoothstep(0.006, 0.026, max(sw.x, sw.y));
@@ -215,14 +219,15 @@ void hbFleetColor(inout vec3 c) {
     vec3 fam = c;
     // uneven dye take-up: canvas, not plastic
     float mott = sin(su.x * 13.0 + sin(su.y * 9.0) * 1.6) * sin(su.y * 21.0 - su.x * 4.0);
+    bool squareSail = abs(vFleetRig.y - 1.0) < 0.5;
+    float brailMask = squareSail ? brails * fineX : 0.0;
     if (dye.w > 0.5) {
       // Brand-dyed canvas by sail-plan role (aMeta.z): the body dyed · headsails a light tint with a brand band at
       // foot and leech · upper sails lighter · a titan's head band a deeper shade. A near-white brand (mode 2)
-      // keeps the canvas and bands it. The family cloth (cream, tanbark …) shows through a little. Square sails
+      // keeps the canvas and bands it. Woven flax cloth shows through (0.22). Square sails
       // (node 1: hung from _heel / the yards, both side edges alike) take the band along the foot only, a little deeper.
       float role = vFleetMisc.w;
-      vec3 cloth = fam, pig = hbDyeChroma(dye.rgb), body = mix(pig, cloth, 0.1);
-      bool squareSail = abs(vFleetRig.y - 1.0) < 0.5;
+      vec3 cloth = fam, pig = hbDyeChroma(dye.rgb), body = mix(pig, cloth, 0.22);
       float foot = 1.0 - smoothstep((squareSail ? 0.1 : 0.07) - sw.y, (squareSail ? 0.1 : 0.07) + sw.y, su.y);
       float edge = squareSail ? foot : max(smoothstep(0.93 - sw.x, 0.93 + sw.x, su.x), foot);
       vec3 base;
@@ -235,7 +240,7 @@ void hbFleetColor(inout vec3 c) {
       base *= 0.97 + 0.05 * mott;
       c = mix(base, base * 1.1 + 0.015, smoothstep(0.5, 1.0, su.y) * 0.5);
     }
-    hbSailOpaque = (seams * 0.45 + tabling * 0.55) * fine;  // 06-F12: they stand dark in the backlit glow
+    hbSailOpaque = (seams * 0.45 + tabling * 0.55 + brailMask * 0.62) * fine;  // 06-F12: they stand dark in the backlit glow
     // furled canvas (rolled jib, square sails on their yards): weathered cloth, not a white bar
     c = mix(c, c * vec3(0.66, 0.62, 0.55), smoothstep(0.35, 0.95, vFleetRig.x));
     float slot = hbFleetSlot();
@@ -270,15 +275,22 @@ void hbFleetColor(inout vec3 c) {
       float a = t.a * show;
       c = hbPrint(c, fam, t, a, k, letters);
       c *= mix(1.0, 0.97 + 0.05 * mott, a);
-      hbSailOpaque = max(hbSailOpaque, a * 0.7);
+      // ink-only backlit silhouette: unbleached linen roundel grounds glow honey-gold while ink & rings silhouette
+      hbSailOpaque = max(hbSailOpaque, a * 0.72 * (1.0 - hbPrintPaper * 0.75));
     }
     c *= 1.0 - (seams * 0.07 + tabling * 0.09) * fine;    // cloths + tabling, over the print
-    // woven linen thread micro-texture & soft billow panel pillowing (AA-faded at range, preserves emblem legibility)
-    float weave = ((sin(su.x * 220.0) * 0.5 + 0.5) * 0.55 + (sin(su.y * 190.0) * 0.5 + 0.5) * 0.45 - 0.5) * weaveFine;
-    c *= 1.0 + weave * 0.04;
+    c = mix(c, vec3(0.14, 0.10, 0.065), brailMask * 0.52); // vertical dark-hemp brail cords over square sails
+    // woven linen cross-hatch micro-texture & 2D quilted billow pillowing (AA-faded at range, preserves emblem legibility)
+    float wWarp = sin(su.x * 240.0) * 0.5 + 0.5;
+    float wWeft = sin(su.y * 210.0) * 0.5 + 0.5;
+    float weave = (wWarp * 0.52 + wWeft * 0.48 - 0.5) * weaveFine;
+    float hatch = ((wWarp - 0.5) * (wWeft - 0.5)) * 2.0 * weaveFine;
+    c *= 1.0 + weave * 0.048 + hatch * 0.028;
     #ifndef HB_LITE
-      float panelPillow = sin(fract(su.y / 0.125) * 3.14159265);
-      hbFleetBump = (panelPillow * 0.011 - seams * 0.008 + tabling * 0.006 + weave * 0.004) * fine * (1.0 - vFleetRig.x * 0.65);
+      float pV = sin(fract(su.y / 0.125) * 3.14159265);
+      float pU = squareSail ? (0.45 + 0.55 * sin(fract(su.x / 0.2) * 3.14159265)) : 1.0;
+      float panelPillow = pV * pU;
+      hbFleetBump = (panelPillow * 0.026 - seams * 0.010 - brailMask * 0.012 + tabling * 0.008 + weave * 0.005) * fine * (1.0 - vFleetRig.x * 0.65);
     #endif
     hbFarCloth(c);                                         // far: the whole sail, print and all
   } else if (vFleetRig.z > 0.5) {
@@ -296,6 +308,33 @@ void hbFleetColor(inout vec3 c) {
     }
   }
 }
+// universal dynamic waterline wetness, submerged darkening & organic olive-bronze algae across ALL opaque hulls
+// (including all 10 Titans & _BRAND boot-tops; dry Wreck Cove hulks & ships on launching ways stay dry)
+void hbHullWaterline(inout vec3 c, vec3 localPos, vec3 worldPos, float time) {
+  if (vFleetMisc.z > 0.5 || vFleetRig.z > 0.5 || vPaintA.w >= 4.5) return;
+  float hSlot = hbFleetSlot();
+  if (hSlot < -1.5 && abs(hSlot + 3.0) > 0.5) return;
+  float afloat = 1.0 - smoothstep(0.6, 1.8, worldPos.y - localPos.y);
+  if (afloat <= 0.001) return;
+  float u = vPaintC.x;
+  #ifdef HB_LITE
+    float waveWash = 0.06;
+  #else
+    float waveWash = 0.08 + 0.07 * sin(u * 11.0 + time * 1.4 + worldPos.x * 0.25)
+                          + 0.04 * sin(u * 23.0 - time * 2.1 + worldPos.z * 0.3);
+  #endif
+  float wlH = localPos.y - waveWash;
+  float aa = fwidth(localPos.y) + 1e-3;
+  float wet = (1.0 - smoothstep(-0.04, 0.34 + aa, wlH)) * afloat;
+  float sub = (1.0 - smoothstep(-0.18 - aa, 0.02 + aa, wlH)) * afloat;
+  hbFleetWaterline = max(hbFleetWaterline, wet);
+  c *= (1.0 - 0.28 * wet * wet) * (1.0 - 0.14 * sub);
+  #ifndef HB_LITE
+    float algNoise = 0.65 + 0.35 * sin(u * 29.0 + sin(u * 7.0) * 2.5);
+    float algae = exp(-pow((wlH - 0.06) / max(0.085, aa), 2.0)) * algNoise * afloat;
+    c = mix(c, vec3(0.065, 0.082, 0.042), algae * 0.34);
+  #endif
+}
 // adjusts roughness & bump height after hbPattern for woven sails, covers, pennants & wet-varnish hull waterlines
 void hbFleetSurface(inout float rough, inout float bumpH) {
   float kind = vFleetMisc.z;
@@ -308,10 +347,9 @@ void hbFleetSurface(inout float rough, inout float bumpH) {
   } else if (vFleetRig.z > 0.5) {
     rough = 0.82;
     bumpH = hbFleetBump;
-  } else if (kind < 0.5) {
-    float mode = vPaintA.w;
-    if ((mode > 1.5 && mode < 2.5) || (mode > 3.5 && mode < 4.5)) {
-      rough = mix(min(rough, 0.44), 0.15, hbFleetWaterline * 0.84);
+  } else if (kind < 0.5 && vPaintA.w < 4.5) {
+    if (hbFleetWaterline > 0.001) {
+      rough = mix(rough, 0.13, hbFleetWaterline * 0.88);
     }
   }
 }
