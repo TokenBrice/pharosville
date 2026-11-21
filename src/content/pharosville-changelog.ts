@@ -12,6 +12,25 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-11-21-titans-and-wakes",
+    version: PHAROSVILLE_RELEASE_VERSIONS.titansAndWakes,
+    date: "2026-11-21",
+    title: "Titans and Wakes",
+    summary: "The fleet and its water are rebuilt: the ten largest stablecoins sail bespoke classical flagships, every hull is re-carved in oiled timber with its emblem framed in woven cloth, and the sea carries wakes behind every hull under way, mirrors the harbour through drizzle and takes the warm light of the fleet's lanterns at night.",
+    bullets: [
+      "Ten Titans for the ten largest stablecoins, each with its own hull, rig and deck: USDT's grain colossus with a temple of Aphrodite, USDC's flagship with a gilded astrolabe rotunda, USDe's obsidian galley with a hanging garden, DAI's round ship with a stone fortress, USDS's palace barge with twin swan prows and a brazier tower, RLUSD's trireme and XAUT's bullion galley rowing with their oars, USD1's eagle-prowed liburna, USDG's twin-castled merchantman and PYUSD's sapphire packet. Their galleries and sanctuaries light up with the town's lamps.",
+      "The flagships berth alongside the piers: USDT now ties up at the Ethereum and Tron piers rather than waiting off them, and the new Titans dock without crowding the boats around them.",
+      "Every hull in the fleet is rebuilt with smoother lines, raised wales and shaded decks, painted in oiled cedar, oak, pine, pitch and earth pigments rather than white and pale blue; the mooring buoys are tarred casks and the dinghies classical skiffs.",
+      "Sails frame their emblems in woven cloth: each coin's device sits a little smaller inside a margin of dyed linen with its brand ring whole, and furled sails gather into full brailed bundles instead of flat boards.",
+      "Wakes follow every boat under way, from a skiff's thin V to a flagship's foaming bow wave. On High, hulls sit in the water with a dark waterline and a lap of ripples, and the galleys' oars raise splash rings.",
+      "Clearer water: a more coherent swell, sunlight netting the shallows, and shallows that stay dark at night unless a lamp lights them.",
+      "On High, the harbour mirror stays through drizzle and reaches further up the Pharos; showers, storms and stale-data fog still clear it away. At night the lanterns of ships under way and the Titans' lit galleries lie on the water in warm pools.",
+      "In storms, spray bursts seaward from the breakwaters in time with the arriving swell, instead of blowing inland.",
+      "Both arrival pictures, by day and by night, are drawn from this harbour.",
+    ],
+    source: "Collected from `release/v1.11.0` after v1.10.0: a water and boats pass, landed as a fixes pull request and a full pass and compared with v1.10.0 view by view on a real GPU. The first visit downloads about 370 KB more (compressed), mostly the ten flagships and the rebuilt fleet, so the first fleet arrives about half a second later on a fast 4G connection. On High and Medium the water and the fleet cost a little more drawing time per frame; Low draws within measurement noise of before. Hull sizes still follow the supply ladder, and no analytical mapping changed.",
+  },
+  {
     id: "2026-11-21-courtyard-and-roofs",
     version: PHAROSVILLE_RELEASE_VERSIONS.courtyardAndRoofs,
     date: "2026-11-21",
