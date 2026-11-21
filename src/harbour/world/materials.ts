@@ -619,7 +619,11 @@ if (uWindowGlow > 1e-3 && uLampAnalytic < 0.5) totalEmissiveRadiance *= mix(1.0,
   glass(): THREE.MeshStandardMaterial {
     const hit = this.cache.get("glass");
     if (hit) return hit as THREE.MeshStandardMaterial;
-    const m = new THREE.MeshStandardMaterial({ color: new THREE.Color("#C9D6DC"), roughness: 0.1, metalness: 0, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
+    const m = new THREE.MeshStandardMaterial({
+      color: new THREE.Color("#C9D6DC"), roughness: 0.1, metalness: 0, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+    });
     m.name = "hb_glass";
     this.cache.set("glass", m);
     return m;

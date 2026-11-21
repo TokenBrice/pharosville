@@ -38,6 +38,8 @@ export class TideGauge {
     this.waterMat = new THREE.MeshStandardMaterial({
       color: this.wet.clone(), roughness: 0.18, metalness: 0, transparent: true, opacity: 0.78,
       emissive: new THREE.Color("#1C6F78"), emissiveIntensity: 0, depthWrite: false,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     this.waterMat.name = "hb_tide_water";
     // unit-height column, scaled per frame; bottom edge at y = 0

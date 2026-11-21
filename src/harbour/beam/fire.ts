@@ -151,6 +151,8 @@ export class PharosFire {
     const plumeMat = new THREE.ShaderMaterial({
       vertexShader: PLUME_VERT, fragmentShader: PLUME_FRAG, uniforms: this.pu,
       transparent: true, depthWrite: false, depthTest: true,
+      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     plumeMat.name = "hb_pharos_plume";
     this.plume = new THREE.Mesh(pg, plumeMat);

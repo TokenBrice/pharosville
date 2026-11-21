@@ -268,9 +268,10 @@ void main() {
     bed = hbPosidonia(bed, xz, bedDep, zm.r);
     float cosT = sqrt(max(1.0 - (1.0 - V.y * V.y) * 0.5625, 0.12));
     float optLen = bedDep / cosT;
-    vec3 absorb = exp(-optLen * vec3(0.46, 0.14, 0.11));
-    vec3 downLight = uAmbient * 0.85 + uSunColor * max(uSunDir.y, 0.0) * 0.45 * sunSh * hbCloudShadow(xz) * (1.0 - uNight);
-    vec3 seen = bed * downLight * absorb;
+    vec3 absorb = exp(-optLen * vec3(0.42, 0.12, 0.09));
+    vec3 downIrr = uAmbient * 2.0 + uSunColor * max(uSunDir.y, 0.0) * 0.18 * sunSh * hbCloudShadow(xz) * (1.0 - uNight);
+    float bedLight = clamp(dot(downIrr, vec3(0.2126, 0.7152, 0.0722)) * 0.95, 0.0, 1.0);
+    vec3 seen = bed * absorb * mix(vec3(1.0), uSunlitShoal * 1.65, 0.38) * mix(vec3(bedLight), uAmbient * 0.85, uNight);
     // crisp refracted sunlight caustic filaments. Explicit gradients keep the conditional reads safe; the nets run
     // after the lanes reconverge (the Shoals reef reads them too, past the bed's own depth gain)
     float cs = 1.0 - smoothstep(160.0, 620.0, camD);
