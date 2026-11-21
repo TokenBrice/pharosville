@@ -47,6 +47,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   lamplighter: "v1.7.0",
   goldenHour: "v1.8.0",
   seaAndSky: "v1.9.0",
+  courtyardAndRoofs: "v1.10.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.seaAndSky;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.courtyardAndRoofs;

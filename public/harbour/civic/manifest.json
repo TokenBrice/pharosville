@@ -27,7 +27,7 @@
     64,
     44
    ],
-   "tris": 8112,
+   "tris": 9536,
    "budget": 12000,
    "nodes": [
     {
@@ -79,7 +79,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 6964
+     "tris": 8388
     },
     {
      "name": "mint_body_lamps",
@@ -296,7 +296,7 @@
      4.8
     ]
    },
-   "kb": 142.6
+   "kb": 165.0
   },
   "burn": {
    "file": "burn.glb",
@@ -304,7 +304,7 @@
     30,
     30
    ],
-   "tris": 2708,
+   "tris": 2738,
    "budget": 6000,
    "nodes": [
     {
@@ -315,7 +315,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 2357
+     "tris": 2387
     },
     {
      "name": "burn_body_lamps",
@@ -410,7 +410,7 @@
      ]
     ]
    },
-   "kb": 61.3
+   "kb": 61.7
   },
   "shipyard": {
    "file": "shipyard.glb",
@@ -418,7 +418,7 @@
     150,
     80
    ],
-   "tris": 17444,
+   "tris": 18331,
    "budget": 20000,
    "nodes": [
     {
@@ -877,7 +877,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 14176
+     "tris": 15063
     },
     {
      "name": "shipyard_body_lamps",
@@ -1520,7 +1520,7 @@
      "wheel_radius_m": 2.5
     }
    ],
-   "kb": 249.6
+   "kb": 265.8
   },
   "customs": {
    "file": "customs.glb",
@@ -1528,7 +1528,7 @@
     42,
     30
    ],
-   "tris": 4914,
+   "tris": 5985,
    "budget": 6000,
    "nodes": [
     {
@@ -1539,7 +1539,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 4743
+     "tris": 5814
     },
     {
      "name": "customs_body_lamps",
@@ -1585,7 +1585,7 @@
     ],
     "podium_y": 1.6
    },
-   "kb": 75.4
+   "kb": 92.6
   },
   "registry": {
    "file": "registry.glb",
@@ -1593,7 +1593,7 @@
     26,
     20
    ],
-   "tris": 2395,
+   "tris": 3173,
    "budget": 6000,
    "nodes": [
     {
@@ -1614,7 +1614,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 2301
+     "tris": 3079
     },
     {
      "name": "registry_body_lamps",
@@ -1692,7 +1692,7 @@
      ]
     }
    },
-   "kb": 43.6
+   "kb": 56.1
   },
   "chartroom": {
    "file": "chartroom.glb",
@@ -1700,7 +1700,7 @@
     18,
     14
    ],
-   "tris": 2629,
+   "tris": 2905,
    "budget": 6000,
    "nodes": [
     {
@@ -1711,7 +1711,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 2571
+     "tris": 2847
     },
     {
      "name": "chartroom_body_lamps",
@@ -1746,7 +1746,7 @@
      -0.6
     ]
    },
-   "kb": 49.3
+   "kb": 54.5
   },
   "stormstation": {
    "file": "stormstation.glb",
@@ -1754,7 +1754,7 @@
     14,
     14
    ],
-   "tris": 1172,
+   "tris": 1512,
    "budget": 6000,
    "nodes": [
     {
@@ -1765,7 +1765,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1132
+     "tris": 1472
     },
     {
      "name": "stormstation_body_lamps",
@@ -1840,7 +1840,7 @@
      ]
     }
    },
-   "kb": 23.6
+   "kb": 29.6
   },
   "harbourmaster": {
    "file": "harbourmaster.glb",
@@ -1848,7 +1848,7 @@
     20,
     16
    ],
-   "tris": 2892,
+   "tris": 3408,
    "budget": 6000,
    "nodes": [
     {
@@ -1859,7 +1859,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 2832
+     "tris": 3348
     },
     {
      "name": "harbourmaster_body_lamps",
@@ -1916,7 +1916,7 @@
      ]
     }
    },
-   "kb": 48.8
+   "kb": 57.8
   },
   "keeperslog": {
    "file": "keeperslog.glb",
@@ -1924,7 +1924,7 @@
     12,
     10
    ],
-   "tris": 1305,
+   "tris": 1399,
    "budget": 6000,
    "nodes": [
     {
@@ -1935,7 +1935,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1253
+     "tris": 1347
     },
     {
      "name": "keeperslog_body_lamps",
@@ -1980,7 +1980,7 @@
      -0.3
     ]
    },
-   "kb": 29.0
+   "kb": 30.7
   },
   "harbour-office:ethereum": {
    "file": "harbour-office-ethereum.glb",
@@ -1988,7 +1988,7 @@
     20,
     16
    ],
-   "tris": 2526,
+   "tris": 3171,
    "budget": 6000,
    "nodes": [
     {
@@ -2031,7 +2031,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 2394
+     "tris": 3039
     },
     {
      "name": "office_body_lamps",
@@ -2070,7 +2070,7 @@
      7.0
     ]
    },
-   "kb": 53.9
+   "kb": 64.7
   },
   "harbour-office:tron": {
    "file": "harbour-office-tron.glb",
@@ -2078,7 +2078,7 @@
     20,
     16
    ],
-   "tris": 3175,
+   "tris": 3713,
    "budget": 6000,
    "nodes": [
     {
@@ -2132,7 +2132,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 3040
+     "tris": 3578
     },
     {
      "name": "office_body_lamps",
@@ -2171,7 +2171,7 @@
      7.0
     ]
    },
-   "kb": 62.5
+   "kb": 71.4
   },
   "harbour-office:bsc": {
    "file": "harbour-office-bsc.glb",
@@ -2179,7 +2179,7 @@
     20,
     16
    ],
-   "tris": 2168,
+   "tris": 2725,
    "budget": 6000,
    "nodes": [
     {
@@ -2222,7 +2222,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 2040
+     "tris": 2597
     },
     {
      "name": "office_body_lamps",
@@ -2261,7 +2261,7 @@
      7.3
     ]
    },
-   "kb": 46.4
+   "kb": 55.7
   },
   "harbour-office:solana": {
    "file": "harbour-office-solana.glb",
@@ -2269,7 +2269,7 @@
     20,
     16
    ],
-   "tris": 1427,
+   "tris": 1503,
    "budget": 6000,
    "nodes": [
     {
@@ -2312,7 +2312,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1313
+     "tris": 1389
     },
     {
      "name": "office_body_lamps",
@@ -2351,7 +2351,7 @@
      4.8
     ]
    },
-   "kb": 35.5
+   "kb": 36.7
   },
   "harbour-office:hyperliquid-l1": {
    "file": "harbour-office-hyperliquid-l1.glb",
@@ -2359,7 +2359,7 @@
     20,
     16
    ],
-   "tris": 4488,
+   "tris": 4326,
    "budget": 6000,
    "nodes": [
     {
@@ -2402,7 +2402,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 4364
+     "tris": 4202
     },
     {
      "name": "office_body_lamps",
@@ -2441,7 +2441,7 @@
      7.0
     ]
    },
-   "kb": 83.2
+   "kb": 81.0
   },
   "harbour-office:base": {
    "file": "harbour-office-base.glb",
@@ -2449,7 +2449,7 @@
     20,
     16
    ],
-   "tris": 2956,
+   "tris": 3485,
    "budget": 6000,
    "nodes": [
     {
@@ -2492,7 +2492,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 2829
+     "tris": 3358
     },
     {
      "name": "office_body_lamps",
@@ -2531,7 +2531,7 @@
      7.4
     ]
    },
-   "kb": 61.7
+   "kb": 70.1
   },
   "harbour-office:arbitrum": {
    "file": "harbour-office-arbitrum.glb",
@@ -2539,7 +2539,7 @@
     20,
     16
    ],
-   "tris": 2127,
+   "tris": 2257,
    "budget": 6000,
    "nodes": [
     {
@@ -2582,7 +2582,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1994
+     "tris": 2124
     },
     {
      "name": "office_body_lamps",
@@ -2621,7 +2621,7 @@
      7.2
     ]
    },
-   "kb": 49.6
+   "kb": 52.2
   },
   "harbour-office:polygon": {
    "file": "harbour-office-polygon.glb",
@@ -2629,7 +2629,7 @@
     20,
     16
    ],
-   "tris": 2027,
+   "tris": 2465,
    "budget": 6000,
    "nodes": [
     {
@@ -2672,7 +2672,7 @@
       -0.0
      ],
      "material": "hb_opaque",
-     "tris": 1907
+     "tris": 2345
     },
     {
      "name": "office_body_lamps",
@@ -2711,7 +2711,7 @@
      7.2
     ]
    },
-   "kb": 42.5
+   "kb": 50.2
   },
   "hull-stages": {
    "file": "hull-stages.glb",

@@ -11,7 +11,7 @@ import { lampJitter, lampRank, type LampWaveParams } from "./lamp-wave";
  * Pure data store; the LightsSystem owns the GPU side. Registered early (by the island system) so any
  * later system (fleet riding lights) can add lights during its own init.
  */
-export type LightKind = "window" | "lamp" | "pierhead" | "harbourlight" | "riding" | "signal" | "hearth" | (string & {});
+export type LightKind = "window" | "lamp" | "pierhead" | "harbourlight" | "riding" | "signal" | "hearth" | "brazier" | (string & {});
 
 export interface LightsService {
   add(kind: LightKind, position: THREE.Vector3Like | [number, number, number], color?: string | THREE.Color, radius?: number): number;
@@ -62,6 +62,9 @@ export const KINDS: Record<string, KindSpec> = {
   // 08-T9: hinterland hearths (farm doors, the windmill, the hill sanctuary, wayside lamps): warm, small and dim —
   // well under the town's lamps, never promoted to a point light
   hearth: { color: "#FF9A48", pool: 3.2, poolK: 0.16, sprite: 0.34, spriteK: 8, point: 0, mount: 1.8 },
+  /** Ceremonial Pharos courtyard braziers (decorative, non-analytic): restrained warm amber pools and tight ember cores
+   *  (amber like the hearths, never the harbour light's or the storm signal's red). */
+  brazier: { color: "#FF9040", pool: 14.0, poolK: 0.30, sprite: 0.16, spriteK: 1.35, point: 18, mount: 2.8 },
 };
 const DEFAULT_KIND = KINDS.lamp;
 
