@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GUST_GLSL } from "./gust";
 import type { BeamUniforms } from "../beam/uniforms";
 import { extraEnabled } from "../engine/extras";
+import { SWELL_DIR, SWELL_PHASE_GLSL } from "../ocean/waves";
 
 /**
  * Precipitation, two GPU-instanced draws (no per-particle CPU work):
@@ -223,6 +224,8 @@ void main() {
 
 const GROUND_VERT = /* glsl */ `
 ${COMMON}
+${SWELL_PHASE_GLSL}
+const vec2 SPRAY_SWELL_DIR = vec2(${SWELL_DIR[0].toFixed(5)}, ${SWELL_DIR[1].toFixed(5)});
 attribute vec4 aSeed;          // splash: xz seed, phase (>= 0), size | spray: phase, rand, -1, size
 attribute vec4 aAnchor;        // spray: x, z, outward nx, nz | splash: unused
 uniform float uSplashRate;     // splash cycles per second
@@ -239,25 +242,41 @@ varying vec3 vLight;
 void main() {
   vec2 corner = position.xy * 2.0 - 1.0;
   if (aSeed.z < 0.0) {
-    // ---- windblown sea-spray mist plume: torn off breaking surf, stretched downwind as fine spindrift
-    float cyc = uPTime / (2.0 + aSeed.y * 1.7) + aSeed.x;
-    float life = fract(cyc);
-    float on = step(pHash(vec2(floor(cyc), aSeed.x * 91.0)), uSpray * 0.58);
+    // ---- §6.3.3 swell-synced ballistic foam-jet + downwind spindrift plumes on exposed breakwater / Pharos headlands
+    vec2 outN = normalize(aAnchor.zw + 1e-4);
     vec2 wdir = uWindV / max(length(uWindV), 1e-3);
-    vec2 base = aAnchor.xy + aAnchor.zw * 2.0;
-    vec2 xz = base + wdir * life * uSprayScale * 2.3 + aAnchor.zw * life * uSprayScale * 0.4;
-    float rise = uSprayScale * (0.18 + 0.95 * life) * (0.55 + 0.65 * aSeed.w);
-    float r = uSprayScale * (0.36 + 1.05 * life) * (0.7 + 0.6 * aSeed.w);
+    float exposure = smoothstep(-0.35, 0.85, dot(outN, -SPRAY_SWELL_DIR));
+    float impScale = mix(0.55, 1.25, exposure);
+    // Lock plume eruptions to arriving 62 m swell crests (hbSwellPhase) + staggered steep-chop harmonic
+    float swCyc = (-hbSwellPhase(aAnchor.xy, uPTime) + 1.5707963) / 6.2831853;
+    float cyc = swCyc * (1.0 + step(0.52, aSeed.y)) + (aSeed.x - 0.5) * 0.18;
+    float rawLife = fract(cyc);
+    float waveId = floor(cyc);
+    float burstSpan = 0.64;
+    float life = clamp(rawLife / burstSpan, 0.0, 1.0);
+    float on = step(rawLife, burstSpan) * step(pHash(vec2(waveId, aSeed.x * 91.0)), uSpray * (0.64 + 0.34 * exposure));
+    // Towering 8-16 m waterline-anchored ballistic foam-jet apex on outer breakwater/headlands in DANGER storms
+    float jetH = (7.6 + 8.4 * aSeed.w) * impScale * (0.42 + 0.58 * uSpray) * clamp(uSprayScale / 3.1, 0.85, 1.30);
+    float grow = 0.52 + 0.48 * sin(min(life / 0.52, 1.0) * 1.5707963);
+    float shearMix = smoothstep(0.28, 0.82, life);
+    float halfH = jetH * grow * mix(0.54, 0.40, shearMix);
+    float halfW = jetH * mix(0.32, 0.82, life) * (0.76 + 0.46 * aSeed.w);
+    // Base stays anchored in the breaking surf while the crest erupts 8-16 m high, then lifts slightly as spindrift
+    float rise = halfH * 0.82 + life * life * jetH * 0.24;
+    // Launch seaward along outward normal first (never inland!), then shear seaward/along-wall into spindrift
+    vec2 base = aAnchor.xy + outN * 2.0;
+    float seawardKick = (2.2 + 3.8 * aSeed.w) * impScale * smoothstep(0.0, 0.48, life);
+    vec2 shearDir = normalize(wdir + outN * max(0.0, -dot(wdir, outN) + 0.45));
+    vec2 xz = base + outN * seawardKick + shearDir * (life * life * jetH * 1.35);
     vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
     vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
-    vec3 wind3 = vec3(wdir.x, 0.14, wdir.y);
-    // elongate gently along the wind vector in billboard space for horizontal spindrift mist ribbons
-    vec3 streakAxis = normalize(mix(right, wind3, 0.55));
+    vec3 wind3 = vec3(shearDir.x, 0.10, shearDir.y);
+    vec3 streakAxis = normalize(mix(right, wind3, 0.22 + 0.55 * shearMix));
     vec3 c = vec3(xz.x, rise, xz.y);
-    vec3 wp = c + (streakAxis * corner.x * (1.2 + 0.55 * life) + up * corner.y * 0.78) * r * on;
+    vec3 wp = c + (streakAxis * corner.x * halfW + up * corner.y * halfH) * on;
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
     vUv = corner;
-    vA = sin(3.14159 * life) * smoothstep(0.0, 0.14, life) * uSpray * on;
+    vA = smoothstep(0.0, 0.11, life) * pow(max(1.0 - life, 0.0), 1.30) * uSpray * on;
     vKind = 1.0;
     vLife = life;
     vLight = dropLight(c);
@@ -300,12 +319,19 @@ void main() {
   float a;
   vec3 c;
   if (vKind > 0.5) {
-    float n = texture2D(uNoise, vUv * vec2(0.18, 0.28) + vLife * 0.14 + 0.31).r * 0.68 + texture2D(uNoise, vUv * 0.48 - vLife * 0.22).g * 0.52;
-    // torn windblown sea-spray spindrift mist, soft core dissolving downwind
-    float m = 1.0 - smoothstep(0.12, 1.0, d + (n - 0.54) * 0.85);
-    a = m * smoothstep(0.36, 0.78, n + 0.26 * (1.0 - d)) * vA * 0.32;
-    vec3 softL = vLight / (1.0 + vLight * 0.38);
-    c = softL * vec3(0.92, 0.96, 1.02) + 0.025;
+    float y01 = vUv.y * 0.5 + 0.5;
+    vec2 nUv1 = vUv * mix(vec2(0.52, 0.22), vec2(0.22, 0.40), vLife) + vec2(vLife * 0.18, -vLife * 0.30) + 0.31;
+    vec2 nUv2 = vUv * mix(vec2(1.22, 0.48), vec2(0.52, 0.92), vLife) - vec2(vLife * 0.26, vLife * 0.44);
+    float n = texture2D(uNoise, nUv1).r * 0.62 + texture2D(uNoise, nUv2).g * 0.54;
+    // Waterline-anchored tapered ballistic splash silhouette -> wind-shredded spindrift veil
+    float xProf = abs(vUv.x) / mix(0.62, 1.02, clamp(y01 * 0.85 + vLife * 0.45, 0.0, 1.0));
+    float yProf = smoothstep(0.0, 0.15, y01) * (1.0 - smoothstep(0.30, 1.0, y01));
+    float shape = (1.0 - smoothstep(0.14, 1.0, xProf + (n - 0.50) * 0.88)) * yProf;
+    float jetCore = (1.0 - smoothstep(0.16, 0.62, vLife)) * exp(-xProf * xProf * 3.8) * smoothstep(0.0, 0.12, y01) * (1.0 - smoothstep(0.22, 0.86, y01));
+    a = clamp(shape * smoothstep(0.26, 0.78, n + 0.24 * (1.0 - y01)) * 0.42 + jetCore * smoothstep(0.24, 0.74, n + 0.18) * 0.44, 0.0, 0.66) * vA;
+    vec3 softL = vLight / (1.0 + vLight * 0.34);
+    vec3 jetTint = mix(vec3(0.92, 0.96, 1.02), vec3(0.98, 1.0, 1.02), jetCore);
+    c = softL * jetTint + mix(0.025, 0.055, jetCore);
   } else {
     // delicate double-concentric expanding ripple rings + fleeting central impact droplet
     // a downpour's larger rings keep a stroke that still reads at the heart view (drizzle keeps the fine line)

@@ -11,6 +11,9 @@ import { getBeamUniforms } from "../beam/uniforms";
 import { LAMP_WAVE_GLSL, LAMP_WAVE_SPREAD, lampGlow, lampWaveUniforms, setLampWave } from "./lamp-wave";
 import { FullscreenPass } from "../ocean/gpu-bake";
 import { COPY_FRAG } from "../engine/shaders/copy";
+import { defaultSeaBounds, type Bounds4 } from "../ocean/sea-sdf";
+import { DynPool } from "./dyn-pool";
+import type { DynPoolService } from "../engine/services";
 
 const MAX_POINT = 16;
 const POOL_RES = 2048;
@@ -128,6 +131,8 @@ export class LightsSystem implements WorldSystem {
   private wetYaw = NaN;
   private offQuality: (() => void) | undefined;
   private offPreparation: (() => void) | undefined;
+  /** §6.3.2 High-only dynamic per-frame boat/Titan water light pools (seam S-2 / S-3, D-7). */
+  private dynPool!: DynPool;
 
   init(ctx: EngineContext): void {
     this.store = getLightsStore(ctx);
@@ -296,6 +301,11 @@ export class LightsSystem implements WorldSystem {
     const offCopy = ctx.services.get("preparation")?.register(this.copy.preparationEntry(() => this.poolRT));
     this.offPreparation = () => { offPool?.(); offCopy?.(); };
     const quality = ctx.services.get("quality");
+    const dynBounds: Bounds4 = ctx.services.get("wake")?.bounds
+      ?? (layout?.sea?.bounds as Bounds4 | undefined)
+      ?? (layout ? defaultSeaBounds(layout) : [-500, -500, 500, 500]);
+    this.dynPool = new DynPool(dynBounds);
+    ctx.services.set("dynPool", this.dynPool satisfies DynPoolService);
     if (quality) {
       this.applyQuality(quality.settings, ctx);
       this.offQuality = quality.onChange((settings) => this.applyQuality(settings, ctx));
@@ -303,6 +313,9 @@ export class LightsSystem implements WorldSystem {
   }
 
   private applyQuality(settings: QualitySettings, ctx: EngineContext): void {
+    const high = settings.tier === "high";
+    if (!high) ctx.services.get("ocean")?.bindDynPool?.(null, 0);
+    this.dynPool.setActive(high);
     const size = settings.tier === "low" ? 1024 : POOL_RES;
     if (this.poolRT.width !== size) {
       const previous = this.poolRT, next = previous.clone(); next.setSize(size, size);
@@ -423,6 +436,9 @@ export class LightsSystem implements WorldSystem {
     w.fromEdge += (edge - w.fromEdge) * (1 - Math.exp(-frame.delta / 3));
     setLampWave(w);
     const g = ctx.uniforms.uWindowGlow.value;
+    // §6.3.2 High-only dynamic boat/Titan night pools (runs after FleetSystem.update, before render: zero-frame latency)
+    const dyn = this.dynPool.render(ctx.renderer, g);
+    ctx.services.get("ocean")?.bindDynPool?.(dyn.texture, dyn.intensity);
     // Zero RGB under additive blending and no depth writes; post clamps the opaque scene's alpha.
     // Never threshold a small glow: dawn/dusk contributions and all other lighting stay unchanged.
     this.sprites.visible = this.pillars.visible = g !== 0;
@@ -487,6 +503,9 @@ export class LightsSystem implements WorldSystem {
   dispose(ctx: EngineContext): void {
     this.offQuality?.();
     this.offPreparation?.();
+    ctx.services.get("ocean")?.bindDynPool?.(null, 0);
+    this.dynPool.dispose();
+    ctx.services.delete("dynPool");
     ctx.scene.remove(this.sprites, this.pillars, ...this.points);
     this.poolRT.dispose();
     this.copy.dispose();
