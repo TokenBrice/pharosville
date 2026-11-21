@@ -140,7 +140,7 @@ export class LighthouseSystem implements WorldSystem {
         // Dark charred coal by day and at arrival beat (uLampArrive = 0); driven by lampGlow() in update().
         this.courtyardEmberMat ??= new THREE.MeshStandardMaterial({
           color: new THREE.Color("#22140F"), roughness: 0.92, metalness: 0.04,
-          emissive: new THREE.Color("#FF4A0C"), emissiveIntensity: 0,
+          emissive: new THREE.Color("#FF7424"), emissiveIntensity: 0,
         });
         this.courtyardEmberMat.name = "hb_pharos_courtyard_embers";
         mesh.material = this.courtyardEmberMat;
