@@ -37,7 +37,7 @@ export async function buildAssetRegistry(output) {
   const kitFiles = [...kit.hulls.flatMap((h) => [h.file, h.lod].filter(Boolean)), ...kit.props.map((p) => p.file)]
     .map((file) => `/harbour/kit/${file}`);
   const civicFiles = [...new Set(layout.civic.map((p) => `/harbour/civic/${civic.kinds[p.kind].file}`))];
-  if (kitFiles.length !== 49 || new Set(kitFiles).size !== 49 || civicFiles.length !== 17) throw new Error("Unexpected eager pack membership");
+  if (kitFiles.length !== 61 || new Set(kitFiles).size !== 61 || civicFiles.length !== 17) throw new Error("Unexpected eager pack membership");
   for (const [name, files] of [["kit.pack", kitFiles], ["civic.pack", civicFiles]]) {
     const parts = [], rows = []; let offset = 0;
     for (const url of files) {
@@ -118,5 +118,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (!process.argv.includes("--output") || !output) throw new Error("Usage: node scripts/harbour/build-asset-registry.mjs --output DIR");
   await mkdir(resolve(output), { recursive: true });
   const registry = await buildAssetRegistry(resolve(output));
-  console.log(`asset registry ${registry.release}: ${registry.files.length} objects; exact 49/17 packs and sea RGBA/coast verified`);
+  console.log(`asset registry ${registry.release}: ${registry.files.length} objects; exact 61/17 packs and sea RGBA/coast verified`);
 }

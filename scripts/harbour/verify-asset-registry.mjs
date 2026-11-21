@@ -30,8 +30,8 @@ for (const file of registry.files) {
     assert.throws(() => readAssetPack(invalid), /directory/);
   }
 }
-assert.deepEqual([...packs.values()].map((p) => Object.keys(p.entries).length).sort((a, b) => a - b), [17, 49]);
-assert.equal(Object.keys(registry.models).length, 89);
+assert.deepEqual([...packs.values()].map((p) => Object.keys(p.entries).length).sort((a, b) => a - b), [17, 61]);
+assert.equal(Object.keys(registry.models).length, 103);
 let parsed = 0;
 for (const [original, transport] of Object.entries(registry.models)) {
   let bytes;
@@ -96,4 +96,4 @@ try {
   await retainAssets(a.dir, origin);
   assert.ok((await readFile(resolve(a.dir, `.${b.registry.files[0].url}`))).equals(bodies.get(b.registry.files[0].url)));
 } finally { server.closeAllConnections(); await new Promise((done) => server.close(done)); await rm(fixture, { recursive: true, force: true }); }
-console.log(`Verified ${registry.files.length} hashed objects, ${parsed} exact GLBs with shipped parser, 49/17 pack bounds, exact RGBA/coast, 32 MiB sea decode bound and two-release/rollback retention`);
+console.log(`Verified ${registry.files.length} hashed objects, ${parsed} exact GLBs with shipped parser, 61/17 pack bounds, exact RGBA/coast, 32 MiB sea decode bound and two-release/rollback retention`);

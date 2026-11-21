@@ -756,8 +756,8 @@ class TitanRig(AncientRig):
                     a = Vector((x, sd * y_in, z_in))
                     ln = reach * (1.0 + 0.08 * b)
                     tip = Vector((x - 0.025 * L, sd * (y_in + ln * 0.94), -0.02))
-                    # Tight aft-raked moored pose so blades stay clear of piers and water
-                    tip_f = a + Vector((-0.90 * ln, sd * 0.24 * ln, 0.20 * ln))
+                    # Tight aft-raked moored pose so blades stay cleanly inside the gunwale clear of stone piers
+                    tip_f = a + Vector((-0.94 * ln, sd * 0.08 * ln, 0.24 * ln))
                     s._titan_oar(a, tip, tip_f, loom_w, col, pat)
             s.lod['oars'].append((x_from, x_to, b, reach))
 

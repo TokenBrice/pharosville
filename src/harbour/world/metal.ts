@@ -81,10 +81,10 @@ void hbMetalCap(inout vec3 spec, float metal) {
 // sky reflection, golden low-sun sheen, sparse static hammered glints, night moonlight sheen & Pharos firelight catch
 vec3 hbMetalLight(float metal, vec3 albedo, vec3 n, vec3 v, float rough, vec3 specLit, vec3 fireLight) {
   if (metal <= 0.0) return vec3(0.0);
-  vec3 col = hbEnvSpec(n, v, rough, 0.65) * albedo * metal * 1.15;
+  vec3 col = hbEnvSpec(n, v, rough, 0.65) * albedo * metal * mix(1.15, 0.36, uNight);
   vec3 refl = reflect(-v, n);
   float rl = max(dot(refl, uHbSunDir), 0.0);
-  float low = 1.0 - smoothstep(0.10, 0.42, uHbSunDir.y);
+  float low = (1.0 - smoothstep(0.10, 0.42, uHbSunDir.y)) * (1.0 - uNight);
   float lit = clamp(hbLuma(specLit) * 6.0, 0.0, 1.0);    // only where the sun lobe is unshadowed
   // broad warm gilded highlight catching low sunlight
   col += uHbSunColor * mix(albedo, vec3(1.0, 0.78, 0.38), 0.35) * pow(rl, 26.0) * low * lit * metal * 0.20;

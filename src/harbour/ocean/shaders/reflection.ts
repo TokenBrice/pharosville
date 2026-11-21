@@ -7,11 +7,9 @@
  * Low tier drops the twinkling facets. The golden-crest, low-sun sheen and far-band blocks are skipped (coherently)
  * where they add exactly nothing.
  */
-export const OCEAN_REFLECTION = /* glsl */ `  // ---------------------------------------------------------------- reflection of the painted sky
-  vec3 vd = -V;
+export const OCEAN_REFLECTION = /* glsl */ `  vec3 vd = -V;
   vec3 R = reflect(vd, N);
   R.y = max(R.y, 0.01);
-  // silky sky-mirror normal: coherent medium wave trains + storm chop (0.72) + directional Kelvin wake ridges
   vec2 dnMirror = mix(dnWave * 0.68 + dnFine * 0.14, dn * 0.72, stormSea);
   float gMirror = mix(0.36, 0.68, stormSea);
   vec3 Nr = normalize(vec3(gN.x * gMirror + dnMirror.x + kelSlope.x * 0.75, gN.y, gN.z * gMirror + dnMirror.y + kelSlope.y * 0.75));
@@ -19,42 +17,31 @@ export const OCEAN_REFLECTION = /* glsl */ `  // -------------------------------
   Rr.y = max(Rr.y, 0.01);
   float thR = degrees(wrapPi(atan(Rr.x, -Rr.z) - uFwdAz));
   float eR = degrees(asin(clamp(Rr.y, -1.0, 1.0)) - uHorizonDepr);
-  // sharpened uSkyBand reflection LOD so calm slicks mirror crisp sky/clouds while rough gusts blur naturally
   vec3 sky = band(thR, max(eR, -0.4), 0.7 + 1.85 * rough + clamp(eR * 0.08, 0.0, 1.2));
   vec4 mCloud = hbMirrorClouds(sky, vWorld, Rr);
   vec3 Nf = normalize(mix(Nr, N, 0.24 * grazeDamp));
   float NdV = max(dot(Nf, V), 0.0);
   float F = 0.03 + 0.97 * pow(1.0 - NdV, 5.0);
-  // §6.1.1 smooth slicks mirror crisply, rough gusts darken; storms retain mirrored slate swirls on wind-swept backs
   F *= mix(1.08, 0.64, clamp(rough * 0.75, 0.0, 1.0)) * (1.0 + 0.25 * zm.b);
   F = min(F * mix(1.0, 1.18, stormSea), 0.64 + 0.12 * zm.b);
-  // keep open night sea deep velvet sapphire-indigo (prevent broad milky horizon glare sheet)
   F *= mix(1.0, 0.68, uNight * (1.0 - 0.55 * zm.b));
   F *= 1.0 - 0.32 * max(quayOcc, pierOcc);
   F = max(F, uSeaLow.y * zm.b);
   F *= 1.0 - 0.55 * hullOcc;
   vec3 col = body * (1.0 - F) + sky * F;
-  // clouds in the mirror: a Fresnel floor so they still pass across the basin seen from above (suppressed at night: no sea-ice blotches)
-  // (E01: a weight, never an extrapolation)
   float mA = clamp(mCloud.a, 0.0, 1.0);
   mA *= 1.0 - 0.90 * smoothstep(0.25, 0.75, uNight);
   col += (mCloud.rgb - sky) * mA * max(F, 0.2 * (1.0 - 0.5 * min(rough, 1.0)));
   sky = mix(sky, mCloud.rgb, mA);
 
-  // ---------------------------------------------------------------- the lit town & boats in the water (night)
-  // razor-edged molten-gold wave-slope reflections (static town pools + S-2 dynamic boat/Titan pools)
   if (uWindowGlow > 0.02) {
     vec2 away = -toCam.xz / max(camD, 1.0);
     vec2 side = vec2(-away.y, away.x);
     float Hc = max(uCameraPos.y - vWorld.y, 15.0);
-    // multi-scale organic wave distortion breaks uniform spacing into natural Mediterranean harbour ripples
     float smear = dot(dnWave, side) * (2.2 + 3.8 * rough) + dot(gN.xz, side) * 7.5 + (nB.r - 0.5) * 1.4;
     float wav = dot(dnWave, away) * 3.4 + dot(gN.xz, away) * 12.0 + (nB.g - 0.5) * 2.2;
     vec3 acc = vec3(0.0);
     float calmCol = (1.0 - smoothstep(0.35, 0.9, rough)) * (1.0 - uPrecip.x);
-    // Lite: the column's taps 1 and 2 (4.2 and 7.2 m, the quay lamps' and the windows' heights) at twice the richer tiers'
-    // weights, so each light's reflection lies by its quay and the basin keeps the richer tiers' value (taps 1 and 4 left
-    // each pool a bright copy floating 45-65 m out in the basin)
     #ifdef HB_LITE
     for (int tap = 0; tap < 2; tap++) {
       int i = 1 + tap;
@@ -70,8 +57,7 @@ export const OCEAN_REFLECTION = /* glsl */ `  // -------------------------------
       float ok = smoothstep(0.0, 0.04, min(pe.x, pe.y));
       acc += texture2D(uPoolTex, clamp(puv, 0.0, 1.0)).rgb * ok * weight;
     }
-    acc *= 0.68;   // (the roll-off below was tuned on a lighter, eight-tap column)
-    // §6.3.2 S-2 dynamic boat & Titan night water pools (3 boat-elevation virtual heights: 1.0, 2.8, 5.5 m)
+    acc *= 0.68 * mix(0.14, 1.0, uLampArrive);
     #ifndef HB_LITE
     if (uDynPool.x > 0.01) {
       vec2 dynInv = 1.0 / (uWakeBounds.zw - uWakeBounds.xy);
@@ -88,11 +74,9 @@ export const OCEAN_REFLECTION = /* glsl */ `  // -------------------------------
       acc += dynAcc * uDynPool.x;
     }
     #endif
-    // soft organic roll-off + Reinhard compression so Burn Altar stays rich molten gold
     float poolLum = dot(acc, vec3(0.2126, 0.7152, 0.0722));
     acc *= smoothstep(0.008, 0.20, poolLum) * 1.38;
     acc = acc / (1.0 + acc * 0.48);
-    // §6.1.3 wave-slope dark/gold separation (replaces soft 0.38 floor) + warm incandescent crest boost
     float along = dot(xz, away), across = dot(xz, side);
     vec2 rUv = vec2(across * 0.011 + (nA.g - 0.5) * 0.16, along * 0.046 - t * 0.014 + (r3.g - 0.5) * 0.12);
     float nr1 = texture2D(uNoise, rUv).g;
@@ -103,14 +87,11 @@ export const OCEAN_REFLECTION = /* glsl */ `  // -------------------------------
     float shim = mix(0.12, 1.85, ribbon * ribbon * 0.55 + ribbon * 0.45);
     vec3 townTint = mix(vec3(0.86, 0.72, 0.56), vec3(1.18, 0.96, 0.68), ribbon) + vec3(0.28, 0.16, 0.04) * sharpCrest;
     vec3 townRefl = acc * townTint * shim * (1.0 - 0.70 * hullOcc);
-    // a rain-pitted surface scatters the mirrored lights into a dimmer, softer shimmer
     float calmK = mix(1.0, 1.32, zm.b) * (1.0 - 0.5 * storm) * (1.0 - 0.5 * uPrecip.x);
     float fadeD = 1.0 - 0.58 * smoothstep(280.0, 1050.0, camD);
     col += townRefl * smoothstep(0.02, 0.55, uWindowGlow) * calmK * fadeD * (0.34 + 0.58 * F) * step(0.0, coast);
   }
 
-  // ---------------------------------------------------------------- physically-grounded wave-crest SSS (§6.1.4)
-  // thin crests glow emerald-gold at golden hour, Aegean turquoise at noon, and subtle dark bottle-emerald in storms
   if (uNight < 0.85 && (sunUp > 0.01 || stormSea > 0.2)) {
     float golden = smoothstep(0.0, 0.07, uSunDir.y) * (1.0 - smoothstep(0.24, 0.48, uSunDir.y)) * (1.0 - uNight);
     vec3 sssDir = normalize(-uSunDir + N * 0.48);
@@ -132,25 +113,20 @@ export const OCEAN_REFLECTION = /* glsl */ `  // -------------------------------
     col += (uSunColor * sssColLow * sssLow * 0.36 + uSunColor * sssColDay * sssDay * 0.22 + sssColStorm * sssStorm) * openWater;
   }
 
-  // ---------------------------------------------------------------- sun / moon glitter path
-  // a focused, directional column under the painted disc (crisp dark-gapped silver moon column at night, liquid gold by day)
-  vec3 gT = gerstnerNormalOf(gS, amp * groups);                       // true swell for the glitter path
+  vec3 gT = gerstnerNormalOf(gS, amp * groups);
   vec3 Nenv = normalize(vec3(gT.x * 0.62 + dnWave.x * 0.24, gT.y, gT.z * 0.62 + dnWave.y * 0.24));
   float rsE = max(dot(reflect(vd, Nenv), uGlintDir), 0.0);
   float rs = mix(max(dot(R, uGlintDir), 0.0), rsE, unres);
   float rsp = mix(max(dot(reflect(vd, Nsp), uGlintDir), 0.0), rsE, unres);
-  // crisp facets in a tight column with a smooth core; facets finer than the pixel melt into the sheen
   float aa = unres;
   float tw = mix(smoothstep(0.8, 0.97, r2.a * 0.6 + r1.a * 0.4 + 0.22 * sin(t * 1.3 + nC.a * 30.0)), 0.03, aa);
   float env = pow(rsE, mix(75.0, 320.0, uNight));
   float core = pow(rsE, mix(260.0, 620.0, uNight));
   float overcast = 1.0 - 0.9 * smoothstep(0.35, 0.8, uWeatherSea.x);
-  // the facets are capped (no blown-out pixels) and gentler under the moon
   float sparks = min(hbLobe(rs, 300.0, 4.0 * spread) * 3.6 + hbLobe(rsp, 1100.0, 4.0 * spread) * 8.0, 2.4) * mix(1.0, 0.6, uNight);
   #ifdef HB_LITE
   sparks = 0.0;
   #endif
-  // delicate organic shimmer along the sun/moon path: crisp dark-gapped silver moon wavelets at night
   float microSh = 0.76 + 0.48 * smoothstep(0.30, 0.85, r1.a * 0.65 + r3.a * 0.35);
   float moonWave = smoothstep(0.42, 0.90, r1.a * 0.45 + r3.a * 0.35 + nB.g * 0.25);
   float rMoon = max(dot(Rr, uGlintDir), 0.0);
@@ -163,7 +139,6 @@ export const OCEAN_REFLECTION = /* glsl */ `  // -------------------------------
     + moonFacet * 0.58
     + pow(rsE, 30.0) * 0.010 * nightBroad
     + sparks * tw * mix(1.0, 2.85, uNight) * (0.04 + 0.96 * env) * (1.0 - 0.48 * far01));
-  // §6.1.3 crisp dark-gapped silver moon column: smooth Nenv puddle cut ~80%, driven by anisotropic full-normal wavelets
   float moonK = smoothstep(0.6, 0.95, uNight);
   if (moonK > 0.0) {
     float mEnv = pow(rsE, 170.0);
@@ -183,7 +158,6 @@ export const OCEAN_REFLECTION = /* glsl */ `  // -------------------------------
       + moonAniso
       + sparks * tw * 2.85 * 0.96 * (mEnv - env) * (1.0 - 0.48 * far01));
   }
-  // crest glints everywhere by day (facets catching a broad virtual light)
   vec3 Hs = normalize(normalize(uGlintDir + vec3(0.0, 0.6, 0.0)) + V);
   float nhF = mix(max(dot(Nsp, Hs), 0.0), max(dot(gN, Hs), 0.0), unres);
   float facet = hbLobe(nhF, 1400.0, spread) * mix(smoothstep(0.5, 0.8, nB.a), 0.2, aa) * (1.0 - far01 * 0.85);
@@ -191,7 +165,6 @@ export const OCEAN_REFLECTION = /* glsl */ `  // -------------------------------
   glint += uSunColor * facet * 0.75 * sunUp;
   glint *= sunSh * (1.0 - 0.65 * hullOcc);
 
-  // ---------------------------------------------------------------- §6.1.3 wave-slope-gated liquid-gold sun road sheen
   float lowSun = (1.0 - smoothstep(0.12, 0.58, uSunDir.y)) * (1.0 - uNight);
   if (lowSun > 0.0) {
     vec2 sunH = normalize(uSunDir.xz + 1e-4);
@@ -206,7 +179,6 @@ export const OCEAN_REFLECTION = /* glsl */ `  // -------------------------------
     vec3 goldTint = normalize(uSunColor + 1e-4) * vec3(1.14, 0.96, 0.70);
     col += goldTint * sheen * (0.03 + 0.65 * slopeGate) * sunSh * (1.0 - 0.65 * hullOcc);
   }
-  // ---------------------------------------------------------------- far band: organic open-sea swell glints (no horizontal stripes)
   if (camD > 600.0 && fwdD < uHorizonDist * 0.99) {
     float swPh = dot(xz, SWELL) * 0.105 - t * 0.55 + (nA.b - 0.5) * 9.5;
     float swPh2 = dot(xz, vec2(-SWELL.y * 0.68 + SWELL.x * 0.73, SWELL.x * 0.68 + SWELL.y * 0.73)) * 0.135 - t * 0.68 + (nB.b - 0.5) * 6.0;
@@ -216,11 +188,9 @@ export const OCEAN_REFLECTION = /* glsl */ `  // -------------------------------
     float dash = smoothstep(0.55, 0.8, nC.r * 0.6 + nB.g * 0.5);
     glint += uGlintCol * crest * dash * farBand * env * 0.35 + uSunColor * crest * farBand * smoothstep(0.75, 0.95, nC.b) * 0.06 * sunUp;
   }
-  // §6.1.5 taper sun/moon glint cleanly before uHorizonDist so no sharp ruler edge forms at the horizon card
   glint *= 1.0 - smoothstep(uHorizonDist * 0.80, uHorizonDist * 0.96, fwdD);
   glint = hbGlintCap(glint, dot(col, vec3(0.2126, 0.7152, 0.0722)));
 
-  // ---------------------------------------------------------------- lighthouse beam sweeping the water
   vec3 beam = vec3(0.0);
   if (uBeamPos.y > -100.0 && dot(uBeamCol, vec3(1.0)) > 0.001) {
     vec2 rel = xz - uBeamPos.xz;
@@ -228,29 +198,20 @@ export const OCEAN_REFLECTION = /* glsl */ `  // -------------------------------
     vec3 Lb = normalize(uBeamPos - vWorld);
     vec3 Hb = normalize(Lb + V);
     float bspec = hbLobe(max(dot(Nsp, Hb), 0.0), 260.0, 2.0 * spread);
-    // The Pharos has one mirror/one forward beam; no opposite sea foot is emitted.
     float a = uBeamAngle;
     vec2 bd = vec2(cos(a), sin(a));
     float along = dot(rel, bd);
     float lat = abs(rel.x * bd.y - rel.y * bd.x);
-    // the shaft rides ~85 m up: what reaches the water is scattered light, a broad soft swath (the same width
-    // as the beam's light on the town, beam-light-glsl.ts) that gathers away from the tower; a narrow bright
-    // track running from the tower's foot read as a second, lower beam
     float w = (2.3 + along * tan(uBeamShape.y)) * 2.2 + 4.0;
-    float lw = lat / w;   // (w turns negative far behind the tower)
+    float lw = lat / w;
     float foot = exp(-lw * lw * 1.4) * smoothstep(30.0, 90.0, along) * exp(-along / (uBeamShape.x * 0.55));
     beam += uBeamCol * foot * (0.025 + bspec * 3.5 * sparkMask);
-    // 05-P2 the heliograph by day: the mirror's sun coin crossing the water, specular only (sea-helio.ts): it packs
-    // the sea's own (already shadowed) sun glitter denser and brighter, never a diffuse wash
     glint = hbHelioGlint(glint, hbHelioCoin(rel), nhF, nB.a, sparkMask, far01, spread);
-    // the fire's own reflection under the lantern: suppressed inside the enclosed inner harbour (zm.b) so no detached
-    // beige oval floats south-west of the Burn Altar, and broken into crisp organic golden wavelets on open channel water
     float lanternShelter = 1.0 - smoothstep(0.05, 0.55, zm.b);
     float lrE = max(dot(reflect(vd, Nenv), Lb), 0.0);
     float lr = max(dot(reflect(vd, Nr), Lb), 0.0);
     float lWave = smoothstep(0.32, 0.88, r1.a * 0.48 + r2.a * 0.28 + nB.g * 0.28);
     float lTw = min(hbLobe(lr, 480.0, 2.5 * spread) * 2.1 * lWave, 1.15) * smoothstep(0.08, 0.68, pow(lrE, 85.0));
-    // a rain-pitted sea breaks the column up: the sharp core and wavelets scatter
     beam += uBeamCol * (lTw * 0.78 * (1.0 - 0.55 * uPrecip.x) + hbLobe(lrE, 260.0, spread) * 0.05 * lWave * (1.0 - 0.45 * uPrecip.x) + hbLobe(lr, 180.0, 2.0 * spread) * 0.05 * lWave) * lanternShelter * (0.28 + 0.62 * min(uBeamShape.w, 2.5));
   }
 

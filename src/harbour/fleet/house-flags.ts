@@ -186,8 +186,8 @@ void main() {
           ground = mix(ground, vec3(0.94), hi);
         }
         vec3 soft = c * 1.15;
-        vec3 inkSoft = max(ink + 0.5 * (dot(soft, vec3(0.2126, 0.7152, 0.0722)) - dot(ink, vec3(0.2126, 0.7152, 0.0722))), vec3(0.0));
-        c = mix(c, mix(mix(inkSoft, ink, k), mix(soft, ground, k), paper), t.a * show);
+        vec3 inkSoft = max(ink + 0.26 * (dot(soft, vec3(0.2126, 0.7152, 0.0722)) - dot(ink, vec3(0.2126, 0.7152, 0.0722))), vec3(0.0));
+        c = mix(c, mix(mix(inkSoft, ink, k), mix(mix(soft, ground, 0.35), ground, k), paper), t.a * show);
       }
     }
   }

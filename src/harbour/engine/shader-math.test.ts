@@ -106,7 +106,7 @@ describe("B07 defined shader arithmetic: source guards", () => {
       expect(squares.map(({ args }) => args[0]), path).toEqual(allowed[path] ?? []);
     }
     const ocean = read("ocean/ocean-material.ts"), kit = read("world/materials.ts"), rain = read("weather/precip.ts");
-    expect(ocean).toContain("float dr = (r - rad) / 0.07;");
+    expect(ocean).toContain("float dr = (r - rad) / 0.095;");
     expect(ocean).toContain("exp(-dr * dr)");
     expect(ocean).toContain("float lw = lat / w;");
     expect(ocean).toContain("exp(-lw * lw * 1.4)");

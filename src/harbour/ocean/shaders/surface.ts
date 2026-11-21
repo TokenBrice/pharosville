@@ -49,7 +49,7 @@ uniform sampler2D uPoolTex;
 uniform vec4 uPoolBounds;
 uniform sampler2D uDynPoolTex;  // S-2 seam: dynamic boat/Titan night water pools (same bounds as uWakeLive)
 uniform vec4 uDynPool;          // x = intensity (0 = off)
-uniform float uWindowGlow;
+uniform float uWindowGlow, uLampArrive;
 uniform vec2 uSceneCenter;
 uniform float uSceneRadius;
 varying vec3 vWorld;
@@ -288,8 +288,6 @@ void main() {
   float spread = nVar * 0.55 + 0.04 * fp * fp;
   #endif
 
-  // ---------------------------------------------------------------- body (unlit depth tint)
-  // §6.1.2 dressed vertical quay/mole walls & inner-harbour stone promenades drop to a 3.2 m dredged floor (natural shores & Shoals keep shallow slope)
   float quayWall = max(1.0 - smoothstep(1.2, 4.5, sdist), zm.b * (1.0 - smoothstep(2.0, 9.0, max(coast, 0.0)))) * (1.0 - zm.r);
   float natDep = min(depth, 2.5 + max(coast, 0.0) * 0.4);
   float dep = mix(natDep, max(depth, 3.2), quayWall) + (nA.r - 0.5) * mix(3.0, 1.2, quayWall);
@@ -298,30 +296,24 @@ void main() {
   body = mix(body, uDeep, smoothstep(8.0, 22.0, dep));
   body = mix(body, uAbyss, smoothstep(20.0, 40.0, dep));
   body *= 0.93 + 0.14 * nA.g;
-  // deep water: saturated Sorolla Aegean cobalt-sapphire, darkening cleanly into abyssal indigo
   float deepK = smoothstep(7.0, 30.0, dep);
   float lumB = dot(body, vec3(0.299, 0.587, 0.114));
   body = mix(body, vec3(lumB) * vec3(0.76, 0.96, 1.24), deepK * 0.24);
   body *= mix(1.0, 0.80, deepK);
-  // weather: an overcast, rough sea turns dark bottle-slate / iron-emerald
   float cover = smoothstep(0.4, 0.95, uWeatherSea.x);
   lumB = dot(body, vec3(0.299, 0.587, 0.114));
   body = mix(body, vec3(lumB) * vec3(0.78, 0.98, 0.94), clamp(storm * 0.55 + cover * 0.28, 0.0, 0.70));
   body *= 1.0 - 0.24 * storm - 0.22 * cover;
   float sunUp = clamp(uSunDir.y * 3.0, 0.0, 1.0) * (1.0 - uNight);
-  // 02-L1: the key light's shadow on the flat sea plane (displacement would only add acne); sun-lit terms only
-  float sunSh = hbSeaSunShadow(vec3(xz.x, 0.0, xz.y));   // (soft, thin casters dissolved: sun-shadow.ts)
-  // A graft: sunlit teal shallows gated cleanly away from dressed vertical quay/mole masonry
+  float sunSh = hbSeaSunShadow(vec3(xz.x, 0.0, xz.y));
   float shoalK = (1.0 - smoothstep(0.3, 4.5, max(dep, depth))) * (1.0 - quayWall * 0.92) * sunUp * (1.0 - cover * 0.85) * (1.0 - storm * 0.72);
   body = mix(body, uSunlitShoal, shoalK * (0.22 + 0.3 * smoothstep(0.3, 0.75, nA.b) + 0.1 * nC.g));
-  // clear shallows: sandy/rocky seabed, mossy submerged quay footings & Snell-refracted Voronoi caustics (uRipple.b)
   vec3 causReef = vec3(0.0);
   float cSun = sunUp * (1.0 - cover * 0.75) * (1.0 - storm * 0.6) * sunSh;
   {
     float natBed = min(depth, 0.25 + max(coast, 0.0) * 0.3);
     float bedDep = max(mix(natBed, max(depth, 3.2), quayWall) + (nA.r - 0.5) * mix(1.4, 0.6, quayWall) + (nB.g - 0.5) * 0.55, 0.0);
     float clarity = (1.0 - 0.82 * storm) * (1.0 - 0.65 * cover) * (1.0 - 0.62 * uNight);
-    // mossy submerged limestone footings hugging dressed stone quays at dredged depth (never glowing cyan)
     float quayFooting = quayWall * (1.0 - smoothstep(0.0, 3.2, min(sdist, max(coast, 0.0)))) * step(-0.5, coast);
     float seeNatural = (1.0 - smoothstep(0.3, 6.8, bedDep)) * smoothstep(1.8, 5.5, sdist) * (1.0 - quayWall * 0.88) * (1.0 - 0.42 * zm.b * (1.0 - 0.35 * smoothstep(3.0, 9.0, sdist)));
     float seeBed = max(seeNatural, quayFooting * 0.42) * clarity;
@@ -329,7 +321,6 @@ void main() {
     float sandRip = 0.5 + 0.5 * sin(dot(xz, SWELL) * 2.4 + nB.g * 4.2);
     vec3 sand = mix(vec3(0.58, 0.52, 0.37), vec3(0.76, 0.69, 0.50), nB.g * 0.72 + sandRip * 0.28);
     vec3 bed = mix(sand, vec3(0.22, 0.27, 0.23) * (0.8 + 0.4 * nC.r), smoothstep(0.60, 0.78, rockN));
-    // mossy olive-limestone submerged quay footings
     vec3 mossStone = mix(vec3(0.17, 0.19, 0.16), vec3(0.11, 0.19, 0.12), smoothstep(0.35, 0.75, nB.r)) * (0.76 + 0.36 * nC.r);
     bed = mix(bed, mossStone, quayFooting * 0.88);
     bed = hbPosidonia(bed, xz, bedDep, zm.r);
@@ -339,7 +330,6 @@ void main() {
     vec3 downIrr = uAmbient * 2.0 + uSunColor * max(uSunDir.y, 0.0) * 0.18 * sunSh * hbCloudShadow(xz) * (1.0 - uNight);
     float bedLight = clamp(dot(downIrr, vec3(0.2126, 0.7152, 0.0722)) * 0.95, 0.0, 1.0);
     vec3 seen = bed * absorb * mix(vec3(1.0), uSunlitShoal * 1.45, 0.32 * (1.0 - quayWall)) * mix(vec3(bedLight), uAmbient * 0.85, uNight);
-    // Snell-refracted dual-layer Voronoi caustics (uRipple.b) via explicit textureGrad + close-range RGB dispersion
     float cs = 1.0 - smoothstep(160.0, 620.0, camD);
     float cGain = cSun * (1.0 - smoothstep(0.2, 6.5, bedDep));
     vec3 causRgb = vec3(0.0);
@@ -376,18 +366,14 @@ void main() {
   vec3 preLift = body;
   body = hbBasinLift(body, zm.b, zm.r, dep, coast);
   body = mix(body, preLift, quayWall * 0.82);
-  // under a heavy storm/overcast deck, calm the pale shallow quay rim into deep moody slate-teal
   body *= 1.0 - zm.b * (1.0 - smoothstep(1.0, 9.0, max(coast, 0.0))) * max(cover * 0.34, storm * 0.30) * (1.0 - uNight);
-  // the Shoals: jewel-like layered Mediterranean reef (submerged limestone ledges -> turquoise sandbars -> emerald shelf -> deep cobalt)
   {
     float reefMask = smoothstep(0.08, 0.86, zm.r);
     float shelfNoise = nA.b * 0.48 + nB.g * 0.36 + nC.g * 0.16;
     float shoalDepth = max(0.30, min(depth, 0.55 + max(coast, 0.0) * 0.26) + (0.5 - shelfNoise) * 3.4);
-    // darker submerged limestone rock ledges hugging the shoal rocks & reef outcrops
     float ledgeProx = (1.0 - smoothstep(0.4, 11.5, max(coast, 0.0))) * smoothstep(0.14, 0.55, zm.r);
     float ledgeTex = smoothstep(0.42, 0.74, nB.r * 0.60 + nC.b * 0.50);
     float rockLedge = clamp(ledgeProx * (0.62 + 0.38 * ledgeTex) + ledgeTex * smoothstep(0.32, 0.82, zm.r) * 0.42, 0.0, 1.0);
-    // rippled luminous aquamarine sandbars vs deeper emerald-jade reef channels
     float sandBar = smoothstep(0.36, 0.74, shelfNoise) * smoothstep(0.22, 0.78, zm.r) * (1.0 - rockLedge * 0.78);
     float shoalRip = 0.5 + 0.5 * sin(dot(xz, SWELL) * 2.4 + nB.g * 4.0);
     vec3 deepCobalt = vec3(0.035, 0.19, 0.36);
@@ -397,24 +383,17 @@ void main() {
     vec3 turq = mix(deepCobalt, emeraldShelf, smoothstep(0.10, 0.50, zm.r));
     turq = mix(turq, turqSand, clamp(sandBar * 0.90 + (1.0 - smoothstep(1.0, 4.8, shoalDepth)) * 0.30, 0.0, 0.92));
     turq = mix(turq, limestone, rockLedge * 0.74);
-    // refracted Voronoi seabed caustics across the shallow sandbars & rock ledges (Beer-Lambert attenuated)
     turq += causReef * vec3(0.62, 0.96, 0.88) * exp(-shoalDepth * vec3(0.30, 0.08, 0.06)) * cSun * (0.38 + 0.28 * sandBar) * (1.0 - smoothstep(0.8, 7.0, shoalDepth));
-    // E01: under a storm deck (the DEWS cover) the reef greys with the sea, a step lighter: no cyan glow under slate
     turq = mix(turq, vec3(dot(turq, vec3(0.299, 0.587, 0.114))) * vec3(0.86, 1.0, 0.98), cover * 0.45) * (1.0 - 0.15 * cover);
-    // (the reef's reach and weight are analytical: the Shoals zone, as upstream draws it; the overhaul colours it)
     float reefK = zm.r * (0.55 + 0.45 * smoothstep(0.35, 0.7, nA.b + 0.25 * nC.g));
     body = mix(body, turq * mix(1.0, 0.22, uNight), reefK * (0.62 - 0.25 * uNight));
   }
-  // waterline contact occlusion: gently darkens submerged stone footings, pier pilings and cliff bases
   float quayOcc = (1.0 - smoothstep(0.0, 2.8, max(coast, 0.0))) * step(-0.5, coast) * (0.20 + 0.16 * zm.b);
   float pierOcc = (1.0 - smoothstep(0.0, 1.6, sdist)) * 0.22;
   body *= 1.0 - max(quayOcc, pierOcc);
-  // churned wake water is lighter and greener
   body = mix(body, uShoal * 1.35 * mix(1.0, 0.45, uNight), clamp(trail * 0.25 + live.r * 0.38, 0.0, 0.35));
-  // hull occlusion (+ the waterline meniscus), and the lee slick's satin: a touch darker, a cleaner mirror below
   float hullOcc = min(live.b, 1.0);
   body *= (1.0 - hullOcc * 0.46) * (1.0 - 0.12 * slick);
-  // swell and ripple relief: facets tilted toward the key light read lighter (gentle, organic, never zebra-striped)
   {
     vec3 Lk = normalize(uSunDir + vec3(0.0, 0.65, 0.0));
     float relief = dot(N, Lk) - Lk.y;

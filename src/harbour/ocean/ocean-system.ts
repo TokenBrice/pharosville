@@ -17,6 +17,7 @@ import { ensureMotionService, MotionClock } from "../ui/services";
 import { buildZoneMask, type SeaZoneLike } from "./zone-mask";
 import { loadSdfImage } from "./sdf-image";
 import { getHarbourMaterials } from "../world/materials";
+import { lampWaveUniforms } from "../lights/lamp-wave";
 import { TimeOfDay } from "../engine/time-of-day";
 import { createWorldUniforms } from "../engine/uniforms";
 import { seaHour } from "./sea-tone";
@@ -217,6 +218,7 @@ export class OceanSystem implements WorldSystem {
         uDynPoolTex: { value: (this.dynPoolFallback = Object.assign(new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1), { needsUpdate: true })) },
         uDynPool: { value: new THREE.Vector4(0, 0, 0, 0) },
         uWindowGlow: W.uWindowGlow,
+        uLampArrive: lampWaveUniforms.uLampArrive,
         // the weather director: rain rings / melting snowflakes on the water
         uPrecip: W.uPrecip,
         uSceneCenter: { value: new THREE.Vector2((layout.bounds.min[0] + layout.bounds.max[0]) / 2, (layout.bounds.min[2] + layout.bounds.max[2]) / 2) },

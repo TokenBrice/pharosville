@@ -185,9 +185,15 @@ if COMPRESS:
         for e in MANIFEST[sec]:
             e['kb'] = round(os.path.getsize(os.path.join(KIT, e['file'])) / 1024, 1)
 if not ONLY:
-    with open(os.path.join(KIT, 'manifest.json'), 'w') as f:
+    mp = os.path.join(KIT, 'manifest.json')
+    if os.path.exists(mp):
+        with open(mp) as f:
+            prev = json.load(f)
+        if 'wreck_kit' in prev:
+            MANIFEST['wreck_kit'] = prev['wreck_kit']
+    with open(mp, 'w') as f:
         json.dump(MANIFEST, f, indent=1)
-    print('manifest written', os.path.join(KIT, 'manifest.json'))
+    print('manifest written', mp)
 elif COMPRESS:
     # --only: merge the rebuilt hull / LOD entries into the existing manifest (titans, props and the wreck kit untouched)
     mp = os.path.join(KIT, 'manifest.json')

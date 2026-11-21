@@ -403,7 +403,7 @@ export class HarbourMaterials {
     outgoingLight += diffuseColor.rgb * (hbBeamLight(vHbWorld, hbNw) * hbOcc + hbFire);
     // moonlight fill (0 by day): soft, mostly from above, with an albedo floor so dark hulls and
     // navy/black sail covers keep a readable mid-tone at night instead of collapsing to silhouettes
-    outgoingLight += max(diffuseColor.rgb, vec3(0.12)) * uNightLift * hbOcc * (0.6 + 0.4 * max(hbNw.y, 0.0));
+    outgoingLight += max(diffuseColor.rgb, vec3(0.12)) * uNightLift * hbOcc * (0.6 + 0.4 * max(hbNw.y, 0.0)) * (1.0 - metalnessFactor * 0.72);
     // puddles mirror the sky; fresh snow catches the sun in sparse glints (faded where sub-pixel)
     // puddles: dark mirrors of the sky (water's low Fresnel, brighter only toward grazing), capped by the sky
     outgoingLight += min(hbEnvSpec(hbNw, hbVw, 0.02, 0.03), vec3(0.3 * hbSkyL + 0.003)) * hbPuddle * hbOcc;

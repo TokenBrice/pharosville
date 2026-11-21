@@ -83,10 +83,10 @@ vec3 hbPrint(vec3 c, vec3 fam, vec4 t, float a, float k, bool letters) {
     vec3 canvas = mix(vec3(0.70, 0.65, 0.54), fam * min(1.0, 0.72 / max(max(fam.r, max(fam.g, fam.b)), 1e-3)), 0.15);
     ground = mix(canvas, vec3(0.92), hi);
   }
-  // far: half the value contrast, the ink's hue kept
+  // far: retain inner-glyph contrast after D-3 shrink while keeping cloth softness
   hbPrintPaper = paper;
-  vec3 inkSoft = max(ink + 0.5 * (dot(soft, vec3(0.2126, 0.7152, 0.0722)) - dot(ink, vec3(0.2126, 0.7152, 0.0722))), vec3(0.0));
-  return mix(c, mix(mix(inkSoft, ink, k), mix(soft, ground, k), paper), a);
+  vec3 inkSoft = max(ink + 0.26 * (dot(soft, vec3(0.2126, 0.7152, 0.0722)) - dot(ink, vec3(0.2126, 0.7152, 0.0722))), vec3(0.0));
+  return mix(c, mix(mix(inkSoft, ink, k), mix(mix(soft, ground, 0.35), ground, k), paper), a);
 }
 // livery (decorative, per coin): painted topsides with a sheer stripe and a name board, deck tone, trim
 void hbFleetPaint(inout vec3 c) {

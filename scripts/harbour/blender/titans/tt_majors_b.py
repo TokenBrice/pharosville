@@ -264,7 +264,8 @@ def build_xaut(coll=None):
     bw_p = H.half(bx) * 1.48
     box2(R.deck, bx - 0.045 * L, -bw_p * 0.5, bz - 0.12, bx + 0.052 * L, bw_p * 0.5, bz + 0.50 * S, eb, PT['boards'], skip=('-z',), jitter=0.0)
     box2(R.deck, bx - 0.047 * L, -bw_p * 0.52, bz + 0.50 * S, bx + 0.054 * L, bw_p * 0.52, bz + 0.78 * S, tyr, 0, skip=('-z',), jitter=0.0)
-    box2(R.deck, bx - 0.048 * L, -bw_p * 0.54, bz + 0.78 * S, bx + 0.056 * L, bw_p * 0.54, bz + 0.94 * S, g, PT['metal'], skip=(), jitter=0.0)
+    box2(R.deck, bx - 0.048 * L, -bw_p * 0.54, bz + 0.78 * S, bx + 0.056 * L, bw_p * 0.54, bz + 0.90 * S, g, PT['metal'], skip=('+z',), jitter=0.0)
+    box2(R.deck, bx - 0.046 * L, -bw_p * 0.50, bz + 0.90 * S, bx + 0.054 * L, bw_p * 0.50, bz + 0.96 * S, tyr, 0, skip=('-z',), jitter=0.0)
     # Sculpted gilt sun-disc / lion boss on prow face
     lc = Vector((bx + 0.058 * L, 0, bz + 0.46 * S))
     rod(R.deck, lc + Vector((-0.08, 0, 0)), lc + Vector((0.14, 0, 0)), 0.34 * S, g, 8, cap=True, pat=PT['metal'])
