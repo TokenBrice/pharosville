@@ -14,9 +14,11 @@ import importlib
 import hb_lib; importlib.reload(hb_lib)
 import hb_hulls; importlib.reload(hb_hulls)
 import hb_ancient; importlib.reload(hb_ancient)
+import hb_bake; importlib.reload(hb_bake)
 from hb_lib import *
 from hb_hulls import *
 from hb_ancient import ANCIENT_VARIANTS, build_ancient_budget, build_ancient_lod
+from hb_bake import bake_boat_ao
 
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..', '..', '..'))
 RAW = os.path.join(ROOT, 'outputs', 'harbour', 'hulls', 'raw')
@@ -58,6 +60,8 @@ def node_info(root):
                 e['morphs'] = [k.name for k in o.data.shape_keys.key_blocks[1:]]
             if '_BRAND' in o.data.attributes:
                 e['brand_attr'] = True
+            if '_AO' in o.data.attributes:
+                e['ao_attr'] = True
             if 'stay_axis' in o.keys():
                 e['stay_axis'] = [round(x, 4) for x in o['stay_axis']]
         else:
@@ -128,6 +132,7 @@ for (vid, fam, rig, cls, sch) in ANCIENT_VARIANTS:
     fresh()
     # budget guard: drop hull sections until the boat fits its class budget
     root, objs, R, _, n_sec = build_ancient_budget(vid, fam, rig, cls, sch, remove=lambda o: bpy.data.objects.remove(o, do_unlink=True))
+    ao_stats = bake_boat_ao(root, samples=48, distance=3.5, offset=0.02, ao_min=0.35)
     fname = f'hull_{vid}.glb'
     path, tris = export(root, fname)
     budget = BUDGET[cls] + hb_ancient.AncientRig.LANTERN_TRIS
@@ -140,7 +145,7 @@ for (vid, fam, rig, cls, sch) in ANCIENT_VARIANTS:
              freeboard_m=round(R.H.fb, 2), tris=tris, budget=budget, emblem=em, nodes=node_info(root))
     e['class'] = e.pop('cls')
     MANIFEST['hulls'].append(e)
-    report.append((fname, tris, budget))
+    report.append((fname, tris, budget, n_sec, ao_stats))
     # LOD
     fresh()
     lroot, lob, lt = build_ancient_lod(R)
@@ -148,7 +153,7 @@ for (vid, fam, rig, cls, sch) in ANCIENT_VARIANTS:
     _, ltris = export(lroot, lname)
     MANIFEST['lods'].append(dict(id=vid, file=lname, tris=ltris, budget=150))
     e['lod'] = lname
-    report.append((lname, ltris, 150))
+    report.append((lname, ltris, 150, 5, None))
 
 if not ONLY:
     for kind in ('a', 'b', 'c'):
@@ -159,17 +164,18 @@ if not ONLY:
         MANIFEST['props'].append(dict(id='wreck_' + kind, file=fname, family='wreck', tris=tris,
                                       pose={'a': 'beached on her side, bow up', 'b': 'sunk by the stern', 'c': 'old ribs, deck awash'}[kind],
                                       loa_m=root['loa_m'], nodes=node_info(root)))
-        report.append((fname, tris, 900))
-    fresh(); root, t = build_buoy(); _, tris = export(root, 'mooring_buoy.glb')
+        report.append((fname, tris, 900, 9, None))
+    fresh(); root, t = build_buoy(); bake_boat_ao(root, samples=48, distance=3.5, offset=0.02, ao_min=0.35); _, tris = export(root, 'mooring_buoy.glb')
     MANIFEST['props'].append(dict(id='mooring_buoy', file='mooring_buoy.glb', family='prop', tris=tris, nodes=node_info(root)))
-    report.append(('mooring_buoy.glb', tris, 150))
-    fresh(); root, t = build_dinghy(); _, tris = export(root, 'dinghy.glb')
+    report.append(('mooring_buoy.glb', tris, 150, 0, None))
+    fresh(); root, t = build_dinghy(); bake_boat_ao(root, samples=48, distance=3.5, offset=0.02, ao_min=0.35); _, tris = export(root, 'dinghy.glb')
     MANIFEST['props'].append(dict(id='dinghy', file='dinghy.glb', family='prop', tris=tris, loa_m=root['loa_m'], nodes=node_info(root)))
-    report.append(('dinghy.glb', tris, 500))
+    report.append(('dinghy.glb', tris, 500, 7, None))
 
 over = [r for r in report if r[1] > r[2]]
 for r in report:
-    print(f'EXPORT {r[0]:36s} tris={r[1]:5d} budget={r[2]:5d} {"OVER" if r[1] > r[2] else "ok"}')
+    ao_s = f' ao={r[4]}' if r[4] else ''
+    print(f'EXPORT {r[0]:36s} tris={r[1]:5d} budget={r[2]:5d} sec={r[3]:2d} {"OVER" if r[1] > r[2] else "ok"}{ao_s}')
 print('OVER BUDGET:', over)
 
 if COMPRESS:

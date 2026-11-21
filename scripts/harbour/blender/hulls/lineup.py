@@ -112,8 +112,13 @@ def pv_opaque():
     for l in [l for l in nt.links if l.from_socket == at.outputs['Color']]:
         nt.links.remove(l)
     br = node(nt, 'ShaderNodeAttribute', attribute_name='_BRAND')
+    ao = node(nt, 'ShaderNodeAttribute', attribute_name='_AO')
     oi = node(nt, 'ShaderNodeObjectInfo')
     res = mixc(nt, SX(nt, br.outputs['Fac']), at.outputs['Color'], oi.outputs['Color'])
+    # Preview E15 _AO when present (missing attribute reads 0.0 in Blender -> keep 1.0)
+    ao_v = SX(nt, ao.outputs['Fac'])
+    ao_eff = ao_v + (1.0 - ao_v.sstep(0.0, 0.01)) * (1.0 - ao_v)
+    res = mulc(nt, res, ao_eff)
     for s in outs:
         nt.links.new(res, s)
     return m

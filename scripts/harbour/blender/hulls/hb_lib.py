@@ -133,7 +133,7 @@ class MB:
             self.f.append(g)
 
 
-def rod(mb, p, q, r, col, segs=5, pf=None, qf=None, r2=None, cap=False, pat=0, smooth=True, brand=0.0, twist=0.0):
+def rod(mb, p, q, r, col, segs=5, pf=None, qf=None, r2=None, cap=False, pat=0, smooth=True, brand=0.0, twist=0.0, jitter=0.03, paint=None):
     """Tapered tube p->q (radius r -> r2). pf/qf = furled endpoints (same topology)."""
     r2 = r if r2 is None else r2
     p, q = Vector(p), Vector(q)
@@ -148,18 +148,18 @@ def rod(mb, p, q, r, col, segs=5, pf=None, qf=None, r2=None, cap=False, pat=0, s
     B = [mb.vert(x, y) for x, y in zip(ring(p, q, r2, q), ring(pf, qf, r2, qf))]
     for k in range(segs):
         k2 = (k + 1) % segs
-        mb.face((A[k], A[k2], B[k2], B[k]), col, pat, brand, smooth=smooth)
+        mb.face((A[k], A[k2], B[k2], B[k]), col, pat, brand, smooth=smooth, jitter=jitter, paint=paint)
     if cap:
-        mb.face(B, col, pat, brand)
-        mb.face(A[::-1], col, pat, brand)
+        mb.face(B, col, pat, brand, jitter=jitter, paint=paint)
+        mb.face(A[::-1], col, pat, brand, jitter=jitter, paint=paint)
 
 
-def line(mb, p, q, r, col=None, pf=None, qf=None):
+def line(mb, p, q, r, col=None, pf=None, qf=None, paint=None):
     """Rigging line: 3-sided open prism (6 tris)."""
-    rod(mb, p, q, r, col or PAL['tar'], 3, pf=pf, qf=qf, smooth=False)
+    rod(mb, p, q, r, col or PAL['tar'], 3, pf=pf, qf=qf, smooth=False, paint=paint)
 
 
-def box(mb, c, size, col, pat=0, axes=None, brand=0.0, skip=(), smooth=False, jitter=0.03, fn=None):
+def box(mb, c, size, col, pat=0, axes=None, brand=0.0, skip=(), smooth=False, jitter=0.03, fn=None, paint=None):
     """Oriented box at c with half-extents size/2 along axes (x, y, z). skip: face keys to drop
     ('-x','+x','-y','+y','-z','+z'). fn(p) -> furled position (optional)."""
     ax = axes or (Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)))
@@ -176,7 +176,7 @@ def box(mb, c, size, col, pat=0, axes=None, brand=0.0, skip=(), smooth=False, ji
     for k, vs in F.items():
         if k in skip:
             continue
-        mb.face([idx[v] for v in vs], col, pat, brand, smooth=smooth, jitter=jitter)
+        mb.face([idx[v] for v in vs], col, pat, brand, smooth=smooth, jitter=jitter, paint=paint)
 
 
 def box2(mb, x0, y0, z0, x1, y1, z1, col, pat=0, **kw):
