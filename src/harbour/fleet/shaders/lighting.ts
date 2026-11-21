@@ -40,7 +40,9 @@ export const FLEET_LIGHTING = /* glsl */ `
         float wLevel = 0.72 + 0.28 * hbWhite(wCell + 53.0);
         float wFlick = 0.92 + 0.05 * sin(uTime * (4.7 + 1.8 * wJitter) + wJitter * 6.283)
                             + 0.03 * sin(uTime * 11.3 + wTone * 9.0);
-        outgoingLight += wCol * smoothstep(0.05, 0.72, wGlow) * 2.4 * wLevel * wFlick;
+        float wLit = smoothstep(0.05, 0.72, wGlow);
+        outgoingLight *= mix(1.0, 0.12, uNight * (1.0 - wLit));
+        outgoingLight += wCol * wLit * 2.4 * wLevel * wFlick;
       }
     }
     // USDS signal-tower living amber brazier (unpainted flame cones high above deck, hbLampGlow gated)

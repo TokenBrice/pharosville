@@ -1381,7 +1381,7 @@ export class FleetSystem implements WorldSystem {
         }
         const v = b.variant;
         if (b.struck) { this.lampAt(v.sternCleat.x * 0.92, v.sternCleat.y, 0); this.v.y += 0.5 + size * 0.72; }
-        else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += (b.titan ? 0.85 : 0.48) + (this.mastSignals?.lift(b.id, b.loa) ?? 0); }
+        else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += size * 0.68 + (this.mastSignals?.lift(b.id, b.loa) ?? 0); }
         // E04: her colours in the harbour's pigment and air; the hovered / selected / searched hull flies them full
         const hiFlag = b.hi > 0.05;
         this.flags.add(this.v.x, this.v.y, this.v.z, size, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), b.slot, b.phi * 3,
@@ -1393,7 +1393,7 @@ export class FleetSystem implements WorldSystem {
         }
         // 06-F7c a titan flies a long silk vexillum from the truck, above her house flag (decorative)
         if (b.titan && !distress && !b.struck) {
-          this.flags.add(this.v.x, this.v.y + 0.9, this.v.z, b.loa * 0.42, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 1.3,
+          this.flags.add(this.v.x, this.v.y + 0.45, this.v.z, b.loa * 0.42, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 1.3,
             b.hi > 0.05 ? b.brand : b.flagBrand, FLAG_STREAMER, b.hi > 0.05);
         }
         b.flag = 0;

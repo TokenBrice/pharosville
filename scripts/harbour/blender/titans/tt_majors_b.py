@@ -298,8 +298,8 @@ def build_xaut(coll=None):
         rod(R.deck, (xx, -vw * 0.46, vz + vh), (xx, 0, vz + vh + 0.26 * S), 0.075 * S, g, 5, pat=PT['metal'])
         rod(R.deck, (xx, 0, vz + vh + 0.26 * S), (xx, vw * 0.46, vz + vh), 0.075 * S, g, 5, pat=PT['metal'])
     rod(R.deck, (vx0 + 0.12, 0, vz + vh + 0.26 * S), (vx1 - 0.12, 0, vz + vh + 0.26 * S), 0.08 * S, g, 5, pat=PT['metal'])
-    # Fire-gold vault uplight floor bed (hb_fleet_window) illuminating the bullion pyramid at night!
-    R.glow_pane((vxm, 0, vz + 0.41 * S), ((vx1 - vx0) * 0.86, 0, 0), (0, vw * 0.78, 0), (0, 0, 1), col=TP['win_gold'])
+    # Recessed dark ebony vault floor bed under the bullion pyramid (vertical coaming grilles carry the night uplight)
+    box2(R.deck, vx0 + 0.08, -vw * 0.44, vz + 0.36 * S, vx1 - 0.08, vw * 0.44, vz + 0.41 * S, eb, PT['ashlar'], skip=('-z',), jitter=0.0)
     for sd in (-1, 1):
         R.glow_pane((vxm, sd * (vw * 0.51), vz + 0.18 * S), ((vx1 - vx0) * 0.76, 0, 0), (0, 0, 0.16 * S), (0, sd, 0), col=TP['win_gold'])
 
