@@ -2,6 +2,17 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v1.10.0 - 2026-11-21 - Courtyard and Roofs
+
+The Pharos and the civic quarter gain their craft: a paved courtyard with a portico, bronze braziers and sculpted figures at the foot of the tower, and tiled roofs with ridges, eaves and carved ornament across the town.
+
+Collected from `release/v1.10.0` after v1.9.0: a buildings pass on the Pharos and the 18 civic buildings, built on v1.9.0's Pharos v2 and compared with it view by view on a real GPU. The tower's proportions, the beam, the fire and every anchor the arrival and the beam read are unchanged. Drawing cost per frame is within measurement noise on every tier. No analytical mapping changed.
+
+- The Pharos courtyard: tone-on-tone limestone paving, an entrance portico with its steps built into the tower's front bay, an exedra, amphorae, corner urns and parapet piers, dentil courses and a fluted tholos with gilded dome ribs; the tritons, colossi and Helios are sculpted afresh.
+- Four bronze braziers stand in the courtyard. They are decorative: dark by day and through the golden hour, they catch amber with the town's lamps after dusk and play no part in the Pharos fire, which still shows the Stability Index.
+- Roofs across the civic quarter: rounded cover tiles in stepped courses, ridge caps, eave rafters and carved acroteria, with pilasters and window hoods on the walls; a doubled column on one harbour office is gone.
+- Both arrival pictures, by day and by night, are drawn from this harbour.
+
 ## v1.9.0 - 2026-11-21 - Sea and Sky
 
 The harbour's sea and sky are painted again: shaped clouds and far islands, water that shows its depth and lies calm by day and silver under the moon, softer light gathering in the town, and weather that grows with its strength, from a whisper of drizzle to a driving storm.

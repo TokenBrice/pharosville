@@ -12,6 +12,20 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-11-21-courtyard-and-roofs",
+    version: PHAROSVILLE_RELEASE_VERSIONS.courtyardAndRoofs,
+    date: "2026-11-21",
+    title: "Courtyard and Roofs",
+    summary: "The Pharos and the civic quarter gain their craft: a paved courtyard with a portico, bronze braziers and sculpted figures at the foot of the tower, and tiled roofs with ridges, eaves and carved ornament across the town.",
+    bullets: [
+      "The Pharos courtyard: tone-on-tone limestone paving, an entrance portico with its steps built into the tower's front bay, an exedra, amphorae, corner urns and parapet piers, dentil courses and a fluted tholos with gilded dome ribs; the tritons, colossi and Helios are sculpted afresh.",
+      "Four bronze braziers stand in the courtyard. They are decorative: dark by day and through the golden hour, they catch amber with the town's lamps after dusk and play no part in the Pharos fire, which still shows the Stability Index.",
+      "Roofs across the civic quarter: rounded cover tiles in stepped courses, ridge caps, eave rafters and carved acroteria, with pilasters and window hoods on the walls; a doubled column on one harbour office is gone.",
+      "Both arrival pictures, by day and by night, are drawn from this harbour.",
+    ],
+    source: "Collected from `release/v1.10.0` after v1.9.0: a buildings pass on the Pharos and the 18 civic buildings, built on v1.9.0's Pharos v2 and compared with it view by view on a real GPU. The tower's proportions, the beam, the fire and every anchor the arrival and the beam read are unchanged. Drawing cost per frame is within measurement noise on every tier. No analytical mapping changed.",
+  },
+  {
     id: "2026-11-21-sea-and-sky",
     version: PHAROSVILLE_RELEASE_VERSIONS.seaAndSky,
     date: "2026-11-21",
