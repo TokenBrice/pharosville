@@ -29,9 +29,19 @@ export const FLEET_LIGHTING = /* glsl */ `
       // 06-F7b a titan's stern-gallery windows: warm from dusk (decorative, like the town's windows)
       else outgoingLight += vec3(1.0, 0.45, 0.14) * smoothstep(2.0, 22.0, uLamp) * 1.1 * (0.94 + 0.06 * fl);
     }
-    // sail cloth glows when the low sun is behind it
+    // sail cloth glows when the low sun is behind it, plus soft woven-linen billow rim sheen by day
     // (02-L2: view- and elevation-dependent, brightest against a low sun; 06-F12 seams and roundel in silhouette)
-    if (vFleetMisc.z > 0.5 && vFleetMisc.z < 1.5) outgoingLight += hbSailGlow(diffuseColor.rgb, fN, fV, vFleetRig.x);
+    if (vFleetMisc.z > 0.5 && vFleetMisc.z < 1.5) {
+      outgoingLight += hbSailGlow(diffuseColor.rgb, fN, fV, vFleetRig.x);
+      #ifndef HB_LITE
+        float billowRim = pow(1.0 - clamp(abs(dot(fN, fV)), 0.0, 1.0), 2.8);
+        float sunFace = max(dot(fN, uSunDir), 0.0);
+        outgoingLight += diffuseColor.rgb * uSunColor * billowRim * sunFace * 0.14 * (1.0 - uNight) * (1.0 - vFleetRig.x * 0.7);
+      #endif
+    } else if (vFleetRig.z > 0.5 && vFleetMisc.z < 0.5) {
+      // subtle backlit glow on fluttering house pennants
+      outgoingLight += hbSailGlow(diffuseColor.rgb, fN, fV, 0.25) * 0.65;
+    }
     // hover / selection: soft warm rim + lift
     float hi = vFleetMisc.x;
     if (hi > 0.001) {

@@ -24,9 +24,9 @@ import type { WorldUniforms } from "../engine/uniforms";
  * red), and an unlit Pharos (no PSI reading) has no fire, no embers and no plume.
  */
 
-const FLAMES = 16;
-const EMBERS = 160;
-const PUFFS = 30;
+const FLAMES = 24;
+const EMBERS = 240;
+const PUFFS = 40;
 
 export interface FireState {
   /** 0..1 the lantern level (PSI lit, eased). */
@@ -59,7 +59,7 @@ export class PharosFire {
   private readonly gu = { uSize: { value: 30 }, uCol: { value: new THREE.Color() }, uK: { value: 0 } };
   private readonly pu = {
     uOrigin: { value: new THREE.Vector3() }, uSmokeT: { value: 0 }, uWind: this.fu.uWind,
-    uLit: { value: new THREE.Color() }, uShade: { value: new THREE.Color() }, uFireUnder: { value: new THREE.Color() },
+    uLit: { value: new THREE.Color() }, uShade: { value: new THREE.Color() }, uSunRim: { value: new THREE.Color() }, uFireUnder: { value: new THREE.Color() },
     uOpacity: { value: 0.3 }, uNoise: this.fu.uNoise, uPlumeScale: { value: 1 },
     // the beam's shared uniforms (bindBeam); placeholders keep the shader valid without a beam
     uBeamPos: { value: new THREE.Vector3(0, -1000, 0) }, uBeamAngle: { value: 0 }, uBeamLight: { value: new THREE.Color(0, 0, 0) },
@@ -84,16 +84,16 @@ export class PharosFire {
     const card = new THREE.InstancedBufferGeometry();
     card.setAttribute("position", new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, 0.5, 1, 0, -0.5, 1, 0], 3));
     card.setIndex([0, 1, 2, 0, 2, 3]);
-    // 5 great body tongues, 7 licks round the brazier rim, 4 low hot core sheets
+    // 7 great body tongues, 11 dynamic licks round the brazier rim, 6 low incandescent core sheets
     const cardA = new Float32Array(FLAMES * 4), seedA = new Float32Array(FLAMES * 3);
     for (let i = 0; i < FLAMES; i++) {
-      const kind = i < 5 ? 0 : i < 12 ? 1 : 2;
+      const kind = i < 7 ? 0 : i < 18 ? 1 : 2;
       const th = rnd() * Math.PI * 2;
-      const r = kind === 0 ? 0.3 + rnd() * 0.7 : kind === 1 ? 0.9 + rnd() * 0.8 : rnd() * 0.5;
-      const w = kind === 0 ? 3.0 + rnd() * 1.2 : kind === 1 ? 1.3 + rnd() * 0.9 : 2.4 + rnd() * 0.8;
-      const h = kind === 0 ? 5.2 + rnd() * 2.0 : kind === 1 ? 3.2 + rnd() * 2.2 : 2.2 + rnd() * 1.0;
+      const r = kind === 0 ? 0.25 + rnd() * 0.72 : kind === 1 ? 0.85 + rnd() * 0.9 : rnd() * 0.48;
+      const w = kind === 0 ? 2.8 + rnd() * 1.2 : kind === 1 ? 1.25 + rnd() * 0.85 : 2.2 + rnd() * 0.8;
+      const h = kind === 0 ? 5.4 + rnd() * 2.2 : kind === 1 ? 3.3 + rnd() * 2.3 : 2.3 + rnd() * 1.0;
       cardA.set([Math.cos(th) * r, Math.sin(th) * r, w, h], i * 4);
-      seedA.set([rnd(), rnd(), (rnd() - 0.5) * (kind === 1 ? 1.4 : 0.9)], i * 3);
+      seedA.set([rnd(), rnd(), (rnd() - 0.5) * (kind === 1 ? 1.55 : 1.0)], i * 3);
     }
     card.setAttribute("aCard", new THREE.InstancedBufferAttribute(cardA, 4));
     card.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seedA, 3));
@@ -197,20 +197,25 @@ export class PharosFire {
     this.glow.visible = lvl > 0.01;
 
     // the light: warm on the stone, stronger at night (by day the sun washes it out)
-    this.light.color.setRGB(1.0, 0.6, 0.26).multiply(this.tint);
-    // firelight gutters on the colonnade, the dome and the statue (the flicker squared: it reads on the stone)
-    this.light.intensity = lvl * fl * fl * (6 + 16 * night);
-    if (!s.reduced) this.light.position.set(this.lightBase.x + Math.sin(t * 5.1) * 0.4, this.lightBase.y + Math.sin(t * 3.7) * 0.3, this.lightBase.z + Math.cos(t * 4.3) * 0.4);
+    this.light.color.setRGB(1.0, 0.58, 0.24).multiply(this.tint);
+    // firelight dances on the tholos colonnade, dome underside and Helios statue
+    this.light.intensity = lvl * fl * fl * (7 + 21 * night);
+    if (!s.reduced) this.light.position.set(this.lightBase.x + Math.sin(t * 5.3) * 0.45, this.lightBase.y + Math.sin(t * 3.9) * 0.35, this.lightBase.z + Math.cos(t * 4.5) * 0.45);
 
-    // plume: white wood smoke by day, a dark column lit from below by night
+    // plume: airy sunlit silver-white wood smoke by day, lushly lit from underneath by fire at dusk/night
     this.pu.uSmokeT.value = this.smokeT;
-    const lit = this.pu.uLit.value, shade = this.pu.uShade.value, tc = this.tmp;
-    lit.copy(u.uHemiSky.value).add(tc.copy(u.uSunColor.value).multiplyScalar(0.22)).multiply(tc.setRGB(0.9, 0.89, 0.88));
-    shade.copy(u.uHemiSky.value).multiplyScalar(0.55).add(tc.copy(u.uHemiGround.value).multiplyScalar(0.35)).multiply(tc.setRGB(0.78, 0.76, 0.76));
-    this.pu.uFireUnder.value.setRGB(1.0, 0.42, 0.12).multiply(this.tint).multiplyScalar(lvl * fl * night * 1.25);
+    const lit = this.pu.uLit.value, shade = this.pu.uShade.value, sunRim = this.pu.uSunRim.value, tc = this.tmp;
+    const sun = u.uSunColor.value;
+    const sunL = 0.2126 * sun.r + 0.7152 * sun.g + 0.0722 * sun.b;
+    const sr = sun.r * 0.38 + sunL * 0.62, sg = sun.g * 0.38 + sunL * 0.62, sb = sun.b * 0.38 + sunL * 0.62;
+    lit.copy(u.uHemiSky.value).add(tc.setRGB(sr, sg, sb).multiplyScalar(0.22)).multiply(tc.setRGB(0.94, 0.94, 0.95));
+    shade.copy(u.uHemiSky.value).multiplyScalar(0.54).add(tc.copy(u.uHemiGround.value).multiplyScalar(0.28)).multiply(tc.setRGB(0.76, 0.78, 0.83));
+    sunRim.setRGB(sr, sg, sb).multiplyScalar(0.22 * (1 - night));
+    const duskNight = THREE.MathUtils.smoothstep(night, 0.20, 0.88);
+    this.pu.uFireUnder.value.setRGB(1.0, 0.46, 0.14).multiply(this.tint).multiplyScalar(lvl * fl * (0.04 + 1.68 * duskNight));
     // banked (05-P4): a thin grey wisp at about a third of the column's opacity, half its girth
     const banked = THREE.MathUtils.clamp(s.banked ?? 0, 0, 1) * (1 - lvl);
-    this.pu.uOpacity.value = lvl * (0.42 - 0.2 * night) + banked * 0.13;
+    this.pu.uOpacity.value = lvl * (0.48 - 0.18 * night) + banked * 0.16;
     this.pu.uPlumeScale.value = THREE.MathUtils.lerp(1, 0.5, banked / Math.max(banked + lvl, 1e-3));
     this.plume.visible = lvl > 0.01 || banked > 0.01;
   }

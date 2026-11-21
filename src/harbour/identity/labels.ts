@@ -47,6 +47,7 @@ export function lineWidth(text: string, face: Face, cap: number, track: number, 
 }
 
 const ZONE_CAP: Record<string, number> = { shoals: 15, farPorts: 18, wreckCove: 14, roads: 19 };
+const ZONE_INK: Record<string, number> = { shoals: 1.08, farPorts: 0.9, wreckCove: 0.92, roads: 0.95 };
 
 export function labelSpecs(zones: readonly SeaZone[]): LabelSpec[] {
   const out: LabelSpec[] = [];
@@ -60,13 +61,13 @@ export function labelSpecs(zones: readonly SeaZone[]): LabelSpec[] {
     const track = open ? 0.55 : 0.3;
     const lines: LabelLine[] = [];
     const m = /^THE\s+(.+)$/.exec(name);
-    if (m) lines.push({ text: "THE", face: "italic", cap: cap * 0.5, track: 0.5, flank: true });
+    if (m) lines.push({ text: "THE", face: "italic", cap: cap * 0.5, track: 0.38, flank: true });
     lines.push({ text: m ? m[1] : name, face: "italic", cap, track });
     out.push({
       id: z.id, cls: open ? "open" : "zone", lines, anchor: z.labelAnchor, angle: z.labelAngle,
       bend: open ? 0.05 : 0.07,
       fade: open ? [600, 760, 1150, 1260] : [240, 360, 1100, 1220],
-      ink: open ? 0.6 : 0.95, rule: false,
+      ink: open ? 0.6 : ZONE_INK[z.kind] ?? 0.95, rule: false,
     });
   }
   return out;
@@ -81,8 +82,8 @@ export interface GlyphQuad {
   slot: number;
 }
 
-/** Clear space between stacked lines, × the upper line's cap height (the swell lifts each line on its own). */
-export const LINE_GAP = 0.6;
+/** Clear space between stacked lines, × the upper line's cap height (tight cartographic lockup with swell clearance). */
+export const LINE_GAP = 0.36;
 /** Keep the two rotated contributions separate: anchor + along + across must retain its rounding order. */
 interface LocalGlyphQuad { c: Array<[number, number, number, number]>; slot: number }
 
@@ -143,9 +144,9 @@ function glyphGeometry(spec: LabelSpec, font: ChartFont): LocalGlyphQuad[] {
       }
       pen += adv + ln.track * em;
     }
-    const th = Math.max(0.35, ln.cap * 0.055);
+    const th = Math.max(0.55, ln.cap * 0.075);
     if (ln.flank) {
-      const gap = ln.cap * 0.7, len = ln.cap * 2.2, v = bases[i] + ln.cap * 0.42;
+      const gap = ln.cap * 0.52, len = ln.cap * 1.85, v = bases[i] + ln.cap * 0.44;
       rule(-w / 2 - gap - len, -w / 2 - gap, v, th);
       rule(w / 2 + gap, w / 2 + gap + len, v, th);
     }
@@ -228,7 +229,7 @@ export function labelFootprint(spec: LabelSpec, font: ChartFont, margin = 0): Fo
   const bases = lineBases(spec);
   return spec.lines.map((ln, i) => {
     let hw = lineWidth(ln.text, ln.face, ln.cap, ln.track, font) / 2 + (ln.face === "italic" ? ln.cap * 0.18 : 0);
-    if (ln.flank) hw += ln.cap * 2.9;
+    if (ln.flank) hw += ln.cap * 2.37;
     const droop = spec.bend * half * Math.min(1, (hw / half) ** 2);
     let lo = bases[i] - droop - ln.cap * 0.08;
     const hi = bases[i] + ln.cap * 1.04;

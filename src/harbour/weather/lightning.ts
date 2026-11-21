@@ -123,15 +123,22 @@ void main() {
 const FRAG = /* glsl */ `
 uniform vec3 uBoltCol;
 uniform float uBoltK;
+uniform float uTopE;
 varying float vAcross;
 varying float vE;
 void main() {
   float a = abs(vAcross);
-  float core = exp(-a * a * 90.0);
-  float glow = exp(-a * 4.5) * 0.22;
-  float k = (core * 3.2 + glow) * uBoltK * smoothstep(-0.12, 0.25, vE);
+  float core = exp(-a * a * 95.0);
+  float midHalo = exp(-a * 4.2) * 0.26;
+  // luminous cloud-emergence corona where the bolt tears out of the dark thunderhead belly
+  float cloudMouth = smoothstep(uTopE * 0.55, uTopE, vE);
+  float corona = exp(-a * 2.2) * 0.34 * cloudMouth;
+  float k = (core * 3.4 + midHalo + corona) * uBoltK * smoothstep(-0.12, 0.25, vE);
   if (k < 0.002) discard;
-  gl_FragColor = vec4(uBoltCol * k, 1.0);
+  vec3 hotCore = vec3(0.96, 0.98, 1.0);
+  vec3 ionAura = mix(uBoltCol, vec3(0.58, 0.70, 1.0), 0.45);
+  vec3 col = mix(ionAura, hotCore, clamp(core * 1.25, 0.0, 1.0));
+  gl_FragColor = vec4(col * k, 1.0);
 }`;
 
 export interface LightningFrame {
@@ -183,7 +190,7 @@ export class Lightning {
       name: "hb_weather_bolt", vertexShader: VERT, fragmentShader: FRAG,
       uniforms: {
         uCam: { value: new THREE.Vector3() }, uFwdAz: { value: 0 }, uR: { value: 1500 },
-        uBoltCol: { value: new THREE.Color(0.78, 0.84, 1.0) }, uBoltK: { value: 0 },
+        uBoltCol: { value: new THREE.Color(0.78, 0.84, 1.0) }, uBoltK: { value: 0 }, uTopE: { value: 3.0 },
       },
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide,
     });
@@ -209,7 +216,8 @@ export class Lightning {
     const near = 1 - THREE.MathUtils.clamp((km - 2) / 16, 0, 1);
     this.strength = 0.45 + 0.55 * near;
     const top = Math.min(Math.max(1.6, f.bandTopDeg * (0.55 + 0.4 * near)), 9);
-    this.flashTh = this.th; this.flashE = top * 0.8;
+    this.flashTh = this.th; this.flashE = top * 0.82;
+    this.mat.uniforms.uTopE.value = top;
     this.restrike = R() < 0.65 ? 0.08 + R() * 0.07 : -1;
     const bolts = buildBolt(0, this.th, top, R);
     if (f.avoidTh != null) fenceBolts(bolts, f.avoidTh, this.th);
@@ -254,10 +262,11 @@ export class Lightning {
     const t = this.age;
     let env = t < 0 ? 0 : Math.exp(-t / 0.07);
     if (this.restrike > 0 && t >= this.restrike) env = Math.max(env, 0.7 * Math.exp(-(t - this.restrike) / 0.08));
-    const after = Math.exp(-t / 0.45) * 0.12;
+    const after = Math.exp(-t / 0.48) * 0.18;
     if (f.suppressed) env = 0;
-    this.flash = Math.min(1, (env + after) * this.strength);
-    const boltK = (env * 1.0 + after * 0.6) * this.strength;
+    // luminous cloud-interior rumble glow lingers briefly after the crisp bolt core fades
+    this.flash = Math.min(1, (env * 1.05 + after) * this.strength);
+    const boltK = (env * 1.0 + after * 0.45) * this.strength;
     this.mesh.visible = boltK > 0.01 && !f.suppressed;
     const u = this.mat.uniforms;
     // a strike stays where it struck (relative to the view it was seen in)

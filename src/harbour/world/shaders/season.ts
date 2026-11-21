@@ -211,6 +211,14 @@ void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, flo
     float field = n1 * 0.45 + nL * 0.45 + 0.1 + (n2 - 0.5) * 0.1 * hbFine(dW, 0.4) - (1.0 - up) * 0.25 * (1.0 - leaf);
     float thr = 1.0 - cover * 0.95;
     snow = smoothstep(thr - 0.07, thr + 0.07, field) * upm * dry;
+    // delicate winter canopy hoarfrost & snow-cap dusting on upward-facing pine, cypress & olive crowns
+    // (40-65% painterly snow cap on top, leaving deep evergreen needles peeking underneath)
+    if (leaf > 0.5) {
+      float crownUp = smoothstep(0.40, 0.78, up + (n2 - 0.5) * 0.18 * hbFine(dW, 0.4));
+      float frostPatch = smoothstep(0.26, 0.74, n1 * 0.65 + n2 * 0.35);
+      float crownCap = uSnowCover * crownUp * (0.42 + 0.24 * frostPatch) * dry;
+      snow = min(max(snow, crownCap), 0.68);
+    }
     vec3 snowC = vec3(0.64, 0.675, 0.73) * (0.95 + 0.05 * n2);
     alb = mix(alb, snowC, snow);
     rough = mix(rough, 0.6, snow);

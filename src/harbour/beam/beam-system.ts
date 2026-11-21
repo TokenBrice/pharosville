@@ -8,6 +8,7 @@ import * as THREE from "three";
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { EffectPass } from "postprocessing";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
+import type { QualitySettings } from "../engine/quality";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import { getBeamUniforms, type BeamUniforms } from "./uniforms";
 
@@ -115,12 +116,14 @@ export class BeamSystem implements WorldSystem {
     uL: new THREE.Uniform(500),
     uWind: new THREE.Uniform(0.3),
     uNear: new THREE.Uniform(100),
+    uSteps: new THREE.Uniform(28),
     uNoise: new THREE.Uniform(null as THREE.Texture | null),
     uSkyRef: new THREE.Uniform(new THREE.Color()),
     uSkyT: new THREE.Uniform(1e9),
     R0: new THREE.Uniform(R0),
     TANA: new THREE.Uniform(Math.tan(HALF)),
   };
+  private offQuality: (() => void) | undefined;
   /** DA-09 horn shutter target / eased 0..1. */
   private qualified = 0;
   private shutterS = 0;
@@ -168,6 +171,14 @@ export class BeamSystem implements WorldSystem {
     if (p.has("reach")) svc.setReach(Number(p.get("reach")));
     if (p.has("lamp")) svc.setColor(Number(p.get("lamp")) as 0 | 1 | 2);
     else svc.setColor(0);
+    const applyQuality = (q: QualitySettings) => {
+      this.U.uSteps.value = q.tier === "high" ? 28 : q.tier === "medium" ? 20 : 14;
+    };
+    const quality = ctx.services.get("quality");
+    if (quality) {
+      applyQuality(quality.settings);
+      this.offQuality = quality.onChange((settings) => applyQuality(settings));
+    }
     this.reachS = this.reach; this.colorS.copy(this.color);
   }
 
@@ -273,6 +284,7 @@ export class BeamSystem implements WorldSystem {
   }
 
   dispose(ctx: EngineContext): void {
+    this.offQuality?.();
     ctx.composer.removePass(this.pass);
     this.pass.dispose();
     ctx.scene.remove(this.halo);

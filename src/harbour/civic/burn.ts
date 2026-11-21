@@ -77,11 +77,11 @@ export class BurnFurnace {
       if (m?.isMesh) { m.material = this.glowMat; m.castShadow = false; }
     }
     // the flames stand in the bowl, the embers fly from its lip
-    this.flames = new Flames(this.bowl.clone().add(new THREE.Vector3(0, 0.6, 0)), noise, 9, 53);
+    this.flames = new Flames(this.bowl.clone().add(new THREE.Vector3(0, 0.6, 0)), noise, 15, 53);
     this.flames.mesh.name = "burn-flames";
-    this.embers = new Embers(at("fire_emitter") ?? this.bowl, 90, 61);
+    this.embers = new Embers(at("fire_emitter") ?? this.bowl, 140, 61);
     this.embers.points.name = "burn-embers";
-    this.smoke = new Smoke([at("smoke_emitter", 0.5) ?? this.bowl.clone().setY(this.bowl.y + 18)], 26, noise, 83);
+    this.smoke = new Smoke([at("smoke_emitter", 0.5) ?? this.bowl.clone().setY(this.bowl.y + 18)], 34, noise, 83);
     this.smoke.mesh.name = "burn-smoke";
 
     // coins down the chute: little gold discs
@@ -125,14 +125,15 @@ export class BurnFurnace {
       this.core.scale.set(this.coreScale.x, this.coreScale.y * sy * fl, this.coreScale.z);
     }
 
-    // the plume: white-grey at a balanced burn, a dark climbing column when the Burn dominates
+    // the plume: airy translucent incense-silver mist by day/golden, richly fire-underlit at dusk/night
     const s = Math.min(1.4, L);
     const pw = plumeWind(windTo, wind, lee);
+    const duskNight = THREE.MathUtils.smoothstep(night, 0.22, 0.88);
     this.smoke.update(moving ? dt : 0, {
-      rate: 0.04 + 0.06 * s, rise: 18 + 16 * s + 14 * burnDom, size0: 3.2 + 1.5 * burnDom, size1: 9 + 6 * s + 5 * burnDom, drift: 40 + 26 * s,
-      bend: lee ? 0.32 : 0,
-      opacity: banked ? 0 : 0.26 + 0.34 * Math.min(1, s) + 0.18 * burnDom, darkness: 0.3 + 0.6 * burnDom,
-      under: this.under.setRGB(1.0, 0.4, 0.12).multiplyScalar(0.1 * night * Math.min(1, s)),
+      rate: 0.055 + 0.075 * s, rise: 19 + 16 * s + 14 * burnDom, size0: 2.8 + 1.2 * burnDom, size1: 11.5 + 7.5 * s + 5 * burnDom, drift: 44 + 28 * s,
+      bend: lee ? 0.34 : 0,
+      opacity: banked ? 0 : (0.26 + 0.31 * Math.min(1, s) + 0.14 * burnDom) * (1 - 0.16 * night), darkness: 0.24 + 0.56 * burnDom,
+      under: this.under.setRGB(1.0, 0.44, 0.13).multiplyScalar((0.02 + 0.78 * duskNight) * fl * Math.min(1.15, s)),
     }, pw.to, pw.k, u);
 
     // coins: one every 1/rate s while the burn works

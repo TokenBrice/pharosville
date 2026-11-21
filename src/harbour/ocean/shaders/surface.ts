@@ -143,35 +143,67 @@ void main() {
   float far01 = smoothstep(250.0, 1300.0, camD);
   float fp = length(fwidth(xz));
   float amp = uSea.x * vDamp;
-  // shading-only domain warp (the displacement and CPU heightAt are untouched): the crossing plane waves
-  // would otherwise read as a regular diamond lattice across the mid-distance and the overview
-  vec2 xzw = xz + (vec2(nA.g, nA.b) - 0.5) * 18.0 + (vec2(nB.b, nB.r) - 0.5) * 3.0;
-  float groups = 0.45 + 1.1 * smoothstep(0.2, 0.8, nA.r * 0.7 + texture2D(uNoise, xz * 0.0011 + vec2(t * 0.0009, 0.0)).b * 0.5);
-  // shading exaggerates a calm swell (soft-capped so rough seas don't turn to mirrors), in wave groups
-  float ampShade = 0.9 * (1.0 - exp(-amp * mix(2.6, 2.0, far01) / 0.9));
+  // shading-only domain warp (displacement and CPU heightAt stay untouched): curves primary Gerstner crests
+  // into natural wave groups so golden-hour grazing reflections never band into horizontal zebra stripes
+  vec2 xzw = xz + ((vec2(nA.g, nA.b) - 0.5) * 28.0 + (vec2(nB.b, nB.r) - 0.5) * 6.5) * (0.35 + 0.65 * vDamp);
+  float groups = 0.52 + 0.85 * smoothstep(0.18, 0.82, nA.r * 0.7 + texture2D(uNoise, xz * 0.0011 + vec2(t * 0.0009, 0.0)).b * 0.5);
+  float storm = smoothstep(0.3, 0.85, uSea.x);
+  // a storm's sea: the declared sea state or a gale (DEWS Warning/Danger wind), whichever is rougher
+  float stormSea = max(storm, windSea);
+  // restrained swell-normal exaggeration: calm/moderate seas stay silky and faceted; a storm sea gets the full heave back
+  float shadeCap = mix(0.58, 0.9, stormSea);
+  float ampShade = shadeCap * (1.0 - exp(-amp * mix(mix(1.75, 1.25, far01), mix(2.6, 2.0, far01), stormSea) / shadeCap));
   vec3 gS; float crestH;
   gerstnerSums(xzw, t, gS, crestH);
   vec3 gN = gerstnerNormalOf(gS, ampShade * groups);
   mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
+  mat2 rot2 = mat2(0.54, 0.84, -0.84, 0.54);
   float sp = 0.6 + 1.2 * wind;
+  vec2 wPerp = vec2(-wdir.y, wdir.x);
   vec4 r1 = texture2D(uRipple, xz * 0.043 + wdir * t * 0.010 * sp);
   #ifdef HB_LITE
   vec4 r2 = texture2D(uRipple, (rot * rot * xz) * 0.0093 + wdir * t * 0.0025);
-  vec2 d1 = r1.rg * 2.0 - 1.0, d2 = r2.rg * 2.0 - 1.0;
+  vec4 r3 = r2;                    // (Lite: the coarse tap stands in for the coarse ripple downstream)
+  vec2 d1 = r1.rg * 2.0 - 1.0, d2 = r2.rg * 2.0 - 1.0, d3 = d2;
   #else
-  vec4 r2 = texture2D(uRipple, (rot * xz) * 0.107 - vec2(wdir.y, -wdir.x) * t * 0.014 * sp);
-  vec4 r3 = texture2D(uRipple, (rot * rot * xz) * 0.0093 + wdir * t * 0.0025);
-  vec4 r4 = texture2D(uRipple, (rot * xz.yx) * 0.0061 - wdir * t * 0.0017 + 0.37);
+  vec4 r2 = texture2D(uRipple, (rot2 * xz) * 0.118 - wPerp * t * 0.015 * sp);
+  vec4 r3 = texture2D(uRipple, (rot * rot * xz) * 0.0115 + (nA.rg - 0.5) * 0.14 + wdir * t * 0.0028);
+  vec4 r4 = texture2D(uRipple, (rot2 * xz.yx) * 0.0068 - wdir * t * 0.0019 + 0.37);
   r3 = mix(r3, r4, 0.5 + 0.35 * (nA.r - 0.5) * 2.0);
   vec2 d1 = r1.rg * 2.0 - 1.0, d2 = r2.rg * 2.0 - 1.0, d3 = r3.rg * 2.0 - 1.0;
   #endif
-  float shoreCalm = mix(0.45, 1.0, smoothstep(1.0, 18.0, coast)) * (1.0 - 0.3 * zm.b);
-  float dk = (0.16 + 0.12 * uSea.y) * rough * shoreCalm;
-  #ifdef HB_LITE
-  vec2 dn = (d1 * (1.0 - far01 * 0.7) + d2 * (0.45 + 0.5 * far01)) * dk;
-  #else
-  vec2 dn = (d1 * (1.0 - far01 * 0.7) + d2 * 0.75 * (1.0 - far01) + d3 * (0.45 + 0.5 * far01)) * dk;
+  // intermediate non-collinear gravity chop + close-range micro-ripple capillary facets
+  // (filtered early over distance, footprint and low grazing angles so mid-range golden sea flows like liquid silk)
+  float graze = smoothstep(0.14, 0.42, max(V.y, 0.0));
+  float grazeDamp = 0.35 + 0.65 * graze;
+  float shoreCalm = mix(0.42, 1.0, smoothstep(1.0, 18.0, coast)) * (1.0 - 0.34 * zm.b);
+  float dk = (0.17 + 0.13 * uSea.y) * rough * shoreCalm;
+  // (full tier) intermediate non-collinear gravity chop + close-range micro-ripple capillary facets
+  vec2 dM = vec2(0.0);
+  float rMa = 0.5;
+  vec2 dFine = vec2(0.0);
+  #ifndef HB_LITE
+  vec4 rM = texture2D(uRipple, (rot2 * rot * xz) * 0.0235 + (wdir * 0.55 + wPerp * 0.83) * t * 0.0062 * sp + 0.19);
+  dM = rM.rg * 2.0 - 1.0;
+  rMa = rM.a;
+  float fineVis = (1.0 - smoothstep(0.05, 0.17, fp)) * (1.0 - smoothstep(95.0, 270.0, camD)) * grazeDamp;
+  if (fineVis > 0.01) {
+    vec4 rF = texture2D(uRipple, (rot * xz.yx) * 0.23 - (wdir * 0.72 - wPerp * 0.69) * t * 0.024 * sp + 0.53);
+    dFine = (rF.rg * 2.0 - 1.0) * fineVis;
+  }
   #endif
+  // separate resolved medium wave trains (dnWave) from fine close-up capillary detail (dnFine)
+  // (a storm keeps its wind chop out to the heart view: the damping is for calm golden water)
+  #ifdef HB_LITE
+  float midCap = 0.0;
+  #else
+  float midCap = max((1.0 - smoothstep(110.0, 380.0, camD)) * (1.0 - smoothstep(0.09, 0.26, fp)) * grazeDamp, stormSea * (1.0 - far01));
+  #endif
+  vec2 dnWave = (d1 * (0.76 - far01 * 0.48) * (0.65 + 0.35 * graze) + dM * (0.66 - 0.22 * far01) + d3 * (0.58 + 0.38 * far01)) * dk;
+  vec2 dnFine = (d2 * mix(0.46, 0.75, stormSea) * midCap + dFine * 0.22) * dk;
+  vec2 dn = dnWave + dnFine;
+  // organic 3D wave height combining primary swell with non-collinear chop (for SSS & crest shading)
+  float organicCrest = clamp(crestH * 0.55 + (r3.a - 0.5) * 0.85 + (rMa - 0.5) * 0.65 + (nB.g - 0.5) * 0.45, -1.0, 1.0);
   // wakes rough up the surface
   dn += (d2 - d1) * 0.25 * clamp(trail + live.r, 0.0, 1.0);
   // rain rings (and snowflakes landing): near the camera only, where a ring is a few pixels wide
@@ -183,7 +215,8 @@ void main() {
     snowSpeck = rr.z * uPrecip.y * (1.0 - smoothstep(300.0, 700.0, camD)) * step(0.0, coast);
   }
   vec3 N = normalize(vec3(gN.x + dn.x, gN.y, gN.z + dn.y));
-  vec3 Nsp = normalize(vec3(gN.x + (d1.x + d2.x * 1.4) * 0.5, 1.0, gN.z + (d1.y + d2.y * 1.4) * 0.5)); // sharp, for sparkle
+  vec2 spSlope = (d1 * (0.85 - far01 * 0.4) + d2 * 1.1 * midCap + dFine * 0.72 + dM * 0.55) * 0.44;
+  vec3 Nsp = normalize(vec3(gN.x * 0.72 + spSlope.x, 1.0, gN.z * 0.72 + spSlope.y)); // crisp capillary facets for sparkle
   float unres = smoothstep(0.12, 0.35, fp);
   #ifdef HB_LITE
   unres = 1.0;
@@ -203,8 +236,7 @@ void main() {
   float lumB = dot(body, vec3(0.299, 0.587, 0.114));
   body = mix(body, vec3(lumB) * vec3(0.88, 1.0, 1.18), deepK * 0.42);
   body *= mix(1.0, 0.78, deepK);
-  // weather: an overcast, rough sea turns grey-green and darker
-  float storm = smoothstep(0.3, 0.85, uSea.x);
+  // weather: an overcast, rough sea turns grey-green and darker (storm: defined with the swell shading above)
   float cover = smoothstep(0.4, 0.95, uWeatherSea.x);
   lumB = dot(body, vec3(0.299, 0.587, 0.114));
   body = mix(body, vec3(lumB) * vec3(0.86, 1.0, 0.98), clamp(storm * 0.5 + cover * 0.25, 0.0, 0.65));
@@ -212,58 +244,93 @@ void main() {
   float sunUp = clamp(uSunDir.y * 3.0, 0.0, 1.0) * (1.0 - uNight);
   // 02-L1: the key light's shadow on the flat sea plane (displacement would only add acne); sun-lit terms only
   float sunSh = hbSeaSunShadow(vec3(xz.x, 0.0, xz.y));   // (soft, thin casters dissolved: sun-shadow.ts)
-  // A graft: sunlit teal shallows (light reaching the sand)
-  float shoalK = (1.0 - smoothstep(0.3, 4.5, max(dep, depth))) * sunUp;
+  // A graft: sunlit teal shallows (light reaching the sand — suppressed cleanly under storm/overcast decks)
+  float shoalK = (1.0 - smoothstep(0.3, 4.5, max(dep, depth))) * sunUp * (1.0 - cover * 0.85) * (1.0 - storm * 0.72);
   body = mix(body, uSunlitShoal, shoalK * (0.22 + 0.3 * smoothstep(0.3, 0.75, nA.b) + 0.1 * nC.g));
-  // clear shallows: the bed (sand with rock patches) shows through the turquoise, red absorbed first,
-  // with a drifting caustic net on it in sunlight. Overcast, storms and night cloud the view.
+  // clear shallows: sandy/rocky seabed, submerged quay stone footings, and crisp animated sunlight caustics
+  float causReef = 0.0;
+  float cSun = sunUp * (1.0 - cover * 0.75) * (1.0 - storm * 0.6) * sunSh;
   {
-    // a gentle shelf off every natural shore (quay walls and moles drop straight to depth instead)
-    float bedDep = max(min(depth, 0.25 + max(coast, 0.0) * 0.3) + (nA.r - 0.5) * 1.6 + (nB.g - 0.5) * 0.6, 0.0);
-    float clarity = (1.0 - 0.75 * storm) * (1.0 - 0.45 * cover) * (1.0 - 0.6 * uNight);
-    // (the harbours' lee water hides its bed, except off natural shores clear of the quay walls: sandy shallows)
-    float seeBed = (1.0 - smoothstep(0.3, 7.0, bedDep)) * clarity * smoothstep(1.5, 7.0, sdist) * (1.0 - 0.65 * zm.b * (1.0 - 0.2 * smoothstep(4.0, 10.0, sdist)));
+    float bedDep = max(min(depth, 0.25 + max(coast, 0.0) * 0.3) + (nA.r - 0.5) * 1.4 + (nB.g - 0.5) * 0.55, 0.0);
+    float clarity = (1.0 - 0.82 * storm) * (1.0 - 0.65 * cover) * (1.0 - 0.58 * uNight);
+    // sheltered inner-harbour quays reveal clear turquoise/jade water and darkened submerged stone footings in clear weather
+    float quayFooting = zm.b * (1.0 - smoothstep(0.2, 4.0, max(coast, 0.0))) * step(-0.5, coast);
+    float seeNatural = (1.0 - smoothstep(0.3, 7.0, bedDep)) * smoothstep(1.2, 6.0, sdist) * (1.0 - 0.42 * zm.b * (1.0 - 0.35 * smoothstep(3.0, 9.0, sdist)));
+    float seeBed = max(seeNatural, quayFooting * 0.68) * clarity;
     float rockN = texture2D(uNoise, xz * 0.031 + 0.17).r * 0.75 + nC.b * 0.35;
-    vec3 sand = mix(vec3(0.62, 0.55, 0.40), vec3(0.74, 0.67, 0.50), nB.g);
-    vec3 bed = mix(sand, vec3(0.26, 0.30, 0.26) * (0.8 + 0.4 * nC.r), smoothstep(0.62, 0.78, rockN));
+    vec3 sand = mix(vec3(0.62, 0.55, 0.40), vec3(0.75, 0.68, 0.51), nB.g);
+    vec3 bed = mix(sand, vec3(0.24, 0.29, 0.25) * (0.8 + 0.4 * nC.r), smoothstep(0.60, 0.78, rockN));
+    // submerged dressed limestone footings along sheltered stone quays
+    vec3 stoneFooting = vec3(0.24, 0.25, 0.22) * (0.78 + 0.32 * nC.r);
+    bed = mix(bed, stoneFooting, quayFooting * (1.0 - smoothstep(0.5, 3.2, max(coast, 0.0))) * 0.82);
     bed = hbPosidonia(bed, xz, bedDep, zm.r);
-    vec3 absorb = exp(-bedDep * vec3(0.55, 0.17, 0.13));
-    vec3 seen = bed * absorb * mix(vec3(1.0), uSunlitShoal * 1.6, 0.35);
-    // Explicit gradients keep conditional detail reads safe; hbNet runs after the lanes reconverge.
-    float cSun = sunUp * (1.0 - cover * 0.7);
-    float cs = 1.0 - smoothstep(180.0, 650.0, camD);
-    float cGain = cSun * (1.0 - smoothstep(0.2, 5.5, bedDep));
+    vec3 absorb = exp(-bedDep * vec3(0.55, 0.16, 0.12));
+    vec3 seen = bed * absorb * mix(vec3(1.0), uSunlitShoal * 1.65, 0.38);
+    // crisp refracted sunlight caustic filaments. Explicit gradients keep the conditional reads safe; the nets run
+    // after the lanes reconverge (the Shoals reef reads them too, past the bed's own depth gain)
+    float cs = 1.0 - smoothstep(160.0, 620.0, camD);
+    float cGain = cSun * (1.0 - smoothstep(0.2, 6.5, bedDep));
     float cA = 0.0, cB = 0.0;
     if (cGain > 0.0 && cs > 0.0) {
-      vec2 cuv = xz * 0.043;
-      cA = textureGrad(uNoise, cuv + t * vec2(0.011, 0.007), dx * 0.043, dy * 0.043).g;
-      cB = textureGrad(uNoise, (rot * cuv) * 1.19 - t * vec2(0.006, -0.009) + 0.5, (rot * dx) * (0.043 * 1.19), (rot * dy) * (0.043 * 1.19)).g;
+      vec2 cw = (vec2(nB.r, nB.g) - 0.5) * 0.085;
+      vec2 cuv = xz * 0.056 + cw;
+      cA = textureGrad(uNoise, cuv + t * vec2(0.013, 0.008), dx * 0.056, dy * 0.056).g;
+      cB = textureGrad(uNoise, (rot2 * cuv) * 1.24 - t * vec2(0.007, -0.011) + 0.5, (rot2 * dx) * (0.056 * 1.24), (rot2 * dy) * (0.056 * 1.24)).g;
     }
     float caus = hbNet(cA, cB, 0.06) * cs * (0.55 + 0.45 * smoothstep(0.3, 0.7, nC.g));
-    seen *= 0.85 + 0.15 * smoothstep(0.35, 0.65, nC.g);
-    seen += vec3(1.0, 0.97, 0.85) * uSunColor * caus * 0.05 * cGain;
-    body = mix(body, seen * mix(0.95, 1.0, sunUp), seeBed * 0.62);
-    body += uSunlitShoal * caus * 0.10 * cGain * (1.0 - seeBed * 0.5) * (1.0 - smoothstep(0.5, 5.0, dep));
+    #ifndef HB_LITE
+    caus = clamp(caus * 1.1 + hbNet(cA * 0.8 + nC.g * 0.25, 1.0 - cB * 0.9, 0.058) * 0.5 * cs, 0.0, 1.3);
+    #endif
+    causReef = cGain > 0.0 ? caus : 0.0;
+    seen *= 0.86 + 0.14 * smoothstep(0.35, 0.65, nC.g);
+    seen += vec3(0.88, 1.0, 0.94) * uSunColor * caus * 0.20 * cGain;
+    body = mix(body, seen * mix(0.95, 1.0, sunUp), seeBed * 0.66);
+    body += mix(uSunlitShoal, vec3(0.58, 0.98, 0.90), 0.40) * caus * 0.28 * cGain * (1.0 - seeBed * 0.32) * (1.0 - smoothstep(0.4, 6.5, dep));
   }
   body = hbSeaTone(body, zm.b, zm.r, dep, sdist, sunUp, nA.b, camD);
   body = hbBasinLift(body, zm.b, zm.r, dep, coast);
-  // the Shoals: clear turquoise water over the reef shelf, bright by day, a pale jade glimmer at night
+  // under a heavy storm/overcast deck, calm the pale shallow quay rim into deep moody slate-teal
+  body *= 1.0 - zm.b * (1.0 - smoothstep(1.0, 9.0, max(coast, 0.0))) * max(cover * 0.34, storm * 0.30) * (1.0 - uNight);
+  // the Shoals: jewel-like layered Mediterranean reef (submerged limestone ledges -> turquoise sandbars -> emerald shelf -> deep cobalt)
   {
-    float reefK = zm.r * (0.55 + 0.45 * smoothstep(0.35, 0.7, nA.b + 0.25 * nC.g));
-    vec3 turq = mix(vec3(0.10, 0.62, 0.56), vec3(0.20, 0.78, 0.66), nA.g);
+    float reefMask = smoothstep(0.08, 0.86, zm.r);
+    float shelfNoise = nA.b * 0.48 + nB.g * 0.36 + nC.g * 0.16;
+    float shoalDepth = max(0.30, min(depth, 0.55 + max(coast, 0.0) * 0.26) + (0.5 - shelfNoise) * 3.4);
+    // darker submerged limestone rock ledges hugging the shoal rocks & reef outcrops
+    float ledgeProx = (1.0 - smoothstep(0.4, 11.5, max(coast, 0.0))) * smoothstep(0.14, 0.55, zm.r);
+    float ledgeTex = smoothstep(0.42, 0.74, nB.r * 0.60 + nC.b * 0.50);
+    float rockLedge = clamp(ledgeProx * (0.62 + 0.38 * ledgeTex) + ledgeTex * smoothstep(0.32, 0.82, zm.r) * 0.42, 0.0, 1.0);
+    // rippled luminous aquamarine sandbars vs deeper emerald-jade reef channels
+    float sandBar = smoothstep(0.36, 0.74, shelfNoise) * smoothstep(0.22, 0.78, zm.r) * (1.0 - rockLedge * 0.78);
+    vec3 deepCobalt = vec3(0.035, 0.19, 0.36);
+    vec3 emeraldShelf = mix(vec3(0.05, 0.42, 0.44), vec3(0.10, 0.58, 0.52), smoothstep(0.2, 0.8, nA.g));
+    vec3 turqSand = mix(vec3(0.18, 0.74, 0.66), vec3(0.36, 0.88, 0.77), sandBar) * exp(-shoalDepth * vec3(0.26, 0.06, 0.05));
+    vec3 limestone = vec3(0.09, 0.19, 0.18) * (0.72 + 0.48 * nC.r);
+    vec3 turq = mix(deepCobalt, emeraldShelf, smoothstep(0.10, 0.50, zm.r));
+    turq = mix(turq, turqSand, clamp(sandBar * 0.90 + (1.0 - smoothstep(1.0, 4.8, shoalDepth)) * 0.30, 0.0, 0.92));
+    turq = mix(turq, limestone, rockLedge * 0.74);
+    // crisp dancing sunlit caustics across the shallow sandbars & rock ledges
+    turq += vec3(0.60, 0.98, 0.90) * causReef * cSun * (0.32 + 0.22 * sandBar) * (1.0 - smoothstep(0.8, 7.0, shoalDepth));
     // E01: under a storm deck (the DEWS cover) the reef greys with the sea, a step lighter: no cyan glow under slate
     turq = mix(turq, vec3(dot(turq, vec3(0.299, 0.587, 0.114))) * vec3(0.86, 1.0, 0.98), cover * 0.45) * (1.0 - 0.15 * cover);
+    // (the reef's reach and weight are analytical: the Shoals zone, as upstream draws it; the overhaul colours it)
+    float reefK = zm.r * (0.55 + 0.45 * smoothstep(0.35, 0.7, nA.b + 0.25 * nC.g));
     body = mix(body, turq * mix(1.0, 0.3, uNight), reefK * (0.62 - 0.25 * uNight));
   }
+  // waterline contact occlusion: gently darkens submerged stone footings, pier pilings and cliff bases
+  float quayOcc = (1.0 - smoothstep(0.0, 2.8, max(coast, 0.0))) * step(-0.5, coast) * (0.20 + 0.16 * zm.b);
+  float pierOcc = (1.0 - smoothstep(0.0, 1.6, sdist)) * 0.22;
+  body *= 1.0 - max(quayOcc, pierOcc);
   // churned wake water is lighter and greener
   body = mix(body, uShoal * 1.35 * mix(1.0, 0.45, uNight), clamp(trail * 0.25 + live.r * 0.38, 0.0, 0.35));
   // hull occlusion (+ the waterline meniscus), and the lee slick's satin: a touch darker, a cleaner mirror below
-  body *= (1.0 - min(live.b, 1.0) * 0.4) * (1.0 - 0.12 * slick);
-  // swell and ripple relief: facets tilted toward the key light read lighter (zero-mean, so the tint holds)
+  body *= (1.0 - min(live.b, 1.0) * 0.46) * (1.0 - 0.12 * slick);
+  // swell and ripple relief: facets tilted toward the key light read lighter (gentle, organic, never zebra-striped)
   {
-    vec3 Lk = normalize(uSunDir + vec3(0.0, 0.6, 0.0));
+    vec3 Lk = normalize(uSunDir + vec3(0.0, 0.65, 0.0));
     float relief = dot(N, Lk) - Lk.y;
-    body *= 1.0 + clamp(relief * 2.2, -0.35, 0.35) * (1.0 - far01 * 0.6);
+    float relK = mix(0.18, 0.35, stormSea);
+    body *= 1.0 + clamp(relief * mix(1.45, 2.2, stormSea), -relK, relK) * (1.0 - far01 * 0.65);
   }
   body = hbSeaGolden(body, sunSh, sunUp);
   body = hbSeaHour(body);

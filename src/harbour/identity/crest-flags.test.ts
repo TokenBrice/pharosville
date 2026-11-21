@@ -109,4 +109,21 @@ describe("crest flags at the town's scale, lit as cloth", () => {
     expect(CREST_GLOW).toBe(0.035);
     crests.dispose(); texture.dispose();
   });
+
+  it("wires optional sun uniforms for woven cloth shading and golden-hour backlit translucency", () => {
+    const texture = new THREE.Texture();
+    const air = {
+      uFogDensity: { value: 0.0008 }, uHaze: { value: new THREE.Color(0.5, 0.6, 0.7) }, uHorizon: { value: new THREE.Color(0.8, 0.85, 0.9) },
+      uSunDir: { value: new THREE.Vector3(0.7, 0.2, 0.5).normalize() }, uSunColor: { value: new THREE.Color(1, 0.7, 0.3) }, uNight: { value: 0 },
+    };
+    const crests = new CrestFlags(texture, air);
+    const flags = crests.group.getObjectByName("identity-crest-flags");
+    if (!(flags instanceof THREE.InstancedMesh) || !(flags.material instanceof THREE.ShaderMaterial)) throw new Error("missing crest mesh");
+    expect(flags.material.uniforms.uSunDir).toBe(air.uSunDir);
+    expect(flags.material.uniforms.uSunColor).toBe(air.uSunColor);
+    expect(flags.material.uniforms.uNight).toBe(air.uNight);
+    expect(flags.material.fragmentShader).toContain("weaveFine");
+    expect(flags.material.fragmentShader).toContain("dot(-N, uSunDir)");
+    crests.dispose(); texture.dispose();
+  });
 });

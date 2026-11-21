@@ -107,11 +107,17 @@ describe("chart lettering: collision solver", () => {
     }
   });
 
-  it("sets the article clearly above the word, with room for the swell", () => {
+  it("sets the article tightly above the word with clear swell separation", () => {
     const shoals = labelSpecs(zones).find((s) => s.lines[0]?.text === "THE")!;
     const [the, word] = lineBases(shoals);
     const main = shoals.lines[1];
-    expect(the - (word + main.cap)).toBeGreaterThanOrEqual(shoals.lines[0].cap * 0.5);
+    const gap = the - (word + main.cap);
+    expect(gap).toBeGreaterThanOrEqual(shoals.lines[0].cap * 0.34);
+    expect(gap).toBeLessThanOrEqual(shoals.lines[0].cap * 0.45);
+    // THE SHOALS is lifted over the turquoise reef glare; THE ROADS keeps full zone ink (it vanished on the darker golden-hour sea)
+    const roads = labelSpecs(zones).find((s) => s.id === "the-roads")!;
+    expect(roads.ink).toBeGreaterThanOrEqual(0.95);
+    expect(shoals.ink).toBeGreaterThan(1.0);
   });
 
   it("preserves the recorded pre-cache chart placements, scores and tie order exactly", () => {

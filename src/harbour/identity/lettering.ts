@@ -68,6 +68,7 @@ uniform sampler2D uAtlas;
 uniform float uTime, uNight, uCamDist;
 uniform vec3 uCameraPos;
 uniform vec3 uInkDay, uInkNight, uHaloCol;
+uniform vec3 uSunDir, uSunColor;
 uniform float uHalo;
 varying vec2 vUv;
 varying float vA;
@@ -76,13 +77,14 @@ varying vec3 vWorld;
 varying float vCoast;
 void main() {
   if (vA < 0.004) discard;
-  float a, halo = 0.0;
+  float a, halo = 0.0, bevel = 0.0;
   if (vRule > 0.5) {
-    // hairline rule: soft across, tapering at its ends
+    // hairline rule: soft across, gracefully tapered to engraved points at both ends
     float across = abs(vUv.y - 0.5) * 2.0;
     float w = fwidth(vUv.y) * 2.0 + 1e-4;
     a = 1.0 - smoothstep(1.0 - w, 1.0 + w, across);
     a *= clamp(0.5 / w, 0.25, 1.0);           // thinner than a pixel: fade, don't alias
+    a *= smoothstep(0.0, 0.16, vUv.x) * (1.0 - smoothstep(0.84, 1.0, vUv.x));
   } else {
     // the swell wavers the print a little
     vec2 wob = vec2(sin(vWorld.z * 0.37 + uTime * 1.2), sin(vWorld.x * 0.33 - uTime * 1.05)) * 0.0009;
@@ -91,6 +93,8 @@ void main() {
     // far away, embolden a touch so the caps stay legible
     float th = 0.45 - 0.07 * smoothstep(450.0, 1000.0, uCamDist);
     a = smoothstep(th - w, th + w, d);
+    // subtle engraved inner bevel for warm antique brass/parchment catch along stroke rims
+    bevel = smoothstep(th - w * 1.8, th + w * 0.5, d) * (1.0 - smoothstep(th + w * 0.5, th + w * 3.0, d));
     // a faint wash of paler water around the letters (the print "knocks out" the glitter behind it)
     halo = smoothstep(th - 0.15, th - 0.04, d);
   }
@@ -104,6 +108,12 @@ void main() {
   float silver = smoothstep(0.5, 0.65, uNight);
   float dens = mix(mix(0.86, 0.55, smoothstep(0.0, 0.15, uNight)), 0.13, silver) * grain;
   vec3 ink = mix(uInkDay, uInkNight, silver);
+  // the golden-hour sea is dark: the print takes more ink then, or THE ROADS sinks into it
+  float golden = (1.0 - smoothstep(0.06, 0.36, uSunDir.y)) * smoothstep(-0.02, 0.04, uSunDir.y) * (1.0 - silver);
+  dens *= 1.0 + 0.45 * golden;
+  // subtle warm engraved catch along the stroke rims in daylight (the ink itself stays dark: the golden-hour sea is dark too)
+  float sunVis = smoothstep(-0.02, 0.08, uSunDir.y) * (1.0 - silver);
+  ink += vec3(0.18, 0.14, 0.08) * bevel * 0.16 * sunVis;
   // night: a faint silvery shimmer as if moonlit
   ink *= 1.0 + uNight * 0.1 * sin(uTime * 0.8 + vWorld.x * 0.05 + vWorld.z * 0.04);
   // two passes over the same quads: every halo first, then every letter, so no wash lands on a neighbour's ink
@@ -112,7 +122,7 @@ void main() {
   // the pale knock-out belongs to bright water: it is gone by sunset
   gl_FragColor = vec4(uHaloCol, halo * uHalo * (1.0 - smoothstep(0.0, 0.12, uNight)) * vA);
 #else
-  gl_FragColor = vec4(ink, a * dens * vA);
+  gl_FragColor = vec4(ink, min(1.0, a * dens * vA));
 #endif
 }`;
 
@@ -194,9 +204,11 @@ export class ChartLettering {
         uAtlas: { value: atlas },
         uNight: u.uNight,
         uCameraPos: u.uCameraPos,
-        uInkDay: { value: new THREE.Color("#0B2233") },
-        uInkNight: { value: new THREE.Color("#93A7C2") },
-        uHaloCol: { value: new THREE.Color("#CFE3DF") },
+        uSunDir: u.uSunDir,
+        uSunColor: u.uSunColor,
+        uInkDay: { value: new THREE.Color("#13232E") },
+        uInkNight: { value: new THREE.Color("#B8C5D4") },
+        uHaloCol: { value: new THREE.Color("#DDD8C8") },
         // a faint knock-out: on the deeper day sea a stronger wash reads as a pale rim round the print
         uHalo: { value: 0.04 },
       },

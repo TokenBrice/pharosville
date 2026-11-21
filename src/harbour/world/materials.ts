@@ -1,4 +1,4 @@
-import { GLSL_NOISE, GLSL_PATTERNS } from "./shaders/patterns";
+import { GLSL_BUMP, GLSL_NOISE, GLSL_PATTERNS } from "./shaders/patterns";
 import { GLSL_ENV, GLSL_POOL, GLSL_AO } from "./shaders/lighting";
 import { liteShadow } from "./shaders/shadow";
 import { GLSL_LEAF_FALL, GLSL_SEASON } from "./shaders/season";
@@ -318,7 +318,7 @@ export class HarbourMaterials {
       // winter / late-autumn bare crowns discard: compiled in only when the calendar can need it
       shader.defines = { ...shader.defines, ...shaderFeatureDefines(features) };
       if (features.lite) shader.fragmentShader = patch(shader.fragmentShader, "#include <shadowmap_pars_fragment>", liteShadow(), { id: "world.lite-shadow" });
-      shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}\n${AERIAL_GLSL}\n${RUNUP_GLSL}\n${BEAM_LIGHT_GLSL}\n${LANDMARK_HOVER_GLSL}\n${METAL_GLSL}`, { id: "world.10.common" });
+      shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\n${GLSL_NOISE}\n${GLSL_PATTERNS}\n${GLSL_BUMP}\n${GLSL_ENV}\n${GLSL_POOL}\n${GLSL_AO}\n${CLOUD_SHADOW_GLSL}\n${GLSL_SEASON}\n${AERIAL_GLSL}\n${RUNUP_GLSL}\n${BEAM_LIGHT_GLSL}\n${LANDMARK_HOVER_GLSL}\n${METAL_GLSL}`, { id: "world.10.common" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <color_fragment>", `
   vec3 hbVc = vec3(1.0);
   #if defined( USE_COLOR_ALPHA )
@@ -333,7 +333,8 @@ export class HarbourMaterials {
   float hbSdW = fwidth(vHbWorld.x) + fwidth(vHbWorld.z);
   float hbBareNoise = hbNoise(vHbWorld * 1.7);
   float hbRough;
-  diffuseColor.rgb *= hbPattern(hbPid, hbRough);
+  float hbBumpH = 0.0;
+  diffuseColor.rgb *= hbPattern(hbPid, hbRough, hbBumpH);
   {
     float hbBare;
     diffuseColor.rgb = hbFoliage(diffuseColor.rgb, hbVc, hbPid, vHbWorld, hbSdW, hbBare);
@@ -345,11 +346,24 @@ export class HarbourMaterials {
       shader.fragmentShader = patch(shader.fragmentShader, "#include <roughnessmap_fragment>", "float roughnessFactor = hbRough;", { id: "world.12.roughnessmap_fragment" });
       // gilt and bronze as metals (world/metal.ts); snow on them is snow, not silver
       shader.fragmentShader = patch(shader.fragmentShader, "#include <metalnessmap_fragment>", "float metalnessFactor = hbMetal(hbPid, diffuseColor.rgb, roughnessFactor);", { id: "world.13.metalnessmap_fragment" });
-      shader.fragmentShader = patch(shader.fragmentShader, "#include <lights_physical_fragment>", "metalnessFactor *= 1.0 - hbSnow;\n#include <lights_physical_fragment>", { id: "world.14.lights_physical_fragment" });
+      shader.fragmentShader = patch(shader.fragmentShader, "#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+  #ifndef HB_LITE
+    if (hbIs(hbPid, 6.0) > 0.5) {
+      vec3 hbGn = hbSmoothGrassNormal(vHbWorld, inverseTransformDirection(normal, viewMatrix));
+      normal = transformDirection(hbGn, viewMatrix);
+    }
+    normal = hbApplyBump(normal, hbBumpH, hbPid, vHbLocalN);
+  #endif`, { id: "world.13b.normal_fragment_maps" });
+      shader.fragmentShader = patch(shader.fragmentShader, "#include <lights_physical_fragment>", `metalnessFactor *= 1.0 - hbSnow;
+  #ifndef HB_LITE
+    normal = normalize(mix(normal, nonPerturbedNormal, clamp(hbPuddle * 0.95 + hbSnow * 0.65, 0.0, 1.0)));
+  #endif
+#include <lights_physical_fragment>`, { id: "world.14.lights_physical_fragment" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <emissivemap_fragment>", `
   float hbSnow, hbPuddle;
-  hbWeather(diffuseColor.rgb, roughnessFactor, inverseTransformDirection(normal, viewMatrix), hbPid, vHbWorld, hbSdW, hbSnow, hbPuddle);
-  hbRunup(diffuseColor.rgb, roughnessFactor, vHbWorld, inverseTransformDirection(normal, viewMatrix), hbPid);   // wet run-up (world/runup.ts)
+  vec3 hbMacroN = inverseTransformDirection(nonPerturbedNormal, viewMatrix);
+  hbWeather(diffuseColor.rgb, roughnessFactor, hbMacroN, hbPid, vHbWorld, hbSdW, hbSnow, hbPuddle);
+  hbRunup(diffuseColor.rgb, roughnessFactor, vHbWorld, hbMacroN, hbPid);   // wet run-up (world/runup.ts)
   #include <emissivemap_fragment>`, { id: "world.15.emissivemap_fragment" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <aomap_fragment>", `#include <aomap_fragment>
   float hbOcc = hbAO(vHbWorld, inverseTransformDirection(normal, viewMatrix));
@@ -375,8 +389,13 @@ export class HarbourMaterials {
     // wet: the sky sheen is capped by the sky's own brightness, so grazing wet slopes never go white
     float hbSkyL = hbLuma(uHemiSky);
     outgoingLight += min(hbEnvSpec(hbNw, hbVw, roughnessFactor, 0.03), vec3(mix(4.0, 0.35 * hbSkyL + 0.01, smoothstep(0.0, 0.25, uWetness)))) * uRimK * hbOcc;
+    outgoingLight += hbBounceFill(diffuseColor.rgb, hbNw, uHbSunDir, uHbSunColor, hbOcc, uNight);
+    if (hbLeafPid(hbPid) > 0.5) {
+      outgoingLight += hbFoliageSSS(diffuseColor.rgb, hbNw, hbVw, uHbSunDir, uHbSunColor, hbOcc, hbCs, hbSnow, uNight);
+    }
     outgoingLight += diffuseColor.rgb * hbPool(vHbWorld, hbNw);
-    outgoingLight += diffuseColor.rgb * (hbBeamLight(vHbWorld, hbNw) * hbOcc + hbPharosFire(vHbWorld, hbNw));
+    vec3 hbFire = hbPharosFire(vHbWorld, hbNw);
+    outgoingLight += diffuseColor.rgb * (hbBeamLight(vHbWorld, hbNw) * hbOcc + hbFire);
     // moonlight fill (0 by day): soft, mostly from above, with an albedo floor so dark hulls and
     // navy/black sail covers keep a readable mid-tone at night instead of collapsing to silhouettes
     outgoingLight += max(diffuseColor.rgb, vec3(0.12)) * uNightLift * hbOcc * (0.6 + 0.4 * max(hbNw.y, 0.0));
@@ -390,7 +409,7 @@ export class HarbourMaterials {
     }
     outgoingLight += uHbSunColor * hbDewGlint(hbPid, vHbWorld, hbNw, hbVw, uHbSunDir, hbSdW) * hbCs * 0.6;   // W12 dawn dew
     outgoingLight += hbLmHoverRim(vHbWorld, hbNw, hbVw, outgoingLight);
-    outgoingLight += hbMetalLight(metalnessFactor, diffuseColor.rgb, hbNw, hbVw, roughnessFactor, reflectedLight.directSpecular) * hbOcc;
+    outgoingLight += hbMetalLight(metalnessFactor, diffuseColor.rgb, hbNw, hbVw, roughnessFactor, reflectedLight.directSpecular, hbFire) * hbOcc;
   }
   hbAerial(outgoingLight, vHbWorld, 0.0);   // distance (decorative, world/aerial.ts)
   #include <opaque_fragment>`, { id: "world.17.opaque_fragment" });

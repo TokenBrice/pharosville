@@ -81,17 +81,17 @@ vec3 hbPharosFire(vec3 p, vec3 n) {
   float h = p.y - uPharosAxis.y;
   float hL = uBeamPos.y - uPharosAxis.y;
   // firelight from above: falls off down the shaft; up-facing ledges and outward faces catch it
-  float down = exp(-max(hL - h, 0.0) / 16.0) * step(h, hL + 2.0);
-  float catchK = clamp(n.y * 0.6 + 0.4, 0.15, 1.0);
-  o += uPharosFire.rgb * down * catchK * 0.32;
+  float down = exp(-max(hL - h, 0.0) / 18.0) * step(h, hL + 2.5);
+  float catchK = clamp(n.y * 0.6 + 0.4, 0.18, 1.0);
+  o += uPharosFire.rgb * down * catchK * 0.42;
   // tritons on the first terrace's corners (r ≈ 19, h ≈ 55..64): a rim flare as the beam swings past
   float tri = smoothstep(15.5, 17.0, r) * (1.0 - smoothstep(22.0, 23.5, r)) * smoothstep(53.5, 55.0, h) * (1.0 - smoothstep(64.0, 66.0, h));
   vec2 bd = vec2(cos(uBeamAngle), sin(uBeamAngle));
   float az = pow(max(dot(d / max(r, 1e-3), bd), 0.0), 40.0);
   float rim = clamp(dot(n.xz, d / max(r, 1e-3)) * 0.5 + 0.5, 0.0, 1.0);
-  o += uPharosFire.rgb * tri * az * rim * 1.6;
-  // the Helios over the dome: a glint on each flash toward the viewer
-  o += uPharosFire.rgb * step(97.0, h) * step(r, 5.0) * min(uBeamShape.w, 2.0) * 0.45;
+  o += uPharosFire.rgb * tri * az * rim * 1.75;
+  // the Helios over the dome: warm firelight glow + a glint on each flash toward the viewer
+  o += uPharosFire.rgb * step(96.0, h) * step(r, 5.5) * (0.28 + min(uBeamShape.w, 2.0) * 0.52);
   return o * uPharosFire.w;
 }
 `;

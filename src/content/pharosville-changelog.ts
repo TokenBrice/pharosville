@@ -12,6 +12,23 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-11-21-sea-and-sky",
+    version: PHAROSVILLE_RELEASE_VERSIONS.seaAndSky,
+    date: "2026-11-21",
+    title: "Sea and Sky",
+    summary: "The harbour's sea and sky are painted again: shaped clouds and far islands, water that shows its depth and lies calm by day and silver under the moon, softer light gathering in the town, and weather that grows with its strength, from a whisper of drizzle to a driving storm.",
+    bullets: [
+      "A painted sky: shaped cumulus with silver and gold linings replace the repeated cloud banks, thin cirrus catch the low sun, and a chain of distant islands stands on the horizon, melting into the sea haze, or into the murk when a storm closes in.",
+      "Water that shows its depth: the golden-hour sea no longer bands into stripes, sheltered quays show clear jade water over their stone footings instead of a white outline, the Shoals reef shows its ledges and sandbars, and sunlight nets the shallows.",
+      "Night on the water: the lit town lies on the basin in long, unbroken streaks of gold, and under a bright moon a rippled silver path runs down the sea toward it.",
+      "Light that settles: on Medium and High, soft shadow gathers where walls meet the ground and roofs meet walls; the Pharos beam, its fire and the town's smoke gain depth, and the quay lamps differ a little in warmth instead of shining as one string.",
+      "Surfaces you can feel: stone, roof tiles, cobbles, planks, sand and bronze catch the light with fine relief, hillsides no longer show their facets, sunlit leaves glow through, winter frosts the evergreens, sails glow honey-gold against a low sun and crest flags flutter.",
+      "Weather by its strength: drizzle falls in faint, fine curtains with small rings on the water; a downpour still drives heavy sheets of rain, wide rings, surf against the moles and whitecaps across the bay.",
+      "The Shoals and the Roads stay legible in the golden hour, when the sea is darkest, and both arrival pictures, by day and by night, are drawn from this harbour.",
+    ],
+    source: "Collected from `release/v1.9.0` after v1.8.0: a visual pass over the sky, the sea, the light, the materials and the weather, carried onto v1.8.0 and compared with it view by view on a real GPU; its re-modelled Pharos courtyard, civic roofs and island were not carried over, so the buildings and the land are v1.8.0's. On High and Medium the richer light costs a little more drawing time per frame; Low draws as before. No analytical mapping changed.",
+  },
+  {
     id: "2026-11-09-golden-hour",
     version: PHAROSVILLE_RELEASE_VERSIONS.goldenHour,
     date: "2026-11-09",

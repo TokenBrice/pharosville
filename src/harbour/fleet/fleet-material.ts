@@ -70,13 +70,14 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
     shader.vertexShader = patch(shader.vertexShader, "hbW = instanceMatrix * hbW;\n    #endif", "hbW = instanceMatrix * hbW;\n    #endif\n    #ifdef USE_BATCHING\n      hbW = batchingMatrix * hbW;\n    #endif", { id: "fleet.4.hbW-instanceMatrix-hbW-endif" });
     shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\n${FRAG_PARS}\n${HOVER_SHEEN}`, { id: "fleet.5.common" });
     shader.fragmentShader = patch(shader.fragmentShader, "float hbRough;", "hbFleetColor(diffuseColor.rgb);\n  float hbRough;", { id: "fleet.6.float-hbRough-" });
+    shader.fragmentShader = patch(shader.fragmentShader, "diffuseColor.rgb *= hbPattern(hbPid, hbRough, hbBumpH);", "diffuseColor.rgb *= hbPattern(hbPid, hbRough, hbBumpH);\n  hbFleetSurface(hbRough, hbBumpH);", { id: "fleet.6b.hbFleetSurface" });
     // distance tint: the hovered / selected hull and the pennant keep their colour (world/aerial.ts)
     shader.fragmentShader = patch(shader.fragmentShader, "hbAerial(outgoingLight, vHbWorld, 0.0);", "hbAerial(outgoingLight, vHbWorld, max(smoothstep(0.05, 0.5, vFleetMisc.x), step(0.5, vFleetRig.z) * step(vFleetMisc.z, 0.5)));", { id: "fleet.7.hbAerial-outgoingLight-vHbWorld-0-0" });
     shader.fragmentShader = patch(shader.fragmentShader, "#include <normal_fragment_begin>", patch(THREE.ShaderChunk.normal_fragment_begin, "gl_FrontFacing ? 1.0 : - 1.0", "(gl_FrontFacing != (vFleetMisc.y > 0.5)) ? 1.0 : - 1.0", { id: "fleet.9.gl_FrontFacing-1-0-1-0" }), { id: "fleet.8.normal_fragment_begin" });
     shader.fragmentShader = patch(shader.fragmentShader, "#include <opaque_fragment>", FLEET_LIGHTING, { id: "fleet.10.opaque_fragment" });
   };
   // the kit's own key carries its season and Low-tier (kitKey) switches
-  m.customProgramCacheKey = () => `hb_fleet_v12_${kit.customProgramCacheKey()}`;
+  m.customProgramCacheKey = () => `hb_fleet_v13_${kit.customProgramCacheKey()}`;
   mats.track(m);   // recompiles with the kit's Low-tier switch
 
   const depth = new THREE.MeshDepthMaterial();

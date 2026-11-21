@@ -71,8 +71,8 @@ export class SunRig {
     const k = this.key;
     k.castShadow = true;
     k.shadow.mapSize.set(mapSize, mapSize);
-    k.shadow.radius = 2.2;
-    k.shadow.bias = -0.0004;
+    k.shadow.radius = 1.75;
+    k.shadow.bias = -0.00025;
     k.shadow.camera.near = 1;
     k.shadow.camera.far = 2000;
     this.fill.castShadow = false;
@@ -131,9 +131,9 @@ export class SunRig {
     this.fill.target.position.set(0, 0, 0);
     // moonlight: softer, lighter shadows
     this.key.shadow.intensity = 1 - 0.3 * u.uNight.value;
-    // 02-L6: a low sun's long shadows soften with distance (penumbra by elevation; the tap count is unchanged)
+    // 02-L6: a low sun's long shadows soften with distance (penumbra by elevation; crisp colonnades at midday)
     const elDeg = Math.asin(THREE.MathUtils.clamp(u.uSunDir.value.y, -1, 1)) * THREE.MathUtils.RAD2DEG;
-    this.key.shadow.radius = 2.2 + 2.5 * u.uNight.value + 3.0 * (1 - THREE.MathUtils.smoothstep(elDeg, 6, 30)) * (1 - u.uNight.value);
+    this.key.shadow.radius = 1.75 + 2.0 * u.uNight.value + 2.2 * (1 - THREE.MathUtils.smoothstep(elDeg, 5, 28)) * (1 - u.uNight.value);
     // hold the shadow sun until it drifted ~0.1° (or a live refresh is due): a running clock must not force a re-render
     const interval = q?.shadowInterval ?? 0;
     this.sinceShadow += delta;
@@ -253,15 +253,15 @@ export class SunRig {
       const p = this.tmp.set(c & 1 ? b.z : b.x, c & 4 ? this.topY + 6 : -6, c & 2 ? b.w : b.y).applyMatrix4(this.lightViewInv);
       minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
     }
-    const centre = this.tmp.set(cx, cy, maxZ + 20).applyMatrix4(this.lightView);
+    const centre = this.tmp.set(cx, cy, maxZ + 12).applyMatrix4(this.lightView);
     const k = this.key;
     k.position.copy(centre);
     k.target.position.copy(centre).sub(sunDir);
     const cam = k.shadow.camera;
     cam.left = -half; cam.right = half; cam.top = halfY; cam.bottom = -halfY;
-    cam.near = 1; cam.far = maxZ - minZ + 40;
+    cam.near = 1; cam.far = maxZ - minZ + 28;
     cam.updateProjectionMatrix();
-    k.shadow.normalBias = Math.max(texel, texelY) * 1.6;
+    k.shadow.normalBias = Math.max(texel, texelY) * 1.15;
     k.target.updateMatrixWorld();
     const f = this.lastFit;
     const moved = f[0] !== half || f[1] !== cx || f[2] !== cy || Math.abs(f[3] - (maxZ - minZ)) > 1e-3 ||

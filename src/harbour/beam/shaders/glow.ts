@@ -14,9 +14,11 @@ uniform vec3 uCol;
 uniform float uK;
 varying vec2 vQ;
 void main() {
-  // a tall soft glow round the flames (no hot pinpoint: that read as an electric bulb)
-  vec2 e = vec2(vQ.x, (vQ.y + 0.12) * 0.62);
+  // sculpted warm atmospheric haze cradling the tholos lantern columns (never a harsh white bulb)
+  vec2 e = vec2(vQ.x * 0.92, (vQ.y + 0.10) * 0.60);
   float r2 = dot(e, e);
-  float g = exp(-r2 * 11.0) * 0.42 + exp(-r2 * 4.0) * 0.15;
-  gl_FragColor = vec4(uCol * g * uK * (1.0 - smoothstep(0.35, 1.0, dot(vQ, vQ))), 1.0);
+  float inner = exp(-r2 * 13.0) * 0.36;
+  float outer = exp(-r2 * 3.4) * 0.17;
+  vec3 col = mix(uCol, mix(uCol, vec3(1.0, 0.85, 0.55), 0.35), smoothstep(0.05, 0.35, inner));
+  gl_FragColor = vec4(col * (inner + outer) * uK * (1.0 - smoothstep(0.32, 1.0, dot(vQ, vQ))), 1.0);
 }`;

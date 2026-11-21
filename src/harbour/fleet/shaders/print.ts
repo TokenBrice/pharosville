@@ -50,6 +50,8 @@ varying vec4 vPaintA;
 varying vec4 vPaintB;
 varying vec3 vPaintC;
 ${SAIL_LIGHT_GLSL}
+float hbFleetBump = 0.0;
+float hbFleetWaterline = 0.0;
 // E04 (O5-F1): the emblem slot / sentinel rides an interpolated varying that lands at 320 ± ε: rounded before any
 // mod / floor, or a slot on atlas column 0 (a multiple of the grid width: USDe's 320) flips per pixel between its
 // own tile and the clamped edge of the row above. Integers round to themselves, so -1 / -2 / -10 - n stay put.
@@ -106,6 +108,7 @@ void hbFleetPaint(inout vec3 c) {
   if (mode < 1.5) return;
   float t = vPaintB.w;
   float aa = fwidth(t) + 1e-4;
+  hbFleetWaterline = 1.0 - smoothstep(0.0, 0.28 + aa, t);
   if (mode > 3.5) {
     // LOD: the sheer stripe is painted, not modelled
     float s = smoothstep(0.80 - aa, 0.80 + aa, t) * (1.0 - smoothstep(0.93 - aa, 0.93 + aa, t));
@@ -135,6 +138,8 @@ void hbFleetPaint(inout vec3 c) {
   }
 }
 void hbFleetColor(inout vec3 c) {
+  hbFleetBump = 0.0;
+  hbFleetWaterline = 0.0;
   float kind = vFleetMisc.z;
   // derivatives in uniform control flow
   vec2 e = vFleetUV.zw;
@@ -145,6 +150,7 @@ void hbFleetColor(inout vec3 c) {
   float fine = 1.0 - smoothstep(0.02, 0.08, fwidth(su.y));
   vec2 sx2 = dFdx(su), sy2 = dFdy(su);
   vec2 sw = fwidth(su) + 1e-4;
+  float weaveFine = 1.0 - smoothstep(0.006, 0.026, max(sw.x, sw.y));
   float er = length(e - 0.5), era = fwidth(er) + 1e-5;
   // the roundel is clamped to the sail outline with a small margin (1.5% of its size, ≥ 1 px): px to the luff,
   // leech, foot and head along the sail-space gradients
@@ -201,6 +207,9 @@ void hbFleetColor(inout vec3 c) {
       c = hbPrint(c, fam, t, t.a * show, hbPrintK(era), slot >= uEmblemLetters);
     }
     c *= 1.0 - ties * 0.22;                                // lacing over the print
+    #ifndef HB_LITE
+      hbFleetBump = (ties * 0.009 + sin(su.x * 38.0 + su.y * 6.0) * 0.0035) * fine;
+    #endif
   } else if (kind > 0.5) {
     vec4 dye = vSailDye;
     vec3 fam = c;
@@ -264,9 +273,19 @@ void hbFleetColor(inout vec3 c) {
       hbSailOpaque = max(hbSailOpaque, a * 0.7);
     }
     c *= 1.0 - (seams * 0.07 + tabling * 0.09) * fine;    // cloths + tabling, over the print
+    // woven linen thread micro-texture & soft billow panel pillowing (AA-faded at range, preserves emblem legibility)
+    float weave = ((sin(su.x * 220.0) * 0.5 + 0.5) * 0.55 + (sin(su.y * 190.0) * 0.5 + 0.5) * 0.45 - 0.5) * weaveFine;
+    c *= 1.0 + weave * 0.04;
+    #ifndef HB_LITE
+      float panelPillow = sin(fract(su.y / 0.125) * 3.14159265);
+      hbFleetBump = (panelPillow * 0.011 - seams * 0.008 + tabling * 0.006 + weave * 0.004) * fine * (1.0 - vFleetRig.x * 0.65);
+    #endif
     hbFarCloth(c);                                         // far: the whole sail, print and all
   } else if (vFleetRig.z > 0.5) {
     c = dyed * 1.15;                                       // house pennant in the brand colour (no national ensign)
+    #ifndef HB_LITE
+      hbFleetBump = sin(su.x * 24.0 + su.y * 14.0) * 0.003 * fine;
+    #endif
   } else {
     hbFleetPaint(c);
     c = mix(c, vFleetBrand.rgb, vFleetMisc.w);           // boot-top
@@ -274,6 +293,25 @@ void hbFleetColor(inout vec3 c) {
     if (abs(hbFleetSlot() + 3.0) < 0.5) {
       c = mix(c, vFleetBrand.rgb, smoothstep(0.6, 0.85, (c.r - max(c.g, c.b)) / max(c.r, 1e-3)));
       c = mix(c, vec3(0.36, 0.3, 0.22), smoothstep(0.45, 0.75, min(c.r, min(c.g, c.b))));
+    }
+  }
+}
+// adjusts roughness & bump height after hbPattern for woven sails, covers, pennants & wet-varnish hull waterlines
+void hbFleetSurface(inout float rough, inout float bumpH) {
+  float kind = vFleetMisc.z;
+  if (kind > 0.5 && kind < 1.5) {
+    rough = mix(0.86, 0.78, vFleetRig.x);
+    bumpH = hbFleetBump;
+  } else if (kind > 1.5 && kind < 2.5) {
+    rough = 0.84;
+    bumpH = hbFleetBump;
+  } else if (vFleetRig.z > 0.5) {
+    rough = 0.82;
+    bumpH = hbFleetBump;
+  } else if (kind < 0.5) {
+    float mode = vPaintA.w;
+    if ((mode > 1.5 && mode < 2.5) || (mode > 3.5 && mode < 4.5)) {
+      rough = mix(min(rough, 0.44), 0.15, hbFleetWaterline * 0.84);
     }
   }
 }

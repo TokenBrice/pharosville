@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { BloomEffect, EdgeDetectionMaterial, type Pass, RenderPass, SMAAEffect, SMAAPreset, SMAAWeightsMaterial, TiltShiftEffect, VignetteEffect } from "postprocessing";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fillGradeLUT, gradePixel, HarbourBloomEffect, LUT_SIZE, PostChain, SlicedGradeLUT, TILT_MARGIN, TILT_OPACITY, tiltBand } from "./post";
+import { fillGradeLUT, gradePixel, GtaoEffect, gtaoDirsFor, gtaoStepsFor, HarbourBloomEffect, LUT_SIZE, PostChain, SlicedGradeLUT, TILT_MARGIN, TILT_OPACITY, tiltBand } from "./post";
 import { PreparationQueue } from "./preparation-queue";
 import type { PreparationService } from "./types";
 import { DEFAULT_KEYFRAMES, styleCDirection, TimeOfDay } from "./time-of-day";
@@ -296,5 +296,68 @@ describe("E35 harbour mirror pass order", () => {
     mirror.setActive(true);
     expect(mirror.enabled).toBe(true);
     mirror.dispose();
+  });
+});
+
+describe("half-res GTAO effect", () => {
+  it("scales slice/step counts across quality tiers and skips GPU passes completely when off (low tier)", () => {
+    vi.stubGlobal("location", { search: "", hash: "" });
+    const cam = new THREE.PerspectiveCamera(25, 1.6, 5, 9000);
+    const gtao = new GtaoEffect(cam);
+    const depth = new THREE.DepthTexture(1600, 1000);
+    gtao.setDepthTexture(depth);
+    gtao.setSize(1600, 1000);
+    expect([gtao.aoTargetA.width, gtao.aoTargetA.height]).toEqual([800, 500]);
+    expect([gtao.aoTargetB.width, gtao.aoTargetB.height]).toEqual([800, 500]);
+
+    const renderer = {
+      autoClear: true,
+      getRenderTarget: () => null,
+      setRenderTarget: vi.fn(),
+      render: vi.fn(),
+    } as unknown as THREE.WebGLRenderer;
+    const input = new THREE.WebGLRenderTarget(1600, 1000);
+
+    // High: 4 dirs × 3 steps, 3 half-res passes (AO + bilateral blur H + V)
+    gtao.setQuality(TIERS.high.gtao);
+    expect(gtao.active).toBe(true);
+    expect(gtaoDirsFor("high")).toBe(4);
+    expect(gtaoStepsFor("high")).toBe(3);
+    expect(gtao.aoMat.uniforms.uDirs.value).toBe(4);
+    expect(gtao.aoMat.uniforms.uSteps.value).toBe(3);
+    gtao.update(renderer, input);
+    expect(renderer.render).toHaveBeenCalledTimes(3);
+
+    // Medium: 2 dirs × 2 steps, still half-res + bilateral blur
+    vi.mocked(renderer.render).mockClear();
+    gtao.setQuality(TIERS.medium.gtao);
+    expect(gtao.active).toBe(true);
+    expect(gtao.aoMat.uniforms.uDirs.value).toBe(2);
+    expect(gtao.aoMat.uniforms.uSteps.value).toBe(2);
+    gtao.update(renderer, input);
+    expect(renderer.render).toHaveBeenCalledTimes(3);
+
+    // Low: cleanly bypassed (zero renders, zero strength)
+    vi.mocked(renderer.render).mockClear();
+    gtao.setQuality(TIERS.low.gtao);
+    expect(gtao.active).toBe(false);
+    expect(gtao.uniforms.get("uAoStrength")!.value).toBe(0);
+    gtao.update(renderer, input);
+    expect(renderer.render).not.toHaveBeenCalled();
+
+    // Time-of-day chromatic tinting keeps strength 0 on low and positive on high
+    const tod = new TimeOfDay();
+    tod.hour = 12;
+    gtao.syncTimeOfDay(cam, tod);
+    expect(gtao.uniforms.get("uAoStrength")!.value).toBe(0);
+    gtao.setQuality(TIERS.high.gtao);
+    gtao.syncTimeOfDay(cam, tod);
+    expect(gtao.uniforms.get("uAoStrength")!.value).toBeGreaterThan(0.7);
+    const noonPow = (gtao.uniforms.get("uAoPower")!.value as THREE.Vector3).clone();
+    expect(noonPow.x).toBeGreaterThan(noonPow.z); // cool cerulean crevice tint in daylight
+
+    input.dispose();
+    depth.dispose();
+    gtao.dispose();
   });
 });

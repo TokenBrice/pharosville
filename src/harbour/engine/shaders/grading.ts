@@ -3,10 +3,16 @@ import type { Grade } from "../time-of-day";
 
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
-/** Display-space S-curve around 0.5 (AgX "Medium High Contrast"-like). */
+/** Display-space S-curve around 0.5 (AgX "Medium High Contrast"-like) with soft velvet shadow toe. */
 function sCurve(v: number, c: number): number {
   if (c === 1) return v;
-  return v < 0.5 ? 0.5 * Math.pow(2 * v, c) : 1 - 0.5 * Math.pow(2 * (1 - v), c);
+  const curved = v < 0.5 ? 0.5 * Math.pow(2 * v, c) : 1 - 0.5 * Math.pow(2 * (1 - v), c);
+  // Protect the deepest shadow toe from crushing to flat black when contrast > 1 (exact identity at c === 1).
+  if (c > 1 && v < 0.14) {
+    const toe = 1 - smooth(0.0, 0.14, v);
+    return curved + (v - curved) * toe * 0.22;
+  }
+  return curved;
 }
 
 const smooth = (e0: number, e1: number, x: number) => { const t = clamp01((x - e0) / (e1 - e0)); return t * t * (3 - 2 * t); };
