@@ -246,14 +246,25 @@ void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, flo
   }
   if (uWetness > 0.002) {
     float w = uWetness * (1.0 - snow);
-    // stone, planks and earth darken most; leaves and metal least
-    float porous = 1.0 - 0.6 * leaf - 0.7 * hbIs(pid, 12.0) - 0.3 * hbIs(pid, 6.0);
+    #ifdef HB_FLEET
+      // sails (kind 1), furled covers (kind 2), and pennants (vFleetRig.z > 0.5) are woven cloth:
+      // darken at most 22%, stay fibrous-matte (rough >= 0.62), and form zero rain puddles
+      float cloth = min(1.0, step(0.5, vFleetMisc.z) * step(vFleetMisc.z, 2.5) + step(0.5, vFleetRig.z) * step(vFleetMisc.z, 0.5));
+    #else
+      float cloth = 0.0;
+    #endif
+    // stone, planks and earth darken most; leaves, metal and woven sail cloth least
+    float porous = mix(1.0 - 0.6 * leaf - 0.7 * hbIs(pid, 12.0) - 0.3 * hbIs(pid, 6.0), 0.52, cloth);
     alb *= 1.0 - 0.42 * w * porous;
     float upw = smoothstep(0.25, 0.9, up);
-    // stone and planks gloss; turf and leaves stay matte (a soaked meadow is not a mirror)
-    rough = mix(rough, mix(0.34, 0.14, upw), w * (1.0 - 0.5 * leaf - 0.75 * hbIs(pid, 6.0)));
-    // puddles on level stone, setts and planks
-    float hard = hbIs(pid, 2.0) + hbIs(pid, 3.0) + hbIs(pid, 4.0) + hbIs(pid, 11.0) + hbIs(pid, 0.0) * 0.6;
+    // stone and planks gloss; turf, leaves and sail cloth stay matte
+    float wetRough = mix(mix(0.34, 0.14, upw), max(rough, 0.62), cloth);
+    rough = mix(rough, wetRough, w * mix(1.0 - 0.5 * leaf - 0.75 * hbIs(pid, 6.0), 0.45, cloth));
+    #ifdef HB_FLEET
+      if (cloth > 0.5) rough = max(rough, 0.62);
+    #endif
+    // puddles on level stone, setts and planks (never on sail cloth)
+    float hard = (hbIs(pid, 2.0) + hbIs(pid, 3.0) + hbIs(pid, 4.0) + hbIs(pid, 11.0) + hbIs(pid, 0.0) * 0.6) * (1.0 - cloth);
     float pn = hbFbm(W * 0.21) + (hbNoise(W * 1.3) - 0.5) * 0.05;
     float lvl = 0.72 - 0.11 * w;
     puddle = smoothstep(lvl, lvl + 0.035, pn) * smoothstep(0.93, 0.985, up) * hard * w * dry;

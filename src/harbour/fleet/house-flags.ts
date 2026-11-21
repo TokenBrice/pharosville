@@ -37,6 +37,8 @@ varying vec2 vUv;
 varying float vSlot;
 varying vec4 vBrand;
 varying float vShade;
+varying vec3 vFlagN;
+varying vec3 vWorldP;
 ${AERIAL_VERT_GLSL}
 void main() {
   vUv = uv;
@@ -46,16 +48,28 @@ void main() {
   float fly = uv.x;                       // 0 at the hoist … 1 at the fly
   float w = clamp(uWind, 0.0, 1.4);
   float ph = uTime * (4.0 + 4.5 * w) + aPhase;
-  if (aBrand.w - ${f2(FLAG_HI)} * step(${f2(FLAG_HI - 0.5)}, aBrand.w) > 4.5) {
-    // streamer: a narrow ribbon tapering to a point, a slower wave running down its length
-    p.y *= 0.12 * (1.0 - 0.9 * fly);
-    p.z += sin(ph * 0.8 + fly * 8.0) * (0.006 + 0.012 * w) * fly;
+  bool isStreamer = aBrand.w - ${f2(FLAG_HI)} * step(${f2(FLAG_HI - 0.5)}, aBrand.w) > 4.5;
+  float dzdx = 0.0;
+  if (isStreamer) {
+    // longer silk Titan vexillum streamer: gracefully tapering ribbon with silky dual-harmonic ripples
+    p.x *= 1.35;
+    p.y *= 0.14 * (1.0 - 0.88 * fly);
+    float sAmp = 0.012 + 0.020 * w;
+    p.z += sin(ph * 0.85 + fly * 8.5) * sAmp * fly;
+    dzdx += (cos(ph * 0.85 + fly * 8.5) * 8.5 * fly + sin(ph * 0.85 + fly * 8.5)) * sAmp / 1.35;
   }
-  p.z += sin(ph + fly * 5.0) * (0.03 + 0.08 * w) * fly;
+  float amp = 0.03 + 0.08 * w;
+  p.z += sin(ph + fly * 5.0) * amp * fly;
+  dzdx += (cos(ph + fly * 5.0) * 5.0 * fly + sin(ph + fly * 5.0)) * amp;
   p.y += sin(ph * 0.7 + fly * 3.0) * 0.02 * fly;
   // light airs: the fly droops toward the staff
   p.y -= fly * fly * 0.28 * (1.0 - smoothstep(0.12, 0.55, w));
   vShade = 0.86 + 0.14 * cos(ph + fly * 5.0);
+  vec3 localN = normalize(vec3(-clamp(dzdx, -1.2, 1.2), 0.0, 1.0));
+  mat4 wm = modelMatrix * instanceMatrix;
+  vec3 wp = (wm * vec4(p, 1.0)).xyz;
+  vWorldP = wp;
+  vFlagN = normalize(mat3(wm) * localN);
   hbAerialVert((modelMatrix * instanceMatrix * vec4(p, 1.0)).xyz);
   gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(p, 1.0);
 }`;
@@ -66,6 +80,9 @@ uniform sampler2D uHeroEmblems;
 uniform vec2 uHeroSlots;
 uniform vec4 uEmblemGrid;
 uniform vec3 uLight;
+uniform vec3 uSunDir;
+uniform vec3 uSunColor;
+uniform float uNight;
 uniform vec3 uHorizon;
 uniform vec2 uFleetScreen;
 uniform float uEmblemLetters;
@@ -73,8 +90,29 @@ varying vec2 vUv;
 varying float vSlot;
 varying vec4 vBrand;
 varying float vShade;
+varying vec3 vFlagN;
+varying vec3 vWorldP;
 const vec3 CLOTH = vec3(0.93, 0.91, 0.86);
 ${AERIAL_GLSL}
+vec3 hbFlagLit(vec3 albedo, vec3 N, vec3 V, float silk) {
+  float sunWrap = max(dot(N, uSunDir) * 0.55 + 0.45, 0.0);
+  vec3 lit = albedo * uLight * mix(vShade, vShade * (0.76 + 0.34 * sunWrap), 1.0 - uNight * 0.7);
+  float lumS = dot(uSunColor, vec3(0.2126, 0.7152, 0.0722));
+  if (lumS > 1e-4) {
+    float low = (1.0 - smoothstep(0.07, 0.42, uSunDir.y)) * smoothstep(-0.02, 0.04, uSunDir.y);
+    float back = clamp(dot(-N, uSunDir) * 0.7 + 0.3, 0.0, 1.0);
+    float toward = pow(clamp(dot(-V, uSunDir) * 0.5 + 0.5, 0.0, 1.0), 3.0);
+    vec3 glow = albedo * (uSunColor / lumS) * vec3(1.16, 0.90, 0.52) * min(lumS, 2.4) * back * (0.14 + 0.48 * toward * (0.3 + 0.7 * low)) * silk * (1.0 - uNight * 0.85);
+    lit += glow * min(1.0, 0.45 / max(dot(glow, vec3(0.2126, 0.7152, 0.0722)), 1e-4));
+    if (silk > 1.05) {
+      // subtle sunlit silk sheen on Titan vexillum fold crests
+      vec3 H = normalize(uSunDir + V);
+      float sheen = pow(max(dot(N, H), 0.0), 12.0) * (1.0 - uNight);
+      lit += uSunColor * mix(albedo, vec3(1.0, 0.92, 0.75), 0.4) * sheen * 0.14;
+    }
+  }
+  return lit;
+}
 void main() {
   float hi = step(${f2(FLAG_HI - 0.5)}, vBrand.w);
   float style = vBrand.w - ${f2(FLAG_HI)} * hi;
@@ -82,6 +120,8 @@ void main() {
   float ax = fwidth(x) + 1e-4;
   float edge = min(min(x, 1.0 - x), 0.36 - abs(ym));
   float cx = 0.5, R = 0.3;
+  vec3 fN = normalize(vFlagN) * (gl_FrontFacing ? 1.0 : -1.0);
+  vec3 fV = normalize(cameraPosition - vWorldP);
   if (style < 0.5) {
     // swallowtail burgee: tapering to the fly, a notch cut into it
     float hh = 0.36 * (1.0 - 0.32 * x);
@@ -93,10 +133,10 @@ void main() {
   vec3 c;
   vec3 brand = vBrand.rgb;
   if (style > 4.5) {
-    // streamer: the brand ribbon with a cream heading (too thin for a hem or a roundel)
+    // streamer: the brand silk ribbon with a cream heading (too thin for a hem or a roundel)
     float lumS = dot(brand, vec3(0.2126, 0.7152, 0.0722));
     c = mix(mix(vec3(lumS), brand, 0.9) * 0.92, CLOTH * 0.9, 1.0 - smoothstep(0.03 - ax, 0.03 + ax, x));
-    c *= uLight * vShade;
+    c = hbFlagLit(c, fN, fV, 1.28);
     hbAerial(c, vec3(0.0), max(${f2(1 - FLAG_AIR)}, hi));
     gl_FragColor = vec4(c, 1.0);
     return;
@@ -153,7 +193,7 @@ void main() {
   }
   // a thin darker hem so the cloth reads against sky and water
   c *= mix(0.6, 1.0, smoothstep(0.0, 0.03 + ax, edge));
-  c *= uLight * vShade;
+  c = hbFlagLit(c, fN, fV, style > 0.5 ? 0.95 : 0.82);
   // E04: the harbour's air (distress and highlight exempt)
   hbAerial(c, vec3(0.0), style > 1.5 ? 1.0 : max(${f2(1 - FLAG_AIR)}, hi));
   gl_FragColor = vec4(c, 1.0);
@@ -181,6 +221,9 @@ export class HouseFlags {
       uniforms: {
         uTime: u.uTime, uWind: { value: 0.35 }, uEmblems: atlas.uniform ?? { value: atlas.texture }, uHeroEmblems: atlas.heroUniform ?? { value: atlas.texture }, uHeroSlots: atlas.heroSlots ?? { value: new THREE.Vector2(-1, -1) }, uEmblemGrid: { value: atlas.grid },
         uLight: { value: new THREE.Color(1, 1, 1) },
+        uSunDir: u.uSunDir ?? { value: new THREE.Vector3(0.4, 0.5, 0.3).normalize() },
+        uSunColor: u.uSunColor ?? { value: new THREE.Color(1, 0.95, 0.85) },
+        uNight: u.uNight ?? { value: 0 },
         // E04: the print law, lettering and the harbour's air (the shared aerial uniforms; off until the ocean binds them)
         uFleetScreen: screen, uEmblemLetters: { value: atlas.letterSlot ?? 1e9 },
         ...aerialUniforms, uAerialDensity: u.uFogDensity ?? { value: 0 }, uAerialHaze: u.uHaze ?? { value: new THREE.Color() },

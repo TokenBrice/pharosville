@@ -16,16 +16,19 @@ describe("liveryFor", () => {
     }
   });
 
-  it("spreads the usd fleet across the paint pot (a fan of colour, not one dominant paint)", () => {
+  it("spreads the usd fleet across the Classical Mediterranean paint pot, weighted toward timber with rare limewash", () => {
     const n = new Map<string, number>();
     for (const id of ids) { const k = liveryFor(id, "usd").topside; n.set(k, (n.get(k) ?? 0) + 1); }
     expect(n.size).toBe(Object.keys(TOPSIDE).length);
-    for (const c of n.values()) expect(c / ids.length).toBeLessThan(0.25);
+    for (const c of n.values()) expect(c / ids.length).toBeLessThan(0.28);
+    const timber = ((n.get("cedar") ?? 0) + (n.get("oak") ?? 0) + (n.get("pine") ?? 0)) / ids.length;
+    expect(timber).toBeGreaterThan(0.45);
+    expect((n.get("limewash") ?? 0) / ids.length).toBeLessThan(0.08);
   });
 
   it("keeps gold hulls dark and never paints a stripe the topside's own colour", () => {
     for (const id of ids) {
-      expect(["tar", "oxblood", "navy", "forest"]).toContain(liveryFor(id, "gold").topside);
+      expect(["pitch", "oak", "oxblood", "egyptBlue"]).toContain(liveryFor(id, "gold").topside);
       const l = liveryFor(id, "fiat");
       expect(l.stripe).not.toBe(l.topside);
     }

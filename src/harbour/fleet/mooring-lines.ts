@@ -59,7 +59,7 @@ export class MooringLines {
   private count = 0;
   readonly max: number;
   private readonly material: THREE.ShaderMaterial;
-  private readonly rope = new THREE.Color("#B59B72");
+  private readonly rope = new THREE.Color("#8E744F");
 
   constructor(resolution: THREE.IUniform<THREE.Vector2>, maxLines = 600) {
     this.max = maxLines;

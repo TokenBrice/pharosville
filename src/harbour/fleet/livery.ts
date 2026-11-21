@@ -1,65 +1,66 @@
 /**
- * Hull livery: the painted topsides, sheer stripe, deck tone and coachroof of each hull, chosen
+ * Hull livery: the oiled timber topsides, mineral-pigment sheer stripe, deck tone and coachroof of each hull, chosen
  * deterministically from the coin id (a hash). DECORATIVE ONLY: no colour here carries data. The brand
  * colour stays on the boot-top, pennant, sail covers and the sails' dye (sailDye, fleet-material); this is the
- * harbour's paint pot, a curated Nordic / Mediterranean range that sits inside style C's restraint (no saturated hue).
+ * harbour's paint pot, a curated Classical Mediterranean timber and earth-pigment range that sits inside style C's
+ * restraint (oiled cedar, dark oak, honey pine, pitch and mineral earth hues; no bright plastic hulls).
  */
 import * as THREE from "three";
 import type { Family } from "./variants";
 
-/** Topside paints (sRGB). */
+/** Topside oiled timbers & Classical Mediterranean mineral pigments (sRGB). */
 export const TOPSIDE = {
-  white: "#E9E6DD",
-  cream: "#DDD0B0",
-  tar: "#22272B",
-  forest: "#2E5A45",
-  navy: "#26425F",
-  oxblood: "#7A2C24",
-  ochre: "#B88A3A",
-  paleBlue: "#86A9BC",
+  cedar: "#865A38",
+  oak: "#6B4A30",
+  pine: "#A47E52",
+  pitch: "#282421",
+  oxblood: "#7D3428",
+  egyptBlue: "#304A63",
+  ochre: "#B0833A",
+  limewash: "#DDD4C0",
 } as const;
 export type Topside = keyof typeof TOPSIDE;
 
-/** Trim (sheer stripe, inside bulwarks, name-board letters) paints (sRGB). */
+/** Trim (sheer stripe, inside bulwarks, name-board letters, coachroofs) paints (sRGB). */
 export const TRIM = {
-  white: "#EEEBE3",
-  cream: "#E3D7B9",
-  tar: "#1F2326",
-  forest: "#2F5D49",
-  navy: "#284866",
-  oxblood: "#8A3328",
+  cream: "#E0D4B8",
+  ochre: "#C49540",
   gilt: "#C99A3E",
-  paleBlue: "#9BBCCB",
+  pitch: "#24201D",
+  oxblood: "#8A382A",
+  egyptBlue: "#365470",
+  cedar: "#7B5030",
+  terracotta: "#A45338",
 } as const;
 export type Trim = keyof typeof TRIM;
 
-/** Deck tones (sRGB): scrubbed, honey, oiled and weathered timber, and two painted working decks. */
-export const DECK = ["#C4A272", "#D2BE97", "#A99F8D", "#94714D", "#C8B387", "#9AA09A"] as const;
-const DECK_W = [24, 16, 20, 16, 12, 12];
+/** Deck tones (sRGB): deepened weathered and oiled Mediterranean timber (#7A5D3E–#B09268). */
+export const DECK = ["#A1835B", "#B09268", "#8F785B", "#7A5D3E", "#A68A62", "#87765E"] as const;
+const DECK_W = [24, 16, 20, 18, 12, 10];
 
-/** Topside odds by peg family: the silhouette keeps the currency, so does the paint pot's bias. */
+/** Topside odds by peg family: heavily weighted toward oiled timber, with rare 4% aged limewash. */
 const TOPSIDE_W: Record<Family, Partial<Record<Topside, number>>> = {
-  usd: { white: 12, cream: 7, tar: 11, forest: 15, navy: 15, oxblood: 15, ochre: 11, paleBlue: 14 },
-  eur: { tar: 18, forest: 22, navy: 16, oxblood: 16, white: 10, paleBlue: 10, ochre: 8 },
-  gold: { tar: 34, oxblood: 26, navy: 22, forest: 18 },
-  fiat: { tar: 22, navy: 18, forest: 16, oxblood: 16, ochre: 14, white: 14 },
-  other: { forest: 16, paleBlue: 16, white: 16, cream: 12, oxblood: 14, navy: 14, ochre: 12 },
+  usd: { cedar: 22, oak: 18, pine: 14, pitch: 12, oxblood: 12, egyptBlue: 10, ochre: 8, limewash: 4 },
+  eur: { cedar: 18, oak: 18, pitch: 16, oxblood: 16, egyptBlue: 14, pine: 8, ochre: 6, limewash: 4 },
+  gold: { pitch: 38, oak: 26, oxblood: 22, egyptBlue: 14 },
+  fiat: { pitch: 22, cedar: 20, oxblood: 18, oak: 16, egyptBlue: 12, ochre: 8, limewash: 4 },
+  other: { cedar: 22, oak: 18, pine: 16, pitch: 12, oxblood: 12, egyptBlue: 8, ochre: 8, limewash: 4 },
 };
 
-/** The stripe that reads against each topside (light on dark, dark or warm on light). */
+/** The stripe that reads against each topside (light/warm on dark, dark or mineral on light). */
 const STRIPE: Record<Topside, Trim[]> = {
-  white: ["navy", "forest", "oxblood", "paleBlue", "gilt"],
-  cream: ["forest", "oxblood", "navy"],
-  tar: ["white", "gilt", "cream", "oxblood"],
-  forest: ["white", "cream", "gilt"],
-  navy: ["white", "cream", "gilt"],
-  oxblood: ["white", "cream", "tar"],
-  ochre: ["tar", "white", "forest"],
-  paleBlue: ["white", "navy", "cream"],
+  cedar: ["cream", "ochre", "pitch", "egyptBlue"],
+  oak: ["cream", "ochre", "gilt", "oxblood"],
+  pine: ["pitch", "oxblood", "egyptBlue", "cedar"],
+  pitch: ["cream", "gilt", "oxblood", "ochre"],
+  oxblood: ["cream", "ochre", "pitch", "gilt"],
+  egyptBlue: ["cream", "ochre", "gilt", "terracotta"],
+  ochre: ["pitch", "oxblood", "egyptBlue", "cream"],
+  limewash: ["egyptBlue", "oxblood", "pitch", "cedar", "gilt"],
 };
 
-/** The coachroof: a pale painted top (white / cream / buff) or the hull's own stripe colour. */
-const ROOF: Trim[] = ["white", "cream", "cream", "white", "paleBlue"];
+/** The coachroof: warm aged cream, terracotta, oiled cedar or mineral trim (no stark white). */
+const ROOF: Trim[] = ["cream", "terracotta", "cedar", "ochre", "egyptBlue"];
 
 export interface Livery {
   topside: Topside;
