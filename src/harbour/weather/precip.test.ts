@@ -157,6 +157,12 @@ describe("atmospheric rain, splashes and storm lightning", () => {
     expect(sArr[2]).toBeLessThan(0);
     expect(sArr[6]).toBeLessThan(0);
     expect(sArr[10]).toBeGreaterThanOrEqual(0);
+    // §6.3.3 swell-synced ballistic storm plumes preserve water alpha mask
+    const groundMat = p.ground.material as THREE.ShaderMaterial;
+    expect(groundMat.vertexShader).toContain("hbSwellPhase(aAnchor.xy, uPTime)");
+    expect(groundMat.blending).toBe(THREE.CustomBlending);
+    expect(groundMat.blendSrcAlpha).toBe(THREE.ZeroFactor);
+    expect(groundMat.blendDstAlpha).toBe(THREE.OneFactor);
     p.dispose();
   });
 });

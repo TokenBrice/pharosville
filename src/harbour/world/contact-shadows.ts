@@ -10,8 +10,8 @@ import type { WorldUniforms } from "../engine/uniforms";
  * feet to its head, thinning toward the far tip. It is multiplied onto what is already drawn (no depth write), first
  * among the transparents, its vertices pulled toward the camera along their own view rays (the same pixels; the
  * depth clears wave crests and a slope, while a hull or a wall in front still hides it).
- *  - hulls on water darken as the sea wears a shadow (ocean/sea-golden.ts: the body ~12 %, less for a sun on the
- *    horizon and under the moon); Low, whose sea wears no sun shadow (B06), draws no hull quads;
+ *  - hulls on water darken as the sea wears a shadow (ocean/sea-golden.ts: ~28 % body + under-hull grounding, less for
+ *    a sun on the horizon and under the moon); Low, whose sea wears no sun shadow (B06), draws no hull quads;
  *  - figures on land darken by the key light's share of a flat surface's light (key vs sky and fill).
  * Strength follows the handover share (0 … 1) and fades with the aerial tint (it darkens the surface, not the air).
  * Decorative: time of day and zoom only.
@@ -58,8 +58,8 @@ void main() {
   gl_FragColor = vec4(vec3(1.0 - vK * a), 1.0);
 }`;
 
-/** Water darkening of a hull's sun shadow at full share, by day (ocean/sea-golden.ts body + lost glitter). */
-export const HULL_DARK = 0.13;
+/** Water darkening of a hull's sun shadow at full share, by day (§6.2.3 richer under-hull grounding). */
+export const HULL_DARK = 0.28;
 /** A small figure's shadow is mostly penumbra: its core keeps this share of a full key-light shadow. */
 export const FIGURE_DARK = 0.85;
 

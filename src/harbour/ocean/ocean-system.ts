@@ -22,6 +22,8 @@ import { createWorldUniforms } from "../engine/uniforms";
 import { seaHour } from "./sea-tone";
 import { extraEnabled } from "../engine/extras";
 import { MirrorPass, OCEAN_FRAG_MIRROR } from "./mirror-pass";
+import { WakeCollars } from "./wake-collars";
+import type { WakeCollarService } from "../engine/services";
 
 /**
  * OCEAN: one large sea plane (fine grid over the sea bounds, a stretched far ring beyond), an unlit
@@ -50,6 +52,8 @@ export interface OceanService {
   /** P6 (identity): the sea's own clock, swell scale and SDF, so overlays on the water (chart lettering) ride the same swell. */
   /** P6 (identity): signed coast distance (m) at world (x, z) from the sea SDF; > 0 is open water. */
   coastAt(x: number, z: number): number;
+  /** S-2: bind the live High-only dynamic night light pool RT (null restores the 1×1 black fallback with intensity 0). */
+  bindDynPool?(tex: THREE.Texture | null, intensity: number): void;
   readonly shared: { uTime: THREE.IUniform<number>; uSea: THREE.IUniform<THREE.Vector4>; uSdf: THREE.IUniform<THREE.Texture>; uSdfBounds: THREE.IUniform<THREE.Vector4> };
 }
 
@@ -135,6 +139,8 @@ export class OceanSystem implements WorldSystem {
   private readonly noonU = createWorldUniforms();
   /** E35 the harbour mirror (High only; on by the v1.8.0 art director, `&extras=-mirror` turns it off): the SSR pass at composer index 1. */
   private mirror: MirrorPass | null = null;
+  /** §6.2.2 High-only 1-draw instanced hull waterline collars (`wakeCollars` service, D-7). */
+  private collars!: WakeCollars;
 
   async init(ctx: EngineContext): Promise<void> {
     const layout = ctx.services.get("layout");
@@ -234,12 +240,26 @@ export class OceanSystem implements WorldSystem {
       if (f.biolum) shader.defines.HB_BIOLUM = "";
       if (f.lite) shader.defines.HB_LITE = "";
     };
-    // PERF: the Low tier's lighter sea (sea-tone.ts HB_LITE)
+    // PERF: the Low tier's lighter sea (sea-tone.ts HB_LITE); High-only WakeCollars & MirrorPass (D-7)
+    this.collars = new WakeCollars({
+      uTime: this.seaTime,
+      uCameraPos: W.uCameraPos,
+      uSea: this.seaU,
+      uSdfBounds: this.material.uniforms.uSdfBounds,
+      uSdf: this.material.uniforms.uSdf,
+      uSceneCenter: this.material.uniforms.uSceneCenter,
+      uNoise: this.material.uniforms.uNoise,
+      uSunDir: W.uSunDir,
+      uSunColor: W.uSunColor,
+      uAmbient: W.uAmbient,
+      uNight: W.uNight,
+    });
     const quality = ctx.services.get("quality");
     if (quality) {
       const lite = (tier: string) => {
         this.lite = tier === "low";
         this.mirror?.setActive(tier === "high", tier === "low");
+        this.collars.setActive(tier === "high");
         this.syncFeatures();
       };
       lite(quality.tier);
@@ -255,7 +275,7 @@ export class OceanSystem implements WorldSystem {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 60;               // after land (0) and the sky card (50): hidden water is rejected early
     this.mesh.name = "ocean";
-    ctx.scene.add(this.mesh);
+    ctx.scene.add(this.mesh, this.collars.mesh);
 
     const q = new URLSearchParams(location.search);
     const dbg = q.get("debugWake");
@@ -289,10 +309,15 @@ export class OceanSystem implements WorldSystem {
         out[3] *= this.dampAt(x + px, z + pz); out[4] *= this.dampAt(x - px, z - pz);
       },
       coastAt: (x, z) => this.coastAt(x, z),
+      bindDynPool: (tex, intensity) => {
+        this.material.uniforms.uDynPoolTex.value = tex ?? this.dynPoolFallback;
+        (this.material.uniforms.uDynPool.value as THREE.Vector4).x = tex ? intensity : 0;
+      },
       shared: { uTime: this.seaTime, uSea: this.seaU, uSdf: this.material.uniforms.uSdf, uSdfBounds: this.material.uniforms.uSdfBounds },
     };
     ctx.services.set("ocean", svc);
     ctx.services.set("wake", this.wake satisfies WakeService);
+    ctx.services.set("wakeCollars", this.collars satisfies WakeCollarService);
   }
 
   setSeaState(s: SeaState): void {
@@ -360,6 +385,7 @@ export class OceanSystem implements WorldSystem {
   }
 
   update(frame: FrameState, ctx: EngineContext): void {
+    this.collars.beginFrame();
     this.syncFeatures();
     this.mirror?.setConditions(
       THREE.MathUtils.smoothstep(ctx.services.get("readings")?.fog ?? 0, 0, 1),
@@ -379,6 +405,9 @@ export class OceanSystem implements WorldSystem {
       const x = m.cx + Math.cos(a) * m.r, z = m.cz + Math.sin(a) * m.r;
       const vx = -Math.sin(a) * m.r * m.w, vz = Math.cos(a) * m.r * m.w;
       this.wake.stamp(x, z, vx, vz, m.hw, 1, undefined, m.ph);
+      const spd = Math.hypot(vx, vz);
+      const fx = spd > 1e-3 ? vx / spd : 0, fz = spd > 1e-3 ? vz / spd : 1;
+      this.collars.push(x, z, fx, fz, m.hw * 6.2, m.hw * 2, spd, m.r > 50 ? 1 : 0, this.time * 3.1416 + m.ph * 2.1);
     }
     // aerial distance tint (decorative): zero inside the harbour radius, full ramp a little past the scene's edge
     const sc = this.material.uniforms.uSceneCenter.value as THREE.Vector2, sr = this.material.uniforms.uSceneRadius.value as number;
@@ -411,6 +440,7 @@ export class OceanSystem implements WorldSystem {
   dispose(ctx: EngineContext): void {
     this.unsubQuality?.();
     if (this.mirror) { ctx.composer.removePass(this.mirror); this.mirror.dispose(); this.mirror = null; }
+    this.collars.dispose();
     ctx.scene.remove(this.mesh);
     this.mesh.geometry.dispose();
     this.material.dispose();
@@ -422,5 +452,6 @@ export class OceanSystem implements WorldSystem {
     this.fx.release();
     ctx.services.delete("ocean");
     ctx.services.delete("wake");
+    ctx.services.delete("wakeCollars");
   }
 }
