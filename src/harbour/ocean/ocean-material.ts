@@ -6,10 +6,10 @@ export { OCEAN_VERT } from "./shaders/surface-vertex";
 
 /** Style C sea ramp (sRGB hex, palette.json) + the A-graft sunlit shallows. */
 export const SEA_PALETTE = {
-  abyss: "#0F2F47",
-  deep: "#123A52",
-  mid: "#194C5E",
-  shallow: "#21615F",
+  abyss: "#0B2848",
+  deep: "#0F3558",
+  mid: "#174B60",
+  shallow: "#1F615F",
   shoal: "#4F8A80",
   sunlitShoal: "#55B5A6",
   foam: "#F6F7F2",

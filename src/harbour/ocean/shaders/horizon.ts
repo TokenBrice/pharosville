@@ -4,7 +4,7 @@ export const OCEAN_HORIZON = /* glsl */ `  // ----------------------------------
   // nearer water mixes in exactly nothing: skip the band lookup (explicit LOD, safe in a per-pixel branch)
   if (hz > 0.0) {
     float thV = degrees(wrapPi(atan(vd.x, -vd.z) - uFwdAz));
-    vec3 hazeC = band(thV, 0.15, 0.0);
+    vec3 hazeC = band(thV, -0.05, 0.0);
     hz = pow(hz, 2.8);
     col = mix(col, hazeC, clamp(hz, 0.0, 1.0));
   }

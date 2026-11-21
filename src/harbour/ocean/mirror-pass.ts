@@ -15,15 +15,13 @@ import { OCEAN_FRAG } from "./ocean-material";
  * alpha 1 before anything blurs. The pass owns one target, created on entering High and disposed on leaving it.
  */
 export const MIRROR_PASS_NAME = "MirrorPass";
-/** The painterly strength in the calm harbour (V14: 25–35 %, set by A/B; physics gives 6–8 % at the hero pitch). */
-export const MIRROR_STRENGTH = 0.3;
-/** Sea-clock wobble: uv per unit of the smoothed surface slope, mostly along the view (vertical strokes). */
-export const MIRROR_WOBBLE = 0.05;
-/** The longest reflected ray (m). At the hero's 26° pitch a reflection of height h lands ~2h in front of its object, and
- * the march fades over 60–100 % of the ray: 150 m mirrors in full up to ~40 m (hulls, masts, walls, lamps, the tower's
- * foot) and nothing above ~66 m, so the upper Pharos no longer floats as a detached ghost in the inner basin beyond the
- * brazier island (w-polish, v1.8.0; 240 reached the lantern, and that was the ghost). */
-export const MIRROR_RAY = 150;
+/** Base high-tier mirror scale (calm basin 0.28..0.58 boosted to 0.72 at grazing Fresnel; Medium stays 0 per D-7). */
+export const MIRROR_STRENGTH = 0.58;
+/** Sea-clock wobble: distant uv per unit of smoothed surface slope (contact-anchored down to 0.008 at waterlines). */
+export const MIRROR_WOBBLE = 0.045;
+/** Longest reflected ray (m): 260 m reaches the full 96 m Pharos from open water while the foreground occluder-stop
+ * prevents detached upper-tower ghosts beyond the brazier island (verified against the c0d4561a ghost gate). */
+export const MIRROR_RAY = 260;
 /** A tier switch eases the mirror in or out over this long (s), never a pop; Low (another ocean program) cuts at once. */
 export const MIRROR_FADE = 0.6;
 
@@ -44,11 +42,12 @@ varying vec2 vUv;
 float hbViewZ(float d) { return (uRay.x * uRay.y) / ((uRay.y - uRay.x) * d - uRay.y); }
 vec3 hbViewPos(vec2 uv, float d) { vec4 p = uInvProj * vec4(vec3(uv, d) * 2.0 - 1.0, 1.0); return p.xyz / p.w; }
 vec2 hbToUv(vec3 q) { vec4 c = uProj * vec4(q, 1.0); return c.xy / c.w * 0.5 + 0.5; }
+float hbIgn(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
 // how far the ray has passed behind the surface at q (view metres; > 0 behind)
 float hbBehind(vec3 q, out vec2 uv) { uv = hbToUv(q); return hbViewZ(textureLod(depthBuffer, uv, 0.0).r) - q.z; }
 void main() {
   vec4 c0 = textureLod(inputBuffer, vUv, 0.0);
-  // the ocean's mask: alpha .05 + .45 × its potential weight; 1 on every other surface (transparent overlays raise it)
+  // the ocean's mask: alpha .05 + .45 × its potential weight; 1 on every other surface (transparent overlays preserve it)
   float w0 = (c0.a - 0.05) / 0.45;
   if (c0.a > 0.52 || w0 < 0.02) { gl_FragColor = vec4(0.0); return; }
   vec3 P = hbViewPos(vUv, textureLod(depthBuffer, vUv, 0.0).r);
@@ -56,18 +55,28 @@ void main() {
   // a ray turning back toward the camera leaves the picture
   float facing = 1.0 - smoothstep(-0.15, 0.2, R.z);
   if (facing <= 0.0) { gl_FragColor = vec4(0.0); return; }
+  float jit = hbIgn(gl_FragCoord.xy);
   float lastT = 0.0, hitT = -1.0, thick = 1.5;
-  vec2 uv;
-  for (int i = 0; i < 14; i++) {
-    float s = (float(i) + 1.0) / 14.0;
-    float t = uRay.z * s * s;
+  float occZ = -1e9;
+  vec2 uv = vUv;
+  for (int i = 0; i < 24; i++) {
+    float s = (float(i) + 0.25 + 0.75 * jit) / 24.0;
+    float t = uRay.z * pow(s, 1.65);
     vec3 q = P + R * t;
     if (q.z > -uRay.x) break;
-    float dz = hbBehind(q, uv);
+    uv = hbToUv(q);
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
+    float d = textureLod(depthBuffer, uv, 0.0).r;
+    float surfZ = hbViewZ(d);
+    float dz = surfZ - q.z;
     // the surface must be thicker than one step's travel, or the ray skips it
-    thick = max(1.5, (t - lastT) * 1.25);
+    thick = max(1.5, (t - lastT) * 1.35);
     if (dz > 0.0 && dz < thick) { hitT = t; break; }
+    vec3 surfP = hbViewPos(uv, d);
+    float surfH = dot(surfP - P, uUp);
+    // Foreground occluder-stop: terminate if the ray passes behind a closer raised solid surface
+    if (dz >= thick && surfH > 1.5) break;
+    if (surfH > 2.2) occZ = max(occZ, surfZ);
     lastT = t;
   }
   if (hitT < 0.0) { gl_FragColor = vec4(0.0); return; }
@@ -76,14 +85,21 @@ void main() {
     float m = 0.5 * (a + b);
     if (hbBehind(P + R * m, uv) > 0.0) b = m; else a = m;
   }
-  float dz = hbBehind(P + R * b, uv);
+  vec3 hitQ = P + R * b;
+  uv = hbToUv(hitQ);
+  float hitD = textureLod(depthBuffer, uv, 0.0).r;
+  float hitSurfZ = hbViewZ(hitD);
+  float dz = hitSurfZ - hitQ.z;
+  // Reject distant tall reflections jumping over a significantly closer foreground landmass (no detached Pharos ghost)
+  if (occZ > -1e8 && (occZ - hitSurfZ) > 38.0 && b > 95.0) { gl_FragColor = vec4(0.0); return; }
   vec4 hit = textureLod(inputBuffer, uv, 0.0);
   // only opaque, non-water surfaces mirror: water (alpha <= .5) and transparent edges are rejected
   float solid = smoothstep(0.9, 0.99, hit.a);
   float edge = smoothstep(0.0, 0.05, uv.x) * smoothstep(0.0, 0.05, 1.0 - uv.x) * smoothstep(0.0, 0.12, 1.0 - uv.y) * smoothstep(0.0, 0.02, uv.y);
-  float conf = solid * edge * facing * (1.0 - smoothstep(0.5, 1.0, dz / thick)) * (1.0 - smoothstep(0.6, 1.0, b / uRay.z));
+  float conf = solid * edge * facing * (1.0 - smoothstep(0.5, 1.0, dz / thick)) * (1.0 - smoothstep(0.65, 1.0, b / uRay.z));
   bool ok = hit.r >= 0.0 && hit.r <= 65000.0 && hit.g >= 0.0 && hit.g <= 65000.0 && hit.b >= 0.0 && hit.b <= 65000.0 && conf >= 0.0 && conf <= 1.0;
-  gl_FragColor = ok ? vec4(min(hit.rgb, vec3(32.0)), conf) : vec4(0.0);
+  // Premultiplied output prevents dark haloing when filtered across thin 1-5 px boat/mast reflections
+  gl_FragColor = ok ? vec4(min(hit.rgb, vec3(32.0)) * conf, conf) : vec4(0.0);
 }`;
 
 /** The ocean's half of the mirror, through patch(): uniforms, last frame's reflection mixed in, the water mask written. */
@@ -106,19 +122,27 @@ vec3 hbSeaHour(vec3 body) {
 { id: "ocean.mirror.lift-call" }),
 "  col *= mix(1.0, cShade, 0.55);\n",
 `  col *= mix(1.0, cShade, 0.55);
-  // E35 the harbour mirror: last frame's reflection (mirror-pass.ts) reprojected through the view-projection it was
-  // written with; the calm harbour mirrors best, foam, ripples and rain break it, the sea clock wobbles it into strokes
+  // E35 MirrorPass v2: premultiplied 3-tap vertical ripple blur, contact-anchored wobble (0.008 -> 0.045),
+  // and Fresnel + calm-basin strength (0.28..0.58 boosted to 0.72 at grazing Fresnel)
   float mirrorW = mix(0.6, 1.0, zm.b) * (1.0 - foam) * (1.0 - smoothstep(0.05, 0.22, dk)) * (1.0 - uPrecip.x);
   float mirrorCov = 0.0;
   if (uMirror.x > 0.0 && mirrorW > 0.0) {
     vec4 mc = uMirrorVP * vec4(vWorld, 1.0);
     vec2 away = -toCam.xz / max(camD, 1.0);
-    // the smoothed sky-mirror normal (swell + a little ripple): long, soft strokes, not a mosaic
     vec2 slope = Nr.xz / max(Nr.y, 0.5);
-    vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + vec2(dot(slope, vec2(-away.y, away.x)) * 0.35, dot(slope, away)) * uMirror.y;
-    vec4 m = 0.5 * (textureLod(uMirrorTex, muv, 0.0) + textureLod(uMirrorTex, muv + vec2(0.0, uMirror.w), 0.0));
+    float mContact = clamp(max(1.0 - smoothstep(1.5, 18.0, min(max(coast, 0.0), sdist)), smoothstep(0.05, 0.45, live.b + live.g * 0.7)), 0.0, 1.0);
+    float mWob = mix(uMirror.y, min(uMirror.y, 0.008), mContact);
+    vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + vec2(dot(slope, vec2(-away.y, away.x)) * 0.35, dot(slope, away)) * mWob;
+    float mStroke = uMirror.w * mix(0.55, 1.35, 1.0 - mContact);
+    vec4 m = 0.5 * textureLod(uMirrorTex, muv, 0.0)
+      + 0.25 * (textureLod(uMirrorTex, muv + vec2(0.0, mStroke), 0.0) + textureLod(uMirrorTex, muv - vec2(0.0, mStroke), 0.0));
+    vec3 mCol = m.a > 1e-4 ? m.rgb / max(m.a, 1e-4) : vec3(0.0);
     mirrorCov = clamp(m.a, 0.0, 1.0) * step(0.0, muv.x) * step(muv.x, 1.0) * step(0.0, muv.y) * step(muv.y, 1.0) * mirrorW;
-    col = mix(col, m.rgb, uMirror.x * mirrorCov);
+    float mNdV = max(dot(Nr, normalize(toCam)), 0.0);
+    float mFres = pow(1.0 - mNdV, 4.0);
+    float mStr = mix(0.28, 0.58, zm.b * (1.0 - smoothstep(0.04, 0.20, dk)));
+    mStr = mix(mStr, 0.72, clamp(mFres * 1.4, 0.0, 1.0));
+    col = mix(col, mCol, clamp(mStr * (uMirror.x / 0.58), 0.0, 0.85) * mirrorCov);
   }
 `, { id: "ocean.mirror.mix" }),
 "  col += glint * overcast * (1.0 - foam) * cShade;\n",

@@ -5,7 +5,7 @@ import type { EngineContext } from "../engine/types";
 import { createWorldUniforms } from "../engine/uniforms";
 import { preparationMaterial } from "../engine/prepare";
 import { TIERS, type QualitySettings } from "../engine/quality";
-import { MIRROR_STRENGTH, MirrorPass, mirrorTargetSize, OCEAN_FRAG_MIRROR } from "./mirror-pass";
+import { MIRROR_FRAG, MIRROR_RAY, MIRROR_STRENGTH, MirrorPass, mirrorTargetSize, OCEAN_FRAG_MIRROR } from "./mirror-pass";
 import { OCEAN_FRAG } from "./ocean-material";
 import { OceanSystem } from "./ocean-system";
 import { WakeField } from "./wake";
@@ -214,6 +214,16 @@ describe("E35 the mirror's ocean", () => {
       expect(OCEAN_FRAG_MIRROR).toContain(s);
       expect(OCEAN_FRAG).not.toContain(s);
     }
+    // MirrorPass v2 markers: 24-step IGN adaptive march, occluder-stop, premultiplied/unpremultiplied decode, 3-tap blur, contact wobble, Fresnel strength
+    expect(MIRROR_RAY).toBe(260);
+    expect(MIRROR_FRAG).toContain("for (int i = 0; i < 24; i++)");
+    expect(MIRROR_FRAG).toContain("pow(s, 1.65)");
+    expect(MIRROR_FRAG).toContain("hbIgn(gl_FragCoord.xy)");
+    expect(MIRROR_FRAG).toContain("min(hit.rgb, vec3(32.0)) * conf, conf");
+    expect(OCEAN_FRAG_MIRROR).toContain("m.rgb / max(m.a, 1e-4)");
+    expect(OCEAN_FRAG_MIRROR).toContain("min(uMirror.y, 0.008)");
+    expect(OCEAN_FRAG_MIRROR).toContain("mix(0.28, 0.58");
+    expect(OCEAN_FRAG_MIRROR).toContain("mix(mStr, 0.72");
   });
 
   it("is one program for Medium and High (no compile on the switch); Low keeps the lite ocean and the target goes", async () => {

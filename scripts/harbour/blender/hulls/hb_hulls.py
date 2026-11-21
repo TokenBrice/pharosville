@@ -27,9 +27,9 @@ import math, random
 from mathutils import Vector, Matrix
 from hb_lib import *
 
-CLASS_LOA = dict(flagship=30.0, large=18.0, medium=13.0, small=10.0, boat=7.5, skiff=5.0)
-BUDGET = dict(skiff=450, boat=700, small=700, medium=900, large=1400, flagship=2500)
-SECTIONS = dict(skiff=6, boat=8, small=9, medium=9, large=11, flagship=13)
+CLASS_LOA = dict(flagship=26.0, large=18.0, medium=13.0, small=10.0, boat=7.5, skiff=5.0)
+BUDGET = dict(skiff=830, boat=1230, small=1430, medium=1780, large=2380, flagship=2980)
+SECTIONS = dict(skiff=10, boat=11, small=12, medium=12, large=14, flagship=14)
 
 # hull forms: beam/L, freeboard/L, draft/L, bow fullness exponent, transom width (0..1 of beam),
 # sheer rise (bow, stern) as a fraction of freeboard, stem rake / counter as a fraction of LOA, bulwark/L
@@ -88,8 +88,19 @@ class Hull:
         return max(-1.0, min(1.0, (x - s.x0) / (s.Lh / 2)))
 
     def deck(s, x):
-        """deck height at boat x"""
+        """deck height at boat x (gunwale edge)"""
         return s.zt(s.u_at(x)) - s.bh
+
+    def camber(s):
+        """Mid-deck camber crown height (m) for 4-strip recessed classical decks."""
+        return min(0.14, max(0.035, 0.028 * s.B))
+
+    def deck_at(s, x, y=0.0):
+        """Cambered deck height at (x, y) on a 4-strip deck."""
+        u = s.u_at(x)
+        w_in = max(s.w(u) - s.th, 0.05)
+        f = min(1.0, abs(y) / w_in)
+        return s.zt(u) - s.bh + s.camber() * max(0.0, 1.0 - f * f)
 
     def half(s, x, z=None):
         return s.w(s.u_at(x))
@@ -100,11 +111,52 @@ class Hull:
     def stern(s):
         return Vector((s.x(-1.0, s.zt(-1.0)), 0, s.zt(-1.0)))
 
-    def profile(s, u, band=False):
+    def profile(s, u, band=False, wales=False, simple_bottom=False, compact_cap=False):
         w = s.w(u); zt = s.zt(u); zk = s.zk(u); fb = s.fb
         bowk = max(u, 0) ** 2
         zbt = s.boot * (1 + 0.3 * u * u)
         z4 = zt - s.cap - s.stripe
+        kw = 0.955 - 0.12 * bowk
+        if wales:
+            ov = max(0.024, 0.0040 * s.L)
+            wk = 1.0 - 0.55 * smoothstep(0.78, 1.0, abs(u))
+            wo = max(0.036, 0.0058 * s.L) * wk
+            w_in = max(w - s.th, 0.0)
+            z_cap_b = zt - s.cap
+            z_w1_b = z_cap_b - s.stripe * 1.15
+            z_w1_m = 0.5 * (z_cap_b + z_w1_b)
+            z_w2_t = z_w1_b - (z_w1_b - zbt) * 0.40
+            z_w2_b = z_w1_b - (z_w1_b - zbt) * 0.62
+            z_w2_m = 0.5 * (z_w2_t + z_w2_b)
+            pts = []
+            if s.bh > 0:
+                pts.append(('deck_in', w_in, zt - s.bh))
+            if compact_cap:
+                pts += [
+                    ('cap', w_in, zt),
+                    ('wale_u', w + ov, zt),
+                    ('wale_u', w * 0.996 + wo, z_w1_m),
+                    ('top', w * 0.990, z_w1_b),
+                ]
+            else:
+                pts += [
+                    ('cap', w_in, zt),
+                    ('cap', w + ov, zt),
+                    ('wale_u', w * 0.996, z_cap_b),
+                    ('wale_u', w * 0.996 + wo, z_w1_m),
+                    ('top', w * 0.990, z_w1_b),
+                ]
+            pts += [
+                ('wale_l', w * 0.984, z_w2_t),
+                ('wale_l', w * 0.984 + wo * 1.15, z_w2_m),
+                ('top', w * 0.974, z_w2_b),
+                ('boot', w * kw, zbt),
+                ('bottom', w * (kw - 0.05), -0.07 * fb),
+            ]
+            if not simple_bottom:
+                pts.append(('bottom', w * 0.62, zk * 0.62))
+            pts.append((None, 0.0, zk))
+            return pts
         pts = []
         if s.bh > 0:
             pts.append(('deck_in', max(w - s.th, 0.0), zt - s.bh))
@@ -114,20 +166,31 @@ class Hull:
             za = z4 - (z4 - zbt) * 0.16; zb_ = z4 - (z4 - zbt) * 0.58
             pts[-1] = ('top', w * 0.99, z4)
             pts += [('band', w * 0.985, za), ('top', w * 0.975, zb_)]
-        kw = 0.955 - 0.12 * bowk
-        pts += [('boot', w * kw, zbt), ('bottom', w * (kw - 0.05), -0.07 * fb),
-                ('bottom', w * 0.62, zk * 0.62), (None, 0.0, zk)]
+        pts += [('boot', w * kw, zbt), ('bottom', w * (kw - 0.05), -0.07 * fb)]
+        if not simple_bottom:
+            pts.append(('bottom', w * 0.62, zk * 0.62))
+        pts.append((None, 0.0, zk))
         return pts
 
 
 SMOOTH_SEG = ('top', 'band', 'boot', 'bottom', 'stripe')
 # _PAINT region per profile segment (hb_lib.to_object): the runtime repaints these per coin (decorative livery)
-PAINT_SEG = dict(stripe=3.0, band=3.0, cap=5.0, deck_in=6.0)
+PAINT_SEG = dict(stripe=3.0, band=3.0, cap=5.0, deck_in=6.0, wale_u=3.0, wale_l=5.0)
 
 
 def deck_side(p):
     """_PAINT for the deck: 4 + 0.98 s, s = 0 starboard edge .. 1 port edge (a painted margin reads from above)."""
     return 4.0 + (0.98 if p.y > 0 else 0.0)
+
+
+def deck_across(H):
+    """Continuous _PAINT across a 4-strip cambered deck: 4.0 (stbd margin) .. 4.49 (crown) .. 4.98 (port margin)."""
+    def f(p):
+        u = H.u_at(p.x)
+        w_in = max(H.w(u) - H.th, 0.05)
+        t = min(1.0, max(0.0, 0.5 + 0.5 * p.y / w_in))
+        return 4.0 + 0.98 * t
+    return f
 
 
 def topside_t(H, boot_k=1.0):
@@ -140,15 +203,22 @@ def topside_t(H, boot_k=1.0):
     return f
 
 
-def loft(mb, H, sch, n, band=False, hole=None, pat_top=PT['strakes'], paint=True):
+def loft(mb, H, sch, n, band=False, hole=None, pat_top=PT['strakes'], paint=True,
+         wales=False, deck_strips=1, simple_bottom=False, spine=False, compact_cap=False):
     """Sections from stern (u=-1) to bow (u=1). hole(x, y, z) -> True drops that face (wrecks).
-    paint: tag the livery regions (_PAINT) - only the runtime hulls, never wrecks or tenders."""
+    paint: tag the livery regions (_PAINT) - only the runtime hulls, never wrecks or tenders.
+    wales: overhanging cap rail + two proud 3D rubbing wales (zosteres).
+    deck_strips: 1 (legacy flat) or 4 (cambered recessed deck: stbd_margin -> stbd_deck -> crown -> port_deck -> port_margin).
+    spine: add proud external stempost & sternpost timber spines."""
     tfn = topside_t(H)
+    dfn = deck_across(H) if deck_strips == 4 else deck_side
+    cam = H.camber() if deck_strips == 4 else 0.0
     secs = []
+    drows = []
     for i in range(n + 1):
         t = i / n
         u = -1 + 2 * (t + 0.06 * math.sin(2 * math.pi * t) * 0.0)
-        pr = H.profile(u, band)
+        pr = H.profile(u, band, wales=wales, simple_bottom=simple_bottom, compact_cap=compact_cap)
         port, stbd = [], []
         for (nm, y, z) in pr[:-1]:
             x = H.x(u, z)
@@ -157,26 +227,56 @@ def loft(mb, H, sch, n, band=False, hole=None, pat_top=PT['strakes'], paint=True
         k = mb.vert((H.x(u, z), 0, z))
         port.append(k); stbd.append(k)
         secs.append((port, stbd, [p[0] for p in pr]))
-    pat = dict(deck=PT['planks_y'], top=pat_top, band=pat_top, deck_in=PT['boards'], transom=pat_top)
+        if deck_strips == 4:
+            w_in = pr[0][1]
+            z_e = pr[0][2]
+            z_m = z_e + cam * 0.50
+            z_c = z_e + cam
+            v_sd = mb.vert((H.x(u, z_m), -w_in * 0.72, z_m))
+            v_cr = mb.vert((H.x(u, z_c), 0.0, z_c))
+            v_pd = mb.vert((H.x(u, z_m), w_in * 0.72, z_m))
+            drows.append((stbd[0], v_sd, v_cr, v_pd, port[0]))
+    pat = dict(deck=PT['planks_y'], top=pat_top, band=pat_top, deck_in=PT['boards'], transom=pat_top,
+               wale_u=pat_top, wale_l=pat_top)
 
-    def put(idx, nm):
+    def put(idx, nm, smooth_override=None):
         if hole is not None:
             c = sum((mb.v[i] for i in idx), Vector()) / len(idx)
             if hole(c, nm):
                 return
-        pc = (tfn if nm in ('top', 'transom') else deck_side if nm == 'deck' else PAINT_SEG.get(nm, 0.0)) if paint else 0.0
-        mb.face(idx, sch[nm], pat.get(nm, 0), 1.0 if nm == 'boot' else 0.0, smooth=nm in SMOOTH_SEG, paint=pc)
+        pc = (tfn if nm in ('top', 'transom') else dfn if nm == 'deck' else PAINT_SEG.get(nm, 0.0)) if paint else 0.0
+        col = sch['stripe'] if nm == 'wale_u' else (sch['cap'] if nm == 'wale_l' else sch[nm])
+        jit = 0.0 if col == PAL['gilt'] else 0.03
+        sm = smooth_override if smooth_override is not None else (nm in SMOOTH_SEG)
+        mb.face(idx, col, pat.get(nm, 0), 1.0 if nm == 'boot' else 0.0, smooth=sm, jitter=jit, paint=pc)
     for i in range(n):
         (pa, sa, names), (pb, sb, _) = secs[i], secs[i + 1]
         for k in range(len(pa) - 1):
             nm = names[k]
             put((pa[k], pb[k], pb[k + 1], pa[k + 1]), nm)
             put((sa[k], sa[k + 1], sb[k + 1], sb[k]), nm)
-        put((sa[0], sb[0], pb[0], pa[0]), 'deck')
+        if deck_strips == 4:
+            da, db = drows[i], drows[i + 1]
+            for k in range(4):
+                put((da[k], db[k], db[k + 1], da[k + 1]), 'deck', smooth_override=(k in (1, 2)))
+        else:
+            put((sa[0], sb[0], pb[0], pa[0]), 'deck')
     pa, sa, _ = secs[0]
     put(pa + sa[-2::-1], 'transom')
     pb, sb, _ = secs[-1]
     put((pb + sb[-2::-1])[::-1], 'top')
+    if spine:
+        r_sp = max(0.032, 0.0044 * H.L)
+        col_sp = sch['cap']
+        jit_sp = 0.0 if col_sp == PAL['gilt'] else 0.02
+        for u_end, sgn in ((1.0, 1.0), (-1.0, -1.0)):
+            zt_e = H.zt(u_end); zk_e = H.zk(u_end)
+            zs = [zk_e * 0.25, zt_e * 0.45, zt_e + r_sp * 0.35]
+            pts = [Vector((H.x(u_end, z) + sgn * r_sp * 0.55, 0.0, z)) for z in zs]
+            for j in range(len(pts) - 1):
+                ra = r_sp * (1.05 - 0.14 * j); rb = r_sp * (1.05 - 0.14 * (j + 1))
+                rod(mb, pts[j], pts[j + 1], ra, col_sp, 3, r2=rb, cap=(j == len(pts) - 2),
+                    pat=0, smooth=False, jitter=jit_sp, paint=5.0 if paint else 0.0)
     return secs
 
 
@@ -1004,24 +1104,41 @@ def build_wreck(kind, coll=None):
 
 
 def build_buoy(coll=None):
+    """Classical staved tarred-oak harbour cask buoy with bronze hoops (<= 150 tris, preserves `ring` empty)."""
     mb = MB(21)
-    red, white = PAL['flag_red'], PAL['flag_white']
-    rs = 0.55
-    rings = []
-    for i, (z, r) in enumerate(((-0.35, 0.25), (-0.15, 0.5), (0.1, rs), (0.32, 0.48), (0.5, 0.28), (0.58, 0.05))):
-        rings.append([mb.vert((r * math.cos(2 * math.pi * k / 8), r * math.sin(2 * math.pi * k / 8), z)) for k in range(8)])
-    for i, (a, b) in enumerate(zip(rings, rings[1:])):
-        for k in range(8):
-            k2 = (k + 1) % 8
-            mb.face((a[k], a[k2], b[k2], b[k]), red if i < 2 or i == 4 else white, 0, smooth=True)
-    rod(mb, (0, 0, 0.55), (0, 0, 0.85), 0.04, PAL['iron'], 4)
-    rod(mb, (-0.13, 0, 0.92), (0.13, 0, 0.92), 0.035, PAL['iron'], 4, cap=False)
-    rod(mb, (0.0, 0, 0.85), (-0.13, 0, 0.92), 0.035, PAL['iron'], 3)
-    rod(mb, (0.0, 0, 0.85), (0.13, 0, 0.92), 0.035, PAL['iron'], 3)
-    # pick-up float on a short line
-    rod(mb, (0.3, 0.1, 0.5), (0.9, 0.35, 0.05), 0.02, PAL['rope'], 3)
-    for k in range(1):
-        box(mb, (0.95, 0.38, 0.08), (0.22, 0.22, 0.22), PAL['wall_ochre'], skip=('-z',))
+    oak_dk = PAL['hull_stain']
+    oak_md = PAL['timber_dark']
+    bronze = PAL.get('bronze', PAL['brass'])
+    # 8-sided staved barrel with two proud bronze hoops and recessed chime head (6 bands × 16 = 96 + 6 cap = 102 tris)
+    spec = [
+        (-0.36, 0.34, oak_dk, PT['boards'], False),
+        (-0.08, 0.45, bronze, PT['metal'], False),
+        (0.02, 0.51, oak_md, PT['boards'], False),
+        (0.24, 0.46, bronze, PT['metal'], False),
+        (0.34, 0.50, oak_dk, PT['boards'], False),
+        (0.54, 0.37, oak_dk, PT['boards'], False),
+        (0.49, 0.31, None, 0, False),
+    ]
+    n = 8
+    rings = [[mb.vert((r * math.cos(2 * math.pi * k / n), r * math.sin(2 * math.pi * k / n), z)) for k in range(n)]
+             for (z, r, _, _, _) in spec]
+    for i in range(len(spec) - 1):
+        a, b = rings[i], rings[i + 1]
+        _, _, col, pat, sm = spec[i]
+        jit = 0.0 if pat == PT['metal'] else 0.04
+        for k in range(n):
+            k2 = (k + 1) % n
+            c = col if pat == PT['metal'] else (oak_dk if (k % 2 == 0 and i == 2) else col)
+            mb.face((a[k], a[k2], b[k2], b[k]), c, pat, smooth=sm, jitter=jit)
+    mb.face(rings[-1], oak_md, PT['planks_y'], jitter=0.02)  # recessed oak cask head (6 tris)
+    # Bronze eye-bolt & mooring ring centered at `ring` (0, 0, 0.92) (~28 tris)
+    rod(mb, (0, 0, 0.49), (0, 0, 0.80), 0.045, bronze, 4, pat=PT['metal'], smooth=False, jitter=0.0)
+    rpts = [Vector((0.0, 0.0, 0.80)), Vector((0.12, 0.0, 0.86)), Vector((0.0, 0.0, 0.96)), Vector((-0.12, 0.0, 0.86))]
+    for j in range(4):
+        rod(mb, rpts[j], rpts[(j + 1) % 4], 0.032, bronze, 3, pat=PT['metal'], smooth=False, jitter=0.0)
+    # Short tarred-hemp lanyard + cork pick-up toggle (12 tris)
+    rod(mb, (0.35, 0.12, 0.48), (0.86, 0.34, 0.06), 0.02, PAL['rope'], 3, smooth=False)
+    rod(mb, (0.86, 0.34, 0.0), (0.98, 0.39, 0.14), 0.09, PAL['timber'], 3, cap=True, smooth=False)
     root = empty('mooring_buoy', coll=coll)
     to_object(mb, 'buoy', 'hb_opaque', parent=root, coll=coll)
     empty('ring', (0, 0, 0.92), parent=root, coll=coll)
@@ -1030,24 +1147,42 @@ def build_buoy(coll=None):
 
 
 def build_dinghy(coll=None):
-    L = 3.4
-    H = Hull(L, FORMS['dinghy'])
+    """Classical double-ended Mediterranean *lembos* skiff (<= 500 tris, preserves `bow_cleat` empty)."""
+    L = 3.5
+    lembos_form = dict(br=0.35, fb=0.135, dr=0.045, bow=2.1, stern=0.18, sheer=(0.62, 0.58), rb=0.055, rs=0.055, bul=0.0, rpow=1.0)
+    H = Hull(L, lembos_form)
     mb = MB(31)
-    sch = SCH(top='hull_white', stripe='hull_blue', cap='varnish', deck='varnish', deck_in='cream', bottom='antifoul', transom='varnish')
-    # open boat: no deck strip -> build a loft and drop the deck faces, add thwarts
-    loft(mb, H, sch, 6, hole=lambda c, nm: nm == 'deck', paint=False)
-    mb.backface(0, col=PAL['cream'], dark=0.9, brand=0.0)   # open boat: show the inside
-    # floor (inside, below the sheer)
-    zf = 0.12
-    xs = [H.x(-0.85, zf), H.x(0.7, zf)]
-    box2(mb, xs[0], -H.B * 0.3, zf - 0.05, xs[1], H.B * 0.3, zf, PAL['varnish'], PT['planks_y'], skip=('-z',))
-    for u in (-0.55, 0.0, 0.5):
+    sch = SCH(top=PAL.get('timber_warm', PAL['oak']), stripe=PAL.get('ochre_red', PAL['hull_red']),
+              cap=PAL['timber_dark'], deck=PAL['timber'], deck_in=PAL.get('timber_pale', PAL['deck']),
+              bottom=PAL.get('pitch', PAL['tar']), transom=PAL.get('timber_warm', PAL['oak']))
+    # 6-section double-ended hull (open interior, double-sided planking)
+    loft(mb, H, sch, 6, hole=lambda c, nm: nm == 'deck', paint=False, simple_bottom=True)
+    mb.backface(0, col=PAL.get('timber_pale', PAL['deck']), dark=0.84, brand=0.0)
+    # Proud curved stempost & sternpost tips rising above the crescent sheer
+    bw, st = H.bow(), H.stern()
+    rod(mb, bw + Vector((-0.05, 0, -0.08)), bw + Vector((0.06, 0, 0.24)), 0.048, PAL['timber_dark'], 3, r2=0.028, cap=True, smooth=False)
+    rod(mb, st + Vector((0.05, 0, -0.08)), st + Vector((-0.06, 0, 0.22)), 0.046, PAL['timber_dark'], 3, r2=0.026, cap=True, smooth=False)
+    # Slatted oak bottom floorboards
+    zf = 0.11
+    box2(mb, H.x(-0.75, zf), -H.B * 0.26, zf - 0.04, H.x(0.75, zf), H.B * 0.26, zf, PAL['timber'], PT['planks_y'], skip=('-z',))
+    # 3 interior timber ribs + 3 transverse rowing thwarts
+    for u in (-0.48, 0.0, 0.48):
         x = H.x(u, H.fb)
-        w = H.w(u) * 0.92
-        box2(mb, x - 0.12, -w, H.fb * 0.62, x + 0.12, w, H.fb * 0.72, PAL['varnish'], PT['planks_y'], skip=('-z',))
-    for sd in (-1, 1):   # oars shipped
-        rod(mb, (-0.9, sd * 0.25, H.fb * 0.8), (1.3, sd * 0.32, H.fb * 0.85), 0.03, PAL['varnish'], 4)
-        box(mb, (-1.05, sd * 0.25, H.fb * 0.8), (0.45, 0.1, 0.02), PAL['varnish'], skip=())
+        w = H.w(u) * 0.90
+        zt = H.zt(u)
+        for sd in (-1, 1):
+            rod(mb, (x, sd * w * 0.35, zf), (x, sd * w, zt - 0.03), 0.024, PAL['timber_dark'], 3, smooth=False)
+        box2(mb, x - 0.11, -w, zt - 0.16, x + 0.11, w, zt - 0.10, PAL['varnish'], PT['planks_y'], skip=('-z',))
+    # Shipped pair of tapered wooden oars + coiled hemp painter at the bow
+    for sd in (-1, 1):
+        rod(mb, (-0.95, sd * 0.22, H.fb * 0.85), (1.20, sd * 0.27, H.fb * 0.90), 0.026, PAL['varnish'], 3, r2=0.022)
+        box(mb, (-1.12, sd * 0.22, H.fb * 0.85), (0.48, 0.11, 0.022), PAL['varnish'], skip=('-z',))
+    # Coiled painter rope on fore thwart
+    cx, cz = H.x(0.66, H.fb), H.zt(0.66) - 0.12
+    for k in range(4):
+        a0, a1 = 2 * math.pi * k / 4, 2 * math.pi * (k + 1) / 4
+        rod(mb, (cx + 0.10 * math.cos(a0), 0.10 * math.sin(a0), cz),
+            (cx + 0.10 * math.cos(a1), 0.10 * math.sin(a1), cz), 0.022, PAL['rope'], 3, smooth=False)
     root = empty('dinghy', coll=coll)
     to_object(mb, 'hull', 'hb_opaque', parent=root, coll=coll)
     empty('bow_cleat', (H.x(0.9, H.fb), 0, H.zt(0.9)), parent=root, coll=coll)

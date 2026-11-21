@@ -28,17 +28,31 @@ describe("B09 Lite water", () => {
     expect(1.68).toBeCloseTo(2 * six(2), 12);
   });
 
-  it("skips only fully faded detail taps with explicit gradients, evaluating net derivatives outside the branch", () => {
+  it("skips only fully faded detail taps with explicit gradients, keeping Lite dispersion-free and derivative-safe", () => {
     expect(OCEAN_SURFACE.indexOf("vec2 dx = dFdx(xz), dy = dFdy(xz);")).toBeLessThan(OCEAN_SURFACE.indexOf("if (cGain"));
     expect(OCEAN_SURFACE).toContain("if (cGain > 0.0 && cs > 0.0)");
-    expect(OCEAN_SURFACE).toContain("\n    }\n    float caus = hbNet(cA, cB, 0.06) * cs");
     expect(OCEAN_FOAM).toContain("if (laceFar < 1.0)");
     expect(OCEAN_FOAM).toContain("\n  }\n  float lace = mix(hbNet(lA, lB, 0.05), 0.3, laceFar);");
-    for (const block of [OCEAN_SURFACE.slice(OCEAN_SURFACE.indexOf("if (cGain"), OCEAN_SURFACE.indexOf("float caus =")),
-      OCEAN_FOAM.slice(OCEAN_FOAM.indexOf("if (laceFar"), OCEAN_FOAM.indexOf("float lace ="))]) {
-      expect(block.match(/textureGrad\(/g)).toHaveLength(2);
-      expect(block).not.toMatch(/fwidth|dFdx|dFdy|texture2D/);
-    }
+    const causBlock = OCEAN_SURFACE.slice(OCEAN_SURFACE.indexOf("if (cGain"), OCEAN_SURFACE.indexOf("causReef = cGain"));
+    const [causBase, causDisp] = causBlock.split("#ifndef HB_LITE");
+    expect(causBase.match(/textureGrad\(uRipple/g)).toHaveLength(2);
+    expect(causDisp.match(/textureGrad\(uRipple/g)).toHaveLength(4);
+    expect(causBlock).not.toMatch(/fwidth|dFdx|dFdy|texture2D/);
+    const laceBlock = OCEAN_FOAM.slice(OCEAN_FOAM.indexOf("if (laceFar"), OCEAN_FOAM.indexOf("float lace ="));
+    expect(laceBlock.match(/textureGrad\(/g)).toHaveLength(2);
+    expect(laceBlock).not.toMatch(/fwidth|dFdx|dFdy|texture2D/);
+  });
+
+  it("guards W1 high-frequency sea effects behind HB_LITE and preserves S-2 dynamic pool + horizon seam fixes", () => {
+    expect(OCEAN_SURFACE).toContain("textureLod(uSdf, clamp(suv + vec2(eS, 0.0), 0.0, 1.0), 2.0)");
+    expect(OCEAN_SURFACE).toContain("if (live.r > 0.01)");
+    expect(OCEAN_REFLECTION).toContain("if (uDynPool.x > 0.01)");
+    expect(OCEAN_REFLECTION).toContain("textureLod(uDynPoolTex, clamp(duv, 0.0, 1.0), 0.0)");
+    expect(OCEAN_REFLECTION).toContain("1.0 - 0.55 * hullOcc");
+    expect(OCEAN_REFLECTION).toContain("1.0 - 0.70 * hullOcc");
+    expect(OCEAN_REFLECTION).toContain("1.0 - 0.65 * hullOcc");
+    expect(OCEAN_FRAG).toContain("vec3 hazeC = band(thV, -0.05, 0.0);");
+    expect(OCEAN_REFLECTION).toContain("glint *= 1.0 - smoothstep(uHorizonDist * 0.80, uHorizonDist * 0.96, fwdD);");
   });
 
   it("retains the analytical foam bands, Shoals and PSI reach equations in both variants", () => {

@@ -21,11 +21,12 @@ import { planSails, printFill, ROLE_BODY, type EmblemFrame, type SailMeshOut } f
  *     and carry the full hull's main roundel (its EmblemFrame, projected), so a small far hull still shows her coin.
  *     node: 0 rigid · 1 rigid + mirrored on port tack · 2 boom · 3 boom_2 · 4 jib
  *   aPivot / aAxis: rotation pivot + axis of the node's group (boom: gooseneck, +y; jib: tack, stay axis)
- *   aPaint = (livery region, x / (loa / 2)): the kit's _PAINT corner attribute (0 keep · 1 + 0.98 t topsides,
- *     t boot-top 0 .. sheer 1 · 3 sheer stripe / band · 4 deck · 5 rail cap · 6 inside bulwarks · 7 coachroof ·
- *     8 spar; LOD: topsides + 10, rig 9) plus, from the node names, 8 for spars and 10 for standing rigging.
- *     Decorative, never data. Rig corners (8, 9, 10) carry their tube's radius (m) in y instead, and radial normals
- *     (tubeRadii): the vertex shader holds thin rig at a hairline (E27).
+ *   aPaint = (livery region, x / (loa / 2) | tube radius, _AO ?? 1): the kit's _PAINT corner attribute (0 keep ·
+ *     1 + 0.98 t topsides, t boot-top 0 .. sheer 1 · 3 sheer stripe / band · 4 deck · 5 rail cap · 6 inside bulwarks ·
+ *     7 coachroof · 8 spar · 20/21/22 decorative deck-module variants; LOD: topsides + 10, rig 9) plus, from the node
+ *     names, 8 for spars and 10 for standing rigging. Decorative, never data. Rig corners (8, 9, 10) carry their tube's
+ *     radius (m) in y instead, and radial normals (tubeRadii): the vertex shader holds thin rig at a hairline (E27).
+ *     The z lane carries E15 per-corner ambient occlusion (_AO in [0.35, 1.0], defaulting to 1.0 when absent).
  */
 export const KIT_BASE = "/harbour/kit/";
 /** Furled cover's half-height over the rolled sail's mean radius (its half-width stays 0.42): a tall, narrow sail bag. */
@@ -107,6 +108,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
   const M: number[] = [], PV: number[] = [], AX: number[] = [], PA: number[] = [], I: number[] = [];
   gltf.scene.updateMatrixWorld(true);
   const sails = opts.lod || opts.wreck ? new Map<THREE.Mesh, SailMeshOut>() : planHullSails(gltf, opts.fill);
+  const yardHinges = !opts.lod && !opts.wreck ? extractYardHinges(gltf) : [];
   const cloth = opts.lod ? opts.cloth ?? null : null;
   const frame = opts.lod ? opts.emblem ?? null : null;
   const lodSailVerts: number[] = [];
@@ -134,6 +136,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     const flag = mesh.name === "flag" ? 1 : 0;
     const pos = geo.attributes.position, nrm = geo.attributes.normal, col = geo.attributes.color;
     const uv0 = geo.attributes.uv, uv1 = geo.attributes.uv1, brand = geo.attributes._brand, paint = geo.attributes._paint;
+    const aoAttr = geo.attributes._ao ?? geo.attributes._AO;
     const plan = sails.get(mesh);
     if (mesh.name === "sail_main" && col && plan) { const i = Math.max(0, plan.role.indexOf(ROLE_BODY)); clothOut = [col.getX(i), col.getY(i), col.getZ(i)]; }
     const nodePaint = SPAR_NODES.has(mesh.name) ? PAINT_SPAR : mesh.name === "rigging" ? PAINT_RIGGING : 0;
@@ -151,13 +154,15 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
     // sails (06-F2): the cloth's size (m) rides in aPaint.x as a negative number (sails paint no livery region):
     // the vertex shader scales the belly and the luff ripple by it. 0 = no breathing (LOD sails).
     const sailSize = !opts.lod && !opts.wreck && plan ? sailExtent(geo, mw) : 0;
-    // Furled canvas, slimmed: the brand cover lies flaked low on the boom (not a fat tube) and the
-    // rolled jib is a slim roll on its stay. The furl morph's end shape is pulled toward its axis.
+    // Furled canvas, slimmed: the brand cover lies flaked low on the boom (not a fat tube), the
+    // rolled jib is a slim roll on its stay, and square-rig artemon rolls stay slim (ROLL_SLIM).
     const isCover = mats.some((m) => m.name === "hb_cover");
     const yardCover = isCover && parentName === "_heel";
     const isJib = mesh.name === "sail_jib";
+    const isSquareMain = !isCover && !isJib && mesh.name === "sail_main" && parentName === "_heel";
     let furlAdj: Float32Array | null = null, coverUV: Float32Array | null = null, coverEmb: Float32Array | null = null;
-    if (mp && (isCover || isJib) && !opts.lod) {
+    let furledWorld: Float32Array | null = null;
+    if (mp && (isCover || isJib || isSquareMain) && !opts.lod) {
       const nv = pos.count;
       const B = new Float32Array(nv * 3), Pf = new Float32Array(nv * 3);
       for (let vi = 0; vi < nv; vi++) {
@@ -168,46 +173,54 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
         tmpV.applyMatrix4(linear);
         Pf[vi * 3] = B[vi * 3] + tmpV.x; Pf[vi * 3 + 1] = B[vi * 3 + 1] + tmpV.y; Pf[vi * 3 + 2] = B[vi * 3 + 2] + tmpV.z;
       }
-      furlAdj = new Float32Array(nv * 3);
-      if (yardCover) yardBundle(nv, B, Pf, furlAdj, coverUV = new Float32Array(nv * 2), coverEmb = new Float32Array(nv * 2), opts.beam ?? halfLoa * 0.6);
-      else if (isCover) {
-        // centre line y(x), z(x) by least squares, then a slimmer, lower section
-        let sx = 0, sxx = 0, sy = 0, sxy = 0, sz = 0, sxz = 0, x0 = Infinity, x1 = -Infinity;
-        for (let vi = 0; vi < nv; vi++) {
-          const x = Pf[vi * 3], y = Pf[vi * 3 + 1], z = Pf[vi * 3 + 2];
-          sx += x; sxx += x * x; sy += y; sxy += x * y; sz += z; sxz += x * z; x0 = Math.min(x0, x); x1 = Math.max(x1, x);
-        }
-        const den = nv * sxx - sx * sx || 1;
-        const by = (nv * sxy - sx * sy) / den, ay = (sy - by * sx) / nv, bz = (nv * sxz - sx * sz) / den, az = (sz - bz * sx) / nv;
-        let rm = 0;
-        for (let vi = 0; vi < nv; vi++) { const x = Pf[vi * 3]; rm += Math.hypot(Pf[vi * 3 + 1] - (ay + by * x), Pf[vi * 3 + 2] - (az + bz * x)); }
-        rm = rm / nv || 0.1;
-        coverUV = new Float32Array(nv * 2);
-        coverEmb = new Float32Array(nv * 2);
-        // a sail bag, not a tube: the same footprint on the boom, taller and narrow, so the coin's roundel printed
-        // on each side (largest that fits, mid-boom) reads from the harbour's 30-38° camera
-        let lo = Infinity, hi = -Infinity;
-        for (let vi = 0; vi < nv; vi++) { const ry = Pf[vi * 3 + 1] - (ay + by * Pf[vi * 3]); lo = Math.min(lo, ry); hi = Math.max(hi, ry); }
-        // (the upper 70 %: the top and the flat side, what the camera sees from above; the underside faces the water)
-        const D = Math.max(1e-3, (hi - lo) * COVER_TALL * 0.7), xm = (x0 + x1) / 2, ym = (hi - 0.35 * (hi - lo)) * COVER_TALL;
-        for (let vi = 0; vi < nv; vi++) {
-          const x = Pf[vi * 3], cy = ay + by * x - rm * (0.85 - COVER_TALL), cz = az + bz * x;
-          const ry = Pf[vi * 3 + 1] - (ay + by * x), rz = Pf[vi * 3 + 2] - cz;
-          const ny = cy + ry * COVER_TALL, nz = cz + rz * 0.42;
-          furlAdj[vi * 3] = Pf[vi * 3] - B[vi * 3]; furlAdj[vi * 3 + 1] = ny - B[vi * 3 + 1]; furlAdj[vi * 3 + 2] = nz - B[vi * 3 + 2];
-          coverUV[vi * 2] = (x - x0) / Math.max(1e-3, x1 - x0); coverUV[vi * 2 + 1] = ry / rm;
-          coverEmb[vi * 2] = (x - xm) / D + 0.5; coverEmb[vi * 2 + 1] = 0.5 - (ry * COVER_TALL - ym) / D;
-        }
+      furledWorld = Pf;
+      if (isSquareMain) {
+        furlAdj = slimArtemonRolls(geo, B, Pf, plan);
       } else {
-        const ax = jibAxis;
-        for (let vi = 0; vi < nv; vi++) {
-          const dx = Pf[vi * 3] - jib.x, dy = Pf[vi * 3 + 1] - jib.y, dz = Pf[vi * 3 + 2] - jib.z;
-          const t = dx * ax.x + dy * ax.y + dz * ax.z;
-          const rx = dx - ax.x * t, ry = dy - ax.y * t, rz = dz - ax.z * t;
-          furlAdj[vi * 3] = Pf[vi * 3] - rx * 0.6 - B[vi * 3]; furlAdj[vi * 3 + 1] = Pf[vi * 3 + 1] - ry * 0.6 - B[vi * 3 + 1]; furlAdj[vi * 3 + 2] = Pf[vi * 3 + 2] - rz * 0.6 - B[vi * 3 + 2];
+        furlAdj = new Float32Array(nv * 3);
+        if (yardCover) yardBundle(nv, B, Pf, furlAdj, coverUV = new Float32Array(nv * 2), coverEmb = new Float32Array(nv * 2), opts.beam ?? halfLoa * 0.6);
+        else if (isCover) {
+          // centre line y(x), z(x) by least squares, then a slimmer, lower section
+          let sx = 0, sxx = 0, sy = 0, sxy = 0, sz = 0, sxz = 0, x0 = Infinity, x1 = -Infinity;
+          for (let vi = 0; vi < nv; vi++) {
+            const x = Pf[vi * 3], y = Pf[vi * 3 + 1], z = Pf[vi * 3 + 2];
+            sx += x; sxx += x * x; sy += y; sxy += x * y; sz += z; sxz += x * z; x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+          }
+          const den = nv * sxx - sx * sx || 1;
+          const by = (nv * sxy - sx * sy) / den, ay = (sy - by * sx) / nv, bz = (nv * sxz - sx * sz) / den, az = (sz - bz * sx) / nv;
+          let rm = 0;
+          for (let vi = 0; vi < nv; vi++) { const x = Pf[vi * 3]; rm += Math.hypot(Pf[vi * 3 + 1] - (ay + by * x), Pf[vi * 3 + 2] - (az + bz * x)); }
+          rm = rm / nv || 0.1;
+          coverUV = new Float32Array(nv * 2);
+          coverEmb = new Float32Array(nv * 2);
+          // a sail bag, not a tube: the same footprint on the boom, taller and narrow, so the coin's roundel printed
+          // on each side (largest that fits, mid-boom) reads from the harbour's 30-38° camera
+          let lo = Infinity, hi = -Infinity;
+          for (let vi = 0; vi < nv; vi++) { const ry = Pf[vi * 3 + 1] - (ay + by * Pf[vi * 3]); lo = Math.min(lo, ry); hi = Math.max(hi, ry); }
+          // (the upper 70 %: the top and the flat side, what the camera sees from above; the underside faces the water)
+          const D = Math.max(1e-3, (hi - lo) * COVER_TALL * 0.7), xm = (x0 + x1) / 2, ym = (hi - 0.35 * (hi - lo)) * COVER_TALL;
+          for (let vi = 0; vi < nv; vi++) {
+            const x = Pf[vi * 3], cy = ay + by * x - rm * (0.85 - COVER_TALL), cz = az + bz * x;
+            const ry = Pf[vi * 3 + 1] - (ay + by * x), rz = Pf[vi * 3 + 2] - cz;
+            const ny = cy + ry * COVER_TALL, nz = cz + rz * 0.42;
+            furlAdj[vi * 3] = Pf[vi * 3] - B[vi * 3]; furlAdj[vi * 3 + 1] = ny - B[vi * 3 + 1]; furlAdj[vi * 3 + 2] = nz - B[vi * 3 + 2];
+            coverUV[vi * 2] = (x - x0) / Math.max(1e-3, x1 - x0); coverUV[vi * 2 + 1] = ry / rm;
+            coverEmb[vi * 2] = (x - xm) / D + 0.5; coverEmb[vi * 2 + 1] = 0.5 - (ry * COVER_TALL - ym) / D;
+          }
+        } else {
+          const ax = jibAxis;
+          for (let vi = 0; vi < nv; vi++) {
+            const dx = Pf[vi * 3] - jib.x, dy = Pf[vi * 3 + 1] - jib.y, dz = Pf[vi * 3 + 2] - jib.z;
+            const t = dx * ax.x + dy * ax.y + dz * ax.z;
+            const rx = dx - ax.x * t, ry = dy - ax.y * t, rz = dz - ax.z * t;
+            furlAdj[vi * 3] = Pf[vi * 3] - rx * 0.6 - B[vi * 3]; furlAdj[vi * 3 + 1] = Pf[vi * 3 + 1] - ry * 0.6 - B[vi * 3 + 1]; furlAdj[vi * 3 + 2] = Pf[vi * 3 + 2] - rz * 0.6 - B[vi * 3 + 2];
+          }
         }
       }
     }
+    // Docked square-rig yard diversity: store each yard's mast-hinge in unused aPivot on node=1 yards/covers/square sails
+    const isSquareRigPart = node === 1 && !opts.lod && yardHinges.length > 0 && mesh.name !== "steering_oar";
+    const yardPivots = isSquareRigPart ? assignYardHinges(geo, mw, linear, mp, relative, furledWorld, yardHinges) : null;
     for (const g of groups) {
       const mat = mats[g.materialIndex ?? 0];
       const gk = mat.name === "hb_emissive" ? KIND_LAMP : !opts.wreck && mat.name === "hb_fleet_window" ? KIND_WINDOW
@@ -231,8 +244,10 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
           // a flat-faced rope's corner takes its radial direction (a smooth spar's normal already is radial)
           if (rigR > 0 && tmpV.x * rig!.n[vi * 3] + tmpV.y * rig!.n[vi * 3 + 1] + tmpV.z * rig!.n[vi * 3 + 2] < 0.9) N.push(rig!.n[vi * 3], rig!.n[vi * 3 + 1], rig!.n[vi * 3 + 2]);
           else N.push(tmpV.x, tmpV.y, tmpV.z);
-          if (mesh.name === "yards" && !opts.lod) C.push(0.3, 0.2, 0.12, col && col.itemSize > 3 ? col.getW(vi) : 0); // spars are tarred wood, not white planks
-          else if (col) C.push(col.getX(vi), col.getY(vi), col.getZ(vi), col.itemSize > 3 ? col.getW(vi) : 0); else C.push(1, 1, 1, 0);
+          // Preserve authored yard vertex colors (gilded/silver Titan finials, sch['spar'] on kit yards); fallback tarred brown only when untinted
+          if (col) C.push(col.getX(vi), col.getY(vi), col.getZ(vi), col.itemSize > 3 ? col.getW(vi) : 0);
+          else if (mesh.name === "yards" && !opts.lod) C.push(0.3, 0.2, 0.12, 0);
+          else C.push(1, 1, 1, 0);
           if (coverUV && kind === 2) SU.push(coverUV[vi * 2], coverUV[vi * 2 + 1]);
           else if (kind === KIND_BOARD) SU.push(uv0 ? uv0.getX(vi) : -4, uv0 ? uv0.getY(vi) : -4);
           else if (lodSail) SU.push(0.5, 0.5625); // plain cloth: between seams, clear of the tabling
@@ -258,8 +273,11 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
           let pc = kind === 0 ? (paint ? paint.getX(vi) : nodePaint) : kind === 1 ? -sailSize : 0;
           if (opts.lod && pc >= 1 && pc < 2.5) pc += 10; // LOD topsides: the stripe is painted in the shader
           else if (opts.lod && pc > 7.5 && pc < 8.5) pc = 9; // LOD rig: may be struck far away when furled
-          PA.push(pc, rigR > 0 && pc > 7.5 && pc < 10.5 ? rigR : P[P.length - 3] / halfLoa);
-          if (tholes) PV.push(tholes[vi * 3], tholes[vi * 3 + 1], tholes[vi * 3 + 2]); else PV.push(pivot.x, pivot.y, pivot.z);
+          const ao = aoAttr ? aoAttr.getX(vi) : 1;
+          PA.push(pc, rigR > 0 && pc > 7.5 && pc < 10.5 ? rigR : P[P.length - 3] / halfLoa, ao);
+          if (tholes) PV.push(tholes[vi * 3], tholes[vi * 3 + 1], tholes[vi * 3 + 2]);
+          else if (yardPivots) PV.push(yardPivots[vi * 3], yardPivots[vi * 3 + 1], yardPivots[vi * 3 + 2]);
+          else PV.push(pivot.x, pivot.y, pivot.z);
           AX.push(axis.x, axis.y, axis.z);
         }
         I.push(base + out);
@@ -278,7 +296,7 @@ export function bakeGltf(gltf: GLTF, nodes: ManifestNode[], opts: { lod?: boolea
   g.setAttribute("aMeta", new THREE.Float32BufferAttribute(M, 4));
   g.setAttribute("aPivot", new THREE.Float32BufferAttribute(PV, 3));
   g.setAttribute("aAxis", new THREE.Float32BufferAttribute(AX, 3));
-  g.setAttribute("aPaint", new THREE.Float32BufferAttribute(PA, 2));
+  g.setAttribute("aPaint", new THREE.Float32BufferAttribute(PA, 3));
   g.setIndex(I);
   g.userData.cloth = clothOut;
   g.userData.emblem = [...sails.values()].find((x) => x.frame)?.frame ?? null;
@@ -316,6 +334,142 @@ function mirrorLodEmblem(P: number[], I: number[], EU: number[], verts: number[]
  * out to either side (G6b: docked, the sail is brailed in to the middle of the yard, never a cylinder over the quay).
  */
 const BUNDLE_DEPTH = 0.8, BUNDLE_DROP = 0.85, BUNDLE_BEAM = 0.9;
+/** Furled artemon roll slimness relative to un-slimmed roll radius (idempotent against W5 GLBs already slimmed to 0.22). */
+const ROLL_SLIM = 0.22;
+
+/** Connected components of a mesh by index connectivity and shared world positions (5 mm quantization). */
+function meshComponents(geo: THREE.BufferGeometry, W: Float32Array): Map<number, number[]> {
+  const nv = geo.attributes.position.count;
+  const parent = new Int32Array(nv).map((_, i) => i);
+  const find = (a: number): number => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+  const join = (a: number, b: number) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+  const seen = new Map<string, number>();
+  for (let vi = 0; vi < nv; vi++) {
+    const k = `${Math.round(W[vi * 3] * 200)},${Math.round(W[vi * 3 + 1] * 200)},${Math.round(W[vi * 3 + 2] * 200)}`;
+    const o = seen.get(k);
+    if (o != null) join(vi, o); else seen.set(k, vi);
+  }
+  const idx = geo.index, ni = idx ? idx.count : nv;
+  for (let k = 0; k + 2 < ni; k += 3) {
+    const a = idx ? idx.getX(k) : k, b = idx ? idx.getX(k + 1) : k + 1, c = idx ? idx.getX(k + 2) : k + 2;
+    join(a, b); join(b, c);
+  }
+  const groups = new Map<number, number[]>();
+  for (let vi = 0; vi < nv; vi++) {
+    const r = find(vi), list = groups.get(r);
+    if (list) list.push(vi); else groups.set(r, [vi]);
+  }
+  return groups;
+}
+
+/** Extract each square-rig yard's mast-hinge centroid (kit frame) from `yards` / `yard_artemon` meshes. */
+function extractYardHinges(gltf: GLTF): THREE.Vector3[] {
+  const hinges: THREE.Vector3[] = [];
+  gltf.scene.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || (mesh.name !== "yards" && mesh.name !== "yard_artemon")) return;
+    const pos = mesh.geometry.attributes.position, nv = pos.count, mw = mesh.matrixWorld;
+    const W = new Float32Array(nv * 3);
+    for (let vi = 0; vi < nv; vi++) {
+      tmpV.fromBufferAttribute(pos, vi).applyMatrix4(mw);
+      W[vi * 3] = tmpV.x; W[vi * 3 + 1] = tmpV.y; W[vi * 3 + 2] = tmpV.z;
+    }
+    for (const verts of meshComponents(mesh.geometry, W).values()) {
+      // median y isolates the horizontal yard spar even if diagonal lifts/braces share the mesh
+      const ys = verts.map((v) => W[v * 3 + 1]).sort((a, b) => a - b);
+      const medY = ys[ys.length >> 1];
+      let cx = 0, cy = 0, cz = 0, count = 0;
+      for (const v of verts) {
+        if (Math.abs(W[v * 3 + 1] - medY) <= 0.35) { cx += W[v * 3]; cy += W[v * 3 + 1]; cz += W[v * 3 + 2]; count++; }
+      }
+      if (!count) {
+        for (const v of verts) { cx += W[v * 3]; cy += W[v * 3 + 1]; cz += W[v * 3 + 2]; }
+        count = verts.length;
+      }
+      if (count > 0 && cy / count > 0.25) hinges.push(new THREE.Vector3(cx / count, cy / count, cz / count));
+    }
+  });
+  return hinges;
+}
+
+/** Assign each connected component of a square-rig yard/sail/cover mesh to its nearest yard mast-hinge. */
+function assignYardHinges(
+  geo: THREE.BufferGeometry, mw: THREE.Matrix4, linear: THREE.Matrix4,
+  mp: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | undefined, relative: boolean,
+  furledWorld: Float32Array | null, hinges: readonly THREE.Vector3[],
+): Float32Array {
+  const pos = geo.attributes.position, nv = pos.count;
+  const W = new Float32Array(nv * 3);
+  if (furledWorld) {
+    W.set(furledWorld);
+  } else {
+    for (let vi = 0; vi < nv; vi++) {
+      tmpV.fromBufferAttribute(pos, vi).applyMatrix4(mw);
+      let x = tmpV.x, y = tmpV.y, z = tmpV.z;
+      if (mp) {
+        tmpV.fromBufferAttribute(mp, vi);
+        if (!relative) tmpV.sub(tmpP.fromBufferAttribute(pos, vi));
+        tmpV.applyMatrix4(linear);
+        x += tmpV.x; y += tmpV.y; z += tmpV.z;
+      }
+      W[vi * 3] = x; W[vi * 3 + 1] = y; W[vi * 3 + 2] = z;
+    }
+  }
+  const out = new Float32Array(nv * 3);
+  for (const verts of meshComponents(geo, W).values()) {
+    let cx = 0, cy = 0, cz = 0;
+    for (const v of verts) { cx += W[v * 3]; cy += W[v * 3 + 1]; cz += W[v * 3 + 2]; }
+    cx /= verts.length; cy /= verts.length; cz /= verts.length;
+    let best = hinges[0], bestD = Infinity;
+    for (const h of hinges) {
+      const d = (h.x - cx) ** 2 + (h.y - cy) ** 2 + (h.z - cz) ** 2;
+      if (d < bestD) { bestD = d; best = h; }
+    }
+    for (const v of verts) { out[v * 3] = best.x; out[v * 3 + 1] = best.y; out[v * 3 + 2] = best.z; }
+  }
+  return out;
+}
+
+/** Slim furled artemon components (emblem-less components of square-rig `sail_main`) to ROLL_SLIM without double-crushing. */
+function slimArtemonRolls(geo: THREE.BufferGeometry, B: Float32Array, Pf: Float32Array, plan: SailMeshOut | undefined): Float32Array | null {
+  if (!plan) return null;
+  const nv = geo.attributes.position.count;
+  let anyArtemon = false;
+  for (let vi = 0; vi < nv; vi++) if (plan.emb[vi * 2] < -0.5) { anyArtemon = true; break; }
+  if (!anyArtemon) return null;
+  const adj = new Float32Array(nv * 3);
+  for (let vi = 0; vi < nv; vi++) {
+    adj[vi * 3] = Pf[vi * 3] - B[vi * 3];
+    adj[vi * 3 + 1] = Pf[vi * 3 + 1] - B[vi * 3 + 1];
+    adj[vi * 3 + 2] = Pf[vi * 3 + 2] - B[vi * 3 + 2];
+  }
+  for (const verts of meshComponents(geo, Pf).values()) {
+    if (!verts.every((v) => plan.emb[v * 2] < -0.5)) continue;
+    const { cx, cy, cz, ax, ay, az } = fitTube(Pf, verts);
+    let t0 = Infinity, t1 = -Infinity, rmax = 0;
+    for (const v of verts) {
+      const dx = Pf[v * 3] - cx, dy = Pf[v * 3 + 1] - cy, dz = Pf[v * 3 + 2] - cz;
+      const t = dx * ax + dy * ay + dz * az;
+      t0 = Math.min(t0, t); t1 = Math.max(t1, t);
+      rmax = Math.max(rmax, Math.hypot(dx - ax * t, dy - ay * t, dz - az * t));
+    }
+    const len = Math.max(0.5, t1 - t0);
+    const targetR = 0.06 * ROLL_SLIM * len;
+    if (rmax <= targetR) continue;
+    const k = targetR / rmax;
+    for (const v of verts) {
+      const dx = Pf[v * 3] - cx, dy = Pf[v * 3 + 1] - cy, dz = Pf[v * 3 + 2] - cz;
+      const t = dx * ax + dy * ay + dz * az;
+      const nx = cx + ax * t + (dx - ax * t) * k;
+      const ny = cy + ay * t + (dy - ay * t) * k;
+      const nz = cz + az * t + (dz - az * t) * k;
+      adj[v * 3] = nx - B[v * 3];
+      adj[v * 3 + 1] = ny - B[v * 3 + 1];
+      adj[v * 3 + 2] = nz - B[v * 3 + 2];
+    }
+  }
+  return adj;
+}
 
 /**
  * A square rig's brailed-sail bundle (sail_cover parented to _heel, braced with the yard): its axis is the yard, not

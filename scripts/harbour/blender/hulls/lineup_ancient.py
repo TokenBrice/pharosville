@@ -13,10 +13,11 @@ sys.path.insert(0, HERE)
 import importlib
 import lineup as LU
 import hb_ancient as HA; importlib.reload(HA)
+import hb_bake; importlib.reload(hb_bake)
 import bpy
 from mathutils import Vector
 from hb_lib import descendants, tri_count, PAL
-from hb_hulls import CLASS_LOA
+from hb_hulls import CLASS_LOA, build_buoy, build_dinghy
 
 ARGV = LU.ARGV
 SHEET = LU.arg('--sheet', 'family')
@@ -53,11 +54,38 @@ def kill(o):
     bpy.data.objects.remove(o, do_unlink=True)
 
 
+def _select_diversity_module(root, pick_code):
+    """For Blender preview: collapse unselected _PAINT 20/21/22 diversity module faces on `deck`."""
+    for o in descendants(root):
+        if o.type != 'MESH' or o.name.split('.')[0] != 'deck':
+            continue
+        me = o.data
+        pa = me.attributes.get('_PAINT')
+        if pa is None:
+            continue
+        vals = [0.0] * len(me.loops)
+        pa.data.foreach_get('value', vals)
+        drop_verts = set()
+        keep_verts = set()
+        for poly in me.polygons:
+            p0 = vals[poly.loop_indices[0]]
+            if p0 >= 19.5:
+                if abs(p0 - pick_code) > 0.5:
+                    for li in poly.loop_indices:
+                        drop_verts.add(me.loops[li].vertex_index)
+                else:
+                    for li in poly.loop_indices:
+                        keep_verts.add(me.loops[li].vertex_index)
+        for vi in drop_verts - keep_verts:
+            me.vertices[vi].co = (0.0, 0.0, -5.0)
+        me.update()
+
+
 def place(var, pos, hd, furl, swing=0.0, heel=0.0, wake=False, tack=1, seed=0):
     vid, fam, rig, cls, sch = var
     titan = fam == 'titan'
-    n_sec = 13 if titan else HA.SECTIONS[cls]
-    budget = 3000 if titan else HA.BUDGET[cls]
+    n_sec = 13 if titan else HA.VARIANT_SECTIONS.get(vid, HA.SECTIONS[cls])
+    budget = 3000 if titan else (HA.BUDGET[cls] + HA.AncientRig.LANTERN_TRIS)
     while True:
         root, objs, R = HA.build_ancient(vid, fam, rig, cls, sch, seed=seed, n_sec=n_sec, L=HA.TITAN_L if titan else None)
         t = tri_count(descendants(root))
@@ -66,6 +94,8 @@ def place(var, pos, hd, furl, swing=0.0, heel=0.0, wake=False, tack=1, seed=0):
         for o in descendants(root):
             kill(o)
         n_sec -= 1
+    hb_bake.bake_boat_ao(root, samples=48, distance=3.5, offset=0.02, ao_min=0.35)
+    _select_diversity_module(root, 20.0 + ((seed + (0 if furl > 0.5 else 1)) % 3))
     REPORT[vid] = dict(tris=t, budget=budget, sections=n_sec, loa=R.L,
                        nodes=sorted({o.name.split('.')[0] for o in descendants(root)} - {vid}))
     root.location = pos; root.rotation_euler = (0, 0, math.radians(hd))
@@ -181,6 +211,60 @@ if SHEET == 'one':    # close-up of one variant, sailing (port tack) beside dock
     cam.rotation_euler = (math.radians(90 - 32), 0, math.radians(float(LU.arg('--yaw', '35'))))
     LU.fit(cam, LU.bbox_pts(r1) + LU.bbox_pts(r2), margin=0.05)
     LU.render(os.path.join(OUT, f'one-{vid}.png'))
+
+if SHEET == 'all18':
+    # 18-hull lineup board (sailing + docked overview) plus classical mooring_buoy & dinghy props
+    scene.render.resolution_x, scene.render.resolution_y = 2600, 1600
+    roots, labels = [], []
+    rows = [
+        ['usd_fisher_skiff', 'usd_coaster_boat', 'usd_coaster_small', 'usd_corbita_medium', 'usd_merchant_large', 'usd_grain_flagship'],
+        ['eur_greek_boat', 'eur_greek_small', 'eur_greek_medium', 'eur_greek_large', 'gold_bireme_medium', 'gold_trireme_large'],
+        ['other_sprit_skiff', 'other_sprit_boat', 'other_sprit_small', 'fiat_hippos_boat', 'fiat_hippos_small', 'fiat_hippos_medium'],
+    ]
+    row_y = [66.0, 32.0, 0.0]
+    furl_val = float(LU.arg('--furl', '0.0'))
+    for r, row in enumerate(rows):
+        x = 0.0
+        for k, vid in enumerate(row):
+            var = V[vid]
+            L = CLASS_LOA[var[3]]
+            x += max(L, 9.0) / 2
+            root, R, t = place(var, (x, row_y[r], 0.0), -26.0 if furl_val < 0.5 else -52.0, furl_val,
+                               swing=0.4 if furl_val < 0.5 else 0.0, heel=math.radians(7) if furl_val < 0.5 else 0.0,
+                               wake=(furl_val < 0.5), tack=-1 if (k % 2 and furl_val < 0.5) else 1, seed=k)
+            roots.append(root)
+            l1, l2 = label_of(var, t, R)
+            labels.append((Vector((x, row_y[r] - 2.8 - 0.28 * L, 0)), l1, f'{R.L:g}×{R.H.B:.2f}m · {t}t · {REPORT[vid]["sections"]}s'))
+            x += max(L, 9.0) / 2 + 4.5
+    # Add mooring_buoy and dinghy on front right of row 3
+    buoy_r, bt = build_buoy()
+    hb_bake.bake_boat_ao(buoy_r, samples=48, distance=3.5, offset=0.02, ao_min=0.35)
+    buoy_r.location = (x + 2.5, row_y[2], 0.0); LU.dress(buoy_r, 'usd_cat_skiff'); roots.append(buoy_r)
+    labels.append((Vector((x + 2.5, row_y[2] - 3.0, 0)), 'mooring buoy', f'{bt} tris'))
+    ding_r, dt = build_dinghy()
+    hb_bake.bake_boat_ao(ding_r, samples=48, distance=3.5, offset=0.02, ao_min=0.35)
+    ding_r.location = (x + 12.5, row_y[2], 0.0); ding_r.rotation_euler = (0, 0, math.radians(-42)); LU.dress(ding_r, 'usd_cat_skiff'); roots.append(ding_r)
+    labels.append((Vector((x + 12.5, row_y[2] - 3.5, 0)), 'lembos dinghy', f'{dt} tris'))
+    finish(roots, margin=0.04, pad=90)
+    tag = 'docked' if furl_val > 0.5 else 'sailing'
+    path = os.path.join(OUT, f'lineup-18-{tag}.png')
+    LU.render(path)
+    LU.label(path, labels, f'W5 18-Hull Classical Fleet + Props ({tag}) · E15 _AO · 3D wales · 4-strip cambered decks')
+
+if SHEET == 'props':
+    scene.render.resolution_x, scene.render.resolution_y = 1400, 900
+    buoy_r, bt = build_buoy()
+    hb_bake.bake_boat_ao(buoy_r, samples=48, distance=3.5, offset=0.02, ao_min=0.35)
+    buoy_r.location = (-1.6, 0.0, 0.0); LU.dress(buoy_r, 'usd_cat_skiff')
+    ding_r, dt = build_dinghy()
+    hb_bake.bake_boat_ao(ding_r, samples=48, distance=3.5, offset=0.02, ao_min=0.35)
+    ding_r.location = (1.6, 0.0, 0.0); ding_r.rotation_euler = (0, 0, math.radians(-38)); LU.dress(ding_r, 'usd_cat_skiff')
+    finish([buoy_r, ding_r], margin=0.09, pad=20)
+    path = os.path.join(OUT, 'props-closeup.png')
+    LU.render(path)
+    LU.label(path, [(Vector((-1.6, -1.2, 0)), 'staved oak mooring buoy', f'{bt} tris · bronze hoops'),
+                    (Vector((1.6, -1.5, 0)), 'lembos dinghy', f'{dt} tris · 3.5 m')],
+             'W5 Classical Harbour Props · staved tarred-oak cask buoy & double-ended lembos dinghy')
 
 if SHEET == 'lod':
     scene.render.resolution_x, scene.render.resolution_y = 2200, 1300

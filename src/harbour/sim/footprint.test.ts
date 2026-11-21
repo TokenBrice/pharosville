@@ -24,14 +24,105 @@ describe("rendered planning footprints", () => {
       expect(slotFootprint(cls, L).beam).toBeGreaterThanOrEqual(f.beam);
     }
   });
-  it("keeps all four titans at their authored size and separates their path keys", () => {
-    for (const [id, variant] of [["usdt-tether", "titan_usdt"], ["usdc-circle", "titan_usdc"], ["usde-ethena", "titan_usde"], ["usds-sky", "titan_usds"]]) {
+  it("keeps all ten titans at their authored size and separates their path keys", () => {
+    const expected: ReadonlyArray<readonly [string, string, HullClass]> = [
+      ["usdt-tether", "titan_usdt", "flagship"],
+      ["usdc-circle", "titan_usdc", "flagship"],
+      ["usde-ethena", "titan_usde", "large"],
+      ["dai-makerdao", "titan_dai", "large"],
+      ["usds-sky", "titan_usds", "large"],
+      ["rlusd-ripple", "titan_rlusd", "large"],
+      ["usd1-world-liberty-financial", "titan_usd1", "large"],
+      ["xaut-tether", "titan_xaut", "large"],
+      ["usdg-paxos", "titan_usdg", "large"],
+      ["pyusd-paypal", "titan_pyusd", "large"],
+    ];
+    for (const [id, variant, cls] of expected) {
       const h = hulls.find((h) => h.id === variant)!;
-      const f = footprint({ id, rig: "usd", hullClass: "flagship" }, L);
+      expect(h.class).toBe(cls);
+      const f = footprint({ id, rig: "usd", hullClass: cls }, L);
       expect(f).toEqual({ loa: h.loa_m, beam: h.beam_m });
-      expect(pathKey(0, 1, "flagship", 0, f.loa, f.beam)).not.toBe(pathKey(0, 1, "flagship", 0, 26, 6.6));
+      expect(pathKey(0, 1, cls, 0, f.loa, f.beam)).not.toBe(pathKey(0, 1, cls, 0, 26, 6.6));
     }
   });
+  it("excludes titan hulls from shared class slot envelopes", () => {
+    for (const cls of ["large", "flagship"] as const) {
+      let maxBeam = L.beam[cls];
+      for (const rig of ["usd", "eur", "gold", "fiat", "other"] as const) {
+        maxBeam = Math.max(maxBeam, footprint({ id: "ordinary", rig, hullClass: cls }, L).beam);
+      }
+      expect(slotFootprint(cls, L)).toEqual({ loa: L.loa[cls], beam: maxBeam });
+    }
+  });
+});
+
+it("blocks ordinary boats from overlapping a docked titan without shrinking ordinary slot capacity", async () => {
+  const { buildHarbourModel } = await import("../model/build");
+  const { buildPlan } = await import("./plan");
+  const { slotConflictsFor, slotsOverlap } = await import("./layout-graph");
+  const { makePayloads, PIERED, T0_MS } = await import("./test-fixtures");
+
+  // Two large alongside berths 19.6 m apart bow-to-stern: two ordinary 18 m boats clear by 1.6 m
+  // (> 0.5 m gap, zero static conflict), while a 22 m titan + 18 m boat would overlap by 0.4 m.
+  const makePairLayout = () => {
+    const L = buildSimLayout(makeLayout({ berthsPerClass: 2 }));
+    L.hard = () => 100;
+    const list = L.pools.get("pier-ethereum")!.get("large")!;
+    expect(list.length).toBeGreaterThanOrEqual(2);
+    const a = L.slots[list[0]], b = L.slots[list[1]];
+    // Place both in open water heading +Z along the same line, 19.6 m apart.
+    a.x = 120; a.z = 120; a.heading = 0; a.swing = 0; a.mode = "alongside"; a.conflicts = [];
+    b.x = 120; b.z = 139.6; b.heading = 0; b.swing = 0; b.mode = "alongside"; b.conflicts = [];
+    // Clear flagship pool on pier-ethereum so the titan uses one of the two large berths.
+    L.pools.get("pier-ethereum")!.set("flagship", []);
+    L.pools.get("pier-ethereum")!.set("large", [a.index, b.index]);
+    return { L, a, b };
+  };
+
+  const makeLargeCoin = (id: string, supply: number) => ({
+    id, name: id, symbol: id, pegType: "peggedUSD",
+    circulating: { peggedUSD: supply },
+    chainCirculating: { Ethereum: { current: supply } },
+    chains: ["Ethereum"],
+  });
+
+  // Sanity: two ordinary large boats can occupy both slots simultaneously.
+  {
+    const { L, a, b } = makePairLayout();
+    expect(slotsOverlap(a, slotFootprint("large", L), b, slotFootprint("large", L))).toBe(false);
+    const coins = [makeLargeCoin("ord-a", 3e9), makeLargeCoin("ord-b", 2e9)];
+    const model = buildHarbourModel(makePayloads({ coins }), T0_MS, { pieredChains: PIERED, dead: [] });
+    expect(model.boats.map((m) => m.hullClass)).toEqual(["large", "large"]);
+    const plan = buildPlan(model, L);
+    expect(plan.boats.map((p) => p.staticSlot).sort((x, y) => x - y)).toEqual([a.index, b.index].sort((x, y) => x - y));
+  }
+
+  // Docked titan (usde-ethena, 22 m) + ordinary large boat (18 m): neighbour slot is reserved, zero overlap.
+  {
+    const { L, a, b } = makePairLayout();
+    const coins = [makeLargeCoin("usde-ethena", 5e9), makeLargeCoin("ord-b", 2e9)];
+    const model = buildHarbourModel(makePayloads({ coins }), T0_MS, { pieredChains: PIERED, dead: [] });
+    const titanFoot = footprint(model.boats[0], L);
+    expect(slotConflictsFor(L, a.index, titanFoot)).toContain(b.index);
+    const plan = buildPlan(model, L);
+    const titanPlan = plan.byId.get("usde-ethena")!;
+    const ordPlan = plan.boats.find((p) => p.id !== "usde-ethena")!;
+    expect([a.index, b.index]).toContain(titanPlan.staticSlot);
+    expect([a.index, b.index]).not.toContain(ordPlan.staticSlot);
+    const sT = L.slots[titanPlan.staticSlot], sO = L.slots[ordPlan.staticSlot];
+    expect(slotsOverlap(sT, { loa: titanPlan.loa, beam: titanPlan.beam }, sO, { loa: ordPlan.loa, beam: ordPlan.beam })).toBe(false);
+  }
+
+  // Two titans at slots 20.6 m apart (titan + ordinary clears, titan + titan overlaps): never both berthed together.
+  {
+    const { L, b } = makePairLayout();
+    b.z = 140.6;
+    const coins = [makeLargeCoin("usde-ethena", 5e9), makeLargeCoin("rlusd-ripple", 4e9)];
+    const model = buildHarbourModel(makePayloads({ coins }), T0_MS, { pieredChains: PIERED, dead: [] });
+    const plan = buildPlan(model, L);
+    const p0 = plan.byId.get("usde-ethena")!, p1 = plan.byId.get("rlusd-ripple")!;
+    expect(slotsOverlap(L.slots[p0.staticSlot], { loa: p0.loa, beam: p0.beam }, L.slots[p1.staticSlot], { loa: p1.loa, beam: p1.beam })).toBe(false);
+  }
 });
 
 it("reserves a titan-sized overflow raft instead of reusing a smaller cell", async () => {

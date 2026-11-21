@@ -724,35 +724,14 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
     gates.set(where, { inNode, outNode, x: x / all.length, z: z / all.length });
   }
 
-  const slotFeet = Object.fromEntries(CLASS_ORDER.map((cls) => [cls, slotFootprint(cls, { loa, beam })])) as Record<HullClass, { loa: number; beam: number }>;
+  const slotFeet = Object.fromEntries(CLASS_ORDER.map((cls) => [cls, slotFootprint(cls, { loa, beam })])) as Record<HullClass, HullFootprint>;
   // footprints that overlap are never occupied together (adjacent alongside berths, close moorings)
-  const foot = (s: Slot): Array<[number, number, number, number, number]> => {
-    const { loa: L, beam: B } = slotFeet[s.cls];
-    const caps: Array<[number, number, number, number, number]> = [];
-    const yaws = s.swing > 0 ? [-0.45, 0, 0.45] : [0];
-    for (const dy of yaws) {
-      const h = s.heading + dy;
-      const [fx, fz] = bowVec(h);
-      const cx = s.x - Math.sin(h) * s.swing, cz = s.z - Math.cos(h) * s.swing;
-      const hl = Math.max(0, L / 2 - B / 2);
-      caps.push([cx - fx * hl, cz - fz * hl, cx + fx * hl, cz + fz * hl, B / 2]);
-    }
-    return caps;
-  };
   const cell = 30, grid = new Map<number, number[]>();
   const key = (x: number, z: number) => (Math.floor(x / cell) + 1000) * 4096 + Math.floor(z / cell) + 1000;
   const docks = slots.filter((s) => s.kind !== "wreck");
   for (const s of docks) { const k = key(s.x, s.z); (grid.get(k) ?? grid.set(k, []).get(k)!).push(s.index); }
-  const capDist = (a: [number, number, number, number, number], b: [number, number, number, number, number]) => {
-    let d = Infinity;
-    for (let i = 0; i <= 6; i++) {
-      const t = i / 6;
-      d = Math.min(d, segDist(a[0] + (a[2] - a[0]) * t, a[1] + (a[3] - a[1]) * t, [b[0], b[1]], [b[2], b[3]]), segDist(b[0] + (b[2] - b[0]) * t, b[1] + (b[3] - b[1]) * t, [a[0], a[1]], [a[2], a[3]]));
-    }
-    return d - a[4] - b[4];
-  };
   for (const s of docks) {
-    const fs = foot(s);
+    const fs = slotCapsules(s, slotFeet[s.cls]);
     const gx = Math.floor(s.x / cell), gz = Math.floor(s.z / cell);
     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
       for (const o of grid.get((gx + i + 1000) * 4096 + gz + j + 1000) ?? []) {
@@ -760,13 +739,7 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
         const so = slots[o];
         // berths only crowd berths of their own pier (piers are laid out apart); swinging hulls anyone
         if (s.swing === 0 && so.swing === 0 && s.where !== so.where) continue;
-        if (hypot(so.x - s.x, so.z - s.z) > (slotFeet[s.cls].loa + slotFeet[so.cls].loa) / 2 + s.swing + so.swing + 2) continue;
-        const gap = s.swing > 0 || so.swing > 0 ? 0.8 : s.mode === "finger" && so.mode === "finger" ? 0.3 : 0.5;
-        const fo = foot(so);
-        // two buoys laid closer than their rodes allow (the hulls swing with wind, tide and yaw, ~±1.2 rad, far
-        // past the footprints above): never occupied together either
-        const crowded = s.swing > 0 && so.swing > 0 && hypot(so.x - s.x, so.z - s.z) < (s.swing + so.swing + (slotFeet[s.cls].loa + slotFeet[so.cls].loa) / 2) * 0.6;
-        if (crowded || fs.some((a) => fo.some((b) => capDist(a, b) < gap))) { s.conflicts.push(o); so.conflicts.push(s.index); }
+        if (slotsOverlap(s, slotFeet[s.cls], so, slotFeet[so.cls], fs)) { s.conflicts.push(o); so.conflicts.push(s.index); }
       }
     }
   }
@@ -779,6 +752,67 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
 }
 
 const LANE_SEGS = new WeakMap<SimLayout, Float64Array>();
+const SLOT_FEET = new WeakMap<SimLayout, Record<HullClass, HullFootprint>>();
+
+export interface HullFootprint {
+  loa: number;
+  beam: number;
+}
+
+type Capsule = [number, number, number, number, number];
+
+function slotCapsules(s: Slot, f: HullFootprint): Capsule[] {
+  const { loa: L, beam: B } = f;
+  const caps: Capsule[] = [];
+  const yaws = s.swing > 0 ? [-0.45, 0, 0.45] : [0];
+  for (const dy of yaws) {
+    const h = s.heading + dy;
+    const fx = Math.sin(h), fz = Math.cos(h);
+    const cx = s.x - fx * s.swing, cz = s.z - fz * s.swing;
+    const hl = Math.max(0, L / 2 - B / 2);
+    caps.push([cx - fx * hl, cz - fz * hl, cx + fx * hl, cz + fz * hl, B / 2]);
+  }
+  return caps;
+}
+
+function capDist(a: Capsule, b: Capsule): number {
+  let d = Infinity;
+  for (let i = 0; i <= 6; i++) {
+    const t = i / 6;
+    d = Math.min(d, segDist(a[0] + (a[2] - a[0]) * t, a[1] + (a[3] - a[1]) * t, [b[0], b[1]], [b[2], b[3]]), segDist(b[0] + (b[2] - b[0]) * t, b[1] + (b[3] - b[1]) * t, [a[0], a[1]], [a[2], a[3]]));
+  }
+  return d - a[4] - b[4];
+}
+
+/** True when a hull of size `fsFoot` at `s` and a hull of size `foFoot` at `so` overlap or crowd within berth/swing clearance. */
+export function slotsOverlap(s: Slot, fsFoot: HullFootprint, so: Slot, foFoot: HullFootprint, fsCaps?: Capsule[], foCaps?: Capsule[]): boolean {
+  if (hypot(so.x - s.x, so.z - s.z) > (fsFoot.loa + foFoot.loa) / 2 + s.swing + so.swing + 2) return false;
+  const gap = s.swing > 0 || so.swing > 0 ? 0.8 : s.mode === "finger" && so.mode === "finger" ? 0.3 : 0.5;
+  // two buoys laid closer than their rodes allow (the hulls swing with wind, tide and yaw, ~±1.2 rad, far
+  // past the footprints above): never occupied together either
+  const crowded = s.swing > 0 && so.swing > 0 && hypot(so.x - s.x, so.z - s.z) < (s.swing + so.swing + (fsFoot.loa + foFoot.loa) / 2) * 0.6;
+  if (crowded) return true;
+  const fs = fsCaps ?? slotCapsules(s, fsFoot);
+  const fo = foCaps ?? slotCapsules(so, foFoot);
+  return fs.some((a) => fo.some((b) => capDist(a, b) < gap));
+}
+
+/** Every non-wreck, non-raft slot whose ordinary class envelope would overlap a hull of size `foot` moored at `slotIndex`. */
+export function slotConflictsFor(L: SimLayout, slotIndex: number, foot: HullFootprint): number[] {
+  const s = L.slots[slotIndex];
+  let feet = SLOT_FEET.get(L);
+  if (!feet) {
+    feet = Object.fromEntries(CLASS_ORDER.map((cls) => [cls, slotFootprint(cls, L)])) as Record<HullClass, HullFootprint>;
+    SLOT_FEET.set(L, feet);
+  }
+  const fs = slotCapsules(s, foot);
+  const out: number[] = [];
+  for (const so of L.slots) {
+    if (so.index === slotIndex || so.kind === "wreck" || so.kind === "raft") continue;
+    if (slotsOverlap(s, foot, so, feet[so.cls], fs)) out.push(so.index);
+  }
+  return out;
+}
 /** The lane graph's edges as flat [ax, az, bx, bz] (derived once per layout). */
 function laneSegments(L: SimLayout): Float64Array {
   let segs = LANE_SEGS.get(L);
@@ -829,10 +863,13 @@ export function addRaftSlot(L: SimLayout, where: string, k: number, loa = L.loa.
     }
     return true;
   };
+  const bigRaft = cellL > L.loa.large * 1.15 + 0.1;
+  const wallPad = bigRaft ? 18 : 6;
   const fixedFits = (x: number, z: number, laneM: number): boolean => {
+    if (bigRaft && L.pharos && hypot(x - L.pharos[0], z - L.pharos[1]) < 115) return false;
     for (const [a, b] of [[0, 0], [0.5, 0.5], [0.5, -0.5], [-0.5, 0.5], [-0.5, -0.5]]) {
       const px = x + fx * cellL * a + sx * cellB * b, pz = z + fz * cellL * a + sz * cellB * b;
-      if (L.hard(px, pz) < 6) return false;
+      if (L.hard(px, pz) < wallPad) return false;
       if (L.keepOff && clearance(L.keepOff, px, pz) < 4) return false;
     }
     for (let i = 0; i < segs.length; i += 4) if (segDist(x, z, [segs[i], segs[i + 1]], [segs[i + 2], segs[i + 3]]) < laneM + cellL / 2) return false;

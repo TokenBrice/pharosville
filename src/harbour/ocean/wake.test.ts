@@ -160,11 +160,11 @@ describe("E12 feathered wakes", () => {
     expect(live.fragmentShader).toContain("kel = (kel + bow * 0.45) * sp;");
     expect(OCEAN_FRAG).toContain("float fKel = smoothstep(0.16, 0.52, live.r * (0.55 + 0.9 * nC.r)) * 0.75 * (1.0 - 0.45 * smoothstep(1.0, 2.5, fp));");
     expect(OCEAN_FRAG).toContain("float fp = length(fwidth(xz));");
-    // every hull stamp in the fleet passes its own stable seed (stamp arguments only)
+    // every hull and tug stamp in the fleet passes its own stable seed (stamp arguments only)
     const fleet = readFileSync(resolve(__dirname, "../fleet/fleet-system.ts"), "utf8");
     const calls = fleet.match(/wake\.stamp\([^;]*\)/g) ?? [];
-    expect(calls.length).toBe(4);
-    for (const call of calls) expect(call).toMatch(/, b\.phi\)$/);
+    expect(calls.length).toBe(6);
+    for (const call of calls) expect(call).toMatch(/, (?:b\.phi|k \* 1\.7 \+ 0\.5)\)$/);
     field.dispose();
   });
 });

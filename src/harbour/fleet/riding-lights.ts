@@ -82,7 +82,11 @@ void main() {
     a = w * fall * max(0.0, dash) * 0.75;
   }
   if (a < 0.003) discard;
-  gl_FragColor = vec4(vColor * a, 1.0);
+  // per-lamp oil warmth jitter & 2-harmonic lantern flicker (stills under reduced motion via uFleetTime)
+  float flick = 0.90 + 0.06 * sin(uTime * (4.6 + 2.4 * vSeed) + vSeed * 6.283)
+                     + 0.04 * sin(uTime * (11.3 + 3.7 * vSeed) + vSeed * 19.0);
+  vec3 warmJit = mix(vec3(1.05, 0.95, 0.85), vec3(0.97, 1.02, 1.06), vSeed);
+  gl_FragColor = vec4(vColor * warmJit * flick * a, 1.0);
 }`;
 
 export class RidingLights {

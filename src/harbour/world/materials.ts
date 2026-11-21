@@ -344,8 +344,8 @@ export class HarbourMaterials {
   }
   diffuseColor.a = 1.0;`, { id: "world.11.color_fragment" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <roughnessmap_fragment>", "float roughnessFactor = hbRough;", { id: "world.12.roughnessmap_fragment" });
-      // gilt and bronze as metals (world/metal.ts); snow on them is snow, not silver
-      shader.fragmentShader = patch(shader.fragmentShader, "#include <metalnessmap_fragment>", "float metalnessFactor = hbMetal(hbPid, diffuseColor.rgb, roughnessFactor);", { id: "world.13.metalnessmap_fragment" });
+      // gilt, silver and bronze as metals (world/metal.ts; classified on pre-pattern hbVc so tiled/AO gilt stays metallic); snow on them is snow
+      shader.fragmentShader = patch(shader.fragmentShader, "#include <metalnessmap_fragment>", "float metalnessFactor = hbMetal(hbPid, diffuseColor.rgb, hbVc, roughnessFactor);", { id: "world.13.metalnessmap_fragment" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <normal_fragment_maps>", `#include <normal_fragment_maps>
   #ifndef HB_LITE
     if (hbIs(hbPid, 6.0) > 0.5) {
@@ -367,6 +367,11 @@ export class HarbourMaterials {
   #include <emissivemap_fragment>`, { id: "world.15.emissivemap_fragment" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <aomap_fragment>", `#include <aomap_fragment>
   float hbOcc = hbAO(vHbWorld, inverseTransformDirection(normal, viewMatrix));
+  #ifdef HB_FLEET
+    float hbBoatAO = vPaintC.w;
+    hbOcc *= hbBoatAO;
+    reflectedLight.directDiffuse *= mix(0.82, 1.0, hbBoatAO);
+  #endif
   float hbCs = hbCloudShadow(vHbWorld.xz);   // drifting cloud shadows (sky system)
   reflectedLight.directDiffuse *= hbCs;
   reflectedLight.directSpecular *= hbCs;
@@ -398,7 +403,7 @@ export class HarbourMaterials {
     outgoingLight += diffuseColor.rgb * (hbBeamLight(vHbWorld, hbNw) * hbOcc + hbFire);
     // moonlight fill (0 by day): soft, mostly from above, with an albedo floor so dark hulls and
     // navy/black sail covers keep a readable mid-tone at night instead of collapsing to silhouettes
-    outgoingLight += max(diffuseColor.rgb, vec3(0.12)) * uNightLift * hbOcc * (0.6 + 0.4 * max(hbNw.y, 0.0));
+    outgoingLight += max(diffuseColor.rgb, vec3(0.12)) * uNightLift * hbOcc * (0.6 + 0.4 * max(hbNw.y, 0.0)) * (1.0 - metalnessFactor * 0.72);
     // puddles mirror the sky; fresh snow catches the sun in sparse glints (faded where sub-pixel)
     // puddles: dark mirrors of the sky (water's low Fresnel, brighter only toward grazing), capped by the sky
     outgoingLight += min(hbEnvSpec(hbNw, hbVw, 0.02, 0.03), vec3(0.3 * hbSkyL + 0.003)) * hbPuddle * hbOcc;
@@ -410,6 +415,9 @@ export class HarbourMaterials {
     outgoingLight += uHbSunColor * hbDewGlint(hbPid, vHbWorld, hbNw, hbVw, uHbSunDir, hbSdW) * hbCs * 0.6;   // W12 dawn dew
     outgoingLight += hbLmHoverRim(vHbWorld, hbNw, hbVw, outgoingLight);
     outgoingLight += hbMetalLight(metalnessFactor, diffuseColor.rgb, hbNw, hbVw, roughnessFactor, reflectedLight.directSpecular, hbFire) * hbOcc;
+    #ifdef HB_FLEET
+      outgoingLight += hbFleetSeaBounce(diffuseColor.rgb, hbNw, uHbSunDir, uHbSunColor, hbOcc, uNight);
+    #endif
   }
   hbAerial(outgoingLight, vHbWorld, 0.0);   // distance (decorative, world/aerial.ts)
   #include <opaque_fragment>`, { id: "world.17.opaque_fragment" });

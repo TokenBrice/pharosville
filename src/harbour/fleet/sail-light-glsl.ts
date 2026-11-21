@@ -16,25 +16,34 @@ float hbLowSun(float y) { return (1.0 - smoothstep(0.07, 0.375, y)) * smoothstep
  */
 export const SAIL_LIGHT_GLSL = /* glsl */ `
 float hbSailOpaque = 0.0;
-vec3 hbSailGlow(vec3 dye, vec3 N, vec3 V, float furl) {
-  float ndlBack = dot(-N, uSunDir);
-  float back = clamp(ndlBack * 0.85 + 0.15, 0.0, 1.0) * smoothstep(-0.15, 0.06, ndlBack);
+vec3 hbSailGlow(vec3 dye, vec3 N, vec3 V, float furl, float aerial) {
   float lumS = dot(uSunColor, vec3(0.2126, 0.7152, 0.0722));
-  if (back <= 0.0 || lumS <= 1e-4) return vec3(0.0);
+  if (lumS <= 1e-4) return vec3(0.0);
   // low-to-afternoon sun shines warmly through woven linen; below the horizon or at night, calm
   float nightK = smoothstep(3.0, 18.0, uLamp);
-  // 4°..22° (sin): a low sun shines through; below the horizon, nothing (E21: the crowns share these edges)
-  float low = (1.0 - smoothstep(0.07, 0.375, uSunDir.y)) * smoothstep(-0.02, 0.03, uSunDir.y);
-  float cosV = dot(-V, uSunDir);
-  float toward = 0.38 * pow(max(0.0, cosV), 2.0) + 0.34 * pow(clamp(cosV * 0.5 + 0.5, 0.0, 1.0), 4.0);
-  float k = (0.16 + toward * (0.28 + 0.72 * low)) * (1.0 - nightK * 0.78);
-  vec3 sunHue = min(uSunColor / lumS, vec3(2.2));
-  // woven linen transmits warm honey-gold wavelengths preferentially when backlit by low sun
-  vec3 honey = mix(vec3(1.06, 0.96, 0.78), vec3(1.22, 0.88, 0.44), low * (1.0 - nightK));
-  vec3 tint = mix(vec3(1.0), sunHue * honey, 0.72);
-  vec3 g = dye * tint * min(lumS, 3.0) * back * k * (1.0 - furl) * (1.0 - hbSailOpaque);
+  // gentle cloth wrap-diffuse by day (0.25) so curved billow folds glow softly across grazing sun
+  float dayK = smoothstep(-0.02, 0.08, uSunDir.y) * (1.0 - nightK);
+  float ndlFront = dot(N, uSunDir);
+  float wrapDelta = max(0.0, (ndlFront + 0.25) / 1.25) - max(ndlFront, 0.0);
+  vec3 wrapCol = dye * uSunColor * (wrapDelta * 0.28) * dayK * (1.0 - furl * 0.5) * (1.0 - hbSailOpaque * 0.45);
+  float ndlBack = dot(-N, uSunDir);
+  float back = clamp(ndlBack * 0.85 + 0.15, 0.0, 1.0) * smoothstep(-0.15, 0.06, ndlBack);
+  vec3 g = vec3(0.0);
+  if (back > 0.0) {
+    // 4°..22° (sin): a low sun shines through; below the horizon, nothing (E21: the crowns share these edges)
+    float low = (1.0 - smoothstep(0.07, 0.375, uSunDir.y)) * smoothstep(-0.02, 0.03, uSunDir.y);
+    float cosV = dot(-V, uSunDir);
+    float toward = 0.38 * pow(max(0.0, cosV), 2.0) + 0.34 * pow(clamp(cosV * 0.5 + 0.5, 0.0, 1.0), 4.0);
+    float k = (0.16 + toward * (0.28 + 0.72 * low)) * (1.0 - nightK * 0.78);
+    vec3 sunHue = min(uSunColor / lumS, vec3(2.2));
+    // woven linen transmits warm honey-gold wavelengths preferentially when backlit by low sun
+    vec3 honey = mix(vec3(1.06, 0.96, 0.78), vec3(1.22, 0.88, 0.44), low * (1.0 - nightK));
+    vec3 tint = mix(vec3(1.0), sunHue * honey, 0.72);
+    g = dye * tint * min(lumS, 3.0) * back * k * (1.0 - furl) * (1.0 - hbSailOpaque);
+  }
+  vec3 outCol = (g + wrapCol) * (1.0 - aerial * 0.65);
   // calm: luminous honey-gold parchment without blowing bloom or washing out the printed emblem
-  float lg = dot(g, vec3(0.2126, 0.7152, 0.0722));
-  return g * min(1.0, 0.68 / max(lg, 1e-4));
+  float lg = dot(outCol, vec3(0.2126, 0.7152, 0.0722));
+  return outCol * min(1.0, 0.68 / max(lg, 1e-4));
 }
 `;

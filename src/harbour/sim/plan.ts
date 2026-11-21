@@ -6,12 +6,12 @@
  */
 import { u01 } from "../model/classify";
 import type { Boat, HarbourModel, HullClass } from "../model/types";
-import { addRaftSlot, CLASS_ORDER, type SimLayout } from "./layout-graph";
+import { addRaftSlot, CLASS_ORDER, slotConflictsFor, slotsOverlap, type HullFootprint, type SimLayout } from "./layout-graph";
 import { ACCEL, cruiseSpeed, legTiming, newLegTiming } from "./path";
 import { OFFSHORE_VARIANTS, outingMetres, outingTrack, outingVariants, scenicExtraMetres, trackClearOf } from "./outings";
 import { buildLegPath } from "./routes";
 import { hypot } from "./math";
-import { footprint, slotFootprint } from "./footprint";
+import { footprint, isTitanBoat, slotFootprint } from "./footprint";
 import { hullClearance } from "./obstacles";
 
 export const CYCLE_S = 6 * 3600;
@@ -227,10 +227,30 @@ function ladder(cls: HullClass): HullClass[] {
 
 export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
   const timelines: Timeline[] = [];
+  const titanBlocks: Timeline[] = [];
+  const titanBookings = new Map<string, { slot: number; foot: HullFootprint; tl: Timeline }>();
+  const titanConflictCache = new Map<string, number[]>();
   const feet = new Map(model.boats.map((b) => [b.id, footprint(b, L)]));
+  const heroes = new Set(model.boats.filter((b) => isTitanBoat(b.id)).map((b) => b.id));
   const fits = new Map<string, boolean>();
   const capacities = new Map(CLASS_ORDER.map((cls) => [cls, slotFootprint(cls, L)]));
   const tl = (slot: number) => (timelines[slot] ??= new Timeline());
+  const blockedTl = (slot: number) => (titanBlocks[slot] ??= new Timeline());
+  const titanConf = (slot: number, foot: HullFootprint): number[] => {
+    const key = `${slot}>${foot.loa},${foot.beam}`;
+    let cf = titanConflictCache.get(key);
+    if (!cf) { cf = slotConflictsFor(L, slot, foot); titanConflictCache.set(key, cf); }
+    return cf;
+  };
+  const commitSlot = (slot: number, a: number, b: number, foot: HullFootprint, isHero: boolean): void => {
+    tl(slot).add(a, b);
+    if (!isHero || L.slots[slot].kind === "raft") return;
+    for (const c of titanConf(slot, foot)) blockedTl(c).add(a, b);
+    const key = `${slot}>${foot.loa},${foot.beam}`;
+    let booking = titanBookings.get(key);
+    if (!booking) { booking = { slot, foot, tl: new Timeline() }; titanBookings.set(key, booking); }
+    booking.tl.add(a, b);
+  };
   const raftFits = new Map<string, boolean>();
   const rafts = new Map<string, number[]>(); // where → raft slots
   let overflow = 0;
@@ -249,7 +269,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     return L.pools.has(w) ? w : "far";
   };
 
-  const takeRaft = (where: string, a: number, b: number, foot: { loa: number; beam: number }): number => {
+  const takeRaft = (where: string, a: number, b: number, foot: HullFootprint): number => {
     let list = rafts.get(where);
     if (!list) rafts.set(where, (list = []));
     for (const s of list) if (L.slots[s].loa! >= foot.loa && L.slots[s].beam! >= foot.beam && tl(s).isFree(a, b)) return s;
@@ -259,25 +279,35 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
   };
 
   /** First free slot for [a, b) at `where`, walking the class ladder from a hash-rotated start. */
-  const findSlot = (where: string, cls: HullClass, a: number, b: number, seed: string, avoid: ReadonlyArray<[number, number, number]>, foot: { loa: number; beam: number }): number => {
+  const findSlot = (where: string, cls: HullClass, a: number, b: number, seed: string, avoid: ReadonlyArray<[number, number, number]>, foot: HullFootprint, isHero: boolean): number => {
     const byCls = L.pools.get(where);
     if (!byCls) return -1;
     const blocked = new Set<number>();
-    for (const [slot, start, end] of avoid) if (a < end && start < b) blocked.add(slot);
+    for (const [slot, start, end] of avoid) if (slot >= 0 && a < end && start < b) blocked.add(slot);
     const avoided = (slot: number) => blocked.has(slot);
-    for (const k of ladder(cls)) {
+    const classes = isHero && b - a < CYCLE_S && foot.loa > capacities.get(cls)!.loa ? [...ladder(cls)].reverse() : ladder(cls);
+    for (const k of classes) {
       const capacity = capacities.get(k)!;
-      if (capacity.loa < foot.loa || capacity.beam < foot.beam) continue;
+      if (!isHero && (capacity.loa < foot.loa || capacity.beam < foot.beam)) continue;
       const list = byCls.get(k);
       if (!list || list.length === 0) continue;
       const start = Math.floor(u01(seed + k) * list.length);
       for (let j = 0; j < list.length; j++) {
         const s = list[(start + j) % list.length];
         if (!tl(s).isFree(a, b)) continue;
+        if (titanBlocks[s] && !titanBlocks[s].isFree(a, b)) continue;
         if (avoided(s)) continue;
         // a neighbour whose hull would overlap this one's is busy then: skip
-        const cf = L.slots[s].conflicts;
+        const cf = isHero ? titanConf(s, foot) : L.slots[s].conflicts;
         if (cf.length && cf.some((c) => !tl(c).isFree(a, b) || avoided(c))) continue;
+        if (isHero) {
+          let titanOverlap = false;
+          for (const av of blocked) if (slotsOverlap(L.slots[s], foot, L.slots[av], foot)) { titanOverlap = true; break; }
+          if (!titanOverlap) for (const tb of titanBookings.values()) {
+            if (!tb.tl.isFree(a, b) && slotsOverlap(L.slots[s], foot, L.slots[tb.slot], tb.foot)) { titanOverlap = true; break; }
+          }
+          if (titanOverlap) continue;
+        }
         const key = `${s}>${foot.loa},${foot.beam}`;
         let fit = fits.get(key);
         if (fit === undefined) {
@@ -307,9 +337,10 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     if (b.state === "wrecked") { plans.set(b.id, empty(b, "none")); continue; }
     if (b.circuit.length !== 1) continue;
     const where = whereOfStop(b.circuit[0].chain);
-    let slot = findSlot(where, b.hullClass, 0, CYCLE_S, b.id, [], feet.get(b.id)!);
-    if (slot < 0) { slot = takeRaft(where, 0, CYCLE_S, feet.get(b.id)!); overflow++; }
-    tl(slot).add(0, CYCLE_S);
+    const foot = feet.get(b.id)!, isHero = heroes.has(b.id);
+    let slot = findSlot(where, b.hullClass, 0, CYCLE_S, b.id, [], foot, isHero);
+    if (slot < 0) { slot = takeRaft(where, 0, CYCLE_S, foot); overflow++; }
+    commitSlot(slot, 0, CYCLE_S, foot, isHero);
     const p = empty(b, "static");
     p.staticSlot = slot;
     p.segStart = Float64Array.of(0); p.segEnd = Float64Array.of(CYCLE_S); p.segKind = Uint8Array.of(SEG_DOCK);
@@ -359,9 +390,10 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     for (const s of stops) { const m = merged.find((x) => x.where === s.where); if (m) m.share += s.share; else merged.push({ ...s }); }
     if (merged.length === 1) { // degenerate circuit → static
       const where = merged[0].where;
-      let slot = findSlot(where, b.hullClass, 0, CYCLE_S, b.id, [], feet.get(b.id)!);
-      if (slot < 0) { slot = takeRaft(where, 0, CYCLE_S, feet.get(b.id)!); overflow++; }
-      tl(slot).add(0, CYCLE_S);
+      const foot = feet.get(b.id)!, isHero = heroes.has(b.id);
+      let slot = findSlot(where, b.hullClass, 0, CYCLE_S, b.id, [], foot, isHero);
+      if (slot < 0) { slot = takeRaft(where, 0, CYCLE_S, foot); overflow++; }
+      commitSlot(slot, 0, CYCLE_S, foot, isHero);
       const p = empty(b, "static");
       p.staticSlot = slot;
       p.segStart = Float64Array.of(0); p.segEnd = Float64Array.of(CYCLE_S); p.segKind = Uint8Array.of(SEG_DOCK);
@@ -424,11 +456,12 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
       const chosen: number[] = [];
       const avoid: Array<[number, number, number]> = [];
       let fails = 0;
+      const foot = feet.get(b.id)!, isHero = heroes.has(b.id);
       for (let r = 0; r < reps; r++) for (const sgm of local) {
         if (sgm.kind !== SEG_DOCK) continue;
         const w = merged[sgm.stop].where;
         const a = r * T + sgm.a - offset - RESERVE_IN_S, e = r * T + sgm.e - offset + RESERVE_OUT_S;
-        const s = findSlot(w, b.hullClass, a, e, `${b.id}#${r}#${sgm.stop}`, avoid, feet.get(b.id)!);
+        const s = findSlot(w, b.hullClass, a, e, `${b.id}#${r}#${sgm.stop}`, avoid, foot, isHero);
         if (s < 0) fails++;
         chosen.push(s);
         avoid.push([s, a, e]);
@@ -443,13 +476,14 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
     // commit: reservations, gate events, overflow rafts
     let si = 0;
     const segs: Array<{ kind: number; a: number; e: number; slot: number; from: number; scenic: number }> = [];
+    const foot = feet.get(b.id)!, isHero = heroes.has(b.id);
     for (let r = 0; r < reps; r++) for (const sgm of local) {
       if (sgm.kind !== SEG_DOCK) { segs.push({ kind: SEG_LEG, a: r * T + sgm.a, e: r * T + sgm.e, slot: -1, from: -1, scenic: scenic[sgm.stop] }); continue; }
       const w = merged[sgm.stop].where;
       const a = r * T + sgm.a - offset - RESERVE_IN_S, e = r * T + sgm.e - offset + RESERVE_OUT_S;
       let s = slots[si++];
-      if (s < 0) { s = takeRaft(w, a, e, feet.get(b.id)!); overflow++; }
-      tl(s).add(a, e);
+      if (s < 0) { s = takeRaft(w, a, e, foot); overflow++; }
+      commitSlot(s, a, e, foot, isHero);
       buckets(w)[bucketOf(r * T + sgm.a - offset)] = 1;
       buckets(w)[bucketOf(r * T + sgm.e - offset)] = 1;
       if (L.slots[s].inNode >= 0) nodeB(L.slots[s].inNode)[bucketOf(r * T + sgm.a - offset)]++;

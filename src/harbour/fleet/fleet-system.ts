@@ -35,6 +35,9 @@ import { DECK, flagPigment, linear, liveryFor, sailDye, TOPSIDE, TRIM } from "./
 import { ensureMotionService, MotionClock } from "../ui/services";
 import { fleetShadowFrustum, rigRadius } from "./visibility";
 import { castFadeUniforms, contactShare } from "../world/shadow-casters";
+import { lampGlow, lampJitter, lampRank, lampWaveUniforms } from "../lights/lamp-wave";
+import type { DynPoolService, WakeCollarService } from "../engine/services";
+import type { WakeService } from "../ocean/wake";
 
 /**
  * FleetSystem: every stablecoin's hull, in ONE BatchedMesh multi-draw (+ its shadow pass), consuming
@@ -70,10 +73,21 @@ export interface FleetFrameState {
 
 /** Riding lights come on with the town (uWindowGlow), not at the first hint of golden hour. */
 const RIDING_GLOW = 0.3;
-/** Linear colours: oil lamps are warm white; sidelights red / green. */
-const LAMP_WARM = new THREE.Color("#FFE2B0");
+/** Linear colours: oil lamps are warm amber-gold; sidelights red / green. */
+const LAMP_WARM = new THREE.Color("#FFD28E");
 const LAMP_RED = new THREE.Color("#FF3A24");
 const LAMP_GREEN = new THREE.Color("#3DFF7A");
+
+/** CPU decorative lamplighting factor (05-P3 wave + E29 uLampArrive) for dynamic boat/Titan water pools. */
+function decorLampK(x: number, y: number, z: number, windowGlow: number): number {
+  const wv = lampWaveUniforms.uLampWave.value;
+  const wr = lampWaveUniforms.uLampWaveR.value;
+  const span = wr.y > 1e-6 ? 1 / wr.y : 400;
+  const rank = lampRank(x, y, z, lampJitter(x, z), {
+    x: wv.x, z: wv.y, footY: wr.z, rMin: wr.x, rMax: wr.x + span, hTop: wr.w, spread: wv.z, fromEdge: wv.w,
+  });
+  return lampGlow(windowGlow, rank, wv.z, lampWaveUniforms.uLampArrive.value);
+}
 /**
  * Fleet detail by the quality service's tier (the same art, less of it far away): the screen size at
  * which a hull swaps to its full mesh (in / out, px), how near mooring lines and house flags are drawn,
@@ -364,7 +378,7 @@ export class FleetSystem implements WorldSystem {
     ctx.scene.add(this.lines.object);
     this.riding = new RidingLights({ ...ctx.uniforms, uTime: this.uniforms.uFleetTime });
     ctx.scene.add(this.riding.object);
-    this.fenders = new Fenders();
+    this.fenders = new Fenders(getHarbourMaterials(ctx).kit());
     ctx.scene.add(this.fenders.mesh);
     this.flags = new HouseFlags({ ...ctx.uniforms, uTime: this.uniforms.uFleetTime }, this.atlas, 1024, this.uniforms.uFleetScreen);
     ctx.scene.add(this.flags.mesh);
@@ -705,21 +719,38 @@ export class FleetSystem implements WorldSystem {
     }
   }
   private tugInst: number[] = [];
+  private readonly tugPrevX = new Float32Array(MAX_TUGS);
+  private readonly tugPrevZ = new Float32Array(MAX_TUGS);
+  private readonly tugSeenPrev = new Uint8Array(MAX_TUGS);
   /** Where each tug was drawn (x, z), for the picker; count = live tugs. */
   readonly tugSeen = { count: 0, x: new Float32Array(MAX_TUGS), z: new Float32Array(MAX_TUGS) };
 
-  /** Pose the live tugs (sim.tugs) and their towlines. */
-  private poseTugs(sim: HarbourSim | undefined, time: number): void {
+  /** Pose the live tugs (sim.tugs), their towlines, and their wakes / collars. */
+  private poseTugs(sim: HarbourSim | undefined, time: number, dt: number, wake: WakeService | undefined, wakeCollars: WakeCollarService | undefined): void {
     const v = this.kit?.hulls.get(TUG_KIT), T = sim?.tugs, mesh = this.mesh!;
     const n = v && T ? Math.min(T.count, this.tugInst.length) : 0;
     this.tugSeen.count = n;
     for (let k = 0; k < this.tugInst.length; k++) {
       const inst = this.tugInst[k];
       mesh.setVisibleAt(inst, k < n);
-      if (k >= n) continue;
+      if (k >= n) { this.tugSeenPrev[k] = 0; continue; }
       const x = T!.x[k], z = T!.z[k], h = T!.heading[k];
       this.tugSeen.x[k] = x; this.tugSeen.z[k] = z;
       const sc = TUG_LOA / v!.loa;
+      const fx = Math.sin(h), fz = Math.cos(h);
+      let spd = 1.8;
+      if (this.tugSeenPrev[k]) {
+        const vx = (x - this.tugPrevX[k]) / dt, vz = (z - this.tugPrevZ[k]) / dt;
+        const v2 = vx * vx + vz * vz;
+        spd = v2 < 400 ? Math.abs(vx * fx + vz * fz) : 0;
+      }
+      this.tugPrevX[k] = x; this.tugPrevZ[k] = z; this.tugSeenPrev[k] = 1;
+      const tugBeam = v!.beam * sc;
+      if (wake) {
+        if (spd > 0.15) wake.stamp(x, z, fx * spd, fz * spd, tugBeam * 0.5, 0.9, TUG_LOA * 0.5, k * 1.7 + 0.5);
+        else wake.stamp(x, z, fx * 0.002, fz * 0.002, tugBeam * 0.5, 0.4, TUG_LOA * 0.5, k * 1.7 + 0.5);
+      }
+      wakeCollars?.push(x, z, fx, fz, TUG_LOA, tugBeam, spd, 0, 0);
       // she pulls: a slow surge and roll at the oars' rhythm
       this.e.set(Math.sin(time * 3.14 + k) * 0.02, h - Math.PI / 2, Math.sin(time * 1.1 + k) * 0.015, "YZX");
       this.m4.compose(this.v.set(x, this.seaH(x, z), z), this.q.setFromEuler(this.e), this.s.setScalar(sc));
@@ -1107,6 +1138,8 @@ export class FleetSystem implements WorldSystem {
     if (sim?.resumeHolding && !this.needsFullPose) return;
     this.ocean = ctx.services.get("ocean") ?? null;
     const wake = ctx.services.get("wake");
+    const wakeCollars = ctx.services.get("wakeCollars");
+    const dynPool: DynPoolService | undefined = ctx.services.get("dynPool");
     const revision = sim?.resumeRevision ?? 0;
     const reconciled = revision !== this.resumeRevision;
     if (reconciled) {
@@ -1348,7 +1381,7 @@ export class FleetSystem implements WorldSystem {
         }
         const v = b.variant;
         if (b.struck) { this.lampAt(v.sternCleat.x * 0.92, v.sternCleat.y, 0); this.v.y += 0.5 + size * 0.72; }
-        else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += 0.3 + (this.mastSignals?.lift(b.id, b.loa) ?? 0); }
+        else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += size * 0.68 + (this.mastSignals?.lift(b.id, b.loa) ?? 0); }
         // E04: her colours in the harbour's pigment and air; the hovered / selected / searched hull flies them full
         const hiFlag = b.hi > 0.05;
         this.flags.add(this.v.x, this.v.y, this.v.z, size, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), b.slot, b.phi * 3,
@@ -1358,9 +1391,9 @@ export class FleetSystem implements WorldSystem {
           const dSize = size * 0.7;
           this.flags.add(this.v.x, this.v.y + dSize * 0.72 + 0.15, this.v.z, dSize, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 0.7, b.brand, FLAG_DISTRESS);
         }
-        // 06-F7c a titan flies a long vexillum from the truck, above her house flag (decorative)
+        // 06-F7c a titan flies a long silk vexillum from the truck, above her house flag (decorative)
         if (b.titan && !distress && !b.struck) {
-          this.flags.add(this.v.x, this.v.y + 0.9, this.v.z, b.loa * 0.34, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 1.3,
+          this.flags.add(this.v.x, this.v.y + 0.45, this.v.z, b.loa * 0.42, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 1.3,
             b.hi > 0.05 ? b.brand : b.flagBrand, FLAG_STREAMER, b.hi > 0.05);
         }
         b.flag = 0;
@@ -1373,6 +1406,29 @@ export class FleetSystem implements WorldSystem {
         if (b.wrecked) this.writeMotion(b.inst, 0, 0, 0, 0); else this.writeMotion(b.inst, mo.fill, mo.shake, lantern, b.row);
       }
 
+      // S-3 dynamic boat-to-water night pools: Titan galleries/temples/rotundas/vaults/USDS brazier (decorative, uLampArrive-gated)
+      if (dynPool && glow > 0.02 && b.titan && !b.wrecked && !onWays && (b.visible || b.dist < 1600)) {
+        const tk = decorLampK(x, h0 + 2.5, z, glow);
+        if (tk > 0.02) {
+          const vid = b.variant.id;
+          if (vid === "titan_usdt") {
+            dynPool.light(x - fx * b.loa * 0.28, z - fz * b.loa * 0.28, h0 + 3.2, 14, 1.15 * tk, 0.54 * tk, 0.14 * tk);
+          } else if (vid === "titan_usdc") {
+            dynPool.light(x - fx * b.loa * 0.08, z - fz * b.loa * 0.08, h0 + 3.0, 13, 1.10 * tk, 0.56 * tk, 0.16 * tk);
+          } else if (vid === "titan_usds") {
+            dynPool.light(x - fx * b.loa * 0.22, z - fz * b.loa * 0.22, h0 + 5.8, 13.5, 1.35 * tk, 0.56 * tk, 0.11 * tk);
+          } else if (vid === "titan_xaut") {
+            dynPool.light(x, z, h0 + 2.4, 12, 1.25 * tk, 0.62 * tk, 0.12 * tk);
+          } else if (vid === "titan_usdg") {
+            dynPool.light(x + fx * b.loa * 0.22, z + fz * b.loa * 0.22, h0 + 2.6, 10, 0.95 * tk, 0.46 * tk, 0.12 * tk);
+            dynPool.light(x - fx * b.loa * 0.24, z - fz * b.loa * 0.24, h0 + 2.6, 10, 0.95 * tk, 0.46 * tk, 0.12 * tk);
+          } else {
+            const rad = Math.min(13, Math.max(10, b.loa * 0.48));
+            dynPool.light(x - fx * b.loa * 0.25, z - fz * b.loa * 0.25, h0 + 2.6, rad, 1.05 * tk, 0.48 * tk, 0.13 * tk);
+          }
+        }
+      }
+
       // night: under way, masthead + red/green sidelights (+ the stern light); anchored, an anchor light;
       // moored, only some hulls show a dim one. Stern / anchor lamps are lit only with a peg reading: analytical (D11),
       // they show at once (as their lantern glass does), never held back by the lamp round or the arrival beat; the
@@ -1381,16 +1437,21 @@ export class FleetSystem implements WorldSystem {
         const v = b.variant, rl = this.riding;
         const lampAt = this.lampAt;
         if (moving) {
+          const dk = dynPool && glow > 0.02 ? decorLampK(x, h0 + 2, z, glow) : 0;
           const mh = lampAt(v.masthead.x, v.masthead.y, v.masthead.z);
           rl.add(mh.x, mh.y, mh.z, LAMP_WARM.r * 5, LAMP_WARM.g * 5, LAMP_WARM.b * 5, 0.42, h0, 0.6);
+          if (dk > 0.02) dynPool!.light(mh.x, mh.z, mh.y, 4.5, LAMP_WARM.r * 0.75 * dk, LAMP_WARM.g * 0.75 * dk, LAMP_WARM.b * 0.75 * dk);
           const bx = v.bowCleat.x * 0.7, by = v.bowCleat.y + 0.55, bz = v.beam * 0.42;
           const pl = lampAt(bx, by, -bz);
           rl.add(pl.x, pl.y, pl.z, LAMP_RED.r * 3.2, LAMP_RED.g * 3.2, LAMP_RED.b * 3.2, 0.3, h0, 0.7);
+          if (dk > 0.02) dynPool!.light(pl.x, pl.z, pl.y, 3.8, LAMP_RED.r * 0.65 * dk, LAMP_RED.g * 0.65 * dk, LAMP_RED.b * 0.65 * dk);
           const sl = lampAt(bx, by, bz);
           rl.add(sl.x, sl.y, sl.z, LAMP_GREEN.r * 2.8, LAMP_GREEN.g * 2.8, LAMP_GREEN.b * 2.8, 0.3, h0, 0.7);
+          if (dk > 0.02) dynPool!.light(sl.x, sl.z, sl.y, 3.8, LAMP_GREEN.r * 0.55 * dk, LAMP_GREEN.g * 0.55 * dk, LAMP_GREEN.b * 0.55 * dk);
           if (b.reading && pegLive) {
             const sp = lampAt(v.sternLantern.x, v.sternLantern.y, v.sternLantern.z);
             rl.add(sp.x, sp.y, sp.z, LAMP_WARM.r * 2.2, LAMP_WARM.g * 2.2, LAMP_WARM.b * 2.2, 0.26, h0, 0.8, true);
+            if (dynPool && glow > 0.02) dynPool.light(sp.x, sp.z, sp.y, 4.0, LAMP_WARM.r * 0.60 * glowK, LAMP_WARM.g * 0.60 * glowK, LAMP_WARM.b * 0.60 * glowK);
           }
         } else {
           const k = ph === PH_ANCHORED ? 1.3 : 0.65;
@@ -1399,6 +1460,7 @@ export class FleetSystem implements WorldSystem {
           const mh = ph !== PH_ANCHORED ? lampAt(v.sternLantern.x, v.sternLantern.y, v.sternLantern.z)
             : b.struck ? lampAt(v.bowCleat.x * 0.8, v.bowCleat.y + 1.2, 0) : lampAt(v.masthead.x, v.masthead.y, v.masthead.z);
           rl.add(mh.x, mh.y, mh.z, LAMP_WARM.r * k, LAMP_WARM.g * k, LAMP_WARM.b * k, ph === PH_ANCHORED ? 0.26 : 0.17, h0, 0.5, true);
+          if (dynPool && glow > 0.02) dynPool.light(mh.x, mh.z, mh.y, 4.0, LAMP_WARM.r * 0.48 * glowK, LAMP_WARM.g * 0.48 * glowK, LAMP_WARM.b * 0.48 * glowK);
         }
       }
 
@@ -1406,16 +1468,27 @@ export class FleetSystem implements WorldSystem {
       // Only way along the hull's own axis makes a wake: warping sideways onto a quay (the titans) left a hull-wide
       // U of trail foam stamped across the hull.
       const fwd = b.vx * fx + b.vz * fz;
-      if (wake && !b.wrecked && !onWays) {
-        // the launch's splash: a burst of foam round her as she takes the water (07-M12)
-        if (pose!.pitch[i] > 0.04) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * 2.2, 2, b.loa * 0.8, b.phi);
-        if (moving && Math.abs(fwd) > 0.15) { wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5, b.phi); st.moving++; }
-        else if (ph === PH_ANCHORED) {
-          // aground: surf breaks and churns round the hull, pulsing with the swell
-          const surge = 0.5 + 0.5 * Math.sin(time * 1.4 + b.phi);
-          wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * (1.6 + 0.4 * surge), 1.4 + 0.6 * surge, b.loa * 0.7, b.phi);
-        } else if (tier.contact || b.visible) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb, contactK, b.loa * 0.5, b.phi);
-        st.wakes++;
+      if (!b.wrecked && !onWays) {
+        if (wake) {
+          // the launch's splash: a burst of foam round her as she takes the water (07-M12)
+          if (pose!.pitch[i] > 0.04) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * 2.2, 2, b.loa * 0.8, b.phi);
+          if (moving && Math.abs(fwd) > 0.15) { wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5, b.phi); st.moving++; }
+          else if (ph === PH_ANCHORED) {
+            // aground: surf breaks and churns round the hull, pulsing with the swell
+            const surge = 0.5 + 0.5 * Math.sin(time * 1.4 + b.phi);
+            wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * (1.6 + 0.4 * surge), 1.4 + 0.6 * surge, b.loa * 0.7, b.phi);
+          } else if (tier.contact || b.visible) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb, contactK, b.loa * 0.5, b.phi);
+          st.wakes++;
+        }
+        // S-3 wakeCollars: High-only screen-res waterline AO meniscus, bow mustache & galley oar-splash ripples
+        if (wakeCollars && (b.visible || moving)) {
+          const isGalley = b.variant.oars || b.variant.id === "titan_rlusd" || b.variant.id === "titan_xaut";
+          const collarKind: 0 | 1 = isGalley && b.row > 0.1 ? 1 : 0;
+          const seed = this.paint[b.inst * PAINT_TEXELS * 4 + 11] ?? 0;
+          const rawPh = time * Math.PI + seed * 2.1;
+          const oarPhase = collarKind === 1 ? rawPh + 0.28 * Math.sin(rawPh) : 0;
+          wakeCollars.push(x, z, fx, fz, b.loa, b.beam, moving ? Math.abs(fwd) : 0, collarKind, oarPhase);
+        }
       }
       if (ph === PH_DOCKED || ph === PH_MOORED) st.docked++;
 
@@ -1429,7 +1502,7 @@ export class FleetSystem implements WorldSystem {
 
     this.mastSignals?.end();
     this.bunting?.end();
-    this.poseTugs(sim, time);
+    this.poseTugs(sim, time, dt, wake, wakeCollars);
 
     // hulks lie still on the dry strand (set once: they never move)
     if (!this.wrecksPosed) {

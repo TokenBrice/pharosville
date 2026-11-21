@@ -236,7 +236,7 @@ describe("E11 the hour on the water", () => {
     expect(SEA_TONE_GLSL).toContain("return mix(vec3(dot(body, vec3(0.2126, 0.7152, 0.0722))), body, uSeaHour.a);");
     expect(OCEAN_FRAG).toContain("body = hbSeaGolden(body, sunSh, sunUp);\n  body = hbSeaHour(body);");
     expect(OCEAN_FRAG).toContain("body = hbSeaHour(body);\n  // day/night exposure of the unlit tint");
-    expect(OCEAN_FRAG).toContain("F = max(F, uSeaLow.y * zm.b);\n  vec3 col = body * (1.0 - F) + sky * F;");
+    expect(OCEAN_FRAG).toContain("F = max(F, uSeaLow.y * zm.b);\n  F *= 1.0 - 0.55 * hullOcc;\n  vec3 col = body * (1.0 - F) + sky * F;");
     const sys = readFileSync(resolve(__dirname, "ocean-system.ts"), "utf8");
     expect(sys).toContain("s.hour = 12; s.apply(this.noonU);");
     expect(sys).toContain("s.hour = tod.hour; s.apply(this.hourU);");
@@ -300,7 +300,7 @@ describe("E13 glints the pixel can hold", () => {
   it("widens every sun and moon glint lobe by footprint, melts the spark masks on ascending ramps, then caps", () => {
     expect(SEA_TONE_GLSL).toContain("float m = n / (1.0 + n * spread);\n  return pow(c, m) * ((m + 2.0) / (n + 2.0));");
     expect(SEA_TONE_GLSL).toContain("return glint * min(1.0, max(0.85 * uBloomT - base, 0.0) / max(g, 1e-4));");
-    expect(OCEAN_FRAG).toContain("float unres = smoothstep(0.12, 0.35, fp);\n  #ifdef HB_LITE\n  unres = 1.0;\n  #endif\n  float spread = 0.3 * fp * fp;");
+    expect(OCEAN_FRAG).toContain("float unres = smoothstep(0.35, 1.10, fp);\n  #ifdef HB_LITE\n  unres = 1.0;\n  float spread = 0.3 * fp * fp;\n  #else\n  float nVar = clamp(dot(dFdx(N), dFdx(N)) + dot(dFdy(N), dFdy(N)), 0.0, 0.35);\n  float spread = nVar * 0.55 + 0.04 * fp * fp;\n  #endif");
     // the Low tier never pays more: its glints read the calm normals only and the column drops its twinkling facets
     expect(OCEAN_FRAG).toContain("#ifdef HB_LITE\n  sparks = 0.0;\n  #endif");
     expect(OCEAN_FRAG).toContain("float aa = unres;");

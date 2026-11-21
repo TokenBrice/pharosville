@@ -15,7 +15,12 @@ export function footprint(b: Pick<Boat, "id" | "rig" | "hullClass">, L: Pick<Sim
   return { loa, beam: h ? h.beam_m * (loa / h.loa_m) : L.beam[b.hullClass] };
 }
 
-/** Conservative slot-conflict envelope; supply classes themselves keep their analytical dimensions. */
+/** True when `id` resolves to a hero titan hull in the kit manifest. */
+export function isTitanBoat(id: string): boolean {
+  return titanFor(id, (v) => byId.has(v)) !== null;
+}
+
+/** Conservative slot-conflict envelope for ordinary fleet hulls; titans use per-slot footprint checks. */
 export function slotFootprint(cls: Boat["hullClass"], L: Pick<SimLayout, "loa" | "beam">): { loa: number; beam: number } {
   let loa = L.loa[cls], beam = L.beam[cls];
   for (const rig of ["usd", "eur", "gold", "fiat", "other"] as const) {
@@ -23,10 +28,9 @@ export function slotFootprint(cls: Boat["hullClass"], L: Pick<SimLayout, "loa" |
     loa = Math.max(loa, f.loa); beam = Math.max(beam, f.beam);
   }
   for (const h of hulls) {
-    if (h.class !== cls) continue;
-    const hero = h.id.startsWith("titan_");
-    loa = Math.max(loa, hero ? h.loa_m : L.loa[cls]);
-    beam = Math.max(beam, h.beam_m * (hero ? 1 : L.loa[cls] / h.loa_m));
+    if (h.class !== cls || h.id.startsWith("titan_")) continue;
+    loa = Math.max(loa, L.loa[cls]);
+    beam = Math.max(beam, h.beam_m * (L.loa[cls] / h.loa_m));
   }
   return { loa, beam };
 }
