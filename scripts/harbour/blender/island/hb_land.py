@@ -16,6 +16,7 @@ from geom import along, polyline_len, catmull
 terrain.init(COAST, QL, CJ.get('beaches'))
 terrain.set_flats(CJ.get('flats', []))      # integration G2: the battery platform
 terrain.set_pads([dict(c=cv['c'], face=cv['face'], w=cv['w'], d=cv['d'], z=cv['z'], blend=2.5) for cv in CJ.get('civic', [])])   # P6 civic pads
+terrain.set_lots(CJ.get('lots', []))        # Level building lot pads (+1.5 m flat + 2.5 m ramp)
 SAND, SHINGLE, PEBBLE, WETSAND = lin('#D3BF96'), lin('#A49E90'), lin('#AFA593'), lin('#9E8D6E')
 TOWN = CJ['town']
 CTW = Vector(TOWN['ct'])                 # amphitheatre centre (world)
@@ -300,6 +301,16 @@ def build_heightfield():
         for off in (-0.45, 0.45, 2.6):
             for p in _resample(plot_rect(cv, off), 2.2):
                 add_pt(p[0], p[1], 1.0)
+    # Building lot pad breaklines (+1.5 m flat pad + 2.5 m smooth ramp) so mesh conforms cleanly around every farmhouse/cottage/warehouse
+    for _lot in CJ.get('lots', []):
+        if _lot.get('band') is not None:
+            continue
+        _lc = Vector(_lot['c']); _lf = Vector(_lot['face']); _lt = Vector((-_lf.y, _lf.x))
+        for off in (1.5, 4.0):
+            _hw, _hd = _lot['w'] * 0.5 + off, _lot['d'] * 0.5 + off
+            _lpoly = [tuple(_lc + _lt * a + _lf * b) for a, b in ((-_hw, -_hd), (_hw, -_hd), (_hw, _hd), (-_hw, _hd))]
+            for p in _resample(_lpoly, 3.2):
+                add_pt(p[0], p[1], 1.2)
     for fl in CJ.get('flats', []):
         te = fl.get('terrace')
         if not te:
@@ -340,8 +351,8 @@ def build_heightfield():
 
 
 PAD_COL = {'shipyard': (lin('#A79E89'), 'cobble'), 'burn': (lin('#8F8A80'), 'cobble')}
-# Warm Mediterranean worked-earth terrace tread & crushed limestone roadbeds (Alexandrian limestone family)
-TREAD = tuple(a * 0.56 + b * 0.44 for a, b in zip(lin('#92985A'), lin('#A48D6A')))
+# Warm Mediterranean sunlit turf terrace tread & crushed limestone roadbeds (Alexandrian limestone family)
+TREAD = tuple(a * 0.72 + b * 0.28 for a, b in zip(lin('#7E934A'), lin('#A48D6A')))
 ROAD_COL = lin('#C7B99B')
 PATH_COL = lin('#B69F7D')
 QUARRY_CUT = lin('#D8CAA9')
@@ -387,16 +398,14 @@ def hf_face(q):
             return (jitter_col(lin('#9A7D5B'), 0.94 + 0.12 * nn), PT['grass'])
         return (jitter_col(TREAD, 0.94 + 0.12 * nn), PT['grass'])
 
-    # Steep karst limestone cliffs & scree (warm Alexandrian limestone, PT['rock'] triggers biplanar strata)
-    if nz < 0.62:
+    # Steep karst limestone cliffs (warm Alexandrian limestone, PT['rock'] triggers biplanar strata);
+    # moderate slopes (0.54 <= nz < 0.78) stay PT['grass'] so terrain.ts blends slope-rock smoothly per-pixel!
+    if nz < 0.54:
         rn = terrain.ridge_noise(c.x, c.y, 0.032, 2, 17)
-        col_k = PAL['rock_light'] if (nz > 0.42 and rn > 0.52) else (PAL['rock'] if nn > 0.42 else PAL['rock_dark'])
+        col_k = PAL['rock_light'] if (nz > 0.38 and rn > 0.52) else (PAL['rock'] if nn > 0.42 else PAL['rock_dark'])
         return (jitter_col(col_k, 0.94 + 0.12 * nn), PT['rock'])
-    if nz < 0.80:
-        rn = terrain.ridge_noise(c.x, c.y, 0.035, 2, 19)
-        if nn > 0.56 or rn > 0.58:
-            return (jitter_col(SCREE_LIME, 0.94 + 0.12 * nn), PT['rock'])
-        return (jitter_col(lin('#738548'), 0.94 + 0.12 * nn), PT['grass'])
+    if nz < 0.78:
+        return (jitter_col(lin('#758848'), 0.94 + 0.12 * nn), PT['grass'])
 
     # Strands: sand / shingle / pebbles (Layer 4 in hb_terrain)
     if kb > 0.45:

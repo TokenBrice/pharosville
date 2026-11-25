@@ -89,6 +89,7 @@ _road_grid = {}       # (iu, iv) -> [(ri, seg_i)] at 16 m UV cells for O(1) look
 _ROAD_CELL = 16.0
 _flats = []           # level aprons shared by civic plots [(poly, z, blend, bbox, terrace)] (world)
 _pads = []            # civic plots: level pads [(cx, cy, fx, fy, hw, hd, z, blend, bbox)] (world)
+_lots = []            # building lots: level pads [(cx, cy, fx, fy, hw, hd, z, blend, bbox)] (world)
 
 
 def set_pads(pads):
@@ -99,6 +100,59 @@ def set_pads(pads):
         cx, cy = p['c']; fx, fy = p['face']; hw, hd = p['w'] / 2, p['d'] / 2; b = p.get('blend', 2.5)
         r = math.hypot(hw, hd) + b
         _pads.append((cx, cy, fx, fy, hw, hd, p['z'] - 0.08, b, (cx - r, cy - r, cx + r, cy + r)))
+
+
+def set_lots(lots, flat_margin=1.5, blend=2.5):
+    """Level pads for rural/cove/warehouse/farmhouse building lots (band is None).
+
+    Flattens terrain cleanly inside every lot footprint + `flat_margin` m to `lot['z'] - 0.08`
+    with a smooth `blend` m ramp margin AFTER escarpment/karst/ridge-noise/terrace steps,
+    while civic pads (`_pads`) and battery flat (`_flats`) still apply authoritatively last.
+    """
+    global _lots
+    _lots = []
+    for l in (lots or ()):
+        if l.get('band') is not None:
+            continue
+        cx, cy = l['c']; fx, fy = l['face']
+        hw = l['w'] * 0.5 + flat_margin
+        hd = l['d'] * 0.5 + flat_margin
+        r = math.hypot(hw, hd) + blend
+        _lots.append((cx, cy, fx, fy, hw, hd, l['z'] - 0.08, blend, (cx - r, cy - r, cx + r, cy + r)))
+
+
+def _apply_lots(x, y, h):
+    """Smoothly flatten terrain onto every non-ring building lot pad (+1.5 m flat + 2.5 m ramp)."""
+    if not _lots:
+        return h
+    in_sum = 0.0
+    in_cnt = 0
+    w_sum = 0.0
+    z_sum = 0.0
+    w_max = 0.0
+    for (cx, cy, fx, fy, hw, hd, zl, b, bb) in _lots:
+        if not (bb[0] <= x <= bb[2] and bb[1] <= y <= bb[3]):
+            continue
+        dx, dy = x - cx, y - cy
+        ly = dx * fx + dy * fy
+        lx = dx * -fy + dy * fx
+        ox = max(abs(lx) - hw, 0.0)
+        oy = max(abs(ly) - hd, 0.0)
+        d = math.hypot(ox, oy)
+        if d <= 0.0:
+            in_sum += zl
+            in_cnt += 1
+        elif d < b:
+            w = 1.0 - sstep(0.0, b, d)
+            if w > w_max:
+                w_max = w
+            w_sum += w
+            z_sum += w * zl
+    if in_cnt > 0:
+        return in_sum / in_cnt
+    if w_max <= 0.0:
+        return h
+    return h * (1.0 - w_max) + (z_sum / w_sum) * w_max
 
 
 def set_flats(flats):
@@ -566,10 +620,13 @@ def natural(u, v):
     # the headland: a low karst table (P6: the tower stands on its islet; the Burn on the NE point)
     hd = head_d(u, v)
     h = max(h, Z_SHORE + HEAD_H * (1 - sstep(0.7, 1.25, hd)) + 1.0 * (1 - sstep(0.0, 0.7, hd)))
-    # west lobe: spine + windmill knoll above rolling meadows (protected headland pads keep exact baseline coastal falloff)
-    w_dc = sstep(4.0, 30.0, dc) + pk * (sstep(2.0, 20.0, dc) - sstep(4.0, 30.0, dc)) * sstep(70.0, 20.0, v)
+    # west lobe: spine + windmill knoll above rolling meadows (protected headland pads & SW Polygon wall keep gentle falloff)
+    sw_wall_calm = (1.0 - sstep(-205.0, -185.0, u)) * (1.0 - sstep(-152.0, -138.0, v))
+    w_dc = sstep(4.0, 30.0, dc) + pk * (1.0 - sw_wall_calm) * (sstep(2.0, 20.0, dc) - sstep(4.0, 30.0, dc)) * sstep(70.0, 20.0, v)
     h += 11.0 * math.exp(-(line_d(u, v, WEST_SPINE) / 42.0) ** 2) * w_dc
     h += 7.0 * gauss(u, v, *WINDMILL_UV, 26.0, 22.0)
+    # Ease the steep NW shoulder pressing against the SW Polygon retaining wall ends (u=-248..-220, v=-176..-154)
+    h -= 3.2 * gauss(u, v, -238.0, -165.0, 12.0, 10.0)
     h += 3.0 * (fbm(u, v, 0.011, 2, 9) - 0.4) * sstep(10.0, 40.0, dc)
 
     # east lobe: asymmetric Mediterranean karst cuesta (u=228..246, v=-135..25, crest 26-33 m <= 34 m)
@@ -598,8 +655,8 @@ def natural(u, v):
     h += (fbm(u, v, 0.02, 3, 3) - 0.5) * 3.0 * calm
     if pk > 0.0 and dc > 4.0 and (u > 175.0 or u < -175.0 or v < -200.0):
         kr = (ridge_noise(u, v, 0.026, 2, 27) - 0.45) * 1.30 * pk * sstep(4.0, 18.0, dc)
-        # Keep west goat pastures smooth
-        if u < -150.0 and -160.0 < v < -102.0:
+        # Keep west goat pastures, West farmhouse lot, and SW Polygon wall shoulders smooth
+        if u < -150.0 and -192.0 < v < -102.0:
             kr = 0.0
         h += kr
 
@@ -833,22 +890,22 @@ def _furrow_delta(x, y, u, v):
     return amp * edge_w * math.sin((u * 0.9 + v * 0.3) * (2.0 * math.pi / 3.4))
 
 
-# 28 curated karst limestone outcrop crags (shared single source of truth for hb_dress.py & bake_terrain.py)
+# Curated karst limestone outcrop crags (valid open-land sites; exact placed coords also exported by hb_dress.py)
 OUTCROPS_UV = (
     # East cuesta SW escarpment, crest & outer coastal headlands
     ( 240.0, -108.0), ( 234.0,  -84.0), ( 236.0,  -52.0), ( 222.0,  -16.0),
-    ( 218.0,   22.0), ( 194.0,   72.0), ( 246.0, -142.0), ( 232.0, -138.0),
-    ( 216.0, -162.0),
-    # West spine, Sanctuary rim & Pharos headland karst table
-    (-174.0,  -72.0), (-212.0,  -34.0), (-216.0,   10.0), (-168.0,   44.0),
-    (-134.0,   86.0), ( -78.0,  108.0), (-244.0, -108.0), (-268.0, -168.0),
-    (-256.0,   -4.0),
+    ( 218.0,   28.0), ( 200.0,   72.0), ( 246.0, -142.0), ( 232.0, -138.0),
+    ( 224.0, -148.0),
+    # West terraces, West spine, Sanctuary rim & Pharos headland karst table
+    (-170.0,  -70.0), (-178.0,  -64.0), (-196.0,  -26.0), (-186.0,  -68.0),
+    (-134.0,   86.0), ( -78.0,  108.0), (-192.0,  -14.0), (-272.0, -172.0),
+    (-332.0, -154.0),
     # South ridge & inter-cove rocky knuckles
-    (-218.0, -244.0), (-108.0, -264.0), ( -32.0, -248.0), (  10.0, -274.0),
-    (  64.0, -220.0), ( 120.0, -228.0), ( 120.0, -268.0), ( 220.0, -228.0),
-    (-178.0, -224.0),
+    (-218.0, -244.0), (-108.0, -264.0), ( -20.0, -226.0), (  10.0, -274.0),
+    (  61.0, -220.0), ( 120.0, -228.0), ( 120.0, -268.0), ( 220.0, -228.0),
+    (-178.0, -218.0),
     # Upper amphitheatre rim crags
-    (  60.0,  132.0), ( 136.0,  108.0), ( -16.0,  118.0),
+    (  60.0,  132.0), ( 136.0,  108.0), (-100.0,  108.0),
 )
 
 # Smooth goat pasture relaxation specs: (centre_uv, ru, rv, ang)
@@ -899,7 +956,7 @@ def _pasture_smooth(x, y, u, v, h, dc, kb):
     return h
 
 
-def height(x, y, coves=(), pads=True, flats=True, terraces=True, discs=True, roads=True):
+def height(x, y, coves=(), pads=True, flats=True, terraces=True, discs=True, roads=True, lots=True):
     u, v = to_uv(x, y)
     n = natural(u, v)
     z, w = town_step(u, v)
@@ -948,6 +1005,8 @@ def height(x, y, coves=(), pads=True, flats=True, terraces=True, discs=True, roa
             h += kb * sstep(36.0, 44.0, dc_b) * (0.8 + 4.2 * max(0.0, fbm(x, y, 0.055, 2, 21) - 0.25))
     if terraces and _grid is not None:
         h = _pasture_smooth(x, y, u, v, h, dc_b, kb)
+    if _lots and lots:               # Building lots: +1.5 m flat pad + 2.5 m smooth ramp AFTER escarpment/karst/noise
+        h = _apply_lots(x, y, h)
     if _flats and flats:
         fl = _flat_at(x, y)
         if fl is not None and fl[3] is not None:      # a terraced edge: level ledges and a cut slope

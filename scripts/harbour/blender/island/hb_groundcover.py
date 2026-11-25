@@ -78,15 +78,15 @@ STRATUM_FRACTIONS = {
     ARCH_URBAN:      (0.38, 0.58, 0.78, 1.00),
 }
 
-# Target anchor counts (~6,950 anchors -> ~10,900 runtime instances after micro-cluster expansion)
+# Target anchor counts (~6,510 anchors -> ~10,300 runtime instances after micro-cluster expansion; <= 65 KB Brotli-11)
 ANCHOR_BUDGET = {
-    ARCH_GRASS:      2600,
-    ARCH_UNDERSTORY: 1150,
-    ARCH_MAQUIS:      950,
-    ARCH_FLOWERS:     850,
-    ARCH_ROCKS:       650,
-    ARCH_COASTAL:     420,
-    ARCH_URBAN:       330,
+    ARCH_GRASS:      2380,
+    ARCH_UNDERSTORY: 1100,
+    ARCH_MAQUIS:      900,
+    ARCH_FLOWERS:     800,
+    ARCH_ROCKS:       620,
+    ARCH_COASTAL:     400,
+    ARCH_URBAN:       310,
 }
 
 
@@ -212,9 +212,9 @@ class _BareTerrainSampler:
         self._pal_moss = _srgb_hex_to_lin('#5D7A3C')
         self._pal_heath = _srgb_hex_to_lin('#8A7090')
         self._pal_tread = tuple(
-            a * 0.6 + b * 0.4 for a, b in zip(_srgb_hex_to_lin('#93975A'), _srgb_hex_to_lin('#8B7558'))
+            a * 0.72 + b * 0.28 for a, b in zip(_srgb_hex_to_lin('#7E934A'), _srgb_hex_to_lin('#A48D6A'))
         )
-        self._pal_riser = _srgb_hex_to_lin('#9C9672')
+        self._pal_riser = _srgb_hex_to_lin('#B8A888')
         self._pal_vine = _srgb_hex_to_lin('#8C7457')
         self._pal_cobble = _srgb_hex_to_lin('#8F8A82')
         self._field_cols = {k: _srgb_hex_to_lin(v) for k, v in getattr(terrain_mod, 'FIELD_COL', {}).items()}
@@ -289,10 +289,10 @@ class _BareTerrainSampler:
                 c = self._pal_tread
             k = 0.94 + 0.12 * nn
             c = (c[0] * k, c[1] * k, c[2] * k)
-        elif nz < 0.34:
+        elif nz < 0.54:
             c = self._pal_rock
-        elif nz < 0.72:
-            c = self._pal_rock if nn > 0.66 else self._pal_grass_dark
+        elif nz < 0.78:
+            c = _srgb_hex_to_lin('#758848')
         else:
             kb, kind = t.beach_k(x, y)
             if kb > 0.45:
@@ -408,7 +408,7 @@ def _load_standalone_context(root_dir):
     coast, ql = bake_terrain._init_terrain(cj)
     roads, paths = bake_terrain._build_roads(cj, coast)
     all_roads = dict(roads)
-    for idx, ppts in enumerate(paths):
+    for idx, (ppts, _pw) in enumerate(paths):
         all_roads[f'path_{idx}'] = ppts
 
     # Build 1 m occupancy raster mirroring hb_dress.py (lots, civic, flats, quays, lanes, stairs, beaches, roads)
@@ -461,17 +461,36 @@ def _load_standalone_context(root_dir):
         if len(pts) >= 2:
             od.line([o_to(*p) for p in pts], fill=255, width=5)
 
+    # Stamp built terrace stair corridors & ancient limestone quarry floor into occupancy so groundcover stays clear
+    for (_st_uv, _st_len) in (((-156.0, -98.0), 22.0), ((-164.0, -48.0), 20.0), ((205.0, -126.0), 19.0)):
+        _sx, _sy = terrain_mod.from_uv(*_st_uv)
+        _gx = terrain_mod.height(_sx + 2.0, _sy, terraces=False, roads=False) - terrain_mod.height(_sx - 2.0, _sy, terraces=False, roads=False)
+        _gy = terrain_mod.height(_sx, _sy + 2.0, terraces=False, roads=False) - terrain_mod.height(_sx, _sy - 2.0, terraces=False, roads=False)
+        _gl = math.hypot(_gx, _gy)
+        if _gl >= 0.15:
+            _dx, _dy = _gx / _gl, _gy / _gl
+            _a = (_sx - _dx * (_st_len * 0.55), _sy - _dy * (_st_len * 0.55))
+            _b = (_sx + _dx * (_st_len * 0.55), _sy + _dy * (_st_len * 0.55))
+            od.line([o_to(*_a), o_to(*_b)], fill=255, width=5)
+    for _qv in np.arange(terrain_mod.QUARRY_UV[1] - terrain_mod.QUARRY_RV - 2.0, terrain_mod.QUARRY_UV[1] + terrain_mod.QUARRY_RV + 2.0, 1.0):
+        for _qu in np.arange(terrain_mod.QUARRY_UV[0] - terrain_mod.QUARRY_RU - 2.0, terrain_mod.QUARRY_UV[0] + terrain_mod.QUARRY_RU + 2.0, 1.0):
+            if terrain_mod.quarry_w(float(_qu), float(_qv)) > 0.35:
+                od.point(o_to(*terrain_mod.from_uv(float(_qu), float(_qv))), fill=255)
+
     land_im = Image.new('L', (ow, oh), 0)
     ImageDraw.Draw(land_im).polygon([o_to(*p) for p in coast], fill=255)
     occ = np.array(occ_im) > 0
     land_r = np.array(land_im) > 127
     occ_d = ndimage.distance_transform_edt(~occ)
 
-    # Read vegetation-instances.bin if present (Phase 1B), else fallback deterministic tree scatter
-    veg_trees = bake_terrain._try_load_veg_instances()
-    if veg_trees is None:
+    # Read exact HBVG v1 vegetation-instances.bin WITH proto_id so pines/olives/cypresses get biome-accurate understory
+    tree_pts = _read_hbvg_trees(root_dir)
+    if not tree_pts:
         veg_trees = bake_terrain._fallback_tree_placements(cj, coast, ql, roads)
-    tree_pts = [(float(tx), float(ty), float(tr)) for (tx, ty, tr, _tw) in veg_trees]
+        tree_pts = [(float(tx), float(ty), float(tr), 0 if tr >= 5.0 else (4 if tr <= 3.0 else 8)) for (tx, ty, tr, _tw) in veg_trees]
+
+    # Read exact placed strata_outcrops from hb_dress.py if present (100% match, zero orphaned halos)
+    outcrops_w = _read_placed_outcrops(root_dir, terrain_mod)
 
     heart_t = layout.get('camera', {}).get('presets', {}).get('heart', {}).get('target', [0.0, 0.0, 0.0])
     heart_bl = (float(heart_t[0]), -float(heart_t[2]))
@@ -490,10 +509,45 @@ def _load_standalone_context(root_dir):
         oy1=oy1,
         os_step=1.0,
         tree_pts=tree_pts,
-        outcrops_uv=list(bake_terrain.OUTCROPS_UV),
+        outcrops_w=outcrops_w,
+        outcrops_uv=list(terrain_mod.OUTCROPS_UV),
         hf_obj=None,
         heart_bl=heart_bl,
     )
+
+
+def _read_hbvg_trees(root_dir):
+    """Read exact HBVG v1 public/harbour/flora/vegetation-instances.bin -> [(x_bl, y_bl, r_eff, proto_id)]."""
+    bin_path = os.path.join(root_dir, 'public/harbour/flora/vegetation-instances.bin')
+    if not os.path.exists(bin_path):
+        return []
+    raw = open(bin_path, 'rb').read()
+    if len(raw) < 16 or raw[:4] != b'HBVG':
+        return []
+    ver, _pcnt, count, _flags = struct.unpack_from('<HHII', raw, 4)
+    if ver != 1 or count == 0 or 16 + count * 20 > len(raw):
+        return []
+    base_r = (6.2, 6.0, 5.2, 4.0, 2.7, 2.3, 2.9, 4.4, 3.7, 3.0, 6.0, 5.6, 4.1, 3.2, 4.3, 3.1)
+    out = []
+    for i in range(count):
+        gx, _gy, gz, _yaw_u16, sxz_u8, _sy_u8, proto_id, _seed, _luma, _sway = struct.unpack_from('<3fH6B', raw, 16 + i * 20)
+        if proto_id >= 16:
+            continue
+        sxz = 0.35 + (sxz_u8 / 255.0) * 1.45
+        out.append((float(gx), -float(gz), base_r[proto_id] * sxz, int(proto_id)))
+    return out
+
+
+def _read_placed_outcrops(root_dir, terrain_mod):
+    """Read exact placed strata_outcrops world coords from hb_dress.py (fallback to terrain.OUTCROPS_UV)."""
+    oc_path = os.path.join(root_dir, 'outputs/harbour/island/outcrops_placed.json')
+    if os.path.exists(oc_path):
+        try:
+            data = json.load(open(oc_path))
+            return [(float(o['x']), float(o['y'])) for o in data]
+        except Exception:
+            pass
+    return [terrain_mod.from_uv(u, v) for (u, v) in terrain_mod.OUTCROPS_UV]
 
 
 def _extract_exec_context(ns):
@@ -512,24 +566,19 @@ def _extract_exec_context(ns):
         ImageDraw.Draw(im).polygon([((p[0] - ox0) / os_step, (oy1 - p[1]) / os_step) for p in coast], fill=255)
         land_r = np.array(im) > 127
 
-    # Collect trunk positions from TREE_GRID, supplemented by vegetation-instances.bin if present
-    tree_pts = []
-    tree_grid = ns.get('TREE_GRID') or {}
-    for entries in tree_grid.values():
-        for (tx, ty, sp_d) in entries:
-            tree_pts.append((float(tx), float(ty), float(sp_d)))
+    # Collect trunk positions from exact HBVG v1 records (or TREE_GRID fallback)
+    tree_pts = _read_hbvg_trees(ns.get('ROOT', _ROOT))
     if not tree_pts:
-        try:
-            import bake_terrain
-            vt = bake_terrain._try_load_veg_instances()
-            if vt:
-                tree_pts = [(float(tx), float(ty), float(tr)) for (tx, ty, tr, _tw) in vt]
-        except Exception:
-            pass
+        tree_grid = ns.get('TREE_GRID') or {}
+        for entries in tree_grid.values():
+            for (tx, ty, sp_d) in entries:
+                tree_pts.append((float(tx), float(ty), float(sp_d), 0))
 
     cj_layout = ns.get('CJ_LAYOUT') or {}
     heart_t = cj_layout.get('camera', {}).get('presets', {}).get('heart', {}).get('target', [0.0, 0.0, 0.0])
     heart_bl = (float(heart_t[0]), -float(heart_t[2]))
+
+    outcrops_w = list(ns.get('OUTCROP_W') or []) or _read_placed_outcrops(ns.get('ROOT', _ROOT), terrain_mod)
 
     return dict(
         cj=cj,
@@ -545,6 +594,7 @@ def _extract_exec_context(ns):
         oy1=oy1,
         os_step=os_step,
         tree_pts=tree_pts,
+        outcrops_w=outcrops_w,
         outcrops_uv=list(ns.get('OUTCROPS') or []),
         hf_obj=ns.get('HF'),
         heart_bl=heart_bl,
@@ -597,7 +647,7 @@ def generate_groundcover_anchors(ctx, seed=4041):
     road_d = _build_road_dist_grid(ctx['roads'], ox0, oy1, ow, oh, os_step)
     heart_x, heart_y = ctx['heart_bl']
 
-    outcrops_w = [t.from_uv(u, v) for (u, v) in ctx['outcrops_uv']]
+    outcrops_w = list(ctx.get('outcrops_w') or [t.from_uv(u, v) for (u, v) in ctx['outcrops_uv']])
 
     def grid_ij(x, y):
         i = int((oy1 - y) / os_step)
@@ -650,16 +700,19 @@ def generate_groundcover_anchors(ctx, seed=4041):
             return False
         if _in_protected_crop(x, y, t):
             return False
-
-        # Never plant on wet beach sand (allow upper dune rim beach_k in (0.05, 0.45) for grass/coastal/rocks)
-        kb, _kind = t.beach_k(x, y)
-        if kb > 0.45:
-            return False
-        if arch in (ARCH_UNDERSTORY, ARCH_FLOWERS, ARCH_URBAN) and kb > 0.15:
+        if t.quarry_w(*t.to_uv(x, y)) > 0.30:
             return False
 
+        # Never plant on wet beach sand (allow upper dune rim beach_k <= 0.45, plus Wreck Cove upper dunes
+        # dc >= 36 m for grass/coastal replacing stripped baked marram!)
+        kb, b_kind = t.beach_k(x, y)
         dc = t.dcoast(x, y)
         if dc < 1.2:
+            return False
+        on_upper_dune = (b_kind == 'sand' and dc >= 36.5 and kb <= 0.92 and arch in (ARCH_GRASS, ARCH_COASTAL))
+        if kb > 0.45 and not on_upper_dune:
+            return False
+        if arch in (ARCH_UNDERSTORY, ARCH_FLOWERS, ARCH_URBAN) and kb > 0.15:
             return False
 
         z_bl, nrm_bl, col = sampler.sample(x, y)
@@ -703,37 +756,69 @@ def generate_groundcover_anchors(ctx, seed=4041):
         ))
         return True
 
-    # ---- 1. PINE-WOODLAND & OLIVE/CYPRESS UNDERSTORY (0.5 - 2.8 m around trunks) ----
-    # Directly grounds every bare trunk with pine-needle mounds, arching fern fans, shade rosemary,
-    # and downhill mossy limestone rocks.
+    # ---- 1. PINE-WOODLAND UNDERSTORY & OLIVE/CYPRESS BASE GROUNDING (species-aware from HBVG v1!) ----
+    # Pines (proto 0..3): lush arching fern fans, pine-needle beds (ARCH_UNDERSTORY) + warm downhill limestone scree.
+    # Olives (proto 7..9): sunlit grass & wildflower tufts (keep thinned Aegean terraces airy, never dark forest floor!).
+    # Cypresses (4..6) & broadleaf (10..15): crisp base grass / understory grounding.
     trees = list(ctx['tree_pts'])
     rng.shuffle(trees)
-    for (tx, ty, _sp_d) in trees:
-        n_ring = rng.randint(2, 3)
+    for entry in trees:
+        tx, ty = entry[0], entry[1]
+        pid = entry[3] if len(entry) >= 4 else 0
+        is_pine = pid in (0, 1, 2, 3)
+        is_olive = pid in (7, 8, 9)
         base_ang = rng.uniform(0.0, math.pi * 2.0)
-        for k in range(n_ring):
-            ang = base_ang + k * (math.pi * 2.0 / n_ring) + rng.uniform(-0.45, 0.45)
-            rad = rng.uniform(0.55, 2.75)
-            px, py = tx + math.cos(ang) * rad, ty + math.sin(ang) * rad
-            if try_add(
-                ARCH_UNDERSTORY, px, py, 1.25,
-                rng.uniform(0.82, 1.32), rng.randrange(16),
-                2 if rng.random() < 0.55 else 1,
-                importance=1.15, max_slope=0.52,
-            ):
-                pass
-        # Downhill mossy limestone rock tucked near woodland trunks
-        if rng.random() < 0.32 and len(anchors[ARCH_ROCKS]) < int(ANCHOR_BUDGET[ARCH_ROCKS] * 0.30):
-            gx_h = t.height(tx + 1.0, ty) - t.height(tx - 1.0, ty)
-            gy_h = t.height(tx, ty + 1.0) - t.height(tx, ty - 1.0)
-            gl = math.hypot(gx_h, gy_h)
-            dx_d, dy_d = (-gx_h / gl, -gy_h / gl) if gl > 1e-3 else (math.cos(base_ang), math.sin(base_ang))
-            rad = rng.uniform(1.1, 2.6)
-            try_add(
-                ARCH_ROCKS, tx + dx_d * rad, ty + dy_d * rad, 2.4,
-                rng.uniform(0.75, 1.22), rng.randrange(16), 1,
-                importance=1.05, max_slope=0.62,
-            )
+        if is_pine:
+            n_ring = rng.randint(3, 4)
+            for k in range(n_ring):
+                ang = base_ang + k * (math.pi * 2.0 / n_ring) + rng.uniform(-0.42, 0.42)
+                rad = rng.uniform(0.60, 3.10)
+                px, py = tx + math.cos(ang) * rad, ty + math.sin(ang) * rad
+                try_add(
+                    ARCH_UNDERSTORY, px, py, 1.25,
+                    rng.uniform(0.86, 1.36), rng.randrange(16),
+                    2 if rng.random() < 0.62 else 1,
+                    importance=1.22, max_slope=0.52,
+                )
+            # Downhill warm 3-stone limestone scree rock tucked under stone pines
+            if rng.random() < 0.42 and len(anchors[ARCH_ROCKS]) < int(ANCHOR_BUDGET[ARCH_ROCKS] * 0.34):
+                gx_h = t.height(tx + 1.0, ty) - t.height(tx - 1.0, ty)
+                gy_h = t.height(tx, ty + 1.0) - t.height(tx, ty - 1.0)
+                gl = math.hypot(gx_h, gy_h)
+                dx_d, dy_d = (-gx_h / gl, -gy_h / gl) if gl > 1e-3 else (math.cos(base_ang), math.sin(base_ang))
+                rad = rng.uniform(1.2, 2.8)
+                try_add(
+                    ARCH_ROCKS, tx + dx_d * rad, ty + dy_d * rad, 2.3,
+                    rng.uniform(0.78, 1.24), rng.randrange(16), 1,
+                    importance=1.10, max_slope=0.62,
+                )
+        elif is_olive:
+            # Sun-dappled orchard turf & wildflower clusters around thinned olive trunks
+            for k in range(2):
+                ang = base_ang + k * math.pi + rng.uniform(-0.6, 0.6)
+                rad = rng.uniform(0.85, 2.35)
+                px, py = tx + math.cos(ang) * rad, ty + math.sin(ang) * rad
+                if rng.random() < 0.52:
+                    try_add(ARCH_GRASS, px, py, 1.35, rng.uniform(0.76, 1.18), rng.randrange(16),
+                            rng.choice((1, 2)), importance=1.02, max_slope=0.48)
+                elif rng.random() < 0.72:
+                    try_add(ARCH_FLOWERS, px, py, 1.50, rng.uniform(0.78, 1.22), rng.randrange(16),
+                            rng.choice((1, 2)), importance=1.00, max_slope=0.46)
+                else:
+                    try_add(ARCH_UNDERSTORY, px, py, 1.60, rng.uniform(0.72, 1.05), rng.randrange(16),
+                            1, importance=0.86, max_slope=0.48)
+        else:
+            n_ring = rng.randint(1, 2)
+            for k in range(n_ring):
+                ang = base_ang + k * (math.pi * 2.0 / n_ring) + rng.uniform(-0.5, 0.5)
+                rad = rng.uniform(0.65, 2.40)
+                px, py = tx + math.cos(ang) * rad, ty + math.sin(ang) * rad
+                try_add(
+                    ARCH_UNDERSTORY, px, py, 1.35,
+                    rng.uniform(0.78, 1.22), rng.randrange(16),
+                    2 if rng.random() < 0.40 else 1,
+                    importance=1.05, max_slope=0.52,
+                )
 
     # ---- 2. ROAD-VERGE GRASS TUFTS (1.4 - 2.8 m hugging road shoulders, zero roadbed intrusion) ----
     road_target = int(ANCHOR_BUDGET[ARCH_GRASS] * 0.28)
@@ -838,6 +923,83 @@ def generate_groundcover_anchors(ctx, seed=4041):
             else:
                 try_add(ARCH_GRASS, px, py, 1.4, rng.uniform(0.78, 1.25), rng.randrange(16),
                         rng.choice((1, 2)), importance=0.92, max_slope=0.58)
+
+    # ---- 3b. FLAT TERRACE PAD EAST OF SHIPYARD (closeup-pines-road: light coastal grass/gravel tufts) ----
+    for _ in range(260):
+        uu = rng.uniform(-192.0, -166.0)
+        vv = rng.uniform(-14.0, 18.0)
+        px, py = t.from_uv(uu, vv)
+        if t.height(px, py) < 12.0 or t.pad_at(px, py, 2.4) is not None or road_dist(px, py) < 1.6:
+            continue
+        r_pick = rng.random()
+        if r_pick < 0.56:
+            try_add(ARCH_GRASS, px, py, 1.5, rng.uniform(0.74, 1.18), rng.randrange(16),
+                    rng.choice((1, 2)), importance=1.12, max_slope=0.40)
+        elif r_pick < 0.78:
+            try_add(ARCH_FLOWERS, px, py, 1.8, rng.uniform(0.72, 1.12), rng.randrange(16),
+                    rng.choice((1, 2)), importance=1.04, max_slope=0.38)
+        elif r_pick < 0.90:
+            try_add(ARCH_MAQUIS, px, py, 2.4, rng.uniform(0.70, 1.05), rng.randrange(16),
+                    1, importance=1.02, max_slope=0.40)
+        else:
+            try_add(ARCH_ROCKS, px, py, 2.6, rng.uniform(0.68, 1.02), rng.randrange(16),
+                    1, importance=1.08, max_slope=0.42)
+
+    # ---- 3c. WRECK COVE UPPER DUNES (replacing stripped baked strand_marram & wreck_cove_marram) ----
+    for _b in cj.get('beaches', []):
+        if _b.get('kind') != 'sand':
+            continue
+        _line = [tuple(p) for p in _b['line']]
+        for a, b in zip(_line, _line[1:]):
+            seg_l = math.hypot(b[0] - a[0], b[1] - a[1])
+            if seg_l < 0.5:
+                continue
+            tx_v, ty_v = (b[0] - a[0]) / seg_l, (b[1] - a[1]) / seg_l
+            nx_v, ny_v = -ty_v, tx_v
+            for _ in range(max(4, int(seg_l * 1.4))):
+                frac = rng.random()
+                inl = rng.uniform(37.5, 56.0)
+                px = a[0] + (b[0] - a[0]) * frac + nx_v * inl
+                py = a[1] + (b[1] - a[1]) * frac + ny_v * inl
+                if rng.random() < 0.72:
+                    try_add(ARCH_GRASS, px, py, 1.55, rng.uniform(0.84, 1.38), rng.randrange(16),
+                            rng.choice((2, 3)), importance=1.10, max_slope=0.52)
+                else:
+                    try_add(ARCH_COASTAL, px, py, 2.6, rng.uniform(0.76, 1.24), rng.randrange(16),
+                            1, importance=1.06, max_slope=0.52)
+
+    # ---- 3d. BATTERY TERRACED WALL LEDGES & MINT GARDEN LEDGES (replacing stripped baked maquis) ----
+    for _fl in cj.get('flats', []):
+        _te = _fl.get('terrace')
+        if not _te:
+            continue
+        _ring = [tuple(q) for q in _fl['poly']]
+        _cx_f = sum(q[0] for q in _ring) / len(_ring)
+        _cy_f = sum(q[1] for q in _ring) / len(_ring)
+        for _i in _te['edges']:
+            _a, _b = _ring[_i], _ring[(_i + 1) % len(_ring)]
+            _L = math.hypot(_b[0] - _a[0], _b[1] - _a[1])
+            if _L < 1.0:
+                continue
+            _tx, _ty = (_b[0] - _a[0]) / _L, (_b[1] - _a[1]) / _L
+            _nx, _ny = _ty, -_tx
+            if (_cx_f - _a[0]) * _nx + (_cy_f - _a[1]) * _ny > 0:
+                _nx, _ny = -_nx, -_ny
+            for (_d0, _r0), (_d1, _r1) in zip([(0.0, 0.0)] + [tuple(c) for c in _te['courses']], _te['courses']):
+                _mid = (_d0 + 0.9 + _d1) * 0.5
+                for _k in range(max(2, int(_L / 2.2))):
+                    _s = 1.2 + (_L - 2.4) * (_k + rng.random() * 0.4) / max(2, int(_L / 2.2))
+                    px = _a[0] + _tx * _s + _nx * (_mid + rng.uniform(-0.35, 0.35))
+                    py = _a[1] + _ty * _s + _ny * (_mid + rng.uniform(-0.35, 0.35))
+                    if abs(t.height(px, py) - (_fl['z'] + _r1)) < 0.45:
+                        try_add(ARCH_MAQUIS, px, py, 1.6, rng.uniform(0.85, 1.32), rng.randrange(16),
+                                1, importance=1.22, allow_urban_edge=True, max_slope=0.55)
+    for _tier, _du in enumerate((0.0, 3.2)):
+        for _k in range(7):
+            px, py = t.from_uv(173.5 + _du + math.sin(_k * 0.45) * 1.4, 46.0 + _k * 2.4)
+            if t.pad_at(px, py, 3.5) is None:
+                try_add(ARCH_MAQUIS, px, py, 1.7, rng.uniform(0.82, 1.24), rng.randrange(16),
+                        1, importance=1.18, allow_urban_edge=True, max_slope=0.50)
 
     # ---- 4. TOWN / QUAY / WALL EDGES (0.4 - 2.2 m outside retaining walls, civic-pad walls, terrace corners) ----
     # Terracotta planters, curb rosemary, and subtle cascading bougainvillea accents, excluding walked lanes/stairs.

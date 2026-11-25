@@ -314,6 +314,15 @@ for (ck, role), objs in sorted(final.items()):
     o = join(objs, f'island_{ck}_{role[3:]}')
     single_material(o, EXP_MAT[role])
     o['role'] = role
+    if role == 'hb_opaque':
+        _sw = o.data.attributes.get('_sway')
+        if _sw is not None and len(o.data.vertices):
+            _vals = np.zeros(len(o.data.vertices), np.int32)
+            _sw.data.foreach_get('value', _vals)
+            _nz = int(np.count_nonzero(_vals))
+            print(f'  SWAY {o.name}: {_nz}/{len(_vals)} verts')
+            if _nz == 0:
+                o.data.attributes.remove(_sw)
     CHUNK_OBJS.append(o)
 
 # named runtime nodes: one mesh each (+ their empties re-created under an export root)
