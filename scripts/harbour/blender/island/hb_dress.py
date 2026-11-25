@@ -1819,7 +1819,48 @@ for (a, b) in CJ['far']['rafts']:
         LAMP_PTS.append(Vector((p_[0], p_[1], 5.45))); LAMP_LIGHTS.append((p_[0], p_[1], 5.45, 'pierhead', '#FFB347'))
 # P7 (acceptance #6): the Far Ports are a buoyed anchorage (every hull on its own swinging mooring; the runtime draws those
 # buoys). Round it, lit special-mark pillar buoys: a yellow float, a short lattice pillar, an X topmark, an amber light.
-for p_ in CJ['far'].get('buoys', []):
+# Derive the 9 perimeter marks from the committed layout.json Far Ports moorings (CJ_LAYOUT) so an untracked local
+# compose.json with fewer far moorings can never shrink the marker ring inside the active fleet.
+def _far_marks_from_layout(layout_dict):
+    far_m = [m for m in (layout_dict or {}).get('moorings', []) if str(m.get('id', '')).startswith('far/')]
+    if not far_m:
+        return list(CJ['far'].get('buoys', []))
+    from scipy.spatial import ConvexHull
+    pts = []
+    for m in far_m:
+        bx, _by, bz = m['position']
+        cx, _cy, cz = m['boatCenter']
+        p0 = (float(bx), float(-bz))
+        # Stern lies roughly at buoy + 2 * (boatCenter - buoy); also include swing circle envelope (+12 m clearance)
+        p1 = (float(2.0 * cx - bx), float(-(2.0 * cz - bz)))
+        for q in (p0, p1):
+            for k in range(12):
+                ang = 2.0 * math.pi * k / 12.0
+                pts.append((q[0] + 12.0 * math.cos(ang), q[1] + 12.0 * math.sin(ang)))
+    h = ConvexHull(pts)
+    poly = [tuple(pts[i]) for i in h.vertices]
+    # Ensure counter-clockwise winding matching compose.py:ccw()
+    area2 = sum(poly[i][0] * poly[(i + 1) % len(poly)][1] - poly[(i + 1) % len(poly)][0] * poly[i][1] for i in range(len(poly)))
+    if area2 < 0:
+        poly.reverse()
+    ring = poly + poly[:1]
+    segs = [math.hypot(ring[i + 1][0] - ring[i][0], ring[i + 1][1] - ring[i][1]) for i in range(len(poly))]
+    total_l = sum(segs)
+    out = []
+    for k in range(9):
+        target = total_l * (k + 0.5) / 9.0
+        acc = 0.0
+        for i, dl in enumerate(segs):
+            if acc + dl >= target or i == len(segs) - 1:
+                t = max(0.0, min(1.0, (target - acc) / max(dl, 1e-9)))
+                out.append((ring[i][0] + (ring[i + 1][0] - ring[i][0]) * t, ring[i][1] + (ring[i + 1][1] - ring[i][1]) * t))
+                break
+            acc += dl
+    return out
+
+
+_FAR_BUOYS = _far_marks_from_layout(globals().get('CJ_LAYOUT'))
+for p_ in _FAR_BUOYS:
     x, y = p_
     merge(fbuoy, bm_cyl(1.0, 1.15, 1.3, 10, (x, y, -0.45)))
     merge(fbuoy, bm_cyl(0.75, 0.55, 0.35, 10, (x, y, 0.85)))

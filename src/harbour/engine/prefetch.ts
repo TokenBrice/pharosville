@@ -48,21 +48,28 @@ export async function consumeBinary(assets: AssetStore, url: string): Promise<Ar
  * Start every GLB and terrain/flora/ground-cover data payload the first frame needs (island, terrain splat/topo maps,
  * vegetation prototypes + instance table, ground-cover instances, lighthouse, the civic plots, the hull kit) at engine creation,
  * instead of system by system as each init reaches it. Bytes only for GLBs: parsing stays in each system's
- * init. The civic and kit GLBs follow the island's bytes: the island parses first, so it should land first,
- * and the small GLBs then download while it parses. Runs inside the Engine, so blocked viewports (which never
- * construct one) fetch nothing.
+ * init. The terrain maps, flora/ground-cover payloads, their lazy runtime chunks, and the civic/kit GLBs follow the
+ * island's bytes: the island parses first, so it should land first without competing for HTTP/1.1 slots, and the
+ * follow-up payloads download while it parses. Runs inside the Engine, so blocked viewports (which never construct one)
+ * fetch nothing.
  */
 export function prefetchHarbour(assets: AssetStore): void {
   if (assets.signal.aborted) return;
   const island = assets.prefetch(ISLAND_URL);
   void assets.prefetch(LIGHTHOUSE_URL);
-  void assets.prefetch(VEGETATION_URL);
-  void prefetchBinary(assets, VEGETATION_INSTANCES_URL).catch(() => {});
-  void prefetchBinary(assets, GROUNDCOVER_URL).catch(() => {});
-  for (const u of [TERRAIN_SPLAT_URL, TERRAIN_TOPO_URL]) void assets.texture(u, false).catch(() => {});
   const civic = assets.json<CivicManifest>(`${CIVIC_BASE}manifest.json`).catch(() => null);
   const kit = assets.json<KitManifest>(`${KIT_BASE}manifest.json`).catch(() => null);
   const layout = assets.json<HarbourLayout>(layoutUrl).catch(() => null);
+  void island.then(() => {
+    if (assets.signal.aborted) return;
+    for (const u of [TERRAIN_SPLAT_URL, TERRAIN_TOPO_URL]) void assets.texture(u, false).catch(() => {});
+    void assets.prefetch(VEGETATION_URL);
+    void prefetchBinary(assets, VEGETATION_INSTANCES_URL).catch(() => {});
+    void prefetchBinary(assets, GROUNDCOVER_URL).catch(() => {});
+    void import("../world/shaders/terrain").catch(() => {});
+    void import("../world/vegetation-system").catch(() => {});
+    void import("../world/groundcover-system").catch(() => {});
+  });
   void Promise.all([island, civic, layout]).then(([, manifest, layout]) => {
     if (assets.signal.aborted) return;
     const files = new Set(layout?.civic?.map((plot) => manifest?.kinds[plot.kind]?.file));

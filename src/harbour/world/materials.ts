@@ -305,8 +305,14 @@ export class HarbourMaterials {
   setTerrainPatcher(patcher: TerrainShaderPatcher): void { this.tPatch = patcher; }
 
   async loadTerrainShader(): Promise<TerrainRuntimeChunk> {
-    tLoad ??= import("./shaders/terrain").then((m) => (tChunk = m));
-    const c = tChunk ?? await tLoad;
+    if (tChunk) {
+      this.tPatch = tChunk.patchTerrainShader;
+      return tChunk;
+    }
+    tLoad ??= import("./shaders/terrain")
+      .then((m) => (tChunk = m))
+      .catch((err) => { tLoad = null; throw err; });
+    const c = await tLoad;
     this.tPatch = c.patchTerrainShader;
     return c;
   }

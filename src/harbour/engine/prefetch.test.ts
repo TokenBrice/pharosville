@@ -26,25 +26,27 @@ function fixture() {
 }
 
 describe("arrival request frontier", () => {
-  it("shares layout JSON, starts terrain/flora payloads + layout-used civic files, and leaves later owners alone", async () => {
+  it("shares layout JSON, stages terrain/flora/civic/kit payloads behind island bytes, and leaves later owners alone", async () => {
     const f = fixture();
     prefetchHarbour(f.assets);
     const consumer = f.assets.json(layoutUrl);
-    expect(f.prefetch.mock.calls.flat()).toEqual([ISLAND_URL, LIGHTHOUSE_URL, VEGETATION_URL]);
+    // Before island bytes land, only island + lighthouse GLBs race for bandwidth (no terrain/flora contention)
+    expect(f.prefetch.mock.calls.flat()).toEqual([ISLAND_URL, LIGHTHOUSE_URL]);
+    expect(f.texture.mock.calls).toEqual([]);
+    f.layout.resolve(Response.json({ civic: [{ kind: "mint" }, { kind: "duplicate" }, { kind: "missing" }] }));
+    await consumer;
+    expect(f.prefetch.mock.calls.flat()).toEqual([ISLAND_URL, LIGHTHOUSE_URL]);
+    f.island.resolve();
+    await vi.waitFor(() => expect(f.prefetch).toHaveBeenCalledWith(CIVIC_BASE + "mint.glb"));
     expect(f.texture.mock.calls).toEqual([[TERRAIN_SPLAT_URL, false], [TERRAIN_TOPO_URL, false]]);
+    expect(f.prefetch.mock.calls.flat()).toEqual(expect.arrayContaining([VEGETATION_URL, KIT_BASE + "hull.glb", KIT_BASE + "hull-lod.glb", KIT_BASE + "prop.glb"]));
+    expect(f.prefetch.mock.calls.flat().filter((url) => url.startsWith(CIVIC_BASE))).toEqual([CIVIC_BASE + "mint.glb"]);
     const bin = await consumeBinary(f.assets, VEGETATION_INSTANCES_URL);
     expect(bin?.byteLength).toBe(4);
     expect(f.fetcher.mock.calls.filter(([url]) => url === VEGETATION_INSTANCES_URL)).toHaveLength(1);
     const gcBin = await consumeBinary(f.assets, GROUNDCOVER_URL);
     expect(gcBin?.byteLength).toBe(4);
     expect(f.fetcher.mock.calls.filter(([url]) => url === GROUNDCOVER_URL)).toHaveLength(1);
-    f.layout.resolve(Response.json({ civic: [{ kind: "mint" }, { kind: "duplicate" }, { kind: "missing" }] }));
-    await consumer;
-    expect(f.prefetch.mock.calls.flat()).toEqual([ISLAND_URL, LIGHTHOUSE_URL, VEGETATION_URL]);
-    f.island.resolve();
-    await vi.waitFor(() => expect(f.prefetch).toHaveBeenCalledWith(CIVIC_BASE + "mint.glb"));
-    expect(f.prefetch.mock.calls.flat()).toEqual(expect.arrayContaining([KIT_BASE + "hull.glb", KIT_BASE + "hull-lod.glb", KIT_BASE + "prop.glb"]));
-    expect(f.prefetch.mock.calls.flat().filter((url) => url.startsWith(CIVIC_BASE))).toEqual([CIVIC_BASE + "mint.glb"]);
     expect(f.fetcher.mock.calls.filter(([url]) => url === layoutUrl)).toHaveLength(1);
     f.assets.dispose();
   });
@@ -61,11 +63,12 @@ describe("arrival request frontier", () => {
     const f = fixture();
     prefetchHarbour(f.assets); f.island.resolve(); f.assets.dispose();
     f.layout.resolve(Response.json({ civic: [{ kind: "mint" }] }));
-    await vi.waitFor(() => expect(f.fetcher).toHaveBeenCalledTimes(5));
+    await vi.waitFor(() => expect(f.fetcher).toHaveBeenCalledTimes(3));
     await Promise.resolve();
-    expect(f.prefetch.mock.calls.flat()).toEqual([ISLAND_URL, LIGHTHOUSE_URL, VEGETATION_URL]);
+    expect(f.prefetch.mock.calls.flat()).toEqual([ISLAND_URL, LIGHTHOUSE_URL]);
+    expect(f.texture).not.toHaveBeenCalled();
     prefetchHarbour(f.assets);
-    expect(f.prefetch).toHaveBeenCalledTimes(3);
-    expect(f.texture).toHaveBeenCalledTimes(2);
+    expect(f.prefetch).toHaveBeenCalledTimes(2);
+    expect(f.texture).toHaveBeenCalledTimes(0);
   });
 });
