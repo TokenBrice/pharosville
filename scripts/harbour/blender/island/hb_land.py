@@ -16,6 +16,7 @@ from geom import along, polyline_len, catmull
 terrain.init(COAST, QL, CJ.get('beaches'))
 terrain.set_flats(CJ.get('flats', []))      # integration G2: the battery platform
 terrain.set_pads([dict(c=cv['c'], face=cv['face'], w=cv['w'], d=cv['d'], z=cv['z'], blend=2.5) for cv in CJ.get('civic', [])])   # P6 civic pads
+terrain.set_lots(CJ.get('lots', []))        # Level building lot pads (+1.5 m flat + 2.5 m ramp)
 SAND, SHINGLE, PEBBLE, WETSAND = lin('#D3BF96'), lin('#A49E90'), lin('#AFA593'), lin('#9E8D6E')
 TOWN = CJ['town']
 CTW = Vector(TOWN['ct'])                 # amphitheatre centre (world)
@@ -108,11 +109,11 @@ def in_pad(x, y, margin=0.0):
     return terrain.pad_at(x, y, margin) is not None
 
 
-# ------------------------------------------------------------------ heightfield
+# ------------------------------------------------------------------ heightfield (Phase 3 adaptive breakline Delaunay)
 def build_heightfield():
     from PIL import Image, ImageDraw
     from scipy import ndimage
-    ring = _resample(COAST, 3.0)
+    ring = _resample(COAST, 2.8)
     xs = [p[0] for p in ring]; ys = [p[1] for p in ring]
     X0, X1, Y0, Y1 = min(xs) - 2, max(xs) + 2, min(ys) - 2, max(ys) + 2
     S = 1.0
@@ -124,53 +125,101 @@ def build_heightfield():
     inside = lambda x, y: 0 <= int((Y1 - y) / S) < H_ and 0 <= int((x - X0) / S) < W_ and mask[int((Y1 - y) / S), int((x - X0) / S)]
     dcoast = lambda x, y: dist[int((Y1 - y) / S), int((x - X0) / S)]
     rng = random.Random(77)
+
+    # Spatial deduplication grid (0.58 m minimum interior spacing; coast boundary always kept exact)
+    DEDUP = 0.58
+    DEDUP2 = DEDUP * DEDUP
+    cell_map = {}
     pts = list(ring)
-    step = 5.0
+    for (px, py) in ring:
+        cell_map.setdefault((int(math.floor(px / DEDUP)), int(math.floor(py / DEDUP))), []).append((px, py))
+
+    def add_pt(px, py, min_coast=1.2):
+        if not inside(px, py) or dcoast(px, py) <= min_coast:
+            return
+        cx, cy = int(math.floor(px / DEDUP)), int(math.floor(py / DEDUP))
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for (qx, qy) in cell_map.get((cx + di, cy + dj), ()):
+                    if (px - qx) ** 2 + (py - qy) ** 2 < DEDUP2:
+                        return
+        cell_map.setdefault((cx, cy), []).append((px, py))
+        pts.append((px, py))
+
+    # 1. Base jittered hex grid (5.5 m) across flat/gentle terrain
+    step = 5.5
     y = Y0
     while y < Y1:
         x = X0
         while x < X1:
-            px, py = x + rng.uniform(-1.7, 1.7), y + rng.uniform(-1.7, 1.7)
-            if inside(px, py) and dcoast(px, py) > 2.2:
-                pts.append((px, py))
+            px, py = x + rng.uniform(-1.5, 1.5), y + rng.uniform(-1.5, 1.5)
+            add_pt(px, py, 2.2)
             x += step
         y += step * 0.866
-    # finer facets on the Pharos headland (the hero's ground) and the town bowl
+
+    # 2. Adaptive slope-driven refinement (2.4 m where local slope grad > 0.34: cliffs, cuesta scarps, ridges)
+    s_steep = 2.4
+    y = Y0
+    while y < Y1:
+        x = X0
+        while x < X1:
+            px, py = x + rng.uniform(-0.55, 0.55), y + rng.uniform(-0.55, 0.55)
+            if inside(px, py) and dcoast(px, py) > 1.5:
+                gx = (H(px + 1.2, py) - H(px - 1.2, py)) / 2.4
+                gy = (H(px, py + 1.2) - H(px, py - 1.2)) / 2.4
+                if gx * gx + gy * gy > 0.34 * 0.34:
+                    add_pt(px, py, 1.5)
+            x += s_steep
+        y += s_steep * 0.866
+
+    # 3. Finer facets on the Pharos headland and town bowl
     for (cu, cv, ru, rv, st) in ((terrain.HEAD_C[0], terrain.HEAD_C[1], 60, 34, 3.2), (CT_UV[0], CT_UV[1] + 60, 150, 90, 3.6)):
         v = cv - rv
         while v < cv + rv:
             u = cu - ru
             while u < cu + ru:
                 px, py = wpt(u + rng.uniform(-0.8, 0.8), v + rng.uniform(-0.8, 0.8))
-                if inside(px, py) and dcoast(px, py) > 1.6:
-                    pts.append((px, py))
+                add_pt(px, py, 1.6)
                 u += st
             v += st * 0.866
-    # 08-T1/T4 (prettier): the olive terraces and the level discs (threshing floor, temenos) - a fine jittered grid, so the
-    # benches stay level and every dry-stone riser keeps its steep face
-    for (c, ru, rv, a) in terrain.TERRACES:
-        rr = max(ru, rv) + 1.0
-        v = c[1] - rr
-        while v < c[1] + rr:
-            u = c[0] - rr
-            while u < c[0] + rr:
-                uu, vv = u + rng.uniform(-0.3, 0.3), v + rng.uniform(-0.3, 0.3)
-                if terrain.terrace_w(uu, vv) > 0.01:
-                    px, py = wpt(uu, vv)
-                    if inside(px, py) and dcoast(px, py) > 2.2:
-                        pts.append((px, py))
-                u += 1.8
-            v += 1.8 * 0.866
-        # rows exactly on every riser's top and foot (natural-height contours), so each riser is its own band of faces
-        S_, R_ = terrain.TERRACE_STEP, terrain.TERRACE_RISER
-        g = 1.0
+
+    # 4. Coastal cliff rim breakline row (~1.6 m inland along non-quay, non-beach cliff rims >= 2.8 m)
+    n_ring = len(ring)
+    for i in range(n_ring):
+        a = Vector(ring[(i - 1) % n_ring]); p = Vector(ring[i]); b = Vector(ring[(i + 1) % n_ring])
+        if on_quay(p.x, p.y, 1.4) or terrain.beach_k(p.x, p.y)[0] > 0.35:
+            continue
+        if H(p.x, p.y) >= 2.6:
+            tng = (b - a).normalized()
+            nin = Vector((-tng.y, tng.x))
+            if not inside(p.x + nin.x * 1.6, p.y + nin.y * 1.6):
+                nin = -nin
+            add_pt(p.x + nin.x * 1.6, p.y + nin.y * 1.6, 0.9)
+
+    # 5. Universal flush road & footpath breakline rows (every road/path in terrain._roads)
+    for (_rname, _rkind, dense_uv, _zs, hw, _cut_m, _bb) in terrain._roads:
+        n_d = len(dense_uv)
+        offs = (-hw - 0.55, -hw, 0.0, hw, hw + 0.55) if _rkind == 'road' else (-hw - 0.4, -hw, hw, hw + 0.4)
+        for i in range(0, n_d, 1):
+            u0, v0 = dense_uv[max(0, i - 1)]
+            u1, v1 = dense_uv[min(n_d - 1, i + 1)]
+            tu, tv = u1 - u0, v1 - v0
+            tl = math.hypot(tu, tv) or 1.0
+            nu, nv = -tv / tl, tu / tl
+            cu, cv = dense_uv[i]
+            for off in offs:
+                px, py = wpt(cu + nu * off, cv + nv * off)
+                add_pt(px, py, 1.1)
+
+    # 6. Cultivated olive terraces (West, East, South): bench grid + contour riser top/foot breaklines
+    def _contour_breaklines(c_uv, rr, weight_fn, step_h, riser_f, g=1.4, wmin=0.05):
         n_ = int(2 * rr / g) + 1
         grid_ = {}
         for i in range(n_):
             for j in range(n_):
-                uu, vv = c[0] - rr + i * g, c[1] - rr + j * g
-                if terrain.terrace_w(uu, vv) > 0.05:
-                    grid_[(i, j)] = terrain.height(*wpt(uu, vv), terraces=False) / S_
+                uu, vv = c_uv[0] - rr + i * g, c_uv[1] - rr + j * g
+                if weight_fn(uu, vv) > wmin:
+                    grid_[(i, j)] = terrain.height(*wpt(uu, vv), terraces=False, roads=False) / step_h
         for (i, j), k0 in grid_.items():
             for (di, dj) in ((1, 0), (0, 1)):
                 k1 = grid_.get((i + di, j + dj))
@@ -178,29 +227,68 @@ def build_heightfield():
                     continue
                 lo_, hi_ = min(k0, k1), max(k0, k1)
                 for L in range(int(math.floor(lo_)) - 1, int(math.ceil(hi_)) + 1):
-                    for lev in (L, L - R_):
+                    for lev in (L, L - riser_f):
                         if lo_ < lev < hi_:
                             t = (lev - k0) / (k1 - k0)
-                            px, py = wpt(c[0] - rr + (i + di * t) * g, c[1] - rr + (j + dj * t) * g)
-                            if inside(px, py) and dcoast(px, py) > 2.2:
-                                pts.append((px, py))
-    # the vineyard's soil and every walled field (08-T11 fields now change colour through the year): crisp rows
-    # hugging each outline, so the crop stops at its wall instead of in a saw-tooth of triangles
+                            px, py = wpt(c_uv[0] - rr + (i + di * t) * g, c_uv[1] - rr + (j + dj * t) * g)
+                            add_pt(px, py, 2.0)
+
+    for (c, ru, rv, a) in terrain.TERRACES:
+        rr = max(ru, rv) + 1.0
+        v = c[1] - rr
+        while v < c[1] + rr:
+            u = c[0] - rr
+            while u < c[0] + rr:
+                uu, vv = u + rng.uniform(-0.35, 0.35), v + rng.uniform(-0.35, 0.35)
+                if terrain.terrace_w(uu, vv) > 0.02:
+                    px, py = wpt(uu, vv)
+                    add_pt(px, py, 2.0)
+                u += 2.4
+            v += 2.4 * 0.866
+        _contour_breaklines(c, rr, terrain.terrace_w, terrain.TERRACE_STEP, terrain.TERRACE_RISER, g=1.5)
+
+    # 7. Stepped contour vineyard + ancient stepped limestone quarry breaklines
+    vrr = max(terrain.VINE_RU, terrain.VINE_RV) + 1.0
+    _contour_breaklines(terrain.VINE_UV, vrr, terrain.vine_w, terrain.VINE_STEP, terrain.VINE_RISER, g=1.3)
+    qrr = max(terrain.QUARRY_RU, terrain.QUARRY_RV) + 1.5
+    v = terrain.QUARRY_UV[1] - qrr
+    while v < terrain.QUARRY_UV[1] + qrr:
+        u = terrain.QUARRY_UV[0] - qrr
+        while u < terrain.QUARRY_UV[0] + qrr:
+            if terrain.quarry_w(u, v) > 0.02:
+                add_pt(*wpt(u, v), 1.8)
+            u += 1.9
+        v += 1.9 * 0.866
+    _contour_breaklines(terrain.QUARRY_UV, qrr, terrain.quarry_w, terrain.QUARRY_STEP, terrain.QUARRY_RISER, g=1.2)
+
+    # 8. Vineyard + arable fields: crisp outline rows + 2.8 m interior grid in plough/hay for 3D furrow relief
     for _poly in [terrain.vineyard()[3]] + [f['poly'] for f in terrain.FIELDS]:
         for off in (-0.45, 0.45):
-            for p in _resample(offset_poly(_poly, off), 1.8):
-                if inside(*p) and dcoast(*p) > 2.2:
-                    pts.append(p)
+            for p in _resample(offset_poly(_poly, off), 1.9):
+                add_pt(p[0], p[1], 2.0)
+    for fl in terrain.FIELDS:
+        if fl['kind'] not in ('plough', 'hay'):
+            continue
+        bb = fl['bb']
+        fy = bb[1]
+        while fy <= bb[3]:
+            fx = bb[0]
+            while fx <= bb[2]:
+                if point_in_poly(fx, fy, fl['poly']):
+                    add_pt(fx, fy, 2.2)
+                fx += 2.8
+            fy += 2.8 * 0.866
+
+    # 9. Level discs (threshing floor, sanctuary temenos)
     for (cuv, r, b) in ((terrain.THRESHING_UV, terrain.THRESHING_R, 3.0), (terrain.SANCTUARY_UV, terrain.SANCTUARY_R, 4.0)):
         cx_, cy_ = wpt(*cuv)
-        for k in range(int((r + b) / 1.6) + 1):
-            rr = k * 1.6
-            n = max(1, int(2 * math.pi * rr / 1.6))
+        for k in range(int((r + b) / 1.8) + 1):
+            rr = k * 1.8
+            n = max(1, int(2 * math.pi * rr / 1.8))
             for i in range(n):
-                px, py = cx_ + math.cos(2 * math.pi * i / n) * rr, cy_ + math.sin(2 * math.pi * i / n) * rr
-                if inside(px, py) and dcoast(px, py) > 2.2:
-                    pts.append((px, py))
-    # terrace fronts: rows of points hugging both sides of each retaining wall arc (a clean vertical band)
+                add_pt(cx_ + math.cos(2 * math.pi * i / n) * rr, cy_ + math.sin(2 * math.pi * i / n) * rr, 2.0)
+
+    # 10. Town terrace fronts, civic pads, and battery terrace courses
     for k in range(1, len(RINGS)):
         r0 = RINGS[k][0]
         th0, th1 = TOWN_TH[k]
@@ -208,37 +296,37 @@ def build_heightfield():
             n = int(math.radians(th0 - th1 + 16) * rr / 2.2)
             for i in range(n + 1):
                 th = th1 - 8 + (th0 - th1 + 16) * i / n
-                p = town_pt(th, rr)
-                if inside(*p):
-                    pts.append(p)
-    # P6 civic pads: rows hugging each pad's edge (inside and out) so the level pad and its wall stay crisp
+                add_pt(*town_pt(th, rr), 0.5)
     for cv in CJ.get('civic', []):
         for off in (-0.45, 0.45, 2.6):
-            ring = plot_rect(cv, off)
-            for p in _resample(ring, 2.2):
-                if inside(*p) and dcoast(*p) > 1.0:
-                    pts.append(p)
-    # P8: the battery's terraced back edges - rows on both sides of each course so the ledges stay level to their walls
+            for p in _resample(plot_rect(cv, off), 2.2):
+                add_pt(p[0], p[1], 1.0)
+    # Building lot pad breaklines (+1.5 m flat pad + 2.5 m smooth ramp) so mesh conforms cleanly around every farmhouse/cottage/warehouse
+    for _lot in CJ.get('lots', []):
+        if _lot.get('band') is not None:
+            continue
+        _lc = Vector(_lot['c']); _lf = Vector(_lot['face']); _lt = Vector((-_lf.y, _lf.x))
+        for off in (1.5, 4.0):
+            _hw, _hd = _lot['w'] * 0.5 + off, _lot['d'] * 0.5 + off
+            _lpoly = [tuple(_lc + _lt * a + _lf * b) for a, b in ((-_hw, -_hd), (_hw, -_hd), (_hw, _hd), (-_hw, _hd))]
+            for p in _resample(_lpoly, 3.2):
+                add_pt(p[0], p[1], 1.2)
     for fl in CJ.get('flats', []):
         te = fl.get('terrace')
         if not te:
             continue
-        ring = [Vector(q) for q in fl['poly']]
-        cen = sum(ring, Vector((0.0, 0.0))) / len(ring)
+        ring_f = [Vector(q) for q in fl['poly']]
+        cen = sum(ring_f, Vector((0.0, 0.0))) / len(ring_f)
         for i in te['edges']:
-            a, b = ring[i], ring[(i + 1) % len(ring)]
+            a, b = ring_f[i], ring_f[(i + 1) % len(ring_f)]
             t = (b - a).normalized(); nout = Vector((t.y, -t.x))
             if (cen - a).dot(nout) > 0:
                 nout = -nout
             offs = [0.95] + [o for d_end, _ in te['courses'] for o in (d_end - 0.2, d_end + 0.95)] + [te['courses'][-1][0] + 3.5]
             for off in offs:
                 for p in _resample([tuple(a + nout * off), tuple(b + nout * off)], 2.0, closed=False):
-                    if inside(*p) and dcoast(*p) > 1.0:
-                        pts.append(p)
-    # quay aprons: a row just inland of every quay line so the apron stays flat to its edge
-    for L in QL.values():
-        for p in _resample(L, 3.0, closed=False):
-            pass
+                    add_pt(p[0], p[1], 1.0)
+
     P = np.array(pts)
     tri = Delaunay(P)
     bm = bmesh.new()
@@ -247,7 +335,6 @@ def build_heightfield():
         c = P[t].mean(axis=0)
         if not inside(c[0], c[1]):
             continue
-        # no slivers bridging a bay (a Delaunay edge across water whose centroid happens to fall on land)
         q3 = P[t]
         if max(np.hypot(*(q3[0] - q3[1])), np.hypot(*(q3[1] - q3[2])), np.hypot(*(q3[2] - q3[0]))) > 14.0:
             continue
@@ -259,12 +346,20 @@ def build_heightfield():
     for f in bm.faces:
         if f.normal.z < 0:
             f.normal_flip()
+    print(f'HEIGHTFIELD verts={len(bm.verts)} tris={len(bm.faces)}')
     return bm
 
 
 PAD_COL = {'shipyard': (lin('#A79E89'), 'cobble'), 'burn': (lin('#8F8A80'), 'cobble')}
-# E20 (O6-I9): the olive terraces' treads are worked earth (40 % toward #8B7558), not lawn: cultivation reads by tone
-TREAD = tuple(a * 0.6 + b * 0.4 for a, b in zip(lin('#93975A'), lin('#8B7558')))
+# Warm Mediterranean sunlit turf terrace tread & crushed limestone roadbeds (Alexandrian limestone family)
+TREAD = tuple(a * 0.72 + b * 0.28 for a, b in zip(lin('#7E934A'), lin('#A48D6A')))
+ROAD_COL = lin('#C7B99B')
+PATH_COL = lin('#B69F7D')
+QUARRY_CUT = lin('#D8CAA9')
+QUARRY_FLOOR = lin('#CBBBA0')
+RISER_LIME_A = lin('#C2B394')
+RISER_LIME_B = lin('#B4A383')
+SCREE_LIME = lin('#BFA988')
 
 
 def hf_face(q):
@@ -274,50 +369,84 @@ def hf_face(q):
     if pd is not None and nz > 0.9:                 # P6 civic pads: paved (the building's own model stands on it)
         return (jitter_col(PAL['cobble'], 0.96 + 0.08 * terrain.fbm(c.x, c.y, 0.05, 2, 13)), PT['cobble'])
     nn = terrain.fbm(c.x, c.y, 0.02, 2, 11)
-    tw, tf = terrain.terrace_info(c.x, c.y)
-    if tw > 0.45:                                   # 08-T1: olive terraces - dry-stone risers, a dry grove floor
-        if (tf > 1.0 - terrain.TERRACE_RISER - 0.03 or tf < 0.03) and nz < 0.97:
-            return (jitter_col(lin('#9C9672'), 0.94 + 0.12 * nn), PT['grass'])    # REVIEW #4: a grassed bank under the coping
-        return (jitter_col(TREAD, 0.94 + 0.12 * nn), PT['grass'])
-    if nz < 0.34:                                   # only the steepest ground shows granite; the flanks stay turf
-        return ((PAL['rock'] if nn > 0.5 else lin('#8A8B86')), PT['rock'])
-    if nz < 0.72:
-        return ((lin('#7A7F72') if nn > 0.66 else PAL['grass_dark']), PT['rock'] if nn > 0.66 else PT['grass'])
     kb, kind = terrain.beach_k(c.x, c.y)
-    if kb > 0.45:                                                                # the strands: sand / shingle / pebbles
+
+    # Flush painted rural roads & footpaths (PT['grass'] so hb_terrain blends seamlessly with terrain-splat.R)
+    rq = terrain.road_info(c.x, c.y)
+    if rq is not None and rq[0] <= rq[1] + 0.35 and nz > 0.72 and kb < 0.4:
+        dd, hw, rkind, _rname, _grade = rq
+        base_r = ROAD_COL if rkind == 'road' else PATH_COL
+        verge = terrain.sstep(max(0.0, hw - 0.35), hw + 0.35, dd)
+        col_r = tuple(base_r[i] * (1.0 - 0.22 * verge) + PAL['earth'][i] * (0.22 * verge) for i in range(3))
+        return (jitter_col(col_r, 0.95 + 0.10 * nn), PT['grass'])
+
+    # Ancient stepped limestone quarry behind the Mint: freshly-cut cream Alexandrian limestone (PT['rock'])
+    qw, qf = terrain.quarry_info(c.x, c.y)
+    if qw > 0.35:
+        is_cut = (qf > 1.0 - terrain.QUARRY_RISER - 0.08 or qf < 0.05 or nz < 0.86)
+        col_q = QUARRY_CUT if is_cut else QUARRY_FLOOR
+        return (jitter_col(col_q, 0.95 + 0.10 * nn), PT['rock'])
+
+    # Cultivated olive terraces & stepped contour vineyard: warm limestone risers (PT['rock']), worked-earth treads
+    tw, tf = terrain.terrace_info(c.x, c.y)
+    if tw > 0.40:
+        is_riser = (tf > 1.0 - terrain.TERRACE_RISER - 0.04 or tf < 0.04) and nz < 0.96
+        if is_riser:
+            col_tr = RISER_LIME_A if nn > 0.48 else RISER_LIME_B
+            return (jitter_col(col_tr, 0.94 + 0.12 * nn), PT['rock'])
+        if terrain.in_vineyard(c.x, c.y):
+            return (jitter_col(lin('#9A7D5B'), 0.94 + 0.12 * nn), PT['grass'])
+        return (jitter_col(TREAD, 0.94 + 0.12 * nn), PT['grass'])
+
+    # Steep karst limestone cliffs (warm Alexandrian limestone, PT['rock'] triggers biplanar strata);
+    # moderate slopes (0.54 <= nz < 0.78) stay PT['grass'] so terrain.ts blends slope-rock smoothly per-pixel!
+    if nz < 0.54:
+        rn = terrain.ridge_noise(c.x, c.y, 0.032, 2, 17)
+        col_k = PAL['rock_light'] if (nz > 0.38 and rn > 0.52) else (PAL['rock'] if nn > 0.42 else PAL['rock_dark'])
+        return (jitter_col(col_k, 0.94 + 0.12 * nn), PT['rock'])
+    if nz < 0.78:
+        return (jitter_col(lin('#758848'), 0.94 + 0.12 * nn), PT['grass'])
+
+    # Strands: sand / shingle / pebbles (Layer 4 in hb_terrain)
+    if kb > 0.45:
         dc = terrain.dcoast(c.x, c.y)
         if kind == 'sand':
             col = SHINGLE if dc < 3.5 else (SAND if dc < 42 else lin('#B9B07A'))
             pn = terrain.fbm(c.x, c.y, 0.035, 2, 77)
-            if 5.5 < dc < 8.0 and nn > 0.46:                       # P7: a second, patchy shingle bank
+            if 5.5 < dc < 8.0 and nn > 0.46:
                 col = SHINGLE
-            elif 9.0 < dc < 36.0 and pn > 0.64:                     # pebble scatters across the upper beach
+            elif 9.0 < dc < 36.0 and pn > 0.64:
                 col = tuple(SAND[i] * 0.55 + SHINGLE[i] * 0.45 for i in range(3))
-            elif 9.0 < dc < 36.0 and pn < 0.32:                     # damp hollows
+            elif 9.0 < dc < 36.0 and pn < 0.32:
                 col = tuple(v * 0.9 for v in SAND)
-            elif 22.0 < dc < 26.0:                                  # the wrack line: damp sand, a whisper (P8: per vertex on
-                col = tuple(SAND[i] * 0.72 + lin('#A79A78')[i] * 0.28 for i in range(3))   # 5 m facets a full tone read as dark seams)
-            elif dc > 38.0 and nn > 0.55:                           # dune grass creeping down between the hummocks
+            elif 22.0 < dc < 26.0:
+                col = tuple(SAND[i] * 0.72 + lin('#A79A78')[i] * 0.28 for i in range(3))
+            elif dc > 38.0 and nn > 0.55:
                 col = lin('#A9A779')
         else:
             col = PEBBLE if dc < 7.5 else lin('#A6A77A')
         return (jitter_col(col, 0.95 + 0.1 * nn), PT['plain'])
-    if terrain.in_vineyard(c.x, c.y):                # 08-T1: worked soil between the vine rows
-        return (jitter_col(lin('#8C7457'), 0.94 + 0.12 * nn), PT['plain'])
+
+    if terrain.in_vineyard(c.x, c.y):
+        return (jitter_col(lin('#9A7D5B'), 0.94 + 0.12 * nn), PT['grass'])
+
     fl = terrain.field_at(c.x, c.y)
     if fl is not None:
         fc = lin(terrain.FIELD_COL[fl['kind']])
-        stripe = int((u * 0.9 + v * 0.3) / 2.6) % 2 if fl['kind'] in ('plough', 'hay') else 0
-        return (jitter_col(fc, 0.93 if stripe else 1.03), PT['crop'] if fl['kind'] in ('hay', 'plough') else PT['grass'])   # 08-T11
+        if fl['kind'] in ('plough', 'hay'):
+            phase = math.sin((u * 0.9 + v * 0.3) * (2.0 * math.pi / 3.4))
+            return (jitter_col(fc, 0.98 + 0.065 * phase), PT['crop'])
+        return (jitter_col(fc, 0.96 + 0.08 * nn), PT['grass'])
+
     base = PAL['grass']
     hd = terrain.head_d(u, v)
     if hd < 1.1:
-        base = lin('#7E9150')                                                    # wind-cropped headland turf
-    elif c.z > 17 or terrain.line_d(u, v, terrain.WEST_SPINE) < 24 or terrain.line_d(u, v, terrain.EAST_SPINE) < 24:
-        base = lin('#667F41')                                                    # forest floor under the spruce
+        base = lin('#869458')                                                    # sun-warmed wind-cropped headland turf
+    elif c.z > 18 or terrain.line_d(u, v, terrain.WEST_SPINE) < 22 or terrain.line_d(u, v, terrain.EAST_SPINE) < 22:
+        base = lin('#6A7E44')                                                    # Mediterranean pine-slope floor
     n2 = terrain.fbm(c.x, c.y, 0.006, 3, 5)
     t = max(0.0, min(1.0, (n2 - 0.38) / 0.26))
-    lo, hi = jitter_col(base, 0.9), jitter_col(base, 1.1)
+    lo, hi = jitter_col(base, 0.91), jitter_col(base, 1.09)
     return (tuple(lo[i] + (hi[i] - lo[i]) * t for i in range(3)), PT['grass'])
 
 
@@ -329,28 +458,34 @@ class _VQ:          # a vertex dressed as a face for hf_face (centre + normal)
 
 
 def _terrain_paint(me):
-    """Smooth-shaded ground with a painterly per-vertex colour: hf_face's ground type at each vertex (the pattern id
-    stays per face), broken up by low-frequency dry-grass / moss / heather drifts and a darker damp foot to slopes."""
+    """Smooth-shaded ground with painterly per-vertex colour: hf_face's ground type at each vertex (pattern id
+    stays per face), broken up by sun-cured Mediterranean dry-grass & garrigue drifts on open turf only."""
     me.calc_normals_split() if hasattr(me, 'calc_normals_split') else None
     vcol = np.zeros((len(me.vertices), 3), np.float32)
-    dry, moss, heath_ = lin('#B2A866'), lin('#5D7A3C'), lin('#8A7090')
+    dry, moss, heath_ = lin('#C0B272'), lin('#657D40'), lin('#927D94')
     q = _VQ()
     for v in me.vertices:
         q.center = v.co; q.normal = v.normal
         c, _pt = hf_face(q)
         c = Vector(c[:3])
         x, y = v.co.x, v.co.y
-        n1 = terrain.fbm(x, y, 0.016, 3, 31)          # meadow drifts (tens of metres)
-        n2 = terrain.fbm(x, y, 0.07, 2, 37)           # patches (a few metres)
-        if v.normal.z > 0.72 and terrain.field_at(x, y) is None and not terrain.in_vineyard(x, y):     # 08-T1: fields keep their tone
-            k_dry = max(0.0, min(1.0, (n1 - 0.55) / 0.12)) * 0.42
-            k_moss = max(0.0, min(1.0, (0.42 - n1) / 0.1)) * 0.35
+        u_, v_ = uvp(x, y)
+        rq = terrain.road_info(x, y)
+        on_road = rq is not None and rq[0] <= rq[1] + 0.55
+        in_quarry = terrain.quarry_w(u_, v_) > 0.25
+        on_beach = terrain.beach_k(x, y)[0] > 0.35
+        if (v.normal.z > 0.78 and not on_road and not in_quarry and not on_beach
+                and terrain.field_at(x, y) is None and not terrain.in_vineyard(x, y)
+                and terrain.pad_at(x, y, 0.5) is None):
+            n1 = terrain.fbm(x, y, 0.016, 3, 31)          # meadow drifts (tens of metres)
+            n2 = terrain.fbm(x, y, 0.07, 2, 37)           # patches (a few metres)
+            k_dry = max(0.0, min(1.0, (n1 - 0.54) / 0.12)) * 0.42
+            k_moss = max(0.0, min(1.0, (0.41 - n1) / 0.1)) * 0.30
             c = c.lerp(dry, k_dry).lerp(moss, k_moss)
-            u_, v_ = uvp(x, y)
             hd = terrain.head_d(u_, v_)
             if hd < 1.15 and n2 > 0.58:
-                c = c.lerp(heath_, 0.35 * min(1.0, (n2 - 0.58) / 0.1))      # heather on the headland
-            c = c * (0.92 + 0.16 * n2)
+                c = c.lerp(heath_, 0.32 * min(1.0, (n2 - 0.58) / 0.1))
+            c = c * (0.93 + 0.14 * n2)
         vcol[v.index] = (c.x, c.y, c.z)
     attr = me.color_attributes['Col']
     buf = np.zeros(len(me.loops) * 4, np.float32)
@@ -614,6 +749,115 @@ for (line, s_) in ((QL['grand'], 0.3), (QL['grand'], 0.7), (QL['long'], 0.5)):
         merge(qs, nl_kit.obox((c.x, c.y, (-1.0 + Z_SHORE - 0.4 * (5 - k)) / 2), (t.x, t.y, 0), 2.6, 0.36, Z_SHORE - 0.4 * (5 - k) + 1.0))
 obj('quay_waterstairs', qs, PAL['quay'], PT['ashlar'], family='quay', bevel=0.03)
 
+# ------------------------------------------------------------------ Phase 3 road/path/quay masonry details
+# 1. Quay-back limestone toe walls (0.8-1.8 m) along long, westq, wharf seams where ground rises behind apron
+qtoe, qtoe_c = bmesh.new(), bmesh.new()
+for _qname in ('long', 'westq', 'wharf'):
+    if _qname not in QL:
+        continue
+    _qpts = _resample(QL[_qname], 2.4, closed=False)
+    _qd = APRON.get(_qname, 8.0)
+    for i in range(len(_qpts) - 1):
+        a = Vector(_qpts[i]); b = Vector(_qpts[i + 1])
+        t = (b - a)
+        if t.length < 0.3:
+            continue
+        t.normalize(); nl = Vector((-t.y, t.x))
+        p0 = a + nl * (_qd + 0.45); p1 = b + nl * (_qd + 0.45)
+        pm = (p0 + p1) * 0.5
+        if not point_in_poly(pm.x, pm.y, COAST) or in_pad(pm.x, pm.y, 2.2):
+            continue
+        rq_ = terrain.road_info(pm.x, pm.y)
+        if rq_ is not None and rq_[0] < rq_[1] + 2.2:
+            continue
+        # Skip if any town lot overlaps this seam
+        lot_hit = False
+        for _l in CJ['lots']:
+            fx, fy = _l['face']; dx, dy = pm.x - _l['c'][0], pm.y - _l['c'][1]
+            if abs(dx * fx + dy * fy) < _l['d'] * 0.5 + 1.8 and abs(dy * fx - dx * fy) < _l['w'] * 0.5 + 1.8:
+                lot_hit = True; break
+        if lot_hit:
+            continue
+        # Check hill rise 2.0 m behind the apron seam
+        p_in = pm + nl * 2.0
+        if not point_in_poly(p_in.x, p_in.y, COAST):
+            continue
+        zh = H(p_in.x, p_in.y)
+        if zh - Z_SHORE < 0.72:
+            continue
+        top_z = Z_SHORE + min(1.80, max(0.80, (zh - Z_SHORE) * 0.92 + 0.15))
+        lo_z = Z_SHORE - 0.55
+        merge(qtoe, nl_kit.beam((p0.x, p0.y, (lo_z + top_z) * 0.5), (p1.x, p1.y, (lo_z + top_z) * 0.5), 0.72, top_z - lo_z))
+        merge(qtoe_c, nl_kit.beam((p0.x, p0.y, top_z + 0.08), (p1.x, p1.y, top_z + 0.08), 0.88, 0.18))
+if len(qtoe.faces):
+    foot_gradient(obj('quay_toe_walls', qtoe, LIMESTONE, PT['ashlar'], family='quay', bevel=0.03))
+    obj('quay_toe_coping', qtoe_c, COPING_STONE, PT['plain'], family='quay', jitter=0.05)
+else:
+    qtoe.free(); qtoe_c.free()
+
+# 2. Built dressed limestone stone steps on steep rural footpaths (grade > 15 deg = 0.268)
+# 3. Low dressed limestone downhill kerbs (0.35-0.85 m) on steep rural road cross-slopes (> 0.25)
+psteps, rkerbs, rkerbs_c = bmesh.new(), bmesh.new(), bmesh.new()
+for (_rname, _rkind, dense_uv, zs_r, hw, _cut_m, _bb) in terrain._roads:
+    n_d = len(dense_uv)
+    if _rkind == 'path':
+        for i in range(n_d - 1):
+            a_uv, b_uv = dense_uv[i], dense_uv[i + 1]
+            pa = Vector(wpt(*a_uv)); pb = Vector(wpt(*b_uv))
+            seg = pb - pa; seg_l = seg.length
+            if seg_l < 0.4 or not point_in_poly(pa.x, pa.y, COAST) or not point_in_poly(pb.x, pb.y, COAST):
+                continue
+            za, zb = H(pa.x, pa.y), H(pb.x, pb.y)
+            grade = abs(zb - za) / seg_l
+            if grade <= 0.268:
+                continue
+            pm = (pa + pb) * 0.5
+            if in_pad(pm.x, pm.y, 1.8) or terrain.beach_k(pm.x, pm.y)[0] > 0.35 or on_quay(pm.x, pm.y, 3.0):
+                continue
+            dir_v = seg.normalized()
+            n_st = max(2, int(round(seg_l / 0.42)))
+            st_w = min(2.0, hw * 1.75)
+            for k in range(n_st):
+                t0 = (k + 0.5) / n_st
+                q_ = pa.lerp(pb, t0)
+                zq = za + (zb - za) * t0
+                merge(psteps, nl_kit.obox((q_.x, q_.y, zq - 0.10), (dir_v.x, dir_v.y, 0.0), 0.44, st_w, 0.32))
+    elif _rkind == 'road':
+        for i in range(0, n_d - 1, 2):
+            j = min(n_d - 1, i + 2)
+            pa = Vector(wpt(*dense_uv[i])); pb = Vector(wpt(*dense_uv[j]))
+            seg = pb - pa; seg_l = seg.length
+            if seg_l < 0.8:
+                continue
+            pm = (pa + pb) * 0.5
+            if not point_in_poly(pm.x, pm.y, COAST) or in_pad(pm.x, pm.y, 2.2) or terrain.beach_k(pm.x, pm.y)[0] > 0.35 or on_quay(pm.x, pm.y, 4.0):
+                continue
+            t = seg.normalized(); nl = Vector((-t.y, t.x))
+            zm = H(pm.x, pm.y)
+            # Test both sides of the road 2.4 m outside road edge for steep downhill drop
+            for sgn in (-1.0, 1.0):
+                p_out = pm + nl * sgn * (hw + 2.4)
+                if not point_in_poly(p_out.x, p_out.y, COAST):
+                    continue
+                drop = zm - H(p_out.x, p_out.y)
+                if drop > 0.62:  # cross-slope > 0.25 over 2.4 m
+                    kh = min(0.85, max(0.35, drop * 0.45))
+                    k0 = pa + nl * sgn * (hw + 0.15)
+                    k1 = pb + nl * sgn * (hw + 0.15)
+                    z0 = H(k0.x, k0.y); z1 = H(k1.x, k1.y)
+                    zc = 0.5 * (z0 + z1)
+                    merge(rkerbs, nl_kit.beam((k0.x, k0.y, z0 - 0.35), (k1.x, k1.y, z1 - 0.35), 0.42, kh + 0.70))
+                    merge(rkerbs_c, nl_kit.beam((k0.x, k0.y, z0 + kh * 0.5 + 0.04), (k1.x, k1.y, z1 + kh * 0.5 + 0.04), 0.50, 0.12))
+if len(psteps.faces):
+    obj('land_path_steps', psteps, LIMESTONE, PT['ashlar'], family='quay', jitter=0.05)
+else:
+    psteps.free()
+if len(rkerbs.faces):
+    obj('land_road_kerbs', rkerbs, LIMESTONE, PT['ashlar'], family='quay', jitter=0.06)
+    obj('land_road_kerb_coping', rkerbs_c, COPING_STONE, PT['plain'], family='quay', jitter=0.04)
+else:
+    rkerbs.free(); rkerbs_c.free()
+
 # ------------------------------------------------------------------ piers: plank decks laid across each pier's own axis
 set_coll(collection('harbour', ROOTC))
 by_pi = {}
@@ -876,6 +1120,37 @@ for i, (p, t, nrm) in enumerate(frames[:-1]):
         CIRCLES.append((c.x, c.y, r * 1.15))
 obj('breakwater_rubble', rub, face=lambda q: ((PAL['rock_wet'] if q.center.z < 0.45 else (PAL['rock'] if q.normal.z < 0.6 else PAL['rock_light'])), PT['rock']),
     family='breakwater', jitter=0.08)
+
+# Angular limestone riprap armour blocks at breakwater root (outer sea side) & mole roots (landward of all berths)
+riprap = bmesh.new()
+_rr_rng = random.Random(314)
+if len(frames) >= 4:
+    for fi in range(min(6, len(frames) - 1)):
+        p, t, nrm = frames[fi]
+        for k in range(3):
+            c = p + nrm * (BWW * 0.5 + 1.0 + k * 1.45) + t * _rr_rng.uniform(-1.2, 1.2)
+            bw_b = bm_box(_rr_rng.uniform(1.1, 1.9), _rr_rng.uniform(0.9, 1.6), _rr_rng.uniform(0.8, 1.4))
+            xf(bw_b, rx=_rr_rng.uniform(-0.35, 0.35), ry=_rr_rng.uniform(-0.35, 0.35), rz=_rr_rng.uniform(0, 6.28),
+               loc=(c.x, c.y, _rr_rng.uniform(0.15, 1.15) - k * 0.35))
+            merge(riprap, bw_b)
+for _m in CJ.get('moles', []):
+    _mpts = [Vector(p) for p in _m['line']]
+    if len(_mpts) < 2:
+        continue
+    _root = _mpts[0]; _mt = (_mpts[1] - _mpts[0]).normalized(); _mn = Vector((-_mt.y, _mt.x))
+    _mw = _m['width']
+    for sgn in (-1.0, 1.0):
+        for k in range(4):
+            c = _root + _mt * (0.4 + k * 1.15) + _mn * sgn * (_mw * 0.5 + 0.65 + (k % 2) * 0.45)
+            mb_ = bm_box(_rr_rng.uniform(0.95, 1.55), _rr_rng.uniform(0.8, 1.35), _rr_rng.uniform(0.7, 1.25))
+            xf(mb_, rx=_rr_rng.uniform(-0.3, 0.3), ry=_rr_rng.uniform(-0.3, 0.3), rz=_rr_rng.uniform(0, 6.28),
+               loc=(c.x, c.y, _rr_rng.uniform(0.15, 0.95)))
+            merge(riprap, mb_)
+if len(riprap.faces):
+    obj('breakwater_riprap', riprap, face=lambda q: ((PAL['rock_wet'] if q.center.z < 0.42 else (PAL['rock_light'] if q.normal.z > 0.55 else PAL['rock'])), PT['rock']),
+        family='breakwater', jitter=0.07)
+else:
+    riprap.free()
 left = [tuple(p + nrm * (BWW / 2)) for p, t, nrm in frames]; right = [tuple(p - nrm * (BWW / 2)) for p, t, nrm in frames]
 STRUCT_POLYS.append([(v[0], v[1]) for v in left + right[::-1]])
 hp = BW[-1]
@@ -1181,10 +1456,10 @@ _ic, _il, _if = strata_cliff(ISL + [ISL[0]], 77)
 H, COAST = _H_land, _C_land
 obj('pharos_islet_cliffs', _ic, face=cliff_face, jitter=0.06, seed=78, family='terrain')
 _ibl = bmesh.new()
-for k, (p, nr, t) in enumerate(_if):                        # boulders and surf rocks round the foot
+for k, (p, nr, t, _o) in enumerate(_if):                    # boulders and surf rocks round the foot (<= 1.25 m seaward)
     if _crng.random() < 0.5:
-        r = _crng.uniform(0.8, 2.2)
-        c = p + nr * (r * 0.6 + _crng.uniform(0.0, 1.6))
+        r = _crng.uniform(0.75, 1.85)
+        c = p + nr * min(1.22, r * 0.45 + _crng.uniform(0.0, 0.75))
         merge(_ibl, bm_ico(r, (c.x, c.y, _crng.uniform(-0.6, 0.3)), 1 if r > 1.3 else 0, (1.3, 1.0, 0.8), seed=500 + k, amp=0.3))
 obj('pharos_islet_boulders', _ibl, face=lambda q: ((WET if q.center.z < 0.35 else (WEATHER if q.normal.z > 0.55 else GRANITE[q.index % 3])), PT['rock']),
     family='terrain', jitter=0.08)

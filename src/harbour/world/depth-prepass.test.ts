@@ -74,6 +74,66 @@ describe("static opaque depth registry", () => {
     expect(register).toHaveBeenCalledOnce(); pass.dispose(); expect(unregister).toHaveBeenCalledOnce();
     f.materials.dispose();
   });
+  it("admits hb_terrain meshes with non-discarding terrainDepth and keeps them invariant across bare-crown invalidation", () => {
+    const f = fixture();
+    const land = new THREE.Mesh(new THREE.BoxGeometry(), f.materials.terrain());
+    land.name = "island_terrain";
+    f.group.add(land);
+    f.registry.add(land);
+    f.world.updateMatrixWorld(true); f.registry.sync(f.world);
+    expect(f.registry.scene.children).toHaveLength(1);
+    const proxy = f.registry.scene.children[0] as THREE.Mesh;
+    expect(proxy.name).toBe("island_terrain-predepth");
+    const depth = proxy.material as THREE.MeshDepthMaterial;
+    expect(depth.name).toBe("hb_terrain_predepth");
+    expect(depth.colorWrite).toBe(false);
+    expect(depth.customProgramCacheKey()).toBe("hb_terrain_predepth_v1");
+    const ver = depth.version;
+    f.uniforms.uFoliage.value.set(0, 0, 0, 1);
+    f.materials.invalidateSeason(f.world);
+    expect(depth.version).toBe(ver);
+    land.geometry.dispose(); f.materials.dispose();
+  });
+
+  it("admits hb_veg_solid InstancedMesh with swaying hb_veg_predepth and rejects instanceColor", () => {
+    const f = fixture();
+    f.uniforms.uFoliage.value.set(0, 1, 0, 0);
+    const geom = new THREE.BoxGeometry();
+    geom.setAttribute("aVegMeta", new THREE.InstancedBufferAttribute(new Float32Array([0.2, 1.0, 1.1, 0.5, 0.7, 0.95, 0.8, 0.3]), 4));
+    const veg = new THREE.InstancedMesh(geom, f.materials.vegSolid(), 2);
+    veg.name = "veg_pine_broad";
+    f.group.add(veg);
+    f.registry.add(veg);
+    f.world.updateMatrixWorld(true);
+    f.registry.sync(f.world);
+    expect(f.registry.scene.children).toHaveLength(1);
+    const proxy = f.registry.scene.children[0] as THREE.InstancedMesh;
+    expect(proxy.isInstancedMesh).toBe(true);
+    expect(proxy.name).toBe("veg_pine_broad-predepth");
+    expect(proxy.count).toBe(2);
+    const depth = proxy.material as THREE.MeshDepthMaterial;
+    expect(depth.name).toBe("hb_veg_predepth");
+    expect(depth.colorWrite).toBe(false);
+    expect(depth.customProgramCacheKey()).toContain("veg-instanced");
+
+    // Seasonal invalidation updates hb_veg_predepth cleanly
+    const ver = depth.version;
+    const summerKey = depth.customProgramCacheKey();
+    f.uniforms.uFoliage.value.set(0, 0, 0, 1);
+    f.materials.invalidateSeason(f.world);
+    expect(depth.version).toBe(ver + 1);
+    expect(depth.customProgramCacheKey()).not.toBe(summerKey);
+
+    // Setting instanceColor disqualifies an InstancedMesh from StaticDepthRegistry
+    const bad = new THREE.InstancedMesh(geom, f.materials.vegSolid(), 1);
+    bad.setColorAt(0, new THREE.Color(0xffffff));
+    f.group.add(bad);
+    f.registry.add(bad);
+    expect(f.registry.scene.children).toHaveLength(1);
+
+    geom.dispose();
+    f.materials.dispose();
+  });
 });
 
 describe("depth shader coverage", () => {

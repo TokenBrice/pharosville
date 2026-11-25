@@ -9,6 +9,8 @@ import { updateSway } from "./sway";
 import { graphicsValidity } from "../engine/graphics";
 
 export const ISLAND_URL = "/harbour/island.glb";
+export const TERRAIN_SPLAT_URL = "/harbour/terrain-splat.webp";
+export const TERRAIN_TOPO_URL = "/harbour/terrain-topo.webp";
 /** The exported 3D mainland across the northern sound; retired at runtime (E02). */
 export const RETIRED_MAINLAND = "shakkei";
 
@@ -40,11 +42,13 @@ export class IslandSystem implements WorldSystem {
   private fallbackSea: THREE.Mesh | null = null;
   private readonly fallbackBg = new THREE.Color();
   private ground: GroundService | null = null;
+  private terrainDetail: THREE.DataArrayTexture | null = null;
 
   async init(ctx: EngineContext): Promise<void> {
     const layout = ctx.services.get("layout");
     if (!layout) throw new Error("[harbour] island needs the layout service");
     const mats = getHarbourMaterials(ctx);
+    const preparation = ctx.services.get("preparation");
     getLightsStore(ctx); // register 'lights' early so the fleet can add riding lights in its own init
     const { min, max } = layout.bounds;
     this.sun.bounds.set(min[0], min[2], max[0], max[2]);
@@ -52,8 +56,15 @@ export class IslandSystem implements WorldSystem {
     ctx.scene.add(this.sun.group);
     ctx.services.set("sun", this.sun);
 
+    const boundsXZ: [number, number, number, number] = [min[0], min[2], max[0], max[2]];
+    const terrainReady = mats.loadTerrainShader().then((c) => {
+      const h = c.prepareIslandTerrain(ctx, mats, [TERRAIN_SPLAT_URL, TERRAIN_TOPO_URL], boundsXZ, preparation);
+      this.terrainDetail = h.detail;
+      return h.bindMaps;
+    });
+
     try {
-      const gltf = await ctx.assets.gltf(ISLAND_URL);
+      const [gltf] = await Promise.all([ctx.assets.gltf(ISLAND_URL), terrainReady]);
       retireMainland(gltf.scene);
       mats.apply(gltf.scene, { deferStatic: (mesh) => mesh.name.startsWith("island_") });
       this.root = gltf.scene;
@@ -74,13 +85,14 @@ export class IslandSystem implements WorldSystem {
     this.root.traverse((o) => { if ((o as THREE.Mesh).isMesh) dequantizeForPatterns(o as THREE.Mesh); });
     ctx.scene.add(this.root);
     this.root.updateMatrixWorld(true);
-    const ground = await renderGround(ctx.renderer, this.root, [min[0], min[2], max[0], max[2]], 1024, ctx.signal, ctx.services.get("preparation"));
+    const ground = await renderGround(ctx.renderer, this.root, boundsXZ, 1024, ctx.signal, preparation);
     this.ground = ground;
     graphicsValidity(ctx)?.assertValid();
     ctx.services.set("ground", ground);
     mats.ao.uAOTex.value = aoHeightTexture(ground, 512);
     mats.ao.uAOBounds.value.set(min[0], max[2], 1 / (max[0] - min[0]), 1 / (max[2] - min[2]));
-    // All island renderables are classified; only static opaque kit geometry contributes depth.
+    await (await terrainReady)();
+    // All island renderables are classified; static opaque kit & terrain geometry contributes depth.
     this.root.traverse((o) => { if ((o as THREE.Mesh).isMesh) mats.staticDepth.add(o as THREE.Mesh); });
 
     // Dev scaffolding only: when no ocean system registered its wake service, show a flat style C sea
@@ -111,6 +123,8 @@ export class IslandSystem implements WorldSystem {
     // Engine disposes systems in reverse registration order: lights has released its pillar sampler.
     this.ground?.dispose();
     this.ground = null;
+    this.terrainDetail?.dispose();
+    this.terrainDetail = null;
     ctx.services.delete("ground");
   }
 }

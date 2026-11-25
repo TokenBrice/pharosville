@@ -37,6 +37,10 @@ describe("E17 Mediterranean ground year (calendar only)", () => {
     expect(GLSL_SEASON).toContain(SPRING_TURF_GLSL);
     expect(STRAW_GLSL).toBe(`vec3(${STRAW.map((c) => c.toFixed(4)).join(", ")})`);
     expect(SPRING_TURF[1]).toBeGreaterThan(SPRING_TURF[0]);        // still greener than it is red
+    expect(SPRING_TURF[2]).toBeGreaterThanOrEqual(SPRING_TURF[1]); // blue-balanced sage-olive, never acid chartreuse
+    // summer straw preserves baked Cycles AO / olive-terrace darkening from vc instead of cancelling hbLuma(vc)
+    expect(GLSL_SEASON).toContain("float vcAO = clamp(hbLuma(vc) / 0.215, 0.30, 1.35);");
+    expect(GLSL_SEASON).toContain(`${STRAW_GLSL} * vcShade`);
   });
 });
 

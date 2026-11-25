@@ -2,6 +2,19 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v1.13.0 - 2026-11-25 - Limestone and Groves
+
+The island's hills and groves are rebuilt to match its tower and fleet: warm Alexandrian limestone cliffs, a stepped quarry and olive terraces replace the grey rock, eighteen Mediterranean tree and vine forms stand in swaying instanced groves, and ten thousand grasses, wildflowers and coastal shrubs grow from the first frame.
+
+Collected from `release/v1.13.0` after v1.12.0: a terrain and vegetation pass covering the island's topography, cliff geology, dedicated terrain shading, instanced Mediterranean trees, and Frame-1 instanced ground cover, compared view by view against v1.12.0 on a real GPU. Stripping the old baked foliage and hillside props from `island.glb` offsets the new vegetation, ground cover and terrain maps so first-frame compressed wire bytes stay within v1.12.0's ceiling (~4.85 MB Brotli). On High the richer terrain, groves and ground cover run at 60 fps (~2.9–3.5 ms median GPU with per-pass profiling on an RTX 5070 Ti vs ~1.7 ms profiled in v1.12.0; ~1.4–1.7 ms uninstrumented); Low switches groves to lighter distance meshes and thins ground cover (~2.5 ms profiled). An A/B test of alpha-cutout canopy fringe cards was reverted in favour of smoother opaque multi-lobe crowns. No analytical mapping changed.
+
+- Sculpted Alexandrian limestone island: cold grey granite gives way to warm sunlit limestone across the headlands, coastal crags, stepped quarry behind the Mint, battered dry-stone terrace walls and cove headlands. Rural roads grade flush into the hillsides instead of floating above them, and building pads sit level into the slopes.
+- Dedicated terrain shading: a layered terrain shader combines baked splat and topography maps with procedural limestone bedding, triplanar cliff seams, soil furrows, moisture-tinted hollows and subtle rock weathering across all four seasons, retiring the old faceted hillside patches and flat green tint.
+- Eighteen instanced Mediterranean tree and vine forms: four umbrella stone pines, three Italian cypresses, three gnarled sage-green olives, six deciduous orchard and shade trees (plane, almond, fig and pomegranate) and two flush-tiling contour vineyard hedges replace the old faceted cones and balls. Each sways gently in the wind with per-tree variation, drops to sunlit bare branch skeletons in winter, and steps cleanly to lighter geometry in the distance and on Low.
+- Frame-1 instanced ground cover: over ten thousand coastal grass tufts, dry-stone scree, garrigue and maquis shrubs, ferns and seasonal wildflowers settle into bare clearings, road verges and cliff ledges from the first frame, bending in travelling gusts without popping in after arrival.
+- Mediterranean seasonal restraint: all four seasons keep calmer sage-green turf, warm ochre and terra-rossa ploughed fields, muted autumn foliage that never fights the chain flags, and restored summer shading inside shadowed hollows.
+- Both arrival pictures, by day and by night, and the Open Graph card are drawn anew from this island.
+
 ## v1.12.0 - 2026-11-25 - Reserve Anchorage
 
 The harbour adopts Pharos Listing Policy 2.0: tokenized reserve funds anchor separately in Reserve Anchorage off the Bonded Warehouse, core stablecoin totals stay pure, and every fund, variant, pre-launch and dead-coin record is brought up to date from pharos-watch.

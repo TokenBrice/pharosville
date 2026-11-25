@@ -4,30 +4,41 @@ import type { EngineContext } from "../engine/types";
 import type { HarbourMaterials } from "./materials";
 
 const owners = new WeakMap<THREE.Mesh, StaticDepthRegistry>();
-interface Contributor { source: THREE.Mesh; proxy: THREE.Mesh; attached: boolean }
+interface Contributor { source: THREE.Mesh; proxy: THREE.Mesh; attached: boolean; depthGeometry: THREE.BufferGeometry | undefined }
 
-/** Explicit opt-in: only static, opaque kit surfaces. Windows, glass, actors, ocean and overlays stay out. */
+export interface StaticDepthOptions {
+  /** Optional depth-only geometry for the predepth proxy (must conservatively match the colour pass under LessEqualDepth). */
+  readonly depthGeometry?: THREE.BufferGeometry | undefined;
+}
+
+/** Explicit opt-in: static, opaque kit, terrain & instanced vegetation surfaces. Windows, glass, actors, ocean and overlays stay out. */
 export class StaticDepthRegistry {
   readonly scene = new THREE.Scene();
   private readonly contributors = new Map<THREE.Mesh, Contributor>();
   constructor(private readonly materials: HarbourMaterials) { this.scene.matrixWorldAutoUpdate = false; }
 
-  add(source: THREE.Mesh): void {
+  add(source: THREE.Mesh, opts?: StaticDepthOptions): void {
     if (this.contributors.has(source) || Array.isArray(source.material)) return;
     if ((source as THREE.BatchedMesh).isBatchedMesh) return; // no static BatchedMesh is published by these owners
-    const colour = source.material;
-    if (colour.name !== "hb_kit" || colour.transparent || !colour.depthWrite || !colour.depthTest || colour.depthFunc !== THREE.LessEqualDepth) return;
-    if (colour !== this.materials.kit({ side: colour.side }) || colour.alphaHash || colour.alphaToCoverage || source.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender) return;
+    const colour = source.material, isTerrain = colour.name === "hb_terrain", isVeg = colour.name === "hb_veg_solid";
+    if ((colour.name !== "hb_kit" && !isTerrain && !isVeg) || colour.transparent || !colour.depthWrite || !colour.depthTest || colour.depthFunc !== THREE.LessEqualDepth) return;
+    const expected = isTerrain ? this.materials.terrain({ side: colour.side })
+      : isVeg ? this.materials.vegSolid({ side: colour.side })
+      : this.materials.kit({ side: colour.side });
+    if (colour !== expected || colour.alphaHash || colour.alphaToCoverage || source.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender) return;
     // The supported port has no texture/displacement alpha. Fail closed for a later custom shader variant.
     const standard = colour as THREE.MeshStandardMaterial;
     if (standard.map || standard.alphaMap || standard.displacementMap || standard.wireframe || colour.alphaTest || source.morphTargetInfluences || (source as THREE.SkinnedMesh).isSkinnedMesh || (source as THREE.InstancedMesh).instanceColor) return;
-    const template = this.materials.kitDepth(true, colour.side);
+    const template = isTerrain ? this.materials.terrainDepth(true, colour.side)
+      : isVeg ? this.materials.vegDepth(true, colour.side)
+      : this.materials.kitDepth(true, colour.side);
     const depth = template.clone();
     depth.onBeforeCompile = template.onBeforeCompile;
     depth.customProgramCacheKey = template.customProgramCacheKey;
     // A dedicated proxy never changes world visibility/materials or participates in shadow/ground rendering.
     const instanced = source as THREE.InstancedMesh;
-    const proxy = instanced.isInstancedMesh ? new THREE.InstancedMesh(source.geometry, depth, 0) : new THREE.Mesh(source.geometry, depth);
+    const geom = opts?.depthGeometry ?? source.geometry;
+    const proxy = instanced.isInstancedMesh ? new THREE.InstancedMesh(geom, depth, 0) : new THREE.Mesh(geom, depth);
     if (proxy instanceof THREE.InstancedMesh) {
       proxy.instanceMatrix = instanced.instanceMatrix;
       proxy.instanceColor = instanced.instanceColor;
@@ -39,7 +50,7 @@ export class StaticDepthRegistry {
     proxy.matrixAutoUpdate = false;
     proxy.matrixWorldAutoUpdate = false;
     this.scene.add(proxy);
-    this.contributors.set(source, { source, proxy, attached: false });
+    this.contributors.set(source, { source, proxy, attached: false, depthGeometry: opts?.depthGeometry });
     owners.set(source, this);
   }
 
@@ -65,7 +76,14 @@ export class StaticDepthRegistry {
       entry.attached = attached;
       const colour = source.material as THREE.MeshStandardMaterial;
       proxy.visible = attached && visible && colour.visible;
-      proxy.geometry = source.geometry;
+      proxy.geometry = entry.depthGeometry ?? source.geometry;
+      if (proxy instanceof THREE.InstancedMesh) {
+        const inst = source as THREE.InstancedMesh;
+        proxy.instanceMatrix = inst.instanceMatrix;
+        proxy.count = inst.count;
+        proxy.boundingBox = inst.boundingBox;
+        proxy.boundingSphere = inst.boundingSphere;
+      }
       proxy.layers.mask = source.layers.mask;
       proxy.frustumCulled = source.frustumCulled;
       proxy.matrixWorld.copy(source.matrixWorld);
@@ -78,7 +96,12 @@ export class StaticDepthRegistry {
     }
   }
 
-  invalidate(): void { for (const { proxy } of this.contributors.values()) (proxy.material as THREE.Material).needsUpdate = true; }
+  invalidate(): void {
+    for (const { proxy } of this.contributors.values()) {
+      const m = proxy.material as THREE.Material;
+      if (m.name !== "hb_terrain_predepth") m.needsUpdate = true;
+    }
+  }
 
   dispose(): void { for (const source of this.contributors.keys()) this.remove(source); }
 }

@@ -25,8 +25,12 @@ import { gunzipSync } from "node:zlib";
 const run = promisify(execFile);
 const ROOT = resolve(new URL("../..", import.meta.url).pathname);
 const HARBOUR = join(ROOT, "public/harbour");
-// the baked PNG is the source and is not deployed (assets/, not public/)
-const SDF_PNG = join(ROOT, "assets/harbour/sea-sdf.png"), SDF_WEBP = join(HARBOUR, "sea-sdf.webp");
+// the baked PNGs are the sources and are not deployed (assets/, not public/)
+const DATA_WEBPS = [
+  ["sea-sdf.png", "sea-sdf.webp"],
+  ["terrain-splat.png", "terrain-splat.webp"],
+  ["terrain-topo.png", "terrain-topo.webp"],
+].map(([png, webp]) => ({ name: webp, png: join(ROOT, "assets/harbour", png), webp: join(HARBOUR, webp) }));
 
 async function* glbs(dir) {
   for (const e of await readdir(dir, { withFileTypes: true })) {
@@ -54,17 +58,20 @@ for await (const glb of glbs(HARBOUR)) {
 }
 console.log(`glb.gz: ${wrote} written (${zopfli ? "zopfli" : "gzip -9"}), ${kept} up to date`);
 
-if (process.argv.includes("--webp") || !existsSync(SDF_WEBP)) {
-  await run("cwebp", ["-quiet", "-lossless", "-exact", "-z", "9", "-metadata", "none", SDF_PNG, "-o", SDF_WEBP]);
-  console.log(`webp ${relative(ROOT, SDF_WEBP)}`);
-}
 let sharp = null;
 try { sharp = (await import("sharp")).default; } catch { /* optional: verification only */ }
-if (sharp) {
-  const [a, b] = await Promise.all([SDF_PNG, SDF_WEBP].map((p) => sharp(p).ensureAlpha().raw().toBuffer({ resolveWithObject: true })));
-  if (a.info.width !== b.info.width || a.info.height !== b.info.height || Buffer.compare(a.data, b.data) !== 0) {
-    console.error("sea-sdf.webp does not decode to assets/harbour/sea-sdf.png's exact RGBA: run `npm run harbour:compress -- --webp`");
-    process.exit(1);
+for (const entry of DATA_WEBPS) {
+  if (!existsSync(entry.png)) continue;
+  if (process.argv.includes("--webp") || !existsSync(entry.webp)) {
+    await run("cwebp", ["-quiet", "-lossless", "-exact", "-z", "9", "-metadata", "none", entry.png, "-o", entry.webp]);
+    console.log(`webp ${relative(ROOT, entry.webp)}`);
   }
-  console.log("sea-sdf.webp: pixel-exact against sea-sdf.png");
-} else console.warn("sea-sdf.webp: not verified (sharp unavailable)");
+  if (sharp) {
+    const [a, b] = await Promise.all([entry.png, entry.webp].map((p) => sharp(p).ensureAlpha().raw().toBuffer({ resolveWithObject: true })));
+    if (a.info.width !== b.info.width || a.info.height !== b.info.height || Buffer.compare(a.data, b.data) !== 0) {
+      console.error(`${entry.name} does not decode to ${relative(ROOT, entry.png)}'s exact RGBA: run \`npm run harbour:compress -- --webp\``);
+      process.exit(1);
+    }
+    console.log(`${entry.name}: pixel-exact against ${relative(ROOT, entry.png)}`);
+  } else console.warn(`${entry.name}: not verified (sharp unavailable)`);
+}

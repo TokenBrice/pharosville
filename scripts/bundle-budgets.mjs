@@ -112,9 +112,13 @@ export const aggregateBudgets = {
   // on-demand panels and the welcome/subject-link chunks. Measured 3,281,891 B raw / 1,017,204 B gzip.
   // Compact client active IDs remove full coin metadata from DetailPanels: re-measured
   // 2,833,754 B raw / 908,869 B gzip; the feature growth above remains included.
-  // Cap = measured + 10%, rounded up to whole bytes; HTML and the OG image are outside this JS total.
-  maxJsRawBytes: 3_117_130,
-  maxJsGzipBytes: 999_756,
+  // Re-baselined 2026-11-25 for Limestone and Groves v1.13.0 (Terrain & Vegetation Overhaul):
+  // three new lazy world chunks (terrain shader + procedural detail atlas 22.3 kB / 8.8 kB gz,
+  // groundcover system + archetypes + shader 33.6 kB / 12.5 kB gz, vegetation system 7.6 kB / 3.4 kB gz)
+  // kept harbour-app inside its v1.8.0 cap while moving aggregate Total JS to 3,113,440 B raw /
+  // 999,856 B gzip (+100 B over the v1.8.0 gzip cap). Re-baselined to measured + 5%, rounded up.
+  maxJsRawBytes: 3_269_112,
+  maxJsGzipBytes: 1_049_849,
 };
 
 export const forbiddenBundleChunks = [

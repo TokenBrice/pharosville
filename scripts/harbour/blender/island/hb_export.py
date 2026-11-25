@@ -43,19 +43,36 @@ def is_named(ob):
     return None
 
 
-def mat_role(m):
+TERRAIN_PREFIXES = (
+    'land_terrain', 'land_cliffs', 'land_boulders', 'land_lichen',
+    'land_paths', 'land_roads', 'pharos_islet_', 'strata_outcrops',
+    'land_threshing', 'sanctuary_paving',
+)
+SPLIT_PREFIXES = (
+    'land_terrain', 'land_cliffs', 'strata_outcrops', 'land_boulders', 'land_lichen',
+    'trees_', 'veg_', 'land_', 'field_walls', 'terrace_lips', 'terrace_coping_rural',
+    'terrace_stairs', 'quay_toe_walls', 'quay_toe_coping',
+)
+
+
+def mat_role(m, ob=None):
     if m is None:
-        return 'hb_opaque'
-    n = m.name
-    if n == 'M_window':
-        return 'hb_window'
-    if n in ('lamp', 'beacon_red', 'lens', 'riding'):
-        return 'hb_emissive'
-    if n == 'lantern_glass':
-        return 'hb_glass'
-    if n == 'M_kit':
-        return 'hb_opaque'
-    return None
+        role = 'hb_opaque'
+    else:
+        n = m.name
+        if n == 'M_window':
+            return 'hb_window'
+        if n in ('lamp', 'beacon_red', 'lens', 'riding'):
+            return 'hb_emissive'
+        if n == 'lantern_glass':
+            return 'hb_glass'
+        if n == 'M_kit':
+            role = 'hb_opaque'
+        else:
+            return None
+    if role == 'hb_opaque' and ob is not None and ob.name.startswith(TERRAIN_PREFIXES):
+        return 'hb_terrain'
+    return role
 
 
 def family_of(ob):
@@ -68,15 +85,26 @@ def family_of(ob):
 
 
 # ------------------------------------------------------------------ export materials (simple, named per contract)
+# Free exact export material names in case imported wreck GLBs registered stale hb_* materials
+for _mn in ('hb_terrain', 'hb_opaque', 'hb_window', 'hb_emissive', 'hb_glass'):
+    _old = bpy.data.materials.get(_mn)
+    if _old is not None:
+        _old.name = _mn + '_imp'
+
 EXP_MAT = {}
-for nm, col, em in (('hb_opaque', (1, 1, 1), None), ('hb_window', (0.13, 0.19, 0.24), PAL['sodium']), ('hb_emissive', (0.3, 0.3, 0.28), PAL['sodium']),
-                    ('hb_glass', (0.75, 0.84, 0.85), None)):
+for nm, col, em in (
+    ('hb_terrain', (1, 1, 1), None),
+    ('hb_opaque', (1, 1, 1), None),
+    ('hb_window', (0.13, 0.19, 0.24), PAL['sodium']),
+    ('hb_emissive', (0.3, 0.3, 0.28), PAL['sodium']),
+    ('hb_glass', (0.75, 0.84, 0.85), None),
+):
     m = bpy.data.materials.new(nm)
     m.use_nodes = True
     p = m.node_tree.nodes['Principled BSDF']
     p.inputs['Base Color'].default_value = (*col, 1)
-    p.inputs['Roughness'].default_value = 0.8 if nm == 'hb_opaque' else 0.1
-    if nm == 'hb_opaque':
+    p.inputs['Roughness'].default_value = 0.92 if nm == 'hb_terrain' else (0.8 if nm == 'hb_opaque' else 0.1)
+    if nm in ('hb_terrain', 'hb_opaque'):
         at = m.node_tree.nodes.new('ShaderNodeVertexColor'); at.layer_name = 'Col'
         m.node_tree.links.new(at.outputs['Color'], p.inputs['Base Color'])
     if em:
@@ -225,13 +253,16 @@ for ob in list(scene.objects):
         continue
     if any(c.name in ('sky',) for c in ob.users_collection):
         continue
-    role = mat_role(ob.data.materials[0] if ob.data.materials else None)
+    role = mat_role(ob.data.materials[0] if ob.data.materials else None, ob)
     if role is None:
         continue
     nm = is_named(ob)
     o = baked_copy(ob, ob.name + '_x')
     ensure_col(o.data)
-    bake_sway(o, ob, fam)
+    # Only hb_opaque static chunks carry _sway (for swaying laundry/ivy/maquis); hb_terrain, hb_window,
+    # hb_emissive, and zero-sway named runtime nodes omit _sway cleanly for smaller GLB & clean static-merge!
+    if role == 'hb_opaque' and not nm:
+        bake_sway(o, ob, fam)
     if nm:
         if ob.name == 'tide_board_src':
             named_parts.setdefault('tide_board', []).append((role, o, ob))
@@ -239,7 +270,7 @@ for ob in list(scene.objects):
             named_parts.setdefault(nm, []).append((role, o, ob))
         continue
     c = ob.matrix_world.translation
-    if ob.name.startswith(('land_terrain', 'land_cliffs', 'trees_', 'veg_', 'land_', 'field_walls')):
+    if ob.name.startswith(SPLIT_PREFIXES):
         # big multi-region meshes: split by chunk via bmesh after the join
         key = ('split', role)
     else:
@@ -283,6 +314,15 @@ for (ck, role), objs in sorted(final.items()):
     o = join(objs, f'island_{ck}_{role[3:]}')
     single_material(o, EXP_MAT[role])
     o['role'] = role
+    if role == 'hb_opaque':
+        _sw = o.data.attributes.get('_sway')
+        if _sw is not None and len(o.data.vertices):
+            _vals = np.zeros(len(o.data.vertices), np.int32)
+            _sw.data.foreach_get('value', _vals)
+            _nz = int(np.count_nonzero(_vals))
+            print(f'  SWAY {o.name}: {_nz}/{len(_vals)} verts')
+            if _nz == 0:
+                o.data.attributes.remove(_sw)
     CHUNK_OBJS.append(o)
 
 # named runtime nodes: one mesh each (+ their empties re-created under an export root)
@@ -396,8 +436,18 @@ def bake_ao(objs, distance=7.0, samples=48, strength=0.8):
 
 opaque = [o for o in CHUNK_OBJS if o.get('role') == 'hb_opaque'] + [o for o in NAMED_OUT if o.type == 'MESH'
                                                                        and o.data.materials and o.data.materials[0] == EXP_MAT['hb_opaque']]
+terrain_chunks = [o for o in CHUNK_OBJS if o.get('role') == 'hb_terrain']
 if '--no-ao' not in ARGV:
     bake_ao(opaque)
+    # Subtle bare-terrain self-AO on hb_terrain chunks (hiding buildings/walls so terrain-splat.B owns
+    # structural contact AO without double-darkening, while cliffs/karst crevices/quarry benches keep 3D AO)
+    if terrain_chunks:
+        for o in CHUNK_OBJS + NAMED_OUT:
+            if o.type == 'MESH':
+                o.hide_render = (o.get('role') != 'hb_terrain')
+        bake_ao(terrain_chunks, distance=4.5, samples=32, strength=0.32)
+        for o in CHUNK_OBJS + NAMED_OUT:
+            o.hide_render = False
 
 
 # ------------------------------------------------------------------ fixed-camera back-face cull (D1: yaw 45 / pitch 35, pan + zoom only)
