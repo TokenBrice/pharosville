@@ -71,15 +71,11 @@ FOOTPATHS_UV = [
     [(-206.0, -80.0), (-218.0, -110.0), (-226.0, -150.0), (-224.0, -162.0)],
     [(-196.0, -50.0), (-214.0, -54.0), (-226.0, -58.0)],
 ]
-OUTCROPS_UV = [
-    (-170.0, -70.0), (-240.0, -120.0), (-158.0, 52.0), (250.0, -90.0), (230.0, -150.0),
-    (-30.0, -232.0), (120.0, -226.0), (-270.0, -170.0), (220.0, 20.0), (-200.0, 10.0),
-    (60.0, 132.0), (-160.0, -200.0),
-]
+OUTCROPS_UV = list(terrain.OUTCROPS_UV)
 COPSES_UV = [
     ((-150.0, -40.0), 10.0, 14), ((-180.0, 20.0), 12.0, 16), ((-250.0, -190.0), 12.0, 14),
-    ((-90.0, -250.0), 9.0, 8), ((100.0, -250.0), 9.0, 8), ((230.0, -40.0), 10.0, 12),
-    ((210.0, 40.0), 12.0, 14), ((-60.0, 120.0), 7.0, 5), ((-150.0, 60.0), 9.0, 7),
+    ((-90.0, -250.0), 9.0, 8), ((100.0, -250.0), 9.0, 8), ((226.0, -52.0), 9.0, 14),
+    ((214.0, 22.0), 10.0, 12), ((-60.0, 120.0), 7.0, 5), ((-150.0, 60.0), 9.0, 7),
     ((150.0, -210.0), 8.0, 8),
 ]
 CREST_GAPS = ((82.0, 100.0), (106.0, 112.0))
@@ -145,6 +141,32 @@ def _fbm_np(x, y, f, octaves=3, s=0):
         norm += amp
         amp *= 0.5
     return t / norm
+
+
+def _ridge_noise_np(x, y, f, octaves=3, s=0):
+    t = np.zeros_like(x, dtype=np.float64)
+    amp = 1.0
+    norm = 0.0
+    for o in range(octaves):
+        v = 1.0 - np.abs(2.0 * _vnoise_np(x, y, f * (2 ** o), s + o) - 1.0)
+        t += amp * (v * v)
+        norm += amp
+        amp *= 0.5
+    return t / norm
+
+
+def _strata_quantize_np(h, step, riser=0.25):
+    k = h / step
+    fk = k - np.floor(k)
+    return (np.floor(k) + _sstep_np(1.0 - riser, 1.0, fk)) * step
+
+
+def _gauss_np(u, v, cu, cv, su, sv, ang=0.0):
+    c, s = math.cos(ang), math.sin(ang)
+    du, dv = u - cu, v - cv
+    a = (du * c + dv * s) / su
+    b = (-du * s + dv * c) / sv
+    return np.exp(-(a * a + b * b))
 
 
 def _quantize_step(arr, step, snap_top=True):
@@ -509,10 +531,6 @@ def _seg_dist_grid(px, py, pts):
 
 def _eval_height_grid(x_b, y_b, land_mask, cj):
     """Exact vectorized evaluation of terrain.height(x, y) over (x_b, y_b), plus Pharos islet cap."""
-    # Evaluate scalar terrain.height() directly where inside the active land+collar mask,
-    # using a vectorized fast path for natural() + terraces + discs + flats + pads + beaches.
-    # For guaranteed millimeter agreement with terrain.py, we vectorize the dominant math
-    # and cross-check against scalar terrain.height() on deterministic probes.
     h = np.full(x_b.shape, terrain.Z_SHORE - 1.4, dtype=np.float64)
     idx = np.nonzero(land_mask)
     if len(idx[0]) == 0:
@@ -541,7 +559,13 @@ def _eval_height_grid(x_b, y_b, land_mask, cj):
     u = (x + y) / terrain.SQ2
     v = (y - x) / terrain.SQ2 - terrain.VOFF
 
-    # natural(u, v)
+    # _pharos_keep_mask(u, v)
+    pk = np.ones_like(u)
+    for (cu, cv, r0, r1) in terrain._PHAROS_KEEP:
+        dpk = np.hypot(u - cu, v - cv)
+        pk = np.minimum(pk, _sstep_np(r0, r1, dpk))
+
+    # natural(u, v) — exact Phase 3 mirror
     hv = terrain.Z_SHORE - 0.4 + 7.5 * (1.0 - np.exp(-dc / 34.0))
     du = u - terrain.CT[0]
     dv = v - terrain.CT[1]
@@ -563,14 +587,84 @@ def _eval_height_grid(x_b, y_b, land_mask, cj):
     d_west = _seg_dist_grid(u, v, terrain.WEST_SPINE)
     d_east = _seg_dist_grid(u, v, terrain.EAST_SPINE)
     d_south = _seg_dist_grid(u, v, terrain.SOUTH_RIDGE)
-    hv += 11.0 * np.exp(-((d_west / 42.0) ** 2)) * _sstep_np(4.0, 30.0, dc)
-    hv += 7.0 * np.exp(-(((u - terrain.WINDMILL_UV[0]) / 26.0) ** 2 + ((v - terrain.WINDMILL_UV[1]) / 22.0) ** 2))
+    w_dc = _sstep_np(4.0, 30.0, dc) + pk * (_sstep_np(2.0, 20.0, dc) - _sstep_np(4.0, 30.0, dc)) * _sstep_np(70.0, 20.0, v)
+    hv += 11.0 * np.exp(-((d_west / 42.0) ** 2)) * w_dc
+    hv += 7.0 * _gauss_np(u, v, terrain.WINDMILL_UV[0], terrain.WINDMILL_UV[1], 26.0, 22.0)
     hv += 3.0 * (_fbm_np(u, v, 0.011, 2, 9) - 0.4) * _sstep_np(10.0, 40.0, dc)
-    hv += 13.0 * np.exp(-((d_east / 38.0) ** 2)) * _sstep_np(4.0, 30.0, dc)
-    hv += 5.0 * np.exp(-(((u - 222.0) / 28.0) ** 2 + ((v + 104.0) / 38.0) ** 2))
+
+    # Asymmetric East Headland karst cuesta + 3 SW escarpment benches
+    asym = np.where(u < 235.0, 30.0, 36.0)
+    cuesta_core = np.exp(-((d_east / asym) ** 2)) * _sstep_np(2.0, 20.0, dc)
+    rn_e = _ridge_noise_np(u, v, 0.018, 3, 19)
+    hv += (12.8 + 2.4 * (rn_e - 0.35)) * cuesta_core
+    hv += 5.4 * _gauss_np(u, v, 229.0, -96.0, 23.0, 40.0, -0.15)
+    esc_mask = (u > 182.0) & (u < 240.0) & (v > -148.0) & (v < -36.0)
+    if np.any(esc_mask):
+        w_esc = (
+            _sstep_np(186.0, 198.0, u[esc_mask]) * (1.0 - _sstep_np(228.0, 238.0, u[esc_mask]))
+            * _sstep_np(-144.0, -130.0, v[esc_mask]) * (1.0 - _sstep_np(-52.0, -38.0, v[esc_mask]))
+            * _sstep_np(12.0, 24.0, dc[esc_mask])
+        )
+        hq_e = _strata_quantize_np(hv[esc_mask], 4.4, 0.28)
+        hv[esc_mask] = hv[esc_mask] + (hq_e - hv[esc_mask]) * (0.62 * w_esc)
+
+    # South ridge + facets + karst ridge modulation
     hv += 5.5 * np.exp(-((d_south / 26.0) ** 2)) * (0.75 + 0.5 * _fbm_np(u, v, 0.014, 2, 7))
     calm = 1.0 - 0.75 * (1.0 - _sstep_np(0.75, 1.2, hd))
     hv += (_fbm_np(u, v, 0.02, 3, 3) - 0.5) * 3.0 * calm
+    kr_sel = (pk > 0.0) & (dc > 4.0) & ((u > 175.0) | (u < -175.0) | (v < -200.0)) & ~((u < -150.0) & (v > -160.0) & (v < -102.0))
+    if np.any(kr_sel):
+        kr = (_ridge_noise_np(u[kr_sel], v[kr_sel], 0.026, 2, 27) - 0.45) * 1.30 * pk[kr_sel] * _sstep_np(4.0, 18.0, dc[kr_sel])
+        hv[kr_sel] += kr
+
+    # coastal_headland_lift(u, v, dc)
+    shore_band = 1.0 - _sstep_np(14.0, 32.0, dc)
+    lift = np.zeros_like(hv)
+    m_e = (u > 225.0) & (u < 285.0) & (v > -178.0) & (v < -84.0)
+    if np.any(m_e):
+        w_e = _sstep_np(236.0, 248.0, u[m_e]) * (1.0 - _sstep_np(276.0, 286.0, u[m_e])) * _sstep_np(-172.0, -155.0, v[m_e]) * (1.0 - _sstep_np(-112.0, -92.0, v[m_e]))
+        n_e = 0.72 + 0.56 * _ridge_noise_np(u[m_e], v[m_e], 0.028, 2, 101)
+        lift[m_e] = np.maximum(lift[m_e], (4.8 + 3.2 * n_e) * w_e * (0.45 + 0.55 * shore_band[m_e]))
+    m_ne = (u > 178.0) & (u < 224.0) & (v > 64.0) & (v < 102.0)
+    if np.any(m_ne):
+        w_ne = _sstep_np(186.0, 198.0, u[m_ne]) * (1.0 - _sstep_np(214.0, 224.0, u[m_ne])) * _sstep_np(68.0, 76.0, v[m_ne]) * (1.0 - _sstep_np(92.0, 100.0, v[m_ne]))
+        n_ne = 0.7 + 0.5 * _ridge_noise_np(u[m_ne], v[m_ne], 0.032, 2, 103)
+        lift[m_ne] = np.maximum(lift[m_ne], (4.2 + 2.6 * n_ne) * w_ne * (0.45 + 0.55 * shore_band[m_ne]))
+    m_ph = (u > -158.0) & (u < -44.0) & (v > 96.0) & (v < 122.0) & (pk > 0.0)
+    if np.any(m_ph):
+        w_ph = _sstep_np(-154.0, -140.0, u[m_ph]) * (1.0 - _sstep_np(-56.0, -44.0, u[m_ph])) * _sstep_np(101.0, 108.0, v[m_ph]) * (1.0 - _sstep_np(115.0, 122.0, v[m_ph]))
+        rim_b = 1.0 - _sstep_np(6.0, 15.0, dc[m_ph])
+        n_ph = 0.65 + 0.55 * _ridge_noise_np(u[m_ph], v[m_ph], 0.036, 2, 107)
+        lift[m_ph] = np.maximum(lift[m_ph], (2.2 + 2.4 * n_ph) * w_ph * pk[m_ph] * rim_b)
+    m_wn = (u > -280.0) & (u < -234.0) & (v > -18.0) & (v < 22.0)
+    if np.any(m_wn):
+        w_wn = _gauss_np(u[m_wn], v[m_wn], -258.0, -2.0, 15.0, 13.0)
+        lift[m_wn] = np.maximum(lift[m_wn], np.where(w_wn > 0.01, (4.3 + 1.3 * _ridge_noise_np(u[m_wn], v[m_wn], 0.04, 2, 109)) * w_wn, 0.0))
+    m_ws = (u > -350.0) & (u < -304.0) & (v > -178.0) & (v < -134.0)
+    if np.any(m_ws):
+        w_ws = _gauss_np(u[m_ws], v[m_ws], -330.0, -154.0, 18.0, 15.0)
+        lift[m_ws] = np.maximum(lift[m_ws], np.where(w_ws > 0.01, (3.4 + 1.3 * _ridge_noise_np(u[m_ws], v[m_ws], 0.038, 2, 111)) * w_ws, 0.0))
+    for (cu, cv), su, sv, amp in terrain.SOUTH_KNUCKLES:
+        mk = (v < -145.0) & (np.abs(u - cu) < su * 2.5) & (np.abs(v - cv) < sv * 2.5)
+        if np.any(mk):
+            wk = _gauss_np(u[mk], v[mk], cu, cv, su, sv)
+            n_k = 0.8 + 0.4 * _ridge_noise_np(u[mk], v[mk], 0.035, 2, 113)
+            lift[mk] = np.maximum(lift[mk], np.where(wk > 0.01, amp * n_k * wk * (0.45 + 0.55 * shore_band[mk]), 0.0))
+    hv += lift
+
+    # Hard sightline & elevation guards
+    m_tr = (u > 236.0) & (v > -118.0) & (v < -44.0)
+    if np.any(m_tr):
+        al = np.maximum(0.0, -63.2 - v[m_tr])
+        scap = 3.2 + 0.44 * np.maximum(0.0, al - 10.0)
+        w_tr = _sstep_np(236.0, 244.0, u[m_tr]) * _sstep_np(-118.0, -102.0, v[m_tr]) * (1.0 - _sstep_np(-52.0, -44.0, v[m_tr]))
+        hv[m_tr] = np.where((w_tr > 0.0) & (hv[m_tr] > scap), hv[m_tr] * (1.0 - w_tr) + scap * w_tr, hv[m_tr])
+    m_ec = (u > 165.0) & (hv > 31.5)
+    if np.any(m_ec):
+        hv[m_ec] = 31.5 + 2.1 * np.tanh((hv[m_ec] - 31.5) / 2.6)
+    m_sc = (v < -205.0) & (u > -160.0) & (u < 180.0) & (hv > 15.8)
+    if np.any(m_sc):
+        hv[m_sc] = 15.8 + 1.7 * np.tanh((hv[m_sc] - 15.8) / 2.2)
 
     # town_step(u, v)
     ts_z = np.zeros_like(hv)
@@ -584,18 +678,52 @@ def _eval_height_grid(x_b, y_b, land_mask, cj):
         matched |= sel
     hv = np.where(matched, hv * (1.0 - ts_w) + ts_z * ts_w, hv)
 
-    # terraces
+    # terraces (with exact field/warehouse margin attenuation)
     tw = np.zeros_like(hv)
     for (c, ru, rv, a) in terrain.TERRACES:
         du_t, dv_t = u - c[0], v - c[1]
         ca, sa = math.cos(a), math.sin(a)
         dt = np.hypot((du_t * ca + dv_t * sa) / ru, (-du_t * sa + dv_t * ca) / rv)
         tw = np.maximum(tw, np.where(dt < 1.0, 1.0 - _sstep_np(0.72, 1.0, dt), 0.0))
-    if np.any(tw > 0.0):
-        k = hv / terrain.TERRACE_STEP
-        fk = k - np.floor(k)
-        q = (np.floor(k) + _sstep_np(1.0 - terrain.TERRACE_RISER, 1.0, fk)) * terrain.TERRACE_STEP
-        hv = hv + (q - hv) * tw
+    tw_pos = np.nonzero(tw > 0.0)[0]
+    if len(tw_pos) > 0:
+        # Exact scalar _in_field_margin_uv only on pixels near fields or Bonded Warehouse
+        for j in tw_pos:
+            uj, vj = float(u[j]), float(v[j])
+            tw[j] *= terrain._in_field_margin_uv(uj, vj)
+        q_t = _strata_quantize_np(hv[tw_pos], terrain.TERRACE_STEP, terrain.TERRACE_RISER)
+        hv[tw_pos] = hv[tw_pos] + (q_t - hv[tw_pos]) * tw[tw_pos]
+
+    # contour vineyard
+    du_v, dv_v = u - terrain.VINE_UV[0], v - terrain.VINE_UV[1]
+    ca_v, sa_v = math.cos(terrain.VINE_ANG), math.sin(terrain.VINE_ANG)
+    d_v = np.hypot((du_v * ca_v + dv_v * sa_v) / terrain.VINE_RU, (-du_v * sa_v + dv_v * ca_v) / terrain.VINE_RV)
+    vw = np.where(d_v < 1.0, 1.0 - _sstep_np(0.76, 1.0, d_v), 0.0)
+    vsel = vw > 0.0
+    if np.any(vsel):
+        qv = _strata_quantize_np(hv[vsel], terrain.VINE_STEP, terrain.VINE_RISER)
+        hv[vsel] = hv[vsel] + (qv - hv[vsel]) * vw[vsel]
+
+    # ancient stepped limestone quarry
+    du_q, dv_q = u - terrain.QUARRY_UV[0], v - terrain.QUARRY_UV[1]
+    ca_q, sa_q = math.cos(terrain.QUARRY_ANG), math.sin(terrain.QUARRY_ANG)
+    d_q = np.hypot((du_q * ca_q + dv_q * sa_q) / terrain.QUARRY_RU, (-du_q * sa_q + dv_q * ca_q) / terrain.QUARRY_RV)
+    qw = np.where(d_q < 1.0, 1.0 - _sstep_np(0.68, 1.0, d_q), 0.0)
+    qw = np.where(u < 188.0, qw * _sstep_np(184.0, 189.0, u), qw)
+    qsel_q = qw > 0.0
+    if np.any(qsel_q):
+        q_base = np.minimum(hv[qsel_q], 17.6)
+        qq = _strata_quantize_np(q_base, terrain.QUARRY_STEP, terrain.QUARRY_RISER)
+        hv[qsel_q] = hv[qsel_q] + (qq - hv[qsel_q]) * qw[qsel_q]
+
+    # furrow micro-undulation inside plough/hay fields (small bboxes -> exact scalar)
+    for fl in terrain.FIELDS:
+        if fl['kind'] not in ('plough', 'hay'):
+            continue
+        bb = fl['bb']
+        fsel = (x >= bb[0]) & (x <= bb[2]) & (y >= bb[1]) & (y <= bb[3])
+        for j in np.nonzero(fsel)[0]:
+            hv[j] += terrain._furrow_delta(float(x[j]), float(y[j]), float(u[j]), float(v[j]))
 
     # discs
     for (cx, cy, rd, bd, zd) in terrain._disc_list():
@@ -605,51 +733,63 @@ def _eval_height_grid(x_b, y_b, land_mask, cj):
             wd = 1.0 - _sstep_np(rd, rd + bd, dd[sel])
             hv[sel] = hv[sel] * (1.0 - wd) + zd * wd
 
-    # quay aprons
+    # quay aprons (matching updated _quay_flat with narrow cove flank aprons)
     best_d = np.full_like(hv, 1e9)
     best_ap = np.zeros_like(hv)
+    best_bl = np.full_like(hv, 14.0)
     for name, pts in terrain._quays.items():
-        ap = 13.0 if name in ('long', 'grand', 'tron') else (8.0 if name.startswith('cove') else 9.0)
+        if name in ('long', 'grand', 'tron'):
+            ap, bl = 13.0, 14.0
+        elif name.endswith(('-w', '-e')):
+            ap, bl = 3.5, 6.5
+        elif name.startswith('cove'):
+            ap, bl = 8.0, 14.0
+        else:
+            ap, bl = 9.0, 14.0
         dq = _seg_dist_grid(x, y, pts)
         better = dq < best_d
         best_d[better] = dq[better]
         best_ap[better] = ap
-    qsel = best_d < best_ap + 14.0
+        best_bl[better] = bl
+    qsel = best_d < best_ap + best_bl
     if np.any(qsel):
-        kq = 1.0 - _sstep_np(best_ap[qsel], best_ap[qsel] + 14.0, best_d[qsel])
+        kq = 1.0 - _sstep_np(best_ap[qsel], best_ap[qsel] + best_bl[qsel], best_d[qsel])
         keep_t = matched[qsel] & (ts_w[qsel] > 0.5) & (hv[qsel] > terrain.Z_SHORE + 0.5) & (best_d[qsel] > best_ap[qsel])
         kq = np.where(keep_t, 0.0, kq)
         hv[qsel] = hv[qsel] * (1.0 - kq) + terrain.Z_SHORE * kq
     hv = np.maximum(hv, terrain.Z_SHORE - 1.4)
 
-    # Pharos road bench (small bbox -> exact vectorized segment query)
-    if terrain._road is not None:
-        dense, zs_r, bb = terrain._road
-        rsel = (u >= bb[0]) & (u <= bb[2]) & (v >= bb[1]) & (v <= bb[3])
-        if np.any(rsel):
-            ur, vr = u[rsel], v[rsel]
-            bd_r = np.full_like(ur, 1e9)
-            bz_r = np.zeros_like(ur)
-            for i in range(len(dense) - 1):
-                a, b = dense[i], dense[i + 1]
-                abx, aby = b[0] - a[0], b[1] - a[1]
-                t = np.clip(((ur - a[0]) * abx + (vr - a[1]) * aby) / (abx * abx + aby * aby + 1e-9), 0.0, 1.0)
-                dd = np.hypot(ur - a[0] - abx * t, vr - a[1] - aby * t)
-                bt = dd < bd_r
-                bd_r[bt] = dd[bt]
-                bz_r[bt] = zs_r[i] + (zs_r[i + 1] - zs_r[i]) * t[bt]
-            kr = 1.0 - _sstep_np(terrain.ROAD_CUT_W * 0.5 + 0.6, terrain.ROAD_CUT_W * 0.5 + 6.5, bd_r)
-            hv[rsel] = hv[rsel] * (1.0 - kr) + bz_r * kr
+    # Universal road & footpath bench grading (exact O(1) hash-grid query only on pixels in road cells)
+    if terrain._roads:
+        cell_keys = terrain._road_grid.keys()
+        rmask = np.zeros(hv.shape, dtype=bool)
+        for (_rn, _rk, _dn, _zr, _hw, _cm, bb) in terrain._roads:
+            rmask |= (u >= bb[0]) & (u <= bb[2]) & (v >= bb[1]) & (v <= bb[3])
+        for j in np.nonzero(rmask)[0]:
+            rq = terrain.road_query_uv(float(u[j]), float(v[j]))
+            if rq is not None:
+                dd_r, bz_r, hw_r, cut_r, _kd, rname_r, _tuv, _gr = rq
+                inner = hw_r + (0.6 if rname_r == 'pharos' else 0.45)
+                outer = hw_r + cut_r + (1.0 if rname_r == 'pharos' else 0.45)
+                kr = 1.0 - terrain.sstep(inner, outer, dd_r)
+                if kr > 0.0:
+                    hv[j] = hv[j] * (1.0 - kr) + bz_r * kr
 
-    # beaches
+    # beaches (with exact same_shore + end_w taper)
     best_kb = np.zeros_like(hv)
     is_sand = np.zeros(hv.shape, dtype=bool)
-    for line, depth, kind, box in terrain._beaches:
+    for line, depth, kind, box, ends in terrain._beaches:
         bsel = (x >= box[0]) & (x <= box[2]) & (y >= box[1]) & (y <= box[3])
         if not np.any(bsel):
             continue
-        dl = _seg_dist_grid(x[bsel], y[bsel], line)
-        kb = (1.0 - _sstep_np(depth * 0.85, depth + 14.0, dc[bsel])) * (1.0 - _sstep_np(depth + 6.0, depth + 26.0, dl))
+        xb, yb, dcb = x[bsel], y[bsel], dc[bsel]
+        dl = _seg_dist_grid(xb, yb, line)
+        same_shore = 1.0 - _sstep_np(22.0, 42.0, dl - dcb)
+        (t0x, t0y), (t1x, t1y) = ends
+        p0 = (xb - line[0][0]) * t0x + (yb - line[0][1]) * t0y
+        p1 = (xb - line[-1][0]) * t1x + (yb - line[-1][1]) * t1y
+        end_w = 1.0 - _sstep_np(2.0, 12.0, np.maximum(0.0, np.maximum(p0, p1)))
+        kb = (1.0 - _sstep_np(depth * 0.85, depth + 14.0, dcb)) * (1.0 - _sstep_np(depth + 6.0, depth + 26.0, dl)) * end_w * same_shore
         kb = np.where(dl > depth + 30.0, 0.0, kb)
         bt = kb > best_kb[bsel]
         sub_idx = np.nonzero(bsel)[0][bt]
@@ -663,6 +803,14 @@ def _eval_height_grid(x_b, y_b, land_mask, cj):
         if np.any(dune):
             hv[dune] += best_kb[dune] * _sstep_np(36.0, 44.0, dc[dune]) * (
                 0.8 + 4.2 * np.maximum(0.0, _fbm_np(x[dune], y[dune], 0.055, 2, 21) - 0.25))
+
+    # gentle goat pasture smoothing (union of 3 small ellipses -> call _pasture_smooth ONCE per pixel)
+    pmask_p = np.zeros(hv.shape, dtype=bool)
+    for (c_p, ru_p, rv_p, _a_p) in terrain._PASTURE_GENTLE:
+        rad_p = ru_p + rv_p + 12.0
+        pmask_p |= (np.abs(u - c_p[0]) <= rad_p) & (np.abs(v - c_p[1]) <= rad_p)
+    for j in np.nonzero(pmask_p)[0]:
+        hv[j] = terrain._pasture_smooth(float(x[j]), float(y[j]), float(u[j]), float(v[j]), float(hv[j]), float(dc[j]), float(best_kb[j]))
 
     # flats & pads (small bboxes -> exact scalar calls only on affected pixels)
     for (poly, zf, bf, bb, te) in terrain._flats:
@@ -697,7 +845,7 @@ def _eval_height_grid(x_b, y_b, land_mask, cj):
 
     h[idx] = hv
 
-    # Pharos islet height cap (from hb_land.py:1124)
+    # Pharos islet height cap (from hb_land.py)
     ph = cj.get('pharos')
     if ph and ph.get('islet'):
         isl = [tuple(p) for p in ph['islet']]
@@ -711,7 +859,6 @@ def _eval_height_grid(x_b, y_b, land_mask, cj):
             de = _seg_dist_grid(xi, yi, isl + [isl[0]])
             rim = 3.1 + 1.5 * _fbm_np(xi, yi, 0.045, 2, 71)
             ih = np.minimum(pz - 1.0, rim + 1.2 * _sstep_np(0.0, 9.0, de) + 0.5 * (_fbm_np(xi, yi, 0.12, 2, 72) - 0.5))
-            # Only apply inside the islet polygon (outside main coast)
             in_isl = np.array([geom.pip(float(a), float(b), isl) for a, b in zip(xi, yi)])
             h[ix_i[in_isl], iy_i[in_isl]] = ih[in_isl]
 
@@ -741,48 +888,68 @@ def _verify_vectorized_height(x_b, y_b, h_vec, land_mask):
 
 
 def _build_roads(cj, coast):
-    """Reconstruct exact road & path polylines matching hb_dress.py:138-161, 321."""
-    def make_road(ctrl_uv, smooth=True):
-        pts_uv = geom.catmull(ctrl_uv, 6, closed=False) if smooth else ctrl_uv
-        pts = [terrain.from_uv(*p) for p in pts_uv]
-        dense = []
-        for a, b in zip(pts, pts[1:]):
-            n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / 1.5))
-            for k in range(n):
-                dense.append((a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n))
-        dense.append(pts[-1])
-        return [p for p in dense if geom.pip(p[0], p[1], coast)]
-
-    roads = {
-        'pharos': make_road(terrain.PHAROS_ROAD, smooth=True),
-        'west': make_road(ROAD_WEST_UV, smooth=True),
-        'south': make_road(ROAD_SOUTH_UV, smooth=True),
-        'east': make_road(ROAD_EAST_UV, smooth=True),
-        'shrine': make_road(ROAD_SHRINE_UV, smooth=False),
-    }
+    """Read canonical road & path polylines directly from terrain._roads (single source of truth)."""
+    roads = {}
     paths = []
-    main_pts = roads['south'] + roads['west'] + roads['east']
-    for cv in cj.get('coves', []):
-        bx, by = cv['back']
-        nx, ny = cv['n']
-        a = (bx - nx * 6.0, by - ny * 6.0)
-        u0, v0 = terrain.to_uv(*a)
-        if main_pts:
-            tgt = min(main_pts, key=lambda p: (p[0] - a[0]) ** 2 + (p[1] - a[1]) ** 2)
-            u1, v1 = terrain.to_uv(*tgt)
-            mid = ((u0 + u1) * 0.5 + 6.0, (v0 + v1) * 0.5)
-            paths.append(make_road([(u0, v0), mid, (u1, v1)], smooth=True))
-    for ctrl in FOOTPATHS_UV:
-        paths.append(make_road(ctrl, smooth=True))
+    for (rname, rkind, dense_uv, _zs, hw, _cut_m, _bb) in terrain._roads:
+        pts = [terrain.from_uv(*p) for p in dense_uv]
+        pts = [p for p in pts if geom.pip(p[0], p[1], coast)]
+        if len(pts) < 2:
+            continue
+        if rname in ('pharos', 'west', 'south', 'east', 'shrine'):
+            roads[rname] = pts
+        else:
+            paths.append((pts, hw * 2.0))
     return roads, paths
 
 
+# Exact HBVG v1 protoId -> (canopy_radius_m, duff_weight); protoId 16..17 are vineyard rows (skipped for canopy humus!)
+_HBVG_CANOPY = (
+    (6.2, 0.88),  # 0: pine_broad
+    (6.0, 0.88),  # 1: pine_tiered
+    (5.2, 0.84),  # 2: pine_sheared
+    (4.0, 0.72),  # 3: pine_young
+    (2.7, 0.78),  # 4: cypress_tall
+    (2.3, 0.74),  # 5: cypress_column
+    (2.9, 0.82),  # 6: cypress_sanctuary
+    (4.4, 0.64),  # 7: olive_ancient
+    (3.7, 0.58),  # 8: olive_terrace
+    (3.0, 0.52),  # 9: olive_young
+    (6.0, 0.70),  # 10: plane_tall
+    (5.6, 0.68),  # 11: plane_broad
+    (4.1, 0.58),  # 12: almond_spread
+    (3.2, 0.52),  # 13: almond_young
+    (4.3, 0.62),  # 14: fig_broad
+    (3.1, 0.54),  # 15: pomegranate_multi
+)
+
+
 def _try_load_veg_instances():
-    """Read public/harbour/flora/vegetation-instances.bin if present; return [(x_B, y_B, radius_m, duff_w)] or None."""
+    """Read public/harbour/flora/vegetation-instances.bin (HBVG v1) if present; return [(x_B, y_B, radius_m, duff_w)] or None."""
     bin_path = os.path.join(ROOT, 'public/harbour/flora/vegetation-instances.bin')
     if not os.path.exists(bin_path):
         return None
-    # Support optional JSON companion manifest or compact binary records if Phase 1B writes them.
+    try:
+        raw = open(bin_path, 'rb').read()
+        if len(raw) >= 16 and raw[:4] == b'HBVG':
+            ver, proto_count, count, _flags = struct.unpack_from('<HHII', raw, 4)
+            if ver == 1 and count > 0 and 16 + count * 20 <= len(raw):
+                out = []
+                for i in range(count):
+                    gx, _gy, gz, _yaw_u16, sxz_u8, _sy_u8, proto_id, _seed, _luma, _sway = struct.unpack_from(
+                        '<3fH6B', raw, 16 + i * 20
+                    )
+                    # Skip modular vineyard rows (proto_id >= 16) so canopy humus & forest groundcover stay off the vineyard
+                    if proto_id >= len(_HBVG_CANOPY):
+                        continue
+                    base_r, duff_w = _HBVG_CANOPY[proto_id]
+                    scale_xz = 0.35 + (sxz_u8 / 255.0) * 1.45
+                    out.append((float(gx), -float(gz), max(1.8, min(8.5, base_r * scale_xz)), duff_w))
+                if out:
+                    return out
+    except Exception:
+        pass
+    # Legacy JSON companion fallback if present
     json_path = os.path.join(ROOT, 'public/harbour/flora/vegetation-instances.json')
     if os.path.exists(json_path):
         try:
@@ -794,6 +961,8 @@ def _try_load_veg_instances():
                 if not p or len(p) < 3:
                     continue
                 sp = str(it.get('species', 'pine')).lower()
+                if 'vine' in sp:
+                    continue
                 sc = float(it.get('scale', 1.0))
                 r = (6.0 if 'pine' in sp else 2.6 if 'cypress' in sp else 4.2) * sc
                 w = 0.85 if ('pine' in sp or 'cypress' in sp) else 0.62
@@ -802,20 +971,6 @@ def _try_load_veg_instances():
                 return out
         except Exception:
             pass
-    # Fallback binary probe: check 4-byte magic + uint32 count + float32 records (x, y, z, scale, ...)
-    try:
-        raw = open(bin_path, 'rb').read()
-        if len(raw) >= 16 and raw[:4] in (b'PVEG', b'HFLR', b'FLRA'):
-            _ver, count, stride = struct.unpack_from('<III', raw, 4)
-            if count > 0 and stride >= 16 and 16 + count * stride <= len(raw):
-                out = []
-                for i in range(count):
-                    gx, _gy, gz, sc = struct.unpack_from('<4f', raw, 16 + i * stride)
-                    out.append((gx, -gz, max(2.2, min(8.0, 5.2 * max(sc, 0.4))), 0.78))
-                if out:
-                    return out
-    except Exception:
-        pass
     return None
 
 
@@ -1345,8 +1500,8 @@ def _blender_bvh_ao(x_b, y_b, h_grid, nx_b, ny_b, nz_b, land_mask, glb_path=None
 
     # Smooth 16-ray hemisphere bounce AO at 512^2 so Monte Carlo stratification never creates speckle
     # (crisp 0.4-1.8 m wall/building/trunk contact occlusion is preserved at full 1024^2 by the analytic collar).
-    ao_s = ndimage.gaussian_filter(ao_s, sigma=1.9)
-    ao_s = np.where(ao_s > 0.955, 1.0, ao_s)
+    ao_s = ndimage.gaussian_filter(ao_s, sigma=2.15)
+    ao_s = np.where(ao_s > 0.945, 1.0, ao_s)
     if step > 1:
         ao_full = ndimage.zoom(ao_s, step, order=1)
         ao_full = np.clip(ao_full[:n, :n], 0.42, 1.0)
@@ -1495,7 +1650,7 @@ def bake(cj, bounds_xz, use_blender_bvh=True, glb_path=None):
     road_lines = [
         (roads['pharos'], terrain.ROAD_CUT_W), (roads['west'], 3.0),
         (roads['south'], 3.0), (roads['east'], 2.6), (roads['shrine'], 1.5),
-    ] + [(p, 2.0) for p in paths if len(p) >= 2] + lane_lines + quay_back_lines
+    ] + [(p, w) for (p, w) in paths if len(p) >= 2] + lane_lines + quay_back_lines
     road_mask = _raster_polys(customs_sq, [], road_lines, bounds_xz, SPLAT_N)
     d_road = _edt_m(road_mask, bounds_xz)
     wear_road = 1.0 - _sstep_np(0.8, 3.4, d_road + warp_fbm)
@@ -1505,7 +1660,7 @@ def bake(cj, bounds_xz, use_blender_bvh=True, glb_path=None):
     d_yard = _edt_m(yard_mask, bounds_xz)
     wear_yard = (1.0 - _sstep_np(0.8, 3.5, d_yard + warp_fbm)) * 0.82
 
-    # Olive terrace treads, vineyard, threshing floor & sanctuary fringes
+    # Olive terrace treads, vineyard, ancient quarry dust, threshing floor & sanctuary fringes
     u_s = (xs + ys) / terrain.SQ2
     v_s = (ys - xs) / terrain.SQ2 - terrain.VOFF
     tw_s = np.zeros_like(xs)
@@ -1515,6 +1670,13 @@ def bake(cj, bounds_xz, use_blender_bvh=True, glb_path=None):
         dt = np.hypot((du_t * ca + dv_t * sa) / ru, (-du_t * sa + dv_t * ca) / rv)
         tw_s = np.maximum(tw_s, np.where(dt < 1.0, 1.0 - _sstep_np(0.68, 1.0, dt), 0.0))
     wear_terrace = tw_s * (0.66 + 0.08 * drip_noise)
+
+    du_qs, dv_qs = u_s - terrain.QUARRY_UV[0], v_s - terrain.QUARRY_UV[1]
+    ca_qs, sa_qs = math.cos(terrain.QUARRY_ANG), math.sin(terrain.QUARRY_ANG)
+    dq_s = np.hypot((du_qs * ca_qs + dv_qs * sa_qs) / terrain.QUARRY_RU, (-du_qs * sa_qs + dv_qs * ca_qs) / terrain.QUARRY_RV)
+    qw_s = np.where(dq_s < 1.0, 1.0 - _sstep_np(0.68, 1.0, dq_s), 0.0)
+    qw_s = np.where(u_s < 188.0, qw_s * _sstep_np(184.0, 189.0, u_s), qw_s)
+    wear_quarry = qw_s * 0.72
 
     _vc, _vd, _va, vine_poly = terrain.vineyard()
     vine_mask = _raster_polys([vine_poly], [], [], bounds_xz, SPLAT_N)
@@ -1529,7 +1691,7 @@ def bake(cj, bounds_xz, use_blender_bvh=True, glb_path=None):
     d_san = np.hypot(xs - scx, ys - scy)
     wear_san = (1.0 - _sstep_np(terrain.SANCTUARY_R - 2.0, terrain.SANCTUARY_R + 3.0, d_san + warp_fbm * 0.7)) * 0.58
 
-    ch_r = np.maximum.reduce([wear_road, wear_yard, wear_terrace, wear_vine, wear_thr, wear_san])
+    ch_r = np.maximum.reduce([wear_road, wear_yard, wear_terrace, wear_quarry, wear_vine, wear_thr, wear_san])
     ch_r = np.clip(ch_r * _sstep_np(-1.0, 2.0, sd_s), 0.0, 1.0)
 
     # --- Channel G: Canopy Humus & Pine-Needle Duff ---
@@ -1593,8 +1755,9 @@ def bake(cj, bounds_xz, use_blender_bvh=True, glb_path=None):
     ao_quay = 0.68 + 0.32 * _sstep_np(0.2, 1.5, _edt_m(quay_mask, bounds_xz))
     ao_rock = 0.56 + 0.44 * _sstep_np(0.3, 2.2, d_outcrop)
 
-    trunk_mask = _raster_polys([], [(tx, ty, 0.45) for (tx, ty, _r, _w) in trees], [], bounds_xz, SPLAT_N)
-    ao_trunk = 0.60 + 0.40 * _sstep_np(0.25, 1.35, _edt_m(trunk_mask, bounds_xz))
+    # Tree trunk grounding skirts for mature canopy trees (rad >= 3.6 m); smooth slightly to remove 1 px VP8L noise
+    trunk_mask = _raster_polys([], [(tx, ty, 0.75) for (tx, ty, rad, _w) in trees if rad >= 3.6], [], bounds_xz, SPLAT_N)
+    ao_trunk = 0.68 + 0.32 * _sstep_np(0.30, 1.60, _edt_m(trunk_mask, bounds_xz))
 
     contact_ao = np.minimum.reduce([ao_bldg, ao_wall, ao_quay, ao_rock, ao_trunk])
 
@@ -1611,7 +1774,7 @@ def bake(cj, bounds_xz, use_blender_bvh=True, glb_path=None):
             contact_ao = np.clip(contact_ao * bvh_ao, 0.25, 1.0)
 
     # Keep open water & unoccluded open ground crisp white (255)
-    contact_ao = np.where((sd_s < -4.0) | (contact_ao > 0.972), 1.0, contact_ao)
+    contact_ao = np.where((sd_s < -4.0) | (contact_ao > 0.94), 1.0, contact_ao)
 
     # --- Channel A: Karst Limestone Outcrop & Aridity Mask ---
     # 1. Outcrop & talus skirts
@@ -1631,28 +1794,29 @@ def bake(cj, bounds_xz, use_blender_bvh=True, glb_path=None):
     ny_s = ndimage.zoom(ny_s_topo, SPLAT_N // TOPO_N, order=1)[:SPLAT_N, :SPLAT_N]
     slope_s = 1.0 - np.clip(ny_s, 0.0, 1.0)
     k_slope = _sstep_np(0.16, 0.44, slope_s) * 0.85
-    # 5. Low-frequency karst strata fBM (arid convex ridge crests)
+    # 5. Low-frequency karst strata fBM (arid convex ridge crests) + exposed East limestone quarry
     curv_s = ndimage.zoom(curv_s_topo, SPLAT_N // TOPO_N, order=1)[:SPLAT_N, :SPLAT_N]
     k_strata = _sstep_np(0.58, 0.80, karst_fbm) * _sstep_np(0.06, 0.28, curv_s) * 0.65
+    k_quarry = qw_s * 0.95
 
-    ch_a = np.clip(np.maximum.reduce([k_outcrop, k_head, k_islet, k_cliff, k_slope, k_strata]), 0.0, 1.0)
+    ch_a = np.clip(np.maximum.reduce([k_outcrop, k_head, k_islet, k_cliff, k_slope, k_strata, k_quarry]), 0.0, 1.0)
     ch_a = np.where(sd_s < -2.0, 0.0, ch_a)
 
     # Gently band-limit splat channels R/G/A and snap faint tails cleanly to 0 for crisp lossless WebP compression
     # (uTerrainSplat uses hardware linear filtering + GPU micro-detail height blending, so smooth quantized masks stay banding-free).
-    ch_r = ndimage.gaussian_filter(ch_r, sigma=1.45)
-    ch_g = ndimage.gaussian_filter(ch_g, sigma=2.5)
-    ch_a = ndimage.gaussian_filter(ch_a, sigma=2.5)
-    ch_r = np.where(ch_r < 0.06, 0.0, ch_r)
-    ch_g = np.where(ch_g < 0.075, 0.0, ch_g)
-    ch_a = np.where(ch_a < 0.08, 0.0, ch_a)
+    ch_r = ndimage.gaussian_filter(ch_r, sigma=1.8)
+    ch_g = ndimage.gaussian_filter(ch_g, sigma=2.8)
+    ch_a = ndimage.gaussian_filter(ch_a, sigma=2.8)
+    ch_r = np.where(ch_r < 0.09, 0.0, ch_r)
+    ch_g = np.where(ch_g < 0.11, 0.0, ch_g)
+    ch_a = np.where(ch_a < 0.12, 0.0, ch_a)
 
     splat = np.zeros((SPLAT_N, SPLAT_N, 4), dtype=np.uint8)
-    splat[..., 0] = _quantize_step(ch_r, 16, snap_top=True)
+    splat[..., 0] = _quantize_step(ch_r, 32, snap_top=True)
     splat[..., 1] = _quantize_step(ch_g, 32, snap_top=True)
-    # Channel B: 64-step bit-aligned contact AO (step=4, exact 255 in open ground) — hardware linear filtering
-    # reconstructs continuous occlusion while keeping 1024^2 lossless WebP under 100 KB even with BVHTree AO.
-    splat[..., 2] = _quantize_step(contact_ao, 4, snap_top=True)
+    # Channel B: 32-step bit-aligned contact AO (step=8, exact 255 in open ground) — hardware linear filtering
+    # reconstructs continuous occlusion while keeping 1024^2 lossless WebP comfortably under 100 KB even with BVHTree AO.
+    splat[..., 2] = _quantize_step(contact_ao, 8, snap_top=True)
     splat[..., 3] = _quantize_step(ch_a, 32, snap_top=True)
     splat[water_s] = (0, 0, 255, 0)
 
