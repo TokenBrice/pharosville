@@ -50,6 +50,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   courtyardAndRoofs: "v1.10.0",
   titansAndWakes: "v1.11.0",
   reserveAnchorage: "v1.12.0",
+  limestoneAndGroves: "v1.13.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.reserveAnchorage;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.limestoneAndGroves;

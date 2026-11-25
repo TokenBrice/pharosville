@@ -12,6 +12,22 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-11-25-limestone-and-groves",
+    version: PHAROSVILLE_RELEASE_VERSIONS.limestoneAndGroves,
+    date: "2026-11-25",
+    title: "Limestone and Groves",
+    summary: "The island's hills and groves are rebuilt to match its tower and fleet: warm Alexandrian limestone cliffs, a stepped quarry and olive terraces replace the grey rock, eighteen Mediterranean tree and vine species stand in swaying instanced groves, and ten thousand grasses, wildflowers and coastal shrubs grow from the first frame.",
+    bullets: [
+      "Sculpted Alexandrian limestone island: cold grey granite gives way to warm sunlit limestone across the headlands, coastal crags, stepped quarry behind the Mint, battered dry-stone terrace walls and cove headlands. Rural roads grade flush into the hillsides instead of floating above them, and building pads sit level into the slopes.",
+      "Dedicated terrain shading: a layered terrain shader combines baked splat and topography maps with procedural limestone bedding, triplanar cliff seams, soil furrows, moisture-tinted hollows and subtle rock weathering across all four seasons, retiring the old faceted hillside patches and flat green tint.",
+      "Eighteen instanced Mediterranean tree and vine prototypes: four umbrella stone pines, three Italian cypresses, three gnarled sage-green olives, six deciduous orchard and shade trees (plane, almond, fig and pomegranate) and two flush-tiling contour vineyard hedges replace the old faceted cones and balls. Each sways gently in the wind with per-tree variation, drops to sunlit bare branch skeletons in winter, and steps cleanly to lighter geometry in the distance and on Low.",
+      "Frame-1 instanced ground cover: over ten thousand coastal grass tufts, dry-stone scree, garrigue and maquis shrubs, ferns and seasonal wildflowers settle into bare clearings, road verges and cliff ledges from the first frame, bending in travelling gusts without popping in after arrival.",
+      "Mediterranean seasonal restraint: all four seasons keep calmer sage-green turf, warm ochre and terra-rossa ploughed fields, muted autumn foliage that never fights the chain flags, and restored summer shading inside shadowed hollows.",
+      "Both arrival pictures, by day and by night, and the Open Graph card are drawn anew from this island.",
+    ],
+    source: "Collected from `release/v1.13.0` after v1.12.0: a terrain and vegetation pass covering the island's topography, cliff geology, dedicated terrain shading, instanced Mediterranean trees, and Frame-1 instanced ground cover, compared view by view against v1.12.0 on a real GPU. Stripping the old baked foliage and hillside props from `island.glb` offsets the new vegetation, ground cover and terrain maps so first-frame compressed wire bytes stay within v1.12.0's ceiling (~4.85 MB Brotli). On High and Medium the richer terrain, groves and ground cover run smoothly at 60 fps (~1.4–2.8 ms GPU on an RTX 5070 Ti); Low switches groves to lighter distance meshes and thins ground cover. An A/B test of alpha-cutout canopy fringe cards was reverted in favour of smoother opaque multi-lobe crowns. No analytical mapping changed.",
+  },
+  {
     id: "2026-11-25-reserve-anchorage",
     version: PHAROSVILLE_RELEASE_VERSIONS.reserveAnchorage,
     date: "2026-11-25",

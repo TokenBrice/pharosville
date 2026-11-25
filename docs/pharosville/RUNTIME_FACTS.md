@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - World: The Harbour, one three.js WebGL2 Engine (`src/harbour/engine/`) mounted by `src/harbour/app/harbour-app.tsx`
 - Renderer failure fallback: the first-paint poster stays up with the arrival guide and Pharos links; no alternate renderer
 - Runtime media namespace: `/harbour/`
-- Latest app version: `v1.12.0` (`reserveAnchorage`)
-- Latest changelog entry: `2026-11-25-reserve-anchorage` / `v1.12.0` / 2026-11-25 / Reserve Anchorage
+- Latest app version: `v1.13.0` (`limestoneAndGroves`)
+- Latest changelog entry: `2026-11-25-limestone-and-groves` / `v1.13.0` / 2026-11-25 / Limestone and Groves
 
 ## Viewport Gate
 
@@ -48,7 +48,7 @@ Coin panel only, above the size gate; never requested by the world feed. Canary 
 
 ## World Systems
 
-- Registration (= update) order: `SeasonSystem` → `LayoutSystem` → `DataSystem` → `ReadingsSystem` → `WeatherSystem` → `SkySystem` → `OceanSystem` → `IslandSystem` → `LighthouseSystem` → `CivicSystem` → `FleetSystem` → `LazyLifeSystem` → `LazyIdentitySystem` → `OfficeWorksSystem` → `MomentsStage` → `LightsSystem` → `BeamSystem`
+- Registration (= update) order: `SeasonSystem` → `LayoutSystem` → `DataSystem` → `ReadingsSystem` → `WeatherSystem` → `SkySystem` → `OceanSystem` → `IslandSystem` → `LazyVegetationSystem` → `LazyGroundCoverSystem` → `LighthouseSystem` → `CivicSystem` → `FleetSystem` → `LazyLifeSystem` → `LazyIdentitySystem` → `OfficeWorksSystem` → `MomentsStage` → `LightsSystem` → `BeamSystem`
 
 ## Bundle Budgets
 
@@ -57,7 +57,7 @@ Coin panel only, above the size gate; never requested by the world feed. Canary 
 - Detail panels lazy chunk: raw <= 171 KiB, gzip <= 53 KiB
 - Three.js renderer chunk: raw <= 960 KiB, gzip <= 276 KiB
 - Harbour CSS: raw <= 36 KiB, gzip <= 9 KiB
-- Total JS: raw <= 3,044 KiB, gzip <= 976 KiB
+- Total JS: raw <= 3,192 KiB, gzip <= 1,025 KiB
 
 ## Workflow Gates
 
