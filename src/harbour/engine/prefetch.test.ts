@@ -5,7 +5,7 @@ import { prefetchHarbour } from "./prefetch";
 import layoutUrl from "../data/layout.json?url";
 import { CIVIC_BASE } from "../civic/assemble";
 import { KIT_BASE } from "../fleet/hull-kit";
-import { ISLAND_URL } from "../world/island-system";
+import { ISLAND_URL, TERRAIN_SPLAT_URL, TERRAIN_TOPO_URL } from "../world/island-system";
 import { LIGHTHOUSE_URL } from "../world/lighthouse-system";
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -18,15 +18,17 @@ function fixture() {
   vi.stubGlobal("fetch", fetcher);
   const assets = new AssetStore();
   const prefetch = vi.spyOn(assets, "prefetch").mockImplementation((url) => url === ISLAND_URL ? island.promise : Promise.resolve());
-  return { assets, prefetch, fetcher, island, layout };
+  const texture = vi.spyOn(assets, "texture").mockImplementation(() => Promise.resolve({} as never));
+  return { assets, prefetch, texture, fetcher, island, layout };
 }
 
 describe("arrival request frontier", () => {
-  it("shares layout JSON, starts only layout-used civic files, and leaves later owners alone", async () => {
+  it("shares layout JSON, starts terrain maps + layout-used civic files, and leaves later owners alone", async () => {
     const f = fixture();
     prefetchHarbour(f.assets);
     const consumer = f.assets.json(layoutUrl);
     expect(f.prefetch.mock.calls.flat()).toEqual([ISLAND_URL, LIGHTHOUSE_URL]);
+    expect(f.texture.mock.calls).toEqual([[TERRAIN_SPLAT_URL, false], [TERRAIN_TOPO_URL, false]]);
     f.layout.resolve(Response.json({ civic: [{ kind: "mint" }, { kind: "duplicate" }, { kind: "missing" }] }));
     await consumer;
     expect(f.prefetch.mock.calls.flat()).toEqual([ISLAND_URL, LIGHTHOUSE_URL]);
@@ -55,5 +57,6 @@ describe("arrival request frontier", () => {
     expect(f.prefetch.mock.calls.flat()).toEqual([ISLAND_URL, LIGHTHOUSE_URL]);
     prefetchHarbour(f.assets);
     expect(f.prefetch).toHaveBeenCalledTimes(2);
+    expect(f.texture).toHaveBeenCalledTimes(2);
   });
 });

@@ -6,7 +6,7 @@ import type { HarbourMaterials } from "./materials";
 const owners = new WeakMap<THREE.Mesh, StaticDepthRegistry>();
 interface Contributor { source: THREE.Mesh; proxy: THREE.Mesh; attached: boolean }
 
-/** Explicit opt-in: only static, opaque kit surfaces. Windows, glass, actors, ocean and overlays stay out. */
+/** Explicit opt-in: static, opaque kit & terrain surfaces. Windows, glass, actors, ocean and overlays stay out. */
 export class StaticDepthRegistry {
   readonly scene = new THREE.Scene();
   private readonly contributors = new Map<THREE.Mesh, Contributor>();
@@ -15,13 +15,13 @@ export class StaticDepthRegistry {
   add(source: THREE.Mesh): void {
     if (this.contributors.has(source) || Array.isArray(source.material)) return;
     if ((source as THREE.BatchedMesh).isBatchedMesh) return; // no static BatchedMesh is published by these owners
-    const colour = source.material;
-    if (colour.name !== "hb_kit" || colour.transparent || !colour.depthWrite || !colour.depthTest || colour.depthFunc !== THREE.LessEqualDepth) return;
-    if (colour !== this.materials.kit({ side: colour.side }) || colour.alphaHash || colour.alphaToCoverage || source.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender) return;
+    const colour = source.material, isTerrain = colour.name === "hb_terrain";
+    if ((colour.name !== "hb_kit" && !isTerrain) || colour.transparent || !colour.depthWrite || !colour.depthTest || colour.depthFunc !== THREE.LessEqualDepth) return;
+    if (colour !== (isTerrain ? this.materials.terrain({ side: colour.side }) : this.materials.kit({ side: colour.side })) || colour.alphaHash || colour.alphaToCoverage || source.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender) return;
     // The supported port has no texture/displacement alpha. Fail closed for a later custom shader variant.
     const standard = colour as THREE.MeshStandardMaterial;
     if (standard.map || standard.alphaMap || standard.displacementMap || standard.wireframe || colour.alphaTest || source.morphTargetInfluences || (source as THREE.SkinnedMesh).isSkinnedMesh || (source as THREE.InstancedMesh).instanceColor) return;
-    const template = this.materials.kitDepth(true, colour.side);
+    const template = isTerrain ? this.materials.terrainDepth(true, colour.side) : this.materials.kitDepth(true, colour.side);
     const depth = template.clone();
     depth.onBeforeCompile = template.onBeforeCompile;
     depth.customProgramCacheKey = template.customProgramCacheKey;
@@ -78,7 +78,12 @@ export class StaticDepthRegistry {
     }
   }
 
-  invalidate(): void { for (const { proxy } of this.contributors.values()) (proxy.material as THREE.Material).needsUpdate = true; }
+  invalidate(): void {
+    for (const { proxy } of this.contributors.values()) {
+      const m = proxy.material as THREE.Material;
+      if (m.name !== "hb_terrain_predepth") m.needsUpdate = true;
+    }
+  }
 
   dispose(): void { for (const source of this.contributors.keys()) this.remove(source); }
 }

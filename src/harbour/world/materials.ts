@@ -1,4 +1,6 @@
 import { GLSL_BUMP, GLSL_NOISE, GLSL_PATTERNS } from "./shaders/patterns";
+import type { TerrainShaderPatcher } from "./shaders/terrain";
+import type { EngineContext, PreparationService } from "../engine/types";
 import { GLSL_ENV, GLSL_POOL, GLSL_AO } from "./shaders/lighting";
 import { liteShadow } from "./shaders/shadow";
 import { GLSL_LEAF_FALL, GLSL_SEASON } from "./shaders/season";
@@ -9,7 +11,6 @@ export { prepareWindowGeometry } from "./shaders/window-geometry";
 import { patch } from "../engine/shader-patch";
 import * as THREE from "three";
 import { LANDMARK_HOVER_GLSL, landmarkHover } from "./landmark-hover";
-import type { EngineContext } from "../engine/types";
 import { decodeInto, deferPatternDecode, setBounds, takePatternTransform } from "../engine/static-merge";
 import type { WorldUniforms } from "../engine/uniforms";
 import { CLOUD_SHADOW_GLSL, cloudShadowUniforms } from "../sky/cloud-shadow";
@@ -81,11 +82,12 @@ export function leafSnowKeepOf(pid: number): number {
   return SNOW_LEAF_KEEP * (Math.abs(pid - PATTERN_LEAF_EVERGREEN) <= 0.25 ? SNOW_CROWN_KEEP : 1);
 }
 
-export type HarbourMaterialKind = "kit" | "window" | "emissive" | "lens" | "glass";
+export type HarbourMaterialKind = "kit" | "terrain" | "window" | "emissive" | "lens" | "glass";
 
 export function materialKindFor(name: string): HarbourMaterialKind | null {
   const n = name.toLowerCase();
-  if (n === "m_kit" || n.startsWith("hb_opaque") || n.startsWith("m_kit")) return "kit";
+  if (n.startsWith("hb_terrain")) return "terrain";
+  if (n.startsWith("hb_opaque") || n.startsWith("m_kit")) return "kit";
   if (n.startsWith("m_window") || n.startsWith("hb_window")) return "window";
   if (n.startsWith("lamp") || n.startsWith("beacon") || n.startsWith("hb_emissive") || n.startsWith("riding")) return "emissive";
   if (n === "lens" || n.startsWith("hb_lens")) return "lens";
@@ -99,6 +101,15 @@ export function materialKindFor(name: string): HarbourMaterialKind | null {
 export interface AOUniforms {
   uAOTex: THREE.IUniform<THREE.Texture>;
   uAOBounds: THREE.IUniform<THREE.Vector4>;
+}
+
+/** Baked island splat/topo maps and procedural micro-detail array texture for `hb_terrain`. */
+export interface TerrainMapUniforms {
+  uTerrainSplat: THREE.IUniform<THREE.Texture>;
+  uTerrainTopo: THREE.IUniform<THREE.Texture>;
+  uTerrainDetail: THREE.IUniform<THREE.DataArrayTexture>;
+  /** (minX, maxZ, 1/sizeX, 1/sizeZ) of terrain-splat & terrain-topo in world x/z; z <= 0 disables sampling. */
+  uTerrainBounds: THREE.IUniform<THREE.Vector4>;
 }
 
 export interface PoolUniforms {
@@ -163,6 +174,20 @@ export function shaderFeatureDefines(f: ShaderFeatures): Record<string, string> 
   return { ...f.cropStages, ...(f.bare ? { HB_BARE: "" } : {}), ...(f.stooks ? { HB_STOOKS: "" } : {}), ...(f.lite ? { HB_LITE: "", HB_BEAM_VERT: "" } : {}) };
 }
 
+export interface TerrainShaderFeatures {
+  readonly stooks: boolean;
+  readonly cropStages: Readonly<Record<string, string>>;
+  readonly lite: boolean;
+}
+
+export function terrainFeatureKey(f: TerrainShaderFeatures): string {
+  return `${f.stooks ? "st_" : ""}c${Object.values(f.cropStages).join("")}${f.lite ? "_lite" : ""}`;
+}
+
+export function terrainFeatureDefines(f: TerrainShaderFeatures): Record<string, string> {
+  return shaderFeatureDefines({ ...f, pattern: 0, bare: false });
+}
+
 interface Shader { uniforms: Record<string, THREE.IUniform>; vertexShader: string; fragmentShader: string }
 
 function injectVaryings(shader: Shader): void {
@@ -183,10 +208,34 @@ const WIN_MAX = 2.6;
 /** Emissive gain of the plain window kind (kind 1 only): its openings are smaller and deeper than framed panes. */
 const PLAIN_GAIN = 1.8;
 
+interface TerrainRuntimeChunk {
+  patchTerrainShader: TerrainShaderPatcher;
+  prepareIslandTerrain: (
+    ctx: EngineContext,
+    target: HarbourMaterials,
+    urls: readonly [string, string],
+    bounds: readonly [number, number, number, number],
+    p?: PreparationService,
+  ) => { detail: THREE.DataArrayTexture | null; bindMaps: () => Promise<void> };
+}
+let tChunk: TerrainRuntimeChunk | null = null;
+let tLoad: Promise<TerrainRuntimeChunk> | null = null;
+
+function mkDepth(name: string, prepass: boolean, side: THREE.Side): THREE.MeshDepthMaterial {
+  const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side });
+  m.name = name;
+  if (prepass) m.colorWrite = false;
+  return m;
+}
+
 export class HarbourMaterials {
   readonly pool: PoolUniforms;
   readonly ao: AOUniforms;
+  readonly terrainMaps: TerrainMapUniforms;
+  private tPatch: TerrainShaderPatcher | null = null;
   private readonly cache = new Map<string, THREE.Material>();
+  private readonly fb0: THREE.DataTexture;
+  private readonly fbD: THREE.DataArrayTexture;
   readonly staticDepth = new StaticDepthRegistry(this);
   readonly rimK: THREE.IUniform<number> = { value: 1 };
   /** The Pharos beam as a light (beam/beam-light-glsl.ts): bound by getHarbourMaterials. */
@@ -198,11 +247,15 @@ export class HarbourMaterials {
   private calendarInputs = "";
   private readonly features = new Map<string, ShaderFeatures>();
   private publishedFeatures = "";
+  private pubT = "";
   private materialGeneration = 0;
   get generation(): number { return this.materialGeneration; }
 
   /** Program-key suffix for the kit's compile-time switches (derived materials append it to their own key). */
   kitKey(): string { return shaderFeatureKey(this.featureIdentity()); }
+
+  /** Program-key suffix for `hb_terrain`'s compile-time switches (no bare-crown discard duplicates). */
+  terrainKey(): string { return terrainFeatureKey(this.terrainFeatureIdentity()); }
 
   featureIdentity(pattern = 0, lite = this.lite): ShaderFeatures {
     const u = this.uniforms, f = u.uFoliage.value;
@@ -216,6 +269,8 @@ export class HarbourMaterials {
     }
     return features;
   }
+
+  terrainFeatureIdentity(lite = this.lite): TerrainShaderFeatures { return this.featureIdentity(0, lite); }
 
   /** Only synchronous compilation sees the target tier; no live material version is changed. */
   preparationScope(lite: boolean): () => void {
@@ -238,65 +293,88 @@ export class HarbourMaterials {
     this.invalidateSeason();
   }
 
-  constructor(readonly uniforms: WorldUniforms) {
-    const black = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
-    black.needsUpdate = true;
-    this.pool = { uPoolTex: { value: black }, uPoolBounds: { value: new THREE.Vector4(0, 0, 0, 0) }, uLampFar: { value: 1 } };
-    this.ao = { uAOTex: { value: black }, uAOBounds: { value: new THREE.Vector4(0, 0, 0, 0) } };
-    this.publishedFeatures = this.kitKey();
+  setTerrainMaps(splat: THREE.Texture, topo: THREE.Texture, bounds?: readonly [number, number, number, number]): void {
+    const m = this.terrainMaps;
+    m.uTerrainSplat.value = splat;
+    m.uTerrainTopo.value = topo;
+    if (bounds) m.uTerrainBounds.value.set(bounds[0], bounds[3], 1 / (bounds[2] - bounds[0]), 1 / (bounds[3] - bounds[1]));
+    else if (this.ao.uAOBounds.value.z > 0) m.uTerrainBounds.value.copy(this.ao.uAOBounds.value);
   }
 
-  /** Attach before compilation, including late kit objects, not on the first winter frame. */
+  setTerrainDetail(detail: THREE.DataArrayTexture): void { this.terrainMaps.uTerrainDetail.value = detail; }
+  setTerrainPatcher(patcher: TerrainShaderPatcher): void { this.tPatch = patcher; }
+
+  async loadTerrainShader(): Promise<TerrainRuntimeChunk> {
+    tLoad ??= import("./shaders/terrain").then((m) => (tChunk = m));
+    const c = tChunk ?? await tLoad;
+    this.tPatch = c.patchTerrainShader;
+    return c;
+  }
+
+  constructor(readonly uniforms: WorldUniforms) {
+    const black = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+    black.needsUpdate = true;
+    this.fb0 = black;
+    const d = new Uint8Array(16).fill(128);
+    d[3] = d[7] = d[11] = d[15] = 255;
+    this.fbD = new THREE.DataArrayTexture(d, 1, 1, 4);
+    this.fbD.needsUpdate = true;
+    this.pool = { uPoolTex: { value: black }, uPoolBounds: { value: new THREE.Vector4() }, uLampFar: { value: 1 } };
+    this.ao = { uAOTex: { value: black }, uAOBounds: { value: new THREE.Vector4() } };
+    this.terrainMaps = { uTerrainSplat: { value: black }, uTerrainTopo: { value: black }, uTerrainDetail: { value: this.fbD }, uTerrainBounds: { value: new THREE.Vector4() } };
+    this.publishedFeatures = this.kitKey();
+    this.pubT = this.terrainKey();
+  }
+
   prepareSeasonDepth(root: THREE.Object3D): void {
-    root.traverse((object) => {
-      const mesh = object as THREE.Mesh;
-      if (mesh.castShadow && !mesh.customDepthMaterial && !Array.isArray(mesh.material) && mesh.material?.name === "hb_kit") {
-        mesh.customDepthMaterial = this.kitDepth();
-      }
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.castShadow || m.customDepthMaterial || Array.isArray(m.material) || !m.material) return;
+      if (m.material.name === "hb_kit") m.customDepthMaterial = this.kitDepth();
+      else if (m.material.name === "hb_terrain") m.customDepthMaterial = this.terrainDepth();
     });
   }
 
   invalidateSeason(root?: THREE.Object3D): void {
-    const signature = this.kitKey();
-    if (signature === this.publishedFeatures) return;
-    this.publishedFeatures = signature;
-    const changed = new Set<THREE.Material>(this.derived);
-    for (const [key, material] of this.cache) if (key.startsWith("kit")) changed.add(material);
-    root?.traverse((object) => {
-      const mesh = object as THREE.Mesh;
-      for (const material of Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []) {
-        if (material.customProgramCacheKey().includes("hb_kit_")) {
-          changed.add(material);
-          if (mesh.customDepthMaterial) changed.add(mesh.customDepthMaterial);
-        }
+    const sig = this.kitKey(), tSig = this.terrainKey();
+    const kc = sig !== this.publishedFeatures, tc = tSig !== this.pubT;
+    if (!kc && !tc) return;
+    this.publishedFeatures = sig;
+    this.pubT = tSig;
+    const changed = new Set<THREE.Material>(kc ? this.derived : undefined);
+    for (const [k, m] of this.cache) if ((kc && k.startsWith("kit")) || (tc && k.startsWith("terrain:"))) changed.add(m);
+    root?.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      for (const m of Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []) {
+        const k = m.customProgramCacheKey();
+        if (kc && k.includes("hb_kit_")) { changed.add(m); if (mesh.customDepthMaterial) changed.add(mesh.customDepthMaterial); }
+        else if (tc && k.includes("hb_terrain_")) changed.add(m);
       }
     });
-    for (const material of changed) material.needsUpdate = true;
-    this.staticDepth.invalidate();
+    for (const m of changed) m.needsUpdate = true;
+    if (kc) this.staticDepth.invalidate();
+  }
+
+  private cached<T extends THREE.Material>(key: string, make: () => T, bump = false): T {
+    let m = this.cache.get(key) as T | undefined;
+    if (!m) { m = make(); this.cache.set(key, m); if (bump) this.materialGeneration++; }
+    return m;
   }
 
   private shared(): Record<string, THREE.IUniform> {
-    const u = this.uniforms;
+    const { uTime, uHemiSky, uHemiGround, uHorizon, uWindowGlow, uLamp, uLens, uNight, uWindowOcc, uNightLift, uSnowCover, uWetness, uFoliage, uSeasonPhase, uSunDir: uHbSunDir, uSunColor: uHbSunColor } = this.uniforms;
     return {
-      uTime: u.uTime, uHemiSky: u.uHemiSky, uHemiGround: u.uHemiGround, uHorizon: u.uHorizon,
-      uWindowGlow: u.uWindowGlow, uLamp: u.uLamp, uLens: u.uLens, uNight: u.uNight,
-      uWindowOcc: u.uWindowOcc, uNightLift: u.uNightLift,
-      uPoolTex: this.pool.uPoolTex, uPoolBounds: this.pool.uPoolBounds, uLampFar: this.pool.uLampFar, uRimK: this.rimK,
-      uAOTex: this.ao.uAOTex, uAOBounds: this.ao.uAOBounds,
-      uSnowCover: u.uSnowCover, uWetness: u.uWetness, uFoliage: u.uFoliage, uSeasonPhase: u.uSeasonPhase,
-      uHbSunDir: u.uSunDir, uHbSunColor: u.uSunColor,
-      ...this.beam, ...lampWaveUniforms,
-      ...landmarkHover(u).uniforms,
+      uTime, uHemiSky, uHemiGround, uHorizon, uWindowGlow, uLamp, uLens, uNight, uWindowOcc, uNightLift,
+      uSnowCover, uWetness, uFoliage, uSeasonPhase, uHbSunDir, uHbSunColor,
+      ...this.pool, ...this.ao, uRimK: this.rimK, ...this.beam, ...lampWaveUniforms, ...landmarkHover(this.uniforms).uniforms,
     };
   }
 
   /** The one opaque kit material (patterns + world breakup + facets + env spec + pools). */
   kit(opts: { side?: THREE.Side; pattern?: number } = {}): THREE.MeshStandardMaterial {
     const side = opts.side ?? THREE.DoubleSide;
-    const key = `kit:${side}:${opts.pattern ?? -1}`;
-    const hit = this.cache.get(key);
-    if (hit) return hit as THREE.MeshStandardMaterial;
-    const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.78, metalness: 0, vertexColors: true, side });
+    return this.cached(`kit:${side}:${opts.pattern ?? -1}`, () => {
+      const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.78, metalness: 0, vertexColors: true, side });
     m.name = "hb_kit";
     const fallbackPid = (opts.pattern ?? 0).toFixed(1);
     m.onBeforeCompile = (shader) => {
@@ -429,9 +507,8 @@ export class HarbourMaterials {
       }
     };
     m.customProgramCacheKey = () => `hb_kit_${shaderFeatureKey(this.featureIdentity(opts.pattern ?? 0))}`;
-    this.cache.set(key, m);
-    this.materialGeneration++;
     return m;
+    }, true);
   }
 
   /**
@@ -439,12 +516,8 @@ export class HarbourMaterials {
    * activation boundary; an always-attached shadow twin must not run noise/discard in summer.
    */
   kitDepth(prepass = false, side: THREE.Side = THREE.DoubleSide): THREE.MeshDepthMaterial {
-    const key = prepass ? `kit-predepth:${side}` : "kit-depth";
-    const hit = this.cache.get(key);
-    if (hit) return hit as THREE.MeshDepthMaterial;
-    const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side });
-    m.name = prepass ? "hb_kit_predepth" : "hb_kit_depth";
-    if (prepass) m.colorWrite = false;
+    return this.cached(prepass ? `kit-predepth:${side}` : "kit-depth", () => {
+      const m = mkDepth(prepass ? "hb_kit_predepth" : "hb_kit_depth", prepass, side);
     m.onBeforeCompile = (shader) => {
       const features = this.featureIdentity();
       Object.assign(shader.uniforms, { uFoliage: this.uniforms.uFoliage, uSeasonPhase: this.uniforms.uSeasonPhase });
@@ -481,9 +554,32 @@ export class HarbourMaterials {
   #endif`, { id: "world.23.clipping_planes_fragment" });
     };
     m.customProgramCacheKey = () => `hb_kit_${prepass ? "predepth_v4_sw" : "depth_v3"}_${this.kitKey()}`;
-    this.cache.set(key, m);
-    this.materialGeneration++;
     return m;
+    }, true);
+  }
+
+  terrain(opts: { side?: THREE.Side } = {}): THREE.MeshStandardMaterial {
+    const side = opts.side ?? THREE.DoubleSide;
+    return this.cached(`terrain:${side}`, () => {
+      const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0, vertexColors: true, side });
+      m.name = "hb_terrain";
+      m.onBeforeCompile = (shader) => {
+        const p = this.tPatch ?? tChunk?.patchTerrainShader;
+        if (!p) throw new Error("hb_terrain");
+        const f = this.terrainFeatureIdentity();
+        p(shader, { lite: f.lite, defines: terrainFeatureDefines(f), shared: this.shared(), maps: this.terrainMaps, u: this.uniforms, injectVaryings });
+      };
+      m.customProgramCacheKey = () => `hb_terrain_${this.terrainKey()}`;
+      return m;
+    }, true);
+  }
+
+  terrainDepth(prepass = false, side: THREE.Side = THREE.DoubleSide): THREE.MeshDepthMaterial {
+    return this.cached(prepass ? `terrain-predepth:${side}` : "terrain-depth", () => {
+      const m = mkDepth(prepass ? "hb_terrain_predepth" : "hb_terrain_depth", prepass, side);
+      m.customProgramCacheKey = () => `hb_terrain_${prepass ? "predepth" : "depth"}_v1`;
+      return m;
+    }, true);
   }
 
   /**
@@ -495,9 +591,8 @@ export class HarbourMaterials {
    * plain kind drops the frame and mullion for a dark warm reveal that glows warmer and dimmer at its edges.
    */
   window(): THREE.MeshStandardMaterial {
-    const hit = this.cache.get("window");
-    if (hit) return hit as THREE.MeshStandardMaterial;
-    const m = new THREE.MeshStandardMaterial({ color: new THREE.Color("#22303C"), roughness: 0.08, metalness: 0, vertexColors: true, side: THREE.DoubleSide });
+    return this.cached("window", () => {
+      const m = new THREE.MeshStandardMaterial({ color: new THREE.Color("#22303C"), roughness: 0.08, metalness: 0, vertexColors: true, side: THREE.DoubleSide });
     m.name = "hb_window";
     m.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, this.shared());
@@ -564,8 +659,8 @@ export class HarbourMaterials {
   #include <opaque_fragment>`, { id: "world.30.opaque_fragment" });
     };
     m.customProgramCacheKey = () => "hb_window_v4";
-    this.cache.set("window", m);
     return m;
+    });
   }
 
   /**
@@ -575,10 +670,8 @@ export class HarbourMaterials {
    * clock's glow alone (uLampAnalytic = 1, a binding like uLampFar, not a program variant).
    */
   emissive(glowHex = "#FFAE57", baseHex = "#3B3A33", decorative = false): THREE.MeshStandardMaterial {
-    const key = `emissive:${glowHex}:${baseHex}${decorative ? ":lamp" : ""}`;
-    const hit = this.cache.get(key);
-    if (hit) return hit as THREE.MeshStandardMaterial;
-    const m = new THREE.MeshStandardMaterial({ color: new THREE.Color(baseHex), roughness: 0.15, metalness: 0, emissive: new THREE.Color(glowHex) });
+    return this.cached(`emissive:${glowHex}:${baseHex}${decorative ? ":lamp" : ""}`, () => {
+      const m = new THREE.MeshStandardMaterial({ color: new THREE.Color(baseHex), roughness: 0.15, metalness: 0, emissive: new THREE.Color(glowHex) });
     m.name = "hb_emissive";
     const far = decorative ? this.pool.uLampFar : { value: 1 };
     const analytic = { value: decorative ? 0 : 1 };
@@ -603,39 +696,37 @@ totalEmissiveRadiance *= uLamp * uLampFar;
 if (uWindowGlow > 1e-3 && uLampAnalytic < 0.5) totalEmissiveRadiance *= mix(1.0, hbLampGlow(uWindowGlow, hbLampRank(vHbLw, hbLampJitter(vHbLw.xz))) / uWindowGlow, smoothstep(0.0, 0.05, uWindowGlow));`, { id: "world.34.emissivemap_fragment" });
     };
     m.customProgramCacheKey = () => "hb_emissive_w1";
-    this.cache.set(key, m);
     return m;
+    });
   }
 
   /** The Pharos lens: lantern-coloured emission × uLens × lit (lit = 0 for a null PSI band). */
   lens(lit: THREE.IUniform<number>): THREE.MeshStandardMaterial {
-    const hit = this.cache.get("lens");
-    if (hit) return hit as THREE.MeshStandardMaterial;
-    const m = new THREE.MeshStandardMaterial({ color: new THREE.Color("#E8F3EE"), roughness: 0.15, metalness: 0, emissive: new THREE.Color("#FFE0A8") });
-    m.name = "hb_lens";
-    m.onBeforeCompile = (shader) => {
-      shader.uniforms.uLens = this.uniforms.uLens;
-      shader.uniforms.uLensLit = lit;
-      shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", "#include <common>\nuniform float uLens;\nuniform float uLensLit;", { id: "world.35.common" });
-      shader.fragmentShader = patch(shader.fragmentShader, "#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance *= uLens * uLensLit;", { id: "world.36.emissivemap_fragment" });
-    };
-    m.customProgramCacheKey = () => "hb_lens";
-    this.cache.set("lens", m);
-    return m;
+    return this.cached("lens", () => {
+      const m = new THREE.MeshStandardMaterial({ color: new THREE.Color("#E8F3EE"), roughness: 0.15, metalness: 0, emissive: new THREE.Color("#FFE0A8") });
+      m.name = "hb_lens";
+      m.onBeforeCompile = (shader) => {
+        shader.uniforms.uLens = this.uniforms.uLens;
+        shader.uniforms.uLensLit = lit;
+        shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", "#include <common>\nuniform float uLens;\nuniform float uLensLit;", { id: "world.35.common" });
+        shader.fragmentShader = patch(shader.fragmentShader, "#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance *= uLens * uLensLit;", { id: "world.36.emissivemap_fragment" });
+      };
+      m.customProgramCacheKey = () => "hb_lens";
+      return m;
+    });
   }
 
   /** Lantern glazing: thin, slightly warm, additive-ish glass that never occludes the lens glow. */
   glass(): THREE.MeshStandardMaterial {
-    const hit = this.cache.get("glass");
-    if (hit) return hit as THREE.MeshStandardMaterial;
-    const m = new THREE.MeshStandardMaterial({
-      color: new THREE.Color("#C9D6DC"), roughness: 0.1, metalness: 0, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide,
-      blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
-      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+    return this.cached("glass", () => {
+      const m = new THREE.MeshStandardMaterial({
+        color: new THREE.Color("#C9D6DC"), roughness: 0.1, metalness: 0, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide,
+        blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+        blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+      });
+      m.name = "hb_glass";
+      return m;
     });
-    m.name = "hb_glass";
-    this.cache.set("glass", m);
-    return m;
   }
 
   /**
@@ -652,33 +743,27 @@ if (uWindowGlow > 1e-3 && uLampAnalytic < 0.5) totalEmissiveRadiance *= mix(1.0,
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh) uses.set(mesh.geometry, (uses.get(mesh.geometry) ?? 0) + 1);
     });
+    const swap = (mat: THREE.Material): THREE.Material => {
+      const k = materialKindFor(mat.name), src = mat as THREE.MeshStandardMaterial;
+      if (k === "kit") return this.kit();
+      if (k === "terrain") return this.terrain();
+      if (k === "window") return this.window();
+      if (k === "emissive") return this.emissive(mat.name.toLowerCase().startsWith("beacon") ? "#FF5A3C" : "#FFAE57", src.color ? `#${src.color.getHexString()}` : "#3B3A33", true);
+      if (k === "lens") return this.lens(lensLit);
+      return k === "glass" ? this.glass() : mat;
+    };
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       if (!(mesh as THREE.SkinnedMesh).isSkinnedMesh && !mesh.morphTargetInfluences) {
-        if (opts.deferStatic?.(mesh) && uses.get(mesh.geometry) === 1 && !mesh.geometry.attributes.tangent && !Array.isArray(mesh.material) && materialKindFor(mesh.material.name) === "kit") deferPatternDecode(mesh);
+        const k = !Array.isArray(mesh.material) ? materialKindFor(mesh.material.name) : null;
+        if (opts.deferStatic?.(mesh) && uses.get(mesh.geometry) === 1 && !mesh.geometry.attributes.tangent && (k === "kit" || k === "terrain")) deferPatternDecode(mesh);
         else dequantizeForPatterns(mesh);
       }
-      const swap = (mat: THREE.Material): THREE.Material => {
-        const kind = materialKindFor(mat.name);
-        const src = mat as THREE.MeshStandardMaterial;
-        switch (kind) {
-          case "kit": return this.kit();
-          case "window": return this.window();
-          case "emissive": {
-            const glow = mat.name.toLowerCase().startsWith("beacon") ? "#FF5A3C" : "#FFAE57";
-            return this.emissive(glow, src.color ? `#${src.color.getHexString()}` : "#3B3A33", true);
-          }
-          case "lens": return this.lens(lensLit);
-          case "glass": return this.glass();
-          default: return mat;
-        }
-      };
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(swap) : swap(mesh.material);
-      if ((Array.isArray(mesh.material) ? mesh.material : [mesh.material]).some((m) => m.name === "hb_window")) prepareWindowGeometry(mesh.geometry);
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      // only the opaque kit casts (window panes sit inside walls that already do)
-      mesh.castShadow = mats.every((m) => m.name === "hb_kit");
+      if (mats.some((m) => m.name === "hb_window")) prepareWindowGeometry(mesh.geometry);
+      mesh.castShadow = mats.every((m) => m.name === "hb_kit" || m.name === "hb_terrain");
       mesh.receiveShadow = !mats.some((m) => m.name === "hb_glass");
     });
   }
@@ -687,6 +772,8 @@ if (uWindowGlow > 1e-3 && uLampAnalytic < 0.5) totalEmissiveRadiance *= mix(1.0,
     this.staticDepth.dispose();
     for (const m of this.cache.values()) m.dispose();
     this.cache.clear();
+    this.fb0.dispose();
+    this.fbD.dispose();
   }
 }
 

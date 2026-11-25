@@ -5,8 +5,9 @@ import { chainedKitMaterial } from "../life/figure-kit";
 import { assembleShader } from "../engine/shader-recipes";
 import { lampWaveUniforms } from "../lights/lamp-wave";
 import {
-  bareOf, evergreenOf, HarbourMaterials, ICICLE_WALL_PATTERNS, leafSnowKeepOf, PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, patternIdOf, snowSlopeOf,
-  windowKindOf, WINDOW_KIND, shaderFeatureDefines, shaderFeatureKey,
+  bareOf, evergreenOf, HarbourMaterials, ICICLE_WALL_PATTERNS, leafSnowKeepOf, materialKindFor,
+  PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, patternIdOf, snowSlopeOf,
+  windowKindOf, WINDOW_KIND, shaderFeatureDefines, shaderFeatureKey, terrainFeatureDefines, terrainFeatureKey,
 } from "./materials";
 
 // linear vertex albedos: today's spruce (dark blue-green), round deciduous and birch greens
@@ -213,5 +214,86 @@ describe("D11 analytical emissives (uLampAnalytic)", () => {
       "if (uWindowGlow > 1e-3 && uLampAnalytic < 0.5) totalEmissiveRadiance *= mix(1.0, hbLampGlow(uWindowGlow, hbLampRank(vHbLw, hbLampJitter(vHbLw.xz))) / uWindowGlow, smoothstep(0.0, 0.05, uWindowGlow));",
     ]);
     mats.dispose(); glass.geometry.dispose();
+  });
+});
+
+describe("Phase 2A dedicated hb_terrain material", () => {
+  it("maps hb_terrain* names, binds neutral fallbacks + setTerrainMaps, and compiles full & lite without HB_BARE", async () => {
+    expect(materialKindFor("hb_terrain")).toBe("terrain");
+    expect(materialKindFor("hb_terrain.001")).toBe("terrain");
+    expect(materialKindFor("hb_opaque")).toBe("kit");
+
+    const u = createWorldUniforms(), mats = new HarbourMaterials(u);
+    await mats.loadTerrainShader();
+    const terrain = mats.terrain();
+    const depth = mats.terrainDepth();
+    const predepth = mats.terrainDepth(true);
+
+    expect(terrain.name).toBe("hb_terrain");
+    expect(depth.name).toBe("hb_terrain_depth");
+    expect(predepth.name).toBe("hb_terrain_predepth");
+    expect(predepth.colorWrite).toBe(false);
+    expect(mats.terrainMaps.uTerrainDetail.value).toBeInstanceOf(THREE.DataArrayTexture);
+    expect(mats.terrainMaps.uTerrainBounds.value.z).toBe(0);
+
+    // Full tier compiles detail array + biplanar rock, zero bare-crown discard
+    u.uFoliage.value.set(0, 0, 0, 1); // winter (bare=true for kit, irrelevant for terrain)
+    const full = assembleShader(terrain);
+    expect(full.defines).toMatchObject(terrainFeatureDefines(mats.terrainFeatureIdentity()));
+    expect("HB_BARE" in (full.defines ?? {})).toBe(false);
+    expect("HB_LITE" in (full.defines ?? {})).toBe(false);
+    expect(full.fragmentShader).toContain("uniform sampler2DArray uTerrainDetail;");
+    expect(full.fragmentShader).toContain("hbSampleBiplanarRock");
+    expect(full.fragmentShader).toContain("hbHeightBlend5");
+    expect(full.fragmentShader).not.toContain("discard;");
+    expect(full.uniforms.uTerrainSplat).toBe(mats.terrainMaps.uTerrainSplat);
+    expect(full.uniforms.uTerrainTopo).toBe(mats.terrainMaps.uTerrainTopo);
+    expect(full.uniforms.uTerrainDetail).toBe(mats.terrainMaps.uTerrainDetail);
+
+    // Depth twins have zero discard and stay season-invariant
+    const depthShader = assembleShader(depth);
+    expect(depthShader.fragmentShader).not.toContain("discard");
+    expect(depth.customProgramCacheKey()).toBe("hb_terrain_depth_v1");
+    expect(predepth.customProgramCacheKey()).toBe("hb_terrain_predepth_v1");
+
+    // Switching bare on/off without changing crop stages does NOT invalidate hb_terrain
+    const verBefore = terrain.version;
+    const keyBefore = terrain.customProgramCacheKey();
+    u.uFoliage.value.set(0, 1, 0, 0);
+    mats.invalidateSeason();
+    expect(terrain.version).toBe(verBefore);
+    expect(terrain.customProgramCacheKey()).toBe(keyBefore);
+
+    // Switching to Low tier invalidates hb_terrain cleanly and enables HB_LITE + HB_BEAM_VERT
+    mats.setLite(true);
+    expect(terrain.version).toBe(verBefore + 1);
+    expect(terrain.customProgramCacheKey()).toBe(`hb_terrain_${terrainFeatureKey(mats.terrainFeatureIdentity())}`);
+    const lite = assembleShader(terrain);
+    expect("HB_LITE" in (lite.defines ?? {})).toBe(true);
+    expect("HB_BEAM_VERT" in (lite.defines ?? {})).toBe(true);
+    expect(lite.vertexShader).toContain("hbBeamVert(vHbWorld);");
+
+    // setTerrainMaps binds splat/topo and updates uTerrainBounds
+    const splat = new THREE.DataTexture(new Uint8Array([10, 20, 255, 30]), 1, 1);
+    const topo = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1);
+    mats.setTerrainMaps(splat, topo, [-334.8, -316.8, 357.2, 359.7]);
+    expect(mats.terrainMaps.uTerrainSplat.value).toBe(splat);
+    expect(mats.terrainMaps.uTerrainTopo.value).toBe(topo);
+    expect(mats.terrainMaps.uTerrainBounds.value.x).toBeCloseTo(-334.8, 4);
+    expect(mats.terrainMaps.uTerrainBounds.value.y).toBeCloseTo(359.7, 4);
+    expect(mats.terrainMaps.uTerrainBounds.value.z).toBeCloseTo(1 / 692.0, 6);
+
+    // apply() binds hb_terrain meshes with shadow casting and prepareSeasonDepth assigns terrainDepth()
+    const root = new THREE.Group();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ name: "hb_terrain" }));
+    root.add(mesh);
+    mats.apply(root);
+    expect(mesh.material).toBe(terrain);
+    expect(mesh.castShadow).toBe(true);
+    expect(mesh.receiveShadow).toBe(true);
+    mats.prepareSeasonDepth(root);
+    expect(mesh.customDepthMaterial).toBe(depth);
+
+    splat.dispose(); topo.dispose(); mesh.geometry.dispose(); mats.dispose();
   });
 });

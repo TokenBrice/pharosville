@@ -84,6 +84,15 @@ export async function buildAssetRegistry(output) {
     if (decoded.coast[b / 4] !== rgba[a]) throw new Error("Sea coast roundtrip failed");
   }
   registry.urls["/harbour/sea-sdf.webp"] = await emitBr("sea-sdf.bin", sea, "application/octet-stream");
+  for (const name of ["terrain-splat", "terrain-topo"]) {
+    const [src, dst] = await Promise.all([
+      sharp(resolve(root, `assets/harbour/${name}.png`)).ensureAlpha().raw().toBuffer({ resolveWithObject: true }),
+      sharp(resolve(root, `public/harbour/${name}.webp`)).ensureAlpha().raw().toBuffer({ resolveWithObject: true }),
+    ]);
+    if (src.info.width !== dst.info.width || src.info.height !== dst.info.height || !src.data.equals(dst.data)) {
+      throw new Error(`Terrain source/WebP differ: ${name}`);
+    }
+  }
   // Rewrite references before hashing JSON. Original file/node fields remain the authoring/parser contract;
   // transport names the same hashed objects selected by AssetStore, including packed LODs.
   for (const [manifest, base] of [[kit, "/harbour/kit/"], [civic, "/harbour/civic/"]]) {
@@ -102,7 +111,7 @@ export async function buildAssetRegistry(output) {
   let css = await readFile(resolve(root, "public/arrival-shell.css"), "utf8");
   for (const [from, to] of Object.entries(registry.urls)) css = css.replaceAll(from, to);
   registry.urls["/arrival-shell.css"] = await emit("arrival-shell.css", Buffer.from(css));
-  registry.preloads = [layout.sea.sdf, "/harbour/island.glb", "/harbour/lighthouse.glb",
+  registry.preloads = [layout.sea.sdf, "/harbour/island.glb", "/harbour/terrain-splat.webp", "/harbour/terrain-topo.webp", "/harbour/lighthouse.glb",
     "/harbour/civic/manifest.json", "/harbour/kit/manifest.json"].map((original) => ({
     url: registry.models[original]?.url ?? registry.urls[original],
     ...(original === "/harbour/island.glb" ? { fetchpriority: "low" } : {}),

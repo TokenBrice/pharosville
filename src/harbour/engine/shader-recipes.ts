@@ -1,7 +1,8 @@
 /** Test/driver fixtures only: never imported by the world runtime. */
 import * as THREE from "three";
 import { EffectPass, LUT3DEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect } from "postprocessing";
-import { HarbourMaterials, shaderFeatureKey } from "../world/materials";
+import { HarbourMaterials, shaderFeatureKey, terrainFeatureKey } from "../world/materials";
+import { patchTerrainShader } from "../world/shaders/terrain";
 import { createWorldUniforms } from "./uniforms";
 import { seasonWeights } from "../season/calendar";
 import { createFleetMaterials, type FleetUniforms } from "../fleet/fleet-material";
@@ -53,6 +54,7 @@ export function assembleShader(material: THREE.Material): THREE.WebGLProgramPara
 /** Each callback owns a recipe only until it returns; the driver compiles/draws synchronously. */
 export function visitShaderRecipes(visit: (recipe: ShaderRecipe) => void): void {
   const u = createWorldUniforms(), mats = new HarbourMaterials(u);
+  mats.setTerrainPatcher(patchTerrainShader);
   const texture = new THREE.DataTexture(new Float32Array([0, 0, 0, 1]), 1, 1, THREE.RGBAFormat, THREE.FloatType);
   const fleet: FleetUniforms = {
     uFleetData: { value: texture }, uFleetPaint: { value: texture }, uEmblems: { value: texture }, uBoards: { value: texture },
@@ -61,21 +63,30 @@ export function visitShaderRecipes(visit: (recipe: ShaderRecipe) => void): void 
   };
   const ship = createFleetMaterials(mats, u, fleet);
   const seen = new Set<string>();
+  const seenTerrain = new Set<string>();
   const emit = (id: string, material: THREE.Material, geometry: GeometryMode = "static") => visit({ id, material, geometry });
   try {
     for (const calendar of calendarRecipes()) for (const lite of [false, true]) {
       u.uSeasonPhase.value = (calendar.day - 1) / 365; u.uFoliage.value.set(...seasonWeights(calendar.day)); mats.setLite(lite);
       const signature = shaderFeatureKey(mats.featureIdentity());
-      if (seen.has(signature)) continue;
-      seen.add(signature);
-      // All production kit callers use the default fallback pattern 0; COLOR_0 selects authored patterns at runtime.
-      for (const geometry of ["static", "instanced"] as const) {
-        emit(`kit/${signature}/${geometry}/colour`, mats.kit(), geometry);
-        emit(`kit/${signature}/${geometry}/depth`, mats.kitDepth(), geometry);
+      if (!seen.has(signature)) {
+        seen.add(signature);
+        // All production kit callers use the default fallback pattern 0; COLOR_0 selects authored patterns at runtime.
+        for (const geometry of ["static", "instanced"] as const) {
+          emit(`kit/${signature}/${geometry}/colour`, mats.kit(), geometry);
+          emit(`kit/${signature}/${geometry}/depth`, mats.kitDepth(), geometry);
+        }
+        for (const geometry of ["static", "instanced"] as const) emit(`kit/${signature}/${geometry}/predepth`, mats.kitDepth(true), geometry);
+        emit(`fleet/${signature}/batched/colour`, ship.material, "batched");
       }
-      for (const geometry of ["static", "instanced"] as const) emit(`kit/${signature}/${geometry}/predepth`, mats.kitDepth(true), geometry);
-      emit(`fleet/${signature}/batched/colour`, ship.material, "batched");
+      const terrainSig = terrainFeatureKey(mats.terrainFeatureIdentity());
+      if (!seenTerrain.has(terrainSig)) {
+        seenTerrain.add(terrainSig);
+        emit(`terrain/${terrainSig}/static/colour`, mats.terrain(), "static");
+      }
     }
+    emit("terrain/static/depth", mats.terrainDepth(), "static");
+    emit("terrain/static/predepth", mats.terrainDepth(true), "static");
     emit("fleet/batched/depth", ship.depth, "batched");
     for (const [name, material] of Object.entries({ window: mats.window(), emissive: mats.emissive(), lens: mats.lens({ value: 1 }), glass: mats.glass() })) {
       emit(`world/${name}`, material);

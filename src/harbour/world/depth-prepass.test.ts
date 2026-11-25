@@ -74,6 +74,26 @@ describe("static opaque depth registry", () => {
     expect(register).toHaveBeenCalledOnce(); pass.dispose(); expect(unregister).toHaveBeenCalledOnce();
     f.materials.dispose();
   });
+  it("admits hb_terrain meshes with non-discarding terrainDepth and keeps them invariant across bare-crown invalidation", () => {
+    const f = fixture();
+    const land = new THREE.Mesh(new THREE.BoxGeometry(), f.materials.terrain());
+    land.name = "island_terrain";
+    f.group.add(land);
+    f.registry.add(land);
+    f.world.updateMatrixWorld(true); f.registry.sync(f.world);
+    expect(f.registry.scene.children).toHaveLength(1);
+    const proxy = f.registry.scene.children[0] as THREE.Mesh;
+    expect(proxy.name).toBe("island_terrain-predepth");
+    const depth = proxy.material as THREE.MeshDepthMaterial;
+    expect(depth.name).toBe("hb_terrain_predepth");
+    expect(depth.colorWrite).toBe(false);
+    expect(depth.customProgramCacheKey()).toBe("hb_terrain_predepth_v1");
+    const ver = depth.version;
+    f.uniforms.uFoliage.value.set(0, 0, 0, 1);
+    f.materials.invalidateSeason(f.world);
+    expect(depth.version).toBe(ver);
+    land.geometry.dispose(); f.materials.dispose();
+  });
 });
 
 describe("depth shader coverage", () => {
