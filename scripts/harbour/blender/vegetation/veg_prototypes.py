@@ -130,8 +130,10 @@ def ensure_export_material():
 class ProtoBuilder:
     """Accumulates smooth wood + foliage sub-meshes with per-vertex shading metadata."""
 
-    def __init__(self, name, nominal_h, seed=1):
-        self.name = name
+    def __init__(self, name, nominal_h, seed=1, lod=0):
+        self.base_name = name
+        self.lod = int(lod)
+        self.name = f"{name}_lod" if self.lod > 0 else name
         self.nominal_h = float(nominal_h)
         self.rng = random.Random(seed)
         self.bm = bmesh.new()
@@ -168,7 +170,7 @@ class ProtoBuilder:
         knot_freq=2.1,
         hollow_amp=0.0,
         hollow_ang=0.8,
-        cap_bot=False,
+        cap_bot=True,
         cap_top=True,
         flat_top=False,
         sway_base=0.0,
@@ -183,6 +185,25 @@ class ProtoBuilder:
     ):
         """Build a smooth curved organic trunk or branch along `pts` using parallel-transport frames."""
         pts = [Vector(p) for p in pts]
+        radii = list(radii)
+        if self.lod > 0:
+            segs = 5 if segs >= 9 else (4 if segs >= 6 else 3)
+            if len(pts) >= 7:
+                pick = [0, 1, 3, len(pts) - 1]
+                pts = [pts[k] for k in pick]
+                radii = [radii[k] for k in pick]
+            elif len(pts) == 6:
+                pick = [0, 1, 3, 5]
+                pts = [pts[k] for k in pick]
+                radii = [radii[k] for k in pick]
+            elif len(pts) == 5:
+                pick = [0, 2, 4]
+                pts = [pts[k] for k in pick]
+                radii = [radii[k] for k in pick]
+            elif len(pts) == 4:
+                pick = [0, 1, 3]
+                pts = [pts[k] for k in pick]
+                radii = [radii[k] for k in pick]
         n_rings = len(pts)
         assert n_rings == len(radii) and n_rings >= 2
         if col_bot is None:
@@ -342,6 +363,13 @@ class ProtoBuilder:
         """
         center = Vector(center)
         self.foliage_volumes.append((center.copy(), rx, ry, rz_top, rz_bot))
+        if self.lod > 0:
+            if v_rings <= 2:
+                u_segs = 5 if u_segs <= 10 else 6
+                v_rings = 2
+            else:
+                u_segs = 5 if u_segs <= 8 else (6 if u_segs <= 10 else (7 if u_segs <= 12 else 8))
+                v_rings = 2 if v_rings == 3 else 3
         rot_m = Euler(tilt, 'XYZ').to_matrix()
         phase = (seed * 1.6180339) % (2.0 * math.pi)
         n_off = Vector((seed * 2.31, seed * 0.77, seed * 1.13))
@@ -479,6 +507,9 @@ class ProtoBuilder:
         seed=0,
     ):
         """Continuous sculpted Italian Cypress spire body driven by species-specific silhouette profile `env_fn(t)`."""
+        if self.lod > 0:
+            segs = max(5, int(round(segs * 0.60)))
+            n_rings = max(4, int(round(n_rings * 0.62)))
         n_off = Vector((seed * 1.4, seed * 0.7, 0.5))
         phase = (seed * 1.9) % (2.0 * math.pi)
         ts = [0.05 + 0.89 * (i / max(n_rings - 1, 1)) for i in range(n_rings)]
@@ -560,8 +591,13 @@ class ProtoBuilder:
         """Ascending cypress feather-tuft breaking the spire contour."""
         base_pt = Vector(base_pt)
         n_off = Vector((seed * 1.9, seed * 0.6, 0.3))
-        ts = (0.14, 0.38, 0.64, 0.85)
-        rs = (0.68, 1.0, 0.82, 0.44)
+        if self.lod > 0:
+            segs = max(4, segs - 2)
+            ts = (0.18, 0.48, 0.80)
+            rs = (0.74, 1.0, 0.54)
+        else:
+            ts = (0.14, 0.38, 0.64, 0.85)
+            rs = (0.68, 1.0, 0.82, 0.44)
         rings = []
         for idx, (t, rk) in enumerate(zip(ts, rs)):
             c = base_pt + Vector((0.0, 0.0, height * t)) + tilt_out * math.sin(math.pi * (t ** 0.72)) + tip_lean * (t ** 1.8)
@@ -625,6 +661,9 @@ class ProtoBuilder:
         keep full height & width right to x = +/- length/2 and tile flush with zero end-pinch or gap.
         """
         tile_period = 2.4
+        if self.lod > 0:
+            n_len = max(5, int(round(length / 0.4)) + 1)
+            n_ring = 6
         z_mid = 0.5 * (z_bot + z_top)
         hz = 0.5 * (z_top - z_bot)
         xs = [-length * 0.5 + length * i / (n_len - 1) for i in range(n_len)]
@@ -716,6 +755,7 @@ class ProtoBuilder:
         ao_strength=0.60,
         ao_min=0.38,
         ao_dist=None,
+        under_ao_boost=0.0,
     ):
         """Bake dual E15 BVHTree self-AO (wood-only for wood, full for foliage), custom normals, POINT Col, _sway."""
         bm = self.bm
@@ -815,8 +855,8 @@ class ProtoBuilder:
                 # For flush-tiling vineyard wall end-ring vertices, center AO hemisphere & normal cleanly in Y-Z plane
                 # so adjacent modular vineyard segments meet with zero normal/AO seam!
                 is_vine_seam = (
-                    self.name in VINEYARD_PROTOTYPES
-                    and abs(abs(v.co.x) - (1.2 if self.name == 'vine_row_short' else 2.4)) < 0.02
+                    self.base_name in VINEYARD_PROTOTYPES
+                    and abs(abs(v.co.x) - (1.2 if self.base_name == 'vine_row_short' else 2.4)) < 0.02
                     and (abs(v.co.y) > 0.08 or abs(v.co.z - 0.995) > 0.08)
                 )
                 ao_n = Vector(v[self.l_dome]).normalized() if is_vine_seam else geo_n
@@ -833,7 +873,13 @@ class ProtoBuilder:
                         occ += 1.0 - u * u
                 occ_norm = occ * inv_s
                 ao_raw = max(ao_min, min(1.0, 1.0 - ao_strength * occ_norm))
-                ao = max(ao_min, min(1.0, round(ao_raw * 64.0) / 64.0))
+                if under_ao_boost > 0.0 and fol_pts:
+                    under_n = 1.0 - smoothstep(-0.55, 0.22, geo_n.z)
+                    h_rel = (v.co.z - f_min.z) / max(f_max.z - f_min.z, 0.4)
+                    low_k = 1.0 - smoothstep(0.08, 0.58, h_rel)
+                    under_mask = max(under_n, low_k * (1.0 - smoothstep(-0.10, 0.48, geo_n.z)))
+                    ao_raw = max(ao_min * 0.58, ao_raw * (1.0 - under_ao_boost * under_mask))
+                ao = max(ao_min * 0.55 if under_ao_boost > 0.0 else ao_min, min(1.0, round(ao_raw * 64.0) / 64.0))
 
             # Full un-flattened E15 AO (NO acid-lime deciduous blue clamp!)
             final_c = base_c * ao
@@ -852,7 +898,7 @@ class ProtoBuilder:
                 local_dn = local_dn.normalized() if local_dn.length > 1e-6 else geo_n
                 rel = v.co - macro_c
                 macro_dn = Vector((
-                    0.0 if self.name in VINEYARD_PROTOTYPES else rel.x / macro_scale.x,
+                    0.0 if self.base_name in VINEYARD_PROTOTYPES else rel.x / macro_scale.x,
                     rel.y / macro_scale.y,
                     rel.z / macro_scale.z + macro_up_bias,
                 ))
@@ -965,14 +1011,14 @@ PINE_FOL_MID = srgb_to_lin('#3B5432')
 PINE_FOL_BOT = srgb_to_lin('#213626')
 
 
-def build_pine_broad(mat):
-    """Broad Roman-villa Umbrella Stone Pine (~11.0 m, embedded candelabra boughs, tufted needle parasol)."""
-    pb = ProtoBuilder('pine_broad', 11.0, seed=101)
+def build_pine_broad(mat, lod=0):
+    """Broad Roman-villa Umbrella Stone Pine (~10.7 m, flat 2-tier Pinus pinea parasol <=0.30 depth/width, deep underside AO)."""
+    pb = ProtoBuilder('pine_broad', 10.8, seed=101, lod=lod)
     trunk_pts = sample_curve([
         (0.0, 0.0, -0.80),
-        (0.14, -0.06, 1.9),
-        (0.42, 0.16, 4.9),
-        (0.32, 0.14, 7.45),
+        (0.14, -0.06, 2.0),
+        (0.42, 0.16, 5.1),
+        (0.32, 0.14, 7.80),
     ], 7)
     trunk_r = taper_radii(0.38, 0.23, 7, flare=0.19, exp=0.72)
     pb.add_limb(
@@ -983,39 +1029,36 @@ def build_pine_broad(mat):
     fork = trunk_pts[-1]
     lower_fork = trunk_pts[-2]
 
-    # Define main perimeter canopy pads FIRST so every bough tip embeds 0.45-0.60 m UP INTO solid foliage!
-    # (ang_deg, dist_r, pz, rx, ry, rzt, rzb, tilt)
+    # 11 sculpted flat parasol lobes in a 2:1 size spread (rx 2.34 -> 1.12) across 2 flat-topped tiers (depth <= 0.30 * width)
+    # Main flat umbrella perimeter lobes: (ang_deg, dist_r, pz, rx, ry, rzt, rzb, tilt)
     perim_pads = [
-        ( 14.0, 2.24, 9.15, 1.88, 1.66, 0.84, 0.32, ( 0.03,  0.05, 0.2)),
-        ( 86.0, 2.14, 9.28, 1.82, 1.62, 0.82, 0.30, (-0.04,  0.03, 0.7)),
-        (158.0, 2.28, 9.08, 1.86, 1.64, 0.82, 0.32, ( 0.03, -0.04, 1.4)),
-        (228.0, 2.18, 9.05, 1.86, 1.62, 0.80, 0.31, (-0.04, -0.04, 2.1)),
-        (304.0, 2.10, 9.20, 1.78, 1.58, 0.80, 0.30, ( 0.04, -0.03, 2.8)),
+        ( 14.0, 2.28, 9.42, 1.92, 1.70, 0.58, 0.26, ( 0.02,  0.04, 0.2)),
+        ( 86.0, 2.18, 9.50, 1.86, 1.66, 0.56, 0.25, (-0.03,  0.03, 0.7)),
+        (158.0, 2.32, 9.38, 1.90, 1.68, 0.58, 0.26, ( 0.02, -0.03, 1.4)),
+        (228.0, 2.22, 9.36, 1.88, 1.66, 0.56, 0.25, (-0.03, -0.03, 2.1)),
+        (304.0, 2.14, 9.46, 1.82, 1.62, 0.56, 0.25, ( 0.03, -0.02, 2.8)),
     ]
-    # Secondary shoulder/under-crown pads (also targeted by secondary forks!)
-    shoulder_pads = [
-        ( 52.0, 1.88, 8.76, 1.38, 1.24, 0.62, 0.28),
-        (124.0, 1.90, 8.82, 1.32, 1.20, 0.60, 0.27),
-        (194.0, 1.96, 8.72, 1.40, 1.24, 0.62, 0.28),
-        (268.0, 1.84, 8.78, 1.34, 1.20, 0.60, 0.27),
-        (338.0, 1.84, 8.80, 1.34, 1.22, 0.60, 0.27),
+    # 4 smaller outer rim needle cushions breaking the flat umbrella silhouette (2:1 size contrast)
+    outer_tufts = [
+        ( 50.0, 3.04, 9.52, 1.18, 1.04, 0.42, 0.20, ( 0.03,  0.04, 0.5)),
+        (124.0, 2.98, 9.56, 1.14, 1.00, 0.40, 0.20, (-0.04,  0.03, 1.3)),
+        (194.0, 3.10, 9.46, 1.20, 1.06, 0.42, 0.20, ( 0.04, -0.04, 2.2)),
+        (274.0, 2.96, 9.50, 1.12, 0.98, 0.40, 0.20, (-0.03, -0.04, 3.1)),
     ]
 
-    # 4 muscular upward-sweeping candelabra primary boughs + 4 secondary forks — all tips embedded 0.45-0.60 m UP INTO pads!
-    # Map each primary bough to a perimeter pad and its secondary fork to an adjacent shoulder pad
+    # 4 primary candelabra boughs + 4 secondary forks targeting pad undersides cleanly (embedded 0.36-0.42 m inside solid pads)
     bough_targets = [
-        (perim_pads[0], shoulder_pads[0], 0.175),
-        (perim_pads[1], shoulder_pads[1], 0.168),
-        (perim_pads[2], shoulder_pads[2], 0.175),
-        (perim_pads[4], shoulder_pads[4], 0.168),
+        (perim_pads[0], outer_tufts[0], 0.175),
+        (perim_pads[1], outer_tufts[1], 0.168),
+        (perim_pads[2], outer_tufts[2], 0.175),
+        (perim_pads[4], outer_tufts[3], 0.168),
     ]
     for k, (p_pad, s_pad, r0) in enumerate(bough_targets):
         ad, dist_r, pz, _rx, _ry, _rzt, rzb, _tilt = p_pad
         a = math.radians(ad)
         dir_xy = Vector((math.cos(a), math.sin(a), 0.0))
-        start = lower_fork.lerp(fork, 0.46 + 0.14 * (k % 2))
-        # Target 0.50 m UP INTO puff underside (pz - rzb + 0.52 = pz + 0.20, well inside pad core!)
-        tip = Vector((fork.x + math.cos(a) * (dist_r * 0.86), fork.y + math.sin(a) * (dist_r * 0.86), pz - rzb + 0.52))
+        start = lower_fork.lerp(fork, 0.48 + 0.14 * (k % 2))
+        tip = Vector((fork.x + math.cos(a) * (dist_r * 0.84), fork.y + math.sin(a) * (dist_r * 0.84), pz - rzb + 0.38))
         elbow = start.lerp(tip, 0.52) + dir_xy * 0.24 + Vector((0.0, 0.0, -0.32))
         b_pts = sample_curve([start, elbow, tip], 5)
         pb.add_limb(
@@ -1023,24 +1066,23 @@ def build_pine_broad(mat):
             col_bot=PINE_BARK_BOT, col_top=PINE_BARK_TOP,
             mottle_col=PINE_BARK_PLATE, sway_base=16.0, sway_tip=48.0, noise_seed=2.0 + k, track_tip=True,
         )
-        # Secondary limb also sweeps cleanly 0.48 m UP INTO shoulder pad core
-        sad, sdr, spz, _srx, _sry, _srzt, srzb = s_pad
+        sad, sdr, spz, _srx, _sry, _srzt, srzb, _stilt = s_pad
         sa = math.radians(sad)
         s_start = b_pts[2]
-        s_tip = Vector((fork.x + math.cos(sa) * (sdr * 0.82), fork.y + math.sin(sa) * (sdr * 0.82), spz - srzb + 0.48))
+        s_tip = Vector((fork.x + math.cos(sa) * (sdr * 0.78), fork.y + math.sin(sa) * (sdr * 0.78), spz - srzb + 0.32))
         s_mid = s_start.lerp(s_tip, 0.52) + Vector((0.0, 0.0, -0.14))
         pb.add_limb(
             sample_curve([s_start, s_mid, s_tip], 3),
-            taper_radii(r0 * 0.54, r0 * 0.24, 3), segs=4,
+            taper_radii(r0 * 0.52, r0 * 0.24, 3), segs=4,
             col_bot=PINE_BARK_BOT, col_top=PINE_BARK_TOP,
             sway_base=22.0, sway_tip=54.0, noise_seed=6.0 + k, track_tip=True,
         )
 
-    # Extra back candelabra bough entering perim_pads[3] (angle 228 deg)
+    # 5th primary candelabra bough entering perim_pads[3] (angle 228 deg)
     ad3, dr3, pz3, _, _, _, rzb3, _ = perim_pads[3]
     a3 = math.radians(ad3)
     st3 = lower_fork.lerp(fork, 0.62)
-    tp3 = Vector((fork.x + math.cos(a3) * (dr3 * 0.84), fork.y + math.sin(a3) * (dr3 * 0.84), pz3 - rzb3 + 0.52))
+    tp3 = Vector((fork.x + math.cos(a3) * (dr3 * 0.84), fork.y + math.sin(a3) * (dr3 * 0.84), pz3 - rzb3 + 0.38))
     el3 = st3.lerp(tp3, 0.50) + Vector((math.cos(a3) * 0.20, math.sin(a3) * 0.20, -0.28))
     pb.add_limb(
         sample_curve([st3, el3, tp3], 4), taper_radii(0.160, 0.065, 4), segs=5,
@@ -1048,84 +1090,62 @@ def build_pine_broad(mat):
         mottle_col=PINE_BARK_PLATE, sway_base=18.0, sway_tip=48.0, noise_seed=10.5, track_tip=True,
     )
 
-    # Central continuation leader rising deep into upper parasol core
+    # Central continuation leader rising cleanly into flat parasol core
     pb.add_limb(
-        sample_curve([fork, fork + Vector((0.08, -0.05, 1.10)), fork + Vector((-0.04, 0.06, 2.25))], 3),
+        sample_curve([fork, fork + Vector((0.08, -0.05, 0.95)), fork + Vector((-0.04, 0.06, 1.85))], 3),
         taper_radii(0.16, 0.065, 3), segs=5,
         col_bot=PINE_BARK_BOT, col_top=PINE_BARK_TOP,
         sway_base=22.0, sway_tip=52.0, noise_seed=11.0, track_tip=True,
     )
 
-    # Crown core: stepped multi-tuft Pinus pinea umbrella table (breaks single smooth cap into dense needle cushions!)
+    # Tier 1: Broad flat-topped central parasol table
     pb.add_foliage_puff(
-        Vector((fork.x + 0.06, fork.y + 0.02, 9.60)), 2.22, 2.08, 1.04, 0.42, PID_EVERGREEN,
+        Vector((fork.x + 0.06, fork.y + 0.02, 9.60)), 2.34, 2.18, 0.78, 0.28, PID_EVERGREEN,
         PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
-        u_segs=12, v_rings=4, rim_lobes=5, rim_wave=0.09, crinkle_amp=0.11, crinkle_lobes=6,
-        noise_amp=0.09, top_pow=0.74, bot_pow=0.80,
-        dome_w=0.66, dome_up=0.34, sway_min=54.0, sway_max=82.0, seed=11,
+        u_segs=14, v_rings=4, rim_lobes=5, rim_wave=0.09, crinkle_amp=0.10, crinkle_lobes=6,
+        noise_amp=0.08, top_pow=0.62, bot_pow=0.74,
+        dome_w=0.66, dome_up=0.38, sway_min=54.0, sway_max=82.0, seed=11,
     )
-    # 2 staggered upper crown needle mounds breaking up the top parasol dome!
-    for i, (dx, dy, pz, rx, ry, rzt) in enumerate((
-        ( 0.85,  0.52, 9.88, 1.48, 1.34, 0.72),
-        (-0.92, -0.34, 9.80, 1.44, 1.28, 0.68),
-    )):
-        pb.add_foliage_puff(
-            Vector((fork.x + dx, fork.y + dy, pz)), rx, ry, rzt, 0.28, PID_EVERGREEN,
-            PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
-            u_segs=10, v_rings=3, rim_lobes=5, rim_wave=0.09, crinkle_amp=0.11, crinkle_lobes=5,
-            noise_amp=0.09, top_pow=0.78,
-            dome_w=0.66, dome_up=0.32, sway_min=58.0, sway_max=86.0, seed=115 + i,
-        )
+    # Tier 2: Subtle wide flat-topped upper parasol cap (authentic Pinus pinea flat shelf, NOT oak cumulus!)
+    pb.add_foliage_puff(
+        Vector((fork.x + 0.34, fork.y + 0.18, 9.94)), 1.66, 1.50, 0.54, 0.22, PID_EVERGREEN,
+        PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
+        u_segs=12, v_rings=3, rim_lobes=5, rim_wave=0.09, crinkle_amp=0.10, crinkle_lobes=5,
+        noise_amp=0.08, top_pow=0.62, bot_pow=0.76,
+        dome_w=0.66, dome_up=0.36, sway_min=58.0, sway_max=86.0, seed=115,
+    )
     for i, (ad, dist_r, pz, rx, ry, rzt, rzb, tilt) in enumerate(perim_pads):
         a = math.radians(ad)
         pos = Vector((fork.x + math.cos(a) * dist_r, fork.y + math.sin(a) * dist_r, pz))
         pb.add_foliage_puff(
             pos, rx, ry, rzt, rzb, PID_EVERGREEN,
             PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
-            u_segs=10, v_rings=3, rim_lobes=5, rim_wave=0.095, crinkle_amp=0.11, crinkle_lobes=5,
-            noise_amp=0.09, top_pow=0.78, bot_pow=0.82, tilt=tilt,
-            dome_w=0.66, dome_up=0.30, sway_min=58.0, sway_max=86.0, seed=20 + i,
+            u_segs=10, v_rings=3, rim_lobes=5, rim_wave=0.095, crinkle_amp=0.10, crinkle_lobes=5,
+            noise_amp=0.085, top_pow=0.64, bot_pow=0.76, tilt=tilt,
+            dome_w=0.66, dome_up=0.34, sway_min=58.0, sway_max=86.0, seed=20 + i,
         )
-    for i, (ad, dist_r, pz, rx, ry, rzt, rzb) in enumerate(shoulder_pads):
-        a = math.radians(ad)
-        pos = Vector((fork.x + math.cos(a) * dist_r, fork.y + math.sin(a) * dist_r, pz))
-        pb.add_foliage_puff(
-            pos, rx, ry, rzt, rzb, PID_EVERGREEN,
-            PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
-            u_segs=8, v_rings=3, rim_lobes=4, rim_wave=0.09, crinkle_amp=0.11, crinkle_lobes=5,
-            noise_amp=0.09, top_pow=0.80, bot_pow=0.84,
-            dome_w=0.66, dome_up=0.26, sway_min=52.0, sway_max=80.0, seed=35 + i,
-        )
-    # 5 staggered smaller outer/upper tufted needle rim pads breaking the umbrella silhouette!
-    outer_tufts = [
-        ( 40.0, 2.98, 9.46, 1.15, 0.98, 0.56, 0.25, ( 0.04,  0.06, 0.4)),
-        (118.0, 2.90, 9.54, 1.12, 0.96, 0.54, 0.24, (-0.05,  0.04, 1.1)),
-        (188.0, 3.04, 9.36, 1.18, 1.00, 0.54, 0.25, ( 0.05, -0.05, 2.0)),
-        (264.0, 2.88, 9.44, 1.10, 0.95, 0.54, 0.24, (-0.04, -0.06, 2.9)),
-        (332.0, 2.82, 9.58, 1.06, 0.92, 0.52, 0.23, ( 0.03,  0.05, 3.6)),
-    ]
     for i, (ad, dist_r, pz, rx, ry, rzt, rzb, tilt) in enumerate(outer_tufts):
         a = math.radians(ad)
         pos = Vector((fork.x + math.cos(a) * dist_r, fork.y + math.sin(a) * dist_r, pz))
         pb.add_foliage_puff(
             pos, rx, ry, rzt, rzb, PID_EVERGREEN,
             PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
-            u_segs=8, v_rings=3, rim_lobes=4, rim_wave=0.095, crinkle_amp=0.11, crinkle_lobes=5,
-            noise_amp=0.095, top_pow=0.78, bot_pow=0.84, tilt=tilt,
-            dome_w=0.65, dome_up=0.28, sway_min=60.0, sway_max=88.0, seed=140 + i,
+            u_segs=8, v_rings=3, rim_lobes=4, rim_wave=0.095, crinkle_amp=0.10, crinkle_lobes=5,
+            noise_amp=0.085, top_pow=0.66, bot_pow=0.78, tilt=tilt,
+            dome_w=0.65, dome_up=0.32, sway_min=60.0, sway_max=88.0, seed=140 + i,
         )
 
-    return pb.finalize(mat, macro_dome_mix=0.46, macro_up_bias=0.34, ao_strength=0.60, ao_min=0.38)
+    return pb.finalize(mat, macro_dome_mix=0.46, macro_up_bias=0.38, ao_strength=0.62, ao_min=0.36, under_ao_boost=0.35)
 
 
-def build_pine_tiered(mat):
-    """Tall architectural double-tiered Stone Pine (~11.6 m, deeply embedded boughs + tufted upper & lower tiers)."""
-    pb = ProtoBuilder('pine_tiered', 11.6, seed=102)
+def build_pine_tiered(mat, lod=0):
+    """Tall architectural double-tiered Stone Pine (~10.9 m, 11 flat lobes on 2 flat-topped tiers <=0.30 depth/width, deep underside AO)."""
+    pb = ProtoBuilder('pine_tiered', 11.2, seed=102, lod=lod)
     trunk_pts = sample_curve([
         (0.0, 0.0, -0.80),
         (-0.18, 0.08, 2.3),
-        (0.28, -0.10, 5.5),
-        (0.04, 0.08, 8.45),
+        (0.28, -0.10, 5.6),
+        (0.04, 0.08, 8.55),
     ], 7)
     trunk_r = taper_radii(0.38, 0.21, 7, flare=0.19, exp=0.74)
     pb.add_limb(
@@ -1134,22 +1154,22 @@ def build_pine_tiered(mat):
         mottle_col=PINE_BARK_PLATE, sway_base=0.0, sway_tip=36.0, noise_seed=12.3,
     )
 
-    # Lower tier pad centers first -> embed lower bough + fork 0.48 m UP INTO lower pads!
-    low_start = trunk_pts[3].lerp(trunk_pts[4], 0.55)
+    # Lower subordinate flat parasol tier (3 sculpted flat lobes at z ~ 8.75..9.35 m)
+    low_start = trunk_pts[4].lerp(trunk_pts[5], 0.35)
     low_dir = Vector((math.cos(math.radians(24.0)), math.sin(math.radians(24.0)), 0.0))
     low_s_dir = Vector((math.cos(math.radians(-22.0)), math.sin(math.radians(-22.0)), 0.0))
-    low_pad_a = low_start + low_dir * 2.10 + Vector((0.0, 0.0, 1.38))
-    low_pad_b = low_start + low_dir * 1.05 + low_s_dir * 0.92 + Vector((0.0, 0.0, 1.12))
+    low_pad_a = Vector((low_start.x + low_dir.x * 2.25, low_start.y + low_dir.y * 2.25, 8.94))
+    low_pad_b = Vector((low_start.x + low_dir.x * 1.15 + low_s_dir.x * 1.05, low_start.y + low_dir.y * 1.15 + low_s_dir.y * 1.05, 8.82))
 
-    low_tip = low_pad_a + Vector((-0.14, 0.04, 0.16))  # rz_bot=0.30 -> +0.46 m UP INTO underside!
-    low_elbow = low_start.lerp(low_tip, 0.52) + Vector((0.0, 0.0, -0.24))
+    low_tip = low_pad_a + Vector((-0.14, 0.04, 0.12))
+    low_elbow = low_start.lerp(low_tip, 0.52) + Vector((0.0, 0.0, -0.26))
     low_pts = sample_curve([low_start, low_elbow, low_tip], 5)
     pb.add_limb(
         low_pts, taper_radii(0.165, 0.064, 5), segs=5,
         col_bot=PINE_BARK_BOT, col_top=PINE_BARK_TOP,
         mottle_col=PINE_BARK_PLATE, sway_base=14.0, sway_tip=46.0, noise_seed=14.0, track_tip=True,
     )
-    low_s_tip = low_pad_b + Vector((-0.05, 0.02, 0.18))  # rz_bot=0.26 -> +0.44 m UP INTO underside!
+    low_s_tip = low_pad_b + Vector((-0.05, 0.02, 0.12))
     low_s_mid = low_pts[2].lerp(low_s_tip, 0.52) + Vector((0.0, 0.0, -0.14))
     pb.add_limb(
         sample_curve([low_pts[2], low_s_mid, low_s_tip], 3),
@@ -1158,30 +1178,30 @@ def build_pine_tiered(mat):
         sway_base=18.0, sway_tip=48.0, noise_seed=15.0, track_tip=True,
     )
 
-    # Upper lofty umbrella pads first -> embed every upper candelabra primary & secondary bough 0.45-0.58 m UP INTO pads!
+    # Upper lofty main umbrella tier (8 sculpted flat lobes: 1 central table + 4 wide perimeter + 3 outer rim cushions)
     fork = trunk_pts[-1]
     upper_pads = [
-        (132.0, 2.04, 9.86, 1.80, 1.60, 0.80, 0.30),
-        (214.0, 2.12, 9.74, 1.84, 1.62, 0.78, 0.30),
-        (292.0, 1.96, 9.80, 1.72, 1.56, 0.78, 0.30),
-        ( 18.0, 1.78, 9.92, 1.64, 1.50, 0.76, 0.28),
+        (132.0, 2.08, 10.04, 1.84, 1.64, 0.52, 0.24),
+        (214.0, 2.16, 9.98, 1.86, 1.66, 0.50, 0.24),
+        (292.0, 2.02, 10.02, 1.76, 1.58, 0.50, 0.24),
+        ( 18.0, 1.86, 10.10, 1.70, 1.54, 0.48, 0.22),
     ]
-    upper_sub_pads = [
-        (172.0, 1.62, 9.42, 1.28, 1.16, 0.58, 0.26),
-        (254.0, 1.60, 9.46, 1.26, 1.14, 0.56, 0.26),
-        ( 74.0, 1.56, 9.52, 1.24, 1.12, 0.56, 0.25),
+    upper_outer = [
+        (172.0, 2.82, 10.14, 1.12, 0.98, 0.38, 0.18),
+        (254.0, 2.74, 10.16, 1.08, 0.96, 0.38, 0.18),
+        ( 86.0, 2.66, 10.20, 1.04, 0.92, 0.36, 0.18),
     ]
 
     for k, (p_pad, s_pad, r0) in enumerate((
-        (upper_pads[0], upper_sub_pads[0], 0.160),
-        (upper_pads[1], upper_sub_pads[1], 0.164),
-        (upper_pads[2], upper_sub_pads[2], 0.155),
+        (upper_pads[0], upper_outer[0], 0.160),
+        (upper_pads[1], upper_outer[1], 0.164),
+        (upper_pads[2], upper_outer[2], 0.155),
     )):
         ad, dr, pz, _rx, _ry, _rzt, rzb = p_pad
         a = math.radians(ad)
         dxy = Vector((math.cos(a), math.sin(a), 0.0))
         st = trunk_pts[-2].lerp(fork, 0.52 + 0.16 * k / 2.0)
-        tp = Vector((fork.x + math.cos(a) * (dr * 0.84), fork.y + math.sin(a) * (dr * 0.84), pz - rzb + 0.50))
+        tp = Vector((fork.x + math.cos(a) * (dr * 0.84), fork.y + math.sin(a) * (dr * 0.84), pz - rzb + 0.36))
         el = st.lerp(tp, 0.50) + dxy * 0.22 + Vector((0.0, 0.0, -0.26))
         b_pts = sample_curve([st, el, tp], 5)
         pb.add_limb(
@@ -1191,20 +1211,20 @@ def build_pine_tiered(mat):
         )
         sad, sdr, spz, _, _, _, srzb = s_pad
         sa = math.radians(sad)
-        s_tip = Vector((fork.x + math.cos(sa) * (sdr * 0.80), fork.y + math.sin(sa) * (sdr * 0.80), spz - srzb + 0.46))
+        s_tip = Vector((fork.x + math.cos(sa) * (sdr * 0.78), fork.y + math.sin(sa) * (sdr * 0.78), spz - srzb + 0.30))
         s_mid = b_pts[2].lerp(s_tip, 0.52) + Vector((0.0, 0.0, -0.14))
         pb.add_limb(
             sample_curve([b_pts[2], s_mid, s_tip], 3),
-            taper_radii(r0 * 0.52, r0 * 0.24, 3), segs=4,
+            taper_radii(r0 * 0.50, r0 * 0.24, 3), segs=4,
             col_bot=PINE_BARK_BOT, col_top=PINE_BARK_TOP,
             sway_base=24.0, sway_tip=56.0, noise_seed=20.0 + k, track_tip=True,
         )
 
-    # 4th upper bough supporting upper_pads[3] + central leader into top dome
+    # 4th upper bough supporting upper_pads[3] + central leader into flat top table
     ad4, dr4, pz4, _, _, _, rzb4 = upper_pads[3]
     a4 = math.radians(ad4)
     st4 = trunk_pts[-2].lerp(fork, 0.72)
-    tp4 = Vector((fork.x + math.cos(a4) * (dr4 * 0.82), fork.y + math.sin(a4) * (dr4 * 0.82), pz4 - rzb4 + 0.48))
+    tp4 = Vector((fork.x + math.cos(a4) * (dr4 * 0.82), fork.y + math.sin(a4) * (dr4 * 0.82), pz4 - rzb4 + 0.34))
     el4 = st4.lerp(tp4, 0.50) + Vector((math.cos(a4) * 0.16, math.sin(a4) * 0.16, -0.22))
     pb.add_limb(
         sample_curve([st4, el4, tp4], 4), taper_radii(0.145, 0.058, 4), segs=5,
@@ -1212,92 +1232,70 @@ def build_pine_tiered(mat):
         mottle_col=PINE_BARK_PLATE, sway_base=22.0, sway_tip=52.0, noise_seed=23.5, track_tip=True,
     )
     pb.add_limb(
-        sample_curve([fork, fork + Vector((-0.05, 0.04, 1.05)), fork + Vector((-0.10, 0.05, 2.05))], 3),
+        sample_curve([fork, fork + Vector((-0.05, 0.04, 0.90)), fork + Vector((-0.10, 0.05, 1.72))], 3),
         taper_radii(0.15, 0.06, 3), segs=5,
         col_bot=PINE_BARK_BOT, col_top=PINE_BARK_TOP,
         sway_base=24.0, sway_tip=54.0, noise_seed=24.0, track_tip=True,
     )
 
-    # Lower tier: 3 staggered tufted pads (smoothly rounded, breaks single-bun subordinate tier)
+    # Tier 1 (lower subordinate flat shelf: 3 lobes)
     pb.add_foliage_puff(
-        low_pad_a, 1.70, 1.48, 0.72, 0.30, PID_EVERGREEN,
+        low_pad_a, 1.80, 1.56, 0.46, 0.22, PID_EVERGREEN,
         PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
-        u_segs=10, v_rings=3, rim_lobes=5, rim_wave=0.09, crinkle_amp=0.11, crinkle_lobes=5,
-        noise_amp=0.09, top_pow=0.78, bot_pow=0.82, tilt=(0.03, 0.04, 0.3),
-        dome_w=0.66, dome_up=0.28, sway_min=46.0, sway_max=74.0, seed=41,
+        u_segs=10, v_rings=3, rim_lobes=5, rim_wave=0.09, crinkle_amp=0.10, crinkle_lobes=5,
+        noise_amp=0.085, top_pow=0.64, bot_pow=0.76, tilt=(0.02, 0.03, 0.3),
+        dome_w=0.66, dome_up=0.34, sway_min=46.0, sway_max=74.0, seed=41,
     )
     pb.add_foliage_puff(
-        low_pad_b, 1.32, 1.20, 0.60, 0.26, PID_EVERGREEN,
+        low_pad_b, 1.34, 1.18, 0.40, 0.20, PID_EVERGREEN,
         PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
-        u_segs=8, v_rings=3, rim_lobes=4, rim_wave=0.09, crinkle_amp=0.11, crinkle_lobes=5,
-        noise_amp=0.09, top_pow=0.80,
-        dome_w=0.66, dome_up=0.26, sway_min=44.0, sway_max=70.0, seed=42,
+        u_segs=8, v_rings=3, rim_lobes=4, rim_wave=0.09, crinkle_amp=0.10, crinkle_lobes=5,
+        noise_amp=0.085, top_pow=0.66, bot_pow=0.78,
+        dome_w=0.66, dome_up=0.32, sway_min=44.0, sway_max=70.0, seed=42,
     )
     pb.add_foliage_puff(
-        low_pad_a + low_dir * 0.80 + Vector((0.0, 0.26, 0.22)), 0.98, 0.88, 0.46, 0.22, PID_EVERGREEN,
+        low_pad_a + low_dir * 0.88 + Vector((0.0, 0.28, 0.14)), 1.02, 0.90, 0.34, 0.18, PID_EVERGREEN,
         PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
-        u_segs=8, v_rings=3, rim_lobes=4, rim_wave=0.095, crinkle_amp=0.11, crinkle_lobes=5,
-        noise_amp=0.095, dome_w=0.65, dome_up=0.26, sway_min=48.0, sway_max=76.0, seed=421,
+        u_segs=8, v_rings=3, rim_lobes=4, rim_wave=0.095, crinkle_amp=0.10, crinkle_lobes=5,
+        noise_amp=0.085, top_pow=0.68, bot_pow=0.80,
+        dome_w=0.65, dome_up=0.32, sway_min=48.0, sway_max=76.0, seed=421,
     )
 
-    # Upper lofty umbrella tier: stepped multi-tuft table dome + 4 perimeter + 3 sub-pads + 4 outer tufts
+    # Tier 2 (upper lofty flat umbrella table: 1 central table + 4 perimeter + 3 outer rim cushions = 11 total)
     pb.add_foliage_puff(
-        Vector((fork.x - 0.10, fork.y + 0.05, 10.18)), 2.04, 1.92, 0.98, 0.40, PID_EVERGREEN,
+        Vector((fork.x - 0.10, fork.y + 0.05, 10.22)), 2.14, 1.98, 0.56, 0.24, PID_EVERGREEN,
         PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
-        u_segs=12, v_rings=4, rim_lobes=5, rim_wave=0.09, crinkle_amp=0.11, crinkle_lobes=6,
-        noise_amp=0.09, top_pow=0.74, bot_pow=0.80,
-        dome_w=0.66, dome_up=0.34, sway_min=60.0, sway_max=86.0, seed=43,
+        u_segs=14, v_rings=4, rim_lobes=5, rim_wave=0.09, crinkle_amp=0.10, crinkle_lobes=6,
+        noise_amp=0.08, top_pow=0.60, bot_pow=0.72,
+        dome_w=0.66, dome_up=0.38, sway_min=60.0, sway_max=86.0, seed=43,
     )
-    for i, (dx, dy, pz, rx, ry, rzt) in enumerate((
-        (-0.82,  0.54, 10.48, 1.32, 1.20, 0.66),
-        ( 0.72, -0.48, 10.42, 1.28, 1.16, 0.64),
-    )):
-        pb.add_foliage_puff(
-            Vector((fork.x + dx, fork.y + dy, pz)), rx, ry, rzt, 0.26, PID_EVERGREEN,
-            PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
-            u_segs=8, v_rings=3, rim_lobes=4, rim_wave=0.09, crinkle_amp=0.11, crinkle_lobes=5,
-            noise_amp=0.09, dome_w=0.66, dome_up=0.32, sway_min=62.0, sway_max=88.0, seed=146 + i,
-        )
     for i, (ad, dr, pz, rx, ry, rzt, rzb) in enumerate(upper_pads):
         a = math.radians(ad)
         pos = Vector((fork.x + math.cos(a) * dr, fork.y + math.sin(a) * dr, pz))
         pb.add_foliage_puff(
             pos, rx, ry, rzt, rzb, PID_EVERGREEN,
             PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
-            u_segs=10, v_rings=3, rim_lobes=5, rim_wave=0.095, crinkle_amp=0.11, crinkle_lobes=5,
-            noise_amp=0.09, top_pow=0.78, bot_pow=0.82,
-            dome_w=0.66, dome_up=0.30, sway_min=60.0, sway_max=88.0, seed=50 + i,
+            u_segs=10, v_rings=3, rim_lobes=5, rim_wave=0.095, crinkle_amp=0.10, crinkle_lobes=5,
+            noise_amp=0.085, top_pow=0.64, bot_pow=0.76,
+            dome_w=0.66, dome_up=0.34, sway_min=60.0, sway_max=88.0, seed=50 + i,
         )
-    for i, (ad, dr, pz, rx, ry, rzt, rzb) in enumerate(upper_sub_pads):
+    for i, (ad, dr, pz, rx, ry, rzt, rzb) in enumerate(upper_outer):
         a = math.radians(ad)
         pos = Vector((fork.x + math.cos(a) * dr, fork.y + math.sin(a) * dr, pz))
         pb.add_foliage_puff(
             pos, rx, ry, rzt, rzb, PID_EVERGREEN,
             PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
-            u_segs=8, v_rings=3, rim_lobes=4, rim_wave=0.09, crinkle_amp=0.11, crinkle_lobes=5,
-            noise_amp=0.09, dome_w=0.65, dome_up=0.28, sway_min=58.0, sway_max=84.0, seed=55 + i,
-        )
-    for i, (ad, dr, pz, rx, ry, rzt) in enumerate((
-        ( 96.0, 2.66, 10.10, 1.04, 0.90, 0.48),
-        (178.0, 2.78, 10.02, 1.08, 0.92, 0.50),
-        (258.0, 2.64, 10.08, 1.02, 0.90, 0.48),
-        (344.0, 2.48, 10.16, 0.96, 0.86, 0.46),
-    )):
-        a = math.radians(ad)
-        pos = Vector((fork.x + math.cos(a) * dr, fork.y + math.sin(a) * dr, pz))
-        pb.add_foliage_puff(
-            pos, rx, ry, rzt, 0.24, PID_EVERGREEN,
-            PINE_FOL_TOP, PINE_FOL_MID, PINE_FOL_BOT,
-            u_segs=8, v_rings=3, rim_lobes=4, rim_wave=0.095, crinkle_amp=0.11, crinkle_lobes=5,
-            noise_amp=0.095, dome_w=0.65, dome_up=0.28, sway_min=62.0, sway_max=88.0, seed=150 + i,
+            u_segs=8, v_rings=3, rim_lobes=4, rim_wave=0.095, crinkle_amp=0.10, crinkle_lobes=5,
+            noise_amp=0.085, top_pow=0.66, bot_pow=0.78,
+            dome_w=0.65, dome_up=0.32, sway_min=62.0, sway_max=88.0, seed=150 + i,
         )
 
-    return pb.finalize(mat, macro_dome_mix=0.44, macro_up_bias=0.34, ao_strength=0.60, ao_min=0.38)
+    return pb.finalize(mat, macro_dome_mix=0.44, macro_up_bias=0.38, ao_strength=0.62, ao_min=0.36, under_ao_boost=0.35)
 
 
-def build_pine_sheared(mat):
+def build_pine_sheared(mat, lod=0):
     """Wind-sculpted coastal Stone Pine (~9.5 m, embedded meltemi boughs + tufted wind-streamed parasol)."""
-    pb = ProtoBuilder('pine_sheared', 9.5, seed=103)
+    pb = ProtoBuilder('pine_sheared', 9.5, seed=103, lod=lod)
     trunk_pts = sample_curve([
         (0.0, 0.0, -0.80),
         (0.32, 0.04, 1.65),
@@ -1367,12 +1365,12 @@ def build_pine_sheared(mat):
             wind_shear=(0.24, 0.03), seed=60 + i,
         )
 
-    return pb.finalize(mat, macro_dome_mix=0.46, macro_up_bias=0.34, ao_strength=0.60, ao_min=0.38)
+    return pb.finalize(mat, macro_dome_mix=0.46, macro_up_bias=0.36, ao_strength=0.62, ao_min=0.36, under_ao_boost=0.28)
 
 
-def build_pine_young(mat):
+def build_pine_young(mat, lod=0):
     """Youthful coastal Stone Pine (~6.6 m, curved leaning trunk, lower branch stub, asymmetric two-step crown)."""
-    pb = ProtoBuilder('pine_young', 6.6, seed=104)
+    pb = ProtoBuilder('pine_young', 6.6, seed=104, lod=lod)
     # Noticeably curved, coastal-leaning trunk (de-lollipopped!)
     trunk_pts = sample_curve([
         (0.0, 0.0, -0.80),
@@ -1488,14 +1486,14 @@ SANCT_FOL_MID = srgb_to_lin('#1F382E')
 SANCT_FOL_BOT = srgb_to_lin('#132421')
 
 
-def build_cypress_tall(mat):
+def build_cypress_tall(mat, lod=0):
     """Tall slender wind-nodding flame Cypress (~11.8 m, widest ~32% height + 9 prominent breaking plumes)."""
     nominal_h = 11.8
     max_r = 1.14
     z_start = 0.82
     h_core = nominal_h - z_start
     nod_vec = Vector((0.52, 0.22, 0.0))
-    pb = ProtoBuilder('cypress_tall', nominal_h, seed=201)
+    pb = ProtoBuilder('cypress_tall', nominal_h, seed=201, lod=lod)
 
     stem_pts = sample_curve([(0.0, 0.0, -0.60), (0.02, -0.01, 0.65), (0.04, 0.02, 2.25)], 4)
     pb.add_limb(
@@ -1552,14 +1550,14 @@ def build_cypress_tall(mat):
     return pb.finalize(mat, macro_dome_mix=0.54, macro_up_bias=0.16, ao_strength=0.56, ao_min=0.40, ao_dist=2.8)
 
 
-def build_cypress_column(mat):
+def build_cypress_column(mat, lod=0):
     """Architectural fluted garden Column Cypress (~9.6 m, NARROW tapered base, widest ~38% height, zero teardrop bulge!)."""
     nominal_h = 9.6
     max_r = 1.12
     z_start = 0.88
     h_core = nominal_h - z_start
     nod_vec = Vector((-0.09, 0.06, 0.0))
-    pb = ProtoBuilder('cypress_column', nominal_h, seed=202)
+    pb = ProtoBuilder('cypress_column', nominal_h, seed=202, lod=lod)
 
     stem_pts = sample_curve([(0.0, 0.0, -0.60), (-0.01, 0.01, 0.65), (-0.02, 0.01, 2.05)], 4)
     pb.add_limb(
@@ -1615,14 +1613,14 @@ def build_cypress_column(mat):
     return pb.finalize(mat, macro_dome_mix=0.52, macro_up_bias=0.14, ao_strength=0.58, ao_min=0.38, ao_dist=2.6)
 
 
-def build_cypress_sanctuary(mat):
+def build_cypress_sanctuary(mat, lod=0):
     """Ancient stately DOUBLE-CRESTED, deeply fluted dark emerald-slate Sanctuary Cypress (~12.4 m)."""
     nominal_h = 12.4
     max_r = 1.08
     z_start = 0.86
     h_core = nominal_h - z_start
     nod_vec = Vector((0.26, -0.14, 0.0))
-    pb = ProtoBuilder('cypress_sanctuary', nominal_h, seed=203)
+    pb = ProtoBuilder('cypress_sanctuary', nominal_h, seed=203, lod=lod)
 
     # Gnarled fluted ancient dark woody base stem
     stem_pts = sample_curve([(0.0, 0.0, -0.65), (-0.04, 0.02, 0.70), (0.03, -0.02, 2.40)], 4)
@@ -1705,16 +1703,16 @@ def build_cypress_sanctuary(mat):
 OLIVE_BARK_BOT = srgb_to_lin('#554E46')
 OLIVE_BARK_TOP = srgb_to_lin('#888074')
 OLIVE_BARK_BLEACH = srgb_to_lin('#A69E92')
-# Shimmering Mediterranean silver-sage (distinctly silvery olive foliage!)
-OLIVE_FOL_TOP = srgb_to_lin('#8DA075')
-OLIVE_FOL_MID = srgb_to_lin('#61764E')
-OLIVE_FOL_BOT = srgb_to_lin('#394B32')
-OLIVE_SILVER = srgb_to_lin('#AAB897')
+# Authentic Olea europaea bi-colour foliage: darker dusty grey-green tops contrasting against luminous silvery undersides
+OLIVE_FOL_TOP = Vector((0.20, 0.24, 0.15))
+OLIVE_FOL_MID = Vector((0.27, 0.31, 0.23))
+OLIVE_FOL_BOT = Vector((0.42, 0.45, 0.38))
+OLIVE_SILVER = Vector((0.39, 0.42, 0.35))
 
 
-def build_olive_ancient(mat):
-    """Centuries-old gnarled patriarch Olive (~5.5 m, massive twisted fluted hollow-cleft trunk + low broken airy silver-sage sprays)."""
-    pb = ProtoBuilder('olive_ancient', 5.5, seed=301)
+def build_olive_ancient(mat, lod=0):
+    """Centuries-old gnarled patriarch Olive (~5.5 m, massive twisted fluted hollow-cleft trunk + airy horizontal bi-colour sprays)."""
+    pb = ProtoBuilder('olive_ancient', 5.5, seed=301, lod=lod)
 
     # Unified massive twisted, deeply-fluted, knotted, hollow-clefted ancient trunk (NO detached spaghetti legs!)
     main_trunk = sample_curve([
@@ -1774,9 +1772,8 @@ def build_olive_ancient(mat):
             flute_amp=0.18, flute_n=3, flute_reach=0.90, twist=0.90, wobble=0.09, knot_amp=0.14,
             sway_base=8.0, sway_tip=40.0, noise_seed=44.0 + k,
         )
-        # Main outer flattened spray perched over `tip` (v_rings=3 -> silky-smooth rim, zero angular pancake edges!)
-        spray_clusters.append((tip + Vector((0.0, 0.0, 0.24)), 1.32, 1.12, 0.50, 0.22, (0.06 * (1 if k % 2 == 0 else -1), 0.07, a), 10, 3))
-        spray_clusters.append((tip + dxy * 0.68 + perp * (0.40 if k % 2 == 0 else -0.36) + Vector((0.0, 0.0, 0.08)), 0.94, 0.82, 0.40, 0.19, (0.07, -0.05, a + 0.6), 8, 3))
+        # Wide, flat, airy horizontal spray per primary limb (no dense cotton-ball clusters!)
+        spray_clusters.append((tip + Vector((0.0, 0.0, 0.20)), 1.44, 1.18, 0.42, 0.18, (0.06 * (1 if k % 2 == 0 else -1), 0.06, a), 10, 3))
 
         # Crooked ascending secondary fork lifting a higher broken crown spray
         sa = math.radians(ad + sub_off)
@@ -1790,9 +1787,10 @@ def build_olive_ancient(mat):
             col_bot=OLIVE_BARK_BOT, col_top=OLIVE_BARK_TOP, mottle_col=OLIVE_BARK_BLEACH,
             wobble=0.08, sway_base=14.0, sway_tip=46.0, noise_seed=49.0 + k,
         )
-        spray_clusters.append((s2 + Vector((0.0, 0.0, 0.22)), 1.08, 0.94, 0.46, 0.20, (-0.05, 0.06, sa), 8, 3))
+        if k != 1:
+            spray_clusters.append((s2 + Vector((0.0, 0.0, 0.18)), 1.14, 0.96, 0.38, 0.16, (-0.05, 0.05, sa), 8, 3))
 
-    # Central crooked ascending bough carrying an off-center broken upper spray (leaving open sky gaps!)
+    # Central crooked ascending bough carrying 2 offset airy upper horizontal sprays (leaving crisp open sky gaps!)
     c_tip = Vector((0.28, -0.18, 4.48))
     pb.add_limb(
         sample_curve([main_trunk[-1], Vector((-0.18, 0.14, 2.95)), Vector((0.16, -0.12, 3.85)), c_tip], 4),
@@ -1800,25 +1798,25 @@ def build_olive_ancient(mat):
         col_bot=OLIVE_BARK_BOT, col_top=OLIVE_BARK_TOP, mottle_col=OLIVE_BARK_BLEACH,
         wobble=0.08, sway_base=12.0, sway_tip=44.0, noise_seed=53.0,
     )
-    spray_clusters.append((c_tip + Vector((0.18, -0.12, 0.28)), 1.36, 1.14, 0.52, 0.22, (0.04, -0.05, 0.4), 10, 3))
-    spray_clusters.append((Vector((-0.92, 0.68, 4.56)), 1.08, 0.92, 0.46, 0.20, (-0.05, 0.06, 1.9), 8, 3))
+    spray_clusters.append((c_tip + Vector((0.22, -0.14, 0.24)), 1.42, 1.16, 0.44, 0.18, (0.04, -0.05, 0.4), 10, 3))
+    spray_clusters.append((Vector((-0.96, 0.72, 4.52)), 1.12, 0.94, 0.38, 0.16, (-0.05, 0.06, 1.9), 8, 3))
 
     for i, (pos, rx, ry, rzt, rzb, tilt, us, vr) in enumerate(spray_clusters):
         pb.add_foliage_puff(
             pos, rx, ry, rzt, rzb, PID_EVERGREEN,
             OLIVE_FOL_TOP, OLIVE_FOL_MID, OLIVE_FOL_BOT,
-            u_segs=us, v_rings=vr, rim_lobes=4, rim_wave=0.10, crinkle_amp=0.11, crinkle_lobes=5,
-            noise_amp=0.095, top_pow=0.78, bot_pow=0.80, tilt=tilt,
-            dome_w=0.64, dome_up=0.24, sway_min=44.0, sway_max=82.0,
-            mottle_col=OLIVE_SILVER, mottle_strength=0.40, seed=310 + i,
+            u_segs=us, v_rings=vr, rim_lobes=4, rim_wave=0.11, crinkle_amp=0.10, crinkle_lobes=5,
+            noise_amp=0.09, top_pow=0.70, bot_pow=0.74, tilt=tilt,
+            dome_w=0.62, dome_up=0.22, sway_min=44.0, sway_max=82.0,
+            mottle_col=OLIVE_SILVER, mottle_strength=0.16, seed=310 + i,
         )
 
-    return pb.finalize(mat, macro_dome_mix=0.38, macro_up_bias=0.22, ao_strength=0.56, ao_min=0.40)
+    return pb.finalize(mat, macro_dome_mix=0.36, macro_up_bias=0.20, ao_strength=0.42, ao_min=0.52)
 
 
-def build_olive_terrace(mat):
-    """Hillside terrace Olive (~4.4 m, unified leaning twisted hollow-fluted grey trunk + low open-vase silver-sage sprays)."""
-    pb = ProtoBuilder('olive_terrace', 4.4, seed=302)
+def build_olive_terrace(mat, lod=0):
+    """Hillside terrace Olive (~4.4 m, unified leaning twisted hollow-fluted grey trunk + airy horizontal bi-colour sprays)."""
+    pb = ProtoBuilder('olive_terrace', 4.4, seed=302, lod=lod)
 
     # Unified sinuous leaning deeply-fluted twisted trunk + 1 fused spiraling buttress rib (NO crossed pipes!)
     trunk_pts = sample_curve([
@@ -1849,7 +1847,7 @@ def build_olive_terrace(mat):
     )
     fork = trunk_pts[-1]
 
-    # 3 crooked wide-spreading orchard limbs pruned in open-vase olive architecture
+    # 3 crooked wide-spreading orchard limbs pruned in open-vase olive architecture (7 airy horizontal lobes)
     sprays = []
     for k, (ad, reach, dz, sa_off) in enumerate((
         ( 24.0, 1.82, 1.48,  42.0),
@@ -1869,8 +1867,7 @@ def build_olive_terrace(mat):
             flute_amp=0.14, flute_n=3, twist=0.70, wobble=0.08, knot_amp=0.10,
             sway_base=8.0, sway_tip=38.0, noise_seed=54.0 + k,
         )
-        sprays.append((tip + Vector((0.0, 0.0, 0.22)), 1.12, 0.96, 0.44, 0.20, (0.06, -0.05, a), 10, 3))
-        sprays.append((tip + dxy * 0.52 - perp * 0.48 + Vector((0.0, 0.0, 0.08)), 0.80, 0.70, 0.36, 0.17, (-0.05, 0.07, a + 0.7), 8, 3))
+        sprays.append((tip + Vector((0.0, 0.0, 0.18)), 1.24, 1.02, 0.38, 0.17, (0.05, -0.05, a), 10, 3))
 
         sa = math.radians(ad + sa_off)
         sd = Vector((math.cos(sa), math.sin(sa), 0.0))
@@ -1882,28 +1879,29 @@ def build_olive_terrace(mat):
             col_bot=OLIVE_BARK_BOT, col_top=OLIVE_BARK_TOP,
             wobble=0.07, sway_base=14.0, sway_tip=44.0, noise_seed=58.0 + k,
         )
-        sprays.append((s2 + Vector((0.0, 0.0, 0.20)), 0.94, 0.82, 0.40, 0.18, (0.04, 0.06, sa), 8, 3))
+        if k != 2:
+            sprays.append((s2 + Vector((0.0, 0.0, 0.16)), 0.98, 0.84, 0.35, 0.15, (0.04, 0.05, sa), 8, 3))
 
     # Two asymmetric upper flattened pads framing an airy sunlit open-vase center!
-    sprays.append((Vector((0.68, 0.36, 3.84)), 1.06, 0.90, 0.44, 0.19, (0.05, -0.04, 0.3), 8, 3))
-    sprays.append((Vector((-0.34, -0.46, 3.74)), 0.98, 0.86, 0.42, 0.18, (-0.05, 0.05, 1.8), 8, 3))
+    sprays.append((Vector((0.72, 0.38, 3.82)), 1.12, 0.94, 0.38, 0.16, (0.05, -0.04, 0.3), 8, 3))
+    sprays.append((Vector((-0.38, -0.48, 3.72)), 1.02, 0.88, 0.36, 0.16, (-0.05, 0.05, 1.8), 8, 3))
 
     for i, (pos, rx, ry, rzt, rzb, tilt, us, vr) in enumerate(sprays):
         pb.add_foliage_puff(
             pos, rx, ry, rzt, rzb, PID_EVERGREEN,
             OLIVE_FOL_TOP, OLIVE_FOL_MID, OLIVE_FOL_BOT,
-            u_segs=us, v_rings=vr, rim_lobes=4, rim_wave=0.10, crinkle_amp=0.11, crinkle_lobes=5,
-            noise_amp=0.095, top_pow=0.78, bot_pow=0.80, tilt=tilt,
-            dome_w=0.64, dome_up=0.24, sway_min=42.0, sway_max=80.0,
-            mottle_col=OLIVE_SILVER, mottle_strength=0.38, seed=320 + i,
+            u_segs=us, v_rings=vr, rim_lobes=4, rim_wave=0.11, crinkle_amp=0.10, crinkle_lobes=5,
+            noise_amp=0.09, top_pow=0.70, bot_pow=0.74, tilt=tilt,
+            dome_w=0.62, dome_up=0.22, sway_min=42.0, sway_max=80.0,
+            mottle_col=OLIVE_SILVER, mottle_strength=0.16, seed=320 + i,
         )
 
-    return pb.finalize(mat, macro_dome_mix=0.38, macro_up_bias=0.22, ao_strength=0.55, ao_min=0.40)
+    return pb.finalize(mat, macro_dome_mix=0.36, macro_up_bias=0.20, ao_strength=0.42, ao_min=0.52)
 
 
-def build_olive_young(mat):
-    """Young courtyard Olive (~3.6 m, crooked twisting fluted stem + airy horizontal silver-sage sprays)."""
-    pb = ProtoBuilder('olive_young', 3.6, seed=303)
+def build_olive_young(mat, lod=0):
+    """Young courtyard Olive (~3.6 m, crooked twisting fluted stem + 6 airy horizontal bi-colour sprays)."""
+    pb = ProtoBuilder('olive_young', 3.6, seed=303, lod=lod)
     trunk_pts = sample_curve([
         (0.0, 0.0, -0.60),
         (0.14, 0.06, 0.45),
@@ -1932,7 +1930,7 @@ def build_olive_young(mat):
             col_bot=OLIVE_BARK_BOT, col_top=OLIVE_BARK_TOP, mottle_col=OLIVE_BARK_BLEACH,
             wobble=0.07, sway_base=10.0, sway_tip=40.0, noise_seed=64.0 + k,
         )
-        sprays.append((tip + Vector((0.0, 0.0, 0.18)), 0.84, 0.72, 0.36, 0.16, (0.05, -0.04, a), 8, 3))
+        sprays.append((tip + Vector((0.0, 0.0, 0.16)), 0.92, 0.78, 0.32, 0.14, (0.05, -0.04, a), 8, 3))
 
         sa = math.radians(ad - 40.0)
         sd = Vector((math.cos(sa), math.sin(sa), 0.0))
@@ -1943,23 +1941,24 @@ def build_olive_young(mat):
             col_bot=OLIVE_BARK_BOT, col_top=OLIVE_BARK_TOP,
             sway_base=16.0, sway_tip=44.0, noise_seed=68.0 + k,
         )
-        sprays.append((s2 + Vector((0.0, 0.0, 0.16)), 0.74, 0.64, 0.32, 0.15, (-0.04, 0.06, sa), 8, 3))
+        if k == 0:
+            sprays.append((s2 + Vector((0.0, 0.0, 0.14)), 0.78, 0.68, 0.28, 0.13, (-0.04, 0.06, sa), 8, 3))
 
-    # Two light offset upper sprays
-    sprays.append((Vector((0.24, 0.16, 3.18)), 0.90, 0.78, 0.40, 0.17, (0.04, -0.05, 0.5), 10, 3))
-    sprays.append((Vector((-0.42, -0.26, 2.94)), 0.74, 0.64, 0.34, 0.15, (-0.05, 0.04, 2.1), 8, 3))
+    # Two light offset horizontal upper sprays
+    sprays.append((Vector((0.26, 0.18, 3.16)), 0.96, 0.82, 0.34, 0.15, (0.04, -0.05, 0.5), 10, 3))
+    sprays.append((Vector((-0.44, -0.28, 2.94)), 0.80, 0.68, 0.30, 0.14, (-0.05, 0.04, 2.1), 8, 3))
 
     for i, (pos, rx, ry, rzt, rzb, tilt, us, vr) in enumerate(sprays):
         pb.add_foliage_puff(
             pos, rx, ry, rzt, rzb, PID_EVERGREEN,
             OLIVE_FOL_TOP, OLIVE_FOL_MID, OLIVE_FOL_BOT,
-            u_segs=us, v_rings=vr, rim_lobes=4, rim_wave=0.10, crinkle_amp=0.11, crinkle_lobes=5,
-            noise_amp=0.095, top_pow=0.78, bot_pow=0.80, tilt=tilt,
-            dome_w=0.64, dome_up=0.24, sway_min=40.0, sway_max=76.0,
-            mottle_col=OLIVE_SILVER, mottle_strength=0.36, seed=330 + i,
+            u_segs=us, v_rings=vr, rim_lobes=4, rim_wave=0.11, crinkle_amp=0.10, crinkle_lobes=5,
+            noise_amp=0.09, top_pow=0.70, bot_pow=0.74, tilt=tilt,
+            dome_w=0.62, dome_up=0.22, sway_min=40.0, sway_max=76.0,
+            mottle_col=OLIVE_SILVER, mottle_strength=0.15, seed=330 + i,
         )
 
-    return pb.finalize(mat, macro_dome_mix=0.38, macro_up_bias=0.22, ao_strength=0.54, ao_min=0.40)
+    return pb.finalize(mat, macro_dome_mix=0.36, macro_up_bias=0.20, ao_strength=0.40, ao_min=0.52)
 
 
 # ==================================================================
@@ -1995,9 +1994,9 @@ POM_FOL_MID = srgb_to_lin('#3B552E')     # warm mid orchard green   (lin b/g ~ 0
 POM_FOL_BOT = srgb_to_lin('#243A1F')     # deep interior green      (lin b/g ~ 0.33)
 
 
-def build_plane_tall(mat):
+def build_plane_tall(mat, lod=0):
     """Lofty Platanus orientalis (~12.6 m, grey-olive patched bark, gracefully arched S-curved limbs, tall billowing cathedral crown)."""
-    pb = ProtoBuilder('plane_tall', 12.6, seed=401)
+    pb = ProtoBuilder('plane_tall', 12.6, seed=401, lod=lod)
     trunk_pts = sample_curve([
         (0.0, 0.0, -0.80),
         (0.18, -0.08, 1.65),
@@ -2091,9 +2090,9 @@ def build_plane_tall(mat):
     return pb.finalize(mat, macro_dome_mix=0.48, macro_up_bias=0.26, ao_strength=0.62, ao_min=0.36)
 
 
-def build_plane_broad(mat):
+def build_plane_broad(mat, lod=0):
     """Broad agora shade Plane tree (~10.4 m, grey-olive mottled bark, 5 gracefully sweeping tapered arches, grand shade pavilion)."""
-    pb = ProtoBuilder('plane_broad', 10.4, seed=402)
+    pb = ProtoBuilder('plane_broad', 10.4, seed=402, lod=lod)
     trunk_pts = sample_curve([
         (0.0, 0.0, -0.80),
         (-0.14, 0.06, 1.35),
@@ -2174,9 +2173,9 @@ def build_plane_broad(mat):
     return pb.finalize(mat, macro_dome_mix=0.48, macro_up_bias=0.28, ao_strength=0.62, ao_min=0.36)
 
 
-def build_almond_spread(mat):
+def build_almond_spread(mat, lod=0):
     """Mature spreading Almond (~6.5 m, dark delicate goblet branches + light, open, irregular airy grey-green crown)."""
-    pb = ProtoBuilder('almond_spread', 6.5, seed=403)
+    pb = ProtoBuilder('almond_spread', 6.5, seed=403, lod=lod)
     trunk_pts = sample_curve([
         (0.0, 0.0, -0.65),
         (0.12, -0.06, 0.78),
@@ -2244,9 +2243,9 @@ def build_almond_spread(mat):
     return pb.finalize(mat, macro_dome_mix=0.38, macro_up_bias=0.22, ao_strength=0.58, ao_min=0.38)
 
 
-def build_almond_young(mat):
+def build_almond_young(mat, lod=0):
     """Young orchard Almond (~4.7 m, slender dark delicate branches + open light irregular grey-green crown)."""
-    pb = ProtoBuilder('almond_young', 4.7, seed=404)
+    pb = ProtoBuilder('almond_young', 4.7, seed=404, lod=lod)
     trunk_pts = sample_curve([
         (0.0, 0.0, -0.60),
         (-0.10, 0.04, 0.65),
@@ -2301,9 +2300,9 @@ def build_almond_young(mat):
     return pb.finalize(mat, macro_dome_mix=0.40, macro_up_bias=0.22, ao_strength=0.56, ao_min=0.38)
 
 
-def build_fig_broad(mat):
+def build_fig_broad(mat, lod=0):
     """Low, wide sprawling Mediterranean Fig (~5.1 m tall, ~4.0 m wide, pale grey-brown twisting limbs + lush low overhanging dome)."""
-    pb = ProtoBuilder('fig_broad', 5.1, seed=405)
+    pb = ProtoBuilder('fig_broad', 5.1, seed=405, lod=lod)
     trunk_pts = sample_curve([
         (0.0, 0.0, -0.65),
         (0.08, 0.02, 0.28),
@@ -2380,9 +2379,9 @@ def build_fig_broad(mat):
     return pb.finalize(mat, macro_dome_mix=0.52, macro_up_bias=0.28, ao_strength=0.64, ao_min=0.34)
 
 
-def build_pomegranate_multi(mat):
+def build_pomegranate_multi(mat, lod=0):
     """Multi-stemmed courtyard Pomegranate (~4.2 m, 4 sinuous fountain stems + lively warm olive-green orchard clusters)."""
-    pb = ProtoBuilder('pomegranate_multi', 4.2, seed=406)
+    pb = ProtoBuilder('pomegranate_multi', 4.2, seed=406, lod=lod)
     stems = [
         ( 15.0, 0.92, 2.38, 0.095,  36.0, -32.0),
         (108.0, 0.96, 2.18, 0.088, -36.0,  30.0),
@@ -2453,8 +2452,8 @@ VINE_FOL_MID = srgb_to_lin('#3B582F')    # lush mid vineyard leaf wall (lin b/g 
 VINE_FOL_BOT = srgb_to_lin('#233A1F')    # deep shaded lower leaf skirt (lin b/g ~ 0.33)
 
 
-def _build_vineyard(name, length, stake_xs, stock_xs, n_len, seed, mat):
-    pb = ProtoBuilder(name, 1.56, seed=seed)
+def _build_vineyard(name, length, stake_xs, stock_xs, n_len, seed, mat, lod=0):
+    pb = ProtoBuilder(name, 1.56, seed=seed, lod=lod)
 
     # Weathered timber vineyard stakes: sunk -0.35 m, topped at 1.30 m cleanly INSIDE the 1.54 m leafy crest!
     for i, sx in enumerate(stake_xs):
@@ -2464,7 +2463,7 @@ def _build_vineyard(name, length, stake_xs, stock_xs, n_len, seed, mat):
             [(sx, 0.0, -0.35), (sx + lean_x * 0.5, lean_y * 0.5, 0.45), (sx + lean_x, lean_y, 1.30)],
             [0.056, 0.050, 0.044], segs=5,
             col_bot=VINE_WOOD_BOT, col_top=VINE_WOOD_TOP,
-            wobble=0.04, cap_top=True, flat_top=True,
+            wobble=0.04, cap_bot=True, cap_top=True, flat_top=True,
             sway_base=0.0, sway_tip=0.0, noise_seed=200.0 + i,
         )
 
@@ -2477,7 +2476,7 @@ def _build_vineyard(name, length, stake_xs, stock_xs, n_len, seed, mat):
         pb.add_limb(
             r_pts, [rad, rad * 0.96, rad], segs=4,
             col_bot=VINE_WOOD_BOT, col_top=VINE_WOOD_TOP,
-            wobble=0.03, cap_bot=False, cap_top=False,
+            wobble=0.03, cap_bot=True, cap_top=True, flat_top=True,
             sway_base=0.0, sway_tip=0.0, noise_seed=210.0 + ri,
         )
 
@@ -2515,23 +2514,23 @@ def _build_vineyard(name, length, stake_xs, stock_xs, n_len, seed, mat):
     return pb.finalize(mat, macro_dome_mix=0.34, macro_up_bias=0.28, ao_strength=0.52, ao_min=0.40, ao_dist=1.8)
 
 
-def build_vine_row_short(mat):
+def build_vine_row_short(mat, lod=0):
     """2.4 m flush-tiling modular trellised vineyard hedge segment."""
     return _build_vineyard(
         'vine_row_short', length=2.4,
         stake_xs=(-0.98, 0.98),
         stock_xs=(-0.48, 0.48),
-        n_len=13, seed=501, mat=mat,
+        n_len=13, seed=501, mat=mat, lod=lod,
     )
 
 
-def build_vine_row_long(mat):
+def build_vine_row_long(mat, lod=0):
     """4.8 m flush-tiling modular trellised vineyard hedge segment."""
     return _build_vineyard(
         'vine_row_long', length=4.8,
         stake_xs=(-2.18, 0.0, 2.18),
         stock_xs=(-1.60, -0.54, 0.54, 1.60),
-        n_len=23, seed=502, mat=mat,
+        n_len=23, seed=502, mat=mat, lod=lod,
     )
 
 
@@ -2558,17 +2557,20 @@ BUILDERS = {
 }
 
 
-def build_prototype(name, mat=None, collection=None):
+def build_prototype(name, mat=None, collection=None, lod=0):
     mat = mat or ensure_export_material()
-    ob = BUILDERS[name](mat)
+    ob = BUILDERS[name](mat, lod=lod)
     coll = collection or bpy.context.scene.collection
     coll.objects.link(ob)
     return ob
 
 
-def build_all(mat=None, collection=None):
+def build_all(mat=None, collection=None, include_lod=False):
     mat = mat or ensure_export_material()
-    return [build_prototype(name, mat=mat, collection=collection) for name in PROTOTYPE_NAMES]
+    objs = [build_prototype(name, mat=mat, collection=collection, lod=0) for name in PROTOTYPE_NAMES]
+    if include_lod:
+        objs.extend(build_prototype(name, mat=mat, collection=collection, lod=1) for name in PROTOTYPE_NAMES)
+    return objs
 
 
 def compute_stats(ob):
@@ -2576,6 +2578,7 @@ def compute_stats(ob):
     me.calc_loop_triangles()
     n_v = len(me.vertices)
     n_t = len(me.loop_triangles)
+    base_name = ob.name[:-4] if ob.name.endswith('_lod') else ob.name
     co = np.zeros(n_v * 3, np.float32)
     me.vertices.foreach_get('co', co)
     co = co.reshape(-1, 3)
@@ -2600,7 +2603,7 @@ def compute_stats(ob):
         sw_attr.data.foreach_get('value', sw)
 
     # Check PID cleanliness (strict pid == 14 evergreen vs pid == 8 deciduous, plus pid == 0 wood)
-    expected_fol_pid = PID_EVERGREEN if ob.name in EVERGREEN_PROTOTYPES else PID_DECIDUOUS
+    expected_fol_pid = PID_EVERGREEN if base_name in EVERGREEN_PROTOTYPES else PID_DECIDUOUS
     unexpected_pids = [p for p in pid_counts.keys() if p not in (PID_WOOD, expected_fol_pid)]
 
     # Measure natural linear b/g ratio on deciduous foliage (verifies acid-lime blue clamp is GONE)
@@ -2613,7 +2616,7 @@ def compute_stats(ob):
 
     # Measure lower-skirt sway safety on vineyards (z <= 0.55 m must have sway == 0)
     vine_skirt_sway_max = 0.0
-    if ob.name in VINEYARD_PROTOTYPES:
+    if base_name in VINEYARD_PROTOTYPES:
         low_mask = co[:, 2] <= 0.55
         if low_mask.any():
             vine_skirt_sway_max = round(float(sw[low_mask].max()), 1)
@@ -2625,6 +2628,22 @@ def compute_stats(ob):
         wl = 0.2126 * col[wood_mask, 0] + 0.7152 * col[wood_mask, 1] + 0.0722 * col[wood_mask, 2]
         wood_luma_min = round(float(wl.min()), 3)
 
+    # Measure foliage crown depth / width ratio (for stone pine parasol audit)
+    fol_mask = pids == expected_fol_pid
+    crown_depth_ratio = None
+    if fol_mask.any():
+        fco = co[fol_mask]
+        c_depth = float(fco[:, 2].max() - fco[:, 2].min())
+        c_width = float(max(fco[:, 0].max() - fco[:, 0].min(), fco[:, 1].max() - fco[:, 1].min()))
+        crown_depth_ratio = round(c_depth / max(c_width, 1e-4), 3)
+
+    # Verify closed watertight topology (0 boundary edges + positive signed volume)
+    chk_bm = bmesh.new()
+    chk_bm.from_mesh(me)
+    boundary_edges = sum(1 for e in chk_bm.edges if e.is_boundary)
+    signed_vol = round(float(chk_bm.calc_volume(signed=True)), 3)
+    chk_bm.free()
+
     all_smooth = all(p.use_smooth for p in me.polygons)
     return dict(
         name=ob.name,
@@ -2635,6 +2654,9 @@ def compute_stats(ob):
         z_min=round(z_min, 2),
         x_span=round(x_span, 2),
         radius=round(rad, 2),
+        crown_depth_ratio=crown_depth_ratio,
+        boundary_edges=boundary_edges,
+        signed_vol=signed_vol,
         sway_min=round(float(sw.min()), 1),
         sway_max=round(float(sw.max()), 1),
         vine_skirt_sway_max=vine_skirt_sway_max,

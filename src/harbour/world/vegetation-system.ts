@@ -1,11 +1,21 @@
 import * as THREE from "three";
-import type { EngineContext, WorldSystem } from "../engine/types";
+import type { QualityTier } from "../engine/quality";
+import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import { isAbort } from "../engine/failure";
 import { consumeBinary, VEGETATION_INSTANCES_URL, VEGETATION_URL } from "../engine/prefetch";
 import { decodeInto, setBounds } from "../engine/static-merge";
 import { getHarbourMaterials } from "./materials";
 
 export { VEGETATION_INSTANCES_URL, VEGETATION_URL };
+
+/** XZ spatial partitioning grid cell size (m) for tight per-cell frustum culling & distance LOD. */
+export const VEG_CELL_SIZE = 64;
+
+/** Hysteresis surface-distance thresholds (m) for switching spatial cells between LOD0 and LOD1 on High / Medium tiers. */
+export const VEG_LOD_DIST: Readonly<Record<Exclude<QualityTier, "low">, { readonly enter: number; readonly exit: number }>> = {
+  high: { enter: 175, exit: 150 },
+  medium: { enter: 125, exit: 105 },
+};
 
 /** Fixed 18 prototype names matching `protoId` 0..17 in `HBVG` v1 and GLB node names in `vegetation.glb`. */
 export const VEG_PROTOTYPE_NAMES = [
@@ -213,22 +223,60 @@ export function indexPrototypeMeshes(root: THREE.Object3D): Map<string, THREE.Me
   return map;
 }
 
+export interface VegetationCellPool {
+  readonly protoId: number;
+  readonly protoName: VegPrototypeName;
+  readonly cellX: number;
+  readonly cellZ: number;
+  readonly mesh: THREE.InstancedMesh;
+  readonly lod0Geometry: THREE.BufferGeometry;
+  readonly lod1Geometry: THREE.BufferGeometry | null;
+  readonly center: THREE.Vector3;
+  readonly radius: number;
+  isLod1: boolean;
+}
+
+export interface BuiltVegetationPools {
+  readonly pools: VegetationCellPool[];
+  readonly baseGeometries: THREE.BufferGeometry[];
+}
+
+/** Shallow BufferGeometry wrapper sharing vertex/index buffers with `base` and attaching per-cell `aVegMeta`. */
+function createCellGeometry(
+  base: THREE.BufferGeometry,
+  metaAttr: THREE.InstancedBufferAttribute,
+  sharedBox: THREE.Box3,
+  sharedSphere: THREE.Sphere,
+): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.index = base.index;
+  for (const [k, attr] of Object.entries(base.attributes)) g.setAttribute(k, attr);
+  g.setAttribute("aVegMeta", metaAttr);
+  g.boundingBox = sharedBox.clone();
+  g.boundingSphere = sharedSphere.clone();
+  return g;
+}
+
 /**
- * Assemble one `THREE.InstancedMesh` per non-empty vegetation prototype, with metre-space dequantized
- * geometry, per-instance `aVegMeta` (`seed, luma, swayGain, patternOffset`), never setting `instanceColor`.
+ * Partition each prototype's instances into `cellSize × cellSize` m XZ spatial cells (default 64 m)
+ * and build tightly bounded, frustum-culled `THREE.InstancedMesh` pools with paired LOD0 + LOD1
+ * geometries sharing vertex buffers and per-instance `aVegMeta` (never setting `instanceColor`).
  */
-export function buildVegetationMeshes(
+export function buildVegetationPools(
   gltfRoot: THREE.Object3D,
   parsed: ParsedVegetationInstances,
   material: THREE.Material,
   depthMaterial: THREE.Material,
-): THREE.InstancedMesh[] {
+  opts: { cellSize?: number } = {},
+): BuiltVegetationPools {
+  const cellSize = opts.cellSize ?? VEG_CELL_SIZE;
   const prototypes = indexPrototypeMeshes(gltfRoot);
   const pos = new THREE.Vector3();
   const quat = new THREE.Quaternion();
   const scl = new THREE.Vector3();
   const mat4 = new THREE.Matrix4();
-  const meshes: THREE.InstancedMesh[] = [];
+  const pools: VegetationCellPool[] = [];
+  const baseGeometries: THREE.BufferGeometry[] = [];
 
   for (let protoId = 0; protoId < VEG_PROTOTYPE_NAMES.length; protoId++) {
     const bucket = parsed.buckets[protoId];
@@ -240,49 +288,114 @@ export function buildVegetationMeshes(
       continue;
     }
 
-    const geom = dequantizePrototypeGeometry(protoMesh);
-    const meta = new Float32Array(bucket.length * 4);
-    const inst = new THREE.InstancedMesh(geom, material, bucket.length);
-    inst.name = `veg_${protoName}`;
+    const baseLod0 = dequantizePrototypeGeometry(protoMesh);
+    baseGeometries.push(baseLod0);
+    const lod1Proto = prototypes.get(`${protoName}_lod`);
+    const baseLod1 = lod1Proto ? dequantizePrototypeGeometry(lod1Proto) : null;
+    if (baseLod1) baseGeometries.push(baseLod1);
 
-    for (let i = 0; i < bucket.length; i++) {
-      const rec = bucket[i]!;
-      pos.set(rec.x, rec.y, rec.z);
-      quat.setFromAxisAngle(UP_Y, rec.yaw);
-      scl.set(rec.scaleXZ, rec.scaleY, rec.scaleXZ);
-      mat4.compose(pos, quat, scl);
-      inst.setMatrixAt(i, mat4);
-      const base = i * 4;
-      meta[base] = rec.seed;
-      meta[base + 1] = rec.luma;
-      meta[base + 2] = rec.swayGain;
-      meta[base + 3] = rec.patternOffset;
+    // Conservative local envelope covering both LOD0 and LOD1 for tight, invariant cell bounds
+    const localBox = (baseLod0.boundingBox ?? new THREE.Box3()).clone();
+    if (baseLod1?.boundingBox) localBox.union(baseLod1.boundingBox);
+    const localSphere = new THREE.Sphere();
+    localBox.getBoundingSphere(localSphere);
+
+    // Partition instances into spatial XZ grid cells
+    const cellMap = new Map<string, { cellX: number; cellZ: number; items: VegetationInstance[] }>();
+    for (const rec of bucket) {
+      const cellX = Math.floor(rec.x / cellSize);
+      const cellZ = Math.floor(rec.z / cellSize);
+      const key = `${cellX},${cellZ}`;
+      let cell = cellMap.get(key);
+      if (!cell) {
+        cell = { cellX, cellZ, items: [] };
+        cellMap.set(key, cell);
+      }
+      cell.items.push(rec);
     }
 
-    geom.setAttribute("aVegMeta", new THREE.InstancedBufferAttribute(meta, 4));
-    inst.instanceMatrix.needsUpdate = true;
-    inst.castShadow = true;
-    inst.receiveShadow = true;
-    inst.customDepthMaterial = depthMaterial;
-    inst.computeBoundingBox();
-    inst.computeBoundingSphere();
-    inst.matrixAutoUpdate = false;
-    inst.updateMatrix();
-    meshes.push(inst);
+    const singleCell = cellMap.size === 1;
+    for (const { cellX, cellZ, items } of cellMap.values()) {
+      const meta = new Float32Array(items.length * 4);
+      const metaAttr = new THREE.InstancedBufferAttribute(meta, 4);
+      const lod0Geometry = createCellGeometry(baseLod0, metaAttr, localBox, localSphere);
+      const lod1Geometry = baseLod1 ? createCellGeometry(baseLod1, metaAttr, localBox, localSphere) : null;
+
+      const inst = new THREE.InstancedMesh(lod0Geometry, material, items.length);
+      inst.name = singleCell ? `veg_${protoName}` : `veg_${protoName}_${cellX}_${cellZ}`;
+
+      for (let i = 0; i < items.length; i++) {
+        const rec = items[i]!;
+        pos.set(rec.x, rec.y, rec.z);
+        quat.setFromAxisAngle(UP_Y, rec.yaw);
+        scl.set(rec.scaleXZ, rec.scaleY, rec.scaleXZ);
+        mat4.compose(pos, quat, scl);
+        inst.setMatrixAt(i, mat4);
+        const base = i * 4;
+        meta[base] = rec.seed;
+        meta[base + 1] = rec.luma;
+        meta[base + 2] = rec.swayGain;
+        meta[base + 3] = rec.patternOffset;
+      }
+
+      inst.instanceMatrix.needsUpdate = true;
+      inst.castShadow = true;
+      inst.receiveShadow = true;
+      inst.frustumCulled = true;
+      inst.customDepthMaterial = depthMaterial;
+      inst.computeBoundingBox();
+      inst.computeBoundingSphere();
+      inst.matrixAutoUpdate = false;
+      inst.updateMatrix();
+
+      const sphere = inst.boundingSphere ?? new THREE.Sphere();
+      pools.push({
+        protoId,
+        protoName,
+        cellX,
+        cellZ,
+        mesh: inst,
+        lod0Geometry,
+        lod1Geometry,
+        center: sphere.center.clone(),
+        radius: sphere.radius,
+        isLod1: false,
+      });
+    }
   }
 
-  return meshes;
+  return { pools, baseGeometries };
+}
+
+/**
+ * Convenience builder returning the spatially partitioned `THREE.InstancedMesh` pools.
+ */
+export function buildVegetationMeshes(
+  gltfRoot: THREE.Object3D,
+  parsed: ParsedVegetationInstances,
+  material: THREE.Material,
+  depthMaterial: THREE.Material,
+  opts?: { cellSize?: number },
+): THREE.InstancedMesh[] {
+  return buildVegetationPools(gltfRoot, parsed, material, depthMaterial, opts).pools.map((p) => p.mesh);
 }
 
 /**
  * Instanced Mediterranean trees & vineyard rows loaded from `vegetation.glb` + `vegetation-instances.bin`.
  * Initializes immediately after `IslandSystem` (after `renderGround()` completes so canopy crowns never
  * pollute `ground.heightAt()`), before Frame 1 so trees are 100% present with zero pop-in.
+ *
+ * Uses 64 m × 64 m spatial XZ cells for tight per-cell frustum culling and automatic LOD0 ↔ LOD1
+ * switching (always LOD1 on `Low` tier; hysteresis distance LOD on `Medium` / `High` tiers) so colour,
+ * `StaticDepthPass`, and shadow rendering stay 100% depth-consistent with zero extra draw calls.
  */
 export class VegetationSystem implements WorldSystem {
   readonly name = "vegetation";
   private root: THREE.Group | null = null;
-  private meshes: THREE.InstancedMesh[] = [];
+  private pools: VegetationCellPool[] = [];
+  private baseGeometries: THREE.BufferGeometry[] = [];
+  private tier: QualityTier = "high";
+  private unsubQuality: (() => void) | null = null;
 
   async init(ctx: EngineContext): Promise<void> {
     ctx.signal?.throwIfAborted();
@@ -309,32 +422,64 @@ export class VegetationSystem implements WorldSystem {
     const mats = getHarbourMaterials(ctx);
     const vegMat = mats.vegSolid();
     const vegDepth = mats.vegDepth();
-    const meshes = buildVegetationMeshes(gltf.scene, parsed, vegMat, vegDepth);
-    if (meshes.length === 0) return;
+    const built = buildVegetationPools(gltf.scene, parsed, vegMat, vegDepth);
+    if (built.pools.length === 0) return;
 
     const group = new THREE.Group();
     group.name = "harbour-vegetation";
-    for (const mesh of meshes) group.add(mesh);
+    for (const pool of built.pools) group.add(pool.mesh);
     ctx.scene.add(group);
     group.updateMatrixWorld(true);
-    for (const mesh of meshes) mats.staticDepth.add(mesh);
+    for (const pool of built.pools) mats.staticDepth.add(pool.mesh);
 
     this.root = group;
-    this.meshes = meshes;
+    this.pools = built.pools;
+    this.baseGeometries = built.baseGeometries;
+
+    const quality = ctx.services.get("quality");
+    this.tier = quality?.tier ?? "high";
+    this.unsubQuality = quality?.onChange((s) => {
+      this.tier = s.tier;
+      this.applyLod(ctx.camera);
+    }) ?? null;
+    this.applyLod(ctx.camera);
   }
 
-  update(): void {
+  private applyLod(camera?: THREE.Camera): void {
+    const dists = this.tier === "low" ? null : VEG_LOD_DIST[this.tier];
+    const camPos = dists && camera ? camera.position : null;
+    for (const pool of this.pools) {
+      if (!pool.lod1Geometry) continue;
+      let wantLod1 = !dists;
+      if (camPos && dists) {
+        const d = Math.max(0, pool.center.distanceTo(camPos) - pool.radius);
+        wantLod1 = pool.isLod1 ? d >= dists.exit : d > dists.enter;
+      }
+      if (wantLod1 !== pool.isLod1) {
+        pool.mesh.geometry = wantLod1 ? pool.lod1Geometry : pool.lod0Geometry;
+        pool.isLod1 = wantLod1;
+      }
+    }
+  }
+
+  update(_frame: FrameState, ctx: EngineContext): void {
     // Wind sway uniforms are updated once per frame by IslandSystem via updateSway(ctx).
+    this.applyLod(ctx.camera);
   }
 
   dispose(ctx: EngineContext): void {
+    this.unsubQuality?.();
+    this.unsubQuality = null;
     const mats = ctx.services.get("materials");
-    for (const mesh of this.meshes) {
-      mats?.staticDepth.remove(mesh);
-      mesh.geometry.dispose();
-      mesh.dispose();
+    for (const pool of this.pools) {
+      mats?.staticDepth.remove(pool.mesh);
+      pool.lod0Geometry.dispose();
+      pool.lod1Geometry?.dispose();
+      pool.mesh.dispose();
     }
-    this.meshes = [];
+    for (const g of this.baseGeometries) g.dispose();
+    this.pools = [];
+    this.baseGeometries = [];
     if (this.root) {
       ctx.scene.remove(this.root);
       this.root = null;

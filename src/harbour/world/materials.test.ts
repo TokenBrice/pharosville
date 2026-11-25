@@ -244,7 +244,10 @@ describe("Phase 2A dedicated hb_terrain material", () => {
     expect("HB_LITE" in (full.defines ?? {})).toBe(false);
     expect(full.fragmentShader).toContain("uniform sampler2DArray uTerrainDetail;");
     expect(full.fragmentShader).toContain("hbSampleBiplanarRock");
+    expect(full.fragmentShader).toContain("hbSampleTopRock");
     expect(full.fragmentShader).toContain("hbHeightBlend5");
+    expect(full.fragmentShader).toContain("float hbLush =");
+    expect(full.fragmentShader).toContain("float treeWell = 1.0 - 0.35 * splat.g;");
     expect(full.fragmentShader).not.toContain("discard;");
     expect(full.uniforms.uTerrainSplat).toBe(mats.terrainMaps.uTerrainSplat);
     expect(full.uniforms.uTerrainTopo).toBe(mats.terrainMaps.uTerrainTopo);
@@ -331,11 +334,17 @@ describe("Phase 1B instanced vegetation material (vegSolid / vegDepth)", () => {
     expect([solid.version, depth.version, predepth.version]).toEqual(v0.map((v) => v + 1));
     expect([solid.customProgramCacheKey(), depth.customProgramCacheKey(), predepth.customProgramCacheKey()]).not.toEqual(k0);
 
-    // Retuned autumn deciduous bands keep ~18% holdout (t >= 0.82) and distinct Mediterranean warm ochre/sienna/terracotta/olive-ochre hues
+    // Opus P1 autumn deciduous rebalance: 40% sunlit ochre-gold, 25% warm amber, 15% muted terracotta-rust, 20% holdout olive-green
+    // plus close-up ~0.40 m botanical needle/leaf-cluster cellular breakup in patterns.ts
+    expect(solid.side).toBe(THREE.FrontSide);
+    expect(depth.side).toBe(THREE.FrontSide);
+    expect(predepth.side).toBe(THREE.FrontSide);
     const assembled = assembleShader(solid);
-    expect(assembled.fragmentShader).toContain("t < 0.82 ?");
-    expect(assembled.fragmentShader).toContain("vec3(0.46, 0.21, 0.085)");
-    expect(assembled.fragmentShader).toContain("vec3(0.38, 0.125, 0.075)");
+    expect(assembled.fragmentShader).toContain("t < 0.40 ?");
+    expect(assembled.fragmentShader).toContain("t < 0.65 ?");
+    expect(assembled.fragmentShader).toContain("t < 0.80 ?");
+    expect(assembled.fragmentShader).toContain("vec3(0.54, 0.34, 0.095)");
+    expect(assembled.fragmentShader).toContain("hbLeafCell(");
 
     mesh.geometry.dispose();
     mats.dispose();

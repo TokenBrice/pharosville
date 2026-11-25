@@ -168,28 +168,17 @@ function fillWorleyPeriodic(
       let f2 = 9;
       let id = 0;
 
-      // Unrolled 3×3 periodic neighborhood
+      // 3×3 periodic neighborhood
       for (let ry = 0; ry < 3; ry++) {
         const rowOff = ry === 0 ? cyM : ry === 1 ? cy0 : cyP;
         const by = ry === 0 ? baseY0 : ry === 1 ? baseY1 : baseY2;
-
-        let o = (rowOff + cxM) * 3;
-        let dx = baseX0 + centers[o];
-        let dy = by + centers[o + 1];
-        let d = dx * dx + dy * dy;
-        if (d < f1) { f2 = f1; f1 = d; id = centers[o + 2]; } else if (d < f2) { f2 = d; }
-
-        o = (rowOff + cx0) * 3;
-        dx = baseX1 + centers[o];
-        dy = by + centers[o + 1];
-        d = dx * dx + dy * dy;
-        if (d < f1) { f2 = f1; f1 = d; id = centers[o + 2]; } else if (d < f2) { f2 = d; }
-
-        o = (rowOff + cxP) * 3;
-        dx = baseX2 + centers[o];
-        dy = by + centers[o + 1];
-        d = dx * dx + dy * dy;
-        if (d < f1) { f2 = f1; f1 = d; id = centers[o + 2]; } else if (d < f2) { f2 = d; }
+        for (let rx = 0; rx < 3; rx++) {
+          const o = (rowOff + (rx === 0 ? cxM : rx === 1 ? cx0 : cxP)) * 3;
+          const dx = (rx === 0 ? baseX0 : rx === 1 ? baseX1 : baseX2) + centers[o]!;
+          const dy = by + centers[o + 1]!;
+          const d = dx * dx + dy * dy;
+          if (d < f1) { f2 = f1; f1 = d; id = centers[o + 2]!; } else if (d < f2) { f2 = d; }
+        }
       }
 
       const idx = dstRow + x;
@@ -252,36 +241,69 @@ export function generateTerrainDetailData(size = TERRAIN_DETAIL_SIZE): Uint8Arra
   const w2Id = new Float32Array(pixels);
   const invSize = 1 / size;
 
+  const rockCells = makeCellCenters(4, 19);
   const pebbleCells = makeCellCenters(16, 101);
   const gritCells = makeCellCenters(32, 211);
   const tuftCells = makeCellCenters(16, 307);
   const shingleCells = makeCellCenters(32, 409);
 
-  // Layer 0: Stratified pale Alexandrian limestone (stepped bedding shelves + sharp vertical karst fissures)
-  fillPeriodicFbm(nA, size, 4, 3, 11);
-  fillPeriodicFbm(nB, size, 16, 3, 37, 4);
-  fillPeriodicFbm(nC, size, 32, 1, 73);
+  // Layer 0: Natural stratified karst limestone (3 asymmetric wavy strata + sparse per-bed staggered rock joints + chalky pitting)
+  fillPeriodicFbm(nA, size, 4, 3, 11, 2);
+  fillPeriodicFbm(nB, size, 4, 1, 37, 4);
+  fillPeriodicFbm(nC, size, 32, 2, 73);
   fillPeriodicFbm(nD, size, 16, 2, 59);
+  fillWorleyPeriodic(wF1, wId, wF2, size, 4, rockCells);
+  const sizeMask = size - 1;
+  const bedShifts = [0, (size * 3) >> 3, (size * 5) >> 3];
   for (let y = 0; y < size; y++) {
-    const v6 = y * invSize * 6;
+    const v = y * invSize;
     const row = y * size;
     for (let x = 0; x < size; x++) {
       const idx = row + x;
-      const warp = (nA[idx] - 0.5) * 0.42;
-      const rawWave = 0.5 + 0.5 * sinTurns(v6 + warp);
-      const shelf = 0.65 + 0.30 * smoothstep(0.18, 0.72, rawWave);
-      const bedSeam = 1 - smoothstep(0.0, 0.14, rawWave);
+      const u = x * invSize;
+      const warpV = (nA[idx] - 0.5) * 0.24 + 0.042 * sinTurns(u + 0.18) + 0.024 * sinTurns(u * 2.0 - 0.31);
+      const vwRaw = v + warpV;
+      const vw = vwRaw - Math.floor(vwRaw);
 
-      const fissure = 1 - smoothstep(0.012, 0.068, Math.abs(nB[idx] - 0.5));
-      const microCrack = (1 - smoothstep(0.008, 0.042, Math.abs(nC[idx] - 0.5))) * 0.45;
-      const crack = Math.min(1, fissure + microCrack * 0.65 + bedSeam * 0.55);
+      // 3 asymmetric bedding strata per tile: [0, 0.41), [0.41, 0.68), [0.68, 1.0)
+      let bedIdx = 0;
+      let bStart = 0.0;
+      let bWidth = 0.41;
+      if (vw >= 0.68) {
+        bedIdx = 2;
+        bStart = 0.68;
+        bWidth = 0.32;
+      } else if (vw >= 0.41) {
+        bedIdx = 1;
+        bStart = 0.41;
+        bWidth = 0.27;
+      }
+      const bedT = (vw - bStart) / bWidth;
+      const distSeam = Math.min(bedT, 1.0 - bedT) * bWidth;
+      const bedSeam = 1.0 - smoothstep(0.0, 0.024 + 0.018 * nD[idx], distSeam);
+      const bedInterior = smoothstep(0.014, 0.058, distSeam);
+      const bedCrown = smoothstep(0.03, 0.24, bedT) * (1.0 - 0.28 * smoothstep(0.76, 1.0, bedT));
+      const bedBias = (bedIdx === 0 ? 0.06 : bedIdx === 1 ? -0.05 : 0.02) * bedInterior;
 
-      const grain = (nD[idx] - 0.5) * 0.10;
-      h[idx] = clamp01(shelf * (1 - 0.82 * crack) + 0.06 * crack + grain);
-      c[idx] = clamp01((0.92 - 0.74 * crack) * (0.90 + 0.10 * smoothstep(0.25, 0.85, rawWave)));
+      // Sparse staggered coarse 4-cell Worley rock joints kept only where per-bed field > 0.60, terminating cleanly inside one stratum
+      const jx = (x + bedShifts[bedIdx]!) & sizeMask;
+      const jIdx = row + jx;
+      const bedKeep = smoothstep(0.56, 0.65, nB[jIdx]);
+      const jointEdge = 1.0 - smoothstep(0.010, 0.052, wF2[jIdx] - wF1[jIdx]);
+      const joint = jointEdge * bedKeep * bedInterior;
+
+      // Subtle low-amplitude sedimentary micro-laminae & chalky karst surface pitting (no harsh dark lines)
+      const laminae = (sinTurns((v + warpV * 1.05) * 16.0 + (nD[idx] - 0.5) * 0.45) * 0.5 + 0.5 - 0.5) * 0.06;
+      const pit = smoothstep(0.68, 0.90, nC[idx]) * 0.11;
+      const grain = (nD[idx] - 0.5) * 0.14;
+      const crack = Math.min(1.0, bedSeam * 0.72 + joint * 0.62);
+
+      const shelf = 0.64 + 0.22 * bedCrown + bedBias + laminae + grain - pit;
+      h[idx] = clamp01(shelf * (1.0 - 0.64 * crack) + 0.07 * crack);
+      c[idx] = clamp01((0.95 - 0.58 * crack - 0.16 * pit) * (0.88 + 0.12 * bedCrown) + (nD[idx] - 0.5) * 0.06);
     }
   }
-  packLayer(data, 0, size, h, c, 2.4);
+  packLayer(data, 0, size, h, c, 2.0);
 
   // Layer 1: Warm ochre stony earth & embedded rounded limestone pebbles
   fillPeriodicFbm(nA, size, 8, 3, 127);
@@ -354,41 +376,28 @@ export function generateTerrainDetailData(size = TERRAIN_DETAIL_SIZE): Uint8Arra
   return data;
 }
 
-/** Create the GPU-ready `256×256×4` `THREE.DataArrayTexture` micro-detail atlas. */
-export function createTerrainDetailAtlas(size = TERRAIN_DETAIL_SIZE): THREE.DataArrayTexture {
-  const data = generateTerrainDetailData(size);
+function makeArrayTex(data: Uint8Array, size: number, mip: boolean): THREE.DataArrayTexture {
   const tex = new THREE.DataArrayTexture(data, size, size, TERRAIN_DETAIL_LAYERS);
   tex.format = THREE.RGBAFormat;
   tex.type = THREE.UnsignedByteType;
   tex.colorSpace = THREE.NoColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.minFilter = mip ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
-  tex.generateMipmaps = true;
-  tex.anisotropy = 8;
+  tex.generateMipmaps = mip;
+  if (mip) tex.anisotropy = 8;
   tex.needsUpdate = true;
   return tex;
 }
 
+/** Create the GPU-ready `256×256×4` `THREE.DataArrayTexture` micro-detail atlas. */
+export function createTerrainDetailAtlas(size = TERRAIN_DETAIL_SIZE): THREE.DataArrayTexture {
+  return makeArrayTex(generateTerrainDetailData(size), size, true);
+}
+
 /** Tiny 1×1×4 neutral fallback `DataArrayTexture` so shaders compile before the full atlas binds. */
 export function createTerrainDetailFallback(): THREE.DataArrayTexture {
-  const data = new Uint8Array(TERRAIN_DETAIL_LAYERS * 4);
-  for (let i = 0; i < TERRAIN_DETAIL_LAYERS; i++) {
-    data[i * 4] = 128;
-    data[i * 4 + 1] = 128;
-    data[i * 4 + 2] = 128;
-    data[i * 4 + 3] = 255;
-  }
-  const tex = new THREE.DataArrayTexture(data, 1, 1, TERRAIN_DETAIL_LAYERS);
-  tex.format = THREE.RGBAFormat;
-  tex.type = THREE.UnsignedByteType;
-  tex.colorSpace = THREE.NoColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.generateMipmaps = false;
-  tex.needsUpdate = true;
-  return tex;
+  const data = new Uint8Array(TERRAIN_DETAIL_LAYERS * 4).fill(128);
+  for (let i = 0; i < TERRAIN_DETAIL_LAYERS; i++) data[i * 4 + 3] = 255;
+  return makeArrayTex(data, 1, false);
 }

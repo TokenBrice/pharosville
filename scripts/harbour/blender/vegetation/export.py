@@ -144,7 +144,7 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     reset_scene()
     mat = vp.ensure_export_material()
-    objs = vp.build_all(mat=mat)
+    objs = vp.build_all(mat=mat, include_lod=True)
     bpy.context.view_layer.update()
 
     bl_stats = {o.name: vp.compute_stats(o) for o in objs}
@@ -159,60 +159,78 @@ def main():
     raw_bytes = os.path.getsize(raw_glb)
     wire = compressed_sizes(preview_glb)
 
-    print('\n' + '=' * 126)
-    print('PHAROSVILLE HERO BOTANICAL PROTOTYPE KIT — VERIFICATION TABLE (OPUS POLISH)')
-    print('=' * 126)
+    print('\n' + '=' * 138)
+    print('PHAROSVILLE HERO BOTANICAL PROTOTYPE KIT — VERIFICATION TABLE (18 LOD0 + 18 LOD1)')
+    print('=' * 138)
     hdr = (
-        f"{'Prototype':<18} {'BlV':>5} {'GlbV':>5} {'Tris':>5} {'v/t':>5} {'H(m)':>5} {'R(m)':>5} "
-        f"{'Sway':>8} {'PIDs (0/8/14)':>16} {'DecB/G':>7} {'WoodL':>6} {'Smooth':>6}"
+        f"{'Prototype':<22} {'BlV':>5} {'GlbV':>5} {'Tris':>5} {'LOD1T':>5} {'Ratio':>6} {'v/t':>5} "
+        f"{'H(m)':>5} {'R(m)':>5} {'D/W':>5} {'BndE':>4} {'Sway':>8} {'PIDs (0/8/14)':>15} {'Smooth':>6}"
     )
     print(hdr)
-    print('-' * 126)
+    print('-' * 138)
 
     tot_bl_v = tot_glb_v = tot_tris = 0
+    tot_lod_bl_v = tot_lod_glb_v = tot_lod_tris = 0
     rows = []
-    for name in vp.PROTOTYPE_NAMES:
-        s = bl_stats[name]
-        g = glb_info['meshes'].get(name, {})
-        rg = raw_info['meshes'].get(name, {})
+
+    def assert_mesh_contract(mesh_name, base_name):
+        s = bl_stats[mesh_name]
+        g = glb_info['meshes'].get(mesh_name, {})
+        rg = raw_info['meshes'].get(mesh_name, {})
         glb_v = g.get('glb_verts', -1)
         glb_t = g.get('glb_tris', -1)
         vt = glb_v / max(glb_t, 1) if glb_v > 0 else s['v_per_t']
+
+        assert g.get('has_normal'), f'{mesh_name}: missing NORMAL in GLB'
+        assert g.get('color_type') == 5121 and g.get('color_norm'), f'{mesh_name}: COLOR_0 not RGBA8 normalized ({g})'
+        assert '_SWAY' in g.get('attrs', []), f'{mesh_name}: missing _SWAY in GLB'
+        assert not g.get('sway_norm'), f'{mesh_name}: _SWAY must NOT be normalized (sway.ts divides raw [0..100] by 100)'
+        assert rg.get('sway_range') == (s['sway_min'], s['sway_max']), (
+            f"{mesh_name}: raw GLB _SWAY range {rg.get('sway_range')} != Blender {(s['sway_min'], s['sway_max'])}"
+        )
+        assert g.get('mat') == 'hb_opaque', f'{mesh_name}: wrong material {g.get("mat")}'
+        assert s['all_smooth'], f'{mesh_name}: flat-shaded polygon detected!'
+        assert s['pid_clean'], f'{mesh_name}: unexpected PID cross-contamination ({s["pids"]})'
+        assert s['boundary_edges'] == 0, f'{mesh_name}: non-watertight mesh ({s["boundary_edges"]} boundary edges)!'
+        assert s['signed_vol'] > 0.0, f'{mesh_name}: inverted normals (signed_vol={s["signed_vol"]})!'
+        assert vt <= 0.78, f'{mesh_name}: v/t={vt:.3f} exceeds 0.78 budget!'
+        if base_name not in vp.VINEYARD_PROTOTYPES:
+            assert glb_v == s['verts'], f'{mesh_name}: tree vertex split detected (bl={s["verts"]}, glb={glb_v})!'
+        else:
+            assert s['sway_max'] <= 32.0, f'{mesh_name}: vineyard _SWAY max {s["sway_max"]} exceeds 32!'
+            assert s['vine_skirt_sway_max'] == 0.0, f'{mesh_name}: vineyard lower skirt (z<=0.55) sway={s["vine_skirt_sway_max"]} != 0!'
+            expected_len = 2.4 if base_name == 'vine_row_short' else 4.8
+            assert abs(s['x_span'] - expected_len) < 0.01, f'{mesh_name}: x_span={s["x_span"]} != {expected_len}'
+        return s, g, glb_v, glb_t, vt
+
+    for name in vp.PROTOTYPE_NAMES:
+        s, g, glb_v, glb_t, vt = assert_mesh_contract(name, name)
+        lod_name = f'{name}_lod'
+        sl, gl, lod_glb_v, lod_glb_t, lod_vt = assert_mesh_contract(lod_name, name)
+        ratio = sl['tris'] / max(s['tris'], 1)
+        assert 0.30 <= ratio <= 0.65, f'{lod_name}: tri ratio {ratio:.2f} outside [0.30, 0.65] (lod0={s["tris"]}, lod1={sl["tris"]})'
+        if name in ('pine_broad', 'pine_tiered'):
+            assert s['crown_depth_ratio'] is not None and s['crown_depth_ratio'] <= 0.30, (
+                f"{name}: crown depth/width ratio {s['crown_depth_ratio']} exceeds 0.30!"
+            )
+
         tot_bl_v += s['verts']
         tot_glb_v += max(glb_v, 0)
         tot_tris += s['tris']
+        tot_lod_bl_v += sl['verts']
+        tot_lod_glb_v += max(lod_glb_v, 0)
+        tot_lod_tris += sl['tris']
+
         p0 = s['pids'].get(0, 0)
         p8 = s['pids'].get(8, 0)
         p14 = s['pids'].get(14, 0)
         pid_str = f"{p0}/{p8}/{p14}"
         sw_str = f"{s['sway_min']:.0f}..{s['sway_max']:.0f}"
-        bg_str = f"{s['dec_bg_mean']:.3f}" if s['dec_bg_mean'] is not None else '  -  '
-        wl_str = f"{s['wood_luma_min']:.3f}" if s['wood_luma_min'] is not None else '  - '
+        dw_str = f"{s['crown_depth_ratio']:.2f}" if s['crown_depth_ratio'] is not None else '  -  '
         print(
-            f"{name:<18} {s['verts']:>5d} {glb_v:>5d} {s['tris']:>5d} {vt:>5.2f} "
-            f"{s['height']:>5.2f} {s['radius']:>5.2f} {sw_str:>8} {pid_str:>16} "
-            f"{bg_str:>7} {wl_str:>6} {'YES' if s['all_smooth'] else 'NO':>6}"
+            f"{name:<22} {s['verts']:>5d} {glb_v:>5d} {s['tris']:>5d} {sl['tris']:>5d} {ratio:>5.1%} {vt:>5.2f} "
+            f"{s['height']:>5.2f} {s['radius']:>5.2f} {dw_str:>5} {s['boundary_edges']:>4d} {sw_str:>8} {pid_str:>15} {'YES' if s['all_smooth'] else 'NO':>6}"
         )
-
-        # Contract & audit assertions
-        assert g.get('has_normal'), f'{name}: missing NORMAL in GLB'
-        assert g.get('color_type') == 5121 and g.get('color_norm'), f'{name}: COLOR_0 not RGBA8 normalized ({g})'
-        assert '_SWAY' in g.get('attrs', []), f'{name}: missing _SWAY in GLB'
-        assert not g.get('sway_norm'), f'{name}: _SWAY must NOT be normalized (sway.ts divides raw [0..100] by 100)'
-        assert rg.get('sway_range') == (s['sway_min'], s['sway_max']), (
-            f"{name}: raw GLB _SWAY range {rg.get('sway_range')} != Blender {(s['sway_min'], s['sway_max'])}"
-        )
-        assert g.get('mat') == 'hb_opaque', f'{name}: wrong material {g.get("mat")}'
-        assert s['all_smooth'], f'{name}: flat-shaded polygon detected!'
-        assert s['pid_clean'], f'{name}: unexpected PID cross-contamination ({s["pids"]})'
-        assert vt <= 0.75, f'{name}: v/t={vt:.3f} exceeds 0.75 budget!'
-        if name not in vp.VINEYARD_PROTOTYPES:
-            assert glb_v == s['verts'], f'{name}: tree vertex split detected (bl={s["verts"]}, glb={glb_v})!'
-        else:
-            assert s['sway_max'] <= 32.0, f'{name}: vineyard _SWAY max {s["sway_max"]} exceeds 32!'
-            assert s['vine_skirt_sway_max'] == 0.0, f'{name}: vineyard lower skirt (z<=0.55) sway={s["vine_skirt_sway_max"]} != 0!'
-            expected_len = 2.4 if name == 'vine_row_short' else 4.8
-            assert abs(s['x_span'] - expected_len) < 0.01, f'{name}: x_span={s["x_span"]} != {expected_len}'
 
         rows.append({
             **s,
@@ -220,14 +238,27 @@ def main():
             'glb_tris': glb_t,
             'glb_v_per_t': round(vt, 3),
             'sway_component_type': g.get('sway_type'),
+            'lod1': {
+                **sl,
+                'glb_verts': lod_glb_v,
+                'glb_tris': lod_glb_t,
+                'glb_v_per_t': round(lod_vt, 3),
+                'tri_ratio': round(ratio, 3),
+            },
         })
 
-    print('-' * 126)
+    print('-' * 138)
     print(
-        f"{'TOTAL (18)':<18} {tot_bl_v:>5d} {tot_glb_v:>5d} {tot_tris:>5d} "
-        f"{(tot_glb_v / max(tot_tris, 1)):>5.2f} {'':>5} {'':>5} {'':>8} {'':>16} {'':>7} {'':>6} {'ALL':>6}"
+        f"{'TOTAL LOD0 (18)':<22} {tot_bl_v:>5d} {tot_glb_v:>5d} {tot_tris:>5d} {tot_lod_tris:>5d} "
+        f"{(tot_lod_tris / max(tot_tris, 1)):>5.1%} {(tot_glb_v / max(tot_tris, 1)):>5.2f} "
+        f"{'':>5} {'':>5} {'':>5} {'0':>4} {'':>8} {'':>15} {'ALL':>6}"
     )
-    print('=' * 126)
+    print(
+        f"{'TOTAL LOD1 (18)':<22} {tot_lod_bl_v:>5d} {tot_lod_glb_v:>5d} {tot_lod_tris:>5d} {'':>5} "
+        f"{'':>6} {(tot_lod_glb_v / max(tot_lod_tris, 1)):>5.2f}"
+    )
+    print(f"{'TOTAL ALL (36 meshes)':<22} {tot_bl_v + tot_lod_bl_v:>5d} {tot_glb_v + tot_lod_glb_v:>5d} {tot_tris + tot_lod_tris:>5d}")
+    print('=' * 138)
     sw_types = sorted({g.get('sway_type') for g in glb_info['meshes'].values()})
     print(f"GLB Materials : {glb_info['materials']}")
     print(f"GLB Extensions: {glb_info['extensions_used']}")
@@ -238,14 +269,35 @@ def main():
         f"gzip-9={wire['gzip9']:,} B ({wire['gzip9'] / 1024:.1f} KB) | "
         f"brotli-11={wire['brotli11']:,} B ({wire['brotli11'] / 1024:.1f} KB)"
     )
-    budget_ok = wire['brotli11'] <= 130 * 1024
-    print(f"Brotli-11 Budget (<= 130.0 KB): {'PASS' if budget_ok else 'OVER BUDGET'} ({wire['brotli11'] / 1024:.1f} KB)")
-    print('=' * 126 + '\n')
-    assert budget_ok, f"Brotli-11 size {wire['brotli11'] / 1024:.1f} KB exceeds 130.0 KB budget!"
+    budget_ok = wire['brotli11'] <= 185 * 1024
+    print(f"Brotli-11 Budget (<= 185.0 KB): {'PASS' if budget_ok else 'OVER BUDGET'} ({wire['brotli11'] / 1024:.1f} KB)")
+    print('=' * 138 + '\n')
+    assert budget_ok, f"Brotli-11 size {wire['brotli11'] / 1024:.1f} KB exceeds 185.0 KB budget!"
+
+    # Publish to public/harbour/flora/vegetation.glb (+ deterministic gzip -9 -n sibling)
+    pub_dir = os.path.join(ROOT, 'public', 'harbour', 'flora')
+    os.makedirs(pub_dir, exist_ok=True)
+    pub_glb = os.path.join(pub_dir, 'vegetation.glb')
+    pub_gz = os.path.join(pub_dir, 'vegetation.glb.gz')
+    shutil.copyfile(preview_glb, pub_glb)
+    with open(pub_glb, 'rb') as fin, open(pub_gz, 'wb') as fout:
+        r_gz = subprocess.run(['gzip', '-9', '-n', '-c', pub_glb], capture_output=True, check=True)
+        fout.write(r_gz.stdout)
+    print(f"Published: {pub_glb} ({os.path.getsize(pub_glb):,} B) & {pub_gz} ({os.path.getsize(pub_gz):,} B)")
 
     stats_out = dict(
         prototypes=rows,
-        totals=dict(bl_verts=tot_bl_v, glb_verts=tot_glb_v, tris=tot_tris, v_per_t=round(tot_glb_v / max(tot_tris, 1), 3)),
+        totals=dict(
+            lod0_bl_verts=tot_bl_v,
+            lod0_glb_verts=tot_glb_v,
+            lod0_tris=tot_tris,
+            lod1_bl_verts=tot_lod_bl_v,
+            lod1_glb_verts=tot_lod_glb_v,
+            lod1_tris=tot_lod_tris,
+            total_tris=tot_tris + tot_lod_tris,
+            lod1_ratio=round(tot_lod_tris / max(tot_tris, 1), 3),
+            v_per_t=round((tot_glb_v + tot_lod_glb_v) / max(tot_tris + tot_lod_tris, 1), 3),
+        ),
         glb_extensions=glb_info['extensions_used'],
         glb_materials=glb_info['materials'],
         sway_component_types=sw_types,

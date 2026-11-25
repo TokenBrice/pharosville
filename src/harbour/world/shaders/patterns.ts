@@ -34,6 +34,24 @@ float hbFbm(vec3 p) { return (hbNoise(p) * 0.5714 + hbNoise(p * 2.03 + 17.1) * 0
  * All fine relief and seams fade cleanly via `fwidth` (`hbFine`, `hbBumpFade`, `hbLine`, `hbGroove`), followed by
  * world-space value drift (`fworld`) and non-organic facet jitter (disabled on fleet & instanced vegetation).
  */
+export const GLSL_VORONOI = /* glsl */ `vec2 hbVoronoi(vec2 x) {
+  vec2 n = floor(x), f = fract(x), mg = vec2(0.0), mr = vec2(0.0); float md = 8.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 g = vec2(float(i), float(j));
+    vec2 o = vec2(hbWhite(vec3(n + g, 7.0)), hbWhite(vec3(n + g, 13.0)));
+    vec2 r = g + o - f; float d = dot(r, r);
+    if (d < md) { md = d; mr = r; mg = g; }
+  }
+  float ed = 8.0;
+  for (int j = -2; j <= 2; j++) for (int i = -2; i <= 2; i++) {
+    vec2 g = mg + vec2(float(i), float(j));
+    vec2 o = vec2(hbWhite(vec3(n + g, 7.0)), hbWhite(vec3(n + g, 13.0)));
+    vec2 r = g + o - f;
+    if (dot(mr - r, mr - r) > 0.00001) ed = min(ed, dot(0.5 * (mr + r), normalize(r - mr)));
+  }
+  return vec2(sqrt(md), ed);
+}`;
+
 export const GLSL_PATTERNS = /* glsl */ `
 uniform float uTime;
 varying vec3 vHbLocal;
@@ -56,24 +74,18 @@ float hbGroove(float coord, float period, float width, float dc) {
   float g = smoothstep(0.0, max(width * 2.2, 0.04), d);
   return mix(g, 1.0, smoothstep(0.14, 0.42, dc / period));
 }
-vec2 hbVoronoi(vec2 x) {
-  vec2 n = floor(x), f = fract(x);
-  vec2 mg, mr; float md = 8.0;
-  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
-    vec2 g = vec2(float(i), float(j));
-    vec2 o = vec2(hbWhite(vec3(n + g, 7.0)), hbWhite(vec3(n + g, 13.0)));
-    vec2 r = g + o - f; float d = dot(r, r);
-    if (d < md) { md = d; mr = r; mg = g; }
+${GLSL_VORONOI}
+#ifndef HB_LITE
+float hbLeafCell(vec3 p) {
+  vec3 b = floor(p - 0.5); float md = 4.0;
+  for (int k = 0; k < 2; k++) for (int j = 0; j < 2; j++) for (int i = 0; i < 2; i++) {
+    vec3 c = b + vec3(float(i), float(j), float(k));
+    vec3 r = c + 0.5 + (fract(hbWhite(c + 23.0) * vec3(1.0, 17.31, 53.71)) - 0.5) * 0.22 - p;
+    md = min(md, dot(r, r));
   }
-  float ed = 8.0;
-  for (int j = -2; j <= 2; j++) for (int i = -2; i <= 2; i++) {
-    vec2 g = mg + vec2(float(i), float(j));
-    vec2 o = vec2(hbWhite(vec3(n + g, 7.0)), hbWhite(vec3(n + g, 13.0)));
-    vec2 r = g + o - f;
-    if (dot(mr - r, mr - r) > 0.00001) ed = min(ed, dot(0.5 * (mr + r), normalize(r - mr)));
-  }
-  return vec2(sqrt(md), ed);
+  return sqrt(md);
 }
+#endif
 vec3 hbPattern(float pid, out float rough, out float bumpH) {
   vec3 P = vec3(vHbLocal.x, -vHbLocal.z, vHbLocal.y);
   vec3 N = normalize(vec3(vHbLocalN.x, -vHbLocalN.z, vHbLocalN.y));
@@ -271,6 +283,14 @@ vec3 hbPattern(float pid, out float rough, out float bumpH) {
             + (clump - 0.5) * 0.13 * hbBumpFade(dPleaf, 1.0)
             + (tuft - 0.5) * 0.06 * hbBumpFade(dPleaf, 0.45)
             + sprig * 0.018 * hbBumpFade(dPleaf, 0.18);
+      float cellFade = hbBumpFade(dPleaf, 0.40);
+      if (cellFade > 0.005) {
+        float dCell = hbLeafCell(Pl * 2.5 + vec3(clump - 0.5, tuft - 0.5, macroClump - 0.5) * 0.55);
+        float rosette = 1.0 - smoothstep(0.14, 0.66, dCell);
+        float cavity = smoothstep(0.42, 0.76, dCell);
+        f *= mix(1.0, 1.04 - 0.22 * cavity, cellFade);
+        bumpH += (rosette - 0.45) * 0.048 * cellFade;
+      }
     #endif
   } else if (pid < 9.5) {
     #ifdef HB_FLEET

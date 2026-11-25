@@ -565,9 +565,9 @@ export class HarbourMaterials {
     }, true);
   }
 
-  /** Instanced vegetation solid material: chains kit with HB_VEG_INSTANCED + per-instance aVegMeta. */
+  /** Instanced vegetation solid material: chains kit with HB_VEG_INSTANCED + per-instance aVegMeta (FrontSide on verified watertight prototypes). */
   vegSolid(opts: { side?: THREE.Side } = {}): THREE.MeshStandardMaterial {
-    const side = opts.side ?? THREE.DoubleSide;
+    const side = opts.side ?? THREE.FrontSide;
     return this.cached(`veg:${side}`, () => {
       const base = this.kit({ side });
       const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.78, metalness: 0, vertexColors: true, side });
@@ -585,8 +585,8 @@ export class HarbourMaterials {
   }
 
   /** Instanced vegetation depth twin: static shadow (prepass=false) or swaying predepth (prepass=true) with HB_VEG_INSTANCED. */
-  vegDepth(prepass = false, side: THREE.Side = THREE.DoubleSide): THREE.MeshDepthMaterial {
-    return this.cached(prepass ? `veg-predepth:${side}` : "veg-depth", () => {
+  vegDepth(prepass = false, side: THREE.Side = THREE.FrontSide): THREE.MeshDepthMaterial {
+    return this.cached(prepass ? `veg-predepth:${side}` : `veg-depth:${side}`, () => {
       const base = this.kitDepth(prepass, side);
       const m = mkDepth(prepass ? "hb_veg_predepth" : "hb_veg_depth", prepass, side);
       m.onBeforeCompile = (shader, renderer) => {

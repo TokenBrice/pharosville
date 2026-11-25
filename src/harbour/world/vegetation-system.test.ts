@@ -7,11 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AssetStore } from "../engine/assets";
 import { assembleShader } from "../engine/shader-recipes";
 import type { Services } from "../engine/services";
-import type { EngineContext } from "../engine/types";
+import type { EngineContext, FrameState } from "../engine/types";
 import { createWorldUniforms } from "../engine/uniforms";
 import { HarbourMaterials } from "./materials";
 import {
   buildVegetationMeshes,
+  buildVegetationPools,
   decodeLumaByte,
   decodeScaleByte,
   decodeSwayGainByte,
@@ -22,11 +23,13 @@ import {
   HBVG_VERSION,
   indexPrototypeMeshes,
   parseVegetationInstances,
+  VEG_CELL_SIZE,
   VEG_PROTOTYPE_NAMES,
   VEGETATION_INSTANCES_URL,
   VEGETATION_URL,
   VegetationSystem,
 } from "./vegetation-system";
+import type { QualityService, QualitySettings, QualityTier } from "../engine/quality";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -202,7 +205,7 @@ describe("prototype dequantization to true metres", () => {
     src.geometry.dispose();
   });
 
-  it("loads the shipped public/harbour/flora/vegetation.glb, matches all 18 prototype names, and dequantizes to metre scale", async () => {
+  it("loads the shipped public/harbour/flora/vegetation.glb, matches all 18 LOD0 + 18 *_lod LOD1 prototypes, and dequantizes to metre scale", async () => {
     await MeshoptDecoder.ready;
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     const raw = readFileSync(resolve(process.cwd(), "public/harbour/flora/vegetation.glb"));
@@ -210,10 +213,15 @@ describe("prototype dequantization to true metres", () => {
     const gltf = await loader.parseAsync(ab, "");
     const prototypes = indexPrototypeMeshes(gltf.scene);
 
+    let totalLod0Tris = 0;
+    let totalLod1Tris = 0;
     for (const name of VEG_PROTOTYPE_NAMES) {
       const mesh = prototypes.get(name);
+      const lodMesh = prototypes.get(`${name}_lod`);
       expect(mesh, `missing prototype ${name}`).toBeDefined();
+      expect(lodMesh, `missing LOD1 prototype ${name}_lod`).toBeDefined();
       const baked = dequantizePrototypeGeometry(mesh!);
+      const bakedLod = dequantizePrototypeGeometry(lodMesh!);
       const pos = baked.attributes.position as THREE.BufferAttribute;
       expect(pos.array).toBeInstanceOf(Float32Array);
       expect(pos.normalized).toBe(false);
@@ -223,8 +231,22 @@ describe("prototype dequantization to true metres", () => {
       expect(height).toBeLessThan(14.0);
       expect(baked.attributes._sway).toBeDefined();
       expect(baked.attributes.color).toBeDefined();
+      expect(bakedLod.attributes._sway).toBeDefined();
+      expect(bakedLod.attributes.color).toBeDefined();
+
+      const t0 = baked.index!.count / 3;
+      const t1 = bakedLod.index!.count / 3;
+      totalLod0Tris += t0;
+      totalLod1Tris += t1;
+      expect(t1 / t0, `${name}_lod triangle reduction ratio`).toBeGreaterThanOrEqual(0.30);
+      expect(t1 / t0, `${name}_lod triangle reduction ratio`).toBeLessThanOrEqual(0.60);
+
       baked.dispose();
+      bakedLod.dispose();
     }
+    expect(totalLod1Tris).toBeGreaterThanOrEqual(6000);
+    expect(totalLod1Tris).toBeLessThanOrEqual(7800);
+    expect(totalLod1Tris / totalLod0Tris).toBeLessThan(0.50);
     gltf.scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh) m.geometry.dispose();
@@ -343,6 +365,115 @@ describe("VegetationSystem runtime, StaticDepthRegistry opt-in & graceful fallba
     const meshes = buildVegetationMeshes(new THREE.Group(), empty, mats.vegSolid(), mats.vegDepth());
     expect(meshes).toEqual([]);
     mats.dispose();
+  });
+
+  it("partitions distant instances into 64 m spatial cells with tight frustum-culled bounds and swaps LOD1 on Low tier & distance", async () => {
+    const bin = encodeHbvg([
+      { x: 10, y: 2, z: 10, yawU16: 0, scaleXZ: 128, scaleY: 128, protoId: 0, seed: 40, luma: 128, swayGain: 128 },
+      { x: 22, y: 2, z: 18, yawU16: 16384, scaleXZ: 128, scaleY: 128, protoId: 0, seed: 80, luma: 128, swayGain: 128 },
+      { x: 220, y: 5, z: -210, yawU16: 32768, scaleXZ: 128, scaleY: 128, protoId: 0, seed: 120, luma: 128, swayGain: 128 },
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === VEGETATION_INSTANCES_URL) return new Response(bin, { status: 200, headers: { "content-type": "application/octet-stream" } });
+      return new Response(null, { status: 404 });
+    }));
+
+    const gltfScene = new THREE.Group();
+    const lod0 = makeQuantizedPrototype("pine_broad", [0, 4.5, 0], 4.5);
+    const lod1 = makeQuantizedPrototype("pine_broad_lod", [0, 4.5, 0], 4.5);
+    // Give LOD1 distinct vertex count to assert exact LOD0 <-> LOD1 swaps
+    lod1.geometry.setIndex([0, 1, 2]);
+    lod0.geometry.setIndex([0, 1, 2, 0, 1, 2]);
+    gltfScene.add(lod0, lod1);
+
+    const parsed = parseVegetationInstances(bin);
+    const uniforms = createWorldUniforms();
+    const mats = new HarbourMaterials(uniforms);
+    const built = buildVegetationPools(gltfScene, parsed, mats.vegSolid(), mats.vegDepth());
+    expect(VEG_CELL_SIZE).toBe(64);
+    expect(built.pools).toHaveLength(2);
+    for (const pool of built.pools) {
+      expect(pool.mesh.frustumCulled).toBe(true);
+      expect(pool.mesh.boundingSphere!.radius).toBeLessThan(30);
+      expect(pool.lod1Geometry).not.toBeNull();
+      // LOD0 and LOD1 share the exact same aVegMeta attribute
+      expect(pool.lod1Geometry!.attributes.aVegMeta).toBe(pool.lod0Geometry.attributes.aVegMeta);
+      pool.lod0Geometry.dispose();
+      pool.lod1Geometry!.dispose();
+      pool.mesh.dispose();
+    }
+    for (const g of built.baseGeometries) g.dispose();
+
+    // Runtime VegetationSystem: near cell uses LOD0, far cell uses LOD1 on High; all switch to LOD1 on Low
+    const listeners = new Set<(s: QualitySettings, dpr: number) => void>();
+    let tier: QualityTier = "high";
+    const quality: QualityService = {
+      get tier() { return tier; },
+      get settings() { return { tier } as QualitySettings; },
+      dpr: 1,
+      auto: false,
+      gpuMs: null,
+      set(t) {
+        if (t !== "auto") tier = t;
+        for (const fn of listeners) fn({ tier } as QualitySettings, 1);
+      },
+      onChange(fn) {
+        listeners.add(fn);
+        return () => listeners.delete(fn);
+      },
+    };
+    const assets = new AssetStore();
+    vi.spyOn(assets, "gltf").mockResolvedValue({ scene: gltfScene, scenes: [gltfScene] } as unknown as GLTF);
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, 16 / 9, 1, 1000);
+    camera.position.set(15, 12, 35); // near cell (0,0) ~25 m away; far cell (3,-4) ~315 m away
+    const services = new Map<string, unknown>([["materials", mats], ["quality", quality]]) as unknown as Services;
+    const ctx = { scene, camera, assets, uniforms, services } as unknown as EngineContext;
+
+    const sys = new VegetationSystem();
+    await sys.init(ctx);
+    const group = scene.getObjectByName("harbour-vegetation") as THREE.Group;
+    expect(group.children).toHaveLength(2);
+    const nearMesh = group.getObjectByName("veg_pine_broad_0_0") as THREE.InstancedMesh;
+    const farMesh = group.getObjectByName("veg_pine_broad_3_-4") as THREE.InstancedMesh;
+    expect(nearMesh.count).toBe(2);
+    expect(farMesh.count).toBe(1);
+    expect(nearMesh.geometry.index!.count).toBe(6); // LOD0
+    expect(farMesh.geometry.index!.count).toBe(3);  // LOD1 (distance > 175 m)
+
+    // StaticDepthRegistry proxies match each cell's active LOD geometry and tight bounds
+    mats.staticDepth.sync(scene);
+    expect(mats.staticDepth.scene.children).toHaveLength(2);
+    const nearProxy = mats.staticDepth.scene.getObjectByName("veg_pine_broad_0_0-predepth") as THREE.InstancedMesh;
+    const farProxy = mats.staticDepth.scene.getObjectByName("veg_pine_broad_3_-4-predepth") as THREE.InstancedMesh;
+    expect(nearProxy.geometry).toBe(nearMesh.geometry);
+    expect(farProxy.geometry).toBe(farMesh.geometry);
+    expect(nearProxy.boundingSphere).toBe(nearMesh.boundingSphere);
+
+    // Switching to Low tier moves ALL cells (including near cell) onto LOD1
+    quality.set("low");
+    expect(nearMesh.geometry.index!.count).toBe(3);
+    expect(farMesh.geometry.index!.count).toBe(3);
+    mats.staticDepth.sync(scene);
+    expect(nearProxy.geometry).toBe(nearMesh.geometry);
+
+    // Returning to High restores LOD0 for near cell while keeping far cell on LOD1
+    quality.set("high");
+    expect(nearMesh.geometry.index!.count).toBe(6);
+    expect(farMesh.geometry.index!.count).toBe(3);
+
+    // Moving camera toward far cell during update() promotes it to LOD0 and demotes old near cell to LOD1
+    camera.position.set(220, 14, -190);
+    sys.update({} as FrameState, ctx);
+    expect(farMesh.geometry.index!.count).toBe(6);
+    expect(nearMesh.geometry.index!.count).toBe(3);
+
+    sys.dispose(ctx);
+    expect(listeners.size).toBe(0);
+    lod0.geometry.dispose();
+    lod1.geometry.dispose();
+    mats.dispose();
+    assets.dispose();
   });
 });
 

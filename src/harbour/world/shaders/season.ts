@@ -37,39 +37,13 @@ float hbEvergreen(float pid, vec3 vc) {
  * - Grass (pid 6): preserves baked Cycles AO / olive-terrace darkening (`vcAO = clamp(hbLuma(vc) / 0.215, 0.30, 1.35)`)
  *   under summer straw; balances blue across spring sage-olive, cool olive hollows, sage-olive/warm-russet autumn, and
  *   coastal lichen-moss winter.
- * - Autumn deciduous canopies (pid 8): four rich Mediterranean bands — ochre-gold (~26-27°), warm sienna (~20-22°),
- *   terracotta-russet (~15-16°), and deep olive-ochre (~60-63°) — separated by >= 15° hue and ~25% deeper value from
- *   dry straw (~43°, #A0916E) with ~40-46% post-LUT saturation and ~18% holdout olive-green trees.
+ * - Autumn deciduous canopies (pid 8): rebalanced 40% sunlit ochre-gold, 25% warm amber, 15% muted terracotta-rust,
+ *   and 20% holdout olive-green, lifted in luminance so autumn trees separate cleanly from terracotta roofs.
  * - Under `HB_VEG_INSTANCED`, `vVegMeta.x` drives one coherent spring-blossom and autumn-hue identity per tree (no
  *   mid-crown 6 m grid cuts), and `hbEvergreen` classifies strictly by `pid == 14`.
  * - Arable fields (pid 15, hbCrop): warm Mediterranean terra-rossa/ochre tilled soil with `hbFbm(W * 0.085)` breakup.
  */
-export const GLSL_SEASON = /* glsl */ `
-${GLSL_LEAF_FALL}
-uniform float uSnowCover;
-uniform float uWetness;
-uniform vec3 uHbSunDir;
-uniform vec3 uHbSunColor;
-float hbLuma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
-
-void hbGrassTerrain(vec3 W, out float dry, out float lush) {
-  #ifdef HB_LITE
-  dry = 0.0; lush = 0.0; return;
-  #endif
-  float steep = 0.0, south = 0.0, conv = 0.0;
-  if (uAOBounds.z > 0.0) {
-    float hE = hbHeight(W.xz + vec2(${SLOPE_TAP_M.toFixed(1)}, 0.0)), hW = hbHeight(W.xz - vec2(${SLOPE_TAP_M.toFixed(1)}, 0.0));
-    float hS = hbHeight(W.xz + vec2(0.0, ${SLOPE_TAP_M.toFixed(1)})), hN = hbHeight(W.xz - vec2(0.0, ${SLOPE_TAP_M.toFixed(1)}));
-    vec3 n = normalize(vec3(hW - hE, ${(2 * SLOPE_TAP_M).toFixed(1)}, hN - hS));
-    steep = 1.0 - n.y;
-    south = clamp(n.z / max(length(n.xz), 1e-3), 0.0, 1.0);
-    conv = W.y - 0.25 * (hE + hW + hS + hN);
-  }
-  dry = clamp(smoothstep(10.0, 20.0, W.y) * 0.55 + smoothstep(0.06, 0.3, steep) * south * 0.6 + smoothstep(0.3, 1.6, conv) * 0.5, 0.0, 1.0);
-  lush = clamp(smoothstep(0.3, 1.4, -conv) * (1.0 - smoothstep(12.0, 18.0, W.y)), 0.0, 1.0) * (1.0 - dry);
-}
-
-vec3 hbCrop(vec3 col, vec3 vc, vec3 W, float dW) {
+export const GLSL_CROP = /* glsl */ `vec3 hbCrop(vec3 col, vec3 vc, vec3 W, float dW) {
   float shade = clamp(hbLuma(col) / max(hbLuma(vc), 1e-4), 0.6, 1.4);
   float p = fract(uSeasonPhase + (hbNoise(W * 0.012) - 0.5) * 0.05);
   float ang = hbNoise(W * 0.006 + 5.0) * 3.1416;
@@ -122,7 +96,34 @@ vec3 hbCrop(vec3 col, vec3 vc, vec3 W, float dW) {
   o = HB_CROP_PLOUGH == 2 ? furrow : mix(o, furrow, smoothstep(0.7, 0.78, p));
   #endif
   return o * shade;
+}`;
+
+export const GLSL_SEASON = /* glsl */ `
+${GLSL_LEAF_FALL}
+uniform float uSnowCover;
+uniform float uWetness;
+uniform vec3 uHbSunDir;
+uniform vec3 uHbSunColor;
+float hbLuma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+void hbGrassTerrain(vec3 W, out float dry, out float lush) {
+  #ifdef HB_LITE
+  dry = 0.0; lush = 0.0; return;
+  #endif
+  float steep = 0.0, south = 0.0, conv = 0.0;
+  if (uAOBounds.z > 0.0) {
+    float hE = hbHeight(W.xz + vec2(${SLOPE_TAP_M.toFixed(1)}, 0.0)), hW = hbHeight(W.xz - vec2(${SLOPE_TAP_M.toFixed(1)}, 0.0));
+    float hS = hbHeight(W.xz + vec2(0.0, ${SLOPE_TAP_M.toFixed(1)})), hN = hbHeight(W.xz - vec2(0.0, ${SLOPE_TAP_M.toFixed(1)}));
+    vec3 n = normalize(vec3(hW - hE, ${(2 * SLOPE_TAP_M).toFixed(1)}, hN - hS));
+    steep = 1.0 - n.y;
+    south = clamp(n.z / max(length(n.xz), 1e-3), 0.0, 1.0);
+    conv = W.y - 0.25 * (hE + hW + hS + hN);
+  }
+  dry = clamp(smoothstep(10.0, 20.0, W.y) * 0.55 + smoothstep(0.06, 0.3, steep) * south * 0.6 + smoothstep(0.3, 1.6, conv) * 0.5, 0.0, 1.0);
+  lush = clamp(smoothstep(0.3, 1.4, -conv) * (1.0 - smoothstep(12.0, 18.0, W.y)), 0.0, 1.0) * (1.0 - dry);
 }
+
+${GLSL_CROP}
 
 ${DRY_SEASON_GLSL}
 vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
@@ -179,12 +180,12 @@ vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
   #else
     float t = fract(tree * 3.7 + patchN * 0.5);
   #endif
-  vec3 hue = t < 0.25 ? mix(vec3(0.46, 0.21, 0.085), vec3(0.52, 0.24, 0.092), t / 0.25)
-           : t < 0.50 ? mix(vec3(0.43, 0.165, 0.082), vec3(0.50, 0.205, 0.095), (t - 0.25) / 0.25)
-           : t < 0.70 ? mix(vec3(0.38, 0.125, 0.075), vec3(0.45, 0.155, 0.088), (t - 0.50) / 0.20)
-           : t < 0.82 ? mix(vec3(0.27, 0.28, 0.085), vec3(0.34, 0.34, 0.105), (t - 0.70) / 0.12)
-           : mix(col, vec3(hbLuma(col)), 0.35) / max(patShade, 0.2) * 1.6;
-  vec3 autumn = hue * patShade * 0.42;
+  vec3 holdout = mix(col, vec3(hbLuma(col)), 0.28) / max(patShade, 0.2) * 1.75;
+  vec3 hue = t < 0.40 ? mix(vec3(0.54, 0.34, 0.095), vec3(0.62, 0.40, 0.108), t / 0.40)
+           : t < 0.65 ? mix(vec3(0.52, 0.245, 0.088), vec3(0.58, 0.295, 0.098), (t - 0.40) / 0.25)
+           : t < 0.80 ? mix(vec3(0.44, 0.165, 0.082), vec3(0.50, 0.205, 0.094), (t - 0.65) / 0.15)
+           : mix(vec3(0.30, 0.33, 0.105), holdout, (t - 0.80) / 0.20);
+  vec3 autumn = hue * patShade * 0.46;
   vec3 twig = vec3(0.12, 0.1, 0.085) * (0.7 + 0.6 * patShade);
   float fall = hbLeafFall();
   vec3 decid = lime * sp + deep * su + autumn * au + mix(autumn, twig, 0.7) * wi;
