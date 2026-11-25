@@ -71,4 +71,29 @@ describe("arrival request frontier", () => {
     expect(f.prefetch).toHaveBeenCalledTimes(2);
     expect(f.texture).toHaveBeenCalledTimes(0);
   });
+
+  it("skips prefetching seabed and caustics-pass chunks when &extras=-refract disables refraction", async () => {
+    vi.resetModules();
+    let seabedLoaded = false;
+    let causticsLoaded = false;
+    vi.doMock("./extras", () => ({ extraEnabled: (name: string) => name !== "refract" }));
+    vi.doMock("../ocean/seabed", () => { seabedLoaded = true; return {}; });
+    vi.doMock("../ocean/caustics-pass", () => { causticsLoaded = true; return {}; });
+    try {
+      const { prefetchHarbour: freshPrefetch } = await import("./prefetch");
+      const f = fixture();
+      freshPrefetch(f.assets);
+      f.island.resolve();
+      await vi.waitFor(() => expect(f.prefetch).toHaveBeenCalledWith(VEGETATION_URL));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(seabedLoaded).toBe(false);
+      expect(causticsLoaded).toBe(false);
+      f.assets.dispose();
+    } finally {
+      vi.doUnmock("./extras");
+      vi.doUnmock("../ocean/seabed");
+      vi.doUnmock("../ocean/caustics-pass");
+      vi.resetModules();
+    }
+  });
 });

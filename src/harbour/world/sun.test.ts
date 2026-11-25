@@ -51,6 +51,34 @@ describe("sea-shadow consumer ownership", () => {
     expect(sunShadowUniforms.uKeyShadowP.value.x).toBe(0);
     rig.dispose();
   });
+
+  it("binds uKeyShadowDirect to the live key.shadow.matrix on Low so seabed shadows stay locked during camera pans", () => {
+    const s = stage("low", [["ocean", {}]]);
+    s.scene.add(caster("island"));
+    const lowMap = new THREE.WebGLRenderTarget(1024, 1024);
+    lowMap.depthTexture = new THREE.DepthTexture(1024, 1024);
+    s.rig.key.shadow.map = lowMap;
+    // Initial frame establishes the live binding without allocating SeaShadowMask
+    s.frame(1 / 60);
+    expect(sunShadowUniforms.uKeyShadowP.value.x).toBe(0);
+    expect(sunShadowUniforms.uKeyShadowDirectOn.value).toBe(1);
+    expect(sunShadowUniforms.uKeyShadowDepth.value).toBe(lowMap.depthTexture);
+    expect(sunShadowUniforms.uKeyShadowDirect.value).toBe(s.rig.key.shadow.matrix);
+
+    // Pan camera 10 m on a redraw frame: finalize() requests shadow update, and Three updates key.shadow.matrix in place
+    s.ctx.camera.position.x += 10;
+    s.ctx.camera.updateMatrixWorld();
+    const redrew = s.frame(1 / 60);
+    expect(redrew).toBe(true);
+    const pannedMat = new THREE.Matrix4().makeTranslation(0.25, -0.15, 0.05);
+    s.rig.key.shadow.matrix.copy(pannedMat);
+    expect(sunShadowUniforms.uKeyShadowDirect.value).toBe(s.rig.key.shadow.matrix);
+    expect(sunShadowUniforms.uKeyShadowDirect.value.elements).toEqual(pannedMat.elements);
+
+    s.rig.dispose();
+    lowMap.depthTexture.dispose();
+    lowMap.dispose();
+  });
 });
 
 /** three's call of a Scene's hook (renderer, scene, camera, target), before it renders the shadow map. */

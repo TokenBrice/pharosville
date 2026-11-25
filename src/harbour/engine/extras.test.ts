@@ -4,8 +4,9 @@ afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.resetModules(); 
 
 it.each([
   ["", []],
-  ["?extras=none", ["crowns", "twilight", "nightsky", "storm", "precip", "score", "mirror", "supersample"]],
+  ["?extras=none", ["crowns", "twilight", "nightsky", "storm", "precip", "score", "mirror", "supersample", "refract"]],
   ["?extras=all", []],
+  ["?extras=-refract", ["refract"]],
   ["?extras=-crowns,+mirror,-score,+score", ["crowns"]],
   ["?extras=-unknown,+unknown,crowns", []],
   ["?extras=-mirror,+mirror,-mirror", ["mirror"]],

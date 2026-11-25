@@ -24,12 +24,16 @@ export interface QualitySettings {
   readonly smaa: "low" | "medium" | "high";
   /** Half-res GTAO quality tier (cleanly bypassed on low). */
   readonly gtao: "high" | "medium" | "off";
+  /** Ocean caustics tier: light-space refracted map (high), wave-Hessian (medium), dual Voronoi (low). */
+  readonly oceanCaustics: "lightspace" | "hessian" | "voronoi";
+  /** Whether SceneCapture blits at half internal resolution (medium/low). */
+  readonly captureHalfRes: boolean;
 }
 
 export const TIERS: Record<QualityTier, QualitySettings> = {
-  high: { tier: "high", shadowMapSize: 4096, shadowInterval: 0, shadowMinFrames: 1, pointLights: 16, bloomLevels: 8, smaa: "high", gtao: "high" },
-  medium: { tier: "medium", shadowMapSize: 2048, shadowInterval: 1 / 30, shadowMinFrames: 2, pointLights: 8, bloomLevels: 7, smaa: "medium", gtao: "medium" },
-  low: { tier: "low", shadowMapSize: 1024, shadowInterval: 1 / 15, shadowMinFrames: 2, pointLights: 4, bloomLevels: 6, smaa: "low", gtao: "off" },
+  high: { tier: "high", shadowMapSize: 4096, shadowInterval: 0, shadowMinFrames: 1, pointLights: 16, bloomLevels: 8, smaa: "high", gtao: "high", oceanCaustics: "lightspace", captureHalfRes: false },
+  medium: { tier: "medium", shadowMapSize: 2048, shadowInterval: 1 / 30, shadowMinFrames: 2, pointLights: 8, bloomLevels: 7, smaa: "medium", gtao: "medium", oceanCaustics: "hessian", captureHalfRes: true },
+  low: { tier: "low", shadowMapSize: 1024, shadowInterval: 1 / 15, shadowMinFrames: 2, pointLights: 4, bloomLevels: 6, smaa: "low", gtao: "off", oceanCaustics: "voronoi", captureHalfRes: true },
 };
 
 export interface QualityRung { readonly tier: QualityTier; readonly dpr: number }

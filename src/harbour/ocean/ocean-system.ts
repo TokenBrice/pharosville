@@ -23,8 +23,12 @@ import { createWorldUniforms } from "../engine/uniforms";
 import { seaHour } from "./sea-tone";
 import { extraEnabled } from "../engine/extras";
 import { MirrorPass, OCEAN_FRAG_MIRROR } from "./mirror-pass";
+import { SceneCapture } from "./scene-capture";
+import type { Seabed } from "./seabed";
+import type { CausticsPass } from "./caustics-pass";
 import type { WakeCollars } from "./wake-collars";
 import type { WakeCollarService } from "../engine/services";
+import type { QualityTier } from "../engine/quality";
 import { abortable } from "../engine/transport";
 import { MAX_NIGHT_GLINTS } from "../lights/dyn-pool";
 
@@ -97,14 +101,14 @@ function oceanGeometry(bounds: Bounds4): THREE.BufferGeometry {
   return g;
 }
 
-async function loadSdf(ctx: EngineContext, url: string): Promise<{ tex: THREE.Texture; coast: Uint8Array; size: number } | null> {
+async function loadSdf(ctx: EngineContext, url: string): Promise<{ tex: THREE.Texture; data: Uint8Array; coast: Uint8Array; size: number } | null> {
   const img = await loadSdfImage(ctx, url);
   if (!img) return null;
   // the channels are data (lossless WebP, alpha 1): no colour-space conversion, no premultiplication
   const tex = new THREE.DataTexture(img.data, img.width, img.height, THREE.RGBAFormat);
   tex.colorSpace = THREE.NoColorSpace;
   tex.premultiplyAlpha = false;
-  return { tex, coast: img.coast, size: img.width };
+  return { tex, data: img.data, coast: img.coast, size: img.width };
 }
 
 export class OceanSystem implements WorldSystem {
@@ -114,8 +118,10 @@ export class OceanSystem implements WorldSystem {
   private wake!: WakeField;
   private unsubQuality: (() => void) | null = null;
   private lite = false;
+  private tier: QualityTier = "medium";
   private featureKey = "";
   private sdfTex!: THREE.Texture;
+  private sdfData!: Uint8Array;
   private coastR!: Uint8Array;
   private sdfSize = 1024;
   private bounds!: Bounds4;
@@ -139,8 +145,10 @@ export class OceanSystem implements WorldSystem {
   private clock: MotionClock | null = null;
   private layout: HarbourLayout | null = null;
   private awaitGround = false;
+  private seabedAwaitingGround = false;
   private zoneTex: THREE.DataTexture | null = null;
   private dynPoolFallback: THREE.DataTexture | null = null;
+  private causticFallback: THREE.DataTexture | null = null;
   private debugMovers: Array<{ cx: number; cz: number; r: number; w: number; ph: number; hw: number }> = [];
   /** E11: a private time-of-day evaluation (keys + season only: no weather, no moon phase) at this hour and at noon. */
   private hourTod: TimeOfDay | null = null;
@@ -150,6 +158,14 @@ export class OceanSystem implements WorldSystem {
   private mirror: MirrorPass | null = null;
   /** §6.2.2 High-only 1-draw instanced hull waterline collars (`wakeCollars` service, D-7). */
   private collars!: WakeCollars;
+  /** Phase 1: zero-lag WebGL2 opaque scene color+depth capture (`&extras=-refract` disables). */
+  private refractEnabled = false;
+  private captureHalfRes = true;
+  private inPreparation = false;
+  private sceneCapture: SceneCapture | null = null;
+  private seabed: Seabed | null = null;
+  private caustics: CausticsPass | null = null;
+  private readonly unregCausticsPrep: Array<() => void> = [];
 
   async init(ctx: EngineContext): Promise<void> {
     const layout = ctx.services.get("layout");
@@ -158,7 +174,11 @@ export class OceanSystem implements WorldSystem {
     this.bx0 = this.bounds[0]; this.bz0 = this.bounds[1];
     this.scx = (layout.bounds.min[0] + layout.bounds.max[0]) / 2; this.scz = (layout.bounds.min[2] + layout.bounds.max[2]) / 2;
     this.bw = this.bounds[2] - this.bounds[0]; this.bh = this.bounds[3] - this.bounds[1];
+    this.refractEnabled = extraEnabled("refract");
     const { WakeCollars } = await abortable(import("./wake-collars"), ctx.signal);
+    const [seabedMod, causticsMod] = this.refractEnabled
+      ? await abortable(Promise.all([import("./seabed"), import("./caustics-pass")]), ctx.signal)
+      : [null, null];
     ctx.signal?.throwIfAborted();
     const fx = await acquireFxTextures(ctx);
     if (ctx.signal?.aborted) { fx.release(); ctx.signal.throwIfAborted(); }
@@ -168,7 +188,7 @@ export class OceanSystem implements WorldSystem {
     const loaded = await loadSdf(ctx, layout.sea?.sdf ?? "/harbour/sea-sdf.webp");
     if (ctx.signal?.aborted) { this.fx.release(); this.fx = null; ctx.signal.throwIfAborted(); }
     if (loaded) {
-      this.sdfTex = loaded.tex; this.coastR = loaded.coast; this.sdfSize = loaded.size;
+      this.sdfTex = loaded.tex; this.sdfData = loaded.data; this.coastR = loaded.coast; this.sdfSize = loaded.size;
     } else {
       // fallback: layout polygons now; rebuilt from the island's rendered height field once 'ground' exists
       this.layout = layout;
@@ -176,6 +196,7 @@ export class OceanSystem implements WorldSystem {
       const n = 1024;
       const data = buildSeaSdf(seaSdfInputFromLayout(layout, this.bounds, n));
       this.sdfTex = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+      this.sdfData = data;
       this.coastR = new Uint8Array(n * n);
       for (let i = 0; i < n * n; i++) this.coastR[i] = data[i * 4];
       this.sdfSize = n;
@@ -202,6 +223,52 @@ export class OceanSystem implements WorldSystem {
     // before the first render (a depth pass added to a running composer re-creates its buffers), right after the
     // RenderPass and ahead of the stale fog (PostChain.seal keeps it there)
     if (extraEnabled("mirror")) { this.mirror = new MirrorPass(ctx.camera); ctx.composer.addPass(this.mirror, 1); }
+
+    const uSdf = { value: this.sdfTex };
+    const uSdfBounds = { value: new THREE.Vector4(...this.bounds) };
+    const uZones = { value: (this.zoneTex = buildZoneMask((layout as { seaZones?: SeaZoneLike[] }).seaZones, this.bounds)) };
+    const uNoise = { value: fx.noise };
+    const uSceneCenter = { value: new THREE.Vector2(this.scx, this.scz) };
+
+    this.sceneCapture = new SceneCapture();
+    if (this.refractEnabled && causticsMod && seabedMod) {
+      this.caustics = new causticsMod.CausticsPass({
+        uTime: this.seaTime,
+        uSea: this.seaU,
+        uSdf,
+        uSdfBounds,
+        uSceneCenter,
+        uSunDir: W.uSunDir,
+      });
+      const prep = ctx.services.get("preparation");
+      if (prep) {
+        for (const entry of this.caustics.preparationEntries()) {
+          this.unregCausticsPrep.push(prep.register(entry));
+        }
+      }
+      const existingGround = ctx.services.get("ground");
+      const initialGround = existingGround?.heights ? existingGround : null;
+      this.seabed = new seabedMod.Seabed({
+        bounds: this.bounds,
+        sdfData: this.sdfData,
+        sdfSize: this.sdfSize,
+        sceneCenter: [this.scx, this.scz],
+        ground: initialGround,
+        uSdf,
+        uSdfBounds,
+        uZones,
+        uNoise,
+        uniforms: W,
+      });
+      this.seabedAwaitingGround = !initialGround;
+    }
+
+    const causticUniforms = this.caustics?.uniforms ?? {
+      uCausticMap: { value: (this.causticFallback = Object.assign(new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1), { needsUpdate: true })) },
+      uCausticBounds: { value: new THREE.Vector4(...this.bounds) },
+      uCausticMode: { value: 0 },
+    };
+
     this.material = new THREE.ShaderMaterial({
       vertexShader: OCEAN_VERT,
       fragmentShader: OCEAN_FRAG,
@@ -209,13 +276,13 @@ export class OceanSystem implements WorldSystem {
         uTime: this.seaTime, uNight: W.uNight, uCameraPos: W.uCameraPos, uSunDir: W.uSunDir, uSunColor: W.uSunColor,
         uAmbient: W.uAmbient, uZenith: W.uZenith,
         uSea: this.seaU,
-        uSdfBounds: { value: new THREE.Vector4(...this.bounds) },
-        uSdf: { value: this.sdfTex },
+        uSdfBounds,
+        uSdf,
         // P6 D18 sea-zone cues (identity agent): R shoals, G far ports, B harbour waters, A the roads
-        uZones: { value: (this.zoneTex = buildZoneMask((layout as { seaZones?: SeaZoneLike[] }).seaZones, this.bounds)) },
+        uZones,
         uWake: { value: this.wake.texture }, uWakeLive: { value: this.wake.live },
         uWakeBounds: { value: new THREE.Vector4(...this.bounds) },
-        uNoise: { value: fx.noise }, uRipple: { value: fx.ripple },
+        uNoise, uRipple: { value: fx.ripple },
         uAbyss: col(SEA_PALETTE.abyss), uDeep: col(SEA_PALETTE.deep), uMid: col(SEA_PALETTE.mid), uShallow: col(SEA_PALETTE.shallow),
         uShoal: col(SEA_PALETTE.shoal), uSunlitShoal: col(SEA_PALETTE.sunlitShoal), uFoamCol: col(SEA_PALETTE.foam), uFoamNight: col(SEA_PALETTE.foamNight),
         ...skyShared,
@@ -238,12 +305,18 @@ export class OceanSystem implements WorldSystem {
         uLampArrive: lampWaveUniforms.uLampArrive,
         // the weather director: rain rings / melting snowflakes on the water
         uPrecip: W.uPrecip,
-        uSceneCenter: { value: new THREE.Vector2((layout.bounds.min[0] + layout.bounds.max[0]) / 2, (layout.bounds.min[2] + layout.bounds.max[2]) / 2) },
+        uSceneCenter,
         uSceneRadius: { value: Math.hypot(layout.bounds.max[0] - layout.bounds.min[0], layout.bounds.max[2] - layout.bounds.min[2]) / 2 },
         // E11 the hour on the water / E13 the bloom ceiling for glints (sea-tone.ts; set every frame below)
         uSeaHour: { value: new THREE.Vector4(1, 1, 1, 1) }, uSeaLow: { value: new THREE.Vector2(1, 0) }, uBloomT: { value: 1.5 },
+        ...this.sceneCapture.uniforms,
+        ...causticUniforms,
         ...this.mirror?.uniforms,
       },
+      transparent: true,
+      depthWrite: true,
+      depthTest: true,
+      blending: THREE.NoBlending,
       fog: false,
       // the calendar is set before anything compiles (season system first): summer nights' glow only when it can show
       defines: W.uFoliage.value.y > 0.001 ? { HB_BIOLUM: "" } : {},
@@ -259,7 +332,7 @@ export class OceanSystem implements WorldSystem {
       if (f.biolum) shader.defines.HB_BIOLUM = "";
       if (f.lite) shader.defines.HB_LITE = "";
     };
-    // PERF: the Low tier's lighter sea (sea-tone.ts HB_LITE); High-only WakeCollars & MirrorPass (D-7)
+    // PERF: the Low tier's lighter sea (sea-tone.ts HB_LITE); High-only WakeCollars, CausticsPass & MirrorPass (D-7)
     this.collars = new WakeCollars({
       uTime: this.seaTime,
       uCameraPos: W.uCameraPos,
@@ -275,27 +348,67 @@ export class OceanSystem implements WorldSystem {
     });
     const quality = ctx.services.get("quality");
     if (quality) {
-      const lite = (tier: string) => {
+      const applyQuality = (
+        tier: QualityTier,
+        settings?: { captureHalfRes?: boolean; oceanCaustics?: "lightspace" | "hessian" | "voronoi" },
+        dpr = quality.dpr ?? 1,
+      ) => {
         const high = tier === "high";
+        this.tier = tier;
         this.lite = tier === "low";
+        this.captureHalfRes = settings?.captureHalfRes ?? !high;
+        const causticMode: 0 | 1 | 2 = settings?.oceanCaustics
+          ? (settings.oceanCaustics === "lightspace" ? 2 : settings.oceanCaustics === "hessian" ? 1 : 0)
+          : (high ? 2 : tier === "medium" ? 1 : 0);
         this.mirror?.setActive(high, tier === "low");
         this.collars.setActive(high);
+        this.caustics?.setActive(causticMode === 2);
+        this.caustics?.setMode(causticMode);
+        const refractActive = this.refractEnabled && dpr >= 0.8;
+        this.seabed?.setVisible(refractActive);
+        if (!refractActive) this.sceneCapture?.release();
         this.syncFeatures();
       };
-      lite(quality.tier);
+      applyQuality(quality.tier, quality.settings, quality.dpr);
       this.unsubQuality = quality.onChange((q) => {
-        lite(q.tier);
+        applyQuality(q.tier, q, quality.dpr);
         this.wake.resize(ctx.renderer, q.tier === "low" ? Math.min(1024, wakeRes) : wakeRes, () => {
           this.material.uniforms.uWake.value = this.wake.texture;
           this.material.uniforms.uWakeLive.value = this.wake.live;
         });
       });
+    } else {
+      this.tier = "medium";
+      this.captureHalfRes = true;
+      this.caustics?.setActive(false);
+      this.caustics?.setMode(1);
+      this.seabed?.setVisible(this.refractEnabled);
     }
     this.mesh = new THREE.Mesh(oceanGeometry(this.bounds), this.material);
     this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 60;               // after land (0) and the sky card (50): hidden water is rejected early
+    this.mesh.renderOrder = -10;              // first transparent draw: strictly after all opaques and before overlays (-1..90)
     this.mesh.name = "ocean";
+    this.mesh.onBeforeRender = (renderer, _scene, camera) => {
+      const capture = this.sceneCapture;
+      if (!capture) return;
+      const source = ctx.composer?.inputBuffer;
+      const dpr = ctx.services.get("quality")?.dpr ?? 1;
+      if (
+        this.refractEnabled &&
+        source &&
+        camera === ctx.camera &&
+        renderer.getRenderTarget() === source &&
+        !this.inPreparation &&
+        dpr >= 0.8
+      ) {
+        capture.capture(renderer, source, ctx.camera, this.captureHalfRes, !this.lite);
+      } else {
+        if (dpr < 0.8) capture.release();
+        else capture.uniforms.uCapReady.value = 0;
+      }
+    };
     ctx.scene.add(this.mesh, this.collars.mesh);
+    if (this.seabed) ctx.scene.add(this.seabed.mesh);
 
     const q = new URLSearchParams(location.search);
     const dbg = q.get("debugWake");
@@ -313,7 +426,13 @@ export class OceanSystem implements WorldSystem {
 
     const getState = () => this.state;
     const svc: OceanService = {
-      preparationScope: (lite) => { const previous = this.lite; this.lite = lite; return () => { this.lite = previous; }; },
+      preparationScope: (lite) => {
+        const previous = this.lite;
+        const prevPrep = this.inPreparation;
+        this.lite = lite;
+        this.inPreparation = true;
+        return () => { this.lite = previous; this.inPreparation = prevPrep; };
+      },
       setSeaState: (s) => this.setSeaState(s),
       get seaState() { return getState(); },
       heightAt: (x, z, point) => {
@@ -412,6 +531,7 @@ export class OceanSystem implements WorldSystem {
     const tex = this.sdfTex as THREE.DataTexture;
     (tex.image.data as Uint8Array).set(data);
     tex.needsUpdate = true;
+    this.sdfData = data;
     for (let i = 0; i < n * n; i++) this.coastR[i] = data[i * 4];
     this.sdfVersion++;
   }
@@ -423,9 +543,18 @@ export class OceanSystem implements WorldSystem {
       THREE.MathUtils.smoothstep(ctx.services.get("readings")?.fog ?? 0, 0, 1),
       Math.max(ctx.uniforms.uPrecip.value.x, ctx.uniforms.uPrecip.value.y),
     );
-    if (this.awaitGround) {
+    if (this.awaitGround || this.seabedAwaitingGround) {
       const ground = ctx.services.get("ground");
-      if (ground?.heights) { this.awaitGround = false; this.rebuildFromGround(ground); }
+      if (ground?.heights) {
+        if (this.awaitGround) {
+          this.awaitGround = false;
+          this.rebuildFromGround(ground);
+        }
+        if (this.seabedAwaitingGround) {
+          this.seabedAwaitingGround = false;
+          this.seabed?.rebuild(this.sdfData, this.sdfSize, ground);
+        }
+      }
     }
     this.clock ??= new MotionClock(ensureMotionService(ctx));
     this.time = this.seaTime.value = this.clock.step(frame.delta);
@@ -450,6 +579,10 @@ export class OceanSystem implements WorldSystem {
     const u = this.material.uniforms;
     u.uWake.value = this.wake.texture;
     u.uWakeLive.value = this.wake.live;
+    if (this.caustics && this.tier === "high" && ctx.rig?.target) {
+      const sunUp = THREE.MathUtils.clamp(ctx.uniforms.uSunDir.value.y * 3, 0, 1) * (1 - ctx.uniforms.uNight.value);
+      this.caustics.render(ctx.renderer, ctx.rig.target.x, ctx.rig.target.z, sunUp);
+    }
     this.hourLight(ctx);
   }
 
@@ -472,9 +605,26 @@ export class OceanSystem implements WorldSystem {
   dispose(ctx: EngineContext): void {
     this.unsubQuality?.();
     this.unsubQuality = null;
-    if (this.mirror) { ctx.composer.removePass(this.mirror); this.mirror.dispose(); this.mirror = null; }
-    this.collars?.dispose();
+    for (const unreg of this.unregCausticsPrep) unreg();
+    this.unregCausticsPrep.length = 0;
+    if (this.mirror) { ctx.composer?.removePass(this.mirror); this.mirror.dispose(); this.mirror = null; }
+    this.sceneCapture?.dispose();
+    this.sceneCapture = null;
+    if (this.seabed) {
+      ctx.scene.remove(this.seabed.mesh);
+      this.seabed.dispose();
+      this.seabed = null;
+    }
+    this.caustics?.dispose();
+    this.caustics = null;
+    this.causticFallback?.dispose();
+    this.causticFallback = null;
+    if (this.collars) {
+      ctx.scene.remove(this.collars.mesh);
+      this.collars.dispose();
+    }
     if (this.mesh) {
+      this.mesh.onBeforeRender = () => {};
       ctx.scene.remove(this.mesh);
       this.mesh.geometry.dispose();
     }

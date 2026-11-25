@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { EngineContext, PreparationEntry } from "../engine/types";
 import type { QualitySettings } from "../engine/quality";
 import type { WorldUniforms } from "../engine/uniforms";
-import { SeaShadowMask, sunShadowUniforms } from "./sun-shadow";
+import { NO_SHADOW, SeaShadowMask, sunShadowUniforms } from "./sun-shadow";
 import { castFadeUniforms, contactShare, FIGURE_SHADOW_DIST, ShadowCasters, type CasterState, type CasterView } from "./shadow-casters";
 import { ContactShadows } from "./contact-shadows";
 
@@ -155,6 +155,16 @@ export class SunRig {
       this.seaMaskDirty = !this.seaMaskValid;
     }
     ss.uKeyShadowP.value.x = consumer && map && this.seaMaskValid ? 1 : 0;
+    // Share the already-rendered key shadow depth map & LIVE shadow matrix with Low-tier seabed (0 extra passes,
+    // zero 1-frame pan offset because WebGLShadowMap.render mutates key.shadow.matrix in place before scene draw).
+    if (map) {
+      ss.uKeyShadowDepth.value = map;
+      ss.uKeyShadowDirect.value = this.key.shadow.matrix;
+      ss.uKeyShadowDirectOn.value = 1;
+    } else {
+      ss.uKeyShadowDepth.value = NO_SHADOW;
+      ss.uKeyShadowDirectOn.value = 0;
+    }
     const p = this.pending;
     p.force ||= force; p.moved ||= moved; p.cadence = cadence;
     this.finalized = false;
@@ -276,6 +286,9 @@ export class SunRig {
     this.contacts.dispose();
     this.key.shadow.dispose();
     this.seaMask.dispose();
+    sunShadowUniforms.uKeyShadowDepth.value = NO_SHADOW;
+    sunShadowUniforms.uKeyShadowDirect.value = new THREE.Matrix4();
+    sunShadowUniforms.uKeyShadowDirectOn.value = 0;
     this.group.removeFromParent();
   }
 }

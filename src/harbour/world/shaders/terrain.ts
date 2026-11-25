@@ -165,15 +165,28 @@ vec3 cShore=mix(vec3(0.370,0.340,0.275)*(0.82+0.28*ao4),vec3(0.648,0.517,0.305)*
 vec2 wC=floor(W.xz/7.0);
 float wPh=fract(-hbSwellPhase(W.xz,uRunup.y)*0.15915494+fract(sin(dot(wC,vec2(12.9898,78.233)))*43758.5453)*0.35);
 float reach=(0.28+0.62*uRunup.x)*(0.55+0.45*pow(1.0-wPh,1.5));
-float wSpl=(1.0-smoothstep(reach-0.12,reach+0.42,W.y+(ripW-0.5)*0.22))*smoothstep(-0.55,0.02,W.y);
-float rShore=mix(0.88,0.20,wSpl*0.92);cShore*=1.0-0.42*wSpl;
+float cSub=smoothstep(-4.35,-3.9,W.y);
+float wSpl=(1.0-smoothstep(reach-0.12,reach+0.42,W.y+(ripW-0.5)*0.22))*cSub;
+float wSplGlaze=wSpl*smoothstep(-0.35,0.08,W.y);
+float rShore=mix(0.88,0.14,wSplGlaze*0.92);cShore*=1.0-0.44*wSpl;
 alb=cRock*wRock+cEarth*wEarth+cGrass*wGrass+cHumus*wHumus+cShore*wShore;
 rough=rRock*wRock+rEarth*wEarth+rGrass*wGrass+rHumus*wHumus+rShore*wShore;
 float detH=h0*wRock+h1*wEarth+h2*wGrass+h3*wHumus+h4*wShore;
 if(isCrop>0.5){alb=mix(alb,hbCrop(vc,vec3(0.215),W,dW)*mix(0.84,1.06,ao1),0.92);rough=mix(rough,0.90,0.92);wGrassOut*=0.25;}
 else if(isCobble>0.5){float cf=hbTFine(dW,0.6);vec3 cc=vc*0.86;float cr=0.80;if(cf>0.0){vec2 v=hbVoronoi(vec2(W.x,-W.z)*1.7);cc=vc*mix(0.86,(0.90+v.x*0.20)*mix(0.54,1.0,smoothstep(0.0,0.09,v.y)),cf);cr=mix(0.80,mix(0.91,0.66,smoothstep(0.0,0.16,v.y)*(1.0-0.24*v.x)),cf);}alb=mix(cc,cEarth,clamp(splat.r*0.25,0.0,0.35));rough=cr;}
-float sRun=(1.0-smoothstep(0.45,0.80,bareN.y))*smoothstep(0.25,0.65,wRock)*(1.0-smoothstep(reach-0.06,reach+0.14,W.y))*smoothstep(-0.6,0.0,W.y);
-alb*=1.0-0.32*sRun;rough=mix(rough,0.28,sRun*0.65);
+if(W.y<2.0&&W.y>-4.35){
+float rStp=(1.0-smoothstep(0.25,0.72,bareN.y))*smoothstep(0.22,0.62,wRock);
+float bioN=hbNoise(W*1.15)*0.65+hbNoise(W*3.4+11.3)*0.35;
+float rBio=(1.0-smoothstep(0.18,0.48,W.y+bioN*0.14))*cSub*rStp;
+float subD=1.0-smoothstep(-1.4,0.05,W.y);
+float saltN=hbNoise(W*1.85+23.7);
+float rSalt=smoothstep(0.38,0.62,W.y)*(1.0-smoothstep(0.95,1.32,W.y))*rStp*(0.45+0.55*saltN);
+float sRun=rStp*(1.0-smoothstep(reach-0.06,reach+0.14,W.y))*smoothstep(-0.35,0.08,W.y);
+alb=mix(alb,vec3(0.76,0.74,0.68),rSalt*(1.0-sRun*0.5)*0.16);
+alb*=mix(vec3(1.0),mix(vec3(0.36,0.44,0.30),vec3(0.24,0.31,0.21),subD*0.65),rBio*0.72);
+rough=mix(rough,mix(0.26,0.38,subD),rBio*0.85);
+alb*=1.0-0.48*sRun;rough=mix(rough,0.10,sRun*0.88);
+}
 vec3 nPert=vec3(0.0);
 #ifndef HB_LITE
 vec2 pN=n1*wEarth*0.42+n2*wGrass*0.36+n3*wHumus*0.34+n4*wShore*0.28*(1.0-wSpl*0.7);

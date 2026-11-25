@@ -70,7 +70,13 @@ export class GpuPassProfiler {
           label = rt ? this.targets.get(rt) ?? (rt.texture.name || `RT${this.nextTarget++}@${rt.width}x${rt.height}`) : "screen";
           if (rt) this.targets.set(rt, label);
         }
-        label = key === "blitFramebuffer" ? "depth-copy" : `${label}${key === "clear" ? "/clear" : key === "generateMipmap" ? "/mips" : ""}`;
+        if (key === "blitFramebuffer") {
+          label = label === "scene/ocean" ? "scene-capture" : "depth-copy";
+        } else if (key === "generateMipmap" && label === "scene/ocean") {
+          label = "scene-capture/mips";
+        } else {
+          label = `${label}${key === "clear" ? "/clear" : key === "generateMipmap" ? "/mips" : ""}`;
+        }
         if (!this.frames.has(this.frame)) {
           const canvas = renderer.domElement;
           this.frames.set(this.frame, { state: { tier: window.__harbourStats?.quality ?? "boot", dpr: renderer.getPixelRatio(), width: canvas.width, height: canvas.height }, passes: {}, submissions: {} });
@@ -105,12 +111,12 @@ export class GpuPassProfiler {
           };
           object.onAfterShadow = (...args) => { afterShadow.apply(object, args); this.materialLabel = "unattributed"; };
           object.onBeforeRender = (...args) => {
-            before.apply(object, args);
             const material = args[4] as THREE.Material;
             this.materialLabel = `${material.name || material.type}#${material.uuid}${object.castShadow ? "/caster" : ""}`;
             let group = object;
             while (group.parent && group.parent !== scene) group = group.parent;
             this.label = `scene/${group.name || object.name || (args[4] as THREE.Material).name || object.type}`;
+            before.apply(object, args);
           };
           object.onAfterRender = (...args) => { after.apply(object, args); this.label = "scene"; this.materialLabel = "unattributed"; };
           this.undo.push(() => { object.onBeforeRender = before; object.onAfterRender = after; object.onBeforeShadow = beforeShadow; object.onAfterShadow = afterShadow; });
@@ -120,7 +126,7 @@ export class GpuPassProfiler {
         const mesh = scene.children.find((o) => (o as THREE.Mesh).material) as THREE.Mesh | undefined;
         const mat = mesh?.material as THREE.ShaderMaterial | undefined;
         const u = mat?.uniforms;
-        this.label = (mat && this.materialLabels.get(mat)) || (u?.uLobes ? "cloud-atlas" : u?.uRange && u?.uBanks ? "sky-band" : u?.uSpread && u?.uPrev ? "wake-decay" : u?.uTrail ? (u.uTrail.value ? "wake-trail" : "wake-live") : u?.uBounds && mat?.fragmentShader.includes("vMount") ? "light-pool" : `${this.composerLabel || "offscreen"}/${mat?.name || mat?.type || "draw"}`);
+        this.label = (mat && this.materialLabels.get(mat)) || (mat?.name === "hb_caustics" ? "caustics-map" : u?.uLobes ? "cloud-atlas" : u?.uRange && u?.uBanks ? "sky-band" : u?.uSpread && u?.uPrev ? "wake-decay" : u?.uTrail ? (u.uTrail.value ? "wake-trail" : "wake-live") : u?.uBounds && mat?.fragmentShader.includes("vMount") ? "light-pool" : `${this.composerLabel || "offscreen"}/${mat?.name || mat?.type || "draw"}`);
       }
       const rt = renderer.getRenderTarget();
       if (rt) this.targets.set(rt, this.label);

@@ -43,7 +43,19 @@ function calls(source: string, name: string): { line: number; args: string[] }[]
   return out;
 }
 
-const C04_MODULES = ["ocean/ocean-material.ts", "ocean/wake.ts", "sky/sky-glsl.ts", "world/materials.ts", "weather/rainbow.ts", "weather/precip.ts"];
+const C04_MODULES = [
+  "ocean/ocean-material.ts",
+  "ocean/caustics-pass.ts",
+  "ocean/seabed.ts",
+  "ocean/wake.ts",
+  "ocean/wake-collars.ts",
+  "sky/sky-glsl.ts",
+  "world/materials.ts",
+  "world/runup.ts",
+  "world/aerial.ts",
+  "weather/rainbow.ts",
+  "weather/precip.ts",
+];
 
 describe("B07 defined shader arithmetic: reference math", () => {
   const xs = [-12, -3, -1, -0.9, -0.5, -1e-6, 0, 1e-6, 0.1, 0.7, 1.5, 1.6, 2.5, 5, 7, 9.5, 12];
