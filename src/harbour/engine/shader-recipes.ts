@@ -16,6 +16,7 @@ import { BACKDROP_VERT, BACKDROP_FRAG, BAND_FRAG } from "../sky/sky-system";
 import { DitherEffect, SCRUB_FRAG } from "./post";
 import { chainedKitMaterial, posedDepthMaterial } from "../life/figure-kit";
 import { CONTACT_FRAG, CONTACT_VERT } from "../world/contact-shadows";
+import { createGroundCoverMaterial } from "../world/groundcover-shader";
 
 export type GeometryMode = "static" | "instanced" | "batched";
 export interface ShaderRecipe {
@@ -97,6 +98,17 @@ export function visitShaderRecipes(visit: (recipe: ShaderRecipe) => void): void 
     const hooks = { vertexHead: "", vertexPose: "", fragmentHead: "// fixture head", emissive: "// fixture emission", uniforms: {} };
     const life = chainedKitMaterial(mats, "identity", hooks), lifeDepth = posedDepthMaterial("identity", hooks);
     emit("life/colour", life, "instanced"); emit("life/depth", lifeDepth, "instanced"); life.dispose(); lifeDepth.dispose();
+    const gc = createGroundCoverMaterial(mats);
+    try {
+      for (const lite of [false, true]) {
+        mats.setLite(lite);
+        emit(`groundcover/${lite ? "low" : "full"}/colour`, gc.colorMat);
+      }
+      emit("groundcover/rock-depth", gc.rockDepthMat);
+    } finally {
+      gc.colorMat.dispose();
+      gc.rockDepthMat.dispose();
+    }
     const flags = new HouseFlags(u, { texture, grid: fleet.uEmblemGrid.value } as unknown as ConstructorParameters<typeof HouseFlags>[1], 1);
     emit("fleet/flags", flags.mesh.material as THREE.Material, "instanced"); flags.dispose();
     const raw = (id: string, vertexShader: string, fragmentShader: string, defines = {}) => {

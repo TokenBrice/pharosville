@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { QualityTier } from "../engine/quality";
 import { assetUrl } from "../engine/assets";
+import { consumeBinary, GROUNDCOVER_URL } from "../engine/prefetch";
 import { transport } from "../engine/transport";
 import { isAbort } from "../engine/failure";
 import { drySeasonAt } from "./ground-year";
@@ -34,7 +35,7 @@ import {
  *     props_lo, props_hi                       (u16: yaw 6b | scale 4b | variant 4b | clusterCount 2b)
  */
 
-export const GROUNDCOVER_URL = "/harbour/groundcover.bin";
+export { GROUNDCOVER_URL };
 export const HBGC_MAGIC = "HBGC";
 export const HBGC_VERSION = 1;
 export const HBGC_HEADER_BYTES = 32;
@@ -103,21 +104,6 @@ export interface DecodedGroundCover {
 /** Tangent-plane micro-cluster expansion radius (metres) per archetype index 0..6. */
 const CLUSTER_RADIUS: readonly number[] = [0.55, 0.72, 0.82, 0.48, 0.75, 0.65, 0.45];
 
-/** 2D Morton interleave of two 16-bit unsigned integers into a 32-bit unsigned Z-order key. */
-export function morton2D(x: number, z: number): number {
-  let a = x & 0xffff;
-  let b = z & 0xffff;
-  a = (a | (a << 8)) & 0x00ff00ff;
-  a = (a | (a << 4)) & 0x0f0f0f0f;
-  a = (a | (a << 2)) & 0x33333333;
-  a = (a | (a << 1)) & 0x55555555;
-  b = (b | (b << 8)) & 0x00ff00ff;
-  b = (b | (b << 4)) & 0x0f0f0f0f;
-  b = (b | (b << 2)) & 0x33333333;
-  b = (b | (b << 1)) & 0x55555555;
-  return (a | (b << 1)) >>> 0;
-}
-
 /** Deterministic integer hash (0..0xffffffff) for reproducible tangent-plane cluster expansion. */
 function hashU32(a: number, b: number, c: number): number {
   let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263) + Math.imul(c | 0, 1442695041)) >>> 0;
@@ -125,204 +111,16 @@ function hashU32(a: number, b: number, c: number): number {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-function zigzagEncode16(deltaMod65536: number): number {
-  const s = ((deltaMod65536 + 32768) & 0xffff) - 32768;
-  return ((s << 1) ^ (s >> 15)) & 0xffff;
-}
-
 function zigzagDecode16(zz: number): number {
   return (zz >>> 1) ^ -(zz & 1);
-}
-
-function zigzagEncode8(deltaMod256: number): number {
-  const s = ((deltaMod256 + 128) & 0xff) - 128;
-  return ((s << 1) ^ (s >> 7)) & 0xff;
 }
 
 function zigzagDecode8(zz: number): number {
   return (zz >>> 1) ^ -(zz & 1);
 }
 
-function packRgb565(r: number, g: number, b: number): number {
-  const r5 = Math.max(0, Math.min(31, Math.round(r * 31)));
-  const g6 = Math.max(0, Math.min(63, Math.round(g * 63)));
-  const b5 = Math.max(0, Math.min(31, Math.round(b * 31)));
-  return (r5 << 11) | (g6 << 5) | b5;
-}
-
 function packScaleNorm(scale: number): number {
   return Math.max(0, Math.min(255, Math.round(((scale - 0.4) / 1.2) * 255)));
-}
-
-/** Encode per-archetype anchors into an exact `HBGC` v1 binary `ArrayBuffer` (Morton-sorted per stratum). */
-export function encodeGroundCover(
-  anchorsByArchetype: ReadonlyArray<readonly GroundCoverAnchor[]>,
-  explicitBounds?: GroundCoverBounds,
-): ArrayBuffer {
-  if (anchorsByArchetype.length !== ARCHETYPE_COUNT) {
-    throw new Error(`HBGC encode expects ${ARCHETYPE_COUNT} archetype lists, got ${anchorsByArchetype.length}`);
-  }
-
-  let bounds: GroundCoverBounds;
-  if (explicitBounds) {
-    bounds = {
-      minX: explicitBounds.minX,
-      minY: explicitBounds.minY,
-      minZ: explicitBounds.minZ,
-      scaleX: Math.max(explicitBounds.scaleX, 1e-3),
-      scaleY: Math.max(explicitBounds.scaleY, 1e-3),
-      scaleZ: Math.max(explicitBounds.scaleZ, 1e-3),
-    };
-  } else {
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (const list of anchorsByArchetype) {
-      for (const a of list) {
-        if (a.x < minX) minX = a.x;
-        if (a.y < minY) minY = a.y;
-        if (a.z < minZ) minZ = a.z;
-        if (a.x > maxX) maxX = a.x;
-        if (a.y > maxY) maxY = a.y;
-        if (a.z > maxZ) maxZ = a.z;
-      }
-    }
-    if (!Number.isFinite(minX)) {
-      bounds = { minX: 0, minY: 0, minZ: 0, scaleX: 1, scaleY: 1, scaleZ: 1 };
-    } else {
-      bounds = {
-        minX,
-        minY,
-        minZ,
-        scaleX: Math.max(maxX - minX, 1e-3),
-        scaleY: Math.max(maxY - minY, 1e-3),
-        scaleZ: Math.max(maxZ - minZ, 1e-3),
-      };
-    }
-  }
-
-  const quantize16 = (v: number, min: number, scale: number): number =>
-    Math.max(0, Math.min(65535, Math.round(((v - min) / scale) * 65535)));
-
-  interface PreparedAnchor {
-    qx: number;
-    qy: number;
-    qz: number;
-    morton: number;
-    rgb565: number;
-    nx: number;
-    nz: number;
-    props: number;
-  }
-
-  const preparedPerArch: PreparedAnchor[][] = [];
-  const cumTable = new Uint16Array(ARCHETYPE_COUNT * 4);
-  let totalAnchors = 0;
-
-  for (let ai = 0; ai < ARCHETYPE_COUNT; ai++) {
-    const strata: PreparedAnchor[][] = [[], [], [], []];
-    for (const a of anchorsByArchetype[ai]) {
-      const qx = quantize16(a.x, bounds.minX, bounds.scaleX);
-      const qy = quantize16(a.y, bounds.minY, bounds.scaleY);
-      const qz = quantize16(a.z, bounds.minZ, bounds.scaleZ);
-      const yawNorm = ((a.yaw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-      const yawQ = Math.round((yawNorm / (Math.PI * 2)) * 64) & 0x3f;
-      const scaleT = (a.scale - HBGC_MIN_SCALE) / (HBGC_MAX_SCALE - HBGC_MIN_SCALE);
-      const scaleQ = Math.max(0, Math.min(15, Math.round(scaleT * 15)));
-      const variantQ = Math.max(0, Math.min(15, Math.round(a.variant)));
-      const clusterQ = Math.max(1, Math.min(3, Math.round(a.clusterCount)));
-      const props = (yawQ & 0x3f) | ((scaleQ & 0x0f) << 6) | ((variantQ & 0x0f) << 10) | ((clusterQ & 0x03) << 14);
-      const nxS8 = Math.max(-127, Math.min(127, Math.round(a.nx * 127)));
-      const nzS8 = Math.max(-127, Math.min(127, Math.round(a.nz * 127)));
-      const band = Math.max(0, Math.min(3, a.stratum)) as StratumBand;
-      strata[band].push({
-        qx,
-        qy,
-        qz,
-        morton: morton2D(qx, qz),
-        rgb565: packRgb565(a.r, a.g, a.b),
-        nx: nxS8 & 0xff,
-        nz: nzS8 & 0xff,
-        props,
-      });
-    }
-
-    const ordered: PreparedAnchor[] = [];
-    for (let s = 0; s < 4; s++) {
-      strata[s].sort((u, v) => u.morton - v.morton);
-      for (const item of strata[s]) ordered.push(item);
-      if (ordered.length > 65535) throw new Error(`HBGC archetype ${ai} exceeds u16 anchor count`);
-      cumTable[ai * 4 + s] = ordered.length;
-    }
-    preparedPerArch.push(ordered);
-    totalAnchors += ordered.length;
-  }
-
-  const tableBytes = ARCHETYPE_COUNT * 4 * 2;
-  const totalBytes = HBGC_HEADER_BYTES + tableBytes + totalAnchors * 12;
-  const buf = new ArrayBuffer(totalBytes);
-  const view = new DataView(buf);
-  const bytes = new Uint8Array(buf);
-
-  // Header (32 B)
-  bytes[0] = 0x48; // 'H'
-  bytes[1] = 0x42; // 'B'
-  bytes[2] = 0x47; // 'G'
-  bytes[3] = 0x43; // 'C'
-  view.setUint16(4, HBGC_VERSION, true);
-  view.setUint16(6, ARCHETYPE_COUNT, true);
-  view.setFloat32(8, bounds.minX, true);
-  view.setFloat32(12, bounds.minY, true);
-  view.setFloat32(16, bounds.minZ, true);
-  view.setFloat32(20, bounds.scaleX, true);
-  view.setFloat32(24, bounds.scaleY, true);
-  view.setFloat32(28, bounds.scaleZ, true);
-
-  // Archetype cumulative table (56 B)
-  let off = HBGC_HEADER_BYTES;
-  for (let i = 0; i < cumTable.length; i++) {
-    view.setUint16(off, cumTable[i], true);
-    off += 2;
-  }
-
-  // Per-archetype planar delta-coded streams (12 B/anchor)
-  for (let ai = 0; ai < ARCHETYPE_COUNT; ai++) {
-    const list = preparedPerArch[ai];
-    const n = list.length;
-    if (n === 0) continue;
-    const dxLo = bytes.subarray(off, off + n); off += n;
-    const dxHi = bytes.subarray(off, off + n); off += n;
-    const dzLo = bytes.subarray(off, off + n); off += n;
-    const dzHi = bytes.subarray(off, off + n); off += n;
-    const dyLo = bytes.subarray(off, off + n); off += n;
-    const dyHi = bytes.subarray(off, off + n); off += n;
-    const rgbLo = bytes.subarray(off, off + n); off += n;
-    const rgbHi = bytes.subarray(off, off + n); off += n;
-    const nxS = bytes.subarray(off, off + n); off += n;
-    const nzS = bytes.subarray(off, off + n); off += n;
-    const prLo = bytes.subarray(off, off + n); off += n;
-    const prHi = bytes.subarray(off, off + n); off += n;
-
-    let px = 0, pz = 0, py = 0, prgb = 0, pnx = 0, pnz = 0;
-    for (let i = 0; i < n; i++) {
-      const a = list[i];
-      const dx = zigzagEncode16((a.qx - px) & 0xffff); px = a.qx;
-      const dz = zigzagEncode16((a.qz - pz) & 0xffff); pz = a.qz;
-      const dy = zigzagEncode16((a.qy - py) & 0xffff); py = a.qy;
-      const dr = zigzagEncode16((a.rgb565 - prgb) & 0xffff); prgb = a.rgb565;
-      const dnx = zigzagEncode8((a.nx - pnx) & 0xff); pnx = a.nx;
-      const dnz = zigzagEncode8((a.nz - pnz) & 0xff); pnz = a.nz;
-
-      dxLo[i] = dx & 0xff; dxHi[i] = (dx >>> 8) & 0xff;
-      dzLo[i] = dz & 0xff; dzHi[i] = (dz >>> 8) & 0xff;
-      dyLo[i] = dy & 0xff; dyHi[i] = (dy >>> 8) & 0xff;
-      rgbLo[i] = dr & 0xff; rgbHi[i] = (dr >>> 8) & 0xff;
-      nxS[i] = dnx;
-      nzS[i] = dnz;
-      prLo[i] = a.props & 0xff; prHi[i] = (a.props >>> 8) & 0xff;
-    }
-  }
-
-  return buf;
 }
 
 /**
@@ -626,16 +424,13 @@ export class GroundCoverSystem implements WorldSystem {
 
   private async fetchBinary(ctx: EngineContext): Promise<ArrayBuffer | null> {
     if (this.initialBuffer) return this.initialBuffer;
-    const assetsWithBin = ctx.assets as unknown as { binary?: (url: string) => Promise<ArrayBuffer> };
-    if (typeof assetsWithBin.binary === "function") {
-      return assetsWithBin.binary(this.url);
+    if (ctx.assets && typeof ctx.assets === "object" && "signal" in ctx.assets && ctx.assets.signal) {
+      return consumeBinary(ctx.assets, this.url);
     }
     const resolved = assetUrl(this.url);
     return transport(ctx.signal, async (signal) => {
       const res = await fetch(resolved, { signal });
-      if (!res.ok || (res.headers.get("content-type") ?? "").includes("text/html")) {
-        throw new Error(`${resolved}: HTTP ${res.status}`);
-      }
+      if (!res.ok || (res.headers.get("content-type") ?? "").includes("text/html")) return null;
       return res.arrayBuffer();
     });
   }
@@ -655,9 +450,16 @@ export class GroundCoverSystem implements WorldSystem {
       return;
     }
     ctx.signal?.throwIfAborted();
-    if (!raw) return;
+    if (!raw || raw.byteLength === 0) return;
 
-    const decoded = decodeGroundCover(raw);
+    let decoded: DecodedGroundCover;
+    try {
+      decoded = decodeGroundCover(raw);
+    } catch (err) {
+      console.warn(`[harbour] groundcover asset invalid (${this.url}), skipping`, err);
+      return;
+    }
+    if (decoded.totalInstances === 0) return;
     const mats = getHarbourMaterials(ctx);
     const kit = buildGroundCoverKit();
 

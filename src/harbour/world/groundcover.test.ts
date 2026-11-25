@@ -1,11 +1,14 @@
 import * as THREE from "three";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { AssetStore } from "../engine/assets";
+import { GROUNDCOVER_URL as PREFETCH_GROUNDCOVER_URL, prefetchBinary } from "../engine/prefetch";
 import { assembleShader } from "../engine/shader-recipes";
 import { createWorldUniforms } from "../engine/uniforms";
 import type { QualityService, QualitySettings, QualityTier } from "../engine/quality";
 import { TIERS } from "../engine/quality";
 import type { EngineContext, FrameState, PreparationService } from "../engine/types";
 import type { SeasonService } from "../season/season-system";
+import { LazyGroundCoverSystem, SYSTEMS } from "../systems";
 import { HarbourMaterials } from "./materials";
 import { swayUniforms } from "./sway";
 import {
@@ -21,16 +24,183 @@ import {
 } from "./groundcover-shader";
 import {
   decodeGroundCover,
-  encodeGroundCover,
   flowerScaleForSeason,
+  GROUNDCOVER_URL,
   GroundCoverSystem,
   HBGC_HEADER_BYTES,
+  HBGC_MAX_SCALE,
+  HBGC_MIN_SCALE,
   HBGC_VERSION,
-  morton2D,
   stratumBandFor,
   type GroundCoverAnchor,
+  type GroundCoverBounds,
   type StratumBand,
 } from "./groundcover-system";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+function morton2D(x: number, z: number): number {
+  let a = x & 0xffff;
+  let b = z & 0xffff;
+  a = (a | (a << 8)) & 0x00ff00ff;
+  a = (a | (a << 4)) & 0x0f0f0f0f;
+  a = (a | (a << 2)) & 0x33333333;
+  a = (a | (a << 1)) & 0x55555555;
+  b = (b | (b << 8)) & 0x00ff00ff;
+  b = (b | (b << 4)) & 0x0f0f0f0f;
+  b = (b | (b << 2)) & 0x33333333;
+  b = (b | (b << 1)) & 0x55555555;
+  return (a | (b << 1)) >>> 0;
+}
+
+function zigzagEncode16(deltaMod65536: number): number {
+  const s = ((deltaMod65536 + 32768) & 0xffff) - 32768;
+  return ((s << 1) ^ (s >> 15)) & 0xffff;
+}
+
+function zigzagEncode8(deltaMod256: number): number {
+  const s = ((deltaMod256 + 128) & 0xff) - 128;
+  return ((s << 1) ^ (s >> 7)) & 0xff;
+}
+
+function packRgb565(r: number, g: number, b: number): number {
+  const r5 = Math.max(0, Math.min(31, Math.round(r * 31)));
+  const g6 = Math.max(0, Math.min(63, Math.round(g * 63)));
+  const b5 = Math.max(0, Math.min(31, Math.round(b * 31)));
+  return (r5 << 11) | (g6 << 5) | b5;
+}
+
+/** Test fixture encoder producing an exact `HBGC` v1 binary `ArrayBuffer` (Morton-sorted per stratum). */
+function encodeGroundCover(
+  anchorsByArchetype: ReadonlyArray<readonly GroundCoverAnchor[]>,
+  explicitBounds?: GroundCoverBounds,
+): ArrayBuffer {
+  if (anchorsByArchetype.length !== ARCHETYPE_COUNT) {
+    throw new Error(`HBGC encode expects ${ARCHETYPE_COUNT} archetype lists, got ${anchorsByArchetype.length}`);
+  }
+  let bounds: GroundCoverBounds;
+  if (explicitBounds) {
+    bounds = {
+      minX: explicitBounds.minX,
+      minY: explicitBounds.minY,
+      minZ: explicitBounds.minZ,
+      scaleX: Math.max(explicitBounds.scaleX, 1e-3),
+      scaleY: Math.max(explicitBounds.scaleY, 1e-3),
+      scaleZ: Math.max(explicitBounds.scaleZ, 1e-3),
+    };
+  } else {
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const list of anchorsByArchetype) {
+      for (const a of list) {
+        if (a.x < minX) minX = a.x;
+        if (a.y < minY) minY = a.y;
+        if (a.z < minZ) minZ = a.z;
+        if (a.x > maxX) maxX = a.x;
+        if (a.y > maxY) maxY = a.y;
+        if (a.z > maxZ) maxZ = a.z;
+      }
+    }
+    bounds = !Number.isFinite(minX)
+      ? { minX: 0, minY: 0, minZ: 0, scaleX: 1, scaleY: 1, scaleZ: 1 }
+      : { minX, minY, minZ, scaleX: Math.max(maxX - minX, 1e-3), scaleY: Math.max(maxY - minY, 1e-3), scaleZ: Math.max(maxZ - minZ, 1e-3) };
+  }
+
+  const quantize16 = (v: number, min: number, scale: number): number =>
+    Math.max(0, Math.min(65535, Math.round(((v - min) / scale) * 65535)));
+
+  interface PreparedAnchor {
+    qx: number; qy: number; qz: number; morton: number;
+    rgb565: number; nx: number; nz: number; props: number;
+  }
+
+  const preparedPerArch: PreparedAnchor[][] = [];
+  const cumTable = new Uint16Array(ARCHETYPE_COUNT * 4);
+  let totalAnchors = 0;
+
+  for (let ai = 0; ai < ARCHETYPE_COUNT; ai++) {
+    const strata: PreparedAnchor[][] = [[], [], [], []];
+    for (const a of anchorsByArchetype[ai]) {
+      const qx = quantize16(a.x, bounds.minX, bounds.scaleX);
+      const qy = quantize16(a.y, bounds.minY, bounds.scaleY);
+      const qz = quantize16(a.z, bounds.minZ, bounds.scaleZ);
+      const yawNorm = ((a.yaw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      const yawQ = Math.round((yawNorm / (Math.PI * 2)) * 64) & 0x3f;
+      const scaleQ = Math.max(0, Math.min(15, Math.round(((a.scale - HBGC_MIN_SCALE) / (HBGC_MAX_SCALE - HBGC_MIN_SCALE)) * 15)));
+      const variantQ = Math.max(0, Math.min(15, Math.round(a.variant)));
+      const clusterQ = Math.max(1, Math.min(3, Math.round(a.clusterCount)));
+      const props = (yawQ & 0x3f) | ((scaleQ & 0x0f) << 6) | ((variantQ & 0x0f) << 10) | ((clusterQ & 0x03) << 14);
+      const nxS8 = Math.max(-127, Math.min(127, Math.round(a.nx * 127)));
+      const nzS8 = Math.max(-127, Math.min(127, Math.round(a.nz * 127)));
+      const band = Math.max(0, Math.min(3, a.stratum)) as StratumBand;
+      strata[band].push({ qx, qy, qz, morton: morton2D(qx, qz), rgb565: packRgb565(a.r, a.g, a.b), nx: nxS8 & 0xff, nz: nzS8 & 0xff, props });
+    }
+    const ordered: PreparedAnchor[] = [];
+    for (let s = 0; s < 4; s++) {
+      strata[s].sort((u, v) => u.morton - v.morton);
+      for (const item of strata[s]) ordered.push(item);
+      if (ordered.length > 65535) throw new Error(`HBGC archetype ${ai} exceeds u16 anchor count`);
+      cumTable[ai * 4 + s] = ordered.length;
+    }
+    preparedPerArch.push(ordered);
+    totalAnchors += ordered.length;
+  }
+
+  const tableBytes = ARCHETYPE_COUNT * 4 * 2;
+  const buf = new ArrayBuffer(HBGC_HEADER_BYTES + tableBytes + totalAnchors * 12);
+  const view = new DataView(buf);
+  const bytes = new Uint8Array(buf);
+  bytes[0] = 0x48; bytes[1] = 0x42; bytes[2] = 0x47; bytes[3] = 0x43;
+  view.setUint16(4, HBGC_VERSION, true);
+  view.setUint16(6, ARCHETYPE_COUNT, true);
+  view.setFloat32(8, bounds.minX, true);
+  view.setFloat32(12, bounds.minY, true);
+  view.setFloat32(16, bounds.minZ, true);
+  view.setFloat32(20, bounds.scaleX, true);
+  view.setFloat32(24, bounds.scaleY, true);
+  view.setFloat32(28, bounds.scaleZ, true);
+
+  let off = HBGC_HEADER_BYTES;
+  for (let i = 0; i < cumTable.length; i++) { view.setUint16(off, cumTable[i], true); off += 2; }
+  for (let ai = 0; ai < ARCHETYPE_COUNT; ai++) {
+    const list = preparedPerArch[ai];
+    const n = list.length;
+    if (n === 0) continue;
+    const dxLo = bytes.subarray(off, off + n); off += n;
+    const dxHi = bytes.subarray(off, off + n); off += n;
+    const dzLo = bytes.subarray(off, off + n); off += n;
+    const dzHi = bytes.subarray(off, off + n); off += n;
+    const dyLo = bytes.subarray(off, off + n); off += n;
+    const dyHi = bytes.subarray(off, off + n); off += n;
+    const rgbLo = bytes.subarray(off, off + n); off += n;
+    const rgbHi = bytes.subarray(off, off + n); off += n;
+    const nxS = bytes.subarray(off, off + n); off += n;
+    const nzS = bytes.subarray(off, off + n); off += n;
+    const prLo = bytes.subarray(off, off + n); off += n;
+    const prHi = bytes.subarray(off, off + n); off += n;
+
+    let px = 0, pz = 0, py = 0, prgb = 0, pnx = 0, pnz = 0;
+    for (let i = 0; i < n; i++) {
+      const a = list[i];
+      const dx = zigzagEncode16((a.qx - px) & 0xffff); px = a.qx;
+      const dz = zigzagEncode16((a.qz - pz) & 0xffff); pz = a.qz;
+      const dy = zigzagEncode16((a.qy - py) & 0xffff); py = a.qy;
+      const dr = zigzagEncode16((a.rgb565 - prgb) & 0xffff); prgb = a.rgb565;
+      const dnx = zigzagEncode8((a.nx - pnx) & 0xff); pnx = a.nx;
+      const dnz = zigzagEncode8((a.nz - pnz) & 0xff); pnz = a.nz;
+      dxLo[i] = dx & 0xff; dxHi[i] = (dx >>> 8) & 0xff;
+      dzLo[i] = dz & 0xff; dzHi[i] = (dz >>> 8) & 0xff;
+      dyLo[i] = dy & 0xff; dyHi[i] = (dy >>> 8) & 0xff;
+      rgbLo[i] = dr & 0xff; rgbHi[i] = (dr >>> 8) & 0xff;
+      nxS[i] = dnx; nzS[i] = dnz;
+      prLo[i] = a.props & 0xff; prHi[i] = (a.props >>> 8) & 0xff;
+    }
+  }
+  return buf;
+}
 
 function makeAnchor(overrides: Partial<GroundCoverAnchor> = {}): GroundCoverAnchor {
   return {
@@ -554,5 +724,91 @@ describe("Phase 4A — GroundCoverSystem runtime, O(1) strata scaling, seasonal 
     // GroundCoverSystem unsubscribes its own quality listener (HarbourMaterials keeps its own)
     expect(listeners.length).toBe(listenersAfterInit - 1);
     (services.get("materials") as HarbourMaterials | undefined)?.dispose();
+  });
+});
+
+describe("Phase 4B — Frame-1 runtime wiring, LazyGroundCoverSystem, consumeBinary & 404 fallback", () => {
+  it("registers LazyGroundCoverSystem in SYSTEMS immediately after vegetation with canonical URL", () => {
+    vi.stubGlobal("location", { search: "", hash: "" });
+    expect(GROUNDCOVER_URL).toBe("/harbour/groundcover.bin");
+    expect(PREFETCH_GROUNDCOVER_URL).toBe(GROUNDCOVER_URL);
+    const names = SYSTEMS.map((make) => make().name);
+    const islandIdx = names.indexOf("island");
+    const vegIdx = names.indexOf("vegetation");
+    const gcIdx = names.indexOf("groundcover");
+    expect(islandIdx).toBeGreaterThanOrEqual(0);
+    expect(vegIdx).toBe(islandIdx + 1);
+    expect(gcIdx).toBe(vegIdx + 1);
+  });
+
+  it("LazyGroundCoverSystem consumes prefetched groundcover.bin via consumeBinary in a single fetch and disposes cleanly", async () => {
+    const buf = encodeGroundCover(makeTestAnchors());
+    const fetcher = vi.fn(async (url: string) => {
+      if (url === GROUNDCOVER_URL) {
+        return new Response(buf, { status: 200, headers: { "content-type": "application/octet-stream" } });
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    const assets = new AssetStore();
+    void prefetchBinary(assets, GROUNDCOVER_URL);
+
+    const u = createWorldUniforms();
+    const scene = new THREE.Scene();
+    const services = new Map<string, unknown>();
+    const rig = { distance: 320 };
+    const ctx = { scene, uniforms: u, services, rig, assets } as unknown as EngineContext;
+
+    const lazy = new LazyGroundCoverSystem();
+    expect(lazy.name).toBe("groundcover");
+    await lazy.init(ctx);
+
+    // Prefetched binary was consumed without a second HTTP fetch
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledWith(GROUNDCOVER_URL, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+
+    const root = scene.getObjectByName("harbour-groundcover") as THREE.Group | undefined;
+    expect(root).toBeDefined();
+    expect(root!.children).toHaveLength(ARCHETYPE_COUNT);
+
+    // update / resize / dispose delegate cleanly through LazyGroundCoverSystem
+    rig.distance = 900;
+    lazy.update({ elapsed: 1, delta: 0.016, nowMs: Date.now() }, ctx);
+    expect(root!.getObjectByName("gc-grass")?.visible).toBe(false);
+    expect(root!.getObjectByName("gc-rocks")?.visible).toBe(true);
+    lazy.resize(1280, 720, ctx);
+
+    lazy.dispose(ctx);
+    expect(scene.getObjectByName("harbour-groundcover")).toBeUndefined();
+    (services.get("materials") as HarbourMaterials | undefined)?.dispose();
+    assets.dispose();
+  });
+
+  it("handles missing / 404, empty, or corrupted groundcover.bin gracefully without throwing or mounting", async () => {
+    const cases: Array<() => Response> = [
+      () => new Response(null, { status: 404 }),
+      () => new Response("<!doctype html>", { status: 200, headers: { "content-type": "text/html" } }),
+      () => new Response(new Uint8Array(0), { status: 200, headers: { "content-type": "application/octet-stream" } }),
+      () => new Response(new Uint8Array([0x00, 0x01, 0x02, 0x03]), { status: 200, headers: { "content-type": "application/octet-stream" } }),
+    ];
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const makeRes of cases) {
+      vi.stubGlobal("fetch", vi.fn(async () => makeRes()));
+      const assets = new AssetStore();
+      const u = createWorldUniforms();
+      const scene = new THREE.Scene();
+      const services = new Map<string, unknown>();
+      const ctx = { scene, uniforms: u, services, rig: { distance: 320 }, assets } as unknown as EngineContext;
+
+      const lazy = new LazyGroundCoverSystem();
+      await expect(lazy.init(ctx)).resolves.toBeUndefined();
+      expect(scene.children).toHaveLength(0);
+      lazy.update({ elapsed: 1, delta: 0.016, nowMs: Date.now() }, ctx);
+      lazy.dispose(ctx);
+      assets.dispose();
+    }
+    expect(warn).toHaveBeenCalledTimes(1); // corrupted buffer warns once
   });
 });

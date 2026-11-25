@@ -10,6 +10,7 @@ import { transport } from "./transport";
 
 export const VEGETATION_URL = "/harbour/flora/vegetation.glb";
 export const VEGETATION_INSTANCES_URL = "/harbour/flora/vegetation-instances.bin";
+export const GROUNDCOVER_URL = "/harbour/groundcover.bin";
 
 const prefetchedBins = new WeakMap<AssetStore, Map<string, Promise<ArrayBuffer | null>>>();
 
@@ -44,8 +45,8 @@ export async function consumeBinary(assets: AssetStore, url: string): Promise<Ar
 }
 
 /**
- * Start every GLB and terrain/flora data payload the first frame needs (island, terrain splat/topo maps,
- * vegetation prototypes + instance table, lighthouse, the civic plots, the hull kit) at engine creation,
+ * Start every GLB and terrain/flora/ground-cover data payload the first frame needs (island, terrain splat/topo maps,
+ * vegetation prototypes + instance table, ground-cover instances, lighthouse, the civic plots, the hull kit) at engine creation,
  * instead of system by system as each init reaches it. Bytes only for GLBs: parsing stays in each system's
  * init. The civic and kit GLBs follow the island's bytes: the island parses first, so it should land first,
  * and the small GLBs then download while it parses. Runs inside the Engine, so blocked viewports (which never
@@ -57,6 +58,7 @@ export function prefetchHarbour(assets: AssetStore): void {
   void assets.prefetch(LIGHTHOUSE_URL);
   void assets.prefetch(VEGETATION_URL);
   void prefetchBinary(assets, VEGETATION_INSTANCES_URL).catch(() => {});
+  void prefetchBinary(assets, GROUNDCOVER_URL).catch(() => {});
   for (const u of [TERRAIN_SPLAT_URL, TERRAIN_TOPO_URL]) void assets.texture(u, false).catch(() => {});
   const civic = assets.json<CivicManifest>(`${CIVIC_BASE}manifest.json`).catch(() => null);
   const kit = assets.json<KitManifest>(`${KIT_BASE}manifest.json`).catch(() => null);

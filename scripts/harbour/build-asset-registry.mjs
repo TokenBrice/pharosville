@@ -120,6 +120,7 @@ export async function buildAssetRegistry(output) {
     "/harbour/terrain-topo.webp",
     "/harbour/flora/vegetation.glb",
     ...(registry.urls["/harbour/flora/vegetation-instances.bin"] ? ["/harbour/flora/vegetation-instances.bin"] : []),
+    ...(registry.urls["/harbour/groundcover.bin"] ? ["/harbour/groundcover.bin"] : []),
     "/harbour/lighthouse.glb",
     "/harbour/civic/manifest.json",
     "/harbour/kit/manifest.json",

@@ -2009,6 +2009,24 @@
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_life_depth_v2_identity"
   },
+  "groundcover/full/colour": {
+    "vertex": "cca81443023a57615b8a0817941821d419bbde173c2f83128eb518bb4446d03d",
+    "fragment": "86fb1e492b76a97efc1f511c95ec25f481487aa173e9f0806a624f0b5dd9fd1d",
+    "defines": "066347ea2a4d7578c920ce459eb2c63433bc9693b6090ecdfb5ac745b141e930",
+    "cacheKey": "hb_groundcover_v1_full_0.0_bare_c22222"
+  },
+  "groundcover/low/colour": {
+    "vertex": "149004abeae392955cb4beb570b5978c3cbb58d4c4aeb149deb08e76de249f06",
+    "fragment": "e3ace676d732fcde92c75f289f5837329e00623f2b4fb0339ef3752349f19083",
+    "defines": "96795821d8bb794b82e84e5f141f238eec711d2d80d31131b0bcf3f564083258",
+    "cacheKey": "hb_groundcover_v1_HB_LITE_0.0_bare_c22222_lite"
+  },
+  "groundcover/rock-depth": {
+    "vertex": "a7159b29ede8b8e37cb9adcf6a60df399408cb4c484256e7319ab5847dd318af",
+    "fragment": "08541d654d77b3adda45a3efa4bae66f2dd1b8c34fd0bfc65c2c192444891b77",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "hb_groundcover_rock_depth_v1"
+  },
   "fleet/flags": {
     "vertex": "729281bbd6ee6bdf9bf9ce4a3bf0fc0809c4ace1b15800a3680a3dd881b45ec4",
     "fragment": "9e60981f40245240501fbce9692057fa63cec7fbfa35c6b1e4cfab89b6b75099",
