@@ -9,6 +9,9 @@ import { createFleetMaterials, type FleetUniforms } from "../fleet/fleet-materia
 import { HouseFlags } from "../fleet/house-flags";
 import { OCEAN_VERT, OCEAN_FRAG } from "../ocean/ocean-material";
 import { MIRROR_FRAG, MIRROR_VERT, OCEAN_FRAG_MIRROR } from "../ocean/mirror-pass";
+import { SEABED_VERT, SEABED_FRAG } from "../ocean/seabed";
+import { CAUSTICS_VERT, CAUSTICS_FRAG } from "../ocean/caustics-pass";
+import { NO_SHADOW } from "../world/sun-shadow";
 import { FULLSCREEN_VERT } from "../ocean/gpu-bake";
 import { BeamEffect, BeamSystem, ShimmerEffect, HALO_VERT, HALO_FRAG } from "../beam/beam-system";
 import { FLAME_VERT, FLAME_FRAG, EMBER_VERT, EMBER_FRAG, GLOW_VERT, GLOW_FRAG, PLUME_VERT, PLUME_FRAG } from "../beam/fire";
@@ -127,6 +130,9 @@ export function visitShaderRecipes(visit: (recipe: ShaderRecipe) => void): void 
       material.customProgramCacheKey = () => `hb_ocean_${Number(biolum)}_0_m`;
       emit(`ocean/${biolum ? "summer" : "other"}/full-mirror`, material); material.dispose();
     }
+    const seabedMat = new THREE.ShaderMaterial({ vertexShader: SEABED_VERT, fragmentShader: SEABED_FRAG, uniforms: { uKeyShadowDepth: { value: NO_SHADOW } } });
+    emit("ocean/seabed", seabedMat); seabedMat.dispose();
+    raw("ocean/caustics", CAUSTICS_VERT, CAUSTICS_FRAG);
     raw("post/mirror", MIRROR_VERT, MIRROR_FRAG);
     raw("beam/halo", HALO_VERT, HALO_FRAG);
     for (const [name, vertex, fragment] of [

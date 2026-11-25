@@ -6,6 +6,7 @@ import { createWorldUniforms } from "../engine/uniforms";
 import { preparationMaterial } from "../engine/prepare";
 import { TIERS, type QualitySettings } from "../engine/quality";
 import { MAX_NIGHT_GLINTS, OceanSystem } from "./ocean-system";
+import { SceneCapture } from "./scene-capture";
 import { OCEAN_FRAG } from "./ocean-material";
 import { OCEAN_FRAG_MIRROR } from "./mirror-pass";
 import { pointSwellCache, SEA_STATES, waveHeight } from "./waves";
@@ -202,5 +203,194 @@ describe("Phase 0 ocean contracts (sampler cap, uCollarsOn, uDynPoolBounds, hero
     await expect(system.init(ctx)).rejects.toThrow();
     expect(() => system.dispose(ctx)).not.toThrow();
     expect(ctx.services.get("ocean")).toBeUndefined();
+  });
+});
+
+describe("Phase 1 ocean render-order boundary, SceneCapture guard, Seabed and Caustics integration", () => {
+  it("configures ocean as first transparent draw (renderOrder -10, depthWrite true, NoBlending) and stays within 15/16 samplers", async () => {
+    vi.stubGlobal("location", { search: "", hash: "" });
+    const countSamplers = (src: string) => {
+      let total = 0;
+      for (const m of src.matchAll(/\buniform\s+(?:(?:lowp|mediump|highp)\s+)?sampler(?:2D|2DArray|Cube|3D)\s+([^;]+);/g)) {
+        total += m[1].split(",").filter((s) => s.trim().length > 0).length;
+      }
+      return total;
+    };
+    expect(countSamplers(OCEAN_FRAG)).toBe(14);
+    expect(countSamplers(OCEAN_FRAG_MIRROR)).toBe(15);
+
+    const ctx = {
+      scene: new THREE.Scene(),
+      uniforms: createWorldUniforms(),
+      services: new Map<string, unknown>([
+        ["layout", { bounds: { min: [-10, 0, -10], max: [10, 10, 10] }, sea: { bounds: [-500, -500, 500, 500] } }],
+      ]) as Services,
+    } as unknown as EngineContext;
+    const system = new OceanSystem();
+    await system.init(ctx);
+    const mesh = ctx.scene.getObjectByName("ocean") as THREE.Mesh;
+    const mat = mesh.material as THREE.ShaderMaterial;
+
+    expect(mesh.renderOrder).toBe(-10);
+    expect(mat.transparent).toBe(true);
+    expect(mat.depthWrite).toBe(true);
+    expect(mat.depthTest).toBe(true);
+    expect(mat.blending).toBe(THREE.NoBlending);
+    expect(mat.uniforms.uCapColor).toBeDefined();
+    expect(mat.uniforms.uCapDepth).toBeDefined();
+    expect(mat.uniforms.uCapReady.value).toBe(0);
+    expect(mat.uniforms.uCapSize).toBeDefined();
+    expect(mat.uniforms.uCausticMap).toBeDefined();
+    expect(mat.uniforms.uCausticBounds).toBeDefined();
+    expect(mat.uniforms.uCausticMode.value).toBe(1);
+    expect(ctx.scene.getObjectByName("ocean-seabed")).toBeDefined();
+    // Depth-consistent integer texel fetch for uCapColor prevents bilinear foreground color bleed at silhouettes (Astra #1)
+    expect(OCEAN_FRAG).toContain("texelFetch(uCapColor,");
+
+    system.dispose(ctx);
+    expect(ctx.scene.getObjectByName("ocean-seabed")).toBeUndefined();
+  });
+
+  it("guards ocean.onBeforeRender SceneCapture on camera, composer.inputBuffer, preparationScope, and DPR >= 0.8 across tiers", async () => {
+    vi.stubGlobal("location", { search: "", hash: "" });
+    vi.spyOn(FullscreenPass.prototype, "render").mockImplementation(() => {});
+    const captureSpy = vi.spyOn(SceneCapture.prototype, "capture").mockImplementation(function (this: SceneCapture) {
+      this.uniforms.uCapReady.value = 1;
+    });
+
+    const listeners = new Set<(q: QualitySettings) => void>();
+    const quality = {
+      tier: "high" as "high" | "medium" | "low",
+      dpr: 1.5,
+      onChange: (fn: (q: QualitySettings) => void) => { listeners.add(fn); return () => listeners.delete(fn); },
+    };
+    const mainCamera = new THREE.PerspectiveCamera();
+    const otherCamera = new THREE.PerspectiveCamera();
+    const inputBuffer = new THREE.WebGLRenderTarget(800, 600, { depthBuffer: true });
+    const otherTarget = new THREE.WebGLRenderTarget(400, 300, { depthBuffer: true });
+    let activeTarget: THREE.WebGLRenderTarget | null = inputBuffer;
+    const renderer = { getRenderTarget: () => activeTarget } as unknown as THREE.WebGLRenderer;
+    const registeredPrep: unknown[] = [];
+    const preparation = { register: (entry: unknown) => { registeredPrep.push(entry); return () => { registeredPrep.pop(); }; } };
+
+    const ctx = {
+      scene: new THREE.Scene(),
+      camera: mainCamera,
+      composer: { inputBuffer },
+      renderer,
+      uniforms: createWorldUniforms(),
+      services: new Map<string, unknown>([
+        ["layout", { bounds: { min: [-10, 0, -10], max: [10, 10, 10] }, sea: { bounds: [-500, -500, 500, 500] } }],
+        ["quality", quality],
+        ["preparation", preparation],
+      ]) as Services,
+    } as unknown as EngineContext;
+
+    const system = new OceanSystem();
+    await system.init(ctx);
+    expect(registeredPrep.length).toBeGreaterThan(0);
+
+    const mesh = ctx.scene.getObjectByName("ocean") as THREE.Mesh;
+    const mat = mesh.material as THREE.ShaderMaterial;
+    const ocean = ctx.services.get("ocean")!;
+    const trigger = (cam: THREE.Camera) => mesh.onBeforeRender(renderer, ctx.scene, cam, mesh.geometry, mat, null as unknown as THREE.Group);
+
+    // Main camera + composer.inputBuffer + High tier -> full-res, mipped
+    trigger(mainCamera);
+    expect(captureSpy).toHaveBeenCalledTimes(1);
+    expect(captureSpy).toHaveBeenLastCalledWith(renderer, inputBuffer, mainCamera, false, true);
+    expect(mat.uniforms.uCapReady.value).toBe(1);
+    expect(mat.uniforms.uCausticMode.value).toBe(2);
+
+    // Non-main camera -> skipped, uCapReady reset to 0
+    trigger(otherCamera);
+    expect(captureSpy).toHaveBeenCalledTimes(1);
+    expect(mat.uniforms.uCapReady.value).toBe(0);
+
+    // Wrong render target -> skipped
+    activeTarget = otherTarget;
+    trigger(mainCamera);
+    expect(captureSpy).toHaveBeenCalledTimes(1);
+    expect(mat.uniforms.uCapReady.value).toBe(0);
+    activeTarget = inputBuffer;
+
+    // Inside preparationScope -> skipped
+    const restorePrep = ocean.preparationScope(false);
+    trigger(mainCamera);
+    restorePrep();
+    expect(captureSpy).toHaveBeenCalledTimes(1);
+    expect(mat.uniforms.uCapReady.value).toBe(0);
+
+    // Low DPR (< 0.8) -> skipped, hides seabed, and releases capture RT until recovery (Astra #4)
+    const releaseSpy = vi.spyOn(SceneCapture.prototype, "release");
+    quality.dpr = 0.67;
+    for (const fn of listeners) fn(TIERS.low);
+    expect(ctx.scene.getObjectByName("ocean-seabed")?.visible).toBe(false);
+    expect(releaseSpy).toHaveBeenCalled();
+    trigger(mainCamera);
+    expect(captureSpy).toHaveBeenCalledTimes(1);
+    expect(mat.uniforms.uCapReady.value).toBe(0);
+    quality.dpr = 1.25;
+
+    // Medium tier -> half-res, mipped, Hessian caustics (mode 1), seabed visible again
+    quality.tier = "medium";
+    for (const fn of listeners) fn(TIERS.medium);
+    expect(ctx.scene.getObjectByName("ocean-seabed")?.visible).toBe(true);
+    trigger(mainCamera);
+    expect(captureSpy).toHaveBeenLastCalledWith(renderer, inputBuffer, mainCamera, true, true);
+    expect(mat.uniforms.uCausticMode.value).toBe(1);
+
+    // Low tier -> half-res, no mips, Voronoi caustics (mode 0)
+    quality.tier = "low";
+    for (const fn of listeners) fn(TIERS.low);
+    trigger(mainCamera);
+    expect(captureSpy).toHaveBeenLastCalledWith(renderer, inputBuffer, mainCamera, true, false);
+    expect(mat.uniforms.uCausticMode.value).toBe(0);
+
+    system.dispose(ctx);
+    expect(registeredPrep.length).toBe(0);
+    inputBuffer.dispose();
+    otherTarget.dispose();
+  });
+
+  it("skips seabed and caustics imports completely when &extras=-refract disables refraction (even if those chunks reject)", async () => {
+    vi.resetModules();
+    vi.stubGlobal("location", { search: "?extras=-refract", hash: "" });
+    vi.doMock("../engine/extras", () => ({ extraEnabled: (name: string) => name !== "mirror" && name !== "refract" }));
+    vi.doMock("./seabed", () => { throw new Error("seabed chunk failed"); });
+    vi.doMock("./caustics-pass", () => { throw new Error("caustics chunk failed"); });
+    try {
+      const { FullscreenPass: FP } = await import("./gpu-bake");
+      vi.spyOn(FP.prototype, "render").mockImplementation(() => {});
+      const { OceanSystem: FreshOceanSystem } = await import("./ocean-system");
+      const registeredPrep: unknown[] = [];
+      const ctx = {
+        scene: new THREE.Scene(),
+        camera: new THREE.PerspectiveCamera(),
+        composer: { addPass: vi.fn(), removePass: vi.fn(), inputBuffer: new THREE.WebGLRenderTarget(16, 16) },
+        renderer: {} as THREE.WebGLRenderer,
+        uniforms: createWorldUniforms(),
+        services: new Map<string, unknown>([
+          ["layout", { bounds: { min: [-10, 0, -10], max: [10, 10, 10] }, sea: { bounds: [-500, -500, 500, 500] } }],
+          ["preparation", { register: (entry: unknown) => { registeredPrep.push(entry); return () => {}; } }],
+        ]) as Services,
+      } as unknown as EngineContext;
+
+      const system = new FreshOceanSystem();
+      await system.init(ctx);
+      expect(ctx.scene.getObjectByName("ocean-seabed")).toBeUndefined();
+      expect(registeredPrep).toHaveLength(0);
+      const mat = (ctx.scene.getObjectByName("ocean") as THREE.Mesh).material as THREE.ShaderMaterial;
+      expect(mat.uniforms.uCapReady.value).toBe(0);
+      expect(mat.uniforms.uCausticMode.value).toBe(0);
+
+      system.dispose(ctx);
+      ctx.composer.inputBuffer.dispose();
+    } finally {
+      vi.doUnmock("../engine/extras");
+      vi.doUnmock("./seabed");
+      vi.doUnmock("./caustics-pass");
+      vi.resetModules();
+    }
   });
 });

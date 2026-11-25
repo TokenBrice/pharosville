@@ -30,6 +30,10 @@ export const sunShadowUniforms = {
   uKeyShadowP: { value: new THREE.Vector4(0, 0, 1, 1) } as THREE.IUniform<THREE.Vector4>,
   /** log2(mask texels per world metre) at the last resolve: the sea picks its blur mip from it (hbSeaSunShadow) */
   uSeaShadowT: { value: 0 } as THREE.IUniform<number>,
+  /** direct key-light compare depth map + matrix for Low-tier seabed cast shadows (0 extra passes, Astra #2) */
+  uKeyShadowDepth: { value: NO_SHADOW } as THREE.IUniform<THREE.Texture>,
+  uKeyShadowDirect: { value: new THREE.Matrix4() } as THREE.IUniform<THREE.Matrix4>,
+  uKeyShadowDirectOn: { value: 0 } as THREE.IUniform<number>,
 };
 
 export const SUN_SHADOW_GLSL = /* glsl */ `

@@ -5,6 +5,7 @@ import { LIGHTHOUSE_URL } from "../world/lighthouse-system";
 import layoutUrl from "../data/layout.json?url";
 import type { HarbourLayout } from "../layout/types";
 import { assetUrl, type AssetStore } from "./assets";
+import { extraEnabled } from "./extras";
 import { isAbort } from "./failure";
 import { transport } from "./transport";
 
@@ -70,6 +71,10 @@ export function prefetchHarbour(assets: AssetStore): void {
     void import("../world/vegetation-system").catch(() => {});
     void import("../world/groundcover-system").catch(() => {});
     void import("../ocean/wake-collars").catch(() => {});
+    if (extraEnabled("refract")) {
+      void import("../ocean/seabed").catch(() => {});
+      void import("../ocean/caustics-pass").catch(() => {});
+    }
     void import("../weather/precip").catch(() => {});
     void import("../weather/lightning").catch(() => {});
     void import("../weather/rainbow").catch(() => {});

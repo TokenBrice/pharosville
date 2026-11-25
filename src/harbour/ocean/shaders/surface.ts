@@ -4,7 +4,16 @@ import { SEA_TONE_GLSL } from "../sea-tone";
 import { SUN_SHADOW_GLSL } from "../../world/sun-shadow";
 import { SEA_GOLDEN_GLSL } from "../sea-golden";
 import { SEA_HELIO_GLSL } from "../sea-helio";
-import { SWELL_DIR, wavesGLSL } from "../waves";
+import { SWELL_DIR, WAVES, wavesGLSL } from "../waves";
+
+function waveHessianGLSL(): string {
+  const f = (v: number) => v.toFixed(6);
+  let body = "";
+  for (const wv of WAVES) {
+    body += `  s -= ${f(wv.k * wv.k * wv.amp)} * sin(${f(wv.k)} * dot(vec2(${f(wv.dirX)}, ${f(wv.dirZ)}), p) - ${f(wv.w)} * t);\n`;
+  }
+  return `float hbWaveHessian(vec2 p, float t, float amp) { float s = 0.0;\n${body}  return s * amp; }`;
+}
 
 /**
  * The sea surface: fields, normals and the unlit body. (Shader text ships in the first-frame bytes, so the longer notes
@@ -55,9 +64,15 @@ uniform float uNightGlintCount;
 uniform float uWindowGlow, uLampArrive;
 uniform vec2 uSceneCenter;
 uniform float uSceneRadius;
+uniform sampler2D uCapColor, uCapDepth, uCausticMap;
+uniform float uCapReady, uCausticMode;
+uniform vec2 uCapNearFar, uCapSize;
+uniform mat4 uCapInvVP;
+uniform vec4 uCausticBounds;
 varying vec3 vWorld;
 varying float vDamp;
 ${wavesGLSL()}
+${waveHessianGLSL()}
 ${CLOUD_SHADOW_GLSL}
 ${SEA_TONE_GLSL}
 ${SUN_SHADOW_GLSL}
@@ -65,6 +80,10 @@ ${SEA_GOLDEN_GLSL}
 ${SEA_HELIO_GLSL}
 
 const vec2 SWELL = vec2(${SWELL_DIR[0].toFixed(5)}, ${SWELL_DIR[1].toFixed(5)});
+
+float hbLinearDepth(float d, vec2 nf) {
+  return (2.0 * nf.x * nf.y) / max(nf.y + nf.x - (d * 2.0 - 1.0) * (nf.y - nf.x), 1e-4);
+}
 
 vec3 band(float th, float e, float lod) {
   vec2 uv = vec2((th - uSkyBandRange.x) / (uSkyBandRange.y - uSkyBandRange.x), (e - uSkyBandRange.z) / (uSkyBandRange.w - uSkyBandRange.z));
@@ -312,7 +331,7 @@ void main() {
   float hullOcc = min(live.b, 1.0);
   vec3 causReef = vec3(0.0);
   float cSun = sunUp * (1.0 - cover * 0.75) * (1.0 - storm * 0.6) * sunSh;
-  {
+  if (uCapReady <= 0.5) {
     float natBed = min(depth, 0.25 + max(coast, 0.0) * 0.3);
     float bedDep = max(mix(natBed, max(depth, 3.2), quayWall) + (nA.r - 0.5) * mix(1.4, 0.6, quayWall) + (nB.g - 0.5) * 0.55, 0.0);
     float clarity = (1.0 - 0.82 * storm) * (1.0 - 0.65 * cover) * (1.0 - 0.62 * uNight);
@@ -370,7 +389,7 @@ void main() {
   body = hbBasinLift(body, zm.b, zm.r, dep, coast);
   body = mix(body, preLift, quayWall * 0.82);
   body *= 1.0 - zm.b * (1.0 - smoothstep(1.0, 9.0, max(coast, 0.0))) * max(cover * 0.34, storm * 0.30) * (1.0 - uNight);
-  {
+  if (uCapReady <= 0.5) {
     float reefMask = smoothstep(0.08, 0.86, zm.r);
     float shelfNoise = nA.b * 0.48 + nB.g * 0.36 + nC.g * 0.16;
     float shoalDepth = max(0.30, min(depth, 0.55 + max(coast, 0.0) * 0.26) + (0.5 - shelfNoise) * 3.4);
@@ -390,6 +409,10 @@ void main() {
     turq = mix(turq, vec3(dot(turq, vec3(0.299, 0.587, 0.114))) * vec3(0.86, 1.0, 0.98), cover * 0.45) * (1.0 - 0.15 * cover);
     float reefK = zm.r * (0.55 + 0.45 * smoothstep(0.35, 0.7, nA.b + 0.25 * nC.g));
     body = mix(body, turq * mix(1.0, 0.22, uNight), reefK * (0.62 - 0.25 * uNight));
+  } else if (zm.r > 0.01) {
+    vec3 shoalScatter = mix(vec3(0.04, 0.38, 0.42), vec3(0.12, 0.62, 0.56), smoothstep(0.2, 0.8, nA.g));
+    shoalScatter = mix(shoalScatter, vec3(dot(shoalScatter, vec3(0.299, 0.587, 0.114))) * vec3(0.86, 1.0, 0.98), cover * 0.45) * (1.0 - 0.15 * cover);
+    body = mix(body, shoalScatter * mix(1.0, 0.24, uNight), zm.r * (0.50 - 0.20 * uNight));
   }
   float quayOcc = (1.0 - smoothstep(0.0, 2.8, max(coast, 0.0))) * step(-0.5, coast) * (0.20 + 0.16 * zm.b);
   float pierOcc = (1.0 - smoothstep(0.0, 1.6, sdist)) * 0.22;
@@ -402,5 +425,126 @@ void main() {
   float bodyGain = mix(0.95, 0.36, uNight);
   body *= bodyGain;
   body = mix(body, body * normalize(uAmbient + 1e-4) * 1.6, uNight * 0.6);
+
+  float refrMask = (1.0 - smoothstep(460.0, 550.0, length(xz - uSceneCenter))) * (1.0 - smoothstep(1350.0, 1750.0, camD));
+  if (uCapReady > 0.5 && refrMask > 0.001) {
+    vec3 deepScatter = body;
+    vec2 screenUv = gl_FragCoord.xy / max(uCapSize, vec2(1.0));
+    float zW = hbLinearDepth(gl_FragCoord.z, uCapNearFar);
+    float d0 = textureLod(uCapDepth, screenUv, 0.0).r;
+    float z0 = hbLinearDepth(d0, uCapNearFar);
+    float rawD = d0 >= 0.9999 ? 40.0 : max(z0 - zW, 0.0);
+    // Project wave slope perturbation (N - up) into view space: zero constant bias on flat water (Neon #1)
+    vec2 viewN = (mat3(viewMatrix) * vec3(N.x, N.y - 1.0, N.z)).xy;
+    float refrScale = clamp(rawD * 0.032, 0.0, 0.055) * (1.0 - smoothstep(180.0, 620.0, camD));
+    vec2 refrUv = clamp(screenUv + viewN * refrScale, vec2(0.002), vec2(0.998));
+    float zS_ndc = textureLod(uCapDepth, refrUv, 0.0).r;
+    float zS = hbLinearDepth(zS_ndc, uCapNearFar);
+    vec4 bedClip = uCapInvVP * vec4(refrUv * 2.0 - 1.0, zS_ndc * 2.0 - 1.0, 1.0);
+    vec3 P_bed = bedClip.xyz / max(bedClip.w, 1e-5);
+    bool validBed = (zS_ndc < 0.9999) && (zS <= 1400.0) && (zS >= zW + 0.02) && (P_bed.y <= vWorld.y - 0.04) && (fwdD <= uHorizonDist * 0.95);
+    if (!validBed) {
+      refrUv = screenUv;
+      zS_ndc = d0;
+      zS = z0;
+      bedClip = uCapInvVP * vec4(refrUv * 2.0 - 1.0, zS_ndc * 2.0 - 1.0, 1.0);
+      P_bed = bedClip.xyz / max(bedClip.w, 1e-5);
+      validBed = (zS_ndc < 0.9999) && (zS <= 1400.0) && (zS >= zW + 0.02) && (P_bed.y <= vWorld.y - 0.04) && (fwdD <= uHorizonDist * 0.95);
+    }
+    float viewPath = validBed ? distance(vWorld, P_bed) : 40.0;
+    if (viewPath > 75.0) validBed = false;
+    // Fetch the exact integer texel matching the validated NEAREST uCapDepth sample (zero bilinear foreground bleed, Astra #1)
+    vec3 capRgb = deepScatter;
+    if (validBed) {
+      ivec2 capDim = textureSize(uCapColor, 0);
+      ivec2 capPx = clamp(ivec2(floor(refrUv * vec2(capDim))), ivec2(0), capDim - ivec2(1));
+      capRgb = clamp(texelFetch(uCapColor, capPx, 0).rgb, vec3(0.0), vec3(32.0));
+    }
+    float vertDepth = validBed ? max(vWorld.y - P_bed.y, 0.0) : max(depth, 1.5);
+    if (!validBed) viewPath = max(vertDepth / max(V.y, 0.25), 1.5);
+    float sunPath = vertDepth / max(uSunDir.y, 0.25);
+    float optPath = viewPath + 0.65 * sunPath;
+    vec3 sigma = vec3(0.42, 0.125, 0.075);
+    sigma = mix(sigma, vec3(0.46, 0.155, 0.135), zm.b);
+    sigma = mix(sigma, vec3(0.28, 0.075, 0.062), zm.r);
+    sigma *= 1.0 + 0.95 * storm + 0.35 * cover;
+    vec3 T = exp(-optPath * sigma);
+    vec3 causAdd = vec3(0.0);
+    float cGate = sunUp * (1.0 - cover * 0.75) * (1.0 - storm * 0.6)
+      * smoothstep(0.12, 0.65, vertDepth)
+      * (1.0 - smoothstep(0.5, 7.5, vertDepth))
+      * (1.0 - smoothstep(160.0, 560.0, camD))
+      * (1.0 - 0.22 * zm.b)
+      * (1.0 - hullOcc * 0.92);
+    if (validBed && cGate > 0.001) {
+      #ifdef HB_LITE
+      // Low tier skips SeaShadowMask (sun.test.ts contract): derive architectural shadow occlusion from
+      // captured bed irradiance (shadow-mapped stone/terrain) + shaded quay-side SDF gradient + clouds.
+      float bedLum = dot(capRgb, vec3(0.2126, 0.7152, 0.0722));
+      float ambLum = max(dot(uAmbient, vec3(0.2126, 0.7152, 0.0722)), 0.05);
+      float litRatio = smoothstep(ambLum * 0.38, ambLum * 1.12, bedLum);
+      float quayShade = 0.0;
+      if (sdist < 6.0 && inside > 0.0) {
+        const float eL = 0.004;
+        float gx = textureLod(uSdf, clamp(suv + vec2(eL, 0.0), 0.0, 1.0), 2.0).r - textureLod(uSdf, clamp(suv - vec2(eL, 0.0), 0.0, 1.0), 2.0).r;
+        float gz = textureLod(uSdf, clamp(suv + vec2(0.0, eL), 0.0, 1.0), 2.0).r - textureLod(uSdf, clamp(suv - vec2(0.0, eL), 0.0, 1.0), 2.0).r;
+        float gl = length(vec2(gx, gz));
+        if (gl > 1e-4) {
+          vec2 sn = vec2(gx, gz) / gl;
+          quayShade = (1.0 - smoothstep(0.0, 5.5, sdist)) * (1.0 - smoothstep(-0.15, 0.35, dot(sn, normalize(uSunDir.xz + vec2(1e-4)))));
+        }
+      }
+      float bedSunSh = litRatio * (1.0 - quayShade * 0.88) * hbCloudShadow(P_bed.xz);
+      #else
+      float bedSunSh = hbSeaSunShadow(P_bed);
+      #endif
+      float cVis = cGate * bedSunSh;
+      if (cVis > 0.001) {
+        vec3 R_mean = refract(-uSunDir, vec3(0.0, 1.0, 0.0), 0.75);
+        vec2 cXZ = P_bed.xz + R_mean.xz * ((-3.0 - P_bed.y) / min(R_mean.y, -0.15));
+        vec3 causRgb = vec3(0.0);
+        float cIn = 0.0;
+        if (uCausticMode > 1.5) {
+          vec2 cuv = (cXZ - uCausticBounds.xy) / max(uCausticBounds.zw - uCausticBounds.xy, vec2(1.0));
+          vec2 ce = min(cuv, 1.0 - cuv);
+          cIn = smoothstep(0.0, 0.06, min(ce.x, ce.y));
+          if (cIn > 0.001) {
+            float cG = textureLod(uCausticMap, clamp(cuv, vec2(0.001), vec2(0.999)), 0.0).r;
+            if (camD < 180.0) {
+              vec2 disp = normalize(uSunDir.xz + vec2(1e-4)) * 0.00055 * (1.0 - smoothstep(90.0, 180.0, camD));
+              float cR = textureLod(uCausticMap, clamp(cuv + disp, vec2(0.001), vec2(0.999)), 0.0).r;
+              float cB = textureLod(uCausticMap, clamp(cuv - disp, vec2(0.001), vec2(0.999)), 0.0).r;
+              causRgb = vec3(cR, cG, cB);
+            } else {
+              causRgb = vec3(cG);
+            }
+          }
+        }
+        if (uCausticMode > 0.5 && cIn < 0.999) {
+          float hScale = clamp(vertDepth, 0.6, 4.5) * (1.4 + 2.2 * amp);
+          float hess = -hbWaveHessian(cXZ, t, hScale);
+          float hConv = smoothstep(0.05, 0.55, max(hess, 0.0));
+          vec2 rUv1 = cXZ * 0.058 + wdir * t * 0.013;
+          vec2 rUv2 = (rot2 * cXZ) * 0.086 - wPerp * t * 0.011 + 0.37;
+          float s1 = textureGrad(uRipple, rUv1, dx * 0.058, dy * 0.058).b;
+          float s2 = textureGrad(uRipple, rUv2, (rot2 * dx) * 0.086, (rot2 * dy) * 0.086).b;
+          float rShim = min(s1, s2) * 1.45 + s1 * s2 * 0.95;
+          vec3 hessRgb = vec3(clamp(hConv * (0.55 + 0.85 * rShim) + rShim * 0.35, 0.0, 1.5));
+          causRgb = mix(hessRgb, causRgb, cIn);
+        } else if (uCausticMode <= 0.5) {
+          vec2 vUv1 = P_bed.xz * 0.054 + wdir * t * 0.013;
+          vec2 vUv2 = (rot2 * P_bed.xz) * 0.082 - wPerp * t * 0.011 + 0.37;
+          float v1 = textureGrad(uRipple, vUv1, dx * 0.054, dy * 0.054).b;
+          float v2 = textureGrad(uRipple, vUv2, (rot2 * dx) * 0.082, (rot2 * dy) * 0.082).b;
+          causRgb = vec3(clamp(min(v1, v2) * 2.2, 0.0, 1.4));
+        }
+        // Single downwelling sun leg (T already carries 0.65 * sunPath + viewPath, Opus #4 / Neon #6)
+        causAdd = uSunColor * causRgb * 0.52 * cVis;
+      }
+    }
+    float shoreFeather = validBed ? smoothstep(0.0, 0.18, viewPath) : 1.0;
+    vec3 refrBody = mix(capRgb, (capRgb + causAdd) * T + deepScatter * (1.0 - T), shoreFeather);
+    body = mix(deepScatter, refrBody, refrMask);
+  }
 
 `;

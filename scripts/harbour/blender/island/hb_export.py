@@ -243,6 +243,7 @@ CHUNK = lambda x, y: ('w' if x < 0 else 'e') + ('s' if y < 60 else 'n')
 groups = {}
 named_parts = {}
 src_count = 0
+MIRROR_SOFFIT_OBJS = {'causeway_soffits', 'causeway_deck', 'pier_slab', 'pier_planks', 'pier_frame'}
 for ob in list(scene.objects):
     if ob.type != 'MESH' or ob.users_collection[0] == EXC or ob.hide_render:
         continue
@@ -259,6 +260,9 @@ for ob in list(scene.objects):
     nm = is_named(ob)
     o = baked_copy(ob, ob.name + '_x')
     ensure_col(o.data)
+    if role == 'hb_opaque' and not nm and ob.name in MIRROR_SOFFIT_OBJS and len(o.data.polygons):
+        mk = o.data.attributes.new('_mkeep', 'INT', 'FACE')
+        mk.data.foreach_set('value', np.ones(len(o.data.polygons), np.int32))
     # Only hb_opaque static chunks carry _sway (for swaying laundry/ivy/maquis); hb_terrain, hb_window,
     # hb_emissive, and zero-sway named runtime nodes omit _sway cleanly for smaller GLB & clean static-merge!
     if role == 'hb_opaque' and not nm:
@@ -451,14 +455,16 @@ if '--no-ao' not in ARGV:
 
 
 # ------------------------------------------------------------------ fixed-camera back-face cull (D1: yaw 45 / pitch 35, pan + zoom only)
-# A face whose normal points away from every possible view ray (view vector within ~25 deg of V) is never seen.
+# A face whose normal points away from the fixed view is never seen, except low waterfront overhangs
+# (causeway arch vaults, pier undersides, wharf eaves) visible in the Phase 2 Y=0 planar mirror.
 V_PITCH = 33.0        # v3 presets: heart 30, overview 38 (CULL_DOT keeps a wide margin either way)
 V_CAM = Vector((math.sin(math.radians(45)) * math.cos(math.radians(V_PITCH)), -math.cos(math.radians(45)) * math.cos(math.radians(V_PITCH)),
                 math.sin(math.radians(V_PITCH)))).normalized()
+V_MIRROR = Vector((V_CAM.x, V_CAM.y, -V_CAM.z)).normalized()
 CULL_DOT = -0.45
 
 
-DROWNED_Z = -1.4      # the runtime sea is opaque: a face wholly below this (wave troughs reach ~-0.6) is never seen
+DROWNED_Z = -4.3      # Phase 1 true depth refraction exposes submerged stone/quay/cliff courses down to -4.3 m
 
 
 def cull_hidden(o, drowned=False):
@@ -466,11 +472,24 @@ def cull_hidden(o, drowned=False):
         return 0
     bm = bmesh.new(); bm.from_mesh(o.data)
     bm.normal_update()
-    dead = [f for f in bm.faces if (f.normal.length > 0.5 and f.normal.dot(V_CAM) < CULL_DOT) or
-            (drowned and max(v.co.z for v in f.verts) < DROWNED_Z)]
+    mk_layer = bm.faces.layers.int.get('_mkeep')
+    dead = []
+    for f in bm.faces:
+        if drowned and max(v.co.z for v in f.verts) < DROWNED_Z:
+            dead.append(f)
+            continue
+        if f.normal.length > 0.5 and f.normal.dot(V_CAM) < CULL_DOT:
+            # Keep over-water soffits/arches visible in Y=0 planar reflection without keeping buried box bottoms
+            if mk_layer is not None and f[mk_layer] and f.normal.dot(V_MIRROR) >= CULL_DOT:
+                continue
+            dead.append(f)
     n = len(dead)
     bmesh.ops.delete(bm, geom=dead, context='FACES')
+    if mk_layer is not None:
+        bm.faces.layers.int.remove(mk_layer)
     bm.to_mesh(o.data); bm.free()
+    if '_mkeep' in o.data.attributes:
+        o.data.attributes.remove(o.data.attributes['_mkeep'])
     return n
 
 
