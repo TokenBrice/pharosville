@@ -44,12 +44,12 @@ def _enc_scale_u8(s):
     return max(0, min(255, int(round((s - 0.35) / 1.45 * 255.0))))
 
 
-def emit_veg(proto_name, x, y, z, yaw_rad, scale_xz, scale_y, rng):
+def emit_veg(proto_name, x, y, z, yaw_rad, scale_xz, scale_y, rng, luma_sigma=26.0):
     pid = VEG_PROTO_ID[proto_name]
     sxz = max(0.35, min(1.80, float(scale_xz)))
     sy = max(0.35, min(1.80, float(scale_y)))
     seed_u8 = int(terrain._hash(int(round(x * 13.0)), int(round(y * 13.0)), pid + 17) * 255.0) & 0xFF
-    luma_u8 = max(73, min(183, int(round(128.0 + rng.gauss(0.0, 26.0)))))
+    luma_u8 = max(46, min(210, int(round(128.0 + rng.gauss(0.0, luma_sigma)))))
     sway_u8 = max(88, min(168, int(round(128.0 + rng.gauss(0.0, 18.0)))))
     VEG_INSTANCES.append((pid, float(x), float(y), float(z), float(yaw_rad), sxz, sy, seed_u8, luma_u8, sway_u8))
     VEG_COUNTS[proto_name] += 1
@@ -1179,17 +1179,23 @@ if _end_idxs and _n_ancient_tgt > 0:
         _ancient_set.add(_end_idxs[min(len(_end_idxs) - 1, int(round(_ai * _step_a)))])
 
 for _oi, (x, y, k, _is_end) in enumerate(TERRACE_OLIVES):
-    if _oi in _ancient_set:
+    _r_ol = T1RNG.random()
+    if _oi in _ancient_set or _r_ol < 0.08:
         proto = 'olive_ancient'
-        target_h = T1RNG.uniform(4.4, 5.6)
+        target_h = T1RNG.uniform(4.5, 5.9)
         sy = target_h / VEG_NOM_H[proto]
-        sxz = sy * T1RNG.uniform(0.95, 1.20)
+        sxz = sy * T1RNG.uniform(0.92, 1.24)
+    elif _r_ol < 0.32:
+        proto = 'olive_young'
+        target_h = T1RNG.uniform(2.6, 4.0)
+        sy = target_h / VEG_NOM_H[proto]
+        sxz = sy * T1RNG.uniform(0.80, 1.18)
     else:
-        proto = 'olive_terrace' if T1RNG.random() < 0.88 else 'olive_young'
-        target_h = T1RNG.uniform(3.2, 5.3) if proto == 'olive_terrace' else T1RNG.uniform(3.0, 4.1)
+        proto = 'olive_terrace'
+        target_h = T1RNG.uniform(3.0, 5.4)
         sy = target_h / VEG_NOM_H[proto]
-        sxz = sy * T1RNG.uniform(0.85, 1.20)
-    emit_veg(proto, x, y, H(x, y) - 0.12, T1RNG.uniform(0.0, 2.0 * math.pi), sxz, sy, T1RNG)
+        sxz = sy * T1RNG.uniform(0.82, 1.24)
+    emit_veg(proto, x, y, H(x, y) - 0.12, T1RNG.uniform(0.0, 2.0 * math.pi), sxz, sy, T1RNG, luma_sigma=40.0)
     TREES['olive'] += 1
     TREE_GRID.setdefault((int(x // 10.0), int(y // 10.0)), []).append((x, y, 4.8))
 

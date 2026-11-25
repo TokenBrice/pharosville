@@ -1703,11 +1703,12 @@ def build_cypress_sanctuary(mat, lod=0):
 OLIVE_BARK_BOT = srgb_to_lin('#554E46')
 OLIVE_BARK_TOP = srgb_to_lin('#888074')
 OLIVE_BARK_BLEACH = srgb_to_lin('#A69E92')
-# Authentic Olea europaea bi-colour foliage: darker dusty grey-green tops contrasting against luminous silvery undersides
-OLIVE_FOL_TOP = Vector((0.20, 0.24, 0.15))
-OLIVE_FOL_MID = Vector((0.27, 0.31, 0.23))
-OLIVE_FOL_BOT = Vector((0.42, 0.45, 0.38))
-OLIVE_SILVER = Vector((0.39, 0.42, 0.35))
+# Authentic Olea europaea sage-olive foliage: deep Mediterranean olive-sage crown with subtle sunlit silver-leaf shimmer
+# and rich volumetric top-to-underside shading (kept well below chalk-white so aerial rows never read as cotton puffs)
+OLIVE_FOL_TOP = Vector((0.125, 0.165, 0.095))
+OLIVE_FOL_MID = Vector((0.145, 0.180, 0.125))
+OLIVE_FOL_BOT = Vector((0.100, 0.126, 0.092))
+OLIVE_SILVER = Vector((0.215, 0.245, 0.188))
 
 
 def build_olive_ancient(mat, lod=0):
@@ -1808,10 +1809,10 @@ def build_olive_ancient(mat, lod=0):
             u_segs=us, v_rings=vr, rim_lobes=4, rim_wave=0.11, crinkle_amp=0.10, crinkle_lobes=5,
             noise_amp=0.09, top_pow=0.70, bot_pow=0.74, tilt=tilt,
             dome_w=0.62, dome_up=0.22, sway_min=44.0, sway_max=82.0,
-            mottle_col=OLIVE_SILVER, mottle_strength=0.16, seed=310 + i,
+            mottle_col=OLIVE_SILVER, mottle_strength=0.22, seed=310 + i,
         )
 
-    return pb.finalize(mat, macro_dome_mix=0.36, macro_up_bias=0.20, ao_strength=0.42, ao_min=0.52)
+    return pb.finalize(mat, macro_dome_mix=0.38, macro_up_bias=0.20, ao_strength=0.60, ao_min=0.36, under_ao_boost=0.26)
 
 
 def build_olive_terrace(mat, lod=0):
@@ -1893,10 +1894,10 @@ def build_olive_terrace(mat, lod=0):
             u_segs=us, v_rings=vr, rim_lobes=4, rim_wave=0.11, crinkle_amp=0.10, crinkle_lobes=5,
             noise_amp=0.09, top_pow=0.70, bot_pow=0.74, tilt=tilt,
             dome_w=0.62, dome_up=0.22, sway_min=42.0, sway_max=80.0,
-            mottle_col=OLIVE_SILVER, mottle_strength=0.16, seed=320 + i,
+            mottle_col=OLIVE_SILVER, mottle_strength=0.22, seed=320 + i,
         )
 
-    return pb.finalize(mat, macro_dome_mix=0.36, macro_up_bias=0.20, ao_strength=0.42, ao_min=0.52)
+    return pb.finalize(mat, macro_dome_mix=0.38, macro_up_bias=0.20, ao_strength=0.60, ao_min=0.36, under_ao_boost=0.26)
 
 
 def build_olive_young(mat, lod=0):
@@ -1955,10 +1956,10 @@ def build_olive_young(mat, lod=0):
             u_segs=us, v_rings=vr, rim_lobes=4, rim_wave=0.11, crinkle_amp=0.10, crinkle_lobes=5,
             noise_amp=0.09, top_pow=0.70, bot_pow=0.74, tilt=tilt,
             dome_w=0.62, dome_up=0.22, sway_min=40.0, sway_max=76.0,
-            mottle_col=OLIVE_SILVER, mottle_strength=0.15, seed=330 + i,
+            mottle_col=OLIVE_SILVER, mottle_strength=0.20, seed=330 + i,
         )
 
-    return pb.finalize(mat, macro_dome_mix=0.36, macro_up_bias=0.20, ao_strength=0.40, ao_min=0.52)
+    return pb.finalize(mat, macro_dome_mix=0.38, macro_up_bias=0.20, ao_strength=0.58, ao_min=0.38, under_ao_boost=0.24)
 
 
 # ==================================================================
