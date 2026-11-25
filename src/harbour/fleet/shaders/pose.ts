@@ -73,6 +73,9 @@ attribute vec2 aEmbUV;
 attribute vec3 aPaint;
 uniform highp sampler2D uFleetData;
 uniform highp sampler2D uFleetPaint;
+uniform sampler2D uHullSdf;
+uniform vec4 uHullSdfBounds;
+uniform vec2 uHullSceneCenter;
 uniform float uWind;
 uniform vec2 uFleetScreen;
 varying vec4 vPaintA;       // livery rgb, mode (0 keep · 1 paint · 2 topsides · 3 deck (keeps the grain) · 4 LOD topsides · 5 spar)
@@ -84,6 +87,15 @@ varying vec4 vFleetUV;      // sail uv, emblem uv
 varying vec4 vFleetRig;     // furl, node, flag, side (posed object-space normal z: covers print their roundel on ±z)
 varying vec4 vSailDye;      // sails: dye rgb, mode (uFleetPaint texel 4)
 varying float vFleetLamp;   // 06-F6: the stern lantern lit 0|1 (texel 2.z); E27: rig, -coverage
+varying vec2 vHullSea;      // x: hull origin world Y (batchingMatrix[3].y), y: coastal wave damping (0..1, matching OCEAN_VERT)
+float hbHullDamp(vec2 xz) {
+  vec2 span = uHullSdfBounds.zw - uHullSdfBounds.xy;
+  if (span.x <= 1.0 || span.y <= 1.0) return 1.0;
+  vec2 suv = (xz - uHullSdfBounds.xy) / span;
+  float inside = step(0.0, suv.x) * step(suv.x, 1.0) * step(0.0, suv.y) * step(suv.y, 1.0);
+  float coast = mix(200.0, (mix(textureLod(uHullSdf, clamp(suv, 0.0, 1.0), 0.0).r, 1.0, smoothstep(470.0, 560.0, length(xz - uHullSceneCenter))) - 0.5) * 128.0, inside);
+  return smoothstep(0.0, 34.0, coast) * 0.9 + 0.1 * smoothstep(-2.0, 2.0, coast);
+}
 vec4 hbFleetTexel(int idx, int k) {
   int size = textureSize(uFleetData, 0).x;
   int j = idx * FLEET_TEXELS + k;
@@ -189,6 +201,7 @@ void hbFleetPose(vec3 p, vec3 n) {
   // E04 (O5-F8): a LOD sail furls through its own morph: furled, no print
   vFleetRig = vec4(furl, node, aMeta.w, n.z);
   vFleetLamp = mo.z;
+  vHullSea = vec2(0.0, 1.0);
 }
 // E27: rig to RIG_FLOOR_PX CSS px along its radial normal; returns true / drawn width
 float hbRigFloor(inout vec3 p, vec3 n, mat4 bm) {

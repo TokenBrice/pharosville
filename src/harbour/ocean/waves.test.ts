@@ -109,6 +109,7 @@ describe("E14 one swell phase", () => {
 
   it("exports the main 62 m swell's phase, the very phase the hulls ride, to the CPU and to GLSL", () => {
     expect(W0.length).toBe(62);
+    for (const wv of WAVES) expect(wv.w).toBeCloseTo(Math.sqrt(9.81 * wv.k), 12);
     const r = rng(5);
     for (let n = 0; n < 500; n++) {
       const x = (r() - 0.5) * 3000, z = (r() - 0.5) * 3000, t = r() * 1e4;

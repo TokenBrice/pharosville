@@ -138,7 +138,7 @@ void main() {
     float lumS = dot(brand, vec3(0.2126, 0.7152, 0.0722));
     c = mix(mix(vec3(lumS), brand, 0.9) * 0.92, CLOTH * 0.9, 1.0 - smoothstep(0.03 - ax, 0.03 + ax, x));
     c = hbFlagLit(c, fN, fV, 1.28);
-    hbAerial(c, vec3(0.0), max(${f2(1 - FLAG_AIR)}, hi));
+    hbAerial(c, vWorldP, max(${f2(1 - FLAG_AIR)}, hi));
     gl_FragColor = vec4(c, 1.0);
     return;
   }
@@ -209,7 +209,7 @@ void main() {
   c *= mix(0.6, 1.0, smoothstep(0.0, 0.03 + ax, edge));
   c = hbFlagLit(c, fN, fV, style > 0.5 ? 0.95 : 0.82);
   // E04: the harbour's air (distress and highlight exempt; reserve ensigns take normal FLAG_AIR haze)
-  hbAerial(c, vec3(0.0), isDistress ? 1.0 : max(${f2(1 - FLAG_AIR)}, hi));
+  hbAerial(c, vWorldP, isDistress ? 1.0 : max(${f2(1 - FLAG_AIR)}, hi));
   gl_FragColor = vec4(c, 1.0);
 }`;
 

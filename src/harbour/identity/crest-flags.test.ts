@@ -102,7 +102,7 @@ describe("crest flags at the town's scale, lit as cloth", () => {
     expect(mat.uniforms.uAerialHaze).toBe(air.uHaze);
     expect(mat.uniforms.uHorizon).toBe(air.uHorizon);
     expect(mat.fragmentShader).toContain(`uGlow * (1.0 - smoothstep(0.0, ${CREST_GLOW_REACH.toFixed(2)}, vHoist))`);
-    expect(mat.fragmentShader).toContain(`hbAerial(c, vec3(0.0), ${(1 - CREST_AIR).toFixed(2)});`);
+    expect(mat.fragmentShader).toContain(`hbAerial(c, vWorldPos, ${(1 - CREST_AIR).toFixed(2)});`);
     expect(CREST_AIR).toBe(0.5);
     // twice O6's night dimming and its 0.035 truck lamp (was a 0.7 dim and a 0.16 glow over the whole cloth)
     expect(CREST_NIGHT_DIM).toBeGreaterThan(0.82);

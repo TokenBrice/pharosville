@@ -69,6 +69,10 @@ export function prefetchHarbour(assets: AssetStore): void {
     void import("../world/shaders/terrain").catch(() => {});
     void import("../world/vegetation-system").catch(() => {});
     void import("../world/groundcover-system").catch(() => {});
+    void import("../ocean/wake-collars").catch(() => {});
+    void import("../weather/precip").catch(() => {});
+    void import("../weather/lightning").catch(() => {});
+    void import("../weather/rainbow").catch(() => {});
   });
   void Promise.all([island, civic, layout]).then(([, manifest, layout]) => {
     if (assets.signal.aborted) return;

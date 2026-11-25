@@ -15,6 +15,7 @@ import type { LightsStore } from "../lights/lights-service";
 import type { EventsService } from "../model/event-hub";
 import type { HarbourModel } from "../model/types";
 import type { OceanService } from "../ocean/ocean-system";
+import type { Bounds4 } from "../ocean/sea-sdf";
 import type { SharedFxTextures } from "../ocean/textures";
 import type { WakeService } from "../ocean/wake";
 import type { ReadingsService } from "../readings/readings-system";
@@ -37,12 +38,15 @@ import type { PreparationService, ReadinessState, SimulationStatus } from "./typ
 
 /** S-3: High-only instanced hull waterline collars, bow mustaches and galley oar ripples (registered by W2). */
 export interface WakeCollarService {
+  readonly enabled: boolean;
   push(x: number, z: number, fx: number, fz: number, loa: number, beam: number, speed: number, kind: 0 | 1, oarPhase: number): void;
 }
 
 /** S-3: High-only dynamic per-frame boat/Titan water light pools at night (registered by W2). */
 export interface DynPoolService {
   light(x: number, z: number, y: number, radius: number, r: number, g: number, b: number): void;
+  glint?(x: number, y: number, z: number, r: number, g: number, b: number, reach: number, prominence: number): void;
+  setBounds(bounds: Bounds4): void;
 }
 
 /** Fixed service keys and their publishers' contracts. Services may arrive after their consumers. */

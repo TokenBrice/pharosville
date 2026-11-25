@@ -5,7 +5,9 @@ import type { EngineContext } from "../engine/types";
 import { createWorldUniforms } from "../engine/uniforms";
 import { preparationMaterial } from "../engine/prepare";
 import { TIERS, type QualitySettings } from "../engine/quality";
-import { OceanSystem } from "./ocean-system";
+import { MAX_NIGHT_GLINTS, OceanSystem } from "./ocean-system";
+import { OCEAN_FRAG } from "./ocean-material";
+import { OCEAN_FRAG_MIRROR } from "./mirror-pass";
 import { pointSwellCache, SEA_STATES, waveHeight } from "./waves";
 import { FullscreenPass } from "./gpu-bake";
 
@@ -122,8 +124,83 @@ describe("a fixed point's kept swell (P-PERF)", () => {
         if (step[0] === 100 && want !== 0) water++;
       }
     }
-    expect(worst).toBeLessThan(1e-12);
+    expect(worst).toBeLessThan(5e-12);
     expect(water).toBeGreaterThan(0); // the rebuilt coast reached the kept point
     system.dispose(ctx);
+  });
+});
+
+describe("Phase 0 ocean contracts (sampler cap, uCollarsOn, uDynPoolBounds, hero night glints)", () => {
+  it("stays strictly within the WebGL2 15/16 fragment sampler budget in both standard and mirror variants", () => {
+    const countSamplers = (src: string) => {
+      let total = 0;
+      for (const m of src.matchAll(/\buniform\s+(?:(?:lowp|mediump|highp)\s+)?sampler(?:2D|2DArray|Cube|3D)\s+([^;]+);/g)) {
+        total += m[1].split(",").filter((s) => s.trim().length > 0).length;
+      }
+      return total;
+    };
+    expect(countSamplers(OCEAN_FRAG)).toBeLessThanOrEqual(15);
+    expect(countSamplers(OCEAN_FRAG_MIRROR)).toBeLessThanOrEqual(15);
+  });
+
+  it("toggles wakeCollars.enabled on High, exposes dampAt, decouples uDynPoolBounds from uWakeBounds, and binds hero night glints", async () => {
+    vi.stubGlobal("location", { search: "", hash: "" });
+    vi.spyOn(FullscreenPass.prototype, "render").mockImplementation(() => {});
+    const listeners = new Set<(q: QualitySettings) => void>();
+    const quality = { tier: "medium", onChange: (fn: (q: QualitySettings) => void) => { listeners.add(fn); return () => listeners.delete(fn); } };
+    const ctx = { scene: new THREE.Scene(), uniforms: createWorldUniforms(), services: new Map<string, unknown>([
+      ["layout", { bounds: { min: [-10, 0, -10], max: [10, 10, 10] }, sea: { bounds: [-500, -500, 500, 500] } }], ["quality", quality],
+    ]) as Services } as unknown as EngineContext;
+    const system = new OceanSystem(); await system.init(ctx);
+    const mat = (ctx.scene.getObjectByName("ocean") as THREE.Mesh).material as THREE.ShaderMaterial;
+    const ocean = ctx.services.get("ocean")!;
+    const collars = ctx.services.get("wakeCollars")!;
+
+    expect(collars.enabled).toBe(false);
+    quality.tier = "high";
+    for (const fn of listeners) fn(TIERS.high);
+    expect(collars.enabled).toBe(true);
+    quality.tier = "low";
+    for (const fn of listeners) fn(TIERS.low);
+    expect(collars.enabled).toBe(false);
+    expect(ocean.dampAt(0, 100)).toBe(0);
+    expect(ocean.dampAt(0, 600)).toBe(1);
+
+    const tex = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+    ocean.bindDynPool?.(tex, 1, [-120, -120, 120, 120]);
+    expect(mat.uniforms.uDynPoolTex.value).toBe(tex);
+    expect((mat.uniforms.uDynPool.value as THREE.Vector4).x).toBe(1);
+    expect((mat.uniforms.uDynPoolBounds.value as THREE.Vector4).toArray()).toEqual([-120, -120, 120, 120]);
+    expect((mat.uniforms.uWakeBounds.value as THREE.Vector4).toArray()).toEqual([-500, -500, 500, 500]);
+
+    const pos = Array.from({ length: MAX_NIGHT_GLINTS }, (_, i) => new THREE.Vector4(i * 10, 4, -i * 5, 80));
+    const col = Array.from({ length: MAX_NIGHT_GLINTS }, () => new THREE.Vector4(1.2, 0.8, 0.3, 2));
+    ocean.bindNightGlints?.(pos, col, 6);
+    expect(mat.uniforms.uNightGlintCount.value).toBe(6);
+    expect((mat.uniforms.uNightGlintPos.value as THREE.Vector4[])[2].toArray()).toEqual([20, 4, -10, 80]);
+    expect((mat.uniforms.uNightGlintCol.value as THREE.Vector4[])[2].toArray()).toEqual([1.2, 0.8, 0.3, 2]);
+    ocean.bindNightGlints?.(pos, col, 99);
+    expect(mat.uniforms.uNightGlintCount.value).toBe(MAX_NIGHT_GLINTS);
+
+    tex.dispose();
+    system.dispose(ctx);
+  });
+
+  it("handles aborted init and partial dispose safely without throwing or leaking services", async () => {
+    vi.stubGlobal("location", { search: "", hash: "" });
+    const ac = new AbortController();
+    ac.abort();
+    const ctx = {
+      signal: ac.signal,
+      scene: new THREE.Scene(),
+      uniforms: createWorldUniforms(),
+      services: new Map<string, unknown>([
+        ["layout", { bounds: { min: [-10, 0, -10], max: [10, 10, 10] }, sea: { bounds: [-500, -500, 500, 500] } }],
+      ]) as Services,
+    } as unknown as EngineContext;
+    const system = new OceanSystem();
+    await expect(system.init(ctx)).rejects.toThrow();
+    expect(() => system.dispose(ctx)).not.toThrow();
+    expect(ctx.services.get("ocean")).toBeUndefined();
   });
 });

@@ -285,7 +285,7 @@ vec3 hbVw=inverseTransformDirection(normalize(vViewPosition),viewMatrix);
 float hbSkyL=hbLuma(uHemiSky),hbWS=smoothstep(0.0,0.25,uWetness);
 outgoingLight+=min(hbEnvSpec(hbShadeN,hbVw,roughnessFactor,mix(0.012,0.028,hbWRock*(1.0-max(hbWS,hbSnow)))),vec3(mix(4.0,0.35*hbSkyL+0.01,hbWS)))*uRimK*hbOcc;
 outgoingLight+=hbBounceFill(diffuseColor.rgb,hbShadeN,uHbSunDir,uHbSunColor,hbOcc,uNight)+diffuseColor.rgb*(hbPool(vHbWorld,hbShadeN)+hbBeamLight(vHbWorld,hbShadeN)*hbOcc+hbPharosFire(vHbWorld,hbShadeN));
-outgoingLight+=max(diffuseColor.rgb,vec3(0.12))*uNightLift*hbOcc*(0.6+0.4*max(hbShadeN.y,0.0))+min(hbEnvSpec(hbShadeN,hbVw,0.02,0.03),vec3(0.3*hbSkyL+0.003))*hbPuddle*hbOcc;
+outgoingLight+=max(diffuseColor.rgb,vec3(0.048))*uNightLift*hbOcc*(0.6+0.4*max(hbShadeN.y,0.0))+min(hbEnvSpec(hbShadeN,hbVw,0.02,0.03),vec3(0.3*hbSkyL+0.003))*hbPuddle*hbOcc;
 if(hbSnow>0.01)outgoingLight+=uHbSunColor*step(0.992,hbWhite(floor(vHbWorld*4.5)+101.0))*hbTFine(hbSdW,0.22)*pow(max(dot(reflect(-hbVw,hbShadeN),uHbSunDir),0.0),4.0)*hbSnow*hbCs*0.5;
 #ifndef HB_LITE
 if(uHbDew.x>0.002&&hbWGrass>0.05)outgoingLight+=uHbSunColor*uHbDew.x*hbWGrass*step(0.985,hbWhite(floor(vHbWorld*6.0)+37.0))*hbTFine(hbSdW,0.17)*pow(max(dot(reflect(-hbVw,hbShadeN),uHbSunDir),0.0),6.0)*hbCs*0.6;

@@ -12,11 +12,23 @@ import { LAMP_WAVE_GLSL, LAMP_WAVE_SPREAD, lampGlow, lampWaveUniforms, setLampWa
 import { FullscreenPass } from "../ocean/gpu-bake";
 import { COPY_FRAG } from "../engine/shaders/copy";
 import { defaultSeaBounds, type Bounds4 } from "../ocean/sea-sdf";
-import { DynPool } from "./dyn-pool";
+import { DynPool, dynPoolBoundsFor, GLINT_CANDIDATE_STRIDE, MAX_NIGHT_GLINTS } from "./dyn-pool";
 import type { DynPoolService } from "../engine/services";
+import type { OceanService } from "../ocean/ocean-system";
 
 const MAX_POINT = 16;
 const POOL_RES = 2048;
+
+interface NightGlintKindSpec { prom: number; reach: number; gain: number }
+const GLINT_SPECS: Record<string, NightGlintKindSpec> = {
+  harbourlight: { prom: 2.6, reach: 110, gain: 1.65 },
+  pierhead: { prom: 2.2, reach: 90, gain: 1.35 },
+  brazier: { prom: 2.1, reach: 95, gain: 1.25 },
+  lamp: { prom: 1.3, reach: 65, gain: 0.95 },
+  signal: { prom: 1.4, reach: 60, gain: 1.05 },
+};
+const DEFAULT_GLINT_SPEC: NightGlintKindSpec = { prom: 1.0, reach: 52, gain: 0.78 };
+const glintSpecFor = (kind: string): NightGlintKindSpec => GLINT_SPECS[kind] ?? DEFAULT_GLINT_SPEC;
 
 /**
  * E09: point lights only where they show. The tier's whole count while the camera stands within 800 m of its
@@ -133,6 +145,12 @@ export class LightsSystem implements WorldSystem {
   private offPreparation: (() => void) | undefined;
   /** §6.3.2 High-only dynamic per-frame boat/Titan water light pools (seam S-2 / S-3, D-7). */
   private dynPool!: DynPool;
+  private readonly dynBoundsScratch: Bounds4 = [-240, -240, 240, 240];
+  private glintBudget = MAX_NIGHT_GLINTS;
+  private readonly glintScore = new Float64Array(MAX_NIGHT_GLINTS);
+  private readonly glintIdx = new Int32Array(MAX_NIGHT_GLINTS);
+  private readonly glintPos = Array.from({ length: MAX_NIGHT_GLINTS }, () => new THREE.Vector4());
+  private readonly glintCol = Array.from({ length: MAX_NIGHT_GLINTS }, () => new THREE.Vector4());
 
   init(ctx: EngineContext): void {
     this.store = getLightsStore(ctx);
@@ -239,9 +257,11 @@ export class LightsSystem implements WorldSystem {
         uWindowGlow: u.uWindowGlow, uNight: u.uNight, uTime: this.decorativeTime, ...lampWaveUniforms,
         uGround: { value: g?.texture ?? null }, uGroundB: { value: g ? new THREE.Vector4(g.bounds[0], g.bounds[3], 1 / (g.bounds[2] - g.bounds[0]), 1 / (g.bounds[3] - g.bounds[1])) : new THREE.Vector4() },
         uHasGround: { value: g ? 1 : 0 },
+        uPillarCloseFade: { value: 0 },
       },
       vertexShader: /* glsl */ `
         ${GLSL_GLOW}
+        uniform float uPillarCloseFade;
         attribute vec3 iPos; attribute vec4 iCol; attribute vec4 iPar; attribute float iWet; attribute float iAna;
         varying vec2 vQ; varying vec3 vC; varying vec2 vW; varying vec2 vL;
         void main() {
@@ -254,10 +274,11 @@ export class LightsSystem implements WorldSystem {
           vec2 p = iPos.xz + side * position.x * wid * (1.0 + t * 0.6) + toCam * (iWet + (t - 0.04) * len);
           vQ = vec2(position.x * 2.0, t); vW = p;
           vL = vec2(position.x * wid, t * len + iPos.x * 0.37 + iPos.z * 0.61);   // pillar frame (m), per-light phase
-          // fade with distance (the overview keeps a hint), and riding lights (small sprites) stay modest
+          // fade with distance (the overview keeps a hint); on High retire close flat quads (< 560 m) in favour of DynPool + GGX glints
           float camD = distance(cameraPosition, iPos);
-          vC = iCol.rgb * lhGlowAt(iPar.y, iPos, iAna) * 0.85 * mix(1.0, 0.3, smoothstep(220.0, 900.0, camD)) * (iPar.x < 0.4 ? 0.5 : 1.0);
-          bool show = iCol.a > 0.0 && iPar.w < 0.0;
+          float closeFade = mix(1.0, smoothstep(360.0, 560.0, camD), uPillarCloseFade);
+          vC = iCol.rgb * lhGlowAt(iPar.y, iPos, iAna) * 0.85 * mix(1.0, 0.3, smoothstep(220.0, 900.0, camD)) * closeFade * (iPar.x < 0.4 ? 0.5 : 1.0);
+          bool show = iCol.a > 0.0 && iPar.w < 0.0 && closeFade > 0.001;
           gl_Position = show ? projectionMatrix * viewMatrix * vec4(p.x, 1.1, p.y, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);   // above the swell crests
         }`,
       fragmentShader: /* glsl */ `
@@ -316,6 +337,8 @@ export class LightsSystem implements WorldSystem {
     const high = settings.tier === "high";
     if (!high) ctx.services.get("ocean")?.bindDynPool?.(null, 0);
     this.dynPool.setActive(high);
+    (this.pillars.material as THREE.ShaderMaterial).uniforms.uPillarCloseFade.value = high ? 1 : 0;
+    this.glintBudget = settings.tier === "high" ? 16 : settings.tier === "medium" ? 8 : 4;
     const size = settings.tier === "low" ? 1024 : POOL_RES;
     if (this.poolRT.width !== size) {
       const previous = this.poolRT, next = previous.clone(); next.setSize(size, size);
@@ -436,16 +459,21 @@ export class LightsSystem implements WorldSystem {
     w.fromEdge += (edge - w.fromEdge) * (1 - Math.exp(-frame.delta / 3));
     setLampWave(w);
     const g = ctx.uniforms.uWindowGlow.value;
-    // §6.3.2 High-only dynamic boat/Titan night pools (runs after FleetSystem.update, before render: zero-frame latency)
+    const distance = ctx.rig.distance;
+    const ocean = ctx.services.get("ocean");
+    // E09 at the overview: the decorative lamps' pools and glass over the tilt-shift's range (layout-system.ts sets it)
+    const post = ctx.services.get("post");
+    const farScale = post ? lampFar(distance, post.tiltNear, post.tiltFar) : 1;
+    getHarbourMaterials(ctx).pool.uLampFar.value = farScale;
+    // §6.3.2 High-only target-centered 1024² dynamic boat/Titan night pools (runs after FleetSystem.update, before render)
+    dynPoolBoundsFor(ctx.rig.target.x, ctx.rig.target.z, distance, this.dynBoundsScratch);
+    this.dynPool.setBounds(this.dynBoundsScratch);
     const dyn = this.dynPool.render(ctx.renderer, g);
-    ctx.services.get("ocean")?.bindDynPool?.(dyn.texture, dyn.intensity);
+    ocean?.bindDynPool?.(dyn.texture, dyn.intensity, dyn.bounds);
+    this.pickNightGlints(ctx, g, farScale, ocean);
     // Zero RGB under additive blending and no depth writes; post clamps the opaque scene's alpha.
     // Never threshold a small glow: dawn/dusk contributions and all other lighting stay unchanged.
     this.sprites.visible = this.pillars.visible = g !== 0;
-    const distance = ctx.rig.distance;
-    // E09 at the overview: the decorative lamps' pools and glass over the tilt-shift's range (layout-system.ts sets it)
-    const post = ctx.services.get("post");
-    getHarbourMaterials(ctx).pool.uLampFar.value = post ? lampFar(distance, post.tiltNear, post.tiltFar) : 1;
     for (let k = 0; k < MAX_POINT; k++) {
       const p = this.points[k], l = this.store.lights[this.bestI[k]];
       // lhGlowAt on the CPU: an analytical light sees the clock itself (D11), a decorative one its lamp's moment
@@ -500,10 +528,84 @@ export class LightsSystem implements WorldSystem {
     }
   }
 
+  /**
+   * Select up to `glintBudget` (16 High / 8 Med / 4 Low) prominent waterfront, pierhead, brazier and riding lights
+   * near open water for anisotropic GGX shimmer columns in the ocean shader. Strictly allocation-free.
+   */
+  private pickNightGlints(ctx: EngineContext, g: number, farScale: number, ocean: OceanService | undefined): void {
+    const dynCount = this.dynPool.glintCount;
+    const dynData = this.dynPool.glintData;
+    const want = Math.min(this.glintBudget, MAX_NIGHT_GLINTS);
+    if (!ocean?.bindNightGlints || g <= 0.02 || want <= 0) {
+      this.dynPool.clearGlints();
+      ocean?.bindNightGlints?.(this.glintPos, this.glintCol, 0);
+      return;
+    }
+    const focus = ctx.rig.target;
+    const camPos = ctx.camera.position;
+    const L = this.store.lights;
+    const w = this.store.wave;
+    const bestS = this.glintScore, bestI = this.glintIdx;
+    let n = 0;
+    for (let i = 0; i < L.length; i++) {
+      const l = L[i];
+      if (!l.alive || !l.on || l.k <= 0.01) continue;
+      const kind = l.kind;
+      if (kind === "window" || kind === "hearth") continue;
+      if (l.position.y <= 0.2 || l.position.y > 45) continue;
+      if (this.ground && kind !== "brazier" && kind !== "harbourlight" && kind !== "pierhead" && this.nearWater[i] !== 2) continue;
+      const rawGlow = l.spec.analytic ? g : lampGlow(g, this.store.rankAt(l.position), w.spread);
+      const glow = THREE.MathUtils.smoothstep(rawGlow, 0.02, 0.55) * l.k;
+      if (glow <= 0.01) continue;
+      const { prom } = glintSpecFor(kind);
+      const d2 = l.position.distanceToSquared(focus) * 0.75 + l.position.distanceToSquared(camPos) * 0.25;
+      const score = (d2 + 100) / (prom * prom * (0.3 + 0.7 * glow));
+      if (n === want && score >= bestS[n - 1]) continue;
+      let j = n < want ? n++ : n - 1;
+      while (j > 0 && bestS[j - 1] > score) { bestS[j] = bestS[j - 1]; bestI[j] = bestI[j - 1]; j--; }
+      bestS[j] = score; bestI[j] = i;
+    }
+    for (let ci = 0; ci < dynCount; ci++) {
+      const o = ci * GLINT_CANDIDATE_STRIDE;
+      const gx = dynData[o], gy = dynData[o + 1], gz = dynData[o + 2];
+      const gr = dynData[o + 4], gg = dynData[o + 5], gb = dynData[o + 6], prom = dynData[o + 7];
+      const lum = gr * 0.2126 + gg * 0.7152 + gb * 0.0722;
+      if (gy <= 0.1 || gy > 45 || lum <= 0.01) continue;
+      const dfx = gx - focus.x, dfy = gy - focus.y, dfz = gz - focus.z;
+      const dcx = gx - camPos.x, dcy = gy - camPos.y, dcz = gz - camPos.z;
+      const d2 = (dfx * dfx + dfy * dfy + dfz * dfz) * 0.75 + (dcx * dcx + dcy * dcy + dcz * dcz) * 0.25;
+      const score = (d2 + 100) / (prom * prom * (0.3 + 0.7 * Math.min(1.5, lum)));
+      if (n === want && score >= bestS[n - 1]) continue;
+      let j = n < want ? n++ : n - 1;
+      while (j > 0 && bestS[j - 1] > score) { bestS[j] = bestS[j - 1]; bestI[j] = bestI[j - 1]; j--; }
+      bestS[j] = score; bestI[j] = -(ci + 1);
+    }
+    for (let k = 0; k < n; k++) {
+      const idx = bestI[k];
+      if (idx < 0) {
+        const o = (-idx - 1) * GLINT_CANDIDATE_STRIDE;
+        this.glintPos[k].set(dynData[o], dynData[o + 1], dynData[o + 2], dynData[o + 3]);
+        this.glintCol[k].set(dynData[o + 4], dynData[o + 5], dynData[o + 6], dynData[o + 7]);
+      } else {
+        const l = L[idx];
+        const { prom, reach, gain } = glintSpecFor(l.kind);
+        const rawGlow = l.spec.analytic ? g : lampGlow(g, this.store.rankAt(l.position), w.spread);
+        const glow = THREE.MathUtils.smoothstep(rawGlow, 0.02, 0.55) * l.k;
+        const scale = glow * gain * (l.spec.analytic ? 1 : farScale);
+        this.glintPos[k].set(l.position.x, l.position.y, l.position.z, reach);
+        this.glintCol[k].set(l.color.r * scale, l.color.g * scale, l.color.b * scale, prom);
+      }
+    }
+    this.dynPool.clearGlints();
+    ocean.bindNightGlints(this.glintPos, this.glintCol, n);
+  }
+
   dispose(ctx: EngineContext): void {
     this.offQuality?.();
     this.offPreparation?.();
-    ctx.services.get("ocean")?.bindDynPool?.(null, 0);
+    const ocean = ctx.services.get("ocean");
+    ocean?.bindDynPool?.(null, 0);
+    ocean?.bindNightGlints?.(this.glintPos, this.glintCol, 0);
     this.dynPool.dispose();
     ctx.services.delete("dynPool");
     ctx.scene.remove(this.sprites, this.pillars, ...this.points);

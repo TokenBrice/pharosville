@@ -100,7 +100,7 @@ void main() {
   vec3 rim = t.rgb * uSunColor * pow(1.0 - clamp(abs(dot(N, V)), 0.0, 1.0), 3.0) * sunFace * daySun * 0.10;
   // lit as cloth; the truck lamp at the hoist head
   vec3 c = t.rgb * clothTex * (uLight * shade + uGlow * (1.0 - smoothstep(0.0, ${CREST_GLOW_REACH.toFixed(2)}, vHoist))) + sss + rim;
-  hbAerial(c, vec3(0.0), ${(1 - CREST_AIR).toFixed(2)});
+  hbAerial(c, vWorldPos, ${(1 - CREST_AIR).toFixed(2)});
   gl_FragColor = vec4(c, 1.0);
 }`;
 

@@ -5,16 +5,37 @@ import type { Bounds4 } from "../ocean/sea-sdf";
 /**
  * High-only dynamic per-frame boat-to-water night light pools (`dynPool` service, §6.3.2, seams S-2 / S-3, D-7).
  *
- * Owns a dedicated 512×512 RGBA16F render target over the exact world-XZ bounds as `uWakeBounds`
- * (`[minX, minZ, maxX, maxZ]`). Allocated strictly on High and disposed immediately on leaving High or dispose().
+ * Owns a dedicated 1024×1024 RGBA16F render target centered on the camera rig target (`[minX, minZ, maxX, maxZ]`,
+ * decoupled from `uWakeBounds`). Allocated strictly on High and disposed immediately on leaving High or dispose().
  * Renders 1 instanced additive quad draw ONLY when `active && windowGlow > 0.02 && count > 0`; otherwise binds no
  * RT (zero GPU cost by day or on Medium/Low). Pushed lights are cleared every frame after render().
  */
-export const DYN_POOL_RES = 512;
+export const DYN_POOL_RES = 1024;
+export const DYN_POOL_SNAP = 16;
+export const MAX_NIGHT_GLINTS = 16;
 const MAX_DYN_LIGHTS = 1024;
+const MAX_GLINT_CANDIDATES = 128;
+/** Stride of each packed fleet/Titan night-glint candidate: x, y, z, reach, r, g, b, prominence. */
+export const GLINT_CANDIDATE_STRIDE = 8;
+
+/**
+ * Target-centered DynPool bounds quantized by rig distance (half-extents 160 / 360 / 540 m) and snapped to 16 m
+ * world increments so boat/Titan night pools hold 0.31–0.70 m/texel over the visible frustum footprint (including
+ * Heart view's lower mole and outer Roads) without texel crawl during small pans.
+ */
+export function dynPoolBoundsFor(targetX: number, targetZ: number, distance: number, out: Bounds4 = [0, 0, 0, 0]): Bounds4 {
+  const half = distance <= 320 ? 160 : distance <= 720 ? 360 : 540;
+  const cx = Math.round(targetX / DYN_POOL_SNAP) * DYN_POOL_SNAP;
+  const cz = Math.round(targetZ / DYN_POOL_SNAP) * DYN_POOL_SNAP;
+  out[0] = cx - half;
+  out[1] = cz - half;
+  out[2] = cx + half;
+  out[3] = cz + half;
+  return out;
+}
 
 export const DYN_POOL_VERT = /* glsl */ `
-uniform vec4 uBounds; // minX, minZ, maxX, maxZ (matches uWakeBounds)
+uniform vec4 uBounds; // minX, minZ, maxX, maxZ (target-centered)
 attribute vec4 iPosR; // x, z, y, radius
 attribute vec3 iCol;  // r, g, b
 varying vec2 vQ;
@@ -51,6 +72,7 @@ void main() {
 export interface DynPoolRenderResult {
   texture: THREE.Texture | null;
   intensity: number;
+  bounds: Bounds4;
 }
 
 export class DynPool implements DynPoolService {
@@ -58,6 +80,8 @@ export class DynPool implements DynPoolService {
   private rt: THREE.WebGLRenderTarget | null = null;
   private active = false;
   private count = 0;
+  private glintN = 0;
+  private readonly glintBuf = new Float32Array(MAX_GLINT_CANDIDATES * GLINT_CANDIDATE_STRIDE);
   private readonly geo: THREE.InstancedBufferGeometry;
   private readonly mat: THREE.ShaderMaterial;
   private readonly attrPosR: THREE.InstancedBufferAttribute;
@@ -69,7 +93,7 @@ export class DynPool implements DynPoolService {
   private readonly clearColor = new THREE.Color();
 
   constructor(bounds: Bounds4, private readonly res = DYN_POOL_RES) {
-    this.bounds = bounds;
+    this.bounds = [bounds[0], bounds[1], bounds[2], bounds[3]];
     this.geo = new THREE.InstancedBufferGeometry();
     this.geo.setAttribute("position", new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
     this.geo.setIndex([0, 1, 2, 0, 2, 3]);
@@ -106,8 +130,40 @@ export class DynPool implements DynPoolService {
   get texture(): THREE.Texture | null { return this.rt?.texture ?? null; }
   get target(): THREE.WebGLRenderTarget | null { return this.rt; }
   get pendingCount(): number { return this.count; }
+  get glintCount(): number { return this.glintN; }
+  get glintData(): Float32Array { return this.glintBuf; }
 
-  /** High-only gate (D-7): allocates 512×512 RGBA16F RT on High, disposes immediately on Medium/Low. */
+  /** Submit a dynamic fleet/Titan hero night-glint candidate (available across all quality tiers, allocation-free). */
+  glint(x: number, y: number, z: number, r: number, g: number, b: number, reach: number, prominence: number): void {
+    if (this.glintN >= MAX_GLINT_CANDIDATES || reach <= 0 || prominence <= 0 || (r <= 0 && g <= 0 && b <= 0)) return;
+    const o = this.glintN++ * GLINT_CANDIDATE_STRIDE;
+    this.glintBuf[o] = x;
+    this.glintBuf[o + 1] = y;
+    this.glintBuf[o + 2] = z;
+    this.glintBuf[o + 3] = reach;
+    this.glintBuf[o + 4] = r;
+    this.glintBuf[o + 5] = g;
+    this.glintBuf[o + 6] = b;
+    this.glintBuf[o + 7] = prominence;
+  }
+
+  /** Clear per-frame dynamic glint candidates after LightsSystem selects the frame's hero glints. */
+  clearGlints(): void {
+    this.glintN = 0;
+  }
+
+  /** Update world-XZ coverage bounds (target-centered, decoupled from wake bounds) without reallocating. */
+  setBounds(bounds: Bounds4): void {
+    const b = this.bounds;
+    if (b[0] === bounds[0] && b[1] === bounds[1] && b[2] === bounds[2] && b[3] === bounds[3]) return;
+    b[0] = bounds[0];
+    b[1] = bounds[1];
+    b[2] = bounds[2];
+    b[3] = bounds[3];
+    (this.mat.uniforms.uBounds.value as THREE.Vector4).set(b[0], b[1], b[2], b[3]);
+  }
+
+  /** High-only gate (D-7): allocates 1024×1024 RGBA16F RT on High, disposes immediately on Medium/Low. */
   setActive(active: boolean): void {
     if (active === this.active) return;
     this.active = active;
@@ -148,7 +204,7 @@ export class DynPool implements DynPoolService {
   }
 
   /**
-   * Render all pushed boat/Titan light pools into the 512×512 RGBA16F RT ONLY when
+   * Render all pushed boat/Titan light pools into the 1024×1024 RGBA16F RT ONLY when
    * `active && windowGlow > 0.02 && count > 0`, then clear pushed lights for the next frame.
    */
   render(renderer: THREE.WebGLRenderer, windowGlow: number): DynPoolRenderResult {
@@ -156,7 +212,7 @@ export class DynPool implements DynPoolService {
     this.count = 0;
     if (!this.active || !this.rt || windowGlow <= 0.02 || n === 0) {
       this.geo.instanceCount = 0;
-      return { texture: null, intensity: 0 };
+      return { texture: null, intensity: 0, bounds: this.bounds };
     }
     this.geo.instanceCount = n;
     this.attrPosR.clearUpdateRanges(); this.attrPosR.addUpdateRange(0, n * 4); this.attrPosR.needsUpdate = true;
@@ -177,7 +233,7 @@ export class DynPool implements DynPoolService {
       renderer.autoClear = prevAuto;
       renderer.setRenderTarget(prevTarget);
     }
-    return { texture: this.rt.texture, intensity: 1 };
+    return { texture: this.rt.texture, intensity: 1, bounds: this.bounds };
   }
 
   dispose(): void {

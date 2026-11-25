@@ -240,17 +240,26 @@ describe("E08 overview focus", () => {
     }
   });
 
-  it("PostChain: at the overview the sharp row is the harbour (lantern to docked rows) and the soft zone is capped", () => {
+  it("PostChain: overview tilt-shift defaults OFF (opacity 0) and preserves E08 sharp band & heart fade-out when opted in", () => {
     vi.stubGlobal("location", { search: "", hash: "" });
     const { camera, rig } = rigAt("overview", 1.6);
     const tiltShift = new TiltShiftEffect({ focusArea: 0.6, feather: 0.38, offset: 0.06 });
+    const vignette = new VignetteEffect();
     // (private fields set directly: the chain is built without a WebGL renderer)
     const chain = Object.create(PostChain.prototype) as PostChain;
     Object.assign(chain as unknown as Record<string, unknown>, {
-      renderer: { toneMappingExposure: 1 }, bloom: new BloomEffect(), tiltShift, vignette: new VignetteEffect(),
+      renderer: { toneMappingExposure: 1 }, bloom: new BloomEffect(), tiltShift, vignette,
       cam: camera, focusV: new THREE.Vector3(), band: { lo: 0, hi: 0 }, lutAge: 0, lutKey: new Float32Array(15),
-      tiltNear: 715, tiltFar: 1000, tiltFocus: [new THREE.Vector3(...heroPoints(L)[0]), lantern], tiltDock: dock,
+      tiltNear: 715, tiltFar: 1000, tiltShiftEnabled: false,
+      tiltFocus: [new THREE.Vector3(...heroPoints(L)[0]), lantern], tiltDock: dock,
     });
+    // Decision A3: OFF by default at overview (0.00 ms GPU skip), while vignette still tracks z
+    chain.update(0.016, new TimeOfDay(), rig);
+    expect(tiltShift.blendMode.opacity.value).toBe(0);
+    expect(vignette.darkness).toBeCloseTo(0.44, 6);
+
+    // Opt-in (?tilt=1 or runtime toggle): sharp row spans lantern to docked rows and soft zone is capped
+    chain.tiltShiftEnabled = true;
     chain.update(0.016, new TimeOfDay(), rig);
     expect(tiltShift.blendMode.opacity.value).toBeCloseTo(TILT_OPACITY, 9);
     expect(TILT_OPACITY).toBeLessThanOrEqual(0.35);

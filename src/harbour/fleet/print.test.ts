@@ -126,7 +126,7 @@ describe("flags in the harbour's pigment and air (E04, ruling V3)", () => {
     expect(material.fragmentShader).toContain("float hi = step(7.50, vBrand.w);");
     expect(material.fragmentShader).toContain("bool isDistress = style > 1.5 && style < 2.5;");
     expect(material.fragmentShader).toContain("bool isReserve = style > 2.5 && style < 3.5;");
-    expect(material.fragmentShader).toContain(`hbAerial(c, vec3(0.0), isDistress ? 1.0 : max(${(1 - FLAG_AIR).toFixed(2)}, hi));`);
+    expect(material.fragmentShader).toContain(`hbAerial(c, vWorldP, isDistress ? 1.0 : max(${(1 - FLAG_AIR).toFixed(2)}, hi));`);
     expect(material.fragmentShader).toContain("c = vec3(0.76, 0.67, 0.50);");
     expect(material.fragmentShader).toContain("c = mix(c, vec3(0.26, 0.16, 0.06), bars);");
     expect(material.fragmentShader).toContain("cx = 0.56; R = 0.22;");

@@ -81,7 +81,7 @@ const NIGHT: Omit<TimeKeyframe, "hour"> = {
   hemiSky: "#1C2B4D", hemiGround: "#25304C", worldK: 1.16,
   ambient: "#1C2844", zenith: "#040718", horizon: "#1D2740", haze: "#151C30",
   fogDensity: 0.0012, night: 1, windowGlow: 1, exposure: 0.42, bloom: [0.68, 1.0], lamp: 44, lens: 15,
-  windowOcc: 0.46, nightLift: 0.085,
+  windowOcc: 0.46, nightLift: 0.048,
   grade: { lift: [0.98, 0.988, 1.035], gamma: [0.98, 1.0, 1.02], gain: [1.05, 1.0, 0.96], saturation: 1.08, contrast: 1.35, shadowSat: 0.66, blueSat: 0.86, warmSat: 1.12 },
 };
 
@@ -110,14 +110,14 @@ export const DEFAULT_KEYFRAMES: TimeKeyframe[] = [
     fillColor: "#9ABCEB", fillIntensity: 0.4, fillAz: 250, fillEl: 40,
     hemiSky: "#7EA2CA", hemiGround: "#C8C8BE", worldK: 0.58,
     ambient: "#7EA2CA", zenith: "#4E88CC", horizon: dayAir("#E6EEF0", MORNING_AIR), haze: dayAir("#C2D3DC", MORNING_AIR),
-    fogDensity: 0.0008, night: 0, windowGlow: 0, exposure: 0.04, bloom: [0.32, 1.92], lamp: 0.4, lens: 3,
+    fogDensity: 0.00055, night: 0, windowGlow: 0, exposure: 0.04, bloom: [0.32, 1.92], lamp: 0.4, lens: 3,
     grade: { lift: [0.985, 0.99, 1.005], gamma: [1, 1, 1], gain: [1.018, 1, 0.985], saturation: 1.13, contrast: 1.34, blueSat: 0.84, warmSat: 1.09 } },
   // noon (palette.json time_of_day.noon) — crisp Aegean sun brilliance against luminous sapphire sky fill
   { hour: 12, sunColor: "#FFF0DA", sunIntensity: 4.85, sunAz: 160, sunEl: 58,
     fillColor: "#9ABCEB", fillIntensity: 0.36, fillAz: 30, fillEl: 40,
     hemiSky: "#7D9EC8", hemiGround: "#CAC8BA", worldK: 0.56,
     ambient: "#7D9EC8", zenith: "#4B84CA", horizon: dayAir("#E8F1F4"), haze: dayAir("#BCD3DF"),
-    fogDensity: 0.0007, night: 0, windowGlow: 0, exposure: 0, bloom: [0.28, 1.98], lamp: 0.4, lens: 3,
+    fogDensity: 0.00045, night: 0, windowGlow: 0, exposure: 0, bloom: [0.28, 1.98], lamp: 0.4, lens: 3,
     grade: { lift: [0.982, 0.985, 1.0], gamma: [1, 1, 1], gain: [1.015, 1, 0.988], saturation: 1.12, contrast: 1.37, blueSat: 0.84, warmSat: 1.08 } },
   { hour: 16, sunColor: "#FFE0B4", sunIntensity: 5.0, sunAz: 240, sunEl: 30,
     fillColor: "#88A4DF", fillIntensity: 0.34, fillAz: 80, fillEl: 38,

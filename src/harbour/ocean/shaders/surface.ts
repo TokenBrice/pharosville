@@ -47,8 +47,11 @@ uniform float uDebug;
 // town lights (lights system's top-down pool RT): reflected in the water at night
 uniform sampler2D uPoolTex;
 uniform vec4 uPoolBounds;
-uniform sampler2D uDynPoolTex;  // S-2 seam: dynamic boat/Titan night water pools (same bounds as uWakeLive)
-uniform vec4 uDynPool;          // x = intensity (0 = off)
+uniform sampler2D uDynPoolTex;
+uniform vec4 uDynPool, uDynPoolBounds;
+uniform vec4 uNightGlintPos[16];
+uniform vec4 uNightGlintCol[16];
+uniform float uNightGlintCount;
 uniform float uWindowGlow, uLampArrive;
 uniform vec2 uSceneCenter;
 uniform float uSceneRadius;
@@ -158,6 +161,7 @@ void main() {
   vec2 pawUv = xz * 0.0019 - wdir * t * (0.004 + 0.012 * wind);
   float paws = smoothstep(0.38, 0.7, texture2D(uNoise, pawUv).g * 0.7 + texture2D(uNoise, pawUv * 2.7 + 0.3).b * 0.45);
   paws = max(paws, hbGust(xz, uGust.w, uGust.xy) * (0.55 + 0.45 * uGust.z));
+  paws = mix(paws, 0.35, uNight * 0.60);
   float rough = mix(0.35, 1.0, paws) * (0.75 + 0.5 * wind);
   // a rain-pitted sea loses its mirror
   rough *= 1.0 + 0.6 * uPrecip.x;
@@ -179,7 +183,7 @@ void main() {
   vec2 xzw = xz + (swellTan * ((nA.g - 0.5) * 4.8 + (nB.b - 0.5) * 1.4) + SWELL * ((nA.b - 0.5) * 1.3)) * (0.35 + 0.65 * vDamp);
   float groups = 0.55 + 0.82 * smoothstep(0.18, 0.82, nA.r * 0.7 + texture2D(uNoise, xz * 0.0011 + vec2(t * 0.0009, 0.0)).b * 0.5);
   // restrained swell-normal exaggeration: calm/moderate seas stay silky and faceted; a storm sea gets the full heave back
-  float shadeCap = mix(0.62, 0.94, stormSea);
+  float shadeCap = mix(0.76, 1.0, stormSea);
   float ampShade = shadeCap * (1.0 - exp(-amp * mix(mix(1.75, 1.25, far01), mix(2.6, 2.0, far01), stormSea) / shadeCap));
   vec3 gS; float crestH;
   gerstnerSums(xzw, t, gS, crestH);
@@ -207,14 +211,12 @@ void main() {
   float dk = (0.17 + 0.13 * uSea.y) * rough * shoreCalm;
   // (full tier) 3 analytical dispersive medium-swell wavelets (λ = 12.5, 7.8, 4.9 m, ω = sqrt(g·k), Nyquist-filtered)
   vec2 dM = vec2(0.0);
-  float rMa = 0.5;
   vec2 dFine = vec2(0.0);
   vec2 dDisp = vec2(0.0);
   float dispCrest = 0.0;
   #ifndef HB_LITE
   vec4 rM = texture2D(uRipple, (rot2 * rot * xz) * 0.0235 + (wdir * 0.55 + wPerp * 0.83) * t * 0.0062 * sp + 0.19);
   dM = rM.rg * 2.0 - 1.0;
-  rMa = rM.a;
   {
     vec2 swBase = normalize(mix(SWELL, wdir, 0.30));
     vec2 swSide = vec2(-swBase.y, swBase.x);
@@ -254,8 +256,7 @@ void main() {
   vec2 dnWave = (d1 * (0.76 - far01 * 0.48) * (0.65 + 0.35 * graze) + dM * (0.66 - 0.22 * far01) + d3 * (0.58 + 0.38 * far01)) * dk + dDisp;
   vec2 dnFine = (d2 * mix(0.46, 0.75, stormSea) * midCap + dFine * 0.22) * dk;
   vec2 dn = dnWave + dnFine;
-  // organic 3D wave height combining primary swell, dispersive wavelets and non-collinear chop
-  float organicCrest = clamp(crestH * 0.52 + dispCrest * 0.42 + (r3.a - 0.5) * 0.78 + (rMa - 0.5) * 0.58 + (nB.g - 0.5) * 0.42, -1.0, 1.0);
+  float organicCrest = clamp(crestH * 0.54 * groups + dispCrest * 0.40 + (r3.a - 0.5) * 0.50 + (nB.g - 0.5) * 0.36, -1.0, 1.0);
   // §6.2.1 directional Kelvin wave-slope normals (2-tap finite difference of uWakeLive.r, gated inside live.r > 0.01)
   vec2 kelSlope = vec2(0.0);
   #ifndef HB_LITE
@@ -308,6 +309,7 @@ void main() {
   float sunSh = hbSeaSunShadow(vec3(xz.x, 0.0, xz.y));
   float shoalK = (1.0 - smoothstep(0.3, 4.5, max(dep, depth))) * (1.0 - quayWall * 0.92) * sunUp * (1.0 - cover * 0.85) * (1.0 - storm * 0.72);
   body = mix(body, uSunlitShoal, shoalK * (0.22 + 0.3 * smoothstep(0.3, 0.75, nA.b) + 0.1 * nC.g));
+  float hullOcc = min(live.b, 1.0);
   vec3 causReef = vec3(0.0);
   float cSun = sunUp * (1.0 - cover * 0.75) * (1.0 - storm * 0.6) * sunSh;
   {
@@ -332,6 +334,7 @@ void main() {
     vec3 seen = bed * absorb * mix(vec3(1.0), uSunlitShoal * 1.45, 0.32 * (1.0 - quayWall)) * mix(vec3(bedLight), uAmbient * 0.85, uNight);
     float cs = 1.0 - smoothstep(160.0, 620.0, camD);
     float cGain = cSun * (1.0 - smoothstep(0.2, 6.5, bedDep));
+    cGain *= (1.0 - hullOcc * 0.92);
     vec3 causRgb = vec3(0.0);
     if (cGain > 0.0 && cs > 0.0) {
       vec3 refV = refract(-V, N, 0.75);
@@ -357,7 +360,7 @@ void main() {
       }
       #endif
     }
-    causReef = cGain > 0.0 ? causRgb : vec3(0.0);
+    causReef = cGain > 0.0 ? causRgb * (1.0 - hullOcc * 0.92) : vec3(0.0);
     seen *= 0.86 + 0.14 * smoothstep(0.35, 0.65, nC.g);
     seen += uSunColor * causRgb * absorb * 0.56 * cGain;
     body = mix(body, seen * mix(0.95, 1.0, sunUp), seeBed * 0.70);
@@ -392,14 +395,7 @@ void main() {
   float pierOcc = (1.0 - smoothstep(0.0, 1.6, sdist)) * 0.22;
   body *= 1.0 - max(quayOcc, pierOcc);
   body = mix(body, uShoal * 1.35 * mix(1.0, 0.45, uNight), clamp(trail * 0.25 + live.r * 0.38, 0.0, 0.35));
-  float hullOcc = min(live.b, 1.0);
   body *= (1.0 - hullOcc * 0.46) * (1.0 - 0.12 * slick);
-  {
-    vec3 Lk = normalize(uSunDir + vec3(0.0, 0.65, 0.0));
-    float relief = dot(N, Lk) - Lk.y;
-    float relK = mix(0.18, 0.35, stormSea);
-    body *= 1.0 + clamp(relief * mix(1.45, 2.2, stormSea), -relK, relK) * (1.0 - far01 * 0.65);
-  }
   body = hbSeaGolden(body, sunSh, sunUp);
   body = hbSeaHour(body);
   // day/night exposure of the unlit tint

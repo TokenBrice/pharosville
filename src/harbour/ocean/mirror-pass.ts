@@ -120,8 +120,8 @@ vec3 hbSeaHour(vec3 body) {
 "  body = hbBasinLift(body, zm.b, zm.r, dep, coast);\n",
 "  body = hbBasinLiftMoved(body, zm.b, zm.r, dep, coast, sdist);\n",
 { id: "ocean.mirror.lift-call" }),
-"  col *= mix(1.0, cShade, 0.55);\n",
-`  col *= mix(1.0, cShade, 0.55);
+"  col *= mix(1.0, cShade, 0.55 * (1.0 - 0.85 * uNight));\n",
+`  col *= mix(1.0, cShade, 0.55 * (1.0 - 0.85 * uNight));
   // E35 MirrorPass v2: premultiplied 3-tap vertical ripple blur, contact-anchored wobble (0.008 -> 0.045),
   // and Fresnel + calm-basin strength (0.28..0.58 boosted to 0.72 at grazing Fresnel)
   float mirrorW = mix(0.6, 1.0, zm.b) * (1.0 - foam) * (1.0 - smoothstep(0.05, 0.22, dk)) * (1.0 - uPrecip.x);

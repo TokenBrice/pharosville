@@ -1,4 +1,23 @@
+import * as THREE from "three";
 import { LAMP_WAVE_GLSL } from "../../lights/lamp-wave";
+
+/**
+ * Sky-synchronized environment-specular tint shared across kit/terrain/veg/fleet materials (zero extra samplers).
+ * Updated once per frame by `SkySystem.update()` to track live cloud cover dimming, twilight warmth, and overcast slate shift.
+ */
+export const skyIblUniforms = {
+  uSkyIblTint: { value: new THREE.Vector3(1, 1, 1) } as THREE.IUniform<THREE.Vector3>,
+};
+
+export function updateSkyIblTint(cover: number, storm: number, twilight: number, night: number): void {
+  const dim = 1 - 0.16 * cover - 0.14 * storm;
+  const tw = twilight * (1 - 0.65 * storm) * (1 - 0.5 * night);
+  skyIblUniforms.uSkyIblTint.value.set(
+    dim * (1 - 0.05 * storm + 0.14 * tw),
+    dim * (1 - 0.01 * storm + 0.04 * tw),
+    dim * (1 + 0.06 * storm - 0.08 * tw),
+  );
+}
 
 export const GLSL_ENV = /* glsl */ `
 #ifndef HB_DECL_UNIGHT
@@ -9,14 +28,16 @@ uniform vec3 uNightLift;
 uniform vec3 uHemiSky;
 uniform vec3 uHemiGround;
 uniform vec3 uHorizon;
+uniform vec3 uSkyIblTint;
 uniform float uRimK;
 // environment specular: cerulean sky-dome Fresnel above the horizon & warm Alexandrian limestone bounce below
 vec3 hbEnvSpec(vec3 n, vec3 v, float rough, float f0) {
   float ndv = clamp(dot(n, v), 0.0, 1.0);
   vec3 r = reflect(-v, n);
   float spread = mix(0.06, 0.42, rough);
+  vec3 iblTint = dot(uSkyIblTint, uSkyIblTint) > 1e-4 ? uSkyIblTint : vec3(1.0);
   vec3 ground = uHemiGround * vec3(1.10, 1.00, 0.86) * 0.68;
-  vec3 skyDome = mix(uHorizon * 0.72, uHemiSky * 1.12, smoothstep(0.0, 0.58, r.y));
+  vec3 skyDome = mix(uHorizon * 0.72, uHemiSky * 1.12, smoothstep(0.0, 0.58, r.y)) * iblTint;
   vec3 sky = mix(ground, skyDome, smoothstep(-0.18 - spread * 0.35, 0.05 + spread * 0.45, r.y));
   float fr = f0 + (max(1.0 - rough, f0) - f0) * pow(1.0 - ndv, 4.6);
   return sky * fr / (1.0 + rough * rough * 0.3);
