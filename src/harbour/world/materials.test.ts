@@ -149,6 +149,12 @@ describe("seasonal colour/depth publication", () => {
     expect(shader.fragmentShader).toContain("float wetSand = (1.0 - smoothstep(0.18, 1.48");
     expect(shader.fragmentShader).toContain("hbBumpFade(dW, 3.2)");
     expect(shader.fragmentShader).toContain("hbBumpFade(dPleaf, 2.0)");
+    // Phase 0: dead-matte grass roughness (0.91-0.96), attenuated dry grass env f0 (0.012),
+    // and instanced vegetation procedural bark strictly gated behind HB_VEG_INSTANCED
+    expect(shader.fragmentShader).toContain("rough = 0.96 - 0.05 * smoothstep(0.35, 0.65, g1);");
+    expect(shader.fragmentShader).toContain("float hbEnvF0 = mix(0.03, 0.012, hbIs(hbPid, 6.0) * (1.0 - max(hbWetSheen, hbSnow)));");
+    expect(shader.fragmentShader).toContain("#ifdef HB_VEG_INSTANCED");
+    expect(shader.fragmentShader).toContain("hbFbm(vec3(P.xy * 6.5, P.z * 1.1))");
     // HB_LITE skips procedural bump math completely
     expect(shader.fragmentShader).toContain("#ifndef HB_LITE\n// Mikkelsen");
     mats.dispose();

@@ -391,9 +391,10 @@ export class HarbourMaterials {
     vec3 hbV = normalize(vViewPosition);
     vec3 hbNw = inverseTransformDirection(normal, viewMatrix);
     vec3 hbVw = inverseTransformDirection(hbV, viewMatrix);
-    // wet: the sky sheen is capped by the sky's own brightness, so grazing wet slopes never go white
     float hbSkyL = hbLuma(uHemiSky);
-    outgoingLight += min(hbEnvSpec(hbNw, hbVw, roughnessFactor, 0.03), vec3(mix(4.0, 0.35 * hbSkyL + 0.01, smoothstep(0.0, 0.25, uWetness)))) * uRimK * hbOcc;
+    float hbWetSheen = smoothstep(0.0, 0.25, uWetness);
+    float hbEnvF0 = mix(0.03, 0.012, hbIs(hbPid, 6.0) * (1.0 - max(hbWetSheen, hbSnow)));
+    outgoingLight += min(hbEnvSpec(hbNw, hbVw, roughnessFactor, hbEnvF0), vec3(mix(4.0, 0.35 * hbSkyL + 0.01, hbWetSheen))) * uRimK * hbOcc;
     outgoingLight += hbBounceFill(diffuseColor.rgb, hbNw, uHbSunDir, uHbSunColor, hbOcc, uNight);
     if (hbLeafPid(hbPid) > 0.5) {
       outgoingLight += hbFoliageSSS(diffuseColor.rgb, hbNw, hbVw, uHbSunDir, uHbSunColor, hbOcc, hbCs, hbSnow, uNight);

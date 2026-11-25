@@ -25,21 +25,26 @@ float hbEvergreen(float pid, vec3 vc) { return max(hbIs(pid, ${PATTERN_LEAF_EVER
  * (gilt/bronze metal sheen, dew and rime, the meadows' terrain dryness, the lamplighting wave on the light pools, the
  * gust paws in the crowns' sway, the fleet's topside weathering), and the beam swath's soft amount is computed per vertex.
  * Every reading (beam light, sea state run-up, hover, weather, season colours, aerial distance) stays.
+ *
+ * Phase 0 Mediterranean colour calibration (A4):
+ * - Grass (pid 6): preserves baked Cycles AO / olive-terrace darkening (`vcAO = clamp(hbLuma(vc) / 0.215, 0.30, 1.35)`)
+ *   under summer straw; balances blue across spring sage-olive, cool olive hollows, sage-olive/warm-russet autumn, and
+ *   coastal lichen-moss winter.
+ * - Autumn deciduous canopies (pid 8): restrained honey-ochre, warm sienna, muted terracotta-russet, and olive-ochre
+ *   tuned to stay <= 46% post-LUT saturation so chain flags and sails remain visual heroes.
+ * - Arable fields (pid 15, hbCrop): warm Mediterranean terra-rossa/ochre tilled soil with `hbFbm(W * 0.085)` breakup.
  */
 export const GLSL_SEASON = /* glsl */ `
 ${GLSL_LEAF_FALL}
 uniform float uSnowCover;
 uniform float uWetness;
-uniform vec3 uHbSunDir;   // = uSunDir / uSunColor (renamed: the fleet port declares those itself)
+uniform vec3 uHbSunDir;
 uniform vec3 uHbSunColor;
 float hbLuma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
-// 08-T2: grass dryness from the land (no texture of its own): height, the slope's south aspect and convexity against
-// the island height field (uAOTex, 4 taps 7 m out). dry/lush 0..1. E16: the slope is the taps' central differences
-// (ground-year.ts grassSlopeOf), continuous across the terrain's triangles; level without the height field.
 void hbGrassTerrain(vec3 W, out float dry, out float lush) {
   #ifdef HB_LITE
-  dry = 0.0; lush = 0.0; return;   // (Low: the meadow keeps its season colour without the land's shape)
+  dry = 0.0; lush = 0.0; return;
   #endif
   float steep = 0.0, south = 0.0, conv = 0.0;
   if (uAOBounds.z > 0.0) {
@@ -47,29 +52,24 @@ void hbGrassTerrain(vec3 W, out float dry, out float lush) {
     float hS = hbHeight(W.xz + vec2(0.0, ${SLOPE_TAP_M.toFixed(1)})), hN = hbHeight(W.xz - vec2(0.0, ${SLOPE_TAP_M.toFixed(1)}));
     vec3 n = normalize(vec3(hW - hE, ${(2 * SLOPE_TAP_M).toFixed(1)}, hN - hS));
     steep = 1.0 - n.y;
-    south = clamp(n.z / max(length(n.xz), 1e-3), 0.0, 1.0);    // glTF +z = south
+    south = clamp(n.z / max(length(n.xz), 1e-3), 0.0, 1.0);
     conv = W.y - 0.25 * (hE + hW + hS + hN);
   }
   dry = clamp(smoothstep(10.0, 20.0, W.y) * 0.55 + smoothstep(0.06, 0.3, steep) * south * 0.6 + smoothstep(0.3, 1.6, conv) * 0.5, 0.0, 1.0);
   lush = clamp(smoothstep(0.3, 1.4, -conv) * (1.0 - smoothstep(12.0, 18.0, W.y)), 0.0, 1.0) * (1.0 - dry);
 }
 
-// 08-T11: the farm year on the arable fields (pid 15), by the calendar phase (0 = 1 Jan, northern-equivalent):
-// winter brown furrows -> spring green shoots -> early-summer gold -> the July harvest: pale stubble with stooks ->
-// autumn ploughing. Each field drifts a few days from its neighbours; furrows curve slowly with the land.
 vec3 hbCrop(vec3 col, vec3 vc, vec3 W, float dW) {
   float shade = clamp(hbLuma(col) / max(hbLuma(vc), 1e-4), 0.6, 1.4);
   float p = fract(uSeasonPhase + (hbNoise(W * 0.012) - 0.5) * 0.05);
   float ang = hbNoise(W * 0.006 + 5.0) * 3.1416;
   float c = dot(W.xz, vec2(cos(ang), sin(ang)));
   float row = 0.5 + 0.5 * sin(c * 6.2832 / 1.3);
-  float rowK = 1.0 - smoothstep(0.25, 0.6, dW / 1.3);            // sub-pixel rows fade to their mean
-  vec3 soil = vec3(0.17, 0.105, 0.055), soilDark = vec3(0.11, 0.07, 0.04);
+  float rowK = 1.0 - smoothstep(0.25, 0.6, dW / 1.3);
+  float soilTone = 0.88 + 0.24 * hbFbm(W * 0.085);
+  vec3 soil = vec3(0.31, 0.20, 0.105) * soilTone, soilDark = vec3(0.19, 0.115, 0.058) * soilTone;
   vec3 furrow = mix(soil, soilDark, row * rowK * 0.8 + (1.0 - rowK) * 0.4);
   vec3 o = furrow;
-  // each stage compiles as absent (0), complete (2) or blending by the field's own phase (1): HB_CROP_* from
-  // cropStagesAt (the calendar is fixed for a visit, so a field only ever shows one or two stages); the field noise
-  // the absent stages would read is never evaluated
   #if HB_CROP_SHOOTS > 0
   vec3 shoots = mix(furrow, vec3(0.16, 0.27, 0.05), 0.55 + 0.35 * (1.0 - row * rowK));
   #if HB_CROP_SHOOTS == 2
@@ -99,8 +99,6 @@ vec3 hbCrop(vec3 col, vec3 vc, vec3 W, float dW) {
   vec3 stubble = vec3(0.47, 0.4, 0.22) * (0.95 + 0.1 * row * rowK);
   o = HB_CROP_CUT == 2 ? stubble : mix(o, stubble, cut);
   #endif
-  // stooks: sheaves stood up on the stubble until carted in (late Jul - Sep); ~3.5 m apart, sub-pixel -> mean tint
-  // (compiled in only when the calendar can show them: HB_STOOKS, see stooksAt)
   #ifdef HB_STOOKS
   vec2 cell = floor(W.xz / 3.5), cf = fract(W.xz / 3.5) - 0.5;
   vec2 jit = vec2(hbWhite(vec3(cell, 81.0)), hbWhite(vec3(cell, 83.0))) - 0.5;
@@ -111,33 +109,29 @@ vec3 hbCrop(vec3 col, vec3 vc, vec3 W, float dW) {
   o = mix(o, mix(vec3(0.56, 0.42, 0.13) * (1.0 - 0.45 * shadeSide), o * 0.97, sub), stook * stookK * (1.0 - sub * 0.9));
   #endif
   #if HB_CROP_PLOUGH > 0
-  o = HB_CROP_PLOUGH == 2 ? furrow : mix(o, furrow, smoothstep(0.7, 0.78, p));   // autumn ploughing
+  o = HB_CROP_PLOUGH == 2 ? furrow : mix(o, furrow, smoothstep(0.7, 0.78, p));
   #endif
   return o * shade;
 }
 
 ${DRY_SEASON_GLSL}
-// SEASON ON VEGETATION. pid 8 leaf (trees, shrubs, hedges, ivy), 6 grass (meadows, verges).
-// col = patterned albedo, vc = authored vertex albedo; W = world position; dW = its screen footprint.
-// bare = how much of this fragment the leaf fall takes (deciduous only; the kit discards by it).
 vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
   bare = 0.0;
   float leaf = hbLeafPid(pid), grass = hbIs(pid, 6.0);
   if (hbIs(pid, ${PATTERN_CROP.toFixed(1)}) > 0.5) return hbCrop(col, vc, W, dW);
   if (leaf + grass < 0.5) return col;
   float sp = uFoliage.x, su = uFoliage.y, au = uFoliage.z, wi = uFoliage.w;
-  float shade = hbLuma(col) / max(hbLuma(vc), 1e-4);     // the pattern's light and dark survive the recolour
+  float patShade = hbLuma(col) / max(hbLuma(vc), 1e-4);
   float patchN = hbNoise(W * 0.06);
   if (grass > 0.5) {
-    // 08-T2: the land's own shape: dry gold on ridges, crowns and steep south faces, lush in the hollows
     float hbDry, hbLush;
     hbGrassTerrain(W, hbDry, hbLush);
     patchN = clamp(patchN + 0.5 * hbDry - 0.35 * hbLush, 0.0, 1.0);
-    // E17 (ruling V12), a Mediterranean ground year by the calendar alone: spring turf (fresh, not acid) strewn with
-    // wildflowers (yellow, white, pink, violet) in meadow drifts; June to October straw gold, paler on the dry ridges,
-    // the hollows keeping their olive; green again from the first rains in late October through the winter
-    vec3 spring = col * ${SPRING_TURF_GLSL} + vec3(0.012, 0.016, 0.0);
-    vec2 fc = floor(W.xz * 0.6), ff = fract(W.xz * 0.6) - 0.5;   // ~1.7 m cells: a clump of blooms each
+    float vcAO = clamp(hbLuma(vc) / 0.215, 0.30, 1.35);
+    float vcShade = vcAO * patShade;
+    float colL = hbLuma(col);
+    vec3 spring = mix(col, vec3(colL), 0.22) * ${SPRING_TURF_GLSL} + vec3(0.006, 0.009, 0.011) * vcAO;
+    vec2 fc = floor(W.xz * 0.6), ff = fract(W.xz * 0.6) - 0.5;
     float meadow = smoothstep(0.3, 0.65, hbNoise(W * 0.05 + 3.0));
     float density = 0.06 + 0.5 * meadow;
     float on = step(1.0 - density, hbWhite(vec3(fc, 53.0)));
@@ -145,38 +139,35 @@ vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
     float petal = (1.0 - smoothstep(0.17, 0.25, length(ff - jit * 0.45))) * on;
     float fk = hbWhite(vec3(fc, 71.0));
     vec3 flower = fk < 0.38 ? vec3(0.95, 0.62, 0.01) : fk < 0.6 ? vec3(0.92, 0.9, 0.84) : fk < 0.85 ? vec3(0.92, 0.18, 0.4) : vec3(0.4, 0.2, 0.9);
-    float sub = smoothstep(0.3, 0.7, dW * 0.6);            // sub-pixel flowers fade to their mean tint
+    float sub = smoothstep(0.3, 0.7, dW * 0.6);
     float cov = mix(petal, density * 0.16, sub);
-    spring = mix(spring, mix(flower, vec3(0.88, 0.62, 0.48), sub) * (0.62 + 0.38 * shade), cov);
-    vec3 summer = col * vec3(0.8, 0.95, 0.56) * mix(vec3(1.0), vec3(0.9, 1.05, 0.9), hbLush);     // the olive of the hollows
-    vec3 rains = mix(col, vec3(hbLuma(col)), 0.3);       // the wet season's green: soft and olive-grey, never a lawn
-    vec3 wet = spring * sp + summer * su + rains * vec3(0.98, 1.0, 0.8) * au + rains * vec3(0.92, 0.97, 0.84) * wi;
-    vec3 straw = ${STRAW_GLSL} * shade * (0.8 + 0.4 * patchN) * (1.0 + 0.12 * hbDry);
+    spring = mix(spring, mix(flower, vec3(0.88, 0.62, 0.48), sub) * (0.62 + 0.38 * vcShade), cov);
+    vec3 summer = mix(col, vec3(colL), 0.38) * vec3(0.72, 0.88, 1.08) * mix(vec3(1.0), vec3(0.90, 1.02, 1.02), hbLush);
+    vec3 rains = mix(col, vec3(colL), 0.40);
+    vec3 auTint = mix(vec3(0.98, 0.97, 0.98), vec3(1.10, 0.94, 0.90), patchN);
+    vec3 wet = spring * sp + summer * su + rains * auTint * au + rains * vec3(0.84, 0.96, 1.08) * wi;
+    vec3 straw = ${STRAW_GLSL} * vcShade * (0.8 + 0.4 * patchN) * (1.0 + 0.12 * hbDry);
     straw = mix(straw, summer, hbLush * 0.85);
     return mix(wet, straw, hbDrySeason());
   }
   float conifer = hbEvergreen(pid, vc);
-  float tree = hbWhite(floor(W * 0.17) + 31.0);           // ~6 m cells: roughly one value per crown
-  // spring: fresh yellow-lime; pink or white blossom on over half the deciduous trees
+  float tree = hbWhite(floor(W * 0.17) + 31.0);
   vec3 lime = col * vec3(1.1, 1.24, 0.38) + vec3(0.008, 0.012, 0.0);
   float bloomTree = step(0.45, tree);
   float dotN = hbWhite(floor(W * 1.15) + 7.0);
   float dots = step(0.45, dotN);
   dots = mix(dots, 0.55, smoothstep(0.2, 0.45, dW * 1.15)) * bloomTree;
-  vec3 bloom = mix(vec3(0.95, 0.34, 0.52), vec3(0.93, 0.9, 0.86), step(0.76, tree)) * (0.55 + 0.45 * shade);
+  vec3 bloom = mix(vec3(0.95, 0.34, 0.52), vec3(0.93, 0.9, 0.86), step(0.76, tree)) * (0.55 + 0.45 * patShade);
   lime = mix(lime, bloom, (0.55 + 0.45 * dots) * bloomTree);
-  // summer: deep, lush green
   vec3 deep = col * vec3(0.68, 0.92, 0.56);
-  // autumn: amber, orange, red and gold, tree by tree; a few hold on to green
   float t = fract(tree * 3.7 + patchN * 0.5);
-  vec3 hue = t < 0.28 ? mix(vec3(0.78, 0.36, 0.035), vec3(0.86, 0.56, 0.07), t / 0.28)
-           : t < 0.55 ? mix(vec3(0.74, 0.18, 0.025), vec3(0.84, 0.38, 0.04), (t - 0.28) / 0.27)
-           : t < 0.78 ? mix(vec3(0.5, 0.06, 0.025), vec3(0.68, 0.11, 0.03), (t - 0.55) / 0.23)
-           : t < 0.92 ? mix(vec3(0.72, 0.6, 0.08), vec3(0.85, 0.7, 0.12), (t - 0.78) / 0.14)
-           : col / max(shade, 0.2) * 1.6;
-  vec3 autumn = hue * shade * 0.42;
-  // winter: deciduous crowns are bare twigs; conifers darken a little under the cold light
-  vec3 twig = vec3(0.12, 0.1, 0.085) * (0.7 + 0.6 * shade);
+  vec3 hue = t < 0.30 ? mix(vec3(0.64, 0.50, 0.30), vec3(0.70, 0.56, 0.34), t / 0.30)
+           : t < 0.58 ? mix(vec3(0.58, 0.39, 0.27), vec3(0.64, 0.45, 0.30), (t - 0.30) / 0.28)
+           : t < 0.80 ? mix(vec3(0.49, 0.31, 0.24), vec3(0.55, 0.36, 0.27), (t - 0.58) / 0.22)
+           : t < 0.92 ? mix(vec3(0.49, 0.47, 0.28), vec3(0.56, 0.52, 0.32), (t - 0.80) / 0.12)
+           : mix(col, vec3(hbLuma(col)), 0.42) / max(patShade, 0.2) * 1.6;
+  vec3 autumn = hue * patShade * 0.42;
+  vec3 twig = vec3(0.12, 0.1, 0.085) * (0.7 + 0.6 * patShade);
   float fall = hbLeafFall();
   vec3 decid = lime * sp + deep * su + autumn * au + mix(autumn, twig, 0.7) * wi;
   decid = mix(decid, twig, fall * 0.35);

@@ -21,6 +21,13 @@ float hbNoise(vec3 p) {
 float hbFbm(vec3 p) { return (hbNoise(p) * 0.5714 + hbNoise(p * 2.03 + 17.1) * 0.2857 + hbNoise(p * 4.01 + 41.7) * 0.1429); }
 `;
 
+/**
+ * Procedural kit patterns evaluated in Blender Z-up object space (`P.xy` horizontal, `P.z` vertical).
+ * - `pid 0` under `HB_VEG_INSTANCED`: Mediterranean bark with vertical fissures (`P.xy * 6.5, P.z * 1.1`),
+ *   horizontal plate breaks, matte roughness `0.86–0.94`, and vertical ridge bump (disabled under `HB_LITE`).
+ * - `pid 0` without `HB_VEG_INSTANCED`: plain stucco/stone plus coastal beach swash/ripple/wet-sand relief.
+ * - `pid 6` (grass): dead-matte roughness `0.91–0.96` with `±5%` macro warm-straw vs cool-sage mottling.
+ */
 export const GLSL_PATTERNS = /* glsl */ `
 uniform float uTime;
 varying vec3 vHbLocal;
@@ -90,13 +97,24 @@ vec3 hbPattern(float pid, out float rough, out float bumpH) {
   rough = 0.78;
   bumpH = 0.0;
   if (pid < 0.5) {
+    #ifdef HB_VEG_INSTANCED
+    float fineB = hbFine(dPxyz, 0.28);
+    float fissure = hbFbm(vec3(P.xy * 6.5, P.z * 1.1));
+    float ridge = smoothstep(0.28, 0.72, fissure);
+    float plate = 1.0 - smoothstep(0.0, 0.14, abs(fract(P.z * 2.8 + (fissure - 0.5) * 0.65) - 0.5));
+    float plateBreak = plate * smoothstep(0.35, 0.75, hbNoise(vec3(P.xy * 2.4, floor(P.z * 2.8))));
+    f = (0.80 + ridge * 0.30 * fineB + (1.0 - fineB) * 0.15) * (1.0 - plateBreak * 0.18 * fineB);
+    hue = vec3(0.024, 0.010, -0.022) * (ridge - 0.5) * fineB;
+    rough = clamp(mix(0.94, 0.86, ridge * fineB) + plateBreak * 0.04 * fineB, 0.86, 0.94);
+    #ifndef HB_LITE
+      bumpH = ((ridge - 0.5) * 0.032 - plateBreak * 0.016) * hbBumpFade(dPxyz, 0.28);
+    #endif
+    #else
     f = 1.0;
     rough = 0.76;
     #ifndef HB_LITE
       bumpH = (hbNoise(P * 3.8) - 0.5) * 0.004 * hbBumpFade(dPxyz, 0.35);
     #endif
-    // coastal beach sand / shingle (plain pattern on low upward-facing shore strands):
-    // macro coastal swash bars / wind berms (~3.2 m), fine wind ripples, pebble grain & wet shoreline sheen
     #ifndef HB_FLEET
       float beachMask = smoothstep(-0.4, 0.05, vHbWorld.y) * (1.0 - smoothstep(2.6, 4.4, vHbWorld.y)) * smoothstep(0.60, 0.85, N.z);
       if (beachMask > 0.01) {
@@ -124,6 +142,7 @@ vec3 hbPattern(float pid, out float rough, out float bumpH) {
                   + grit * 0.008 * hbBumpFade(dW, 0.22)) * beachMask * (1.0 - wetSand * 0.50);
         #endif
       }
+    #endif
     #endif
   } else if (pid < 1.5) {            // 1 boards: vertical cladding, per-board tint, dark groove & grain
     float bi = floor(u / 0.22);
@@ -199,13 +218,14 @@ vec3 hbPattern(float pid, out float rough, out float bumpH) {
         bumpH += ((crackN - 0.5) * 0.068 - crack * 0.032) * hbBumpFade(dP.z + dP.x, 0.4);
       }
     #endif
-  } else if (pid < 6.5) {            // 6 grass: organic meadow mottling & soft micro-tuft relief
+  } else if (pid < 6.5) {            // 6 grass: dead-matte organic meadow mottling & soft micro-tuft relief
     float g1 = hbFbm(P * 0.08);
+    float eco = hbNoise(W * 0.024 + 9.0) - 0.5;
     float fine = hbFine(dP.x, 0.7);
-    f = 0.82 + smoothstep(0.35, 0.65, g1) * 0.28;
+    f = (0.82 + smoothstep(0.35, 0.65, g1) * 0.28) * (1.0 + eco * 0.10);
     if (fine > 0.0) f += (hbFbm(P * 1.4) - 0.5) * 0.16 * fine;
-    hue = vec3(-0.02, 0.0, 0.02) * (g1 - 0.5);
-    rough = 0.84 - 0.06 * smoothstep(0.35, 0.65, g1);
+    hue = vec3(0.09, 0.025, -0.08) * eco + vec3(-0.03, 0.0, 0.03) * (g1 - 0.5);
+    rough = 0.96 - 0.05 * smoothstep(0.35, 0.65, g1);
     #ifndef HB_LITE
       bumpH = (hbNoise(P * 1.4) - 0.5) * 0.032 * hbBumpFade(dPxy, 0.75)
             + (hbNoise(P * 4.6) - 0.5) * 0.012 * hbBumpFade(dPxy, 0.25);
@@ -343,7 +363,7 @@ vec3 hbPattern(float pid, out float rough, out float bumpH) {
   if (fine > 0.0) fworld += (hbNoise(W * 0.4) - 0.5) * 0.06 * fine;
   // flat-shaded facet value jitter on architecture/stone/props; suppressed on natural terrain, rock, foliage, crops & fleet
   // so hillsides, cliffs, tree canopies and smooth curved hulls/sails never swim with triangulated speckle
-  #ifdef HB_FLEET
+  #if defined(HB_FLEET) || defined(HB_VEG_INSTANCED)
     float facet = 0.0;
   #else
     float organic = step(abs(pid - 5.0), 0.25) + step(abs(pid - 6.0), 0.25) + step(abs(pid - 8.0), 0.25)

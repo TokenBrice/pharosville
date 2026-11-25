@@ -15,10 +15,10 @@
 /** The dry season on uSeasonPhase (0 = 1 January, northern-equivalent): it ramps in round 1 June; the first rains of
  *  late October green the turf over the following month. */
 export const DRY_SEASON = { start: [0.395, 0.435], end: [0.8, 0.9] } as const;
-/** Straw gold (linear albedo) at the height of the dry season. */
-export const STRAW = [0.36, 0.29, 0.11] as const;
-/** Spring turf multiplier: fresh, less acid than the old temperate (1.12, 1.2, 0.42). */
-export const SPRING_TURF = [1.05, 1.12, 0.62] as const;
+/** Warm sun-cured Mediterranean straw (linear albedo) at the height of the dry season. */
+export const STRAW = [0.35, 0.285, 0.155] as const;
+/** Spring turf multiplier: fresh Mediterranean sage-olive with balanced blue so the warm LUT stays off chartreuse. */
+export const SPRING_TURF = [0.9, 1.0, 1.12] as const;
 /** Half the baseline of the slope's central differences (m): the convexity taps' offset. */
 export const SLOPE_TAP_M = 7;
 
