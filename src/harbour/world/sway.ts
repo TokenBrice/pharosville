@@ -28,6 +28,10 @@ export function swayAmplitude(weight: number, wind: number, k: number): number {
   return weight * k * (SWAY_AMP.calm + SWAY_AMP.perWind * Math.min(Math.max(wind, 0), 1.4));
 }
 
+/**
+ * Vertex sway declarations: spatial gust multiplier (disabled on Low tier) + world-space bend
+ * at fixed 0.29 Hz primary / 0.47 Hz cross-flutter frequencies with per-tree ~9 m spatial phase.
+ */
 export const SWAY_VERTEX_DECL = /* glsl */ `
 attribute float _sway;
 uniform vec2 uSwayWind;
@@ -39,34 +43,51 @@ float hbSwayNoise(vec2 p) {
   f = f * f * (3.0 - 2.0 * f);
   return mix(mix(hbSwayHash(i), hbSwayHash(i + vec2(1.0, 0.0)), f.x), mix(hbSwayHash(i + vec2(0.0, 1.0)), hbSwayHash(i + vec2(1.0)), f.x), f.y);
 }
-// the shared spatial gust field (weather/gust.ts) multiplies the wind here; 1 = between gusts
 uniform vec4 uSwayGust;
 ${GUST_GLSL}
 float hbSwayGust(vec2 xz) {
   #ifdef HB_LITE
-  return 1.0;   // (Low tier: the crowns sway with the wind alone, not the passing paws)
+  return 1.0;
   #endif
   return 1.0 + 0.8 * uSwayGust.z * hbGust(xz, uSwayGust.w, uSwayGust.xy);
 }
-// world-space bend of a vertex of weight w (0..1) at world position wp
 vec3 hbSway(vec3 wp, float w) {
   float wind = length(uSwayWind) * hbSwayGust(wp.xz);
   vec2 dir = wind > 1e-3 ? uSwayWind / max(length(uSwayWind), 1e-3) : vec2(0.84, -0.54);
-  float ph = hbSwayNoise(wp.xz * 0.11) * 6.2832;                  // ~9 m: one phase per tree, continuous within it
-  // fixed frequencies (a spatially varying one would drift a crown's vertices out of phase over the minutes)
+  float ph = hbSwayNoise(wp.xz * 0.11) * 6.2832;
   float s = sin(6.2832 * 0.29 * uSwayTime + ph);
-  float s2 = sin(6.2832 * 0.47 * uSwayTime + ph * 1.7 + wp.y * 0.6);  // a lighter flutter across the wind
+  float s2 = sin(6.2832 * 0.47 * uSwayTime + ph * 1.7 + wp.y * 0.6);
   float amp = w * uSwayK * (${SWAY_AMP.calm.toFixed(3)} + ${SWAY_AMP.perWind.toFixed(3)} * clamp(wind, 0.0, 1.4));
   vec2 d = dir * amp * (0.45 + 0.55 * s) + vec2(-dir.y, dir.x) * amp * 0.3 * s2;
   return vec3(d.x, -0.12 * amp * abs(s), d.y);
 }
 `;
 
-/** After three's begin_vertex: bend `transformed` (object space; island meshes are unrotated, unit scale). */
+/**
+ * After three's begin_vertex: bend `transformed` in world space and map the delta back into local
+ * prototype space via the orthogonal TRS inverse (exact for arbitrary yaw and non-uniform scaleXZ/scaleY).
+ * Under `USE_INSTANCING`, `instanceMatrix` is included; under `HB_VEG_INSTANCED`, `aVegMeta.z` scales wind response.
+ */
 export const SWAY_VERTEX_APPLY = /* glsl */ `
   if (_sway > 0.5 && uSwayK > 0.0) {
-    vec3 hbSwW = (modelMatrix * vec4(transformed, 1.0)).xyz;
-    transformed += (vec4(hbSway(hbSwW, _sway * 0.01), 0.0) * modelMatrix).xyz;
+    #ifdef USE_INSTANCING
+      mat4 hbM = modelMatrix * instanceMatrix;
+    #else
+      mat4 hbM = modelMatrix;
+    #endif
+    #ifdef HB_VEG_INSTANCED
+      float hbSwGain = aVegMeta.z;
+    #else
+      float hbSwGain = 1.0;
+    #endif
+    vec3 hbSwW = (hbM * vec4(transformed, 1.0)).xyz;
+    vec3 hbSwD = hbSway(hbSwW, _sway * 0.01 * hbSwGain);
+    vec3 hbC0 = hbM[0].xyz, hbC1 = hbM[1].xyz, hbC2 = hbM[2].xyz;
+    transformed += vec3(
+      dot(hbC0, hbSwD) / max(dot(hbC0, hbC0), 1e-6),
+      dot(hbC1, hbSwD) / max(dot(hbC1, hbC1), 1e-6),
+      dot(hbC2, hbSwD) / max(dot(hbC2, hbC2), 1e-6)
+    );
   }
 `;
 

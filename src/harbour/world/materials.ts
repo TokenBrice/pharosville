@@ -331,6 +331,7 @@ export class HarbourMaterials {
       const m = o as THREE.Mesh;
       if (!m.castShadow || m.customDepthMaterial || Array.isArray(m.material) || !m.material) return;
       if (m.material.name === "hb_kit") m.customDepthMaterial = this.kitDepth();
+      else if (m.material.name === "hb_veg_solid") m.customDepthMaterial = this.vegDepth();
       else if (m.material.name === "hb_terrain") m.customDepthMaterial = this.terrainDepth();
     });
   }
@@ -342,12 +343,12 @@ export class HarbourMaterials {
     this.publishedFeatures = sig;
     this.pubT = tSig;
     const changed = new Set<THREE.Material>(kc ? this.derived : undefined);
-    for (const [k, m] of this.cache) if ((kc && k.startsWith("kit")) || (tc && k.startsWith("terrain:"))) changed.add(m);
+    for (const [k, m] of this.cache) if ((kc && (k.startsWith("kit") || k.startsWith("veg"))) || (tc && k.startsWith("terrain:"))) changed.add(m);
     root?.traverse((o) => {
       const mesh = o as THREE.Mesh;
       for (const m of Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []) {
         const k = m.customProgramCacheKey();
-        if (kc && k.includes("hb_kit_")) { changed.add(m); if (mesh.customDepthMaterial) changed.add(mesh.customDepthMaterial); }
+        if (kc && (k.includes("hb_kit_") || k.includes("veg-instanced"))) { changed.add(m); if (mesh.customDepthMaterial) changed.add(mesh.customDepthMaterial); }
         else if (tc && k.includes("hb_terrain_")) changed.add(m);
       }
     });
@@ -416,8 +417,15 @@ export class HarbourMaterials {
   {
     float hbBare;
     diffuseColor.rgb = hbFoliage(diffuseColor.rgb, hbVc, hbPid, vHbWorld, hbSdW, hbBare);
+    #ifdef HB_VEG_INSTANCED
+      diffuseColor.rgb *= vVegMeta.y;
+    #endif
     #ifdef HB_BARE
-      if (hbBareNoise < hbBare * 0.84) discard;     // bare crowns: a sparse net of twigs survives
+      #ifdef HB_VEG_INSTANCED
+        if (hbBareNoise < hbBare * 0.97) discard;
+      #else
+        if (hbBareNoise < hbBare * 0.84) discard;
+      #endif
     #endif
   }
   diffuseColor.a = 1.0;`, { id: "world.11.color_fragment" });
@@ -441,7 +449,7 @@ export class HarbourMaterials {
   float hbSnow, hbPuddle;
   vec3 hbMacroN = inverseTransformDirection(nonPerturbedNormal, viewMatrix);
   hbWeather(diffuseColor.rgb, roughnessFactor, hbMacroN, hbPid, vHbWorld, hbSdW, hbSnow, hbPuddle);
-  hbRunup(diffuseColor.rgb, roughnessFactor, vHbWorld, hbMacroN, hbPid);   // wet run-up (world/runup.ts)
+  hbRunup(diffuseColor.rgb, roughnessFactor, vHbWorld, hbMacroN, hbPid);
   #include <emissivemap_fragment>`, { id: "world.15.emissivemap_fragment" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <aomap_fragment>", `#include <aomap_fragment>
   float hbOcc = hbAO(vHbWorld, inverseTransformDirection(normal, viewMatrix));
@@ -450,13 +458,11 @@ export class HarbourMaterials {
     hbOcc *= hbBoatAO;
     reflectedLight.directDiffuse *= mix(0.82, 1.0, hbBoatAO);
   #endif
-  float hbCs = hbCloudShadow(vHbWorld.xz);   // drifting cloud shadows (sky system)
+  float hbCs = hbCloudShadow(vHbWorld.xz);
   reflectedLight.directDiffuse *= hbCs;
   reflectedLight.directSpecular *= hbCs;
   reflectedLight.indirectDiffuse *= hbOcc;
   reflectedLight.indirectSpecular *= hbOcc;
-  // wet ground shows a sheen, never a white flare: on wet surfaces the sun / moon / lamp / flash highlight
-  // (GGX at puddle roughness peaks thousands of times over) is capped near what the sky lights the scene with
   {
     float hbWetK = smoothstep(0.0, 0.25, uWetness);
     float hbCap = 0.005 + 0.5 * hbLuma(uHemiSky);
@@ -480,25 +486,21 @@ export class HarbourMaterials {
     outgoingLight += diffuseColor.rgb * hbPool(vHbWorld, hbNw);
     vec3 hbFire = hbPharosFire(vHbWorld, hbNw);
     outgoingLight += diffuseColor.rgb * (hbBeamLight(vHbWorld, hbNw) * hbOcc + hbFire);
-    // moonlight fill (0 by day): soft, mostly from above, with an albedo floor so dark hulls and
-    // navy/black sail covers keep a readable mid-tone at night instead of collapsing to silhouettes
     outgoingLight += max(diffuseColor.rgb, vec3(0.12)) * uNightLift * hbOcc * (0.6 + 0.4 * max(hbNw.y, 0.0)) * (1.0 - metalnessFactor * 0.72);
-    // puddles mirror the sky; fresh snow catches the sun in sparse glints (faded where sub-pixel)
-    // puddles: dark mirrors of the sky (water's low Fresnel, brighter only toward grazing), capped by the sky
     outgoingLight += min(hbEnvSpec(hbNw, hbVw, 0.02, 0.03), vec3(0.3 * hbSkyL + 0.003)) * hbPuddle * hbOcc;
     if (hbSnow > 0.01) {
       float g = step(0.992, hbWhite(floor(vHbWorld * 4.5) + 101.0)) * hbFine(hbSdW, 0.22);
       float spec = pow(max(dot(reflect(-hbVw, hbNw), uHbSunDir), 0.0), 4.0);
       outgoingLight += uHbSunColor * g * spec * hbSnow * hbCs * 0.5;
     }
-    outgoingLight += uHbSunColor * hbDewGlint(hbPid, vHbWorld, hbNw, hbVw, uHbSunDir, hbSdW) * hbCs * 0.6;   // W12 dawn dew
+    outgoingLight += uHbSunColor * hbDewGlint(hbPid, vHbWorld, hbNw, hbVw, uHbSunDir, hbSdW) * hbCs * 0.6;
     outgoingLight += hbLmHoverRim(vHbWorld, hbNw, hbVw, outgoingLight);
     outgoingLight += hbMetalLight(metalnessFactor, diffuseColor.rgb, hbNw, hbVw, roughnessFactor, reflectedLight.directSpecular, hbFire) * hbOcc;
     #ifdef HB_FLEET
       outgoingLight += hbFleetSeaBounce(diffuseColor.rgb, hbNw, uHbSunDir, uHbSunColor, hbOcc, uNight);
     #endif
   }
-  hbAerial(outgoingLight, vHbWorld, 0.0);   // distance (decorative, world/aerial.ts)
+  hbAerial(outgoingLight, vHbWorld, 0.0);
   #include <opaque_fragment>`, { id: "world.17.opaque_fragment" });
       // E21 backlit crowns (world/shaders/crowns.ts): Medium and High only, and only with the boot's extras switch
       if (!features.lite && extraEnabled("crowns")) {
@@ -548,13 +550,54 @@ export class HarbourMaterials {
   #ifdef HB_BARE
   {
     float pid = floor(vHbCol.a * 16.0 + 0.5);
-    float bare = hbIs(pid, ${PATTERN_LEAF.toFixed(1)}) * hbLeafFall() * (1.0 - hbConifer(vHbCol.rgb));
-    if (hbNoise(vHbWorld * 1.7) < bare * 0.84) discard;
+    #ifdef HB_VEG_INSTANCED
+      float bare = hbIs(pid, ${PATTERN_LEAF.toFixed(1)}) * hbLeafFall() * (1.0 - hbEvergreen(pid, vHbCol.rgb));
+      if (hbNoise(vHbWorld * 1.7) < bare * 0.97) discard;
+    #else
+      float bare = hbIs(pid, ${PATTERN_LEAF.toFixed(1)}) * hbLeafFall() * (1.0 - hbConifer(vHbCol.rgb));
+      if (hbNoise(vHbWorld * 1.7) < bare * 0.84) discard;
+    #endif
   }
   #endif`, { id: "world.23.clipping_planes_fragment" });
     };
     m.customProgramCacheKey = () => `hb_kit_${prepass ? "predepth_v4_sw" : "depth_v3"}_${this.kitKey()}`;
     return m;
+    }, true);
+  }
+
+  /** Instanced vegetation solid material: chains kit with HB_VEG_INSTANCED + per-instance aVegMeta. */
+  vegSolid(opts: { side?: THREE.Side } = {}): THREE.MeshStandardMaterial {
+    const side = opts.side ?? THREE.DoubleSide;
+    return this.cached(`veg:${side}`, () => {
+      const base = this.kit({ side });
+      const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.78, metalness: 0, vertexColors: true, side });
+      m.name = "hb_veg_solid";
+      m.onBeforeCompile = (shader, renderer) => {
+        base.onBeforeCompile(shader, renderer);
+        shader.defines = { ...shader.defines, HB_VEG_INSTANCED: "" };
+        shader.vertexShader = patch(shader.vertexShader, "#include <common>", "#include <common>\nattribute vec4 aVegMeta;\nvarying vec4 vVegMeta;", { id: "world.veg.1.common" });
+        shader.vertexShader = patch(shader.vertexShader, "#include <begin_vertex>", "#include <begin_vertex>\nvVegMeta = aVegMeta;", { id: "world.veg.2.begin_vertex" });
+      };
+      m.customProgramCacheKey = () => `hb_veg-instanced_${this.kitKey()}`;
+      this.track(m);
+      return m;
+    }, true);
+  }
+
+  /** Instanced vegetation depth twin: static shadow (prepass=false) or swaying predepth (prepass=true) with HB_VEG_INSTANCED. */
+  vegDepth(prepass = false, side: THREE.Side = THREE.DoubleSide): THREE.MeshDepthMaterial {
+    return this.cached(prepass ? `veg-predepth:${side}` : "veg-depth", () => {
+      const base = this.kitDepth(prepass, side);
+      const m = mkDepth(prepass ? "hb_veg_predepth" : "hb_veg_depth", prepass, side);
+      m.onBeforeCompile = (shader, renderer) => {
+        base.onBeforeCompile(shader, renderer);
+        shader.defines = { ...shader.defines, HB_VEG_INSTANCED: "" };
+        if (prepass) {
+          shader.vertexShader = patch(shader.vertexShader, "#include <common>", "#include <common>\nattribute vec4 aVegMeta;", { id: "world.veg.3.common" });
+        }
+      };
+      m.customProgramCacheKey = () => `hb_veg-instanced_${prepass ? "predepth_v1_sw" : "depth_v1"}_${this.kitKey()}`;
+      return m;
     }, true);
   }
 
@@ -611,9 +654,8 @@ export class HarbourMaterials {
       shader.fragmentShader = patch(shader.fragmentShader, "#include <color_fragment>", `
   float hbLit = 1.0, hbWarm = 0.0, hbPlain = 0.0;
   #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
-    hbLit = vColor.r; hbWarm = vColor.g; hbPlain = step(0.5, vColor.b);   // window kind: 1 = plain opening
+    hbLit = vColor.r; hbWarm = vColor.g; hbPlain = step(0.5, vColor.b);
   #endif
-  // frame + cross mullion (metres in the window plane), faded to coverage when under ~2 px
   vec2 hbWm = max(vHbWin.zw, vec2(0.05));
   vec2 hbP = vHbWin.xy * hbWm;
   vec2 hbAA = fwidth(hbP) + 1e-4;
@@ -625,7 +667,6 @@ export class HarbourMaterials {
   hbWood *= 1.0 - hbPlain;
   float hbGlass = 1.0 - hbWood;
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.6, 0.55), hbWood);
-  // plain opening: no glass, a deep reveal: dark warm room, shadowed toward its edges (mean when sub-pixel)
   float hbRecess = mix(0.45 + 0.55 * smoothstep(0.0, 0.28, hbEdge), 0.8, smoothstep(0.03, 0.09, max(hbAA.x, hbAA.y)));
   hbRecess = mix(1.0, hbRecess, hbPlain);
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.045, 0.032, 0.024), hbPlain) * hbRecess;
@@ -633,20 +674,16 @@ export class HarbourMaterials {
       shader.fragmentShader = patch(shader.fragmentShader, "#include <roughnessmap_fragment>", "float roughnessFactor = mix(0.6, 0.08, hbSheen) + 0.3 * hbPlain;", { id: "world.28.roughnessmap_fragment" });
       shader.fragmentShader = patch(shader.fragmentShader, "#include <emissivemap_fragment>", `
   {
-    // one identity per window (its centre), stable across frames, instances and LOD
     vec3 hbId = floor(vHbWinC * 2.0);
     float on = step(hbWhite(hbId + 11.0), uWindowOcc);
-    float tint = fract(hbWhite(hbId + 29.0) + hbWarm * 0.35) * mix(1.0, 0.7, hbPlain);   // plain: warmer
-    vec3 candle = vec3(1.0, 0.26, 0.04);        // deep candle orange (linear)
-    vec3 lamp = vec3(1.0, 0.50, 0.17);          // oil lamp
-    vec3 cool = vec3(0.92, 0.72, 0.50);         // cooler electric lamp
+    float tint = fract(hbWhite(hbId + 29.0) + hbWarm * 0.35) * mix(1.0, 0.7, hbPlain);
+    vec3 candle = vec3(1.0, 0.26, 0.04);
+    vec3 lamp = vec3(1.0, 0.50, 0.17);
+    vec3 cool = vec3(0.92, 0.72, 0.50);
     vec3 col = tint < 0.6 ? mix(candle, lamp, tint / 0.6) : mix(lamp, cool, (tint - 0.6) / 0.4);
     float level = 0.45 + 0.55 * max(hbWhite(hbId + 47.0), hbLit * 0.6);
-    // lit room: brighter low and centre (the lamp on the table), darker top corners
     vec2 q = vHbWin.xy - vec2(0.5, 0.3);
     float room = 0.6 + 0.55 * exp(-q.x * q.x * 5.0 - q.y * q.y * 4.0);
-    // plain openings are small and deep: a brighter lamp keeps the classical night quarter as lit as the framed town
-    // the lamplighting wave (05-P3): the window's own moment (the Pharos's tower windows first, top-down)
     float hbWg = hbLampGlow(uWindowGlow, hbLampRank(vHbWinC, hbWhite(hbId + 61.0)));
     totalEmissiveRadiance = col * on * level * room * hbWg * ${WIN_MAX.toFixed(1)} * (hbGlass + 0.04) * hbRecess * mix(1.0, ${PLAIN_GAIN.toFixed(2)}, hbPlain);
     totalEmissiveRadiance *= 1.0 + 0.3 * hbLmHoverIn(vHbWorld);

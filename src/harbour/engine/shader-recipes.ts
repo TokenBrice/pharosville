@@ -77,6 +77,9 @@ export function visitShaderRecipes(visit: (recipe: ShaderRecipe) => void): void 
           emit(`kit/${signature}/${geometry}/depth`, mats.kitDepth(), geometry);
         }
         for (const geometry of ["static", "instanced"] as const) emit(`kit/${signature}/${geometry}/predepth`, mats.kitDepth(true), geometry);
+        emit(`veg/${signature}/instanced/colour`, mats.vegSolid(), "instanced");
+        emit(`veg/${signature}/instanced/depth`, mats.vegDepth(), "instanced");
+        emit(`veg/${signature}/instanced/predepth`, mats.vegDepth(true), "instanced");
         emit(`fleet/${signature}/batched/colour`, ship.material, "batched");
       }
       const terrainSig = terrainFeatureKey(mats.terrainFeatureIdentity());

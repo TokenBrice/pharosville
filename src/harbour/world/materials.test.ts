@@ -297,3 +297,47 @@ describe("Phase 2A dedicated hb_terrain material", () => {
     splat.dispose(); topo.dispose(); mesh.geometry.dispose(); mats.dispose();
   });
 });
+
+describe("Phase 1B instanced vegetation material (vegSolid / vegDepth)", () => {
+  it("caches vegSolid/vegDepth, includes veg-instanced in cache keys, binds prepareSeasonDepth, and invalidates across seasons", () => {
+    const u = createWorldUniforms();
+    u.uFoliage.value.set(0, 1, 0, 0);
+    const mats = new HarbourMaterials(u);
+    const solid = mats.vegSolid();
+    const depth = mats.vegDepth(false);
+    const predepth = mats.vegDepth(true);
+    expect(mats.vegSolid()).toBe(solid);
+    expect(mats.vegDepth()).toBe(depth);
+    expect(mats.vegDepth(true)).toBe(predepth);
+    expect(solid.name).toBe("hb_veg_solid");
+    expect(depth.name).toBe("hb_veg_depth");
+    expect(predepth.name).toBe("hb_veg_predepth");
+    expect(predepth.colorWrite).toBe(false);
+    expect(solid.customProgramCacheKey()).toContain("veg-instanced");
+    expect(depth.customProgramCacheKey()).toContain("veg-instanced");
+    expect(predepth.customProgramCacheKey()).toContain("veg-instanced");
+
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), solid);
+    mesh.castShadow = true;
+    const scene = new THREE.Scene();
+    scene.add(mesh);
+    mats.prepareSeasonDepth(scene);
+    expect(mesh.customDepthMaterial).toBe(depth);
+
+    const v0 = [solid.version, depth.version, predepth.version];
+    const k0 = [solid.customProgramCacheKey(), depth.customProgramCacheKey(), predepth.customProgramCacheKey()];
+    u.uFoliage.value.set(0, 0, 0, 1); // winter
+    mats.invalidateSeason(scene);
+    expect([solid.version, depth.version, predepth.version]).toEqual(v0.map((v) => v + 1));
+    expect([solid.customProgramCacheKey(), depth.customProgramCacheKey(), predepth.customProgramCacheKey()]).not.toEqual(k0);
+
+    // Retuned autumn deciduous bands keep ~18% holdout (t >= 0.82) and distinct Mediterranean warm ochre/sienna/terracotta/olive-ochre hues
+    const assembled = assembleShader(solid);
+    expect(assembled.fragmentShader).toContain("t < 0.82 ?");
+    expect(assembled.fragmentShader).toContain("vec3(0.46, 0.21, 0.085)");
+    expect(assembled.fragmentShader).toContain("vec3(0.38, 0.125, 0.075)");
+
+    mesh.geometry.dispose();
+    mats.dispose();
+  });
+});

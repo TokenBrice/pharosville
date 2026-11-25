@@ -62,6 +62,8 @@ export async function buildAssetRegistry(output) {
     if (original.endsWith(".gz") || original.endsWith(".json") || original.endsWith("/sea-sdf.webp")) continue;
     if (original.endsWith(".glb")) {
       if (!registry.models[original]) registry.models[original] = { url: await emitBr(original.slice(1), await readFile(file), "model/gltf-binary") };
+    } else if (original.endsWith(".bin")) {
+      registry.urls[original] = await emitBr(original.slice(1), await readFile(file), "application/octet-stream");
     } else registry.urls[original] = await emit(original.slice(1), await readFile(file));
   }
   const { data: rgba, info } = await sharp(resolve(root, "assets/harbour/sea-sdf.png")).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -111,8 +113,17 @@ export async function buildAssetRegistry(output) {
   let css = await readFile(resolve(root, "public/arrival-shell.css"), "utf8");
   for (const [from, to] of Object.entries(registry.urls)) css = css.replaceAll(from, to);
   registry.urls["/arrival-shell.css"] = await emit("arrival-shell.css", Buffer.from(css));
-  registry.preloads = [layout.sea.sdf, "/harbour/island.glb", "/harbour/terrain-splat.webp", "/harbour/terrain-topo.webp", "/harbour/lighthouse.glb",
-    "/harbour/civic/manifest.json", "/harbour/kit/manifest.json"].map((original) => ({
+  registry.preloads = [
+    layout.sea.sdf,
+    "/harbour/island.glb",
+    "/harbour/terrain-splat.webp",
+    "/harbour/terrain-topo.webp",
+    "/harbour/flora/vegetation.glb",
+    ...(registry.urls["/harbour/flora/vegetation-instances.bin"] ? ["/harbour/flora/vegetation-instances.bin"] : []),
+    "/harbour/lighthouse.glb",
+    "/harbour/civic/manifest.json",
+    "/harbour/kit/manifest.json",
+  ].map((original) => ({
     url: registry.models[original]?.url ?? registry.urls[original],
     ...(original === "/harbour/island.glb" ? { fetchpriority: "low" } : {}),
   }));

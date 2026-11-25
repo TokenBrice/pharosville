@@ -1,43 +1,61 @@
 {
   "kit/0.0_bare_c11111/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "b0aeccb3cbb99fccb866cc9bf89cab33a4523e655198c49806f0b7330baba8be",
     "cacheKey": "hb_kit_0.0_bare_c11111"
   },
   "kit/0.0_bare_c11111/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c11111"
   },
   "kit/0.0_bare_c11111/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "b0aeccb3cbb99fccb866cc9bf89cab33a4523e655198c49806f0b7330baba8be",
     "cacheKey": "hb_kit_0.0_bare_c11111"
   },
   "kit/0.0_bare_c11111/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c11111"
   },
   "kit/0.0_bare_c11111/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c11111"
   },
   "kit/0.0_bare_c11111/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c11111"
   },
+  "veg/0.0_bare_c11111/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "6d5a5e588697337ba19da4f1e902e9b7b10ad84c42905ec04ec47f895a4a4de4",
+    "cacheKey": "hb_veg-instanced_0.0_bare_c11111"
+  },
+  "veg/0.0_bare_c11111/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "3fb188379ed74ac8681da1829625746d9cac4bb646bf2c2cfd936b06c7ab8cbb",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_bare_c11111"
+  },
+  "veg/0.0_bare_c11111/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "3fb188379ed74ac8681da1829625746d9cac4bb646bf2c2cfd936b06c7ab8cbb",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_bare_c11111"
+  },
   "fleet/0.0_bare_c11111/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "f3521f1aff5f3b5adc1478c53f9561a0d096cebb8cf344c2ff87bd4a49680160",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_bare_c11111"
   },
@@ -48,44 +66,62 @@
     "cacheKey": "hb_terrain_c11111"
   },
   "kit/0.0_bare_c11111_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "07056f7e859ec73650e5ef084b673974779ee2b9da867134453f1813f175393e",
     "cacheKey": "hb_kit_0.0_bare_c11111_lite"
   },
   "kit/0.0_bare_c11111_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c11111_lite"
   },
   "kit/0.0_bare_c11111_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "07056f7e859ec73650e5ef084b673974779ee2b9da867134453f1813f175393e",
     "cacheKey": "hb_kit_0.0_bare_c11111_lite"
   },
   "kit/0.0_bare_c11111_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c11111_lite"
   },
   "kit/0.0_bare_c11111_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c11111_lite"
   },
   "kit/0.0_bare_c11111_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c11111_lite"
   },
+  "veg/0.0_bare_c11111_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "cbde08aebbc021f6a7a2bbe69b7e263a4e7ba1bf977dec25242782314b212413",
+    "cacheKey": "hb_veg-instanced_0.0_bare_c11111_lite"
+  },
+  "veg/0.0_bare_c11111_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "3fb188379ed74ac8681da1829625746d9cac4bb646bf2c2cfd936b06c7ab8cbb",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_bare_c11111_lite"
+  },
+  "veg/0.0_bare_c11111_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "ca5fbf5d279ea23f509e3578d58ab3142ada63d97b712fa237d62502ff682009",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_bare_c11111_lite"
+  },
   "fleet/0.0_bare_c11111_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "19e11f7077dd410bc72cc6c9f964fe0e8bccb0b76789ec4b5c962f23f252b8f3",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_bare_c11111_lite"
   },
@@ -96,44 +132,62 @@
     "cacheKey": "hb_terrain_c11111_lite"
   },
   "kit/0.0_bare_c00000/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "56e9c17e238d1829b0086fe445b2c2945faa12cba1e6ba3a8c6fecb1328c0240",
     "cacheKey": "hb_kit_0.0_bare_c00000"
   },
   "kit/0.0_bare_c00000/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c00000"
   },
   "kit/0.0_bare_c00000/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "56e9c17e238d1829b0086fe445b2c2945faa12cba1e6ba3a8c6fecb1328c0240",
     "cacheKey": "hb_kit_0.0_bare_c00000"
   },
   "kit/0.0_bare_c00000/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c00000"
   },
   "kit/0.0_bare_c00000/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c00000"
   },
   "kit/0.0_bare_c00000/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c00000"
   },
+  "veg/0.0_bare_c00000/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "fb4055e010b76f8a1bbdb003056c5ffd76655cbde033a3bee98a4783d1133c4a",
+    "cacheKey": "hb_veg-instanced_0.0_bare_c00000"
+  },
+  "veg/0.0_bare_c00000/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "3fb188379ed74ac8681da1829625746d9cac4bb646bf2c2cfd936b06c7ab8cbb",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_bare_c00000"
+  },
+  "veg/0.0_bare_c00000/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "3fb188379ed74ac8681da1829625746d9cac4bb646bf2c2cfd936b06c7ab8cbb",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_bare_c00000"
+  },
   "fleet/0.0_bare_c00000/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "19b89d24f958bf281823cf17d31aee493fb46b312cfd90676c11046760d4c2e9",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_bare_c00000"
   },
@@ -144,44 +198,62 @@
     "cacheKey": "hb_terrain_c00000"
   },
   "kit/0.0_bare_c00000_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "92a9ba8798931e3e8e864a0e9d94214edceb4d287725dde0015a827be5653336",
     "cacheKey": "hb_kit_0.0_bare_c00000_lite"
   },
   "kit/0.0_bare_c00000_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c00000_lite"
   },
   "kit/0.0_bare_c00000_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "92a9ba8798931e3e8e864a0e9d94214edceb4d287725dde0015a827be5653336",
     "cacheKey": "hb_kit_0.0_bare_c00000_lite"
   },
   "kit/0.0_bare_c00000_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c00000_lite"
   },
   "kit/0.0_bare_c00000_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c00000_lite"
   },
   "kit/0.0_bare_c00000_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c00000_lite"
   },
+  "veg/0.0_bare_c00000_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "c920cfb92524f12e770cd9ad2f7ddf4d5cfb0c0e6f9754785b63d6a5c508f32e",
+    "cacheKey": "hb_veg-instanced_0.0_bare_c00000_lite"
+  },
+  "veg/0.0_bare_c00000_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "3fb188379ed74ac8681da1829625746d9cac4bb646bf2c2cfd936b06c7ab8cbb",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_bare_c00000_lite"
+  },
+  "veg/0.0_bare_c00000_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "ca5fbf5d279ea23f509e3578d58ab3142ada63d97b712fa237d62502ff682009",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_bare_c00000_lite"
+  },
   "fleet/0.0_bare_c00000_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "0d89943cef0d4696429e39c8a80e1c29fd6f57d5afc2c5962f8d28873ff5013f",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_bare_c00000_lite"
   },
@@ -192,44 +264,62 @@
     "cacheKey": "hb_terrain_c00000_lite"
   },
   "kit/0.0_bare_c10000/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "33717384f4706662587de2dbe04404c02ff461cc5ac33880b145c1f651fa140c",
     "cacheKey": "hb_kit_0.0_bare_c10000"
   },
   "kit/0.0_bare_c10000/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c10000"
   },
   "kit/0.0_bare_c10000/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "33717384f4706662587de2dbe04404c02ff461cc5ac33880b145c1f651fa140c",
     "cacheKey": "hb_kit_0.0_bare_c10000"
   },
   "kit/0.0_bare_c10000/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c10000"
   },
   "kit/0.0_bare_c10000/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c10000"
   },
   "kit/0.0_bare_c10000/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c10000"
   },
+  "veg/0.0_bare_c10000/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "8f852ca38330254f51bf671cd28517fb9fe09abfa9010d9e70e7d843fc2bc7ba",
+    "cacheKey": "hb_veg-instanced_0.0_bare_c10000"
+  },
+  "veg/0.0_bare_c10000/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "3fb188379ed74ac8681da1829625746d9cac4bb646bf2c2cfd936b06c7ab8cbb",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_bare_c10000"
+  },
+  "veg/0.0_bare_c10000/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "3fb188379ed74ac8681da1829625746d9cac4bb646bf2c2cfd936b06c7ab8cbb",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_bare_c10000"
+  },
   "fleet/0.0_bare_c10000/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "c12e714b75c7c9d7064c3eb311d9c442483d3f10d32a5de776ca87d58f6e42ad",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_bare_c10000"
   },
@@ -240,44 +330,62 @@
     "cacheKey": "hb_terrain_c10000"
   },
   "kit/0.0_bare_c10000_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "8ab06da3f3108985268d0b813fe1f6246034038ec5444490aa9957287f1e08b9",
     "cacheKey": "hb_kit_0.0_bare_c10000_lite"
   },
   "kit/0.0_bare_c10000_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c10000_lite"
   },
   "kit/0.0_bare_c10000_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "8ab06da3f3108985268d0b813fe1f6246034038ec5444490aa9957287f1e08b9",
     "cacheKey": "hb_kit_0.0_bare_c10000_lite"
   },
   "kit/0.0_bare_c10000_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c10000_lite"
   },
   "kit/0.0_bare_c10000_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c10000_lite"
   },
   "kit/0.0_bare_c10000_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c10000_lite"
   },
+  "veg/0.0_bare_c10000_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "b08b0619cdd8cde354aedb59c71f2bc95abf975d727fb0d2f1dcb66bce5e8265",
+    "cacheKey": "hb_veg-instanced_0.0_bare_c10000_lite"
+  },
+  "veg/0.0_bare_c10000_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "3fb188379ed74ac8681da1829625746d9cac4bb646bf2c2cfd936b06c7ab8cbb",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_bare_c10000_lite"
+  },
+  "veg/0.0_bare_c10000_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "ca5fbf5d279ea23f509e3578d58ab3142ada63d97b712fa237d62502ff682009",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_bare_c10000_lite"
+  },
   "fleet/0.0_bare_c10000_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "ae528cd766ed95fb042301676553476a43d549be44ed714b768fff1a69920759",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_bare_c10000_lite"
   },
@@ -288,128 +396,182 @@
     "cacheKey": "hb_terrain_c10000_lite"
   },
   "kit/0.0_leaf_c10000/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "31416c3815339a51282b187645be4ccbd9eb0aae27076b832b8e81ebf0d9fd4f",
     "cacheKey": "hb_kit_0.0_leaf_c10000"
   },
   "kit/0.0_leaf_c10000/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c10000"
   },
   "kit/0.0_leaf_c10000/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "31416c3815339a51282b187645be4ccbd9eb0aae27076b832b8e81ebf0d9fd4f",
     "cacheKey": "hb_kit_0.0_leaf_c10000"
   },
   "kit/0.0_leaf_c10000/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c10000"
   },
   "kit/0.0_leaf_c10000/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c10000"
   },
   "kit/0.0_leaf_c10000/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c10000"
   },
+  "veg/0.0_leaf_c10000/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "3e5bbc7a0db22beb6b90e4a68f9292885f4a42a945adbbedfefc550e1c724aa9",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c10000"
+  },
+  "veg/0.0_leaf_c10000/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c10000"
+  },
+  "veg/0.0_leaf_c10000/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c10000"
+  },
   "fleet/0.0_leaf_c10000/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "400e40a53aa52e7e25573a0a69a607a58a86fd1fe57a32fe6a86f5b878179247",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c10000"
   },
   "kit/0.0_leaf_c10000_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "cca66d065b834f74155130f54132e30050688ecdd64dfccb3d711e292f8d1a74",
     "cacheKey": "hb_kit_0.0_leaf_c10000_lite"
   },
   "kit/0.0_leaf_c10000_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c10000_lite"
   },
   "kit/0.0_leaf_c10000_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "cca66d065b834f74155130f54132e30050688ecdd64dfccb3d711e292f8d1a74",
     "cacheKey": "hb_kit_0.0_leaf_c10000_lite"
   },
   "kit/0.0_leaf_c10000_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c10000_lite"
   },
   "kit/0.0_leaf_c10000_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c10000_lite"
   },
   "kit/0.0_leaf_c10000_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c10000_lite"
   },
+  "veg/0.0_leaf_c10000_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "bb6d032b392e5fb7471bfef262d848cc05b9ddb66d7e5db94a2862474800e0cd",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c10000_lite"
+  },
+  "veg/0.0_leaf_c10000_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c10000_lite"
+  },
+  "veg/0.0_leaf_c10000_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "0bd33e47c07551a4d4181d28d8ecf3480dfebed0078de6343770da8ce084abc9",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c10000_lite"
+  },
   "fleet/0.0_leaf_c10000_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "28aa978f382ab2ea7dace783b6b7a8b57a794bc21dd661a0abd640dd679d3970",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c10000_lite"
   },
   "kit/0.0_leaf_c11000/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "b8c977409f5c79dce79c7a86df673a225f3ad0797aabfb0b7b85f994d6a7b06f",
     "cacheKey": "hb_kit_0.0_leaf_c11000"
   },
   "kit/0.0_leaf_c11000/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c11000"
   },
   "kit/0.0_leaf_c11000/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "b8c977409f5c79dce79c7a86df673a225f3ad0797aabfb0b7b85f994d6a7b06f",
     "cacheKey": "hb_kit_0.0_leaf_c11000"
   },
   "kit/0.0_leaf_c11000/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c11000"
   },
   "kit/0.0_leaf_c11000/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c11000"
   },
   "kit/0.0_leaf_c11000/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c11000"
   },
+  "veg/0.0_leaf_c11000/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "6ea709bbf36c729735c4f3b1f1afbec4ae47094e5b7cd4f9fa9986d86ca5ed8c",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c11000"
+  },
+  "veg/0.0_leaf_c11000/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c11000"
+  },
+  "veg/0.0_leaf_c11000/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c11000"
+  },
   "fleet/0.0_leaf_c11000/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "941a3d169246d330dcf80a1f7bfdf6a9ef46c76192480cef70fdf06eb7c44d48",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c11000"
   },
@@ -420,44 +582,62 @@
     "cacheKey": "hb_terrain_c11000"
   },
   "kit/0.0_leaf_c11000_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "e976978774631f1c5a5cb3f45698cbf9733a8beb883e3762658a2830e4f4ef6b",
     "cacheKey": "hb_kit_0.0_leaf_c11000_lite"
   },
   "kit/0.0_leaf_c11000_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c11000_lite"
   },
   "kit/0.0_leaf_c11000_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "e976978774631f1c5a5cb3f45698cbf9733a8beb883e3762658a2830e4f4ef6b",
     "cacheKey": "hb_kit_0.0_leaf_c11000_lite"
   },
   "kit/0.0_leaf_c11000_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c11000_lite"
   },
   "kit/0.0_leaf_c11000_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c11000_lite"
   },
   "kit/0.0_leaf_c11000_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c11000_lite"
   },
+  "veg/0.0_leaf_c11000_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "b5874f059ab5bdb23cb888db67ca20b1c6492a75c5168af6d4f7d68432f87fea",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c11000_lite"
+  },
+  "veg/0.0_leaf_c11000_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c11000_lite"
+  },
+  "veg/0.0_leaf_c11000_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "0bd33e47c07551a4d4181d28d8ecf3480dfebed0078de6343770da8ce084abc9",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c11000_lite"
+  },
   "fleet/0.0_leaf_c11000_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "31615fc19d10aef142b1f632a0c553d460beb6102b7db3de7478c2108e42a03e",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c11000_lite"
   },
@@ -468,44 +648,62 @@
     "cacheKey": "hb_terrain_c11000_lite"
   },
   "kit/0.0_leaf_c21000/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "8a9d0fc0b035189e1d6e5d49999522984abf81d0d6b7a24d12336af888f65c26",
     "cacheKey": "hb_kit_0.0_leaf_c21000"
   },
   "kit/0.0_leaf_c21000/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21000"
   },
   "kit/0.0_leaf_c21000/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "8a9d0fc0b035189e1d6e5d49999522984abf81d0d6b7a24d12336af888f65c26",
     "cacheKey": "hb_kit_0.0_leaf_c21000"
   },
   "kit/0.0_leaf_c21000/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21000"
   },
   "kit/0.0_leaf_c21000/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21000"
   },
   "kit/0.0_leaf_c21000/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21000"
   },
+  "veg/0.0_leaf_c21000/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "f8d7260cc8a4ff13291e0f1c34545ec3deed390c8ec6260e662e9ba7d370d9c5",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c21000"
+  },
+  "veg/0.0_leaf_c21000/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c21000"
+  },
+  "veg/0.0_leaf_c21000/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c21000"
+  },
   "fleet/0.0_leaf_c21000/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "ea5bd94fb9aba5dbcb996a5c8942b1390ec53e63f58feda2a6b0045a1dee7fc7",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c21000"
   },
@@ -516,44 +714,62 @@
     "cacheKey": "hb_terrain_c21000"
   },
   "kit/0.0_leaf_c21000_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "da0126d3df1189982124e757256398c5f4a3eb6bc022b64c22a0529bc73d25b4",
     "cacheKey": "hb_kit_0.0_leaf_c21000_lite"
   },
   "kit/0.0_leaf_c21000_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21000_lite"
   },
   "kit/0.0_leaf_c21000_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "da0126d3df1189982124e757256398c5f4a3eb6bc022b64c22a0529bc73d25b4",
     "cacheKey": "hb_kit_0.0_leaf_c21000_lite"
   },
   "kit/0.0_leaf_c21000_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21000_lite"
   },
   "kit/0.0_leaf_c21000_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21000_lite"
   },
   "kit/0.0_leaf_c21000_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21000_lite"
   },
+  "veg/0.0_leaf_c21000_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "773fed52314d8350ed5533da93c3bb1dc37dd2a659dcdda8fad5025c986a9b66",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c21000_lite"
+  },
+  "veg/0.0_leaf_c21000_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c21000_lite"
+  },
+  "veg/0.0_leaf_c21000_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "0bd33e47c07551a4d4181d28d8ecf3480dfebed0078de6343770da8ce084abc9",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c21000_lite"
+  },
   "fleet/0.0_leaf_c21000_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "c6440122f10201179f30649e6f5c427306162607106a7e7803b1dd3dfd593f14",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c21000_lite"
   },
@@ -564,44 +780,62 @@
     "cacheKey": "hb_terrain_c21000_lite"
   },
   "kit/0.0_leaf_c21100/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "bd97e53f8a4f14b263f17f6050dec9e43291db9d8aa4c6196452ab00a202986f",
     "cacheKey": "hb_kit_0.0_leaf_c21100"
   },
   "kit/0.0_leaf_c21100/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21100"
   },
   "kit/0.0_leaf_c21100/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "bd97e53f8a4f14b263f17f6050dec9e43291db9d8aa4c6196452ab00a202986f",
     "cacheKey": "hb_kit_0.0_leaf_c21100"
   },
   "kit/0.0_leaf_c21100/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21100"
   },
   "kit/0.0_leaf_c21100/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21100"
   },
   "kit/0.0_leaf_c21100/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21100"
   },
+  "veg/0.0_leaf_c21100/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "b352acf4fb8b01699689377f0d0aca551e6e97a664ee1bdaf69a01aa892c270f",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c21100"
+  },
+  "veg/0.0_leaf_c21100/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c21100"
+  },
+  "veg/0.0_leaf_c21100/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c21100"
+  },
   "fleet/0.0_leaf_c21100/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "f7f793a2c8ee09f6bd3d16124b42f917cb8c07d03be490e3070fa985007cf3ee",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c21100"
   },
@@ -612,44 +846,62 @@
     "cacheKey": "hb_terrain_c21100"
   },
   "kit/0.0_leaf_c21100_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "b290f03084e9458c77ba1ac253713c6fd31ff1a93d9fb081c91d866a1e94f68d",
     "cacheKey": "hb_kit_0.0_leaf_c21100_lite"
   },
   "kit/0.0_leaf_c21100_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21100_lite"
   },
   "kit/0.0_leaf_c21100_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "b290f03084e9458c77ba1ac253713c6fd31ff1a93d9fb081c91d866a1e94f68d",
     "cacheKey": "hb_kit_0.0_leaf_c21100_lite"
   },
   "kit/0.0_leaf_c21100_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c21100_lite"
   },
   "kit/0.0_leaf_c21100_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21100_lite"
   },
   "kit/0.0_leaf_c21100_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c21100_lite"
   },
+  "veg/0.0_leaf_c21100_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "ce43cd3b29f42cbf9b4abb6b58db1c064f3c81bf1fd6fd9946dcdf7bd415be75",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c21100_lite"
+  },
+  "veg/0.0_leaf_c21100_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c21100_lite"
+  },
+  "veg/0.0_leaf_c21100_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "0bd33e47c07551a4d4181d28d8ecf3480dfebed0078de6343770da8ce084abc9",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c21100_lite"
+  },
   "fleet/0.0_leaf_c21100_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "6e0feea0a2de74ebb306aff7ac9df26fbb29ce3fb52c7220cf1a804df5dc3271",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c21100_lite"
   },
@@ -660,44 +912,62 @@
     "cacheKey": "hb_terrain_c21100_lite"
   },
   "kit/0.0_leaf_c22100/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "eb1bc143493331981b7b61e9f3749ee8e98e3f9f02be31a1637d430d86b7226f",
     "cacheKey": "hb_kit_0.0_leaf_c22100"
   },
   "kit/0.0_leaf_c22100/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22100"
   },
   "kit/0.0_leaf_c22100/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "eb1bc143493331981b7b61e9f3749ee8e98e3f9f02be31a1637d430d86b7226f",
     "cacheKey": "hb_kit_0.0_leaf_c22100"
   },
   "kit/0.0_leaf_c22100/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22100"
   },
   "kit/0.0_leaf_c22100/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22100"
   },
   "kit/0.0_leaf_c22100/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22100"
   },
+  "veg/0.0_leaf_c22100/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "54ca8636c2f7b41952019ea176aa34651c653b478bb24d72af04a19e3e173168",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c22100"
+  },
+  "veg/0.0_leaf_c22100/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c22100"
+  },
+  "veg/0.0_leaf_c22100/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c22100"
+  },
   "fleet/0.0_leaf_c22100/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "0aee9b21ab01d211c04a3f738df32e0f917c3c608e1c87f5351062f48a4f9c04",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c22100"
   },
@@ -708,44 +978,62 @@
     "cacheKey": "hb_terrain_c22100"
   },
   "kit/0.0_leaf_c22100_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "b722b0db5347d3149ea61ed083acdc2cbdd8707335e3e665ece6b527d5b7bd5f",
     "cacheKey": "hb_kit_0.0_leaf_c22100_lite"
   },
   "kit/0.0_leaf_c22100_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22100_lite"
   },
   "kit/0.0_leaf_c22100_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "b722b0db5347d3149ea61ed083acdc2cbdd8707335e3e665ece6b527d5b7bd5f",
     "cacheKey": "hb_kit_0.0_leaf_c22100_lite"
   },
   "kit/0.0_leaf_c22100_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22100_lite"
   },
   "kit/0.0_leaf_c22100_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22100_lite"
   },
   "kit/0.0_leaf_c22100_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22100_lite"
   },
+  "veg/0.0_leaf_c22100_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "60f8cd2378842f461158a465c4ca4a860b48ec3c3139d2cb8a476d25b880e6be",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c22100_lite"
+  },
+  "veg/0.0_leaf_c22100_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c22100_lite"
+  },
+  "veg/0.0_leaf_c22100_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "0bd33e47c07551a4d4181d28d8ecf3480dfebed0078de6343770da8ce084abc9",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c22100_lite"
+  },
   "fleet/0.0_leaf_c22100_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "663b5244f4b915dc495bf244ee48beef10ed3a7e1b521ec523f1aa1edb6b5b8c",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c22100_lite"
   },
@@ -756,44 +1044,62 @@
     "cacheKey": "hb_terrain_c22100_lite"
   },
   "kit/0.0_leaf_st_c22110/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "997d037258ab61906273549f5a8ab31d0db488a132f1098552a5a2e634f72671",
     "cacheKey": "hb_kit_0.0_leaf_st_c22110"
   },
   "kit/0.0_leaf_st_c22110/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22110"
   },
   "kit/0.0_leaf_st_c22110/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "997d037258ab61906273549f5a8ab31d0db488a132f1098552a5a2e634f72671",
     "cacheKey": "hb_kit_0.0_leaf_st_c22110"
   },
   "kit/0.0_leaf_st_c22110/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22110"
   },
   "kit/0.0_leaf_st_c22110/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22110"
   },
   "kit/0.0_leaf_st_c22110/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22110"
   },
+  "veg/0.0_leaf_st_c22110/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "06e16ddee416bf5eac70a24f2206c02d0ba58b7695beb21d6a7c234bf2a94731",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_st_c22110"
+  },
+  "veg/0.0_leaf_st_c22110/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_st_c22110"
+  },
+  "veg/0.0_leaf_st_c22110/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_st_c22110"
+  },
   "fleet/0.0_leaf_st_c22110/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "dfbb03b8e8a834b920daee30710b667213f871d38a3cfe184ff9f299402863f6",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_st_c22110"
   },
@@ -804,44 +1110,62 @@
     "cacheKey": "hb_terrain_st_c22110"
   },
   "kit/0.0_leaf_st_c22110_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "b02ed1608f1ef6305091ba706d30cfbb07cb56e3a1c9040546235bc70e467dc8",
     "cacheKey": "hb_kit_0.0_leaf_st_c22110_lite"
   },
   "kit/0.0_leaf_st_c22110_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22110_lite"
   },
   "kit/0.0_leaf_st_c22110_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "b02ed1608f1ef6305091ba706d30cfbb07cb56e3a1c9040546235bc70e467dc8",
     "cacheKey": "hb_kit_0.0_leaf_st_c22110_lite"
   },
   "kit/0.0_leaf_st_c22110_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22110_lite"
   },
   "kit/0.0_leaf_st_c22110_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22110_lite"
   },
   "kit/0.0_leaf_st_c22110_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22110_lite"
   },
+  "veg/0.0_leaf_st_c22110_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "de632cd078858b86d56a374d89d2b23fc7abd2336ee4e7599cafd4ddd9c04e7e",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_st_c22110_lite"
+  },
+  "veg/0.0_leaf_st_c22110_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_st_c22110_lite"
+  },
+  "veg/0.0_leaf_st_c22110_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "0bd33e47c07551a4d4181d28d8ecf3480dfebed0078de6343770da8ce084abc9",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_st_c22110_lite"
+  },
   "fleet/0.0_leaf_st_c22110_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "958201eb1c418984333aa1cc4b5ba62998819f855438ac1ef3ba3066c0686ca4",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_st_c22110_lite"
   },
@@ -852,44 +1176,62 @@
     "cacheKey": "hb_terrain_st_c22110_lite"
   },
   "kit/0.0_leaf_st_c22210/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "cd8cd84409e2028b287a2d05e2ec6901681b18889e867b6d653241c3d5cf2cf1",
     "cacheKey": "hb_kit_0.0_leaf_st_c22210"
   },
   "kit/0.0_leaf_st_c22210/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22210"
   },
   "kit/0.0_leaf_st_c22210/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "cd8cd84409e2028b287a2d05e2ec6901681b18889e867b6d653241c3d5cf2cf1",
     "cacheKey": "hb_kit_0.0_leaf_st_c22210"
   },
   "kit/0.0_leaf_st_c22210/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22210"
   },
   "kit/0.0_leaf_st_c22210/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22210"
   },
   "kit/0.0_leaf_st_c22210/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22210"
   },
+  "veg/0.0_leaf_st_c22210/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "0289d3eecab8ce4a5785bf40d50d6284dcd9e034861756cdaeca0a0047425aac",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_st_c22210"
+  },
+  "veg/0.0_leaf_st_c22210/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_st_c22210"
+  },
+  "veg/0.0_leaf_st_c22210/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_st_c22210"
+  },
   "fleet/0.0_leaf_st_c22210/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "6c03f5c06b4d4456c3729ff13b80ee9a1ee094e2746b38d9e6328772090a72f0",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_st_c22210"
   },
@@ -900,44 +1242,62 @@
     "cacheKey": "hb_terrain_st_c22210"
   },
   "kit/0.0_leaf_st_c22210_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "0c3d2835453467509eeba2e4d3ae51171d18b0fa7e21ccc2d7f2151229b53dc2",
     "cacheKey": "hb_kit_0.0_leaf_st_c22210_lite"
   },
   "kit/0.0_leaf_st_c22210_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22210_lite"
   },
   "kit/0.0_leaf_st_c22210_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "0c3d2835453467509eeba2e4d3ae51171d18b0fa7e21ccc2d7f2151229b53dc2",
     "cacheKey": "hb_kit_0.0_leaf_st_c22210_lite"
   },
   "kit/0.0_leaf_st_c22210_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22210_lite"
   },
   "kit/0.0_leaf_st_c22210_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22210_lite"
   },
   "kit/0.0_leaf_st_c22210_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22210_lite"
   },
+  "veg/0.0_leaf_st_c22210_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "c166058084ccb2dc6b303b96f89a947150b4c4ca63ed9efde0d01f6d5b739150",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_st_c22210_lite"
+  },
+  "veg/0.0_leaf_st_c22210_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_st_c22210_lite"
+  },
+  "veg/0.0_leaf_st_c22210_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "0bd33e47c07551a4d4181d28d8ecf3480dfebed0078de6343770da8ce084abc9",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_st_c22210_lite"
+  },
   "fleet/0.0_leaf_st_c22210_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "4a8cea498bb3e6ae13f55b61a5a856a9ff453ddc703f926a17bee761de48aa14",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_st_c22210_lite"
   },
@@ -948,44 +1308,62 @@
     "cacheKey": "hb_terrain_st_c22210_lite"
   },
   "kit/0.0_leaf_st_c22220/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "d53827d06b298d593b074c171899a5b13df1aa3cfe23ca51fa6fc3e6b558d52c",
     "cacheKey": "hb_kit_0.0_leaf_st_c22220"
   },
   "kit/0.0_leaf_st_c22220/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22220"
   },
   "kit/0.0_leaf_st_c22220/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "d53827d06b298d593b074c171899a5b13df1aa3cfe23ca51fa6fc3e6b558d52c",
     "cacheKey": "hb_kit_0.0_leaf_st_c22220"
   },
   "kit/0.0_leaf_st_c22220/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22220"
   },
   "kit/0.0_leaf_st_c22220/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22220"
   },
   "kit/0.0_leaf_st_c22220/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22220"
   },
+  "veg/0.0_leaf_st_c22220/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "6b76291c8d2be1bb5be7b12f501909c810cfd14c1a3db12faef5b4dd52c76cb9",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_st_c22220"
+  },
+  "veg/0.0_leaf_st_c22220/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_st_c22220"
+  },
+  "veg/0.0_leaf_st_c22220/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_st_c22220"
+  },
   "fleet/0.0_leaf_st_c22220/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "f3a0695ccc8ca8efbc043b30b1bee70417f32bb1b8d6d2fcd66ca1cff9d6bd2f",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_st_c22220"
   },
@@ -996,44 +1374,62 @@
     "cacheKey": "hb_terrain_st_c22220"
   },
   "kit/0.0_leaf_st_c22220_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "70538dc0fcf3fae59745d4f27fa89d1a0f8c9fa1b87860c3bad5290960a4e288",
     "cacheKey": "hb_kit_0.0_leaf_st_c22220_lite"
   },
   "kit/0.0_leaf_st_c22220_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22220_lite"
   },
   "kit/0.0_leaf_st_c22220_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "70538dc0fcf3fae59745d4f27fa89d1a0f8c9fa1b87860c3bad5290960a4e288",
     "cacheKey": "hb_kit_0.0_leaf_st_c22220_lite"
   },
   "kit/0.0_leaf_st_c22220_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22220_lite"
   },
   "kit/0.0_leaf_st_c22220_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22220_lite"
   },
   "kit/0.0_leaf_st_c22220_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22220_lite"
   },
+  "veg/0.0_leaf_st_c22220_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "734b1dae2d6e2ba65820d756f5f1e367736522c0dc55879c32f4579ac24a90b9",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_st_c22220_lite"
+  },
+  "veg/0.0_leaf_st_c22220_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_st_c22220_lite"
+  },
+  "veg/0.0_leaf_st_c22220_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "0bd33e47c07551a4d4181d28d8ecf3480dfebed0078de6343770da8ce084abc9",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_st_c22220_lite"
+  },
   "fleet/0.0_leaf_st_c22220_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "1740305c12a8891b702bf8d123cf51dcf336a4fb2204c8d1342909bb5d681a29",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_st_c22220_lite"
   },
@@ -1044,44 +1440,62 @@
     "cacheKey": "hb_terrain_st_c22220_lite"
   },
   "kit/0.0_leaf_st_c22221/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "c09494d9660adbd637079ec7e24f6b6a007eda2e672fc6f59109886609f8aa80",
     "cacheKey": "hb_kit_0.0_leaf_st_c22221"
   },
   "kit/0.0_leaf_st_c22221/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22221"
   },
   "kit/0.0_leaf_st_c22221/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "c09494d9660adbd637079ec7e24f6b6a007eda2e672fc6f59109886609f8aa80",
     "cacheKey": "hb_kit_0.0_leaf_st_c22221"
   },
   "kit/0.0_leaf_st_c22221/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22221"
   },
   "kit/0.0_leaf_st_c22221/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22221"
   },
   "kit/0.0_leaf_st_c22221/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22221"
   },
+  "veg/0.0_leaf_st_c22221/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "02e272a0501c06f6787e15da426632c8d9ada8a3c4e712db45d82e7eeacad93b",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_st_c22221"
+  },
+  "veg/0.0_leaf_st_c22221/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_st_c22221"
+  },
+  "veg/0.0_leaf_st_c22221/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_st_c22221"
+  },
   "fleet/0.0_leaf_st_c22221/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "b55575889d3d83e7f8468e50389470155cf7d70b664eca8270a85800ebc1eaf8",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_st_c22221"
   },
@@ -1092,44 +1506,62 @@
     "cacheKey": "hb_terrain_st_c22221"
   },
   "kit/0.0_leaf_st_c22221_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "f2c147e26148b51cced9dfa8cb1556bc92d6b8cd9caf689db8a669e2d7ee140a",
     "cacheKey": "hb_kit_0.0_leaf_st_c22221_lite"
   },
   "kit/0.0_leaf_st_c22221_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22221_lite"
   },
   "kit/0.0_leaf_st_c22221_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "f2c147e26148b51cced9dfa8cb1556bc92d6b8cd9caf689db8a669e2d7ee140a",
     "cacheKey": "hb_kit_0.0_leaf_st_c22221_lite"
   },
   "kit/0.0_leaf_st_c22221_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_st_c22221_lite"
   },
   "kit/0.0_leaf_st_c22221_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22221_lite"
   },
   "kit/0.0_leaf_st_c22221_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_st_c22221_lite"
   },
+  "veg/0.0_leaf_st_c22221_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "f0de8d8e9c738ab0fd3c4ec7f83e4b460da997ad2f30b21db5374c54e2ff90e2",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_st_c22221_lite"
+  },
+  "veg/0.0_leaf_st_c22221_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_st_c22221_lite"
+  },
+  "veg/0.0_leaf_st_c22221_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "0bd33e47c07551a4d4181d28d8ecf3480dfebed0078de6343770da8ce084abc9",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_st_c22221_lite"
+  },
   "fleet/0.0_leaf_st_c22221_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "614ad30f8a4a2de4897930a80d6adc52c47c1b35a89c3490bb456d9833e215d6",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_st_c22221_lite"
   },
@@ -1140,44 +1572,62 @@
     "cacheKey": "hb_terrain_st_c22221_lite"
   },
   "kit/0.0_leaf_c22221/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "c4afd1e6803e13f144a5bc375e482f6acfc53b7db4712aaeb4cb590452f34f29",
     "cacheKey": "hb_kit_0.0_leaf_c22221"
   },
   "kit/0.0_leaf_c22221/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22221"
   },
   "kit/0.0_leaf_c22221/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "c4afd1e6803e13f144a5bc375e482f6acfc53b7db4712aaeb4cb590452f34f29",
     "cacheKey": "hb_kit_0.0_leaf_c22221"
   },
   "kit/0.0_leaf_c22221/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22221"
   },
   "kit/0.0_leaf_c22221/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22221"
   },
   "kit/0.0_leaf_c22221/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22221"
   },
+  "veg/0.0_leaf_c22221/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "7e3761dc372474aa13c781e2146f791c2c6d197bc1f373e33d40a2b4a7623b85",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c22221"
+  },
+  "veg/0.0_leaf_c22221/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c22221"
+  },
+  "veg/0.0_leaf_c22221/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c22221"
+  },
   "fleet/0.0_leaf_c22221/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "9d5f3abd56b1a9008d71d990f62c752a0ac8d654e86ef610ab0cbc69f04cc387",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c22221"
   },
@@ -1188,44 +1638,62 @@
     "cacheKey": "hb_terrain_c22221"
   },
   "kit/0.0_leaf_c22221_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "ce8ceb937f624e73986f8136a57a81e27fb86242381e1a8ca94bb830373bd53c",
     "cacheKey": "hb_kit_0.0_leaf_c22221_lite"
   },
   "kit/0.0_leaf_c22221_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22221_lite"
   },
   "kit/0.0_leaf_c22221_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "ce8ceb937f624e73986f8136a57a81e27fb86242381e1a8ca94bb830373bd53c",
     "cacheKey": "hb_kit_0.0_leaf_c22221_lite"
   },
   "kit/0.0_leaf_c22221_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22221_lite"
   },
   "kit/0.0_leaf_c22221_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22221_lite"
   },
   "kit/0.0_leaf_c22221_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22221_lite"
   },
+  "veg/0.0_leaf_c22221_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "3c9a8803aec07013f88fcf0f32db7aeade8cf144984be399116aa142e4a0998f",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c22221_lite"
+  },
+  "veg/0.0_leaf_c22221_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c22221_lite"
+  },
+  "veg/0.0_leaf_c22221_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "0bd33e47c07551a4d4181d28d8ecf3480dfebed0078de6343770da8ce084abc9",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c22221_lite"
+  },
   "fleet/0.0_leaf_c22221_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "c3b081b970c71d1c9207726d8254eb1a49d0cee64b0dc328eb978ad9c6c327e5",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c22221_lite"
   },
@@ -1236,44 +1704,62 @@
     "cacheKey": "hb_terrain_c22221_lite"
   },
   "kit/0.0_leaf_c22222/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "61053117de59f16bce9f5643e600fdab2d819c306bcc8366cebcf41ef14cefaf",
     "cacheKey": "hb_kit_0.0_leaf_c22222"
   },
   "kit/0.0_leaf_c22222/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22222"
   },
   "kit/0.0_leaf_c22222/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "61053117de59f16bce9f5643e600fdab2d819c306bcc8366cebcf41ef14cefaf",
     "cacheKey": "hb_kit_0.0_leaf_c22222"
   },
   "kit/0.0_leaf_c22222/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22222"
   },
   "kit/0.0_leaf_c22222/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22222"
   },
   "kit/0.0_leaf_c22222/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22222"
   },
+  "veg/0.0_leaf_c22222/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "72293959fbb8320afe7b6733b80a37417d1922eb873f3ff7b6fdf755d4f8d8bc",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c22222"
+  },
+  "veg/0.0_leaf_c22222/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c22222"
+  },
+  "veg/0.0_leaf_c22222/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c22222"
+  },
   "fleet/0.0_leaf_c22222/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "211994b6fce12b8768592a5f12903c039ab1021575c769ee60adb326657e7b74",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c22222"
   },
@@ -1284,44 +1770,62 @@
     "cacheKey": "hb_terrain_c22222"
   },
   "kit/0.0_leaf_c22222_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "8dbfa0ffb5059c0ed76811429650fe545cce125ea0536043ae795caf049f64fe",
     "cacheKey": "hb_kit_0.0_leaf_c22222_lite"
   },
   "kit/0.0_leaf_c22222_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22222_lite"
   },
   "kit/0.0_leaf_c22222_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "8dbfa0ffb5059c0ed76811429650fe545cce125ea0536043ae795caf049f64fe",
     "cacheKey": "hb_kit_0.0_leaf_c22222_lite"
   },
   "kit/0.0_leaf_c22222_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_kit_depth_v3_0.0_leaf_c22222_lite"
   },
   "kit/0.0_leaf_c22222_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22222_lite"
   },
   "kit/0.0_leaf_c22222_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_leaf_c22222_lite"
   },
+  "veg/0.0_leaf_c22222_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "3758d699844d57ff1e0d9040242dd8b8606cb2e012043f9ad9b5d4984441c643",
+    "cacheKey": "hb_veg-instanced_0.0_leaf_c22222_lite"
+  },
+  "veg/0.0_leaf_c22222_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "62cb5cf3d1d1f670cbde0a675aa849d9689b39b6a7075d1b336cdca301f01596",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_leaf_c22222_lite"
+  },
+  "veg/0.0_leaf_c22222_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "0bd33e47c07551a4d4181d28d8ecf3480dfebed0078de6343770da8ce084abc9",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_leaf_c22222_lite"
+  },
   "fleet/0.0_leaf_c22222_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "80a4ce793d74841938aebadb3241260f2f7ee5e123f0756b7760ea958975a36d",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_leaf_c22222_lite"
   },
@@ -1332,86 +1836,122 @@
     "cacheKey": "hb_terrain_c22222_lite"
   },
   "kit/0.0_bare_c22222/static/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "064508ab05204a2252b4962d7350968b918c6d1842a94b13a6413fa5ada2cb16",
     "cacheKey": "hb_kit_0.0_bare_c22222"
   },
   "kit/0.0_bare_c22222/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c22222"
   },
   "kit/0.0_bare_c22222/instanced/colour": {
-    "vertex": "165115a2a79f73ded95f6321d6726a08d6f6240d604e423891a563929fa9b52c",
-    "fragment": "b6740d71af82856d12ec58ff985cc2550b2ae615fbf3b73b206f901f4a3edb0e",
+    "vertex": "e99152f5dfae99d17fc427b7804df97e6fa02debb111166be35737f3f328036f",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
     "defines": "064508ab05204a2252b4962d7350968b918c6d1842a94b13a6413fa5ada2cb16",
     "cacheKey": "hb_kit_0.0_bare_c22222"
   },
   "kit/0.0_bare_c22222/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c22222"
   },
   "kit/0.0_bare_c22222/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c22222"
   },
   "kit/0.0_bare_c22222/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c22222"
   },
+  "veg/0.0_bare_c22222/instanced/colour": {
+    "vertex": "adffcda31dbe4fa8a9fa3b305e38efbdc729c36f5512daea49606e7937ee2692",
+    "fragment": "7916f3bd61da2f2cd9eec728b8bf0cd55d449ed2de1ddfdbb5f387427af0ac4b",
+    "defines": "467523b6e049bc81f9ff84c06a4ec24f7a9e58ac71dec393a1fb14a484b660a7",
+    "cacheKey": "hb_veg-instanced_0.0_bare_c22222"
+  },
+  "veg/0.0_bare_c22222/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "3fb188379ed74ac8681da1829625746d9cac4bb646bf2c2cfd936b06c7ab8cbb",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_bare_c22222"
+  },
+  "veg/0.0_bare_c22222/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "3fb188379ed74ac8681da1829625746d9cac4bb646bf2c2cfd936b06c7ab8cbb",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_bare_c22222"
+  },
   "fleet/0.0_bare_c22222/batched/colour": {
-    "vertex": "6bcdf0963d6771ca259bcaea73e99f57a4f99237dfee45228f4638404ce839e3",
-    "fragment": "358ade1dfaea929ce0ca150a7bc4ee743c4e95654d20d91c8cd96dff1cd8fa06",
+    "vertex": "14926ef67c9854a1f77b62bf2b9299c29a06f95ebb6b55e8d44cdf15b02f93a0",
+    "fragment": "b9cbd1a6a212a78a2867803560dd5f511024925950b9b956024e89193e735bb6",
     "defines": "d52662e34066e4837eb508cf8825db4d09408ba2ecd20de0e68c6f6cf5c00928",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_bare_c22222"
   },
   "kit/0.0_bare_c22222_lite/static/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "940bb560dac3df28a4004ab352b2c859ccdfb2111540dd614b4f3a0bdd52a022",
     "cacheKey": "hb_kit_0.0_bare_c22222_lite"
   },
   "kit/0.0_bare_c22222_lite/static/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c22222_lite"
   },
   "kit/0.0_bare_c22222_lite/instanced/colour": {
-    "vertex": "48dffdd35229c9724abf373614d4a09d1489f89798dd2daccc772f849050825d",
-    "fragment": "ac4aa0802bff96b93933e62003bda8f052f9fc6a6a203e7de2183b2009ed2a0a",
+    "vertex": "3c766130931eaae4d03039f54d90cf7f5ead5a60bc7d996edc20da25598c639a",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
     "defines": "940bb560dac3df28a4004ab352b2c859ccdfb2111540dd614b4f3a0bdd52a022",
     "cacheKey": "hb_kit_0.0_bare_c22222_lite"
   },
   "kit/0.0_bare_c22222_lite/instanced/depth": {
     "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "421efd807630cce6e1c68eeb95aa2f39db086d8c6ca53fd29453799daaff458c",
     "cacheKey": "hb_kit_depth_v3_0.0_bare_c22222_lite"
   },
   "kit/0.0_bare_c22222_lite/static/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c22222_lite"
   },
   "kit/0.0_bare_c22222_lite/instanced/predepth": {
-    "vertex": "8fbdc119b7feae751dc8daf2ee649f2de1ff1a5ce2cbc08e31ca1226aaaacca7",
-    "fragment": "80cface6f68fcac4286851ed3a6b791e52a0658e51a4f0b8a1947e14175159d3",
+    "vertex": "61a0b81a428b48fee8d5c74a930d8729d671daf9537a5a525234f450fe993dc6",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
     "defines": "7e03660221bcb7616bbd1640ca787395ecf44e9bedd5ddb98a7c703086d440e8",
     "cacheKey": "hb_kit_predepth_v4_sw_0.0_bare_c22222_lite"
   },
+  "veg/0.0_bare_c22222_lite/instanced/colour": {
+    "vertex": "fb4ccf632f969f4e0c9a3fdc5a30da8d82b7bd75b92233d20fa13e0c18db18a4",
+    "fragment": "f576936117376d2b4baf5178bdfa69a4190bc9124ae321d11e4f668f0931080b",
+    "defines": "5f6cae9ae7ebc0e51473c1a652ce86ba9459344583cde715f4068c921cb5e0c0",
+    "cacheKey": "hb_veg-instanced_0.0_bare_c22222_lite"
+  },
+  "veg/0.0_bare_c22222_lite/instanced/depth": {
+    "vertex": "65e5a204afdc2e52b823c0efab2bb38835c573edd515a769ecb015df6ea7d5be",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "3fb188379ed74ac8681da1829625746d9cac4bb646bf2c2cfd936b06c7ab8cbb",
+    "cacheKey": "hb_veg-instanced_depth_v1_0.0_bare_c22222_lite"
+  },
+  "veg/0.0_bare_c22222_lite/instanced/predepth": {
+    "vertex": "b200f7f02d451b67291b3f631ded46506773433ed67af20c11ccf95646617aeb",
+    "fragment": "49bdf0583749dd563439058de5c6985fccfda55bc4a38a06869184d6e693cf48",
+    "defines": "ca5fbf5d279ea23f509e3578d58ab3142ada63d97b712fa237d62502ff682009",
+    "cacheKey": "hb_veg-instanced_predepth_v1_sw_0.0_bare_c22222_lite"
+  },
   "fleet/0.0_bare_c22222_lite/batched/colour": {
-    "vertex": "aef4e12707fdfa7f10876d3bba3a07f9c83a1d90b9eb4e3e29b86d6b861f4dc3",
-    "fragment": "37034f3ddf45a033ebad570d9295d1816128975d466b31a67d3a174d36113a1c",
+    "vertex": "ceff303f3529bf85595dac2c84ba112a74686254a276255fb9cf89b1610fdc16",
+    "fragment": "669baf81b6495c34d6e965a6dc1db625b13c4e823e86b4f2408834e29ae88351",
     "defines": "196569dca65e9ce3043f44893c68ebe4c8df6c42b959263d0e517afc47b3b741",
     "cacheKey": "hb_fleet_v14_hb_kit_0.0_bare_c22222_lite"
   },
@@ -1435,7 +1975,7 @@
   },
   "world/window": {
     "vertex": "898d3313170de2e5f8652a391108f01c10f81edb62612447412e29d01615749d",
-    "fragment": "90ebf9c11b21501bca4be8753c14d9a967d8a3d893df960115f74d5804c21aa4",
+    "fragment": "d63a654e68e6576ca835b6da1cb9fa51f0cfaf6468d38f93a35cbe4bd322fd1b",
     "defines": "066347ea2a4d7578c920ce459eb2c63433bc9693b6090ecdfb5ac745b141e930",
     "cacheKey": "hb_window_v4"
   },
@@ -1458,8 +1998,8 @@
     "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
   },
   "life/colour": {
-    "vertex": "c62357690b46495b886e09a1d3a677c84ab7a697afa11343d08f6b6fa37d4a59",
-    "fragment": "6d140939d937640c6123e0834e344d52b464cc40c5841f0872ed08f682d92044",
+    "vertex": "e22158e4d08b002ce931dd88064c6ea52fea3d65b5f27055f793e1f7ea388d51",
+    "fragment": "d42f3dc060fede15b40ea0030ca91a1ea38a01149013c6506e6a866150d1ab59",
     "defines": "940bb560dac3df28a4004ab352b2c859ccdfb2111540dd614b4f3a0bdd52a022",
     "cacheKey": "hb_life_identity_hb_kit_0.0_bare_c22222_lite"
   },

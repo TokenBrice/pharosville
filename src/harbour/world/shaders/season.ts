@@ -2,22 +2,29 @@ import { DEW_GLSL } from "../../weather/dew";
 import { DRY_SEASON_GLSL, SLOPE_TAP_M, SPRING_TURF_GLSL, STRAW_GLSL } from "../ground-year";
 import { PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, PATTERN_CROP, SNOW_SLOPE, SNOW_LEAF_KEEP, SNOW_CROWN_KEEP, ICICLE_WALL_PATTERNS } from "./constants";
 
-/** Shared by the kit and its shadow-depth twin: which leaves the calendar has taken. */
+/**
+ * Shared by the kit, instanced vegetation, and their depth twins: calendar leaf fall (`uFoliage` spring/summer/autumn/winter,
+ * `uSeasonPhase` 0..1 northern year) and evergreen classification (`pid 14` always; `pid 8` strictly deciduous under
+ * `HB_VEG_INSTANCED`, or legacy blue-green conifer heuristic `hbConifer` on uninstanced kit meshes).
+ */
 export const GLSL_LEAF_FALL = /* glsl */ `
-uniform vec4 uFoliage;      // spring, summer, autumn, winter weights (calendar, decorative)
-uniform float uSeasonPhase; // 0..1 through the (northern-equivalent) year
+uniform vec4 uFoliage;
+uniform float uSeasonPhase;
 float hbIs(float pid, float k) { return step(abs(pid - k), 0.25); }
-// late-autumn leaf fall, then the bare winter: how much of a deciduous canopy is gone (0..1)
 float hbLeafFall() {
   return clamp(uFoliage.w + uFoliage.z * smoothstep(0.84, 0.93, uSeasonPhase) * 0.55, 0.0, 1.0);
 }
-// conifers (the dark blue-green spruce) keep their needles all year: 1 = conifer
 float hbConifer(vec3 vc) {
   return max(1.0 - smoothstep(0.045, 0.075, vc.g), smoothstep(0.26, 0.33, vc.b / max(vc.g, 1e-3)));
 }
-// leaf patterns: 8 leaf (evergreen by colour), 14 leaf_evergreen (always evergreen)
 float hbLeafPid(float pid) { return hbIs(pid, ${PATTERN_LEAF.toFixed(1)}) + hbIs(pid, ${PATTERN_LEAF_EVERGREEN.toFixed(1)}); }
-float hbEvergreen(float pid, vec3 vc) { return max(hbIs(pid, ${PATTERN_LEAF_EVERGREEN.toFixed(1)}), hbConifer(vc)); }
+float hbEvergreen(float pid, vec3 vc) {
+  #ifdef HB_VEG_INSTANCED
+  return hbIs(pid, ${PATTERN_LEAF_EVERGREEN.toFixed(1)});
+  #else
+  return max(hbIs(pid, ${PATTERN_LEAF_EVERGREEN.toFixed(1)}), hbConifer(vc));
+  #endif
+}
 `;
 
 /**
@@ -26,12 +33,15 @@ float hbEvergreen(float pid, vec3 vc) { return max(hbIs(pid, ${PATTERN_LEAF_EVER
  * gust paws in the crowns' sway, the fleet's topside weathering), and the beam swath's soft amount is computed per vertex.
  * Every reading (beam light, sea state run-up, hover, weather, season colours, aerial distance) stays.
  *
- * Phase 0 Mediterranean colour calibration (A4):
+ * Phase 0 / 1B Mediterranean colour calibration:
  * - Grass (pid 6): preserves baked Cycles AO / olive-terrace darkening (`vcAO = clamp(hbLuma(vc) / 0.215, 0.30, 1.35)`)
  *   under summer straw; balances blue across spring sage-olive, cool olive hollows, sage-olive/warm-russet autumn, and
  *   coastal lichen-moss winter.
- * - Autumn deciduous canopies (pid 8): restrained honey-ochre, warm sienna, muted terracotta-russet, and olive-ochre
- *   tuned to stay <= 46% post-LUT saturation so chain flags and sails remain visual heroes.
+ * - Autumn deciduous canopies (pid 8): four rich Mediterranean bands — ochre-gold (~26-27°), warm sienna (~20-22°),
+ *   terracotta-russet (~15-16°), and deep olive-ochre (~60-63°) — separated by >= 15° hue and ~25% deeper value from
+ *   dry straw (~43°, #A0916E) with ~40-46% post-LUT saturation and ~18% holdout olive-green trees.
+ * - Under `HB_VEG_INSTANCED`, `vVegMeta.x` drives one coherent spring-blossom and autumn-hue identity per tree (no
+ *   mid-crown 6 m grid cuts), and `hbEvergreen` classifies strictly by `pid == 14`.
  * - Arable fields (pid 15, hbCrop): warm Mediterranean terra-rossa/ochre tilled soil with `hbFbm(W * 0.085)` breakup.
  */
 export const GLSL_SEASON = /* glsl */ `
@@ -151,7 +161,11 @@ vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
     return mix(wet, straw, hbDrySeason());
   }
   float conifer = hbEvergreen(pid, vc);
-  float tree = hbWhite(floor(W * 0.17) + 31.0);
+  #ifdef HB_VEG_INSTANCED
+    float tree = vVegMeta.x;
+  #else
+    float tree = hbWhite(floor(W * 0.17) + 31.0);
+  #endif
   vec3 lime = col * vec3(1.1, 1.24, 0.38) + vec3(0.008, 0.012, 0.0);
   float bloomTree = step(0.45, tree);
   float dotN = hbWhite(floor(W * 1.15) + 7.0);
@@ -160,12 +174,16 @@ vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
   vec3 bloom = mix(vec3(0.95, 0.34, 0.52), vec3(0.93, 0.9, 0.86), step(0.76, tree)) * (0.55 + 0.45 * patShade);
   lime = mix(lime, bloom, (0.55 + 0.45 * dots) * bloomTree);
   vec3 deep = col * vec3(0.68, 0.92, 0.56);
-  float t = fract(tree * 3.7 + patchN * 0.5);
-  vec3 hue = t < 0.30 ? mix(vec3(0.64, 0.50, 0.30), vec3(0.70, 0.56, 0.34), t / 0.30)
-           : t < 0.58 ? mix(vec3(0.58, 0.39, 0.27), vec3(0.64, 0.45, 0.30), (t - 0.30) / 0.28)
-           : t < 0.80 ? mix(vec3(0.49, 0.31, 0.24), vec3(0.55, 0.36, 0.27), (t - 0.58) / 0.22)
-           : t < 0.92 ? mix(vec3(0.49, 0.47, 0.28), vec3(0.56, 0.52, 0.32), (t - 0.80) / 0.12)
-           : mix(col, vec3(hbLuma(col)), 0.42) / max(patShade, 0.2) * 1.6;
+  #ifdef HB_VEG_INSTANCED
+    float t = tree;
+  #else
+    float t = fract(tree * 3.7 + patchN * 0.5);
+  #endif
+  vec3 hue = t < 0.25 ? mix(vec3(0.46, 0.21, 0.085), vec3(0.52, 0.24, 0.092), t / 0.25)
+           : t < 0.50 ? mix(vec3(0.43, 0.165, 0.082), vec3(0.50, 0.205, 0.095), (t - 0.25) / 0.25)
+           : t < 0.70 ? mix(vec3(0.38, 0.125, 0.075), vec3(0.45, 0.155, 0.088), (t - 0.50) / 0.20)
+           : t < 0.82 ? mix(vec3(0.27, 0.28, 0.085), vec3(0.34, 0.34, 0.105), (t - 0.70) / 0.12)
+           : mix(col, vec3(hbLuma(col)), 0.35) / max(patShade, 0.2) * 1.6;
   vec3 autumn = hue * patShade * 0.42;
   vec3 twig = vec3(0.12, 0.1, 0.085) * (0.7 + 0.6 * patShade);
   float fall = hbLeafFall();
@@ -177,33 +195,23 @@ vec3 hbFoliage(vec3 col, vec3 vc, float pid, vec3 W, float dW, out float bare) {
 }
 
 ${DEW_GLSL}
-// WEATHER ON THE GROUND (snow cover: season + snowfall; wetness: rain, written by the weather director).
-// N = shading normal (world). Writes snow / puddle coverage for the lighting additions.
 void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, float dW, out float snow, out float puddle) {
   snow = 0.0; puddle = 0.0;
   float up = N.y;
-  float dry = smoothstep(0.2, 0.75, W.y);                 // nothing lies at or under the water line
+  float dry = smoothstep(0.2, 0.75, W.y);
   float leaf = hbLeafPid(pid);
   if (uSnowCover > 0.002) {
-    // trodden ground holds thinner snow: setts, deck planks, quay ashlar
     float trod = hbIs(pid, 4.0) * 0.5 + (hbIs(pid, 3.0) + hbIs(pid, 11.0)) * 0.42 + hbIs(pid, 2.0) * 0.22;
     float n1 = hbFbm(W * 0.42);
     float n2 = hbNoise(W * 2.6);
-    // conifers are dusted (the snow sits on the tiers' tops), not buried
     float lo = mix(${SNOW_SLOPE.lo.toFixed(2)}, ${SNOW_SLOPE.leafLo.toFixed(2)}, leaf), hi = mix(${SNOW_SLOPE.hi.toFixed(2)}, ${SNOW_SLOPE.leafHi.toFixed(2)}, leaf);
     float upm = smoothstep(lo - ${SNOW_SLOPE.give.toFixed(2)} * uSnowCover, hi - ${SNOW_SLOPE.give.toFixed(2)} * uSnowCover, up + (n2 - 0.5) * 0.14 * hbFine(dW, 0.4));
     float cover = uSnowCover * (1.0 - trod) * (1.0 - ${(1 - SNOW_LEAF_KEEP).toFixed(2)} * leaf);
-    cover *= 1.0 - ${(1 - SNOW_CROWN_KEEP).toFixed(2)} * hbIs(pid, ${PATTERN_LEAF_EVERGREEN.toFixed(1)});   // flat evergreen crowns: snow-capped, not buried
-    // Full authored cover also on hulls: Three's former USE_BATCHING guard was vertex-only,
-    // so its fragment-side 0.4 multiplier never ran. Do not turn that dead branch into a look change.
-    // two scales: drifts and bare patches the overview can read (~25 m), soft edges up close (~2.5 m);
-    // steep ground sheds it
+    cover *= 1.0 - ${(1 - SNOW_CROWN_KEEP).toFixed(2)} * hbIs(pid, ${PATTERN_LEAF_EVERGREEN.toFixed(1)});
     float nL = hbNoise(W * vec3(0.045, 0.02, 0.045));
     float field = n1 * 0.45 + nL * 0.45 + 0.1 + (n2 - 0.5) * 0.1 * hbFine(dW, 0.4) - (1.0 - up) * 0.25 * (1.0 - leaf);
     float thr = 1.0 - cover * 0.95;
     snow = smoothstep(thr - 0.07, thr + 0.07, field) * upm * dry;
-    // delicate winter canopy hoarfrost & snow-cap dusting on upward-facing pine, cypress & olive crowns
-    // (40-65% painterly snow cap on top, leaving deep evergreen needles peeking underneath)
     if (leaf > 0.5) {
       float crownUp = smoothstep(0.40, 0.78, up + (n2 - 0.5) * 0.18 * hbFine(dW, 0.4));
       float frostPatch = smoothstep(0.26, 0.74, n1 * 0.65 + n2 * 0.35);
@@ -213,8 +221,6 @@ void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, flo
     vec3 snowC = vec3(0.64, 0.675, 0.73) * (0.95 + 0.05 * n2);
     alb = mix(alb, snowC, snow);
     rough = mix(rough, 0.6, snow);
-    // icicles: under a snowy eave a fringe of ice teeth hangs down the house wall (the height field just inside
-    // the wall is the roof above it); only on clad / rendered / plain house walls, not on quay or terrace stone
     float wall = (1.0 - smoothstep(0.12, 0.3, abs(up))) * (${ICICLE_WALL_PATTERNS.map((k) => `hbIs(pid, ${k.toFixed(1)})`).join(" + ")});
     if (wall > 0.5 && uAOBounds.z > 0.0) {
       vec2 nh = normalize(N.xz + vec2(1e-5));
@@ -228,7 +234,6 @@ void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, flo
       rough = mix(rough, 0.08, tooth);
       snow = max(snow, tooth * 0.6);
     }
-    // rime: an icy glaze on the rock and stone along the waterline
     float rime = uSnowCover * smoothstep(-0.15, 0.3, W.y) * (1.0 - smoothstep(0.7, 1.6, W.y))
                * smoothstep(0.32, 0.6, hbNoise(W * vec3(1.3, 3.5, 1.3))) * (1.0 - leaf);
     rime *= 1.0 - snow;
@@ -238,23 +243,18 @@ void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, flo
   if (uWetness > 0.002) {
     float w = uWetness * (1.0 - snow);
     #ifdef HB_FLEET
-      // sails (kind 1), furled covers (kind 2), and pennants (vFleetRig.z > 0.5) are woven cloth:
-      // darken at most 22%, stay fibrous-matte (rough >= 0.62), and form zero rain puddles
       float cloth = min(1.0, step(0.5, vFleetMisc.z) * step(vFleetMisc.z, 2.5) + step(0.5, vFleetRig.z) * step(vFleetMisc.z, 0.5));
     #else
       float cloth = 0.0;
     #endif
-    // stone, planks and earth darken most; leaves, metal and woven sail cloth least
     float porous = mix(1.0 - 0.6 * leaf - 0.7 * hbIs(pid, 12.0) - 0.3 * hbIs(pid, 6.0), 0.52, cloth);
     alb *= 1.0 - 0.42 * w * porous;
     float upw = smoothstep(0.25, 0.9, up);
-    // stone and planks gloss; turf, leaves and sail cloth stay matte
     float wetRough = mix(mix(0.34, 0.14, upw), max(rough, 0.62), cloth);
     rough = mix(rough, wetRough, w * mix(1.0 - 0.5 * leaf - 0.75 * hbIs(pid, 6.0), 0.45, cloth));
     #ifdef HB_FLEET
       if (cloth > 0.5) rough = max(rough, 0.62);
     #endif
-    // puddles on level stone, setts and planks (never on sail cloth)
     float hard = (hbIs(pid, 2.0) + hbIs(pid, 3.0) + hbIs(pid, 4.0) + hbIs(pid, 11.0) + hbIs(pid, 0.0) * 0.6) * (1.0 - cloth);
     float pn = hbFbm(W * 0.21) + (hbNoise(W * 1.3) - 0.5) * 0.05;
     float lvl = 0.72 - 0.11 * w;
@@ -262,6 +262,6 @@ void hbWeather(inout vec3 alb, inout float rough, vec3 N, float pid, vec3 W, flo
     alb = mix(alb, alb * 0.4, puddle);
     rough = mix(rough, 0.03, puddle);
   }
-  hbDewRime(alb, rough, pid, W, N, snow);   // W12 winter-dawn rime (decorative; not mist)
+  hbDewRime(alb, rough, pid, W, N, snow);
 }
 `;
