@@ -113,20 +113,29 @@ export async function buildAssetRegistry(output) {
   let css = await readFile(resolve(root, "public/arrival-shell.css"), "utf8");
   for (const [from, to] of Object.entries(registry.urls)) css = css.replaceAll(from, to);
   registry.urls["/arrival-shell.css"] = await emit("arrival-shell.css", Buffer.from(css));
+  const LOW_PRIORITY_PRELOADS = new Set([
+    "/harbour/island.glb",
+    "/harbour/lighthouse.glb",
+    "/harbour/terrain-splat.webp",
+    "/harbour/terrain-topo.webp",
+    "/harbour/flora/vegetation.glb",
+    "/harbour/flora/vegetation-instances.bin",
+    "/harbour/groundcover.bin",
+  ]);
   registry.preloads = [
     layout.sea.sdf,
+    "/harbour/civic/manifest.json",
+    "/harbour/kit/manifest.json",
     "/harbour/island.glb",
+    "/harbour/lighthouse.glb",
     "/harbour/terrain-splat.webp",
     "/harbour/terrain-topo.webp",
     "/harbour/flora/vegetation.glb",
     ...(registry.urls["/harbour/flora/vegetation-instances.bin"] ? ["/harbour/flora/vegetation-instances.bin"] : []),
     ...(registry.urls["/harbour/groundcover.bin"] ? ["/harbour/groundcover.bin"] : []),
-    "/harbour/lighthouse.glb",
-    "/harbour/civic/manifest.json",
-    "/harbour/kit/manifest.json",
   ].map((original) => ({
     url: registry.models[original]?.url ?? registry.urls[original],
-    ...(original === "/harbour/island.glb" ? { fetchpriority: "low" } : {}),
+    ...(LOW_PRIORITY_PRELOADS.has(original) ? { fetchpriority: "low" } : {}),
   }));
   if (registry.preloads.some((entry) => !entry.url)) throw new Error("Missing first-frame registry transport");
   registry.release = sha(Buffer.from(JSON.stringify({ urls: registry.urls, models: registry.models }))).slice(0, 24);
